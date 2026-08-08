@@ -347,7 +347,7 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
             (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
         };
         if (!SphereInFrustum(camera, center, 34.0f)) continue;
-        if (chunk->hasModel) DrawModel(chunk->model, Vector3Zero(), 1.0f, tint);
+        if (chunk->hasModel) DrawModel(chunk->model, (Vector3){ 0.0f, (float)SPACE_LAYER_Y, 0.0f }, 1.0f, tint);
     }
 
     int netherCamCx = 0;
@@ -368,7 +368,7 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
             (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
         };
         if (!SphereInFrustum(camera, center, 34.0f)) continue;
-        if (chunk->hasModel) DrawModel(chunk->model, Vector3Zero(), 1.0f, tint);
+        if (chunk->hasModel) DrawModel(chunk->model, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
     }
 
     BeginBlendMode(BLEND_ALPHA);
@@ -390,7 +390,7 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
             (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
         };
         if (!SphereInFrustum(camera, center, 34.0f)) continue;
-        if (chunk->hasWaterModel) DrawModel(chunk->waterModel, Vector3Zero(), 1.0f, tint);
+        if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)SPACE_LAYER_Y, 0.0f }, 1.0f, tint);
     }
     for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
         NetherChunk *chunk = &netherChunks[i];
@@ -403,7 +403,7 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
             (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
         };
         if (!SphereInFrustum(camera, center, 34.0f)) continue;
-        if (chunk->hasWaterModel) DrawModel(chunk->waterModel, Vector3Zero(), 1.0f, tint);
+        if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
     }
     EndBlendMode();
 }

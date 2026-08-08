@@ -119,16 +119,18 @@ bool IsLiquidBlock(BlockType type)
 float BlockCollisionHeight(BlockType type)
 {
     if (type == BLOCK_AIR || type == BLOCK_WATER || type == BLOCK_LAVA ||
-        type == BLOCK_FLOWER || type == BLOCK_MUSHROOM || type == BLOCK_FENCE_GATE_OPEN) return 0.0f;
+        type == BLOCK_FLOWER || type == BLOCK_MUSHROOM || type == BLOCK_FENCE_GATE_OPEN ||
+        type == BLOCK_DOOR_OPEN) return 0.0f;
     if (type == BLOCK_SLAB || type == BLOCK_STONE_STAIRS || type == BLOCK_WOOD_STAIRS) return 0.5f;
     return 1.0f;
 }
 
 float BlockCollisionHeightAt(int x, int y, int z)
 {
-    if (y < SPACE_LAYER_Y || y >= SPACE_LAYER_TOP) {
-        if (!InHeight(y)) return 0.0f;
-    }
+    bool inSurface = y >= 0 && y < WORLD_HEIGHT;
+    bool inNether = y >= NETHER_LAYER_Y && y < 0;
+    bool inSpace = y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP;
+    if (!inSurface && !inNether && !inSpace) return 0.0f;
     return BlockCollisionHeight(GetBlockAt(x, y, z));
 }
 

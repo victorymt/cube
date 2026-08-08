@@ -329,6 +329,103 @@ void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursor
     }
 }
 
+static float RayAABBEnter(Vector3 origin, Vector3 direction, Vector3 min, Vector3 max)
+{
+    float t0 = 0.0f;
+    float t1 = INFINITY;
+
+    if (fabsf(direction.x) < 0.0001f) {
+        if (origin.x < min.x || origin.x > max.x) return -1.0f;
+    } else {
+        float inv = 1.0f / direction.x;
+        float ta = (min.x - origin.x) * inv;
+        float tb = (max.x - origin.x) * inv;
+        if (ta > tb) { float tmp = ta; ta = tb; tb = tmp; }
+        t0 = fmaxf(t0, ta);
+        t1 = fminf(t1, tb);
+    }
+    if (fabsf(direction.y) < 0.0001f) {
+        if (origin.y < min.y || origin.y > max.y) return -1.0f;
+    } else {
+        float inv = 1.0f / direction.y;
+        float ta = (min.y - origin.y) * inv;
+        float tb = (max.y - origin.y) * inv;
+        if (ta > tb) { float tmp = ta; ta = tb; tb = tmp; }
+        t0 = fmaxf(t0, ta);
+        t1 = fminf(t1, tb);
+    }
+    if (fabsf(direction.z) < 0.0001f) {
+        if (origin.z < min.z || origin.z > max.z) return -1.0f;
+    } else {
+        float inv = 1.0f / direction.z;
+        float ta = (min.z - origin.z) * inv;
+        float tb = (max.z - origin.z) * inv;
+        if (ta > tb) { float tmp = ta; ta = tb; tb = tmp; }
+        t0 = fmaxf(t0, ta);
+        t1 = fminf(t1, tb);
+    }
+
+    if (t0 > t1 || t1 < 0.0f) return -1.0f;
+    return t0;
+}
+
+float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistance)
+{
+    Vector3 pos = origin;
+    int x = (int)floorf(pos.x);
+    int y = (int)floorf(pos.y);
+    int z = (int)floorf(pos.z);
+
+    int stepX = (direction.x > 0.0f) ? 1 : -1;
+    int stepY = (direction.y > 0.0f) ? 1 : -1;
+    int stepZ = (direction.z > 0.0f) ? 1 : -1;
+
+    float nextBoundaryX = (direction.x > 0.0f) ? (float)(x + 1) : (float)x;
+    float nextBoundaryY = (direction.y > 0.0f) ? (float)(y + 1) : (float)y;
+    float nextBoundaryZ = (direction.z > 0.0f) ? (float)(z + 1) : (float)z;
+
+    float tMaxX = (fabsf(direction.x) < 0.0001f) ? INFINITY : (nextBoundaryX - pos.x) / direction.x;
+    float tMaxY = (fabsf(direction.y) < 0.0001f) ? INFINITY : (nextBoundaryY - pos.y) / direction.y;
+    float tMaxZ = (fabsf(direction.z) < 0.0001f) ? INFINITY : (nextBoundaryZ - pos.z) / direction.z;
+
+    float tDeltaX = (fabsf(direction.x) < 0.0001f) ? INFINITY : fabsf(1.0f / direction.x);
+    float tDeltaY = (fabsf(direction.y) < 0.0001f) ? INFINITY : fabsf(1.0f / direction.y);
+    float tDeltaZ = (fabsf(direction.z) < 0.0001f) ? INFINITY : fabsf(1.0f / direction.z);
+
+    float travelled = 0.0f;
+    for (;;) {
+        BlockType type = GetBlockAt(x, y, z);
+        if (type != BLOCK_AIR && !IsTranslucentBlock(type)) {
+            float height = BlockCollisionHeight(type);
+            if (height > 0.0f) {
+                float hitT = RayAABBEnter(origin, direction,
+                                          (Vector3){ (float)x, (float)y, (float)z },
+                                          (Vector3){ (float)x + 1.0f, (float)y + height, (float)z + 1.0f });
+                if (hitT >= 0.0f) {
+                    if (hitT > maxDistance) return -1.0f;
+                    return hitT;
+                }
+            }
+        }
+
+        if (tMaxX < tMaxY && tMaxX < tMaxZ) {
+            x += stepX;
+            travelled = tMaxX;
+            tMaxX += tDeltaX;
+        } else if (tMaxY < tMaxZ) {
+            y += stepY;
+            travelled = tMaxY;
+            tMaxY += tDeltaY;
+        } else {
+            z += stepZ;
+            travelled = tMaxZ;
+            tMaxZ += tDeltaZ;
+        }
+        if (travelled > maxDistance) break;
+    }
+    return -1.0f;
+}
+
 HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
 {
     HitResult result = { 0 };
@@ -399,7 +496,10 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
 
 bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition)
 {
-    if (!InHeight(y)) return true;
+    bool inSurface = y >= 0 && y < WORLD_HEIGHT;
+    bool inNether = y >= NETHER_LAYER_Y && y < 0;
+    bool inSpace = y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP;
+    if (!inSurface && !inNether && !inSpace) return true;
 
     float minX = (float)x;
     float maxX = (float)x + 1.0f;

@@ -8,6 +8,7 @@ int ClampImportPrecision(int value);
 int AdjustImportPrecision(int value, int delta);
 bool IsSupportedImageFile(const char *path);
 HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance);
+float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistance);
 bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition);
 
 void OpenImportDialog(ImportDialog *dialog);

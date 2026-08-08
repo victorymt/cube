@@ -242,7 +242,6 @@ static void GenerateDungeon(Chunk *chunk, int cx, int cz, TerrainMode mode)
                 SetChunkLocalBlock(chunk, wx - 3, wy + oy, wz, BLOCK_STONE_BRICKS);
                 SetChunkLocalBlock(chunk, wx + 3, wy + oy, wz, BLOCK_STONE_BRICKS);
                 SetChunkLocalBlock(chunk, wx, wy + oy, wz + 3, BLOCK_STONE_BRICKS);
-                SetChunkLocalBlock(chunk, wx, wy + oy, wz - 3, BLOCK_STONE_BRICKS);
             }
         }
     }
@@ -356,7 +355,7 @@ static void GenerateVillage(Chunk *chunk, int cx, int cz, TerrainMode mode)
                             type = BLOCK_AIR;
                             if (x >= minX + 2 && x <= maxX - 2 && z == wz) type = BLOCK_PLANK;
                         }
-                        if (type != BLOCK_AIR) SetVillageBlock(chunk, x, base, z, type);
+                        if (type != BLOCK_AIR) SetVillageBlock(chunk, x, base + y, z, type);
                     }
                 }
             }

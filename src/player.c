@@ -22,6 +22,68 @@ bool IsSolidBlockAt(int x, int y, int z)
     return type != BLOCK_AIR && type != BLOCK_WATER;
 }
 
+static bool IsStairsBlock(BlockType type)
+{
+    return type == BLOCK_STONE_STAIRS || type == BLOCK_WOOD_STAIRS;
+}
+
+static float StairsCollisionTop(int x, int y, int z, float playerZ)
+{
+    (void)x;
+    float zFrac = playerZ - (float)z;
+    int step = (int)floorf(zFrac * 3.0f);
+    if (step < 0) step = 0;
+    if (step > 2) step = 2;
+    return (float)y + (float)(step + 1) / 3.0f;
+}
+
+static float PlayerGroundCeiling(Vector3 position)
+{
+    int minX = (int)floorf(position.x - PLAYER_RADIUS);
+    int maxX = (int)floorf(position.x + PLAYER_RADIUS);
+    int minY = (int)floorf(position.y);
+    int maxY = (int)floorf(position.y + PLAYER_HEIGHT);
+    int minZ = (int)floorf(position.z - PLAYER_RADIUS);
+    int maxZ = (int)floorf(position.z + PLAYER_RADIUS);
+
+    float minTop = INFINITY;
+    for (int x = minX; x <= maxX; x++) {
+        for (int y = minY; y <= maxY; y++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                BlockType type = GetBlockAt(x, y, z);
+                float top;
+                if (IsStairsBlock(type)) {
+                    top = StairsCollisionTop(x, y, z, position.z);
+                } else {
+                    float height = BlockCollisionHeightAt(x, y, z);
+                    if (height <= 0.0f) continue;
+                    top = (float)y + height;
+                }
+                if (top > position.y && top < minTop) minTop = top;
+            }
+        }
+    }
+    return minTop;
+}
+
+static bool TryStepUp(Player *player, Vector3 next)
+{
+    float ceiling = PlayerGroundCeiling(next);
+    if (ceiling == INFINITY) return false;
+
+    float rise = ceiling - player->position.y;
+    if (rise <= 0.0f || rise > 0.5f) return false;
+
+    Vector3 raised = next;
+    raised.y += rise;
+    if (PlayerOverlapsWorld(raised)) return false;
+
+    player->position.y += rise;
+    player->position.x = next.x;
+    player->position.z = next.z;
+    return true;
+}
+
 bool PlayerOverlapsWorld(Vector3 position)
 {
     int minX = (int)floorf(position.x - PLAYER_RADIUS);
@@ -36,11 +98,16 @@ bool PlayerOverlapsWorld(Vector3 position)
     for (int x = minX; x <= maxX; x++) {
         for (int y = minY; y <= maxY; y++) {
             for (int z = minZ; z <= maxZ; z++) {
-                float height = BlockCollisionHeightAt(x, y, z);
-                if (height <= 0.0f) continue;
-                float cellBottom = (float)y;
-                float cellTop = cellBottom + height;
-                if (position.y < cellTop && position.y + PLAYER_HEIGHT > cellBottom) return true;
+                BlockType type = GetBlockAt(x, y, z);
+                float top;
+                if (IsStairsBlock(type)) {
+                    top = StairsCollisionTop(x, y, z, position.z);
+                } else {
+                    float height = BlockCollisionHeightAt(x, y, z);
+                    if (height <= 0.0f) continue;
+                    top = (float)y + height;
+                }
+                if (position.y < top && position.y + PLAYER_HEIGHT > (float)y) return true;
             }
         }
     }
@@ -49,13 +116,16 @@ bool PlayerOverlapsWorld(Vector3 position)
 
 void MovePlayer(Player *player, Vector3 delta)
 {
-    Vector3 next = player->position;
+    bool canStepUp = player->onGround && !player->floating &&
+                     player->position.y < (float)SPACE_LAYER_Y;
 
+    Vector3 next = player->position;
     next.x += delta.x;
     if (!PlayerOverlapsWorld(next)) {
         player->position.x = next.x;
     } else {
         player->velocity.x = 0.0f;
+        if (canStepUp) TryStepUp(player, next);
     }
 
     next = player->position;
@@ -64,6 +134,7 @@ void MovePlayer(Player *player, Vector3 delta)
         player->position.z = next.z;
     } else {
         player->velocity.z = 0.0f;
+        if (canStepUp) TryStepUp(player, next);
     }
 
     next = player->position;
@@ -129,16 +200,9 @@ void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool t
     camera->target = Vector3Add(eye, look);
     if (thirdPerson) {
         float distance = 3.5f;
-        HitResult hit = RaycastBlocks(eye, Vector3Negate(look), distance);
-        if (hit.hit) {
-            Vector3 toHit = {
-                (float)hit.x + 0.5f - eye.x,
-                (float)hit.y + 0.5f - eye.y,
-                (float)hit.z + 0.5f - eye.z
-            };
-            float hitDistance = sqrtf(toHit.x * toHit.x + toHit.y * toHit.y + toHit.z * toHit.z) - 0.25f;
-            if (hitDistance > 0.3f) distance = hitDistance;
-        }
+        float occlusion = RaycastCameraOcclusion(eye, Vector3Negate(look), distance);
+        if (occlusion > 0.3f) distance = occlusion - 0.25f;
+        else if (occlusion >= 0.0f) distance = 0.3f;
         camera->position = Vector3Add(eye, Vector3Scale(Vector3Negate(look), distance));
     } else {
         camera->position = eye;

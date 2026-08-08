@@ -28,6 +28,30 @@ static float autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
 static float dayTime = 0.30f;
 static bool dayCycleEnabled = true;
 
+static bool FindLandingSpot(Vector3 start, int minY, int maxY, Vector3 *out)
+{
+    Vector3 spot = start;
+    if (spot.y < (float)minY) spot.y = (float)minY;
+    if (spot.y > (float)maxY) spot.y = (float)maxY;
+
+    int safety = 0;
+    while (PlayerOverlapsWorld(spot) && safety < 12) {
+        spot.y += 1.0f;
+        safety++;
+        if (spot.y > (float)maxY) spot.y = (float)maxY;
+    }
+    if (PlayerOverlapsWorld(spot)) return false;
+
+    while (spot.y > (float)minY) {
+        Vector3 below = spot;
+        below.y -= 1.0f;
+        if (below.y < (float)minY || PlayerOverlapsWorld(below)) break;
+        spot = below;
+    }
+    *out = spot;
+    return true;
+}
+
 int main(void)
 {
     const int screenWidth = 1280;
@@ -300,7 +324,7 @@ int main(void)
                                      REACH_DISTANCE);
         if (!inputBlocked && entityHit >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             EntityKill(entityHit);
-        } else if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit.y > 0) {
+        } else if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit.y >= NETHER_LAYER_Y) {
             BlockType brokenType = GetBlockAt(hit.x, hit.y, hit.z);
             if (brokenType != BLOCK_AIR) {
                 ParticlesEmitBurst((Vector3){ hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f },
@@ -318,7 +342,8 @@ int main(void)
             placeY = hit.y + hit.ny;
             placeZ = hit.z + hit.nz;
             canPlace = GetBlockAt(placeX, placeY, placeZ) == BLOCK_AIR &&
-                       (placeY >= SPACE_LAYER_Y || InHeight(placeY)) &&
+                       (placeY >= SPACE_LAYER_Y || InHeight(placeY) ||
+                        (placeY >= NETHER_LAYER_Y && placeY < 0)) &&
                        !BlockWouldOverlapPlayer(placeX, placeY, placeZ, player.position);
         }
         if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
@@ -334,15 +359,19 @@ int main(void)
                 EnableCursor();
             } else if (!ShipIsDriving() && ShipTryEnter(hit.x, hit.y, hit.z, &player)) {
             } else if (GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_NETHER_PORTAL) {
+                Vector3 landing = player.position;
                 if (player.position.y > 0.0f) {
-                    player.position = (Vector3){ player.position.x, -46.0f, player.position.z };
+                    landing.y = -46.0f;
+                    FindLandingSpot(landing, NETHER_LAYER_Y + 1, NETHER_LAYER_TOP - 1, &landing);
                     SetImportMessage("Entered the Nether.");
                 } else {
                     float groundY = (float)TerrainHeight((int)floorf(player.position.x),
                                                          (int)floorf(player.position.z), terrainMode);
-                    player.position = (Vector3){ player.position.x, groundY + 3.0f, player.position.z };
+                    landing.y = groundY + 3.0f;
+                    FindLandingSpot(landing, 0, WORLD_HEIGHT - 1, &landing);
                     SetImportMessage("Back to the surface.");
                 }
+                player.position = landing;
                 player.velocity = Vector3Zero();
                 player.floating = false;
                 wasInSpace = false;
