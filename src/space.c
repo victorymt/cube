@@ -190,30 +190,51 @@ static BlockType StarBlock(int bx, int by, int bz, float distSqr, float shellSqr
     }
 }
 
-static BlockType SolarBodyBlock(int bx, int by, int bz, float distSqr, float shellSqr, SolarBodyStyle style)
+static float PlanetHeightNoise(float ux, float uy, float uz, float phase)
+{
+    float n = sinf(ux * 2.2f + phase) * cosf(uz * 2.6f - uy * 1.4f);
+    n += sinf((ux + uz) * 5.1f + uy * 3.3f + phase * 2.0f) * 0.45f;
+    n += sinf(ux * 11.7f + uz * 9.3f + uy * 7.1f + phase * 3.0f) * 0.18f;
+    return n / 1.63f;
+}
+
+static BlockType PlanetTerrainBlock(int bx, int by, int bz, float depth, SolarBodyStyle style)
 {
     unsigned int h = Hash3D(bx, by, bz);
-    bool surface = distSqr >= shellSqr;
 
-    switch (style) {
-    case SOLAR_STYLE_LAVA:
-        if (surface) return (h % 7u == 0u) ? BLOCK_LAVA : BLOCK_MOON_ROCK;
-        return (h % 11u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
-    case SOLAR_STYLE_ICE:
-        if (surface) return (h % 6u == 0u) ? BLOCK_SNOW : BLOCK_ICE;
-        return (h % 13u == 0u) ? BLOCK_MOON_SAND : BLOCK_MOON_ROCK;
-    case SOLAR_STYLE_DESERT:
-        if (surface) return (h % 8u == 0u) ? BLOCK_SANDSTONE : BLOCK_SAND;
-        return (h % 9u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
-    case SOLAR_STYLE_GAS:
-        if ((by % 6u) < 2u) return (h % 5u == 0u) ? BLOCK_GLOWSTONE : BLOCK_SOUL_SAND;
-        return (h % 7u == 0u) ? BLOCK_MOON_SAND : BLOCK_MOON_ROCK;
-    case SOLAR_STYLE_CRATER:
-        if (surface) return (h % 9u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_SAND;
-        return BLOCK_MOON_ROCK;
-    default:
-        return BLOCK_MOON_ROCK;
+    if (depth < 2.0f) {
+        switch (style) {
+        case SOLAR_STYLE_LAVA:
+            if (h % 7u == 0u) return BLOCK_LAVA;
+            return BLOCK_MOON_ROCK;
+        case SOLAR_STYLE_ICE:
+            return (h % 6u == 0u) ? BLOCK_SNOW : BLOCK_ICE;
+        case SOLAR_STYLE_DESERT:
+            return (h % 8u == 0u) ? BLOCK_SANDSTONE : BLOCK_SAND;
+        case SOLAR_STYLE_GAS:
+            if ((by % 6u) < 2u) return (h % 5u == 0u) ? BLOCK_GLOWSTONE : BLOCK_SOUL_SAND;
+            return (h % 7u == 0u) ? BLOCK_MOON_SAND : BLOCK_MOON_ROCK;
+        case SOLAR_STYLE_CRATER:
+            return (h % 9u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_SAND;
+        default:
+            return BLOCK_MOON_ROCK;
+        }
     }
+
+    if (depth < 4.0f) {
+        switch (style) {
+        case SOLAR_STYLE_ICE:
+            return (h % 7u == 0u) ? BLOCK_MOON_SAND : BLOCK_MOON_ROCK;
+        case SOLAR_STYLE_DESERT:
+            return (h % 9u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
+        case SOLAR_STYLE_GAS:
+            return (h % 8u == 0u) ? BLOCK_MOON_SAND : BLOCK_MOON_ROCK;
+        default:
+            return (h % 11u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
+        }
+    }
+
+    return (h % 13u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
 }
 
 static void FillSolarBody(SpaceChunk *chunk, int startX, int startZ,
@@ -223,11 +244,21 @@ static void FillSolarBody(SpaceChunk *chunk, int startX, int startZ,
     int chunkMaxX = startX + CHUNK_SIZE - 1;
     int chunkMinZ = startZ;
     int chunkMaxZ = startZ + CHUNK_SIZE - 1;
-    if (cx + radius < chunkMinX || cx - radius > chunkMaxX) return;
-    if (cz + radius < chunkMinZ || cz - radius > chunkMaxZ) return;
 
-    float radiusSqr = (float)(radius * radius);
-    float shellSqr = (float)((radius - 1) * (radius - 1));
+    unsigned int phaseSeed = Hash3D(cx, cy, cz);
+    float phase = (float)(phaseSeed % 6283u) / 1000.0f;
+    float amplitude = 1.6f + (float)radius * 0.35f;
+    float maxRadius = (float)radius + amplitude + 2.0f;
+    int maxRadiusInt = (int)ceilf(maxRadius);
+
+    if (cx + maxRadiusInt < chunkMinX || cx - maxRadiusInt > chunkMaxX) return;
+    if (cz + maxRadiusInt < chunkMinZ || cz - maxRadiusInt > chunkMaxZ) return;
+
+    bool hasSea = (style == SOLAR_STYLE_LAVA) || (style == SOLAR_STYLE_ICE) ||
+                  (style == SOLAR_STYLE_DESERT);
+    float seaLevel = hasSea ? (0.25f + (float)((phaseSeed >> 13) % 10u) * 0.03f) : -1.0f;
+    float seaR = (float)radius + seaLevel * amplitude;
+    BlockType seaBlock = (style == SOLAR_STYLE_LAVA) ? BLOCK_LAVA : BLOCK_WATER;
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int ly = 0; ly < SPACE_LAYER_HEIGHT; ly++) {
@@ -238,9 +269,22 @@ static void FillSolarBody(SpaceChunk *chunk, int startX, int startZ,
                 float dx = (float)(bx - cx);
                 float dy = (float)(by - cy);
                 float dz = (float)(bz - cz);
-                float distSqr = dx * dx + dy * dy + dz * dz;
-                if (distSqr >= radiusSqr) continue;
-                chunk->blocks[lx][ly][lz] = (unsigned short)SolarBodyBlock(bx, by, bz, distSqr, shellSqr, style);
+                float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+                if (dist > maxRadius) continue;
+                if (dist < 0.001f) dist = 0.001f;
+
+                float ux = dx / dist;
+                float uy = dy / dist;
+                float uz = dz / dist;
+                float n = PlanetHeightNoise(ux, uy, uz, phase);
+                float surfaceR = (float)radius + n * amplitude;
+
+                if (dist <= surfaceR) {
+                    chunk->blocks[lx][ly][lz] =
+                        (unsigned short)PlanetTerrainBlock(bx, by, bz, surfaceR - dist, style);
+                } else if (hasSea && dist <= seaR) {
+                    chunk->blocks[lx][ly][lz] = (unsigned short)seaBlock;
+                }
             }
         }
     }
