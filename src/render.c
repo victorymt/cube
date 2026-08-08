@@ -24,6 +24,12 @@ bool autoSaveForHud = true;
 BlockType blockForHud = BLOCK_AIR;
 int SpaceEditCountForHud = 0;
 float shipSpeedForHud = 0.0f;
+float shipHudSpeed = 0.0f;
+float shipHudAlt = 0.0f;
+float shipHudHeading = 0.0f;
+char shipHudSystem[48] = "---";
+bool shipHudCruising = false;
+bool shipHudNearPlanet = false;
 
 #include "chunks.h"
 #include "world.h"
@@ -603,6 +609,23 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
     DrawRectangleRoundedLinesEx((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, 40.0f },
                                 0.10f, 6, 1.5f, Fade(WHITE, 0.30f));
     DrawText(text, x, y, fs, WHITE);
+}
+
+void DrawShipHud(void)
+{
+    int sh = GetScreenHeight();
+    Rectangle panel = { 16.0f, (float)sh - 100.0f, 400.0f, 84.0f };
+    DrawRectangleRounded(panel, 0.08f, 6, Fade(BLACK, 0.55f));
+    DrawRectangleRoundedLinesEx(panel, 0.08f, 6, 1.5f, Fade(WHITE, 0.30f));
+
+    Color speedColor = shipHudCruising ? (Color){ 130, 200, 255, 255 } : WHITE;
+    DrawText(TextFormat("VEL %.0f blk/s%s", shipHudSpeed, shipHudCruising ? "  [CRUISE]" : ""),
+             28, (int)panel.y + 10, 22, speedColor);
+    DrawText(TextFormat("ALT %.0f%s   HDG %03.0f", shipHudAlt,
+                        shipHudNearPlanet ? " (surface)" : "", shipHudHeading),
+             28, (int)panel.y + 40, 17, Fade(WHITE, 0.9f));
+    DrawText(TextFormat("SYS %s", shipHudSystem),
+             28, (int)panel.y + 62, 16, Fade(WHITE, 0.75f));
 }
 
 void DrawCrosshair(int screenWidth, int screenHeight)

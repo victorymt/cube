@@ -493,6 +493,28 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
     return found;
 }
 
+bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist)
+{
+    SpaceBodyInfo bodies[8];
+    int count = SpaceBodiesNear(position, 60.0f, bodies, 8);
+
+    float best = 1e30f;
+    bool found = false;
+    for (int i = 0; i < count; i++) {
+        if (bodies[i].isStar) continue;
+        float amp = 1.6f + bodies[i].radius * 0.35f;
+        float terrainR = bodies[i].radius + amp + 2.0f;
+        if (bodies[i].dist > terrainR + 25.0f) continue;
+        if (bodies[i].dist < best) {
+            best = bodies[i].dist;
+            *gravityDir = Vector3Normalize(Vector3Subtract(bodies[i].center, position));
+            *surfaceDist = best - terrainR;
+            found = true;
+        }
+    }
+    return found;
+}
+
 SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
 static BlockEdit spaceEdits[MAX_SPACE_EDITS];
 static int spaceEditCount = 0;

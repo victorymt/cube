@@ -79,6 +79,7 @@ int main(void)
     EntitiesInit();
     blockAtlas = LoadBlockAtlas();
     cloudModel = LoadCloudModel();
+    ShipLoadModel();
 
     Player player = {
         .position = { 0.5f, 12.0f, 0.5f },
@@ -451,6 +452,7 @@ int main(void)
         BeginMode3D(camera);
         DrawWorld(&camera, effectiveRenderDistance, worldTint);
         EntitiesDraw();
+        if (ShipIsDriving()) ShipDraw(&player);
         if (spaceFade < 0.5f && !inNether) DrawClouds(&camera, Fade(worldTint, 1.0f - spaceFade * 2.0f));
         ParticlesDraw();
         if (hit.hit) {
@@ -472,6 +474,7 @@ int main(void)
         DrawStars(&camera, inNether ? 1.0f : daylight * (1.0f - spaceFade));
         DrawSpaceSky(spaceFade, &camera);
         DrawSolarGuide(&camera, spaceFade);
+        if (ShipIsDriving()) DrawShipHud();
         if (spaceFade > 0.05f && haveAimBody && !StarMapIsOpen()) {
             DrawBodyInfoPanel(&aimBody);
         }
@@ -496,6 +499,27 @@ int main(void)
             blockForHud = hit.hit ? GetBlockAt(hit.x, hit.y, hit.z) : BLOCK_AIR;
             SpaceEditCountForHud = GetSpaceEditCount();
             shipSpeedForHud = Vector3Length(player.velocity);
+            if (ShipIsDriving()) {
+                shipHudSpeed = shipSpeedForHud;
+                shipHudCruising = ShipIsCruising();
+                Vector3 gravityDir = Vector3Zero();
+                float surfaceDist = 0.0f;
+                if (PlanetSurfaceAt(player.position, &gravityDir, &surfaceDist)) {
+                    shipHudNearPlanet = true;
+                    shipHudAlt = surfaceDist;
+                } else {
+                    shipHudNearPlanet = false;
+                    shipHudAlt = player.position.y - (float)SPACE_LAYER_Y;
+                }
+                shipHudHeading = fmodf(player.yaw * RAD2DEG + 360.0f, 360.0f);
+                SolarSystemDef hudSys;
+                float hudDist = 0.0f;
+                if (FindNearestSystem(player.position, 3000.0f, &hudSys, &hudDist)) {
+                    snprintf(shipHudSystem, sizeof(shipHudSystem), "%s Prime (%.0f)", hudSys.name, hudDist);
+                } else {
+                    snprintf(shipHudSystem, sizeof(shipHudSystem), "Deep space");
+                }
+            }
             DrawDebugHUD(player.position, player.yaw, player.pitch);
         }
         if (paused) {
@@ -542,6 +566,7 @@ int main(void)
     UnloadAllNetherChunks();
     UnloadTexture(blockAtlas);
     if (cloudModel.meshCount > 0) UnloadModel(cloudModel);
+    ShipCleanup();
     AudioShutdown();
     CloseWindow();
     AlbumCleanup();

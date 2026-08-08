@@ -1,9 +1,11 @@
 #include "ship.h"
 
 #include "raymath.h"
+#include "chunks.h"
 #include "world.h"
 #include "player.h"
 #include "particles.h"
+#include "space.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -47,6 +49,61 @@ void ShipToggleCruise(void)
     SetImportMessage(cruising ? "Cruise mode: 25x speed (X to toggle)." : "Cruise mode off.");
 }
 
+static Model shipModel = { 0 };
+
+void ShipLoadModel(void)
+{
+    if (shipModel.meshCount > 0) return;
+
+    Mesh mesh = { 0 };
+    mesh.vertexCount = 8 * 6 * 6;
+    mesh.triangleCount = 8 * 6 * 2;
+    mesh.vertices = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
+    mesh.texcoords = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
+    mesh.normals = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
+    mesh.colors = malloc((size_t)mesh.vertexCount * 4 * sizeof(unsigned char));
+    if (!mesh.vertices || !mesh.texcoords || !mesh.normals || !mesh.colors) {
+        free(mesh.vertices);
+        free(mesh.texcoords);
+        free(mesh.normals);
+        free(mesh.colors);
+        return;
+    }
+
+    int vertexIndex = 0;
+    int parts[8][3] = {
+        { 0, 0, -1 }, { 0, 0, 0 }, { 0, 0, 1 },
+        { 0, 1, 0 },
+        { -1, 0, 0 }, { 1, 0, 0 },
+        { 0, 0, -2 },
+        { 0, -1, -1 }
+    };
+    for (int i = 0; i < 8; i++) {
+        for (int face = 0; face < 6; face++) {
+            AddBlockFace(&mesh, &vertexIndex, parts[i][0], parts[i][1], parts[i][2],
+                         face, BLOCK_SPACESHIP, WHITE, 0.0f);
+        }
+    }
+
+    UploadMesh(&mesh, false);
+    shipModel = LoadModelFromMesh(mesh);
+    SetMaterialTexture(&shipModel.materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
+}
+
+void ShipCleanup(void)
+{
+    if (shipModel.meshCount > 0) UnloadModel(shipModel);
+    shipModel = (Model){ 0 };
+}
+
+void ShipDraw(const Player *player)
+{
+    if (shipModel.meshCount == 0) return;
+    shipModel.transform = MatrixRotateXYZ((Vector3){ player->pitch, player->yaw, 0.0f });
+    Vector3 pos = Vector3Add(player->position, (Vector3){ 0.0f, 0.4f, 0.0f });
+    DrawModel(shipModel, pos, 1.0f, WHITE);
+}
+
 void ShipUpdate(Player *player, float dt)
 {
     if (IsKeyPressed(KEY_X)) ShipToggleCruise();
@@ -63,13 +120,31 @@ void ShipUpdate(Player *player, float dt)
     if (IsKeyDown(KEY_S)) accel = Vector3Subtract(accel, forward);
     if (IsKeyDown(KEY_D)) accel = Vector3Add(accel, right);
     if (IsKeyDown(KEY_A)) accel = Vector3Subtract(accel, right);
-    if (IsKeyDown(KEY_SPACE)) accel.y += 1.0f;
-    if (IsKeyDown(KEY_LEFT_CONTROL)) accel.y -= 1.0f;
+
+    Vector3 planetDir = Vector3Zero();
+    float surfaceDist = 0.0f;
+    bool nearPlanet = PlanetSurfaceAt(player->position, &planetDir, &surfaceDist);
+    Vector3 vertical = (Vector3){ 0.0f, 1.0f, 0.0f };
+    if (nearPlanet) vertical = planetDir;
+
+    if (IsKeyDown(KEY_SPACE)) accel = Vector3Add(accel, vertical);
+    if (IsKeyDown(KEY_LEFT_CONTROL)) accel = Vector3Subtract(accel, vertical);
     if (Vector3LengthSqr(accel) > 0.0f) accel = Vector3Normalize(accel);
 
     player->velocity = Vector3Add(player->velocity, Vector3Scale(accel, SHIP_THRUST * dt));
     float damping = (cruising ? 0.04f : SHIP_DAMPING) * dt;
     player->velocity = Vector3Scale(player->velocity, 1.0f - damping);
+
+    if (nearPlanet) {
+        float gravity = 6.0f * (1.0f - Clamp(surfaceDist / 25.0f, 0.0f, 1.0f));
+        player->velocity = Vector3Add(player->velocity, Vector3Scale(planetDir, gravity * dt));
+        if (surfaceDist < 8.0f) {
+            float toward = Vector3DotProduct(player->velocity, planetDir);
+            if (toward > 0.5f) {
+                player->velocity = Vector3Subtract(player->velocity, Vector3Scale(planetDir, toward * 5.0f * dt));
+            }
+        }
+    }
 
     float maxSpeed = cruising ? SHIP_MAX_SPEED * SHIP_CRUISE_MULTIPLIER : SHIP_MAX_SPEED;
     float speed = Vector3Length(player->velocity);
@@ -115,6 +190,14 @@ void ShipUpdate(Player *player, float dt)
                              0.6f, 0.0f);
         }
     }
+
+    if (nearPlanet && IsKeyDown(KEY_LEFT_CONTROL)) {
+        Vector3 exhaustPos = Vector3Add(player->position, Vector3Scale(Vector3Negate(vertical), 0.9f));
+        ParticlesEmitOne(exhaustPos, Vector3Scale(Vector3Negate(vertical), 2.2f),
+                         (Color){ 190, 220, 255, 210 },
+                         (Vector3){ 0.14f, 0.14f, 0.14f },
+                         0.4f, 0.0f);
+    }
 }
 
 static bool FindShipPlacement(int *outX, int *outY, int *outZ, const Player *player)
@@ -145,6 +228,24 @@ static bool FindShipPlacement(int *outX, int *outY, int *outZ, const Player *pla
     return false;
 }
 
+static bool FindShipLandingSpot(int *outX, int *outY, int *outZ, const Player *player)
+{
+    int x = (int)floorf(player->position.x);
+    int z = (int)floorf(player->position.z);
+    int y = (int)floorf(player->position.y);
+
+    for (int sy = y; sy >= y - 24 && sy > 0; sy--) {
+        if (sy >= SPACE_LAYER_TOP) continue;
+        if (GetBlockAt(x, sy, z) != BLOCK_AIR) continue;
+        if (GetBlockAt(x, sy - 1, z) == BLOCK_AIR) continue;
+        *outX = x;
+        *outY = sy;
+        *outZ = z;
+        return true;
+    }
+    return false;
+}
+
 void ShipExit(Player *player)
 {
     if (!driving) return;
@@ -152,14 +253,15 @@ void ShipExit(Player *player)
     int sx = 0;
     int sy = 0;
     int sz = 0;
-    if (FindShipPlacement(&sx, &sy, &sz, player)) {
-        SetBlock(sx, sy, sz, BLOCK_SPACESHIP);
-    } else {
-        SetImportMessage("No room to place the ship - it floats away.");
-        driving = false;
-        return;
+    if (!FindShipLandingSpot(&sx, &sy, &sz, player)) {
+        if (!FindShipPlacement(&sx, &sy, &sz, player)) {
+            SetImportMessage("No room to place the ship - it floats away.");
+            driving = false;
+            cruising = false;
+            return;
+        }
     }
-
+    SetBlock(sx, sy, sz, BLOCK_SPACESHIP);
     driving = false;
     cruising = false;
 }

@@ -37,5 +37,12 @@ extern bool autoSaveForHud;
 extern BlockType blockForHud;
 extern int SpaceEditCountForHud;
 extern float shipSpeedForHud;
+extern float shipHudSpeed;
+extern float shipHudAlt;
+extern float shipHudHeading;
+extern char shipHudSystem[48];
+extern bool shipHudCruising;
+extern bool shipHudNearPlanet;
+void DrawShipHud(void);
 
 #endif

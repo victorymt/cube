@@ -11,5 +11,8 @@ bool ShipIsCruising(void);
 void ShipToggleCruise(void);
 void ShipUpdate(Player *player, float dt);
 void ShipExit(Player *player);
+void ShipLoadModel(void);
+void ShipCleanup(void);
+void ShipDraw(const Player *player);
 
 #endif

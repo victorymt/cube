@@ -213,28 +213,6 @@ void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool t
     camera->fovy = Lerp(camera->fovy, targetFov, smoothing);
 }
 
-static bool PlanetGravityAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist)
-{
-    SpaceBodyInfo bodies[8];
-    int count = SpaceBodiesNear(position, 60.0f, bodies, 8);
-
-    float best = 1e30f;
-    bool found = false;
-    for (int i = 0; i < count; i++) {
-        if (bodies[i].isStar) continue;
-        float amp = 1.6f + bodies[i].radius * 0.35f;
-        float terrainR = bodies[i].radius + amp + 2.0f;
-        if (bodies[i].dist > terrainR + 24.0f) continue;
-        if (bodies[i].dist < best) {
-            best = bodies[i].dist;
-            *gravityDir = Vector3Normalize(Vector3Subtract(bodies[i].center, position));
-            *surfaceDist = best - terrainR;
-            found = true;
-        }
-    }
-    return found;
-}
-
 void UpdatePlayer(Player *player, float dt)
 {
     if (IsKeyPressed(KEY_F)) {
@@ -271,7 +249,7 @@ void UpdatePlayer(Player *player, float dt)
     if (inSpace) {
         Vector3 gravityDir = Vector3Zero();
         float surfaceDist = 0.0f;
-        if (PlanetGravityAt(player->position, &gravityDir, &surfaceDist)) {
+        if (PlanetSurfaceAt(player->position, &gravityDir, &surfaceDist)) {
             float strength = 10.0f * (1.0f - Clamp(surfaceDist / 24.0f, 0.0f, 1.0f));
             if (surfaceDist < 3.0f) strength *= 0.25f;
             player->velocity = Vector3Add(player->velocity, Vector3Scale(gravityDir, strength * dt));
