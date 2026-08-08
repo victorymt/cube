@@ -199,6 +199,8 @@ int main(void)
             }
         }
 
+        if (!paused && !albumOpen && !importDialog.open) SpaceAdvanceTime(dt);
+
         if (!albumOpen && !importDialog.open && !paused && IsKeyPressed(KEY_P)) {
             if (WeatherGetCurrent() == WEATHER_RAIN) {
                 albumRainSuspended = true;
@@ -646,6 +648,7 @@ int main(void)
     UnloadAllNetherChunks();
     UnloadTexture(blockAtlas);
     if (cloudModel.meshCount > 0) UnloadModel(cloudModel);
+    UnloadPlanetRenderResources();
     ShipCleanup();
     AudioShutdown();
     CloseWindow();

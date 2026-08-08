@@ -16,6 +16,7 @@
 #define ASTEROID_SPACING 26
 #define ASTEROID_PROBABILITY 55u
 #define SPACE_MESH_REBUILDS_PER_FRAME 2
+#define SOLAR_ORBIT_BASE_SPEED 0.040f
 
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
@@ -56,6 +57,7 @@ static HomeWorldContext homeWorld = {
     .surfaceActive = true,
     .returnPosition = { 0.5f, 12.0f, 0.5f }
 };
+static double solarSimulationTime = 0.0;
 
 bool HomeWorldSurfaceIsActive(void)
 {
@@ -155,14 +157,56 @@ static void BuildSolSystem(SolarSystemDef *out)
     out->center = (Vector3){ 0.0f, (float)SPACE_LAYER_Y + 48.0f, 0.0f };
     out->planetCount = 6;
     static const SolarPlanetDef solPlanets[6] = {
-        { 180, 44, -22, SOLAR_STYLE_LAVA },
-        { 260, 42,  20, SOLAR_STYLE_ICE },
-        { 340, 46,  -8, SOLAR_STYLE_DESERT },
-        { 430, 48,  30, SOLAR_STYLE_GAS },
-        { 520, 45, -28, SOLAR_STYLE_CRATER },
-        { 650, 40,  14, SOLAR_STYLE_LAVA }
+        { 180, 44, 0, SOLAR_STYLE_LAVA },
+        { 260, 42, 0, SOLAR_STYLE_ICE },
+        { 340, 46, 0, SOLAR_STYLE_DESERT },
+        { 430, 48, 0, SOLAR_STYLE_GAS },
+        { 520, 45, 0, SOLAR_STYLE_CRATER },
+        { 650, 40, 0, SOLAR_STYLE_LAVA }
     };
     for (int i = 0; i < 6; i++) out->planets[i] = solPlanets[i];
+}
+
+static float SolarSpectrumMass(SpectrumType spectrum)
+{
+    switch (spectrum) {
+    case SPECTRUM_RED_DWARF: return 0.45f;
+    case SPECTRUM_ORANGE:    return 0.75f;
+    case SPECTRUM_YELLOW:    return 1.00f;
+    case SPECTRUM_BLUE_WHITE:return 2.00f;
+    case SPECTRUM_RED_GIANT: return 3.50f;
+    default:                 return 1.00f;
+    }
+}
+
+static unsigned int SolarOrbitHash(const SolarSystemDef *sys, int index)
+{
+    return WorldHash2D(sys->anchorX * 53 + index * 7 + 1,
+                       sys->anchorZ * 29 + index * 3 + 2);
+}
+
+static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
+{
+    const SolarPlanetDef *def = &sys->planets[index];
+    float legacyAngle = (float)(SolarOrbitHash(sys, index) % 6283u) / 1000.0f;
+    int legacyX = (int)floorf(sys->center.x + cosf(legacyAngle) * (float)def->orbit);
+    int legacyZ = (int)floorf(sys->center.z + sinf(legacyAngle) * (float)def->orbit);
+    uint32_t seed = WorldHash3D(legacyX, index + 1, legacyZ);
+    return seed == 0u ? DEFAULT_WORLD_SEED : seed;
+}
+
+void SpaceAdvanceTime(float dt)
+{
+    if (!(dt > 0.0f) || !isfinite(dt)) return;
+    solarSimulationTime += (double)dt;
+    if (solarSimulationTime > 100000000.0) {
+        solarSimulationTime = fmod(solarSimulationTime, 1000000.0);
+    }
+}
+
+double SpaceSimulationTime(void)
+{
+    return solarSimulationTime;
 }
 
 bool StarSystemAt(int ax, int az, SolarSystemDef *out)
@@ -198,13 +242,10 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
         // These are visitable planets, not asteroid props. Keep enough volume
         // for a layered surface, caves and a useful landing area.
         out->planets[i].size = 40 + (int)((ph >> 6) % 9u);
-        out->planets[i].yOffset = (int)((ph >> 12) % 81u) - 40;
+        // The orbit is centered on the star. Inclination, rather than an
+        // arbitrary vertical offset, gives each planet a small 3D tilt.
+        out->planets[i].yOffset = 0;
         out->planets[i].style = (SolarBodyStyle)(1 + ((ph >> 18) % 5u));
-
-        float maxR = SolarBodyTerrainRadius((float)out->planets[i].size);
-        float minAllowed = (float)SPACE_LAYER_Y + maxR - out->center.y;
-        float maxAllowed = (float)(SPACE_LAYER_TOP - 1) - maxR - out->center.y;
-        out->planets[i].yOffset = (int)Clamp((float)out->planets[i].yOffset, minAllowed, maxAllowed);
     }
     return true;
 }
@@ -212,12 +253,24 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
 {
     const SolarPlanetDef *def = &sys->planets[index];
-    float angle = (float)(WorldHash2D(sys->anchorX * 53 + index * 7 + 1,
-                                 sys->anchorZ * 29 + index * 3 + 2) % 6283u) / 1000.0f;
+    unsigned int orbitHash = SolarOrbitHash(sys, index);
+    float phase = (float)(orbitHash % 6283u) / 1000.0f;
+    float inclination = ((float)((orbitHash >> 22) % 7u) - 3.0f) * 0.012f;
+    float node = (float)((orbitHash >> 7) % 6283u) / 1000.0f;
+    float orbitRatio = fmaxf((float)def->orbit / 180.0f, 0.1f);
+    // Circular Kepler orbit: mean motion is proportional to sqrt(M / a^3).
+    float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSpectrumMass(sys->spectrum)) /
+                         (orbitRatio * sqrtf(orbitRatio));
+    float angle = phase + (float)(solarSimulationTime * (double)angularSpeed);
+    float planeX = cosf(angle) * (float)def->orbit;
+    float planeZ = sinf(angle) * (float)def->orbit * cosf(inclination);
+    float planeY = sinf(angle) * (float)def->orbit * sinf(inclination);
+    float nodeCos = cosf(node);
+    float nodeSin = sinf(node);
     return (Vector3){
-        sys->center.x + cosf(angle) * (float)def->orbit,
-        sys->center.y + (float)def->yOffset,
-        sys->center.z + sinf(angle) * (float)def->orbit
+        sys->center.x + planeX * nodeCos - planeZ * nodeSin,
+        sys->center.y + planeY,
+        sys->center.z + planeX * nodeSin + planeZ * nodeCos
     };
 }
 
@@ -454,6 +507,8 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .dist = starDist,
                     .isStar = true,
                     .index = 0,
+                    .systemAnchorX = ax,
+                    .systemAnchorZ = az,
                     .spectrum = sys.spectrum
                 };
                 snprintf(out[count].name, sizeof(out[count].name), "%s", sys.name);
@@ -471,6 +526,9 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .dist = dist,
                     .isStar = false,
                     .index = i + 1,
+                    .systemAnchorX = ax,
+                    .systemAnchorZ = az,
+                    .worldSeed = SolarPlanetWorldSeed(&sys, i),
                     .style = sys.planets[i].style
                 };
                 snprintf(out[count].name, sizeof(out[count].name), "%s", sys.name);
@@ -536,8 +594,7 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist)
     }
     for (int i = 0; i < count; i++) {
         if (bodies[i].isStar) continue;
-        float amp = 1.6f + bodies[i].radius * 0.35f;
-        float terrainR = bodies[i].radius + amp + 2.0f;
+        float terrainR = SolarBodyTerrainRadius(bodies[i].radius);
         if (bodies[i].dist > terrainR + 25.0f) continue;
         if (bodies[i].dist < best) {
             best = bodies[i].dist;
@@ -658,9 +715,7 @@ bool PlanetWorldTryEnter(Player *player)
     next.planetIndex = body.index;
     next.bodyCenter = body.center;
     next.bodyRadius = SolarBodyTerrainRadius(body.radius);
-    next.seed = WorldHash3D((int)floorf(body.center.x), body.index,
-                            (int)floorf(body.center.z));
-    if (next.seed == 0u) next.seed = DEFAULT_WORLD_SEED;
+    next.seed = body.worldSeed;
     next.originX = PlanetRegionOrigin(next.seed ^ 0x68bc21ebu);
     next.originZ = PlanetRegionOrigin(next.seed ^ 0x02e5be93u);
     snprintf(next.name, sizeof(next.name), "%.28s %c", body.name,
@@ -703,6 +758,19 @@ bool PlanetWorldTryLaunch(Player *player)
     if (!planetWorld.active || player->position.y < (float)WORLD_HEIGHT + 12.0f) return false;
 
     Vector3 returnPosition = planetWorld.returnPosition;
+    Vector3 outward = Vector3Subtract(planetWorld.returnPosition, planetWorld.bodyCenter);
+    if (Vector3LengthSqr(outward) < 0.001f) outward = (Vector3){ 1.0f, 0.0f, 0.0f };
+    else outward = Vector3Normalize(outward);
+
+    int systemAx = (int)roundf(planetWorld.bodyCenter.x / (float)STAR_SYSTEM_SPACING);
+    int systemAz = (int)roundf(planetWorld.bodyCenter.z / (float)STAR_SYSTEM_SPACING);
+    SolarSystemDef system;
+    int orbitIndex = planetWorld.planetIndex - 1;
+    if (StarSystemAt(systemAx, systemAz, &system) &&
+        orbitIndex >= 0 && orbitIndex < system.planetCount) {
+        Vector3 currentCenter = SolarSystemPlanetCenter(&system, orbitIndex);
+        returnPosition = PlanetReturnPosition(currentCenter, planetWorld.bodyRadius, outward);
+    }
     char planetName[32];
     snprintf(planetName, sizeof(planetName), "%s", planetWorld.name);
 
@@ -1392,6 +1460,7 @@ void SpaceReset(void)
 {
     UnloadAllSpaceChunks();
     spaceEditCount = 0;
+    solarSimulationTime = 0.0;
     PlanetWorldReset();
     HomeWorldReset();
 }

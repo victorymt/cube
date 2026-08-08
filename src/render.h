@@ -21,6 +21,7 @@ void DrawSpaceSky(float spaceFade, const Camera3D *camera);
 void DrawSolarGuide(const Camera3D *camera, float spaceFade);
 void DrawSolarBodies(const Camera3D *camera, float spaceFade);
 void DrawHomePlanet(const Camera3D *camera, float spaceFade);
+void UnloadPlanetRenderResources(void);
 void DrawBodyInfoPanel(const SpaceBodyInfo *body);
 void DrawClouds(const Camera3D *camera, Color tint);
 void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,

@@ -76,6 +76,8 @@ startup as a small pixel-art atlas.
   Space edits are saved with the world
 - A real starfield: 500 stars on a fixed celestial sphere rotate as you turn
   (bright ones with cross glints), continuous from ground night skies to space
+- Planets follow inclined Kepler-style orbits: inner worlds move faster than
+  outer worlds, and every planet rotates on its axis while orbiting its star
 - Stars are real places: glowing star-matter orbs (self-illuminated blocks)
   drift among the asteroids - land on them, mine them, bring the light home
 - Spaceship block: place it (middle-click to select), right-click to climb

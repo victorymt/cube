@@ -645,9 +645,485 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
     }
 }
 
+#define PLANET_TEXTURE_WIDTH 384
+#define PLANET_TEXTURE_HEIGHT 192
+#define PLANET_STYLE_COUNT 5
+#define PLANET_STYLE_VARIANTS 3
+
+typedef struct PlanetRenderResources {
+    bool initialized;
+    Model sphere;
+    Texture2D home;
+    Texture2D clouds;
+    Texture2D atmosphereGlow;
+    Texture2D styles[PLANET_STYLE_COUNT][PLANET_STYLE_VARIANTS];
+} PlanetRenderResources;
+
+static PlanetRenderResources planetRender = { 0 };
+
+static uint32_t PlanetTextureHash(int x, int y, int z, uint32_t seed)
+{
+    uint32_t hash = seed;
+    hash ^= (uint32_t)x * 0x8da6b343u;
+    hash ^= (uint32_t)y * 0xd8163841u;
+    hash ^= (uint32_t)z * 0xcb1ab31fu;
+    hash ^= hash >> 16;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15;
+    hash *= 0x846ca68bu;
+    return hash ^ (hash >> 16);
+}
+
+static float PlanetHashUnit(int x, int y, int z, uint32_t seed)
+{
+    return (float)(PlanetTextureHash(x, y, z, seed) & 0x00ffffffu) / 16777215.0f;
+}
+
+static float PlanetNoiseSmooth(float value)
+{
+    return value * value * (3.0f - 2.0f * value);
+}
+
+static float PlanetValueNoise(float x, float y, float z, uint32_t seed)
+{
+    int x0 = (int)floorf(x);
+    int y0 = (int)floorf(y);
+    int z0 = (int)floorf(z);
+    float tx = PlanetNoiseSmooth(x - (float)x0);
+    float ty = PlanetNoiseSmooth(y - (float)y0);
+    float tz = PlanetNoiseSmooth(z - (float)z0);
+
+    float x00 = Lerp(PlanetHashUnit(x0, y0, z0, seed),
+                     PlanetHashUnit(x0 + 1, y0, z0, seed), tx);
+    float x10 = Lerp(PlanetHashUnit(x0, y0 + 1, z0, seed),
+                     PlanetHashUnit(x0 + 1, y0 + 1, z0, seed), tx);
+    float x01 = Lerp(PlanetHashUnit(x0, y0, z0 + 1, seed),
+                     PlanetHashUnit(x0 + 1, y0, z0 + 1, seed), tx);
+    float x11 = Lerp(PlanetHashUnit(x0, y0 + 1, z0 + 1, seed),
+                     PlanetHashUnit(x0 + 1, y0 + 1, z0 + 1, seed), tx);
+    return Lerp(Lerp(x00, x10, ty), Lerp(x01, x11, ty), tz);
+}
+
+static float PlanetFractalNoise(float x, float y, float z, uint32_t seed)
+{
+    float value = 0.0f;
+    float amplitude = 0.55f;
+    float total = 0.0f;
+    for (int octave = 0; octave < 4; octave++) {
+        value += PlanetValueNoise(x, y, z, seed + (uint32_t)octave * 1013u) * amplitude;
+        total += amplitude;
+        x = x * 2.03f + 7.1f;
+        y = y * 2.03f - 3.7f;
+        z = z * 2.03f + 5.3f;
+        amplitude *= 0.5f;
+    }
+    return value / total;
+}
+
+static unsigned char PlanetColorChannel(float value)
+{
+    return (unsigned char)Clamp(value, 0.0f, 255.0f);
+}
+
+static Color ShadePlanetColor(Color color, float shade)
+{
+    return (Color){
+        PlanetColorChannel((float)color.r * shade),
+        PlanetColorChannel((float)color.g * shade),
+        PlanetColorChannel((float)color.b * shade),
+        color.a
+    };
+}
+
+static float PlanetBakedLight(float nx, float ny, float nz)
+{
+    float light = nx * -0.48f + ny * 0.20f + nz * 0.85f;
+    return 0.42f + 0.58f * Clamp(light * 0.5f + 0.5f, 0.0f, 1.0f);
+}
+
+static Color HomePlanetPixel(float nx, float ny, float nz, uint32_t seed)
+{
+    float continents = PlanetFractalNoise(nx * 2.15f, ny * 2.15f, nz * 2.15f, seed);
+    float detail = PlanetFractalNoise(nx * 6.0f, ny * 6.0f, nz * 6.0f, seed + 71u);
+    float latitude = fabsf(ny);
+    float coast = 0.515f + latitude * 0.035f;
+    Color color;
+
+    if (continents < coast) {
+        float depth = Clamp((coast - continents) * 6.0f, 0.0f, 1.0f);
+        color = ColorLerp((Color){ 35, 139, 176, 255 },
+                          (Color){ 9, 43, 103, 255 }, depth * 0.82f);
+    } else {
+        float height = Clamp((continents - coast) * 4.6f + detail * 0.18f, 0.0f, 1.0f);
+        Color lowland = latitude > 0.63f ? (Color){ 88, 119, 78, 255 }
+                                          : (Color){ 48, 126, 66, 255 };
+        color = ColorLerp(lowland, (Color){ 126, 112, 82, 255 }, height);
+        if (height > 0.86f) {
+            color = ColorLerp(color, (Color){ 193, 201, 198, 255 },
+                              (height - 0.86f) / 0.14f);
+        }
+    }
+
+    float iceEdge = 0.80f + (detail - 0.5f) * 0.10f;
+    if (latitude > iceEdge) {
+        float ice = Clamp((latitude - iceEdge) / 0.15f, 0.0f, 1.0f);
+        color = ColorLerp(color, (Color){ 220, 240, 244, 255 }, ice);
+    }
+    return ShadePlanetColor(color, PlanetBakedLight(nx, ny, nz));
+}
+
+static Color PlanetCloudPixel(float nx, float ny, float nz, uint32_t seed)
+{
+    float clouds = PlanetFractalNoise(nx * 4.2f + ny * 0.7f,
+                                      ny * 3.1f, nz * 4.2f - ny * 0.7f, seed);
+    float wisps = 0.5f + 0.5f * sinf((nx - nz) * 13.0f + ny * 21.0f);
+    clouds = clouds * 0.82f + wisps * 0.18f;
+    float opacity = Clamp((clouds - 0.58f) * 4.0f, 0.0f, 0.58f);
+    float shade = 0.78f + PlanetBakedLight(nx, ny, nz) * 0.22f;
+    return (Color){ PlanetColorChannel(246.0f * shade),
+                    PlanetColorChannel(250.0f * shade),
+                    PlanetColorChannel(255.0f * shade),
+                    PlanetColorChannel(opacity * 255.0f) };
+}
+
+static Color CraterPlanetPixel(float nx, float ny, float nz, float noise, uint32_t seed)
+{
+    static const Vector3 centers[] = {
+        { 1.0f, 0.0f, 0.0f }, { -0.60f, 0.42f, 0.68f },
+        { 0.18f, -0.82f, 0.54f }, { 0.44f, 0.76f, -0.47f },
+        { -0.22f, -0.31f, -0.92f }, { 0.72f, -0.48f, -0.50f },
+        { -0.82f, -0.54f, 0.20f }, { -0.35f, 0.86f, 0.36f }
+    };
+    float tone = 82.0f + noise * 64.0f;
+    Vector3 point = { nx, ny, nz };
+    for (int i = 0; i < (int)(sizeof(centers) / sizeof(centers[0])); i++) {
+        Vector3 center = Vector3Normalize(centers[i]);
+        float radial = sqrtf(fmaxf(0.0f, 2.0f * (1.0f - Vector3DotProduct(point, center))));
+        float radius = 0.075f + 0.025f * (float)((i + (int)(seed & 3u)) % 4);
+        if (radial < radius) tone -= 30.0f * (1.0f - radial / radius);
+        else if (radial < radius * 1.16f) tone += 36.0f * (1.0f - (radial - radius) / (radius * 0.16f));
+    }
+    return (Color){ PlanetColorChannel(tone * 0.94f),
+                    PlanetColorChannel(tone * 0.96f),
+                    PlanetColorChannel(tone), 255 };
+}
+
+static Color StyledPlanetPixel(SolarBodyStyle style, float nx, float ny, float nz,
+                               float u, float v, uint32_t seed)
+{
+    float noise = PlanetFractalNoise(nx * 3.8f, ny * 3.8f, nz * 3.8f, seed);
+    float fine = PlanetFractalNoise(nx * 9.5f, ny * 9.5f, nz * 9.5f, seed + 139u);
+    Color color = (Color){ 120, 120, 120, 255 };
+
+    switch (style) {
+    case SOLAR_STYLE_LAVA: {
+        color = ColorLerp((Color){ 23, 18, 21, 255 }, (Color){ 82, 38, 25, 255 }, noise);
+        float fissure = 1.0f - Clamp(fabsf(noise - 0.53f) / 0.045f, 0.0f, 1.0f);
+        fissure = fmaxf(fissure, 1.0f - Clamp(fabsf(fine - 0.66f) / 0.022f, 0.0f, 1.0f));
+        color = ColorLerp(color, (Color){ 255, 115, 18, 255 }, fissure);
+        if (fissure > 0.72f) color = ColorLerp(color, (Color){ 255, 225, 88, 255 },
+                                               (fissure - 0.72f) / 0.28f);
+        break;
+    }
+    case SOLAR_STYLE_ICE: {
+        color = ColorLerp((Color){ 78, 139, 176, 255 },
+                          (Color){ 219, 240, 246, 255 }, noise * 0.82f + fabsf(ny) * 0.18f);
+        float crevasse = 1.0f - Clamp(fabsf(fine - 0.50f) / 0.035f, 0.0f, 1.0f);
+        color = ColorLerp(color, (Color){ 24, 76, 126, 255 }, crevasse * 0.72f);
+        break;
+    }
+    case SOLAR_STYLE_DESERT: {
+        float dunes = 0.5f + 0.5f * sinf((nx * 0.7f + nz) * 31.0f + noise * 7.0f);
+        color = ColorLerp((Color){ 139, 72, 36, 255 },
+                          (Color){ 238, 183, 91, 255 }, noise * 0.74f + dunes * 0.10f);
+        if (fine > 0.72f) color = ColorLerp(color, (Color){ 91, 48, 37, 255 },
+                                            (fine - 0.72f) * 2.2f);
+        break;
+    }
+    case SOLAR_STYLE_GAS: {
+        float bands = 0.5f + 0.5f * sinf(ny * 56.0f + noise * 7.0f);
+        Color cool = ColorLerp((Color){ 76, 51, 109, 255 },
+                               (Color){ 174, 105, 141, 255 }, noise);
+        color = ColorLerp(cool, (Color){ 228, 181, 139, 255 }, bands * 0.48f);
+        float stormU = 0.28f + PlanetHashUnit(3, 5, 7, seed) * 0.44f;
+        float stormV = 0.38f + PlanetHashUnit(11, 2, 9, seed) * 0.24f;
+        float du = fabsf(u - stormU);
+        du = fminf(du, 1.0f - du);
+        float ellipse = sqrtf((du * du) / (0.115f * 0.115f) +
+                              ((v - stormV) * (v - stormV)) / (0.043f * 0.043f));
+        if (ellipse < 1.0f) {
+            float swirl = 0.5f + 0.5f * sinf(ellipse * 28.0f + noise * 8.0f);
+            color = ColorLerp(color, (Color){ 242, 204, 174, 255 }, swirl * (1.0f - ellipse));
+        }
+        break;
+    }
+    case SOLAR_STYLE_CRATER:
+        color = CraterPlanetPixel(nx, ny, nz, noise, seed);
+        break;
+    default:
+        break;
+    }
+
+    return ShadePlanetColor(color, PlanetBakedLight(nx, ny, nz));
+}
+
+static Texture2D MakePlanetTexture(SolarBodyStyle style, uint32_t seed, bool home, bool clouds)
+{
+    size_t pixelCount = (size_t)PLANET_TEXTURE_WIDTH * PLANET_TEXTURE_HEIGHT;
+    Color *pixels = malloc(pixelCount * sizeof(*pixels));
+    if (!pixels) return (Texture2D){ 0 };
+
+    for (int y = 0; y < PLANET_TEXTURE_HEIGHT; y++) {
+        float v = (float)y / (float)(PLANET_TEXTURE_HEIGHT - 1);
+        float latitude = (0.5f - v) * PI;
+        float cosLatitude = cosf(latitude);
+        for (int x = 0; x < PLANET_TEXTURE_WIDTH; x++) {
+            float u = (float)x / (float)PLANET_TEXTURE_WIDTH;
+            float longitude = u * 2.0f * PI;
+            float nx = cosLatitude * cosf(longitude);
+            float ny = sinf(latitude);
+            float nz = cosLatitude * sinf(longitude);
+            Color color;
+            if (clouds) {
+                color = PlanetCloudPixel(nx, ny, nz, seed);
+            } else if (home) {
+                color = HomePlanetPixel(nx, ny, nz, seed);
+            } else {
+                color = StyledPlanetPixel(style, nx, ny, nz, u, v, seed);
+            }
+            pixels[(size_t)y * PLANET_TEXTURE_WIDTH + x] = color;
+        }
+    }
+
+    Image image = {
+        .data = pixels,
+        .width = PLANET_TEXTURE_WIDTH,
+        .height = PLANET_TEXTURE_HEIGHT,
+        .mipmaps = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+    };
+    Texture2D texture = LoadTextureFromImage(image);
+    free(pixels);
+    if (texture.id != 0) {
+        SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+        SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
+    }
+    return texture;
+}
+
+static Texture2D MakeAtmosphereGlowTexture(void)
+{
+    const int size = 96;
+    Color *pixels = malloc((size_t)size * size * sizeof(*pixels));
+    if (!pixels) return (Texture2D){ 0 };
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            float nx = ((float)x + 0.5f) * 2.0f / (float)size - 1.0f;
+            float ny = ((float)y + 0.5f) * 2.0f / (float)size - 1.0f;
+            float radius = sqrtf(nx * nx + ny * ny);
+            float alpha = Clamp((1.0f - radius) / 0.30f, 0.0f, 1.0f);
+            pixels[y * size + x] = (Color){ 255, 255, 255,
+                                            PlanetColorChannel(alpha * 190.0f) };
+        }
+    }
+    Image image = {
+        .data = pixels,
+        .width = size,
+        .height = size,
+        .mipmaps = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+    };
+    Texture2D texture = LoadTextureFromImage(image);
+    free(pixels);
+    if (texture.id != 0) SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+    return texture;
+}
+
+static Vector3 PlanetSpherePoint(float u, float v)
+{
+    float longitude = u * 2.0f * PI;
+    float latitude = (0.5f - v) * PI;
+    float cosLatitude = cosf(latitude);
+    return (Vector3){ cosLatitude * cosf(longitude), sinf(latitude),
+                      cosLatitude * sinf(longitude) };
+}
+
+static Mesh MakePlanetSphereMesh(void)
+{
+    const int rings = 32;
+    const int slices = 64;
+    const int columns = slices + 1;
+    Mesh mesh = { 0 };
+    mesh.vertexCount = (rings + 1) * columns;
+    mesh.triangleCount = rings * slices * 2;
+    mesh.vertices = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
+    mesh.normals = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
+    mesh.texcoords = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
+    mesh.indices = malloc((size_t)mesh.triangleCount * 3 * sizeof(unsigned short));
+    if (!mesh.vertices || !mesh.normals || !mesh.texcoords || !mesh.indices) {
+        free(mesh.vertices);
+        free(mesh.normals);
+        free(mesh.texcoords);
+        free(mesh.indices);
+        return (Mesh){ 0 };
+    }
+
+    for (int ring = 0; ring <= rings; ring++) {
+        float v = (float)ring / (float)rings;
+        for (int slice = 0; slice <= slices; slice++) {
+            float u = (float)slice / (float)slices;
+            int vertex = ring * columns + slice;
+            Vector3 point = PlanetSpherePoint(u, v);
+            mesh.vertices[vertex * 3] = point.x;
+            mesh.vertices[vertex * 3 + 1] = point.y;
+            mesh.vertices[vertex * 3 + 2] = point.z;
+            mesh.normals[vertex * 3] = point.x;
+            mesh.normals[vertex * 3 + 1] = point.y;
+            mesh.normals[vertex * 3 + 2] = point.z;
+            mesh.texcoords[vertex * 2] = u;
+            mesh.texcoords[vertex * 2 + 1] = v;
+        }
+    }
+
+    int index = 0;
+    for (int ring = 0; ring < rings; ring++) {
+        for (int slice = 0; slice < slices; slice++) {
+            unsigned short topLeft = (unsigned short)(ring * columns + slice);
+            unsigned short topRight = (unsigned short)(topLeft + 1);
+            unsigned short bottomLeft = (unsigned short)(topLeft + columns);
+            unsigned short bottomRight = (unsigned short)(bottomLeft + 1);
+            mesh.indices[index++] = topLeft;
+            mesh.indices[index++] = bottomRight;
+            mesh.indices[index++] = bottomLeft;
+            mesh.indices[index++] = topLeft;
+            mesh.indices[index++] = topRight;
+            mesh.indices[index++] = bottomRight;
+        }
+    }
+    UploadMesh(&mesh, false);
+    return mesh;
+}
+
+static void EnsurePlanetRenderResources(void)
+{
+    if (planetRender.initialized) return;
+    planetRender.initialized = true;
+    Mesh sphereMesh = MakePlanetSphereMesh();
+    if (sphereMesh.vertexCount > 0) planetRender.sphere = LoadModelFromMesh(sphereMesh);
+    planetRender.home = MakePlanetTexture(SOLAR_STYLE_DESERT, 0x48a1c3u, true, false);
+    planetRender.clouds = MakePlanetTexture(SOLAR_STYLE_ICE, 0x8392f5u, false, true);
+    planetRender.atmosphereGlow = MakeAtmosphereGlowTexture();
+
+    for (int style = 0; style < PLANET_STYLE_COUNT; style++) {
+        for (int variant = 0; variant < PLANET_STYLE_VARIANTS; variant++) {
+            uint32_t seed = 0x91e10da5u + (uint32_t)style * 0x1f123bb5u +
+                            (uint32_t)variant * 0x6c8e9cf5u;
+            planetRender.styles[style][variant] =
+                MakePlanetTexture((SolarBodyStyle)(SOLAR_STYLE_LAVA + style), seed, false, false);
+        }
+    }
+}
+
+void UnloadPlanetRenderResources(void)
+{
+    if (!planetRender.initialized) return;
+    if (planetRender.sphere.meshCount > 0) UnloadModel(planetRender.sphere);
+    if (planetRender.home.id != 0) UnloadTexture(planetRender.home);
+    if (planetRender.clouds.id != 0) UnloadTexture(planetRender.clouds);
+    if (planetRender.atmosphereGlow.id != 0) UnloadTexture(planetRender.atmosphereGlow);
+    for (int style = 0; style < PLANET_STYLE_COUNT; style++) {
+        for (int variant = 0; variant < PLANET_STYLE_VARIANTS; variant++) {
+            if (planetRender.styles[style][variant].id != 0) {
+                UnloadTexture(planetRender.styles[style][variant]);
+            }
+        }
+    }
+    planetRender = (PlanetRenderResources){ 0 };
+}
+
+static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
+                               float rotation, Color fallback)
+{
+    if (planetRender.sphere.meshCount <= 0 || texture.id == 0) {
+        DrawSphere(center, radius, fallback);
+        return;
+    }
+    SetMaterialTexture(&planetRender.sphere.materials[0], MATERIAL_MAP_DIFFUSE, texture);
+    DrawModelEx(planetRender.sphere, center, (Vector3){ 0.0f, 1.0f, 0.0f }, rotation,
+                (Vector3){ radius, radius, radius }, WHITE);
+}
+
+static uint32_t PlanetBodyVisualHash(const SpaceBodyInfo *body)
+{
+    return PlanetTextureHash((int)body->worldSeed, body->index,
+                             body->systemAnchorX ^ body->systemAnchorZ, 0x57ec91u);
+}
+
+static Color PlanetAtmosphereColor(SolarBodyStyle style)
+{
+    switch (style) {
+    case SOLAR_STYLE_LAVA:   return (Color){ 255, 86, 24, 255 };
+    case SOLAR_STYLE_ICE:    return (Color){ 116, 214, 255, 255 };
+    case SOLAR_STYLE_DESERT: return (Color){ 244, 170, 92, 255 };
+    case SOLAR_STYLE_GAS:    return (Color){ 202, 142, 234, 255 };
+    case SOLAR_STYLE_CRATER: return (Color){ 150, 162, 180, 255 };
+    default:                 return WHITE;
+    }
+}
+
+static void DrawPlanetAtmosphere(const Camera3D *camera, Vector3 center, float radius,
+                                 Color color, float alpha)
+{
+    if (planetRender.atmosphereGlow.id == 0 || alpha <= 0.0f) return;
+    DrawBillboard(*camera, planetRender.atmosphereGlow, center, radius * 2.40f,
+                  Fade(color, alpha));
+}
+
+static Vector3 PlanetRingPoint(Vector3 center, float radius, float angle, float tilt)
+{
+    float c = cosf(angle);
+    float s = sinf(angle);
+    float ct = cosf(tilt);
+    float st = sinf(tilt);
+    return (Vector3){ center.x + c * radius,
+                      center.y - s * radius * st,
+                      center.z + s * radius * ct };
+}
+
+static void DrawPlanetRingStrip(Vector3 center, float innerRadius, float outerRadius,
+                                float tilt, Color color)
+{
+    const int segments = 72;
+    for (int i = 0; i < segments; i++) {
+        float a0 = (float)i * 2.0f * PI / (float)segments;
+        float a1 = (float)(i + 1) * 2.0f * PI / (float)segments;
+        Vector3 i0 = PlanetRingPoint(center, innerRadius, a0, tilt);
+        Vector3 i1 = PlanetRingPoint(center, innerRadius, a1, tilt);
+        Vector3 o0 = PlanetRingPoint(center, outerRadius, a0, tilt);
+        Vector3 o1 = PlanetRingPoint(center, outerRadius, a1, tilt);
+        DrawTriangle3D(i0, o0, o1, color);
+        DrawTriangle3D(i0, o1, i1, color);
+        DrawTriangle3D(i0, o1, o0, color);
+        DrawTriangle3D(i0, i1, o1, color);
+    }
+}
+
+static void DrawPlanetRings(Vector3 center, float radius, uint32_t hash, float alpha)
+{
+    float tilt = (14.0f + (float)(hash % 17u)) * DEG2RAD;
+    DrawPlanetRingStrip(center, radius * 1.30f, radius * 1.43f, tilt,
+                        Fade((Color){ 216, 189, 166, 255 }, 0.34f * alpha));
+    DrawPlanetRingStrip(center, radius * 1.47f, radius * 1.72f, tilt,
+                        Fade((Color){ 164, 137, 148, 255 }, 0.24f * alpha));
+    DrawPlanetRingStrip(center, radius * 1.76f, radius * 1.86f, tilt,
+                        Fade((Color){ 225, 210, 190, 255 }, 0.18f * alpha));
+}
+
 void DrawSolarBodies(const Camera3D *camera, float spaceFade)
 {
     if (spaceFade <= 0.05f) return;
+
+    EnsurePlanetRenderResources();
 
     SpaceBodyInfo bodies[48];
     int count = SpaceBodiesNear(camera->position, 700.0f, bodies, 48);
@@ -657,11 +1133,29 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
         if (bodies[i].isStar) {
             float radius = bodies[i].radius;
             DrawSphere(bodies[i].center, radius * 1.08f, color);
-            DrawSphereWires(bodies[i].center, radius * 1.14f, 12, 8,
-                            Fade((Color){ 255, 244, 200, 255 }, 0.45f * spaceFade));
+            DrawSphere(bodies[i].center, radius * 1.15f,
+                       Fade(color, 0.12f * spaceFade));
         } else {
             float radius = SolarBodyTerrainRadius(bodies[i].radius);
-            DrawSphere(bodies[i].center, radius + 0.08f, color);
+            int styleIndex = (int)bodies[i].style - (int)SOLAR_STYLE_LAVA;
+            uint32_t visualHash = PlanetBodyVisualHash(&bodies[i]);
+            int variant = (int)(visualHash % PLANET_STYLE_VARIANTS);
+            Texture2D texture = (Texture2D){ 0 };
+            if (styleIndex >= 0 && styleIndex < PLANET_STYLE_COUNT) {
+                texture = planetRender.styles[styleIndex][variant];
+            }
+            float spinRate = bodies[i].style == SOLAR_STYLE_GAS ? 6.0f :
+                             1.2f + (float)((visualHash >> 20) % 18u) * 0.1f;
+            float rotation = (float)((visualHash >> 8) % 360u) +
+                             (float)SpaceSimulationTime() * spinRate;
+            Color atmosphere = PlanetAtmosphereColor(bodies[i].style);
+            float atmosphereAlpha = bodies[i].style == SOLAR_STYLE_CRATER ? 0.18f : 0.52f;
+            DrawPlanetAtmosphere(camera, bodies[i].center, radius, atmosphere,
+                                 atmosphereAlpha * spaceFade);
+            DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color);
+            if (bodies[i].style == SOLAR_STYLE_GAS && ((visualHash >> 5) & 1u) != 0u) {
+                DrawPlanetRings(bodies[i].center, radius, visualHash, spaceFade);
+            }
         }
     }
 }
@@ -689,10 +1183,13 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     float distance = Vector3Distance(camera->position, center);
     if (distance <= radius + 0.5f || distance > 24000.0f) return;
 
+    EnsurePlanetRenderResources();
     Color atmosphere = (Color){ 130, 202, 255, 255 };
-    DrawSphere(center, radius, HomePlanetColor());
-    DrawSphereWires(center, radius * 1.035f, 24, 16,
-                    Fade(atmosphere, 0.52f * spaceFade));
+    DrawPlanetAtmosphere(camera, center, radius, atmosphere, 0.62f * spaceFade);
+    float homeRotation = -18.0f + (float)SpaceSimulationTime() * 1.2f;
+    DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor());
+    DrawTexturedPlanet(center, radius * 1.012f, planetRender.clouds,
+                       homeRotation + (float)SpaceSimulationTime() * 0.7f, WHITE);
 }
 
 void DrawBodyInfoPanel(const SpaceBodyInfo *body)

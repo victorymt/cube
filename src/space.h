@@ -55,6 +55,9 @@ typedef struct SpaceBodyInfo {
     float dist;
     bool isStar;
     int index;
+    int systemAnchorX;
+    int systemAnchorZ;
+    uint32_t worldSeed;
     char name[32];
     SpectrumType spectrum;
     SolarBodyStyle style;
@@ -82,6 +85,8 @@ extern SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
 void SpaceInit(void);
 void SpaceShutdown(void);
 void SpaceReset(void);
+void SpaceAdvanceTime(float dt);
+double SpaceSimulationTime(void);
 void UpdateSpaceChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 void SpaceProcessFinishedGenJobs(void);
 void SpaceUpdateStarGlow(Vector3 playerPosition);
