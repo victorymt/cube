@@ -1,0 +1,5 @@
+voxelcraft
+voxelcraft_save.txt
+voxelcraft_save.bak
+*.o
+*.a
