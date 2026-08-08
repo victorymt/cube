@@ -5,6 +5,7 @@
 #include "world.h"
 #include "terrain.h"
 #include "player.h"
+#include "space.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -456,6 +457,9 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
     float travelled = 0.0f;
 
     while (travelled <= maxDistance) {
+        if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP && !SpaceBlockReadyAt(x, y, z)) {
+            return result;
+        }
         if (GetBlockAt(x, y, z) != BLOCK_AIR) {
             result.hit = true;
             result.x = x;
@@ -500,11 +504,12 @@ bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition)
     bool inNether = y >= NETHER_LAYER_Y && y < 0;
     bool inSpace = y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP;
     if (!inSurface && !inNether && !inSpace) return true;
+    if (inSpace && !SpaceBlockReadyAt(x, y, z)) return true;
 
     float minX = (float)x;
     float maxX = (float)x + 1.0f;
     float minY = (float)y;
-    float maxY = (float)y + BlockCollisionHeight(GetBlock(x, y, z));
+    float maxY = (float)y + BlockCollisionHeight(GetBlockAt(x, y, z));
     float minZ = (float)z;
     float maxZ = (float)z + 1.0f;
 
@@ -519,4 +524,3 @@ bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition)
            playerMaxY > minY && playerMinY < maxY &&
            playerMaxZ > minZ && playerMinZ < maxZ;
 }
-

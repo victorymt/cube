@@ -23,6 +23,7 @@ typedef struct NetherChunk {
 extern NetherChunk netherChunks[MAX_NETHER_CHUNKS];
 
 void NetherInit(void);
+void NetherReset(void);
 void UpdateNetherChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 BlockType NetherBlockAt(int x, int y, int z);
 void NetherSetBlock(int x, int y, int z, BlockType type);

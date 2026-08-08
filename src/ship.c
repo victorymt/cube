@@ -2,6 +2,7 @@
 
 #include "raymath.h"
 #include "chunks.h"
+#include "inventory.h"
 #include "world.h"
 #include "player.h"
 #include "particles.h"
@@ -9,14 +10,19 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #define SHIP_THRUST 30.0f
 #define SHIP_DAMPING 0.5f
 #define SHIP_CRUISE_MULTIPLIER 25.0f
+#define SHIP_THRUST_FUEL_PER_SECOND 1.2f
+#define SHIP_CRUISE_FUEL_PER_SECOND 5.0f
+#define SHIP_FUEL_PER_COAL 25.0f
 
 static bool driving = false;
 static bool cruising = false;
+static float fuel = SHIP_MAX_FUEL;
 
 bool ShipTryEnter(int x, int y, int z, Player *player)
 {
@@ -41,6 +47,50 @@ bool ShipIsDriving(void)
 bool ShipIsCruising(void)
 {
     return cruising;
+}
+
+void ShipReset(void)
+{
+    driving = false;
+    cruising = false;
+    fuel = SHIP_MAX_FUEL;
+}
+
+float ShipGetFuel(void)
+{
+    return fuel;
+}
+
+bool ShipRefuel(void)
+{
+    if (fuel >= SHIP_MAX_FUEL - 0.01f) {
+        SetImportMessage("Ship fuel is full.");
+        return false;
+    }
+    if (!InventoryConsume(BLOCK_COAL_ORE, 1)) {
+        SetImportMessage("Mine coal ore to refuel the ship.");
+        return false;
+    }
+
+    fuel = fminf(SHIP_MAX_FUEL, fuel + SHIP_FUEL_PER_COAL);
+    SetImportMessage(TextFormat("Ship refueled: %.0f / %.0f.", fuel, SHIP_MAX_FUEL));
+    return true;
+}
+
+bool ShipSaveState(FILE *file)
+{
+    return fwrite(&fuel, sizeof(fuel), 1, file) == 1;
+}
+
+bool ShipLoadState(FILE *file)
+{
+    float loadedFuel = 0.0f;
+    if (fread(&loadedFuel, sizeof(loadedFuel), 1, file) != 1 ||
+        !isfinite(loadedFuel) || loadedFuel < 0.0f || loadedFuel > SHIP_MAX_FUEL) {
+        return false;
+    }
+    fuel = loadedFuel;
+    return true;
 }
 
 void ShipToggleCruise(void)
@@ -107,6 +157,7 @@ void ShipDraw(const Player *player)
 void ShipUpdate(Player *player, float dt)
 {
     if (IsKeyPressed(KEY_X)) ShipToggleCruise();
+    if (IsKeyPressed(KEY_R)) ShipRefuel();
 
     Vector2 mouseDelta = GetMouseDelta();
     player->yaw -= mouseDelta.x * MOUSE_SENSITIVITY;
@@ -123,15 +174,36 @@ void ShipUpdate(Player *player, float dt)
 
     Vector3 planetDir = Vector3Zero();
     float surfaceDist = 0.0f;
-    bool nearPlanet = PlanetSurfaceAt(player->position, &planetDir, &surfaceDist);
+    bool nearPlanet = !PlanetWorldIsActive() &&
+                      PlanetSurfaceAt(player->position, &planetDir, &surfaceDist);
     Vector3 vertical = (Vector3){ 0.0f, 1.0f, 0.0f };
-    if (nearPlanet) vertical = planetDir;
+    if (nearPlanet) vertical = Vector3Negate(planetDir);
 
     if (IsKeyDown(KEY_SPACE)) accel = Vector3Add(accel, vertical);
     if (IsKeyDown(KEY_LEFT_CONTROL)) accel = Vector3Subtract(accel, vertical);
     if (Vector3LengthSqr(accel) > 0.0f) accel = Vector3Normalize(accel);
 
-    player->velocity = Vector3Add(player->velocity, Vector3Scale(accel, SHIP_THRUST * dt));
+    bool thrusting = Vector3LengthSqr(accel) > 0.0f;
+    float fuelCost = thrusting ? SHIP_THRUST_FUEL_PER_SECOND * dt : 0.0f;
+    float speed = Vector3Length(player->velocity);
+    if (cruising && speed > 1.0f) fuelCost += SHIP_CRUISE_FUEL_PER_SECOND * dt;
+    float thrustFactor = 1.0f;
+    if (fuelCost > 0.0f) {
+        if (fuel <= 0.0f) {
+            thrustFactor = 0.0f;
+            cruising = false;
+            SetImportMessage("Ship fuel depleted. Press R with coal ore to refuel.");
+        } else if (fuel < fuelCost) {
+            thrustFactor = fuel / fuelCost;
+            fuel = 0.0f;
+            cruising = false;
+            SetImportMessage("Ship fuel depleted. Press R with coal ore to refuel.");
+        } else {
+            fuel -= fuelCost;
+        }
+    }
+
+    player->velocity = Vector3Add(player->velocity, Vector3Scale(accel, SHIP_THRUST * dt * thrustFactor));
     float damping = (cruising ? 0.04f : SHIP_DAMPING) * dt;
     player->velocity = Vector3Scale(player->velocity, 1.0f - damping);
 
@@ -147,7 +219,7 @@ void ShipUpdate(Player *player, float dt)
     }
 
     float maxSpeed = cruising ? SHIP_MAX_SPEED * SHIP_CRUISE_MULTIPLIER : SHIP_MAX_SPEED;
-    float speed = Vector3Length(player->velocity);
+    speed = Vector3Length(player->velocity);
     if (speed > maxSpeed) {
         player->velocity = Vector3Scale(player->velocity, maxSpeed / speed);
     }
@@ -173,8 +245,24 @@ void ShipUpdate(Player *player, float dt)
         MovePlayer(player, delta);
     }
 
+    if (!PlanetWorldIsActive()) {
+        Vector3 correctionDir = Vector3Zero();
+        float correctedSurfaceDist = 0.0f;
+        if (PlanetSurfaceAt(player->position, &correctionDir, &correctedSurfaceDist) &&
+            correctedSurfaceDist < 2.0f) {
+            player->position = Vector3Add(
+                player->position,
+                Vector3Scale(Vector3Negate(correctionDir), 2.0f - correctedSurfaceDist));
+            float inwardSpeed = Vector3DotProduct(player->velocity, correctionDir);
+            if (inwardSpeed > 0.0f) {
+                player->velocity = Vector3Subtract(
+                    player->velocity, Vector3Scale(correctionDir, inwardSpeed));
+            }
+        }
+    }
+
     int exhaustCount = cruising ? 3 : 1;
-    if (IsKeyDown(KEY_W)) {
+    if (IsKeyDown(KEY_W) && thrustFactor > 0.0f) {
         for (int k = 0; k < exhaustCount; k++) {
             Vector3 tail = Vector3Subtract(player->position, Vector3Scale(forward, 0.9f));
             ParticlesEmitOne(tail, Vector3Negate(Vector3Scale(forward, 2.5f)),
@@ -192,8 +280,8 @@ void ShipUpdate(Player *player, float dt)
     }
 
     if (nearPlanet && IsKeyDown(KEY_LEFT_CONTROL)) {
-        Vector3 exhaustPos = Vector3Add(player->position, Vector3Scale(Vector3Negate(vertical), 0.9f));
-        ParticlesEmitOne(exhaustPos, Vector3Scale(Vector3Negate(vertical), 2.2f),
+        Vector3 exhaustPos = Vector3Add(player->position, Vector3Scale(vertical, 0.9f));
+        ParticlesEmitOne(exhaustPos, Vector3Scale(vertical, 2.2f),
                          (Color){ 190, 220, 255, 210 },
                          (Vector3){ 0.14f, 0.14f, 0.14f },
                          0.4f, 0.0f);
@@ -246,10 +334,8 @@ static bool FindShipLandingSpot(int *outX, int *outY, int *outZ, const Player *p
     return false;
 }
 
-void ShipExit(Player *player)
+static void ShipPlaceAfterExit(Player *player)
 {
-    if (!driving) return;
-
     int sx = 0;
     int sy = 0;
     int sz = 0;
@@ -264,4 +350,29 @@ void ShipExit(Player *player)
     SetBlock(sx, sy, sz, BLOCK_SPACESHIP);
     driving = false;
     cruising = false;
+}
+
+void ShipExit(Player *player)
+{
+    if (!driving) return;
+    if (HomeWorldTryEnter(player)) {
+        ShipPlaceAfterExit(player);
+        return;
+    }
+    if (PlanetWorldTryEnter(player)) {
+        driving = false;
+        cruising = false;
+        return;
+    }
+    if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
+        SetImportMessage("Approach a planet before leaving the ship.");
+        return;
+    }
+    ShipPlaceAfterExit(player);
+}
+
+void ShipForceExit(Player *player)
+{
+    if (!driving) return;
+    ShipPlaceAfterExit(player);
 }

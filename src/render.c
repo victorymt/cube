@@ -2,6 +2,7 @@
 
 #include "raymath.h"
 #include "chunks.h"
+#include "inventory.h"
 #include "world.h"
 #include "interaction.h"
 #include "terrain.h"
@@ -74,6 +75,48 @@ Color MixWeather(Color color, float daylight)
                      (Color){ 168, 180, 196, 255 } : (Color){ 84, 96, 118, 255 };
     factor *= 0.35f + 0.65f * daylight;
     return ColorLerp(color, overcast, factor);
+}
+
+void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint)
+{
+    if (!PlanetWorldIsActive()) return;
+
+    Color planetTop = { 40, 70, 110, 255 };
+    Color planetHorizon = { 120, 150, 180, 255 };
+    Color planetLight = WHITE;
+    switch (PlanetWorldStyle()) {
+    case SOLAR_STYLE_LAVA:
+        planetTop = (Color){ 52, 12, 14, 255 };
+        planetHorizon = (Color){ 196, 58, 24, 255 };
+        planetLight = (Color){ 255, 150, 112, 255 };
+        break;
+    case SOLAR_STYLE_ICE:
+        planetTop = (Color){ 68, 116, 154, 255 };
+        planetHorizon = (Color){ 196, 226, 238, 255 };
+        planetLight = (Color){ 196, 226, 255, 255 };
+        break;
+    case SOLAR_STYLE_DESERT:
+        planetTop = (Color){ 118, 74, 48, 255 };
+        planetHorizon = (Color){ 226, 164, 94, 255 };
+        planetLight = (Color){ 255, 214, 160, 255 };
+        break;
+    case SOLAR_STYLE_GAS:
+        planetTop = (Color){ 74, 48, 104, 255 };
+        planetHorizon = (Color){ 182, 132, 190, 255 };
+        planetLight = (Color){ 222, 186, 255, 255 };
+        break;
+    case SOLAR_STYLE_CRATER:
+        planetTop = (Color){ 28, 30, 40, 255 };
+        planetHorizon = (Color){ 94, 92, 104, 255 };
+        planetLight = (Color){ 184, 188, 204, 255 };
+        break;
+    default:
+        break;
+    }
+
+    *top = ColorLerp(*top, planetTop, 0.78f);
+    *horizon = ColorLerp(*horizon, planetHorizon, 0.72f);
+    *worldTint = ColorLerp(*worldTint, planetLight, 0.32f);
 }
 
 void SkyColorsForLight(float daylight, float sunset, Color *top, Color *horizon)
@@ -185,8 +228,6 @@ void DrawSpaceSky(float spaceFade, const Camera3D *camera)
 
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
-    unsigned char alpha = (unsigned char)(255.0f * spaceFade);
-
     UpdateMeteors(spaceFade, sw, sh);
 
     DrawNebulae(camera, spaceFade);
@@ -196,20 +237,6 @@ void DrawSpaceSky(float spaceFade, const Camera3D *camera)
     DrawRectangleGradientV(0, sh / 2 - 30, sw, 70,
                            (Color){ 175, 185, 230, (unsigned char)(16.0f * spaceFade) }, BLANK);
 
-    Vector3 planetDir = Vector3Normalize((Vector3){ 0.45f, 0.18f, 0.85f });
-    Vector3 planetPos = Vector3Add(camera->position, Vector3Scale(planetDir, 420.0f));
-    Vector2 screen = GetWorldToScreen(planetPos, *camera);
-    if (screen.x > -120.0f && screen.x < (float)sw + 120.0f &&
-        screen.y > -120.0f && screen.y < (float)sh + 120.0f) {
-        float scale = spaceFade;
-        DrawCircleGradient((int)screen.x, (int)screen.y, (int)(48.0f * scale),
-                           Fade((Color){ 212, 172, 112, 255 }, 0.45f * spaceFade), BLANK);
-        DrawCircle((int)screen.x, (int)screen.y, (int)(20.0f * scale), (Color){ 198, 150, 96, alpha });
-        DrawEllipseLines((int)screen.x, (int)screen.y, (int)(38.0f * scale), (int)(11.0f * scale),
-                         (Color){ 230, 205, 165, (unsigned char)(190.0f * spaceFade) });
-        DrawEllipseLines((int)screen.x, (int)screen.y, (int)(34.0f * scale), (int)(9.0f * scale),
-                         (Color){ 230, 205, 165, (unsigned char)(120.0f * spaceFade) });
-    }
 }
 
 #define STAR_COUNT 500
@@ -371,14 +398,17 @@ void DrawClouds(const Camera3D *camera, Color tint)
     EndBlendMode();
 }
 
-void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
+void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
+               bool drawSurfaceChunks, bool drawNetherChunks)
 {
-    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        Chunk *chunk = &chunks[i];
-        if (!chunk->loaded) continue;
-        if (!ChunkWithinDrawDistance(chunk, camera->position, effectiveRenderDistance)) continue;
-        if (!ChunkIntersectsCameraView(chunk, camera)) continue;
-        if (chunk->hasModel) DrawModel(chunk->model, Vector3Zero(), 1.0f, tint);
+    if (drawSurfaceChunks) {
+        for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+            Chunk *chunk = &chunks[i];
+            if (!chunk->loaded) continue;
+            if (!ChunkWithinDrawDistance(chunk, camera->position, effectiveRenderDistance)) continue;
+            if (!ChunkIntersectsCameraView(chunk, camera)) continue;
+            if (chunk->hasModel) DrawModel(chunk->model, Vector3Zero(), 1.0f, tint);
+        }
     }
 
     int camCx = 0;
@@ -409,27 +439,31 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
     WorldToChunkLocal((int)floorf(camera->position.x), (int)floorf(camera->position.z),
                       &netherCamCx, &netherCamCz, &netherCamLx, &netherCamLz);
 
-    for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
-        NetherChunk *chunk = &netherChunks[i];
-        if (!chunk->loaded) continue;
-        if (abs(chunk->cx - netherCamCx) > NETHER_RENDER_DISTANCE_CHUNKS ||
-            abs(chunk->cz - netherCamCz) > NETHER_RENDER_DISTANCE_CHUNKS) continue;
-        Vector3 center = {
-            (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-            (float)NETHER_LAYER_Y + 16.0f,
-            (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
-        };
-        if (!SphereInFrustum(camera, center, 34.0f)) continue;
-        if (chunk->hasModel) DrawModel(chunk->model, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
+    if (drawNetherChunks) {
+        for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
+            NetherChunk *chunk = &netherChunks[i];
+            if (!chunk->loaded) continue;
+            if (abs(chunk->cx - netherCamCx) > NETHER_RENDER_DISTANCE_CHUNKS ||
+                abs(chunk->cz - netherCamCz) > NETHER_RENDER_DISTANCE_CHUNKS) continue;
+            Vector3 center = {
+                (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
+                (float)NETHER_LAYER_Y + 16.0f,
+                (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
+            };
+            if (!SphereInFrustum(camera, center, 34.0f)) continue;
+            if (chunk->hasModel) DrawModel(chunk->model, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
+        }
     }
 
     BeginBlendMode(BLEND_ALPHA);
-    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        Chunk *chunk = &chunks[i];
-        if (!chunk->loaded) continue;
-        if (!ChunkWithinDrawDistance(chunk, camera->position, effectiveRenderDistance)) continue;
-        if (!ChunkIntersectsCameraView(chunk, camera)) continue;
-        if (chunk->hasWaterModel) DrawModel(chunk->waterModel, Vector3Zero(), 1.0f, tint);
+    if (drawSurfaceChunks) {
+        for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+            Chunk *chunk = &chunks[i];
+            if (!chunk->loaded) continue;
+            if (!ChunkWithinDrawDistance(chunk, camera->position, effectiveRenderDistance)) continue;
+            if (!ChunkIntersectsCameraView(chunk, camera)) continue;
+            if (chunk->hasWaterModel) DrawModel(chunk->waterModel, Vector3Zero(), 1.0f, tint);
+        }
     }
     for (int i = 0; i < MAX_SPACE_CHUNKS; i++) {
         SpaceChunk *chunk = &spaceChunks[i];
@@ -444,18 +478,20 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
         if (!SphereInFrustum(camera, center, 66.0f)) continue;
         if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)SPACE_LAYER_Y, 0.0f }, 1.0f, tint);
     }
-    for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
-        NetherChunk *chunk = &netherChunks[i];
-        if (!chunk->loaded) continue;
-        if (abs(chunk->cx - netherCamCx) > NETHER_RENDER_DISTANCE_CHUNKS ||
-            abs(chunk->cz - netherCamCz) > NETHER_RENDER_DISTANCE_CHUNKS) continue;
-        Vector3 center = {
-            (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-            (float)NETHER_LAYER_Y + 16.0f,
-            (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
-        };
-        if (!SphereInFrustum(camera, center, 34.0f)) continue;
-        if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
+    if (drawNetherChunks) {
+        for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
+            NetherChunk *chunk = &netherChunks[i];
+            if (!chunk->loaded) continue;
+            if (abs(chunk->cx - netherCamCx) > NETHER_RENDER_DISTANCE_CHUNKS ||
+                abs(chunk->cz - netherCamCz) > NETHER_RENDER_DISTANCE_CHUNKS) continue;
+            Vector3 center = {
+                (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
+                (float)NETHER_LAYER_Y + 16.0f,
+                (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
+            };
+            if (!SphereInFrustum(camera, center, 34.0f)) continue;
+            if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
+        }
     }
     EndBlendMode();
 }
@@ -567,9 +603,31 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
         if (onScreen) {
             DrawCircle((int)px, (int)py, 4.0f, Fade(color, spaceFade));
             if (bodies[i].dist < 350.0f) {
-                DrawText(TextFormat("%s %c", bodies[i].name, 'a' + bodies[i].index),
+                DrawText(TextFormat("%s %c", bodies[i].name,
+                                    'a' + (bodies[i].index > 0 ? bodies[i].index - 1 : 0)),
                          (int)px + 7, (int)py - 8, 15, Fade(WHITE, 0.85f * spaceFade));
             }
+        }
+    }
+
+    Vector3 homeCenter = HomeWorldCenter();
+    float homeDist = Vector3Distance(camera->position, homeCenter);
+    if (homeDist > 90.0f) {
+        Vector3 toHome = Vector3Subtract(homeCenter, camera->position);
+        bool behind = Vector3DotProduct(toHome, forward) < 0.0f;
+        Vector2 homeScreen = GetWorldToScreen(homeCenter, *camera);
+        bool onScreen = !behind && homeScreen.x > -10.0f && homeScreen.x < (float)sw + 10.0f &&
+                        homeScreen.y > -10.0f && homeScreen.y < (float)sh + 10.0f;
+        Color homeColor = (Color){ 130, 202, 255, 255 };
+        if (onScreen) {
+            DrawCircle((int)homeScreen.x, (int)homeScreen.y, 6.0f,
+                       Fade(homeColor, 0.9f * spaceFade));
+            DrawText(TextFormat("Homeworld - %.0f blocks", homeDist),
+                     (int)homeScreen.x + 10, (int)homeScreen.y - 8, 15,
+                     Fade(WHITE, 0.9f * spaceFade));
+        } else {
+            DrawEdgeIndicator(homeScreen.x, homeScreen.y, behind, camera->position,
+                              homeCenter, homeColor, spaceFade, "Homeworld");
         }
     }
 
@@ -587,6 +645,56 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
     }
 }
 
+void DrawSolarBodies(const Camera3D *camera, float spaceFade)
+{
+    if (spaceFade <= 0.05f) return;
+
+    SpaceBodyInfo bodies[48];
+    int count = SpaceBodiesNear(camera->position, 700.0f, bodies, 48);
+    for (int i = 0; i < count; i++) {
+        Color color = bodies[i].isStar ? SpectrumColor(bodies[i].spectrum)
+                                      : SolarStyleColor(bodies[i].style);
+        if (bodies[i].isStar) {
+            float radius = bodies[i].radius;
+            DrawSphere(bodies[i].center, radius * 1.08f, color);
+            DrawSphereWires(bodies[i].center, radius * 1.14f, 12, 8,
+                            Fade((Color){ 255, 244, 200, 255 }, 0.45f * spaceFade));
+        } else {
+            float radius = SolarBodyTerrainRadius(bodies[i].radius);
+            DrawSphere(bodies[i].center, radius + 0.08f, color);
+        }
+    }
+}
+
+static Color HomePlanetColor(void)
+{
+    if (terrainMode == TERRAIN_FLAT) return (Color){ 72, 138, 88, 255 };
+
+    switch (BiomeAt(0, 0)) {
+    case BIOME_DESERT:  return (Color){ 184, 140, 76, 255 };
+    case BIOME_SNOW:    return (Color){ 158, 184, 210, 255 };
+    case BIOME_MOUNTAIN: return (Color){ 116, 142, 158, 255 };
+    case BIOME_FOREST:  return (Color){ 48, 116, 72, 255 };
+    case BIOME_PLAINS:
+    default:            return (Color){ 70, 142, 92, 255 };
+    }
+}
+
+void DrawHomePlanet(const Camera3D *camera, float spaceFade)
+{
+    if (spaceFade <= 0.05f) return;
+
+    const Vector3 center = HomeWorldCenter();
+    const float radius = HomeWorldRadius();
+    float distance = Vector3Distance(camera->position, center);
+    if (distance <= radius + 0.5f || distance > 24000.0f) return;
+
+    Color atmosphere = (Color){ 130, 202, 255, 255 };
+    DrawSphere(center, radius, HomePlanetColor());
+    DrawSphereWires(center, radius * 1.035f, 24, 16,
+                    Fade(atmosphere, 0.52f * spaceFade));
+}
+
 void DrawBodyInfoPanel(const SpaceBodyInfo *body)
 {
     if (!body) return;
@@ -596,7 +704,14 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
     if (body->isStar) {
         text = TextFormat("%s Prime - %s - %.0f blocks", body->name, typeName, body->dist);
     } else {
-        text = TextFormat("%s %c - %s - %.0f blocks", body->name, 'a' + body->index, typeName, body->dist);
+        float surfaceGap = fabsf(body->dist - SolarBodyTerrainRadius(body->radius));
+        if (ShipIsDriving() && surfaceGap <= 20.0f) {
+            text = TextFormat("%s %c - %s - E land", body->name,
+                              'a' + (body->index > 0 ? body->index - 1 : 0), typeName);
+        } else {
+            text = TextFormat("%s %c - %s - %.0f blocks", body->name,
+                              'a' + (body->index > 0 ? body->index - 1 : 0), typeName, body->dist);
+        }
     }
 
     int fs = 18;
@@ -613,8 +728,8 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
 
 void DrawShipHud(void)
 {
-    int sh = GetScreenHeight();
-    Rectangle panel = { 16.0f, (float)sh - 100.0f, 400.0f, 84.0f };
+    int sw = GetScreenWidth();
+    Rectangle panel = { (float)sw - 416.0f, 16.0f, 400.0f, 104.0f };
     DrawRectangleRounded(panel, 0.08f, 6, Fade(BLACK, 0.55f));
     DrawRectangleRoundedLinesEx(panel, 0.08f, 6, 1.5f, Fade(WHITE, 0.30f));
 
@@ -624,8 +739,11 @@ void DrawShipHud(void)
     DrawText(TextFormat("ALT %.0f%s   HDG %03.0f", shipHudAlt,
                         shipHudNearPlanet ? " (surface)" : "", shipHudHeading),
              28, (int)panel.y + 40, 17, Fade(WHITE, 0.9f));
+    Color fuelColor = ShipGetFuel() > 20.0f ? (Color){ 255, 204, 94, 255 } : (Color){ 238, 100, 82, 255 };
+    DrawText(TextFormat("FUEL %.0f / %.0f   R refuel", ShipGetFuel(), SHIP_MAX_FUEL),
+             28, (int)panel.y + 62, 16, fuelColor);
     DrawText(TextFormat("SYS %s", shipHudSystem),
-             28, (int)panel.y + 62, 16, Fade(WHITE, 0.75f));
+             28, (int)panel.y + 82, 16, Fade(WHITE, 0.75f));
 }
 
 void DrawCrosshair(int screenWidth, int screenHeight)
@@ -660,9 +778,16 @@ void DrawHotbar(const BlockType *hotbar, int selectedIndex)
         DrawTexturePro(blockAtlas, source, dest, Vector2Zero(), 0.0f, WHITE);
         DrawRectangleLines((int)rect.x + 14, (int)rect.y + 11, 22, 22, Fade(BLACK, 0.35f));
         DrawText(i == 9 ? "0" : TextFormat("%d", i + 1), (int)rect.x + 6, (int)rect.y + 31, 14, Fade(WHITE, 0.85f));
+        int count = InventoryCount(block);
+        const char *countText = TextFormat("%d", count);
+        int countFont = count >= 100 ? 11 : 13;
+        int countWidth = MeasureText(countText, countFont);
+        DrawText(countText, (int)(rect.x + rect.width - 5.0f - (float)countWidth), (int)rect.y + 31, countFont,
+                 count > 0 ? WHITE : Fade((Color){ 238, 100, 82, 255 }, 0.9f));
     }
 
-    DrawText(BlockName(hotbar[selectedIndex]), x0, y - 24, 18, WHITE);
+    DrawText(TextFormat("%s  x%d", BlockName(hotbar[selectedIndex]), InventoryCount(hotbar[selectedIndex])),
+             x0, y - 24, 18, WHITE);
 }
 
 int HotbarKeyToIndex(void)
@@ -714,10 +839,19 @@ bool DrawTerrainOption(Rectangle rect, const char *title, const char *subtitle, 
     return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 
-void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain)
+void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain,
+                   uint32_t *selectedSeed)
 {
+    static char seedText[11] = { 0 };
+    static uint32_t displayedSeed = 0;
+    static bool seedFocused = false;
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
+
+    if (seedText[0] == '\0' || (!seedFocused && displayedSeed != *selectedSeed)) {
+        snprintf(seedText, sizeof(seedText), "%u", *selectedSeed);
+        displayedSeed = *selectedSeed;
+    }
 
     ClearBackground((Color){ 96, 157, 213, 255 });
     DrawRectangleGradientV(0, 0, sw, sh, (Color){ 99, 166, 221, 255 }, (Color){ 58, 91, 78, 255 });
@@ -754,12 +888,65 @@ void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain
         *selectedTerrain = TERRAIN_FLAT;
     }
 
-    Rectangle startRect = { sw / 2 - 130.0f, sh / 2 + 106.0f, 260.0f, 56.0f };
-    Rectangle quitRect = { sw / 2 - 130.0f, sh / 2 + 176.0f, 260.0f, 52.0f };
-    if (DrawMenuButton(startRect, "Start", true) || IsKeyPressed(KEY_ENTER)) *startGame = true;
+    Rectangle seedRect = { sw / 2 - 252.0f, sh / 2 + 96.0f, 356.0f, 48.0f };
+    Rectangle randomRect = { sw / 2 + 116.0f, sh / 2 + 96.0f, 136.0f, 48.0f };
+    Vector2 mouse = GetMousePosition();
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        seedFocused = CheckCollisionPointRec(mouse, seedRect);
+    }
+
+    if (seedFocused) {
+        int codepoint = GetCharPressed();
+        while (codepoint > 0) {
+            size_t length = strlen(seedText);
+            if (codepoint >= '0' && codepoint <= '9' && length < sizeof(seedText) - 1) {
+                seedText[length] = (char)codepoint;
+                seedText[length + 1] = '\0';
+            }
+            codepoint = GetCharPressed();
+        }
+        if (IsKeyPressed(KEY_BACKSPACE)) {
+            size_t length = strlen(seedText);
+            if (length > 0) seedText[length - 1] = '\0';
+        }
+    }
+
+    char *seedEnd = NULL;
+    unsigned long long parsedSeed = strtoull(seedText, &seedEnd, 10);
+    bool validSeed = seedText[0] != '\0' && seedEnd && *seedEnd == '\0' &&
+                     parsedSeed > 0 && parsedSeed <= UINT32_MAX;
+    if (validSeed) {
+        *selectedSeed = (uint32_t)parsedSeed;
+        displayedSeed = *selectedSeed;
+    }
+
+    DrawText("World seed", (int)seedRect.x, (int)seedRect.y - 22, 16, Fade(WHITE, 0.78f));
+    DrawRectangleRounded(seedRect, 0.07f, 8, (Color){ 28, 35, 42, 255 });
+    DrawRectangleRoundedLinesEx(seedRect, 0.07f, 8, 2.0f,
+                                validSeed ? (seedFocused ? WHITE : Fade(WHITE, 0.48f)) : (Color){ 230, 92, 82, 255 });
+    DrawText(seedText, (int)seedRect.x + 15, (int)seedRect.y + 12, 22, WHITE);
+    if (seedFocused) {
+        int caretX = (int)seedRect.x + 15 + MeasureText(seedText, 22);
+        DrawRectangle(caretX + 2, (int)seedRect.y + 11, 2, 25, Fade(WHITE, 0.9f));
+    }
+    if (DrawMenuButton(randomRect, "Random", false)) {
+        uint32_t randomSeed = ((uint32_t)GetRandomValue(0, 0xffff) << 16) |
+                              (uint32_t)GetRandomValue(0, 0xffff);
+        if (randomSeed == 0) randomSeed = DEFAULT_WORLD_SEED;
+        *selectedSeed = randomSeed;
+        displayedSeed = randomSeed;
+        snprintf(seedText, sizeof(seedText), "%u", randomSeed);
+        validSeed = true;
+        seedFocused = false;
+    }
+
+    Rectangle startRect = { sw / 2 - 130.0f, sh / 2 + 160.0f, 260.0f, 54.0f };
+    Rectangle quitRect = { sw / 2 - 130.0f, sh / 2 + 226.0f, 260.0f, 48.0f };
+    if (validSeed && (DrawMenuButton(startRect, "Start", true) || IsKeyPressed(KEY_ENTER))) *startGame = true;
+    else if (!validSeed) DrawMenuButton(startRect, "Enter a valid seed", false);
     if (DrawMenuButton(quitRect, "Quit", false)) *quitGame = true;
 
-    DrawCenteredText("Press Enter to start", sh - 54, 18, Fade(WHITE, 0.72f));
+    DrawCenteredText(TextFormat("Seed %u", *selectedSeed), sh - 32, 16, Fade(WHITE, 0.68f));
 }
 
 void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
@@ -767,7 +954,7 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     int x = 18;
     int y = 18;
     int w = 315;
-    int h = 304;
+    int h = 338;
     DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)w, (float)h }, 0.05f, 6, Fade(BLACK, 0.5f));
     DrawText("Voxelcraft", x + 14, y + 12, 22, WHITE);
     DrawText("WASD move    Shift sprint    Space jump/swim", x + 14, y + 46, 16, RAYWHITE);
@@ -778,12 +965,13 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     DrawText("Esc pause    F6 day/night cycle", x + 14, y + 166, 16, RAYWHITE);
     DrawText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 190, 16, RAYWHITE);
     DrawText("Fly above y=120 to reach space", x + 14, y + 214, 16, RAYWHITE);
-    DrawText("Ship: RMB enter, W/S/A/D thrust, E exit", x + 14, y + 234, 16, RAYWHITE);
-    DrawText("Flat: I import image, [ ] adjusts precision", x + 14, y + 214, 16, RAYWHITE);
+    DrawText("Break collects; place consumes blocks", x + 14, y + 238, 14, RAYWHITE);
+    DrawText("Ship: RMB enter, WASD thrust, R fuel, E exit", x + 14, y + 260, 14, RAYWHITE);
+    DrawText("Flat: I import image, [ ] adjusts precision", x + 14, y + 282, 14, RAYWHITE);
     const char *mode = ShipIsDriving() ? "Ship" : (floating ? "Floating" : "Walking");
     DrawText(TextFormat("%s    %s    View %d    FPS %d", mode,
                         cursorReleased ? "Mouse free" : "Mouse locked", viewDistance, GetFPS()),
-             x + 14, y + 272, 16, Fade(RAYWHITE, 0.8f));
+             x + 14, y + 310, 16, Fade(RAYWHITE, 0.8f));
 }
 
 void DrawCursorReleasedOverlay(void)
@@ -952,4 +1140,3 @@ void DrawPauseMenu(bool *resume, bool *saveWorld, bool *saveAndQuit,
     DrawText(TextFormat("Volume: %d%%   (- / + to adjust)", (int)(GetMasterVolume() * 100.0f)),
              (int)panel.x + 30, (int)(panel.y + panel.height - 34), 16, Fade(WHITE, 0.72f));
 }
-

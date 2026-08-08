@@ -3,7 +3,13 @@
 
 #include "types.h"
 
+#include <stdint.h>
+
 extern TerrainMode terrainMode;
+
+uint32_t WorldGetSeed(void);
+void WorldSetSeed(uint32_t seed);
+void WorldReset(uint32_t seed);
 
 const char *BlockName(BlockType type);
 bool IsColorBlock(BlockType type);
@@ -26,6 +32,8 @@ float TorchLightAtBlockNearby(int x, int y, int z, const int *indices, int count
 int CollectNearbyTorchLights(int chunkMinX, int chunkMaxX, int chunkMinZ, int chunkMaxZ, int *indices);
 int WorldGetEditCount(void);
 const BlockEdit *WorldGetEditAt(int index);
+uint32_t WorldGetEditDimensionAt(int index);
+bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit);
 
 void SetImportMessage(const char *message);
 const char *WorldGetImportMessage(void);

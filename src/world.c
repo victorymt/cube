@@ -6,6 +6,8 @@
 #include "space.h"
 #include "nether.h"
 #include "album.h"
+#include "inventory.h"
+#include "ship.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -15,6 +17,19 @@
 #include <string.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V7 "VOXELCRAFT_SAVE_V7"
+#define SAVE_MAGIC_V7_LEN (sizeof(SAVE_MAGIC_V7) - 1)
+#define SAVE_MAGIC_V6 "VOXELCRAFT_SAVE_V6"
+#define SAVE_MAGIC_V6_LEN (sizeof(SAVE_MAGIC_V6) - 1)
+#define SAVE_MAGIC_V5 "VOXELCRAFT_SAVE_V5"
+#define SAVE_MAGIC_V5_LEN (sizeof(SAVE_MAGIC_V5) - 1)
+#define SAVE_MAGIC_V4 "VOXELCRAFT_SAVE_V4"
+#define SAVE_MAGIC_V4_LEN (sizeof(SAVE_MAGIC_V4) - 1)
+#define SAVE_MAGIC_V3 "VOXELCRAFT_SAVE_V3"
+#define SAVE_MAGIC_V3_LEN (sizeof(SAVE_MAGIC_V3) - 1)
+#define SAVE_MAGIC_V2_PREFIX "VOXELCRAFT_SAVE_V2"
+#define SAVE_MAGIC_V2_PREFIX_LEN 17
+#define LEGACY_PLANET_REGION_RADIUS 1024
 
 #include "raymath.h"
 #include "chunks.h"
@@ -23,9 +38,26 @@
 #include "nether.h"
 #include "album.h"
 BlockEdit *blockEdits = NULL;
+uint32_t *blockEditDimensions = NULL;
 BlockEditIndex *blockEditIndex = NULL;
 int blockEditCount = 0;
 int blockEditCapacity = 0;
+static uint32_t worldSeed = DEFAULT_WORLD_SEED;
+
+uint32_t WorldGetSeed(void)
+{
+    return worldSeed;
+}
+
+void WorldSetSeed(uint32_t seed)
+{
+    worldSeed = seed == 0 ? DEFAULT_WORLD_SEED : seed;
+}
+
+static uint32_t WorldCurrentEditDimension(void)
+{
+    return PlanetWorldIsActive() ? PlanetWorldSeed() : 0u;
+}
 int blockEditIndexCapacity = 0;
 char importMessage[160] = "Flat mode: press I to import an image path.";
 float importMessageTimer = 8.0f;
@@ -103,7 +135,7 @@ bool IsColorBlock(BlockType type)
 
 bool IsValidBlockType(BlockType type)
 {
-    return (type >= BLOCK_AIR && type <= BLOCK_DIAMOND_ORE) || IsColorBlock(type);
+    return (type >= BLOCK_AIR && type <= BLOCK_NETHER_PORTAL) || IsColorBlock(type);
 }
 
 bool IsWaterBlock(BlockType type)
@@ -236,9 +268,10 @@ Color BlockBaseColor(BlockType type)
     }
 }
 
-unsigned int HashBlockCoord(int x, int y, int z)
+unsigned int HashBlockCoord(uint32_t dimension, int x, int y, int z)
 {
     unsigned int h = 2166136261u;
+    h = (h ^ dimension) * 16777619u;
     h = (h ^ (unsigned int)x) * 16777619u;
     h = (h ^ (unsigned int)y) * 16777619u;
     h = (h ^ (unsigned int)z) * 16777619u;
@@ -265,16 +298,19 @@ void InsertBlockEditIndex(int editIndex)
     if (!blockEditIndex || blockEditIndexCapacity <= 0) return;
 
     BlockEdit edit = blockEdits[editIndex];
-    unsigned int slot = HashBlockCoord(edit.x, edit.y, edit.z) & (unsigned int)(blockEditIndexCapacity - 1);
+    uint32_t dimension = blockEditDimensions[editIndex];
+    unsigned int slot = HashBlockCoord(dimension, edit.x, edit.y, edit.z) &
+                        (unsigned int)(blockEditIndexCapacity - 1);
 
     for (;;) {
         BlockEditIndex *entry = &blockEditIndex[slot];
         if (!entry->used) {
-            *entry = (BlockEditIndex){ edit.x, edit.y, edit.z, editIndex, true };
+            *entry = (BlockEditIndex){ edit.x, edit.y, edit.z, dimension, editIndex, true };
             return;
         }
 
-        if (entry->x == edit.x && entry->y == edit.y && entry->z == edit.z) {
+        if (entry->dimension == dimension && entry->x == edit.x &&
+            entry->y == edit.y && entry->z == edit.z) {
             entry->editIndex = editIndex;
             return;
         }
@@ -300,15 +336,17 @@ bool RebuildBlockEditIndex(int wantedEditCapacity)
     return true;
 }
 
-int FindBlockEditIndex(int x, int y, int z)
+int FindBlockEditIndex(uint32_t dimension, int x, int y, int z)
 {
     if (!blockEditIndex || blockEditIndexCapacity <= 0) return -1;
 
-    unsigned int slot = HashBlockCoord(x, y, z) & (unsigned int)(blockEditIndexCapacity - 1);
+    unsigned int slot = HashBlockCoord(dimension, x, y, z) &
+                        (unsigned int)(blockEditIndexCapacity - 1);
     for (;;) {
         BlockEditIndex *entry = &blockEditIndex[slot];
         if (!entry->used) return -1;
-        if (entry->x == x && entry->y == y && entry->z == z) return entry->editIndex;
+        if (entry->dimension == dimension && entry->x == x &&
+            entry->y == y && entry->z == z) return entry->editIndex;
         slot = (slot + 1u) & (unsigned int)(blockEditIndexCapacity - 1);
     }
 }
@@ -320,10 +358,22 @@ bool EnsureBlockEditCapacity(int capacity)
     int nextCapacity = blockEditCapacity == 0 ? INITIAL_BLOCK_EDIT_CAPACITY : blockEditCapacity;
     while (nextCapacity < capacity) nextCapacity *= 2;
 
-    BlockEdit *nextEdits = realloc(blockEdits, (size_t)nextCapacity * sizeof(*nextEdits));
-    if (!nextEdits) return false;
-
+    BlockEdit *nextEdits = malloc((size_t)nextCapacity * sizeof(*nextEdits));
+    uint32_t *nextDimensions = malloc((size_t)nextCapacity * sizeof(*nextDimensions));
+    if (!nextEdits || !nextDimensions) {
+        free(nextEdits);
+        free(nextDimensions);
+        return false;
+    }
+    if (blockEditCount > 0) {
+        memcpy(nextEdits, blockEdits, (size_t)blockEditCount * sizeof(*nextEdits));
+        memcpy(nextDimensions, blockEditDimensions,
+               (size_t)blockEditCount * sizeof(*nextDimensions));
+    }
+    free(blockEdits);
+    free(blockEditDimensions);
     blockEdits = nextEdits;
+    blockEditDimensions = nextDimensions;
     blockEditCapacity = nextCapacity;
     return RebuildBlockEditIndex(blockEditCapacity);
 }
@@ -364,9 +414,12 @@ void TorchLightRemove(int x, int y, int z)
 
 void RebuildTorchList(void)
 {
+    uint32_t dimension = WorldCurrentEditDimension();
     for (int i = 0; i < MAX_TORCH_LIGHTS; i++) torchLights[i].used = false;
     for (int i = 0; i < blockEditCount; i++) {
-        if (blockEdits[i].type == BLOCK_TORCH) TorchLightAdd(blockEdits[i].x, blockEdits[i].y, blockEdits[i].z);
+        if (blockEditDimensions[i] == dimension && blockEdits[i].type == BLOCK_TORCH) {
+            TorchLightAdd(blockEdits[i].x, blockEdits[i].y, blockEdits[i].z);
+        }
     }
 }
 
@@ -402,7 +455,8 @@ int CollectNearbyTorchLights(int chunkMinX, int chunkMaxX, int chunkMinZ, int ch
 
 void RememberBlockEdit(int x, int y, int z, BlockType type)
 {
-    int existingIndex = FindBlockEditIndex(x, y, z);
+    uint32_t dimension = WorldCurrentEditDimension();
+    int existingIndex = FindBlockEditIndex(dimension, x, y, z);
     if (existingIndex >= 0) {
         blockEdits[existingIndex].type = type;
         return;
@@ -411,6 +465,7 @@ void RememberBlockEdit(int x, int y, int z, BlockType type)
     if (!EnsureBlockEditCapacity(blockEditCount + 1)) return;
 
     blockEdits[blockEditCount] = (BlockEdit){ x, y, z, type };
+    blockEditDimensions[blockEditCount] = dimension;
     InsertBlockEditIndex(blockEditCount);
     blockEditCount++;
 }
@@ -456,6 +511,16 @@ void ClearUndoHistory(void)
 {
     undoCount = 0;
     redoCount = 0;
+    pendingGroupStart = false;
+}
+
+void WorldReset(uint32_t seed)
+{
+    blockEditCount = 0;
+    ClearBlockEditIndex();
+    memset(torchLights, 0, sizeof(torchLights));
+    ClearUndoHistory();
+    WorldSetSeed(seed);
 }
 
 bool UndoBlockEdit(void)
@@ -517,6 +582,7 @@ void SetBlockCore(int x, int y, int z, BlockType type, bool recordUndo)
 BlockType GetBlockAt(int x, int y, int z)
 {
     if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP) return SpaceBlockAt(x, y, z);
+    if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) return BLOCK_AIR;
     if (y < 0 && y >= NETHER_LAYER_Y) return NetherBlockAt(x, y, z);
     return GetBlock(x, y, z);
 }
@@ -548,6 +614,7 @@ void SetBlock(int x, int y, int z, BlockType type)
         else TorchLightRemove(x, y, z);
         return;
     }
+    if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) return;
     if (y < 0 && y >= NETHER_LAYER_Y) {
         BlockType previous = NetherBlockAt(x, y, z);
         if (previous != type) PushBlockUndo(x, y, z, previous, type);
@@ -617,7 +684,9 @@ void SaveMap(const Player *player)
         return;
     }
 
-    fwrite("VOXELCRAFT_SAVE_V2", 1, 17, file);
+    fwrite(SAVE_MAGIC_V7, 1, SAVE_MAGIC_V7_LEN, file);
+    uint32_t seed = WorldGetSeed();
+    fwrite(&seed, sizeof(seed), 1, file);
     uint32_t terrain = (uint32_t)terrainMode;
     fwrite(&terrain, sizeof(terrain), 1, file);
     float playerData[6] = {
@@ -628,9 +697,22 @@ void SaveMap(const Player *player)
     uint32_t editCount = (uint32_t)blockEditCount;
     fwrite(&editCount, sizeof(editCount), 1, file);
     if (blockEditCount > 0) {
-        fwrite(blockEdits, sizeof(BlockEdit), (size_t)blockEditCount, file);
+        if (fwrite(blockEdits, sizeof(BlockEdit), (size_t)blockEditCount, file) !=
+                (size_t)blockEditCount ||
+            fwrite(blockEditDimensions, sizeof(*blockEditDimensions),
+                   (size_t)blockEditCount, file) != (size_t)blockEditCount) {
+            fclose(file);
+            SetImportMessage("Save failed: could not write block edits.");
+            return;
+        }
     }
 
+    if (!InventorySave(file) || !ShipSaveState(file) || !PlanetWorldSaveState(file) ||
+        !HomeWorldSaveState(file)) {
+        fclose(file);
+        SetImportMessage("Save failed: could not write player state.");
+        return;
+    }
     AlbumSave(file);
     SpaceSaveEdits(file);
     NetherSaveEdits(file);
@@ -704,8 +786,89 @@ static bool LoadMapV2(FILE *file, TerrainMode *savedTerrain, Player *savedPlayer
     return true;
 }
 
+static bool LoadMapV3(FILE *file, TerrainMode *savedTerrain, Player *savedPlayer,
+                      BlockEdit **outEdits, int *outCount, uint32_t *outSeed)
+{
+    uint32_t seed = DEFAULT_WORLD_SEED;
+    if (fread(&seed, sizeof(seed), 1, file) != 1) return false;
+    if (!LoadMapV2(file, savedTerrain, savedPlayer, outEdits, outCount)) return false;
+    *outSeed = seed == 0 ? DEFAULT_WORLD_SEED : seed;
+    return true;
+}
+
+static bool LoadMapV4(FILE *file, TerrainMode *savedTerrain, Player *savedPlayer,
+                      BlockEdit **outEdits, int *outCount, uint32_t *outSeed)
+{
+    if (!LoadMapV3(file, savedTerrain, savedPlayer, outEdits, outCount, outSeed)) return false;
+    if (!InventoryLoad(file) || !ShipLoadState(file)) {
+        free(*outEdits);
+        *outEdits = NULL;
+        return false;
+    }
+    return true;
+}
+
+static bool LoadMapV5(FILE *file, TerrainMode *savedTerrain, Player *savedPlayer,
+                      BlockEdit **outEdits, int *outCount, uint32_t *outSeed)
+{
+    if (!LoadMapV4(file, savedTerrain, savedPlayer, outEdits, outCount, outSeed)) return false;
+    if (!PlanetWorldLoadState(file)) {
+        free(*outEdits);
+        *outEdits = NULL;
+        return false;
+    }
+    return true;
+}
+
+static bool LoadMapV6(FILE *file, TerrainMode *savedTerrain, Player *savedPlayer,
+                      BlockEdit **outEdits, uint32_t **outDimensions,
+                      int *outCount, uint32_t *outSeed)
+{
+    if (!LoadMapV3(file, savedTerrain, savedPlayer, outEdits, outCount, outSeed)) return false;
+
+    uint32_t *dimensions = NULL;
+    if (*outCount > 0) {
+        dimensions = malloc((size_t)*outCount * sizeof(*dimensions));
+        if (!dimensions ||
+            fread(dimensions, sizeof(*dimensions), (size_t)*outCount, file) != (size_t)*outCount) {
+            free(dimensions);
+            free(*outEdits);
+            *outEdits = NULL;
+            return false;
+        }
+    }
+
+    if (!InventoryLoad(file) || !ShipLoadState(file) || !PlanetWorldLoadState(file)) {
+        free(dimensions);
+        free(*outEdits);
+        *outEdits = NULL;
+        return false;
+    }
+    *outDimensions = dimensions;
+    return true;
+}
+
+static bool LoadMapV7(FILE *file, TerrainMode *savedTerrain, Player *savedPlayer,
+                      BlockEdit **outEdits, uint32_t **outDimensions,
+                      int *outCount, uint32_t *outSeed)
+{
+    if (!LoadMapV6(file, savedTerrain, savedPlayer, outEdits, outDimensions,
+                   outCount, outSeed)) {
+        return false;
+    }
+    if (!HomeWorldLoadState(file)) {
+        free(*outDimensions);
+        free(*outEdits);
+        *outDimensions = NULL;
+        *outEdits = NULL;
+        return false;
+    }
+    return true;
+}
+
 void LoadMap(Player *player)
 {
+    DrainChunkGen();
     FILE *file = fopen(SAVE_FILE, "rb");
     if (!file) {
         SetImportMessage("Load failed: voxelcraft_save.txt was not found.");
@@ -713,45 +876,135 @@ void LoadMap(Player *player)
     }
 
     TerrainMode savedTerrain = TERRAIN_VARIED;
+    uint32_t savedSeed = DEFAULT_WORLD_SEED;
+    bool loadedInventory = false;
+    bool loadedPlanetWorld = false;
+    bool loadedHomeWorld = false;
+    bool legacyPlanetCoordinates = false;
     Player savedPlayer = { 0 };
     int savedEditCount = 0;
     BlockEdit *loadedEdits = NULL;
-    char magic[17] = { 0 };
-    if (fread(magic, 1, 17, file) == 17 && memcmp(magic, "VOXELCRAFT_SAVE_V2", 17) == 0) {
-        if (!LoadMapV2(file, &savedTerrain, &savedPlayer, &loadedEdits, &savedEditCount)) {
-            free(loadedEdits);
+    uint32_t *loadedDimensions = NULL;
+    char magicV7[SAVE_MAGIC_V7_LEN] = { 0 };
+    bool isV7 = fread(magicV7, 1, SAVE_MAGIC_V7_LEN, file) == SAVE_MAGIC_V7_LEN &&
+                memcmp(magicV7, SAVE_MAGIC_V7, SAVE_MAGIC_V7_LEN) == 0;
+    if (isV7) {
+        if (!LoadMapV7(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                       &loadedDimensions, &savedEditCount, &savedSeed)) {
             fclose(file);
             SetImportMessage("Load failed: save file is corrupted.");
             return;
         }
+        loadedInventory = true;
+        loadedPlanetWorld = true;
+        loadedHomeWorld = true;
     } else {
         rewind(file);
-        if (!ReadSaveHeader(file, &savedTerrain, &savedPlayer, &savedEditCount)) {
-            fclose(file);
-            SetImportMessage("Load failed: save file header is invalid.");
-            return;
-        }
-
-        if (savedEditCount > 0) {
-            loadedEdits = malloc((size_t)savedEditCount * sizeof(*loadedEdits));
-            if (!loadedEdits) {
+        char magicV6[SAVE_MAGIC_V6_LEN] = { 0 };
+        bool isV6 = fread(magicV6, 1, SAVE_MAGIC_V6_LEN, file) == SAVE_MAGIC_V6_LEN &&
+                    memcmp(magicV6, SAVE_MAGIC_V6, SAVE_MAGIC_V6_LEN) == 0;
+        if (isV6) {
+            if (!LoadMapV6(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                           &loadedDimensions, &savedEditCount, &savedSeed)) {
                 fclose(file);
-                SetImportMessage("Load failed: not enough memory for save edits.");
+                SetImportMessage("Load failed: save file is corrupted.");
                 return;
             }
-        }
+            loadedInventory = true;
+            loadedPlanetWorld = true;
+        } else {
+            rewind(file);
+            char magicV5[SAVE_MAGIC_V5_LEN] = { 0 };
+            bool isV5 = fread(magicV5, 1, SAVE_MAGIC_V5_LEN, file) == SAVE_MAGIC_V5_LEN &&
+                        memcmp(magicV5, SAVE_MAGIC_V5, SAVE_MAGIC_V5_LEN) == 0;
+            if (isV5) {
+                if (!LoadMapV5(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                               &savedEditCount, &savedSeed)) {
+                    free(loadedEdits);
+                    fclose(file);
+                    SetImportMessage("Load failed: save file is corrupted.");
+                    return;
+                }
+                loadedInventory = true;
+                loadedPlanetWorld = true;
+                legacyPlanetCoordinates = true;
+            } else {
+                rewind(file);
+                char magicV4[SAVE_MAGIC_V4_LEN] = { 0 };
+                bool isV4 = fread(magicV4, 1, SAVE_MAGIC_V4_LEN, file) == SAVE_MAGIC_V4_LEN &&
+                            memcmp(magicV4, SAVE_MAGIC_V4, SAVE_MAGIC_V4_LEN) == 0;
+                if (isV4) {
+                    if (!LoadMapV4(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                                   &savedEditCount, &savedSeed)) {
+                        free(loadedEdits);
+                        fclose(file);
+                        SetImportMessage("Load failed: save file is corrupted.");
+                        return;
+                    }
+                    loadedInventory = true;
+                } else {
+                    rewind(file);
+                    char magicV3[SAVE_MAGIC_V3_LEN] = { 0 };
+                    bool isV3 = fread(magicV3, 1, SAVE_MAGIC_V3_LEN, file) == SAVE_MAGIC_V3_LEN &&
+                                memcmp(magicV3, SAVE_MAGIC_V3, SAVE_MAGIC_V3_LEN) == 0;
+                    if (isV3) {
+                        if (!LoadMapV3(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                                       &savedEditCount, &savedSeed)) {
+                            free(loadedEdits);
+                            fclose(file);
+                            SetImportMessage("Load failed: save file is corrupted.");
+                            return;
+                        }
+                    } else {
+                        rewind(file);
+                        char magicV2[SAVE_MAGIC_V2_PREFIX_LEN] = { 0 };
+                        bool isV2 = fread(magicV2, 1, SAVE_MAGIC_V2_PREFIX_LEN, file) ==
+                                        SAVE_MAGIC_V2_PREFIX_LEN &&
+                                    memcmp(magicV2, SAVE_MAGIC_V2_PREFIX,
+                                           SAVE_MAGIC_V2_PREFIX_LEN) == 0;
+                        if (isV2) {
+                            if (!LoadMapV2(file, &savedTerrain, &savedPlayer,
+                                           &loadedEdits, &savedEditCount)) {
+                                free(loadedEdits);
+                                fclose(file);
+                                SetImportMessage("Load failed: save file is corrupted.");
+                                return;
+                            }
+                        } else {
+                            rewind(file);
+                            if (!ReadSaveHeader(file, &savedTerrain, &savedPlayer, &savedEditCount)) {
+                                fclose(file);
+                                SetImportMessage("Load failed: save file header is invalid.");
+                                return;
+                            }
 
-        for (int i = 0; i < savedEditCount; i++) {
-            int type = 0;
-            if (fscanf(file, "%d %d %d %d",
-                       &loadedEdits[i].x, &loadedEdits[i].y, &loadedEdits[i].z, &type) != 4 ||
-                !InHeight(loadedEdits[i].y) || !IsValidBlockType((BlockType)type)) {
-                free(loadedEdits);
-                fclose(file);
-                SetImportMessage("Load failed: save file contains invalid block data.");
-                return;
+                            if (savedEditCount > 0) {
+                                loadedEdits = malloc((size_t)savedEditCount * sizeof(*loadedEdits));
+                                if (!loadedEdits) {
+                                    fclose(file);
+                                    SetImportMessage("Load failed: not enough memory for save edits.");
+                                    return;
+                                }
+                            }
+
+                            for (int i = 0; i < savedEditCount; i++) {
+                                int type = 0;
+                                if (fscanf(file, "%d %d %d %d",
+                                          &loadedEdits[i].x, &loadedEdits[i].y,
+                                          &loadedEdits[i].z, &type) != 4 ||
+                                    !InHeight(loadedEdits[i].y) ||
+                                    !IsValidBlockType((BlockType)type)) {
+                                    free(loadedEdits);
+                                    fclose(file);
+                                    SetImportMessage("Load failed: save file contains invalid block data.");
+                                    return;
+                                }
+                                loadedEdits[i].type = (BlockType)type;
+                            }
+                        }
+                    }
+                }
             }
-            loadedEdits[i].type = (BlockType)type;
         }
     }
 
@@ -760,8 +1013,42 @@ void LoadMap(Player *player)
     NetherLoadEdits(file);
     fclose(file);
 
+    if (!loadedPlanetWorld) PlanetWorldReset();
+    if (!loadedHomeWorld) HomeWorldRestoreLegacyState(&savedPlayer);
+
+    if (savedEditCount > 0 && !loadedDimensions) {
+        loadedDimensions = calloc((size_t)savedEditCount, sizeof(*loadedDimensions));
+        if (!loadedDimensions) {
+            free(loadedEdits);
+            SetImportMessage("Load failed: not enough memory for edit dimensions.");
+            return;
+        }
+    }
+
+    if (legacyPlanetCoordinates && PlanetWorldIsActive()) {
+        int originX = PlanetWorldOriginX();
+        int originZ = PlanetWorldOriginZ();
+        uint32_t dimension = PlanetWorldSeed();
+        savedPlayer.position.x -= (float)originX;
+        savedPlayer.position.z -= (float)originZ;
+        for (int i = 0; i < savedEditCount; i++) {
+            int64_t localX = (int64_t)loadedEdits[i].x - (int64_t)originX;
+            int64_t localZ = (int64_t)loadedEdits[i].z - (int64_t)originZ;
+            if (localX < -LEGACY_PLANET_REGION_RADIUS ||
+                localX >= LEGACY_PLANET_REGION_RADIUS ||
+                localZ < -LEGACY_PLANET_REGION_RADIUS ||
+                localZ >= LEGACY_PLANET_REGION_RADIUS) {
+                continue;
+            }
+            loadedEdits[i].x = (int)localX;
+            loadedEdits[i].z = (int)localZ;
+            loadedDimensions[i] = dimension;
+        }
+    }
+
     if (!EnsureBlockEditCapacity(savedEditCount)) {
         free(loadedEdits);
+        free(loadedDimensions);
         SetImportMessage("Load failed: not enough memory to apply save.");
         return;
     }
@@ -771,10 +1058,21 @@ void LoadMap(Player *player)
     UnloadAllSpaceChunks();
     UnloadAllNetherChunks();
     terrainMode = savedTerrain;
+    WorldSetSeed(savedSeed);
+    if (!loadedInventory) {
+        InventoryReset();
+        InventoryGrantStarterKit();
+        ShipReset();
+    }
     *player = savedPlayer;
     blockEditCount = savedEditCount;
-    if (savedEditCount > 0) memcpy(blockEdits, loadedEdits, (size_t)savedEditCount * sizeof(*loadedEdits));
+    if (savedEditCount > 0) {
+        memcpy(blockEdits, loadedEdits, (size_t)savedEditCount * sizeof(*loadedEdits));
+        memcpy(blockEditDimensions, loadedDimensions,
+               (size_t)savedEditCount * sizeof(*loadedDimensions));
+    }
     free(loadedEdits);
+    free(loadedDimensions);
     if (!RebuildBlockEditIndex(blockEditCapacity)) {
         SetImportMessage("Load warning: edit index rebuild failed.");
         return;
@@ -783,7 +1081,10 @@ void LoadMap(Player *player)
     SpaceRebuildTorchList();
     ClearUndoHistory();
 
-    UpdateChunks(player->position, EffectiveRenderDistanceForHeight(player->position.y + EYE_HEIGHT));
+    if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
+        UpdateChunks(player->position,
+                     EffectiveRenderDistanceForHeight(player->position.y + EYE_HEIGHT));
+    }
     SetImportMessage(TextFormat("Loaded %s (%d edits).", SAVE_FILE, blockEditCount));
 }
 
@@ -797,6 +1098,22 @@ const BlockEdit *WorldGetEditAt(int index)
 {
     if (index < 0 || index >= blockEditCount) return NULL;
     return &blockEdits[index];
+}
+
+uint32_t WorldGetEditDimensionAt(int index)
+{
+    if (index < 0 || index >= blockEditCount) return 0u;
+    return blockEditDimensions[index];
+}
+
+bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
+{
+    if (!outEdit || index < 0 || index >= blockEditCount ||
+        blockEditDimensions[index] != WorldCurrentEditDimension()) {
+        return false;
+    }
+    *outEdit = blockEdits[index];
+    return true;
 }
 
 const char *WorldGetImportMessage(void)
@@ -817,5 +1134,6 @@ void WorldTickImportMessage(float dt)
 void WorldCleanup(void)
 {
     free(blockEditIndex);
+    free(blockEditDimensions);
     free(blockEdits);
 }

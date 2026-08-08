@@ -204,6 +204,12 @@ void AlbumInit(void)
     memset(&album, 0, sizeof(album));
 }
 
+void AlbumReset(void)
+{
+    AlbumCleanup();
+    AlbumInit();
+}
+
 void AlbumOpen(void)
 {
     album.open = true;
@@ -242,6 +248,8 @@ void AlbumLoad(FILE *file)
     int count = 0;
     if (fscanf(file, "%63s %d", label, &count) != 2 || strcmp(label, "album") != 0) return;
     if (count < 0 || count > ALBUM_MAX_IMAGES) return;
+    int separator = 0;
+    while ((separator = fgetc(file)) != '\n' && separator != EOF) {}
     for (int i = 0; i < count; i++) {
         char path[ALBUM_PATH_MAX] = { 0 };
         if (!fgets(path, sizeof(path), file)) break;

@@ -8,6 +8,7 @@
 #include "player.h"
 #include "interaction.h"
 #include "album.h"
+#include "inventory.h"
 #include "render.h"
 #include "particles.h"
 #include "audio.h"
@@ -53,6 +54,36 @@ static bool FindLandingSpot(Vector3 start, int minY, int maxY, Vector3 *out)
     return true;
 }
 
+static void BeginNewWorld(Player *player, TerrainMode mode, uint32_t seed)
+{
+    DrainChunkGen();
+    UnloadAllChunks();
+    SpaceReset();
+    NetherReset();
+    AlbumReset();
+    WorldReset(seed);
+    InventoryReset();
+    InventoryGrantStarterKit();
+    ShipReset();
+    StarMapClose();
+    EntitiesClear();
+    ParticlesClear();
+    WeatherInit();
+
+    terrainMode = mode;
+    player->position = (Vector3){ 0.5f, (float)TerrainHeight(0, 0, terrainMode) + 3.0f, 0.5f };
+    player->velocity = Vector3Zero();
+    player->yaw = PI;
+    player->pitch = -0.25f;
+    player->onGround = false;
+    player->floating = false;
+
+    autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
+    dayTime = 0.30f;
+    dayCycleEnabled = true;
+    UpdateChunks(player->position, EffectiveRenderDistanceForHeight(player->position.y + EYE_HEIGHT));
+}
+
 int main(void)
 {
     const int screenWidth = 1280;
@@ -92,7 +123,7 @@ int main(void)
 
     BlockType hotbar[HOTBAR_SIZE] = {
         BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_WOOD, BLOCK_PLANK,
-        BLOCK_BRICK, BLOCK_SAND, BLOCK_SNOW, BLOCK_GLASS, BLOCK_WATER
+        BLOCK_SAND, BLOCK_SNOW, BLOCK_GLASS, BLOCK_WATER, BLOCK_SPACESHIP
     };
     int selectedIndex = 0;
     bool showHelp = true;
@@ -111,6 +142,7 @@ int main(void)
     };
     GameScreen screen = SCREEN_START;
     TerrainMode selectedTerrain = TERRAIN_VARIED;
+    uint32_t selectedSeed = DEFAULT_WORLD_SEED;
 
     Camera3D camera = { 0 };
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
@@ -125,26 +157,26 @@ int main(void)
             bool startGame = false;
             if (IsKeyPressed(KEY_ESCAPE)) quitRequested = true;
             BeginDrawing();
-            DrawStartPage(&startGame, &quitRequested, &selectedTerrain);
+            DrawStartPage(&startGame, &quitRequested, &selectedTerrain, &selectedSeed);
             EndDrawing();
 
             if (startGame) {
-                terrainMode = selectedTerrain;
-                player.position = (Vector3){ 0.5f, (float)TerrainHeight(0, 0, terrainMode) + 3.0f, 0.5f };
-                player.velocity = Vector3Zero();
-                player.onGround = false;
-                player.floating = false;
+                BeginNewWorld(&player, selectedTerrain, selectedSeed);
                 importDialog.open = false;
                 importDialog.relief = true;
                 importDialog.maxBlocks = IMPORT_DEFAULT_BLOCKS;
                 importDialog.path[0] = '\0';
-                UpdateChunks(player.position, EffectiveRenderDistanceForHeight(player.position.y + EYE_HEIGHT));
+                albumOpen = false;
+                albumRainSuspended = false;
+                wasInSpace = false;
+                thirdPerson = false;
+                paused = false;
                 screen = SCREEN_PLAYING;
                 cursorReleased = false;
                 DisableCursor();
                 SetImportMessage(terrainMode == TERRAIN_FLAT ?
-                                 "Flat mode: press I to import, F5 save, F9 load." :
-                                 "Press F5 to save, F9 to load.");
+                                 TextFormat("Flat world seed %u. Press I to import.", WorldGetSeed()) :
+                                 TextFormat("World seed %u.", WorldGetSeed()));
             }
             continue;
         }
@@ -213,7 +245,8 @@ int main(void)
         if (ShipIsDriving() && IsKeyPressed(KEY_E)) {
             ShipExit(&player);
         }
-        if (ShipIsDriving() && IsKeyPressed(KEY_TAB) && !StarMapIsOpen() && !paused) {
+        if (ShipIsDriving() && !HomeWorldSurfaceIsActive() && !PlanetWorldIsActive() &&
+            IsKeyPressed(KEY_TAB) && !StarMapIsOpen() && !paused) {
             StarMapOpen();
         }
         if (StarMapIsOpen()) {
@@ -258,6 +291,7 @@ int main(void)
             if (IsKeyPressed(KEY_F5)) SaveMap(&player);
             if (IsKeyPressed(KEY_F9)) {
                 LoadMap(&player);
+                wasInSpace = !HomeWorldSurfaceIsActive() && !PlanetWorldIsActive();
                 cursorReleased = false;
                 DisableCursor();
                 autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
@@ -299,7 +333,7 @@ int main(void)
             dayTime += dt / DAY_LENGTH_SECONDS;
             if (dayTime >= 1.0f) dayTime -= 1.0f;
         }
-        if (!paused && !albumOpen) {
+        if (!paused && !albumOpen && HomeWorldSurfaceIsActive()) {
             Biome playerBiome = BiomeAt((int)floorf(player.position.x), (int)floorf(player.position.z));
             bool coldArea = playerBiome == BIOME_SNOW || playerBiome == BIOME_MOUNTAIN || player.position.y > 24.0f;
             WeatherUpdate(dt, player.position, coldArea);
@@ -309,24 +343,40 @@ int main(void)
 
         if (ShipIsDriving() && !StarMapIsOpen()) {
             ShipUpdate(&player, dt);
+            if (PlanetWorldTryLaunch(&player) || HomeWorldTryLaunch(&player)) {
+                wasInSpace = true;
+            }
         } else if (!inputBlocked) {
             UpdatePlayer(&player, dt);
-            bool inSpaceNow = player.position.y >= SPACE_ENTER_Y;
-            if (inSpaceNow && !wasInSpace) {
-                SetImportMessage("Entered space - no gravity; follow the sun to the solar system.");
-            } else if (!inSpaceNow && wasInSpace && player.position.y < SPACE_EXIT_Y) {
-                SetImportMessage("Back in the atmosphere.");
+            if (PlanetWorldIsActive()) {
+                wasInSpace = false;
+            } else {
+                bool launchedHome = HomeWorldTryLaunch(&player);
+                bool inSpaceNow = !HomeWorldSurfaceIsActive();
+                if (inSpaceNow && !wasInSpace) {
+                    if (!launchedHome) {
+                        SetImportMessage("Entered space - no gravity; follow the sun to the solar system.");
+                    }
+                } else if (!inSpaceNow && wasInSpace) {
+                    SetImportMessage("Back in the atmosphere.");
+                }
+                wasInSpace = inSpaceNow;
             }
-            wasInSpace = inSpaceNow;
         }
         int effectiveRenderDistance = EffectiveRenderDistanceForHeight(player.position.y + EYE_HEIGHT);
-        UpdateChunks(player.position, effectiveRenderDistance);
-        int spaceGenPerFrame = 2;
-        if (ShipIsDriving()) spaceGenPerFrame = ShipIsCruising() ? 12 : 4;
-        UpdateSpaceChunks(player.position, effectiveRenderDistance, spaceGenPerFrame);
-        UpdateNetherChunks(player.position, effectiveRenderDistance, 4);
-        SpaceUpdateStarGlow(player.position);
-        SpaceUpdateSolarGlow(player.position);
+        bool localWorldActive = HomeWorldSurfaceIsActive() || PlanetWorldIsActive();
+        if (localWorldActive) UpdateChunks(player.position, effectiveRenderDistance);
+        if (!PlanetWorldIsActive()) {
+            SpaceProcessFinishedGenJobs();
+            int spaceGenPerFrame = 2;
+            if (ShipIsDriving()) spaceGenPerFrame = ShipIsCruising() ? 12 : 4;
+            UpdateSpaceChunks(player.position, effectiveRenderDistance, spaceGenPerFrame);
+            if (HomeWorldSurfaceIsActive()) {
+                UpdateNetherChunks(player.position, effectiveRenderDistance, 4);
+            }
+            SpaceUpdateStarGlow(player.position);
+            SpaceUpdateSolarGlow(player.position);
+        }
         ProcessFinishedMeshJobs();
         ProcessFinishedChunkJobs();
         RebuildDirtyChunkMeshes();
@@ -345,12 +395,14 @@ int main(void)
             EntityKill(entityHit);
         } else if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit.y >= NETHER_LAYER_Y) {
             BlockType brokenType = GetBlockAt(hit.x, hit.y, hit.z);
-            if (brokenType != BLOCK_AIR) {
+            if (brokenType != BLOCK_AIR && InventoryAdd(brokenType, 1) > 0) {
                 ParticlesEmitBurst((Vector3){ hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f },
                                    BlockBaseColor(brokenType), 16, 3.0f, 0.7f);
                 AudioPlayBreak();
+                SetBlock(hit.x, hit.y, hit.z, BLOCK_AIR);
+            } else if (brokenType != BLOCK_AIR) {
+                SetImportMessage(TextFormat("Inventory full: %s", BlockName(brokenType)));
             }
-            SetBlock(hit.x, hit.y, hit.z, BLOCK_AIR);
         }
         int placeX = 0;
         int placeY = 0;
@@ -360,7 +412,8 @@ int main(void)
             placeX = hit.x + hit.nx;
             placeY = hit.y + hit.ny;
             placeZ = hit.z + hit.nz;
-            canPlace = GetBlockAt(placeX, placeY, placeZ) == BLOCK_AIR &&
+            canPlace = InventoryCount(hotbar[selectedIndex]) > 0 &&
+                       GetBlockAt(placeX, placeY, placeZ) == BLOCK_AIR &&
                        (placeY >= SPACE_LAYER_Y || InHeight(placeY) ||
                         (placeY >= NETHER_LAYER_Y && placeY < 0)) &&
                        !BlockWouldOverlapPlayer(placeX, placeY, placeZ, player.position);
@@ -406,10 +459,12 @@ int main(void)
                 SetBlock(hit.x, hit.y, hit.z, gateType);
             } else if (canPlace) {
                 BlockType placedType = hotbar[selectedIndex];
-                ParticlesEmitBurst((Vector3){ placeX + 0.5f, placeY + 0.5f, placeZ + 0.5f },
-                                   BlockBaseColor(placedType), 8, 2.0f, 0.5f);
-                AudioPlayPlace();
-                SetBlock(placeX, placeY, placeZ, placedType);
+                if (InventoryConsume(placedType, 1)) {
+                    ParticlesEmitBurst((Vector3){ placeX + 0.5f, placeY + 0.5f, placeZ + 0.5f },
+                                       BlockBaseColor(placedType), 8, 2.0f, 0.5f);
+                    AudioPlayPlace();
+                    SetBlock(placeX, placeY, placeZ, placedType);
+                }
             }
         }
         if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
@@ -417,27 +472,28 @@ int main(void)
             if (picked != BLOCK_AIR && IsValidBlockType(picked)) {
                 hotbar[selectedIndex] = picked;
                 AudioPlayPick();
-                SetImportMessage(TextFormat("Picked %s", BlockName(picked)));
+                SetImportMessage(TextFormat("Picked %s (%d)", BlockName(picked), InventoryCount(picked)));
             }
         }
 
         float daylight = 0.0f;
         float sunset = 0.0f;
         DayNightFactors(dayTime, &daylight, &sunset);
-        if (!paused && !albumOpen && !importDialog.open) {
+        if (!paused && !albumOpen && !importDialog.open && localWorldActive) {
             EntitiesUpdate(dt, &player, daylight);
         }
-        float spaceFade = Clamp((camera.position.y - SPACE_EXIT_Y) / (SPACE_ENTER_Y - SPACE_EXIT_Y), 0.0f, 1.0f);
+        float spaceFade = HomeWorldSpaceFade(camera.position);
         Color skyTop = { 0 };
         Color skyHorizon = { 0 };
         SkyColorsForLight(daylight, sunset, &skyTop, &skyHorizon);
         Color worldTint = MixWeather(WorldTintForLight(daylight, sunset), daylight);
         skyTop = MixWeather(skyTop, daylight);
         skyHorizon = MixWeather(skyHorizon, daylight);
+        ApplyPlanetWorldPalette(&skyTop, &skyHorizon, &worldTint);
         skyTop = ColorLerp(skyTop, BLACK, spaceFade);
         skyHorizon = ColorLerp(skyHorizon, BLACK, spaceFade);
         worldTint = ColorLerp(worldTint, (Color){ 46, 54, 78, 255 }, spaceFade);
-        bool inNether = camera.position.y < 0.0f;
+        bool inNether = HomeWorldSurfaceIsActive() && camera.position.y < 0.0f;
         if (inNether) {
             skyTop = (Color){ 24, 6, 6, 255 };
             skyHorizon = (Color){ 40, 10, 8, 255 };
@@ -450,9 +506,16 @@ int main(void)
         DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(), skyTop, skyHorizon);
 
         BeginMode3D(camera);
-        DrawWorld(&camera, effectiveRenderDistance, worldTint);
-        EntitiesDraw();
-        if (ShipIsDriving()) ShipDraw(&player);
+        bool drawSurfaceChunks = PlanetWorldIsActive() ||
+                                 (HomeWorldSurfaceIsActive() && spaceFade <= 0.05f);
+        DrawWorld(&camera, effectiveRenderDistance, worldTint, drawSurfaceChunks,
+                  HomeWorldSurfaceIsActive());
+        if (localWorldActive) EntitiesDraw();
+        // Keep the first-person flight view clear. The ship model is only useful
+        // as an exterior reference when the camera is in third person.
+        if (ShipIsDriving() && thirdPerson) ShipDraw(&player);
+        DrawHomePlanet(&camera, spaceFade);
+        DrawSolarBodies(&camera, spaceFade);
         if (spaceFade < 0.5f && !inNether) DrawClouds(&camera, Fade(worldTint, 1.0f - spaceFade * 2.0f));
         ParticlesDraw();
         if (hit.hit) {
@@ -504,7 +567,17 @@ int main(void)
                 shipHudCruising = ShipIsCruising();
                 Vector3 gravityDir = Vector3Zero();
                 float surfaceDist = 0.0f;
-                if (PlanetSurfaceAt(player.position, &gravityDir, &surfaceDist)) {
+                if (PlanetWorldIsActive()) {
+                    shipHudNearPlanet = true;
+                    shipHudAlt = player.position.y -
+                                 (float)PlanetTerrainHeight((int)floorf(player.position.x),
+                                                            (int)floorf(player.position.z));
+                } else if (HomeWorldSurfaceIsActive()) {
+                    shipHudNearPlanet = true;
+                    shipHudAlt = player.position.y -
+                                 (float)TerrainHeight((int)floorf(player.position.x),
+                                                      (int)floorf(player.position.z), terrainMode);
+                } else if (PlanetSurfaceAt(player.position, &gravityDir, &surfaceDist)) {
                     shipHudNearPlanet = true;
                     shipHudAlt = surfaceDist;
                 } else {
@@ -514,7 +587,9 @@ int main(void)
                 shipHudHeading = fmodf(player.yaw * RAD2DEG + 360.0f, 360.0f);
                 SolarSystemDef hudSys;
                 float hudDist = 0.0f;
-                if (FindNearestSystem(player.position, 3000.0f, &hudSys, &hudDist)) {
+                if (PlanetWorldIsActive()) {
+                    snprintf(shipHudSystem, sizeof(shipHudSystem), "%s surface", PlanetWorldName());
+                } else if (FindNearestSystem(player.position, 3000.0f, &hudSys, &hudDist)) {
                     snprintf(shipHudSystem, sizeof(shipHudSystem), "%s Prime (%.0f)", hudSys.name, hudDist);
                 } else {
                     snprintf(shipHudSystem, sizeof(shipHudSystem), "Deep space");
@@ -536,7 +611,10 @@ int main(void)
                 DisableCursor();
             }
             if (toggleMusic) AudioToggleMusic();
-            if (saveWorld) SaveMap(&player);
+            if (saveWorld) {
+                if (ShipIsDriving()) ShipForceExit(&player);
+                SaveMap(&player);
+            }
             if (returnToMenu) {
                 paused = false;
                 cursorReleased = false;
@@ -548,6 +626,7 @@ int main(void)
                 EnableCursor();
             }
             if (saveAndQuit) {
+                if (ShipIsDriving()) ShipForceExit(&player);
                 SaveMap(&player);
                 quitRequested = true;
             }
@@ -557,12 +636,13 @@ int main(void)
     }
 
     if (screen == SCREEN_PLAYING) {
-        if (ShipIsDriving()) ShipExit(&player);
+        if (ShipIsDriving()) ShipForceExit(&player);
         SaveMap(&player);
     }
     ChunksShutdownGenThread();
     UnloadAllChunks();
     UnloadAllSpaceChunks();
+    SpaceShutdown();
     UnloadAllNetherChunks();
     UnloadTexture(blockAtlas);
     if (cloudModel.meshCount > 0) UnloadModel(cloudModel);
@@ -573,4 +653,3 @@ int main(void)
     WorldCleanup();
     return 0;
 }
-

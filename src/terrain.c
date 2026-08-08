@@ -1,11 +1,14 @@
 #include "terrain.h"
 
 #include "chunks.h"
+#include "space.h"
 #include "world.h"
 
 #include <math.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "chunks.h"
 #include "world.h"
@@ -13,14 +16,47 @@ unsigned int Hash2D(int x, int z)
 {
     unsigned int h = 2166136261u;
     h = (h ^ (unsigned int)x) * 16777619u;
-    h = (h ^ (unsigned int)(z * 374761393)) * 16777619u;
+    h = (h ^ ((unsigned int)z * 374761393u)) * 16777619u;
     h ^= h >> 13;
     h *= 1274126177u;
     return h ^ (h >> 16);
 }
 
+static unsigned int MixWorldSeed(unsigned int hash)
+{
+    uint32_t seed = WorldGetSeed();
+    if (seed == DEFAULT_WORLD_SEED) return hash;
+    hash ^= seed + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+    hash ^= hash >> 16;
+    hash *= 2246822519u;
+    return hash ^ (hash >> 13);
+}
+
+static float WorldSeedCoordinateOffset(unsigned int lane)
+{
+    uint32_t seed = WorldGetSeed();
+    if (seed == DEFAULT_WORLD_SEED) return 0.0f;
+    unsigned int hash = seed ^ (lane * 0x9e3779b9u);
+    hash ^= hash >> 16;
+    hash *= 2246822519u;
+    int centered = (int)(hash % 200001u) - 100000;
+    return (float)centered * 0.01f;
+}
+
+unsigned int WorldHash2D(int x, int z)
+{
+    return MixWorldSeed(Hash2D(x, z));
+}
+
+unsigned int WorldHash3D(int x, int y, int z)
+{
+    return MixWorldSeed(Hash3D(x, y, z));
+}
+
 float TerrainNoise(float x, float z)
 {
+    x += WorldSeedCoordinateOffset(1u);
+    z += WorldSeedCoordinateOffset(2u);
     float h = 0.0f;
     h += sinf(x * 0.085f) * 4.0f;
     h += cosf(z * 0.073f) * 3.5f;
@@ -31,9 +67,11 @@ float TerrainNoise(float x, float z)
 
 float BiomeNoise(int x, int z)
 {
-    return sinf((float)x * 0.017f) * 0.45f +
-           cosf((float)z * 0.021f) * 0.40f +
-           sinf((float)(x + z) * 0.009f) * 0.35f;
+    float fx = (float)x + WorldSeedCoordinateOffset(3u);
+    float fz = (float)z + WorldSeedCoordinateOffset(4u);
+    return sinf(fx * 0.017f) * 0.45f +
+           cosf(fz * 0.021f) * 0.40f +
+           sinf((fx + fz) * 0.009f) * 0.35f;
 }
 
 Biome BiomeAt(int x, int z)
@@ -48,8 +86,10 @@ Biome BiomeAt(int x, int z)
 
 float CanyonNoise(int x, int z)
 {
-    float dx = sinf((float)x * 0.021f) * 1.4f + cosf((float)(x + z) * 0.013f) * 1.2f;
-    float dz = sinf((float)z * 0.019f) * 1.4f + cosf((float)(x - z) * 0.011f) * 1.1f;
+    float fx = (float)x + WorldSeedCoordinateOffset(5u);
+    float fz = (float)z + WorldSeedCoordinateOffset(6u);
+    float dx = sinf(fx * 0.021f) * 1.4f + cosf((fx + fz) * 0.013f) * 1.2f;
+    float dz = sinf(fz * 0.019f) * 1.4f + cosf((fx - fz) * 0.011f) * 1.1f;
     return dx + dz;
 }
 
@@ -88,7 +128,7 @@ bool ShouldPlaceTree(int x, int z, TerrainMode mode)
 
     int height = TerrainHeight(x, z, mode);
     if (height <= 6) return false;
-    unsigned int hash = Hash2D(x, z);
+    unsigned int hash = WorldHash2D(x, z);
     switch (BiomeAt(x, z)) {
     case BIOME_FOREST:   return hash % 31u == 0u;
     case BIOME_PLAINS:   return hash % 107u == 0u;
@@ -102,16 +142,19 @@ bool CaveAt(int x, int y, int z, int height)
 {
     if (y < 2 || y >= height - 3) return false;
 
-    float n = sinf((float)x * 0.17f) * sinf((float)z * 0.13f) * sinf((float)y * 0.31f);
-    n += sinf((float)(x + z) * 0.09f + (float)y * 0.23f) * 0.7f;
+    float fx = (float)x + WorldSeedCoordinateOffset(7u);
+    float fy = (float)y + WorldSeedCoordinateOffset(8u);
+    float fz = (float)z + WorldSeedCoordinateOffset(9u);
+    float n = sinf(fx * 0.17f) * sinf(fz * 0.13f) * sinf(fy * 0.31f);
+    n += sinf((fx + fz) * 0.09f + fy * 0.23f) * 0.7f;
 
-    float tunnel = sinf((float)x * 0.045f + (float)y * 0.09f) * sinf((float)z * 0.045f - (float)y * 0.07f);
-    float branch = sinf((float)(x + y) * 0.06f) * sinf((float)(z - y) * 0.055f);
+    float tunnel = sinf(fx * 0.045f + fy * 0.09f) * sinf(fz * 0.045f - fy * 0.07f);
+    float branch = sinf((fx + fy) * 0.06f) * sinf((fz - fy) * 0.055f);
     n += (tunnel + branch) * 0.55f;
 
     if (n > 0.95f) return true;
 
-    float chamber = sinf((float)x * 0.028f) * sinf((float)z * 0.026f) * sinf((float)y * 0.035f);
+    float chamber = sinf(fx * 0.028f) * sinf(fz * 0.026f) * sinf(fy * 0.035f);
     if (chamber > 0.90f && y < height - 6) return true;
 
     return n > 0.60f;
@@ -120,13 +163,16 @@ bool CaveAt(int x, int y, int z, int height)
 bool CaveWaterAt(int x, int y, int z, int height)
 {
     if (y < 4 || y >= height - 4) return false;
-    float n = sinf((float)x * 0.11f + 3.7f) * sinf((float)z * 0.13f + 1.3f) * sinf((float)y * 0.19f);
+    float fx = (float)x + WorldSeedCoordinateOffset(10u);
+    float fy = (float)y + WorldSeedCoordinateOffset(11u);
+    float fz = (float)z + WorldSeedCoordinateOffset(12u);
+    float n = sinf(fx * 0.11f + 3.7f) * sinf(fz * 0.13f + 1.3f) * sinf(fy * 0.19f);
     return n > 0.90f;
 }
 
 BlockType OreAt(int x, int y, int z)
 {
-    unsigned int h = Hash3D(x, y, z);
+    unsigned int h = WorldHash3D(x, y, z);
     if (y <= 11 && (h % 281u) == 0u) return BLOCK_DIAMOND_ORE;
     if (y <= 16 && (h % 149u) == 0u) return BLOCK_GOLD_ORE;
     if (y <= 26 && (h % 71u) == 0u) return BLOCK_IRON_ORE;
@@ -145,7 +191,7 @@ bool ShouldPlacePond(int x, int z, int height)
     if (height > 6) return false;
     Biome biome = BiomeAt(x, z);
     if (biome == BIOME_DESERT || biome == BIOME_MOUNTAIN) return false;
-    return Hash2D(x, z) % 97u == 0u;
+    return WorldHash2D(x, z) % 97u == 0u;
 }
 
 void SetChunkLocalBlock(Chunk *chunk, int worldX, int y, int worldZ, BlockType type)
@@ -177,14 +223,14 @@ static void GenerateMineshaft(Chunk *chunk, int cx, int cz, TerrainMode mode)
 
     for (int anchorX = minAnchorX; anchorX <= maxAnchorX; anchorX++) {
         for (int anchorZ = minAnchorZ; anchorZ <= maxAnchorZ; anchorZ++) {
-            if (Hash2D(anchorX + 17, anchorZ + 29) % 100u >= 30u) continue;
+            if (WorldHash2D(anchorX + 17, anchorZ + 29) % 100u >= 30u) continue;
 
             int wx = anchorX * spacing;
             int wz = anchorZ * spacing;
-            int wy = 8 + (int)(Hash2D(anchorX + 3, anchorZ + 5) % 5u);
-            int dx = (Hash2D(anchorX + 7, anchorZ + 11) % 2u) ? 1 : -1;
-            int dz = (Hash2D(anchorX + 13, anchorZ + 19) % 2u) ? 1 : -1;
-            int length = 12 + (int)(Hash2D(anchorX + 23, anchorZ + 31) % 9u);
+            int wy = 8 + (int)(WorldHash2D(anchorX + 3, anchorZ + 5) % 5u);
+            int dx = (WorldHash2D(anchorX + 7, anchorZ + 11) % 2u) ? 1 : -1;
+            int dz = (WorldHash2D(anchorX + 13, anchorZ + 19) % 2u) ? 1 : -1;
+            int length = 12 + (int)(WorldHash2D(anchorX + 23, anchorZ + 31) % 9u);
 
             for (int i = 0; i < length; i++) {
                 int bx = wx + dx * i;
@@ -219,11 +265,11 @@ static void GenerateDungeon(Chunk *chunk, int cx, int cz, TerrainMode mode)
 
     for (int anchorX = minAnchorX; anchorX <= maxAnchorX; anchorX++) {
         for (int anchorZ = minAnchorZ; anchorZ <= maxAnchorZ; anchorZ++) {
-            if (Hash2D(anchorX + 41, anchorZ + 53) % 100u >= 25u) continue;
+            if (WorldHash2D(anchorX + 41, anchorZ + 53) % 100u >= 25u) continue;
 
             int wx = anchorX * spacing;
             int wz = anchorZ * spacing;
-            int wy = 10 + (int)(Hash2D(anchorX + 2, anchorZ + 4) % 4u);
+            int wy = 10 + (int)(WorldHash2D(anchorX + 2, anchorZ + 4) % 4u);
 
             for (int ox = -3; ox <= 3; ox++) {
                 for (int oz = -3; oz <= 3; oz++) {
@@ -262,7 +308,7 @@ static void GenerateDesertTemple(Chunk *chunk, int cx, int cz, TerrainMode mode)
             int wx = anchorX * spacing;
             int wz = anchorZ * spacing;
             if (BiomeAt(wx, wz) != BIOME_DESERT) continue;
-            if (Hash2D(anchorX + 67, anchorZ + 79) % 100u >= 20u) continue;
+            if (WorldHash2D(anchorX + 67, anchorZ + 79) % 100u >= 20u) continue;
 
             int base = TerrainHeight(wx, wz, mode);
 
@@ -315,7 +361,7 @@ static void GenerateVillage(Chunk *chunk, int cx, int cz, TerrainMode mode)
         for (int anchorZ = minAnchorZ; anchorZ <= maxAnchorZ; anchorZ++) {
             int wx = anchorX * VILLAGE_SPACING;
             int wz = anchorZ * VILLAGE_SPACING;
-            if (Hash2D(anchorX, anchorZ) % 100u >= VILLAGE_PROBABILITY) continue;
+            if (WorldHash2D(anchorX, anchorZ) % 100u >= VILLAGE_PROBABILITY) continue;
             if (BiomeAt(wx, wz) == BIOME_DESERT) continue;
             if (TerrainHeight(wx, wz, mode) < 4) continue;
 
@@ -362,8 +408,147 @@ static void GenerateVillage(Chunk *chunk, int cx, int cz, TerrainMode mode)
         }
     }
 }
+
+static unsigned int PlanetHash2D(int localX, int localZ, unsigned int lane)
+{
+    unsigned int h = Hash2D(localX + (int)(lane * 101u),
+                            localZ - (int)(lane * 173u));
+    h ^= PlanetWorldSeed() + 0x9e3779b9u + (h << 6) + (h >> 2);
+    h ^= h >> 16;
+    h *= 2246822519u;
+    return h ^ (h >> 13);
+}
+
+int PlanetTerrainHeight(int x, int z)
+{
+    if (!PlanetWorldIsActive()) return TerrainHeight(x, z, terrainMode);
+
+    int localX = x;
+    int localZ = z;
+    uint32_t seed = PlanetWorldSeed();
+    float ox = (float)(seed & 0xffffu) * 0.0017f;
+    float oz = (float)((seed >> 16) & 0xffffu) * 0.0019f;
+    float fx = (float)localX + ox;
+    float fz = (float)localZ + oz;
+    float height = 13.0f;
+    height += sinf(fx * 0.031f) * 4.2f;
+    height += cosf(fz * 0.027f) * 3.6f;
+    height += sinf((fx + fz) * 0.013f) * 4.8f;
+    height += cosf((fx - fz) * 0.071f) * 1.8f;
+
+    switch (PlanetWorldStyle()) {
+    case SOLAR_STYLE_LAVA:
+        height += sinf(fx * 0.15f) * cosf(fz * 0.13f) * 2.5f;
+        break;
+    case SOLAR_STYLE_ICE:
+        height += 2.0f + sinf((fx + fz) * 0.008f) * 3.0f;
+        break;
+    case SOLAR_STYLE_DESERT:
+        height = 12.0f + fabsf(sinf(fx * 0.045f + cosf(fz * 0.018f))) * 7.0f;
+        break;
+    case SOLAR_STYLE_GAS:
+        height = 14.0f + sinf(fz * 0.025f) * 4.0f + sinf(fx * 0.009f) * 3.0f;
+        break;
+    case SOLAR_STYLE_CRATER: {
+        float crater = fabsf(sinf(fx * 0.021f) * cosf(fz * 0.019f));
+        height -= crater > 0.82f ? 6.0f : 0.0f;
+        break;
+    }
+    default:
+        break;
+    }
+
+    height = roundf(height);
+    if (height < 5.0f) height = 5.0f;
+    if (height > 25.0f) height = 25.0f;
+    return (int)height;
+}
+
+static BlockType PlanetSubsurfaceBlock(SolarBodyStyle style, int depth, unsigned int hash)
+{
+    switch (style) {
+    case SOLAR_STYLE_LAVA:
+        if (depth <= 2) return hash % 11u == 0u ? BLOCK_GLOWSTONE : BLOCK_NETHERRACK;
+        return hash % 17u == 0u ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
+    case SOLAR_STYLE_ICE:
+        if (depth == 0) return BLOCK_SNOW;
+        if (depth <= 3) return BLOCK_ICE;
+        return BLOCK_MOON_ROCK;
+    case SOLAR_STYLE_DESERT:
+        return depth <= 3 ? BLOCK_SAND : BLOCK_SANDSTONE;
+    case SOLAR_STYLE_GAS:
+        if (depth <= 2) return hash % 7u == 0u ? BLOCK_GLOWSTONE : BLOCK_SOUL_SAND;
+        return BLOCK_MOON_ROCK;
+    case SOLAR_STYLE_CRATER:
+        if (depth == 0) return hash % 13u == 0u ? BLOCK_METEORITE : BLOCK_MOON_SAND;
+        return BLOCK_MOON_ROCK;
+    default:
+        return depth == 0 ? BLOCK_GRASS : BLOCK_STONE;
+    }
+}
+
+static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
+{
+    memset(chunk->blocks, 0, sizeof(chunk->blocks));
+    int startX = cx * CHUNK_SIZE;
+    int startZ = cz * CHUNK_SIZE;
+    SolarBodyStyle style = PlanetWorldStyle();
+
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int worldX = startX + lx;
+            int worldZ = startZ + lz;
+            int localX = worldX;
+            int localZ = worldZ;
+            int height = PlanetTerrainHeight(worldX, worldZ);
+
+            for (int y = 0; y <= height; y++) {
+                unsigned int h = PlanetHash2D(localX + y * 19, localZ - y * 23, 1u);
+                int depth = height - y;
+                BlockType type = y == 0 ? BLOCK_BEDROCK : PlanetSubsurfaceBlock(style, depth, h);
+                bool cave = y > 2 && depth > 3 && h % 101u < 3u;
+                chunk->blocks[lx][y][lz] = (unsigned short)(cave ? BLOCK_AIR : type);
+            }
+
+            int seaLevel = style == SOLAR_STYLE_LAVA ? 11 : (style == SOLAR_STYLE_ICE ? 12 : -1);
+            if (seaLevel >= 0 && height < seaLevel) {
+                BlockType liquid = style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER;
+                for (int y = height + 1; y <= seaLevel && InHeight(y); y++) {
+                    chunk->blocks[lx][y][lz] = (unsigned short)liquid;
+                }
+                if (style == SOLAR_STYLE_ICE && InHeight(seaLevel)) {
+                    chunk->blocks[lx][seaLevel][lz] = (unsigned short)BLOCK_ICE;
+                }
+            }
+
+            unsigned int decor = PlanetHash2D(localX, localZ, 7u);
+            if (!InHeight(height + 1)) continue;
+            if (style == SOLAR_STYLE_DESERT && decor % 181u == 0u) {
+                for (int y = height + 1; y <= height + 3 && InHeight(y); y++) {
+                    chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_CACTUS;
+                }
+            } else if (style == SOLAR_STYLE_ICE && decor % 211u == 0u) {
+                for (int y = height + 1; y <= height + 2 && InHeight(y); y++) {
+                    chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_ICE;
+                }
+            } else if (style == SOLAR_STYLE_LAVA && decor % 193u == 0u) {
+                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_GLOWSTONE;
+            } else if (style == SOLAR_STYLE_GAS && decor % 157u == 0u) {
+                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_MUSHROOM;
+            } else if (style == SOLAR_STYLE_CRATER && decor % 149u == 0u) {
+                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_METEORITE;
+            }
+        }
+    }
+}
+
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
+    if (PlanetWorldIsActive()) {
+        GeneratePlanetChunkTerrain(chunk, cx, cz);
+        return;
+    }
+
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int y = 0; y < WORLD_HEIGHT; y++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -420,8 +605,8 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
             }
 
             if (mode != TERRAIN_FLAT && biome == BIOME_DESERT && height > 6 &&
-                (Hash2D(worldX, worldZ) % 23u) == 0u) {
-                int cactusHeight = 2 + (int)(Hash2D(worldX, worldZ + 13) % 2u);
+                (WorldHash2D(worldX, worldZ) % 23u) == 0u) {
+                int cactusHeight = 2 + (int)(WorldHash2D(worldX, worldZ + 13) % 2u);
                 for (int y = height + 1; y < height + 1 + cactusHeight && InHeight(y); y++) {
                     SetChunkLocalBlock(chunk, worldX, y, worldZ, BLOCK_CACTUS);
                 }
@@ -438,7 +623,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
                 if (height < 4) continue;
                 BlockType surface = (BlockType)chunk->blocks[lx][height][lz];
                 if (surface != BLOCK_GRASS) continue;
-                unsigned int h = Hash2D(worldX, worldZ);
+                unsigned int h = WorldHash2D(worldX, worldZ);
                 if (h % 173u == 0u) {
                     SetChunkLocalBlock(chunk, worldX, height + 1, worldZ, BLOCK_FLOWER);
                 } else if (h % 397u == 0u) {
@@ -457,7 +642,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
             bool pine = treeBiome == BIOME_SNOW || treeBiome == BIOME_MOUNTAIN;
 
             if (pine) {
-                int trunkHeight = 5 + (int)(Hash2D(treeX, treeZ + 31) % 3u);
+                int trunkHeight = 5 + (int)(WorldHash2D(treeX, treeZ + 31) % 3u);
                 for (int y = base; y < base + trunkHeight; y++) {
                     SetChunkLocalBlock(chunk, treeX, y, treeZ, BLOCK_WOOD);
                 }
@@ -502,15 +687,15 @@ void ApplyEditsToChunk(Chunk *chunk)
 {
     int editCount = WorldGetEditCount();
     for (int i = 0; i < editCount; i++) {
-        const BlockEdit *edit = WorldGetEditAt(i);
+        BlockEdit edit;
+        if (!WorldGetEditForCurrentDimension(i, &edit)) continue;
         int editCx = 0;
         int editCz = 0;
         int editLx = 0;
         int editLz = 0;
-        WorldToChunkLocal(edit->x, edit->z, &editCx, &editCz, &editLx, &editLz);
-        if (editCx == chunk->cx && editCz == chunk->cz && InHeight(edit->y)) {
-            chunk->blocks[editLx][edit->y][editLz] = (unsigned short)edit->type;
+        WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz, &editLx, &editLz);
+        if (editCx == chunk->cx && editCz == chunk->cz && InHeight(edit.y)) {
+            chunk->blocks[editLx][edit.y][editLz] = (unsigned short)edit.type;
         }
     }
 }
-

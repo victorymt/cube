@@ -48,6 +48,7 @@ typedef struct Album {
 } Album;
 
 void AlbumInit(void);
+void AlbumReset(void);
 void AlbumOpen(void);
 void AlbumClose(void);
 bool AlbumIsOpen(void);

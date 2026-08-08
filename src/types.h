@@ -4,6 +4,7 @@
 #include "raylib.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #define WORLD_HEIGHT 32
 #define CHUNK_SIZE 16
@@ -28,6 +29,7 @@
 #define SAVE_FILE "voxelcraft_save.txt"
 #define AUTO_SAVE_INTERVAL_SECONDS 60.0f
 #define DAY_LENGTH_SECONDS 240.0f
+#define DEFAULT_WORLD_SEED 0x564f5843u
 #define SUN_DISTANCE 420.0f
 #define CLOUD_COUNT 8
 #define CLOUD_SPAN 500.0f
@@ -259,6 +261,7 @@ typedef struct BlockEditIndex {
     int x;
     int y;
     int z;
+    uint32_t dimension;
     int editIndex;
     bool used;
 } BlockEditIndex;

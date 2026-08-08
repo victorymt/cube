@@ -4,9 +4,11 @@
 #include "types.h"
 
 #include <stdio.h>
+#include <stdint.h>
 
 #define MAX_SPACE_CHUNKS ((SPACE_RENDER_DISTANCE_CHUNKS * 2 + 1) * (SPACE_RENDER_DISTANCE_CHUNKS * 2 + 1))
 #define MAX_SPACE_EDITS 65536
+#define MAX_SPACE_GEN_JOBS 16
 
 #define STAR_SYSTEM_SPACING 1400
 #define STAR_SYSTEM_PROBABILITY 65u
@@ -60,6 +62,7 @@ typedef struct SpaceBodyInfo {
 
 typedef struct SpaceChunk {
     bool loaded;
+    bool generating;
     bool dirty;
     bool hasModel;
     bool hasWaterModel;
@@ -77,10 +80,14 @@ typedef struct SpaceChunk {
 extern SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
 
 void SpaceInit(void);
+void SpaceShutdown(void);
+void SpaceReset(void);
 void UpdateSpaceChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
+void SpaceProcessFinishedGenJobs(void);
 void SpaceUpdateStarGlow(Vector3 playerPosition);
 void SpaceUpdateSolarGlow(Vector3 playerPosition);
 BlockType SpaceBlockAt(int x, int y, int z);
+bool SpaceBlockReadyAt(int x, int y, int z);
 void SpaceSetBlock(int x, int y, int z, BlockType type);
 void SpaceSaveEdits(FILE *file);
 void SpaceLoadEdits(FILE *file);
@@ -91,11 +98,33 @@ void SpaceRebuildTorchList(void);
 
 bool StarSystemAt(int ax, int az, SolarSystemDef *out);
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index);
+float SolarBodyTerrainRadius(float radius);
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount);
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist);
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount);
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out);
 bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist);
+bool HomeWorldSurfaceIsActive(void);
+Vector3 HomeWorldCenter(void);
+float HomeWorldRadius(void);
+float HomeWorldSpaceFade(Vector3 position);
+bool HomeWorldTryLaunch(Player *player);
+bool HomeWorldTryEnter(Player *player);
+void HomeWorldReset(void);
+void HomeWorldRestoreLegacyState(const Player *player);
+bool HomeWorldSaveState(FILE *file);
+bool HomeWorldLoadState(FILE *file);
+bool PlanetWorldIsActive(void);
+uint32_t PlanetWorldSeed(void);
+SolarBodyStyle PlanetWorldStyle(void);
+int PlanetWorldOriginX(void);
+int PlanetWorldOriginZ(void);
+const char *PlanetWorldName(void);
+bool PlanetWorldTryEnter(Player *player);
+bool PlanetWorldTryLaunch(Player *player);
+void PlanetWorldReset(void);
+bool PlanetWorldSaveState(FILE *file);
+bool PlanetWorldLoadState(FILE *file);
 Color SpectrumColor(SpectrumType type);
 const char *SpectrumName(SpectrumType type);
 const char *SolarStyleName(SolarBodyStyle style);

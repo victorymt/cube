@@ -100,6 +100,8 @@ bool PlayerOverlapsWorld(Vector3 position)
     for (int x = minX; x <= maxX; x++) {
         for (int y = minY; y <= maxY; y++) {
             for (int z = minZ; z <= maxZ; z++) {
+                if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP &&
+                    !SpaceBlockReadyAt(x, y, z)) return true;
                 BlockType type = GetBlockAt(x, y, z);
                 float top;
                 if (IsStairsBlock(type)) {
@@ -119,7 +121,7 @@ bool PlayerOverlapsWorld(Vector3 position)
 void MovePlayer(Player *player, Vector3 delta)
 {
     bool canStepUp = player->onGround && !player->floating &&
-                     player->position.y < (float)SPACE_LAYER_Y;
+                     (HomeWorldSurfaceIsActive() || PlanetWorldIsActive());
 
     Vector3 next = player->position;
     next.x += delta.x;
@@ -245,7 +247,7 @@ void UpdatePlayer(Player *player, float dt)
     int feetZ = (int)floorf(player->position.z);
     bool inWater = IsLiquidBlock(GetBlockAt(feetX, feetY, feetZ));
 
-    bool inSpace = player->position.y >= (float)SPACE_LAYER_Y;
+    bool inSpace = !HomeWorldSurfaceIsActive() && !PlanetWorldIsActive();
     if (inSpace) {
         Vector3 gravityDir = Vector3Zero();
         float surfaceDist = 0.0f;
@@ -317,4 +319,3 @@ void UpdatePlayer(Player *player, float dt)
         }
     }
 }
-

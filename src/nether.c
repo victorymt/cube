@@ -86,7 +86,7 @@ static void GenerateNetherChunk(NetherChunk *chunk, int cx, int cz)
             int worldX = startX + lx;
             int worldZ = startZ + lz;
             int surface = NetherSurface(worldX, worldZ);
-            unsigned int h = Hash2D(worldX, worldZ);
+            unsigned int h = WorldHash2D(worldX, worldZ);
             bool lavaPit = (h % 17u) == 0u;
             int lavaLevel = surface - 3;
 
@@ -94,8 +94,8 @@ static void GenerateNetherChunk(NetherChunk *chunk, int cx, int cz)
                 int by = NETHER_LAYER_Y + ly;
                 BlockType type = BLOCK_NETHERRACK;
                 if (lavaPit && ly <= lavaLevel) type = BLOCK_LAVA;
-                else if (ly >= surface - 1) type = (Hash2D(worldX + 3, worldZ + 7) % 3u == 0u) ? BLOCK_SOUL_SAND : BLOCK_NETHERRACK;
-                else if (Hash3D(worldX, by, worldZ) % 53u == 0u) type = BLOCK_GLOWSTONE;
+                else if (ly >= surface - 1) type = (WorldHash2D(worldX + 3, worldZ + 7) % 3u == 0u) ? BLOCK_SOUL_SAND : BLOCK_NETHERRACK;
+                else if (WorldHash3D(worldX, by, worldZ) % 53u == 0u) type = BLOCK_GLOWSTONE;
                 else if (CaveAt(worldX, by, worldZ, 30)) type = BLOCK_AIR;
                 chunk->blocks[lx][ly][lz] = (unsigned short)type;
             }
@@ -289,6 +289,12 @@ void UnloadAllNetherChunks(void)
         netherChunks[i].loaded = false;
         netherChunks[i].dirty = false;
     }
+}
+
+void NetherReset(void)
+{
+    UnloadAllNetherChunks();
+    netherEditCount = 0;
 }
 
 int GetActiveNetherChunkCount(void)

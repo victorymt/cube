@@ -4,10 +4,13 @@
 #include "types.h"
 
 unsigned int Hash2D(int x, int z);
+unsigned int WorldHash2D(int x, int z);
+unsigned int WorldHash3D(int x, int y, int z);
 float TerrainNoise(float x, float z);
 float BiomeNoise(int x, int z);
 Biome BiomeAt(int x, int z);
 int TerrainHeight(int x, int z, TerrainMode mode);
+int PlanetTerrainHeight(int x, int z);
 bool ShouldPlaceTree(int x, int z, TerrainMode mode);
 bool CaveAt(int x, int y, int z, int height);
 bool CaveWaterAt(int x, int y, int z, int height);

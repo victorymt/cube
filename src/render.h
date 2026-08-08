@@ -4,6 +4,8 @@
 #include "types.h"
 #include "space.h"
 
+#include <stdint.h>
+
 extern Model cloudModel;
 
 Model LoadCloudModel(void);
@@ -11,21 +13,26 @@ Model LoadCloudModel(void);
 void DayNightFactors(float currentDayTime, float *daylight, float *sunset);
 Color WorldTintForLight(float daylight, float sunset);
 Color MixWeather(Color color, float daylight);
+void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint);
 void SkyColorsForLight(float daylight, float sunset, Color *top, Color *horizon);
 void DrawStars(const Camera3D *camera, float daylight);
 void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight);
 void DrawSpaceSky(float spaceFade, const Camera3D *camera);
 void DrawSolarGuide(const Camera3D *camera, float spaceFade);
+void DrawSolarBodies(const Camera3D *camera, float spaceFade);
+void DrawHomePlanet(const Camera3D *camera, float spaceFade);
 void DrawBodyInfoPanel(const SpaceBodyInfo *body);
 void DrawClouds(const Camera3D *camera, Color tint);
-void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint);
+void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
+               bool drawSurfaceChunks, bool drawNetherChunks);
 
 void DrawCrosshair(int screenWidth, int screenHeight);
 void DrawCenteredText(const char *text, int y, int fontSize, Color color);
 bool DrawMenuButton(Rectangle rect, const char *label, bool primary);
 void DrawHotbar(const BlockType *hotbar, int selectedIndex);
 int HotbarKeyToIndex(void);
-void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain);
+void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain,
+                   uint32_t *selectedSeed);
 void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance);
 void DrawCursorReleasedOverlay(void);
 void DrawImportStatus(void);
