@@ -129,6 +129,50 @@ static void UpdateMeteors(float spaceFade, int sw, int sh)
     if (t >= 1.0f) meteor.active = false;
 }
 
+#define NEBULA_COUNT 36
+#define NEBULA_SPAN 2600.0f
+#define NEBULA_DIST 1700.0f
+
+static void DrawNebulae(const Camera3D *camera, float spaceFade)
+{
+    if (spaceFade <= 0.01f) return;
+
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    static const Color nebulaColors[4] = {
+        { 150, 96, 210, 255 },
+        { 84, 124, 224, 255 },
+        { 222, 140, 82, 255 },
+        { 96, 186, 204, 255 }
+    };
+
+    for (int i = 0; i < NEBULA_COUNT; i++) {
+        unsigned int h1 = Hash2D(i * 13 + 5, 71);
+        unsigned int h2 = Hash2D(i * 29 + 3, 97);
+        float theta = (float)(h1 % 6283u) / 1000.0f;
+        float phi = (float)(h2 % 2000u) / 2000.0f * 1.1f;
+        float radius = (float)(140 + (h2 >> 10) % 90);
+        float dist = NEBULA_DIST + (float)((h1 >> 12) % 800u);
+
+        Vector3 dir = {
+            sinf(phi) * cosf(theta),
+            fmaxf(cosf(phi), 0.05f),
+            sinf(phi) * sinf(theta)
+        };
+        Vector3 pos = Vector3Add(camera->position, Vector3Scale(Vector3Normalize(dir), dist));
+        Vector2 screen = GetWorldToScreen(pos, *camera);
+        if (screen.x < -radius || screen.x > (float)sw + radius ||
+            screen.y < -radius || screen.y > (float)sh + radius) continue;
+
+        float scale = Clamp(radius * 420.0f / dist, 20.0f, 140.0f);
+        Color color = nebulaColors[i % 4];
+        DrawCircleGradient((int)screen.x, (int)screen.y, (int)scale,
+                           Fade(color, 0.10f * spaceFade), BLANK);
+        DrawCircleGradient((int)screen.x, (int)screen.y, (int)(scale * 0.55f),
+                           Fade(color, 0.14f * spaceFade), BLANK);
+    }
+}
+
 void DrawSpaceSky(float spaceFade, const Camera3D *camera)
 {
     if (spaceFade <= 0.01f) return;
@@ -138,6 +182,8 @@ void DrawSpaceSky(float spaceFade, const Camera3D *camera)
     unsigned char alpha = (unsigned char)(255.0f * spaceFade);
 
     UpdateMeteors(spaceFade, sw, sh);
+
+    DrawNebulae(camera, spaceFade);
 
     DrawRectangleGradientV(0, sh / 2 - 90, sw, 90,
                            (Color){ 205, 205, 235, (unsigned char)(24.0f * spaceFade) }, BLANK);
@@ -408,98 +454,146 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
     EndBlendMode();
 }
 
+static Color SolarStyleColor(SolarBodyStyle style)
+{
+    switch (style) {
+    case SOLAR_STYLE_LAVA:   return (Color){ 235, 120, 70, 255 };
+    case SOLAR_STYLE_ICE:    return (Color){ 170, 210, 240, 255 };
+    case SOLAR_STYLE_DESERT: return (Color){ 226, 196, 132, 255 };
+    case SOLAR_STYLE_GAS:    return (Color){ 190, 170, 230, 255 };
+    case SOLAR_STYLE_CRATER: return (Color){ 150, 152, 158, 255 };
+    default:                 return (Color){ 200, 200, 200, 255 };
+    }
+}
+
+static void DrawEdgeIndicator(float px, float py, bool behind, Vector3 origin, Vector3 center,
+                              Color color, float spaceFade, const char *label)
+{
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    float cx = (float)sw * 0.5f;
+    float cy = (float)sh * 0.5f;
+    float dx = px - cx;
+    float dy = py - cy;
+    if (behind) {
+        dx = -dx;
+        dy = -dy;
+    }
+    float len = sqrtf(dx * dx + dy * dy);
+    if (len < 1.0f) {
+        dx = 0.0f;
+        dy = -1.0f;
+        len = 1.0f;
+    }
+    dx /= len;
+    dy /= len;
+    float margin = 30.0f;
+    float tx = ((float)sw * 0.5f - margin) / fmaxf(fabsf(dx), 1e-5f);
+    float ty = ((float)sh * 0.5f - margin) / fmaxf(fabsf(dy), 1e-5f);
+    float t = fminf(tx, ty);
+    float ex = cx + dx * t;
+    float ey = cy + dy * t;
+
+    DrawTriangle((Vector2){ ex - dy * 5.0f, ey + dx * 5.0f },
+                 (Vector2){ ex + dy * 5.0f, ey - dx * 5.0f },
+                 (Vector2){ ex + dx * 12.0f, ey + dy * 12.0f },
+                 Fade(color, 0.9f * spaceFade));
+
+    if (label) {
+        float dist = Vector3Distance(origin, center);
+        DrawText(TextFormat("%s - %.0f blocks", label, dist),
+                 (int)ex + 16, (int)ey - 10, 15, Fade(WHITE, 0.9f * spaceFade));
+    }
+}
+
 void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 {
     if (spaceFade <= 0.05f) return;
 
-    Vector3 bodies[7];
-    SolarSystemBodies(bodies, 7);
-
+    SpaceBodyInfo bodies[48];
+    int count = SpaceBodiesNear(camera->position, 700.0f, bodies, 48);
     Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
 
-    for (int i = 0; i < 7; i++) {
-        bool isSun = (i == 0);
-        Vector3 toBody = Vector3Subtract(bodies[i], camera->position);
-        float dist = Vector3Length(toBody);
+    for (int i = 0; i < count; i++) {
+        Vector3 toBody = Vector3Subtract(bodies[i].center, camera->position);
         bool behind = Vector3DotProduct(toBody, forward) < 0.0f;
+        Vector2 screen = GetWorldToScreen(bodies[i].center, *camera);
+        float px = screen.x;
+        float py = screen.y;
+        bool onScreen = !behind && px > -10.0f && px < (float)sw + 10.0f &&
+                        py > -10.0f && py < (float)sh + 10.0f;
 
-        Color color;
-        switch (i) {
-        case 0: color = (Color){ 255, 214, 120, 255 }; break;
-        case 1: color = (Color){ 235, 120, 70, 255 }; break;
-        case 2: color = (Color){ 170, 210, 240, 255 }; break;
-        case 3: color = (Color){ 226, 196, 132, 255 }; break;
-        case 4: color = (Color){ 190, 170, 230, 255 }; break;
-        case 5: color = (Color){ 150, 152, 158, 255 }; break;
-        default: color = (Color){ 235, 120, 70, 255 }; break;
-        }
-
-        Vector2 screen = GetWorldToScreen(bodies[i], *camera);
-
-        if (isSun && !behind && screen.x > -60.0f && screen.x < (float)sw + 60.0f &&
-            screen.y > -60.0f && screen.y < (float)sh + 60.0f) {
-            float scale = Clamp(1400.0f / dist, 6.0f, 30.0f);
-            DrawCircleGradient((int)screen.x, (int)screen.y, (int)(scale * 1.7f),
-                               Fade(ORANGE, 0.32f * spaceFade), BLANK);
-            DrawCircle((int)screen.x, (int)screen.y, (int)scale,
-                       Fade((Color){ 255, 236, 170, 255 }, spaceFade));
-            DrawLine((int)screen.x - (int)(scale * 2.0f), (int)screen.y,
-                     (int)screen.x + (int)(scale * 2.0f), (int)screen.y,
-                     Fade(color, 0.30f * spaceFade));
-            DrawLine((int)screen.x, (int)screen.y - (int)(scale * 2.0f),
-                     (int)screen.x, (int)screen.y + (int)(scale * 2.0f),
-                     Fade(color, 0.30f * spaceFade));
+        if (bodies[i].isStar) {
+            Color color = SpectrumColor(bodies[i].spectrum);
+            if (onScreen) {
+                float scale = Clamp(1400.0f / bodies[i].dist, 5.0f, 28.0f);
+                DrawCircleGradient((int)px, (int)py, (int)(scale * 1.7f),
+                                   Fade(color, 0.30f * spaceFade), BLANK);
+                DrawCircle((int)px, (int)py, (int)scale,
+                           Fade((Color){ 255, 244, 200, 255 }, spaceFade));
+                DrawLine((int)px - (int)(scale * 2.0f), (int)py, (int)px + (int)(scale * 2.0f), (int)py,
+                         Fade(color, 0.30f * spaceFade));
+                DrawLine((int)px, (int)py - (int)(scale * 2.0f), (int)px, (int)py + (int)(scale * 2.0f),
+                         Fade(color, 0.30f * spaceFade));
+                if (bodies[i].dist < 350.0f) {
+                    DrawText(TextFormat("%s Prime", bodies[i].name), (int)px + (int)scale + 6, (int)py - 8, 15,
+                             Fade(WHITE, 0.85f * spaceFade));
+                }
+            } else {
+                DrawEdgeIndicator(px, py, behind, camera->position, bodies[i].center, color, spaceFade,
+                                  TextFormat("%s Prime", bodies[i].name));
+            }
             continue;
         }
 
-        float px = screen.x;
-        float py = screen.y;
-        float margin = 26.0f;
-        bool offScreen = behind || px < -10.0f || px > (float)sw + 10.0f ||
-                         py < -10.0f || py > (float)sh + 10.0f;
-
-        if (offScreen) {
-            float cx = (float)sw * 0.5f;
-            float cy = (float)sh * 0.5f;
-            float dx = px - cx;
-            float dy = py - cy;
-            if (behind) {
-                dx = -dx;
-                dy = -dy;
-            }
-            float len = sqrtf(dx * dx + dy * dy);
-            if (len < 1.0f) {
-                dx = 0.0f;
-                dy = -1.0f;
-                len = 1.0f;
-            }
-            dx /= len;
-            dy /= len;
-            float tx = ((float)sw * 0.5f - margin) / fmaxf(fabsf(dx), 1e-5f);
-            float ty = ((float)sh * 0.5f - margin) / fmaxf(fabsf(dy), 1e-5f);
-            float t = fminf(tx, ty);
-            px = cx + dx * t;
-            py = cy + dy * t;
-
-            DrawTriangle((Vector2){ px - dy * 4.0f, py + dx * 4.0f },
-                         (Vector2){ px + dy * 4.0f, py - dx * 4.0f },
-                         (Vector2){ px + dx * 10.0f, py + dy * 10.0f },
-                         Fade(color, 0.85f * spaceFade));
-            if (isSun) {
-                DrawCircle((int)px, (int)py, 4.0f, Fade(color, spaceFade));
-            } else {
-                DrawCircle((int)px, (int)py, 4.0f, Fade(color, spaceFade));
-                DrawText(TextFormat("P%d", i), (int)px + 8, (int)py - 8, 14, Fade(WHITE, 0.85f * spaceFade));
-            }
-        } else {
-            DrawCircle((int)px, (int)py, isSun ? 6.0f : 4.0f, Fade(color, spaceFade));
-            if (!isSun) {
-                DrawText(TextFormat("P%d", i), (int)px + 7, (int)py - 8, 14, Fade(WHITE, 0.85f * spaceFade));
+        Color color = SolarStyleColor(bodies[i].style);
+        if (onScreen) {
+            DrawCircle((int)px, (int)py, 4.0f, Fade(color, spaceFade));
+            if (bodies[i].dist < 350.0f) {
+                DrawText(TextFormat("%s %c", bodies[i].name, 'a' + bodies[i].index),
+                         (int)px + 7, (int)py - 8, 15, Fade(WHITE, 0.85f * spaceFade));
             }
         }
     }
+
+    if (count == 0) {
+        SolarSystemDef sys;
+        float sysDist = 0.0f;
+        if (FindNearestSystem(camera->position, 9000.0f, &sys, &sysDist)) {
+            Vector3 toSys = Vector3Subtract(sys.center, camera->position);
+            bool behind = Vector3DotProduct(toSys, forward) < 0.0f;
+            Vector2 screen = GetWorldToScreen(sys.center, *camera);
+            Color color = SpectrumColor(sys.spectrum);
+            DrawEdgeIndicator(screen.x, screen.y, behind, camera->position, sys.center, color, spaceFade,
+                              TextFormat("%s Prime", sys.name));
+        }
+    }
+}
+
+void DrawBodyInfoPanel(const SpaceBodyInfo *body)
+{
+    if (!body) return;
+
+    const char *typeName = body->isStar ? SpectrumName(body->spectrum) : SolarStyleName(body->style);
+    const char *text;
+    if (body->isStar) {
+        text = TextFormat("%s Prime - %s - %.0f blocks", body->name, typeName, body->dist);
+    } else {
+        text = TextFormat("%s %c - %s - %.0f blocks", body->name, 'a' + body->index, typeName, body->dist);
+    }
+
+    int fs = 18;
+    int width = MeasureText(text, fs);
+    int sw = GetScreenWidth();
+    int x = sw / 2 - width / 2;
+    int y = 64;
+    DrawRectangleRounded((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, 40.0f },
+                         0.10f, 6, Fade(BLACK, 0.55f));
+    DrawRectangleRoundedLinesEx((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, 40.0f },
+                                0.10f, 6, 1.5f, Fade(WHITE, 0.30f));
+    DrawText(text, x, y, fs, WHITE);
 }
 
 void DrawCrosshair(int screenWidth, int screenHeight)
@@ -780,6 +874,14 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch)
                         WeatherName(), (int)(dayTimeForHud * 24.0f) % 24,
                         autoSaveForHud ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    SolarSystemDef hudSystem;
+    float hudSystemDist = 0.0f;
+    if (FindNearestSystem(playerPosition, 9000.0f, &hudSystem, &hudSystemDist)) {
+        DrawText(TextFormat("System %s Prime (%.0f)", hudSystem.name, hudSystemDist),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    } else {
+        DrawText("Deep space", x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    }
     DrawText(TextFormat("Block %s   music %s", BlockName(blockForHud),
                         AudioIsMusicEnabled() ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;

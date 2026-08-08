@@ -16,6 +16,7 @@
 #include "ship.h"
 #include "nether.h"
 #include "entity.h"
+#include "starmap.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -211,6 +212,20 @@ int main(void)
         if (ShipIsDriving() && IsKeyPressed(KEY_E)) {
             ShipExit(&player);
         }
+        if (ShipIsDriving() && IsKeyPressed(KEY_TAB) && !StarMapIsOpen() && !paused) {
+            StarMapOpen();
+        }
+        if (StarMapIsOpen()) {
+            Vector3 destination = { 0 };
+            StarMapUpdate(player.position);
+            if (StarMapConsumeTravel(&destination)) {
+                player.position = destination;
+                player.velocity = Vector3Zero();
+                player.floating = false;
+                SetImportMessage(TextFormat("Arrived at %.1f, %.1f, %.1f - explore the system.",
+                                            destination.x, destination.y, destination.z));
+            }
+        }
         if (!paused && !albumOpen && !importDialog.open && IsKeyPressed(KEY_F4)) {
             thirdPerson = !thirdPerson;
             SetImportMessage(thirdPerson ? "Third person view." : "First person view.");
@@ -227,7 +242,8 @@ int main(void)
         }
         if (!openedImportDialog) UpdateImportDialog(&importDialog, &player, &cursorReleased);
 
-        bool inputBlocked = paused || cursorReleased || importDialog.open || albumOpen || ShipIsDriving();
+        bool inputBlocked = paused || cursorReleased || importDialog.open || albumOpen ||
+                            ShipIsDriving() || StarMapIsOpen();
         if (!inputBlocked && IsKeyPressed(KEY_F1)) showHelp = !showHelp;
         if (!inputBlocked && IsKeyPressed(KEY_F3)) showDebug = !showDebug;
         if (!inputBlocked) {
@@ -290,7 +306,7 @@ int main(void)
 
         AudioUpdate();
 
-        if (ShipIsDriving()) {
+        if (ShipIsDriving() && !StarMapIsOpen()) {
             ShipUpdate(&player, dt);
         } else if (!inputBlocked) {
             UpdatePlayer(&player, dt);
@@ -304,7 +320,9 @@ int main(void)
         }
         int effectiveRenderDistance = EffectiveRenderDistanceForHeight(player.position.y + EYE_HEIGHT);
         UpdateChunks(player.position, effectiveRenderDistance);
-        UpdateSpaceChunks(player.position, effectiveRenderDistance, ShipIsDriving() ? 8 : 2);
+        int spaceGenPerFrame = 2;
+        if (ShipIsDriving()) spaceGenPerFrame = ShipIsCruising() ? 12 : 4;
+        UpdateSpaceChunks(player.position, effectiveRenderDistance, spaceGenPerFrame);
         UpdateNetherChunks(player.position, effectiveRenderDistance, 4);
         SpaceUpdateStarGlow(player.position);
         SpaceUpdateSolarGlow(player.position);
@@ -317,12 +335,11 @@ int main(void)
         effectiveRenderDistance = EffectiveRenderDistanceForHeight(camera.position.y);
 
         Vector3 aimEye = { player.position.x, player.position.y + EYE_HEIGHT, player.position.z };
-        HitResult hit = RaycastBlocks(aimEye,
-                                      Vector3Normalize(Vector3Subtract(camera.target, camera.position)),
-                                      REACH_DISTANCE);
-        int entityHit = EntityRayHit(aimEye,
-                                     Vector3Normalize(Vector3Subtract(camera.target, camera.position)),
-                                     REACH_DISTANCE);
+        Vector3 aimDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        HitResult hit = RaycastBlocks(aimEye, aimDir, REACH_DISTANCE);
+        int entityHit = EntityRayHit(aimEye, aimDir, REACH_DISTANCE);
+        SpaceBodyInfo aimBody = { 0 };
+        bool haveAimBody = SpaceBodyPick(aimEye, aimDir, &aimBody);
         if (!inputBlocked && entityHit >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             EntityKill(entityHit);
         } else if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit.y >= NETHER_LAYER_Y) {
@@ -455,6 +472,9 @@ int main(void)
         DrawStars(&camera, inNether ? 1.0f : daylight * (1.0f - spaceFade));
         DrawSpaceSky(spaceFade, &camera);
         DrawSolarGuide(&camera, spaceFade);
+        if (spaceFade > 0.05f && haveAimBody && !StarMapIsOpen()) {
+            DrawBodyInfoPanel(&aimBody);
+        }
         if (spaceFade < 0.5f && !inNether) DrawCelestial(&camera, dayTime, daylight);
         DrawCrosshair(GetScreenWidth(), GetScreenHeight());
         DrawHotbar(hotbar, selectedIndex);
@@ -469,6 +489,7 @@ int main(void)
         if (showHelp) DrawHelpPanel(player.floating, cursorReleased, renderDistanceChunks);
         DrawImportDialog(&importDialog);
         AlbumDraw();
+        StarMapDraw();
         if (showDebug) {
             dayTimeForHud = dayTime;
             autoSaveForHud = autoSaveEnabled;

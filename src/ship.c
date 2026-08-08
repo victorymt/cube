@@ -11,8 +11,10 @@
 
 #define SHIP_THRUST 30.0f
 #define SHIP_DAMPING 0.5f
+#define SHIP_CRUISE_MULTIPLIER 25.0f
 
 static bool driving = false;
+static bool cruising = false;
 
 bool ShipTryEnter(int x, int y, int z, Player *player)
 {
@@ -24,6 +26,7 @@ bool ShipTryEnter(int x, int y, int z, Player *player)
     player->velocity = Vector3Zero();
     player->floating = true;
     driving = true;
+    cruising = false;
     SetImportMessage("Ship: W/S thrust, A/D strafe, Space/Ctrl up/down, E exit.");
     return true;
 }
@@ -33,8 +36,21 @@ bool ShipIsDriving(void)
     return driving;
 }
 
+bool ShipIsCruising(void)
+{
+    return cruising;
+}
+
+void ShipToggleCruise(void)
+{
+    cruising = !cruising;
+    SetImportMessage(cruising ? "Cruise mode: 25x speed (X to toggle)." : "Cruise mode off.");
+}
+
 void ShipUpdate(Player *player, float dt)
 {
+    if (IsKeyPressed(KEY_X)) ShipToggleCruise();
+
     Vector2 mouseDelta = GetMouseDelta();
     player->yaw -= mouseDelta.x * MOUSE_SENSITIVITY;
     player->pitch -= mouseDelta.y * MOUSE_SENSITIVITY;
@@ -52,25 +68,52 @@ void ShipUpdate(Player *player, float dt)
     if (Vector3LengthSqr(accel) > 0.0f) accel = Vector3Normalize(accel);
 
     player->velocity = Vector3Add(player->velocity, Vector3Scale(accel, SHIP_THRUST * dt));
-    player->velocity = Vector3Scale(player->velocity, 1.0f - SHIP_DAMPING * dt);
+    float damping = (cruising ? 0.04f : SHIP_DAMPING) * dt;
+    player->velocity = Vector3Scale(player->velocity, 1.0f - damping);
 
+    float maxSpeed = cruising ? SHIP_MAX_SPEED * SHIP_CRUISE_MULTIPLIER : SHIP_MAX_SPEED;
     float speed = Vector3Length(player->velocity);
-    if (speed > SHIP_MAX_SPEED) {
-        player->velocity = Vector3Scale(player->velocity, SHIP_MAX_SPEED / speed);
+    if (speed > maxSpeed) {
+        player->velocity = Vector3Scale(player->velocity, maxSpeed / speed);
     }
 
-    MovePlayer(player, Vector3Scale(player->velocity, dt));
+    Vector3 delta = Vector3Scale(player->velocity, dt);
+    if (cruising) {
+        float total = Vector3Length(delta);
+        if (total > 0.001f) {
+            Vector3 dir = Vector3Scale(delta, 1.0f / total);
+            float remaining = total;
+            while (remaining > 0.0f) {
+                float stepLen = fminf(remaining, 1.0f);
+                Vector3 before = player->position;
+                MovePlayer(player, Vector3Scale(dir, stepLen));
+                if (Vector3Distance(before, player->position) < stepLen * 0.9f) {
+                    player->velocity = Vector3Zero();
+                    break;
+                }
+                remaining -= stepLen;
+            }
+        }
+    } else {
+        MovePlayer(player, delta);
+    }
 
+    int exhaustCount = cruising ? 3 : 1;
     if (IsKeyDown(KEY_W)) {
-        Vector3 tail = Vector3Subtract(player->position, Vector3Scale(forward, 0.9f));
-        ParticlesEmitOne(tail, Vector3Negate(Vector3Scale(forward, 2.5f)),
-                         (Color){ 255, 170, 60, 230 },
-                         (Vector3){ 0.16f, 0.16f, 0.16f },
-                         0.45f, 0.0f);
-        ParticlesEmitOne(tail, Vector3Negate(Vector3Scale(forward, 1.5f)),
-                         (Color){ 255, 220, 130, 200 },
-                         (Vector3){ 0.10f, 0.10f, 0.10f },
-                         0.35f, 0.0f);
+        for (int k = 0; k < exhaustCount; k++) {
+            Vector3 tail = Vector3Subtract(player->position, Vector3Scale(forward, 0.9f));
+            ParticlesEmitOne(tail, Vector3Negate(Vector3Scale(forward, 2.5f)),
+                             (Color){ 255, 170, 60, 230 },
+                             (Vector3){ 0.16f, 0.16f, 0.16f },
+                             0.45f, 0.0f);
+        }
+        if (cruising) {
+            Vector3 tail = Vector3Subtract(player->position, Vector3Scale(forward, 1.4f));
+            ParticlesEmitOne(tail, Vector3Negate(Vector3Scale(forward, 8.0f)),
+                             (Color){ 255, 220, 130, 200 },
+                             (Vector3){ 0.22f, 0.22f, 0.22f },
+                             0.6f, 0.0f);
+        }
     }
 }
 
@@ -118,4 +161,5 @@ void ShipExit(Player *player)
     }
 
     driving = false;
+    cruising = false;
 }

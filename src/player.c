@@ -6,6 +6,7 @@
 #include "audio.h"
 #include "interaction.h"
 #include "particles.h"
+#include "ship.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -195,6 +196,7 @@ void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool t
     Vector3 eye = Vector3Add(player->position, (Vector3){ 0.0f, EYE_HEIGHT, 0.0f });
     Vector3 look = ForwardFromAngles(player->yaw, player->pitch);
     float targetFov = CameraFovForHeight(eye.y);
+    if (ShipIsDriving() && ShipIsCruising()) targetFov += 12.0f;
     float smoothing = Clamp(dt * CAMERA_FOV_SMOOTHING, 0.0f, 1.0f);
 
     camera->target = Vector3Add(eye, look);

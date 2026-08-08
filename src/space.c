@@ -16,49 +16,178 @@
 #define ASTEROID_PROBABILITY 55u
 #define SPACE_MESH_REBUILDS_PER_FRAME 2
 
-#define SOLAR_SYSTEM_X 0
-#define SOLAR_SYSTEM_Z 0
-#define SOLAR_SYSTEM_Y (SPACE_LAYER_Y + 48)
-#define SOLAR_SUN_RADIUS 13
-
-typedef enum SolarBodyStyle {
-    SOLAR_STYLE_SUN = 0,
-    SOLAR_STYLE_LAVA,
-    SOLAR_STYLE_ICE,
-    SOLAR_STYLE_DESERT,
-    SOLAR_STYLE_GAS,
-    SOLAR_STYLE_CRATER
-} SolarBodyStyle;
-
-typedef struct SolarBodyDef {
-    int orbit;
-    int size;
-    int yOffset;
-    SolarBodyStyle style;
-} SolarBodyDef;
-
-static const SolarBodyDef solarBodyDefs[] = {
-    { 180, 6, -22, SOLAR_STYLE_LAVA },
-    { 260, 5,  20, SOLAR_STYLE_ICE },
-    { 340, 7,  -8, SOLAR_STYLE_DESERT },
-    { 430, 4,  30, SOLAR_STYLE_GAS },
-    { 520, 5, -28, SOLAR_STYLE_CRATER },
-    { 650, 3,  14, SOLAR_STYLE_LAVA }
+static const char *const starNamePart1[] = {
+    "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
+    "Kel", "Lor", "Mir", "Neb", "Or", "Pry", "Quel", "Rav", "Tha", "Umb",
+    "Vex", "Wy", "Zor", "Xan"
 };
-#define SOLAR_PLANET_COUNT ((int)(sizeof(solarBodyDefs) / sizeof(solarBodyDefs[0])))
+static const char *const starNamePart2[] = {
+    "a", "e", "i", "o", "u", "ae", "ia", "or", "yn", "ei"
+};
+static const char *const starNamePart3[] = {
+    "va", "nis", "dar", "lune", "rax", "thys", "mar", "dus", "phe", "rith"
+};
 
-static Vector3 SolarBodyCenter(int index)
+static void BuildStarName(int ax, int az, char *out, size_t outSize)
 {
-    if (index == 0) {
-        return (Vector3){ (float)SOLAR_SYSTEM_X, (float)SOLAR_SYSTEM_Y, (float)SOLAR_SYSTEM_Z };
-    }
-    const SolarBodyDef *def = &solarBodyDefs[index - 1];
-    float angle = (float)(Hash2D(index * 7 + 3, 19) % 6283u) / 1000.0f;
-    return (Vector3){
-        (float)SOLAR_SYSTEM_X + cosf(angle) * (float)def->orbit,
-        (float)SOLAR_SYSTEM_Y + (float)def->yOffset,
-        (float)SOLAR_SYSTEM_Z + sinf(angle) * (float)def->orbit
+    unsigned int h = Hash2D(ax * 31 + 7, az * 17 + 5);
+    int p1 = (int)(h % 24u);
+    int p2 = (int)((h >> 6) % 10u);
+    int p3 = (int)((h >> 12) % 10u);
+    snprintf(out, outSize, "%s%s%s", starNamePart1[p1], starNamePart2[p2], starNamePart3[p3]);
+}
+
+static void BuildSolSystem(SolarSystemDef *out)
+{
+    out->exists = true;
+    out->anchorX = 0;
+    out->anchorZ = 0;
+    snprintf(out->name, sizeof(out->name), "Sol");
+    out->spectrum = SPECTRUM_YELLOW;
+    out->starRadius = 13;
+    out->center = (Vector3){ 0.0f, (float)SPACE_LAYER_Y + 48.0f, 0.0f };
+    out->planetCount = 6;
+    static const SolarPlanetDef solPlanets[6] = {
+        { 180, 6, -22, SOLAR_STYLE_LAVA },
+        { 260, 5,  20, SOLAR_STYLE_ICE },
+        { 340, 7,  -8, SOLAR_STYLE_DESERT },
+        { 430, 4,  30, SOLAR_STYLE_GAS },
+        { 520, 5, -28, SOLAR_STYLE_CRATER },
+        { 650, 3,  14, SOLAR_STYLE_LAVA }
     };
+    for (int i = 0; i < 6; i++) out->planets[i] = solPlanets[i];
+}
+
+bool StarSystemAt(int ax, int az, SolarSystemDef *out)
+{
+    if (ax == 0 && az == 0) {
+        BuildSolSystem(out);
+        return true;
+    }
+
+    out->exists = false;
+    out->anchorX = ax;
+    out->anchorZ = az;
+    out->planetCount = 0;
+
+    unsigned int roll = Hash2D(ax, az);
+    if (roll % 100u >= STAR_SYSTEM_PROBABILITY) return false;
+
+    unsigned int h = Hash2D(ax * 31 + 7, az * 17 + 5);
+    out->exists = true;
+    BuildStarName(ax, az, out->name, sizeof(out->name));
+    out->spectrum = (SpectrumType)(h % 5u);
+    out->starRadius = (out->spectrum == SPECTRUM_RED_GIANT) ? 10 + (int)(h % 6u) : 9 + (int)(h % 6u);
+    out->center = (Vector3){
+        (float)ax * (float)STAR_SYSTEM_SPACING,
+        (float)SPACE_LAYER_Y + 40.0f + (float)(Hash2D(ax + 7, az + 13) % 40u),
+        (float)az * (float)STAR_SYSTEM_SPACING
+    };
+    out->planetCount = 2 + (int)((h >> 8) % 4u);
+
+    for (int i = 0; i < out->planetCount; i++) {
+        unsigned int ph = Hash2D(ax * 53 + i * 7 + 1, az * 29 + i * 3 + 2);
+        out->planets[i].orbit = 180 + i * 120 + (int)(ph % 5u) * 8;
+        out->planets[i].size = 3 + (int)((ph >> 6) % 5u);
+        out->planets[i].yOffset = (int)((ph >> 12) % 81u) - 40;
+        out->planets[i].style = (SolarBodyStyle)(1 + ((ph >> 18) % 5u));
+    }
+    return true;
+}
+
+Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
+{
+    const SolarPlanetDef *def = &sys->planets[index];
+    float angle = (float)(Hash2D(sys->anchorX * 53 + index * 7 + 1,
+                                 sys->anchorZ * 29 + index * 3 + 2) % 6283u) / 1000.0f;
+    return (Vector3){
+        sys->center.x + cosf(angle) * (float)def->orbit,
+        sys->center.y + (float)def->yOffset,
+        sys->center.z + sinf(angle) * (float)def->orbit
+    };
+}
+
+Color SpectrumColor(SpectrumType type)
+{
+    switch (type) {
+    case SPECTRUM_RED_DWARF: return (Color){ 255, 120, 90, 255 };
+    case SPECTRUM_ORANGE:    return (Color){ 255, 170, 90, 255 };
+    case SPECTRUM_YELLOW:    return (Color){ 255, 214, 120, 255 };
+    case SPECTRUM_BLUE_WHITE: return (Color){ 190, 210, 255, 255 };
+    case SPECTRUM_RED_GIANT: return (Color){ 255, 90, 60, 255 };
+    default:                 return (Color){ 255, 214, 120, 255 };
+    }
+}
+
+const char *SpectrumName(SpectrumType type)
+{
+    switch (type) {
+    case SPECTRUM_RED_DWARF: return "Red Dwarf";
+    case SPECTRUM_ORANGE:    return "Orange Star";
+    case SPECTRUM_YELLOW:    return "Yellow Sun";
+    case SPECTRUM_BLUE_WHITE: return "Blue-White Star";
+    case SPECTRUM_RED_GIANT: return "Red Giant";
+    default:                 return "Star";
+    }
+}
+
+const char *SolarStyleName(SolarBodyStyle style)
+{
+    switch (style) {
+    case SOLAR_STYLE_LAVA:   return "Lava Planet";
+    case SOLAR_STYLE_ICE:    return "Ice Planet";
+    case SOLAR_STYLE_DESERT: return "Desert Planet";
+    case SOLAR_STYLE_GAS:    return "Gas Giant";
+    case SOLAR_STYLE_CRATER: return "Cratered World";
+    default:                 return "Planet";
+    }
+}
+
+static BlockType StarBlock(int bx, int by, int bz, float distSqr, float shellSqr, SpectrumType spectrum)
+{
+    unsigned int h = Hash3D(bx, by, bz);
+    bool surface = distSqr >= shellSqr;
+
+    switch (spectrum) {
+    case SPECTRUM_RED_DWARF:
+        if (surface) {
+            if (h % 5u == 0u) return BLOCK_LAVA;
+            if (h % 9u == 0u) return BLOCK_GLOWSTONE;
+            if (h % 11u == 0u) return BLOCK_METEORITE;
+            return BLOCK_MOON_ROCK;
+        }
+        return (h % 7u == 0u) ? BLOCK_GLOWSTONE : BLOCK_MOON_ROCK;
+    case SPECTRUM_ORANGE:
+        if (surface) {
+            if (h % 7u == 0u) return BLOCK_LAVA;
+            if (h % 5u == 0u) return BLOCK_GLOWSTONE;
+            return BLOCK_MOON_SAND;
+        }
+        return (h % 9u == 0u) ? BLOCK_STAR_MATTER : BLOCK_GLOWSTONE;
+    case SPECTRUM_YELLOW:
+        if (!surface) return (h % 5u == 0u) ? BLOCK_STAR_MATTER : BLOCK_GLOWSTONE;
+        if (h % 9u == 0u) return BLOCK_LAVA;
+        if (h % 4u == 0u) return BLOCK_STAR_MATTER;
+        return BLOCK_GLOWSTONE;
+    case SPECTRUM_BLUE_WHITE:
+        if (surface) {
+            if (h % 6u == 0u) return BLOCK_ICE;
+            if (h % 9u == 0u) return BLOCK_MOON_SAND;
+            if (h % 5u == 0u) return BLOCK_GLOWSTONE;
+            return BLOCK_STAR_MATTER;
+        }
+        return (h % 7u == 0u) ? BLOCK_GLOWSTONE : BLOCK_STAR_MATTER;
+    case SPECTRUM_RED_GIANT:
+        if (surface) {
+            if (h % 3u == 0u) return BLOCK_LAVA;
+            if (h % 8u == 0u) return BLOCK_METEORITE;
+            if (h % 7u == 0u) return BLOCK_GLOWSTONE;
+            return BLOCK_MOON_ROCK;
+        }
+        return (h % 5u == 0u) ? BLOCK_LAVA : BLOCK_GLOWSTONE;
+    default:
+        return BLOCK_GLOWSTONE;
+    }
 }
 
 static BlockType SolarBodyBlock(int bx, int by, int bz, float distSqr, float shellSqr, SolarBodyStyle style)
@@ -67,11 +196,6 @@ static BlockType SolarBodyBlock(int bx, int by, int bz, float distSqr, float she
     bool surface = distSqr >= shellSqr;
 
     switch (style) {
-    case SOLAR_STYLE_SUN:
-        if (!surface) return (h % 5u == 0u) ? BLOCK_STAR_MATTER : BLOCK_GLOWSTONE;
-        if (h % 9u == 0u) return BLOCK_LAVA;
-        if (h % 4u == 0u) return BLOCK_STAR_MATTER;
-        return BLOCK_GLOWSTONE;
     case SOLAR_STYLE_LAVA:
         if (surface) return (h % 7u == 0u) ? BLOCK_LAVA : BLOCK_MOON_ROCK;
         return (h % 11u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
@@ -122,27 +246,200 @@ static void FillSolarBody(SpaceChunk *chunk, int startX, int startZ,
     }
 }
 
-static void FillSolarSystem(SpaceChunk *chunk, int startX, int startZ)
+static void FillStarBody(SpaceChunk *chunk, int startX, int startZ,
+                         int cx, int cy, int cz, int radius, SpectrumType spectrum)
 {
-    Vector3 sun = SolarBodyCenter(0);
-    FillSolarBody(chunk, startX, startZ,
-                  (int)sun.x, (int)sun.y, (int)sun.z, SOLAR_SUN_RADIUS, SOLAR_STYLE_SUN);
+    int chunkMinX = startX;
+    int chunkMaxX = startX + CHUNK_SIZE - 1;
+    int chunkMinZ = startZ;
+    int chunkMaxZ = startZ + CHUNK_SIZE - 1;
+    if (cx + radius < chunkMinX || cx - radius > chunkMaxX) return;
+    if (cz + radius < chunkMinZ || cz - radius > chunkMaxZ) return;
 
-    for (int i = 0; i < SOLAR_PLANET_COUNT; i++) {
-        Vector3 center = SolarBodyCenter(i + 1);
-        const SolarBodyDef *def = &solarBodyDefs[i];
-        FillSolarBody(chunk, startX, startZ,
-                      (int)center.x, (int)center.y, (int)center.z, def->size, def->style);
+    float radiusSqr = (float)(radius * radius);
+    float shellSqr = (float)((radius - 1) * (radius - 1));
+
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int ly = 0; ly < SPACE_LAYER_HEIGHT; ly++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                int bx = startX + lx;
+                int by = SPACE_LAYER_Y + ly;
+                int bz = startZ + lz;
+                float dx = (float)(bx - cx);
+                float dy = (float)(by - cy);
+                float dz = (float)(bz - cz);
+                float distSqr = dx * dx + dy * dy + dz * dz;
+                if (distSqr >= radiusSqr) continue;
+                chunk->blocks[lx][ly][lz] = (unsigned short)StarBlock(bx, by, bz, distSqr, shellSqr, spectrum);
+            }
+        }
     }
 }
 
-void SolarSystemBodies(Vector3 *positions, int maxCount)
+static void FillSolarSystemsInChunk(SpaceChunk *chunk, int startX, int startZ)
 {
-    int count = SOLAR_PLANET_COUNT + 1;
-    if (maxCount < count) count = maxCount;
-    for (int i = 0; i < count; i++) {
-        positions[i] = SolarBodyCenter(i);
+    int minAnchorX = FloorDivInt(startX - 900, STAR_SYSTEM_SPACING);
+    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + 900, STAR_SYSTEM_SPACING);
+    int minAnchorZ = FloorDivInt(startZ - 900, STAR_SYSTEM_SPACING);
+    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + 900, STAR_SYSTEM_SPACING);
+
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            SolarSystemDef sys;
+            if (!StarSystemAt(ax, az, &sys)) continue;
+
+            FillStarBody(chunk, startX, startZ,
+                         (int)sys.center.x, (int)sys.center.y, (int)sys.center.z,
+                         sys.starRadius, sys.spectrum);
+
+            for (int i = 0; i < sys.planetCount; i++) {
+                Vector3 center = SolarSystemPlanetCenter(&sys, i);
+                FillSolarBody(chunk, startX, startZ,
+                              (int)center.x, (int)center.y, (int)center.z,
+                              sys.planets[i].size, sys.planets[i].style);
+            }
+        }
     }
+}
+
+int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount)
+{
+    int count = 0;
+    int centerAx = FloorDivInt((int)floorf(pos.x), STAR_SYSTEM_SPACING);
+    int centerAz = FloorDivInt((int)floorf(pos.z), STAR_SYSTEM_SPACING);
+    int radiusAnchors = (int)(maxDist / (float)STAR_SYSTEM_SPACING) + 1;
+
+    SolarSystemDef found[256];
+    float dists[256];
+    int foundCount = 0;
+
+    for (int ax = centerAx - radiusAnchors; ax <= centerAx + radiusAnchors; ax++) {
+        for (int az = centerAz - radiusAnchors; az <= centerAz + radiusAnchors; az++) {
+            SolarSystemDef sys;
+            if (!StarSystemAt(ax, az, &sys)) continue;
+            float dx = sys.center.x - pos.x;
+            float dz = sys.center.z - pos.z;
+            float d = sqrtf(dx * dx + dz * dz);
+            if (d > maxDist) continue;
+            if (foundCount < 256) {
+                found[foundCount] = sys;
+                dists[foundCount] = d;
+                foundCount++;
+            }
+        }
+    }
+
+    for (int i = 0; i < foundCount && count < maxCount; i++) {
+        int best = i;
+        for (int j = i + 1; j < foundCount; j++) {
+            if (dists[j] < dists[best]) best = j;
+        }
+        if (best != i) {
+            SolarSystemDef tmpSys = found[i];
+            found[i] = found[best];
+            found[best] = tmpSys;
+            float tmpDist = dists[i];
+            dists[i] = dists[best];
+            dists[best] = tmpDist;
+        }
+        out[count++] = found[i];
+    }
+    return count;
+}
+
+bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist)
+{
+    SolarSystemDef sys;
+    int count = StarSystemsNear(pos, maxDist, &sys, 1);
+    if (count < 1) return false;
+    *out = sys;
+    if (outDist) {
+        float dx = sys.center.x - pos.x;
+        float dz = sys.center.z - pos.z;
+        *outDist = sqrtf(dx * dx + dz * dz);
+    }
+    return true;
+}
+
+int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount)
+{
+    int count = 0;
+    int centerAx = FloorDivInt((int)floorf(pos.x), STAR_SYSTEM_SPACING);
+    int centerAz = FloorDivInt((int)floorf(pos.z), STAR_SYSTEM_SPACING);
+
+    for (int ax = centerAx - 1; ax <= centerAx + 1; ax++) {
+        for (int az = centerAz - 1; az <= centerAz + 1; az++) {
+            SolarSystemDef sys;
+            if (!StarSystemAt(ax, az, &sys)) continue;
+            if (count >= maxCount) return count;
+
+            Vector3 star = sys.center;
+            float starDist = Vector3Distance(star, pos);
+            if (starDist <= maxDist) {
+                out[count] = (SpaceBodyInfo){
+                    .center = star,
+                    .radius = (float)sys.starRadius,
+                    .dist = starDist,
+                    .isStar = true,
+                    .index = 0,
+                    .spectrum = sys.spectrum
+                };
+                snprintf(out[count].name, sizeof(out[count].name), "%s", sys.name);
+                count++;
+            }
+
+            for (int i = 0; i < sys.planetCount; i++) {
+                if (count >= maxCount) return count;
+                Vector3 center = SolarSystemPlanetCenter(&sys, i);
+                float dist = Vector3Distance(center, pos);
+                if (dist > maxDist) continue;
+                out[count] = (SpaceBodyInfo){
+                    .center = center,
+                    .radius = (float)sys.planets[i].size,
+                    .dist = dist,
+                    .isStar = false,
+                    .index = i + 1,
+                    .style = sys.planets[i].style
+                };
+                snprintf(out[count].name, sizeof(out[count].name), "%s", sys.name);
+                count++;
+            }
+        }
+    }
+
+    for (int i = 0; i < count; i++) {
+        for (int j = i + 1; j < count; j++) {
+            if (out[j].dist < out[i].dist) {
+                SpaceBodyInfo tmp = out[i];
+                out[i] = out[j];
+                out[j] = tmp;
+            }
+        }
+    }
+    return count;
+}
+
+bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
+{
+    SpaceBodyInfo bodies[48];
+    int count = SpaceBodiesNear(origin, 700.0f, bodies, 48);
+    float best = 1e30f;
+    bool found = false;
+
+    for (int i = 0; i < count; i++) {
+        Vector3 to = Vector3Subtract(bodies[i].center, origin);
+        float proj = Vector3DotProduct(to, direction);
+        if (proj < 0.0f || proj > best) continue;
+        Vector3 closest = Vector3Add(origin, Vector3Scale(direction, proj));
+        Vector3 diff = Vector3Subtract(closest, bodies[i].center);
+        float lateral = sqrtf(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+        float radius = bodies[i].radius + 2.0f;
+        if (lateral > radius) continue;
+        best = proj;
+        *out = bodies[i];
+        found = true;
+    }
+    return found;
 }
 
 SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
@@ -344,7 +641,7 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
         }
     }
 
-    FillSolarSystem(chunk, startX, startZ);
+    FillSolarSystemsInChunk(chunk, startX, startZ);
 
     ApplySpaceEditsToChunk(chunk);
     chunk->loaded = true;
@@ -572,22 +869,24 @@ int GetSpaceEditCount(void)
 
 void SpaceUpdateSolarGlow(Vector3 playerPosition)
 {
-    Vector3 sun = SolarBodyCenter(0);
-    float dist = Vector3Distance(sun, playerPosition);
-    if (dist > 26.0f) return;
+    SolarSystemDef sys;
+    float sysDist = 0.0f;
+    if (!FindNearestSystem(playerPosition, 60.0f, &sys, &sysDist)) return;
 
-    int count = (dist < 12.0f) ? 3 : 1;
+    float dist = Vector3Distance(sys.center, playerPosition);
+    int count = (dist < 24.0f) ? 3 : 1;
+    Color glow = SpectrumColor(sys.spectrum);
     for (int k = 0; k < count; k++) {
         Vector3 offset = {
             ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f,
             ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f,
             ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f
         };
-        ParticlesEmitOne(Vector3Add(sun, offset),
+        ParticlesEmitOne(Vector3Add(sys.center, offset),
                          (Vector3){ ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f,
                                     0.2f + (float)rand() / (float)RAND_MAX * 0.5f,
                                     ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f },
-                         (Color){ 255, 190, 80, 220 },
+                         glow,
                          (Vector3){ 0.14f, 0.14f, 0.14f },
                          1.8f, 0.0f);
     }

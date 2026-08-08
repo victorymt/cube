@@ -2,6 +2,7 @@
 #define VOXELCRAFT_RENDER_H
 
 #include "types.h"
+#include "space.h"
 
 extern Model cloudModel;
 
@@ -15,6 +16,7 @@ void DrawStars(const Camera3D *camera, float daylight);
 void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight);
 void DrawSpaceSky(float spaceFade, const Camera3D *camera);
 void DrawSolarGuide(const Camera3D *camera, float spaceFade);
+void DrawBodyInfoPanel(const SpaceBodyInfo *body);
 void DrawClouds(const Camera3D *camera, Color tint);
 void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint);
 
