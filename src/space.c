@@ -91,6 +91,12 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
         out->planets[i].size = 3 + (int)((ph >> 6) % 5u);
         out->planets[i].yOffset = (int)((ph >> 12) % 81u) - 40;
         out->planets[i].style = (SolarBodyStyle)(1 + ((ph >> 18) % 5u));
+
+        float amp = 1.6f + (float)out->planets[i].size * 0.35f;
+        float maxR = (float)out->planets[i].size + amp + 2.0f;
+        float minAllowed = (float)SPACE_LAYER_Y + maxR - out->center.y;
+        float maxAllowed = (float)(SPACE_LAYER_TOP - 1) - maxR - out->center.y;
+        out->planets[i].yOffset = (int)Clamp((float)out->planets[i].yOffset, minAllowed, maxAllowed);
     }
     return true;
 }
@@ -477,7 +483,8 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
         Vector3 closest = Vector3Add(origin, Vector3Scale(direction, proj));
         Vector3 diff = Vector3Subtract(closest, bodies[i].center);
         float lateral = sqrtf(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-        float radius = bodies[i].radius + 2.0f;
+        float amp = 1.6f + bodies[i].radius * 0.35f;
+        float radius = bodies[i].radius + amp + 2.0f;
         if (lateral > radius) continue;
         best = proj;
         *out = bodies[i];

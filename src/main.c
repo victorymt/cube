@@ -154,7 +154,7 @@ int main(void)
             screenshotCounter++;
         }
 
-        if (!importDialog.open && !albumOpen) {
+        if (!importDialog.open && !albumOpen && !StarMapIsOpen()) {
             if (!paused && IsKeyPressed(KEY_ESCAPE)) {
                 paused = true;
                 player.velocity = Vector3Zero();

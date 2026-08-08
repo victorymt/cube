@@ -506,6 +506,15 @@ static void DrawEdgeIndicator(float px, float py, bool behind, Vector3 origin, V
     }
 }
 
+static bool FindSystemForGuide(Vector3 pos, SolarSystemDef *sys, float *dist)
+{
+    static const float probes[3] = { 3000.0f, 7000.0f, 14000.0f };
+    for (int i = 0; i < 3; i++) {
+        if (FindNearestSystem(pos, probes[i], sys, dist)) return true;
+    }
+    return false;
+}
+
 void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 {
     if (spaceFade <= 0.05f) return;
@@ -561,7 +570,7 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
     if (count == 0) {
         SolarSystemDef sys;
         float sysDist = 0.0f;
-        if (FindNearestSystem(camera->position, 9000.0f, &sys, &sysDist)) {
+        if (FindSystemForGuide(camera->position, &sys, &sysDist)) {
             Vector3 toSys = Vector3Subtract(sys.center, camera->position);
             bool behind = Vector3DotProduct(toSys, forward) < 0.0f;
             Vector2 screen = GetWorldToScreen(sys.center, *camera);
@@ -876,7 +885,7 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch)
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     SolarSystemDef hudSystem;
     float hudSystemDist = 0.0f;
-    if (FindNearestSystem(playerPosition, 9000.0f, &hudSystem, &hudSystemDist)) {
+    if (FindSystemForGuide(playerPosition, &hudSystem, &hudSystemDist)) {
         DrawText(TextFormat("System %s Prime (%.0f)", hudSystem.name, hudSystemDist),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
     } else {
