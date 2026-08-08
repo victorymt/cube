@@ -14,7 +14,136 @@
 
 #define ASTEROID_SPACING 26
 #define ASTEROID_PROBABILITY 55u
-#define SPACE_MESH_REBUILDS_PER_FRAME 4
+#define SPACE_MESH_REBUILDS_PER_FRAME 2
+
+#define SOLAR_SYSTEM_X 0
+#define SOLAR_SYSTEM_Z 0
+#define SOLAR_SYSTEM_Y (SPACE_LAYER_Y + 48)
+#define SOLAR_SUN_RADIUS 13
+
+typedef enum SolarBodyStyle {
+    SOLAR_STYLE_SUN = 0,
+    SOLAR_STYLE_LAVA,
+    SOLAR_STYLE_ICE,
+    SOLAR_STYLE_DESERT,
+    SOLAR_STYLE_GAS,
+    SOLAR_STYLE_CRATER
+} SolarBodyStyle;
+
+typedef struct SolarBodyDef {
+    int orbit;
+    int size;
+    int yOffset;
+    SolarBodyStyle style;
+} SolarBodyDef;
+
+static const SolarBodyDef solarBodyDefs[] = {
+    { 180, 6, -22, SOLAR_STYLE_LAVA },
+    { 260, 5,  20, SOLAR_STYLE_ICE },
+    { 340, 7,  -8, SOLAR_STYLE_DESERT },
+    { 430, 4,  30, SOLAR_STYLE_GAS },
+    { 520, 5, -28, SOLAR_STYLE_CRATER },
+    { 650, 3,  14, SOLAR_STYLE_LAVA }
+};
+#define SOLAR_PLANET_COUNT ((int)(sizeof(solarBodyDefs) / sizeof(solarBodyDefs[0])))
+
+static Vector3 SolarBodyCenter(int index)
+{
+    if (index == 0) {
+        return (Vector3){ (float)SOLAR_SYSTEM_X, (float)SOLAR_SYSTEM_Y, (float)SOLAR_SYSTEM_Z };
+    }
+    const SolarBodyDef *def = &solarBodyDefs[index - 1];
+    float angle = (float)(Hash2D(index * 7 + 3, 19) % 6283u) / 1000.0f;
+    return (Vector3){
+        (float)SOLAR_SYSTEM_X + cosf(angle) * (float)def->orbit,
+        (float)SOLAR_SYSTEM_Y + (float)def->yOffset,
+        (float)SOLAR_SYSTEM_Z + sinf(angle) * (float)def->orbit
+    };
+}
+
+static BlockType SolarBodyBlock(int bx, int by, int bz, float distSqr, float shellSqr, SolarBodyStyle style)
+{
+    unsigned int h = Hash3D(bx, by, bz);
+    bool surface = distSqr >= shellSqr;
+
+    switch (style) {
+    case SOLAR_STYLE_SUN:
+        if (!surface) return (h % 5u == 0u) ? BLOCK_STAR_MATTER : BLOCK_GLOWSTONE;
+        if (h % 9u == 0u) return BLOCK_LAVA;
+        if (h % 4u == 0u) return BLOCK_STAR_MATTER;
+        return BLOCK_GLOWSTONE;
+    case SOLAR_STYLE_LAVA:
+        if (surface) return (h % 7u == 0u) ? BLOCK_LAVA : BLOCK_MOON_ROCK;
+        return (h % 11u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
+    case SOLAR_STYLE_ICE:
+        if (surface) return (h % 6u == 0u) ? BLOCK_SNOW : BLOCK_ICE;
+        return (h % 13u == 0u) ? BLOCK_MOON_SAND : BLOCK_MOON_ROCK;
+    case SOLAR_STYLE_DESERT:
+        if (surface) return (h % 8u == 0u) ? BLOCK_SANDSTONE : BLOCK_SAND;
+        return (h % 9u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_ROCK;
+    case SOLAR_STYLE_GAS:
+        if ((by % 6u) < 2u) return (h % 5u == 0u) ? BLOCK_GLOWSTONE : BLOCK_SOUL_SAND;
+        return (h % 7u == 0u) ? BLOCK_MOON_SAND : BLOCK_MOON_ROCK;
+    case SOLAR_STYLE_CRATER:
+        if (surface) return (h % 9u == 0u) ? BLOCK_METEORITE : BLOCK_MOON_SAND;
+        return BLOCK_MOON_ROCK;
+    default:
+        return BLOCK_MOON_ROCK;
+    }
+}
+
+static void FillSolarBody(SpaceChunk *chunk, int startX, int startZ,
+                          int cx, int cy, int cz, int radius, SolarBodyStyle style)
+{
+    int chunkMinX = startX;
+    int chunkMaxX = startX + CHUNK_SIZE - 1;
+    int chunkMinZ = startZ;
+    int chunkMaxZ = startZ + CHUNK_SIZE - 1;
+    if (cx + radius < chunkMinX || cx - radius > chunkMaxX) return;
+    if (cz + radius < chunkMinZ || cz - radius > chunkMaxZ) return;
+
+    float radiusSqr = (float)(radius * radius);
+    float shellSqr = (float)((radius - 1) * (radius - 1));
+
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int ly = 0; ly < SPACE_LAYER_HEIGHT; ly++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                int bx = startX + lx;
+                int by = SPACE_LAYER_Y + ly;
+                int bz = startZ + lz;
+                float dx = (float)(bx - cx);
+                float dy = (float)(by - cy);
+                float dz = (float)(bz - cz);
+                float distSqr = dx * dx + dy * dy + dz * dz;
+                if (distSqr >= radiusSqr) continue;
+                chunk->blocks[lx][ly][lz] = (unsigned short)SolarBodyBlock(bx, by, bz, distSqr, shellSqr, style);
+            }
+        }
+    }
+}
+
+static void FillSolarSystem(SpaceChunk *chunk, int startX, int startZ)
+{
+    Vector3 sun = SolarBodyCenter(0);
+    FillSolarBody(chunk, startX, startZ,
+                  (int)sun.x, (int)sun.y, (int)sun.z, SOLAR_SUN_RADIUS, SOLAR_STYLE_SUN);
+
+    for (int i = 0; i < SOLAR_PLANET_COUNT; i++) {
+        Vector3 center = SolarBodyCenter(i + 1);
+        const SolarBodyDef *def = &solarBodyDefs[i];
+        FillSolarBody(chunk, startX, startZ,
+                      (int)center.x, (int)center.y, (int)center.z, def->size, def->style);
+    }
+}
+
+void SolarSystemBodies(Vector3 *positions, int maxCount)
+{
+    int count = SOLAR_PLANET_COUNT + 1;
+    if (maxCount < count) count = maxCount;
+    for (int i = 0; i < count; i++) {
+        positions[i] = SolarBodyCenter(i);
+    }
+}
 
 SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
 static BlockEdit spaceEdits[MAX_SPACE_EDITS];
@@ -85,7 +214,7 @@ static void ApplySpaceEditsToChunk(SpaceChunk *chunk)
 static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
 {
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int ly = 0; ly < WORLD_HEIGHT; ly++) {
+        for (int ly = 0; ly < SPACE_LAYER_HEIGHT; ly++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 chunk->blocks[lx][ly][lz] = (unsigned short)BLOCK_AIR;
             }
@@ -111,7 +240,7 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
             float shellSqr = (float)((radius - 1) * (radius - 1));
 
             for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-                for (int ly = 0; ly < WORLD_HEIGHT; ly++) {
+                for (int ly = 0; ly < SPACE_LAYER_HEIGHT; ly++) {
                     for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                         if (chunk->blocks[lx][ly][lz] != 0) continue;
 
@@ -151,7 +280,7 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
             float shellSqr = (float)((radius - 2) * (radius - 2));
 
             for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-                for (int ly = 0; ly < WORLD_HEIGHT; ly++) {
+                for (int ly = 0; ly < SPACE_LAYER_HEIGHT; ly++) {
                     for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                         int bx = startX + lx;
                         int by = SPACE_LAYER_Y + ly;
@@ -190,7 +319,7 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
             float radiusSqr = (float)(radius * radius);
 
             for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-                for (int ly = 0; ly < WORLD_HEIGHT; ly++) {
+                for (int ly = 0; ly < SPACE_LAYER_HEIGHT; ly++) {
                     for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                         int bx = startX + lx;
                         int by = SPACE_LAYER_Y + ly;
@@ -214,6 +343,8 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
             }
         }
     }
+
+    FillSolarSystem(chunk, startX, startZ);
 
     ApplySpaceEditsToChunk(chunk);
     chunk->loaded = true;
@@ -252,9 +383,13 @@ static void RebuildSpaceChunkMesh(SpaceChunk *chunk)
 
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
-    bool hasSolid = BuildMeshData(chunk->blocks, chunk->cx, chunk->cz, false, faces,
+    bool hasSolid = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+                                  SPACE_LAYER_HEIGHT, SPACE_LAYER_Y,
+                                  chunk->cx, chunk->cz, false, faces,
                                   nearbyTorchIndices, nearbyTorchCount, &solidMesh);
-    bool hasWater = BuildMeshData(chunk->blocks, chunk->cx, chunk->cz, true, faces,
+    bool hasWater = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+                                  SPACE_LAYER_HEIGHT, SPACE_LAYER_Y,
+                                  chunk->cx, chunk->cz, true, faces,
                                   nearbyTorchIndices, nearbyTorchCount, &waterMesh);
 
     if (hasSolid) {
@@ -433,4 +568,27 @@ void SpaceUpdateStarGlow(Vector3 playerPosition)
 int GetSpaceEditCount(void)
 {
     return spaceEditCount;
+}
+
+void SpaceUpdateSolarGlow(Vector3 playerPosition)
+{
+    Vector3 sun = SolarBodyCenter(0);
+    float dist = Vector3Distance(sun, playerPosition);
+    if (dist > 26.0f) return;
+
+    int count = (dist < 12.0f) ? 3 : 1;
+    for (int k = 0; k < count; k++) {
+        Vector3 offset = {
+            ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f,
+            ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f,
+            ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f
+        };
+        ParticlesEmitOne(Vector3Add(sun, offset),
+                         (Vector3){ ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f,
+                                    0.2f + (float)rand() / (float)RAND_MAX * 0.5f,
+                                    ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f },
+                         (Color){ 255, 190, 80, 220 },
+                         (Vector3){ 0.14f, 0.14f, 0.14f },
+                         1.8f, 0.0f);
+    }
 }

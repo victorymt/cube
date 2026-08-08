@@ -29,6 +29,8 @@ extern SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
 void SpaceInit(void);
 void UpdateSpaceChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 void SpaceUpdateStarGlow(Vector3 playerPosition);
+void SpaceUpdateSolarGlow(Vector3 playerPosition);
+void SolarSystemBodies(Vector3 *positions, int maxCount);
 BlockType SpaceBlockAt(int x, int y, int z);
 void SpaceSetBlock(int x, int y, int z, BlockType type);
 void SpaceSaveEdits(FILE *file);

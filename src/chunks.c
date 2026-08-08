@@ -37,8 +37,9 @@ struct MeshJob {
 typedef struct MeshJob MeshJob;
 static bool HasPendingMeshJob(void);
 static MeshJob *NextPendingMeshJob(void);
-bool BuildMeshData(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                   int chunkX, int chunkZ, bool transparent, const int faces[6][3],
+bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
+                   int height, int layerY, int chunkX, int chunkZ,
+                   bool transparent, const int faces[6][3],
                    const int *nearbyTorchIndices, int nearbyTorchCount,
                    Mesh *outMesh);
 
@@ -547,8 +548,8 @@ void *ChunkGenWorker(void *arg)
                 { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
             };
             meshJob->hasMesh = BuildMeshData(
-                (const unsigned short (*)[WORLD_HEIGHT][CHUNK_SIZE])meshJob->blocks,
-                meshJob->cx, meshJob->cz, meshJob->transparent, faces,
+                (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
+                WORLD_HEIGHT, 0, meshJob->cx, meshJob->cz, meshJob->transparent, faces,
                 meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->mesh);
 
             pthread_mutex_lock(&genMutex);
@@ -787,22 +788,23 @@ bool FaceIsVisible(int x, int y, int z, int nx, int ny, int nz)
     return GetBlock(x + nx, neighborY, z + nz) == BLOCK_AIR;
 }
 
-bool ChunkFaceIsVisible(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                        int chunkX, int chunkZ, int lx, int y, int lz, int nx, int ny, int nz)
+bool ChunkFaceIsVisible(const unsigned short (*blocks)[CHUNK_SIZE],
+                        int height, int layerY, int chunkX, int chunkZ,
+                        int lx, int y, int lz, int nx, int ny, int nz)
 {
     int neighborY = y + ny;
-    if (!InHeight(neighborY)) return true;
+    if (neighborY < 0 || neighborY >= height) return true;
 
     int neighborLx = lx + nx;
     int neighborLz = lz + nz;
     if (neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
         neighborLz >= 0 && neighborLz < CHUNK_SIZE) {
-        return (BlockType)blocks[neighborLx][neighborY][neighborLz] == BLOCK_AIR;
+        return (BlockType)blocks[neighborLx * height + neighborY][neighborLz] == BLOCK_AIR;
     }
 
     int wx = chunkX * CHUNK_SIZE + lx + nx;
     int wz = chunkZ * CHUNK_SIZE + lz + nz;
-    return GetBlock(wx, neighborY, wz) == BLOCK_AIR;
+    return GetBlockAt(wx, layerY + neighborY, wz) == BLOCK_AIR;
 }
 
 Color ShadeColor(Color color, float brightness)
@@ -1156,8 +1158,9 @@ void AddAlbumMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, float extra
 }
 
 void AddSlabMesh(Mesh *mesh, int *vertexIndex,
-                 const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                 int chunkX, int chunkZ, int lx, int y, int lz,
+                 const unsigned short (*blocks)[CHUNK_SIZE],
+                 int height, int layerY, int chunkX, int chunkZ,
+                 int lx, int y, int lz,
                  const int faces[6][3], float extraLight)
 {
     static const float shades[6] = { 0.82f, 0.72f, 1.08f, 0.56f, 0.90f, 0.66f };
@@ -1166,7 +1169,7 @@ void AddSlabMesh(Mesh *mesh, int *vertexIndex,
     AtlasUVs(TEX_STONE, uvs);
 
     for (int face = 0; face < 6; face++) {
-        if (!ChunkFaceIsVisible(blocks, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) continue;
+        if (!ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) continue;
 
         int x = chunkX * CHUNK_SIZE + lx;
         int z = chunkZ * CHUNK_SIZE + lz;
@@ -1224,8 +1227,9 @@ void AddSlabMesh(Mesh *mesh, int *vertexIndex,
 }
 
 void AddDoorMesh(Mesh *mesh, int *vertexIndex,
-                 const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                 int chunkX, int chunkZ, int lx, int y, int lz,
+                 const unsigned short (*blocks)[CHUNK_SIZE],
+                 int height, int layerY, int chunkX, int chunkZ,
+                 int lx, int y, int lz,
                  const int faces[6][3], BlockType type, float extraLight)
 {
     bool open = type == BLOCK_DOOR_OPEN;
@@ -1282,17 +1286,20 @@ void AddDoorMesh(Mesh *mesh, int *vertexIndex,
 
     for (int f = 0; f < 5; f++) {
         int face = faceOrder[f];
-        if (!ChunkFaceIsVisible(blocks, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) continue;
+        if (!ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) continue;
         Color color = ShadeColor(WHITE, shades[f] * brightness);
         AddMeshFace(mesh, vertexIndex, faceCorners[f], normals[f], uvs, color);
     }
 }
 
 void AddStairsMesh(Mesh *mesh, int *vertexIndex,
-                   const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                   int chunkX, int chunkZ, int lx, int y, int lz, BlockType type, float extraLight)
+                   const unsigned short (*blocks)[CHUNK_SIZE],
+                   int height, int layerY, int chunkX, int chunkZ,
+                   int lx, int y, int lz, BlockType type, float extraLight)
 {
     (void)blocks;
+    (void)height;
+    (void)layerY;
     float x0 = (float)(chunkX * CHUNK_SIZE + lx);
     float z0 = (float)(chunkZ * CHUNK_SIZE + lz);
     float y0 = (float)y;
@@ -1339,17 +1346,17 @@ void AddStairsMesh(Mesh *mesh, int *vertexIndex,
     }
 }
 
-static BlockType FenceNeighborBlock(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                                    int chunkX, int chunkZ, int lx, int y, int lz,
-                                    int nx, int nz)
+static BlockType FenceNeighborBlock(const unsigned short (*blocks)[CHUNK_SIZE],
+                                    int height, int layerY, int chunkX, int chunkZ,
+                                    int lx, int y, int lz, int nx, int nz)
 {
     int neighborLx = lx + nx;
     int neighborLz = lz + nz;
     if (neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
-        neighborLz >= 0 && neighborLz < CHUNK_SIZE && InHeight(y)) {
-        return (BlockType)blocks[neighborLx][y][neighborLz];
+        neighborLz >= 0 && neighborLz < CHUNK_SIZE && y >= 0 && y < height) {
+        return (BlockType)blocks[neighborLx * height + y][neighborLz];
     }
-    return GetBlockAt(chunkX * CHUNK_SIZE + lx + nx, y, chunkZ * CHUNK_SIZE + lz + nz);
+    return GetBlockAt(chunkX * CHUNK_SIZE + lx + nx, layerY + y, chunkZ * CHUNK_SIZE + lz + nz);
 }
 
 static bool FenceShouldConnect(BlockType type)
@@ -1358,10 +1365,10 @@ static bool FenceShouldConnect(BlockType type)
 }
 
 void AddFenceMesh(Mesh *mesh, int *vertexIndex,
-                  const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                  int chunkX, int chunkZ, int lx, int y, int lz, float extraLight)
+                  const unsigned short (*blocks)[CHUNK_SIZE],
+                  int height, int layerY, int chunkX, int chunkZ,
+                  int lx, int y, int lz, float extraLight)
 {
-    (void)blocks;
     float cx = (float)(chunkX * CHUNK_SIZE + lx) + 0.5f;
     float cz = (float)(chunkZ * CHUNK_SIZE + lz) + 0.5f;
     float y0 = (float)y;
@@ -1371,7 +1378,7 @@ void AddFenceMesh(Mesh *mesh, int *vertexIndex,
 
     static const int dirs[4][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
     for (int d = 0; d < 4; d++) {
-        BlockType neighbor = FenceNeighborBlock(blocks, chunkX, chunkZ, lx, y, lz,
+        BlockType neighbor = FenceNeighborBlock(blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
                                                 dirs[d][0], dirs[d][2]);
         if (neighbor != BLOCK_AIR && !FenceShouldConnect(neighbor)) continue;
 
@@ -1405,10 +1412,13 @@ void AddFenceMesh(Mesh *mesh, int *vertexIndex,
 }
 
 void AddGateMesh(Mesh *mesh, int *vertexIndex,
-                 const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                 int chunkX, int chunkZ, int lx, int y, int lz, bool open, float extraLight)
+                 const unsigned short (*blocks)[CHUNK_SIZE],
+                 int height, int layerY, int chunkX, int chunkZ,
+                 int lx, int y, int lz, bool open, float extraLight)
 {
     (void)blocks;
+    (void)height;
+    (void)layerY;
     (void)chunkZ;
     (void)lz;
     float cx = (float)(chunkX * CHUNK_SIZE + lx) + 0.5f;
@@ -1453,10 +1463,13 @@ void AddGateMesh(Mesh *mesh, int *vertexIndex,
 }
 
 void AddPaneMesh(Mesh *mesh, int *vertexIndex,
-                 const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                 int chunkX, int chunkZ, int lx, int y, int lz, float extraLight)
+                 const unsigned short (*blocks)[CHUNK_SIZE],
+                 int height, int layerY, int chunkX, int chunkZ,
+                 int lx, int y, int lz, float extraLight)
 {
     (void)blocks;
+    (void)height;
+    (void)layerY;
     float cx = (float)(chunkX * CHUNK_SIZE + lx) + 0.5f;
     float cz = (float)(chunkZ * CHUNK_SIZE + lz) + 0.5f;
     float y0 = (float)y;
@@ -1525,14 +1538,15 @@ bool ChunkBlockHasTransparentMesh(BlockType type)
     return IsTranslucentBlock(type);
 }
 
-int CountChunkFaces(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                    int chunkX, int chunkZ, bool transparent, const int faces[6][3])
+int CountChunkFaces(const unsigned short (*blocks)[CHUNK_SIZE],
+                    int height, int layerY, int chunkX, int chunkZ,
+                    bool transparent, const int faces[6][3])
 {
     int faceCount = 0;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int y = 0; y < WORLD_HEIGHT; y++) {
+        for (int y = 0; y < height; y++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                BlockType type = (BlockType)blocks[lx][y][lz];
+                BlockType type = (BlockType)blocks[lx * height + y][lz];
                 if (type == BLOCK_AIR || ChunkBlockHasTransparentMesh(type) != transparent) continue;
                 if (type == BLOCK_TORCH) {
                     faceCount += 6;
@@ -1545,7 +1559,7 @@ int CountChunkFaces(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
                 if (type == BLOCK_SLAB || type == BLOCK_DOOR || type == BLOCK_DOOR_OPEN) {
                     int customFaces = (type == BLOCK_SLAB) ? 6 : 5;
                     for (int face = 0; face < customFaces; face++) {
-                        if (ChunkFaceIsVisible(blocks, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) faceCount++;
+                        if (ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) faceCount++;
                     }
                     continue;
                 }
@@ -1556,7 +1570,7 @@ int CountChunkFaces(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
                 if (type == BLOCK_FENCE) {
                     faceCount += 2;
                     for (int d = 0; d < 4; d++) {
-                        BlockType neighbor = FenceNeighborBlock(blocks, chunkX, chunkZ, lx, y, lz,
+                        BlockType neighbor = FenceNeighborBlock(blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
                                                                 faces[d][0], faces[d][2]);
                         if (neighbor == BLOCK_AIR || FenceShouldConnect(neighbor)) faceCount++;
                     }
@@ -1575,7 +1589,7 @@ int CountChunkFaces(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
                     continue;
                 }
                 for (int face = 0; face < 6; face++) {
-                    if (ChunkFaceIsVisible(blocks, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) faceCount++;
+                    if (ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) faceCount++;
                 }
             }
         }
@@ -1583,12 +1597,13 @@ int CountChunkFaces(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
     return faceCount;
 }
 
-bool BuildMeshData(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                   int chunkX, int chunkZ, bool transparent, const int faces[6][3],
+bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
+                   int height, int layerY, int chunkX, int chunkZ,
+                   bool transparent, const int faces[6][3],
                    const int *nearbyTorchIndices, int nearbyTorchCount,
                    Mesh *outMesh)
 {
-    int faceCount = CountChunkFaces(blocks, chunkX, chunkZ, transparent, faces);
+    int faceCount = CountChunkFaces(blocks, height, layerY, chunkX, chunkZ, transparent, faces);
     if (faceCount == 0) return false;
 
     int startX = chunkX * CHUNK_SIZE;
@@ -1612,9 +1627,9 @@ bool BuildMeshData(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
 
     int vertexIndex = 0;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int y = 0; y < WORLD_HEIGHT; y++) {
+        for (int y = 0; y < height; y++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                BlockType type = (BlockType)blocks[lx][y][lz];
+                BlockType type = (BlockType)blocks[lx * height + y][lz];
                 if (type == BLOCK_AIR || ChunkBlockHasTransparentMesh(type) != transparent) continue;
 
                 int x = startX + lx;
@@ -1629,28 +1644,28 @@ bool BuildMeshData(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
                     continue;
                 }
                 if (type == BLOCK_SLAB) {
-                    AddSlabMesh(&mesh, &vertexIndex, blocks, chunkX, chunkZ, lx, y, lz, faces, blockLight);
+                    AddSlabMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces, blockLight);
                     continue;
                 }
                 if (type == BLOCK_DOOR || type == BLOCK_DOOR_OPEN) {
-                    AddDoorMesh(&mesh, &vertexIndex, blocks, chunkX, chunkZ, lx, y, lz, faces, type, blockLight);
+                    AddDoorMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces, type, blockLight);
                     continue;
                 }
                 if (type == BLOCK_STONE_STAIRS || type == BLOCK_WOOD_STAIRS) {
-                    AddStairsMesh(&mesh, &vertexIndex, blocks, chunkX, chunkZ, lx, y, lz, type, blockLight);
+                    AddStairsMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, type, blockLight);
                     continue;
                 }
                 if (type == BLOCK_FENCE) {
-                    AddFenceMesh(&mesh, &vertexIndex, blocks, chunkX, chunkZ, lx, y, lz, blockLight);
+                    AddFenceMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, blockLight);
                     continue;
                 }
                 if (type == BLOCK_FENCE_GATE || type == BLOCK_FENCE_GATE_OPEN) {
-                    AddGateMesh(&mesh, &vertexIndex, blocks, chunkX, chunkZ, lx, y, lz,
+                    AddGateMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
                                 type == BLOCK_FENCE_GATE_OPEN, blockLight);
                     continue;
                 }
                 if (type == BLOCK_GLASS_PANE) {
-                    AddPaneMesh(&mesh, &vertexIndex, blocks, chunkX, chunkZ, lx, y, lz, blockLight);
+                    AddPaneMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, blockLight);
                     continue;
                 }
                 if (type == BLOCK_FLOWER || type == BLOCK_MUSHROOM) {
@@ -1658,7 +1673,7 @@ bool BuildMeshData(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
                     continue;
                 }
                 for (int face = 0; face < 6; face++) {
-                    if (ChunkFaceIsVisible(blocks, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) {
+                    if (ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) {
                         AddBlockFace(&mesh, &vertexIndex, x, y, z, face, type, WHITE, blockLight);
                     }
                 }
@@ -1810,10 +1825,12 @@ static void RebuildChunkMeshSync(Chunk *chunk)
 
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
-    bool hasSolid = BuildMeshData((const unsigned short (*)[WORLD_HEIGHT][CHUNK_SIZE])chunk->blocks,
-                                  chunk->cx, chunk->cz, false, faces, nearbyTorchIndices, nearbyTorchCount, &solidMesh);
-    bool hasWater = BuildMeshData((const unsigned short (*)[WORLD_HEIGHT][CHUNK_SIZE])chunk->blocks,
-                                  chunk->cx, chunk->cz, true, faces, nearbyTorchIndices, nearbyTorchCount, &waterMesh);
+    bool hasSolid = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+                                  WORLD_HEIGHT, 0, chunk->cx, chunk->cz, false, faces,
+                                  nearbyTorchIndices, nearbyTorchCount, &solidMesh);
+    bool hasWater = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+                                  WORLD_HEIGHT, 0, chunk->cx, chunk->cz, true, faces,
+                                  nearbyTorchIndices, nearbyTorchCount, &waterMesh);
 
     if (hasSolid) {
         UploadMesh(&solidMesh, false);

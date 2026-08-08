@@ -343,10 +343,10 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
             abs(chunk->cz - camCz) > SPACE_RENDER_DISTANCE_CHUNKS) continue;
         Vector3 center = {
             (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-            (float)SPACE_LAYER_Y + 16.0f,
+            (float)SPACE_LAYER_Y + (float)SPACE_LAYER_HEIGHT * 0.5f,
             (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
         };
-        if (!SphereInFrustum(camera, center, 34.0f)) continue;
+        if (!SphereInFrustum(camera, center, 66.0f)) continue;
         if (chunk->hasModel) DrawModel(chunk->model, (Vector3){ 0.0f, (float)SPACE_LAYER_Y, 0.0f }, 1.0f, tint);
     }
 
@@ -386,10 +386,10 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
             abs(chunk->cz - camCz) > SPACE_RENDER_DISTANCE_CHUNKS) continue;
         Vector3 center = {
             (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-            (float)SPACE_LAYER_Y + 16.0f,
+            (float)SPACE_LAYER_Y + (float)SPACE_LAYER_HEIGHT * 0.5f,
             (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
         };
-        if (!SphereInFrustum(camera, center, 34.0f)) continue;
+        if (!SphereInFrustum(camera, center, 66.0f)) continue;
         if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)SPACE_LAYER_Y, 0.0f }, 1.0f, tint);
     }
     for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
@@ -406,6 +406,100 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint)
         if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
     }
     EndBlendMode();
+}
+
+void DrawSolarGuide(const Camera3D *camera, float spaceFade)
+{
+    if (spaceFade <= 0.05f) return;
+
+    Vector3 bodies[7];
+    SolarSystemBodies(bodies, 7);
+
+    Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+
+    for (int i = 0; i < 7; i++) {
+        bool isSun = (i == 0);
+        Vector3 toBody = Vector3Subtract(bodies[i], camera->position);
+        float dist = Vector3Length(toBody);
+        bool behind = Vector3DotProduct(toBody, forward) < 0.0f;
+
+        Color color;
+        switch (i) {
+        case 0: color = (Color){ 255, 214, 120, 255 }; break;
+        case 1: color = (Color){ 235, 120, 70, 255 }; break;
+        case 2: color = (Color){ 170, 210, 240, 255 }; break;
+        case 3: color = (Color){ 226, 196, 132, 255 }; break;
+        case 4: color = (Color){ 190, 170, 230, 255 }; break;
+        case 5: color = (Color){ 150, 152, 158, 255 }; break;
+        default: color = (Color){ 235, 120, 70, 255 }; break;
+        }
+
+        Vector2 screen = GetWorldToScreen(bodies[i], *camera);
+
+        if (isSun && !behind && screen.x > -60.0f && screen.x < (float)sw + 60.0f &&
+            screen.y > -60.0f && screen.y < (float)sh + 60.0f) {
+            float scale = Clamp(1400.0f / dist, 6.0f, 30.0f);
+            DrawCircleGradient((int)screen.x, (int)screen.y, (int)(scale * 1.7f),
+                               Fade(ORANGE, 0.32f * spaceFade), BLANK);
+            DrawCircle((int)screen.x, (int)screen.y, (int)scale,
+                       Fade((Color){ 255, 236, 170, 255 }, spaceFade));
+            DrawLine((int)screen.x - (int)(scale * 2.0f), (int)screen.y,
+                     (int)screen.x + (int)(scale * 2.0f), (int)screen.y,
+                     Fade(color, 0.30f * spaceFade));
+            DrawLine((int)screen.x, (int)screen.y - (int)(scale * 2.0f),
+                     (int)screen.x, (int)screen.y + (int)(scale * 2.0f),
+                     Fade(color, 0.30f * spaceFade));
+            continue;
+        }
+
+        float px = screen.x;
+        float py = screen.y;
+        float margin = 26.0f;
+        bool offScreen = behind || px < -10.0f || px > (float)sw + 10.0f ||
+                         py < -10.0f || py > (float)sh + 10.0f;
+
+        if (offScreen) {
+            float cx = (float)sw * 0.5f;
+            float cy = (float)sh * 0.5f;
+            float dx = px - cx;
+            float dy = py - cy;
+            if (behind) {
+                dx = -dx;
+                dy = -dy;
+            }
+            float len = sqrtf(dx * dx + dy * dy);
+            if (len < 1.0f) {
+                dx = 0.0f;
+                dy = -1.0f;
+                len = 1.0f;
+            }
+            dx /= len;
+            dy /= len;
+            float tx = ((float)sw * 0.5f - margin) / fmaxf(fabsf(dx), 1e-5f);
+            float ty = ((float)sh * 0.5f - margin) / fmaxf(fabsf(dy), 1e-5f);
+            float t = fminf(tx, ty);
+            px = cx + dx * t;
+            py = cy + dy * t;
+
+            DrawTriangle((Vector2){ px - dy * 4.0f, py + dx * 4.0f },
+                         (Vector2){ px + dy * 4.0f, py - dx * 4.0f },
+                         (Vector2){ px + dx * 10.0f, py + dy * 10.0f },
+                         Fade(color, 0.85f * spaceFade));
+            if (isSun) {
+                DrawCircle((int)px, (int)py, 4.0f, Fade(color, spaceFade));
+            } else {
+                DrawCircle((int)px, (int)py, 4.0f, Fade(color, spaceFade));
+                DrawText(TextFormat("P%d", i), (int)px + 8, (int)py - 8, 14, Fade(WHITE, 0.85f * spaceFade));
+            }
+        } else {
+            DrawCircle((int)px, (int)py, isSun ? 6.0f : 4.0f, Fade(color, spaceFade));
+            if (!isSun) {
+                DrawText(TextFormat("P%d", i), (int)px + 7, (int)py - 8, 14, Fade(WHITE, 0.85f * spaceFade));
+            }
+        }
+    }
 }
 
 void DrawCrosshair(int screenWidth, int screenHeight)

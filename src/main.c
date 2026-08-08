@@ -296,7 +296,7 @@ int main(void)
             UpdatePlayer(&player, dt);
             bool inSpaceNow = player.position.y >= SPACE_ENTER_Y;
             if (inSpaceNow && !wasInSpace) {
-                SetImportMessage("Entered space - no gravity, Space to thrust.");
+                SetImportMessage("Entered space - no gravity; follow the sun to the solar system.");
             } else if (!inSpaceNow && wasInSpace && player.position.y < SPACE_EXIT_Y) {
                 SetImportMessage("Back in the atmosphere.");
             }
@@ -304,9 +304,10 @@ int main(void)
         }
         int effectiveRenderDistance = EffectiveRenderDistanceForHeight(player.position.y + EYE_HEIGHT);
         UpdateChunks(player.position, effectiveRenderDistance);
-        UpdateSpaceChunks(player.position, effectiveRenderDistance, ShipIsDriving() ? 16 : 4);
+        UpdateSpaceChunks(player.position, effectiveRenderDistance, ShipIsDriving() ? 8 : 2);
         UpdateNetherChunks(player.position, effectiveRenderDistance, 4);
         SpaceUpdateStarGlow(player.position);
+        SpaceUpdateSolarGlow(player.position);
         ProcessFinishedMeshJobs();
         ProcessFinishedChunkJobs();
         RebuildDirtyChunkMeshes();
@@ -453,6 +454,7 @@ int main(void)
 
         DrawStars(&camera, inNether ? 1.0f : daylight * (1.0f - spaceFade));
         DrawSpaceSky(spaceFade, &camera);
+        DrawSolarGuide(&camera, spaceFade);
         if (spaceFade < 0.5f && !inNether) DrawCelestial(&camera, dayTime, daylight);
         DrawCrosshair(GetScreenWidth(), GetScreenHeight());
         DrawHotbar(hotbar, selectedIndex);

@@ -21,8 +21,9 @@ void MarkChunkAndHorizontalNeighborsDirty(int cx, int cz);
 unsigned int Hash3D(int x, int y, int z);
 Color ColorWithNoise(Color base, int amount, unsigned int hash);
 void DrawAtlasTile(Image *image, BlockTexture texture);
-bool BuildMeshData(const unsigned short (*blocks)[WORLD_HEIGHT][CHUNK_SIZE],
-                   int chunkX, int chunkZ, bool transparent, const int faces[6][3],
+bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
+                   int height, int layerY, int chunkX, int chunkZ,
+                   bool transparent, const int faces[6][3],
                    const int *nearbyTorchIndices, int nearbyTorchCount,
                    Mesh *outMesh);
 void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, BlockType type, Color baseColor, float extraLight);

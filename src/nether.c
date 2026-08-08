@@ -155,9 +155,13 @@ static void RebuildNetherChunkMesh(NetherChunk *chunk)
 
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
-    bool hasSolid = BuildMeshData(chunk->blocks, chunk->cx, chunk->cz, false, faces,
+    bool hasSolid = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+                                  WORLD_HEIGHT, NETHER_LAYER_Y,
+                                  chunk->cx, chunk->cz, false, faces,
                                   nearbyTorchIndices, nearbyTorchCount, &solidMesh);
-    bool hasWater = BuildMeshData(chunk->blocks, chunk->cx, chunk->cz, true, faces,
+    bool hasWater = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+                                  WORLD_HEIGHT, NETHER_LAYER_Y,
+                                  chunk->cx, chunk->cz, true, faces,
                                   nearbyTorchIndices, nearbyTorchCount, &waterMesh);
 
     if (hasSolid) {
