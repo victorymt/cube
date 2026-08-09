@@ -51,6 +51,7 @@ extern int SpaceEditCountForHud;
 extern float shipSpeedForHud;
 extern float shipHudSpeed;
 extern float shipHudAlt;
+extern float shipHudAtmosphere;
 extern float shipHudHeading;
 extern char shipHudSystem[48];
 extern bool shipHudCruising;

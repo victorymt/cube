@@ -190,6 +190,7 @@ bool HomeWorldSurfaceIsActive(void);
 Vector3 HomeWorldCenter(void);
 float HomeWorldRadius(void);
 float HomeWorldSpaceFade(Vector3 position);
+float PlanetWorldAtmosphereFade(Vector3 position);
 bool HomeWorldTryLaunch(Player *player);
 bool HomeWorldTryEnter(Player *player);
 void HomeWorldReset(void);

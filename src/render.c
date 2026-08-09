@@ -28,6 +28,7 @@ int SpaceEditCountForHud = 0;
 float shipSpeedForHud = 0.0f;
 float shipHudSpeed = 0.0f;
 float shipHudAlt = 0.0f;
+float shipHudAtmosphere = -1.0f;
 float shipHudHeading = 0.0f;
 char shipHudSystem[48] = "---";
 bool shipHudCruising = false;
@@ -222,7 +223,8 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
 
     const PlanetProfile *profile = PlanetWorldProfile();
     PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(profile);
-    if (visual.opticalDepth <= 0.01f) return;
+    float atmosphereVisibility = 1.0f - PlanetWorldAtmosphereFade(camera->position);
+    if (visual.opticalDepth <= 0.01f || atmosphereVisibility <= 0.01f) return;
 
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
@@ -243,6 +245,7 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
             float hazeAlpha = (0.035f + visual.opticalDepth * 0.105f) *
                               (0.42f + light->daylight * 0.58f);
             hazeAlpha += light->sunset * visual.mieStrength * 0.12f;
+            hazeAlpha *= atmosphereVisibility;
             Color haze = ColorLerp(visual.haze, light->starColor, 0.16f);
             if (centerY > topY) {
                 DrawRectangleGradientV(0, topY, screenWidth, centerY - topY,
@@ -271,7 +274,7 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
         float visibility = Clamp(light->sourceVisibility[i], 0.0f, 1.0f);
         float scatterAlpha = Clamp(visual.opticalDepth *
                                    (0.018f + visual.mieStrength * 0.022f) * airMass *
-                                   visibility, 0.0f, 0.20f);
+                                   visibility * atmosphereVisibility, 0.0f, 0.20f);
         float radius = Clamp((32.0f + visual.opticalDepth * 42.0f) * airMass,
                              42.0f, 230.0f);
         Color scatter = ColorLerp(visual.haze, light->sourceColors[i], 0.48f);
@@ -431,6 +434,7 @@ void DrawStars(const Camera3D *camera, float daylight)
             float typeScale = profile->atmosphereType == PLANET_ATMOSPHERE_THIN ? 0.72f : 1.22f;
             extinction = Clamp(profile->atmosphereDensity * typeScale, 0.0f, 1.0f);
         }
+        extinction *= 1.0f - PlanetWorldAtmosphereFade(camera->position);
         atmosphericDaylight *= extinction;
     }
     if (atmosphericDaylight > 0.15f) return;
@@ -549,6 +553,8 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
             Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
             PlanetAtmosphereVisual atmosphere =
                 PlanetAtmosphereVisualFor(PlanetWorldProfile());
+            atmosphere.opticalDepth *=
+                1.0f - PlanetWorldAtmosphereFade(camera->position);
             int sourceCount = state.sourceCount;
             if (sourceCount > MAX_SOLAR_LIGHTS) sourceCount = MAX_SOLAR_LIGHTS;
             for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
@@ -1620,9 +1626,15 @@ void DrawShipHud(void)
     DrawUiText(TextFormat("VEL %.0f blk/s%s", shipHudSpeed,
                           warping ? "  [WARP]" : (shipHudCruising ? "  [CRUISE]" : "")),
                textX, (int)panel.y + 10, 22, speedColor);
-    DrawUiText(TextFormat("ALT %.0f%s   HDG %03.0f", shipHudAlt,
-                          shipHudNearPlanet ? " (surface)" : "", shipHudHeading),
-               textX, (int)panel.y + 42, 18, Fade(WHITE, 0.95f));
+    if (shipHudAtmosphere >= 0.0f) {
+        DrawUiText(TextFormat("ALT %.0f (surface)  ATM %.0f%%  HDG %03.0f",
+                              shipHudAlt, shipHudAtmosphere, shipHudHeading),
+                   textX, (int)panel.y + 42, 18, Fade(WHITE, 0.95f));
+    } else {
+        DrawUiText(TextFormat("ALT %.0f%s   HDG %03.0f", shipHudAlt,
+                              shipHudNearPlanet ? " (surface)" : "", shipHudHeading),
+                   textX, (int)panel.y + 42, 18, Fade(WHITE, 0.95f));
+    }
     Color fuelColor = ShipGetFuel() > 20.0f ? (Color){ 255, 204, 94, 255 } : (Color){ 238, 100, 82, 255 };
     DrawUiText(TextFormat("FUEL %.0f / %.0f   R restore", ShipGetFuel(), SHIP_MAX_FUEL),
                textX, (int)panel.y + 68, 17, fuelColor);

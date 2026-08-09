@@ -557,9 +557,11 @@ int main(void)
         skyHorizon = MixWeather(skyHorizon, daylight);
         ApplyPlanetWorldPaletteWithLight(&skyTop, &skyHorizon, &worldTint,
                                          &planetLight);
-        skyTop = ColorLerp(skyTop, BLACK, spaceFade);
-        skyHorizon = ColorLerp(skyHorizon, BLACK, spaceFade);
-        worldTint = ColorLerp(worldTint, (Color){ 46, 54, 78, 255 }, spaceFade);
+        float planetAtmosphereFade = PlanetWorldAtmosphereFade(camera.position);
+        float skyFade = fmaxf(spaceFade, planetAtmosphereFade);
+        skyTop = ColorLerp(skyTop, BLACK, skyFade);
+        skyHorizon = ColorLerp(skyHorizon, BLACK, skyFade);
+        worldTint = ColorLerp(worldTint, (Color){ 46, 54, 78, 255 }, skyFade);
         bool inNether = WorldCurrentDimensionAt(camera.position.y) == WORLD_DIMENSION_NETHER;
         if (inNether) {
             skyTop = (Color){ 24, 6, 6, 255 };
@@ -591,8 +593,8 @@ int main(void)
             drawCloudLayer = profile->atmosphereType != PLANET_ATMOSPHERE_NONE &&
                              profile->atmosphereDensity > 0.28f;
         }
-        if (spaceFade < 0.5f && !inNether && drawCloudLayer) {
-            DrawClouds(&camera, Fade(worldTint, 1.0f - spaceFade * 2.0f));
+        if (skyFade < 0.5f && !inNether && drawCloudLayer) {
+            DrawClouds(&camera, Fade(worldTint, 1.0f - skyFade * 2.0f));
         }
         ParticlesDraw();
         if (hit.hit) {
@@ -611,8 +613,46 @@ int main(void)
             DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 16, 64, 128, 130 });
         }
 
-        DrawStars(&camera, inNether ? 1.0f : daylight * (1.0f - spaceFade));
-        DrawSpaceSky(spaceFade, &camera);
+        shipSpeedForHud = Vector3Length(player.velocity);
+        if (ShipIsDriving()) {
+            shipHudSpeed = shipSpeedForHud;
+            shipHudCruising = ShipIsCruising();
+            Vector3 gravityDir = Vector3Zero();
+            float surfaceDist = 0.0f;
+            shipHudAtmosphere = -1.0f;
+            if (PlanetWorldIsActive()) {
+                shipHudNearPlanet = true;
+                shipHudAlt = player.position.y -
+                             (float)PlanetTerrainHeight((int)floorf(player.position.x),
+                                                        (int)floorf(player.position.z));
+                shipHudAtmosphere = (1.0f - PlanetWorldAtmosphereFade(camera.position)) * 100.0f;
+            } else if (HomeWorldSurfaceIsActive()) {
+                shipHudNearPlanet = true;
+                shipHudAlt = player.position.y -
+                             (float)TerrainHeight((int)floorf(player.position.x),
+                                                  (int)floorf(player.position.z), terrainMode);
+            } else if (PlanetSurfaceAt(player.position, &gravityDir, &surfaceDist,
+                                       NULL)) {
+                shipHudNearPlanet = true;
+                shipHudAlt = surfaceDist;
+            } else {
+                shipHudNearPlanet = false;
+                shipHudAlt = player.position.y - (float)SPACE_LAYER_Y;
+            }
+            shipHudHeading = fmodf(player.yaw * RAD2DEG + 360.0f, 360.0f);
+            SolarSystemDef hudSys;
+            float hudDist = 0.0f;
+            if (PlanetWorldIsActive()) {
+                snprintf(shipHudSystem, sizeof(shipHudSystem), "%s surface", PlanetWorldName());
+            } else if (FindNearestSystem(player.position, 3000.0f, &hudSys, &hudDist)) {
+                snprintf(shipHudSystem, sizeof(shipHudSystem), "%s Prime (%.0f)", hudSys.name, hudDist);
+            } else {
+                snprintf(shipHudSystem, sizeof(shipHudSystem), "Deep space");
+            }
+        }
+
+        DrawStars(&camera, inNether ? 1.0f : daylight * (1.0f - skyFade));
+        DrawSpaceSky(skyFade, &camera);
         DrawSolarGuide(&camera, spaceFade);
         if (scannerActive && PlanetWorldIsActive()) PlanetPoiDrawScanner(&camera, player.position);
         if (ShipIsDriving()) DrawShipHud();
@@ -642,41 +682,6 @@ int main(void)
             autoSaveForHud = autoSaveEnabled;
             blockForHud = hit.hit ? GetBlockAt(hit.x, hit.y, hit.z) : BLOCK_AIR;
             SpaceEditCountForHud = GetSpaceEditCount();
-            shipSpeedForHud = Vector3Length(player.velocity);
-            if (ShipIsDriving()) {
-                shipHudSpeed = shipSpeedForHud;
-                shipHudCruising = ShipIsCruising();
-                Vector3 gravityDir = Vector3Zero();
-                float surfaceDist = 0.0f;
-                if (PlanetWorldIsActive()) {
-                    shipHudNearPlanet = true;
-                    shipHudAlt = player.position.y -
-                                 (float)PlanetTerrainHeight((int)floorf(player.position.x),
-                                                            (int)floorf(player.position.z));
-                } else if (HomeWorldSurfaceIsActive()) {
-                    shipHudNearPlanet = true;
-                    shipHudAlt = player.position.y -
-                                 (float)TerrainHeight((int)floorf(player.position.x),
-                                                      (int)floorf(player.position.z), terrainMode);
-                } else if (PlanetSurfaceAt(player.position, &gravityDir, &surfaceDist,
-                                           NULL)) {
-                    shipHudNearPlanet = true;
-                    shipHudAlt = surfaceDist;
-                } else {
-                    shipHudNearPlanet = false;
-                    shipHudAlt = player.position.y - (float)SPACE_LAYER_Y;
-                }
-                shipHudHeading = fmodf(player.yaw * RAD2DEG + 360.0f, 360.0f);
-                SolarSystemDef hudSys;
-                float hudDist = 0.0f;
-                if (PlanetWorldIsActive()) {
-                    snprintf(shipHudSystem, sizeof(shipHudSystem), "%s surface", PlanetWorldName());
-                } else if (FindNearestSystem(player.position, 3000.0f, &hudSys, &hudDist)) {
-                    snprintf(shipHudSystem, sizeof(shipHudSystem), "%s Prime (%.0f)", hudSys.name, hudDist);
-                } else {
-                    snprintf(shipHudSystem, sizeof(shipHudSystem), "Deep space");
-                }
-            }
             DrawDebugHUD(player.position, player.yaw, player.pitch);
         }
         if (paused) {

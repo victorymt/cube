@@ -59,6 +59,8 @@ typedef struct HomeWorldContext {
 #define HOME_WORLD_RADIUS 62.0f
 #define HOME_WORLD_CENTER_Y (-30.0f)
 #define HOME_WORLD_LANDING_MARGIN 20.0f
+#define PLANET_ATMOSPHERE_FADE_START ((float)WORLD_HEIGHT + 18.0f)
+#define PLANET_ATMOSPHERE_MIN_DEPTH 64.0f
 
 static PlanetWorldContext planetWorld = { 0 };
 static HomeWorldContext homeWorld = {
@@ -171,6 +173,26 @@ float HomeWorldSpaceFade(Vector3 position)
     if (!homeWorld.surfaceActive) return 1.0f;
     return Clamp((position.y - SPACE_EXIT_Y) / (SPACE_ENTER_Y - SPACE_EXIT_Y),
                  0.0f, 1.0f);
+}
+
+float PlanetWorldAtmosphereFade(Vector3 position)
+{
+    if (!planetWorld.active) return 0.0f;
+
+    float density = Clamp(planetWorld.profile.atmosphereDensity, 0.0f, 1.0f);
+    float typeScale = 1.0f;
+    switch (planetWorld.profile.atmosphereType) {
+    case PLANET_ATMOSPHERE_NONE:       typeScale = 0.55f; break;
+    case PLANET_ATMOSPHERE_THIN:       typeScale = 0.78f; break;
+    case PLANET_ATMOSPHERE_BREATHABLE: typeScale = 1.00f; break;
+    case PLANET_ATMOSPHERE_DENSE:      typeScale = 1.22f; break;
+    case PLANET_ATMOSPHERE_CORROSIVE:  typeScale = 1.12f; break;
+    default: break;
+    }
+    float depth = PLANET_ATMOSPHERE_MIN_DEPTH + density * 48.0f * typeScale;
+    float progress = Clamp((position.y - PLANET_ATMOSPHERE_FADE_START) / depth,
+                           0.0f, 1.0f);
+    return progress * progress * (3.0f - 2.0f * progress);
 }
 
 void HomeWorldReset(void)
@@ -1528,9 +1550,20 @@ bool PlanetWorldTryEnter(Player *player)
 
 bool PlanetWorldTryLaunch(Player *player)
 {
-    if (!planetWorld.active || player->position.y < (float)WORLD_HEIGHT + 12.0f) return false;
+    if (!planetWorld.active || PlanetWorldAtmosphereFade(player->position) < 1.0f) {
+        return false;
+    }
 
     Vector3 returnPosition = planetWorld.returnPosition;
+    Vector3 launchVelocity = PlanetWorldSpaceDirection(player->velocity);
+    Vector3 localForward = Vector3Normalize((Vector3){
+        sinf(player->yaw) * cosf(player->pitch),
+        sinf(player->pitch),
+        cosf(player->yaw) * cosf(player->pitch)
+    });
+    Vector3 spaceForward = Vector3Normalize(PlanetWorldSpaceDirection(localForward));
+    float launchYaw = atan2f(spaceForward.x, spaceForward.z);
+    float launchPitch = asinf(Clamp(spaceForward.y, -1.0f, 1.0f));
     Vector3 outward = Vector3Subtract(planetWorld.returnPosition, planetWorld.bodyCenter);
     if (Vector3LengthSqr(outward) < 0.001f) outward = (Vector3){ 1.0f, 0.0f, 0.0f };
     else outward = Vector3Normalize(outward);
@@ -1554,7 +1587,9 @@ bool PlanetWorldTryLaunch(Player *player)
     RebuildTorchList();
     ClearUndoHistory();
     player->position = returnPosition;
-    player->velocity = Vector3Zero();
+    player->velocity = launchVelocity;
+    player->yaw = launchYaw;
+    player->pitch = launchPitch;
     player->floating = false;
     player->onGround = false;
     SetImportMessage(TextFormat("Left %s atmosphere.", planetName));
