@@ -6,6 +6,9 @@
 #include "inventory.h"
 #include "world.h"
 #include "interaction.h"
+#include "planet_material.h"
+#include "planet_renderer.h"
+#include "planet_surface.h"
 #include "terrain.h"
 #include "particles.h"
 #include "space.h"
@@ -1145,26 +1148,6 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 #define PLANET_TEXTURE_HEIGHT 192
 #define PLANET_TEXTURE_CACHE_CAPACITY 24
 #define PLANET_CLOUD_CACHE_CAPACITY 24
-#define PLANET_SURFACE_TYPE_MAX_VALUE 6
-#define PLANET_RENDER_STRINGIFY_IMPL(value) #value
-#define PLANET_RENDER_STRINGIFY(value) PLANET_RENDER_STRINGIFY_IMPL(value)
-
-// Material texture RGBA stores roughness, specular, emissive, and normalized surface type.
-typedef enum PlanetSurfaceType {
-    PLANET_SURFACE_GENERIC = 0,
-    PLANET_SURFACE_OCEAN,
-    PLANET_SURFACE_ICE,
-    PLANET_SURFACE_ROCK,
-    PLANET_SURFACE_SAND,
-    PLANET_SURFACE_LAVA,
-    PLANET_SURFACE_GAS,
-    PLANET_SURFACE_TYPE_COUNT = PLANET_SURFACE_TYPE_MAX_VALUE + 1
-} PlanetSurfaceType;
-
-typedef struct PlanetTextureSet {
-    Texture2D albedo;
-    Texture2D material;
-} PlanetTextureSet;
 
 typedef struct PlanetTextureCacheEntry {
     bool valid;
@@ -1184,357 +1167,17 @@ typedef struct PlanetCloudCacheEntry {
     Texture2D texture;
 } PlanetCloudCacheEntry;
 
-typedef struct PlanetRenderResources {
+typedef struct PlanetTextureResources {
     bool initialized;
-    bool lightingReady;
-    bool atmosphereReady;
-    Model sphere;
-    Shader lightingShader;
-    Shader atmosphereShader;
-    int lightCountLoc;
-    int lightPositionLoc;
-    int lightColorLoc;
-    int lightIntensityLoc;
-    int cameraPositionLoc;
-    int ambientLightLoc;
-    int emissiveStrengthLoc;
-    int exposureLoc;
-    int materialRoughnessLoc;
-    int materialSpecularLoc;
-    int materialMetallicLoc;
-    int materialModelLoc;
-    int materialMapLoc;
-    int materialMapEnabledLoc;
-    int cloudShadowMapLoc;
-    int cloudShadowEnabledLoc;
-    int cloudShadowRotationLoc;
-    int cloudShadowStrengthLoc;
-    int ringShadowEnabledLoc;
-    int ringShadowCenterLoc;
-    int ringShadowNormalLoc;
-    int ringShadowRadiiLoc;
-    int ringShadowParamsLoc;
-    int atmosphereLightCountLoc;
-    int atmosphereLightPositionLoc;
-    int atmosphereLightColorLoc;
-    int atmosphereLightIntensityLoc;
-    int atmosphereCameraPositionLoc;
-    int atmosphereRayleighColorLoc;
-    int atmosphereHorizonColorLoc;
-    int atmosphereOpticalDepthLoc;
-    int atmosphereMieStrengthLoc;
-    int atmosphereAlphaLoc;
-    int atmosphereExposureLoc;
     PlanetTextureSet home;
     Texture2D homeClouds;
     uint32_t homeCloudSeed;
     uint64_t textureCacheTick;
     PlanetTextureCacheEntry planetTextures[PLANET_TEXTURE_CACHE_CAPACITY];
     PlanetCloudCacheEntry cloudTextures[PLANET_CLOUD_CACHE_CAPACITY];
-} PlanetRenderResources;
+} PlanetTextureResources;
 
-static PlanetRenderResources planetRender = { 0 };
-
-static const char *planetLightingVertexShader =
-    "#version 330\n"
-    "in vec3 vertexPosition;\n"
-    "in vec2 vertexTexCoord;\n"
-    "in vec3 vertexNormal;\n"
-    "in vec4 vertexColor;\n"
-    "uniform mat4 mvp;\n"
-    "uniform mat4 matModel;\n"
-    "out vec2 fragTexCoord;\n"
-    "out vec4 fragColor;\n"
-    "out vec3 fragPosition;\n"
-    "out vec3 fragNormal;\n"
-    "void main()\n"
-    "{\n"
-    "    vec4 worldPosition = matModel*vec4(vertexPosition, 1.0);\n"
-    "    fragPosition = worldPosition.xyz;\n"
-    // Keep the normal in world space to match the world-space light positions.
-    "    fragNormal = normalize((matModel*vec4(vertexNormal, 0.0)).xyz);\n"
-    "    fragTexCoord = vertexTexCoord;\n"
-    "    fragColor = vertexColor;\n"
-    "    gl_Position = mvp*vec4(vertexPosition, 1.0);\n"
-    "}\n";
-
-static const char *planetLightingFragmentShader =
-    "#version 330\n"
-    "in vec2 fragTexCoord;\n"
-    "in vec4 fragColor;\n"
-    "in vec3 fragPosition;\n"
-    "in vec3 fragNormal;\n"
-    "uniform sampler2D texture0;\n"
-    "uniform vec4 colDiffuse;\n"
-    "uniform int lightCount;\n"
-    "uniform vec3 lightPosition[3];\n"
-    "uniform vec3 lightColor[3];\n"
-    "uniform float lightIntensity[3];\n"
-    "uniform vec3 cameraPosition;\n"
-    "uniform float ambientLight;\n"
-    "uniform float emissiveStrength;\n"
-    "uniform float sceneExposure;\n"
-    "uniform float materialRoughness;\n"
-    "uniform float materialSpecular;\n"
-    "uniform float materialMetallic;\n"
-    "uniform int materialModel;\n"
-    "uniform sampler2D materialMap;\n"
-    "uniform int materialMapEnabled;\n"
-    "uniform sampler2D cloudShadowMap;\n"
-    "uniform int cloudShadowEnabled;\n"
-    "uniform float cloudShadowRotation;\n"
-    "uniform float cloudShadowStrength;\n"
-    "uniform int ringShadowEnabled;\n"
-    "uniform vec3 ringShadowCenter;\n"
-    "uniform vec3 ringShadowNormal;\n"
-    "uniform vec2 ringShadowRadii;\n"
-    "uniform vec2 ringShadowParams;\n"
-    "out vec4 finalColor;\n"
-    "vec2 cloudUvForNormal(vec3 normal)\n"
-    "{\n"
-    "    float c = cos(cloudShadowRotation);\n"
-    "    float s = sin(cloudShadowRotation);\n"
-    "    vec3 localNormal = vec3(c*normal.x - s*normal.z, normal.y,\n"
-    "                             s*normal.x + c*normal.z);\n"
-    "    float longitude = atan(localNormal.z, localNormal.x);\n"
-    "    float latitude = asin(clamp(localNormal.y, -1.0, 1.0));\n"
-    "    float u = fract(longitude/6.28318530718);\n"
-    "    if (u < 0.0) u += 1.0;\n"
-    "    return vec2(u, 0.5 - latitude/3.14159265359);\n"
-    "}\n"
-    "float ringDensityAt(float radialFraction)\n"
-    "{\n"
-    "    float phase = ringShadowParams.x;\n"
-    "    float broad = 0.5 + 0.5*sin(radialFraction*29.0 + phase);\n"
-    "    float fine = 0.5 + 0.5*sin(radialFraction*73.0 + phase*1.73);\n"
-    "    float gapCenterA = 0.22 + 0.18*(0.5 + 0.5*sin(phase*0.71));\n"
-    "    float gapCenterB = 0.62 + 0.18*(0.5 + 0.5*sin(phase*1.13 + 1.7));\n"
-    "    float gapACoord = (radialFraction - gapCenterA)/0.028;\n"
-    "    float gapBCoord = (radialFraction - gapCenterB)/0.045;\n"
-    "    float gapA = exp(-gapACoord*gapACoord);\n"
-    "    float gapB = exp(-gapBCoord*gapBCoord);\n"
-    "    return clamp(0.10 + broad*0.54 + fine*0.24 -\n"
-    "                 max(gapA, gapB)*0.72, 0.008, 0.94);\n"
-    "}\n"
-    "float ringShadowOpacity(vec3 surfacePoint, vec3 lightDirection)\n"
-    "{\n"
-    "    if (ringShadowEnabled == 0) return 0.0;\n"
-    "    vec3 ringNormal = normalize(ringShadowNormal);\n"
-    "    float denominator = dot(lightDirection, ringNormal);\n"
-    "    if (abs(denominator) < 0.0005) return 0.0;\n"
-    "    float distanceToPlane = -dot(surfacePoint - ringShadowCenter, ringNormal)/\n"
-    "                            denominator;\n"
-    "    if (distanceToPlane <= 0.0) return 0.0;\n"
-    "    vec3 hit = surfacePoint + lightDirection*distanceToPlane;\n"
-    "    vec3 offset = hit - ringShadowCenter;\n"
-    "    vec3 planar = offset - ringNormal*dot(offset, ringNormal);\n"
-    "    float radialDistance = length(planar);\n"
-    "    float ringWidth = max(ringShadowRadii.y - ringShadowRadii.x, 0.001);\n"
-    "    float radialFraction = (radialDistance - ringShadowRadii.x)/ringWidth;\n"
-    "    if (radialFraction < 0.0 || radialFraction > 1.0) return 0.0;\n"
-    "    float sampledFraction = (floor(clamp(radialFraction, 0.0, 0.9999)*24.0) +\n"
-    "                             0.5)/24.0;\n"
-    "    return ringDensityAt(sampledFraction)*ringShadowParams.y;\n"
-    "}\n"
-    "float distributionGgx(float nDotH, float roughness)\n"
-    "{\n"
-    "    float alpha = roughness*roughness;\n"
-    "    float alphaSquared = alpha*alpha;\n"
-    "    float denominator = nDotH*nDotH*(alphaSquared - 1.0) + 1.0;\n"
-    "    return alphaSquared/max(3.14159265359*denominator*denominator, 0.0001);\n"
-    "}\n"
-    "float geometrySchlickGgx(float nDot, float roughness)\n"
-    "{\n"
-    "    float k = (roughness + 1.0);\n"
-    "    k = k*k/8.0;\n"
-    "    return nDot/max(nDot*(1.0 - k) + k, 0.0001);\n"
-    "}\n"
-    "float geometrySmith(float nDotV, float nDotL, float roughness)\n"
-    "{\n"
-    "    return geometrySchlickGgx(nDotV, roughness)*\n"
-    "           geometrySchlickGgx(nDotL, roughness);\n"
-    "}\n"
-    "vec3 fresnelSchlick(float cosine, vec3 f0)\n"
-    "{\n"
-    "    return f0 + (vec3(1.0) - f0)*pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);\n"
-    "}\n"
-    "void main()\n"
-    "{\n"
-    "    vec4 texel = texture(texture0, fragTexCoord)*colDiffuse*fragColor;\n"
-    "    if (texel.a < 0.005) discard;\n"
-    "    vec3 baseColor = max(texel.rgb, vec3(0.0));\n"
-    "    vec3 normal = normalize(fragNormal);\n"
-    "    vec3 viewDirection = normalize(cameraPosition - fragPosition);\n"
-    "    float nDotV = max(dot(normal, viewDirection), 0.001);\n"
-    "    float roughness = clamp(materialRoughness, 0.045, 1.0);\n"
-    "    float specularStrength = clamp(materialSpecular, 0.0, 1.0);\n"
-    "    float emissionMask = 1.0;\n"
-    "    int surfaceType = 0;\n"
-    "    if (materialMapEnabled != 0)\n"
-    "    {\n"
-    "        vec4 materialSample = texture(materialMap, fragTexCoord);\n"
-    "        roughness = clamp(materialSample.r, 0.045, 1.0);\n"
-    "        specularStrength = clamp(materialSample.g, 0.0, 1.0);\n"
-    "        emissionMask = clamp(materialSample.b, 0.0, 1.0);\n"
-    "        ivec2 materialSize = textureSize(materialMap, 0);\n"
-    "        vec2 wrappedMaterialUv = fract(fragTexCoord);\n"
-    "        ivec2 typeCoord = ivec2(wrappedMaterialUv*vec2(materialSize));\n"
-    "        float encodedSurfaceType = texelFetch(materialMap, typeCoord, 0).a;\n"
-    "        surfaceType = int(floor(encodedSurfaceType*"
-        PLANET_RENDER_STRINGIFY(PLANET_SURFACE_TYPE_MAX_VALUE)
-        ".0 + 0.5));\n"
-    "    }\n"
-    "    float metallic = clamp(materialMetallic, 0.0, 1.0);\n"
-    "    if (materialModel == 4)\n"
-    "    {\n"
-    "        float band = 0.5 + 0.5*sin(normal.y*56.0 + baseColor.r*4.0);\n"
-    "        roughness = mix(roughness, roughness*0.70, band*0.35);\n"
-    "    }\n"
-    "    vec3 dielectricF0 = vec3(0.02 + 0.02*specularStrength);\n"
-    "    vec3 f0 = mix(dielectricF0, baseColor, metallic);\n"
-    "    vec3 reflectedLight = vec3(0.0);\n"
-    "    for (int i = 0; i < 3; i++)\n"
-    "    {\n"
-    "        if (i >= lightCount) break;\n"
-    "        vec3 lightResponse = vec3(0.0);\n"
-    "        vec3 lightDirection = normalize(lightPosition[i] - fragPosition);\n"
-    "        float incidence = dot(normal, lightDirection);\n"
-    "        float daylight = smoothstep(-0.025, 0.055, incidence);\n"
-    "        float directLight = max(incidence, 0.0)*daylight;\n"
-    "        float nDotL = max(incidence, 0.0);\n"
-    "        if (nDotL > 0.0001)\n"
-    "        {\n"
-    "            vec3 halfway = normalize(lightDirection + viewDirection);\n"
-    "            float nDotH = max(dot(normal, halfway), 0.0);\n"
-    "            float hDotV = max(dot(halfway, viewDirection), 0.0);\n"
-    "            float distribution = distributionGgx(nDotH, roughness);\n"
-    "            float geometry = geometrySmith(nDotV, nDotL, roughness);\n"
-    "            vec3 fresnel = fresnelSchlick(hDotV, f0);\n"
-    "            vec3 specular = distribution*geometry*fresnel /\n"
-    "                            max(4.0*nDotV*nDotL, 0.001);\n"
-    "            vec3 diffuse = (vec3(1.0) - fresnel)*(1.0 - metallic)*\n"
-    "                           baseColor/3.14159265359;\n"
-    "            lightResponse = diffuse + specular*specularStrength;\n"
-    "        }\n"
-    "        if (cloudShadowEnabled != 0 && directLight > 0.001)\n"
-    "        {\n"
-    "            float shellHeight = 0.014;\n"
-    "            float projection = -incidence + sqrt(max(0.0,\n"
-    "                incidence*incidence + shellHeight*(2.0 + shellHeight)));\n"
-    "            vec3 shadowNormal = normalize(normal + lightDirection*projection);\n"
-    "            float cloudOpacity = texture(cloudShadowMap,\n"
-    "                                         cloudUvForNormal(shadowNormal)).a;\n"
-    "            float transmission = 1.0 - cloudOpacity*cloudShadowStrength;\n"
-    "            directLight *= clamp(transmission, 0.08, 1.0);\n"
-    "        }\n"
-    "        float ringOpacity = ringShadowOpacity(fragPosition, lightDirection);\n"
-    "        directLight *= clamp(1.0 - ringOpacity, 0.10, 1.0);\n"
-    "        reflectedLight += lightColor[i]*lightIntensity[i]*lightResponse*directLight;\n"
-    "    }\n"
-    "    float emissionScale = materialMapEnabled != 0 ? 1.0 : emissiveStrength;\n"
-    "    vec3 emission = texel.rgb*emissionScale*emissionMask;\n"
-    "    vec3 ambient = baseColor*ambientLight*(0.72 + specularStrength*0.18);\n"
-    "    vec3 environmentColor = vec3(0.035, 0.055, 0.09);\n"
-    "    if (surfaceType == 1) environmentColor = vec3(0.035, 0.090, 0.16);\n"
-    "    else if (surfaceType == 2) environmentColor = vec3(0.075, 0.105, 0.14);\n"
-    "    else if (surfaceType == 5) environmentColor = vec3(0.085, 0.035, 0.018);\n"
-    "    else if (materialModel == 4)\n"
-    "        environmentColor = mix(vec3(0.065, 0.085, 0.12), baseColor, 0.16);\n"
-    "    float environmentStrength = (0.35 + specularStrength*0.65)*\n"
-    "                                (1.05 - roughness*0.55);\n"
-    "    vec3 environmentReflection = fresnelSchlick(nDotV, f0)*\n"
-    "                                 environmentColor*environmentStrength;\n"
-    "    vec3 linearColor = ambient + reflectedLight + environmentReflection + emission;\n"
-    "    vec3 mappedColor = vec3(1.0) - exp(-linearColor*sceneExposure);\n"
-    "    finalColor = vec4(mappedColor, texel.a);\n"
-    "}\n";
-
-#undef PLANET_RENDER_STRINGIFY
-#undef PLANET_RENDER_STRINGIFY_IMPL
-#undef PLANET_SURFACE_TYPE_MAX_VALUE
-
-static const char *planetAtmosphereVertexShader =
-    "#version 330\n"
-    "in vec3 vertexPosition;\n"
-    "in vec3 vertexNormal;\n"
-    "uniform mat4 mvp;\n"
-    "uniform mat4 matModel;\n"
-    "out vec3 fragPosition;\n"
-    "out vec3 fragNormal;\n"
-    "void main()\n"
-    "{\n"
-    "    vec4 worldPosition = matModel*vec4(vertexPosition, 1.0);\n"
-    "    fragPosition = worldPosition.xyz;\n"
-    "    fragNormal = normalize((matModel*vec4(vertexNormal, 0.0)).xyz);\n"
-    "    gl_Position = mvp*vec4(vertexPosition, 1.0);\n"
-    "}\n";
-
-static const char *planetAtmosphereFragmentShader =
-    "#version 330\n"
-    "in vec3 fragPosition;\n"
-    "in vec3 fragNormal;\n"
-    "uniform int lightCount;\n"
-    "uniform vec3 lightPosition[3];\n"
-    "uniform vec3 lightColor[3];\n"
-    "uniform float lightIntensity[3];\n"
-    "uniform vec3 cameraPosition;\n"
-    "uniform vec3 rayleighColor;\n"
-    "uniform vec3 horizonColor;\n"
-    "uniform float opticalDepth;\n"
-    "uniform float mieStrength;\n"
-    "uniform float atmosphereAlpha;\n"
-    "uniform float sceneExposure;\n"
-    "out vec4 finalColor;\n"
-    "float miePhase(float cosine, float anisotropy)\n"
-    "{\n"
-    "    float g2 = anisotropy*anisotropy;\n"
-    "    float denominator = max(1.0 + g2 - 2.0*anisotropy*cosine, 0.025);\n"
-    "    return (1.0 - g2)/pow(denominator, 1.5);\n"
-    "}\n"
-    "void main()\n"
-    "{\n"
-    "    vec3 normal = normalize(fragNormal);\n"
-    "    vec3 viewDirection = normalize(cameraPosition - fragPosition);\n"
-    "    float viewFacing = max(dot(normal, viewDirection), 0.0);\n"
-    "    float limb = pow(1.0 - viewFacing, 0.68);\n"
-    "    float opticalPath = 0.10 + limb*0.90;\n"
-    "    vec3 scatterSum = vec3(0.0);\n"
-    "    float scatterWeight = 0.0;\n"
-    "    for (int i = 0; i < 3; i++)\n"
-    "    {\n"
-    "        if (i >= lightCount) break;\n"
-    "        vec3 lightDirection = normalize(lightPosition[i] - fragPosition);\n"
-    "        float incidence = dot(normal, lightDirection);\n"
-    "        float daySide = smoothstep(-0.18, 0.10, incidence);\n"
-    "        float terminator = exp(-pow(abs(incidence)/0.115, 2.0));\n"
-    "        terminator *= smoothstep(-0.24, 0.035, incidence);\n"
-    "        float scatterCosine = clamp(dot(-lightDirection, viewDirection), -1.0, 1.0);\n"
-    "        float rayleighPhase = 0.55 + 0.45*scatterCosine*scatterCosine;\n"
-    "        float forwardMie = min(miePhase(scatterCosine, 0.58)*0.085, 1.8);\n"
-    "        float intensity = max(lightIntensity[i], 0.0);\n"
-    "        float rayleighWeight = intensity*daySide*(0.48 + rayleighPhase*0.52);\n"
-    "        float twilightWeight = intensity*terminator*(0.34 + mieStrength*0.72);\n"
-    "        float mieWeight = intensity*daySide*mieStrength*forwardMie*0.16;\n"
-    "        vec3 daylightColor = mix(rayleighColor, lightColor[i], 0.20);\n"
-    "        vec3 warmColor = mix(vec3(1.0, 0.24, 0.055), horizonColor, 0.34);\n"
-    "        warmColor = mix(warmColor, lightColor[i], 0.16);\n"
-    "        scatterSum += daylightColor*rayleighWeight;\n"
-    "        scatterSum += warmColor*twilightWeight;\n"
-    "        scatterSum += lightColor[i]*mieWeight;\n"
-    "        scatterWeight += rayleighWeight + twilightWeight + mieWeight;\n"
-    "    }\n"
-    "    float illuminated = 1.0 - exp(-max(scatterWeight, 0.0)*sceneExposure);\n"
-    "    vec3 scatteredColor = scatterWeight > 0.0001\n"
-    "        ? scatterSum/scatterWeight : rayleighColor*0.08;\n"
-    "    float nightAir = opticalDepth*opticalPath*0.012;\n"
-    "    scatteredColor = mix(rayleighColor*0.10, scatteredColor,\n"
-    "                         clamp(illuminated, 0.0, 1.0));\n"
-    "    float alpha = atmosphereAlpha*opticalDepth*opticalPath;\n"
-    "    alpha *= clamp(0.018 + illuminated*0.34 + nightAir, 0.0, 0.72);\n"
-    "    alpha *= smoothstep(0.0, 0.08, 1.0 - viewFacing);\n"
-    "    if (alpha < 0.002) discard;\n"
-    "    finalColor = vec4(scatteredColor, clamp(alpha, 0.0, 0.82));\n"
-    "}\n";
+static PlanetTextureResources planetTextures = { 0 };
 
 static uint32_t PlanetTextureHash(int x, int y, int z, uint32_t seed)
 {
@@ -1593,11 +1236,6 @@ static float PlanetFractalNoise(float x, float y, float z, uint32_t seed)
         amplitude *= 0.5f;
     }
     return value / total;
-}
-
-static unsigned char PlanetColorChannel(float value)
-{
-    return (unsigned char)Clamp(value, 0.0f, 255.0f);
 }
 
 static Color ShadePlanetColor(Color color, float shade)
@@ -1809,14 +1447,6 @@ static Color CraterPlanetPixel(float nx, float ny, float nz, float noise, uint32
                     PlanetColorChannel(tone), 255 };
 }
 
-static float PlanetLavaFissure(const PlanetSurfaceSample *surface)
-{
-    float fissure = 1.0f - Clamp(fabsf(surface->continentalness - 0.53f) / 0.045f,
-                                       0.0f, 1.0f);
-    return fmaxf(fissure,
-                 1.0f - Clamp(fabsf(surface->detail - 0.66f) / 0.022f, 0.0f, 1.0f));
-}
-
 static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny, float nz,
                                float u, float v, uint32_t seed,
                                const PlanetSurfaceSample *surfaceSample)
@@ -1888,117 +1518,6 @@ static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny,
 
     color = ApplyPlanetClimateColor(color, profile, &surface);
     return color;
-}
-
-static PlanetSurfaceType PlanetSurfaceTypeFor(const PlanetProfile *profile,
-                                              const PlanetSurfaceSample *surface)
-{
-    if (!profile->hasSolidSurface || profile->style == SOLAR_STYLE_GAS ||
-        surface->biome == PLANET_BIOME_STORM_BANDS) {
-        return PLANET_SURFACE_GAS;
-    }
-    if (surface->biome == PLANET_BIOME_LAVA_SEA || surface->lavaFlow > 0.48f ||
-        (profile->style == SOLAR_STYLE_LAVA && PlanetLavaFissure(surface) > 0.48f)) {
-        return PLANET_SURFACE_LAVA;
-    }
-    if (surface->iceCoverage > 0.34f || surface->glacierFlow > 0.24f ||
-        surface->biome == PLANET_BIOME_ICE_SHEET ||
-        surface->biome == PLANET_BIOME_GLACIER || profile->style == SOLAR_STYLE_ICE) {
-        return PLANET_SURFACE_ICE;
-    }
-
-    switch (surface->biome) {
-    case PLANET_BIOME_OCEAN:
-        return PLANET_SURFACE_OCEAN;
-    case PLANET_BIOME_DUNES:
-    case PLANET_BIOME_COAST:
-        return PLANET_SURFACE_SAND;
-    case PLANET_BIOME_OASIS:
-        return PLANET_SURFACE_GENERIC;
-    case PLANET_BIOME_BADLANDS:
-        return surface->duneBand > 0.42f ? PLANET_SURFACE_SAND : PLANET_SURFACE_ROCK;
-    case PLANET_BIOME_BASALT_PLAINS:
-    case PLANET_BIOME_VOLCANIC_RIDGE:
-    case PLANET_BIOME_IMPACT_BASIN:
-    case PLANET_BIOME_CRATER_HIGHLANDS:
-    case PLANET_BIOME_ALPINE:
-        return PLANET_SURFACE_ROCK;
-    default:
-        break;
-    }
-
-    if (profile->style == SOLAR_STYLE_DESERT) return PLANET_SURFACE_SAND;
-    if (profile->style == SOLAR_STYLE_CRATER || profile->style == SOLAR_STYLE_LAVA) {
-        return PLANET_SURFACE_ROCK;
-    }
-    return PLANET_SURFACE_GENERIC;
-}
-
-static Color PlanetMaterialPixel(const PlanetProfile *profile,
-                                 const PlanetSurfaceSample *surface)
-{
-    PlanetSurfaceType type = PlanetSurfaceTypeFor(profile, surface);
-    float roughness = 0.76f;
-    float specular = 0.22f;
-    float emissive = 0.0f;
-
-    switch (type) {
-    case PLANET_SURFACE_OCEAN:
-        roughness = 0.045f + surface->detail * 0.040f;
-        specular = 0.90f + surface->detail * 0.06f;
-        break;
-    case PLANET_SURFACE_ICE:
-        roughness = 0.20f + surface->iceCoverage * 0.12f +
-                    surface->glacierCracks * 0.24f;
-        specular = 0.86f - surface->glacierCracks * 0.24f;
-        break;
-    case PLANET_SURFACE_ROCK:
-        roughness = 0.84f + surface->impactDepth * 0.10f -
-                    surface->volcanicActivity * 0.10f;
-        specular = 0.14f + surface->volcanicActivity * 0.12f;
-        break;
-    case PLANET_SURFACE_SAND:
-        roughness = 0.86f + surface->duneBand * 0.10f;
-        specular = 0.13f + surface->moisture * 0.08f;
-        break;
-    case PLANET_SURFACE_LAVA: {
-        float molten = fmaxf(surface->lavaFlow,
-                             surface->biome == PLANET_BIOME_LAVA_SEA ? 0.78f : 0.0f);
-        if (profile->style == SOLAR_STYLE_LAVA) {
-            molten = fmaxf(molten, PlanetLavaFissure(surface));
-        }
-        molten = Clamp(molten, 0.0f, 1.0f);
-        roughness = 0.76f - molten * 0.49f;
-        specular = 0.22f + molten * 0.42f;
-        emissive = 0.22f + molten * 0.76f;
-        break;
-    }
-    case PLANET_SURFACE_GAS:
-        roughness = 0.36f + surface->detail * 0.12f;
-        specular = 0.66f + surface->regionalness * 0.14f;
-        break;
-    case PLANET_SURFACE_GENERIC:
-    default:
-        if (surface->biome == PLANET_BIOME_FOREST) {
-            roughness = 0.88f;
-            specular = 0.15f + surface->moisture * 0.08f;
-        } else if (surface->biome == PLANET_BIOME_OASIS) {
-            roughness = 0.48f;
-            specular = 0.48f;
-        } else {
-            roughness = 0.72f + surface->detail * 0.12f;
-            specular = 0.19f + surface->moisture * 0.09f;
-        }
-        break;
-    }
-
-    float encodedType = (float)type / (float)(PLANET_SURFACE_TYPE_COUNT - 1);
-    return (Color){
-        PlanetColorChannel(Clamp(roughness, 0.045f, 1.0f) * 255.0f),
-        PlanetColorChannel(Clamp(specular, 0.0f, 1.0f) * 255.0f),
-        PlanetColorChannel(Clamp(emissive, 0.0f, 1.0f) * 255.0f),
-        PlanetColorChannel(encodedType * 255.0f)
-    };
 }
 
 static Texture2D LoadPlanetTexturePixels(Color *pixels)
@@ -2108,22 +1627,22 @@ static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
 {
     uint32_t oceanKey = PlanetTextureOceanKey(&body->profile);
     uint32_t seasonKey = PlanetTextureSeasonKey(&body->profile);
-    planetRender.textureCacheTick++;
+    planetTextures.textureCacheTick++;
     for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
-        PlanetTextureCacheEntry *entry = &planetRender.planetTextures[i];
+        PlanetTextureCacheEntry *entry = &planetTextures.planetTextures[i];
         if (!entry->valid || entry->seed != body->worldSeed ||
             entry->style != body->style || entry->oceanKey != oceanKey ||
             entry->seasonKey != seasonKey) {
             continue;
         }
-        entry->lastUse = planetRender.textureCacheTick;
+        entry->lastUse = planetTextures.textureCacheTick;
         return entry->textures;
     }
 
     int replacement = 0;
     uint64_t oldestUse = UINT64_MAX;
     for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
-        PlanetTextureCacheEntry *entry = &planetRender.planetTextures[i];
+        PlanetTextureCacheEntry *entry = &planetTextures.planetTextures[i];
         if (!entry->valid) {
             replacement = i;
             break;
@@ -2134,7 +1653,7 @@ static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
         }
     }
 
-    PlanetTextureCacheEntry *entry = &planetRender.planetTextures[replacement];
+    PlanetTextureCacheEntry *entry = &planetTextures.planetTextures[replacement];
     if (entry->valid) UnloadPlanetTextureSet(&entry->textures);
     *entry = (PlanetTextureCacheEntry){
         .valid = true,
@@ -2142,7 +1661,7 @@ static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
         .style = body->style,
         .oceanKey = oceanKey,
         .seasonKey = seasonKey,
-        .lastUse = planetRender.textureCacheTick,
+        .lastUse = planetTextures.textureCacheTick,
         .textures = MakePlanetSurfaceTextures(&body->profile, body->worldSeed)
     };
     return entry->textures;
@@ -2170,19 +1689,19 @@ static Texture2D PlanetCloudTextureForBody(const SpaceBodyInfo *body)
     if (!body || !PlanetHasCloudLayer(&body->profile)) return (Texture2D){ 0 };
 
     uint32_t profileKey = PlanetCloudProfileKey(&body->profile);
-    planetRender.textureCacheTick++;
+    planetTextures.textureCacheTick++;
     for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
-        PlanetCloudCacheEntry *entry = &planetRender.cloudTextures[i];
+        PlanetCloudCacheEntry *entry = &planetTextures.cloudTextures[i];
         if (!entry->valid || entry->seed != body->worldSeed ||
             entry->profileKey != profileKey) continue;
-        entry->lastUse = planetRender.textureCacheTick;
+        entry->lastUse = planetTextures.textureCacheTick;
         return entry->texture;
     }
 
     int replacement = 0;
     uint64_t oldestUse = UINT64_MAX;
     for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
-        PlanetCloudCacheEntry *entry = &planetRender.cloudTextures[i];
+        PlanetCloudCacheEntry *entry = &planetTextures.cloudTextures[i];
         if (!entry->valid) {
             replacement = i;
             break;
@@ -2193,13 +1712,13 @@ static Texture2D PlanetCloudTextureForBody(const SpaceBodyInfo *body)
         }
     }
 
-    PlanetCloudCacheEntry *entry = &planetRender.cloudTextures[replacement];
+    PlanetCloudCacheEntry *entry = &planetTextures.cloudTextures[replacement];
     if (entry->valid && entry->texture.id != 0) UnloadTexture(entry->texture);
     *entry = (PlanetCloudCacheEntry){
         .valid = true,
         .seed = body->worldSeed,
         .profileKey = profileKey,
-        .lastUse = planetRender.textureCacheTick,
+        .lastUse = planetTextures.textureCacheTick,
         .texture = MakePlanetCloudTexture(&body->profile, body->worldSeed ^ 0x8392f5u)
     };
     return entry->texture;
@@ -2227,71 +1746,6 @@ static float PlanetCloudShadowStrength(const PlanetProfile *profile)
     return Clamp(amount * (0.82f + density * 0.42f), 0.0f, 0.78f);
 }
 
-static Vector3 PlanetSpherePoint(float u, float v)
-{
-    float longitude = u * 2.0f * PI;
-    float latitude = (0.5f - v) * PI;
-    float cosLatitude = cosf(latitude);
-    return (Vector3){ cosLatitude * cosf(longitude), sinf(latitude),
-                      cosLatitude * sinf(longitude) };
-}
-
-static Mesh MakePlanetSphereMesh(void)
-{
-    const int rings = 32;
-    const int slices = 64;
-    const int columns = slices + 1;
-    Mesh mesh = { 0 };
-    mesh.vertexCount = (rings + 1) * columns;
-    mesh.triangleCount = rings * slices * 2;
-    mesh.vertices = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
-    mesh.normals = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
-    mesh.texcoords = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
-    mesh.indices = malloc((size_t)mesh.triangleCount * 3 * sizeof(unsigned short));
-    if (!mesh.vertices || !mesh.normals || !mesh.texcoords || !mesh.indices) {
-        free(mesh.vertices);
-        free(mesh.normals);
-        free(mesh.texcoords);
-        free(mesh.indices);
-        return (Mesh){ 0 };
-    }
-
-    for (int ring = 0; ring <= rings; ring++) {
-        float v = (float)ring / (float)rings;
-        for (int slice = 0; slice <= slices; slice++) {
-            float u = (float)slice / (float)slices;
-            int vertex = ring * columns + slice;
-            Vector3 point = PlanetSpherePoint(u, v);
-            mesh.vertices[vertex * 3] = point.x;
-            mesh.vertices[vertex * 3 + 1] = point.y;
-            mesh.vertices[vertex * 3 + 2] = point.z;
-            mesh.normals[vertex * 3] = point.x;
-            mesh.normals[vertex * 3 + 1] = point.y;
-            mesh.normals[vertex * 3 + 2] = point.z;
-            mesh.texcoords[vertex * 2] = u;
-            mesh.texcoords[vertex * 2 + 1] = v;
-        }
-    }
-
-    int index = 0;
-    for (int ring = 0; ring < rings; ring++) {
-        for (int slice = 0; slice < slices; slice++) {
-            unsigned short topLeft = (unsigned short)(ring * columns + slice);
-            unsigned short topRight = (unsigned short)(topLeft + 1);
-            unsigned short bottomLeft = (unsigned short)(topLeft + columns);
-            unsigned short bottomRight = (unsigned short)(bottomLeft + 1);
-            mesh.indices[index++] = topLeft;
-            mesh.indices[index++] = bottomRight;
-            mesh.indices[index++] = bottomLeft;
-            mesh.indices[index++] = topLeft;
-            mesh.indices[index++] = topRight;
-            mesh.indices[index++] = bottomRight;
-        }
-    }
-    UploadMesh(&mesh, false);
-    return mesh;
-}
-
 static PlanetProfile HomePlanetRenderProfile(void)
 {
     return (PlanetProfile){
@@ -2313,185 +1767,51 @@ static PlanetProfile HomePlanetRenderProfile(void)
 
 static void EnsurePlanetRenderResources(void)
 {
+    PlanetRendererEnsureResources();
+
     uint32_t homeSeed = WorldGetSeed();
-    if (planetRender.initialized) {
-        if (planetRender.homeCloudSeed != homeSeed) {
-            if (planetRender.homeClouds.id != 0) UnloadTexture(planetRender.homeClouds);
-            PlanetProfile homeProfile = HomePlanetRenderProfile();
-            planetRender.homeClouds = MakePlanetCloudTexture(&homeProfile,
-                                                             homeSeed ^ 0x8392f5u);
-            planetRender.homeCloudSeed = homeSeed;
+    PlanetProfile homeProfile = HomePlanetRenderProfile();
+    if (planetTextures.initialized) {
+        if (planetTextures.homeCloudSeed != homeSeed) {
+            if (planetTextures.homeClouds.id != 0) {
+                UnloadTexture(planetTextures.homeClouds);
+            }
+            planetTextures.homeClouds = MakePlanetCloudTexture(
+                &homeProfile, homeSeed ^ 0x8392f5u);
+            planetTextures.homeCloudSeed = homeSeed;
         }
         return;
     }
-    planetRender.initialized = true;
-    Mesh sphereMesh = MakePlanetSphereMesh();
-    if (sphereMesh.vertexCount > 0) planetRender.sphere = LoadModelFromMesh(sphereMesh);
-    planetRender.lightingShader = LoadShaderFromMemory(planetLightingVertexShader,
-                                                        planetLightingFragmentShader);
-    planetRender.lightCountLoc = GetShaderLocation(planetRender.lightingShader, "lightCount");
-    planetRender.lightPositionLoc = GetShaderLocation(planetRender.lightingShader,
-                                                       "lightPosition[0]");
-    planetRender.lightColorLoc = GetShaderLocation(planetRender.lightingShader,
-                                                    "lightColor[0]");
-    planetRender.lightIntensityLoc = GetShaderLocation(planetRender.lightingShader,
-                                                        "lightIntensity[0]");
-    planetRender.cameraPositionLoc = GetShaderLocation(planetRender.lightingShader,
-                                                       "cameraPosition");
-    planetRender.ambientLightLoc = GetShaderLocation(planetRender.lightingShader,
-                                                      "ambientLight");
-    planetRender.emissiveStrengthLoc = GetShaderLocation(planetRender.lightingShader,
-                                                          "emissiveStrength");
-    planetRender.exposureLoc = GetShaderLocation(planetRender.lightingShader,
-                                                 "sceneExposure");
-    planetRender.materialRoughnessLoc = GetShaderLocation(
-        planetRender.lightingShader, "materialRoughness");
-    planetRender.materialSpecularLoc = GetShaderLocation(
-        planetRender.lightingShader, "materialSpecular");
-    planetRender.materialMetallicLoc = GetShaderLocation(
-        planetRender.lightingShader, "materialMetallic");
-    planetRender.materialModelLoc = GetShaderLocation(planetRender.lightingShader,
-                                                      "materialModel");
-    planetRender.materialMapLoc = GetShaderLocation(planetRender.lightingShader,
-                                                    "materialMap");
-    planetRender.materialMapEnabledLoc = GetShaderLocation(
-        planetRender.lightingShader, "materialMapEnabled");
-    planetRender.cloudShadowMapLoc = GetShaderLocation(planetRender.lightingShader,
-                                                       "cloudShadowMap");
-    planetRender.cloudShadowEnabledLoc = GetShaderLocation(planetRender.lightingShader,
-                                                           "cloudShadowEnabled");
-    planetRender.cloudShadowRotationLoc = GetShaderLocation(planetRender.lightingShader,
-                                                            "cloudShadowRotation");
-    planetRender.cloudShadowStrengthLoc = GetShaderLocation(planetRender.lightingShader,
-                                                            "cloudShadowStrength");
-    planetRender.ringShadowEnabledLoc = GetShaderLocation(planetRender.lightingShader,
-                                                          "ringShadowEnabled");
-    planetRender.ringShadowCenterLoc = GetShaderLocation(planetRender.lightingShader,
-                                                         "ringShadowCenter");
-    planetRender.ringShadowNormalLoc = GetShaderLocation(planetRender.lightingShader,
-                                                         "ringShadowNormal");
-    planetRender.ringShadowRadiiLoc = GetShaderLocation(planetRender.lightingShader,
-                                                        "ringShadowRadii");
-    planetRender.ringShadowParamsLoc = GetShaderLocation(planetRender.lightingShader,
-                                                         "ringShadowParams");
-    planetRender.lightingReady = planetRender.lightingShader.id != 0 &&
-                                 planetRender.lightCountLoc >= 0 &&
-                                 planetRender.lightPositionLoc >= 0 &&
-                                 planetRender.lightColorLoc >= 0 &&
-                                 planetRender.lightIntensityLoc >= 0 &&
-                                 planetRender.cameraPositionLoc >= 0 &&
-                                 planetRender.ambientLightLoc >= 0 &&
-                                 planetRender.emissiveStrengthLoc >= 0 &&
-                                 planetRender.exposureLoc >= 0 &&
-                                 planetRender.materialRoughnessLoc >= 0 &&
-                                 planetRender.materialSpecularLoc >= 0 &&
-                                 planetRender.materialMetallicLoc >= 0 &&
-                                 planetRender.materialModelLoc >= 0 &&
-                                 planetRender.materialMapLoc >= 0 &&
-                                 planetRender.materialMapEnabledLoc >= 0 &&
-                                 planetRender.cloudShadowMapLoc >= 0 &&
-                                 planetRender.cloudShadowEnabledLoc >= 0 &&
-                                 planetRender.cloudShadowRotationLoc >= 0 &&
-                                 planetRender.cloudShadowStrengthLoc >= 0 &&
-                                 planetRender.ringShadowEnabledLoc >= 0 &&
-                                 planetRender.ringShadowCenterLoc >= 0 &&
-                                 planetRender.ringShadowNormalLoc >= 0 &&
-                                 planetRender.ringShadowRadiiLoc >= 0 &&
-                                 planetRender.ringShadowParamsLoc >= 0;
-    if (planetRender.lightingReady && planetRender.sphere.materialCount > 0) {
-        planetRender.sphere.materials[0].shader = planetRender.lightingShader;
-    }
-    planetRender.atmosphereShader = LoadShaderFromMemory(planetAtmosphereVertexShader,
-                                                          planetAtmosphereFragmentShader);
-    planetRender.atmosphereLightCountLoc = GetShaderLocation(planetRender.atmosphereShader,
-                                                             "lightCount");
-    planetRender.atmosphereLightPositionLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "lightPosition[0]");
-    planetRender.atmosphereLightColorLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "lightColor[0]");
-    planetRender.atmosphereLightIntensityLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "lightIntensity[0]");
-    planetRender.atmosphereCameraPositionLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "cameraPosition");
-    planetRender.atmosphereRayleighColorLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "rayleighColor");
-    planetRender.atmosphereHorizonColorLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "horizonColor");
-    planetRender.atmosphereOpticalDepthLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "opticalDepth");
-    planetRender.atmosphereMieStrengthLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "mieStrength");
-    planetRender.atmosphereAlphaLoc = GetShaderLocation(planetRender.atmosphereShader,
-                                                        "atmosphereAlpha");
-    planetRender.atmosphereExposureLoc = GetShaderLocation(
-        planetRender.atmosphereShader, "sceneExposure");
-    planetRender.atmosphereReady = planetRender.atmosphereShader.id != 0 &&
-                                   planetRender.atmosphereLightCountLoc >= 0 &&
-                                   planetRender.atmosphereLightPositionLoc >= 0 &&
-                                   planetRender.atmosphereLightColorLoc >= 0 &&
-                                   planetRender.atmosphereLightIntensityLoc >= 0 &&
-                                   planetRender.atmosphereCameraPositionLoc >= 0 &&
-                                   planetRender.atmosphereRayleighColorLoc >= 0 &&
-                                   planetRender.atmosphereHorizonColorLoc >= 0 &&
-                                   planetRender.atmosphereOpticalDepthLoc >= 0 &&
-                                   planetRender.atmosphereMieStrengthLoc >= 0 &&
-                                   planetRender.atmosphereAlphaLoc >= 0 &&
-                                   planetRender.atmosphereExposureLoc >= 0;
-    PlanetProfile homeProfile = HomePlanetRenderProfile();
-    planetRender.home = MakePlanetSurfaceTextures(&homeProfile, 0x48a1c3u);
-    planetRender.homeClouds = MakePlanetCloudTexture(&homeProfile,
-                                                     homeSeed ^ 0x8392f5u);
-    planetRender.homeCloudSeed = homeSeed;
+
+    planetTextures.initialized = true;
+    planetTextures.home = MakePlanetSurfaceTextures(&homeProfile, 0x48a1c3u);
+    planetTextures.homeClouds = MakePlanetCloudTexture(
+        &homeProfile, homeSeed ^ 0x8392f5u);
+    planetTextures.homeCloudSeed = homeSeed;
 }
 
 void UnloadPlanetRenderResources(void)
 {
-    if (!planetRender.initialized) return;
-    if (planetRender.sphere.meshCount > 0) UnloadModel(planetRender.sphere);
-    UnloadPlanetTextureSet(&planetRender.home);
-    if (planetRender.homeClouds.id != 0) UnloadTexture(planetRender.homeClouds);
-    if (planetRender.lightingShader.id != 0) UnloadShader(planetRender.lightingShader);
-    if (planetRender.atmosphereShader.id != 0) UnloadShader(planetRender.atmosphereShader);
-    for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
-        if (planetRender.planetTextures[i].valid)
-            UnloadPlanetTextureSet(&planetRender.planetTextures[i].textures);
+    PlanetRendererShutdown();
+    if (!planetTextures.initialized) return;
+
+    UnloadPlanetTextureSet(&planetTextures.home);
+    if (planetTextures.homeClouds.id != 0) {
+        UnloadTexture(planetTextures.homeClouds);
     }
-    for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
-        if (planetRender.cloudTextures[i].valid &&
-            planetRender.cloudTextures[i].texture.id != 0) {
-            UnloadTexture(planetRender.cloudTextures[i].texture);
+    for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
+        if (planetTextures.planetTextures[i].valid) {
+            UnloadPlanetTextureSet(&planetTextures.planetTextures[i].textures);
         }
     }
-    planetRender = (PlanetRenderResources){ 0 };
+    for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
+        if (planetTextures.cloudTextures[i].valid &&
+            planetTextures.cloudTextures[i].texture.id != 0) {
+            UnloadTexture(planetTextures.cloudTextures[i].texture);
+        }
+    }
+    planetTextures = (PlanetTextureResources){ 0 };
 }
-
-typedef struct PlanetSpaceLighting {
-    int count;
-    Vector3 positions[MAX_SOLAR_LIGHTS];
-    Vector3 colors[MAX_SOLAR_LIGHTS];
-    float intensities[MAX_SOLAR_LIGHTS];
-    float exposure;
-} PlanetSpaceLighting;
-
-typedef struct PlanetMaterialResponse {
-    float roughness;
-    float specular;
-    float metallic;
-    int model;
-} PlanetMaterialResponse;
-
-typedef struct PlanetCloudLayer {
-    Texture2D texture;
-    float rotation;
-    float shadowStrength;
-} PlanetCloudLayer;
-
-typedef struct PlanetRingLayer {
-    Vector3 center;
-    Vector3 normal;
-    Vector2 radii;
-    Vector2 shadowParams;
-} PlanetRingLayer;
 
 static Vector3 PlanetShaderColor(Color color)
 {
@@ -2578,156 +1898,30 @@ static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemA
     return lighting;
 }
 
-static void DrawTexturedPlanet(Vector3 center, float radius, PlanetTextureSet textures,
-                               float rotation, Color fallback,
-                               Vector3 cameraPosition,
-                               const PlanetSpaceLighting *lighting,
-                               const PlanetMaterialResponse *material,
-                               float ambientLight, float emissiveStrength,
-                               const PlanetCloudLayer *cloudLayer,
-                               const PlanetRingLayer *ringLayer)
-{
-    if (planetRender.sphere.meshCount <= 0 || textures.albedo.id == 0) {
-        DrawSphere(center, radius, fallback);
-        return;
-    }
-    if (planetRender.lightingReady) {
-        int lightCount = lighting ? lighting->count : 0;
-        SetShaderValue(planetRender.lightingShader, planetRender.lightCountLoc,
-                       &lightCount, SHADER_UNIFORM_INT);
-        if (lightCount > 0) {
-            SetShaderValueV(planetRender.lightingShader, planetRender.lightPositionLoc,
-                            lighting->positions, SHADER_UNIFORM_VEC3, lightCount);
-            SetShaderValueV(planetRender.lightingShader, planetRender.lightColorLoc,
-                            lighting->colors, SHADER_UNIFORM_VEC3, lightCount);
-            SetShaderValueV(planetRender.lightingShader, planetRender.lightIntensityLoc,
-                            lighting->intensities, SHADER_UNIFORM_FLOAT, lightCount);
-        }
-        PlanetMaterialResponse defaultMaterial = PlanetMaterialResponseFor(NULL, false);
-        if (!material) material = &defaultMaterial;
-        SetShaderValue(planetRender.lightingShader, planetRender.cameraPositionLoc,
-                       &cameraPosition, SHADER_UNIFORM_VEC3);
-        SetShaderValue(planetRender.lightingShader, planetRender.ambientLightLoc,
-                       &ambientLight, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(planetRender.lightingShader, planetRender.emissiveStrengthLoc,
-                       &emissiveStrength, SHADER_UNIFORM_FLOAT);
-        float exposure = lighting && lighting->exposure > 0.0f ?
-                         lighting->exposure : planetSceneExposure;
-        SetShaderValue(planetRender.lightingShader, planetRender.exposureLoc,
-                       &exposure, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(planetRender.lightingShader, planetRender.materialRoughnessLoc,
-                       &material->roughness, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(planetRender.lightingShader, planetRender.materialSpecularLoc,
-                       &material->specular, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(planetRender.lightingShader, planetRender.materialMetallicLoc,
-                       &material->metallic, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(planetRender.lightingShader, planetRender.materialModelLoc,
-                       &material->model, SHADER_UNIFORM_INT);
-        int materialMapEnabled = textures.material.id != 0;
-        SetShaderValue(planetRender.lightingShader, planetRender.materialMapEnabledLoc,
-                       &materialMapEnabled, SHADER_UNIFORM_INT);
-        if (materialMapEnabled) {
-            SetShaderValueTexture(planetRender.lightingShader,
-                                  planetRender.materialMapLoc, textures.material);
-        }
-        int cloudShadowEnabled = cloudLayer && cloudLayer->texture.id != 0 &&
-                                 cloudLayer->shadowStrength > 0.001f;
-        float cloudShadowRotation = cloudShadowEnabled ?
-                                     cloudLayer->rotation * DEG2RAD : 0.0f;
-        float cloudShadowStrength = cloudShadowEnabled ? cloudLayer->shadowStrength : 0.0f;
-        SetShaderValue(planetRender.lightingShader, planetRender.cloudShadowEnabledLoc,
-                       &cloudShadowEnabled, SHADER_UNIFORM_INT);
-        SetShaderValue(planetRender.lightingShader, planetRender.cloudShadowRotationLoc,
-                       &cloudShadowRotation, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(planetRender.lightingShader, planetRender.cloudShadowStrengthLoc,
-                       &cloudShadowStrength, SHADER_UNIFORM_FLOAT);
-        if (cloudShadowEnabled) {
-            SetShaderValueTexture(planetRender.lightingShader,
-                                  planetRender.cloudShadowMapLoc, cloudLayer->texture);
-        }
-        int ringShadowEnabled = ringLayer && ringLayer->shadowParams.y > 0.001f;
-        SetShaderValue(planetRender.lightingShader, planetRender.ringShadowEnabledLoc,
-                       &ringShadowEnabled, SHADER_UNIFORM_INT);
-        if (ringShadowEnabled) {
-            SetShaderValue(planetRender.lightingShader, planetRender.ringShadowCenterLoc,
-                           &ringLayer->center, SHADER_UNIFORM_VEC3);
-            SetShaderValue(planetRender.lightingShader, planetRender.ringShadowNormalLoc,
-                           &ringLayer->normal, SHADER_UNIFORM_VEC3);
-            SetShaderValue(planetRender.lightingShader, planetRender.ringShadowRadiiLoc,
-                           &ringLayer->radii, SHADER_UNIFORM_VEC2);
-            SetShaderValue(planetRender.lightingShader, planetRender.ringShadowParamsLoc,
-                           &ringLayer->shadowParams, SHADER_UNIFORM_VEC2);
-        }
-    }
-    SetMaterialTexture(&planetRender.sphere.materials[0], MATERIAL_MAP_DIFFUSE,
-                       textures.albedo);
-    DrawModelEx(planetRender.sphere, center, (Vector3){ 0.0f, 1.0f, 0.0f }, rotation,
-                (Vector3){ radius, radius, radius }, WHITE);
-}
-
 static void DrawPlanetAtmosphere(const Camera3D *camera, Vector3 center, float radius,
                                  const PlanetProfile *profile,
                                  const PlanetSpaceLighting *lighting, float alpha)
 {
-    if (!profile || profile->atmosphereType == PLANET_ATMOSPHERE_NONE ||
-        !planetRender.atmosphereReady || planetRender.sphere.meshCount <= 0 ||
-        alpha <= 0.0f) return;
+    if (!camera || !profile ||
+        profile->atmosphereType == PLANET_ATMOSPHERE_NONE || alpha <= 0.0f) {
+        return;
+    }
 
     PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(profile);
-    int lightCount = lighting ? lighting->count : 0;
-    SetShaderValue(planetRender.atmosphereShader,
-                   planetRender.atmosphereLightCountLoc,
-                   &lightCount, SHADER_UNIFORM_INT);
-    if (lightCount > 0) {
-        SetShaderValueV(planetRender.atmosphereShader,
-                        planetRender.atmosphereLightPositionLoc,
-                        lighting->positions, SHADER_UNIFORM_VEC3, lightCount);
-        SetShaderValueV(planetRender.atmosphereShader,
-                        planetRender.atmosphereLightColorLoc,
-                        lighting->colors, SHADER_UNIFORM_VEC3, lightCount);
-        SetShaderValueV(planetRender.atmosphereShader,
-                        planetRender.atmosphereLightIntensityLoc,
-                        lighting->intensities, SHADER_UNIFORM_FLOAT, lightCount);
-    }
-    Vector3 rayleighColor = PlanetShaderColor(visual.haze);
-    Vector3 horizonColor = PlanetShaderColor(visual.horizon);
-    float strength = alpha * Clamp(0.48f + visual.opticalDepth * 0.52f,
-                                   0.0f, 1.0f);
-    SetShaderValue(planetRender.atmosphereShader,
-                   planetRender.atmosphereCameraPositionLoc,
-                   &camera->position, SHADER_UNIFORM_VEC3);
-    SetShaderValue(planetRender.atmosphereShader,
-                   planetRender.atmosphereRayleighColorLoc,
-                   &rayleighColor, SHADER_UNIFORM_VEC3);
-    SetShaderValue(planetRender.atmosphereShader,
-                   planetRender.atmosphereHorizonColorLoc,
-                   &horizonColor, SHADER_UNIFORM_VEC3);
-    SetShaderValue(planetRender.atmosphereShader,
-                   planetRender.atmosphereOpticalDepthLoc,
-                   &visual.opticalDepth, SHADER_UNIFORM_FLOAT);
-    SetShaderValue(planetRender.atmosphereShader,
-                   planetRender.atmosphereMieStrengthLoc,
-                   &visual.mieStrength, SHADER_UNIFORM_FLOAT);
-    SetShaderValue(planetRender.atmosphereShader,
-                   planetRender.atmosphereAlphaLoc,
-                   &strength, SHADER_UNIFORM_FLOAT);
-    float exposure = lighting && lighting->exposure > 0.0f ?
-                     lighting->exposure : planetSceneExposure;
-    SetShaderValue(planetRender.atmosphereShader,
-                   planetRender.atmosphereExposureLoc,
-                   &exposure, SHADER_UNIFORM_FLOAT);
-
-    float density = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
-    float shellRadius = radius * (1.028f + visual.scaleHeight * 0.025f + density * 0.020f);
-    Shader surfaceShader = planetRender.sphere.materials[0].shader;
-    planetRender.sphere.materials[0].shader = planetRender.atmosphereShader;
-    BeginBlendMode(BLEND_ALPHA);
-    rlDisableDepthMask();
-    DrawModelEx(planetRender.sphere, center, (Vector3){ 0.0f, 1.0f, 0.0f }, 0.0f,
-                (Vector3){ shellRadius, shellRadius, shellRadius }, WHITE);
-    rlEnableDepthMask();
-    EndBlendMode();
-    planetRender.sphere.materials[0].shader = surfaceShader;
+    PlanetRendererDrawAtmosphere(&(PlanetAtmosphereDrawParams){
+        .center = center,
+        .radius = radius,
+        .cameraPosition = camera->position,
+        .rayleighColor = visual.haze,
+        .horizonColor = visual.horizon,
+        .density = profile->atmosphereDensity,
+        .opticalDepth = visual.opticalDepth,
+        .mieStrength = visual.mieStrength,
+        .scaleHeight = visual.scaleHeight,
+        .alpha = alpha,
+        .sceneExposure = planetSceneExposure,
+        .lighting = lighting
+    });
 }
 
 static PlanetRingLayer PlanetRingLayerFor(Vector3 center, float radius, float tilt,
@@ -2948,17 +2142,37 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             }
             PlanetMaterialResponse material = PlanetMaterialResponseFor(
                 &bodies[i].profile, false);
-            DrawTexturedPlanet(bodies[i].center, radius + 0.08f, textures, rotation, color,
-                               camera->position, &lighting, &material, ambientLight,
-                               emissiveStrength, &cloudLayer, activeRing);
+            PlanetRendererDrawSurface(&(PlanetSurfaceDrawParams){
+                .center = bodies[i].center,
+                .radius = radius + 0.08f,
+                .textures = textures,
+                .rotation = rotation,
+                .fallback = color,
+                .cameraPosition = camera->position,
+                .lighting = &lighting,
+                .material = &material,
+                .ambientLight = ambientLight,
+                .emissiveStrength = emissiveStrength,
+                .sceneExposure = planetSceneExposure,
+                .cloudLayer = &cloudLayer,
+                .ringLayer = activeRing
+            });
             if (cloudLayer.texture.id != 0) {
                 PlanetMaterialResponse cloudMaterial = PlanetMaterialResponseFor(
                     &bodies[i].profile, true);
-                DrawTexturedPlanet(bodies[i].center, radius * 1.014f,
-                                   (PlanetTextureSet){ .albedo = cloudLayer.texture },
-                                   cloudLayer.rotation, WHITE,
-                                   camera->position, &lighting, &cloudMaterial,
-                                   ambientLight, 0.0f, NULL, NULL);
+                PlanetRendererDrawSurface(&(PlanetSurfaceDrawParams){
+                    .center = bodies[i].center,
+                    .radius = radius * 1.014f,
+                    .textures = { .albedo = cloudLayer.texture },
+                    .rotation = cloudLayer.rotation,
+                    .fallback = WHITE,
+                    .cameraPosition = camera->position,
+                    .lighting = &lighting,
+                    .material = &cloudMaterial,
+                    .ambientLight = ambientLight,
+                    .emissiveStrength = 0.0f,
+                    .sceneExposure = planetSceneExposure
+                });
             }
             DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
                                  &lighting, atmosphereAlpha * spaceFade);
@@ -2998,22 +2212,42 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     float homeRotation = -18.0f + (float)SpaceSimulationTime() * 1.2f;
     PlanetSpaceLighting lighting = PlanetSpaceLightingFor(0, 0, center);
     PlanetCloudLayer cloudLayer = {
-        .texture = planetRender.homeClouds,
+        .texture = planetTextures.homeClouds,
         .rotation = PlanetCloudRotation(&homeAtmosphere,
-                                         planetRender.homeCloudSeed ^ 0x8392f5u),
+                                         planetTextures.homeCloudSeed ^ 0x8392f5u),
         .shadowStrength = PlanetCloudShadowStrength(&homeAtmosphere)
     };
     PlanetMaterialResponse material = PlanetMaterialResponseFor(&homeAtmosphere, false);
-    DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor(),
-                       camera->position, &lighting, &material, 0.056f, 0.0f,
-                       &cloudLayer, NULL);
+    PlanetRendererDrawSurface(&(PlanetSurfaceDrawParams){
+        .center = center,
+        .radius = radius,
+        .textures = planetTextures.home,
+        .rotation = homeRotation,
+        .fallback = HomePlanetColor(),
+        .cameraPosition = camera->position,
+        .lighting = &lighting,
+        .material = &material,
+        .ambientLight = 0.056f,
+        .emissiveStrength = 0.0f,
+        .sceneExposure = planetSceneExposure,
+        .cloudLayer = &cloudLayer
+    });
     if (cloudLayer.texture.id != 0) {
         PlanetMaterialResponse cloudMaterial = PlanetMaterialResponseFor(
             &homeAtmosphere, true);
-        DrawTexturedPlanet(center, radius * 1.014f,
-                           (PlanetTextureSet){ .albedo = cloudLayer.texture },
-                           cloudLayer.rotation, WHITE, camera->position, &lighting,
-                           &cloudMaterial, 0.056f, 0.0f, NULL, NULL);
+        PlanetRendererDrawSurface(&(PlanetSurfaceDrawParams){
+            .center = center,
+            .radius = radius * 1.014f,
+            .textures = { .albedo = cloudLayer.texture },
+            .rotation = cloudLayer.rotation,
+            .fallback = WHITE,
+            .cameraPosition = camera->position,
+            .lighting = &lighting,
+            .material = &cloudMaterial,
+            .ambientLight = 0.056f,
+            .emissiveStrength = 0.0f,
+            .sceneExposure = planetSceneExposure
+        });
     }
     DrawPlanetAtmosphere(camera, center, radius, &homeAtmosphere,
                          &lighting, 0.62f * spaceFade);

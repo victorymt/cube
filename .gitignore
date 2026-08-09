@@ -4,3 +4,5 @@ voxelcraft_save.bak
 *.o
 *.a
 tests/test_world_environment
+tests/test_planet_surface
+tests/test_planet_material

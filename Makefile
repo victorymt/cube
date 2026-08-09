@@ -6,7 +6,9 @@ RAYLIB_LIBS := $(shell $(PKG_CONFIG) --libs raylib)
 
 TARGET := voxelcraft
 TEST_TARGET := tests/test_world_environment
-SRC := src/main.c src/album.c src/inventory.c src/space.c src/world_environment.c src/ship.c src/nether.c src/entity.c src/ecology.c src/terrain.c src/discovery.c src/chunks.c src/world.c src/player.c src/interaction.c src/render.c src/particles.c src/audio.c src/weather.c src/starmap.c
+PLANET_SURFACE_TEST_TARGET := tests/test_planet_surface
+PLANET_MATERIAL_TEST_TARGET := tests/test_planet_material
+SRC := src/main.c src/album.c src/inventory.c src/space.c src/world_environment.c src/ship.c src/nether.c src/entity.c src/ecology.c src/terrain.c src/planet_surface.c src/planet_material.c src/planet_renderer.c src/discovery.c src/chunks.c src/world.c src/player.c src/interaction.c src/render.c src/particles.c src/audio.c src/weather.c src/starmap.c
 
 .PHONY: all run test clean
 
@@ -18,11 +20,19 @@ $(TARGET): $(SRC)
 run: $(TARGET)
 	./$(TARGET)
 
-test: $(TEST_TARGET)
+test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET)
 	./$(TEST_TARGET)
+	./$(PLANET_SURFACE_TEST_TARGET)
+	./$(PLANET_MATERIAL_TEST_TARGET)
 
 $(TEST_TARGET): tests/test_world_environment.c src/world_environment.c src/world_environment.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_environment.c src/world_environment.c -lm
 
+$(PLANET_SURFACE_TEST_TARGET): tests/test_planet_surface.c src/planet_surface.c src/planet_surface.h src/space.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_planet_surface.c src/planet_surface.c -lm
+
+$(PLANET_MATERIAL_TEST_TARGET): tests/test_planet_material.c src/planet_material.c src/planet_material.h src/planet_surface.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_planet_material.c src/planet_material.c -lm
+
 clean:
-	rm -f $(TARGET) $(TEST_TARGET)
+	rm -f $(TARGET) $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET)
