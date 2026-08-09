@@ -1522,7 +1522,7 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     int x = 18;
     int y = 18;
     int w = 430;
-    int h = 374;
+    int h = 398;
     DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)w, (float)h }, 0.05f, 6, Fade(BLACK, 0.68f));
     DrawUiText("Voxelcraft", x + 14, y + 12, 24, WHITE);
     DrawUiText("WASD move    Shift sprint    Space jump/swim", x + 14, y + 48, 17, RAYWHITE);
@@ -1537,10 +1537,11 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     DrawUiText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 272, 15, RAYWHITE);
     DrawUiText("WASD thrust, R restore, E land/exit", x + 14, y + 296, 15, RAYWHITE);
     DrawUiText("Flat: I import image, [ ] adjusts precision", x + 14, y + 320, 15, RAYWHITE);
+    DrawUiText("Planet: C scanner, break cores for discoveries", x + 14, y + 344, 15, RAYWHITE);
     const char *mode = ShipIsDriving() ? "Ship" : (floating ? "Floating" : "Walking");
     DrawUiText(TextFormat("%s    %s    View %d    FPS %d", mode,
                           cursorReleased ? "Mouse free" : "Mouse locked", viewDistance, GetFPS()),
-               x + 14, y + 348, 16, Fade(RAYWHITE, 0.9f));
+               x + 14, y + 372, 16, Fade(RAYWHITE, 0.9f));
 }
 
 void DrawCursorReleasedOverlay(void)

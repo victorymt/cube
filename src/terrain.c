@@ -1,5 +1,8 @@
 #include "terrain.h"
 
+#include "discovery.h"
+#include "ecology.h"
+
 #include "raymath.h"
 #include "chunks.h"
 #include "space.h"
@@ -770,6 +773,8 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
             PlacePlanetForest(chunk, treeX, treeZ);
         }
     }
+    PlanetEcologyApplyToChunk(chunk, cx, cz);
+    PlanetPoiApplyToChunk(chunk, cx, cz);
 }
 
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)

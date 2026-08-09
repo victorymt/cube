@@ -2,6 +2,7 @@
 
 #include "raymath.h"
 #include "chunks.h"
+#include "ecology.h"
 #include "terrain.h"
 #include "particles.h"
 #include "world.h"
@@ -1196,8 +1197,9 @@ bool PlanetWorldTryEnter(Player *player)
     UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
     DrainChunkGen();
     SetBlock(shipX, shipGround + 1, shipZ, BLOCK_SPACESHIP);
-    SetImportMessage(TextFormat("Landed on %s - %s.", planetWorld.name,
-                                PlanetBiomeName(PlanetBiomeAt(playerX, playerZ))));
+    SetImportMessage(TextFormat("Landed on %s - %s. Biosphere: %s.", planetWorld.name,
+                                PlanetBiomeName(PlanetBiomeAt(playerX, playerZ)),
+                                PlanetEcologyLifeName()));
     return true;
 }
 

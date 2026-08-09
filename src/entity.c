@@ -3,6 +3,8 @@
 #include "raymath.h"
 #include "world.h"
 #include "terrain.h"
+#include "ecology.h"
+#include "space.h"
 #include "particles.h"
 #include "audio.h"
 
@@ -54,6 +56,23 @@ static bool GroundBelow(Vector3 position)
     return BlockBlocksEntity(x, y, z);
 }
 
+static int EntitySurfaceHeight(int x, int z)
+{
+    return PlanetWorldIsActive() ? PlanetTerrainHeight(x, z) : TerrainHeight(x, z, terrainMode);
+}
+
+static bool PlanetBiomeSupportsFauna(int x, int z)
+{
+    PlanetBiome biome = PlanetBiomeAt(x, z);
+    return biome != PLANET_BIOME_OCEAN && biome != PLANET_BIOME_LAVA_SEA &&
+           biome != PLANET_BIOME_STORM_BANDS && biome != PLANET_BIOME_VOLCANIC_RIDGE;
+}
+
+static bool EntityIsAlien(EntityType type)
+{
+    return type >= ENTITY_ALIEN_GRAZER && type <= ENTITY_ALIEN_STRIDER;
+}
+
 static void SpawnPassive(const Player *player)
 {
     if (player->position.y > 40.0f) return;
@@ -61,14 +80,26 @@ static void SpawnPassive(const Player *player)
     int slot = NextFreeEntity();
     if (slot < 0) return;
 
-    EntityType types[4] = { ENTITY_COW, ENTITY_SHEEP, ENTITY_PIG, ENTITY_CHICKEN };
-    EntityType type = types[rand() % 4];
+    bool alienWorld = PlanetWorldIsActive();
+    EntityType type = ENTITY_COW;
+    if (alienWorld) {
+        float faunaDensity = PlanetEcologyFaunaDensity();
+        if (faunaDensity <= 0.0f || rand() % 1000 >= (int)(faunaDensity * 1000.0f)) return;
+        uint32_t speciesSeed = PlanetWorldSeed();
+        int species = (int)((speciesSeed + (uint32_t)(rand() % 2) * 17u) % 3u);
+        type = (EntityType)(ENTITY_ALIEN_GRAZER + species);
+    } else {
+        EntityType types[4] = { ENTITY_COW, ENTITY_SHEEP, ENTITY_PIG, ENTITY_CHICKEN };
+        type = types[rand() % 4];
+    }
 
     float angle = (float)(rand() % 628) / 100.0f;
-    float dist = 14.0f + (float)(rand() % 300) / 10.0f;
+    float dist = alienWorld ? 12.0f + (float)(rand() % 160) / 10.0f
+                            : 14.0f + (float)(rand() % 300) / 10.0f;
     int gx = (int)floorf(player->position.x + cosf(angle) * dist);
     int gz = (int)floorf(player->position.z + sinf(angle) * dist);
-    int groundY = TerrainHeight(gx, gz, terrainMode);
+    if (alienWorld && !PlanetBiomeSupportsFauna(gx, gz)) return;
+    int groundY = EntitySurfaceHeight(gx, gz);
     BlockType spawnAt = GetBlockAt(gx, groundY + 1, gz);
     BlockType spawnAbove = GetBlockAt(gx, groundY + 2, gz);
     if (spawnAt != BLOCK_AIR && spawnAt != BLOCK_WATER && spawnAt != BLOCK_LAVA) return;
@@ -98,7 +129,7 @@ static void SpawnHostile(const Player *player, float daylight)
     float dist = 18.0f + (float)(rand() % 200) / 10.0f;
     int gx = (int)floorf(player->position.x + cosf(angle) * dist);
     int gz = (int)floorf(player->position.z + sinf(angle) * dist);
-    int groundY = TerrainHeight(gx, gz, terrainMode);
+    int groundY = EntitySurfaceHeight(gx, gz);
     BlockType spawnAt = GetBlockAt(gx, groundY + 1, gz);
     BlockType spawnAbove = GetBlockAt(gx, groundY + 2, gz);
     if (spawnAt != BLOCK_AIR && spawnAt != BLOCK_WATER && spawnAt != BLOCK_LAVA) return;
@@ -139,6 +170,9 @@ static void MoveEntityHorizontal(Entity *entity, Vector3 delta, float dt)
 static void UpdatePassive(Entity *entity, const Player *player, float dt)
 {
     float speed = (entity->type == ENTITY_CHICKEN) ? 0.7f : 1.0f;
+    if (entity->type == ENTITY_ALIEN_HOPPER) speed = 1.55f;
+    else if (entity->type == ENTITY_ALIEN_STRIDER) speed = 1.20f;
+    else if (entity->type == ENTITY_ALIEN_GRAZER) speed = 0.85f;
     Vector3 toPlayer = Vector3Subtract(player->position, entity->position);
     float playerDist = Vector3Length(toPlayer);
 
@@ -178,7 +212,7 @@ static void UpdateHostile(Entity *entity, const Player *player, float dt, float 
         if (entity->type == ENTITY_ZOMBIE) {
             int x = (int)floorf(entity->position.x);
             int z = (int)floorf(entity->position.z);
-            int groundY = TerrainHeight(x, z, terrainMode);
+            int groundY = EntitySurfaceHeight(x, z);
             if (entity->position.y < (float)groundY + 2.2f &&
                 !BlockBlocksEntity(x, (int)floorf(entity->position.y + 1.7f), z)) {
                 entity->position.y += 7.5f * dt;
@@ -210,8 +244,12 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
     spawnTimer -= dt;
     if (spawnTimer <= 0.0f) {
         spawnTimer = 1.5f;
-        if (GetActiveEntityCount() < MAX_ENTITIES - 4) {
-            if (daylight > 0.5f) SpawnPassive(player);
+        int populationCap = MAX_ENTITIES - 4;
+        if (PlanetWorldIsActive()) {
+            populationCap = 3 + (int)(PlanetEcologyFaunaDensity() * 18.0f);
+        }
+        if (GetActiveEntityCount() < populationCap) {
+            if (PlanetWorldIsActive() || daylight > 0.5f) SpawnPassive(player);
             else SpawnHostile(player, daylight);
         }
     }
@@ -220,7 +258,15 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
         Entity *entity = &entities[i];
         if (!entity->active) continue;
 
-        entity->velocity.y -= 24.0f * dt;
+        float dx = entity->position.x - player->position.x;
+        float dz = entity->position.z - player->position.z;
+        if (dx * dx + dz * dz > 96.0f * 96.0f) {
+            entity->active = false;
+            continue;
+        }
+
+        float gravityScale = PlanetWorldIsActive() ? PlanetWorldGravityScale() : 1.0f;
+        entity->velocity.y -= 24.0f * gravityScale * dt;
         entity->position.y += entity->velocity.y * dt;
 
         if (GroundBelow(entity->position)) {
@@ -247,6 +293,10 @@ static Color EntityBodyColor(EntityType type)
     case ENTITY_SHEEP: return (Color){ 238, 236, 228, 255 };
     case ENTITY_PIG: return (Color){ 236, 176, 168, 255 };
     case ENTITY_CHICKEN: return (Color){ 240, 236, 222, 255 };
+    case ENTITY_ALIEN_GRAZER:
+    case ENTITY_ALIEN_HOPPER:
+    case ENTITY_ALIEN_STRIDER:
+        return ColorLerp(ColorPalette256((int)(PlanetWorldSeed() % 216u) + 20), WHITE, 0.12f);
     case ENTITY_ZOMBIE: return (Color){ 110, 150, 84, 255 };
     case ENTITY_SKELETON: return (Color){ 226, 226, 224, 255 };
     default: return MAGENTA;
@@ -260,6 +310,10 @@ static Color EntityHeadColor(EntityType type)
     case ENTITY_SHEEP: return (Color){ 218, 210, 200, 255 };
     case ENTITY_PIG: return (Color){ 226, 154, 148, 255 };
     case ENTITY_CHICKEN: return (Color){ 238, 232, 214, 255 };
+    case ENTITY_ALIEN_GRAZER:
+    case ENTITY_ALIEN_HOPPER:
+    case ENTITY_ALIEN_STRIDER:
+        return ColorLerp(ColorPalette256((int)((PlanetWorldSeed() >> 8) % 216u) + 20), WHITE, 0.22f);
     case ENTITY_ZOMBIE: return (Color){ 96, 134, 70, 255 };
     case ENTITY_SKELETON: return (Color){ 214, 214, 212, 255 };
     default: return MAGENTA;
@@ -271,11 +325,83 @@ static void DrawEntityBox(Vector3 center, Vector3 size, Color color)
     DrawCubeV(center, size, color);
 }
 
+static Vector3 AlienPartPosition(Vector3 origin, Vector3 forward, Vector3 side,
+                                 float along, float across, float y)
+{
+    Vector3 result = Vector3Add(origin, Vector3Scale(forward, along));
+    result = Vector3Add(result, Vector3Scale(side, across));
+    result.y += y;
+    return result;
+}
+
+static void DrawAlienEntity(const Entity *entity)
+{
+    Vector3 pos = entity->position;
+    Vector3 forward = { sinf(entity->yaw), 0.0f, cosf(entity->yaw) };
+    Vector3 side = { forward.z, 0.0f, -forward.x };
+    Color body = EntityBodyColor(entity->type);
+    Color accent = EntityHeadColor(entity->type);
+
+    if (entity->type == ENTITY_ALIEN_GRAZER) {
+        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.0f, 0.0f, 0.92f),
+                      (Vector3){ 1.10f, 0.70f, 1.55f }, body);
+        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.98f, 0.0f, 1.02f),
+                      (Vector3){ 0.62f, 0.58f, 0.58f }, accent);
+        for (int row = -1; row <= 1; row++) {
+            for (int pair = -1; pair <= 1; pair += 2) {
+                DrawEntityBox(AlienPartPosition(pos, forward, side, row * 0.48f,
+                                                pair * 0.38f, 0.38f),
+                              (Vector3){ 0.16f, 0.76f, 0.16f }, body);
+            }
+        }
+        DrawEntityBox(AlienPartPosition(pos, forward, side, 1.02f, -0.22f, 1.48f),
+                      (Vector3){ 0.10f, 0.42f, 0.10f }, accent);
+        DrawEntityBox(AlienPartPosition(pos, forward, side, 1.02f, 0.22f, 1.48f),
+                      (Vector3){ 0.10f, 0.42f, 0.10f }, accent);
+        return;
+    }
+
+    if (entity->type == ENTITY_ALIEN_HOPPER) {
+        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.0f, 0.0f, 0.72f),
+                      (Vector3){ 0.68f, 0.54f, 0.82f }, body);
+        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.52f, 0.0f, 0.91f),
+                      (Vector3){ 0.42f, 0.42f, 0.42f }, accent);
+        DrawEntityBox(AlienPartPosition(pos, forward, side, -0.20f, -0.38f, 0.42f),
+                      (Vector3){ 0.20f, 0.84f, 0.20f }, body);
+        DrawEntityBox(AlienPartPosition(pos, forward, side, -0.20f, 0.38f, 0.42f),
+                      (Vector3){ 0.20f, 0.84f, 0.20f }, body);
+        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.58f, -0.18f, 1.30f),
+                      (Vector3){ 0.08f, 0.50f, 0.08f }, accent);
+        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.58f, 0.18f, 1.30f),
+                      (Vector3){ 0.08f, 0.50f, 0.08f }, accent);
+        return;
+    }
+
+    DrawEntityBox(AlienPartPosition(pos, forward, side, 0.0f, 0.0f, 1.62f),
+                  (Vector3){ 0.86f, 0.52f, 1.24f }, body);
+    for (int row = -1; row <= 1; row += 2) {
+        for (int pair = -1; pair <= 1; pair += 2) {
+            DrawEntityBox(AlienPartPosition(pos, forward, side, row * 0.38f,
+                                            pair * 0.32f, 0.76f),
+                          (Vector3){ 0.15f, 1.52f, 0.15f }, body);
+        }
+    }
+    DrawEntityBox(AlienPartPosition(pos, forward, side, 0.48f, 0.0f, 2.12f),
+                  (Vector3){ 0.24f, 0.82f, 0.24f }, accent);
+    DrawEntityBox(AlienPartPosition(pos, forward, side, 0.72f, 0.0f, 2.55f),
+                  (Vector3){ 0.52f, 0.38f, 0.52f }, accent);
+}
+
 void EntitiesDraw(void)
 {
     for (int i = 0; i < MAX_ENTITIES; i++) {
         const Entity *entity = &entities[i];
         if (!entity->active) continue;
+
+        if (EntityIsAlien(entity->type)) {
+            DrawAlienEntity(entity);
+            continue;
+        }
 
         Vector3 pos = entity->position;
         bool small = entity->type == ENTITY_CHICKEN;
@@ -322,6 +448,16 @@ int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance)
 
         float radius = (entity->type == ENTITY_CHICKEN) ? 0.45f : 0.6f;
         float height = (entity->type == ENTITY_CHICKEN) ? 1.1f : 1.5f;
+        if (entity->type == ENTITY_ALIEN_GRAZER) {
+            radius = 1.0f;
+            height = 1.8f;
+        } else if (entity->type == ENTITY_ALIEN_HOPPER) {
+            radius = 0.65f;
+            height = 1.6f;
+        } else if (entity->type == ENTITY_ALIEN_STRIDER) {
+            radius = 0.9f;
+            height = 2.8f;
+        }
         Vector3 center = { entity->position.x, entity->position.y + height * 0.5f, entity->position.z };
 
         Vector3 toCenter = Vector3Subtract(center, origin);

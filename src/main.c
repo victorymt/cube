@@ -18,6 +18,7 @@
 #include "nether.h"
 #include "entity.h"
 #include "starmap.h"
+#include "discovery.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -128,6 +129,7 @@ int main(void)
     int selectedIndex = 0;
     bool showHelp = true;
     bool showDebug = false;
+    bool scannerActive = false;
     int screenshotCounter = 0;
     bool quitRequested = false;
     bool cursorReleased = false;
@@ -135,6 +137,8 @@ int main(void)
     bool albumOpen = false;
     bool albumRainSuspended = false;
     bool wasInSpace = false;
+    bool entitiesWorldActive = true;
+    uint32_t entitiesWorldDimension = 0u;
     bool thirdPerson = false;
     ImportDialog importDialog = {
         .relief = true,
@@ -169,6 +173,8 @@ int main(void)
                 albumOpen = false;
                 albumRainSuspended = false;
                 wasInSpace = false;
+                entitiesWorldActive = true;
+                entitiesWorldDimension = 0u;
                 thirdPerson = false;
                 paused = false;
                 screen = SCREEN_PLAYING;
@@ -319,6 +325,19 @@ int main(void)
                 autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
                 SetImportMessage(autoSaveEnabled ? "Auto-save enabled (every 60s)." : "Auto-save disabled.");
             }
+            if (PlanetWorldIsActive() && IsKeyPressed(KEY_C)) {
+                scannerActive = !scannerActive;
+                if (scannerActive) {
+                    PlanetPoi poi = { 0 };
+                    if (PlanetPoiNearest(player.position, &poi)) {
+                        SetImportMessage(TextFormat("Scanner online: %s", poi.name));
+                    } else {
+                        SetImportMessage("Scanner online: no signal found.");
+                    }
+                } else {
+                    SetImportMessage("Scanner offline.");
+                }
+            }
             bool ctrlHeld = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
             if (ctrlHeld && IsKeyPressed(KEY_Z) && !IsKeyDown(KEY_LEFT_SHIFT)) {
                 if (UndoBlockEdit()) SetImportMessage("Undo");
@@ -378,6 +397,13 @@ int main(void)
         }
         int effectiveRenderDistance = EffectiveRenderDistanceForHeight(player.position.y + EYE_HEIGHT);
         bool localWorldActive = HomeWorldSurfaceIsActive() || PlanetWorldIsActive();
+        uint32_t currentEntityDimension = PlanetWorldIsActive() ? PlanetWorldSeed() : 0u;
+        if (localWorldActive != entitiesWorldActive ||
+            (localWorldActive && currentEntityDimension != entitiesWorldDimension)) {
+            EntitiesClear();
+            entitiesWorldActive = localWorldActive;
+            entitiesWorldDimension = currentEntityDimension;
+        }
         if (localWorldActive) UpdateChunks(player.position, effectiveRenderDistance);
         if (!PlanetWorldIsActive()) {
             SpaceProcessFinishedGenJobs();
@@ -410,12 +436,24 @@ int main(void)
             EntityKill(entityHit);
         } else if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit.y >= NETHER_LAYER_Y) {
             BlockType brokenType = GetBlockAt(hit.x, hit.y, hit.z);
-            if (brokenType != BLOCK_AIR && InventoryAdd(brokenType, 1) > 0) {
+            PlanetPoi claimedPoi = { 0 };
+            bool poiCore = PlanetPoiIsCore(hit.x, hit.y, hit.z);
+            bool poiClaimed = PlanetPoiIsClaimed(hit.x, hit.y, hit.z);
+            if (PlanetPoiTryClaim(hit.x, hit.y, hit.z, &claimedPoi)) {
+                ParticlesEmitBurst((Vector3){ hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f },
+                                   BlockBaseColor(claimedPoi.rewardBlock), 24, 3.8f, 0.85f);
+                AudioPlayBreak();
+                SetImportMessage(TextFormat("Survey complete: %s, +%d %s", claimedPoi.name,
+                                            claimedPoi.rewardAmount,
+                                            BlockName(claimedPoi.rewardBlock)));
+            } else if (poiClaimed) {
+                SetImportMessage("This discovery has already been catalogued.");
+            } else if (!poiCore && brokenType != BLOCK_AIR && InventoryAdd(brokenType, 1) > 0) {
                 ParticlesEmitBurst((Vector3){ hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f },
                                    BlockBaseColor(brokenType), 16, 3.0f, 0.7f);
                 AudioPlayBreak();
                 SetBlock(hit.x, hit.y, hit.z, BLOCK_AIR);
-            } else if (brokenType != BLOCK_AIR) {
+            } else if (!poiCore && brokenType != BLOCK_AIR) {
                 SetImportMessage(TextFormat("Inventory full: %s", BlockName(brokenType)));
             }
         }
@@ -552,6 +590,7 @@ int main(void)
         DrawStars(&camera, inNether ? 1.0f : daylight * (1.0f - spaceFade));
         DrawSpaceSky(spaceFade, &camera);
         DrawSolarGuide(&camera, spaceFade);
+        if (scannerActive && PlanetWorldIsActive()) PlanetPoiDrawScanner(&camera, player.position);
         if (ShipIsDriving()) DrawShipHud();
         if (spaceFade > 0.05f && haveAimBody && !StarMapIsOpen()) {
             DrawBodyInfoPanel(&aimBody);
