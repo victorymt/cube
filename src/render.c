@@ -1088,7 +1088,15 @@ typedef struct PlanetTextureCacheEntry {
 
 typedef struct PlanetRenderResources {
     bool initialized;
+    bool lightingReady;
     Model sphere;
+    Shader lightingShader;
+    int lightCountLoc;
+    int lightPositionLoc;
+    int lightColorLoc;
+    int lightIntensityLoc;
+    int ambientLightLoc;
+    int emissiveStrengthLoc;
     Texture2D home;
     Texture2D clouds;
     Texture2D atmosphereGlow;
@@ -1097,6 +1105,64 @@ typedef struct PlanetRenderResources {
 } PlanetRenderResources;
 
 static PlanetRenderResources planetRender = { 0 };
+
+static const char *planetLightingVertexShader =
+    "#version 330\n"
+    "in vec3 vertexPosition;\n"
+    "in vec2 vertexTexCoord;\n"
+    "in vec3 vertexNormal;\n"
+    "in vec4 vertexColor;\n"
+    "uniform mat4 mvp;\n"
+    "uniform mat4 matModel;\n"
+    "out vec2 fragTexCoord;\n"
+    "out vec4 fragColor;\n"
+    "out vec3 fragPosition;\n"
+    "out vec3 fragNormal;\n"
+    "void main()\n"
+    "{\n"
+    "    vec4 worldPosition = matModel*vec4(vertexPosition, 1.0);\n"
+    "    fragPosition = worldPosition.xyz;\n"
+    // Keep the normal in world space to match the world-space light positions.
+    "    fragNormal = normalize((matModel*vec4(vertexNormal, 0.0)).xyz);\n"
+    "    fragTexCoord = vertexTexCoord;\n"
+    "    fragColor = vertexColor;\n"
+    "    gl_Position = mvp*vec4(vertexPosition, 1.0);\n"
+    "}\n";
+
+static const char *planetLightingFragmentShader =
+    "#version 330\n"
+    "in vec2 fragTexCoord;\n"
+    "in vec4 fragColor;\n"
+    "in vec3 fragPosition;\n"
+    "in vec3 fragNormal;\n"
+    "uniform sampler2D texture0;\n"
+    "uniform vec4 colDiffuse;\n"
+    "uniform int lightCount;\n"
+    "uniform vec3 lightPosition[3];\n"
+    "uniform vec3 lightColor[3];\n"
+    "uniform float lightIntensity[3];\n"
+    "uniform float ambientLight;\n"
+    "uniform float emissiveStrength;\n"
+    "out vec4 finalColor;\n"
+    "void main()\n"
+    "{\n"
+    "    vec4 texel = texture(texture0, fragTexCoord)*colDiffuse*fragColor;\n"
+    "    if (texel.a < 0.005) discard;\n"
+    "    vec3 normal = normalize(fragNormal);\n"
+    "    vec3 illumination = vec3(ambientLight);\n"
+    "    for (int i = 0; i < 3; i++)\n"
+    "    {\n"
+    "        if (i >= lightCount) break;\n"
+    "        vec3 lightDirection = normalize(lightPosition[i] - fragPosition);\n"
+    "        float incidence = dot(normal, lightDirection);\n"
+    "        float daylight = smoothstep(-0.025, 0.055, incidence);\n"
+    "        illumination += lightColor[i]*lightIntensity[i]*max(incidence, 0.0)*daylight;\n"
+    "    }\n"
+    "    float brightChannel = max(texel.r, max(texel.g, texel.b));\n"
+    "    float emissionMask = smoothstep(0.62, 0.94, brightChannel);\n"
+    "    vec3 emission = texel.rgb*emissiveStrength*emissionMask;\n"
+    "    finalColor = vec4(texel.rgb*illumination + emission, texel.a);\n"
+    "}\n";
 
 static uint32_t PlanetTextureHash(int x, int y, int z, uint32_t seed)
 {
@@ -1172,12 +1238,6 @@ static Color ShadePlanetColor(Color color, float shade)
     };
 }
 
-static float PlanetBakedLight(float nx, float ny, float nz)
-{
-    float light = nx * -0.48f + ny * 0.20f + nz * 0.85f;
-    return 0.42f + 0.58f * Clamp(light * 0.5f + 0.5f, 0.0f, 1.0f);
-}
-
 static Color ApplyPlanetClimateColor(Color color, const PlanetProfile *profile,
                                      const PlanetSurfaceSample *surface)
 {
@@ -1245,7 +1305,7 @@ static Color TemperatePlanetPixel(const PlanetProfile *profile, float nx, float 
     }
 
     color = ApplyPlanetClimateColor(color, profile, &surface);
-    return ShadePlanetColor(color, PlanetBakedLight(nx, ny, nz));
+    return color;
 }
 
 static Color PlanetCloudPixel(float nx, float ny, float nz, uint32_t seed)
@@ -1255,10 +1315,9 @@ static Color PlanetCloudPixel(float nx, float ny, float nz, uint32_t seed)
     float wisps = 0.5f + 0.5f * sinf((nx - nz) * 13.0f + ny * 21.0f);
     clouds = clouds * 0.82f + wisps * 0.18f;
     float opacity = Clamp((clouds - 0.58f) * 4.0f, 0.0f, 0.58f);
-    float shade = 0.78f + PlanetBakedLight(nx, ny, nz) * 0.22f;
-    return (Color){ PlanetColorChannel(246.0f * shade),
-                    PlanetColorChannel(250.0f * shade),
-                    PlanetColorChannel(255.0f * shade),
+    return (Color){ 246,
+                    250,
+                    255,
                     PlanetColorChannel(opacity * 255.0f) };
 }
 
@@ -1355,7 +1414,7 @@ static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny,
     }
 
     color = ApplyPlanetClimateColor(color, profile, &surface);
-    return ShadePlanetColor(color, PlanetBakedLight(nx, ny, nz));
+    return color;
 }
 
 static Texture2D MakePlanetTexture(const PlanetProfile *profile, uint32_t seed, bool clouds)
@@ -1560,9 +1619,37 @@ static void EnsurePlanetRenderResources(void)
     planetRender.initialized = true;
     Mesh sphereMesh = MakePlanetSphereMesh();
     if (sphereMesh.vertexCount > 0) planetRender.sphere = LoadModelFromMesh(sphereMesh);
+    planetRender.lightingShader = LoadShaderFromMemory(planetLightingVertexShader,
+                                                        planetLightingFragmentShader);
+    planetRender.lightCountLoc = GetShaderLocation(planetRender.lightingShader, "lightCount");
+    planetRender.lightPositionLoc = GetShaderLocation(planetRender.lightingShader,
+                                                       "lightPosition[0]");
+    planetRender.lightColorLoc = GetShaderLocation(planetRender.lightingShader,
+                                                    "lightColor[0]");
+    planetRender.lightIntensityLoc = GetShaderLocation(planetRender.lightingShader,
+                                                        "lightIntensity[0]");
+    planetRender.ambientLightLoc = GetShaderLocation(planetRender.lightingShader,
+                                                      "ambientLight");
+    planetRender.emissiveStrengthLoc = GetShaderLocation(planetRender.lightingShader,
+                                                          "emissiveStrength");
+    planetRender.lightingReady = planetRender.lightingShader.id != 0 &&
+                                 planetRender.lightCountLoc >= 0 &&
+                                 planetRender.lightPositionLoc >= 0 &&
+                                 planetRender.lightColorLoc >= 0 &&
+                                 planetRender.lightIntensityLoc >= 0 &&
+                                 planetRender.ambientLightLoc >= 0 &&
+                                 planetRender.emissiveStrengthLoc >= 0;
+    if (planetRender.lightingReady && planetRender.sphere.materialCount > 0) {
+        planetRender.sphere.materials[0].shader = planetRender.lightingShader;
+    }
     PlanetProfile homeProfile = {
         .style = SOLAR_STYLE_TEMPERATE,
-        .oceanCoverage = 0.48f
+        .equilibriumTempK = 288.0f,
+        .oceanCoverage = 0.48f,
+        .albedo = 0.30f,
+        .greenhouseEffect = 0.18f,
+        .axialTilt = 23.4f * DEG2RAD,
+        .yearLength = 6400.0f
     };
     planetRender.home = MakePlanetTexture(&homeProfile, 0x48a1c3u, false);
     planetRender.clouds = MakePlanetTexture(NULL, 0x8392f5u, true);
@@ -1576,6 +1663,7 @@ void UnloadPlanetRenderResources(void)
     if (planetRender.home.id != 0) UnloadTexture(planetRender.home);
     if (planetRender.clouds.id != 0) UnloadTexture(planetRender.clouds);
     if (planetRender.atmosphereGlow.id != 0) UnloadTexture(planetRender.atmosphereGlow);
+    if (planetRender.lightingShader.id != 0) UnloadShader(planetRender.lightingShader);
     for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
         if (planetRender.planetTextures[i].valid &&
             planetRender.planetTextures[i].texture.id != 0) {
@@ -1585,12 +1673,65 @@ void UnloadPlanetRenderResources(void)
     planetRender = (PlanetRenderResources){ 0 };
 }
 
+typedef struct PlanetSpaceLighting {
+    int count;
+    Vector3 positions[MAX_SOLAR_LIGHTS];
+    Vector3 colors[MAX_SOLAR_LIGHTS];
+    float intensities[MAX_SOLAR_LIGHTS];
+} PlanetSpaceLighting;
+
+static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemAnchorZ,
+                                                   Vector3 planetCenter)
+{
+    PlanetSpaceLighting lighting = { 0 };
+    SolarSystemDef system = { 0 };
+    SolarLightSource sources[MAX_SOLAR_LIGHTS];
+    if (!StarSystemAt(systemAnchorX, systemAnchorZ, &system)) return lighting;
+
+    lighting.count = SolarSystemLightSources(&system, sources, MAX_SOLAR_LIGHTS);
+    if (lighting.count <= 0) return lighting;
+
+    float primaryDistanceSqr = Vector3DistanceSqr(sources[0].center, planetCenter);
+    float primaryFlux = sources[0].luminosity / fmaxf(primaryDistanceSqr, 1.0f);
+    primaryFlux = fmaxf(primaryFlux, 0.000001f);
+    for (int i = 0; i < lighting.count; i++) {
+        float distanceSqr = Vector3DistanceSqr(sources[i].center, planetCenter);
+        float flux = sources[i].luminosity / fmaxf(distanceSqr, 1.0f);
+        Color color = SpectrumColor(sources[i].spectrum);
+        lighting.positions[i] = sources[i].center;
+        lighting.colors[i] = (Vector3){ (float)color.r / 255.0f,
+                                        (float)color.g / 255.0f,
+                                        (float)color.b / 255.0f };
+        lighting.intensities[i] = Clamp(flux / primaryFlux, 0.015f, 2.40f);
+    }
+    return lighting;
+}
+
 static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
-                               float rotation, Color fallback)
+                               float rotation, Color fallback,
+                               const PlanetSpaceLighting *lighting,
+                               float ambientLight, float emissiveStrength)
 {
     if (planetRender.sphere.meshCount <= 0 || texture.id == 0) {
         DrawSphere(center, radius, fallback);
         return;
+    }
+    if (planetRender.lightingReady) {
+        int lightCount = lighting ? lighting->count : 0;
+        SetShaderValue(planetRender.lightingShader, planetRender.lightCountLoc,
+                       &lightCount, SHADER_UNIFORM_INT);
+        if (lightCount > 0) {
+            SetShaderValueV(planetRender.lightingShader, planetRender.lightPositionLoc,
+                            lighting->positions, SHADER_UNIFORM_VEC3, lightCount);
+            SetShaderValueV(planetRender.lightingShader, planetRender.lightColorLoc,
+                            lighting->colors, SHADER_UNIFORM_VEC3, lightCount);
+            SetShaderValueV(planetRender.lightingShader, planetRender.lightIntensityLoc,
+                            lighting->intensities, SHADER_UNIFORM_FLOAT, lightCount);
+        }
+        SetShaderValue(planetRender.lightingShader, planetRender.ambientLightLoc,
+                       &ambientLight, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(planetRender.lightingShader, planetRender.emissiveStrengthLoc,
+                       &emissiveStrength, SHADER_UNIFORM_FLOAT);
     }
     SetMaterialTexture(&planetRender.sphere.materials[0], MATERIAL_MAP_DIFFUSE, texture);
     DrawModelEx(planetRender.sphere, center, (Vector3){ 0.0f, 1.0f, 0.0f }, rotation,
@@ -1692,11 +1833,16 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             float radius = SolarBodyTerrainRadius(bodies[i].radius);
             Texture2D texture = PlanetTextureForBody(&bodies[i]);
             float rotation = PlanetBodyTextureRotation(&bodies[i]);
+            PlanetSpaceLighting lighting = PlanetSpaceLightingFor(
+                bodies[i].systemAnchorX, bodies[i].systemAnchorZ, bodies[i].center);
             Color starColor = SpectrumColor(bodies[i].spectrum);
             float atmosphereAlpha = 0.08f + bodies[i].profile.atmosphereDensity * 0.54f;
+            float ambientLight = 0.025f + bodies[i].profile.atmosphereDensity * 0.040f;
+            float emissiveStrength = bodies[i].style == SOLAR_STYLE_LAVA ? 0.82f : 0.0f;
             DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
                                  starColor, atmosphereAlpha * spaceFade);
-            DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color);
+            DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color,
+                               &lighting, ambientLight, emissiveStrength);
             bool hasCloudLayer = bodies[i].profile.atmosphereDensity > 0.42f &&
                                  (bodies[i].profile.atmosphereType ==
                                       PLANET_ATMOSPHERE_BREATHABLE ||
@@ -1706,7 +1852,8 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
                 float cloudRotation = rotation + (float)SpaceSimulationTime() *
                                       (0.32f + bodies[i].profile.atmosphereDensity * 0.34f);
                 DrawTexturedPlanet(bodies[i].center, radius * 1.014f,
-                                   planetRender.clouds, cloudRotation, WHITE);
+                                   planetRender.clouds, cloudRotation, WHITE,
+                                   &lighting, ambientLight * 0.72f, 0.0f);
             }
             if (bodies[i].profile.hasRings) {
                 DrawPlanetRings(bodies[i].center, radius, bodies[i].profile.ringTilt,
@@ -1750,9 +1897,12 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     DrawPlanetAtmosphere(camera, center, radius, &homeAtmosphere,
                          SpectrumColor(SPECTRUM_YELLOW), 0.62f * spaceFade);
     float homeRotation = -18.0f + (float)SpaceSimulationTime() * 1.2f;
-    DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor());
+    PlanetSpaceLighting lighting = PlanetSpaceLightingFor(0, 0, center);
+    DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor(),
+                       &lighting, 0.056f, 0.0f);
     DrawTexturedPlanet(center, radius * 1.012f, planetRender.clouds,
-                       homeRotation + (float)SpaceSimulationTime() * 0.7f, WHITE);
+                       homeRotation + (float)SpaceSimulationTime() * 0.7f, WHITE,
+                       &lighting, 0.040f, 0.0f);
 }
 
 void DrawBodyInfoPanel(const SpaceBodyInfo *body)
