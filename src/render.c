@@ -1076,6 +1076,7 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 #define PLANET_TEXTURE_WIDTH 384
 #define PLANET_TEXTURE_HEIGHT 192
 #define PLANET_TEXTURE_CACHE_CAPACITY 24
+#define PLANET_CLOUD_CACHE_CAPACITY 24
 
 typedef struct PlanetTextureCacheEntry {
     bool valid;
@@ -1086,6 +1087,14 @@ typedef struct PlanetTextureCacheEntry {
     uint64_t lastUse;
     Texture2D texture;
 } PlanetTextureCacheEntry;
+
+typedef struct PlanetCloudCacheEntry {
+    bool valid;
+    uint32_t seed;
+    uint32_t profileKey;
+    uint64_t lastUse;
+    Texture2D texture;
+} PlanetCloudCacheEntry;
 
 typedef struct PlanetRenderResources {
     bool initialized;
@@ -1100,6 +1109,10 @@ typedef struct PlanetRenderResources {
     int lightIntensityLoc;
     int ambientLightLoc;
     int emissiveStrengthLoc;
+    int cloudShadowMapLoc;
+    int cloudShadowEnabledLoc;
+    int cloudShadowRotationLoc;
+    int cloudShadowStrengthLoc;
     int atmosphereLightCountLoc;
     int atmosphereLightPositionLoc;
     int atmosphereLightColorLoc;
@@ -1111,9 +1124,11 @@ typedef struct PlanetRenderResources {
     int atmosphereMieStrengthLoc;
     int atmosphereAlphaLoc;
     Texture2D home;
-    Texture2D clouds;
+    Texture2D homeClouds;
+    uint32_t homeCloudSeed;
     uint64_t textureCacheTick;
     PlanetTextureCacheEntry planetTextures[PLANET_TEXTURE_CACHE_CAPACITY];
+    PlanetCloudCacheEntry cloudTextures[PLANET_CLOUD_CACHE_CAPACITY];
 } PlanetRenderResources;
 
 static PlanetRenderResources planetRender = { 0 };
@@ -1155,7 +1170,23 @@ static const char *planetLightingFragmentShader =
     "uniform float lightIntensity[3];\n"
     "uniform float ambientLight;\n"
     "uniform float emissiveStrength;\n"
+    "uniform sampler2D cloudShadowMap;\n"
+    "uniform int cloudShadowEnabled;\n"
+    "uniform float cloudShadowRotation;\n"
+    "uniform float cloudShadowStrength;\n"
     "out vec4 finalColor;\n"
+    "vec2 cloudUvForNormal(vec3 normal)\n"
+    "{\n"
+    "    float c = cos(cloudShadowRotation);\n"
+    "    float s = sin(cloudShadowRotation);\n"
+    "    vec3 localNormal = vec3(c*normal.x - s*normal.z, normal.y,\n"
+    "                             s*normal.x + c*normal.z);\n"
+    "    float longitude = atan(localNormal.z, localNormal.x);\n"
+    "    float latitude = asin(clamp(localNormal.y, -1.0, 1.0));\n"
+    "    float u = fract(longitude/6.28318530718);\n"
+    "    if (u < 0.0) u += 1.0;\n"
+    "    return vec2(u, 0.5 - latitude/3.14159265359);\n"
+    "}\n"
     "void main()\n"
     "{\n"
     "    vec4 texel = texture(texture0, fragTexCoord)*colDiffuse*fragColor;\n"
@@ -1168,7 +1199,19 @@ static const char *planetLightingFragmentShader =
     "        vec3 lightDirection = normalize(lightPosition[i] - fragPosition);\n"
     "        float incidence = dot(normal, lightDirection);\n"
     "        float daylight = smoothstep(-0.025, 0.055, incidence);\n"
-    "        illumination += lightColor[i]*lightIntensity[i]*max(incidence, 0.0)*daylight;\n"
+    "        float directLight = max(incidence, 0.0)*daylight;\n"
+    "        if (cloudShadowEnabled != 0 && directLight > 0.001)\n"
+    "        {\n"
+    "            float shellHeight = 0.014;\n"
+    "            float projection = -incidence + sqrt(max(0.0,\n"
+    "                incidence*incidence + shellHeight*(2.0 + shellHeight)));\n"
+    "            vec3 shadowNormal = normalize(normal + lightDirection*projection);\n"
+    "            float cloudOpacity = texture(cloudShadowMap,\n"
+    "                                         cloudUvForNormal(shadowNormal)).a;\n"
+    "            float transmission = 1.0 - cloudOpacity*cloudShadowStrength;\n"
+    "            directLight *= clamp(transmission, 0.08, 1.0);\n"
+    "        }\n"
+    "        illumination += lightColor[i]*lightIntensity[i]*directLight;\n"
     "    }\n"
     "    float brightChannel = max(texel.r, max(texel.g, texel.b));\n"
     "    float emissionMask = smoothstep(0.62, 0.94, brightChannel);\n"
@@ -1402,17 +1445,114 @@ static Color TemperatePlanetPixel(const PlanetProfile *profile, float nx, float 
     return color;
 }
 
-static Color PlanetCloudPixel(float nx, float ny, float nz, uint32_t seed)
+static float PlanetCloudAmountFor(const PlanetProfile *profile)
 {
-    float clouds = PlanetFractalNoise(nx * 4.2f + ny * 0.7f,
-                                      ny * 3.1f, nz * 4.2f - ny * 0.7f, seed);
-    float wisps = 0.5f + 0.5f * sinf((nx - nz) * 13.0f + ny * 21.0f);
-    clouds = clouds * 0.82f + wisps * 0.18f;
-    float opacity = Clamp((clouds - 0.58f) * 4.0f, 0.0f, 0.58f);
-    return (Color){ 246,
-                    250,
-                    255,
-                    PlanetColorChannel(opacity * 255.0f) };
+    if (!profile || profile->atmosphereType == PLANET_ATMOSPHERE_NONE) return 0.0f;
+
+    float density = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
+    float ocean = Clamp(profile->oceanCoverage, 0.0f, 1.0f);
+    float temperature = fmaxf(profile->equilibriumTempK, 80.0f);
+    float moistureWindow = 1.0f - Clamp(fabsf(temperature - 286.0f) / 165.0f,
+                                        0.0f, 1.0f);
+    if (temperature < 238.0f) moistureWindow *= 0.68f;
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) {
+        moistureWindow = fmaxf(moistureWindow, 0.62f);
+    }
+
+    float amount = density * (0.14f + ocean * 0.86f) *
+                   (0.28f + moistureWindow * 0.72f);
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_DENSE) amount += density * 0.12f;
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) amount += density * 0.18f;
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_THIN) amount *= 0.52f;
+    if (profile->style == SOLAR_STYLE_ICE) amount += density * 0.08f;
+    return Clamp(amount, 0.0f, 1.0f);
+}
+
+static Color PlanetCloudColorFor(const PlanetProfile *profile)
+{
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) {
+        return ColorLerp((Color){ 244, 218, 132, 255 },
+                         PlanetAtmosphereBaseColor(profile->style), 0.22f);
+    }
+    if (profile->style == SOLAR_STYLE_ICE || profile->equilibriumTempK < 238.0f) {
+        return (Color){ 222, 240, 248, 255 };
+    }
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_DENSE) {
+        return ColorLerp((Color){ 239, 240, 235, 255 },
+                         PlanetAtmosphereBaseColor(profile->style), 0.12f);
+    }
+    return (Color){ 246, 250, 255, 255 };
+}
+
+static float PlanetCloudStorm(Vector3 point, uint32_t seed, int index, float cloudAmount)
+{
+    if (index > 0 && cloudAmount < 0.38f) return 0.0f;
+
+    float longitude = PlanetHashUnit(23 + index * 17, 41, 67, seed) * 2.0f * PI;
+    float latitude = (PlanetHashUnit(71, 13 + index * 19, 37, seed) - 0.5f) * 1.45f;
+    float cosLatitude = cosf(latitude);
+    Vector3 center = { cosLatitude * cosf(longitude), sinf(latitude),
+                       cosLatitude * sinf(longitude) };
+    float angularDistance = sqrtf(fmaxf(0.0f,
+                                         2.0f * (1.0f - Vector3DotProduct(point, center))));
+    float radius = 0.16f + PlanetHashUnit(89, 29 + index * 31, 11, seed) * 0.11f;
+    if (angularDistance >= radius) return 0.0f;
+
+    Vector3 east = Vector3Normalize(Vector3CrossProduct((Vector3){ 0.0f, 1.0f, 0.0f },
+                                                                  center));
+    Vector3 north = Vector3Normalize(Vector3CrossProduct(center, east));
+    float azimuth = atan2f(Vector3DotProduct(point, north),
+                           Vector3DotProduct(point, east));
+    float winding = index == 0 ? 3.0f : -2.0f;
+    float phase = PlanetHashUnit(43, 97, 17 + index * 13, seed) * 2.0f * PI;
+    float spiral = 0.5f + 0.5f * sinf(angularDistance * 82.0f + azimuth * winding + phase);
+    float envelope = PlanetNoiseSmooth(1.0f - angularDistance / radius);
+    float eye = PlanetNoiseSmooth(Clamp((angularDistance - radius * 0.10f) /
+                                        (radius * 0.18f), 0.0f, 1.0f));
+    return envelope * eye * (0.42f + spiral * 0.58f);
+}
+
+static Color PlanetCloudPixel(const PlanetProfile *profile, float nx, float ny,
+                              float nz, uint32_t seed)
+{
+    Vector3 point = { nx, ny, nz };
+    float latitude = asinf(Clamp(ny, -1.0f, 1.0f));
+    float absLatitude = fabsf(latitude);
+    float longitude = atan2f(nz, nx);
+    float cloudAmount = PlanetCloudAmountFor(profile);
+    float phase = PlanetHashUnit(31, 47, 59, seed) * 2.0f * PI;
+    float warp = PlanetFractalNoise(nx * 2.1f + 4.7f, ny * 2.4f - 1.3f,
+                                    nz * 2.1f + 7.9f, seed ^ 0x6d2b79u);
+    float broad = PlanetFractalNoise(nx * 4.0f + ny * 0.9f,
+                                     ny * 3.0f, nz * 4.0f - ny * 0.9f, seed);
+    float detail = PlanetFractalNoise(nx * 10.5f - 3.1f, ny * 8.0f + 5.7f,
+                                      nz * 10.5f + 2.3f, seed ^ 0x9e3779u);
+
+    float equatorialConvergence = expf(-powf(latitude / 0.24f, 2.0f));
+    float midLatitudeTracks = expf(-powf((absLatitude - 0.74f) / 0.22f, 2.0f));
+    float subtropicalDryBand = expf(-powf((absLatitude - 0.43f) / 0.15f, 2.0f));
+    float bandWave = 0.5f + 0.5f * sinf(latitude * 18.0f + phase + warp * 3.2f);
+    float circulation = Clamp(0.42f + equatorialConvergence * 0.25f +
+                              midLatitudeTracks * 0.31f - subtropicalDryBand * 0.22f +
+                              (bandWave - 0.5f) * 0.20f, 0.0f, 1.0f);
+
+    float polarMask = PlanetNoiseSmooth(Clamp((fabsf(ny) - 0.68f) / 0.30f, 0.0f, 1.0f));
+    float vortexDirection = ny >= 0.0f ? 3.0f : -3.0f;
+    float vortexArms = 0.5f + 0.5f * sinf(longitude * vortexDirection +
+                                           (1.0f - fabsf(ny)) * 34.0f + phase);
+    float polarVortex = polarMask * vortexArms;
+    float storms = PlanetCloudStorm(point, seed, 0, cloudAmount);
+    storms = fmaxf(storms, PlanetCloudStorm(point, seed, 1, cloudAmount));
+
+    float cloudField = broad * 0.68f + detail * 0.12f + circulation * 0.16f +
+                       polarVortex * 0.10f + storms * 0.48f + cloudAmount * 0.12f;
+    float threshold = 0.63f - cloudAmount * 0.17f;
+    float maxOpacity = 0.38f + cloudAmount * 0.50f;
+    float opacity = Clamp((cloudField - threshold) * (4.1f + cloudAmount * 4.8f),
+                          0.0f, maxOpacity);
+    Color color = PlanetCloudColorFor(profile);
+    color.a = PlanetColorChannel(opacity * 255.0f);
+    return color;
 }
 
 static Color CraterPlanetPixel(float nx, float ny, float nz, float noise, uint32_t seed)
@@ -1529,7 +1669,7 @@ static Texture2D MakePlanetTexture(const PlanetProfile *profile, uint32_t seed, 
             float nz = cosLatitude * sinf(longitude);
             Color color;
             if (clouds) {
-                color = PlanetCloudPixel(nx, ny, nz, seed);
+                color = PlanetCloudPixel(profile, nx, ny, nz, seed);
             } else {
                 color = StyledPlanetPixel(profile, nx, ny, nz, u, v, seed);
             }
@@ -1610,6 +1750,85 @@ static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
     return entry->texture;
 }
 
+static uint32_t PlanetCloudProfileKey(const PlanetProfile *profile)
+{
+    if (!profile) return 0u;
+    int densityKey = (int)lroundf(Clamp(profile->atmosphereDensity, 0.0f, 1.0f) * 1023.0f);
+    int temperatureKey = (int)lroundf(Clamp(profile->equilibriumTempK, 80.0f, 900.0f));
+    int oceanKey = (int)lroundf(Clamp(profile->oceanCoverage, 0.0f, 1.0f) * 1023.0f);
+    uint32_t lanes = (uint32_t)profile->style * 0x9e3779b9u ^
+                     (uint32_t)profile->atmosphereType * 0x85ebca6bu;
+    return PlanetTextureHash(densityKey, temperatureKey, oceanKey, lanes);
+}
+
+static bool PlanetHasCloudLayer(const PlanetProfile *profile)
+{
+    if (!profile || profile->atmosphereType == PLANET_ATMOSPHERE_NONE) return false;
+    return PlanetCloudAmountFor(profile) > 0.055f;
+}
+
+static Texture2D PlanetCloudTextureForBody(const SpaceBodyInfo *body)
+{
+    if (!body || !PlanetHasCloudLayer(&body->profile)) return (Texture2D){ 0 };
+
+    uint32_t profileKey = PlanetCloudProfileKey(&body->profile);
+    planetRender.textureCacheTick++;
+    for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
+        PlanetCloudCacheEntry *entry = &planetRender.cloudTextures[i];
+        if (!entry->valid || entry->seed != body->worldSeed ||
+            entry->profileKey != profileKey) continue;
+        entry->lastUse = planetRender.textureCacheTick;
+        return entry->texture;
+    }
+
+    int replacement = 0;
+    uint64_t oldestUse = UINT64_MAX;
+    for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
+        PlanetCloudCacheEntry *entry = &planetRender.cloudTextures[i];
+        if (!entry->valid) {
+            replacement = i;
+            break;
+        }
+        if (entry->lastUse < oldestUse) {
+            oldestUse = entry->lastUse;
+            replacement = i;
+        }
+    }
+
+    PlanetCloudCacheEntry *entry = &planetRender.cloudTextures[replacement];
+    if (entry->valid && entry->texture.id != 0) UnloadTexture(entry->texture);
+    *entry = (PlanetCloudCacheEntry){
+        .valid = true,
+        .seed = body->worldSeed,
+        .profileKey = profileKey,
+        .lastUse = planetRender.textureCacheTick,
+        .texture = MakePlanetTexture(&body->profile, body->worldSeed ^ 0x8392f5u, true)
+    };
+    return entry->texture;
+}
+
+static float PlanetCloudRotation(const PlanetProfile *profile, uint32_t seed)
+{
+    float density = Clamp(profile ? profile->atmosphereDensity : 0.0f, 0.0f, 1.0f);
+    float phase = PlanetHashUnit(17, 73, 101, seed) * 360.0f;
+    float baseRate = profile ? fmaxf(profile->rotationRate, 0.05f) : 1.0f;
+    float speed = baseRate * (0.78f + PlanetHashUnit(107, 19, 53, seed) * 0.36f) +
+                  0.08f + density * 0.18f;
+    float direction = PlanetHashUnit(61, 83, 7, seed) < 0.5f ? -1.0f : 1.0f;
+    double angle = (double)phase + SpaceSimulationTime() * (double)speed * (double)direction;
+    angle = fmod(angle, 360.0);
+    if (angle < 0.0) angle += 360.0;
+    return (float)angle;
+}
+
+static float PlanetCloudShadowStrength(const PlanetProfile *profile)
+{
+    if (!profile || !profile->hasSolidSurface) return 0.0f;
+    float amount = PlanetCloudAmountFor(profile);
+    float density = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
+    return Clamp(amount * (0.82f + density * 0.42f), 0.0f, 0.78f);
+}
+
 static Vector3 PlanetSpherePoint(float u, float v)
 {
     float longitude = u * 2.0f * PI;
@@ -1675,9 +1894,38 @@ static Mesh MakePlanetSphereMesh(void)
     return mesh;
 }
 
+static PlanetProfile HomePlanetRenderProfile(void)
+{
+    return (PlanetProfile){
+        .style = SOLAR_STYLE_TEMPERATE,
+        .atmosphereType = PLANET_ATMOSPHERE_BREATHABLE,
+        .bodyRadius = 62.0f,
+        .hasSolidSurface = true,
+        .surfaceGravity = 1.0f,
+        .equilibriumTempK = 288.0f,
+        .atmosphereDensity = 0.78f,
+        .oceanCoverage = 0.48f,
+        .rotationRate = 1.2f,
+        .albedo = 0.30f,
+        .greenhouseEffect = 0.18f,
+        .axialTilt = 23.4f * DEG2RAD,
+        .yearLength = 6400.0f
+    };
+}
+
 static void EnsurePlanetRenderResources(void)
 {
-    if (planetRender.initialized) return;
+    uint32_t homeSeed = WorldGetSeed();
+    if (planetRender.initialized) {
+        if (planetRender.homeCloudSeed != homeSeed) {
+            if (planetRender.homeClouds.id != 0) UnloadTexture(planetRender.homeClouds);
+            PlanetProfile homeProfile = HomePlanetRenderProfile();
+            planetRender.homeClouds = MakePlanetTexture(&homeProfile,
+                                                        homeSeed ^ 0x8392f5u, true);
+            planetRender.homeCloudSeed = homeSeed;
+        }
+        return;
+    }
     planetRender.initialized = true;
     Mesh sphereMesh = MakePlanetSphereMesh();
     if (sphereMesh.vertexCount > 0) planetRender.sphere = LoadModelFromMesh(sphereMesh);
@@ -1694,13 +1942,25 @@ static void EnsurePlanetRenderResources(void)
                                                       "ambientLight");
     planetRender.emissiveStrengthLoc = GetShaderLocation(planetRender.lightingShader,
                                                           "emissiveStrength");
+    planetRender.cloudShadowMapLoc = GetShaderLocation(planetRender.lightingShader,
+                                                       "cloudShadowMap");
+    planetRender.cloudShadowEnabledLoc = GetShaderLocation(planetRender.lightingShader,
+                                                           "cloudShadowEnabled");
+    planetRender.cloudShadowRotationLoc = GetShaderLocation(planetRender.lightingShader,
+                                                            "cloudShadowRotation");
+    planetRender.cloudShadowStrengthLoc = GetShaderLocation(planetRender.lightingShader,
+                                                            "cloudShadowStrength");
     planetRender.lightingReady = planetRender.lightingShader.id != 0 &&
                                  planetRender.lightCountLoc >= 0 &&
                                  planetRender.lightPositionLoc >= 0 &&
                                  planetRender.lightColorLoc >= 0 &&
                                  planetRender.lightIntensityLoc >= 0 &&
                                  planetRender.ambientLightLoc >= 0 &&
-                                 planetRender.emissiveStrengthLoc >= 0;
+                                 planetRender.emissiveStrengthLoc >= 0 &&
+                                 planetRender.cloudShadowMapLoc >= 0 &&
+                                 planetRender.cloudShadowEnabledLoc >= 0 &&
+                                 planetRender.cloudShadowRotationLoc >= 0 &&
+                                 planetRender.cloudShadowStrengthLoc >= 0;
     if (planetRender.lightingReady && planetRender.sphere.materialCount > 0) {
         planetRender.sphere.materials[0].shader = planetRender.lightingShader;
     }
@@ -1737,17 +1997,10 @@ static void EnsurePlanetRenderResources(void)
                                    planetRender.atmosphereOpticalDepthLoc >= 0 &&
                                    planetRender.atmosphereMieStrengthLoc >= 0 &&
                                    planetRender.atmosphereAlphaLoc >= 0;
-    PlanetProfile homeProfile = {
-        .style = SOLAR_STYLE_TEMPERATE,
-        .equilibriumTempK = 288.0f,
-        .oceanCoverage = 0.48f,
-        .albedo = 0.30f,
-        .greenhouseEffect = 0.18f,
-        .axialTilt = 23.4f * DEG2RAD,
-        .yearLength = 6400.0f
-    };
+    PlanetProfile homeProfile = HomePlanetRenderProfile();
     planetRender.home = MakePlanetTexture(&homeProfile, 0x48a1c3u, false);
-    planetRender.clouds = MakePlanetTexture(NULL, 0x8392f5u, true);
+    planetRender.homeClouds = MakePlanetTexture(&homeProfile, homeSeed ^ 0x8392f5u, true);
+    planetRender.homeCloudSeed = homeSeed;
 }
 
 void UnloadPlanetRenderResources(void)
@@ -1755,13 +2008,19 @@ void UnloadPlanetRenderResources(void)
     if (!planetRender.initialized) return;
     if (planetRender.sphere.meshCount > 0) UnloadModel(planetRender.sphere);
     if (planetRender.home.id != 0) UnloadTexture(planetRender.home);
-    if (planetRender.clouds.id != 0) UnloadTexture(planetRender.clouds);
+    if (planetRender.homeClouds.id != 0) UnloadTexture(planetRender.homeClouds);
     if (planetRender.lightingShader.id != 0) UnloadShader(planetRender.lightingShader);
     if (planetRender.atmosphereShader.id != 0) UnloadShader(planetRender.atmosphereShader);
     for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
         if (planetRender.planetTextures[i].valid &&
             planetRender.planetTextures[i].texture.id != 0) {
             UnloadTexture(planetRender.planetTextures[i].texture);
+        }
+    }
+    for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
+        if (planetRender.cloudTextures[i].valid &&
+            planetRender.cloudTextures[i].texture.id != 0) {
+            UnloadTexture(planetRender.cloudTextures[i].texture);
         }
     }
     planetRender = (PlanetRenderResources){ 0 };
@@ -1773,6 +2032,12 @@ typedef struct PlanetSpaceLighting {
     Vector3 colors[MAX_SOLAR_LIGHTS];
     float intensities[MAX_SOLAR_LIGHTS];
 } PlanetSpaceLighting;
+
+typedef struct PlanetCloudLayer {
+    Texture2D texture;
+    float rotation;
+    float shadowStrength;
+} PlanetCloudLayer;
 
 static Vector3 PlanetShaderColor(Color color)
 {
@@ -1809,7 +2074,8 @@ static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemA
 static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                                float rotation, Color fallback,
                                const PlanetSpaceLighting *lighting,
-                               float ambientLight, float emissiveStrength)
+                               float ambientLight, float emissiveStrength,
+                               const PlanetCloudLayer *cloudLayer)
 {
     if (planetRender.sphere.meshCount <= 0 || texture.id == 0) {
         DrawSphere(center, radius, fallback);
@@ -1831,6 +2097,21 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                        &ambientLight, SHADER_UNIFORM_FLOAT);
         SetShaderValue(planetRender.lightingShader, planetRender.emissiveStrengthLoc,
                        &emissiveStrength, SHADER_UNIFORM_FLOAT);
+        int cloudShadowEnabled = cloudLayer && cloudLayer->texture.id != 0 &&
+                                 cloudLayer->shadowStrength > 0.001f;
+        float cloudShadowRotation = cloudShadowEnabled ?
+                                     cloudLayer->rotation * DEG2RAD : 0.0f;
+        float cloudShadowStrength = cloudShadowEnabled ? cloudLayer->shadowStrength : 0.0f;
+        SetShaderValue(planetRender.lightingShader, planetRender.cloudShadowEnabledLoc,
+                       &cloudShadowEnabled, SHADER_UNIFORM_INT);
+        SetShaderValue(planetRender.lightingShader, planetRender.cloudShadowRotationLoc,
+                       &cloudShadowRotation, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(planetRender.lightingShader, planetRender.cloudShadowStrengthLoc,
+                       &cloudShadowStrength, SHADER_UNIFORM_FLOAT);
+        if (cloudShadowEnabled) {
+            SetShaderValueTexture(planetRender.lightingShader,
+                                  planetRender.cloudShadowMapLoc, cloudLayer->texture);
+        }
     }
     SetMaterialTexture(&planetRender.sphere.materials[0], MATERIAL_MAP_DIFFUSE, texture);
     DrawModelEx(planetRender.sphere, center, (Vector3){ 0.0f, 1.0f, 0.0f }, rotation,
@@ -1977,19 +2258,19 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             float atmosphereAlpha = 0.08f + bodies[i].profile.atmosphereDensity * 0.54f;
             float ambientLight = 0.025f + bodies[i].profile.atmosphereDensity * 0.040f;
             float emissiveStrength = bodies[i].style == SOLAR_STYLE_LAVA ? 0.82f : 0.0f;
+            PlanetCloudLayer cloudLayer = { 0 };
+            if (PlanetHasCloudLayer(&bodies[i].profile)) {
+                cloudLayer.texture = PlanetCloudTextureForBody(&bodies[i]);
+                cloudLayer.rotation = PlanetCloudRotation(&bodies[i].profile,
+                                                          bodies[i].worldSeed ^ 0x8392f5u);
+                cloudLayer.shadowStrength = PlanetCloudShadowStrength(&bodies[i].profile);
+            }
             DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color,
-                               &lighting, ambientLight, emissiveStrength);
-            bool hasCloudLayer = bodies[i].profile.atmosphereDensity > 0.42f &&
-                                 (bodies[i].profile.atmosphereType ==
-                                      PLANET_ATMOSPHERE_BREATHABLE ||
-                                  bodies[i].profile.atmosphereType == PLANET_ATMOSPHERE_DENSE) &&
-                                 bodies[i].style != SOLAR_STYLE_GAS;
-            if (hasCloudLayer) {
-                float cloudRotation = rotation + (float)SpaceSimulationTime() *
-                                      (0.32f + bodies[i].profile.atmosphereDensity * 0.34f);
+                               &lighting, ambientLight, emissiveStrength, &cloudLayer);
+            if (cloudLayer.texture.id != 0) {
                 DrawTexturedPlanet(bodies[i].center, radius * 1.014f,
-                                   planetRender.clouds, cloudRotation, WHITE,
-                                   &lighting, ambientLight * 0.72f, 0.0f);
+                                   cloudLayer.texture, cloudLayer.rotation, WHITE,
+                                   &lighting, ambientLight, 0.0f, NULL);
             }
             DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
                                  &lighting, atmosphereAlpha * spaceFade);
@@ -2025,20 +2306,21 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     if (distance <= radius + 0.5f || distance > 24000.0f) return;
 
     EnsurePlanetRenderResources();
-    PlanetProfile homeAtmosphere = {
-        .style = SOLAR_STYLE_TEMPERATE,
-        .atmosphereType = PLANET_ATMOSPHERE_BREATHABLE,
-        .surfaceGravity = 1.0f,
-        .equilibriumTempK = 288.0f,
-        .atmosphereDensity = 0.78f
-    };
+    PlanetProfile homeAtmosphere = HomePlanetRenderProfile();
     float homeRotation = -18.0f + (float)SpaceSimulationTime() * 1.2f;
     PlanetSpaceLighting lighting = PlanetSpaceLightingFor(0, 0, center);
+    PlanetCloudLayer cloudLayer = {
+        .texture = planetRender.homeClouds,
+        .rotation = PlanetCloudRotation(&homeAtmosphere,
+                                         planetRender.homeCloudSeed ^ 0x8392f5u),
+        .shadowStrength = PlanetCloudShadowStrength(&homeAtmosphere)
+    };
     DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor(),
-                       &lighting, 0.056f, 0.0f);
-    DrawTexturedPlanet(center, radius * 1.012f, planetRender.clouds,
-                       homeRotation + (float)SpaceSimulationTime() * 0.7f, WHITE,
-                       &lighting, 0.040f, 0.0f);
+                       &lighting, 0.056f, 0.0f, &cloudLayer);
+    if (cloudLayer.texture.id != 0) {
+        DrawTexturedPlanet(center, radius * 1.014f, cloudLayer.texture,
+                           cloudLayer.rotation, WHITE, &lighting, 0.056f, 0.0f, NULL);
+    }
     DrawPlanetAtmosphere(camera, center, radius, &homeAtmosphere,
                          &lighting, 0.62f * spaceFade);
 }
