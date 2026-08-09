@@ -1116,7 +1116,7 @@ int main(void)
         }
 
         DrawStars(&camera, inNether ? 1.0f : daylight * (1.0f - skyFade));
-        DrawSpaceSky(skyFade, &camera);
+        DrawSpaceSky(skyFade, daylight, &camera);
         DrawSolarGuide(&camera, spaceFade);
         if (scannerActive && PlanetWorldIsActive()) PlanetPoiDrawScanner(&camera, player.position);
         if (ShipIsDriving()) DrawShipHud();

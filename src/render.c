@@ -373,9 +373,36 @@ typedef struct Meteor {
 static Meteor meteor = { 0 };
 static float meteorTimer = 8.0f;
 
-static void UpdateMeteors(float spaceFade, int sw, int sh)
+static float AtmosphericMeteorVisibility(const Camera3D *camera, float daylight)
 {
-    if (spaceFade <= 0.3f) return;
+    if (!camera ||
+        WorldCurrentDimensionAt(camera->position.y) == WORLD_DIMENSION_NETHER) {
+        return 0.0f;
+    }
+
+    float atmosphere = 0.0f;
+    if (PlanetWorldIsActive()) {
+        const PlanetProfile *profile = PlanetWorldProfile();
+        if (!profile || profile->atmosphereType == PLANET_ATMOSPHERE_NONE ||
+            profile->atmosphereDensity <= 0.01f) {
+            return 0.0f;
+        }
+        float density = Clamp(profile->atmosphereDensity / 0.35f, 0.0f, 1.0f);
+        atmosphere = (1.0f - PlanetWorldAtmosphereFade(camera->position)) * density;
+    } else if (HomeWorldSurfaceIsActive()) {
+        atmosphere = 1.0f - HomeWorldSpaceFade(camera->position);
+    }
+
+    float nightVisibility = Clamp(1.0f - daylight * 1.15f, 0.0f, 1.0f);
+    return Clamp(atmosphere * nightVisibility, 0.0f, 1.0f);
+}
+
+static void UpdateAtmosphericMeteors(float visibility, int sw, int sh)
+{
+    if (visibility <= 0.05f || sw <= 0 || sh <= 0) {
+        meteor.active = false;
+        return;
+    }
 
     float dt = GetFrameTime();
     meteorTimer -= dt;
@@ -391,19 +418,21 @@ static void UpdateMeteors(float spaceFade, int sw, int sh)
         };
         meteor.life = 0.0f;
         meteor.maxLife = 0.8f + (float)(rand() % 50) / 100.0f;
-        meteorTimer = 5.0f + (float)(rand() % 110) / 10.0f;
+        meteorTimer = 12.0f + (float)(rand() % 240) / 10.0f;
     }
     if (!meteor.active) return;
 
     meteor.life += dt;
     meteor.pos = Vector2Add(meteor.pos, Vector2Scale(meteor.vel, dt));
-    float t = meteor.life / meteor.maxLife;
-    unsigned char mAlpha = (unsigned char)((1.0f - t) * 255.0f * spaceFade);
+    float t = Clamp(meteor.life / meteor.maxLife, 0.0f, 1.0f);
+    float alpha = (1.0f - t) * visibility;
     Vector2 tail = Vector2Subtract(meteor.pos, Vector2Scale(Vector2Normalize(meteor.vel), 90.0f));
-    DrawLineEx(tail, meteor.pos, 2.5f, Fade((Color){ 255, 200, 120, 255 }, (float)mAlpha * 0.7f));
+    DrawLineEx(tail, meteor.pos, 2.5f,
+               Fade((Color){ 255, 200, 120, 255 }, alpha * 0.70f));
     DrawLineEx(Vector2Subtract(meteor.pos, Vector2Scale(Vector2Normalize(meteor.vel), 40.0f)),
-               meteor.pos, 1.5f, Fade((Color){ 255, 240, 210, 255 }, (float)mAlpha));
-    DrawCircle((int)meteor.pos.x, (int)meteor.pos.y, 3.0f, Fade((Color){ 255, 250, 230, 255 }, (float)mAlpha));
+               meteor.pos, 1.5f, Fade((Color){ 255, 240, 210, 255 }, alpha));
+    DrawCircle((int)meteor.pos.x, (int)meteor.pos.y, 3.0f,
+               Fade((Color){ 255, 250, 230, 255 }, alpha));
     if (t >= 1.0f) meteor.active = false;
 }
 
@@ -536,16 +565,16 @@ static void DrawNebulae(const Camera3D *camera, float spaceFade)
     }
 }
 
-void DrawSpaceSky(float spaceFade, const Camera3D *camera)
+void DrawSpaceSky(float spaceFade, float daylight, const Camera3D *camera)
 {
-    if (spaceFade <= 0.01f) return;
+    if (!camera) return;
 
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
-    UpdateMeteors(spaceFade, sw, sh);
+    UpdateAtmosphericMeteors(AtmosphericMeteorVisibility(camera, daylight), sw, sh);
 
+    if (spaceFade <= 0.01f) return;
     DrawNebulae(camera, spaceFade);
-
 }
 
 #define STAR_SHELL_DISTANCE 500.0f
