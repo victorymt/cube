@@ -19,6 +19,7 @@ void DrawStars(const Camera3D *camera, float daylight);
 void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight);
 void DrawSpaceSky(float spaceFade, const Camera3D *camera);
 void DrawSolarGuide(const Camera3D *camera, float spaceFade);
+void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade);
 void DrawSolarBodies(const Camera3D *camera, float spaceFade);
 void DrawHomePlanet(const Camera3D *camera, float spaceFade);
 void UnloadPlanetRenderResources(void);

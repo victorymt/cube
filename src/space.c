@@ -19,6 +19,11 @@
 #define ASTEROID_PROBABILITY 55u
 #define SPACE_MESH_REBUILDS_PER_FRAME 2
 #define SOLAR_ORBIT_BASE_SPEED 0.040f
+#define STAR_SYSTEM_MID_Y ((float)SPACE_LAYER_Y + (float)SPACE_LAYER_HEIGHT * 0.5f)
+#define STAR_SYSTEM_VERTICAL_RANGE 46.0f
+#define STAR_SKY_PHYSICAL_DISTANCE 700.0f
+#define STAR_SKY_FULL_LATITUDE_DISTANCE 5000.0f
+#define STAR_SKY_LATITUDE_SCALE 0.92f
 
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
@@ -250,7 +255,7 @@ static void BuildSolSystem(SolarSystemDef *out)
     snprintf(out->name, sizeof(out->name), "Sol");
     out->spectrum = SPECTRUM_YELLOW;
     out->starRadius = 13;
-    out->center = (Vector3){ 0.0f, (float)SPACE_LAYER_Y + 64.0f, 0.0f };
+    out->center = (Vector3){ 0.0f, STAR_SYSTEM_MID_Y, 0.0f };
     out->planetCount = 6;
     static const SolarPlanetDef solPlanets[6] = {
         { 180, 44, 0, SOLAR_STYLE_LAVA },
@@ -490,10 +495,10 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
     BuildStarName(ax, az, out->name, sizeof(out->name));
     out->spectrum = (SpectrumType)(h % 5u);
     out->starRadius = (out->spectrum == SPECTRUM_RED_GIANT) ? 10 + (int)(h % 6u) : 9 + (int)(h % 6u);
+    int verticalOffset = (int)((h >> 14) % 93u) - 46;
     out->center = (Vector3){
         (float)SpaceGlobalToLocalX(SpaceSystemGlobalCoordinate(ax)),
-        (float)SPACE_LAYER_Y + 64.0f +
-            (float)(WorldHash2D(ax + 7, az + 13) % 25u) - 12.0f,
+        STAR_SYSTEM_MID_Y + (float)verticalOffset,
         (float)SpaceGlobalToLocalZ(SpaceSystemGlobalCoordinate(az))
     };
     out->planetCount = 2 + (int)((h >> 8) % 4u);
@@ -515,7 +520,41 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
     return true;
 }
 
-Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
+Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer)
+{
+    if (!sys) return Vector3Zero();
+
+    Vector3 toStar = Vector3Subtract(sys->center, observer);
+    float distance = Vector3Length(toStar);
+    if (distance < 0.001f) return Vector3Zero();
+
+    float horizontalDistance = sqrtf(toStar.x * toStar.x + toStar.z * toStar.z);
+    if (horizontalDistance < 0.001f) return Vector3Scale(toStar, 1.0f / distance);
+
+    // Space voxels use a compact vertical layer. Expand that stable system
+    // offset into galactic latitude for the distant sky, then converge to the
+    // physical direction before the streamed star body becomes visible.
+    float physicalLatitude = atan2f(toStar.y, horizontalDistance);
+    float systemOffset = Clamp((sys->center.y - STAR_SYSTEM_MID_Y) /
+                               STAR_SYSTEM_VERTICAL_RANGE, -1.0f, 1.0f);
+    float expandedLatitude = physicalLatitude + systemOffset * STAR_SKY_LATITUDE_SCALE;
+    float blend = Clamp((distance - STAR_SKY_PHYSICAL_DISTANCE) /
+                        (STAR_SKY_FULL_LATITUDE_DISTANCE - STAR_SKY_PHYSICAL_DISTANCE),
+                        0.0f, 1.0f);
+    blend = blend * blend * (3.0f - 2.0f * blend);
+    float latitude = Lerp(physicalLatitude, expandedLatitude, blend);
+    latitude = Clamp(latitude, -1.20f, 1.20f);
+
+    float horizontalScale = cosf(latitude) / horizontalDistance;
+    return (Vector3){
+        toStar.x * horizontalScale,
+        sinf(latitude),
+        toStar.z * horizontalScale
+    };
+}
+
+Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
+                                        double simulationTime)
 {
     const SolarPlanetDef *def = &sys->planets[index];
     unsigned int orbitHash = SolarOrbitHash(sys, index);
@@ -536,7 +575,7 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
     // visits without requiring a saved simulation state.
     float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSpectrumMass(sys->spectrum)) /
                          (orbitRatio * sqrtf(orbitRatio));
-    float meanAnomaly = phase + (float)(solarSimulationTime * (double)angularSpeed);
+    float meanAnomaly = phase + (float)(simulationTime * (double)angularSpeed);
     float eccentricity = 0.015f + (float)((orbitHash >> 17) % 180u) / 1000.0f;
     if (sys->anchorX == 0 && sys->anchorZ == 0) {
         static const float solEccentricities[6] = { 0.08f, 0.04f, 0.02f, 0.11f, 0.15f, 0.06f };
@@ -574,6 +613,22 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
         sys->center.y + planeY,
         sys->center.z + planeX * nodeSin + planeZ * nodeCos
     };
+}
+
+Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
+{
+    return SolarSystemPlanetPositionAtTime(sys, index, solarSimulationTime);
+}
+
+float SolarSystemPlanetOrbitPeriod(const SolarSystemDef *sys, int index)
+{
+    if (!sys || index < 0 || index >= sys->planetCount) return 0.0f;
+
+    const SolarPlanetDef *def = &sys->planets[index];
+    float orbitRatio = fmaxf((float)def->orbit / 180.0f, 0.1f);
+    float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSpectrumMass(sys->spectrum)) /
+                         (orbitRatio * sqrtf(orbitRatio));
+    return angularSpeed > 0.0001f ? (2.0f * PI) / angularSpeed : 0.0f;
 }
 
 Vector3 PlanetWorldSpaceReference(void)
@@ -991,8 +1046,8 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
         Vector3 toStar = Vector3Subtract(systems[i].center, starOrigin);
         float distance = Vector3Length(toStar);
         if (distance < 0.01f) continue;
-        float alignment = Vector3DotProduct(Vector3Scale(toStar, 1.0f / distance),
-                                            starDirection);
+        Vector3 apparentDirection = SolarSystemApparentDirection(&systems[i], starOrigin);
+        float alignment = Vector3DotProduct(apparentDirection, starDirection);
         if (alignment <= bestAlignment) continue;
         bestAlignment = alignment;
         bestSystem = i;

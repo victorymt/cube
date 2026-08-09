@@ -131,6 +131,7 @@ int main(void)
     bool showHelp = true;
     bool showDebug = false;
     bool scannerActive = false;
+    bool showOrbitTrajectories = true;
     int screenshotCounter = 0;
     bool quitRequested = false;
     bool cursorReleased = false;
@@ -293,6 +294,12 @@ int main(void)
 
         bool inputBlocked = paused || cursorReleased || importDialog.open || albumOpen ||
                             ShipIsDriving() || StarMapIsOpen();
+        if (!paused && !albumOpen && !importDialog.open && !StarMapIsOpen() &&
+            IsKeyPressed(KEY_O)) {
+            showOrbitTrajectories = !showOrbitTrajectories;
+            SetImportMessage(showOrbitTrajectories ? "Orbit trajectories shown."
+                                                   : "Orbit trajectories hidden.");
+        }
         if (!inputBlocked && IsKeyPressed(KEY_F1)) showHelp = !showHelp;
         if (!inputBlocked && IsKeyPressed(KEY_F3)) showDebug = !showDebug;
         if (!inputBlocked) {
@@ -568,6 +575,7 @@ int main(void)
         // as an exterior reference when the camera is in third person.
         if (ShipIsDriving() && thirdPerson) ShipDraw(&player);
         DrawHomePlanet(&camera, spaceFade);
+        if (showOrbitTrajectories) DrawSolarOrbitTrajectories(&camera, spaceFade);
         DrawSolarBodies(&camera, spaceFade);
         if (spaceFade < 0.5f && !inNether) DrawClouds(&camera, Fade(worldTint, 1.0f - spaceFade * 2.0f));
         ParticlesDraw();

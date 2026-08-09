@@ -128,6 +128,7 @@ make run
 - `F7` cycle the weather manually
 - `F8` toggle auto-save
 - `F3` toggle the debug HUD
+- `O` toggle nearby planetary orbit trajectories
 - `F4` third-person view, `F10` screenshot
 - Pause menu: music on/off, volume `-`/`+`, return to menu
 - Fly above `y=120` to enter space; approach Homeworld and press `E` to return

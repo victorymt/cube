@@ -309,7 +309,7 @@ void DrawStars(const Camera3D *camera, float daylight)
         if (distance < 0.01f) continue;
         if (!surfaceActive && distance < 700.0f) continue;
 
-        Vector3 dir = Vector3Scale(toStar, 1.0f / distance);
+        Vector3 dir = SolarSystemApparentDirection(system, observer);
         if (planetSurface) dir = PlanetWorldSkyDirection(dir);
         if (surfaceActive && dir.y < -0.05f) continue;
         if (Vector3DotProduct(dir, forward) <= 0.01f) continue;
@@ -585,6 +585,35 @@ static bool FindSystemForGuide(Vector3 pos, SolarSystemDef *sys, float *dist)
         if (FindNearestSystem(pos, probes[i], sys, dist)) return true;
     }
     return false;
+}
+
+void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade)
+{
+    if (!camera || spaceFade <= 0.05f) return;
+
+    SolarSystemDef system = { 0 };
+    float systemDistance = 0.0f;
+    if (!FindNearestSystem(camera->position, 2600.0f, &system, &systemDistance)) return;
+
+    const int samples = 64;
+    double now = SpaceSimulationTime();
+    for (int i = 0; i < system.planetCount; i++) {
+        PlanetProfile profile = SolarPlanetProfile(&system, i);
+        float period = SolarSystemPlanetOrbitPeriod(&system, i);
+        if (period <= 0.0f) continue;
+
+        Color color = ColorLerp(SpectrumColor(system.spectrum),
+                                SolarStyleColor(profile.style), 0.45f);
+        color.a = (unsigned char)(Clamp(spaceFade, 0.0f, 1.0f) * 88.0f);
+
+        Vector3 previous = SolarSystemPlanetPositionAtTime(&system, i, now);
+        for (int sample = 1; sample <= samples; sample++) {
+            double sampleTime = now + (double)period * (double)sample / (double)samples;
+            Vector3 current = SolarSystemPlanetPositionAtTime(&system, i, sampleTime);
+            DrawLine3D(previous, current, color);
+            previous = current;
+        }
+    }
 }
 
 void DrawSolarGuide(const Camera3D *camera, float spaceFade)
@@ -1531,7 +1560,7 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     DrawUiText("F float    Ctrl down (float)    Wheel hotbar", x + 14, y + 98, 17, RAYWHITE);
     DrawUiText("Tab mouse    M star map/warp    1-0 blocks    P album", x + 14, y + 123, 17, RAYWHITE);
     DrawUiText("RMB on placed album opens it", x + 14, y + 148, 17, RAYWHITE);
-    DrawUiText("Esc pause    F6 day/night cycle", x + 14, y + 173, 17, RAYWHITE);
+    DrawUiText("Esc pause    F6 day/night    O orbit paths", x + 14, y + 173, 17, RAYWHITE);
     DrawUiText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 198, 17, RAYWHITE);
     DrawUiText("Fly above y=120 to reach space", x + 14, y + 223, 17, RAYWHITE);
     DrawUiText("Break collects; place consumes blocks", x + 14, y + 248, 15, RAYWHITE);

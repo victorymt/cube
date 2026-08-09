@@ -137,7 +137,11 @@ int GetSpaceEditCount(void);
 void SpaceRebuildTorchList(void);
 
 bool StarSystemAt(int ax, int az, SolarSystemDef *out);
+Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer);
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index);
+Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
+                                        double simulationTime);
+float SolarSystemPlanetOrbitPeriod(const SolarSystemDef *sys, int index);
 PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index);
 Vector3 PlanetWorldSpaceReference(void);
 Vector3 PlanetWorldSkyDirection(Vector3 worldDirection);
