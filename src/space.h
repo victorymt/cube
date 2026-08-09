@@ -56,6 +56,14 @@ typedef struct PlanetProfile {
     float rotationRate;
     float tidalLockFactor;
     float ringTilt;
+    float albedo;
+    float greenhouseEffect;
+    float axialTilt;
+    float seasonPhase;
+    float yearLength;
+    float prevailingWindAngle;
+    float volcanicActivity;
+    float impactRate;
     bool hasSolidSurface;
     bool hasRings;
     bool tidallyLocked;

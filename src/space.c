@@ -396,6 +396,53 @@ static PlanetAtmosphereType ClassifyAtmosphere(SolarBodyStyle style, float densi
     return PLANET_ATMOSPHERE_DENSE;
 }
 
+static void DerivePlanetClimateProfile(PlanetProfile *profile)
+{
+    if (!profile) return;
+
+    float albedoBase = 0.30f;
+    switch (profile->style) {
+    case SOLAR_STYLE_LAVA:   albedoBase = 0.17f; break;
+    case SOLAR_STYLE_ICE:    albedoBase = 0.62f; break;
+    case SOLAR_STYLE_DESERT: albedoBase = 0.36f; break;
+    case SOLAR_STYLE_GAS:    albedoBase = 0.47f; break;
+    case SOLAR_STYLE_CRATER: albedoBase = 0.13f; break;
+    case SOLAR_STYLE_TEMPERATE:
+    default:                 albedoBase = 0.29f; break;
+    }
+    profile->albedo = Clamp(albedoBase + profile->oceanCoverage * 0.08f +
+                            (PlanetProfileHashUnit(profile->seed, 19u) - 0.5f) * 0.12f,
+                            0.04f, 0.82f);
+
+    float atmosphere = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
+    float greenhouse = atmosphere * 0.42f;
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_DENSE) greenhouse += 0.16f;
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) greenhouse += 0.24f;
+    if (profile->style == SOLAR_STYLE_LAVA) greenhouse += 0.12f;
+    profile->greenhouseEffect = Clamp(greenhouse +
+                                      PlanetProfileHashUnit(profile->seed, 20u) * 0.16f,
+                                      0.0f, 0.92f);
+
+    profile->axialTilt = (2.5f + PlanetProfileHashUnit(profile->seed, 21u) * 31.0f) * DEG2RAD;
+    if (profile->tidallyLocked) profile->axialTilt *= 0.35f;
+    profile->seasonPhase = PlanetProfileHashUnit(profile->seed, 22u) * 2.0f * PI;
+    profile->yearLength = 1800.0f + PlanetProfileHashUnit(profile->seed, 23u) * 6200.0f;
+    profile->prevailingWindAngle = PlanetProfileHashUnit(profile->seed, 24u) * 2.0f * PI;
+
+    float volcanicBase = profile->style == SOLAR_STYLE_LAVA ? 0.78f :
+                         profile->style == SOLAR_STYLE_CRATER ? 0.20f : 0.08f;
+    if (profile->equilibriumTempK > 340.0f) volcanicBase += 0.14f;
+    profile->volcanicActivity = Clamp(volcanicBase +
+                                      PlanetProfileHashUnit(profile->seed, 25u) * 0.22f,
+                                      0.0f, 1.0f);
+    float impactBase = profile->style == SOLAR_STYLE_CRATER ? 0.74f :
+                       profile->style == SOLAR_STYLE_LAVA ? 0.32f : 0.12f;
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_NONE) impactBase += 0.12f;
+    profile->impactRate = Clamp(impactBase +
+                                PlanetProfileHashUnit(profile->seed, 26u) * 0.20f,
+                                0.0f, 1.0f);
+}
+
 PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
 {
     PlanetProfile profile = { 0 };
@@ -448,6 +495,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
         profile.hasRings = forcedGasGiant || PlanetProfileHashUnit(seed, 7u) > 0.34f;
         profile.tidalLockFactor = 0.0f;
         profile.tidallyLocked = false;
+        DerivePlanetClimateProfile(&profile);
         return profile;
     }
 
@@ -486,6 +534,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
         float orbitPeriod = SolarSystemPlanetOrbitPeriod(sys, index);
         if (orbitPeriod > 0.0f) profile.rotationRate = 360.0f / orbitPeriod;
     }
+    DerivePlanetClimateProfile(&profile);
     return profile;
 }
 
@@ -523,6 +572,7 @@ static PlanetProfile LegacyPlanetProfile(uint32_t seed, SolarBodyStyle style,
     profile.tidallyLocked = profile.tidalLockFactor > 0.54f;
     profile.atmosphereType = ClassifyAtmosphere(style, profile.atmosphereDensity,
                                                 profile.equilibriumTempK, composition);
+    DerivePlanetClimateProfile(&profile);
     return profile;
 }
 

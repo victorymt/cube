@@ -31,6 +31,19 @@ typedef struct PlanetSurfaceSample {
     float regionalness;
     float climate;
     float detail;
+    float temperature;
+    float moisture;
+    float iceCoverage;
+    float impactDepth;
+    float impactRim;
+    float ejecta;
+    float volcanicActivity;
+    float volcanicCone;
+    float caldera;
+    float lavaFlow;
+    float duneBand;
+    float glacierFlow;
+    float glacierCracks;
     PlanetBiome biome;
 } PlanetSurfaceSample;
 

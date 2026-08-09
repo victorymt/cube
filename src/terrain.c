@@ -535,6 +535,63 @@ static void PlanetMapCoordinatesToLatLon(float mapX, float mapZ,
                          -0.5f * PI, 0.5f * PI);
 }
 
+static float PlanetSmoothStep(float edge0, float edge1, float value)
+{
+    if (edge1 < edge0) return 1.0f - PlanetSmoothStep(edge1, edge0, value);
+    float t = Clamp((value - edge0) / fmaxf(edge1 - edge0, 0.0001f), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+static unsigned int PlanetSeedHash2D(uint32_t seed, int x, int z, unsigned int lane)
+{
+    unsigned int h = Hash2D(x + (int)(lane * 101u), z - (int)(lane * 173u));
+    h ^= seed + 0x9e3779b9u + (h << 6) + (h >> 2);
+    h ^= h >> 16;
+    h *= 2246822519u;
+    return h ^ (h >> 13);
+}
+
+static float PlanetSeedHashUnit2D(uint32_t seed, int x, int z, unsigned int lane)
+{
+    return (float)(PlanetSeedHash2D(seed, x, z, lane) & 0x00ffffffu) / 16777215.0f;
+}
+
+static Vector3 PlanetSeedDirection(uint32_t seed, unsigned int lane)
+{
+    float longitude = PlanetSeedHashUnit2D(seed, (int)(seed ^ (lane * 37u)),
+                                           (int)(seed >> 7), lane + 301u) * 2.0f * PI - PI;
+    float latitude = (PlanetSeedHashUnit2D(seed, (int)(seed >> 11),
+                                           (int)(seed ^ (lane * 73u)), lane + 307u) - 0.5f) * PI;
+    float c = cosf(latitude);
+    return (Vector3){ c * cosf(longitude), sinf(latitude), c * sinf(longitude) };
+}
+
+static void PlanetSampleImpactFields(uint32_t seed, const PlanetProfile *profile,
+                                     Vector3 point, PlanetSurfaceSample *sample)
+{
+    float impactRate = profile ? Clamp(profile->impactRate, 0.0f, 1.0f) : 0.0f;
+    int craterCount = 2 + (int)(PlanetSeedHash2D(seed, (int)seed, (int)(seed >> 16), 401u) % 5u);
+    for (int i = 0; i < craterCount; i++) {
+        Vector3 center = PlanetSeedDirection(seed, 410u + (unsigned int)i * 11u);
+        float angularDistance = sqrtf(fmaxf(0.0f, 2.0f *
+                                             (1.0f - Vector3DotProduct(point, center))));
+        float radius = 0.028f + PlanetSeedHashUnit2D(seed,
+                                                     (int)(seed + (uint32_t)i * 131u),
+                                                     (int)(seed >> 9),
+                                                     431u + (unsigned int)i) * 0.095f;
+        radius *= 0.72f + impactRate * 0.66f;
+        float floor = 1.0f - PlanetSmoothStep(0.52f, 1.0f, angularDistance / radius);
+        float rim = PlanetSmoothStep(0.68f, 0.96f, angularDistance / radius) *
+                    (1.0f - PlanetSmoothStep(0.96f, 1.18f, angularDistance / radius));
+        float ejecta = PlanetSmoothStep(0.98f, 1.08f, angularDistance / radius) *
+                       (1.0f - PlanetSmoothStep(1.08f, 1.72f, angularDistance / radius));
+        float scale = 0.35f + impactRate * 0.65f;
+        sample->impactDepth = fmaxf(sample->impactDepth, floor * scale);
+        sample->impactRim = fmaxf(sample->impactRim, rim * scale);
+        sample->ejecta = fmaxf(sample->ejecta, ejecta * scale);
+    }
+}
+
 PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile *profile,
                                               float longitude, float latitude)
 {
@@ -547,9 +604,72 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
     sample.continentalness = PlanetFractalNoise3D(seed, point, 1.55f, 21u);
     sample.regionalness = PlanetFractalNoise3D(seed, point, 4.35f, 101u);
     sample.detail = PlanetFractalNoise3D(seed, point, 11.0f, 47u);
-    sample.climate = Clamp(PlanetFractalNoise3D(seed, point, 2.35f, 137u) * 0.68f +
-                               (1.0f - fabsf(point.y)) * 0.32f,
+    float latitudeAbs = fabsf(point.y);
+    float albedo = profile ? Clamp(profile->albedo, 0.0f, 1.0f) : 0.30f;
+    float greenhouse = profile ? Clamp(profile->greenhouseEffect, 0.0f, 1.0f) : 0.0f;
+    float equilibrium = profile ? profile->equilibriumTempK : 282.0f;
+    float meanTemperature = equilibrium + greenhouse * 42.0f -
+                            latitudeAbs * (34.0f + latitudeAbs * 38.0f) -
+                            (albedo - 0.30f) * 26.0f;
+    float axialTilt = profile ? Clamp(profile->axialTilt, 0.0f, 0.75f) : 0.0f;
+    float season = profile ? profile->seasonPhase : 0.0f;
+    float yearLength = profile ? fmaxf(profile->yearLength, 1.0f) : 1.0f;
+    if (profile) {
+        season += (float)(SpaceSimulationTime() * (2.0 * PI / (double)yearLength));
+    }
+    float seasonalDelta = sinf(latitude) * sinf(axialTilt) * sinf(season) * 70.0f;
+    sample.temperature = meanTemperature + seasonalDelta;
+    float thermalNoise = PlanetFractalNoise3D(seed, point, 2.35f, 137u);
+    sample.moisture = Clamp(PlanetFractalNoise3D(seed, point, 2.70f, 157u) * 0.72f +
+                             (profile ? profile->oceanCoverage : 0.0f) * 0.28f,
+                             0.0f, 1.0f);
+    float thermalBand = Clamp((meanTemperature - 178.0f) / 175.0f, 0.0f, 1.0f);
+    sample.climate = Clamp(thermalNoise * 0.42f + thermalBand * 0.36f +
+                           (1.0f - latitudeAbs) * 0.22f,
                            0.0f, 1.0f);
+    float polar = PlanetSmoothStep(0.55f, 0.96f, latitudeAbs);
+    float cold = PlanetSmoothStep(264.0f, 214.0f, meanTemperature);
+    sample.iceCoverage = Clamp(polar * cold, 0.0f, 1.0f);
+    if (style == SOLAR_STYLE_ICE) {
+        sample.iceCoverage = fmaxf(sample.iceCoverage, polar * 0.62f + 0.15f);
+    }
+
+    PlanetSampleImpactFields(seed, profile, point, &sample);
+
+    float volcanic = profile ? Clamp(profile->volcanicActivity, 0.0f, 1.0f) : 0.0f;
+    float volcanicNoise = PlanetFractalNoise3D(seed, point, 3.15f, 251u);
+    float volcanoPotential = PlanetSmoothStep(0.68f, 0.90f, volcanicNoise) * volcanic;
+    sample.volcanicActivity = Clamp(volcanoPotential + volcanic * 0.12f, 0.0f, 1.0f);
+    sample.volcanicCone = volcanoPotential * (0.55f + sample.regionalness * 0.45f);
+    sample.caldera = sample.volcanicCone *
+                     PlanetSmoothStep(0.73f, 0.91f, PlanetFractalNoise3D(seed, point, 7.2f, 269u));
+    Vector3 lavaAxis = PlanetSeedDirection(seed, 281u);
+    Vector3 lavaSide = Vector3Normalize((Vector3){ -lavaAxis.z, 0.25f, lavaAxis.x });
+    float flowAlong = Vector3DotProduct(point, lavaAxis);
+    float flowAcross = Vector3DotProduct(point, lavaSide);
+    float flowRidge = 0.5f + 0.5f * sinf(flowAlong * 32.0f +
+                                            flowAcross * 8.0f + volcanicNoise * 9.0f);
+    sample.lavaFlow = Clamp(volcanic * PlanetSmoothStep(0.54f, 0.76f, volcanicNoise) *
+                            flowRidge, 0.0f, 1.0f);
+
+    float windAngle = profile ? profile->prevailingWindAngle : 0.0f;
+    Vector3 windAxis = { cosf(windAngle), 0.0f, sinf(windAngle) };
+    Vector3 crossAxis = { -sinf(windAngle), 0.0f, cosf(windAngle) };
+    float windCoord = Vector3DotProduct(point, windAxis);
+    float crossWind = Vector3DotProduct(point, crossAxis);
+    float duneSignal = 0.5f + 0.5f * sinf(windCoord * 34.0f + crossWind * 5.0f +
+                                            sample.detail * 8.0f);
+    sample.duneBand = style == SOLAR_STYLE_DESERT
+                          ? Clamp(duneSignal * 0.72f + sample.moisture * 0.10f, 0.0f, 1.0f)
+                          : 0.0f;
+
+    float glacierPotential = polar * PlanetSmoothStep(275.0f, 218.0f, meanTemperature);
+    float glacierNoise = PlanetFractalNoise3D(seed, point, 5.8f, 317u);
+    sample.glacierFlow = Clamp(glacierPotential * (0.54f + glacierNoise * 0.46f), 0.0f, 1.0f);
+    Vector3 glacierAxis = { cosf(windAngle + 0.9f), 0.0f, sinf(windAngle + 0.9f) };
+    float glacierCoord = Vector3DotProduct(point, glacierAxis) + point.y * 0.37f;
+    float crackSignal = 0.5f + 0.5f * sinf(glacierCoord * 58.0f + sample.detail * 12.0f);
+    sample.glacierCracks = sample.glacierFlow * PlanetSmoothStep(0.74f, 0.96f, crackSignal);
 
     switch (style) {
     case SOLAR_STYLE_LAVA:
@@ -559,8 +679,8 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
                                                            : PLANET_BIOME_BASALT_PLAINS);
         break;
     case SOLAR_STYLE_ICE:
-        sample.biome = sample.continentalness < 0.34f ? PLANET_BIOME_GLACIER
-                                                       : PLANET_BIOME_ICE_SHEET;
+        sample.biome = sample.glacierFlow > 0.28f || sample.continentalness < 0.34f
+                           ? PLANET_BIOME_GLACIER : PLANET_BIOME_ICE_SHEET;
         break;
     case SOLAR_STYLE_DESERT:
         sample.biome = sample.continentalness < 0.12f && oceanCoverage > 0.18f
@@ -569,16 +689,27 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
                                                            : PLANET_BIOME_DUNES);
         break;
     case SOLAR_STYLE_CRATER:
-        sample.biome = sample.regionalness < 0.22f || sample.climate > 0.76f
-                           ? PLANET_BIOME_IMPACT_BASIN
-                           : PLANET_BIOME_CRATER_HIGHLANDS;
+        if (sample.glacierFlow > 0.38f) {
+            sample.biome = PLANET_BIOME_GLACIER;
+        } else if (sample.iceCoverage > 0.68f) {
+            sample.biome = PLANET_BIOME_ICE_SHEET;
+        } else {
+            sample.biome = sample.impactDepth > 0.40f || sample.regionalness < 0.22f ||
+                       sample.climate > 0.76f
+                               ? PLANET_BIOME_IMPACT_BASIN
+                               : PLANET_BIOME_CRATER_HIGHLANDS;
+        }
         break;
     case SOLAR_STYLE_TEMPERATE: {
         float waterline = 0.27f + oceanCoverage * 0.36f;
-        if (oceanCoverage > 0.08f && sample.continentalness < waterline) {
+        if (oceanCoverage > 0.08f && sample.continentalness < waterline &&
+            sample.iceCoverage < 0.64f) {
             sample.biome = PLANET_BIOME_OCEAN;
-        } else if (oceanCoverage > 0.08f && sample.continentalness < waterline + 0.09f) {
+        } else if (oceanCoverage > 0.08f && sample.continentalness < waterline + 0.09f &&
+                   sample.iceCoverage < 0.56f) {
             sample.biome = PLANET_BIOME_COAST;
+        } else if (sample.iceCoverage > 0.52f) {
+            sample.biome = PLANET_BIOME_ICE_SHEET;
         } else if (sample.regionalness > 0.72f) {
             sample.biome = PLANET_BIOME_ALPINE;
         } else {
@@ -666,7 +797,7 @@ int PlanetTerrainHeight(int x, int z)
     height += (hills - 0.5f) * 9.0f * roughness;
     height += sinf((fx + fz) * 0.010f) * 1.8f * roughness;
 
-    switch (PlanetBiomeAt(x, z)) {
+    switch (surface.biome) {
     case PLANET_BIOME_LAVA_SEA:
         height = fminf(height, 9.5f + (hills - 0.5f) * 2.0f);
         break;
@@ -678,12 +809,35 @@ int PlanetTerrainHeight(int x, int z)
         break;
     case PLANET_BIOME_GLACIER:
         height = fminf(height, 10.5f + (hills - 0.5f) * 3.0f);
+        {
+            float latitude = Clamp(fz * (PI / PLANET_GLOBAL_POLE_TO_POLE_BLOCKS),
+                                   -0.5f * PI, 0.5f * PI);
+            // Ice flows downhill from each pole toward the equator. The
+            // latitude gradient gives the cut plane a consistent flow axis.
+            height += surface.glacierFlow * (fabsf(latitude) - 0.70f) * 7.0f;
+        }
+        height -= surface.glacierCracks * 1.4f;
         break;
     case PLANET_BIOME_ICE_SHEET:
         height += 2.0f + sinf((fx + fz) * 0.008f) * 3.0f;
         break;
     case PLANET_BIOME_DUNES:
-        height += fabsf(sinf(fx * 0.045f + cosf(fz * 0.018f))) * 4.5f;
+        {
+            float wind = profile->prevailingWindAngle;
+            float longitude = fx * (2.0f * PI / PLANET_GLOBAL_CIRCUMFERENCE_BLOCKS);
+            float latitude = Clamp(fz * (PI / PLANET_GLOBAL_POLE_TO_POLE_BLOCKS),
+                                   -0.5f * PI, 0.5f * PI);
+            float latitudeCos = cosf(latitude);
+            Vector3 point = { latitudeCos * cosf(longitude), sinf(latitude),
+                              latitudeCos * sinf(longitude) };
+            Vector3 windAxis = { cosf(wind), 0.0f, sinf(wind) };
+            Vector3 crossAxis = { -sinf(wind), 0.0f, cosf(wind) };
+            float windCoord = Vector3DotProduct(point, windAxis);
+            float crossWind = Vector3DotProduct(point, crossAxis);
+            float duneShape = 0.5f + 0.5f * sinf(windCoord * 24.0f +
+                                                    crossWind * 5.0f);
+            height += duneShape * surface.duneBand * 6.0f;
+        }
         break;
     case PLANET_BIOME_BADLANDS:
         height += 3.0f + fabsf(sinf(fx * 0.026f) * cosf(fz * 0.022f)) * 6.0f;
@@ -715,6 +869,14 @@ int PlanetTerrainHeight(int x, int z)
         height += sinf(fx * 0.024f) * cosf(fz * 0.021f) * 2.2f;
         break;
     }
+
+    // These fields are shared with the orbital map: the same crater walls,
+    // ejecta blankets, volcanic cones and lava channels continue at landing.
+    height -= surface.impactDepth * 9.0f;
+    height += surface.impactRim * 5.5f + surface.ejecta * 2.0f;
+    height += surface.volcanicCone * 8.0f;
+    height -= surface.caldera * 5.0f;
+    height += surface.lavaFlow * (profile->style == SOLAR_STYLE_LAVA ? 2.2f : 0.8f);
 
     height = roundf(height);
     if (height < 5.0f) height = 5.0f;
@@ -817,7 +979,8 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
             int localX = worldX;
             int localZ = worldZ;
             int height = PlanetTerrainHeight(worldX, worldZ);
-            PlanetBiome biome = PlanetBiomeAt(worldX, worldZ);
+            PlanetSurfaceSample surface = PlanetSampleLocalSurface(worldX, worldZ, NULL, NULL);
+            PlanetBiome biome = surface.biome;
 
             for (int y = 0; y <= height; y++) {
                 unsigned int h = PlanetHash2D(localX + y * 19, localZ - y * 23, 1u);
@@ -831,6 +994,7 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
             int seaLevel = PlanetSeaLevel(style, profile);
             if (seaLevel >= 0 && height < seaLevel) {
                 BlockType liquid = style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER;
+                if (surface.iceCoverage > 0.64f) liquid = BLOCK_ICE;
                 for (int y = height + 1; y <= seaLevel && InHeight(y); y++) {
                     chunk->blocks[lx][y][lz] = (unsigned short)liquid;
                 }
@@ -841,7 +1005,13 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
 
             unsigned int decor = PlanetHash2D(localX, localZ, 7u);
             if (!InHeight(height + 1)) continue;
-            if ((biome == PLANET_BIOME_DUNES || biome == PLANET_BIOME_BADLANDS) &&
+            if (surface.glacierCracks > 0.84f && decor % 67u == 0u) {
+                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_MOON_ROCK;
+            } else if (surface.lavaFlow > 0.82f && decor % 53u == 0u) {
+                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_GLOWSTONE;
+            } else if (surface.ejecta > 0.76f && decor % 83u == 0u) {
+                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_METEORITE;
+            } else if ((biome == PLANET_BIOME_DUNES || biome == PLANET_BIOME_BADLANDS) &&
                 decor % (biome == PLANET_BIOME_DUNES ? 181u : 293u) == 0u) {
                 for (int y = height + 1; y <= height + 3 && InHeight(y); y++) {
                     chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_CACTUS;

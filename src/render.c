@@ -171,7 +171,11 @@ static PlanetAtmosphereVisual PlanetAtmosphereVisualFor(const PlanetProfile *pro
     }
 
     visual.opticalDepth = Clamp(visual.opticalDepth *
-                                (0.76f + visual.scaleHeight * 0.24f), 0.0f, 1.25f);
+                                (0.76f + visual.scaleHeight * 0.24f) +
+                                profile->greenhouseEffect * 0.16f,
+                                0.0f, 1.35f);
+    visual.mieStrength = Clamp(visual.mieStrength + profile->greenhouseEffect * 0.12f,
+                               0.0f, 1.25f);
     return visual;
 }
 
@@ -977,6 +981,7 @@ typedef struct PlanetTextureCacheEntry {
     uint32_t seed;
     SolarBodyStyle style;
     uint32_t oceanKey;
+    uint32_t seasonKey;
     uint64_t lastUse;
     Texture2D texture;
 } PlanetTextureCacheEntry;
@@ -1073,6 +1078,34 @@ static float PlanetBakedLight(float nx, float ny, float nz)
     return 0.42f + 0.58f * Clamp(light * 0.5f + 0.5f, 0.0f, 1.0f);
 }
 
+static Color ApplyPlanetClimateColor(Color color, const PlanetProfile *profile,
+                                     const PlanetSurfaceSample *surface)
+{
+    if (!profile || !surface) return color;
+
+    float cold = Clamp((248.0f - surface->temperature) / 62.0f, 0.0f, 1.0f);
+    float warm = Clamp((surface->temperature - 304.0f) / 92.0f, 0.0f, 1.0f);
+    color = ColorLerp(color, (Color){ 178, 211, 235, 255 }, cold * 0.16f);
+    color = ColorLerp(color, (Color){ 224, 111, 54, 255 }, warm *
+                      (0.10f + profile->greenhouseEffect * 0.10f));
+    if (surface->iceCoverage > 0.01f) {
+        color = ColorLerp(color, (Color){ 218, 240, 247, 255 },
+                          Clamp(surface->iceCoverage * 0.86f, 0.0f, 0.92f));
+    }
+    color = ColorLerp(color, (Color){ 38, 43, 49, 255 }, surface->impactDepth * 0.42f);
+    color = ColorLerp(color, (Color){ 177, 167, 145, 255 }, surface->ejecta * 0.24f);
+    color = ColorLerp(color, (Color){ 218, 204, 166, 255 }, surface->impactRim * 0.28f);
+    if (surface->lavaFlow > 0.05f) {
+        color = ColorLerp(color, (Color){ 255, 82, 19, 255 }, surface->lavaFlow * 0.42f);
+    }
+    if (surface->glacierCracks > 0.05f) {
+        color = ColorLerp(color, (Color){ 25, 71, 119, 255 },
+                          surface->glacierCracks * 0.48f);
+    }
+    float albedoShade = 0.88f + Clamp(profile->albedo, 0.0f, 1.0f) * 0.28f;
+    return ShadePlanetColor(color, albedoShade);
+}
+
 static Color TemperatePlanetPixel(const PlanetProfile *profile, float nx, float ny,
                                   float nz, uint32_t seed)
 {
@@ -1082,7 +1115,6 @@ static Color TemperatePlanetPixel(const PlanetProfile *profile, float nx, float 
                                                              longitude, latitudeRadians);
     float continents = surface.continentalness;
     float detail = surface.detail;
-    float latitude = fabsf(ny);
     Color color;
 
     if (surface.biome == PLANET_BIOME_OCEAN) {
@@ -1102,7 +1134,9 @@ static Color TemperatePlanetPixel(const PlanetProfile *profile, float nx, float 
             lowland = (Color){ 118, 120, 98, 255 };
             height = fmaxf(height, 0.54f + surface.regionalness * 0.36f);
         }
-        if (latitude > 0.63f) lowland = ColorLerp(lowland, (Color){ 104, 130, 102, 255 }, 0.45f);
+        if (fabsf(ny) > 0.63f) {
+            lowland = ColorLerp(lowland, (Color){ 104, 130, 102, 255 }, 0.45f);
+        }
         color = ColorLerp(lowland, (Color){ 126, 112, 82, 255 }, height);
         if (height > 0.86f) {
             color = ColorLerp(color, (Color){ 193, 201, 198, 255 },
@@ -1110,11 +1144,7 @@ static Color TemperatePlanetPixel(const PlanetProfile *profile, float nx, float 
         }
     }
 
-    float iceEdge = 0.80f + (detail - 0.5f) * 0.10f;
-    if (latitude > iceEdge) {
-        float ice = Clamp((latitude - iceEdge) / 0.15f, 0.0f, 1.0f);
-        color = ColorLerp(color, (Color){ 220, 240, 244, 255 }, ice);
-    }
+    color = ApplyPlanetClimateColor(color, profile, &surface);
     return ShadePlanetColor(color, PlanetBakedLight(nx, ny, nz));
 }
 
@@ -1181,12 +1211,11 @@ static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny,
     case SOLAR_STYLE_ICE: {
         color = ColorLerp((Color){ 78, 139, 176, 255 },
                           (Color){ 219, 240, 246, 255 }, noise * 0.82f + fabsf(ny) * 0.18f);
-        float crevasse = 1.0f - Clamp(fabsf(fine - 0.50f) / 0.035f, 0.0f, 1.0f);
-        color = ColorLerp(color, (Color){ 24, 76, 126, 255 }, crevasse * 0.72f);
+        color = ColorLerp(color, (Color){ 24, 76, 126, 255 }, surface.glacierCracks * 0.72f);
         break;
     }
     case SOLAR_STYLE_DESERT: {
-        float dunes = 0.5f + 0.5f * sinf((nx * 0.7f + nz) * 31.0f + noise * 7.0f);
+        float dunes = surface.duneBand;
         color = ColorLerp((Color){ 139, 72, 36, 255 },
                           (Color){ 238, 183, 91, 255 }, noise * 0.74f + dunes * 0.10f);
         if (fine > 0.72f) color = ColorLerp(color, (Color){ 91, 48, 37, 255 },
@@ -1225,6 +1254,7 @@ static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny,
         break;
     }
 
+    color = ApplyPlanetClimateColor(color, profile, &surface);
     return ShadePlanetColor(color, PlanetBakedLight(nx, ny, nz));
 }
 
@@ -1275,14 +1305,24 @@ static uint32_t PlanetTextureOceanKey(const PlanetProfile *profile)
     return (uint32_t)lroundf(Clamp(profile->oceanCoverage, 0.0f, 1.0f) * 1000.0f);
 }
 
+static uint32_t PlanetTextureSeasonKey(const PlanetProfile *profile)
+{
+    if (!profile || profile->yearLength <= 0.0f) return 0u;
+    double cycle = fmod(SpaceSimulationTime() / (double)profile->yearLength, 1.0);
+    if (cycle < 0.0) cycle += 1.0;
+    return (uint32_t)floor(cycle * 8.0);
+}
+
 static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
 {
     uint32_t oceanKey = PlanetTextureOceanKey(&body->profile);
+    uint32_t seasonKey = PlanetTextureSeasonKey(&body->profile);
     planetRender.textureCacheTick++;
     for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
         PlanetTextureCacheEntry *entry = &planetRender.planetTextures[i];
         if (!entry->valid || entry->seed != body->worldSeed ||
-            entry->style != body->style || entry->oceanKey != oceanKey) {
+            entry->style != body->style || entry->oceanKey != oceanKey ||
+            entry->seasonKey != seasonKey) {
             continue;
         }
         entry->lastUse = planetRender.textureCacheTick;
@@ -1310,6 +1350,7 @@ static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
         .seed = body->worldSeed,
         .style = body->style,
         .oceanKey = oceanKey,
+        .seasonKey = seasonKey,
         .lastUse = planetRender.textureCacheTick,
         .texture = MakePlanetTexture(&body->profile, body->worldSeed, false)
     };
