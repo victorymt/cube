@@ -348,47 +348,132 @@ static void UpdateMeteors(float spaceFade, int sw, int sh)
     if (t >= 1.0f) meteor.active = false;
 }
 
-#define NEBULA_COUNT 36
-#define NEBULA_SPAN 2600.0f
-#define NEBULA_DIST 1700.0f
+#define GALAXY_DENSITY_SAMPLES 220
+#define GALAXY_STRUCTURE_COUNT 6
+#define GALAXY_DIST 2100.0f
+
+static Vector3 GalaxyDirection(Vector3 axisA, Vector3 axisB, Vector3 normal,
+                               float longitude, float latitude)
+{
+    float cosLatitude = cosf(latitude);
+    return Vector3Normalize(Vector3Add(
+        Vector3Add(Vector3Scale(axisA, cosLatitude * cosf(longitude)),
+                   Vector3Scale(axisB, cosLatitude * sinf(longitude))),
+        Vector3Scale(normal, sinf(latitude))));
+}
+
+static bool ProjectGalaxyDirection(const Camera3D *camera, Vector3 forward, Vector3 direction,
+                                   float distance, Vector2 *outScreen)
+{
+    if (Vector3DotProduct(direction, forward) <= 0.005f) return false;
+    Vector3 point = Vector3Add(camera->position, Vector3Scale(direction, distance));
+    Vector2 screen = GetWorldToScreen(point, *camera);
+    if (outScreen) *outScreen = screen;
+    return true;
+}
 
 static void DrawNebulae(const Camera3D *camera, float spaceFade)
 {
-    if (spaceFade <= 0.01f) return;
+    if (!camera || spaceFade <= 0.01f) return;
 
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
-    static const Color nebulaColors[4] = {
-        { 150, 96, 210, 255 },
-        { 84, 124, 224, 255 },
-        { 222, 140, 82, 255 },
-        { 96, 186, 204, 255 }
+    uint32_t seed = WorldGetSeed();
+    unsigned int orientationHash = Hash2D((int)(seed ^ 0x41a7u), (int)(seed >> 16));
+    Vector3 normal = Vector3Normalize((Vector3){
+        0.20f + (float)(orientationHash & 0xffu) / 255.0f * 0.22f,
+        0.76f + (float)((orientationHash >> 8) & 0xffu) / 255.0f * 0.18f,
+        0.34f + (float)((orientationHash >> 16) & 0xffu) / 255.0f * 0.26f
+    });
+    Vector3 axisA = Vector3Normalize(Vector3CrossProduct(normal, (Vector3){ 0, 1, 0 }));
+    if (Vector3LengthSqr(axisA) < 0.001f) axisA = (Vector3){ 1, 0, 0 };
+    Vector3 axisB = Vector3Normalize(Vector3CrossProduct(normal, axisA));
+    Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
+
+    // A thin, seeded band gives the Milky Way a coherent plane instead of
+    // isolated glowing blobs. Each segment is a short density filament.
+    for (int i = 0; i < GALAXY_DENSITY_SAMPLES; i++) {
+        unsigned int h1 = Hash2D(i * 17 + 31, (int)(seed ^ 0x9e37u));
+        unsigned int h2 = Hash2D(i * 43 + 7, (int)(seed >> 9));
+        float longitude = (float)(h1 % 6283u) / 1000.0f;
+        float latitude = ((float)(h2 % 1001u) / 1000.0f - 0.5f) * 0.34f;
+        Vector3 direction = GalaxyDirection(axisA, axisB, normal, longitude, latitude);
+        Vector3 nextDirection = GalaxyDirection(axisA, axisB, normal,
+                                                longitude + 0.022f, latitude);
+        Vector2 screen;
+        Vector2 nextScreen;
+        if (!ProjectGalaxyDirection(camera, forward, direction, GALAXY_DIST, &screen) ||
+            !ProjectGalaxyDirection(camera, forward, nextDirection, GALAXY_DIST, &nextScreen)) {
+            continue;
+        }
+        if (screen.x < -80.0f || screen.x > (float)sw + 80.0f ||
+            screen.y < -80.0f || screen.y > (float)sh + 80.0f) continue;
+
+        float bandDensity = expf(-fabsf(latitude) * 7.2f);
+        float variation = 0.45f + (float)((h2 >> 11) & 0xffu) / 255.0f * 0.55f;
+        Color bandColor = (h1 & 3u) == 0u ? (Color){ 165, 151, 137, 255 } :
+                          (h1 & 1u) ? (Color){ 101, 121, 155, 255 } :
+                                      (Color){ 131, 129, 171, 255 };
+        float alpha = (0.026f + bandDensity * 0.072f) * variation * spaceFade;
+        float width = 1.0f + bandDensity * 2.4f;
+        DrawLineEx(screen, nextScreen, width, Fade(bandColor, alpha));
+    }
+
+    // Dark dust lanes interrupt the bright band and provide depth cues.
+    for (int i = 0; i < 34; i++) {
+        unsigned int h1 = Hash2D(i * 29 + 113, (int)(seed ^ 0x5bd1u));
+        unsigned int h2 = Hash2D(i * 47 + 61, (int)(seed >> 5));
+        float longitude = (float)(h1 % 6283u) / 1000.0f;
+        float latitude = ((float)(h2 % 1001u) / 1000.0f - 0.5f) * 0.24f;
+        Vector3 direction = GalaxyDirection(axisA, axisB, normal, longitude, latitude);
+        Vector3 nextDirection = GalaxyDirection(axisA, axisB, normal,
+                                                longitude + 0.045f, latitude + 0.012f);
+        Vector2 screen;
+        Vector2 nextScreen;
+        if (!ProjectGalaxyDirection(camera, forward, direction, GALAXY_DIST * 0.98f, &screen) ||
+            !ProjectGalaxyDirection(camera, forward, nextDirection, GALAXY_DIST * 0.98f, &nextScreen)) {
+            continue;
+        }
+        float width = 2.0f + (float)((h1 >> 13) % 6u);
+        DrawLineEx(screen, nextScreen, width, Fade((Color){ 5, 8, 18, 255 },
+                                                   0.055f * spaceFade));
+    }
+
+    // A few structured nebulae are drawn as curved filaments, rather than
+    // circular gradients, so they read as real clouds embedded in the band.
+    static const Color structureColors[4] = {
+        { 92, 132, 205, 255 }, { 160, 104, 184, 255 },
+        { 191, 123, 94, 255 }, { 90, 168, 175, 255 }
     };
-
-    for (int i = 0; i < NEBULA_COUNT; i++) {
-        unsigned int h1 = Hash2D(i * 13 + 5, 71);
-        unsigned int h2 = Hash2D(i * 29 + 3, 97);
-        float theta = (float)(h1 % 6283u) / 1000.0f;
-        float phi = (float)(h2 % 2000u) / 2000.0f * 1.1f;
-        float radius = (float)(140 + (h2 >> 10) % 90);
-        float dist = NEBULA_DIST + (float)((h1 >> 12) % 800u);
-
-        Vector3 dir = {
-            sinf(phi) * cosf(theta),
-            fmaxf(cosf(phi), 0.05f),
-            sinf(phi) * sinf(theta)
-        };
-        Vector3 pos = Vector3Add(camera->position, Vector3Scale(Vector3Normalize(dir), dist));
-        Vector2 screen = GetWorldToScreen(pos, *camera);
-        if (screen.x < -radius || screen.x > (float)sw + radius ||
-            screen.y < -radius || screen.y > (float)sh + radius) continue;
-
-        float scale = Clamp(radius * 420.0f / dist, 20.0f, 140.0f);
-        Color color = nebulaColors[i % 4];
-        DrawCircleGradient((int)screen.x, (int)screen.y, (int)scale,
-                           Fade(color, 0.10f * spaceFade), BLANK);
-        DrawCircleGradient((int)screen.x, (int)screen.y, (int)(scale * 0.55f),
-                           Fade(color, 0.14f * spaceFade), BLANK);
+    for (int patch = 0; patch < GALAXY_STRUCTURE_COUNT; patch++) {
+        unsigned int h = Hash2D(patch * 71 + 19, (int)(seed ^ 0x27d4u));
+        float centerLongitude = (float)(h % 6283u) / 1000.0f;
+        float centerLatitude = ((float)((h >> 12) % 1001u) / 1000.0f - 0.5f) * 0.20f;
+        float span = 0.055f + (float)((h >> 22) % 35u) / 1000.0f;
+        for (int strand = 0; strand < 3; strand++) {
+            Vector2 previous = { 0 };
+            bool havePrevious = false;
+            for (int segment = 0; segment < 14; segment++) {
+                float t = (float)segment / 13.0f;
+                float longitude = centerLongitude + (t - 0.5f) * span;
+                float latitude = centerLatitude + sinf(t * PI + (float)strand * 1.7f) *
+                                 (0.018f + strand * 0.006f);
+                Vector3 direction = GalaxyDirection(axisA, axisB, normal, longitude, latitude);
+                Vector2 screen;
+                if (!ProjectGalaxyDirection(camera, forward, direction, GALAXY_DIST * 0.94f,
+                                            &screen)) {
+                    havePrevious = false;
+                    continue;
+                }
+                if (havePrevious) {
+                    float alpha = (0.025f + (float)(h & 7u) * 0.004f) * spaceFade;
+                    DrawLineEx(previous, screen, 2.0f + strand * 0.45f,
+                               Fade(structureColors[patch % 4], alpha));
+                }
+                previous = screen;
+                havePrevious = true;
+            }
+        }
     }
 }
 
@@ -401,11 +486,6 @@ void DrawSpaceSky(float spaceFade, const Camera3D *camera)
     UpdateMeteors(spaceFade, sw, sh);
 
     DrawNebulae(camera, spaceFade);
-
-    DrawRectangleGradientV(0, sh / 2 - 90, sw, 90,
-                           (Color){ 205, 205, 235, (unsigned char)(24.0f * spaceFade) }, BLANK);
-    DrawRectangleGradientV(0, sh / 2 - 30, sw, 70,
-                           (Color){ 175, 185, 230, (unsigned char)(16.0f * spaceFade) }, BLANK);
 
 }
 
@@ -431,15 +511,27 @@ static void RefreshSkySystems(Vector3 observer)
 void DrawStars(const Camera3D *camera, float daylight)
 {
     float atmosphericDaylight = daylight;
+    bool atmosphereActive = false;
+    float atmosphereVisibility = 0.0f;
+    float atmosphereDensity = 0.0f;
     if (PlanetWorldIsActive()) {
         const PlanetProfile *profile = PlanetWorldProfile();
+        atmosphereVisibility = 1.0f - PlanetWorldAtmosphereFade(camera->position);
         float extinction = 0.0f;
         if (profile->atmosphereType != PLANET_ATMOSPHERE_NONE) {
+            atmosphereActive = atmosphereVisibility > 0.01f;
+            atmosphereDensity = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
             float typeScale = profile->atmosphereType == PLANET_ATMOSPHERE_THIN ? 0.72f : 1.22f;
             extinction = Clamp(profile->atmosphereDensity * typeScale, 0.0f, 1.0f);
         }
-        extinction *= 1.0f - PlanetWorldAtmosphereFade(camera->position);
+        extinction *= atmosphereVisibility;
         atmosphericDaylight *= extinction;
+    } else if (HomeWorldSurfaceIsActive()) {
+        // The home world has a breathable atmosphere even though it predates
+        // the generated PlanetProfile system.
+        atmosphereActive = true;
+        atmosphereVisibility = 1.0f;
+        atmosphereDensity = 0.62f;
     }
     if (atmosphericDaylight > 0.15f) return;
 
@@ -492,7 +584,15 @@ void DrawStars(const Camera3D *camera, float daylight)
             unsigned int sourceHash = WorldHash2D(system->anchorX, system->anchorZ) ^
                                        (0x9e3779b9u * (unsigned int)(sourceIndex + 1));
             float phase = (float)(sourceHash % 6283u) / 1000.0f;
-            float twinkle = 0.72f + 0.28f * sinf(time * 1.35f + phase);
+            float twinkle = 1.0f;
+            if (atmosphereActive) {
+                float airMass = Clamp(1.0f / (0.20f + fmaxf(sourceDir.y, 0.0f)),
+                                      0.85f, 4.20f);
+                float scintillation = Clamp(atmosphereDensity * atmosphereVisibility *
+                                            (airMass - 0.85f) / 3.35f,
+                                            0.0f, 1.0f);
+                twinkle = 1.0f + scintillation * 0.18f * sinf(time * 1.35f + phase);
+            }
             float distanceFade = 1.0f - 0.58f * Clamp(sourceDistance / STAR_SKY_RANGE,
                                                        0.0f, 1.0f);
             float luminosityScale = sourceIndex == 0 ? 1.0f :

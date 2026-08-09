@@ -215,14 +215,13 @@ void HomeWorldRestoreLegacyState(const Player *player)
                                    : (Vector3){ 0.5f, 12.0f, 0.5f };
 }
 
-static float SolarBodyAmplitude(float radius)
-{
-    return 1.6f + radius * 0.22f;
-}
-
 float SolarBodyTerrainRadius(float radius)
 {
-    return radius + SolarBodyAmplitude(radius) + 2.0f;
+    // Planet profiles use a large radius so their streamed surface remains
+    // comfortable to land on. Space uses a compact system map, so the proxy
+    // sphere and its gravity envelope use a scaled radius to keep neighboring
+    // orbital bodies from visually and physically intersecting.
+    return fmaxf(20.0f, radius * 0.52f + 2.0f);
 }
 
 bool PlanetWorldIsActive(void)
@@ -724,7 +723,10 @@ Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
     // stored body center. Keep apoapsis inside that system's anchor cell so
     // outer planets never become ambiguous after a later launch or load.
     float hostCellLimit = 694.0f / fmaxf((float)def->orbit, 1.0f) - 1.0f;
-    eccentricity = Clamp(eccentricity, 0.0f, fminf(0.22f, fmaxf(hostCellLimit, 0.0f)));
+    // Compact multi-planet systems remain stable when their orbital shells do
+    // not cross. A modest eccentricity still gives visible Keplerian motion
+    // without making the large game-scale proxies collide at conjunction.
+    eccentricity = Clamp(eccentricity, 0.0f, fminf(0.05f, fmaxf(hostCellLimit, 0.0f)));
 
     float eccentricAnomaly = meanAnomaly;
     for (int iteration = 0; iteration < 4; iteration++) {
