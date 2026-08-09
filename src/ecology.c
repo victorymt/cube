@@ -91,6 +91,16 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
     if (planet->style == SOLAR_STYLE_GAS || !planet->hasSolidSurface) life = 0.0f;
 
     uint32_t seedHash = EcologyHash(0, 0, 0x72a31u);
+    PlanetLifeHistory lifeHistory = PlanetLifeHistoryDerive(
+        planet->seed, planet->ageGyr, life, planet->hasSolidSurface);
+    result.planetAgeGyr = lifeHistory.planetAgeGyr;
+    result.lifeOriginProbability = lifeHistory.originProbability;
+    result.complexLifeProbability = lifeHistory.complexLifeProbability;
+    result.evolutionProgress = lifeHistory.evolutionProgress;
+    result.lifeOriginated = lifeHistory.lifeOriginated;
+    result.hasComplexLife = lifeHistory.hasComplexLife;
+    life = PlanetLifeHistoryDensity(&lifeHistory, life);
+
     float chemistryRoll = (float)(seedHash & 0xffffu) / 65535.0f;
     if (temperature > 365.0f) {
         result.chemistry = chemistryRoll < 0.64f ?
@@ -128,8 +138,11 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
     }
 
     result.lifeDensity = EcologyClamp(life);
-    if (!planet->hasSolidSurface || result.lifeDensity < 0.055f) {
+    if (!result.lifeOriginated || !planet->hasSolidSurface ||
+        result.lifeDensity < 0.055f) {
         result.biomass = PLANET_BIOMASS_BARREN;
+    } else if (!result.hasComplexLife) {
+        result.biomass = PLANET_BIOMASS_MICROBIAL;
     } else if (temperature > 360.0f && atmosphere > 0.16f) {
         result.biomass = PLANET_BIOMASS_CRYSTALLINE;
     } else if (darkSide && result.lifeDensity >= 0.12f) {
@@ -148,12 +161,12 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
     result.faunaDensity = EcologyClamp((result.lifeDensity - 0.14f) * 1.12f);
     switch (result.biomass) {
     case PLANET_BIOMASS_BARREN:
-        result.floraDensity = EcologyClamp(result.lifeDensity * 0.30f);
+        result.floraDensity = 0.0f;
         result.faunaDensity = 0.0f;
         break;
     case PLANET_BIOMASS_MICROBIAL:
-        result.floraDensity = EcologyClamp(0.04f + result.lifeDensity * 0.42f);
-        result.faunaDensity = EcologyClamp(result.lifeDensity * 0.26f);
+        result.floraDensity = EcologyClamp(result.lifeDensity * 0.18f);
+        result.faunaDensity = 0.0f;
         break;
     case PLANET_BIOMASS_FUNGAL:
         result.flora = PLANET_FLORA_SPORE;
@@ -178,10 +191,10 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
     if (result.organismScale < 0.48f) result.organismScale = 0.48f;
     if (result.organismScale > 2.20f) result.organismScale = 2.20f;
     result.bodyArmor = EcologyClamp((gravity - 0.76f) / 0.88f);
-    result.supportsFlight = planet->hasSolidSurface && result.biomass != PLANET_BIOMASS_BARREN &&
+    result.supportsFlight = result.hasComplexLife && planet->hasSolidSurface &&
                            (planet->atmosphereDensity >= 0.72f || gravity <= 0.68f);
-    result.darkSideColony = planet->hasSolidSurface && darkSide &&
-                            result.lifeDensity >= 0.12f;
+    result.darkSideColony = result.hasComplexLife && planet->hasSolidSurface &&
+                            darkSide && result.lifeDensity >= 0.12f;
     if (result.darkSideColony) {
         result.bodyPlan = PLANET_BODY_COLONY;
         result.niche = PLANET_NICHE_BIOLUMINESCENT_COLONY;
@@ -270,7 +283,10 @@ const char *PlanetEcologyChemistryName(void)
 
 const char *PlanetEcologyBodyPlanName(void)
 {
-    switch (PlanetEcologyCurrent().bodyPlan) {
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    if (!profile.lifeOriginated) return "None";
+    if (!profile.hasComplexLife) return "Microscopic";
+    switch (profile.bodyPlan) {
     case PLANET_BODY_BIPED:      return "Biped";
     case PLANET_BODY_HEXAPOD:    return "Hexapod";
     case PLANET_BODY_SERPENTINE: return "Serpentine";
@@ -406,6 +422,8 @@ void PlanetEcologyApplyToChunk(Chunk *chunk, int chunkX, int chunkZ)
 {
     if (!PlanetWorldIsActive()) return;
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    if (profile.biomass == PLANET_BIOMASS_BARREN ||
+        profile.floraDensity <= 0.0f) return;
     int divisor = 920 - (int)(profile.floraDensity * 760.0f);
     if (divisor < 140) divisor = 140;
     int startX = chunkX * CHUNK_SIZE - PLANET_FLORA_STRUCTURE_RADIUS;

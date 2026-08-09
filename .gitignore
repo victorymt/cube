@@ -10,3 +10,4 @@ tests/test_space_physics
 tests/test_space_satellite
 tests/test_space_units
 tests/test_stellar
+tests/test_ecology_model

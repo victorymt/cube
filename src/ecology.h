@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_ECOLOGY_H
 #define VOXELCRAFT_ECOLOGY_H
 
+#include "ecology_model.h"
 #include "types.h"
 
 typedef enum PlanetFloraArchetype {
@@ -52,11 +53,17 @@ typedef struct PlanetEcologyProfile {
     float floraDensity;
     float faunaDensity;
     float lifeDensity;
+    float planetAgeGyr;
+    float lifeOriginProbability;
+    float complexLifeProbability;
+    float evolutionProgress;
     float organismScale;
     float bodyArmor;
     float movementSpeed;
     float temperament;
     int limbCount;
+    bool lifeOriginated;
+    bool hasComplexLife;
     bool supportsFlight;
     bool darkSideColony;
     BlockType primaryBlock;

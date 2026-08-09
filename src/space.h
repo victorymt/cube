@@ -48,6 +48,7 @@ typedef struct PlanetProfile {
     float atmosphereDensity;
     float oceanCoverage;
     float terrainRoughness;
+    float ageGyr;
     // Degrees per game time unit; one game time unit is defined in space_units.
     float rotationRate;
     float tidalLockFactor;

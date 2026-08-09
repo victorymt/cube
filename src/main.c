@@ -122,8 +122,9 @@ static void LandingTransitionCaptureSummary(LandingTransition *transition,
                  (int)floorf(player->position.y));
         const PlanetProfile *profile = PlanetWorldProfile();
         snprintf(transition->environment, sizeof(transition->environment),
-                 "BIOME %s  |  %s", PlanetBiomeName(PlanetBiomeAt(landingX, landingZ)),
-                 PlanetAtmosphereName(profile->atmosphereType));
+                 "BIOME %s  |  %s  |  AGE %.1f GYR",
+                 PlanetBiomeName(PlanetBiomeAt(landingX, landingZ)),
+                 PlanetAtmosphereName(profile->atmosphereType), profile->ageGyr);
         snprintf(transition->biosphere, sizeof(transition->biosphere),
                  "BIOSPHERE %s / %s / %s", PlanetEcologyBiomassName(),
                  PlanetEcologyChemistryName(), PlanetEcologyBodyPlanName());

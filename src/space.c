@@ -523,6 +523,10 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
                      PlanetProfileHashUnit(seed, 5u) > 0.52f);
 
     profile.seed = seed;
+    float formationDelayGyr = 0.01f + PlanetProfileHashUnit(seed, 15u) * 0.04f;
+    float stellarAgeGyr = fmaxf(sys->star.ageGyr, 0.0f);
+    formationDelayGyr = fminf(formationDelayGyr, stellarAgeGyr * 0.35f);
+    profile.ageGyr = stellarAgeGyr - formationDelayGyr;
     profile.spaceProxyRadius = def->spaceProxyRadius;
     profile.equilibriumTempK = temperature;
     profile.hasSolidSurface = !gasGiant;
@@ -621,6 +625,7 @@ static PlanetProfile LegacyPlanetProfile(uint32_t seed, SolarBodyStyle style,
     float density = 0.78f + composition * 0.52f;
     profile.seed = seed;
     profile.style = style;
+    profile.ageGyr = 0.35f + PlanetProfileHashUnit(seed, 15u) * 8.65f;
     profile.spaceProxyRadius = legacyProxyRadius;
     double massEarth = (double)density * radiusEarth * radiusEarth * radiusEarth;
     profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
@@ -2169,10 +2174,11 @@ bool PlanetWorldTryEnter(Player *player)
     UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
     DrainChunkGen();
     SetBlock(shipX, shipGround + 1, shipZ, BLOCK_SPACESHIP);
-    SetImportMessage(TextFormat("Landed on %s - %s. Biosphere: %s / %s / %s.",
+    SetImportMessage(TextFormat("Landed on %s - %s. Age %.1f Gyr. Biosphere: %s / %s / %s.",
                                 planetWorld.name,
                                 PlanetBiomeName(PlanetBiomeAt((int)floorf(player->position.x),
                                                                (int)floorf(player->position.z))),
+                                planetWorld.profile.ageGyr,
                                 PlanetEcologyBiomassName(), PlanetEcologyChemistryName(),
                                 PlanetEcologyBodyPlanName()));
     return true;
