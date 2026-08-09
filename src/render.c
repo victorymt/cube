@@ -81,6 +81,7 @@ void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint)
 {
     if (!PlanetWorldIsActive()) return;
 
+    const PlanetProfile *profile = PlanetWorldProfile();
     Color planetTop = { 40, 70, 110, 255 };
     Color planetHorizon = { 120, 150, 180, 255 };
     Color planetLight = WHITE;
@@ -110,13 +111,24 @@ void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint)
         planetHorizon = (Color){ 94, 92, 104, 255 };
         planetLight = (Color){ 184, 188, 204, 255 };
         break;
+    case SOLAR_STYLE_TEMPERATE:
+        planetTop = (Color){ 42, 105, 164, 255 };
+        planetHorizon = (Color){ 168, 208, 226, 255 };
+        planetLight = (Color){ 232, 242, 224, 255 };
+        break;
     default:
         break;
     }
 
-    *top = ColorLerp(*top, planetTop, 0.78f);
-    *horizon = ColorLerp(*horizon, planetHorizon, 0.72f);
-    *worldTint = ColorLerp(*worldTint, planetLight, 0.32f);
+    float atmosphere = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
+    float skyBlend = 0.28f + atmosphere * 0.58f;
+    *top = ColorLerp(*top, planetTop, skyBlend);
+    *horizon = ColorLerp(*horizon, planetHorizon, skyBlend * 0.92f);
+    *worldTint = ColorLerp(*worldTint, planetLight, 0.16f + atmosphere * 0.24f);
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_NONE) {
+        *top = ColorLerp(*top, BLACK, 0.78f);
+        *horizon = ColorLerp(*horizon, BLACK, 0.68f);
+    }
 }
 
 void SkyColorsForLight(float daylight, float sunset, Color *top, Color *horizon)
@@ -239,79 +251,67 @@ void DrawSpaceSky(float spaceFade, const Camera3D *camera)
 
 }
 
-#define STAR_COUNT 500
 #define STAR_SHELL_DISTANCE 500.0f
-
-typedef struct StarField {
-    Vector3 dir;
-    float size;
-    float phase;
-    Color color;
-    bool bright;
-} StarField;
-
-static StarField starField[STAR_COUNT];
-static bool starFieldReady = false;
-
-static unsigned int StarSeedNext(unsigned int *seed)
-{
-    *seed = *seed * 1103515245u + 12345u;
-    return *seed;
-}
-
-static void InitStarField(void)
-{
-    unsigned int seed = 42u;
-    for (int i = 0; i < STAR_COUNT; i++) {
-        float u = (float)(StarSeedNext(&seed) % 10000u) / 10000.0f;
-        float v = (float)(StarSeedNext(&seed) % 10000u) / 10000.0f;
-        float theta = u * 2.0f * PI;
-        float phi = acosf(2.0f * v - 1.0f);
-        starField[i].dir = (Vector3){
-            sinf(phi) * cosf(theta),
-            cosf(phi),
-            sinf(phi) * sinf(theta)
-        };
-        starField[i].size = 0.8f + v * 2.2f;
-        starField[i].phase = (float)(StarSeedNext(&seed) % 6283u) / 1000.0f;
-        unsigned int variant = StarSeedNext(&seed) % 10u;
-        if (variant < 7u) starField[i].color = (Color){ 235, 240, 255, 255 };
-        else if (variant < 9u) starField[i].color = (Color){ 220, 228, 255, 255 };
-        else starField[i].color = (Color){ 255, 244, 214, 255 };
-        starField[i].bright = (StarSeedNext(&seed) % 100u) < 6u;
-    }
-    starFieldReady = true;
-}
 
 void DrawStars(const Camera3D *camera, float daylight)
 {
     if (daylight > 0.15f) return;
-    if (!starFieldReady) InitStarField();
 
     float visibility = (0.15f - daylight) / 0.15f;
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
     float time = GetTime();
+    bool planetSurface = PlanetWorldIsActive();
+    bool surfaceActive = HomeWorldSurfaceIsActive() || planetSurface;
+    Vector3 observer = planetSurface ? PlanetWorldSpaceReference() : camera->position;
+    Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
 
-    for (int i = 0; i < STAR_COUNT; i++) {
-        if (starField[i].dir.y < -0.05f) continue;
+    SolarSystemDef systems[STAR_NAVIGATION_MAX_SYSTEMS];
+    int count = StarSystemsNear(observer, STAR_NAVIGATION_RANGE, systems,
+                                STAR_NAVIGATION_MAX_SYSTEMS);
+    SolarSystemDef host = { 0 };
+    bool haveHost = surfaceActive && SurfaceHostSystem(&host);
 
-        Vector3 pos = Vector3Add(camera->position, Vector3Scale(starField[i].dir, STAR_SHELL_DISTANCE));
+    for (int i = 0; i < count; i++) {
+        const SolarSystemDef *system = &systems[i];
+        if (haveHost && system->anchorX == host.anchorX &&
+            system->anchorZ == host.anchorZ) {
+            continue;
+        }
+
+        Vector3 toStar = Vector3Subtract(system->center, observer);
+        float distance = Vector3Length(toStar);
+        if (distance < 0.01f) continue;
+        if (!surfaceActive && distance < 700.0f) continue;
+
+        Vector3 dir = Vector3Scale(toStar, 1.0f / distance);
+        if (planetSurface) dir = PlanetWorldSkyDirection(dir);
+        if (surfaceActive && dir.y < -0.05f) continue;
+        if (Vector3DotProduct(dir, forward) <= 0.01f) continue;
+
+        Vector3 pos = Vector3Add(camera->position, Vector3Scale(dir, STAR_SHELL_DISTANCE));
         Vector2 screen = GetWorldToScreen(pos, *camera);
         if (screen.x < -20.0f || screen.x > (float)sw + 20.0f ||
             screen.y < -20.0f || screen.y > (float)sh + 20.0f) continue;
 
-        float twinkle = 0.65f + 0.35f * sinf(time * 1.7f + starField[i].phase);
-        unsigned char alpha = (unsigned char)(visibility * 220.0f * twinkle);
-        Color color = starField[i].color;
+        unsigned int hash = WorldHash2D(system->anchorX, system->anchorZ);
+        float phase = (float)(hash % 6283u) / 1000.0f;
+        float twinkle = 0.72f + 0.28f * sinf(time * 1.35f + phase);
+        float distanceFade = 1.0f - 0.22f * Clamp(distance / STAR_NAVIGATION_RANGE,
+                                                  0.0f, 1.0f);
+        unsigned char alpha = (unsigned char)(visibility * 235.0f * twinkle * distanceFade);
+        Color color = SpectrumColor(system->spectrum);
         color.a = alpha;
+        float size = 1.0f + (float)(hash % 5u) * 0.18f;
+        if (system->spectrum == SPECTRUM_RED_GIANT) size += 0.55f;
+        bool bright = (hash % 17u) == 0u;
 
-        if (starField[i].bright) {
+        if (bright) {
             DrawCircle((int)screen.x, (int)screen.y, 2.6f, color);
             DrawLine((int)screen.x - 6, (int)screen.y, (int)screen.x + 6, (int)screen.y, Fade(color, 0.35f));
             DrawLine((int)screen.x, (int)screen.y - 6, (int)screen.x, (int)screen.y + 6, Fade(color, 0.35f));
         } else {
-            DrawCircle((int)screen.x, (int)screen.y, starField[i].size, color);
+            DrawCircle((int)screen.x, (int)screen.y, size, color);
         }
     }
 }
@@ -322,14 +322,18 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
     Vector3 sunDir = Vector3Normalize((Vector3){ cosf(theta), sinf(theta), 0.18f });
     Vector3 moonDir = Vector3Negate(sunDir);
     Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
+    SolarSystemDef host = { 0 };
+    Color sunColor = (Color){ 255, 214, 120, 255 };
+    if (SurfaceHostSystem(&host)) sunColor = SpectrumColor(host.spectrum);
 
     if (sinf(theta) > 0.0f && Vector3DotProduct(sunDir, forward) > 0.05f) {
         Vector3 sunPos = Vector3Add(camera->position, Vector3Scale(sunDir, SUN_DISTANCE));
         Vector2 sunScreen = GetWorldToScreen(sunPos, *camera);
         float glowRadius = 28.0f + daylight * 24.0f;
         DrawCircleGradient((int)sunScreen.x, (int)sunScreen.y, glowRadius,
-                           Fade(ORANGE, 0.28f), BLANK);
-        DrawCircle((int)sunScreen.x, (int)sunScreen.y, 15.0f, (Color){ 255, 242, 180, 255 });
+                           Fade(sunColor, 0.28f), BLANK);
+        DrawCircle((int)sunScreen.x, (int)sunScreen.y, 15.0f,
+                   ColorLerp(sunColor, WHITE, 0.48f));
     }
 
     if (sinf(theta) < 0.0f && Vector3DotProduct(moonDir, forward) > 0.05f) {
@@ -504,6 +508,7 @@ static Color SolarStyleColor(SolarBodyStyle style)
     case SOLAR_STYLE_DESERT: return (Color){ 226, 196, 132, 255 };
     case SOLAR_STYLE_GAS:    return (Color){ 190, 170, 230, 255 };
     case SOLAR_STYLE_CRATER: return (Color){ 150, 152, 158, 255 };
+    case SOLAR_STYLE_TEMPERATE: return (Color){ 74, 152, 104, 255 };
     default:                 return (Color){ 200, 200, 200, 255 };
     }
 }
@@ -647,7 +652,7 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 
 #define PLANET_TEXTURE_WIDTH 384
 #define PLANET_TEXTURE_HEIGHT 192
-#define PLANET_STYLE_COUNT 5
+#define PLANET_STYLE_COUNT 6
 #define PLANET_STYLE_VARIANTS 3
 
 typedef struct PlanetRenderResources {
@@ -741,12 +746,14 @@ static float PlanetBakedLight(float nx, float ny, float nz)
     return 0.42f + 0.58f * Clamp(light * 0.5f + 0.5f, 0.0f, 1.0f);
 }
 
-static Color HomePlanetPixel(float nx, float ny, float nz, uint32_t seed)
+static Color HomePlanetPixel(float nx, float ny, float nz, uint32_t seed,
+                             float oceanCoverage)
 {
     float continents = PlanetFractalNoise(nx * 2.15f, ny * 2.15f, nz * 2.15f, seed);
     float detail = PlanetFractalNoise(nx * 6.0f, ny * 6.0f, nz * 6.0f, seed + 71u);
     float latitude = fabsf(ny);
-    float coast = 0.515f + latitude * 0.035f;
+    float coast = 0.395f + Clamp(oceanCoverage, 0.0f, 0.8f) * 0.25f +
+                  latitude * 0.035f;
     Color color;
 
     if (continents < coast) {
@@ -809,7 +816,7 @@ static Color CraterPlanetPixel(float nx, float ny, float nz, float noise, uint32
 }
 
 static Color StyledPlanetPixel(SolarBodyStyle style, float nx, float ny, float nz,
-                               float u, float v, uint32_t seed)
+                               float u, float v, uint32_t seed, float oceanCoverage)
 {
     float noise = PlanetFractalNoise(nx * 3.8f, ny * 3.8f, nz * 3.8f, seed);
     float fine = PlanetFractalNoise(nx * 9.5f, ny * 9.5f, nz * 9.5f, seed + 139u);
@@ -860,6 +867,8 @@ static Color StyledPlanetPixel(SolarBodyStyle style, float nx, float ny, float n
     case SOLAR_STYLE_CRATER:
         color = CraterPlanetPixel(nx, ny, nz, noise, seed);
         break;
+    case SOLAR_STYLE_TEMPERATE:
+        return HomePlanetPixel(nx, ny, nz, seed, oceanCoverage);
     default:
         break;
     }
@@ -867,7 +876,8 @@ static Color StyledPlanetPixel(SolarBodyStyle style, float nx, float ny, float n
     return ShadePlanetColor(color, PlanetBakedLight(nx, ny, nz));
 }
 
-static Texture2D MakePlanetTexture(SolarBodyStyle style, uint32_t seed, bool home, bool clouds)
+static Texture2D MakePlanetTexture(SolarBodyStyle style, uint32_t seed, bool home,
+                                   bool clouds, float oceanCoverage)
 {
     size_t pixelCount = (size_t)PLANET_TEXTURE_WIDTH * PLANET_TEXTURE_HEIGHT;
     Color *pixels = malloc(pixelCount * sizeof(*pixels));
@@ -887,9 +897,10 @@ static Texture2D MakePlanetTexture(SolarBodyStyle style, uint32_t seed, bool hom
             if (clouds) {
                 color = PlanetCloudPixel(nx, ny, nz, seed);
             } else if (home) {
-                color = HomePlanetPixel(nx, ny, nz, seed);
+                color = HomePlanetPixel(nx, ny, nz, seed, oceanCoverage);
             } else {
-                color = StyledPlanetPixel(style, nx, ny, nz, u, v, seed);
+                color = StyledPlanetPixel(style, nx, ny, nz, u, v, seed,
+                                           oceanCoverage);
             }
             pixels[(size_t)y * PLANET_TEXTURE_WIDTH + x] = color;
         }
@@ -1010,16 +1021,18 @@ static void EnsurePlanetRenderResources(void)
     planetRender.initialized = true;
     Mesh sphereMesh = MakePlanetSphereMesh();
     if (sphereMesh.vertexCount > 0) planetRender.sphere = LoadModelFromMesh(sphereMesh);
-    planetRender.home = MakePlanetTexture(SOLAR_STYLE_DESERT, 0x48a1c3u, true, false);
-    planetRender.clouds = MakePlanetTexture(SOLAR_STYLE_ICE, 0x8392f5u, false, true);
+    planetRender.home = MakePlanetTexture(SOLAR_STYLE_DESERT, 0x48a1c3u, true, false, 0.48f);
+    planetRender.clouds = MakePlanetTexture(SOLAR_STYLE_ICE, 0x8392f5u, false, true, 0.0f);
     planetRender.atmosphereGlow = MakeAtmosphereGlowTexture();
 
     for (int style = 0; style < PLANET_STYLE_COUNT; style++) {
         for (int variant = 0; variant < PLANET_STYLE_VARIANTS; variant++) {
             uint32_t seed = 0x91e10da5u + (uint32_t)style * 0x1f123bb5u +
                             (uint32_t)variant * 0x6c8e9cf5u;
+            float oceanCoverage = ((float)variant + 0.7f) * 0.24f;
             planetRender.styles[style][variant] =
-                MakePlanetTexture((SolarBodyStyle)(SOLAR_STYLE_LAVA + style), seed, false, false);
+                MakePlanetTexture((SolarBodyStyle)(SOLAR_STYLE_LAVA + style), seed,
+                                  false, false, oceanCoverage);
         }
     }
 }
@@ -1067,6 +1080,7 @@ static Color PlanetAtmosphereColor(SolarBodyStyle style)
     case SOLAR_STYLE_DESERT: return (Color){ 244, 170, 92, 255 };
     case SOLAR_STYLE_GAS:    return (Color){ 202, 142, 234, 255 };
     case SOLAR_STYLE_CRATER: return (Color){ 150, 162, 180, 255 };
+    case SOLAR_STYLE_TEMPERATE: return (Color){ 116, 194, 236, 255 };
     default:                 return WHITE;
     }
 }
@@ -1140,20 +1154,24 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             int styleIndex = (int)bodies[i].style - (int)SOLAR_STYLE_LAVA;
             uint32_t visualHash = PlanetBodyVisualHash(&bodies[i]);
             int variant = (int)(visualHash % PLANET_STYLE_VARIANTS);
+            if (bodies[i].style == SOLAR_STYLE_TEMPERATE) {
+                variant = (int)Clamp(floorf(bodies[i].profile.oceanCoverage *
+                                            (float)PLANET_STYLE_VARIANTS),
+                                     0.0f, (float)(PLANET_STYLE_VARIANTS - 1));
+            }
             Texture2D texture = (Texture2D){ 0 };
             if (styleIndex >= 0 && styleIndex < PLANET_STYLE_COUNT) {
                 texture = planetRender.styles[styleIndex][variant];
             }
-            float spinRate = bodies[i].style == SOLAR_STYLE_GAS ? 6.0f :
-                             1.2f + (float)((visualHash >> 20) % 18u) * 0.1f;
+            float spinRate = bodies[i].profile.rotationRate;
             float rotation = (float)((visualHash >> 8) % 360u) +
                              (float)SpaceSimulationTime() * spinRate;
             Color atmosphere = PlanetAtmosphereColor(bodies[i].style);
-            float atmosphereAlpha = bodies[i].style == SOLAR_STYLE_CRATER ? 0.18f : 0.52f;
+            float atmosphereAlpha = 0.04f + bodies[i].profile.atmosphereDensity * 0.54f;
             DrawPlanetAtmosphere(camera, bodies[i].center, radius, atmosphere,
                                  atmosphereAlpha * spaceFade);
             DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color);
-            if (bodies[i].style == SOLAR_STYLE_GAS && ((visualHash >> 5) & 1u) != 0u) {
+            if (bodies[i].profile.hasRings) {
                 DrawPlanetRings(bodies[i].center, radius, visualHash, spaceFade);
             }
         }
@@ -1197,50 +1215,68 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
     if (!body) return;
 
     const char *typeName = body->isStar ? SpectrumName(body->spectrum) : SolarStyleName(body->style);
-    const char *text;
+    const char *line1;
+    const char *line2 = NULL;
     if (body->isStar) {
-        text = TextFormat("%s Prime - %s - %.0f blocks", body->name, typeName, body->dist);
+        line1 = TextFormat("%s Prime - %s - %.0f blocks", body->name, typeName, body->dist);
     } else {
         float surfaceGap = fabsf(body->dist - SolarBodyTerrainRadius(body->radius));
-        if (ShipIsDriving() && surfaceGap <= 20.0f) {
-            text = TextFormat("%s %c - %s - E land", body->name,
-                              'a' + (body->index > 0 ? body->index - 1 : 0), typeName);
+        line1 = TextFormat("%s %c - %s - %.0f K - %.2f g", body->name,
+                           'a' + (body->index > 0 ? body->index - 1 : 0), typeName,
+                           body->profile.equilibriumTempK, body->profile.surfaceGravity);
+        if (!body->profile.hasSolidSurface) {
+            line2 = "Dense gas envelope - no solid surface";
+        } else if (ShipIsDriving() && surfaceGap <= 20.0f) {
+            line2 = TextFormat("%s - E land",
+                               PlanetAtmosphereName(body->profile.atmosphereType));
         } else {
-            text = TextFormat("%s %c - %s - %.0f blocks", body->name,
-                              'a' + (body->index > 0 ? body->index - 1 : 0), typeName, body->dist);
+            line2 = TextFormat("%s - %.0f blocks",
+                               PlanetAtmosphereName(body->profile.atmosphereType), body->dist);
         }
     }
 
     int fs = 18;
-    int width = MeasureText(text, fs);
+    int width = MeasureText(line1, fs);
+    if (line2) width = fmaxf((float)width, (float)MeasureText(line2, 16));
     int sw = GetScreenWidth();
     int x = sw / 2 - width / 2;
     int y = 64;
-    DrawRectangleRounded((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, 40.0f },
+    float height = line2 ? 62.0f : 40.0f;
+    DrawRectangleRounded((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, height },
                          0.10f, 6, Fade(BLACK, 0.55f));
-    DrawRectangleRoundedLinesEx((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, 40.0f },
+    DrawRectangleRoundedLinesEx((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, height },
                                 0.10f, 6, 1.5f, Fade(WHITE, 0.30f));
-    DrawText(text, x, y, fs, WHITE);
+    DrawText(line1, x, y, fs, WHITE);
+    if (line2) DrawText(line2, x, y + 24, 16, Fade(WHITE, 0.82f));
+}
+
+static void DrawUiText(const char *text, int x, int y, int fontSize, Color color)
+{
+    DrawText(text, x + 1, y + 2, fontSize, Fade(BLACK, 0.92f));
+    DrawText(text, x, y, fontSize, color);
 }
 
 void DrawShipHud(void)
 {
     int sw = GetScreenWidth();
-    Rectangle panel = { (float)sw - 416.0f, 16.0f, 400.0f, 104.0f };
-    DrawRectangleRounded(panel, 0.08f, 6, Fade(BLACK, 0.55f));
+    float panelWidth = fminf(480.0f, (float)sw - 36.0f);
+    Rectangle panel = { (float)sw - panelWidth - 18.0f, 16.0f, panelWidth, 116.0f };
+    DrawRectangleRounded(panel, 0.06f, 6, Fade(BLACK, 0.72f));
     DrawRectangleRoundedLinesEx(panel, 0.08f, 6, 1.5f, Fade(WHITE, 0.30f));
 
+    int textX = (int)panel.x + 16;
     Color speedColor = shipHudCruising ? (Color){ 130, 200, 255, 255 } : WHITE;
-    DrawText(TextFormat("VEL %.0f blk/s%s", shipHudSpeed, shipHudCruising ? "  [CRUISE]" : ""),
-             28, (int)panel.y + 10, 22, speedColor);
-    DrawText(TextFormat("ALT %.0f%s   HDG %03.0f", shipHudAlt,
-                        shipHudNearPlanet ? " (surface)" : "", shipHudHeading),
-             28, (int)panel.y + 40, 17, Fade(WHITE, 0.9f));
+    DrawUiText(TextFormat("VEL %.0f blk/s%s", shipHudSpeed,
+                          shipHudCruising ? "  [CRUISE]" : ""),
+               textX, (int)panel.y + 10, 22, speedColor);
+    DrawUiText(TextFormat("ALT %.0f%s   HDG %03.0f", shipHudAlt,
+                          shipHudNearPlanet ? " (surface)" : "", shipHudHeading),
+               textX, (int)panel.y + 42, 18, Fade(WHITE, 0.95f));
     Color fuelColor = ShipGetFuel() > 20.0f ? (Color){ 255, 204, 94, 255 } : (Color){ 238, 100, 82, 255 };
-    DrawText(TextFormat("FUEL %.0f / %.0f   R refuel", ShipGetFuel(), SHIP_MAX_FUEL),
-             28, (int)panel.y + 62, 16, fuelColor);
-    DrawText(TextFormat("SYS %s", shipHudSystem),
-             28, (int)panel.y + 82, 16, Fade(WHITE, 0.75f));
+    DrawUiText(TextFormat("FUEL %.0f / %.0f   R restore", ShipGetFuel(), SHIP_MAX_FUEL),
+               textX, (int)panel.y + 68, 17, fuelColor);
+    DrawUiText(TextFormat("SYS %s", shipHudSystem),
+               textX, (int)panel.y + 94, 17, Fade(WHITE, 0.84f));
 }
 
 void DrawCrosshair(int screenWidth, int screenHeight)
@@ -1450,25 +1486,25 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
 {
     int x = 18;
     int y = 18;
-    int w = 315;
-    int h = 338;
-    DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)w, (float)h }, 0.05f, 6, Fade(BLACK, 0.5f));
-    DrawText("Voxelcraft", x + 14, y + 12, 22, WHITE);
-    DrawText("WASD move    Shift sprint    Space jump/swim", x + 14, y + 46, 16, RAYWHITE);
-    DrawText("LMB break    RMB place    MMB pick block", x + 14, y + 70, 16, RAYWHITE);
-    DrawText("F float    Ctrl down (float)    Wheel hotbar", x + 14, y + 94, 16, RAYWHITE);
-    DrawText("Tab mouse    1-0 blocks    P album", x + 14, y + 118, 16, RAYWHITE);
-    DrawText("RMB on placed album opens it", x + 14, y + 142, 16, RAYWHITE);
-    DrawText("Esc pause    F6 day/night cycle", x + 14, y + 166, 16, RAYWHITE);
-    DrawText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 190, 16, RAYWHITE);
-    DrawText("Fly above y=120 to reach space", x + 14, y + 214, 16, RAYWHITE);
-    DrawText("Break collects; place consumes blocks", x + 14, y + 238, 14, RAYWHITE);
-    DrawText("Ship: RMB enter, WASD thrust, R fuel, E exit", x + 14, y + 260, 14, RAYWHITE);
-    DrawText("Flat: I import image, [ ] adjusts precision", x + 14, y + 282, 14, RAYWHITE);
+    int w = 430;
+    int h = 350;
+    DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)w, (float)h }, 0.05f, 6, Fade(BLACK, 0.68f));
+    DrawUiText("Voxelcraft", x + 14, y + 12, 24, WHITE);
+    DrawUiText("WASD move    Shift sprint    Space jump/swim", x + 14, y + 48, 17, RAYWHITE);
+    DrawUiText("LMB break    RMB place    MMB pick block", x + 14, y + 73, 17, RAYWHITE);
+    DrawUiText("F float    Ctrl down (float)    Wheel hotbar", x + 14, y + 98, 17, RAYWHITE);
+    DrawUiText("Tab mouse    M star map    1-0 blocks    P album", x + 14, y + 123, 17, RAYWHITE);
+    DrawUiText("RMB on placed album opens it", x + 14, y + 148, 17, RAYWHITE);
+    DrawUiText("Esc pause    F6 day/night cycle", x + 14, y + 173, 17, RAYWHITE);
+    DrawUiText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 198, 17, RAYWHITE);
+    DrawUiText("Fly above y=120 to reach space", x + 14, y + 223, 17, RAYWHITE);
+    DrawUiText("Break collects; place consumes blocks", x + 14, y + 248, 15, RAYWHITE);
+    DrawUiText("Ship: RMB enter, WASD thrust, R restore, E exit", x + 14, y + 272, 15, RAYWHITE);
+    DrawUiText("Flat: I import image, [ ] adjusts precision", x + 14, y + 296, 15, RAYWHITE);
     const char *mode = ShipIsDriving() ? "Ship" : (floating ? "Floating" : "Walking");
-    DrawText(TextFormat("%s    %s    View %d    FPS %d", mode,
-                        cursorReleased ? "Mouse free" : "Mouse locked", viewDistance, GetFPS()),
-             x + 14, y + 310, 16, Fade(RAYWHITE, 0.8f));
+    DrawUiText(TextFormat("%s    %s    View %d    FPS %d", mode,
+                          cursorReleased ? "Mouse free" : "Mouse locked", viewDistance, GetFPS()),
+               x + 14, y + 324, 16, Fade(RAYWHITE, 0.9f));
 }
 
 void DrawCursorReleasedOverlay(void)

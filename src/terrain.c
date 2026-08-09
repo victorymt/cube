@@ -1,5 +1,6 @@
 #include "terrain.h"
 
+#include "raymath.h"
 #include "chunks.h"
 #include "space.h"
 #include "world.h"
@@ -419,6 +420,44 @@ static unsigned int PlanetHash2D(int localX, int localZ, unsigned int lane)
     return h ^ (h >> 13);
 }
 
+static float PlanetHashUnit2D(int x, int z, unsigned int lane)
+{
+    return (float)(PlanetHash2D(x, z, lane) & 0x00ffffffu) / 16777215.0f;
+}
+
+static float PlanetNoiseSmooth(float value)
+{
+    return value * value * (3.0f - 2.0f * value);
+}
+
+static float PlanetValueNoise2D(float x, float z, unsigned int lane)
+{
+    int x0 = (int)floorf(x);
+    int z0 = (int)floorf(z);
+    float tx = PlanetNoiseSmooth(x - (float)x0);
+    float tz = PlanetNoiseSmooth(z - (float)z0);
+    float a = Lerp(PlanetHashUnit2D(x0, z0, lane),
+                   PlanetHashUnit2D(x0 + 1, z0, lane), tx);
+    float b = Lerp(PlanetHashUnit2D(x0, z0 + 1, lane),
+                   PlanetHashUnit2D(x0 + 1, z0 + 1, lane), tx);
+    return Lerp(a, b, tz);
+}
+
+static float PlanetFractalNoise2D(float x, float z, unsigned int lane)
+{
+    float value = 0.0f;
+    float amplitude = 0.58f;
+    float total = 0.0f;
+    for (int octave = 0; octave < 4; octave++) {
+        value += PlanetValueNoise2D(x, z, lane + (unsigned int)octave * 17u) * amplitude;
+        total += amplitude;
+        x = x * 2.07f + 11.3f;
+        z = z * 2.07f - 7.9f;
+        amplitude *= 0.48f;
+    }
+    return value / total;
+}
+
 int PlanetTerrainHeight(int x, int z)
 {
     if (!PlanetWorldIsActive()) return TerrainHeight(x, z, terrainMode);
@@ -426,15 +465,18 @@ int PlanetTerrainHeight(int x, int z)
     int localX = x;
     int localZ = z;
     uint32_t seed = PlanetWorldSeed();
+    const PlanetProfile *profile = PlanetWorldProfile();
     float ox = (float)(seed & 0xffffu) * 0.0017f;
     float oz = (float)((seed >> 16) & 0xffffu) * 0.0019f;
     float fx = (float)localX + ox;
     float fz = (float)localZ + oz;
-    float height = 13.0f;
-    height += sinf(fx * 0.031f) * 4.2f;
-    height += cosf(fz * 0.027f) * 3.6f;
-    height += sinf((fx + fz) * 0.013f) * 4.8f;
-    height += cosf((fx - fz) * 0.071f) * 1.8f;
+    float roughness = Clamp(profile->terrainRoughness, 0.35f, 1.55f);
+    float continents = PlanetFractalNoise2D(fx * 0.0032f, fz * 0.0032f, 21u);
+    float hills = PlanetFractalNoise2D(fx * 0.017f, fz * 0.017f, 47u);
+    float coast = 0.34f + profile->oceanCoverage * 0.46f;
+    float height = 12.0f + (continents - coast) * 16.0f;
+    height += (hills - 0.5f) * 9.0f * roughness;
+    height += sinf((fx + fz) * 0.010f) * 1.8f * roughness;
 
     switch (PlanetWorldStyle()) {
     case SOLAR_STYLE_LAVA:
@@ -444,7 +486,7 @@ int PlanetTerrainHeight(int x, int z)
         height += 2.0f + sinf((fx + fz) * 0.008f) * 3.0f;
         break;
     case SOLAR_STYLE_DESERT:
-        height = 12.0f + fabsf(sinf(fx * 0.045f + cosf(fz * 0.018f))) * 7.0f;
+        height += fabsf(sinf(fx * 0.045f + cosf(fz * 0.018f))) * 4.5f;
         break;
     case SOLAR_STYLE_GAS:
         height = 14.0f + sinf(fz * 0.025f) * 4.0f + sinf(fx * 0.009f) * 3.0f;
@@ -454,13 +496,16 @@ int PlanetTerrainHeight(int x, int z)
         height -= crater > 0.82f ? 6.0f : 0.0f;
         break;
     }
+    case SOLAR_STYLE_TEMPERATE:
+        height += sinf(fx * 0.024f) * cosf(fz * 0.021f) * 2.2f;
+        break;
     default:
         break;
     }
 
     height = roundf(height);
     if (height < 5.0f) height = 5.0f;
-    if (height > 25.0f) height = 25.0f;
+    if (height > 30.0f) height = 30.0f;
     return (int)height;
 }
 
@@ -482,6 +527,10 @@ static BlockType PlanetSubsurfaceBlock(SolarBodyStyle style, int depth, unsigned
     case SOLAR_STYLE_CRATER:
         if (depth == 0) return hash % 13u == 0u ? BLOCK_METEORITE : BLOCK_MOON_SAND;
         return BLOCK_MOON_ROCK;
+    case SOLAR_STYLE_TEMPERATE:
+        if (depth == 0) return BLOCK_GRASS;
+        if (depth <= 3) return BLOCK_DIRT;
+        return BLOCK_STONE;
     default:
         return depth == 0 ? BLOCK_GRASS : BLOCK_STONE;
     }
@@ -493,6 +542,7 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
     SolarBodyStyle style = PlanetWorldStyle();
+    const PlanetProfile *profile = PlanetWorldProfile();
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -506,11 +556,24 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
                 unsigned int h = PlanetHash2D(localX + y * 19, localZ - y * 23, 1u);
                 int depth = height - y;
                 BlockType type = y == 0 ? BLOCK_BEDROCK : PlanetSubsurfaceBlock(style, depth, h);
+                if (style == SOLAR_STYLE_TEMPERATE && depth <= 3) {
+                    float climate = PlanetFractalNoise2D((float)worldX * 0.006f,
+                                                         (float)worldZ * 0.006f, 83u);
+                    if (height <= 13 && profile->oceanCoverage > 0.08f) {
+                        type = BLOCK_SAND;
+                    } else if (climate < 0.30f && height > 18) {
+                        type = depth == 0 ? BLOCK_SNOW : BLOCK_DIRT;
+                    }
+                }
                 bool cave = y > 2 && depth > 3 && h % 101u < 3u;
                 chunk->blocks[lx][y][lz] = (unsigned short)(cave ? BLOCK_AIR : type);
             }
 
-            int seaLevel = style == SOLAR_STYLE_LAVA ? 11 : (style == SOLAR_STYLE_ICE ? 12 : -1);
+            int seaLevel = -1;
+            if (profile->oceanCoverage > 0.05f) {
+                if (style == SOLAR_STYLE_LAVA) seaLevel = 11;
+                else if (style == SOLAR_STYLE_ICE || style == SOLAR_STYLE_TEMPERATE) seaLevel = 12;
+            }
             if (seaLevel >= 0 && height < seaLevel) {
                 BlockType liquid = style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER;
                 for (int y = height + 1; y <= seaLevel && InHeight(y); y++) {
@@ -537,6 +600,9 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_MUSHROOM;
             } else if (style == SOLAR_STYLE_CRATER && decor % 149u == 0u) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_METEORITE;
+            } else if (style == SOLAR_STYLE_TEMPERATE && height > seaLevel + 1 &&
+                       decor % 97u == 0u) {
+                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_FLOWER;
             }
         }
     }

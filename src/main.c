@@ -247,9 +247,12 @@ int main(void)
         if (ShipIsDriving() && IsKeyPressed(KEY_E)) {
             ShipExit(&player);
         }
-        if (ShipIsDriving() && !HomeWorldSurfaceIsActive() && !PlanetWorldIsActive() &&
-            IsKeyPressed(KEY_TAB) && !StarMapIsOpen() && !paused) {
+        if (!PlanetWorldIsActive() &&
+            IsKeyPressed(KEY_M) && !StarMapIsOpen() && !paused && !cursorReleased) {
             StarMapOpen();
+            player.velocity = Vector3Zero();
+            cursorReleased = true;
+            EnableCursor();
         }
         if (StarMapIsOpen()) {
             Vector3 destination = { 0 };
@@ -258,8 +261,15 @@ int main(void)
                 player.position = destination;
                 player.velocity = Vector3Zero();
                 player.floating = false;
+                StarMapClose();
+                cursorReleased = false;
+                DisableCursor();
                 SetImportMessage(TextFormat("Arrived at %.1f, %.1f, %.1f - explore the system.",
                                             destination.x, destination.y, destination.z));
+            }
+            if (!StarMapIsOpen()) {
+                cursorReleased = false;
+                DisableCursor();
             }
         }
         if (!paused && !albumOpen && !importDialog.open && IsKeyPressed(KEY_F4)) {
@@ -548,11 +558,14 @@ int main(void)
         DrawHotbar(hotbar, selectedIndex);
         DrawImportStatus();
         int hour = (int)(dayTime * 24.0f) % 24;
-        DrawText(TextFormat("XYZ %d %d %d    %02d:00", (int)floorf(player.position.x),
-                            (int)floorf(player.position.y), (int)floorf(player.position.z), hour),
-                 14, GetScreenHeight() - 34, 16, Fade(WHITE, 0.75f));
-        DrawText(TextFormat("Auto-save: %s", autoSaveEnabled ? "60s" : "off"),
-                 14, GetScreenHeight() - 16, 14, Fade(WHITE, 0.45f));
+        const char *positionText = TextFormat("XYZ %d %d %d    %02d:00", (int)floorf(player.position.x),
+                                              (int)floorf(player.position.y),
+                                              (int)floorf(player.position.z), hour);
+        DrawText(positionText, 15, GetScreenHeight() - 32, 17, Fade(BLACK, 0.92f));
+        DrawText(positionText, 14, GetScreenHeight() - 34, 17, Fade(WHITE, 0.9f));
+        const char *saveText = TextFormat("Auto-save: %s", autoSaveEnabled ? "60s" : "off");
+        DrawText(saveText, 15, GetScreenHeight() - 14, 15, Fade(BLACK, 0.92f));
+        DrawText(saveText, 14, GetScreenHeight() - 16, 15, Fade(WHITE, 0.65f));
         if (cursorReleased && !importDialog.open) DrawCursorReleasedOverlay();
         if (showHelp) DrawHelpPanel(player.floating, cursorReleased, renderDistanceChunks);
         DrawImportDialog(&importDialog);
@@ -579,7 +592,8 @@ int main(void)
                     shipHudAlt = player.position.y -
                                  (float)TerrainHeight((int)floorf(player.position.x),
                                                       (int)floorf(player.position.z), terrainMode);
-                } else if (PlanetSurfaceAt(player.position, &gravityDir, &surfaceDist)) {
+                } else if (PlanetSurfaceAt(player.position, &gravityDir, &surfaceDist,
+                                           NULL)) {
                     shipHudNearPlanet = true;
                     shipHudAlt = surfaceDist;
                 } else {

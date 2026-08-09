@@ -34,6 +34,7 @@ typedef struct PlanetWorldContext {
     bool active;
     uint32_t seed;
     SolarBodyStyle style;
+    PlanetProfile profile;
     int originX;
     int originZ;
     int planetIndex;
@@ -122,6 +123,16 @@ SolarBodyStyle PlanetWorldStyle(void)
     return planetWorld.style;
 }
 
+const PlanetProfile *PlanetWorldProfile(void)
+{
+    return &planetWorld.profile;
+}
+
+float PlanetWorldGravityScale(void)
+{
+    return planetWorld.active ? planetWorld.profile.surfaceGravity : 1.0f;
+}
+
 int PlanetWorldOriginX(void)
 {
     return planetWorld.originX;
@@ -179,10 +190,27 @@ static float SolarSpectrumMass(SpectrumType spectrum)
     }
 }
 
+static float SolarSpectrumLuminosity(SpectrumType spectrum)
+{
+    switch (spectrum) {
+    case SPECTRUM_RED_DWARF: return 0.06f;
+    case SPECTRUM_ORANGE:    return 0.45f;
+    case SPECTRUM_YELLOW:    return 1.00f;
+    case SPECTRUM_BLUE_WHITE:return 8.00f;
+    case SPECTRUM_RED_GIANT: return 35.0f;
+    default:                 return 1.00f;
+    }
+}
+
 static unsigned int SolarOrbitHash(const SolarSystemDef *sys, int index)
 {
     return WorldHash2D(sys->anchorX * 53 + index * 7 + 1,
                        sys->anchorZ * 29 + index * 3 + 2);
+}
+
+static unsigned int SolarPlaneHash(const SolarSystemDef *sys)
+{
+    return WorldHash2D(sys->anchorX * 79 + 11, sys->anchorZ * 97 + 23);
 }
 
 static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
@@ -193,6 +221,147 @@ static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
     int legacyZ = (int)floorf(sys->center.z + sinf(legacyAngle) * (float)def->orbit);
     uint32_t seed = WorldHash3D(legacyX, index + 1, legacyZ);
     return seed == 0u ? DEFAULT_WORLD_SEED : seed;
+}
+
+static float PlanetProfileHashUnit(uint32_t seed, uint32_t lane)
+{
+    uint32_t h = seed ^ (lane * 0x9e3779b9u);
+    h ^= h >> 16;
+    h *= 0x7feb352du;
+    h ^= h >> 15;
+    h *= 0x846ca68bu;
+    h ^= h >> 16;
+    return (float)(h & 0x00ffffffu) / 16777215.0f;
+}
+
+static PlanetAtmosphereType ClassifyAtmosphere(SolarBodyStyle style, float density,
+                                                float temperatureK, float composition)
+{
+    if (density < 0.12f) return PLANET_ATMOSPHERE_NONE;
+    if (density < 0.32f) return PLANET_ATMOSPHERE_THIN;
+    if (style == SOLAR_STYLE_LAVA || temperatureK > 355.0f) {
+        return PLANET_ATMOSPHERE_CORROSIVE;
+    }
+    if (style == SOLAR_STYLE_TEMPERATE && temperatureK >= 250.0f &&
+        temperatureK <= 310.0f && density <= 0.82f && composition > 0.38f) {
+        return PLANET_ATMOSPHERE_BREATHABLE;
+    }
+    return PLANET_ATMOSPHERE_DENSE;
+}
+
+PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
+{
+    PlanetProfile profile = { 0 };
+    if (!sys || index < 0 || index >= sys->planetCount) return profile;
+
+    const SolarPlanetDef *def = &sys->planets[index];
+    uint32_t seed = SolarPlanetWorldSeed(sys, index);
+    float sizeUnit = PlanetProfileHashUnit(seed, 1u);
+    float composition = PlanetProfileHashUnit(seed, 2u);
+    float volatileSupply = PlanetProfileHashUnit(seed, 3u);
+    float orbitAU = fmaxf((float)def->orbit / 340.0f, 0.18f);
+    // 340 blocks is the game's one-AU reference. This is a game-scale
+    // blackbody equilibrium estimate, so the same orbit also drives climate.
+    float temperature = 278.5f * powf(SolarSpectrumLuminosity(sys->spectrum), 0.25f) /
+                        sqrtf(orbitAU);
+    temperature *= 0.96f + PlanetProfileHashUnit(seed, 4u) * 0.08f;
+
+    float solidRadiusEarth = 0.72f + ((float)def->size - 40.0f) * 0.095f;
+    solidRadiusEarth = Clamp(solidRadiusEarth, 0.62f, 1.55f);
+    float atmosphere = solidRadiusEarth * 0.34f + volatileSupply * 0.52f;
+    atmosphere -= Clamp((temperature - 330.0f) / 260.0f, 0.0f, 0.45f);
+    atmosphere = Clamp(atmosphere, 0.0f, 0.95f);
+
+    bool forcedGasGiant = sys->anchorX == 0 && sys->anchorZ == 0 && index == 3;
+    bool gasGiant = forcedGasGiant ||
+                    (index > 0 && def->size >= 47 && temperature < 430.0f &&
+                     PlanetProfileHashUnit(seed, 5u) > 0.52f);
+
+    profile.seed = seed;
+    profile.bodyRadius = (float)def->size;
+    profile.equilibriumTempK = temperature;
+    profile.hasSolidSurface = !gasGiant;
+    if (gasGiant) {
+        float gasRadiusEarth = 2.8f + sizeUnit * 1.8f;
+        profile.massEarth = 12.0f + composition * 32.0f;
+        profile.surfaceGravity = Clamp(profile.massEarth /
+                                       (gasRadiusEarth * gasRadiusEarth), 0.75f, 2.40f);
+        profile.style = SOLAR_STYLE_GAS;
+        profile.atmosphereDensity = 1.0f;
+        profile.atmosphereType = PLANET_ATMOSPHERE_DENSE;
+        profile.oceanCoverage = 0.0f;
+        profile.terrainRoughness = 0.0f;
+        profile.rotationRate = 5.0f + PlanetProfileHashUnit(seed, 6u) * 3.0f;
+        profile.hasRings = forcedGasGiant || PlanetProfileHashUnit(seed, 7u) > 0.34f;
+        return profile;
+    }
+
+    float density = 0.78f + composition * 0.52f;
+    profile.massEarth = density * solidRadiusEarth * solidRadiusEarth * solidRadiusEarth;
+    profile.surfaceGravity = Clamp(profile.massEarth /
+                                   (solidRadiusEarth * solidRadiusEarth), 0.45f, 1.75f);
+    profile.atmosphereDensity = atmosphere;
+    if (temperature > 365.0f) profile.style = SOLAR_STYLE_LAVA;
+    else if (atmosphere < 0.13f) profile.style = SOLAR_STYLE_CRATER;
+    else if (temperature > 305.0f) profile.style = SOLAR_STYLE_DESERT;
+    else if (temperature < 238.0f) profile.style = SOLAR_STYLE_ICE;
+    else profile.style = SOLAR_STYLE_TEMPERATE;
+
+    float liquidWindow = 1.0f - Clamp(fabsf(temperature - 282.0f) / 58.0f, 0.0f, 1.0f);
+    profile.oceanCoverage = Clamp(liquidWindow * atmosphere *
+                                  (0.22f + PlanetProfileHashUnit(seed, 8u) * 0.72f),
+                                  0.0f, 0.78f);
+    if (profile.style == SOLAR_STYLE_ICE) profile.oceanCoverage *= 0.65f;
+    if (profile.style == SOLAR_STYLE_LAVA) {
+        profile.oceanCoverage = 0.08f + PlanetProfileHashUnit(seed, 9u) * 0.22f;
+    } else if (profile.style == SOLAR_STYLE_CRATER) {
+        profile.oceanCoverage = 0.0f;
+    }
+
+    float roughnessBase = profile.style == SOLAR_STYLE_CRATER ? 1.20f :
+                          profile.style == SOLAR_STYLE_LAVA ? 1.05f :
+                          profile.style == SOLAR_STYLE_DESERT ? 0.72f : 0.88f;
+    profile.terrainRoughness = roughnessBase *
+                               (0.78f + PlanetProfileHashUnit(seed, 10u) * 0.48f);
+    profile.rotationRate = 0.7f + PlanetProfileHashUnit(seed, 11u) * 2.5f;
+    profile.hasRings = def->size >= 46 && PlanetProfileHashUnit(seed, 12u) > 0.92f;
+    profile.atmosphereType = ClassifyAtmosphere(profile.style, atmosphere,
+                                                temperature, composition);
+    return profile;
+}
+
+static PlanetProfile LegacyPlanetProfile(uint32_t seed, SolarBodyStyle style,
+                                         float terrainRadius)
+{
+    PlanetProfile profile = { 0 };
+    float bodyRadius = fmaxf(1.0f, (terrainRadius - 3.6f) / 1.22f);
+    float radiusEarth = Clamp(0.72f + (bodyRadius - 40.0f) * 0.095f, 0.62f, 1.55f);
+    float composition = PlanetProfileHashUnit(seed, 2u);
+    float density = 0.78f + composition * 0.52f;
+    profile.seed = seed;
+    profile.style = style;
+    profile.bodyRadius = bodyRadius;
+    profile.massEarth = density * radiusEarth * radiusEarth * radiusEarth;
+    profile.surfaceGravity = Clamp(profile.massEarth / (radiusEarth * radiusEarth),
+                                   0.45f, 1.75f);
+    profile.equilibriumTempK = style == SOLAR_STYLE_LAVA ? 410.0f :
+                               style == SOLAR_STYLE_DESERT ? 325.0f :
+                               style == SOLAR_STYLE_ICE ? 220.0f :
+                               style == SOLAR_STYLE_CRATER ? 185.0f : 282.0f;
+    profile.atmosphereDensity = style == SOLAR_STYLE_CRATER ? 0.08f :
+                                style == SOLAR_STYLE_GAS ? 1.0f : 0.55f;
+    profile.oceanCoverage = style == SOLAR_STYLE_ICE ? 0.32f :
+                            style == SOLAR_STYLE_TEMPERATE ? 0.48f :
+                            style == SOLAR_STYLE_LAVA ? 0.16f : 0.0f;
+    profile.terrainRoughness = 0.82f + PlanetProfileHashUnit(seed, 10u) * 0.42f;
+    profile.rotationRate = style == SOLAR_STYLE_GAS ? 6.0f :
+                           0.7f + PlanetProfileHashUnit(seed, 11u) * 2.5f;
+    // A loaded legacy save may already be standing on a former gas-style world.
+    profile.hasSolidSurface = true;
+    profile.hasRings = false;
+    profile.atmosphereType = ClassifyAtmosphere(style, profile.atmosphereDensity,
+                                                profile.equilibriumTempK, composition);
+    return profile;
 }
 
 void SpaceAdvanceTime(float dt)
@@ -213,6 +382,9 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
 {
     if (ax == 0 && az == 0) {
         BuildSolSystem(out);
+        for (int i = 0; i < out->planetCount; i++) {
+            out->planets[i].style = SolarPlanetProfile(out, i).style;
+        }
         return true;
     }
 
@@ -242,10 +414,13 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
         // These are visitable planets, not asteroid props. Keep enough volume
         // for a layered surface, caves and a useful landing area.
         out->planets[i].size = 40 + (int)((ph >> 6) % 9u);
-        // The orbit is centered on the star. Inclination, rather than an
-        // arbitrary vertical offset, gives each planet a small 3D tilt.
+        // The orbit is centered on the star. All planets share a generated
+        // system plane, with their own small deviations around it.
         out->planets[i].yOffset = 0;
-        out->planets[i].style = (SolarBodyStyle)(1 + ((ph >> 18) % 5u));
+        out->planets[i].style = SOLAR_STYLE_CRATER;
+    }
+    for (int i = 0; i < out->planetCount; i++) {
+        out->planets[i].style = SolarPlanetProfile(out, i).style;
     }
     return true;
 }
@@ -254,9 +429,17 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
 {
     const SolarPlanetDef *def = &sys->planets[index];
     unsigned int orbitHash = SolarOrbitHash(sys, index);
+    unsigned int planeHash = SolarPlaneHash(sys);
     float phase = (float)(orbitHash % 6283u) / 1000.0f;
-    float inclination = ((float)((orbitHash >> 22) % 7u) - 3.0f) * 0.012f;
-    float node = (float)((orbitHash >> 7) % 6283u) / 1000.0f;
+    // Systems occupy genuinely different 3D planes (up to about 18 degrees
+    // from the reference plane), while neighboring planets remain mostly
+    // coplanar as expected from a shared protoplanetary disk.
+    float systemInclination = ((float)((planeHash >> 6) % 25u) - 12.0f) * 0.026f;
+    float planetInclination = ((float)((orbitHash >> 22) % 9u) - 4.0f) * 0.010f;
+    float inclination = Clamp(systemInclination + planetInclination, -0.36f, 0.36f);
+    float systemNode = (float)((planeHash >> 13) % 6283u) / 1000.0f;
+    float nodeOffset = ((float)((orbitHash >> 7) % 17u) - 8.0f) * 0.005f;
+    float node = systemNode + nodeOffset;
     float orbitRatio = fmaxf((float)def->orbit / 180.0f, 0.1f);
     // Circular Kepler orbit: mean motion is proportional to sqrt(M / a^3).
     float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSpectrumMass(sys->spectrum)) /
@@ -272,6 +455,67 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
         sys->center.y + planeY,
         sys->center.z + planeX * nodeSin + planeZ * nodeCos
     };
+}
+
+Vector3 PlanetWorldSpaceReference(void)
+{
+    if (!planetWorld.active) return Vector3Zero();
+
+    int systemAx = (int)roundf(planetWorld.bodyCenter.x / (float)STAR_SYSTEM_SPACING);
+    int systemAz = (int)roundf(planetWorld.bodyCenter.z / (float)STAR_SYSTEM_SPACING);
+    int orbitIndex = planetWorld.planetIndex - 1;
+    SolarSystemDef system;
+    if (StarSystemAt(systemAx, systemAz, &system) &&
+        orbitIndex >= 0 && orbitIndex < system.planetCount) {
+        return SolarSystemPlanetCenter(&system, orbitIndex);
+    }
+    return planetWorld.bodyCenter;
+}
+
+Vector3 PlanetWorldSkyDirection(Vector3 worldDirection)
+{
+    if (!planetWorld.active) return worldDirection;
+
+    Vector3 up = Vector3Subtract(planetWorld.returnPosition, planetWorld.bodyCenter);
+    if (Vector3LengthSqr(up) < 0.001f) up = (Vector3){ 0.0f, 1.0f, 0.0f };
+    else up = Vector3Normalize(up);
+
+    Vector3 reference = fabsf(up.y) > 0.92f ? (Vector3){ 0.0f, 0.0f, 1.0f }
+                                            : (Vector3){ 0.0f, 1.0f, 0.0f };
+    Vector3 east = Vector3Normalize(Vector3CrossProduct(reference, up));
+    Vector3 north = Vector3Normalize(Vector3CrossProduct(up, east));
+    return (Vector3){
+        Vector3DotProduct(worldDirection, east),
+        Vector3DotProduct(worldDirection, up),
+        Vector3DotProduct(worldDirection, north)
+    };
+}
+
+static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection)
+{
+    if (!planetWorld.active) return skyDirection;
+
+    Vector3 up = Vector3Subtract(planetWorld.returnPosition, planetWorld.bodyCenter);
+    if (Vector3LengthSqr(up) < 0.001f) up = (Vector3){ 0.0f, 1.0f, 0.0f };
+    else up = Vector3Normalize(up);
+
+    Vector3 reference = fabsf(up.y) > 0.92f ? (Vector3){ 0.0f, 0.0f, 1.0f }
+                                            : (Vector3){ 0.0f, 1.0f, 0.0f };
+    Vector3 east = Vector3Normalize(Vector3CrossProduct(reference, up));
+    Vector3 north = Vector3Normalize(Vector3CrossProduct(up, east));
+    return Vector3Add(Vector3Add(Vector3Scale(east, skyDirection.x),
+                                 Vector3Scale(up, skyDirection.y)),
+                      Vector3Scale(north, skyDirection.z));
+}
+
+bool SurfaceHostSystem(SolarSystemDef *out)
+{
+    if (HomeWorldSurfaceIsActive()) return StarSystemAt(0, 0, out);
+    if (!planetWorld.active) return false;
+
+    int systemAx = (int)roundf(planetWorld.bodyCenter.x / (float)STAR_SYSTEM_SPACING);
+    int systemAz = (int)roundf(planetWorld.bodyCenter.z / (float)STAR_SYSTEM_SPACING);
+    return StarSystemAt(systemAx, systemAz, out);
 }
 
 Color SpectrumColor(SpectrumType type)
@@ -306,7 +550,20 @@ const char *SolarStyleName(SolarBodyStyle style)
     case SOLAR_STYLE_DESERT: return "Desert Planet";
     case SOLAR_STYLE_GAS:    return "Gas Giant";
     case SOLAR_STYLE_CRATER: return "Cratered World";
+    case SOLAR_STYLE_TEMPERATE: return "Temperate World";
     default:                 return "Planet";
+    }
+}
+
+const char *PlanetAtmosphereName(PlanetAtmosphereType type)
+{
+    switch (type) {
+    case PLANET_ATMOSPHERE_NONE:       return "Airless";
+    case PLANET_ATMOSPHERE_THIN:       return "Thin atmosphere";
+    case PLANET_ATMOSPHERE_BREATHABLE: return "Breathable atmosphere";
+    case PLANET_ATMOSPHERE_DENSE:      return "Dense atmosphere";
+    case PLANET_ATMOSPHERE_CORROSIVE:  return "Corrosive atmosphere";
+    default:                           return "Unknown atmosphere";
     }
 }
 
@@ -520,16 +777,18 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                 Vector3 center = SolarSystemPlanetCenter(&sys, i);
                 float dist = Vector3Distance(center, pos);
                 if (dist > maxDist) continue;
+                PlanetProfile profile = SolarPlanetProfile(&sys, i);
                 out[count] = (SpaceBodyInfo){
                     .center = center,
-                    .radius = (float)sys.planets[i].size,
+                    .radius = profile.bodyRadius,
                     .dist = dist,
                     .isStar = false,
                     .index = i + 1,
                     .systemAnchorX = ax,
                     .systemAnchorZ = az,
-                    .worldSeed = SolarPlanetWorldSeed(&sys, i),
-                    .style = sys.planets[i].style
+                    .worldSeed = profile.seed,
+                    .style = profile.style,
+                    .profile = profile
                 };
                 snprintf(out[count].name, sizeof(out[count].name), "%s", sys.name);
                 count++;
@@ -551,28 +810,76 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
 
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
 {
-    SpaceBodyInfo bodies[48];
-    int count = SpaceBodiesNear(origin, 700.0f, bodies, 48);
+    if (!out || Vector3LengthSqr(direction) < 0.000001f) return false;
+    direction = Vector3Normalize(direction);
+
     float best = 1e30f;
     bool found = false;
 
-    for (int i = 0; i < count; i++) {
-        Vector3 to = Vector3Subtract(bodies[i].center, origin);
-        float proj = Vector3DotProduct(to, direction);
-        if (proj < 0.0f || proj > best) continue;
-        Vector3 closest = Vector3Add(origin, Vector3Scale(direction, proj));
-        Vector3 diff = Vector3Subtract(closest, bodies[i].center);
-        float lateral = sqrtf(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-        float radius = SolarBodyTerrainRadius(bodies[i].radius);
-        if (lateral > radius) continue;
-        best = proj;
-        *out = bodies[i];
-        found = true;
+    if (!planetWorld.active) {
+        SpaceBodyInfo bodies[48];
+        int count = SpaceBodiesNear(origin, 700.0f, bodies, 48);
+        for (int i = 0; i < count; i++) {
+            Vector3 to = Vector3Subtract(bodies[i].center, origin);
+            float proj = Vector3DotProduct(to, direction);
+            if (proj < 0.0f || proj > best) continue;
+            Vector3 closest = Vector3Add(origin, Vector3Scale(direction, proj));
+            Vector3 diff = Vector3Subtract(closest, bodies[i].center);
+            float lateral = sqrtf(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+            float radius = SolarBodyTerrainRadius(bodies[i].radius);
+            if (lateral > radius) continue;
+            best = proj;
+            *out = bodies[i];
+            found = true;
+        }
     }
-    return found;
+    if (found) return true;
+
+    Vector3 starOrigin = planetWorld.active ? PlanetWorldSpaceReference() : origin;
+    Vector3 starDirection = planetWorld.active ? PlanetWorldSpaceDirection(direction) : direction;
+    SolarSystemDef systems[STAR_NAVIGATION_MAX_SYSTEMS];
+    int systemCount = StarSystemsNear(starOrigin, STAR_NAVIGATION_RANGE, systems,
+                                      STAR_NAVIGATION_MAX_SYSTEMS);
+    SolarSystemDef host = { 0 };
+    bool skipHost = (HomeWorldSurfaceIsActive() || planetWorld.active) &&
+                    SurfaceHostSystem(&host);
+    float bestAlignment = cosf(0.9f * DEG2RAD);
+    int bestSystem = -1;
+
+    for (int i = 0; i < systemCount; i++) {
+        if (skipHost && systems[i].anchorX == host.anchorX &&
+            systems[i].anchorZ == host.anchorZ) {
+            continue;
+        }
+        Vector3 toStar = Vector3Subtract(systems[i].center, starOrigin);
+        float distance = Vector3Length(toStar);
+        if (distance < 0.01f) continue;
+        float alignment = Vector3DotProduct(Vector3Scale(toStar, 1.0f / distance),
+                                            starDirection);
+        if (alignment <= bestAlignment) continue;
+        bestAlignment = alignment;
+        bestSystem = i;
+    }
+
+    if (bestSystem < 0) return false;
+    const SolarSystemDef *system = &systems[bestSystem];
+    *out = (SpaceBodyInfo){
+        .center = system->center,
+        .radius = (float)system->starRadius,
+        .dist = Vector3Distance(starOrigin, system->center),
+        .isStar = true,
+        .index = 0,
+        .systemAnchorX = system->anchorX,
+        .systemAnchorZ = system->anchorZ,
+        .spectrum = system->spectrum,
+        .style = SOLAR_STYLE_SUN
+    };
+    snprintf(out->name, sizeof(out->name), "%s", system->name);
+    return true;
 }
 
-bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist)
+bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
+                     float *gravityScale)
 {
     SpaceBodyInfo bodies[8];
     int count = SpaceBodiesNear(position, 96.0f, bodies, 8);
@@ -589,6 +896,7 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist)
                                              1.0f / homeDistance)
                               : (Vector3){ 0.0f, -1.0f, 0.0f };
             *surfaceDist = homeDistance - HOME_WORLD_RADIUS;
+            if (gravityScale) *gravityScale = 1.0f;
             found = true;
         }
     }
@@ -600,6 +908,7 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist)
             best = bodies[i].dist;
             *gravityDir = Vector3Normalize(Vector3Subtract(bodies[i].center, position));
             *surfaceDist = best - terrainR;
+            if (gravityScale) *gravityScale = bodies[i].profile.surfaceGravity;
             found = true;
         }
     }
@@ -641,6 +950,7 @@ static bool FindPlanetForLanding(Vector3 position, SpaceBodyInfo *out)
 
     for (int i = 0; i < count; i++) {
         if (bodies[i].isStar) continue;
+        if (!bodies[i].profile.hasSolidSurface) continue;
         float radius = SolarBodyTerrainRadius(bodies[i].radius);
         float gap = fabsf(bodies[i].dist - radius);
         if (gap > 20.0f || gap >= bestGap) continue;
@@ -711,7 +1021,8 @@ bool PlanetWorldTryEnter(Player *player)
 
     PlanetWorldContext next = { 0 };
     next.active = true;
-    next.style = body.style;
+    next.profile = body.profile;
+    next.style = body.profile.style;
     next.planetIndex = body.index;
     next.bodyCenter = body.center;
     next.bodyRadius = SolarBodyTerrainRadius(body.radius);
@@ -841,7 +1152,7 @@ bool PlanetWorldLoadState(FILE *file)
         return false;
     }
 
-    if (active > 1u || style > (uint32_t)SOLAR_STYLE_CRATER ||
+    if (active > 1u || style > (uint32_t)SOLAR_STYLE_TEMPERATE ||
         planetIndex < 0 || !isfinite(loaded.bodyRadius) || loaded.bodyRadius < 0.0f ||
         !isfinite(bodyCenter[0]) || !isfinite(bodyCenter[1]) || !isfinite(bodyCenter[2]) ||
         !isfinite(returnPosition[0]) || !isfinite(returnPosition[1]) ||
@@ -856,6 +1167,7 @@ bool PlanetWorldLoadState(FILE *file)
     loaded.planetIndex = (int)planetIndex;
     loaded.bodyCenter = (Vector3){ bodyCenter[0], bodyCenter[1], bodyCenter[2] };
     loaded.returnPosition = (Vector3){ returnPosition[0], returnPosition[1], returnPosition[2] };
+    loaded.profile = LegacyPlanetProfile(loaded.seed, loaded.style, loaded.bodyRadius);
     loaded.name[sizeof(loaded.name) - 1] = '\0';
     planetWorld = loaded;
     return true;

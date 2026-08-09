@@ -101,7 +101,13 @@ bool PlayerOverlapsWorld(Vector3 position)
         for (int y = minY; y <= maxY; y++) {
             for (int z = minZ; z <= maxZ; z++) {
                 if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP &&
-                    !SpaceBlockReadyAt(x, y, z)) return true;
+                    !SpaceBlockReadyAt(x, y, z)) {
+                    // Space is streamed asynchronously. A ship may continue
+                    // through an ungenerated chunk; treating it as a wall
+                    // makes cruise flight stop at the streaming frontier.
+                    if (ShipIsDriving()) continue;
+                    return true;
+                }
                 BlockType type = GetBlockAt(x, y, z);
                 float top;
                 if (IsStairsBlock(type)) {
@@ -248,11 +254,17 @@ void UpdatePlayer(Player *player, float dt)
     bool inWater = IsLiquidBlock(GetBlockAt(feetX, feetY, feetZ));
 
     bool inSpace = !HomeWorldSurfaceIsActive() && !PlanetWorldIsActive();
+    // Scale the takeoff impulse with gravity so high-g worlds remain
+    // traversable instead of trapping the player below a one-block ledge.
+    float gravityScale = Clamp(PlanetWorldGravityScale(), 0.45f, 1.75f);
+    float jumpSpeed = JUMP_SPEED * sqrtf(gravityScale);
     if (inSpace) {
         Vector3 gravityDir = Vector3Zero();
         float surfaceDist = 0.0f;
-        if (PlanetSurfaceAt(player->position, &gravityDir, &surfaceDist)) {
-            float strength = 10.0f * (1.0f - Clamp(surfaceDist / 24.0f, 0.0f, 1.0f));
+        float gravityScale = 1.0f;
+        if (PlanetSurfaceAt(player->position, &gravityDir, &surfaceDist, &gravityScale)) {
+            float strength = 10.0f * gravityScale *
+                             (1.0f - Clamp(surfaceDist / 24.0f, 0.0f, 1.0f));
             if (surfaceDist < 3.0f) strength *= 0.25f;
             player->velocity = Vector3Add(player->velocity, Vector3Scale(gravityDir, strength * dt));
         }
@@ -268,19 +280,19 @@ void UpdatePlayer(Player *player, float dt)
         if (IsKeyDown(KEY_LEFT_CONTROL)) player->velocity.y -= FLOAT_VERTICAL_SPEED;
     } else if (inWater) {
         if (IsKeyPressed(KEY_SPACE) && player->onGround) {
-            player->velocity.y = JUMP_SPEED * 0.75f;
+            player->velocity.y = jumpSpeed * 0.75f;
             player->onGround = false;
         }
-        player->velocity.y -= GRAVITY * 0.3f * dt;
+        player->velocity.y -= GRAVITY * gravityScale * 0.3f * dt;
         if (IsKeyDown(KEY_SPACE)) player->velocity.y += 11.0f * dt;
         if (player->velocity.y < -6.0f) player->velocity.y = -6.0f;
     } else {
         if (IsKeyPressed(KEY_SPACE) && player->onGround) {
-            player->velocity.y = JUMP_SPEED;
+            player->velocity.y = jumpSpeed;
             player->onGround = false;
         }
 
-        player->velocity.y -= GRAVITY * dt;
+        player->velocity.y -= GRAVITY * gravityScale * dt;
         if (player->velocity.y < -35.0f) player->velocity.y = -35.0f;
     }
 

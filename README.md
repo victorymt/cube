@@ -52,9 +52,10 @@ startup as a small pixel-art atlas.
 - `F4` switches to a third-person view (camera pulls back, walls occlude);
   `F10` saves a screenshot; the pause menu toggles music, adjusts volume and
   can return to the main menu
-- Every generated planet is a world: space uses a spherical proxy, while
+- Every generated solid planet is a world: space uses a spherical proxy, while
   landing streams a deterministic, effectively unbounded chunk surface with
-  planet-specific terrain, materials, sky colors, caves, liquids, and landmarks
+  planet-specific terrain, materials, sky colors, caves, liquids, and landmarks.
+  Gas giants have deep atmospheres and gravity but no fake solid landing surface
 - Minecraft-style content: stairs, fences, fence gates, glass panes, lava
   (swimmable, glowing), flowers and mushrooms on the surface, bookshelves,
   hay bales, pumpkins; 3D noise caves with water pools, abandoned mineshafts
@@ -73,11 +74,19 @@ startup as a small pixel-art atlas.
   move up/down), a starfield, galaxy bands, named planetary systems,
   and drifting asteroids made of moon rock, meteorite and moon sand.
   Mine asteroids, build in zero-g, and take the blocks back to the surface.
-  Space edits are saved with the world
-- A real starfield: 500 stars on a fixed celestial sphere rotate as you turn
-  (bright ones with cross glints), continuous from ground night skies to space
-- Planets follow inclined Kepler-style orbits: inner worlds move faster than
-  outer worlds, and every planet rotates on its axis while orbiting its star
+  Space edits are saved with the world. The X/Z space is procedurally streamed
+  without a gameplay boundary; chunks still generating do not block the ship
+- A real starfield: every visible star is a deterministic, named system from
+  the star map, with its own reachable coordinates and two to six planets;
+  the same stars remain continuous from ground night skies into space
+- Planets follow inclined Kepler-style orbits: each system has a distinct
+  three-dimensional orbital plane with small planet-to-planet deviations;
+  inner worlds move faster than outer worlds, and every planet rotates on its
+  axis while orbiting its star
+- A deterministic physical profile links each planet's orbit and host-star
+  luminosity to temperature, then derives mass, surface gravity, atmosphere,
+  ocean coverage, terrain roughness, rotation, rings, space appearance and
+  surface generation from the same identity
 - Stars are real places: glowing star-matter orbs (self-illuminated blocks)
   drift among the asteroids - land on them, mine them, bring the light home
 - Spaceship block: place it (middle-click to select), right-click to climb
@@ -106,7 +115,7 @@ make run
 - `WASD` move, `Shift` sprint, mouse look
 - `Space` jump, or swim up while in water
 - `F` toggle floating mode; in floating mode `Space` up, `Left Ctrl` down
-- `Tab` release/capture the mouse
+- `Tab` release/capture the mouse; `M` opens the star map from Homeworld or space
 - Left click: break the targeted block
 - Right click: place the selected block (ghost preview shows the target cell)
 - Middle click: select the targeted block type into the selected hotbar slot
@@ -124,7 +133,7 @@ make run
 - Fly above `y=120` to enter space; approach Homeworld and press `E` to return
 - Spaceship: right-click a placed ship to enter, W/S/A/D + Space/Ctrl to fly,
   E to exit or land when a planet prompt is visible; rise above the planet's
-  atmosphere to return to orbit. Mine coal ore and press `R` while flying to refuel
+  atmosphere to return to orbit. Press `R` while flying to restore the unlimited fuel tank
 - Nether portal: obsidian frame + portal block, right-click to travel
 - `Ctrl+Z` / `Ctrl+Y` undo / redo block edits
 - `P` open the photo album (Enter add image, Space paint it into the world, Delete remove)

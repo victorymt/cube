@@ -12,6 +12,8 @@
 
 #define STAR_SYSTEM_SPACING 1400
 #define STAR_SYSTEM_PROBABILITY 65u
+#define STAR_NAVIGATION_RANGE 8000.0f
+#define STAR_NAVIGATION_MAX_SYSTEMS 128
 
 typedef enum SpectrumType {
     SPECTRUM_RED_DWARF = 0,
@@ -27,8 +29,33 @@ typedef enum SolarBodyStyle {
     SOLAR_STYLE_ICE,
     SOLAR_STYLE_DESERT,
     SOLAR_STYLE_GAS,
-    SOLAR_STYLE_CRATER
+    SOLAR_STYLE_CRATER,
+    SOLAR_STYLE_TEMPERATE
 } SolarBodyStyle;
+
+typedef enum PlanetAtmosphereType {
+    PLANET_ATMOSPHERE_NONE = 0,
+    PLANET_ATMOSPHERE_THIN,
+    PLANET_ATMOSPHERE_BREATHABLE,
+    PLANET_ATMOSPHERE_DENSE,
+    PLANET_ATMOSPHERE_CORROSIVE
+} PlanetAtmosphereType;
+
+typedef struct PlanetProfile {
+    uint32_t seed;
+    SolarBodyStyle style;
+    PlanetAtmosphereType atmosphereType;
+    float bodyRadius;
+    float massEarth;
+    float surfaceGravity;
+    float equilibriumTempK;
+    float atmosphereDensity;
+    float oceanCoverage;
+    float terrainRoughness;
+    float rotationRate;
+    bool hasSolidSurface;
+    bool hasRings;
+} PlanetProfile;
 
 typedef struct SolarPlanetDef {
     int orbit;
@@ -61,6 +88,7 @@ typedef struct SpaceBodyInfo {
     char name[32];
     SpectrumType spectrum;
     SolarBodyStyle style;
+    PlanetProfile profile;
 } SpaceBodyInfo;
 
 typedef struct SpaceChunk {
@@ -103,12 +131,17 @@ void SpaceRebuildTorchList(void);
 
 bool StarSystemAt(int ax, int az, SolarSystemDef *out);
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index);
+PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index);
+Vector3 PlanetWorldSpaceReference(void);
+Vector3 PlanetWorldSkyDirection(Vector3 worldDirection);
+bool SurfaceHostSystem(SolarSystemDef *out);
 float SolarBodyTerrainRadius(float radius);
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount);
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist);
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount);
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out);
-bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist);
+bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
+                     float *gravityScale);
 bool HomeWorldSurfaceIsActive(void);
 Vector3 HomeWorldCenter(void);
 float HomeWorldRadius(void);
@@ -122,6 +155,8 @@ bool HomeWorldLoadState(FILE *file);
 bool PlanetWorldIsActive(void);
 uint32_t PlanetWorldSeed(void);
 SolarBodyStyle PlanetWorldStyle(void);
+const PlanetProfile *PlanetWorldProfile(void);
+float PlanetWorldGravityScale(void);
 int PlanetWorldOriginX(void);
 int PlanetWorldOriginZ(void);
 const char *PlanetWorldName(void);
@@ -133,5 +168,6 @@ bool PlanetWorldLoadState(FILE *file);
 Color SpectrumColor(SpectrumType type);
 const char *SpectrumName(SpectrumType type);
 const char *SolarStyleName(SolarBodyStyle style);
+const char *PlanetAtmosphereName(PlanetAtmosphereType type);
 
 #endif
