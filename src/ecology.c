@@ -35,42 +35,91 @@ static float EcologyClamp(float value)
     return value;
 }
 
+static int EcologyPaletteIndex(PlanetChemistry chemistry, uint32_t hash, bool accent)
+{
+    unsigned r;
+    unsigned g;
+    unsigned b;
+    unsigned shift = accent ? 11u : 0u;
+    switch (chemistry) {
+    case PLANET_CHEMISTRY_SILICON:
+        r = 3u + ((hash >> shift) & 1u);
+        g = 2u + ((hash >> (shift + 3u)) & 2u);
+        b = 2u + ((hash >> (shift + 5u)) & 1u);
+        break;
+    case PLANET_CHEMISTRY_SULFUR:
+        r = 6u + ((hash >> shift) & 1u);
+        g = 4u + ((hash >> (shift + 3u)) & 3u);
+        b = (hash >> (shift + 5u)) & 1u;
+        break;
+    case PLANET_CHEMISTRY_CARBON:
+    default:
+        r = 1u + ((hash >> shift) & 2u);
+        g = 4u + ((hash >> (shift + 3u)) & 3u);
+        b = (hash >> (shift + 5u)) & 2u;
+        break;
+    }
+    return (int)((r << 5u) | (g << 2u) | b);
+}
+
 PlanetEcologyProfile PlanetEcologyCurrent(void)
 {
     PlanetEcologyProfile result = { 0 };
     if (!PlanetWorldIsActive()) return result;
 
     const PlanetProfile *planet = PlanetWorldProfile();
-    float temperatureComfort = 1.0f -
-        EcologyClamp(fabsf(planet->equilibriumTempK - 288.0f) / 230.0f);
+    float temperature = planet->equilibriumTempK;
+    float temperatureComfort = 1.0f - EcologyClamp(fabsf(temperature - 288.0f) / 230.0f);
     float atmosphere = EcologyClamp(planet->atmosphereDensity);
     float water = EcologyClamp(planet->oceanCoverage);
-    float life = temperatureComfort * (0.18f + atmosphere * 0.72f) *
-                 (0.70f + water * 0.30f);
+    bool darkSide = PlanetWorldIsDarkSide();
+    float atmosphereSupport = 0.0f;
+    switch (planet->atmosphereType) {
+    case PLANET_ATMOSPHERE_NONE:       atmosphereSupport = 0.03f; break;
+    case PLANET_ATMOSPHERE_THIN:       atmosphereSupport = 0.22f; break;
+    case PLANET_ATMOSPHERE_BREATHABLE: atmosphereSupport = 0.88f; break;
+    case PLANET_ATMOSPHERE_DENSE:      atmosphereSupport = 0.96f; break;
+    case PLANET_ATMOSPHERE_CORROSIVE:  atmosphereSupport = 0.38f; break;
+    default: break;
+    }
+    float life = temperatureComfort * atmosphereSupport * (0.28f + water * 0.72f);
+    if (planet->style == SOLAR_STYLE_TEMPERATE) life += 0.16f * (0.5f + water);
+    if (planet->style == SOLAR_STYLE_ICE) life *= 0.66f;
+    if (planet->style == SOLAR_STYLE_DESERT) life *= 0.52f;
+    if (planet->style == SOLAR_STYLE_LAVA) life = fmaxf(life * 0.20f, 0.075f);
+    if (planet->style == SOLAR_STYLE_CRATER) life *= 0.18f;
+    if (planet->style == SOLAR_STYLE_GAS || !planet->hasSolidSurface) life = 0.0f;
+
+    uint32_t seedHash = EcologyHash(0, 0, 0x72a31u);
+    float chemistryRoll = (float)(seedHash & 0xffffu) / 65535.0f;
+    if (temperature > 365.0f) {
+        result.chemistry = chemistryRoll < 0.64f ?
+                           PLANET_CHEMISTRY_SULFUR : PLANET_CHEMISTRY_SILICON;
+    } else if (chemistryRoll < 0.28f) {
+        result.chemistry = PLANET_CHEMISTRY_SILICON;
+    } else if (chemistryRoll < 0.48f) {
+        result.chemistry = PLANET_CHEMISTRY_SULFUR;
+    } else {
+        result.chemistry = PLANET_CHEMISTRY_CARBON;
+    }
 
     switch (planet->style) {
     case SOLAR_STYLE_TEMPERATE:
-        life += 0.22f;
         result.flora = PLANET_FLORA_ALIEN_CANOPY;
         break;
     case SOLAR_STYLE_ICE:
-        life *= 0.62f;
         result.flora = PLANET_FLORA_CRYSTAL;
         break;
     case SOLAR_STYLE_DESERT:
-        life *= 0.50f;
         result.flora = PLANET_FLORA_CRYSTAL;
         break;
     case SOLAR_STYLE_LAVA:
-        life *= 0.06f;
         result.flora = PLANET_FLORA_THERMAL_VENT;
         break;
     case SOLAR_STYLE_CRATER:
-        life *= 0.12f;
         result.flora = PLANET_FLORA_CRYSTAL;
         break;
     case SOLAR_STYLE_GAS:
-        life *= 0.18f;
         result.flora = PLANET_FLORA_SPORE;
         break;
     default:
@@ -78,21 +127,104 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
         break;
     }
 
-    if (planet->atmosphereType == PLANET_ATMOSPHERE_NONE) life *= 0.08f;
-    else if (planet->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) life *= 0.28f;
-    else if (planet->atmosphereType == PLANET_ATMOSPHERE_DENSE) life *= 0.72f;
-
     result.lifeDensity = EcologyClamp(life);
-    result.floraDensity = EcologyClamp(0.10f + result.lifeDensity * 0.78f);
-    if (planet->style == SOLAR_STYLE_LAVA || planet->style == SOLAR_STYLE_CRATER) {
-        result.floraDensity = EcologyClamp(0.15f + result.lifeDensity * 0.35f);
+    if (!planet->hasSolidSurface || result.lifeDensity < 0.055f) {
+        result.biomass = PLANET_BIOMASS_BARREN;
+    } else if (temperature > 360.0f && atmosphere > 0.16f) {
+        result.biomass = PLANET_BIOMASS_CRYSTALLINE;
+    } else if (darkSide && result.lifeDensity >= 0.12f) {
+        result.biomass = PLANET_BIOMASS_ANOMALOUS;
+    } else if (result.lifeDensity < 0.20f || planet->atmosphereType == PLANET_ATMOSPHERE_NONE) {
+        result.biomass = PLANET_BIOMASS_MICROBIAL;
+    } else if (result.lifeDensity > 0.60f && water > 0.25f) {
+        result.biomass = PLANET_BIOMASS_LUSH;
+    } else if ((seedHash % 5u) == 0u || water < 0.10f) {
+        result.biomass = PLANET_BIOMASS_FUNGAL;
+    } else {
+        result.biomass = PLANET_BIOMASS_LUSH;
     }
-    result.faunaDensity = EcologyClamp((result.lifeDensity - 0.16f) * 1.12f);
 
-    uint32_t paletteHash = EcologyHash(0, 0, 0x72a31u);
-    int primary = 20 + (int)(paletteHash % 196u);
-    int accent = 20 + (int)((paletteHash >> 8) % 196u);
-    if (accent == primary) accent = (accent + 47) % 196 + 20;
+    result.floraDensity = EcologyClamp(result.lifeDensity * 0.92f);
+    result.faunaDensity = EcologyClamp((result.lifeDensity - 0.14f) * 1.12f);
+    switch (result.biomass) {
+    case PLANET_BIOMASS_BARREN:
+        result.floraDensity = EcologyClamp(result.lifeDensity * 0.30f);
+        result.faunaDensity = 0.0f;
+        break;
+    case PLANET_BIOMASS_MICROBIAL:
+        result.floraDensity = EcologyClamp(0.04f + result.lifeDensity * 0.42f);
+        result.faunaDensity = EcologyClamp(result.lifeDensity * 0.26f);
+        break;
+    case PLANET_BIOMASS_FUNGAL:
+        result.flora = PLANET_FLORA_SPORE;
+        result.floraDensity = EcologyClamp(0.12f + result.lifeDensity * 0.66f);
+        break;
+    case PLANET_BIOMASS_CRYSTALLINE:
+        result.flora = PLANET_FLORA_CRYSTAL;
+        result.faunaDensity = EcologyClamp(result.lifeDensity * 0.48f);
+        break;
+    case PLANET_BIOMASS_ANOMALOUS:
+        result.flora = PLANET_FLORA_SPORE;
+        result.faunaDensity = EcologyClamp(result.lifeDensity * 0.92f);
+        break;
+    case PLANET_BIOMASS_LUSH:
+    default:
+        result.flora = PLANET_FLORA_ALIEN_CANOPY;
+        break;
+    }
+
+    float gravity = EcologyClamp((planet->surfaceGravity - 0.35f) / 1.45f) * 1.45f + 0.35f;
+    result.organismScale = EcologyClamp(1.10f / sqrtf(gravity));
+    if (result.organismScale < 0.48f) result.organismScale = 0.48f;
+    if (result.organismScale > 2.20f) result.organismScale = 2.20f;
+    result.bodyArmor = EcologyClamp((gravity - 0.76f) / 0.88f);
+    result.supportsFlight = planet->hasSolidSurface && result.biomass != PLANET_BIOMASS_BARREN &&
+                           (planet->atmosphereDensity >= 0.72f || gravity <= 0.68f);
+    result.darkSideColony = planet->hasSolidSurface && darkSide &&
+                            result.lifeDensity >= 0.12f;
+    if (result.darkSideColony) {
+        result.bodyPlan = PLANET_BODY_COLONY;
+        result.niche = PLANET_NICHE_BIOLUMINESCENT_COLONY;
+    } else if (result.biomass == PLANET_BIOMASS_CRYSTALLINE) {
+        result.bodyPlan = PLANET_BODY_HEXAPOD;
+        result.niche = PLANET_NICHE_CRYSTAL_GRAZER;
+    } else if (result.supportsFlight) {
+        result.bodyPlan = PLANET_BODY_FLOATING;
+        result.niche = PLANET_NICHE_FILTER_FEEDER;
+    } else if (result.biomass == PLANET_BIOMASS_MICROBIAL) {
+        result.bodyPlan = PLANET_BODY_SERPENTINE;
+        result.niche = PLANET_NICHE_MICROBIAL;
+    } else if (gravity < 0.70f) {
+        result.bodyPlan = PLANET_BODY_BIPED;
+        result.niche = PLANET_NICHE_GRAZER;
+    } else if (gravity > 1.20f) {
+        result.bodyPlan = PLANET_BODY_HEXAPOD;
+        result.niche = PLANET_NICHE_GRAZER;
+    } else {
+        switch (seedHash % 3u) {
+        case 0: result.bodyPlan = PLANET_BODY_QUADRUPED; break;
+        case 1: result.bodyPlan = PLANET_BODY_BIPED; break;
+        default: result.bodyPlan = PLANET_BODY_SERPENTINE; break;
+        }
+        result.niche = result.biomass == PLANET_BIOMASS_FUNGAL ?
+                       PLANET_NICHE_DECOMPOSER : PLANET_NICHE_GRAZER;
+    }
+    result.limbCount = result.bodyPlan == PLANET_BODY_HEXAPOD ? 6 :
+                       result.bodyPlan == PLANET_BODY_BIPED ? 2 :
+                       result.bodyPlan == PLANET_BODY_QUADRUPED ? 4 : 0;
+    float speedScale = 0.86f / sqrtf(gravity);
+    if (result.bodyPlan == PLANET_BODY_FLOATING) speedScale *= 0.85f;
+    if (result.bodyPlan == PLANET_BODY_COLONY || result.biomass == PLANET_BIOMASS_CRYSTALLINE) {
+        speedScale *= 0.34f;
+    }
+    result.movementSpeed = EcologyClamp(speedScale * 0.70f);
+    if (result.movementSpeed < 0.18f && result.faunaDensity > 0.0f) result.movementSpeed = 0.18f;
+    result.temperament = EcologyClamp((float)((seedHash >> 17) & 255u) / 255.0f * 0.72f +
+                                      (result.biomass == PLANET_BIOMASS_ANOMALOUS ? 0.22f : 0.0f));
+
+    int primary = EcologyPaletteIndex(result.chemistry, seedHash, false);
+    int accent = EcologyPaletteIndex(result.chemistry, seedHash, true);
+    if (accent == primary) accent = (accent + 37) & 255;
     result.primaryBlock = (BlockType)(BLOCK_COLOR_START + primary);
     result.accentBlock = (BlockType)(BLOCK_COLOR_START + accent);
     return result;
@@ -111,6 +243,55 @@ const char *PlanetEcologyLifeName(void)
     if (density < 0.42f) return "Sparse life";
     if (density < 0.68f) return "Flourishing";
     return "Abundant life";
+}
+
+const char *PlanetEcologyBiomassName(void)
+{
+    switch (PlanetEcologyCurrent().biomass) {
+    case PLANET_BIOMASS_MICROBIAL:    return "Microbial";
+    case PLANET_BIOMASS_FUNGAL:       return "Fungal";
+    case PLANET_BIOMASS_CRYSTALLINE:  return "Crystalline";
+    case PLANET_BIOMASS_LUSH:         return "Lush";
+    case PLANET_BIOMASS_ANOMALOUS:    return "Anomalous";
+    case PLANET_BIOMASS_BARREN:
+    default:                          return "Barren";
+    }
+}
+
+const char *PlanetEcologyChemistryName(void)
+{
+    switch (PlanetEcologyCurrent().chemistry) {
+    case PLANET_CHEMISTRY_SILICON: return "Silicon";
+    case PLANET_CHEMISTRY_SULFUR:  return "Sulfur";
+    case PLANET_CHEMISTRY_CARBON:
+    default:                        return "Carbon";
+    }
+}
+
+const char *PlanetEcologyBodyPlanName(void)
+{
+    switch (PlanetEcologyCurrent().bodyPlan) {
+    case PLANET_BODY_BIPED:      return "Biped";
+    case PLANET_BODY_HEXAPOD:    return "Hexapod";
+    case PLANET_BODY_SERPENTINE: return "Serpentine";
+    case PLANET_BODY_FLOATING:   return "Floating";
+    case PLANET_BODY_COLONY:     return "Colony";
+    case PLANET_BODY_QUADRUPED:
+    default:                     return "Quadruped";
+    }
+}
+
+const char *PlanetEcologyNicheName(void)
+{
+    switch (PlanetEcologyCurrent().niche) {
+    case PLANET_NICHE_MICROBIAL:             return "Microbial mat";
+    case PLANET_NICHE_DECOMPOSER:            return "Decomposer";
+    case PLANET_NICHE_CRYSTAL_GRAZER:       return "Crystal rock-eater";
+    case PLANET_NICHE_FILTER_FEEDER:        return "Floating grazer";
+    case PLANET_NICHE_BIOLUMINESCENT_COLONY: return "Bioluminescent colony";
+    case PLANET_NICHE_GRAZER:
+    default:                                 return "Grazer";
+    }
 }
 
 static void EcologySet(Chunk *chunk, int x, int y, int z, BlockType type)

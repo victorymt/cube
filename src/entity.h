@@ -2,6 +2,7 @@
 #define VOXELCRAFT_ENTITY_H
 
 #include "types.h"
+#include "ecology.h"
 
 typedef enum EntityType {
     ENTITY_COW = 0,
@@ -26,6 +27,20 @@ typedef struct Entity {
     float moveTimer;
     float thinkTimer;
     float burnTimer;
+    PlanetBodyPlan bodyPlan;
+    PlanetChemistry chemistry;
+    PlanetEcologicalNiche niche;
+    float organismScale;
+    float bodyArmor;
+    float movementSpeed;
+    float temperament;
+    int limbCount;
+    bool airborne;
+    bool colony;
+    float hoverHeight;
+    float phase;
+    BlockType primaryBlock;
+    BlockType accentBlock;
 } Entity;
 
 void EntitiesInit(void);

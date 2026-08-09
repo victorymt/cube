@@ -54,8 +54,10 @@ typedef struct PlanetProfile {
     float oceanCoverage;
     float terrainRoughness;
     float rotationRate;
+    float tidalLockFactor;
     bool hasSolidSurface;
     bool hasRings;
+    bool tidallyLocked;
 } PlanetProfile;
 
 typedef struct SolarPlanetDef {
@@ -168,6 +170,7 @@ uint32_t PlanetWorldSeed(void);
 SolarBodyStyle PlanetWorldStyle(void);
 const PlanetProfile *PlanetWorldProfile(void);
 float PlanetWorldGravityScale(void);
+bool PlanetWorldIsDarkSide(void);
 int PlanetWorldOriginX(void);
 int PlanetWorldOriginZ(void);
 const char *PlanetWorldName(void);

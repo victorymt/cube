@@ -312,7 +312,7 @@ void PlanetPoiDrawScanner(const Camera3D *camera, Vector3 playerPosition)
     Color color = PlanetPoiColor(poi.type);
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
-    Rectangle panel = { screenWidth * 0.5f - 182.0f, 86.0f, 364.0f, 64.0f };
+    Rectangle panel = { screenWidth * 0.5f - 182.0f, 86.0f, 364.0f, 86.0f };
     DrawRectangleRounded(panel, 0.06f, 6, Fade(BLACK, 0.68f));
     DrawRectangleRoundedLinesEx(panel, 0.06f, 6, 1.5f, Fade(color, 0.84f));
     DrawCircle((int)panel.x + 20, (int)panel.y + 20, 6.0f, color);
@@ -320,6 +320,9 @@ void PlanetPoiDrawScanner(const Camera3D *camera, Vector3 playerPosition)
              (int)panel.x + 36, (int)panel.y + 10, 18, RAYWHITE);
     DrawText(TextFormat("BIOSPHERE  %s", PlanetEcologyLifeName()),
              (int)panel.x + 36, (int)panel.y + 36, 15, Fade(RAYWHITE, 0.82f));
+    DrawText(TextFormat("%s  |  %s  |  %s", PlanetEcologyBiomassName(),
+                       PlanetEcologyChemistryName(), PlanetEcologyBodyPlanName()),
+             (int)panel.x + 36, (int)panel.y + 57, 13, Fade(RAYWHITE, 0.68f));
 
     Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
     Vector3 toTarget = Vector3Subtract(target, camera->position);

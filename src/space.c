@@ -223,6 +223,29 @@ float PlanetWorldGravityScale(void)
     return planetWorld.active ? planetWorld.profile.surfaceGravity : 1.0f;
 }
 
+bool PlanetWorldIsDarkSide(void)
+{
+    if (!planetWorld.active || !planetWorld.profile.tidallyLocked) return false;
+
+    int systemAx = SpaceAnchorForLocalCoordinate(planetWorld.bodyCenter.x, spaceOriginX);
+    int systemAz = SpaceAnchorForLocalCoordinate(planetWorld.bodyCenter.z, spaceOriginZ);
+    int orbitIndex = planetWorld.planetIndex - 1;
+    SolarSystemDef system;
+    if (!StarSystemAt(systemAx, systemAz, &system) ||
+        orbitIndex < 0 || orbitIndex >= system.planetCount) return false;
+
+    Vector3 surfaceNormal = Vector3Subtract(planetWorld.returnPosition,
+                                             planetWorld.bodyCenter);
+    Vector3 currentCenter = SolarSystemPlanetCenter(&system, orbitIndex);
+    Vector3 toStar = Vector3Subtract(system.center, currentCenter);
+    if (Vector3LengthSqr(surfaceNormal) < 0.001f || Vector3LengthSqr(toStar) < 0.001f) {
+        return false;
+    }
+    surfaceNormal = Vector3Normalize(surfaceNormal);
+    toStar = Vector3Normalize(toStar);
+    return Vector3DotProduct(surfaceNormal, toStar) < -0.08f;
+}
+
 int PlanetWorldOriginX(void)
 {
     return planetWorld.originX;
@@ -373,6 +396,11 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     profile.bodyRadius = (float)def->size;
     profile.equilibriumTempK = temperature;
     profile.hasSolidSurface = !gasGiant;
+    float tidalProximity = Clamp(1.40f - orbitAU, 0.0f, 1.0f);
+    profile.tidalLockFactor = Clamp(tidalProximity *
+                                    (0.68f + PlanetProfileHashUnit(seed, 13u) * 0.32f),
+                                    0.0f, 1.0f);
+    profile.tidallyLocked = profile.hasSolidSurface && profile.tidalLockFactor > 0.58f;
     if (gasGiant) {
         float gasRadiusEarth = 2.8f + sizeUnit * 1.8f;
         profile.massEarth = 12.0f + composition * 32.0f;
@@ -385,6 +413,8 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
         profile.terrainRoughness = 0.0f;
         profile.rotationRate = 5.0f + PlanetProfileHashUnit(seed, 6u) * 3.0f;
         profile.hasRings = forcedGasGiant || PlanetProfileHashUnit(seed, 7u) > 0.34f;
+        profile.tidalLockFactor = 0.0f;
+        profile.tidallyLocked = false;
         return profile;
     }
 
@@ -419,6 +449,10 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     profile.hasRings = def->size >= 46 && PlanetProfileHashUnit(seed, 12u) > 0.92f;
     profile.atmosphereType = ClassifyAtmosphere(profile.style, atmosphere,
                                                 temperature, composition);
+    if (profile.tidallyLocked) {
+        float orbitPeriod = SolarSystemPlanetOrbitPeriod(sys, index);
+        if (orbitPeriod > 0.0f) profile.rotationRate = (2.0f * PI) / orbitPeriod;
+    }
     return profile;
 }
 
@@ -451,6 +485,9 @@ static PlanetProfile LegacyPlanetProfile(uint32_t seed, SolarBodyStyle style,
     // A loaded legacy save may already be standing on a former gas-style world.
     profile.hasSolidSurface = true;
     profile.hasRings = false;
+    profile.tidalLockFactor = style == SOLAR_STYLE_GAS ? 0.0f :
+                              PlanetProfileHashUnit(seed, 13u) * 0.35f;
+    profile.tidallyLocked = profile.tidalLockFactor > 0.54f;
     profile.atmosphereType = ClassifyAtmosphere(style, profile.atmosphereDensity,
                                                 profile.equilibriumTempK, composition);
     return profile;
@@ -1252,9 +1289,10 @@ bool PlanetWorldTryEnter(Player *player)
     UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
     DrainChunkGen();
     SetBlock(shipX, shipGround + 1, shipZ, BLOCK_SPACESHIP);
-    SetImportMessage(TextFormat("Landed on %s - %s. Biosphere: %s.", planetWorld.name,
-                                PlanetBiomeName(PlanetBiomeAt(playerX, playerZ)),
-                                PlanetEcologyLifeName()));
+    SetImportMessage(TextFormat("Landed on %s - %s. Biosphere: %s / %s / %s.",
+                                planetWorld.name, PlanetBiomeName(PlanetBiomeAt(playerX, playerZ)),
+                                PlanetEcologyBiomassName(), PlanetEcologyChemistryName(),
+                                PlanetEcologyBodyPlanName()));
     return true;
 }
 
