@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_H
 #define VOXELCRAFT_SPACE_H
 
+#include "stellar.h"
 #include "types.h"
 
 #include <stdio.h>
@@ -15,14 +16,6 @@
 #define STAR_NAVIGATION_RANGE 8000.0f
 #define STAR_NAVIGATION_MAX_SYSTEMS 128
 #define STAR_SYSTEM_QUERY_MAX 384
-
-typedef enum SpectrumType {
-    SPECTRUM_RED_DWARF = 0,
-    SPECTRUM_ORANGE,
-    SPECTRUM_YELLOW,
-    SPECTRUM_BLUE_WHITE,
-    SPECTRUM_RED_GIANT
-} SpectrumType;
 
 typedef enum SolarBodyStyle {
     SOLAR_STYLE_SUN = 0,
@@ -73,6 +66,7 @@ typedef struct PlanetProfile {
 
 typedef struct SolarLightSource {
     Vector3 center;
+    StellarProfile stellar;
     SpectrumType spectrum;
     float radius;
     float luminosity;
@@ -110,6 +104,7 @@ typedef struct SolarSystemDef {
     int anchorZ;
     Vector3 center;
     char name[32];
+    StellarProfile star;
     SpectrumType spectrum;
     int starRadius;
     int planetCount;
@@ -127,6 +122,7 @@ typedef struct SpaceBodyInfo {
     int systemAnchorZ;
     uint32_t worldSeed;
     char name[32];
+    StellarProfile hostStar;
     SpectrumType spectrum;
     SolarBodyStyle style;
     PlanetProfile profile;

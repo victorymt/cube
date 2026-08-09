@@ -2289,8 +2289,16 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
     const char *typeName = body->isStar ? SpectrumName(body->spectrum) : SolarStyleName(body->style);
     const char *line1;
     const char *line2 = NULL;
+    const char *line3 = NULL;
     if (body->isStar) {
         line1 = TextFormat("%s Prime - %s - %.0f blocks", body->name, typeName, body->dist);
+        line2 = TextFormat("M %.2f Msol  L %.2g Lsol  T %.0f K",
+                           body->hostStar.massSolar,
+                           body->hostStar.luminositySolar,
+                           body->hostStar.temperatureK);
+        line3 = TextFormat("Age %.2g Gyr  Luminous life %.2g Gyr",
+                           body->hostStar.ageGyr,
+                           body->hostStar.luminousLifetimeGyr);
     } else {
         float surfaceGap = fabsf(body->dist - SolarBodyTerrainRadius(body->radius));
         line1 = TextFormat("%s %c - %s - %.0f K - %.2f g", body->name,
@@ -2307,19 +2315,29 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
         }
     }
 
-    int fs = 18;
-    int width = MeasureText(line1, fs);
-    if (line2) width = fmaxf((float)width, (float)MeasureText(line2, 16));
     int sw = GetScreenWidth();
+    int maxWidth = (int)fmaxf((float)sw - 64.0f, 120.0f);
+    int fs = 18;
+    int detailFs = 16;
+    while (fs > 13 && MeasureText(line1, fs) > maxWidth) fs--;
+    while (detailFs > 12 &&
+           ((line2 && MeasureText(line2, detailFs) > maxWidth) ||
+            (line3 && MeasureText(line3, detailFs) > maxWidth))) {
+        detailFs--;
+    }
+    int width = MeasureText(line1, fs);
+    if (line2) width = fmaxf((float)width, (float)MeasureText(line2, detailFs));
+    if (line3) width = fmaxf((float)width, (float)MeasureText(line3, detailFs));
     int x = sw / 2 - width / 2;
     int y = 64;
-    float height = line2 ? 62.0f : 40.0f;
+    float height = line3 ? 84.0f : (line2 ? 62.0f : 40.0f);
     DrawRectangleRounded((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, height },
                          0.10f, 6, Fade(BLACK, 0.55f));
     DrawRectangleRoundedLinesEx((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, height },
                                 0.10f, 6, 1.5f, Fade(WHITE, 0.30f));
     DrawText(line1, x, y, fs, WHITE);
-    if (line2) DrawText(line2, x, y + 24, 16, Fade(WHITE, 0.82f));
+    if (line2) DrawText(line2, x, y + 24, detailFs, Fade(WHITE, 0.82f));
+    if (line3) DrawText(line3, x, y + 46, detailFs, Fade(WHITE, 0.72f));
 }
 
 static void DrawUiText(const char *text, int x, int y, int fontSize, Color color)

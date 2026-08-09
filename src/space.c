@@ -305,14 +305,39 @@ static void BuildStarName(int ax, int az, char *out, size_t outSize)
     snprintf(out, outSize, "%s%s%s", starNamePart1[p1], starNamePart2[p2], starNamePart3[p3]);
 }
 
+static int StellarVisualRadius(const StellarProfile *star)
+{
+    if (!star || star->radiusSolar <= 0.0f) return 9;
+    float radius = 13.0f + 2.5f * log2f(star->radiusSolar);
+    float maximum = star->stage == STELLAR_STAGE_RED_GIANT ? 28.0f : 21.0f;
+    return (int)roundf(Clamp(radius, 7.0f, maximum));
+}
+
+static void ApplyPrimaryStar(SolarSystemDef *system, StellarProfile star)
+{
+    system->star = star;
+    system->spectrum = star.spectrum;
+    system->starRadius = StellarVisualRadius(&star);
+}
+
+static float SolarSystemStarMass(const SolarSystemDef *system)
+{
+    return system && system->star.massSolar > 0.0f ? system->star.massSolar : 1.0f;
+}
+
+static float SolarSystemStarLuminosity(const SolarSystemDef *system)
+{
+    return system && system->star.luminositySolar > 0.0f ?
+           system->star.luminositySolar : 1.0f;
+}
+
 static void BuildSolSystem(SolarSystemDef *out)
 {
     out->exists = true;
     out->anchorX = 0;
     out->anchorZ = 0;
     snprintf(out->name, sizeof(out->name), "Sol");
-    out->spectrum = SPECTRUM_YELLOW;
-    out->starRadius = 13;
+    ApplyPrimaryStar(out, StellarSolarProfile());
     out->center = (Vector3){ 0.0f, STAR_SYSTEM_MID_Y, 0.0f };
     out->planetCount = 6;
     static const SolarPlanetDef solPlanets[6] = {
@@ -324,30 +349,6 @@ static void BuildSolSystem(SolarSystemDef *out)
         { 650, 40, 0, SOLAR_STYLE_LAVA }
     };
     for (int i = 0; i < 6; i++) out->planets[i] = solPlanets[i];
-}
-
-static float SolarSpectrumMass(SpectrumType spectrum)
-{
-    switch (spectrum) {
-    case SPECTRUM_RED_DWARF: return 0.45f;
-    case SPECTRUM_ORANGE:    return 0.75f;
-    case SPECTRUM_YELLOW:    return 1.00f;
-    case SPECTRUM_BLUE_WHITE:return 2.00f;
-    case SPECTRUM_RED_GIANT: return 3.50f;
-    default:                 return 1.00f;
-    }
-}
-
-static float SolarSpectrumLuminosity(SpectrumType spectrum)
-{
-    switch (spectrum) {
-    case SPECTRUM_RED_DWARF: return 0.06f;
-    case SPECTRUM_ORANGE:    return 0.45f;
-    case SPECTRUM_YELLOW:    return 1.00f;
-    case SPECTRUM_BLUE_WHITE:return 8.00f;
-    case SPECTRUM_RED_GIANT: return 35.0f;
-    default:                 return 1.00f;
-    }
 }
 
 static uint32_t SolarLightHash(const SolarSystemDef *sys)
@@ -473,7 +474,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
                       orbitDistanceSqr;
     }
     if (irradiance <= 0.0001f) {
-        irradiance = SolarSpectrumLuminosity(sys->spectrum) / (orbitAU * orbitAU);
+        irradiance = SolarSystemStarLuminosity(sys) / (orbitAU * orbitAU);
     }
     // Use the mean orbital radius here so binary motion does not churn terrain or
     // cloud caches; the live position is still used by frame-by-frame lighting.
@@ -653,8 +654,7 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
     unsigned int h = WorldHash2D(ax * 31 + 7, az * 17 + 5);
     out->exists = true;
     BuildStarName(ax, az, out->name, sizeof(out->name));
-    out->spectrum = (SpectrumType)(h % 5u);
-    out->starRadius = (out->spectrum == SPECTRUM_RED_GIANT) ? 10 + (int)(h % 6u) : 9 + (int)(h % 6u);
+    ApplyPrimaryStar(out, StellarGenerate(h ^ 0xd1b54a35u));
     int verticalOffset = (int)((h >> 14) % 93u) - 46;
     out->center = (Vector3){
         (float)SpaceGlobalToLocalX(SpaceSystemGlobalCoordinate(ax)),
@@ -733,7 +733,7 @@ Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
     // Mean motion follows Kepler's third law. Eccentricity and periapsis are
     // derived from stable system hashes, so a body keeps the same orbit across
     // visits without requiring a saved simulation state.
-    float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSpectrumMass(sys->spectrum)) /
+    float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSystemStarMass(sys)) /
                          (orbitRatio * sqrtf(orbitRatio));
     float meanAnomaly = phase + (float)(simulationTime * (double)angularSpeed);
     float eccentricity = 0.015f + (float)((orbitHash >> 17) % 180u) / 1000.0f;
@@ -801,9 +801,26 @@ float SolarSystemPlanetOrbitPeriod(const SolarSystemDef *sys, int index)
 
     const SolarPlanetDef *def = &sys->planets[index];
     float orbitRatio = fmaxf((float)def->orbit / 180.0f, 0.1f);
-    float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSpectrumMass(sys->spectrum)) /
+    float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSystemStarMass(sys)) /
                          (orbitRatio * sqrtf(orbitRatio));
     return angularSpeed > 0.0001f ? (2.0f * PI) / angularSpeed : 0.0f;
+}
+
+static StellarProfile SolarCompanionProfile(const SolarSystemDef *system,
+                                            uint32_t seed, float minimumRatio,
+                                            float maximumRatio)
+{
+    float unit = (float)(seed & 0xffffu) / 65535.0f;
+    float ratio = Lerp(minimumRatio, maximumRatio, unit);
+    float primaryInitialMass = fmaxf(system->star.initialMassSolar, 0.08f);
+    float maximumMass = fmaxf(primaryInitialMass * 0.96f, 0.08f);
+    float companionMass = Clamp(primaryInitialMass * ratio, 0.08f, maximumMass);
+    StellarProfile companion = { 0 };
+    if (!StellarProfileAtAge(companionMass, system->star.ageGyr, seed,
+                             &companion)) {
+        StellarProfileAtAge(0.08f, system->star.ageGyr, seed, &companion);
+    }
+    return companion;
 }
 
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
@@ -812,15 +829,23 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
     if (!sys || !out || maxCount <= 0) return 0;
 
     uint32_t hash = SolarLightHash(sys);
-    unsigned int roll = hash % 100u;
-    int count = roll < 9u ? 3 : (roll < 38u ? 2 : 1);
+    float primaryMass = SolarSystemStarMass(sys);
+    unsigned int multipleRoll = hash % 1000u;
+    unsigned int binaryThreshold = primaryMass < 0.60f ? 250u :
+                                   (primaryMass < 1.40f ? 440u : 680u);
+    unsigned int tripleThreshold = primaryMass < 0.60f ? 30u :
+                                   (primaryMass < 1.40f ? 80u : 160u);
+    int count = multipleRoll < tripleThreshold ? 3 :
+                (multipleRoll < binaryThreshold ? 2 : 1);
+    if (sys->anchorX == 0 && sys->anchorZ == 0) count = 1;
     if (count > maxCount) count = maxCount;
 
     out[0] = (SolarLightSource){
         .center = sys->center,
+        .stellar = sys->star,
         .spectrum = sys->spectrum,
         .radius = (float)sys->starRadius,
-        .luminosity = SolarSpectrumLuminosity(sys->spectrum),
+        .luminosity = SolarSystemStarLuminosity(sys),
         .primary = true
     };
     if (count == 1) return count;
@@ -833,14 +858,14 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
         sinf(binaryPhase * 0.71f) * separation * 0.14f,
         sinf(binaryPhase) * separation
     };
-    SpectrumType companionSpectrum = (SpectrumType)((sys->spectrum + 1u +
-                                                      ((hash >> 16) % 4u)) % 5u);
+    StellarProfile companion = SolarCompanionProfile(
+        sys, hash ^ 0x94d049bbu, 0.18f, 0.92f);
     out[1] = (SolarLightSource){
         .center = Vector3Add(sys->center, offset),
-        .spectrum = companionSpectrum,
-        .radius = 7.0f + (float)((hash >> 22) % 7u),
-        .luminosity = SolarSpectrumLuminosity(companionSpectrum) *
-                      (0.42f + (float)((hash >> 27) & 7u) * 0.06f),
+        .stellar = companion,
+        .spectrum = companion.spectrum,
+        .radius = (float)StellarVisualRadius(&companion),
+        .luminosity = companion.luminositySolar,
         .primary = false
     };
     if (count == 2) return count;
@@ -852,13 +877,14 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
         sinf(tertiaryPhase * 0.63f) * tertiarySeparation * 0.11f,
         sinf(tertiaryPhase) * tertiarySeparation
     };
-    SpectrumType tertiarySpectrum = (SpectrumType)((companionSpectrum +
-                                                     1u + ((hash >> 5) % 3u)) % 5u);
+    StellarProfile tertiary = SolarCompanionProfile(
+        sys, hash ^ 0x369dea0fu, 0.10f, 0.62f);
     out[2] = (SolarLightSource){
         .center = Vector3Add(sys->center, tertiaryOffset),
-        .spectrum = tertiarySpectrum,
-        .radius = 5.0f + (float)((hash >> 24) % 6u),
-        .luminosity = SolarSpectrumLuminosity(tertiarySpectrum) * 0.24f,
+        .stellar = tertiary,
+        .spectrum = tertiary.spectrum,
+        .radius = (float)StellarVisualRadius(&tertiary),
+        .luminosity = tertiary.luminositySolar,
         .primary = false
     };
     return count;
@@ -1378,6 +1404,7 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .index = 0,
                     .systemAnchorX = ax,
                     .systemAnchorZ = az,
+                    .hostStar = sys.star,
                     .spectrum = sys.spectrum
                 };
                 snprintf(out[count].name, sizeof(out[count].name), "%s", sys.name);
@@ -1400,6 +1427,7 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .systemAnchorX = ax,
                     .systemAnchorZ = az,
                     .worldSeed = profile.seed,
+                    .hostStar = sys.star,
                     .spectrum = sys.spectrum,
                     .style = profile.style,
                     .profile = profile
@@ -1485,6 +1513,7 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
         .index = 0,
         .systemAnchorX = system->anchorX,
         .systemAnchorZ = system->anchorZ,
+        .hostStar = system->star,
         .spectrum = system->spectrum,
         .style = SOLAR_STYLE_SUN
     };
@@ -1536,12 +1565,12 @@ typedef struct SpaceGravityCandidate {
     char name[40];
 } SpaceGravityCandidate;
 
-static float SpaceStarGravitationalParameter(SpectrumType spectrum)
+static float SpaceStarGravitationalParameter(float massSolar)
 {
     const float referenceOrbit = 180.0f;
     return SOLAR_ORBIT_BASE_SPEED * SOLAR_ORBIT_BASE_SPEED *
            referenceOrbit * referenceOrbit * referenceOrbit *
-           SolarSpectrumMass(spectrum);
+           fmaxf(massSolar, 0.08f);
 }
 
 static void AddSpaceGravityCandidate(SpaceGravityCandidate *candidates, int *count,
@@ -1593,7 +1622,7 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
                     .center = bodies[i].center,
                     .radius = bodies[i].radius,
                     .gravitationalParameter = SpaceStarGravitationalParameter(
-                        bodies[i].spectrum),
+                        bodies[i].hostStar.massSolar),
                     .sphereOfInfluence = SPACE_STAR_SOI_RADIUS,
                     .hierarchy = 0
                 },
@@ -1620,7 +1649,7 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
         float maximumSoi = fmaxf(minimumSoi,
                                  fminf(orbitRadius * 0.36f,
                                        SPACE_MAX_PLANET_SOI));
-        float parentMass = SolarSpectrumMass(bodies[i].spectrum) *
+        float parentMass = fmaxf(bodies[i].hostStar.massSolar, 0.08f) *
                            SPACE_COMPRESSED_STAR_MASS;
         float soi = SpacePhysicsSphereOfInfluence(
             orbitRadius, bodies[i].profile.massEarth, parentMass,
