@@ -6,6 +6,7 @@
 #include "terrain.h"
 #include "particles.h"
 #include "space_physics.h"
+#include "space_satellite.h"
 #include "space_units.h"
 #include "world.h"
 
@@ -77,6 +78,8 @@ static double solarSimulationTime = 0.0;
 // this nearby local frame, which is periodically shifted during spaceflight.
 static int spaceOriginX = 0;
 static int spaceOriginZ = 0;
+
+static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection);
 
 #define SPACE_REBASE_THRESHOLD (STAR_SYSTEM_SPACING * 12)
 
@@ -1012,6 +1015,82 @@ static Vector3 PlanetRotateY(Vector3 direction, float angle)
     };
 }
 
+static SpaceSatelliteVector3 SatelliteVectorFromGame(Vector3 gameVector)
+{
+    double scale = SPACE_UNITS_KILOMETERS_PER_GAME_DISTANCE;
+    return (SpaceSatelliteVector3){
+        (double)gameVector.x * scale,
+        (double)gameVector.y * scale,
+        (double)gameVector.z * scale
+    };
+}
+
+static SpaceSatelliteVector3 SatelliteVectorFromDirection(Vector3 direction,
+                                                           double lengthKm)
+{
+    return (SpaceSatelliteVector3){
+        (double)direction.x * lengthKm,
+        (double)direction.y * lengthKm,
+        (double)direction.z * lengthKm
+    };
+}
+
+static Vector3 SatelliteVectorToRaylib(SpaceSatelliteVector3 value)
+{
+    return (Vector3){ (float)value.x, (float)value.y, (float)value.z };
+}
+
+static SpaceSatelliteVector3 SatelliteVectorSubtract(
+    SpaceSatelliteVector3 a, SpaceSatelliteVector3 b)
+{
+    return (SpaceSatelliteVector3){ a.x - b.x, a.y - b.y, a.z - b.z };
+}
+
+static double SatelliteVectorLength(SpaceSatelliteVector3 value)
+{
+    return sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
+}
+
+static double SatelliteVectorDot(SpaceSatelliteVector3 a,
+                                 SpaceSatelliteVector3 b)
+{
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+static SpaceSatelliteVector3 SatelliteVectorNormalize(
+    SpaceSatelliteVector3 value)
+{
+    double length = SatelliteVectorLength(value);
+    if (!(length > 0.0)) return (SpaceSatelliteVector3){ 0 };
+    return (SpaceSatelliteVector3){ value.x / length, value.y / length,
+                                    value.z / length };
+}
+
+bool SolarPlanetSatelliteOrbit(const SolarSystemDef *system, int planetIndex,
+                               const PlanetProfile *profile,
+                               SpaceSatelliteOrbit *out)
+{
+    if (!system || !profile || !out || planetIndex < 0 ||
+        planetIndex >= system->planetCount) {
+        return false;
+    }
+
+    double earthMasses = SpaceUnitsKilogramsToGameMass(profile->massKg);
+    double occurrence = profile->hasSolidSurface ?
+                        0.18 + Clamp((float)((earthMasses - 0.45) / 2.5),
+                                     0.0f, 1.0f) * 0.10 :
+                        0.82;
+    if (profile->tidallyLocked) occurrence *= 0.22;
+    bool forceMoon = system->anchorX == 0 && system->anchorZ == 0 &&
+                     planetIndex == 2;
+    return SpaceSatelliteGenerate(
+               profile->seed ^ 0xb5297a4du, profile->massKg,
+               profile->physicalRadiusKm,
+               system->planets[planetIndex].semiMajorAxisKm,
+               system->star.massKg, occurrence, forceMoon, out) &&
+           out->exists;
+}
+
 static float PlanetRingShadowForPoint(Vector3 surfacePosition, Vector3 sunDirection)
 {
     if (!planetWorld.profile.hasRings) return 0.0f;
@@ -1056,16 +1135,49 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
     Vector3 planetCenter = SolarSystemPlanetCenter(&system, orbitIndex);
     float spinPhase = (float)(planetWorld.seed & 0xffffu) / 65535.0f * 2.0f * PI +
                       (float)solarSimulationTime * planetWorld.profile.rotationRate * DEG2RAD;
+    Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
+    Vector3 inertialSurfaceNormal = PlanetWorldSpaceDirection(
+        PlanetRotateY(surfaceNormal, spinPhase));
+    SpaceSatelliteVector3 observerPositionKm = SatelliteVectorFromDirection(
+        Vector3Normalize(inertialSurfaceNormal),
+        planetWorld.profile.physicalRadiusKm);
+
+    SpaceSatelliteOrbit satellite = { 0 };
+    bool hasMoon = SolarPlanetSatelliteOrbit(&system, orbitIndex,
+                                             &planetWorld.profile, &satellite);
+    SpaceSatelliteVector3 satellitePositionKm = { 0 };
+    SpaceSatelliteVector3 observerToSatelliteKm = { 0 };
+    if (hasMoon) {
+        satellitePositionKm = SpaceSatellitePositionAtSeconds(
+            &satellite, planetWorld.profile.massKg,
+            SpaceUnitsGameTimeToSeconds(solarSimulationTime));
+        observerToSatelliteKm = SatelliteVectorSubtract(
+            satellitePositionKm, observerPositionKm);
+        Vector3 moonInertialDirection = Vector3Normalize(
+            SatelliteVectorToRaylib(observerToSatelliteKm));
+        out->moonDirection = PlanetRotateY(
+            Vector3Normalize(PlanetWorldSkyDirection(moonInertialDirection)),
+            -spinPhase);
+        double moonDistanceKm = SatelliteVectorLength(observerToSatelliteKm);
+        if (moonDistanceKm > satellite.radiusKm) {
+            out->moonAngularRadius = (float)asin(Clamp(
+                (float)(satellite.radiusKm / moonDistanceKm), 0.0f, 1.0f));
+        }
+        out->hasMoon = true;
+    }
+
     float totalWeight = 0.0f;
     Vector3 weightedDirection = Vector3Zero();
     float weightedR = 0.0f;
     float weightedG = 0.0f;
     float weightedB = 0.0f;
+    SpaceSatelliteVector3 sourcePositionsKm[MAX_SOLAR_LIGHTS] = { 0 };
 
     for (int i = 0; i < sourceCount; i++) {
         Vector3 toSource = Vector3Subtract(sources[i].center, planetCenter);
         float distance = Vector3Length(toSource);
         if (distance < 0.001f) continue;
+        sourcePositionsKm[i] = SatelliteVectorFromGame(toSource);
 
         // Convert the inertial star direction into the rotating planet frame.
         // The inverse rotation keeps a tidally locked face pointed at its star.
@@ -1090,15 +1202,30 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
                 break;
             }
         }
+        float sourceVisibility = 1.0f;
         if (eclipsed) {
             weight *= 0.12f;
+            sourceVisibility = 0.12f;
             out->specialEclipse = true;
+        }
+        if (hasMoon) {
+            double occultation = SpaceSatelliteSolarOccultationFraction(
+                observerPositionKm, satellitePositionKm, satellite.radiusKm,
+                sourcePositionsKm[i], sources[i].stellar.radiusKm);
+            out->sourceOccultations[i] = (float)occultation;
+            if (occultation > 0.001) {
+                weight *= fmaxf(0.01f, 1.0f - (float)occultation);
+                sourceVisibility *= fmaxf(0.06f,
+                                          1.0f - (float)occultation * 0.94f);
+                out->eclipse = fmaxf(out->eclipse, (float)occultation);
+                out->specialEclipse = true;
+            }
         }
         Color color = SpectrumColor(sources[i].spectrum);
         out->sourceDirections[i] = direction;
         out->sourceColors[i] = color;
         out->sourceIntensities[i] = weight;
-        out->sourceVisibility[i] = eclipsed ? 0.12f : 1.0f;
+        out->sourceVisibility[i] = sourceVisibility;
         totalWeight += weight;
         weightedDirection = Vector3Add(weightedDirection, Vector3Scale(direction, weight));
         weightedR += (float)color.r * weight;
@@ -1108,40 +1235,48 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
 
     if (Vector3LengthSqr(weightedDirection) < 0.000001f || totalWeight <= 0.0f) return false;
     Vector3 sunDirection = Vector3Normalize(weightedDirection);
-    Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
     float incidence = Vector3DotProduct(surfaceNormal, sunDirection);
     float incidentIrradiance = fmaxf(incidence, 0.0f) * totalWeight;
     float daylight = 1.0f - expf(-incidentIrradiance * 1.45f);
 
-    float moonAngle = (float)(planetWorld.seed % 6283u) / 1000.0f +
-                      (float)solarSimulationTime * 0.018f;
-    Vector3 moonReference = Vector3CrossProduct(sunDirection, (Vector3){ 0.0f, 1.0f, 0.0f });
-    if (Vector3LengthSqr(moonReference) < 0.001f) {
-        moonReference = Vector3CrossProduct(sunDirection, (Vector3){ 1.0f, 0.0f, 0.0f });
-    }
-    moonReference = Vector3Normalize(moonReference);
-    Vector3 moonDirection = Vector3Normalize(Vector3Add(
-        Vector3Scale(sunDirection, cosf(moonAngle)),
-        Vector3Scale(moonReference, sinf(moonAngle))));
-    float moonIllumination = Clamp((1.0f - Vector3DotProduct(moonDirection, sunDirection)) * 0.5f,
-                                   0.0f, 1.0f);
-    float moonAlignment = Vector3DotProduct(moonDirection, sunDirection);
-    if (moonAlignment > 0.994f && incidence > 0.0f) {
-        out->eclipse = Clamp((moonAlignment - 0.994f) / 0.006f, 0.0f, 1.0f);
-        out->specialEclipse = true;
+    if (hasMoon) {
+        SpaceSatelliteVector3 moonToObserver = SatelliteVectorNormalize(
+            SatelliteVectorSubtract(observerPositionKm, satellitePositionKm));
+        double illuminatedWeight = 0.0;
+        double moonLightWeight = 0.0;
+        for (int i = 0; i < sourceCount; i++) {
+            SpaceSatelliteVector3 moonToSource = SatelliteVectorNormalize(
+                SatelliteVectorSubtract(sourcePositionsKm[i],
+                                        satellitePositionKm));
+            double phase = (double)Clamp(
+                (float)((1.0 +
+                         SatelliteVectorDot(moonToSource, moonToObserver)) *
+                        0.5),
+                0.0f, 1.0f);
+            double umbra = SpaceSatellitePlanetUmbraFraction(
+                satellitePositionKm, satellite.radiusKm,
+                planetWorld.profile.physicalRadiusKm, sourcePositionsKm[i],
+                sources[i].stellar.radiusKm);
+            double sourceWeight = SolarLightIrradianceAt(&sources[i],
+                                                         planetCenter);
+            illuminatedWeight += phase * sourceWeight * (1.0 - umbra);
+            moonLightWeight += sourceWeight;
+            out->moonUmbra = fmaxf(out->moonUmbra, (float)umbra);
+        }
+        if (moonLightWeight > 0.0) {
+            out->moonIllumination = Clamp(
+                (float)(illuminatedWeight / moonLightWeight), 0.0f, 1.0f);
+        }
     }
 
     out->sunDirection = sunDirection;
-    out->moonDirection = moonDirection;
     out->daylight = daylight;
     out->sunset = incidence > 0.0f ?
                   powf(1.0f - Clamp(incidence, 0.0f, 1.0f), 2.0f) *
                   Clamp(sqrtf(totalWeight), 0.0f, 1.0f) : 0.0f;
     out->ringShadow = PlanetRingShadowForPoint(surfacePosition, sunDirection);
     out->daylight *= (1.0f - out->ringShadow * 0.72f);
-    out->daylight *= (1.0f - out->eclipse * 0.88f);
     out->daylight = Clamp(out->daylight, 0.0f, 1.0f);
-    out->moonIllumination = moonIllumination;
     out->totalIntensity = totalWeight;
     out->sourceCount = sourceCount;
     out->starColor = (Color){

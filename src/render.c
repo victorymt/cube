@@ -769,9 +769,11 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
                 if (sourceVisibility <= 0.0f) sourceVisibility = 1.0f;
                 Color sourceColor = ColorLerp(BLACK, state.sourceColors[sourceIndex],
                                               sourceVisibility);
-                if (sourceIndex == 0 && state.eclipse > 0.1f) {
+                float sourceOccultation =
+                    state.sourceOccultations[sourceIndex];
+                if (sourceOccultation > 0.1f) {
                     sourceColor = ColorLerp(sourceColor, (Color){ 255, 92, 40, 255 },
-                                            0.34f);
+                                            0.34f * sourceOccultation);
                 }
                 float airMass = Clamp(1.0f / (0.20f + fmaxf(sourceDir.y, 0.0f)),
                                       0.85f, 4.20f);
@@ -796,18 +798,28 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
                 DrawCircle((int)sourceScreen.x, (int)sourceScreen.y,
                            10.0f + sqrtf(contribution) * 6.0f,
                            sourceCore);
-                if (sourceIndex == 0 && state.eclipse > 0.1f) {
+                if (sourceOccultation > 0.1f) {
                     DrawCircle((int)sourceScreen.x, (int)sourceScreen.y, 11.0f,
-                               Fade((Color){ 18, 18, 28, 255 }, 0.74f * state.eclipse));
+                               Fade((Color){ 18, 18, 28, 255 },
+                                    0.74f * sourceOccultation));
                 }
             }
 
-            if (Vector3DotProduct(state.moonDirection, forward) > 0.01f) {
+            if (state.hasMoon &&
+                Vector3DotProduct(state.moonDirection, forward) > 0.01f) {
                 Vector3 moonPos = Vector3Add(camera->position,
                                              Vector3Scale(state.moonDirection, SUN_DISTANCE * 0.96f));
                 Vector2 moonScreen = GetWorldToScreen(moonPos, *camera);
-                DrawMoonPhase(moonScreen, 12.0f, state.moonIllumination,
-                              state.sunDirection, (Color){ 214, 226, 244, 240 });
+                float referenceAngularRadius = 0.25f * DEG2RAD;
+                float moonRadius = Clamp(12.0f * state.moonAngularRadius /
+                                         referenceAngularRadius,
+                                         3.0f, 30.0f);
+                Color moonLight = ColorLerp(
+                    (Color){ 214, 226, 244, 240 },
+                    (Color){ 172, 62, 44, 240 },
+                    Clamp(state.moonUmbra * 0.82f, 0.0f, 0.82f));
+                DrawMoonPhase(moonScreen, moonRadius, state.moonIllumination,
+                              state.sunDirection, moonLight);
             }
             return;
         }

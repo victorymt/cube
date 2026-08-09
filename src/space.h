@@ -2,6 +2,7 @@
 #define VOXELCRAFT_SPACE_H
 
 #include "stellar.h"
+#include "space_satellite.h"
 #include "types.h"
 
 #include <stdio.h>
@@ -82,14 +83,18 @@ typedef struct PlanetLightState {
     Color sourceColors[MAX_SOLAR_LIGHTS];
     float sourceIntensities[MAX_SOLAR_LIGHTS];
     float sourceVisibility[MAX_SOLAR_LIGHTS];
+    float sourceOccultations[MAX_SOLAR_LIGHTS];
     Color starColor;
     float daylight;
     float sunset;
     float ringShadow;
     float eclipse;
     float moonIllumination;
+    float moonAngularRadius;
+    float moonUmbra;
     float totalIntensity;
     int sourceCount;
+    bool hasMoon;
     bool specialEclipse;
 } PlanetLightState;
 
@@ -210,6 +215,9 @@ float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point);
 float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
                               Vector3 point);
 PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index);
+bool SolarPlanetSatelliteOrbit(const SolarSystemDef *sys, int index,
+                               const PlanetProfile *profile,
+                               SpaceSatelliteOrbit *out);
 Vector3 PlanetWorldSpaceReference(void);
 Vector3 PlanetWorldSkyDirection(Vector3 worldDirection);
 bool SurfaceHostSystem(SolarSystemDef *out);

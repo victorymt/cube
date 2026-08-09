@@ -7,5 +7,6 @@ tests/test_world_environment
 tests/test_planet_surface
 tests/test_planet_material
 tests/test_space_physics
+tests/test_space_satellite
 tests/test_space_units
 tests/test_stellar
