@@ -11,6 +11,11 @@
 bool ShipTryEnter(int x, int y, int z, Player *player);
 bool ShipIsDriving(void);
 bool ShipIsCruising(void);
+bool ShipIsWarping(void);
+bool ShipHasWarpTarget(void);
+bool ShipWarpTargetIsSystem(void);
+const char *ShipWarpTargetName(void);
+bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ);
 void ShipReset(void);
 float ShipGetFuel(void);
 bool ShipRefuel(void);

@@ -458,18 +458,101 @@ static float PlanetFractalNoise2D(float x, float z, unsigned int lane)
     return value / total;
 }
 
+static void PlanetSurfaceCoordinates(int x, int z, float *outX, float *outZ)
+{
+    uint32_t seed = PlanetWorldSeed();
+    float offsetX = (float)(seed & 0xffffu) * 0.0017f;
+    float offsetZ = (float)((seed >> 16) & 0xffffu) * 0.0019f;
+    *outX = (float)x + offsetX;
+    *outZ = (float)z + offsetZ;
+}
+
+static int PlanetSeaLevel(SolarBodyStyle style, const PlanetProfile *profile)
+{
+    if (profile->oceanCoverage <= 0.05f) return -1;
+    if (style == SOLAR_STYLE_LAVA) return 11;
+    if (style == SOLAR_STYLE_ICE || style == SOLAR_STYLE_TEMPERATE) return 12;
+    return -1;
+}
+
+PlanetBiome PlanetBiomeAt(int x, int z)
+{
+    if (!PlanetWorldIsActive()) return PLANET_BIOME_PLAINS;
+
+    float fx = 0.0f;
+    float fz = 0.0f;
+    PlanetSurfaceCoordinates(x, z, &fx, &fz);
+    const PlanetProfile *profile = PlanetWorldProfile();
+    float continental = PlanetFractalNoise2D(fx * 0.0032f, fz * 0.0032f, 21u);
+    float regional = PlanetFractalNoise2D(fx * 0.0085f, fz * 0.0085f, 101u);
+    float climate = PlanetFractalNoise2D(fx * 0.0055f, fz * 0.0055f, 137u);
+
+    switch (PlanetWorldStyle()) {
+    case SOLAR_STYLE_LAVA:
+        if (continental < 0.18f + profile->oceanCoverage * 0.30f) {
+            return PLANET_BIOME_LAVA_SEA;
+        }
+        return regional > 0.68f ? PLANET_BIOME_VOLCANIC_RIDGE
+                                : PLANET_BIOME_BASALT_PLAINS;
+    case SOLAR_STYLE_ICE:
+        return continental < 0.34f ? PLANET_BIOME_GLACIER : PLANET_BIOME_ICE_SHEET;
+    case SOLAR_STYLE_DESERT:
+        if (continental < 0.12f && profile->oceanCoverage > 0.18f) {
+            return PLANET_BIOME_OASIS;
+        }
+        return regional > 0.66f ? PLANET_BIOME_BADLANDS : PLANET_BIOME_DUNES;
+    case SOLAR_STYLE_CRATER:
+        return regional < 0.22f || climate > 0.76f ? PLANET_BIOME_IMPACT_BASIN
+                                                    : PLANET_BIOME_CRATER_HIGHLANDS;
+    case SOLAR_STYLE_TEMPERATE: {
+        float waterline = 0.27f + profile->oceanCoverage * 0.36f;
+        if (profile->oceanCoverage > 0.08f && continental < waterline) {
+            return PLANET_BIOME_OCEAN;
+        }
+        if (profile->oceanCoverage > 0.08f && continental < waterline + 0.09f) {
+            return PLANET_BIOME_COAST;
+        }
+        if (regional > 0.72f) return PLANET_BIOME_ALPINE;
+        return climate > 0.56f ? PLANET_BIOME_FOREST : PLANET_BIOME_PLAINS;
+    }
+    case SOLAR_STYLE_GAS:
+        return PLANET_BIOME_STORM_BANDS;
+    default:
+        return PLANET_BIOME_PLAINS;
+    }
+}
+
+const char *PlanetBiomeName(PlanetBiome biome)
+{
+    switch (biome) {
+    case PLANET_BIOME_BASALT_PLAINS: return "Basalt plains";
+    case PLANET_BIOME_LAVA_SEA: return "Lava sea";
+    case PLANET_BIOME_VOLCANIC_RIDGE: return "Volcanic ridge";
+    case PLANET_BIOME_ICE_SHEET: return "Ice sheet";
+    case PLANET_BIOME_GLACIER: return "Glacier";
+    case PLANET_BIOME_DUNES: return "Dune field";
+    case PLANET_BIOME_BADLANDS: return "Badlands";
+    case PLANET_BIOME_OASIS: return "Oasis";
+    case PLANET_BIOME_IMPACT_BASIN: return "Impact basin";
+    case PLANET_BIOME_CRATER_HIGHLANDS: return "Crater highlands";
+    case PLANET_BIOME_OCEAN: return "Ocean";
+    case PLANET_BIOME_COAST: return "Coast";
+    case PLANET_BIOME_PLAINS: return "Open plains";
+    case PLANET_BIOME_FOREST: return "Forest";
+    case PLANET_BIOME_ALPINE: return "Alpine range";
+    case PLANET_BIOME_STORM_BANDS: return "Storm bands";
+    default: return "Unknown terrain";
+    }
+}
+
 int PlanetTerrainHeight(int x, int z)
 {
     if (!PlanetWorldIsActive()) return TerrainHeight(x, z, terrainMode);
 
-    int localX = x;
-    int localZ = z;
-    uint32_t seed = PlanetWorldSeed();
     const PlanetProfile *profile = PlanetWorldProfile();
-    float ox = (float)(seed & 0xffffu) * 0.0017f;
-    float oz = (float)((seed >> 16) & 0xffffu) * 0.0019f;
-    float fx = (float)localX + ox;
-    float fz = (float)localZ + oz;
+    float fx = 0.0f;
+    float fz = 0.0f;
+    PlanetSurfaceCoordinates(x, z, &fx, &fz);
     float roughness = Clamp(profile->terrainRoughness, 0.35f, 1.55f);
     float continents = PlanetFractalNoise2D(fx * 0.0032f, fz * 0.0032f, 21u);
     float hills = PlanetFractalNoise2D(fx * 0.017f, fz * 0.017f, 47u);
@@ -478,28 +561,53 @@ int PlanetTerrainHeight(int x, int z)
     height += (hills - 0.5f) * 9.0f * roughness;
     height += sinf((fx + fz) * 0.010f) * 1.8f * roughness;
 
-    switch (PlanetWorldStyle()) {
-    case SOLAR_STYLE_LAVA:
+    switch (PlanetBiomeAt(x, z)) {
+    case PLANET_BIOME_LAVA_SEA:
+        height = fminf(height, 9.5f + (hills - 0.5f) * 2.0f);
+        break;
+    case PLANET_BIOME_VOLCANIC_RIDGE:
+        height += 5.0f + fabsf(sinf(fx * 0.070f) * cosf(fz * 0.060f)) * 4.0f;
+        break;
+    case PLANET_BIOME_BASALT_PLAINS:
         height += sinf(fx * 0.15f) * cosf(fz * 0.13f) * 2.5f;
         break;
-    case SOLAR_STYLE_ICE:
+    case PLANET_BIOME_GLACIER:
+        height = fminf(height, 10.5f + (hills - 0.5f) * 3.0f);
+        break;
+    case PLANET_BIOME_ICE_SHEET:
         height += 2.0f + sinf((fx + fz) * 0.008f) * 3.0f;
         break;
-    case SOLAR_STYLE_DESERT:
+    case PLANET_BIOME_DUNES:
         height += fabsf(sinf(fx * 0.045f + cosf(fz * 0.018f))) * 4.5f;
         break;
-    case SOLAR_STYLE_GAS:
+    case PLANET_BIOME_BADLANDS:
+        height += 3.0f + fabsf(sinf(fx * 0.026f) * cosf(fz * 0.022f)) * 6.0f;
+        break;
+    case PLANET_BIOME_OASIS:
+        height = fminf(height, 11.0f + (hills - 0.5f) * 2.0f);
+        break;
+    case PLANET_BIOME_IMPACT_BASIN:
+        height -= 5.0f + (1.0f - hills) * 3.0f;
+        break;
+    case PLANET_BIOME_CRATER_HIGHLANDS:
+        height += fabsf(sinf(fx * 0.021f) * cosf(fz * 0.019f)) * 3.0f;
+        break;
+    case PLANET_BIOME_OCEAN:
+        height = fminf(height, 10.0f + (hills - 0.5f) * 3.0f);
+        break;
+    case PLANET_BIOME_COAST:
+        height = fminf(height, 13.0f + (hills - 0.5f) * 4.0f);
+        break;
+    case PLANET_BIOME_ALPINE:
+        height += 5.0f + (hills - 0.35f) * 8.0f * roughness;
+        break;
+    case PLANET_BIOME_STORM_BANDS:
         height = 14.0f + sinf(fz * 0.025f) * 4.0f + sinf(fx * 0.009f) * 3.0f;
         break;
-    case SOLAR_STYLE_CRATER: {
-        float crater = fabsf(sinf(fx * 0.021f) * cosf(fz * 0.019f));
-        height -= crater > 0.82f ? 6.0f : 0.0f;
-        break;
-    }
-    case SOLAR_STYLE_TEMPERATE:
-        height += sinf(fx * 0.024f) * cosf(fz * 0.021f) * 2.2f;
-        break;
+    case PLANET_BIOME_PLAINS:
+    case PLANET_BIOME_FOREST:
     default:
+        height += sinf(fx * 0.024f) * cosf(fz * 0.021f) * 2.2f;
         break;
     }
 
@@ -509,8 +617,40 @@ int PlanetTerrainHeight(int x, int z)
     return (int)height;
 }
 
-static BlockType PlanetSubsurfaceBlock(SolarBodyStyle style, int depth, unsigned int hash)
+static BlockType PlanetSubsurfaceBlock(SolarBodyStyle style, PlanetBiome biome,
+                                       int depth, unsigned int hash)
 {
+    if (depth == 0) {
+        switch (biome) {
+        case PLANET_BIOME_LAVA_SEA:
+        case PLANET_BIOME_BASALT_PLAINS:
+        case PLANET_BIOME_VOLCANIC_RIDGE:
+            return hash % 19u == 0u ? BLOCK_GLOWSTONE : BLOCK_NETHERRACK;
+        case PLANET_BIOME_GLACIER:
+            return BLOCK_ICE;
+        case PLANET_BIOME_ICE_SHEET:
+        case PLANET_BIOME_ALPINE:
+            return BLOCK_SNOW;
+        case PLANET_BIOME_BADLANDS:
+            return BLOCK_SANDSTONE;
+        case PLANET_BIOME_DUNES:
+        case PLANET_BIOME_COAST:
+        case PLANET_BIOME_OCEAN:
+            return BLOCK_SAND;
+        case PLANET_BIOME_OASIS:
+        case PLANET_BIOME_FOREST:
+        case PLANET_BIOME_PLAINS:
+            return BLOCK_GRASS;
+        case PLANET_BIOME_IMPACT_BASIN:
+            return hash % 9u == 0u ? BLOCK_METEORITE : BLOCK_MOON_SAND;
+        case PLANET_BIOME_CRATER_HIGHLANDS:
+            return BLOCK_MOON_ROCK;
+        case PLANET_BIOME_STORM_BANDS:
+        default:
+            break;
+        }
+    }
+
     switch (style) {
     case SOLAR_STYLE_LAVA:
         if (depth <= 2) return hash % 11u == 0u ? BLOCK_GLOWSTONE : BLOCK_NETHERRACK;
@@ -536,6 +676,27 @@ static BlockType PlanetSubsurfaceBlock(SolarBodyStyle style, int depth, unsigned
     }
 }
 
+static void PlacePlanetForest(Chunk *chunk, int treeX, int treeZ)
+{
+    if (PlanetBiomeAt(treeX, treeZ) != PLANET_BIOME_FOREST) return;
+    if (PlanetHash2D(treeX, treeZ, 151u) % 59u != 0u) return;
+
+    int base = PlanetTerrainHeight(treeX, treeZ) + 1;
+    if (base <= PlanetSeaLevel(PlanetWorldStyle(), PlanetWorldProfile())) return;
+    int trunkHeight = 4 + (int)(PlanetHash2D(treeX, treeZ, 163u) % 3u);
+    for (int y = base; y < base + trunkHeight && InHeight(y); y++) {
+        SetChunkLocalBlock(chunk, treeX, y, treeZ, BLOCK_WOOD);
+    }
+    for (int ox = -2; ox <= 2; ox++) {
+        for (int oz = -2; oz <= 2; oz++) {
+            for (int oy = trunkHeight - 2; oy <= trunkHeight; oy++) {
+                if (abs(ox) + abs(oz) + (oy == trunkHeight ? 1 : 0) > 4) continue;
+                SetChunkLocalBlock(chunk, treeX + ox, base + oy, treeZ + oz, BLOCK_LEAVES);
+            }
+        }
+    }
+}
+
 static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
 {
     memset(chunk->blocks, 0, sizeof(chunk->blocks));
@@ -551,29 +712,18 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
             int localX = worldX;
             int localZ = worldZ;
             int height = PlanetTerrainHeight(worldX, worldZ);
+            PlanetBiome biome = PlanetBiomeAt(worldX, worldZ);
 
             for (int y = 0; y <= height; y++) {
                 unsigned int h = PlanetHash2D(localX + y * 19, localZ - y * 23, 1u);
                 int depth = height - y;
-                BlockType type = y == 0 ? BLOCK_BEDROCK : PlanetSubsurfaceBlock(style, depth, h);
-                if (style == SOLAR_STYLE_TEMPERATE && depth <= 3) {
-                    float climate = PlanetFractalNoise2D((float)worldX * 0.006f,
-                                                         (float)worldZ * 0.006f, 83u);
-                    if (height <= 13 && profile->oceanCoverage > 0.08f) {
-                        type = BLOCK_SAND;
-                    } else if (climate < 0.30f && height > 18) {
-                        type = depth == 0 ? BLOCK_SNOW : BLOCK_DIRT;
-                    }
-                }
+                BlockType type = y == 0 ? BLOCK_BEDROCK :
+                                 PlanetSubsurfaceBlock(style, biome, depth, h);
                 bool cave = y > 2 && depth > 3 && h % 101u < 3u;
                 chunk->blocks[lx][y][lz] = (unsigned short)(cave ? BLOCK_AIR : type);
             }
 
-            int seaLevel = -1;
-            if (profile->oceanCoverage > 0.05f) {
-                if (style == SOLAR_STYLE_LAVA) seaLevel = 11;
-                else if (style == SOLAR_STYLE_ICE || style == SOLAR_STYLE_TEMPERATE) seaLevel = 12;
-            }
+            int seaLevel = PlanetSeaLevel(style, profile);
             if (seaLevel >= 0 && height < seaLevel) {
                 BlockType liquid = style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER;
                 for (int y = height + 1; y <= seaLevel && InHeight(y); y++) {
@@ -586,24 +736,38 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
 
             unsigned int decor = PlanetHash2D(localX, localZ, 7u);
             if (!InHeight(height + 1)) continue;
-            if (style == SOLAR_STYLE_DESERT && decor % 181u == 0u) {
+            if ((biome == PLANET_BIOME_DUNES || biome == PLANET_BIOME_BADLANDS) &&
+                decor % (biome == PLANET_BIOME_DUNES ? 181u : 293u) == 0u) {
                 for (int y = height + 1; y <= height + 3 && InHeight(y); y++) {
                     chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_CACTUS;
                 }
-            } else if (style == SOLAR_STYLE_ICE && decor % 211u == 0u) {
+            } else if (biome == PLANET_BIOME_GLACIER && decor % 137u == 0u) {
+                for (int y = height + 1; y <= height + 4 && InHeight(y); y++) {
+                    chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_ICE;
+                }
+            } else if (biome == PLANET_BIOME_ICE_SHEET && decor % 211u == 0u) {
                 for (int y = height + 1; y <= height + 2 && InHeight(y); y++) {
                     chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_ICE;
                 }
-            } else if (style == SOLAR_STYLE_LAVA && decor % 193u == 0u) {
+            } else if ((biome == PLANET_BIOME_BASALT_PLAINS ||
+                        biome == PLANET_BIOME_VOLCANIC_RIDGE) && decor % 193u == 0u) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_GLOWSTONE;
-            } else if (style == SOLAR_STYLE_GAS && decor % 157u == 0u) {
+            } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 157u == 0u) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_MUSHROOM;
-            } else if (style == SOLAR_STYLE_CRATER && decor % 149u == 0u) {
+            } else if ((biome == PLANET_BIOME_IMPACT_BASIN ||
+                        biome == PLANET_BIOME_CRATER_HIGHLANDS) && decor % 149u == 0u) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_METEORITE;
-            } else if (style == SOLAR_STYLE_TEMPERATE && height > seaLevel + 1 &&
-                       decor % 97u == 0u) {
+            } else if ((biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS ||
+                        biome == PLANET_BIOME_OASIS) && height > seaLevel + 1 &&
+                       decor % (biome == PLANET_BIOME_FOREST ? 61u : 97u) == 0u) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_FLOWER;
             }
+        }
+    }
+
+    for (int treeX = startX - 2; treeX < startX + CHUNK_SIZE + 2; treeX++) {
+        for (int treeZ = startZ - 2; treeZ < startZ + CHUNK_SIZE + 2; treeZ++) {
+            PlacePlanetForest(chunk, treeX, treeZ);
         }
     }
 }

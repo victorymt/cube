@@ -8,6 +8,9 @@
 #include <string.h>
 
 #define STAR_MAP_VISIBLE_ROWS 10
+#define STAR_MAP_MIN_RANGE STAR_NAVIGATION_RANGE
+#define STAR_MAP_MAX_RANGE (STAR_NAVIGATION_RANGE * 4.0f)
+#define STAR_MAP_PAN_FRACTION 0.55f
 
 typedef struct StarMapEntry {
     SolarSystemDef sys;
@@ -20,8 +23,12 @@ static int entryCount = 0;
 static int selected = 0;
 static int scroll = 0;
 static bool travelRequested = false;
-static Vector3 travelDestination = { 0 };
+static SolarSystemDef travelSystem = { 0 };
 static Vector3 mapPlayerPosition = { 0 };
+static Vector3 mapCenterPosition = { 0 };
+static float mapRange = STAR_MAP_MIN_RANGE;
+static bool mapCentered = false;
+static bool entriesDirty = true;
 
 void StarMapOpen(void)
 {
@@ -29,6 +36,9 @@ void StarMapOpen(void)
     selected = 0;
     scroll = 0;
     travelRequested = false;
+    mapRange = STAR_MAP_MIN_RANGE;
+    mapCentered = false;
+    entriesDirty = true;
 }
 
 bool StarMapIsOpen(void)
@@ -45,17 +55,44 @@ void StarMapClose(void)
 static void RefreshEntries(Vector3 playerPosition)
 {
     mapPlayerPosition = playerPosition;
+    if (!mapCentered) {
+        mapCenterPosition = playerPosition;
+        mapCentered = true;
+        entriesDirty = true;
+    }
+    if (!entriesDirty) return;
+
     SolarSystemDef systems[STAR_NAVIGATION_MAX_SYSTEMS];
-    entryCount = StarSystemsNear(playerPosition, STAR_NAVIGATION_RANGE, systems,
+    entryCount = StarSystemsNear(mapCenterPosition, mapRange, systems,
                                  STAR_NAVIGATION_MAX_SYSTEMS);
     for (int i = 0; i < entryCount; i++) {
         entries[i].sys = systems[i];
-        entries[i].dist = Vector3Distance(systems[i].center, playerPosition);
+        entries[i].dist = Vector3Distance(systems[i].center, mapPlayerPosition);
     }
     if (selected >= entryCount) selected = entryCount - 1;
     if (selected < 0) selected = 0;
     if (scroll > entryCount - STAR_MAP_VISIBLE_ROWS) scroll = entryCount - STAR_MAP_VISIBLE_ROWS;
     if (scroll < 0) scroll = 0;
+    entriesDirty = false;
+}
+
+static void PanMap(float dx, float dz)
+{
+    mapCenterPosition.x += dx;
+    mapCenterPosition.z += dz;
+    selected = 0;
+    scroll = 0;
+    entriesDirty = true;
+}
+
+static void ZoomMap(float factor)
+{
+    float newRange = Clamp(mapRange * factor, STAR_MAP_MIN_RANGE, STAR_MAP_MAX_RANGE);
+    if (fabsf(newRange - mapRange) < 0.1f) return;
+    mapRange = newRange;
+    selected = 0;
+    scroll = 0;
+    entriesDirty = true;
 }
 
 void StarMapUpdate(Vector3 playerPosition)
@@ -63,6 +100,15 @@ void StarMapUpdate(Vector3 playerPosition)
     if (!open) return;
 
     RefreshEntries(playerPosition);
+
+    float panDistance = mapRange * STAR_MAP_PAN_FRACTION;
+    if (IsKeyPressed(KEY_A)) PanMap(-panDistance, 0.0f);
+    if (IsKeyPressed(KEY_D)) PanMap(panDistance, 0.0f);
+    if (IsKeyPressed(KEY_W)) PanMap(0.0f, -panDistance);
+    if (IsKeyPressed(KEY_S)) PanMap(0.0f, panDistance);
+    if (IsKeyPressed(KEY_PAGE_UP)) ZoomMap(2.0f);
+    if (IsKeyPressed(KEY_PAGE_DOWN)) ZoomMap(0.5f);
+    if (entriesDirty) RefreshEntries(playerPosition);
 
     if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_J)) {
         if (selected < entryCount - 1) selected++;
@@ -84,13 +130,7 @@ void StarMapUpdate(Vector3 playerPosition)
 
     if (IsKeyPressed(KEY_ENTER) && entryCount > 0) {
         const SolarSystemDef *sys = &entries[selected].sys;
-        float destY = sys->center.y + (float)sys->starRadius + 35.0f;
-        if (destY > (float)SPACE_LAYER_TOP - 5.0f) destY = (float)SPACE_LAYER_TOP - 5.0f;
-        travelDestination = (Vector3){
-            sys->center.x,
-            destY,
-            sys->center.z
-        };
+        travelSystem = *sys;
         travelRequested = true;
     }
     if (IsKeyPressed(KEY_ESCAPE)) {
@@ -98,11 +138,11 @@ void StarMapUpdate(Vector3 playerPosition)
     }
 }
 
-bool StarMapConsumeTravel(Vector3 *outDestination)
+bool StarMapConsumeTravel(SolarSystemDef *outSystem)
 {
-    if (!travelRequested) return false;
+    if (!travelRequested || !outSystem) return false;
     travelRequested = false;
-    *outDestination = travelDestination;
+    *outSystem = travelSystem;
     return true;
 }
 
@@ -122,15 +162,15 @@ void StarMapDraw(void)
     DrawRectangleRoundedLinesEx(panel, 0.04f, 8, 2.0f, Fade(WHITE, 0.45f));
 
     DrawText("Star Map", (int)panel.x + 26, (int)panel.y + 18, 27, WHITE);
-    DrawText(TextFormat("%d reachable systems  |  %.0f block range",
-                        entryCount, STAR_NAVIGATION_RANGE),
+    DrawText(TextFormat("%d charted systems  |  %.0f block view",
+                        entryCount, mapRange),
              (int)panel.x + 26, (int)panel.y + 54, 15, Fade(WHITE, 0.62f));
-    DrawText("Enter travel   Up/Down select   Esc close",
-             (int)(panel.x + panel.width - 300.0f), (int)panel.y + 28, 15,
+    DrawText("Enter warp   Up/Down select   WASD pan   PgUp/PgDn zoom",
+             (int)(panel.x + panel.width - 420.0f), (int)panel.y + 28, 15,
              Fade(WHITE, 0.68f));
 
     if (entryCount == 0) {
-        DrawText(TextFormat("No systems within %.0f blocks.", STAR_NAVIGATION_RANGE),
+        DrawText(TextFormat("No systems within %.0f blocks of this chart position.", mapRange),
                  (int)panel.x + 26, (int)panel.y + 130, 18, Fade(WHITE, 0.6f));
         return;
     }
@@ -162,10 +202,10 @@ void StarMapDraw(void)
     DrawText("Z", (int)centerX + 8, (int)map.y + 8, 14, Fade(WHITE, 0.48f));
 
     for (int i = 0; i < entryCount; i++) {
-        float dx = entries[i].sys.center.x - mapPlayerPosition.x;
-        float dz = entries[i].sys.center.z - mapPlayerPosition.z;
-        float px = centerX + dx * map.width * 0.5f / STAR_NAVIGATION_RANGE;
-        float py = centerY + dz * map.height * 0.5f / STAR_NAVIGATION_RANGE;
+        float dx = entries[i].sys.center.x - mapCenterPosition.x;
+        float dz = entries[i].sys.center.z - mapCenterPosition.z;
+        float px = centerX + dx * map.width * 0.5f / mapRange;
+        float py = centerY + dz * map.height * 0.5f / mapRange;
         if (px < map.x - 4.0f || px > map.x + map.width + 4.0f ||
             py < map.y - 4.0f || py > map.y + map.height + 4.0f) continue;
         Color dot = SpectrumColor(entries[i].sys.spectrum);
@@ -176,12 +216,22 @@ void StarMapDraw(void)
             DrawCircle((int)px, (int)py, 2.8f, dot);
         }
     }
-    DrawTriangle((Vector2){ centerX, centerY - 8.0f },
-                 (Vector2){ centerX - 6.0f, centerY + 5.0f },
-                 (Vector2){ centerX + 6.0f, centerY + 5.0f },
-                 WHITE);
-    DrawText("You", (int)centerX + 10, (int)centerY - 7, 14, Fade(WHITE, 0.65f));
-    DrawText(TextFormat("X %.0f   Z %.0f", mapPlayerPosition.x, mapPlayerPosition.z),
+    float playerDx = mapPlayerPosition.x - mapCenterPosition.x;
+    float playerDz = mapPlayerPosition.z - mapCenterPosition.z;
+    float playerX = centerX + playerDx * map.width * 0.5f / mapRange;
+    float playerY = centerY + playerDz * map.height * 0.5f / mapRange;
+    if (playerX >= map.x && playerX <= map.x + map.width &&
+        playerY >= map.y && playerY <= map.y + map.height) {
+        DrawTriangle((Vector2){ playerX, playerY - 8.0f },
+                     (Vector2){ playerX - 6.0f, playerY + 5.0f },
+                     (Vector2){ playerX + 6.0f, playerY + 5.0f }, WHITE);
+        DrawText("You", (int)playerX + 10, (int)playerY - 7, 14, Fade(WHITE, 0.65f));
+    }
+    DrawText(TextFormat("Chart sector  X %d   Z %d",
+                        (int)floorf((mapCenterPosition.x + (float)SpaceOriginX()) /
+                                    (float)STAR_SYSTEM_SPACING),
+                        (int)floorf((mapCenterPosition.z + (float)SpaceOriginZ()) /
+                                    (float)STAR_SYSTEM_SPACING)),
              (int)map.x + 14, (int)(map.y + map.height - 25.0f), 14, Fade(WHITE, 0.6f));
 
     DrawText("SYSTEMS", (int)listX, (int)panel.y + 88, 14, Fade(WHITE, 0.58f));
@@ -219,10 +269,10 @@ void StarMapDraw(void)
                         SpectrumName(sys->spectrum), entries[selected].dist,
                         sys->planetCount),
              (int)listX, (int)detailsY + 32, 15, Fade(WHITE, 0.72f));
-    DrawText(TextFormat("Star center  X %.0f   Y %.0f   Z %.0f",
-                        sys->center.x, sys->center.y, sys->center.z),
+    DrawText(TextFormat("System anchor  [%d, %d]   |   Y %.0f",
+                        sys->anchorX, sys->anchorZ, sys->center.y),
              (int)listX, (int)detailsY + 56, 14, Fade(WHITE, 0.58f));
-    DrawText("Enter: travel to this system", (int)listX, (int)detailsY + 86, 15,
+    DrawText("Enter: warp ship to this system", (int)listX, (int)detailsY + 86, 15,
              (Color){ 166, 220, 174, 255 });
     DrawText("Dots are generated stars; colors show their spectra",
              (int)map.x + 14, (int)map.y + 18, 13, Fade(WHITE, 0.58f));

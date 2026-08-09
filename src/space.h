@@ -14,6 +14,7 @@
 #define STAR_SYSTEM_PROBABILITY 65u
 #define STAR_NAVIGATION_RANGE 8000.0f
 #define STAR_NAVIGATION_MAX_SYSTEMS 128
+#define STAR_SYSTEM_QUERY_MAX 384
 
 typedef enum SpectrumType {
     SPECTRUM_RED_DWARF = 0,
@@ -115,6 +116,12 @@ void SpaceShutdown(void);
 void SpaceReset(void);
 void SpaceAdvanceTime(float dt);
 double SpaceSimulationTime(void);
+bool SpaceRebasePlayer(Player *player);
+int SpaceOriginX(void);
+int SpaceOriginZ(void);
+void SpaceResetOrigin(void);
+void SpaceSaveOrigin(FILE *file);
+bool SpaceLoadOrigin(FILE *file);
 void UpdateSpaceChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 void SpaceProcessFinishedGenJobs(void);
 void SpaceUpdateStarGlow(Vector3 playerPosition);

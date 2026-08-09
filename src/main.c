@@ -255,17 +255,13 @@ int main(void)
             EnableCursor();
         }
         if (StarMapIsOpen()) {
-            Vector3 destination = { 0 };
+            SolarSystemDef destination = { 0 };
             StarMapUpdate(player.position);
             if (StarMapConsumeTravel(&destination)) {
-                player.position = destination;
-                player.velocity = Vector3Zero();
-                player.floating = false;
+                ShipBeginSystemWarp(&player, destination.anchorX, destination.anchorZ);
                 StarMapClose();
                 cursorReleased = false;
                 DisableCursor();
-                SetImportMessage(TextFormat("Arrived at %.1f, %.1f, %.1f - explore the system.",
-                                            destination.x, destination.y, destination.z));
             }
             if (!StarMapIsOpen()) {
                 cursorReleased = false;
@@ -375,13 +371,20 @@ int main(void)
                 wasInSpace = inSpaceNow;
             }
         }
+        if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive() && !StarMapIsOpen() &&
+            SpaceRebasePlayer(&player)) {
+            // Particles are cosmetic local-frame data; discard the old frame.
+            ParticlesClear();
+        }
         int effectiveRenderDistance = EffectiveRenderDistanceForHeight(player.position.y + EYE_HEIGHT);
         bool localWorldActive = HomeWorldSurfaceIsActive() || PlanetWorldIsActive();
         if (localWorldActive) UpdateChunks(player.position, effectiveRenderDistance);
         if (!PlanetWorldIsActive()) {
             SpaceProcessFinishedGenJobs();
             int spaceGenPerFrame = 2;
-            if (ShipIsDriving()) spaceGenPerFrame = ShipIsCruising() ? 12 : 4;
+            if (ShipIsDriving()) {
+                spaceGenPerFrame = ShipIsWarping() ? 16 : (ShipIsCruising() ? 12 : 4);
+            }
             UpdateSpaceChunks(player.position, effectiveRenderDistance, spaceGenPerFrame);
             if (HomeWorldSurfaceIsActive()) {
                 UpdateNetherChunks(player.position, effectiveRenderDistance, 4);

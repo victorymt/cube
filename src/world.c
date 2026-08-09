@@ -17,6 +17,8 @@
 #include <string.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V8 "VOXELCRAFT_SAVE_V8"
+#define SAVE_MAGIC_V8_LEN (sizeof(SAVE_MAGIC_V8) - 1)
 #define SAVE_MAGIC_V7 "VOXELCRAFT_SAVE_V7"
 #define SAVE_MAGIC_V7_LEN (sizeof(SAVE_MAGIC_V7) - 1)
 #define SAVE_MAGIC_V6 "VOXELCRAFT_SAVE_V6"
@@ -684,7 +686,7 @@ void SaveMap(const Player *player)
         return;
     }
 
-    fwrite(SAVE_MAGIC_V7, 1, SAVE_MAGIC_V7_LEN, file);
+    fwrite(SAVE_MAGIC_V8, 1, SAVE_MAGIC_V8_LEN, file);
     uint32_t seed = WorldGetSeed();
     fwrite(&seed, sizeof(seed), 1, file);
     uint32_t terrain = (uint32_t)terrainMode;
@@ -716,6 +718,7 @@ void SaveMap(const Player *player)
     AlbumSave(file);
     SpaceSaveEdits(file);
     NetherSaveEdits(file);
+    SpaceSaveOrigin(file);
     fclose(file);
     SetImportMessage(TextFormat("Saved map to %s (%d edits).", SAVE_FILE, blockEditCount));
 }
@@ -869,6 +872,7 @@ static bool LoadMapV7(FILE *file, TerrainMode *savedTerrain, Player *savedPlayer
 void LoadMap(Player *player)
 {
     DrainChunkGen();
+    UnloadAllSpaceChunks();
     FILE *file = fopen(SAVE_FILE, "rb");
     if (!file) {
         SetImportMessage("Load failed: voxelcraft_save.txt was not found.");
@@ -880,15 +884,16 @@ void LoadMap(Player *player)
     bool loadedInventory = false;
     bool loadedPlanetWorld = false;
     bool loadedHomeWorld = false;
+    bool loadedSpaceOrigin = false;
     bool legacyPlanetCoordinates = false;
     Player savedPlayer = { 0 };
     int savedEditCount = 0;
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
-    char magicV7[SAVE_MAGIC_V7_LEN] = { 0 };
-    bool isV7 = fread(magicV7, 1, SAVE_MAGIC_V7_LEN, file) == SAVE_MAGIC_V7_LEN &&
-                memcmp(magicV7, SAVE_MAGIC_V7, SAVE_MAGIC_V7_LEN) == 0;
-    if (isV7) {
+    char magicV8[SAVE_MAGIC_V8_LEN] = { 0 };
+    bool isV8 = fread(magicV8, 1, SAVE_MAGIC_V8_LEN, file) == SAVE_MAGIC_V8_LEN &&
+                memcmp(magicV8, SAVE_MAGIC_V8, SAVE_MAGIC_V8_LEN) == 0;
+    if (isV8) {
         if (!LoadMapV7(file, &savedTerrain, &savedPlayer, &loadedEdits,
                        &loadedDimensions, &savedEditCount, &savedSeed)) {
             fclose(file);
@@ -900,11 +905,11 @@ void LoadMap(Player *player)
         loadedHomeWorld = true;
     } else {
         rewind(file);
-        char magicV6[SAVE_MAGIC_V6_LEN] = { 0 };
-        bool isV6 = fread(magicV6, 1, SAVE_MAGIC_V6_LEN, file) == SAVE_MAGIC_V6_LEN &&
-                    memcmp(magicV6, SAVE_MAGIC_V6, SAVE_MAGIC_V6_LEN) == 0;
-        if (isV6) {
-            if (!LoadMapV6(file, &savedTerrain, &savedPlayer, &loadedEdits,
+        char magicV7[SAVE_MAGIC_V7_LEN] = { 0 };
+        bool isV7 = fread(magicV7, 1, SAVE_MAGIC_V7_LEN, file) == SAVE_MAGIC_V7_LEN &&
+                    memcmp(magicV7, SAVE_MAGIC_V7, SAVE_MAGIC_V7_LEN) == 0;
+        if (isV7) {
+            if (!LoadMapV7(file, &savedTerrain, &savedPlayer, &loadedEdits,
                            &loadedDimensions, &savedEditCount, &savedSeed)) {
                 fclose(file);
                 SetImportMessage("Load failed: save file is corrupted.");
@@ -912,29 +917,28 @@ void LoadMap(Player *player)
             }
             loadedInventory = true;
             loadedPlanetWorld = true;
+            loadedHomeWorld = true;
         } else {
             rewind(file);
-            char magicV5[SAVE_MAGIC_V5_LEN] = { 0 };
-            bool isV5 = fread(magicV5, 1, SAVE_MAGIC_V5_LEN, file) == SAVE_MAGIC_V5_LEN &&
-                        memcmp(magicV5, SAVE_MAGIC_V5, SAVE_MAGIC_V5_LEN) == 0;
-            if (isV5) {
-                if (!LoadMapV5(file, &savedTerrain, &savedPlayer, &loadedEdits,
-                               &savedEditCount, &savedSeed)) {
-                    free(loadedEdits);
+            char magicV6[SAVE_MAGIC_V6_LEN] = { 0 };
+            bool isV6 = fread(magicV6, 1, SAVE_MAGIC_V6_LEN, file) == SAVE_MAGIC_V6_LEN &&
+                        memcmp(magicV6, SAVE_MAGIC_V6, SAVE_MAGIC_V6_LEN) == 0;
+            if (isV6) {
+                if (!LoadMapV6(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                               &loadedDimensions, &savedEditCount, &savedSeed)) {
                     fclose(file);
                     SetImportMessage("Load failed: save file is corrupted.");
                     return;
                 }
                 loadedInventory = true;
                 loadedPlanetWorld = true;
-                legacyPlanetCoordinates = true;
             } else {
                 rewind(file);
-                char magicV4[SAVE_MAGIC_V4_LEN] = { 0 };
-                bool isV4 = fread(magicV4, 1, SAVE_MAGIC_V4_LEN, file) == SAVE_MAGIC_V4_LEN &&
-                            memcmp(magicV4, SAVE_MAGIC_V4, SAVE_MAGIC_V4_LEN) == 0;
-                if (isV4) {
-                    if (!LoadMapV4(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                char magicV5[SAVE_MAGIC_V5_LEN] = { 0 };
+                bool isV5 = fread(magicV5, 1, SAVE_MAGIC_V5_LEN, file) == SAVE_MAGIC_V5_LEN &&
+                            memcmp(magicV5, SAVE_MAGIC_V5, SAVE_MAGIC_V5_LEN) == 0;
+                if (isV5) {
+                    if (!LoadMapV5(file, &savedTerrain, &savedPlayer, &loadedEdits,
                                    &savedEditCount, &savedSeed)) {
                         free(loadedEdits);
                         fclose(file);
@@ -942,64 +946,80 @@ void LoadMap(Player *player)
                         return;
                     }
                     loadedInventory = true;
+                    loadedPlanetWorld = true;
+                    legacyPlanetCoordinates = true;
                 } else {
                     rewind(file);
-                    char magicV3[SAVE_MAGIC_V3_LEN] = { 0 };
-                    bool isV3 = fread(magicV3, 1, SAVE_MAGIC_V3_LEN, file) == SAVE_MAGIC_V3_LEN &&
-                                memcmp(magicV3, SAVE_MAGIC_V3, SAVE_MAGIC_V3_LEN) == 0;
-                    if (isV3) {
-                        if (!LoadMapV3(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                    char magicV4[SAVE_MAGIC_V4_LEN] = { 0 };
+                    bool isV4 = fread(magicV4, 1, SAVE_MAGIC_V4_LEN, file) == SAVE_MAGIC_V4_LEN &&
+                                memcmp(magicV4, SAVE_MAGIC_V4, SAVE_MAGIC_V4_LEN) == 0;
+                    if (isV4) {
+                        if (!LoadMapV4(file, &savedTerrain, &savedPlayer, &loadedEdits,
                                        &savedEditCount, &savedSeed)) {
                             free(loadedEdits);
                             fclose(file);
                             SetImportMessage("Load failed: save file is corrupted.");
                             return;
                         }
+                        loadedInventory = true;
                     } else {
                         rewind(file);
-                        char magicV2[SAVE_MAGIC_V2_PREFIX_LEN] = { 0 };
-                        bool isV2 = fread(magicV2, 1, SAVE_MAGIC_V2_PREFIX_LEN, file) ==
-                                        SAVE_MAGIC_V2_PREFIX_LEN &&
-                                    memcmp(magicV2, SAVE_MAGIC_V2_PREFIX,
-                                           SAVE_MAGIC_V2_PREFIX_LEN) == 0;
-                        if (isV2) {
-                            if (!LoadMapV2(file, &savedTerrain, &savedPlayer,
-                                           &loadedEdits, &savedEditCount)) {
-                                free(loadedEdits);
+                        char magicV3[SAVE_MAGIC_V3_LEN] = { 0 };
+                        bool isV3 = fread(magicV3, 1, SAVE_MAGIC_V3_LEN, file) == SAVE_MAGIC_V3_LEN &&
+                                    memcmp(magicV3, SAVE_MAGIC_V3, SAVE_MAGIC_V3_LEN) == 0;
+                        if (isV3) {
+                            if (!LoadMapV3(file, &savedTerrain, &savedPlayer, &loadedEdits,
+                                           &savedEditCount, &savedSeed)) {
                                 fclose(file);
                                 SetImportMessage("Load failed: save file is corrupted.");
                                 return;
                             }
                         } else {
                             rewind(file);
-                            if (!ReadSaveHeader(file, &savedTerrain, &savedPlayer, &savedEditCount)) {
-                                fclose(file);
-                                SetImportMessage("Load failed: save file header is invalid.");
-                                return;
-                            }
-
-                            if (savedEditCount > 0) {
-                                loadedEdits = malloc((size_t)savedEditCount * sizeof(*loadedEdits));
-                                if (!loadedEdits) {
-                                    fclose(file);
-                                    SetImportMessage("Load failed: not enough memory for save edits.");
-                                    return;
-                                }
-                            }
-
-                            for (int i = 0; i < savedEditCount; i++) {
-                                int type = 0;
-                                if (fscanf(file, "%d %d %d %d",
-                                          &loadedEdits[i].x, &loadedEdits[i].y,
-                                          &loadedEdits[i].z, &type) != 4 ||
-                                    !InHeight(loadedEdits[i].y) ||
-                                    !IsValidBlockType((BlockType)type)) {
+                            char magicV2[SAVE_MAGIC_V2_PREFIX_LEN] = { 0 };
+                            bool isV2 = fread(magicV2, 1, SAVE_MAGIC_V2_PREFIX_LEN, file) ==
+                                            SAVE_MAGIC_V2_PREFIX_LEN &&
+                                        memcmp(magicV2, SAVE_MAGIC_V2_PREFIX,
+                                               SAVE_MAGIC_V2_PREFIX_LEN) == 0;
+                            if (isV2) {
+                                if (!LoadMapV2(file, &savedTerrain, &savedPlayer,
+                                               &loadedEdits, &savedEditCount)) {
                                     free(loadedEdits);
                                     fclose(file);
-                                    SetImportMessage("Load failed: save file contains invalid block data.");
+                                    SetImportMessage("Load failed: save file is corrupted.");
                                     return;
                                 }
-                                loadedEdits[i].type = (BlockType)type;
+                            } else {
+                                rewind(file);
+                                if (!ReadSaveHeader(file, &savedTerrain, &savedPlayer, &savedEditCount)) {
+                                    fclose(file);
+                                    SetImportMessage("Load failed: save file header is invalid.");
+                                    return;
+                                }
+
+                                if (savedEditCount > 0) {
+                                    loadedEdits = malloc((size_t)savedEditCount * sizeof(*loadedEdits));
+                                    if (!loadedEdits) {
+                                        fclose(file);
+                                        SetImportMessage("Load failed: not enough memory for save edits.");
+                                        return;
+                                    }
+                                }
+
+                                for (int i = 0; i < savedEditCount; i++) {
+                                    int type = 0;
+                                    if (fscanf(file, "%d %d %d %d",
+                                              &loadedEdits[i].x, &loadedEdits[i].y,
+                                              &loadedEdits[i].z, &type) != 4 ||
+                                        !InHeight(loadedEdits[i].y) ||
+                                        !IsValidBlockType((BlockType)type)) {
+                                        free(loadedEdits);
+                                        fclose(file);
+                                        SetImportMessage("Load failed: save file contains invalid block data.");
+                                        return;
+                                    }
+                                    loadedEdits[i].type = (BlockType)type;
+                                }
                             }
                         }
                     }
@@ -1011,10 +1031,21 @@ void LoadMap(Player *player)
     AlbumLoad(file);
     SpaceLoadEdits(file);
     NetherLoadEdits(file);
+    if (isV8) {
+        if (!SpaceLoadOrigin(file)) {
+            free(loadedDimensions);
+            free(loadedEdits);
+            fclose(file);
+            SetImportMessage("Load failed: save file is corrupted.");
+            return;
+        }
+        loadedSpaceOrigin = true;
+    }
     fclose(file);
 
     if (!loadedPlanetWorld) PlanetWorldReset();
     if (!loadedHomeWorld) HomeWorldRestoreLegacyState(&savedPlayer);
+    if (!loadedSpaceOrigin) SpaceResetOrigin();
 
     if (savedEditCount > 0 && !loadedDimensions) {
         loadedDimensions = calloc((size_t)savedEditCount, sizeof(*loadedDimensions));

@@ -32,6 +32,15 @@ char shipHudSystem[48] = "---";
 bool shipHudCruising = false;
 bool shipHudNearPlanet = false;
 
+#define STAR_SKY_RANGE (STAR_NAVIGATION_RANGE * 4.0f)
+#define STAR_SKY_REFRESH_DISTANCE 4200.0f
+
+static SolarSystemDef skySystems[STAR_SYSTEM_QUERY_MAX];
+static int skySystemCount = 0;
+static Vector3 skySystemCenter = { 0 };
+static bool skySystemCacheValid = false;
+static uint32_t skySystemWorldSeed = 0;
+
 #include "chunks.h"
 #include "world.h"
 #include "interaction.h"
@@ -253,6 +262,23 @@ void DrawSpaceSky(float spaceFade, const Camera3D *camera)
 
 #define STAR_SHELL_DISTANCE 500.0f
 
+static void RefreshSkySystems(Vector3 observer)
+{
+    uint32_t worldSeed = WorldGetSeed();
+    Vector3 delta = Vector3Subtract(observer, skySystemCenter);
+    delta.y = 0.0f;
+    if (skySystemCacheValid && skySystemWorldSeed == worldSeed &&
+        Vector3LengthSqr(delta) < STAR_SKY_REFRESH_DISTANCE * STAR_SKY_REFRESH_DISTANCE) {
+        return;
+    }
+
+    skySystemCount = StarSystemsNear(observer, STAR_SKY_RANGE, skySystems,
+                                     STAR_SYSTEM_QUERY_MAX);
+    skySystemCenter = observer;
+    skySystemWorldSeed = worldSeed;
+    skySystemCacheValid = true;
+}
+
 void DrawStars(const Camera3D *camera, float daylight)
 {
     if (daylight > 0.15f) return;
@@ -266,14 +292,12 @@ void DrawStars(const Camera3D *camera, float daylight)
     Vector3 observer = planetSurface ? PlanetWorldSpaceReference() : camera->position;
     Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
 
-    SolarSystemDef systems[STAR_NAVIGATION_MAX_SYSTEMS];
-    int count = StarSystemsNear(observer, STAR_NAVIGATION_RANGE, systems,
-                                STAR_NAVIGATION_MAX_SYSTEMS);
+    RefreshSkySystems(observer);
     SolarSystemDef host = { 0 };
     bool haveHost = surfaceActive && SurfaceHostSystem(&host);
 
-    for (int i = 0; i < count; i++) {
-        const SolarSystemDef *system = &systems[i];
+    for (int i = 0; i < skySystemCount; i++) {
+        const SolarSystemDef *system = &skySystems[i];
         if (haveHost && system->anchorX == host.anchorX &&
             system->anchorZ == host.anchorZ) {
             continue;
@@ -297,8 +321,8 @@ void DrawStars(const Camera3D *camera, float daylight)
         unsigned int hash = WorldHash2D(system->anchorX, system->anchorZ);
         float phase = (float)(hash % 6283u) / 1000.0f;
         float twinkle = 0.72f + 0.28f * sinf(time * 1.35f + phase);
-        float distanceFade = 1.0f - 0.22f * Clamp(distance / STAR_NAVIGATION_RANGE,
-                                                  0.0f, 1.0f);
+        float distanceFade = 1.0f - 0.58f * Clamp(distance / STAR_SKY_RANGE,
+                                                   0.0f, 1.0f);
         unsigned char alpha = (unsigned char)(visibility * 235.0f * twinkle * distanceFade);
         Color color = SpectrumColor(system->spectrum);
         color.a = alpha;
@@ -1260,14 +1284,16 @@ void DrawShipHud(void)
 {
     int sw = GetScreenWidth();
     float panelWidth = fminf(480.0f, (float)sw - 36.0f);
-    Rectangle panel = { (float)sw - panelWidth - 18.0f, 16.0f, panelWidth, 116.0f };
+    Rectangle panel = { (float)sw - panelWidth - 18.0f, 16.0f, panelWidth, 142.0f };
     DrawRectangleRounded(panel, 0.06f, 6, Fade(BLACK, 0.72f));
     DrawRectangleRoundedLinesEx(panel, 0.08f, 6, 1.5f, Fade(WHITE, 0.30f));
 
     int textX = (int)panel.x + 16;
-    Color speedColor = shipHudCruising ? (Color){ 130, 200, 255, 255 } : WHITE;
+    bool warping = ShipIsWarping();
+    Color speedColor = warping ? (Color){ 166, 228, 255, 255 } :
+                       (shipHudCruising ? (Color){ 130, 200, 255, 255 } : WHITE);
     DrawUiText(TextFormat("VEL %.0f blk/s%s", shipHudSpeed,
-                          shipHudCruising ? "  [CRUISE]" : ""),
+                          warping ? "  [WARP]" : (shipHudCruising ? "  [CRUISE]" : "")),
                textX, (int)panel.y + 10, 22, speedColor);
     DrawUiText(TextFormat("ALT %.0f%s   HDG %03.0f", shipHudAlt,
                           shipHudNearPlanet ? " (surface)" : "", shipHudHeading),
@@ -1277,6 +1303,15 @@ void DrawShipHud(void)
                textX, (int)panel.y + 68, 17, fuelColor);
     DrawUiText(TextFormat("SYS %s", shipHudSystem),
                textX, (int)panel.y + 94, 17, Fade(WHITE, 0.84f));
+    if (ShipHasWarpTarget()) {
+        const char *targetKind = ShipWarpTargetIsSystem() ? "SYS" : "PLANET";
+        DrawUiText(TextFormat("%s %s %s", targetKind, warping ? "WARP" : "LOCK",
+                              ShipWarpTargetName()),
+                   textX, (int)panel.y + 118, 17, warping ? speedColor : Fade(WHITE, 0.84f));
+    } else {
+        DrawUiText("Q lock planet    G engage warp", textX, (int)panel.y + 118, 16,
+                   Fade(WHITE, 0.68f));
+    }
 }
 
 void DrawCrosshair(int screenWidth, int screenHeight)
@@ -1487,24 +1522,25 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     int x = 18;
     int y = 18;
     int w = 430;
-    int h = 350;
+    int h = 374;
     DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)w, (float)h }, 0.05f, 6, Fade(BLACK, 0.68f));
     DrawUiText("Voxelcraft", x + 14, y + 12, 24, WHITE);
     DrawUiText("WASD move    Shift sprint    Space jump/swim", x + 14, y + 48, 17, RAYWHITE);
     DrawUiText("LMB break    RMB place    MMB pick block", x + 14, y + 73, 17, RAYWHITE);
     DrawUiText("F float    Ctrl down (float)    Wheel hotbar", x + 14, y + 98, 17, RAYWHITE);
-    DrawUiText("Tab mouse    M star map    1-0 blocks    P album", x + 14, y + 123, 17, RAYWHITE);
+    DrawUiText("Tab mouse    M star map/warp    1-0 blocks    P album", x + 14, y + 123, 17, RAYWHITE);
     DrawUiText("RMB on placed album opens it", x + 14, y + 148, 17, RAYWHITE);
     DrawUiText("Esc pause    F6 day/night cycle", x + 14, y + 173, 17, RAYWHITE);
     DrawUiText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 198, 17, RAYWHITE);
     DrawUiText("Fly above y=120 to reach space", x + 14, y + 223, 17, RAYWHITE);
     DrawUiText("Break collects; place consumes blocks", x + 14, y + 248, 15, RAYWHITE);
-    DrawUiText("Ship: RMB enter, WASD thrust, R restore, E exit", x + 14, y + 272, 15, RAYWHITE);
-    DrawUiText("Flat: I import image, [ ] adjusts precision", x + 14, y + 296, 15, RAYWHITE);
+    DrawUiText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 272, 15, RAYWHITE);
+    DrawUiText("WASD thrust, R restore, E land/exit", x + 14, y + 296, 15, RAYWHITE);
+    DrawUiText("Flat: I import image, [ ] adjusts precision", x + 14, y + 320, 15, RAYWHITE);
     const char *mode = ShipIsDriving() ? "Ship" : (floating ? "Floating" : "Walking");
     DrawUiText(TextFormat("%s    %s    View %d    FPS %d", mode,
                           cursorReleased ? "Mouse free" : "Mouse locked", viewDistance, GetFPS()),
-               x + 14, y + 324, 16, Fade(RAYWHITE, 0.9f));
+               x + 14, y + 348, 16, Fade(RAYWHITE, 0.9f));
 }
 
 void DrawCursorReleasedOverlay(void)

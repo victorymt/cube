@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -59,6 +60,88 @@ static HomeWorldContext homeWorld = {
     .returnPosition = { 0.5f, 12.0f, 0.5f }
 };
 static double solarSimulationTime = 0.0;
+// World generation uses global integer coordinates. Rendering and physics use
+// this nearby local frame, which is periodically shifted during spaceflight.
+static int spaceOriginX = 0;
+static int spaceOriginZ = 0;
+
+#define SPACE_REBASE_THRESHOLD (STAR_SYSTEM_SPACING * 12)
+
+static int ClampCoordinate(int64_t value)
+{
+    if (value > INT_MAX) return INT_MAX;
+    if (value < INT_MIN) return INT_MIN;
+    return (int)value;
+}
+
+static int SpaceLocalToGlobalX(int localX)
+{
+    return ClampCoordinate((int64_t)localX + (int64_t)spaceOriginX);
+}
+
+static int SpaceLocalToGlobalZ(int localZ)
+{
+    return ClampCoordinate((int64_t)localZ + (int64_t)spaceOriginZ);
+}
+
+static int SpaceGlobalToLocalX(int globalX)
+{
+    return ClampCoordinate((int64_t)globalX - (int64_t)spaceOriginX);
+}
+
+static int SpaceGlobalToLocalZ(int globalZ)
+{
+    return ClampCoordinate((int64_t)globalZ - (int64_t)spaceOriginZ);
+}
+
+static int SpaceSystemGlobalCoordinate(int anchor)
+{
+    return ClampCoordinate((int64_t)anchor * (int64_t)STAR_SYSTEM_SPACING);
+}
+
+static int SpaceAnchorForLocalCoordinate(float local, int origin)
+{
+    int64_t global = (int64_t)llroundf(local) + (int64_t)origin;
+    int64_t halfSpacing = STAR_SYSTEM_SPACING / 2;
+    int64_t anchor = global >= 0 ? (global + halfSpacing) / STAR_SYSTEM_SPACING
+                                 : (global - halfSpacing) / STAR_SYSTEM_SPACING;
+    return ClampCoordinate(anchor);
+}
+
+int SpaceOriginX(void)
+{
+    return spaceOriginX;
+}
+
+int SpaceOriginZ(void)
+{
+    return spaceOriginZ;
+}
+
+void SpaceResetOrigin(void)
+{
+    spaceOriginX = 0;
+    spaceOriginZ = 0;
+}
+
+void SpaceSaveOrigin(FILE *file)
+{
+    fwrite(&spaceOriginX, sizeof(spaceOriginX), 1, file);
+    fwrite(&spaceOriginZ, sizeof(spaceOriginZ), 1, file);
+}
+
+bool SpaceLoadOrigin(FILE *file)
+{
+    int loadedX = 0;
+    int loadedZ = 0;
+    if (fread(&loadedX, sizeof(loadedX), 1, file) != 1 ||
+        fread(&loadedZ, sizeof(loadedZ), 1, file) != 1) {
+        return false;
+    }
+    spaceOriginX = loadedX;
+    spaceOriginZ = loadedZ;
+    return true;
+}
 
 bool HomeWorldSurfaceIsActive(void)
 {
@@ -67,7 +150,8 @@ bool HomeWorldSurfaceIsActive(void)
 
 Vector3 HomeWorldCenter(void)
 {
-    return (Vector3){ 0.0f, HOME_WORLD_CENTER_Y, 0.0f };
+    return (Vector3){ (float)SpaceGlobalToLocalX(0), HOME_WORLD_CENTER_Y,
+                      (float)SpaceGlobalToLocalZ(0) };
 }
 
 float HomeWorldRadius(void)
@@ -165,7 +249,7 @@ static void BuildSolSystem(SolarSystemDef *out)
     snprintf(out->name, sizeof(out->name), "Sol");
     out->spectrum = SPECTRUM_YELLOW;
     out->starRadius = 13;
-    out->center = (Vector3){ 0.0f, (float)SPACE_LAYER_Y + 48.0f, 0.0f };
+    out->center = (Vector3){ 0.0f, (float)SPACE_LAYER_Y + 64.0f, 0.0f };
     out->planetCount = 6;
     static const SolarPlanetDef solPlanets[6] = {
         { 180, 44, 0, SOLAR_STYLE_LAVA },
@@ -217,8 +301,10 @@ static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
 {
     const SolarPlanetDef *def = &sys->planets[index];
     float legacyAngle = (float)(SolarOrbitHash(sys, index) % 6283u) / 1000.0f;
-    int legacyX = (int)floorf(sys->center.x + cosf(legacyAngle) * (float)def->orbit);
-    int legacyZ = (int)floorf(sys->center.z + sinf(legacyAngle) * (float)def->orbit);
+    int legacyX = ClampCoordinate((int64_t)SpaceSystemGlobalCoordinate(sys->anchorX) +
+                                  (int64_t)floorf(cosf(legacyAngle) * (float)def->orbit));
+    int legacyZ = ClampCoordinate((int64_t)SpaceSystemGlobalCoordinate(sys->anchorZ) +
+                                  (int64_t)floorf(sinf(legacyAngle) * (float)def->orbit));
     uint32_t seed = WorldHash3D(legacyX, index + 1, legacyZ);
     return seed == 0u ? DEFAULT_WORLD_SEED : seed;
 }
@@ -382,6 +468,8 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
 {
     if (ax == 0 && az == 0) {
         BuildSolSystem(out);
+        out->center.x = (float)SpaceGlobalToLocalX(0);
+        out->center.z = (float)SpaceGlobalToLocalZ(0);
         for (int i = 0; i < out->planetCount; i++) {
             out->planets[i].style = SolarPlanetProfile(out, i).style;
         }
@@ -402,9 +490,10 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
     out->spectrum = (SpectrumType)(h % 5u);
     out->starRadius = (out->spectrum == SPECTRUM_RED_GIANT) ? 10 + (int)(h % 6u) : 9 + (int)(h % 6u);
     out->center = (Vector3){
-        (float)ax * (float)STAR_SYSTEM_SPACING,
-        (float)SPACE_LAYER_Y + 40.0f + (float)(WorldHash2D(ax + 7, az + 13) % 40u),
-        (float)az * (float)STAR_SYSTEM_SPACING
+        (float)SpaceGlobalToLocalX(SpaceSystemGlobalCoordinate(ax)),
+        (float)SPACE_LAYER_Y + 64.0f +
+            (float)(WorldHash2D(ax + 7, az + 13) % 25u) - 12.0f,
+        (float)SpaceGlobalToLocalZ(SpaceSystemGlobalCoordinate(az))
     };
     out->planetCount = 2 + (int)((h >> 8) % 4u);
 
@@ -431,23 +520,52 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
     unsigned int orbitHash = SolarOrbitHash(sys, index);
     unsigned int planeHash = SolarPlaneHash(sys);
     float phase = (float)(orbitHash % 6283u) / 1000.0f;
-    // Systems occupy genuinely different 3D planes (up to about 18 degrees
-    // from the reference plane), while neighboring planets remain mostly
-    // coplanar as expected from a shared protoplanetary disk.
-    float systemInclination = ((float)((planeHash >> 6) % 25u) - 12.0f) * 0.026f;
-    float planetInclination = ((float)((orbitHash >> 22) % 9u) - 4.0f) * 0.010f;
-    float inclination = Clamp(systemInclination + planetInclination, -0.36f, 0.36f);
+    // A planetary system is a thin but truly three-dimensional disk. Keep its
+    // vertical extent inside the playable space layer while preserving distinct
+    // planes between systems and slight differences between neighboring orbits.
+    float systemInclination = ((float)((planeHash >> 6) % 25u) - 12.0f) * 0.0055f;
+    float planetInclination = ((float)((orbitHash >> 22) % 9u) - 4.0f) * 0.0020f;
+    float inclination = Clamp(systemInclination + planetInclination, -0.074f, 0.074f);
     float systemNode = (float)((planeHash >> 13) % 6283u) / 1000.0f;
     float nodeOffset = ((float)((orbitHash >> 7) % 17u) - 8.0f) * 0.005f;
     float node = systemNode + nodeOffset;
     float orbitRatio = fmaxf((float)def->orbit / 180.0f, 0.1f);
-    // Circular Kepler orbit: mean motion is proportional to sqrt(M / a^3).
+    // Mean motion follows Kepler's third law. Eccentricity and periapsis are
+    // derived from stable system hashes, so a body keeps the same orbit across
+    // visits without requiring a saved simulation state.
     float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSpectrumMass(sys->spectrum)) /
                          (orbitRatio * sqrtf(orbitRatio));
-    float angle = phase + (float)(solarSimulationTime * (double)angularSpeed);
-    float planeX = cosf(angle) * (float)def->orbit;
-    float planeZ = sinf(angle) * (float)def->orbit * cosf(inclination);
-    float planeY = sinf(angle) * (float)def->orbit * sinf(inclination);
+    float meanAnomaly = phase + (float)(solarSimulationTime * (double)angularSpeed);
+    float eccentricity = 0.015f + (float)((orbitHash >> 17) % 180u) / 1000.0f;
+    if (sys->anchorX == 0 && sys->anchorZ == 0) {
+        static const float solEccentricities[6] = { 0.08f, 0.04f, 0.02f, 0.11f, 0.15f, 0.06f };
+        eccentricity = solEccentricities[index];
+    }
+    // Surface-world save data historically infers a host system from the
+    // stored body center. Keep apoapsis inside that system's anchor cell so
+    // outer planets never become ambiguous after a later launch or load.
+    float hostCellLimit = 694.0f / fmaxf((float)def->orbit, 1.0f) - 1.0f;
+    eccentricity = Clamp(eccentricity, 0.0f, fminf(0.22f, fmaxf(hostCellLimit, 0.0f)));
+
+    float eccentricAnomaly = meanAnomaly;
+    for (int iteration = 0; iteration < 4; iteration++) {
+        float residual = eccentricAnomaly - eccentricity * sinf(eccentricAnomaly) - meanAnomaly;
+        eccentricAnomaly -= residual / fmaxf(1.0f - eccentricity * cosf(eccentricAnomaly),
+                                              0.001f);
+    }
+
+    float semiMajorAxis = (float)def->orbit;
+    float semiMinorAxis = semiMajorAxis * sqrtf(1.0f - eccentricity * eccentricity);
+    float ellipseX = semiMajorAxis * (cosf(eccentricAnomaly) - eccentricity);
+    float ellipseZ = semiMinorAxis * sinf(eccentricAnomaly);
+    float periapsis = (float)((orbitHash >> 3) % 6283u) / 1000.0f;
+    float periCos = cosf(periapsis);
+    float periSin = sinf(periapsis);
+    float orbitX = ellipseX * periCos - ellipseZ * periSin;
+    float orbitZ = ellipseX * periSin + ellipseZ * periCos;
+    float planeX = orbitX;
+    float planeZ = orbitZ * cosf(inclination);
+    float planeY = orbitZ * sinf(inclination);
     float nodeCos = cosf(node);
     float nodeSin = sinf(node);
     return (Vector3){
@@ -461,8 +579,8 @@ Vector3 PlanetWorldSpaceReference(void)
 {
     if (!planetWorld.active) return Vector3Zero();
 
-    int systemAx = (int)roundf(planetWorld.bodyCenter.x / (float)STAR_SYSTEM_SPACING);
-    int systemAz = (int)roundf(planetWorld.bodyCenter.z / (float)STAR_SYSTEM_SPACING);
+    int systemAx = SpaceAnchorForLocalCoordinate(planetWorld.bodyCenter.x, spaceOriginX);
+    int systemAz = SpaceAnchorForLocalCoordinate(planetWorld.bodyCenter.z, spaceOriginZ);
     int orbitIndex = planetWorld.planetIndex - 1;
     SolarSystemDef system;
     if (StarSystemAt(systemAx, systemAz, &system) &&
@@ -513,8 +631,8 @@ bool SurfaceHostSystem(SolarSystemDef *out)
     if (HomeWorldSurfaceIsActive()) return StarSystemAt(0, 0, out);
     if (!planetWorld.active) return false;
 
-    int systemAx = (int)roundf(planetWorld.bodyCenter.x / (float)STAR_SYSTEM_SPACING);
-    int systemAz = (int)roundf(planetWorld.bodyCenter.z / (float)STAR_SYSTEM_SPACING);
+    int systemAx = SpaceAnchorForLocalCoordinate(planetWorld.bodyCenter.x, spaceOriginX);
+    int systemAz = SpaceAnchorForLocalCoordinate(planetWorld.bodyCenter.z, spaceOriginZ);
     return StarSystemAt(systemAx, systemAz, out);
 }
 
@@ -569,7 +687,7 @@ const char *PlanetAtmosphereName(PlanetAtmosphereType type)
 
 static BlockType StarBlock(int bx, int by, int bz, float distSqr, float shellSqr, SpectrumType spectrum)
 {
-    unsigned int h = WorldHash3D(bx, by, bz);
+    unsigned int h = WorldHash3D(SpaceLocalToGlobalX(bx), by, SpaceLocalToGlobalZ(bz));
     bool surface = distSqr >= shellSqr;
 
     switch (spectrum) {
@@ -646,10 +764,12 @@ static void FillStarBody(SpaceChunk *chunk, int startX, int startZ,
 
 static void FillSolarSystemsInChunk(SpaceChunk *chunk, int startX, int startZ)
 {
-    int minAnchorX = FloorDivInt(startX - 900, STAR_SYSTEM_SPACING);
-    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + 900, STAR_SYSTEM_SPACING);
-    int minAnchorZ = FloorDivInt(startZ - 900, STAR_SYSTEM_SPACING);
-    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + 900, STAR_SYSTEM_SPACING);
+    int minAnchorX = FloorDivInt(SpaceLocalToGlobalX(startX - 900), STAR_SYSTEM_SPACING);
+    int maxAnchorX = FloorDivInt(SpaceLocalToGlobalX(startX + CHUNK_SIZE + 900),
+                                 STAR_SYSTEM_SPACING);
+    int minAnchorZ = FloorDivInt(SpaceLocalToGlobalZ(startZ - 900), STAR_SYSTEM_SPACING);
+    int maxAnchorZ = FloorDivInt(SpaceLocalToGlobalZ(startZ + CHUNK_SIZE + 900),
+                                 STAR_SYSTEM_SPACING);
 
     for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
         for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
@@ -668,8 +788,8 @@ static void FillSolarSystemsInChunk(SpaceChunk *chunk, int startX, int startZ)
 
 static bool SpacePointInSolarSystemBubble(int x, int z)
 {
-    int centerAx = FloorDivInt(x, STAR_SYSTEM_SPACING);
-    int centerAz = FloorDivInt(z, STAR_SYSTEM_SPACING);
+    int centerAx = FloorDivInt(SpaceLocalToGlobalX(x), STAR_SYSTEM_SPACING);
+    int centerAz = FloorDivInt(SpaceLocalToGlobalZ(z), STAR_SYSTEM_SPACING);
     for (int ax = centerAx - 1; ax <= centerAx + 1; ax++) {
         for (int az = centerAz - 1; az <= centerAz + 1; az++) {
             SolarSystemDef sys;
@@ -686,13 +806,18 @@ static bool SpacePointInSolarSystemBubble(int x, int z)
 
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount)
 {
-    int count = 0;
-    int centerAx = FloorDivInt((int)floorf(pos.x), STAR_SYSTEM_SPACING);
-    int centerAz = FloorDivInt((int)floorf(pos.z), STAR_SYSTEM_SPACING);
+    if (!out || maxCount <= 0) return 0;
+
+    int centerAx = FloorDivInt(SpaceLocalToGlobalX((int)floorf(pos.x)),
+                               STAR_SYSTEM_SPACING);
+    int centerAz = FloorDivInt(SpaceLocalToGlobalZ((int)floorf(pos.z)),
+                               STAR_SYSTEM_SPACING);
     int radiusAnchors = (int)(maxDist / (float)STAR_SYSTEM_SPACING) + 1;
 
-    SolarSystemDef found[256];
-    float dists[256];
+    int storageLimit = maxCount;
+    if (storageLimit > STAR_SYSTEM_QUERY_MAX) storageLimit = STAR_SYSTEM_QUERY_MAX;
+    SolarSystemDef found[STAR_SYSTEM_QUERY_MAX];
+    float dists[STAR_SYSTEM_QUERY_MAX];
     int foundCount = 0;
 
     for (int ax = centerAx - radiusAnchors; ax <= centerAx + radiusAnchors; ax++) {
@@ -703,15 +828,24 @@ int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCoun
             float dz = sys.center.z - pos.z;
             float d = sqrtf(dx * dx + dz * dz);
             if (d > maxDist) continue;
-            if (foundCount < 256) {
+            if (foundCount < storageLimit) {
                 found[foundCount] = sys;
                 dists[foundCount] = d;
                 foundCount++;
+            } else {
+                int farthest = 0;
+                for (int i = 1; i < foundCount; i++) {
+                    if (dists[i] > dists[farthest]) farthest = i;
+                }
+                if (d < dists[farthest]) {
+                    found[farthest] = sys;
+                    dists[farthest] = d;
+                }
             }
         }
     }
 
-    for (int i = 0; i < foundCount && count < maxCount; i++) {
+    for (int i = 0; i < foundCount; i++) {
         int best = i;
         for (int j = i + 1; j < foundCount; j++) {
             if (dists[j] < dists[best]) best = j;
@@ -724,9 +858,9 @@ int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCoun
             dists[i] = dists[best];
             dists[best] = tmpDist;
         }
-        out[count++] = found[i];
+        out[i] = found[i];
     }
-    return count;
+    return foundCount;
 }
 
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist)
@@ -746,8 +880,10 @@ bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *o
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount)
 {
     int count = 0;
-    int centerAx = FloorDivInt((int)floorf(pos.x), STAR_SYSTEM_SPACING);
-    int centerAz = FloorDivInt((int)floorf(pos.z), STAR_SYSTEM_SPACING);
+    int centerAx = FloorDivInt(SpaceLocalToGlobalX((int)floorf(pos.x)),
+                               STAR_SYSTEM_SPACING);
+    int centerAz = FloorDivInt(SpaceLocalToGlobalZ((int)floorf(pos.z)),
+                               STAR_SYSTEM_SPACING);
 
     for (int ax = centerAx - 1; ax <= centerAx + 1; ax++) {
         for (int az = centerAz - 1; az <= centerAz + 1; az++) {
@@ -975,7 +1111,8 @@ bool HomeWorldTryLaunch(Player *player)
     RebuildTorchList();
     ClearUndoHistory();
 
-    player->position = (Vector3){ 0.0f, SPACE_ENTER_Y + 2.0f, 0.0f };
+    Vector3 homeCenter = HomeWorldCenter();
+    player->position = (Vector3){ homeCenter.x, SPACE_ENTER_Y + 2.0f, homeCenter.z };
     player->floating = false;
     player->onGround = false;
     SetImportMessage("Left Homeworld atmosphere. Spaceflight is now three-dimensional.");
@@ -1059,8 +1196,8 @@ bool PlanetWorldTryEnter(Player *player)
     UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
     DrainChunkGen();
     SetBlock(shipX, shipGround + 1, shipZ, BLOCK_SPACESHIP);
-    SetImportMessage(TextFormat("Landed on %s - this planet has a continuous surface.",
-                                planetWorld.name));
+    SetImportMessage(TextFormat("Landed on %s - %s.", planetWorld.name,
+                                PlanetBiomeName(PlanetBiomeAt(playerX, playerZ))));
     return true;
 }
 
@@ -1073,8 +1210,8 @@ bool PlanetWorldTryLaunch(Player *player)
     if (Vector3LengthSqr(outward) < 0.001f) outward = (Vector3){ 1.0f, 0.0f, 0.0f };
     else outward = Vector3Normalize(outward);
 
-    int systemAx = (int)roundf(planetWorld.bodyCenter.x / (float)STAR_SYSTEM_SPACING);
-    int systemAz = (int)roundf(planetWorld.bodyCenter.z / (float)STAR_SYSTEM_SPACING);
+    int systemAx = SpaceAnchorForLocalCoordinate(planetWorld.bodyCenter.x, spaceOriginX);
+    int systemAz = SpaceAnchorForLocalCoordinate(planetWorld.bodyCenter.z, spaceOriginZ);
     SolarSystemDef system;
     int orbitIndex = planetWorld.planetIndex - 1;
     if (StarSystemAt(systemAx, systemAz, &system) &&
@@ -1315,11 +1452,13 @@ static void ApplySpaceEditsToChunk(SpaceChunk *chunk)
     for (int i = 0; i < spaceEditCount; i++) {
         const BlockEdit *edit = &spaceEdits[i];
         if (edit->y < SPACE_LAYER_Y || edit->y >= SPACE_LAYER_TOP) continue;
+        int localX = SpaceGlobalToLocalX(edit->x);
+        int localZ = SpaceGlobalToLocalZ(edit->z);
         int editCx = 0;
         int editCz = 0;
         int editLx = 0;
         int editLz = 0;
-        WorldToChunkLocal(edit->x, edit->z, &editCx, &editCz, &editLx, &editLz);
+        WorldToChunkLocal(localX, localZ, &editCx, &editCz, &editLx, &editLz);
         if (editCx == chunk->cx && editCz == chunk->cz) {
             chunk->blocks[editLx][edit->y - SPACE_LAYER_Y][editLz] = (unsigned short)edit->type;
         }
@@ -1339,17 +1478,19 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
 
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
-    int minAnchorX = FloorDivInt(startX - 8, ASTEROID_SPACING);
-    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + 8, ASTEROID_SPACING);
-    int minAnchorZ = FloorDivInt(startZ - 8, ASTEROID_SPACING);
-    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + 8, ASTEROID_SPACING);
+    int minAnchorX = FloorDivInt(SpaceLocalToGlobalX(startX - 8), ASTEROID_SPACING);
+    int maxAnchorX = FloorDivInt(SpaceLocalToGlobalX(startX + CHUNK_SIZE + 8),
+                                 ASTEROID_SPACING);
+    int minAnchorZ = FloorDivInt(SpaceLocalToGlobalZ(startZ - 8), ASTEROID_SPACING);
+    int maxAnchorZ = FloorDivInt(SpaceLocalToGlobalZ(startZ + CHUNK_SIZE + 8),
+                                 ASTEROID_SPACING);
 
     for (int anchorX = minAnchorX; anchorX <= maxAnchorX; anchorX++) {
         for (int anchorZ = minAnchorZ; anchorZ <= maxAnchorZ; anchorZ++) {
             if (WorldHash2D(anchorX, anchorZ) % 100u >= ASTEROID_PROBABILITY) continue;
 
-            int wx = anchorX * ASTEROID_SPACING;
-            int wz = anchorZ * ASTEROID_SPACING;
+            int wx = SpaceGlobalToLocalX(ClampCoordinate((int64_t)anchorX * ASTEROID_SPACING));
+            int wz = SpaceGlobalToLocalZ(ClampCoordinate((int64_t)anchorZ * ASTEROID_SPACING));
             if (SpacePointInSolarSystemBubble(wx, wz)) continue;
             int wy = SPACE_LAYER_Y + 8 + (int)(WorldHash2D(anchorX + 3, anchorZ) % (unsigned int)(WORLD_HEIGHT - 16));
             int radius = 3 + (int)(WorldHash2D(anchorX, anchorZ + 7) % 5u);
@@ -1371,7 +1512,10 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
                         if (distSqr >= radiusSqr) continue;
 
                         BlockType type = (distSqr >= shellSqr) ? BLOCK_MOON_SAND : BLOCK_MOON_ROCK;
-                        if (WorldHash3D(bx, by, bz) % 89u == 0u) type = BLOCK_METEORITE;
+                        if (WorldHash3D(SpaceLocalToGlobalX(bx), by,
+                                        SpaceLocalToGlobalZ(bz)) % 89u == 0u) {
+                            type = BLOCK_METEORITE;
+                        }
                         chunk->blocks[lx][ly][lz] = (unsigned short)type;
                     }
                 }
@@ -1549,14 +1693,17 @@ void SpaceProcessFinishedGenJobs(void)
 
 static void SpaceRememberEdit(int x, int y, int z, BlockType type)
 {
+    int globalX = SpaceLocalToGlobalX(x);
+    int globalZ = SpaceLocalToGlobalZ(z);
     for (int i = 0; i < spaceEditCount; i++) {
-        if (spaceEdits[i].x == x && spaceEdits[i].y == y && spaceEdits[i].z == z) {
+        if (spaceEdits[i].x == globalX && spaceEdits[i].y == y &&
+            spaceEdits[i].z == globalZ) {
             spaceEdits[i].type = type;
             return;
         }
     }
     if (spaceEditCount < MAX_SPACE_EDITS) {
-        spaceEdits[spaceEditCount++] = (BlockEdit){ x, y, z, type };
+        spaceEdits[spaceEditCount++] = (BlockEdit){ globalX, y, globalZ, type };
     }
 }
 
@@ -1773,8 +1920,41 @@ void SpaceReset(void)
     UnloadAllSpaceChunks();
     spaceEditCount = 0;
     solarSimulationTime = 0.0;
+    SpaceResetOrigin();
     PlanetWorldReset();
     HomeWorldReset();
+}
+
+bool SpaceRebasePlayer(Player *player)
+{
+    if (!player || HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) return false;
+    if (fabsf(player->position.x) < (float)SPACE_REBASE_THRESHOLD &&
+        fabsf(player->position.z) < (float)SPACE_REBASE_THRESHOLD) {
+        return false;
+    }
+
+    int64_t stepX = (int64_t)llroundf(player->position.x / (float)STAR_SYSTEM_SPACING) *
+                    STAR_SYSTEM_SPACING;
+    int64_t stepZ = (int64_t)llroundf(player->position.z / (float)STAR_SYSTEM_SPACING) *
+                    STAR_SYSTEM_SPACING;
+    if (stepX == 0 && stepZ == 0) return false;
+
+    int64_t nextOriginX = (int64_t)spaceOriginX + stepX;
+    int64_t nextOriginZ = (int64_t)spaceOriginZ + stepZ;
+    if (nextOriginX > INT_MAX || nextOriginX < INT_MIN ||
+        nextOriginZ > INT_MAX || nextOriginZ < INT_MIN) {
+        return false;
+    }
+
+    // Wait for workers before changing the frame they use for procedural data.
+    UnloadAllSpaceChunks();
+    spaceOriginX = (int)nextOriginX;
+    spaceOriginZ = (int)nextOriginZ;
+    player->position.x -= (float)stepX;
+    player->position.z -= (float)stepZ;
+    RebuildTorchList();
+    SpaceRebuildTorchList();
+    return true;
 }
 
 int GetActiveSpaceChunkCount(void)
@@ -1790,7 +1970,8 @@ void SpaceRebuildTorchList(void)
 {
     for (int i = 0; i < spaceEditCount; i++) {
         if (spaceEdits[i].type == BLOCK_TORCH) {
-            TorchLightAdd(spaceEdits[i].x, spaceEdits[i].y, spaceEdits[i].z);
+            TorchLightAdd(SpaceGlobalToLocalX(spaceEdits[i].x), spaceEdits[i].y,
+                          SpaceGlobalToLocalZ(spaceEdits[i].z));
         }
     }
 }
