@@ -1175,9 +1175,15 @@ typedef struct PlanetRenderResources {
     int lightPositionLoc;
     int lightColorLoc;
     int lightIntensityLoc;
+    int cameraPositionLoc;
     int ambientLightLoc;
     int emissiveStrengthLoc;
     int exposureLoc;
+    int materialRoughnessLoc;
+    int materialSpecularLoc;
+    int materialMetallicLoc;
+    int materialOceanCoverageLoc;
+    int materialModelLoc;
     int cloudShadowMapLoc;
     int cloudShadowEnabledLoc;
     int cloudShadowRotationLoc;
@@ -1243,9 +1249,15 @@ static const char *planetLightingFragmentShader =
     "uniform vec3 lightPosition[3];\n"
     "uniform vec3 lightColor[3];\n"
     "uniform float lightIntensity[3];\n"
+    "uniform vec3 cameraPosition;\n"
     "uniform float ambientLight;\n"
     "uniform float emissiveStrength;\n"
     "uniform float sceneExposure;\n"
+    "uniform float materialRoughness;\n"
+    "uniform float materialSpecular;\n"
+    "uniform float materialMetallic;\n"
+    "uniform float materialOceanCoverage;\n"
+    "uniform int materialModel;\n"
     "uniform sampler2D cloudShadowMap;\n"
     "uniform int cloudShadowEnabled;\n"
     "uniform float cloudShadowRotation;\n"
@@ -1302,19 +1314,111 @@ static const char *planetLightingFragmentShader =
     "                             0.5)/24.0;\n"
     "    return ringDensityAt(sampledFraction)*ringShadowParams.y;\n"
     "}\n"
+    "float distributionGgx(float nDotH, float roughness)\n"
+    "{\n"
+    "    float alpha = roughness*roughness;\n"
+    "    float alphaSquared = alpha*alpha;\n"
+    "    float denominator = nDotH*nDotH*(alphaSquared - 1.0) + 1.0;\n"
+    "    return alphaSquared/max(3.14159265359*denominator*denominator, 0.0001);\n"
+    "}\n"
+    "float geometrySchlickGgx(float nDot, float roughness)\n"
+    "{\n"
+    "    float k = (roughness + 1.0);\n"
+    "    k = k*k/8.0;\n"
+    "    return nDot/max(nDot*(1.0 - k) + k, 0.0001);\n"
+    "}\n"
+    "float geometrySmith(float nDotV, float nDotL, float roughness)\n"
+    "{\n"
+    "    return geometrySchlickGgx(nDotV, roughness)*\n"
+    "           geometrySchlickGgx(nDotL, roughness);\n"
+    "}\n"
+    "vec3 fresnelSchlick(float cosine, vec3 f0)\n"
+    "{\n"
+    "    return f0 + (vec3(1.0) - f0)*pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);\n"
+    "}\n"
+    "float oceanMaskFromColor(vec3 color)\n"
+    "{\n"
+    "    float blueDominance = color.b - max(color.r, color.g)*0.72;\n"
+    "    float iceRejection = 1.0 - smoothstep(0.72, 0.90, max(color.r, max(color.g, color.b)));\n"
+    "    return smoothstep(0.17, 0.27, blueDominance)*iceRejection;\n"
+    "}\n"
+    "vec3 solidMaterialMasks(vec3 color)\n"
+    "{\n"
+    "    float high = max(color.r, max(color.g, color.b));\n"
+    "    float low = min(color.r, min(color.g, color.b));\n"
+    "    float chroma = high - low;\n"
+    "    float ice = smoothstep(0.68, 0.88, high)*\n"
+    "                smoothstep(-0.015, 0.075, color.b - color.r);\n"
+    "    float rock = (1.0 - smoothstep(0.08, 0.18, chroma))*\n"
+    "                 smoothstep(0.20, 0.38, high)*\n"
+    "                 (1.0 - smoothstep(0.68, 0.84, high));\n"
+    "    float sand = smoothstep(0.08, 0.22, color.r - color.b)*\n"
+    "                 smoothstep(0.02, 0.13, color.g - color.b)*(1.0 - ice);\n"
+    "    return clamp(vec3(ice, rock, sand), 0.0, 1.0);\n"
+    "}\n"
     "void main()\n"
     "{\n"
     "    vec4 texel = texture(texture0, fragTexCoord)*colDiffuse*fragColor;\n"
     "    if (texel.a < 0.005) discard;\n"
+    "    vec3 baseColor = max(texel.rgb, vec3(0.0));\n"
     "    vec3 normal = normalize(fragNormal);\n"
-    "    vec3 illumination = vec3(ambientLight);\n"
+    "    vec3 viewDirection = normalize(cameraPosition - fragPosition);\n"
+    "    float nDotV = max(dot(normal, viewDirection), 0.001);\n"
+    "    float oceanMask = 0.0;\n"
+    "    if (materialModel == 6)\n"
+    "    {\n"
+    "        oceanMask = oceanMaskFromColor(baseColor)*\n"
+    "                     clamp(materialOceanCoverage*1.9, 0.0, 1.0);\n"
+    "    }\n"
+    "    float roughness = clamp(materialRoughness, 0.045, 1.0);\n"
+    "    float specularStrength = clamp(materialSpecular, 0.0, 1.0);\n"
+    "    float metallic = clamp(materialMetallic, 0.0, 1.0);\n"
+    "    if (materialModel == 6)\n"
+    "    {\n"
+    "        vec3 solidMasks = solidMaterialMasks(baseColor);\n"
+    "        roughness = mix(roughness, 0.28, solidMasks.x);\n"
+    "        specularStrength = mix(specularStrength, 0.78, solidMasks.x);\n"
+    "        roughness = mix(roughness, 0.89, solidMasks.y);\n"
+    "        specularStrength = mix(specularStrength, 0.16, solidMasks.y);\n"
+    "        roughness = mix(roughness, 0.86, solidMasks.z);\n"
+    "        specularStrength = mix(specularStrength, 0.18, solidMasks.z);\n"
+    "    }\n"
+    "    if (oceanMask > 0.001)\n"
+    "    {\n"
+    "        roughness = mix(roughness, 0.055, oceanMask);\n"
+    "        specularStrength = mix(specularStrength, 0.92, oceanMask);\n"
+    "    }\n"
+    "    if (materialModel == 4)\n"
+    "    {\n"
+    "        float band = 0.5 + 0.5*sin(normal.y*56.0 + baseColor.r*4.0);\n"
+    "        roughness = mix(roughness, roughness*0.70, band*0.35);\n"
+    "    }\n"
+    "    vec3 dielectricF0 = vec3(0.02 + 0.02*specularStrength);\n"
+    "    vec3 f0 = mix(dielectricF0, baseColor, metallic);\n"
+    "    vec3 reflectedLight = vec3(0.0);\n"
     "    for (int i = 0; i < 3; i++)\n"
     "    {\n"
     "        if (i >= lightCount) break;\n"
+    "        vec3 lightResponse = vec3(0.0);\n"
     "        vec3 lightDirection = normalize(lightPosition[i] - fragPosition);\n"
     "        float incidence = dot(normal, lightDirection);\n"
     "        float daylight = smoothstep(-0.025, 0.055, incidence);\n"
     "        float directLight = max(incidence, 0.0)*daylight;\n"
+    "        float nDotL = max(incidence, 0.0);\n"
+    "        if (nDotL > 0.0001)\n"
+    "        {\n"
+    "            vec3 halfway = normalize(lightDirection + viewDirection);\n"
+    "            float nDotH = max(dot(normal, halfway), 0.0);\n"
+    "            float hDotV = max(dot(halfway, viewDirection), 0.0);\n"
+    "            float distribution = distributionGgx(nDotH, roughness);\n"
+    "            float geometry = geometrySmith(nDotV, nDotL, roughness);\n"
+    "            vec3 fresnel = fresnelSchlick(hDotV, f0);\n"
+    "            vec3 specular = distribution*geometry*fresnel /\n"
+    "                            max(4.0*nDotV*nDotL, 0.001);\n"
+    "            vec3 diffuse = (vec3(1.0) - fresnel)*(1.0 - metallic)*\n"
+    "                           baseColor/3.14159265359;\n"
+    "            lightResponse = diffuse + specular*specularStrength;\n"
+    "        }\n"
     "        if (cloudShadowEnabled != 0 && directLight > 0.001)\n"
     "        {\n"
     "            float shellHeight = 0.014;\n"
@@ -1328,12 +1432,20 @@ static const char *planetLightingFragmentShader =
     "        }\n"
     "        float ringOpacity = ringShadowOpacity(fragPosition, lightDirection);\n"
     "        directLight *= clamp(1.0 - ringOpacity, 0.10, 1.0);\n"
-    "        illumination += lightColor[i]*lightIntensity[i]*directLight;\n"
+    "        reflectedLight += lightColor[i]*lightIntensity[i]*lightResponse*directLight;\n"
     "    }\n"
     "    float brightChannel = max(texel.r, max(texel.g, texel.b));\n"
     "    float emissionMask = smoothstep(0.62, 0.94, brightChannel);\n"
     "    vec3 emission = texel.rgb*emissiveStrength*emissionMask;\n"
-    "    vec3 linearColor = texel.rgb*illumination + emission;\n"
+    "    vec3 ambient = baseColor*ambientLight*(0.72 + specularStrength*0.18);\n"
+    "    vec3 environmentColor = materialModel == 4\n"
+    "        ? mix(vec3(0.065, 0.085, 0.12), baseColor, 0.16)\n"
+    "        : vec3(0.035, 0.055, 0.09);\n"
+    "    float environmentStrength = (0.35 + specularStrength*0.65)*\n"
+    "                                (1.05 - roughness*0.55);\n"
+    "    vec3 environmentReflection = fresnelSchlick(nDotV, f0)*\n"
+    "                                 environmentColor*environmentStrength;\n"
+    "    vec3 linearColor = ambient + reflectedLight + environmentReflection + emission;\n"
     "    vec3 mappedColor = vec3(1.0) - exp(-linearColor*sceneExposure);\n"
     "    finalColor = vec4(mappedColor, texel.a);\n"
     "}\n";
@@ -2058,12 +2170,24 @@ static void EnsurePlanetRenderResources(void)
                                                     "lightColor[0]");
     planetRender.lightIntensityLoc = GetShaderLocation(planetRender.lightingShader,
                                                         "lightIntensity[0]");
+    planetRender.cameraPositionLoc = GetShaderLocation(planetRender.lightingShader,
+                                                       "cameraPosition");
     planetRender.ambientLightLoc = GetShaderLocation(planetRender.lightingShader,
                                                       "ambientLight");
     planetRender.emissiveStrengthLoc = GetShaderLocation(planetRender.lightingShader,
                                                           "emissiveStrength");
     planetRender.exposureLoc = GetShaderLocation(planetRender.lightingShader,
                                                  "sceneExposure");
+    planetRender.materialRoughnessLoc = GetShaderLocation(
+        planetRender.lightingShader, "materialRoughness");
+    planetRender.materialSpecularLoc = GetShaderLocation(
+        planetRender.lightingShader, "materialSpecular");
+    planetRender.materialMetallicLoc = GetShaderLocation(
+        planetRender.lightingShader, "materialMetallic");
+    planetRender.materialOceanCoverageLoc = GetShaderLocation(
+        planetRender.lightingShader, "materialOceanCoverage");
+    planetRender.materialModelLoc = GetShaderLocation(planetRender.lightingShader,
+                                                      "materialModel");
     planetRender.cloudShadowMapLoc = GetShaderLocation(planetRender.lightingShader,
                                                        "cloudShadowMap");
     planetRender.cloudShadowEnabledLoc = GetShaderLocation(planetRender.lightingShader,
@@ -2087,9 +2211,15 @@ static void EnsurePlanetRenderResources(void)
                                  planetRender.lightPositionLoc >= 0 &&
                                  planetRender.lightColorLoc >= 0 &&
                                  planetRender.lightIntensityLoc >= 0 &&
+                                 planetRender.cameraPositionLoc >= 0 &&
                                  planetRender.ambientLightLoc >= 0 &&
                                  planetRender.emissiveStrengthLoc >= 0 &&
                                  planetRender.exposureLoc >= 0 &&
+                                 planetRender.materialRoughnessLoc >= 0 &&
+                                 planetRender.materialSpecularLoc >= 0 &&
+                                 planetRender.materialMetallicLoc >= 0 &&
+                                 planetRender.materialOceanCoverageLoc >= 0 &&
+                                 planetRender.materialModelLoc >= 0 &&
                                  planetRender.cloudShadowMapLoc >= 0 &&
                                  planetRender.cloudShadowEnabledLoc >= 0 &&
                                  planetRender.cloudShadowRotationLoc >= 0 &&
@@ -2175,6 +2305,14 @@ typedef struct PlanetSpaceLighting {
     float exposure;
 } PlanetSpaceLighting;
 
+typedef struct PlanetMaterialResponse {
+    float roughness;
+    float specular;
+    float metallic;
+    float oceanCoverage;
+    int model;
+} PlanetMaterialResponse;
+
 typedef struct PlanetCloudLayer {
     Texture2D texture;
     float rotation;
@@ -2193,6 +2331,66 @@ static Vector3 PlanetShaderColor(Color color)
     return (Vector3){ (float)color.r / 255.0f,
                       (float)color.g / 255.0f,
                       (float)color.b / 255.0f };
+}
+
+static PlanetMaterialResponse PlanetMaterialResponseFor(const PlanetProfile *profile,
+                                                        bool cloudLayer)
+{
+    if (cloudLayer) {
+        return (PlanetMaterialResponse){
+            .roughness = 0.82f,
+            .specular = 0.36f,
+            .metallic = 0.0f,
+            .oceanCoverage = 0.0f,
+            .model = 7
+        };
+    }
+
+    PlanetMaterialResponse response = {
+        .roughness = 0.78f,
+        .specular = 0.24f,
+        .metallic = 0.0f,
+        .oceanCoverage = profile ? Clamp(profile->oceanCoverage, 0.0f, 1.0f) : 0.0f,
+        .model = profile ? (int)profile->style : 0
+    };
+    if (!profile) return response;
+
+    switch (profile->style) {
+    case SOLAR_STYLE_LAVA:
+        response.roughness = 0.58f;
+        response.specular = 0.42f;
+        response.metallic = 0.08f;
+        break;
+    case SOLAR_STYLE_ICE:
+        response.roughness = 0.28f;
+        response.specular = 0.78f;
+        response.metallic = 0.02f;
+        break;
+    case SOLAR_STYLE_DESERT:
+        response.roughness = 0.86f;
+        response.specular = 0.18f;
+        break;
+    case SOLAR_STYLE_GAS:
+        response.roughness = 0.41f;
+        response.specular = 0.72f;
+        response.oceanCoverage = 0.0f;
+        break;
+    case SOLAR_STYLE_CRATER:
+        response.roughness = 0.92f;
+        response.specular = 0.14f;
+        break;
+    case SOLAR_STYLE_TEMPERATE:
+        response.roughness = 0.64f;
+        response.specular = 0.38f;
+        break;
+    default:
+        break;
+    }
+
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_NONE) {
+        response.roughness = Clamp(response.roughness + 0.035f, 0.045f, 1.0f);
+    }
+    return response;
 }
 
 static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemAnchorZ,
@@ -2218,7 +2416,9 @@ static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemA
 
 static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                                float rotation, Color fallback,
+                               Vector3 cameraPosition,
                                const PlanetSpaceLighting *lighting,
+                               const PlanetMaterialResponse *material,
                                float ambientLight, float emissiveStrength,
                                const PlanetCloudLayer *cloudLayer,
                                const PlanetRingLayer *ringLayer)
@@ -2239,6 +2439,10 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
             SetShaderValueV(planetRender.lightingShader, planetRender.lightIntensityLoc,
                             lighting->intensities, SHADER_UNIFORM_FLOAT, lightCount);
         }
+        PlanetMaterialResponse defaultMaterial = PlanetMaterialResponseFor(NULL, false);
+        if (!material) material = &defaultMaterial;
+        SetShaderValue(planetRender.lightingShader, planetRender.cameraPositionLoc,
+                       &cameraPosition, SHADER_UNIFORM_VEC3);
         SetShaderValue(planetRender.lightingShader, planetRender.ambientLightLoc,
                        &ambientLight, SHADER_UNIFORM_FLOAT);
         SetShaderValue(planetRender.lightingShader, planetRender.emissiveStrengthLoc,
@@ -2247,6 +2451,16 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                          lighting->exposure : planetSceneExposure;
         SetShaderValue(planetRender.lightingShader, planetRender.exposureLoc,
                        &exposure, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(planetRender.lightingShader, planetRender.materialRoughnessLoc,
+                       &material->roughness, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(planetRender.lightingShader, planetRender.materialSpecularLoc,
+                       &material->specular, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(planetRender.lightingShader, planetRender.materialMetallicLoc,
+                       &material->metallic, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(planetRender.lightingShader, planetRender.materialOceanCoverageLoc,
+                       &material->oceanCoverage, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(planetRender.lightingShader, planetRender.materialModelLoc,
+                       &material->model, SHADER_UNIFORM_INT);
         int cloudShadowEnabled = cloudLayer && cloudLayer->texture.id != 0 &&
                                  cloudLayer->shadowStrength > 0.001f;
         float cloudShadowRotation = cloudShadowEnabled ?
@@ -2562,13 +2776,18 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
                                                bodies[i].worldSeed);
                 activeRing = &ringLayer;
             }
+            PlanetMaterialResponse material = PlanetMaterialResponseFor(
+                &bodies[i].profile, false);
             DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color,
-                               &lighting, ambientLight, emissiveStrength, &cloudLayer,
-                               activeRing);
+                               camera->position, &lighting, &material, ambientLight,
+                               emissiveStrength, &cloudLayer, activeRing);
             if (cloudLayer.texture.id != 0) {
+                PlanetMaterialResponse cloudMaterial = PlanetMaterialResponseFor(
+                    &bodies[i].profile, true);
                 DrawTexturedPlanet(bodies[i].center, radius * 1.014f,
                                    cloudLayer.texture, cloudLayer.rotation, WHITE,
-                                   &lighting, ambientLight, 0.0f, NULL, NULL);
+                                   camera->position, &lighting, &cloudMaterial,
+                                   ambientLight, 0.0f, NULL, NULL);
             }
             DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
                                  &lighting, atmosphereAlpha * spaceFade);
@@ -2613,12 +2832,16 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
                                          planetRender.homeCloudSeed ^ 0x8392f5u),
         .shadowStrength = PlanetCloudShadowStrength(&homeAtmosphere)
     };
+    PlanetMaterialResponse material = PlanetMaterialResponseFor(&homeAtmosphere, false);
     DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor(),
-                       &lighting, 0.056f, 0.0f, &cloudLayer, NULL);
+                       camera->position, &lighting, &material, 0.056f, 0.0f,
+                       &cloudLayer, NULL);
     if (cloudLayer.texture.id != 0) {
+        PlanetMaterialResponse cloudMaterial = PlanetMaterialResponseFor(
+            &homeAtmosphere, true);
         DrawTexturedPlanet(center, radius * 1.014f, cloudLayer.texture,
-                           cloudLayer.rotation, WHITE, &lighting, 0.056f, 0.0f,
-                           NULL, NULL);
+                           cloudLayer.rotation, WHITE, camera->position, &lighting,
+                           &cloudMaterial, 0.056f, 0.0f, NULL, NULL);
     }
     DrawPlanetAtmosphere(camera, center, radius, &homeAtmosphere,
                          &lighting, 0.62f * spaceFade);
