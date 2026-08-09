@@ -183,6 +183,9 @@ Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
 float SolarSystemPlanetOrbitPeriod(const SolarSystemDef *sys, int index);
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
                             int maxCount);
+float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point);
+float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
+                              Vector3 point);
 PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index);
 Vector3 PlanetWorldSpaceReference(void);
 Vector3 PlanetWorldSkyDirection(Vector3 worldDirection);

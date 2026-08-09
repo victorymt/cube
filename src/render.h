@@ -20,6 +20,7 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
 void SkyColorsForLight(float daylight, float sunset, Color *top, Color *horizon);
 void DrawStars(const Camera3D *camera, float daylight);
 void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight);
+void UpdatePlanetSceneExposure(const Camera3D *camera);
 void DrawSpaceSky(float spaceFade, const Camera3D *camera);
 void DrawSolarGuide(const Camera3D *camera, float spaceFade);
 void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade);

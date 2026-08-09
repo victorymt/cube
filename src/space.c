@@ -20,6 +20,7 @@
 #define SPACE_MESH_REBUILDS_PER_FRAME 2
 #define SOLAR_ORBIT_BASE_SPEED 0.040f
 #define STAR_SYSTEM_MID_Y ((float)SPACE_LAYER_Y + (float)SPACE_LAYER_HEIGHT * 0.5f)
+#define SOLAR_REFERENCE_DISTANCE 340.0f
 #define STAR_SYSTEM_VERTICAL_RANGE 46.0f
 #define STAR_SKY_PHYSICAL_DISTANCE 700.0f
 #define STAR_SKY_FULL_LATITUDE_DISTANCE 5000.0f
@@ -452,11 +453,24 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     float sizeUnit = PlanetProfileHashUnit(seed, 1u);
     float composition = PlanetProfileHashUnit(seed, 2u);
     float volatileSupply = PlanetProfileHashUnit(seed, 3u);
-    float orbitAU = fmaxf((float)def->orbit / 340.0f, 0.18f);
-    // 340 blocks is the game's one-AU reference. This is a game-scale
-    // blackbody equilibrium estimate, so the same orbit also drives climate.
-    float temperature = 278.5f * powf(SolarSpectrumLuminosity(sys->spectrum), 0.25f) /
-                        sqrtf(orbitAU);
+    float orbitAU = fmaxf((float)def->orbit / SOLAR_REFERENCE_DISTANCE, 0.18f);
+    SolarLightSource climateSources[MAX_SOLAR_LIGHTS];
+    int climateSourceCount = SolarSystemLightSources(sys, climateSources,
+                                                      MAX_SOLAR_LIGHTS);
+    float orbitDistanceSqr = fmaxf((float)def->orbit * (float)def->orbit, 1.0f);
+    float referenceSqr = SOLAR_REFERENCE_DISTANCE * SOLAR_REFERENCE_DISTANCE;
+    float irradiance = 0.0f;
+    for (int sourceIndex = 0; sourceIndex < climateSourceCount; sourceIndex++) {
+        irradiance += climateSources[sourceIndex].luminosity * referenceSqr /
+                      orbitDistanceSqr;
+    }
+    if (irradiance <= 0.0001f) {
+        irradiance = SolarSpectrumLuminosity(sys->spectrum) / (orbitAU * orbitAU);
+    }
+    // Use the mean orbital radius here so binary motion does not churn terrain or
+    // cloud caches; the live position is still used by frame-by-frame lighting.
+    // One unit is the irradiance of a yellow star at the 340-block AU reference.
+    float temperature = 278.5f * powf(fmaxf(irradiance, 0.0001f), 0.25f);
     temperature *= 0.96f + PlanetProfileHashUnit(seed, 4u) * 0.08f;
 
     float solidRadiusEarth = 0.72f + ((float)def->size - 40.0f) * 0.095f;
@@ -830,6 +844,25 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
     return count;
 }
 
+float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point)
+{
+    if (!source || source->luminosity <= 0.0f) return 0.0f;
+    float distanceSqr = Vector3DistanceSqr(source->center, point);
+    float referenceSqr = SOLAR_REFERENCE_DISTANCE * SOLAR_REFERENCE_DISTANCE;
+    return source->luminosity * referenceSqr / fmaxf(distanceSqr, 1.0f);
+}
+
+float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
+                              Vector3 point)
+{
+    if (!sources || sourceCount <= 0) return 0.0f;
+    float total = 0.0f;
+    for (int i = 0; i < sourceCount; i++) {
+        total += SolarLightIrradianceAt(&sources[i], point);
+    }
+    return total;
+}
+
 static Vector3 PlanetSurfaceNormalAt(Vector3 surfacePosition)
 {
     float radius = fmaxf(planetWorld.bodyRadius, 24.0f);
@@ -912,7 +945,7 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
         // The inverse rotation keeps a tidally locked face pointed at its star.
         Vector3 direction = PlanetWorldSkyDirection(toSource);
         direction = PlanetRotateY(Vector3Normalize(direction), -spinPhase);
-        float weight = sources[i].luminosity * 32400.0f / fmaxf(distance * distance, 1.0f);
+        float weight = SolarLightIrradianceAt(&sources[i], planetCenter);
         bool eclipsed = false;
         for (int j = 0; j < sourceCount; j++) {
             if (i == j) continue;
@@ -949,7 +982,8 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
     Vector3 sunDirection = Vector3Normalize(weightedDirection);
     Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
     float incidence = Vector3DotProduct(surfaceNormal, sunDirection);
-    float daylight = Clamp(incidence * totalWeight, 0.0f, 1.0f);
+    float incidentIrradiance = fmaxf(incidence, 0.0f) * totalWeight;
+    float daylight = 1.0f - expf(-incidentIrradiance * 1.45f);
 
     float moonAngle = (float)(planetWorld.seed % 6283u) / 1000.0f +
                       (float)solarSimulationTime * 0.018f;
@@ -972,7 +1006,9 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
     out->sunDirection = sunDirection;
     out->moonDirection = moonDirection;
     out->daylight = daylight;
-    out->sunset = incidence > 0.0f ? powf(1.0f - daylight, 2.0f) : 0.0f;
+    out->sunset = incidence > 0.0f ?
+                  powf(1.0f - Clamp(incidence, 0.0f, 1.0f), 2.0f) *
+                  Clamp(sqrtf(totalWeight), 0.0f, 1.0f) : 0.0f;
     out->ringShadow = PlanetRingShadowForPoint(surfacePosition, sunDirection);
     out->daylight *= (1.0f - out->ringShadow * 0.72f);
     out->daylight *= (1.0f - out->eclipse * 0.88f);

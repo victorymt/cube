@@ -1021,6 +1021,7 @@ int main(void)
                                          &planetLight);
         float planetAtmosphereFade = PlanetWorldAtmosphereFade(camera.position);
         float skyFade = fmaxf(spaceFade, planetAtmosphereFade);
+        UpdatePlanetSceneExposure(&camera);
         skyTop = ColorLerp(skyTop, BLACK, skyFade);
         skyHorizon = ColorLerp(skyHorizon, BLACK, skyFade);
         worldTint = ColorLerp(worldTint, (Color){ 46, 54, 78, 255 }, skyFade);

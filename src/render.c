@@ -43,6 +43,57 @@ static int skySystemCount = 0;
 static Vector3 skySystemCenter = { 0 };
 static bool skySystemCacheValid = false;
 static uint32_t skySystemWorldSeed = 0;
+static float planetSceneExposure = 1.12f;
+static bool planetExposureInitialized = false;
+
+static float PlanetExposureBrightness(float irradiance)
+{
+    return 1.0f - expf(-fmaxf(irradiance, 0.0f) * planetSceneExposure);
+}
+
+void UpdatePlanetSceneExposure(const Camera3D *camera)
+{
+    if (!camera) return;
+
+    Vector3 observer = camera->position;
+    SolarSystemDef system = { 0 };
+    bool haveSystem = false;
+    if (PlanetWorldIsActive()) {
+        observer = PlanetWorldSpaceReference();
+        haveSystem = SurfaceHostSystem(&system);
+    } else if (HomeWorldSurfaceIsActive()) {
+        observer = HomeWorldCenter();
+        haveSystem = StarSystemAt(0, 0, &system);
+    } else {
+        haveSystem = FindNearestSystem(observer, STAR_SYSTEM_SPACING * 0.90f,
+                                       &system, NULL);
+    }
+
+    float irradiance = 0.02f;
+    if (haveSystem) {
+        SolarLightSource sources[MAX_SOLAR_LIGHTS];
+        int sourceCount = SolarSystemLightSources(&system, sources, MAX_SOLAR_LIGHTS);
+        irradiance = SolarSystemIrradianceAt(sources, sourceCount, observer);
+    }
+
+    // Keep some physical contrast: exposure compensates slowly and only partially,
+    // so distant worlds remain cold and dim while close worlds do not clip white.
+    float target = 1.12f * powf(fmaxf(irradiance, 0.02f), -0.16f);
+    target = Clamp(target, 0.45f, 1.55f);
+    if (!planetExposureInitialized) {
+        planetSceneExposure = target;
+        planetExposureInitialized = true;
+        return;
+    }
+
+    float dt = Clamp(GetFrameTime(), 0.0f, 0.12f);
+    float relativeDelta = fabsf(logf(fmaxf(target, 0.001f) /
+                                    fmaxf(planetSceneExposure, 0.001f)));
+    if (relativeDelta <= 0.02f || dt <= 0.0f) return;
+    float response = target < planetSceneExposure ? 0.30f : 0.16f;
+    float blend = 1.0f - expf(-response * dt);
+    planetSceneExposure += (target - planetSceneExposure) * blend;
+}
 
 #include "chunks.h"
 #include "world.h"
@@ -277,10 +328,14 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
 
         float airMass = Clamp(1.0f / (0.20f + fmaxf(direction.y, 0.0f)), 0.85f, 4.20f);
         float visibility = Clamp(light->sourceVisibility[i], 0.0f, 1.0f);
+        float sourceBrightness = PlanetExposureBrightness(light->sourceIntensities[i]);
         float scatterAlpha = Clamp(visual.opticalDepth *
                                    (0.018f + visual.mieStrength * 0.022f) * airMass *
-                                   visibility * atmosphereVisibility, 0.0f, 0.20f);
-        float radius = Clamp((32.0f + visual.opticalDepth * 42.0f) * airMass,
+                                   visibility * atmosphereVisibility *
+                                   (0.22f + sourceBrightness * 0.78f),
+                                   0.0f, 0.20f);
+        float radius = Clamp((32.0f + visual.opticalDepth * 42.0f) * airMass *
+                             (0.78f + sourceBrightness * 0.42f),
                              42.0f, 230.0f);
         Color scatter = ColorLerp(visual.haze, light->sourceColors[i], 0.48f);
         DrawCircleGradient((int)screen.x, (int)screen.y, radius,
@@ -596,8 +651,10 @@ void DrawStars(const Camera3D *camera, float daylight)
             }
             float distanceFade = 1.0f - 0.58f * Clamp(sourceDistance / STAR_SKY_RANGE,
                                                        0.0f, 1.0f);
-            float luminosityScale = sourceIndex == 0 ? 1.0f :
-                                    Clamp(sqrtf(sources[sourceIndex].luminosity), 0.35f, 1.0f);
+            float apparentIrradiance = SolarLightIrradianceAt(&sources[sourceIndex], observer);
+            float irradianceBrightness = PlanetExposureBrightness(apparentIrradiance);
+            float luminosityScale = Clamp(0.24f + sqrtf(irradianceBrightness) * 1.10f,
+                                          0.24f, 1.20f);
             unsigned char alpha = (unsigned char)Clamp(visibility * 235.0f * twinkle *
                                                         distanceFade * luminosityScale,
                                                         0.0f, 255.0f);
@@ -667,8 +724,14 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
                 if (Vector3LengthSqr(sourceDir) < 0.0001f ||
                     Vector3DotProduct(sourceDir, forward) <= 0.01f) continue;
 
-                float contribution = Clamp(state.sourceIntensities[sourceIndex] /
-                                           fmaxf(state.totalIntensity, 0.001f), 0.0f, 1.0f);
+                float relativeContribution = Clamp(state.sourceIntensities[sourceIndex] /
+                                                   fmaxf(state.totalIntensity, 0.001f),
+                                                   0.0f, 1.0f);
+                float absoluteContribution = PlanetExposureBrightness(
+                    state.sourceIntensities[sourceIndex]);
+                float contribution = Clamp(absoluteContribution *
+                                           (0.45f + relativeContribution * 0.55f),
+                                           0.0f, 1.0f);
                 float sourceVisibility = state.sourceVisibility[sourceIndex];
                 if (sourceVisibility <= 0.0f) sourceVisibility = 1.0f;
                 Color sourceColor = ColorLerp(BLACK, state.sourceColors[sourceIndex],
@@ -692,9 +755,14 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
                                         0.0f, 0.34f);
                 DrawCircleGradient((int)sourceScreen.x, (int)sourceScreen.y, glowRadius,
                                    Fade(sourceColor, glowAlpha), BLANK);
+                Color sourceCore = ColorLerp((Color){ 12, 16, 28, 255 },
+                                             ColorLerp(sourceColor, WHITE, 0.48f),
+                                             0.18f + contribution * 0.82f);
+                sourceCore.a = (unsigned char)Clamp((0.24f + contribution * 0.76f) *
+                                                     255.0f, 0.0f, 255.0f);
                 DrawCircle((int)sourceScreen.x, (int)sourceScreen.y,
                            10.0f + sqrtf(contribution) * 6.0f,
-                           ColorLerp(sourceColor, WHITE, 0.48f));
+                           sourceCore);
                 if (sourceIndex == 0 && state.eclipse > 0.1f) {
                     DrawCircle((int)sourceScreen.x, (int)sourceScreen.y, 11.0f,
                                Fade((Color){ 18, 18, 28, 255 }, 0.74f * state.eclipse));
@@ -1109,10 +1177,16 @@ typedef struct PlanetRenderResources {
     int lightIntensityLoc;
     int ambientLightLoc;
     int emissiveStrengthLoc;
+    int exposureLoc;
     int cloudShadowMapLoc;
     int cloudShadowEnabledLoc;
     int cloudShadowRotationLoc;
     int cloudShadowStrengthLoc;
+    int ringShadowEnabledLoc;
+    int ringShadowCenterLoc;
+    int ringShadowNormalLoc;
+    int ringShadowRadiiLoc;
+    int ringShadowParamsLoc;
     int atmosphereLightCountLoc;
     int atmosphereLightPositionLoc;
     int atmosphereLightColorLoc;
@@ -1123,6 +1197,7 @@ typedef struct PlanetRenderResources {
     int atmosphereOpticalDepthLoc;
     int atmosphereMieStrengthLoc;
     int atmosphereAlphaLoc;
+    int atmosphereExposureLoc;
     Texture2D home;
     Texture2D homeClouds;
     uint32_t homeCloudSeed;
@@ -1170,10 +1245,16 @@ static const char *planetLightingFragmentShader =
     "uniform float lightIntensity[3];\n"
     "uniform float ambientLight;\n"
     "uniform float emissiveStrength;\n"
+    "uniform float sceneExposure;\n"
     "uniform sampler2D cloudShadowMap;\n"
     "uniform int cloudShadowEnabled;\n"
     "uniform float cloudShadowRotation;\n"
     "uniform float cloudShadowStrength;\n"
+    "uniform int ringShadowEnabled;\n"
+    "uniform vec3 ringShadowCenter;\n"
+    "uniform vec3 ringShadowNormal;\n"
+    "uniform vec2 ringShadowRadii;\n"
+    "uniform vec2 ringShadowParams;\n"
     "out vec4 finalColor;\n"
     "vec2 cloudUvForNormal(vec3 normal)\n"
     "{\n"
@@ -1186,6 +1267,40 @@ static const char *planetLightingFragmentShader =
     "    float u = fract(longitude/6.28318530718);\n"
     "    if (u < 0.0) u += 1.0;\n"
     "    return vec2(u, 0.5 - latitude/3.14159265359);\n"
+    "}\n"
+    "float ringDensityAt(float radialFraction)\n"
+    "{\n"
+    "    float phase = ringShadowParams.x;\n"
+    "    float broad = 0.5 + 0.5*sin(radialFraction*29.0 + phase);\n"
+    "    float fine = 0.5 + 0.5*sin(radialFraction*73.0 + phase*1.73);\n"
+    "    float gapCenterA = 0.22 + 0.18*(0.5 + 0.5*sin(phase*0.71));\n"
+    "    float gapCenterB = 0.62 + 0.18*(0.5 + 0.5*sin(phase*1.13 + 1.7));\n"
+    "    float gapACoord = (radialFraction - gapCenterA)/0.028;\n"
+    "    float gapBCoord = (radialFraction - gapCenterB)/0.045;\n"
+    "    float gapA = exp(-gapACoord*gapACoord);\n"
+    "    float gapB = exp(-gapBCoord*gapBCoord);\n"
+    "    return clamp(0.10 + broad*0.54 + fine*0.24 -\n"
+    "                 max(gapA, gapB)*0.72, 0.008, 0.94);\n"
+    "}\n"
+    "float ringShadowOpacity(vec3 surfacePoint, vec3 lightDirection)\n"
+    "{\n"
+    "    if (ringShadowEnabled == 0) return 0.0;\n"
+    "    vec3 ringNormal = normalize(ringShadowNormal);\n"
+    "    float denominator = dot(lightDirection, ringNormal);\n"
+    "    if (abs(denominator) < 0.0005) return 0.0;\n"
+    "    float distanceToPlane = -dot(surfacePoint - ringShadowCenter, ringNormal)/\n"
+    "                            denominator;\n"
+    "    if (distanceToPlane <= 0.0) return 0.0;\n"
+    "    vec3 hit = surfacePoint + lightDirection*distanceToPlane;\n"
+    "    vec3 offset = hit - ringShadowCenter;\n"
+    "    vec3 planar = offset - ringNormal*dot(offset, ringNormal);\n"
+    "    float radialDistance = length(planar);\n"
+    "    float ringWidth = max(ringShadowRadii.y - ringShadowRadii.x, 0.001);\n"
+    "    float radialFraction = (radialDistance - ringShadowRadii.x)/ringWidth;\n"
+    "    if (radialFraction < 0.0 || radialFraction > 1.0) return 0.0;\n"
+    "    float sampledFraction = (floor(clamp(radialFraction, 0.0, 0.9999)*24.0) +\n"
+    "                             0.5)/24.0;\n"
+    "    return ringDensityAt(sampledFraction)*ringShadowParams.y;\n"
     "}\n"
     "void main()\n"
     "{\n"
@@ -1211,12 +1326,16 @@ static const char *planetLightingFragmentShader =
     "            float transmission = 1.0 - cloudOpacity*cloudShadowStrength;\n"
     "            directLight *= clamp(transmission, 0.08, 1.0);\n"
     "        }\n"
+    "        float ringOpacity = ringShadowOpacity(fragPosition, lightDirection);\n"
+    "        directLight *= clamp(1.0 - ringOpacity, 0.10, 1.0);\n"
     "        illumination += lightColor[i]*lightIntensity[i]*directLight;\n"
     "    }\n"
     "    float brightChannel = max(texel.r, max(texel.g, texel.b));\n"
     "    float emissionMask = smoothstep(0.62, 0.94, brightChannel);\n"
     "    vec3 emission = texel.rgb*emissiveStrength*emissionMask;\n"
-    "    finalColor = vec4(texel.rgb*illumination + emission, texel.a);\n"
+    "    vec3 linearColor = texel.rgb*illumination + emission;\n"
+    "    vec3 mappedColor = vec3(1.0) - exp(-linearColor*sceneExposure);\n"
+    "    finalColor = vec4(mappedColor, texel.a);\n"
     "}\n";
 
 static const char *planetAtmosphereVertexShader =
@@ -1249,6 +1368,7 @@ static const char *planetAtmosphereFragmentShader =
     "uniform float opticalDepth;\n"
     "uniform float mieStrength;\n"
     "uniform float atmosphereAlpha;\n"
+    "uniform float sceneExposure;\n"
     "out vec4 finalColor;\n"
     "float miePhase(float cosine, float anisotropy)\n"
     "{\n"
@@ -1276,7 +1396,7 @@ static const char *planetAtmosphereFragmentShader =
     "        float scatterCosine = clamp(dot(-lightDirection, viewDirection), -1.0, 1.0);\n"
     "        float rayleighPhase = 0.55 + 0.45*scatterCosine*scatterCosine;\n"
     "        float forwardMie = min(miePhase(scatterCosine, 0.58)*0.085, 1.8);\n"
-    "        float intensity = clamp(lightIntensity[i], 0.0, 2.4);\n"
+    "        float intensity = max(lightIntensity[i], 0.0);\n"
     "        float rayleighWeight = intensity*daySide*(0.48 + rayleighPhase*0.52);\n"
     "        float twilightWeight = intensity*terminator*(0.34 + mieStrength*0.72);\n"
     "        float mieWeight = intensity*daySide*mieStrength*forwardMie*0.16;\n"
@@ -1288,7 +1408,7 @@ static const char *planetAtmosphereFragmentShader =
     "        scatterSum += lightColor[i]*mieWeight;\n"
     "        scatterWeight += rayleighWeight + twilightWeight + mieWeight;\n"
     "    }\n"
-    "    float illuminated = clamp(scatterWeight, 0.0, 2.8);\n"
+    "    float illuminated = 1.0 - exp(-max(scatterWeight, 0.0)*sceneExposure);\n"
     "    vec3 scatteredColor = scatterWeight > 0.0001\n"
     "        ? scatterSum/scatterWeight : rayleighColor*0.08;\n"
     "    float nightAir = opticalDepth*opticalPath*0.012;\n"
@@ -1942,6 +2062,8 @@ static void EnsurePlanetRenderResources(void)
                                                       "ambientLight");
     planetRender.emissiveStrengthLoc = GetShaderLocation(planetRender.lightingShader,
                                                           "emissiveStrength");
+    planetRender.exposureLoc = GetShaderLocation(planetRender.lightingShader,
+                                                 "sceneExposure");
     planetRender.cloudShadowMapLoc = GetShaderLocation(planetRender.lightingShader,
                                                        "cloudShadowMap");
     planetRender.cloudShadowEnabledLoc = GetShaderLocation(planetRender.lightingShader,
@@ -1950,6 +2072,16 @@ static void EnsurePlanetRenderResources(void)
                                                             "cloudShadowRotation");
     planetRender.cloudShadowStrengthLoc = GetShaderLocation(planetRender.lightingShader,
                                                             "cloudShadowStrength");
+    planetRender.ringShadowEnabledLoc = GetShaderLocation(planetRender.lightingShader,
+                                                          "ringShadowEnabled");
+    planetRender.ringShadowCenterLoc = GetShaderLocation(planetRender.lightingShader,
+                                                         "ringShadowCenter");
+    planetRender.ringShadowNormalLoc = GetShaderLocation(planetRender.lightingShader,
+                                                         "ringShadowNormal");
+    planetRender.ringShadowRadiiLoc = GetShaderLocation(planetRender.lightingShader,
+                                                        "ringShadowRadii");
+    planetRender.ringShadowParamsLoc = GetShaderLocation(planetRender.lightingShader,
+                                                         "ringShadowParams");
     planetRender.lightingReady = planetRender.lightingShader.id != 0 &&
                                  planetRender.lightCountLoc >= 0 &&
                                  planetRender.lightPositionLoc >= 0 &&
@@ -1957,10 +2089,16 @@ static void EnsurePlanetRenderResources(void)
                                  planetRender.lightIntensityLoc >= 0 &&
                                  planetRender.ambientLightLoc >= 0 &&
                                  planetRender.emissiveStrengthLoc >= 0 &&
+                                 planetRender.exposureLoc >= 0 &&
                                  planetRender.cloudShadowMapLoc >= 0 &&
                                  planetRender.cloudShadowEnabledLoc >= 0 &&
                                  planetRender.cloudShadowRotationLoc >= 0 &&
-                                 planetRender.cloudShadowStrengthLoc >= 0;
+                                 planetRender.cloudShadowStrengthLoc >= 0 &&
+                                 planetRender.ringShadowEnabledLoc >= 0 &&
+                                 planetRender.ringShadowCenterLoc >= 0 &&
+                                 planetRender.ringShadowNormalLoc >= 0 &&
+                                 planetRender.ringShadowRadiiLoc >= 0 &&
+                                 planetRender.ringShadowParamsLoc >= 0;
     if (planetRender.lightingReady && planetRender.sphere.materialCount > 0) {
         planetRender.sphere.materials[0].shader = planetRender.lightingShader;
     }
@@ -1986,6 +2124,8 @@ static void EnsurePlanetRenderResources(void)
         planetRender.atmosphereShader, "mieStrength");
     planetRender.atmosphereAlphaLoc = GetShaderLocation(planetRender.atmosphereShader,
                                                         "atmosphereAlpha");
+    planetRender.atmosphereExposureLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "sceneExposure");
     planetRender.atmosphereReady = planetRender.atmosphereShader.id != 0 &&
                                    planetRender.atmosphereLightCountLoc >= 0 &&
                                    planetRender.atmosphereLightPositionLoc >= 0 &&
@@ -1996,7 +2136,8 @@ static void EnsurePlanetRenderResources(void)
                                    planetRender.atmosphereHorizonColorLoc >= 0 &&
                                    planetRender.atmosphereOpticalDepthLoc >= 0 &&
                                    planetRender.atmosphereMieStrengthLoc >= 0 &&
-                                   planetRender.atmosphereAlphaLoc >= 0;
+                                   planetRender.atmosphereAlphaLoc >= 0 &&
+                                   planetRender.atmosphereExposureLoc >= 0;
     PlanetProfile homeProfile = HomePlanetRenderProfile();
     planetRender.home = MakePlanetTexture(&homeProfile, 0x48a1c3u, false);
     planetRender.homeClouds = MakePlanetTexture(&homeProfile, homeSeed ^ 0x8392f5u, true);
@@ -2031,6 +2172,7 @@ typedef struct PlanetSpaceLighting {
     Vector3 positions[MAX_SOLAR_LIGHTS];
     Vector3 colors[MAX_SOLAR_LIGHTS];
     float intensities[MAX_SOLAR_LIGHTS];
+    float exposure;
 } PlanetSpaceLighting;
 
 typedef struct PlanetCloudLayer {
@@ -2038,6 +2180,13 @@ typedef struct PlanetCloudLayer {
     float rotation;
     float shadowStrength;
 } PlanetCloudLayer;
+
+typedef struct PlanetRingLayer {
+    Vector3 center;
+    Vector3 normal;
+    Vector2 radii;
+    Vector2 shadowParams;
+} PlanetRingLayer;
 
 static Vector3 PlanetShaderColor(Color color)
 {
@@ -2057,16 +2206,12 @@ static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemA
     lighting.count = SolarSystemLightSources(&system, sources, MAX_SOLAR_LIGHTS);
     if (lighting.count <= 0) return lighting;
 
-    float primaryDistanceSqr = Vector3DistanceSqr(sources[0].center, planetCenter);
-    float primaryFlux = sources[0].luminosity / fmaxf(primaryDistanceSqr, 1.0f);
-    primaryFlux = fmaxf(primaryFlux, 0.000001f);
+    lighting.exposure = planetSceneExposure;
     for (int i = 0; i < lighting.count; i++) {
-        float distanceSqr = Vector3DistanceSqr(sources[i].center, planetCenter);
-        float flux = sources[i].luminosity / fmaxf(distanceSqr, 1.0f);
         Color color = SpectrumColor(sources[i].spectrum);
         lighting.positions[i] = sources[i].center;
         lighting.colors[i] = PlanetShaderColor(color);
-        lighting.intensities[i] = Clamp(flux / primaryFlux, 0.015f, 2.40f);
+        lighting.intensities[i] = SolarLightIrradianceAt(&sources[i], planetCenter);
     }
     return lighting;
 }
@@ -2075,7 +2220,8 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                                float rotation, Color fallback,
                                const PlanetSpaceLighting *lighting,
                                float ambientLight, float emissiveStrength,
-                               const PlanetCloudLayer *cloudLayer)
+                               const PlanetCloudLayer *cloudLayer,
+                               const PlanetRingLayer *ringLayer)
 {
     if (planetRender.sphere.meshCount <= 0 || texture.id == 0) {
         DrawSphere(center, radius, fallback);
@@ -2097,6 +2243,10 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                        &ambientLight, SHADER_UNIFORM_FLOAT);
         SetShaderValue(planetRender.lightingShader, planetRender.emissiveStrengthLoc,
                        &emissiveStrength, SHADER_UNIFORM_FLOAT);
+        float exposure = lighting && lighting->exposure > 0.0f ?
+                         lighting->exposure : planetSceneExposure;
+        SetShaderValue(planetRender.lightingShader, planetRender.exposureLoc,
+                       &exposure, SHADER_UNIFORM_FLOAT);
         int cloudShadowEnabled = cloudLayer && cloudLayer->texture.id != 0 &&
                                  cloudLayer->shadowStrength > 0.001f;
         float cloudShadowRotation = cloudShadowEnabled ?
@@ -2111,6 +2261,19 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
         if (cloudShadowEnabled) {
             SetShaderValueTexture(planetRender.lightingShader,
                                   planetRender.cloudShadowMapLoc, cloudLayer->texture);
+        }
+        int ringShadowEnabled = ringLayer && ringLayer->shadowParams.y > 0.001f;
+        SetShaderValue(planetRender.lightingShader, planetRender.ringShadowEnabledLoc,
+                       &ringShadowEnabled, SHADER_UNIFORM_INT);
+        if (ringShadowEnabled) {
+            SetShaderValue(planetRender.lightingShader, planetRender.ringShadowCenterLoc,
+                           &ringLayer->center, SHADER_UNIFORM_VEC3);
+            SetShaderValue(planetRender.lightingShader, planetRender.ringShadowNormalLoc,
+                           &ringLayer->normal, SHADER_UNIFORM_VEC3);
+            SetShaderValue(planetRender.lightingShader, planetRender.ringShadowRadiiLoc,
+                           &ringLayer->radii, SHADER_UNIFORM_VEC2);
+            SetShaderValue(planetRender.lightingShader, planetRender.ringShadowParamsLoc,
+                           &ringLayer->shadowParams, SHADER_UNIFORM_VEC2);
         }
     }
     SetMaterialTexture(&planetRender.sphere.materials[0], MATERIAL_MAP_DIFFUSE, texture);
@@ -2164,6 +2327,11 @@ static void DrawPlanetAtmosphere(const Camera3D *camera, Vector3 center, float r
     SetShaderValue(planetRender.atmosphereShader,
                    planetRender.atmosphereAlphaLoc,
                    &strength, SHADER_UNIFORM_FLOAT);
+    float exposure = lighting && lighting->exposure > 0.0f ?
+                     lighting->exposure : planetSceneExposure;
+    SetShaderValue(planetRender.atmosphereShader,
+                   planetRender.atmosphereExposureLoc,
+                   &exposure, SHADER_UNIFORM_FLOAT);
 
     float density = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
     float shellRadius = radius * (1.028f + visual.scaleHeight * 0.025f + density * 0.020f);
@@ -2178,43 +2346,164 @@ static void DrawPlanetAtmosphere(const Camera3D *camera, Vector3 center, float r
     planetRender.sphere.materials[0].shader = surfaceShader;
 }
 
-static Vector3 PlanetRingPoint(Vector3 center, float radius, float angle, float tilt)
+static PlanetRingLayer PlanetRingLayerFor(Vector3 center, float radius, float tilt,
+                                          uint32_t seed)
+{
+    return (PlanetRingLayer){
+        .center = center,
+        .normal = { 0.0f, cosf(tilt), sinf(tilt) },
+        .radii = { radius * 1.30f, radius * 1.86f },
+        .shadowParams = {
+            PlanetHashUnit(131, 47, 19, seed) * 2.0f * PI,
+            0.78f
+        }
+    };
+}
+
+static Vector3 PlanetRingPoint(const PlanetRingLayer *ring, float radius, float angle)
 {
     float c = cosf(angle);
     float s = sinf(angle);
-    float ct = cosf(tilt);
-    float st = sinf(tilt);
-    return (Vector3){ center.x + c * radius,
-                      center.y - s * radius * st,
-                      center.z + s * radius * ct };
+    return (Vector3){ ring->center.x + c * radius,
+                      ring->center.y - s * radius * ring->normal.z,
+                      ring->center.z + s * radius * ring->normal.y };
 }
 
-static void DrawPlanetRingStrip(Vector3 center, float innerRadius, float outerRadius,
-                                float tilt, Color color)
+static float PlanetRingDensity(float radialFraction, float phase)
 {
-    const int segments = 72;
-    for (int i = 0; i < segments; i++) {
-        float a0 = (float)i * 2.0f * PI / (float)segments;
-        float a1 = (float)(i + 1) * 2.0f * PI / (float)segments;
-        Vector3 i0 = PlanetRingPoint(center, innerRadius, a0, tilt);
-        Vector3 i1 = PlanetRingPoint(center, innerRadius, a1, tilt);
-        Vector3 o0 = PlanetRingPoint(center, outerRadius, a0, tilt);
-        Vector3 o1 = PlanetRingPoint(center, outerRadius, a1, tilt);
-        DrawTriangle3D(i0, o0, o1, color);
-        DrawTriangle3D(i0, o1, i1, color);
-        DrawTriangle3D(i0, o1, o0, color);
-        DrawTriangle3D(i0, i1, o1, color);
+    float broad = 0.5f + 0.5f * sinf(radialFraction * 29.0f + phase);
+    float fine = 0.5f + 0.5f * sinf(radialFraction * 73.0f + phase * 1.73f);
+    float gapCenterA = 0.22f + 0.18f * (0.5f + 0.5f * sinf(phase * 0.71f));
+    float gapCenterB = 0.62f + 0.18f * (0.5f + 0.5f * sinf(phase * 1.13f + 1.7f));
+    float gapACoord = (radialFraction - gapCenterA) / 0.028f;
+    float gapBCoord = (radialFraction - gapCenterB) / 0.045f;
+    float gapA = expf(-gapACoord * gapACoord);
+    float gapB = expf(-gapBCoord * gapBCoord);
+    return Clamp(0.10f + broad * 0.54f + fine * 0.24f -
+                 fmaxf(gapA, gapB) * 0.72f, 0.008f, 0.94f);
+}
+
+static Color PlanetRingParticleColor(SolarBodyStyle style, float density,
+                                     float radialFraction, float phase)
+{
+    Color sparse = { 132, 122, 126, 255 };
+    Color dense = { 224, 207, 184, 255 };
+    if (style == SOLAR_STYLE_ICE) {
+        sparse = (Color){ 132, 150, 166, 255 };
+        dense = (Color){ 221, 233, 236, 255 };
+    } else if (style == SOLAR_STYLE_CRATER) {
+        sparse = (Color){ 128, 127, 125, 255 };
+        dense = (Color){ 211, 205, 194, 255 };
+    } else if (style == SOLAR_STYLE_LAVA) {
+        sparse = (Color){ 116, 101, 101, 255 };
+        dense = (Color){ 195, 164, 142, 255 };
     }
+    float mineralVariation = 0.5f + 0.5f * sinf(radialFraction * 23.0f + phase * 0.61f);
+    float colorMix = Clamp(0.12f + density * 0.74f + mineralVariation * 0.14f,
+                           0.0f, 1.0f);
+    return ColorLerp(sparse, dense, colorMix);
 }
 
-static void DrawPlanetRings(Vector3 center, float radius, float tilt, float alpha)
+static float PlanetRingPlanetTransmission(Vector3 ringPoint, Vector3 lightPosition,
+                                           Vector3 planetCenter, float planetRadius)
 {
-    DrawPlanetRingStrip(center, radius * 1.30f, radius * 1.43f, tilt,
-                        Fade((Color){ 216, 189, 166, 255 }, 0.34f * alpha));
-    DrawPlanetRingStrip(center, radius * 1.47f, radius * 1.72f, tilt,
-                        Fade((Color){ 164, 137, 148, 255 }, 0.24f * alpha));
-    DrawPlanetRingStrip(center, radius * 1.76f, radius * 1.86f, tilt,
-                        Fade((Color){ 225, 210, 190, 255 }, 0.18f * alpha));
+    Vector3 toLight = Vector3Subtract(lightPosition, ringPoint);
+    float lightDistanceSqr = Vector3LengthSqr(toLight);
+    if (lightDistanceSqr <= 0.0001f) return 1.0f;
+    Vector3 lightDirection = Vector3Scale(toLight, 1.0f / sqrtf(lightDistanceSqr));
+    Vector3 toCenter = Vector3Subtract(planetCenter, ringPoint);
+    float alongRay = Vector3DotProduct(toCenter, lightDirection);
+    if (alongRay <= 0.0f) return 1.0f;
+
+    Vector3 closestPoint = Vector3Add(ringPoint,
+                                      Vector3Scale(lightDirection, alongRay));
+    float closestDistanceSqr = Vector3DistanceSqr(closestPoint, planetCenter);
+    float radiusSqr = planetRadius * planetRadius;
+    if (closestDistanceSqr >= radiusSqr) return 1.0f;
+    float halfChord = sqrtf(fmaxf(radiusSqr - closestDistanceSqr, 0.0f));
+    return alongRay - halfChord > 0.0f ? 0.025f : 1.0f;
+}
+
+static Color PlanetRingLitColor(Color albedo, Vector3 ringPoint, Vector3 ringNormal,
+                                Vector3 planetCenter, float planetRadius, float density,
+                                float alpha, const PlanetSpaceLighting *lighting)
+{
+    Vector3 illumination = { 0.055f, 0.058f, 0.064f };
+    if (lighting) {
+        for (int i = 0; i < lighting->count; i++) {
+            Vector3 toLight = Vector3Subtract(lighting->positions[i], ringPoint);
+            float distanceSqr = Vector3LengthSqr(toLight);
+            if (distanceSqr <= 0.0001f) continue;
+            Vector3 lightDirection = Vector3Scale(toLight, 1.0f / sqrtf(distanceSqr));
+            float incidence = fabsf(Vector3DotProduct(ringNormal, lightDirection));
+            float scattering = 0.24f + incidence * 0.76f;
+            float transmission = PlanetRingPlanetTransmission(
+                ringPoint, lighting->positions[i], planetCenter, planetRadius);
+            float strength = lighting->intensities[i] * scattering * transmission;
+            illumination.x += lighting->colors[i].x * strength;
+            illumination.y += lighting->colors[i].y * strength;
+            illumination.z += lighting->colors[i].z * strength;
+        }
+    }
+
+    float opacity = alpha * (0.015f + density * 0.84f);
+    float exposure = lighting && lighting->exposure > 0.0f ?
+                     lighting->exposure : planetSceneExposure;
+    float mappedR = 1.0f - expf(-Clamp(illumination.x, 0.0f, 8.0f) * exposure);
+    float mappedG = 1.0f - expf(-Clamp(illumination.y, 0.0f, 8.0f) * exposure);
+    float mappedB = 1.0f - expf(-Clamp(illumination.z, 0.0f, 8.0f) * exposure);
+    return (Color){
+        PlanetColorChannel((float)albedo.r * mappedR),
+        PlanetColorChannel((float)albedo.g * mappedG),
+        PlanetColorChannel((float)albedo.b * mappedB),
+        PlanetColorChannel(Clamp(opacity, 0.0f, 0.94f) * 255.0f)
+    };
+}
+
+static void DrawPlanetRings(const PlanetRingLayer *ring, float planetRadius,
+                            SolarBodyStyle style, float alpha,
+                            const PlanetSpaceLighting *lighting)
+{
+    if (!ring || alpha <= 0.0f) return;
+    const int angularSegments = 72;
+    const int radialSegments = 24;
+    float ringWidth = ring->radii.y - ring->radii.x;
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDrawRenderBatchActive();
+    rlDisableBackfaceCulling();
+    rlDisableDepthMask();
+    for (int radial = 0; radial < radialSegments; radial++) {
+        float radial0 = (float)radial / (float)radialSegments;
+        float radial1 = (float)(radial + 1) / (float)radialSegments;
+        float radialCenter = (radial0 + radial1) * 0.5f;
+        float density = PlanetRingDensity(radialCenter, ring->shadowParams.x);
+        float innerRadius = ring->radii.x + ringWidth * radial0;
+        float outerRadius = ring->radii.x + ringWidth * radial1;
+        Color albedo = PlanetRingParticleColor(style, density, radialCenter,
+                                               ring->shadowParams.x);
+        for (int segment = 0; segment < angularSegments; segment++) {
+            float a0 = (float)segment * 2.0f * PI / (float)angularSegments;
+            float a1 = (float)(segment + 1) * 2.0f * PI / (float)angularSegments;
+            float centerAngle = (a0 + a1) * 0.5f;
+            Vector3 midpoint = PlanetRingPoint(ring,
+                                                (innerRadius + outerRadius) * 0.5f,
+                                                centerAngle);
+            Color color = PlanetRingLitColor(albedo, midpoint, ring->normal,
+                                             ring->center, planetRadius, density,
+                                             alpha, lighting);
+            Vector3 i0 = PlanetRingPoint(ring, innerRadius, a0);
+            Vector3 i1 = PlanetRingPoint(ring, innerRadius, a1);
+            Vector3 o0 = PlanetRingPoint(ring, outerRadius, a0);
+            Vector3 o1 = PlanetRingPoint(ring, outerRadius, a1);
+            DrawTriangle3D(i0, o0, o1, color);
+            DrawTriangle3D(i0, o1, i1, color);
+        }
+    }
+    rlDrawRenderBatchActive();
+    rlEnableDepthMask();
+    rlEnableBackfaceCulling();
+    EndBlendMode();
 }
 
 void DrawSolarBodies(const Camera3D *camera, float spaceFade)
@@ -2265,18 +2554,27 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
                                                           bodies[i].worldSeed ^ 0x8392f5u);
                 cloudLayer.shadowStrength = PlanetCloudShadowStrength(&bodies[i].profile);
             }
+            PlanetRingLayer ringLayer = { 0 };
+            PlanetRingLayer *activeRing = NULL;
+            if (bodies[i].profile.hasRings) {
+                ringLayer = PlanetRingLayerFor(bodies[i].center, radius,
+                                               bodies[i].profile.ringTilt,
+                                               bodies[i].worldSeed);
+                activeRing = &ringLayer;
+            }
             DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color,
-                               &lighting, ambientLight, emissiveStrength, &cloudLayer);
+                               &lighting, ambientLight, emissiveStrength, &cloudLayer,
+                               activeRing);
             if (cloudLayer.texture.id != 0) {
                 DrawTexturedPlanet(bodies[i].center, radius * 1.014f,
                                    cloudLayer.texture, cloudLayer.rotation, WHITE,
-                                   &lighting, ambientLight, 0.0f, NULL);
+                                   &lighting, ambientLight, 0.0f, NULL, NULL);
             }
             DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
                                  &lighting, atmosphereAlpha * spaceFade);
-            if (bodies[i].profile.hasRings) {
-                DrawPlanetRings(bodies[i].center, radius, bodies[i].profile.ringTilt,
-                                spaceFade);
+            if (activeRing) {
+                DrawPlanetRings(activeRing, radius + 0.08f, bodies[i].style, spaceFade,
+                                &lighting);
             }
         }
     }
@@ -2316,10 +2614,11 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
         .shadowStrength = PlanetCloudShadowStrength(&homeAtmosphere)
     };
     DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor(),
-                       &lighting, 0.056f, 0.0f, &cloudLayer);
+                       &lighting, 0.056f, 0.0f, &cloudLayer, NULL);
     if (cloudLayer.texture.id != 0) {
         DrawTexturedPlanet(center, radius * 1.014f, cloudLayer.texture,
-                           cloudLayer.rotation, WHITE, &lighting, 0.056f, 0.0f, NULL);
+                           cloudLayer.rotation, WHITE, &lighting, 0.056f, 0.0f,
+                           NULL, NULL);
     }
     DrawPlanetAtmosphere(camera, center, radius, &homeAtmosphere,
                          &lighting, 0.62f * spaceFade);
