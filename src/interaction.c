@@ -6,6 +6,7 @@
 #include "terrain.h"
 #include "player.h"
 #include "space.h"
+#include "world_environment.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -457,7 +458,8 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
     float travelled = 0.0f;
 
     while (travelled <= maxDistance) {
-        if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP && !SpaceBlockReadyAt(x, y, z)) {
+        if (WorldBlockRegionAt(y) == WORLD_BLOCK_REGION_SPACE &&
+            !SpaceBlockReadyAt(x, y, z)) {
             return result;
         }
         if (GetBlockAt(x, y, z) != BLOCK_AIR) {
@@ -500,10 +502,9 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
 
 bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition)
 {
-    bool inSurface = y >= 0 && y < WORLD_HEIGHT;
-    bool inNether = y >= NETHER_LAYER_Y && y < 0;
-    bool inSpace = y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP;
-    if (!inSurface && !inNether && !inSpace) return true;
+    WorldBlockRegion region = WorldBlockRegionAt(y);
+    bool inSpace = region == WORLD_BLOCK_REGION_SPACE;
+    if (region == WORLD_BLOCK_REGION_NONE) return true;
     if (inSpace && !SpaceBlockReadyAt(x, y, z)) return true;
 
     float minX = (float)x;

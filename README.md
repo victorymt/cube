@@ -93,7 +93,7 @@ startup as a small pixel-art atlas.
   in, then fly between stars at up to 30 blocks/s (W/S/A/D thrust, mouse
   steer, Space/Ctrl up/down). Approach a named planet and press E to land in
   its surface world; take off above the atmosphere to return to the same orbit
-- Code is split into modules: terrain, chunks, world, player, interaction,
+- Code is split into modules: terrain, chunks, world, world_environment, player, interaction,
   render, particles, audio, weather, plus a shared types header
 
 ## Build

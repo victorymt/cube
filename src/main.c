@@ -14,6 +14,7 @@
 #include "audio.h"
 #include "weather.h"
 #include "space.h"
+#include "world_environment.h"
 #include "ship.h"
 #include "nether.h"
 #include "entity.h"
@@ -253,7 +254,7 @@ int main(void)
         if (ShipIsDriving() && IsKeyPressed(KEY_E)) {
             ShipExit(&player);
         }
-        if (!PlanetWorldIsActive() &&
+        if (WorldCurrentDimension() != WORLD_DIMENSION_PLANET &&
             IsKeyPressed(KEY_M) && !StarMapIsOpen() && !paused && !cursorReleased) {
             StarMapOpen();
             player.velocity = Vector3Zero();
@@ -305,7 +306,7 @@ int main(void)
             if (IsKeyPressed(KEY_F5)) SaveMap(&player);
             if (IsKeyPressed(KEY_F9)) {
                 LoadMap(&player);
-                wasInSpace = !HomeWorldSurfaceIsActive() && !PlanetWorldIsActive();
+                wasInSpace = WorldIsSpaceActive();
                 cursorReleased = false;
                 DisableCursor();
                 autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
@@ -379,7 +380,7 @@ int main(void)
                 wasInSpace = false;
             } else {
                 bool launchedHome = HomeWorldTryLaunch(&player);
-                bool inSpaceNow = !HomeWorldSurfaceIsActive();
+                bool inSpaceNow = WorldIsSpaceActive();
                 if (inSpaceNow && !wasInSpace) {
                     if (!launchedHome) {
                         SetImportMessage("Entered space - no gravity; follow the sun to the solar system.");
@@ -390,14 +391,14 @@ int main(void)
                 wasInSpace = inSpaceNow;
             }
         }
-        if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive() && !StarMapIsOpen() &&
+        if (WorldIsSpaceActive() && !StarMapIsOpen() &&
             SpaceRebasePlayer(&player)) {
             // Particles are cosmetic local-frame data; discard the old frame.
             ParticlesClear();
         }
         int effectiveRenderDistance = EffectiveRenderDistanceForHeight(player.position.y + EYE_HEIGHT);
-        bool localWorldActive = HomeWorldSurfaceIsActive() || PlanetWorldIsActive();
-        uint32_t currentEntityDimension = PlanetWorldIsActive() ? PlanetWorldSeed() : 0u;
+        bool localWorldActive = WorldIsSurfaceActive();
+        uint32_t currentEntityDimension = WorldCurrentSurfaceId();
         if (localWorldActive != entitiesWorldActive ||
             (localWorldActive && currentEntityDimension != entitiesWorldDimension)) {
             EntitiesClear();
@@ -405,7 +406,7 @@ int main(void)
             entitiesWorldDimension = currentEntityDimension;
         }
         if (localWorldActive) UpdateChunks(player.position, effectiveRenderDistance);
-        if (!PlanetWorldIsActive()) {
+        if (WorldCurrentDimension() != WORLD_DIMENSION_PLANET) {
             SpaceProcessFinishedGenJobs();
             int spaceGenPerFrame = 2;
             if (ShipIsDriving()) {
@@ -467,8 +468,7 @@ int main(void)
             placeZ = hit.z + hit.nz;
             canPlace = InventoryCount(hotbar[selectedIndex]) > 0 &&
                        GetBlockAt(placeX, placeY, placeZ) == BLOCK_AIR &&
-                       (placeY >= SPACE_LAYER_Y || InHeight(placeY) ||
-                        (placeY >= NETHER_LAYER_Y && placeY < 0)) &&
+                       WorldBlockRegionAt(placeY) != WORLD_BLOCK_REGION_NONE &&
                        !BlockWouldOverlapPlayer(placeX, placeY, placeZ, player.position);
         }
         if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
@@ -546,7 +546,7 @@ int main(void)
         skyTop = ColorLerp(skyTop, BLACK, spaceFade);
         skyHorizon = ColorLerp(skyHorizon, BLACK, spaceFade);
         worldTint = ColorLerp(worldTint, (Color){ 46, 54, 78, 255 }, spaceFade);
-        bool inNether = HomeWorldSurfaceIsActive() && camera.position.y < 0.0f;
+        bool inNether = WorldCurrentDimensionAt(camera.position.y) == WORLD_DIMENSION_NETHER;
         if (inNether) {
             skyTop = (Color){ 24, 6, 6, 255 };
             skyHorizon = (Color){ 40, 10, 8, 255 };

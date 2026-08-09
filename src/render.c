@@ -8,6 +8,7 @@
 #include "terrain.h"
 #include "particles.h"
 #include "space.h"
+#include "world_environment.h"
 #include "nether.h"
 #include "entity.h"
 #include "ship.h"
@@ -288,7 +289,7 @@ void DrawStars(const Camera3D *camera, float daylight)
     int sh = GetScreenHeight();
     float time = GetTime();
     bool planetSurface = PlanetWorldIsActive();
-    bool surfaceActive = HomeWorldSurfaceIsActive() || planetSurface;
+    bool surfaceActive = WorldIsSurfaceActive();
     Vector3 observer = planetSurface ? PlanetWorldSpaceReference() : camera->position;
     Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
 

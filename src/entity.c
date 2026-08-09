@@ -5,6 +5,7 @@
 #include "terrain.h"
 #include "ecology.h"
 #include "space.h"
+#include "world_environment.h"
 #include "particles.h"
 #include "audio.h"
 
@@ -52,13 +53,13 @@ static bool GroundBelow(Vector3 position)
     int x = (int)floorf(position.x);
     int z = (int)floorf(position.z);
     int y = (int)floorf(position.y - 0.1f);
-    if (y < 0 || y >= SPACE_LAYER_Y) return false;
+    if (WorldBlockRegionAt(y) != WORLD_BLOCK_REGION_SURFACE) return false;
     return BlockBlocksEntity(x, y, z);
 }
 
 static int EntitySurfaceHeight(int x, int z)
 {
-    return PlanetWorldIsActive() ? PlanetTerrainHeight(x, z) : TerrainHeight(x, z, terrainMode);
+    return WorldSurfaceHeightAt(x, z);
 }
 
 static bool PlanetBiomeSupportsFauna(int x, int z)
@@ -265,7 +266,7 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
             continue;
         }
 
-        float gravityScale = PlanetWorldIsActive() ? PlanetWorldGravityScale() : 1.0f;
+        float gravityScale = WorldGravityScale();
         entity->velocity.y -= 24.0f * gravityScale * dt;
         entity->position.y += entity->velocity.y * dt;
 

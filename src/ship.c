@@ -6,6 +6,7 @@
 #include "player.h"
 #include "particles.h"
 #include "space.h"
+#include "world_environment.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -78,7 +79,7 @@ static bool ResolveWarpTarget(Vector3 *center, float *safeDistance)
 
 static void LockWarpTarget(const Player *player, Vector3 forward)
 {
-    if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
+    if (WorldIsSurfaceActive()) {
         SetImportMessage("Launch into space before locking a warp target.");
         return;
     }
@@ -106,7 +107,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
         SetImportMessage("Board your ship before initiating a system warp.");
         return false;
     }
-    if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
+    if (WorldIsSurfaceActive()) {
         SetImportMessage("Launch into space before initiating a system warp.");
         return false;
     }
@@ -146,7 +147,7 @@ static void ToggleWarp(Player *player)
         SetImportMessage("Warp cancelled.");
         return;
     }
-    if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
+    if (WorldIsSurfaceActive()) {
         SetImportMessage("Launch into space before engaging warp.");
         return;
     }
@@ -345,7 +346,7 @@ void ShipUpdate(Player *player, float dt)
     Vector3 planetDir = Vector3Zero();
     float surfaceDist = 0.0f;
     float gravityScale = 1.0f;
-    bool nearPlanet = !PlanetWorldIsActive() &&
+    bool nearPlanet = WorldCurrentDimension() != WORLD_DIMENSION_PLANET &&
                       PlanetSurfaceAt(player->position, &planetDir, &surfaceDist,
                                       &gravityScale);
     Vector3 vertical = (Vector3){ 0.0f, 1.0f, 0.0f };
@@ -444,7 +445,7 @@ void ShipUpdate(Player *player, float dt)
         MovePlayer(player, delta);
     }
 
-    if (!PlanetWorldIsActive()) {
+    if (WorldCurrentDimension() != WORLD_DIMENSION_PLANET) {
         Vector3 correctionDir = Vector3Zero();
         float correctedSurfaceDist = 0.0f;
         if (PlanetSurfaceAt(player->position, &correctionDir, &correctedSurfaceDist,
@@ -568,7 +569,7 @@ void ShipExit(Player *player)
         ClearWarpTarget();
         return;
     }
-    if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
+    if (WorldIsSpaceActive()) {
         SetImportMessage("Approach a planet before leaving the ship.");
         return;
     }

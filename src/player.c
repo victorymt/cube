@@ -8,6 +8,7 @@
 #include "particles.h"
 #include "ship.h"
 #include "space.h"
+#include "world_environment.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -100,7 +101,7 @@ bool PlayerOverlapsWorld(Vector3 position)
     for (int x = minX; x <= maxX; x++) {
         for (int y = minY; y <= maxY; y++) {
             for (int z = minZ; z <= maxZ; z++) {
-                if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP &&
+                if (WorldBlockRegionAt(y) == WORLD_BLOCK_REGION_SPACE &&
                     !SpaceBlockReadyAt(x, y, z)) {
                     // Space is streamed asynchronously. A ship may continue
                     // through an ungenerated chunk; treating it as a wall
@@ -127,7 +128,7 @@ bool PlayerOverlapsWorld(Vector3 position)
 void MovePlayer(Player *player, Vector3 delta)
 {
     bool canStepUp = player->onGround && !player->floating &&
-                     (HomeWorldSurfaceIsActive() || PlanetWorldIsActive());
+                     WorldIsSurfaceActive();
 
     Vector3 next = player->position;
     next.x += delta.x;
@@ -254,10 +255,10 @@ void UpdatePlayer(Player *player, float dt)
     int feetZ = (int)floorf(player->position.z);
     bool inWater = IsLiquidBlock(GetBlockAt(feetX, feetY, feetZ));
 
-    bool inSpace = !HomeWorldSurfaceIsActive() && !PlanetWorldIsActive();
+    bool inSpace = WorldIsSpaceActive();
     // Scale the takeoff impulse with gravity so high-g worlds remain
     // traversable instead of trapping the player below a one-block ledge.
-    float gravityScale = Clamp(PlanetWorldGravityScale(), 0.45f, 1.75f);
+    float gravityScale = Clamp(WorldGravityScale(), 0.45f, 1.75f);
     float jumpSpeed = JUMP_SPEED * sqrtf(gravityScale);
     if (inSpace) {
         Vector3 gravityDir = Vector3Zero();

@@ -8,6 +8,7 @@
 #include "album.h"
 #include "inventory.h"
 #include "ship.h"
+#include "world_environment.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -58,7 +59,7 @@ void WorldSetSeed(uint32_t seed)
 
 static uint32_t WorldCurrentEditDimension(void)
 {
-    return PlanetWorldIsActive() ? PlanetWorldSeed() : 0u;
+    return WorldCurrentSurfaceId();
 }
 int blockEditIndexCapacity = 0;
 char importMessage[160] = "Flat mode: press I to import an image path.";
@@ -161,10 +162,7 @@ float BlockCollisionHeight(BlockType type)
 
 float BlockCollisionHeightAt(int x, int y, int z)
 {
-    bool inSurface = y >= 0 && y < WORLD_HEIGHT;
-    bool inNether = y >= NETHER_LAYER_Y && y < 0;
-    bool inSpace = y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP;
-    if (!inSurface && !inNether && !inSpace) return 0.0f;
+    if (!WorldCanAccessBlockY(y)) return 0.0f;
     return BlockCollisionHeight(GetBlockAt(x, y, z));
 }
 
@@ -583,21 +581,24 @@ void SetBlockCore(int x, int y, int z, BlockType type, bool recordUndo)
 
 BlockType GetBlockAt(int x, int y, int z)
 {
-    if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP) return SpaceBlockAt(x, y, z);
-    if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) return BLOCK_AIR;
-    if (y < 0 && y >= NETHER_LAYER_Y) return NetherBlockAt(x, y, z);
-    return GetBlock(x, y, z);
+    WorldBlockRegion region = WorldBlockRegionAt(y);
+    if (!WorldCanAccessBlockY(y)) return BLOCK_AIR;
+    if (region == WORLD_BLOCK_REGION_SPACE) return SpaceBlockAt(x, y, z);
+    if (region == WORLD_BLOCK_REGION_NETHER) return NetherBlockAt(x, y, z);
+    if (region == WORLD_BLOCK_REGION_SURFACE) return GetBlock(x, y, z);
+    return BLOCK_AIR;
 }
 
 static void SetBlockNoUndo(int x, int y, int z, BlockType type)
 {
-    if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP) {
+    WorldBlockRegion region = WorldBlockRegionAt(y);
+    if (region == WORLD_BLOCK_REGION_SPACE) {
         SpaceSetBlock(x, y, z, type);
         if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
         else TorchLightRemove(x, y, z);
         return;
     }
-    if (y < 0 && y >= NETHER_LAYER_Y) {
+    if (region == WORLD_BLOCK_REGION_NETHER) {
         NetherSetBlock(x, y, z, type);
         if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
         else TorchLightRemove(x, y, z);
@@ -608,7 +609,8 @@ static void SetBlockNoUndo(int x, int y, int z, BlockType type)
 
 void SetBlock(int x, int y, int z, BlockType type)
 {
-    if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP) {
+    WorldBlockRegion region = WorldBlockRegionAt(y);
+    if (region == WORLD_BLOCK_REGION_SPACE) {
         BlockType previous = SpaceBlockAt(x, y, z);
         if (previous != type) PushBlockUndo(x, y, z, previous, type);
         SpaceSetBlock(x, y, z, type);
@@ -616,8 +618,8 @@ void SetBlock(int x, int y, int z, BlockType type)
         else TorchLightRemove(x, y, z);
         return;
     }
-    if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) return;
-    if (y < 0 && y >= NETHER_LAYER_Y) {
+    if (!WorldIsSurfaceActive()) return;
+    if (region == WORLD_BLOCK_REGION_NETHER) {
         BlockType previous = NetherBlockAt(x, y, z);
         if (previous != type) PushBlockUndo(x, y, z, previous, type);
         NetherSetBlock(x, y, z, type);
@@ -625,6 +627,7 @@ void SetBlock(int x, int y, int z, BlockType type)
         else TorchLightRemove(x, y, z);
         return;
     }
+    if (region != WORLD_BLOCK_REGION_SURFACE) return;
     SetBlockCore(x, y, z, type, true);
 }
 
@@ -1112,7 +1115,7 @@ void LoadMap(Player *player)
     SpaceRebuildTorchList();
     ClearUndoHistory();
 
-    if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
+    if (WorldIsSurfaceActive()) {
         UpdateChunks(player->position,
                      EffectiveRenderDistanceForHeight(player->position.y + EYE_HEIGHT));
     }

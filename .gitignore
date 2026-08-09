@@ -3,3 +3,4 @@ voxelcraft_save.txt
 voxelcraft_save.bak
 *.o
 *.a
+tests/test_world_environment
