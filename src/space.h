@@ -55,10 +55,39 @@ typedef struct PlanetProfile {
     float terrainRoughness;
     float rotationRate;
     float tidalLockFactor;
+    float ringTilt;
     bool hasSolidSurface;
     bool hasRings;
     bool tidallyLocked;
 } PlanetProfile;
+
+#define MAX_SOLAR_LIGHTS 3
+
+typedef struct SolarLightSource {
+    Vector3 center;
+    SpectrumType spectrum;
+    float radius;
+    float luminosity;
+    bool primary;
+} SolarLightSource;
+
+typedef struct PlanetLightState {
+    Vector3 sunDirection;
+    Vector3 moonDirection;
+    Vector3 sourceDirections[MAX_SOLAR_LIGHTS];
+    Color sourceColors[MAX_SOLAR_LIGHTS];
+    float sourceIntensities[MAX_SOLAR_LIGHTS];
+    float sourceVisibility[MAX_SOLAR_LIGHTS];
+    Color starColor;
+    float daylight;
+    float sunset;
+    float ringShadow;
+    float eclipse;
+    float moonIllumination;
+    float totalIntensity;
+    int sourceCount;
+    bool specialEclipse;
+} PlanetLightState;
 
 typedef struct SolarPlanetDef {
     int orbit;
@@ -144,6 +173,8 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index);
 Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
                                         double simulationTime);
 float SolarSystemPlanetOrbitPeriod(const SolarSystemDef *sys, int index);
+int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
+                            int maxCount);
 PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index);
 Vector3 PlanetWorldSpaceReference(void);
 Vector3 PlanetWorldSkyDirection(Vector3 worldDirection);
@@ -171,6 +202,8 @@ SolarBodyStyle PlanetWorldStyle(void);
 const PlanetProfile *PlanetWorldProfile(void);
 float PlanetWorldGravityScale(void);
 bool PlanetWorldIsDarkSide(void);
+bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out);
+float PlanetWorldDaylightAt(Vector3 surfacePosition);
 int PlanetWorldOriginX(void);
 int PlanetWorldOriginZ(void);
 const char *PlanetWorldName(void);

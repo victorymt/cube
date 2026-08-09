@@ -538,7 +538,13 @@ int main(void)
 
         float daylight = 0.0f;
         float sunset = 0.0f;
-        DayNightFactors(dayTime, &daylight, &sunset);
+        PlanetLightState planetLight = { 0 };
+        if (!PlanetWorldLightStateAt(player.position, &planetLight)) {
+            DayNightFactors(dayTime, &daylight, &sunset);
+        } else {
+            daylight = planetLight.daylight;
+            sunset = planetLight.sunset;
+        }
         if (!paused && !albumOpen && !importDialog.open && localWorldActive) {
             EntitiesUpdate(dt, &player, daylight);
         }
@@ -549,7 +555,8 @@ int main(void)
         Color worldTint = MixWeather(WorldTintForLight(daylight, sunset), daylight);
         skyTop = MixWeather(skyTop, daylight);
         skyHorizon = MixWeather(skyHorizon, daylight);
-        ApplyPlanetWorldPalette(&skyTop, &skyHorizon, &worldTint);
+        ApplyPlanetWorldPaletteWithLight(&skyTop, &skyHorizon, &worldTint,
+                                         &planetLight);
         skyTop = ColorLerp(skyTop, BLACK, spaceFade);
         skyHorizon = ColorLerp(skyHorizon, BLACK, spaceFade);
         worldTint = ColorLerp(worldTint, (Color){ 46, 54, 78, 255 }, spaceFade);
@@ -564,6 +571,7 @@ int main(void)
         BeginDrawing();
         ClearBackground(skyTop);
         DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(), skyTop, skyHorizon);
+        DrawPlanetAtmosphereSky(&camera, &planetLight);
 
         BeginMode3D(camera);
         bool drawSurfaceChunks = PlanetWorldIsActive() ||
@@ -577,7 +585,15 @@ int main(void)
         DrawHomePlanet(&camera, spaceFade);
         if (showOrbitTrajectories) DrawSolarOrbitTrajectories(&camera, spaceFade);
         DrawSolarBodies(&camera, spaceFade);
-        if (spaceFade < 0.5f && !inNether) DrawClouds(&camera, Fade(worldTint, 1.0f - spaceFade * 2.0f));
+        bool drawCloudLayer = HomeWorldSurfaceIsActive();
+        if (PlanetWorldIsActive()) {
+            const PlanetProfile *profile = PlanetWorldProfile();
+            drawCloudLayer = profile->atmosphereType != PLANET_ATMOSPHERE_NONE &&
+                             profile->atmosphereDensity > 0.28f;
+        }
+        if (spaceFade < 0.5f && !inNether && drawCloudLayer) {
+            DrawClouds(&camera, Fade(worldTint, 1.0f - spaceFade * 2.0f));
+        }
         ParticlesDraw();
         if (hit.hit) {
             Vector3 center = { hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f };

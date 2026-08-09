@@ -78,6 +78,8 @@ Color WorldTintForLight(float daylight, float sunset)
 
 Color MixWeather(Color color, float daylight)
 {
+    if (!HomeWorldSurfaceIsActive()) return color;
+
     float factor = WeatherSkyFactor();
     if (factor <= 0.0f) return color;
 
@@ -87,57 +89,196 @@ Color MixWeather(Color color, float daylight)
     return ColorLerp(color, overcast, factor);
 }
 
-void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint)
+typedef struct PlanetAtmosphereVisual {
+    Color zenith;
+    Color horizon;
+    Color haze;
+    Color groundLight;
+    float opticalDepth;
+    float mieStrength;
+    float scaleHeight;
+} PlanetAtmosphereVisual;
+
+static Color PlanetAtmosphereBaseColor(SolarBodyStyle style)
+{
+    switch (style) {
+    case SOLAR_STYLE_LAVA:      return (Color){ 232, 88, 42, 255 };
+    case SOLAR_STYLE_ICE:       return (Color){ 116, 196, 232, 255 };
+    case SOLAR_STYLE_DESERT:    return (Color){ 222, 154, 88, 255 };
+    case SOLAR_STYLE_GAS:       return (Color){ 178, 126, 210, 255 };
+    case SOLAR_STYLE_CRATER:    return (Color){ 132, 148, 174, 255 };
+    case SOLAR_STYLE_TEMPERATE: return (Color){ 82, 154, 218, 255 };
+    default:                    return (Color){ 150, 174, 204, 255 };
+    }
+}
+
+static PlanetAtmosphereVisual PlanetAtmosphereVisualFor(const PlanetProfile *profile)
+{
+    PlanetAtmosphereVisual visual = { 0 };
+    if (!profile) return visual;
+
+    float density = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
+    float gravity = fmaxf(profile->surfaceGravity, 0.20f);
+    float temperature = fmaxf(profile->equilibriumTempK, 80.0f);
+    visual.scaleHeight = Clamp((temperature / 288.0f) / gravity, 0.52f, 1.85f);
+    Color base = PlanetAtmosphereBaseColor(profile->style);
+
+    switch (profile->atmosphereType) {
+    case PLANET_ATMOSPHERE_NONE:
+        visual.zenith = (Color){ 2, 4, 10, 255 };
+        visual.horizon = (Color){ 6, 8, 14, 255 };
+        visual.haze = (Color){ 20, 24, 34, 255 };
+        visual.groundLight = (Color){ 188, 194, 210, 255 };
+        visual.opticalDepth = 0.0f;
+        visual.mieStrength = 0.0f;
+        break;
+    case PLANET_ATMOSPHERE_THIN:
+        visual.zenith = ColorLerp((Color){ 6, 9, 18, 255 }, base, 0.28f);
+        visual.horizon = ColorLerp(base, WHITE, 0.40f);
+        visual.haze = ColorLerp(base, WHITE, 0.24f);
+        visual.groundLight = ColorLerp(WHITE, base, 0.18f);
+        visual.opticalDepth = 0.12f + density * 0.42f;
+        visual.mieStrength = 0.14f + density * 0.22f;
+        break;
+    case PLANET_ATMOSPHERE_BREATHABLE:
+        base = ColorLerp(base, (Color){ 74, 148, 222, 255 }, 0.58f);
+        visual.zenith = ColorLerp((Color){ 18, 58, 126, 255 }, base, 0.28f);
+        visual.horizon = ColorLerp((Color){ 174, 210, 236, 255 }, base, 0.24f);
+        visual.haze = ColorLerp((Color){ 188, 216, 234, 255 }, base, 0.30f);
+        visual.groundLight = ColorLerp(WHITE, base, 0.12f);
+        visual.opticalDepth = 0.52f + density * 0.42f;
+        visual.mieStrength = 0.38f + density * 0.18f;
+        break;
+    case PLANET_ATMOSPHERE_CORROSIVE:
+        base = ColorLerp(base, (Color){ 218, 172, 56, 255 }, 0.56f);
+        visual.zenith = ColorLerp((Color){ 54, 38, 24, 255 }, base, 0.58f);
+        visual.horizon = ColorLerp(base, (Color){ 255, 214, 104, 255 }, 0.42f);
+        visual.haze = ColorLerp(base, (Color){ 244, 198, 102, 255 }, 0.32f);
+        visual.groundLight = ColorLerp((Color){ 255, 232, 176, 255 }, base, 0.30f);
+        visual.opticalDepth = 0.66f + density * 0.48f;
+        visual.mieStrength = 0.68f + density * 0.20f;
+        break;
+    case PLANET_ATMOSPHERE_DENSE:
+    default:
+        visual.zenith = ColorLerp((Color){ 28, 38, 62, 255 }, base, 0.66f);
+        visual.horizon = ColorLerp(base, (Color){ 235, 220, 205, 255 }, 0.38f);
+        visual.haze = ColorLerp(base, WHITE, 0.28f);
+        visual.groundLight = ColorLerp(WHITE, base, 0.30f);
+        visual.opticalDepth = 0.74f + density * 0.44f;
+        visual.mieStrength = 0.58f + density * 0.26f;
+        break;
+    }
+
+    visual.opticalDepth = Clamp(visual.opticalDepth *
+                                (0.76f + visual.scaleHeight * 0.24f), 0.0f, 1.25f);
+    return visual;
+}
+
+void ApplyPlanetWorldPaletteWithLight(Color *top, Color *horizon, Color *worldTint,
+                                      const PlanetLightState *light)
 {
     if (!PlanetWorldIsActive()) return;
 
     const PlanetProfile *profile = PlanetWorldProfile();
-    Color planetTop = { 40, 70, 110, 255 };
-    Color planetHorizon = { 120, 150, 180, 255 };
-    Color planetLight = WHITE;
-    switch (PlanetWorldStyle()) {
-    case SOLAR_STYLE_LAVA:
-        planetTop = (Color){ 52, 12, 14, 255 };
-        planetHorizon = (Color){ 196, 58, 24, 255 };
-        planetLight = (Color){ 255, 150, 112, 255 };
-        break;
-    case SOLAR_STYLE_ICE:
-        planetTop = (Color){ 68, 116, 154, 255 };
-        planetHorizon = (Color){ 196, 226, 238, 255 };
-        planetLight = (Color){ 196, 226, 255, 255 };
-        break;
-    case SOLAR_STYLE_DESERT:
-        planetTop = (Color){ 118, 74, 48, 255 };
-        planetHorizon = (Color){ 226, 164, 94, 255 };
-        planetLight = (Color){ 255, 214, 160, 255 };
-        break;
-    case SOLAR_STYLE_GAS:
-        planetTop = (Color){ 74, 48, 104, 255 };
-        planetHorizon = (Color){ 182, 132, 190, 255 };
-        planetLight = (Color){ 222, 186, 255, 255 };
-        break;
-    case SOLAR_STYLE_CRATER:
-        planetTop = (Color){ 28, 30, 40, 255 };
-        planetHorizon = (Color){ 94, 92, 104, 255 };
-        planetLight = (Color){ 184, 188, 204, 255 };
-        break;
-    case SOLAR_STYLE_TEMPERATE:
-        planetTop = (Color){ 42, 105, 164, 255 };
-        planetHorizon = (Color){ 168, 208, 226, 255 };
-        planetLight = (Color){ 232, 242, 224, 255 };
-        break;
-    default:
-        break;
+    PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(profile);
+    Color starColor = light && light->sourceCount > 0 ? light->starColor : WHITE;
+    float daylight = light ? Clamp(light->daylight, 0.0f, 1.0f) : 1.0f;
+    float sunset = light ? Clamp(light->sunset, 0.0f, 1.0f) : 0.0f;
+
+    if (profile->atmosphereType == PLANET_ATMOSPHERE_NONE) {
+        *top = ColorLerp(*top, visual.zenith, 0.94f);
+        *horizon = ColorLerp(*horizon, visual.horizon, 0.90f);
+        *worldTint = ColorLerp(*worldTint, starColor, 0.10f);
+        return;
     }
 
-    float atmosphere = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
-    float skyBlend = 0.28f + atmosphere * 0.58f;
-    *top = ColorLerp(*top, planetTop, skyBlend);
-    *horizon = ColorLerp(*horizon, planetHorizon, skyBlend * 0.92f);
-    *worldTint = ColorLerp(*worldTint, planetLight, 0.16f + atmosphere * 0.24f);
-    if (profile->atmosphereType == PLANET_ATMOSPHERE_NONE) {
-        *top = ColorLerp(*top, BLACK, 0.78f);
-        *horizon = ColorLerp(*horizon, BLACK, 0.68f);
+    float daylightResponse = 0.24f + daylight * 0.76f;
+    float topBlend = Clamp(0.12f + visual.opticalDepth * 0.58f * daylightResponse,
+                           0.0f, 0.88f);
+    float horizonBlend = Clamp(0.20f + visual.opticalDepth * 0.66f * daylightResponse,
+                               0.0f, 0.94f);
+    Color litHorizon = ColorLerp(visual.horizon, starColor, 0.18f);
+    Color atmosphereLight = ColorLerp(visual.groundLight, starColor, 0.22f);
+    *top = ColorLerp(*top, visual.zenith, topBlend);
+    *horizon = ColorLerp(*horizon, litHorizon, horizonBlend);
+    *worldTint = ColorLerp(*worldTint, atmosphereLight,
+                           Clamp(visual.opticalDepth * (0.10f + daylight * 0.18f),
+                                 0.0f, 0.34f));
+
+    Color sunsetColor = ColorLerp((Color){ 255, 104, 44, 255 }, starColor, 0.22f);
+    float sunsetStrength = Clamp(sunset * visual.mieStrength * 0.82f, 0.0f, 0.76f);
+    *horizon = ColorLerp(*horizon, sunsetColor, sunsetStrength);
+    *top = ColorLerp(*top, sunsetColor, sunsetStrength * 0.18f);
+}
+
+void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint)
+{
+    ApplyPlanetWorldPaletteWithLight(top, horizon, worldTint, NULL);
+}
+
+void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *light)
+{
+    if (!camera || !light || !PlanetWorldIsActive()) return;
+
+    const PlanetProfile *profile = PlanetWorldProfile();
+    PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(profile);
+    if (visual.opticalDepth <= 0.01f) return;
+
+    int screenWidth = GetScreenWidth();
+    int screenHeight = GetScreenHeight();
+    Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
+    Vector3 flatForward = { forward.x, 0.0f, forward.z };
+    if (Vector3LengthSqr(flatForward) > 0.0001f) {
+        flatForward = Vector3Normalize(flatForward);
+        Vector3 horizonPoint = Vector3Add(camera->position,
+                                          Vector3Scale(flatForward, SUN_DISTANCE));
+        float horizonY = GetWorldToScreen(horizonPoint, *camera).y;
+        int band = (int)(54.0f + visual.opticalDepth * 126.0f);
+        if (horizonY > (float)-band && horizonY < (float)(screenHeight + band)) {
+            int centerY = (int)Clamp(horizonY, 0.0f, (float)screenHeight);
+            int topY = centerY - band;
+            int bottomY = centerY + band / 3;
+            if (topY < 0) topY = 0;
+            if (bottomY > screenHeight) bottomY = screenHeight;
+            float hazeAlpha = (0.035f + visual.opticalDepth * 0.105f) *
+                              (0.42f + light->daylight * 0.58f);
+            hazeAlpha += light->sunset * visual.mieStrength * 0.12f;
+            Color haze = ColorLerp(visual.haze, light->starColor, 0.16f);
+            if (centerY > topY) {
+                DrawRectangleGradientV(0, topY, screenWidth, centerY - topY,
+                                       BLANK, Fade(haze, hazeAlpha));
+            }
+            if (bottomY > centerY) {
+                DrawRectangleGradientV(0, centerY, screenWidth, bottomY - centerY,
+                                       Fade(haze, hazeAlpha), BLANK);
+            }
+        }
+    }
+
+    int sourceCount = light->sourceCount;
+    if (sourceCount > MAX_SOLAR_LIGHTS) sourceCount = MAX_SOLAR_LIGHTS;
+    for (int i = 0; i < sourceCount; i++) {
+        Vector3 direction = light->sourceDirections[i];
+        if (direction.y < -0.08f || Vector3DotProduct(direction, forward) <= 0.01f) continue;
+
+        Vector3 sourcePoint = Vector3Add(camera->position,
+                                         Vector3Scale(direction, SUN_DISTANCE));
+        Vector2 screen = GetWorldToScreen(sourcePoint, *camera);
+        if (screen.x < -260.0f || screen.x > (float)screenWidth + 260.0f ||
+            screen.y < -260.0f || screen.y > (float)screenHeight + 260.0f) continue;
+
+        float airMass = Clamp(1.0f / (0.20f + fmaxf(direction.y, 0.0f)), 0.85f, 4.20f);
+        float visibility = Clamp(light->sourceVisibility[i], 0.0f, 1.0f);
+        float scatterAlpha = Clamp(visual.opticalDepth *
+                                   (0.018f + visual.mieStrength * 0.022f) * airMass *
+                                   visibility, 0.0f, 0.20f);
+        float radius = Clamp((32.0f + visual.opticalDepth * 42.0f) * airMass,
+                             42.0f, 230.0f);
+        Color scatter = ColorLerp(visual.haze, light->sourceColors[i], 0.48f);
+        DrawCircleGradient((int)screen.x, (int)screen.y, radius,
+                           Fade(scatter, scatterAlpha), BLANK);
+        DrawCircleGradient((int)screen.x, (int)screen.y, radius * 0.38f,
+                           Fade(scatter, scatterAlpha * 0.72f), BLANK);
     }
 }
 
@@ -282,9 +423,19 @@ static void RefreshSkySystems(Vector3 observer)
 
 void DrawStars(const Camera3D *camera, float daylight)
 {
-    if (daylight > 0.15f) return;
+    float atmosphericDaylight = daylight;
+    if (PlanetWorldIsActive()) {
+        const PlanetProfile *profile = PlanetWorldProfile();
+        float extinction = 0.0f;
+        if (profile->atmosphereType != PLANET_ATMOSPHERE_NONE) {
+            float typeScale = profile->atmosphereType == PLANET_ATMOSPHERE_THIN ? 0.72f : 1.22f;
+            extinction = Clamp(profile->atmosphereDensity * typeScale, 0.0f, 1.0f);
+        }
+        atmosphericDaylight *= extinction;
+    }
+    if (atmosphericDaylight > 0.15f) return;
 
-    float visibility = (0.15f - daylight) / 0.15f;
+    float visibility = (0.15f - atmosphericDaylight) / 0.15f;
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
     float time = GetTime();
@@ -304,45 +455,152 @@ void DrawStars(const Camera3D *camera, float daylight)
             continue;
         }
 
-        Vector3 toStar = Vector3Subtract(system->center, observer);
-        float distance = Vector3Length(toStar);
-        if (distance < 0.01f) continue;
-        if (!surfaceActive && distance < 700.0f) continue;
+        Vector3 primaryToStar = Vector3Subtract(system->center, observer);
+        float primaryDistance = Vector3Length(primaryToStar);
+        if (primaryDistance < 0.01f) continue;
+        if (!surfaceActive && primaryDistance < 700.0f) continue;
 
-        Vector3 dir = SolarSystemApparentDirection(system, observer);
-        if (planetSurface) dir = PlanetWorldSkyDirection(dir);
-        if (surfaceActive && dir.y < -0.05f) continue;
-        if (Vector3DotProduct(dir, forward) <= 0.01f) continue;
+        SolarLightSource sources[MAX_SOLAR_LIGHTS];
+        int sourceCount = SolarSystemLightSources(system, sources, MAX_SOLAR_LIGHTS);
+        for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
+            SolarSystemDef apparent = *system;
+            apparent.center = sources[sourceIndex].center;
+            apparent.spectrum = sources[sourceIndex].spectrum;
 
-        Vector3 pos = Vector3Add(camera->position, Vector3Scale(dir, STAR_SHELL_DISTANCE));
-        Vector2 screen = GetWorldToScreen(pos, *camera);
-        if (screen.x < -20.0f || screen.x > (float)sw + 20.0f ||
-            screen.y < -20.0f || screen.y > (float)sh + 20.0f) continue;
+            Vector3 sourceToStar = Vector3Subtract(apparent.center, observer);
+            float sourceDistance = Vector3Length(sourceToStar);
+            if (sourceDistance < 0.01f) continue;
+            Vector3 sourceDir = SolarSystemApparentDirection(&apparent, observer);
+            if (planetSurface) sourceDir = PlanetWorldSkyDirection(sourceDir);
+            if (surfaceActive && sourceDir.y < -0.05f) continue;
+            if (Vector3DotProduct(sourceDir, forward) <= 0.01f) continue;
 
-        unsigned int hash = WorldHash2D(system->anchorX, system->anchorZ);
-        float phase = (float)(hash % 6283u) / 1000.0f;
-        float twinkle = 0.72f + 0.28f * sinf(time * 1.35f + phase);
-        float distanceFade = 1.0f - 0.58f * Clamp(distance / STAR_SKY_RANGE,
-                                                   0.0f, 1.0f);
-        unsigned char alpha = (unsigned char)(visibility * 235.0f * twinkle * distanceFade);
-        Color color = SpectrumColor(system->spectrum);
-        color.a = alpha;
-        float size = 1.0f + (float)(hash % 5u) * 0.18f;
-        if (system->spectrum == SPECTRUM_RED_GIANT) size += 0.55f;
-        bool bright = (hash % 17u) == 0u;
+            Vector3 sourcePos = Vector3Add(camera->position,
+                                          Vector3Scale(sourceDir, STAR_SHELL_DISTANCE));
+            Vector2 sourceScreen = GetWorldToScreen(sourcePos, *camera);
+            if (sourceScreen.x < -20.0f || sourceScreen.x > (float)sw + 20.0f ||
+                sourceScreen.y < -20.0f || sourceScreen.y > (float)sh + 20.0f) continue;
 
-        if (bright) {
-            DrawCircle((int)screen.x, (int)screen.y, 2.6f, color);
-            DrawLine((int)screen.x - 6, (int)screen.y, (int)screen.x + 6, (int)screen.y, Fade(color, 0.35f));
-            DrawLine((int)screen.x, (int)screen.y - 6, (int)screen.x, (int)screen.y + 6, Fade(color, 0.35f));
-        } else {
-            DrawCircle((int)screen.x, (int)screen.y, size, color);
+            unsigned int sourceHash = WorldHash2D(system->anchorX, system->anchorZ) ^
+                                       (0x9e3779b9u * (unsigned int)(sourceIndex + 1));
+            float phase = (float)(sourceHash % 6283u) / 1000.0f;
+            float twinkle = 0.72f + 0.28f * sinf(time * 1.35f + phase);
+            float distanceFade = 1.0f - 0.58f * Clamp(sourceDistance / STAR_SKY_RANGE,
+                                                       0.0f, 1.0f);
+            float luminosityScale = sourceIndex == 0 ? 1.0f :
+                                    Clamp(sqrtf(sources[sourceIndex].luminosity), 0.35f, 1.0f);
+            unsigned char alpha = (unsigned char)Clamp(visibility * 235.0f * twinkle *
+                                                        distanceFade * luminosityScale,
+                                                        0.0f, 255.0f);
+            Color color = SpectrumColor(sources[sourceIndex].spectrum);
+            color.a = alpha;
+            float size = 1.0f + (float)(sourceHash % 5u) * 0.18f;
+            if (sources[sourceIndex].spectrum == SPECTRUM_RED_GIANT) size += 0.55f;
+            if (sourceIndex > 0) size *= 0.82f;
+            bool bright = (sourceHash % 17u) == 0u;
+
+            if (bright) {
+                DrawCircle((int)sourceScreen.x, (int)sourceScreen.y, 2.6f, color);
+                DrawLine((int)sourceScreen.x - 6, (int)sourceScreen.y,
+                         (int)sourceScreen.x + 6, (int)sourceScreen.y,
+                         Fade(color, 0.35f));
+                DrawLine((int)sourceScreen.x, (int)sourceScreen.y - 6,
+                         (int)sourceScreen.x, (int)sourceScreen.y + 6,
+                         Fade(color, 0.35f));
+            } else {
+                DrawCircle((int)sourceScreen.x, (int)sourceScreen.y, size, color);
+            }
         }
     }
 }
 
+static void DrawMoonPhase(Vector2 center, float radius, float illumination,
+                          Vector3 sunDirection, Color light)
+{
+    Color dark = (Color){ 24, 30, 52, 235 };
+    illumination = Clamp(illumination, 0.0f, 1.0f);
+    DrawCircleV(center, radius, dark);
+    if (illumination > 0.01f) {
+        Vector2 lightAxis = Vector2Normalize((Vector2){ sunDirection.x, sunDirection.z });
+        if (Vector2LengthSqr(lightAxis) < 0.001f) lightAxis = (Vector2){ 1.0f, 0.0f };
+        if (illumination < 0.5f) {
+            float width = radius * illumination * 2.0f;
+            float offset = radius * (1.0f - illumination * 2.0f);
+            DrawEllipseV(Vector2Add(center, Vector2Scale(lightAxis, offset)), width,
+                         radius, light);
+        } else {
+            DrawCircleV(center, radius, light);
+            float width = radius * (2.0f - illumination * 2.0f);
+            float offset = radius * (illumination * 2.0f - 1.0f);
+            if (width > 0.01f) {
+                DrawEllipseV(Vector2Subtract(center, Vector2Scale(lightAxis, offset)),
+                             width, radius, dark);
+            }
+        }
+    }
+    DrawCircleLines((int)center.x, (int)center.y, radius, Fade(light, 0.50f));
+}
+
 void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
 {
+    if (PlanetWorldIsActive()) {
+        PlanetLightState state = { 0 };
+        if (PlanetWorldLightStateAt(camera->position, &state)) {
+            Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
+            PlanetAtmosphereVisual atmosphere =
+                PlanetAtmosphereVisualFor(PlanetWorldProfile());
+            int sourceCount = state.sourceCount;
+            if (sourceCount > MAX_SOLAR_LIGHTS) sourceCount = MAX_SOLAR_LIGHTS;
+            for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
+                Vector3 sourceDir = state.sourceDirections[sourceIndex];
+                if (Vector3LengthSqr(sourceDir) < 0.0001f ||
+                    Vector3DotProduct(sourceDir, forward) <= 0.01f) continue;
+
+                float contribution = Clamp(state.sourceIntensities[sourceIndex] /
+                                           fmaxf(state.totalIntensity, 0.001f), 0.0f, 1.0f);
+                float sourceVisibility = state.sourceVisibility[sourceIndex];
+                if (sourceVisibility <= 0.0f) sourceVisibility = 1.0f;
+                Color sourceColor = ColorLerp(BLACK, state.sourceColors[sourceIndex],
+                                              sourceVisibility);
+                if (sourceIndex == 0 && state.eclipse > 0.1f) {
+                    sourceColor = ColorLerp(sourceColor, (Color){ 255, 92, 40, 255 },
+                                            0.34f);
+                }
+                float airMass = Clamp(1.0f / (0.20f + fmaxf(sourceDir.y, 0.0f)),
+                                      0.85f, 4.20f);
+                float reddening = Clamp((airMass - 0.85f) * atmosphere.opticalDepth * 0.10f,
+                                        0.0f, 0.38f);
+                sourceColor = ColorLerp(sourceColor, atmosphere.haze, reddening);
+                Vector3 sourcePos = Vector3Add(camera->position,
+                                               Vector3Scale(sourceDir, SUN_DISTANCE));
+                Vector2 sourceScreen = GetWorldToScreen(sourcePos, *camera);
+                float glowRadius = 12.0f + sqrtf(contribution) * 14.0f +
+                                   atmosphere.opticalDepth * airMass * 5.0f;
+                float glowAlpha = Clamp(0.12f + contribution * 0.12f +
+                                        atmosphere.opticalDepth * airMass * 0.025f,
+                                        0.0f, 0.34f);
+                DrawCircleGradient((int)sourceScreen.x, (int)sourceScreen.y, glowRadius,
+                                   Fade(sourceColor, glowAlpha), BLANK);
+                DrawCircle((int)sourceScreen.x, (int)sourceScreen.y,
+                           10.0f + sqrtf(contribution) * 6.0f,
+                           ColorLerp(sourceColor, WHITE, 0.48f));
+                if (sourceIndex == 0 && state.eclipse > 0.1f) {
+                    DrawCircle((int)sourceScreen.x, (int)sourceScreen.y, 11.0f,
+                               Fade((Color){ 18, 18, 28, 255 }, 0.74f * state.eclipse));
+                }
+            }
+
+            if (Vector3DotProduct(state.moonDirection, forward) > 0.01f) {
+                Vector3 moonPos = Vector3Add(camera->position,
+                                             Vector3Scale(state.moonDirection, SUN_DISTANCE * 0.96f));
+                Vector2 moonScreen = GetWorldToScreen(moonPos, *camera);
+                DrawMoonPhase(moonScreen, 12.0f, state.moonIllumination,
+                              state.sunDirection, (Color){ 214, 226, 244, 240 });
+            }
+            return;
+        }
+    }
+
     float theta = (currentDayTime - 0.25f) * (2.0f * PI);
     Vector3 sunDir = Vector3Normalize((Vector3){ cosf(theta), sinf(theta), 0.18f });
     Vector3 moonDir = Vector3Negate(sunDir);
@@ -986,9 +1244,13 @@ static Texture2D MakeAtmosphereGlowTexture(void)
             float nx = ((float)x + 0.5f) * 2.0f / (float)size - 1.0f;
             float ny = ((float)y + 0.5f) * 2.0f / (float)size - 1.0f;
             float radius = sqrtf(nx * nx + ny * ny);
-            float alpha = Clamp((1.0f - radius) / 0.30f, 0.0f, 1.0f);
+            float inner = Clamp((radius - 0.64f) / 0.17f, 0.0f, 1.0f);
+            float outer = Clamp((1.0f - radius) / 0.18f, 0.0f, 1.0f);
+            inner = inner * inner * (3.0f - 2.0f * inner);
+            outer = outer * outer * (3.0f - 2.0f * outer);
+            float alpha = inner * outer;
             pixels[y * size + x] = (Color){ 255, 255, 255,
-                                            PlanetColorChannel(alpha * 190.0f) };
+                                            PlanetColorChannel(alpha * 220.0f) };
         }
     }
     Image image = {
@@ -1126,25 +1388,24 @@ static uint32_t PlanetBodyVisualHash(const SpaceBodyInfo *body)
                              body->systemAnchorX ^ body->systemAnchorZ, 0x57ec91u);
 }
 
-static Color PlanetAtmosphereColor(SolarBodyStyle style)
+static Color PlanetAtmosphereColor(const PlanetProfile *profile)
 {
-    switch (style) {
-    case SOLAR_STYLE_LAVA:   return (Color){ 255, 86, 24, 255 };
-    case SOLAR_STYLE_ICE:    return (Color){ 116, 214, 255, 255 };
-    case SOLAR_STYLE_DESERT: return (Color){ 244, 170, 92, 255 };
-    case SOLAR_STYLE_GAS:    return (Color){ 202, 142, 234, 255 };
-    case SOLAR_STYLE_CRATER: return (Color){ 150, 162, 180, 255 };
-    case SOLAR_STYLE_TEMPERATE: return (Color){ 116, 194, 236, 255 };
-    default:                 return WHITE;
-    }
+    return PlanetAtmosphereVisualFor(profile).haze;
 }
 
 static void DrawPlanetAtmosphere(const Camera3D *camera, Vector3 center, float radius,
-                                 Color color, float alpha)
+                                 const PlanetProfile *profile, Color starColor, float alpha)
 {
-    if (planetRender.atmosphereGlow.id == 0 || alpha <= 0.0f) return;
-    DrawBillboard(*camera, planetRender.atmosphereGlow, center, radius * 2.40f,
-                  Fade(color, alpha));
+    if (!profile || profile->atmosphereType == PLANET_ATMOSPHERE_NONE ||
+        planetRender.atmosphereGlow.id == 0 || alpha <= 0.0f) return;
+
+    PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(profile);
+    Color color = ColorLerp(PlanetAtmosphereColor(profile), starColor, 0.14f);
+    float shellSize = radius * (2.10f + visual.scaleHeight * 0.22f);
+    float strength = alpha * Clamp(0.52f + visual.opticalDepth * 0.46f,
+                                   0.0f, 1.0f);
+    DrawBillboard(*camera, planetRender.atmosphereGlow, center, shellSize,
+                  Fade(color, strength));
 }
 
 static Vector3 PlanetRingPoint(Vector3 center, float radius, float angle, float tilt)
@@ -1176,9 +1437,8 @@ static void DrawPlanetRingStrip(Vector3 center, float innerRadius, float outerRa
     }
 }
 
-static void DrawPlanetRings(Vector3 center, float radius, uint32_t hash, float alpha)
+static void DrawPlanetRings(Vector3 center, float radius, float tilt, float alpha)
 {
-    float tilt = (14.0f + (float)(hash % 17u)) * DEG2RAD;
     DrawPlanetRingStrip(center, radius * 1.30f, radius * 1.43f, tilt,
                         Fade((Color){ 216, 189, 166, 255 }, 0.34f * alpha));
     DrawPlanetRingStrip(center, radius * 1.47f, radius * 1.72f, tilt,
@@ -1199,10 +1459,26 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
         Color color = bodies[i].isStar ? SpectrumColor(bodies[i].spectrum)
                                       : SolarStyleColor(bodies[i].style);
         if (bodies[i].isStar) {
-            float radius = bodies[i].radius;
-            DrawSphere(bodies[i].center, radius * 1.08f, color);
-            DrawSphere(bodies[i].center, radius * 1.15f,
-                       Fade(color, 0.12f * spaceFade));
+            SolarSystemDef system = { 0 };
+            SolarLightSource sources[MAX_SOLAR_LIGHTS];
+            int sourceCount = StarSystemAt(bodies[i].systemAnchorX,
+                                           bodies[i].systemAnchorZ, &system) ?
+                              SolarSystemLightSources(&system, sources, MAX_SOLAR_LIGHTS) : 0;
+            if (sourceCount <= 0) {
+                float radius = bodies[i].radius;
+                DrawSphere(bodies[i].center, radius * 1.08f, color);
+                DrawSphere(bodies[i].center, radius * 1.15f,
+                           Fade(color, 0.12f * spaceFade));
+                continue;
+            }
+            for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
+                Vector3 center = sources[sourceIndex].center;
+                float radius = sourceIndex == 0 ? bodies[i].radius : sources[sourceIndex].radius;
+                Color sourceColor = SpectrumColor(sources[sourceIndex].spectrum);
+                DrawSphere(center, radius * 1.08f, sourceColor);
+                DrawSphere(center, radius * 1.15f,
+                           Fade(sourceColor, 0.12f * spaceFade));
+            }
         } else {
             float radius = SolarBodyTerrainRadius(bodies[i].radius);
             int styleIndex = (int)bodies[i].style - (int)SOLAR_STYLE_LAVA;
@@ -1220,13 +1496,25 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             float spinRate = bodies[i].profile.rotationRate;
             float rotation = (float)((visualHash >> 8) % 360u) +
                              (float)SpaceSimulationTime() * spinRate;
-            Color atmosphere = PlanetAtmosphereColor(bodies[i].style);
-            float atmosphereAlpha = 0.04f + bodies[i].profile.atmosphereDensity * 0.54f;
-            DrawPlanetAtmosphere(camera, bodies[i].center, radius, atmosphere,
-                                 atmosphereAlpha * spaceFade);
+            Color starColor = SpectrumColor(bodies[i].spectrum);
+            float atmosphereAlpha = 0.08f + bodies[i].profile.atmosphereDensity * 0.54f;
+            DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
+                                 starColor, atmosphereAlpha * spaceFade);
             DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color);
+            bool hasCloudLayer = bodies[i].profile.atmosphereDensity > 0.42f &&
+                                 (bodies[i].profile.atmosphereType ==
+                                      PLANET_ATMOSPHERE_BREATHABLE ||
+                                  bodies[i].profile.atmosphereType == PLANET_ATMOSPHERE_DENSE) &&
+                                 bodies[i].style != SOLAR_STYLE_GAS;
+            if (hasCloudLayer) {
+                float cloudRotation = rotation + (float)SpaceSimulationTime() *
+                                      (0.32f + bodies[i].profile.atmosphereDensity * 0.34f);
+                DrawTexturedPlanet(bodies[i].center, radius * 1.014f,
+                                   planetRender.clouds, cloudRotation, WHITE);
+            }
             if (bodies[i].profile.hasRings) {
-                DrawPlanetRings(bodies[i].center, radius, visualHash, spaceFade);
+                DrawPlanetRings(bodies[i].center, radius, bodies[i].profile.ringTilt,
+                                spaceFade);
             }
         }
     }
@@ -1256,8 +1544,15 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     if (distance <= radius + 0.5f || distance > 24000.0f) return;
 
     EnsurePlanetRenderResources();
-    Color atmosphere = (Color){ 130, 202, 255, 255 };
-    DrawPlanetAtmosphere(camera, center, radius, atmosphere, 0.62f * spaceFade);
+    PlanetProfile homeAtmosphere = {
+        .style = SOLAR_STYLE_TEMPERATE,
+        .atmosphereType = PLANET_ATMOSPHERE_BREATHABLE,
+        .surfaceGravity = 1.0f,
+        .equilibriumTempK = 288.0f,
+        .atmosphereDensity = 0.78f
+    };
+    DrawPlanetAtmosphere(camera, center, radius, &homeAtmosphere,
+                         SpectrumColor(SPECTRUM_YELLOW), 0.62f * spaceFade);
     float homeRotation = -18.0f + (float)SpaceSimulationTime() * 1.2f;
     DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor());
     DrawTexturedPlanet(center, radius * 1.012f, planetRender.clouds,

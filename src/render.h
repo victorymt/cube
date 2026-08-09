@@ -14,6 +14,9 @@ void DayNightFactors(float currentDayTime, float *daylight, float *sunset);
 Color WorldTintForLight(float daylight, float sunset);
 Color MixWeather(Color color, float daylight);
 void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint);
+void ApplyPlanetWorldPaletteWithLight(Color *top, Color *horizon, Color *worldTint,
+                                      const PlanetLightState *light);
+void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *light);
 void SkyColorsForLight(float daylight, float sunset, Color *top, Color *horizon);
 void DrawStars(const Camera3D *camera, float daylight);
 void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight);

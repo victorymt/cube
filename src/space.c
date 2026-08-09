@@ -315,6 +315,11 @@ static float SolarSpectrumLuminosity(SpectrumType spectrum)
     }
 }
 
+static uint32_t SolarLightHash(const SolarSystemDef *sys)
+{
+    return WorldHash2D(sys->anchorX * 113 + 41, sys->anchorZ * 71 + 19);
+}
+
 static unsigned int SolarOrbitHash(const SolarSystemDef *sys, int index)
 {
     return WorldHash2D(sys->anchorX * 53 + index * 7 + 1,
@@ -401,6 +406,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
                                     (0.68f + PlanetProfileHashUnit(seed, 13u) * 0.32f),
                                     0.0f, 1.0f);
     profile.tidallyLocked = profile.hasSolidSurface && profile.tidalLockFactor > 0.58f;
+    profile.ringTilt = (14.0f + PlanetProfileHashUnit(seed, 14u) * 17.0f) * DEG2RAD;
     if (gasGiant) {
         float gasRadiusEarth = 2.8f + sizeUnit * 1.8f;
         profile.massEarth = 12.0f + composition * 32.0f;
@@ -451,7 +457,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
                                                 temperature, composition);
     if (profile.tidallyLocked) {
         float orbitPeriod = SolarSystemPlanetOrbitPeriod(sys, index);
-        if (orbitPeriod > 0.0f) profile.rotationRate = (2.0f * PI) / orbitPeriod;
+        if (orbitPeriod > 0.0f) profile.rotationRate = 360.0f / orbitPeriod;
     }
     return profile;
 }
@@ -666,6 +672,229 @@ float SolarSystemPlanetOrbitPeriod(const SolarSystemDef *sys, int index)
     float angularSpeed = SOLAR_ORBIT_BASE_SPEED * sqrtf(SolarSpectrumMass(sys->spectrum)) /
                          (orbitRatio * sqrtf(orbitRatio));
     return angularSpeed > 0.0001f ? (2.0f * PI) / angularSpeed : 0.0f;
+}
+
+int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
+                            int maxCount)
+{
+    if (!sys || !out || maxCount <= 0) return 0;
+
+    uint32_t hash = SolarLightHash(sys);
+    unsigned int roll = hash % 100u;
+    int count = roll < 9u ? 3 : (roll < 38u ? 2 : 1);
+    if (count > maxCount) count = maxCount;
+
+    out[0] = (SolarLightSource){
+        .center = sys->center,
+        .spectrum = sys->spectrum,
+        .radius = (float)sys->starRadius,
+        .luminosity = SolarSpectrumLuminosity(sys->spectrum),
+        .primary = true
+    };
+    if (count == 1) return count;
+
+    float binaryPhase = (float)(hash % 6283u) / 1000.0f +
+                        (float)solarSimulationTime * (0.010f + (float)(hash % 17u) * 0.0008f);
+    float separation = 22.0f + (float)((hash >> 8) % 36u);
+    Vector3 offset = {
+        cosf(binaryPhase) * separation,
+        sinf(binaryPhase * 0.71f) * separation * 0.14f,
+        sinf(binaryPhase) * separation
+    };
+    SpectrumType companionSpectrum = (SpectrumType)((sys->spectrum + 1u +
+                                                      ((hash >> 16) % 4u)) % 5u);
+    out[1] = (SolarLightSource){
+        .center = Vector3Add(sys->center, offset),
+        .spectrum = companionSpectrum,
+        .radius = 7.0f + (float)((hash >> 22) % 7u),
+        .luminosity = SolarSpectrumLuminosity(companionSpectrum) *
+                      (0.42f + (float)((hash >> 27) & 7u) * 0.06f),
+        .primary = false
+    };
+    if (count == 2) return count;
+
+    float tertiaryPhase = binaryPhase + 2.0f * PI / 3.0f;
+    float tertiarySeparation = separation * 1.35f;
+    Vector3 tertiaryOffset = {
+        cosf(tertiaryPhase) * tertiarySeparation,
+        sinf(tertiaryPhase * 0.63f) * tertiarySeparation * 0.11f,
+        sinf(tertiaryPhase) * tertiarySeparation
+    };
+    SpectrumType tertiarySpectrum = (SpectrumType)((companionSpectrum +
+                                                     1u + ((hash >> 5) % 3u)) % 5u);
+    out[2] = (SolarLightSource){
+        .center = Vector3Add(sys->center, tertiaryOffset),
+        .spectrum = tertiarySpectrum,
+        .radius = 5.0f + (float)((hash >> 24) % 6u),
+        .luminosity = SolarSpectrumLuminosity(tertiarySpectrum) * 0.24f,
+        .primary = false
+    };
+    return count;
+}
+
+static Vector3 PlanetSurfaceNormalAt(Vector3 surfacePosition)
+{
+    float radius = fmaxf(planetWorld.bodyRadius, 24.0f);
+    float longitude = surfacePosition.x / (radius * 0.82f);
+    float latitude = surfacePosition.z / (radius * 0.82f);
+    float cosLatitude = cosf(latitude);
+    return Vector3Normalize((Vector3){
+        sinf(longitude) * cosLatitude,
+        cosf(longitude) * cosLatitude,
+        sinf(latitude)
+    });
+}
+
+static Vector3 PlanetRotateY(Vector3 direction, float angle)
+{
+    float c = cosf(angle);
+    float s = sinf(angle);
+    return (Vector3){
+        direction.x * c + direction.z * s,
+        direction.y,
+        -direction.x * s + direction.z * c
+    };
+}
+
+static float PlanetRingShadowForPoint(Vector3 surfacePosition, Vector3 sunDirection)
+{
+    if (!planetWorld.profile.hasRings) return 0.0f;
+
+    Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
+    Vector3 surfacePoint = Vector3Scale(surfaceNormal, planetWorld.bodyRadius);
+    float tilt = planetWorld.profile.ringTilt;
+    Vector3 ringNormal = { 0.0f, cosf(tilt), sinf(tilt) };
+    float denominator = Vector3DotProduct(ringNormal, sunDirection);
+    if (fabsf(denominator) < 0.0001f) return 0.0f;
+
+    float distanceAlongRay = -Vector3DotProduct(ringNormal, surfacePoint) / denominator;
+    if (distanceAlongRay <= 0.0f) return 0.0f;
+
+    Vector3 ringHit = Vector3Add(surfacePoint,
+                                 Vector3Scale(sunDirection, distanceAlongRay));
+    float ringRadius = Vector3Length(ringHit);
+    float innerRadius = planetWorld.bodyRadius * 1.30f;
+    float outerRadius = planetWorld.bodyRadius * 1.86f;
+    if (ringRadius < innerRadius || ringRadius > outerRadius) return 0.0f;
+
+    float band = (ringRadius - innerRadius) / fmaxf(outerRadius - innerRadius, 0.001f);
+    return 0.42f + 0.22f * (0.5f + 0.5f * sinf(band * 18.0f));
+}
+
+bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
+{
+    if (!out) return false;
+    *out = (PlanetLightState){ 0 };
+    if (!planetWorld.active || !planetWorld.profile.hasSolidSurface) return false;
+
+    SolarSystemDef system = { 0 };
+    if (!SurfaceHostSystem(&system)) return false;
+    int orbitIndex = planetWorld.planetIndex - 1;
+    if (orbitIndex < 0 || orbitIndex >= system.planetCount) return false;
+
+    SolarLightSource sources[MAX_SOLAR_LIGHTS];
+    int sourceCount = SolarSystemLightSources(&system, sources, MAX_SOLAR_LIGHTS);
+    if (sourceCount <= 0) return false;
+
+    Vector3 planetCenter = SolarSystemPlanetCenter(&system, orbitIndex);
+    float spinPhase = (float)(planetWorld.seed & 0xffffu) / 65535.0f * 2.0f * PI +
+                      (float)solarSimulationTime * planetWorld.profile.rotationRate * DEG2RAD;
+    float totalWeight = 0.0f;
+    Vector3 weightedDirection = Vector3Zero();
+    float weightedR = 0.0f;
+    float weightedG = 0.0f;
+    float weightedB = 0.0f;
+
+    for (int i = 0; i < sourceCount; i++) {
+        Vector3 toSource = Vector3Subtract(sources[i].center, planetCenter);
+        float distance = Vector3Length(toSource);
+        if (distance < 0.001f) continue;
+
+        // Convert the inertial star direction into the rotating planet frame.
+        // The inverse rotation keeps a tidally locked face pointed at its star.
+        Vector3 direction = PlanetWorldSkyDirection(toSource);
+        direction = PlanetRotateY(Vector3Normalize(direction), -spinPhase);
+        float weight = sources[i].luminosity * 32400.0f / fmaxf(distance * distance, 1.0f);
+        bool eclipsed = false;
+        for (int j = 0; j < sourceCount; j++) {
+            if (i == j) continue;
+            Vector3 toOther = Vector3Subtract(sources[j].center, planetCenter);
+            float otherDistance = Vector3Length(toOther);
+            if (otherDistance >= distance || otherDistance < 0.001f) continue;
+            Vector3 otherDirection = PlanetRotateY(Vector3Normalize(PlanetWorldSkyDirection(toOther)),
+                                                   -spinPhase);
+            float sourceAngular = asinf(Clamp(sources[i].radius / distance, 0.0f, 0.98f));
+            float otherAngular = asinf(Clamp(sources[j].radius / otherDistance, 0.0f, 0.98f));
+            if (Vector3DotProduct(direction, otherDirection) >
+                cosf(sourceAngular + otherAngular)) {
+                eclipsed = true;
+                break;
+            }
+        }
+        if (eclipsed) {
+            weight *= 0.12f;
+            out->specialEclipse = true;
+        }
+        Color color = SpectrumColor(sources[i].spectrum);
+        out->sourceDirections[i] = direction;
+        out->sourceColors[i] = color;
+        out->sourceIntensities[i] = weight;
+        out->sourceVisibility[i] = eclipsed ? 0.12f : 1.0f;
+        totalWeight += weight;
+        weightedDirection = Vector3Add(weightedDirection, Vector3Scale(direction, weight));
+        weightedR += (float)color.r * weight;
+        weightedG += (float)color.g * weight;
+        weightedB += (float)color.b * weight;
+    }
+
+    if (Vector3LengthSqr(weightedDirection) < 0.000001f || totalWeight <= 0.0f) return false;
+    Vector3 sunDirection = Vector3Normalize(weightedDirection);
+    Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
+    float incidence = Vector3DotProduct(surfaceNormal, sunDirection);
+    float daylight = Clamp(incidence * totalWeight, 0.0f, 1.0f);
+
+    float moonAngle = (float)(planetWorld.seed % 6283u) / 1000.0f +
+                      (float)solarSimulationTime * 0.018f;
+    Vector3 moonReference = Vector3CrossProduct(sunDirection, (Vector3){ 0.0f, 1.0f, 0.0f });
+    if (Vector3LengthSqr(moonReference) < 0.001f) {
+        moonReference = Vector3CrossProduct(sunDirection, (Vector3){ 1.0f, 0.0f, 0.0f });
+    }
+    moonReference = Vector3Normalize(moonReference);
+    Vector3 moonDirection = Vector3Normalize(Vector3Add(
+        Vector3Scale(sunDirection, cosf(moonAngle)),
+        Vector3Scale(moonReference, sinf(moonAngle))));
+    float moonIllumination = Clamp((1.0f - Vector3DotProduct(moonDirection, sunDirection)) * 0.5f,
+                                   0.0f, 1.0f);
+    float moonAlignment = Vector3DotProduct(moonDirection, sunDirection);
+    if (moonAlignment > 0.994f && incidence > 0.0f) {
+        out->eclipse = Clamp((moonAlignment - 0.994f) / 0.006f, 0.0f, 1.0f);
+        out->specialEclipse = true;
+    }
+
+    out->sunDirection = sunDirection;
+    out->moonDirection = moonDirection;
+    out->daylight = daylight;
+    out->sunset = incidence > 0.0f ? powf(1.0f - daylight, 2.0f) : 0.0f;
+    out->ringShadow = PlanetRingShadowForPoint(surfacePosition, sunDirection);
+    out->daylight *= (1.0f - out->ringShadow * 0.72f);
+    out->daylight *= (1.0f - out->eclipse * 0.88f);
+    out->daylight = Clamp(out->daylight, 0.0f, 1.0f);
+    out->moonIllumination = moonIllumination;
+    out->totalIntensity = totalWeight;
+    out->sourceCount = sourceCount;
+    out->starColor = (Color){
+        (unsigned char)Clamp(weightedR / totalWeight, 0.0f, 255.0f),
+        (unsigned char)Clamp(weightedG / totalWeight, 0.0f, 255.0f),
+        (unsigned char)Clamp(weightedB / totalWeight, 0.0f, 255.0f),
+        255
+    };
+    return true;
+}
+
+float PlanetWorldDaylightAt(Vector3 surfacePosition)
+{
+    PlanetLightState state;
+    return PlanetWorldLightStateAt(surfacePosition, &state) ? state.daylight : 0.0f;
 }
 
 Vector3 PlanetWorldSpaceReference(void)
@@ -1016,6 +1245,7 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .systemAnchorX = ax,
                     .systemAnchorZ = az,
                     .worldSeed = profile.seed,
+                    .spectrum = sys.spectrum,
                     .style = profile.style,
                     .profile = profile
                 };
