@@ -885,7 +885,6 @@ int main(void)
             if (HomeWorldSurfaceIsActive()) {
                 UpdateNetherChunks(player.position, effectiveRenderDistance, 4);
             }
-            SpaceUpdateStarGlow(player.position);
             SpaceUpdateSolarGlow(player.position);
         }
         ProcessFinishedMeshJobs();

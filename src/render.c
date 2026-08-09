@@ -2140,27 +2140,10 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
         Color color = bodies[i].isStar ? SpectrumColor(bodies[i].spectrum)
                                       : SolarStyleColor(bodies[i].style);
         if (bodies[i].isStar) {
-            SolarSystemDef system = { 0 };
-            SolarLightSource sources[MAX_SOLAR_LIGHTS];
-            int sourceCount = StarSystemAt(bodies[i].systemAnchorX,
-                                           bodies[i].systemAnchorZ, &system) ?
-                              SolarSystemLightSources(&system, sources, MAX_SOLAR_LIGHTS) : 0;
-            if (sourceCount <= 0) {
-                float radius = bodies[i].spaceProxyRadius;
-                DrawSphere(bodies[i].center, radius * 1.08f, color);
-                DrawSphere(bodies[i].center, radius * 1.15f,
-                           Fade(color, 0.12f * spaceFade));
-                continue;
-            }
-            for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
-                Vector3 center = sources[sourceIndex].center;
-                float radius = sourceIndex == 0 ? bodies[i].spaceProxyRadius :
-                                                   sources[sourceIndex].spaceProxyRadius;
-                Color sourceColor = SpectrumColor(sources[sourceIndex].spectrum);
-                DrawSphere(center, radius * 1.08f, sourceColor);
-                DrawSphere(center, radius * 1.15f,
-                           Fade(sourceColor, 0.12f * spaceFade));
-            }
+            float radius = bodies[i].spaceProxyRadius;
+            DrawSphere(bodies[i].center, radius * 1.08f, color);
+            DrawSphere(bodies[i].center, radius * 1.15f,
+                       Fade(color, 0.12f * spaceFade));
         } else {
             float radius = SolarBodyTerrainProxyRadius(
                 bodies[i].spaceProxyRadius);

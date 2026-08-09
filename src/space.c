@@ -5,6 +5,7 @@
 #include "ecology.h"
 #include "terrain.h"
 #include "particles.h"
+#include "space_barycenter.h"
 #include "space_physics.h"
 #include "space_satellite.h"
 #include "space_units.h"
@@ -80,6 +81,7 @@ static int spaceOriginX = 0;
 static int spaceOriginZ = 0;
 
 static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection);
+static float SolarSystemMinimumPlanetOrbitGame(const SolarSystemDef *sys);
 
 #define SPACE_REBASE_THRESHOLD (STAR_SYSTEM_SPACING * 12)
 
@@ -319,12 +321,6 @@ static void ApplyPrimaryStar(SolarSystemDef *system, StellarProfile star)
     system->star = star;
     system->spectrum = star.spectrum;
     system->starProxyRadius = StellarVisualRadius(&star);
-}
-
-static double SolarSystemStarMassKg(const SolarSystemDef *system)
-{
-    return system && system->star.massKg > 0.0 ? system->star.massKg :
-                                                 SPACE_UNITS_SOLAR_MASS_KG;
 }
 
 static float SolarSystemStarLuminosity(const SolarSystemDef *system)
@@ -724,11 +720,19 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
         STAR_SYSTEM_MID_Y + (float)verticalOffset,
         (float)SpaceGlobalToLocalZ(SpaceSystemGlobalCoordinate(az))
     };
-    out->planetCount = 2 + (int)((h >> 8) % 4u);
+    int desiredPlanetCount = 2 + (int)((h >> 8) % 4u);
+    float minimumOrbitGame = SolarSystemMinimumPlanetOrbitGame(out);
+    int stablePlanetCount = 1 +
+        (int)floorf((650.0f - minimumOrbitGame - 32.0f) / 120.0f);
+    if (stablePlanetCount < 1) stablePlanetCount = 1;
+    out->planetCount = desiredPlanetCount < stablePlanetCount ?
+                       desiredPlanetCount : stablePlanetCount;
 
     for (int i = 0; i < out->planetCount; i++) {
         unsigned int ph = WorldHash2D(ax * 53 + i * 7 + 1, az * 29 + i * 3 + 2);
-        float orbitGame = (float)(180 + i * 120 + (int)(ph % 5u) * 8);
+        float orbitGame = minimumOrbitGame + i * 120.0f +
+                          (float)(ph % 5u) * 8.0f;
+        if (orbitGame > 650.0f) orbitGame = 650.0f;
         out->planets[i].semiMajorAxisKm =
             SpaceUnitsGameDistanceToKilometers(orbitGame);
         // These are visitable planets, not asteroid props. Keep enough volume
@@ -802,7 +806,7 @@ Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
     // derived from stable system hashes, so a body keeps the same orbit across
     // visits without requiring a saved simulation state.
     double angularSpeed = SpaceUnitsKeplerMeanMotionGame(
-        def->semiMajorAxisKm, SolarSystemStarMassKg(sys));
+        def->semiMajorAxisKm, SolarSystemStellarMassKg(sys));
     float meanAnomaly = phase + (float)fmod(simulationTime * angularSpeed,
                                             2.0 * PI);
     float eccentricity = 0.015f + (float)((orbitHash >> 17) % 180u) / 1000.0f;
@@ -870,7 +874,7 @@ double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index)
     if (!sys || index < 0 || index >= sys->planetCount) return 0.0;
 
     return SpaceUnitsKeplerPeriodSeconds(sys->planets[index].semiMajorAxisKm,
-                                         SolarSystemStarMassKg(sys));
+                                         SolarSystemStellarMassKg(sys));
 }
 
 double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index)
@@ -896,12 +900,11 @@ static StellarProfile SolarCompanionProfile(const SolarSystemDef *system,
     return companion;
 }
 
-int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
-                            int maxCount)
+static int SolarSystemStellarCount(const SolarSystemDef *sys, uint32_t *outHash)
 {
-    if (!sys || !out || maxCount <= 0) return 0;
-
+    if (!sys) return 0;
     uint32_t hash = SolarLightHash(sys);
+    if (outHash) *outHash = hash;
     float primaryMass = fmaxf(sys->star.massSolar, 0.08f);
     unsigned int multipleRoll = hash % 1000u;
     unsigned int binaryThreshold = primaryMass < 0.60f ? 250u :
@@ -911,64 +914,130 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
     int count = multipleRoll < tripleThreshold ? 3 :
                 (multipleRoll < binaryThreshold ? 2 : 1);
     if (sys->anchorX == 0 && sys->anchorZ == 0) count = 1;
-    if (count > maxCount) count = maxCount;
+    return count;
+}
 
-    out[0] = (SolarLightSource){
-        .center = sys->center,
-        .stellar = sys->star,
-        .spectrum = sys->spectrum,
-        .spaceProxyRadius = (float)sys->starProxyRadius,
-        .luminosity = SolarSystemStarLuminosity(sys),
-        .primary = true
-    };
+static int SolarSystemStellarProfiles(const SolarSystemDef *sys,
+                                      StellarProfile *out, int maxCount,
+                                      uint32_t *outHash)
+{
+    if (!sys || !out || maxCount <= 0) return 0;
+    int count = SolarSystemStellarCount(sys, outHash);
+    if (count > maxCount) count = maxCount;
+    out[0] = sys->star;
     if (count == 1) return count;
 
-    float separation = 22.0f + (float)((hash >> 8) % 36u);
-    StellarProfile companion = SolarCompanionProfile(
-        sys, hash ^ 0x94d049bbu, 0.18f, 0.92f);
-    double binaryMeanMotion = SpaceUnitsKeplerMeanMotionGame(
-        SpaceUnitsGameDistanceToKilometers(separation),
-        sys->star.massKg + companion.massKg);
-    float binaryPhase = (float)(hash % 6283u) / 1000.0f +
-                        (float)fmod(solarSimulationTime * binaryMeanMotion,
-                                    2.0 * PI);
-    Vector3 offset = {
-        cosf(binaryPhase) * separation,
-        sinf(binaryPhase * 0.71f) * separation * 0.14f,
-        sinf(binaryPhase) * separation
-    };
-    out[1] = (SolarLightSource){
-        .center = Vector3Add(sys->center, offset),
-        .stellar = companion,
-        .spectrum = companion.spectrum,
-        .spaceProxyRadius = (float)StellarVisualRadius(&companion),
-        .luminosity = companion.luminositySolar,
-        .primary = false
-    };
+    uint32_t hash = outHash ? *outHash : SolarLightHash(sys);
+    out[1] = SolarCompanionProfile(sys, hash ^ 0x94d049bbu, 0.18f, 0.92f);
     if (count == 2) return count;
+    out[2] = SolarCompanionProfile(sys, hash ^ 0x369dea0fu, 0.10f, 0.62f);
+    return count;
+}
 
-    float tertiarySeparation = separation * 1.35f;
-    StellarProfile tertiary = SolarCompanionProfile(
-        sys, hash ^ 0x369dea0fu, 0.10f, 0.62f);
-    double tertiaryMeanMotion = SpaceUnitsKeplerMeanMotionGame(
-        SpaceUnitsGameDistanceToKilometers(tertiarySeparation),
-        sys->star.massKg + companion.massKg + tertiary.massKg);
-    float tertiaryPhase = (float)((hash >> 4) % 6283u) / 1000.0f +
-                          (float)fmod(solarSimulationTime * tertiaryMeanMotion,
-                                      2.0 * PI);
-    Vector3 tertiaryOffset = {
-        cosf(tertiaryPhase) * tertiarySeparation,
-        sinf(tertiaryPhase * 0.63f) * tertiarySeparation * 0.11f,
-        sinf(tertiaryPhase) * tertiarySeparation
-    };
-    out[2] = (SolarLightSource){
-        .center = Vector3Add(sys->center, tertiaryOffset),
-        .stellar = tertiary,
-        .spectrum = tertiary.spectrum,
-        .spaceProxyRadius = (float)StellarVisualRadius(&tertiary),
-        .luminosity = tertiary.luminositySolar,
-        .primary = false
-    };
+static SpaceBarycenterOrbit SolarSystemStellarOrbit(
+    const SolarSystemDef *sys, const StellarProfile *profiles, int count,
+    uint32_t hash)
+{
+    SpaceBarycenterOrbit orbit = { .bodyCount = count };
+    for (int i = 0; i < count; i++) orbit.massKg[i] = profiles[i].massKg;
+    if (count <= 1) return orbit;
+
+    float innerSeparationGame = count == 3 ?
+        30.0f + (float)((hash >> 8) % 13u) :
+        34.0f + (float)((hash >> 8) % 25u);
+    orbit.innerSeparationKm = SpaceUnitsGameDistanceToKilometers(
+        innerSeparationGame);
+    orbit.innerPhaseRad = (double)(hash % 6283u) / 1000.0;
+    orbit.innerInclinationRad =
+        ((double)((hash >> 16) % 17u) - 8.0) * 0.004;
+    orbit.innerNodeRad = (double)((hash >> 4) % 6283u) / 1000.0;
+    if (count == 3) {
+        float outerRatio = 3.6f + (float)((hash >> 20) % 7u) * 0.1f;
+        orbit.outerSeparationKm = SpaceUnitsGameDistanceToKilometers(
+            innerSeparationGame * outerRatio);
+        orbit.outerPhaseRad = (double)((hash >> 5) % 6283u) / 1000.0;
+        orbit.outerInclinationRad =
+            ((double)((hash >> 25) % 15u) - 7.0) * 0.007;
+        orbit.outerNodeRad = (double)((hash >> 11) % 6283u) / 1000.0;
+    }
+    (void)sys;
+    return orbit;
+}
+
+double SolarSystemStellarMassKg(const SolarSystemDef *sys)
+{
+    StellarProfile profiles[SPACE_BARYCENTER_MAX_BODIES];
+    int count = SolarSystemStellarProfiles(sys, profiles,
+                                           SPACE_BARYCENTER_MAX_BODIES, NULL);
+    double totalMass = 0.0;
+    for (int i = 0; i < count; i++) totalMass += profiles[i].massKg;
+    return totalMass > 0.0 ? totalMass : SPACE_UNITS_SOLAR_MASS_KG;
+}
+
+int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
+                                   double simulationTime,
+                                   SolarStellarBody *out, int maxCount)
+{
+    if (!sys || !out || maxCount <= 0) return 0;
+    StellarProfile profiles[SPACE_BARYCENTER_MAX_BODIES];
+    uint32_t hash = 0;
+    int count = SolarSystemStellarProfiles(sys, profiles,
+                                           SPACE_BARYCENTER_MAX_BODIES, &hash);
+    if (count <= 0 || count > maxCount) return 0;
+    SpaceBarycenterOrbit orbit = SolarSystemStellarOrbit(sys, profiles, count,
+                                                         hash);
+    SpaceBarycenterBodyState states[SPACE_BARYCENTER_MAX_BODIES];
+    if (SpaceBarycenterSolve(&orbit, simulationTime, states,
+                             SPACE_BARYCENTER_MAX_BODIES) != count) return 0;
+    for (int i = 0; i < count; i++) {
+        out[i] = (SolarStellarBody){
+            .center = Vector3Add(sys->center, states[i].offsetGame),
+            .velocity = states[i].velocityGame,
+            .stellar = profiles[i],
+            .spectrum = profiles[i].spectrum,
+            .spaceProxyRadius = i == 0 ? (float)sys->starProxyRadius :
+                                        (float)StellarVisualRadius(&profiles[i]),
+            .luminosity = profiles[i].luminositySolar,
+            .index = i,
+            .primary = i == 0
+        };
+    }
+    return count;
+}
+
+static float SolarSystemMinimumPlanetOrbitGame(const SolarSystemDef *sys)
+{
+    StellarProfile profiles[SPACE_BARYCENTER_MAX_BODIES];
+    uint32_t hash = 0;
+    int count = SolarSystemStellarProfiles(sys, profiles,
+                                           SPACE_BARYCENTER_MAX_BODIES, &hash);
+    if (count <= 1) return 180.0f;
+    SpaceBarycenterOrbit orbit = SolarSystemStellarOrbit(sys, profiles, count,
+                                                         hash);
+    double separationKm = count == 3 ? orbit.outerSeparationKm :
+                                       orbit.innerSeparationKm;
+    float minimum = (float)SpaceUnitsKilometersToGameDistance(separationKm) *
+                    (count == 3 ? 3.0f : 2.8f);
+    return fmaxf(180.0f, minimum);
+}
+
+int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
+                            int maxCount)
+{
+    if (!sys || !out || maxCount <= 0) return 0;
+    SolarStellarBody bodies[SPACE_BARYCENTER_MAX_BODIES];
+    int count = SolarSystemStellarBodiesAtTime(sys, solarSimulationTime,
+                                               bodies, maxCount);
+    for (int i = 0; i < count; i++) {
+        out[i] = (SolarLightSource){
+            .center = bodies[i].center,
+            .stellar = bodies[i].stellar,
+            .spectrum = bodies[i].spectrum,
+            .spaceProxyRadius = bodies[i].spaceProxyRadius,
+            .luminosity = bodies[i].luminosity,
+            .primary = bodies[i].primary
+        };
+    }
     return count;
 }
 
@@ -1092,7 +1161,7 @@ bool SolarPlanetSatelliteOrbit(const SolarSystemDef *system, int planetIndex,
                profile->seed ^ 0xb5297a4du, profile->massKg,
                profile->physicalRadiusKm,
                system->planets[planetIndex].semiMajorAxisKm,
-               system->star.massKg, occurrence, forceMoon, out) &&
+               SolarSystemStellarMassKg(system), occurrence, forceMoon, out) &&
            out->exists;
 }
 
@@ -1409,107 +1478,6 @@ const char *PlanetAtmosphereName(PlanetAtmosphereType type)
     }
 }
 
-static BlockType StarBlock(int bx, int by, int bz, float distSqr, float shellSqr, SpectrumType spectrum)
-{
-    unsigned int h = WorldHash3D(SpaceLocalToGlobalX(bx), by, SpaceLocalToGlobalZ(bz));
-    bool surface = distSqr >= shellSqr;
-
-    switch (spectrum) {
-    case SPECTRUM_RED_DWARF:
-        if (surface) {
-            if (h % 5u == 0u) return BLOCK_LAVA;
-            if (h % 9u == 0u) return BLOCK_GLOWSTONE;
-            if (h % 11u == 0u) return BLOCK_METEORITE;
-            return BLOCK_MOON_ROCK;
-        }
-        return (h % 7u == 0u) ? BLOCK_GLOWSTONE : BLOCK_MOON_ROCK;
-    case SPECTRUM_ORANGE:
-        if (surface) {
-            if (h % 7u == 0u) return BLOCK_LAVA;
-            if (h % 5u == 0u) return BLOCK_GLOWSTONE;
-            return BLOCK_MOON_SAND;
-        }
-        return (h % 9u == 0u) ? BLOCK_STAR_MATTER : BLOCK_GLOWSTONE;
-    case SPECTRUM_YELLOW:
-        if (!surface) return (h % 5u == 0u) ? BLOCK_STAR_MATTER : BLOCK_GLOWSTONE;
-        if (h % 9u == 0u) return BLOCK_LAVA;
-        if (h % 4u == 0u) return BLOCK_STAR_MATTER;
-        return BLOCK_GLOWSTONE;
-    case SPECTRUM_BLUE_WHITE:
-        if (surface) {
-            if (h % 6u == 0u) return BLOCK_ICE;
-            if (h % 9u == 0u) return BLOCK_MOON_SAND;
-            if (h % 5u == 0u) return BLOCK_GLOWSTONE;
-            return BLOCK_STAR_MATTER;
-        }
-        return (h % 7u == 0u) ? BLOCK_GLOWSTONE : BLOCK_STAR_MATTER;
-    case SPECTRUM_RED_GIANT:
-        if (surface) {
-            if (h % 3u == 0u) return BLOCK_LAVA;
-            if (h % 8u == 0u) return BLOCK_METEORITE;
-            if (h % 7u == 0u) return BLOCK_GLOWSTONE;
-            return BLOCK_MOON_ROCK;
-        }
-        return (h % 5u == 0u) ? BLOCK_LAVA : BLOCK_GLOWSTONE;
-    default:
-        return BLOCK_GLOWSTONE;
-    }
-}
-
-static void FillStarBody(SpaceChunk *chunk, int startX, int startZ,
-                         int cx, int cy, int cz, int radius, SpectrumType spectrum)
-{
-    int chunkMinX = startX;
-    int chunkMaxX = startX + CHUNK_SIZE - 1;
-    int chunkMinZ = startZ;
-    int chunkMaxZ = startZ + CHUNK_SIZE - 1;
-    if (cx + radius < chunkMinX || cx - radius > chunkMaxX) return;
-    if (cz + radius < chunkMinZ || cz - radius > chunkMaxZ) return;
-
-    float radiusSqr = (float)(radius * radius);
-    float shellSqr = (float)((radius - 1) * (radius - 1));
-
-    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int ly = 0; ly < SPACE_LAYER_HEIGHT; ly++) {
-            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                int bx = startX + lx;
-                int by = SPACE_LAYER_Y + ly;
-                int bz = startZ + lz;
-                float dx = (float)(bx - cx);
-                float dy = (float)(by - cy);
-                float dz = (float)(bz - cz);
-                float distSqr = dx * dx + dy * dy + dz * dz;
-                if (distSqr >= radiusSqr) continue;
-                chunk->blocks[lx][ly][lz] = (unsigned short)StarBlock(bx, by, bz, distSqr, shellSqr, spectrum);
-            }
-        }
-    }
-}
-
-static void FillSolarSystemsInChunk(SpaceChunk *chunk, int startX, int startZ)
-{
-    int minAnchorX = FloorDivInt(SpaceLocalToGlobalX(startX - 900), STAR_SYSTEM_SPACING);
-    int maxAnchorX = FloorDivInt(SpaceLocalToGlobalX(startX + CHUNK_SIZE + 900),
-                                 STAR_SYSTEM_SPACING);
-    int minAnchorZ = FloorDivInt(SpaceLocalToGlobalZ(startZ - 900), STAR_SYSTEM_SPACING);
-    int maxAnchorZ = FloorDivInt(SpaceLocalToGlobalZ(startZ + CHUNK_SIZE + 900),
-                                 STAR_SYSTEM_SPACING);
-
-    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
-        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
-            SolarSystemDef sys;
-            if (!StarSystemAt(ax, az, &sys)) continue;
-
-            FillStarBody(chunk, startX, startZ,
-                         (int)sys.center.x, (int)sys.center.y, (int)sys.center.z,
-                         sys.starProxyRadius, sys.spectrum);
-
-            // Planets are rendered as distant proxies. Landing switches to a
-            // dedicated procedural surface world instead of a finite voxel ball.
-        }
-    }
-}
-
 static bool SpacePointInSolarSystemBubble(int x, int z)
 {
     int centerAx = FloorDivInt(SpaceLocalToGlobalX(x), STAR_SYSTEM_SPACING);
@@ -1615,22 +1583,36 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
             if (!StarSystemAt(ax, az, &sys)) continue;
             if (count >= maxCount) return count;
 
-            Vector3 star = sys.center;
-            float starDist = Vector3Distance(star, pos);
-            if (starDist <= maxDist) {
+            SolarStellarBody stars[SPACE_BARYCENTER_MAX_BODIES];
+            int starCount = SolarSystemStellarBodiesAtTime(
+                &sys, solarSimulationTime, stars, SPACE_BARYCENTER_MAX_BODIES);
+            double parentMassKg = SolarSystemStellarMassKg(&sys);
+            for (int starIndex = 0; starIndex < starCount; starIndex++) {
+                if (count >= maxCount) return count;
+                float starDist = Vector3Distance(stars[starIndex].center, pos);
+                if (starDist > maxDist) continue;
                 out[count] = (SpaceBodyInfo){
-                    .center = star,
-                    .physicalRadiusKm = sys.star.radiusKm,
-                    .spaceProxyRadius = (float)sys.starProxyRadius,
+                    .center = stars[starIndex].center,
+                    .velocity = stars[starIndex].velocity,
+                    .physicalRadiusKm = stars[starIndex].stellar.radiusKm,
+                    .parentMassKg = parentMassKg,
+                    .spaceProxyRadius = stars[starIndex].spaceProxyRadius,
                     .dist = starDist,
                     .isStar = true,
-                    .index = 0,
+                    .index = stars[starIndex].index,
                     .systemAnchorX = ax,
                     .systemAnchorZ = az,
-                    .hostStar = sys.star,
-                    .spectrum = sys.spectrum
+                    .hostStar = stars[starIndex].stellar,
+                    .spectrum = stars[starIndex].spectrum
                 };
-                snprintf(out[count].name, sizeof(out[count].name), "%s", sys.name);
+                if (starIndex == 0) {
+                    snprintf(out[count].name, sizeof(out[count].name), "%s",
+                             sys.name);
+                } else {
+                    snprintf(out[count].name, sizeof(out[count].name),
+                             "%.*s %c", (int)sizeof(out[count].name) - 3,
+                             sys.name, 'A' + starIndex);
+                }
                 count++;
             }
 
@@ -1642,8 +1624,11 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                 PlanetProfile profile = SolarPlanetProfile(&sys, i);
                 out[count] = (SpaceBodyInfo){
                     .center = center,
+                    .velocity = SolarSystemPlanetVelocityAtTime(
+                        &sys, i, solarSimulationTime),
                     .physicalRadiusKm = profile.physicalRadiusKm,
                     .semiMajorAxisKm = sys.planets[i].semiMajorAxisKm,
+                    .parentMassKg = parentMassKg,
                     .spaceProxyRadius = profile.spaceProxyRadius,
                     .dist = dist,
                     .isStar = false,
@@ -1866,22 +1851,13 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
                     .encounterRadiusGame = SPACE_STAR_ENCOUNTER_RADIUS_GAME,
                     .hierarchy = 0
                 },
-                Vector3Zero(),
+                bodies[i].velocity,
                 SPACE_GRAVITY_PRIMARY_STAR, bodies[i].name);
             continue;
         }
 
         int planetIndex = bodies[i].index - 1;
         if (planetIndex < 0 || bodies[i].semiMajorAxisKm <= 0.0) continue;
-
-        Vector3 orbitalVelocity = Vector3Zero();
-        SolarSystemDef parentSystem;
-        if (StarSystemAt(bodies[i].systemAnchorX, bodies[i].systemAnchorZ,
-                         &parentSystem) &&
-            planetIndex < parentSystem.planetCount) {
-            orbitalVelocity = SolarSystemPlanetVelocityAtTime(
-                &parentSystem, planetIndex, solarSimulationTime);
-        }
 
         float terrainRadius = SolarBodyTerrainProxyRadius(
             bodies[i].spaceProxyRadius);
@@ -1893,7 +1869,8 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
                                        SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME));
         double physicalSoiKm = SpaceUnitsLaplaceSphereOfInfluenceKm(
             bodies[i].semiMajorAxisKm, bodies[i].profile.massKg,
-            bodies[i].hostStar.massKg);
+            bodies[i].parentMassKg > 0.0 ? bodies[i].parentMassKg :
+                                          bodies[i].hostStar.massKg);
         float physicalSoi = (float)SpaceUnitsKilometersToGameDistance(
             physicalSoiKm);
         float soi = Clamp(physicalSoi, minimumSoi, maximumSoi);
@@ -1912,7 +1889,7 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
                 .encounterRadiusGame = soi,
                 .hierarchy = 1
             },
-            orbitalVelocity,
+            bodies[i].velocity,
             SPACE_GRAVITY_PRIMARY_PLANET, planetName);
     }
 
@@ -1926,12 +1903,29 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
 
     const SpaceGravityCandidate *primary = &candidates[selected];
     float distance = Vector3Distance(position, primary->body.center);
+    Vector3 acceleration = { 0 };
+    if (primary->kind == SPACE_GRAVITY_PRIMARY_STAR) {
+        for (int i = 0; i < candidateCount; i++) {
+            if (candidates[i].kind != SPACE_GRAVITY_PRIMARY_STAR) continue;
+            acceleration = Vector3Add(
+                acceleration,
+                SpacePhysicsGravityAcceleration(position, &candidates[i].body));
+        }
+    } else {
+        acceleration = SpacePhysicsGravityAcceleration(position, &primary->body);
+        for (int i = 0; i < candidateCount; i++) {
+            if (candidates[i].kind != SPACE_GRAVITY_PRIMARY_STAR) continue;
+            acceleration = Vector3Add(
+                acceleration,
+                SpacePhysicsGravityAcceleration(position, &candidates[i].body));
+        }
+    }
     *out = (SpaceGravitySample){
         .active = true,
         .kind = primary->kind,
         .center = primary->body.center,
         .primaryVelocity = primary->velocity,
-        .acceleration = SpacePhysicsGravityAcceleration(position, &primary->body),
+        .acceleration = acceleration,
         .distance = distance,
         .surfaceDistance = distance - primary->body.softeningRadiusGame,
         .encounterRadiusGame = primary->body.encounterRadiusGame,
@@ -2529,9 +2523,6 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
         }
     }
 
-    chunk->hasStar = false;
-    FillSolarSystemsInChunk(chunk, startX, startZ);
-
     chunk->loaded = true;
     chunk->dirty = true;
 }
@@ -2675,10 +2666,6 @@ void SpaceProcessFinishedGenJobs(void)
             SpaceChunk *chunk = &spaceChunks[slotIndex];
             if (chunk->generating && chunk->cx == job->cx && chunk->cz == job->cz) {
                 memcpy(chunk->blocks, job->result.blocks, sizeof(chunk->blocks));
-                chunk->hasStar = job->result.hasStar;
-                chunk->starX = job->result.starX;
-                chunk->starY = job->result.starY;
-                chunk->starZ = job->result.starZ;
                 chunk->loaded = true;
                 chunk->generating = false;
                 chunk->dirty = true;
@@ -2982,34 +2969,6 @@ void SpaceRebuildTorchList(void)
     }
 }
 
-void SpaceUpdateStarGlow(Vector3 playerPosition)
-{
-    for (int i = 0; i < MAX_SPACE_CHUNKS; i++) {
-        SpaceChunk *chunk = &spaceChunks[i];
-        if (!chunk->loaded || !chunk->hasStar) continue;
-
-        if (SpaceBlockAt(chunk->starX, chunk->starY, chunk->starZ) != BLOCK_STAR_MATTER) continue;
-
-        Vector3 star = { (float)chunk->starX + 0.5f, (float)chunk->starY + 0.5f, (float)chunk->starZ + 0.5f };
-        float dist = Vector3Distance(star, playerPosition);
-        if (dist > 18.0f) continue;
-
-        int count = (dist < 9.0f) ? 2 : 1;
-        for (int k = 0; k < count; k++) {
-            Vector3 offset = {
-                ((float)rand() / (float)RAND_MAX - 0.5f) * 3.0f,
-                ((float)rand() / (float)RAND_MAX - 0.5f) * 3.0f,
-                ((float)rand() / (float)RAND_MAX - 0.5f) * 3.0f
-            };
-            ParticlesEmitOne(Vector3Add(star, offset),
-                             (Vector3){ 0.1f, 0.35f, 0.1f },
-                             (Color){ 255, 244, 190, 220 },
-                             (Vector3){ 0.09f, 0.09f, 0.09f },
-                             1.4f, 0.0f);
-        }
-    }
-}
-
 int GetSpaceEditCount(void)
 {
     return spaceEditCount;
@@ -3017,25 +2976,29 @@ int GetSpaceEditCount(void)
 
 void SpaceUpdateSolarGlow(Vector3 playerPosition)
 {
-    SolarSystemDef sys;
-    float sysDist = 0.0f;
-    if (!FindNearestSystem(playerPosition, 60.0f, &sys, &sysDist)) return;
+    SpaceBodyInfo bodies[STAR_NAVIGATION_MAX_SYSTEMS];
+    int bodyCount = SpaceBodiesNear(playerPosition, 60.0f, bodies,
+                                     STAR_NAVIGATION_MAX_SYSTEMS);
+    for (int i = 0; i < bodyCount; i++) {
+        if (!bodies[i].isStar) continue;
 
-    float dist = Vector3Distance(sys.center, playerPosition);
-    int count = (dist < 24.0f) ? 3 : 1;
-    Color glow = SpectrumColor(sys.spectrum);
-    for (int k = 0; k < count; k++) {
-        Vector3 offset = {
-            ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f,
-            ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f,
-            ((float)rand() / (float)RAND_MAX - 0.5f) * 10.0f
-        };
-        ParticlesEmitOne(Vector3Add(sys.center, offset),
-                         (Vector3){ ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f,
-                                    0.2f + (float)rand() / (float)RAND_MAX * 0.5f,
-                                    ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f },
-                         glow,
-                         (Vector3){ 0.14f, 0.14f, 0.14f },
-                         1.8f, 0.0f);
+        float dist = bodies[i].dist;
+        int count = dist < 24.0f ? 3 : 1;
+        Color glow = SpectrumColor(bodies[i].spectrum);
+        float spread = fmaxf(3.0f, bodies[i].spaceProxyRadius * 0.55f);
+        for (int k = 0; k < count; k++) {
+            Vector3 offset = {
+                ((float)rand() / (float)RAND_MAX - 0.5f) * spread,
+                ((float)rand() / (float)RAND_MAX - 0.5f) * spread,
+                ((float)rand() / (float)RAND_MAX - 0.5f) * spread
+            };
+            ParticlesEmitOne(Vector3Add(bodies[i].center, offset),
+                             (Vector3){ ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f,
+                                        0.2f + (float)rand() / (float)RAND_MAX * 0.5f,
+                                        ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f },
+                             glow,
+                             (Vector3){ 0.14f, 0.14f, 0.14f },
+                             1.8f, 0.0f);
+        }
     }
 }

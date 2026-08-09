@@ -77,6 +77,17 @@ typedef struct SolarLightSource {
     bool primary;
 } SolarLightSource;
 
+typedef struct SolarStellarBody {
+    Vector3 center;
+    Vector3 velocity;
+    StellarProfile stellar;
+    SpectrumType spectrum;
+    float spaceProxyRadius;
+    float luminosity;
+    int index;
+    bool primary;
+} SolarStellarBody;
+
 typedef struct PlanetLightState {
     Vector3 sunDirection;
     Vector3 moonDirection;
@@ -123,8 +134,10 @@ typedef struct SolarSystemDef {
 
 typedef struct SpaceBodyInfo {
     Vector3 center; // Scene position in game distance units.
+    Vector3 velocity; // Scene velocity in game distance units per game time unit.
     double physicalRadiusKm;
     double semiMajorAxisKm;
+    double parentMassKg;
     float spaceProxyRadius;
     float dist; // Observer distance in game distance units.
     bool isStar;
@@ -167,10 +180,6 @@ typedef struct SpaceChunk {
     bool hasWaterModel;
     int cx;
     int cz;
-    bool hasStar;
-    int starX;
-    int starY;
-    int starZ;
     Model model;
     Model waterModel;
     unsigned short blocks[CHUNK_SIZE][SPACE_LAYER_HEIGHT][CHUNK_SIZE];
@@ -191,7 +200,6 @@ void SpaceSaveOrigin(FILE *file);
 bool SpaceLoadOrigin(FILE *file);
 void UpdateSpaceChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 void SpaceProcessFinishedGenJobs(void);
-void SpaceUpdateStarGlow(Vector3 playerPosition);
 void SpaceUpdateSolarGlow(Vector3 playerPosition);
 BlockType SpaceBlockAt(int x, int y, int z);
 bool SpaceBlockReadyAt(int x, int y, int z);
@@ -212,6 +220,10 @@ double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index)
 double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index);
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
                             int maxCount);
+int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
+                                   double simulationTime,
+                                   SolarStellarBody *out, int maxCount);
+double SolarSystemStellarMassKg(const SolarSystemDef *sys);
 float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point);
 float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
                               Vector3 point);
