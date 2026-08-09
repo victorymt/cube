@@ -540,6 +540,25 @@ double SpaceSimulationTime(void)
     return solarSimulationTime;
 }
 
+static uint32_t PlanetBodyTextureHash(const SpaceBodyInfo *body)
+{
+    uint32_t hash = body->worldSeed ^ 0x57ec91u;
+    hash ^= (uint32_t)body->index * 0x8da6b343u;
+    hash ^= (uint32_t)(body->systemAnchorX ^ body->systemAnchorZ) * 0xcb1ab31fu;
+    hash ^= hash >> 16;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15;
+    hash *= 0x846ca68bu;
+    return hash ^ (hash >> 16);
+}
+
+float PlanetBodyTextureRotation(const SpaceBodyInfo *body)
+{
+    if (!body) return 0.0f;
+    return (float)((PlanetBodyTextureHash(body) >> 8) % 360u) +
+           (float)solarSimulationTime * body->profile.rotationRate;
+}
+
 bool StarSystemAt(int ax, int az, SolarSystemDef *out)
 {
     if (ax == 0 && az == 0) {
@@ -1401,13 +1420,6 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
     return found;
 }
 
-static int PlanetRegionOrigin(uint32_t hash)
-{
-    int cell = (int)(hash % 768u) - 384;
-    if (cell >= -64 && cell <= 64) cell += cell < 0 ? -128 : 128;
-    return cell * 2048;
-}
-
 static Vector3 PlanetReturnPosition(Vector3 center, float radius, Vector3 outward)
 {
     const float orbitDistance = radius + 14.0f;
@@ -1544,14 +1556,23 @@ static void PlanetWorldActivate(const SpaceBodyInfo *body, Vector3 approachPosit
     next.bodyCenter = body->center;
     next.bodyRadius = SolarBodyTerrainRadius(body->radius);
     next.seed = body->worldSeed;
-    next.originX = PlanetRegionOrigin(next.seed ^ 0x68bc21ebu);
-    next.originZ = PlanetRegionOrigin(next.seed ^ 0x02e5be93u);
     snprintf(next.name, sizeof(next.name), "%.28s %c", body->name,
              'a' + (body->index > 0 ? body->index - 1 : 0));
 
     Vector3 outward = Vector3Subtract(approachPosition, body->center);
     if (Vector3LengthSqr(outward) < 0.001f) outward = (Vector3){ 0.0f, 1.0f, 0.0f };
     else outward = Vector3Normalize(outward);
+    // The visible texture rotates with the body. Invert that rotation before
+    // turning an approach vector into a persistent surface-map coordinate.
+    Vector3 surfaceNormal = Vector3RotateByAxisAngle(
+        outward, (Vector3){ 0.0f, 1.0f, 0.0f },
+        -PlanetBodyTextureRotation(body) * DEG2RAD);
+    float longitude = atan2f(surfaceNormal.z, surfaceNormal.x);
+    float latitude = asinf(Clamp(surfaceNormal.y, -1.0f, 1.0f));
+    next.originX = (int)lroundf(longitude *
+                                 (PLANET_GLOBAL_CIRCUMFERENCE_BLOCKS / (2.0f * PI)));
+    next.originZ = (int)lroundf(latitude *
+                                 (PLANET_GLOBAL_POLE_TO_POLE_BLOCKS / PI));
     next.returnPosition = PlanetReturnPosition(body->center, next.bodyRadius, outward);
 
     DrainChunkGen();

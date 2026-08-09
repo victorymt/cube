@@ -184,6 +184,7 @@ int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCoun
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist);
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount);
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out);
+float PlanetBodyTextureRotation(const SpaceBodyInfo *body);
 bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
                      float *gravityScale);
 bool HomeWorldSurfaceIsActive(void);

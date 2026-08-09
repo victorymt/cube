@@ -415,8 +415,10 @@ static void GenerateVillage(Chunk *chunk, int cx, int cz, TerrainMode mode)
 
 static unsigned int PlanetHash2D(int localX, int localZ, unsigned int lane)
 {
-    unsigned int h = Hash2D(localX + (int)(lane * 101u),
-                            localZ - (int)(lane * 173u));
+    int globalX = localX + PlanetWorldOriginX();
+    int globalZ = localZ + PlanetWorldOriginZ();
+    unsigned int h = Hash2D(globalX + (int)(lane * 101u),
+                            globalZ - (int)(lane * 173u));
     h ^= PlanetWorldSeed() + 0x9e3779b9u + (h << 6) + (h >> 2);
     h ^= h >> 16;
     h *= 2246822519u;
@@ -463,11 +465,150 @@ static float PlanetFractalNoise2D(float x, float z, unsigned int lane)
 
 static void PlanetSurfaceCoordinates(int x, int z, float *outX, float *outZ)
 {
-    uint32_t seed = PlanetWorldSeed();
-    float offsetX = (float)(seed & 0xffffu) * 0.0017f;
-    float offsetZ = (float)((seed >> 16) & 0xffffu) * 0.0019f;
-    *outX = (float)x + offsetX;
-    *outZ = (float)z + offsetZ;
+    *outX = (float)PlanetWorldOriginX() + (float)x;
+    *outZ = (float)PlanetWorldOriginZ() + (float)z;
+}
+
+static unsigned int PlanetHash3D(uint32_t seed, int x, int y, int z, unsigned int lane)
+{
+    unsigned int h = Hash2D(x + (int)(lane * 101u), z - (int)(lane * 173u));
+    h ^= (unsigned int)y * 0x9e3779b9u;
+    h ^= seed + 0x85ebca6bu + (h << 6) + (h >> 2);
+    h ^= h >> 16;
+    h *= 2246822519u;
+    return h ^ (h >> 13);
+}
+
+static float PlanetHashUnit3D(uint32_t seed, int x, int y, int z, unsigned int lane)
+{
+    return (float)(PlanetHash3D(seed, x, y, z, lane) & 0x00ffffffu) / 16777215.0f;
+}
+
+static float PlanetValueNoise3D(uint32_t seed, float x, float y, float z, unsigned int lane)
+{
+    int x0 = (int)floorf(x);
+    int y0 = (int)floorf(y);
+    int z0 = (int)floorf(z);
+    float tx = PlanetNoiseSmooth(x - (float)x0);
+    float ty = PlanetNoiseSmooth(y - (float)y0);
+    float tz = PlanetNoiseSmooth(z - (float)z0);
+    float x00 = Lerp(PlanetHashUnit3D(seed, x0, y0, z0, lane),
+                     PlanetHashUnit3D(seed, x0 + 1, y0, z0, lane), tx);
+    float x10 = Lerp(PlanetHashUnit3D(seed, x0, y0 + 1, z0, lane),
+                     PlanetHashUnit3D(seed, x0 + 1, y0 + 1, z0, lane), tx);
+    float x01 = Lerp(PlanetHashUnit3D(seed, x0, y0, z0 + 1, lane),
+                     PlanetHashUnit3D(seed, x0 + 1, y0, z0 + 1, lane), tx);
+    float x11 = Lerp(PlanetHashUnit3D(seed, x0, y0 + 1, z0 + 1, lane),
+                     PlanetHashUnit3D(seed, x0 + 1, y0 + 1, z0 + 1, lane), tx);
+    return Lerp(Lerp(x00, x10, ty), Lerp(x01, x11, ty), tz);
+}
+
+static float PlanetFractalNoise3D(uint32_t seed, Vector3 point, float frequency,
+                                  unsigned int lane)
+{
+    float x = point.x * frequency;
+    float y = point.y * frequency;
+    float z = point.z * frequency;
+    float value = 0.0f;
+    float amplitude = 0.58f;
+    float total = 0.0f;
+    for (int octave = 0; octave < 4; octave++) {
+        value += PlanetValueNoise3D(seed, x, y, z,
+                                    lane + (unsigned int)octave * 17u) * amplitude;
+        total += amplitude;
+        x = x * 2.07f + 11.3f;
+        y = y * 2.07f - 7.9f;
+        z = z * 2.07f + 5.3f;
+        amplitude *= 0.48f;
+    }
+    return value / total;
+}
+
+static void PlanetMapCoordinatesToLatLon(float mapX, float mapZ,
+                                          float *outLongitude, float *outLatitude)
+{
+    float longitude = mapX * (2.0f * PI / PLANET_GLOBAL_CIRCUMFERENCE_BLOCKS);
+    longitude = fmodf(longitude + PI, 2.0f * PI);
+    if (longitude < 0.0f) longitude += 2.0f * PI;
+    *outLongitude = longitude - PI;
+    *outLatitude = Clamp(mapZ * (PI / PLANET_GLOBAL_POLE_TO_POLE_BLOCKS),
+                         -0.5f * PI, 0.5f * PI);
+}
+
+PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile *profile,
+                                              float longitude, float latitude)
+{
+    PlanetSurfaceSample sample = { 0 };
+    SolarBodyStyle style = profile ? profile->style : SOLAR_STYLE_TEMPERATE;
+    float oceanCoverage = profile ? Clamp(profile->oceanCoverage, 0.0f, 1.0f) : 0.0f;
+    float cosLatitude = cosf(latitude);
+    Vector3 point = { cosLatitude * cosf(longitude), sinf(latitude),
+                      cosLatitude * sinf(longitude) };
+    sample.continentalness = PlanetFractalNoise3D(seed, point, 1.55f, 21u);
+    sample.regionalness = PlanetFractalNoise3D(seed, point, 4.35f, 101u);
+    sample.detail = PlanetFractalNoise3D(seed, point, 11.0f, 47u);
+    sample.climate = Clamp(PlanetFractalNoise3D(seed, point, 2.35f, 137u) * 0.68f +
+                               (1.0f - fabsf(point.y)) * 0.32f,
+                           0.0f, 1.0f);
+
+    switch (style) {
+    case SOLAR_STYLE_LAVA:
+        sample.biome = sample.continentalness < 0.18f + oceanCoverage * 0.30f
+                           ? PLANET_BIOME_LAVA_SEA
+                           : (sample.regionalness > 0.68f ? PLANET_BIOME_VOLCANIC_RIDGE
+                                                           : PLANET_BIOME_BASALT_PLAINS);
+        break;
+    case SOLAR_STYLE_ICE:
+        sample.biome = sample.continentalness < 0.34f ? PLANET_BIOME_GLACIER
+                                                       : PLANET_BIOME_ICE_SHEET;
+        break;
+    case SOLAR_STYLE_DESERT:
+        sample.biome = sample.continentalness < 0.12f && oceanCoverage > 0.18f
+                           ? PLANET_BIOME_OASIS
+                           : (sample.regionalness > 0.66f ? PLANET_BIOME_BADLANDS
+                                                           : PLANET_BIOME_DUNES);
+        break;
+    case SOLAR_STYLE_CRATER:
+        sample.biome = sample.regionalness < 0.22f || sample.climate > 0.76f
+                           ? PLANET_BIOME_IMPACT_BASIN
+                           : PLANET_BIOME_CRATER_HIGHLANDS;
+        break;
+    case SOLAR_STYLE_TEMPERATE: {
+        float waterline = 0.27f + oceanCoverage * 0.36f;
+        if (oceanCoverage > 0.08f && sample.continentalness < waterline) {
+            sample.biome = PLANET_BIOME_OCEAN;
+        } else if (oceanCoverage > 0.08f && sample.continentalness < waterline + 0.09f) {
+            sample.biome = PLANET_BIOME_COAST;
+        } else if (sample.regionalness > 0.72f) {
+            sample.biome = PLANET_BIOME_ALPINE;
+        } else {
+            sample.biome = sample.climate > 0.56f ? PLANET_BIOME_FOREST
+                                                  : PLANET_BIOME_PLAINS;
+        }
+        break;
+    }
+    case SOLAR_STYLE_GAS:
+        sample.biome = PLANET_BIOME_STORM_BANDS;
+        break;
+    default:
+        sample.biome = PLANET_BIOME_PLAINS;
+        break;
+    }
+    return sample;
+}
+
+static PlanetSurfaceSample PlanetSampleLocalSurface(int x, int z, float *outX, float *outZ)
+{
+    float mapX = 0.0f;
+    float mapZ = 0.0f;
+    PlanetSurfaceCoordinates(x, z, &mapX, &mapZ);
+    float longitude = 0.0f;
+    float latitude = 0.0f;
+    PlanetMapCoordinatesToLatLon(mapX, mapZ, &longitude, &latitude);
+    if (outX) *outX = mapX;
+    if (outZ) *outZ = mapZ;
+    return PlanetSampleGlobalSurface(PlanetWorldSeed(), PlanetWorldProfile(),
+                                     longitude, latitude);
 }
 
 static int PlanetSeaLevel(SolarBodyStyle style, const PlanetProfile *profile)
@@ -481,48 +622,7 @@ static int PlanetSeaLevel(SolarBodyStyle style, const PlanetProfile *profile)
 PlanetBiome PlanetBiomeAt(int x, int z)
 {
     if (!PlanetWorldIsActive()) return PLANET_BIOME_PLAINS;
-
-    float fx = 0.0f;
-    float fz = 0.0f;
-    PlanetSurfaceCoordinates(x, z, &fx, &fz);
-    const PlanetProfile *profile = PlanetWorldProfile();
-    float continental = PlanetFractalNoise2D(fx * 0.0032f, fz * 0.0032f, 21u);
-    float regional = PlanetFractalNoise2D(fx * 0.0085f, fz * 0.0085f, 101u);
-    float climate = PlanetFractalNoise2D(fx * 0.0055f, fz * 0.0055f, 137u);
-
-    switch (PlanetWorldStyle()) {
-    case SOLAR_STYLE_LAVA:
-        if (continental < 0.18f + profile->oceanCoverage * 0.30f) {
-            return PLANET_BIOME_LAVA_SEA;
-        }
-        return regional > 0.68f ? PLANET_BIOME_VOLCANIC_RIDGE
-                                : PLANET_BIOME_BASALT_PLAINS;
-    case SOLAR_STYLE_ICE:
-        return continental < 0.34f ? PLANET_BIOME_GLACIER : PLANET_BIOME_ICE_SHEET;
-    case SOLAR_STYLE_DESERT:
-        if (continental < 0.12f && profile->oceanCoverage > 0.18f) {
-            return PLANET_BIOME_OASIS;
-        }
-        return regional > 0.66f ? PLANET_BIOME_BADLANDS : PLANET_BIOME_DUNES;
-    case SOLAR_STYLE_CRATER:
-        return regional < 0.22f || climate > 0.76f ? PLANET_BIOME_IMPACT_BASIN
-                                                    : PLANET_BIOME_CRATER_HIGHLANDS;
-    case SOLAR_STYLE_TEMPERATE: {
-        float waterline = 0.27f + profile->oceanCoverage * 0.36f;
-        if (profile->oceanCoverage > 0.08f && continental < waterline) {
-            return PLANET_BIOME_OCEAN;
-        }
-        if (profile->oceanCoverage > 0.08f && continental < waterline + 0.09f) {
-            return PLANET_BIOME_COAST;
-        }
-        if (regional > 0.72f) return PLANET_BIOME_ALPINE;
-        return climate > 0.56f ? PLANET_BIOME_FOREST : PLANET_BIOME_PLAINS;
-    }
-    case SOLAR_STYLE_GAS:
-        return PLANET_BIOME_STORM_BANDS;
-    default:
-        return PLANET_BIOME_PLAINS;
-    }
+    return PlanetSampleLocalSurface(x, z, NULL, NULL).biome;
 }
 
 const char *PlanetBiomeName(PlanetBiome biome)
@@ -555,10 +655,12 @@ int PlanetTerrainHeight(int x, int z)
     const PlanetProfile *profile = PlanetWorldProfile();
     float fx = 0.0f;
     float fz = 0.0f;
-    PlanetSurfaceCoordinates(x, z, &fx, &fz);
+    PlanetSurfaceSample surface = PlanetSampleLocalSurface(x, z, &fx, &fz);
     float roughness = Clamp(profile->terrainRoughness, 0.35f, 1.55f);
-    float continents = PlanetFractalNoise2D(fx * 0.0032f, fz * 0.0032f, 21u);
-    float hills = PlanetFractalNoise2D(fx * 0.017f, fz * 0.017f, 47u);
+    float continents = surface.continentalness;
+    float localDetail = PlanetFractalNoise2D(fx * 0.024f, fz * 0.024f, 47u);
+    float hills = surface.regionalness * 0.62f + surface.detail * 0.23f +
+                  localDetail * 0.15f;
     float coast = 0.34f + profile->oceanCoverage * 0.46f;
     float height = 12.0f + (continents - coast) * 16.0f;
     height += (hills - 0.5f) * 9.0f * roughness;

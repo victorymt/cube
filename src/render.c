@@ -970,8 +970,16 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 
 #define PLANET_TEXTURE_WIDTH 384
 #define PLANET_TEXTURE_HEIGHT 192
-#define PLANET_STYLE_COUNT 6
-#define PLANET_STYLE_VARIANTS 3
+#define PLANET_TEXTURE_CACHE_CAPACITY 24
+
+typedef struct PlanetTextureCacheEntry {
+    bool valid;
+    uint32_t seed;
+    SolarBodyStyle style;
+    uint32_t oceanKey;
+    uint64_t lastUse;
+    Texture2D texture;
+} PlanetTextureCacheEntry;
 
 typedef struct PlanetRenderResources {
     bool initialized;
@@ -979,7 +987,8 @@ typedef struct PlanetRenderResources {
     Texture2D home;
     Texture2D clouds;
     Texture2D atmosphereGlow;
-    Texture2D styles[PLANET_STYLE_COUNT][PLANET_STYLE_VARIANTS];
+    uint64_t textureCacheTick;
+    PlanetTextureCacheEntry planetTextures[PLANET_TEXTURE_CACHE_CAPACITY];
 } PlanetRenderResources;
 
 static PlanetRenderResources planetRender = { 0 };
@@ -1064,24 +1073,36 @@ static float PlanetBakedLight(float nx, float ny, float nz)
     return 0.42f + 0.58f * Clamp(light * 0.5f + 0.5f, 0.0f, 1.0f);
 }
 
-static Color HomePlanetPixel(float nx, float ny, float nz, uint32_t seed,
-                             float oceanCoverage)
+static Color TemperatePlanetPixel(const PlanetProfile *profile, float nx, float ny,
+                                  float nz, uint32_t seed)
 {
-    float continents = PlanetFractalNoise(nx * 2.15f, ny * 2.15f, nz * 2.15f, seed);
-    float detail = PlanetFractalNoise(nx * 6.0f, ny * 6.0f, nz * 6.0f, seed + 71u);
+    float longitude = atan2f(nz, nx);
+    float latitudeRadians = asinf(Clamp(ny, -1.0f, 1.0f));
+    PlanetSurfaceSample surface = PlanetSampleGlobalSurface(seed, profile,
+                                                             longitude, latitudeRadians);
+    float continents = surface.continentalness;
+    float detail = surface.detail;
     float latitude = fabsf(ny);
-    float coast = 0.395f + Clamp(oceanCoverage, 0.0f, 0.8f) * 0.25f +
-                  latitude * 0.035f;
     Color color;
 
-    if (continents < coast) {
-        float depth = Clamp((coast - continents) * 6.0f, 0.0f, 1.0f);
+    if (surface.biome == PLANET_BIOME_OCEAN) {
+        float waterline = 0.27f + Clamp(profile->oceanCoverage, 0.0f, 1.0f) * 0.36f;
+        float depth = Clamp((waterline - continents) * 6.0f, 0.0f, 1.0f);
         color = ColorLerp((Color){ 35, 139, 176, 255 },
                           (Color){ 9, 43, 103, 255 }, depth * 0.82f);
+    } else if (surface.biome == PLANET_BIOME_COAST) {
+        color = ColorLerp((Color){ 82, 158, 166, 255 },
+                          (Color){ 202, 181, 120, 255 }, detail * 0.64f);
     } else {
-        float height = Clamp((continents - coast) * 4.6f + detail * 0.18f, 0.0f, 1.0f);
-        Color lowland = latitude > 0.63f ? (Color){ 88, 119, 78, 255 }
-                                          : (Color){ 48, 126, 66, 255 };
+        float height = Clamp((continents - 0.42f) * 4.6f + detail * 0.18f, 0.0f, 1.0f);
+        Color lowland = surface.biome == PLANET_BIOME_FOREST
+                            ? (Color){ 39, 112, 61, 255 }
+                            : (Color){ 91, 140, 76, 255 };
+        if (surface.biome == PLANET_BIOME_ALPINE) {
+            lowland = (Color){ 118, 120, 98, 255 };
+            height = fmaxf(height, 0.54f + surface.regionalness * 0.36f);
+        }
+        if (latitude > 0.63f) lowland = ColorLerp(lowland, (Color){ 104, 130, 102, 255 }, 0.45f);
         color = ColorLerp(lowland, (Color){ 126, 112, 82, 255 }, height);
         if (height > 0.86f) {
             color = ColorLerp(color, (Color){ 193, 201, 198, 255 },
@@ -1133,16 +1154,23 @@ static Color CraterPlanetPixel(float nx, float ny, float nz, float noise, uint32
                     PlanetColorChannel(tone), 255 };
 }
 
-static Color StyledPlanetPixel(SolarBodyStyle style, float nx, float ny, float nz,
-                               float u, float v, uint32_t seed, float oceanCoverage)
+static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny, float nz,
+                               float u, float v, uint32_t seed)
 {
-    float noise = PlanetFractalNoise(nx * 3.8f, ny * 3.8f, nz * 3.8f, seed);
-    float fine = PlanetFractalNoise(nx * 9.5f, ny * 9.5f, nz * 9.5f, seed + 139u);
+    SolarBodyStyle style = profile->style;
+    PlanetSurfaceSample surface = PlanetSampleGlobalSurface(seed, profile, atan2f(nz, nx),
+                                                             asinf(Clamp(ny, -1.0f, 1.0f)));
+    float noise = surface.continentalness;
+    float fine = surface.detail;
     Color color = (Color){ 120, 120, 120, 255 };
 
     switch (style) {
     case SOLAR_STYLE_LAVA: {
         color = ColorLerp((Color){ 23, 18, 21, 255 }, (Color){ 82, 38, 25, 255 }, noise);
+        if (surface.biome == PLANET_BIOME_LAVA_SEA) {
+            color = ColorLerp((Color){ 180, 48, 16, 255 }, (Color){ 255, 154, 32, 255 },
+                              fine);
+        }
         float fissure = 1.0f - Clamp(fabsf(noise - 0.53f) / 0.045f, 0.0f, 1.0f);
         fissure = fmaxf(fissure, 1.0f - Clamp(fabsf(fine - 0.66f) / 0.022f, 0.0f, 1.0f));
         color = ColorLerp(color, (Color){ 255, 115, 18, 255 }, fissure);
@@ -1163,6 +1191,9 @@ static Color StyledPlanetPixel(SolarBodyStyle style, float nx, float ny, float n
                           (Color){ 238, 183, 91, 255 }, noise * 0.74f + dunes * 0.10f);
         if (fine > 0.72f) color = ColorLerp(color, (Color){ 91, 48, 37, 255 },
                                             (fine - 0.72f) * 2.2f);
+        if (surface.biome == PLANET_BIOME_OASIS) {
+            color = ColorLerp(color, (Color){ 58, 132, 112, 255 }, 0.66f);
+        }
         break;
     }
     case SOLAR_STYLE_GAS: {
@@ -1184,9 +1215,12 @@ static Color StyledPlanetPixel(SolarBodyStyle style, float nx, float ny, float n
     }
     case SOLAR_STYLE_CRATER:
         color = CraterPlanetPixel(nx, ny, nz, noise, seed);
+        if (surface.biome == PLANET_BIOME_IMPACT_BASIN) {
+            color = ColorLerp(color, (Color){ 51, 56, 63, 255 }, 0.46f);
+        }
         break;
     case SOLAR_STYLE_TEMPERATE:
-        return HomePlanetPixel(nx, ny, nz, seed, oceanCoverage);
+        return TemperatePlanetPixel(profile, nx, ny, nz, seed);
     default:
         break;
     }
@@ -1194,8 +1228,7 @@ static Color StyledPlanetPixel(SolarBodyStyle style, float nx, float ny, float n
     return ShadePlanetColor(color, PlanetBakedLight(nx, ny, nz));
 }
 
-static Texture2D MakePlanetTexture(SolarBodyStyle style, uint32_t seed, bool home,
-                                   bool clouds, float oceanCoverage)
+static Texture2D MakePlanetTexture(const PlanetProfile *profile, uint32_t seed, bool clouds)
 {
     size_t pixelCount = (size_t)PLANET_TEXTURE_WIDTH * PLANET_TEXTURE_HEIGHT;
     Color *pixels = malloc(pixelCount * sizeof(*pixels));
@@ -1214,11 +1247,8 @@ static Texture2D MakePlanetTexture(SolarBodyStyle style, uint32_t seed, bool hom
             Color color;
             if (clouds) {
                 color = PlanetCloudPixel(nx, ny, nz, seed);
-            } else if (home) {
-                color = HomePlanetPixel(nx, ny, nz, seed, oceanCoverage);
             } else {
-                color = StyledPlanetPixel(style, nx, ny, nz, u, v, seed,
-                                           oceanCoverage);
+                color = StyledPlanetPixel(profile, nx, ny, nz, u, v, seed);
             }
             pixels[(size_t)y * PLANET_TEXTURE_WIDTH + x] = color;
         }
@@ -1238,6 +1268,52 @@ static Texture2D MakePlanetTexture(SolarBodyStyle style, uint32_t seed, bool hom
         SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
     }
     return texture;
+}
+
+static uint32_t PlanetTextureOceanKey(const PlanetProfile *profile)
+{
+    return (uint32_t)lroundf(Clamp(profile->oceanCoverage, 0.0f, 1.0f) * 1000.0f);
+}
+
+static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
+{
+    uint32_t oceanKey = PlanetTextureOceanKey(&body->profile);
+    planetRender.textureCacheTick++;
+    for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
+        PlanetTextureCacheEntry *entry = &planetRender.planetTextures[i];
+        if (!entry->valid || entry->seed != body->worldSeed ||
+            entry->style != body->style || entry->oceanKey != oceanKey) {
+            continue;
+        }
+        entry->lastUse = planetRender.textureCacheTick;
+        return entry->texture;
+    }
+
+    int replacement = 0;
+    uint64_t oldestUse = UINT64_MAX;
+    for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
+        PlanetTextureCacheEntry *entry = &planetRender.planetTextures[i];
+        if (!entry->valid) {
+            replacement = i;
+            break;
+        }
+        if (entry->lastUse < oldestUse) {
+            oldestUse = entry->lastUse;
+            replacement = i;
+        }
+    }
+
+    PlanetTextureCacheEntry *entry = &planetRender.planetTextures[replacement];
+    if (entry->valid && entry->texture.id != 0) UnloadTexture(entry->texture);
+    *entry = (PlanetTextureCacheEntry){
+        .valid = true,
+        .seed = body->worldSeed,
+        .style = body->style,
+        .oceanKey = oceanKey,
+        .lastUse = planetRender.textureCacheTick,
+        .texture = MakePlanetTexture(&body->profile, body->worldSeed, false)
+    };
+    return entry->texture;
 }
 
 static Texture2D MakeAtmosphereGlowTexture(void)
@@ -1343,20 +1419,13 @@ static void EnsurePlanetRenderResources(void)
     planetRender.initialized = true;
     Mesh sphereMesh = MakePlanetSphereMesh();
     if (sphereMesh.vertexCount > 0) planetRender.sphere = LoadModelFromMesh(sphereMesh);
-    planetRender.home = MakePlanetTexture(SOLAR_STYLE_DESERT, 0x48a1c3u, true, false, 0.48f);
-    planetRender.clouds = MakePlanetTexture(SOLAR_STYLE_ICE, 0x8392f5u, false, true, 0.0f);
+    PlanetProfile homeProfile = {
+        .style = SOLAR_STYLE_TEMPERATE,
+        .oceanCoverage = 0.48f
+    };
+    planetRender.home = MakePlanetTexture(&homeProfile, 0x48a1c3u, false);
+    planetRender.clouds = MakePlanetTexture(NULL, 0x8392f5u, true);
     planetRender.atmosphereGlow = MakeAtmosphereGlowTexture();
-
-    for (int style = 0; style < PLANET_STYLE_COUNT; style++) {
-        for (int variant = 0; variant < PLANET_STYLE_VARIANTS; variant++) {
-            uint32_t seed = 0x91e10da5u + (uint32_t)style * 0x1f123bb5u +
-                            (uint32_t)variant * 0x6c8e9cf5u;
-            float oceanCoverage = ((float)variant + 0.7f) * 0.24f;
-            planetRender.styles[style][variant] =
-                MakePlanetTexture((SolarBodyStyle)(SOLAR_STYLE_LAVA + style), seed,
-                                  false, false, oceanCoverage);
-        }
-    }
 }
 
 void UnloadPlanetRenderResources(void)
@@ -1366,11 +1435,10 @@ void UnloadPlanetRenderResources(void)
     if (planetRender.home.id != 0) UnloadTexture(planetRender.home);
     if (planetRender.clouds.id != 0) UnloadTexture(planetRender.clouds);
     if (planetRender.atmosphereGlow.id != 0) UnloadTexture(planetRender.atmosphereGlow);
-    for (int style = 0; style < PLANET_STYLE_COUNT; style++) {
-        for (int variant = 0; variant < PLANET_STYLE_VARIANTS; variant++) {
-            if (planetRender.styles[style][variant].id != 0) {
-                UnloadTexture(planetRender.styles[style][variant]);
-            }
+    for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
+        if (planetRender.planetTextures[i].valid &&
+            planetRender.planetTextures[i].texture.id != 0) {
+            UnloadTexture(planetRender.planetTextures[i].texture);
         }
     }
     planetRender = (PlanetRenderResources){ 0 };
@@ -1386,12 +1454,6 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
     SetMaterialTexture(&planetRender.sphere.materials[0], MATERIAL_MAP_DIFFUSE, texture);
     DrawModelEx(planetRender.sphere, center, (Vector3){ 0.0f, 1.0f, 0.0f }, rotation,
                 (Vector3){ radius, radius, radius }, WHITE);
-}
-
-static uint32_t PlanetBodyVisualHash(const SpaceBodyInfo *body)
-{
-    return PlanetTextureHash((int)body->worldSeed, body->index,
-                             body->systemAnchorX ^ body->systemAnchorZ, 0x57ec91u);
 }
 
 static Color PlanetAtmosphereColor(const PlanetProfile *profile)
@@ -1487,21 +1549,8 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             }
         } else {
             float radius = SolarBodyTerrainRadius(bodies[i].radius);
-            int styleIndex = (int)bodies[i].style - (int)SOLAR_STYLE_LAVA;
-            uint32_t visualHash = PlanetBodyVisualHash(&bodies[i]);
-            int variant = (int)(visualHash % PLANET_STYLE_VARIANTS);
-            if (bodies[i].style == SOLAR_STYLE_TEMPERATE) {
-                variant = (int)Clamp(floorf(bodies[i].profile.oceanCoverage *
-                                            (float)PLANET_STYLE_VARIANTS),
-                                     0.0f, (float)(PLANET_STYLE_VARIANTS - 1));
-            }
-            Texture2D texture = (Texture2D){ 0 };
-            if (styleIndex >= 0 && styleIndex < PLANET_STYLE_COUNT) {
-                texture = planetRender.styles[styleIndex][variant];
-            }
-            float spinRate = bodies[i].profile.rotationRate;
-            float rotation = (float)((visualHash >> 8) % 360u) +
-                             (float)SpaceSimulationTime() * spinRate;
+            Texture2D texture = PlanetTextureForBody(&bodies[i]);
+            float rotation = PlanetBodyTextureRotation(&bodies[i]);
             Color starColor = SpectrumColor(bodies[i].spectrum);
             float atmosphereAlpha = 0.08f + bodies[i].profile.atmosphereDensity * 0.54f;
             DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
@@ -1873,7 +1922,7 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     DrawUiText("Break collects; place consumes blocks", x + 14, y + 248, 15, RAYWHITE);
     DrawUiText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 272, 15, RAYWHITE);
     DrawUiText("WASD thrust, R restore, E land/exit", x + 14, y + 296, 15, RAYWHITE);
-    DrawUiText("Flat: I import image, [ ] adjusts precision", x + 14, y + 320, 15, RAYWHITE);
+    DrawUiText("View: [ ] distance    Flat: I import image", x + 14, y + 320, 15, RAYWHITE);
     DrawUiText("Planet: C scanner, break cores for discoveries", x + 14, y + 344, 15, RAYWHITE);
     const char *mode = ShipIsDriving() ? "Ship" : (floating ? "Floating" : "Walking");
     DrawUiText(TextFormat("%s    %s    View %d    FPS %d", mode,

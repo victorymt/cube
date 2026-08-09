@@ -2,6 +2,10 @@
 #define VOXELCRAFT_TERRAIN_H
 
 #include "types.h"
+#include "space.h"
+
+#define PLANET_GLOBAL_CIRCUMFERENCE_BLOCKS 16384.0f
+#define PLANET_GLOBAL_POLE_TO_POLE_BLOCKS 8192.0f
 
 typedef enum PlanetBiome {
     PLANET_BIOME_BASALT_PLAINS = 0,
@@ -22,6 +26,14 @@ typedef enum PlanetBiome {
     PLANET_BIOME_STORM_BANDS
 } PlanetBiome;
 
+typedef struct PlanetSurfaceSample {
+    float continentalness;
+    float regionalness;
+    float climate;
+    float detail;
+    PlanetBiome biome;
+} PlanetSurfaceSample;
+
 unsigned int Hash2D(int x, int z);
 unsigned int WorldHash2D(int x, int z);
 unsigned int WorldHash3D(int x, int y, int z);
@@ -31,6 +43,8 @@ Biome BiomeAt(int x, int z);
 int TerrainHeight(int x, int z, TerrainMode mode);
 int PlanetTerrainHeight(int x, int z);
 PlanetBiome PlanetBiomeAt(int x, int z);
+PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile *profile,
+                                              float longitude, float latitude);
 const char *PlanetBiomeName(PlanetBiome biome);
 bool ShouldPlaceTree(int x, int z, TerrainMode mode);
 bool CaveAt(int x, int y, int z, int height);
