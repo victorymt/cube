@@ -1145,6 +1145,9 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 #define PLANET_TEXTURE_HEIGHT 192
 #define PLANET_TEXTURE_CACHE_CAPACITY 24
 #define PLANET_CLOUD_CACHE_CAPACITY 24
+#define PLANET_SURFACE_TYPE_MAX_VALUE 6
+#define PLANET_RENDER_STRINGIFY_IMPL(value) #value
+#define PLANET_RENDER_STRINGIFY(value) PLANET_RENDER_STRINGIFY_IMPL(value)
 
 // Material texture RGBA stores roughness, specular, emissive, and normalized surface type.
 typedef enum PlanetSurfaceType {
@@ -1155,7 +1158,7 @@ typedef enum PlanetSurfaceType {
     PLANET_SURFACE_SAND,
     PLANET_SURFACE_LAVA,
     PLANET_SURFACE_GAS,
-    PLANET_SURFACE_TYPE_COUNT
+    PLANET_SURFACE_TYPE_COUNT = PLANET_SURFACE_TYPE_MAX_VALUE + 1
 } PlanetSurfaceType;
 
 typedef struct PlanetTextureSet {
@@ -1373,7 +1376,13 @@ static const char *planetLightingFragmentShader =
     "        roughness = clamp(materialSample.r, 0.045, 1.0);\n"
     "        specularStrength = clamp(materialSample.g, 0.0, 1.0);\n"
     "        emissionMask = clamp(materialSample.b, 0.0, 1.0);\n"
-    "        surfaceType = int(floor(materialSample.a*6.0 + 0.5));\n"
+    "        ivec2 materialSize = textureSize(materialMap, 0);\n"
+    "        vec2 wrappedMaterialUv = fract(fragTexCoord);\n"
+    "        ivec2 typeCoord = ivec2(wrappedMaterialUv*vec2(materialSize));\n"
+    "        float encodedSurfaceType = texelFetch(materialMap, typeCoord, 0).a;\n"
+    "        surfaceType = int(floor(encodedSurfaceType*"
+        PLANET_RENDER_STRINGIFY(PLANET_SURFACE_TYPE_MAX_VALUE)
+        ".0 + 0.5));\n"
     "    }\n"
     "    float metallic = clamp(materialMetallic, 0.0, 1.0);\n"
     "    if (materialModel == 4)\n"
@@ -1439,6 +1448,10 @@ static const char *planetLightingFragmentShader =
     "    vec3 mappedColor = vec3(1.0) - exp(-linearColor*sceneExposure);\n"
     "    finalColor = vec4(mappedColor, texel.a);\n"
     "}\n";
+
+#undef PLANET_RENDER_STRINGIFY
+#undef PLANET_RENDER_STRINGIFY_IMPL
+#undef PLANET_SURFACE_TYPE_MAX_VALUE
 
 static const char *planetAtmosphereVertexShader =
     "#version 330\n"
