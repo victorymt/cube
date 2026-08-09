@@ -2332,7 +2332,7 @@ void DrawShipHud(void)
 {
     int sw = GetScreenWidth();
     float panelWidth = fminf(480.0f, (float)sw - 36.0f);
-    Rectangle panel = { (float)sw - panelWidth - 18.0f, 16.0f, panelWidth, 142.0f };
+    Rectangle panel = { (float)sw - panelWidth - 18.0f, 16.0f, panelWidth, 166.0f };
     DrawRectangleRounded(panel, 0.06f, 6, Fade(BLACK, 0.72f));
     DrawRectangleRoundedLinesEx(panel, 0.08f, 6, 1.5f, Fade(WHITE, 0.30f));
 
@@ -2340,8 +2340,12 @@ void DrawShipHud(void)
     bool warping = ShipIsWarping();
     Color speedColor = warping ? (Color){ 166, 228, 255, 255 } :
                        (shipHudCruising ? (Color){ 130, 200, 255, 255 } : WHITE);
-    DrawUiText(TextFormat("VEL %.0f blk/s%s", shipHudSpeed,
-                          warping ? "  [WARP]" : (shipHudCruising ? "  [CRUISE]" : "")),
+    const char *driveMode = warping ? "WARP" :
+                            (shipHudCruising ?
+                             (ShipFlightAssistEnabled() ? "CRUISE+ASSIST" :
+                                                          "CRUISE+INERTIA") :
+                             (ShipFlightAssistEnabled() ? "ASSIST" : "INERTIA"));
+    DrawUiText(TextFormat("VEL %.0f blk/s  [%s]", shipHudSpeed, driveMode),
                textX, (int)panel.y + 10, 22, speedColor);
     if (shipHudAtmosphere >= 0.0f) {
         DrawUiText(TextFormat("ALT %.0f (surface)  ATM %.0f%%  HDG %03.0f",
@@ -2357,13 +2361,22 @@ void DrawShipHud(void)
                textX, (int)panel.y + 68, 17, fuelColor);
     DrawUiText(TextFormat("SYS %s", shipHudSystem),
                textX, (int)panel.y + 94, 17, Fade(WHITE, 0.84f));
+    if (ShipHasGravityPrimary()) {
+        DrawUiText(TextFormat("SOI %s  %.0f / %.0f", ShipGravityPrimaryName(),
+                              ShipGravityPrimaryDistance(),
+                              ShipGravitySphereOfInfluence()),
+                   textX, (int)panel.y + 118, 16, Fade(WHITE, 0.78f));
+    } else {
+        DrawUiText("SOI Interplanetary", textX, (int)panel.y + 118, 16,
+                   Fade(WHITE, 0.62f));
+    }
     if (ShipHasWarpTarget()) {
         const char *targetKind = ShipWarpTargetIsSystem() ? "SYS" : "PLANET";
         DrawUiText(TextFormat("%s %s %s", targetKind, warping ? "WARP" : "LOCK",
                               ShipWarpTargetName()),
-                   textX, (int)panel.y + 118, 17, warping ? speedColor : Fade(WHITE, 0.84f));
+                   textX, (int)panel.y + 142, 17, warping ? speedColor : Fade(WHITE, 0.84f));
     } else {
-        DrawUiText("Q lock planet    G engage warp", textX, (int)panel.y + 118, 16,
+        DrawUiText("Q lock planet    G engage warp", textX, (int)panel.y + 142, 16,
                    Fade(WHITE, 0.68f));
     }
 }
@@ -2589,7 +2602,7 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     DrawUiText("Fly above y=120 to reach space", x + 14, y + 223, 17, RAYWHITE);
     DrawUiText("Break collects; place consumes blocks", x + 14, y + 248, 15, RAYWHITE);
     DrawUiText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 272, 15, RAYWHITE);
-    DrawUiText("WASD thrust, R restore, E land/exit", x + 14, y + 296, 15, RAYWHITE);
+    DrawUiText("WASD thrust, X cruise, F assist, E exit", x + 14, y + 296, 15, RAYWHITE);
     DrawUiText("View: [ ] distance    Flat: I import image", x + 14, y + 320, 15, RAYWHITE);
     DrawUiText("Planet: C scanner, break cores for discoveries", x + 14, y + 344, 15, RAYWHITE);
     const char *mode = ShipIsDriving() ? "Ship" : (floating ? "Floating" : "Walking");

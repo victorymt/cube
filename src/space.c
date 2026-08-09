@@ -5,6 +5,7 @@
 #include "ecology.h"
 #include "terrain.h"
 #include "particles.h"
+#include "space_physics.h"
 #include "world.h"
 
 #include <math.h>
@@ -25,6 +26,13 @@
 #define STAR_SKY_PHYSICAL_DISTANCE 700.0f
 #define STAR_SKY_FULL_LATITUDE_DISTANCE 5000.0f
 #define STAR_SKY_LATITUDE_SCALE 0.92f
+#define SPACE_GRAVITY_QUERY_RADIUS (STAR_SYSTEM_SPACING * 0.58f)
+#define SPACE_STAR_SOI_RADIUS SPACE_GRAVITY_QUERY_RADIUS
+#define SPACE_GRAVITY_SURFACE_ACCEL 4.5f
+// Real stellar mass ratios would collapse planet SOIs inside their visible
+// proxies at this compressed scale. This keeps patched-conic zones playable.
+#define SPACE_COMPRESSED_STAR_MASS 512.0f
+#define SPACE_MAX_PLANET_SOI 170.0f
 
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
@@ -775,6 +783,18 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
     return SolarSystemPlanetPositionAtTime(sys, index, solarSimulationTime);
 }
 
+static Vector3 SolarSystemPlanetVelocityAtTime(const SolarSystemDef *sys, int index,
+                                               double simulationTime)
+{
+    const double sampleDt = 0.05;
+    Vector3 before = SolarSystemPlanetPositionAtTime(sys, index,
+                                                     simulationTime - sampleDt);
+    Vector3 after = SolarSystemPlanetPositionAtTime(sys, index,
+                                                    simulationTime + sampleDt);
+    return Vector3Scale(Vector3Subtract(after, before),
+                        1.0f / (float)(2.0 * sampleDt));
+}
+
 float SolarSystemPlanetOrbitPeriod(const SolarSystemDef *sys, int index)
 {
     if (!sys || index < 0 || index >= sys->planetCount) return 0.0f;
@@ -1373,6 +1393,7 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                 out[count] = (SpaceBodyInfo){
                     .center = center,
                     .radius = profile.bodyRadius,
+                    .orbitRadius = (float)sys.planets[i].orbit,
                     .dist = dist,
                     .isStar = false,
                     .index = i + 1,
@@ -1506,6 +1527,146 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
         }
     }
     return found;
+}
+
+typedef struct SpaceGravityCandidate {
+    SpacePhysicsGravityBody body;
+    Vector3 velocity;
+    SpaceGravityPrimaryKind kind;
+    char name[40];
+} SpaceGravityCandidate;
+
+static float SpaceStarGravitationalParameter(SpectrumType spectrum)
+{
+    const float referenceOrbit = 180.0f;
+    return SOLAR_ORBIT_BASE_SPEED * SOLAR_ORBIT_BASE_SPEED *
+           referenceOrbit * referenceOrbit * referenceOrbit *
+           SolarSpectrumMass(spectrum);
+}
+
+static void AddSpaceGravityCandidate(SpaceGravityCandidate *candidates, int *count,
+                                     int capacity, SpacePhysicsGravityBody body,
+                                     Vector3 velocity, SpaceGravityPrimaryKind kind,
+                                     const char *name)
+{
+    if (!candidates || !count || *count >= capacity) return;
+    candidates[*count] = (SpaceGravityCandidate){
+        .body = body,
+        .velocity = velocity,
+        .kind = kind
+    };
+    snprintf(candidates[*count].name, sizeof(candidates[*count].name), "%s",
+             name ? name : "Unknown");
+    (*count)++;
+}
+
+bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
+{
+    if (!out) return false;
+    *out = (SpaceGravitySample){ 0 };
+    if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) return false;
+
+    SpaceGravityCandidate candidates[64];
+    int candidateCount = 0;
+    float homeRadius = HomeWorldRadius();
+    AddSpaceGravityCandidate(
+        candidates, &candidateCount, 64,
+        (SpacePhysicsGravityBody){
+            .center = HomeWorldCenter(),
+            .radius = homeRadius,
+            .gravitationalParameter = SPACE_GRAVITY_SURFACE_ACCEL *
+                                      homeRadius * homeRadius,
+            .sphereOfInfluence = homeRadius * 2.15f,
+            .hierarchy = 1
+        },
+        Vector3Zero(),
+        SPACE_GRAVITY_PRIMARY_HOME, "Home");
+
+    SpaceBodyInfo bodies[48];
+    int bodyCount = SpaceBodiesNear(position, SPACE_GRAVITY_QUERY_RADIUS,
+                                    bodies, 48);
+    for (int i = 0; i < bodyCount; i++) {
+        if (bodies[i].isStar) {
+            AddSpaceGravityCandidate(
+                candidates, &candidateCount, 64,
+                (SpacePhysicsGravityBody){
+                    .center = bodies[i].center,
+                    .radius = bodies[i].radius,
+                    .gravitationalParameter = SpaceStarGravitationalParameter(
+                        bodies[i].spectrum),
+                    .sphereOfInfluence = SPACE_STAR_SOI_RADIUS,
+                    .hierarchy = 0
+                },
+                Vector3Zero(),
+                SPACE_GRAVITY_PRIMARY_STAR, bodies[i].name);
+            continue;
+        }
+
+        int planetIndex = bodies[i].index - 1;
+        if (planetIndex < 0 || bodies[i].orbitRadius <= 0.0f) continue;
+
+        Vector3 orbitalVelocity = Vector3Zero();
+        SolarSystemDef parentSystem;
+        if (StarSystemAt(bodies[i].systemAnchorX, bodies[i].systemAnchorZ,
+                         &parentSystem) &&
+            planetIndex < parentSystem.planetCount) {
+            orbitalVelocity = SolarSystemPlanetVelocityAtTime(
+                &parentSystem, planetIndex, solarSimulationTime);
+        }
+
+        float terrainRadius = SolarBodyTerrainRadius(bodies[i].radius);
+        float orbitRadius = bodies[i].orbitRadius;
+        float minimumSoi = terrainRadius * 2.20f;
+        float maximumSoi = fmaxf(minimumSoi,
+                                 fminf(orbitRadius * 0.36f,
+                                       SPACE_MAX_PLANET_SOI));
+        float parentMass = SolarSpectrumMass(bodies[i].spectrum) *
+                           SPACE_COMPRESSED_STAR_MASS;
+        float soi = SpacePhysicsSphereOfInfluence(
+            orbitRadius, bodies[i].profile.massEarth, parentMass,
+            minimumSoi, maximumSoi);
+        float mu = SPACE_GRAVITY_SURFACE_ACCEL *
+                   bodies[i].profile.surfaceGravity *
+                   terrainRadius * terrainRadius;
+        char planetName[40];
+        snprintf(planetName, sizeof(planetName), "%s %c", bodies[i].name,
+                 'a' + planetIndex);
+        AddSpaceGravityCandidate(
+            candidates, &candidateCount, 64,
+            (SpacePhysicsGravityBody){
+                .center = bodies[i].center,
+                .radius = terrainRadius,
+                .gravitationalParameter = mu,
+                .sphereOfInfluence = soi,
+                .hierarchy = 1
+            },
+            orbitalVelocity,
+            SPACE_GRAVITY_PRIMARY_PLANET, planetName);
+    }
+
+    SpacePhysicsGravityBody physicsBodies[64];
+    for (int i = 0; i < candidateCount; i++) {
+        physicsBodies[i] = candidates[i].body;
+    }
+    int selected = SpacePhysicsSelectPrimary(position, physicsBodies,
+                                              candidateCount);
+    if (selected < 0) return false;
+
+    const SpaceGravityCandidate *primary = &candidates[selected];
+    float distance = Vector3Distance(position, primary->body.center);
+    *out = (SpaceGravitySample){
+        .active = true,
+        .kind = primary->kind,
+        .center = primary->body.center,
+        .primaryVelocity = primary->velocity,
+        .acceleration = SpacePhysicsGravityAcceleration(position, &primary->body),
+        .distance = distance,
+        .surfaceDistance = distance - primary->body.radius,
+        .sphereOfInfluence = primary->body.sphereOfInfluence,
+        .gravitationalParameter = primary->body.gravitationalParameter
+    };
+    snprintf(out->name, sizeof(out->name), "%s", primary->name);
+    return true;
 }
 
 static Vector3 PlanetReturnPosition(Vector3 center, float radius, Vector3 outward)
@@ -1773,6 +1934,10 @@ bool PlanetWorldTryLaunch(Player *player)
         orbitIndex >= 0 && orbitIndex < system.planetCount) {
         Vector3 currentCenter = SolarSystemPlanetCenter(&system, orbitIndex);
         returnPosition = PlanetReturnPosition(currentCenter, planetWorld.bodyRadius, outward);
+        launchVelocity = Vector3Add(
+            launchVelocity,
+            SolarSystemPlanetVelocityAtTime(&system, orbitIndex,
+                                            solarSimulationTime));
     }
     char planetName[32];
     snprintf(planetName, sizeof(planetName), "%s", planetWorld.name);

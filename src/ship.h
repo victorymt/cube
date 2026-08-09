@@ -5,13 +5,17 @@
 
 #include <stdio.h>
 
-#define SHIP_MAX_SPEED 30.0f
 #define SHIP_MAX_FUEL 100.0f
 
 bool ShipTryEnter(int x, int y, int z, Player *player);
 bool ShipIsDriving(void);
 bool ShipIsCruising(void);
 bool ShipIsWarping(void);
+bool ShipFlightAssistEnabled(void);
+bool ShipHasGravityPrimary(void);
+const char *ShipGravityPrimaryName(void);
+float ShipGravityPrimaryDistance(void);
+float ShipGravitySphereOfInfluence(void);
 bool ShipHasWarpTarget(void);
 bool ShipWarpTargetIsSystem(void);
 const char *ShipWarpTargetName(void);

@@ -119,6 +119,7 @@ typedef struct SolarSystemDef {
 typedef struct SpaceBodyInfo {
     Vector3 center;
     float radius;
+    float orbitRadius;
     float dist;
     bool isStar;
     int index;
@@ -130,6 +131,26 @@ typedef struct SpaceBodyInfo {
     SolarBodyStyle style;
     PlanetProfile profile;
 } SpaceBodyInfo;
+
+typedef enum SpaceGravityPrimaryKind {
+    SPACE_GRAVITY_PRIMARY_NONE = 0,
+    SPACE_GRAVITY_PRIMARY_STAR,
+    SPACE_GRAVITY_PRIMARY_PLANET,
+    SPACE_GRAVITY_PRIMARY_HOME
+} SpaceGravityPrimaryKind;
+
+typedef struct SpaceGravitySample {
+    bool active;
+    SpaceGravityPrimaryKind kind;
+    Vector3 center;
+    Vector3 primaryVelocity;
+    Vector3 acceleration;
+    float distance;
+    float surfaceDistance;
+    float sphereOfInfluence;
+    float gravitationalParameter;
+    char name[40];
+} SpaceGravitySample;
 
 typedef struct SpaceChunk {
     bool loaded;
@@ -198,6 +219,7 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out);
 float PlanetBodyTextureRotation(const SpaceBodyInfo *body);
 bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
                      float *gravityScale);
+bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out);
 bool HomeWorldSurfaceIsActive(void);
 Vector3 HomeWorldCenter(void);
 float HomeWorldRadius(void);
