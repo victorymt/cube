@@ -1146,6 +1146,23 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 #define PLANET_TEXTURE_CACHE_CAPACITY 24
 #define PLANET_CLOUD_CACHE_CAPACITY 24
 
+// Material texture RGBA stores roughness, specular, emissive, and normalized surface type.
+typedef enum PlanetSurfaceType {
+    PLANET_SURFACE_GENERIC = 0,
+    PLANET_SURFACE_OCEAN,
+    PLANET_SURFACE_ICE,
+    PLANET_SURFACE_ROCK,
+    PLANET_SURFACE_SAND,
+    PLANET_SURFACE_LAVA,
+    PLANET_SURFACE_GAS,
+    PLANET_SURFACE_TYPE_COUNT
+} PlanetSurfaceType;
+
+typedef struct PlanetTextureSet {
+    Texture2D albedo;
+    Texture2D material;
+} PlanetTextureSet;
+
 typedef struct PlanetTextureCacheEntry {
     bool valid;
     uint32_t seed;
@@ -1153,7 +1170,7 @@ typedef struct PlanetTextureCacheEntry {
     uint32_t oceanKey;
     uint32_t seasonKey;
     uint64_t lastUse;
-    Texture2D texture;
+    PlanetTextureSet textures;
 } PlanetTextureCacheEntry;
 
 typedef struct PlanetCloudCacheEntry {
@@ -1182,8 +1199,9 @@ typedef struct PlanetRenderResources {
     int materialRoughnessLoc;
     int materialSpecularLoc;
     int materialMetallicLoc;
-    int materialOceanCoverageLoc;
     int materialModelLoc;
+    int materialMapLoc;
+    int materialMapEnabledLoc;
     int cloudShadowMapLoc;
     int cloudShadowEnabledLoc;
     int cloudShadowRotationLoc;
@@ -1204,7 +1222,7 @@ typedef struct PlanetRenderResources {
     int atmosphereMieStrengthLoc;
     int atmosphereAlphaLoc;
     int atmosphereExposureLoc;
-    Texture2D home;
+    PlanetTextureSet home;
     Texture2D homeClouds;
     uint32_t homeCloudSeed;
     uint64_t textureCacheTick;
@@ -1256,8 +1274,9 @@ static const char *planetLightingFragmentShader =
     "uniform float materialRoughness;\n"
     "uniform float materialSpecular;\n"
     "uniform float materialMetallic;\n"
-    "uniform float materialOceanCoverage;\n"
     "uniform int materialModel;\n"
+    "uniform sampler2D materialMap;\n"
+    "uniform int materialMapEnabled;\n"
     "uniform sampler2D cloudShadowMap;\n"
     "uniform int cloudShadowEnabled;\n"
     "uniform float cloudShadowRotation;\n"
@@ -1336,26 +1355,6 @@ static const char *planetLightingFragmentShader =
     "{\n"
     "    return f0 + (vec3(1.0) - f0)*pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);\n"
     "}\n"
-    "float oceanMaskFromColor(vec3 color)\n"
-    "{\n"
-    "    float blueDominance = color.b - max(color.r, color.g)*0.72;\n"
-    "    float iceRejection = 1.0 - smoothstep(0.72, 0.90, max(color.r, max(color.g, color.b)));\n"
-    "    return smoothstep(0.17, 0.27, blueDominance)*iceRejection;\n"
-    "}\n"
-    "vec3 solidMaterialMasks(vec3 color)\n"
-    "{\n"
-    "    float high = max(color.r, max(color.g, color.b));\n"
-    "    float low = min(color.r, min(color.g, color.b));\n"
-    "    float chroma = high - low;\n"
-    "    float ice = smoothstep(0.68, 0.88, high)*\n"
-    "                smoothstep(-0.015, 0.075, color.b - color.r);\n"
-    "    float rock = (1.0 - smoothstep(0.08, 0.18, chroma))*\n"
-    "                 smoothstep(0.20, 0.38, high)*\n"
-    "                 (1.0 - smoothstep(0.68, 0.84, high));\n"
-    "    float sand = smoothstep(0.08, 0.22, color.r - color.b)*\n"
-    "                 smoothstep(0.02, 0.13, color.g - color.b)*(1.0 - ice);\n"
-    "    return clamp(vec3(ice, rock, sand), 0.0, 1.0);\n"
-    "}\n"
     "void main()\n"
     "{\n"
     "    vec4 texel = texture(texture0, fragTexCoord)*colDiffuse*fragColor;\n"
@@ -1364,30 +1363,19 @@ static const char *planetLightingFragmentShader =
     "    vec3 normal = normalize(fragNormal);\n"
     "    vec3 viewDirection = normalize(cameraPosition - fragPosition);\n"
     "    float nDotV = max(dot(normal, viewDirection), 0.001);\n"
-    "    float oceanMask = 0.0;\n"
-    "    if (materialModel == 6)\n"
-    "    {\n"
-    "        oceanMask = oceanMaskFromColor(baseColor)*\n"
-    "                     clamp(materialOceanCoverage*1.9, 0.0, 1.0);\n"
-    "    }\n"
     "    float roughness = clamp(materialRoughness, 0.045, 1.0);\n"
     "    float specularStrength = clamp(materialSpecular, 0.0, 1.0);\n"
+    "    float emissionMask = 1.0;\n"
+    "    int surfaceType = 0;\n"
+    "    if (materialMapEnabled != 0)\n"
+    "    {\n"
+    "        vec4 materialSample = texture(materialMap, fragTexCoord);\n"
+    "        roughness = clamp(materialSample.r, 0.045, 1.0);\n"
+    "        specularStrength = clamp(materialSample.g, 0.0, 1.0);\n"
+    "        emissionMask = clamp(materialSample.b, 0.0, 1.0);\n"
+    "        surfaceType = int(floor(materialSample.a*6.0 + 0.5));\n"
+    "    }\n"
     "    float metallic = clamp(materialMetallic, 0.0, 1.0);\n"
-    "    if (materialModel == 6)\n"
-    "    {\n"
-    "        vec3 solidMasks = solidMaterialMasks(baseColor);\n"
-    "        roughness = mix(roughness, 0.28, solidMasks.x);\n"
-    "        specularStrength = mix(specularStrength, 0.78, solidMasks.x);\n"
-    "        roughness = mix(roughness, 0.89, solidMasks.y);\n"
-    "        specularStrength = mix(specularStrength, 0.16, solidMasks.y);\n"
-    "        roughness = mix(roughness, 0.86, solidMasks.z);\n"
-    "        specularStrength = mix(specularStrength, 0.18, solidMasks.z);\n"
-    "    }\n"
-    "    if (oceanMask > 0.001)\n"
-    "    {\n"
-    "        roughness = mix(roughness, 0.055, oceanMask);\n"
-    "        specularStrength = mix(specularStrength, 0.92, oceanMask);\n"
-    "    }\n"
     "    if (materialModel == 4)\n"
     "    {\n"
     "        float band = 0.5 + 0.5*sin(normal.y*56.0 + baseColor.r*4.0);\n"
@@ -1434,13 +1422,15 @@ static const char *planetLightingFragmentShader =
     "        directLight *= clamp(1.0 - ringOpacity, 0.10, 1.0);\n"
     "        reflectedLight += lightColor[i]*lightIntensity[i]*lightResponse*directLight;\n"
     "    }\n"
-    "    float brightChannel = max(texel.r, max(texel.g, texel.b));\n"
-    "    float emissionMask = smoothstep(0.62, 0.94, brightChannel);\n"
-    "    vec3 emission = texel.rgb*emissiveStrength*emissionMask;\n"
+    "    float emissionScale = materialMapEnabled != 0 ? 1.0 : emissiveStrength;\n"
+    "    vec3 emission = texel.rgb*emissionScale*emissionMask;\n"
     "    vec3 ambient = baseColor*ambientLight*(0.72 + specularStrength*0.18);\n"
-    "    vec3 environmentColor = materialModel == 4\n"
-    "        ? mix(vec3(0.065, 0.085, 0.12), baseColor, 0.16)\n"
-    "        : vec3(0.035, 0.055, 0.09);\n"
+    "    vec3 environmentColor = vec3(0.035, 0.055, 0.09);\n"
+    "    if (surfaceType == 1) environmentColor = vec3(0.035, 0.090, 0.16);\n"
+    "    else if (surfaceType == 2) environmentColor = vec3(0.075, 0.105, 0.14);\n"
+    "    else if (surfaceType == 5) environmentColor = vec3(0.085, 0.035, 0.018);\n"
+    "    else if (materialModel == 4)\n"
+    "        environmentColor = mix(vec3(0.065, 0.085, 0.12), baseColor, 0.16);\n"
     "    float environmentStrength = (0.35 + specularStrength*0.65)*\n"
     "                                (1.05 - roughness*0.55);\n"
     "    vec3 environmentReflection = fresnelSchlick(nDotV, f0)*\n"
@@ -1635,13 +1625,10 @@ static Color ApplyPlanetClimateColor(Color color, const PlanetProfile *profile,
     return ShadePlanetColor(color, albedoShade);
 }
 
-static Color TemperatePlanetPixel(const PlanetProfile *profile, float nx, float ny,
-                                  float nz, uint32_t seed)
+static Color TemperatePlanetPixel(const PlanetProfile *profile, float ny,
+                                  const PlanetSurfaceSample *surfaceSample)
 {
-    float longitude = atan2f(nz, nx);
-    float latitudeRadians = asinf(Clamp(ny, -1.0f, 1.0f));
-    PlanetSurfaceSample surface = PlanetSampleGlobalSurface(seed, profile,
-                                                             longitude, latitudeRadians);
+    PlanetSurfaceSample surface = *surfaceSample;
     float continents = surface.continentalness;
     float detail = surface.detail;
     Color color;
@@ -1809,12 +1796,20 @@ static Color CraterPlanetPixel(float nx, float ny, float nz, float noise, uint32
                     PlanetColorChannel(tone), 255 };
 }
 
+static float PlanetLavaFissure(const PlanetSurfaceSample *surface)
+{
+    float fissure = 1.0f - Clamp(fabsf(surface->continentalness - 0.53f) / 0.045f,
+                                       0.0f, 1.0f);
+    return fmaxf(fissure,
+                 1.0f - Clamp(fabsf(surface->detail - 0.66f) / 0.022f, 0.0f, 1.0f));
+}
+
 static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny, float nz,
-                               float u, float v, uint32_t seed)
+                               float u, float v, uint32_t seed,
+                               const PlanetSurfaceSample *surfaceSample)
 {
     SolarBodyStyle style = profile->style;
-    PlanetSurfaceSample surface = PlanetSampleGlobalSurface(seed, profile, atan2f(nz, nx),
-                                                             asinf(Clamp(ny, -1.0f, 1.0f)));
+    PlanetSurfaceSample surface = *surfaceSample;
     float noise = surface.continentalness;
     float fine = surface.detail;
     Color color = (Color){ 120, 120, 120, 255 };
@@ -1826,8 +1821,7 @@ static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny,
             color = ColorLerp((Color){ 180, 48, 16, 255 }, (Color){ 255, 154, 32, 255 },
                               fine);
         }
-        float fissure = 1.0f - Clamp(fabsf(noise - 0.53f) / 0.045f, 0.0f, 1.0f);
-        fissure = fmaxf(fissure, 1.0f - Clamp(fabsf(fine - 0.66f) / 0.022f, 0.0f, 1.0f));
+        float fissure = PlanetLavaFissure(&surface);
         color = ColorLerp(color, (Color){ 255, 115, 18, 255 }, fissure);
         if (fissure > 0.72f) color = ColorLerp(color, (Color){ 255, 225, 88, 255 },
                                                (fissure - 0.72f) / 0.28f);
@@ -1874,7 +1868,7 @@ static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny,
         }
         break;
     case SOLAR_STYLE_TEMPERATE:
-        return TemperatePlanetPixel(profile, nx, ny, nz, seed);
+        return TemperatePlanetPixel(profile, ny, &surface);
     default:
         break;
     }
@@ -1883,7 +1877,182 @@ static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny,
     return color;
 }
 
-static Texture2D MakePlanetTexture(const PlanetProfile *profile, uint32_t seed, bool clouds)
+static PlanetSurfaceType PlanetSurfaceTypeFor(const PlanetProfile *profile,
+                                              const PlanetSurfaceSample *surface)
+{
+    if (!profile->hasSolidSurface || profile->style == SOLAR_STYLE_GAS ||
+        surface->biome == PLANET_BIOME_STORM_BANDS) {
+        return PLANET_SURFACE_GAS;
+    }
+    if (surface->biome == PLANET_BIOME_LAVA_SEA || surface->lavaFlow > 0.48f ||
+        (profile->style == SOLAR_STYLE_LAVA && PlanetLavaFissure(surface) > 0.48f)) {
+        return PLANET_SURFACE_LAVA;
+    }
+    if (surface->iceCoverage > 0.34f || surface->glacierFlow > 0.24f ||
+        surface->biome == PLANET_BIOME_ICE_SHEET ||
+        surface->biome == PLANET_BIOME_GLACIER || profile->style == SOLAR_STYLE_ICE) {
+        return PLANET_SURFACE_ICE;
+    }
+
+    switch (surface->biome) {
+    case PLANET_BIOME_OCEAN:
+        return PLANET_SURFACE_OCEAN;
+    case PLANET_BIOME_DUNES:
+    case PLANET_BIOME_COAST:
+        return PLANET_SURFACE_SAND;
+    case PLANET_BIOME_OASIS:
+        return PLANET_SURFACE_GENERIC;
+    case PLANET_BIOME_BADLANDS:
+        return surface->duneBand > 0.42f ? PLANET_SURFACE_SAND : PLANET_SURFACE_ROCK;
+    case PLANET_BIOME_BASALT_PLAINS:
+    case PLANET_BIOME_VOLCANIC_RIDGE:
+    case PLANET_BIOME_IMPACT_BASIN:
+    case PLANET_BIOME_CRATER_HIGHLANDS:
+    case PLANET_BIOME_ALPINE:
+        return PLANET_SURFACE_ROCK;
+    default:
+        break;
+    }
+
+    if (profile->style == SOLAR_STYLE_DESERT) return PLANET_SURFACE_SAND;
+    if (profile->style == SOLAR_STYLE_CRATER || profile->style == SOLAR_STYLE_LAVA) {
+        return PLANET_SURFACE_ROCK;
+    }
+    return PLANET_SURFACE_GENERIC;
+}
+
+static Color PlanetMaterialPixel(const PlanetProfile *profile,
+                                 const PlanetSurfaceSample *surface)
+{
+    PlanetSurfaceType type = PlanetSurfaceTypeFor(profile, surface);
+    float roughness = 0.76f;
+    float specular = 0.22f;
+    float emissive = 0.0f;
+
+    switch (type) {
+    case PLANET_SURFACE_OCEAN:
+        roughness = 0.045f + surface->detail * 0.040f;
+        specular = 0.90f + surface->detail * 0.06f;
+        break;
+    case PLANET_SURFACE_ICE:
+        roughness = 0.20f + surface->iceCoverage * 0.12f +
+                    surface->glacierCracks * 0.24f;
+        specular = 0.86f - surface->glacierCracks * 0.24f;
+        break;
+    case PLANET_SURFACE_ROCK:
+        roughness = 0.84f + surface->impactDepth * 0.10f -
+                    surface->volcanicActivity * 0.10f;
+        specular = 0.14f + surface->volcanicActivity * 0.12f;
+        break;
+    case PLANET_SURFACE_SAND:
+        roughness = 0.86f + surface->duneBand * 0.10f;
+        specular = 0.13f + surface->moisture * 0.08f;
+        break;
+    case PLANET_SURFACE_LAVA: {
+        float molten = fmaxf(surface->lavaFlow,
+                             surface->biome == PLANET_BIOME_LAVA_SEA ? 0.78f : 0.0f);
+        if (profile->style == SOLAR_STYLE_LAVA) {
+            molten = fmaxf(molten, PlanetLavaFissure(surface));
+        }
+        molten = Clamp(molten, 0.0f, 1.0f);
+        roughness = 0.76f - molten * 0.49f;
+        specular = 0.22f + molten * 0.42f;
+        emissive = 0.22f + molten * 0.76f;
+        break;
+    }
+    case PLANET_SURFACE_GAS:
+        roughness = 0.36f + surface->detail * 0.12f;
+        specular = 0.66f + surface->regionalness * 0.14f;
+        break;
+    case PLANET_SURFACE_GENERIC:
+    default:
+        if (surface->biome == PLANET_BIOME_FOREST) {
+            roughness = 0.88f;
+            specular = 0.15f + surface->moisture * 0.08f;
+        } else if (surface->biome == PLANET_BIOME_OASIS) {
+            roughness = 0.48f;
+            specular = 0.48f;
+        } else {
+            roughness = 0.72f + surface->detail * 0.12f;
+            specular = 0.19f + surface->moisture * 0.09f;
+        }
+        break;
+    }
+
+    float encodedType = (float)type / (float)(PLANET_SURFACE_TYPE_COUNT - 1);
+    return (Color){
+        PlanetColorChannel(Clamp(roughness, 0.045f, 1.0f) * 255.0f),
+        PlanetColorChannel(Clamp(specular, 0.0f, 1.0f) * 255.0f),
+        PlanetColorChannel(Clamp(emissive, 0.0f, 1.0f) * 255.0f),
+        PlanetColorChannel(encodedType * 255.0f)
+    };
+}
+
+static Texture2D LoadPlanetTexturePixels(Color *pixels)
+{
+    Image image = {
+        .data = pixels,
+        .width = PLANET_TEXTURE_WIDTH,
+        .height = PLANET_TEXTURE_HEIGHT,
+        .mipmaps = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+    };
+    Texture2D texture = LoadTextureFromImage(image);
+    if (texture.id != 0) {
+        SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+        SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
+    }
+    return texture;
+}
+
+static void UnloadPlanetTextureSet(PlanetTextureSet *textures)
+{
+    if (!textures) return;
+    if (textures->albedo.id != 0) UnloadTexture(textures->albedo);
+    if (textures->material.id != 0) UnloadTexture(textures->material);
+    *textures = (PlanetTextureSet){ 0 };
+}
+
+static PlanetTextureSet MakePlanetSurfaceTextures(const PlanetProfile *profile,
+                                                  uint32_t seed)
+{
+    PlanetTextureSet textures = { 0 };
+    size_t pixelCount = (size_t)PLANET_TEXTURE_WIDTH * PLANET_TEXTURE_HEIGHT;
+    Color *albedoPixels = malloc(pixelCount * sizeof(*albedoPixels));
+    Color *materialPixels = malloc(pixelCount * sizeof(*materialPixels));
+    if (!albedoPixels || !materialPixels) {
+        free(albedoPixels);
+        free(materialPixels);
+        return textures;
+    }
+
+    for (int y = 0; y < PLANET_TEXTURE_HEIGHT; y++) {
+        float v = (float)y / (float)(PLANET_TEXTURE_HEIGHT - 1);
+        float latitude = (0.5f - v) * PI;
+        float cosLatitude = cosf(latitude);
+        for (int x = 0; x < PLANET_TEXTURE_WIDTH; x++) {
+            float u = (float)x / (float)PLANET_TEXTURE_WIDTH;
+            float longitude = u * 2.0f * PI;
+            float nx = cosLatitude * cosf(longitude);
+            float ny = sinf(latitude);
+            float nz = cosLatitude * sinf(longitude);
+            PlanetSurfaceSample surface = PlanetSampleGlobalSurface(seed, profile,
+                                                                     longitude, latitude);
+            size_t index = (size_t)y * PLANET_TEXTURE_WIDTH + x;
+            albedoPixels[index] = StyledPlanetPixel(profile, nx, ny, nz, u, v, seed,
+                                                     &surface);
+            materialPixels[index] = PlanetMaterialPixel(profile, &surface);
+        }
+    }
+
+    textures.albedo = LoadPlanetTexturePixels(albedoPixels);
+    textures.material = LoadPlanetTexturePixels(materialPixels);
+    free(albedoPixels);
+    free(materialPixels);
+    return textures;
+}
+
+static Texture2D MakePlanetCloudTexture(const PlanetProfile *profile, uint32_t seed)
 {
     size_t pixelCount = (size_t)PLANET_TEXTURE_WIDTH * PLANET_TEXTURE_HEIGHT;
     Color *pixels = malloc(pixelCount * sizeof(*pixels));
@@ -1899,29 +2068,13 @@ static Texture2D MakePlanetTexture(const PlanetProfile *profile, uint32_t seed, 
             float nx = cosLatitude * cosf(longitude);
             float ny = sinf(latitude);
             float nz = cosLatitude * sinf(longitude);
-            Color color;
-            if (clouds) {
-                color = PlanetCloudPixel(profile, nx, ny, nz, seed);
-            } else {
-                color = StyledPlanetPixel(profile, nx, ny, nz, u, v, seed);
-            }
-            pixels[(size_t)y * PLANET_TEXTURE_WIDTH + x] = color;
+            pixels[(size_t)y * PLANET_TEXTURE_WIDTH + x] =
+                PlanetCloudPixel(profile, nx, ny, nz, seed);
         }
     }
 
-    Image image = {
-        .data = pixels,
-        .width = PLANET_TEXTURE_WIDTH,
-        .height = PLANET_TEXTURE_HEIGHT,
-        .mipmaps = 1,
-        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
-    };
-    Texture2D texture = LoadTextureFromImage(image);
+    Texture2D texture = LoadPlanetTexturePixels(pixels);
     free(pixels);
-    if (texture.id != 0) {
-        SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
-        SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
-    }
     return texture;
 }
 
@@ -1938,7 +2091,7 @@ static uint32_t PlanetTextureSeasonKey(const PlanetProfile *profile)
     return (uint32_t)floor(cycle * 8.0);
 }
 
-static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
+static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
 {
     uint32_t oceanKey = PlanetTextureOceanKey(&body->profile);
     uint32_t seasonKey = PlanetTextureSeasonKey(&body->profile);
@@ -1951,7 +2104,7 @@ static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
             continue;
         }
         entry->lastUse = planetRender.textureCacheTick;
-        return entry->texture;
+        return entry->textures;
     }
 
     int replacement = 0;
@@ -1969,7 +2122,7 @@ static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
     }
 
     PlanetTextureCacheEntry *entry = &planetRender.planetTextures[replacement];
-    if (entry->valid && entry->texture.id != 0) UnloadTexture(entry->texture);
+    if (entry->valid) UnloadPlanetTextureSet(&entry->textures);
     *entry = (PlanetTextureCacheEntry){
         .valid = true,
         .seed = body->worldSeed,
@@ -1977,9 +2130,9 @@ static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
         .oceanKey = oceanKey,
         .seasonKey = seasonKey,
         .lastUse = planetRender.textureCacheTick,
-        .texture = MakePlanetTexture(&body->profile, body->worldSeed, false)
+        .textures = MakePlanetSurfaceTextures(&body->profile, body->worldSeed)
     };
-    return entry->texture;
+    return entry->textures;
 }
 
 static uint32_t PlanetCloudProfileKey(const PlanetProfile *profile)
@@ -2034,7 +2187,7 @@ static Texture2D PlanetCloudTextureForBody(const SpaceBodyInfo *body)
         .seed = body->worldSeed,
         .profileKey = profileKey,
         .lastUse = planetRender.textureCacheTick,
-        .texture = MakePlanetTexture(&body->profile, body->worldSeed ^ 0x8392f5u, true)
+        .texture = MakePlanetCloudTexture(&body->profile, body->worldSeed ^ 0x8392f5u)
     };
     return entry->texture;
 }
@@ -2152,8 +2305,8 @@ static void EnsurePlanetRenderResources(void)
         if (planetRender.homeCloudSeed != homeSeed) {
             if (planetRender.homeClouds.id != 0) UnloadTexture(planetRender.homeClouds);
             PlanetProfile homeProfile = HomePlanetRenderProfile();
-            planetRender.homeClouds = MakePlanetTexture(&homeProfile,
-                                                        homeSeed ^ 0x8392f5u, true);
+            planetRender.homeClouds = MakePlanetCloudTexture(&homeProfile,
+                                                             homeSeed ^ 0x8392f5u);
             planetRender.homeCloudSeed = homeSeed;
         }
         return;
@@ -2184,10 +2337,12 @@ static void EnsurePlanetRenderResources(void)
         planetRender.lightingShader, "materialSpecular");
     planetRender.materialMetallicLoc = GetShaderLocation(
         planetRender.lightingShader, "materialMetallic");
-    planetRender.materialOceanCoverageLoc = GetShaderLocation(
-        planetRender.lightingShader, "materialOceanCoverage");
     planetRender.materialModelLoc = GetShaderLocation(planetRender.lightingShader,
                                                       "materialModel");
+    planetRender.materialMapLoc = GetShaderLocation(planetRender.lightingShader,
+                                                    "materialMap");
+    planetRender.materialMapEnabledLoc = GetShaderLocation(
+        planetRender.lightingShader, "materialMapEnabled");
     planetRender.cloudShadowMapLoc = GetShaderLocation(planetRender.lightingShader,
                                                        "cloudShadowMap");
     planetRender.cloudShadowEnabledLoc = GetShaderLocation(planetRender.lightingShader,
@@ -2218,8 +2373,9 @@ static void EnsurePlanetRenderResources(void)
                                  planetRender.materialRoughnessLoc >= 0 &&
                                  planetRender.materialSpecularLoc >= 0 &&
                                  planetRender.materialMetallicLoc >= 0 &&
-                                 planetRender.materialOceanCoverageLoc >= 0 &&
                                  planetRender.materialModelLoc >= 0 &&
+                                 planetRender.materialMapLoc >= 0 &&
+                                 planetRender.materialMapEnabledLoc >= 0 &&
                                  planetRender.cloudShadowMapLoc >= 0 &&
                                  planetRender.cloudShadowEnabledLoc >= 0 &&
                                  planetRender.cloudShadowRotationLoc >= 0 &&
@@ -2269,8 +2425,9 @@ static void EnsurePlanetRenderResources(void)
                                    planetRender.atmosphereAlphaLoc >= 0 &&
                                    planetRender.atmosphereExposureLoc >= 0;
     PlanetProfile homeProfile = HomePlanetRenderProfile();
-    planetRender.home = MakePlanetTexture(&homeProfile, 0x48a1c3u, false);
-    planetRender.homeClouds = MakePlanetTexture(&homeProfile, homeSeed ^ 0x8392f5u, true);
+    planetRender.home = MakePlanetSurfaceTextures(&homeProfile, 0x48a1c3u);
+    planetRender.homeClouds = MakePlanetCloudTexture(&homeProfile,
+                                                     homeSeed ^ 0x8392f5u);
     planetRender.homeCloudSeed = homeSeed;
 }
 
@@ -2278,15 +2435,13 @@ void UnloadPlanetRenderResources(void)
 {
     if (!planetRender.initialized) return;
     if (planetRender.sphere.meshCount > 0) UnloadModel(planetRender.sphere);
-    if (planetRender.home.id != 0) UnloadTexture(planetRender.home);
+    UnloadPlanetTextureSet(&planetRender.home);
     if (planetRender.homeClouds.id != 0) UnloadTexture(planetRender.homeClouds);
     if (planetRender.lightingShader.id != 0) UnloadShader(planetRender.lightingShader);
     if (planetRender.atmosphereShader.id != 0) UnloadShader(planetRender.atmosphereShader);
     for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
-        if (planetRender.planetTextures[i].valid &&
-            planetRender.planetTextures[i].texture.id != 0) {
-            UnloadTexture(planetRender.planetTextures[i].texture);
-        }
+        if (planetRender.planetTextures[i].valid)
+            UnloadPlanetTextureSet(&planetRender.planetTextures[i].textures);
     }
     for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
         if (planetRender.cloudTextures[i].valid &&
@@ -2309,7 +2464,6 @@ typedef struct PlanetMaterialResponse {
     float roughness;
     float specular;
     float metallic;
-    float oceanCoverage;
     int model;
 } PlanetMaterialResponse;
 
@@ -2341,7 +2495,6 @@ static PlanetMaterialResponse PlanetMaterialResponseFor(const PlanetProfile *pro
             .roughness = 0.82f,
             .specular = 0.36f,
             .metallic = 0.0f,
-            .oceanCoverage = 0.0f,
             .model = 7
         };
     }
@@ -2350,7 +2503,6 @@ static PlanetMaterialResponse PlanetMaterialResponseFor(const PlanetProfile *pro
         .roughness = 0.78f,
         .specular = 0.24f,
         .metallic = 0.0f,
-        .oceanCoverage = profile ? Clamp(profile->oceanCoverage, 0.0f, 1.0f) : 0.0f,
         .model = profile ? (int)profile->style : 0
     };
     if (!profile) return response;
@@ -2373,7 +2525,6 @@ static PlanetMaterialResponse PlanetMaterialResponseFor(const PlanetProfile *pro
     case SOLAR_STYLE_GAS:
         response.roughness = 0.41f;
         response.specular = 0.72f;
-        response.oceanCoverage = 0.0f;
         break;
     case SOLAR_STYLE_CRATER:
         response.roughness = 0.92f;
@@ -2414,7 +2565,7 @@ static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemA
     return lighting;
 }
 
-static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
+static void DrawTexturedPlanet(Vector3 center, float radius, PlanetTextureSet textures,
                                float rotation, Color fallback,
                                Vector3 cameraPosition,
                                const PlanetSpaceLighting *lighting,
@@ -2423,7 +2574,7 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                                const PlanetCloudLayer *cloudLayer,
                                const PlanetRingLayer *ringLayer)
 {
-    if (planetRender.sphere.meshCount <= 0 || texture.id == 0) {
+    if (planetRender.sphere.meshCount <= 0 || textures.albedo.id == 0) {
         DrawSphere(center, radius, fallback);
         return;
     }
@@ -2457,10 +2608,15 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                        &material->specular, SHADER_UNIFORM_FLOAT);
         SetShaderValue(planetRender.lightingShader, planetRender.materialMetallicLoc,
                        &material->metallic, SHADER_UNIFORM_FLOAT);
-        SetShaderValue(planetRender.lightingShader, planetRender.materialOceanCoverageLoc,
-                       &material->oceanCoverage, SHADER_UNIFORM_FLOAT);
         SetShaderValue(planetRender.lightingShader, planetRender.materialModelLoc,
                        &material->model, SHADER_UNIFORM_INT);
+        int materialMapEnabled = textures.material.id != 0;
+        SetShaderValue(planetRender.lightingShader, planetRender.materialMapEnabledLoc,
+                       &materialMapEnabled, SHADER_UNIFORM_INT);
+        if (materialMapEnabled) {
+            SetShaderValueTexture(planetRender.lightingShader,
+                                  planetRender.materialMapLoc, textures.material);
+        }
         int cloudShadowEnabled = cloudLayer && cloudLayer->texture.id != 0 &&
                                  cloudLayer->shadowStrength > 0.001f;
         float cloudShadowRotation = cloudShadowEnabled ?
@@ -2490,7 +2646,8 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                            &ringLayer->shadowParams, SHADER_UNIFORM_VEC2);
         }
     }
-    SetMaterialTexture(&planetRender.sphere.materials[0], MATERIAL_MAP_DIFFUSE, texture);
+    SetMaterialTexture(&planetRender.sphere.materials[0], MATERIAL_MAP_DIFFUSE,
+                       textures.albedo);
     DrawModelEx(planetRender.sphere, center, (Vector3){ 0.0f, 1.0f, 0.0f }, rotation,
                 (Vector3){ radius, radius, radius }, WHITE);
 }
@@ -2754,7 +2911,7 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             }
         } else {
             float radius = SolarBodyTerrainRadius(bodies[i].radius);
-            Texture2D texture = PlanetTextureForBody(&bodies[i]);
+            PlanetTextureSet textures = PlanetTextureForBody(&bodies[i]);
             float rotation = PlanetBodyTextureRotation(&bodies[i]);
             PlanetSpaceLighting lighting = PlanetSpaceLightingFor(
                 bodies[i].systemAnchorX, bodies[i].systemAnchorZ, bodies[i].center);
@@ -2778,14 +2935,15 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             }
             PlanetMaterialResponse material = PlanetMaterialResponseFor(
                 &bodies[i].profile, false);
-            DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color,
+            DrawTexturedPlanet(bodies[i].center, radius + 0.08f, textures, rotation, color,
                                camera->position, &lighting, &material, ambientLight,
                                emissiveStrength, &cloudLayer, activeRing);
             if (cloudLayer.texture.id != 0) {
                 PlanetMaterialResponse cloudMaterial = PlanetMaterialResponseFor(
                     &bodies[i].profile, true);
                 DrawTexturedPlanet(bodies[i].center, radius * 1.014f,
-                                   cloudLayer.texture, cloudLayer.rotation, WHITE,
+                                   (PlanetTextureSet){ .albedo = cloudLayer.texture },
+                                   cloudLayer.rotation, WHITE,
                                    camera->position, &lighting, &cloudMaterial,
                                    ambientLight, 0.0f, NULL, NULL);
             }
@@ -2839,7 +2997,8 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     if (cloudLayer.texture.id != 0) {
         PlanetMaterialResponse cloudMaterial = PlanetMaterialResponseFor(
             &homeAtmosphere, true);
-        DrawTexturedPlanet(center, radius * 1.014f, cloudLayer.texture,
+        DrawTexturedPlanet(center, radius * 1.014f,
+                           (PlanetTextureSet){ .albedo = cloudLayer.texture },
                            cloudLayer.rotation, WHITE, camera->position, &lighting,
                            &cloudMaterial, 0.056f, 0.0f, NULL, NULL);
     }
