@@ -1,6 +1,7 @@
 #include "render.h"
 
 #include "raymath.h"
+#include "rlgl.h"
 #include "chunks.h"
 #include "inventory.h"
 #include "world.h"
@@ -1089,17 +1090,28 @@ typedef struct PlanetTextureCacheEntry {
 typedef struct PlanetRenderResources {
     bool initialized;
     bool lightingReady;
+    bool atmosphereReady;
     Model sphere;
     Shader lightingShader;
+    Shader atmosphereShader;
     int lightCountLoc;
     int lightPositionLoc;
     int lightColorLoc;
     int lightIntensityLoc;
     int ambientLightLoc;
     int emissiveStrengthLoc;
+    int atmosphereLightCountLoc;
+    int atmosphereLightPositionLoc;
+    int atmosphereLightColorLoc;
+    int atmosphereLightIntensityLoc;
+    int atmosphereCameraPositionLoc;
+    int atmosphereRayleighColorLoc;
+    int atmosphereHorizonColorLoc;
+    int atmosphereOpticalDepthLoc;
+    int atmosphereMieStrengthLoc;
+    int atmosphereAlphaLoc;
     Texture2D home;
     Texture2D clouds;
-    Texture2D atmosphereGlow;
     uint64_t textureCacheTick;
     PlanetTextureCacheEntry planetTextures[PLANET_TEXTURE_CACHE_CAPACITY];
 } PlanetRenderResources;
@@ -1162,6 +1174,88 @@ static const char *planetLightingFragmentShader =
     "    float emissionMask = smoothstep(0.62, 0.94, brightChannel);\n"
     "    vec3 emission = texel.rgb*emissiveStrength*emissionMask;\n"
     "    finalColor = vec4(texel.rgb*illumination + emission, texel.a);\n"
+    "}\n";
+
+static const char *planetAtmosphereVertexShader =
+    "#version 330\n"
+    "in vec3 vertexPosition;\n"
+    "in vec3 vertexNormal;\n"
+    "uniform mat4 mvp;\n"
+    "uniform mat4 matModel;\n"
+    "out vec3 fragPosition;\n"
+    "out vec3 fragNormal;\n"
+    "void main()\n"
+    "{\n"
+    "    vec4 worldPosition = matModel*vec4(vertexPosition, 1.0);\n"
+    "    fragPosition = worldPosition.xyz;\n"
+    "    fragNormal = normalize((matModel*vec4(vertexNormal, 0.0)).xyz);\n"
+    "    gl_Position = mvp*vec4(vertexPosition, 1.0);\n"
+    "}\n";
+
+static const char *planetAtmosphereFragmentShader =
+    "#version 330\n"
+    "in vec3 fragPosition;\n"
+    "in vec3 fragNormal;\n"
+    "uniform int lightCount;\n"
+    "uniform vec3 lightPosition[3];\n"
+    "uniform vec3 lightColor[3];\n"
+    "uniform float lightIntensity[3];\n"
+    "uniform vec3 cameraPosition;\n"
+    "uniform vec3 rayleighColor;\n"
+    "uniform vec3 horizonColor;\n"
+    "uniform float opticalDepth;\n"
+    "uniform float mieStrength;\n"
+    "uniform float atmosphereAlpha;\n"
+    "out vec4 finalColor;\n"
+    "float miePhase(float cosine, float anisotropy)\n"
+    "{\n"
+    "    float g2 = anisotropy*anisotropy;\n"
+    "    float denominator = max(1.0 + g2 - 2.0*anisotropy*cosine, 0.025);\n"
+    "    return (1.0 - g2)/pow(denominator, 1.5);\n"
+    "}\n"
+    "void main()\n"
+    "{\n"
+    "    vec3 normal = normalize(fragNormal);\n"
+    "    vec3 viewDirection = normalize(cameraPosition - fragPosition);\n"
+    "    float viewFacing = max(dot(normal, viewDirection), 0.0);\n"
+    "    float limb = pow(1.0 - viewFacing, 0.68);\n"
+    "    float opticalPath = 0.10 + limb*0.90;\n"
+    "    vec3 scatterSum = vec3(0.0);\n"
+    "    float scatterWeight = 0.0;\n"
+    "    for (int i = 0; i < 3; i++)\n"
+    "    {\n"
+    "        if (i >= lightCount) break;\n"
+    "        vec3 lightDirection = normalize(lightPosition[i] - fragPosition);\n"
+    "        float incidence = dot(normal, lightDirection);\n"
+    "        float daySide = smoothstep(-0.18, 0.10, incidence);\n"
+    "        float terminator = exp(-pow(abs(incidence)/0.115, 2.0));\n"
+    "        terminator *= smoothstep(-0.24, 0.035, incidence);\n"
+    "        float scatterCosine = clamp(dot(-lightDirection, viewDirection), -1.0, 1.0);\n"
+    "        float rayleighPhase = 0.55 + 0.45*scatterCosine*scatterCosine;\n"
+    "        float forwardMie = min(miePhase(scatterCosine, 0.58)*0.085, 1.8);\n"
+    "        float intensity = clamp(lightIntensity[i], 0.0, 2.4);\n"
+    "        float rayleighWeight = intensity*daySide*(0.48 + rayleighPhase*0.52);\n"
+    "        float twilightWeight = intensity*terminator*(0.34 + mieStrength*0.72);\n"
+    "        float mieWeight = intensity*daySide*mieStrength*forwardMie*0.16;\n"
+    "        vec3 daylightColor = mix(rayleighColor, lightColor[i], 0.20);\n"
+    "        vec3 warmColor = mix(vec3(1.0, 0.24, 0.055), horizonColor, 0.34);\n"
+    "        warmColor = mix(warmColor, lightColor[i], 0.16);\n"
+    "        scatterSum += daylightColor*rayleighWeight;\n"
+    "        scatterSum += warmColor*twilightWeight;\n"
+    "        scatterSum += lightColor[i]*mieWeight;\n"
+    "        scatterWeight += rayleighWeight + twilightWeight + mieWeight;\n"
+    "    }\n"
+    "    float illuminated = clamp(scatterWeight, 0.0, 2.8);\n"
+    "    vec3 scatteredColor = scatterWeight > 0.0001\n"
+    "        ? scatterSum/scatterWeight : rayleighColor*0.08;\n"
+    "    float nightAir = opticalDepth*opticalPath*0.012;\n"
+    "    scatteredColor = mix(rayleighColor*0.10, scatteredColor,\n"
+    "                         clamp(illuminated, 0.0, 1.0));\n"
+    "    float alpha = atmosphereAlpha*opticalDepth*opticalPath;\n"
+    "    alpha *= clamp(0.018 + illuminated*0.34 + nightAir, 0.0, 0.72);\n"
+    "    alpha *= smoothstep(0.0, 0.08, 1.0 - viewFacing);\n"
+    "    if (alpha < 0.002) discard;\n"
+    "    finalColor = vec4(scatteredColor, clamp(alpha, 0.0, 0.82));\n"
     "}\n";
 
 static uint32_t PlanetTextureHash(int x, int y, int z, uint32_t seed)
@@ -1516,38 +1610,6 @@ static Texture2D PlanetTextureForBody(const SpaceBodyInfo *body)
     return entry->texture;
 }
 
-static Texture2D MakeAtmosphereGlowTexture(void)
-{
-    const int size = 96;
-    Color *pixels = malloc((size_t)size * size * sizeof(*pixels));
-    if (!pixels) return (Texture2D){ 0 };
-    for (int y = 0; y < size; y++) {
-        for (int x = 0; x < size; x++) {
-            float nx = ((float)x + 0.5f) * 2.0f / (float)size - 1.0f;
-            float ny = ((float)y + 0.5f) * 2.0f / (float)size - 1.0f;
-            float radius = sqrtf(nx * nx + ny * ny);
-            float inner = Clamp((radius - 0.64f) / 0.17f, 0.0f, 1.0f);
-            float outer = Clamp((1.0f - radius) / 0.18f, 0.0f, 1.0f);
-            inner = inner * inner * (3.0f - 2.0f * inner);
-            outer = outer * outer * (3.0f - 2.0f * outer);
-            float alpha = inner * outer;
-            pixels[y * size + x] = (Color){ 255, 255, 255,
-                                            PlanetColorChannel(alpha * 220.0f) };
-        }
-    }
-    Image image = {
-        .data = pixels,
-        .width = size,
-        .height = size,
-        .mipmaps = 1,
-        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
-    };
-    Texture2D texture = LoadTextureFromImage(image);
-    free(pixels);
-    if (texture.id != 0) SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
-    return texture;
-}
-
 static Vector3 PlanetSpherePoint(float u, float v)
 {
     float longitude = u * 2.0f * PI;
@@ -1642,6 +1704,39 @@ static void EnsurePlanetRenderResources(void)
     if (planetRender.lightingReady && planetRender.sphere.materialCount > 0) {
         planetRender.sphere.materials[0].shader = planetRender.lightingShader;
     }
+    planetRender.atmosphereShader = LoadShaderFromMemory(planetAtmosphereVertexShader,
+                                                          planetAtmosphereFragmentShader);
+    planetRender.atmosphereLightCountLoc = GetShaderLocation(planetRender.atmosphereShader,
+                                                             "lightCount");
+    planetRender.atmosphereLightPositionLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "lightPosition[0]");
+    planetRender.atmosphereLightColorLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "lightColor[0]");
+    planetRender.atmosphereLightIntensityLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "lightIntensity[0]");
+    planetRender.atmosphereCameraPositionLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "cameraPosition");
+    planetRender.atmosphereRayleighColorLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "rayleighColor");
+    planetRender.atmosphereHorizonColorLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "horizonColor");
+    planetRender.atmosphereOpticalDepthLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "opticalDepth");
+    planetRender.atmosphereMieStrengthLoc = GetShaderLocation(
+        planetRender.atmosphereShader, "mieStrength");
+    planetRender.atmosphereAlphaLoc = GetShaderLocation(planetRender.atmosphereShader,
+                                                        "atmosphereAlpha");
+    planetRender.atmosphereReady = planetRender.atmosphereShader.id != 0 &&
+                                   planetRender.atmosphereLightCountLoc >= 0 &&
+                                   planetRender.atmosphereLightPositionLoc >= 0 &&
+                                   planetRender.atmosphereLightColorLoc >= 0 &&
+                                   planetRender.atmosphereLightIntensityLoc >= 0 &&
+                                   planetRender.atmosphereCameraPositionLoc >= 0 &&
+                                   planetRender.atmosphereRayleighColorLoc >= 0 &&
+                                   planetRender.atmosphereHorizonColorLoc >= 0 &&
+                                   planetRender.atmosphereOpticalDepthLoc >= 0 &&
+                                   planetRender.atmosphereMieStrengthLoc >= 0 &&
+                                   planetRender.atmosphereAlphaLoc >= 0;
     PlanetProfile homeProfile = {
         .style = SOLAR_STYLE_TEMPERATE,
         .equilibriumTempK = 288.0f,
@@ -1653,7 +1748,6 @@ static void EnsurePlanetRenderResources(void)
     };
     planetRender.home = MakePlanetTexture(&homeProfile, 0x48a1c3u, false);
     planetRender.clouds = MakePlanetTexture(NULL, 0x8392f5u, true);
-    planetRender.atmosphereGlow = MakeAtmosphereGlowTexture();
 }
 
 void UnloadPlanetRenderResources(void)
@@ -1662,8 +1756,8 @@ void UnloadPlanetRenderResources(void)
     if (planetRender.sphere.meshCount > 0) UnloadModel(planetRender.sphere);
     if (planetRender.home.id != 0) UnloadTexture(planetRender.home);
     if (planetRender.clouds.id != 0) UnloadTexture(planetRender.clouds);
-    if (planetRender.atmosphereGlow.id != 0) UnloadTexture(planetRender.atmosphereGlow);
     if (planetRender.lightingShader.id != 0) UnloadShader(planetRender.lightingShader);
+    if (planetRender.atmosphereShader.id != 0) UnloadShader(planetRender.atmosphereShader);
     for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
         if (planetRender.planetTextures[i].valid &&
             planetRender.planetTextures[i].texture.id != 0) {
@@ -1679,6 +1773,13 @@ typedef struct PlanetSpaceLighting {
     Vector3 colors[MAX_SOLAR_LIGHTS];
     float intensities[MAX_SOLAR_LIGHTS];
 } PlanetSpaceLighting;
+
+static Vector3 PlanetShaderColor(Color color)
+{
+    return (Vector3){ (float)color.r / 255.0f,
+                      (float)color.g / 255.0f,
+                      (float)color.b / 255.0f };
+}
 
 static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemAnchorZ,
                                                    Vector3 planetCenter)
@@ -1699,9 +1800,7 @@ static PlanetSpaceLighting PlanetSpaceLightingFor(int systemAnchorX, int systemA
         float flux = sources[i].luminosity / fmaxf(distanceSqr, 1.0f);
         Color color = SpectrumColor(sources[i].spectrum);
         lighting.positions[i] = sources[i].center;
-        lighting.colors[i] = (Vector3){ (float)color.r / 255.0f,
-                                        (float)color.g / 255.0f,
-                                        (float)color.b / 255.0f };
+        lighting.colors[i] = PlanetShaderColor(color);
         lighting.intensities[i] = Clamp(flux / primaryFlux, 0.015f, 2.40f);
     }
     return lighting;
@@ -1738,24 +1837,64 @@ static void DrawTexturedPlanet(Vector3 center, float radius, Texture2D texture,
                 (Vector3){ radius, radius, radius }, WHITE);
 }
 
-static Color PlanetAtmosphereColor(const PlanetProfile *profile)
-{
-    return PlanetAtmosphereVisualFor(profile).haze;
-}
-
 static void DrawPlanetAtmosphere(const Camera3D *camera, Vector3 center, float radius,
-                                 const PlanetProfile *profile, Color starColor, float alpha)
+                                 const PlanetProfile *profile,
+                                 const PlanetSpaceLighting *lighting, float alpha)
 {
     if (!profile || profile->atmosphereType == PLANET_ATMOSPHERE_NONE ||
-        planetRender.atmosphereGlow.id == 0 || alpha <= 0.0f) return;
+        !planetRender.atmosphereReady || planetRender.sphere.meshCount <= 0 ||
+        alpha <= 0.0f) return;
 
     PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(profile);
-    Color color = ColorLerp(PlanetAtmosphereColor(profile), starColor, 0.14f);
-    float shellSize = radius * (2.10f + visual.scaleHeight * 0.22f);
-    float strength = alpha * Clamp(0.52f + visual.opticalDepth * 0.46f,
+    int lightCount = lighting ? lighting->count : 0;
+    SetShaderValue(planetRender.atmosphereShader,
+                   planetRender.atmosphereLightCountLoc,
+                   &lightCount, SHADER_UNIFORM_INT);
+    if (lightCount > 0) {
+        SetShaderValueV(planetRender.atmosphereShader,
+                        planetRender.atmosphereLightPositionLoc,
+                        lighting->positions, SHADER_UNIFORM_VEC3, lightCount);
+        SetShaderValueV(planetRender.atmosphereShader,
+                        planetRender.atmosphereLightColorLoc,
+                        lighting->colors, SHADER_UNIFORM_VEC3, lightCount);
+        SetShaderValueV(planetRender.atmosphereShader,
+                        planetRender.atmosphereLightIntensityLoc,
+                        lighting->intensities, SHADER_UNIFORM_FLOAT, lightCount);
+    }
+    Vector3 rayleighColor = PlanetShaderColor(visual.haze);
+    Vector3 horizonColor = PlanetShaderColor(visual.horizon);
+    float strength = alpha * Clamp(0.48f + visual.opticalDepth * 0.52f,
                                    0.0f, 1.0f);
-    DrawBillboard(*camera, planetRender.atmosphereGlow, center, shellSize,
-                  Fade(color, strength));
+    SetShaderValue(planetRender.atmosphereShader,
+                   planetRender.atmosphereCameraPositionLoc,
+                   &camera->position, SHADER_UNIFORM_VEC3);
+    SetShaderValue(planetRender.atmosphereShader,
+                   planetRender.atmosphereRayleighColorLoc,
+                   &rayleighColor, SHADER_UNIFORM_VEC3);
+    SetShaderValue(planetRender.atmosphereShader,
+                   planetRender.atmosphereHorizonColorLoc,
+                   &horizonColor, SHADER_UNIFORM_VEC3);
+    SetShaderValue(planetRender.atmosphereShader,
+                   planetRender.atmosphereOpticalDepthLoc,
+                   &visual.opticalDepth, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(planetRender.atmosphereShader,
+                   planetRender.atmosphereMieStrengthLoc,
+                   &visual.mieStrength, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(planetRender.atmosphereShader,
+                   planetRender.atmosphereAlphaLoc,
+                   &strength, SHADER_UNIFORM_FLOAT);
+
+    float density = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
+    float shellRadius = radius * (1.028f + visual.scaleHeight * 0.025f + density * 0.020f);
+    Shader surfaceShader = planetRender.sphere.materials[0].shader;
+    planetRender.sphere.materials[0].shader = planetRender.atmosphereShader;
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+    DrawModelEx(planetRender.sphere, center, (Vector3){ 0.0f, 1.0f, 0.0f }, 0.0f,
+                (Vector3){ shellRadius, shellRadius, shellRadius }, WHITE);
+    rlEnableDepthMask();
+    EndBlendMode();
+    planetRender.sphere.materials[0].shader = surfaceShader;
 }
 
 static Vector3 PlanetRingPoint(Vector3 center, float radius, float angle, float tilt)
@@ -1835,12 +1974,9 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             float rotation = PlanetBodyTextureRotation(&bodies[i]);
             PlanetSpaceLighting lighting = PlanetSpaceLightingFor(
                 bodies[i].systemAnchorX, bodies[i].systemAnchorZ, bodies[i].center);
-            Color starColor = SpectrumColor(bodies[i].spectrum);
             float atmosphereAlpha = 0.08f + bodies[i].profile.atmosphereDensity * 0.54f;
             float ambientLight = 0.025f + bodies[i].profile.atmosphereDensity * 0.040f;
             float emissiveStrength = bodies[i].style == SOLAR_STYLE_LAVA ? 0.82f : 0.0f;
-            DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
-                                 starColor, atmosphereAlpha * spaceFade);
             DrawTexturedPlanet(bodies[i].center, radius + 0.08f, texture, rotation, color,
                                &lighting, ambientLight, emissiveStrength);
             bool hasCloudLayer = bodies[i].profile.atmosphereDensity > 0.42f &&
@@ -1855,6 +1991,8 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
                                    planetRender.clouds, cloudRotation, WHITE,
                                    &lighting, ambientLight * 0.72f, 0.0f);
             }
+            DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
+                                 &lighting, atmosphereAlpha * spaceFade);
             if (bodies[i].profile.hasRings) {
                 DrawPlanetRings(bodies[i].center, radius, bodies[i].profile.ringTilt,
                                 spaceFade);
@@ -1894,8 +2032,6 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
         .equilibriumTempK = 288.0f,
         .atmosphereDensity = 0.78f
     };
-    DrawPlanetAtmosphere(camera, center, radius, &homeAtmosphere,
-                         SpectrumColor(SPECTRUM_YELLOW), 0.62f * spaceFade);
     float homeRotation = -18.0f + (float)SpaceSimulationTime() * 1.2f;
     PlanetSpaceLighting lighting = PlanetSpaceLightingFor(0, 0, center);
     DrawTexturedPlanet(center, radius, planetRender.home, homeRotation, HomePlanetColor(),
@@ -1903,6 +2039,8 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     DrawTexturedPlanet(center, radius * 1.012f, planetRender.clouds,
                        homeRotation + (float)SpaceSimulationTime() * 0.7f, WHITE,
                        &lighting, 0.040f, 0.0f);
+    DrawPlanetAtmosphere(camera, center, radius, &homeAtmosphere,
+                         &lighting, 0.62f * spaceFade);
 }
 
 void DrawBodyInfoPanel(const SpaceBodyInfo *body)
