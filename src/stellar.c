@@ -1,5 +1,7 @@
 #include "stellar.h"
 
+#include "space_units.h"
+
 #include <math.h>
 
 #define STELLAR_SOLAR_TEMPERATURE_K 5772.0f
@@ -105,6 +107,8 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
         .spectrum = MainSequenceSpectrum(mainTemperature),
         .stage = STELLAR_STAGE_MAIN_SEQUENCE,
         .initialMassSolar = mass,
+        .massKg = (double)mass * SPACE_UNITS_SOLAR_MASS_KG,
+        .radiusKm = (double)mainRadius * SPACE_UNITS_SOLAR_RADIUS_KM,
         .massSolar = mass,
         .radiusSolar = mainRadius,
         .temperatureK = mainTemperature,
@@ -127,6 +131,8 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
     out->stage = STELLAR_STAGE_RED_GIANT;
     out->massSolar = mass * (1.0f - 0.12f * phase);
     out->radiusSolar = giantRadius;
+    out->massKg = (double)out->massSolar * SPACE_UNITS_SOLAR_MASS_KG;
+    out->radiusKm = (double)giantRadius * SPACE_UNITS_SOLAR_RADIUS_KM;
     out->temperatureK = giantTemperature;
     out->luminositySolar = giantRadius * giantRadius *
                            powf(temperatureRatio, 4.0f);

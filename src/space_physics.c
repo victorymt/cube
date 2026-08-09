@@ -11,32 +11,12 @@ static float SpacePhysicsDistanceSquared(Vector3 a, Vector3 b)
     return x * x + y * y + z * z;
 }
 
-static float SpacePhysicsClamp(float value, float minimum, float maximum)
-{
-    if (value < minimum) return minimum;
-    if (value > maximum) return maximum;
-    return value;
-}
-
-float SpacePhysicsSphereOfInfluence(float orbitRadius, float bodyMass,
-                                    float parentMass, float minimumRadius,
-                                    float maximumRadius)
-{
-    if (minimumRadius < 0.0f) minimumRadius = 0.0f;
-    if (maximumRadius < minimumRadius) maximumRadius = minimumRadius;
-    if (orbitRadius <= 0.0f || bodyMass <= 0.0f || parentMass <= 0.0f) {
-        return minimumRadius;
-    }
-
-    float massRatio = bodyMass / parentMass;
-    float radius = orbitRadius * powf(massRatio, 0.4f);
-    return SpacePhysicsClamp(radius, minimumRadius, maximumRadius);
-}
-
 Vector3 SpacePhysicsGravityAcceleration(Vector3 position,
                                         const SpacePhysicsGravityBody *body)
 {
-    if (!body || body->gravitationalParameter <= 0.0f) return (Vector3){ 0 };
+    if (!body || body->gravitationalParameterGame <= 0.0f) {
+        return (Vector3){ 0 };
+    }
 
     Vector3 delta = {
         body->center.x - position.x,
@@ -47,10 +27,11 @@ Vector3 SpacePhysicsGravityAcceleration(Vector3 position,
     if (distanceSquared <= 0.000001f) return (Vector3){ 0 };
 
     float distance = sqrtf(distanceSquared);
-    float minimumDistance = fmaxf(body->radius, 0.001f);
+    float minimumDistance = fmaxf(body->softeningRadiusGame, 0.001f);
     float effectiveDistanceSquared = fmaxf(distanceSquared,
                                             minimumDistance * minimumDistance);
-    float magnitude = body->gravitationalParameter / effectiveDistanceSquared;
+    float magnitude = body->gravitationalParameterGame /
+                      effectiveDistanceSquared;
     float scale = magnitude / distance;
     return (Vector3){ delta.x * scale, delta.y * scale, delta.z * scale };
 }
@@ -64,7 +45,7 @@ int SpacePhysicsSelectPrimary(Vector3 position,
     int selectedHierarchy = -1;
     float selectedFraction = FLT_MAX;
     for (int i = 0; i < count; i++) {
-        float soi = bodies[i].sphereOfInfluence;
+        float soi = bodies[i].encounterRadiusGame;
         if (soi <= 0.0f) continue;
         float distanceSquared = SpacePhysicsDistanceSquared(position, bodies[i].center);
         if (distanceSquared > soi * soi) continue;

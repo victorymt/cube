@@ -150,10 +150,10 @@ static bool LandingTransitionBegin(LandingTransition *transition, Player *player
     SpaceBodyInfo body = { 0 };
     if (homeWorldTarget) {
         center = HomeWorldCenter();
-        radius = HomeWorldRadius();
+        radius = HomeWorldProxyRadius();
     } else if (PlanetWorldLandingTarget(player->position, &body)) {
         center = body.center;
-        radius = SolarBodyTerrainRadius(body.radius);
+        radius = SolarBodyTerrainProxyRadius(body.spaceProxyRadius);
         gravity = body.profile.surfaceGravity;
     } else {
         return false;

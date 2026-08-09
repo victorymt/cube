@@ -1,4 +1,5 @@
 #include "stellar.h"
+#include "space_units.h"
 
 #include <assert.h>
 #include <math.h>
@@ -16,6 +17,8 @@ static void TestSolarProfile(void)
     assert(solar.stage == STELLAR_STAGE_MAIN_SEQUENCE);
     AssertNear(solar.massSolar, 1.0f, 0.0001f);
     AssertNear(solar.radiusSolar, 1.0f, 0.0001f);
+    assert(fabs(solar.massKg / SPACE_UNITS_SOLAR_MASS_KG - 1.0) < 1e-12);
+    assert(fabs(solar.radiusKm / SPACE_UNITS_SOLAR_RADIUS_KM - 1.0) < 1e-12);
     AssertNear(solar.temperatureK, 5772.0f, 0.1f);
     AssertNear(solar.luminositySolar, 1.0f, 0.0001f);
     AssertNear(solar.mainSequenceLifetimeGyr, 10.0f, 0.0001f);

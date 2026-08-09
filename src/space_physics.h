@@ -4,16 +4,15 @@
 #include "types.h"
 
 typedef struct SpacePhysicsGravityBody {
-    Vector3 center;
-    float radius;
-    float gravitationalParameter;
-    float sphereOfInfluence;
+    Vector3 center; // Scene position in game distance units.
+    // These fields belong to the gameplay encounter transform, not the
+    // canonical physical body dimensions stored in Planet/StellarProfile.
+    float softeningRadiusGame;
+    float gravitationalParameterGame;
+    float encounterRadiusGame;
     int hierarchy;
 } SpacePhysicsGravityBody;
 
-float SpacePhysicsSphereOfInfluence(float orbitRadius, float bodyMass,
-                                    float parentMass, float minimumRadius,
-                                    float maximumRadius);
 Vector3 SpacePhysicsGravityAcceleration(Vector3 position,
                                         const SpacePhysicsGravityBody *body);
 int SpacePhysicsSelectPrimary(Vector3 position,

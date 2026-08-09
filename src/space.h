@@ -39,13 +39,15 @@ typedef struct PlanetProfile {
     uint32_t seed;
     SolarBodyStyle style;
     PlanetAtmosphereType atmosphereType;
-    float bodyRadius;
-    float massEarth;
+    double physicalRadiusKm;
+    double massKg;
+    float spaceProxyRadius;
     float surfaceGravity;
     float equilibriumTempK;
     float atmosphereDensity;
     float oceanCoverage;
     float terrainRoughness;
+    // Degrees per game time unit; one game time unit is defined in space_units.
     float rotationRate;
     float tidalLockFactor;
     float ringTilt;
@@ -53,7 +55,7 @@ typedef struct PlanetProfile {
     float greenhouseEffect;
     float axialTilt;
     float seasonPhase;
-    float yearLength;
+    float yearLength; // Game time units.
     float prevailingWindAngle;
     float volcanicActivity;
     float impactRate;
@@ -68,7 +70,7 @@ typedef struct SolarLightSource {
     Vector3 center;
     StellarProfile stellar;
     SpectrumType spectrum;
-    float radius;
+    float spaceProxyRadius;
     float luminosity;
     bool primary;
 } SolarLightSource;
@@ -92,8 +94,10 @@ typedef struct PlanetLightState {
 } PlanetLightState;
 
 typedef struct SolarPlanetDef {
-    int orbit;
-    int size;
+    // Canonical orbital and body dimensions. Proxy size is presentation only.
+    double semiMajorAxisKm;
+    double physicalRadiusKm;
+    float spaceProxyRadius;
     int yOffset;
     SolarBodyStyle style;
 } SolarPlanetDef;
@@ -102,20 +106,21 @@ typedef struct SolarSystemDef {
     bool exists;
     int anchorX;
     int anchorZ;
-    Vector3 center;
+    Vector3 center; // Rebasing-aware scene position in game distance units.
     char name[32];
     StellarProfile star;
     SpectrumType spectrum;
-    int starRadius;
+    int starProxyRadius;
     int planetCount;
     SolarPlanetDef planets[6];
 } SolarSystemDef;
 
 typedef struct SpaceBodyInfo {
-    Vector3 center;
-    float radius;
-    float orbitRadius;
-    float dist;
+    Vector3 center; // Scene position in game distance units.
+    double physicalRadiusKm;
+    double semiMajorAxisKm;
+    float spaceProxyRadius;
+    float dist; // Observer distance in game distance units.
     bool isStar;
     int index;
     int systemAnchorX;
@@ -139,12 +144,12 @@ typedef struct SpaceGravitySample {
     bool active;
     SpaceGravityPrimaryKind kind;
     Vector3 center;
-    Vector3 primaryVelocity;
-    Vector3 acceleration;
-    float distance;
-    float surfaceDistance;
-    float sphereOfInfluence;
-    float gravitationalParameter;
+    Vector3 primaryVelocity; // Game distance units per game time unit.
+    Vector3 acceleration; // Game distance units per game time unit squared.
+    float distance; // Game distance units.
+    float surfaceDistance; // Relative to the encounter proxy, in game units.
+    float encounterRadiusGame;
+    float gravitationalParameterGame;
     char name[40];
 } SpaceGravitySample;
 
@@ -170,8 +175,8 @@ extern SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
 void SpaceInit(void);
 void SpaceShutdown(void);
 void SpaceReset(void);
-void SpaceAdvanceTime(float dt);
-double SpaceSimulationTime(void);
+void SpaceAdvanceTime(float gameTimeDelta);
+double SpaceSimulationTime(void); // Game time units.
 bool SpaceRebasePlayer(Player *player);
 int SpaceOriginX(void);
 int SpaceOriginZ(void);
@@ -197,7 +202,8 @@ Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index);
 Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
                                         double simulationTime);
-float SolarSystemPlanetOrbitPeriod(const SolarSystemDef *sys, int index);
+double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index);
+double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index);
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
                             int maxCount);
 float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point);
@@ -207,7 +213,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index);
 Vector3 PlanetWorldSpaceReference(void);
 Vector3 PlanetWorldSkyDirection(Vector3 worldDirection);
 bool SurfaceHostSystem(SolarSystemDef *out);
-float SolarBodyTerrainRadius(float radius);
+float SolarBodyTerrainProxyRadius(float spaceProxyRadius);
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount);
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist);
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount);
@@ -218,7 +224,7 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
 bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out);
 bool HomeWorldSurfaceIsActive(void);
 Vector3 HomeWorldCenter(void);
-float HomeWorldRadius(void);
+float HomeWorldProxyRadius(void);
 float HomeWorldSpaceFade(Vector3 position);
 float PlanetWorldAtmosphereFade(Vector3 position);
 bool HomeWorldTryLaunch(Player *player);

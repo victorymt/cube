@@ -12,6 +12,7 @@
 #include "terrain.h"
 #include "particles.h"
 #include "space.h"
+#include "space_units.h"
 #include "world_environment.h"
 #include "nether.h"
 #include "entity.h"
@@ -1068,8 +1069,8 @@ void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade)
     double now = SpaceSimulationTime();
     for (int i = 0; i < system.planetCount; i++) {
         PlanetProfile profile = SolarPlanetProfile(&system, i);
-        float period = SolarSystemPlanetOrbitPeriod(&system, i);
-        if (period <= 0.0f) continue;
+        double period = SolarSystemPlanetOrbitPeriodGameTime(&system, i);
+        if (period <= 0.0) continue;
 
         Color color = ColorLerp(SpectrumColor(system.spectrum),
                                 SolarStyleColor(profile.style), 0.45f);
@@ -1780,7 +1781,9 @@ static PlanetProfile HomePlanetRenderProfile(void)
     return (PlanetProfile){
         .style = SOLAR_STYLE_TEMPERATE,
         .atmosphereType = PLANET_ATMOSPHERE_BREATHABLE,
-        .bodyRadius = 62.0f,
+        .physicalRadiusKm = SPACE_UNITS_EARTH_RADIUS_KM,
+        .massKg = SPACE_UNITS_EARTH_MASS_KG,
+        .spaceProxyRadius = 62.0f,
         .hasSolidSurface = true,
         .surfaceGravity = 1.0f,
         .equilibriumTempK = 288.0f,
@@ -2131,7 +2134,7 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
                                            bodies[i].systemAnchorZ, &system) ?
                               SolarSystemLightSources(&system, sources, MAX_SOLAR_LIGHTS) : 0;
             if (sourceCount <= 0) {
-                float radius = bodies[i].radius;
+                float radius = bodies[i].spaceProxyRadius;
                 DrawSphere(bodies[i].center, radius * 1.08f, color);
                 DrawSphere(bodies[i].center, radius * 1.15f,
                            Fade(color, 0.12f * spaceFade));
@@ -2139,14 +2142,16 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             }
             for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
                 Vector3 center = sources[sourceIndex].center;
-                float radius = sourceIndex == 0 ? bodies[i].radius : sources[sourceIndex].radius;
+                float radius = sourceIndex == 0 ? bodies[i].spaceProxyRadius :
+                                                   sources[sourceIndex].spaceProxyRadius;
                 Color sourceColor = SpectrumColor(sources[sourceIndex].spectrum);
                 DrawSphere(center, radius * 1.08f, sourceColor);
                 DrawSphere(center, radius * 1.15f,
                            Fade(sourceColor, 0.12f * spaceFade));
             }
         } else {
-            float radius = SolarBodyTerrainRadius(bodies[i].radius);
+            float radius = SolarBodyTerrainProxyRadius(
+                bodies[i].spaceProxyRadius);
             PlanetTextureSet textures = PlanetTextureForBody(&bodies[i]);
             float rotation = PlanetBodyTextureRotation(&bodies[i]);
             PlanetSpaceLighting lighting = PlanetSpaceLightingFor(
@@ -2232,7 +2237,7 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     if (spaceFade <= 0.05f) return;
 
     const Vector3 center = HomeWorldCenter();
-    const float radius = HomeWorldRadius();
+    const float radius = HomeWorldProxyRadius();
     float distance = Vector3Distance(camera->position, center);
     if (distance <= radius + 0.5f || distance > 24000.0f) return;
 
@@ -2300,7 +2305,8 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
                            body->hostStar.ageGyr,
                            body->hostStar.luminousLifetimeGyr);
     } else {
-        float surfaceGap = fabsf(body->dist - SolarBodyTerrainRadius(body->radius));
+        float surfaceGap = fabsf(body->dist - SolarBodyTerrainProxyRadius(
+            body->spaceProxyRadius));
         line1 = TextFormat("%s %c - %s - %.0f K - %.2f g", body->name,
                            'a' + (body->index > 0 ? body->index - 1 : 0), typeName,
                            body->profile.equilibriumTempK, body->profile.surfaceGravity);

@@ -21,6 +21,9 @@ typedef struct StellarProfile {
     SpectrumType spectrum;
     StellarEvolutionStage stage;
     float initialMassSolar;
+    double massKg;
+    double radiusKm;
+    // Solar ratios remain useful for generation and UI, but not mechanics.
     float massSolar;
     float radiusSolar;
     float temperatureK;

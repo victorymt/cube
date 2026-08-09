@@ -65,7 +65,8 @@ static bool ResolveWarpTarget(Vector3 *center, float *safeDistance)
     if (warpTarget.type == WARP_TARGET_SYSTEM) {
         if (center) *center = system.center;
         if (safeDistance) {
-            *safeDistance = (float)system.starRadius + SHIP_SYSTEM_WARP_STANDOFF;
+            *safeDistance = (float)system.starProxyRadius +
+                            SHIP_SYSTEM_WARP_STANDOFF;
         }
         return true;
     }
@@ -76,7 +77,8 @@ static bool ResolveWarpTarget(Vector3 *center, float *safeDistance)
     PlanetProfile profile = SolarPlanetProfile(&system, warpTarget.planetIndex);
     if (center) *center = SolarSystemPlanetCenter(&system, warpTarget.planetIndex);
     if (safeDistance) {
-        *safeDistance = SolarBodyTerrainRadius(profile.bodyRadius) + SHIP_WARP_STANDOFF;
+        *safeDistance = SolarBodyTerrainProxyRadius(profile.spaceProxyRadius) +
+                        SHIP_WARP_STANDOFF;
     }
     return true;
 }
@@ -123,7 +125,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
     }
 
     float gap = Vector3Distance(player->position, system.center) -
-                ((float)system.starRadius + SHIP_SYSTEM_WARP_STANDOFF);
+                ((float)system.starProxyRadius + SHIP_SYSTEM_WARP_STANDOFF);
     if (gap <= 1.0f) {
         player->velocity = Vector3Zero();
         SetImportMessage("Already within this star system's approach zone.");
@@ -230,7 +232,7 @@ float ShipGravityPrimaryDistance(void)
 
 float ShipGravitySphereOfInfluence(void)
 {
-    return gravityPrimary.active ? gravityPrimary.sphereOfInfluence : 0.0f;
+    return gravityPrimary.active ? gravityPrimary.encounterRadiusGame : 0.0f;
 }
 
 bool ShipHasWarpTarget(void)

@@ -9,26 +9,13 @@ static void AssertNear(float actual, float expected, float tolerance)
     assert(fabsf(actual - expected) <= tolerance);
 }
 
-static void TestSphereOfInfluence(void)
-{
-    float soi = SpacePhysicsSphereOfInfluence(100.0f, 1.0f, 100.0f,
-                                               4.0f, 80.0f);
-    AssertNear(soi, 15.8489f, 0.001f);
-    AssertNear(SpacePhysicsSphereOfInfluence(10.0f, 0.0001f, 100.0f,
-                                             5.0f, 8.0f),
-               5.0f, 0.0001f);
-    AssertNear(SpacePhysicsSphereOfInfluence(100.0f, 100.0f, 1.0f,
-                                             5.0f, 40.0f),
-               40.0f, 0.0001f);
-}
-
 static void TestGravityAcceleration(void)
 {
     SpacePhysicsGravityBody body = {
         .center = { 0.0f, 0.0f, 0.0f },
-        .radius = 2.0f,
-        .gravitationalParameter = 100.0f,
-        .sphereOfInfluence = 20.0f,
+        .softeningRadiusGame = 2.0f,
+        .gravitationalParameterGame = 100.0f,
+        .encounterRadiusGame = 20.0f,
         .hierarchy = 1
     };
     Vector3 acceleration = SpacePhysicsGravityAcceleration(
@@ -46,17 +33,17 @@ static void TestPrimarySelection(void)
     SpacePhysicsGravityBody bodies[3] = {
         {
             .center = { 0.0f, 0.0f, 0.0f },
-            .sphereOfInfluence = 100.0f,
+            .encounterRadiusGame = 100.0f,
             .hierarchy = 0
         },
         {
             .center = { 30.0f, 0.0f, 0.0f },
-            .sphereOfInfluence = 20.0f,
+            .encounterRadiusGame = 20.0f,
             .hierarchy = 1
         },
         {
             .center = { 60.0f, 0.0f, 0.0f },
-            .sphereOfInfluence = 12.0f,
+            .encounterRadiusGame = 12.0f,
             .hierarchy = 1
         }
     };
@@ -84,9 +71,9 @@ static void TestCircularOrbitIntegration(void)
 {
     SpacePhysicsGravityBody body = {
         .center = { 0.0f, 0.0f, 0.0f },
-        .radius = 1.0f,
-        .gravitationalParameter = 100.0f,
-        .sphereOfInfluence = 100.0f,
+        .softeningRadiusGame = 1.0f,
+        .gravitationalParameterGame = 100.0f,
+        .encounterRadiusGame = 100.0f,
         .hierarchy = 0
     };
     Vector3 position = { 10.0f, 0.0f, 0.0f };
@@ -110,7 +97,6 @@ static void TestCircularOrbitIntegration(void)
 
 int main(void)
 {
-    TestSphereOfInfluence();
     TestGravityAcceleration();
     TestPrimarySelection();
     TestFlightAssistBraking();
