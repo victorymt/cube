@@ -175,13 +175,11 @@ float HomeWorldSpaceFade(Vector3 position)
                  0.0f, 1.0f);
 }
 
-float PlanetWorldAtmosphereFade(Vector3 position)
+static float PlanetAtmosphereDepth(const PlanetProfile *profile)
 {
-    if (!planetWorld.active) return 0.0f;
-
-    float density = Clamp(planetWorld.profile.atmosphereDensity, 0.0f, 1.0f);
+    float density = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
     float typeScale = 1.0f;
-    switch (planetWorld.profile.atmosphereType) {
+    switch (profile->atmosphereType) {
     case PLANET_ATMOSPHERE_NONE:       typeScale = 0.55f; break;
     case PLANET_ATMOSPHERE_THIN:       typeScale = 0.78f; break;
     case PLANET_ATMOSPHERE_BREATHABLE: typeScale = 1.00f; break;
@@ -189,7 +187,14 @@ float PlanetWorldAtmosphereFade(Vector3 position)
     case PLANET_ATMOSPHERE_CORROSIVE:  typeScale = 1.12f; break;
     default: break;
     }
-    float depth = PLANET_ATMOSPHERE_MIN_DEPTH + density * 48.0f * typeScale;
+    return PLANET_ATMOSPHERE_MIN_DEPTH + density * 48.0f * typeScale;
+}
+
+float PlanetWorldAtmosphereFade(Vector3 position)
+{
+    if (!planetWorld.active) return 0.0f;
+
+    float depth = PlanetAtmosphereDepth(&planetWorld.profile);
     float progress = Clamp((position.y - PLANET_ATMOSPHERE_FADE_START) / depth,
                            0.0f, 1.0f);
     return progress * progress * (3.0f - 2.0f * progress);
@@ -1422,7 +1427,7 @@ static Vector3 PlanetReturnPosition(Vector3 center, float radius, Vector3 outwar
     return candidate;
 }
 
-static bool FindPlanetForLanding(Vector3 position, SpaceBodyInfo *out)
+bool PlanetWorldLandingTarget(Vector3 position, SpaceBodyInfo *out)
 {
     SpaceBodyInfo bodies[48];
     int count = SpaceBodiesNear(position, 160.0f, bodies, 48);
@@ -1464,20 +1469,55 @@ bool HomeWorldTryLaunch(Player *player)
     return true;
 }
 
-bool HomeWorldTryEnter(Player *player)
+bool HomeWorldCanEnter(Vector3 position)
 {
     if (homeWorld.surfaceActive || planetWorld.active) return false;
 
     Vector3 center = HomeWorldCenter();
-    float surfaceGap = fabsf(Vector3Distance(player->position, center) - HOME_WORLD_RADIUS);
-    if (surfaceGap > HOME_WORLD_LANDING_MARGIN) return false;
+    float surfaceGap = fabsf(Vector3Distance(position, center) - HOME_WORLD_RADIUS);
+    return surfaceGap <= HOME_WORLD_LANDING_MARGIN;
+}
 
+static void HomeWorldActivateSurface(void)
+{
     DrainChunkGen();
     UnloadAllChunks();
     UnloadAllSpaceChunks();
     homeWorld.surfaceActive = true;
     RebuildTorchList();
     ClearUndoHistory();
+}
+
+bool HomeWorldBeginDescent(Player *player, Vector3 *outLandingPosition)
+{
+    if (!HomeWorldCanEnter(player->position)) return false;
+
+    int landingX = (int)floorf(homeWorld.returnPosition.x);
+    int landingZ = (int)floorf(homeWorld.returnPosition.z);
+    int groundY = TerrainHeight(landingX, landingZ, terrainMode);
+    Vector3 landing = { (float)landingX + 0.5f, (float)groundY + 3.0f,
+                        (float)landingZ + 0.5f };
+
+    HomeWorldActivateSurface();
+    player->position = (Vector3){ landing.x, SPACE_ENTER_Y - 2.0f, landing.z - 96.0f };
+    player->velocity = Vector3Zero();
+    player->yaw = 0.0f;
+    player->pitch = -0.62f;
+    player->floating = true;
+    player->onGround = false;
+    if (outLandingPosition) *outLandingPosition = landing;
+
+    UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
+    DrainChunkGen();
+    SetImportMessage("Crossing Homeworld upper atmosphere.");
+    return true;
+}
+
+bool HomeWorldTryEnter(Player *player)
+{
+    if (!HomeWorldCanEnter(player->position)) return false;
+
+    HomeWorldActivateSurface();
 
     int landingX = (int)floorf(homeWorld.returnPosition.x);
     int landingZ = (int)floorf(homeWorld.returnPosition.z);
@@ -1494,30 +1534,25 @@ bool HomeWorldTryEnter(Player *player)
     return true;
 }
 
-bool PlanetWorldTryEnter(Player *player)
+static void PlanetWorldActivate(const SpaceBodyInfo *body, Vector3 approachPosition)
 {
-    if (planetWorld.active || homeWorld.surfaceActive) return false;
-
-    SpaceBodyInfo body;
-    if (!FindPlanetForLanding(player->position, &body)) return false;
-
     PlanetWorldContext next = { 0 };
     next.active = true;
-    next.profile = body.profile;
-    next.style = body.profile.style;
-    next.planetIndex = body.index;
-    next.bodyCenter = body.center;
-    next.bodyRadius = SolarBodyTerrainRadius(body.radius);
-    next.seed = body.worldSeed;
+    next.profile = body->profile;
+    next.style = body->profile.style;
+    next.planetIndex = body->index;
+    next.bodyCenter = body->center;
+    next.bodyRadius = SolarBodyTerrainRadius(body->radius);
+    next.seed = body->worldSeed;
     next.originX = PlanetRegionOrigin(next.seed ^ 0x68bc21ebu);
     next.originZ = PlanetRegionOrigin(next.seed ^ 0x02e5be93u);
-    snprintf(next.name, sizeof(next.name), "%.28s %c", body.name,
-             'a' + (body.index > 0 ? body.index - 1 : 0));
+    snprintf(next.name, sizeof(next.name), "%.28s %c", body->name,
+             'a' + (body->index > 0 ? body->index - 1 : 0));
 
-    Vector3 outward = Vector3Subtract(player->position, body.center);
+    Vector3 outward = Vector3Subtract(approachPosition, body->center);
     if (Vector3LengthSqr(outward) < 0.001f) outward = (Vector3){ 0.0f, 1.0f, 0.0f };
     else outward = Vector3Normalize(outward);
-    next.returnPosition = PlanetReturnPosition(body.center, next.bodyRadius, outward);
+    next.returnPosition = PlanetReturnPosition(body->center, next.bodyRadius, outward);
 
     DrainChunkGen();
     UnloadAllChunks();
@@ -1525,15 +1560,66 @@ bool PlanetWorldTryEnter(Player *player)
     planetWorld = next;
     RebuildTorchList();
     ClearUndoHistory();
+}
 
+static Vector3 PlanetWorldLandingPosition(int *outShipX, int *outShipZ,
+                                          int *outShipGround)
+{
     int shipX = 0;
     int shipZ = 0;
     int shipGround = PlanetTerrainHeight(shipX, shipZ);
     int playerX = shipX + 3;
     int playerZ = shipZ;
     int playerGround = PlanetTerrainHeight(playerX, playerZ);
-    player->position = (Vector3){ (float)playerX + 0.5f, (float)playerGround + 2.0f,
-                                  (float)playerZ + 0.5f };
+    if (outShipX) *outShipX = shipX;
+    if (outShipZ) *outShipZ = shipZ;
+    if (outShipGround) *outShipGround = shipGround;
+    return (Vector3){ (float)playerX + 0.5f, (float)playerGround + 2.0f,
+                      (float)playerZ + 0.5f };
+}
+
+bool PlanetWorldBeginDescent(Player *player, Vector3 *outLandingPosition)
+{
+    if (planetWorld.active || homeWorld.surfaceActive) return false;
+
+    SpaceBodyInfo body;
+    if (!PlanetWorldLandingTarget(player->position, &body)) return false;
+    Vector3 approachPosition = player->position;
+    PlanetWorldActivate(&body, approachPosition);
+
+    Vector3 landing = PlanetWorldLandingPosition(NULL, NULL, NULL);
+    float entryAngle = (float)(planetWorld.seed % 6283u) * 0.001f;
+    Vector3 forward = { sinf(entryAngle), 0.0f, cosf(entryAngle) };
+    float entryY = PLANET_ATMOSPHERE_FADE_START +
+                   PlanetAtmosphereDepth(&planetWorld.profile) + 4.0f;
+    player->position = Vector3Subtract(landing, Vector3Scale(forward, 96.0f));
+    player->position.y = entryY;
+    player->velocity = Vector3Zero();
+    player->yaw = atan2f(forward.x, forward.z);
+    player->pitch = -0.62f;
+    player->floating = true;
+    player->onGround = false;
+    if (outLandingPosition) *outLandingPosition = landing;
+
+    UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
+    DrainChunkGen();
+    SetImportMessage(TextFormat("Crossing %s upper atmosphere.", planetWorld.name));
+    return true;
+}
+
+bool PlanetWorldTryEnter(Player *player)
+{
+    if (planetWorld.active || homeWorld.surfaceActive) return false;
+
+    SpaceBodyInfo body;
+    if (!PlanetWorldLandingTarget(player->position, &body)) return false;
+    Vector3 approachPosition = player->position;
+    PlanetWorldActivate(&body, approachPosition);
+
+    int shipX = 0;
+    int shipZ = 0;
+    int shipGround = 0;
+    player->position = PlanetWorldLandingPosition(&shipX, &shipZ, &shipGround);
     player->velocity = Vector3Zero();
     player->floating = false;
     player->onGround = false;
@@ -1542,7 +1628,9 @@ bool PlanetWorldTryEnter(Player *player)
     DrainChunkGen();
     SetBlock(shipX, shipGround + 1, shipZ, BLOCK_SPACESHIP);
     SetImportMessage(TextFormat("Landed on %s - %s. Biosphere: %s / %s / %s.",
-                                planetWorld.name, PlanetBiomeName(PlanetBiomeAt(playerX, playerZ)),
+                                planetWorld.name,
+                                PlanetBiomeName(PlanetBiomeAt((int)floorf(player->position.x),
+                                                               (int)floorf(player->position.z))),
                                 PlanetEcologyBiomassName(), PlanetEcologyChemistryName(),
                                 PlanetEcologyBodyPlanName()));
     return true;
