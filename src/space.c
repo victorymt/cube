@@ -156,6 +156,34 @@ bool SpaceLoadOrigin(FILE *file)
         fread(&loadedZ, sizeof(loadedZ), 1, file) != 1) {
         return false;
     }
+    solarSimulationTime = 0.0;
+    spaceOriginX = loadedX;
+    spaceOriginZ = loadedZ;
+    return true;
+}
+
+bool SpaceSaveState(FILE *file)
+{
+    if (!file) return false;
+    return fwrite(&solarSimulationTime, sizeof(solarSimulationTime), 1, file) == 1 &&
+           fwrite(&spaceOriginX, sizeof(spaceOriginX), 1, file) == 1 &&
+           fwrite(&spaceOriginZ, sizeof(spaceOriginZ), 1, file) == 1;
+}
+
+bool SpaceLoadState(FILE *file)
+{
+    if (!file) return false;
+    double loadedTime = 0.0;
+    int loadedX = 0;
+    int loadedZ = 0;
+    if (fread(&loadedTime, sizeof(loadedTime), 1, file) != 1 ||
+        fread(&loadedX, sizeof(loadedX), 1, file) != 1 ||
+        fread(&loadedZ, sizeof(loadedZ), 1, file) != 1 ||
+        !isfinite(loadedTime) || loadedTime < 0.0 ||
+        loadedTime > 100000000.0) {
+        return false;
+    }
+    solarSimulationTime = loadedTime;
     spaceOriginX = loadedX;
     spaceOriginZ = loadedZ;
     return true;

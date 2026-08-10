@@ -18,6 +18,8 @@
 #include <string.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V9 "VOXELCRAFT_SAVE_V9"
+#define SAVE_MAGIC_V9_LEN (sizeof(SAVE_MAGIC_V9) - 1)
 #define SAVE_MAGIC_V8 "VOXELCRAFT_SAVE_V8"
 #define SAVE_MAGIC_V8_LEN (sizeof(SAVE_MAGIC_V8) - 1)
 #define SAVE_MAGIC_V7 "VOXELCRAFT_SAVE_V7"
@@ -689,7 +691,7 @@ void SaveMap(const Player *player)
         return;
     }
 
-    fwrite(SAVE_MAGIC_V8, 1, SAVE_MAGIC_V8_LEN, file);
+    fwrite(SAVE_MAGIC_V9, 1, SAVE_MAGIC_V9_LEN, file);
     uint32_t seed = WorldGetSeed();
     fwrite(&seed, sizeof(seed), 1, file);
     uint32_t terrain = (uint32_t)terrainMode;
@@ -721,7 +723,11 @@ void SaveMap(const Player *player)
     AlbumSave(file);
     SpaceSaveEdits(file);
     NetherSaveEdits(file);
-    SpaceSaveOrigin(file);
+    if (!SpaceSaveState(file)) {
+        fclose(file);
+        SetImportMessage("Save failed: could not write space state.");
+        return;
+    }
     fclose(file);
     SetImportMessage(TextFormat("Saved map to %s (%d edits).", SAVE_FILE, blockEditCount));
 }
@@ -893,10 +899,17 @@ void LoadMap(Player *player)
     int savedEditCount = 0;
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
+    char magicV9[SAVE_MAGIC_V9_LEN] = { 0 };
+    bool isV9 = fread(magicV9, 1, SAVE_MAGIC_V9_LEN, file) == SAVE_MAGIC_V9_LEN &&
+                memcmp(magicV9, SAVE_MAGIC_V9, SAVE_MAGIC_V9_LEN) == 0;
     char magicV8[SAVE_MAGIC_V8_LEN] = { 0 };
-    bool isV8 = fread(magicV8, 1, SAVE_MAGIC_V8_LEN, file) == SAVE_MAGIC_V8_LEN &&
-                memcmp(magicV8, SAVE_MAGIC_V8, SAVE_MAGIC_V8_LEN) == 0;
-    if (isV8) {
+    bool isV8 = false;
+    if (!isV9) {
+        rewind(file);
+        isV8 = fread(magicV8, 1, SAVE_MAGIC_V8_LEN, file) == SAVE_MAGIC_V8_LEN &&
+               memcmp(magicV8, SAVE_MAGIC_V8, SAVE_MAGIC_V8_LEN) == 0;
+    }
+    if (isV9 || isV8) {
         if (!LoadMapV7(file, &savedTerrain, &savedPlayer, &loadedEdits,
                        &loadedDimensions, &savedEditCount, &savedSeed)) {
             fclose(file);
@@ -1034,7 +1047,16 @@ void LoadMap(Player *player)
     AlbumLoad(file);
     SpaceLoadEdits(file);
     NetherLoadEdits(file);
-    if (isV8) {
+    if (isV9) {
+        if (!SpaceLoadState(file)) {
+            free(loadedDimensions);
+            free(loadedEdits);
+            fclose(file);
+            SetImportMessage("Load failed: save file is corrupted.");
+            return;
+        }
+        loadedSpaceOrigin = true;
+    } else if (isV8) {
         if (!SpaceLoadOrigin(file)) {
             free(loadedDimensions);
             free(loadedEdits);

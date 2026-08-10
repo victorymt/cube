@@ -198,6 +198,8 @@ int SpaceOriginZ(void);
 void SpaceResetOrigin(void);
 void SpaceSaveOrigin(FILE *file);
 bool SpaceLoadOrigin(FILE *file);
+bool SpaceSaveState(FILE *file);
+bool SpaceLoadState(FILE *file);
 void UpdateSpaceChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 void SpaceProcessFinishedGenJobs(void);
 void SpaceUpdateSolarGlow(Vector3 playerPosition);
