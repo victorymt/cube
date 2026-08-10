@@ -153,12 +153,11 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
     sample.regionalness = PlanetFractalNoise3D(seed, point, 4.35f, 101u);
     sample.detail = PlanetFractalNoise3D(seed, point, 11.0f, 47u);
     float latitudeAbs = fabsf(point.y);
-    float albedo = profile ? Clamp(profile->albedo, 0.0f, 1.0f) : 0.30f;
-    float greenhouse = profile ? Clamp(profile->greenhouseEffect, 0.0f, 1.0f) : 0.0f;
     float equilibrium = profile ? profile->equilibriumTempK : 282.0f;
-    float meanTemperature = equilibrium + greenhouse * 42.0f -
-                            latitudeAbs * (34.0f + latitudeAbs * 38.0f) -
-                            (albedo - 0.30f) * 26.0f;
+    // The global solver has already applied albedo and greenhouse forcing. This
+    // zero-mean latitude redistribution keeps its planetary average intact.
+    float meanTemperature = equilibrium + 29.67f -
+                            latitudeAbs * (34.0f + latitudeAbs * 38.0f);
     float axialTilt = profile ? Clamp(profile->axialTilt, 0.0f, 0.75f) : 0.0f;
     float season = profile ? profile->seasonPhase : 0.0f;
     float yearLength = profile ? fmaxf(profile->yearLength, 1.0f) : 1.0f;
@@ -168,16 +167,22 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
     float seasonalDelta = sinf(latitude) * sinf(axialTilt) * sinf(season) * 70.0f;
     sample.temperature = meanTemperature + seasonalDelta;
     float thermalNoise = PlanetFractalNoise3D(seed, point, 2.35f, 137u);
-    sample.moisture = Clamp(PlanetFractalNoise3D(seed, point, 2.70f, 157u) * 0.72f +
-                             (profile ? profile->oceanCoverage : 0.0f) * 0.28f,
-                             0.0f, 1.0f);
+    float cloudCoverage = profile ? Clamp(profile->cloudCoverage, 0.0f, 1.0f) : 0.35f;
+    float globalMoisture = Clamp(oceanCoverage * 0.72f + cloudCoverage * 0.28f,
+                                 0.0f, 1.0f);
+    float moistureNoise = PlanetFractalNoise3D(seed, point, 2.70f, 157u);
+    sample.moisture = Clamp(moistureNoise * (0.10f + globalMoisture * 0.38f) +
+                            globalMoisture * 0.52f, 0.0f, 1.0f);
     float thermalBand = Clamp((meanTemperature - 178.0f) / 175.0f, 0.0f, 1.0f);
     sample.climate = Clamp(thermalNoise * 0.42f + thermalBand * 0.36f +
                            (1.0f - latitudeAbs) * 0.22f,
                            0.0f, 1.0f);
     float polar = PlanetSmoothStep(0.55f, 0.96f, latitudeAbs);
     float cold = PlanetSmoothStep(264.0f, 214.0f, meanTemperature);
-    sample.iceCoverage = Clamp(polar * cold, 0.0f, 1.0f);
+    float globalIce = profile ? Clamp(profile->iceCoverage, 0.0f, 1.0f) : 0.0f;
+    sample.iceCoverage = Clamp(globalIce * (0.35f + polar * 0.65f) +
+                               polar * cold * (1.0f - globalIce) * 0.72f,
+                               0.0f, 1.0f);
     if (style == SOLAR_STYLE_ICE) {
         sample.iceCoverage = fmaxf(sample.iceCoverage, polar * 0.62f + 0.15f);
     }
@@ -208,11 +213,14 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
     float crossWind = Vector3DotProduct(point, crossAxis);
     float duneSignal = 0.5f + 0.5f * sinf(windCoord * 34.0f + crossWind * 5.0f +
                                             sample.detail * 8.0f);
+    float windStrength = profile ? Clamp(profile->windStrength, 0.0f, 1.0f) : 0.4f;
     sample.duneBand = style == SOLAR_STYLE_DESERT
-                          ? Clamp(duneSignal * 0.72f + sample.moisture * 0.10f, 0.0f, 1.0f)
+                          ? Clamp(duneSignal * (0.24f + windStrength * 0.58f) +
+                                  sample.moisture * 0.10f, 0.0f, 1.0f)
                           : 0.0f;
 
-    float glacierPotential = polar * PlanetSmoothStep(275.0f, 218.0f, meanTemperature);
+    float glacierPotential = polar * Clamp(globalIce * 0.70f +
+        PlanetSmoothStep(275.0f, 218.0f, meanTemperature) * 0.72f, 0.0f, 1.0f);
     float glacierNoise = PlanetFractalNoise3D(seed, point, 5.8f, 317u);
     sample.glacierFlow = Clamp(glacierPotential * (0.54f + glacierNoise * 0.46f),
                                0.0f, 1.0f);

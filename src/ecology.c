@@ -69,24 +69,32 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
 
     const PlanetProfile *planet = PlanetWorldProfile();
     float temperature = planet->equilibriumTempK;
-    float temperatureComfort = 1.0f - EcologyClamp(fabsf(temperature - 288.0f) / 230.0f);
+    float temperatureComfort = 1.0f - EcologyClamp(fabsf(temperature - 288.0f) / 150.0f);
+    float pressure = fmaxf(planet->surfacePressureAtm, 0.0f);
     float atmosphere = EcologyClamp(planet->atmosphereDensity);
     float water = EcologyClamp(planet->oceanCoverage);
+    float ice = EcologyClamp(planet->iceCoverage);
+    float wind = EcologyClamp(planet->windStrength);
     bool darkSide = PlanetWorldIsDarkSide();
     float atmosphereSupport = 0.0f;
     switch (planet->atmosphereType) {
-    case PLANET_ATMOSPHERE_NONE:       atmosphereSupport = 0.03f; break;
+    case PLANET_ATMOSPHERE_NONE:       atmosphereSupport = 0.0f; break;
     case PLANET_ATMOSPHERE_THIN:       atmosphereSupport = 0.22f; break;
     case PLANET_ATMOSPHERE_BREATHABLE: atmosphereSupport = 0.88f; break;
-    case PLANET_ATMOSPHERE_DENSE:      atmosphereSupport = 0.96f; break;
-    case PLANET_ATMOSPHERE_CORROSIVE:  atmosphereSupport = 0.38f; break;
+    case PLANET_ATMOSPHERE_DENSE:      atmosphereSupport = 0.82f; break;
+    case PLANET_ATMOSPHERE_CORROSIVE:  atmosphereSupport = 0.30f; break;
     default: break;
     }
-    float life = temperatureComfort * atmosphereSupport * (0.28f + water * 0.72f);
-    if (planet->style == SOLAR_STYLE_TEMPERATE) life += 0.16f * (0.5f + water);
+    float pressureSupport = EcologyClamp((pressure - 0.01f) / 0.54f);
+    pressureSupport *= 1.0f - EcologyClamp((pressure - 3.0f) / 7.0f) * 0.55f;
+    float waterSupport = EcologyClamp(0.12f + water * 0.78f + ice * 0.10f);
+    float climateSupport = temperatureComfort * pressureSupport *
+                           (1.0f - ice * 0.62f) * (1.0f - wind * 0.35f);
+    float life = climateSupport * atmosphereSupport * waterSupport;
+    if (planet->style == SOLAR_STYLE_TEMPERATE) life *= 1.15f;
     if (planet->style == SOLAR_STYLE_ICE) life *= 0.66f;
     if (planet->style == SOLAR_STYLE_DESERT) life *= 0.52f;
-    if (planet->style == SOLAR_STYLE_LAVA) life = fmaxf(life * 0.20f, 0.075f);
+    if (planet->style == SOLAR_STYLE_LAVA) life *= 0.20f;
     if (planet->style == SOLAR_STYLE_CRATER) life *= 0.18f;
     if (planet->style == SOLAR_STYLE_GAS || !planet->hasSolidSurface) life = 0.0f;
 
@@ -190,8 +198,9 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
     result.organismScale = EcologyClamp(1.10f / sqrtf(gravity));
     if (result.organismScale < 0.48f) result.organismScale = 0.48f;
     if (result.organismScale > 2.20f) result.organismScale = 2.20f;
-    result.bodyArmor = EcologyClamp((gravity - 0.76f) / 0.88f);
+    result.bodyArmor = EcologyClamp((gravity - 0.76f) / 0.88f + wind * 0.20f);
     result.supportsFlight = result.hasComplexLife && planet->hasSolidSurface &&
+                           pressure >= 0.35f && wind < 0.88f &&
                            (planet->atmosphereDensity >= 0.72f || gravity <= 0.68f);
     result.darkSideColony = result.hasComplexLife && planet->hasSolidSurface &&
                             darkSide && result.lifeDensity >= 0.12f;
@@ -226,6 +235,7 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
                        result.bodyPlan == PLANET_BODY_BIPED ? 2 :
                        result.bodyPlan == PLANET_BODY_QUADRUPED ? 4 : 0;
     float speedScale = 0.86f / sqrtf(gravity);
+    speedScale *= 1.0f - wind * 0.28f;
     if (result.bodyPlan == PLANET_BODY_FLOATING) speedScale *= 0.85f;
     if (result.bodyPlan == PLANET_BODY_COLONY || result.biomass == PLANET_BIOMASS_CRYSTALLINE) {
         speedScale *= 0.34f;
@@ -393,6 +403,25 @@ static void PlacePlanetFlora(Chunk *chunk, int x, int z,
     PlanetBiome biome = PlanetBiomeAt(x, z);
     if (biome == PLANET_BIOME_OCEAN || biome == PLANET_BIOME_LAVA_SEA ||
         biome == PLANET_BIOME_STORM_BANDS) return;
+    float biomeSupport = 0.45f;
+    switch (biome) {
+    case PLANET_BIOME_FOREST:             biomeSupport = 1.00f; break;
+    case PLANET_BIOME_OASIS:              biomeSupport = 0.92f; break;
+    case PLANET_BIOME_PLAINS:             biomeSupport = 0.72f; break;
+    case PLANET_BIOME_COAST:              biomeSupport = 0.64f; break;
+    case PLANET_BIOME_VOLCANIC_RIDGE:     biomeSupport = 0.58f; break;
+    case PLANET_BIOME_BASALT_PLAINS:      biomeSupport = 0.34f; break;
+    case PLANET_BIOME_ALPINE:             biomeSupport = 0.26f; break;
+    case PLANET_BIOME_BADLANDS:           biomeSupport = 0.22f; break;
+    case PLANET_BIOME_DUNES:              biomeSupport = 0.16f; break;
+    case PLANET_BIOME_GLACIER:            biomeSupport = 0.14f; break;
+    case PLANET_BIOME_ICE_SHEET:          biomeSupport = 0.10f; break;
+    case PLANET_BIOME_IMPACT_BASIN:       biomeSupport = 0.10f; break;
+    case PLANET_BIOME_CRATER_HIGHLANDS:   biomeSupport = 0.07f; break;
+    default: break;
+    }
+    float biomeRoll = (float)((hash >> 8u) & 0xffffu) / 65535.0f;
+    if (biomeRoll > biomeSupport) return;
     int ground = PlanetTerrainHeight(x, z);
     if (ground > WORLD_HEIGHT - 7) return;
 

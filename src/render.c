@@ -1360,24 +1360,7 @@ static Color TemperatePlanetPixel(const PlanetProfile *profile, float ny,
 static float PlanetCloudAmountFor(const PlanetProfile *profile)
 {
     if (!profile || profile->atmosphereType == PLANET_ATMOSPHERE_NONE) return 0.0f;
-
-    float density = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
-    float ocean = Clamp(profile->oceanCoverage, 0.0f, 1.0f);
-    float temperature = fmaxf(profile->equilibriumTempK, 80.0f);
-    float moistureWindow = 1.0f - Clamp(fabsf(temperature - 286.0f) / 165.0f,
-                                        0.0f, 1.0f);
-    if (temperature < 238.0f) moistureWindow *= 0.68f;
-    if (profile->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) {
-        moistureWindow = fmaxf(moistureWindow, 0.62f);
-    }
-
-    float amount = density * (0.14f + ocean * 0.86f) *
-                   (0.28f + moistureWindow * 0.72f);
-    if (profile->atmosphereType == PLANET_ATMOSPHERE_DENSE) amount += density * 0.12f;
-    if (profile->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) amount += density * 0.18f;
-    if (profile->atmosphereType == PLANET_ATMOSPHERE_THIN) amount *= 0.52f;
-    if (profile->style == SOLAR_STYLE_ICE) amount += density * 0.08f;
-    return Clamp(amount, 0.0f, 1.0f);
+    return Clamp(profile->cloudCoverage, 0.0f, 1.0f);
 }
 
 static Color PlanetCloudColorFor(const PlanetProfile *profile)
@@ -1712,12 +1695,12 @@ static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
 static uint32_t PlanetCloudProfileKey(const PlanetProfile *profile)
 {
     if (!profile) return 0u;
-    int densityKey = (int)lroundf(Clamp(profile->atmosphereDensity, 0.0f, 1.0f) * 1023.0f);
+    int cloudKey = (int)lroundf(Clamp(profile->cloudCoverage, 0.0f, 1.0f) * 1023.0f);
     int temperatureKey = (int)lroundf(Clamp(profile->equilibriumTempK, 80.0f, 900.0f));
-    int oceanKey = (int)lroundf(Clamp(profile->oceanCoverage, 0.0f, 1.0f) * 1023.0f);
+    int windKey = (int)lroundf(Clamp(profile->windStrength, 0.0f, 1.0f) * 1023.0f);
     uint32_t lanes = (uint32_t)profile->style * 0x9e3779b9u ^
                      (uint32_t)profile->atmosphereType * 0x85ebca6bu;
-    return PlanetTextureHash(densityKey, temperatureKey, oceanKey, lanes);
+    return PlanetTextureHash(cloudKey, temperatureKey, windKey, lanes);
 }
 
 static bool PlanetHasCloudLayer(const PlanetProfile *profile)
@@ -1768,11 +1751,12 @@ static Texture2D PlanetCloudTextureForBody(const SpaceBodyInfo *body)
 
 static float PlanetCloudRotation(const PlanetProfile *profile, uint32_t seed)
 {
-    float density = Clamp(profile ? profile->atmosphereDensity : 0.0f, 0.0f, 1.0f);
+    float wind = Clamp(profile ? profile->windStrength : 0.0f, 0.0f, 1.0f);
     float phase = PlanetHashUnit(17, 73, 101, seed) * 360.0f;
     float baseRate = profile ? fmaxf(profile->rotationRate, 0.05f) : 1.0f;
-    float speed = baseRate * (0.78f + PlanetHashUnit(107, 19, 53, seed) * 0.36f) +
-                  0.08f + density * 0.18f;
+    float speed = baseRate * (0.25f + wind * 0.35f) +
+                  (0.08f + wind * 1.20f) *
+                  (0.82f + PlanetHashUnit(107, 19, 53, seed) * 0.36f);
     float direction = PlanetHashUnit(61, 83, 7, seed) < 0.5f ? -1.0f : 1.0f;
     double angle = (double)phase + SpaceSimulationTime() * (double)speed * (double)direction;
     angle = fmod(angle, 360.0);
@@ -1798,14 +1782,20 @@ static PlanetProfile HomePlanetRenderProfile(void)
         .spaceProxyRadius = 62.0f,
         .hasSolidSurface = true,
         .surfaceGravity = 1.0f,
+        .receivedIrradiance = 1.0,
+        .radiativeTempK = 255.0f,
         .equilibriumTempK = 288.0f,
+        .surfacePressureAtm = 1.0f,
         .atmosphereDensity = 0.78f,
         .oceanCoverage = 0.48f,
+        .iceCoverage = 0.10f,
+        .cloudCoverage = 0.58f,
         .rotationRate = 1.2f,
         .albedo = 0.30f,
-        .greenhouseEffect = 0.18f,
+        .greenhouseEffect = 0.84f,
         .axialTilt = 23.4f * DEG2RAD,
-        .yearLength = 6400.0f
+        .yearLength = 6400.0f,
+        .windStrength = 0.42f
     };
 }
 

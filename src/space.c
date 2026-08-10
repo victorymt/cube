@@ -5,6 +5,7 @@
 #include "ecology.h"
 #include "terrain.h"
 #include "particles.h"
+#include "planet_climate.h"
 #include "space_barycenter.h"
 #include "space_physics.h"
 #include "space_satellite.h"
@@ -437,47 +438,60 @@ static float PlanetProfileHashUnit(uint32_t seed, uint32_t lane)
     return (float)(h & 0x00ffffffu) / 16777215.0f;
 }
 
-static PlanetAtmosphereType ClassifyAtmosphere(SolarBodyStyle style, float density,
+static PlanetAtmosphereType ClassifyAtmosphere(SolarBodyStyle style, float pressureAtm,
                                                 float temperatureK, float composition)
 {
-    if (density < 0.12f) return PLANET_ATMOSPHERE_NONE;
-    if (density < 0.32f) return PLANET_ATMOSPHERE_THIN;
+    if (pressureAtm < 0.01f) return PLANET_ATMOSPHERE_NONE;
+    if (pressureAtm < 0.35f) return PLANET_ATMOSPHERE_THIN;
     if (style == SOLAR_STYLE_LAVA || temperatureK > 355.0f) {
         return PLANET_ATMOSPHERE_CORROSIVE;
     }
     if (style == SOLAR_STYLE_TEMPERATE && temperatureK >= 250.0f &&
-        temperatureK <= 310.0f && density <= 0.82f && composition > 0.38f) {
+        temperatureK <= 310.0f && pressureAtm <= 1.65f && composition > 0.38f) {
         return PLANET_ATMOSPHERE_BREATHABLE;
     }
     return PLANET_ATMOSPHERE_DENSE;
 }
 
-static void DerivePlanetClimateProfile(PlanetProfile *profile)
+static bool ApplyPlanetClimate(PlanetProfile *profile,
+                               PlanetClimateInput input)
+{
+    PlanetClimateState climate;
+    if (!profile || !PlanetClimateSolve(&input, &climate)) return false;
+    profile->receivedIrradiance = input.stellarIrradianceEarth;
+    profile->radiativeTempK = climate.radiativeTemperatureK;
+    profile->equilibriumTempK = climate.surfaceTemperatureK;
+    profile->surfacePressureAtm = climate.surfacePressureAtm;
+    profile->atmosphereDensity = climate.atmosphereDensity;
+    profile->albedo = climate.albedo;
+    profile->greenhouseEffect = climate.greenhouseOpticalDepth;
+    profile->oceanCoverage = climate.liquidWaterCoverage;
+    profile->iceCoverage = climate.iceCoverage;
+    profile->cloudCoverage = climate.cloudCoverage;
+    profile->windStrength = climate.windStrength;
+    return true;
+}
+
+static SolarBodyStyle ClassifyPlanetClimate(const PlanetProfile *profile)
+{
+    if (!profile || !profile->hasSolidSurface) return SOLAR_STYLE_GAS;
+    if (profile->equilibriumTempK > 365.0f) return SOLAR_STYLE_LAVA;
+    if (profile->surfacePressureAtm < 0.035f &&
+        profile->oceanCoverage < 0.03f && profile->iceCoverage < 0.08f) {
+        return SOLAR_STYLE_CRATER;
+    }
+    if (profile->iceCoverage > 0.38f || profile->equilibriumTempK < 245.0f) {
+        return SOLAR_STYLE_ICE;
+    }
+    if (profile->oceanCoverage > 0.10f && profile->equilibriumTempK <= 315.0f) {
+        return SOLAR_STYLE_TEMPERATE;
+    }
+    return SOLAR_STYLE_DESERT;
+}
+
+static void DerivePlanetSurfaceHistory(PlanetProfile *profile)
 {
     if (!profile) return;
-
-    float albedoBase = 0.30f;
-    switch (profile->style) {
-    case SOLAR_STYLE_LAVA:   albedoBase = 0.17f; break;
-    case SOLAR_STYLE_ICE:    albedoBase = 0.62f; break;
-    case SOLAR_STYLE_DESERT: albedoBase = 0.36f; break;
-    case SOLAR_STYLE_GAS:    albedoBase = 0.47f; break;
-    case SOLAR_STYLE_CRATER: albedoBase = 0.13f; break;
-    case SOLAR_STYLE_TEMPERATE:
-    default:                 albedoBase = 0.29f; break;
-    }
-    profile->albedo = Clamp(albedoBase + profile->oceanCoverage * 0.08f +
-                            (PlanetProfileHashUnit(profile->seed, 19u) - 0.5f) * 0.12f,
-                            0.04f, 0.82f);
-
-    float atmosphere = Clamp(profile->atmosphereDensity, 0.0f, 1.0f);
-    float greenhouse = atmosphere * 0.42f;
-    if (profile->atmosphereType == PLANET_ATMOSPHERE_DENSE) greenhouse += 0.16f;
-    if (profile->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) greenhouse += 0.24f;
-    if (profile->style == SOLAR_STYLE_LAVA) greenhouse += 0.12f;
-    profile->greenhouseEffect = Clamp(greenhouse +
-                                      PlanetProfileHashUnit(profile->seed, 20u) * 0.16f,
-                                      0.0f, 0.92f);
 
     profile->axialTilt = (2.5f + PlanetProfileHashUnit(profile->seed, 21u) * 31.0f) * DEG2RAD;
     if (profile->tidallyLocked) profile->axialTilt *= 0.35f;
@@ -530,20 +544,17 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     // Use the mean orbital radius here so binary motion does not churn terrain or
     // cloud caches; the live position is still used by frame-by-frame lighting.
     // One unit is the irradiance of a solar-luminosity star at one AU.
-    float temperature = 278.5f * (float)pow(fmax(irradiance, 0.0001), 0.25);
-    temperature *= 0.96f + PlanetProfileHashUnit(seed, 4u) * 0.08f;
+    irradiance = fmax(irradiance, 0.0001);
+    float unshieldedTemperature = 278.5f *
+                                  (float)pow(irradiance, 0.25);
 
     float solidRadiusEarth = (float)(def->physicalRadiusKm /
                                      SPACE_UNITS_EARTH_RADIUS_KM);
     solidRadiusEarth = Clamp(solidRadiusEarth, 0.62f, 1.55f);
-    float atmosphere = solidRadiusEarth * 0.34f + volatileSupply * 0.52f;
-    atmosphere -= Clamp((temperature - 330.0f) / 260.0f, 0.0f, 0.45f);
-    atmosphere = Clamp(atmosphere, 0.0f, 0.95f);
-
     bool forcedGasGiant = sys->anchorX == 0 && sys->anchorZ == 0 && index == 3;
     bool gasGiant = forcedGasGiant ||
                     (index > 0 && def->spaceProxyRadius >= 47.0f &&
-                     temperature < 430.0f &&
+                     unshieldedTemperature < 430.0f &&
                      PlanetProfileHashUnit(seed, 5u) > 0.52f);
 
     profile.seed = seed;
@@ -552,7 +563,6 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     formationDelayGyr = fminf(formationDelayGyr, stellarAgeGyr * 0.35f);
     profile.ageGyr = stellarAgeGyr - formationDelayGyr;
     profile.spaceProxyRadius = def->spaceProxyRadius;
-    profile.equilibriumTempK = temperature;
     profile.hasSolidSurface = !gasGiant;
     float tidalProximity = Clamp(1.40f - orbitAU, 0.0f, 1.0f);
     profile.tidalLockFactor = Clamp(tidalProximity *
@@ -560,6 +570,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
                                     0.0f, 1.0f);
     profile.tidallyLocked = profile.hasSolidSurface && profile.tidalLockFactor > 0.58f;
     profile.ringTilt = (14.0f + PlanetProfileHashUnit(seed, 14u) * 17.0f) * DEG2RAD;
+    profile.yearLength = (float)SolarSystemPlanetOrbitPeriodGameTime(sys, index);
     if (gasGiant) {
         float gasRadiusEarth = 2.8f + sizeUnit * 1.8f;
         double massEarth = 12.0 + (double)composition * 32.0;
@@ -572,67 +583,59 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
             SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
         profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
                                        0.75f, 2.40f);
-        profile.style = SOLAR_STYLE_GAS;
-        profile.atmosphereDensity = 1.0f;
-        profile.atmosphereType = PLANET_ATMOSPHERE_DENSE;
-        profile.oceanCoverage = 0.0f;
-        profile.terrainRoughness = 0.0f;
         profile.rotationRate = 5.0f + PlanetProfileHashUnit(seed, 6u) * 3.0f;
         profile.hasRings = forcedGasGiant || PlanetProfileHashUnit(seed, 7u) > 0.34f;
         profile.tidalLockFactor = 0.0f;
         profile.tidallyLocked = false;
-        profile.yearLength = (float)SolarSystemPlanetOrbitPeriodGameTime(sys,
-                                                                         index);
-        DerivePlanetClimateProfile(&profile);
-        return profile;
+    } else {
+        float density = 0.78f + composition * 0.52f;
+        double massEarth = (double)density * solidRadiusEarth * solidRadiusEarth *
+                           solidRadiusEarth;
+        profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
+        profile.physicalRadiusKm = (double)solidRadiusEarth *
+                                   SPACE_UNITS_EARTH_RADIUS_KM;
+        double gravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
+            profile.massKg, profile.physicalRadiusKm);
+        double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
+            SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
+        profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
+                                       0.45f, 1.75f);
+        profile.rotationRate = 0.7f + PlanetProfileHashUnit(seed, 11u) * 2.5f;
+        profile.hasRings = def->spaceProxyRadius >= 46.0f &&
+                           PlanetProfileHashUnit(seed, 12u) > 0.92f;
+        if (profile.tidallyLocked && profile.yearLength > 0.0f) {
+            profile.rotationRate = 360.0f / profile.yearLength;
+        }
     }
 
-    float density = 0.78f + composition * 0.52f;
-    double massEarth = (double)density * solidRadiusEarth * solidRadiusEarth *
-                       solidRadiusEarth;
-    profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
-    profile.physicalRadiusKm = (double)solidRadiusEarth *
-                               SPACE_UNITS_EARTH_RADIUS_KM;
-    double gravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-        profile.massKg, profile.physicalRadiusKm);
-    double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-        SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
-    profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
-                                   0.45f, 1.75f);
-    profile.atmosphereDensity = atmosphere;
-    if (temperature > 365.0f) profile.style = SOLAR_STYLE_LAVA;
-    else if (atmosphere < 0.13f) profile.style = SOLAR_STYLE_CRATER;
-    else if (temperature > 305.0f) profile.style = SOLAR_STYLE_DESERT;
-    else if (temperature < 238.0f) profile.style = SOLAR_STYLE_ICE;
-    else profile.style = SOLAR_STYLE_TEMPERATE;
-
-    float liquidWindow = 1.0f - Clamp(fabsf(temperature - 282.0f) / 58.0f, 0.0f, 1.0f);
-    profile.oceanCoverage = Clamp(liquidWindow * atmosphere *
-                                  (0.22f + PlanetProfileHashUnit(seed, 8u) * 0.72f),
-                                  0.0f, 0.78f);
-    if (profile.style == SOLAR_STYLE_ICE) profile.oceanCoverage *= 0.65f;
-    if (profile.style == SOLAR_STYLE_LAVA) {
-        profile.oceanCoverage = 0.08f + PlanetProfileHashUnit(seed, 9u) * 0.22f;
-    } else if (profile.style == SOLAR_STYLE_CRATER) {
-        profile.oceanCoverage = 0.0f;
-    }
-
+    PlanetClimateInput climateInput = {
+        .stellarIrradianceEarth = irradiance,
+        .volatileInventory = gasGiant ? 0.78f + volatileSupply * 0.22f
+                                      : volatileSupply,
+        .greenhouseGasFraction = gasGiant
+            ? Clamp(0.42f + composition * 0.46f, 0.0f, 1.0f)
+            : Clamp(0.04f + composition * 0.18f +
+                    PlanetProfileHashUnit(seed, 20u) * 0.72f, 0.0f, 1.0f),
+        .surfaceReflectivity = gasGiant
+            ? 0.28f + PlanetProfileHashUnit(seed, 19u) * 0.18f
+            : 0.08f + composition * 0.22f +
+              PlanetProfileHashUnit(seed, 19u) * 0.12f,
+        .surfaceGravityEarth = profile.surfaceGravity,
+        .rotationRate = profile.rotationRate,
+        .tidalLockFactor = profile.tidalLockFactor,
+        .gasGiant = gasGiant
+    };
+    ApplyPlanetClimate(&profile, climateInput);
+    profile.style = ClassifyPlanetClimate(&profile);
+    profile.atmosphereType = gasGiant ? PLANET_ATMOSPHERE_DENSE :
+        ClassifyAtmosphere(profile.style, profile.surfacePressureAtm,
+                           profile.equilibriumTempK, composition);
     float roughnessBase = profile.style == SOLAR_STYLE_CRATER ? 1.20f :
                           profile.style == SOLAR_STYLE_LAVA ? 1.05f :
                           profile.style == SOLAR_STYLE_DESERT ? 0.72f : 0.88f;
-    profile.terrainRoughness = roughnessBase *
-                               (0.78f + PlanetProfileHashUnit(seed, 10u) * 0.48f);
-    profile.rotationRate = 0.7f + PlanetProfileHashUnit(seed, 11u) * 2.5f;
-    profile.hasRings = def->spaceProxyRadius >= 46.0f &&
-                       PlanetProfileHashUnit(seed, 12u) > 0.92f;
-    profile.atmosphereType = ClassifyAtmosphere(profile.style, atmosphere,
-                                                temperature, composition);
-    if (profile.tidallyLocked) {
-        double orbitPeriod = SolarSystemPlanetOrbitPeriodGameTime(sys, index);
-        if (orbitPeriod > 0.0) profile.rotationRate = (float)(360.0 / orbitPeriod);
-    }
-    profile.yearLength = (float)SolarSystemPlanetOrbitPeriodGameTime(sys, index);
-    DerivePlanetClimateProfile(&profile);
+    profile.terrainRoughness = gasGiant ? 0.0f : roughnessBase *
+        (0.78f + PlanetProfileHashUnit(seed, 10u) * 0.48f);
+    DerivePlanetSurfaceHistory(&profile);
     return profile;
 }
 
@@ -661,15 +664,6 @@ static PlanetProfile LegacyPlanetProfile(uint32_t seed, SolarBodyStyle style,
         SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
     profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
                                    0.45f, 1.75f);
-    profile.equilibriumTempK = style == SOLAR_STYLE_LAVA ? 410.0f :
-                               style == SOLAR_STYLE_DESERT ? 325.0f :
-                               style == SOLAR_STYLE_ICE ? 220.0f :
-                               style == SOLAR_STYLE_CRATER ? 185.0f : 282.0f;
-    profile.atmosphereDensity = style == SOLAR_STYLE_CRATER ? 0.08f :
-                                style == SOLAR_STYLE_GAS ? 1.0f : 0.55f;
-    profile.oceanCoverage = style == SOLAR_STYLE_ICE ? 0.32f :
-                            style == SOLAR_STYLE_TEMPERATE ? 0.48f :
-                            style == SOLAR_STYLE_LAVA ? 0.16f : 0.0f;
     profile.terrainRoughness = 0.82f + PlanetProfileHashUnit(seed, 10u) * 0.42f;
     profile.rotationRate = style == SOLAR_STYLE_GAS ? 6.0f :
                            0.7f + PlanetProfileHashUnit(seed, 11u) * 2.5f;
@@ -679,9 +673,35 @@ static PlanetProfile LegacyPlanetProfile(uint32_t seed, SolarBodyStyle style,
     profile.tidalLockFactor = style == SOLAR_STYLE_GAS ? 0.0f :
                               PlanetProfileHashUnit(seed, 13u) * 0.35f;
     profile.tidallyLocked = profile.tidalLockFactor > 0.54f;
-    profile.atmosphereType = ClassifyAtmosphere(style, profile.atmosphereDensity,
+    float irradiance = style == SOLAR_STYLE_LAVA ? 2.70f :
+                       style == SOLAR_STYLE_DESERT ? 1.45f :
+                       style == SOLAR_STYLE_ICE ? 0.28f :
+                       style == SOLAR_STYLE_CRATER ? 0.14f :
+                       style == SOLAR_STYLE_GAS ? 0.60f : 1.0f;
+    float volatiles = style == SOLAR_STYLE_CRATER ? 0.04f :
+                      style == SOLAR_STYLE_DESERT ? 0.32f :
+                      style == SOLAR_STYLE_LAVA ? 0.55f :
+                      style == SOLAR_STYLE_GAS ? 0.90f : 0.68f;
+    float greenhouse = style == SOLAR_STYLE_LAVA ? 0.90f :
+                       style == SOLAR_STYLE_DESERT ? 0.55f :
+                       style == SOLAR_STYLE_ICE ? 0.25f :
+                       style == SOLAR_STYLE_CRATER ? 0.05f : 0.38f;
+    float reflectivity = style == SOLAR_STYLE_ICE ? 0.48f :
+                         style == SOLAR_STYLE_CRATER ? 0.12f :
+                         style == SOLAR_STYLE_LAVA ? 0.14f : 0.20f;
+    ApplyPlanetClimate(&profile, (PlanetClimateInput){
+        .stellarIrradianceEarth = irradiance,
+        .volatileInventory = volatiles,
+        .greenhouseGasFraction = greenhouse,
+        .surfaceReflectivity = reflectivity,
+        .surfaceGravityEarth = profile.surfaceGravity,
+        .rotationRate = profile.rotationRate,
+        .tidalLockFactor = profile.tidalLockFactor,
+        .gasGiant = false
+    });
+    profile.atmosphereType = ClassifyAtmosphere(style, profile.surfacePressureAtm,
                                                 profile.equilibriumTempK, composition);
-    DerivePlanetClimateProfile(&profile);
+    DerivePlanetSurfaceHistory(&profile);
     return profile;
 }
 

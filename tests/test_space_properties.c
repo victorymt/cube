@@ -62,6 +62,38 @@ static void AssertStefanBoltzmann(const StellarProfile *star)
                    star->massKg / SPACE_UNITS_SOLAR_MASS_KG, 0.00001);
 }
 
+static void AssertPlanetClimate(const PlanetProfile *profile)
+{
+    assert(isfinite(profile->receivedIrradiance));
+    assert(profile->receivedIrradiance > 0.0);
+    assert(isfinite(profile->surfacePressureAtm));
+    assert(profile->surfacePressureAtm >= 0.0f);
+    assert(profile->atmosphereDensity >= 0.0f &&
+           profile->atmosphereDensity <= 1.0f);
+    assert(profile->albedo >= 0.03f && profile->albedo <= 0.88f);
+    assert(profile->greenhouseEffect >= 0.0f &&
+           profile->greenhouseEffect <= 3.0f);
+    assert(profile->oceanCoverage >= 0.0f && profile->oceanCoverage <= 1.0f);
+    assert(profile->iceCoverage >= 0.0f && profile->iceCoverage <= 1.0f);
+    assert(profile->cloudCoverage >= 0.0f && profile->cloudCoverage <= 1.0f);
+    assert(profile->windStrength >= 0.0f && profile->windStrength <= 1.0f);
+
+    double expectedDensity = profile->surfacePressureAtm /
+                             (profile->surfacePressureAtm + 0.30);
+    AssertRelative(profile->atmosphereDensity, expectedDensity, 0.000001);
+    double absorbed = profile->receivedIrradiance * (1.0 - profile->albedo);
+    double expectedRadiative = 278.5 * pow(absorbed, 0.25);
+    double expectedSurface = expectedRadiative *
+        pow(1.0 + 0.75 * profile->greenhouseEffect, 0.25);
+    AssertRelative(profile->radiativeTempK, expectedRadiative, 0.00001);
+    AssertRelative(profile->equilibriumTempK, expectedSurface, 0.00001);
+    assert(profile->equilibriumTempK >= profile->radiativeTempK);
+    if (profile->style == SOLAR_STYLE_GAS) {
+        assert(profile->oceanCoverage == 0.0f);
+        assert(profile->iceCoverage == 0.0f);
+    }
+}
+
 static void AssertBarycenter(const SolarSystemDef *system,
                              const SolarStellarBody *bodies, int count)
 {
@@ -153,7 +185,20 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
                               const PlanetProfile *profile,
                               const SolarStellarBody *bodies, int bodyCount)
 {
+    AssertPlanetClimate(profile);
     const SolarPlanetDef *planet = &system->planets[index];
+    double orbitAU = fmax(planet->semiMajorAxisKm /
+                          SPACE_UNITS_ASTRONOMICAL_UNIT_KM, 0.18);
+    SolarLightSource lights[MAX_SOLAR_LIGHTS];
+    int lightCount = SolarSystemLightSources(system, lights, MAX_SOLAR_LIGHTS);
+    assert(lightCount > 0);
+    double expectedIrradiance = 0.0;
+    for (int light = 0; light < lightCount; light++) {
+        expectedIrradiance += (double)lights[light].luminosity /
+                              (orbitAU * orbitAU);
+    }
+    assert(expectedIrradiance > 0.0001);
+    AssertRelative(profile->receivedIrradiance, expectedIrradiance, 0.000001);
     double centralMass = SolarSystemStellarMassKg(system);
     double semiMajorAxisKm = planet->semiMajorAxisKm;
     double periodSeconds = SolarSystemPlanetOrbitPeriodSeconds(system, index);
@@ -261,6 +306,7 @@ static void TestGeneratedSystems(void)
     };
     int systemCount = 0;
     int multiplicities[4] = { 0 };
+    int climates[SOLAR_STYLE_TEMPERATE + 1] = { 0 };
     int satelliteCount = 0;
     for (size_t seedIndex = 0; seedIndex < sizeof(seeds) / sizeof(seeds[0]);
          seedIndex++) {
@@ -283,6 +329,9 @@ static void TestGeneratedSystems(void)
                 for (int planet = 0; planet < system.planetCount; planet++) {
                     PlanetProfile profile = SolarPlanetProfile(&system, planet);
                     assert(profile.massKg > 0.0 && profile.physicalRadiusKm > 0.0);
+                    assert(profile.style >= SOLAR_STYLE_LAVA &&
+                           profile.style <= SOLAR_STYLE_TEMPERATE);
+                    climates[profile.style]++;
                     SpaceSatelliteOrbit satellite;
                     if (SolarPlanetSatelliteOrbit(&system, planet, &profile,
                                                    &satellite)) {
@@ -305,9 +354,15 @@ static void TestGeneratedSystems(void)
     assert(multiplicities[2] > 0);
     assert(multiplicities[3] > 0);
     assert(satelliteCount > 100);
-    printf("space properties: %d systems, %d satellites, multiplicity %d/%d/%d\n",
+    for (int style = SOLAR_STYLE_LAVA; style <= SOLAR_STYLE_TEMPERATE; style++) {
+        assert(climates[style] > 0);
+    }
+    printf("space properties: %d systems, %d satellites, multiplicity %d/%d/%d, "
+           "climates %d/%d/%d/%d/%d/%d\n",
            systemCount, satelliteCount, multiplicities[1], multiplicities[2],
-           multiplicities[3]);
+           multiplicities[3], climates[SOLAR_STYLE_LAVA], climates[SOLAR_STYLE_ICE],
+           climates[SOLAR_STYLE_DESERT], climates[SOLAR_STYLE_GAS],
+           climates[SOLAR_STYLE_CRATER], climates[SOLAR_STYLE_TEMPERATE]);
 }
 
 static void TestSaveLoadTimeDeterminism(void)
@@ -349,6 +404,19 @@ static void TestSaveLoadTimeDeterminism(void)
     assert(VectorLength(VectorSubtractTest(afterPosition, beforePosition)) == 0.0);
     AssertRelative(afterProfile.massKg, beforeProfile.massKg, 0.0);
     AssertRelative(afterProfile.physicalRadiusKm, beforeProfile.physicalRadiusKm, 0.0);
+    AssertRelative(afterProfile.receivedIrradiance,
+                   beforeProfile.receivedIrradiance, 0.0);
+    AssertRelative(afterProfile.radiativeTempK, beforeProfile.radiativeTempK, 0.0);
+    AssertRelative(afterProfile.equilibriumTempK,
+                   beforeProfile.equilibriumTempK, 0.0);
+    AssertRelative(afterProfile.surfacePressureAtm,
+                   beforeProfile.surfacePressureAtm, 0.0);
+    AssertRelative(afterProfile.greenhouseEffect,
+                   beforeProfile.greenhouseEffect, 0.0);
+    AssertRelative(afterProfile.oceanCoverage, beforeProfile.oceanCoverage, 0.0);
+    AssertRelative(afterProfile.iceCoverage, beforeProfile.iceCoverage, 0.0);
+    AssertRelative(afterProfile.cloudCoverage, beforeProfile.cloudCoverage, 0.0);
+    AssertRelative(afterProfile.windStrength, beforeProfile.windStrength, 0.0);
 
     SpaceAdvanceTime(17.25f);
     Vector3 continued = SolarSystemPlanetPositionAtTime(

@@ -44,9 +44,15 @@ typedef struct PlanetProfile {
     double massKg;
     float spaceProxyRadius;
     float surfaceGravity;
+    double receivedIrradiance; // Earth solar-constant units.
+    float radiativeTempK;
+    // Mean surface temperature after albedo and atmospheric greenhouse feedback.
     float equilibriumTempK;
+    float surfacePressureAtm;
     float atmosphereDensity;
     float oceanCoverage;
+    float iceCoverage;
+    float cloudCoverage;
     float terrainRoughness;
     float ageGyr;
     // Degrees per game time unit; one game time unit is defined in space_units.
@@ -54,11 +60,13 @@ typedef struct PlanetProfile {
     float tidalLockFactor;
     float ringTilt;
     float albedo;
+    // Grey-atmosphere optical depth, not an additional temperature offset.
     float greenhouseEffect;
     float axialTilt;
     float seasonPhase;
     float yearLength; // Game time units.
     float prevailingWindAngle;
+    float windStrength;
     float volcanicActivity;
     float impactRate;
     bool hasSolidSurface;
