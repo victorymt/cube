@@ -793,6 +793,55 @@ static void TestEcologySaveLoadReplay(void)
     fclose(file);
 }
 
+static void TestEcologyMigrationOrderAndTimePartition(void)
+{
+    const uint32_t seed = 0x8f3a21d7u;
+    static const int cells[4][2] = {
+        { 32, 32 }, { 96, 32 }, { 32, 96 }, { 96, 96 }
+    };
+    static const int forwardOrder[4] = { 0, 1, 2, 3 };
+    static const int reverseOrder[4] = { 3, 2, 1, 0 };
+    PlanetLocalEcology singleAdvance[4];
+    PlanetLocalEcology partitionedAdvance[4];
+
+    SetPropertySeed(seed);
+    ActivateEcologyPlanet(seed, 0, 0);
+    PlanetEcologyResetState();
+    FILE *baseline = tmpfile();
+    assert(baseline);
+    assert(SpaceSaveState(baseline));
+    for (int index = 0; index < 4; index++) {
+        int cell = forwardOrder[index];
+        PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f);
+    }
+    SpaceAdvanceTime(96.0f);
+    for (int cell = 0; cell < 4; cell++) {
+        singleAdvance[cell] = PlanetEcologyLocalAt(
+            cells[cell][0], cells[cell][1], 0.72f);
+    }
+
+    rewind(baseline);
+    assert(SpaceLoadState(baseline));
+    PlanetEcologyResetState();
+    ActivateEcologyPlanet(seed, 0, 0);
+    for (int index = 0; index < 4; index++) {
+        int cell = reverseOrder[index];
+        PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f);
+    }
+    SpaceAdvanceTime(48.0f);
+    for (int cell = 0; cell < 4; cell++) {
+        PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f);
+    }
+    SpaceAdvanceTime(48.0f);
+    for (int cell = 0; cell < 4; cell++) {
+        partitionedAdvance[cell] = PlanetEcologyLocalAt(
+            cells[cell][0], cells[cell][1], 0.72f);
+        AssertLocalEcologyEqual(
+            partitionedAdvance[cell], singleAdvance[cell]);
+    }
+    fclose(baseline);
+}
+
 typedef struct ChunkBlockSnapshot {
     int cx;
     int cz;
@@ -1379,6 +1428,7 @@ int main(void)
     TestEcologyCacheInvalidation();
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();
+    TestEcologyMigrationOrderAndTimePartition();
     TestFloraMeshDeformationProperties();
     TestChunkUnloadReloadDeterminism();
     puts("space properties tests passed");

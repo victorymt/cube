@@ -16,7 +16,10 @@ void WeatherSuspend(void);
 Weather WeatherGetCurrent(void);
 /* Sample the deterministic weather field at a local world cell. */
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z);
+WeatherFieldSample WeatherFieldSampleAtWorldTime(
+    int x, int z, double simulationTime);
 float WeatherWindAngleAtWorld(int x, int z);
+float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime);
 float WeatherSkyFactor(void);
 float WeatherCloudCover(void);
 float WeatherPrecipitationRate(void);

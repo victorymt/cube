@@ -96,12 +96,13 @@ static bool WeatherSampleCacheMatches(const WeatherSampleCacheEntry *cached,
            cached->input.prevailingWindAngle == input->prevailingWindAngle;
 }
 
-static WeatherFieldInput WeatherInputAt(Vector3 playerPosition)
+static WeatherFieldInput WeatherInputAt(Vector3 playerPosition,
+                                        double simulationTime)
 {
     WeatherFieldInput input = { 0 };
     int x = (int)floorf(playerPosition.x);
     int z = (int)floorf(playerPosition.z);
-    input.simulationTime = SpaceSimulationTime();
+    input.simulationTime = simulationTime;
     if (PlanetWorldIsActive()) {
         const PlanetProfile *planet = PlanetWorldProfile();
         PlanetSurfaceSample surface = PlanetSurfaceAtTime(
@@ -186,11 +187,20 @@ static WeatherFieldSample WeatherManualSample(Weather weather)
 
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
 {
+    return WeatherFieldSampleAtWorldTime(x, z, SpaceSimulationTime());
+}
+
+WeatherFieldSample WeatherFieldSampleAtWorldTime(
+    int x, int z, double simulationTime)
+{
     if (manualTimer > 0.0f) return WeatherManualSample(manualWeather);
+    if (!isfinite(simulationTime) || simulationTime < 0.0) {
+        return (WeatherFieldSample){ 0 };
+    }
 
     WeatherFieldInput input = WeatherInputAt((Vector3){
         (float)x + 0.5f, 0.0f, (float)z + 0.5f
-    });
+    }, simulationTime);
     WeatherSampleCacheEntry *cached =
         &weatherSampleCache[WeatherSampleCacheIndex(&input)];
     if (WeatherSampleCacheMatches(cached, &input)) {
@@ -208,9 +218,15 @@ WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
 
 float WeatherWindAngleAtWorld(int x, int z)
 {
+    return WeatherWindAngleAtWorldTime(x, z, SpaceSimulationTime());
+}
+
+float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
+{
+    if (!isfinite(simulationTime) || simulationTime < 0.0) return 0.0f;
     WeatherFieldInput input = WeatherInputAt((Vector3){
         (float)x + 0.5f, 0.0f, (float)z + 0.5f
-    });
+    }, simulationTime);
     return input.prevailingWindAngle;
 }
 
@@ -331,7 +347,8 @@ void WeatherUpdate(float dt, Vector3 playerPosition)
         manualTimer = fmaxf(manualTimer - dt, 0.0f);
         fieldSample = WeatherManualSample(manualWeather);
     } else {
-        WeatherFieldInput input = WeatherInputAt(playerPosition);
+        WeatherFieldInput input = WeatherInputAt(
+            playerPosition, SpaceSimulationTime());
         particleWindAngle = input.prevailingWindAngle;
         fieldSample = WeatherFieldSampleAt(&input);
     }
