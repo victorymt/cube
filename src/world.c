@@ -53,7 +53,14 @@ uint32_t *blockEditDimensions = NULL;
 BlockEditIndex *blockEditIndex = NULL;
 int blockEditCount = 0;
 int blockEditCapacity = 0;
+static uint64_t blockEditRevision = 1u;
 static uint32_t worldSeed = DEFAULT_WORLD_SEED;
+
+static void BumpBlockEditRevision(void)
+{
+    blockEditRevision++;
+    if (blockEditRevision == 0u) blockEditRevision = 1u;
+}
 
 uint32_t WorldGetSeed(void)
 {
@@ -466,7 +473,9 @@ void RememberBlockEdit(int x, int y, int z, BlockType type)
     uint32_t dimension = WorldCurrentEditDimension();
     int existingIndex = FindBlockEditIndex(dimension, x, y, z);
     if (existingIndex >= 0) {
+        if (blockEdits[existingIndex].type == type) return;
         blockEdits[existingIndex].type = type;
+        BumpBlockEditRevision();
         return;
     }
 
@@ -476,6 +485,7 @@ void RememberBlockEdit(int x, int y, int z, BlockType type)
     blockEditDimensions[blockEditCount] = dimension;
     InsertBlockEditIndex(blockEditCount);
     blockEditCount++;
+    BumpBlockEditRevision();
 }
 
 #define UNDO_STACK_CAPACITY 5000
@@ -525,6 +535,7 @@ void ClearUndoHistory(void)
 void WorldReset(uint32_t seed)
 {
     blockEditCount = 0;
+    BumpBlockEditRevision();
     ClearBlockEditIndex();
     memset(torchLights, 0, sizeof(torchLights));
     ClearUndoHistory();
@@ -1161,6 +1172,7 @@ void LoadMap(Player *player)
     }
     *player = savedPlayer;
     blockEditCount = savedEditCount;
+    BumpBlockEditRevision();
     if (savedEditCount > 0) {
         memcpy(blockEdits, loadedEdits, (size_t)savedEditCount * sizeof(*loadedEdits));
         memcpy(blockEditDimensions, loadedDimensions,
@@ -1187,6 +1199,11 @@ void LoadMap(Player *player)
 int WorldGetEditCount(void)
 {
     return blockEditCount;
+}
+
+uint64_t WorldGetEditRevision(void)
+{
+    return blockEditRevision;
 }
 
 const BlockEdit *WorldGetEditAt(int index)

@@ -4,6 +4,7 @@
 #include "space.h"
 #include "terrain.h"
 #include "weather.h"
+#include "world.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -46,6 +47,7 @@ typedef struct EcologyLocalCacheEntry {
     uint32_t daylightBits;
     uint32_t profileGeneration;
     uint32_t populationEpoch;
+    uint64_t editRevision;
     PlanetLocalEcology ecology;
 } EcologyLocalCacheEntry;
 
@@ -67,6 +69,8 @@ typedef struct EcologyPopulationStepState {
     PlanetMigrationHabitat habitat;
     float windX;
     float windZ;
+    float floraStress;
+    float faunaStress;
 } EcologyPopulationStepState;
 
 static ECOLOGY_THREAD_LOCAL EcologyProfileCache ecologyProfileCache = { 0 };
@@ -105,7 +109,8 @@ static unsigned EcologyLocalCacheIndex(int x, int z, double simulationTime,
                                        float daylight,
                                        uint32_t profileGeneration,
                                        uint32_t populationEpoch,
-                                       int originX, int originZ)
+                                       int originX, int originZ,
+                                       uint64_t editRevision)
 {
     uint64_t timeBits = EcologyDoubleBits(simulationTime);
     uint32_t hash = (uint32_t)x * 0x9e3779b9u;
@@ -117,6 +122,8 @@ static unsigned EcologyLocalCacheIndex(int x, int z, double simulationTime,
     hash ^= populationEpoch * 0x7feb352du;
     hash ^= (uint32_t)originX * 0x27d4eb2fu;
     hash ^= (uint32_t)originZ * 0x165667b1u;
+    hash ^= (uint32_t)editRevision * 0x369dea0fu;
+    hash ^= (uint32_t)(editRevision >> 32) * 0xa24baed5u;
     return EcologyMix(hash) & (ECOLOGY_LOCAL_CACHE_SIZE - 1u);
 }
 
@@ -695,6 +702,57 @@ static int EcologyPopulationFindRecordIndex(uint32_t surfaceId,
     return -1;
 }
 
+static float EcologyEditWeight(BlockType type)
+{
+    switch (type) {
+    case BLOCK_AIR: return 0.72f;
+    case BLOCK_LAVA: return 0.94f;
+    case BLOCK_WATER: return 0.04f;
+    case BLOCK_FLOWER:
+    case BLOCK_MUSHROOM: return 0.01f;
+    case BLOCK_GRASS:
+    case BLOCK_DIRT:
+    case BLOCK_SAND:
+    case BLOCK_SNOW:
+    case BLOCK_ICE:
+    case BLOCK_LEAVES:
+    case BLOCK_CACTUS: return 0.05f;
+    case BLOCK_STONE:
+    case BLOCK_WOOD:
+    case BLOCK_BEDROCK:
+    case BLOCK_COAL_ORE:
+    case BLOCK_IRON_ORE:
+    case BLOCK_GOLD_ORE:
+    case BLOCK_DIAMOND_ORE: return 0.09f;
+    default: return 0.30f;
+    }
+}
+
+static float EcologyRegionalDisturbance(
+    int regionX, int regionZ, int originX, int originZ)
+{
+    int editCount = WorldGetEditCount();
+    if (editCount <= 0) return 0.0f;
+    float accumulated = 0.0f;
+    for (int index = 0; index < editCount; index++) {
+        BlockEdit edit = { 0 };
+        if (!WorldGetEditForCurrentDimension(index, &edit)) continue;
+        int globalX = originX + edit.x;
+        int globalZ = originZ + edit.z;
+        if (EcologyFloorDivide(globalX, ECOLOGY_POPULATION_REGION_SIZE) !=
+                regionX ||
+            EcologyFloorDivide(globalZ, ECOLOGY_POPULATION_REGION_SIZE) !=
+                regionZ) continue;
+        int surfaceHeight = PlanetTerrainHeight(edit.x, edit.z);
+        float surfaceDistance = fabsf((float)edit.y - (float)surfaceHeight);
+        if (surfaceDistance > 12.0f) continue;
+        float weight = EcologyEditWeight(edit.type) *
+                       expf(-surfaceDistance / 5.0f);
+        accumulated += weight;
+    }
+    return EcologyClamp(1.0f - expf(-accumulated / 6.0f));
+}
+
 static double EcologyPopulationStepTime(double simulationTime)
 {
     if (!isfinite(simulationTime) || simulationTime <= 0.0) return 0.0;
@@ -726,6 +784,10 @@ static void EcologyPopulationConditionsAt(
         .faunaSuitability = regional.suitability.faunaActivity,
         .stormPressure = regional.environment.currentStorm
     };
+    float disturbance = EcologyRegionalDisturbance(
+        record->regionX, record->regionZ, originX, originZ);
+    state->floraStress = disturbance * 0.82f;
+    state->faunaStress = disturbance * 0.94f;
     WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
         localX, localZ, simulationTime);
     float windAngle = WeatherWindAngleAtWorldTime(
@@ -805,6 +867,9 @@ static void EcologyPopulationAdvanceRecords(
                 originX, originZ, &states[index]);
             PlanetPopulationAdvance(
                 &states[index].population, &states[index].input, elapsedTime);
+            PlanetPopulationApplyDisturbance(
+                &states[index].population, states[index].floraStress,
+                states[index].faunaStress, elapsedTime);
         }
 
         static const int directions[2][2] = { { 1, 0 }, { 0, 1 } };
@@ -1120,17 +1185,19 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     double simulationTime = SpaceSimulationTime();
     int originX = PlanetWorldOriginX();
     int originZ = PlanetWorldOriginZ();
+    uint64_t editRevision = WorldGetEditRevision();
     uint32_t daylightBits = EcologyFloatBits(daylight);
     unsigned cacheIndex = EcologyLocalCacheIndex(
         x, z, simulationTime, daylight, ecologyProfileCache.generation,
-        ecologyPopulationEpoch, originX, originZ);
+        ecologyPopulationEpoch, originX, originZ, editRevision);
     EcologyLocalCacheEntry *cached = &ecologyLocalCache[cacheIndex];
     if (cached->valid && cached->x == x && cached->z == z &&
         cached->originX == originX && cached->originZ == originZ &&
         cached->simulationTime == simulationTime &&
         cached->daylightBits == daylightBits &&
         cached->profileGeneration == ecologyProfileCache.generation &&
-        cached->populationEpoch == ecologyPopulationEpoch) {
+        cached->populationEpoch == ecologyPopulationEpoch &&
+        cached->editRevision == editRevision) {
         return cached->ecology;
     }
 
@@ -1140,6 +1207,10 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
         x, z, simulationTime, daylight, &profile, &migration);
     local.population = population;
     local.migration = migration;
+    local.environment.disturbance = EcologyRegionalDisturbance(
+        EcologyFloorDivide(originX + x, ECOLOGY_POPULATION_REGION_SIZE),
+        EcologyFloorDivide(originZ + z, ECOLOGY_POPULATION_REGION_SIZE),
+        originX, originZ);
     float floraPresence = PlanetPopulationFloraPresence(&population);
     float faunaPresence = PlanetPopulationFaunaPresence(&population);
     local.suitability.floraActivity = EcologyClamp(
@@ -1157,6 +1228,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
         .daylightBits = daylightBits,
         .profileGeneration = ecologyProfileCache.generation,
         .populationEpoch = ecologyPopulationEpoch,
+        .editRevision = editRevision,
         .ecology = local
     };
     return local;

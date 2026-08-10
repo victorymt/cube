@@ -41,6 +41,7 @@ typedef struct PlanetLocalEnvironment {
     float slope;
     float shelter;
     float biomeSupport;
+    float disturbance;
 } PlanetLocalEnvironment;
 
 typedef struct PlanetEcologyTraits {

@@ -2774,6 +2774,11 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             ecology.environment.liquidWaterAccess,
                             ecology.environment.precipitationRate),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Disturbance %.3f   flora stress %.3f   fauna stress %.3f",
+                            ecology.environment.disturbance,
+                            ecology.environment.disturbance * 0.82f,
+                            ecology.environment.disturbance * 0.94f),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
         DrawText(TextFormat("Population flora %.2f/%.2f   fauna %.2f/%.2f   memory %.2f",
                             ecology.population.floraDensity,
                             ecology.population.floraCarryingCapacity,

@@ -31,6 +31,7 @@ void RebuildTorchList(void);
 float TorchLightAtBlockNearby(int x, int y, int z, const int *indices, int count);
 int CollectNearbyTorchLights(int chunkMinX, int chunkMaxX, int chunkMinZ, int chunkMaxZ, int *indices);
 int WorldGetEditCount(void);
+uint64_t WorldGetEditRevision(void);
 const BlockEdit *WorldGetEditAt(int index);
 uint32_t WorldGetEditDimensionAt(int index);
 bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit);

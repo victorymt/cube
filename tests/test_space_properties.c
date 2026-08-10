@@ -20,6 +20,9 @@
 
 /* The production terrain hash reads the world seed through this small API. */
 static uint32_t propertyWorldSeed = DEFAULT_WORLD_SEED;
+static BlockEdit propertyBlockEdits[64];
+static int propertyBlockEditCount = 0;
+static uint64_t propertyBlockEditRevision = 1u;
 TerrainMode terrainMode = TERRAIN_VARIED;
 
 uint32_t WorldGetSeed(void)
@@ -34,14 +37,21 @@ int WorldSurfaceHeightAt(int x, int z)
 
 int WorldGetEditCount(void)
 {
-    return 0;
+    return propertyBlockEditCount;
+}
+
+uint64_t WorldGetEditRevision(void)
+{
+    return propertyBlockEditRevision;
 }
 
 bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
 {
-    (void)index;
-    (void)outEdit;
-    return false;
+    if (!outEdit || index < 0 || index >= propertyBlockEditCount) {
+        return false;
+    }
+    *outEdit = propertyBlockEdits[index];
+    return true;
 }
 
 float TorchLightAtBlockNearby(int x, int y, int z,
@@ -99,6 +109,28 @@ void UnloadModel(Model model)
 static void SetPropertySeed(uint32_t seed)
 {
     propertyWorldSeed = seed == 0 ? DEFAULT_WORLD_SEED : seed;
+}
+
+static void ClearPropertyBlockEdits(void)
+{
+    propertyBlockEditCount = 0;
+    propertyBlockEditRevision++;
+    if (propertyBlockEditRevision == 0u) propertyBlockEditRevision = 1u;
+    memset(propertyBlockEdits, 0, sizeof(propertyBlockEdits));
+}
+
+static void AddPropertyBlockEdit(int x, int y, int z, BlockType type)
+{
+    assert(propertyBlockEditCount <
+           (int)(sizeof(propertyBlockEdits) / sizeof(propertyBlockEdits[0])));
+    propertyBlockEdits[propertyBlockEditCount++] = (BlockEdit){
+        .x = x,
+        .y = y,
+        .z = z,
+        .type = type
+    };
+    propertyBlockEditRevision++;
+    if (propertyBlockEditRevision == 0u) propertyBlockEditRevision = 1u;
 }
 
 static double VectorLength(Vector3 value)
@@ -548,6 +580,39 @@ static void ActivateEcologyPlanet(uint32_t seed, int originX, int originZ)
                                SOLAR_STYLE_TEMPERATE);
 }
 
+static void SaveEcologySimulationState(FILE *file)
+{
+    assert(file);
+    assert(SpaceSaveState(file));
+    assert(PlanetWorldSaveState(file));
+    assert(PlanetEcologySaveState(file));
+}
+
+static void LoadEcologySimulationState(FILE *file)
+{
+    assert(file);
+    rewind(file);
+    assert(SpaceLoadState(file));
+    assert(PlanetWorldLoadState(file));
+    assert(PlanetEcologyLoadState(file));
+}
+
+static void AddSurfaceDisturbanceEdits(void)
+{
+    static const BlockType editTypes[] = {
+        BLOCK_AIR, BLOCK_LAVA, BLOCK_GLASS
+    };
+    ClearPropertyBlockEdits();
+    for (int index = 0; index < 36; index++) {
+        int x = 16 + (index % 6) * 2;
+        int z = 16 + (index / 6) * 2;
+        AddPropertyBlockEdit(
+            x, PlanetTerrainHeight(x, z), z,
+            editTypes[index % (int)(sizeof(editTypes) /
+                                    sizeof(editTypes[0]))]);
+    }
+}
+
 static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
                                     PlanetLocalEcology expected)
 {
@@ -889,6 +954,101 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
             partitionedAdvance[cell], singleAdvance[cell]);
     }
     fclose(baseline);
+}
+
+static void TestEcologyPlayerEditDisturbance(void)
+{
+    static const int cells[4][2] = {
+        { 32, 32 }, { 96, 32 }, { 32, 96 }, { 96, 96 }
+    };
+    const float daylight = 0.72f;
+    uint32_t seed = 0u;
+
+    ClearPropertyBlockEdits();
+    for (uint32_t index = 0; index < 2048u; index++) {
+        uint32_t candidate = 0x4c957f2du + index * 0x9e3779b9u;
+        SetPropertySeed(candidate);
+        PlanetEcologyResetState();
+        ActivateEcologyPlanet(candidate, 0, 0);
+        PlanetLocalEcology local = PlanetEcologyLocalAt(
+            cells[0][0], cells[0][1], daylight);
+        if (local.population.floraDensity > 0.05f &&
+            local.population.faunaDensity > 0.03f) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
+
+    SetPropertySeed(seed);
+    ActivateEcologyPlanet(seed, 0, 0);
+    PlanetEcologyResetState();
+    for (int cell = 0; cell < 4; cell++) {
+        PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], daylight);
+    }
+    FILE *baseline = tmpfile();
+    assert(baseline);
+    SaveEcologySimulationState(baseline);
+
+    SpaceAdvanceTime(96.0f);
+    PlanetLocalEcology undisturbed = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    assert(undisturbed.environment.disturbance == 0.0f);
+
+    LoadEcologySimulationState(baseline);
+    int terrainHeight = PlanetTerrainHeight(cells[0][0], cells[0][1]);
+    AddPropertyBlockEdit(
+        cells[0][0], terrainHeight - 20, cells[0][1], BLOCK_LAVA);
+    PlanetLocalEcology deepEdit = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    assert(deepEdit.environment.disturbance == 0.0f);
+
+    AddSurfaceDisturbanceEdits();
+    PlanetLocalEcology disturbanceSignal = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    assert(disturbanceSignal.environment.disturbance > 0.5f);
+    SpaceAdvanceTime(96.0f);
+    PlanetLocalEcology disturbed = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    assert(disturbed.population.floraDensity <
+           undisturbed.population.floraDensity);
+    assert(disturbed.population.faunaDensity <
+           undisturbed.population.faunaDensity);
+
+    FILE *disturbedSave = tmpfile();
+    assert(disturbedSave);
+    SaveEcologySimulationState(disturbedSave);
+    SpaceAdvanceTime(48.0f);
+    PlanetLocalEcology continued = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    LoadEcologySimulationState(disturbedSave);
+    SpaceAdvanceTime(48.0f);
+    PlanetLocalEcology replay = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    AssertLocalEcologyEqual(replay, continued);
+
+    LoadEcologySimulationState(disturbedSave);
+    SpaceAdvanceTime(960.0f);
+    PlanetLocalEcology persistentlyDisturbed = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    LoadEcologySimulationState(disturbedSave);
+    ClearPropertyBlockEdits();
+    PlanetLocalEcology cleared = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    assert(cleared.environment.disturbance == 0.0f);
+    assert(memcmp(&cleared.population, &disturbed.population,
+                  sizeof(cleared.population)) == 0);
+    SpaceAdvanceTime(960.0f);
+    PlanetLocalEcology recovered = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    assert(recovered.population.floraDensity >
+           persistentlyDisturbed.population.floraDensity);
+    assert(recovered.population.faunaDensity >
+           persistentlyDisturbed.population.faunaDensity);
+
+    fclose(disturbedSave);
+    fclose(baseline);
+    ClearPropertyBlockEdits();
 }
 
 static void TestEcologyLegacyPopulationStateLoad(void)
@@ -1491,6 +1651,7 @@ int main(void)
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();
     TestEcologyMigrationOrderAndTimePartition();
+    TestEcologyPlayerEditDisturbance();
     TestEcologyLegacyPopulationStateLoad();
     TestFloraMeshDeformationProperties();
     TestChunkUnloadReloadDeterminism();
