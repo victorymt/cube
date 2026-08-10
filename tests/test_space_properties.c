@@ -23,6 +23,7 @@ static uint32_t propertyWorldSeed = DEFAULT_WORLD_SEED;
 static BlockEdit propertyBlockEdits[64];
 static int propertyBlockEditCount = 0;
 static uint64_t propertyBlockEditRevision = 1u;
+static int propertyBlockEditReadCount = 0;
 TerrainMode terrainMode = TERRAIN_VARIED;
 
 uint32_t WorldGetSeed(void)
@@ -47,6 +48,7 @@ uint64_t WorldGetEditRevision(void)
 
 bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
 {
+    propertyBlockEditReadCount++;
     if (!outEdit || index < 0 || index >= propertyBlockEditCount) {
         return false;
     }
@@ -111,11 +113,16 @@ static void SetPropertySeed(uint32_t seed)
     propertyWorldSeed = seed == 0 ? DEFAULT_WORLD_SEED : seed;
 }
 
+static void BumpPropertyBlockEditRevision(void)
+{
+    propertyBlockEditRevision++;
+    if (propertyBlockEditRevision == 0u) propertyBlockEditRevision = 1u;
+}
+
 static void ClearPropertyBlockEdits(void)
 {
     propertyBlockEditCount = 0;
-    propertyBlockEditRevision++;
-    if (propertyBlockEditRevision == 0u) propertyBlockEditRevision = 1u;
+    BumpPropertyBlockEditRevision();
     memset(propertyBlockEdits, 0, sizeof(propertyBlockEdits));
 }
 
@@ -129,8 +136,15 @@ static void AddPropertyBlockEdit(int x, int y, int z, BlockType type)
         .z = z,
         .type = type
     };
-    propertyBlockEditRevision++;
-    if (propertyBlockEditRevision == 0u) propertyBlockEditRevision = 1u;
+    BumpPropertyBlockEditRevision();
+}
+
+static void SetPropertyBlockEditType(int index, BlockType type)
+{
+    assert(index >= 0 && index < propertyBlockEditCount);
+    if (propertyBlockEdits[index].type == type) return;
+    propertyBlockEdits[index].type = type;
+    BumpPropertyBlockEditRevision();
 }
 
 static double VectorLength(Vector3 value)
@@ -1004,9 +1018,27 @@ static void TestEcologyPlayerEditDisturbance(void)
     assert(deepEdit.environment.disturbance == 0.0f);
 
     AddSurfaceDisturbanceEdits();
+    propertyBlockEditReadCount = 0;
     PlanetLocalEcology disturbanceSignal = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
     assert(disturbanceSignal.environment.disturbance > 0.5f);
+    int initialEditReads = propertyBlockEditReadCount;
+    assert(initialEditReads == propertyBlockEditCount);
+    PlanetLocalEcology sameRegionSignal = PlanetEcologyLocalAt(
+        cells[0][0] + 8, cells[0][1] + 8, daylight);
+    assert(sameRegionSignal.environment.disturbance ==
+           disturbanceSignal.environment.disturbance);
+    assert(propertyBlockEditReadCount == initialEditReads);
+    int unchangedEditCount = propertyBlockEditCount;
+    uint64_t previousEditRevision = propertyBlockEditRevision;
+    SetPropertyBlockEditType(0, BLOCK_FLOWER);
+    assert(propertyBlockEditCount == unchangedEditCount);
+    assert(propertyBlockEditRevision != previousEditRevision);
+    PlanetLocalEcology revisedSignal = PlanetEcologyLocalAt(
+        cells[0][0], cells[0][1], daylight);
+    assert(revisedSignal.environment.disturbance <
+           disturbanceSignal.environment.disturbance);
+    assert(propertyBlockEditReadCount == initialEditReads * 2);
     SpaceAdvanceTime(96.0f);
     PlanetLocalEcology disturbed = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);

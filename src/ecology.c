@@ -13,6 +13,7 @@
 
 #define PLANET_FLORA_STRUCTURE_RADIUS 3
 #define ECOLOGY_LOCAL_CACHE_SIZE 256u
+#define ECOLOGY_DISTURBANCE_CACHE_SIZE 256u
 #define ECOLOGY_POPULATION_REGION_SIZE 64
 #define ECOLOGY_POPULATION_SET_COUNT 256u
 #define ECOLOGY_POPULATION_SET_WAYS 4u
@@ -51,6 +52,17 @@ typedef struct EcologyLocalCacheEntry {
     PlanetLocalEcology ecology;
 } EcologyLocalCacheEntry;
 
+typedef struct EcologyDisturbanceCacheEntry {
+    bool valid;
+    uint32_t surfaceId;
+    uint64_t editRevision;
+    int regionX;
+    int regionZ;
+    int originX;
+    int originZ;
+    float disturbance;
+} EcologyDisturbanceCacheEntry;
+
 typedef struct EcologyPopulationRecord {
     bool valid;
     uint32_t surfaceId;
@@ -76,6 +88,8 @@ typedef struct EcologyPopulationStepState {
 static ECOLOGY_THREAD_LOCAL EcologyProfileCache ecologyProfileCache = { 0 };
 static ECOLOGY_THREAD_LOCAL EcologyLocalCacheEntry
     ecologyLocalCache[ECOLOGY_LOCAL_CACHE_SIZE] = { 0 };
+static ECOLOGY_THREAD_LOCAL EcologyDisturbanceCacheEntry
+    ecologyDisturbanceCache[ECOLOGY_DISTURBANCE_CACHE_SIZE] = { 0 };
 static EcologyPopulationRecord
     ecologyPopulationRecords[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
 static uint64_t ecologyPopulationAccessSerial = 0u;
@@ -728,11 +742,36 @@ static float EcologyEditWeight(BlockType type)
     }
 }
 
-static float EcologyRegionalDisturbance(
-    int regionX, int regionZ, int originX, int originZ)
+static unsigned EcologyDisturbanceCacheIndex(
+    uint32_t surfaceId, int regionX, int regionZ,
+    int originX, int originZ, uint64_t editRevision)
 {
+    uint32_t hash = surfaceId * 0x9e3779b9u;
+    hash ^= (uint32_t)regionX * 0x85ebca6bu;
+    hash ^= (uint32_t)regionZ * 0xc2b2ae35u;
+    hash ^= (uint32_t)originX * 0x27d4eb2fu;
+    hash ^= (uint32_t)originZ * 0x165667b1u;
+    hash ^= (uint32_t)editRevision * 0x369dea0fu;
+    hash ^= (uint32_t)(editRevision >> 32) * 0xa24baed5u;
+    return EcologyMix(hash) & (ECOLOGY_DISTURBANCE_CACHE_SIZE - 1u);
+}
+
+static float EcologyRegionalDisturbance(
+    uint32_t surfaceId, int regionX, int regionZ, int originX, int originZ)
+{
+    uint64_t editRevision = WorldGetEditRevision();
+    unsigned cacheIndex = EcologyDisturbanceCacheIndex(
+        surfaceId, regionX, regionZ, originX, originZ, editRevision);
+    EcologyDisturbanceCacheEntry *cached =
+        &ecologyDisturbanceCache[cacheIndex];
+    if (cached->valid && cached->surfaceId == surfaceId &&
+        cached->editRevision == editRevision &&
+        cached->regionX == regionX && cached->regionZ == regionZ &&
+        cached->originX == originX && cached->originZ == originZ) {
+        return cached->disturbance;
+    }
+
     int editCount = WorldGetEditCount();
-    if (editCount <= 0) return 0.0f;
     float accumulated = 0.0f;
     for (int index = 0; index < editCount; index++) {
         BlockEdit edit = { 0 };
@@ -750,7 +789,19 @@ static float EcologyRegionalDisturbance(
                        expf(-surfaceDistance / 5.0f);
         accumulated += weight;
     }
-    return EcologyClamp(1.0f - expf(-accumulated / 6.0f));
+    float disturbance = EcologyClamp(
+        1.0f - expf(-accumulated / 6.0f));
+    *cached = (EcologyDisturbanceCacheEntry){
+        .valid = true,
+        .surfaceId = surfaceId,
+        .editRevision = editRevision,
+        .regionX = regionX,
+        .regionZ = regionZ,
+        .originX = originX,
+        .originZ = originZ,
+        .disturbance = disturbance
+    };
+    return disturbance;
 }
 
 static double EcologyPopulationStepTime(double simulationTime)
@@ -785,7 +836,8 @@ static void EcologyPopulationConditionsAt(
         .stormPressure = regional.environment.currentStorm
     };
     float disturbance = EcologyRegionalDisturbance(
-        record->regionX, record->regionZ, originX, originZ);
+        record->surfaceId, record->regionX, record->regionZ,
+        originX, originZ);
     state->floraStress = disturbance * 0.82f;
     state->faunaStress = disturbance * 0.94f;
     WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
@@ -1208,6 +1260,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     local.population = population;
     local.migration = migration;
     local.environment.disturbance = EcologyRegionalDisturbance(
+        PlanetWorldSeed(),
         EcologyFloorDivide(originX + x, ECOLOGY_POPULATION_REGION_SIZE),
         EcologyFloorDivide(originZ + z, ECOLOGY_POPULATION_REGION_SIZE),
         originX, originZ);
