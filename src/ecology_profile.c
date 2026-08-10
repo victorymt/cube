@@ -267,19 +267,29 @@ static float EcologyClimateLife(const PlanetProfile *planet,
     float pressureSupport = EcologyClamp((pressure - 0.01f) / 0.54f);
     pressureSupport *= 1.0f - EcologyClamp(
         (pressure - 3.0f) / 7.0f) * 0.55f;
-    float waterSupport = EcologyClamp(0.12f + water * 0.78f + ice * 0.10f);
-    float climateSupport = temperatureComfort * pressureSupport *
-                           (1.0f - ice * 0.62f) * (1.0f - wind * 0.35f);
-    float life = climateSupport * atmosphereSupport * waterSupport;
-    if (planet->style == SOLAR_STYLE_TEMPERATE) life *= 1.15f;
-    if (planet->style == SOLAR_STYLE_ICE) life *= 0.66f;
-    if (planet->style == SOLAR_STYLE_DESERT) life *= 0.52f;
-    if (planet->style == SOLAR_STYLE_LAVA) life *= 0.20f;
-    if (planet->style == SOLAR_STYLE_CRATER) life *= 0.18f;
+
+    float thermalSupport = 0.12f + temperatureComfort * 0.88f;
+    float atmosphereAvailability = 0.08f + atmosphereSupport * 0.92f;
+    float pressureAvailability = 0.08f + pressureSupport * 0.92f;
+    float atmosphereClimate = sqrtf(atmosphereAvailability *
+                                    pressureAvailability);
+    float waterAvailability = EcologyClamp(
+        0.08f + water * 0.78f + ice * 0.35f);
+    float limitingSupport = cbrtf(thermalSupport * atmosphereClimate *
+                                  waterAvailability);
+    float climateStability = (1.0f - ice * 0.25f) *
+                             (1.0f - wind * 0.25f);
+    float life = limitingSupport * climateStability;
+
+    if (planet->style == SOLAR_STYLE_TEMPERATE) life *= 1.24f;
+    if (planet->style == SOLAR_STYLE_ICE) life *= 0.86f;
+    if (planet->style == SOLAR_STYLE_DESERT) life *= 0.82f;
+    if (planet->style == SOLAR_STYLE_LAVA) life *= 0.34f;
+    if (planet->style == SOLAR_STYLE_CRATER) life *= 0.42f;
     if (planet->style == SOLAR_STYLE_GAS || !planet->hasSolidSurface) {
         life = 0.0f;
     }
-    return life;
+    return EcologyClamp(life);
 }
 
 static float EcologyApplyLifeHistory(PlanetEcologyProfile *result,

@@ -30,9 +30,17 @@ static const char *ecologyPropertyStyleNames[] = {
 enum { ECOLOGY_DISTRIBUTION_SEED_COUNT = 4096 };
 
 typedef struct EcologyDistribution {
-    int originated;
-    int complex;
+    int originatedCount;
+    int complexCount;
     int biomass[PLANET_BIOMASS_ANOMALOUS + 1];
+    double originProbabilityTotal;
+    double complexProbabilityTotal;
+    double lifeDensityTotal;
+    double temperatureTotal;
+    double pressureTotal;
+    double waterTotal;
+    double iceTotal;
+    double windTotal;
 } EcologyDistribution;
 
 static float PropertyUnit(uint32_t *state)
@@ -69,6 +77,14 @@ static void AssertSignedUnit(float value)
     assert(value >= -1.0f && value <= 1.0f);
 }
 
+static void AssertRateBetween(int count, int total,
+                              float minimum, float maximum)
+{
+    assert(total > 0);
+    float rate = (float)count / (float)total;
+    assert(rate >= minimum && rate <= maximum);
+}
+
 static void AssertProfileValid(const PlanetEcologyProfile *profile,
                                SolarBodyStyle style)
 {
@@ -103,6 +119,19 @@ static void AssertProfileValid(const PlanetEcologyProfile *profile,
     }
     if (profile->biomass == PLANET_BIOMASS_MICROBIAL) {
         assert(profile->faunaDensity == 0.0f);
+    }
+    if (!profile->lifeOriginated) {
+        assert(profile->lifeDensity == 0.0f);
+        assert(profile->biomass == PLANET_BIOMASS_BARREN);
+    }
+    if (!profile->hasComplexLife) {
+        assert(profile->faunaDensity == 0.0f);
+    }
+    if (profile->biomass == PLANET_BIOMASS_FUNGAL ||
+        profile->biomass == PLANET_BIOMASS_CRYSTALLINE ||
+        profile->biomass == PLANET_BIOMASS_LUSH ||
+        profile->biomass == PLANET_BIOMASS_ANOMALOUS) {
+        assert(profile->hasComplexLife);
     }
     if (style == SOLAR_STYLE_GAS) {
         assert(profile->biomass == PLANET_BIOMASS_BARREN);
@@ -255,6 +284,7 @@ static void TestGeneratedEcologyDistribution(void)
     assert(fixture);
 
     int nonBarrenTotal = 0;
+    int complexTotal = 0;
     for (size_t styleIndex = 0;
          styleIndex < sizeof(ecologyPropertyStyles) /
                       sizeof(ecologyPropertyStyles[0]);
@@ -274,11 +304,22 @@ static void TestGeneratedEcologyDistribution(void)
             PlanetEcologyResetState();
 
             PlanetEcologyProfile profile = PlanetEcologyCurrent();
+            const PlanetProfile *planet = PlanetWorldProfile();
             AssertProfileValid(&profile, style);
             assert(!profile.hasComplexLife || profile.lifeOriginated);
-            distribution->originated += profile.lifeOriginated ? 1 : 0;
-            distribution->complex += profile.hasComplexLife ? 1 : 0;
+            distribution->originatedCount += profile.lifeOriginated ? 1 : 0;
+            distribution->complexCount += profile.hasComplexLife ? 1 : 0;
             distribution->biomass[profile.biomass]++;
+            distribution->originProbabilityTotal +=
+                profile.lifeOriginProbability;
+            distribution->complexProbabilityTotal +=
+                profile.complexLifeProbability;
+            distribution->lifeDensityTotal += profile.lifeDensity;
+            distribution->temperatureTotal += planet->equilibriumTempK;
+            distribution->pressureTotal += planet->surfacePressureAtm;
+            distribution->waterTotal += planet->oceanCoverage;
+            distribution->iceTotal += planet->iceCoverage;
+            distribution->windTotal += planet->windStrength;
         }
 
         int biomassTotal = 0;
@@ -291,17 +332,59 @@ static void TestGeneratedEcologyDistribution(void)
         int nonBarren = ECOLOGY_DISTRIBUTION_SEED_COUNT -
             distribution->biomass[PLANET_BIOMASS_BARREN];
         nonBarrenTotal += nonBarren;
-        if (style == SOLAR_STYLE_GAS) {
-            assert(distribution->originated == 0);
-            assert(distribution->complex == 0);
+        complexTotal += distribution->complexCount;
+        if (style == SOLAR_STYLE_LAVA) {
+            AssertRateBetween(nonBarren, ECOLOGY_DISTRIBUTION_SEED_COUNT,
+                              0.005f, 0.03f);
+            AssertRateBetween(distribution->complexCount,
+                              ECOLOGY_DISTRIBUTION_SEED_COUNT,
+                              0.0f, 0.005f);
+        } else if (style == SOLAR_STYLE_ICE ||
+                   style == SOLAR_STYLE_DESERT) {
+            AssertRateBetween(nonBarren, ECOLOGY_DISTRIBUTION_SEED_COUNT,
+                              0.05f, 0.15f);
+        } else if (style == SOLAR_STYLE_GAS) {
+            assert(distribution->originatedCount == 0);
+            assert(distribution->complexCount == 0);
             assert(nonBarren == 0);
+        } else if (style == SOLAR_STYLE_CRATER) {
+            AssertRateBetween(nonBarren, ECOLOGY_DISTRIBUTION_SEED_COUNT,
+                              0.0025f, 0.03f);
+            AssertRateBetween(distribution->complexCount,
+                              ECOLOGY_DISTRIBUTION_SEED_COUNT,
+                              0.0f, 0.005f);
+        } else if (style == SOLAR_STYLE_TEMPERATE) {
+            AssertRateBetween(distribution->originatedCount,
+                              ECOLOGY_DISTRIBUTION_SEED_COUNT,
+                              0.25f, 0.45f);
+            AssertRateBetween(distribution->complexCount,
+                              ECOLOGY_DISTRIBUTION_SEED_COUNT,
+                              0.05f, 0.12f);
         }
 
         printf("ecology distribution %-9s origin=%d complex=%d "
+               "mean-prob=%.3f/%.3f mean-density=%.3f "
+               "climate=%.0fK/%.2fatm/%.2fwater/%.2fice/%.2fwind "
                "barren=%d microbial=%d fungal=%d crystalline=%d "
                "lush=%d anomalous=%d\n",
                ecologyPropertyStyleNames[styleIndex],
-               distribution->originated, distribution->complex,
+               distribution->originatedCount, distribution->complexCount,
+               distribution->originProbabilityTotal /
+                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
+               distribution->complexProbabilityTotal /
+                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
+               distribution->lifeDensityTotal /
+                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
+               distribution->temperatureTotal /
+                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
+               distribution->pressureTotal /
+                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
+               distribution->waterTotal /
+                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
+               distribution->iceTotal /
+                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
+               distribution->windTotal /
+                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
                distribution->biomass[PLANET_BIOMASS_BARREN],
                distribution->biomass[PLANET_BIOMASS_MICROBIAL],
                distribution->biomass[PLANET_BIOMASS_FUNGAL],
@@ -312,6 +395,12 @@ static void TestGeneratedEcologyDistribution(void)
 
     fclose(fixture);
     assert(nonBarrenTotal > 0);
+    AssertRateBetween(
+        complexTotal,
+        ECOLOGY_DISTRIBUTION_SEED_COUNT *
+            (int)(sizeof(ecologyPropertyStyles) /
+                  sizeof(ecologyPropertyStyles[0])),
+        0.01f, 0.04f);
 }
 
 static void TestRandomizedCausalControls(void)
