@@ -478,9 +478,10 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     if (!PlanetWorldIsActive()) return local;
 
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
-    float sky = EcologyClamp(WeatherSkyFactor());
-    float precipitation = EcologyClamp(WeatherPrecipitationRate());
-    float storm = EcologyClamp(WeatherStormIntensity());
+    WeatherFieldSample weather = WeatherFieldSampleAtWorld(x, z);
+    float sky = EcologyClamp(WeatherFieldSkyFactor(weather));
+    float precipitation = EcologyClamp(weather.precipitation);
+    float storm = EcologyClamp(weather.storm);
     float usableDaylight = EcologyClamp(daylight * (1.0f - sky * 0.68f));
     local.environment = EcologyEnvironmentAt(
         x, z, SpaceSimulationTime(), usableDaylight, precipitation, storm,

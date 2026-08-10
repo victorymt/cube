@@ -128,6 +128,16 @@ static WeatherFieldSample WeatherManualSample(Weather weather)
     return sample;
 }
 
+WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
+{
+    if (manualTimer > 0.0f) return WeatherManualSample(manualWeather);
+
+    WeatherFieldInput input = WeatherInputAt((Vector3){
+        (float)x + 0.5f, 0.0f, (float)z + 0.5f
+    });
+    return WeatherFieldSampleAt(&input);
+}
+
 static void WeatherUpdateTypeAndAudio(void)
 {
     if (fieldSample.precipitation < 0.08f) current = WEATHER_CLEAR;
@@ -173,9 +183,7 @@ Weather WeatherGetCurrent(void)
 
 float WeatherSkyFactor(void)
 {
-    return WeatherClamp(fieldSample.cloudCover * 0.55f +
-                        fieldSample.precipitation * 0.25f +
-                        fieldSample.storm * 0.20f);
+    return WeatherFieldSkyFactor(fieldSample);
 }
 
 float WeatherCloudCover(void)

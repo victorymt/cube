@@ -135,3 +135,10 @@ WeatherFieldSample WeatherFieldSampleAt(const WeatherFieldInput *input)
         windStrength * (0.62f + gust * 0.38f) + sample.storm * 0.32f);
     return sample;
 }
+
+float WeatherFieldSkyFactor(WeatherFieldSample sample)
+{
+    return WeatherModelClamp(sample.cloudCover * 0.55f +
+                              sample.precipitation * 0.25f +
+                              sample.storm * 0.20f);
+}

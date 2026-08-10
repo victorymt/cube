@@ -1,7 +1,10 @@
+#include "ecology.h"
 #include "space.h"
 #include "space_barycenter.h"
 #include "space_physics.h"
 #include "space_units.h"
+#include "terrain.h"
+#include "weather.h"
 #include "weather_model.h"
 
 #include <assert.h>
@@ -14,10 +17,16 @@
 
 /* The production terrain hash reads the world seed through this small API. */
 static uint32_t propertyWorldSeed = DEFAULT_WORLD_SEED;
+TerrainMode terrainMode = TERRAIN_VARIED;
 
 uint32_t WorldGetSeed(void)
 {
     return propertyWorldSeed;
+}
+
+int WorldSurfaceHeightAt(int x, int z)
+{
+    return PlanetTerrainHeight(x, z);
 }
 
 static void SetPropertySeed(uint32_t seed)
@@ -425,6 +434,197 @@ static void TestHomeScaleDiagnostics(void)
     assert(scale.surfaceTemperatureK == 288.0f);
 }
 
+static void WritePlanetWorldFixture(FILE *file, uint32_t seed,
+                                    int originX, int originZ)
+{
+    uint8_t active = 1u;
+    uint32_t style = (uint32_t)SOLAR_STYLE_TEMPERATE;
+    int32_t savedOriginX = (int32_t)originX;
+    int32_t savedOriginZ = (int32_t)originZ;
+    int32_t planetIndex = 1;
+    float bodyCenter[3] = { 420.0f, -18.0f, 75.0f };
+    float returnPosition[3] = { 486.0f, -18.0f, 75.0f };
+    float proxyRadius = 62.0f;
+    char name[32] = "Ecology Replay";
+
+    assert(fwrite(&active, sizeof(active), 1, file) == 1);
+    assert(fwrite(&seed, sizeof(seed), 1, file) == 1);
+    assert(fwrite(&style, sizeof(style), 1, file) == 1);
+    assert(fwrite(&savedOriginX, sizeof(savedOriginX), 1, file) == 1);
+    assert(fwrite(&savedOriginZ, sizeof(savedOriginZ), 1, file) == 1);
+    assert(fwrite(&planetIndex, sizeof(planetIndex), 1, file) == 1);
+    assert(fwrite(bodyCenter, sizeof(bodyCenter), 1, file) == 1);
+    assert(fwrite(returnPosition, sizeof(returnPosition), 1, file) == 1);
+    assert(fwrite(&proxyRadius, sizeof(proxyRadius), 1, file) == 1);
+    assert(fwrite(name, sizeof(name), 1, file) == 1);
+}
+
+static void ActivateEcologyPlanet(uint32_t seed, int originX, int originZ)
+{
+    FILE *file = tmpfile();
+    assert(file);
+    WritePlanetWorldFixture(file, seed, originX, originZ);
+    rewind(file);
+    assert(PlanetWorldLoadState(file));
+    fclose(file);
+    assert(PlanetWorldIsActive());
+    assert(PlanetWorldSeed() == seed);
+    assert(PlanetWorldOriginX() == originX);
+    assert(PlanetWorldOriginZ() == originZ);
+}
+
+static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
+                                    PlanetLocalEcology expected)
+{
+    assert(memcmp(&actual.environment, &expected.environment,
+                  sizeof(actual.environment)) == 0);
+    assert(memcmp(&actual.suitability, &expected.suitability,
+                  sizeof(actual.suitability)) == 0);
+}
+
+static float WeatherSampleDistance(WeatherFieldSample left,
+                                   WeatherFieldSample right)
+{
+    return fabsf(left.cloudCover - right.cloudCover) +
+           fabsf(left.precipitation - right.precipitation) +
+           fabsf(left.rain - right.rain) +
+           fabsf(left.snow - right.snow) +
+           fabsf(left.storm - right.storm) +
+           fabsf(left.wind - right.wind);
+}
+
+static void TestEcologyUsesPositionLocalWeather(void)
+{
+    const uint32_t seed = 0x6c8e9cf5u;
+    SetPropertySeed(seed);
+    ActivateEcologyPlanet(seed, 317, -911);
+    SpaceAdvanceTime(87.25f);
+
+    int wetX = 0;
+    int wetZ = 0;
+    WeatherFieldSample wetWeather = { 0 };
+    bool foundWetCell = false;
+    for (int index = 0; index < 512; index++) {
+        int x = index * 37 - 4096;
+        int z = ((index * index * 53) % 8192) - 4096;
+        WeatherFieldSample sample = WeatherFieldSampleAtWorld(x, z);
+        if (sample.precipitation > 0.12f) {
+            wetX = x;
+            wetZ = z;
+            wetWeather = sample;
+            foundWetCell = true;
+            break;
+        }
+    }
+    assert(foundWetCell);
+    assert(WeatherPrecipitationRate() == 0.0f);
+
+    PlanetLocalEcology local = PlanetEcologyLocalAt(wetX, wetZ, 0.84f);
+    assert(local.environment.precipitationRate == wetWeather.precipitation);
+    assert(local.environment.currentStorm == wetWeather.storm);
+
+    float sky = WeatherFieldSkyFactor(wetWeather);
+    float usableDaylight = fmaxf(0.0f, fminf(1.0f,
+        0.84f * (1.0f - sky * 0.68f)));
+    float expectedLight = fmaxf(0.0f, fminf(1.0f,
+        usableDaylight * (float)PlanetWorldProfile()->receivedIrradiance));
+    assert(fabsf(local.environment.currentUsableLight - expectedLight) < 0.00001f);
+
+    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(wetX, wetZ);
+    PlanetLocalEcology replay = PlanetEcologyLocalAt(wetX, wetZ, 0.84f);
+    assert(memcmp(&wetWeather, &replayWeather, sizeof(wetWeather)) == 0);
+    AssertLocalEcologyEqual(replay, local);
+}
+
+static void TestEcologyCrossSeedReplay(void)
+{
+    WeatherFieldSample previousWeather = { 0 };
+    int distinctWeatherCount = 0;
+    for (int index = 0; index < 64; index++) {
+        uint32_t seed = 0x9e3779b9u * (uint32_t)(index + 1) ^ 0x61c88647u;
+        int originX = index * 113 - 3500;
+        int originZ = 2800 - index * 89;
+        int sampleX = ((index * 997) % 7000) - 3500;
+        int sampleZ = ((index * index * 131) % 7000) - 3500;
+        SetPropertySeed(seed);
+        ActivateEcologyPlanet(seed, originX, originZ);
+
+        WeatherFieldSample firstWeather = WeatherFieldSampleAtWorld(
+            sampleX, sampleZ);
+        PlanetLocalEcology firstEcology = PlanetEcologyLocalAt(
+            sampleX, sampleZ, 0.66f);
+        ActivateEcologyPlanet(seed, originX, originZ);
+        WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(
+            sampleX, sampleZ);
+        PlanetLocalEcology replayEcology = PlanetEcologyLocalAt(
+            sampleX, sampleZ, 0.66f);
+
+        assert(memcmp(&firstWeather, &replayWeather,
+                      sizeof(firstWeather)) == 0);
+        AssertLocalEcologyEqual(replayEcology, firstEcology);
+        assert(firstEcology.environment.precipitationRate ==
+               firstWeather.precipitation);
+        assert(firstEcology.environment.currentStorm == firstWeather.storm);
+        if (index > 0 &&
+            WeatherSampleDistance(previousWeather, firstWeather) > 0.001f) {
+            distinctWeatherCount++;
+        }
+        previousWeather = firstWeather;
+    }
+    assert(distinctWeatherCount > 48);
+}
+
+static void TestEcologySaveLoadReplay(void)
+{
+    const uint32_t seed = 0x2468ace0u;
+    const int sampleX = 725;
+    const int sampleZ = -1384;
+    SetPropertySeed(seed);
+    ActivateEcologyPlanet(seed, -2048, 1024);
+    SpaceAdvanceTime(163.5f);
+
+    FILE *file = tmpfile();
+    assert(file);
+    assert(fwrite(&seed, sizeof(seed), 1, file) == 1);
+    assert(SpaceSaveState(file));
+    assert(PlanetWorldSaveState(file));
+
+    WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
+    PlanetLocalEcology beforeEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+
+    SetPropertySeed(0xdeadbeefu);
+    ActivateEcologyPlanet(0xdeadbeefu, 99, -77);
+    SpaceAdvanceTime(41.0f);
+    rewind(file);
+    uint32_t loadedSeed = 0;
+    assert(fread(&loadedSeed, sizeof(loadedSeed), 1, file) == 1);
+    SetPropertySeed(loadedSeed);
+    assert(SpaceLoadState(file));
+    assert(PlanetWorldLoadState(file));
+
+    WeatherFieldSample afterWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
+    PlanetLocalEcology afterEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+    assert(memcmp(&beforeWeather, &afterWeather, sizeof(beforeWeather)) == 0);
+    AssertLocalEcologyEqual(afterEcology, beforeEcology);
+
+    SpaceAdvanceTime(19.75f);
+    WeatherFieldSample continuedWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
+    PlanetLocalEcology continuedEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+
+    rewind(file);
+    assert(fread(&loadedSeed, sizeof(loadedSeed), 1, file) == 1);
+    SetPropertySeed(loadedSeed);
+    assert(SpaceLoadState(file));
+    assert(PlanetWorldLoadState(file));
+    SpaceAdvanceTime(19.75f);
+    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
+    PlanetLocalEcology replayEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+    assert(memcmp(&continuedWeather, &replayWeather,
+                  sizeof(continuedWeather)) == 0);
+    AssertLocalEcologyEqual(replayEcology, continuedEcology);
+    fclose(file);
+}
+
 static void TestSaveLoadTimeDeterminism(void)
 {
     const uint32_t seed = 0x2468ace0u;
@@ -523,6 +723,9 @@ int main(void)
     TestHomeScaleDiagnostics();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
+    TestEcologyUsesPositionLocalWeather();
+    TestEcologyCrossSeedReplay();
+    TestEcologySaveLoadReplay();
     puts("space properties tests passed");
     return 0;
 }

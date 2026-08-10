@@ -57,6 +57,29 @@ static void TestDeterministicSampling(void)
     AssertValid(first);
 }
 
+static void TestSkyFactorUsesLocalWeather(void)
+{
+    WeatherFieldSample clear = { 0 };
+    clear.cloudCover = 0.20f;
+    WeatherFieldSample storm = clear;
+    storm.cloudCover = 0.90f;
+    storm.precipitation = 0.80f;
+    storm.storm = 0.70f;
+
+    float clearFactor = WeatherFieldSkyFactor(clear);
+    float stormFactor = WeatherFieldSkyFactor(storm);
+    AssertUnit(clearFactor);
+    AssertUnit(stormFactor);
+    assert(fabsf(clearFactor - 0.11f) < 0.00001f);
+    assert(stormFactor > clearFactor + 0.70f);
+
+    WeatherFieldSample invalidRange = { 0 };
+    invalidRange.cloudCover = 4.0f;
+    invalidRange.precipitation = 4.0f;
+    invalidRange.storm = 4.0f;
+    assert(WeatherFieldSkyFactor(invalidRange) == 1.0f);
+}
+
 static void TestSpatialAndTemporalContinuity(void)
 {
     WeatherFieldInput input = TemperateInput();
@@ -184,6 +207,7 @@ static void TestInvalidInputReturnsClearWeather(void)
 int main(void)
 {
     TestDeterministicSampling();
+    TestSkyFactorUsesLocalWeather();
     TestSpatialAndTemporalContinuity();
     TestWeatherVariesAcrossSpaceAndTime();
     TestTemperatureSelectsRainOrSnow();

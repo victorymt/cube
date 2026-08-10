@@ -69,8 +69,8 @@ $(SPACE_SATELLITE_TEST_TARGET): tests/test_space_satellite.c src/space_satellite
 $(SPACE_UNITS_TEST_TARGET): tests/test_space_units.c src/space_units.c src/space_units.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_space_units.c src/space_units.c -lm
 
-$(SPACE_PROPERTIES_TEST_TARGET): tests/test_space_properties.c src/space.c src/space.h src/space_barycenter.c src/space_barycenter.h src/planet_climate.c src/planet_climate.h src/space_physics.c src/space_physics.h src/space_satellite.c src/space_satellite.h src/space_units.c src/space_units.h src/stellar.c src/stellar.h src/terrain.c src/terrain.h src/chunks.c src/chunks.h src/weather_model.c src/weather_model.h
-	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_space_properties.c src/space.c src/space_barycenter.c src/planet_climate.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/terrain.c src/chunks.c src/weather_model.c -lm -pthread
+$(SPACE_PROPERTIES_TEST_TARGET): tests/test_space_properties.c src/space.c src/space.h src/space_barycenter.c src/space_barycenter.h src/planet_climate.c src/planet_climate.h src/planet_surface.c src/planet_surface.h src/space_physics.c src/space_physics.h src/space_satellite.c src/space_satellite.h src/space_units.c src/space_units.h src/stellar.c src/stellar.h src/terrain.c src/terrain.h src/chunks.c src/chunks.h src/ecology.c src/ecology.h src/ecology_model.c src/ecology_model.h src/weather.c src/weather.h src/weather_model.c src/weather_model.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_space_properties.c src/space.c src/space_barycenter.c src/planet_climate.c src/planet_surface.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/terrain.c src/chunks.c src/ecology.c src/ecology_model.c src/weather.c src/weather_model.c -lm -pthread
 
 $(STELLAR_TEST_TARGET): tests/test_stellar.c src/stellar.c src/stellar.h src/space_units.c src/space_units.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_stellar.c src/stellar.c src/space_units.c -lm

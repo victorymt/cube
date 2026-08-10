@@ -25,5 +25,6 @@ typedef struct WeatherFieldSample {
 } WeatherFieldSample;
 
 WeatherFieldSample WeatherFieldSampleAt(const WeatherFieldInput *input);
+float WeatherFieldSkyFactor(WeatherFieldSample sample);
 
 #endif

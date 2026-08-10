@@ -14,6 +14,8 @@ void WeatherInit(void);
 void WeatherUpdate(float dt, Vector3 playerPosition);
 void WeatherSuspend(void);
 Weather WeatherGetCurrent(void);
+/* Sample the deterministic weather field at a local world cell. */
+WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z);
 float WeatherSkyFactor(void);
 float WeatherCloudCover(void);
 float WeatherPrecipitationRate(void);
