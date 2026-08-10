@@ -1,3 +1,4 @@
+#include "chunks.h"
 #include "ecology.h"
 #include "space.h"
 #include "space_barycenter.h"
@@ -11,6 +12,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define TEST_PI 3.14159265358979323846
@@ -27,6 +29,70 @@ uint32_t WorldGetSeed(void)
 int WorldSurfaceHeightAt(int x, int z)
 {
     return PlanetTerrainHeight(x, z);
+}
+
+int WorldGetEditCount(void)
+{
+    return 0;
+}
+
+bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
+{
+    (void)index;
+    (void)outEdit;
+    return false;
+}
+
+float TorchLightAtBlockNearby(int x, int y, int z,
+                              const int *indices, int count)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)indices;
+    (void)count;
+    return 0.0f;
+}
+
+bool IsColorBlock(BlockType type)
+{
+    return type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END;
+}
+
+int ColorBlockIndex(BlockType type)
+{
+    return IsColorBlock(type) ? (int)type - BLOCK_COLOR_START : -1;
+}
+
+Color ColorPalette256(int index)
+{
+    unsigned char value = (unsigned char)(index & 0xff);
+    return (Color){ value, value, value, 255 };
+}
+
+bool IsTranslucentBlock(BlockType type)
+{
+    return type == BLOCK_AIR || type == BLOCK_GLASS ||
+           type == BLOCK_WATER || type == BLOCK_ICE ||
+           type == BLOCK_FLOWER || type == BLOCK_MUSHROOM ||
+           type == BLOCK_GLASS_PANE || type == BLOCK_NETHER_PORTAL;
+}
+
+BlockType GetBlockAt(int x, int y, int z)
+{
+    return GetBlock(x, y, z);
+}
+
+void PlanetPoiApplyToChunk(Chunk *chunk, int cx, int cz)
+{
+    (void)chunk;
+    (void)cx;
+    (void)cz;
+}
+
+void UnloadModel(Model model)
+{
+    (void)model;
 }
 
 static void SetPropertySeed(uint32_t seed)
@@ -712,6 +778,187 @@ static void TestEcologySaveLoadReplay(void)
     fclose(file);
 }
 
+typedef struct ChunkBlockSnapshot {
+    int cx;
+    int cz;
+    unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+} ChunkBlockSnapshot;
+
+static void FreeCpuMesh(Mesh *mesh)
+{
+    free(mesh->vertices);
+    free(mesh->texcoords);
+    free(mesh->normals);
+    free(mesh->colors);
+    *mesh = (Mesh){ 0 };
+}
+
+static void AssertMeshEqual(const Mesh *actual, const Mesh *expected)
+{
+    assert(actual->vertexCount == expected->vertexCount);
+    assert(actual->triangleCount == expected->triangleCount);
+    size_t vertexCount = (size_t)actual->vertexCount;
+    assert(memcmp(actual->vertices, expected->vertices,
+                  vertexCount * 3u * sizeof(float)) == 0);
+    assert(memcmp(actual->texcoords, expected->texcoords,
+                  vertexCount * 2u * sizeof(float)) == 0);
+    assert(memcmp(actual->normals, expected->normals,
+                  vertexCount * 3u * sizeof(float)) == 0);
+    assert(memcmp(actual->colors, expected->colors,
+                  vertexCount * 4u * sizeof(unsigned char)) == 0);
+}
+
+static bool BuildChunkFloraMesh(const Chunk *chunk, Mesh *outMesh)
+{
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    return BuildFloraMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+        WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces, NULL, 0, outMesh);
+}
+
+static bool ChunkContainsFlora(const Chunk *chunk)
+{
+    for (int x = 0; x < CHUNK_SIZE; x++) {
+        for (int y = 0; y < WORLD_HEIGHT; y++) {
+            for (int z = 0; z < CHUNK_SIZE; z++) {
+                BlockType type = (BlockType)chunk->blocks[x][y][z];
+                if (type == BLOCK_FLOWER || type == BLOCK_MUSHROOM) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+static Vector3 FindFloraGenerationCenter(uint32_t *outSeed)
+{
+    for (uint32_t seedIndex = 0; seedIndex < 512u; seedIndex++) {
+        uint32_t seed = 0x51a7e5edu + seedIndex * 0x9e3779b9u;
+        SetPropertySeed(seed);
+        PlanetEcologyResetState();
+        ActivateEcologyPlanet(seed, 317, -911);
+        PlanetEcologyProfile ecology = PlanetEcologyCurrent();
+        if (ecology.floraDensity <= 0.08f) continue;
+
+        Chunk probe = { 0 };
+        for (int radius = 0; radius <= 12; radius++) {
+            for (int cz = -radius; cz <= radius; cz++) {
+                for (int cx = -radius; cx <= radius; cx++) {
+                    if (radius > 0 && abs(cx) != radius &&
+                        abs(cz) != radius) {
+                        continue;
+                    }
+                    GenerateChunkTerrain(&probe, cx, cz, terrainMode);
+                    if (ChunkContainsFlora(&probe)) {
+                        *outSeed = seed;
+                        return (Vector3){
+                            (float)(cx * CHUNK_SIZE) + 0.5f,
+                            18.0f,
+                            (float)(cz * CHUNK_SIZE) + 0.5f
+                        };
+                    }
+                }
+            }
+        }
+    }
+    assert(false);
+    return (Vector3){ 0 };
+}
+
+static void TestChunkUnloadReloadDeterminism(void)
+{
+    const int expectedChunkCount =
+        (MIN_RENDER_DISTANCE_CHUNKS * 2 + 1) *
+        (MIN_RENDER_DISTANCE_CHUNKS * 2 + 1);
+    uint32_t seed = 0;
+    Vector3 playerPosition = FindFloraGenerationCenter(&seed);
+    assert(seed != 0u);
+    assert(WorldGetSeed() == seed);
+    assert(ChunksStartGenThread());
+
+    UpdateChunks(playerPosition, MIN_RENDER_DISTANCE_CHUNKS);
+    DrainChunkGen();
+    assert(GetActiveChunkCount() == expectedChunkCount);
+
+    ChunkBlockSnapshot *snapshots = calloc(
+        (size_t)expectedChunkCount, sizeof(*snapshots));
+    assert(snapshots);
+    int snapshotCount = 0;
+    Chunk *floraChunk = NULL;
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        Chunk *chunk = &chunks[index];
+        if (!chunk->loaded) continue;
+        assert(!chunk->generating);
+        assert(!chunk->hasModel && !chunk->hasWaterModel &&
+               !chunk->hasFloraModel);
+        assert(chunk->floraTargetScales == NULL);
+        assert(chunk->floraTargetWind == NULL);
+        assert(chunk->floraTargetPresence == NULL);
+        assert(chunk->floraBaseColors == NULL);
+        ChunkBlockSnapshot *snapshot = &snapshots[snapshotCount++];
+        snapshot->cx = chunk->cx;
+        snapshot->cz = chunk->cz;
+        memcpy(snapshot->blocks, chunk->blocks, sizeof(snapshot->blocks));
+        if (!floraChunk && ChunkContainsFlora(chunk)) floraChunk = chunk;
+    }
+    assert(snapshotCount == expectedChunkCount);
+    assert(floraChunk);
+    int floraCx = floraChunk->cx;
+    int floraCz = floraChunk->cz;
+    Mesh firstFloraMesh = { 0 };
+    assert(BuildChunkFloraMesh(floraChunk, &firstFloraMesh));
+    assert(firstFloraMesh.vertexCount > 0);
+    assert(firstFloraMesh.vertexCount % 12 == 0);
+
+    floraChunk->floraTargetScales = malloc(sizeof(float));
+    floraChunk->floraTargetWind = malloc(sizeof(float));
+    floraChunk->floraTargetPresence = malloc(sizeof(float));
+    floraChunk->floraBaseColors = malloc(4u);
+    floraChunk->floraTargetScaleCount = 1;
+    assert(floraChunk->floraTargetScales && floraChunk->floraTargetWind &&
+           floraChunk->floraTargetPresence && floraChunk->floraBaseColors);
+
+    UnloadAllChunks();
+    assert(GetActiveChunkCount() == 0);
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        assert(!chunks[index].loaded);
+        assert(!chunks[index].dirty);
+        assert(chunks[index].floraTargetScales == NULL);
+        assert(chunks[index].floraTargetWind == NULL);
+        assert(chunks[index].floraTargetPresence == NULL);
+        assert(chunks[index].floraBaseColors == NULL);
+        assert(chunks[index].floraTargetScaleCount == 0);
+        memset(chunks[index].blocks, 0xa5, sizeof(chunks[index].blocks));
+    }
+
+    UpdateChunks(playerPosition, MIN_RENDER_DISTANCE_CHUNKS);
+    DrainChunkGen();
+    assert(GetActiveChunkCount() == expectedChunkCount);
+    for (int index = 0; index < snapshotCount; index++) {
+        Chunk *chunk = FindChunk(snapshots[index].cx, snapshots[index].cz);
+        assert(chunk);
+        assert(!chunk->generating);
+        assert(memcmp(chunk->blocks, snapshots[index].blocks,
+                      sizeof(chunk->blocks)) == 0);
+    }
+
+    Chunk *reloadedFloraChunk = FindChunk(floraCx, floraCz);
+    assert(reloadedFloraChunk);
+    Mesh secondFloraMesh = { 0 };
+    assert(BuildChunkFloraMesh(reloadedFloraChunk, &secondFloraMesh));
+    AssertMeshEqual(&secondFloraMesh, &firstFloraMesh);
+
+    FreeCpuMesh(&secondFloraMesh);
+    FreeCpuMesh(&firstFloraMesh);
+    free(snapshots);
+    UnloadAllChunks();
+    ChunksShutdownGenThread();
+}
+
 static void TestSaveLoadTimeDeterminism(void)
 {
     const uint32_t seed = 0x2468ace0u;
@@ -814,6 +1061,7 @@ int main(void)
     TestEcologyCacheInvalidation();
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();
+    TestChunkUnloadReloadDeterminism();
     puts("space properties tests passed");
     return 0;
 }
