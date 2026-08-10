@@ -106,6 +106,47 @@ static void AssertPlanetProfileEqual(const PlanetProfile *actual,
 #undef ASSERT_PLANET_FIELD
 }
 
+static unsigned char *CapturePlanetWorldState(size_t *outSize)
+{
+    assert(outSize);
+    FILE *file = tmpfile();
+    assert(file);
+    assert(PlanetWorldSaveState(file));
+    long end = ftell(file);
+    assert(end > 0);
+    *outSize = (size_t)end;
+    unsigned char *bytes = malloc(*outSize);
+    assert(bytes);
+    rewind(file);
+    assert(fread(bytes, 1, *outSize, file) == *outSize);
+    fclose(file);
+    return bytes;
+}
+
+static bool LoadPlanetWorldBytes(const unsigned char *bytes, size_t size)
+{
+    FILE *file = tmpfile();
+    assert(file);
+    if (size > 0) {
+        assert(bytes);
+        assert(fwrite(bytes, 1, size, file) == size);
+    }
+    rewind(file);
+    bool loaded = PlanetWorldLoadState(file);
+    fclose(file);
+    return loaded;
+}
+
+static void AssertPlanetWorldStateEqual(const unsigned char *expected,
+                                        size_t expectedSize)
+{
+    size_t actualSize = 0;
+    unsigned char *actual = CapturePlanetWorldState(&actualSize);
+    assert(actualSize == expectedSize);
+    assert(memcmp(actual, expected, expectedSize) == 0);
+    free(actual);
+}
+
 static bool LocalEcologyDiffers(PlanetLocalEcology left,
                                 PlanetLocalEcology right)
 {
@@ -428,6 +469,69 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
 
     fclose(stateFile);
     fclose(activationFile);
+}
+
+static void TestPlanetWorldStateCompatibilityAndAtomicity(void)
+{
+    const uint32_t legacySeed = 0x7a31c95du;
+    EcologyTestSetSeed(legacySeed);
+    EcologyTestActivatePlanetStyle(
+        legacySeed, -341, 829, SOLAR_STYLE_DESERT);
+    PlanetProfile legacyProfile = *PlanetWorldProfile();
+    size_t upgradedSize = 0;
+    unsigned char *upgraded = CapturePlanetWorldState(&upgradedSize);
+    assert(upgradedSize > 2u);
+    assert(upgraded[0] == 2u);
+
+    EcologyTestActivatePlanet(0xdeadbeefu, 11, -17);
+    assert(LoadPlanetWorldBytes(upgraded, upgradedSize));
+    AssertPlanetProfileEqual(PlanetWorldProfile(), &legacyProfile);
+    AssertPlanetWorldStateEqual(upgraded, upgradedSize);
+
+    const uint32_t galaxySeed = 0x2468ace0u;
+    EcologyTestSetSeed(galaxySeed);
+    SolarSystemDef system;
+    assert(StarSystemAt(3, -4, &system));
+    FILE *fixture = tmpfile();
+    assert(fixture);
+    EcologyTestActivateGeneratedPlanetWithFile(
+        fixture, &system, 0, 137, -619);
+    fclose(fixture);
+
+    size_t baselineSize = 0;
+    unsigned char *baseline = CapturePlanetWorldState(&baselineSize);
+    for (size_t truncatedSize = 0; truncatedSize < baselineSize;
+         truncatedSize++) {
+        assert(!LoadPlanetWorldBytes(baseline, truncatedSize));
+        AssertPlanetWorldStateEqual(baseline, baselineSize);
+    }
+
+    unsigned char *corrupt = malloc(baselineSize);
+    assert(corrupt);
+    memcpy(corrupt, baseline, baselineSize);
+    corrupt[0] = 3u;
+    assert(!LoadPlanetWorldBytes(corrupt, baselineSize));
+    AssertPlanetWorldStateEqual(baseline, baselineSize);
+
+    const size_t profileOffset =
+        sizeof(uint8_t) * 2u + sizeof(uint32_t) * 2u +
+        sizeof(int32_t) * 3u + sizeof(float) * 7u + 32u;
+    assert(profileOffset + sizeof(uint32_t) <= baselineSize);
+    memcpy(corrupt, baseline, baselineSize);
+    uint32_t mismatchedSeed = PlanetWorldSeed() ^ 0x9e3779b9u;
+    memcpy(corrupt + profileOffset, &mismatchedSeed,
+           sizeof(mismatchedSeed));
+    assert(!LoadPlanetWorldBytes(corrupt, baselineSize));
+    AssertPlanetWorldStateEqual(baseline, baselineSize);
+
+    memcpy(corrupt, baseline, baselineSize);
+    corrupt[baselineSize - 1u] = 2u;
+    assert(!LoadPlanetWorldBytes(corrupt, baselineSize));
+    AssertPlanetWorldStateEqual(baseline, baselineSize);
+
+    free(corrupt);
+    free(baseline);
+    free(upgraded);
 }
 
 static void TestEcologyMigrationOrderAndTimePartition(void)
@@ -1129,6 +1233,7 @@ int main(void)
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();
     TestGeneratedPlanetProfileSaveLoadReplay();
+    TestPlanetWorldStateCompatibilityAndAtomicity();
     TestEcologyMigrationOrderAndTimePartition();
     TestEcologyPlayerEditDisturbance();
     TestEcologyLegacyPopulationStateLoad();
