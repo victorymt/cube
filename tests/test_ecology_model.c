@@ -533,6 +533,63 @@ static void TestPopulationDeterminismAndFoodChain(void)
     assert(foodPoor.faunaDensity < foodRich.faunaDensity);
 }
 
+static void TestPopulationDisturbanceAndRecovery(void)
+{
+    PlanetPopulationInput healthyInput = {
+        .floraCapacity = 0.84f,
+        .faunaCapacity = 0.66f,
+        .floraActivity = 0.78f,
+        .faunaActivity = 0.58f
+    };
+    PlanetRegionalPopulation healthy = PlanetPopulationInitialize(
+        &healthyInput, 0.88f, 0.76f);
+    PlanetRegionalPopulation undisturbed = healthy;
+    PlanetRegionalPopulation damaged = healthy;
+    PlanetPopulationApplyDisturbance(&undisturbed, 0.0f, 0.0f, 240.0);
+    PlanetPopulationApplyDisturbance(&damaged, 1.0f, 1.0f, 240.0);
+    assert(memcmp(&undisturbed, &healthy, sizeof(healthy)) == 0);
+    AssertPopulationValid(damaged);
+    assert(damaged.floraDensity < healthy.floraDensity);
+    assert(damaged.faunaDensity < healthy.faunaDensity);
+    assert(damaged.faunaDensity < healthy.faunaDensity * 0.55f);
+
+    PlanetRegionalPopulation recovering = damaged;
+    for (int step = 0; step < 8; step++) {
+        PlanetPopulationAdvance(&recovering, &healthyInput, 120.0);
+        PlanetPopulationApplyDisturbance(&recovering, 0.0f, 0.0f, 120.0);
+    }
+    assert(recovering.floraDensity > damaged.floraDensity);
+    assert(recovering.faunaDensity > damaged.faunaDensity);
+    assert(recovering.faunaDensity <= recovering.faunaCarryingCapacity);
+
+    PlanetRegionalPopulation invalid = healthy;
+    PlanetPopulationApplyDisturbance(&invalid, NAN, INFINITY, 120.0);
+    AssertPopulationValid(invalid);
+    PlanetRegionalPopulation unchanged = healthy;
+    PlanetPopulationApplyDisturbance(&unchanged, 1.0f, 1.0f, 0.0);
+    assert(memcmp(&unchanged, &healthy, sizeof(healthy)) == 0);
+}
+
+static void TestRandomizedPopulationDisturbanceProperties(void)
+{
+    uint32_t state = 0xa6d2b79fu;
+    for (int sample = 0; sample < 10000; sample++) {
+        PlanetPopulationInput input = {
+            .floraCapacity = TestUnit(&state),
+            .faunaCapacity = TestUnit(&state),
+            .floraActivity = TestUnit(&state),
+            .faunaActivity = TestUnit(&state)
+        };
+        PlanetRegionalPopulation population = PlanetPopulationInitialize(
+            &input, TestUnit(&state), TestUnit(&state));
+        PlanetPopulationApplyDisturbance(
+            &population, TestUnit(&state) * 1.4f - 0.2f,
+            TestUnit(&state) * 1.4f - 0.2f,
+            (double)TestUnit(&state) * 2000.0);
+        AssertPopulationValid(population);
+    }
+}
+
 static void AssertMigrationFluxValid(PlanetPopulationMigrationFlux flux)
 {
     assert(isfinite(flux.flora));
@@ -865,6 +922,8 @@ int main(void)
     TestPopulationRecoveryAndMortality();
     TestPopulationSeasonalLag();
     TestPopulationDeterminismAndFoodChain();
+    TestPopulationDisturbanceAndRecovery();
+    TestRandomizedPopulationDisturbanceProperties();
     TestPopulationMigrationDrivers();
     TestRandomizedPopulationMigrationProperties();
     TestRandomizedPopulationProperties();

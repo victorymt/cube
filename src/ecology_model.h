@@ -158,6 +158,9 @@ PlanetRegionalPopulation PlanetPopulationInitialize(
 void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
                              const PlanetPopulationInput *input,
                              double elapsedTime);
+void PlanetPopulationApplyDisturbance(
+    PlanetRegionalPopulation *population, float floraStress,
+    float faunaStress, double elapsedTime);
 float PlanetPopulationFloraPresence(
     const PlanetRegionalPopulation *population);
 float PlanetPopulationFaunaPresence(

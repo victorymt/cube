@@ -364,6 +364,23 @@ void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
         EcologyModelResponseAlpha(elapsedTime, faunaTimeConstant));
 }
 
+void PlanetPopulationApplyDisturbance(
+    PlanetRegionalPopulation *population, float floraStress,
+    float faunaStress, double elapsedTime)
+{
+    if (!population || !isfinite(elapsedTime) || elapsedTime <= 0.0) return;
+    float floraDamage = EcologyModelFiniteUnit(floraStress);
+    float faunaDamage = EcologyModelFiniteUnit(faunaStress);
+    float floraAlpha = EcologyModelResponseAlpha(elapsedTime, 180.0f);
+    float faunaAlpha = EcologyModelResponseAlpha(elapsedTime, 120.0f);
+    population->floraDensity = EcologyModelFiniteUnit(
+        population->floraDensity) *
+        (1.0f - floraDamage * floraAlpha * 0.78f);
+    population->faunaDensity = EcologyModelFiniteUnit(
+        population->faunaDensity) *
+        (1.0f - faunaDamage * faunaAlpha * 0.92f);
+}
+
 float PlanetPopulationFloraPresence(
     const PlanetRegionalPopulation *population)
 {
