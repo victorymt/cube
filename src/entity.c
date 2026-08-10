@@ -359,9 +359,10 @@ static void SpawnPassive(const Player *player, float daylight)
     if (alienWorld) {
         localEcology = PlanetEcologyLocalAt(gx, gz, daylight);
         float faunaActivity = localEcology.suitability.faunaActivity;
-        if (faunaActivity <= 0.0f ||
-            EntityRandomBounded(1000u) >=
-                (int)(faunaActivity * 1000.0f)) return;
+        if (!PlanetFaunaSpawnAccepted(
+                faunaActivity, (uint32_t)EntityRandomBounded(1000u))) {
+            return;
+        }
     }
     if (alienWorld && !ecology.supportsFlight && !PlanetBiomeSupportsFauna(gx, gz) &&
         ecology.niche != PLANET_NICHE_CRYSTAL_GRAZER) return;
@@ -546,55 +547,45 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
         ? PlanetEcologyWindDrift(entity->ecologyWindStrength,
                                  entity->airborne)
         : 0.0f;
-    bool seekingHabitat = false;
 
     entity->thinkTimer -= dt;
     if (entity->thinkTimer <= 0.0f) {
-        entity->thinkTimer = 2.0f +
+        float baseThinkInterval = 2.0f +
             (float)EntityRandomBounded(300u) / 100.0f;
-        if (alien) {
-            entity->thinkTimer *= 1.0f + (1.0f - runtime.activityRatio) * 1.5f;
+        PlanetHabitatChoice habitat = { 0 };
+        if (alien && !threatened && !entity->colony &&
+            runtime.activityRatio < 0.72f) {
+            habitat = AlienHabitatChoiceAt(entity, daylight);
         }
-        if (threatened) {
-            entity->yaw = atan2f(-toPlayer.x, -toPlayer.z);
-            entity->moveTimer = 0.8f;
-        } else {
-            if (alien && !entity->colony && runtime.activityRatio < 0.72f) {
-                PlanetHabitatChoice choice = AlienHabitatChoiceAt(entity, daylight);
-                if (choice.shouldSeek) {
-                    float dx = 0.0f;
-                    float dz = 0.0f;
-                    switch (choice.direction) {
-                    case PLANET_HABITAT_NORTH: dz = -1.0f; break;
-                    case PLANET_HABITAT_EAST:  dx = 1.0f; break;
-                    case PLANET_HABITAT_SOUTH: dz = 1.0f; break;
-                    case PLANET_HABITAT_WEST:  dx = -1.0f; break;
-                    case PLANET_HABITAT_NONE:
-                    default: break;
-                    }
-                    entity->yaw = atan2f(dx, dz);
-                    entity->moveTimer = 1.15f + choice.improvement * 1.4f;
-                    movementScale = fmaxf(movementScale, 0.22f);
-                    speed = baseSpeed * movementScale;
-                    seekingHabitat = true;
-                }
-            }
-            if (!seekingHabitat) {
-                if (entity->colony || (alien && runtime.dormant)) {
-                    entity->moveTimer = 0.0f;
-                } else if (EntityRandomBounded(100u) <
-                           (alien ? 15 + (int)(runtime.activityRatio * 40.0f) : 55)) {
-                    entity->yaw = (float)EntityRandomBounded(628u) / 100.0f;
-                    entity->moveTimer = 1.0f +
-                        (float)EntityRandomBounded(200u) / 100.0f;
-                    if (alien) {
-                        entity->moveTimer *= 0.45f + runtime.activityRatio * 0.55f;
-                    }
-                } else {
-                    entity->moveTimer = 0.0f;
-                }
+        PlanetFaunaBehaviorInput behaviorInput = {
+            .runtime = runtime,
+            .habitat = habitat,
+            .fleeYaw = atan2f(-toPlayer.x, -toPlayer.z),
+            .baseThinkInterval = baseThinkInterval,
+            .colony = entity->colony,
+            .threatened = threatened
+        };
+        PlanetFaunaBehaviorDecision decision =
+            PlanetFaunaChooseBehavior(&behaviorInput);
+        if (decision.behavior == PLANET_FAUNA_BEHAVIOR_WANDER) {
+            behaviorInput.wanderRoll =
+                (uint32_t)EntityRandomBounded(100u);
+            decision = PlanetFaunaChooseBehavior(&behaviorInput);
+            if (decision.behavior == PLANET_FAUNA_BEHAVIOR_WANDER) {
+                behaviorInput.wanderYaw =
+                    (float)EntityRandomBounded(628u) / 100.0f;
+                behaviorInput.baseWanderDuration = 1.0f +
+                    (float)EntityRandomBounded(200u) / 100.0f;
+                decision = PlanetFaunaChooseBehavior(&behaviorInput);
             }
         }
+        entity->thinkTimer = decision.thinkInterval;
+        entity->moveTimer = decision.moveDuration;
+        if (decision.behavior != PLANET_FAUNA_BEHAVIOR_IDLE) {
+            entity->yaw = decision.yaw;
+        }
+        movementScale = fmaxf(movementScale, decision.movementFloor);
+        speed = baseSpeed * movementScale;
     }
 
     float animationScale = alien ? runtime.animationScale : 1.0f;
@@ -678,8 +669,8 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
             int playerZ = (int)floorf(player->position.z);
             float localFauna = PlanetEcologyFaunaDensityAt(
                 playerX, playerZ, daylight);
-            populationCap = localFauna > 0.0f
-                ? 1 + (int)(localFauna * 20.0f) : 0;
+            populationCap = PlanetFaunaPopulationCap(
+                localFauna, MAX_ENTITIES - 4);
         }
         int activeCount = GetActiveEntityCount();
         if (activeCount < populationCap) {

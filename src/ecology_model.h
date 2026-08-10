@@ -139,6 +139,33 @@ typedef struct PlanetHabitatChoice {
     bool shouldSeek;
 } PlanetHabitatChoice;
 
+typedef enum PlanetFaunaBehavior {
+    PLANET_FAUNA_BEHAVIOR_IDLE = 0,
+    PLANET_FAUNA_BEHAVIOR_WANDER,
+    PLANET_FAUNA_BEHAVIOR_SEEK_HABITAT,
+    PLANET_FAUNA_BEHAVIOR_FLEE
+} PlanetFaunaBehavior;
+
+typedef struct PlanetFaunaBehaviorInput {
+    PlanetFaunaRuntimeState runtime;
+    PlanetHabitatChoice habitat;
+    float fleeYaw;
+    float wanderYaw;
+    float baseThinkInterval;
+    float baseWanderDuration;
+    uint32_t wanderRoll;
+    bool colony;
+    bool threatened;
+} PlanetFaunaBehaviorInput;
+
+typedef struct PlanetFaunaBehaviorDecision {
+    PlanetFaunaBehavior behavior;
+    float yaw;
+    float moveDuration;
+    float thinkInterval;
+    float movementFloor;
+} PlanetFaunaBehaviorDecision;
+
 PlanetLifeHistory PlanetLifeHistoryDerive(uint32_t seed, float planetAgeGyr,
                                           float environmentalSupport,
                                           bool hasSolidSurface);
@@ -174,6 +201,10 @@ PlanetPopulationMigrationFlux PlanetPopulationMigrationBetween(
     float windFromFirstToSecond, double elapsedTime);
 PlanetHabitatChoice PlanetEcologyChooseHabitat(
     float currentActivity, const float neighborActivities[4]);
+int PlanetFaunaPopulationCap(float faunaActivity, int maximumEntities);
+bool PlanetFaunaSpawnAccepted(float faunaActivity, uint32_t roll);
+PlanetFaunaBehaviorDecision PlanetFaunaChooseBehavior(
+    const PlanetFaunaBehaviorInput *input);
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor);
 
 #endif

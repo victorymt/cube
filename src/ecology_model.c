@@ -508,6 +508,83 @@ PlanetHabitatChoice PlanetEcologyChooseHabitat(
     return result;
 }
 
+int PlanetFaunaPopulationCap(float faunaActivity, int maximumEntities)
+{
+    if (maximumEntities <= 0) return 0;
+    float activity = EcologyModelFiniteUnit(faunaActivity);
+    if (activity <= 0.0f) return 0;
+    int cap = 1 + (int)(activity * 20.0f);
+    return cap < maximumEntities ? cap : maximumEntities;
+}
+
+bool PlanetFaunaSpawnAccepted(float faunaActivity, uint32_t roll)
+{
+    if (roll >= 1000u) return false;
+    float activity = EcologyModelFiniteUnit(faunaActivity);
+    uint32_t threshold = (uint32_t)(activity * 1000.0f);
+    return roll < threshold;
+}
+
+static float PlanetFaunaDirectionYaw(PlanetHabitatDirection direction)
+{
+    switch (direction) {
+    case PLANET_HABITAT_NORTH: return 3.14159265358979323846f;
+    case PLANET_HABITAT_EAST: return 1.57079632679489661923f;
+    case PLANET_HABITAT_SOUTH: return 0.0f;
+    case PLANET_HABITAT_WEST: return -1.57079632679489661923f;
+    case PLANET_HABITAT_NONE:
+    default: return 0.0f;
+    }
+}
+
+PlanetFaunaBehaviorDecision PlanetFaunaChooseBehavior(
+    const PlanetFaunaBehaviorInput *input)
+{
+    PlanetFaunaBehaviorDecision result = {
+        .behavior = PLANET_FAUNA_BEHAVIOR_IDLE
+    };
+    if (!input) return result;
+
+    float activity = EcologyModelFiniteUnit(input->runtime.activityRatio);
+    float baseThinkInterval = isfinite(input->baseThinkInterval)
+        ? fmaxf(input->baseThinkInterval, 0.0f) : 0.0f;
+    result.thinkInterval = baseThinkInterval *
+        (1.0f + (1.0f - activity) * 1.5f);
+
+    if (input->threatened) {
+        result.behavior = PLANET_FAUNA_BEHAVIOR_FLEE;
+        result.yaw = isfinite(input->fleeYaw) ? input->fleeYaw : 0.0f;
+        result.moveDuration = 0.8f;
+        result.movementFloor = 0.28f;
+        return result;
+    }
+
+    bool validHabitat = input->habitat.shouldSeek &&
+        input->habitat.direction >= PLANET_HABITAT_NORTH &&
+        input->habitat.direction <= PLANET_HABITAT_WEST &&
+        isfinite(input->habitat.improvement);
+    if (!input->colony && activity < 0.72f && validHabitat) {
+        result.behavior = PLANET_FAUNA_BEHAVIOR_SEEK_HABITAT;
+        result.yaw = PlanetFaunaDirectionYaw(input->habitat.direction);
+        result.moveDuration = 1.15f +
+            EcologyModelFiniteUnit(input->habitat.improvement) * 1.4f;
+        result.movementFloor = 0.22f;
+        return result;
+    }
+
+    if (input->colony || input->runtime.dormant) return result;
+
+    uint32_t wanderThreshold = 15u + (uint32_t)(activity * 40.0f);
+    if (input->wanderRoll >= wanderThreshold) return result;
+
+    result.behavior = PLANET_FAUNA_BEHAVIOR_WANDER;
+    result.yaw = isfinite(input->wanderYaw) ? input->wanderYaw : 0.0f;
+    float baseDuration = isfinite(input->baseWanderDuration)
+        ? fmaxf(input->baseWanderDuration, 0.0f) : 0.0f;
+    result.moveDuration = baseDuration * (0.45f + activity * 0.55f);
+    return result;
+}
+
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor)
 {
     switch (factor) {

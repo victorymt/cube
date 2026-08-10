@@ -873,6 +873,134 @@ static void TestRandomizedHabitatChoiceProperties(void)
     }
 }
 
+static void TestFaunaPopulationAndSpawnControls(void)
+{
+    assert(PlanetFaunaPopulationCap(0.0f, 44) == 0);
+    assert(PlanetFaunaPopulationCap(NAN, 44) == 0);
+    assert(PlanetFaunaPopulationCap(0.01f, 44) == 1);
+    assert(PlanetFaunaPopulationCap(0.50f, 44) == 11);
+    assert(PlanetFaunaPopulationCap(1.0f, 44) == 21);
+    assert(PlanetFaunaPopulationCap(1.0f, 8) == 8);
+    assert(PlanetFaunaPopulationCap(1.0f, 0) == 0);
+
+    assert(!PlanetFaunaSpawnAccepted(0.0f, 0u));
+    assert(!PlanetFaunaSpawnAccepted(NAN, 0u));
+    assert(PlanetFaunaSpawnAccepted(0.50f, 499u));
+    assert(!PlanetFaunaSpawnAccepted(0.50f, 500u));
+    assert(PlanetFaunaSpawnAccepted(1.0f, 999u));
+    assert(!PlanetFaunaSpawnAccepted(1.0f, 1000u));
+}
+
+static void TestFaunaBehaviorDecision(void)
+{
+    PlanetFaunaRuntimeState active = PlanetEcologyFaunaRuntime(1.0f, 1.0f);
+    PlanetFaunaBehaviorInput input = {
+        .runtime = active,
+        .fleeYaw = 0.73f,
+        .wanderYaw = 1.27f,
+        .baseThinkInterval = 4.0f,
+        .baseWanderDuration = 2.0f,
+        .wanderRoll = 54u
+    };
+    PlanetFaunaBehaviorDecision wander = PlanetFaunaChooseBehavior(&input);
+    assert(wander.behavior == PLANET_FAUNA_BEHAVIOR_WANDER);
+    assert(wander.yaw == input.wanderYaw);
+    assert(wander.moveDuration == 2.0f);
+    assert(wander.thinkInterval == 4.0f);
+    assert(wander.movementFloor == 0.0f);
+
+    input.wanderRoll = 55u;
+    PlanetFaunaBehaviorDecision idle = PlanetFaunaChooseBehavior(&input);
+    assert(idle.behavior == PLANET_FAUNA_BEHAVIOR_IDLE);
+    assert(idle.moveDuration == 0.0f);
+
+    input.threatened = true;
+    PlanetFaunaBehaviorDecision flee = PlanetFaunaChooseBehavior(&input);
+    assert(flee.behavior == PLANET_FAUNA_BEHAVIOR_FLEE);
+    assert(flee.yaw == input.fleeYaw);
+    assert(flee.moveDuration == 0.8f);
+    assert(flee.movementFloor == 0.28f);
+
+    input = (PlanetFaunaBehaviorInput){
+        .runtime = PlanetEcologyFaunaRuntime(0.20f, 1.0f),
+        .habitat = {
+            .improvement = 0.40f,
+            .direction = PLANET_HABITAT_EAST,
+            .shouldSeek = true
+        },
+        .baseThinkInterval = 3.0f,
+        .baseWanderDuration = 1.5f,
+        .wanderRoll = 99u
+    };
+    PlanetFaunaBehaviorDecision seek = PlanetFaunaChooseBehavior(&input);
+    assert(seek.behavior == PLANET_FAUNA_BEHAVIOR_SEEK_HABITAT);
+    assert(fabsf(seek.yaw - 0.5f * 3.14159265358979323846f) < 0.000001f);
+    assert(fabsf(seek.moveDuration - 1.71f) < 0.000001f);
+    assert(seek.movementFloor == 0.22f);
+    assert(seek.thinkInterval > input.baseThinkInterval);
+
+    input.colony = true;
+    PlanetFaunaBehaviorDecision colony = PlanetFaunaChooseBehavior(&input);
+    assert(colony.behavior == PLANET_FAUNA_BEHAVIOR_IDLE);
+    input.colony = false;
+    input.runtime = PlanetEcologyFaunaRuntime(0.0f, 1.0f);
+    input.habitat.shouldSeek = false;
+    input.wanderRoll = 0u;
+    PlanetFaunaBehaviorDecision dormant = PlanetFaunaChooseBehavior(&input);
+    assert(dormant.behavior == PLANET_FAUNA_BEHAVIOR_IDLE);
+    assert(PlanetFaunaChooseBehavior(NULL).behavior ==
+           PLANET_FAUNA_BEHAVIOR_IDLE);
+}
+
+static void TestRandomizedFaunaBehaviorProperties(void)
+{
+    uint32_t state = 0x6d41a2f3u;
+    for (int sample = 0; sample < 10000; sample++) {
+        float activity = TestUnit(&state);
+        float capacity = fmaxf(TestUnit(&state), 0.0002f);
+        float neighbors[4];
+        for (int index = 0; index < 4; index++) {
+            neighbors[index] = TestUnit(&state);
+        }
+        PlanetFaunaBehaviorInput input = {
+            .runtime = PlanetEcologyFaunaRuntime(activity, capacity),
+            .habitat = PlanetEcologyChooseHabitat(activity, neighbors),
+            .fleeYaw = TestUnit(&state) * 6.28f - 3.14f,
+            .wanderYaw = TestUnit(&state) * 6.28f,
+            .baseThinkInterval = TestUnit(&state) * 8.0f,
+            .baseWanderDuration = TestUnit(&state) * 4.0f,
+            .wanderRoll = (uint32_t)(TestUnit(&state) * 99.0f),
+            .colony = TestUnit(&state) > 0.82f,
+            .threatened = TestUnit(&state) > 0.88f
+        };
+        PlanetFaunaBehaviorDecision decision =
+            PlanetFaunaChooseBehavior(&input);
+        PlanetFaunaBehaviorDecision repeated =
+            PlanetFaunaChooseBehavior(&input);
+        assert(decision.behavior >= PLANET_FAUNA_BEHAVIOR_IDLE &&
+               decision.behavior <= PLANET_FAUNA_BEHAVIOR_FLEE);
+        assert(isfinite(decision.yaw));
+        assert(isfinite(decision.moveDuration) &&
+               decision.moveDuration >= 0.0f);
+        assert(isfinite(decision.thinkInterval) &&
+               decision.thinkInterval >= 0.0f);
+        assert(isfinite(decision.movementFloor) &&
+               decision.movementFloor >= 0.0f &&
+               decision.movementFloor <= 0.28f);
+        assert(decision.behavior == repeated.behavior);
+        assert(decision.yaw == repeated.yaw);
+        assert(decision.moveDuration == repeated.moveDuration);
+        assert(decision.thinkInterval == repeated.thinkInterval);
+        assert(decision.movementFloor == repeated.movementFloor);
+        if (input.threatened) {
+            assert(decision.behavior == PLANET_FAUNA_BEHAVIOR_FLEE);
+        }
+        if (input.colony && !input.threatened) {
+            assert(decision.behavior == PLANET_FAUNA_BEHAVIOR_IDLE);
+        }
+    }
+}
+
 static void TestRandomizedLocalProperties(void)
 {
     uint32_t state = 0x7d493a21u;
@@ -930,6 +1058,9 @@ int main(void)
     TestWindDriftResponse();
     TestHabitatChoice();
     TestRandomizedHabitatChoiceProperties();
+    TestFaunaPopulationAndSpawnControls();
+    TestFaunaBehaviorDecision();
+    TestRandomizedFaunaBehaviorProperties();
     puts("ecology_model tests passed");
     return 0;
 }
