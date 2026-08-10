@@ -1,4 +1,5 @@
 #include "chunks.h"
+#include "ecology_test_fixture.h"
 #include "ecology.h"
 #include "space.h"
 #include "terrain.h"
@@ -13,208 +14,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-static uint32_t propertyWorldSeed = DEFAULT_WORLD_SEED;
-static BlockEdit propertyBlockEdits[64];
-static int propertyBlockEditCount = 0;
-static uint64_t propertyBlockEditRevision = 1u;
-static int propertyBlockEditReadCount = 0;
-TerrainMode terrainMode = TERRAIN_VARIED;
-
-uint32_t WorldGetSeed(void)
-{
-    return propertyWorldSeed;
-}
-
-int WorldSurfaceHeightAt(int x, int z)
-{
-    return PlanetTerrainHeight(x, z);
-}
-
-int WorldGetEditCount(void)
-{
-    return propertyBlockEditCount;
-}
-
-uint64_t WorldGetEditRevision(void)
-{
-    return propertyBlockEditRevision;
-}
-
-bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
-{
-    propertyBlockEditReadCount++;
-    if (!outEdit || index < 0 || index >= propertyBlockEditCount) {
-        return false;
-    }
-    *outEdit = propertyBlockEdits[index];
-    return true;
-}
-
-float TorchLightAtBlockNearby(int x, int y, int z,
-                              const int *indices, int count)
-{
-    (void)x;
-    (void)y;
-    (void)z;
-    (void)indices;
-    (void)count;
-    return 0.0f;
-}
-
-bool IsColorBlock(BlockType type)
-{
-    return type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END;
-}
-
-int ColorBlockIndex(BlockType type)
-{
-    return IsColorBlock(type) ? (int)type - BLOCK_COLOR_START : -1;
-}
-
-Color ColorPalette256(int index)
-{
-    unsigned char value = (unsigned char)(index & 0xff);
-    return (Color){ value, value, value, 255 };
-}
-
-bool IsTranslucentBlock(BlockType type)
-{
-    return type == BLOCK_AIR || type == BLOCK_GLASS ||
-           type == BLOCK_WATER || type == BLOCK_ICE ||
-           type == BLOCK_FLOWER || type == BLOCK_MUSHROOM ||
-           type == BLOCK_GLASS_PANE || type == BLOCK_NETHER_PORTAL;
-}
-
-BlockType GetBlockAt(int x, int y, int z)
-{
-    return GetBlock(x, y, z);
-}
-
-void PlanetPoiApplyToChunk(Chunk *chunk, int cx, int cz)
-{
-    (void)chunk;
-    (void)cx;
-    (void)cz;
-}
-
-void UnloadModel(Model model)
-{
-    (void)model;
-}
-
-static void SetPropertySeed(uint32_t seed)
-{
-    propertyWorldSeed = seed == 0 ? DEFAULT_WORLD_SEED : seed;
-}
-
-static void BumpPropertyBlockEditRevision(void)
-{
-    propertyBlockEditRevision++;
-    if (propertyBlockEditRevision == 0u) propertyBlockEditRevision = 1u;
-}
-
-static void ClearPropertyBlockEdits(void)
-{
-    propertyBlockEditCount = 0;
-    BumpPropertyBlockEditRevision();
-    memset(propertyBlockEdits, 0, sizeof(propertyBlockEdits));
-}
-
-static void AddPropertyBlockEdit(int x, int y, int z, BlockType type)
-{
-    assert(propertyBlockEditCount <
-           (int)(sizeof(propertyBlockEdits) / sizeof(propertyBlockEdits[0])));
-    propertyBlockEdits[propertyBlockEditCount++] = (BlockEdit){
-        .x = x,
-        .y = y,
-        .z = z,
-        .type = type
-    };
-    BumpPropertyBlockEditRevision();
-}
-
-static void SetPropertyBlockEditType(int index, BlockType type)
-{
-    assert(index >= 0 && index < propertyBlockEditCount);
-    if (propertyBlockEdits[index].type == type) return;
-    propertyBlockEdits[index].type = type;
-    BumpPropertyBlockEditRevision();
-}
-
-static void WritePlanetWorldFixture(FILE *file, uint32_t seed,
-                                    int originX, int originZ,
-                                    SolarBodyStyle planetStyle)
-{
-    uint8_t active = 1u;
-    uint32_t style = (uint32_t)planetStyle;
-    int32_t savedOriginX = (int32_t)originX;
-    int32_t savedOriginZ = (int32_t)originZ;
-    int32_t planetIndex = 1;
-    float bodyCenter[3] = { 420.0f, -18.0f, 75.0f };
-    float returnPosition[3] = { 486.0f, -18.0f, 75.0f };
-    float proxyRadius = 62.0f;
-    char name[32] = "Ecology Replay";
-
-    assert(fwrite(&active, sizeof(active), 1, file) == 1);
-    assert(fwrite(&seed, sizeof(seed), 1, file) == 1);
-    assert(fwrite(&style, sizeof(style), 1, file) == 1);
-    assert(fwrite(&savedOriginX, sizeof(savedOriginX), 1, file) == 1);
-    assert(fwrite(&savedOriginZ, sizeof(savedOriginZ), 1, file) == 1);
-    assert(fwrite(&planetIndex, sizeof(planetIndex), 1, file) == 1);
-    assert(fwrite(bodyCenter, sizeof(bodyCenter), 1, file) == 1);
-    assert(fwrite(returnPosition, sizeof(returnPosition), 1, file) == 1);
-    assert(fwrite(&proxyRadius, sizeof(proxyRadius), 1, file) == 1);
-    assert(fwrite(name, sizeof(name), 1, file) == 1);
-}
-
-static void ActivateEcologyPlanetStyle(uint32_t seed, int originX, int originZ,
-                                       SolarBodyStyle style)
-{
-    FILE *file = tmpfile();
-    assert(file);
-    WritePlanetWorldFixture(file, seed, originX, originZ, style);
-    rewind(file);
-    assert(PlanetWorldLoadState(file));
-    fclose(file);
-    assert(PlanetWorldIsActive());
-    assert(PlanetWorldSeed() == seed);
-    assert(PlanetWorldOriginX() == originX);
-    assert(PlanetWorldOriginZ() == originZ);
-}
-
-static void ActivateEcologyPlanet(uint32_t seed, int originX, int originZ)
-{
-    ActivateEcologyPlanetStyle(seed, originX, originZ,
-                               SOLAR_STYLE_TEMPERATE);
-}
-
-static void SaveEcologySimulationState(FILE *file)
-{
-    assert(file);
-    assert(SpaceSaveState(file));
-    assert(PlanetWorldSaveState(file));
-    assert(PlanetEcologySaveState(file));
-}
-
-static void LoadEcologySimulationState(FILE *file)
-{
-    assert(file);
-    rewind(file);
-    assert(SpaceLoadState(file));
-    assert(PlanetWorldLoadState(file));
-    assert(PlanetEcologyLoadState(file));
-}
-
 static void AddSurfaceDisturbanceEdits(void)
 {
     static const BlockType editTypes[] = {
         BLOCK_AIR, BLOCK_LAVA, BLOCK_GLASS
     };
-    ClearPropertyBlockEdits();
+    EcologyTestClearBlockEdits();
     for (int index = 0; index < 36; index++) {
         int x = 16 + (index % 6) * 2;
         int z = 16 + (index / 6) * 2;
-        AddPropertyBlockEdit(
+        EcologyTestAddBlockEdit(
             x, PlanetTerrainHeight(x, z), z,
             editTypes[index % (int)(sizeof(editTypes) /
                                     sizeof(editTypes[0]))]);
@@ -283,8 +92,8 @@ static float WeatherSampleDistance(WeatherFieldSample left,
 static void TestEcologyUsesPositionLocalWeather(void)
 {
     const uint32_t seed = 0x6c8e9cf5u;
-    SetPropertySeed(seed);
-    ActivateEcologyPlanet(seed, 317, -911);
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 317, -911);
     SpaceAdvanceTime(87.25f);
 
     int wetX = 0;
@@ -330,8 +139,8 @@ static void TestEcologyCacheInvalidation(void)
     PlanetLocalEcology firstOrigin[sampleCount];
     PlanetLocalEcology movedOrigin[sampleCount];
     WeatherFieldSample firstWeather[sampleCount];
-    SetPropertySeed(seed);
-    ActivateEcologyPlanet(seed, 120, -340);
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 120, -340);
 
     PlanetEcologyProfile temperate = PlanetEcologyCurrent();
     PlanetEcologyProfile repeated = PlanetEcologyCurrent();
@@ -345,12 +154,12 @@ static void TestEcologyCacheInvalidation(void)
             PlanetEcologyLocalAt(x, z, 0.74f), firstOrigin[index]);
     }
 
-    ActivateEcologyPlanetStyle(seed, 120, -340, SOLAR_STYLE_ICE);
+    EcologyTestActivatePlanetStyle(seed, 120, -340, SOLAR_STYLE_ICE);
     PlanetEcologyProfile ice = PlanetEcologyCurrent();
     assert(PlanetWorldProfile()->style == SOLAR_STYLE_ICE);
     assert(memcmp(&temperate, &ice, sizeof(temperate)) != 0);
 
-    ActivateEcologyPlanet(seed, 4100, -3700);
+    EcologyTestActivatePlanet(seed, 4100, -3700);
     int originChanges = 0;
     int weatherChanges = 0;
     for (int index = 0; index < sampleCount; index++) {
@@ -394,14 +203,14 @@ static void TestEcologyCrossSeedReplay(void)
         int originZ = 2800 - index * 89;
         int sampleX = ((index * 997) % 7000) - 3500;
         int sampleZ = ((index * index * 131) % 7000) - 3500;
-        SetPropertySeed(seed);
-        ActivateEcologyPlanet(seed, originX, originZ);
+        EcologyTestSetSeed(seed);
+        EcologyTestActivatePlanet(seed, originX, originZ);
 
         WeatherFieldSample firstWeather = WeatherFieldSampleAtWorld(
             sampleX, sampleZ);
         PlanetLocalEcology firstEcology = PlanetEcologyLocalAt(
             sampleX, sampleZ, 0.66f);
-        ActivateEcologyPlanet(seed, originX, originZ);
+        EcologyTestActivatePlanet(seed, originX, originZ);
         WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(
             sampleX, sampleZ);
         PlanetLocalEcology replayEcology = PlanetEcologyLocalAt(
@@ -427,9 +236,9 @@ static void TestEcologySaveLoadReplay(void)
     const uint32_t seed = 0x2468ace0u;
     const int sampleX = 725;
     const int sampleZ = -1384;
-    SetPropertySeed(seed);
+    EcologyTestSetSeed(seed);
     PlanetEcologyResetState();
-    ActivateEcologyPlanet(seed, -2048, 1024);
+    EcologyTestActivatePlanet(seed, -2048, 1024);
     SpaceAdvanceTime(163.5f);
 
     WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
@@ -443,13 +252,13 @@ static void TestEcologySaveLoadReplay(void)
     assert(PlanetWorldSaveState(file));
     assert(PlanetEcologySaveState(file));
 
-    SetPropertySeed(0xdeadbeefu);
-    ActivateEcologyPlanet(0xdeadbeefu, 99, -77);
+    EcologyTestSetSeed(0xdeadbeefu);
+    EcologyTestActivatePlanet(0xdeadbeefu, 99, -77);
     SpaceAdvanceTime(41.0f);
     rewind(file);
     uint32_t loadedSeed = 0;
     assert(fread(&loadedSeed, sizeof(loadedSeed), 1, file) == 1);
-    SetPropertySeed(loadedSeed);
+    EcologyTestSetSeed(loadedSeed);
     assert(SpaceLoadState(file));
     assert(PlanetWorldLoadState(file));
     assert(PlanetEcologyLoadState(file));
@@ -467,7 +276,7 @@ static void TestEcologySaveLoadReplay(void)
 
     rewind(file);
     assert(fread(&loadedSeed, sizeof(loadedSeed), 1, file) == 1);
-    SetPropertySeed(loadedSeed);
+    EcologyTestSetSeed(loadedSeed);
     assert(SpaceLoadState(file));
     assert(PlanetWorldLoadState(file));
     assert(PlanetEcologyLoadState(file));
@@ -495,9 +304,9 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
 
     for (uint32_t index = 0; index < 512u; index++) {
         uint32_t candidate = 0x8f3a21d7u + index * 0x9e3779b9u;
-        SetPropertySeed(candidate);
+        EcologyTestSetSeed(candidate);
         PlanetEcologyResetState();
-        ActivateEcologyPlanet(candidate, 0, 0);
+        EcologyTestActivatePlanet(candidate, 0, 0);
         if (PlanetEcologyCurrent().floraDensity > 0.08f) {
             seed = candidate;
             break;
@@ -505,8 +314,8 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     }
     assert(seed != 0u);
 
-    SetPropertySeed(seed);
-    ActivateEcologyPlanet(seed, 0, 0);
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 0, 0);
     PlanetEcologyResetState();
     FILE *baseline = tmpfile();
     assert(baseline);
@@ -545,7 +354,7 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     rewind(baseline);
     assert(SpaceLoadState(baseline));
     PlanetEcologyResetState();
-    ActivateEcologyPlanet(seed, 0, 0);
+    EcologyTestActivatePlanet(seed, 0, 0);
     for (int index = 0; index < 4; index++) {
         int cell = reverseOrder[index];
         PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f);
@@ -572,12 +381,12 @@ static void TestEcologyPlayerEditDisturbance(void)
     const float daylight = 0.72f;
     uint32_t seed = 0u;
 
-    ClearPropertyBlockEdits();
+    EcologyTestClearBlockEdits();
     for (uint32_t index = 0; index < 2048u; index++) {
         uint32_t candidate = 0x4c957f2du + index * 0x9e3779b9u;
-        SetPropertySeed(candidate);
+        EcologyTestSetSeed(candidate);
         PlanetEcologyResetState();
-        ActivateEcologyPlanet(candidate, 0, 0);
+        EcologyTestActivatePlanet(candidate, 0, 0);
         PlanetLocalEcology local = PlanetEcologyLocalAt(
             cells[0][0], cells[0][1], daylight);
         if (local.population.floraDensity > 0.05f &&
@@ -588,51 +397,51 @@ static void TestEcologyPlayerEditDisturbance(void)
     }
     assert(seed != 0u);
 
-    SetPropertySeed(seed);
-    ActivateEcologyPlanet(seed, 0, 0);
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 0, 0);
     PlanetEcologyResetState();
     for (int cell = 0; cell < 4; cell++) {
         PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], daylight);
     }
     FILE *baseline = tmpfile();
     assert(baseline);
-    SaveEcologySimulationState(baseline);
+    EcologyTestSaveSimulationState(baseline);
 
     SpaceAdvanceTime(96.0f);
     PlanetLocalEcology undisturbed = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
     assert(undisturbed.environment.disturbance == 0.0f);
 
-    LoadEcologySimulationState(baseline);
+    EcologyTestLoadSimulationState(baseline);
     int terrainHeight = PlanetTerrainHeight(cells[0][0], cells[0][1]);
-    AddPropertyBlockEdit(
+    EcologyTestAddBlockEdit(
         cells[0][0], terrainHeight - 20, cells[0][1], BLOCK_LAVA);
     PlanetLocalEcology deepEdit = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
     assert(deepEdit.environment.disturbance == 0.0f);
 
     AddSurfaceDisturbanceEdits();
-    propertyBlockEditReadCount = 0;
+    EcologyTestResetBlockEditReadCount();
     PlanetLocalEcology disturbanceSignal = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
     assert(disturbanceSignal.environment.disturbance > 0.5f);
-    int initialEditReads = propertyBlockEditReadCount;
-    assert(initialEditReads == propertyBlockEditCount);
+    int initialEditReads = EcologyTestBlockEditReadCount();
+    assert(initialEditReads == EcologyTestBlockEditCount());
     PlanetLocalEcology sameRegionSignal = PlanetEcologyLocalAt(
         cells[0][0] + 8, cells[0][1] + 8, daylight);
     assert(sameRegionSignal.environment.disturbance ==
            disturbanceSignal.environment.disturbance);
-    assert(propertyBlockEditReadCount == initialEditReads);
-    int unchangedEditCount = propertyBlockEditCount;
-    uint64_t previousEditRevision = propertyBlockEditRevision;
-    SetPropertyBlockEditType(0, BLOCK_FLOWER);
-    assert(propertyBlockEditCount == unchangedEditCount);
-    assert(propertyBlockEditRevision != previousEditRevision);
+    assert(EcologyTestBlockEditReadCount() == initialEditReads);
+    int unchangedEditCount = EcologyTestBlockEditCount();
+    uint64_t previousEditRevision = EcologyTestBlockEditRevision();
+    EcologyTestSetBlockEditType(0, BLOCK_FLOWER);
+    assert(EcologyTestBlockEditCount() == unchangedEditCount);
+    assert(EcologyTestBlockEditRevision() != previousEditRevision);
     PlanetLocalEcology revisedSignal = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
     assert(revisedSignal.environment.disturbance <
            disturbanceSignal.environment.disturbance);
-    assert(propertyBlockEditReadCount == initialEditReads * 2);
+    assert(EcologyTestBlockEditReadCount() == initialEditReads * 2);
     SpaceAdvanceTime(96.0f);
     PlanetLocalEcology disturbed = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
@@ -643,22 +452,22 @@ static void TestEcologyPlayerEditDisturbance(void)
 
     FILE *disturbedSave = tmpfile();
     assert(disturbedSave);
-    SaveEcologySimulationState(disturbedSave);
+    EcologyTestSaveSimulationState(disturbedSave);
     SpaceAdvanceTime(48.0f);
     PlanetLocalEcology continued = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
-    LoadEcologySimulationState(disturbedSave);
+    EcologyTestLoadSimulationState(disturbedSave);
     SpaceAdvanceTime(48.0f);
     PlanetLocalEcology replay = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
     AssertLocalEcologyEqual(replay, continued);
 
-    LoadEcologySimulationState(disturbedSave);
+    EcologyTestLoadSimulationState(disturbedSave);
     SpaceAdvanceTime(960.0f);
     PlanetLocalEcology persistentlyDisturbed = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
-    LoadEcologySimulationState(disturbedSave);
-    ClearPropertyBlockEdits();
+    EcologyTestLoadSimulationState(disturbedSave);
+    EcologyTestClearBlockEdits();
     PlanetLocalEcology cleared = PlanetEcologyLocalAt(
         cells[0][0], cells[0][1], daylight);
     assert(cleared.environment.disturbance == 0.0f);
@@ -674,7 +483,7 @@ static void TestEcologyPlayerEditDisturbance(void)
 
     fclose(disturbedSave);
     fclose(baseline);
-    ClearPropertyBlockEdits();
+    EcologyTestClearBlockEdits();
 }
 
 static void TestEcologyLegacyPopulationStateLoad(void)
@@ -739,9 +548,9 @@ static Vector3 FindFloraGenerationCenter(
 {
     for (uint32_t seedIndex = 0; seedIndex < 512u; seedIndex++) {
         uint32_t seed = 0x51a7e5edu + seedIndex * 0x9e3779b9u;
-        SetPropertySeed(seed);
+        EcologyTestSetSeed(seed);
         PlanetEcologyResetState();
-        ActivateEcologyPlanet(seed, 317, -911);
+        EcologyTestActivatePlanet(seed, 317, -911);
         PlanetEcologyProfile ecology = PlanetEcologyCurrent();
         if (ecology.floraDensity <= 0.08f) continue;
 

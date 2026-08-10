@@ -13,6 +13,7 @@ tests/test_space_satellite
 tests/test_space_units
 tests/test_space_properties
 tests/test_ecology_system
+tests/test_ecology_properties
 tests/test_stellar
 tests/test_ecology_model
 tests/test_weather_model
