@@ -235,6 +235,10 @@ static void TestGeneratedEcologyBoundsAndLocalProperties(void)
             PlanetEcologyResetState();
 
             PlanetEcologyProfile profile = PlanetEcologyCurrent();
+            PlanetEcologyProfile derived = PlanetEcologyProfileForPlanet(
+                PlanetWorldProfile(), PlanetWorldSeed(),
+                PlanetWorldIsDarkSide());
+            assert(memcmp(&profile, &derived, sizeof(profile)) == 0);
             AssertProfileValid(&profile, style);
             profileCount++;
 
@@ -305,6 +309,9 @@ static void TestGeneratedEcologyDistribution(void)
 
             PlanetEcologyProfile profile = PlanetEcologyCurrent();
             const PlanetProfile *planet = PlanetWorldProfile();
+            PlanetEcologyProfile derived = PlanetEcologyProfileForPlanet(
+                planet, PlanetWorldSeed(), PlanetWorldIsDarkSide());
+            assert(memcmp(&profile, &derived, sizeof(profile)) == 0);
             AssertProfileValid(&profile, style);
             assert(!profile.hasComplexLife || profile.lifeOriginated);
             distribution->originatedCount += profile.lifeOriginated ? 1 : 0;

@@ -461,6 +461,39 @@ static void EcologyApplyPalette(PlanetEcologyProfile *result,
     result->accentBlock = (BlockType)(BLOCK_COLOR_START + accent);
 }
 
+PlanetEcologyProfile PlanetEcologyProfileForPlanet(
+    const struct PlanetProfile *planetValue, uint32_t worldSeed,
+    bool darkSide)
+{
+    PlanetEcologyProfile result = { 0 };
+    const PlanetProfile *planet = planetValue;
+    if (!planet) return result;
+
+    float temperature = planet->equilibriumTempK;
+    float pressure = fmaxf(planet->surfacePressureAtm, 0.0f);
+    float atmosphere = EcologyClamp(planet->atmosphereDensity);
+    float water = EcologyClamp(planet->oceanCoverage);
+    float ice = EcologyClamp(planet->iceCoverage);
+    float wind = EcologyClamp(planet->windStrength);
+    float life = EcologyClimateLife(
+        planet, temperature, pressure, water, ice, wind);
+
+    uint32_t seedHash = EcologyMix(worldSeed ^ 0x72a31u);
+    life = EcologyApplyLifeHistory(&result, planet, life);
+    result.chemistry = EcologyChemistryFor(temperature, seedHash);
+    result.flora = EcologyFloraForStyle(planet->style);
+
+    result.lifeDensity = life;
+    EcologyApplyBiomass(
+        &result, planet, temperature, atmosphere, water, seedHash, darkSide);
+
+    EcologyApplyMorphology(
+        &result, planet, pressure, wind, darkSide, seedHash);
+    EcologyApplyPalette(&result, seedHash);
+
+    return result;
+}
+
 PlanetEcologyProfile PlanetEcologyCurrent(void)
 {
     PlanetEcologyProfile result = { 0 };
@@ -476,27 +509,7 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
         return ecologyProfileCache.ecology;
     }
 
-    float temperature = planet->equilibriumTempK;
-    float pressure = fmaxf(planet->surfacePressureAtm, 0.0f);
-    float atmosphere = EcologyClamp(planet->atmosphereDensity);
-    float water = EcologyClamp(planet->oceanCoverage);
-    float ice = EcologyClamp(planet->iceCoverage);
-    float wind = EcologyClamp(planet->windStrength);
-    float life = EcologyClimateLife(
-        planet, temperature, pressure, water, ice, wind);
-
-    uint32_t seedHash = EcologyHash(0, 0, 0x72a31u);
-    life = EcologyApplyLifeHistory(&result, planet, life);
-    result.chemistry = EcologyChemistryFor(temperature, seedHash);
-    result.flora = EcologyFloraForStyle(planet->style);
-
-    result.lifeDensity = life;
-    EcologyApplyBiomass(
-        &result, planet, temperature, atmosphere, water, seedHash, darkSide);
-
-    EcologyApplyMorphology(
-        &result, planet, pressure, wind, darkSide, seedHash);
-    EcologyApplyPalette(&result, seedHash);
+    result = PlanetEcologyProfileForPlanet(planet, worldSeed, darkSide);
 
     ecologyProfileCache.valid = true;
     ecologyProfileCache.darkSide = darkSide;

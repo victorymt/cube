@@ -6,6 +6,8 @@
 
 #include <stdio.h>
 
+struct PlanetProfile;
+
 typedef enum PlanetFloraArchetype {
     PLANET_FLORA_ALIEN_CANOPY = 0,
     PLANET_FLORA_CRYSTAL,
@@ -79,6 +81,8 @@ typedef struct PlanetLocalEcology {
     PlanetPopulationMigrationState migration;
 } PlanetLocalEcology;
 
+PlanetEcologyProfile PlanetEcologyProfileForPlanet(
+    const struct PlanetProfile *planet, uint32_t worldSeed, bool darkSide);
 PlanetEcologyProfile PlanetEcologyCurrent(void);
 void PlanetEcologyResetState(void);
 bool PlanetEcologySaveState(FILE *file);
