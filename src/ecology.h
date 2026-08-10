@@ -4,6 +4,8 @@
 #include "ecology_model.h"
 #include "types.h"
 
+#include <stdio.h>
+
 typedef enum PlanetFloraArchetype {
     PLANET_FLORA_ALIEN_CANOPY = 0,
     PLANET_FLORA_CRYSTAL,
@@ -76,6 +78,9 @@ typedef struct PlanetLocalEcology {
 } PlanetLocalEcology;
 
 PlanetEcologyProfile PlanetEcologyCurrent(void);
+void PlanetEcologyResetState(void);
+bool PlanetEcologySaveState(FILE *file);
+bool PlanetEcologyLoadState(FILE *file);
 float PlanetEcologyFaunaDensity(void);
 float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);
 PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight);

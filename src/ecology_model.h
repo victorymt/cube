@@ -87,6 +87,21 @@ typedef struct PlanetFloraRuntimeState {
     bool dormant;
 } PlanetFloraRuntimeState;
 
+typedef struct PlanetPopulationInput {
+    float floraCapacity;
+    float faunaCapacity;
+    float floraActivity;
+    float faunaActivity;
+} PlanetPopulationInput;
+
+typedef struct PlanetRegionalPopulation {
+    float floraDensity;
+    float faunaDensity;
+    float floraCarryingCapacity;
+    float faunaCarryingCapacity;
+    float seasonalMemory;
+} PlanetRegionalPopulation;
+
 typedef enum PlanetHabitatDirection {
     PLANET_HABITAT_NONE = 0,
     PLANET_HABITAT_NORTH,
@@ -117,6 +132,16 @@ PlanetFaunaRuntimeState PlanetEcologyFaunaRuntime(float faunaActivity,
 PlanetFloraRuntimeState PlanetEcologyFloraRuntime(float floraActivity,
                                                    float floraCapacity);
 float PlanetEcologyWindDrift(float windStrength, bool airborne);
+PlanetRegionalPopulation PlanetPopulationInitialize(
+    const PlanetPopulationInput *input, float floraOccupancy,
+    float faunaOccupancy);
+void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
+                             const PlanetPopulationInput *input,
+                             double elapsedTime);
+float PlanetPopulationFloraPresence(
+    const PlanetRegionalPopulation *population);
+float PlanetPopulationFaunaPresence(
+    const PlanetRegionalPopulation *population);
 PlanetHabitatChoice PlanetEcologyChooseHabitat(
     float currentActivity, const float neighborActivities[4]);
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor);

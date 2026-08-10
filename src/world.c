@@ -9,6 +9,7 @@
 #include "inventory.h"
 #include "ship.h"
 #include "entity.h"
+#include "ecology.h"
 #include "world_environment.h"
 
 #include <math.h>
@@ -19,6 +20,8 @@
 #include <string.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V11 "VOXELCRAFT_SAVE_V11"
+#define SAVE_MAGIC_V11_LEN (sizeof(SAVE_MAGIC_V11) - 1)
 #define SAVE_MAGIC_V10 "VOXELCRAFT_SAVE_V10"
 #define SAVE_MAGIC_V10_LEN (sizeof(SAVE_MAGIC_V10) - 1)
 #define SAVE_MAGIC_V9 "VOXELCRAFT_SAVE_V9"
@@ -694,7 +697,7 @@ void SaveMap(const Player *player)
         return;
     }
 
-    fwrite(SAVE_MAGIC_V10, 1, SAVE_MAGIC_V10_LEN, file);
+    fwrite(SAVE_MAGIC_V11, 1, SAVE_MAGIC_V11_LEN, file);
     uint32_t seed = WorldGetSeed();
     fwrite(&seed, sizeof(seed), 1, file);
     uint32_t terrain = (uint32_t)terrainMode;
@@ -726,7 +729,8 @@ void SaveMap(const Player *player)
     AlbumSave(file);
     SpaceSaveEdits(file);
     NetherSaveEdits(file);
-    if (!SpaceSaveState(file) || !EntitiesSaveState(file)) {
+    if (!SpaceSaveState(file) || !EntitiesSaveState(file) ||
+        !PlanetEcologySaveState(file)) {
         fclose(file);
         SetImportMessage("Save failed: could not write simulation state.");
         return;
@@ -902,25 +906,33 @@ void LoadMap(Player *player)
     int savedEditCount = 0;
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
+    char magicV11[SAVE_MAGIC_V11_LEN] = { 0 };
+    bool isV11 = fread(magicV11, 1, SAVE_MAGIC_V11_LEN, file) ==
+                     SAVE_MAGIC_V11_LEN &&
+                 memcmp(magicV11, SAVE_MAGIC_V11, SAVE_MAGIC_V11_LEN) == 0;
     char magicV10[SAVE_MAGIC_V10_LEN] = { 0 };
-    bool isV10 = fread(magicV10, 1, SAVE_MAGIC_V10_LEN, file) ==
-                     SAVE_MAGIC_V10_LEN &&
-                 memcmp(magicV10, SAVE_MAGIC_V10, SAVE_MAGIC_V10_LEN) == 0;
+    bool isV10 = false;
+    if (!isV11) {
+        rewind(file);
+        isV10 = fread(magicV10, 1, SAVE_MAGIC_V10_LEN, file) ==
+                    SAVE_MAGIC_V10_LEN &&
+                memcmp(magicV10, SAVE_MAGIC_V10, SAVE_MAGIC_V10_LEN) == 0;
+    }
     char magicV9[SAVE_MAGIC_V9_LEN] = { 0 };
     bool isV9 = false;
-    if (!isV10) {
+    if (!isV11 && !isV10) {
         rewind(file);
         isV9 = fread(magicV9, 1, SAVE_MAGIC_V9_LEN, file) == SAVE_MAGIC_V9_LEN &&
                memcmp(magicV9, SAVE_MAGIC_V9, SAVE_MAGIC_V9_LEN) == 0;
     }
     char magicV8[SAVE_MAGIC_V8_LEN] = { 0 };
     bool isV8 = false;
-    if (!isV10 && !isV9) {
+    if (!isV11 && !isV10 && !isV9) {
         rewind(file);
         isV8 = fread(magicV8, 1, SAVE_MAGIC_V8_LEN, file) == SAVE_MAGIC_V8_LEN &&
                memcmp(magicV8, SAVE_MAGIC_V8, SAVE_MAGIC_V8_LEN) == 0;
     }
-    if (isV10 || isV9 || isV8) {
+    if (isV11 || isV10 || isV9 || isV8) {
         if (!LoadMapV7(file, &savedTerrain, &savedPlayer, &loadedEdits,
                        &loadedDimensions, &savedEditCount, &savedSeed)) {
             fclose(file);
@@ -1058,7 +1070,7 @@ void LoadMap(Player *player)
     AlbumLoad(file);
     SpaceLoadEdits(file);
     NetherLoadEdits(file);
-    if (isV10 || isV9) {
+    if (isV11 || isV10 || isV9) {
         if (!SpaceLoadState(file)) {
             free(loadedDimensions);
             free(loadedEdits);
@@ -1077,11 +1089,18 @@ void LoadMap(Player *player)
         }
         loadedSpaceOrigin = true;
     }
-    if (isV10 && !EntitiesLoadState(file)) {
+    if ((isV11 || isV10) && !EntitiesLoadState(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: entity state is corrupted.");
+        return;
+    }
+    if (isV11 && !PlanetEcologyLoadState(file)) {
+        free(loadedDimensions);
+        free(loadedEdits);
+        fclose(file);
+        SetImportMessage("Load failed: ecology state is corrupted.");
         return;
     }
     fclose(file);
@@ -1133,7 +1152,8 @@ void LoadMap(Player *player)
     UnloadAllNetherChunks();
     terrainMode = savedTerrain;
     WorldSetSeed(savedSeed);
-    if (!isV10) EntitiesClear();
+    if (!isV11 && !isV10) EntitiesClear();
+    if (!isV11) PlanetEcologyResetState();
     if (!loadedInventory) {
         InventoryReset();
         InventoryGrantStarterKit();

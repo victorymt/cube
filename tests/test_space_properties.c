@@ -658,18 +658,20 @@ static void TestEcologySaveLoadReplay(void)
     const int sampleX = 725;
     const int sampleZ = -1384;
     SetPropertySeed(seed);
+    PlanetEcologyResetState();
     ActivateEcologyPlanet(seed, -2048, 1024);
     SpaceAdvanceTime(163.5f);
+
+    WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
+    float beforeWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
+    PlanetLocalEcology beforeEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
 
     FILE *file = tmpfile();
     assert(file);
     assert(fwrite(&seed, sizeof(seed), 1, file) == 1);
     assert(SpaceSaveState(file));
     assert(PlanetWorldSaveState(file));
-
-    WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
-    float beforeWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
-    PlanetLocalEcology beforeEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+    assert(PlanetEcologySaveState(file));
 
     SetPropertySeed(0xdeadbeefu);
     ActivateEcologyPlanet(0xdeadbeefu, 99, -77);
@@ -680,6 +682,7 @@ static void TestEcologySaveLoadReplay(void)
     SetPropertySeed(loadedSeed);
     assert(SpaceLoadState(file));
     assert(PlanetWorldLoadState(file));
+    assert(PlanetEcologyLoadState(file));
 
     WeatherFieldSample afterWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
     float afterWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
@@ -697,6 +700,7 @@ static void TestEcologySaveLoadReplay(void)
     SetPropertySeed(loadedSeed);
     assert(SpaceLoadState(file));
     assert(PlanetWorldLoadState(file));
+    assert(PlanetEcologyLoadState(file));
     SpaceAdvanceTime(19.75f);
     WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
     float replayWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);

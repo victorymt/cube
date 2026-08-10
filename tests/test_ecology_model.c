@@ -434,6 +434,143 @@ static void TestRandomizedFloraRuntimeProperties(void)
     }
 }
 
+static void AssertPopulationValid(PlanetRegionalPopulation population)
+{
+#define ASSERT_POPULATION_UNIT(field) do { \
+    assert(isfinite(population.field)); \
+    assert(population.field >= 0.0f); \
+    assert(population.field <= 1.0f); \
+} while (0)
+    ASSERT_POPULATION_UNIT(floraDensity);
+    ASSERT_POPULATION_UNIT(faunaDensity);
+    ASSERT_POPULATION_UNIT(floraCarryingCapacity);
+    ASSERT_POPULATION_UNIT(faunaCarryingCapacity);
+    ASSERT_POPULATION_UNIT(seasonalMemory);
+#undef ASSERT_POPULATION_UNIT
+    float floraPresence = PlanetPopulationFloraPresence(&population);
+    float faunaPresence = PlanetPopulationFaunaPresence(&population);
+    assert(floraPresence >= 0.0f && floraPresence <= 1.0f);
+    assert(faunaPresence >= 0.0f && faunaPresence <= 1.0f);
+}
+
+static void TestPopulationRecoveryAndMortality(void)
+{
+    PlanetPopulationInput good = {
+        .floraCapacity = 0.82f,
+        .faunaCapacity = 0.56f,
+        .floraActivity = 0.78f,
+        .faunaActivity = 0.50f
+    };
+    PlanetPopulationInput harsh = good;
+    harsh.floraActivity = 0.0f;
+    harsh.faunaActivity = 0.0f;
+
+    PlanetRegionalPopulation initial = PlanetPopulationInitialize(
+        &good, 0.78f, 0.68f);
+    PlanetRegionalPopulation stressed = initial;
+    PlanetPopulationAdvance(&stressed, &harsh, 600.0);
+    AssertPopulationValid(initial);
+    AssertPopulationValid(stressed);
+    assert(stressed.floraDensity < initial.floraDensity);
+    assert(stressed.faunaDensity < initial.faunaDensity);
+    assert(stressed.faunaDensity < initial.faunaDensity * 0.35f);
+
+    PlanetRegionalPopulation shortRecovery = stressed;
+    PlanetRegionalPopulation longRecovery = stressed;
+    PlanetPopulationAdvance(&shortRecovery, &good, 30.0);
+    PlanetPopulationAdvance(&longRecovery, &good, 600.0);
+    assert(shortRecovery.floraDensity > stressed.floraDensity);
+    assert(longRecovery.floraDensity > shortRecovery.floraDensity);
+    assert(longRecovery.faunaDensity > shortRecovery.faunaDensity);
+    assert(shortRecovery.faunaDensity < initial.faunaDensity);
+}
+
+static void TestPopulationSeasonalLag(void)
+{
+    PlanetPopulationInput summer = {
+        .floraCapacity = 0.90f,
+        .faunaCapacity = 0.62f,
+        .floraActivity = 0.90f,
+        .faunaActivity = 0.62f
+    };
+    PlanetPopulationInput winter = summer;
+    winter.floraActivity = 0.0f;
+    winter.faunaActivity = 0.0f;
+    PlanetRegionalPopulation population = PlanetPopulationInitialize(
+        &summer, 0.85f, 0.72f);
+    float summerCapacity = population.floraCarryingCapacity;
+
+    PlanetPopulationAdvance(&population, &winter, 1.0);
+    float immediateCapacity = population.floraCarryingCapacity;
+    assert(immediateCapacity > summerCapacity * 0.97f);
+    assert(population.seasonalMemory > 0.97f);
+    PlanetPopulationAdvance(&population, &winter, 600.0);
+    assert(population.floraCarryingCapacity < immediateCapacity * 0.55f);
+    assert(population.seasonalMemory < 0.02f);
+}
+
+static void TestPopulationDeterminismAndFoodChain(void)
+{
+    PlanetPopulationInput input = {
+        .floraCapacity = 0.72f,
+        .faunaCapacity = 0.48f,
+        .floraActivity = 0.54f,
+        .faunaActivity = 0.36f
+    };
+    PlanetRegionalPopulation first = PlanetPopulationInitialize(
+        &input, 0.65f, 0.55f);
+    PlanetRegionalPopulation second = first;
+    PlanetPopulationAdvance(&first, &input, 137.25);
+    PlanetPopulationAdvance(&second, &input, 137.25);
+    assert(memcmp(&first, &second, sizeof(first)) == 0);
+
+    PlanetRegionalPopulation foodPoor = first;
+    PlanetRegionalPopulation foodRich = first;
+    foodPoor.floraDensity = 0.0f;
+    foodRich.floraDensity = foodRich.floraCarryingCapacity;
+    PlanetPopulationAdvance(&foodPoor, &input, 45.0);
+    PlanetPopulationAdvance(&foodRich, &input, 45.0);
+    assert(foodPoor.faunaDensity < foodRich.faunaDensity);
+}
+
+static void TestRandomizedPopulationProperties(void)
+{
+    uint32_t state = 0x91e10da5u;
+    for (int sample = 0; sample < 10000; sample++) {
+        PlanetPopulationInput input = {
+            .floraCapacity = TestUnit(&state),
+            .faunaCapacity = TestUnit(&state),
+            .floraActivity = TestUnit(&state),
+            .faunaActivity = TestUnit(&state)
+        };
+        PlanetRegionalPopulation population = PlanetPopulationInitialize(
+            &input, TestUnit(&state), TestUnit(&state));
+        for (int step = 0; step < 4; step++) {
+            input.floraCapacity = TestUnit(&state);
+            input.faunaCapacity = TestUnit(&state);
+            input.floraActivity = TestUnit(&state);
+            input.faunaActivity = TestUnit(&state);
+            PlanetPopulationAdvance(&population, &input,
+                                    (double)TestUnit(&state) * 2000.0);
+            AssertPopulationValid(population);
+        }
+    }
+
+    PlanetPopulationInput invalid = {
+        .floraCapacity = NAN,
+        .faunaCapacity = INFINITY,
+        .floraActivity = -INFINITY,
+        .faunaActivity = NAN
+    };
+    PlanetRegionalPopulation sanitized = PlanetPopulationInitialize(
+        &invalid, NAN, INFINITY);
+    AssertPopulationValid(sanitized);
+    sanitized.floraDensity = NAN;
+    sanitized.faunaDensity = INFINITY;
+    PlanetPopulationAdvance(&sanitized, &invalid, 10.0);
+    AssertPopulationValid(sanitized);
+}
+
 static void TestWindDriftResponse(void)
 {
     assert(PlanetEcologyWindDrift(0.0f, false) == 0.0f);
@@ -546,6 +683,10 @@ int main(void)
     TestRandomizedFaunaRuntimeProperties();
     TestFloraRuntimeResponse();
     TestRandomizedFloraRuntimeProperties();
+    TestPopulationRecoveryAndMortality();
+    TestPopulationSeasonalLag();
+    TestPopulationDeterminismAndFoodChain();
+    TestRandomizedPopulationProperties();
     TestWindDriftResponse();
     TestHabitatChoice();
     TestRandomizedHabitatChoiceProperties();

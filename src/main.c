@@ -510,6 +510,7 @@ static void BeginNewWorld(Player *player, TerrainMode mode, uint32_t seed)
     NetherReset();
     AlbumReset();
     WorldReset(seed);
+    PlanetEcologyResetState();
     InventoryReset();
     InventoryGrantStarterKit();
     ShipReset();

@@ -12,6 +12,12 @@
 
 #define PLANET_FLORA_STRUCTURE_RADIUS 3
 #define ECOLOGY_LOCAL_CACHE_SIZE 256u
+#define ECOLOGY_POPULATION_REGION_SIZE 64
+#define ECOLOGY_POPULATION_SET_COUNT 256u
+#define ECOLOGY_POPULATION_SET_WAYS 4u
+#define ECOLOGY_POPULATION_MAX_REGIONS \
+    (ECOLOGY_POPULATION_SET_COUNT * ECOLOGY_POPULATION_SET_WAYS)
+#define ECOLOGY_POPULATION_STATE_VERSION 1u
 
 #if defined(__GNUC__) || defined(__clang__)
 #define ECOLOGY_THREAD_LOCAL __thread
@@ -37,12 +43,27 @@ typedef struct EcologyLocalCacheEntry {
     double simulationTime;
     uint32_t daylightBits;
     uint32_t profileGeneration;
+    uint32_t populationEpoch;
     PlanetLocalEcology ecology;
 } EcologyLocalCacheEntry;
+
+typedef struct EcologyPopulationRecord {
+    bool valid;
+    uint32_t surfaceId;
+    int regionX;
+    int regionZ;
+    double lastUpdateTime;
+    uint64_t lastAccess;
+    PlanetRegionalPopulation population;
+} EcologyPopulationRecord;
 
 static ECOLOGY_THREAD_LOCAL EcologyProfileCache ecologyProfileCache = { 0 };
 static ECOLOGY_THREAD_LOCAL EcologyLocalCacheEntry
     ecologyLocalCache[ECOLOGY_LOCAL_CACHE_SIZE] = { 0 };
+static EcologyPopulationRecord
+    ecologyPopulationRecords[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
+static uint64_t ecologyPopulationAccessSerial = 0u;
+static uint32_t ecologyPopulationEpoch = 1u;
 
 static uint32_t EcologyMix(uint32_t value)
 {
@@ -71,6 +92,7 @@ static uint64_t EcologyDoubleBits(double value)
 static unsigned EcologyLocalCacheIndex(int x, int z, double simulationTime,
                                        float daylight,
                                        uint32_t profileGeneration,
+                                       uint32_t populationEpoch,
                                        int originX, int originZ)
 {
     uint64_t timeBits = EcologyDoubleBits(simulationTime);
@@ -80,9 +102,39 @@ static unsigned EcologyLocalCacheIndex(int x, int z, double simulationTime,
     hash ^= (uint32_t)(timeBits >> 32);
     hash ^= EcologyFloatBits(daylight);
     hash ^= profileGeneration * 0xc2b2ae35u;
+    hash ^= populationEpoch * 0x7feb352du;
     hash ^= (uint32_t)originX * 0x27d4eb2fu;
     hash ^= (uint32_t)originZ * 0x165667b1u;
     return EcologyMix(hash) & (ECOLOGY_LOCAL_CACHE_SIZE - 1u);
+}
+
+static int EcologyFloorDivide(int value, int divisor)
+{
+    int quotient = value / divisor;
+    int remainder = value % divisor;
+    if (remainder < 0) quotient--;
+    return quotient;
+}
+
+static unsigned EcologyPopulationSetIndex(uint32_t surfaceId,
+                                          int regionX, int regionZ)
+{
+    uint32_t hash = surfaceId;
+    hash ^= (uint32_t)regionX * 0x9e3779b9u;
+    hash ^= (uint32_t)regionZ * 0x85ebca6bu;
+    return EcologyMix(hash) & (ECOLOGY_POPULATION_SET_COUNT - 1u);
+}
+
+static float EcologyPopulationOccupancy(uint32_t surfaceId, int regionX,
+                                        int regionZ, uint32_t lane,
+                                        float minimum, float range)
+{
+    uint32_t hash = surfaceId ^ lane;
+    hash ^= (uint32_t)regionX * 0xc2b2ae35u;
+    hash ^= (uint32_t)regionZ * 0x27d4eb2fu;
+    hash = EcologyMix(hash);
+    float unit = (float)(hash & 0x00ffffffu) / 16777215.0f;
+    return minimum + unit * range;
 }
 
 static uint32_t EcologyHash(int x, int z, uint32_t salt)
@@ -554,6 +606,254 @@ PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z)
     return EcologyStaticSuitabilityForProfile(x, z, &profile);
 }
 
+static PlanetLocalEcology EcologyDynamicLocalAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile)
+{
+    PlanetLocalEcology local = { 0 };
+    WeatherFieldSample weather = WeatherFieldSampleAtWorld(x, z);
+    float sky = EcologyClamp(WeatherFieldSkyFactor(weather));
+    float precipitation = EcologyClamp(weather.precipitation);
+    float storm = EcologyClamp(weather.storm);
+    float usableDaylight = EcologyClamp(daylight * (1.0f - sky * 0.68f));
+    local.environment = EcologyEnvironmentAt(
+        x, z, simulationTime, usableDaylight, precipitation, storm,
+        true, profile);
+    PlanetEcologyTraits traits = EcologyTraitsForProfile(profile);
+    local.suitability = PlanetEcologyEvaluateLocal(
+        &local.environment, &traits,
+        profile ? profile->floraDensity : 0.0f,
+        profile ? profile->faunaDensity : 0.0f);
+    return local;
+}
+
+static EcologyPopulationRecord *EcologyPopulationRecordAt(
+    uint32_t surfaceId, int regionX, int regionZ, bool *created)
+{
+    unsigned setIndex = EcologyPopulationSetIndex(surfaceId, regionX, regionZ);
+    unsigned start = setIndex * ECOLOGY_POPULATION_SET_WAYS;
+    EcologyPopulationRecord *selected = NULL;
+    for (unsigned way = 0; way < ECOLOGY_POPULATION_SET_WAYS; way++) {
+        EcologyPopulationRecord *record = &ecologyPopulationRecords[start + way];
+        if (record->valid && record->surfaceId == surfaceId &&
+            record->regionX == regionX && record->regionZ == regionZ) {
+            selected = record;
+            break;
+        }
+        if (!record->valid) {
+            if (!selected || selected->valid) selected = record;
+        } else if (!selected ||
+                   (selected->valid && record->lastAccess < selected->lastAccess)) {
+            selected = record;
+        }
+    }
+    if (!selected) return NULL;
+
+    bool isNew = !selected->valid || selected->surfaceId != surfaceId ||
+                 selected->regionX != regionX || selected->regionZ != regionZ;
+    if (isNew) {
+        *selected = (EcologyPopulationRecord){
+            .valid = true,
+            .surfaceId = surfaceId,
+            .regionX = regionX,
+            .regionZ = regionZ
+        };
+    }
+    ecologyPopulationAccessSerial++;
+    if (ecologyPopulationAccessSerial == 0u) ecologyPopulationAccessSerial = 1u;
+    selected->lastAccess = ecologyPopulationAccessSerial;
+    if (created) *created = isNew;
+    return selected;
+}
+
+static PlanetRegionalPopulation EcologyRegionalPopulationAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile)
+{
+    PlanetRegionalPopulation empty = { 0 };
+    int originX = PlanetWorldOriginX();
+    int originZ = PlanetWorldOriginZ();
+    int globalX = originX + x;
+    int globalZ = originZ + z;
+    int regionX = EcologyFloorDivide(globalX, ECOLOGY_POPULATION_REGION_SIZE);
+    int regionZ = EcologyFloorDivide(globalZ, ECOLOGY_POPULATION_REGION_SIZE);
+    bool created = false;
+    EcologyPopulationRecord *record = EcologyPopulationRecordAt(
+        PlanetWorldSeed(), regionX, regionZ, &created);
+    if (!record) return empty;
+
+    if (created || simulationTime > record->lastUpdateTime) {
+        int centerGlobalX = regionX * ECOLOGY_POPULATION_REGION_SIZE +
+                            ECOLOGY_POPULATION_REGION_SIZE / 2;
+        int centerGlobalZ = regionZ * ECOLOGY_POPULATION_REGION_SIZE +
+                            ECOLOGY_POPULATION_REGION_SIZE / 2;
+        PlanetLocalEcology regional = EcologyDynamicLocalAt(
+            centerGlobalX - originX, centerGlobalZ - originZ,
+            simulationTime, daylight, profile);
+        PlanetPopulationInput input = {
+            .floraCapacity = regional.suitability.floraCapacity,
+            .faunaCapacity = regional.suitability.faunaCapacity,
+            .floraActivity = regional.suitability.floraActivity,
+            .faunaActivity = regional.suitability.faunaActivity
+        };
+        if (created) {
+            float floraOccupancy = EcologyPopulationOccupancy(
+                record->surfaceId, regionX, regionZ, 0x51f15eu, 0.58f, 0.37f);
+            float faunaOccupancy = EcologyPopulationOccupancy(
+                record->surfaceId, regionX, regionZ, 0xc0a1e5u, 0.42f, 0.43f);
+            record->population = PlanetPopulationInitialize(
+                &input, floraOccupancy, faunaOccupancy);
+        } else {
+            PlanetPopulationAdvance(&record->population, &input,
+                                    simulationTime - record->lastUpdateTime);
+        }
+        record->lastUpdateTime = simulationTime;
+    } else if (simulationTime < record->lastUpdateTime) {
+        record->lastUpdateTime = simulationTime;
+    }
+    return record->population;
+}
+
+static bool EcologyPopulationStateValid(
+    const PlanetRegionalPopulation *population)
+{
+    if (!population) return false;
+    const float values[] = {
+        population->floraDensity, population->faunaDensity,
+        population->floraCarryingCapacity,
+        population->faunaCarryingCapacity,
+        population->seasonalMemory
+    };
+    for (unsigned index = 0; index < sizeof(values) / sizeof(values[0]); index++) {
+        if (!isfinite(values[index]) || values[index] < 0.0f ||
+            values[index] > 1.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void PlanetEcologyResetState(void)
+{
+    memset(ecologyPopulationRecords, 0, sizeof(ecologyPopulationRecords));
+    memset(ecologyLocalCache, 0, sizeof(ecologyLocalCache));
+    ecologyPopulationAccessSerial = 0u;
+    ecologyPopulationEpoch++;
+    if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
+}
+
+bool PlanetEcologySaveState(FILE *file)
+{
+    if (!file) return false;
+    uint32_t count = 0u;
+    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS; index++) {
+        if (ecologyPopulationRecords[index].valid) count++;
+    }
+    const uint32_t header[2] = { ECOLOGY_POPULATION_STATE_VERSION, count };
+    if (fwrite(header, sizeof(header), 1, file) != 1 ||
+        fwrite(&ecologyPopulationAccessSerial,
+               sizeof(ecologyPopulationAccessSerial), 1, file) != 1) {
+        return false;
+    }
+    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS; index++) {
+        const EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
+        if (!record->valid) continue;
+        int32_t coordinates[2] = {
+            (int32_t)record->regionX, (int32_t)record->regionZ
+        };
+        const float population[5] = {
+            record->population.floraDensity,
+            record->population.faunaDensity,
+            record->population.floraCarryingCapacity,
+            record->population.faunaCarryingCapacity,
+            record->population.seasonalMemory
+        };
+        if (!EcologyPopulationStateValid(&record->population) ||
+            !isfinite(record->lastUpdateTime) ||
+            fwrite(&record->surfaceId, sizeof(record->surfaceId), 1, file) != 1 ||
+            fwrite(coordinates, sizeof(coordinates), 1, file) != 1 ||
+            fwrite(&record->lastUpdateTime,
+                   sizeof(record->lastUpdateTime), 1, file) != 1 ||
+            fwrite(&record->lastAccess, sizeof(record->lastAccess), 1, file) != 1 ||
+            fwrite(population, sizeof(population), 1, file) != 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool PlanetEcologyLoadState(FILE *file)
+{
+    uint32_t header[2];
+    uint64_t loadedAccessSerial = 0u;
+    if (!file || fread(header, sizeof(header), 1, file) != 1 ||
+        fread(&loadedAccessSerial, sizeof(loadedAccessSerial), 1, file) != 1 ||
+        header[0] != ECOLOGY_POPULATION_STATE_VERSION ||
+        header[1] > ECOLOGY_POPULATION_MAX_REGIONS) {
+        return false;
+    }
+
+    EcologyPopulationRecord loaded[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
+    for (uint32_t item = 0; item < header[1]; item++) {
+        uint32_t surfaceId = 0u;
+        int32_t coordinates[2];
+        double lastUpdateTime = 0.0;
+        uint64_t lastAccess = 0u;
+        float populationValues[5];
+        if (fread(&surfaceId, sizeof(surfaceId), 1, file) != 1 ||
+            fread(coordinates, sizeof(coordinates), 1, file) != 1 ||
+            fread(&lastUpdateTime, sizeof(lastUpdateTime), 1, file) != 1 ||
+            fread(&lastAccess, sizeof(lastAccess), 1, file) != 1 ||
+            fread(populationValues, sizeof(populationValues), 1, file) != 1) {
+            return false;
+        }
+        PlanetRegionalPopulation population = {
+            .floraDensity = populationValues[0],
+            .faunaDensity = populationValues[1],
+            .floraCarryingCapacity = populationValues[2],
+            .faunaCarryingCapacity = populationValues[3],
+            .seasonalMemory = populationValues[4]
+        };
+        if (surfaceId == 0u || !isfinite(lastUpdateTime) ||
+            lastUpdateTime < 0.0 || lastAccess == 0u ||
+            lastAccess > loadedAccessSerial ||
+            !EcologyPopulationStateValid(&population)) {
+            return false;
+        }
+
+        unsigned setIndex = EcologyPopulationSetIndex(
+            surfaceId, (int)coordinates[0], (int)coordinates[1]);
+        unsigned start = setIndex * ECOLOGY_POPULATION_SET_WAYS;
+        EcologyPopulationRecord *slot = NULL;
+        for (unsigned way = 0; way < ECOLOGY_POPULATION_SET_WAYS; way++) {
+            EcologyPopulationRecord *candidate = &loaded[start + way];
+            if (candidate->valid && candidate->surfaceId == surfaceId &&
+                candidate->regionX == (int)coordinates[0] &&
+                candidate->regionZ == (int)coordinates[1]) {
+                return false;
+            }
+            if (!candidate->valid && !slot) slot = candidate;
+        }
+        if (!slot) return false;
+        *slot = (EcologyPopulationRecord){
+            .valid = true,
+            .surfaceId = surfaceId,
+            .regionX = (int)coordinates[0],
+            .regionZ = (int)coordinates[1],
+            .lastUpdateTime = lastUpdateTime,
+            .lastAccess = lastAccess,
+            .population = population
+        };
+    }
+
+    memcpy(ecologyPopulationRecords, loaded, sizeof(loaded));
+    memset(ecologyLocalCache, 0, sizeof(ecologyLocalCache));
+    ecologyPopulationAccessSerial = loadedAccessSerial;
+    ecologyPopulationEpoch++;
+    if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
+    return true;
+}
+
 PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
 {
     PlanetLocalEcology local = { 0 };
@@ -566,27 +866,26 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     uint32_t daylightBits = EcologyFloatBits(daylight);
     unsigned cacheIndex = EcologyLocalCacheIndex(
         x, z, simulationTime, daylight, ecologyProfileCache.generation,
-        originX, originZ);
+        ecologyPopulationEpoch, originX, originZ);
     EcologyLocalCacheEntry *cached = &ecologyLocalCache[cacheIndex];
     if (cached->valid && cached->x == x && cached->z == z &&
         cached->originX == originX && cached->originZ == originZ &&
         cached->simulationTime == simulationTime &&
         cached->daylightBits == daylightBits &&
-        cached->profileGeneration == ecologyProfileCache.generation) {
+        cached->profileGeneration == ecologyProfileCache.generation &&
+        cached->populationEpoch == ecologyPopulationEpoch) {
         return cached->ecology;
     }
 
-    WeatherFieldSample weather = WeatherFieldSampleAtWorld(x, z);
-    float sky = EcologyClamp(WeatherFieldSkyFactor(weather));
-    float precipitation = EcologyClamp(weather.precipitation);
-    float storm = EcologyClamp(weather.storm);
-    float usableDaylight = EcologyClamp(daylight * (1.0f - sky * 0.68f));
-    local.environment = EcologyEnvironmentAt(
-        x, z, simulationTime, usableDaylight, precipitation, storm,
-        true, &profile);
-    PlanetEcologyTraits traits = EcologyTraitsForProfile(&profile);
-    local.suitability = PlanetEcologyEvaluateLocal(
-        &local.environment, &traits, profile.floraDensity, profile.faunaDensity);
+    local = EcologyDynamicLocalAt(x, z, simulationTime, daylight, &profile);
+    PlanetRegionalPopulation population = EcologyRegionalPopulationAt(
+        x, z, simulationTime, daylight, &profile);
+    float floraPresence = PlanetPopulationFloraPresence(&population);
+    float faunaPresence = PlanetPopulationFaunaPresence(&population);
+    local.suitability.floraActivity = EcologyClamp(
+        local.suitability.floraActivity * (0.08f + floraPresence * 0.92f));
+    local.suitability.faunaActivity = EcologyClamp(
+        local.suitability.faunaActivity * (0.04f + faunaPresence * 0.96f));
 
     *cached = (EcologyLocalCacheEntry){
         .valid = true,
@@ -597,6 +896,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
         .simulationTime = simulationTime,
         .daylightBits = daylightBits,
         .profileGeneration = ecologyProfileCache.generation,
+        .populationEpoch = ecologyPopulationEpoch,
         .ecology = local
     };
     return local;

@@ -9,6 +9,11 @@ static float EcologyModelClamp(float value)
     return value;
 }
 
+static float EcologyModelFiniteUnit(float value)
+{
+    return isfinite(value) ? EcologyModelClamp(value) : 0.0f;
+}
+
 static uint32_t EcologyModelMix(uint32_t value)
 {
     value ^= value >> 16;
@@ -37,6 +42,15 @@ static float EcologyModelTemperatureResponse(float temperatureK,
 static float EcologyModelLerp(float start, float end, float amount)
 {
     return start + (end - start) * EcologyModelClamp(amount);
+}
+
+static float EcologyModelResponseAlpha(double elapsedTime, float timeConstant)
+{
+    if (!isfinite(elapsedTime) || elapsedTime <= 0.0 || timeConstant <= 0.0f) {
+        return 0.0f;
+    }
+    double boundedTime = fmin(elapsedTime, 86400.0);
+    return 1.0f - expf(-(float)boundedTime / timeConstant);
 }
 
 static void EcologyModelChooseLimit(PlanetEcologySuitability *result,
@@ -266,6 +280,112 @@ PlanetFloraRuntimeState PlanetEcologyFloraRuntime(float floraActivity,
     result.visualScale = 0.62f + response * 0.38f;
     result.visualPresence = 0.34f + sqrtf(result.activityRatio) * 0.66f;
     return result;
+}
+
+PlanetRegionalPopulation PlanetPopulationInitialize(
+    const PlanetPopulationInput *input, float floraOccupancy,
+    float faunaOccupancy)
+{
+    PlanetRegionalPopulation result = { 0 };
+    if (!input) return result;
+
+    float floraCapacity = EcologyModelFiniteUnit(input->floraCapacity);
+    float faunaCapacity = EcologyModelFiniteUnit(input->faunaCapacity);
+    float floraActivity = floraCapacity > 0.0001f
+        ? EcologyModelFiniteUnit(input->floraActivity / floraCapacity) : 0.0f;
+    float faunaActivity = faunaCapacity > 0.0001f
+        ? EcologyModelFiniteUnit(input->faunaActivity / faunaCapacity) : 0.0f;
+    result.seasonalMemory = EcologyModelClamp(
+        floraActivity * 0.72f + faunaActivity * 0.28f);
+    result.floraCarryingCapacity = floraCapacity *
+        (0.30f + result.seasonalMemory * 0.70f);
+    result.faunaCarryingCapacity = faunaCapacity *
+        (0.22f + result.seasonalMemory * 0.78f);
+    result.floraDensity = result.floraCarryingCapacity *
+        EcologyModelFiniteUnit(floraOccupancy);
+    float floraPresence = result.floraCarryingCapacity > 0.0001f
+        ? EcologyModelClamp(result.floraDensity /
+                            result.floraCarryingCapacity) : 0.0f;
+    result.faunaDensity = result.faunaCarryingCapacity *
+        EcologyModelFiniteUnit(faunaOccupancy) * floraPresence;
+    return result;
+}
+
+void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
+                             const PlanetPopulationInput *input,
+                             double elapsedTime)
+{
+    if (!population || !input || !isfinite(elapsedTime) ||
+        elapsedTime <= 0.0) {
+        return;
+    }
+
+    float floraCapacity = EcologyModelFiniteUnit(input->floraCapacity);
+    float faunaCapacity = EcologyModelFiniteUnit(input->faunaCapacity);
+    float floraActivity = floraCapacity > 0.0001f
+        ? EcologyModelFiniteUnit(input->floraActivity / floraCapacity) : 0.0f;
+    float faunaActivity = faunaCapacity > 0.0001f
+        ? EcologyModelFiniteUnit(input->faunaActivity / faunaCapacity) : 0.0f;
+    float seasonalTarget = EcologyModelClamp(
+        floraActivity * 0.72f + faunaActivity * 0.28f);
+    float seasonalAlpha = EcologyModelResponseAlpha(elapsedTime, 120.0f);
+    population->seasonalMemory = EcologyModelLerp(
+        EcologyModelFiniteUnit(population->seasonalMemory), seasonalTarget,
+        seasonalAlpha);
+
+    float floraCapacityTarget = floraCapacity *
+        (0.30f + population->seasonalMemory * 0.70f);
+    float faunaCapacityTarget = faunaCapacity *
+        (0.22f + population->seasonalMemory * 0.78f);
+    float capacityAlpha = EcologyModelResponseAlpha(elapsedTime, 75.0f);
+    population->floraCarryingCapacity = EcologyModelLerp(
+        EcologyModelFiniteUnit(population->floraCarryingCapacity),
+        floraCapacityTarget, capacityAlpha);
+    population->faunaCarryingCapacity = EcologyModelLerp(
+        EcologyModelFiniteUnit(population->faunaCarryingCapacity),
+        faunaCapacityTarget, capacityAlpha);
+
+    float floraTarget = population->floraCarryingCapacity *
+        (0.18f + floraActivity * 0.82f);
+    float floraTimeConstant = floraTarget >= population->floraDensity
+        ? 180.0f : 52.0f;
+    population->floraDensity = EcologyModelLerp(
+        EcologyModelFiniteUnit(population->floraDensity), floraTarget,
+        EcologyModelResponseAlpha(elapsedTime, floraTimeConstant));
+
+    float floraPresence = PlanetPopulationFloraPresence(population);
+    float faunaTarget = population->faunaCarryingCapacity *
+        (0.08f + faunaActivity * 0.92f) *
+        (0.12f + floraPresence * 0.88f);
+    float faunaTimeConstant = faunaTarget >= population->faunaDensity
+        ? 360.0f : 85.0f;
+    population->faunaDensity = EcologyModelLerp(
+        EcologyModelFiniteUnit(population->faunaDensity), faunaTarget,
+        EcologyModelResponseAlpha(elapsedTime, faunaTimeConstant));
+}
+
+float PlanetPopulationFloraPresence(
+    const PlanetRegionalPopulation *population)
+{
+    if (!population || !isfinite(population->floraDensity) ||
+        !isfinite(population->floraCarryingCapacity) ||
+        population->floraCarryingCapacity <= 0.0001f) {
+        return 0.0f;
+    }
+    return EcologyModelClamp(population->floraDensity /
+                             population->floraCarryingCapacity);
+}
+
+float PlanetPopulationFaunaPresence(
+    const PlanetRegionalPopulation *population)
+{
+    if (!population || !isfinite(population->faunaDensity) ||
+        !isfinite(population->faunaCarryingCapacity) ||
+        population->faunaCarryingCapacity <= 0.0001f) {
+        return 0.0f;
+    }
+    return EcologyModelClamp(population->faunaDensity /
+                             population->faunaCarryingCapacity);
 }
 
 float PlanetEcologyWindDrift(float windStrength, bool airborne)
