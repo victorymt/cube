@@ -268,6 +268,13 @@ PlanetFloraRuntimeState PlanetEcologyFloraRuntime(float floraActivity,
     return result;
 }
 
+float PlanetEcologyWindDrift(float windStrength, bool airborne)
+{
+    if (!isfinite(windStrength)) return 0.0f;
+    float strength = EcologyModelClamp(windStrength);
+    return strength * (airborne ? 0.42f : 0.05f);
+}
+
 PlanetHabitatChoice PlanetEcologyChooseHabitat(
     float currentActivity, const float neighborActivities[4])
 {

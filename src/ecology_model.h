@@ -116,6 +116,7 @@ PlanetFaunaRuntimeState PlanetEcologyFaunaRuntime(float faunaActivity,
                                                    float faunaCapacity);
 PlanetFloraRuntimeState PlanetEcologyFloraRuntime(float floraActivity,
                                                    float floraCapacity);
+float PlanetEcologyWindDrift(float windStrength, bool airborne);
 PlanetHabitatChoice PlanetEcologyChooseHabitat(
     float currentActivity, const float neighborActivities[4]);
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor);

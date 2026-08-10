@@ -434,6 +434,29 @@ static void TestRandomizedFloraRuntimeProperties(void)
     }
 }
 
+static void TestWindDriftResponse(void)
+{
+    assert(PlanetEcologyWindDrift(0.0f, false) == 0.0f);
+    assert(PlanetEcologyWindDrift(0.0f, true) == 0.0f);
+    assert(PlanetEcologyWindDrift(1.0f, false) > 0.0f);
+    assert(PlanetEcologyWindDrift(1.0f, true) >
+           PlanetEcologyWindDrift(1.0f, false));
+    assert(PlanetEcologyWindDrift(4.0f, true) == 0.42f);
+    assert(PlanetEcologyWindDrift(NAN, true) == 0.0f);
+
+    uint32_t state = 0x28c4f91bu;
+    for (int index = 0; index < 10000; index++) {
+        state = state * 1664525u + 1013904223u;
+        float wind = (float)(state & 1023u) / 256.0f - 1.0f;
+        float ground = PlanetEcologyWindDrift(wind, false);
+        float airborne = PlanetEcologyWindDrift(wind, true);
+        assert(isfinite(ground) && isfinite(airborne));
+        assert(ground >= 0.0f && ground <= 0.05f);
+        assert(airborne >= 0.0f && airborne <= 0.42f);
+        assert(airborne >= ground);
+    }
+}
+
 static void TestHabitatChoice(void)
 {
     const float neighbors[] = { 0.18f, 0.42f, 0.31f, 0.42f };
@@ -523,6 +546,7 @@ int main(void)
     TestRandomizedFaunaRuntimeProperties();
     TestFloraRuntimeResponse();
     TestRandomizedFloraRuntimeProperties();
+    TestWindDriftResponse();
     TestHabitatChoice();
     TestRandomizedHabitatChoiceProperties();
     puts("ecology_model tests passed");

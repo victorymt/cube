@@ -8,6 +8,7 @@
 #include "world_environment.h"
 #include "particles.h"
 #include "audio.h"
+#include "weather.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -169,6 +170,13 @@ static void SpawnPassive(const Player *player, float daylight)
         ? localEcology.suitability.faunaActivity : 1.0f;
     entity->ecologyCapacity = alienWorld
         ? localEcology.suitability.faunaCapacity : 1.0f;
+    entity->ecologyWindStrength = 0.0f;
+    entity->ecologyWindAngle = 0.0f;
+    if (alienWorld) {
+        WeatherFieldSample weather = WeatherFieldSampleAtWorld(gx, gz);
+        entity->ecologyWindStrength = weather.wind;
+        entity->ecologyWindAngle = PlanetWorldProfile()->prevailingWindAngle;
+    }
     entity->ecologySampleTimer = alienWorld
         ? 0.25f + (float)slot / (float)MAX_ENTITIES : 1.0f;
     entity->primaryBlock = alienWorld ? ecology.primaryBlock : BLOCK_GRASS;
@@ -273,6 +281,11 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
                 (int)floorf(entity->position.z), daylight);
             entity->ecologyActivity = local.suitability.faunaActivity;
             entity->ecologyCapacity = local.suitability.faunaCapacity;
+            WeatherFieldSample weather = WeatherFieldSampleAtWorld(
+                (int)floorf(entity->position.x),
+                (int)floorf(entity->position.z));
+            entity->ecologyWindStrength = weather.wind;
+            entity->ecologyWindAngle = PlanetWorldProfile()->prevailingWindAngle;
             entity->ecologySampleTimer = 1.0f;
         }
         runtime = PlanetEcologyFaunaRuntime(entity->ecologyActivity,
@@ -292,6 +305,10 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
     float movementScale = alien ? runtime.movementScale : 1.0f;
     if (alien && threatened) movementScale = fmaxf(movementScale, 0.28f);
     float speed = baseSpeed * movementScale;
+    float windDrift = alien
+        ? PlanetEcologyWindDrift(entity->ecologyWindStrength,
+                                 entity->airborne)
+        : 0.0f;
     bool seekingHabitat = false;
 
     entity->thinkTimer -= dt;
@@ -354,12 +371,20 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
         entity->moveTimer -= dt;
         float fleeSpeed = (playerDist < 5.0f) ? speed * (1.25f + entity->temperament) : speed;
         Vector3 move = { sinf(entity->yaw) * fleeSpeed, 0.0f, cosf(entity->yaw) * fleeSpeed };
+        if (alien && !entity->airborne) {
+            move.x += cosf(entity->ecologyWindAngle) * windDrift;
+            move.z += sinf(entity->ecologyWindAngle) * windDrift;
+        }
         if (entity->airborne) {
             entity->position.x += move.x * dt;
             entity->position.z += move.z * dt;
         } else {
             MoveEntityHorizontal(entity, move, dt);
         }
+    }
+    if (alien && entity->airborne && windDrift > 0.0f) {
+        entity->position.x += cosf(entity->ecologyWindAngle) * windDrift * dt;
+        entity->position.z += sinf(entity->ecologyWindAngle) * windDrift * dt;
     }
 }
 

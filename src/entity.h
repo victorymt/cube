@@ -42,6 +42,8 @@ typedef struct Entity {
     float ecologyActivity;
     float ecologyCapacity;
     float ecologySampleTimer;
+    float ecologyWindStrength;
+    float ecologyWindAngle;
     BlockType primaryBlock;
     BlockType accentBlock;
 } Entity;
