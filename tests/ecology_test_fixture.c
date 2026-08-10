@@ -182,6 +182,43 @@ static void WritePlanetWorldFixture(FILE *file, uint32_t seed,
     assert(fwrite(name, sizeof(name), 1, file) == 1);
 }
 
+static void WriteGeneratedPlanetWorldFixture(
+    FILE *file, const SolarSystemDef *system, int planetIndex,
+    int originX, int originZ)
+{
+    assert(system);
+    assert(planetIndex >= 0 && planetIndex < system->planetCount);
+    PlanetProfile profile = SolarPlanetProfile(system, planetIndex);
+    uint8_t version = 2u;
+    uint8_t active = 1u;
+    uint32_t style = (uint32_t)profile.style;
+    int32_t savedOriginX = (int32_t)originX;
+    int32_t savedOriginZ = (int32_t)originZ;
+    int32_t savedPlanetIndex = (int32_t)planetIndex + 1;
+    Vector3 center = SolarSystemPlanetCenter(system, planetIndex);
+    float bodyCenter[3] = { center.x, center.y, center.z };
+    float proxyRadius = SolarBodyTerrainProxyRadius(profile.spaceProxyRadius);
+    float returnPosition[3] = {
+        center.x + proxyRadius + 14.0f, center.y, center.z
+    };
+    char name[32] = { 0 };
+    snprintf(name, sizeof(name), "%.28s %c", system->name,
+             'a' + planetIndex);
+
+    assert(fwrite(&version, sizeof(version), 1, file) == 1);
+    assert(fwrite(&active, sizeof(active), 1, file) == 1);
+    assert(fwrite(&profile.seed, sizeof(profile.seed), 1, file) == 1);
+    assert(fwrite(&style, sizeof(style), 1, file) == 1);
+    assert(fwrite(&savedOriginX, sizeof(savedOriginX), 1, file) == 1);
+    assert(fwrite(&savedOriginZ, sizeof(savedOriginZ), 1, file) == 1);
+    assert(fwrite(&savedPlanetIndex, sizeof(savedPlanetIndex), 1, file) == 1);
+    assert(fwrite(bodyCenter, sizeof(bodyCenter), 1, file) == 1);
+    assert(fwrite(returnPosition, sizeof(returnPosition), 1, file) == 1);
+    assert(fwrite(&proxyRadius, sizeof(proxyRadius), 1, file) == 1);
+    assert(fwrite(name, sizeof(name), 1, file) == 1);
+    assert(PlanetProfileSaveState(file, &profile));
+}
+
 void EcologyTestActivatePlanetStyleWithFile(FILE *file, uint32_t seed,
                                             int originX, int originZ,
                                             SolarBodyStyle style)
@@ -193,6 +230,23 @@ void EcologyTestActivatePlanetStyleWithFile(FILE *file, uint32_t seed,
     assert(PlanetWorldLoadState(file));
     assert(PlanetWorldIsActive());
     assert(PlanetWorldSeed() == seed);
+    assert(PlanetWorldOriginX() == originX);
+    assert(PlanetWorldOriginZ() == originZ);
+}
+
+void EcologyTestActivateGeneratedPlanetWithFile(
+    FILE *file, const SolarSystemDef *system, int planetIndex,
+    int originX, int originZ)
+{
+    assert(file);
+    rewind(file);
+    WriteGeneratedPlanetWorldFixture(
+        file, system, planetIndex, originX, originZ);
+    rewind(file);
+    assert(PlanetWorldLoadState(file));
+    assert(PlanetWorldIsActive());
+    assert(PlanetWorldSeed() ==
+           SolarPlanetProfile(system, planetIndex).seed);
     assert(PlanetWorldOriginX() == originX);
     assert(PlanetWorldOriginZ() == originZ);
 }

@@ -267,6 +267,8 @@ float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point);
 float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
                               Vector3 point);
 PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index);
+bool PlanetProfileSaveState(FILE *file, const PlanetProfile *profile);
+bool PlanetProfileLoadState(FILE *file, PlanetProfile *outProfile);
 bool SolarPlanetSatelliteOrbit(const SolarSystemDef *sys, int index,
                                const PlanetProfile *profile,
                                SpaceSatelliteOrbit *out);

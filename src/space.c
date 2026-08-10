@@ -31,6 +31,7 @@
 #define SPACE_GRAVITY_QUERY_RADIUS (STAR_SYSTEM_SPACING * 0.58f)
 #define SPACE_STAR_ENCOUNTER_RADIUS_GAME SPACE_GRAVITY_QUERY_RADIUS
 #define SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME 170.0f
+#define PLANET_WORLD_STATE_VERSION 2u
 
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
@@ -2464,8 +2465,173 @@ void PlanetWorldReset(void)
     memset(&planetWorld, 0, sizeof(planetWorld));
 }
 
+static bool PlanetProfileUnitValue(float value)
+{
+    return isfinite(value) && value >= 0.0f && value <= 1.0f;
+}
+
+static bool PlanetProfileIsValid(const PlanetProfile *profile)
+{
+    if (!profile || profile->style < SOLAR_STYLE_SUN ||
+        profile->style > SOLAR_STYLE_TEMPERATE ||
+        profile->atmosphereType < PLANET_ATMOSPHERE_NONE ||
+        profile->atmosphereType > PLANET_ATMOSPHERE_CORROSIVE) {
+        return false;
+    }
+
+    return isfinite(profile->physicalRadiusKm) &&
+           profile->physicalRadiusKm >= 0.0 &&
+           isfinite(profile->massKg) && profile->massKg >= 0.0 &&
+           isfinite(profile->spaceProxyRadius) &&
+           profile->spaceProxyRadius >= 0.0f &&
+           isfinite(profile->surfaceGravity) &&
+           profile->surfaceGravity >= 0.0f &&
+           isfinite(profile->receivedIrradiance) &&
+           profile->receivedIrradiance >= 0.0 &&
+           isfinite(profile->radiativeTempK) &&
+           profile->radiativeTempK >= 0.0f &&
+           isfinite(profile->equilibriumTempK) &&
+           profile->equilibriumTempK >= 0.0f &&
+           isfinite(profile->surfacePressureAtm) &&
+           profile->surfacePressureAtm >= 0.0f &&
+           PlanetProfileUnitValue(profile->atmosphereDensity) &&
+           PlanetProfileUnitValue(profile->oceanCoverage) &&
+           PlanetProfileUnitValue(profile->iceCoverage) &&
+           PlanetProfileUnitValue(profile->cloudCoverage) &&
+           isfinite(profile->terrainRoughness) &&
+           profile->terrainRoughness >= 0.0f &&
+           isfinite(profile->ageGyr) && profile->ageGyr >= 0.0f &&
+           isfinite(profile->rotationRate) &&
+           profile->rotationRate >= 0.0f &&
+           PlanetProfileUnitValue(profile->tidalLockFactor) &&
+           isfinite(profile->ringTilt) &&
+           PlanetProfileUnitValue(profile->albedo) &&
+           isfinite(profile->greenhouseEffect) &&
+           profile->greenhouseEffect >= 0.0f &&
+           isfinite(profile->axialTilt) &&
+           isfinite(profile->seasonPhase) &&
+           isfinite(profile->yearLength) && profile->yearLength >= 0.0f &&
+           isfinite(profile->prevailingWindAngle) &&
+           PlanetProfileUnitValue(profile->windStrength) &&
+           PlanetProfileUnitValue(profile->volcanicActivity) &&
+           PlanetProfileUnitValue(profile->impactRate);
+}
+
+bool PlanetProfileSaveState(FILE *file, const PlanetProfile *profile)
+{
+    if (!file || !PlanetProfileIsValid(profile)) return false;
+
+    uint32_t style = (uint32_t)profile->style;
+    uint32_t atmosphereType = (uint32_t)profile->atmosphereType;
+    uint8_t hasSolidSurface = profile->hasSolidSurface ? 1u : 0u;
+    uint8_t hasRings = profile->hasRings ? 1u : 0u;
+    uint8_t tidallyLocked = profile->tidallyLocked ? 1u : 0u;
+
+#define WRITE_PROFILE_FIELD(field) \
+    fwrite(&profile->field, sizeof(profile->field), 1, file) == 1
+    return WRITE_PROFILE_FIELD(seed) &&
+           fwrite(&style, sizeof(style), 1, file) == 1 &&
+           fwrite(&atmosphereType, sizeof(atmosphereType), 1, file) == 1 &&
+           WRITE_PROFILE_FIELD(physicalRadiusKm) &&
+           WRITE_PROFILE_FIELD(massKg) &&
+           WRITE_PROFILE_FIELD(spaceProxyRadius) &&
+           WRITE_PROFILE_FIELD(surfaceGravity) &&
+           WRITE_PROFILE_FIELD(receivedIrradiance) &&
+           WRITE_PROFILE_FIELD(radiativeTempK) &&
+           WRITE_PROFILE_FIELD(equilibriumTempK) &&
+           WRITE_PROFILE_FIELD(surfacePressureAtm) &&
+           WRITE_PROFILE_FIELD(atmosphereDensity) &&
+           WRITE_PROFILE_FIELD(oceanCoverage) &&
+           WRITE_PROFILE_FIELD(iceCoverage) &&
+           WRITE_PROFILE_FIELD(cloudCoverage) &&
+           WRITE_PROFILE_FIELD(terrainRoughness) &&
+           WRITE_PROFILE_FIELD(ageGyr) &&
+           WRITE_PROFILE_FIELD(rotationRate) &&
+           WRITE_PROFILE_FIELD(tidalLockFactor) &&
+           WRITE_PROFILE_FIELD(ringTilt) &&
+           WRITE_PROFILE_FIELD(albedo) &&
+           WRITE_PROFILE_FIELD(greenhouseEffect) &&
+           WRITE_PROFILE_FIELD(axialTilt) &&
+           WRITE_PROFILE_FIELD(seasonPhase) &&
+           WRITE_PROFILE_FIELD(yearLength) &&
+           WRITE_PROFILE_FIELD(prevailingWindAngle) &&
+           WRITE_PROFILE_FIELD(windStrength) &&
+           WRITE_PROFILE_FIELD(volcanicActivity) &&
+           WRITE_PROFILE_FIELD(impactRate) &&
+           fwrite(&hasSolidSurface, sizeof(hasSolidSurface), 1, file) == 1 &&
+           fwrite(&hasRings, sizeof(hasRings), 1, file) == 1 &&
+           fwrite(&tidallyLocked, sizeof(tidallyLocked), 1, file) == 1;
+#undef WRITE_PROFILE_FIELD
+}
+
+bool PlanetProfileLoadState(FILE *file, PlanetProfile *outProfile)
+{
+    if (!file || !outProfile) return false;
+
+    PlanetProfile loaded = { 0 };
+    uint32_t style = 0;
+    uint32_t atmosphereType = 0;
+    uint8_t hasSolidSurface = 0;
+    uint8_t hasRings = 0;
+    uint8_t tidallyLocked = 0;
+
+#define READ_PROFILE_FIELD(field) \
+    (fread(&loaded.field, sizeof(loaded.field), 1, file) == 1)
+    if (!READ_PROFILE_FIELD(seed) ||
+        fread(&style, sizeof(style), 1, file) != 1 ||
+        fread(&atmosphereType, sizeof(atmosphereType), 1, file) != 1 ||
+        !READ_PROFILE_FIELD(physicalRadiusKm) ||
+        !READ_PROFILE_FIELD(massKg) ||
+        !READ_PROFILE_FIELD(spaceProxyRadius) ||
+        !READ_PROFILE_FIELD(surfaceGravity) ||
+        !READ_PROFILE_FIELD(receivedIrradiance) ||
+        !READ_PROFILE_FIELD(radiativeTempK) ||
+        !READ_PROFILE_FIELD(equilibriumTempK) ||
+        !READ_PROFILE_FIELD(surfacePressureAtm) ||
+        !READ_PROFILE_FIELD(atmosphereDensity) ||
+        !READ_PROFILE_FIELD(oceanCoverage) ||
+        !READ_PROFILE_FIELD(iceCoverage) ||
+        !READ_PROFILE_FIELD(cloudCoverage) ||
+        !READ_PROFILE_FIELD(terrainRoughness) ||
+        !READ_PROFILE_FIELD(ageGyr) ||
+        !READ_PROFILE_FIELD(rotationRate) ||
+        !READ_PROFILE_FIELD(tidalLockFactor) ||
+        !READ_PROFILE_FIELD(ringTilt) ||
+        !READ_PROFILE_FIELD(albedo) ||
+        !READ_PROFILE_FIELD(greenhouseEffect) ||
+        !READ_PROFILE_FIELD(axialTilt) ||
+        !READ_PROFILE_FIELD(seasonPhase) ||
+        !READ_PROFILE_FIELD(yearLength) ||
+        !READ_PROFILE_FIELD(prevailingWindAngle) ||
+        !READ_PROFILE_FIELD(windStrength) ||
+        !READ_PROFILE_FIELD(volcanicActivity) ||
+        !READ_PROFILE_FIELD(impactRate) ||
+        fread(&hasSolidSurface, sizeof(hasSolidSurface), 1, file) != 1 ||
+        fread(&hasRings, sizeof(hasRings), 1, file) != 1 ||
+        fread(&tidallyLocked, sizeof(tidallyLocked), 1, file) != 1) {
+        return false;
+    }
+#undef READ_PROFILE_FIELD
+
+    if (style > (uint32_t)SOLAR_STYLE_TEMPERATE ||
+        atmosphereType > (uint32_t)PLANET_ATMOSPHERE_CORROSIVE ||
+        hasSolidSurface > 1u || hasRings > 1u || tidallyLocked > 1u) {
+        return false;
+    }
+    loaded.style = (SolarBodyStyle)style;
+    loaded.atmosphereType = (PlanetAtmosphereType)atmosphereType;
+    loaded.hasSolidSurface = hasSolidSurface != 0u;
+    loaded.hasRings = hasRings != 0u;
+    loaded.tidallyLocked = tidallyLocked != 0u;
+    if (!PlanetProfileIsValid(&loaded)) return false;
+
+    *outProfile = loaded;
+    return true;
+}
+
 bool PlanetWorldSaveState(FILE *file)
 {
+    uint8_t version = PLANET_WORLD_STATE_VERSION;
     uint8_t active = planetWorld.active ? 1u : 0u;
     uint32_t style = (uint32_t)planetWorld.style;
     int32_t originX = (int32_t)planetWorld.originX;
@@ -2476,7 +2642,10 @@ bool PlanetWorldSaveState(FILE *file)
     float returnPosition[3] = { planetWorld.returnPosition.x, planetWorld.returnPosition.y,
                                 planetWorld.returnPosition.z };
 
-    return fwrite(&active, sizeof(active), 1, file) == 1 &&
+    if (!file || !PlanetProfileIsValid(&planetWorld.profile)) return false;
+
+    return fwrite(&version, sizeof(version), 1, file) == 1 &&
+           fwrite(&active, sizeof(active), 1, file) == 1 &&
            fwrite(&planetWorld.seed, sizeof(planetWorld.seed), 1, file) == 1 &&
            fwrite(&style, sizeof(style), 1, file) == 1 &&
            fwrite(&originX, sizeof(originX), 1, file) == 1 &&
@@ -2486,12 +2655,14 @@ bool PlanetWorldSaveState(FILE *file)
            fwrite(returnPosition, sizeof(returnPosition), 1, file) == 1 &&
            fwrite(&planetWorld.spaceProxyRadius,
                   sizeof(planetWorld.spaceProxyRadius), 1, file) == 1 &&
-           fwrite(planetWorld.name, sizeof(planetWorld.name), 1, file) == 1;
+           fwrite(planetWorld.name, sizeof(planetWorld.name), 1, file) == 1 &&
+           PlanetProfileSaveState(file, &planetWorld.profile);
 }
 
 bool PlanetWorldLoadState(FILE *file)
 {
     PlanetWorldContext loaded = { 0 };
+    uint8_t versionOrActive = 0;
     uint8_t active = 0;
     uint32_t style = 0;
     int32_t originX = 0;
@@ -2500,7 +2671,18 @@ bool PlanetWorldLoadState(FILE *file)
     float bodyCenter[3] = { 0 };
     float returnPosition[3] = { 0 };
 
-    if (fread(&active, sizeof(active), 1, file) != 1 ||
+    if (!file ||
+        fread(&versionOrActive, sizeof(versionOrActive), 1, file) != 1) {
+        return false;
+    }
+    bool hasProfile = versionOrActive == PLANET_WORLD_STATE_VERSION;
+    if (hasProfile) {
+        if (fread(&active, sizeof(active), 1, file) != 1) return false;
+    } else {
+        active = versionOrActive;
+    }
+
+    if (active > 1u ||
         fread(&loaded.seed, sizeof(loaded.seed), 1, file) != 1 ||
         fread(&style, sizeof(style), 1, file) != 1 ||
         fread(&originX, sizeof(originX), 1, file) != 1 ||
@@ -2514,7 +2696,7 @@ bool PlanetWorldLoadState(FILE *file)
         return false;
     }
 
-    if (active > 1u || style > (uint32_t)SOLAR_STYLE_TEMPERATE ||
+    if (style > (uint32_t)SOLAR_STYLE_TEMPERATE ||
         planetIndex < 0 || !isfinite(loaded.spaceProxyRadius) ||
         loaded.spaceProxyRadius < 0.0f ||
         !isfinite(bodyCenter[0]) || !isfinite(bodyCenter[1]) || !isfinite(bodyCenter[2]) ||
@@ -2530,8 +2712,16 @@ bool PlanetWorldLoadState(FILE *file)
     loaded.planetIndex = (int)planetIndex;
     loaded.bodyCenter = (Vector3){ bodyCenter[0], bodyCenter[1], bodyCenter[2] };
     loaded.returnPosition = (Vector3){ returnPosition[0], returnPosition[1], returnPosition[2] };
-    loaded.profile = LegacyPlanetProfile(loaded.seed, loaded.style,
-                                         loaded.spaceProxyRadius);
+    if (hasProfile) {
+        if (!PlanetProfileLoadState(file, &loaded.profile) ||
+            loaded.profile.seed != loaded.seed ||
+            loaded.profile.style != loaded.style) {
+            return false;
+        }
+    } else {
+        loaded.profile = LegacyPlanetProfile(loaded.seed, loaded.style,
+                                             loaded.spaceProxyRadius);
+    }
     loaded.name[sizeof(loaded.name) - 1] = '\0';
     planetWorld = loaded;
     return true;

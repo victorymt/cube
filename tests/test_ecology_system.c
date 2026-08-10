@@ -65,6 +65,47 @@ static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
 #undef ASSERT_MIGRATION_SIGNED_UNIT
 }
 
+static void AssertPlanetProfileEqual(const PlanetProfile *actual,
+                                     const PlanetProfile *expected)
+{
+    assert(actual && expected);
+#define ASSERT_PLANET_FIELD(field) \
+    assert(actual->field == expected->field)
+    ASSERT_PLANET_FIELD(seed);
+    ASSERT_PLANET_FIELD(style);
+    ASSERT_PLANET_FIELD(atmosphereType);
+    ASSERT_PLANET_FIELD(physicalRadiusKm);
+    ASSERT_PLANET_FIELD(massKg);
+    ASSERT_PLANET_FIELD(spaceProxyRadius);
+    ASSERT_PLANET_FIELD(surfaceGravity);
+    ASSERT_PLANET_FIELD(receivedIrradiance);
+    ASSERT_PLANET_FIELD(radiativeTempK);
+    ASSERT_PLANET_FIELD(equilibriumTempK);
+    ASSERT_PLANET_FIELD(surfacePressureAtm);
+    ASSERT_PLANET_FIELD(atmosphereDensity);
+    ASSERT_PLANET_FIELD(oceanCoverage);
+    ASSERT_PLANET_FIELD(iceCoverage);
+    ASSERT_PLANET_FIELD(cloudCoverage);
+    ASSERT_PLANET_FIELD(terrainRoughness);
+    ASSERT_PLANET_FIELD(ageGyr);
+    ASSERT_PLANET_FIELD(rotationRate);
+    ASSERT_PLANET_FIELD(tidalLockFactor);
+    ASSERT_PLANET_FIELD(ringTilt);
+    ASSERT_PLANET_FIELD(albedo);
+    ASSERT_PLANET_FIELD(greenhouseEffect);
+    ASSERT_PLANET_FIELD(axialTilt);
+    ASSERT_PLANET_FIELD(seasonPhase);
+    ASSERT_PLANET_FIELD(yearLength);
+    ASSERT_PLANET_FIELD(prevailingWindAngle);
+    ASSERT_PLANET_FIELD(windStrength);
+    ASSERT_PLANET_FIELD(volcanicActivity);
+    ASSERT_PLANET_FIELD(impactRate);
+    ASSERT_PLANET_FIELD(hasSolidSurface);
+    ASSERT_PLANET_FIELD(hasRings);
+    ASSERT_PLANET_FIELD(tidallyLocked);
+#undef ASSERT_PLANET_FIELD
+}
+
 static bool LocalEcologyDiffers(PlanetLocalEcology left,
                                 PlanetLocalEcology right)
 {
@@ -289,6 +330,104 @@ static void TestEcologySaveLoadReplay(void)
     assert(beforeWindAngle == replayWindAngle);
     AssertLocalEcologyEqual(replayEcology, continuedEcology);
     fclose(file);
+}
+
+static void TestGeneratedPlanetProfileSaveLoadReplay(void)
+{
+    const uint32_t galaxySeed = 0x2468ace0u;
+    const int sampleX = -815;
+    const int sampleZ = 1327;
+    EcologyTestSetSeed(galaxySeed);
+
+    SolarSystemDef system;
+    assert(StarSystemAt(3, -4, &system));
+    assert(system.planetCount > 0);
+    PlanetProfile generated = SolarPlanetProfile(&system, 0);
+    assert(generated.seed != 0u);
+
+    FILE *profileFile = tmpfile();
+    assert(profileFile);
+    assert(PlanetProfileSaveState(profileFile, &generated));
+    rewind(profileFile);
+    PlanetProfile profileRoundTrip = { 0 };
+    assert(PlanetProfileLoadState(profileFile, &profileRoundTrip));
+    AssertPlanetProfileEqual(&profileRoundTrip, &generated);
+
+    uint32_t invalidStyle = (uint32_t)SOLAR_STYLE_TEMPERATE + 1u;
+    assert(fseek(profileFile, (long)sizeof(generated.seed), SEEK_SET) == 0);
+    assert(fwrite(&invalidStyle, sizeof(invalidStyle), 1, profileFile) == 1);
+    rewind(profileFile);
+    assert(!PlanetProfileLoadState(profileFile, &profileRoundTrip));
+    fclose(profileFile);
+
+    PlanetProfile invalidProfile = generated;
+    invalidProfile.equilibriumTempK = NAN;
+    FILE *invalidFile = tmpfile();
+    assert(invalidFile);
+    assert(!PlanetProfileSaveState(invalidFile, &invalidProfile));
+    fclose(invalidFile);
+
+    FILE *activationFile = tmpfile();
+    assert(activationFile);
+    EcologyTestActivateGeneratedPlanetWithFile(
+        activationFile, &system, 0, 913, -527);
+    AssertPlanetProfileEqual(PlanetWorldProfile(), &generated);
+    PlanetEcologyResetState();
+    SpaceAdvanceTime(163.5f);
+
+    bool darkSide = PlanetWorldIsDarkSide();
+    PlanetEcologyProfile beforeProfile = PlanetEcologyCurrent();
+    PlanetEcologyProfile directlyDerived = PlanetEcologyProfileForPlanet(
+        &generated, generated.seed, darkSide);
+    assert(memcmp(&beforeProfile, &directlyDerived,
+                  sizeof(beforeProfile)) == 0);
+    WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorld(
+        sampleX, sampleZ);
+    PlanetLocalEcology beforeLocal = PlanetEcologyLocalAt(
+        sampleX, sampleZ, 0.68f);
+
+    FILE *stateFile = tmpfile();
+    assert(stateFile);
+    EcologyTestSaveSimulationState(stateFile);
+
+    EcologyTestSetSeed(0xdeadbeefu);
+    EcologyTestActivatePlanet(0xdeadbeefu, 17, -29);
+    SpaceAdvanceTime(41.0f);
+    EcologyTestSetSeed(galaxySeed);
+    EcologyTestLoadSimulationState(stateFile);
+
+    AssertPlanetProfileEqual(PlanetWorldProfile(), &generated);
+    assert(PlanetWorldIsDarkSide() == darkSide);
+    PlanetEcologyProfile afterProfile = PlanetEcologyCurrent();
+    assert(memcmp(&afterProfile, &beforeProfile,
+                  sizeof(beforeProfile)) == 0);
+    WeatherFieldSample afterWeather = WeatherFieldSampleAtWorld(
+        sampleX, sampleZ);
+    PlanetLocalEcology afterLocal = PlanetEcologyLocalAt(
+        sampleX, sampleZ, 0.68f);
+    assert(memcmp(&afterWeather, &beforeWeather,
+                  sizeof(beforeWeather)) == 0);
+    AssertLocalEcologyEqual(afterLocal, beforeLocal);
+
+    SpaceAdvanceTime(23.75f);
+    WeatherFieldSample continuedWeather = WeatherFieldSampleAtWorld(
+        sampleX, sampleZ);
+    PlanetLocalEcology continuedLocal = PlanetEcologyLocalAt(
+        sampleX, sampleZ, 0.68f);
+
+    EcologyTestSetSeed(galaxySeed);
+    EcologyTestLoadSimulationState(stateFile);
+    SpaceAdvanceTime(23.75f);
+    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(
+        sampleX, sampleZ);
+    PlanetLocalEcology replayLocal = PlanetEcologyLocalAt(
+        sampleX, sampleZ, 0.68f);
+    assert(memcmp(&replayWeather, &continuedWeather,
+                  sizeof(continuedWeather)) == 0);
+    AssertLocalEcologyEqual(replayLocal, continuedLocal);
+
+    fclose(stateFile);
+    fclose(activationFile);
 }
 
 static void TestEcologyMigrationOrderAndTimePartition(void)
@@ -989,6 +1128,7 @@ int main(void)
     TestEcologyCacheInvalidation();
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();
+    TestGeneratedPlanetProfileSaveLoadReplay();
     TestEcologyMigrationOrderAndTimePartition();
     TestEcologyPlayerEditDisturbance();
     TestEcologyLegacyPopulationStateLoad();
