@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ENTITY_STATE_VERSION 2u
+#define ENTITY_STATE_VERSION 3u
 #define ENTITY_RANDOM_FALLBACK 0x6d2b79f5u
 
 typedef struct EntityDiskStateV1 {
@@ -54,6 +54,20 @@ typedef struct EntityDiskStateV2 {
     EntityDiskStateV1 entity;
     float motionTargetYaw;
 } EntityDiskStateV2;
+
+typedef struct EntityDiskStateV3 {
+    EntityDiskStateV2 entity;
+    float ecologyFoodAvailability;
+    float ecologyWaterAvailability;
+    float ecologyShelterAvailability;
+    float ecologyStormPressure;
+    float ecologyTemperatureStress;
+    float energy;
+    float hydration;
+    float fatigue;
+    float stress;
+    uint32_t behavior;
+} EntityDiskStateV3;
 
 static Entity entities[MAX_ENTITIES];
 static uint32_t entityRandomState = ENTITY_RANDOM_FALLBACK;
@@ -120,6 +134,11 @@ static bool EntityFloatValid(float value)
     return isfinite(value) && fabsf(value) <= 1000000000.0f;
 }
 
+static bool EntityUnitFloatValid(float value)
+{
+    return isfinite(value) && value >= 0.0f && value <= 1.0f;
+}
+
 static bool EntityBlockValid(uint32_t value)
 {
     return value <= (uint32_t)BLOCK_NETHER_PORTAL ||
@@ -166,6 +185,38 @@ static bool EntityDiskStateV2Valid(const EntityDiskStateV2 *saved)
     return saved && EntityDiskStateValid(&saved->entity) &&
            (saved->entity.active == 0u ||
             EntityFloatValid(saved->motionTargetYaw));
+}
+
+static bool EntityDiskStateV3Valid(const EntityDiskStateV3 *saved)
+{
+    if (!saved || !EntityDiskStateV2Valid(&saved->entity)) return false;
+    if (saved->entity.entity.active == 0u) return true;
+    const float values[] = {
+        saved->ecologyFoodAvailability,
+        saved->ecologyWaterAvailability,
+        saved->ecologyShelterAvailability,
+        saved->ecologyStormPressure,
+        saved->ecologyTemperatureStress,
+        saved->energy,
+        saved->hydration,
+        saved->fatigue,
+        saved->stress
+    };
+    for (unsigned index = 0; index < sizeof(values) / sizeof(values[0]); index++) {
+        if (!EntityUnitFloatValid(values[index])) return false;
+    }
+    return FaunaBehaviorActionValid((FaunaBehaviorAction)saved->behavior);
+}
+
+static void EntityInitializeBehaviorState(Entity *entity)
+{
+    entity->ecologyFoodAvailability = 0.72f;
+    entity->ecologyWaterAvailability = 0.72f;
+    entity->ecologyShelterAvailability = 0.55f;
+    entity->ecologyStormPressure = 0.0f;
+    entity->ecologyTemperatureStress = 0.0f;
+    entity->needs = FaunaNeedsDefault();
+    entity->behavior = FAUNA_ACTION_IDLE;
 }
 
 static void EntityWriteDiskStateV1(EntityDiskStateV1 *disk,
@@ -241,8 +292,64 @@ static void EntityReadDiskStateV1(Entity *entity,
     entity->ecologySampleTimer = disk->ecologySampleTimer;
     entity->ecologyWindStrength = disk->ecologyWindStrength;
     entity->ecologyWindAngle = disk->ecologyWindAngle;
+    EntityInitializeBehaviorState(entity);
+    if (entity->moveTimer > 0.0f) {
+        entity->behavior = FAUNA_ACTION_WANDER;
+    }
     entity->primaryBlock = (BlockType)disk->primaryBlock;
     entity->accentBlock = (BlockType)disk->accentBlock;
+}
+
+static void EntityWriteDiskStateV2(EntityDiskStateV2 *disk,
+                                   const Entity *entity)
+{
+    memset(disk, 0, sizeof(*disk));
+    EntityWriteDiskStateV1(&disk->entity, entity);
+    if (entity->active) disk->motionTargetYaw = entity->motionTargetYaw;
+}
+
+static void EntityReadDiskStateV2(Entity *entity,
+                                  const EntityDiskStateV2 *disk)
+{
+    EntityReadDiskStateV1(entity, &disk->entity);
+    if (entity->active) entity->motionTargetYaw = disk->motionTargetYaw;
+}
+
+static void EntityWriteDiskStateV3(EntityDiskStateV3 *disk,
+                                   const Entity *entity)
+{
+    memset(disk, 0, sizeof(*disk));
+    EntityWriteDiskStateV2(&disk->entity, entity);
+    if (!entity->active) return;
+    disk->ecologyFoodAvailability = entity->ecologyFoodAvailability;
+    disk->ecologyWaterAvailability = entity->ecologyWaterAvailability;
+    disk->ecologyShelterAvailability = entity->ecologyShelterAvailability;
+    disk->ecologyStormPressure = entity->ecologyStormPressure;
+    disk->ecologyTemperatureStress = entity->ecologyTemperatureStress;
+    disk->energy = entity->needs.energy;
+    disk->hydration = entity->needs.hydration;
+    disk->fatigue = entity->needs.fatigue;
+    disk->stress = entity->needs.stress;
+    disk->behavior = (uint32_t)entity->behavior;
+}
+
+static void EntityReadDiskStateV3(Entity *entity,
+                                  const EntityDiskStateV3 *disk)
+{
+    EntityReadDiskStateV2(entity, &disk->entity);
+    if (!entity->active) return;
+    entity->ecologyFoodAvailability = disk->ecologyFoodAvailability;
+    entity->ecologyWaterAvailability = disk->ecologyWaterAvailability;
+    entity->ecologyShelterAvailability = disk->ecologyShelterAvailability;
+    entity->ecologyStormPressure = disk->ecologyStormPressure;
+    entity->ecologyTemperatureStress = disk->ecologyTemperatureStress;
+    entity->needs = (FaunaNeeds){
+        .energy = disk->energy,
+        .hydration = disk->hydration,
+        .fatigue = disk->fatigue,
+        .stress = disk->stress
+    };
+    entity->behavior = (FaunaBehaviorAction)disk->behavior;
 }
 
 bool EntitiesSaveState(FILE *file)
@@ -256,13 +363,12 @@ bool EntitiesSaveState(FILE *file)
         return false;
     }
 
-    EntityDiskStateV2 saved[MAX_ENTITIES] = { 0 };
+    EntityDiskStateV3 saved[MAX_ENTITIES] = { 0 };
     for (int index = 0; index < MAX_ENTITIES; index++) {
         const Entity *entity = &entities[index];
-        EntityDiskStateV2 *disk = &saved[index];
-        EntityWriteDiskStateV1(&disk->entity, entity);
-        disk->motionTargetYaw = entity->motionTargetYaw;
-        if (!EntityDiskStateV2Valid(disk)) return false;
+        EntityDiskStateV3 *disk = &saved[index];
+        EntityWriteDiskStateV3(disk, entity);
+        if (!EntityDiskStateV3Valid(disk)) return false;
     }
     return fwrite(saved, sizeof(saved), 1, file) == 1;
 }
@@ -275,7 +381,7 @@ bool EntitiesLoadState(FILE *file)
         fread(&loadedSpawnTimer, sizeof(loadedSpawnTimer), 1, file) != 1) {
         return false;
     }
-    if ((header[0] != 1u && header[0] != ENTITY_STATE_VERSION) ||
+    if ((header[0] < 1u || header[0] > ENTITY_STATE_VERSION) ||
         header[1] != MAX_ENTITIES ||
         header[2] == 0u || !EntityFloatValid(loadedSpawnTimer)) {
         return false;
@@ -289,15 +395,19 @@ bool EntitiesLoadState(FILE *file)
             if (!EntityDiskStateValid(&saved[index])) return false;
             EntityReadDiskStateV1(&loaded[index], &saved[index]);
         }
-    } else {
+    } else if (header[0] == 2u) {
         EntityDiskStateV2 saved[MAX_ENTITIES];
         if (fread(saved, sizeof(saved), 1, file) != 1) return false;
         for (int index = 0; index < MAX_ENTITIES; index++) {
             if (!EntityDiskStateV2Valid(&saved[index])) return false;
-            EntityReadDiskStateV1(&loaded[index], &saved[index].entity);
-            if (loaded[index].active) {
-                loaded[index].motionTargetYaw = saved[index].motionTargetYaw;
-            }
+            EntityReadDiskStateV2(&loaded[index], &saved[index]);
+        }
+    } else {
+        EntityDiskStateV3 saved[MAX_ENTITIES];
+        if (fread(saved, sizeof(saved), 1, file) != 1) return false;
+        for (int index = 0; index < MAX_ENTITIES; index++) {
+            if (!EntityDiskStateV3Valid(&saved[index])) return false;
+            EntityReadDiskStateV3(&loaded[index], &saved[index]);
         }
     }
 
@@ -345,6 +455,93 @@ static bool PlanetBiomeSupportsFauna(int x, int z)
 static bool EntityIsAlien(EntityType type)
 {
     return type >= ENTITY_ALIEN_GRAZER && type <= ENTITY_ALIEN_STRIDER;
+}
+
+static float EntityUnit(float value)
+{
+    if (!isfinite(value) || value <= 0.0f) return 0.0f;
+    return fminf(value, 1.0f);
+}
+
+static float EntityFoodAvailability(
+    PlanetEcologicalNiche niche, const PlanetLocalEcology *local)
+{
+    if (!local) return 0.0f;
+    float flora = EntityUnit(fmaxf(local->population.floraDensity,
+                                   local->suitability.floraActivity));
+    float fauna = EntityUnit(fmaxf(local->population.faunaDensity,
+                                   local->suitability.faunaActivity));
+    float moisture = EntityUnit(local->environment.soilMoisture);
+    float light = EntityUnit(local->environment.currentUsableLight);
+    float precipitation = EntityUnit(local->environment.precipitationRate);
+    switch (niche) {
+    case PLANET_NICHE_MICROBIAL:
+        return EntityUnit(moisture * 0.58f + flora * 0.24f +
+                          precipitation * 0.18f);
+    case PLANET_NICHE_DECOMPOSER:
+        return EntityUnit(flora * 0.55f + fauna * 0.25f + moisture * 0.20f);
+    case PLANET_NICHE_FILTER_FEEDER:
+        return EntityUnit(flora * 0.38f + precipitation * 0.34f +
+                          fauna * 0.18f + light * 0.10f);
+    case PLANET_NICHE_BIOLUMINESCENT_COLONY:
+        return EntityUnit(flora * 0.45f + moisture * 0.30f + light * 0.25f);
+    case PLANET_NICHE_CRYSTAL_GRAZER:
+        return EntityUnit(flora * 0.68f +
+                          local->environment.biomeSupport * 0.32f);
+    case PLANET_NICHE_GRAZER:
+    default:
+        return flora;
+    }
+}
+
+static float EntityWaterAvailability(const PlanetLocalEcology *local)
+{
+    if (!local) return 0.0f;
+    return EntityUnit(local->environment.liquidWaterAccess * 0.68f +
+                      local->environment.soilMoisture * 0.18f +
+                      local->environment.precipitationRate * 0.14f);
+}
+
+static float EntityShelterAvailability(const PlanetLocalEcology *local)
+{
+    if (!local) return 0.0f;
+    float storm = EntityUnit(local->environment.currentStorm);
+    return EntityUnit(local->environment.shelter * (1.0f - storm * 0.35f));
+}
+
+static void EntityApplyLocalBehaviorEnvironment(
+    Entity *entity, const PlanetLocalEcology *local,
+    WeatherFieldSample weather)
+{
+    if (!entity || !local) return;
+    entity->ecologyFoodAvailability = EntityFoodAvailability(
+        entity->niche, local);
+    entity->ecologyWaterAvailability = EntityWaterAvailability(local);
+    entity->ecologyShelterAvailability = EntityShelterAvailability(local);
+    entity->ecologyStormPressure = EntityUnit(fmaxf(
+        local->environment.currentStorm, weather.storm));
+    entity->ecologyTemperatureStress = EntityUnit(
+        1.0f - local->suitability.temperatureScore);
+}
+
+static float EntityFoodDependence(PlanetEcologicalNiche niche)
+{
+    switch (niche) {
+    case PLANET_NICHE_MICROBIAL: return 0.48f;
+    case PLANET_NICHE_FILTER_FEEDER: return 0.62f;
+    case PLANET_NICHE_BIOLUMINESCENT_COLONY: return 0.42f;
+    default: return 0.88f;
+    }
+}
+
+static float EntityWaterDependence(PlanetChemistry chemistry)
+{
+    switch (chemistry) {
+    case PLANET_CHEMISTRY_SILICON: return 0.22f;
+    case PLANET_CHEMISTRY_SULFUR: return 0.48f;
+    case PLANET_CHEMISTRY_CARBON:
+    default: return 0.92f;
+    }
 }
 
 static void DespawnDistantAlien(const Player *player)
@@ -448,10 +645,12 @@ static void SpawnPassive(const Player *player, float daylight)
         ? localEcology.suitability.faunaCapacity : 1.0f;
     entity->ecologyWindStrength = 0.0f;
     entity->ecologyWindAngle = 0.0f;
+    EntityInitializeBehaviorState(entity);
     if (alienWorld) {
         WeatherFieldSample weather = WeatherFieldSampleAtWorld(gx, gz);
         entity->ecologyWindStrength = weather.wind;
         entity->ecologyWindAngle = WeatherWindAngleAtWorld(gx, gz);
+        EntityApplyLocalBehaviorEnvironment(entity, &localEcology, weather);
     }
     entity->ecologySampleTimer = alienWorld
         ? 0.25f + (float)slot / (float)MAX_ENTITIES : 1.0f;
@@ -504,6 +703,7 @@ static void SpawnHostile(const Player *player, float daylight)
     entity->ecologyActivity = 1.0f;
     entity->ecologyCapacity = 1.0f;
     entity->ecologySampleTimer = 1.0f;
+    EntityInitializeBehaviorState(entity);
     entity->primaryBlock = BLOCK_GRASS;
     entity->accentBlock = BLOCK_DIRT;
 }
@@ -703,21 +903,81 @@ static bool MoveEntityAirborne(Entity *entity,
     return true;
 }
 
-static PlanetHabitatChoice AlienHabitatChoiceAt(const Entity *entity,
-                                                float daylight)
+typedef struct EntityBehaviorDirections {
+    FaunaBehaviorDirection food;
+    FaunaBehaviorDirection water;
+    FaunaBehaviorDirection shelter;
+    FaunaBehaviorDirection habitat;
+} EntityBehaviorDirections;
+
+static FaunaBehaviorDirection EntityChooseResourceDirection(
+    float current, const float neighbors[4])
 {
+    static const float yaws[4] = {
+        3.14159265358979323846f,
+        0.5f * 3.14159265358979323846f,
+        0.0f,
+        -0.5f * 3.14159265358979323846f
+    };
+    FaunaBehaviorDirection result = { 0 };
+    current = EntityUnit(current);
+    float selected = current;
+    int selectedIndex = -1;
+    for (int index = 0; index < 4; index++) {
+        float candidate = EntityUnit(neighbors[index]);
+        if (candidate > selected) {
+            selected = candidate;
+            selectedIndex = index;
+        }
+    }
+    result.improvement = selected - current;
+    result.shouldSeek = selectedIndex >= 0 && result.improvement >= 0.06f;
+    if (result.shouldSeek) result.yaw = yaws[selectedIndex];
+    return result;
+}
+
+static EntityBehaviorDirections AlienBehaviorDirectionsAt(
+    const Entity *entity, float daylight)
+{
+    EntityBehaviorDirections result = { 0 };
     int x = (int)floorf(entity->position.x);
     int z = (int)floorf(entity->position.z);
     const int offsets[4][2] = {
         { 0, -10 }, { 10, 0 }, { 0, 10 }, { -10, 0 }
     };
-    float neighbors[4];
+    float foods[4];
+    float waters[4];
+    float shelters[4];
+    float habitats[4];
     for (int index = 0; index < 4; index++) {
         PlanetLocalEcology local = PlanetEcologyLocalAt(
             x + offsets[index][0], z + offsets[index][1], daylight);
-        neighbors[index] = local.suitability.faunaActivity;
+        foods[index] = EntityFoodAvailability(entity->niche, &local);
+        waters[index] = EntityWaterAvailability(&local);
+        shelters[index] = EntityShelterAvailability(&local);
+        habitats[index] = local.suitability.faunaActivity;
     }
-    return PlanetEcologyChooseHabitat(entity->ecologyActivity, neighbors);
+    result.food = EntityChooseResourceDirection(
+        entity->ecologyFoodAvailability, foods);
+    result.water = EntityChooseResourceDirection(
+        entity->ecologyWaterAvailability, waters);
+    result.shelter = EntityChooseResourceDirection(
+        entity->ecologyShelterAvailability, shelters);
+    result.habitat = EntityChooseResourceDirection(
+        entity->ecologyActivity, habitats);
+    return result;
+}
+
+static float EntityBehaviorMovementFloor(FaunaBehaviorAction action)
+{
+    switch (action) {
+    case FAUNA_ACTION_FLEE: return 0.28f;
+    case FAUNA_ACTION_SEEK_WATER: return 0.24f;
+    case FAUNA_ACTION_SEEK_FOOD:
+    case FAUNA_ACTION_SEEK_HABITAT: return 0.22f;
+    case FAUNA_ACTION_SEEK_SHELTER: return 0.20f;
+    default: return 0.0f;
+    }
 }
 
 static void UpdatePassive(Entity *entity, const Player *player, float dt,
@@ -740,6 +1000,7 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
             entity->ecologyWindAngle = WeatherWindAngleAtWorld(
                 (int)floorf(entity->position.x),
                 (int)floorf(entity->position.z));
+            EntityApplyLocalBehaviorEnvironment(entity, &local, weather);
             entity->ecologySampleTimer = 1.0f;
         }
         runtime = PlanetEcologyFaunaRuntime(entity->ecologyActivity,
@@ -763,48 +1024,74 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
                                  entity->airborne)
         : 0.0f;
     FaunaMotionProfile motionProfile = EntityMotionProfile(entity, baseSpeed);
-    float decisionMovementFloor = 0.0f;
+    float horizontalSpeed = sqrtf(
+        entity->velocity.x * entity->velocity.x +
+        entity->velocity.z * entity->velocity.z);
+    bool actionActive = entity->moveTimer > 0.0f;
+    bool filterFeeding = entity->niche == PLANET_NICHE_FILTER_FEEDER &&
+                         entity->behavior == FAUNA_ACTION_SEEK_FOOD;
+    FaunaNeedInput needInput = {
+        .activityRatio = runtime.activityRatio,
+        .movementRatio = motionProfile.sprintSpeed > 0.0001f
+            ? horizontalSpeed / motionProfile.sprintSpeed : 0.0f,
+        .foodAvailability = entity->ecologyFoodAvailability,
+        .waterAvailability = entity->ecologyWaterAvailability,
+        .shelterAvailability = entity->ecologyShelterAvailability,
+        .stormPressure = entity->ecologyStormPressure,
+        .temperatureStress = entity->ecologyTemperatureStress,
+        .moving = actionActive && FaunaBehaviorActionMoves(entity->behavior),
+        .threatened = threatened,
+        .feeding = actionActive &&
+            (entity->behavior == FAUNA_ACTION_FORAGE || filterFeeding),
+        .drinking = actionActive && entity->behavior == FAUNA_ACTION_DRINK,
+        .resting = actionActive && entity->behavior == FAUNA_ACTION_REST
+    };
+    entity->needs = FaunaNeedsAdvance(&entity->needs, &needInput, dt);
 
     entity->thinkTimer -= dt;
+    if (threatened && entity->behavior != FAUNA_ACTION_FLEE) {
+        entity->thinkTimer = 0.0f;
+    }
     if (entity->thinkTimer <= 0.0f) {
         float baseThinkInterval = 2.0f +
             (float)EntityRandomBounded(300u) / 100.0f;
-        PlanetHabitatChoice habitat = { 0 };
-        if (alien && !threatened && !entity->colony &&
-            runtime.activityRatio < 0.72f) {
-            habitat = AlienHabitatChoiceAt(entity, daylight);
+        EntityBehaviorDirections directions = { 0 };
+        if (alien && !threatened && !entity->colony) {
+            directions = AlienBehaviorDirectionsAt(entity, daylight);
         }
-        PlanetFaunaBehaviorInput behaviorInput = {
-            .runtime = runtime,
-            .habitat = habitat,
+        FaunaBehaviorInput behaviorInput = {
+            .needs = entity->needs,
+            .environment = needInput,
+            .food = directions.food,
+            .water = directions.water,
+            .shelter = directions.shelter,
+            .habitat = directions.habitat,
+            .foodDependence = EntityFoodDependence(entity->niche),
+            .waterDependence = EntityWaterDependence(entity->chemistry),
             .fleeYaw = atan2f(-toPlayer.x, -toPlayer.z),
             .baseThinkInterval = baseThinkInterval,
+            .wanderRoll = (unsigned)EntityRandomBounded(100u),
+            .wanderYaw = (float)EntityRandomBounded(628u) / 100.0f,
+            .baseWanderDuration = 1.0f +
+                (float)EntityRandomBounded(200u) / 100.0f,
+            .currentAction = entity->behavior,
             .colony = entity->colony,
-            .threatened = threatened
+            .dormant = alien && runtime.dormant
         };
-        PlanetFaunaBehaviorDecision decision =
-            PlanetFaunaChooseBehavior(&behaviorInput);
-        if (decision.behavior == PLANET_FAUNA_BEHAVIOR_WANDER) {
-            behaviorInput.wanderRoll =
-                (uint32_t)EntityRandomBounded(100u);
-            decision = PlanetFaunaChooseBehavior(&behaviorInput);
-            if (decision.behavior == PLANET_FAUNA_BEHAVIOR_WANDER) {
-                behaviorInput.wanderYaw =
-                    (float)EntityRandomBounded(628u) / 100.0f;
-                behaviorInput.baseWanderDuration = 1.0f +
-                    (float)EntityRandomBounded(200u) / 100.0f;
-                decision = PlanetFaunaChooseBehavior(&behaviorInput);
-            }
-        }
+        FaunaBehaviorDecision decision = FaunaBehaviorEvaluate(&behaviorInput);
+        entity->behavior = decision.action;
         entity->thinkTimer = decision.thinkInterval;
         entity->moveTimer = decision.moveDuration;
-        if (decision.behavior != PLANET_FAUNA_BEHAVIOR_IDLE) {
+        if (FaunaBehaviorActionMoves(decision.action)) {
             entity->motionTargetYaw = decision.yaw;
         }
-        decisionMovementFloor = decision.movementFloor;
     }
 
+    actionActive = entity->moveTimer > 0.0f;
     float animationScale = alien ? runtime.animationScale : 1.0f;
+    if (actionActive && entity->behavior == FAUNA_ACTION_REST) {
+        animationScale *= 0.35f;
+    }
     entity->phase += dt * (0.7f + baseSpeed * 0.35f) * animationScale;
     if (entity->airborne) {
         int groundY = EntitySurfaceHeight(
@@ -821,21 +1108,20 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
         entity->position.y += (targetY - entity->position.y) * fminf(1.0f, dt * 2.2f);
     }
 
-    bool moving = entity->moveTimer > 0.0f && !entity->colony;
-    if (moving) {
-        entity->moveTimer -= dt;
-    }
+    bool moving = entity->moveTimer > 0.0f && !entity->colony &&
+                  FaunaBehaviorActionMoves(entity->behavior);
+    if (entity->moveTimer > 0.0f) entity->moveTimer -= dt;
 
     FaunaMotionInput motionInput = {
         .profile = motionProfile,
         .currentYaw = entity->yaw,
         .targetYaw = entity->motionTargetYaw,
-        .currentSpeed = sqrtf(entity->velocity.x * entity->velocity.x +
-                              entity->velocity.z * entity->velocity.z),
-        .movementScale = fmaxf(movementScale, decisionMovementFloor),
+        .currentSpeed = horizontalSpeed,
+        .movementScale = fmaxf(
+            movementScale, EntityBehaviorMovementFloor(entity->behavior)),
         .deltaTime = dt,
         .moving = moving,
-        .sprinting = threatened
+        .sprinting = entity->behavior == FAUNA_ACTION_FLEE
     };
     float lookahead = motionProfile.bodyRadius + 0.38f +
         fminf(motionInput.currentSpeed * 0.25f, 0.45f);

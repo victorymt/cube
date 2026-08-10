@@ -57,6 +57,20 @@ typedef struct TestEntityDiskStateV2 {
     float motionTargetYaw;
 } TestEntityDiskStateV2;
 
+typedef struct TestEntityDiskStateV3 {
+    TestEntityDiskStateV2 entity;
+    float ecologyFoodAvailability;
+    float ecologyWaterAvailability;
+    float ecologyShelterAvailability;
+    float ecologyStormPressure;
+    float ecologyTemperatureStress;
+    float energy;
+    float hydration;
+    float fatigue;
+    float stress;
+    uint32_t behavior;
+} TestEntityDiskStateV3;
+
 static TestTerrainMode testTerrainMode = TEST_TERRAIN_FLAT;
 
 uint32_t WorldGetSeed(void)
@@ -274,11 +288,45 @@ static void LoadLegacyMovingEntity(PlanetBodyPlan bodyPlan)
     fclose(file);
 }
 
-static TestEntityDiskStateV2 CurrentMovingEntity(void)
+static void LoadVersion2MovingEntity(PlanetBodyPlan bodyPlan,
+                                     float motionTargetYaw)
+{
+    const uint32_t header[3] = { 2u, MAX_ENTITIES, 0x51c73a29u };
+    const float spawnTimer = 100.0f;
+    TestEntityDiskStateV2 saved[MAX_ENTITIES] = { 0 };
+    saved[0].entity = TestMovingEntity(bodyPlan);
+    saved[0].motionTargetYaw = motionTargetYaw;
+    FILE *file = tmpfile();
+    assert(file);
+    assert(fwrite(header, sizeof(header), 1, file) == 1);
+    assert(fwrite(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
+    assert(fwrite(saved, sizeof(saved), 1, file) == 1);
+    rewind(file);
+    assert(EntitiesLoadState(file));
+    fclose(file);
+}
+
+static void LoadVersion3Entity(const TestEntityDiskStateV3 *entity)
+{
+    const uint32_t header[3] = { 3u, MAX_ENTITIES, 0x7d931b45u };
+    const float spawnTimer = 100.0f;
+    TestEntityDiskStateV3 saved[MAX_ENTITIES] = { 0 };
+    saved[0] = *entity;
+    FILE *file = tmpfile();
+    assert(file);
+    assert(fwrite(header, sizeof(header), 1, file) == 1);
+    assert(fwrite(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
+    assert(fwrite(saved, sizeof(saved), 1, file) == 1);
+    rewind(file);
+    assert(EntitiesLoadState(file));
+    fclose(file);
+}
+
+static TestEntityDiskStateV3 CurrentMovingEntity(void)
 {
     uint32_t header[3];
     float spawnTimer = 0.0f;
-    TestEntityDiskStateV2 saved[MAX_ENTITIES];
+    TestEntityDiskStateV3 saved[MAX_ENTITIES];
     FILE *file = tmpfile();
     assert(file);
     assert(EntitiesSaveState(file));
@@ -287,9 +335,9 @@ static TestEntityDiskStateV2 CurrentMovingEntity(void)
     assert(fread(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
     assert(fread(saved, sizeof(saved), 1, file) == 1);
     fclose(file);
-    assert(header[0] == 2u && header[1] == MAX_ENTITIES);
+    assert(header[0] == 3u && header[1] == MAX_ENTITIES);
     assert(spawnTimer > 0.0f);
-    assert(saved[0].entity.active == 1u);
+    assert(saved[0].entity.entity.active == 1u);
     return saved[0];
 }
 
@@ -361,15 +409,27 @@ static void TestLegacyEntityMotionMigration(void)
 {
     testTerrainMode = TEST_TERRAIN_FLAT;
     LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
-    TestEntityDiskStateV2 migrated = CurrentMovingEntity();
-    assert(migrated.motionTargetYaw == migrated.entity.yaw);
+    TestEntityDiskStateV3 migrated = CurrentMovingEntity();
+    assert(migrated.entity.motionTargetYaw == migrated.entity.entity.yaw);
+    assert(migrated.energy == 0.82f);
+    assert(migrated.hydration == 0.78f);
+    assert(migrated.behavior == FAUNA_ACTION_WANDER);
+
+    LoadVersion2MovingEntity(PLANET_BODY_QUADRUPED, 0.27f);
+    TestEntityDiskStateV3 version2 = CurrentMovingEntity();
+    assert(version2.entity.motionTargetYaw == 0.27f);
+    assert(version2.energy == 0.82f);
+    assert(version2.behavior == FAUNA_ACTION_WANDER);
+
+    LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
+    migrated = CurrentMovingEntity();
 
     Player player = { 0 };
     player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
     RunFrames(&player, 12);
-    TestEntityDiskStateV2 moved = CurrentMovingEntity();
-    assert(moved.entity.position[0] > migrated.entity.position[0]);
-    assert(moved.entity.velocity[0] > 0.0f);
+    TestEntityDiskStateV3 moved = CurrentMovingEntity();
+    assert(moved.entity.entity.position[0] > migrated.entity.entity.position[0]);
+    assert(moved.entity.entity.velocity[0] > 0.0f);
 }
 
 static void TestTerrainAwareGroundMotion(void)
@@ -386,21 +446,21 @@ static void TestTerrainAwareGroundMotion(void)
         testTerrainMode = blockedModes[index];
         LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
         RunFrames(&player, 30);
-        TestEntityDiskStateV2 entity = CurrentMovingEntity();
-        assert(entity.entity.position[0] < 1.0f);
+        TestEntityDiskStateV3 entity = CurrentMovingEntity();
+        assert(entity.entity.entity.position[0] < 1.0f);
     }
 
     testTerrainMode = TEST_TERRAIN_STEP;
     LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
     RunFrames(&player, 30);
-    TestEntityDiskStateV2 quadruped = CurrentMovingEntity();
-    assert(quadruped.entity.position[0] > 1.0f);
-    assert(quadruped.entity.position[1] >= 12.0f);
+    TestEntityDiskStateV3 quadruped = CurrentMovingEntity();
+    assert(quadruped.entity.entity.position[0] > 1.0f);
+    assert(quadruped.entity.entity.position[1] >= 12.0f);
 
     LoadLegacyMovingEntity(PLANET_BODY_SERPENTINE);
     RunFrames(&player, 30);
-    TestEntityDiskStateV2 serpentine = CurrentMovingEntity();
-    assert(serpentine.entity.position[0] < 1.0f);
+    TestEntityDiskStateV3 serpentine = CurrentMovingEntity();
+    assert(serpentine.entity.entity.position[0] < 1.0f);
     testTerrainMode = TEST_TERRAIN_FLAT;
 }
 
@@ -412,15 +472,67 @@ static void TestTerrainFollowingFlight(void)
     testTerrainMode = TEST_TERRAIN_WALL;
     LoadLegacyMovingEntity(PLANET_BODY_FLOATING);
     RunFrames(&player, 20);
-    TestEntityDiskStateV2 blocked = CurrentMovingEntity();
-    assert(blocked.entity.position[0] < 1.0f);
+    TestEntityDiskStateV3 blocked = CurrentMovingEntity();
+    assert(blocked.entity.entity.position[0] < 1.0f);
 
     testTerrainMode = TEST_TERRAIN_FLAT;
     LoadLegacyMovingEntity(PLANET_BODY_FLOATING);
     RunFrames(&player, 30);
-    TestEntityDiskStateV2 floating = CurrentMovingEntity();
-    assert(floating.entity.position[0] > 1.0f);
-    assert(floating.entity.position[1] > 11.5f);
+    TestEntityDiskStateV3 floating = CurrentMovingEntity();
+    assert(floating.entity.entity.position[0] > 1.0f);
+    assert(floating.entity.entity.position[1] > 11.5f);
+}
+
+static TestEntityDiskStateV3 BehaviorTestEntity(void)
+{
+    LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
+    TestEntityDiskStateV3 entity = CurrentMovingEntity();
+    entity.entity.entity.moveTimer = 0.0f;
+    entity.entity.entity.thinkTimer = 0.01f;
+    entity.entity.entity.velocity[0] = 0.0f;
+    entity.entity.entity.velocity[2] = 0.0f;
+    entity.ecologyFoodAvailability = 0.90f;
+    entity.ecologyWaterAvailability = 0.90f;
+    entity.ecologyShelterAvailability = 0.90f;
+    entity.ecologyStormPressure = 0.0f;
+    entity.ecologyTemperatureStress = 0.0f;
+    entity.energy = 0.85f;
+    entity.hydration = 0.85f;
+    entity.fatigue = 0.10f;
+    entity.stress = 0.0f;
+    entity.behavior = FAUNA_ACTION_IDLE;
+    return entity;
+}
+
+static void TestNeedsDriveEntityBehavior(void)
+{
+    Player player = { 0 };
+    player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
+    testTerrainMode = TEST_TERRAIN_FLAT;
+
+    TestEntityDiskStateV3 hungry = BehaviorTestEntity();
+    hungry.energy = 0.03f;
+    LoadVersion3Entity(&hungry);
+    RunFrames(&player, 2);
+    TestEntityDiskStateV3 feeding = CurrentMovingEntity();
+    assert(feeding.behavior == FAUNA_ACTION_FORAGE);
+    assert(feeding.energy > hungry.energy);
+
+    TestEntityDiskStateV3 thirsty = BehaviorTestEntity();
+    thirsty.hydration = 0.03f;
+    LoadVersion3Entity(&thirsty);
+    RunFrames(&player, 2);
+    TestEntityDiskStateV3 drinking = CurrentMovingEntity();
+    assert(drinking.behavior == FAUNA_ACTION_DRINK);
+    assert(drinking.hydration > thirsty.hydration);
+
+    TestEntityDiskStateV3 tired = BehaviorTestEntity();
+    tired.fatigue = 0.95f;
+    LoadVersion3Entity(&tired);
+    RunFrames(&player, 2);
+    TestEntityDiskStateV3 resting = CurrentMovingEntity();
+    assert(resting.behavior == FAUNA_ACTION_REST);
+    assert(resting.fatigue < tired.fatigue);
 }
 
 int main(void)
@@ -430,6 +542,7 @@ int main(void)
     TestLegacyEntityMotionMigration();
     TestTerrainAwareGroundMotion();
     TestTerrainFollowingFlight();
+    TestNeedsDriveEntityBehavior();
     puts("entity replay tests passed");
     return 0;
 }

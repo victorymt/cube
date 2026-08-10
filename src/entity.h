@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include "ecology.h"
+#include "fauna_behavior.h"
 
 #include <stdio.h>
 
@@ -53,6 +54,13 @@ typedef struct Entity {
     float ecologySampleTimer;
     float ecologyWindStrength;
     float ecologyWindAngle;
+    float ecologyFoodAvailability;
+    float ecologyWaterAvailability;
+    float ecologyShelterAvailability;
+    float ecologyStormPressure;
+    float ecologyTemperatureStress;
+    FaunaNeeds needs;
+    FaunaBehaviorAction behavior;
     BlockType primaryBlock;
     BlockType accentBlock;
 } Entity;
