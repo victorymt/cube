@@ -57,19 +57,17 @@ static uint64_t EcologyDoubleBits(double value)
 
 static unsigned EcologyLocalCacheIndex(int x, int z, double simulationTime,
                                        float daylight,
-                                       uint32_t profileGeneration,
-                                       uint32_t populationEpoch,
                                        int originX, int originZ,
                                        uint64_t editRevision)
 {
+    // Runtime-only generations validate entries below, but must not change the
+    // slot chosen for the same physical query after a save/load cycle.
     uint64_t timeBits = EcologyDoubleBits(simulationTime);
     uint32_t hash = (uint32_t)x * 0x9e3779b9u;
     hash ^= (uint32_t)z * 0x85ebca6bu;
     hash ^= (uint32_t)timeBits;
     hash ^= (uint32_t)(timeBits >> 32);
     hash ^= EcologyFloatBits(daylight);
-    hash ^= profileGeneration * 0xc2b2ae35u;
-    hash ^= populationEpoch * 0x7feb352du;
     hash ^= (uint32_t)originX * 0x27d4eb2fu;
     hash ^= (uint32_t)originZ * 0x165667b1u;
     hash ^= (uint32_t)editRevision * 0x369dea0fu;
@@ -108,7 +106,11 @@ void PlanetEcologyResetState(void)
 
 bool PlanetEcologySaveState(FILE *file)
 {
-    return EcologyPopulationSaveState(file);
+    if (!EcologyPopulationSaveState(file)) return false;
+    // A loaded simulation starts with a cold local cache. Invalidate the live
+    // cache as well so continuing after a save follows the same access order.
+    memset(ecologyLocalCache, 0, sizeof(ecologyLocalCache));
+    return true;
 }
 
 bool PlanetEcologyLoadState(FILE *file)
@@ -132,8 +134,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     uint64_t editRevision = WorldGetEditRevision();
     uint32_t daylightBits = EcologyFloatBits(daylight);
     unsigned cacheIndex = EcologyLocalCacheIndex(
-        x, z, simulationTime, daylight, profileGeneration,
-        populationEpoch, originX, originZ, editRevision);
+        x, z, simulationTime, daylight, originX, originZ, editRevision);
     EcologyLocalCacheEntry *cached = &ecologyLocalCache[cacheIndex];
     if (cached->valid && cached->x == x && cached->z == z &&
         cached->originX == originX && cached->originZ == originZ &&

@@ -2816,6 +2816,10 @@ bool ChunkIntersectsCameraView(const Chunk *chunk, const Camera3D *camera)
 
 bool ChunksStartGenThread(void)
 {
+    if (genThread != 0) return true;
+    pthread_mutex_lock(&genMutex);
+    genShutdown = false;
+    pthread_mutex_unlock(&genMutex);
     return pthread_create(&genThread, NULL, ChunkGenWorker, NULL) == 0;
 }
 

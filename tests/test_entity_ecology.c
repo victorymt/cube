@@ -8,10 +8,38 @@
 #include "world_environment.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+enum {
+    ENTITY_ECOLOGY_PROPERTY_SEEDS = 6,
+    ENTITY_ECOLOGY_SEASON_PHASES = 8,
+    ENTITY_ECOLOGY_SETTLE_FRAMES = MAX_ENTITIES * 24,
+    ENTITY_ECOLOGY_STABILITY_FRAMES = 180
+};
+
+typedef struct FertileSite {
+    uint32_t seed;
+    int originZ;
+    int x;
+    int z;
+    float initialActivity;
+} FertileSite;
+
+typedef struct EntityEcologyRunSummary {
+    int caps[ENTITY_ECOLOGY_SEASON_PHASES];
+    int counts[ENTITY_ECOLOGY_SEASON_PHASES];
+    float activities[ENTITY_ECOLOGY_SEASON_PHASES];
+    float temperatures[ENTITY_ECOLOGY_SEASON_PHASES];
+    float migrationSignal;
+    int highCountBeforeMove;
+    int highCapBeforeMove;
+    int lowCount;
+    int lowCap;
+} EntityEcologyRunSummary;
 
 uint32_t WorldCurrentSurfaceId(void)
 {
@@ -70,6 +98,23 @@ static void SaveSimulation(FILE *file)
     assert(EntitiesSaveState(file));
 }
 
+static unsigned char *CaptureSimulationState(size_t *outSize)
+{
+    assert(outSize);
+    FILE *file = tmpfile();
+    assert(file);
+    SaveSimulation(file);
+    long end = ftell(file);
+    assert(end > 0);
+    *outSize = (size_t)end;
+    unsigned char *bytes = malloc(*outSize);
+    assert(bytes);
+    rewind(file);
+    assert(fread(bytes, 1, *outSize, file) == *outSize);
+    fclose(file);
+    return bytes;
+}
+
 static void LoadSimulation(FILE *file)
 {
     assert(file);
@@ -85,6 +130,14 @@ static void RunFrames(Player *player, int frameCount, float daylight)
     const float dt = 0.1f;
     for (int frame = 0; frame < frameCount; frame++) {
         SpaceAdvanceTime(dt);
+        EntitiesUpdate(dt, player, daylight);
+    }
+}
+
+static void RunEntityFrames(Player *player, int frameCount, float daylight)
+{
+    const float dt = 0.1f;
+    for (int frame = 0; frame < frameCount; frame++) {
         EntitiesUpdate(dt, player, daylight);
     }
 }
@@ -117,6 +170,376 @@ static uint32_t ActivateFertilePlanet(Player *player, float daylight,
     }
     assert(false);
     return 0u;
+}
+
+static bool TestBiomeSupportsFauna(int x, int z)
+{
+    PlanetBiome biome = PlanetBiomeAt(x, z);
+    return biome != PLANET_BIOME_OCEAN &&
+        biome != PLANET_BIOME_LAVA_SEA &&
+        biome != PLANET_BIOME_STORM_BANDS &&
+        biome != PLANET_BIOME_VOLCANIC_RIDGE;
+}
+
+static void AssertUnitValue(float value)
+{
+    assert(isfinite(value));
+    assert(value >= 0.0f && value <= 1.0f);
+}
+
+static void AssertSignedUnitValue(float value)
+{
+    assert(isfinite(value));
+    assert(value >= -1.0f && value <= 1.0f);
+}
+
+static void AssertEntityLocalEcologyValid(const PlanetLocalEcology *local)
+{
+    assert(local);
+    assert(isfinite(local->environment.currentTemperatureK));
+    assert(local->environment.currentTemperatureK > 0.0f);
+    AssertUnitValue(local->suitability.faunaActivity);
+    AssertUnitValue(local->suitability.faunaCapacity);
+    AssertUnitValue(local->population.floraDensity);
+    AssertUnitValue(local->population.faunaDensity);
+    AssertUnitValue(local->population.floraCarryingCapacity);
+    AssertUnitValue(local->population.faunaCarryingCapacity);
+    AssertUnitValue(local->population.seasonalMemory);
+    AssertSignedUnitValue(local->migration.floraNet);
+    AssertSignedUnitValue(local->migration.faunaNet);
+    AssertSignedUnitValue(local->migration.floraFlowX);
+    AssertSignedUnitValue(local->migration.floraFlowZ);
+    AssertSignedUnitValue(local->migration.faunaFlowX);
+    AssertSignedUnitValue(local->migration.faunaFlowZ);
+}
+
+static float EntityMigrationSignal(const PlanetPopulationMigrationState *state)
+{
+    assert(state);
+    return fabsf(state->floraNet) + fabsf(state->faunaNet) +
+        fabsf(state->floraFlowX) + fabsf(state->floraFlowZ) +
+        fabsf(state->faunaFlowX) + fabsf(state->faunaFlowZ);
+}
+
+static int EntityPopulationCapAt(int x, int z, float daylight)
+{
+    return PlanetFaunaPopulationCap(
+        PlanetEcologyFaunaDensityAt(x, z, daylight), MAX_ENTITIES - 4);
+}
+
+static void PlacePlayerAt(Player *player, int x, int z)
+{
+    assert(player);
+    player->position = (Vector3){
+        (float)x + 0.5f,
+        (float)PlanetTerrainHeight(x, z) + 2.0f,
+        (float)z + 0.5f
+    };
+}
+
+static void PrepareChunksAt(const Player *player)
+{
+    assert(player);
+    UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
+    DrainChunkGen();
+}
+
+static int SettleEntitiesAtCurrentTime(Player *player, float daylight,
+                                       int *outCap)
+{
+    assert(player && outCap);
+    RunEntityFrames(player, ENTITY_ECOLOGY_SETTLE_FRAMES, daylight);
+    int x = (int)floorf(player->position.x);
+    int z = (int)floorf(player->position.z);
+    int cap = EntityPopulationCapAt(x, z, daylight);
+    int count = GetActiveEntityCount();
+    assert(count >= 0 && count <= cap);
+    if (cap == 0) assert(count == 0);
+
+    for (int frame = 0; frame < ENTITY_ECOLOGY_STABILITY_FRAMES; frame++) {
+        RunEntityFrames(player, 1, daylight);
+        if (frame % 15 == 14) {
+            cap = EntityPopulationCapAt(x, z, daylight);
+            count = GetActiveEntityCount();
+            assert(count >= 0 && count <= cap);
+        }
+    }
+    *outCap = EntityPopulationCapAt(x, z, daylight);
+    count = GetActiveEntityCount();
+    assert(count <= *outCap);
+    return count;
+}
+
+static float LowestNearbyFaunaActivity(int centerX, int centerZ,
+                                       float daylight, int *outX, int *outZ)
+{
+    assert(outX && outZ);
+    float lowest = PlanetEcologyFaunaDensityAt(
+        centerX, centerZ, daylight);
+    *outX = centerX;
+    *outZ = centerZ;
+    for (int dz = -64; dz <= 64; dz += 16) {
+        for (int dx = -64; dx <= 64; dx += 16) {
+            if (dx == 0 && dz == 0) continue;
+            if (dx * dx + dz * dz > 64 * 64) continue;
+            int x = centerX + dx;
+            int z = centerZ + dz;
+            float activity = PlanetEcologyFaunaDensityAt(x, z, daylight);
+            if (activity < lowest) {
+                lowest = activity;
+                *outX = x;
+                *outZ = z;
+            }
+        }
+    }
+    return lowest;
+}
+
+static int CollectFertileSites(FertileSite *sites, int maximumSites,
+                               float daylight)
+{
+    assert(sites && maximumSites > 0);
+    int count = 0;
+    for (uint32_t index = 0; index < 4096u && count < maximumSites; index++) {
+        uint32_t seed = 0x738bc19du + index * 0x9e3779b9u;
+        int latitudeBand = 1536 + (int)(index % 3u) * 256;
+        int originZ = (index & 1u) ? latitudeBand : -latitudeBand;
+        EcologyTestSetSeed(seed);
+        EcologyTestActivatePlanet(seed, 0, originZ);
+        PlanetEcologyResetState();
+        if (PlanetEcologyCurrent().faunaDensity <= 0.04f) continue;
+
+        float bestScore = -1.0f;
+        FertileSite best = { 0 };
+        for (int sample = 0; sample < 256; sample++) {
+            int x = ((sample * 83) % 512) - 256;
+            int z = ((sample * sample * 47) % 512) - 256;
+            if (!TestBiomeSupportsFauna(x, z)) continue;
+            PlanetLocalEcology local = PlanetEcologyLocalAt(
+                x, z, daylight);
+            AssertEntityLocalEcologyValid(&local);
+            if (PlanetFaunaPopulationCap(
+                    local.suitability.faunaActivity,
+                    MAX_ENTITIES - 4) < 2 ||
+                local.environment.seasonalAmplitudeK < 2.0f) {
+                continue;
+            }
+            float score = local.suitability.faunaActivity +
+                fminf(local.environment.seasonalAmplitudeK / 70.0f,
+                      1.0f) * 0.08f;
+            if (score > bestScore) {
+                bestScore = score;
+                best = (FertileSite){
+                    .seed = seed,
+                    .originZ = originZ,
+                    .x = x,
+                    .z = z,
+                    .initialActivity = local.suitability.faunaActivity
+                };
+            }
+        }
+        if (bestScore < 0.0f) continue;
+
+        int lowX = best.x;
+        int lowZ = best.z;
+        float lowActivity = LowestNearbyFaunaActivity(
+            best.x, best.z, daylight, &lowX, &lowZ);
+        int highCap = PlanetFaunaPopulationCap(
+            best.initialActivity, MAX_ENTITIES - 4);
+        int lowCap = PlanetFaunaPopulationCap(
+            lowActivity, MAX_ENTITIES - 4);
+        if (lowCap >= highCap) continue;
+        sites[count++] = best;
+    }
+    return count;
+}
+
+static void RunSeasonalEntityScenario(
+    const FertileSite *site, Player *player, float daylight,
+    EntityEcologyRunSummary *summary)
+{
+    assert(site && player && summary);
+    memset(summary, 0, sizeof(*summary));
+    PlacePlayerAt(player, site->x, site->z);
+    PrepareChunksAt(player);
+
+    summary->highCountBeforeMove = SettleEntitiesAtCurrentTime(
+        player, daylight, &summary->highCapBeforeMove);
+    int lowX = site->x;
+    int lowZ = site->z;
+    LowestNearbyFaunaActivity(
+        site->x, site->z, daylight, &lowX, &lowZ);
+    PlacePlayerAt(player, lowX, lowZ);
+    PrepareChunksAt(player);
+    summary->lowCount = SettleEntitiesAtCurrentTime(
+        player, daylight, &summary->lowCap);
+    assert(summary->lowCount <= summary->lowCap);
+    PlacePlayerAt(player, site->x, site->z);
+    PrepareChunksAt(player);
+
+    const PlanetProfile *profile = PlanetWorldProfile();
+    assert(profile);
+    assert(isfinite(profile->yearLength) && profile->yearLength > 0.0f);
+    float phaseDuration = profile->yearLength /
+        (float)ENTITY_ECOLOGY_SEASON_PHASES;
+    assert(phaseDuration > 0.0f);
+
+    for (int phase = 0; phase < ENTITY_ECOLOGY_SEASON_PHASES; phase++) {
+        SpaceAdvanceTime(phaseDuration);
+        int x = (int)floorf(player->position.x);
+        int z = (int)floorf(player->position.z);
+        PlanetLocalEcology local = PlanetEcologyLocalAt(
+            x, z, daylight);
+        AssertEntityLocalEcologyValid(&local);
+
+        int cap = 0;
+        int count = SettleEntitiesAtCurrentTime(player, daylight, &cap);
+        local = PlanetEcologyLocalAt(x, z, daylight);
+        AssertEntityLocalEcologyValid(&local);
+        int finalCap = PlanetFaunaPopulationCap(
+            local.suitability.faunaActivity, MAX_ENTITIES - 4);
+        assert(cap == finalCap);
+        assert(count <= finalCap);
+
+        summary->caps[phase] = finalCap;
+        summary->counts[phase] = count;
+        summary->activities[phase] = local.suitability.faunaActivity;
+        summary->temperatures[phase] =
+            local.environment.currentTemperatureK;
+        summary->migrationSignal += EntityMigrationSignal(&local.migration);
+    }
+}
+
+static void AssertEntityEcologySummariesEqual(
+    const EntityEcologyRunSummary *first,
+    const EntityEcologyRunSummary *second)
+{
+    assert(first && second);
+    for (int phase = 0; phase < ENTITY_ECOLOGY_SEASON_PHASES; phase++) {
+        assert(first->caps[phase] == second->caps[phase]);
+        assert(first->counts[phase] == second->counts[phase]);
+        assert(first->activities[phase] == second->activities[phase]);
+        assert(first->temperatures[phase] == second->temperatures[phase]);
+    }
+    assert(first->migrationSignal == second->migrationSignal);
+    assert(first->highCountBeforeMove == second->highCountBeforeMove);
+    assert(first->highCapBeforeMove == second->highCapBeforeMove);
+    assert(first->lowCount == second->lowCount);
+    assert(first->lowCap == second->lowCap);
+}
+
+static void TestCrossSeedSeasonalEntityProperties(void)
+{
+    const float daylight = 0.72f;
+    FertileSite sites[ENTITY_ECOLOGY_PROPERTY_SEEDS];
+    FILE *spaceBaseline = tmpfile();
+    assert(spaceBaseline);
+    assert(SpaceSaveState(spaceBaseline));
+    int siteCount = CollectFertileSites(
+        sites, ENTITY_ECOLOGY_PROPERTY_SEEDS, daylight);
+    assert(siteCount == ENTITY_ECOLOGY_PROPERTY_SEEDS);
+
+    int temperatureResponsiveSeeds = 0;
+    int activityResponsiveSeeds = 0;
+    int migrationSeeds = 0;
+    int entitySeeds = 0;
+    int lowerCapacitySeeds = 0;
+    int contractionOpportunities = 0;
+    assert(ChunksStartGenThread());
+
+    for (int index = 0; index < siteCount; index++) {
+        const FertileSite *site = &sites[index];
+        rewind(spaceBaseline);
+        assert(SpaceLoadState(spaceBaseline));
+        EcologyTestSetSeed(site->seed);
+        EcologyTestActivatePlanet(site->seed, 0, site->originZ);
+        PlanetEcologyResetState();
+        EntitiesInit();
+        UnloadAllChunks();
+
+        Player player = { 0 };
+        PlacePlayerAt(&player, site->x, site->z);
+        PrepareChunksAt(&player);
+        PlanetLocalEcology initial = PlanetEcologyLocalAt(
+            site->x, site->z, daylight);
+        AssertEntityLocalEcologyValid(&initial);
+
+        FILE *checkpoint = tmpfile();
+        assert(checkpoint);
+        SaveSimulation(checkpoint);
+        UnloadAllChunks();
+        EntityEcologyRunSummary expected;
+        RunSeasonalEntityScenario(site, &player, daylight, &expected);
+        size_t expectedSize = 0;
+        unsigned char *expectedState = CaptureSimulationState(&expectedSize);
+
+        UnloadAllChunks();
+        EcologyTestSetSeed(site->seed);
+        LoadSimulation(checkpoint);
+        EntityEcologyRunSummary replay;
+        RunSeasonalEntityScenario(site, &player, daylight, &replay);
+        size_t replaySize = 0;
+        unsigned char *replayState = CaptureSimulationState(&replaySize);
+        AssertEntityEcologySummariesEqual(&expected, &replay);
+        assert(replaySize == expectedSize);
+        assert(memcmp(replayState, expectedState, expectedSize) == 0);
+
+        float minTemperature = expected.temperatures[0];
+        float maxTemperature = expected.temperatures[0];
+        float minActivity = expected.activities[0];
+        float maxActivity = expected.activities[0];
+        bool sawEntity = false;
+        for (int phase = 0; phase < ENTITY_ECOLOGY_SEASON_PHASES; phase++) {
+            minTemperature = fminf(
+                minTemperature, expected.temperatures[phase]);
+            maxTemperature = fmaxf(
+                maxTemperature, expected.temperatures[phase]);
+            minActivity = fminf(minActivity, expected.activities[phase]);
+            maxActivity = fmaxf(maxActivity, expected.activities[phase]);
+            assert(expected.counts[phase] >= 0);
+            assert(expected.counts[phase] <= expected.caps[phase]);
+            if (expected.counts[phase] > 0) sawEntity = true;
+        }
+        if (maxTemperature - minTemperature > 0.5f) {
+            temperatureResponsiveSeeds++;
+        }
+        if (maxActivity - minActivity > 0.0005f) {
+            activityResponsiveSeeds++;
+        }
+        if (expected.migrationSignal > 0.000001f) migrationSeeds++;
+        if (sawEntity) entitySeeds++;
+        if (expected.lowCap < expected.highCapBeforeMove) {
+            lowerCapacitySeeds++;
+        }
+        if (expected.highCountBeforeMove > expected.lowCap) {
+            contractionOpportunities++;
+            assert(expected.lowCount < expected.highCountBeforeMove);
+        }
+
+        free(replayState);
+        free(expectedState);
+        fclose(checkpoint);
+    }
+
+    assert(temperatureResponsiveSeeds >= siteCount - 1);
+    assert(activityResponsiveSeeds > 0);
+    assert(migrationSeeds > 0);
+    assert(entitySeeds > 0);
+    assert(lowerCapacitySeeds > 0);
+    assert(contractionOpportunities > 0);
+
+    UnloadAllChunks();
+    ChunksShutdownGenThread();
+    rewind(spaceBaseline);
+    assert(SpaceLoadState(spaceBaseline));
+    fclose(spaceBaseline);
+    PlanetEcologyResetState();
+    EntitiesInit();
+    printf("entity ecology properties: seeds=%d seasonal=%d activity=%d "
+           "migration=%d entities=%d local-drops=%d contractions=%d\n",
+           siteCount, temperatureResponsiveSeeds, activityResponsiveSeeds,
+           migrationSeeds, entitySeeds, lowerCapacitySeeds,
+           contractionOpportunities);
 }
 
 static void TestEntityEcologySystemReplay(void)
@@ -177,6 +600,7 @@ static void TestEntityEcologySystemReplay(void)
 
 int main(void)
 {
+    TestCrossSeedSeasonalEntityProperties();
     TestEntityEcologySystemReplay();
     puts("entity ecology tests passed");
     return 0;
