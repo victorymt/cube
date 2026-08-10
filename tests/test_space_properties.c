@@ -781,6 +781,8 @@ static void TestEcologySaveLoadReplay(void)
 typedef struct ChunkBlockSnapshot {
     int cx;
     int cz;
+    FloraStructureInstance floraStructures[MAX_CHUNK_FLORA_STRUCTURES];
+    int floraStructureCount;
     unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
 } ChunkBlockSnapshot;
 
@@ -808,33 +810,20 @@ static void AssertMeshEqual(const Mesh *actual, const Mesh *expected)
                   vertexCount * 4u * sizeof(unsigned char)) == 0);
 }
 
-static bool BuildChunkFloraMesh(const Chunk *chunk, Mesh *outMesh)
+static bool BuildChunkFloraMesh(
+    const Chunk *chunk, Mesh *outMesh,
+    FloraVisualInstance **outInstances, int *outInstanceCount)
 {
     static const int faces[6][3] = {
         { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
         { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
     };
-    return BuildFloraMeshData(
-        (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
-        WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces, NULL, 0, outMesh);
+    return BuildChunkFloraMeshData(
+        chunk, faces, NULL, 0, outMesh, outInstances, outInstanceCount);
 }
 
-static bool ChunkContainsFlora(const Chunk *chunk)
-{
-    for (int x = 0; x < CHUNK_SIZE; x++) {
-        for (int y = 0; y < WORLD_HEIGHT; y++) {
-            for (int z = 0; z < CHUNK_SIZE; z++) {
-                BlockType type = (BlockType)chunk->blocks[x][y][z];
-                if (type == BLOCK_FLOWER || type == BLOCK_MUSHROOM) {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-static Vector3 FindFloraGenerationCenter(uint32_t *outSeed)
+static Vector3 FindFloraGenerationCenter(
+    uint32_t *outSeed, FloraStructureInstance *outStructure)
 {
     for (uint32_t seedIndex = 0; seedIndex < 512u; seedIndex++) {
         uint32_t seed = 0x51a7e5edu + seedIndex * 0x9e3779b9u;
@@ -853,12 +842,26 @@ static Vector3 FindFloraGenerationCenter(uint32_t *outSeed)
                         continue;
                     }
                     GenerateChunkTerrain(&probe, cx, cz, terrainMode);
-                    if (ChunkContainsFlora(&probe)) {
+                    int chunkMinX = cx * CHUNK_SIZE;
+                    int chunkMinZ = cz * CHUNK_SIZE;
+                    int chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
+                    int chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
+                    for (int index = 0;
+                         index < probe.floraStructureCount; index++) {
+                        FloraStructureInstance structure =
+                            probe.floraStructures[index];
+                        bool crossesBoundary =
+                            structure.minX < chunkMinX ||
+                            structure.maxX > chunkMaxX ||
+                            structure.minZ < chunkMinZ ||
+                            structure.maxZ > chunkMaxZ;
+                        if (!crossesBoundary) continue;
                         *outSeed = seed;
+                        *outStructure = structure;
                         return (Vector3){
-                            (float)(cx * CHUNK_SIZE) + 0.5f,
+                            (float)chunkMinX + 0.5f,
                             18.0f,
-                            (float)(cz * CHUNK_SIZE) + 0.5f
+                            (float)chunkMinZ + 0.5f
                         };
                     }
                 }
@@ -875,7 +878,9 @@ static void TestChunkUnloadReloadDeterminism(void)
         (MIN_RENDER_DISTANCE_CHUNKS * 2 + 1) *
         (MIN_RENDER_DISTANCE_CHUNKS * 2 + 1);
     uint32_t seed = 0;
-    Vector3 playerPosition = FindFloraGenerationCenter(&seed);
+    FloraStructureInstance crossingStructure = { 0 };
+    Vector3 playerPosition = FindFloraGenerationCenter(
+        &seed, &crossingStructure);
     assert(seed != 0u);
     assert(WorldGetSeed() == seed);
     assert(ChunksStartGenThread());
@@ -888,6 +893,7 @@ static void TestChunkUnloadReloadDeterminism(void)
         (size_t)expectedChunkCount, sizeof(*snapshots));
     assert(snapshots);
     int snapshotCount = 0;
+    int crossingFragmentCount = 0;
     Chunk *floraChunk = NULL;
     for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
         Chunk *chunk = &chunks[index];
@@ -897,6 +903,7 @@ static void TestChunkUnloadReloadDeterminism(void)
                !chunk->hasFloraModel);
         assert(chunk->floraTargetScales == NULL);
         assert(chunk->floraTargetWind == NULL);
+        assert(chunk->floraTargetWindAngle == NULL);
         assert(chunk->floraTargetPresence == NULL);
         assert(chunk->floraBaseVertices == NULL);
         assert(chunk->floraBaseColors == NULL);
@@ -904,26 +911,69 @@ static void TestChunkUnloadReloadDeterminism(void)
         ChunkBlockSnapshot *snapshot = &snapshots[snapshotCount++];
         snapshot->cx = chunk->cx;
         snapshot->cz = chunk->cz;
+        snapshot->floraStructureCount = chunk->floraStructureCount;
+        memcpy(snapshot->floraStructures, chunk->floraStructures,
+               (size_t)chunk->floraStructureCount *
+               sizeof(FloraStructureInstance));
         memcpy(snapshot->blocks, chunk->blocks, sizeof(snapshot->blocks));
-        if (!floraChunk && ChunkContainsFlora(chunk)) floraChunk = chunk;
+        for (int structureIndex = 0;
+             structureIndex < chunk->floraStructureCount; structureIndex++) {
+            const FloraStructureInstance *structure =
+                &chunk->floraStructures[structureIndex];
+            if (structure->kind == crossingStructure.kind &&
+                structure->shapeHash == crossingStructure.shapeHash &&
+                structure->rootX == crossingStructure.rootX &&
+                structure->rootZ == crossingStructure.rootZ) {
+                crossingFragmentCount++;
+                if (!floraChunk) floraChunk = chunk;
+            }
+        }
     }
     assert(snapshotCount == expectedChunkCount);
+    assert(crossingFragmentCount >= 2);
     assert(floraChunk);
     int floraCx = floraChunk->cx;
     int floraCz = floraChunk->cz;
     Mesh firstFloraMesh = { 0 };
-    assert(BuildChunkFloraMesh(floraChunk, &firstFloraMesh));
+    FloraVisualInstance *firstInstances = NULL;
+    int firstInstanceCount = 0;
+    assert(BuildChunkFloraMesh(
+        floraChunk, &firstFloraMesh, &firstInstances, &firstInstanceCount));
     assert(firstFloraMesh.vertexCount > 0);
-    assert(firstFloraMesh.vertexCount % 12 == 0);
+    assert(firstInstances);
+    assert(firstInstanceCount > 0);
+    bool hasVariableStructureRange = false;
+    bool hasCrossingStructureLayout = false;
+    for (int index = 0; index < firstInstanceCount; index++) {
+        const FloraVisualInstance *instance = &firstInstances[index];
+        assert(instance->firstVertex >= 0);
+        assert(instance->vertexCount > 0);
+        assert(instance->firstVertex + instance->vertexCount <=
+               firstFloraMesh.vertexCount);
+        if (instance->vertexCount != 12) hasVariableStructureRange = true;
+        if (instance->anchor.x == (float)crossingStructure.rootX + 0.5f &&
+            instance->anchor.y == (float)crossingStructure.groundY + 1.0f &&
+            instance->anchor.z == (float)crossingStructure.rootZ + 0.5f) {
+            assert(instance->height ==
+                   (float)(crossingStructure.maxY -
+                           crossingStructure.groundY));
+            assert(instance->windResponse == crossingStructure.windResponse);
+            hasCrossingStructureLayout = true;
+        }
+    }
+    assert(hasVariableStructureRange);
+    assert(hasCrossingStructureLayout);
 
     floraChunk->floraTargetScales = malloc(sizeof(float));
     floraChunk->floraTargetWind = malloc(sizeof(float));
+    floraChunk->floraTargetWindAngle = malloc(sizeof(float));
     floraChunk->floraTargetPresence = malloc(sizeof(float));
     floraChunk->floraBaseVertices = malloc(3u * sizeof(float));
     floraChunk->floraBaseColors = malloc(4u);
     floraChunk->floraVisualInstances = malloc(sizeof(FloraVisualInstance));
     floraChunk->floraTargetScaleCount = 1;
     assert(floraChunk->floraTargetScales && floraChunk->floraTargetWind &&
+           floraChunk->floraTargetWindAngle &&
            floraChunk->floraTargetPresence && floraChunk->floraBaseVertices &&
            floraChunk->floraBaseColors && floraChunk->floraVisualInstances);
 
@@ -934,11 +984,15 @@ static void TestChunkUnloadReloadDeterminism(void)
         assert(!chunks[index].dirty);
         assert(chunks[index].floraTargetScales == NULL);
         assert(chunks[index].floraTargetWind == NULL);
+        assert(chunks[index].floraTargetWindAngle == NULL);
         assert(chunks[index].floraTargetPresence == NULL);
         assert(chunks[index].floraBaseVertices == NULL);
         assert(chunks[index].floraBaseColors == NULL);
         assert(chunks[index].floraVisualInstances == NULL);
         assert(chunks[index].floraTargetScaleCount == 0);
+        chunks[index].floraStructureCount = MAX_CHUNK_FLORA_STRUCTURES;
+        memset(chunks[index].floraStructures, 0xa5,
+               sizeof(chunks[index].floraStructures));
         memset(chunks[index].blocks, 0xa5, sizeof(chunks[index].blocks));
     }
 
@@ -951,14 +1005,30 @@ static void TestChunkUnloadReloadDeterminism(void)
         assert(!chunk->generating);
         assert(memcmp(chunk->blocks, snapshots[index].blocks,
                       sizeof(chunk->blocks)) == 0);
+        assert(chunk->floraStructureCount ==
+               snapshots[index].floraStructureCount);
+        assert(memcmp(chunk->floraStructures,
+                      snapshots[index].floraStructures,
+                      (size_t)chunk->floraStructureCount *
+                      sizeof(FloraStructureInstance)) == 0);
     }
 
     Chunk *reloadedFloraChunk = FindChunk(floraCx, floraCz);
     assert(reloadedFloraChunk);
     Mesh secondFloraMesh = { 0 };
-    assert(BuildChunkFloraMesh(reloadedFloraChunk, &secondFloraMesh));
+    FloraVisualInstance *secondInstances = NULL;
+    int secondInstanceCount = 0;
+    assert(BuildChunkFloraMesh(
+        reloadedFloraChunk, &secondFloraMesh,
+        &secondInstances, &secondInstanceCount));
     AssertMeshEqual(&secondFloraMesh, &firstFloraMesh);
+    assert(secondInstanceCount == firstInstanceCount);
+    assert(memcmp(secondInstances, firstInstances,
+                  (size_t)firstInstanceCount *
+                  sizeof(FloraVisualInstance)) == 0);
 
+    free(secondInstances);
+    free(firstInstances);
     FreeCpuMesh(&secondFloraMesh);
     FreeCpuMesh(&firstFloraMesh);
     free(snapshots);

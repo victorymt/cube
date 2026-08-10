@@ -33,16 +33,34 @@ struct MeshJob {
     int cz;
     bool transparent;
     unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    FloraStructureInstance floraStructures[MAX_CHUNK_FLORA_STRUCTURES];
+    int floraStructureCount;
     int nearbyIndices[MAX_TORCH_LIGHTS];
     int nearbyCount;
     Mesh mesh;
     Mesh floraMesh;
+    FloraVisualInstance *floraInstances;
+    int floraInstanceCount;
     bool hasMesh;
     bool hasFloraMesh;
 };
 typedef struct MeshJob MeshJob;
 static bool HasPendingMeshJob(void);
 static MeshJob *NextPendingMeshJob(void);
+static void FreeMeshData(Mesh *mesh);
+static bool BuildChunkSurfaceSolidMeshData(
+    const unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const int *nearbyTorchIndices,
+    int nearbyTorchCount, Mesh *outMesh);
+static bool BuildChunkFloraMeshDataFromSnapshot(
+    const unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const int *nearbyTorchIndices,
+    int nearbyTorchCount, Mesh *outMesh,
+    FloraVisualInstance **outInstances, int *outInstanceCount);
 bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
                    int height, int layerY, int chunkX, int chunkZ,
                    bool transparent, const int faces[6][3],
@@ -88,6 +106,8 @@ static void ClearChunkFloraRuntime(Chunk *chunk)
     chunk->floraTargetScales = NULL;
     free(chunk->floraTargetWind);
     chunk->floraTargetWind = NULL;
+    free(chunk->floraTargetWindAngle);
+    chunk->floraTargetWindAngle = NULL;
     free(chunk->floraTargetPresence);
     chunk->floraTargetPresence = NULL;
     free(chunk->floraBaseVertices);
@@ -615,14 +635,17 @@ void *ChunkGenWorker(void *arg)
                     meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->mesh);
                 meshJob->hasFloraMesh = false;
             } else {
-                meshJob->hasMesh = BuildSurfaceSolidMeshData(
-                    (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
-                    WORLD_HEIGHT, 0, meshJob->cx, meshJob->cz, faces,
-                    meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->mesh);
-                meshJob->hasFloraMesh = BuildFloraMeshData(
-                    (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
-                    WORLD_HEIGHT, 0, meshJob->cx, meshJob->cz, faces,
-                    meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->floraMesh);
+                meshJob->hasMesh = BuildChunkSurfaceSolidMeshData(
+                    meshJob->blocks, meshJob->cx, meshJob->cz,
+                    meshJob->floraStructures, meshJob->floraStructureCount,
+                    faces, meshJob->nearbyIndices, meshJob->nearbyCount,
+                    &meshJob->mesh);
+                meshJob->hasFloraMesh = BuildChunkFloraMeshDataFromSnapshot(
+                    meshJob->blocks, meshJob->cx, meshJob->cz,
+                    meshJob->floraStructures, meshJob->floraStructureCount,
+                    faces, meshJob->nearbyIndices, meshJob->nearbyCount,
+                    &meshJob->floraMesh, &meshJob->floraInstances,
+                    &meshJob->floraInstanceCount);
             }
 
             pthread_mutex_lock(&genMutex);
@@ -851,7 +874,8 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
     Mesh *mesh = &chunk->floraModel.meshes[0];
     if (!mesh->vertices || mesh->vertexCount <= 0 ||
         !chunk->floraTargetScales || !chunk->floraTargetWind ||
-        !chunk->floraTargetPresence || !chunk->floraBaseVertices ||
+        !chunk->floraTargetWindAngle || !chunk->floraTargetPresence ||
+        !chunk->floraBaseVertices ||
         !chunk->floraBaseColors || !chunk->floraVisualInstances ||
         !mesh->colors ||
         chunk->floraTargetScaleCount <= 0) return;
@@ -881,28 +905,31 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
             chunk->floraTargetPresence[group] = runtime.visualPresence;
             chunk->floraTargetWind[group] = WeatherFieldSampleAtWorld(
                 cellX, cellZ).wind;
+            chunk->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
+                cellX, cellZ);
         } else if (refreshTargets) {
             chunk->floraTargetScales[group] = 1.0f;
             chunk->floraTargetPresence[group] = 1.0f;
             chunk->floraTargetWind[group] = WeatherFieldSampleAtWorld(
                 cellX, cellZ).wind;
+            chunk->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
+                cellX, cellZ);
         }
 
-        float baseGroundY = INFINITY;
         float baseTopY = -INFINITY;
-        float currentGroundY = INFINITY;
         float currentTopY = -INFINITY;
         for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
             float baseY = chunk->floraBaseVertices[vertex * 3 + 1];
             float currentY = mesh->vertices[vertex * 3 + 1];
-            baseGroundY = fminf(baseGroundY, baseY);
             baseTopY = fmaxf(baseTopY, baseY);
-            currentGroundY = fminf(currentGroundY, currentY);
             currentTopY = fmaxf(currentTopY, currentY);
         }
-        float baseHeight = baseTopY - baseGroundY;
-        if (!(baseHeight > 0.001f) || !isfinite(baseHeight)) continue;
-        float oldScale = (currentTopY - currentGroundY) / baseHeight;
+        float localBaseHeight = baseTopY - instance->anchor.y;
+        float instanceHeight = instance->height > 0.001f ?
+                               instance->height : localBaseHeight;
+        if (!(localBaseHeight > 0.001f) || !isfinite(localBaseHeight) ||
+            !(instanceHeight > 0.001f) || !isfinite(instanceHeight)) continue;
+        float oldScale = (currentTopY - instance->anchor.y) / localBaseHeight;
         if (!(oldScale > 0.01f) || !isfinite(oldScale)) continue;
         float targetScale = fmaxf(chunk->floraTargetScales[group], 0.01f);
         float newScale = oldScale + (targetScale - oldScale) * blend;
@@ -915,13 +942,16 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
         for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
             float *current = &mesh->vertices[vertex * 3];
             const float *base = &chunk->floraBaseVertices[vertex * 3];
-            float heightFraction = (base[1] - baseGroundY) / baseHeight;
+            float heightFraction = Clamp(
+                (base[1] - instance->anchor.y) / instanceHeight, 0.0f, 1.0f);
             float targetX = base[0] +
-                cosf(chunk->floraWindAngle) * sway * heightFraction;
-            float targetY = baseGroundY +
-                (base[1] - baseGroundY) * newScale;
+                cosf(chunk->floraTargetWindAngle[group]) * sway *
+                heightFraction;
+            float targetY = instance->anchor.y +
+                (base[1] - instance->anchor.y) * newScale;
             float targetZ = base[2] +
-                sinf(chunk->floraWindAngle) * sway * heightFraction;
+                sinf(chunk->floraTargetWindAngle[group]) * sway *
+                heightFraction;
             if (fabsf(current[0] - targetX) >= 0.0001f ||
                 fabsf(current[1] - targetY) >= 0.0001f ||
                 fabsf(current[2] - targetZ) >= 0.0001f) {
@@ -2024,6 +2054,344 @@ bool BuildFloraMeshData(
         faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
 }
 
+static int FloraStructureOwnerAt(
+    const FloraStructureInstance *structures, int structureCount,
+    int worldX, int y, int worldZ)
+{
+    for (int index = 0; index < structureCount; index++) {
+        const FloraStructureInstance *structure = &structures[index];
+        if (worldX < structure->minX || worldX > structure->maxX ||
+            y < structure->minY || y > structure->maxY ||
+            worldZ < structure->minZ || worldZ > structure->maxZ) continue;
+
+        int base = structure->groundY + 1;
+        int offsetX = worldX - structure->rootX;
+        int offsetZ = worldZ - structure->rootZ;
+        bool belongs = false;
+        switch (structure->kind) {
+        case FLORA_STRUCTURE_ALIEN_CANOPY: {
+            int trunkHeight = 3 + (int)(structure->shapeHash % 3u);
+            int distance = abs(offsetX) + abs(offsetZ);
+            belongs = (offsetX == 0 && offsetZ == 0 &&
+                       y >= base && y < base + trunkHeight) ||
+                      (y == base + trunkHeight - 1 && distance <= 3) ||
+                      (y == base + trunkHeight && distance < 2) ||
+                      (offsetX == 0 && offsetZ == 0 &&
+                       y == base + trunkHeight + 1);
+        } break;
+        case FLORA_STRUCTURE_CRYSTAL: {
+            int height = 2 + (int)(structure->shapeHash % 4u);
+            belongs = (offsetX == 0 && offsetZ == 0 &&
+                       y >= base && y < base + height);
+            if (structure->shapeHash & 1u) {
+                belongs = belongs ||
+                          (offsetX == -1 && offsetZ == 0 && y == base + 1) ||
+                          (offsetX == 1 && offsetZ == 0 && y == base);
+            } else {
+                belongs = belongs ||
+                          (offsetX == 0 && offsetZ == -1 && y == base + 1) ||
+                          (offsetX == 0 && offsetZ == 1 && y == base);
+            }
+        } break;
+        case FLORA_STRUCTURE_SPORE: {
+            int stemHeight = 2 + (int)(structure->shapeHash % 2u);
+            int distance = abs(offsetX) + abs(offsetZ);
+            belongs = (offsetX == 0 && offsetZ == 0 &&
+                       y >= base && y < base + stemHeight) ||
+                      (y == base + stemHeight && distance <= 1) ||
+                      (offsetX == 0 && offsetZ == 0 &&
+                       y == base + stemHeight + 1);
+        } break;
+        case FLORA_STRUCTURE_THERMAL_VENT: {
+            int height = 2 + (int)(structure->shapeHash % 3u);
+            belongs = (offsetX == 0 && offsetZ == 0 &&
+                       y >= base && y < base + height) ||
+                      (abs(offsetX) == 1 && offsetZ == 0 && y == base) ||
+                      (offsetX == 0 && offsetZ == 0 &&
+                       y == base + height) ||
+                      (offsetX == 0 && offsetZ == 1 &&
+                       y == base + height);
+        } break;
+        }
+        if (belongs) return index;
+    }
+    return -1;
+}
+
+static void CopyBlocksWithoutFloraStructures(
+    unsigned short destination[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
+    const unsigned short source[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount)
+{
+    memcpy(destination, source,
+           sizeof(unsigned short) * CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
+    int startX = chunkX * CHUNK_SIZE;
+    int startZ = chunkZ * CHUNK_SIZE;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int y = 0; y < WORLD_HEIGHT; y++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                if (FloraStructureOwnerAt(
+                        structures, structureCount,
+                        startX + lx, y, startZ + lz) >= 0) {
+                    destination[lx][y][lz] = (unsigned short)BLOCK_AIR;
+                }
+            }
+        }
+    }
+}
+
+static bool MergeMeshData(Mesh *target, Mesh *source)
+{
+    if (source->vertexCount <= 0) {
+        FreeMeshData(source);
+        return true;
+    }
+    if (target->vertexCount <= 0) {
+        *target = *source;
+        *source = (Mesh){ 0 };
+        return true;
+    }
+
+    int targetVertexCount = target->vertexCount;
+    int sourceVertexCount = source->vertexCount;
+    int vertexCount = targetVertexCount + sourceVertexCount;
+    float *vertices = malloc((size_t)vertexCount * 3u * sizeof(float));
+    float *texcoords = malloc((size_t)vertexCount * 2u * sizeof(float));
+    float *normals = malloc((size_t)vertexCount * 3u * sizeof(float));
+    unsigned char *colors = malloc((size_t)vertexCount * 4u);
+    if (!vertices || !texcoords || !normals || !colors) {
+        free(vertices);
+        free(texcoords);
+        free(normals);
+        free(colors);
+        FreeMeshData(source);
+        return false;
+    }
+
+    memcpy(vertices, target->vertices,
+           (size_t)targetVertexCount * 3u * sizeof(float));
+    memcpy(vertices + targetVertexCount * 3, source->vertices,
+           (size_t)sourceVertexCount * 3u * sizeof(float));
+    memcpy(texcoords, target->texcoords,
+           (size_t)targetVertexCount * 2u * sizeof(float));
+    memcpy(texcoords + targetVertexCount * 2, source->texcoords,
+           (size_t)sourceVertexCount * 2u * sizeof(float));
+    memcpy(normals, target->normals,
+           (size_t)targetVertexCount * 3u * sizeof(float));
+    memcpy(normals + targetVertexCount * 3, source->normals,
+           (size_t)sourceVertexCount * 3u * sizeof(float));
+    memcpy(colors, target->colors, (size_t)targetVertexCount * 4u);
+    memcpy(colors + targetVertexCount * 4, source->colors,
+           (size_t)sourceVertexCount * 4u);
+
+    int triangleCount = target->triangleCount + source->triangleCount;
+    FreeMeshData(target);
+    FreeMeshData(source);
+    *target = (Mesh){
+        .vertexCount = vertexCount,
+        .triangleCount = triangleCount,
+        .vertices = vertices,
+        .texcoords = texcoords,
+        .normals = normals,
+        .colors = colors
+    };
+    return true;
+}
+
+static bool AppendFloraVisualInstance(
+    FloraVisualInstance **instances, int *instanceCount,
+    FloraVisualInstance instance)
+{
+    FloraVisualInstance *resized = realloc(
+        *instances,
+        (size_t)(*instanceCount + 1) * sizeof(FloraVisualInstance));
+    if (!resized) return false;
+    resized[*instanceCount] = instance;
+    *instances = resized;
+    (*instanceCount)++;
+    return true;
+}
+
+static bool AppendPlantMeshInstances(
+    FloraVisualInstance **instances, int *instanceCount,
+    const Mesh *mesh, int firstVertexOffset)
+{
+    for (int firstVertex = 0; firstVertex < mesh->vertexCount;
+         firstVertex += 12) {
+        int vertexCount = mesh->vertexCount - firstVertex;
+        if (vertexCount > 12) vertexCount = 12;
+        float groundY = INFINITY;
+        for (int vertex = firstVertex;
+             vertex < firstVertex + vertexCount; vertex++) {
+            groundY = fminf(groundY, mesh->vertices[vertex * 3 + 1]);
+        }
+        float firstX = mesh->vertices[firstVertex * 3];
+        float firstZ = mesh->vertices[firstVertex * 3 + 2];
+        if (!AppendFloraVisualInstance(
+                instances, instanceCount, (FloraVisualInstance){
+                    .firstVertex = firstVertexOffset + firstVertex,
+                    .vertexCount = vertexCount,
+                    .anchor = {
+                        floorf(firstX) + 0.5f,
+                        groundY,
+                        floorf(firstZ) + 0.5f
+                    },
+                    .height = 0.4f,
+                    .windResponse = 1.0f
+                })) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool BuildChunkSurfaceSolidMeshData(
+    const unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const int *nearbyTorchIndices,
+    int nearbyTorchCount, Mesh *outMesh)
+{
+    unsigned short solidBlocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    CopyBlocksWithoutFloraStructures(
+        solidBlocks, blocks, chunkX, chunkZ, structures, structureCount);
+    return BuildSurfaceSolidMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])solidBlocks,
+        WORLD_HEIGHT, 0, chunkX, chunkZ, faces,
+        nearbyTorchIndices, nearbyTorchCount, outMesh);
+}
+
+static bool BuildChunkFloraMeshDataFromSnapshot(
+    const unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const int *nearbyTorchIndices,
+    int nearbyTorchCount, Mesh *outMesh,
+    FloraVisualInstance **outInstances, int *outInstanceCount)
+{
+    *outMesh = (Mesh){ 0 };
+    *outInstances = NULL;
+    *outInstanceCount = 0;
+
+    unsigned short floraBlocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    CopyBlocksWithoutFloraStructures(
+        floraBlocks, blocks, chunkX, chunkZ, structures, structureCount);
+
+    Mesh combined = { 0 };
+    FloraVisualInstance *instances = NULL;
+    int instanceCount = 0;
+    Mesh plants = { 0 };
+    if (BuildFloraMeshData(
+            (const unsigned short (*)[CHUNK_SIZE])floraBlocks,
+            WORLD_HEIGHT, 0, chunkX, chunkZ, faces,
+            nearbyTorchIndices, nearbyTorchCount, &plants)) {
+        if (!AppendPlantMeshInstances(
+                &instances, &instanceCount, &plants, 0) ||
+            !MergeMeshData(&combined, &plants)) {
+            FreeMeshData(&plants);
+            FreeMeshData(&combined);
+            free(instances);
+            return false;
+        }
+    }
+
+    int startX = chunkX * CHUNK_SIZE;
+    int startZ = chunkZ * CHUNK_SIZE;
+    for (int structureIndex = 0; structureIndex < structureCount;
+         structureIndex++) {
+        unsigned short instanceBlocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE] = { 0 };
+        bool hasBlocks = false;
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int y = 0; y < WORLD_HEIGHT; y++) {
+                for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                    if (FloraStructureOwnerAt(
+                            structures, structureCount,
+                            startX + lx, y, startZ + lz) != structureIndex) {
+                        continue;
+                    }
+                    unsigned short block = blocks[lx][y][lz];
+                    if (block == (unsigned short)BLOCK_AIR) continue;
+                    instanceBlocks[lx][y][lz] = block;
+                    hasBlocks = true;
+                }
+            }
+        }
+        if (!hasBlocks) continue;
+
+        Mesh instanceMesh = { 0 };
+        Mesh solid = { 0 };
+        Mesh crossed = { 0 };
+        if (BuildSurfaceSolidMeshData(
+                (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
+                WORLD_HEIGHT, 0, chunkX, chunkZ, faces,
+                nearbyTorchIndices, nearbyTorchCount, &solid) &&
+            !MergeMeshData(&instanceMesh, &solid)) {
+            FreeMeshData(&solid);
+            FreeMeshData(&instanceMesh);
+            FreeMeshData(&combined);
+            free(instances);
+            return false;
+        }
+        if (BuildFloraMeshData(
+                (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
+                WORLD_HEIGHT, 0, chunkX, chunkZ, faces,
+                nearbyTorchIndices, nearbyTorchCount, &crossed) &&
+            !MergeMeshData(&instanceMesh, &crossed)) {
+            FreeMeshData(&crossed);
+            FreeMeshData(&instanceMesh);
+            FreeMeshData(&combined);
+            free(instances);
+            return false;
+        }
+        if (instanceMesh.vertexCount <= 0) continue;
+
+        int firstVertex = combined.vertexCount;
+        int vertexCount = instanceMesh.vertexCount;
+        const FloraStructureInstance *structure = &structures[structureIndex];
+        if (!MergeMeshData(&combined, &instanceMesh) ||
+            !AppendFloraVisualInstance(
+                &instances, &instanceCount, (FloraVisualInstance){
+                    .firstVertex = firstVertex,
+                    .vertexCount = vertexCount,
+                    .anchor = {
+                        (float)structure->rootX + 0.5f,
+                        (float)structure->groundY + 1.0f,
+                        (float)structure->rootZ + 0.5f
+                    },
+                    .height = (float)(structure->maxY - structure->groundY),
+                    .windResponse = structure->windResponse
+                })) {
+            FreeMeshData(&instanceMesh);
+            FreeMeshData(&combined);
+            free(instances);
+            return false;
+        }
+    }
+
+    if (combined.vertexCount <= 0) {
+        free(instances);
+        return false;
+    }
+    *outMesh = combined;
+    *outInstances = instances;
+    *outInstanceCount = instanceCount;
+    return true;
+}
+
+bool BuildChunkFloraMeshData(
+    const Chunk *chunk, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh,
+    FloraVisualInstance **outInstances, int *outInstanceCount)
+{
+    if (!chunk || !outMesh || !outInstances || !outInstanceCount) return false;
+    return BuildChunkFloraMeshDataFromSnapshot(
+        chunk->blocks, chunk->cx, chunk->cz,
+        chunk->floraStructures, chunk->floraStructureCount,
+        faces, nearbyTorchIndices, nearbyTorchCount,
+        outMesh, outInstances, outInstanceCount);
+}
+
 #define MAX_MESH_JOBS 64
 #define MAX_MESH_SUBMITS_PER_FRAME 4
 
@@ -2081,16 +2449,21 @@ static void ReplaceChunkModel(Model *model, bool *hasModel,
     *hasModel = true;
 }
 
-static void InitializeFloraTargets(Chunk *chunk)
+static void InitializeFloraTargets(
+    Chunk *chunk, const FloraVisualInstance *sourceInstances,
+    int sourceInstanceCount)
 {
     ClearChunkFloraRuntime(chunk);
     if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
 
     Mesh *mesh = &chunk->floraModel.meshes[0];
     if (mesh->vertexCount <= 0 || !mesh->vertices || !mesh->colors) return;
-    int count = (mesh->vertexCount + 11) / 12;
+    bool hasSourceInstances = sourceInstances && sourceInstanceCount > 0;
+    int count = hasSourceInstances ? sourceInstanceCount :
+                (mesh->vertexCount + 11) / 12;
     chunk->floraTargetScales = malloc((size_t)count * sizeof(float));
     chunk->floraTargetWind = malloc((size_t)count * sizeof(float));
+    chunk->floraTargetWindAngle = malloc((size_t)count * sizeof(float));
     chunk->floraTargetPresence = malloc((size_t)count * sizeof(float));
     chunk->floraBaseVertices = malloc(
         (size_t)mesh->vertexCount * 3u * sizeof(float));
@@ -2098,7 +2471,8 @@ static void InitializeFloraTargets(Chunk *chunk)
     chunk->floraVisualInstances = malloc(
         (size_t)count * sizeof(FloraVisualInstance));
     if (!chunk->floraTargetScales || !chunk->floraTargetWind ||
-        !chunk->floraTargetPresence || !chunk->floraBaseVertices ||
+        !chunk->floraTargetWindAngle || !chunk->floraTargetPresence ||
+        !chunk->floraBaseVertices ||
         !chunk->floraBaseColors || !chunk->floraVisualInstances) {
         ClearChunkFloraRuntime(chunk);
         return;
@@ -2107,29 +2481,37 @@ static void InitializeFloraTargets(Chunk *chunk)
            (size_t)mesh->vertexCount * 3u * sizeof(float));
     memcpy(chunk->floraBaseColors, mesh->colors,
            (size_t)mesh->vertexCount * 4u);
+    if (hasSourceInstances) {
+        memcpy(chunk->floraVisualInstances, sourceInstances,
+               (size_t)count * sizeof(FloraVisualInstance));
+    }
     for (int index = 0; index < count; index++) {
-        int firstVertex = index * 12;
-        int vertexCount = mesh->vertexCount - firstVertex;
-        if (vertexCount > 12) vertexCount = 12;
-        float groundY = INFINITY;
-        for (int vertex = firstVertex;
-             vertex < firstVertex + vertexCount; vertex++) {
-            groundY = fminf(groundY, mesh->vertices[vertex * 3 + 1]);
+        if (!hasSourceInstances) {
+            int firstVertex = index * 12;
+            int vertexCount = mesh->vertexCount - firstVertex;
+            if (vertexCount > 12) vertexCount = 12;
+            float groundY = INFINITY;
+            for (int vertex = firstVertex;
+                 vertex < firstVertex + vertexCount; vertex++) {
+                groundY = fminf(groundY, mesh->vertices[vertex * 3 + 1]);
+            }
+            float firstX = mesh->vertices[firstVertex * 3];
+            float firstZ = mesh->vertices[firstVertex * 3 + 2];
+            chunk->floraVisualInstances[index] = (FloraVisualInstance){
+                .firstVertex = firstVertex,
+                .vertexCount = vertexCount,
+                .anchor = {
+                    floorf(firstX) + 0.5f,
+                    groundY,
+                    floorf(firstZ) + 0.5f
+                },
+                .height = 0.4f,
+                .windResponse = 1.0f
+            };
         }
-        float firstX = mesh->vertices[firstVertex * 3];
-        float firstZ = mesh->vertices[firstVertex * 3 + 2];
-        chunk->floraVisualInstances[index] = (FloraVisualInstance){
-            .firstVertex = firstVertex,
-            .vertexCount = vertexCount,
-            .anchor = {
-                floorf(firstX) + 0.5f,
-                groundY,
-                floorf(firstZ) + 0.5f
-            },
-            .windResponse = 1.0f
-        };
         chunk->floraTargetScales[index] = 1.0f;
         chunk->floraTargetWind[index] = 0.0f;
+        chunk->floraTargetWindAngle[index] = 0.0f;
         chunk->floraTargetPresence[index] = 1.0f;
     }
     chunk->floraTargetScaleCount = count;
@@ -2150,13 +2532,18 @@ static void UploadMeshJob(MeshJob *job)
                               &job->mesh, job->hasMesh, false);
             ReplaceChunkModel(&chunk->floraModel, &chunk->hasFloraModel,
                               &job->floraMesh, job->hasFloraMesh, true);
-            InitializeFloraTargets(chunk);
+            InitializeFloraTargets(chunk, job->floraInstances,
+                                   job->floraInstanceCount);
             chunk->floraVisualScale = 1.0f;
         }
     } else {
         FreeMeshData(&job->mesh);
         FreeMeshData(&job->floraMesh);
     }
+
+    free(job->floraInstances);
+    job->floraInstances = NULL;
+    job->floraInstanceCount = 0;
 
     job->inUse = false;
     if (valid && !FindPendingMeshJob(job->slotIndex)) chunk->dirty = false;
@@ -2180,6 +2567,13 @@ bool SubmitMeshJob(Chunk *chunk, bool transparent)
     }
 
     memcpy(job->blocks, chunk->blocks, sizeof(job->blocks));
+    job->floraStructureCount = chunk->floraStructureCount;
+    if (job->floraStructureCount < 0) job->floraStructureCount = 0;
+    if (job->floraStructureCount > MAX_CHUNK_FLORA_STRUCTURES) {
+        job->floraStructureCount = MAX_CHUNK_FLORA_STRUCTURES;
+    }
+    memcpy(job->floraStructures, chunk->floraStructures,
+           (size_t)job->floraStructureCount * sizeof(FloraStructureInstance));
     job->nearbyCount = CollectNearbyTorchLights(
         chunk->cx * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
         chunk->cx * CHUNK_SIZE + CHUNK_SIZE - 1 + (int)TORCH_LIGHT_RADIUS,
@@ -2194,6 +2588,9 @@ bool SubmitMeshJob(Chunk *chunk, bool transparent)
     job->transparent = transparent;
     job->mesh = (Mesh){ 0 };
     job->floraMesh = (Mesh){ 0 };
+    free(job->floraInstances);
+    job->floraInstances = NULL;
+    job->floraInstanceCount = 0;
     job->hasMesh = false;
     job->hasFloraMesh = false;
     pthread_cond_signal(&genCond);
@@ -2232,18 +2629,21 @@ static void RebuildChunkMeshSync(Chunk *chunk)
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
     Mesh floraMesh = { 0 };
-    bool hasSolid = BuildSurfaceSolidMeshData(
-        (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
-        WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces,
-        nearbyTorchIndices, nearbyTorchCount, &solidMesh);
+    FloraVisualInstance *floraInstances = NULL;
+    int floraInstanceCount = 0;
+    bool hasSolid = BuildChunkSurfaceSolidMeshData(
+        chunk->blocks, chunk->cx, chunk->cz,
+        chunk->floraStructures, chunk->floraStructureCount,
+        faces, nearbyTorchIndices, nearbyTorchCount, &solidMesh);
     bool hasWater = BuildSurfaceWaterMeshData(
         (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
         WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces,
         nearbyTorchIndices, nearbyTorchCount, &waterMesh);
-    bool hasFlora = BuildFloraMeshData(
-        (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
-        WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces,
-        nearbyTorchIndices, nearbyTorchCount, &floraMesh);
+    bool hasFlora = BuildChunkFloraMeshDataFromSnapshot(
+        chunk->blocks, chunk->cx, chunk->cz,
+        chunk->floraStructures, chunk->floraStructureCount,
+        faces, nearbyTorchIndices, nearbyTorchCount, &floraMesh,
+        &floraInstances, &floraInstanceCount);
 
     ReplaceChunkModel(&chunk->model, &chunk->hasModel,
                       &solidMesh, hasSolid, false);
@@ -2251,7 +2651,8 @@ static void RebuildChunkMeshSync(Chunk *chunk)
                       &waterMesh, hasWater, false);
     ReplaceChunkModel(&chunk->floraModel, &chunk->hasFloraModel,
                       &floraMesh, hasFlora, true);
-    InitializeFloraTargets(chunk);
+    InitializeFloraTargets(chunk, floraInstances, floraInstanceCount);
+    free(floraInstances);
     chunk->floraVisualScale = 1.0f;
     chunk->dirty = false;
 }
@@ -2345,7 +2746,11 @@ void ChunksShutdownGenThread(void)
     }
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
         if (meshJobs[i].inUse) {
-            if (meshJobs[i].hasMesh) FreeMeshData(&meshJobs[i].mesh);
+            FreeMeshData(&meshJobs[i].mesh);
+            FreeMeshData(&meshJobs[i].floraMesh);
+            free(meshJobs[i].floraInstances);
+            meshJobs[i].floraInstances = NULL;
+            meshJobs[i].floraInstanceCount = 0;
             meshJobs[i].inUse = false;
         }
     }

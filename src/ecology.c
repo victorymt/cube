@@ -974,6 +974,97 @@ static void EcologySet(Chunk *chunk, int x, int y, int z, BlockType type)
     if (InHeight(y)) SetChunkLocalBlock(chunk, x, y, z, type);
 }
 
+static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
+                                   PlanetFloraArchetype archetype,
+                                   uint32_t hash)
+{
+    FloraStructureKind kind = FLORA_STRUCTURE_SPORE;
+    switch (archetype) {
+    case PLANET_FLORA_ALIEN_CANOPY:
+        kind = FLORA_STRUCTURE_ALIEN_CANOPY;
+        break;
+    case PLANET_FLORA_CRYSTAL:
+        kind = FLORA_STRUCTURE_CRYSTAL;
+        break;
+    case PLANET_FLORA_SPORE:
+        kind = FLORA_STRUCTURE_SPORE;
+        break;
+    case PLANET_FLORA_THERMAL_VENT:
+        kind = FLORA_STRUCTURE_THERMAL_VENT;
+        break;
+    }
+
+    int base = ground + 1;
+    FloraStructureInstance structure = {
+        .kind = kind,
+        .shapeHash = hash,
+        .rootX = x,
+        .groundY = ground,
+        .rootZ = z,
+        .minX = x,
+        .minY = base,
+        .minZ = z,
+        .maxX = x,
+        .maxY = base,
+        .maxZ = z,
+        .windResponse = 1.0f
+    };
+    switch (kind) {
+    case FLORA_STRUCTURE_ALIEN_CANOPY: {
+        int trunkHeight = 3 + (int)(hash % 3u);
+        structure.minX = x - 2;
+        structure.maxX = x + 2;
+        structure.minZ = z - 2;
+        structure.maxZ = z + 2;
+        structure.maxY = base + trunkHeight + 1;
+        structure.windResponse = 1.0f;
+    } break;
+    case FLORA_STRUCTURE_CRYSTAL: {
+        int height = 2 + (int)(hash % 4u);
+        structure.minX = x - 1;
+        structure.maxX = x + 1;
+        structure.minZ = z - 1;
+        structure.maxZ = z + 1;
+        structure.maxY = base + height - 1;
+        structure.windResponse = 0.12f;
+    } break;
+    case FLORA_STRUCTURE_SPORE: {
+        int stemHeight = 2 + (int)(hash % 2u);
+        structure.minX = x - 1;
+        structure.maxX = x + 1;
+        structure.minZ = z - 1;
+        structure.maxZ = z + 1;
+        structure.maxY = base + stemHeight + 1;
+        structure.windResponse = 0.65f;
+    } break;
+    case FLORA_STRUCTURE_THERMAL_VENT: {
+        int height = 2 + (int)(hash % 3u);
+        structure.minX = x - 1;
+        structure.maxX = x + 1;
+        structure.maxZ = z + 1;
+        structure.maxY = base + height;
+        structure.windResponse = 0.05f;
+    } break;
+    }
+
+    int chunkMinX = chunk->cx * CHUNK_SIZE;
+    int chunkMinZ = chunk->cz * CHUNK_SIZE;
+    int chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
+    int chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
+    if (structure.maxX < chunkMinX || structure.minX > chunkMaxX ||
+        structure.maxZ < chunkMinZ || structure.minZ > chunkMaxZ ||
+        structure.maxY < 0 || structure.minY >= WORLD_HEIGHT) return;
+
+    for (int index = 0; index < chunk->floraStructureCount; index++) {
+        const FloraStructureInstance *existing = &chunk->floraStructures[index];
+        if (existing->kind == structure.kind &&
+            existing->rootX == structure.rootX &&
+            existing->rootZ == structure.rootZ) return;
+    }
+    if (chunk->floraStructureCount >= MAX_CHUNK_FLORA_STRUCTURES) return;
+    chunk->floraStructures[chunk->floraStructureCount++] = structure;
+}
+
 static void PlaceAlienCanopy(Chunk *chunk, int x, int z, int ground,
                              const PlanetEcologyProfile *profile, uint32_t hash)
 {
@@ -1060,6 +1151,7 @@ static void PlacePlanetFlora(Chunk *chunk, int x, int z,
         biome != PLANET_BIOME_PLAINS && biome != PLANET_BIOME_OASIS) {
         type = PLANET_FLORA_SPORE;
     }
+    RegisterFloraStructure(chunk, x, z, ground, type, hash);
     switch (type) {
     case PLANET_FLORA_ALIEN_CANOPY:
         PlaceAlienCanopy(chunk, x, z, ground, profile, hash);

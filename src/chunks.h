@@ -38,6 +38,10 @@ bool BuildFloraMeshData(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
+bool BuildChunkFloraMeshData(
+    const Chunk *chunk, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh,
+    FloraVisualInstance **outInstances, int *outInstanceCount);
 bool ApplyFloraMeshPresenceColors(
     unsigned char *colors, const unsigned char *baseColors, int vertexCount,
     const float *targetPresence, int targetCount, float blend);

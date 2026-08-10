@@ -14,6 +14,7 @@
 #define MAX_ACTIVE_CHUNKS ((MAX_RENDER_DISTANCE_CHUNKS * 2 + 1) * (MAX_RENDER_DISTANCE_CHUNKS * 2 + 1))
 #define CHUNK_GEN_SUBMISSIONS_PER_FRAME 32
 #define MAX_CHUNK_GEN_JOBS 64
+#define MAX_CHUNK_FLORA_STRUCTURES 32
 #define MAX_MESH_REBUILDS_PER_FRAME 10
 #define INITIAL_BLOCK_EDIT_CAPACITY 1024
 #define BLOCK_SIZE 1.0f
@@ -243,8 +244,31 @@ typedef struct FloraVisualInstance {
     int firstVertex;
     int vertexCount;
     Vector3 anchor;
+    float height;
     float windResponse;
 } FloraVisualInstance;
+
+typedef enum FloraStructureKind {
+    FLORA_STRUCTURE_ALIEN_CANOPY = 0,
+    FLORA_STRUCTURE_CRYSTAL,
+    FLORA_STRUCTURE_SPORE,
+    FLORA_STRUCTURE_THERMAL_VENT
+} FloraStructureKind;
+
+typedef struct FloraStructureInstance {
+    FloraStructureKind kind;
+    uint32_t shapeHash;
+    int rootX;
+    int groundY;
+    int rootZ;
+    int minX;
+    int minY;
+    int minZ;
+    int maxX;
+    int maxY;
+    int maxZ;
+    float windResponse;
+} FloraStructureInstance;
 
 typedef struct Chunk {
     bool loaded;
@@ -264,12 +288,15 @@ typedef struct Chunk {
     float floraVisualScale;
     float *floraTargetScales;
     float *floraTargetWind;
+    float *floraTargetWindAngle;
     float *floraTargetPresence;
     float *floraBaseVertices;
     unsigned char *floraBaseColors;
     FloraVisualInstance *floraVisualInstances;
     int floraTargetScaleCount;
     float floraWindAngle;
+    FloraStructureInstance floraStructures[MAX_CHUNK_FLORA_STRUCTURES];
+    int floraStructureCount;
     unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
 } Chunk;
 

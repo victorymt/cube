@@ -197,9 +197,9 @@ static void AssertSurfaceFloraMeshPartition(void)
     memcpy(flora.colors, baseColors, sizeof(baseColors));
     const FloraVisualInstance instances[2] = {
         { .firstVertex = 0, .vertexCount = 6,
-          .anchor = { 0 }, .windResponse = 1.0f },
+          .anchor = { 0 }, .height = 0.4f, .windResponse = 1.0f },
         { .firstVertex = 6, .vertexCount = 18,
-          .anchor = { 0 }, .windResponse = 0.25f }
+          .anchor = { 0 }, .height = 2.5f, .windResponse = 0.25f }
     };
     assert(ApplyFloraMeshInstancePresenceColors(
         flora.colors, baseColors, flora.vertexCount, presence,
@@ -229,11 +229,94 @@ static void AssertSurfaceFloraMeshPartition(void)
     FreeTestMesh(&flora);
 }
 
+static void AssertFloraStructureInstancePartition(void)
+{
+    static Chunk chunk;
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    memset(&chunk, 0, sizeof(chunk));
+    chunk.loaded = true;
+    chunk.floraStructureCount = 4;
+    chunk.floraStructures[0] = (FloraStructureInstance){
+        .kind = FLORA_STRUCTURE_ALIEN_CANOPY,
+        .shapeHash = 0u,
+        .rootX = 2, .groundY = 3, .rootZ = 2,
+        .minX = 0, .minY = 4, .minZ = 0,
+        .maxX = 4, .maxY = 8, .maxZ = 4,
+        .windResponse = 1.0f
+    };
+    chunk.floraStructures[1] = (FloraStructureInstance){
+        .kind = FLORA_STRUCTURE_CRYSTAL,
+        .shapeHash = 1u,
+        .rootX = 8, .groundY = 3, .rootZ = 2,
+        .minX = 7, .minY = 4, .minZ = 1,
+        .maxX = 9, .maxY = 6, .maxZ = 3,
+        .windResponse = 0.12f
+    };
+    chunk.floraStructures[2] = (FloraStructureInstance){
+        .kind = FLORA_STRUCTURE_SPORE,
+        .shapeHash = 0u,
+        .rootX = 2, .groundY = 3, .rootZ = 9,
+        .minX = 1, .minY = 4, .minZ = 8,
+        .maxX = 3, .maxY = 8, .maxZ = 10,
+        .windResponse = 0.65f
+    };
+    chunk.floraStructures[3] = (FloraStructureInstance){
+        .kind = FLORA_STRUCTURE_THERMAL_VENT,
+        .shapeHash = 0u,
+        .rootX = 8, .groundY = 3, .rootZ = 9,
+        .minX = 7, .minY = 4, .minZ = 9,
+        .maxX = 9, .maxY = 7, .maxZ = 10,
+        .windResponse = 0.05f
+    };
+
+    chunk.blocks[2][4][2] = BLOCK_GREEN;
+    chunk.blocks[4][4][4] = BLOCK_STONE;
+    chunk.blocks[8][4][2] = BLOCK_BLUE;
+    chunk.blocks[9][5][3] = BLOCK_STONE;
+    chunk.blocks[2][4][9] = BLOCK_MUSHROOM;
+    chunk.blocks[3][4][10] = BLOCK_STONE;
+    chunk.blocks[8][4][9] = BLOCK_NETHERRACK;
+    chunk.blocks[9][5][10] = BLOCK_STONE;
+
+    Mesh flora = { 0 };
+    FloraVisualInstance *instances = NULL;
+    int instanceCount = 0;
+    assert(BuildChunkFloraMeshData(
+        &chunk, faces, NULL, 0, &flora, &instances, &instanceCount));
+    assert(instanceCount == 4);
+    const int expectedVertexCounts[4] = { 36, 36, 12, 36 };
+    int firstVertex = 0;
+    for (int index = 0; index < instanceCount; index++) {
+        assert(instances[index].firstVertex == firstVertex);
+        assert(instances[index].vertexCount == expectedVertexCounts[index]);
+        assert(instances[index].anchor.x ==
+               (float)chunk.floraStructures[index].rootX + 0.5f);
+        assert(instances[index].anchor.y ==
+               (float)chunk.floraStructures[index].groundY + 1.0f);
+        assert(instances[index].anchor.z ==
+               (float)chunk.floraStructures[index].rootZ + 0.5f);
+        assert(instances[index].height ==
+               (float)(chunk.floraStructures[index].maxY -
+                       chunk.floraStructures[index].groundY));
+        assert(instances[index].windResponse ==
+               chunk.floraStructures[index].windResponse);
+        firstVertex += expectedVertexCounts[index];
+    }
+    assert(flora.vertexCount == firstVertex);
+
+    free(instances);
+    FreeTestMesh(&flora);
+}
+
 int main(void)
 {
     AssertAtlasCoordinates();
     AssertMipSafePadding();
     AssertSurfaceFloraMeshPartition();
+    AssertFloraStructureInstancePartition();
     puts("chunk atlas tests passed");
     return 0;
 }

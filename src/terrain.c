@@ -816,6 +816,9 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
 
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
+    chunk->cx = cx;
+    chunk->cz = cz;
+    chunk->floraStructureCount = 0;
     if (PlanetWorldIsActive()) {
         GeneratePlanetChunkTerrain(chunk, cx, cz);
         return;
