@@ -590,6 +590,76 @@ static void TestRandomizedPopulationDisturbanceProperties(void)
     }
 }
 
+static void TestFaunaHarvestPressureModel(void)
+{
+    float smallCommon = PlanetFaunaHarvestEventStrength(0.5f, 0.9f);
+    float largeCommon = PlanetFaunaHarvestEventStrength(1.8f, 0.9f);
+    float largeScarce = PlanetFaunaHarvestEventStrength(1.8f, 0.1f);
+    assert(smallCommon > 0.0f);
+    assert(largeCommon > smallCommon);
+    assert(largeScarce > largeCommon);
+    assert(PlanetFaunaHarvestEventStrength(0.0f, 0.5f) == 0.0f);
+    assert(PlanetFaunaHarvestEventStrength(NAN, 0.5f) == 0.0f);
+
+    float pressure = PlanetFaunaHarvestPressureAdd(0.0f, largeCommon);
+    float repeated = PlanetFaunaHarvestPressureAdd(pressure, largeCommon);
+    assert(pressure == largeCommon);
+    assert(repeated > pressure && repeated <= 1.0f);
+    assert(PlanetFaunaHarvestPressureAdd(pressure, 0.0f) == pressure);
+
+    float oneStep = PlanetFaunaHarvestPressureAdvance(repeated, 240.0);
+    float splitStep = PlanetFaunaHarvestPressureAdvance(repeated, 80.0);
+    splitStep = PlanetFaunaHarvestPressureAdvance(splitStep, 160.0);
+    assert(oneStep < repeated);
+    AssertNear(oneStep, splitStep, 0.000001f);
+    assert(PlanetFaunaHarvestPressureAdvance(repeated, 0.0) == repeated);
+
+    PlanetRegionalPopulation population = {
+        .floraDensity = 0.72f,
+        .faunaDensity = 0.58f,
+        .floraCarryingCapacity = 0.80f,
+        .faunaCarryingCapacity = 0.64f,
+        .seasonalMemory = 0.76f
+    };
+    PlanetRegionalPopulation untouched = population;
+    PlanetPopulationApplyFaunaHarvest(&untouched, 0.0f);
+    assert(memcmp(&untouched, &population, sizeof(population)) == 0);
+    PlanetPopulationApplyFaunaHarvest(&population, largeScarce);
+    AssertPopulationValid(population);
+    assert(population.faunaDensity < untouched.faunaDensity);
+    assert(population.floraDensity == untouched.floraDensity);
+    assert(population.faunaCarryingCapacity ==
+           untouched.faunaCarryingCapacity);
+}
+
+static void TestRandomizedFaunaHarvestProperties(void)
+{
+    uint32_t state = 0x6f48a2d1u;
+    for (int sample = 0; sample < 10000; sample++) {
+        float strength = PlanetFaunaHarvestEventStrength(
+            TestUnit(&state) * 3.0f, TestUnit(&state));
+        float pressure = PlanetFaunaHarvestPressureAdd(
+            TestUnit(&state), strength);
+        float advanced = PlanetFaunaHarvestPressureAdvance(
+            pressure, (double)TestUnit(&state) * 4000.0);
+        assert(isfinite(strength) && strength >= 0.0f && strength <= 1.0f);
+        assert(isfinite(pressure) && pressure >= strength && pressure <= 1.0f);
+        assert(isfinite(advanced) && advanced >= 0.0f && advanced <= pressure);
+
+        PlanetRegionalPopulation population = {
+            .floraDensity = TestUnit(&state),
+            .faunaDensity = TestUnit(&state),
+            .floraCarryingCapacity = TestUnit(&state),
+            .faunaCarryingCapacity = TestUnit(&state),
+            .seasonalMemory = TestUnit(&state)
+        };
+        float before = population.faunaDensity;
+        PlanetPopulationApplyFaunaHarvest(&population, strength);
+        AssertPopulationValid(population);
+        assert(population.faunaDensity <= before);
+    }
+}
+
 static void AssertMigrationFluxValid(PlanetPopulationMigrationFlux flux)
 {
     assert(isfinite(flux.flora));
@@ -1052,6 +1122,8 @@ int main(void)
     TestPopulationDeterminismAndFoodChain();
     TestPopulationDisturbanceAndRecovery();
     TestRandomizedPopulationDisturbanceProperties();
+    TestFaunaHarvestPressureModel();
+    TestRandomizedFaunaHarvestProperties();
     TestPopulationMigrationDrivers();
     TestRandomizedPopulationMigrationProperties();
     TestRandomizedPopulationProperties();

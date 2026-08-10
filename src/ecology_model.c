@@ -381,6 +381,44 @@ void PlanetPopulationApplyDisturbance(
         (1.0f - faunaDamage * faunaAlpha * 0.92f);
 }
 
+float PlanetFaunaHarvestEventStrength(float organismScale,
+                                      float ecologyCapacity)
+{
+    if (!isfinite(organismScale) || organismScale <= 0.0f) return 0.0f;
+    float scale = EcologyModelClamp(organismScale / 2.0f);
+    float scarcity = 1.0f - EcologyModelFiniteUnit(ecologyCapacity);
+    return EcologyModelClamp(0.055f + scale * 0.075f + scarcity * 0.035f);
+}
+
+float PlanetFaunaHarvestPressureAdd(float currentPressure,
+                                    float eventStrength)
+{
+    float pressure = EcologyModelFiniteUnit(currentPressure);
+    float event = EcologyModelFiniteUnit(eventStrength);
+    if (event <= 0.0f || pressure >= 1.0f) return pressure;
+    if (pressure <= 0.0f) return event;
+    return EcologyModelClamp(1.0f - (1.0f - pressure) * (1.0f - event));
+}
+
+float PlanetFaunaHarvestPressureAdvance(float currentPressure,
+                                        double elapsedTime)
+{
+    float pressure = EcologyModelFiniteUnit(currentPressure);
+    if (!isfinite(elapsedTime) || elapsedTime <= 0.0) return pressure;
+    double boundedTime = fmin(elapsedTime, 86400.0);
+    return EcologyModelClamp(
+        pressure * expf(-(float)boundedTime / 720.0f));
+}
+
+void PlanetPopulationApplyFaunaHarvest(
+    PlanetRegionalPopulation *population, float eventStrength)
+{
+    if (!population) return;
+    float event = EcologyModelFiniteUnit(eventStrength);
+    population->faunaDensity = EcologyModelFiniteUnit(
+        population->faunaDensity) * (1.0f - event * 0.68f);
+}
+
 float PlanetPopulationFloraPresence(
     const PlanetRegionalPopulation *population)
 {

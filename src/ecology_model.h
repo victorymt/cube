@@ -189,6 +189,14 @@ void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
 void PlanetPopulationApplyDisturbance(
     PlanetRegionalPopulation *population, float floraStress,
     float faunaStress, double elapsedTime);
+float PlanetFaunaHarvestEventStrength(float organismScale,
+                                      float ecologyCapacity);
+float PlanetFaunaHarvestPressureAdd(float currentPressure,
+                                    float eventStrength);
+float PlanetFaunaHarvestPressureAdvance(float currentPressure,
+                                        double elapsedTime);
+void PlanetPopulationApplyFaunaHarvest(
+    PlanetRegionalPopulation *population, float eventStrength);
 float PlanetPopulationFloraPresence(
     const PlanetRegionalPopulation *population);
 float PlanetPopulationFaunaPresence(
