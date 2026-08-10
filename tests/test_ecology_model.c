@@ -434,6 +434,49 @@ static void TestRandomizedFloraRuntimeProperties(void)
     }
 }
 
+static void TestHabitatChoice(void)
+{
+    const float neighbors[] = { 0.18f, 0.42f, 0.31f, 0.42f };
+    PlanetHabitatChoice choice = PlanetEcologyChooseHabitat(0.12f, neighbors);
+    assert(choice.currentActivity == 0.12f);
+    assert(choice.selectedActivity == 0.42f);
+    assert(choice.direction == PLANET_HABITAT_EAST);
+    assert(choice.shouldSeek);
+    AssertNear(choice.improvement, 0.30f, 0.000001f);
+
+    const float flat[] = { 0.21f, 0.22f, 0.20f, 0.21f };
+    PlanetHabitatChoice noMove = PlanetEcologyChooseHabitat(0.18f, flat);
+    assert(!noMove.shouldSeek);
+    assert(noMove.direction == PLANET_HABITAT_NONE);
+
+    PlanetHabitatChoice repeated = PlanetEcologyChooseHabitat(0.12f, neighbors);
+    assert(choice.currentActivity == repeated.currentActivity);
+    assert(choice.selectedActivity == repeated.selectedActivity);
+    assert(choice.improvement == repeated.improvement);
+    assert(choice.direction == repeated.direction);
+    assert(choice.shouldSeek == repeated.shouldSeek);
+}
+
+static void TestRandomizedHabitatChoiceProperties(void)
+{
+    uint32_t state = 0x4c8e21d9u;
+    for (int sample = 0; sample < 10000; sample++) {
+        float neighbors[4];
+        for (int index = 0; index < 4; index++) neighbors[index] = TestUnit(&state);
+        PlanetHabitatChoice choice = PlanetEcologyChooseHabitat(
+            TestUnit(&state), neighbors);
+        assert(isfinite(choice.currentActivity));
+        assert(isfinite(choice.selectedActivity));
+        assert(isfinite(choice.improvement));
+        assert(choice.currentActivity >= 0.0f && choice.currentActivity <= 1.0f);
+        assert(choice.selectedActivity >= choice.currentActivity);
+        assert(choice.selectedActivity <= 1.0f);
+        assert(choice.direction >= PLANET_HABITAT_NONE &&
+               choice.direction <= PLANET_HABITAT_WEST);
+        assert(!choice.shouldSeek || choice.improvement >= 0.06f);
+    }
+}
+
 static void TestRandomizedLocalProperties(void)
 {
     uint32_t state = 0x7d493a21u;
@@ -480,6 +523,8 @@ int main(void)
     TestRandomizedFaunaRuntimeProperties();
     TestFloraRuntimeResponse();
     TestRandomizedFloraRuntimeProperties();
+    TestHabitatChoice();
+    TestRandomizedHabitatChoiceProperties();
     puts("ecology_model tests passed");
     return 0;
 }

@@ -87,6 +87,22 @@ typedef struct PlanetFloraRuntimeState {
     bool dormant;
 } PlanetFloraRuntimeState;
 
+typedef enum PlanetHabitatDirection {
+    PLANET_HABITAT_NONE = 0,
+    PLANET_HABITAT_NORTH,
+    PLANET_HABITAT_EAST,
+    PLANET_HABITAT_SOUTH,
+    PLANET_HABITAT_WEST
+} PlanetHabitatDirection;
+
+typedef struct PlanetHabitatChoice {
+    float currentActivity;
+    float selectedActivity;
+    float improvement;
+    PlanetHabitatDirection direction;
+    bool shouldSeek;
+} PlanetHabitatChoice;
+
 PlanetLifeHistory PlanetLifeHistoryDerive(uint32_t seed, float planetAgeGyr,
                                           float environmentalSupport,
                                           bool hasSolidSurface);
@@ -100,6 +116,8 @@ PlanetFaunaRuntimeState PlanetEcologyFaunaRuntime(float faunaActivity,
                                                    float faunaCapacity);
 PlanetFloraRuntimeState PlanetEcologyFloraRuntime(float floraActivity,
                                                    float floraCapacity);
+PlanetHabitatChoice PlanetEcologyChooseHabitat(
+    float currentActivity, const float neighborActivities[4]);
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor);
 
 #endif

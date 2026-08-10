@@ -268,6 +268,33 @@ PlanetFloraRuntimeState PlanetEcologyFloraRuntime(float floraActivity,
     return result;
 }
 
+PlanetHabitatChoice PlanetEcologyChooseHabitat(
+    float currentActivity, const float neighborActivities[4])
+{
+    PlanetHabitatChoice result = {
+        .currentActivity = isfinite(currentActivity)
+            ? EcologyModelClamp(currentActivity) : 0.0f,
+        .direction = PLANET_HABITAT_NONE
+    };
+    result.selectedActivity = result.currentActivity;
+    if (!neighborActivities) return result;
+
+    for (int index = 0; index < 4; index++) {
+        float candidate = isfinite(neighborActivities[index])
+            ? EcologyModelClamp(neighborActivities[index]) : 0.0f;
+        if (candidate > result.selectedActivity) {
+            result.selectedActivity = candidate;
+            result.direction = (PlanetHabitatDirection)(index + 1);
+        }
+    }
+
+    result.improvement = result.selectedActivity - result.currentActivity;
+    result.shouldSeek = result.improvement >= 0.06f &&
+                        result.selectedActivity >= 0.12f;
+    if (!result.shouldSeek) result.direction = PLANET_HABITAT_NONE;
+    return result;
+}
+
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor)
 {
     switch (factor) {

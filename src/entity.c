@@ -243,6 +243,23 @@ static void MoveEntityHorizontal(Entity *entity, Vector3 delta, float dt)
     }
 }
 
+static PlanetHabitatChoice AlienHabitatChoiceAt(const Entity *entity,
+                                                float daylight)
+{
+    int x = (int)floorf(entity->position.x);
+    int z = (int)floorf(entity->position.z);
+    const int offsets[4][2] = {
+        { 0, -10 }, { 10, 0 }, { 0, 10 }, { -10, 0 }
+    };
+    float neighbors[4];
+    for (int index = 0; index < 4; index++) {
+        PlanetLocalEcology local = PlanetEcologyLocalAt(
+            x + offsets[index][0], z + offsets[index][1], daylight);
+        neighbors[index] = local.suitability.faunaActivity;
+    }
+    return PlanetEcologyChooseHabitat(entity->ecologyActivity, neighbors);
+}
+
 static void UpdatePassive(Entity *entity, const Player *player, float dt,
                           float daylight)
 {
@@ -275,8 +292,7 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
     float movementScale = alien ? runtime.movementScale : 1.0f;
     if (alien && threatened) movementScale = fmaxf(movementScale, 0.28f);
     float speed = baseSpeed * movementScale;
-
-    if (alien && runtime.dormant && !threatened) entity->moveTimer = 0.0f;
+    bool seekingHabitat = false;
 
     entity->thinkTimer -= dt;
     if (entity->thinkTimer <= 0.0f) {
@@ -287,17 +303,41 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
         if (threatened) {
             entity->yaw = atan2f(-toPlayer.x, -toPlayer.z);
             entity->moveTimer = 0.8f;
-        } else if (entity->colony || (alien && runtime.dormant)) {
-            entity->moveTimer = 0.0f;
-        } else if (rand() % 100 <
-                   (alien ? 15 + (int)(runtime.activityRatio * 40.0f) : 55)) {
-            entity->yaw = (float)(rand() % 628) / 100.0f;
-            entity->moveTimer = 1.0f + (float)(rand() % 200) / 100.0f;
-            if (alien) {
-                entity->moveTimer *= 0.45f + runtime.activityRatio * 0.55f;
-            }
         } else {
-            entity->moveTimer = 0.0f;
+            if (alien && !entity->colony && runtime.activityRatio < 0.72f) {
+                PlanetHabitatChoice choice = AlienHabitatChoiceAt(entity, daylight);
+                if (choice.shouldSeek) {
+                    float dx = 0.0f;
+                    float dz = 0.0f;
+                    switch (choice.direction) {
+                    case PLANET_HABITAT_NORTH: dz = -1.0f; break;
+                    case PLANET_HABITAT_EAST:  dx = 1.0f; break;
+                    case PLANET_HABITAT_SOUTH: dz = 1.0f; break;
+                    case PLANET_HABITAT_WEST:  dx = -1.0f; break;
+                    case PLANET_HABITAT_NONE:
+                    default: break;
+                    }
+                    entity->yaw = atan2f(dx, dz);
+                    entity->moveTimer = 1.15f + choice.improvement * 1.4f;
+                    movementScale = fmaxf(movementScale, 0.22f);
+                    speed = baseSpeed * movementScale;
+                    seekingHabitat = true;
+                }
+            }
+            if (!seekingHabitat) {
+                if (entity->colony || (alien && runtime.dormant)) {
+                    entity->moveTimer = 0.0f;
+                } else if (rand() % 100 <
+                           (alien ? 15 + (int)(runtime.activityRatio * 40.0f) : 55)) {
+                    entity->yaw = (float)(rand() % 628) / 100.0f;
+                    entity->moveTimer = 1.0f + (float)(rand() % 200) / 100.0f;
+                    if (alien) {
+                        entity->moveTimer *= 0.45f + runtime.activityRatio * 0.55f;
+                    }
+                } else {
+                    entity->moveTimer = 0.0f;
+                }
+            }
         }
     }
 
