@@ -18,6 +18,12 @@ typedef enum EntityType {
     ENTITY_SKELETON
 } EntityType;
 
+typedef enum EntityDeathCause {
+    ENTITY_DEATH_PLAYER = 0,
+    ENTITY_DEATH_ENVIRONMENT,
+    ENTITY_DEATH_PREDATION
+} EntityDeathCause;
+
 #define MAX_ENTITIES 48
 
 typedef struct Entity {
@@ -58,6 +64,6 @@ bool EntitiesSaveState(FILE *file);
 bool EntitiesLoadState(FILE *file);
 int GetActiveEntityCount(void);
 int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance);
-void EntityKill(int index);
+bool EntityKill(int index, EntityDeathCause cause, float daylight);
 
 #endif

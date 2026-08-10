@@ -72,6 +72,17 @@ void ParticlesEmitBurst(Vector3 position, Color color, int count,
     (void)life;
 }
 
+void AudioPlayBreak(void)
+{
+}
+
+Color ColorLerp(Color color1, Color color2, float factor)
+{
+    (void)color2;
+    (void)factor;
+    return color1;
+}
+
 static unsigned char *CaptureEntityState(size_t *outSize)
 {
     assert(outSize);
@@ -205,6 +216,7 @@ static void AssertEntityLocalEcologyValid(const PlanetLocalEcology *local)
     AssertUnitValue(local->population.floraCarryingCapacity);
     AssertUnitValue(local->population.faunaCarryingCapacity);
     AssertUnitValue(local->population.seasonalMemory);
+    AssertUnitValue(local->population.faunaHarvestPressure);
     AssertSignedUnitValue(local->migration.floraNet);
     AssertSignedUnitValue(local->migration.faunaNet);
     AssertSignedUnitValue(local->migration.floraFlowX);
@@ -542,6 +554,73 @@ static void TestCrossSeedSeasonalEntityProperties(void)
            contractionOpportunities);
 }
 
+static float MaxNearbyHarvestPressure(int centerX, int centerZ,
+                                      float daylight)
+{
+    float maximum = 0.0f;
+    for (int dz = -96; dz <= 96; dz += 16) {
+        for (int dx = -96; dx <= 96; dx += 16) {
+            PlanetLocalEcology local = PlanetEcologyLocalAt(
+                centerX + dx, centerZ + dz, daylight);
+            maximum = fmaxf(
+                maximum, local.population.faunaHarvestPressure);
+        }
+    }
+    return maximum;
+}
+
+static void WaitForEntitySpawn(Player *player, float daylight)
+{
+    for (int frame = 0;
+         frame < 10000 && GetActiveEntityCount() == 0; frame++) {
+        RunEntityFrames(player, 1, daylight);
+    }
+    assert(GetActiveEntityCount() == 1);
+}
+
+static void TestEntityDeathCauseFeedback(void)
+{
+    const float daylight = 0.72f;
+    Player player = { 0 };
+    float faunaActivity = 0.0f;
+    uint32_t seed = ActivateFertilePlanet(
+        &player, daylight, &faunaActivity);
+    assert(seed != 0u && faunaActivity > 0.0f);
+    int centerX = (int)floorf(player.position.x);
+    int centerZ = (int)floorf(player.position.z);
+
+    assert(ChunksStartGenThread());
+    PrepareChunksAt(&player);
+    EntitiesInit();
+    WaitForEntitySpawn(&player, daylight);
+    assert(MaxNearbyHarvestPressure(centerX, centerZ, daylight) == 0.0f);
+
+    assert(EntityKill(0, ENTITY_DEATH_PLAYER, daylight));
+    assert(GetActiveEntityCount() == 0);
+    float playerPressure = MaxNearbyHarvestPressure(
+        centerX, centerZ, daylight);
+    assert(playerPressure > 0.0f);
+    assert(!EntityKill(0, ENTITY_DEATH_PLAYER, daylight));
+    assert(MaxNearbyHarvestPressure(centerX, centerZ, daylight) ==
+           playerPressure);
+
+    WaitForEntitySpawn(&player, daylight);
+    assert(EntityKill(0, ENTITY_DEATH_ENVIRONMENT, daylight));
+    assert(GetActiveEntityCount() == 0);
+    assert(MaxNearbyHarvestPressure(centerX, centerZ, daylight) ==
+           playerPressure);
+
+    WaitForEntitySpawn(&player, daylight);
+    PlacePlayerAt(&player, centerX + 256, centerZ);
+    RunEntityFrames(&player, 1, daylight);
+    assert(GetActiveEntityCount() == 0);
+    assert(MaxNearbyHarvestPressure(centerX, centerZ, daylight) ==
+           playerPressure);
+
+    UnloadAllChunks();
+    ChunksShutdownGenThread();
+}
+
 static void TestEntityEcologySystemReplay(void)
 {
     const float daylight = 0.72f;
@@ -601,6 +680,7 @@ static void TestEntityEcologySystemReplay(void)
 int main(void)
 {
     TestCrossSeedSeasonalEntityProperties();
+    TestEntityDeathCauseFeedback();
     TestEntityEcologySystemReplay();
     puts("entity ecology tests passed");
     return 0;

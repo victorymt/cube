@@ -904,7 +904,15 @@ int main(void)
         SpaceBodyInfo aimBody = { 0 };
         bool haveAimBody = SpaceBodyPick(aimEye, aimDir, &aimBody);
         if (!inputBlocked && entityHit >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            EntityKill(entityHit);
+            float harvestDaylight = 0.0f;
+            float harvestSunset = 0.0f;
+            PlanetLightState harvestLight = { 0 };
+            if (!PlanetWorldLightStateAt(player.position, &harvestLight)) {
+                DayNightFactors(dayTime, &harvestDaylight, &harvestSunset);
+            } else {
+                harvestDaylight = harvestLight.daylight;
+            }
+            EntityKill(entityHit, ENTITY_DEATH_PLAYER, harvestDaylight);
         } else if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit.y >= NETHER_LAYER_Y) {
             BlockType brokenType = GetBlockAt(hit.x, hit.y, hit.z);
             PlanetPoi claimedPoi = { 0 };

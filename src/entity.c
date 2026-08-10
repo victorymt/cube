@@ -1017,13 +1017,22 @@ int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance)
     return bestIndex;
 }
 
-void EntityKill(int index)
+bool EntityKill(int index, EntityDeathCause cause, float daylight)
 {
-    if (index < 0 || index >= MAX_ENTITIES) return;
+    if (index < 0 || index >= MAX_ENTITIES) return false;
     Entity *entity = &entities[index];
-    if (!entity->active) return;
+    if (!entity->active) return false;
+
+    if (cause == ENTITY_DEATH_PLAYER && PlanetWorldIsActive() &&
+        EntityIsAlien(entity->type)) {
+        PlanetEcologyRecordFaunaHarvest(
+            (int)floorf(entity->position.x),
+            (int)floorf(entity->position.z), daylight,
+            entity->organismScale, entity->ecologyCapacity);
+    }
 
     ParticlesEmitBurst(entity->position, EntityBodyColor(entity->type), 18, 3.0f, 0.7f);
     AudioPlayBreak();
     entity->active = false;
+    return true;
 }
