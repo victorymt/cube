@@ -204,13 +204,18 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
         result.floraCapacity * currentTemperature * producerLight *
         stormActivity * hydrationActivity);
 
+    float producerActivity = result.floraCapacity > 0.0001f
+        ? EcologyModelClamp(result.floraActivity / result.floraCapacity) : 0.0f;
+    float foodActivity = EcologyModelLerp(
+        1.0f, producerActivity, traits->foodWebDependence);
+
     float daylightActivity = 0.55f + currentLight * 0.45f;
     float darknessActivity = 0.55f + (1.0f - currentLight) * 0.45f;
     float lightActivity = EcologyModelLerp(
         daylightActivity, darknessActivity, traits->nocturnalFraction);
     result.faunaActivity = EcologyModelClamp(
         result.faunaCapacity * (0.35f + currentTemperature * 0.65f) *
-        lightActivity * stormActivity * hydrationActivity);
+        lightActivity * stormActivity * hydrationActivity * foodActivity);
     return result;
 }
 

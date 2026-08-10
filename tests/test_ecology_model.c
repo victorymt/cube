@@ -300,6 +300,25 @@ static void TestCurrentSeasonChangesActivityOnly(void)
     assert(coldFlora.visualPresence < warmFlora.visualPresence);
 }
 
+static void TestProducerActivityFeedsFaunaActivity(void)
+{
+    PlanetLocalEnvironment clear = TemperateEnvironment();
+    PlanetEcologyTraits nocturnalGrazer = CarbonTraits();
+    nocturnalGrazer.nocturnalFraction = 1.0f;
+
+    PlanetEcologySuitability productive = PlanetEcologyEvaluateLocal(
+        &clear, &nocturnalGrazer, 0.82f, 0.56f);
+    PlanetLocalEnvironment shaded = clear;
+    shaded.currentUsableLight = 0.02f;
+    PlanetEcologySuitability foodPoor = PlanetEcologyEvaluateLocal(
+        &shaded, &nocturnalGrazer, 0.82f, 0.56f);
+
+    assert(foodPoor.floraActivity < productive.floraActivity);
+    assert(foodPoor.faunaActivity < productive.faunaActivity);
+    assert(foodPoor.faunaActivity < productive.faunaActivity * 0.60f);
+    assert(foodPoor.faunaCapacity == productive.faunaCapacity);
+}
+
 static void AssertRuntimeStateValid(PlanetFaunaRuntimeState state)
 {
 #define ASSERT_RUNTIME_UNIT(field) do { \
@@ -455,6 +474,7 @@ int main(void)
     TestLocalEnvironmentalControls();
     TestWeatherChangesActivityNotPermanentCapacity();
     TestCurrentSeasonChangesActivityOnly();
+    TestProducerActivityFeedsFaunaActivity();
     TestFaunaRuntimeResponse();
     TestRandomizedLocalProperties();
     TestRandomizedFaunaRuntimeProperties();
