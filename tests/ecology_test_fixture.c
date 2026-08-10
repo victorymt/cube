@@ -182,19 +182,29 @@ static void WritePlanetWorldFixture(FILE *file, uint32_t seed,
     assert(fwrite(name, sizeof(name), 1, file) == 1);
 }
 
-void EcologyTestActivatePlanetStyle(uint32_t seed, int originX, int originZ,
-                                       SolarBodyStyle style)
+void EcologyTestActivatePlanetStyleWithFile(FILE *file, uint32_t seed,
+                                            int originX, int originZ,
+                                            SolarBodyStyle style)
 {
-    FILE *file = tmpfile();
     assert(file);
+    rewind(file);
     WritePlanetWorldFixture(file, seed, originX, originZ, style);
     rewind(file);
     assert(PlanetWorldLoadState(file));
-    fclose(file);
     assert(PlanetWorldIsActive());
     assert(PlanetWorldSeed() == seed);
     assert(PlanetWorldOriginX() == originX);
     assert(PlanetWorldOriginZ() == originZ);
+}
+
+void EcologyTestActivatePlanetStyle(uint32_t seed, int originX, int originZ,
+                                    SolarBodyStyle style)
+{
+    FILE *file = tmpfile();
+    assert(file);
+    EcologyTestActivatePlanetStyleWithFile(file, seed, originX, originZ,
+                                           style);
+    fclose(file);
 }
 
 void EcologyTestActivatePlanet(uint32_t seed, int originX, int originZ)

@@ -23,6 +23,18 @@ static const SolarBodyStyle ecologyPropertyStyles[] = {
     SOLAR_STYLE_GAS, SOLAR_STYLE_CRATER, SOLAR_STYLE_TEMPERATE
 };
 
+static const char *ecologyPropertyStyleNames[] = {
+    "lava", "ice", "desert", "gas", "crater", "temperate"
+};
+
+enum { ECOLOGY_DISTRIBUTION_SEED_COUNT = 4096 };
+
+typedef struct EcologyDistribution {
+    int originated;
+    int complex;
+    int biomass[PLANET_BIOMASS_ANOMALOUS + 1];
+} EcologyDistribution;
+
 static float PropertyUnit(uint32_t *state)
 {
     *state = *state * 1664525u + 1013904223u;
@@ -32,6 +44,17 @@ static float PropertyUnit(uint32_t *state)
 static float PropertySignedUnit(uint32_t *state)
 {
     return PropertyUnit(state) * 2.0f - 1.0f;
+}
+
+static uint32_t EcologyDistributionSeed(int index)
+{
+    uint32_t value = (uint32_t)(index + 1) * 0x9e3779b9u;
+    value ^= value >> 16;
+    value *= 0x85ebca6bu;
+    value ^= value >> 13;
+    value *= 0xc2b2ae35u;
+    value ^= value >> 16;
+    return value == 0u ? DEFAULT_WORLD_SEED : value;
 }
 
 static void AssertUnit(float value)
@@ -161,9 +184,8 @@ static void AssertLocalValid(const PlanetLocalEcology *local)
     AssertMigrationValid(&local->migration);
 }
 
-static void TestGeneratedEcologyBoundsAndDistribution(void)
+static void TestGeneratedEcologyBoundsAndLocalProperties(void)
 {
-    int biomassCounts[PLANET_BIOMASS_ANOMALOUS + 1] = { 0 };
     int profileCount = 0;
     int localCount = 0;
 
@@ -185,7 +207,6 @@ static void TestGeneratedEcologyBoundsAndDistribution(void)
 
             PlanetEcologyProfile profile = PlanetEcologyCurrent();
             AssertProfileValid(&profile, style);
-            biomassCounts[profile.biomass]++;
             profileCount++;
 
             for (int cell = 0; cell < 8; cell++) {
@@ -217,24 +238,80 @@ static void TestGeneratedEcologyBoundsAndDistribution(void)
         }
     }
 
-    int nonBarren = profileCount - biomassCounts[PLANET_BIOMASS_BARREN];
     assert(profileCount ==
            (int)(sizeof(ecologyPropertySeeds) /
                  sizeof(ecologyPropertySeeds[0]) *
                  sizeof(ecologyPropertyStyles) /
                  sizeof(ecologyPropertyStyles[0])));
-    assert(biomassCounts[PLANET_BIOMASS_BARREN] >= profileCount / 6);
-    assert(nonBarren > 0);
-    assert(nonBarren < profileCount / 2);
-    printf("ecology distribution: barren=%d microbial=%d fungal=%d "
-           "crystalline=%d lush=%d anomalous=%d samples=%d\n",
-           biomassCounts[PLANET_BIOMASS_BARREN],
-           biomassCounts[PLANET_BIOMASS_MICROBIAL],
-           biomassCounts[PLANET_BIOMASS_FUNGAL],
-           biomassCounts[PLANET_BIOMASS_CRYSTALLINE],
-           biomassCounts[PLANET_BIOMASS_LUSH],
-           biomassCounts[PLANET_BIOMASS_ANOMALOUS],
-           localCount);
+    assert(localCount == profileCount * 8);
+}
+
+static void TestGeneratedEcologyDistribution(void)
+{
+    EcologyDistribution distributions[
+        sizeof(ecologyPropertyStyles) / sizeof(ecologyPropertyStyles[0])
+    ] = { 0 };
+    FILE *fixture = tmpfile();
+    assert(fixture);
+
+    int nonBarrenTotal = 0;
+    for (size_t styleIndex = 0;
+         styleIndex < sizeof(ecologyPropertyStyles) /
+                      sizeof(ecologyPropertyStyles[0]);
+         styleIndex++) {
+        SolarBodyStyle style = ecologyPropertyStyles[styleIndex];
+        EcologyDistribution *distribution = &distributions[styleIndex];
+
+        for (int seedIndex = 0;
+             seedIndex < ECOLOGY_DISTRIBUTION_SEED_COUNT;
+             seedIndex++) {
+            uint32_t seed = EcologyDistributionSeed(seedIndex);
+            int originX = (int)(seed & 0x7ffu) - 1024;
+            int originZ = (int)((seed >> 11) & 0x7ffu) - 1024;
+            EcologyTestSetSeed(seed);
+            EcologyTestActivatePlanetStyleWithFile(
+                fixture, seed, originX, originZ, style);
+            PlanetEcologyResetState();
+
+            PlanetEcologyProfile profile = PlanetEcologyCurrent();
+            AssertProfileValid(&profile, style);
+            assert(!profile.hasComplexLife || profile.lifeOriginated);
+            distribution->originated += profile.lifeOriginated ? 1 : 0;
+            distribution->complex += profile.hasComplexLife ? 1 : 0;
+            distribution->biomass[profile.biomass]++;
+        }
+
+        int biomassTotal = 0;
+        for (int biomass = PLANET_BIOMASS_BARREN;
+             biomass <= PLANET_BIOMASS_ANOMALOUS;
+             biomass++) {
+            biomassTotal += distribution->biomass[biomass];
+        }
+        assert(biomassTotal == ECOLOGY_DISTRIBUTION_SEED_COUNT);
+        int nonBarren = ECOLOGY_DISTRIBUTION_SEED_COUNT -
+            distribution->biomass[PLANET_BIOMASS_BARREN];
+        nonBarrenTotal += nonBarren;
+        if (style == SOLAR_STYLE_GAS) {
+            assert(distribution->originated == 0);
+            assert(distribution->complex == 0);
+            assert(nonBarren == 0);
+        }
+
+        printf("ecology distribution %-9s origin=%d complex=%d "
+               "barren=%d microbial=%d fungal=%d crystalline=%d "
+               "lush=%d anomalous=%d\n",
+               ecologyPropertyStyleNames[styleIndex],
+               distribution->originated, distribution->complex,
+               distribution->biomass[PLANET_BIOMASS_BARREN],
+               distribution->biomass[PLANET_BIOMASS_MICROBIAL],
+               distribution->biomass[PLANET_BIOMASS_FUNGAL],
+               distribution->biomass[PLANET_BIOMASS_CRYSTALLINE],
+               distribution->biomass[PLANET_BIOMASS_LUSH],
+               distribution->biomass[PLANET_BIOMASS_ANOMALOUS]);
+    }
+
+    fclose(fixture);
+    assert(nonBarrenTotal > 0);
 }
 
 static void TestRandomizedCausalControls(void)
@@ -427,7 +504,8 @@ static void TestSaveLoadReplayAcrossSeeds(void)
 
 int main(void)
 {
-    TestGeneratedEcologyBoundsAndDistribution();
+    TestGeneratedEcologyBoundsAndLocalProperties();
+    TestGeneratedEcologyDistribution();
     TestRandomizedCausalControls();
     TestRandomizedPopulationAndMigration();
     TestSaveLoadReplayAcrossSeeds();

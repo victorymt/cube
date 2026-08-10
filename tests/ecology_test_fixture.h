@@ -19,6 +19,9 @@ void EcologyTestResetBlockEditReadCount(void);
 
 void EcologyTestActivatePlanetStyle(
     uint32_t seed, int originX, int originZ, SolarBodyStyle style);
+void EcologyTestActivatePlanetStyleWithFile(
+    FILE *file, uint32_t seed, int originX, int originZ,
+    SolarBodyStyle style);
 void EcologyTestActivatePlanet(uint32_t seed, int originX, int originZ);
 void EcologyTestSaveSimulationState(FILE *file);
 void EcologyTestLoadSimulationState(FILE *file);
