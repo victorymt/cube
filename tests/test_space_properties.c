@@ -554,6 +554,18 @@ static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
                   sizeof(actual.environment)) == 0);
     assert(memcmp(&actual.suitability, &expected.suitability,
                   sizeof(actual.suitability)) == 0);
+    assert(memcmp(&actual.population, &expected.population,
+                  sizeof(actual.population)) == 0);
+
+#define ASSERT_POPULATION_UNIT(field)                                      \
+    assert(actual.population.field >= 0.0f &&                              \
+           actual.population.field <= 1.0f)
+    ASSERT_POPULATION_UNIT(floraDensity);
+    ASSERT_POPULATION_UNIT(faunaDensity);
+    ASSERT_POPULATION_UNIT(floraCarryingCapacity);
+    ASSERT_POPULATION_UNIT(faunaCarryingCapacity);
+    ASSERT_POPULATION_UNIT(seasonalMemory);
+#undef ASSERT_POPULATION_UNIT
 }
 
 static bool LocalEcologyDiffers(PlanetLocalEcology left,
@@ -562,7 +574,9 @@ static bool LocalEcologyDiffers(PlanetLocalEcology left,
     return memcmp(&left.environment, &right.environment,
                   sizeof(left.environment)) != 0 ||
            memcmp(&left.suitability, &right.suitability,
-                  sizeof(left.suitability)) != 0;
+                  sizeof(left.suitability)) != 0 ||
+           memcmp(&left.population, &right.population,
+                  sizeof(left.population)) != 0;
 }
 
 static float WeatherSampleDistance(WeatherFieldSample left,

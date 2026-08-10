@@ -2774,6 +2774,13 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             ecology.environment.liquidWaterAccess,
                             ecology.environment.precipitationRate),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Population flora %.2f/%.2f   fauna %.2f/%.2f   memory %.2f",
+                            ecology.population.floraDensity,
+                            ecology.population.floraCarryingCapacity,
+                            ecology.population.faunaDensity,
+                            ecology.population.faunaCarryingCapacity,
+                            ecology.population.seasonalMemory),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
         DrawText(TextFormat("Climate %.0f/%.0f K   light %.2f/%.2f   storm %.2f",
                             ecology.environment.meanTemperatureK,
                             ecology.environment.currentTemperatureK,

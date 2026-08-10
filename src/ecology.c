@@ -880,6 +880,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     local = EcologyDynamicLocalAt(x, z, simulationTime, daylight, &profile);
     PlanetRegionalPopulation population = EcologyRegionalPopulationAt(
         x, z, simulationTime, daylight, &profile);
+    local.population = population;
     float floraPresence = PlanetPopulationFloraPresence(&population);
     float faunaPresence = PlanetPopulationFaunaPresence(&population);
     local.suitability.floraActivity = EcologyClamp(
