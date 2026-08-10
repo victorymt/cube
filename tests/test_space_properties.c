@@ -2,11 +2,13 @@
 #include "space_barycenter.h"
 #include "space_physics.h"
 #include "space_units.h"
+#include "weather_model.h"
 
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #define TEST_PI 3.14159265358979323846
 
@@ -433,6 +435,18 @@ static void TestSaveLoadTimeDeterminism(void)
     Vector3 beforePosition = SolarSystemPlanetPositionAtTime(&beforeSystem, 0,
                                                               SpaceSimulationTime());
     PlanetProfile beforeProfile = SolarPlanetProfile(&beforeSystem, 0);
+    WeatherFieldInput beforeWeatherInput = {
+        .seed = beforeProfile.seed,
+        .simulationTime = SpaceSimulationTime(),
+        .worldX = 318.0f,
+        .worldZ = -741.0f,
+        .temperatureK = beforeProfile.equilibriumTempK,
+        .moisture = beforeProfile.oceanCoverage,
+        .cloudPotential = beforeProfile.cloudCoverage,
+        .windStrength = beforeProfile.windStrength,
+        .prevailingWindAngle = beforeProfile.prevailingWindAngle
+    };
+    WeatherFieldSample beforeWeather = WeatherFieldSampleAt(&beforeWeatherInput);
 
     FILE *file = tmpfile();
     assert(file);
@@ -475,10 +489,17 @@ static void TestSaveLoadTimeDeterminism(void)
     AssertRelative(afterProfile.iceCoverage, beforeProfile.iceCoverage, 0.0);
     AssertRelative(afterProfile.cloudCoverage, beforeProfile.cloudCoverage, 0.0);
     AssertRelative(afterProfile.windStrength, beforeProfile.windStrength, 0.0);
+    WeatherFieldInput afterWeatherInput = beforeWeatherInput;
+    afterWeatherInput.seed = afterProfile.seed;
+    afterWeatherInput.simulationTime = SpaceSimulationTime();
+    WeatherFieldSample afterWeather = WeatherFieldSampleAt(&afterWeatherInput);
+    assert(memcmp(&afterWeather, &beforeWeather, sizeof(beforeWeather)) == 0);
 
     SpaceAdvanceTime(17.25f);
     Vector3 continued = SolarSystemPlanetPositionAtTime(
         &afterSystem, 0, SpaceSimulationTime());
+    afterWeatherInput.simulationTime = SpaceSimulationTime();
+    WeatherFieldSample continuedWeather = WeatherFieldSampleAt(&afterWeatherInput);
     rewind(file);
     assert(fread(&loadedSeed, sizeof(loadedSeed), 1, file) == 1);
     SetPropertySeed(loadedSeed);
@@ -489,6 +510,11 @@ static void TestSaveLoadTimeDeterminism(void)
     Vector3 replay = SolarSystemPlanetPositionAtTime(
         &replaySystem, 0, SpaceSimulationTime());
     assert(VectorLength(VectorSubtractTest(continued, replay)) == 0.0);
+    WeatherFieldInput replayWeatherInput = afterWeatherInput;
+    replayWeatherInput.simulationTime = SpaceSimulationTime();
+    WeatherFieldSample replayWeather = WeatherFieldSampleAt(&replayWeatherInput);
+    assert(memcmp(&continuedWeather, &replayWeather,
+                  sizeof(continuedWeather)) == 0);
     fclose(file);
 }
 

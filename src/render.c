@@ -136,7 +136,7 @@ Color WorldTintForLight(float daylight, float sunset)
 
 Color MixWeather(Color color, float daylight)
 {
-    if (!HomeWorldSurfaceIsActive()) return color;
+    if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) return color;
 
     float factor = WeatherSkyFactor();
     if (factor <= 0.0f) return color;
@@ -2741,6 +2741,12 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                         WeatherName(), (int)(dayTimeForHud * 24.0f) % 24,
                         autoSaveForHud ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
+        DrawText(TextFormat("Weather cloud %.2f   precip %.2f   storm %.2f   wind %.2f",
+                            WeatherCloudCover(), WeatherPrecipitationRate(),
+                            WeatherStormIntensity(), WeatherWindIntensity()),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    }
     SolarSystemDef hudSystem;
     float hudSystemDist = 0.0f;
     if (FindSystemForGuide(playerPosition, &hudSystem, &hudSystemDist)) {

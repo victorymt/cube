@@ -784,9 +784,7 @@ int main(void)
                 SetImportMessage(dayCycleEnabled ? "Day/night cycle enabled." : "Day/night cycle paused.");
             }
             if (IsKeyPressed(KEY_F7)) {
-                Biome playerBiome = BiomeAt((int)floorf(player.position.x), (int)floorf(player.position.z));
-                bool coldArea = playerBiome == BIOME_SNOW || playerBiome == BIOME_MOUNTAIN || player.position.y > 24.0f;
-                WeatherCycle(coldArea);
+                WeatherCycle();
                 SetImportMessage(TextFormat("Weather: %s", WeatherName()));
             }
             if (IsKeyPressed(KEY_F8)) {
@@ -830,10 +828,11 @@ int main(void)
             dayTime += dt / DAY_LENGTH_SECONDS;
             if (dayTime >= 1.0f) dayTime -= 1.0f;
         }
-        if (!paused && !albumOpen && !landingTransition.active && HomeWorldSurfaceIsActive()) {
-            Biome playerBiome = BiomeAt((int)floorf(player.position.x), (int)floorf(player.position.z));
-            bool coldArea = playerBiome == BIOME_SNOW || playerBiome == BIOME_MOUNTAIN || player.position.y > 24.0f;
-            WeatherUpdate(dt, player.position, coldArea);
+        if (!paused && !albumOpen && !landingTransition.active &&
+            (HomeWorldSurfaceIsActive() || PlanetWorldIsActive())) {
+            WeatherUpdate(dt, player.position);
+        } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
+            WeatherSuspend();
         }
 
         AudioUpdate();
@@ -1050,7 +1049,7 @@ int main(void)
         DrawHomePlanet(&camera, spaceFade);
         if (showOrbitTrajectories) DrawSolarOrbitTrajectories(&camera, spaceFade);
         DrawSolarBodies(&camera, spaceFade);
-        bool drawCloudLayer = HomeWorldSurfaceIsActive();
+        bool drawCloudLayer = HomeWorldSurfaceIsActive() || PlanetWorldIsActive();
         if (PlanetWorldIsActive()) {
             const PlanetProfile *profile = PlanetWorldProfile();
             drawCloudLayer = profile->atmosphereType != PLANET_ATMOSPHERE_NONE &&
