@@ -102,6 +102,17 @@ typedef struct PlanetRegionalPopulation {
     float seasonalMemory;
 } PlanetRegionalPopulation;
 
+typedef struct PlanetMigrationHabitat {
+    float floraSuitability;
+    float faunaSuitability;
+    float stormPressure;
+} PlanetMigrationHabitat;
+
+typedef struct PlanetPopulationMigrationFlux {
+    float flora;
+    float fauna;
+} PlanetPopulationMigrationFlux;
+
 typedef enum PlanetHabitatDirection {
     PLANET_HABITAT_NONE = 0,
     PLANET_HABITAT_NORTH,
@@ -142,6 +153,12 @@ float PlanetPopulationFloraPresence(
     const PlanetRegionalPopulation *population);
 float PlanetPopulationFaunaPresence(
     const PlanetRegionalPopulation *population);
+PlanetPopulationMigrationFlux PlanetPopulationMigrationBetween(
+    const PlanetRegionalPopulation *first,
+    const PlanetMigrationHabitat *firstHabitat,
+    const PlanetRegionalPopulation *second,
+    const PlanetMigrationHabitat *secondHabitat,
+    float windFromFirstToSecond, double elapsedTime);
 PlanetHabitatChoice PlanetEcologyChooseHabitat(
     float currentActivity, const float neighborActivities[4]);
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor);

@@ -388,6 +388,75 @@ float PlanetPopulationFaunaPresence(
                              population->faunaCarryingCapacity);
 }
 
+PlanetPopulationMigrationFlux PlanetPopulationMigrationBetween(
+    const PlanetRegionalPopulation *first,
+    const PlanetMigrationHabitat *firstHabitat,
+    const PlanetRegionalPopulation *second,
+    const PlanetMigrationHabitat *secondHabitat,
+    float windFromFirstToSecond, double elapsedTime)
+{
+    PlanetPopulationMigrationFlux result = { 0 };
+    if (!first || !firstHabitat || !second || !secondHabitat ||
+        !isfinite(windFromFirstToSecond) || !isfinite(elapsedTime) ||
+        elapsedTime <= 0.0) {
+        return result;
+    }
+
+    float firstFlora = EcologyModelFiniteUnit(first->floraDensity);
+    float secondFlora = EcologyModelFiniteUnit(second->floraDensity);
+    float firstFauna = EcologyModelFiniteUnit(first->faunaDensity);
+    float secondFauna = EcologyModelFiniteUnit(second->faunaDensity);
+    float firstFloraCapacity = EcologyModelFiniteUnit(
+        first->floraCarryingCapacity);
+    float secondFloraCapacity = EcologyModelFiniteUnit(
+        second->floraCarryingCapacity);
+    float firstFaunaCapacity = EcologyModelFiniteUnit(
+        first->faunaCarryingCapacity);
+    float secondFaunaCapacity = EcologyModelFiniteUnit(
+        second->faunaCarryingCapacity);
+
+    float firstStorm = EcologyModelFiniteUnit(firstHabitat->stormPressure);
+    float secondStorm = EcologyModelFiniteUnit(secondHabitat->stormPressure);
+    float firstFloraQuality = EcologyModelFiniteUnit(
+        firstHabitat->floraSuitability) * (1.0f - firstStorm * 0.72f);
+    float secondFloraQuality = EcologyModelFiniteUnit(
+        secondHabitat->floraSuitability) * (1.0f - secondStorm * 0.72f);
+    float firstFaunaQuality = EcologyModelFiniteUnit(
+        firstHabitat->faunaSuitability) * (1.0f - firstStorm * 0.84f) *
+        (0.16f + PlanetPopulationFloraPresence(first) * 0.84f);
+    float secondFaunaQuality = EcologyModelFiniteUnit(
+        secondHabitat->faunaSuitability) * (1.0f - secondStorm * 0.84f) *
+        (0.16f + PlanetPopulationFloraPresence(second) * 0.84f);
+
+    float wind = fminf(fmaxf(windFromFirstToSecond, -1.0f), 1.0f);
+    float forwardWind = 0.35f + fmaxf(wind, 0.0f) * 0.65f;
+    float reverseWind = 0.35f + fmaxf(-wind, 0.0f) * 0.65f;
+    float floraRate = EcologyModelResponseAlpha(elapsedTime, 160.0f) * 0.14f;
+    float firstToSecondFlora = firstFlora * secondFloraQuality *
+                               forwardWind * floraRate;
+    float secondToFirstFlora = secondFlora * firstFloraQuality *
+                               reverseWind * floraRate;
+    float firstFloraSpace = fmaxf(firstFloraCapacity - firstFlora, 0.0f);
+    float secondFloraSpace = fmaxf(secondFloraCapacity - secondFlora, 0.0f);
+    firstToSecondFlora = fminf(firstToSecondFlora,
+                               secondFloraSpace * 0.25f);
+    secondToFirstFlora = fminf(secondToFirstFlora,
+                               firstFloraSpace * 0.25f);
+    result.flora = firstToSecondFlora - secondToFirstFlora;
+
+    float faunaRate = EcologyModelResponseAlpha(elapsedTime, 48.0f) * 0.18f;
+    float firstToSecondFauna = firstFauna * secondFaunaQuality * faunaRate;
+    float secondToFirstFauna = secondFauna * firstFaunaQuality * faunaRate;
+    float firstFaunaSpace = fmaxf(firstFaunaCapacity - firstFauna, 0.0f);
+    float secondFaunaSpace = fmaxf(secondFaunaCapacity - secondFauna, 0.0f);
+    firstToSecondFauna = fminf(firstToSecondFauna,
+                               secondFaunaSpace * 0.25f);
+    secondToFirstFauna = fminf(secondToFirstFauna,
+                               firstFaunaSpace * 0.25f);
+    result.fauna = firstToSecondFauna - secondToFirstFauna;
+    return result;
+}
+
 float PlanetEcologyWindDrift(float windStrength, bool airborne)
 {
     if (!isfinite(windStrength)) return 0.0f;

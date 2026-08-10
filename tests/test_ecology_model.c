@@ -533,6 +533,185 @@ static void TestPopulationDeterminismAndFoodChain(void)
     assert(foodPoor.faunaDensity < foodRich.faunaDensity);
 }
 
+static void AssertMigrationFluxValid(PlanetPopulationMigrationFlux flux)
+{
+    assert(isfinite(flux.flora));
+    assert(isfinite(flux.fauna));
+    assert(flux.flora >= -1.0f && flux.flora <= 1.0f);
+    assert(flux.fauna >= -1.0f && flux.fauna <= 1.0f);
+}
+
+static void TestPopulationMigrationDrivers(void)
+{
+    PlanetRegionalPopulation source = {
+        .floraDensity = 0.68f,
+        .faunaDensity = 0.44f,
+        .floraCarryingCapacity = 0.82f,
+        .faunaCarryingCapacity = 0.62f,
+        .seasonalMemory = 0.75f
+    };
+    PlanetRegionalPopulation destination = {
+        .floraDensity = 0.04f,
+        .faunaDensity = 0.02f,
+        .floraCarryingCapacity = 0.78f,
+        .faunaCarryingCapacity = 0.58f,
+        .seasonalMemory = 0.70f
+    };
+    PlanetMigrationHabitat sourceHabitat = {
+        .floraSuitability = 0.72f,
+        .faunaSuitability = 0.68f,
+        .stormPressure = 0.08f
+    };
+    PlanetMigrationHabitat destinationHabitat = {
+        .floraSuitability = 0.88f,
+        .faunaSuitability = 0.82f,
+        .stormPressure = 0.04f
+    };
+
+    PlanetPopulationMigrationFlux downwind = PlanetPopulationMigrationBetween(
+        &source, &sourceHabitat, &destination, &destinationHabitat,
+        1.0f, 240.0);
+    PlanetPopulationMigrationFlux upwind = PlanetPopulationMigrationBetween(
+        &source, &sourceHabitat, &destination, &destinationHabitat,
+        -1.0f, 240.0);
+    AssertMigrationFluxValid(downwind);
+    assert(downwind.flora > 0.0f);
+    assert(downwind.fauna > 0.0f);
+    assert(downwind.flora > upwind.flora);
+
+    PlanetMigrationHabitat stormDestination = destinationHabitat;
+    stormDestination.stormPressure = 1.0f;
+    PlanetPopulationMigrationFlux stormward = PlanetPopulationMigrationBetween(
+        &source, &sourceHabitat, &destination, &stormDestination,
+        1.0f, 240.0);
+    assert(stormward.flora < downwind.flora);
+    assert(stormward.fauna < downwind.fauna);
+
+    PlanetRegionalPopulation foodPoorSource = source;
+    PlanetRegionalPopulation foodRichDestination = destination;
+    foodPoorSource.floraDensity = 0.02f;
+    foodRichDestination.floraDensity = 0.70f;
+    foodRichDestination.faunaDensity = 0.0f;
+    PlanetPopulationMigrationFlux followsFood = PlanetPopulationMigrationBetween(
+        &foodPoorSource, &sourceHabitat,
+        &foodRichDestination, &destinationHabitat,
+        0.0f, 240.0);
+    assert(followsFood.fauna > 0.0f);
+
+    PlanetRegionalPopulation equal = source;
+    equal.floraDensity = 0.30f;
+    equal.faunaDensity = 0.20f;
+    PlanetPopulationMigrationFlux balanced = PlanetPopulationMigrationBetween(
+        &equal, &sourceHabitat, &equal, &sourceHabitat, 0.0f, 240.0);
+    assert(balanced.flora == 0.0f);
+    assert(balanced.fauna == 0.0f);
+
+    PlanetPopulationMigrationFlux stopped = PlanetPopulationMigrationBetween(
+        &source, &sourceHabitat, &destination, &destinationHabitat,
+        1.0f, 0.0);
+    assert(stopped.flora == 0.0f && stopped.fauna == 0.0f);
+    PlanetPopulationMigrationFlux invalid = PlanetPopulationMigrationBetween(
+        &source, &sourceHabitat, &destination, &destinationHabitat,
+        NAN, 240.0);
+    assert(invalid.flora == 0.0f && invalid.fauna == 0.0f);
+}
+
+static void TestRandomizedPopulationMigrationProperties(void)
+{
+    uint32_t state = 0x7f4a7c15u;
+    for (int sample = 0; sample < 10000; sample++) {
+        PlanetRegionalPopulation population[5];
+        PlanetMigrationHabitat habitat[5];
+        for (int region = 0; region < 5; region++) {
+            population[region].floraCarryingCapacity =
+                0.10f + TestUnit(&state) * 0.90f;
+            population[region].faunaCarryingCapacity =
+                0.10f + TestUnit(&state) * 0.90f;
+            population[region].floraDensity =
+                population[region].floraCarryingCapacity * TestUnit(&state);
+            population[region].faunaDensity =
+                population[region].faunaCarryingCapacity * TestUnit(&state);
+            population[region].seasonalMemory = TestUnit(&state);
+            habitat[region] = (PlanetMigrationHabitat){
+                .floraSuitability = TestUnit(&state),
+                .faunaSuitability = TestUnit(&state),
+                .stormPressure = TestUnit(&state)
+            };
+        }
+
+        float winds[4];
+        double elapsed = 1.0 + (double)TestUnit(&state) * 4000.0;
+        PlanetPopulationMigrationFlux fluxes[4];
+        double floraDelta[5] = { 0 };
+        double faunaDelta[5] = { 0 };
+        for (int edge = 0; edge < 4; edge++) {
+            winds[edge] = TestUnit(&state) * 2.0f - 1.0f;
+            fluxes[edge] = PlanetPopulationMigrationBetween(
+                &population[0], &habitat[0],
+                &population[edge + 1], &habitat[edge + 1],
+                winds[edge], elapsed);
+            AssertMigrationFluxValid(fluxes[edge]);
+            PlanetPopulationMigrationFlux reverse =
+                PlanetPopulationMigrationBetween(
+                    &population[edge + 1], &habitat[edge + 1],
+                    &population[0], &habitat[0],
+                    -winds[edge], elapsed);
+            assert(fluxes[edge].flora == -reverse.flora);
+            assert(fluxes[edge].fauna == -reverse.fauna);
+            if (fluxes[edge].flora >= 0.0f) {
+                assert(fluxes[edge].flora <=
+                       population[0].floraDensity * 0.14f + 0.000001f);
+            } else {
+                assert(-fluxes[edge].flora <=
+                       population[edge + 1].floraDensity * 0.14f + 0.000001f);
+            }
+            if (fluxes[edge].fauna >= 0.0f) {
+                assert(fluxes[edge].fauna <=
+                       population[0].faunaDensity * 0.18f + 0.000001f);
+            } else {
+                assert(-fluxes[edge].fauna <=
+                       population[edge + 1].faunaDensity * 0.18f + 0.000001f);
+            }
+            floraDelta[0] -= fluxes[edge].flora;
+            floraDelta[edge + 1] += fluxes[edge].flora;
+            faunaDelta[0] -= fluxes[edge].fauna;
+            faunaDelta[edge + 1] += fluxes[edge].fauna;
+        }
+
+        double reverseFloraDelta[5] = { 0 };
+        double reverseFaunaDelta[5] = { 0 };
+        for (int edge = 3; edge >= 0; edge--) {
+            reverseFloraDelta[0] -= fluxes[edge].flora;
+            reverseFloraDelta[edge + 1] += fluxes[edge].flora;
+            reverseFaunaDelta[0] -= fluxes[edge].fauna;
+            reverseFaunaDelta[edge + 1] += fluxes[edge].fauna;
+        }
+        assert(memcmp(floraDelta, reverseFloraDelta,
+                      sizeof(floraDelta)) == 0);
+        assert(memcmp(faunaDelta, reverseFaunaDelta,
+                      sizeof(faunaDelta)) == 0);
+
+        double floraConservation = 0.0;
+        double faunaConservation = 0.0;
+        for (int region = 0; region < 5; region++) {
+            floraConservation += floraDelta[region];
+            faunaConservation += faunaDelta[region];
+            double newFlora = population[region].floraDensity +
+                              floraDelta[region];
+            double newFauna = population[region].faunaDensity +
+                              faunaDelta[region];
+            assert(newFlora >= -0.000001);
+            assert(newFauna >= -0.000001);
+            assert(newFlora <=
+                   population[region].floraCarryingCapacity + 0.000001);
+            assert(newFauna <=
+                   population[region].faunaCarryingCapacity + 0.000001);
+        }
+        assert(fabs(floraConservation) < 0.000000001);
+        assert(fabs(faunaConservation) < 0.000000001);
+    }
+}
+
 static void TestRandomizedPopulationProperties(void)
 {
     uint32_t state = 0x91e10da5u;
@@ -686,6 +865,8 @@ int main(void)
     TestPopulationRecoveryAndMortality();
     TestPopulationSeasonalLag();
     TestPopulationDeterminismAndFoodChain();
+    TestPopulationMigrationDrivers();
+    TestRandomizedPopulationMigrationProperties();
     TestRandomizedPopulationProperties();
     TestWindDriftResponse();
     TestHabitatChoice();
