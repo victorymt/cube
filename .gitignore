@@ -16,3 +16,4 @@ tests/test_stellar
 tests/test_ecology_model
 tests/test_weather_model
 tests/test_chunk_atlas
+tests/test_entity_replay

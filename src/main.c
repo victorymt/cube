@@ -775,6 +775,8 @@ int main(void)
                 LoadMap(&player);
                 landingTransition = (LandingTransition){ 0 };
                 wasInSpace = WorldIsSpaceActive();
+                entitiesWorldActive = WorldIsSurfaceActive();
+                entitiesWorldDimension = WorldCurrentSurfaceId();
                 cursorReleased = false;
                 DisableCursor();
                 autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;

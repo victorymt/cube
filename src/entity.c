@@ -12,13 +12,87 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+
+#define ENTITY_STATE_VERSION 1u
+#define ENTITY_RANDOM_FALLBACK 0x6d2b79f5u
+
+typedef struct EntityDiskStateV1 {
+    uint32_t active;
+    uint32_t type;
+    float position[3];
+    float velocity[3];
+    float yaw;
+    float moveTimer;
+    float thinkTimer;
+    float burnTimer;
+    uint32_t bodyPlan;
+    uint32_t chemistry;
+    uint32_t niche;
+    float organismScale;
+    float bodyArmor;
+    float movementSpeed;
+    float temperament;
+    int32_t limbCount;
+    uint32_t airborne;
+    uint32_t colony;
+    float hoverHeight;
+    float phase;
+    float ecologyActivity;
+    float ecologyCapacity;
+    float ecologySampleTimer;
+    float ecologyWindStrength;
+    float ecologyWindAngle;
+    uint32_t primaryBlock;
+    uint32_t accentBlock;
+} EntityDiskStateV1;
 
 static Entity entities[MAX_ENTITIES];
+static uint32_t entityRandomState = ENTITY_RANDOM_FALLBACK;
+static float entitySpawnTimer = 0.0f;
+
+static uint32_t EntityMix(uint32_t value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    value ^= value >> 16;
+    return value;
+}
+
+static uint32_t EntityInitialRandomState(void)
+{
+    uint32_t state = WorldGetSeed() ^
+                     WorldCurrentSurfaceId() * 0x9e3779b9u ^ 0x3c6ef372u;
+    state = EntityMix(state);
+    return state != 0u ? state : ENTITY_RANDOM_FALLBACK;
+}
+
+static uint32_t EntityRandomNext(void)
+{
+    uint32_t state = entityRandomState;
+    if (state == 0u) state = ENTITY_RANDOM_FALLBACK;
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    entityRandomState = state;
+    return state;
+}
+
+static int EntityRandomBounded(unsigned bound)
+{
+    if (bound == 0u) return 0;
+    return (int)(EntityRandomNext() % bound);
+}
 
 void EntitiesInit(void)
 {
-    for (int i = 0; i < MAX_ENTITIES; i++) entities[i].active = false;
+    memset(entities, 0, sizeof(entities));
+    entityRandomState = EntityInitialRandomState();
+    entitySpawnTimer = 0.0f;
 }
 
 void EntitiesClear(void)
@@ -33,6 +107,164 @@ int GetActiveEntityCount(void)
         if (entities[i].active) count++;
     }
     return count;
+}
+
+static bool EntityFloatValid(float value)
+{
+    return isfinite(value) && fabsf(value) <= 1000000000.0f;
+}
+
+static bool EntityBlockValid(uint32_t value)
+{
+    return value <= (uint32_t)BLOCK_NETHER_PORTAL ||
+           (value >= (uint32_t)BLOCK_COLOR_START &&
+            value <= (uint32_t)BLOCK_COLOR_END);
+}
+
+static bool EntityDiskStateValid(const EntityDiskStateV1 *saved)
+{
+    if (!saved || saved->active > 1u) return false;
+    if (saved->active == 0u) return true;
+    if (saved->type > (uint32_t)ENTITY_SKELETON ||
+        saved->bodyPlan > (uint32_t)PLANET_BODY_COLONY ||
+        saved->chemistry > (uint32_t)PLANET_CHEMISTRY_SULFUR ||
+        saved->niche > (uint32_t)PLANET_NICHE_BIOLUMINESCENT_COLONY ||
+        saved->airborne > 1u || saved->colony > 1u ||
+        saved->limbCount < 0 || saved->limbCount > 64 ||
+        !EntityBlockValid(saved->primaryBlock) ||
+        !EntityBlockValid(saved->accentBlock)) {
+        return false;
+    }
+    for (int axis = 0; axis < 3; axis++) {
+        if (!EntityFloatValid(saved->position[axis]) ||
+            !EntityFloatValid(saved->velocity[axis])) {
+            return false;
+        }
+    }
+    const float values[] = {
+        saved->yaw, saved->moveTimer, saved->thinkTimer, saved->burnTimer,
+        saved->organismScale, saved->bodyArmor, saved->movementSpeed,
+        saved->temperament, saved->hoverHeight, saved->phase,
+        saved->ecologyActivity, saved->ecologyCapacity,
+        saved->ecologySampleTimer, saved->ecologyWindStrength,
+        saved->ecologyWindAngle
+    };
+    for (unsigned index = 0; index < sizeof(values) / sizeof(values[0]); index++) {
+        if (!EntityFloatValid(values[index])) return false;
+    }
+    return true;
+}
+
+bool EntitiesSaveState(FILE *file)
+{
+    if (!file || !isfinite(entitySpawnTimer)) return false;
+    const uint32_t header[3] = {
+        ENTITY_STATE_VERSION, MAX_ENTITIES, entityRandomState
+    };
+    if (fwrite(header, sizeof(header), 1, file) != 1 ||
+        fwrite(&entitySpawnTimer, sizeof(entitySpawnTimer), 1, file) != 1) {
+        return false;
+    }
+
+    EntityDiskStateV1 saved[MAX_ENTITIES] = { 0 };
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        const Entity *entity = &entities[index];
+        EntityDiskStateV1 *disk = &saved[index];
+        disk->active = entity->active ? 1u : 0u;
+        if (!entity->active) continue;
+        disk->type = (uint32_t)entity->type;
+        disk->position[0] = entity->position.x;
+        disk->position[1] = entity->position.y;
+        disk->position[2] = entity->position.z;
+        disk->velocity[0] = entity->velocity.x;
+        disk->velocity[1] = entity->velocity.y;
+        disk->velocity[2] = entity->velocity.z;
+        disk->yaw = entity->yaw;
+        disk->moveTimer = entity->moveTimer;
+        disk->thinkTimer = entity->thinkTimer;
+        disk->burnTimer = entity->burnTimer;
+        disk->bodyPlan = (uint32_t)entity->bodyPlan;
+        disk->chemistry = (uint32_t)entity->chemistry;
+        disk->niche = (uint32_t)entity->niche;
+        disk->organismScale = entity->organismScale;
+        disk->bodyArmor = entity->bodyArmor;
+        disk->movementSpeed = entity->movementSpeed;
+        disk->temperament = entity->temperament;
+        disk->limbCount = (int32_t)entity->limbCount;
+        disk->airborne = entity->airborne ? 1u : 0u;
+        disk->colony = entity->colony ? 1u : 0u;
+        disk->hoverHeight = entity->hoverHeight;
+        disk->phase = entity->phase;
+        disk->ecologyActivity = entity->ecologyActivity;
+        disk->ecologyCapacity = entity->ecologyCapacity;
+        disk->ecologySampleTimer = entity->ecologySampleTimer;
+        disk->ecologyWindStrength = entity->ecologyWindStrength;
+        disk->ecologyWindAngle = entity->ecologyWindAngle;
+        disk->primaryBlock = (uint32_t)entity->primaryBlock;
+        disk->accentBlock = (uint32_t)entity->accentBlock;
+        if (!EntityDiskStateValid(disk)) return false;
+    }
+    return fwrite(saved, sizeof(saved), 1, file) == 1;
+}
+
+bool EntitiesLoadState(FILE *file)
+{
+    uint32_t header[3];
+    float loadedSpawnTimer = 0.0f;
+    EntityDiskStateV1 saved[MAX_ENTITIES];
+    if (!file || fread(header, sizeof(header), 1, file) != 1 ||
+        fread(&loadedSpawnTimer, sizeof(loadedSpawnTimer), 1, file) != 1 ||
+        fread(saved, sizeof(saved), 1, file) != 1) {
+        return false;
+    }
+    if (header[0] != ENTITY_STATE_VERSION || header[1] != MAX_ENTITIES ||
+        header[2] == 0u || !EntityFloatValid(loadedSpawnTimer)) {
+        return false;
+    }
+
+    Entity loaded[MAX_ENTITIES] = { 0 };
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        const EntityDiskStateV1 *disk = &saved[index];
+        if (!EntityDiskStateValid(disk)) return false;
+        if (disk->active == 0u) continue;
+        Entity *entity = &loaded[index];
+        entity->active = true;
+        entity->type = (EntityType)disk->type;
+        entity->position = (Vector3){
+            disk->position[0], disk->position[1], disk->position[2]
+        };
+        entity->velocity = (Vector3){
+            disk->velocity[0], disk->velocity[1], disk->velocity[2]
+        };
+        entity->yaw = disk->yaw;
+        entity->moveTimer = disk->moveTimer;
+        entity->thinkTimer = disk->thinkTimer;
+        entity->burnTimer = disk->burnTimer;
+        entity->bodyPlan = (PlanetBodyPlan)disk->bodyPlan;
+        entity->chemistry = (PlanetChemistry)disk->chemistry;
+        entity->niche = (PlanetEcologicalNiche)disk->niche;
+        entity->organismScale = disk->organismScale;
+        entity->bodyArmor = disk->bodyArmor;
+        entity->movementSpeed = disk->movementSpeed;
+        entity->temperament = disk->temperament;
+        entity->limbCount = (int)disk->limbCount;
+        entity->airborne = disk->airborne != 0u;
+        entity->colony = disk->colony != 0u;
+        entity->hoverHeight = disk->hoverHeight;
+        entity->phase = disk->phase;
+        entity->ecologyActivity = disk->ecologyActivity;
+        entity->ecologyCapacity = disk->ecologyCapacity;
+        entity->ecologySampleTimer = disk->ecologySampleTimer;
+        entity->ecologyWindStrength = disk->ecologyWindStrength;
+        entity->ecologyWindAngle = disk->ecologyWindAngle;
+        entity->primaryBlock = (BlockType)disk->primaryBlock;
+        entity->accentBlock = (BlockType)disk->accentBlock;
+    }
+
+    memcpy(entities, loaded, sizeof(entities));
+    entityRandomState = header[2];
+    entitySpawnTimer = loadedSpawnTimer;
+    return true;
 }
 
 static int NextFreeEntity(void)
@@ -110,24 +342,26 @@ static void SpawnPassive(const Player *player, float daylight)
     if (alienWorld) {
         if (ecology.faunaDensity <= 0.0f) return;
         uint32_t speciesSeed = PlanetWorldSeed();
-        int species = (int)((speciesSeed + (uint32_t)(rand() % 2) * 17u) % 3u);
+        int species = (int)((speciesSeed +
+            (uint32_t)EntityRandomBounded(2u) * 17u) % 3u);
         type = (EntityType)(ENTITY_ALIEN_GRAZER + species);
     } else {
         EntityType types[4] = { ENTITY_COW, ENTITY_SHEEP, ENTITY_PIG, ENTITY_CHICKEN };
-        type = types[rand() % 4];
+        type = types[EntityRandomBounded(4u)];
     }
 
     PlanetLocalEcology localEcology = { 0 };
-    float angle = (float)(rand() % 628) / 100.0f;
-    float dist = alienWorld ? 12.0f + (float)(rand() % 160) / 10.0f
-                            : 14.0f + (float)(rand() % 300) / 10.0f;
+    float angle = (float)EntityRandomBounded(628u) / 100.0f;
+    float dist = alienWorld ? 12.0f + (float)EntityRandomBounded(160u) / 10.0f
+                            : 14.0f + (float)EntityRandomBounded(300u) / 10.0f;
     int gx = (int)floorf(player->position.x + cosf(angle) * dist);
     int gz = (int)floorf(player->position.z + sinf(angle) * dist);
     if (alienWorld) {
         localEcology = PlanetEcologyLocalAt(gx, gz, daylight);
         float faunaActivity = localEcology.suitability.faunaActivity;
         if (faunaActivity <= 0.0f ||
-            rand() % 1000 >= (int)(faunaActivity * 1000.0f)) return;
+            EntityRandomBounded(1000u) >=
+                (int)(faunaActivity * 1000.0f)) return;
     }
     if (alienWorld && !ecology.supportsFlight && !PlanetBiomeSupportsFauna(gx, gz) &&
         ecology.niche != PLANET_NICHE_CRYSTAL_GRAZER) return;
@@ -146,13 +380,13 @@ static void SpawnPassive(const Player *player, float daylight)
     if (alienWorld && ecology.supportsFlight) {
         float flightBase = fmaxf(spawnY + 3.0f, player->position.y + 1.5f);
         spawnY = fminf((float)WORLD_HEIGHT - 3.0f,
-                       flightBase + (float)(rand() % 45) / 10.0f);
+                       flightBase + (float)EntityRandomBounded(45u) / 10.0f);
     }
     entity->position = (Vector3){ (float)gx + 0.5f, spawnY, (float)gz + 0.5f };
     entity->velocity = Vector3Zero();
-    entity->yaw = (float)(rand() % 628) / 100.0f;
+    entity->yaw = (float)EntityRandomBounded(628u) / 100.0f;
     entity->moveTimer = 0.0f;
-    entity->thinkTimer = 1.0f + (float)(rand() % 200) / 100.0f;
+    entity->thinkTimer = 1.0f + (float)EntityRandomBounded(200u) / 100.0f;
     entity->burnTimer = 0.0f;
     entity->bodyPlan = alienWorld ? ecology.bodyPlan : PLANET_BODY_QUADRUPED;
     entity->chemistry = alienWorld ? ecology.chemistry : PLANET_CHEMISTRY_CARBON;
@@ -165,7 +399,7 @@ static void SpawnPassive(const Player *player, float daylight)
     entity->airborne = alienWorld && ecology.bodyPlan == PLANET_BODY_FLOATING;
     entity->colony = alienWorld && ecology.bodyPlan == PLANET_BODY_COLONY;
     entity->hoverHeight = spawnY;
-    entity->phase = (float)(rand() % 628) / 100.0f;
+    entity->phase = (float)EntityRandomBounded(628u) / 100.0f;
     entity->ecologyActivity = alienWorld
         ? localEcology.suitability.faunaActivity : 1.0f;
     entity->ecologyCapacity = alienWorld
@@ -191,9 +425,10 @@ static void SpawnHostile(const Player *player, float daylight)
     int slot = NextFreeEntity();
     if (slot < 0) return;
 
-    EntityType type = (rand() % 2 == 0) ? ENTITY_ZOMBIE : ENTITY_SKELETON;
-    float angle = (float)(rand() % 628) / 100.0f;
-    float dist = 18.0f + (float)(rand() % 200) / 10.0f;
+    EntityType type = EntityRandomBounded(2u) == 0
+        ? ENTITY_ZOMBIE : ENTITY_SKELETON;
+    float angle = (float)EntityRandomBounded(628u) / 100.0f;
+    float dist = 18.0f + (float)EntityRandomBounded(200u) / 10.0f;
     int gx = (int)floorf(player->position.x + cosf(angle) * dist);
     int gz = (int)floorf(player->position.z + sinf(angle) * dist);
     int groundY = EntitySurfaceHeight(gx, gz);
@@ -207,7 +442,7 @@ static void SpawnHostile(const Player *player, float daylight)
     entity->type = type;
     entity->position = (Vector3){ (float)gx + 0.5f, (float)groundY + 1.0f, (float)gz + 0.5f };
     entity->velocity = Vector3Zero();
-    entity->yaw = (float)(rand() % 628) / 100.0f;
+    entity->yaw = (float)EntityRandomBounded(628u) / 100.0f;
     entity->moveTimer = 0.0f;
     entity->thinkTimer = 0.1f;
     entity->burnTimer = 2.0f;
@@ -315,7 +550,8 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
 
     entity->thinkTimer -= dt;
     if (entity->thinkTimer <= 0.0f) {
-        entity->thinkTimer = 2.0f + (float)(rand() % 300) / 100.0f;
+        entity->thinkTimer = 2.0f +
+            (float)EntityRandomBounded(300u) / 100.0f;
         if (alien) {
             entity->thinkTimer *= 1.0f + (1.0f - runtime.activityRatio) * 1.5f;
         }
@@ -346,10 +582,11 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
             if (!seekingHabitat) {
                 if (entity->colony || (alien && runtime.dormant)) {
                     entity->moveTimer = 0.0f;
-                } else if (rand() % 100 <
+                } else if (EntityRandomBounded(100u) <
                            (alien ? 15 + (int)(runtime.activityRatio * 40.0f) : 55)) {
-                    entity->yaw = (float)(rand() % 628) / 100.0f;
-                    entity->moveTimer = 1.0f + (float)(rand() % 200) / 100.0f;
+                    entity->yaw = (float)EntityRandomBounded(628u) / 100.0f;
+                    entity->moveTimer = 1.0f +
+                        (float)EntityRandomBounded(200u) / 100.0f;
                     if (alien) {
                         entity->moveTimer *= 0.45f + runtime.activityRatio * 0.55f;
                     }
@@ -432,10 +669,9 @@ static void UpdateHostile(Entity *entity, const Player *player, float dt, float 
 
 void EntitiesUpdate(float dt, const Player *player, float daylight)
 {
-    static float spawnTimer = 0.0f;
-    spawnTimer -= dt;
-    if (spawnTimer <= 0.0f) {
-        spawnTimer = 1.5f;
+    entitySpawnTimer -= dt;
+    if (entitySpawnTimer <= 0.0f) {
+        entitySpawnTimer = 1.5f;
         int populationCap = MAX_ENTITIES - 4;
         if (PlanetWorldIsActive()) {
             int playerX = (int)floorf(player->position.x);

@@ -8,6 +8,7 @@
 #include "album.h"
 #include "inventory.h"
 #include "ship.h"
+#include "entity.h"
 #include "world_environment.h"
 
 #include <math.h>
@@ -18,6 +19,8 @@
 #include <string.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V10 "VOXELCRAFT_SAVE_V10"
+#define SAVE_MAGIC_V10_LEN (sizeof(SAVE_MAGIC_V10) - 1)
 #define SAVE_MAGIC_V9 "VOXELCRAFT_SAVE_V9"
 #define SAVE_MAGIC_V9_LEN (sizeof(SAVE_MAGIC_V9) - 1)
 #define SAVE_MAGIC_V8 "VOXELCRAFT_SAVE_V8"
@@ -691,7 +694,7 @@ void SaveMap(const Player *player)
         return;
     }
 
-    fwrite(SAVE_MAGIC_V9, 1, SAVE_MAGIC_V9_LEN, file);
+    fwrite(SAVE_MAGIC_V10, 1, SAVE_MAGIC_V10_LEN, file);
     uint32_t seed = WorldGetSeed();
     fwrite(&seed, sizeof(seed), 1, file);
     uint32_t terrain = (uint32_t)terrainMode;
@@ -723,9 +726,9 @@ void SaveMap(const Player *player)
     AlbumSave(file);
     SpaceSaveEdits(file);
     NetherSaveEdits(file);
-    if (!SpaceSaveState(file)) {
+    if (!SpaceSaveState(file) || !EntitiesSaveState(file)) {
         fclose(file);
-        SetImportMessage("Save failed: could not write space state.");
+        SetImportMessage("Save failed: could not write simulation state.");
         return;
     }
     fclose(file);
@@ -899,17 +902,25 @@ void LoadMap(Player *player)
     int savedEditCount = 0;
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
+    char magicV10[SAVE_MAGIC_V10_LEN] = { 0 };
+    bool isV10 = fread(magicV10, 1, SAVE_MAGIC_V10_LEN, file) ==
+                     SAVE_MAGIC_V10_LEN &&
+                 memcmp(magicV10, SAVE_MAGIC_V10, SAVE_MAGIC_V10_LEN) == 0;
     char magicV9[SAVE_MAGIC_V9_LEN] = { 0 };
-    bool isV9 = fread(magicV9, 1, SAVE_MAGIC_V9_LEN, file) == SAVE_MAGIC_V9_LEN &&
-                memcmp(magicV9, SAVE_MAGIC_V9, SAVE_MAGIC_V9_LEN) == 0;
+    bool isV9 = false;
+    if (!isV10) {
+        rewind(file);
+        isV9 = fread(magicV9, 1, SAVE_MAGIC_V9_LEN, file) == SAVE_MAGIC_V9_LEN &&
+               memcmp(magicV9, SAVE_MAGIC_V9, SAVE_MAGIC_V9_LEN) == 0;
+    }
     char magicV8[SAVE_MAGIC_V8_LEN] = { 0 };
     bool isV8 = false;
-    if (!isV9) {
+    if (!isV10 && !isV9) {
         rewind(file);
         isV8 = fread(magicV8, 1, SAVE_MAGIC_V8_LEN, file) == SAVE_MAGIC_V8_LEN &&
                memcmp(magicV8, SAVE_MAGIC_V8, SAVE_MAGIC_V8_LEN) == 0;
     }
-    if (isV9 || isV8) {
+    if (isV10 || isV9 || isV8) {
         if (!LoadMapV7(file, &savedTerrain, &savedPlayer, &loadedEdits,
                        &loadedDimensions, &savedEditCount, &savedSeed)) {
             fclose(file);
@@ -1047,7 +1058,7 @@ void LoadMap(Player *player)
     AlbumLoad(file);
     SpaceLoadEdits(file);
     NetherLoadEdits(file);
-    if (isV9) {
+    if (isV10 || isV9) {
         if (!SpaceLoadState(file)) {
             free(loadedDimensions);
             free(loadedEdits);
@@ -1065,6 +1076,13 @@ void LoadMap(Player *player)
             return;
         }
         loadedSpaceOrigin = true;
+    }
+    if (isV10 && !EntitiesLoadState(file)) {
+        free(loadedDimensions);
+        free(loadedEdits);
+        fclose(file);
+        SetImportMessage("Load failed: entity state is corrupted.");
+        return;
     }
     fclose(file);
 
@@ -1115,6 +1133,7 @@ void LoadMap(Player *player)
     UnloadAllNetherChunks();
     terrainMode = savedTerrain;
     WorldSetSeed(savedSeed);
+    if (!isV10) EntitiesClear();
     if (!loadedInventory) {
         InventoryReset();
         InventoryGrantStarterKit();

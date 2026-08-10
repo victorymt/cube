@@ -4,6 +4,8 @@
 #include "types.h"
 #include "ecology.h"
 
+#include <stdio.h>
+
 typedef enum EntityType {
     ENTITY_COW = 0,
     ENTITY_SHEEP,
@@ -52,6 +54,8 @@ void EntitiesInit(void);
 void EntitiesUpdate(float dt, const Player *player, float daylight);
 void EntitiesDraw(void);
 void EntitiesClear(void);
+bool EntitiesSaveState(FILE *file);
+bool EntitiesLoadState(FILE *file);
 int GetActiveEntityCount(void);
 int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance);
 void EntityKill(int index);
