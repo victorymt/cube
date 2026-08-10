@@ -85,6 +85,27 @@ typedef struct EcologyPopulationStepState {
     float faunaStress;
 } EcologyPopulationStepState;
 
+typedef struct EcologyPopulationStepContext {
+    uint32_t surfaceId;
+    double stepStart;
+    double stepEnd;
+    double elapsedTime;
+    float daylight;
+    const PlanetEcologyProfile *profile;
+    int originX;
+    int originZ;
+} EcologyPopulationStepContext;
+
+typedef struct EcologyPopulationStepBuffers {
+    EcologyPopulationStepState states[ECOLOGY_POPULATION_MAX_REGIONS];
+    double floraDelta[ECOLOGY_POPULATION_MAX_REGIONS];
+    double faunaDelta[ECOLOGY_POPULATION_MAX_REGIONS];
+    double floraFlowX[ECOLOGY_POPULATION_MAX_REGIONS];
+    double floraFlowZ[ECOLOGY_POPULATION_MAX_REGIONS];
+    double faunaFlowX[ECOLOGY_POPULATION_MAX_REGIONS];
+    double faunaFlowZ[ECOLOGY_POPULATION_MAX_REGIONS];
+} EcologyPopulationStepBuffers;
+
 static ECOLOGY_THREAD_LOCAL EcologyProfileCache ecologyProfileCache = { 0 };
 static ECOLOGY_THREAD_LOCAL EcologyLocalCacheEntry
     ecologyLocalCache[ECOLOGY_LOCAL_CACHE_SIZE] = { 0 };
@@ -908,9 +929,8 @@ static void EcologyPopulationInitializeRecord(
     record->lastUpdateTime = simulationTime;
 }
 
-static void EcologyPopulationAdvanceRecords(
-    uint32_t surfaceId, double targetTime, float daylight,
-    const PlanetEcologyProfile *profile, int originX, int originZ)
+static bool EcologyPopulationRewindFutureRecords(
+    uint32_t surfaceId, double targetTime)
 {
     bool changed = false;
     for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS; index++) {
@@ -922,115 +942,164 @@ static void EcologyPopulationAdvanceRecords(
             changed = true;
         }
     }
+    return changed;
+}
+
+static double EcologyPopulationEarliestStepStart(
+    uint32_t surfaceId, double targetTime)
+{
+    double stepStart = INFINITY;
+    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
+         index++) {
+        EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
+        if (!record->valid || record->surfaceId != surfaceId ||
+            record->lastUpdateTime >= targetTime) {
+            continue;
+        }
+        stepStart = fmin(stepStart, record->lastUpdateTime);
+    }
+    return stepStart;
+}
+
+static void EcologyPopulationPrepareStep(
+    const EcologyPopulationStepContext *context,
+    EcologyPopulationStepBuffers *buffers)
+{
+    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
+         index++) {
+        EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
+        if (!record->valid || record->surfaceId != context->surfaceId ||
+            record->lastUpdateTime != context->stepStart) {
+            continue;
+        }
+        buffers->states[index].active = true;
+        buffers->states[index].population = record->population;
+        EcologyPopulationConditionsAt(
+            record, context->stepEnd, context->daylight, context->profile,
+            context->originX, context->originZ, &buffers->states[index]);
+        PlanetPopulationAdvance(
+            &buffers->states[index].population,
+            &buffers->states[index].input, context->elapsedTime);
+        PlanetPopulationApplyDisturbance(
+            &buffers->states[index].population,
+            buffers->states[index].floraStress,
+            buffers->states[index].faunaStress, context->elapsedTime);
+    }
+}
+
+static void EcologyPopulationAccumulateMigration(
+    const EcologyPopulationStepContext *context,
+    EcologyPopulationStepBuffers *buffers)
+{
+    static const int directions[2][2] = { { 1, 0 }, { 0, 1 } };
+    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
+         index++) {
+        if (!buffers->states[index].active) continue;
+        EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
+        for (int direction = 0; direction < 2; direction++) {
+            int neighborIndex = EcologyPopulationFindRecordIndex(
+                context->surfaceId,
+                record->regionX + directions[direction][0],
+                record->regionZ + directions[direction][1]);
+            if (neighborIndex < 0 ||
+                !buffers->states[neighborIndex].active) continue;
+            float windAlignment =
+                (buffers->states[index].windX +
+                 buffers->states[neighborIndex].windX) *
+                    0.5f * (float)directions[direction][0] +
+                (buffers->states[index].windZ +
+                 buffers->states[neighborIndex].windZ) *
+                    0.5f * (float)directions[direction][1];
+            PlanetPopulationMigrationFlux flux =
+                PlanetPopulationMigrationBetween(
+                    &buffers->states[index].population,
+                    &buffers->states[index].habitat,
+                    &buffers->states[neighborIndex].population,
+                    &buffers->states[neighborIndex].habitat,
+                    windAlignment, context->elapsedTime);
+            buffers->floraDelta[index] -= flux.flora;
+            buffers->floraDelta[neighborIndex] += flux.flora;
+            buffers->faunaDelta[index] -= flux.fauna;
+            buffers->faunaDelta[neighborIndex] += flux.fauna;
+            float directionX = (float)directions[direction][0];
+            float directionZ = (float)directions[direction][1];
+            buffers->floraFlowX[index] += flux.flora * directionX;
+            buffers->floraFlowX[neighborIndex] += flux.flora * directionX;
+            buffers->floraFlowZ[index] += flux.flora * directionZ;
+            buffers->floraFlowZ[neighborIndex] += flux.flora * directionZ;
+            buffers->faunaFlowX[index] += flux.fauna * directionX;
+            buffers->faunaFlowX[neighborIndex] += flux.fauna * directionX;
+            buffers->faunaFlowZ[index] += flux.fauna * directionZ;
+            buffers->faunaFlowZ[neighborIndex] += flux.fauna * directionZ;
+        }
+    }
+}
+
+static bool EcologyPopulationCommitStep(
+    const EcologyPopulationStepContext *context,
+    EcologyPopulationStepBuffers *buffers)
+{
+    bool changed = false;
+    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
+         index++) {
+        if (!buffers->states[index].active) continue;
+        EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
+        buffers->states[index].population.floraDensity = EcologyClamp(
+            buffers->states[index].population.floraDensity +
+            (float)buffers->floraDelta[index]);
+        buffers->states[index].population.faunaDensity = EcologyClamp(
+            buffers->states[index].population.faunaDensity +
+            (float)buffers->faunaDelta[index]);
+        record->population = buffers->states[index].population;
+        record->migration = (PlanetPopulationMigrationState){
+            .floraNet = fminf(fmaxf(
+                (float)buffers->floraDelta[index], -1.0f), 1.0f),
+            .faunaNet = fminf(fmaxf(
+                (float)buffers->faunaDelta[index], -1.0f), 1.0f),
+            .floraFlowX = fminf(fmaxf(
+                (float)buffers->floraFlowX[index], -1.0f), 1.0f),
+            .floraFlowZ = fminf(fmaxf(
+                (float)buffers->floraFlowZ[index], -1.0f), 1.0f),
+            .faunaFlowX = fminf(fmaxf(
+                (float)buffers->faunaFlowX[index], -1.0f), 1.0f),
+            .faunaFlowZ = fminf(fmaxf(
+                (float)buffers->faunaFlowZ[index], -1.0f), 1.0f)
+        };
+        record->lastUpdateTime = context->stepEnd;
+        changed = true;
+    }
+    return changed;
+}
+
+static void EcologyPopulationAdvanceRecords(
+    uint32_t surfaceId, double targetTime, float daylight,
+    const PlanetEcologyProfile *profile, int originX, int originZ)
+{
+    bool changed = EcologyPopulationRewindFutureRecords(
+        surfaceId, targetTime);
 
     for (;;) {
-        double stepStart = INFINITY;
-        for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
-             index++) {
-            EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
-            if (!record->valid || record->surfaceId != surfaceId ||
-                record->lastUpdateTime >= targetTime) {
-                continue;
-            }
-            stepStart = fmin(stepStart, record->lastUpdateTime);
-        }
+        double stepStart = EcologyPopulationEarliestStepStart(
+            surfaceId, targetTime);
         if (!isfinite(stepStart)) break;
 
         double stepEnd = fmin(stepStart + ECOLOGY_POPULATION_STEP_DAYS,
                               targetTime);
         double elapsedTime = stepEnd - stepStart;
-        EcologyPopulationStepState
-            states[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
-        double floraDelta[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
-        double faunaDelta[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
-        double floraFlowX[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
-        double floraFlowZ[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
-        double faunaFlowX[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
-        double faunaFlowZ[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
-        for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
-             index++) {
-            EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
-            if (!record->valid || record->surfaceId != surfaceId ||
-                record->lastUpdateTime != stepStart) {
-                continue;
-            }
-            states[index].active = true;
-            states[index].population = record->population;
-            EcologyPopulationConditionsAt(
-                record, stepEnd, daylight, profile,
-                originX, originZ, &states[index]);
-            PlanetPopulationAdvance(
-                &states[index].population, &states[index].input, elapsedTime);
-            PlanetPopulationApplyDisturbance(
-                &states[index].population, states[index].floraStress,
-                states[index].faunaStress, elapsedTime);
-        }
-
-        static const int directions[2][2] = { { 1, 0 }, { 0, 1 } };
-        for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
-             index++) {
-            if (!states[index].active) continue;
-            EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
-            for (int direction = 0; direction < 2; direction++) {
-                int neighborIndex = EcologyPopulationFindRecordIndex(
-                    surfaceId,
-                    record->regionX + directions[direction][0],
-                    record->regionZ + directions[direction][1]);
-                if (neighborIndex < 0 || !states[neighborIndex].active) continue;
-                float windAlignment =
-                    (states[index].windX + states[neighborIndex].windX) *
-                        0.5f * (float)directions[direction][0] +
-                    (states[index].windZ + states[neighborIndex].windZ) *
-                        0.5f * (float)directions[direction][1];
-                PlanetPopulationMigrationFlux flux =
-                    PlanetPopulationMigrationBetween(
-                        &states[index].population, &states[index].habitat,
-                        &states[neighborIndex].population,
-                        &states[neighborIndex].habitat,
-                        windAlignment, elapsedTime);
-                floraDelta[index] -= flux.flora;
-                floraDelta[neighborIndex] += flux.flora;
-                faunaDelta[index] -= flux.fauna;
-                faunaDelta[neighborIndex] += flux.fauna;
-                float directionX = (float)directions[direction][0];
-                float directionZ = (float)directions[direction][1];
-                floraFlowX[index] += flux.flora * directionX;
-                floraFlowX[neighborIndex] += flux.flora * directionX;
-                floraFlowZ[index] += flux.flora * directionZ;
-                floraFlowZ[neighborIndex] += flux.flora * directionZ;
-                faunaFlowX[index] += flux.fauna * directionX;
-                faunaFlowX[neighborIndex] += flux.fauna * directionX;
-                faunaFlowZ[index] += flux.fauna * directionZ;
-                faunaFlowZ[neighborIndex] += flux.fauna * directionZ;
-            }
-        }
-
-        for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
-             index++) {
-            if (!states[index].active) continue;
-            EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
-            states[index].population.floraDensity = EcologyClamp(
-                states[index].population.floraDensity +
-                (float)floraDelta[index]);
-            states[index].population.faunaDensity = EcologyClamp(
-                states[index].population.faunaDensity +
-                (float)faunaDelta[index]);
-            record->population = states[index].population;
-            record->migration = (PlanetPopulationMigrationState){
-                .floraNet = fminf(fmaxf(
-                    (float)floraDelta[index], -1.0f), 1.0f),
-                .faunaNet = fminf(fmaxf(
-                    (float)faunaDelta[index], -1.0f), 1.0f),
-                .floraFlowX = fminf(fmaxf(
-                    (float)floraFlowX[index], -1.0f), 1.0f),
-                .floraFlowZ = fminf(fmaxf(
-                    (float)floraFlowZ[index], -1.0f), 1.0f),
-                .faunaFlowX = fminf(fmaxf(
-                    (float)faunaFlowX[index], -1.0f), 1.0f),
-                .faunaFlowZ = fminf(fmaxf(
-                    (float)faunaFlowZ[index], -1.0f), 1.0f)
-            };
-            record->lastUpdateTime = stepEnd;
+        EcologyPopulationStepContext context = {
+            .surfaceId = surfaceId,
+            .stepStart = stepStart,
+            .stepEnd = stepEnd,
+            .elapsedTime = elapsedTime,
+            .daylight = daylight,
+            .profile = profile,
+            .originX = originX,
+            .originZ = originZ
+        };
+        EcologyPopulationStepBuffers buffers = { 0 };
+        EcologyPopulationPrepareStep(&context, &buffers);
+        EcologyPopulationAccumulateMigration(&context, &buffers);
+        if (EcologyPopulationCommitStep(&context, &buffers)) {
             changed = true;
         }
     }
