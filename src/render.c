@@ -910,19 +910,6 @@ void DrawClouds(const Camera3D *camera, Color tint)
     EndBlendMode();
 }
 
-static Color FloraRuntimeTint(Color worldTint, const Chunk *chunk)
-{
-    PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
-        chunk->floraActivity, chunk->floraCapacity);
-    Color dormantTint = {
-        (unsigned char)((float)worldTint.r * 0.55f),
-        (unsigned char)((float)worldTint.g * 0.42f),
-        (unsigned char)((float)worldTint.b * 0.32f),
-        worldTint.a
-    };
-    return ColorLerp(dormantTint, worldTint, runtime.visualPresence);
-}
-
 void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
                bool drawSurfaceChunks, bool drawNetherChunks)
 {
@@ -934,8 +921,7 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
             if (!ChunkIntersectsCameraView(chunk, camera)) continue;
             if (chunk->hasModel) DrawModel(chunk->model, Vector3Zero(), 1.0f, tint);
             if (chunk->hasFloraModel) {
-                DrawModel(chunk->floraModel, Vector3Zero(), 1.0f,
-                          FloraRuntimeTint(tint, chunk));
+                DrawModel(chunk->floraModel, Vector3Zero(), 1.0f, tint);
             }
         }
     }

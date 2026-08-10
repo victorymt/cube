@@ -103,6 +103,10 @@ void UnloadChunkModel(Chunk *chunk)
     chunk->floraTargetScales = NULL;
     free(chunk->floraTargetWind);
     chunk->floraTargetWind = NULL;
+    free(chunk->floraTargetPresence);
+    chunk->floraTargetPresence = NULL;
+    free(chunk->floraBaseColors);
+    chunk->floraBaseColors = NULL;
     chunk->floraTargetScaleCount = 0;
 }
 
@@ -846,9 +850,12 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
     Mesh *mesh = &chunk->floraModel.meshes[0];
     if (!mesh->vertices || mesh->vertexCount <= 0 ||
         !chunk->floraTargetScales || !chunk->floraTargetWind ||
+        !chunk->floraTargetPresence || !chunk->floraBaseColors ||
+        !mesh->colors ||
         chunk->floraTargetScaleCount <= 0) return;
 
     float blend = fminf(elapsed * 1.8f, 1.0f);
+    float colorBlend = fminf(elapsed * 2.2f, 1.0f);
     float scaleSum = 0.0f;
     int scaleCount = 0;
     bool changed = false;
@@ -867,10 +874,12 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
                 local.suitability.floraActivity,
                 local.suitability.floraCapacity);
             chunk->floraTargetScales[group] = runtime.growthScale;
+            chunk->floraTargetPresence[group] = runtime.visualPresence;
             chunk->floraTargetWind[group] = WeatherFieldSampleAtWorld(
                 cellX, cellZ).wind;
         } else if (refreshTargets) {
             chunk->floraTargetScales[group] = 1.0f;
+            chunk->floraTargetPresence[group] = 1.0f;
             int cellX = (int)lroundf(mesh->vertices[firstVertex * 3] - 0.5f);
             int cellZ = (int)lroundf(mesh->vertices[firstVertex * 3 + 2] - 0.5f);
             chunk->floraTargetWind[group] = WeatherFieldSampleAtWorld(
@@ -915,13 +924,62 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
                     groundY + heightFraction * 0.4f * newScale;
                 changed = true;
             }
+
         }
     }
     if (changed) {
         UpdateMeshBuffer(*mesh, 0, mesh->vertices,
                          mesh->vertexCount * 3 * (int)sizeof(float), 0);
     }
+    if (ApplyFloraMeshPresenceColors(
+            mesh->colors, chunk->floraBaseColors, mesh->vertexCount,
+            chunk->floraTargetPresence, chunk->floraTargetScaleCount,
+            colorBlend)) {
+        UpdateMeshBuffer(*mesh, 3, mesh->colors,
+                         mesh->vertexCount * 4 * (int)sizeof(unsigned char), 0);
+    }
     if (scaleCount > 0) chunk->floraVisualScale = scaleSum / (float)scaleCount;
+}
+
+bool ApplyFloraMeshPresenceColors(
+    unsigned char *colors, const unsigned char *baseColors, int vertexCount,
+    const float *targetPresence, int targetCount, float blend)
+{
+    static const float dormantFactors[3] = { 0.55f, 0.42f, 0.32f };
+    if (!colors || !baseColors || !targetPresence || vertexCount <= 0 ||
+        targetCount <= 0) {
+        return false;
+    }
+
+    float amount = fminf(fmaxf(blend, 0.0f), 1.0f);
+    bool changed = false;
+    for (int group = 0; group < targetCount; group++) {
+        int firstVertex = group * 12;
+        if (firstVertex >= vertexCount) break;
+        int lastVertex = firstVertex + 12;
+        if (lastVertex > vertexCount) lastVertex = vertexCount;
+        float presence = fminf(fmaxf(targetPresence[group], 0.0f), 1.0f);
+        for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
+            int colorIndex = vertex * 4;
+            for (int channel = 0; channel < 3; channel++) {
+                float base = (float)baseColors[colorIndex + channel];
+                float dormant = base * dormantFactors[channel];
+                float target = dormant + (base - dormant) * presence;
+                float current = (float)colors[colorIndex + channel];
+                unsigned char next = (unsigned char)lroundf(
+                    current + (target - current) * amount);
+                if (next != colors[colorIndex + channel]) {
+                    colors[colorIndex + channel] = next;
+                    changed = true;
+                }
+            }
+            if (colors[colorIndex + 3] != baseColors[colorIndex + 3]) {
+                colors[colorIndex + 3] = baseColors[colorIndex + 3];
+                changed = true;
+            }
+        }
+    }
+    return changed;
 }
 
 void ChunksUpdateEcologyVisuals(float dt, float daylight)
@@ -2001,24 +2059,38 @@ static void InitializeFloraTargets(Chunk *chunk)
     chunk->floraTargetScales = NULL;
     free(chunk->floraTargetWind);
     chunk->floraTargetWind = NULL;
+    free(chunk->floraTargetPresence);
+    chunk->floraTargetPresence = NULL;
+    free(chunk->floraBaseColors);
+    chunk->floraBaseColors = NULL;
     chunk->floraTargetScaleCount = 0;
     if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
 
     Mesh *mesh = &chunk->floraModel.meshes[0];
-    if (mesh->vertexCount <= 0) return;
+    if (mesh->vertexCount <= 0 || !mesh->colors) return;
     int count = (mesh->vertexCount + 11) / 12;
     chunk->floraTargetScales = malloc((size_t)count * sizeof(float));
     chunk->floraTargetWind = malloc((size_t)count * sizeof(float));
-    if (!chunk->floraTargetScales || !chunk->floraTargetWind) {
+    chunk->floraTargetPresence = malloc((size_t)count * sizeof(float));
+    chunk->floraBaseColors = malloc((size_t)mesh->vertexCount * 4u);
+    if (!chunk->floraTargetScales || !chunk->floraTargetWind ||
+        !chunk->floraTargetPresence || !chunk->floraBaseColors) {
         free(chunk->floraTargetScales);
         free(chunk->floraTargetWind);
+        free(chunk->floraTargetPresence);
+        free(chunk->floraBaseColors);
         chunk->floraTargetScales = NULL;
         chunk->floraTargetWind = NULL;
+        chunk->floraTargetPresence = NULL;
+        chunk->floraBaseColors = NULL;
         return;
     }
+    memcpy(chunk->floraBaseColors, mesh->colors,
+           (size_t)mesh->vertexCount * 4u);
     for (int index = 0; index < count; index++) {
         chunk->floraTargetScales[index] = 1.0f;
         chunk->floraTargetWind[index] = 0.0f;
+        chunk->floraTargetPresence[index] = 1.0f;
     }
     chunk->floraTargetScaleCount = count;
 }

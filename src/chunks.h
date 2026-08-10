@@ -38,6 +38,9 @@ bool BuildFloraMeshData(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
+bool ApplyFloraMeshPresenceColors(
+    unsigned char *colors, const unsigned char *baseColors, int vertexCount,
+    const float *targetPresence, int targetCount, float blend);
 void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, BlockType type, Color baseColor, float extraLight);
 BlockTexture TextureForBlockFace(BlockType type, int face);
 void AtlasUVs(BlockTexture texture, Vector2 uvs[6]);

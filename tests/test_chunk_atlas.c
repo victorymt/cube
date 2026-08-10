@@ -163,6 +163,8 @@ static void AssertSurfaceFloraMeshPartition(void)
                               WORLD_HEIGHT, 0, 0, 0, faces,
                               NULL, 0, &flora));
     assert(flora.vertexCount == 24);
+    unsigned char baseColors[24 * 4];
+    memcpy(baseColors, flora.colors, sizeof(baseColors));
     for (int group = 0; group < 2; group++) {
         int firstVertex = group * 12;
         float centerX = flora.vertices[firstVertex * 3] + 0.16f;
@@ -172,6 +174,25 @@ static void AssertSurfaceFloraMeshPartition(void)
             assert(fabsf(flora.vertices[vertex * 3 + 2] - centerZ) < 0.33f);
         }
     }
+    const float presence[2] = { 0.0f, 1.0f };
+    assert(ApplyFloraMeshPresenceColors(
+        flora.colors, baseColors, flora.vertexCount, presence, 2, 1.0f));
+    for (int vertex = 0; vertex < 12; vertex++) {
+        int color = vertex * 4;
+        assert(flora.colors[color] ==
+               (unsigned char)lroundf((float)baseColors[color] * 0.55f));
+        assert(flora.colors[color + 1] ==
+               (unsigned char)lroundf((float)baseColors[color + 1] * 0.42f));
+        assert(flora.colors[color + 2] ==
+               (unsigned char)lroundf((float)baseColors[color + 2] * 0.32f));
+        assert(flora.colors[color + 3] == baseColors[color + 3]);
+    }
+    for (int vertex = 12; vertex < 24; vertex++) {
+        int color = vertex * 4;
+        assert(memcmp(&flora.colors[color], &baseColors[color], 4) == 0);
+    }
+    assert(!ApplyFloraMeshPresenceColors(
+        flora.colors, baseColors, flora.vertexCount, presence, 2, 1.0f));
     assert(legacySolid.vertexCount == solid.vertexCount);
     assert(legacyTransparent.vertexCount == water.vertexCount + flora.vertexCount);
 
