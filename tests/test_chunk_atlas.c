@@ -245,6 +245,7 @@ static void AssertFloraStructureInstancePartition(void)
         .rootX = 2, .groundY = 3, .rootZ = 2,
         .minX = 0, .minY = 4, .minZ = 0,
         .maxX = 4, .maxY = 8, .maxZ = 4,
+        .primaryBlock = BLOCK_GREEN, .accentBlock = BLOCK_CYAN,
         .windResponse = 1.0f
     };
     chunk.floraStructures[1] = (FloraStructureInstance){
@@ -253,6 +254,7 @@ static void AssertFloraStructureInstancePartition(void)
         .rootX = 8, .groundY = 3, .rootZ = 2,
         .minX = 7, .minY = 4, .minZ = 1,
         .maxX = 9, .maxY = 6, .maxZ = 3,
+        .primaryBlock = BLOCK_BLUE, .accentBlock = BLOCK_PURPLE,
         .windResponse = 0.12f
     };
     chunk.floraStructures[2] = (FloraStructureInstance){
@@ -261,6 +263,7 @@ static void AssertFloraStructureInstancePartition(void)
         .rootX = 2, .groundY = 3, .rootZ = 9,
         .minX = 1, .minY = 4, .minZ = 8,
         .maxX = 3, .maxY = 8, .maxZ = 10,
+        .primaryBlock = BLOCK_GREEN, .accentBlock = BLOCK_PURPLE,
         .windResponse = 0.65f
     };
     chunk.floraStructures[3] = (FloraStructureInstance){
@@ -269,16 +272,21 @@ static void AssertFloraStructureInstancePartition(void)
         .rootX = 8, .groundY = 3, .rootZ = 9,
         .minX = 7, .minY = 4, .minZ = 9,
         .maxX = 9, .maxY = 7, .maxZ = 10,
+        .primaryBlock = BLOCK_ORANGE, .accentBlock = BLOCK_YELLOW,
         .windResponse = 0.05f
     };
 
     chunk.blocks[2][4][2] = BLOCK_GREEN;
+    chunk.blocks[2][5][2] = BLOCK_STONE;
     chunk.blocks[4][4][4] = BLOCK_STONE;
     chunk.blocks[8][4][2] = BLOCK_BLUE;
+    chunk.blocks[8][5][2] = BLOCK_STONE;
     chunk.blocks[9][5][3] = BLOCK_STONE;
     chunk.blocks[2][4][9] = BLOCK_MUSHROOM;
+    chunk.blocks[2][5][9] = BLOCK_STONE;
     chunk.blocks[3][4][10] = BLOCK_STONE;
     chunk.blocks[8][4][9] = BLOCK_NETHERRACK;
+    chunk.blocks[8][5][9] = BLOCK_STONE;
     chunk.blocks[9][5][10] = BLOCK_STONE;
 
     Mesh flora = { 0 };

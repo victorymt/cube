@@ -2054,66 +2054,106 @@ bool BuildFloraMeshData(
         faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
 }
 
+static bool FloraStructureExpectedBlockAt(
+    const FloraStructureInstance *structure,
+    int worldX, int y, int worldZ, BlockType *outBlock)
+{
+    if (worldX < structure->minX || worldX > structure->maxX ||
+        y < structure->minY || y > structure->maxY ||
+        worldZ < structure->minZ || worldZ > structure->maxZ) return false;
+
+    int base = structure->groundY + 1;
+    int offsetX = worldX - structure->rootX;
+    int offsetZ = worldZ - structure->rootZ;
+    switch (structure->kind) {
+    case FLORA_STRUCTURE_ALIEN_CANOPY: {
+        int trunkHeight = 3 + (int)(structure->shapeHash % 3u);
+        int distance = abs(offsetX) + abs(offsetZ);
+        if (offsetX == 0 && offsetZ == 0 &&
+            y == base + trunkHeight + 1) {
+            *outBlock = BLOCK_GLOWSTONE;
+            return true;
+        }
+        if ((y == base + trunkHeight - 1 && distance <= 3) ||
+            (y == base + trunkHeight && distance < 2)) {
+            *outBlock = structure->accentBlock;
+            return true;
+        }
+        if (offsetX == 0 && offsetZ == 0 &&
+            y >= base && y < base + trunkHeight) {
+            *outBlock = structure->primaryBlock;
+            return true;
+        }
+    } break;
+    case FLORA_STRUCTURE_CRYSTAL: {
+        int height = 2 + (int)(structure->shapeHash % 4u);
+        if (offsetX == 0 && offsetZ == 0 &&
+            y >= base && y < base + height) {
+            *outBlock = y == base + height - 1 ?
+                        structure->accentBlock : structure->primaryBlock;
+            return true;
+        }
+        bool branch = structure->shapeHash & 1u ?
+            ((offsetX == -1 && offsetZ == 0 && y == base + 1) ||
+             (offsetX == 1 && offsetZ == 0 && y == base)) :
+            ((offsetX == 0 && offsetZ == -1 && y == base + 1) ||
+             (offsetX == 0 && offsetZ == 1 && y == base));
+        if (branch) {
+            *outBlock = structure->accentBlock;
+            return true;
+        }
+    } break;
+    case FLORA_STRUCTURE_SPORE: {
+        int stemHeight = 2 + (int)(structure->shapeHash % 2u);
+        int distance = abs(offsetX) + abs(offsetZ);
+        if (offsetX == 0 && offsetZ == 0 &&
+            y == base + stemHeight + 1) {
+            *outBlock = structure->primaryBlock;
+            return true;
+        }
+        if (y == base + stemHeight && distance <= 1) {
+            *outBlock = structure->accentBlock;
+            return true;
+        }
+        if (offsetX == 0 && offsetZ == 0 &&
+            y >= base && y < base + stemHeight) {
+            *outBlock = BLOCK_MUSHROOM;
+            return true;
+        }
+    } break;
+    case FLORA_STRUCTURE_THERMAL_VENT: {
+        int height = 2 + (int)(structure->shapeHash % 3u);
+        if (offsetX == 0 && offsetZ == 1 && y == base + height) {
+            *outBlock = structure->accentBlock;
+            return true;
+        }
+        if (offsetX == 0 && offsetZ == 0 && y == base + height) {
+            *outBlock = BLOCK_GLOWSTONE;
+            return true;
+        }
+        if (abs(offsetX) == 1 && offsetZ == 0 && y == base) {
+            *outBlock = BLOCK_OBSIDIAN;
+            return true;
+        }
+        if (offsetX == 0 && offsetZ == 0 &&
+            y >= base && y < base + height) {
+            *outBlock = BLOCK_NETHERRACK;
+            return true;
+        }
+    } break;
+    }
+    return false;
+}
+
 static int FloraStructureOwnerAt(
     const FloraStructureInstance *structures, int structureCount,
-    int worldX, int y, int worldZ)
+    int worldX, int y, int worldZ, BlockType actualBlock)
 {
-    for (int index = 0; index < structureCount; index++) {
-        const FloraStructureInstance *structure = &structures[index];
-        if (worldX < structure->minX || worldX > structure->maxX ||
-            y < structure->minY || y > structure->maxY ||
-            worldZ < structure->minZ || worldZ > structure->maxZ) continue;
-
-        int base = structure->groundY + 1;
-        int offsetX = worldX - structure->rootX;
-        int offsetZ = worldZ - structure->rootZ;
-        bool belongs = false;
-        switch (structure->kind) {
-        case FLORA_STRUCTURE_ALIEN_CANOPY: {
-            int trunkHeight = 3 + (int)(structure->shapeHash % 3u);
-            int distance = abs(offsetX) + abs(offsetZ);
-            belongs = (offsetX == 0 && offsetZ == 0 &&
-                       y >= base && y < base + trunkHeight) ||
-                      (y == base + trunkHeight - 1 && distance <= 3) ||
-                      (y == base + trunkHeight && distance < 2) ||
-                      (offsetX == 0 && offsetZ == 0 &&
-                       y == base + trunkHeight + 1);
-        } break;
-        case FLORA_STRUCTURE_CRYSTAL: {
-            int height = 2 + (int)(structure->shapeHash % 4u);
-            belongs = (offsetX == 0 && offsetZ == 0 &&
-                       y >= base && y < base + height);
-            if (structure->shapeHash & 1u) {
-                belongs = belongs ||
-                          (offsetX == -1 && offsetZ == 0 && y == base + 1) ||
-                          (offsetX == 1 && offsetZ == 0 && y == base);
-            } else {
-                belongs = belongs ||
-                          (offsetX == 0 && offsetZ == -1 && y == base + 1) ||
-                          (offsetX == 0 && offsetZ == 1 && y == base);
-            }
-        } break;
-        case FLORA_STRUCTURE_SPORE: {
-            int stemHeight = 2 + (int)(structure->shapeHash % 2u);
-            int distance = abs(offsetX) + abs(offsetZ);
-            belongs = (offsetX == 0 && offsetZ == 0 &&
-                       y >= base && y < base + stemHeight) ||
-                      (y == base + stemHeight && distance <= 1) ||
-                      (offsetX == 0 && offsetZ == 0 &&
-                       y == base + stemHeight + 1);
-        } break;
-        case FLORA_STRUCTURE_THERMAL_VENT: {
-            int height = 2 + (int)(structure->shapeHash % 3u);
-            belongs = (offsetX == 0 && offsetZ == 0 &&
-                       y >= base && y < base + height) ||
-                      (abs(offsetX) == 1 && offsetZ == 0 && y == base) ||
-                      (offsetX == 0 && offsetZ == 0 &&
-                       y == base + height) ||
-                      (offsetX == 0 && offsetZ == 1 &&
-                       y == base + height);
-        } break;
-        }
-        if (belongs) return index;
+    for (int index = structureCount - 1; index >= 0; index--) {
+        BlockType expectedBlock = BLOCK_AIR;
+        if (FloraStructureExpectedBlockAt(
+                &structures[index], worldX, y, worldZ, &expectedBlock) &&
+            actualBlock == expectedBlock) return index;
     }
     return -1;
 }
@@ -2133,7 +2173,8 @@ static void CopyBlocksWithoutFloraStructures(
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 if (FloraStructureOwnerAt(
                         structures, structureCount,
-                        startX + lx, y, startZ + lz) >= 0) {
+                        startX + lx, y, startZ + lz,
+                        (BlockType)source[lx][y][lz]) >= 0) {
                     destination[lx][y][lz] = (unsigned short)BLOCK_AIR;
                 }
             }
@@ -2305,12 +2346,11 @@ static bool BuildChunkFloraMeshDataFromSnapshot(
         for (int lx = 0; lx < CHUNK_SIZE; lx++) {
             for (int y = 0; y < WORLD_HEIGHT; y++) {
                 for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                    unsigned short block = blocks[lx][y][lz];
                     if (FloraStructureOwnerAt(
                             structures, structureCount,
-                            startX + lx, y, startZ + lz) != structureIndex) {
-                        continue;
-                    }
-                    unsigned short block = blocks[lx][y][lz];
+                            startX + lx, y, startZ + lz,
+                            (BlockType)block) != structureIndex) continue;
                     if (block == (unsigned short)BLOCK_AIR) continue;
                     instanceBlocks[lx][y][lz] = block;
                     hasBlocks = true;

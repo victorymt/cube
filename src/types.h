@@ -267,6 +267,8 @@ typedef struct FloraStructureInstance {
     int maxX;
     int maxY;
     int maxZ;
+    BlockType primaryBlock;
+    BlockType accentBlock;
     float windResponse;
 } FloraStructureInstance;
 

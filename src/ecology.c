@@ -975,6 +975,7 @@ static void EcologySet(Chunk *chunk, int x, int y, int z, BlockType type)
 }
 
 static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
+                                   const PlanetEcologyProfile *profile,
                                    PlanetFloraArchetype archetype,
                                    uint32_t hash)
 {
@@ -1007,6 +1008,8 @@ static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
         .maxX = x,
         .maxY = base,
         .maxZ = z,
+        .primaryBlock = profile->primaryBlock,
+        .accentBlock = profile->accentBlock,
         .windResponse = 1.0f
     };
     switch (kind) {
@@ -1151,7 +1154,7 @@ static void PlacePlanetFlora(Chunk *chunk, int x, int z,
         biome != PLANET_BIOME_PLAINS && biome != PLANET_BIOME_OASIS) {
         type = PLANET_FLORA_SPORE;
     }
-    RegisterFloraStructure(chunk, x, z, ground, type, hash);
+    RegisterFloraStructure(chunk, x, z, ground, profile, type, hash);
     switch (type) {
     case PLANET_FLORA_ALIEN_CANOPY:
         PlaceAlienCanopy(chunk, x, z, ground, profile, hash);
