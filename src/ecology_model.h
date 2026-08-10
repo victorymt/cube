@@ -113,6 +113,15 @@ typedef struct PlanetPopulationMigrationFlux {
     float fauna;
 } PlanetPopulationMigrationFlux;
 
+typedef struct PlanetPopulationMigrationState {
+    float floraNet;
+    float faunaNet;
+    float floraFlowX;
+    float floraFlowZ;
+    float faunaFlowX;
+    float faunaFlowZ;
+} PlanetPopulationMigrationState;
+
 typedef enum PlanetHabitatDirection {
     PLANET_HABITAT_NONE = 0,
     PLANET_HABITAT_NORTH,

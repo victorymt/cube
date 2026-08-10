@@ -557,6 +557,8 @@ static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
                   sizeof(actual.suitability)) == 0);
     assert(memcmp(&actual.population, &expected.population,
                   sizeof(actual.population)) == 0);
+    assert(memcmp(&actual.migration, &expected.migration,
+                  sizeof(actual.migration)) == 0);
 
 #define ASSERT_POPULATION_UNIT(field)                                      \
     assert(actual.population.field >= 0.0f &&                              \
@@ -567,6 +569,18 @@ static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
     ASSERT_POPULATION_UNIT(faunaCarryingCapacity);
     ASSERT_POPULATION_UNIT(seasonalMemory);
 #undef ASSERT_POPULATION_UNIT
+
+#define ASSERT_MIGRATION_SIGNED_UNIT(field)                                \
+    assert(isfinite(actual.migration.field) &&                             \
+           actual.migration.field >= -1.0f &&                             \
+           actual.migration.field <= 1.0f)
+    ASSERT_MIGRATION_SIGNED_UNIT(floraNet);
+    ASSERT_MIGRATION_SIGNED_UNIT(faunaNet);
+    ASSERT_MIGRATION_SIGNED_UNIT(floraFlowX);
+    ASSERT_MIGRATION_SIGNED_UNIT(floraFlowZ);
+    ASSERT_MIGRATION_SIGNED_UNIT(faunaFlowX);
+    ASSERT_MIGRATION_SIGNED_UNIT(faunaFlowZ);
+#undef ASSERT_MIGRATION_SIGNED_UNIT
 }
 
 static bool LocalEcologyDiffers(PlanetLocalEcology left,
@@ -577,7 +591,9 @@ static bool LocalEcologyDiffers(PlanetLocalEcology left,
            memcmp(&left.suitability, &right.suitability,
                   sizeof(left.suitability)) != 0 ||
            memcmp(&left.population, &right.population,
-                  sizeof(left.population)) != 0;
+                  sizeof(left.population)) != 0 ||
+           memcmp(&left.migration, &right.migration,
+                  sizeof(left.migration)) != 0;
 }
 
 static float WeatherSampleDistance(WeatherFieldSample left,
@@ -795,7 +811,7 @@ static void TestEcologySaveLoadReplay(void)
 
 static void TestEcologyMigrationOrderAndTimePartition(void)
 {
-    const uint32_t seed = 0x8f3a21d7u;
+    uint32_t seed = 0u;
     static const int cells[4][2] = {
         { 32, 32 }, { 96, 32 }, { 32, 96 }, { 96, 96 }
     };
@@ -803,6 +819,18 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     static const int reverseOrder[4] = { 3, 2, 1, 0 };
     PlanetLocalEcology singleAdvance[4];
     PlanetLocalEcology partitionedAdvance[4];
+
+    for (uint32_t index = 0; index < 512u; index++) {
+        uint32_t candidate = 0x8f3a21d7u + index * 0x9e3779b9u;
+        SetPropertySeed(candidate);
+        PlanetEcologyResetState();
+        ActivateEcologyPlanet(candidate, 0, 0);
+        if (PlanetEcologyCurrent().floraDensity > 0.08f) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
 
     SetPropertySeed(seed);
     ActivateEcologyPlanet(seed, 0, 0);
@@ -815,10 +843,31 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
         PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f);
     }
     SpaceAdvanceTime(96.0f);
+    float migrationSignal = 0.0f;
     for (int cell = 0; cell < 4; cell++) {
         singleAdvance[cell] = PlanetEcologyLocalAt(
             cells[cell][0], cells[cell][1], 0.72f);
+        migrationSignal += fabsf(singleAdvance[cell].migration.floraNet) +
+            fabsf(singleAdvance[cell].migration.faunaNet) +
+            fabsf(singleAdvance[cell].migration.floraFlowX) +
+            fabsf(singleAdvance[cell].migration.floraFlowZ) +
+            fabsf(singleAdvance[cell].migration.faunaFlowX) +
+            fabsf(singleAdvance[cell].migration.faunaFlowZ);
     }
+    assert(migrationSignal > 0.000001f);
+
+    FILE *migrationReplay = tmpfile();
+    assert(migrationReplay);
+    assert(PlanetEcologySaveState(migrationReplay));
+    PlanetEcologyResetState();
+    rewind(migrationReplay);
+    assert(PlanetEcologyLoadState(migrationReplay));
+    for (int cell = 0; cell < 4; cell++) {
+        AssertLocalEcologyEqual(
+            PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f),
+            singleAdvance[cell]);
+    }
+    fclose(migrationReplay);
 
     rewind(baseline);
     assert(SpaceLoadState(baseline));
@@ -840,6 +889,19 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
             partitionedAdvance[cell], singleAdvance[cell]);
     }
     fclose(baseline);
+}
+
+static void TestEcologyLegacyPopulationStateLoad(void)
+{
+    FILE *legacy = tmpfile();
+    assert(legacy);
+    const uint32_t header[2] = { 1u, 0u };
+    const uint64_t accessSerial = 0u;
+    assert(fwrite(header, sizeof(header), 1, legacy) == 1);
+    assert(fwrite(&accessSerial, sizeof(accessSerial), 1, legacy) == 1);
+    rewind(legacy);
+    assert(PlanetEcologyLoadState(legacy));
+    fclose(legacy);
 }
 
 typedef struct ChunkBlockSnapshot {
@@ -1429,6 +1491,7 @@ int main(void)
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();
     TestEcologyMigrationOrderAndTimePartition();
+    TestEcologyLegacyPopulationStateLoad();
     TestFloraMeshDeformationProperties();
     TestChunkUnloadReloadDeterminism();
     puts("space properties tests passed");

@@ -2781,6 +2781,16 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             ecology.population.faunaCarryingCapacity,
                             ecology.population.seasonalMemory),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Migration net flora %+.3f   fauna %+.3f",
+                            ecology.migration.floraNet,
+                            ecology.migration.faunaNet),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Flow flora (%+.3f,%+.3f)   fauna (%+.3f,%+.3f)",
+                            ecology.migration.floraFlowX,
+                            ecology.migration.floraFlowZ,
+                            ecology.migration.faunaFlowX,
+                            ecology.migration.faunaFlowZ),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
         DrawText(TextFormat("Climate %.0f/%.0f K   light %.2f/%.2f   storm %.2f",
                             ecology.environment.meanTemperatureK,
                             ecology.environment.currentTemperatureK,

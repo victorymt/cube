@@ -18,7 +18,8 @@
 #define ECOLOGY_POPULATION_STEP_DAYS 4.0
 #define ECOLOGY_POPULATION_MAX_REGIONS \
     (ECOLOGY_POPULATION_SET_COUNT * ECOLOGY_POPULATION_SET_WAYS)
-#define ECOLOGY_POPULATION_STATE_VERSION 1u
+#define ECOLOGY_POPULATION_STATE_VERSION 2u
+#define ECOLOGY_POPULATION_LEGACY_STATE_VERSION 1u
 
 #if defined(__GNUC__) || defined(__clang__)
 #define ECOLOGY_THREAD_LOCAL __thread
@@ -56,6 +57,7 @@ typedef struct EcologyPopulationRecord {
     double lastUpdateTime;
     uint64_t lastAccess;
     PlanetRegionalPopulation population;
+    PlanetPopulationMigrationState migration;
 } EcologyPopulationRecord;
 
 typedef struct EcologyPopulationStepState {
@@ -760,6 +762,7 @@ static void EcologyPopulationAdvanceRecords(
         if (!record->valid || record->surfaceId != surfaceId) continue;
         if (record->lastUpdateTime > targetTime) {
             record->lastUpdateTime = targetTime;
+            record->migration = (PlanetPopulationMigrationState){ 0 };
             changed = true;
         }
     }
@@ -784,6 +787,10 @@ static void EcologyPopulationAdvanceRecords(
             states[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
         double floraDelta[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
         double faunaDelta[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
+        double floraFlowX[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
+        double floraFlowZ[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
+        double faunaFlowX[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
+        double faunaFlowZ[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
         for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
              index++) {
             EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
@@ -826,6 +833,16 @@ static void EcologyPopulationAdvanceRecords(
                 floraDelta[neighborIndex] += flux.flora;
                 faunaDelta[index] -= flux.fauna;
                 faunaDelta[neighborIndex] += flux.fauna;
+                float directionX = (float)directions[direction][0];
+                float directionZ = (float)directions[direction][1];
+                floraFlowX[index] += flux.flora * directionX;
+                floraFlowX[neighborIndex] += flux.flora * directionX;
+                floraFlowZ[index] += flux.flora * directionZ;
+                floraFlowZ[neighborIndex] += flux.flora * directionZ;
+                faunaFlowX[index] += flux.fauna * directionX;
+                faunaFlowX[neighborIndex] += flux.fauna * directionX;
+                faunaFlowZ[index] += flux.fauna * directionZ;
+                faunaFlowZ[neighborIndex] += flux.fauna * directionZ;
             }
         }
 
@@ -840,6 +857,20 @@ static void EcologyPopulationAdvanceRecords(
                 states[index].population.faunaDensity +
                 (float)faunaDelta[index]);
             record->population = states[index].population;
+            record->migration = (PlanetPopulationMigrationState){
+                .floraNet = fminf(fmaxf(
+                    (float)floraDelta[index], -1.0f), 1.0f),
+                .faunaNet = fminf(fmaxf(
+                    (float)faunaDelta[index], -1.0f), 1.0f),
+                .floraFlowX = fminf(fmaxf(
+                    (float)floraFlowX[index], -1.0f), 1.0f),
+                .floraFlowZ = fminf(fmaxf(
+                    (float)floraFlowZ[index], -1.0f), 1.0f),
+                .faunaFlowX = fminf(fmaxf(
+                    (float)faunaFlowX[index], -1.0f), 1.0f),
+                .faunaFlowZ = fminf(fmaxf(
+                    (float)faunaFlowZ[index], -1.0f), 1.0f)
+            };
             record->lastUpdateTime = stepEnd;
             changed = true;
         }
@@ -853,9 +884,11 @@ static void EcologyPopulationAdvanceRecords(
 
 static PlanetRegionalPopulation EcologyRegionalPopulationAt(
     int x, int z, double simulationTime, float daylight,
-    const PlanetEcologyProfile *profile)
+    const PlanetEcologyProfile *profile,
+    PlanetPopulationMigrationState *outMigration)
 {
     PlanetRegionalPopulation empty = { 0 };
+    if (outMigration) *outMigration = (PlanetPopulationMigrationState){ 0 };
     int originX = PlanetWorldOriginX();
     int originZ = PlanetWorldOriginZ();
     int globalX = originX + x;
@@ -892,6 +925,7 @@ static PlanetRegionalPopulation EcologyRegionalPopulationAt(
         if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
     }
     EcologyPopulationRecord *record = &ecologyPopulationRecords[recordIndex];
+    if (outMigration) *outMigration = record->migration;
     return record->population;
 }
 
@@ -907,6 +941,25 @@ static bool EcologyPopulationStateValid(
     };
     for (unsigned index = 0; index < sizeof(values) / sizeof(values[0]); index++) {
         if (!isfinite(values[index]) || values[index] < 0.0f ||
+            values[index] > 1.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool EcologyPopulationMigrationStateValid(
+    const PlanetPopulationMigrationState *migration)
+{
+    if (!migration) return false;
+    const float values[] = {
+        migration->floraNet, migration->faunaNet,
+        migration->floraFlowX, migration->floraFlowZ,
+        migration->faunaFlowX, migration->faunaFlowZ
+    };
+    for (unsigned index = 0; index < sizeof(values) / sizeof(values[0]);
+         index++) {
+        if (!isfinite(values[index]) || values[index] < -1.0f ||
             values[index] > 1.0f) {
             return false;
         }
@@ -949,14 +1002,21 @@ bool PlanetEcologySaveState(FILE *file)
             record->population.faunaCarryingCapacity,
             record->population.seasonalMemory
         };
+        const float migration[6] = {
+            record->migration.floraNet, record->migration.faunaNet,
+            record->migration.floraFlowX, record->migration.floraFlowZ,
+            record->migration.faunaFlowX, record->migration.faunaFlowZ
+        };
         if (!EcologyPopulationStateValid(&record->population) ||
+            !EcologyPopulationMigrationStateValid(&record->migration) ||
             !isfinite(record->lastUpdateTime) ||
             fwrite(&record->surfaceId, sizeof(record->surfaceId), 1, file) != 1 ||
             fwrite(coordinates, sizeof(coordinates), 1, file) != 1 ||
             fwrite(&record->lastUpdateTime,
                    sizeof(record->lastUpdateTime), 1, file) != 1 ||
             fwrite(&record->lastAccess, sizeof(record->lastAccess), 1, file) != 1 ||
-            fwrite(population, sizeof(population), 1, file) != 1) {
+            fwrite(population, sizeof(population), 1, file) != 1 ||
+            fwrite(migration, sizeof(migration), 1, file) != 1) {
             return false;
         }
     }
@@ -969,7 +1029,8 @@ bool PlanetEcologyLoadState(FILE *file)
     uint64_t loadedAccessSerial = 0u;
     if (!file || fread(header, sizeof(header), 1, file) != 1 ||
         fread(&loadedAccessSerial, sizeof(loadedAccessSerial), 1, file) != 1 ||
-        header[0] != ECOLOGY_POPULATION_STATE_VERSION ||
+        (header[0] != ECOLOGY_POPULATION_STATE_VERSION &&
+         header[0] != ECOLOGY_POPULATION_LEGACY_STATE_VERSION) ||
         header[1] > ECOLOGY_POPULATION_MAX_REGIONS) {
         return false;
     }
@@ -981,11 +1042,16 @@ bool PlanetEcologyLoadState(FILE *file)
         double lastUpdateTime = 0.0;
         uint64_t lastAccess = 0u;
         float populationValues[5];
+        float migrationValues[6] = { 0 };
         if (fread(&surfaceId, sizeof(surfaceId), 1, file) != 1 ||
             fread(coordinates, sizeof(coordinates), 1, file) != 1 ||
             fread(&lastUpdateTime, sizeof(lastUpdateTime), 1, file) != 1 ||
             fread(&lastAccess, sizeof(lastAccess), 1, file) != 1 ||
             fread(populationValues, sizeof(populationValues), 1, file) != 1) {
+            return false;
+        }
+        if (header[0] >= ECOLOGY_POPULATION_STATE_VERSION &&
+            fread(migrationValues, sizeof(migrationValues), 1, file) != 1) {
             return false;
         }
         PlanetRegionalPopulation population = {
@@ -995,10 +1061,19 @@ bool PlanetEcologyLoadState(FILE *file)
             .faunaCarryingCapacity = populationValues[3],
             .seasonalMemory = populationValues[4]
         };
+        PlanetPopulationMigrationState migration = {
+            .floraNet = migrationValues[0],
+            .faunaNet = migrationValues[1],
+            .floraFlowX = migrationValues[2],
+            .floraFlowZ = migrationValues[3],
+            .faunaFlowX = migrationValues[4],
+            .faunaFlowZ = migrationValues[5]
+        };
         if (surfaceId == 0u || !isfinite(lastUpdateTime) ||
             lastUpdateTime < 0.0 || lastAccess == 0u ||
             lastAccess > loadedAccessSerial ||
-            !EcologyPopulationStateValid(&population)) {
+            !EcologyPopulationStateValid(&population) ||
+            !EcologyPopulationMigrationStateValid(&migration)) {
             return false;
         }
 
@@ -1023,7 +1098,8 @@ bool PlanetEcologyLoadState(FILE *file)
             .regionZ = (int)coordinates[1],
             .lastUpdateTime = lastUpdateTime,
             .lastAccess = lastAccess,
-            .population = population
+            .population = population,
+            .migration = migration
         };
     }
 
@@ -1059,9 +1135,11 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     }
 
     local = EcologyDynamicLocalAt(x, z, simulationTime, daylight, &profile);
+    PlanetPopulationMigrationState migration = { 0 };
     PlanetRegionalPopulation population = EcologyRegionalPopulationAt(
-        x, z, simulationTime, daylight, &profile);
+        x, z, simulationTime, daylight, &profile, &migration);
     local.population = population;
+    local.migration = migration;
     float floraPresence = PlanetPopulationFloraPresence(&population);
     float faunaPresence = PlanetPopulationFaunaPresence(&population);
     local.suitability.floraActivity = EcologyClamp(

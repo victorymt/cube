@@ -76,6 +76,7 @@ typedef struct PlanetLocalEcology {
     PlanetLocalEnvironment environment;
     PlanetEcologySuitability suitability;
     PlanetRegionalPopulation population;
+    PlanetPopulationMigrationState migration;
 } PlanetLocalEcology;
 
 PlanetEcologyProfile PlanetEcologyCurrent(void);
