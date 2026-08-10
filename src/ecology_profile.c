@@ -610,5 +610,3 @@ const char *PlanetEcologyNicheName(void)
     default:                                 return "Grazer";
     }
 }
-
-
