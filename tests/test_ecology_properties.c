@@ -30,6 +30,7 @@ static const char *ecologyPropertyStyleNames[] = {
 enum { ECOLOGY_DISTRIBUTION_SEED_COUNT = 4096 };
 
 typedef struct EcologyDistribution {
+    int sampleCount;
     int originatedCount;
     int complexCount;
     int biomass[PLANET_BIOMASS_ANOMALOUS + 1];
@@ -42,6 +43,8 @@ typedef struct EcologyDistribution {
     double iceTotal;
     double windTotal;
 } EcologyDistribution;
+
+enum { ECOLOGY_GENERATED_SYSTEM_RADIUS = 12 };
 
 static float PropertyUnit(uint32_t *state)
 {
@@ -138,6 +141,65 @@ static void AssertProfileValid(const PlanetEcologyProfile *profile,
         assert(profile->floraDensity == 0.0f);
         assert(profile->faunaDensity == 0.0f);
     }
+}
+
+static void RecordEcologyDistribution(
+    EcologyDistribution *distribution, const PlanetProfile *planet,
+    const PlanetEcologyProfile *ecology)
+{
+    assert(distribution);
+    assert(planet);
+    assert(ecology);
+    distribution->sampleCount++;
+    distribution->originatedCount += ecology->lifeOriginated ? 1 : 0;
+    distribution->complexCount += ecology->hasComplexLife ? 1 : 0;
+    distribution->biomass[ecology->biomass]++;
+    distribution->originProbabilityTotal += ecology->lifeOriginProbability;
+    distribution->complexProbabilityTotal += ecology->complexLifeProbability;
+    distribution->lifeDensityTotal += ecology->lifeDensity;
+    distribution->temperatureTotal += planet->equilibriumTempK;
+    distribution->pressureTotal += planet->surfacePressureAtm;
+    distribution->waterTotal += planet->oceanCoverage;
+    distribution->iceTotal += planet->iceCoverage;
+    distribution->windTotal += planet->windStrength;
+}
+
+static int EcologyDistributionNonBarren(
+    const EcologyDistribution *distribution)
+{
+    assert(distribution);
+    return distribution->sampleCount -
+           distribution->biomass[PLANET_BIOMASS_BARREN];
+}
+
+static void PrintEcologyDistribution(
+    const char *group, const char *name,
+    const EcologyDistribution *distribution)
+{
+    assert(distribution);
+    assert(distribution->sampleCount > 0);
+    double divisor = (double)distribution->sampleCount;
+    printf("%s %-9s samples=%d origin=%d complex=%d "
+           "mean-prob=%.3f/%.3f mean-density=%.3f "
+           "climate=%.0fK/%.2fatm/%.2fwater/%.2fice/%.2fwind "
+           "barren=%d microbial=%d fungal=%d crystalline=%d "
+           "lush=%d anomalous=%d\n",
+           group, name, distribution->sampleCount,
+           distribution->originatedCount, distribution->complexCount,
+           distribution->originProbabilityTotal / divisor,
+           distribution->complexProbabilityTotal / divisor,
+           distribution->lifeDensityTotal / divisor,
+           distribution->temperatureTotal / divisor,
+           distribution->pressureTotal / divisor,
+           distribution->waterTotal / divisor,
+           distribution->iceTotal / divisor,
+           distribution->windTotal / divisor,
+           distribution->biomass[PLANET_BIOMASS_BARREN],
+           distribution->biomass[PLANET_BIOMASS_MICROBIAL],
+           distribution->biomass[PLANET_BIOMASS_FUNGAL],
+           distribution->biomass[PLANET_BIOMASS_CRYSTALLINE],
+           distribution->biomass[PLANET_BIOMASS_LUSH],
+           distribution->biomass[PLANET_BIOMASS_ANOMALOUS]);
 }
 
 static void AssertEnvironmentValid(const PlanetLocalEnvironment *environment)
@@ -314,19 +376,7 @@ static void TestGeneratedEcologyDistribution(void)
             assert(memcmp(&profile, &derived, sizeof(profile)) == 0);
             AssertProfileValid(&profile, style);
             assert(!profile.hasComplexLife || profile.lifeOriginated);
-            distribution->originatedCount += profile.lifeOriginated ? 1 : 0;
-            distribution->complexCount += profile.hasComplexLife ? 1 : 0;
-            distribution->biomass[profile.biomass]++;
-            distribution->originProbabilityTotal +=
-                profile.lifeOriginProbability;
-            distribution->complexProbabilityTotal +=
-                profile.complexLifeProbability;
-            distribution->lifeDensityTotal += profile.lifeDensity;
-            distribution->temperatureTotal += planet->equilibriumTempK;
-            distribution->pressureTotal += planet->surfacePressureAtm;
-            distribution->waterTotal += planet->oceanCoverage;
-            distribution->iceTotal += planet->iceCoverage;
-            distribution->windTotal += planet->windStrength;
+            RecordEcologyDistribution(distribution, planet, &profile);
         }
 
         int biomassTotal = 0;
@@ -336,8 +386,8 @@ static void TestGeneratedEcologyDistribution(void)
             biomassTotal += distribution->biomass[biomass];
         }
         assert(biomassTotal == ECOLOGY_DISTRIBUTION_SEED_COUNT);
-        int nonBarren = ECOLOGY_DISTRIBUTION_SEED_COUNT -
-            distribution->biomass[PLANET_BIOMASS_BARREN];
+        assert(distribution->sampleCount == ECOLOGY_DISTRIBUTION_SEED_COUNT);
+        int nonBarren = EcologyDistributionNonBarren(distribution);
         nonBarrenTotal += nonBarren;
         complexTotal += distribution->complexCount;
         if (style == SOLAR_STYLE_LAVA) {
@@ -369,35 +419,9 @@ static void TestGeneratedEcologyDistribution(void)
                               0.05f, 0.12f);
         }
 
-        printf("ecology distribution %-9s origin=%d complex=%d "
-               "mean-prob=%.3f/%.3f mean-density=%.3f "
-               "climate=%.0fK/%.2fatm/%.2fwater/%.2fice/%.2fwind "
-               "barren=%d microbial=%d fungal=%d crystalline=%d "
-               "lush=%d anomalous=%d\n",
-               ecologyPropertyStyleNames[styleIndex],
-               distribution->originatedCount, distribution->complexCount,
-               distribution->originProbabilityTotal /
-                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
-               distribution->complexProbabilityTotal /
-                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
-               distribution->lifeDensityTotal /
-                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
-               distribution->temperatureTotal /
-                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
-               distribution->pressureTotal /
-                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
-               distribution->waterTotal /
-                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
-               distribution->iceTotal /
-                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
-               distribution->windTotal /
-                   ECOLOGY_DISTRIBUTION_SEED_COUNT,
-               distribution->biomass[PLANET_BIOMASS_BARREN],
-               distribution->biomass[PLANET_BIOMASS_MICROBIAL],
-               distribution->biomass[PLANET_BIOMASS_FUNGAL],
-               distribution->biomass[PLANET_BIOMASS_CRYSTALLINE],
-               distribution->biomass[PLANET_BIOMASS_LUSH],
-               distribution->biomass[PLANET_BIOMASS_ANOMALOUS]);
+        PrintEcologyDistribution(
+            "ecology template", ecologyPropertyStyleNames[styleIndex],
+            distribution);
     }
 
     fclose(fixture);
@@ -408,6 +432,101 @@ static void TestGeneratedEcologyDistribution(void)
             (int)(sizeof(ecologyPropertyStyles) /
                   sizeof(ecologyPropertyStyles[0])),
         0.01f, 0.04f);
+}
+
+static void TestGeneratedSolarEcologyDistribution(void)
+{
+    EcologyDistribution styles[SOLAR_STYLE_TEMPERATE + 1] = { 0 };
+    EcologyDistribution multiplicities[4] = { 0 };
+    int systemCounts[4] = { 0 };
+    int systemCount = 0;
+    int planetCount = 0;
+
+    for (size_t seedIndex = 0;
+         seedIndex < sizeof(ecologyPropertySeeds) /
+                     sizeof(ecologyPropertySeeds[0]);
+         seedIndex++) {
+        EcologyTestSetSeed(ecologyPropertySeeds[seedIndex]);
+        for (int anchorX = -ECOLOGY_GENERATED_SYSTEM_RADIUS;
+             anchorX <= ECOLOGY_GENERATED_SYSTEM_RADIUS; anchorX++) {
+            for (int anchorZ = -ECOLOGY_GENERATED_SYSTEM_RADIUS;
+                 anchorZ <= ECOLOGY_GENERATED_SYSTEM_RADIUS; anchorZ++) {
+                SolarSystemDef system;
+                if (!StarSystemAt(anchorX, anchorZ, &system)) continue;
+
+                SolarStellarBody stellarBodies[3];
+                int stellarCount = SolarSystemStellarBodiesAtTime(
+                    &system, 0.0, stellarBodies, 3);
+                assert(stellarCount >= 1 && stellarCount <= 3);
+                systemCounts[stellarCount]++;
+                systemCount++;
+
+                for (int planetIndex = 0;
+                     planetIndex < system.planetCount; planetIndex++) {
+                    PlanetProfile planet = SolarPlanetProfile(
+                        &system, planetIndex);
+                    PlanetProfile repeatedPlanet = SolarPlanetProfile(
+                        &system, planetIndex);
+                    assert(memcmp(&planet, &repeatedPlanet,
+                                  sizeof(planet)) == 0);
+                    assert(planet.style >= SOLAR_STYLE_LAVA &&
+                           planet.style <= SOLAR_STYLE_TEMPERATE);
+
+                    PlanetEcologyProfile ecology =
+                        PlanetEcologyProfileForPlanet(
+                            &planet, planet.seed, false);
+                    PlanetEcologyProfile repeatedEcology =
+                        PlanetEcologyProfileForPlanet(
+                            &planet, planet.seed, false);
+                    assert(memcmp(&ecology, &repeatedEcology,
+                                  sizeof(ecology)) == 0);
+                    AssertProfileValid(&ecology, planet.style);
+                    assert(!ecology.hasComplexLife ||
+                           ecology.lifeOriginated);
+                    if (!planet.hasSolidSurface) {
+                        assert(ecology.biomass == PLANET_BIOMASS_BARREN);
+                        assert(!ecology.lifeOriginated);
+                    }
+
+                    RecordEcologyDistribution(
+                        &styles[planet.style], &planet, &ecology);
+                    RecordEcologyDistribution(
+                        &multiplicities[stellarCount], &planet, &ecology);
+                    planetCount++;
+                }
+            }
+        }
+    }
+
+    assert(systemCount > 4096);
+    assert(planetCount > systemCount);
+    for (int stellarCount = 1; stellarCount <= 3; stellarCount++) {
+        assert(systemCounts[stellarCount] > 0);
+        assert(multiplicities[stellarCount].sampleCount > 0);
+    }
+    for (size_t styleIndex = 0;
+         styleIndex < sizeof(ecologyPropertyStyles) /
+                      sizeof(ecologyPropertyStyles[0]);
+         styleIndex++) {
+        SolarBodyStyle style = ecologyPropertyStyles[styleIndex];
+        assert(styles[style].sampleCount > 0);
+        PrintEcologyDistribution(
+            "ecology systems ", ecologyPropertyStyleNames[styleIndex],
+            &styles[style]);
+    }
+    assert(EcologyDistributionNonBarren(&styles[SOLAR_STYLE_GAS]) == 0);
+
+    static const char *multiplicityNames[] = {
+        "none", "single", "binary", "triple"
+    };
+    for (int stellarCount = 1; stellarCount <= 3; stellarCount++) {
+        PrintEcologyDistribution(
+            "ecology stars   ", multiplicityNames[stellarCount],
+            &multiplicities[stellarCount]);
+    }
+    printf("ecology generated systems=%d planets=%d multiplicity=%d/%d/%d\n",
+           systemCount, planetCount, systemCounts[1], systemCounts[2],
+           systemCounts[3]);
 }
 
 static void TestRandomizedCausalControls(void)
@@ -602,6 +721,7 @@ int main(void)
 {
     TestGeneratedEcologyBoundsAndLocalProperties();
     TestGeneratedEcologyDistribution();
+    TestGeneratedSolarEcologyDistribution();
     TestRandomizedCausalControls();
     TestRandomizedPopulationAndMigration();
     TestSaveLoadReplayAcrossSeeds();
