@@ -98,6 +98,9 @@ void UnloadChunkModel(Chunk *chunk)
         chunk->floraModel = (Model){ 0 };
         chunk->hasFloraModel = false;
     }
+    free(chunk->floraTargetScales);
+    chunk->floraTargetScales = NULL;
+    chunk->floraTargetScaleCount = 0;
 }
 
 void MarkChunkDirty(int cx, int cz)
@@ -824,28 +827,66 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
     }
 }
 
-static void UpdateChunkFloraScale(Chunk *chunk, float targetScale,
-                                  float elapsed)
+static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
+                                  float daylight, bool refreshTargets)
 {
     if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
 
-    float oldScale = fmaxf(chunk->floraVisualScale, 0.01f);
-    float blend = fminf(elapsed * 1.8f, 1.0f);
-    float newScale = oldScale + (targetScale - oldScale) * blend;
-    if (fabsf(newScale - oldScale) < 0.0005f) return;
-
     Mesh *mesh = &chunk->floraModel.meshes[0];
-    if (!mesh->vertices || mesh->vertexCount <= 0) return;
-    for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
-        float y = mesh->vertices[vertex * 3 + 1];
-        float groundY = floorf(y + 0.001f);
-        float originalHeight = (y - groundY) / oldScale;
-        mesh->vertices[vertex * 3 + 1] =
-            groundY + originalHeight * newScale;
+    if (!mesh->vertices || mesh->vertexCount <= 0 ||
+        !chunk->floraTargetScales || chunk->floraTargetScaleCount <= 0) return;
+
+    float blend = fminf(elapsed * 1.8f, 1.0f);
+    float scaleSum = 0.0f;
+    int scaleCount = 0;
+    bool changed = false;
+    // BuildFloraMeshData emits two six-vertex quads for each plant block.
+    for (int group = 0; group < chunk->floraTargetScaleCount; group++) {
+        int firstVertex = group * 12;
+        if (firstVertex >= mesh->vertexCount) break;
+        int lastVertex = firstVertex + 12;
+        if (lastVertex > mesh->vertexCount) lastVertex = mesh->vertexCount;
+
+        if (refreshTargets && PlanetWorldIsActive()) {
+            int cellX = (int)lroundf(mesh->vertices[firstVertex * 3] - 0.5f);
+            int cellZ = (int)lroundf(mesh->vertices[firstVertex * 3 + 2] - 0.5f);
+            PlanetLocalEcology local = PlanetEcologyLocalAt(cellX, cellZ, daylight);
+            PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
+                local.suitability.floraActivity,
+                local.suitability.floraCapacity);
+            chunk->floraTargetScales[group] = runtime.growthScale;
+        } else if (refreshTargets) {
+            chunk->floraTargetScales[group] = 1.0f;
+        }
+
+        float groundY = INFINITY;
+        float topY = -INFINITY;
+        for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
+            float y = mesh->vertices[vertex * 3 + 1];
+            groundY = fminf(groundY, y);
+            topY = fmaxf(topY, y);
+        }
+        float oldScale = (topY - groundY) / 0.4f;
+        if (!(oldScale > 0.01f) || !isfinite(oldScale)) continue;
+        float targetScale = fmaxf(chunk->floraTargetScales[group], 0.01f);
+        float newScale = oldScale + (targetScale - oldScale) * blend;
+        scaleSum += newScale;
+        scaleCount++;
+        if (fabsf(newScale - oldScale) < 0.0005f) continue;
+
+        for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
+            float y = mesh->vertices[vertex * 3 + 1];
+            float originalHeight = (y - groundY) / oldScale;
+            mesh->vertices[vertex * 3 + 1] =
+                groundY + originalHeight * newScale;
+        }
+        changed = true;
     }
-    UpdateMeshBuffer(*mesh, 0, mesh->vertices,
-                     mesh->vertexCount * 3 * (int)sizeof(float), 0);
-    chunk->floraVisualScale = newScale;
+    if (changed) {
+        UpdateMeshBuffer(*mesh, 0, mesh->vertices,
+                         mesh->vertexCount * 3 * (int)sizeof(float), 0);
+    }
+    if (scaleCount > 0) chunk->floraVisualScale = scaleSum / (float)scaleCount;
 }
 
 void ChunksUpdateEcologyVisuals(float dt, float daylight)
@@ -857,7 +898,8 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
         if (!chunk->loaded) continue;
 
         chunk->floraSampleTimer -= elapsed;
-        if (chunk->floraSampleTimer <= 0.0f) {
+        bool refreshTargets = chunk->floraSampleTimer <= 0.0f;
+        if (refreshTargets) {
             if (planetWorld) {
                 int centerX = chunk->cx * CHUNK_SIZE + CHUNK_SIZE / 2;
                 int centerZ = chunk->cz * CHUNK_SIZE + CHUNK_SIZE / 2;
@@ -874,9 +916,7 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
             chunk->floraSampleTimer = 0.75f + (float)stagger / 510.0f;
         }
 
-        PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
-            chunk->floraActivity, chunk->floraCapacity);
-        UpdateChunkFloraScale(chunk, runtime.growthScale, elapsed);
+        UpdateChunkFloraScale(chunk, elapsed, daylight, refreshTargets);
     }
 }
 
@@ -1919,6 +1959,24 @@ static void ReplaceChunkModel(Model *model, bool *hasModel,
     *hasModel = true;
 }
 
+static void InitializeFloraTargets(Chunk *chunk)
+{
+    free(chunk->floraTargetScales);
+    chunk->floraTargetScales = NULL;
+    chunk->floraTargetScaleCount = 0;
+    if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
+
+    Mesh *mesh = &chunk->floraModel.meshes[0];
+    if (mesh->vertexCount <= 0) return;
+    int count = (mesh->vertexCount + 11) / 12;
+    chunk->floraTargetScales = malloc((size_t)count * sizeof(float));
+    if (!chunk->floraTargetScales) return;
+    for (int index = 0; index < count; index++) {
+        chunk->floraTargetScales[index] = 1.0f;
+    }
+    chunk->floraTargetScaleCount = count;
+}
+
 static void UploadMeshJob(MeshJob *job)
 {
     Chunk *chunk = &chunks[job->slotIndex];
@@ -1934,6 +1992,7 @@ static void UploadMeshJob(MeshJob *job)
                               &job->mesh, job->hasMesh, false);
             ReplaceChunkModel(&chunk->floraModel, &chunk->hasFloraModel,
                               &job->floraMesh, job->hasFloraMesh, true);
+            InitializeFloraTargets(chunk);
             chunk->floraVisualScale = 1.0f;
         }
     } else {
@@ -2034,6 +2093,7 @@ static void RebuildChunkMeshSync(Chunk *chunk)
                       &waterMesh, hasWater, false);
     ReplaceChunkModel(&chunk->floraModel, &chunk->hasFloraModel,
                       &floraMesh, hasFlora, true);
+    InitializeFloraTargets(chunk);
     chunk->floraVisualScale = 1.0f;
     chunk->dirty = false;
 }

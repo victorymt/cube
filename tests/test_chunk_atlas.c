@@ -139,6 +139,7 @@ static void AssertSurfaceFloraMeshPartition(void)
     memset(blocks, 0, sizeof(blocks));
     blocks[2][4][3] = BLOCK_STONE;
     blocks[5][5][6] = BLOCK_FLOWER;
+    blocks[9][6][9] = BLOCK_MUSHROOM;
     blocks[8][4][8] = BLOCK_WATER;
 
     Mesh legacySolid = { 0 };
@@ -161,7 +162,16 @@ static void AssertSurfaceFloraMeshPartition(void)
     assert(BuildFloraMeshData((const unsigned short (*)[CHUNK_SIZE])blocks,
                               WORLD_HEIGHT, 0, 0, 0, faces,
                               NULL, 0, &flora));
-    assert(flora.vertexCount == 12);
+    assert(flora.vertexCount == 24);
+    for (int group = 0; group < 2; group++) {
+        int firstVertex = group * 12;
+        float centerX = flora.vertices[firstVertex * 3] + 0.16f;
+        float centerZ = flora.vertices[firstVertex * 3 + 2] + 0.16f;
+        for (int vertex = firstVertex; vertex < firstVertex + 12; vertex++) {
+            assert(fabsf(flora.vertices[vertex * 3] - centerX) < 0.33f);
+            assert(fabsf(flora.vertices[vertex * 3 + 2] - centerZ) < 0.33f);
+        }
+    }
     assert(legacySolid.vertexCount == solid.vertexCount);
     assert(legacyTransparent.vertexCount == water.vertexCount + flora.vertexCount);
 

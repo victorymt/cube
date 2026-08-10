@@ -255,6 +255,8 @@ typedef struct Chunk {
     float floraCapacity;
     float floraSampleTimer;
     float floraVisualScale;
+    float *floraTargetScales;
+    int floraTargetScaleCount;
     unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
 } Chunk;
 
