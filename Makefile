@@ -16,6 +16,7 @@ SPACE_UNITS_TEST_TARGET := tests/test_space_units
 SPACE_PROPERTIES_TEST_TARGET := tests/test_space_properties
 STELLAR_TEST_TARGET := tests/test_stellar
 ECOLOGY_MODEL_TEST_TARGET := tests/test_ecology_model
+CHUNK_ATLAS_TEST_TARGET := tests/test_chunk_atlas
 SRC := src/main.c src/album.c src/inventory.c src/space.c src/space_barycenter.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/world_environment.c src/ship.c src/nether.c src/entity.c src/ecology_model.c src/ecology.c src/terrain.c src/planet_climate.c src/planet_surface.c src/planet_material.c src/planet_renderer.c src/discovery.c src/chunks.c src/world.c src/player.c src/interaction.c src/render.c src/particles.c src/audio.c src/weather.c src/starmap.c
 
 .PHONY: all run test clean
@@ -28,7 +29,7 @@ $(TARGET): $(SRC)
 run: $(TARGET)
 	./$(TARGET)
 
-test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET)
+test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET)
 	./$(TEST_TARGET)
 	./$(PLANET_SURFACE_TEST_TARGET)
 	./$(PLANET_MATERIAL_TEST_TARGET)
@@ -40,6 +41,7 @@ test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET
 	./$(SPACE_PROPERTIES_TEST_TARGET)
 	./$(STELLAR_TEST_TARGET)
 	./$(ECOLOGY_MODEL_TEST_TARGET)
+	./$(CHUNK_ATLAS_TEST_TARGET)
 
 $(TEST_TARGET): tests/test_world_environment.c src/world_environment.c src/world_environment.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_environment.c src/world_environment.c -lm
@@ -74,5 +76,8 @@ $(STELLAR_TEST_TARGET): tests/test_stellar.c src/stellar.c src/stellar.h src/spa
 $(ECOLOGY_MODEL_TEST_TARGET): tests/test_ecology_model.c src/ecology_model.c src/ecology_model.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_ecology_model.c src/ecology_model.c -lm
 
+$(CHUNK_ATLAS_TEST_TARGET): tests/test_chunk_atlas.c src/chunks.c src/chunks.h src/types.h src/world.c src/world.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_chunk_atlas.c src/chunks.c src/world.c $(RAYLIB_LIBS) -lm -pthread
+
 clean:
-	rm -f $(TARGET) $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET)
+	rm -f $(TARGET) $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET)

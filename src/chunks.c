@@ -1,6 +1,7 @@
 #include "chunks.h"
 
 #include "raymath.h"
+#include "rlgl.h"
 #include "terrain.h"
 #include "world.h"
 
@@ -145,8 +146,10 @@ Color ColorWithNoise(Color base, int amount, unsigned int hash)
 void DrawAtlasTile(Image *image, BlockTexture texture)
 {
     int tileIndex = (int)texture;
-    int originX = (tileIndex % ATLAS_COLUMNS) * ATLAS_TILE_SIZE;
-    int originY = (tileIndex / ATLAS_COLUMNS) * ATLAS_TILE_SIZE;
+    int cellX = (tileIndex % ATLAS_COLUMNS) * ATLAS_CELL_SIZE;
+    int cellY = (tileIndex / ATLAS_COLUMNS) * ATLAS_CELL_SIZE;
+    int originX = cellX + ATLAS_TILE_PADDING;
+    int originY = cellY + ATLAS_TILE_PADDING;
     bool dynamicColor = texture >= TEX_COLOR_START && texture < TEX_COUNT;
     Color dynamicBase = dynamicColor ? ColorPalette256((int)texture - TEX_COLOR_START) : WHITE;
 
@@ -483,15 +486,45 @@ void DrawAtlasTile(Image *image, BlockTexture texture)
             ImageDrawPixel(image, originX + x, originY + y, color);
         }
     }
+
+    // Mip generation must never average neighboring atlas tiles. Repeat each
+    // tile's edge through a power-of-two gutter so its lower mip levels remain
+    // isolated while the visible 16x16 artwork stays unchanged.
+    for (int y = 0; y < ATLAS_CELL_SIZE; y++) {
+        int sourceY = y - ATLAS_TILE_PADDING;
+        if (sourceY < 0) sourceY = 0;
+        if (sourceY >= ATLAS_TILE_SIZE) sourceY = ATLAS_TILE_SIZE - 1;
+        for (int x = 0; x < ATLAS_CELL_SIZE; x++) {
+            bool insideTile = x >= ATLAS_TILE_PADDING &&
+                              x < ATLAS_TILE_PADDING + ATLAS_TILE_SIZE &&
+                              y >= ATLAS_TILE_PADDING &&
+                              y < ATLAS_TILE_PADDING + ATLAS_TILE_SIZE;
+            if (insideTile) continue;
+            int sourceX = x - ATLAS_TILE_PADDING;
+            if (sourceX < 0) sourceX = 0;
+            if (sourceX >= ATLAS_TILE_SIZE) sourceX = ATLAS_TILE_SIZE - 1;
+            Color edge = GetImageColor(*image, originX + sourceX,
+                                       originY + sourceY);
+            ImageDrawPixel(image, cellX + x, cellY + y, edge);
+        }
+    }
 }
 
 Texture2D LoadBlockAtlas(void)
 {
-    Image image = GenImageColor(ATLAS_TILE_SIZE * ATLAS_COLUMNS, ATLAS_TILE_SIZE * ATLAS_ROWS, BLANK);
+    Image image = GenImageColor(ATLAS_CELL_SIZE * ATLAS_COLUMNS,
+                                ATLAS_CELL_SIZE * ATLAS_ROWS, BLANK);
     for (int i = 0; i < TEX_COUNT; i++) DrawAtlasTile(&image, (BlockTexture)i);
 
     Texture2D texture = LoadTextureFromImage(image);
-    SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+    if (texture.id != 0) {
+        GenTextureMipmaps(&texture);
+        SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
+        SetTextureFilter(texture, TEXTURE_FILTER_ANISOTROPIC_8X);
+        rlTextureParameters(texture.id, RL_TEXTURE_MAG_FILTER,
+                            RL_TEXTURE_FILTER_NEAREST);
+        SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
+    }
     UnloadImage(image);
     return texture;
 }
@@ -894,14 +927,18 @@ void AtlasUVs(BlockTexture texture, Vector2 uvs[6])
     int tileIndex = (int)texture;
     int tileX = tileIndex % ATLAS_COLUMNS;
     int tileY = tileIndex / ATLAS_COLUMNS;
-    float atlasWidth = (float)(ATLAS_TILE_SIZE * ATLAS_COLUMNS);
-    float atlasHeight = (float)(ATLAS_TILE_SIZE * ATLAS_ROWS);
+    float atlasWidth = (float)(ATLAS_CELL_SIZE * ATLAS_COLUMNS);
+    float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS);
     float tileSize = (float)ATLAS_TILE_SIZE;
+    float cellSize = (float)ATLAS_CELL_SIZE;
+    float padding = (float)ATLAS_TILE_PADDING;
     float inset = 0.25f;
-    float u0 = ((float)tileX * tileSize + inset) / atlasWidth;
-    float u1 = (((float)tileX + 1.0f) * tileSize - inset) / atlasWidth;
-    float v0 = ((float)tileY * tileSize + inset) / atlasHeight;
-    float v1 = (((float)tileY + 1.0f) * tileSize - inset) / atlasHeight;
+    float u0 = ((float)tileX * cellSize + padding + inset) / atlasWidth;
+    float u1 = ((float)tileX * cellSize + padding + tileSize - inset) /
+               atlasWidth;
+    float v0 = ((float)tileY * cellSize + padding + inset) / atlasHeight;
+    float v1 = ((float)tileY * cellSize + padding + tileSize - inset) /
+               atlasHeight;
 
     uvs[0] = (Vector2){ u0, v1 };
     uvs[1] = (Vector2){ u1, v1 };
@@ -915,8 +952,10 @@ Rectangle AtlasSourceRect(BlockTexture texture)
 {
     int tileIndex = (int)texture;
     return (Rectangle){
-        (float)((tileIndex % ATLAS_COLUMNS) * ATLAS_TILE_SIZE),
-        (float)((tileIndex / ATLAS_COLUMNS) * ATLAS_TILE_SIZE),
+        (float)((tileIndex % ATLAS_COLUMNS) * ATLAS_CELL_SIZE +
+                ATLAS_TILE_PADDING),
+        (float)((tileIndex / ATLAS_COLUMNS) * ATLAS_CELL_SIZE +
+                ATLAS_TILE_PADDING),
         (float)ATLAS_TILE_SIZE,
         (float)ATLAS_TILE_SIZE
     };
@@ -1053,8 +1092,8 @@ void AddTorchMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, float extra
 
     Vector2 stickUvs[6];
     Rectangle stickRect = AtlasSourceRect(TEX_TORCH);
-    float atlasWidth = (float)(ATLAS_TILE_SIZE * ATLAS_COLUMNS);
-    float atlasHeight = (float)(ATLAS_TILE_SIZE * ATLAS_ROWS);
+    float atlasWidth = (float)(ATLAS_CELL_SIZE * ATLAS_COLUMNS);
+    float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS);
     float u0 = (stickRect.x + 0.25f) / atlasWidth;
     float u1 = (stickRect.x + stickRect.width - 0.25f) / atlasWidth;
     float vTop = (stickRect.y + stickRect.height * 0.375f) / atlasHeight;

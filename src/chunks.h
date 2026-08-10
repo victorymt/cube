@@ -28,6 +28,7 @@ bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
                    Mesh *outMesh);
 void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, BlockType type, Color baseColor, float extraLight);
 BlockTexture TextureForBlockFace(BlockType type, int face);
+void AtlasUVs(BlockTexture texture, Vector2 uvs[6]);
 Rectangle AtlasSourceRect(BlockTexture texture);
 Texture2D LoadBlockAtlas(void);
 
