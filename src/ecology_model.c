@@ -362,6 +362,8 @@ void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
     population->faunaDensity = EcologyModelLerp(
         EcologyModelFiniteUnit(population->faunaDensity), faunaTarget,
         EcologyModelResponseAlpha(elapsedTime, faunaTimeConstant));
+    population->faunaHarvestPressure = PlanetFaunaHarvestPressureAdvance(
+        population->faunaHarvestPressure, elapsedTime);
 }
 
 void PlanetPopulationApplyDisturbance(
@@ -415,6 +417,8 @@ void PlanetPopulationApplyFaunaHarvest(
 {
     if (!population) return;
     float event = EcologyModelFiniteUnit(eventStrength);
+    population->faunaHarvestPressure = PlanetFaunaHarvestPressureAdd(
+        population->faunaHarvestPressure, event);
     population->faunaDensity = EcologyModelFiniteUnit(
         population->faunaDensity) * (1.0f - event * 0.68f);
 }

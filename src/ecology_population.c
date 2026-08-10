@@ -277,7 +277,11 @@ static void EcologyPopulationConditionsAt(
         record->surfaceId, record->regionX, record->regionZ,
         originX, originZ);
     state->floraStress = disturbance * 0.82f;
-    state->faunaStress = disturbance * 0.94f;
+    float habitatStress = disturbance * 0.94f;
+    float harvestStress = EcologyClamp(
+        record->population.faunaHarvestPressure) * 0.88f;
+    state->faunaStress = EcologyClamp(
+        1.0f - (1.0f - habitatStress) * (1.0f - harvestStress));
     WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
         localX, localZ, simulationTime);
     float windAngle = WeatherWindAngleAtWorldTime(
@@ -532,6 +536,43 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
     return record->population;
 }
 
+bool EcologyPopulationRecordFaunaHarvest(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, float organismScale,
+    float ecologyCapacity)
+{
+    float eventStrength = PlanetFaunaHarvestEventStrength(
+        organismScale, ecologyCapacity);
+    if (!profile || eventStrength <= 0.0f || !isfinite(simulationTime) ||
+        simulationTime < 0.0 || !isfinite(daylight)) {
+        return false;
+    }
+
+    int originX = PlanetWorldOriginX();
+    int originZ = PlanetWorldOriginZ();
+    int regionX = EcologyFloorDivide(
+        originX + x, ECOLOGY_POPULATION_REGION_SIZE);
+    int regionZ = EcologyFloorDivide(
+        originZ + z, ECOLOGY_POPULATION_REGION_SIZE);
+    uint32_t surfaceId = PlanetWorldSeed();
+    double stepTime = EcologyPopulationStepTime(simulationTime);
+    EcologyPopulationAdvanceRecords(
+        surfaceId, stepTime, daylight, profile, originX, originZ);
+
+    bool created = false;
+    EcologyPopulationRecord *record = EcologyPopulationRecordAt(
+        surfaceId, regionX, regionZ, &created);
+    if (!record) return false;
+    if (created) {
+        EcologyPopulationInitializeRecord(
+            record, stepTime, daylight, profile, originX, originZ);
+    }
+    PlanetPopulationApplyFaunaHarvest(&record->population, eventStrength);
+    ecologyPopulationEpoch++;
+    if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
+    return true;
+}
+
 static bool EcologyPopulationStateValid(
     const PlanetRegionalPopulation *population)
 {
@@ -540,7 +581,7 @@ static bool EcologyPopulationStateValid(
         population->floraDensity, population->faunaDensity,
         population->floraCarryingCapacity,
         population->faunaCarryingCapacity,
-        population->seasonalMemory
+        population->seasonalMemory, population->faunaHarvestPressure
     };
     for (unsigned index = 0; index < sizeof(values) / sizeof(values[0]); index++) {
         if (!isfinite(values[index]) || values[index] < 0.0f ||

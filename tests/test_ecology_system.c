@@ -1,6 +1,7 @@
 #include "chunks.h"
 #include "ecology_test_fixture.h"
 #include "ecology.h"
+#include "ecology_internal.h"
 #include "space.h"
 #include "terrain.h"
 #include "weather.h"
@@ -729,6 +730,66 @@ static void TestEcologyPlayerEditDisturbance(void)
     EcologyTestClearBlockEdits();
 }
 
+static void TestEcologyFaunaHarvestFeedback(void)
+{
+    uint32_t seed = 0u;
+    PlanetLocalEcology baseline = { 0 };
+    const int sampleX = 32;
+    const int sampleZ = 32;
+    for (uint32_t index = 0; index < 512u; index++) {
+        uint32_t candidate = 0x31d4a7b9u + index * 0x9e3779b9u;
+        EcologyTestSetSeed(candidate);
+        PlanetEcologyResetState();
+        EcologyTestActivatePlanet(candidate, 0, 0);
+        PlanetEcologyResetState();
+        baseline = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+        if (baseline.population.faunaDensity > 0.04f &&
+            baseline.suitability.faunaCapacity > 0.04f) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
+    assert(baseline.population.faunaHarvestPressure == 0.0f);
+
+    PlanetLocalEcology neighbor = PlanetEcologyLocalAt(
+        sampleX + 64, sampleZ, 0.72f);
+    assert(neighbor.population.faunaHarvestPressure == 0.0f);
+    uint32_t epoch = EcologyPopulationEpoch();
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    assert(PlanetEcologyRecordFaunaHarvest(
+        sampleX, sampleZ, 0.72f, profile.organismScale,
+        baseline.suitability.faunaCapacity));
+    assert(EcologyPopulationEpoch() != epoch);
+
+    PlanetLocalEcology harvested = PlanetEcologyLocalAt(
+        sampleX, sampleZ, 0.72f);
+    assert(harvested.population.faunaHarvestPressure > 0.0f);
+    assert(harvested.population.faunaDensity <
+           baseline.population.faunaDensity);
+    assert(harvested.population.floraDensity ==
+           baseline.population.floraDensity);
+    assert(harvested.suitability.faunaActivity <
+           baseline.suitability.faunaActivity);
+    assert(PlanetFaunaPopulationCap(
+               harvested.suitability.faunaActivity, 128) <=
+           PlanetFaunaPopulationCap(
+               baseline.suitability.faunaActivity, 128));
+
+    PlanetLocalEcology untouchedNeighbor = PlanetEcologyLocalAt(
+        sampleX + 64, sampleZ, 0.72f);
+    assert(untouchedNeighbor.population.faunaHarvestPressure ==
+           neighbor.population.faunaHarvestPressure);
+
+    float pressure = harvested.population.faunaHarvestPressure;
+    SpaceAdvanceTime(48.0f);
+    PlanetLocalEcology recovered = PlanetEcologyLocalAt(
+        sampleX, sampleZ, 0.72f);
+    assert(recovered.population.faunaHarvestPressure < pressure);
+    assert(recovered.population.faunaHarvestPressure >= 0.0f);
+    (void)seed;
+}
+
 static void TestEcologyLegacyPopulationStateLoad(void)
 {
     FILE *legacy = tmpfile();
@@ -1236,6 +1297,7 @@ int main(void)
     TestPlanetWorldStateCompatibilityAndAtomicity();
     TestEcologyMigrationOrderAndTimePartition();
     TestEcologyPlayerEditDisturbance();
+    TestEcologyFaunaHarvestFeedback();
     TestEcologyLegacyPopulationStateLoad();
     TestFloraMeshDeformationProperties();
     TestChunkUnloadReloadDeterminism();

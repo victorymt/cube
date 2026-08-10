@@ -101,6 +101,7 @@ typedef struct PlanetRegionalPopulation {
     float floraCarryingCapacity;
     float faunaCarryingCapacity;
     float seasonalMemory;
+    float faunaHarvestPressure;
 } PlanetRegionalPopulation;
 
 typedef struct PlanetMigrationHabitat {

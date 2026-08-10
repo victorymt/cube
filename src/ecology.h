@@ -89,6 +89,9 @@ bool PlanetEcologySaveState(FILE *file);
 bool PlanetEcologyLoadState(FILE *file);
 float PlanetEcologyFaunaDensity(void);
 float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);
+bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
+                                     float organismScale,
+                                     float ecologyCapacity);
 PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight);
 PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z);
 const char *PlanetEcologyLifeName(void);

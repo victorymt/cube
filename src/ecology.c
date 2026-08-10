@@ -120,6 +120,17 @@ bool PlanetEcologyLoadState(FILE *file)
     return true;
 }
 
+bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
+                                     float organismScale,
+                                     float ecologyCapacity)
+{
+    if (!PlanetWorldIsActive()) return false;
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    return EcologyPopulationRecordFaunaHarvest(
+        x, z, SpaceSimulationTime(), daylight, &profile,
+        organismScale, ecologyCapacity);
+}
+
 PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
 {
     PlanetLocalEcology local = { 0 };

@@ -42,5 +42,9 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
     int x, int z, double simulationTime, float daylight,
     const PlanetEcologyProfile *profile,
     PlanetPopulationMigrationState *outMigration);
+bool EcologyPopulationRecordFaunaHarvest(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, float organismScale,
+    float ecologyCapacity);
 
 #endif

@@ -446,6 +446,7 @@ static void AssertPopulationValid(PlanetRegionalPopulation population)
     ASSERT_POPULATION_UNIT(floraCarryingCapacity);
     ASSERT_POPULATION_UNIT(faunaCarryingCapacity);
     ASSERT_POPULATION_UNIT(seasonalMemory);
+    ASSERT_POPULATION_UNIT(faunaHarvestPressure);
 #undef ASSERT_POPULATION_UNIT
     float floraPresence = PlanetPopulationFloraPresence(&population);
     float faunaPresence = PlanetPopulationFaunaPresence(&population);
@@ -627,6 +628,8 @@ static void TestFaunaHarvestPressureModel(void)
     PlanetPopulationApplyFaunaHarvest(&population, largeScarce);
     AssertPopulationValid(population);
     assert(population.faunaDensity < untouched.faunaDensity);
+    assert(population.faunaHarvestPressure >
+           untouched.faunaHarvestPressure);
     assert(population.floraDensity == untouched.floraDensity);
     assert(population.faunaCarryingCapacity ==
            untouched.faunaCarryingCapacity);
