@@ -781,13 +781,25 @@ static void TestEcologyFaunaHarvestFeedback(void)
     assert(untouchedNeighbor.population.faunaHarvestPressure ==
            neighbor.population.faunaHarvestPressure);
 
+    FILE *harvestSave = tmpfile();
+    assert(harvestSave);
+    EcologyTestSaveSimulationState(harvestSave);
     float pressure = harvested.population.faunaHarvestPressure;
     SpaceAdvanceTime(48.0f);
     PlanetLocalEcology recovered = PlanetEcologyLocalAt(
         sampleX, sampleZ, 0.72f);
     assert(recovered.population.faunaHarvestPressure < pressure);
     assert(recovered.population.faunaHarvestPressure >= 0.0f);
-    (void)seed;
+
+    EcologyTestLoadSimulationState(harvestSave);
+    PlanetLocalEcology loaded = PlanetEcologyLocalAt(
+        sampleX, sampleZ, 0.72f);
+    AssertLocalEcologyEqual(loaded, harvested);
+    SpaceAdvanceTime(48.0f);
+    PlanetLocalEcology replay = PlanetEcologyLocalAt(
+        sampleX, sampleZ, 0.72f);
+    AssertLocalEcologyEqual(replay, recovered);
+    fclose(harvestSave);
 }
 
 static void TestEcologyLegacyPopulationStateLoad(void)
@@ -795,12 +807,112 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     FILE *legacy = tmpfile();
     assert(legacy);
     const uint32_t header[2] = { 1u, 0u };
-    const uint64_t accessSerial = 0u;
+    const uint64_t legacyAccessSerial = 0u;
     assert(fwrite(header, sizeof(header), 1, legacy) == 1);
-    assert(fwrite(&accessSerial, sizeof(accessSerial), 1, legacy) == 1);
+    assert(fwrite(&legacyAccessSerial,
+                  sizeof(legacyAccessSerial), 1, legacy) == 1);
     rewind(legacy);
     assert(PlanetEcologyLoadState(legacy));
     fclose(legacy);
+
+    const uint32_t surfaceId = 0x93b7e421u;
+    const int32_t coordinates[2] = { 3, -7 };
+    const double lastUpdateTime = 24.0;
+    const uint64_t lastAccess = 1u;
+    const float population[5] = { 0.4f, 0.3f, 0.6f, 0.5f, 0.7f };
+    const float migration[6] = {
+        0.01f, -0.02f, 0.03f, -0.04f, 0.05f, -0.06f
+    };
+    FILE *version2 = tmpfile();
+    assert(version2);
+    const uint32_t version2Header[2] = { 2u, 1u };
+    const uint64_t accessSerial = 1u;
+    assert(fwrite(version2Header, sizeof(version2Header), 1, version2) == 1);
+    assert(fwrite(&accessSerial, sizeof(accessSerial), 1, version2) == 1);
+    assert(fwrite(&surfaceId, sizeof(surfaceId), 1, version2) == 1);
+    assert(fwrite(coordinates, sizeof(coordinates), 1, version2) == 1);
+    assert(fwrite(&lastUpdateTime, sizeof(lastUpdateTime), 1, version2) == 1);
+    assert(fwrite(&lastAccess, sizeof(lastAccess), 1, version2) == 1);
+    assert(fwrite(population, sizeof(population), 1, version2) == 1);
+    assert(fwrite(migration, sizeof(migration), 1, version2) == 1);
+    rewind(version2);
+    assert(PlanetEcologyLoadState(version2));
+    fclose(version2);
+
+    FILE *upgraded = tmpfile();
+    assert(upgraded);
+    assert(PlanetEcologySaveState(upgraded));
+    rewind(upgraded);
+    uint32_t upgradedHeader[2] = { 0 };
+    uint64_t upgradedAccessSerial = 0u;
+    uint32_t upgradedSurfaceId = 0u;
+    int32_t upgradedCoordinates[2] = { 0 };
+    double upgradedLastUpdateTime = 0.0;
+    uint64_t upgradedLastAccess = 0u;
+    float upgradedPopulation[5] = { 0 };
+    float upgradedMigration[6] = { 0 };
+    float upgradedPressure = -1.0f;
+    assert(fread(upgradedHeader, sizeof(upgradedHeader), 1, upgraded) == 1);
+    assert(fread(&upgradedAccessSerial,
+                 sizeof(upgradedAccessSerial), 1, upgraded) == 1);
+    assert(fread(&upgradedSurfaceId,
+                 sizeof(upgradedSurfaceId), 1, upgraded) == 1);
+    assert(fread(upgradedCoordinates,
+                 sizeof(upgradedCoordinates), 1, upgraded) == 1);
+    assert(fread(&upgradedLastUpdateTime,
+                 sizeof(upgradedLastUpdateTime), 1, upgraded) == 1);
+    assert(fread(&upgradedLastAccess,
+                 sizeof(upgradedLastAccess), 1, upgraded) == 1);
+    assert(fread(upgradedPopulation,
+                 sizeof(upgradedPopulation), 1, upgraded) == 1);
+    assert(fread(upgradedMigration,
+                 sizeof(upgradedMigration), 1, upgraded) == 1);
+    assert(fread(&upgradedPressure,
+                 sizeof(upgradedPressure), 1, upgraded) == 1);
+    assert(upgradedHeader[0] == 3u && upgradedHeader[1] == 1u);
+    assert(upgradedAccessSerial == accessSerial);
+    assert(upgradedSurfaceId == surfaceId);
+    assert(memcmp(upgradedCoordinates, coordinates,
+                  sizeof(coordinates)) == 0);
+    assert(upgradedLastUpdateTime == lastUpdateTime);
+    assert(upgradedLastAccess == lastAccess);
+    assert(memcmp(upgradedPopulation, population,
+                  sizeof(population)) == 0);
+    assert(memcmp(upgradedMigration, migration,
+                  sizeof(migration)) == 0);
+    assert(upgradedPressure == 0.0f);
+
+    FILE *invalid = tmpfile();
+    assert(invalid);
+    const uint32_t version3Header[2] = { 3u, 1u };
+    float invalidPressure = NAN;
+    assert(fwrite(version3Header, sizeof(version3Header), 1, invalid) == 1);
+    assert(fwrite(&accessSerial, sizeof(accessSerial), 1, invalid) == 1);
+    assert(fwrite(&surfaceId, sizeof(surfaceId), 1, invalid) == 1);
+    assert(fwrite(coordinates, sizeof(coordinates), 1, invalid) == 1);
+    assert(fwrite(&lastUpdateTime, sizeof(lastUpdateTime), 1, invalid) == 1);
+    assert(fwrite(&lastAccess, sizeof(lastAccess), 1, invalid) == 1);
+    assert(fwrite(population, sizeof(population), 1, invalid) == 1);
+    assert(fwrite(migration, sizeof(migration), 1, invalid) == 1);
+    assert(fwrite(&invalidPressure, sizeof(invalidPressure), 1, invalid) == 1);
+    rewind(invalid);
+    assert(!PlanetEcologyLoadState(invalid));
+    fclose(invalid);
+
+    FILE *afterFailure = tmpfile();
+    assert(afterFailure);
+    assert(PlanetEcologySaveState(afterFailure));
+    rewind(upgraded);
+    rewind(afterFailure);
+    int expectedByte = 0;
+    int actualByte = 0;
+    do {
+        expectedByte = fgetc(upgraded);
+        actualByte = fgetc(afterFailure);
+        assert(expectedByte == actualByte);
+    } while (expectedByte != EOF);
+    fclose(afterFailure);
+    fclose(upgraded);
 }
 
 typedef struct ChunkBlockSnapshot {

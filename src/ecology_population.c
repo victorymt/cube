@@ -664,7 +664,10 @@ bool EcologyPopulationSaveState(FILE *file)
                    sizeof(record->lastUpdateTime), 1, file) != 1 ||
             fwrite(&record->lastAccess, sizeof(record->lastAccess), 1, file) != 1 ||
             fwrite(population, sizeof(population), 1, file) != 1 ||
-            fwrite(migration, sizeof(migration), 1, file) != 1) {
+            fwrite(migration, sizeof(migration), 1, file) != 1 ||
+            fwrite(&record->population.faunaHarvestPressure,
+                   sizeof(record->population.faunaHarvestPressure),
+                   1, file) != 1) {
             return false;
         }
     }
@@ -677,8 +680,8 @@ bool EcologyPopulationLoadState(FILE *file)
     uint64_t loadedAccessSerial = 0u;
     if (!file || fread(header, sizeof(header), 1, file) != 1 ||
         fread(&loadedAccessSerial, sizeof(loadedAccessSerial), 1, file) != 1 ||
-        (header[0] != ECOLOGY_POPULATION_STATE_VERSION &&
-         header[0] != ECOLOGY_POPULATION_LEGACY_STATE_VERSION) ||
+        (header[0] < ECOLOGY_POPULATION_LEGACY_STATE_VERSION ||
+         header[0] > ECOLOGY_POPULATION_STATE_VERSION) ||
         header[1] > ECOLOGY_POPULATION_MAX_REGIONS) {
         return false;
     }
@@ -691,6 +694,7 @@ bool EcologyPopulationLoadState(FILE *file)
         uint64_t lastAccess = 0u;
         float populationValues[5];
         float migrationValues[6] = { 0 };
+        float faunaHarvestPressure = 0.0f;
         if (fread(&surfaceId, sizeof(surfaceId), 1, file) != 1 ||
             fread(coordinates, sizeof(coordinates), 1, file) != 1 ||
             fread(&lastUpdateTime, sizeof(lastUpdateTime), 1, file) != 1 ||
@@ -698,8 +702,13 @@ bool EcologyPopulationLoadState(FILE *file)
             fread(populationValues, sizeof(populationValues), 1, file) != 1) {
             return false;
         }
-        if (header[0] >= ECOLOGY_POPULATION_STATE_VERSION &&
+        if (header[0] >= ECOLOGY_POPULATION_MIGRATION_STATE_VERSION &&
             fread(migrationValues, sizeof(migrationValues), 1, file) != 1) {
+            return false;
+        }
+        if (header[0] >= ECOLOGY_POPULATION_STATE_VERSION &&
+            fread(&faunaHarvestPressure,
+                  sizeof(faunaHarvestPressure), 1, file) != 1) {
             return false;
         }
         PlanetRegionalPopulation population = {
@@ -707,7 +716,8 @@ bool EcologyPopulationLoadState(FILE *file)
             .faunaDensity = populationValues[1],
             .floraCarryingCapacity = populationValues[2],
             .faunaCarryingCapacity = populationValues[3],
-            .seasonalMemory = populationValues[4]
+            .seasonalMemory = populationValues[4],
+            .faunaHarvestPressure = faunaHarvestPressure
         };
         PlanetPopulationMigrationState migration = {
             .floraNet = migrationValues[0],
