@@ -70,8 +70,16 @@ typedef struct PlanetEcologyProfile {
     BlockType accentBlock;
 } PlanetEcologyProfile;
 
+typedef struct PlanetLocalEcology {
+    PlanetLocalEnvironment environment;
+    PlanetEcologySuitability suitability;
+} PlanetLocalEcology;
+
 PlanetEcologyProfile PlanetEcologyCurrent(void);
 float PlanetEcologyFaunaDensity(void);
+float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);
+PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight);
+PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z);
 const char *PlanetEcologyLifeName(void);
 const char *PlanetEcologyBiomassName(void);
 const char *PlanetEcologyChemistryName(void);

@@ -53,6 +53,8 @@ static void AssertSamplesNear(PlanetSurfaceSample left, PlanetSurfaceSample righ
     ASSERT_SAMPLE_FIELD(climate);
     ASSERT_SAMPLE_FIELD(detail);
     ASSERT_SAMPLE_FIELD(temperature);
+    ASSERT_SAMPLE_FIELD(meanTemperature);
+    ASSERT_SAMPLE_FIELD(seasonalAmplitude);
     ASSERT_SAMPLE_FIELD(moisture);
     ASSERT_SAMPLE_FIELD(iceCoverage);
     ASSERT_SAMPLE_FIELD(impactDepth);
@@ -83,6 +85,9 @@ static void AssertValidSample(PlanetSurfaceSample sample)
     AssertUnitInterval(sample.climate);
     AssertUnitInterval(sample.detail);
     assert(isfinite(sample.temperature));
+    assert(isfinite(sample.meanTemperature));
+    assert(isfinite(sample.seasonalAmplitude));
+    assert(sample.seasonalAmplitude >= 0.0f);
     AssertUnitInterval(sample.moisture);
     AssertUnitInterval(sample.iceCoverage);
     AssertUnitInterval(sample.impactDepth);
@@ -143,6 +148,24 @@ static void TestSeasonalTemperature(void)
     AssertNear(equatorStart.temperature, equatorQuarter.temperature, 0.0001f);
 }
 
+static void TestBaselineIgnoresSimulationTime(void)
+{
+    PlanetProfile profile = TestProfile(SOLAR_STYLE_TEMPERATE);
+    simulationTime = 0.0;
+    PlanetSurfaceSample first = PlanetSampleGlobalSurfaceBaseline(
+        profile.seed, &profile, 0.42f, 0.61f);
+    simulationTime = profile.yearLength * 0.25;
+    PlanetSurfaceSample second = PlanetSampleGlobalSurfaceBaseline(
+        profile.seed, &profile, 0.42f, 0.61f);
+    AssertSamplesNear(first, second, 0.0f);
+    AssertNear(first.temperature, first.meanTemperature, 0.0f);
+
+    PlanetSurfaceSample explicitSeason = PlanetSampleGlobalSurfaceAtTime(
+        profile.seed, &profile, 0.42f, 0.61f, profile.yearLength * 0.25);
+    assert(explicitSeason.temperature > first.temperature + 10.0f);
+    AssertNear(explicitSeason.meanTemperature, first.meanTemperature, 0.0f);
+}
+
 static bool BiomeMatchesStyle(SolarBodyStyle style, PlanetBiome biome)
 {
     switch (style) {
@@ -199,6 +222,7 @@ int main(void)
     TestDeterministicSampling();
     TestLongitudeSeam();
     TestSeasonalTemperature();
+    TestBaselineIgnoresSimulationTime();
     TestStyleBiomeDomains();
     TestBiomeNames();
     puts("planet_surface tests passed");

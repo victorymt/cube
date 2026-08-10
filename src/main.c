@@ -1146,7 +1146,7 @@ int main(void)
             autoSaveForHud = autoSaveEnabled;
             blockForHud = hit.hit ? GetBlockAt(hit.x, hit.y, hit.z) : BLOCK_AIR;
             SpaceEditCountForHud = GetSpaceEditCount();
-            DrawDebugHUD(player.position, player.yaw, player.pitch);
+            DrawDebugHUD(player.position, player.yaw, player.pitch, daylight);
         }
         DrawLandingTransitionOverlay(&landingTransition);
         if (paused) {

@@ -32,6 +32,8 @@ typedef struct PlanetSurfaceSample {
     float climate;
     float detail;
     float temperature;
+    float meanTemperature;
+    float seasonalAmplitude;
     float moisture;
     float iceCoverage;
     float impactDepth;
@@ -49,6 +51,13 @@ typedef struct PlanetSurfaceSample {
 
 PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile *profile,
                                               float longitude, float latitude);
+PlanetSurfaceSample PlanetSampleGlobalSurfaceAtTime(uint32_t seed,
+                                                    const PlanetProfile *profile,
+                                                    float longitude, float latitude,
+                                                    double simulationTime);
+PlanetSurfaceSample PlanetSampleGlobalSurfaceBaseline(uint32_t seed,
+                                                      const PlanetProfile *profile,
+                                                      float longitude, float latitude);
 const char *PlanetBiomeName(PlanetBiome biome);
 
 #endif

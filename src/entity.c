@@ -74,7 +74,25 @@ static bool EntityIsAlien(EntityType type)
     return type >= ENTITY_ALIEN_GRAZER && type <= ENTITY_ALIEN_STRIDER;
 }
 
-static void SpawnPassive(const Player *player)
+static void DespawnDistantAlien(const Player *player)
+{
+    int farthest = -1;
+    float farthestDistanceSquared = -1.0f;
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        Entity *entity = &entities[index];
+        if (!entity->active || !EntityIsAlien(entity->type)) continue;
+        float dx = entity->position.x - player->position.x;
+        float dz = entity->position.z - player->position.z;
+        float distanceSquared = dx * dx + dz * dz;
+        if (distanceSquared > farthestDistanceSquared) {
+            farthestDistanceSquared = distanceSquared;
+            farthest = index;
+        }
+    }
+    if (farthest >= 0) entities[farthest].active = false;
+}
+
+static void SpawnPassive(const Player *player, float daylight)
 {
     int slot = NextFreeEntity();
     if (slot < 0) return;
@@ -89,8 +107,7 @@ static void SpawnPassive(const Player *player)
     }
     EntityType type = ENTITY_COW;
     if (alienWorld) {
-        float faunaDensity = ecology.faunaDensity;
-        if (faunaDensity <= 0.0f || rand() % 1000 >= (int)(faunaDensity * 1000.0f)) return;
+        if (ecology.faunaDensity <= 0.0f) return;
         uint32_t speciesSeed = PlanetWorldSeed();
         int species = (int)((speciesSeed + (uint32_t)(rand() % 2) * 17u) % 3u);
         type = (EntityType)(ENTITY_ALIEN_GRAZER + species);
@@ -104,6 +121,11 @@ static void SpawnPassive(const Player *player)
                             : 14.0f + (float)(rand() % 300) / 10.0f;
     int gx = (int)floorf(player->position.x + cosf(angle) * dist);
     int gz = (int)floorf(player->position.z + sinf(angle) * dist);
+    if (alienWorld) {
+        float faunaActivity = PlanetEcologyFaunaDensityAt(gx, gz, daylight);
+        if (faunaActivity <= 0.0f ||
+            rand() % 1000 >= (int)(faunaActivity * 1000.0f)) return;
+    }
     if (alienWorld && !ecology.supportsFlight && !PlanetBiomeSupportsFauna(gx, gz) &&
         ecology.niche != PLANET_NICHE_CRYSTAL_GRAZER) return;
     int groundY = EntitySurfaceHeight(gx, gz);
@@ -307,11 +329,19 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
         spawnTimer = 1.5f;
         int populationCap = MAX_ENTITIES - 4;
         if (PlanetWorldIsActive()) {
-            populationCap = 3 + (int)(PlanetEcologyFaunaDensity() * 18.0f);
+            int playerX = (int)floorf(player->position.x);
+            int playerZ = (int)floorf(player->position.z);
+            float localFauna = PlanetEcologyFaunaDensityAt(
+                playerX, playerZ, daylight);
+            populationCap = localFauna > 0.0f
+                ? 1 + (int)(localFauna * 20.0f) : 0;
         }
-        if (GetActiveEntityCount() < populationCap) {
-            if (PlanetWorldIsActive() || daylight > 0.5f) SpawnPassive(player);
+        int activeCount = GetActiveEntityCount();
+        if (activeCount < populationCap) {
+            if (PlanetWorldIsActive() || daylight > 0.5f) SpawnPassive(player, daylight);
             else SpawnHostile(player, daylight);
+        } else if (PlanetWorldIsActive() && activeCount > populationCap) {
+            DespawnDistantAlien(player);
         }
     }
 

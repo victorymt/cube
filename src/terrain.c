@@ -480,18 +480,40 @@ static void PlanetMapCoordinatesToLatLon(float mapX, float mapZ,
                          -0.5f * PI, 0.5f * PI);
 }
 
+void PlanetSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude)
+{
+    float mapX = 0.0f;
+    float mapZ = 0.0f;
+    PlanetSurfaceCoordinates(x, z, &mapX, &mapZ);
+    PlanetMapCoordinatesToLatLon(mapX, mapZ, outLongitude, outLatitude);
+}
+
+PlanetSurfaceSample PlanetSurfaceBaselineAt(int x, int z)
+{
+    float longitude = 0.0f;
+    float latitude = 0.0f;
+    PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
+    return PlanetSampleGlobalSurfaceBaseline(PlanetWorldSeed(), PlanetWorldProfile(),
+                                             longitude, latitude);
+}
+
+PlanetSurfaceSample PlanetSurfaceAtTime(int x, int z, double simulationTime)
+{
+    float longitude = 0.0f;
+    float latitude = 0.0f;
+    PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
+    return PlanetSampleGlobalSurfaceAtTime(PlanetWorldSeed(), PlanetWorldProfile(),
+                                           longitude, latitude, simulationTime);
+}
+
 static PlanetSurfaceSample PlanetSampleLocalSurface(int x, int z, float *outX, float *outZ)
 {
     float mapX = 0.0f;
     float mapZ = 0.0f;
     PlanetSurfaceCoordinates(x, z, &mapX, &mapZ);
-    float longitude = 0.0f;
-    float latitude = 0.0f;
-    PlanetMapCoordinatesToLatLon(mapX, mapZ, &longitude, &latitude);
     if (outX) *outX = mapX;
     if (outZ) *outZ = mapZ;
-    return PlanetSampleGlobalSurface(PlanetWorldSeed(), PlanetWorldProfile(),
-                                     longitude, latitude);
+    return PlanetSurfaceBaselineAt(x, z);
 }
 
 static int PlanetSeaLevel(SolarBodyStyle style, const PlanetProfile *profile)
@@ -676,6 +698,11 @@ static void PlacePlanetForest(Chunk *chunk, int treeX, int treeZ)
 {
     if (PlanetBiomeAt(treeX, treeZ) != PLANET_BIOME_FOREST) return;
     if (PlanetHash2D(treeX, treeZ, 151u) % 59u != 0u) return;
+    PlanetEcologySuitability suitability = PlanetEcologyStaticSuitabilityAt(
+        treeX, treeZ);
+    float ecologyRoll = (float)(PlanetHash2D(treeX, treeZ, 173u) & 0x00ffffffu) /
+                        16777215.0f;
+    if (ecologyRoll > suitability.floraCapacity) return;
 
     int base = PlanetTerrainHeight(treeX, treeZ) + 1;
     if (base <= PlanetSeaLevel(PlanetWorldStyle(), PlanetWorldProfile())) return;
@@ -741,7 +768,10 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
             } else if (surface.ejecta > 0.76f && decor % 83u == 0u) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_METEORITE;
             } else if ((biome == PLANET_BIOME_DUNES || biome == PLANET_BIOME_BADLANDS) &&
-                decor % (biome == PLANET_BIOME_DUNES ? 181u : 293u) == 0u) {
+                decor % (biome == PLANET_BIOME_DUNES ? 181u : 293u) == 0u &&
+                ((float)(PlanetHash2D(worldX, worldZ, 401u) & 0x00ffffffu) /
+                 16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
+                     worldX, worldZ).floraCapacity) {
                 for (int y = height + 1; y <= height + 3 && InHeight(y); y++) {
                     chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_CACTUS;
                 }
@@ -756,14 +786,20 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
             } else if ((biome == PLANET_BIOME_BASALT_PLAINS ||
                         biome == PLANET_BIOME_VOLCANIC_RIDGE) && decor % 193u == 0u) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_GLOWSTONE;
-            } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 157u == 0u) {
+            } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 157u == 0u &&
+                       ((float)(PlanetHash2D(worldX, worldZ, 409u) & 0x00ffffffu) /
+                        16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
+                            worldX, worldZ).floraCapacity) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_MUSHROOM;
             } else if ((biome == PLANET_BIOME_IMPACT_BASIN ||
                         biome == PLANET_BIOME_CRATER_HIGHLANDS) && decor % 149u == 0u) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_METEORITE;
             } else if ((biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS ||
                         biome == PLANET_BIOME_OASIS) && height > seaLevel + 1 &&
-                       decor % (biome == PLANET_BIOME_FOREST ? 61u : 97u) == 0u) {
+                       decor % (biome == PLANET_BIOME_FOREST ? 61u : 97u) == 0u &&
+                       ((float)(PlanetHash2D(worldX, worldZ, 419u) & 0x00ffffffu) /
+                        16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
+                            worldX, worldZ).floraCapacity) {
                 chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_FLOWER;
             }
         }

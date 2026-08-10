@@ -3,6 +3,7 @@
 #include "chunks.h"
 #include "space.h"
 #include "terrain.h"
+#include "weather.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -33,6 +34,202 @@ static float EcologyClamp(float value)
     if (value < 0.0f) return 0.0f;
     if (value > 1.0f) return 1.0f;
     return value;
+}
+
+static float EcologyBiomeSupport(PlanetBiome biome,
+                                 const PlanetEcologyProfile *profile)
+{
+    float support = 0.0f;
+    switch (biome) {
+    case PLANET_BIOME_FOREST:             support = 1.00f; break;
+    case PLANET_BIOME_OASIS:              support = 0.95f; break;
+    case PLANET_BIOME_PLAINS:             support = 0.78f; break;
+    case PLANET_BIOME_COAST:              support = 0.68f; break;
+    case PLANET_BIOME_VOLCANIC_RIDGE:     support = 0.35f; break;
+    case PLANET_BIOME_BASALT_PLAINS:      support = 0.28f; break;
+    case PLANET_BIOME_ALPINE:             support = 0.40f; break;
+    case PLANET_BIOME_BADLANDS:           support = 0.28f; break;
+    case PLANET_BIOME_DUNES:              support = 0.16f; break;
+    case PLANET_BIOME_GLACIER:            support = 0.18f; break;
+    case PLANET_BIOME_ICE_SHEET:          support = 0.10f; break;
+    case PLANET_BIOME_IMPACT_BASIN:       support = 0.22f; break;
+    case PLANET_BIOME_CRATER_HIGHLANDS:   support = 0.14f; break;
+    case PLANET_BIOME_OCEAN:
+    case PLANET_BIOME_LAVA_SEA:
+    case PLANET_BIOME_STORM_BANDS:
+    default:                              support = 0.0f; break;
+    }
+
+    if (!profile) return support;
+    if (profile->flora == PLANET_FLORA_CRYSTAL) {
+        if (biome == PLANET_BIOME_GLACIER) support = 0.65f;
+        if (biome == PLANET_BIOME_ICE_SHEET) support = 0.55f;
+        if (biome == PLANET_BIOME_ALPINE) support = 0.72f;
+        if (biome == PLANET_BIOME_BADLANDS) support = 0.55f;
+        if (biome == PLANET_BIOME_IMPACT_BASIN) support = 0.58f;
+        if (biome == PLANET_BIOME_CRATER_HIGHLANDS) support = 0.52f;
+        if (biome == PLANET_BIOME_BASALT_PLAINS) support = 0.55f;
+        if (biome == PLANET_BIOME_VOLCANIC_RIDGE) support = 0.68f;
+    } else if (profile->flora == PLANET_FLORA_THERMAL_VENT) {
+        if (biome == PLANET_BIOME_VOLCANIC_RIDGE) support = 0.88f;
+        if (biome == PLANET_BIOME_BASALT_PLAINS) support = 0.68f;
+    } else if (profile->flora == PLANET_FLORA_SPORE) {
+        if (biome == PLANET_BIOME_IMPACT_BASIN) support = 0.42f;
+        if (biome == PLANET_BIOME_CRATER_HIGHLANDS) support = 0.34f;
+    }
+    return support;
+}
+
+static PlanetEcologyTraits EcologyTraitsForProfile(
+    const PlanetEcologyProfile *profile)
+{
+    PlanetEcologyTraits traits = { 0 };
+    traits.preferredTemperatureK = 288.0f;
+    traits.temperatureToleranceK = 42.0f;
+    traits.waterDependence = 0.92f;
+    traits.lightDependence = 0.78f;
+    traits.stormResistance = 0.28f;
+    traits.altitudeTolerance = 0.25f;
+    traits.slopeTolerance = 0.22f;
+    traits.foodWebDependence = 0.86f;
+    traits.nocturnalFraction = 0.18f;
+    if (!profile) return traits;
+
+    if (profile->chemistry == PLANET_CHEMISTRY_SILICON) {
+        traits.preferredTemperatureK = 326.0f;
+        traits.temperatureToleranceK = 76.0f;
+        traits.waterDependence = 0.28f;
+        traits.lightDependence = 0.52f;
+        traits.stormResistance = 0.72f;
+        traits.altitudeTolerance = 0.62f;
+        traits.slopeTolerance = 0.68f;
+        traits.foodWebDependence = 0.45f;
+        traits.nocturnalFraction = 0.35f;
+    } else if (profile->chemistry == PLANET_CHEMISTRY_SULFUR) {
+        traits.preferredTemperatureK = 348.0f;
+        traits.temperatureToleranceK = 68.0f;
+        traits.waterDependence = 0.22f;
+        traits.lightDependence = 0.40f;
+        traits.stormResistance = 0.68f;
+        traits.altitudeTolerance = 0.55f;
+        traits.slopeTolerance = 0.55f;
+        traits.foodWebDependence = 0.55f;
+        traits.nocturnalFraction = 0.25f;
+    }
+
+    switch (profile->niche) {
+    case PLANET_NICHE_MICROBIAL:
+        traits.foodWebDependence = 0.0f;
+        traits.lightDependence *= 0.45f;
+        traits.stormResistance = fmaxf(traits.stormResistance, 0.78f);
+        break;
+    case PLANET_NICHE_DECOMPOSER:
+        traits.lightDependence = 0.12f;
+        traits.foodWebDependence = 0.52f;
+        traits.nocturnalFraction = 0.78f;
+        break;
+    case PLANET_NICHE_CRYSTAL_GRAZER:
+        traits.waterDependence = 0.12f;
+        traits.lightDependence = 0.32f;
+        traits.slopeTolerance = 0.78f;
+        traits.foodWebDependence = 0.24f;
+        break;
+    case PLANET_NICHE_FILTER_FEEDER:
+        traits.stormResistance = 0.82f;
+        traits.altitudeTolerance = 1.0f;
+        traits.slopeTolerance = 1.0f;
+        traits.foodWebDependence = 0.58f;
+        break;
+    case PLANET_NICHE_BIOLUMINESCENT_COLONY:
+        traits.lightDependence = 0.05f;
+        traits.foodWebDependence = 0.25f;
+        traits.nocturnalFraction = 1.0f;
+        break;
+    case PLANET_NICHE_GRAZER:
+    default:
+        break;
+    }
+    return traits;
+}
+
+static PlanetLocalEnvironment EcologyEnvironmentAt(
+    int x, int z, double simulationTime, float daylight,
+    float precipitationRate, float currentStorm, bool dynamic,
+    const PlanetEcologyProfile *ecology)
+{
+    PlanetLocalEnvironment environment = { 0 };
+    if (!PlanetWorldIsActive()) return environment;
+
+    const PlanetProfile *planet = PlanetWorldProfile();
+    PlanetSurfaceSample surface = dynamic
+        ? PlanetSurfaceAtTime(x, z, simulationTime)
+        : PlanetSurfaceBaselineAt(x, z);
+    int height = PlanetTerrainHeight(x, z);
+    int east = PlanetTerrainHeight(x + 2, z);
+    int west = PlanetTerrainHeight(x - 2, z);
+    int south = PlanetTerrainHeight(x, z + 2);
+    int north = PlanetTerrainHeight(x, z - 2);
+    float maxSlope = fmaxf(fabsf((float)(east - west)),
+                           fabsf((float)(south - north))) * 0.25f;
+    environment.slope = EcologyClamp(maxSlope / 3.5f);
+    environment.elevation = EcologyClamp(((float)height - 5.0f) / 25.0f);
+    float surrounding = ((float)east + (float)west + (float)south + (float)north) * 0.25f;
+    environment.shelter = EcologyClamp(0.48f + (surrounding - (float)height) / 7.0f);
+
+    float lapseCooling = fmaxf((float)height - 12.0f, 0.0f) * 0.68f;
+    environment.meanTemperatureK = surface.meanTemperature - lapseCooling;
+    environment.currentTemperatureK = surface.temperature - lapseCooling;
+    environment.seasonalAmplitudeK = surface.seasonalAmplitude;
+
+    float drainage = 1.0f - environment.slope * 0.62f;
+    environment.soilMoisture = EcologyClamp(
+        surface.moisture * (1.0f - surface.iceCoverage * 0.76f) * drainage);
+    float windAngle = planet->prevailingWindAngle;
+    int upwindX = x - (int)lroundf(cosf(windAngle) * 8.0f);
+    int upwindZ = z - (int)lroundf(sinf(windAngle) * 8.0f);
+    int upwindHeight = PlanetTerrainHeight(upwindX, upwindZ);
+    float orographicLift = EcologyClamp(
+        0.50f + ((float)height - (float)upwindHeight) / 10.0f);
+    environment.meanPrecipitation = EcologyClamp(
+        surface.moisture * (0.36f + EcologyClamp(planet->cloudCoverage) * 0.64f) *
+        (0.75f + orographicLift * 0.42f) *
+        (1.0f - environment.elevation * 0.18f));
+
+    float liquidThermal = EcologyClamp(
+        (environment.meanTemperatureK - 238.0f) / 42.0f);
+    liquidThermal *= 1.0f - EcologyClamp(
+        (environment.meanTemperatureK - 365.0f) / 115.0f);
+    float nearbyWater = 0.0f;
+    if (surface.biome == PLANET_BIOME_COAST) nearbyWater = 0.62f;
+    else if (surface.biome == PLANET_BIOME_OASIS) nearbyWater = 0.86f;
+    else if (surface.biome == PLANET_BIOME_OCEAN) nearbyWater = 1.0f;
+    environment.liquidWaterAccess = EcologyClamp(
+        environment.soilMoisture * 0.58f +
+        environment.meanPrecipitation * 0.22f + nearbyWater) * liquidThermal;
+
+    float longitude = 0.0f;
+    float latitude = 0.0f;
+    PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
+    (void)longitude;
+    float irradiance = EcologyClamp((float)planet->receivedIrradiance / 1.4f);
+    float annualSun = 0.55f + 0.45f * cosf(latitude);
+    float cloudTransmission = 1.0f - EcologyClamp(planet->cloudCoverage) * 0.55f;
+    environment.meanUsableLight = EcologyClamp(
+        irradiance * annualSun * cloudTransmission);
+    environment.currentUsableLight = dynamic
+        ? EcologyClamp(daylight * EcologyClamp((float)planet->receivedIrradiance))
+        : environment.meanUsableLight;
+
+    float roughness = EcologyClamp((planet->terrainRoughness - 0.35f) / 1.20f);
+    environment.stormExposure = EcologyClamp(
+        planet->windStrength * 0.55f + planet->cloudCoverage * 0.20f +
+        planet->oceanCoverage * 0.15f + roughness * 0.10f);
+    environment.stormExposure *= 1.0f - environment.shelter * 0.35f;
+    environment.precipitationRate = dynamic
+        ? EcologyClamp(precipitationRate) : environment.meanPrecipitation;
+    environment.currentStorm = dynamic ? EcologyClamp(currentStorm) : 0.0f;
+    environment.biomeSupport = EcologyBiomeSupport(surface.biome, ecology);
+    return environment;
 }
 
 static int EcologyPaletteIndex(PlanetChemistry chemistry, uint32_t hash, bool accent)
@@ -258,6 +455,50 @@ float PlanetEcologyFaunaDensity(void)
     return PlanetEcologyCurrent().faunaDensity;
 }
 
+static PlanetEcologySuitability EcologyStaticSuitabilityForProfile(
+    int x, int z, const PlanetEcologyProfile *profile)
+{
+    PlanetLocalEnvironment environment = EcologyEnvironmentAt(
+        x, z, 0.0, 1.0f, 0.0f, 0.0f, false, profile);
+    PlanetEcologyTraits traits = EcologyTraitsForProfile(profile);
+    return PlanetEcologyEvaluateLocal(&environment, &traits,
+                                      profile ? profile->floraDensity : 0.0f,
+                                      profile ? profile->faunaDensity : 0.0f);
+}
+
+PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z)
+{
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    return EcologyStaticSuitabilityForProfile(x, z, &profile);
+}
+
+PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
+{
+    PlanetLocalEcology local = { 0 };
+    if (!PlanetWorldIsActive()) return local;
+
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    Weather weather = WeatherGetCurrent();
+    float sky = EcologyClamp(WeatherSkyFactor());
+    float precipitation = 0.0f;
+    if (weather == WEATHER_RAIN) precipitation = 0.55f + sky * 0.45f;
+    else if (weather == WEATHER_SNOW) precipitation = 0.28f + sky * 0.34f;
+    float storm = sky * (0.55f + PlanetWorldProfile()->windStrength * 0.45f);
+    float usableDaylight = EcologyClamp(daylight * (1.0f - sky * 0.68f));
+    local.environment = EcologyEnvironmentAt(
+        x, z, SpaceSimulationTime(), usableDaylight, precipitation, storm,
+        true, &profile);
+    PlanetEcologyTraits traits = EcologyTraitsForProfile(&profile);
+    local.suitability = PlanetEcologyEvaluateLocal(
+        &local.environment, &traits, profile.floraDensity, profile.faunaDensity);
+    return local;
+}
+
+float PlanetEcologyFaunaDensityAt(int x, int z, float daylight)
+{
+    return PlanetEcologyLocalAt(x, z, daylight).suitability.faunaActivity;
+}
+
 const char *PlanetEcologyLifeName(void)
 {
     float density = PlanetEcologyCurrent().lifeDensity;
@@ -403,25 +644,6 @@ static void PlacePlanetFlora(Chunk *chunk, int x, int z,
     PlanetBiome biome = PlanetBiomeAt(x, z);
     if (biome == PLANET_BIOME_OCEAN || biome == PLANET_BIOME_LAVA_SEA ||
         biome == PLANET_BIOME_STORM_BANDS) return;
-    float biomeSupport = 0.45f;
-    switch (biome) {
-    case PLANET_BIOME_FOREST:             biomeSupport = 1.00f; break;
-    case PLANET_BIOME_OASIS:              biomeSupport = 0.92f; break;
-    case PLANET_BIOME_PLAINS:             biomeSupport = 0.72f; break;
-    case PLANET_BIOME_COAST:              biomeSupport = 0.64f; break;
-    case PLANET_BIOME_VOLCANIC_RIDGE:     biomeSupport = 0.58f; break;
-    case PLANET_BIOME_BASALT_PLAINS:      biomeSupport = 0.34f; break;
-    case PLANET_BIOME_ALPINE:             biomeSupport = 0.26f; break;
-    case PLANET_BIOME_BADLANDS:           biomeSupport = 0.22f; break;
-    case PLANET_BIOME_DUNES:              biomeSupport = 0.16f; break;
-    case PLANET_BIOME_GLACIER:            biomeSupport = 0.14f; break;
-    case PLANET_BIOME_ICE_SHEET:          biomeSupport = 0.10f; break;
-    case PLANET_BIOME_IMPACT_BASIN:       biomeSupport = 0.10f; break;
-    case PLANET_BIOME_CRATER_HIGHLANDS:   biomeSupport = 0.07f; break;
-    default: break;
-    }
-    float biomeRoll = (float)((hash >> 8u) & 0xffffu) / 65535.0f;
-    if (biomeRoll > biomeSupport) return;
     int ground = PlanetTerrainHeight(x, z);
     if (ground > WORLD_HEIGHT - 7) return;
 
@@ -463,6 +685,11 @@ void PlanetEcologyApplyToChunk(Chunk *chunk, int chunkX, int chunkZ)
         for (int z = startZ; z < endZ; z++) {
             uint32_t hash = EcologyHash(x, z, 0x314159u);
             if (hash % (uint32_t)divisor != 0u) continue;
+            PlanetEcologySuitability local = EcologyStaticSuitabilityForProfile(
+                x, z, &profile);
+            uint32_t localHash = EcologyMix(hash ^ 0x6d2b79f5u);
+            float localRoll = (float)(localHash & 0x00ffffffu) / 16777215.0f;
+            if (localRoll > local.carryingCapacity) continue;
             PlacePlanetFlora(chunk, x, z, &profile, hash);
         }
     }

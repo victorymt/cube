@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 static void AssertNear(float actual, float expected, float tolerance)
 {
@@ -14,6 +15,65 @@ static float TestUnit(uint32_t *state)
 {
     *state = *state * 1664525u + 1013904223u;
     return (float)(*state & 0x00ffffffu) / 16777215.0f;
+}
+
+static PlanetLocalEnvironment TemperateEnvironment(void)
+{
+    PlanetLocalEnvironment environment = { 0 };
+    environment.meanTemperatureK = 288.0f;
+    environment.currentTemperatureK = 288.0f;
+    environment.seasonalAmplitudeK = 12.0f;
+    environment.liquidWaterAccess = 0.78f;
+    environment.soilMoisture = 0.72f;
+    environment.meanPrecipitation = 0.60f;
+    environment.precipitationRate = 0.0f;
+    environment.meanUsableLight = 0.82f;
+    environment.currentUsableLight = 0.90f;
+    environment.stormExposure = 0.18f;
+    environment.currentStorm = 0.0f;
+    environment.elevation = 0.18f;
+    environment.slope = 0.12f;
+    environment.shelter = 0.65f;
+    environment.biomeSupport = 0.92f;
+    return environment;
+}
+
+static PlanetEcologyTraits CarbonTraits(void)
+{
+    PlanetEcologyTraits traits = { 0 };
+    traits.preferredTemperatureK = 288.0f;
+    traits.temperatureToleranceK = 42.0f;
+    traits.waterDependence = 0.92f;
+    traits.lightDependence = 0.78f;
+    traits.stormResistance = 0.28f;
+    traits.altitudeTolerance = 0.25f;
+    traits.slopeTolerance = 0.22f;
+    traits.foodWebDependence = 0.86f;
+    traits.nocturnalFraction = 0.18f;
+    return traits;
+}
+
+static void AssertSuitabilityValid(PlanetEcologySuitability suitability)
+{
+#define ASSERT_UNIT(field) do { \
+    assert(isfinite(suitability.field)); \
+    assert(suitability.field >= 0.0f); \
+    assert(suitability.field <= 1.0f); \
+} while (0)
+    ASSERT_UNIT(carryingCapacity);
+    ASSERT_UNIT(floraCapacity);
+    ASSERT_UNIT(faunaCapacity);
+    ASSERT_UNIT(floraActivity);
+    ASSERT_UNIT(faunaActivity);
+    ASSERT_UNIT(waterScore);
+    ASSERT_UNIT(temperatureScore);
+    ASSERT_UNIT(lightScore);
+    ASSERT_UNIT(stormScore);
+    ASSERT_UNIT(terrainScore);
+    ASSERT_UNIT(seasonScore);
+#undef ASSERT_UNIT
+    assert(suitability.limitingFactor >= PLANET_ECOLOGY_LIMIT_NONE);
+    assert(suitability.limitingFactor <= PLANET_ECOLOGY_LIMIT_SEASON);
 }
 
 static void TestDeterministicHistory(void)
@@ -107,6 +167,140 @@ static void TestDensityCapsPreComplexLife(void)
     assert(foundComplex);
 }
 
+static void TestLocalSuitabilityIsDeterministic(void)
+{
+    PlanetLocalEnvironment environment = TemperateEnvironment();
+    PlanetEcologyTraits traits = CarbonTraits();
+    PlanetEcologySuitability first = PlanetEcologyEvaluateLocal(
+        &environment, &traits, 0.82f, 0.56f);
+    PlanetEcologySuitability second = PlanetEcologyEvaluateLocal(
+        &environment, &traits, 0.82f, 0.56f);
+    assert(memcmp(&first, &second, sizeof(first)) == 0);
+    AssertSuitabilityValid(first);
+}
+
+static void TestLocalEnvironmentalControls(void)
+{
+    PlanetLocalEnvironment good = TemperateEnvironment();
+    PlanetEcologyTraits traits = CarbonTraits();
+    PlanetEcologySuitability baseline = PlanetEcologyEvaluateLocal(
+        &good, &traits, 0.82f, 0.56f);
+
+    PlanetLocalEnvironment dry = good;
+    dry.liquidWaterAccess = 0.0f;
+    dry.soilMoisture = 0.0f;
+    dry.meanPrecipitation = 0.0f;
+    PlanetEcologySuitability dryResult = PlanetEcologyEvaluateLocal(
+        &dry, &traits, 0.82f, 0.56f);
+    assert(dryResult.carryingCapacity == 0.0f);
+    assert(dryResult.limitingFactor == PLANET_ECOLOGY_LIMIT_WATER);
+
+    PlanetLocalEnvironment lethal = good;
+    lethal.meanTemperatureK = 470.0f;
+    lethal.currentTemperatureK = 470.0f;
+    PlanetEcologySuitability lethalResult = PlanetEcologyEvaluateLocal(
+        &lethal, &traits, 0.82f, 0.56f);
+    assert(lethalResult.carryingCapacity < baseline.carryingCapacity * 0.20f);
+
+    PlanetLocalEnvironment dark = good;
+    dark.meanUsableLight = 0.01f;
+    PlanetEcologySuitability darkResult = PlanetEcologyEvaluateLocal(
+        &dark, &traits, 0.82f, 0.56f);
+    assert(darkResult.floraCapacity < baseline.floraCapacity);
+
+    PlanetLocalEnvironment stormy = good;
+    stormy.stormExposure = 1.0f;
+    PlanetEcologySuitability stormResult = PlanetEcologyEvaluateLocal(
+        &stormy, &traits, 0.82f, 0.56f);
+    assert(stormResult.carryingCapacity < baseline.carryingCapacity);
+
+    PlanetLocalEnvironment mountain = good;
+    mountain.elevation = 1.0f;
+    mountain.slope = 1.0f;
+    mountain.shelter = 0.0f;
+    PlanetEcologySuitability mountainResult = PlanetEcologyEvaluateLocal(
+        &mountain, &traits, 0.82f, 0.56f);
+    assert(mountainResult.carryingCapacity < baseline.carryingCapacity);
+
+    PlanetLocalEnvironment seasonal = good;
+    seasonal.seasonalAmplitudeK = 105.0f;
+    PlanetEcologySuitability seasonalResult = PlanetEcologyEvaluateLocal(
+        &seasonal, &traits, 0.82f, 0.56f);
+    assert(seasonalResult.seasonScore < baseline.seasonScore);
+    assert(seasonalResult.carryingCapacity < baseline.carryingCapacity);
+}
+
+static void TestWeatherChangesActivityNotPermanentCapacity(void)
+{
+    PlanetLocalEnvironment dryMoment = TemperateEnvironment();
+    PlanetEcologyTraits traits = CarbonTraits();
+    PlanetEcologySuitability clear = PlanetEcologyEvaluateLocal(
+        &dryMoment, &traits, 0.82f, 0.56f);
+
+    PlanetLocalEnvironment rainyMoment = dryMoment;
+    rainyMoment.precipitationRate = 0.85f;
+    PlanetEcologySuitability rain = PlanetEcologyEvaluateLocal(
+        &rainyMoment, &traits, 0.82f, 0.56f);
+    AssertNear(rain.carryingCapacity, clear.carryingCapacity, 0.0f);
+    AssertNear(rain.floraCapacity, clear.floraCapacity, 0.0f);
+    assert(rain.floraActivity > clear.floraActivity);
+    assert(rain.faunaActivity > clear.faunaActivity);
+
+    PlanetLocalEnvironment storm = rainyMoment;
+    storm.currentStorm = 1.0f;
+    PlanetEcologySuitability stormActivity = PlanetEcologyEvaluateLocal(
+        &storm, &traits, 0.82f, 0.56f);
+    AssertNear(stormActivity.faunaCapacity, clear.faunaCapacity, 0.0f);
+    assert(stormActivity.faunaActivity < clear.faunaActivity);
+}
+
+static void TestCurrentSeasonChangesActivityOnly(void)
+{
+    PlanetLocalEnvironment summer = TemperateEnvironment();
+    PlanetEcologyTraits traits = CarbonTraits();
+    PlanetLocalEnvironment winter = summer;
+    winter.currentTemperatureK = 218.0f;
+    winter.currentUsableLight = 0.22f;
+
+    PlanetEcologySuitability warm = PlanetEcologyEvaluateLocal(
+        &summer, &traits, 0.82f, 0.56f);
+    PlanetEcologySuitability cold = PlanetEcologyEvaluateLocal(
+        &winter, &traits, 0.82f, 0.56f);
+    AssertNear(warm.carryingCapacity, cold.carryingCapacity, 0.0f);
+    AssertNear(warm.floraCapacity, cold.floraCapacity, 0.0f);
+    assert(cold.floraActivity < warm.floraActivity);
+    assert(cold.faunaActivity < warm.faunaActivity);
+}
+
+static void TestRandomizedLocalProperties(void)
+{
+    uint32_t state = 0x7d493a21u;
+    PlanetEcologyTraits traits = CarbonTraits();
+    for (int sample = 0; sample < 10000; sample++) {
+        PlanetLocalEnvironment environment = TemperateEnvironment();
+        environment.meanTemperatureK = 170.0f + TestUnit(&state) * 330.0f;
+        environment.currentTemperatureK = 170.0f + TestUnit(&state) * 330.0f;
+        environment.seasonalAmplitudeK = TestUnit(&state) * 130.0f;
+        environment.liquidWaterAccess = TestUnit(&state);
+        environment.soilMoisture = TestUnit(&state);
+        environment.meanPrecipitation = TestUnit(&state);
+        environment.precipitationRate = TestUnit(&state);
+        environment.meanUsableLight = TestUnit(&state) * 1.4f;
+        environment.currentUsableLight = TestUnit(&state) * 1.4f;
+        environment.stormExposure = TestUnit(&state);
+        environment.currentStorm = TestUnit(&state);
+        environment.elevation = TestUnit(&state);
+        environment.slope = TestUnit(&state);
+        environment.shelter = TestUnit(&state);
+        environment.biomeSupport = TestUnit(&state);
+        PlanetEcologySuitability suitability = PlanetEcologyEvaluateLocal(
+            &environment, &traits, TestUnit(&state), TestUnit(&state));
+        AssertSuitabilityValid(suitability);
+        assert(suitability.floraActivity <= suitability.floraCapacity + 0.16f);
+        assert(suitability.faunaActivity <= suitability.faunaCapacity + 0.16f);
+    }
+}
+
 int main(void)
 {
     TestDeterministicHistory();
@@ -114,6 +308,11 @@ int main(void)
     TestPopulationIsMostlyBarren();
     TestComplexEcologyRemainsRareOnHabitableWorlds();
     TestDensityCapsPreComplexLife();
+    TestLocalSuitabilityIsDeterministic();
+    TestLocalEnvironmentalControls();
+    TestWeatherChangesActivityNotPermanentCapacity();
+    TestCurrentSeasonChangesActivityOnly();
+    TestRandomizedLocalProperties();
     puts("ecology_model tests passed");
     return 0;
 }

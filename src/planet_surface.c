@@ -140,8 +140,9 @@ static void PlanetSampleImpactFields(uint32_t seed, const PlanetProfile *profile
     }
 }
 
-PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile *profile,
-                                              float longitude, float latitude)
+static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
+    uint32_t seed, const PlanetProfile *profile, float longitude, float latitude,
+    double simulationTime, bool applySeason)
 {
     PlanetSurfaceSample sample = { 0 };
     SolarBodyStyle style = profile ? profile->style : SOLAR_STYLE_TEMPERATE;
@@ -161,11 +162,13 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
     float axialTilt = profile ? Clamp(profile->axialTilt, 0.0f, 0.75f) : 0.0f;
     float season = profile ? profile->seasonPhase : 0.0f;
     float yearLength = profile ? fmaxf(profile->yearLength, 1.0f) : 1.0f;
-    if (profile) {
-        season += (float)(SpaceSimulationTime() * (2.0 * PI / (double)yearLength));
+    if (profile && applySeason) {
+        season += (float)(simulationTime * (2.0 * PI / (double)yearLength));
     }
     float seasonalDelta = sinf(latitude) * sinf(axialTilt) * sinf(season) * 70.0f;
-    sample.temperature = meanTemperature + seasonalDelta;
+    sample.meanTemperature = meanTemperature;
+    sample.seasonalAmplitude = fabsf(sinf(latitude) * sinf(axialTilt) * 70.0f);
+    sample.temperature = meanTemperature + (applySeason ? seasonalDelta : 0.0f);
     float thermalNoise = PlanetFractalNoise3D(seed, point, 2.35f, 137u);
     float cloudCoverage = profile ? Clamp(profile->cloudCoverage, 0.0f, 1.0f) : 0.35f;
     float globalMoisture = Clamp(oceanCoverage * 0.72f + cloudCoverage * 0.28f,
@@ -286,6 +289,30 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
         break;
     }
     return sample;
+}
+
+PlanetSurfaceSample PlanetSampleGlobalSurfaceAtTime(uint32_t seed,
+                                                    const PlanetProfile *profile,
+                                                    float longitude, float latitude,
+                                                    double simulationTime)
+{
+    return PlanetSampleGlobalSurfaceInternal(seed, profile, longitude, latitude,
+                                             simulationTime, true);
+}
+
+PlanetSurfaceSample PlanetSampleGlobalSurfaceBaseline(uint32_t seed,
+                                                      const PlanetProfile *profile,
+                                                      float longitude, float latitude)
+{
+    return PlanetSampleGlobalSurfaceInternal(seed, profile, longitude, latitude,
+                                             0.0, false);
+}
+
+PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile *profile,
+                                              float longitude, float latitude)
+{
+    return PlanetSampleGlobalSurfaceAtTime(seed, profile, longitude, latitude,
+                                           SpaceSimulationTime());
 }
 
 const char *PlanetBiomeName(PlanetBiome biome)

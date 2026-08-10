@@ -19,6 +19,7 @@
 #include "ship.h"
 #include "audio.h"
 #include "weather.h"
+#include "ecology.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -2715,7 +2716,7 @@ void DrawImportDialog(ImportDialog *dialog)
              (int)panel.x + 30, (int)panel.y + 218, 16, Fade(WHITE, 0.76f));
 }
 
-void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch)
+void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight)
 {
     int x = 18;
     int y = 76;
@@ -2747,6 +2748,35 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch)
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
     } else {
         DrawText("Deep space", x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    }
+    if (PlanetWorldIsActive()) {
+        PlanetLocalEcology ecology = PlanetEcologyLocalAt(
+            (int)floorf(playerPosition.x), (int)floorf(playerPosition.z), daylight);
+        DrawText(TextFormat("Ecology capacity %.2f   flora %.2f   fauna %.2f   limit %s",
+                            ecology.suitability.carryingCapacity,
+                            ecology.suitability.floraCapacity,
+                            ecology.suitability.faunaCapacity,
+                            PlanetEcologyLimitingFactorName(
+                                ecology.suitability.limitingFactor)),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Activity flora %.2f   fauna %.2f   water %.2f   rain %.2f",
+                            ecology.suitability.floraActivity,
+                            ecology.suitability.faunaActivity,
+                            ecology.environment.liquidWaterAccess,
+                            ecology.environment.precipitationRate),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Climate %.0f/%.0f K   light %.2f/%.2f   storm %.2f",
+                            ecology.environment.meanTemperatureK,
+                            ecology.environment.currentTemperatureK,
+                            ecology.environment.meanUsableLight,
+                            ecology.environment.currentUsableLight,
+                            ecology.environment.currentStorm),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Terrain elevation %.2f   slope %.2f   shelter %.2f",
+                            ecology.environment.elevation,
+                            ecology.environment.slope,
+                            ecology.environment.shelter),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
     }
     SpaceScaleDiagnostics scale;
     if (SpaceScaleDiagnosticsAt(playerPosition, &scale)) {

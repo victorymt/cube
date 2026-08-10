@@ -44,7 +44,7 @@ void DrawCursorReleasedOverlay(void);
 void DrawImportStatus(void);
 void DrawImportDialog(ImportDialog *dialog);
 void DrawPauseMenu(bool *resume, bool *saveWorld, bool *saveAndQuit, bool *toggleMusic, bool *returnToMenu);
-void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch);
+void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight);
 extern float dayTimeForHud;
 extern bool autoSaveForHud;
 extern BlockType blockForHud;
