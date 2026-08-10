@@ -96,6 +96,42 @@ static void AssertPlanetClimate(const PlanetProfile *profile)
     }
 }
 
+static void AssertSystemFormation(const SolarSystemDef *system)
+{
+    assert(system);
+    if (system->anchorX == 0 && system->anchorZ == 0) return;
+    assert(isfinite(system->formationMetallicity));
+    assert(system->formationMetallicity >= 0.05f &&
+           system->formationMetallicity <= 1.0f);
+    assert(isfinite(system->formationDiskMassEarth));
+    assert(system->formationDiskMassEarth >= 0.08f);
+    assert(isfinite(system->snowLineKm) && system->snowLineKm > 0.0);
+    assert(isfinite(system->habitableZoneInnerKm));
+    assert(isfinite(system->habitableZoneOuterKm));
+    assert(system->habitableZoneInnerKm > 0.0);
+    assert(system->habitableZoneInnerKm < system->habitableZoneOuterKm);
+
+    double previousOrbitKm = 0.0;
+    double planetaryMassEarth = 0.0;
+    for (int index = 0; index < system->planetCount; index++) {
+        const SolarPlanetDef *planet = &system->planets[index];
+        assert(planet->formationMassEarth >= 0.08f);
+        assert(planet->physicalRadiusKm >=
+               0.35 * SPACE_UNITS_EARTH_RADIUS_KM);
+        assert(planet->semiMajorAxisKm > previousOrbitKm);
+        if (planet->formationGasGiant) {
+            assert(planet->formationMassEarth >= 10.0f);
+            assert(planet->physicalRadiusKm >=
+                   2.6 * SPACE_UNITS_EARTH_RADIUS_KM);
+            assert(planet->semiMajorAxisKm >= system->snowLineKm * 0.78);
+        }
+        planetaryMassEarth += planet->formationMassEarth;
+        previousOrbitKm = planet->semiMajorAxisKm;
+    }
+    assert(planetaryMassEarth <=
+           (double)system->formationDiskMassEarth + 0.001);
+}
+
 static void AssertBarycenter(const SolarSystemDef *system,
                              const SolarStellarBody *bodies, int count)
 {
@@ -352,9 +388,15 @@ static void TestGeneratedSystems(void)
             for (int anchorZ = -10; anchorZ <= 10; anchorZ++) {
                 SolarSystemDef system;
                 if (!StarSystemAt(anchorX, anchorZ, &system)) continue;
+                SolarSystemDef repeatedSystem;
+                memset(&repeatedSystem, 0xa5, sizeof(repeatedSystem));
+                assert(StarSystemAt(anchorX, anchorZ, &repeatedSystem));
+                assert(memcmp(&system, &repeatedSystem,
+                              sizeof(system)) == 0);
                 systemCount++;
                 assert(system.exists);
                 assert(system.planetCount >= 1 && system.planetCount <= 6);
+                AssertSystemFormation(&system);
                 SolarStellarBody bodies[SPACE_BARYCENTER_MAX_BODIES];
                 int bodyCount = SolarSystemStellarBodiesAtTime(
                     &system, 0.0, bodies, SPACE_BARYCENTER_MAX_BODIES);
@@ -366,6 +408,14 @@ static void TestGeneratedSystems(void)
                 for (int planet = 0; planet < system.planetCount; planet++) {
                     PlanetProfile profile = SolarPlanetProfile(&system, planet);
                     assert(profile.massKg > 0.0 && profile.physicalRadiusKm > 0.0);
+                    if (system.anchorX != 0 || system.anchorZ != 0) {
+                        AssertRelative(
+                            profile.massKg / SPACE_UNITS_EARTH_MASS_KG,
+                            system.planets[planet].formationMassEarth,
+                            0.000001);
+                        assert(profile.hasSolidSurface !=
+                               system.planets[planet].formationGasGiant);
+                    }
                     assert(profile.style >= SOLAR_STYLE_LAVA &&
                            profile.style <= SOLAR_STYLE_TEMPERATE);
                     climates[profile.style]++;

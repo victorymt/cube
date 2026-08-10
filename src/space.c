@@ -9,6 +9,7 @@
 #include "space_barycenter.h"
 #include "space_physics.h"
 #include "space_satellite.h"
+#include "space_system.h"
 #include "space_units.h"
 #include "world.h"
 
@@ -83,6 +84,7 @@ static int spaceOriginZ = 0;
 
 static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection);
 static float SolarSystemMinimumPlanetOrbitGame(const SolarSystemDef *sys);
+static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed);
 
 #define SPACE_REBASE_THRESHOLD (STAR_SYSTEM_SPACING * 12)
 
@@ -347,7 +349,18 @@ static int StellarVisualRadius(const StellarProfile *star)
 
 static void ApplyPrimaryStar(SolarSystemDef *system, StellarProfile star)
 {
-    system->star = star;
+    system->star.spectrum = star.spectrum;
+    system->star.stage = star.stage;
+    system->star.initialMassSolar = star.initialMassSolar;
+    system->star.massKg = star.massKg;
+    system->star.radiusKm = star.radiusKm;
+    system->star.massSolar = star.massSolar;
+    system->star.radiusSolar = star.radiusSolar;
+    system->star.temperatureK = star.temperatureK;
+    system->star.luminositySolar = star.luminositySolar;
+    system->star.ageGyr = star.ageGyr;
+    system->star.mainSequenceLifetimeGyr = star.mainSequenceLifetimeGyr;
+    system->star.luminousLifetimeGyr = star.luminousLifetimeGyr;
     system->spectrum = star.spectrum;
     system->starProxyRadius = StellarVisualRadius(&star);
 }
@@ -367,12 +380,18 @@ static double SolidPlanetRadiusKilometersForProxy(float proxyRadius)
 
 static void BuildSolSystem(SolarSystemDef *out)
 {
+    memset(out, 0, sizeof(*out));
     out->exists = true;
     out->anchorX = 0;
     out->anchorZ = 0;
     snprintf(out->name, sizeof(out->name), "Sol");
     ApplyPrimaryStar(out, StellarSolarProfile());
     out->center = (Vector3){ 0.0f, STAR_SYSTEM_MID_Y, 0.0f };
+    out->formationMetallicity = 1.0f;
+    out->formationDiskMassEarth = 60.0f;
+    out->snowLineKm = 2.70 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+    out->habitableZoneInnerKm = 0.75 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+    out->habitableZoneOuterKm = 1.70 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
     out->planetCount = 6;
     static const float orbitGameDistances[6] = {
         180.0f, 260.0f, 340.0f, 430.0f, 520.0f, 650.0f
@@ -390,9 +409,11 @@ static void BuildSolSystem(SolarSystemDef *out)
                 orbitGameDistances[i]),
             .physicalRadiusKm = SolidPlanetRadiusKilometersForProxy(
                 proxyRadii[i]),
+            .formationMassEarth = 0.0f,
             .spaceProxyRadius = proxyRadii[i],
             .yOffset = 0,
-            .style = styles[i]
+            .style = styles[i],
+            .formationGasGiant = styles[i] == SOLAR_STYLE_GAS
         };
     }
 }
@@ -550,11 +571,12 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
 
     float solidRadiusEarth = (float)(def->physicalRadiusKm /
                                      SPACE_UNITS_EARTH_RADIUS_KM);
-    solidRadiusEarth = Clamp(solidRadiusEarth, 0.62f, 1.55f);
+    solidRadiusEarth = Clamp(solidRadiusEarth, 0.35f, 1.75f);
     bool forcedGasGiant = sys->anchorX == 0 && sys->anchorZ == 0 && index == 3;
-    bool gasGiant = forcedGasGiant ||
+    bool gasGiant = forcedGasGiant || def->formationGasGiant ||
                     (index > 0 && def->spaceProxyRadius >= 47.0f &&
                      unshieldedTemperature < 430.0f &&
+                     def->formationMassEarth <= 0.0f &&
                      PlanetProfileHashUnit(seed, 5u) > 0.52f);
 
     profile.seed = seed;
@@ -572,8 +594,12 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     profile.ringTilt = (14.0f + PlanetProfileHashUnit(seed, 14u) * 17.0f) * DEG2RAD;
     profile.yearLength = (float)SolarSystemPlanetOrbitPeriodGameTime(sys, index);
     if (gasGiant) {
-        float gasRadiusEarth = 2.8f + sizeUnit * 1.8f;
-        double massEarth = 12.0 + (double)composition * 32.0;
+        float gasRadiusEarth = def->formationMassEarth > 0.0f
+            ? (float)(def->physicalRadiusKm / SPACE_UNITS_EARTH_RADIUS_KM)
+            : 2.8f + sizeUnit * 1.8f;
+        double massEarth = def->formationMassEarth > 0.0f
+            ? (double)def->formationMassEarth
+            : 12.0 + (double)composition * 32.0;
         profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
         profile.physicalRadiusKm = (double)gasRadiusEarth *
                                    SPACE_UNITS_EARTH_RADIUS_KM;
@@ -589,8 +615,10 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
         profile.tidallyLocked = false;
     } else {
         float density = 0.78f + composition * 0.52f;
-        double massEarth = (double)density * solidRadiusEarth * solidRadiusEarth *
-                           solidRadiusEarth;
+        double massEarth = def->formationMassEarth > 0.0f
+            ? (double)def->formationMassEarth
+            : (double)density * solidRadiusEarth * solidRadiusEarth *
+              solidRadiusEarth;
         profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
         profile.physicalRadiusKm = (double)solidRadiusEarth *
                                    SPACE_UNITS_EARTH_RADIUS_KM;
@@ -740,6 +768,8 @@ float PlanetBodyTextureRotation(const SpaceBodyInfo *body)
 
 bool StarSystemAt(int ax, int az, SolarSystemDef *out)
 {
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
     if (ax == 0 && az == 0) {
         BuildSolSystem(out);
         out->center.x = (float)SpaceGlobalToLocalX(0);
@@ -768,33 +798,7 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
         STAR_SYSTEM_MID_Y + (float)verticalOffset,
         (float)SpaceGlobalToLocalZ(SpaceSystemGlobalCoordinate(az))
     };
-    int desiredPlanetCount = 2 + (int)((h >> 8) % 4u);
-    float minimumOrbitGame = SolarSystemMinimumPlanetOrbitGame(out);
-    int stablePlanetCount = 1 +
-        (int)floorf((650.0f - minimumOrbitGame - 32.0f) / 120.0f);
-    if (stablePlanetCount < 1) stablePlanetCount = 1;
-    out->planetCount = desiredPlanetCount < stablePlanetCount ?
-                       desiredPlanetCount : stablePlanetCount;
-
-    for (int i = 0; i < out->planetCount; i++) {
-        unsigned int ph = WorldHash2D(ax * 53 + i * 7 + 1, az * 29 + i * 3 + 2);
-        float orbitGame = minimumOrbitGame + i * 120.0f +
-                          (float)(ph % 5u) * 8.0f;
-        if (orbitGame > 650.0f) orbitGame = 650.0f;
-        out->planets[i].semiMajorAxisKm =
-            SpaceUnitsGameDistanceToKilometers(orbitGame);
-        // These are visitable planets, not asteroid props. Keep enough volume
-        // for a layered surface, caves and a useful landing area.
-        out->planets[i].spaceProxyRadius =
-            (float)(40 + (int)((ph >> 6) % 9u));
-        out->planets[i].physicalRadiusKm =
-            SolidPlanetRadiusKilometersForProxy(
-                out->planets[i].spaceProxyRadius);
-        // The orbit is centered on the star. All planets share a generated
-        // system plane, with their own small deviations around it.
-        out->planets[i].yOffset = 0;
-        out->planets[i].style = SOLAR_STYLE_CRATER;
-    }
+    if (!SolarSystemApplyFormation(out, h)) return false;
     for (int i = 0; i < out->planetCount; i++) {
         out->planets[i].style = SolarPlanetProfile(out, i).style;
     }
@@ -1067,6 +1071,63 @@ static float SolarSystemMinimumPlanetOrbitGame(const SolarSystemDef *sys)
     float minimum = (float)SpaceUnitsKilometersToGameDistance(separationKm) *
                     (count == 3 ? 3.0f : 2.8f);
     return fmaxf(180.0f, minimum);
+}
+
+static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
+{
+    if (!sys) return false;
+    SolarLightSource lights[MAX_SOLAR_LIGHTS];
+    int lightCount = SolarSystemLightSources(sys, lights, MAX_SOLAR_LIGHTS);
+    float totalLuminosity = 0.0f;
+    for (int index = 0; index < lightCount; index++) {
+        totalLuminosity += fmaxf(lights[index].luminosity, 0.0f);
+    }
+    if (!(totalLuminosity > 0.0f)) {
+        totalLuminosity = SolarSystemStarLuminosity(sys);
+    }
+
+    SpaceSystemFormation formation;
+    SpaceSystemFormationInput input = {
+        .seed = seed,
+        .stellarMassSolar = (float)(
+            SolarSystemStellarMassKg(sys) / SPACE_UNITS_SOLAR_MASS_KG),
+        .stellarLuminositySolar = totalLuminosity,
+        .stellarAgeGyr = sys->star.ageGyr,
+        .stellarCount = lightCount,
+        .innerStabilityLimitGame = SolarSystemMinimumPlanetOrbitGame(sys),
+        .outerLimitGame = 650.0f
+    };
+    if (!SpaceSystemFormationGenerate(&input, &formation)) return false;
+
+    sys->formationMetallicity = formation.metallicity;
+    sys->formationDiskMassEarth = formation.diskMassEarth;
+    sys->snowLineKm = SpaceUnitsGameDistanceToKilometers(
+        formation.snowLineGame);
+    sys->habitableZoneInnerKm = SpaceUnitsGameDistanceToKilometers(
+        formation.habitableInnerGame);
+    sys->habitableZoneOuterKm = SpaceUnitsGameDistanceToKilometers(
+        formation.habitableOuterGame);
+    sys->planetCount = formation.planetCount;
+    for (int index = 0; index < formation.planetCount; index++) {
+        const SpaceSystemFormationPlanet *planet = &formation.planets[index];
+        uint32_t planetHash = SolarOrbitHash(sys, index);
+        float proxyRadius = planet->gasGiant
+            ? 47.0f + (float)((planetHash >> 6) % 4u)
+            : 40.0f + (float)((planetHash >> 6) % 9u);
+        sys->planets[index] = (SolarPlanetDef){
+            .semiMajorAxisKm = SpaceUnitsGameDistanceToKilometers(
+                planet->orbitGame),
+            .physicalRadiusKm = (double)planet->radiusEarth *
+                                SPACE_UNITS_EARTH_RADIUS_KM,
+            .formationMassEarth = planet->massEarth,
+            .spaceProxyRadius = proxyRadius,
+            .yOffset = 0,
+            .style = planet->gasGiant ? SOLAR_STYLE_GAS :
+                                        SOLAR_STYLE_CRATER,
+            .formationGasGiant = planet->gasGiant
+        };
+    }
+    return true;
 }
 
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,

@@ -122,9 +122,11 @@ typedef struct SolarPlanetDef {
     // Canonical orbital and body dimensions. Proxy size is presentation only.
     double semiMajorAxisKm;
     double physicalRadiusKm;
+    float formationMassEarth;
     float spaceProxyRadius;
     int yOffset;
     SolarBodyStyle style;
+    bool formationGasGiant;
 } SolarPlanetDef;
 
 typedef struct SolarSystemDef {
@@ -137,6 +139,11 @@ typedef struct SolarSystemDef {
     SpectrumType spectrum;
     int starProxyRadius;
     int planetCount;
+    float formationMetallicity;
+    float formationDiskMassEarth;
+    double snowLineKm;
+    double habitableZoneInnerKm;
+    double habitableZoneOuterKm;
     SolarPlanetDef planets[6];
 } SolarSystemDef;
 
