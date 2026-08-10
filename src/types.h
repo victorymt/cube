@@ -245,10 +245,16 @@ typedef struct Chunk {
     bool generating;
     bool hasModel;
     bool hasWaterModel;
+    bool hasFloraModel;
     int cx;
     int cz;
     Model model;
     Model waterModel;
+    Model floraModel;
+    float floraActivity;
+    float floraCapacity;
+    float floraSampleTimer;
+    float floraVisualScale;
     unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
 } Chunk;
 

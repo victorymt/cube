@@ -239,6 +239,30 @@ PlanetFaunaRuntimeState PlanetEcologyFaunaRuntime(float faunaActivity,
     return result;
 }
 
+PlanetFloraRuntimeState PlanetEcologyFloraRuntime(float floraActivity,
+                                                   float floraCapacity)
+{
+    PlanetFloraRuntimeState result = {
+        .growthScale = 0.06f,
+        .visualScale = 0.62f,
+        .visualPresence = 0.34f,
+        .dormant = true
+    };
+    if (!isfinite(floraActivity) || !isfinite(floraCapacity) ||
+        floraCapacity <= 0.0001f) {
+        return result;
+    }
+
+    result.activityRatio = EcologyModelClamp(floraActivity / floraCapacity);
+    float response = EcologyModelClamp((result.activityRatio - 0.03f) / 0.97f);
+    response = response * response * (3.0f - 2.0f * response);
+    result.dormant = result.activityRatio < 0.10f;
+    result.growthScale = result.dormant ? 0.06f : 0.16f + response * 0.84f;
+    result.visualScale = 0.62f + response * 0.38f;
+    result.visualPresence = 0.34f + sqrtf(result.activityRatio) * 0.66f;
+    return result;
+}
+
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor)
 {
     switch (factor) {

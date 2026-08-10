@@ -2,6 +2,8 @@
 
 #include "raymath.h"
 #include "rlgl.h"
+#include "ecology.h"
+#include "space.h"
 #include "terrain.h"
 #include "world.h"
 
@@ -33,7 +35,9 @@ struct MeshJob {
     int nearbyIndices[MAX_TORCH_LIGHTS];
     int nearbyCount;
     Mesh mesh;
+    Mesh floraMesh;
     bool hasMesh;
+    bool hasFloraMesh;
 };
 typedef struct MeshJob MeshJob;
 static bool HasPendingMeshJob(void);
@@ -88,6 +92,11 @@ void UnloadChunkModel(Chunk *chunk)
         UnloadModel(chunk->waterModel);
         chunk->waterModel = (Model){ 0 };
         chunk->hasWaterModel = false;
+    }
+    if (chunk->hasFloraModel) {
+        UnloadModel(chunk->floraModel);
+        chunk->floraModel = (Model){ 0 };
+        chunk->hasFloraModel = false;
     }
 }
 
@@ -580,10 +589,22 @@ void *ChunkGenWorker(void *arg)
                 { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
                 { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
             };
-            meshJob->hasMesh = BuildMeshData(
-                (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
-                WORLD_HEIGHT, 0, meshJob->cx, meshJob->cz, meshJob->transparent, faces,
-                meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->mesh);
+            if (meshJob->transparent) {
+                meshJob->hasMesh = BuildSurfaceWaterMeshData(
+                    (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
+                    WORLD_HEIGHT, 0, meshJob->cx, meshJob->cz, faces,
+                    meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->mesh);
+                meshJob->hasFloraMesh = false;
+            } else {
+                meshJob->hasMesh = BuildSurfaceSolidMeshData(
+                    (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
+                    WORLD_HEIGHT, 0, meshJob->cx, meshJob->cz, faces,
+                    meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->mesh);
+                meshJob->hasFloraMesh = BuildFloraMeshData(
+                    (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
+                    WORLD_HEIGHT, 0, meshJob->cx, meshJob->cz, faces,
+                    meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->floraMesh);
+            }
 
             pthread_mutex_lock(&genMutex);
             meshJob->done = true;
@@ -732,6 +753,10 @@ bool EnsureChunk(int cx, int cz)
     chunk->generating = true;
     chunk->loaded = false;
     UnloadChunkModel(chunk);
+    chunk->floraActivity = 1.0f;
+    chunk->floraCapacity = 1.0f;
+    chunk->floraSampleTimer = 0.0f;
+    chunk->floraVisualScale = 1.0f;
 
     if (SubmitChunkGenJob(chunk, cx, cz, terrainMode)) return true;
 
@@ -796,6 +821,62 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
     int submissions = 0;
     for (int i = 0; i < missingCount && submissions < CHUNK_GEN_SUBMISSIONS_PER_FRAME; i++) {
         if (EnsureChunk(missingChunks[i][0], missingChunks[i][1])) submissions++;
+    }
+}
+
+static void UpdateChunkFloraScale(Chunk *chunk, float targetScale,
+                                  float elapsed)
+{
+    if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
+
+    float oldScale = fmaxf(chunk->floraVisualScale, 0.01f);
+    float blend = fminf(elapsed * 1.8f, 1.0f);
+    float newScale = oldScale + (targetScale - oldScale) * blend;
+    if (fabsf(newScale - oldScale) < 0.0005f) return;
+
+    Mesh *mesh = &chunk->floraModel.meshes[0];
+    if (!mesh->vertices || mesh->vertexCount <= 0) return;
+    for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
+        float y = mesh->vertices[vertex * 3 + 1];
+        float groundY = floorf(y + 0.001f);
+        float originalHeight = (y - groundY) / oldScale;
+        mesh->vertices[vertex * 3 + 1] =
+            groundY + originalHeight * newScale;
+    }
+    UpdateMeshBuffer(*mesh, 0, mesh->vertices,
+                     mesh->vertexCount * 3 * (int)sizeof(float), 0);
+    chunk->floraVisualScale = newScale;
+}
+
+void ChunksUpdateEcologyVisuals(float dt, float daylight)
+{
+    bool planetWorld = PlanetWorldIsActive();
+    float elapsed = fmaxf(dt, 0.0f);
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        Chunk *chunk = &chunks[index];
+        if (!chunk->loaded) continue;
+
+        chunk->floraSampleTimer -= elapsed;
+        if (chunk->floraSampleTimer <= 0.0f) {
+            if (planetWorld) {
+                int centerX = chunk->cx * CHUNK_SIZE + CHUNK_SIZE / 2;
+                int centerZ = chunk->cz * CHUNK_SIZE + CHUNK_SIZE / 2;
+                PlanetLocalEcology local = PlanetEcologyLocalAt(
+                    centerX, centerZ, daylight);
+                chunk->floraActivity = local.suitability.floraActivity;
+                chunk->floraCapacity = local.suitability.floraCapacity;
+            } else {
+                chunk->floraActivity = 1.0f;
+                chunk->floraCapacity = 1.0f;
+            }
+
+            unsigned int stagger = Hash3D(chunk->cx, 0, chunk->cz) & 255u;
+            chunk->floraSampleTimer = 0.75f + (float)stagger / 510.0f;
+        }
+
+        PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
+            chunk->floraActivity, chunk->floraCapacity);
+        UpdateChunkFloraScale(chunk, runtime.growthScale, elapsed);
     }
 }
 
@@ -1577,16 +1658,27 @@ bool ChunkBlockHasTransparentMesh(BlockType type)
     return IsTranslucentBlock(type);
 }
 
-int CountChunkFaces(const unsigned short (*blocks)[CHUNK_SIZE],
-                    int height, int layerY, int chunkX, int chunkZ,
-                    bool transparent, const int faces[6][3])
+static int CountChunkFacesFiltered(const unsigned short (*blocks)[CHUNK_SIZE],
+                                   int height, int layerY,
+                                   int chunkX, int chunkZ,
+                                   bool transparent, bool includePlants,
+                                   bool plantsOnly, const int faces[6][3])
 {
     int faceCount = 0;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int y = 0; y < height; y++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 BlockType type = (BlockType)blocks[lx * height + y][lz];
+                bool plant = type == BLOCK_FLOWER || type == BLOCK_MUSHROOM;
+                if (plantsOnly) {
+                    if (plant) faceCount += 2;
+                    continue;
+                }
                 if (type == BLOCK_AIR || ChunkBlockHasTransparentMesh(type) != transparent) continue;
+                if (plant) {
+                    if (includePlants) faceCount += 2;
+                    continue;
+                }
                 if (type == BLOCK_TORCH) {
                     faceCount += 6;
                     continue;
@@ -1623,10 +1715,6 @@ int CountChunkFaces(const unsigned short (*blocks)[CHUNK_SIZE],
                     faceCount += 5;
                     continue;
                 }
-                if (type == BLOCK_FLOWER || type == BLOCK_MUSHROOM) {
-                    faceCount += 2;
-                    continue;
-                }
                 for (int face = 0; face < 6; face++) {
                     if (ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) faceCount++;
                 }
@@ -1636,13 +1724,15 @@ int CountChunkFaces(const unsigned short (*blocks)[CHUNK_SIZE],
     return faceCount;
 }
 
-bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
-                   int height, int layerY, int chunkX, int chunkZ,
-                   bool transparent, const int faces[6][3],
-                   const int *nearbyTorchIndices, int nearbyTorchCount,
-                   Mesh *outMesh)
+static bool BuildMeshDataFiltered(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, bool transparent, bool includePlants,
+    bool plantsOnly, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
 {
-    int faceCount = CountChunkFaces(blocks, height, layerY, chunkX, chunkZ, transparent, faces);
+    int faceCount = CountChunkFacesFiltered(
+        blocks, height, layerY, chunkX, chunkZ, transparent,
+        includePlants, plantsOnly, faces);
     if (faceCount == 0) return false;
 
     int startX = chunkX * CHUNK_SIZE;
@@ -1669,7 +1759,14 @@ bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
         for (int y = 0; y < height; y++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 BlockType type = (BlockType)blocks[lx * height + y][lz];
-                if (type == BLOCK_AIR || ChunkBlockHasTransparentMesh(type) != transparent) continue;
+                bool plant = type == BLOCK_FLOWER || type == BLOCK_MUSHROOM;
+                if (plantsOnly) {
+                    if (!plant) continue;
+                } else {
+                    if (type == BLOCK_AIR ||
+                        ChunkBlockHasTransparentMesh(type) != transparent) continue;
+                    if (plant && !includePlants) continue;
+                }
 
                 int x = startX + lx;
                 int z = startZ + lz;
@@ -1724,6 +1821,47 @@ bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
     return true;
 }
 
+bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
+                   int height, int layerY, int chunkX, int chunkZ,
+                   bool transparent, const int faces[6][3],
+                   const int *nearbyTorchIndices, int nearbyTorchCount,
+                   Mesh *outMesh)
+{
+    return BuildMeshDataFiltered(
+        blocks, height, layerY, chunkX, chunkZ, transparent, true, false,
+        faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
+}
+
+bool BuildSurfaceSolidMeshData(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
+{
+    return BuildMeshDataFiltered(
+        blocks, height, layerY, chunkX, chunkZ, false, false, false,
+        faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
+}
+
+bool BuildSurfaceWaterMeshData(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
+{
+    return BuildMeshDataFiltered(
+        blocks, height, layerY, chunkX, chunkZ, true, false, false,
+        faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
+}
+
+bool BuildFloraMeshData(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
+{
+    return BuildMeshDataFiltered(
+        blocks, height, layerY, chunkX, chunkZ, false, false, true,
+        faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
+}
+
 #define MAX_MESH_JOBS 64
 #define MAX_MESH_SUBMITS_PER_FRAME 4
 
@@ -1762,35 +1900,45 @@ static void FreeMeshData(Mesh *mesh)
     *mesh = (Mesh){ 0 };
 }
 
+static void ReplaceChunkModel(Model *model, bool *hasModel,
+                              Mesh *mesh, bool hasMesh, bool dynamic)
+{
+    if (*hasModel) {
+        UnloadModel(*model);
+        *model = (Model){ 0 };
+        *hasModel = false;
+    }
+    if (!hasMesh) {
+        FreeMeshData(mesh);
+        return;
+    }
+
+    UploadMesh(mesh, dynamic);
+    *model = LoadModelFromMesh(*mesh);
+    SetMaterialTexture(&model->materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
+    *hasModel = true;
+}
+
 static void UploadMeshJob(MeshJob *job)
 {
     Chunk *chunk = &chunks[job->slotIndex];
     bool valid = chunk->loaded && chunk->cx == job->cx && chunk->cz == job->cz;
 
-    if (valid && job->hasMesh) {
-        UploadMesh(&job->mesh, false);
-        Model model = LoadModelFromMesh(job->mesh);
-        SetMaterialTexture(&model.materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
+    if (valid) {
         if (job->transparent) {
-            if (chunk->hasWaterModel) UnloadModel(chunk->waterModel);
-            chunk->waterModel = model;
-            chunk->hasWaterModel = true;
+            ReplaceChunkModel(&chunk->waterModel, &chunk->hasWaterModel,
+                              &job->mesh, job->hasMesh, false);
+            FreeMeshData(&job->floraMesh);
         } else {
-            if (chunk->hasModel) UnloadModel(chunk->model);
-            chunk->model = model;
-            chunk->hasModel = true;
+            ReplaceChunkModel(&chunk->model, &chunk->hasModel,
+                              &job->mesh, job->hasMesh, false);
+            ReplaceChunkModel(&chunk->floraModel, &chunk->hasFloraModel,
+                              &job->floraMesh, job->hasFloraMesh, true);
+            chunk->floraVisualScale = 1.0f;
         }
-    } else if (valid) {
-        if (job->transparent) {
-            if (chunk->hasWaterModel) UnloadModel(chunk->waterModel);
-            chunk->hasWaterModel = false;
-        } else {
-            if (chunk->hasModel) UnloadModel(chunk->model);
-            chunk->hasModel = false;
-        }
-        FreeMeshData(&job->mesh);
     } else {
         FreeMeshData(&job->mesh);
+        FreeMeshData(&job->floraMesh);
     }
 
     job->inUse = false;
@@ -1828,7 +1976,9 @@ bool SubmitMeshJob(Chunk *chunk, bool transparent)
     job->cz = chunk->cz;
     job->transparent = transparent;
     job->mesh = (Mesh){ 0 };
+    job->floraMesh = (Mesh){ 0 };
     job->hasMesh = false;
+    job->hasFloraMesh = false;
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -1864,29 +2014,27 @@ static void RebuildChunkMeshSync(Chunk *chunk)
 
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
-    bool hasSolid = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
-                                  WORLD_HEIGHT, 0, chunk->cx, chunk->cz, false, faces,
-                                  nearbyTorchIndices, nearbyTorchCount, &solidMesh);
-    bool hasWater = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
-                                  WORLD_HEIGHT, 0, chunk->cx, chunk->cz, true, faces,
-                                  nearbyTorchIndices, nearbyTorchCount, &waterMesh);
+    Mesh floraMesh = { 0 };
+    bool hasSolid = BuildSurfaceSolidMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+        WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces,
+        nearbyTorchIndices, nearbyTorchCount, &solidMesh);
+    bool hasWater = BuildSurfaceWaterMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+        WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces,
+        nearbyTorchIndices, nearbyTorchCount, &waterMesh);
+    bool hasFlora = BuildFloraMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
+        WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces,
+        nearbyTorchIndices, nearbyTorchCount, &floraMesh);
 
-    if (hasSolid) {
-        UploadMesh(&solidMesh, false);
-        chunk->model = LoadModelFromMesh(solidMesh);
-        SetMaterialTexture(&chunk->model.materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
-        chunk->hasModel = true;
-    } else {
-        chunk->hasModel = false;
-    }
-    if (hasWater) {
-        UploadMesh(&waterMesh, false);
-        chunk->waterModel = LoadModelFromMesh(waterMesh);
-        SetMaterialTexture(&chunk->waterModel.materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
-        chunk->hasWaterModel = true;
-    } else {
-        chunk->hasWaterModel = false;
-    }
+    ReplaceChunkModel(&chunk->model, &chunk->hasModel,
+                      &solidMesh, hasSolid, false);
+    ReplaceChunkModel(&chunk->waterModel, &chunk->hasWaterModel,
+                      &waterMesh, hasWater, false);
+    ReplaceChunkModel(&chunk->floraModel, &chunk->hasFloraModel,
+                      &floraMesh, hasFlora, true);
+    chunk->floraVisualScale = 1.0f;
     chunk->dirty = false;
 }
 

@@ -260,6 +260,12 @@ static void TestWeatherChangesActivityNotPermanentCapacity(void)
     assert(stormRuntime.activityRatio < clearRuntime.activityRatio);
     assert(stormRuntime.movementScale <= clearRuntime.movementScale);
     assert(stormRuntime.animationScale < clearRuntime.animationScale);
+    PlanetFloraRuntimeState clearFlora = PlanetEcologyFloraRuntime(
+        clear.floraActivity, clear.floraCapacity);
+    PlanetFloraRuntimeState stormFlora = PlanetEcologyFloraRuntime(
+        stormActivity.floraActivity, stormActivity.floraCapacity);
+    assert(stormFlora.growthScale < clearFlora.growthScale);
+    assert(stormFlora.visualPresence < clearFlora.visualPresence);
 }
 
 static void TestCurrentSeasonChangesActivityOnly(void)
@@ -286,6 +292,12 @@ static void TestCurrentSeasonChangesActivityOnly(void)
     assert(coldRuntime.activityRatio < warmRuntime.activityRatio);
     assert(coldRuntime.movementScale <= warmRuntime.movementScale);
     assert(coldRuntime.visualPresence < warmRuntime.visualPresence);
+    PlanetFloraRuntimeState warmFlora = PlanetEcologyFloraRuntime(
+        warm.floraActivity, warm.floraCapacity);
+    PlanetFloraRuntimeState coldFlora = PlanetEcologyFloraRuntime(
+        cold.floraActivity, cold.floraCapacity);
+    assert(coldFlora.growthScale < warmFlora.growthScale);
+    assert(coldFlora.visualPresence < warmFlora.visualPresence);
 }
 
 static void AssertRuntimeStateValid(PlanetFaunaRuntimeState state)
@@ -351,6 +363,58 @@ static void TestRandomizedFaunaRuntimeProperties(void)
     }
 }
 
+static void AssertFloraRuntimeStateValid(PlanetFloraRuntimeState state)
+{
+#define ASSERT_FLORA_UNIT(field) do { \
+    assert(isfinite(state.field)); \
+    assert(state.field >= 0.0f); \
+    assert(state.field <= 1.0f); \
+} while (0)
+    ASSERT_FLORA_UNIT(activityRatio);
+    ASSERT_FLORA_UNIT(growthScale);
+    ASSERT_FLORA_UNIT(visualScale);
+    ASSERT_FLORA_UNIT(visualPresence);
+#undef ASSERT_FLORA_UNIT
+}
+
+static void TestFloraRuntimeResponse(void)
+{
+    PlanetFloraRuntimeState lush = PlanetEcologyFloraRuntime(0.80f, 0.80f);
+    PlanetFloraRuntimeState stressed = PlanetEcologyFloraRuntime(0.12f, 0.80f);
+    PlanetFloraRuntimeState dormant = PlanetEcologyFloraRuntime(0.02f, 0.80f);
+    PlanetFloraRuntimeState absent = PlanetEcologyFloraRuntime(0.0f, 0.0f);
+
+    AssertFloraRuntimeStateValid(lush);
+    AssertFloraRuntimeStateValid(stressed);
+    AssertFloraRuntimeStateValid(dormant);
+    AssertFloraRuntimeStateValid(absent);
+    assert(!lush.dormant);
+    assert(!stressed.dormant);
+    assert(dormant.dormant);
+    assert(absent.dormant);
+    assert(lush.growthScale > stressed.growthScale);
+    assert(stressed.growthScale > dormant.growthScale);
+    assert(lush.visualScale > stressed.visualScale);
+    assert(stressed.visualPresence > dormant.visualPresence);
+
+    PlanetFloraRuntimeState first = PlanetEcologyFloraRuntime(0.24f, 0.40f);
+    PlanetFloraRuntimeState second = PlanetEcologyFloraRuntime(0.60f, 1.00f);
+    AssertNear(first.activityRatio, second.activityRatio, 0.000001f);
+    AssertNear(first.growthScale, second.growthScale, 0.000001f);
+}
+
+static void TestRandomizedFloraRuntimeProperties(void)
+{
+    uint32_t state = 0x643d91a7u;
+    for (int sample = 0; sample < 10000; sample++) {
+        float capacity = TestUnit(&state);
+        float activity = TestUnit(&state) * 1.2f;
+        PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
+            activity, capacity);
+        AssertFloraRuntimeStateValid(runtime);
+    }
+}
+
 static void TestRandomizedLocalProperties(void)
 {
     uint32_t state = 0x7d493a21u;
@@ -394,6 +458,8 @@ int main(void)
     TestFaunaRuntimeResponse();
     TestRandomizedLocalProperties();
     TestRandomizedFaunaRuntimeProperties();
+    TestFloraRuntimeResponse();
+    TestRandomizedFloraRuntimeProperties();
     puts("ecology_model tests passed");
     return 0;
 }

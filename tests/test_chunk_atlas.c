@@ -1,8 +1,39 @@
 #include "chunks.h"
+#include "world_environment.h"
 
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+WorldBlockRegion WorldBlockRegionAt(int y)
+{
+    (void)y;
+    return WORLD_BLOCK_REGION_SURFACE;
+}
+
+bool WorldCanAccessBlockY(int y)
+{
+    (void)y;
+    return true;
+}
+
+BlockType SpaceBlockAt(int x, int y, int z)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    return BLOCK_AIR;
+}
+
+BlockType NetherBlockAt(int x, int y, int z)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    return BLOCK_AIR;
+}
 
 static bool ColorsEqual(Color a, Color b)
 {
@@ -89,10 +120,63 @@ static void AssertMipSafePadding(void)
     UnloadImage(image);
 }
 
+static void FreeTestMesh(Mesh *mesh)
+{
+    free(mesh->vertices);
+    free(mesh->texcoords);
+    free(mesh->normals);
+    free(mesh->colors);
+    *mesh = (Mesh){ 0 };
+}
+
+static void AssertSurfaceFloraMeshPartition(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    memset(blocks, 0, sizeof(blocks));
+    blocks[2][4][3] = BLOCK_STONE;
+    blocks[5][5][6] = BLOCK_FLOWER;
+    blocks[8][4][8] = BLOCK_WATER;
+
+    Mesh legacySolid = { 0 };
+    Mesh legacyTransparent = { 0 };
+    Mesh solid = { 0 };
+    Mesh water = { 0 };
+    Mesh flora = { 0 };
+    assert(BuildMeshData((const unsigned short (*)[CHUNK_SIZE])blocks,
+                         WORLD_HEIGHT, 0, 0, 0, false, faces,
+                         NULL, 0, &legacySolid));
+    assert(BuildMeshData((const unsigned short (*)[CHUNK_SIZE])blocks,
+                         WORLD_HEIGHT, 0, 0, 0, true, faces,
+                         NULL, 0, &legacyTransparent));
+    assert(BuildSurfaceSolidMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &solid));
+    assert(BuildSurfaceWaterMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &water));
+    assert(BuildFloraMeshData((const unsigned short (*)[CHUNK_SIZE])blocks,
+                              WORLD_HEIGHT, 0, 0, 0, faces,
+                              NULL, 0, &flora));
+    assert(flora.vertexCount == 12);
+    assert(legacySolid.vertexCount == solid.vertexCount);
+    assert(legacyTransparent.vertexCount == water.vertexCount + flora.vertexCount);
+
+    FreeTestMesh(&legacySolid);
+    FreeTestMesh(&legacyTransparent);
+    FreeTestMesh(&solid);
+    FreeTestMesh(&water);
+    FreeTestMesh(&flora);
+}
+
 int main(void)
 {
     AssertAtlasCoordinates();
     AssertMipSafePadding();
+    AssertSurfaceFloraMeshPartition();
     puts("chunk atlas tests passed");
     return 0;
 }

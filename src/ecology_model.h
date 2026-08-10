@@ -79,6 +79,14 @@ typedef struct PlanetFaunaRuntimeState {
     bool dormant;
 } PlanetFaunaRuntimeState;
 
+typedef struct PlanetFloraRuntimeState {
+    float activityRatio;
+    float growthScale;
+    float visualScale;
+    float visualPresence;
+    bool dormant;
+} PlanetFloraRuntimeState;
+
 PlanetLifeHistory PlanetLifeHistoryDerive(uint32_t seed, float planetAgeGyr,
                                           float environmentalSupport,
                                           bool hasSolidSurface);
@@ -90,6 +98,8 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
     float globalFloraPotential, float globalFaunaPotential);
 PlanetFaunaRuntimeState PlanetEcologyFaunaRuntime(float faunaActivity,
                                                    float faunaCapacity);
+PlanetFloraRuntimeState PlanetEcologyFloraRuntime(float floraActivity,
+                                                   float floraCapacity);
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor);
 
 #endif

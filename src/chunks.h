@@ -26,6 +26,18 @@ bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
                    bool transparent, const int faces[6][3],
                    const int *nearbyTorchIndices, int nearbyTorchCount,
                    Mesh *outMesh);
+bool BuildSurfaceSolidMeshData(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
+bool BuildSurfaceWaterMeshData(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
+bool BuildFloraMeshData(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
 void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, BlockType type, Color baseColor, float extraLight);
 BlockTexture TextureForBlockFace(BlockType type, int face);
 void AtlasUVs(BlockTexture texture, Vector2 uvs[6]);
@@ -41,6 +53,7 @@ int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void DrainChunkGen(void);
 void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance);
+void ChunksUpdateEcologyVisuals(float dt, float daylight);
 BlockType GetBlock(int x, int y, int z);
 void RebuildDirtyChunkMeshes(void);
 void UnloadAllChunks(void);

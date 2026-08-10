@@ -1005,6 +1005,7 @@ int main(void)
             daylight = planetLight.daylight;
             sunset = planetLight.sunset;
         }
+        ChunksUpdateEcologyVisuals(dt, daylight);
         if (!paused && !albumOpen && !importDialog.open && !landingTransition.active &&
             localWorldActive) {
             EntitiesUpdate(dt, &player, daylight);
