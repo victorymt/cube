@@ -8,8 +8,41 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define PLANET_FLORA_STRUCTURE_RADIUS 3
+#define ECOLOGY_LOCAL_CACHE_SIZE 256u
+
+#if defined(__GNUC__) || defined(__clang__)
+#define ECOLOGY_THREAD_LOCAL __thread
+#else
+#define ECOLOGY_THREAD_LOCAL
+#endif
+
+typedef struct EcologyProfileCache {
+    bool valid;
+    bool darkSide;
+    uint32_t worldSeed;
+    uint32_t generation;
+    PlanetProfile planet;
+    PlanetEcologyProfile ecology;
+} EcologyProfileCache;
+
+typedef struct EcologyLocalCacheEntry {
+    bool valid;
+    int x;
+    int z;
+    int originX;
+    int originZ;
+    double simulationTime;
+    uint32_t daylightBits;
+    uint32_t profileGeneration;
+    PlanetLocalEcology ecology;
+} EcologyLocalCacheEntry;
+
+static ECOLOGY_THREAD_LOCAL EcologyProfileCache ecologyProfileCache = { 0 };
+static ECOLOGY_THREAD_LOCAL EcologyLocalCacheEntry
+    ecologyLocalCache[ECOLOGY_LOCAL_CACHE_SIZE] = { 0 };
 
 static uint32_t EcologyMix(uint32_t value)
 {
@@ -19,6 +52,37 @@ static uint32_t EcologyMix(uint32_t value)
     value *= 0x846ca68bu;
     value ^= value >> 16;
     return value;
+}
+
+static uint32_t EcologyFloatBits(float value)
+{
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static uint64_t EcologyDoubleBits(double value)
+{
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static unsigned EcologyLocalCacheIndex(int x, int z, double simulationTime,
+                                       float daylight,
+                                       uint32_t profileGeneration,
+                                       int originX, int originZ)
+{
+    uint64_t timeBits = EcologyDoubleBits(simulationTime);
+    uint32_t hash = (uint32_t)x * 0x9e3779b9u;
+    hash ^= (uint32_t)z * 0x85ebca6bu;
+    hash ^= (uint32_t)timeBits;
+    hash ^= (uint32_t)(timeBits >> 32);
+    hash ^= EcologyFloatBits(daylight);
+    hash ^= profileGeneration * 0xc2b2ae35u;
+    hash ^= (uint32_t)originX * 0x27d4eb2fu;
+    hash ^= (uint32_t)originZ * 0x165667b1u;
+    return EcologyMix(hash) & (ECOLOGY_LOCAL_CACHE_SIZE - 1u);
 }
 
 static uint32_t EcologyHash(int x, int z, uint32_t salt)
@@ -265,6 +329,15 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
     if (!PlanetWorldIsActive()) return result;
 
     const PlanetProfile *planet = PlanetWorldProfile();
+    uint32_t worldSeed = PlanetWorldSeed();
+    bool darkSide = PlanetWorldIsDarkSide();
+    if (ecologyProfileCache.valid &&
+        ecologyProfileCache.worldSeed == worldSeed &&
+        ecologyProfileCache.darkSide == darkSide &&
+        memcmp(&ecologyProfileCache.planet, planet, sizeof(*planet)) == 0) {
+        return ecologyProfileCache.ecology;
+    }
+
     float temperature = planet->equilibriumTempK;
     float temperatureComfort = 1.0f - EcologyClamp(fabsf(temperature - 288.0f) / 150.0f);
     float pressure = fmaxf(planet->surfacePressureAtm, 0.0f);
@@ -272,7 +345,6 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
     float water = EcologyClamp(planet->oceanCoverage);
     float ice = EcologyClamp(planet->iceCoverage);
     float wind = EcologyClamp(planet->windStrength);
-    bool darkSide = PlanetWorldIsDarkSide();
     float atmosphereSupport = 0.0f;
     switch (planet->atmosphereType) {
     case PLANET_ATMOSPHERE_NONE:       atmosphereSupport = 0.0f; break;
@@ -447,6 +519,16 @@ PlanetEcologyProfile PlanetEcologyCurrent(void)
     if (accent == primary) accent = (accent + 37) & 255;
     result.primaryBlock = (BlockType)(BLOCK_COLOR_START + primary);
     result.accentBlock = (BlockType)(BLOCK_COLOR_START + accent);
+
+    ecologyProfileCache.valid = true;
+    ecologyProfileCache.darkSide = darkSide;
+    ecologyProfileCache.worldSeed = worldSeed;
+    ecologyProfileCache.generation++;
+    if (ecologyProfileCache.generation == 0u) {
+        ecologyProfileCache.generation = 1u;
+    }
+    memcpy(&ecologyProfileCache.planet, planet, sizeof(*planet));
+    ecologyProfileCache.ecology = result;
     return result;
 }
 
@@ -478,17 +560,45 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     if (!PlanetWorldIsActive()) return local;
 
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    double simulationTime = SpaceSimulationTime();
+    int originX = PlanetWorldOriginX();
+    int originZ = PlanetWorldOriginZ();
+    uint32_t daylightBits = EcologyFloatBits(daylight);
+    unsigned cacheIndex = EcologyLocalCacheIndex(
+        x, z, simulationTime, daylight, ecologyProfileCache.generation,
+        originX, originZ);
+    EcologyLocalCacheEntry *cached = &ecologyLocalCache[cacheIndex];
+    if (cached->valid && cached->x == x && cached->z == z &&
+        cached->originX == originX && cached->originZ == originZ &&
+        cached->simulationTime == simulationTime &&
+        cached->daylightBits == daylightBits &&
+        cached->profileGeneration == ecologyProfileCache.generation) {
+        return cached->ecology;
+    }
+
     WeatherFieldSample weather = WeatherFieldSampleAtWorld(x, z);
     float sky = EcologyClamp(WeatherFieldSkyFactor(weather));
     float precipitation = EcologyClamp(weather.precipitation);
     float storm = EcologyClamp(weather.storm);
     float usableDaylight = EcologyClamp(daylight * (1.0f - sky * 0.68f));
     local.environment = EcologyEnvironmentAt(
-        x, z, SpaceSimulationTime(), usableDaylight, precipitation, storm,
+        x, z, simulationTime, usableDaylight, precipitation, storm,
         true, &profile);
     PlanetEcologyTraits traits = EcologyTraitsForProfile(&profile);
     local.suitability = PlanetEcologyEvaluateLocal(
         &local.environment, &traits, profile.floraDensity, profile.faunaDensity);
+
+    *cached = (EcologyLocalCacheEntry){
+        .valid = true,
+        .x = x,
+        .z = z,
+        .originX = originX,
+        .originZ = originZ,
+        .simulationTime = simulationTime,
+        .daylightBits = daylightBits,
+        .profileGeneration = ecologyProfileCache.generation,
+        .ecology = local
+    };
     return local;
 }
 

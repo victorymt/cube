@@ -10,10 +10,24 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #define WEATHER_AREA_RADIUS 26.0f
 #define WEATHER_TOP_OFFSET 16.0f
 #define WEATHER_MANUAL_SECONDS 45.0f
+#define WEATHER_SAMPLE_CACHE_SIZE 128u
+
+#if defined(__GNUC__) || defined(__clang__)
+#define WEATHER_THREAD_LOCAL __thread
+#else
+#define WEATHER_THREAD_LOCAL
+#endif
+
+typedef struct WeatherSampleCacheEntry {
+    bool valid;
+    WeatherFieldInput input;
+    WeatherFieldSample sample;
+} WeatherSampleCacheEntry;
 
 static Weather current = WEATHER_CLEAR;
 static WeatherFieldSample fieldSample = { 0 };
@@ -24,6 +38,8 @@ static float snowEmissionAccumulator = 0.0f;
 static bool rainAudioActive = false;
 static uint32_t particleRandomState = 0x91e10da5u;
 static float particleWindAngle = 0.0f;
+static WEATHER_THREAD_LOCAL WeatherSampleCacheEntry
+    weatherSampleCache[WEATHER_SAMPLE_CACHE_SIZE] = { 0 };
 
 static float WeatherClamp(float value)
 {
@@ -38,6 +54,46 @@ static float WeatherParticleRandom(void)
     particleRandomState ^= particleRandomState >> 17;
     particleRandomState ^= particleRandomState << 5;
     return (float)(particleRandomState & 0x00ffffffu) / 16777215.0f;
+}
+
+static uint32_t WeatherCacheMix(uint32_t value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    value ^= value >> 16;
+    return value;
+}
+
+static unsigned WeatherSampleCacheIndex(const WeatherFieldInput *input)
+{
+    uint64_t timeBits;
+    uint32_t worldXBits;
+    uint32_t worldZBits;
+    memcpy(&timeBits, &input->simulationTime, sizeof(timeBits));
+    memcpy(&worldXBits, &input->worldX, sizeof(worldXBits));
+    memcpy(&worldZBits, &input->worldZ, sizeof(worldZBits));
+    uint32_t hash = input->seed ^ (uint32_t)timeBits ^
+                    (uint32_t)(timeBits >> 32);
+    hash ^= worldXBits * 0x9e3779b9u;
+    hash ^= worldZBits * 0x85ebca6bu;
+    return WeatherCacheMix(hash) & (WEATHER_SAMPLE_CACHE_SIZE - 1u);
+}
+
+static bool WeatherSampleCacheMatches(const WeatherSampleCacheEntry *cached,
+                                      const WeatherFieldInput *input)
+{
+    return cached->valid &&
+           cached->input.seed == input->seed &&
+           cached->input.simulationTime == input->simulationTime &&
+           cached->input.worldX == input->worldX &&
+           cached->input.worldZ == input->worldZ &&
+           cached->input.temperatureK == input->temperatureK &&
+           cached->input.moisture == input->moisture &&
+           cached->input.cloudPotential == input->cloudPotential &&
+           cached->input.windStrength == input->windStrength &&
+           cached->input.prevailingWindAngle == input->prevailingWindAngle;
 }
 
 static WeatherFieldInput WeatherInputAt(Vector3 playerPosition)
@@ -135,7 +191,19 @@ WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
     WeatherFieldInput input = WeatherInputAt((Vector3){
         (float)x + 0.5f, 0.0f, (float)z + 0.5f
     });
-    return WeatherFieldSampleAt(&input);
+    WeatherSampleCacheEntry *cached =
+        &weatherSampleCache[WeatherSampleCacheIndex(&input)];
+    if (WeatherSampleCacheMatches(cached, &input)) {
+        return cached->sample;
+    }
+
+    WeatherFieldSample sample = WeatherFieldSampleAt(&input);
+    *cached = (WeatherSampleCacheEntry){
+        .valid = true,
+        .input = input,
+        .sample = sample
+    };
+    return sample;
 }
 
 float WeatherWindAngleAtWorld(int x, int z)
@@ -171,6 +239,7 @@ void WeatherInit(void)
     rainAudioActive = false;
     particleRandomState = 0x91e10da5u;
     particleWindAngle = 0.0f;
+    memset(weatherSampleCache, 0, sizeof(weatherSampleCache));
     AudioSetRain(false);
 }
 

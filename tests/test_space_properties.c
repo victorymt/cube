@@ -435,10 +435,11 @@ static void TestHomeScaleDiagnostics(void)
 }
 
 static void WritePlanetWorldFixture(FILE *file, uint32_t seed,
-                                    int originX, int originZ)
+                                    int originX, int originZ,
+                                    SolarBodyStyle planetStyle)
 {
     uint8_t active = 1u;
-    uint32_t style = (uint32_t)SOLAR_STYLE_TEMPERATE;
+    uint32_t style = (uint32_t)planetStyle;
     int32_t savedOriginX = (int32_t)originX;
     int32_t savedOriginZ = (int32_t)originZ;
     int32_t planetIndex = 1;
@@ -459,11 +460,12 @@ static void WritePlanetWorldFixture(FILE *file, uint32_t seed,
     assert(fwrite(name, sizeof(name), 1, file) == 1);
 }
 
-static void ActivateEcologyPlanet(uint32_t seed, int originX, int originZ)
+static void ActivateEcologyPlanetStyle(uint32_t seed, int originX, int originZ,
+                                       SolarBodyStyle style)
 {
     FILE *file = tmpfile();
     assert(file);
-    WritePlanetWorldFixture(file, seed, originX, originZ);
+    WritePlanetWorldFixture(file, seed, originX, originZ, style);
     rewind(file);
     assert(PlanetWorldLoadState(file));
     fclose(file);
@@ -473,6 +475,12 @@ static void ActivateEcologyPlanet(uint32_t seed, int originX, int originZ)
     assert(PlanetWorldOriginZ() == originZ);
 }
 
+static void ActivateEcologyPlanet(uint32_t seed, int originX, int originZ)
+{
+    ActivateEcologyPlanetStyle(seed, originX, originZ,
+                               SOLAR_STYLE_TEMPERATE);
+}
+
 static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
                                     PlanetLocalEcology expected)
 {
@@ -480,6 +488,15 @@ static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
                   sizeof(actual.environment)) == 0);
     assert(memcmp(&actual.suitability, &expected.suitability,
                   sizeof(actual.suitability)) == 0);
+}
+
+static bool LocalEcologyDiffers(PlanetLocalEcology left,
+                                PlanetLocalEcology right)
+{
+    return memcmp(&left.environment, &right.environment,
+                  sizeof(left.environment)) != 0 ||
+           memcmp(&left.suitability, &right.suitability,
+                  sizeof(left.suitability)) != 0;
 }
 
 static float WeatherSampleDistance(WeatherFieldSample left,
@@ -534,6 +551,67 @@ static void TestEcologyUsesPositionLocalWeather(void)
     PlanetLocalEcology replay = PlanetEcologyLocalAt(wetX, wetZ, 0.84f);
     assert(memcmp(&wetWeather, &replayWeather, sizeof(wetWeather)) == 0);
     AssertLocalEcologyEqual(replay, local);
+}
+
+static void TestEcologyCacheInvalidation(void)
+{
+    const uint32_t seed = 0x13579bdfu;
+    const int sampleCount = 24;
+    PlanetLocalEcology firstOrigin[sampleCount];
+    PlanetLocalEcology movedOrigin[sampleCount];
+    WeatherFieldSample firstWeather[sampleCount];
+    SetPropertySeed(seed);
+    ActivateEcologyPlanet(seed, 120, -340);
+
+    PlanetEcologyProfile temperate = PlanetEcologyCurrent();
+    PlanetEcologyProfile repeated = PlanetEcologyCurrent();
+    assert(memcmp(&temperate, &repeated, sizeof(temperate)) == 0);
+    for (int index = 0; index < sampleCount; index++) {
+        int x = index * 83 - 900;
+        int z = index * index * 19 - 700;
+        firstWeather[index] = WeatherFieldSampleAtWorld(x, z);
+        firstOrigin[index] = PlanetEcologyLocalAt(x, z, 0.74f);
+        AssertLocalEcologyEqual(
+            PlanetEcologyLocalAt(x, z, 0.74f), firstOrigin[index]);
+    }
+
+    ActivateEcologyPlanetStyle(seed, 120, -340, SOLAR_STYLE_ICE);
+    PlanetEcologyProfile ice = PlanetEcologyCurrent();
+    assert(PlanetWorldProfile()->style == SOLAR_STYLE_ICE);
+    assert(memcmp(&temperate, &ice, sizeof(temperate)) != 0);
+
+    ActivateEcologyPlanet(seed, 4100, -3700);
+    int originChanges = 0;
+    int weatherChanges = 0;
+    for (int index = 0; index < sampleCount; index++) {
+        int x = index * 83 - 900;
+        int z = index * index * 19 - 700;
+        WeatherFieldSample movedWeather = WeatherFieldSampleAtWorld(x, z);
+        PlanetLocalEcology moved = PlanetEcologyLocalAt(x, z, 0.74f);
+        movedOrigin[index] = moved;
+        if (LocalEcologyDiffers(moved, firstOrigin[index])) {
+            originChanges++;
+        }
+        if (WeatherSampleDistance(movedWeather, firstWeather[index]) > 0.0001f) {
+            weatherChanges++;
+        }
+    }
+    assert(originChanges > sampleCount / 2);
+    assert(weatherChanges > sampleCount / 2);
+
+    SpaceAdvanceTime(97.0f);
+    int timeChanges = 0;
+    for (int index = 0; index < sampleCount; index++) {
+        int x = index * 83 - 900;
+        int z = index * index * 19 - 700;
+        PlanetLocalEcology advanced = PlanetEcologyLocalAt(x, z, 0.74f);
+        PlanetLocalEcology replay = PlanetEcologyLocalAt(x, z, 0.74f);
+        AssertLocalEcologyEqual(replay, advanced);
+        if (LocalEcologyDiffers(advanced, movedOrigin[index])) {
+            timeChanges++;
+        }
+    }
+    assert(timeChanges > sampleCount / 2);
 }
 
 static void TestEcologyCrossSeedReplay(void)
@@ -729,6 +807,7 @@ int main(void)
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
     TestEcologyUsesPositionLocalWeather();
+    TestEcologyCacheInvalidation();
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();
     puts("space properties tests passed");
