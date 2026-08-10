@@ -74,6 +74,39 @@ static void TestGravityConstants(void)
         SPACE_UNITS_ASTRONOMICAL_UNIT_KM, SPACE_UNITS_EARTH_MASS_KG,
         SPACE_UNITS_SOLAR_MASS_KG);
     AssertRelativeNear(earthSoi, 924600.0, 0.002);
+
+    double earthHill = SpaceUnitsHillSphereKm(
+        SPACE_UNITS_ASTRONOMICAL_UNIT_KM, SPACE_UNITS_EARTH_MASS_KG,
+        SPACE_UNITS_SOLAR_MASS_KG);
+    AssertRelativeNear(earthHill, 1496500.0, 0.002);
+    assert(earthSoi < earthHill);
+}
+
+static void TestProxyScaleContract(void)
+{
+    double linearEarthRadius = SpaceUnitsKilometersToGameDistance(
+        SPACE_UNITS_EARTH_RADIUS_KM);
+    AssertRelativeNear(linearEarthRadius, 0.0144809, 2e-5);
+    double radiusScale = SpaceUnitsProxyRadiusScale(
+        SPACE_UNITS_EARTH_RADIUS_KM, 62.0);
+    assert(radiusScale > 4200.0 && radiusScale < 4400.0);
+
+    double proxyGravity = SpaceUnitsProxySurfaceGravityGame(
+        SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
+    AssertRelativeNear(proxyGravity,
+                       SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME,
+                       1e-12);
+    double proxyMu = SpaceUnitsProxyGravitationalParameterGame(
+        SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM, 62.0);
+    AssertRelativeNear(proxyMu / (62.0 * 62.0), proxyGravity, 1e-12);
+
+    double converted = SpaceUnitsGameDistanceToKilometers(
+        SpaceUnitsKilometersToGameDistance(SPACE_UNITS_EARTH_RADIUS_KM));
+    assert(SpaceUnitsWithinRelativeError(
+        converted, SPACE_UNITS_EARTH_RADIUS_KM,
+        SPACE_UNITS_MAX_RELATIVE_ERROR));
+    assert(!SpaceUnitsWithinRelativeError(101.0, 100.0,
+                                          SPACE_UNITS_MAX_RELATIVE_ERROR));
 }
 
 int main(void)
@@ -81,6 +114,7 @@ int main(void)
     TestRoundTrips();
     TestEarthOrbit();
     TestGravityConstants();
+    TestProxyScaleContract();
     puts("space_units tests passed");
     return 0;
 }

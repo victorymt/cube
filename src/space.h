@@ -147,6 +147,9 @@ typedef struct SpaceBodyInfo {
     double semiMajorAxisKm;
     double parentMassKg;
     float spaceProxyRadius;
+    float landingProxyRadius;
+    float encounterRadiusGame;
+    double currentIrradianceEarth;
     float dist; // Observer distance in game distance units.
     bool isStar;
     int index;
@@ -159,6 +162,32 @@ typedef struct SpaceBodyInfo {
     SolarBodyStyle style;
     PlanetProfile profile;
 } SpaceBodyInfo;
+
+typedef struct SpaceScaleDiagnostics {
+    char bodyName[40];
+    double physicalRadiusKm;
+    double physicalRadiusGame;
+    float visualRadiusGame;
+    float landingRadiusGame;
+    double landingRadiusScale;
+    double physicalGravityMetersPerSecondSquared;
+    double physicalGravityEarth;
+    double gameplaySurfaceGravity;
+    double orbitalSpeedKilometersPerSecond;
+    double orbitalSpeedGame;
+    double sphereOfInfluenceKm;
+    double hillSphereKm;
+    double physicalSphereOfInfluenceGame;
+    float encounterRadiusGame;
+    double encounterRadiusScale;
+    double currentIrradianceEarth;
+    double climateIrradianceEarth;
+    float radiativeTemperatureK;
+    float surfaceTemperatureK;
+    double maxRelativeError;
+    bool encounterRadiusClamped;
+    bool withinErrorBudget;
+} SpaceScaleDiagnostics;
 
 typedef enum SpaceGravityPrimaryKind {
     SPACE_GRAVITY_PRIMARY_NONE = 0,
@@ -248,6 +277,9 @@ float SolarBodyTerrainProxyRadius(float spaceProxyRadius);
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount);
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist);
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount);
+bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
+                               SpaceScaleDiagnostics *out);
+bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out);
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out);
 float PlanetBodyTextureRotation(const SpaceBodyInfo *body);
 bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,

@@ -2748,6 +2748,52 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch)
     } else {
         DrawText("Deep space", x, y, fs, Fade(WHITE, 0.85f)); y += line;
     }
+    SpaceScaleDiagnostics scale;
+    if (SpaceScaleDiagnosticsAt(playerPosition, &scale)) {
+        DrawText(TextFormat("Scale %.0f u/AU   1 play s = 1 sim day   error %.3f ppm [%s]",
+                            SPACE_UNITS_GAME_DISTANCE_PER_AU,
+                            scale.maxRelativeError * 1000000.0,
+                            scale.withinErrorBudget ? "OK" : "OUT"),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("%s radius %.0f km = %.5f linear u",
+                            scale.bodyName, scale.physicalRadiusKm,
+                            scale.physicalRadiusGame),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Proxy visual %.1f u   landing %.1f u   x%.0f",
+                            scale.visualRadiusGame, scale.landingRadiusGame,
+                            scale.landingRadiusScale),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Gravity %.2f m/s2 (%.2f g)   gameplay %.2f u/s2",
+                            scale.physicalGravityMetersPerSecondSquared,
+                            scale.physicalGravityEarth,
+                            scale.gameplaySurfaceGravity),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Orbit speed %.2f km/s   %.3f u/play-s",
+                            scale.orbitalSpeedKilometersPerSecond,
+                            scale.orbitalSpeedGame),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("SOI %.0f km (%.3f linear u)   Hill %.0f km",
+                            scale.sphereOfInfluenceKm,
+                            scale.physicalSphereOfInfluenceGame,
+                            scale.hillSphereKm),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Encounter %.1f u   x%.1f [%s]",
+                            scale.encounterRadiusGame,
+                            scale.encounterRadiusScale,
+                            scale.encounterRadiusClamped ? "proxy clamp" : "physical"),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Flux now %.3f Earth   climate mean %.3f Earth",
+                            scale.currentIrradianceEarth,
+                            scale.climateIrradianceEarth),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Temperature radiative %.0f K   surface %.0f K",
+                            scale.radiativeTemperatureK,
+                            scale.surfaceTemperatureK),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    } else {
+        DrawText("Scale target: no planet within 700 u", x, y, fs,
+                 Fade(WHITE, 0.68f)); y += line;
+    }
     DrawText(TextFormat("Block %s   music %s", BlockName(blockForHud),
                         AudioIsMusicEnabled() ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;

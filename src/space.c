@@ -30,7 +30,6 @@
 #define STAR_SKY_LATITUDE_SCALE 0.92f
 #define SPACE_GRAVITY_QUERY_RADIUS (STAR_SYSTEM_SPACING * 0.58f)
 #define SPACE_STAR_ENCOUNTER_RADIUS_GAME SPACE_GRAVITY_QUERY_RADIUS
-#define SPACE_PROXY_EARTH_SURFACE_ACCEL_GAME 4.5f
 #define SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME 170.0f
 
 static const char *const starNamePart1[] = {
@@ -1617,6 +1616,69 @@ bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *o
     return true;
 }
 
+static float PlanetEncounterRadiusGame(double semiMajorAxisKm,
+                                       double bodyMassKg,
+                                       double parentMassKg,
+                                       float landingRadiusGame)
+{
+    if (!(semiMajorAxisKm > 0.0) || !(bodyMassKg > 0.0) ||
+        !(parentMassKg > 0.0) || !(landingRadiusGame > 0.0f)) {
+        return 0.0f;
+    }
+    float orbitRadiusGame = (float)SpaceUnitsKilometersToGameDistance(
+        semiMajorAxisKm);
+    float minimum = landingRadiusGame * 2.20f;
+    float maximum = fmaxf(minimum,
+                          fminf(orbitRadiusGame * 0.36f,
+                                SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME));
+    float physical = (float)SpaceUnitsKilometersToGameDistance(
+        SpaceUnitsLaplaceSphereOfInfluenceKm(
+            semiMajorAxisKm, bodyMassKg, parentMassKg));
+    return Clamp(physical, minimum, maximum);
+}
+
+static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
+                                    Vector3 observer, SpaceBodyInfo *out)
+{
+    if (!system || !out || index < 0 || index >= system->planetCount) {
+        return false;
+    }
+    PlanetProfile profile = SolarPlanetProfile(system, index);
+    Vector3 center = SolarSystemPlanetCenter(system, index);
+    double parentMassKg = SolarSystemStellarMassKg(system);
+    float landingRadius = SolarBodyTerrainProxyRadius(profile.spaceProxyRadius);
+    SolarLightSource sources[MAX_SOLAR_LIGHTS];
+    int sourceCount = SolarSystemLightSources(system, sources,
+                                              MAX_SOLAR_LIGHTS);
+    *out = (SpaceBodyInfo){
+        .center = center,
+        .velocity = SolarSystemPlanetVelocityAtTime(
+            system, index, solarSimulationTime),
+        .physicalRadiusKm = profile.physicalRadiusKm,
+        .semiMajorAxisKm = system->planets[index].semiMajorAxisKm,
+        .parentMassKg = parentMassKg,
+        .spaceProxyRadius = profile.spaceProxyRadius,
+        .landingProxyRadius = landingRadius,
+        .encounterRadiusGame = PlanetEncounterRadiusGame(
+            system->planets[index].semiMajorAxisKm, profile.massKg,
+            parentMassKg, landingRadius),
+        .currentIrradianceEarth = SolarSystemIrradianceAt(
+            sources, sourceCount, center),
+        .dist = Vector3Distance(center, observer),
+        .isStar = false,
+        .index = index + 1,
+        .systemAnchorX = system->anchorX,
+        .systemAnchorZ = system->anchorZ,
+        .worldSeed = profile.seed,
+        .hostStar = system->star,
+        .spectrum = system->spectrum,
+        .style = profile.style,
+        .profile = profile
+    };
+    snprintf(out->name, sizeof(out->name), "%s", system->name);
+    return true;
+}
+
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount)
 {
     int count = 0;
@@ -1645,6 +1707,8 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .physicalRadiusKm = stars[starIndex].stellar.radiusKm,
                     .parentMassKg = parentMassKg,
                     .spaceProxyRadius = stars[starIndex].spaceProxyRadius,
+                    .landingProxyRadius = stars[starIndex].spaceProxyRadius,
+                    .encounterRadiusGame = SPACE_STAR_ENCOUNTER_RADIUS_GAME,
                     .dist = starDist,
                     .isStar = true,
                     .index = stars[starIndex].index,
@@ -1666,30 +1730,10 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
 
             for (int i = 0; i < sys.planetCount; i++) {
                 if (count >= maxCount) return count;
-                Vector3 center = SolarSystemPlanetCenter(&sys, i);
-                float dist = Vector3Distance(center, pos);
-                if (dist > maxDist) continue;
-                PlanetProfile profile = SolarPlanetProfile(&sys, i);
-                out[count] = (SpaceBodyInfo){
-                    .center = center,
-                    .velocity = SolarSystemPlanetVelocityAtTime(
-                        &sys, i, solarSimulationTime),
-                    .physicalRadiusKm = profile.physicalRadiusKm,
-                    .semiMajorAxisKm = sys.planets[i].semiMajorAxisKm,
-                    .parentMassKg = parentMassKg,
-                    .spaceProxyRadius = profile.spaceProxyRadius,
-                    .dist = dist,
-                    .isStar = false,
-                    .index = i + 1,
-                    .systemAnchorX = ax,
-                    .systemAnchorZ = az,
-                    .worldSeed = profile.seed,
-                    .hostStar = sys.star,
-                    .spectrum = sys.spectrum,
-                    .style = profile.style,
-                    .profile = profile
-                };
-                snprintf(out[count].name, sizeof(out[count].name), "%s", sys.name);
+                SpaceBodyInfo body;
+                if (!PlanetBodyInfoForSystem(&sys, i, pos, &body) ||
+                    body.dist > maxDist) continue;
+                out[count] = body;
                 count++;
             }
         }
@@ -1705,6 +1749,172 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
         }
     }
     return count;
+}
+
+static void HomeBodyInfoForObserver(Vector3 observer, SpaceBodyInfo *out)
+{
+    if (!out) return;
+    float radius = HomeWorldProxyRadius();
+    *out = (SpaceBodyInfo){
+        .center = HomeWorldCenter(),
+        .velocity = { 0 },
+        .physicalRadiusKm = SPACE_UNITS_EARTH_RADIUS_KM,
+        .semiMajorAxisKm = SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+        .parentMassKg = SPACE_UNITS_SOLAR_MASS_KG,
+        .spaceProxyRadius = radius,
+        .landingProxyRadius = radius,
+        .encounterRadiusGame = radius * 2.15f,
+        .currentIrradianceEarth = 1.0,
+        .dist = Vector3Distance(HomeWorldCenter(), observer),
+        .isStar = false,
+        .index = 0,
+        .worldSeed = DEFAULT_WORLD_SEED,
+        .style = SOLAR_STYLE_TEMPERATE,
+        .profile = {
+            .physicalRadiusKm = SPACE_UNITS_EARTH_RADIUS_KM,
+            .massKg = SPACE_UNITS_EARTH_MASS_KG,
+            .receivedIrradiance = 1.0,
+            .radiativeTempK = 255.0f,
+            .equilibriumTempK = 288.0f,
+            .surfacePressureAtm = 1.0f,
+            .atmosphereDensity = 0.78f,
+            .oceanCoverage = 0.48f,
+            .cloudCoverage = 0.58f,
+            .windStrength = 0.42f,
+            .hasSolidSurface = true
+        }
+    };
+    double orbitVelocity = SpaceUnitsCircularOrbitVelocityKilometersPerSecond(
+        SPACE_UNITS_ASTRONOMICAL_UNIT_KM, SPACE_UNITS_SOLAR_MASS_KG);
+    out->velocity.x = (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+        orbitVelocity);
+    snprintf(out->name, sizeof(out->name), "Home");
+}
+
+bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
+                               SpaceScaleDiagnostics *out)
+{
+    if (!body || !out || body->isStar ||
+        !(body->physicalRadiusKm > 0.0) ||
+        !(body->profile.massKg > 0.0) ||
+        !(body->semiMajorAxisKm > 0.0)) {
+        return false;
+    }
+    *out = (SpaceScaleDiagnostics){ 0 };
+    if (body->index > 0) {
+        snprintf(out->bodyName, sizeof(out->bodyName), "%s %c", body->name,
+                 'a' + body->index - 1);
+    } else {
+        snprintf(out->bodyName, sizeof(out->bodyName), "%s", body->name);
+    }
+    out->physicalRadiusKm = body->physicalRadiusKm;
+    out->physicalRadiusGame = SpaceUnitsKilometersToGameDistance(
+        body->physicalRadiusKm);
+    out->visualRadiusGame = body->spaceProxyRadius;
+    out->landingRadiusGame = body->landingProxyRadius > 0.0f
+        ? body->landingProxyRadius
+        : SolarBodyTerrainProxyRadius(body->spaceProxyRadius);
+    out->landingRadiusScale = SpaceUnitsProxyRadiusScale(
+        body->physicalRadiusKm, out->landingRadiusGame);
+
+    double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
+        SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
+    double physicalGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
+        body->profile.massKg, body->physicalRadiusKm);
+    double proxyMu = SpaceUnitsProxyGravitationalParameterGame(
+        body->profile.massKg, body->physicalRadiusKm,
+        out->landingRadiusGame);
+    out->physicalGravityMetersPerSecondSquared = physicalGravity * 1000.0;
+    out->physicalGravityEarth = earthGravity > 0.0
+        ? physicalGravity / earthGravity : 0.0;
+    out->gameplaySurfaceGravity = out->landingRadiusGame > 0.0f
+        ? proxyMu / ((double)out->landingRadiusGame * out->landingRadiusGame)
+        : 0.0;
+
+    out->orbitalSpeedGame = Vector3Length(body->velocity);
+    out->orbitalSpeedKilometersPerSecond =
+        SpaceUnitsGameVelocityToKilometersPerSecond(out->orbitalSpeedGame);
+    double parentMassKg = body->parentMassKg > 0.0
+        ? body->parentMassKg : body->hostStar.massKg;
+    out->sphereOfInfluenceKm = SpaceUnitsLaplaceSphereOfInfluenceKm(
+        body->semiMajorAxisKm, body->profile.massKg, parentMassKg);
+    out->hillSphereKm = SpaceUnitsHillSphereKm(
+        body->semiMajorAxisKm, body->profile.massKg, parentMassKg);
+    out->physicalSphereOfInfluenceGame = SpaceUnitsKilometersToGameDistance(
+        out->sphereOfInfluenceKm);
+    out->encounterRadiusGame = body->encounterRadiusGame > 0.0f
+        ? body->encounterRadiusGame
+        : PlanetEncounterRadiusGame(body->semiMajorAxisKm,
+                                     body->profile.massKg, parentMassKg,
+                                     out->landingRadiusGame);
+    out->encounterRadiusScale = out->physicalSphereOfInfluenceGame > 0.0
+        ? out->encounterRadiusGame / out->physicalSphereOfInfluenceGame : 0.0;
+    out->currentIrradianceEarth = body->currentIrradianceEarth > 0.0
+        ? body->currentIrradianceEarth : body->profile.receivedIrradiance;
+    out->climateIrradianceEarth = body->profile.receivedIrradiance;
+    out->radiativeTemperatureK = body->profile.radiativeTempK;
+    out->surfaceTemperatureK = body->profile.equilibriumTempK;
+
+    double radiusRoundTrip = SpaceUnitsRelativeError(
+        SpaceUnitsGameDistanceToKilometers(out->physicalRadiusGame),
+        out->physicalRadiusKm);
+    double proxyGravityRoundTrip = SpaceUnitsRelativeError(
+        out->gameplaySurfaceGravity,
+        SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME *
+        out->physicalGravityEarth);
+    double speedRoundTrip = SpaceUnitsRelativeError(
+        SpaceUnitsKilometersPerSecondToGameVelocity(
+            out->orbitalSpeedKilometersPerSecond), out->orbitalSpeedGame);
+    double soiRoundTrip = SpaceUnitsRelativeError(
+        SpaceUnitsGameDistanceToKilometers(out->physicalSphereOfInfluenceGame),
+        out->sphereOfInfluenceKm);
+    out->maxRelativeError = fmax(fmax(radiusRoundTrip, proxyGravityRoundTrip),
+                                 fmax(speedRoundTrip, soiRoundTrip));
+    out->encounterRadiusClamped =
+        fabs(out->encounterRadiusGame - out->physicalSphereOfInfluenceGame) >
+        SPACE_UNITS_MAX_RELATIVE_ERROR *
+        fmax(fabs(out->physicalSphereOfInfluenceGame), 1.0);
+    out->withinErrorBudget = out->maxRelativeError <=
+                             SPACE_UNITS_MAX_RELATIVE_ERROR;
+    return true;
+}
+
+bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out)
+{
+    if (!out) return false;
+    *out = (SpaceScaleDiagnostics){ 0 };
+
+    SpaceBodyInfo selected = { 0 };
+    bool found = false;
+    if (PlanetWorldIsActive()) {
+        SolarSystemDef system;
+        int index = planetWorld.planetIndex - 1;
+        if (SurfaceHostSystem(&system) &&
+            PlanetBodyInfoForSystem(&system, index,
+                                    PlanetWorldSpaceReference(), &selected)) {
+            found = true;
+        }
+    } else if (HomeWorldSurfaceIsActive()) {
+        HomeBodyInfoForObserver(observer, &selected);
+        found = true;
+    } else {
+        SpaceBodyInfo bodies[48];
+        int count = SpaceBodiesNear(observer, 700.0f, bodies, 48);
+        for (int i = 0; i < count; i++) {
+            if (bodies[i].isStar) continue;
+            if (!found || bodies[i].dist < selected.dist) {
+                selected = bodies[i];
+                found = true;
+            }
+        }
+        SpaceBodyInfo home;
+        HomeBodyInfoForObserver(observer, &home);
+        if (!found || home.dist < selected.dist) {
+            selected = home;
+            found = home.dist <= 700.0f;
+        }
+    }
+    return found && SpaceBodyScaleDiagnostics(&selected, out);
 }
 
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
@@ -1825,25 +2035,6 @@ typedef struct SpaceGravityCandidate {
     char name[40];
 } SpaceGravityCandidate;
 
-static float SpaceProxyGravitationalParameter(double massKg,
-                                              double physicalRadiusKm,
-                                              float proxyRadius)
-{
-    double surfaceGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-        massKg, physicalRadiusKm);
-    double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-        SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
-    if (!(surfaceGravity > 0.0) || !(earthGravity > 0.0) ||
-        !(proxyRadius > 0.0f)) {
-        return 0.0f;
-    }
-    // Encounter spheres are deliberately enlarged. Preserve the generated
-    // body's physical surface-gravity ratio across that proxy transform.
-    return SPACE_PROXY_EARTH_SURFACE_ACCEL_GAME *
-           (float)(surfaceGravity / earthGravity) *
-           proxyRadius * proxyRadius;
-}
-
 static void AddSpaceGravityCandidate(SpaceGravityCandidate *candidates, int *count,
                                      int capacity, SpacePhysicsGravityBody body,
                                      Vector3 velocity, SpaceGravityPrimaryKind kind,
@@ -1874,7 +2065,8 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
         (SpacePhysicsGravityBody){
             .center = HomeWorldCenter(),
             .softeningRadiusGame = homeRadius,
-            .gravitationalParameterGame = SpaceProxyGravitationalParameter(
+            .gravitationalParameterGame = (float)
+                SpaceUnitsProxyGravitationalParameterGame(
                 SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM,
                 homeRadius),
             .encounterRadiusGame = homeRadius * 2.15f,
@@ -1907,22 +2099,9 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
         int planetIndex = bodies[i].index - 1;
         if (planetIndex < 0 || bodies[i].semiMajorAxisKm <= 0.0) continue;
 
-        float terrainRadius = SolarBodyTerrainProxyRadius(
-            bodies[i].spaceProxyRadius);
-        float orbitRadius = (float)SpaceUnitsKilometersToGameDistance(
-            bodies[i].semiMajorAxisKm);
-        float minimumSoi = terrainRadius * 2.20f;
-        float maximumSoi = fmaxf(minimumSoi,
-                                 fminf(orbitRadius * 0.36f,
-                                       SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME));
-        double physicalSoiKm = SpaceUnitsLaplaceSphereOfInfluenceKm(
-            bodies[i].semiMajorAxisKm, bodies[i].profile.massKg,
-            bodies[i].parentMassKg > 0.0 ? bodies[i].parentMassKg :
-                                          bodies[i].hostStar.massKg);
-        float physicalSoi = (float)SpaceUnitsKilometersToGameDistance(
-            physicalSoiKm);
-        float soi = Clamp(physicalSoi, minimumSoi, maximumSoi);
-        float mu = SpaceProxyGravitationalParameter(
+        float terrainRadius = bodies[i].landingProxyRadius;
+        float soi = bodies[i].encounterRadiusGame;
+        float mu = (float)SpaceUnitsProxyGravitationalParameterGame(
             bodies[i].profile.massKg, bodies[i].profile.physicalRadiusKm,
             terrainRadius);
         char planetName[40];

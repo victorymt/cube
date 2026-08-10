@@ -3,6 +3,7 @@
 #include <math.h>
 
 const double SPACE_UNITS_ASTRONOMICAL_UNIT_KM = 149597870.7;
+const double SPACE_UNITS_GAME_DISTANCE_PER_AU = 340.0;
 const double SPACE_UNITS_EARTH_MASS_KG = 5.9722e24;
 const double SPACE_UNITS_SOLAR_MASS_KG = 1.98847e30;
 const double SPACE_UNITS_EARTH_RADIUS_KM = 6371.0;
@@ -11,6 +12,8 @@ const double SPACE_UNITS_GRAVITATIONAL_CONSTANT_KM3_KG_S2 = 6.67430e-20;
 const double SPACE_UNITS_KILOMETERS_PER_GAME_DISTANCE = 149597870.7 / 340.0;
 const double SPACE_UNITS_SECONDS_PER_GAME_TIME = 86400.0;
 const double SPACE_UNITS_KILOGRAMS_PER_GAME_MASS = 5.9722e24;
+const double SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME = 4.5;
+const double SPACE_UNITS_MAX_RELATIVE_ERROR = 1e-6;
 
 double SpaceUnitsGameDistanceToKilometers(double gameDistance)
 {
@@ -130,4 +133,63 @@ double SpaceUnitsLaplaceSphereOfInfluenceKm(double semiMajorAxisKm,
         return 0.0;
     }
     return semiMajorAxisKm * pow(bodyMassKg / parentMassKg, 0.4);
+}
+
+double SpaceUnitsHillSphereKm(double semiMajorAxisKm, double bodyMassKg,
+                              double parentMassKg)
+{
+    if (!(semiMajorAxisKm > 0.0) || !(bodyMassKg > 0.0) ||
+        !(parentMassKg > 0.0) || !isfinite(semiMajorAxisKm) ||
+        !isfinite(bodyMassKg) || !isfinite(parentMassKg)) {
+        return 0.0;
+    }
+    return semiMajorAxisKm * cbrt(bodyMassKg / (3.0 * parentMassKg));
+}
+
+double SpaceUnitsProxyRadiusScale(double physicalRadiusKm,
+                                  double proxyRadiusGame)
+{
+    double physicalRadiusGame = SpaceUnitsKilometersToGameDistance(
+        physicalRadiusKm);
+    if (!(physicalRadiusGame > 0.0) || !(proxyRadiusGame > 0.0) ||
+        !isfinite(physicalRadiusGame) || !isfinite(proxyRadiusGame)) {
+        return 0.0;
+    }
+    return proxyRadiusGame / physicalRadiusGame;
+}
+
+double SpaceUnitsProxySurfaceGravityGame(double massKg,
+                                         double physicalRadiusKm)
+{
+    double physicalGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
+        massKg, physicalRadiusKm);
+    double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
+        SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
+    if (!(physicalGravity > 0.0) || !(earthGravity > 0.0)) return 0.0;
+    return SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME *
+           physicalGravity / earthGravity;
+}
+
+double SpaceUnitsProxyGravitationalParameterGame(double massKg,
+                                                 double physicalRadiusKm,
+                                                 double proxyRadiusGame)
+{
+    if (!(proxyRadiusGame > 0.0) || !isfinite(proxyRadiusGame)) return 0.0;
+    double surfaceGravity = SpaceUnitsProxySurfaceGravityGame(
+        massKg, physicalRadiusKm);
+    return surfaceGravity * proxyRadiusGame * proxyRadiusGame;
+}
+
+double SpaceUnitsRelativeError(double actual, double expected)
+{
+    if (!isfinite(actual) || !isfinite(expected)) return INFINITY;
+    if (expected == 0.0) return fabs(actual);
+    return fabs(actual - expected) / fabs(expected);
+}
+
+bool SpaceUnitsWithinRelativeError(double actual, double expected,
+                                   double tolerance)
+{
+    return tolerance >= 0.0 && isfinite(tolerance) &&
+           SpaceUnitsRelativeError(actual, expected) <= tolerance;
 }

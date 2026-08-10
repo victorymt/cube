@@ -1,10 +1,19 @@
 #ifndef VOXELCRAFT_SPACE_UNITS_H
 #define VOXELCRAFT_SPACE_UNITS_H
 
+#include <stdbool.h>
+
 // Canonical physical constants use kilometers, seconds, and kilograms.
-// Scene coordinates remain a compressed view: 340 game distance units are 1 AU,
-// and one game time unit advances the celestial simulation by one Earth day.
+// Orbital scene coordinates use a linear compression: 340 game distance units
+// are 1 AU. One unpaused gameplay second advances one game time unit, while one
+// game time unit represents one physical Earth day in the celestial simulation.
+//
+// Planet visuals, landing surfaces, and encounter spheres are gameplay proxies,
+// not linearly scaled physical radii. Proxy gravity preserves physical surface-g
+// ratios at the proxy surface; it does not preserve physical density or escape
+// velocity across the enlarged radius.
 extern const double SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+extern const double SPACE_UNITS_GAME_DISTANCE_PER_AU;
 extern const double SPACE_UNITS_EARTH_MASS_KG;
 extern const double SPACE_UNITS_SOLAR_MASS_KG;
 extern const double SPACE_UNITS_EARTH_RADIUS_KM;
@@ -13,6 +22,8 @@ extern const double SPACE_UNITS_GRAVITATIONAL_CONSTANT_KM3_KG_S2;
 extern const double SPACE_UNITS_KILOMETERS_PER_GAME_DISTANCE;
 extern const double SPACE_UNITS_SECONDS_PER_GAME_TIME;
 extern const double SPACE_UNITS_KILOGRAMS_PER_GAME_MASS;
+extern const double SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME;
+extern const double SPACE_UNITS_MAX_RELATIVE_ERROR;
 
 double SpaceUnitsGameDistanceToKilometers(double gameDistance);
 double SpaceUnitsKilometersToGameDistance(double kilometers);
@@ -38,5 +49,18 @@ double SpaceUnitsCircularOrbitVelocityKilometersPerSecond(double radiusKm,
 double SpaceUnitsLaplaceSphereOfInfluenceKm(double semiMajorAxisKm,
                                             double bodyMassKg,
                                             double parentMassKg);
+double SpaceUnitsHillSphereKm(double semiMajorAxisKm, double bodyMassKg,
+                              double parentMassKg);
+
+double SpaceUnitsProxyRadiusScale(double physicalRadiusKm,
+                                  double proxyRadiusGame);
+double SpaceUnitsProxySurfaceGravityGame(double massKg,
+                                         double physicalRadiusKm);
+double SpaceUnitsProxyGravitationalParameterGame(double massKg,
+                                                 double physicalRadiusKm,
+                                                 double proxyRadiusGame);
+double SpaceUnitsRelativeError(double actual, double expected);
+bool SpaceUnitsWithinRelativeError(double actual, double expected,
+                                   double tolerance);
 
 #endif

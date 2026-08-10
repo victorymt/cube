@@ -187,6 +187,41 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
 {
     AssertPlanetClimate(profile);
     const SolarPlanetDef *planet = &system->planets[index];
+    double scaleTime = SpaceSimulationTime();
+    double scaleDt = 0.001;
+    Vector3 scaleBefore = SolarSystemPlanetPositionAtTime(
+        system, index, scaleTime - scaleDt);
+    Vector3 scaleAfter = SolarSystemPlanetPositionAtTime(
+        system, index, scaleTime + scaleDt);
+    SpaceBodyInfo scaleBody = {
+        .center = SolarSystemPlanetCenter(system, index),
+        .velocity = VectorScaleTest(VectorSubtractTest(scaleAfter, scaleBefore),
+                                    1.0 / (2.0 * scaleDt)),
+        .physicalRadiusKm = profile->physicalRadiusKm,
+        .semiMajorAxisKm = planet->semiMajorAxisKm,
+        .parentMassKg = SolarSystemStellarMassKg(system),
+        .spaceProxyRadius = profile->spaceProxyRadius,
+        .index = index + 1,
+        .profile = *profile
+    };
+    snprintf(scaleBody.name, sizeof(scaleBody.name), "%s", system->name);
+    SpaceScaleDiagnostics scale;
+    assert(SpaceBodyScaleDiagnostics(&scaleBody, &scale));
+    assert(scale.withinErrorBudget);
+    assert(scale.maxRelativeError <= SPACE_UNITS_MAX_RELATIVE_ERROR);
+    assert(scale.physicalRadiusKm == profile->physicalRadiusKm);
+    assert(scale.physicalRadiusGame > 0.0);
+    assert(scale.landingRadiusGame > scale.physicalRadiusGame);
+    assert(scale.landingRadiusScale > 100.0);
+    assert(scale.physicalGravityMetersPerSecondSquared > 0.0);
+    assert(scale.gameplaySurfaceGravity > 0.0);
+    assert(scale.orbitalSpeedKilometersPerSecond > 0.0);
+    assert(scale.sphereOfInfluenceKm > 0.0);
+    assert(scale.hillSphereKm > scale.sphereOfInfluenceKm);
+    assert(scale.encounterRadiusGame >= scale.landingRadiusGame * 2.19f);
+    assert(scale.climateIrradianceEarth == profile->receivedIrradiance);
+    assert(scale.currentIrradianceEarth > 0.0);
+    assert(scale.surfaceTemperatureK == profile->equilibriumTempK);
     double orbitAU = fmax(planet->semiMajorAxisKm /
                           SPACE_UNITS_ASTRONOMICAL_UNIT_KM, 0.18);
     SolarLightSource lights[MAX_SOLAR_LIGHTS];
@@ -365,6 +400,29 @@ static void TestGeneratedSystems(void)
            climates[SOLAR_STYLE_CRATER], climates[SOLAR_STYLE_TEMPERATE]);
 }
 
+static void TestHomeScaleDiagnostics(void)
+{
+    SpaceScaleDiagnostics scale;
+    assert(SpaceScaleDiagnosticsAt((Vector3){ 0 }, &scale));
+    assert(scale.withinErrorBudget);
+    assert(scale.physicalRadiusKm == SPACE_UNITS_EARTH_RADIUS_KM);
+    assert(scale.visualRadiusGame == 62.0f);
+    assert(scale.landingRadiusGame == 62.0f);
+    assert(scale.landingRadiusScale > 4200.0);
+    AssertRelative(scale.physicalGravityEarth, 1.0, 0.000001);
+    AssertRelative(scale.gameplaySurfaceGravity,
+                   SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME,
+                   0.000001);
+    AssertRelative(scale.orbitalSpeedKilometersPerSecond, 29.7851, 0.0001);
+    assert(scale.sphereOfInfluenceKm > 900000.0);
+    assert(scale.hillSphereKm > scale.sphereOfInfluenceKm);
+    assert(scale.encounterRadiusClamped);
+    assert(scale.currentIrradianceEarth == 1.0);
+    assert(scale.climateIrradianceEarth == 1.0);
+    assert(scale.radiativeTemperatureK == 255.0f);
+    assert(scale.surfaceTemperatureK == 288.0f);
+}
+
 static void TestSaveLoadTimeDeterminism(void)
 {
     const uint32_t seed = 0x2468ace0u;
@@ -436,6 +494,7 @@ static void TestSaveLoadTimeDeterminism(void)
 
 int main(void)
 {
+    TestHomeScaleDiagnostics();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
     puts("space properties tests passed");
