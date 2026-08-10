@@ -1038,6 +1038,8 @@ static void TestChunkUnloadReloadDeterminism(void)
     assert(snapshots);
     int snapshotCount = 0;
     int crossingFragmentCount = 0;
+    Chunk *crossingChunks[expectedChunkCount];
+    int crossingChunkCount = 0;
     Chunk *floraChunk = NULL;
     for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
         Chunk *chunk = &chunks[index];
@@ -1060,6 +1062,7 @@ static void TestChunkUnloadReloadDeterminism(void)
                (size_t)chunk->floraStructureCount *
                sizeof(FloraStructureInstance));
         memcpy(snapshot->blocks, chunk->blocks, sizeof(snapshot->blocks));
+        bool containsCrossingStructure = false;
         for (int structureIndex = 0;
              structureIndex < chunk->floraStructureCount; structureIndex++) {
             const FloraStructureInstance *structure =
@@ -1069,13 +1072,107 @@ static void TestChunkUnloadReloadDeterminism(void)
                 structure->rootX == crossingStructure.rootX &&
                 structure->rootZ == crossingStructure.rootZ) {
                 crossingFragmentCount++;
+                containsCrossingStructure = true;
                 if (!floraChunk) floraChunk = chunk;
             }
+        }
+        if (containsCrossingStructure) {
+            assert(crossingChunkCount < expectedChunkCount);
+            crossingChunks[crossingChunkCount++] = chunk;
         }
     }
     assert(snapshotCount == expectedChunkCount);
     assert(crossingFragmentCount >= 2);
+    assert(crossingChunkCount == crossingFragmentCount);
     assert(floraChunk);
+
+    int heightOwner[WORLD_HEIGHT + 1];
+    float displacementX[WORLD_HEIGHT + 1] = { 0 };
+    float displacementZ[WORLD_HEIGHT + 1] = { 0 };
+    for (int y = 0; y <= WORLD_HEIGHT; y++) heightOwner[y] = -1;
+    int matchedFragmentMeshCount = 0;
+    int sharedHeightComparisons = 0;
+    for (int fragment = 0; fragment < crossingChunkCount; fragment++) {
+        Mesh mesh = { 0 };
+        FloraVisualInstance *instances = NULL;
+        int instanceCount = 0;
+        assert(BuildChunkFloraMesh(
+            crossingChunks[fragment], &mesh, &instances, &instanceCount));
+
+        int matchingInstance = -1;
+        for (int instanceIndex = 0; instanceIndex < instanceCount;
+             instanceIndex++) {
+            FloraVisualInstance *instance = &instances[instanceIndex];
+            if (instance->anchor.x !=
+                    (float)crossingStructure.rootX + 0.5f ||
+                instance->anchor.y !=
+                    (float)crossingStructure.groundY + 1.0f ||
+                instance->anchor.z !=
+                    (float)crossingStructure.rootZ + 0.5f) {
+                continue;
+            }
+            assert(matchingInstance < 0);
+            matchingInstance = instanceIndex;
+        }
+        assert(matchingInstance >= 0);
+        FloraVisualInstance *instance = &instances[matchingInstance];
+        assert(instance->height ==
+               (float)(crossingStructure.maxY - crossingStructure.groundY));
+        assert(instance->windResponse == crossingStructure.windResponse);
+
+        size_t coordinateCount = (size_t)mesh.vertexCount * 3u;
+        float *baseVertices = malloc(coordinateCount * sizeof(float));
+        assert(baseVertices);
+        memcpy(baseVertices, mesh.vertices,
+               coordinateCount * sizeof(float));
+        float appliedScale = 0.0f;
+        bool changed = false;
+        assert(DeformFloraMeshInstance(
+            mesh.vertices, baseVertices, mesh.vertexCount, instance,
+            0.63f, 1.0f, 0.14f, 0.79f,
+            &appliedScale, &changed));
+        assert(changed);
+        assert(fabsf(appliedScale - 0.63f) < 0.000001f);
+        matchedFragmentMeshCount++;
+
+        int firstVertex = instance->firstVertex;
+        int lastVertex = firstVertex + instance->vertexCount;
+        assert(firstVertex >= 0 && lastVertex <= mesh.vertexCount);
+        for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
+            const float *base = &baseVertices[vertex * 3];
+            const float *current = &mesh.vertices[vertex * 3];
+            float heightFraction = fminf(fmaxf(
+                (base[1] - instance->anchor.y) / instance->height,
+                0.0f), 1.0f);
+            float expectedY = instance->anchor.y +
+                (base[1] - instance->anchor.y) * 0.63f;
+            assert(fabsf(current[1] - expectedY) < 0.000001f);
+            if (heightFraction <= 0.001f) continue;
+
+            int layer = (int)lroundf(base[1]);
+            if (layer < 0 || layer > WORLD_HEIGHT ||
+                fabsf(base[1] - (float)layer) >= 0.0001f) {
+                continue;
+            }
+            float dx = current[0] - base[0];
+            float dz = current[2] - base[2];
+            if (heightOwner[layer] < 0) {
+                heightOwner[layer] = fragment;
+                displacementX[layer] = dx;
+                displacementZ[layer] = dz;
+            } else if (heightOwner[layer] != fragment) {
+                assert(fabsf(dx - displacementX[layer]) < 0.000001f);
+                assert(fabsf(dz - displacementZ[layer]) < 0.000001f);
+                sharedHeightComparisons++;
+            }
+        }
+        free(baseVertices);
+        free(instances);
+        FreeCpuMesh(&mesh);
+    }
+    assert(matchedFragmentMeshCount == crossingChunkCount);
+    assert(sharedHeightComparisons > 0);
+
     int floraCx = floraChunk->cx;
     int floraCz = floraChunk->cz;
     Mesh firstFloraMesh = { 0 };
