@@ -217,6 +217,12 @@ static void AssertEntityLocalEcologyValid(const PlanetLocalEcology *local)
     AssertUnitValue(local->population.faunaCarryingCapacity);
     AssertUnitValue(local->population.seasonalMemory);
     AssertUnitValue(local->population.faunaHarvestPressure);
+    AssertUnitValue(local->diagnostics.habitatStress);
+    AssertUnitValue(local->diagnostics.harvestStress);
+    AssertUnitValue(local->diagnostics.faunaStress);
+    assert(isfinite(local->diagnostics.faunaNetRecoveryRate));
+    assert(local->diagnostics.faunaNetRecoveryRate >= -1.0f &&
+           local->diagnostics.faunaNetRecoveryRate <= 1.0f);
     AssertSignedUnitValue(local->migration.floraNet);
     AssertSignedUnitValue(local->migration.faunaNet);
     AssertSignedUnitValue(local->migration.floraFlowX);
@@ -578,6 +584,15 @@ static void WaitForEntitySpawn(Player *player, float daylight)
     assert(GetActiveEntityCount() == 1);
 }
 
+static int EntityEcologyRegionCenterLocal(int localCoordinate,
+                                          int worldOrigin)
+{
+    int global = localCoordinate + worldOrigin;
+    int region = global / 64;
+    if (global % 64 < 0) region--;
+    return region * 64 + 32 - worldOrigin;
+}
+
 static void TestEntityDeathCauseFeedback(void)
 {
     const float daylight = 0.72f;
@@ -618,6 +633,71 @@ static void TestEntityDeathCauseFeedback(void)
            playerPressure);
 
     UnloadAllChunks();
+    ChunksShutdownGenThread();
+}
+
+static void TestCrossSeedEntityHarvestFeedback(void)
+{
+    const float daylight = 0.72f;
+    FertileSite sites[4];
+    int siteCount = CollectFertileSites(
+        sites, (int)(sizeof(sites) / sizeof(sites[0])), daylight);
+    assert(siteCount == (int)(sizeof(sites) / sizeof(sites[0])));
+    assert(ChunksStartGenThread());
+
+    for (int siteIndex = 0; siteIndex < siteCount; siteIndex++) {
+        const FertileSite *site = &sites[siteIndex];
+        EcologyTestSetSeed(site->seed);
+        EcologyTestActivatePlanet(site->seed, 0, site->originZ);
+        PlanetEcologyResetState();
+        Player player = { 0 };
+        PlacePlayerAt(&player, site->x, site->z);
+        PrepareChunksAt(&player);
+        EntitiesInit();
+        WaitForEntitySpawn(&player, daylight);
+
+        int playerX = (int)floorf(player.position.x);
+        int playerZ = (int)floorf(player.position.z);
+        int centerX = EntityEcologyRegionCenterLocal(
+            playerX, PlanetWorldOriginX());
+        int centerZ = EntityEcologyRegionCenterLocal(
+            playerZ, PlanetWorldOriginZ());
+        PlanetLocalEcology before[9];
+        int sample = 0;
+        for (int rz = -1; rz <= 1; rz++) {
+            for (int rx = -1; rx <= 1; rx++) {
+                before[sample++] = PlanetEcologyLocalAt(
+                    centerX + rx * 64, centerZ + rz * 64, daylight);
+            }
+        }
+
+        assert(EntityKill(0, ENTITY_DEATH_PLAYER, daylight));
+        int affectedRegions = 0;
+        sample = 0;
+        for (int rz = -1; rz <= 1; rz++) {
+            for (int rx = -1; rx <= 1; rx++) {
+                PlanetLocalEcology after = PlanetEcologyLocalAt(
+                    centerX + rx * 64, centerZ + rz * 64, daylight);
+                if (after.population.faunaHarvestPressure >
+                    before[sample].population.faunaHarvestPressure) {
+                    affectedRegions++;
+                    assert(after.population.faunaDensity <
+                           before[sample].population.faunaDensity);
+                    assert(after.suitability.faunaActivity <
+                           before[sample].suitability.faunaActivity);
+                    assert(PlanetFaunaPopulationCap(
+                               after.suitability.faunaActivity,
+                               MAX_ENTITIES - 4) <=
+                           PlanetFaunaPopulationCap(
+                               before[sample].suitability.faunaActivity,
+                               MAX_ENTITIES - 4));
+                }
+                sample++;
+            }
+        }
+        assert(affectedRegions == 1);
+        UnloadAllChunks();
+    }
     ChunksShutdownGenThread();
 }
 
@@ -681,6 +761,7 @@ int main(void)
 {
     TestCrossSeedSeasonalEntityProperties();
     TestEntityDeathCauseFeedback();
+    TestCrossSeedEntityHarvestFeedback();
     TestEntityEcologySystemReplay();
     puts("entity ecology tests passed");
     return 0;

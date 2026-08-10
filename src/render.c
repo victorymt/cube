@@ -2774,10 +2774,16 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             ecology.environment.liquidWaterAccess,
                             ecology.environment.precipitationRate),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Disturbance %.3f   flora stress %.3f   fauna stress %.3f",
+        DrawText(TextFormat("Region (%d,%d)   disturbance %.3f   flora stress %.3f",
+                            ecology.diagnostics.regionX,
+                            ecology.diagnostics.regionZ,
                             ecology.environment.disturbance,
-                            ecology.environment.disturbance * 0.82f,
-                            ecology.environment.disturbance * 0.94f),
+                            ecology.environment.disturbance * 0.82f),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        DrawText(TextFormat("Fauna harvest %.3f   stress %.3f   net %+.5f/day",
+                            ecology.population.faunaHarvestPressure,
+                            ecology.diagnostics.faunaStress,
+                            ecology.diagnostics.faunaNetRecoveryRate),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
         DrawText(TextFormat("Population flora %.2f/%.2f   fauna %.2f/%.2f   memory %.2f",
                             ecology.population.floraDensity,

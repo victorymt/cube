@@ -311,6 +311,20 @@ PlanetRegionalPopulation PlanetPopulationInitialize(
     return result;
 }
 
+static float EcologyModelFaunaTarget(
+    const PlanetRegionalPopulation *population,
+    const PlanetPopulationInput *input)
+{
+    if (!population || !input) return 0.0f;
+    float faunaCapacity = EcologyModelFiniteUnit(input->faunaCapacity);
+    float faunaActivity = faunaCapacity > 0.0001f
+        ? EcologyModelFiniteUnit(input->faunaActivity / faunaCapacity) : 0.0f;
+    float floraPresence = PlanetPopulationFloraPresence(population);
+    return EcologyModelFiniteUnit(population->faunaCarryingCapacity) *
+        (0.08f + faunaActivity * 0.92f) *
+        (0.12f + floraPresence * 0.88f);
+}
+
 void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
                              const PlanetPopulationInput *input,
                              double elapsedTime)
@@ -353,10 +367,7 @@ void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
         EcologyModelFiniteUnit(population->floraDensity), floraTarget,
         EcologyModelResponseAlpha(elapsedTime, floraTimeConstant));
 
-    float floraPresence = PlanetPopulationFloraPresence(population);
-    float faunaTarget = population->faunaCarryingCapacity *
-        (0.08f + faunaActivity * 0.92f) *
-        (0.12f + floraPresence * 0.88f);
+    float faunaTarget = EcologyModelFaunaTarget(population, input);
     float faunaTimeConstant = faunaTarget >= population->faunaDensity
         ? 360.0f : 85.0f;
     population->faunaDensity = EcologyModelLerp(
@@ -421,6 +432,22 @@ void PlanetPopulationApplyFaunaHarvest(
         population->faunaHarvestPressure, event);
     population->faunaDensity = EcologyModelFiniteUnit(
         population->faunaDensity) * (1.0f - event * 0.68f);
+}
+
+float PlanetPopulationFaunaNetRate(
+    const PlanetRegionalPopulation *population,
+    const PlanetPopulationInput *input, float faunaStress)
+{
+    if (!population || !input) return 0.0f;
+    float density = EcologyModelFiniteUnit(population->faunaDensity);
+    float target = EcologyModelFaunaTarget(population, input);
+    float timeConstant = target >= density ? 360.0f : 85.0f;
+    float growthRate = (target - density) / timeConstant;
+    float mortalityRate = density * EcologyModelFiniteUnit(faunaStress) *
+                          0.92f / 120.0f;
+    float result = growthRate - mortalityRate;
+    if (!isfinite(result)) return 0.0f;
+    return fminf(fmaxf(result, -1.0f), 1.0f);
 }
 
 float PlanetPopulationFloraPresence(

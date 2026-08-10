@@ -79,6 +79,14 @@ typedef struct PlanetLocalEcology {
     PlanetEcologySuitability suitability;
     PlanetRegionalPopulation population;
     PlanetPopulationMigrationState migration;
+    struct {
+        int regionX;
+        int regionZ;
+        float habitatStress;
+        float harvestStress;
+        float faunaStress;
+        float faunaNetRecoveryRate;
+    } diagnostics;
 } PlanetLocalEcology;
 
 PlanetEcologyProfile PlanetEcologyProfileForPlanet(

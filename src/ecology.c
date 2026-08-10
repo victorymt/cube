@@ -163,11 +163,29 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
         x, z, simulationTime, daylight, &profile, &migration);
     local.population = population;
     local.migration = migration;
+    int regionX = EcologyFloorDivide(
+        originX + x, ECOLOGY_POPULATION_REGION_SIZE);
+    int regionZ = EcologyFloorDivide(
+        originZ + z, ECOLOGY_POPULATION_REGION_SIZE);
     local.environment.disturbance = EcologyRegionalDisturbance(
-        PlanetWorldSeed(),
-        EcologyFloorDivide(originX + x, ECOLOGY_POPULATION_REGION_SIZE),
-        EcologyFloorDivide(originZ + z, ECOLOGY_POPULATION_REGION_SIZE),
-        originX, originZ);
+        PlanetWorldSeed(), regionX, regionZ, originX, originZ);
+    local.diagnostics.regionX = regionX;
+    local.diagnostics.regionZ = regionZ;
+    local.diagnostics.habitatStress = EcologyClamp(
+        local.environment.disturbance * 0.94f);
+    local.diagnostics.harvestStress = EcologyClamp(
+        population.faunaHarvestPressure * 0.88f);
+    local.diagnostics.faunaStress = EcologyClamp(
+        1.0f - (1.0f - local.diagnostics.habitatStress) *
+        (1.0f - local.diagnostics.harvestStress));
+    PlanetPopulationInput populationInput = {
+        .floraCapacity = local.suitability.floraCapacity,
+        .faunaCapacity = local.suitability.faunaCapacity,
+        .floraActivity = local.suitability.floraActivity,
+        .faunaActivity = local.suitability.faunaActivity
+    };
+    local.diagnostics.faunaNetRecoveryRate = PlanetPopulationFaunaNetRate(
+        &population, &populationInput, local.diagnostics.faunaStress);
     float floraPresence = PlanetPopulationFloraPresence(&population);
     float faunaPresence = PlanetPopulationFaunaPresence(&population);
     local.suitability.floraActivity = EcologyClamp(

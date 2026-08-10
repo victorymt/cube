@@ -633,6 +633,22 @@ static void TestFaunaHarvestPressureModel(void)
     assert(population.floraDensity == untouched.floraDensity);
     assert(population.faunaCarryingCapacity ==
            untouched.faunaCarryingCapacity);
+
+    PlanetPopulationInput input = {
+        .floraCapacity = 0.80f,
+        .faunaCapacity = 0.64f,
+        .floraActivity = 0.72f,
+        .faunaActivity = 0.58f
+    };
+    PlanetRegionalPopulation depleted = untouched;
+    depleted.floraDensity = depleted.floraCarryingCapacity;
+    depleted.faunaDensity = 0.08f;
+    float recovery = PlanetPopulationFaunaNetRate(
+        &depleted, &input, 0.0f);
+    float stressedRecovery = PlanetPopulationFaunaNetRate(
+        &depleted, &input, 1.0f);
+    assert(recovery > 0.0f);
+    assert(stressedRecovery < recovery);
 }
 
 static void TestRandomizedFaunaHarvestProperties(void)
@@ -660,6 +676,15 @@ static void TestRandomizedFaunaHarvestProperties(void)
         PlanetPopulationApplyFaunaHarvest(&population, strength);
         AssertPopulationValid(population);
         assert(population.faunaDensity <= before);
+        PlanetPopulationInput input = {
+            .floraCapacity = TestUnit(&state),
+            .faunaCapacity = TestUnit(&state),
+            .floraActivity = TestUnit(&state),
+            .faunaActivity = TestUnit(&state)
+        };
+        float netRate = PlanetPopulationFaunaNetRate(
+            &population, &input, TestUnit(&state));
+        assert(isfinite(netRate) && netRate >= -1.0f && netRate <= 1.0f);
     }
 }
 
