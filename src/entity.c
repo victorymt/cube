@@ -175,7 +175,7 @@ static void SpawnPassive(const Player *player, float daylight)
     if (alienWorld) {
         WeatherFieldSample weather = WeatherFieldSampleAtWorld(gx, gz);
         entity->ecologyWindStrength = weather.wind;
-        entity->ecologyWindAngle = PlanetWorldProfile()->prevailingWindAngle;
+        entity->ecologyWindAngle = WeatherWindAngleAtWorld(gx, gz);
     }
     entity->ecologySampleTimer = alienWorld
         ? 0.25f + (float)slot / (float)MAX_ENTITIES : 1.0f;
@@ -285,7 +285,9 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
                 (int)floorf(entity->position.x),
                 (int)floorf(entity->position.z));
             entity->ecologyWindStrength = weather.wind;
-            entity->ecologyWindAngle = PlanetWorldProfile()->prevailingWindAngle;
+            entity->ecologyWindAngle = WeatherWindAngleAtWorld(
+                (int)floorf(entity->position.x),
+                (int)floorf(entity->position.z));
             entity->ecologySampleTimer = 1.0f;
         }
         runtime = PlanetEcologyFaunaRuntime(entity->ecologyActivity,

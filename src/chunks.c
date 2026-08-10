@@ -6,6 +6,7 @@
 #include "space.h"
 #include "terrain.h"
 #include "world.h"
+#include "weather.h"
 
 #include <math.h>
 #include <pthread.h>
@@ -100,6 +101,8 @@ void UnloadChunkModel(Chunk *chunk)
     }
     free(chunk->floraTargetScales);
     chunk->floraTargetScales = NULL;
+    free(chunk->floraTargetWind);
+    chunk->floraTargetWind = NULL;
     chunk->floraTargetScaleCount = 0;
 }
 
@@ -830,11 +833,20 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
 static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
                                   float daylight, bool refreshTargets)
 {
+    static const float plantOffsetX[12] = {
+        -0.16f, 0.16f, 0.16f, -0.16f, 0.16f, -0.16f,
+        -0.16f, 0.16f, 0.16f, -0.16f, 0.16f, -0.16f
+    };
+    static const float plantOffsetZ[12] = {
+        -0.16f, 0.16f, 0.16f, -0.16f, 0.16f, -0.16f,
+         0.16f, -0.16f, -0.16f, 0.16f, -0.16f, 0.16f
+    };
     if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
 
     Mesh *mesh = &chunk->floraModel.meshes[0];
     if (!mesh->vertices || mesh->vertexCount <= 0 ||
-        !chunk->floraTargetScales || chunk->floraTargetScaleCount <= 0) return;
+        !chunk->floraTargetScales || !chunk->floraTargetWind ||
+        chunk->floraTargetScaleCount <= 0) return;
 
     float blend = fminf(elapsed * 1.8f, 1.0f);
     float scaleSum = 0.0f;
@@ -855,8 +867,14 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
                 local.suitability.floraActivity,
                 local.suitability.floraCapacity);
             chunk->floraTargetScales[group] = runtime.growthScale;
+            chunk->floraTargetWind[group] = WeatherFieldSampleAtWorld(
+                cellX, cellZ).wind;
         } else if (refreshTargets) {
             chunk->floraTargetScales[group] = 1.0f;
+            int cellX = (int)lroundf(mesh->vertices[firstVertex * 3] - 0.5f);
+            int cellZ = (int)lroundf(mesh->vertices[firstVertex * 3 + 2] - 0.5f);
+            chunk->floraTargetWind[group] = WeatherFieldSampleAtWorld(
+                cellX, cellZ).wind;
         }
 
         float groundY = INFINITY;
@@ -870,17 +888,34 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
         if (!(oldScale > 0.01f) || !isfinite(oldScale)) continue;
         float targetScale = fmaxf(chunk->floraTargetScales[group], 0.01f);
         float newScale = oldScale + (targetScale - oldScale) * blend;
+        int cellX = (int)lroundf(mesh->vertices[firstVertex * 3] - 0.5f);
+        int cellZ = (int)lroundf(mesh->vertices[firstVertex * 3 + 2] - 0.5f);
+        float phase = (float)(Hash3D(cellX, 0, cellZ) & 4095u) * 0.0015339808f;
+        float sway = sinf((float)SpaceSimulationTime() * 1.7f + phase) *
+                     fmaxf(chunk->floraTargetWind[group], 0.0f) * 0.07f;
         scaleSum += newScale;
         scaleCount++;
-        if (fabsf(newScale - oldScale) < 0.0005f) continue;
-
+        bool scaleChanged = fabsf(newScale - oldScale) >= 0.0005f;
         for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
             float y = mesh->vertices[vertex * 3 + 1];
-            float originalHeight = (y - groundY) / oldScale;
-            mesh->vertices[vertex * 3 + 1] =
-                groundY + originalHeight * newScale;
+            float heightFraction = (y - groundY) / (topY - groundY);
+            int plantVertex = vertex - firstVertex;
+            float targetX = (float)cellX + 0.5f + plantOffsetX[plantVertex] +
+                cosf(chunk->floraWindAngle) * sway * heightFraction;
+            float targetZ = (float)cellZ + 0.5f + plantOffsetZ[plantVertex] +
+                sinf(chunk->floraWindAngle) * sway * heightFraction;
+            if (fabsf(mesh->vertices[vertex * 3] - targetX) >= 0.0001f ||
+                fabsf(mesh->vertices[vertex * 3 + 2] - targetZ) >= 0.0001f) {
+                changed = true;
+            }
+            mesh->vertices[vertex * 3] = targetX;
+            mesh->vertices[vertex * 3 + 2] = targetZ;
+            if (scaleChanged) {
+                mesh->vertices[vertex * 3 + 1] =
+                    groundY + heightFraction * 0.4f * newScale;
+                changed = true;
+            }
         }
-        changed = true;
     }
     if (changed) {
         UpdateMeshBuffer(*mesh, 0, mesh->vertices,
@@ -900,9 +935,10 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
         chunk->floraSampleTimer -= elapsed;
         bool refreshTargets = chunk->floraSampleTimer <= 0.0f;
         if (refreshTargets) {
+            int centerX = chunk->cx * CHUNK_SIZE + CHUNK_SIZE / 2;
+            int centerZ = chunk->cz * CHUNK_SIZE + CHUNK_SIZE / 2;
+            chunk->floraWindAngle = WeatherWindAngleAtWorld(centerX, centerZ);
             if (planetWorld) {
-                int centerX = chunk->cx * CHUNK_SIZE + CHUNK_SIZE / 2;
-                int centerZ = chunk->cz * CHUNK_SIZE + CHUNK_SIZE / 2;
                 PlanetLocalEcology local = PlanetEcologyLocalAt(
                     centerX, centerZ, daylight);
                 chunk->floraActivity = local.suitability.floraActivity;
@@ -1963,6 +1999,8 @@ static void InitializeFloraTargets(Chunk *chunk)
 {
     free(chunk->floraTargetScales);
     chunk->floraTargetScales = NULL;
+    free(chunk->floraTargetWind);
+    chunk->floraTargetWind = NULL;
     chunk->floraTargetScaleCount = 0;
     if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
 
@@ -1970,9 +2008,17 @@ static void InitializeFloraTargets(Chunk *chunk)
     if (mesh->vertexCount <= 0) return;
     int count = (mesh->vertexCount + 11) / 12;
     chunk->floraTargetScales = malloc((size_t)count * sizeof(float));
-    if (!chunk->floraTargetScales) return;
+    chunk->floraTargetWind = malloc((size_t)count * sizeof(float));
+    if (!chunk->floraTargetScales || !chunk->floraTargetWind) {
+        free(chunk->floraTargetScales);
+        free(chunk->floraTargetWind);
+        chunk->floraTargetScales = NULL;
+        chunk->floraTargetWind = NULL;
+        return;
+    }
     for (int index = 0; index < count; index++) {
         chunk->floraTargetScales[index] = 1.0f;
+        chunk->floraTargetWind[index] = 0.0f;
     }
     chunk->floraTargetScaleCount = count;
 }

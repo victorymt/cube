@@ -138,6 +138,14 @@ WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
     return WeatherFieldSampleAt(&input);
 }
 
+float WeatherWindAngleAtWorld(int x, int z)
+{
+    WeatherFieldInput input = WeatherInputAt((Vector3){
+        (float)x + 0.5f, 0.0f, (float)z + 0.5f
+    });
+    return input.prevailingWindAngle;
+}
+
 static void WeatherUpdateTypeAndAudio(void)
 {
     if (fieldSample.precipitation < 0.08f) current = WEATHER_CLEAR;

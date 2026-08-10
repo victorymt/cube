@@ -590,6 +590,7 @@ static void TestEcologySaveLoadReplay(void)
     assert(PlanetWorldSaveState(file));
 
     WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
+    float beforeWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
     PlanetLocalEcology beforeEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
 
     SetPropertySeed(0xdeadbeefu);
@@ -603,8 +604,10 @@ static void TestEcologySaveLoadReplay(void)
     assert(PlanetWorldLoadState(file));
 
     WeatherFieldSample afterWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
+    float afterWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
     PlanetLocalEcology afterEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
     assert(memcmp(&beforeWeather, &afterWeather, sizeof(beforeWeather)) == 0);
+    assert(beforeWindAngle == afterWindAngle);
     AssertLocalEcologyEqual(afterEcology, beforeEcology);
 
     SpaceAdvanceTime(19.75f);
@@ -618,9 +621,11 @@ static void TestEcologySaveLoadReplay(void)
     assert(PlanetWorldLoadState(file));
     SpaceAdvanceTime(19.75f);
     WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
+    float replayWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
     PlanetLocalEcology replayEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
     assert(memcmp(&continuedWeather, &replayWeather,
                   sizeof(continuedWeather)) == 0);
+    assert(beforeWindAngle == replayWindAngle);
     AssertLocalEcologyEqual(replayEcology, continuedEcology);
     fclose(file);
 }
