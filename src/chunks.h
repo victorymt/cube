@@ -41,6 +41,10 @@ bool BuildFloraMeshData(
 bool ApplyFloraMeshPresenceColors(
     unsigned char *colors, const unsigned char *baseColors, int vertexCount,
     const float *targetPresence, int targetCount, float blend);
+bool ApplyFloraMeshInstancePresenceColors(
+    unsigned char *colors, const unsigned char *baseColors, int vertexCount,
+    const float *targetPresence, const FloraVisualInstance *instances,
+    int instanceCount, float blend);
 void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, BlockType type, Color baseColor, float extraLight);
 BlockTexture TextureForBlockFace(BlockType type, int face);
 void AtlasUVs(BlockTexture texture, Vector2 uvs[6]);

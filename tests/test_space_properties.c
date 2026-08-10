@@ -898,7 +898,9 @@ static void TestChunkUnloadReloadDeterminism(void)
         assert(chunk->floraTargetScales == NULL);
         assert(chunk->floraTargetWind == NULL);
         assert(chunk->floraTargetPresence == NULL);
+        assert(chunk->floraBaseVertices == NULL);
         assert(chunk->floraBaseColors == NULL);
+        assert(chunk->floraVisualInstances == NULL);
         ChunkBlockSnapshot *snapshot = &snapshots[snapshotCount++];
         snapshot->cx = chunk->cx;
         snapshot->cz = chunk->cz;
@@ -917,10 +919,13 @@ static void TestChunkUnloadReloadDeterminism(void)
     floraChunk->floraTargetScales = malloc(sizeof(float));
     floraChunk->floraTargetWind = malloc(sizeof(float));
     floraChunk->floraTargetPresence = malloc(sizeof(float));
+    floraChunk->floraBaseVertices = malloc(3u * sizeof(float));
     floraChunk->floraBaseColors = malloc(4u);
+    floraChunk->floraVisualInstances = malloc(sizeof(FloraVisualInstance));
     floraChunk->floraTargetScaleCount = 1;
     assert(floraChunk->floraTargetScales && floraChunk->floraTargetWind &&
-           floraChunk->floraTargetPresence && floraChunk->floraBaseColors);
+           floraChunk->floraTargetPresence && floraChunk->floraBaseVertices &&
+           floraChunk->floraBaseColors && floraChunk->floraVisualInstances);
 
     UnloadAllChunks();
     assert(GetActiveChunkCount() == 0);
@@ -930,7 +935,9 @@ static void TestChunkUnloadReloadDeterminism(void)
         assert(chunks[index].floraTargetScales == NULL);
         assert(chunks[index].floraTargetWind == NULL);
         assert(chunks[index].floraTargetPresence == NULL);
+        assert(chunks[index].floraBaseVertices == NULL);
         assert(chunks[index].floraBaseColors == NULL);
+        assert(chunks[index].floraVisualInstances == NULL);
         assert(chunks[index].floraTargetScaleCount == 0);
         memset(chunks[index].blocks, 0xa5, sizeof(chunks[index].blocks));
     }

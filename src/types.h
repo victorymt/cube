@@ -239,6 +239,13 @@ typedef struct HitResult {
     int nz;
 } HitResult;
 
+typedef struct FloraVisualInstance {
+    int firstVertex;
+    int vertexCount;
+    Vector3 anchor;
+    float windResponse;
+} FloraVisualInstance;
+
 typedef struct Chunk {
     bool loaded;
     bool dirty;
@@ -258,7 +265,9 @@ typedef struct Chunk {
     float *floraTargetScales;
     float *floraTargetWind;
     float *floraTargetPresence;
+    float *floraBaseVertices;
     unsigned char *floraBaseColors;
+    FloraVisualInstance *floraVisualInstances;
     int floraTargetScaleCount;
     float floraWindAngle;
     unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
