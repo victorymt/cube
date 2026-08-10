@@ -866,6 +866,84 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
     }
 }
 
+bool DeformFloraMeshInstance(
+    float *vertices, const float *baseVertices, int vertexCount,
+    const FloraVisualInstance *instance, float targetScale, float blend,
+    float sway, float windAngle, float *outScale, bool *outChanged)
+{
+    if (!outScale || !outChanged) return false;
+    *outScale = 1.0f;
+    *outChanged = false;
+    if (!vertices || !baseVertices || !instance || vertexCount <= 0 ||
+        !isfinite(targetScale) || !isfinite(blend) || !isfinite(sway) ||
+        !isfinite(windAngle)) {
+        return false;
+    }
+
+    int firstVertex = instance->firstVertex;
+    if (firstVertex < 0 || firstVertex >= vertexCount ||
+        instance->vertexCount <= 0) {
+        return false;
+    }
+    int count = instance->vertexCount;
+    int available = vertexCount - firstVertex;
+    if (count > available) count = available;
+    int lastVertex = firstVertex + count;
+
+    float baseTopY = -INFINITY;
+    float currentTopY = -INFINITY;
+    for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
+        const float *base = &baseVertices[vertex * 3];
+        const float *current = &vertices[vertex * 3];
+        if (!isfinite(base[0]) || !isfinite(base[1]) ||
+            !isfinite(base[2]) || !isfinite(current[1])) {
+            return false;
+        }
+        baseTopY = fmaxf(baseTopY, base[1]);
+        currentTopY = fmaxf(currentTopY, current[1]);
+    }
+
+    float localBaseHeight = baseTopY - instance->anchor.y;
+    float instanceHeight = instance->height > 0.001f &&
+                           isfinite(instance->height) ?
+                           instance->height : localBaseHeight;
+    if (!(localBaseHeight > 0.001f) || !isfinite(localBaseHeight) ||
+        !(instanceHeight > 0.001f) || !isfinite(instanceHeight)) {
+        return false;
+    }
+    float oldScale = (currentTopY - instance->anchor.y) / localBaseHeight;
+    if (!(oldScale > 0.01f) || !isfinite(oldScale)) return false;
+
+    float amount = fminf(fmaxf(blend, 0.0f), 1.0f);
+    float boundedTargetScale = fmaxf(targetScale, 0.01f);
+    float newScale = amount >= 1.0f ? boundedTargetScale :
+                     oldScale + (boundedTargetScale - oldScale) * amount;
+    float swayX = cosf(windAngle) * sway;
+    float swayZ = sinf(windAngle) * sway;
+    bool changed = false;
+    for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
+        float *current = &vertices[vertex * 3];
+        const float *base = &baseVertices[vertex * 3];
+        float heightFraction = fminf(fmaxf(
+            (base[1] - instance->anchor.y) / instanceHeight, 0.0f), 1.0f);
+        float targetX = base[0] + swayX * heightFraction;
+        float targetY = instance->anchor.y +
+                        (base[1] - instance->anchor.y) * newScale;
+        float targetZ = base[2] + swayZ * heightFraction;
+        if (fabsf(current[0] - targetX) >= 0.0001f ||
+            fabsf(current[1] - targetY) >= 0.0001f ||
+            fabsf(current[2] - targetZ) >= 0.0001f) {
+            changed = true;
+        }
+        current[0] = targetX;
+        current[1] = targetY;
+        current[2] = targetZ;
+    }
+    *outScale = newScale;
+    *outChanged = changed;
+    return true;
+}
+
 static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
                                   float daylight, bool refreshTargets)
 {
@@ -888,11 +966,8 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
     for (int group = 0; group < chunk->floraTargetScaleCount; group++) {
         const FloraVisualInstance *instance =
             &chunk->floraVisualInstances[group];
-        int firstVertex = instance->firstVertex;
-        int lastVertex = firstVertex + instance->vertexCount;
-        if (firstVertex < 0 || firstVertex >= mesh->vertexCount ||
-            instance->vertexCount <= 0) continue;
-        if (lastVertex > mesh->vertexCount) lastVertex = mesh->vertexCount;
+        if (!isfinite(instance->anchor.x) ||
+            !isfinite(instance->anchor.z)) continue;
         int cellX = (int)floorf(instance->anchor.x);
         int cellZ = (int)floorf(instance->anchor.z);
 
@@ -916,51 +991,22 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
                 cellX, cellZ);
         }
 
-        float baseTopY = -INFINITY;
-        float currentTopY = -INFINITY;
-        for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
-            float baseY = chunk->floraBaseVertices[vertex * 3 + 1];
-            float currentY = mesh->vertices[vertex * 3 + 1];
-            baseTopY = fmaxf(baseTopY, baseY);
-            currentTopY = fmaxf(currentTopY, currentY);
-        }
-        float localBaseHeight = baseTopY - instance->anchor.y;
-        float instanceHeight = instance->height > 0.001f ?
-                               instance->height : localBaseHeight;
-        if (!(localBaseHeight > 0.001f) || !isfinite(localBaseHeight) ||
-            !(instanceHeight > 0.001f) || !isfinite(instanceHeight)) continue;
-        float oldScale = (currentTopY - instance->anchor.y) / localBaseHeight;
-        if (!(oldScale > 0.01f) || !isfinite(oldScale)) continue;
-        float targetScale = fmaxf(chunk->floraTargetScales[group], 0.01f);
-        float newScale = oldScale + (targetScale - oldScale) * blend;
         float phase = (float)(Hash3D(cellX, 0, cellZ) & 4095u) * 0.0015339808f;
         float sway = sinf((float)SpaceSimulationTime() * 1.7f + phase) *
                      fmaxf(chunk->floraTargetWind[group], 0.0f) * 0.07f *
                      fmaxf(instance->windResponse, 0.0f);
+        float newScale = 1.0f;
+        bool instanceChanged = false;
+        if (!DeformFloraMeshInstance(
+                mesh->vertices, chunk->floraBaseVertices, mesh->vertexCount,
+                instance, chunk->floraTargetScales[group], blend, sway,
+                chunk->floraTargetWindAngle[group], &newScale,
+                &instanceChanged)) {
+            continue;
+        }
         scaleSum += newScale;
         scaleCount++;
-        for (int vertex = firstVertex; vertex < lastVertex; vertex++) {
-            float *current = &mesh->vertices[vertex * 3];
-            const float *base = &chunk->floraBaseVertices[vertex * 3];
-            float heightFraction = Clamp(
-                (base[1] - instance->anchor.y) / instanceHeight, 0.0f, 1.0f);
-            float targetX = base[0] +
-                cosf(chunk->floraTargetWindAngle[group]) * sway *
-                heightFraction;
-            float targetY = instance->anchor.y +
-                (base[1] - instance->anchor.y) * newScale;
-            float targetZ = base[2] +
-                sinf(chunk->floraTargetWindAngle[group]) * sway *
-                heightFraction;
-            if (fabsf(current[0] - targetX) >= 0.0001f ||
-                fabsf(current[1] - targetY) >= 0.0001f ||
-                fabsf(current[2] - targetZ) >= 0.0001f) {
-                changed = true;
-            }
-            current[0] = targetX;
-            current[1] = targetY;
-            current[2] = targetZ;
-        }
+        if (instanceChanged) changed = true;
     }
     if (changed) {
         UpdateMeshBuffer(*mesh, 0, mesh->vertices,

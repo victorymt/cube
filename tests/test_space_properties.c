@@ -9,6 +9,7 @@
 #include "weather_model.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -886,6 +887,135 @@ static Vector3 FindFloraGenerationCenter(
     return (Vector3){ 0 };
 }
 
+static void TestFloraMeshDeformationProperties(void)
+{
+    enum { vertexCount = 64 };
+    for (int sample = 0; sample < 512; sample++) {
+        float baseVertices[vertexCount * 3];
+        float vertices[vertexCount * 3];
+        for (int vertex = 0; vertex < vertexCount; vertex++) {
+            baseVertices[vertex * 3] = (float)(vertex - 24) * 0.25f;
+            baseVertices[vertex * 3 + 1] = 10.0f +
+                (float)((vertex * 7 + sample * 3) % 9 + 1) * 0.5f;
+            baseVertices[vertex * 3 + 2] =
+                (float)(17 - vertex) * 0.125f;
+        }
+        memcpy(vertices, baseVertices, sizeof(vertices));
+
+        int firstVertex = sample % 19;
+        int available = vertexCount - firstVertex;
+        int rangeCount = 1 + (sample * 29) % available;
+        if (sample % 7 == 0) rangeCount += vertexCount;
+        FloraVisualInstance instance = {
+            .firstVertex = firstVertex,
+            .vertexCount = rangeCount,
+            .anchor = { 3.5f, 10.0f, -8.5f },
+            .height = 5.0f,
+            .windResponse = 1.0f
+        };
+        float targetScale = 0.15f + (float)(sample % 13) * 0.06f;
+        float sway = (float)(sample % 17 - 8) * 0.015f;
+        float windAngle = (float)sample * 0.13f;
+        float appliedScale = 0.0f;
+        bool changed = false;
+        assert(DeformFloraMeshInstance(
+            vertices, baseVertices, vertexCount, &instance,
+            targetScale, 1.0f, sway, windAngle,
+            &appliedScale, &changed));
+        assert(changed);
+        assert(fabsf(appliedScale - targetScale) < 0.000001f);
+
+        int lastVertex = firstVertex + rangeCount;
+        if (lastVertex > vertexCount) lastVertex = vertexCount;
+        for (int vertex = 0; vertex < vertexCount; vertex++) {
+            const float *base = &baseVertices[vertex * 3];
+            const float *current = &vertices[vertex * 3];
+            if (vertex < firstVertex || vertex >= lastVertex) {
+                assert(memcmp(current, base, 3u * sizeof(float)) == 0);
+                continue;
+            }
+            float heightFraction = fminf(fmaxf(
+                (base[1] - instance.anchor.y) / instance.height,
+                0.0f), 1.0f);
+            float expectedX = base[0] +
+                cosf(windAngle) * sway * heightFraction;
+            float expectedY = instance.anchor.y +
+                (base[1] - instance.anchor.y) * targetScale;
+            float expectedZ = base[2] +
+                sinf(windAngle) * sway * heightFraction;
+            assert(fabsf(current[0] - expectedX) < 0.000001f);
+            assert(fabsf(current[1] - expectedY) < 0.000001f);
+            assert(fabsf(current[2] - expectedZ) < 0.000001f);
+        }
+
+        float stableVertices[vertexCount * 3];
+        memcpy(stableVertices, vertices, sizeof(stableVertices));
+        changed = true;
+        assert(DeformFloraMeshInstance(
+            vertices, baseVertices, vertexCount, &instance,
+            targetScale, 1.0f, sway, windAngle,
+            &appliedScale, &changed));
+        assert(!changed);
+        assert(memcmp(vertices, stableVertices, sizeof(vertices)) == 0);
+
+        assert(DeformFloraMeshInstance(
+            vertices, baseVertices, vertexCount, &instance,
+            1.0f, 1.0f, 0.0f, 0.0f,
+            &appliedScale, &changed));
+        assert(memcmp(vertices, baseVertices, sizeof(vertices)) == 0);
+    }
+
+    float fragmentABase[4 * 3] = {
+        -100.0f, -100.0f, -100.0f,
+        2.0f, 11.0f, 7.0f,
+        2.0f, 12.0f, 7.0f,
+        -100.0f, -100.0f, -100.0f
+    };
+    float fragmentBBase[5 * 3] = {
+        -100.0f, -100.0f, -100.0f,
+        -100.0f, -100.0f, -100.0f,
+        2.0f, 12.0f, 7.0f,
+        2.0f, 14.0f, 7.0f,
+        -100.0f, -100.0f, -100.0f
+    };
+    float fragmentA[4 * 3];
+    float fragmentB[5 * 3];
+    memcpy(fragmentA, fragmentABase, sizeof(fragmentA));
+    memcpy(fragmentB, fragmentBBase, sizeof(fragmentB));
+    FloraVisualInstance instanceA = {
+        .firstVertex = 1, .vertexCount = 2,
+        .anchor = { 2.0f, 10.0f, 7.0f }, .height = 4.0f
+    };
+    FloraVisualInstance instanceB = instanceA;
+    instanceB.firstVertex = 2;
+    float appliedScale = 0.0f;
+    bool changed = false;
+    assert(DeformFloraMeshInstance(
+        fragmentA, fragmentABase, 4, &instanceA,
+        0.65f, 1.0f, 0.18f, 0.7f, &appliedScale, &changed));
+    assert(DeformFloraMeshInstance(
+        fragmentB, fragmentBBase, 5, &instanceB,
+        0.65f, 1.0f, 0.18f, 0.7f, &appliedScale, &changed));
+    assert(memcmp(&fragmentA[2 * 3], &fragmentB[2 * 3],
+                  3u * sizeof(float)) == 0);
+
+    float guarded[4 * 3];
+    memcpy(guarded, fragmentABase, sizeof(guarded));
+    FloraVisualInstance invalid = instanceA;
+    invalid.firstVertex = -1;
+    assert(!DeformFloraMeshInstance(
+        guarded, fragmentABase, 4, &invalid,
+        0.5f, 1.0f, 0.1f, 0.0f, &appliedScale, &changed));
+    assert(memcmp(guarded, fragmentABase, sizeof(guarded)) == 0);
+    invalid.firstVertex = 2;
+    invalid.vertexCount = INT_MAX;
+    assert(DeformFloraMeshInstance(
+        guarded, fragmentABase, 4, &invalid,
+        0.5f, 1.0f, 0.1f, 0.0f, &appliedScale, &changed));
+    assert(memcmp(guarded, fragmentABase,
+                  2u * 3u * sizeof(float)) == 0);
+}
+
 static void TestChunkUnloadReloadDeterminism(void)
 {
     const int expectedChunkCount =
@@ -1152,6 +1282,7 @@ int main(void)
     TestEcologyCacheInvalidation();
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();
+    TestFloraMeshDeformationProperties();
     TestChunkUnloadReloadDeterminism();
     puts("space properties tests passed");
     return 0;
