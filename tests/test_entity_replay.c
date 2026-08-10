@@ -14,6 +14,51 @@
 
 static uint32_t testSeed = 0x51f15eadu;
 
+typedef enum TestTerrainMode {
+    TEST_TERRAIN_FLAT = 0,
+    TEST_TERRAIN_WALL,
+    TEST_TERRAIN_WATER,
+    TEST_TERRAIN_CLIFF,
+    TEST_TERRAIN_STEP
+} TestTerrainMode;
+
+typedef struct TestEntityDiskStateV1 {
+    uint32_t active;
+    uint32_t type;
+    float position[3];
+    float velocity[3];
+    float yaw;
+    float moveTimer;
+    float thinkTimer;
+    float burnTimer;
+    uint32_t bodyPlan;
+    uint32_t chemistry;
+    uint32_t niche;
+    float organismScale;
+    float bodyArmor;
+    float movementSpeed;
+    float temperament;
+    int32_t limbCount;
+    uint32_t airborne;
+    uint32_t colony;
+    float hoverHeight;
+    float phase;
+    float ecologyActivity;
+    float ecologyCapacity;
+    float ecologySampleTimer;
+    float ecologyWindStrength;
+    float ecologyWindAngle;
+    uint32_t primaryBlock;
+    uint32_t accentBlock;
+} TestEntityDiskStateV1;
+
+typedef struct TestEntityDiskStateV2 {
+    TestEntityDiskStateV1 entity;
+    float motionTargetYaw;
+} TestEntityDiskStateV2;
+
+static TestTerrainMode testTerrainMode = TEST_TERRAIN_FLAT;
+
 uint32_t WorldGetSeed(void)
 {
     return testSeed;
@@ -116,8 +161,19 @@ int WorldSurfaceHeightAt(int x, int z)
 
 BlockType GetBlockAt(int x, int y, int z)
 {
-    (void)x;
     (void)z;
+    if (testTerrainMode == TEST_TERRAIN_WALL && x >= 1) {
+        return y <= 20 ? BLOCK_DIRT : BLOCK_AIR;
+    }
+    if (testTerrainMode == TEST_TERRAIN_CLIFF && x >= 1) {
+        return BLOCK_AIR;
+    }
+    if (testTerrainMode == TEST_TERRAIN_STEP && x >= 1) {
+        return y <= 11 ? BLOCK_DIRT : BLOCK_AIR;
+    }
+    if (testTerrainMode == TEST_TERRAIN_WATER && x >= 1 && y == 11) {
+        return BLOCK_WATER;
+    }
     return y <= 10 ? BLOCK_DIRT : BLOCK_AIR;
 }
 
@@ -171,6 +227,70 @@ static void LoadBytes(const unsigned char *data, size_t size)
     rewind(file);
     assert(EntitiesLoadState(file));
     fclose(file);
+}
+
+static TestEntityDiskStateV1 TestMovingEntity(PlanetBodyPlan bodyPlan)
+{
+    TestEntityDiskStateV1 entity = { 0 };
+    entity.active = 1u;
+    entity.type = ENTITY_COW;
+    entity.position[0] = 0.5f;
+    entity.position[1] = 11.0f;
+    entity.position[2] = 0.5f;
+    entity.yaw = 0.5f * 3.14159265358979323846f;
+    entity.moveTimer = 20.0f;
+    entity.thinkTimer = 100.0f;
+    entity.bodyPlan = (uint32_t)bodyPlan;
+    entity.chemistry = PLANET_CHEMISTRY_CARBON;
+    entity.niche = PLANET_NICHE_GRAZER;
+    entity.organismScale = 1.0f;
+    entity.movementSpeed = 1.0f;
+    entity.temperament = 0.2f;
+    entity.limbCount = bodyPlan == PLANET_BODY_SERPENTINE ? 0 : 4;
+    entity.airborne = bodyPlan == PLANET_BODY_FLOATING ? 1u : 0u;
+    entity.colony = bodyPlan == PLANET_BODY_COLONY ? 1u : 0u;
+    entity.hoverHeight = 11.0f;
+    entity.ecologyActivity = 1.0f;
+    entity.ecologyCapacity = 1.0f;
+    entity.ecologySampleTimer = 1.0f;
+    entity.primaryBlock = BLOCK_GRASS;
+    entity.accentBlock = BLOCK_DIRT;
+    return entity;
+}
+
+static void LoadLegacyMovingEntity(PlanetBodyPlan bodyPlan)
+{
+    const uint32_t header[3] = { 1u, MAX_ENTITIES, 0x31f2a7cdu };
+    const float spawnTimer = 100.0f;
+    TestEntityDiskStateV1 saved[MAX_ENTITIES] = { 0 };
+    saved[0] = TestMovingEntity(bodyPlan);
+    FILE *file = tmpfile();
+    assert(file);
+    assert(fwrite(header, sizeof(header), 1, file) == 1);
+    assert(fwrite(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
+    assert(fwrite(saved, sizeof(saved), 1, file) == 1);
+    rewind(file);
+    assert(EntitiesLoadState(file));
+    fclose(file);
+}
+
+static TestEntityDiskStateV2 CurrentMovingEntity(void)
+{
+    uint32_t header[3];
+    float spawnTimer = 0.0f;
+    TestEntityDiskStateV2 saved[MAX_ENTITIES];
+    FILE *file = tmpfile();
+    assert(file);
+    assert(EntitiesSaveState(file));
+    rewind(file);
+    assert(fread(header, sizeof(header), 1, file) == 1);
+    assert(fread(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
+    assert(fread(saved, sizeof(saved), 1, file) == 1);
+    fclose(file);
+    assert(header[0] == 2u && header[1] == MAX_ENTITIES);
+    assert(spawnTimer > 0.0f);
+    assert(saved[0].entity.active == 1u);
+    return saved[0];
 }
 
 static void TestEntityReplay(void)
@@ -237,10 +357,79 @@ static void TestEntityLoadIsAtomic(void)
     free(after);
 }
 
+static void TestLegacyEntityMotionMigration(void)
+{
+    testTerrainMode = TEST_TERRAIN_FLAT;
+    LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
+    TestEntityDiskStateV2 migrated = CurrentMovingEntity();
+    assert(migrated.motionTargetYaw == migrated.entity.yaw);
+
+    Player player = { 0 };
+    player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
+    RunFrames(&player, 12);
+    TestEntityDiskStateV2 moved = CurrentMovingEntity();
+    assert(moved.entity.position[0] > migrated.entity.position[0]);
+    assert(moved.entity.velocity[0] > 0.0f);
+}
+
+static void TestTerrainAwareGroundMotion(void)
+{
+    Player player = { 0 };
+    player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
+    const TestTerrainMode blockedModes[] = {
+        TEST_TERRAIN_WALL,
+        TEST_TERRAIN_WATER,
+        TEST_TERRAIN_CLIFF
+    };
+    for (unsigned index = 0;
+         index < sizeof(blockedModes) / sizeof(blockedModes[0]); index++) {
+        testTerrainMode = blockedModes[index];
+        LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
+        RunFrames(&player, 30);
+        TestEntityDiskStateV2 entity = CurrentMovingEntity();
+        assert(entity.entity.position[0] < 1.0f);
+    }
+
+    testTerrainMode = TEST_TERRAIN_STEP;
+    LoadLegacyMovingEntity(PLANET_BODY_QUADRUPED);
+    RunFrames(&player, 30);
+    TestEntityDiskStateV2 quadruped = CurrentMovingEntity();
+    assert(quadruped.entity.position[0] > 1.0f);
+    assert(quadruped.entity.position[1] >= 12.0f);
+
+    LoadLegacyMovingEntity(PLANET_BODY_SERPENTINE);
+    RunFrames(&player, 30);
+    TestEntityDiskStateV2 serpentine = CurrentMovingEntity();
+    assert(serpentine.entity.position[0] < 1.0f);
+    testTerrainMode = TEST_TERRAIN_FLAT;
+}
+
+static void TestTerrainFollowingFlight(void)
+{
+    Player player = { 0 };
+    player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
+
+    testTerrainMode = TEST_TERRAIN_WALL;
+    LoadLegacyMovingEntity(PLANET_BODY_FLOATING);
+    RunFrames(&player, 20);
+    TestEntityDiskStateV2 blocked = CurrentMovingEntity();
+    assert(blocked.entity.position[0] < 1.0f);
+
+    testTerrainMode = TEST_TERRAIN_FLAT;
+    LoadLegacyMovingEntity(PLANET_BODY_FLOATING);
+    RunFrames(&player, 30);
+    TestEntityDiskStateV2 floating = CurrentMovingEntity();
+    assert(floating.entity.position[0] > 1.0f);
+    assert(floating.entity.position[1] > 11.5f);
+}
+
 int main(void)
 {
     TestEntityReplay();
     TestEntityLoadIsAtomic();
+    TestLegacyEntityMotionMigration();
+    TestTerrainAwareGroundMotion();
+    TestTerrainFollowingFlight();
     puts("entity replay tests passed");
     return 0;
 }

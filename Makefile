@@ -18,11 +18,12 @@ ECOLOGY_SYSTEM_TEST_TARGET := tests/test_ecology_system
 ECOLOGY_PROPERTIES_TEST_TARGET := tests/test_ecology_properties
 STELLAR_TEST_TARGET := tests/test_stellar
 ECOLOGY_MODEL_TEST_TARGET := tests/test_ecology_model
+FAUNA_MOTION_TEST_TARGET := tests/test_fauna_motion
 WEATHER_MODEL_TEST_TARGET := tests/test_weather_model
 CHUNK_ATLAS_TEST_TARGET := tests/test_chunk_atlas
 ENTITY_REPLAY_TEST_TARGET := tests/test_entity_replay
 ENTITY_ECOLOGY_TEST_TARGET := tests/test_entity_ecology
-SRC := src/main.c src/album.c src/inventory.c src/space.c src/space_barycenter.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/world_environment.c src/ship.c src/nether.c src/entity.c src/ecology_model.c src/ecology.c src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/terrain.c src/planet_climate.c src/planet_surface.c src/planet_material.c src/planet_renderer.c src/discovery.c src/chunks.c src/world.c src/player.c src/interaction.c src/render.c src/particles.c src/audio.c src/weather_model.c src/weather.c src/starmap.c
+SRC := src/main.c src/album.c src/inventory.c src/space.c src/space_barycenter.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/world_environment.c src/ship.c src/nether.c src/entity.c src/fauna_motion.c src/ecology_model.c src/ecology.c src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/terrain.c src/planet_climate.c src/planet_surface.c src/planet_material.c src/planet_renderer.c src/discovery.c src/chunks.c src/world.c src/player.c src/interaction.c src/render.c src/particles.c src/audio.c src/weather_model.c src/weather.c src/starmap.c
 
 .PHONY: all run test clean
 
@@ -34,7 +35,7 @@ $(TARGET): $(SRC)
 run: $(TARGET)
 	./$(TARGET)
 
-test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET)
+test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET)
 	./$(TEST_TARGET)
 	./$(PLANET_SURFACE_TEST_TARGET)
 	./$(PLANET_MATERIAL_TEST_TARGET)
@@ -48,6 +49,7 @@ test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET
 	./$(ECOLOGY_PROPERTIES_TEST_TARGET)
 	./$(STELLAR_TEST_TARGET)
 	./$(ECOLOGY_MODEL_TEST_TARGET)
+	./$(FAUNA_MOTION_TEST_TARGET)
 	./$(WEATHER_MODEL_TEST_TARGET)
 	./$(CHUNK_ATLAS_TEST_TARGET)
 	./$(ENTITY_REPLAY_TEST_TARGET)
@@ -92,17 +94,20 @@ $(STELLAR_TEST_TARGET): tests/test_stellar.c src/stellar.c src/stellar.h src/spa
 $(ECOLOGY_MODEL_TEST_TARGET): tests/test_ecology_model.c src/ecology_model.c src/ecology_model.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_ecology_model.c src/ecology_model.c -lm
 
+$(FAUNA_MOTION_TEST_TARGET): tests/test_fauna_motion.c src/fauna_motion.c src/fauna_motion.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_fauna_motion.c src/fauna_motion.c -lm
+
 $(WEATHER_MODEL_TEST_TARGET): tests/test_weather_model.c src/weather_model.c src/weather_model.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_weather_model.c src/weather_model.c -lm
 
 $(CHUNK_ATLAS_TEST_TARGET): tests/test_chunk_atlas.c src/chunks.c src/chunks.h src/types.h src/world.c src/world.h
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_chunk_atlas.c src/chunks.c src/world.c $(RAYLIB_LIBS) -lm -pthread
 
-$(ENTITY_REPLAY_TEST_TARGET): tests/test_entity_replay.c src/entity.c src/entity.h src/ecology_model.c src/ecology_model.h
-	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_entity_replay.c src/entity.c src/ecology_model.c -lm
+$(ENTITY_REPLAY_TEST_TARGET): tests/test_entity_replay.c src/entity.c src/entity.h src/fauna_motion.c src/fauna_motion.h src/ecology_model.c src/ecology_model.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_entity_replay.c src/entity.c src/fauna_motion.c src/ecology_model.c -lm
 
-$(ENTITY_ECOLOGY_TEST_TARGET): tests/test_entity_ecology.c tests/ecology_test_fixture.c tests/ecology_test_fixture.h src/entity.c src/entity.h src/particles.h src/world_environment.h src/space.c src/space.h src/space_barycenter.c src/space_barycenter.h src/planet_climate.c src/planet_climate.h src/planet_surface.c src/planet_surface.h src/space_physics.c src/space_physics.h src/space_satellite.c src/space_satellite.h src/space_units.c src/space_units.h src/stellar.c src/stellar.h src/terrain.c src/terrain.h src/chunks.c src/chunks.h src/ecology.c src/ecology.h src/ecology_internal.h src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/ecology_model.c src/ecology_model.h src/weather.c src/weather.h src/weather_model.c src/weather_model.h
-	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Itests -Wl,--gc-sections -o $@ tests/test_entity_ecology.c tests/ecology_test_fixture.c src/entity.c src/space.c src/space_barycenter.c src/planet_climate.c src/planet_surface.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/terrain.c src/chunks.c src/ecology.c src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/ecology_model.c src/weather.c src/weather_model.c -lm -pthread
+$(ENTITY_ECOLOGY_TEST_TARGET): tests/test_entity_ecology.c tests/ecology_test_fixture.c tests/ecology_test_fixture.h src/entity.c src/entity.h src/fauna_motion.c src/fauna_motion.h src/particles.h src/world_environment.h src/space.c src/space.h src/space_barycenter.c src/space_barycenter.h src/planet_climate.c src/planet_climate.h src/planet_surface.c src/planet_surface.h src/space_physics.c src/space_physics.h src/space_satellite.c src/space_satellite.h src/space_units.c src/space_units.h src/stellar.c src/stellar.h src/terrain.c src/terrain.h src/chunks.c src/chunks.h src/ecology.c src/ecology.h src/ecology_internal.h src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/ecology_model.c src/ecology_model.h src/weather.c src/weather.h src/weather_model.c src/weather_model.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Itests -Wl,--gc-sections -o $@ tests/test_entity_ecology.c tests/ecology_test_fixture.c src/entity.c src/fauna_motion.c src/space.c src/space_barycenter.c src/planet_climate.c src/planet_surface.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/terrain.c src/chunks.c src/ecology.c src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/ecology_model.c src/weather.c src/weather_model.c -lm -pthread
 
 clean:
-	rm -f $(TARGET) $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET)
+	rm -f $(TARGET) $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET)

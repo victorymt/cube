@@ -1,5 +1,6 @@
 #include "entity.h"
 
+#include "fauna_motion.h"
 #include "raymath.h"
 #include "world.h"
 #include "terrain.h"
@@ -16,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ENTITY_STATE_VERSION 1u
+#define ENTITY_STATE_VERSION 2u
 #define ENTITY_RANDOM_FALLBACK 0x6d2b79f5u
 
 typedef struct EntityDiskStateV1 {
@@ -48,6 +49,11 @@ typedef struct EntityDiskStateV1 {
     uint32_t primaryBlock;
     uint32_t accentBlock;
 } EntityDiskStateV1;
+
+typedef struct EntityDiskStateV2 {
+    EntityDiskStateV1 entity;
+    float motionTargetYaw;
+} EntityDiskStateV2;
 
 static Entity entities[MAX_ENTITIES];
 static uint32_t entityRandomState = ENTITY_RANDOM_FALLBACK;
@@ -155,6 +161,90 @@ static bool EntityDiskStateValid(const EntityDiskStateV1 *saved)
     return true;
 }
 
+static bool EntityDiskStateV2Valid(const EntityDiskStateV2 *saved)
+{
+    return saved && EntityDiskStateValid(&saved->entity) &&
+           (saved->entity.active == 0u ||
+            EntityFloatValid(saved->motionTargetYaw));
+}
+
+static void EntityWriteDiskStateV1(EntityDiskStateV1 *disk,
+                                   const Entity *entity)
+{
+    memset(disk, 0, sizeof(*disk));
+    disk->active = entity->active ? 1u : 0u;
+    if (!entity->active) return;
+    disk->type = (uint32_t)entity->type;
+    disk->position[0] = entity->position.x;
+    disk->position[1] = entity->position.y;
+    disk->position[2] = entity->position.z;
+    disk->velocity[0] = entity->velocity.x;
+    disk->velocity[1] = entity->velocity.y;
+    disk->velocity[2] = entity->velocity.z;
+    disk->yaw = entity->yaw;
+    disk->moveTimer = entity->moveTimer;
+    disk->thinkTimer = entity->thinkTimer;
+    disk->burnTimer = entity->burnTimer;
+    disk->bodyPlan = (uint32_t)entity->bodyPlan;
+    disk->chemistry = (uint32_t)entity->chemistry;
+    disk->niche = (uint32_t)entity->niche;
+    disk->organismScale = entity->organismScale;
+    disk->bodyArmor = entity->bodyArmor;
+    disk->movementSpeed = entity->movementSpeed;
+    disk->temperament = entity->temperament;
+    disk->limbCount = (int32_t)entity->limbCount;
+    disk->airborne = entity->airborne ? 1u : 0u;
+    disk->colony = entity->colony ? 1u : 0u;
+    disk->hoverHeight = entity->hoverHeight;
+    disk->phase = entity->phase;
+    disk->ecologyActivity = entity->ecologyActivity;
+    disk->ecologyCapacity = entity->ecologyCapacity;
+    disk->ecologySampleTimer = entity->ecologySampleTimer;
+    disk->ecologyWindStrength = entity->ecologyWindStrength;
+    disk->ecologyWindAngle = entity->ecologyWindAngle;
+    disk->primaryBlock = (uint32_t)entity->primaryBlock;
+    disk->accentBlock = (uint32_t)entity->accentBlock;
+}
+
+static void EntityReadDiskStateV1(Entity *entity,
+                                  const EntityDiskStateV1 *disk)
+{
+    memset(entity, 0, sizeof(*entity));
+    if (disk->active == 0u) return;
+    entity->active = true;
+    entity->type = (EntityType)disk->type;
+    entity->position = (Vector3){
+        disk->position[0], disk->position[1], disk->position[2]
+    };
+    entity->velocity = (Vector3){
+        disk->velocity[0], disk->velocity[1], disk->velocity[2]
+    };
+    entity->yaw = disk->yaw;
+    entity->motionTargetYaw = disk->yaw;
+    entity->moveTimer = disk->moveTimer;
+    entity->thinkTimer = disk->thinkTimer;
+    entity->burnTimer = disk->burnTimer;
+    entity->bodyPlan = (PlanetBodyPlan)disk->bodyPlan;
+    entity->chemistry = (PlanetChemistry)disk->chemistry;
+    entity->niche = (PlanetEcologicalNiche)disk->niche;
+    entity->organismScale = disk->organismScale;
+    entity->bodyArmor = disk->bodyArmor;
+    entity->movementSpeed = disk->movementSpeed;
+    entity->temperament = disk->temperament;
+    entity->limbCount = (int)disk->limbCount;
+    entity->airborne = disk->airborne != 0u;
+    entity->colony = disk->colony != 0u;
+    entity->hoverHeight = disk->hoverHeight;
+    entity->phase = disk->phase;
+    entity->ecologyActivity = disk->ecologyActivity;
+    entity->ecologyCapacity = disk->ecologyCapacity;
+    entity->ecologySampleTimer = disk->ecologySampleTimer;
+    entity->ecologyWindStrength = disk->ecologyWindStrength;
+    entity->ecologyWindAngle = disk->ecologyWindAngle;
+    entity->primaryBlock = (BlockType)disk->primaryBlock;
+    entity->accentBlock = (BlockType)disk->accentBlock;
+}
+
 bool EntitiesSaveState(FILE *file)
 {
     if (!file || !isfinite(entitySpawnTimer)) return false;
@@ -166,43 +256,13 @@ bool EntitiesSaveState(FILE *file)
         return false;
     }
 
-    EntityDiskStateV1 saved[MAX_ENTITIES] = { 0 };
+    EntityDiskStateV2 saved[MAX_ENTITIES] = { 0 };
     for (int index = 0; index < MAX_ENTITIES; index++) {
         const Entity *entity = &entities[index];
-        EntityDiskStateV1 *disk = &saved[index];
-        disk->active = entity->active ? 1u : 0u;
-        if (!entity->active) continue;
-        disk->type = (uint32_t)entity->type;
-        disk->position[0] = entity->position.x;
-        disk->position[1] = entity->position.y;
-        disk->position[2] = entity->position.z;
-        disk->velocity[0] = entity->velocity.x;
-        disk->velocity[1] = entity->velocity.y;
-        disk->velocity[2] = entity->velocity.z;
-        disk->yaw = entity->yaw;
-        disk->moveTimer = entity->moveTimer;
-        disk->thinkTimer = entity->thinkTimer;
-        disk->burnTimer = entity->burnTimer;
-        disk->bodyPlan = (uint32_t)entity->bodyPlan;
-        disk->chemistry = (uint32_t)entity->chemistry;
-        disk->niche = (uint32_t)entity->niche;
-        disk->organismScale = entity->organismScale;
-        disk->bodyArmor = entity->bodyArmor;
-        disk->movementSpeed = entity->movementSpeed;
-        disk->temperament = entity->temperament;
-        disk->limbCount = (int32_t)entity->limbCount;
-        disk->airborne = entity->airborne ? 1u : 0u;
-        disk->colony = entity->colony ? 1u : 0u;
-        disk->hoverHeight = entity->hoverHeight;
-        disk->phase = entity->phase;
-        disk->ecologyActivity = entity->ecologyActivity;
-        disk->ecologyCapacity = entity->ecologyCapacity;
-        disk->ecologySampleTimer = entity->ecologySampleTimer;
-        disk->ecologyWindStrength = entity->ecologyWindStrength;
-        disk->ecologyWindAngle = entity->ecologyWindAngle;
-        disk->primaryBlock = (uint32_t)entity->primaryBlock;
-        disk->accentBlock = (uint32_t)entity->accentBlock;
-        if (!EntityDiskStateValid(disk)) return false;
+        EntityDiskStateV2 *disk = &saved[index];
+        EntityWriteDiskStateV1(&disk->entity, entity);
+        disk->motionTargetYaw = entity->motionTargetYaw;
+        if (!EntityDiskStateV2Valid(disk)) return false;
     }
     return fwrite(saved, sizeof(saved), 1, file) == 1;
 }
@@ -211,54 +271,34 @@ bool EntitiesLoadState(FILE *file)
 {
     uint32_t header[3];
     float loadedSpawnTimer = 0.0f;
-    EntityDiskStateV1 saved[MAX_ENTITIES];
     if (!file || fread(header, sizeof(header), 1, file) != 1 ||
-        fread(&loadedSpawnTimer, sizeof(loadedSpawnTimer), 1, file) != 1 ||
-        fread(saved, sizeof(saved), 1, file) != 1) {
+        fread(&loadedSpawnTimer, sizeof(loadedSpawnTimer), 1, file) != 1) {
         return false;
     }
-    if (header[0] != ENTITY_STATE_VERSION || header[1] != MAX_ENTITIES ||
+    if ((header[0] != 1u && header[0] != ENTITY_STATE_VERSION) ||
+        header[1] != MAX_ENTITIES ||
         header[2] == 0u || !EntityFloatValid(loadedSpawnTimer)) {
         return false;
     }
 
     Entity loaded[MAX_ENTITIES] = { 0 };
-    for (int index = 0; index < MAX_ENTITIES; index++) {
-        const EntityDiskStateV1 *disk = &saved[index];
-        if (!EntityDiskStateValid(disk)) return false;
-        if (disk->active == 0u) continue;
-        Entity *entity = &loaded[index];
-        entity->active = true;
-        entity->type = (EntityType)disk->type;
-        entity->position = (Vector3){
-            disk->position[0], disk->position[1], disk->position[2]
-        };
-        entity->velocity = (Vector3){
-            disk->velocity[0], disk->velocity[1], disk->velocity[2]
-        };
-        entity->yaw = disk->yaw;
-        entity->moveTimer = disk->moveTimer;
-        entity->thinkTimer = disk->thinkTimer;
-        entity->burnTimer = disk->burnTimer;
-        entity->bodyPlan = (PlanetBodyPlan)disk->bodyPlan;
-        entity->chemistry = (PlanetChemistry)disk->chemistry;
-        entity->niche = (PlanetEcologicalNiche)disk->niche;
-        entity->organismScale = disk->organismScale;
-        entity->bodyArmor = disk->bodyArmor;
-        entity->movementSpeed = disk->movementSpeed;
-        entity->temperament = disk->temperament;
-        entity->limbCount = (int)disk->limbCount;
-        entity->airborne = disk->airborne != 0u;
-        entity->colony = disk->colony != 0u;
-        entity->hoverHeight = disk->hoverHeight;
-        entity->phase = disk->phase;
-        entity->ecologyActivity = disk->ecologyActivity;
-        entity->ecologyCapacity = disk->ecologyCapacity;
-        entity->ecologySampleTimer = disk->ecologySampleTimer;
-        entity->ecologyWindStrength = disk->ecologyWindStrength;
-        entity->ecologyWindAngle = disk->ecologyWindAngle;
-        entity->primaryBlock = (BlockType)disk->primaryBlock;
-        entity->accentBlock = (BlockType)disk->accentBlock;
+    if (header[0] == 1u) {
+        EntityDiskStateV1 saved[MAX_ENTITIES];
+        if (fread(saved, sizeof(saved), 1, file) != 1) return false;
+        for (int index = 0; index < MAX_ENTITIES; index++) {
+            if (!EntityDiskStateValid(&saved[index])) return false;
+            EntityReadDiskStateV1(&loaded[index], &saved[index]);
+        }
+    } else {
+        EntityDiskStateV2 saved[MAX_ENTITIES];
+        if (fread(saved, sizeof(saved), 1, file) != 1) return false;
+        for (int index = 0; index < MAX_ENTITIES; index++) {
+            if (!EntityDiskStateV2Valid(&saved[index])) return false;
+            EntityReadDiskStateV1(&loaded[index], &saved[index].entity);
+            if (loaded[index].active) {
+                loaded[index].motionTargetYaw = saved[index].motionTargetYaw;
+            }
+        }
     }
 
     memcpy(entities, loaded, sizeof(entities));
@@ -386,6 +426,7 @@ static void SpawnPassive(const Player *player, float daylight)
     entity->position = (Vector3){ (float)gx + 0.5f, spawnY, (float)gz + 0.5f };
     entity->velocity = Vector3Zero();
     entity->yaw = (float)EntityRandomBounded(628u) / 100.0f;
+    entity->motionTargetYaw = entity->yaw;
     entity->moveTimer = 0.0f;
     entity->thinkTimer = 1.0f + (float)EntityRandomBounded(200u) / 100.0f;
     entity->burnTimer = 0.0f;
@@ -444,6 +485,7 @@ static void SpawnHostile(const Player *player, float daylight)
     entity->position = (Vector3){ (float)gx + 0.5f, (float)groundY + 1.0f, (float)gz + 0.5f };
     entity->velocity = Vector3Zero();
     entity->yaw = (float)EntityRandomBounded(628u) / 100.0f;
+    entity->motionTargetYaw = entity->yaw;
     entity->moveTimer = 0.0f;
     entity->thinkTimer = 0.1f;
     entity->burnTimer = 2.0f;
@@ -485,6 +527,180 @@ static void MoveEntityHorizontal(Entity *entity, Vector3 delta, float dt)
                            (int)floorf(entity->position.y) + 1, (int)floorf(next.z + 0.3f * (delta.z >= 0 ? 1 : -1)))) {
         entity->position.z = next.z;
     }
+}
+
+static FaunaLocomotionArchetype EntityLocomotionArchetype(
+    PlanetBodyPlan bodyPlan)
+{
+    switch (bodyPlan) {
+    case PLANET_BODY_BIPED: return FAUNA_LOCOMOTION_BIPED;
+    case PLANET_BODY_HEXAPOD: return FAUNA_LOCOMOTION_HEXAPOD;
+    case PLANET_BODY_SERPENTINE: return FAUNA_LOCOMOTION_SERPENTINE;
+    case PLANET_BODY_FLOATING: return FAUNA_LOCOMOTION_FLOATING;
+    case PLANET_BODY_COLONY: return FAUNA_LOCOMOTION_COLONY;
+    case PLANET_BODY_QUADRUPED:
+    default: return FAUNA_LOCOMOTION_QUADRUPED;
+    }
+}
+
+static FaunaMotionProfile EntityMotionProfile(const Entity *entity,
+                                               float baseSpeed)
+{
+    FaunaMotionProfileInput input = {
+        .archetype = EntityLocomotionArchetype(entity->bodyPlan),
+        .baseSpeed = baseSpeed,
+        .sprintMultiplier = 1.25f + fmaxf(entity->temperament, 0.0f),
+        .organismScale = entity->organismScale,
+        .gravityScale = WorldGravityScale(),
+        .windStrength = entity->ecologyWindStrength
+    };
+    return FaunaMotionProfileDerive(&input);
+}
+
+static bool EntityStandHeightAt(const Entity *entity,
+                                const FaunaMotionProfile *profile,
+                                float x, float z, float *outStandY,
+                                bool *outLiquid, bool *outLava)
+{
+    int blockX = (int)floorf(x);
+    int blockZ = (int)floorf(z);
+    int currentFloor = (int)floorf(entity->position.y - 0.1f);
+    int maximumFloor = currentFloor + (int)ceilf(profile->stepHeight);
+    int minimumFloor = currentFloor - (int)ceilf(profile->maxDrop);
+    for (int floorY = maximumFloor; floorY >= minimumFloor; floorY--) {
+        if (!BlockBlocksEntity(blockX, floorY, blockZ)) continue;
+        BlockType foot = GetBlockAt(blockX, floorY + 1, blockZ);
+        BlockType head = GetBlockAt(blockX, floorY + 2, blockZ);
+        if (BlockBlocksEntity(blockX, floorY + 1, blockZ) ||
+            BlockBlocksEntity(blockX, floorY + 2, blockZ)) {
+            continue;
+        }
+        *outStandY = (float)floorY + 1.0f;
+        *outLiquid = foot == BLOCK_WATER || head == BLOCK_WATER;
+        *outLava = foot == BLOCK_LAVA || head == BLOCK_LAVA;
+        return true;
+    }
+    return false;
+}
+
+static FaunaTerrainCandidate EntityGroundCandidateAt(
+    const Entity *entity, const FaunaMotionProfile *profile,
+    float yaw, float distance, float *outStandY)
+{
+    FaunaTerrainCandidate candidate = { .yaw = yaw };
+    float forwardX = sinf(yaw);
+    float forwardZ = cosf(yaw);
+    float sideX = forwardZ;
+    float sideZ = -forwardX;
+    float centerX = entity->position.x + forwardX * distance;
+    float centerZ = entity->position.z + forwardZ * distance;
+    float centerStandY = entity->position.y;
+
+    for (int sample = -1; sample <= 1; sample++) {
+        float lateral = (float)sample * profile->bodyRadius;
+        float standY = entity->position.y;
+        bool liquid = false;
+        bool lava = false;
+        if (!EntityStandHeightAt(entity, profile,
+                                 centerX + sideX * lateral,
+                                 centerZ + sideZ * lateral,
+                                 &standY, &liquid, &lava)) {
+            candidate.unsupported = true;
+            continue;
+        }
+        if (sample == 0) centerStandY = standY;
+        candidate.liquid = candidate.liquid || liquid;
+        candidate.lava = candidate.lava || lava;
+    }
+    candidate.heightDelta = centerStandY - entity->position.y;
+    if (outStandY) *outStandY = centerStandY;
+    return candidate;
+}
+
+static FaunaTerrainCandidate EntityAirCandidateAt(
+    const Entity *entity, const FaunaMotionProfile *profile,
+    float yaw, float distance)
+{
+    FaunaTerrainCandidate candidate = {
+        .yaw = yaw,
+        .unsupported = true
+    };
+    float forwardX = sinf(yaw);
+    float forwardZ = cosf(yaw);
+    float sideX = forwardZ;
+    float sideZ = -forwardX;
+    float centerX = entity->position.x + forwardX * distance;
+    float centerZ = entity->position.z + forwardZ * distance;
+    int y = (int)floorf(entity->position.y);
+    for (int sample = -1; sample <= 1; sample++) {
+        float lateral = (float)sample * profile->bodyRadius;
+        int x = (int)floorf(centerX + sideX * lateral);
+        int z = (int)floorf(centerZ + sideZ * lateral);
+        BlockType body = GetBlockAt(x, y, z);
+        BlockType head = GetBlockAt(x, y + 1, z);
+        candidate.blocked = candidate.blocked ||
+            BlockBlocksEntity(x, y, z) || BlockBlocksEntity(x, y + 1, z);
+        candidate.liquid = candidate.liquid ||
+            body == BLOCK_WATER || head == BLOCK_WATER;
+        candidate.lava = candidate.lava ||
+            body == BLOCK_LAVA || head == BLOCK_LAVA;
+    }
+    return candidate;
+}
+
+static void EntityMotionCandidates(
+    const Entity *entity, const FaunaMotionProfile *profile,
+    float targetYaw, float lookahead,
+    FaunaTerrainCandidate candidates[FAUNA_MOTION_CANDIDATE_COUNT])
+{
+    static const float offsets[FAUNA_MOTION_CANDIDATE_COUNT] = {
+        0.0f, -0.55f, 0.55f, -1.10f, 1.10f
+    };
+    for (int index = 0; index < FAUNA_MOTION_CANDIDATE_COUNT; index++) {
+        float yaw = targetYaw + offsets[index];
+        candidates[index] = profile->airborne
+            ? EntityAirCandidateAt(entity, profile, yaw, lookahead)
+            : EntityGroundCandidateAt(entity, profile, yaw, lookahead, NULL);
+    }
+}
+
+static bool MoveEntityGrounded(Entity *entity,
+                               const FaunaMotionProfile *profile,
+                               Vector3 velocity, float dt)
+{
+    float deltaX = velocity.x * dt;
+    float deltaZ = velocity.z * dt;
+    float distance = sqrtf(deltaX * deltaX + deltaZ * deltaZ);
+    if (distance <= 0.000001f) return false;
+    float yaw = atan2f(deltaX, deltaZ);
+    float standY = entity->position.y;
+    FaunaTerrainCandidate candidate = EntityGroundCandidateAt(
+        entity, profile, yaw, distance, &standY);
+    if (!FaunaMotionCandidateUsable(profile, &candidate)) return false;
+    entity->position.x += deltaX;
+    entity->position.z += deltaZ;
+    if (standY > entity->position.y) {
+        entity->position.y = standY;
+        entity->velocity.y = 0.0f;
+    }
+    return true;
+}
+
+static bool MoveEntityAirborne(Entity *entity,
+                               const FaunaMotionProfile *profile,
+                               Vector3 velocity, float dt)
+{
+    float deltaX = velocity.x * dt;
+    float deltaZ = velocity.z * dt;
+    float distance = sqrtf(deltaX * deltaX + deltaZ * deltaZ);
+    if (distance <= 0.000001f) return false;
+    float yaw = atan2f(deltaX, deltaZ);
+    FaunaTerrainCandidate candidate = EntityAirCandidateAt(
+        entity, profile, yaw, distance);
+    if (!FaunaMotionCandidateUsable(profile, &candidate)) return false;
+    entity->position.x += deltaX;
+    entity->position.z += deltaZ;
+    return true;
 }
 
 static PlanetHabitatChoice AlienHabitatChoiceAt(const Entity *entity,
@@ -542,11 +758,12 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
     bool threatened = playerDist < 5.0f;
     float movementScale = alien ? runtime.movementScale : 1.0f;
     if (alien && threatened) movementScale = fmaxf(movementScale, 0.28f);
-    float speed = baseSpeed * movementScale;
     float windDrift = alien
         ? PlanetEcologyWindDrift(entity->ecologyWindStrength,
                                  entity->airborne)
         : 0.0f;
+    FaunaMotionProfile motionProfile = EntityMotionProfile(entity, baseSpeed);
+    float decisionMovementFloor = 0.0f;
 
     entity->thinkTimer -= dt;
     if (entity->thinkTimer <= 0.0f) {
@@ -582,39 +799,72 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
         entity->thinkTimer = decision.thinkInterval;
         entity->moveTimer = decision.moveDuration;
         if (decision.behavior != PLANET_FAUNA_BEHAVIOR_IDLE) {
-            entity->yaw = decision.yaw;
+            entity->motionTargetYaw = decision.yaw;
         }
-        movementScale = fmaxf(movementScale, decision.movementFloor);
-        speed = baseSpeed * movementScale;
+        decisionMovementFloor = decision.movementFloor;
     }
 
     float animationScale = alien ? runtime.animationScale : 1.0f;
     entity->phase += dt * (0.7f + baseSpeed * 0.35f) * animationScale;
     if (entity->airborne) {
+        int groundY = EntitySurfaceHeight(
+            (int)floorf(entity->position.x),
+            (int)floorf(entity->position.z));
+        float terrainHover = fminf(
+            (float)WORLD_HEIGHT - 3.0f,
+            (float)groundY + 1.0f + motionProfile.hoverClearance);
+        entity->hoverHeight += (terrainHover - entity->hoverHeight) *
+            fminf(1.0f, dt * 0.75f);
         float targetY = entity->hoverHeight + sinf(entity->phase) *
                         (0.45f + entity->organismScale * 0.22f) *
                         (0.20f + animationScale * 0.80f);
         entity->position.y += (targetY - entity->position.y) * fminf(1.0f, dt * 2.2f);
     }
 
-    if (entity->moveTimer > 0.0f && !entity->colony) {
+    bool moving = entity->moveTimer > 0.0f && !entity->colony;
+    if (moving) {
         entity->moveTimer -= dt;
-        float fleeSpeed = (playerDist < 5.0f) ? speed * (1.25f + entity->temperament) : speed;
-        Vector3 move = { sinf(entity->yaw) * fleeSpeed, 0.0f, cosf(entity->yaw) * fleeSpeed };
-        if (alien && !entity->airborne) {
-            move.x += cosf(entity->ecologyWindAngle) * windDrift;
-            move.z += sinf(entity->ecologyWindAngle) * windDrift;
-        }
-        if (entity->airborne) {
-            entity->position.x += move.x * dt;
-            entity->position.z += move.z * dt;
-        } else {
-            MoveEntityHorizontal(entity, move, dt);
-        }
     }
-    if (alien && entity->airborne && windDrift > 0.0f) {
-        entity->position.x += cosf(entity->ecologyWindAngle) * windDrift * dt;
-        entity->position.z += sinf(entity->ecologyWindAngle) * windDrift * dt;
+
+    FaunaMotionInput motionInput = {
+        .profile = motionProfile,
+        .currentYaw = entity->yaw,
+        .targetYaw = entity->motionTargetYaw,
+        .currentSpeed = sqrtf(entity->velocity.x * entity->velocity.x +
+                              entity->velocity.z * entity->velocity.z),
+        .movementScale = fmaxf(movementScale, decisionMovementFloor),
+        .deltaTime = dt,
+        .moving = moving,
+        .sprinting = threatened
+    };
+    float lookahead = motionProfile.bodyRadius + 0.38f +
+        fminf(motionInput.currentSpeed * 0.25f, 0.45f);
+    if (moving) {
+        EntityMotionCandidates(entity, &motionProfile,
+                               entity->motionTargetYaw, lookahead,
+                               motionInput.candidates);
+    }
+    FaunaMotionStep motion = FaunaMotionAdvance(&motionInput);
+    entity->yaw = motion.yaw;
+    entity->velocity.x = sinf(entity->yaw) * motion.speed;
+    entity->velocity.z = cosf(entity->yaw) * motion.speed;
+
+    Vector3 move = {
+        entity->velocity.x,
+        0.0f,
+        entity->velocity.z
+    };
+    if (alien && windDrift > 0.0f) {
+        float coupledDrift = windDrift * motionProfile.windCoupling;
+        move.x += cosf(entity->ecologyWindAngle) * coupledDrift;
+        move.z += sinf(entity->ecologyWindAngle) * coupledDrift;
+    }
+    if (motion.speed > 0.0f || (alien && entity->airborne && windDrift > 0.0f)) {
+        if (entity->airborne) {
+            MoveEntityAirborne(entity, &motionProfile, move, dt);
+        } else {
+            MoveEntityGrounded(entity, &motionProfile, move, dt);
+        }
     }
 }
 

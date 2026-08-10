@@ -16,6 +16,7 @@ tests/test_ecology_system
 tests/test_ecology_properties
 tests/test_stellar
 tests/test_ecology_model
+tests/test_fauna_motion
 tests/test_weather_model
 tests/test_chunk_atlas
 tests/test_entity_replay

@@ -32,6 +32,7 @@ typedef struct Entity {
     Vector3 position;
     Vector3 velocity;
     float yaw;
+    float motionTargetYaw;
     float moveTimer;
     float thinkTimer;
     float burnTimer;
