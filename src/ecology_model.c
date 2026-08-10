@@ -214,6 +214,31 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
     return result;
 }
 
+PlanetFaunaRuntimeState PlanetEcologyFaunaRuntime(float faunaActivity,
+                                                   float faunaCapacity)
+{
+    PlanetFaunaRuntimeState result = {
+        .animationScale = 0.08f,
+        .visualScale = 0.80f,
+        .visualPresence = 0.48f,
+        .dormant = true
+    };
+    if (!isfinite(faunaActivity) || !isfinite(faunaCapacity) ||
+        faunaCapacity <= 0.0001f) {
+        return result;
+    }
+
+    result.activityRatio = EcologyModelClamp(faunaActivity / faunaCapacity);
+    float response = EcologyModelClamp((result.activityRatio - 0.08f) / 0.92f);
+    response = response * response * (3.0f - 2.0f * response);
+    result.dormant = result.activityRatio < 0.14f;
+    result.movementScale = result.dormant ? 0.0f : 0.18f + response * 0.82f;
+    result.animationScale = 0.08f + response * 0.92f;
+    result.visualScale = 0.80f + response * 0.20f;
+    result.visualPresence = 0.48f + sqrtf(result.activityRatio) * 0.52f;
+    return result;
+}
+
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor)
 {
     switch (factor) {

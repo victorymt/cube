@@ -116,13 +116,15 @@ static void SpawnPassive(const Player *player, float daylight)
         type = types[rand() % 4];
     }
 
+    PlanetLocalEcology localEcology = { 0 };
     float angle = (float)(rand() % 628) / 100.0f;
     float dist = alienWorld ? 12.0f + (float)(rand() % 160) / 10.0f
                             : 14.0f + (float)(rand() % 300) / 10.0f;
     int gx = (int)floorf(player->position.x + cosf(angle) * dist);
     int gz = (int)floorf(player->position.z + sinf(angle) * dist);
     if (alienWorld) {
-        float faunaActivity = PlanetEcologyFaunaDensityAt(gx, gz, daylight);
+        localEcology = PlanetEcologyLocalAt(gx, gz, daylight);
+        float faunaActivity = localEcology.suitability.faunaActivity;
         if (faunaActivity <= 0.0f ||
             rand() % 1000 >= (int)(faunaActivity * 1000.0f)) return;
     }
@@ -163,6 +165,12 @@ static void SpawnPassive(const Player *player, float daylight)
     entity->colony = alienWorld && ecology.bodyPlan == PLANET_BODY_COLONY;
     entity->hoverHeight = spawnY;
     entity->phase = (float)(rand() % 628) / 100.0f;
+    entity->ecologyActivity = alienWorld
+        ? localEcology.suitability.faunaActivity : 1.0f;
+    entity->ecologyCapacity = alienWorld
+        ? localEcology.suitability.faunaCapacity : 1.0f;
+    entity->ecologySampleTimer = alienWorld
+        ? 0.25f + (float)slot / (float)MAX_ENTITIES : 1.0f;
     entity->primaryBlock = alienWorld ? ecology.primaryBlock : BLOCK_GRASS;
     entity->accentBlock = alienWorld ? ecology.accentBlock : BLOCK_DIRT;
 }
@@ -207,6 +215,9 @@ static void SpawnHostile(const Player *player, float daylight)
     entity->colony = false;
     entity->hoverHeight = entity->position.y;
     entity->phase = 0.0f;
+    entity->ecologyActivity = 1.0f;
+    entity->ecologyCapacity = 1.0f;
+    entity->ecologySampleTimer = 1.0f;
     entity->primaryBlock = BLOCK_GRASS;
     entity->accentBlock = BLOCK_DIRT;
 }
@@ -232,39 +243,70 @@ static void MoveEntityHorizontal(Entity *entity, Vector3 delta, float dt)
     }
 }
 
-static void UpdatePassive(Entity *entity, const Player *player, float dt)
+static void UpdatePassive(Entity *entity, const Player *player, float dt,
+                          float daylight)
 {
     bool alien = EntityIsAlien(entity->type);
-    float speed = (entity->type == ENTITY_CHICKEN) ? 0.7f : 1.0f;
+    PlanetFaunaRuntimeState runtime = PlanetEcologyFaunaRuntime(1.0f, 1.0f);
     if (alien) {
-        speed = entity->movementSpeed;
-        if (entity->type == ENTITY_ALIEN_HOPPER) speed *= 1.25f;
-        else if (entity->type == ENTITY_ALIEN_STRIDER) speed *= 1.10f;
-        else if (entity->type == ENTITY_ALIEN_GRAZER) speed *= 0.92f;
+        entity->ecologySampleTimer -= dt;
+        if (entity->ecologySampleTimer <= 0.0f) {
+            PlanetLocalEcology local = PlanetEcologyLocalAt(
+                (int)floorf(entity->position.x),
+                (int)floorf(entity->position.z), daylight);
+            entity->ecologyActivity = local.suitability.faunaActivity;
+            entity->ecologyCapacity = local.suitability.faunaCapacity;
+            entity->ecologySampleTimer = 1.0f;
+        }
+        runtime = PlanetEcologyFaunaRuntime(entity->ecologyActivity,
+                                             entity->ecologyCapacity);
+    }
+
+    float baseSpeed = (entity->type == ENTITY_CHICKEN) ? 0.7f : 1.0f;
+    if (alien) {
+        baseSpeed = entity->movementSpeed;
+        if (entity->type == ENTITY_ALIEN_HOPPER) baseSpeed *= 1.25f;
+        else if (entity->type == ENTITY_ALIEN_STRIDER) baseSpeed *= 1.10f;
+        else if (entity->type == ENTITY_ALIEN_GRAZER) baseSpeed *= 0.92f;
     }
     Vector3 toPlayer = Vector3Subtract(player->position, entity->position);
     float playerDist = Vector3Length(toPlayer);
+    bool threatened = playerDist < 5.0f;
+    float movementScale = alien ? runtime.movementScale : 1.0f;
+    if (alien && threatened) movementScale = fmaxf(movementScale, 0.28f);
+    float speed = baseSpeed * movementScale;
+
+    if (alien && runtime.dormant && !threatened) entity->moveTimer = 0.0f;
 
     entity->thinkTimer -= dt;
     if (entity->thinkTimer <= 0.0f) {
         entity->thinkTimer = 2.0f + (float)(rand() % 300) / 100.0f;
-        if (playerDist < 5.0f) {
+        if (alien) {
+            entity->thinkTimer *= 1.0f + (1.0f - runtime.activityRatio) * 1.5f;
+        }
+        if (threatened) {
             entity->yaw = atan2f(-toPlayer.x, -toPlayer.z);
             entity->moveTimer = 0.8f;
-        } else if (entity->colony) {
+        } else if (entity->colony || (alien && runtime.dormant)) {
             entity->moveTimer = 0.0f;
-        } else if (rand() % 100 < 55) {
+        } else if (rand() % 100 <
+                   (alien ? 15 + (int)(runtime.activityRatio * 40.0f) : 55)) {
             entity->yaw = (float)(rand() % 628) / 100.0f;
             entity->moveTimer = 1.0f + (float)(rand() % 200) / 100.0f;
+            if (alien) {
+                entity->moveTimer *= 0.45f + runtime.activityRatio * 0.55f;
+            }
         } else {
             entity->moveTimer = 0.0f;
         }
     }
 
+    float animationScale = alien ? runtime.animationScale : 1.0f;
+    entity->phase += dt * (0.7f + baseSpeed * 0.35f) * animationScale;
     if (entity->airborne) {
-        entity->phase += dt * (0.7f + speed * 0.35f);
         float targetY = entity->hoverHeight + sinf(entity->phase) *
-                        (0.45f + entity->organismScale * 0.22f);
+                        (0.45f + entity->organismScale * 0.22f) *
+                        (0.20f + animationScale * 0.80f);
         entity->position.y += (targetY - entity->position.y) * fminf(1.0f, dt * 2.2f);
     }
 
@@ -374,7 +416,7 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
         if (entity->type >= ENTITY_ZOMBIE) {
             UpdateHostile(entity, player, dt, daylight);
         } else {
-            UpdatePassive(entity, player, dt);
+            UpdatePassive(entity, player, dt, daylight);
         }
     }
 }
@@ -442,14 +484,25 @@ static Vector3 AlienPartPosition(Vector3 origin, Vector3 forward, Vector3 side,
     return result;
 }
 
+static Color AlienActivityColor(Color color, float visualPresence)
+{
+    float stress = 1.0f - fminf(fmaxf(visualPresence, 0.0f), 1.0f);
+    return ColorLerp(color, (Color){ 72, 78, 82, 255 }, stress * 0.72f);
+}
+
 static void DrawAlienEntity(const Entity *entity)
 {
+    PlanetFaunaRuntimeState runtime = PlanetEcologyFaunaRuntime(
+        entity->ecologyActivity, entity->ecologyCapacity);
     Vector3 pos = entity->position;
     Vector3 forward = { sinf(entity->yaw), 0.0f, cosf(entity->yaw) };
     Vector3 side = { forward.z, 0.0f, -forward.x };
-    Color body = AlienBodyColor(entity);
-    Color accent = AlienAccentColor(entity);
+    Color body = AlienActivityColor(AlienBodyColor(entity),
+                                    runtime.visualPresence);
+    Color accent = AlienActivityColor(AlienAccentColor(entity),
+                                      runtime.visualPresence);
     float scale = entity->organismScale > 0.1f ? entity->organismScale : 1.0f;
+    scale *= runtime.visualScale;
     float armor = 1.0f + entity->bodyArmor * 0.38f;
 
     if (entity->bodyPlan == PLANET_BODY_FLOATING) {
@@ -470,7 +523,8 @@ static void DrawAlienEntity(const Entity *entity)
     }
 
     if (entity->bodyPlan == PLANET_BODY_COLONY) {
-        Color glow = ColorLerp(accent, (Color){ 110, 250, 255, 255 }, 0.55f);
+        Color glow = ColorLerp(accent, (Color){ 110, 250, 255, 255 },
+                               0.55f * runtime.activityRatio);
         DrawEntityBox((Vector3){ pos.x, pos.y + 0.48f * scale, pos.z },
                       (Vector3){ 0.54f * scale, 0.72f * scale, 0.54f * scale }, body);
         for (int i = 0; i < 6; i++) {

@@ -70,6 +70,15 @@ typedef struct PlanetEcologySuitability {
     PlanetEcologyLimitingFactor limitingFactor;
 } PlanetEcologySuitability;
 
+typedef struct PlanetFaunaRuntimeState {
+    float activityRatio;
+    float movementScale;
+    float animationScale;
+    float visualScale;
+    float visualPresence;
+    bool dormant;
+} PlanetFaunaRuntimeState;
+
 PlanetLifeHistory PlanetLifeHistoryDerive(uint32_t seed, float planetAgeGyr,
                                           float environmentalSupport,
                                           bool hasSolidSurface);
@@ -79,6 +88,8 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
     const PlanetLocalEnvironment *environment,
     const PlanetEcologyTraits *traits,
     float globalFloraPotential, float globalFaunaPotential);
+PlanetFaunaRuntimeState PlanetEcologyFaunaRuntime(float faunaActivity,
+                                                   float faunaCapacity);
 const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor);
 
 #endif

@@ -39,6 +39,9 @@ typedef struct Entity {
     bool colony;
     float hoverHeight;
     float phase;
+    float ecologyActivity;
+    float ecologyCapacity;
+    float ecologySampleTimer;
     BlockType primaryBlock;
     BlockType accentBlock;
 } Entity;

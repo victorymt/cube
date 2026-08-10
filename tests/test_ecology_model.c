@@ -252,6 +252,14 @@ static void TestWeatherChangesActivityNotPermanentCapacity(void)
         &storm, &traits, 0.82f, 0.56f);
     AssertNear(stormActivity.faunaCapacity, clear.faunaCapacity, 0.0f);
     assert(stormActivity.faunaActivity < clear.faunaActivity);
+
+    PlanetFaunaRuntimeState clearRuntime = PlanetEcologyFaunaRuntime(
+        clear.faunaActivity, clear.faunaCapacity);
+    PlanetFaunaRuntimeState stormRuntime = PlanetEcologyFaunaRuntime(
+        stormActivity.faunaActivity, stormActivity.faunaCapacity);
+    assert(stormRuntime.activityRatio < clearRuntime.activityRatio);
+    assert(stormRuntime.movementScale <= clearRuntime.movementScale);
+    assert(stormRuntime.animationScale < clearRuntime.animationScale);
 }
 
 static void TestCurrentSeasonChangesActivityOnly(void)
@@ -270,6 +278,77 @@ static void TestCurrentSeasonChangesActivityOnly(void)
     AssertNear(warm.floraCapacity, cold.floraCapacity, 0.0f);
     assert(cold.floraActivity < warm.floraActivity);
     assert(cold.faunaActivity < warm.faunaActivity);
+
+    PlanetFaunaRuntimeState warmRuntime = PlanetEcologyFaunaRuntime(
+        warm.faunaActivity, warm.faunaCapacity);
+    PlanetFaunaRuntimeState coldRuntime = PlanetEcologyFaunaRuntime(
+        cold.faunaActivity, cold.faunaCapacity);
+    assert(coldRuntime.activityRatio < warmRuntime.activityRatio);
+    assert(coldRuntime.movementScale <= warmRuntime.movementScale);
+    assert(coldRuntime.visualPresence < warmRuntime.visualPresence);
+}
+
+static void AssertRuntimeStateValid(PlanetFaunaRuntimeState state)
+{
+#define ASSERT_RUNTIME_UNIT(field) do { \
+    assert(isfinite(state.field)); \
+    assert(state.field >= 0.0f); \
+    assert(state.field <= 1.0f); \
+} while (0)
+    ASSERT_RUNTIME_UNIT(activityRatio);
+    ASSERT_RUNTIME_UNIT(movementScale);
+    ASSERT_RUNTIME_UNIT(animationScale);
+    ASSERT_RUNTIME_UNIT(visualScale);
+    ASSERT_RUNTIME_UNIT(visualPresence);
+#undef ASSERT_RUNTIME_UNIT
+    if (state.dormant) assert(state.movementScale == 0.0f);
+}
+
+static void TestFaunaRuntimeResponse(void)
+{
+    PlanetFaunaRuntimeState active = PlanetEcologyFaunaRuntime(0.50f, 0.50f);
+    PlanetFaunaRuntimeState stressed = PlanetEcologyFaunaRuntime(0.12f, 0.50f);
+    PlanetFaunaRuntimeState dormant = PlanetEcologyFaunaRuntime(0.03f, 0.50f);
+    PlanetFaunaRuntimeState absent = PlanetEcologyFaunaRuntime(0.0f, 0.0f);
+
+    AssertRuntimeStateValid(active);
+    AssertRuntimeStateValid(stressed);
+    AssertRuntimeStateValid(dormant);
+    AssertRuntimeStateValid(absent);
+    assert(!active.dormant);
+    assert(!stressed.dormant);
+    assert(dormant.dormant);
+    assert(absent.dormant);
+    assert(active.movementScale > stressed.movementScale);
+    assert(stressed.movementScale > dormant.movementScale);
+    assert(active.animationScale > stressed.animationScale);
+    assert(stressed.animationScale > dormant.animationScale);
+    assert(active.visualScale > stressed.visualScale);
+    assert(stressed.visualPresence > dormant.visualPresence);
+
+    PlanetFaunaRuntimeState sameRatioA = PlanetEcologyFaunaRuntime(0.08f, 0.10f);
+    PlanetFaunaRuntimeState sameRatioB = PlanetEcologyFaunaRuntime(0.40f, 0.50f);
+    PlanetFaunaRuntimeState repeated = PlanetEcologyFaunaRuntime(0.08f, 0.10f);
+    AssertNear(sameRatioA.activityRatio, sameRatioB.activityRatio, 0.000001f);
+    AssertNear(sameRatioA.movementScale, sameRatioB.movementScale, 0.000001f);
+    assert(sameRatioA.activityRatio == repeated.activityRatio);
+    assert(sameRatioA.movementScale == repeated.movementScale);
+    assert(sameRatioA.animationScale == repeated.animationScale);
+    assert(sameRatioA.visualScale == repeated.visualScale);
+    assert(sameRatioA.visualPresence == repeated.visualPresence);
+    assert(sameRatioA.dormant == repeated.dormant);
+}
+
+static void TestRandomizedFaunaRuntimeProperties(void)
+{
+    uint32_t state = 0xa31b5c72u;
+    for (int sample = 0; sample < 10000; sample++) {
+        float capacity = TestUnit(&state);
+        float activity = TestUnit(&state) * 1.2f;
+        PlanetFaunaRuntimeState runtime = PlanetEcologyFaunaRuntime(
+            activity, capacity);
+        AssertRuntimeStateValid(runtime);
+    }
 }
 
 static void TestRandomizedLocalProperties(void)
@@ -312,7 +391,9 @@ int main(void)
     TestLocalEnvironmentalControls();
     TestWeatherChangesActivityNotPermanentCapacity();
     TestCurrentSeasonChangesActivityOnly();
+    TestFaunaRuntimeResponse();
     TestRandomizedLocalProperties();
+    TestRandomizedFaunaRuntimeProperties();
     puts("ecology_model tests passed");
     return 0;
 }
