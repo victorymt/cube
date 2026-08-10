@@ -202,6 +202,57 @@ static void PrintEcologyDistribution(
            distribution->biomass[PLANET_BIOMASS_ANOMALOUS]);
 }
 
+static void AssertGeneratedStyleTargets(
+    SolarBodyStyle style, const EcologyDistribution *distribution)
+{
+    int nonBarren = EcologyDistributionNonBarren(distribution);
+    switch (style) {
+    case SOLAR_STYLE_LAVA:
+        AssertRateBetween(distribution->originatedCount,
+                          distribution->sampleCount, 0.0f, 0.03f);
+        AssertRateBetween(nonBarren, distribution->sampleCount,
+                          0.0f, 0.02f);
+        AssertRateBetween(distribution->complexCount,
+                          distribution->sampleCount, 0.0f, 0.01f);
+        break;
+    case SOLAR_STYLE_ICE:
+        AssertRateBetween(nonBarren, distribution->sampleCount,
+                          0.02f, 0.07f);
+        AssertRateBetween(distribution->complexCount,
+                          distribution->sampleCount, 0.0005f, 0.005f);
+        break;
+    case SOLAR_STYLE_DESERT:
+        AssertRateBetween(nonBarren, distribution->sampleCount,
+                          0.03f, 0.12f);
+        AssertRateBetween(distribution->complexCount,
+                          distribution->sampleCount, 0.0f, 0.02f);
+        break;
+    case SOLAR_STYLE_GAS:
+        assert(distribution->originatedCount == 0);
+        assert(distribution->complexCount == 0);
+        assert(nonBarren == 0);
+        break;
+    case SOLAR_STYLE_CRATER:
+        AssertRateBetween(distribution->originatedCount,
+                          distribution->sampleCount, 0.0005f, 0.01f);
+        AssertRateBetween(nonBarren, distribution->sampleCount,
+                          0.0f, 0.005f);
+        AssertRateBetween(distribution->complexCount,
+                          distribution->sampleCount, 0.0f, 0.005f);
+        break;
+    case SOLAR_STYLE_TEMPERATE:
+        AssertRateBetween(distribution->originatedCount,
+                          distribution->sampleCount, 0.15f, 0.35f);
+        AssertRateBetween(distribution->complexCount,
+                          distribution->sampleCount, 0.02f, 0.08f);
+        break;
+    case SOLAR_STYLE_SUN:
+    default:
+        assert(false);
+        break;
+    }
+}
+
 static void AssertEnvironmentValid(const PlanetLocalEnvironment *environment)
 {
     assert(environment);
@@ -503,18 +554,44 @@ static void TestGeneratedSolarEcologyDistribution(void)
     for (int stellarCount = 1; stellarCount <= 3; stellarCount++) {
         assert(systemCounts[stellarCount] > 0);
         assert(multiplicities[stellarCount].sampleCount > 0);
+        AssertRateBetween(
+            EcologyDistributionNonBarren(&multiplicities[stellarCount]),
+            multiplicities[stellarCount].sampleCount, 0.01f, 0.06f);
     }
+    AssertRateBetween(systemCounts[1], systemCount, 0.60f, 0.80f);
+    AssertRateBetween(systemCounts[2], systemCount, 0.15f, 0.35f);
+    AssertRateBetween(systemCounts[3], systemCount, 0.02f, 0.08f);
+
+    int nonBarrenTotal = 0;
+    int complexTotal = 0;
     for (size_t styleIndex = 0;
          styleIndex < sizeof(ecologyPropertyStyles) /
                       sizeof(ecologyPropertyStyles[0]);
          styleIndex++) {
         SolarBodyStyle style = ecologyPropertyStyles[styleIndex];
         assert(styles[style].sampleCount > 0);
+        AssertGeneratedStyleTargets(style, &styles[style]);
+        nonBarrenTotal += EcologyDistributionNonBarren(&styles[style]);
+        complexTotal += styles[style].complexCount;
         PrintEcologyDistribution(
             "ecology systems ", ecologyPropertyStyleNames[styleIndex],
             &styles[style]);
     }
-    assert(EcologyDistributionNonBarren(&styles[SOLAR_STYLE_GAS]) == 0);
+    AssertRateBetween(nonBarrenTotal, planetCount, 0.02f, 0.06f);
+    AssertRateBetween(complexTotal, planetCount, 0.0005f, 0.005f);
+
+    AssertRateBetween(styles[SOLAR_STYLE_LAVA].sampleCount,
+                      planetCount, 0.005f, 0.03f);
+    AssertRateBetween(styles[SOLAR_STYLE_ICE].sampleCount,
+                      planetCount, 0.70f, 0.90f);
+    AssertRateBetween(styles[SOLAR_STYLE_DESERT].sampleCount,
+                      planetCount, 0.005f, 0.04f);
+    AssertRateBetween(styles[SOLAR_STYLE_GAS].sampleCount,
+                      planetCount, 0.04f, 0.12f);
+    AssertRateBetween(styles[SOLAR_STYLE_CRATER].sampleCount,
+                      planetCount, 0.04f, 0.12f);
+    AssertRateBetween(styles[SOLAR_STYLE_TEMPERATE].sampleCount,
+                      planetCount, 0.005f, 0.03f);
 
     static const char *multiplicityNames[] = {
         "none", "single", "binary", "triple"
