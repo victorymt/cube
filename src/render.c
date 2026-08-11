@@ -2333,6 +2333,13 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
             line2 = TextFormat("%s - %.0f blocks",
                                PlanetAtmosphereName(body->profile.atmosphereType), body->dist);
         }
+        if (body->remnantEnvironment.active) {
+            line3 = TextFormat(
+                "remnant hazard %.2f  ejecta %.2f  shell %.0f blocks",
+                body->remnantEnvironment.radiationHazard,
+                body->remnantEnvironment.ejectaDensity,
+                body->remnantEnvironment.nearestShellDistanceGame);
+        }
     }
 
     int sw = GetScreenWidth();

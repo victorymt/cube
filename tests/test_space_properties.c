@@ -533,11 +533,50 @@ static void AssertRuntimeState(const SolarSystemDef *system,
             sources, stellarCount, orbitalState.center);
         assert(runtime.planets[planet].currentIrradianceEarth == irradiance);
         assert(irradiance > 0.0f);
+        SpaceRemnantEnvironment expectedRemnant;
+        assert(SolarSystemRemnantEnvironmentAt(
+            &runtime, orbitalState.center, &expectedRemnant));
+        assert(memcmp(&runtime.planets[planet].remnantEnvironment,
+                      &expectedRemnant, sizeof(expectedRemnant)) == 0);
+        assert(SpaceRemnantEnvironmentIsValid(
+            &runtime.planets[planet].remnantEnvironment));
     }
 
     SolarSystemRuntimeState repeated;
     assert(SolarSystemEvaluateAtTime(system, 0.0, &repeated));
     assert(memcmp(&runtime, &repeated, sizeof(runtime)) == 0);
+}
+
+static void TestRuntimeRemnantExposure(void)
+{
+    SolarSystemDef system;
+    assert(StarSystemAt(0, 0, &system));
+    StellarProfile remnant;
+    assert(StellarProfileAtAge(12.0f, 0.0, 0x5a17u, &remnant));
+    double remnantAge = (double)remnant.luminousLifetimeGyr + 0.000001;
+    assert(StellarProfileAtAge(12.0f, remnantAge, 0x5a17u, &remnant));
+    assert(remnant.stage == STELLAR_STAGE_NEUTRON_STAR);
+    system.star = remnant;
+    system.spectrum = remnant.spectrum;
+    system.starProxyRadius = SolarSystemStellarVisualRadius(&remnant);
+    assert(SolarSystemPhysicalSnapshotBuild(
+        &system, &system.physicalSnapshot));
+
+    SolarSystemRuntimeState runtime;
+    SolarSystemRuntimeState repeated;
+    assert(SolarSystemEvaluateAtTime(&system, 0.0, &runtime));
+    assert(SolarSystemEvaluateAtTime(&system, 0.0, &repeated));
+    assert(memcmp(&runtime, &repeated, sizeof(runtime)) == 0);
+    assert(runtime.stars[0].remnant.active);
+    for (int planet = 0; planet < runtime.planetCount; planet++) {
+        assert(runtime.planets[planet].valid);
+        assert(runtime.planets[planet].remnantEnvironment.active);
+        assert(runtime.planets[planet].remnantEnvironment.remnantCount == 1);
+        assert(runtime.planets[planet].remnantEnvironment.radiationHazard >
+               0.0f);
+        assert(runtime.planets[planet].remnantEnvironment.ejectaDensity >=
+               0.0f);
+    }
 }
 
 static void TestRuntimeInputContracts(void)
@@ -2471,6 +2510,7 @@ int main(void)
     TestSpaceQueryInputContracts();
     TestIrradianceInputContracts();
     TestRuntimeInputContracts();
+    TestRuntimeRemnantExposure();
     TestQueryCacheInputContracts();
     TestGeneratedSystems();
     TestExtremeAnchorDeterminism();

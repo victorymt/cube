@@ -799,8 +799,14 @@ static bool SolarSystemRuntimeGeometryIsFinite(
             state->dynamicalStatus > SOLAR_PLANET_EJECTED) {
             return false;
         }
+        if (!SpaceRemnantEnvironmentIsValid(&state->remnantEnvironment)) {
+            return false;
+        }
         if (state->dynamicalStatus != SOLAR_PLANET_STABLE) {
-            if (state->valid || state->satelliteOrbit.exists) return false;
+            if (state->valid || state->satelliteOrbit.exists ||
+                state->remnantEnvironment.active) {
+                return false;
+            }
             continue;
         }
         if (!state->valid || !isfinite(state->center.x) ||
@@ -863,6 +869,9 @@ static bool SolarSystemEvaluateSnapshotAtTime(
     out->planetCount = sys->planetCount;
     out->totalStellarMassKg = snapshot->summary.totalMassKg;
     if (!(out->totalStellarMassKg > 0.0)) return false;
+    // The remnant sampler shares the public runtime validity contract while
+    // the remaining planet fields are being populated below.
+    out->valid = true;
 
     SolarLightSource sources[MAX_SOLAR_LIGHTS];
     for (int star = 0; star < stellarCount; star++) {
@@ -901,6 +910,10 @@ static bool SolarSystemEvaluateSnapshotAtTime(
             snapshot->planetOrbits[index].semiMajorAxisKm;
         planet->currentIrradianceEarth = SolarSystemIrradianceAt(
             sources, stellarCount, planet->center);
+        if (!SolarSystemRemnantEnvironmentAt(
+                out, planet->center, &planet->remnantEnvironment)) {
+            return false;
+        }
         planet->satelliteOrbit = snapshot->satelliteOrbits[index];
         if (planet->satelliteOrbit.exists) {
             if (!SpaceSatelliteStateAtSeconds(
@@ -2203,6 +2216,7 @@ static bool PlanetBodyInfoForRuntime(const SolarSystemDef *system,
         .systemAnchorX = system->anchorX,
         .systemAnchorZ = system->anchorZ,
         .worldSeed = profile->seed,
+        .remnantEnvironment = planet->remnantEnvironment,
         .hostStar = runtime->stars[0].stellar,
         .spectrum = runtime->stars[0].spectrum,
         .style = profile->style,
@@ -2626,7 +2640,8 @@ bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
         (body->encounterRadiusGame < 0.0f) ||
         !isfinite(body->encounterRadiusGame) ||
         (body->currentIrradianceEarth < 0.0) ||
-        !isfinite(body->currentIrradianceEarth)) {
+        !isfinite(body->currentIrradianceEarth) ||
+        !SpaceRemnantEnvironmentIsValid(&body->remnantEnvironment)) {
         return false;
     }
     double parentMassKg = body->parentMassKg > 0.0

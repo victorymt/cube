@@ -142,6 +142,7 @@ typedef struct SolarPlanetRuntimeState {
     SpaceSatelliteState satelliteState;
     Vector3 satelliteCenter;
     Vector3 satelliteVelocity;
+    SpaceRemnantEnvironment remnantEnvironment;
 } SolarPlanetRuntimeState;
 
 typedef struct SolarSystemRuntimeState {
@@ -171,6 +172,7 @@ typedef struct SpaceBodyInfo {
     int systemAnchorZ;
     uint32_t worldSeed;
     SpaceRemnantState remnant;
+    SpaceRemnantEnvironment remnantEnvironment;
     char name[32];
     StellarProfile hostStar;
     SpectrumType spectrum;
