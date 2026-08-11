@@ -2242,15 +2242,29 @@ bool SpaceSatelliteScaleDiagnosticsAt(
     out->hillSphereKm = stableHillSphereKm;
     out->encounterRadiusGame = satellite.encounterRadiusGame;
     out->distanceGame = satellite.dist;
-    out->withinErrorBudget = isfinite(out->physicalRadiusGame) &&
-                             out->physicalRadiusGame > 0.0 &&
-                             isfinite(out->physicalGravityMetersPerSecondSquared) &&
-                             isfinite(out->orbitalSpeedKilometersPerSecond) &&
-                             out->sphereOfInfluenceKm > 0.0 &&
-                             out->hillSphereKm > 0.0 &&
-                             out->encounterRadiusGame >=
-                                 (float)(out->physicalRadiusGame * 2.19);
-    return out->withinErrorBudget;
+    if (!SpaceVectorIsFinite(out->center) ||
+        !SpaceVectorIsFinite(out->velocity) ||
+        !(out->physicalRadiusKm > 0.0) ||
+        !isfinite(out->physicalRadiusKm) ||
+        !(out->physicalRadiusGame > 0.0) ||
+        !isfinite(out->physicalRadiusGame) ||
+        !(out->physicalGravityMetersPerSecondSquared > 0.0) ||
+        !isfinite(out->physicalGravityMetersPerSecondSquared) ||
+        (out->orbitalSpeedKilometersPerSecond < 0.0) ||
+        !isfinite(out->orbitalSpeedKilometersPerSecond) ||
+        !(out->sphereOfInfluenceKm > 0.0) ||
+        !isfinite(out->sphereOfInfluenceKm) ||
+        !(out->hillSphereKm > 0.0) ||
+        !isfinite(out->hillSphereKm) ||
+        !(out->encounterRadiusGame > 0.0f) ||
+        !isfinite(out->encounterRadiusGame) ||
+        (out->distanceGame < 0.0f) || !isfinite(out->distanceGame)) {
+        *out = (SpaceSatelliteScaleDiagnostics){ 0 };
+        return false;
+    }
+    out->withinErrorBudget = out->encounterRadiusGame >=
+                             (float)(out->physicalRadiusGame * 2.19);
+    return true;
 }
 
 static void HomeBodyInfoForObserver(Vector3 observer, SpaceBodyInfo *out)
