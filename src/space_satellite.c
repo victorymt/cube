@@ -188,47 +188,6 @@ static SpaceSatelliteVector3 SpaceSatelliteRotateFromOrbitalPlane(
     };
 }
 
-static bool SpaceSatelliteSolveEccentricAnomaly(double meanAnomaly,
-                                                double eccentricity,
-                                                double *out)
-{
-    if (!out) return false;
-    *out = 0.0;
-    if (!isfinite(meanAnomaly) || !isfinite(eccentricity) ||
-        eccentricity < 0.0 || eccentricity >= 1.0) {
-        return false;
-    }
-    if (meanAnomaly > SPACE_SATELLITE_PI) {
-        meanAnomaly -= 2.0 * SPACE_SATELLITE_PI;
-    } else if (meanAnomaly < -SPACE_SATELLITE_PI) {
-        meanAnomaly += 2.0 * SPACE_SATELLITE_PI;
-    }
-
-    double eccentricAnomaly = eccentricity < 0.8
-        ? meanAnomaly
-        : (meanAnomaly < 0.0 ? -SPACE_SATELLITE_PI : SPACE_SATELLITE_PI);
-    for (int iteration = 0; iteration < 16; iteration++) {
-        double sine = sin(eccentricAnomaly);
-        double cosine = cos(eccentricAnomaly);
-        double denominator = 1.0 - eccentricity * cosine;
-        if (!(denominator > 0.0) || !isfinite(denominator)) return false;
-        double correction = (eccentricAnomaly - eccentricity * sine -
-                             meanAnomaly) / denominator;
-        if (!isfinite(correction)) return false;
-        eccentricAnomaly -= correction;
-        if (!isfinite(eccentricAnomaly)) return false;
-        if (fabs(correction) < 1e-13) {
-            double residual = eccentricAnomaly -
-                              eccentricity * sin(eccentricAnomaly) -
-                              meanAnomaly;
-            if (!isfinite(residual) || fabs(residual) > 1e-12) return false;
-            *out = eccentricAnomaly;
-            return true;
-        }
-    }
-    return false;
-}
-
 bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
                                   double planetMassKg,
                                   double physicalTimeSeconds,
@@ -254,7 +213,7 @@ bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
         return false;
     }
     double eccentricAnomaly = 0.0;
-    if (!SpaceSatelliteSolveEccentricAnomaly(
+    if (!SpaceUnitsSolveEccentricAnomaly(
             meanAnomaly, orbit->eccentricity, &eccentricAnomaly)) {
         return false;
     }

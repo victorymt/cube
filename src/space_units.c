@@ -118,6 +118,47 @@ double SpaceUnitsKeplerMeanMotionGame(double semiMajorAxisKm,
         radiansPerSecond * SPACE_UNITS_SECONDS_PER_GAME_TIME);
 }
 
+bool SpaceUnitsSolveEccentricAnomaly(double meanAnomalyRad,
+                                     double eccentricity,
+                                     double *outEccentricAnomalyRad)
+{
+    if (!outEccentricAnomalyRad) return false;
+    *outEccentricAnomalyRad = 0.0;
+    if (!isfinite(meanAnomalyRad) || !isfinite(eccentricity) ||
+        eccentricity < 0.0 || eccentricity >= 1.0) {
+        return false;
+    }
+
+    if (meanAnomalyRad > SPACE_UNITS_PI) {
+        meanAnomalyRad -= SPACE_UNITS_TWO_PI;
+    } else if (meanAnomalyRad < -SPACE_UNITS_PI) {
+        meanAnomalyRad += SPACE_UNITS_TWO_PI;
+    }
+    double eccentricAnomaly = eccentricity < 0.8
+        ? meanAnomalyRad
+        : (meanAnomalyRad < 0.0 ? -SPACE_UNITS_PI : SPACE_UNITS_PI);
+    for (int iteration = 0; iteration < 16; iteration++) {
+        double sine = sin(eccentricAnomaly);
+        double cosine = cos(eccentricAnomaly);
+        double denominator = 1.0 - eccentricity * cosine;
+        if (!(denominator > 0.0) || !isfinite(denominator)) return false;
+        double correction = (eccentricAnomaly - eccentricity * sine -
+                             meanAnomalyRad) / denominator;
+        if (!isfinite(correction)) return false;
+        eccentricAnomaly -= correction;
+        if (!isfinite(eccentricAnomaly)) return false;
+        if (fabs(correction) < 1e-13) {
+            double residual = eccentricAnomaly -
+                              eccentricity * sin(eccentricAnomaly) -
+                              meanAnomalyRad;
+            if (!isfinite(residual) || fabs(residual) > 1e-12) return false;
+            *outEccentricAnomalyRad = eccentricAnomaly;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool SpaceUnitsMeanAnomalyAtTime(double meanAnomalyAtEpochRad,
                                  double meanMotion,
                                  double simulationTime,

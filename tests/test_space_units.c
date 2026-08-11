@@ -77,6 +77,42 @@ static void TestMeanAnomalyTime(void)
     assert(!SpaceUnitsMeanAnomalyAtTime(0.0, 1.0, 0.0, NULL));
 }
 
+static void TestEccentricAnomalySolver(void)
+{
+    static const double eccentricities[] = { 0.0, 0.35, 0.8, 0.999999 };
+    static const double meanAnomalies[] = { -3.5, -0.001, 0.001, 3.5 };
+    for (size_t eccentricityIndex = 0;
+         eccentricityIndex < sizeof(eccentricities) /
+                             sizeof(eccentricities[0]); eccentricityIndex++) {
+        for (size_t anomalyIndex = 0;
+             anomalyIndex < sizeof(meanAnomalies) /
+                             sizeof(meanAnomalies[0]); anomalyIndex++) {
+            double eccentricAnomaly = 0.0;
+            double meanAnomaly = meanAnomalies[anomalyIndex];
+            assert(SpaceUnitsSolveEccentricAnomaly(
+                meanAnomaly, eccentricities[eccentricityIndex],
+                &eccentricAnomaly));
+            double normalizedMeanAnomaly = fmod(meanAnomaly,
+                                                2.0 * 3.14159265358979323846);
+            if (normalizedMeanAnomaly > 3.14159265358979323846) {
+                normalizedMeanAnomaly -= 2.0 * 3.14159265358979323846;
+            } else if (normalizedMeanAnomaly < -3.14159265358979323846) {
+                normalizedMeanAnomaly += 2.0 * 3.14159265358979323846;
+            }
+            double residual = eccentricAnomaly -
+                              eccentricities[eccentricityIndex] *
+                              sin(eccentricAnomaly) - normalizedMeanAnomaly;
+            assert(isfinite(eccentricAnomaly));
+            assert(fabs(residual) <= 1e-12);
+        }
+    }
+    double eccentricAnomaly = 42.0;
+    assert(!SpaceUnitsSolveEccentricAnomaly(NAN, 0.5, &eccentricAnomaly));
+    assert(eccentricAnomaly == 0.0);
+    assert(!SpaceUnitsSolveEccentricAnomaly(0.0, 1.0, &eccentricAnomaly));
+    assert(!SpaceUnitsSolveEccentricAnomaly(0.0, 0.5, NULL));
+}
+
 static void TestGravityConstants(void)
 {
     AssertRelativeNear(
@@ -153,6 +189,7 @@ int main(void)
     TestRoundTrips();
     TestEarthOrbit();
     TestMeanAnomalyTime();
+    TestEccentricAnomalySolver();
     TestGravityConstants();
     TestProxyScaleContract();
     puts("space_units tests passed");
