@@ -4,30 +4,9 @@
 
 #include <math.h>
 
-#define SPACE_BARYCENTER_PI 3.14159265358979323846
-
 static bool SpaceBarycenterVectorIsFinite(Vector3 value)
 {
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
-}
-
-static bool SpaceBarycenterPhaseAtTime(double phaseAtEpoch,
-                                       double meanMotion,
-                                       double simulationTime,
-                                       double *out)
-{
-    if (!out || !isfinite(phaseAtEpoch) || !(meanMotion > 0.0) ||
-        !isfinite(meanMotion) || !isfinite(simulationTime)) {
-        return false;
-    }
-    double period = 2.0 * SPACE_BARYCENTER_PI / meanMotion;
-    double reducedTime = isfinite(period) && period > 0.0
-        ? fmod(simulationTime, period) : simulationTime;
-    double phase = fmod(phaseAtEpoch + reducedTime * meanMotion,
-                        2.0 * SPACE_BARYCENTER_PI);
-    if (!isfinite(phase)) return false;
-    *out = phase;
-    return true;
 }
 
 static bool SpaceBarycenterRelativeOrbit(
@@ -48,8 +27,8 @@ static bool SpaceBarycenterRelativeOrbit(
         return false;
     }
     double phase = 0.0;
-    if (!SpaceBarycenterPhaseAtTime(phaseAtEpoch, meanMotion,
-                                    simulationTime, &phase)) {
+    if (!SpaceUnitsMeanAnomalyAtTime(phaseAtEpoch, meanMotion,
+                                     simulationTime, &phase)) {
         return false;
     }
     double cosine = cos(phase);

@@ -5,7 +5,6 @@
 #include <math.h>
 
 #define SPACE_ORBIT_PI 3.14159265358979323846
-#define SPACE_ORBIT_TWO_PI (2.0 * SPACE_ORBIT_PI)
 
 bool SpaceKeplerOrbitIsValid(const SpaceKeplerOrbit *orbit)
 {
@@ -41,29 +40,6 @@ static Vector3 SpaceKeplerRotateFromOrbitalPlane(double x, double z,
     };
 }
 
-static bool SpaceKeplerMeanAnomalyAtTime(double meanAnomalyAtEpochRad,
-                                         double meanMotion,
-                                         double simulationTime,
-                                         double *out)
-{
-    if (!out || !isfinite(meanAnomalyAtEpochRad) ||
-        !(meanMotion > 0.0) || !isfinite(meanMotion) ||
-        !isfinite(simulationTime)) {
-        return false;
-    }
-    double period = SPACE_ORBIT_TWO_PI / meanMotion;
-    double reducedTime = isfinite(period) && period > 0.0
-        ? fmod(simulationTime, period) : simulationTime;
-    double meanAnomaly = fmod(meanAnomalyAtEpochRad +
-                              reducedTime * meanMotion,
-                              SPACE_ORBIT_TWO_PI);
-    if (!isfinite(meanAnomaly)) return false;
-    if (meanAnomaly > SPACE_ORBIT_PI) meanAnomaly -= SPACE_ORBIT_TWO_PI;
-    if (meanAnomaly < -SPACE_ORBIT_PI) meanAnomaly += SPACE_ORBIT_TWO_PI;
-    *out = meanAnomaly;
-    return true;
-}
-
 bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
                             double simulationTime,
                             SpaceKeplerState *out)
@@ -79,7 +55,7 @@ bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
     if (!(meanMotion > 0.0) || !isfinite(meanMotion)) return false;
 
     double meanAnomaly = 0.0;
-    if (!SpaceKeplerMeanAnomalyAtTime(
+    if (!SpaceUnitsMeanAnomalyAtTime(
             orbit->meanAnomalyAtEpochRad, meanMotion, simulationTime,
             &meanAnomaly)) return false;
 

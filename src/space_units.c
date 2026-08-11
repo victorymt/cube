@@ -2,6 +2,9 @@
 
 #include <math.h>
 
+#define SPACE_UNITS_PI 3.14159265358979323846
+#define SPACE_UNITS_TWO_PI (2.0 * SPACE_UNITS_PI)
+
 const double SPACE_UNITS_ASTRONOMICAL_UNIT_KM = 149597870.7;
 const double SPACE_UNITS_GAME_DISTANCE_PER_AU = 340.0;
 const double SPACE_UNITS_EARTH_MASS_KG = 5.9722e24;
@@ -103,6 +106,29 @@ double SpaceUnitsKeplerMeanMotionGame(double semiMajorAxisKm,
                                    (semiMajorAxisKm * semiMajorAxisKm *
                                     semiMajorAxisKm));
     return radiansPerSecond * SPACE_UNITS_SECONDS_PER_GAME_TIME;
+}
+
+bool SpaceUnitsMeanAnomalyAtTime(double meanAnomalyAtEpochRad,
+                                 double meanMotion,
+                                 double simulationTime,
+                                 double *out)
+{
+    if (!out || !isfinite(meanAnomalyAtEpochRad) ||
+        !(meanMotion > 0.0) || !isfinite(meanMotion) ||
+        !isfinite(simulationTime)) {
+        return false;
+    }
+    double period = SPACE_UNITS_TWO_PI / meanMotion;
+    double reducedTime = isfinite(period) && period > 0.0
+        ? fmod(simulationTime, period) : simulationTime;
+    double meanAnomaly = fmod(meanAnomalyAtEpochRad +
+                              reducedTime * meanMotion,
+                              SPACE_UNITS_TWO_PI);
+    if (!isfinite(meanAnomaly)) return false;
+    if (meanAnomaly > SPACE_UNITS_PI) meanAnomaly -= SPACE_UNITS_TWO_PI;
+    if (meanAnomaly < -SPACE_UNITS_PI) meanAnomaly += SPACE_UNITS_TWO_PI;
+    *out = meanAnomaly;
+    return true;
 }
 
 double SpaceUnitsKeplerPeriodSeconds(double semiMajorAxisKm,

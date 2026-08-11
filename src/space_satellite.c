@@ -229,33 +229,6 @@ static bool SpaceSatelliteSolveEccentricAnomaly(double meanAnomaly,
     return false;
 }
 
-static bool SpaceSatelliteMeanAnomalyAtSeconds(
-    double meanAnomalyAtEpochRad, double physicalTimeSeconds,
-    double meanMotion, double *out)
-{
-    if (!out) return false;
-    *out = 0.0;
-    if (!isfinite(meanAnomalyAtEpochRad) ||
-        !isfinite(physicalTimeSeconds) || !(meanMotion > 0.0) ||
-        !isfinite(meanMotion)) {
-        return false;
-    }
-
-    double orbitalPeriodSeconds = SPACE_SATELLITE_PI * 2.0 / meanMotion;
-    double reducedTime = isfinite(orbitalPeriodSeconds) &&
-                         orbitalPeriodSeconds > 0.0
-        ? fmod(physicalTimeSeconds, orbitalPeriodSeconds)
-        : physicalTimeSeconds;
-    double phase = reducedTime * meanMotion;
-    if (!isfinite(phase)) return false;
-
-    double meanAnomaly = fmod(meanAnomalyAtEpochRad + phase,
-                              2.0 * SPACE_SATELLITE_PI);
-    if (!isfinite(meanAnomaly)) return false;
-    *out = meanAnomaly;
-    return true;
-}
-
 bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
                                   double planetMassKg,
                                   double physicalTimeSeconds,
@@ -275,9 +248,9 @@ bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
                               orbit->semiMajorAxisKm));
     if (!(meanMotion > 0.0) || !isfinite(meanMotion)) return false;
     double meanAnomaly = 0.0;
-    if (!SpaceSatelliteMeanAnomalyAtSeconds(
-            orbit->meanAnomalyAtEpochRad, physicalTimeSeconds,
-            meanMotion, &meanAnomaly)) {
+    if (!SpaceUnitsMeanAnomalyAtTime(
+            orbit->meanAnomalyAtEpochRad, meanMotion,
+            physicalTimeSeconds, &meanAnomaly)) {
         return false;
     }
     double eccentricAnomaly = 0.0;

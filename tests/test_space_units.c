@@ -1,6 +1,7 @@
 #include "space_units.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -51,6 +52,29 @@ static void TestEarthOrbit(void)
         SpaceUnitsGameVelocityToKilometersPerSecond(
             SpaceUnitsKilometersPerSecondToGameVelocity(velocity)),
         velocity, 1e-12);
+}
+
+static void TestMeanAnomalyTime(void)
+{
+    double anomaly = 0.0;
+    assert(SpaceUnitsMeanAnomalyAtTime(0.5, 1.0, 0.0, &anomaly));
+    AssertRelativeNear(anomaly, 0.5, 1e-12);
+    assert(SpaceUnitsMeanAnomalyAtTime(0.5, 1.0,
+                                       2.0 * 3.14159265358979323846,
+                                       &anomaly));
+    AssertRelativeNear(anomaly, 0.5, 1e-12);
+
+    double first = 0.0;
+    double second = 0.0;
+    assert(SpaceUnitsMeanAnomalyAtTime(0.5, 1.0, DBL_MAX, &first));
+    assert(SpaceUnitsMeanAnomalyAtTime(0.5, 1.0, DBL_MAX, &second));
+    assert(first == second && isfinite(first));
+    assert(!SpaceUnitsMeanAnomalyAtTime(NAN, 1.0, 0.0, &anomaly));
+    assert(!SpaceUnitsMeanAnomalyAtTime(0.0, 0.0, 0.0, &anomaly));
+    assert(!SpaceUnitsMeanAnomalyAtTime(0.0, -1.0, 0.0, &anomaly));
+    assert(!SpaceUnitsMeanAnomalyAtTime(0.0, INFINITY, 0.0, &anomaly));
+    assert(!SpaceUnitsMeanAnomalyAtTime(0.0, 1.0, NAN, &anomaly));
+    assert(!SpaceUnitsMeanAnomalyAtTime(0.0, 1.0, 0.0, NULL));
 }
 
 static void TestGravityConstants(void)
@@ -113,6 +137,7 @@ int main(void)
 {
     TestRoundTrips();
     TestEarthOrbit();
+    TestMeanAnomalyTime();
     TestGravityConstants();
     TestProxyScaleContract();
     puts("space_units tests passed");
