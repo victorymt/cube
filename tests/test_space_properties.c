@@ -1,6 +1,7 @@
 #include "space.h"
 #include "space_barycenter.h"
 #include "space_physics.h"
+#include "space_system_physics.h"
 #include "space_units.h"
 #include "weather_model.h"
 
@@ -435,11 +436,24 @@ static void TestGeneratedSystems(void)
                 assert(summary.stellarCount == bodyCount);
                 assert(summary.totalMassKg == SolarSystemStellarMassKg(&system));
                 assert(summary.ageGyr == system.star.ageGyr);
+                SolarSystemPhysicalSnapshot rebuiltSnapshot;
+                assert(SolarSystemPhysicalSnapshotBuild(&system,
+                                                        &rebuiltSnapshot));
+                assert(memcmp(&system.physicalSnapshot, &rebuiltSnapshot,
+                              sizeof(rebuiltSnapshot)) == 0);
                 multiplicities[bodyCount]++;
                 for (int star = 0; star < bodyCount; star++) {
                     AssertStefanBoltzmann(&bodies[star].stellar);
                     assert(summary.stellarLuminositiesSolar[star] ==
                            bodies[star].stellar.luminositySolar);
+                }
+                SolarStellarBody snapshotBodies[SPACE_BARYCENTER_MAX_BODIES];
+                assert(SolarSystemPhysicalSnapshotStellarBodiesAtTime(
+                    &system, &system.physicalSnapshot, 0.0, snapshotBodies,
+                    SPACE_BARYCENTER_MAX_BODIES) == bodyCount);
+                for (int star = 0; star < bodyCount; star++) {
+                    assert(memcmp(&bodies[star], &snapshotBodies[star],
+                                  sizeof(bodies[star])) == 0);
                 }
                 for (int planet = 0; planet < system.planetCount; planet++) {
                     PlanetProfile profile = SolarPlanetProfile(&system, planet);
@@ -575,6 +589,7 @@ static void TestSaveLoadTimeDeterminism(void)
     assert(afterSystem.anchorX == beforeSystem.anchorX);
     assert(afterSystem.anchorZ == beforeSystem.anchorZ);
     assert(afterSystem.planetCount == beforeSystem.planetCount);
+    assert(memcmp(&afterSystem, &beforeSystem, sizeof(afterSystem)) == 0);
     AssertRelative(afterSystem.star.massKg, beforeSystem.star.massKg, 0.0);
     AssertRelative(afterSystem.star.radiusKm, beforeSystem.star.radiusKm, 0.0);
     AssertRelative(afterSystem.star.temperatureK, beforeSystem.star.temperatureK, 0.0);

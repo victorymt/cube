@@ -9,6 +9,7 @@
 #include "space_physics.h"
 #include "space_satellite.h"
 #include "space_system.h"
+#include "space_system_physics.h"
 #include "space_units.h"
 #include "world.h"
 
@@ -82,7 +83,6 @@ static int spaceOriginX = 0;
 static int spaceOriginZ = 0;
 
 static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection);
-static float SolarSystemMinimumPlanetOrbitGame(const SolarSystemDef *sys);
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed);
 
 #define SPACE_REBASE_THRESHOLD (STAR_SYSTEM_SPACING * 12)
@@ -336,16 +336,6 @@ static void BuildStarName(int ax, int az, char *out, size_t outSize)
     snprintf(out, outSize, "%s%s%s", starNamePart1[p1], starNamePart2[p2], starNamePart3[p3]);
 }
 
-static int StellarVisualRadius(const StellarProfile *star)
-{
-    if (!star || star->radiusKm <= 0.0) return 9;
-    float radiusSolar = (float)(star->radiusKm /
-                                SPACE_UNITS_SOLAR_RADIUS_KM);
-    float radius = 13.0f + 2.5f * log2f(radiusSolar);
-    float maximum = star->stage == STELLAR_STAGE_RED_GIANT ? 28.0f : 21.0f;
-    return (int)roundf(Clamp(radius, 7.0f, maximum));
-}
-
 static void ApplyPrimaryStar(SolarSystemDef *system, StellarProfile star)
 {
     system->star.spectrum = star.spectrum;
@@ -361,13 +351,7 @@ static void ApplyPrimaryStar(SolarSystemDef *system, StellarProfile star)
     system->star.mainSequenceLifetimeGyr = star.mainSequenceLifetimeGyr;
     system->star.luminousLifetimeGyr = star.luminousLifetimeGyr;
     system->spectrum = star.spectrum;
-    system->starProxyRadius = StellarVisualRadius(&star);
-}
-
-static float SolarSystemStarLuminosity(const SolarSystemDef *system)
-{
-    return system && system->star.luminositySolar > 0.0f ?
-           system->star.luminositySolar : 1.0f;
+    system->starProxyRadius = SolarSystemStellarVisualRadius(&star);
 }
 
 static double SolidPlanetRadiusKilometersForProxy(float proxyRadius)
@@ -417,11 +401,6 @@ static void BuildSolSystem(SolarSystemDef *out)
     }
 }
 
-static uint32_t SolarLightHash(const SolarSystemDef *sys)
-{
-    return WorldHash2D(sys->anchorX * 113 + 41, sys->anchorZ * 71 + 19);
-}
-
 static unsigned int SolarOrbitHash(const SolarSystemDef *sys, int index)
 {
     return WorldHash2D(sys->anchorX * 53 + index * 7 + 1,
@@ -453,8 +432,11 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     if (!sys || index < 0 || index >= sys->planetCount) return profile;
 
     const SolarPlanetDef *def = &sys->planets[index];
-    SolarSystemPhysicalSummary stellar;
-    if (!SolarSystemPhysicalSummaryForSystem(sys, &stellar)) return profile;
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    if (!snapshot) return profile;
+    const SolarSystemPhysicalSummary *stellar = &snapshot->summary;
 
     PlanetProfileGenerationInput input = {
         .seed = SolarPlanetWorldSeed(sys, index),
@@ -462,17 +444,17 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
         .physicalRadiusKm = def->physicalRadiusKm,
         .formationMassEarth = def->formationMassEarth,
         .spaceProxyRadius = def->spaceProxyRadius,
-        .stellarAgeGyr = stellar.ageGyr,
+        .stellarAgeGyr = stellar->ageGyr,
         .orbitalPeriodGameTime =
             (float)SolarSystemPlanetOrbitPeriodGameTime(sys, index),
-        .stellarCount = stellar.stellarCount,
+        .stellarCount = stellar->stellarCount,
         .planetIndex = index,
         .formationGasGiant = def->formationGasGiant,
         .forcedGasGiant =
             sys->anchorX == 0 && sys->anchorZ == 0 && index == 3
     };
     memcpy(input.stellarLuminositiesSolar,
-           stellar.stellarLuminositiesSolar,
+           stellar->stellarLuminositiesSolar,
            sizeof(input.stellarLuminositiesSolar));
     PlanetProfileGenerate(&input, &profile);
     return profile;
@@ -517,6 +499,9 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
     memset(out, 0, sizeof(*out));
     if (ax == 0 && az == 0) {
         BuildSolSystem(out);
+        if (!SolarSystemPhysicalSnapshotBuild(out, &out->physicalSnapshot)) {
+            return false;
+        }
         out->center.x = (float)SpaceGlobalToLocalX(0);
         out->center.z = (float)SpaceGlobalToLocalZ(0);
         for (int i = 0; i < out->planetCount; i++) {
@@ -680,183 +665,53 @@ double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index
         SolarSystemPlanetOrbitPeriodSeconds(sys, index));
 }
 
-static StellarProfile SolarCompanionProfile(const SolarSystemDef *system,
-                                            uint32_t seed, float minimumRatio,
-                                            float maximumRatio)
-{
-    float unit = (float)(seed & 0xffffu) / 65535.0f;
-    float ratio = Lerp(minimumRatio, maximumRatio, unit);
-    float primaryInitialMass = fmaxf(system->star.initialMassSolar, 0.08f);
-    float maximumMass = fmaxf(primaryInitialMass * 0.96f, 0.08f);
-    float companionMass = Clamp(primaryInitialMass * ratio, 0.08f, maximumMass);
-    StellarProfile companion = { 0 };
-    if (!StellarProfileAtAge(companionMass, system->star.ageGyr, seed,
-                             &companion)) {
-        StellarProfileAtAge(0.08f, system->star.ageGyr, seed, &companion);
-    }
-    return companion;
-}
-
-static int SolarSystemStellarCount(const SolarSystemDef *sys, uint32_t *outHash)
-{
-    if (!sys) return 0;
-    uint32_t hash = SolarLightHash(sys);
-    if (outHash) *outHash = hash;
-    float primaryMass = fmaxf(sys->star.massSolar, 0.08f);
-    unsigned int multipleRoll = hash % 1000u;
-    unsigned int binaryThreshold = primaryMass < 0.60f ? 250u :
-                                   (primaryMass < 1.40f ? 440u : 680u);
-    unsigned int tripleThreshold = primaryMass < 0.60f ? 30u :
-                                   (primaryMass < 1.40f ? 80u : 160u);
-    int count = multipleRoll < tripleThreshold ? 3 :
-                (multipleRoll < binaryThreshold ? 2 : 1);
-    if (sys->anchorX == 0 && sys->anchorZ == 0) count = 1;
-    return count;
-}
-
-static int SolarSystemStellarProfiles(const SolarSystemDef *sys,
-                                      StellarProfile *out, int maxCount,
-                                      uint32_t *outHash)
-{
-    if (!sys || !out || maxCount <= 0) return 0;
-    int count = SolarSystemStellarCount(sys, outHash);
-    if (count > maxCount) count = maxCount;
-    out[0] = sys->star;
-    if (count == 1) return count;
-
-    uint32_t hash = outHash ? *outHash : SolarLightHash(sys);
-    out[1] = SolarCompanionProfile(sys, hash ^ 0x94d049bbu, 0.18f, 0.92f);
-    if (count == 2) return count;
-    out[2] = SolarCompanionProfile(sys, hash ^ 0x369dea0fu, 0.10f, 0.62f);
-    return count;
-}
-
 bool SolarSystemPhysicalSummaryForSystem(
     const SolarSystemDef *sys, SolarSystemPhysicalSummary *out)
 {
-    if (!sys || !out) return false;
-    memset(out, 0, sizeof(*out));
-
-    StellarProfile profiles[SPACE_BARYCENTER_MAX_BODIES];
-    int count = SolarSystemStellarProfiles(sys, profiles,
-                                           SPACE_BARYCENTER_MAX_BODIES, NULL);
-    if (count <= 0 || count > MAX_SOLAR_LIGHTS) return false;
-
-    out->stellarCount = count;
-    out->ageGyr = sys->star.ageGyr;
-    for (int i = 0; i < count; i++) {
-        out->totalMassKg += profiles[i].massKg;
-        out->totalLuminositySolar += fmaxf(profiles[i].luminositySolar, 0.0f);
-        out->stellarLuminositiesSolar[i] = profiles[i].luminositySolar;
-    }
-    if (!(out->totalMassKg > 0.0)) {
-        out->totalMassKg = SPACE_UNITS_SOLAR_MASS_KG;
-    }
-    if (!(out->totalLuminositySolar > 0.0f)) {
-        out->totalLuminositySolar = SolarSystemStarLuminosity(sys);
-    }
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    if (!snapshot || !out) return false;
+    *out = snapshot->summary;
     return true;
-}
-
-static SpaceBarycenterOrbit SolarSystemStellarOrbit(
-    const SolarSystemDef *sys, const StellarProfile *profiles, int count,
-    uint32_t hash)
-{
-    SpaceBarycenterOrbit orbit = { .bodyCount = count };
-    for (int i = 0; i < count; i++) orbit.massKg[i] = profiles[i].massKg;
-    if (count <= 1) return orbit;
-
-    float innerSeparationGame = count == 3 ?
-        30.0f + (float)((hash >> 8) % 13u) :
-        34.0f + (float)((hash >> 8) % 25u);
-    orbit.innerSeparationKm = SpaceUnitsGameDistanceToKilometers(
-        innerSeparationGame);
-    orbit.innerPhaseRad = (double)(hash % 6283u) / 1000.0;
-    orbit.innerInclinationRad =
-        ((double)((hash >> 16) % 17u) - 8.0) * 0.004;
-    orbit.innerNodeRad = (double)((hash >> 4) % 6283u) / 1000.0;
-    if (count == 3) {
-        float outerRatio = 3.6f + (float)((hash >> 20) % 7u) * 0.1f;
-        orbit.outerSeparationKm = SpaceUnitsGameDistanceToKilometers(
-            innerSeparationGame * outerRatio);
-        orbit.outerPhaseRad = (double)((hash >> 5) % 6283u) / 1000.0;
-        orbit.outerInclinationRad =
-            ((double)((hash >> 25) % 15u) - 7.0) * 0.007;
-        orbit.outerNodeRad = (double)((hash >> 11) % 6283u) / 1000.0;
-    }
-    (void)sys;
-    return orbit;
 }
 
 double SolarSystemStellarMassKg(const SolarSystemDef *sys)
 {
-    SolarSystemPhysicalSummary summary;
-    return SolarSystemPhysicalSummaryForSystem(sys, &summary)
-        ? summary.totalMassKg : SPACE_UNITS_SOLAR_MASS_KG;
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    return snapshot ? snapshot->summary.totalMassKg :
+                      SPACE_UNITS_SOLAR_MASS_KG;
 }
 
 int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
                                    double simulationTime,
                                    SolarStellarBody *out, int maxCount)
 {
-    if (!sys || !out || maxCount <= 0) return 0;
-    StellarProfile profiles[SPACE_BARYCENTER_MAX_BODIES];
-    uint32_t hash = 0;
-    int count = SolarSystemStellarProfiles(sys, profiles,
-                                           SPACE_BARYCENTER_MAX_BODIES, &hash);
-    if (count <= 0 || count > maxCount) return 0;
-    SpaceBarycenterOrbit orbit = SolarSystemStellarOrbit(sys, profiles, count,
-                                                         hash);
-    SpaceBarycenterBodyState states[SPACE_BARYCENTER_MAX_BODIES];
-    if (SpaceBarycenterSolve(&orbit, simulationTime, states,
-                             SPACE_BARYCENTER_MAX_BODIES) != count) return 0;
-    for (int i = 0; i < count; i++) {
-        out[i] = (SolarStellarBody){
-            .center = Vector3Add(sys->center, states[i].offsetGame),
-            .velocity = states[i].velocityGame,
-            .stellar = profiles[i],
-            .spectrum = profiles[i].spectrum,
-            .spaceProxyRadius = i == 0 ? (float)sys->starProxyRadius :
-                                        (float)StellarVisualRadius(&profiles[i]),
-            .luminosity = profiles[i].luminositySolar,
-            .index = i,
-            .primary = i == 0
-        };
-    }
-    return count;
-}
-
-static float SolarSystemMinimumPlanetOrbitGame(const SolarSystemDef *sys)
-{
-    StellarProfile profiles[SPACE_BARYCENTER_MAX_BODIES];
-    uint32_t hash = 0;
-    int count = SolarSystemStellarProfiles(sys, profiles,
-                                           SPACE_BARYCENTER_MAX_BODIES, &hash);
-    if (count <= 1) return 180.0f;
-    SpaceBarycenterOrbit orbit = SolarSystemStellarOrbit(sys, profiles, count,
-                                                         hash);
-    double separationKm = count == 3 ? orbit.outerSeparationKm :
-                                       orbit.innerSeparationKm;
-    float minimum = (float)SpaceUnitsKilometersToGameDistance(separationKm) *
-                    (count == 3 ? 3.0f : 2.8f);
-    return fmaxf(180.0f, minimum);
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    return SolarSystemPhysicalSnapshotStellarBodiesAtTime(
+        sys, snapshot, simulationTime, out, maxCount);
 }
 
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
 {
     if (!sys) return false;
-    SolarSystemPhysicalSummary stellar;
-    if (!SolarSystemPhysicalSummaryForSystem(sys, &stellar)) return false;
+    SolarSystemPhysicalSnapshot snapshot;
+    if (!SolarSystemPhysicalSnapshotBuild(sys, &snapshot)) return false;
 
     SpaceSystemFormation formation;
     SpaceSystemFormationInput input = {
         .seed = seed,
         .stellarMassSolar =
-            (float)(stellar.totalMassKg / SPACE_UNITS_SOLAR_MASS_KG),
-        .stellarLuminositySolar = stellar.totalLuminositySolar,
-        .stellarAgeGyr = stellar.ageGyr,
-        .stellarCount = stellar.stellarCount,
-        .innerStabilityLimitGame = SolarSystemMinimumPlanetOrbitGame(sys),
+            (float)(snapshot.summary.totalMassKg /
+                    SPACE_UNITS_SOLAR_MASS_KG),
+        .stellarLuminositySolar = snapshot.summary.totalLuminositySolar,
+        .stellarAgeGyr = snapshot.summary.ageGyr,
+        .stellarCount = snapshot.summary.stellarCount,
+        .innerStabilityLimitGame = snapshot.minimumPlanetOrbitGame,
         .outerLimitGame = 650.0f
     };
     if (!SpaceSystemFormationGenerate(&input, &formation)) return false;
@@ -889,6 +744,7 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
             .formationGasGiant = planet->gasGiant
         };
     }
+    sys->physicalSnapshot = snapshot;
     return true;
 }
 

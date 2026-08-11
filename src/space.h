@@ -2,6 +2,7 @@
 #define VOXELCRAFT_SPACE_H
 
 #include "planet_profile.h"
+#include "space_barycenter.h"
 #include "stellar.h"
 #include "space_satellite.h"
 #include "types.h"
@@ -74,6 +75,23 @@ typedef struct SolarPlanetDef {
     bool formationGasGiant;
 } SolarPlanetDef;
 
+typedef struct SolarSystemPhysicalSummary {
+    int stellarCount;
+    double totalMassKg;
+    float totalLuminositySolar;
+    float stellarLuminositiesSolar[MAX_SOLAR_LIGHTS];
+    float ageGyr;
+} SolarSystemPhysicalSummary;
+
+typedef struct SolarSystemPhysicalSnapshot {
+    bool valid;
+    uint32_t stellarHash;
+    StellarProfile stellarProfiles[MAX_SOLAR_LIGHTS];
+    SpaceBarycenterOrbit stellarOrbit;
+    SolarSystemPhysicalSummary summary;
+    float minimumPlanetOrbitGame;
+} SolarSystemPhysicalSnapshot;
+
 typedef struct SolarSystemDef {
     bool exists;
     int anchorX;
@@ -90,15 +108,8 @@ typedef struct SolarSystemDef {
     double habitableZoneInnerKm;
     double habitableZoneOuterKm;
     SolarPlanetDef planets[6];
+    SolarSystemPhysicalSnapshot physicalSnapshot;
 } SolarSystemDef;
-
-typedef struct SolarSystemPhysicalSummary {
-    int stellarCount;
-    double totalMassKg;
-    float totalLuminositySolar;
-    float stellarLuminositiesSolar[MAX_SOLAR_LIGHTS];
-    float ageGyr;
-} SolarSystemPhysicalSummary;
 
 typedef struct SpaceBodyInfo {
     Vector3 center; // Scene position in game distance units.
