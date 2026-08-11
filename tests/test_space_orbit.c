@@ -167,8 +167,12 @@ static void TestOrbitProperties(void)
 
 static void TestHighEccentricityOrbit(void)
 {
-    static const double eccentricities[] = { 0.80, 0.95, 0.999, 0.999999 };
-    static const double phases[] = { -3.0, -0.001, 0.001, 3.0 };
+    static const double eccentricities[] = {
+        0.80, 0.95, 0.999, 0.999999, 0.9999999999999999
+    };
+    static const double phases[] = {
+        -3.0, -0.001, -1.0e-9, 0.0, 1.0e-9, 0.001, 3.0
+    };
     for (size_t eccentricityIndex = 0;
          eccentricityIndex < sizeof(eccentricities) / sizeof(eccentricities[0]);
          eccentricityIndex++) {

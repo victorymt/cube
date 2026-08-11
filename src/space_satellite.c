@@ -219,12 +219,13 @@ bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
     }
 
     double eccentricityScale = sqrt(
-        1.0 - orbit->eccentricity * orbit->eccentricity);
+        (1.0 - orbit->eccentricity) * (1.0 + orbit->eccentricity));
     if (!(eccentricityScale > 0.0) || !isfinite(eccentricityScale)) {
         return false;
     }
-    double eccentricAnomalyDenominator = 1.0 - orbit->eccentricity *
-                                         cos(eccentricAnomaly);
+    double eccentricAnomalyDenominator =
+        SpaceUnitsEccentricAnomalyDerivative(eccentricAnomaly,
+                                             orbit->eccentricity);
     if (!(eccentricAnomalyDenominator > 0.0) ||
         !isfinite(eccentricAnomalyDenominator)) {
         return false;

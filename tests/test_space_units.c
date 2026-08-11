@@ -87,8 +87,14 @@ static void TestMeanAnomalyTime(void)
 
 static void TestEccentricAnomalySolver(void)
 {
-    static const double eccentricities[] = { 0.0, 0.35, 0.8, 0.999999 };
-    static const double meanAnomalies[] = { -3.5, -0.001, 0.001, 3.5 };
+    static const double eccentricities[] = {
+        0.0, 0.35, 0.8, 0.999999, 0.999999999999,
+        0.9999999999999999
+    };
+    static const double meanAnomalies[] = {
+        -1.0e12, -3.5, -0.001, -1.0e-9, 0.0, 1.0e-9, 0.001, 3.5,
+        1.0e12
+    };
     for (size_t eccentricityIndex = 0;
          eccentricityIndex < sizeof(eccentricities) /
                              sizeof(eccentricities[0]); eccentricityIndex++) {
@@ -107,11 +113,12 @@ static void TestEccentricAnomalySolver(void)
             } else if (normalizedMeanAnomaly < -3.14159265358979323846) {
                 normalizedMeanAnomaly += 2.0 * 3.14159265358979323846;
             }
-            double residual = eccentricAnomaly -
-                              eccentricities[eccentricityIndex] *
-                              sin(eccentricAnomaly) - normalizedMeanAnomaly;
+            long double residual = (long double)eccentricAnomaly -
+                (long double)eccentricities[eccentricityIndex] *
+                sinl((long double)eccentricAnomaly) -
+                (long double)normalizedMeanAnomaly;
             assert(isfinite(eccentricAnomaly));
-            assert(fabs(residual) <= 1e-12);
+            assert(fabsl(residual) <= 2e-12L);
         }
     }
     double eccentricAnomaly = 42.0;
@@ -119,6 +126,13 @@ static void TestEccentricAnomalySolver(void)
     assert(eccentricAnomaly == 0.0);
     assert(!SpaceUnitsSolveEccentricAnomaly(0.0, 1.0, &eccentricAnomaly));
     assert(!SpaceUnitsSolveEccentricAnomaly(0.0, 0.5, NULL));
+
+    double nearParabolicEccentricity = 0.9999999999999999;
+    double periapsisDerivative = SpaceUnitsEccentricAnomalyDerivative(
+        0.0, nearParabolicEccentricity);
+    assert(periapsisDerivative == 1.0 - nearParabolicEccentricity);
+    assert(SpaceUnitsEccentricAnomalyDerivative(
+               NAN, nearParabolicEccentricity) == 0.0);
 }
 
 static void TestGravityConstants(void)

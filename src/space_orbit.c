@@ -233,13 +233,18 @@ bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
     }
 
     double eccentricityScale = sqrt(
-        1.0 - orbit->eccentricity * orbit->eccentricity);
+        (1.0 - orbit->eccentricity) * (1.0 + orbit->eccentricity));
     double semiMajorAxisGame = SpaceUnitsKilometersToGameDistance(
         orbit->semiMajorAxisKm);
     double sine = sin(eccentricAnomaly);
     double cosine = cos(eccentricAnomaly);
+    double eccentricAnomalyDenominator =
+        SpaceUnitsEccentricAnomalyDerivative(eccentricAnomaly,
+                                             orbit->eccentricity);
+    if (!(eccentricAnomalyDenominator > 0.0)) return false;
     double eccentricAnomalyRate = meanMotion /
-        (1.0 - orbit->eccentricity * cosine);
+                                  eccentricAnomalyDenominator;
+    if (!isfinite(eccentricAnomalyRate)) return false;
 
     out->positionGame = SpaceKeplerRotateFromOrbitalPlane(
         semiMajorAxisGame * (cosine - orbit->eccentricity),

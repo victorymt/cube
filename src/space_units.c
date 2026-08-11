@@ -1,5 +1,6 @@
 #include "space_units.h"
 
+#include <float.h>
 #include <math.h>
 
 #define SPACE_UNITS_PI 3.14159265358979323846
@@ -129,6 +130,45 @@ double SpaceUnitsKeplerMeanMotionGame(double semiMajorAxisKm,
         radiansPerSecond * SPACE_UNITS_SECONDS_PER_GAME_TIME);
 }
 
+static double SpaceUnitsKeplerResidual(double eccentricAnomaly,
+                                       double eccentricity,
+                                       double meanAnomaly)
+{
+    double absoluteAnomaly = fabs(eccentricAnomaly);
+    if (absoluteAnomaly < 0.125) {
+        double squared = eccentricAnomaly * eccentricAnomaly;
+        double anomalyMinusSine = eccentricAnomaly * squared *
+            (1.0 / 6.0 - squared / 120.0 +
+             squared * squared / 5040.0);
+        return (1.0 - eccentricity) * eccentricAnomaly +
+               eccentricity * anomalyMinusSine - meanAnomaly;
+    }
+    return eccentricAnomaly - eccentricity * sin(eccentricAnomaly) -
+           meanAnomaly;
+}
+
+double SpaceUnitsEccentricAnomalyDerivative(double eccentricAnomalyRad,
+                                            double eccentricity)
+{
+    if (!isfinite(eccentricAnomalyRad) || !isfinite(eccentricity) ||
+        eccentricity < 0.0 || eccentricity >= 1.0) {
+        return 0.0;
+    }
+    double halfSine = sin(eccentricAnomalyRad * 0.5);
+    return SpaceUnitsPositiveFiniteOrZero(
+        (1.0 - eccentricity) +
+        2.0 * eccentricity * halfSine * halfSine);
+}
+
+static bool SpaceUnitsKeplerConverged(double residual, double derivative,
+                                      double eccentricAnomaly)
+{
+    double angleTolerance = 8.0 * DBL_EPSILON *
+                            fmax(1.0, fabs(eccentricAnomaly));
+    return isfinite(residual) && isfinite(derivative) && derivative > 0.0 &&
+           fabs(residual) <= angleTolerance * derivative;
+}
+
 bool SpaceUnitsSolveEccentricAnomaly(double meanAnomalyRad,
                                      double eccentricity,
                                      double *outEccentricAnomalyRad)
@@ -140,32 +180,58 @@ bool SpaceUnitsSolveEccentricAnomaly(double meanAnomalyRad,
         return false;
     }
 
-    if (meanAnomalyRad > SPACE_UNITS_PI) {
-        meanAnomalyRad -= SPACE_UNITS_TWO_PI;
-    } else if (meanAnomalyRad < -SPACE_UNITS_PI) {
-        meanAnomalyRad += SPACE_UNITS_TWO_PI;
+    meanAnomalyRad = fmod(meanAnomalyRad, SPACE_UNITS_TWO_PI);
+    if (!isfinite(meanAnomalyRad)) return false;
+    if (meanAnomalyRad > SPACE_UNITS_PI) meanAnomalyRad -= SPACE_UNITS_TWO_PI;
+    if (meanAnomalyRad < -SPACE_UNITS_PI) meanAnomalyRad += SPACE_UNITS_TWO_PI;
+    if (meanAnomalyRad == 0.0 || fabs(meanAnomalyRad) == SPACE_UNITS_PI) {
+        *outEccentricAnomalyRad = meanAnomalyRad;
+        return true;
     }
+
+    double lower = -SPACE_UNITS_PI;
+    double upper = SPACE_UNITS_PI;
     double eccentricAnomaly = eccentricity < 0.8
         ? meanAnomalyRad
         : (meanAnomalyRad < 0.0 ? -SPACE_UNITS_PI : SPACE_UNITS_PI);
     for (int iteration = 0; iteration < 16; iteration++) {
-        double sine = sin(eccentricAnomaly);
-        double cosine = cos(eccentricAnomaly);
-        double denominator = 1.0 - eccentricity * cosine;
-        if (!(denominator > 0.0) || !isfinite(denominator)) return false;
-        double correction = (eccentricAnomaly - eccentricity * sine -
-                             meanAnomalyRad) / denominator;
-        if (!isfinite(correction)) return false;
-        eccentricAnomaly -= correction;
-        if (!isfinite(eccentricAnomaly)) return false;
-        if (fabs(correction) < 1e-13) {
-            double residual = eccentricAnomaly -
-                              eccentricity * sin(eccentricAnomaly) -
-                              meanAnomalyRad;
-            if (!isfinite(residual) || fabs(residual) > 1e-12) return false;
+        double residual = SpaceUnitsKeplerResidual(
+            eccentricAnomaly, eccentricity, meanAnomalyRad);
+        double derivative = SpaceUnitsEccentricAnomalyDerivative(
+            eccentricAnomaly, eccentricity);
+        if (SpaceUnitsKeplerConverged(residual, derivative,
+                                     eccentricAnomaly)) {
             *outEccentricAnomalyRad = eccentricAnomaly;
             return true;
         }
+        if (!isfinite(residual) || !(derivative > 0.0) ||
+            !isfinite(derivative)) {
+            return false;
+        }
+
+        if (residual < 0.0) lower = eccentricAnomaly;
+        else upper = eccentricAnomaly;
+        double next = eccentricAnomaly - residual / derivative;
+        if (!isfinite(next) || next <= lower || next >= upper) break;
+        eccentricAnomaly = next;
+    }
+
+    for (int iteration = 0; iteration < 64; iteration++) {
+        eccentricAnomaly = lower + (upper - lower) * 0.5;
+        double residual = SpaceUnitsKeplerResidual(
+            eccentricAnomaly, eccentricity, meanAnomalyRad);
+        double derivative = SpaceUnitsEccentricAnomalyDerivative(
+            eccentricAnomaly, eccentricity);
+        if (!isfinite(residual) || !(derivative > 0.0)) return false;
+        if (SpaceUnitsKeplerConverged(residual, derivative,
+                                     eccentricAnomaly) ||
+            upper - lower <= 8.0 * DBL_EPSILON *
+                             fmax(1.0, fabs(eccentricAnomaly))) {
+            *outEccentricAnomalyRad = eccentricAnomaly;
+            return true;
+        }
+        if (residual < 0.0) lower = eccentricAnomaly;
+        else upper = eccentricAnomaly;
     }
     return false;
 }

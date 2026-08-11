@@ -45,6 +45,8 @@ double SpaceUnitsGravitationalParameterGame(double massKg);
 double SpaceUnitsSurfaceGravityKmPerSecondSquared(double massKg, double radiusKm);
 double SpaceUnitsKeplerMeanMotionGame(double semiMajorAxisKm,
                                       double centralMassKg);
+double SpaceUnitsEccentricAnomalyDerivative(double eccentricAnomalyRad,
+                                            double eccentricity);
 bool SpaceUnitsSolveEccentricAnomaly(double meanAnomalyRad,
                                      double eccentricity,
                                      double *outEccentricAnomalyRad);
