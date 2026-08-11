@@ -86,6 +86,7 @@ typedef struct PlanetLocalEcology {
         float harvestStress;
         float faunaStress;
         float faunaNetRecoveryRate;
+        float radiationMemory;
     } diagnostics;
 } PlanetLocalEcology;
 

@@ -322,6 +322,11 @@ PlanetRegionalPopulation PlanetPopulationInitialize(
                             result.floraCarryingCapacity) : 0.0f;
     result.faunaDensity = result.faunaCarryingCapacity *
         EcologyModelFiniteUnit(faunaOccupancy) * floraPresence;
+    float radiationExposure = EcologyModelFiniteUnit(
+        input->radiationExposure);
+    float ejectaExposure = EcologyModelFiniteUnit(input->ejectaExposure);
+    result.radiationMemory = EcologyModelClamp(
+        (radiationExposure * 0.78f + ejectaExposure * 0.22f) * 0.18f);
     return result;
 }
 
@@ -350,6 +355,17 @@ void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
 
     float floraCapacity = EcologyModelFiniteUnit(input->floraCapacity);
     float faunaCapacity = EcologyModelFiniteUnit(input->faunaCapacity);
+    float currentRadiation = EcologyModelClamp(
+        EcologyModelFiniteUnit(input->radiationExposure) * 0.78f +
+        EcologyModelFiniteUnit(input->ejectaExposure) * 0.22f);
+    float radiationAlpha = EcologyModelResponseAlpha(elapsedTime, 720.0f);
+    population->radiationMemory = EcologyModelLerp(
+        EcologyModelFiniteUnit(population->radiationMemory),
+        currentRadiation, radiationAlpha);
+    float radiationRecovery = EcologyModelClamp(
+        1.0f - EcologyModelFiniteUnit(population->radiationMemory) * 0.72f);
+    floraCapacity *= radiationRecovery;
+    faunaCapacity *= 0.55f + radiationRecovery * 0.45f;
     float floraActivity = floraCapacity > 0.0001f
         ? EcologyModelFiniteUnit(input->floraActivity / floraCapacity) : 0.0f;
     float faunaActivity = faunaCapacity > 0.0001f
@@ -387,6 +403,13 @@ void PlanetPopulationAdvance(PlanetRegionalPopulation *population,
     population->faunaDensity = EcologyModelLerp(
         EcologyModelFiniteUnit(population->faunaDensity), faunaTarget,
         EcologyModelResponseAlpha(elapsedTime, faunaTimeConstant));
+    float radiationDamage = EcologyModelFiniteUnit(
+        population->radiationMemory) *
+        EcologyModelResponseAlpha(elapsedTime, 420.0f);
+    population->floraDensity = EcologyModelFiniteUnit(
+        population->floraDensity) * (1.0f - radiationDamage * 0.18f);
+    population->faunaDensity = EcologyModelFiniteUnit(
+        population->faunaDensity) * (1.0f - radiationDamage * 0.30f);
     population->faunaHarvestPressure = PlanetFaunaHarvestPressureAdvance(
         population->faunaHarvestPressure, elapsedTime);
 }
@@ -454,7 +477,11 @@ float PlanetPopulationFaunaNetRate(
 {
     if (!population || !input) return 0.0f;
     float density = EcologyModelFiniteUnit(population->faunaDensity);
-    float target = EcologyModelFaunaTarget(population, input);
+    PlanetPopulationInput adjusted = *input;
+    float radiationRecovery = EcologyModelClamp(
+        1.0f - EcologyModelFiniteUnit(population->radiationMemory) * 0.72f);
+    adjusted.faunaCapacity *= 0.55f + radiationRecovery * 0.45f;
+    float target = EcologyModelFaunaTarget(population, &adjusted);
     float timeConstant = target >= density ? 360.0f : 85.0f;
     float growthRate = (target - density) / timeConstant;
     float mortalityRate = density * EcologyModelFiniteUnit(faunaStress) *

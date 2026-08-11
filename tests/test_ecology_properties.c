@@ -306,6 +306,7 @@ static void AssertPopulationValid(const PlanetRegionalPopulation *population)
     AssertUnit(population->floraCarryingCapacity);
     AssertUnit(population->faunaCarryingCapacity);
     AssertUnit(population->seasonalMemory);
+    AssertUnit(population->radiationMemory);
 }
 
 static void AssertMigrationValid(

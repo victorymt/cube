@@ -477,6 +477,7 @@ static void AssertPopulationValid(PlanetRegionalPopulation population)
     ASSERT_POPULATION_UNIT(faunaCarryingCapacity);
     ASSERT_POPULATION_UNIT(seasonalMemory);
     ASSERT_POPULATION_UNIT(faunaHarvestPressure);
+    ASSERT_POPULATION_UNIT(radiationMemory);
 #undef ASSERT_POPULATION_UNIT
     float floraPresence = PlanetPopulationFloraPresence(&population);
     float faunaPresence = PlanetPopulationFaunaPresence(&population);
@@ -599,6 +600,41 @@ static void TestPopulationDisturbanceAndRecovery(void)
     PlanetRegionalPopulation unchanged = healthy;
     PlanetPopulationApplyDisturbance(&unchanged, 1.0f, 1.0f, 0.0);
     assert(memcmp(&unchanged, &healthy, sizeof(healthy)) == 0);
+}
+
+static void TestPopulationRadiationMemory(void)
+{
+    PlanetPopulationInput cleanInput = {
+        .floraCapacity = 0.86f,
+        .faunaCapacity = 0.64f,
+        .floraActivity = 0.80f,
+        .faunaActivity = 0.58f
+    };
+    PlanetPopulationInput exposedInput = cleanInput;
+    exposedInput.radiationExposure = 0.92f;
+    exposedInput.ejectaExposure = 0.68f;
+
+    PlanetRegionalPopulation clean = PlanetPopulationInitialize(
+        &cleanInput, 0.82f, 0.70f);
+    PlanetRegionalPopulation exposed = PlanetPopulationInitialize(
+        &exposedInput, 0.82f, 0.70f);
+    assert(exposed.radiationMemory > clean.radiationMemory);
+    PlanetPopulationAdvance(&clean, &cleanInput, 600.0);
+    PlanetPopulationAdvance(&exposed, &exposedInput, 600.0);
+    AssertPopulationValid(clean);
+    AssertPopulationValid(exposed);
+    assert(exposed.radiationMemory > 0.20f);
+    assert(exposed.floraDensity < clean.floraDensity);
+    assert(exposed.faunaDensity < clean.faunaDensity);
+
+    float damagedMemory = exposed.radiationMemory;
+    float damagedFlora = exposed.floraDensity;
+    float damagedFauna = exposed.faunaDensity;
+    PlanetPopulationAdvance(&exposed, &cleanInput, 1200.0);
+    AssertPopulationValid(exposed);
+    assert(exposed.radiationMemory < damagedMemory);
+    assert(exposed.floraDensity > damagedFlora);
+    assert(exposed.faunaDensity > damagedFauna);
 }
 
 static void TestRandomizedPopulationDisturbanceProperties(void)
@@ -1180,6 +1216,7 @@ int main(void)
     TestPopulationSeasonalLag();
     TestPopulationDeterminismAndFoodChain();
     TestPopulationDisturbanceAndRecovery();
+    TestPopulationRadiationMemory();
     TestRandomizedPopulationDisturbanceProperties();
     TestFaunaHarvestPressureModel();
     TestRandomizedFaunaHarvestProperties();

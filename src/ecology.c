@@ -182,10 +182,14 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
         .floraCapacity = local.suitability.floraCapacity,
         .faunaCapacity = local.suitability.faunaCapacity,
         .floraActivity = local.suitability.floraActivity,
-        .faunaActivity = local.suitability.faunaActivity
+        .faunaActivity = local.suitability.faunaActivity,
+        .radiationExposure = local.environment.radiationExposure,
+        .ejectaExposure = local.environment.ejectaExposure
     };
     local.diagnostics.faunaNetRecoveryRate = PlanetPopulationFaunaNetRate(
         &population, &populationInput, local.diagnostics.faunaStress);
+    local.diagnostics.radiationMemory = EcologyClamp(
+        population.radiationMemory);
     float floraPresence = PlanetPopulationFloraPresence(&population);
     float faunaPresence = PlanetPopulationFaunaPresence(&population);
     local.suitability.floraActivity = EcologyClamp(

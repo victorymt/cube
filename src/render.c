@@ -2817,12 +2817,13 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             ecology.diagnostics.faunaStress,
                             ecology.diagnostics.faunaNetRecoveryRate),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Population flora %.2f/%.2f   fauna %.2f/%.2f   memory %.2f",
+        DrawText(TextFormat("Population flora %.2f/%.2f   fauna %.2f/%.2f   seasonal %.2f   radiation memory %.2f",
                             ecology.population.floraDensity,
                             ecology.population.floraCarryingCapacity,
                             ecology.population.faunaDensity,
                             ecology.population.faunaCarryingCapacity,
-                            ecology.population.seasonalMemory),
+                            ecology.population.seasonalMemory,
+                            ecology.diagnostics.radiationMemory),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
         DrawText(TextFormat("Migration net flora %+.3f   fauna %+.3f",
                             ecology.migration.floraNet,
@@ -2834,12 +2835,14 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             ecology.migration.faunaFlowX,
                             ecology.migration.faunaFlowZ),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Climate %.0f/%.0f K   light %.2f/%.2f   storm %.2f",
+        DrawText(TextFormat("Climate %.0f/%.0f K   light %.2f/%.2f   storm %.2f   radiation %.2f   ejecta %.2f",
                             ecology.environment.meanTemperatureK,
                             ecology.environment.currentTemperatureK,
                             ecology.environment.meanUsableLight,
                             ecology.environment.currentUsableLight,
-                            ecology.environment.currentStorm),
+                            ecology.environment.currentStorm,
+                            ecology.environment.radiationExposure,
+                            ecology.environment.ejectaExposure),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
         DrawText(TextFormat("Terrain elevation %.2f   slope %.2f   shelter %.2f",
                             ecology.environment.elevation,

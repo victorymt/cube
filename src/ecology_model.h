@@ -97,6 +97,8 @@ typedef struct PlanetPopulationInput {
     float faunaCapacity;
     float floraActivity;
     float faunaActivity;
+    float radiationExposure;
+    float ejectaExposure;
 } PlanetPopulationInput;
 
 typedef struct PlanetRegionalPopulation {
@@ -106,6 +108,7 @@ typedef struct PlanetRegionalPopulation {
     float faunaCarryingCapacity;
     float seasonalMemory;
     float faunaHarvestPressure;
+    float radiationMemory;
 } PlanetRegionalPopulation;
 
 typedef struct PlanetMigrationHabitat {

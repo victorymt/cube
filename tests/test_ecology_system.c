@@ -54,7 +54,12 @@ static void AssertLocalEcologyEqual(PlanetLocalEcology actual,
     ASSERT_POPULATION_UNIT(floraCarryingCapacity);
     ASSERT_POPULATION_UNIT(faunaCarryingCapacity);
     ASSERT_POPULATION_UNIT(seasonalMemory);
+    ASSERT_POPULATION_UNIT(radiationMemory);
 #undef ASSERT_POPULATION_UNIT
+
+    assert(isfinite(actual.diagnostics.radiationMemory));
+    assert(actual.diagnostics.radiationMemory >= 0.0f &&
+           actual.diagnostics.radiationMemory <= 1.0f);
 
 #define ASSERT_MIGRATION_SIGNED_UNIT(field)                                \
     assert(isfinite(actual.migration.field) &&                             \
@@ -587,9 +592,20 @@ static void TestEcologyRespondsToRemnantExposure(void)
     assert(environment.active && environment.remnantCount == 1);
     assert(local.environment.radiationExposure > 0.0f);
     assert(local.environment.ejectaExposure >= 0.0f);
+    assert(local.population.radiationMemory > 0.0f);
     assert(local.suitability.radiationScore < 1.0f);
     PlanetLocalEcology repeated = PlanetEcologyLocalAt(420, 75, 0.72f);
     assert(memcmp(&local, &repeated, sizeof(local)) == 0);
+
+    FILE *ecologySaved = tmpfile();
+    assert(ecologySaved);
+    assert(PlanetEcologySaveState(ecologySaved));
+    PlanetEcologyResetState();
+    rewind(ecologySaved);
+    assert(PlanetEcologyLoadState(ecologySaved));
+    PlanetLocalEcology restored = PlanetEcologyLocalAt(420, 75, 0.72f);
+    assert(memcmp(&local, &restored, sizeof(local)) == 0);
+    fclose(ecologySaved);
 
     FILE *saved = tmpfile();
     assert(saved);
@@ -919,6 +935,7 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     float upgradedPopulation[5] = { 0 };
     float upgradedMigration[6] = { 0 };
     float upgradedPressure = -1.0f;
+    float upgradedRadiationMemory = -1.0f;
     assert(fread(upgradedHeader, sizeof(upgradedHeader), 1, upgraded) == 1);
     assert(fread(&upgradedAccessSerial,
                  sizeof(upgradedAccessSerial), 1, upgraded) == 1);
@@ -936,7 +953,9 @@ static void TestEcologyLegacyPopulationStateLoad(void)
                  sizeof(upgradedMigration), 1, upgraded) == 1);
     assert(fread(&upgradedPressure,
                  sizeof(upgradedPressure), 1, upgraded) == 1);
-    assert(upgradedHeader[0] == 3u && upgradedHeader[1] == 1u);
+    assert(fread(&upgradedRadiationMemory,
+                 sizeof(upgradedRadiationMemory), 1, upgraded) == 1);
+    assert(upgradedHeader[0] == 4u && upgradedHeader[1] == 1u);
     assert(upgradedAccessSerial == accessSerial);
     assert(upgradedSurfaceId == surfaceId);
     assert(memcmp(upgradedCoordinates, coordinates,
@@ -948,6 +967,7 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     assert(memcmp(upgradedMigration, migration,
                   sizeof(migration)) == 0);
     assert(upgradedPressure == 0.0f);
+    assert(upgradedRadiationMemory == 0.0f);
 
     FILE *invalid = tmpfile();
     assert(invalid);

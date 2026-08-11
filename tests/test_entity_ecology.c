@@ -217,9 +217,11 @@ static void AssertEntityLocalEcologyValid(const PlanetLocalEcology *local)
     AssertUnitValue(local->population.faunaCarryingCapacity);
     AssertUnitValue(local->population.seasonalMemory);
     AssertUnitValue(local->population.faunaHarvestPressure);
+    AssertUnitValue(local->population.radiationMemory);
     AssertUnitValue(local->diagnostics.habitatStress);
     AssertUnitValue(local->diagnostics.harvestStress);
     AssertUnitValue(local->diagnostics.faunaStress);
+    AssertUnitValue(local->diagnostics.radiationMemory);
     assert(isfinite(local->diagnostics.faunaNetRecoveryRate));
     assert(local->diagnostics.faunaNetRecoveryRate >= -1.0f &&
            local->diagnostics.faunaNetRecoveryRate <= 1.0f);
