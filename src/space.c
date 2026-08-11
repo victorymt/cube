@@ -62,6 +62,7 @@ typedef struct PlanetWorldContext {
     Vector3 returnPosition;
     float spaceProxyRadius;
     SpaceRemnantEnvironment remnantEnvironment;
+    double remnantEnvironmentSimulationTime;
     char name[32];
 } PlanetWorldContext;
 
@@ -302,10 +303,37 @@ const PlanetProfile *PlanetWorldProfile(void)
     return &planetWorld.profile;
 }
 
+static SpaceRemnantEnvironment PlanetWorldCurrentRemnantEnvironment(void)
+{
+    if (!planetWorld.active) return (SpaceRemnantEnvironment){ 0 };
+    double simulationTime = SpaceElapsedSimulationTime();
+    if (planetWorld.remnantEnvironmentSimulationTime == simulationTime) {
+        return planetWorld.remnantEnvironment;
+    }
+
+    int systemAx = SpaceAnchorForLocalCoordinate(
+        planetWorld.bodyCenter.x, spaceOriginX);
+    int systemAz = SpaceAnchorForLocalCoordinate(
+        planetWorld.bodyCenter.z, spaceOriginZ);
+    int orbitIndex = planetWorld.planetIndex - 1;
+    SolarSystemDef system;
+    SolarSystemRuntimeState runtime;
+    if (orbitIndex >= 0 && StarSystemAt(systemAx, systemAz, &system) &&
+        SolarSystemEvaluateAtElapsedTime(&system, simulationTime, &runtime) &&
+        orbitIndex < runtime.planetCount && runtime.planets[orbitIndex].valid &&
+        runtime.planets[orbitIndex].profile.seed == planetWorld.profile.seed &&
+        runtime.planets[orbitIndex].profile.receivedIrradiance ==
+            planetWorld.profile.receivedIrradiance) {
+        planetWorld.remnantEnvironment =
+            runtime.planets[orbitIndex].remnantEnvironment;
+    }
+    planetWorld.remnantEnvironmentSimulationTime = simulationTime;
+    return planetWorld.remnantEnvironment;
+}
+
 SpaceRemnantEnvironment PlanetWorldRemnantEnvironment(void)
 {
-    return planetWorld.active ? planetWorld.remnantEnvironment
-                              : (SpaceRemnantEnvironment){ 0 };
+    return PlanetWorldCurrentRemnantEnvironment();
 }
 
 float PlanetWorldGravityScale(void)
@@ -3208,6 +3236,7 @@ static void PlanetWorldActivate(const SpaceBodyInfo *body, Vector3 approachPosit
     next.returnPosition = PlanetReturnPosition(body->center,
                                                next.spaceProxyRadius, outward);
     next.remnantEnvironment = body->remnantEnvironment;
+    next.remnantEnvironmentSimulationTime = -1.0;
 
     DrainChunkGen();
     UnloadAllChunks();
@@ -3522,6 +3551,8 @@ bool PlanetProfileLoadState(FILE *file, PlanetProfile *outProfile)
 
 bool PlanetWorldSaveState(FILE *file)
 {
+    SpaceRemnantEnvironment currentRemnant =
+        PlanetWorldCurrentRemnantEnvironment();
     uint8_t version = PLANET_WORLD_STATE_VERSION;
     uint8_t active = planetWorld.active ? 1u : 0u;
     uint32_t style = (uint32_t)planetWorld.style;
@@ -3532,14 +3563,14 @@ bool PlanetWorldSaveState(FILE *file)
                             planetWorld.bodyCenter.z };
     float returnPosition[3] = { planetWorld.returnPosition.x, planetWorld.returnPosition.y,
                                 planetWorld.returnPosition.z };
-    uint8_t remnantActive = planetWorld.remnantEnvironment.active ? 1u : 0u;
-    int32_t remnantCount = planetWorld.remnantEnvironment.remnantCount;
-    float remnantHazard = planetWorld.remnantEnvironment.radiationHazard;
-    float remnantEjecta = planetWorld.remnantEnvironment.ejectaDensity;
-    float remnantShell = planetWorld.remnantEnvironment.nearestShellDistanceGame;
+    uint8_t remnantActive = currentRemnant.active ? 1u : 0u;
+    int32_t remnantCount = currentRemnant.remnantCount;
+    float remnantHazard = currentRemnant.radiationHazard;
+    float remnantEjecta = currentRemnant.ejectaDensity;
+    float remnantShell = currentRemnant.nearestShellDistanceGame;
 
     if (!file || !PlanetProfileIsValid(&planetWorld.profile) ||
-        !SpaceRemnantEnvironmentIsValid(&planetWorld.remnantEnvironment)) {
+        !SpaceRemnantEnvironmentIsValid(&currentRemnant)) {
         return false;
     }
 
@@ -3638,6 +3669,7 @@ bool PlanetWorldLoadState(FILE *file)
         .ejectaDensity = remnantEjecta,
         .nearestShellDistanceGame = remnantShell
     };
+    loaded.remnantEnvironmentSimulationTime = -1.0;
     if (!SpaceRemnantEnvironmentIsValid(&loaded.remnantEnvironment)) {
         return false;
     }
