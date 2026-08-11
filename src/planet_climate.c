@@ -24,6 +24,33 @@ typedef struct ClimateFeedback {
     float opticalDepth;
 } ClimateFeedback;
 
+static bool PlanetClimateStateIsValid(const PlanetClimateState *state)
+{
+    return state && isfinite(state->surfacePressureAtm) &&
+           state->surfacePressureAtm >= 0.0f &&
+           isfinite(state->atmosphereDensity) &&
+           state->atmosphereDensity >= 0.0f &&
+           state->atmosphereDensity <= 1.0f && isfinite(state->albedo) &&
+           state->albedo >= 0.03f && state->albedo <= 0.88f &&
+           isfinite(state->greenhouseOpticalDepth) &&
+           state->greenhouseOpticalDepth >= 0.0f &&
+           state->greenhouseOpticalDepth <= 3.0f &&
+           isfinite(state->radiativeTemperatureK) &&
+           state->radiativeTemperatureK > 0.0f &&
+           isfinite(state->surfaceTemperatureK) &&
+           state->surfaceTemperatureK >= state->radiativeTemperatureK &&
+           isfinite(state->liquidWaterCoverage) &&
+           state->liquidWaterCoverage >= 0.0f &&
+           state->liquidWaterCoverage <= 1.0f &&
+           isfinite(state->iceCoverage) && state->iceCoverage >= 0.0f &&
+           state->iceCoverage <= 1.0f && isfinite(state->cloudCoverage) &&
+           state->cloudCoverage >= 0.0f && state->cloudCoverage <= 1.0f &&
+           isfinite(state->windStrength) && state->windStrength >= 0.0f &&
+           state->windStrength <= 1.0f &&
+           isfinite(state->absorbedIrradianceEarth) &&
+           state->absorbedIrradianceEarth > 0.0;
+}
+
 static ClimateFeedback ClimateFeedbackAt(
     const PlanetClimateInput *input, float pressureAtm, float atmosphereDensity,
     float waterInventory, float surfaceTemperatureK)
@@ -172,7 +199,7 @@ bool PlanetClimateSolve(const PlanetClimateInput *input,
                   climate.tidalLockFactor * 0.22f);
     if (climate.gasGiant) wind += 0.28f;
 
-    *out = (PlanetClimateState){
+    PlanetClimateState solved = {
         .surfacePressureAtm = pressureAtm,
         .atmosphereDensity = atmosphereDensity,
         .albedo = albedo,
@@ -185,5 +212,7 @@ bool PlanetClimateSolve(const PlanetClimateInput *input,
         .windStrength = ClimateClamp(wind, 0.0f, 1.0f),
         .absorbedIrradianceEarth = absorbed
     };
+    if (!PlanetClimateStateIsValid(&solved)) return false;
+    *out = solved;
     return true;
 }

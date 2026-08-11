@@ -1,6 +1,7 @@
 #include "planet_climate.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -168,6 +169,12 @@ static void TestInvalidInputClearsOutput(void)
 
     input = EarthLikeInput();
     input.stellarIrradianceEarth = 0.0;
+    memset(&state, 0xa5, sizeof(state));
+    assert(!PlanetClimateSolve(&input, &state));
+    assert(memcmp(&state, &cleared, sizeof(state)) == 0);
+
+    input = EarthLikeInput();
+    input.stellarIrradianceEarth = DBL_MAX;
     memset(&state, 0xa5, sizeof(state));
     assert(!PlanetClimateSolve(&input, &state));
     assert(memcmp(&state, &cleared, sizeof(state)) == 0);
