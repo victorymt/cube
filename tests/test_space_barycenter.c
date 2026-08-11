@@ -137,6 +137,96 @@ static void TestHierarchicalTriple(void)
                132.0, 0.0002);
 }
 
+static void TestFreeFlight(void)
+{
+    SpaceBarycenterOrbit orbit = {
+        .bodyCount = 2,
+        .motion = SPACE_BARYCENTER_FREE_FLIGHT,
+        .massKg = { 1.0 * SPACE_UNITS_SOLAR_MASS_KG,
+                    0.5 * SPACE_UNITS_SOLAR_MASS_KG },
+        .freeFlightOffsetGame = {
+            { -13.333333f, 0.0f, 0.0f },
+            { 26.666666f, 0.0f, 0.0f }
+        },
+        .freeFlightVelocityGame = {
+            { -0.333333f, 0.1f, 0.0f },
+            { 0.666666f, -0.2f, 0.0f }
+        }
+    };
+    SpaceBarycenterBodyState initial[3];
+    SpaceBarycenterBodyState later[3];
+    assert(SpaceBarycenterSolve(&orbit, 0.0, initial, 3) == 2);
+    assert(SpaceBarycenterSolve(&orbit, 12.5, later, 3) == 2);
+    AssertBarycenterAtRest(&orbit, initial);
+    AssertBarycenterAtRest(&orbit, later);
+    assert(VectorLength(VectorSubtractTest(later[1].offsetGame,
+                                           later[0].offsetGame)) >
+           VectorLength(VectorSubtractTest(initial[1].offsetGame,
+                                           initial[0].offsetGame)));
+    for (int i = 0; i < 2; i++) {
+        assert(VectorLength(VectorSubtractTest(
+                   later[i].velocityGame,
+                   initial[i].velocityGame)) < 0.000001);
+    }
+}
+
+static void TestOuterFreeFlight(void)
+{
+    SpaceBarycenterOrbit orbit = {
+        .bodyCount = 3,
+        .motion = SPACE_BARYCENTER_OUTER_FREE_FLIGHT,
+        .massKg = { 1.0 * SPACE_UNITS_SOLAR_MASS_KG,
+                    0.5 * SPACE_UNITS_SOLAR_MASS_KG,
+                    0.25 * SPACE_UNITS_SOLAR_MASS_KG },
+        .innerSeparationKm = SpaceUnitsGameDistanceToKilometers(40.0),
+        .innerEccentricity = 0.24,
+        .innerPhaseRad = 0.7,
+        .innerArgumentPeriapsisRad = 1.2,
+        .innerInclinationRad = 0.17,
+        .innerNodeRad = 0.4,
+        .outerFreeOffsetGame = { 120.0f, -6.0f, 2.0f },
+        .outerFreeVelocityGame = { 0.25f, 0.02f, -0.08f }
+    };
+    SpaceBarycenterBodyState initial[3];
+    SpaceBarycenterBodyState later[3];
+    assert(SpaceBarycenterSolve(&orbit, 0.0, initial, 3) == 3);
+    assert(SpaceBarycenterSolve(&orbit, 20.0, later, 3) == 3);
+    AssertBarycenterAtRest(&orbit, initial);
+    AssertBarycenterAtRest(&orbit, later);
+
+    double innerMass = orbit.massKg[0] + orbit.massKg[1];
+    Vector3 initialInnerCenter = {
+        (float)((initial[0].offsetGame.x * orbit.massKg[0] +
+                 initial[1].offsetGame.x * orbit.massKg[1]) / innerMass),
+        (float)((initial[0].offsetGame.y * orbit.massKg[0] +
+                 initial[1].offsetGame.y * orbit.massKg[1]) / innerMass),
+        (float)((initial[0].offsetGame.z * orbit.massKg[0] +
+                 initial[1].offsetGame.z * orbit.massKg[1]) / innerMass)
+    };
+    Vector3 laterInnerCenter = {
+        (float)((later[0].offsetGame.x * orbit.massKg[0] +
+                 later[1].offsetGame.x * orbit.massKg[1]) / innerMass),
+        (float)((later[0].offsetGame.y * orbit.massKg[0] +
+                 later[1].offsetGame.y * orbit.massKg[1]) / innerMass),
+        (float)((later[0].offsetGame.z * orbit.massKg[0] +
+                 later[1].offsetGame.z * orbit.massKg[1]) / innerMass)
+    };
+    Vector3 initialOuter = VectorSubtractTest(initial[2].offsetGame,
+                                               initialInnerCenter);
+    Vector3 laterOuter = VectorSubtractTest(later[2].offsetGame,
+                                             laterInnerCenter);
+    Vector3 expectedOuter = {
+        orbit.outerFreeOffsetGame.x + orbit.outerFreeVelocityGame.x * 20.0f,
+        orbit.outerFreeOffsetGame.y + orbit.outerFreeVelocityGame.y * 20.0f,
+        orbit.outerFreeOffsetGame.z + orbit.outerFreeVelocityGame.z * 20.0f
+    };
+    assert(VectorLength(VectorSubtractTest(initialOuter,
+                                           orbit.outerFreeOffsetGame)) <
+           0.0001);
+    assert(VectorLength(VectorSubtractTest(laterOuter,
+                                           expectedOuter)) < 0.0001);
+}
+
 static void TestInvalidInputs(void)
 {
     SpaceBarycenterOrbit orbit = {
@@ -178,7 +268,17 @@ static void TestInvalidInputs(void)
     AssertStateZero(&states[0]);
     assert(SpaceBarycenterSolve(&orbit, 0.0, NULL, 3) == 0);
 
+    orbit.motion = (SpaceBarycenterMotion)99;
+    assert(SpaceBarycenterSolve(&orbit, 0.0, states, 3) == 0);
+    for (int i = 0; i < 3; i++) AssertStateZero(&states[i]);
+
+    orbit.motion = SPACE_BARYCENTER_FREE_FLIGHT;
+    orbit.freeFlightOffsetGame[0].x = NAN;
+    assert(SpaceBarycenterSolve(&orbit, 0.0, states, 3) == 0);
+    for (int i = 0; i < 3; i++) AssertStateZero(&states[i]);
+
     orbit.bodyCount = 3;
+    orbit.motion = SPACE_BARYCENTER_BOUND;
     orbit.massKg[2] = 0.25 * SPACE_UNITS_SOLAR_MASS_KG;
     orbit.outerSeparationKm = SpaceUnitsGameDistanceToKilometers(120.0);
     orbit.outerPhaseRad = 0.4;
@@ -194,6 +294,16 @@ static void TestInvalidInputs(void)
         assert(isfinite(states[i].offsetGame.x) &&
                isfinite(states[i].velocityGame.x));
     }
+
+    orbit.motion = SPACE_BARYCENTER_OUTER_FREE_FLIGHT;
+    orbit.outerFreeOffsetGame = (Vector3){ NAN, 0.0f, 0.0f };
+    assert(SpaceBarycenterSolve(&orbit, 0.0, states, 3) == 0);
+    for (int i = 0; i < 3; i++) AssertStateZero(&states[i]);
+
+    orbit.bodyCount = 2;
+    orbit.outerFreeOffsetGame = (Vector3){ 0 };
+    assert(SpaceBarycenterSolve(&orbit, 0.0, states, 3) == 0);
+    for (int i = 0; i < 3; i++) AssertStateZero(&states[i]);
 }
 
 static void TestGeneratedBarycenterStates(void)
@@ -243,6 +353,8 @@ int main(void)
     TestSingleStar();
     TestBinaryMassRatioAndPeriod();
     TestHierarchicalTriple();
+    TestFreeFlight();
+    TestOuterFreeFlight();
     TestInvalidInputs();
     TestGeneratedBarycenterStates();
     puts("space_barycenter tests passed");

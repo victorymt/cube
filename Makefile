@@ -78,8 +78,8 @@ $(PLANET_CLIMATE_TEST_TARGET): tests/test_planet_climate.c src/planet_climate.c 
 $(SPACE_PHYSICS_TEST_TARGET): tests/test_space_physics.c src/space_physics.c src/space_physics.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_physics.c src/space_physics.c -lm
 
-$(SPACE_BARYCENTER_TEST_TARGET): tests/test_space_barycenter.c src/space_barycenter.c src/space_barycenter.h src/space_units.c src/space_units.h
-	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_barycenter.c src/space_barycenter.c src/space_units.c -lm
+$(SPACE_BARYCENTER_TEST_TARGET): tests/test_space_barycenter.c src/space_barycenter.c src/space_barycenter.h src/space_orbit.c src/space_orbit.h src/space_units.c src/space_units.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_barycenter.c src/space_barycenter.c src/space_orbit.c src/space_units.c -lm
 
 $(SPACE_ORBIT_TEST_TARGET): tests/test_space_orbit.c src/space_orbit.c src/space_orbit.h src/space_units.c src/space_units.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_orbit.c src/space_orbit.c src/space_units.c -lm

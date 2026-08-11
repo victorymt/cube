@@ -1044,9 +1044,23 @@ static uint64_t SolarSystemRuntimeCacheSignature(
     hash = SolarSystemSignatureMix(
         hash, SolarSystemDoubleBits(snapshot->stellarOrbit.outerSeparationKm));
     hash = SolarSystemSignatureMix(
+        hash, (uint32_t)snapshot->stellarOrbit.motion);
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(
+                  snapshot->stellarOrbit.innerEccentricity));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(
+                  snapshot->stellarOrbit.outerEccentricity));
+    hash = SolarSystemSignatureMix(
         hash, SolarSystemDoubleBits(snapshot->stellarOrbit.innerPhaseRad));
     hash = SolarSystemSignatureMix(
         hash, SolarSystemDoubleBits(snapshot->stellarOrbit.outerPhaseRad));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(
+                  snapshot->stellarOrbit.innerArgumentPeriapsisRad));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(
+                  snapshot->stellarOrbit.outerArgumentPeriapsisRad));
     hash = SolarSystemSignatureMix(
         hash, SolarSystemDoubleBits(
                   snapshot->stellarOrbit.innerInclinationRad));
@@ -1057,6 +1071,39 @@ static uint64_t SolarSystemRuntimeCacheSignature(
         hash, SolarSystemDoubleBits(snapshot->stellarOrbit.innerNodeRad));
     hash = SolarSystemSignatureMix(
         hash, SolarSystemDoubleBits(snapshot->stellarOrbit.outerNodeRad));
+    for (int i = 0; i < snapshot->summary.stellarCount; i++) {
+        const Vector3 offset =
+            snapshot->stellarOrbit.freeFlightOffsetGame[i];
+        const Vector3 velocity =
+            snapshot->stellarOrbit.freeFlightVelocityGame[i];
+        hash = SolarSystemSignatureMix(hash, SolarSystemFloatBits(offset.x));
+        hash = SolarSystemSignatureMix(hash, SolarSystemFloatBits(offset.y));
+        hash = SolarSystemSignatureMix(hash, SolarSystemFloatBits(offset.z));
+        hash = SolarSystemSignatureMix(hash,
+                                       SolarSystemFloatBits(velocity.x));
+        hash = SolarSystemSignatureMix(hash,
+                                       SolarSystemFloatBits(velocity.y));
+        hash = SolarSystemSignatureMix(hash,
+                                       SolarSystemFloatBits(velocity.z));
+    }
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemFloatBits(
+                  snapshot->stellarOrbit.outerFreeOffsetGame.x));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemFloatBits(
+                  snapshot->stellarOrbit.outerFreeOffsetGame.y));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemFloatBits(
+                  snapshot->stellarOrbit.outerFreeOffsetGame.z));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemFloatBits(
+                  snapshot->stellarOrbit.outerFreeVelocityGame.x));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemFloatBits(
+                  snapshot->stellarOrbit.outerFreeVelocityGame.y));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemFloatBits(
+                  snapshot->stellarOrbit.outerFreeVelocityGame.z));
     hash = SolarSystemSignatureMix(hash, (uint32_t)system->planetCount);
     for (int i = 0; i < system->planetCount; i++) {
         const SolarPlanetDef *planet = &system->planets[i];

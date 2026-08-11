@@ -205,11 +205,69 @@ static void TestHighEccentricityOrbit(void)
     }
 }
 
+static void TestOrbitReconstruction(void)
+{
+    const SpaceKeplerOrbit orbits[] = {
+        {
+            .semiMajorAxisKm = 0.45 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+            .centralMassKg = 1.7 * SPACE_UNITS_SOLAR_MASS_KG,
+            .eccentricity = 0.0,
+            .inclinationRad = 0.0,
+            .longitudeAscendingNodeRad = 0.0,
+            .argumentPeriapsisRad = 0.0,
+            .meanAnomalyAtEpochRad = 1.3
+        },
+        {
+            .semiMajorAxisKm = 1.8 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+            .centralMassKg = 2.4 * SPACE_UNITS_SOLAR_MASS_KG,
+            .eccentricity = 0.37,
+            .inclinationRad = 0.28,
+            .longitudeAscendingNodeRad = 1.1,
+            .argumentPeriapsisRad = 2.2,
+            .meanAnomalyAtEpochRad = 0.7
+        },
+        {
+            .semiMajorAxisKm = 0.12 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+            .centralMassKg = 0.9 * SPACE_UNITS_SOLAR_MASS_KG,
+            .eccentricity = 0.76,
+            .inclinationRad = -0.41,
+            .longitudeAscendingNodeRad = 4.0,
+            .argumentPeriapsisRad = 0.4,
+            .meanAnomalyAtEpochRad = 5.5
+        }
+    };
+    for (size_t i = 0; i < sizeof(orbits) / sizeof(orbits[0]); i++) {
+        SpaceKeplerState state;
+        SpaceKeplerOrbit reconstructed;
+        SpaceKeplerState replay;
+        assert(SpaceKeplerStateAtTime(&orbits[i], 37.25, &state));
+        assert(SpaceKeplerOrbitFromState(
+            &state, orbits[i].centralMassKg, &reconstructed));
+        assert(SpaceKeplerStateAtTime(&reconstructed, 0.0, &replay));
+        assert(VectorLength(VectorSubtract(state.positionGame,
+                                           replay.positionGame)) < 0.001);
+        assert(VectorLength(VectorSubtract(state.velocityGame,
+                                           replay.velocityGame)) < 0.00001);
+    }
+
+    SpaceKeplerState invalid = {
+        .positionGame = { 340.0f, 0.0f, 0.0f },
+        .velocityGame = { 1000.0f, 0.0f, 0.0f }
+    };
+    SpaceKeplerOrbit cleared;
+    memset(&cleared, 0xa5, sizeof(cleared));
+    assert(!SpaceKeplerOrbitFromState(
+        &invalid, SPACE_UNITS_SOLAR_MASS_KG, &cleared));
+    const SpaceKeplerOrbit zero = { 0 };
+    assert(memcmp(&cleared, &zero, sizeof(cleared)) == 0);
+}
+
 int main(void)
 {
     TestInvalidOrbit();
     TestOrbitProperties();
     TestHighEccentricityOrbit();
+    TestOrbitReconstruction();
     puts("space orbit tests passed");
     return 0;
 }

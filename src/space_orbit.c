@@ -43,6 +43,170 @@ static bool SpaceKeplerVectorIsFinite(Vector3 value)
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
 }
 
+typedef struct SpaceKeplerVectorD {
+    double x;
+    double y;
+    double z;
+} SpaceKeplerVectorD;
+
+static double SpaceKeplerDotD(SpaceKeplerVectorD left,
+                              SpaceKeplerVectorD right)
+{
+    return left.x * right.x + left.y * right.y + left.z * right.z;
+}
+
+static SpaceKeplerVectorD SpaceKeplerCrossD(SpaceKeplerVectorD left,
+                                             SpaceKeplerVectorD right)
+{
+    return (SpaceKeplerVectorD){
+        left.y * right.z - left.z * right.y,
+        left.z * right.x - left.x * right.z,
+        left.x * right.y - left.y * right.x
+    };
+}
+
+static double SpaceKeplerLengthD(SpaceKeplerVectorD value)
+{
+    return sqrt(SpaceKeplerDotD(value, value));
+}
+
+static double SpaceKeplerClampD(double value, double minimum,
+                                double maximum)
+{
+    return fmin(fmax(value, minimum), maximum);
+}
+
+static double SpaceKeplerNormalizeAngle(double angle)
+{
+    const double twoPi = 6.28318530717958647692;
+    double normalized = fmod(angle, twoPi);
+    return normalized < 0.0 ? normalized + twoPi : normalized;
+}
+
+bool SpaceKeplerOrbitFromState(const SpaceKeplerState *state,
+                               double centralMassKg,
+                               SpaceKeplerOrbit *out)
+{
+    if (!out) return false;
+    *out = (SpaceKeplerOrbit){ 0 };
+    if (!state || !SpaceKeplerVectorIsFinite(state->positionGame) ||
+        !SpaceKeplerVectorIsFinite(state->velocityGame) ||
+        !(centralMassKg > 0.0) || !isfinite(centralMassKg)) {
+        return false;
+    }
+
+    // Map the project's XZ orbital plane to the conventional XY plane.
+    SpaceKeplerVectorD position = {
+        SpaceUnitsGameDistanceToKilometers(state->positionGame.x),
+        SpaceUnitsGameDistanceToKilometers(state->positionGame.z),
+        -SpaceUnitsGameDistanceToKilometers(state->positionGame.y)
+    };
+    SpaceKeplerVectorD velocity = {
+        SpaceUnitsGameVelocityToKilometersPerSecond(state->velocityGame.x),
+        SpaceUnitsGameVelocityToKilometersPerSecond(state->velocityGame.z),
+        -SpaceUnitsGameVelocityToKilometersPerSecond(state->velocityGame.y)
+    };
+    double radiusKm = SpaceKeplerLengthD(position);
+    double speedSquared = SpaceKeplerDotD(velocity, velocity);
+    double mu = SPACE_UNITS_GRAVITATIONAL_CONSTANT_KM3_KG_S2 *
+                centralMassKg;
+    if (!(radiusKm > 0.0) || !isfinite(radiusKm) ||
+        !(mu > 0.0) || !isfinite(mu) || !isfinite(speedSquared)) {
+        return false;
+    }
+
+    SpaceKeplerVectorD angularMomentum = SpaceKeplerCrossD(position,
+                                                            velocity);
+    double angularMomentumLength = SpaceKeplerLengthD(angularMomentum);
+    double energy = 0.5 * speedSquared - mu / radiusKm;
+    if (!(angularMomentumLength > 0.0) ||
+        !isfinite(angularMomentumLength) || !(energy < 0.0) ||
+        !isfinite(energy)) {
+        return false;
+    }
+
+    SpaceKeplerVectorD velocityCrossMomentum = SpaceKeplerCrossD(
+        velocity, angularMomentum);
+    SpaceKeplerVectorD eccentricityVector = {
+        velocityCrossMomentum.x / mu - position.x / radiusKm,
+        velocityCrossMomentum.y / mu - position.y / radiusKm,
+        velocityCrossMomentum.z / mu - position.z / radiusKm
+    };
+    double eccentricity = SpaceKeplerLengthD(eccentricityVector);
+    double semiMajorAxisKm = -mu / (2.0 * energy);
+    if (eccentricity < 1.0e-8) eccentricity = 0.0;
+    if (!(semiMajorAxisKm > 0.0) || !isfinite(semiMajorAxisKm) ||
+        eccentricity < 0.0 || eccentricity >= 1.0 ||
+        !isfinite(eccentricity)) {
+        return false;
+    }
+
+    SpaceKeplerVectorD node = {
+        -angularMomentum.y,
+        angularMomentum.x,
+        0.0
+    };
+    double nodeLength = SpaceKeplerLengthD(node);
+    double inclination = acos(SpaceKeplerClampD(
+        angularMomentum.z / angularMomentumLength, -1.0, 1.0));
+    double longitudeAscendingNode = nodeLength > 1.0e-10
+        ? atan2(node.y, node.x) : 0.0;
+    double argumentPeriapsis = 0.0;
+    double trueAnomaly = 0.0;
+    if (eccentricity > 0.0) {
+        if (nodeLength > 1.0e-10) {
+            SpaceKeplerVectorD nodeCrossEccentricity = SpaceKeplerCrossD(
+                node, eccentricityVector);
+            argumentPeriapsis = atan2(
+                SpaceKeplerDotD(nodeCrossEccentricity,
+                                angularMomentum) /
+                    (nodeLength * eccentricity * angularMomentumLength),
+                SpaceKeplerDotD(node, eccentricityVector) /
+                    (nodeLength * eccentricity));
+        } else {
+            argumentPeriapsis = atan2(eccentricityVector.y,
+                                      eccentricityVector.x);
+        }
+        SpaceKeplerVectorD eccentricityCrossPosition = SpaceKeplerCrossD(
+            eccentricityVector, position);
+        trueAnomaly = atan2(
+            SpaceKeplerDotD(eccentricityCrossPosition,
+                            angularMomentum) /
+                (eccentricity * radiusKm * angularMomentumLength),
+            SpaceKeplerDotD(eccentricityVector, position) /
+                (eccentricity * radiusKm));
+    } else if (nodeLength > 1.0e-10) {
+        SpaceKeplerVectorD nodeCrossPosition = SpaceKeplerCrossD(node,
+                                                                 position);
+        trueAnomaly = atan2(
+            SpaceKeplerDotD(nodeCrossPosition, angularMomentum) /
+                (nodeLength * radiusKm * angularMomentumLength),
+            SpaceKeplerDotD(node, position) / (nodeLength * radiusKm));
+    } else {
+        trueAnomaly = atan2(position.y, position.x);
+    }
+
+    double eccentricAnomaly = eccentricity > 0.0
+        ? 2.0 * atan2(sqrt(1.0 - eccentricity) * sin(trueAnomaly * 0.5),
+                      sqrt(1.0 + eccentricity) * cos(trueAnomaly * 0.5))
+        : trueAnomaly;
+    SpaceKeplerOrbit orbit = {
+        .semiMajorAxisKm = semiMajorAxisKm,
+        .centralMassKg = centralMassKg,
+        .eccentricity = eccentricity,
+        .inclinationRad = -inclination,
+        .longitudeAscendingNodeRad =
+            SpaceKeplerNormalizeAngle(longitudeAscendingNode),
+        .argumentPeriapsisRad =
+            SpaceKeplerNormalizeAngle(argumentPeriapsis),
+        .meanAnomalyAtEpochRad = SpaceKeplerNormalizeAngle(
+            eccentricAnomaly - eccentricity * sin(eccentricAnomaly))
+    };
+    if (!SpaceKeplerOrbitIsValid(&orbit)) return false;
+    *out = orbit;
+    return true;
+}
+
 bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
                             double simulationTime,
                             SpaceKeplerState *out)

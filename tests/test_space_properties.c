@@ -167,8 +167,9 @@ static void AssertSystemFormation(const SolarSystemDef *system)
            (double)system->formationDiskMassEarth + 0.001);
 }
 
-static void AssertBarycenter(const SolarSystemDef *system,
-                             const SolarStellarBody *bodies, int count)
+static void AssertSystemCenterOfMass(const SolarSystemDef *system,
+                                     const SolarStellarBody *bodies,
+                                     int count)
 {
     double totalMass = 0.0;
     double positionX = 0.0;
@@ -177,8 +178,13 @@ static void AssertBarycenter(const SolarSystemDef *system,
     double velocityX = 0.0;
     double velocityY = 0.0;
     double velocityZ = 0.0;
+    double maximumPosition = 0.0;
+    double maximumVelocity = 0.0;
     for (int i = 0; i < count; i++) {
         Vector3 offset = VectorSubtractTest(bodies[i].center, system->center);
+        maximumPosition = fmax(maximumPosition, VectorLength(offset));
+        maximumVelocity = fmax(maximumVelocity,
+                               VectorLength(bodies[i].velocity));
         totalMass += bodies[i].stellar.massKg;
         positionX += (double)offset.x * bodies[i].stellar.massKg;
         positionY += (double)offset.y * bodies[i].stellar.massKg;
@@ -188,10 +194,22 @@ static void AssertBarycenter(const SolarSystemDef *system,
         velocityZ += (double)bodies[i].velocity.z * bodies[i].stellar.massKg;
     }
     assert(totalMass > 0.0);
-    assert(sqrt((positionX * positionX + positionY * positionY +
-                 positionZ * positionZ) / (totalMass * totalMass)) < 0.01);
-    assert(sqrt((velocityX * velocityX + velocityY * velocityY +
-                 velocityZ * velocityZ) / (totalMass * totalMass)) < 0.00001);
+    double positionError = sqrt(
+        (positionX * positionX + positionY * positionY +
+         positionZ * positionZ) / (totalMass * totalMass));
+    double velocityError = sqrt(
+        (velocityX * velocityX + velocityY * velocityY +
+         velocityZ * velocityZ) / (totalMass * totalMass));
+    assert(positionError <= fmax(
+        0.01, maximumPosition * SPACE_UNITS_MAX_RELATIVE_ERROR));
+    assert(velocityError <= fmax(
+        0.00001, maximumVelocity * SPACE_UNITS_MAX_RELATIVE_ERROR));
+}
+
+static void AssertBarycenter(const SolarSystemDef *system,
+                             const SolarStellarBody *bodies, int count)
+{
+    AssertSystemCenterOfMass(system, bodies, count);
 
     if (count < 2) return;
 
@@ -249,6 +267,7 @@ static void AssertBarycenter(const SolarSystemDef *system,
     speedGame = VectorLength(outerVelocity);
     separationKm = SpaceUnitsGameDistanceToKilometers(separationGame);
     speedKmPerSecond = SpaceUnitsGameVelocityToKilometersPerSecond(speedGame);
+    double totalMass = innerMass + bodies[2].stellar.massKg;
     expectedSpeed = SpaceUnitsCircularOrbitVelocityKilometersPerSecond(
         separationKm, totalMass);
     AssertRelative(speedKmPerSecond, expectedSpeed, 0.0003);
@@ -1162,7 +1181,9 @@ static void TestCrossSystemRuntimeStellarEvolution(void)
             assert(totalMass < base->summary.totalMassKg);
             double orbitScale = base->summary.totalMassKg / totalMass;
             assert(orbitScale > 1.0);
-            if (evolved.summary.stellarCount > 1) {
+            if (evolved.summary.stellarCount > 1 &&
+                evolved.stellarOrbit.motion == SPACE_BARYCENTER_BOUND &&
+                evolved.stellarOrbit.innerEccentricity == 0.0) {
                 double initialInnerMass =
                     base->stellarOrbit.massKg[0] +
                     base->stellarOrbit.massKg[1];
@@ -1175,7 +1196,9 @@ static void TestCrossSystemRuntimeStellarEvolution(void)
                         initialInnerMass / evolvedInnerMass,
                     0.0000001);
             }
-            if (evolved.summary.stellarCount == 3) {
+            if (evolved.summary.stellarCount == 3 &&
+                evolved.stellarOrbit.motion == SPACE_BARYCENTER_BOUND &&
+                evolved.stellarOrbit.outerEccentricity == 0.0) {
                 AssertRelative(
                     evolved.stellarOrbit.outerSeparationKm,
                     base->stellarOrbit.outerSeparationKm * orbitScale,
@@ -1221,8 +1244,8 @@ static void TestCrossSystemRuntimeStellarEvolution(void)
             assert(SolarSystemPhysicalSnapshotStellarBodiesAtTime(
                 &system, &evolved, 37.25, evolvedBodies,
                 MAX_SOLAR_LIGHTS) == evolved.summary.stellarCount);
-            AssertBarycenter(&system, evolvedBodies,
-                             evolved.summary.stellarCount);
+            AssertSystemCenterOfMass(&system, evolvedBodies,
+                                     evolved.summary.stellarCount);
 
             SolarSystemRuntimeState runtime;
             SolarSystemRuntimeState replay;
@@ -1232,8 +1255,8 @@ static void TestCrossSystemRuntimeStellarEvolution(void)
                 &system, elapsed, &replay));
             assert(memcmp(&runtime, &replay, sizeof(runtime)) == 0);
             assert(runtime.totalStellarMassKg == totalMass);
-            AssertBarycenter(&system, runtime.stars,
-                             runtime.stellarCount);
+            AssertSystemCenterOfMass(&system, runtime.stars,
+                                     runtime.stellarCount);
             for (int planet = 0; planet < runtime.planetCount; planet++) {
                 assert(runtime.planets[planet].dynamicalStatus ==
                        evolved.planetStatuses[planet]);
@@ -1393,6 +1416,9 @@ static void TestBoundSupernovaOrbitResponse(void)
                 &system, requestedAgeGyr, &evolved));
             assert(evolved.stellarProfiles[0].stage ==
                    STELLAR_STAGE_NEUTRON_STAR);
+            if (evolved.stellarOrbit.motion != SPACE_BARYCENTER_BOUND) {
+                continue;
+            }
             for (int planet = system.planetCount - 1;
                  planet >= 0; planet--) {
                 if (evolved.planetStatuses[planet] !=
@@ -1436,6 +1462,179 @@ static void TestBoundSupernovaOrbitResponse(void)
         }
     }
     assert(found);
+}
+
+static double StellarSeparationSum(const SolarStellarBody *bodies,
+                                   int count)
+{
+    double sum = 0.0;
+    for (int left = 0; left < count; left++) {
+        for (int right = left + 1; right < count; right++) {
+            sum += VectorLength(VectorSubtractTest(bodies[right].center,
+                                                   bodies[left].center));
+        }
+    }
+    return sum;
+}
+
+static void AssertDisruptedSystem(
+    const SolarSystemDef *system,
+    const SolarSystemPhysicalSnapshot *evolved,
+    double elapsed)
+{
+    assert(system && evolved);
+    assert(evolved->summary.stellarCount > 1);
+    assert(evolved->stellarOrbit.motion != SPACE_BARYCENTER_BOUND);
+    if (evolved->summary.stellarCount == 2) {
+        assert(evolved->stellarOrbit.motion == SPACE_BARYCENTER_FREE_FLIGHT);
+    }
+
+    SolarStellarBody initial[MAX_SOLAR_LIGHTS];
+    SolarStellarBody later[MAX_SOLAR_LIGHTS];
+    int count = evolved->summary.stellarCount;
+    assert(SolarSystemPhysicalSnapshotStellarBodiesAtTime(
+               system, evolved, 0.0, initial, MAX_SOLAR_LIGHTS) == count);
+    assert(SolarSystemPhysicalSnapshotStellarBodiesAtTime(
+               system, evolved, 7.25, later, MAX_SOLAR_LIGHTS) == count);
+    AssertSystemCenterOfMass(system, initial, count);
+    AssertSystemCenterOfMass(system, later, count);
+    assert(fabs(StellarSeparationSum(later, count) -
+                StellarSeparationSum(initial, count)) > 0.001);
+
+    SolarSystemRuntimeState runtime;
+    SolarSystemRuntimeState replay;
+    assert(SolarSystemEvaluateAtElapsedTime(system, elapsed, &runtime));
+    assert(SolarSystemEvaluateAtElapsedTime(system, elapsed, &replay));
+    assert(memcmp(&runtime, &replay, sizeof(runtime)) == 0);
+    assert(runtime.stellarCount == count);
+    AssertSystemCenterOfMass(system, runtime.stars, runtime.stellarCount);
+
+    int ejected = 0;
+    for (int planet = 0; planet < system->planetCount; planet++) {
+        SolarPlanetDynamicalStatus status = evolved->planetStatuses[planet];
+        assert(status == SOLAR_PLANET_ENGULFED ||
+               status == SOLAR_PLANET_EJECTED);
+        if (status == SOLAR_PLANET_EJECTED) ejected++;
+        const SpaceKeplerOrbit clearedOrbit = { 0 };
+        assert(memcmp(&evolved->planetOrbits[planet], &clearedOrbit,
+                      sizeof(clearedOrbit)) == 0);
+        assert(runtime.planets[planet].dynamicalStatus == status);
+        assert(!runtime.planets[planet].valid);
+        assert(!runtime.planets[planet].satelliteOrbit.exists);
+    }
+    assert(ejected > 0);
+}
+
+static void AssertDisruptionSaveLoadDeterminism(
+    const SolarSystemDef *system, double elapsed)
+{
+    FILE *restore = tmpfile();
+    FILE *target = tmpfile();
+    FILE *checkpoint = tmpfile();
+    assert(restore && target && checkpoint);
+    assert(SpaceSaveState(restore));
+
+    int originX = SpaceOriginX();
+    int originZ = SpaceOriginZ();
+    assert(fwrite(&elapsed, sizeof(elapsed), 1, target) == 1);
+    assert(fwrite(&originX, sizeof(originX), 1, target) == 1);
+    assert(fwrite(&originZ, sizeof(originZ), 1, target) == 1);
+    rewind(target);
+    assert(SpaceLoadState(target));
+    assert(SpaceElapsedSimulationTime() == elapsed);
+
+    SolarSystemRuntimeState savedRuntime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        system, SpaceElapsedSimulationTime(), &savedRuntime));
+    assert(SpaceSaveState(checkpoint));
+
+    SpaceAdvanceTime(17.25f);
+    SolarSystemRuntimeState continuedRuntime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        system, SpaceElapsedSimulationTime(), &continuedRuntime));
+
+    rewind(checkpoint);
+    assert(SpaceLoadState(checkpoint));
+    assert(SpaceElapsedSimulationTime() == elapsed);
+    SolarSystemRuntimeState loadedRuntime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        system, SpaceElapsedSimulationTime(), &loadedRuntime));
+    assert(memcmp(&savedRuntime, &loadedRuntime,
+                  sizeof(savedRuntime)) == 0);
+
+    SpaceAdvanceTime(17.25f);
+    SolarSystemRuntimeState replayRuntime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        system, SpaceElapsedSimulationTime(), &replayRuntime));
+    assert(memcmp(&continuedRuntime, &replayRuntime,
+                  sizeof(continuedRuntime)) == 0);
+
+    rewind(restore);
+    assert(SpaceLoadState(restore));
+    fclose(checkpoint);
+    fclose(target);
+    fclose(restore);
+}
+
+static void TestNatalKickSystemDisruption(void)
+{
+    SolarSystemDef templateSystem;
+    assert(StarSystemAt(0, 0, &templateSystem));
+    assert(StellarProfileAtAge(20.0f, 0.0, 0x37b9e2d1u,
+                               &templateSystem.star));
+    templateSystem.spectrum = templateSystem.star.spectrum;
+    templateSystem.starProxyRadius = SolarSystemStellarVisualRadius(
+        &templateSystem.star);
+    for (int planet = 0; planet < templateSystem.planetCount; planet++) {
+        templateSystem.planets[planet].semiMajorAxisKm *= 12.0;
+    }
+
+    SolarSystemDef disruptedSystems[2] = { 0 };
+    SolarSystemPhysicalSnapshot disruptedSnapshots[2] = { 0 };
+    double disruptedElapsed[2] = { 0.0, 0.0 };
+    bool found[2] = { false, false };
+    for (int ax = -32; ax <= 32 && (!found[0] || !found[1]); ax++) {
+        for (int az = -32; az <= 32 && (!found[0] || !found[1]); az++) {
+            if (ax == 0 && az == 0) continue;
+            SolarSystemDef system = templateSystem;
+            system.anchorX = ax;
+            system.anchorZ = az;
+            assert(SolarSystemPhysicalSnapshotBuild(
+                &system, &system.physicalSnapshot));
+            int count = system.physicalSnapshot.summary.stellarCount;
+            if (count < 2 || count > 3 || found[count - 2]) continue;
+
+            double ageOffsetGyr =
+                (double)system.physicalSnapshot.stellarProfiles[0]
+                    .luminousLifetimeGyr + 0.000001;
+            SolarSystemPhysicalSnapshot evolved;
+            SolarSystemPhysicalSnapshot repeated;
+            assert(SolarSystemPhysicalSnapshotEvolve(
+                &system, ageOffsetGyr, &evolved));
+            assert(SolarSystemPhysicalSnapshotEvolve(
+                &system, ageOffsetGyr, &repeated));
+            assert(memcmp(&evolved, &repeated, sizeof(evolved)) == 0);
+            assert(evolved.stellarProfiles[0].stage ==
+                   STELLAR_STAGE_NEUTRON_STAR);
+            if (evolved.stellarOrbit.motion == SPACE_BARYCENTER_BOUND) {
+                continue;
+            }
+            disruptedSystems[count - 2] = system;
+            disruptedSnapshots[count - 2] = evolved;
+            disruptedElapsed[count - 2] =
+                SpaceUnitsGigayearsToGameTime(ageOffsetGyr);
+            found[count - 2] = true;
+        }
+    }
+    assert(found[0] && found[1]);
+
+    for (int index = 0; index < 2; index++) {
+        AssertDisruptedSystem(&disruptedSystems[index],
+                              &disruptedSnapshots[index],
+                              disruptedElapsed[index]);
+    }
+    AssertDisruptionSaveLoadDeterminism(&disruptedSystems[1],
+                                        disruptedElapsed[1]);
 }
 
 static void TestHomeScaleDiagnostics(void)
@@ -2249,6 +2448,7 @@ int main(void)
     TestCrossSystemRuntimeStellarEvolution();
     TestSupernovaPlanetFates();
     TestBoundSupernovaOrbitResponse();
+    TestNatalKickSystemDisruption();
     TestSaveLoadTimeDeterminism();
     TestLongTermTimeClock();
     TestSpaceLoadFailureAtomicity();

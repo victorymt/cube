@@ -21,6 +21,9 @@ typedef struct SpaceKeplerState {
 } SpaceKeplerState;
 
 bool SpaceKeplerOrbitIsValid(const SpaceKeplerOrbit *orbit);
+bool SpaceKeplerOrbitFromState(const SpaceKeplerState *state,
+                               double centralMassKg,
+                               SpaceKeplerOrbit *out);
 bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
                             double simulationTime,
                             SpaceKeplerState *out);

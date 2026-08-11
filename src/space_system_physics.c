@@ -207,44 +207,6 @@ static SpaceBarycenterOrbit SolarSystemStellarOrbit(
     return orbit;
 }
 
-static bool SolarSystemStellarOrbitEvolve(
-    const SpaceBarycenterOrbit *initial, const StellarProfile *profiles,
-    int count, SpaceBarycenterOrbit *out)
-{
-    if (!initial || !profiles || !out || count < 1 ||
-        count > MAX_SOLAR_LIGHTS || initial->bodyCount != count) {
-        return false;
-    }
-    SpaceBarycenterOrbit evolved = *initial;
-    for (int i = 0; i < count; i++) {
-        if (!(initial->massKg[i] > 0.0) ||
-            !(profiles[i].massKg > 0.0) ||
-            !isfinite(initial->massKg[i]) ||
-            !isfinite(profiles[i].massKg)) {
-            return false;
-        }
-        evolved.massKg[i] = profiles[i].massKg;
-    }
-    if (count > 1) {
-        double initialInnerMass = initial->massKg[0] + initial->massKg[1];
-        double evolvedInnerMass = evolved.massKg[0] + evolved.massKg[1];
-        evolved.innerSeparationKm *= initialInnerMass / evolvedInnerMass;
-    }
-    if (count == 3) {
-        double initialTotalMass = initial->massKg[0] + initial->massKg[1] +
-                                  initial->massKg[2];
-        double evolvedTotalMass = evolved.massKg[0] + evolved.massKg[1] +
-                                  evolved.massKg[2];
-        evolved.outerSeparationKm *= initialTotalMass / evolvedTotalMass;
-    }
-    SpaceBarycenterBodyState states[MAX_SOLAR_LIGHTS];
-    if (SpaceBarycenterSolve(&evolved, 0.0, states, MAX_SOLAR_LIGHTS) != count) {
-        return false;
-    }
-    *out = evolved;
-    return true;
-}
-
 static bool SolarSystemPlanetOrbitBuild(
     const SolarSystemDef *sys, int index, double centralMassKg,
     double semiMajorAxisScale,
@@ -306,7 +268,24 @@ typedef struct SolarSystemMassLossEvent {
     double ageGyr;
     double beforeMassKg;
     double afterMassKg;
+    uint32_t starMask;
 } SolarSystemMassLossEvent;
+
+static bool SolarSystemStellarProfilesAtAge(
+    const SolarSystemPhysicalSnapshot *base, double ageGyr,
+    StellarProfile *out)
+{
+    if (!base || !out || !isfinite(ageGyr) || ageGyr < 0.0) return false;
+    for (int i = 0; i < base->summary.stellarCount; i++) {
+        const StellarProfile *initial = &base->stellarProfiles[i];
+        if (!StellarProfileAtAge(initial->initialMassSolar, ageGyr,
+                                 initial->evolutionSeed, &out[i]) ||
+            !SolarSystemPhysicsStellarProfileIsValid(&out[i])) {
+            return false;
+        }
+    }
+    return true;
+}
 
 static bool SolarSystemTotalStellarMassAtAge(
     const SolarSystemPhysicalSnapshot *base, double ageGyr,
@@ -315,16 +294,11 @@ static bool SolarSystemTotalStellarMassAtAge(
     if (!base || !outMassKg || !isfinite(ageGyr) || ageGyr < 0.0) {
         return false;
     }
+    StellarProfile profiles[MAX_SOLAR_LIGHTS];
+    if (!SolarSystemStellarProfilesAtAge(base, ageGyr, profiles)) return false;
     double totalMassKg = 0.0;
     for (int i = 0; i < base->summary.stellarCount; i++) {
-        const StellarProfile *initial = &base->stellarProfiles[i];
-        StellarProfile profile;
-        if (!StellarProfileAtAge(initial->initialMassSolar, ageGyr,
-                                 initial->evolutionSeed, &profile) ||
-            !SolarSystemPhysicsStellarProfileIsValid(&profile)) {
-            return false;
-        }
-        totalMassKg += profile.massKg;
+        totalMassKg += profiles[i].massKg;
     }
     if (!(totalMassKg > 0.0) || !isfinite(totalMassKg)) return false;
     *outMassKg = totalMassKg;
@@ -351,7 +325,10 @@ static int SolarSystemMassLossEvents(
             eventAgeGyr < baseAgeGyr || eventAgeGyr >= requestedAgeGyr) {
             continue;
         }
-        out[count++].ageGyr = eventAgeGyr;
+        out[count++] = (SolarSystemMassLossEvent){
+            .ageGyr = eventAgeGyr,
+            .starMask = UINT32_C(1) << star
+        };
     }
     for (int i = 1; i < count; i++) {
         SolarSystemMassLossEvent event = out[i];
@@ -367,6 +344,7 @@ static int SolarSystemMassLossEvents(
     for (int i = 0; i < count; i++) {
         if (uniqueCount > 0 &&
             out[uniqueCount - 1].ageGyr == out[i].ageGyr) {
+            out[uniqueCount - 1].starMask |= out[i].starMask;
             continue;
         }
         SolarSystemMassLossEvent event = out[i];
@@ -381,6 +359,339 @@ static int SolarSystemMassLossEvents(
         out[uniqueCount++] = event;
     }
     return uniqueCount;
+}
+
+static uint32_t SolarSystemPhysicsMix32(uint32_t value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    return value ^ (value >> 16);
+}
+
+static double SolarSystemPhysicsHashUnit(uint32_t value)
+{
+    return (double)(SolarSystemPhysicsMix32(value) >> 8) /
+           16777215.0;
+}
+
+static Vector3 SolarSystemNatalKickGame(const StellarProfile *remnant,
+                                        uint32_t salt)
+{
+    if (!remnant || (remnant->stage != STELLAR_STAGE_NEUTRON_STAR &&
+                     remnant->stage != STELLAR_STAGE_BLACK_HOLE)) {
+        return (Vector3){ 0 };
+    }
+    double speedKmPerSecond = remnant->stage == STELLAR_STAGE_NEUTRON_STAR
+        ? 120.0 + 360.0 * SolarSystemPhysicsHashUnit(
+                              remnant->evolutionSeed ^ salt ^ 0x51ed270bu)
+        : 20.0 + 100.0 * SolarSystemPhysicsHashUnit(
+                             remnant->evolutionSeed ^ salt ^ 0x94d049bbu);
+    double cosinePolar = 2.0 * SolarSystemPhysicsHashUnit(
+        remnant->evolutionSeed ^ salt ^ 0xa511e9b3u) - 1.0;
+    double azimuth = 6.28318530717958647692 *
+        SolarSystemPhysicsHashUnit(
+            remnant->evolutionSeed ^ salt ^ 0x6d2b79f5u);
+    double horizontal = sqrt(fmax(0.0, 1.0 - cosinePolar * cosinePolar));
+    double speedGame = SpaceUnitsKilometersPerSecondToGameVelocity(
+        speedKmPerSecond);
+    return (Vector3){
+        (float)(speedGame * horizontal * cos(azimuth)),
+        (float)(speedGame * cosinePolar),
+        (float)(speedGame * horizontal * sin(azimuth))
+    };
+}
+
+static Vector3 SolarSystemPhysicsSubtract(Vector3 left, Vector3 right)
+{
+    return (Vector3){ left.x - right.x, left.y - right.y, left.z - right.z };
+}
+
+static Vector3 SolarSystemPhysicsMassCenter(
+    const SpaceBarycenterBodyState *states, const double *masses,
+    int first, int count, bool velocity)
+{
+    double totalMass = 0.0;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    for (int i = first; i < first + count; i++) {
+        Vector3 value = velocity ? states[i].velocityGame :
+                                   states[i].offsetGame;
+        totalMass += masses[i];
+        x += masses[i] * value.x;
+        y += masses[i] * value.y;
+        z += masses[i] * value.z;
+    }
+    if (!(totalMass > 0.0) || !isfinite(totalMass)) {
+        return (Vector3){ NAN, NAN, NAN };
+    }
+    return (Vector3){ (float)(x / totalMass), (float)(y / totalMass),
+                      (float)(z / totalMass) };
+}
+
+static bool SolarSystemPhysicsRecenterStates(
+    SpaceBarycenterBodyState *states, const double *masses, int count)
+{
+    Vector3 center = SolarSystemPhysicsMassCenter(
+        states, masses, 0, count, false);
+    Vector3 velocity = SolarSystemPhysicsMassCenter(
+        states, masses, 0, count, true);
+    if (!SolarSystemPhysicsVectorIsFinite(center) ||
+        !SolarSystemPhysicsVectorIsFinite(velocity)) {
+        return false;
+    }
+    for (int i = 0; i < count; i++) {
+        states[i].offsetGame = SolarSystemPhysicsSubtract(
+            states[i].offsetGame, center);
+        states[i].velocityGame = SolarSystemPhysicsSubtract(
+            states[i].velocityGame, velocity);
+    }
+    return true;
+}
+
+static SpaceKeplerState SolarSystemPhysicsRelativeState(
+    const SpaceBarycenterBodyState *left,
+    const SpaceBarycenterBodyState *right)
+{
+    return (SpaceKeplerState){
+        .positionGame = SolarSystemPhysicsSubtract(
+            right->offsetGame, left->offsetGame),
+        .velocityGame = SolarSystemPhysicsSubtract(
+            right->velocityGame, left->velocityGame)
+    };
+}
+
+static void SolarSystemStellarOrbitSetInner(
+    SpaceBarycenterOrbit *orbit, const SpaceKeplerOrbit *inner)
+{
+    orbit->innerSeparationKm = inner->semiMajorAxisKm;
+    orbit->innerEccentricity = inner->eccentricity;
+    orbit->innerPhaseRad = inner->meanAnomalyAtEpochRad;
+    orbit->innerArgumentPeriapsisRad = inner->argumentPeriapsisRad;
+    orbit->innerInclinationRad = inner->inclinationRad;
+    orbit->innerNodeRad = inner->longitudeAscendingNodeRad;
+}
+
+static void SolarSystemStellarOrbitSetOuter(
+    SpaceBarycenterOrbit *orbit, const SpaceKeplerOrbit *outer)
+{
+    orbit->outerSeparationKm = outer->semiMajorAxisKm;
+    orbit->outerEccentricity = outer->eccentricity;
+    orbit->outerPhaseRad = outer->meanAnomalyAtEpochRad;
+    orbit->outerArgumentPeriapsisRad = outer->argumentPeriapsisRad;
+    orbit->outerInclinationRad = outer->inclinationRad;
+    orbit->outerNodeRad = outer->longitudeAscendingNodeRad;
+}
+
+static void SolarSystemStellarOrbitStoreFreeFlight(
+    SpaceBarycenterOrbit *orbit,
+    const SpaceBarycenterBodyState *states, int count)
+{
+    orbit->motion = SPACE_BARYCENTER_FREE_FLIGHT;
+    for (int i = 0; i < count; i++) {
+        orbit->freeFlightOffsetGame[i] = states[i].offsetGame;
+        orbit->freeFlightVelocityGame[i] = states[i].velocityGame;
+    }
+}
+
+static bool SolarSystemStellarOrbitStoreOuterFreeFlight(
+    SpaceBarycenterOrbit *orbit,
+    const SpaceBarycenterBodyState *states, const double *masses)
+{
+    Vector3 innerCenter = SolarSystemPhysicsMassCenter(
+        states, masses, 0, 2, false);
+    Vector3 innerVelocity = SolarSystemPhysicsMassCenter(
+        states, masses, 0, 2, true);
+    if (!SolarSystemPhysicsVectorIsFinite(innerCenter) ||
+        !SolarSystemPhysicsVectorIsFinite(innerVelocity)) {
+        return false;
+    }
+    orbit->motion = SPACE_BARYCENTER_OUTER_FREE_FLIGHT;
+    orbit->outerFreeOffsetGame = SolarSystemPhysicsSubtract(
+        states[2].offsetGame, innerCenter);
+    orbit->outerFreeVelocityGame = SolarSystemPhysicsSubtract(
+        states[2].velocityGame, innerVelocity);
+    return SolarSystemPhysicsVectorIsFinite(orbit->outerFreeOffsetGame) &&
+           SolarSystemPhysicsVectorIsFinite(orbit->outerFreeVelocityGame);
+}
+
+static bool SolarSystemStellarOrbitApplyMasses(
+    SpaceBarycenterOrbit *orbit, const double *newMasses, int count)
+{
+    if (!orbit || !newMasses || orbit->bodyCount != count) return false;
+    double oldInnerMass = count > 1
+        ? orbit->massKg[0] + orbit->massKg[1] : 0.0;
+    double newInnerMass = count > 1
+        ? newMasses[0] + newMasses[1] : 0.0;
+    double oldTotalMass = 0.0;
+    double newTotalMass = 0.0;
+    for (int i = 0; i < count; i++) {
+        if (!(newMasses[i] > 0.0) || !isfinite(newMasses[i])) return false;
+        oldTotalMass += orbit->massKg[i];
+        newTotalMass += newMasses[i];
+    }
+    if (count > 1 && orbit->motion != SPACE_BARYCENTER_FREE_FLIGHT) {
+        orbit->innerSeparationKm *= oldInnerMass / newInnerMass;
+    }
+    if (count == 3 && orbit->motion == SPACE_BARYCENTER_BOUND) {
+        orbit->outerSeparationKm *= oldTotalMass / newTotalMass;
+    }
+    if (orbit->motion == SPACE_BARYCENTER_FREE_FLIGHT) {
+        SpaceBarycenterBodyState states[MAX_SOLAR_LIGHTS] = { 0 };
+        for (int i = 0; i < count; i++) {
+            states[i].offsetGame = orbit->freeFlightOffsetGame[i];
+            states[i].velocityGame = orbit->freeFlightVelocityGame[i];
+        }
+        if (!SolarSystemPhysicsRecenterStates(states, newMasses, count)) {
+            return false;
+        }
+        for (int i = 0; i < count; i++) {
+            orbit->freeFlightOffsetGame[i] = states[i].offsetGame;
+            orbit->freeFlightVelocityGame[i] = states[i].velocityGame;
+        }
+    }
+    for (int i = 0; i < count; i++) orbit->massKg[i] = newMasses[i];
+    return true;
+}
+
+static bool SolarSystemStellarOrbitApplyEvent(
+    SpaceBarycenterOrbit *orbit,
+    const StellarProfile *beforeProfiles,
+    const StellarProfile *afterProfiles,
+    uint32_t starMask, uint32_t eventSalt, int count)
+{
+    double beforeMasses[MAX_SOLAR_LIGHTS] = { 0 };
+    double afterMasses[MAX_SOLAR_LIGHTS] = { 0 };
+    for (int i = 0; i < count; i++) {
+        beforeMasses[i] = beforeProfiles[i].massKg;
+        afterMasses[i] = afterProfiles[i].massKg;
+    }
+    if (!SolarSystemStellarOrbitApplyMasses(orbit, beforeMasses, count)) {
+        return false;
+    }
+    if (count == 1) {
+        orbit->massKg[0] = afterMasses[0];
+        return true;
+    }
+
+    uint32_t phaseHash = eventSalt ^ starMask;
+    for (int i = 0; i < count; i++) {
+        phaseHash ^= SolarSystemPhysicsMix32(beforeProfiles[i].evolutionSeed +
+                                             (uint32_t)i);
+    }
+    // Event phases use a bounded gameplay clock. Advancing free-flight
+    // remnants by stellar lifetimes would exceed the compressed world scale.
+    double eventClock = 32.0 * SolarSystemPhysicsHashUnit(phaseHash);
+    SpaceBarycenterBodyState states[MAX_SOLAR_LIGHTS];
+    if (SpaceBarycenterSolve(orbit, eventClock, states,
+                             MAX_SOLAR_LIGHTS) != count) {
+        return false;
+    }
+    for (int star = 0; star < count; star++) {
+        if ((starMask & (UINT32_C(1) << star)) == 0u) continue;
+        Vector3 kick = SolarSystemNatalKickGame(
+            &afterProfiles[star], eventSalt ^ (uint32_t)star);
+        states[star].velocityGame.x += kick.x;
+        states[star].velocityGame.y += kick.y;
+        states[star].velocityGame.z += kick.z;
+    }
+    if (!SolarSystemPhysicsRecenterStates(states, afterMasses, count)) {
+        return false;
+    }
+    for (int i = 0; i < count; i++) orbit->massKg[i] = afterMasses[i];
+
+    if (orbit->motion == SPACE_BARYCENTER_FREE_FLIGHT) {
+        SolarSystemStellarOrbitStoreFreeFlight(orbit, states, count);
+        return true;
+    }
+
+    SpaceKeplerState innerState = SolarSystemPhysicsRelativeState(
+        &states[0], &states[1]);
+    SpaceKeplerOrbit innerOrbit;
+    if (!SpaceKeplerOrbitFromState(
+            &innerState, afterMasses[0] + afterMasses[1], &innerOrbit)) {
+        SolarSystemStellarOrbitStoreFreeFlight(orbit, states, count);
+        return true;
+    }
+    SolarSystemStellarOrbitSetInner(orbit, &innerOrbit);
+    if (count == 2) {
+        orbit->motion = SPACE_BARYCENTER_BOUND;
+        return true;
+    }
+    if (orbit->motion == SPACE_BARYCENTER_OUTER_FREE_FLIGHT) {
+        return SolarSystemStellarOrbitStoreOuterFreeFlight(
+            orbit, states, afterMasses);
+    }
+
+    Vector3 innerCenter = SolarSystemPhysicsMassCenter(
+        states, afterMasses, 0, 2, false);
+    Vector3 innerVelocity = SolarSystemPhysicsMassCenter(
+        states, afterMasses, 0, 2, true);
+    SpaceBarycenterBodyState innerBody = {
+        .offsetGame = innerCenter,
+        .velocityGame = innerVelocity
+    };
+    SpaceKeplerState outerState = SolarSystemPhysicsRelativeState(
+        &innerBody, &states[2]);
+    SpaceKeplerOrbit outerOrbit;
+    if (!SpaceKeplerOrbitFromState(
+            &outerState, afterMasses[0] + afterMasses[1] + afterMasses[2],
+            &outerOrbit)) {
+        return SolarSystemStellarOrbitStoreOuterFreeFlight(
+            orbit, states, afterMasses);
+    }
+    SolarSystemStellarOrbitSetOuter(orbit, &outerOrbit);
+    orbit->motion = SPACE_BARYCENTER_BOUND;
+    return true;
+}
+
+static bool SolarSystemStellarOrbitEvolve(
+    const SolarSystemPhysicalSnapshot *base,
+    const StellarProfile *finalProfiles,
+    const SolarSystemMassLossEvent *events, int eventCount,
+    SpaceBarycenterOrbit *out)
+{
+    if (!base || !finalProfiles || !events || !out || eventCount < 0 ||
+        eventCount > MAX_SOLAR_LIGHTS) {
+        return false;
+    }
+    int count = base->summary.stellarCount;
+    if (count < 1 || count > MAX_SOLAR_LIGHTS ||
+        base->stellarOrbit.bodyCount != count) {
+        return false;
+    }
+    SpaceBarycenterOrbit evolved = base->stellarOrbit;
+    for (int event = 0; event < eventCount; event++) {
+        StellarProfile beforeProfiles[MAX_SOLAR_LIGHTS];
+        StellarProfile afterProfiles[MAX_SOLAR_LIGHTS];
+        if (!SolarSystemStellarProfilesAtAge(
+                base, events[event].ageGyr, beforeProfiles) ||
+            !SolarSystemStellarProfilesAtAge(
+                base, nextafter(events[event].ageGyr, INFINITY),
+                afterProfiles) ||
+            !SolarSystemStellarOrbitApplyEvent(
+                &evolved, beforeProfiles, afterProfiles,
+                events[event].starMask,
+                SolarSystemPhysicsMix32((uint32_t)event ^
+                                        base->stellarHash), count)) {
+            return false;
+        }
+    }
+    double finalMasses[MAX_SOLAR_LIGHTS] = { 0 };
+    for (int i = 0; i < count; i++) finalMasses[i] = finalProfiles[i].massKg;
+    if (!SolarSystemStellarOrbitApplyMasses(
+            &evolved, finalMasses, count)) {
+        return false;
+    }
+    SpaceBarycenterBodyState states[MAX_SOLAR_LIGHTS];
+    if (SpaceBarycenterSolve(&evolved, 0.0, states,
+                             MAX_SOLAR_LIGHTS) != count) {
+        return false;
+    }
+    *out = evolved;
+    return true;
 }
 
 static bool SolarSystemMaximumGiantReachKm(
@@ -428,7 +739,8 @@ static bool SolarSystemPlanetOrbitEvolve(
     const SolarSystemDef *sys, int index,
     const SolarSystemPhysicalSnapshot *base, double finalMassKg,
     double giantReachKm, const SolarSystemMassLossEvent *events,
-    int eventCount, SolarPlanetDynamicalStatus *outStatus,
+    int eventCount, bool stellarSystemDisrupted,
+    SolarPlanetDynamicalStatus *outStatus,
     SpaceKeplerOrbit *outOrbit)
 {
     if (!sys || !base || !events || !outStatus || !outOrbit || index < 0 ||
@@ -446,6 +758,10 @@ static bool SolarSystemPlanetOrbitEvolve(
     if (periapsisKm <= giantReachKm +
                         sys->planets[index].physicalRadiusKm) {
         *outStatus = SOLAR_PLANET_ENGULFED;
+        return true;
+    }
+    if (stellarSystemDisrupted) {
+        *outStatus = SOLAR_PLANET_EJECTED;
         return true;
     }
 
@@ -612,12 +928,17 @@ bool SolarSystemPhysicalSnapshotEvolve(
         return false;
     }
 
-    if (!SolarSystemStellarOrbitEvolve(
-            &base->stellarOrbit, evolved.stellarProfiles,
-            evolved.summary.stellarCount, &evolved.stellarOrbit)) {
+    SolarSystemMassLossEvent events[MAX_SOLAR_LIGHTS] = { 0 };
+    int eventCount = SolarSystemMassLossEvents(
+        base, requestedSystemAge, events, MAX_SOLAR_LIGHTS);
+    if (eventCount < 0 || !SolarSystemStellarOrbitEvolve(
+                              base, evolved.stellarProfiles,
+                              events, eventCount,
+                              &evolved.stellarOrbit)) {
         return false;
     }
-    if (evolved.summary.stellarCount <= 1) {
+    if (evolved.summary.stellarCount <= 1 ||
+        evolved.stellarOrbit.motion != SPACE_BARYCENTER_BOUND) {
         evolved.minimumPlanetOrbitGame = 180.0f;
     } else {
         double separationKm = evolved.summary.stellarCount == 3
@@ -628,18 +949,16 @@ bool SolarSystemPhysicalSnapshotEvolve(
             (evolved.summary.stellarCount == 3 ? 3.0f : 2.8f);
         evolved.minimumPlanetOrbitGame = fmaxf(180.0f, minimum);
     }
-    SolarSystemMassLossEvent events[MAX_SOLAR_LIGHTS] = { 0 };
-    int eventCount = SolarSystemMassLossEvents(
-        base, requestedSystemAge, events, MAX_SOLAR_LIGHTS);
     double giantReachKm = 0.0;
-    if (eventCount < 0 || !SolarSystemMaximumGiantReachKm(
-                              base, requestedSystemAge, &giantReachKm)) {
+    if (!SolarSystemMaximumGiantReachKm(
+            base, requestedSystemAge, &giantReachKm)) {
         return false;
     }
     for (int index = 0; index < sys->planetCount; index++) {
         if (!SolarSystemPlanetOrbitEvolve(
                 sys, index, base, evolved.summary.totalMassKg,
                 giantReachKm, events, eventCount,
+                evolved.stellarOrbit.motion != SPACE_BARYCENTER_BOUND,
                 &evolved.planetStatuses[index],
                 &evolved.planetOrbits[index])) {
             return false;
@@ -705,6 +1024,11 @@ static bool SolarSystemPhysicalSnapshotIsUsable(
         snapshot->summary.stellarCount <= 0 ||
         snapshot->summary.stellarCount > MAX_SOLAR_LIGHTS ||
         snapshot->stellarOrbit.bodyCount != snapshot->summary.stellarCount ||
+        snapshot->stellarOrbit.motion != SPACE_BARYCENTER_BOUND ||
+        snapshot->stellarOrbit.innerEccentricity != 0.0 ||
+        snapshot->stellarOrbit.outerEccentricity != 0.0 ||
+        snapshot->stellarOrbit.innerArgumentPeriapsisRad != 0.0 ||
+        snapshot->stellarOrbit.outerArgumentPeriapsisRad != 0.0 ||
         !(snapshot->minimumPlanetOrbitGame > 0.0f) ||
         !isfinite(snapshot->minimumPlanetOrbitGame)) {
         return false;
