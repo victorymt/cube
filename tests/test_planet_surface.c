@@ -12,6 +12,16 @@ double SpaceSimulationTime(void)
     return simulationTime;
 }
 
+double SpaceElapsedSimulationTime(void)
+{
+    return simulationTime;
+}
+
+double SpacePeriodicSimulationTime(double elapsedTime)
+{
+    return elapsedTime;
+}
+
 static PlanetProfile TestProfile(SolarBodyStyle style)
 {
     PlanetProfile profile = { 0 };

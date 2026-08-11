@@ -1085,7 +1085,7 @@ void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade)
     if (!FindNearestSystem(camera->position, 2600.0f, &system, &systemDistance)) return;
 
     const int samples = 64;
-    double now = SpaceSimulationTime();
+    double now = SpacePeriodicSimulationTime(SpaceElapsedSimulationTime());
     for (int i = 0; i < system.planetCount; i++) {
         PlanetProfile profile = SolarPlanetProfile(&system, i);
         double period = SolarSystemPlanetOrbitPeriodGameTime(&system, i);
@@ -1650,7 +1650,9 @@ static uint32_t PlanetTextureOceanKey(const PlanetProfile *profile)
 static uint32_t PlanetTextureSeasonKey(const PlanetProfile *profile)
 {
     if (!profile || profile->yearLength <= 0.0f) return 0u;
-    double cycle = fmod(SpaceSimulationTime() / (double)profile->yearLength, 1.0);
+    double cycle = fmod(SpacePeriodicSimulationTime(
+                            SpaceElapsedSimulationTime()) /
+                        (double)profile->yearLength, 1.0);
     if (cycle < 0.0) cycle += 1.0;
     return (uint32_t)floor(cycle * 8.0);
 }
@@ -1765,7 +1767,9 @@ static float PlanetCloudRotation(const PlanetProfile *profile, uint32_t seed)
                   (0.08f + wind * 1.20f) *
                   (0.82f + PlanetHashUnit(107, 19, 53, seed) * 0.36f);
     float direction = PlanetHashUnit(61, 83, 7, seed) < 0.5f ? -1.0f : 1.0f;
-    double angle = (double)phase + SpaceSimulationTime() * (double)speed * (double)direction;
+    double angle = (double)phase +
+                   SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()) *
+                   (double)speed * (double)direction;
     angle = fmod(angle, 360.0);
     if (angle < 0.0) angle += 360.0;
     return (float)angle;
@@ -2247,7 +2251,9 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
 
     EnsurePlanetRenderResources();
     PlanetProfile homeAtmosphere = HomePlanetRenderProfile();
-    float homeRotation = -18.0f + (float)SpaceSimulationTime() * 1.2f;
+    float homeRotation = -18.0f +
+                         (float)SpacePeriodicSimulationTime(
+                             SpaceElapsedSimulationTime()) * 1.2f;
     PlanetSpaceLighting lighting = PlanetSpaceLightingFor(0, 0, center);
     PlanetCloudLayer cloudLayer = {
         .texture = planetTextures.homeClouds,

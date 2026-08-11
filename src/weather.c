@@ -205,7 +205,8 @@ static WeatherFieldSample WeatherManualSample(Weather weather)
 
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
 {
-    return WeatherFieldSampleAtWorldTime(x, z, SpaceSimulationTime());
+    return WeatherFieldSampleAtWorldTime(
+        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()));
 }
 
 WeatherFieldSample WeatherFieldSampleAtWorldTime(
@@ -239,7 +240,8 @@ WeatherFieldSample WeatherFieldSampleAtWorldTime(
 
 float WeatherWindAngleAtWorld(int x, int z)
 {
-    return WeatherWindAngleAtWorldTime(x, z, SpaceSimulationTime());
+    return WeatherWindAngleAtWorldTime(
+        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()));
 }
 
 float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
@@ -407,7 +409,10 @@ void WeatherUpdate(float dt, Vector3 playerPosition)
         fieldSample = WeatherManualSample(manualWeather);
     } else {
         WeatherFieldInput input;
-        if (WeatherInputAt(playerPosition, SpaceSimulationTime(), &input)) {
+        if (WeatherInputAt(
+                playerPosition,
+                SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+                &input)) {
             particleWindAngle = isfinite(input.prevailingWindAngle) ?
                 input.prevailingWindAngle : 0.0f;
             fieldSample = WeatherFieldSampleAt(&input);

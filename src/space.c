@@ -537,15 +537,16 @@ void SpaceAdvanceTime(float gameTimeDelta)
     solarElapsedSimulationTime = advanced;
 }
 
-static double SpacePeriodicSimulationTime(double elapsedTime)
+double SpacePeriodicSimulationTime(double elapsedTime)
 {
+    if (!isfinite(elapsedTime) || elapsedTime < 0.0) return 0.0;
     return elapsedTime > 100000000.0
         ? fmod(elapsedTime, 1000000.0) : elapsedTime;
 }
 
 double SpaceSimulationTime(void)
 {
-    return SpacePeriodicSimulationTime(solarElapsedSimulationTime);
+    return solarElapsedSimulationTime;
 }
 
 double SpaceElapsedSimulationTime(void)
@@ -569,7 +570,8 @@ float PlanetBodyTextureRotation(const SpaceBodyInfo *body)
 {
     if (!body) return 0.0f;
     return (float)((PlanetBodyTextureHash(body) >> 8) % 360u) +
-           (float)SpaceSimulationTime() * body->profile.rotationRate;
+           (float)SpacePeriodicSimulationTime(
+               SpaceElapsedSimulationTime()) * body->profile.rotationRate;
 }
 
 static bool StarSystemDefinitionAt(int ax, int az, SolarSystemDef *out)
@@ -692,7 +694,8 @@ Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
 
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
 {
-    return SolarSystemPlanetPositionAtTime(sys, index, SpaceSimulationTime());
+    return SolarSystemPlanetPositionAtTime(
+        sys, index, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()));
 }
 
 static bool SolarSystemPlanetStateForSnapshotAtTime(
@@ -1802,7 +1805,8 @@ static bool PlanetWorldLightStateForFiniteSurface(
         !runtime.planets[orbitIndex].valid) return false;
     Vector3 planetCenter = runtime.planets[orbitIndex].center;
     float spinPhase = (float)(planetWorld.seed & 0xffffu) / 65535.0f * 2.0f * PI +
-                      (float)SpaceSimulationTime() *
+                      (float)SpacePeriodicSimulationTime(
+                          SpaceElapsedSimulationTime()) *
                           planetWorld.profile.rotationRate * DEG2RAD;
     Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
     Vector3 inertialSurfaceNormal = PlanetWorldSpaceDirection(
@@ -3351,7 +3355,8 @@ bool PlanetWorldTryLaunch(Player *player)
         orbitIndex >= 0 && orbitIndex < system.planetCount) {
         SolarPlanetOrbitalState orbitalState;
         if (SolarSystemPlanetStateAtTime(&system, orbitIndex,
-                                         SpaceSimulationTime(),
+                                         SpacePeriodicSimulationTime(
+                                             SpaceElapsedSimulationTime()),
                                          &orbitalState)) {
             returnPosition = PlanetReturnPosition(
                 orbitalState.center, planetWorld.spaceProxyRadius, outward);

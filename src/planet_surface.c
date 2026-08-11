@@ -311,8 +311,9 @@ PlanetSurfaceSample PlanetSampleGlobalSurfaceBaseline(uint32_t seed,
 PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile *profile,
                                               float longitude, float latitude)
 {
-    return PlanetSampleGlobalSurfaceAtTime(seed, profile, longitude, latitude,
-                                           SpaceSimulationTime());
+    return PlanetSampleGlobalSurfaceAtTime(
+        seed, profile, longitude, latitude,
+        SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()));
 }
 
 const char *PlanetBiomeName(PlanetBiome biome)

@@ -46,6 +46,16 @@ double SpaceSimulationTime(void)
     return simulationTime;
 }
 
+double SpaceElapsedSimulationTime(void)
+{
+    return simulationTime;
+}
+
+double SpacePeriodicSimulationTime(double elapsedTime)
+{
+    return elapsedTime;
+}
+
 bool PlanetWorldIsActive(void)
 {
     return planetWorldActive;

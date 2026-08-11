@@ -285,8 +285,9 @@ void SpaceInit(void);
 void SpaceShutdown(void);
 void SpaceReset(void);
 void SpaceAdvanceTime(float gameTimeDelta);
-double SpaceSimulationTime(void); // Periodic game time used by orbital systems.
-double SpaceElapsedSimulationTime(void); // Monotonic game time for long evolution.
+double SpaceSimulationTime(void); // Monotonic game time for public consumers.
+double SpacePeriodicSimulationTime(double elapsedTime); // Bounded phase time.
+double SpaceElapsedSimulationTime(void); // Compatibility monotonic clock.
 bool SpaceRebasePlayer(Player *player);
 int SpaceOriginX(void);
 int SpaceOriginZ(void);

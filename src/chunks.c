@@ -992,9 +992,10 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
         }
 
         float phase = (float)(Hash3D(cellX, 0, cellZ) & 4095u) * 0.0015339808f;
-        float sway = sinf((float)SpaceSimulationTime() * 1.7f + phase) *
-                     fmaxf(chunk->floraTargetWind[group], 0.0f) * 0.07f *
-                     fmaxf(instance->windResponse, 0.0f);
+        float sway = sinf((float)SpacePeriodicSimulationTime(
+                              SpaceElapsedSimulationTime()) * 1.7f + phase) *
+                         fmaxf(chunk->floraTargetWind[group], 0.0f) * 0.07f *
+                         fmaxf(instance->windResponse, 0.0f);
         float newScale = 1.0f;
         bool instanceChanged = false;
         if (!DeformFloraMeshInstance(

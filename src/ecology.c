@@ -127,7 +127,8 @@ bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
     if (!PlanetWorldIsActive()) return false;
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyPopulationRecordFaunaHarvest(
-        x, z, SpaceSimulationTime(), daylight, &profile,
+        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        daylight, &profile,
         organismScale, ecologyCapacity);
 }
 
@@ -139,7 +140,8 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     uint32_t profileGeneration = EcologyProfileGeneration();
     uint32_t populationEpoch = EcologyPopulationEpoch();
-    double simulationTime = SpaceSimulationTime();
+    double simulationTime = SpacePeriodicSimulationTime(
+        SpaceElapsedSimulationTime());
     int originX = PlanetWorldOriginX();
     int originZ = PlanetWorldOriginZ();
     uint64_t editRevision = WorldGetEditRevision();

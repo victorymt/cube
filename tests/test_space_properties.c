@@ -2068,7 +2068,18 @@ static void TestLongTermTimeClock(void)
     rewind(future);
     assert(SpaceLoadState(future));
     assert(SpaceElapsedSimulationTime() == elapsed);
-    assert(SpaceSimulationTime() == 123.75);
+    assert(SpaceSimulationTime() == elapsed);
+    assert(SpacePeriodicSimulationTime(SpaceSimulationTime()) == 123.75);
+    assert(SpacePeriodicSimulationTime(NAN) == 0.0);
+    assert(SpacePeriodicSimulationTime(INFINITY) == 0.0);
+    assert(SpacePeriodicSimulationTime(-1.0) == 0.0);
+
+    double unchangedTime = SpaceSimulationTime();
+    SpaceAdvanceTime(NAN);
+    SpaceAdvanceTime(INFINITY);
+    SpaceAdvanceTime(-1.0f);
+    SpaceAdvanceTime(0.0f);
+    assert(SpaceSimulationTime() == unchangedTime);
 
     SolarSystemDef evolvedSystem;
     assert(StarSystemAt(0, 0, &evolvedSystem));
@@ -2101,7 +2112,8 @@ static void TestLongTermTimeClock(void)
     SpaceAdvanceTime(10.25f);
     assert(SpaceElapsedSimulationTime() ==
            20.0 * SPACE_UNITS_GAME_TIME_PER_GIGAYEAR + 134.0);
-    assert(SpaceSimulationTime() == 134.0);
+    assert(SpaceSimulationTime() == elapsed + 10.25);
+    assert(SpacePeriodicSimulationTime(SpaceSimulationTime()) == 134.0);
 
     FILE *replay = tmpfile();
     assert(replay);
@@ -2111,7 +2123,8 @@ static void TestLongTermTimeClock(void)
     assert(SpaceLoadState(replay));
     assert(SpaceElapsedSimulationTime() ==
            20.0 * SPACE_UNITS_GAME_TIME_PER_GIGAYEAR + 134.0);
-    assert(SpaceSimulationTime() == 134.0);
+    assert(SpaceSimulationTime() == elapsed + 10.25);
+    assert(SpacePeriodicSimulationTime(SpaceSimulationTime()) == 134.0);
     assert(SpaceOriginX() == originX);
     assert(SpaceOriginZ() == originZ);
     SolarSystemRuntimeState replayRuntime;
