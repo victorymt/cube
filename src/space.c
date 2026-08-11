@@ -666,9 +666,9 @@ int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
         sys, snapshot, simulationTime, out, maxCount);
 }
 
-bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
-                               double simulationTime,
-                               SolarSystemRuntimeState *out)
+static bool SolarSystemEvaluateUncachedAtTime(
+    const SolarSystemDef *sys, double simulationTime,
+    SolarSystemRuntimeState *out)
 {
     if (!out) return false;
     *out = (SolarSystemRuntimeState){ 0 };
@@ -796,6 +796,9 @@ static bool SolarSystemEvaluateCachedAtTime(
     SolarSystemRuntimeState *out)
 {
     if (!system || !out) return false;
+    if (!system->physicalSnapshot.valid) {
+        return SolarSystemEvaluateUncachedAtTime(system, simulationTime, out);
+    }
     uint32_t worldSeed = WorldGetSeed();
     if (SpaceQueryRuntimeCacheGet(worldSeed, system->anchorX,
                                   system->anchorZ, simulationTime, out)) {
@@ -804,7 +807,8 @@ static bool SolarSystemEvaluateCachedAtTime(
     }
 
     SolarSystemRuntimeState computed;
-    if (!SolarSystemEvaluateAtTime(system, simulationTime, &computed)) {
+    if (!SolarSystemEvaluateUncachedAtTime(system, simulationTime,
+                                           &computed)) {
         return false;
     }
     SolarSystemRuntimeToRelative(system, &computed);
@@ -813,6 +817,13 @@ static bool SolarSystemEvaluateCachedAtTime(
     *out = computed;
     SolarSystemRuntimeProject(system, out);
     return out->valid;
+}
+
+bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
+                               double simulationTime,
+                               SolarSystemRuntimeState *out)
+{
+    return SolarSystemEvaluateCachedAtTime(sys, simulationTime, out);
 }
 
 int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,

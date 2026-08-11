@@ -814,6 +814,17 @@ static void TestDeterministicSpaceQueries(void)
     SpaceQueryCacheStats repeatedStats = SpaceQueryCacheGetStats();
     assert(repeatedStats.definitionHits > coldStats.definitionHits);
 
+    SolarSystemRuntimeState runtimeFirst;
+    SolarSystemRuntimeState runtimeSecond;
+    SpaceQueryCacheClear();
+    assert(SolarSystemEvaluateAtTime(&systems[0], 42.5, &runtimeFirst));
+    SpaceQueryCacheStats runtimeColdStats = SpaceQueryCacheGetStats();
+    assert(SolarSystemEvaluateAtTime(&systems[0], 42.5, &runtimeSecond));
+    assert(memcmp(&runtimeFirst, &runtimeSecond,
+                  sizeof(runtimeFirst)) == 0);
+    SpaceQueryCacheStats runtimeRepeatStats = SpaceQueryCacheGetStats();
+    assert(runtimeRepeatStats.runtimeHits > runtimeColdStats.runtimeHits);
+
     SpaceBodyInfo bodies[64];
     SpaceQueryCacheClear();
     int bodyCount = SpaceBodiesNear(observer, bodyRange, bodies, 64);
