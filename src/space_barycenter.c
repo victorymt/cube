@@ -99,6 +99,61 @@ static Vector3 SpaceBarycenterAdd(Vector3 left, Vector3 right)
     return (Vector3){ left.x + right.x, left.y + right.y, left.z + right.z };
 }
 
+static void SpaceBarycenterClearStates(SpaceBarycenterBodyState *out,
+                                       int count)
+{
+    for (int i = 0; i < count; i++) {
+        out[i] = (SpaceBarycenterBodyState){ 0 };
+    }
+}
+
+static bool SpaceBarycenterOrbitIsValid(const SpaceBarycenterOrbit *orbit,
+                                        double simulationTime,
+                                        int maxCount)
+{
+    if (!orbit || !isfinite(simulationTime) || orbit->bodyCount < 1 ||
+        orbit->bodyCount > SPACE_BARYCENTER_MAX_BODIES ||
+        maxCount < orbit->bodyCount) return false;
+    for (int i = 0; i < orbit->bodyCount; i++) {
+        if (!(orbit->massKg[i] > 0.0) || !isfinite(orbit->massKg[i])) {
+            return false;
+        }
+    }
+    if (orbit->bodyCount == 1) return true;
+    if (!(orbit->innerSeparationKm > 0.0) ||
+        !isfinite(orbit->innerSeparationKm) ||
+        !isfinite(orbit->innerPhaseRad) ||
+        !isfinite(orbit->innerInclinationRad) ||
+        !isfinite(orbit->innerNodeRad)) return false;
+    double innerMass = orbit->massKg[0] + orbit->massKg[1];
+    if (!(innerMass > 0.0) || !isfinite(innerMass)) return false;
+    if (orbit->bodyCount == 3) {
+        if (!(orbit->outerSeparationKm > 0.0) ||
+            !isfinite(orbit->outerSeparationKm) ||
+            !isfinite(orbit->outerPhaseRad) ||
+            !isfinite(orbit->outerInclinationRad) ||
+            !isfinite(orbit->outerNodeRad)) return false;
+        double totalMass = innerMass + orbit->massKg[2];
+        if (!(totalMass > 0.0) || !isfinite(totalMass)) return false;
+    }
+    return true;
+}
+
+static bool SpaceBarycenterStatesAreFinite(
+    const SpaceBarycenterBodyState *states, int count)
+{
+    if (!states || count < 0 || count > SPACE_BARYCENTER_MAX_BODIES) {
+        return false;
+    }
+    for (int i = 0; i < count; i++) {
+        if (!SpaceBarycenterVectorIsFinite(states[i].offsetGame) ||
+            !SpaceBarycenterVectorIsFinite(states[i].velocityGame)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 int SpaceBarycenterSolve(const SpaceBarycenterOrbit *orbit,
                          double simulationTime,
                          SpaceBarycenterBodyState *out, int maxCount)
@@ -106,27 +161,13 @@ int SpaceBarycenterSolve(const SpaceBarycenterOrbit *orbit,
     if (!out || maxCount <= 0) return 0;
     int clearCount = maxCount < SPACE_BARYCENTER_MAX_BODIES
         ? maxCount : SPACE_BARYCENTER_MAX_BODIES;
-    for (int i = 0; i < clearCount; i++) {
-        out[i] = (SpaceBarycenterBodyState){ 0 };
-    }
-    if (!orbit || !isfinite(simulationTime) || orbit->bodyCount < 1 ||
-        orbit->bodyCount > SPACE_BARYCENTER_MAX_BODIES ||
-        maxCount < orbit->bodyCount) return 0;
-
-    for (int i = 0; i < orbit->bodyCount; i++) {
-        if (!(orbit->massKg[i] > 0.0) || !isfinite(orbit->massKg[i])) {
-            return 0;
-        }
+    SpaceBarycenterClearStates(out, clearCount);
+    if (!SpaceBarycenterOrbitIsValid(orbit, simulationTime, maxCount)) {
+        return 0;
     }
     if (orbit->bodyCount == 1) return 1;
-    if (!(orbit->innerSeparationKm > 0.0) ||
-        !isfinite(orbit->innerSeparationKm) ||
-        !isfinite(orbit->innerPhaseRad) ||
-        !isfinite(orbit->innerInclinationRad) ||
-        !isfinite(orbit->innerNodeRad)) return 0;
 
     double innerMass = orbit->massKg[0] + orbit->massKg[1];
-    if (!(innerMass > 0.0) || !isfinite(innerMass)) return 0;
     SpaceBarycenterBodyState inner;
     if (!SpaceBarycenterRelativeOrbit(
         orbit->innerSeparationKm, innerMass, orbit->innerPhaseRad,
@@ -136,13 +177,7 @@ int SpaceBarycenterSolve(const SpaceBarycenterOrbit *orbit,
     Vector3 innerCenterPosition = { 0 };
     Vector3 innerCenterVelocity = { 0 };
     if (orbit->bodyCount == 3) {
-        if (!(orbit->outerSeparationKm > 0.0) ||
-            !isfinite(orbit->outerSeparationKm) ||
-            !isfinite(orbit->outerPhaseRad) ||
-            !isfinite(orbit->outerInclinationRad) ||
-            !isfinite(orbit->outerNodeRad)) return 0;
         double totalMass = innerMass + orbit->massKg[2];
-        if (!(totalMass > 0.0) || !isfinite(totalMass)) return 0;
         SpaceBarycenterBodyState outer;
         if (!SpaceBarycenterRelativeOrbit(
             orbit->outerSeparationKm, totalMass, orbit->outerPhaseRad,
@@ -170,14 +205,9 @@ int SpaceBarycenterSolve(const SpaceBarycenterOrbit *orbit,
     out[1].velocityGame = SpaceBarycenterAdd(
         innerCenterVelocity,
         SpaceBarycenterScale(inner.velocityGame, orbit->massKg[0] / innerMass));
-    for (int i = 0; i < orbit->bodyCount; i++) {
-        if (!SpaceBarycenterVectorIsFinite(out[i].offsetGame) ||
-            !SpaceBarycenterVectorIsFinite(out[i].velocityGame)) {
-            for (int clear = 0; clear < clearCount; clear++) {
-                out[clear] = (SpaceBarycenterBodyState){ 0 };
-            }
-            return 0;
-        }
+    if (!SpaceBarycenterStatesAreFinite(out, orbit->bodyCount)) {
+        SpaceBarycenterClearStates(out, clearCount);
+        return 0;
     }
     return orbit->bodyCount;
 }
