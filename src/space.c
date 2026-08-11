@@ -1475,11 +1475,14 @@ static void PlanetWorldMoonIlluminationAt(
     }
 }
 
-bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
+static bool PlanetWorldLightStateForFiniteSurface(
+    Vector3 surfacePosition, PlanetLightState *out)
 {
     if (!out) return false;
     *out = (PlanetLightState){ 0 };
-    if (!planetWorld.active || !planetWorld.profile.hasSolidSurface) return false;
+    if (!planetWorld.active || !planetWorld.profile.hasSolidSurface) {
+        return false;
+    }
 
     SolarSystemDef system = { 0 };
     if (!SurfaceHostSystem(&system)) return false;
@@ -1573,7 +1576,11 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
         weightedB += (float)color.b * weight;
     }
 
-    if (Vector3LengthSqr(weightedDirection) < 0.000001f || totalWeight <= 0.0f) return false;
+    if (Vector3LengthSqr(weightedDirection) < 0.000001f ||
+        totalWeight <= 0.0f) {
+        *out = (PlanetLightState){ 0 };
+        return false;
+    }
     Vector3 sunDirection = Vector3Normalize(weightedDirection);
     float incidence = Vector3DotProduct(surfaceNormal, sunDirection);
     float incidentIrradiance = fmaxf(incidence, 0.0f) * totalWeight;
@@ -1603,6 +1610,14 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
         255
     };
     return true;
+}
+
+bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
+{
+    if (!out) return false;
+    *out = (PlanetLightState){ 0 };
+    if (!SpaceVectorIsFinite(surfacePosition)) return false;
+    return PlanetWorldLightStateForFiniteSurface(surfacePosition, out);
 }
 
 float PlanetWorldDaylightAt(Vector3 surfacePosition)

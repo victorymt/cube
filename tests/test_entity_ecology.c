@@ -813,6 +813,12 @@ static void TestPlanetLightStateDeterminism(void)
     assert(file);
     EcologyTestActivateGeneratedPlanetWithFile(
         file, &system, planetIndex, 0, 0);
+    PlanetLightState invalid;
+    const PlanetLightState cleared = { 0 };
+    memset(&invalid, 0xa5, sizeof(invalid));
+    assert(!PlanetWorldLightStateAt(
+        (Vector3){ NAN, 70.0f, 0.5f }, &invalid));
+    assert(memcmp(&invalid, &cleared, sizeof(invalid)) == 0);
     static const Vector3 surfacePositions[] = {
         { 0.5f, 70.0f, 0.5f },
         { 18.5f, 72.0f, -11.5f },
