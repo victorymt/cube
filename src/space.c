@@ -401,23 +401,13 @@ static void BuildSolSystem(SolarSystemDef *out)
     }
 }
 
-static unsigned int SolarOrbitHash(const SolarSystemDef *sys, int index)
-{
-    return WorldHash2D(sys->anchorX * 53 + index * 7 + 1,
-                       sys->anchorZ * 29 + index * 3 + 2);
-}
-
-static unsigned int SolarPlaneHash(const SolarSystemDef *sys)
-{
-    return WorldHash2D(sys->anchorX * 79 + 11, sys->anchorZ * 97 + 23);
-}
-
 static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
 {
     const SolarPlanetDef *def = &sys->planets[index];
     float orbitGame = (float)SpaceUnitsKilometersToGameDistance(
         def->semiMajorAxisKm);
-    float legacyAngle = (float)(SolarOrbitHash(sys, index) % 6283u) / 1000.0f;
+    float legacyAngle =
+        (float)(SolarSystemPlanetOrbitHash(sys, index) % 6283u) / 1000.0f;
     int legacyX = ClampCoordinate((int64_t)SpaceSystemGlobalCoordinate(sys->anchorX) +
                                   (int64_t)floorf(cosf(legacyAngle) * orbitGame));
     int legacyZ = ClampCoordinate((int64_t)SpaceSystemGlobalCoordinate(sys->anchorZ) +
@@ -571,67 +561,9 @@ Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer
 Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
                                         double simulationTime)
 {
-    const SolarPlanetDef *def = &sys->planets[index];
-    unsigned int orbitHash = SolarOrbitHash(sys, index);
-    unsigned int planeHash = SolarPlaneHash(sys);
-    float phase = (float)(orbitHash % 6283u) / 1000.0f;
-    // A planetary system is a thin but truly three-dimensional disk. Keep its
-    // vertical extent inside the playable space layer while preserving distinct
-    // planes between systems and slight differences between neighboring orbits.
-    float systemInclination = ((float)((planeHash >> 6) % 25u) - 12.0f) * 0.0055f;
-    float planetInclination = ((float)((orbitHash >> 22) % 9u) - 4.0f) * 0.0020f;
-    float inclination = Clamp(systemInclination + planetInclination, -0.074f, 0.074f);
-    float systemNode = (float)((planeHash >> 13) % 6283u) / 1000.0f;
-    float nodeOffset = ((float)((orbitHash >> 7) % 17u) - 8.0f) * 0.005f;
-    float node = systemNode + nodeOffset;
-    // Mean motion follows Kepler's third law. Eccentricity and periapsis are
-    // derived from stable system hashes, so a body keeps the same orbit across
-    // visits without requiring a saved simulation state.
-    double angularSpeed = SpaceUnitsKeplerMeanMotionGame(
-        def->semiMajorAxisKm, SolarSystemStellarMassKg(sys));
-    float meanAnomaly = phase + (float)fmod(simulationTime * angularSpeed,
-                                            2.0 * PI);
-    float eccentricity = 0.015f + (float)((orbitHash >> 17) % 180u) / 1000.0f;
-    if (sys->anchorX == 0 && sys->anchorZ == 0) {
-        static const float solEccentricities[6] = { 0.08f, 0.04f, 0.02f, 0.11f, 0.15f, 0.06f };
-        eccentricity = solEccentricities[index];
-    }
-    // Surface-world save data historically infers a host system from the
-    // stored body center. Keep apoapsis inside that system's anchor cell so
-    // outer planets never become ambiguous after a later launch or load.
-    float semiMajorAxis = (float)SpaceUnitsKilometersToGameDistance(
-        def->semiMajorAxisKm);
-    float hostCellLimit = 694.0f / fmaxf(semiMajorAxis, 1.0f) - 1.0f;
-    // Compact multi-planet systems remain stable when their orbital shells do
-    // not cross. A modest eccentricity still gives visible Keplerian motion
-    // without making the large game-scale proxies collide at conjunction.
-    eccentricity = Clamp(eccentricity, 0.0f, fminf(0.05f, fmaxf(hostCellLimit, 0.0f)));
-
-    float eccentricAnomaly = meanAnomaly;
-    for (int iteration = 0; iteration < 4; iteration++) {
-        float residual = eccentricAnomaly - eccentricity * sinf(eccentricAnomaly) - meanAnomaly;
-        eccentricAnomaly -= residual / fmaxf(1.0f - eccentricity * cosf(eccentricAnomaly),
-                                              0.001f);
-    }
-
-    float semiMinorAxis = semiMajorAxis * sqrtf(1.0f - eccentricity * eccentricity);
-    float ellipseX = semiMajorAxis * (cosf(eccentricAnomaly) - eccentricity);
-    float ellipseZ = semiMinorAxis * sinf(eccentricAnomaly);
-    float periapsis = (float)((orbitHash >> 3) % 6283u) / 1000.0f;
-    float periCos = cosf(periapsis);
-    float periSin = sinf(periapsis);
-    float orbitX = ellipseX * periCos - ellipseZ * periSin;
-    float orbitZ = ellipseX * periSin + ellipseZ * periCos;
-    float planeX = orbitX;
-    float planeZ = orbitZ * cosf(inclination);
-    float planeY = orbitZ * sinf(inclination);
-    float nodeCos = cosf(node);
-    float nodeSin = sinf(node);
-    return (Vector3){
-        sys->center.x + planeX * nodeCos - planeZ * nodeSin,
-        sys->center.y + planeY,
-        sys->center.z + planeX * nodeSin + planeZ * nodeCos
-    };
+    SolarPlanetOrbitalState state;
+    return SolarSystemPlanetStateAtTime(sys, index, simulationTime, &state)
+        ? state.center : Vector3Zero();
 }
 
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
@@ -639,16 +571,27 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
     return SolarSystemPlanetPositionAtTime(sys, index, solarSimulationTime);
 }
 
-static Vector3 SolarSystemPlanetVelocityAtTime(const SolarSystemDef *sys, int index,
-                                               double simulationTime)
+bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
+                                  double simulationTime,
+                                  SolarPlanetOrbitalState *out)
 {
-    const double sampleDt = 0.05;
-    Vector3 before = SolarSystemPlanetPositionAtTime(sys, index,
-                                                     simulationTime - sampleDt);
-    Vector3 after = SolarSystemPlanetPositionAtTime(sys, index,
-                                                    simulationTime + sampleDt);
-    return Vector3Scale(Vector3Subtract(after, before),
-                        1.0f / (float)(2.0 * sampleDt));
+    if (!out) return false;
+    *out = (SolarPlanetOrbitalState){ 0 };
+    if (!sys || index < 0 || index >= sys->planetCount) return false;
+
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    if (!snapshot) return false;
+
+    SpaceKeplerState relative;
+    if (!SpaceKeplerStateAtTime(&snapshot->planetOrbits[index],
+                                simulationTime, &relative)) {
+        return false;
+    }
+    out->center = Vector3Add(sys->center, relative.positionGame);
+    out->velocity = relative.velocityGame;
+    return true;
 }
 
 double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index)
@@ -727,7 +670,7 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
     sys->planetCount = formation.planetCount;
     for (int index = 0; index < formation.planetCount; index++) {
         const SpaceSystemFormationPlanet *planet = &formation.planets[index];
-        uint32_t planetHash = SolarOrbitHash(sys, index);
+        uint32_t planetHash = SolarSystemPlanetOrbitHash(sys, index);
         float proxyRadius = planet->gasGiant
             ? 47.0f + (float)((planetHash >> 6) % 4u)
             : 40.0f + (float)((planetHash >> 6) % 9u);
@@ -744,8 +687,7 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
             .formationGasGiant = planet->gasGiant
         };
     }
-    sys->physicalSnapshot = snapshot;
-    return true;
+    return SolarSystemPhysicalSnapshotBuild(sys, &sys->physicalSnapshot);
 }
 
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
@@ -1324,7 +1266,12 @@ static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
         return false;
     }
     PlanetProfile profile = SolarPlanetProfile(system, index);
-    Vector3 center = SolarSystemPlanetCenter(system, index);
+    SolarPlanetOrbitalState orbitalState;
+    if (!SolarSystemPlanetStateAtTime(system, index, solarSimulationTime,
+                                      &orbitalState)) {
+        return false;
+    }
+    Vector3 center = orbitalState.center;
     double parentMassKg = SolarSystemStellarMassKg(system);
     float landingRadius = SolarBodyTerrainProxyRadius(profile.spaceProxyRadius);
     SolarLightSource sources[MAX_SOLAR_LIGHTS];
@@ -1332,8 +1279,7 @@ static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
                                               MAX_SOLAR_LIGHTS);
     *out = (SpaceBodyInfo){
         .center = center,
-        .velocity = SolarSystemPlanetVelocityAtTime(
-            system, index, solarSimulationTime),
+        .velocity = orbitalState.velocity,
         .physicalRadiusKm = profile.physicalRadiusKm,
         .semiMajorAxisKm = system->planets[index].semiMajorAxisKm,
         .parentMassKg = parentMassKg,
@@ -2111,14 +2057,15 @@ bool PlanetWorldTryLaunch(Player *player)
     int orbitIndex = planetWorld.planetIndex - 1;
     if (StarSystemAt(systemAx, systemAz, &system) &&
         orbitIndex >= 0 && orbitIndex < system.planetCount) {
-        Vector3 currentCenter = SolarSystemPlanetCenter(&system, orbitIndex);
-        returnPosition = PlanetReturnPosition(currentCenter,
-                                              planetWorld.spaceProxyRadius,
-                                              outward);
-        launchVelocity = Vector3Add(
-            launchVelocity,
-            SolarSystemPlanetVelocityAtTime(&system, orbitIndex,
-                                            solarSimulationTime));
+        SolarPlanetOrbitalState orbitalState;
+        if (SolarSystemPlanetStateAtTime(&system, orbitIndex,
+                                         solarSimulationTime,
+                                         &orbitalState)) {
+            returnPosition = PlanetReturnPosition(
+                orbitalState.center, planetWorld.spaceProxyRadius, outward);
+            launchVelocity = Vector3Add(launchVelocity,
+                                        orbitalState.velocity);
+        }
     }
     char planetName[32];
     snprintf(planetName, sizeof(planetName), "%s", planetWorld.name);

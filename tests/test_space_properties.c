@@ -253,15 +253,12 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     AssertPlanetClimate(profile);
     const SolarPlanetDef *planet = &system->planets[index];
     double scaleTime = SpaceSimulationTime();
-    double scaleDt = 0.001;
-    Vector3 scaleBefore = SolarSystemPlanetPositionAtTime(
-        system, index, scaleTime - scaleDt);
-    Vector3 scaleAfter = SolarSystemPlanetPositionAtTime(
-        system, index, scaleTime + scaleDt);
+    SolarPlanetOrbitalState scaleState;
+    assert(SolarSystemPlanetStateAtTime(system, index, scaleTime,
+                                        &scaleState));
     SpaceBodyInfo scaleBody = {
-        .center = SolarSystemPlanetCenter(system, index),
-        .velocity = VectorScaleTest(VectorSubtractTest(scaleAfter, scaleBefore),
-                                    1.0 / (2.0 * scaleDt)),
+        .center = scaleState.center,
+        .velocity = scaleState.velocity,
         .physicalRadiusKm = profile->physicalRadiusKm,
         .semiMajorAxisKm = planet->semiMajorAxisKm,
         .parentMassKg = SolarSystemStellarMassKg(system),
@@ -303,6 +300,12 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     AssertRelative(profile->receivedIrradiance, expectedIrradiance, 0.000001);
     double centralMass = SolarSystemStellarMassKg(system);
     double semiMajorAxisKm = planet->semiMajorAxisKm;
+    const SpaceKeplerOrbit *orbit =
+        &system->physicalSnapshot.planetOrbits[index];
+    assert(SpaceKeplerOrbitIsValid(orbit));
+    assert(orbit->semiMajorAxisKm == semiMajorAxisKm);
+    assert(orbit->centralMassKg == centralMass);
+    assert(orbit->eccentricity >= 0.0 && orbit->eccentricity <= 0.05);
     double periodSeconds = SolarSystemPlanetOrbitPeriodSeconds(system, index);
     double expectedPeriod = 2.0 * TEST_PI * sqrt(
         semiMajorAxisKm * semiMajorAxisKm * semiMajorAxisKm /
@@ -316,7 +319,14 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     double maximumRadiusKm = 0.0;
     for (int sample = 0; sample < 12; sample++) {
         double time = periodGame * (double)sample / 12.0;
-        Vector3 position = SolarSystemPlanetPositionAtTime(system, index, time);
+        SolarPlanetOrbitalState orbitalState;
+        assert(SolarSystemPlanetStateAtTime(system, index, time,
+                                            &orbitalState));
+        Vector3 position = orbitalState.center;
+        Vector3 compatibilityPosition = SolarSystemPlanetPositionAtTime(
+            system, index, time);
+        assert(memcmp(&position, &compatibilityPosition,
+                      sizeof(position)) == 0);
         Vector3 relative = VectorSubtractTest(position, system->center);
         double radiusGame = VectorLength(relative);
         double radiusKm = SpaceUnitsGameDistanceToKilometers(radiusGame);
@@ -352,11 +362,16 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
         Vector3 delta = VectorScaleTest(VectorSubtractTest(after, before),
                                         1.0 / (2.0 * dt));
         double speedKmPerSecond = SpaceUnitsGameVelocityToKilometersPerSecond(
-            VectorLength(delta));
+            VectorLength(orbitalState.velocity));
         double expectedSpeed = sqrt(
             SPACE_UNITS_GRAVITATIONAL_CONSTANT_KM3_KG_S2 * centralMass *
             (2.0 / radiusKm - 1.0 / semiMajorAxisKm));
-        AssertRelative(speedKmPerSecond, expectedSpeed, 0.002);
+        AssertRelative(speedKmPerSecond, expectedSpeed, 0.00001);
+        double sampledSpeed = VectorLength(delta);
+        double analyticSpeed = VectorLength(orbitalState.velocity);
+        assert(VectorLength(VectorSubtractTest(delta, orbitalState.velocity)) /
+               fmax(analyticSpeed, 0.000001) < 0.002);
+        AssertRelative(sampledSpeed, analyticSpeed, 0.002);
     }
     assert(minimumStarClearanceKm > 0.0);
     assert(minimumRadiusKm < maximumRadiusKm);
@@ -540,8 +555,10 @@ static void TestSaveLoadTimeDeterminism(void)
     SpaceAdvanceTime(123.5f);
     SolarSystemDef beforeSystem;
     assert(StarSystemAt(3, -4, &beforeSystem));
-    Vector3 beforePosition = SolarSystemPlanetPositionAtTime(&beforeSystem, 0,
-                                                              SpaceSimulationTime());
+    SolarPlanetOrbitalState beforeOrbitalState;
+    assert(SolarSystemPlanetStateAtTime(&beforeSystem, 0,
+                                        SpaceSimulationTime(),
+                                        &beforeOrbitalState));
     PlanetProfile beforeProfile = SolarPlanetProfile(&beforeSystem, 0);
     SolarSystemPhysicalSummary beforeSummary;
     assert(SolarSystemPhysicalSummaryForSystem(&beforeSystem, &beforeSummary));
@@ -583,8 +600,10 @@ static void TestSaveLoadTimeDeterminism(void)
 
     SolarSystemDef afterSystem;
     assert(StarSystemAt(3, -4, &afterSystem));
-    Vector3 afterPosition = SolarSystemPlanetPositionAtTime(
-        &afterSystem, 0, SpaceSimulationTime());
+    SolarPlanetOrbitalState afterOrbitalState;
+    assert(SolarSystemPlanetStateAtTime(&afterSystem, 0,
+                                        SpaceSimulationTime(),
+                                        &afterOrbitalState));
     PlanetProfile afterProfile = SolarPlanetProfile(&afterSystem, 0);
     assert(afterSystem.anchorX == beforeSystem.anchorX);
     assert(afterSystem.anchorZ == beforeSystem.anchorZ);
@@ -593,7 +612,8 @@ static void TestSaveLoadTimeDeterminism(void)
     AssertRelative(afterSystem.star.massKg, beforeSystem.star.massKg, 0.0);
     AssertRelative(afterSystem.star.radiusKm, beforeSystem.star.radiusKm, 0.0);
     AssertRelative(afterSystem.star.temperatureK, beforeSystem.star.temperatureK, 0.0);
-    assert(VectorLength(VectorSubtractTest(afterPosition, beforePosition)) == 0.0);
+    assert(memcmp(&afterOrbitalState, &beforeOrbitalState,
+                  sizeof(afterOrbitalState)) == 0);
     AssertRelative(afterProfile.massKg, beforeProfile.massKg, 0.0);
     AssertRelative(afterProfile.physicalRadiusKm, beforeProfile.physicalRadiusKm, 0.0);
     AssertRelative(afterProfile.receivedIrradiance,
@@ -616,8 +636,10 @@ static void TestSaveLoadTimeDeterminism(void)
     assert(memcmp(&afterWeather, &beforeWeather, sizeof(beforeWeather)) == 0);
 
     SpaceAdvanceTime(17.25f);
-    Vector3 continued = SolarSystemPlanetPositionAtTime(
-        &afterSystem, 0, SpaceSimulationTime());
+    SolarPlanetOrbitalState continuedState;
+    assert(SolarSystemPlanetStateAtTime(&afterSystem, 0,
+                                        SpaceSimulationTime(),
+                                        &continuedState));
     afterWeatherInput.simulationTime = SpaceSimulationTime();
     WeatherFieldSample continuedWeather = WeatherFieldSampleAt(&afterWeatherInput);
     rewind(file);
@@ -627,9 +649,12 @@ static void TestSaveLoadTimeDeterminism(void)
     SpaceAdvanceTime(17.25f);
     SolarSystemDef replaySystem;
     assert(StarSystemAt(3, -4, &replaySystem));
-    Vector3 replay = SolarSystemPlanetPositionAtTime(
-        &replaySystem, 0, SpaceSimulationTime());
-    assert(VectorLength(VectorSubtractTest(continued, replay)) == 0.0);
+    SolarPlanetOrbitalState replayState;
+    assert(SolarSystemPlanetStateAtTime(&replaySystem, 0,
+                                        SpaceSimulationTime(),
+                                        &replayState));
+    assert(memcmp(&continuedState, &replayState,
+                  sizeof(continuedState)) == 0);
     WeatherFieldInput replayWeatherInput = afterWeatherInput;
     replayWeatherInput.simulationTime = SpaceSimulationTime();
     WeatherFieldSample replayWeather = WeatherFieldSampleAt(&replayWeatherInput);

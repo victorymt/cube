@@ -12,6 +12,19 @@ static uint32_t SolarLightHash(const SolarSystemDef *sys)
     return WorldHash2D(sys->anchorX * 113 + 41, sys->anchorZ * 71 + 19);
 }
 
+uint32_t SolarSystemPlanetOrbitHash(const SolarSystemDef *sys, int index)
+{
+    if (!sys) return 0u;
+    return WorldHash2D(sys->anchorX * 53 + index * 7 + 1,
+                       sys->anchorZ * 29 + index * 3 + 2);
+}
+
+uint32_t SolarSystemPlanetPlaneHash(const SolarSystemDef *sys)
+{
+    if (!sys) return 0u;
+    return WorldHash2D(sys->anchorX * 79 + 11, sys->anchorZ * 97 + 23);
+}
+
 int SolarSystemStellarVisualRadius(const StellarProfile *star)
 {
     if (!star || star->radiusKm <= 0.0) return 9;
@@ -102,10 +115,61 @@ static SpaceBarycenterOrbit SolarSystemStellarOrbit(
     return orbit;
 }
 
+static bool SolarSystemPlanetOrbitBuild(
+    const SolarSystemDef *sys, int index, double centralMassKg,
+    SpaceKeplerOrbit *out)
+{
+    if (!sys || !out || index < 0 || index >= sys->planetCount ||
+        index >= MAX_SOLAR_PLANETS) {
+        return false;
+    }
+    const SolarPlanetDef *planet = &sys->planets[index];
+    uint32_t orbitHash = SolarSystemPlanetOrbitHash(sys, index);
+    uint32_t planeHash = SolarSystemPlanetPlaneHash(sys);
+    double systemInclination =
+        ((double)((planeHash >> 6) % 25u) - 12.0) * 0.0055;
+    double planetInclination =
+        ((double)((orbitHash >> 22) % 9u) - 4.0) * 0.0020;
+    double inclination = fmax(-0.074, fmin(0.074,
+                                           systemInclination +
+                                           planetInclination));
+    double systemNode = (double)((planeHash >> 13) % 6283u) / 1000.0;
+    double nodeOffset =
+        ((double)((orbitHash >> 7) % 17u) - 8.0) * 0.005;
+    double eccentricity =
+        0.015 + (double)((orbitHash >> 17) % 180u) / 1000.0;
+    if (sys->anchorX == 0 && sys->anchorZ == 0) {
+        static const double solEccentricities[MAX_SOLAR_PLANETS] = {
+            0.08, 0.04, 0.02, 0.11, 0.15, 0.06
+        };
+        eccentricity = solEccentricities[index];
+    }
+    double semiMajorAxisGame = SpaceUnitsKilometersToGameDistance(
+        planet->semiMajorAxisKm);
+    double hostCellLimit = 694.0 / fmax(semiMajorAxisGame, 1.0) - 1.0;
+    eccentricity = fmax(0.0, fmin(eccentricity,
+        fmin(0.05, fmax(hostCellLimit, 0.0))));
+
+    *out = (SpaceKeplerOrbit){
+        .semiMajorAxisKm = planet->semiMajorAxisKm,
+        .centralMassKg = centralMassKg,
+        .eccentricity = eccentricity,
+        .inclinationRad = inclination,
+        .longitudeAscendingNodeRad = systemNode + nodeOffset,
+        .argumentPeriapsisRad =
+            (double)((orbitHash >> 3) % 6283u) / 1000.0,
+        .meanAnomalyAtEpochRad = (double)(orbitHash % 6283u) / 1000.0
+    };
+    return SpaceKeplerOrbitIsValid(out);
+}
+
 bool SolarSystemPhysicalSnapshotBuild(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out)
 {
-    if (!sys || !out) return false;
+    if (!sys || !out || sys->planetCount < 0 ||
+        sys->planetCount > MAX_SOLAR_PLANETS) {
+        return false;
+    }
     memset(out, 0, sizeof(*out));
 
     uint32_t hash = 0;
@@ -142,6 +206,13 @@ bool SolarSystemPhysicalSnapshotBuild(
         float minimum = (float)SpaceUnitsKilometersToGameDistance(
             separationKm) * (count == 3 ? 3.0f : 2.8f);
         out->minimumPlanetOrbitGame = fmaxf(180.0f, minimum);
+    }
+    for (int index = 0; index < sys->planetCount; index++) {
+        if (!SolarSystemPlanetOrbitBuild(
+                sys, index, out->summary.totalMassKg,
+                &out->planetOrbits[index])) {
+            return false;
+        }
     }
     out->valid = true;
     return true;

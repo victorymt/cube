@@ -3,6 +3,7 @@
 
 #include "planet_profile.h"
 #include "space_barycenter.h"
+#include "space_orbit.h"
 #include "stellar.h"
 #include "space_satellite.h"
 #include "types.h"
@@ -21,6 +22,7 @@
 #define STAR_SYSTEM_QUERY_MAX 384
 
 #define MAX_SOLAR_LIGHTS PLANET_PROFILE_MAX_STARS
+#define MAX_SOLAR_PLANETS 6
 
 typedef struct SolarLightSource {
     Vector3 center;
@@ -89,6 +91,7 @@ typedef struct SolarSystemPhysicalSnapshot {
     StellarProfile stellarProfiles[MAX_SOLAR_LIGHTS];
     SpaceBarycenterOrbit stellarOrbit;
     SolarSystemPhysicalSummary summary;
+    SpaceKeplerOrbit planetOrbits[MAX_SOLAR_PLANETS];
     float minimumPlanetOrbitGame;
 } SolarSystemPhysicalSnapshot;
 
@@ -107,9 +110,14 @@ typedef struct SolarSystemDef {
     double snowLineKm;
     double habitableZoneInnerKm;
     double habitableZoneOuterKm;
-    SolarPlanetDef planets[6];
+    SolarPlanetDef planets[MAX_SOLAR_PLANETS];
     SolarSystemPhysicalSnapshot physicalSnapshot;
 } SolarSystemDef;
+
+typedef struct SolarPlanetOrbitalState {
+    Vector3 center;
+    Vector3 velocity;
+} SolarPlanetOrbitalState;
 
 typedef struct SpaceBodyInfo {
     Vector3 center; // Scene position in game distance units.
@@ -226,6 +234,9 @@ Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index);
 Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
                                         double simulationTime);
+bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
+                                  double simulationTime,
+                                  SolarPlanetOrbitalState *out);
 double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index);
 double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index);
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,

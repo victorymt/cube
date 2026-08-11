@@ -11,5 +11,7 @@ int SolarSystemPhysicalSnapshotStellarBodiesAtTime(
     const SolarSystemDef *sys, const SolarSystemPhysicalSnapshot *snapshot,
     double simulationTime, SolarStellarBody *out, int maxCount);
 int SolarSystemStellarVisualRadius(const StellarProfile *star);
+uint32_t SolarSystemPlanetOrbitHash(const SolarSystemDef *sys, int index);
+uint32_t SolarSystemPlanetPlaneHash(const SolarSystemDef *sys);
 
 #endif
