@@ -670,6 +670,52 @@ static void TestHomeScaleDiagnostics(void)
     assert(scale.surfaceTemperatureK == 288.0f);
 }
 
+static void TestScaleDiagnosticsInputContracts(void)
+{
+    SpaceBodyInfo body = {
+        .center = { 0 },
+        .velocity = { 1.0f, 0.0f, 0.0f },
+        .physicalRadiusKm = SPACE_UNITS_EARTH_RADIUS_KM,
+        .semiMajorAxisKm = SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+        .parentMassKg = SPACE_UNITS_SOLAR_MASS_KG,
+        .spaceProxyRadius = 62.0f,
+        .profile = {
+            .physicalRadiusKm = SPACE_UNITS_EARTH_RADIUS_KM,
+            .massKg = SPACE_UNITS_EARTH_MASS_KG,
+            .receivedIrradiance = 1.0,
+            .radiativeTempK = 255.0f,
+            .equilibriumTempK = 288.0f
+        }
+    };
+    SpaceScaleDiagnostics diagnostics;
+    const SpaceScaleDiagnostics cleared = { 0 };
+    assert(SpaceBodyScaleDiagnostics(&body, &diagnostics));
+
+    body.velocity.x = NAN;
+    memset(&diagnostics, 0xa5, sizeof(diagnostics));
+    assert(!SpaceBodyScaleDiagnostics(&body, &diagnostics));
+    assert(memcmp(&diagnostics, &cleared, sizeof(diagnostics)) == 0);
+
+    body.velocity.x = 1.0f;
+    body.spaceProxyRadius = INFINITY;
+    memset(&diagnostics, 0xa5, sizeof(diagnostics));
+    assert(!SpaceBodyScaleDiagnostics(&body, &diagnostics));
+    assert(memcmp(&diagnostics, &cleared, sizeof(diagnostics)) == 0);
+
+    body.spaceProxyRadius = 62.0f;
+    body.profile.massKg = NAN;
+    memset(&diagnostics, 0xa5, sizeof(diagnostics));
+    assert(!SpaceBodyScaleDiagnostics(&body, &diagnostics));
+    assert(memcmp(&diagnostics, &cleared, sizeof(diagnostics)) == 0);
+
+    body.profile.massKg = SPACE_UNITS_EARTH_MASS_KG;
+    body.parentMassKg = NAN;
+    body.hostStar.massKg = 0.0;
+    memset(&diagnostics, 0xa5, sizeof(diagnostics));
+    assert(!SpaceBodyScaleDiagnostics(&body, &diagnostics));
+    assert(memcmp(&diagnostics, &cleared, sizeof(diagnostics)) == 0);
+}
+
 static void TestSaveLoadTimeDeterminism(void)
 {
     const uint32_t seed = 0x2468ace0u;
@@ -1084,6 +1130,7 @@ static void TestConcurrentSpaceQueries(void)
 int main(void)
 {
     TestHomeScaleDiagnostics();
+    TestScaleDiagnosticsInputContracts();
     TestRuntimeInputContracts();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();

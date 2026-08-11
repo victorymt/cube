@@ -1980,16 +1980,93 @@ static void HomeBodyInfoForObserver(Vector3 observer, SpaceBodyInfo *out)
     snprintf(out->name, sizeof(out->name), "Home");
 }
 
+static bool SpaceBodyScaleVectorIsFinite(Vector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
+static bool SpaceScaleDiagnosticsIsFinite(
+    const SpaceScaleDiagnostics *diagnostics)
+{
+    if (!diagnostics || !isfinite(diagnostics->physicalRadiusKm) ||
+        !isfinite(diagnostics->physicalRadiusGame) ||
+        !isfinite(diagnostics->visualRadiusGame) ||
+        !isfinite(diagnostics->landingRadiusGame) ||
+        !isfinite(diagnostics->landingRadiusScale) ||
+        !isfinite(diagnostics->physicalGravityMetersPerSecondSquared) ||
+        !isfinite(diagnostics->physicalGravityEarth) ||
+        !isfinite(diagnostics->gameplaySurfaceGravity) ||
+        !isfinite(diagnostics->orbitalSpeedKilometersPerSecond) ||
+        !isfinite(diagnostics->orbitalSpeedGame) ||
+        !isfinite(diagnostics->sphereOfInfluenceKm) ||
+        !isfinite(diagnostics->hillSphereKm) ||
+        !isfinite(diagnostics->physicalSphereOfInfluenceGame) ||
+        !isfinite(diagnostics->encounterRadiusGame) ||
+        !isfinite(diagnostics->encounterRadiusScale) ||
+        !isfinite(diagnostics->currentIrradianceEarth) ||
+        !isfinite(diagnostics->climateIrradianceEarth) ||
+        !isfinite(diagnostics->radiativeTemperatureK) ||
+        !isfinite(diagnostics->surfaceTemperatureK) ||
+        !isfinite(diagnostics->maxRelativeError)) {
+        return false;
+    }
+    return diagnostics->physicalRadiusKm > 0.0 &&
+           diagnostics->physicalRadiusGame > 0.0 &&
+           diagnostics->visualRadiusGame > 0.0f &&
+           diagnostics->landingRadiusGame > 0.0f &&
+           diagnostics->landingRadiusScale > 0.0 &&
+           diagnostics->physicalGravityMetersPerSecondSquared >= 0.0 &&
+           diagnostics->physicalGravityEarth >= 0.0 &&
+           diagnostics->gameplaySurfaceGravity >= 0.0 &&
+           diagnostics->orbitalSpeedKilometersPerSecond >= 0.0 &&
+           diagnostics->orbitalSpeedGame >= 0.0 &&
+           diagnostics->sphereOfInfluenceKm > 0.0 &&
+           diagnostics->hillSphereKm > 0.0 &&
+           diagnostics->physicalSphereOfInfluenceGame > 0.0 &&
+           diagnostics->encounterRadiusGame > 0.0f &&
+           diagnostics->encounterRadiusScale > 0.0 &&
+           diagnostics->currentIrradianceEarth >= 0.0 &&
+           diagnostics->climateIrradianceEarth > 0.0 &&
+           diagnostics->radiativeTemperatureK > 0.0f &&
+           diagnostics->surfaceTemperatureK > 0.0f &&
+           diagnostics->maxRelativeError >= 0.0;
+}
+
 bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
                                SpaceScaleDiagnostics *out)
 {
-    if (!body || !out || body->isStar ||
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+    if (!body || body->isStar ||
+        !SpaceBodyScaleVectorIsFinite(body->center) ||
+        !SpaceBodyScaleVectorIsFinite(body->velocity) ||
         !(body->physicalRadiusKm > 0.0) ||
+        !isfinite(body->physicalRadiusKm) ||
+        !(body->semiMajorAxisKm > 0.0) ||
+        !isfinite(body->semiMajorAxisKm) ||
         !(body->profile.massKg > 0.0) ||
-        !(body->semiMajorAxisKm > 0.0)) {
+        !isfinite(body->profile.massKg) ||
+        !(body->profile.physicalRadiusKm > 0.0) ||
+        !isfinite(body->profile.physicalRadiusKm) ||
+        !(body->profile.receivedIrradiance > 0.0) ||
+        !isfinite(body->profile.receivedIrradiance) ||
+        !(body->profile.radiativeTempK > 0.0f) ||
+        !isfinite(body->profile.radiativeTempK) ||
+        !(body->profile.equilibriumTempK > 0.0f) ||
+        !isfinite(body->profile.equilibriumTempK) ||
+        !(body->spaceProxyRadius > 0.0f) ||
+        !isfinite(body->spaceProxyRadius) ||
+        (body->landingProxyRadius < 0.0f) ||
+        !isfinite(body->landingProxyRadius) ||
+        (body->encounterRadiusGame < 0.0f) ||
+        !isfinite(body->encounterRadiusGame) ||
+        (body->currentIrradianceEarth < 0.0) ||
+        !isfinite(body->currentIrradianceEarth)) {
         return false;
     }
-    *out = (SpaceScaleDiagnostics){ 0 };
+    double parentMassKg = body->parentMassKg > 0.0
+        ? body->parentMassKg : body->hostStar.massKg;
+    if (!(parentMassKg > 0.0) || !isfinite(parentMassKg)) return false;
     if (body->index > 0) {
         snprintf(out->bodyName, sizeof(out->bodyName), "%s %c", body->name,
                  'a' + body->index - 1);
@@ -2020,11 +2097,11 @@ bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
         ? proxyMu / ((double)out->landingRadiusGame * out->landingRadiusGame)
         : 0.0;
 
-    out->orbitalSpeedGame = Vector3Length(body->velocity);
+    out->orbitalSpeedGame = sqrt((double)body->velocity.x * body->velocity.x +
+                                 (double)body->velocity.y * body->velocity.y +
+                                 (double)body->velocity.z * body->velocity.z);
     out->orbitalSpeedKilometersPerSecond =
         SpaceUnitsGameVelocityToKilometersPerSecond(out->orbitalSpeedGame);
-    double parentMassKg = body->parentMassKg > 0.0
-        ? body->parentMassKg : body->hostStar.massKg;
     out->sphereOfInfluenceKm = SpaceUnitsLaplaceSphereOfInfluenceKm(
         body->semiMajorAxisKm, body->profile.massKg, parentMassKg);
     out->hillSphereKm = SpaceUnitsHillSphereKm(
@@ -2065,6 +2142,10 @@ bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
         fmax(fabs(out->physicalSphereOfInfluenceGame), 1.0);
     out->withinErrorBudget = out->maxRelativeError <=
                              SPACE_UNITS_MAX_RELATIVE_ERROR;
+    if (!SpaceScaleDiagnosticsIsFinite(out)) {
+        memset(out, 0, sizeof(*out));
+        return false;
+    }
     return true;
 }
 
