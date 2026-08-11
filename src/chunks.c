@@ -2632,27 +2632,15 @@ static void UploadMeshJob(MeshJob *job)
     job->floraInstances = NULL;
     job->floraInstanceCount = 0;
 
+    pthread_mutex_lock(&genMutex);
     job->inUse = false;
-    if (valid && !FindPendingMeshJob(job->slotIndex)) chunk->dirty = false;
+    bool pending = valid && FindPendingMeshJob(job->slotIndex);
+    pthread_mutex_unlock(&genMutex);
+    if (valid && !pending) chunk->dirty = false;
 }
 
-bool SubmitMeshJob(Chunk *chunk, bool transparent)
+static void PrepareMeshJob(MeshJob *job, const Chunk *chunk, bool transparent)
 {
-    if (genThread == 0) return false;
-
-    pthread_mutex_lock(&genMutex);
-    MeshJob *job = NULL;
-    for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        if (!meshJobs[i].inUse) {
-            job = &meshJobs[i];
-            break;
-        }
-    }
-    if (!job) {
-        pthread_mutex_unlock(&genMutex);
-        return false;
-    }
-
     memcpy(job->blocks, chunk->blocks, sizeof(job->blocks));
     job->floraStructureCount = chunk->floraStructureCount;
     if (job->floraStructureCount < 0) job->floraStructureCount = 0;
@@ -2680,6 +2668,31 @@ bool SubmitMeshJob(Chunk *chunk, bool transparent)
     job->floraInstanceCount = 0;
     job->hasMesh = false;
     job->hasFloraMesh = false;
+}
+
+static bool SubmitMeshJobs(Chunk *chunk)
+{
+    if (!chunk || genThread == 0) return false;
+
+    pthread_mutex_lock(&genMutex);
+    MeshJob *solidJob = NULL;
+    MeshJob *transparentJob = NULL;
+    for (int i = 0; i < MAX_MESH_JOBS; i++) {
+        if (meshJobs[i].inUse) continue;
+        if (!solidJob) {
+            solidJob = &meshJobs[i];
+        } else {
+            transparentJob = &meshJobs[i];
+            break;
+        }
+    }
+    if (!transparentJob) {
+        pthread_mutex_unlock(&genMutex);
+        return false;
+    }
+
+    PrepareMeshJob(solidJob, chunk, false);
+    PrepareMeshJob(transparentJob, chunk, true);
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -2690,7 +2703,10 @@ void ProcessFinishedMeshJobs(void)
     int uploaded = 0;
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
         MeshJob *job = &meshJobs[i];
-        if (!job->inUse || !job->done) continue;
+        pthread_mutex_lock(&genMutex);
+        bool ready = job->inUse && job->done;
+        pthread_mutex_unlock(&genMutex);
+        if (!ready) continue;
         UploadMeshJob(job);
         if (++uploaded >= MAX_MESH_REBUILDS_PER_FRAME) break;
     }
@@ -2756,7 +2772,7 @@ void RebuildDirtyChunkMeshes(void)
             continue;
         }
 
-        if (!SubmitMeshJob(&chunks[i], false) || !SubmitMeshJob(&chunks[i], true)) {
+        if (!SubmitMeshJobs(&chunks[i])) {
             RebuildChunkMeshSync(&chunks[i]);
             continue;
         }
@@ -2859,17 +2875,21 @@ int GetActiveChunkCount(void)
 int GetPendingGenJobCount(void)
 {
     int count = 0;
+    pthread_mutex_lock(&genMutex);
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
         if (chunkGenJobs[i].inUse && !chunkGenJobs[i].done) count++;
     }
+    pthread_mutex_unlock(&genMutex);
     return count;
 }
 
 int GetPendingMeshJobCount(void)
 {
     int count = 0;
+    pthread_mutex_lock(&genMutex);
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
         if (meshJobs[i].inUse && !meshJobs[i].done) count++;
     }
+    pthread_mutex_unlock(&genMutex);
     return count;
 }
