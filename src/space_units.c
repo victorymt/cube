@@ -164,7 +164,9 @@ bool SpaceUnitsMeanAnomalyAtTime(double meanAnomalyAtEpochRad,
                                  double simulationTime,
                                  double *out)
 {
-    if (!out || !isfinite(meanAnomalyAtEpochRad) ||
+    if (!out) return false;
+    *out = 0.0;
+    if (!isfinite(meanAnomalyAtEpochRad) ||
         !(meanMotion > 0.0) || !isfinite(meanMotion) ||
         !isfinite(simulationTime)) {
         return false;

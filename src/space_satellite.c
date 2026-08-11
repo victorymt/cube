@@ -248,8 +248,12 @@ bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
             cos(eccentricAnomaly) * eccentricAnomalyRate,
         orbit->inclinationRad, orbit->longitudeAscendingNodeRad,
         orbit->argumentPeriapsisRad);
-    return SpaceSatelliteVectorIsFinite(out->positionKm) &&
-           SpaceSatelliteVectorIsFinite(out->velocityKmPerSecond);
+    if (!SpaceSatelliteVectorIsFinite(out->positionKm) ||
+        !SpaceSatelliteVectorIsFinite(out->velocityKmPerSecond)) {
+        *out = (SpaceSatelliteState){ 0 };
+        return false;
+    }
+    return true;
 }
 
 SpaceSatelliteVector3 SpaceSatellitePositionAtSeconds(

@@ -69,7 +69,9 @@ static void TestMeanAnomalyTime(void)
     assert(SpaceUnitsMeanAnomalyAtTime(0.5, 1.0, DBL_MAX, &first));
     assert(SpaceUnitsMeanAnomalyAtTime(0.5, 1.0, DBL_MAX, &second));
     assert(first == second && isfinite(first));
+    anomaly = 17.0;
     assert(!SpaceUnitsMeanAnomalyAtTime(NAN, 1.0, 0.0, &anomaly));
+    assert(anomaly == 0.0);
     assert(!SpaceUnitsMeanAnomalyAtTime(0.0, 0.0, 0.0, &anomaly));
     assert(!SpaceUnitsMeanAnomalyAtTime(0.0, -1.0, 0.0, &anomaly));
     assert(!SpaceUnitsMeanAnomalyAtTime(0.0, INFINITY, 0.0, &anomaly));
