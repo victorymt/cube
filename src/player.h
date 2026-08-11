@@ -13,6 +13,7 @@ float CameraHeightFactor(float eyeHeight);
 float CameraFovForHeight(float eyeHeight);
 int EffectiveRenderDistanceForHeight(float eyeHeight);
 void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool thirdPerson);
+void PlayerResetRuntimeState(Player *player);
 void UpdatePlayer(Player *player, float dt);
 
 #endif

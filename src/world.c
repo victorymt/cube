@@ -1176,6 +1176,7 @@ void LoadMap(Player *player)
         ShipReset();
     }
     *player = savedPlayer;
+    PlayerResetRuntimeState(player);
     blockEditCount = savedEditCount;
     BumpBlockEditRevision();
     if (savedEditCount > 0) {

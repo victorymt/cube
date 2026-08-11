@@ -161,6 +161,35 @@ static void TestInvalidCollisionPositionsAreBlocked(void)
     assert(PlayerOverlapsWorld((Vector3){ 0.0f, 0x1p31f, 0.0f }));
 }
 
+static void TestRuntimeStateIsPerPlayer(void)
+{
+    Player first = { 0 };
+    Player second = { 0 };
+
+    first.wasInWater = true;
+    first.stepTimer = 1.25f;
+    assert(!second.wasInWater);
+    assert(second.stepTimer == 0.0f);
+
+    second.wasInWater = true;
+    second.stepTimer = 2.5f;
+    assert(first.wasInWater);
+    assert(first.stepTimer == 1.25f);
+}
+
+static void TestRuntimeStateReset(void)
+{
+    Player player = {
+        .wasInWater = true,
+        .stepTimer = NAN
+    };
+
+    PlayerResetRuntimeState(&player);
+    assert(!player.wasInWater);
+    assert(player.stepTimer == 0.0f);
+    PlayerResetRuntimeState(NULL);
+}
+
 int main(void)
 {
     TestHighSpeedHorizontalMovementStopsAtWall();
@@ -169,6 +198,8 @@ int main(void)
     TestSubstepsPreserveStepUp();
     TestNonFiniteMovementIsIgnored();
     TestInvalidCollisionPositionsAreBlocked();
+    TestRuntimeStateIsPerPlayer();
+    TestRuntimeStateReset();
     puts("player collision tests passed");
     return 0;
 }

@@ -28,6 +28,13 @@ typedef struct PlayerCollisionBounds {
     int maxZ;
 } PlayerCollisionBounds;
 
+void PlayerResetRuntimeState(Player *player)
+{
+    if (!player) return;
+    player->wasInWater = false;
+    player->stepTimer = 0.0f;
+}
+
 bool IsSolidBlockAt(int x, int y, int z)
 {
     BlockType type = GetBlockAt(x, y, z);
@@ -370,9 +377,8 @@ void UpdatePlayer(Player *player, float dt)
     float horizontalSpeed = sqrtf(player->velocity.x * player->velocity.x + player->velocity.z * player->velocity.z);
 
     bool feetInWater = IsWaterBlock(GetBlockAt(feetX, feetY, feetZ));
-    static bool wasInWater = false;
-    if (feetInWater && !wasInWater) AudioPlaySplash();
-    wasInWater = feetInWater;
+    if (feetInWater && !player->wasInWater) AudioPlaySplash();
+    player->wasInWater = feetInWater;
 
     if (feetInWater && horizontalSpeed > 0.5f) {
         Vector3 bubblePos = {
@@ -386,16 +392,17 @@ void UpdatePlayer(Player *player, float dt)
                          1.2f, 0.0f);
     }
 
-    static float stepTimer = 0.0f;
-    stepTimer -= dt;
-    if (stepTimer <= 0.0f && horizontalSpeed > 0.5f) {
+    if (!isfinite(player->stepTimer)) player->stepTimer = 0.0f;
+    player->stepTimer -= dt;
+    if (!isfinite(player->stepTimer)) player->stepTimer = 0.0f;
+    if (player->stepTimer <= 0.0f && horizontalSpeed > 0.5f) {
         if (!player->floating && !inSpace) {
             if (feetInWater) {
                 AudioPlayWaterStep();
-                stepTimer = 0.35f;
+                player->stepTimer = 0.35f;
             } else if (player->onGround) {
                 AudioPlayStep();
-                stepTimer = 0.38f;
+                player->stepTimer = 0.38f;
             }
         }
     }

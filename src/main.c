@@ -526,6 +526,7 @@ static void BeginNewWorld(Player *player, TerrainMode mode, uint32_t seed)
     player->pitch = -0.25f;
     player->onGround = false;
     player->floating = false;
+    PlayerResetRuntimeState(player);
 
     autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
     dayTime = 0.30f;
@@ -569,6 +570,7 @@ int main(void)
         .onGround = false,
         .floating = false
     };
+    PlayerResetRuntimeState(&player);
 
     BlockType hotbar[HOTBAR_SIZE] = {
         BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_WOOD, BLOCK_PLANK,

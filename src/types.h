@@ -234,6 +234,8 @@ typedef struct Player {
     float pitch;
     bool onGround;
     bool floating;
+    bool wasInWater;
+    float stepTimer;
 } Player;
 
 typedef struct HitResult {
