@@ -156,6 +156,7 @@ void SpaceResetOrigin(void)
 
 void SpaceSaveOrigin(FILE *file)
 {
+    if (!file) return;
     fwrite(&spaceOriginX, sizeof(spaceOriginX), 1, file);
     fwrite(&spaceOriginZ, sizeof(spaceOriginZ), 1, file);
 }
@@ -3300,6 +3301,7 @@ bool PlanetWorldLoadState(FILE *file)
 
 bool HomeWorldSaveState(FILE *file)
 {
+    if (!file) return false;
     uint8_t surfaceActive = homeWorld.surfaceActive ? 1u : 0u;
     float returnPosition[3] = {
         homeWorld.returnPosition.x,
@@ -3860,6 +3862,7 @@ void SpaceSetBlock(int x, int y, int z, BlockType type)
 
 void SpaceSaveEdits(FILE *file)
 {
+    if (!file) return;
     uint32_t count = (uint32_t)spaceEditCount;
     fwrite(&count, sizeof(count), 1, file);
     if (spaceEditCount > 0) {

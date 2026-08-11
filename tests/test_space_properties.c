@@ -1091,6 +1091,9 @@ static void TestIrradianceInputContracts(void)
 
 static void TestSaveLoadTimeDeterminism(void)
 {
+    SpaceSaveOrigin(NULL);
+    assert(!SpaceSaveState(NULL));
+    assert(!HomeWorldSaveState(NULL));
     assert(!SpaceLoadOrigin(NULL));
     assert(!SpaceLoadState(NULL));
     assert(!PlanetWorldLoadState(NULL));
