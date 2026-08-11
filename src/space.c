@@ -34,6 +34,7 @@
 #define SPACE_GRAVITY_QUERY_RADIUS (STAR_SYSTEM_SPACING * 0.58f)
 #define SPACE_STAR_ENCOUNTER_RADIUS_GAME SPACE_GRAVITY_QUERY_RADIUS
 #define SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME 170.0f
+#define SPACE_MAX_SYSTEM_QUERY_DISTANCE (STAR_NAVIGATION_RANGE * 4.0f)
 #define PLANET_WORLD_STATE_VERSION 2u
 
 static const char *const starNamePart1[] = {
@@ -1519,9 +1520,30 @@ static int CompareSpaceBodyQueryCandidate(const SpaceBodyInfo *left,
     return 0;
 }
 
+static bool SpaceQueryVectorIsFinite(Vector3 value)
+{
+    const float coordinateLimit = (float)(INT_MAX - 4096);
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z) &&
+           fabsf(value.x) <= coordinateLimit &&
+           fabsf(value.y) <= coordinateLimit &&
+           fabsf(value.z) <= coordinateLimit;
+}
+
+static bool SpaceQueryRadiusAnchors(float maxDist, int *out)
+{
+    if (!out || !isfinite(maxDist) || maxDist < 0.0f ||
+        maxDist > SPACE_MAX_SYSTEM_QUERY_DISTANCE) return false;
+    double radius = (double)maxDist / (double)STAR_SYSTEM_SPACING;
+    if (!isfinite(radius) || radius > (double)(INT_MAX - 2)) return false;
+    *out = (int)radius + 1;
+    return true;
+}
+
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount)
 {
-    if (!out || maxCount <= 0 || !isfinite(maxDist) || maxDist < 0.0f) {
+    int radiusAnchors = 0;
+    if (!out || maxCount <= 0 || !SpaceQueryVectorIsFinite(pos) ||
+        !SpaceQueryRadiusAnchors(maxDist, &radiusAnchors)) {
         return 0;
     }
 
@@ -1529,7 +1551,6 @@ int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCoun
                                STAR_SYSTEM_SPACING);
     int centerAz = FloorDivInt(SpaceLocalToGlobalZ((int)floorf(pos.z)),
                                STAR_SYSTEM_SPACING);
-    int radiusAnchors = (int)(maxDist / (float)STAR_SYSTEM_SPACING) + 1;
 
     int storageLimit = maxCount;
     if (storageLimit > STAR_SYSTEM_QUERY_MAX) storageLimit = STAR_SYSTEM_QUERY_MAX;
@@ -1586,6 +1607,7 @@ int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCoun
 
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist)
 {
+    if (!out || !SpaceQueryVectorIsFinite(pos)) return false;
     SolarSystemDef sys;
     int count = StarSystemsNear(pos, maxDist, &sys, 1);
     if (count < 1) return false;
@@ -1672,7 +1694,9 @@ static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
 
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount)
 {
-    if (!out || maxCount <= 0 || !isfinite(maxDist) || maxDist < 0.0f) {
+    int radiusAnchors = 0;
+    if (!out || maxCount <= 0 || !SpaceQueryVectorIsFinite(pos) ||
+        !SpaceQueryRadiusAnchors(maxDist, &radiusAnchors)) {
         return 0;
     }
     int count = 0;
@@ -1681,7 +1705,6 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
     int centerAz = FloorDivInt(SpaceLocalToGlobalZ((int)floorf(pos.z)),
                                STAR_SYSTEM_SPACING);
 
-    int radiusAnchors = (int)(maxDist / (float)STAR_SYSTEM_SPACING) + 1;
     for (int ax = centerAx - radiusAnchors; ax <= centerAx + radiusAnchors; ax++) {
         for (int az = centerAz - radiusAnchors; az <= centerAz + radiusAnchors; az++) {
             SolarSystemDef sys;
@@ -1812,7 +1835,8 @@ static void InsertSpaceSatelliteQueryCandidate(
 int SpaceSatellitesNear(Vector3 pos, float maxDist,
                         SpaceSatelliteInfo *out, int maxCount)
 {
-    if (!out || maxCount <= 0 || !isfinite(maxDist) || maxDist < 0.0f) {
+    if (!out || maxCount <= 0 || !SpaceQueryVectorIsFinite(pos) ||
+        !isfinite(maxDist) || maxDist < 0.0f) {
         return 0;
     }
     SolarSystemDef systems[STAR_NAVIGATION_MAX_SYSTEMS];
@@ -1887,6 +1911,7 @@ bool SpaceSatelliteScaleDiagnosticsAt(
 {
     if (!out) return false;
     *out = (SpaceSatelliteScaleDiagnostics){ 0 };
+    if (!SpaceQueryVectorIsFinite(observer)) return false;
     SpaceSatelliteInfo satellite;
     if (SpaceSatellitesNear(observer, 1000.0f, &satellite, 1) != 1) {
         return false;
@@ -2153,6 +2178,7 @@ bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out)
 {
     if (!out) return false;
     *out = (SpaceScaleDiagnostics){ 0 };
+    if (!SpaceQueryVectorIsFinite(observer)) return false;
 
     SpaceBodyInfo selected = { 0 };
     bool found = false;
@@ -2189,7 +2215,9 @@ bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out)
 
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
 {
-    if (!out || Vector3LengthSqr(direction) < 0.000001f) return false;
+    if (!out || !SpaceQueryVectorIsFinite(origin) ||
+        !SpaceQueryVectorIsFinite(direction) ||
+        Vector3LengthSqr(direction) < 0.000001f) return false;
     direction = Vector3Normalize(direction);
 
     float best = 1e30f;
@@ -2325,7 +2353,8 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
 {
     if (!out) return false;
     *out = (SpaceGravitySample){ 0 };
-    if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) return false;
+    if (!SpaceQueryVectorIsFinite(position) ||
+        HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) return false;
 
     SpaceGravityCandidate candidates[64];
     int candidateCount = 0;

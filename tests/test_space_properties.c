@@ -6,6 +6,7 @@
 #include "weather_model.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -716,6 +717,54 @@ static void TestScaleDiagnosticsInputContracts(void)
     assert(memcmp(&diagnostics, &cleared, sizeof(diagnostics)) == 0);
 }
 
+static void TestSpaceQueryInputContracts(void)
+{
+    SolarSystemDef systems[2];
+    SpaceBodyInfo bodies[2];
+    SpaceSatelliteInfo satellites[2];
+    Vector3 invalidPositions[] = {
+        { NAN, 0.0f, 0.0f },
+        { INFINITY, 0.0f, 0.0f },
+        { FLT_MAX, 0.0f, 0.0f }
+    };
+    for (size_t i = 0; i < sizeof(invalidPositions) /
+                            sizeof(invalidPositions[0]); i++) {
+        assert(StarSystemsNear(invalidPositions[i], 100.0f, systems, 2) == 0);
+        assert(SpaceBodiesNear(invalidPositions[i], 100.0f, bodies, 2) == 0);
+        assert(SpaceSatellitesNear(invalidPositions[i], 100.0f,
+                                   satellites, 2) == 0);
+        SolarSystemDef nearest;
+        assert(!FindNearestSystem(invalidPositions[i], 100.0f,
+                                   &nearest, NULL));
+    }
+    assert(StarSystemsNear((Vector3){ 0 }, FLT_MAX, systems, 2) == 0);
+    assert(SpaceBodiesNear((Vector3){ 0 }, FLT_MAX, bodies, 2) == 0);
+    assert(SpaceSatellitesNear((Vector3){ 0 }, FLT_MAX,
+                               satellites, 2) == 0);
+    assert(!FindNearestSystem((Vector3){ 0 }, 100.0f, NULL, NULL));
+
+    SpaceBodyInfo picked;
+    assert(!SpaceBodyPick((Vector3){ 0 },
+                          (Vector3){ NAN, 0.0f, 0.0f }, &picked));
+
+    SpaceScaleDiagnostics scale;
+    memset(&scale, 0xa5, sizeof(scale));
+    assert(!SpaceScaleDiagnosticsAt((Vector3){ NAN, 0.0f, 0.0f }, &scale));
+    assert(scale.physicalRadiusKm == 0.0);
+
+    SpaceSatelliteScaleDiagnostics satelliteScale;
+    memset(&satelliteScale, 0xa5, sizeof(satelliteScale));
+    assert(!SpaceSatelliteScaleDiagnosticsAt(
+        (Vector3){ INFINITY, 0.0f, 0.0f }, &satelliteScale));
+    assert(satelliteScale.physicalRadiusKm == 0.0);
+
+    SpaceGravitySample gravity;
+    memset(&gravity, 0xa5, sizeof(gravity));
+    assert(!SpaceGravityAt((Vector3){ NAN, 0.0f, 0.0f }, &gravity));
+    assert(!gravity.active && gravity.distance == 0.0f &&
+           gravity.gravitationalParameterGame == 0.0f);
+}
+
 static void TestSaveLoadTimeDeterminism(void)
 {
     const uint32_t seed = 0x2468ace0u;
@@ -1131,6 +1180,7 @@ int main(void)
 {
     TestHomeScaleDiagnostics();
     TestScaleDiagnosticsInputContracts();
+    TestSpaceQueryInputContracts();
     TestRuntimeInputContracts();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
