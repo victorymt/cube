@@ -2,6 +2,7 @@
 #include "space_units.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -17,12 +18,16 @@ static void TestIrradiance(void)
     AssertNear(SpaceIlluminationIrradianceEarth(4.0, 2.0 * au), 1.0, 1e-12);
     AssertNear(SpaceIlluminationIrradianceEarth(0.0, au), 0.0, 1e-12);
     AssertNear(SpaceIlluminationIrradianceEarth(1.0, -au), 0.0, 1e-12);
+    assert(isfinite(SpaceIlluminationIrradianceEarth(DBL_MAX, au)));
+    assert(SpaceIlluminationIrradianceEarth(1.0, DBL_MIN) == 0.0);
 
     AssertNear(SpaceIlluminationOrbitMeanIrradianceEarth(1.0, au, 0.0),
                1.0, 1e-12);
     AssertNear(SpaceIlluminationOrbitMeanIrradianceEarth(1.0, au, 0.6),
                1.25, 1e-12);
     assert(SpaceIlluminationOrbitMeanIrradianceEarth(1.0, au, 1.0) == 0.0);
+    assert(SpaceIlluminationOrbitMeanIrradianceEarth(
+               DBL_MAX, au, 0.9999999999999999) == 0.0);
 }
 
 static void TestCircleCoverage(void)
@@ -33,6 +38,8 @@ static void TestCircleCoverage(void)
                0.25, 1e-12);
     double partial = SpaceIlluminationCircleCoverage(0.1, 0.1, 0.1);
     assert(partial > 0.0 && partial < 1.0);
+    assert(SpaceIlluminationCircleCoverage(DBL_MAX, DBL_MAX, DBL_MAX) == 0.0);
+    assert(SpaceIlluminationCircleCoverage(NAN, 0.1, 0.1) == 0.0);
 }
 
 static void TestOccultation(void)
@@ -55,6 +62,10 @@ static void TestOccultation(void)
     foreground.positionKm.y = 0.20;
     assert(SpaceIlluminationOccultationFraction(foreground, background) == 0.0);
     foreground.positionKm = background.positionKm;
+    assert(SpaceIlluminationOccultationFraction(foreground, background) == 0.0);
+    foreground.positionKm.x = NAN;
+    assert(SpaceIlluminationOccultationFraction(foreground, background) == 0.0);
+    foreground.positionKm = (SpaceIlluminationVector3){ DBL_MAX, 0.0, 0.0 };
     assert(SpaceIlluminationOccultationFraction(foreground, background) == 0.0);
 }
 

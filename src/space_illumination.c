@@ -14,6 +14,16 @@ static double SpaceIlluminationClamp(double value, double minimum,
     return value;
 }
 
+static double SpaceIlluminationPositiveFiniteOrZero(double value)
+{
+    return value > 0.0 && isfinite(value) ? value : 0.0;
+}
+
+static bool SpaceIlluminationVectorIsFinite(SpaceIlluminationVector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
 static double SpaceIlluminationDot(SpaceIlluminationVector3 left,
                                    SpaceIlluminationVector3 right)
 {
@@ -33,7 +43,8 @@ double SpaceIlluminationIrradianceEarth(double luminositySolar,
         return 0.0;
     }
     double distanceAu = distanceKm / SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
-    return luminositySolar / (distanceAu * distanceAu);
+    return SpaceIlluminationPositiveFiniteOrZero(
+        luminositySolar / (distanceAu * distanceAu));
 }
 
 double SpaceIlluminationOrbitMeanIrradianceEarth(
@@ -45,8 +56,9 @@ double SpaceIlluminationOrbitMeanIrradianceEarth(
     }
     double circularIrradiance = SpaceIlluminationIrradianceEarth(
         luminositySolar, semiMajorAxisKm);
-    return circularIrradiance /
-           sqrt(1.0 - eccentricity * eccentricity);
+    return SpaceIlluminationPositiveFiniteOrZero(
+        circularIrradiance /
+        sqrt(1.0 - eccentricity * eccentricity));
 }
 
 double SpaceIlluminationCircleCoverage(double targetAngularRadius,
@@ -66,8 +78,9 @@ double SpaceIlluminationCircleCoverage(double targetAngularRadius,
     if (angularSeparation <=
         fabs(targetAngularRadius - occulterAngularRadius)) {
         if (occulterAngularRadius >= targetAngularRadius) return 1.0;
-        return (occulterAngularRadius * occulterAngularRadius) /
-               (targetAngularRadius * targetAngularRadius);
+        return SpaceIlluminationPositiveFiniteOrZero(
+            (occulterAngularRadius * occulterAngularRadius) /
+            (targetAngularRadius * targetAngularRadius));
     }
 
     double targetTerm = SpaceIlluminationClamp(
@@ -91,21 +104,27 @@ double SpaceIlluminationCircleCoverage(double targetAngularRadius,
         targetAngularRadius * targetAngularRadius * acos(targetTerm) +
         occulterAngularRadius * occulterAngularRadius * acos(occulterTerm) -
         0.5 * sqrt(fmax(radical, 0.0));
-    return SpaceIlluminationClamp(
+    return SpaceIlluminationPositiveFiniteOrZero(SpaceIlluminationClamp(
         overlapArea /
             (SPACE_ILLUMINATION_PI * targetAngularRadius *
              targetAngularRadius),
-        0.0, 1.0);
+        0.0, 1.0));
 }
 
 double SpaceIlluminationOccultationFraction(
     SpaceIlluminationBody foreground, SpaceIlluminationBody background)
 {
+    if (!SpaceIlluminationVectorIsFinite(foreground.positionKm) ||
+        !SpaceIlluminationVectorIsFinite(background.positionKm) ||
+        !isfinite(foreground.radiusKm) || !isfinite(background.radiusKm)) {
+        return 0.0;
+    }
     double foregroundDistance = SpaceIlluminationLength(
         foreground.positionKm);
     double backgroundDistance = SpaceIlluminationLength(
         background.positionKm);
     if (!(foreground.radiusKm > 0.0) || !(background.radiusKm > 0.0) ||
+        !isfinite(foregroundDistance) || !isfinite(backgroundDistance) ||
         !(foregroundDistance > foreground.radiusKm) ||
         !(backgroundDistance > background.radiusKm) ||
         foregroundDistance >= backgroundDistance) {
