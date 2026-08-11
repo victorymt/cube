@@ -1,6 +1,7 @@
 #include "space_physics.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -95,12 +96,51 @@ static void TestCircularOrbitIntegration(void)
     AssertNear(radius, 10.0f, 0.02f);
 }
 
+static void TestFiniteInputContract(void)
+{
+    SpacePhysicsGravityBody body = {
+        .center = { 0.0f, 0.0f, 0.0f },
+        .softeningRadiusGame = 1.0f,
+        .gravitationalParameterGame = 100.0f,
+        .encounterRadiusGame = 10.0f,
+        .hierarchy = 0
+    };
+    assert(SpacePhysicsGravityAcceleration(
+               (Vector3){ NAN, 0.0f, 0.0f }, &body).x == 0.0f);
+    body.gravitationalParameterGame = INFINITY;
+    assert(SpacePhysicsGravityAcceleration(
+               (Vector3){ 2.0f, 0.0f, 0.0f }, &body).x == 0.0f);
+    body = (SpacePhysicsGravityBody){
+        .center = { 0.0f, 0.0f, 0.0f },
+        .softeningRadiusGame = NAN,
+        .gravitationalParameterGame = 100.0f,
+        .encounterRadiusGame = 10.0f,
+        .hierarchy = 0
+    };
+    assert(SpacePhysicsGravityAcceleration(
+               (Vector3){ 2.0f, 0.0f, 0.0f }, &body).x == 0.0f);
+
+    assert(SpacePhysicsSelectPrimary(
+               (Vector3){ NAN, 0.0f, 0.0f }, &body, 1) == -1);
+    body.center.x = NAN;
+    assert(SpacePhysicsSelectPrimary(
+               (Vector3){ 0.0f, 0.0f, 0.0f }, &body, 1) == -1);
+
+    assert(SpacePhysicsBrakeVelocity(
+               (Vector3){ NAN, 0.0f, 0.0f }, 1.0f, 1.0f).x == 0.0f);
+    assert(SpacePhysicsBrakeVelocity(
+               (Vector3){ 1.0f, 0.0f, 0.0f }, INFINITY, 1.0f).x == 1.0f);
+    assert(SpacePhysicsBrakeVelocity(
+               (Vector3){ FLT_MAX, FLT_MAX, FLT_MAX }, 1.0f, 1.0f).x == 0.0f);
+}
+
 int main(void)
 {
     TestGravityAcceleration();
     TestPrimarySelection();
     TestFlightAssistBraking();
     TestCircularOrbitIntegration();
+    TestFiniteInputContract();
     puts("space_physics tests passed");
     return 0;
 }
