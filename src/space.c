@@ -459,7 +459,7 @@ static PlanetProfile SolarPlanetProfileForSnapshot(
 
     PlanetProfileGenerationInput input = {
         .seed = SolarPlanetWorldSeed(sys, index),
-        .semiMajorAxisKm = def->semiMajorAxisKm,
+        .semiMajorAxisKm = snapshot->planetOrbits[index].semiMajorAxisKm,
         .physicalRadiusKm = def->physicalRadiusKm,
         .formationMassEarth = def->formationMassEarth,
         .spaceProxyRadius = def->spaceProxyRadius,
@@ -796,6 +796,8 @@ static bool SolarSystemRuntimeGeometryIsFinite(
             !isfinite(state->center.y) || !isfinite(state->center.z) ||
             !isfinite(state->velocity.x) || !isfinite(state->velocity.y) ||
             !isfinite(state->velocity.z) ||
+            !(state->semiMajorAxisKm > 0.0) ||
+            !isfinite(state->semiMajorAxisKm) ||
             !isfinite(state->currentIrradianceEarth) ||
             state->currentIrradianceEarth < 0.0f) {
             return false;
@@ -878,6 +880,8 @@ static bool SolarSystemEvaluateSnapshotAtTime(
         }
         planet->center = orbitalState.center;
         planet->velocity = orbitalState.velocity;
+        planet->semiMajorAxisKm =
+            snapshot->planetOrbits[index].semiMajorAxisKm;
         planet->currentIrradianceEarth = SolarSystemIrradianceAt(
             sources, stellarCount, planet->center);
         planet->satelliteOrbit = snapshot->satelliteOrbits[index];
@@ -1052,6 +1056,10 @@ static uint64_t SolarSystemRuntimeCacheSignature(
         hash = SolarSystemSignatureMix(hash, planet->formationGasGiant);
         hash = SolarSystemSignatureMix(
             hash, SolarSystemDoubleBits(orbit->eccentricity));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(orbit->semiMajorAxisKm));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(orbit->centralMassKg));
         hash = SolarSystemSignatureMix(
             hash, SolarSystemDoubleBits(orbit->inclinationRad));
         hash = SolarSystemSignatureMix(
@@ -1788,6 +1796,9 @@ Color SpectrumColor(SpectrumType type)
     case SPECTRUM_YELLOW:    return (Color){ 255, 214, 120, 255 };
     case SPECTRUM_BLUE_WHITE: return (Color){ 190, 210, 255, 255 };
     case SPECTRUM_RED_GIANT: return (Color){ 255, 90, 60, 255 };
+    case SPECTRUM_WHITE_DWARF: return (Color){ 225, 238, 255, 255 };
+    case SPECTRUM_NEUTRON_STAR: return (Color){ 150, 205, 255, 255 };
+    case SPECTRUM_BLACK_HOLE: return (Color){ 48, 45, 52, 255 };
     default:                 return (Color){ 255, 214, 120, 255 };
     }
 }
@@ -1800,6 +1811,9 @@ const char *SpectrumName(SpectrumType type)
     case SPECTRUM_YELLOW:    return "Yellow Sun";
     case SPECTRUM_BLUE_WHITE: return "Blue-White Star";
     case SPECTRUM_RED_GIANT: return "Red Giant";
+    case SPECTRUM_WHITE_DWARF: return "White Dwarf";
+    case SPECTRUM_NEUTRON_STAR: return "Neutron Star";
+    case SPECTRUM_BLACK_HOLE: return "Black Hole";
     default:                 return "Star";
     }
 }
@@ -2019,12 +2033,12 @@ static bool PlanetBodyInfoForRuntime(const SolarSystemDef *system,
         .center = center,
         .velocity = planet->velocity,
         .physicalRadiusKm = profile->physicalRadiusKm,
-        .semiMajorAxisKm = system->planets[index].semiMajorAxisKm,
+        .semiMajorAxisKm = planet->semiMajorAxisKm,
         .parentMassKg = parentMassKg,
         .spaceProxyRadius = profile->spaceProxyRadius,
         .landingProxyRadius = landingRadius,
         .encounterRadiusGame = PlanetEncounterRadiusGame(
-            system->planets[index].semiMajorAxisKm, profile->massKg,
+            planet->semiMajorAxisKm, profile->massKg,
             parentMassKg, landingRadius),
         .currentIrradianceEarth = planet->currentIrradianceEarth,
         .dist = Vector3Distance(center, observer),
@@ -2033,8 +2047,8 @@ static bool PlanetBodyInfoForRuntime(const SolarSystemDef *system,
         .systemAnchorX = system->anchorX,
         .systemAnchorZ = system->anchorZ,
         .worldSeed = profile->seed,
-        .hostStar = system->star,
-        .spectrum = system->spectrum,
+        .hostStar = runtime->stars[0].stellar,
+        .spectrum = runtime->stars[0].spectrum,
         .style = profile->style,
         .profile = *profile
     };
@@ -2642,17 +2656,28 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
 
     if (bestSystem < 0) return false;
     const SolarSystemDef *system = &systems[bestSystem];
+    SolarSystemRuntimeState runtime;
+    if (!SolarSystemEvaluateAtElapsedTime(
+            system, SpaceElapsedSimulationTime(), &runtime) ||
+        runtime.stellarCount <= 0) {
+        return false;
+    }
+    const SolarStellarBody *primary = &runtime.stars[0];
     *out = (SpaceBodyInfo){
-        .center = system->center,
-        .physicalRadiusKm = system->star.radiusKm,
-        .spaceProxyRadius = (float)system->starProxyRadius,
-        .dist = Vector3Distance(starOrigin, system->center),
+        .center = primary->center,
+        .velocity = primary->velocity,
+        .physicalRadiusKm = primary->stellar.radiusKm,
+        .parentMassKg = runtime.totalStellarMassKg,
+        .spaceProxyRadius = primary->spaceProxyRadius,
+        .landingProxyRadius = primary->spaceProxyRadius,
+        .encounterRadiusGame = SPACE_STAR_ENCOUNTER_RADIUS_GAME,
+        .dist = Vector3Distance(starOrigin, primary->center),
         .isStar = true,
         .index = 0,
         .systemAnchorX = system->anchorX,
         .systemAnchorZ = system->anchorZ,
-        .hostStar = system->star,
-        .spectrum = system->spectrum,
+        .hostStar = primary->stellar,
+        .spectrum = primary->spectrum,
         .style = SOLAR_STYLE_SUN
     };
     snprintf(out->name, sizeof(out->name), "%s", system->name);

@@ -11,6 +11,15 @@ static void AssertNear(float actual, float expected, float tolerance)
     assert(fabsf(actual - expected) <= tolerance);
 }
 
+static void AssertStefanBoltzmann(const StellarProfile *profile)
+{
+    double temperatureRatio = (double)profile->temperatureK / 5772.0;
+    double expected = (double)profile->radiusSolar * profile->radiusSolar *
+                      pow(temperatureRatio, 4.0);
+    double tolerance = fmax(expected * 0.0002, 1.0e-30);
+    assert(fabs((double)profile->luminositySolar - expected) <= tolerance);
+}
+
 static void TestSolarProfile(void)
 {
     StellarProfile solar = StellarSolarProfile();
@@ -69,28 +78,71 @@ static void TestGiantEvolution(void)
     assert(giant.spectrum == SPECTRUM_RED_GIANT);
     assert(giant.radiusSolar > mainSequence.radiusSolar * 20.0f);
     assert(giant.temperatureK < mainSequence.temperatureK);
-    assert(!StellarProfileAtAge(1.50f, giant.luminousLifetimeGyr + 0.1f,
-                                3u, &giant));
-    const StellarProfile cleared = { 0 };
-    assert(memcmp(&giant, &cleared, sizeof(giant)) == 0);
+    StellarProfile remnant;
+    assert(StellarProfileAtAge(1.50f, giant.luminousLifetimeGyr + 0.1,
+                               3u, &remnant));
+    assert(remnant.stage == STELLAR_STAGE_WHITE_DWARF);
 }
 
-static void TestFinalLuminousStateFreeze(void)
+static void TestCompactRemnants(void)
 {
-    StellarProfile initial;
-    assert(StellarProfileAtAge(1.5f, 0.0f, 0x1234u, &initial));
-    StellarProfile final;
-    assert(StellarProfileAtAgeClamped(1.5f, 1.0e12, 0x1234u, &final));
-    assert(final.stage == STELLAR_STAGE_RED_GIANT);
-    assert(final.ageGyr == final.luminousLifetimeGyr);
-    assert(final.evolutionSeed == 0x1234u);
+    const float initialMasses[] = { 1.5f, 12.0f, 30.0f };
+    const StellarEvolutionStage expectedStages[] = {
+        STELLAR_STAGE_WHITE_DWARF,
+        STELLAR_STAGE_NEUTRON_STAR,
+        STELLAR_STAGE_BLACK_HOLE
+    };
+    const SpectrumType expectedSpectra[] = {
+        SPECTRUM_WHITE_DWARF,
+        SPECTRUM_NEUTRON_STAR,
+        SPECTRUM_BLACK_HOLE
+    };
+    for (int i = 0; i < 3; i++) {
+        StellarProfile birth;
+        assert(StellarProfileAtAge(initialMasses[i], 0.0, 0x1234u,
+                                   &birth));
+        double remnantAge = (double)birth.luminousLifetimeGyr + 0.01;
+        StellarProfile remnant;
+        StellarProfile repeated;
+        assert(StellarProfileAtAge(initialMasses[i], remnantAge,
+                                   0x1234u, &remnant));
+        assert(StellarProfileAtAge(initialMasses[i], remnantAge,
+                                   0x1234u, &repeated));
+        assert(memcmp(&remnant, &repeated, sizeof(remnant)) == 0);
+        assert(remnant.stage == expectedStages[i]);
+        assert(remnant.spectrum == expectedSpectra[i]);
+        assert(remnant.ageGyr > remnant.luminousLifetimeGyr);
+        assert(remnant.massSolar < birth.massSolar);
+        assert(remnant.radiusSolar < birth.radiusSolar);
+        assert(remnant.evolutionSeed == 0x1234u);
+        AssertStefanBoltzmann(&remnant);
+    }
 
-    StellarProfile repeated;
-    assert(StellarProfileAtAgeClamped(1.5f, 1.0e15, 0x1234u,
-                                      &repeated));
-    assert(memcmp(&final, &repeated, sizeof(final)) == 0);
-    assert(!StellarProfileAtAgeClamped(1.5f, INFINITY, 0x1234u,
-                                       &repeated));
+    StellarProfile whiteDwarfYoung;
+    StellarProfile whiteDwarfOld;
+    StellarProfile whiteDwarfBirth;
+    assert(StellarProfileAtAge(1.5f, 0.0, 9u, &whiteDwarfBirth));
+    assert(StellarProfileAtAge(
+        1.5f, whiteDwarfBirth.luminousLifetimeGyr + 0.01,
+        9u, &whiteDwarfYoung));
+    assert(StellarProfileAtAge(
+        1.5f, whiteDwarfBirth.luminousLifetimeGyr + 5.0,
+        9u, &whiteDwarfOld));
+    assert(whiteDwarfOld.temperatureK < whiteDwarfYoung.temperatureK);
+    assert(whiteDwarfOld.luminositySolar <
+           whiteDwarfYoung.luminositySolar);
+    assert(whiteDwarfOld.massKg == whiteDwarfYoung.massKg);
+    assert(whiteDwarfOld.radiusKm == whiteDwarfYoung.radiusKm);
+
+    StellarProfile boundary;
+    assert(StellarProfileAtAge(8.0f, 100.0, 1u, &boundary));
+    assert(boundary.stage == STELLAR_STAGE_NEUTRON_STAR);
+    assert(StellarProfileAtAge(25.0f, 100.0, 1u, &boundary));
+    assert(boundary.stage == STELLAR_STAGE_BLACK_HOLE);
+
+    const StellarProfile cleared = { 0 };
+    assert(!StellarProfileAtAge(1.5f, INFINITY, 0x1234u, &boundary));
+    assert(memcmp(&boundary, &cleared, sizeof(boundary)) == 0);
 }
 
 static void TestStefanBoltzmannConsistency(void)
@@ -102,7 +154,9 @@ static void TestStefanBoltzmannConsistency(void)
                                    powf(temperatureRatio, 4.0f);
         float tolerance = fmaxf(0.0001f, expectedLuminosity * 0.0002f);
         AssertNear(profile.luminositySolar, expectedLuminosity, tolerance);
+        AssertStefanBoltzmann(&profile);
         assert(profile.ageGyr <= profile.luminousLifetimeGyr);
+        assert(profile.stage <= STELLAR_STAGE_RED_GIANT);
         assert(profile.massSolar > 0.0f);
     }
 }
@@ -153,7 +207,7 @@ int main(void)
     TestMassRelations();
     TestMainSequenceAgeEvolution();
     TestGiantEvolution();
-    TestFinalLuminousStateFreeze();
+    TestCompactRemnants();
     TestStefanBoltzmannConsistency();
     TestInitialMassFunction();
     TestPopulationDistribution();

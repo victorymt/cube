@@ -2,6 +2,7 @@
 
 #include "space_units.h"
 
+#include <float.h>
 #include <math.h>
 
 #define STELLAR_SOLAR_TEMPERATURE_K 5772.0f
@@ -105,7 +106,75 @@ static SpectrumType MainSequenceSpectrum(float temperatureK)
     return SPECTRUM_BLUE_WHITE;
 }
 
-bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
+static float StellarLuminosityFromRadiusTemperature(float radiusSolar,
+                                                    float temperatureK)
+{
+    double temperatureRatio = (double)temperatureK /
+                              STELLAR_SOLAR_TEMPERATURE_K;
+    return (float)((double)radiusSolar * radiusSolar *
+                   pow(temperatureRatio, 4.0));
+}
+
+static void StellarApplyRemnant(double coolingAgeGyr, StellarProfile *out)
+{
+    float initialMass = out->initialMassSolar;
+    float remnantMass = 0.0f;
+    float remnantRadius = 0.0f;
+    float remnantTemperature = 0.0f;
+
+    if (initialMass < 8.0f) {
+        remnantMass = StellarClamp(0.109f * initialMass + 0.394f,
+                                   0.05f, 1.37f);
+        remnantMass = fminf(remnantMass, initialMass * 0.85f);
+        double chandrasekharMass = 1.44;
+        double massRatio = (double)remnantMass / chandrasekharMass;
+        double radiusTerm = pow(1.0 / massRatio, 2.0 / 3.0) -
+                            pow(massRatio, 2.0 / 3.0);
+        remnantRadius = (float)(0.0112 * sqrt(fmax(radiusTerm, 0.0001)));
+        remnantTemperature = (float)(100000.0 /
+            pow(1.0 + coolingAgeGyr / 0.01, 0.35));
+        remnantTemperature = StellarClamp(remnantTemperature,
+                                           2500.0f, 100000.0f);
+        out->spectrum = SPECTRUM_WHITE_DWARF;
+        out->stage = STELLAR_STAGE_WHITE_DWARF;
+    } else if (initialMass < 25.0f) {
+        remnantMass = StellarClamp(
+            1.25f + 0.04f * (initialMass - 8.0f), 1.25f, 2.10f);
+        remnantRadius = (float)(12.0 / SPACE_UNITS_SOLAR_RADIUS_KM);
+        remnantTemperature = (float)(1000000.0 /
+            pow(1.0 + coolingAgeGyr / 0.00001, 0.25));
+        remnantTemperature = StellarClamp(remnantTemperature,
+                                           10000.0f, 1000000.0f);
+        out->spectrum = SPECTRUM_NEUTRON_STAR;
+        out->stage = STELLAR_STAGE_NEUTRON_STAR;
+    } else {
+        const double lightSpeedKmPerSecond = 299792.458;
+        remnantMass = StellarClamp(initialMass * 0.30f, 3.0f, 20.0f);
+        double remnantMassKg = (double)remnantMass *
+                               SPACE_UNITS_SOLAR_MASS_KG;
+        double schwarzschildRadiusKm =
+            2.0 * SPACE_UNITS_GRAVITATIONAL_CONSTANT_KM3_KG_S2 *
+            remnantMassKg /
+            (lightSpeedKmPerSecond * lightSpeedKmPerSecond);
+        remnantRadius = (float)(schwarzschildRadiusKm /
+                                SPACE_UNITS_SOLAR_RADIUS_KM);
+        remnantTemperature = (float)(30.0 /
+            pow(1.0 + coolingAgeGyr / 0.001, 0.08));
+        remnantTemperature = StellarClamp(remnantTemperature, 10.0f, 30.0f);
+        out->spectrum = SPECTRUM_BLACK_HOLE;
+        out->stage = STELLAR_STAGE_BLACK_HOLE;
+    }
+
+    out->massSolar = remnantMass;
+    out->radiusSolar = remnantRadius;
+    out->massKg = (double)remnantMass * SPACE_UNITS_SOLAR_MASS_KG;
+    out->radiusKm = (double)remnantRadius * SPACE_UNITS_SOLAR_RADIUS_KM;
+    out->temperatureK = remnantTemperature;
+    out->luminositySolar = StellarLuminosityFromRadiusTemperature(
+        remnantRadius, remnantTemperature);
+}
+
+bool StellarProfileAtAge(float initialMassSolar, double ageGyr, uint32_t seed,
                          StellarProfile *out)
 {
     if (!out) return false;
@@ -116,11 +185,13 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
     }
 
     float mass = StellarClamp(initialMassSolar, 0.08f, 50.0f);
-    float age = fmaxf(ageGyr, 0.0f);
+    double age = fmax(ageGyr, 0.0);
+    float storedAge = (float)fmin(age, (double)FLT_MAX);
     float referenceLuminosity = MainSequenceLuminosity(mass);
     float referenceRadius = MainSequenceRadius(mass);
     float mainLifetime = 10.0f * mass / referenceLuminosity;
-    float lifetimeProgress = StellarClamp(age / mainLifetime, 0.0f, 1.0f);
+    float lifetimeProgress = StellarClamp(
+        (float)(age / mainLifetime), 0.0f, 1.0f);
     float mainLuminosity = referenceLuminosity *
         MainSequenceAgeLuminosityScale(lifetimeProgress);
     float mainRadius = referenceRadius *
@@ -130,7 +201,6 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
                             powf(mainLuminosity / (mainRadius * mainRadius), 0.25f);
     float giantDuration = StellarClamp(mainLifetime * 0.08f, 0.0001f, 0.80f);
     float luminousLifetime = mainLifetime + giantDuration;
-    if (age > luminousLifetime) return false;
 
     *out = (StellarProfile){
         .spectrum = MainSequenceSpectrum(mainTemperature),
@@ -143,13 +213,22 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
         .radiusSolar = mainRadius,
         .temperatureK = mainTemperature,
         .luminositySolar = mainLuminosity,
-        .ageGyr = age,
+        .ageGyr = storedAge,
         .mainSequenceLifetimeGyr = mainLifetime,
         .luminousLifetimeGyr = luminousLifetime
     };
+    if (age > luminousLifetime) {
+        StellarApplyRemnant(age - luminousLifetime, out);
+        return out->massKg > 0.0 && out->radiusKm > 0.0 &&
+               out->temperatureK > 0.0f && out->luminositySolar > 0.0f &&
+               isfinite(out->massKg) && isfinite(out->radiusKm) &&
+               isfinite(out->temperatureK) &&
+               isfinite(out->luminositySolar);
+    }
     if (age <= mainLifetime) return true;
 
-    float phase = StellarClamp((age - mainLifetime) / giantDuration, 0.0f, 1.0f);
+    float phase = StellarClamp(
+        (float)((age - mainLifetime) / giantDuration), 0.0f, 1.0f);
     float temperatureVariation = (StellarUnit(seed ^ 0x51ed270bu) - 0.5f) * 120.0f;
     float targetTemperature = StellarClamp(
         4700.0f - 1250.0f * phase + temperatureVariation,
@@ -158,7 +237,6 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
         (targetTemperature - mainTemperature) * powf(phase, 0.45f);
     float giantRadius = mainRadius *
         (1.0f + 58.0f * powf(phase, 0.72f));
-    float temperatureRatio = giantTemperature / STELLAR_SOLAR_TEMPERATURE_K;
 
     out->spectrum = SPECTRUM_RED_GIANT;
     out->stage = STELLAR_STAGE_RED_GIANT;
@@ -167,28 +245,9 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
     out->massKg = (double)out->massSolar * SPACE_UNITS_SOLAR_MASS_KG;
     out->radiusKm = (double)giantRadius * SPACE_UNITS_SOLAR_RADIUS_KM;
     out->temperatureK = giantTemperature;
-    out->luminositySolar = giantRadius * giantRadius *
-                           powf(temperatureRatio, 4.0f);
+    out->luminositySolar = StellarLuminosityFromRadiusTemperature(
+        giantRadius, giantTemperature);
     return true;
-}
-
-bool StellarProfileAtAgeClamped(float initialMassSolar, double ageGyr,
-                                uint32_t seed, StellarProfile *out)
-{
-    if (!out) return false;
-    *out = (StellarProfile){ 0 };
-    if (!isfinite(ageGyr)) return false;
-
-    // Freeze at the final luminous state until compact remnants are modeled.
-    StellarProfile initial;
-    if (!StellarProfileAtAge(initialMassSolar, 0.0f, seed, &initial)) {
-        return false;
-    }
-    double finalAge = fmax(ageGyr, 0.0);
-    if (finalAge > (double)initial.luminousLifetimeGyr) {
-        finalAge = (double)initial.luminousLifetimeGyr;
-    }
-    return StellarProfileAtAge(initialMassSolar, (float)finalAge, seed, out);
 }
 
 StellarProfile StellarGenerate(uint32_t seed)
@@ -202,7 +261,10 @@ StellarProfile StellarGenerate(uint32_t seed)
         float age = StellarUnit(candidateSeed ^ 0xa511e9b3u) *
                     STELLAR_GALAXY_AGE_GYR;
         StellarProfile profile;
-        if (StellarProfileAtAge(mass, age, candidateSeed, &profile)) return profile;
+        if (StellarProfileAtAge(mass, age, candidateSeed, &profile) &&
+            profile.stage <= STELLAR_STAGE_RED_GIANT) {
+            return profile;
+        }
     }
 
     float fallbackMass = 0.08f + StellarUnit(seed ^ 0x68bc21ebu) * 0.42f;

@@ -9,12 +9,18 @@ typedef enum SpectrumType {
     SPECTRUM_ORANGE,
     SPECTRUM_YELLOW,
     SPECTRUM_BLUE_WHITE,
-    SPECTRUM_RED_GIANT
+    SPECTRUM_RED_GIANT,
+    SPECTRUM_WHITE_DWARF,
+    SPECTRUM_NEUTRON_STAR,
+    SPECTRUM_BLACK_HOLE
 } SpectrumType;
 
 typedef enum StellarEvolutionStage {
     STELLAR_STAGE_MAIN_SEQUENCE = 0,
-    STELLAR_STAGE_RED_GIANT
+    STELLAR_STAGE_RED_GIANT,
+    STELLAR_STAGE_WHITE_DWARF,
+    STELLAR_STAGE_NEUTRON_STAR,
+    STELLAR_STAGE_BLACK_HOLE
 } StellarEvolutionStage;
 
 typedef struct StellarProfile {
@@ -31,14 +37,13 @@ typedef struct StellarProfile {
     float luminositySolar;
     float ageGyr;
     float mainSequenceLifetimeGyr;
+    // For remnants this is the formation age of the compact object.
     float luminousLifetimeGyr;
 } StellarProfile;
 
 float StellarSampleInitialMass(uint32_t seed);
-bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
+bool StellarProfileAtAge(float initialMassSolar, double ageGyr, uint32_t seed,
                          StellarProfile *out);
-bool StellarProfileAtAgeClamped(float initialMassSolar, double ageGyr,
-                                uint32_t seed, StellarProfile *out);
 StellarProfile StellarGenerate(uint32_t seed);
 StellarProfile StellarSolarProfile(void);
 

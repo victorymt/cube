@@ -4,6 +4,7 @@
 #include "space_units.h"
 #include "terrain.h"
 
+#include <float.h>
 #include <math.h>
 #include <string.h>
 
@@ -15,11 +16,16 @@ static bool SolarSystemPhysicsVectorIsFinite(Vector3 value)
 static bool SolarSystemPhysicsStellarProfileIsValid(
     const StellarProfile *profile)
 {
-    return profile &&
+    if (!profile) return false;
+    bool remnant = profile->stage >= STELLAR_STAGE_WHITE_DWARF;
+    bool ageMatchesStage = remnant
+        ? profile->ageGyr >= profile->luminousLifetimeGyr
+        : profile->ageGyr <= profile->luminousLifetimeGyr;
+    return
            profile->spectrum >= SPECTRUM_RED_DWARF &&
-           profile->spectrum <= SPECTRUM_RED_GIANT &&
+           profile->spectrum <= SPECTRUM_BLACK_HOLE &&
            profile->stage >= STELLAR_STAGE_MAIN_SEQUENCE &&
-           profile->stage <= STELLAR_STAGE_RED_GIANT &&
+           profile->stage <= STELLAR_STAGE_BLACK_HOLE &&
            profile->initialMassSolar > 0.0f &&
            isfinite(profile->initialMassSolar) && profile->massKg > 0.0 &&
            isfinite(profile->massKg) && profile->radiusKm > 0.0 &&
@@ -35,7 +41,7 @@ static bool SolarSystemPhysicsStellarProfileIsValid(
            profile->luminousLifetimeGyr >=
                profile->mainSequenceLifetimeGyr &&
            isfinite(profile->luminousLifetimeGyr) &&
-           profile->ageGyr <= profile->luminousLifetimeGyr;
+           ageMatchesStage;
 }
 
 static bool SolarSystemPhysicsStellarProfileEquals(
@@ -107,6 +113,12 @@ uint32_t SolarSystemPlanetPlaneHash(const SolarSystemDef *sys)
 int SolarSystemStellarVisualRadius(const StellarProfile *star)
 {
     if (!star || star->radiusKm <= 0.0) return 9;
+    if (star->stage == STELLAR_STAGE_WHITE_DWARF) return 7;
+    if (star->stage == STELLAR_STAGE_NEUTRON_STAR) return 5;
+    if (star->stage == STELLAR_STAGE_BLACK_HOLE) {
+        return (int)roundf(Clamp(5.0f + 0.18f * star->massSolar,
+                                 6.0f, 9.0f));
+    }
     float radiusSolar = (float)(star->radiusKm /
                                 SPACE_UNITS_SOLAR_RADIUS_KM);
     float radius = 13.0f + 2.5f * log2f(radiusSolar);
@@ -125,7 +137,8 @@ static StellarProfile SolarCompanionProfile(const SolarSystemDef *system,
     float companionMass = Clamp(primaryInitialMass * ratio, 0.08f, maximumMass);
     StellarProfile companion = { 0 };
     if (!StellarProfileAtAge(companionMass, system->star.ageGyr, seed,
-                             &companion)) {
+                             &companion) ||
+        companion.stage > STELLAR_STAGE_RED_GIANT) {
         StellarProfileAtAge(0.08f, system->star.ageGyr, seed, &companion);
     }
     return companion;
@@ -194,14 +207,55 @@ static SpaceBarycenterOrbit SolarSystemStellarOrbit(
     return orbit;
 }
 
+static bool SolarSystemStellarOrbitEvolve(
+    const SpaceBarycenterOrbit *initial, const StellarProfile *profiles,
+    int count, SpaceBarycenterOrbit *out)
+{
+    if (!initial || !profiles || !out || count < 1 ||
+        count > MAX_SOLAR_LIGHTS || initial->bodyCount != count) {
+        return false;
+    }
+    SpaceBarycenterOrbit evolved = *initial;
+    for (int i = 0; i < count; i++) {
+        if (!(initial->massKg[i] > 0.0) ||
+            !(profiles[i].massKg > 0.0) ||
+            !isfinite(initial->massKg[i]) ||
+            !isfinite(profiles[i].massKg)) {
+            return false;
+        }
+        evolved.massKg[i] = profiles[i].massKg;
+    }
+    if (count > 1) {
+        double initialInnerMass = initial->massKg[0] + initial->massKg[1];
+        double evolvedInnerMass = evolved.massKg[0] + evolved.massKg[1];
+        evolved.innerSeparationKm *= initialInnerMass / evolvedInnerMass;
+    }
+    if (count == 3) {
+        double initialTotalMass = initial->massKg[0] + initial->massKg[1] +
+                                  initial->massKg[2];
+        double evolvedTotalMass = evolved.massKg[0] + evolved.massKg[1] +
+                                  evolved.massKg[2];
+        evolved.outerSeparationKm *= initialTotalMass / evolvedTotalMass;
+    }
+    SpaceBarycenterBodyState states[MAX_SOLAR_LIGHTS];
+    if (SpaceBarycenterSolve(&evolved, 0.0, states, MAX_SOLAR_LIGHTS) != count) {
+        return false;
+    }
+    *out = evolved;
+    return true;
+}
+
 static bool SolarSystemPlanetOrbitBuild(
     const SolarSystemDef *sys, int index, double centralMassKg,
+    double semiMajorAxisScale,
     SpaceKeplerOrbit *out)
 {
     if (!out) return false;
     *out = (SpaceKeplerOrbit){ 0 };
     if (!sys || index < 0 || index >= sys->planetCount ||
-        index >= MAX_SOLAR_PLANETS) {
+        index >= MAX_SOLAR_PLANETS || !(centralMassKg > 0.0) ||
+        !isfinite(centralMassKg) || !(semiMajorAxisScale > 0.0) ||
+        !isfinite(semiMajorAxisScale)) {
         return false;
     }
     const SolarPlanetDef *planet = &sys->planets[index];
@@ -225,14 +279,16 @@ static bool SolarSystemPlanetOrbitBuild(
         };
         eccentricity = solEccentricities[index];
     }
-    double semiMajorAxisGame = SpaceUnitsKilometersToGameDistance(
+    double semiMajorAxisKm = planet->semiMajorAxisKm * semiMajorAxisScale;
+    double canonicalSemiMajorAxisGame = SpaceUnitsKilometersToGameDistance(
         planet->semiMajorAxisKm);
-    double hostCellLimit = 694.0 / fmax(semiMajorAxisGame, 1.0) - 1.0;
+    double hostCellLimit =
+        694.0 / fmax(canonicalSemiMajorAxisGame, 1.0) - 1.0;
     eccentricity = fmax(0.0, fmin(eccentricity,
         fmin(0.05, fmax(hostCellLimit, 0.0))));
 
     SpaceKeplerOrbit orbit = {
-        .semiMajorAxisKm = planet->semiMajorAxisKm,
+        .semiMajorAxisKm = semiMajorAxisKm,
         .centralMassKg = centralMassKg,
         .eccentricity = eccentricity,
         .inclinationRad = inclination,
@@ -305,7 +361,7 @@ bool SolarSystemPhysicalSnapshotBuild(
     for (int index = 0; index < sys->planetCount; index++) {
         if (!SolarSystemPlanetDefinitionIsValid(&sys->planets[index]) ||
             !SolarSystemPlanetOrbitBuild(
-                sys, index, snapshot.summary.totalMassKg,
+                sys, index, snapshot.summary.totalMassKg, 1.0,
                 &snapshot.planetOrbits[index])) {
             return false;
         }
@@ -333,15 +389,16 @@ bool SolarSystemPhysicalSnapshotEvolve(
     }
 
     SolarSystemPhysicalSnapshot evolved = *base;
+    evolved.satellitesBuilt = false;
+    memset(evolved.satelliteOrbits, 0, sizeof(evolved.satelliteOrbits));
     evolved.summary.totalMassKg = 0.0;
     evolved.summary.totalLuminositySolar = 0.0f;
-    float finalSystemAgeGyr = 0.0f;
     memset(evolved.summary.stellarLuminositiesSolar, 0,
            sizeof(evolved.summary.stellarLuminositiesSolar));
     for (int i = 0; i < evolved.summary.stellarCount; i++) {
         const StellarProfile *initial = &base->stellarProfiles[i];
         double requestedAge = (double)initial->ageGyr + ageOffsetGyr;
-        if (!StellarProfileAtAgeClamped(
+        if (!StellarProfileAtAge(
                 initial->initialMassSolar, requestedAge,
                 initial->evolutionSeed, &evolved.stellarProfiles[i]) ||
             !SolarSystemPhysicsStellarProfileIsValid(
@@ -353,13 +410,10 @@ bool SolarSystemPhysicalSnapshotEvolve(
             evolved.stellarProfiles[i].luminositySolar;
         evolved.summary.stellarLuminositiesSolar[i] =
             evolved.stellarProfiles[i].luminositySolar;
-        finalSystemAgeGyr = fmaxf(
-            finalSystemAgeGyr,
-            evolved.stellarProfiles[i].luminousLifetimeGyr);
     }
     double requestedSystemAge = (double)base->summary.ageGyr + ageOffsetGyr;
-    evolved.summary.ageGyr = (float)fmin(
-        requestedSystemAge, (double)finalSystemAgeGyr);
+    evolved.summary.ageGyr = (float)fmin(requestedSystemAge,
+                                         (double)FLT_MAX);
     if (!(evolved.summary.totalMassKg > 0.0) ||
         !isfinite(evolved.summary.totalMassKg) ||
         !(evolved.summary.totalLuminositySolar > 0.0f) ||
@@ -367,12 +421,28 @@ bool SolarSystemPhysicalSnapshotEvolve(
         return false;
     }
 
-    evolved.stellarOrbit = SolarSystemStellarOrbit(
-        evolved.stellarProfiles, evolved.summary.stellarCount,
-        evolved.stellarHash);
+    if (!SolarSystemStellarOrbitEvolve(
+            &base->stellarOrbit, evolved.stellarProfiles,
+            evolved.summary.stellarCount, &evolved.stellarOrbit)) {
+        return false;
+    }
+    if (evolved.summary.stellarCount <= 1) {
+        evolved.minimumPlanetOrbitGame = 180.0f;
+    } else {
+        double separationKm = evolved.summary.stellarCount == 3
+            ? evolved.stellarOrbit.outerSeparationKm
+            : evolved.stellarOrbit.innerSeparationKm;
+        float minimum = (float)SpaceUnitsKilometersToGameDistance(
+            separationKm) *
+            (evolved.summary.stellarCount == 3 ? 3.0f : 2.8f);
+        evolved.minimumPlanetOrbitGame = fmaxf(180.0f, minimum);
+    }
+    double semiMajorAxisScale = base->summary.totalMassKg /
+                                evolved.summary.totalMassKg;
     for (int index = 0; index < sys->planetCount; index++) {
         if (!SolarSystemPlanetOrbitBuild(
                 sys, index, evolved.summary.totalMassKg,
+                semiMajorAxisScale,
                 &evolved.planetOrbits[index])) {
             return false;
         }
@@ -412,7 +482,7 @@ bool SolarSystemPhysicalSnapshotBuildSatellites(
         if (!SpaceSatelliteGenerate(
                 profile.seed ^ 0xb5297a4du, profile.massKg,
                 profile.physicalRadiusKm,
-                sys->planets[index].semiMajorAxisKm,
+                out->planetOrbits[index].semiMajorAxisKm,
                 out->summary.totalMassKg, occurrence, forceMoon,
                 &satelliteOrbits[index])) {
             return false;
@@ -525,8 +595,7 @@ int SolarSystemPhysicalSnapshotStellarBodiesAtTime(
     }
     for (int i = 0; i < count; i++) {
         const StellarProfile *star = &snapshot->stellarProfiles[i];
-        float proxyRadius = i == 0 ? (float)sys->starProxyRadius :
-                                    (float)SolarSystemStellarVisualRadius(star);
+        float proxyRadius = (float)SolarSystemStellarVisualRadius(star);
         if (!SolarSystemPhysicsStellarProfileIsValid(star) ||
             !(proxyRadius > 0.0f) || !isfinite(proxyRadius)) {
             memset(out, 0, sizeof(*out) * (size_t)clearCount);

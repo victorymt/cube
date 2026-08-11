@@ -125,6 +125,7 @@ typedef struct SolarPlanetRuntimeState {
     bool valid;
     Vector3 center;
     Vector3 velocity;
+    double semiMajorAxisKm;
     PlanetProfile profile;
     float currentIrradianceEarth;
     SpaceSatelliteOrbit satelliteOrbit;

@@ -696,6 +696,9 @@ void DrawStars(const Camera3D *camera, float daylight)
             color.a = alpha;
             float size = 1.0f + (float)(sourceHash % 5u) * 0.18f;
             if (sources[sourceIndex].spectrum == SPECTRUM_RED_GIANT) size += 0.55f;
+            if (sources[sourceIndex].spectrum == SPECTRUM_WHITE_DWARF) size *= 0.72f;
+            if (sources[sourceIndex].spectrum == SPECTRUM_NEUTRON_STAR) size *= 0.58f;
+            if (sources[sourceIndex].spectrum == SPECTRUM_BLACK_HOLE) size *= 0.45f;
             if (sourceIndex > 0) size *= 0.82f;
             bool bright = (sourceHash % 17u) == 0u;
 
