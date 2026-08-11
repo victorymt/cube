@@ -23,6 +23,9 @@
 #define SHIP_WARP_DECEL 1200.0f
 #define SHIP_WARP_STANDOFF 14.0f
 #define SHIP_SYSTEM_WARP_STANDOFF 760.0f
+#define SHIP_THRUST_FUEL_RATE 0.20f
+#define SHIP_CRUISE_FUEL_RATE 0.65f
+#define SHIP_WARP_FUEL_RATE 2.50f
 
 typedef enum WarpTargetType {
     WARP_TARGET_NONE = 0,
@@ -117,6 +120,10 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
         SetImportMessage("Launch into space before initiating a system warp.");
         return false;
     }
+    if (fuel <= 0.0f) {
+        SetImportMessage("System warp unavailable: ship is out of fuel.");
+        return false;
+    }
 
     SolarSystemDef system;
     if (!StarSystemAt(systemAnchorX, systemAnchorZ, &system)) {
@@ -155,6 +162,10 @@ static void ToggleWarp(Player *player)
     }
     if (WorldIsSurfaceActive()) {
         SetImportMessage("Launch into space before engaging warp.");
+        return;
+    }
+    if (fuel <= 0.0f) {
+        SetImportMessage("Warp unavailable: ship is out of fuel.");
         return;
     }
 
@@ -265,6 +276,22 @@ float ShipGetFuel(void)
     return fuel;
 }
 
+bool ShipConsumeFuel(float amount)
+{
+    if (!isfinite(amount) || amount < 0.0f ||
+        !isfinite(fuel) || fuel < 0.0f || fuel > SHIP_MAX_FUEL) {
+        return false;
+    }
+    if (amount == 0.0f) return true;
+    if (amount > fuel) {
+        fuel = 0.0f;
+        return false;
+    }
+    fuel -= amount;
+    if (fuel < 0.000001f) fuel = 0.0f;
+    return true;
+}
+
 bool ShipRefuel(void)
 {
     fuel = SHIP_MAX_FUEL;
@@ -274,24 +301,27 @@ bool ShipRefuel(void)
 
 bool ShipSaveState(FILE *file)
 {
+    if (!file || !isfinite(fuel) || fuel < 0.0f || fuel > SHIP_MAX_FUEL) {
+        return false;
+    }
     return fwrite(&fuel, sizeof(fuel), 1, file) == 1;
 }
 
 bool ShipLoadState(FILE *file)
 {
     float loadedFuel = 0.0f;
-    if (fread(&loadedFuel, sizeof(loadedFuel), 1, file) != 1 ||
+    if (!file || fread(&loadedFuel, sizeof(loadedFuel), 1, file) != 1 ||
         !isfinite(loadedFuel) || loadedFuel < 0.0f || loadedFuel > SHIP_MAX_FUEL) {
         return false;
     }
+    ShipReset();
     fuel = loadedFuel;
-    ClearWarpTarget();
     return true;
 }
 
 void ShipToggleCruise(void)
 {
-    if (warping) return;
+    if (warping || !driving || fuel <= 0.0f) return;
     cruising = !cruising;
     SetImportMessage(cruising ? "Cruise thrust: 4x (X to toggle)." :
                                 "Cruise thrust off.");
@@ -368,6 +398,10 @@ void ShipDraw(const Player *player)
 
 void ShipUpdate(Player *player, float dt)
 {
+    if (!player) return;
+    if (!isfinite(dt) || dt <= 0.0f) dt = 0.0f;
+    if (dt > 0.25f) dt = 0.25f;
+
     if (IsKeyPressed(KEY_X)) {
         if (warping) ToggleWarp(player);
         else ShipToggleCruise();
@@ -422,6 +456,17 @@ void ShipUpdate(Player *player, float dt)
     bool translationInput = Vector3LengthSqr(accel) > 0.0f;
     if (translationInput) accel = Vector3Normalize(accel);
 
+    if (!warping && translationInput) {
+        float fuelRate = cruising ? SHIP_CRUISE_FUEL_RATE :
+                                    SHIP_THRUST_FUEL_RATE;
+        if (!ShipConsumeFuel(fuelRate * dt)) {
+            cruising = false;
+            translationInput = false;
+            accel = Vector3Zero();
+            SetImportMessage("Propulsion disabled: ship is out of fuel.");
+        }
+    }
+
     if (warping) {
         Vector3 targetCenter;
         float safeDistance = 0.0f;
@@ -444,21 +489,27 @@ void ShipUpdate(Player *player, float dt)
                                                 warpTarget.name));
                 }
             } else {
-                Vector3 warpDirection = Vector3Scale(toTarget, 1.0f / targetDistance);
-                player->yaw = atan2f(warpDirection.x, warpDirection.z);
-                player->pitch = asinf(Clamp(warpDirection.y, -1.0f, 1.0f));
-                forward = warpDirection;
+                if (!ShipConsumeFuel(SHIP_WARP_FUEL_RATE * dt)) {
+                    ClearWarpTarget();
+                    player->velocity = Vector3Zero();
+                    SetImportMessage("Warp halted: ship is out of fuel.");
+                } else {
+                    Vector3 warpDirection = Vector3Scale(toTarget, 1.0f / targetDistance);
+                    player->yaw = atan2f(warpDirection.x, warpDirection.z);
+                    player->pitch = asinf(Clamp(warpDirection.y, -1.0f, 1.0f));
+                    forward = warpDirection;
 
-                float speed = Vector3Length(player->velocity);
-                float maxSafeSpeed = gap / fmaxf(dt, 0.001f);
-                float brakingSpeed = sqrtf(fmaxf(0.0f, 2.0f * SHIP_WARP_DECEL *
-                                                        fmaxf(gap - 1.0f, 0.0f)));
-                float desiredSpeed = fminf(SHIP_WARP_MAX_SPEED,
-                                           fminf(brakingSpeed, maxSafeSpeed));
-                float rate = desiredSpeed > speed ? SHIP_WARP_ACCEL : SHIP_WARP_DECEL;
-                if (speed < desiredSpeed) speed = fminf(desiredSpeed, speed + rate * dt);
-                else speed = fmaxf(desiredSpeed, speed - rate * dt);
-                player->velocity = Vector3Scale(warpDirection, speed);
+                    float speed = Vector3Length(player->velocity);
+                    float maxSafeSpeed = gap / fmaxf(dt, 0.001f);
+                    float brakingSpeed = sqrtf(fmaxf(0.0f, 2.0f * SHIP_WARP_DECEL *
+                                                            fmaxf(gap - 1.0f, 0.0f)));
+                    float desiredSpeed = fminf(SHIP_WARP_MAX_SPEED,
+                                               fminf(brakingSpeed, maxSafeSpeed));
+                    float rate = desiredSpeed > speed ? SHIP_WARP_ACCEL : SHIP_WARP_DECEL;
+                    if (speed < desiredSpeed) speed = fminf(desiredSpeed, speed + rate * dt);
+                    else speed = fmaxf(desiredSpeed, speed - rate * dt);
+                    player->velocity = Vector3Scale(warpDirection, speed);
+                }
             }
         }
     } else {

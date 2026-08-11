@@ -22,6 +22,8 @@ const char *ShipWarpTargetName(void);
 bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ);
 void ShipReset(void);
 float ShipGetFuel(void);
+/* Consume fuel atomically; invalid or insufficient amounts return false. */
+bool ShipConsumeFuel(float amount);
 bool ShipRefuel(void);
 bool ShipSaveState(FILE *file);
 bool ShipLoadState(FILE *file);
