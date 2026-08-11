@@ -912,6 +912,128 @@ static void SolarSystemRuntimeProject(const SolarSystemDef *system,
     }
 }
 
+static uint64_t SolarSystemSignatureMix(uint64_t hash, uint64_t value)
+{
+    return (hash ^ value) * UINT64_C(0x100000001b3);
+}
+
+static uint64_t SolarSystemDoubleBits(double value)
+{
+    uint64_t bits = 0;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static uint64_t SolarSystemFloatBits(float value)
+{
+    uint32_t bits = 0;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static uint64_t SolarSystemRuntimeCacheSignature(
+    const SolarSystemDef *system, const SolarSystemPhysicalSnapshot *snapshot)
+{
+    uint64_t hash = UINT64_C(0xcbf29ce484222325);
+    hash = SolarSystemSignatureMix(hash, snapshot->stellarHash);
+    hash = SolarSystemSignatureMix(hash,
+                                   (uint32_t)snapshot->summary.stellarCount);
+    for (int i = 0; i < snapshot->summary.stellarCount; i++) {
+        const StellarProfile *star = &snapshot->stellarProfiles[i];
+        hash = SolarSystemSignatureMix(hash, (uint32_t)star->spectrum);
+        hash = SolarSystemSignatureMix(hash, (uint32_t)star->stage);
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(star->initialMassSolar));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(star->massKg));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(star->radiusKm));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(star->massSolar));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(star->radiusSolar));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(star->temperatureK));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(star->luminositySolar));
+        hash = SolarSystemSignatureMix(hash,
+                                       SolarSystemFloatBits(star->ageGyr));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(star->mainSequenceLifetimeGyr));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(star->luminousLifetimeGyr));
+    }
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(snapshot->stellarOrbit.innerSeparationKm));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(snapshot->stellarOrbit.outerSeparationKm));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(snapshot->stellarOrbit.innerPhaseRad));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(snapshot->stellarOrbit.outerPhaseRad));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(
+                  snapshot->stellarOrbit.innerInclinationRad));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(
+                  snapshot->stellarOrbit.outerInclinationRad));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(snapshot->stellarOrbit.innerNodeRad));
+    hash = SolarSystemSignatureMix(
+        hash, SolarSystemDoubleBits(snapshot->stellarOrbit.outerNodeRad));
+    hash = SolarSystemSignatureMix(hash, (uint32_t)system->planetCount);
+    for (int i = 0; i < system->planetCount; i++) {
+        const SolarPlanetDef *planet = &system->planets[i];
+        const SpaceKeplerOrbit *orbit = &snapshot->planetOrbits[i];
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(planet->semiMajorAxisKm));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(planet->physicalRadiusKm));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(planet->formationMassEarth));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(planet->spaceProxyRadius));
+        hash = SolarSystemSignatureMix(hash, (uint32_t)planet->yOffset);
+        hash = SolarSystemSignatureMix(hash, (uint32_t)planet->style);
+        hash = SolarSystemSignatureMix(hash, planet->formationGasGiant);
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(orbit->eccentricity));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(orbit->inclinationRad));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(orbit->longitudeAscendingNodeRad));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(orbit->argumentPeriapsisRad));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(orbit->meanAnomalyAtEpochRad));
+    }
+    hash = SolarSystemSignatureMix(hash, snapshot->satellitesBuilt);
+    if (snapshot->satellitesBuilt) {
+        for (int i = 0; i < system->planetCount; i++) {
+            const SpaceSatelliteOrbit *orbit = &snapshot->satelliteOrbits[i];
+            hash = SolarSystemSignatureMix(hash, orbit->exists);
+            hash = SolarSystemSignatureMix(
+                hash, SolarSystemDoubleBits(orbit->semiMajorAxisKm));
+            hash = SolarSystemSignatureMix(
+                hash, SolarSystemDoubleBits(orbit->eccentricity));
+            hash = SolarSystemSignatureMix(
+                hash, SolarSystemDoubleBits(orbit->inclinationRad));
+            hash = SolarSystemSignatureMix(
+                hash, SolarSystemDoubleBits(
+                          orbit->longitudeAscendingNodeRad));
+            hash = SolarSystemSignatureMix(
+                hash, SolarSystemDoubleBits(orbit->argumentPeriapsisRad));
+            hash = SolarSystemSignatureMix(
+                hash, SolarSystemDoubleBits(orbit->meanAnomalyAtEpochRad));
+            hash = SolarSystemSignatureMix(
+                hash, SolarSystemDoubleBits(orbit->radiusKm));
+            hash = SolarSystemSignatureMix(
+                hash, SolarSystemDoubleBits(orbit->massKg));
+        }
+    }
+    return hash;
+}
+
 static bool SolarSystemEvaluateCachedAtTime(
     const SolarSystemDef *system, double simulationTime,
     SolarSystemRuntimeState *out)
@@ -922,9 +1044,16 @@ static bool SolarSystemEvaluateCachedAtTime(
     if (!system->physicalSnapshot.valid) {
         return SolarSystemEvaluateUncachedAtTime(system, simulationTime, out);
     }
+    SolarSystemPhysicalSnapshot signatureScratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(system, &signatureScratch);
+    if (!snapshot) return false;
+    uint64_t systemSignature = SolarSystemRuntimeCacheSignature(
+        system, snapshot);
     uint32_t worldSeed = WorldGetSeed();
     if (SpaceQueryRuntimeCacheGet(worldSeed, system->anchorX,
-                                  system->anchorZ, simulationTime, out)) {
+                                  system->anchorZ, systemSignature,
+                                  simulationTime, out)) {
         SolarSystemRuntimeProject(system, out);
         return out->valid && SolarSystemRuntimeGeometryIsFinite(out);
     }
@@ -936,7 +1065,7 @@ static bool SolarSystemEvaluateCachedAtTime(
     }
     SolarSystemRuntimeToRelative(system, &computed);
     SpaceQueryRuntimeCachePut(worldSeed, system->anchorX, system->anchorZ,
-                              simulationTime, &computed);
+                              systemSignature, simulationTime, &computed);
     *out = computed;
     SolarSystemRuntimeProject(system, out);
     if (!out->valid || !SolarSystemRuntimeGeometryIsFinite(out)) {

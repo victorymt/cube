@@ -1212,6 +1212,25 @@ static void TestDeterministicSpaceQueries(void)
     SpaceQueryCacheStats runtimeRepeatStats = SpaceQueryCacheGetStats();
     assert(runtimeRepeatStats.runtimeHits > runtimeColdStats.runtimeHits);
 
+    float originalProxyRadius = systems[0].planets[0].spaceProxyRadius;
+    systems[0].planets[0].spaceProxyRadius = originalProxyRadius + 2.0f;
+    SolarSystemRuntimeState runtimeChanged;
+    assert(SolarSystemEvaluateAtTime(&systems[0], 42.5, &runtimeChanged));
+    assert(runtimeChanged.planets[0].profile.spaceProxyRadius ==
+           originalProxyRadius + 2.0f);
+    assert(memcmp(&runtimeFirst, &runtimeChanged,
+                  sizeof(runtimeFirst)) != 0);
+    SpaceQueryCacheStats changedStats = SpaceQueryCacheGetStats();
+    assert(changedStats.runtimeMisses > runtimeRepeatStats.runtimeMisses);
+
+    systems[0].planets[0].spaceProxyRadius = originalProxyRadius;
+    SolarSystemRuntimeState runtimeRestored;
+    assert(SolarSystemEvaluateAtTime(&systems[0], 42.5, &runtimeRestored));
+    assert(memcmp(&runtimeFirst, &runtimeRestored,
+                  sizeof(runtimeFirst)) == 0);
+    SpaceQueryCacheStats restoredStats = SpaceQueryCacheGetStats();
+    assert(restoredStats.runtimeHits > changedStats.runtimeHits);
+
     SpaceBodyInfo bodies[64];
     SpaceQueryCacheClear();
     int bodyCount = SpaceBodiesNear(observer, bodyRange, bodies, 64);

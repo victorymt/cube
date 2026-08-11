@@ -21,6 +21,7 @@ typedef struct SpaceQueryRuntimeCacheEntry {
     uint32_t worldSeed;
     int anchorX;
     int anchorZ;
+    uint64_t systemSignature;
     double simulationTime;
     uint64_t age;
     SolarSystemRuntimeState value;
@@ -75,10 +76,13 @@ static SpaceQueryDefinitionCacheEntry *SpaceQueryDefinitionSlot(
 }
 
 static SpaceQueryRuntimeCacheEntry *SpaceQueryRuntimeSlot(
-    uint32_t worldSeed, int anchorX, int anchorZ, double simulationTime,
-    bool *hit)
+    uint32_t worldSeed, int anchorX, int anchorZ, uint64_t systemSignature,
+    double simulationTime, bool *hit)
 {
-    uint32_t set = SpaceQueryCacheHash(worldSeed, anchorX, anchorZ) &
+    uint32_t signatureHash = (uint32_t)systemSignature ^
+                             (uint32_t)(systemSignature >> 32);
+    uint32_t set = (SpaceQueryCacheHash(worldSeed, anchorX, anchorZ) ^
+                    signatureHash) &
                    (SPACE_QUERY_RUNTIME_CACHE_SETS - 1u);
     SpaceQueryRuntimeCacheEntry *base =
         &runtimeCache[set * SPACE_QUERY_CACHE_WAYS];
@@ -87,6 +91,7 @@ static SpaceQueryRuntimeCacheEntry *SpaceQueryRuntimeSlot(
         SpaceQueryRuntimeCacheEntry *entry = &base[way];
         if (entry->valid && entry->worldSeed == worldSeed &&
             entry->anchorX == anchorX && entry->anchorZ == anchorZ &&
+            entry->systemSignature == systemSignature &&
             entry->simulationTime == simulationTime) {
             *hit = true;
             return entry;
@@ -134,14 +139,14 @@ void SpaceQueryDefinitionCachePut(uint32_t worldSeed, int anchorX,
 }
 
 bool SpaceQueryRuntimeCacheGet(uint32_t worldSeed, int anchorX, int anchorZ,
-                               double simulationTime,
+                               uint64_t systemSignature, double simulationTime,
                                SolarSystemRuntimeState *out)
 {
     if (!out) return false;
     pthread_mutex_lock(&cacheMutex);
     bool hit = false;
     SpaceQueryRuntimeCacheEntry *entry = SpaceQueryRuntimeSlot(
-        worldSeed, anchorX, anchorZ, simulationTime, &hit);
+        worldSeed, anchorX, anchorZ, systemSignature, simulationTime, &hit);
     if (hit) {
         *out = entry->value;
         entry->age = SpaceQueryCacheNextAge();
@@ -154,18 +159,19 @@ bool SpaceQueryRuntimeCacheGet(uint32_t worldSeed, int anchorX, int anchorZ,
 }
 
 void SpaceQueryRuntimeCachePut(uint32_t worldSeed, int anchorX, int anchorZ,
-                               double simulationTime,
+                               uint64_t systemSignature, double simulationTime,
                                const SolarSystemRuntimeState *value)
 {
     if (!value) return;
     pthread_mutex_lock(&cacheMutex);
     bool hit = false;
     SpaceQueryRuntimeCacheEntry *entry = SpaceQueryRuntimeSlot(
-        worldSeed, anchorX, anchorZ, simulationTime, &hit);
+        worldSeed, anchorX, anchorZ, systemSignature, simulationTime, &hit);
     entry->valid = true;
     entry->worldSeed = worldSeed;
     entry->anchorX = anchorX;
     entry->anchorZ = anchorZ;
+    entry->systemSignature = systemSignature;
     entry->simulationTime = simulationTime;
     entry->age = SpaceQueryCacheNextAge();
     entry->value = *value;
