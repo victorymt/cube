@@ -516,43 +516,50 @@ float PlanetBodyTextureRotation(const SpaceBodyInfo *body)
 static bool StarSystemDefinitionAt(int ax, int az, SolarSystemDef *out)
 {
     if (!out) return false;
-    memset(out, 0, sizeof(*out));
+    SolarSystemDef system = {
+        .anchorX = ax,
+        .anchorZ = az
+    };
     if (ax == 0 && az == 0) {
-        BuildSolSystem(out);
-        if (!SolarSystemPhysicalSnapshotBuild(out, &out->physicalSnapshot)) {
+        BuildSolSystem(&system);
+        if (!SolarSystemPhysicalSnapshotBuild(
+                &system, &system.physicalSnapshot)) {
             return false;
         }
-        out->center.x = 0.0f;
-        out->center.z = 0.0f;
-        for (int i = 0; i < out->planetCount; i++) {
-            out->planets[i].style = SolarPlanetProfile(out, i).style;
+        system.center.x = 0.0f;
+        system.center.z = 0.0f;
+        for (int i = 0; i < system.planetCount; i++) {
+            system.planets[i].style = SolarPlanetProfile(&system, i).style;
         }
-        return SolarSystemPhysicalSnapshotBuildSatellites(
-            out, &out->physicalSnapshot);
+        if (!SolarSystemPhysicalSnapshotBuildSatellites(
+                &system, &system.physicalSnapshot)) {
+            return false;
+        }
+        *out = system;
+        return true;
     }
 
-    out->exists = false;
-    out->anchorX = ax;
-    out->anchorZ = az;
-    out->planetCount = 0;
-
     unsigned int roll = WorldHash2D(ax, az);
-    if (roll % 100u >= STAR_SYSTEM_PROBABILITY) return false;
+    if (roll % 100u >= STAR_SYSTEM_PROBABILITY) {
+        *out = system;
+        return false;
+    }
 
     unsigned int h = WorldHash2D(ax * 31 + 7, az * 17 + 5);
-    out->exists = true;
-    BuildStarName(ax, az, out->name, sizeof(out->name));
-    ApplyPrimaryStar(out, StellarGenerate(h ^ 0xd1b54a35u));
+    system.exists = true;
+    BuildStarName(ax, az, system.name, sizeof(system.name));
+    ApplyPrimaryStar(&system, StellarGenerate(h ^ 0xd1b54a35u));
     int verticalOffset = (int)((h >> 14) % 93u) - 46;
-    out->center = (Vector3){
+    system.center = (Vector3){
         (float)SpaceSystemGlobalCoordinate(ax),
         STAR_SYSTEM_MID_Y + (float)verticalOffset,
         (float)SpaceSystemGlobalCoordinate(az)
     };
-    if (!SolarSystemApplyFormation(out, h)) return false;
-    for (int i = 0; i < out->planetCount; i++) {
-        out->planets[i].style = SolarPlanetProfile(out, i).style;
+    if (!SolarSystemApplyFormation(&system, h)) return false;
+    for (int i = 0; i < system.planetCount; i++) {
+        system.planets[i].style = SolarPlanetProfile(&system, i).style;
     }
+    *out = system;
     return true;
 }
 
