@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 static PlanetClimateInput EarthLikeInput(void)
 {
@@ -151,6 +152,28 @@ static void TestGeneratedDomain(void)
     }
 }
 
+static void TestInvalidInputClearsOutput(void)
+{
+    PlanetClimateInput input = EarthLikeInput();
+    PlanetClimateState state;
+    const PlanetClimateState cleared = { 0 };
+    memset(&state, 0xa5, sizeof(state));
+    assert(!PlanetClimateSolve(NULL, &state));
+    assert(memcmp(&state, &cleared, sizeof(state)) == 0);
+
+    input.stellarIrradianceEarth = NAN;
+    memset(&state, 0xa5, sizeof(state));
+    assert(!PlanetClimateSolve(&input, &state));
+    assert(memcmp(&state, &cleared, sizeof(state)) == 0);
+
+    input = EarthLikeInput();
+    input.stellarIrradianceEarth = 0.0;
+    memset(&state, 0xa5, sizeof(state));
+    assert(!PlanetClimateSolve(&input, &state));
+    assert(memcmp(&state, &cleared, sizeof(state)) == 0);
+    assert(!PlanetClimateSolve(&input, NULL));
+}
+
 int main(void)
 {
     TestGreenhouseWarmsSurface();
@@ -159,6 +182,7 @@ int main(void)
     TestVolatilesCauseAtmosphereAndWater();
     TestGravityRetainsAtmosphere();
     TestGeneratedDomain();
+    TestInvalidInputClearsOutput();
     puts("planet_climate tests passed");
     return 0;
 }

@@ -107,8 +107,27 @@ static void DerivePlanetSurfaceHistory(PlanetProfile *profile)
 bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
                            PlanetProfile *out)
 {
-    if (!input || !out) return false;
+    if (!out) return false;
     memset(out, 0, sizeof(*out));
+    if (!input || !(input->semiMajorAxisKm > 0.0) ||
+        !isfinite(input->semiMajorAxisKm) ||
+        !(input->physicalRadiusKm > 0.0) ||
+        !isfinite(input->physicalRadiusKm) ||
+        input->formationMassEarth < 0.0f ||
+        !isfinite(input->formationMassEarth) ||
+        !(input->spaceProxyRadius > 0.0f) ||
+        !isfinite(input->spaceProxyRadius) ||
+        input->stellarAgeGyr < 0.0f || !isfinite(input->stellarAgeGyr) ||
+        input->stellarCount < 1 ||
+        input->stellarCount > PLANET_PROFILE_MAX_STARS ||
+        input->orbitalEccentricity < 0.0 ||
+        input->orbitalEccentricity >= 1.0 ||
+        !isfinite(input->orbitalEccentricity) ||
+        !(input->orbitalPeriodGameTime > 0.0f) ||
+        !isfinite(input->orbitalPeriodGameTime) || input->planetIndex < 0) {
+        return false;
+    }
+    PlanetProfile profile = { 0 };
 
     float sizeUnit = PlanetProfileHashUnit(input->seed, 1u);
     float composition = PlanetProfileHashUnit(input->seed, 2u);
@@ -150,24 +169,24 @@ bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
                      input->formationMassEarth <= 0.0f &&
                      PlanetProfileHashUnit(input->seed, 5u) > 0.52f);
 
-    out->seed = input->seed;
+    profile.seed = input->seed;
     float formationDelayGyr =
         0.01f + PlanetProfileHashUnit(input->seed, 15u) * 0.04f;
     float stellarAgeGyr = fmaxf(input->stellarAgeGyr, 0.0f);
     formationDelayGyr = fminf(formationDelayGyr, stellarAgeGyr * 0.35f);
-    out->ageGyr = stellarAgeGyr - formationDelayGyr;
-    out->spaceProxyRadius = input->spaceProxyRadius;
-    out->hasSolidSurface = !gasGiant;
+    profile.ageGyr = stellarAgeGyr - formationDelayGyr;
+    profile.spaceProxyRadius = input->spaceProxyRadius;
+    profile.hasSolidSurface = !gasGiant;
     float tidalProximity = Clamp(1.40f - orbitAU, 0.0f, 1.0f);
-    out->tidalLockFactor = Clamp(
+    profile.tidalLockFactor = Clamp(
         tidalProximity *
             (0.68f + PlanetProfileHashUnit(input->seed, 13u) * 0.32f),
         0.0f, 1.0f);
-    out->tidallyLocked =
-        out->hasSolidSurface && out->tidalLockFactor > 0.58f;
-    out->ringTilt =
+    profile.tidallyLocked =
+        profile.hasSolidSurface && profile.tidalLockFactor > 0.58f;
+    profile.ringTilt =
         (14.0f + PlanetProfileHashUnit(input->seed, 14u) * 17.0f) * DEG2RAD;
-    out->yearLength = input->orbitalPeriodGameTime;
+    profile.yearLength = input->orbitalPeriodGameTime;
     if (gasGiant) {
         float gasRadiusEarth = input->formationMassEarth > 0.0f
             ? (float)(input->physicalRadiusKm / SPACE_UNITS_EARTH_RADIUS_KM)
@@ -175,42 +194,42 @@ bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
         double massEarth = input->formationMassEarth > 0.0f
             ? (double)input->formationMassEarth
             : 12.0 + (double)composition * 32.0;
-        out->massKg = SpaceUnitsGameMassToKilograms(massEarth);
-        out->physicalRadiusKm = (double)gasRadiusEarth *
-                                SPACE_UNITS_EARTH_RADIUS_KM;
+        profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
+        profile.physicalRadiusKm = (double)gasRadiusEarth *
+                                   SPACE_UNITS_EARTH_RADIUS_KM;
         double gravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-            out->massKg, out->physicalRadiusKm);
+            profile.massKg, profile.physicalRadiusKm);
         double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
             SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
-        out->surfaceGravity = Clamp((float)(gravity / earthGravity),
-                                    0.75f, 2.40f);
-        out->rotationRate =
+        profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
+                                       0.75f, 2.40f);
+        profile.rotationRate =
             5.0f + PlanetProfileHashUnit(input->seed, 6u) * 3.0f;
-        out->hasRings = input->forcedGasGiant ||
-                        PlanetProfileHashUnit(input->seed, 7u) > 0.34f;
-        out->tidalLockFactor = 0.0f;
-        out->tidallyLocked = false;
+        profile.hasRings = input->forcedGasGiant ||
+                           PlanetProfileHashUnit(input->seed, 7u) > 0.34f;
+        profile.tidalLockFactor = 0.0f;
+        profile.tidallyLocked = false;
     } else {
         float density = 0.78f + composition * 0.52f;
         double massEarth = input->formationMassEarth > 0.0f
             ? (double)input->formationMassEarth
             : (double)density * solidRadiusEarth * solidRadiusEarth *
                   solidRadiusEarth;
-        out->massKg = SpaceUnitsGameMassToKilograms(massEarth);
-        out->physicalRadiusKm = (double)solidRadiusEarth *
-                                SPACE_UNITS_EARTH_RADIUS_KM;
+        profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
+        profile.physicalRadiusKm = (double)solidRadiusEarth *
+                                   SPACE_UNITS_EARTH_RADIUS_KM;
         double gravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-            out->massKg, out->physicalRadiusKm);
+            profile.massKg, profile.physicalRadiusKm);
         double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
             SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
-        out->surfaceGravity = Clamp((float)(gravity / earthGravity),
-                                    0.45f, 1.75f);
-        out->rotationRate =
+        profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
+                                       0.45f, 1.75f);
+        profile.rotationRate =
             0.7f + PlanetProfileHashUnit(input->seed, 11u) * 2.5f;
-        out->hasRings = input->spaceProxyRadius >= 46.0f &&
-                        PlanetProfileHashUnit(input->seed, 12u) > 0.92f;
-        if (out->tidallyLocked && out->yearLength > 0.0f) {
-            out->rotationRate = 360.0f / out->yearLength;
+        profile.hasRings = input->spaceProxyRadius >= 46.0f &&
+                           PlanetProfileHashUnit(input->seed, 12u) > 0.92f;
+        if (profile.tidallyLocked && profile.yearLength > 0.0f) {
+            profile.rotationRate = 360.0f / profile.yearLength;
         }
     }
 
@@ -227,22 +246,23 @@ bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
             ? 0.28f + PlanetProfileHashUnit(input->seed, 19u) * 0.18f
             : 0.08f + composition * 0.22f +
                   PlanetProfileHashUnit(input->seed, 19u) * 0.12f,
-        .surfaceGravityEarth = out->surfaceGravity,
-        .rotationRate = out->rotationRate,
-        .tidalLockFactor = out->tidalLockFactor,
+        .surfaceGravityEarth = profile.surfaceGravity,
+        .rotationRate = profile.rotationRate,
+        .tidalLockFactor = profile.tidalLockFactor,
         .gasGiant = gasGiant
     };
-    if (!ApplyPlanetClimate(out, climateInput)) return false;
-    out->style = ClassifyPlanetClimate(out);
-    out->atmosphereType = gasGiant ? PLANET_ATMOSPHERE_DENSE :
-        ClassifyAtmosphere(out->style, out->surfacePressureAtm,
-                           out->equilibriumTempK, composition);
-    float roughnessBase = out->style == SOLAR_STYLE_CRATER ? 1.20f :
-                          out->style == SOLAR_STYLE_LAVA ? 1.05f :
-                          out->style == SOLAR_STYLE_DESERT ? 0.72f : 0.88f;
-    out->terrainRoughness = gasGiant ? 0.0f : roughnessBase *
+    if (!ApplyPlanetClimate(&profile, climateInput)) return false;
+    profile.style = ClassifyPlanetClimate(&profile);
+    profile.atmosphereType = gasGiant ? PLANET_ATMOSPHERE_DENSE :
+        ClassifyAtmosphere(profile.style, profile.surfacePressureAtm,
+                           profile.equilibriumTempK, composition);
+    float roughnessBase = profile.style == SOLAR_STYLE_CRATER ? 1.20f :
+                          profile.style == SOLAR_STYLE_LAVA ? 1.05f :
+                          profile.style == SOLAR_STYLE_DESERT ? 0.72f : 0.88f;
+    profile.terrainRoughness = gasGiant ? 0.0f : roughnessBase *
         (0.78f + PlanetProfileHashUnit(input->seed, 10u) * 0.48f);
-    DerivePlanetSurfaceHistory(out);
+    DerivePlanetSurfaceHistory(&profile);
+    *out = profile;
     return true;
 }
 

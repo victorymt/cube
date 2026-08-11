@@ -531,6 +531,24 @@ static void TestRuntimeInputContracts(void)
     assert(StarSystemAt(0, 0, &system));
     assert(!SolarSystemEvaluateAtTime(&system, 0.0, NULL));
 
+    SolarSystemPhysicalSummary profileSummary;
+    assert(SolarSystemPhysicalSummaryForSystem(&system, &profileSummary));
+    PlanetProfile sourceProfile = SolarPlanetProfile(&system, 0);
+    PlanetProfileGenerationInput profileInput = ProfileGenerationInputFor(
+        &system, 0, &profileSummary, &sourceProfile);
+    PlanetProfile generatedProfile;
+    const PlanetProfile clearedGeneratedProfile = { 0 };
+    memset(&generatedProfile, 0xa5, sizeof(generatedProfile));
+    assert(!PlanetProfileGenerate(NULL, &generatedProfile));
+    assert(memcmp(&generatedProfile, &clearedGeneratedProfile,
+                  sizeof(generatedProfile)) == 0);
+    profileInput.physicalRadiusKm = NAN;
+    memset(&generatedProfile, 0xa5, sizeof(generatedProfile));
+    assert(!PlanetProfileGenerate(&profileInput, &generatedProfile));
+    assert(memcmp(&generatedProfile, &clearedGeneratedProfile,
+                  sizeof(generatedProfile)) == 0);
+    assert(!PlanetProfileGenerate(&profileInput, NULL));
+
     memset(&runtime, 0xa5, sizeof(runtime));
     assert(!SolarSystemEvaluateAtTime(&system, NAN, &runtime));
     assert(memcmp(&runtime, &cleared, sizeof(runtime)) == 0);

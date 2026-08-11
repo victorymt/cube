@@ -82,7 +82,9 @@ static ClimateFeedback ClimateFeedbackAt(
 bool PlanetClimateSolve(const PlanetClimateInput *input,
                         PlanetClimateState *out)
 {
-    if (!input || !out || !(input->stellarIrradianceEarth > 0.0) ||
+    if (!out) return false;
+    *out = (PlanetClimateState){ 0 };
+    if (!input || !(input->stellarIrradianceEarth > 0.0) ||
         !isfinite(input->stellarIrradianceEarth) ||
         !isfinite(input->volatileInventory) ||
         !isfinite(input->greenhouseGasFraction) ||
@@ -92,7 +94,6 @@ bool PlanetClimateSolve(const PlanetClimateInput *input,
         return false;
     }
 
-    *out = (PlanetClimateState){ 0 };
     PlanetClimateInput climate = *input;
     climate.stellarIrradianceEarth = fmax(climate.stellarIrradianceEarth, 0.00001);
     climate.volatileInventory = ClimateClamp(climate.volatileInventory, 0.0f, 1.0f);
