@@ -26,6 +26,12 @@ typedef struct EcologyProfileCache {
 
 static ECOLOGY_THREAD_LOCAL EcologyProfileCache ecologyProfileCache = { 0 };
 
+static float EcologyProfileFiniteNonNegative(float value)
+{
+    if (!isfinite(value) || value < 0.0f) return 0.0f;
+    return value;
+}
+
 static float EcologyBiomeSupport(PlanetBiome biome,
                                  const PlanetEcologyProfile *profile)
 {
@@ -151,6 +157,12 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
     if (!PlanetWorldIsActive()) return environment;
 
     const PlanetProfile *planet = PlanetWorldProfile();
+    if (!planet) return environment;
+    simulationTime = isfinite(simulationTime) && simulationTime >= 0.0
+        ? simulationTime : 0.0;
+    daylight = EcologyClamp(daylight);
+    precipitationRate = EcologyClamp(precipitationRate);
+    currentStorm = EcologyClamp(currentStorm);
     PlanetSurfaceSample surface = dynamic
         ? PlanetSurfaceAtTime(x, z, simulationTime)
         : PlanetSurfaceBaselineAt(x, z);
@@ -167,21 +179,27 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
     environment.shelter = EcologyClamp(0.48f + (surrounding - (float)height) / 7.0f);
 
     float lapseCooling = fmaxf((float)height - 12.0f, 0.0f) * 0.68f;
-    environment.meanTemperatureK = surface.meanTemperature - lapseCooling;
-    environment.currentTemperatureK = surface.temperature - lapseCooling;
-    environment.seasonalAmplitudeK = surface.seasonalAmplitude;
+    environment.meanTemperatureK = EcologyProfileFiniteNonNegative(
+        surface.meanTemperature - lapseCooling);
+    environment.currentTemperatureK = EcologyProfileFiniteNonNegative(
+        surface.temperature - lapseCooling);
+    environment.seasonalAmplitudeK = EcologyProfileFiniteNonNegative(
+        surface.seasonalAmplitude);
 
     float drainage = 1.0f - environment.slope * 0.62f;
     environment.soilMoisture = EcologyClamp(
-        surface.moisture * (1.0f - surface.iceCoverage * 0.76f) * drainage);
-    float windAngle = planet->prevailingWindAngle;
+        EcologyClamp(surface.moisture) *
+        (1.0f - EcologyClamp(surface.iceCoverage) * 0.76f) * drainage);
+    float windAngle = isfinite(planet->prevailingWindAngle)
+        ? planet->prevailingWindAngle : 0.0f;
     int upwindX = x - (int)lroundf(cosf(windAngle) * 8.0f);
     int upwindZ = z - (int)lroundf(sinf(windAngle) * 8.0f);
     int upwindHeight = PlanetTerrainHeight(upwindX, upwindZ);
     float orographicLift = EcologyClamp(
         0.50f + ((float)height - (float)upwindHeight) / 10.0f);
     environment.meanPrecipitation = EcologyClamp(
-        surface.moisture * (0.36f + EcologyClamp(planet->cloudCoverage) * 0.64f) *
+        EcologyClamp(surface.moisture) *
+        (0.36f + EcologyClamp(planet->cloudCoverage) * 0.64f) *
         (0.75f + orographicLift * 0.42f) *
         (1.0f - environment.elevation * 0.18f));
 
@@ -210,10 +228,13 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
         ? EcologyClamp(daylight * EcologyClamp((float)planet->receivedIrradiance))
         : environment.meanUsableLight;
 
+    float windStrength = EcologyClamp(planet->windStrength);
+    float cloudCoverage = EcologyClamp(planet->cloudCoverage);
+    float oceanCoverage = EcologyClamp(planet->oceanCoverage);
     float roughness = EcologyClamp((planet->terrainRoughness - 0.35f) / 1.20f);
     environment.stormExposure = EcologyClamp(
-        planet->windStrength * 0.55f + planet->cloudCoverage * 0.20f +
-        planet->oceanCoverage * 0.15f + roughness * 0.10f);
+        windStrength * 0.55f + cloudCoverage * 0.20f +
+        oceanCoverage * 0.15f + roughness * 0.10f);
     environment.stormExposure *= 1.0f - environment.shelter * 0.35f;
     environment.precipitationRate = dynamic
         ? EcologyClamp(precipitationRate) : environment.meanPrecipitation;
@@ -479,8 +500,10 @@ PlanetEcologyProfile PlanetEcologyProfileForPlanet(
     const PlanetProfile *planet = planetValue;
     if (!planet) return result;
 
-    float temperature = planet->equilibriumTempK;
-    float pressure = fmaxf(planet->surfacePressureAtm, 0.0f);
+    float temperature = EcologyProfileFiniteNonNegative(
+        planet->equilibriumTempK);
+    float pressure = EcologyProfileFiniteNonNegative(
+        planet->surfacePressureAtm);
     float atmosphere = EcologyClamp(planet->atmosphereDensity);
     float water = EcologyClamp(planet->oceanCoverage);
     float ice = EcologyClamp(planet->iceCoverage);
@@ -560,6 +583,9 @@ PlanetLocalEcology EcologyDynamicLocalAt(
     const PlanetEcologyProfile *profile)
 {
     PlanetLocalEcology local = { 0 };
+    simulationTime = isfinite(simulationTime) && simulationTime >= 0.0
+        ? simulationTime : 0.0;
+    daylight = EcologyClamp(daylight);
     WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
         x, z, simulationTime);
     float sky = EcologyClamp(WeatherFieldSkyFactor(weather));

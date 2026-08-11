@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <limits.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -169,6 +170,52 @@ static bool LocalEcologyDiffers(PlanetLocalEcology left,
                   sizeof(left.migration)) != 0 ||
            memcmp(&left.diagnostics, &right.diagnostics,
                   sizeof(left.diagnostics)) != 0;
+}
+
+typedef struct EcologyConcurrentQuery {
+    int x;
+    int z;
+    float daylight;
+    PlanetLocalEcology result;
+} EcologyConcurrentQuery;
+
+static void *RunEcologyConcurrentQuery(void *opaque)
+{
+    EcologyConcurrentQuery *query = opaque;
+    query->result = PlanetEcologyLocalAt(
+        query->x, query->z, query->daylight);
+    return NULL;
+}
+
+static void TestEcologyPopulationConcurrentQueries(void)
+{
+    const uint32_t seed = 0x6a09e667u;
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 120, -340);
+    PlanetEcologyResetState();
+    PlanetLocalEcology expected = PlanetEcologyLocalAt(37, -91, 0.73f);
+    PlanetLocalEcology dark = PlanetEcologyLocalAt(37, -91, 0.0f);
+    AssertLocalEcologyEqual(dark,
+                            PlanetEcologyLocalAt(37, -91, NAN));
+
+    enum { THREAD_COUNT = 8 };
+    for (int round = 0; round < 12; round++) {
+        pthread_t threads[THREAD_COUNT];
+        EcologyConcurrentQuery queries[THREAD_COUNT] = { 0 };
+        for (int index = 0; index < THREAD_COUNT; index++) {
+            queries[index].x = 37;
+            queries[index].z = -91;
+            queries[index].daylight = 0.73f;
+            assert(pthread_create(&threads[index], NULL,
+                                  RunEcologyConcurrentQuery,
+                                  &queries[index]) == 0);
+        }
+        for (int index = 0; index < THREAD_COUNT; index++) {
+            assert(pthread_join(threads[index], NULL) == 0);
+            AssertLocalEcologyEqual(queries[index].result,
+                                    expected);
+        }
+    }
 }
 
 static float WeatherSampleDistance(WeatherFieldSample left,
@@ -1488,6 +1535,7 @@ static void TestChunkUnloadReloadDeterminism(void)
 
 int main(void)
 {
+    TestEcologyPopulationConcurrentQueries();
     TestEcologyUsesPositionLocalWeather();
     TestEcologyCacheInvalidation();
     TestEcologyCrossSeedReplay();

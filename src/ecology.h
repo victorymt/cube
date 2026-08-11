@@ -101,6 +101,13 @@ float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);
 bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
                                      float organismScale,
                                      float ecologyCapacity);
+/*
+ * Local queries and population save/load/reset serialize their shared
+ * population cache internally. The active PlanetWorld must remain unchanged
+ * while a query is running; world activation and dimension edits stay on the
+ * simulation thread. PlanetEcologyEvaluateLocal and the other ecology-model
+ * functions are pure and reentrant.
+ */
 PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight);
 PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z);
 const char *PlanetEcologyLifeName(void);

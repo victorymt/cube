@@ -6,6 +6,7 @@
 #include "world.h"
 
 #include <math.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -77,6 +78,7 @@ static EcologyPopulationRecord
     ecologyPopulationRecords[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
 static uint64_t ecologyPopulationAccessSerial = 0u;
 static uint32_t ecologyPopulationEpoch = 1u;
+static pthread_mutex_t ecologyPopulationMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static unsigned EcologyPopulationSetIndex(uint32_t surfaceId,
                                           int regionX, int regionZ)
@@ -498,6 +500,7 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
 {
     PlanetRegionalPopulation empty = { 0 };
     if (outMigration) *outMigration = (PlanetPopulationMigrationState){ 0 };
+    pthread_mutex_lock(&ecologyPopulationMutex);
     int originX = PlanetWorldOriginX();
     int originZ = PlanetWorldOriginZ();
     int globalX = originX + x;
@@ -528,14 +531,19 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
     }
     int recordIndex = EcologyPopulationFindRecordIndex(
         surfaceId, regionX, regionZ);
-    if (recordIndex < 0) return empty;
+    if (recordIndex < 0) {
+        pthread_mutex_unlock(&ecologyPopulationMutex);
+        return empty;
+    }
     if (createdAny) {
         ecologyPopulationEpoch++;
         if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
     }
     EcologyPopulationRecord *record = &ecologyPopulationRecords[recordIndex];
     if (outMigration) *outMigration = record->migration;
-    return record->population;
+    PlanetRegionalPopulation result = record->population;
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return result;
 }
 
 bool EcologyPopulationRecordFaunaHarvest(
@@ -550,6 +558,7 @@ bool EcologyPopulationRecordFaunaHarvest(
         return false;
     }
 
+    pthread_mutex_lock(&ecologyPopulationMutex);
     int originX = PlanetWorldOriginX();
     int originZ = PlanetWorldOriginZ();
     int regionX = EcologyFloorDivide(
@@ -564,7 +573,10 @@ bool EcologyPopulationRecordFaunaHarvest(
     bool created = false;
     EcologyPopulationRecord *record = EcologyPopulationRecordAt(
         surfaceId, regionX, regionZ, &created);
-    if (!record) return false;
+    if (!record) {
+        pthread_mutex_unlock(&ecologyPopulationMutex);
+        return false;
+    }
     if (created) {
         EcologyPopulationInitializeRecord(
             record, stepTime, daylight, profile, originX, originZ);
@@ -572,6 +584,7 @@ bool EcologyPopulationRecordFaunaHarvest(
     PlanetPopulationApplyFaunaHarvest(&record->population, eventStrength);
     ecologyPopulationEpoch++;
     if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
+    pthread_mutex_unlock(&ecologyPopulationMutex);
     return true;
 }
 
@@ -616,20 +629,27 @@ static bool EcologyPopulationMigrationStateValid(
 
 uint32_t EcologyPopulationEpoch(void)
 {
-    return ecologyPopulationEpoch;
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    uint32_t result = ecologyPopulationEpoch;
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return result;
 }
 
 void EcologyPopulationResetState(void)
 {
+    pthread_mutex_lock(&ecologyPopulationMutex);
     memset(ecologyPopulationRecords, 0, sizeof(ecologyPopulationRecords));
     ecologyPopulationAccessSerial = 0u;
     ecologyPopulationEpoch++;
     if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
+    pthread_mutex_unlock(&ecologyPopulationMutex);
 }
 
 bool EcologyPopulationSaveState(FILE *file)
 {
-    if (!file) return false;
+    bool success = false;
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    if (!file) goto save_done;
     uint32_t count = 0u;
     for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS; index++) {
         if (ecologyPopulationRecords[index].valid) count++;
@@ -638,7 +658,7 @@ bool EcologyPopulationSaveState(FILE *file)
     if (fwrite(header, sizeof(header), 1, file) != 1 ||
         fwrite(&ecologyPopulationAccessSerial,
                sizeof(ecologyPopulationAccessSerial), 1, file) != 1) {
-        return false;
+        goto save_done;
     }
     for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS; index++) {
         const EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
@@ -673,14 +693,19 @@ bool EcologyPopulationSaveState(FILE *file)
                    1, file) != 1 ||
             fwrite(&record->population.radiationMemory,
                    sizeof(record->population.radiationMemory), 1, file) != 1) {
-            return false;
+            goto save_done;
         }
     }
-    return true;
+    success = true;
+save_done:
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return success;
 }
 
 bool EcologyPopulationLoadState(FILE *file)
 {
+    bool success = false;
+    pthread_mutex_lock(&ecologyPopulationMutex);
     uint32_t header[2];
     uint64_t loadedAccessSerial = 0u;
     if (!file || fread(header, sizeof(header), 1, file) != 1 ||
@@ -688,7 +713,7 @@ bool EcologyPopulationLoadState(FILE *file)
         (header[0] < ECOLOGY_POPULATION_LEGACY_STATE_VERSION ||
          header[0] > ECOLOGY_POPULATION_STATE_VERSION) ||
         header[1] > ECOLOGY_POPULATION_MAX_REGIONS) {
-        return false;
+        goto load_done;
     }
 
     EcologyPopulationRecord loaded[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
@@ -706,20 +731,20 @@ bool EcologyPopulationLoadState(FILE *file)
             fread(&lastUpdateTime, sizeof(lastUpdateTime), 1, file) != 1 ||
             fread(&lastAccess, sizeof(lastAccess), 1, file) != 1 ||
             fread(populationValues, sizeof(populationValues), 1, file) != 1) {
-            return false;
+            goto load_done;
         }
         if (header[0] >= ECOLOGY_POPULATION_MIGRATION_STATE_VERSION &&
             fread(migrationValues, sizeof(migrationValues), 1, file) != 1) {
-            return false;
+            goto load_done;
         }
         if (header[0] >= ECOLOGY_POPULATION_HARVEST_STATE_VERSION &&
             fread(&faunaHarvestPressure,
                   sizeof(faunaHarvestPressure), 1, file) != 1) {
-            return false;
+            goto load_done;
         }
         if (header[0] >= ECOLOGY_POPULATION_RADIATION_STATE_VERSION &&
             fread(&radiationMemory, sizeof(radiationMemory), 1, file) != 1) {
-            return false;
+            goto load_done;
         }
         PlanetRegionalPopulation population = {
             .floraDensity = populationValues[0],
@@ -743,7 +768,7 @@ bool EcologyPopulationLoadState(FILE *file)
             lastAccess > loadedAccessSerial ||
             !EcologyPopulationStateValid(&population) ||
             !EcologyPopulationMigrationStateValid(&migration)) {
-            return false;
+            goto load_done;
         }
 
         unsigned setIndex = EcologyPopulationSetIndex(
@@ -755,11 +780,11 @@ bool EcologyPopulationLoadState(FILE *file)
             if (candidate->valid && candidate->surfaceId == surfaceId &&
                 candidate->regionX == (int)coordinates[0] &&
                 candidate->regionZ == (int)coordinates[1]) {
-                return false;
+                goto load_done;
             }
             if (!candidate->valid && !slot) slot = candidate;
         }
-        if (!slot) return false;
+        if (!slot) goto load_done;
         *slot = (EcologyPopulationRecord){
             .valid = true,
             .surfaceId = surfaceId,
@@ -776,5 +801,8 @@ bool EcologyPopulationLoadState(FILE *file)
     ecologyPopulationAccessSerial = loadedAccessSerial;
     ecologyPopulationEpoch++;
     if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
-    return true;
+    success = true;
+load_done:
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return success;
 }

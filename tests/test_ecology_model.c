@@ -1194,6 +1194,98 @@ static void TestRandomizedLocalProperties(void)
     }
 }
 
+static void TestNonFiniteInputsHaveStableFallbacks(void)
+{
+    PlanetLocalEnvironment environment = TemperateEnvironment();
+    PlanetEcologyTraits traits = CarbonTraits();
+
+#define ASSERT_INVALID_ENVIRONMENT(field, value) do {                    \
+    PlanetLocalEnvironment candidate = environment;                      \
+    candidate.field = (value);                                            \
+    PlanetEcologySuitability first = PlanetEcologyEvaluateLocal(          \
+        &candidate, &traits, 0.82f, 0.56f);                                \
+    PlanetEcologySuitability second = PlanetEcologyEvaluateLocal(         \
+        &candidate, &traits, 0.82f, 0.56f);                                \
+    AssertSuitabilityValid(first);                                         \
+    assert(memcmp(&first, &second, sizeof(first)) == 0);                   \
+} while (0)
+
+#define ASSERT_INVALID_TRAIT(field, value) do {                          \
+    PlanetEcologyTraits candidate = traits;                               \
+    candidate.field = (value);                                            \
+    PlanetEcologySuitability first = PlanetEcologyEvaluateLocal(          \
+        &environment, &candidate, 0.82f, 0.56f);                           \
+    PlanetEcologySuitability second = PlanetEcologyEvaluateLocal(         \
+        &environment, &candidate, 0.82f, 0.56f);                           \
+    AssertSuitabilityValid(first);                                         \
+    assert(memcmp(&first, &second, sizeof(first)) == 0);                   \
+} while (0)
+
+#define ASSERT_INVALID_ENVIRONMENT_FIELD(field) do {                     \
+    ASSERT_INVALID_ENVIRONMENT(field, NAN);                               \
+    ASSERT_INVALID_ENVIRONMENT(field, INFINITY);                          \
+    ASSERT_INVALID_ENVIRONMENT(field, -INFINITY);                         \
+} while (0)
+
+    ASSERT_INVALID_ENVIRONMENT_FIELD(meanTemperatureK);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(currentTemperatureK);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(seasonalAmplitudeK);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(liquidWaterAccess);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(soilMoisture);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(meanPrecipitation);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(precipitationRate);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(meanUsableLight);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(currentUsableLight);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(stormExposure);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(currentStorm);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(elevation);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(slope);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(shelter);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(biomeSupport);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(radiationExposure);
+    ASSERT_INVALID_ENVIRONMENT_FIELD(ejectaExposure);
+
+    ASSERT_INVALID_TRAIT(preferredTemperatureK, NAN);
+    ASSERT_INVALID_TRAIT(temperatureToleranceK, INFINITY);
+    ASSERT_INVALID_TRAIT(waterDependence, NAN);
+    ASSERT_INVALID_TRAIT(lightDependence, INFINITY);
+    ASSERT_INVALID_TRAIT(stormResistance, NAN);
+    ASSERT_INVALID_TRAIT(altitudeTolerance, INFINITY);
+    ASSERT_INVALID_TRAIT(slopeTolerance, NAN);
+    ASSERT_INVALID_TRAIT(foodWebDependence, INFINITY);
+    ASSERT_INVALID_TRAIT(nocturnalFraction, NAN);
+
+#undef ASSERT_INVALID_ENVIRONMENT_FIELD
+#undef ASSERT_INVALID_TRAIT
+#undef ASSERT_INVALID_ENVIRONMENT
+
+    PlanetEcologySuitability invalidGlobals = PlanetEcologyEvaluateLocal(
+        &environment, &traits, NAN, INFINITY);
+    PlanetEcologySuitability invalidGlobalsAgain =
+        PlanetEcologyEvaluateLocal(&environment, &traits, NAN, INFINITY);
+    AssertSuitabilityValid(invalidGlobals);
+    assert(memcmp(&invalidGlobals, &invalidGlobalsAgain,
+                  sizeof(invalidGlobals)) == 0);
+
+    PlanetLifeHistory invalidAge = PlanetLifeHistoryDerive(
+        0x1234u, NAN, INFINITY, true);
+    PlanetLifeHistory invalidAgeAgain = PlanetLifeHistoryDerive(
+        0x1234u, NAN, INFINITY, true);
+    assert(invalidAge.planetAgeGyr == invalidAgeAgain.planetAgeGyr);
+    assert(invalidAge.originProbability == invalidAgeAgain.originProbability);
+    assert(invalidAge.originRoll == invalidAgeAgain.originRoll);
+    assert(invalidAge.complexLifeProbability ==
+           invalidAgeAgain.complexLifeProbability);
+    assert(invalidAge.complexLifeRoll == invalidAgeAgain.complexLifeRoll);
+    assert(invalidAge.evolutionProgress == invalidAgeAgain.evolutionProgress);
+    assert(invalidAge.lifeOriginated == invalidAgeAgain.lifeOriginated);
+    assert(invalidAge.hasComplexLife == invalidAgeAgain.hasComplexLife);
+    assert(isfinite(invalidAge.planetAgeGyr) && invalidAge.planetAgeGyr == 0.0f);
+    assert(isfinite(invalidAge.originProbability));
+    assert(isfinite(invalidAge.complexLifeProbability));
+    assert(isfinite(PlanetLifeHistoryDensity(&invalidAge, NAN)));
+}
+
 int main(void)
 {
     TestDeterministicHistory();
@@ -1229,6 +1321,7 @@ int main(void)
     TestFaunaPopulationAndSpawnControls();
     TestFaunaBehaviorDecision();
     TestRandomizedFaunaBehaviorProperties();
+    TestNonFiniteInputsHaveStableFallbacks();
     puts("ecology_model tests passed");
     return 0;
 }

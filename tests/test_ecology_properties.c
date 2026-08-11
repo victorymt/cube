@@ -330,6 +330,43 @@ static void AssertLocalValid(const PlanetLocalEcology *local)
     AssertMigrationValid(&local->migration);
 }
 
+static void TestInvalidPlanetClimateInputsStayFinite(void)
+{
+    const uint32_t seed = 0x4d3c2b1au;
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanetStyle(seed, 0, 0, SOLAR_STYLE_TEMPERATE);
+    const PlanetProfile baseline = *PlanetWorldProfile();
+
+#define ASSERT_INVALID_PLANET_FIELD(field, value) do {                    \
+    PlanetProfile candidate = baseline;                                    \
+    candidate.field = (value);                                             \
+    PlanetEcologyProfile first = PlanetEcologyProfileForPlanet(            \
+        &candidate, seed, false);                                          \
+    PlanetEcologyProfile second = PlanetEcologyProfileForPlanet(           \
+        &candidate, seed, false);                                          \
+    AssertProfileValid(&first, candidate.style);                            \
+    assert(memcmp(&first, &second, sizeof(first)) == 0);                   \
+} while (0)
+
+#define ASSERT_INVALID_PLANET_FIELD_ALL(field) do {                       \
+    ASSERT_INVALID_PLANET_FIELD(field, NAN);                              \
+    ASSERT_INVALID_PLANET_FIELD(field, INFINITY);                         \
+    ASSERT_INVALID_PLANET_FIELD(field, -INFINITY);                        \
+} while (0)
+
+    ASSERT_INVALID_PLANET_FIELD_ALL(equilibriumTempK);
+    ASSERT_INVALID_PLANET_FIELD_ALL(surfacePressureAtm);
+    ASSERT_INVALID_PLANET_FIELD_ALL(atmosphereDensity);
+    ASSERT_INVALID_PLANET_FIELD_ALL(oceanCoverage);
+    ASSERT_INVALID_PLANET_FIELD_ALL(iceCoverage);
+    ASSERT_INVALID_PLANET_FIELD_ALL(surfaceGravity);
+    ASSERT_INVALID_PLANET_FIELD_ALL(ageGyr);
+    ASSERT_INVALID_PLANET_FIELD_ALL(windStrength);
+
+#undef ASSERT_INVALID_PLANET_FIELD_ALL
+#undef ASSERT_INVALID_PLANET_FIELD
+}
+
 static void TestGeneratedEcologyBoundsAndLocalProperties(void)
 {
     int profileCount = 0;
@@ -800,6 +837,7 @@ static void TestSaveLoadReplayAcrossSeeds(void)
 
 int main(void)
 {
+    TestInvalidPlanetClimateInputsStayFinite();
     TestGeneratedEcologyBoundsAndLocalProperties();
     TestGeneratedEcologyDistribution();
     TestGeneratedSolarEcologyDistribution();

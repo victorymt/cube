@@ -3,6 +3,7 @@
 #include "space.h"
 #include "world.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -93,6 +94,7 @@ uint32_t EcologyHash(int x, int z, uint32_t salt)
 
 float EcologyClamp(float value)
 {
+    if (!isfinite(value)) return 0.0f;
     if (value < 0.0f) return 0.0f;
     if (value > 1.0f) return 1.0f;
     return value;
@@ -137,6 +139,9 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     PlanetLocalEcology local = { 0 };
     if (!PlanetWorldIsActive()) return local;
 
+    // Invalid daylight is the same as a dark cell; normalize before hashing so
+    // it cannot create a distinct cache entry or poison a later replay.
+    daylight = EcologyClamp(daylight);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     uint32_t profileGeneration = EcologyProfileGeneration();
     uint32_t populationEpoch = EcologyPopulationEpoch();

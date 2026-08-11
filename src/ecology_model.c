@@ -4,6 +4,7 @@
 
 static float EcologyModelClamp(float value)
 {
+    if (!isfinite(value)) return 0.0f;
     if (value < 0.0f) return 0.0f;
     if (value > 1.0f) return 1.0f;
     return value;
@@ -12,6 +13,12 @@ static float EcologyModelClamp(float value)
 static float EcologyModelFiniteUnit(float value)
 {
     return isfinite(value) ? EcologyModelClamp(value) : 0.0f;
+}
+
+static float EcologyModelFiniteNonNegative(float value)
+{
+    if (!isfinite(value) || value < 0.0f) return 0.0f;
+    return value;
 }
 
 static uint32_t EcologyModelMix(uint32_t value)
@@ -34,6 +41,10 @@ static float EcologyModelTemperatureResponse(float temperatureK,
                                              float preferredK,
                                              float toleranceK)
 {
+    if (!isfinite(temperatureK) || !isfinite(preferredK) ||
+        !isfinite(toleranceK)) {
+        return 0.0f;
+    }
     float tolerance = fmaxf(toleranceK, 1.0f);
     float distance = (temperatureK - preferredK) / tolerance;
     return expf(-0.5f * distance * distance);
@@ -69,11 +80,11 @@ PlanetLifeHistory PlanetLifeHistoryDerive(uint32_t seed, float planetAgeGyr,
                                           bool hasSolidSurface)
 {
     PlanetLifeHistory result = { 0 };
-    result.planetAgeGyr = fmaxf(planetAgeGyr, 0.0f);
+    result.planetAgeGyr = EcologyModelFiniteNonNegative(planetAgeGyr);
     result.originRoll = EcologyModelUnit(seed, 0x51f15eu);
     result.complexLifeRoll = EcologyModelUnit(seed, 0xc0a1e5u);
 
-    float support = EcologyModelClamp(environmentalSupport);
+    float support = EcologyModelFiniteUnit(environmentalSupport);
     if (!hasSolidSurface || support < 0.015f) return result;
 
     float originOpportunity = EcologyModelClamp((result.planetAgeGyr - 0.10f) / 3.90f);
@@ -98,8 +109,9 @@ float PlanetLifeHistoryDensity(const PlanetLifeHistory *history,
 {
     if (!history || !history->lifeOriginated) return 0.0f;
 
-    float density = EcologyModelClamp(environmentalSupport) *
-                    (0.16f + 0.84f * history->evolutionProgress);
+    float density = EcologyModelFiniteUnit(environmentalSupport) *
+                    (0.16f + 0.84f *
+                     EcologyModelFiniteUnit(history->evolutionProgress));
     if (!history->hasComplexLife && density > 0.19f) density = 0.19f;
     return EcologyModelClamp(density);
 }
@@ -112,23 +124,29 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
     PlanetEcologySuitability result = { 0 };
     if (!environment || !traits) return result;
 
-    float waterDependence = EcologyModelClamp(traits->waterDependence);
-    float lightDependence = EcologyModelClamp(traits->lightDependence);
+    float waterDependence = EcologyModelFiniteUnit(traits->waterDependence);
+    float lightDependence = EcologyModelFiniteUnit(traits->lightDependence);
+    float liquidWaterAccess = EcologyModelFiniteUnit(
+        environment->liquidWaterAccess);
+    float soilMoisture = EcologyModelFiniteUnit(environment->soilMoisture);
+    float meanPrecipitation = EcologyModelFiniteUnit(
+        environment->meanPrecipitation);
     float waterSignal = EcologyModelClamp(
-        environment->liquidWaterAccess * 0.50f +
-        environment->soilMoisture * 0.30f +
-        environment->meanPrecipitation * 0.20f);
+        liquidWaterAccess * 0.50f + soilMoisture * 0.30f +
+        meanPrecipitation * 0.20f);
     result.waterScore = EcologyModelLerp(0.68f, sqrtf(waterSignal),
                                          waterDependence);
 
     result.temperatureScore = EcologyModelTemperatureResponse(
         environment->meanTemperatureK, traits->preferredTemperatureK,
         traits->temperatureToleranceK);
+    float seasonalAmplitudeK = EcologyModelFiniteNonNegative(
+        environment->seasonalAmplitudeK);
     result.seasonScore = 0.0f;
     for (int sample = 0; sample < 12; sample++) {
         float phase = (2.0f * 3.14159265358979323846f * (float)sample) / 12.0f;
         float seasonalTemperature = environment->meanTemperatureK +
-            sinf(phase) * fmaxf(environment->seasonalAmplitudeK, 0.0f);
+            sinf(phase) * seasonalAmplitudeK;
         result.seasonScore += EcologyModelTemperatureResponse(
             seasonalTemperature, traits->preferredTemperatureK,
             traits->temperatureToleranceK);
@@ -138,7 +156,7 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
     result.lightScore = EcologyModelLerp(
         0.76f, sqrtf(EcologyModelClamp(environment->meanUsableLight)),
         lightDependence);
-    float stormResistance = EcologyModelClamp(traits->stormResistance);
+    float stormResistance = EcologyModelFiniteUnit(traits->stormResistance);
     result.stormScore = EcologyModelClamp(
         1.0f - EcologyModelClamp(environment->stormExposure) *
         (1.0f - stormResistance * 0.78f));
@@ -148,15 +166,18 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
     result.radiationScore = EcologyModelClamp(
         1.0f - radiationExposure * (0.76f + ejectaExposure * 0.24f));
 
-    float slopeStress = EcologyModelClamp(environment->slope) *
-                        (1.0f - EcologyModelClamp(traits->slopeTolerance));
-    float altitudeStress = EcologyModelClamp(environment->elevation) *
-                           (1.0f - EcologyModelClamp(traits->altitudeTolerance));
+    float slopeStress = EcologyModelFiniteUnit(environment->slope) *
+                        (1.0f - EcologyModelFiniteUnit(
+                            traits->slopeTolerance));
+    float altitudeStress = EcologyModelFiniteUnit(environment->elevation) *
+                           (1.0f - EcologyModelFiniteUnit(
+                               traits->altitudeTolerance));
     float terrainShape = EcologyModelClamp(
         1.0f - slopeStress * 0.70f - altitudeStress * 0.38f);
-    float shelter = 0.80f + EcologyModelClamp(environment->shelter) * 0.20f;
+    float shelter = 0.80f + EcologyModelFiniteUnit(environment->shelter) * 0.20f;
     result.terrainScore = EcologyModelClamp(
-        environment->biomeSupport * terrainShape * shelter);
+        EcologyModelFiniteUnit(environment->biomeSupport) * terrainShape *
+        shelter);
 
     result.limitingFactor = PLANET_ECOLOGY_LIMIT_NONE;
     float lowest = 2.0f;
@@ -176,9 +197,8 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
                             PLANET_ECOLOGY_LIMIT_RADIATION, &lowest);
 
     bool lacksRequiredWater = waterDependence > 0.50f &&
-        environment->liquidWaterAccess < 0.01f &&
-        environment->soilMoisture < 0.01f &&
-        environment->meanPrecipitation < 0.01f;
+        liquidWaterAccess < 0.01f && soilMoisture < 0.01f &&
+        meanPrecipitation < 0.01f;
     if (lacksRequiredWater || result.seasonScore < 0.005f ||
         result.terrainScore <= 0.0f || result.radiationScore < 0.005f) {
         return result;
@@ -202,15 +222,16 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
     float combined = expf(weightedLog / weightTotal);
     result.carryingCapacity = EcologyModelClamp(
         combined * (0.70f + EcologyModelClamp(lowest) * 0.30f));
-    result.floraCapacity = EcologyModelClamp(globalFloraPotential) *
-                           result.carryingCapacity;
+    float floraPotential = EcologyModelFiniteUnit(globalFloraPotential);
+    float faunaPotential = EcologyModelFiniteUnit(globalFaunaPotential);
+    result.floraCapacity = floraPotential * result.carryingCapacity;
 
-    float relativeFlora = globalFloraPotential > 0.0001f
-        ? result.floraCapacity / globalFloraPotential : 0.0f;
+    float relativeFlora = floraPotential > 0.0001f
+        ? result.floraCapacity / floraPotential : 0.0f;
     float foodSupport = EcologyModelLerp(
         0.75f, relativeFlora, traits->foodWebDependence);
-    result.faunaCapacity = EcologyModelClamp(globalFaunaPotential) *
-                           result.carryingCapacity * foodSupport;
+    result.faunaCapacity = faunaPotential * result.carryingCapacity *
+                           foodSupport;
 
     float currentTemperature = EcologyModelTemperatureResponse(
         environment->currentTemperatureK, traits->preferredTemperatureK,
