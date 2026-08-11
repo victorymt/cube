@@ -1129,8 +1129,9 @@ int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
 {
     if (!sys) return false;
+    SolarSystemDef formed = *sys;
     SolarSystemPhysicalSnapshot snapshot;
-    if (!SolarSystemPhysicalSnapshotBuild(sys, &snapshot)) return false;
+    if (!SolarSystemPhysicalSnapshotBuild(&formed, &snapshot)) return false;
 
     SpaceSystemFormation formation;
     SpaceSystemFormationInput input = {
@@ -1146,22 +1147,22 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
     };
     if (!SpaceSystemFormationGenerate(&input, &formation)) return false;
 
-    sys->formationMetallicity = formation.metallicity;
-    sys->formationDiskMassEarth = formation.diskMassEarth;
-    sys->snowLineKm = SpaceUnitsGameDistanceToKilometers(
+    formed.formationMetallicity = formation.metallicity;
+    formed.formationDiskMassEarth = formation.diskMassEarth;
+    formed.snowLineKm = SpaceUnitsGameDistanceToKilometers(
         formation.snowLineGame);
-    sys->habitableZoneInnerKm = SpaceUnitsGameDistanceToKilometers(
+    formed.habitableZoneInnerKm = SpaceUnitsGameDistanceToKilometers(
         formation.habitableInnerGame);
-    sys->habitableZoneOuterKm = SpaceUnitsGameDistanceToKilometers(
+    formed.habitableZoneOuterKm = SpaceUnitsGameDistanceToKilometers(
         formation.habitableOuterGame);
-    sys->planetCount = formation.planetCount;
+    formed.planetCount = formation.planetCount;
     for (int index = 0; index < formation.planetCount; index++) {
         const SpaceSystemFormationPlanet *planet = &formation.planets[index];
-        uint32_t planetHash = SolarSystemPlanetOrbitHash(sys, index);
+        uint32_t planetHash = SolarSystemPlanetOrbitHash(&formed, index);
         float proxyRadius = planet->gasGiant
             ? 47.0f + (float)((planetHash >> 6) % 4u)
             : 40.0f + (float)((planetHash >> 6) % 9u);
-        sys->planets[index] = (SolarPlanetDef){
+        formed.planets[index] = (SolarPlanetDef){
             .semiMajorAxisKm = SpaceUnitsGameDistanceToKilometers(
                 planet->orbitGame),
             .physicalRadiusKm = (double)planet->radiusEarth *
@@ -1174,11 +1175,16 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
             .formationGasGiant = planet->gasGiant
         };
     }
-    if (!SolarSystemPhysicalSnapshotBuild(sys, &sys->physicalSnapshot)) {
+    if (!SolarSystemPhysicalSnapshotBuild(
+            &formed, &formed.physicalSnapshot)) {
         return false;
     }
-    return SolarSystemPhysicalSnapshotBuildSatellites(
-        sys, &sys->physicalSnapshot);
+    if (!SolarSystemPhysicalSnapshotBuildSatellites(
+            &formed, &formed.physicalSnapshot)) {
+        return false;
+    }
+    *sys = formed;
+    return true;
 }
 
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
