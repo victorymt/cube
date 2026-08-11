@@ -58,6 +58,15 @@ static void TestInvalidOrbit(void)
     assert(!SpaceKeplerOrbitIsValid(&orbit));
     assert(!SpaceKeplerStateAtTime(&orbit, 0.0, &state));
     assert(!SpaceKeplerStateAtTime(&orbit, 0.0, NULL));
+
+    orbit.eccentricity = 0.1;
+    orbit.semiMajorAxisKm = 1.0e100;
+    state.positionGame = (Vector3){ 1.0f, 2.0f, 3.0f };
+    state.velocityGame = (Vector3){ 4.0f, 5.0f, 6.0f };
+    assert(!SpaceKeplerStateAtTime(&orbit, 0.0, &state));
+    assert(state.positionGame.x == 0.0f && state.positionGame.y == 0.0f &&
+           state.positionGame.z == 0.0f && state.velocityGame.x == 0.0f &&
+           state.velocityGame.y == 0.0f && state.velocityGame.z == 0.0f);
 }
 
 static void AssertOrbitProperties(const SpaceKeplerOrbit *orbit)

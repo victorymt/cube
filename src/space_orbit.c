@@ -40,6 +40,11 @@ static Vector3 SpaceKeplerRotateFromOrbitalPlane(double x, double z,
     };
 }
 
+static bool SpaceKeplerVectorIsFinite(Vector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
 bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
                             double simulationTime,
                             SpaceKeplerState *out)
@@ -92,5 +97,10 @@ bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
         semiMajorAxisGame * eccentricityScale * cosine * eccentricAnomalyRate,
         orbit->inclinationRad, orbit->longitudeAscendingNodeRad,
         orbit->argumentPeriapsisRad);
+    if (!SpaceKeplerVectorIsFinite(out->positionGame) ||
+        !SpaceKeplerVectorIsFinite(out->velocityGame)) {
+        *out = (SpaceKeplerState){ 0 };
+        return false;
+    }
     return true;
 }
