@@ -617,6 +617,27 @@ static void TestRuntimeInputContracts(void)
     assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
     system.planets[0].semiMajorAxisKm = originalSemiMajorAxisKm;
 
+    double originalPhysicalRadiusKm = system.planets[0].physicalRadiusKm;
+    bool originalSnapshotValid = system.physicalSnapshot.valid;
+    system.planets[0].physicalRadiusKm = NAN;
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    system.physicalSnapshot.valid = false;
+    memset(&runtime, 0xa5, sizeof(runtime));
+    assert(!SolarSystemEvaluateAtTime(&system, 0.0, &runtime));
+    assert(memcmp(&runtime, &cleared, sizeof(runtime)) == 0);
+    system.physicalSnapshot.valid = originalSnapshotValid;
+    system.planets[0].physicalRadiusKm = originalPhysicalRadiusKm;
+
+    float originalFormationMassEarth =
+        system.planets[0].formationMassEarth;
+    system.planets[0].formationMassEarth = NAN;
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    system.planets[0].formationMassEarth = originalFormationMassEarth;
+
     assert(SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
     const SpaceSatelliteOrbit clearedSatelliteOrbits[MAX_SOLAR_PLANETS] = {
         0

@@ -72,6 +72,17 @@ static bool SolarSystemPhysicsSatelliteOrbitIsValid(
            isfinite(orbit->massKg);
 }
 
+bool SolarSystemPlanetDefinitionIsValid(const SolarPlanetDef *planet)
+{
+    return planet && planet->semiMajorAxisKm > 0.0 &&
+           isfinite(planet->semiMajorAxisKm) && planet->physicalRadiusKm > 0.0 &&
+           isfinite(planet->physicalRadiusKm) &&
+           planet->formationMassEarth >= 0.0f &&
+           isfinite(planet->formationMassEarth) &&
+           planet->spaceProxyRadius > 0.0f &&
+           isfinite(planet->spaceProxyRadius);
+}
+
 static uint32_t SolarLightHash(const SolarSystemDef *sys)
 {
     return WorldHash2D(sys->anchorX * 113 + 41, sys->anchorZ * 71 + 19);
@@ -285,7 +296,8 @@ bool SolarSystemPhysicalSnapshotBuild(
         return false;
     }
     for (int index = 0; index < sys->planetCount; index++) {
-        if (!SolarSystemPlanetOrbitBuild(
+        if (!SolarSystemPlanetDefinitionIsValid(&sys->planets[index]) ||
+            !SolarSystemPlanetOrbitBuild(
                 sys, index, snapshot.summary.totalMassKg,
                 &snapshot.planetOrbits[index])) {
             return false;
@@ -311,6 +323,9 @@ bool SolarSystemPhysicalSnapshotBuildSatellites(
 
     SpaceSatelliteOrbit satelliteOrbits[MAX_SOLAR_PLANETS] = { 0 };
     for (int index = 0; index < sys->planetCount; index++) {
+        if (!SolarSystemPlanetDefinitionIsValid(&sys->planets[index])) {
+            return false;
+        }
         PlanetProfile profile = SolarPlanetProfile(sys, index);
         double earthMasses = SpaceUnitsKilogramsToGameMass(profile.massKg);
         double occurrence = profile.hasSolidSurface
@@ -387,7 +402,8 @@ static bool SolarSystemPhysicalSnapshotIsUsable(
     }
     for (int i = 0; i < sys->planetCount; i++) {
         const SpaceKeplerOrbit *orbit = &snapshot->planetOrbits[i];
-        if (!SpaceKeplerOrbitIsValid(orbit) ||
+        if (!SolarSystemPlanetDefinitionIsValid(&sys->planets[i]) ||
+            !SpaceKeplerOrbitIsValid(orbit) ||
             orbit->semiMajorAxisKm != sys->planets[i].semiMajorAxisKm ||
             orbit->centralMassKg != totalMassKg) {
             return false;

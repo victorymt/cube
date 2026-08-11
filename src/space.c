@@ -93,6 +93,7 @@ static bool SpaceVectorIsFinite(Vector3 value)
 
 static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection);
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed);
+static bool PlanetProfileIsValid(const PlanetProfile *profile);
 
 #define SPACE_REBASE_THRESHOLD (STAR_SYSTEM_SPACING * 12)
 
@@ -417,21 +418,10 @@ static bool SolarSystemPlanetIndexIsValid(const SolarSystemDef *sys, int index)
            index < sys->planetCount;
 }
 
-static bool SolarPlanetDefinitionIsValid(const SolarPlanetDef *planet)
-{
-    return planet && planet->semiMajorAxisKm > 0.0 &&
-           isfinite(planet->semiMajorAxisKm) && planet->physicalRadiusKm > 0.0 &&
-           isfinite(planet->physicalRadiusKm) &&
-           planet->formationMassEarth >= 0.0f &&
-           isfinite(planet->formationMassEarth) &&
-           planet->spaceProxyRadius > 0.0f &&
-           isfinite(planet->spaceProxyRadius);
-}
-
 static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
 {
     if (!SolarSystemPlanetIndexIsValid(sys, index) ||
-        !SolarPlanetDefinitionIsValid(&sys->planets[index])) {
+        !SolarSystemPlanetDefinitionIsValid(&sys->planets[index])) {
         return DEFAULT_WORLD_SEED;
     }
     const SolarPlanetDef *def = &sys->planets[index];
@@ -453,7 +443,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     if (!SolarSystemPlanetIndexIsValid(sys, index)) return profile;
 
     const SolarPlanetDef *def = &sys->planets[index];
-    if (!SolarPlanetDefinitionIsValid(def)) return profile;
+    if (!SolarSystemPlanetDefinitionIsValid(def)) return profile;
     SolarSystemPhysicalSnapshot scratch;
     const SolarSystemPhysicalSnapshot *snapshot =
         SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
@@ -838,6 +828,12 @@ static bool SolarSystemEvaluateUncachedAtTime(
             return false;
         }
         planet->profile = SolarPlanetProfile(sys, index);
+        if (!PlanetProfileIsValid(&planet->profile) ||
+            !(planet->profile.massKg > 0.0) ||
+            !(planet->profile.physicalRadiusKm > 0.0) ||
+            !(planet->profile.spaceProxyRadius > 0.0f)) {
+            return false;
+        }
         planet->center = orbitalState.center;
         planet->velocity = orbitalState.velocity;
         planet->currentIrradianceEarth = SolarSystemIrradianceAt(
