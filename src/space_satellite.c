@@ -4,6 +4,7 @@
 #include "space_units.h"
 
 #include <math.h>
+#include <string.h>
 
 #define SPACE_SATELLITE_PI 3.14159265358979323846
 
@@ -61,7 +62,7 @@ bool SpaceSatelliteGenerate(uint32_t seed, double planetMassKg,
                             bool forceExists, SpaceSatelliteOrbit *out)
 {
     if (!out) return false;
-    *out = (SpaceSatelliteOrbit){ 0 };
+    memset(out, 0, sizeof(*out));
     if (!(planetMassKg > 0.0) || !(planetRadiusKm > 0.0) ||
         !(planetSemiMajorAxisKm > 0.0) || !(starMassKg > 0.0) ||
         !isfinite(planetMassKg) || !isfinite(planetRadiusKm) ||

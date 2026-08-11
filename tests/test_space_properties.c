@@ -7,6 +7,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -967,12 +968,107 @@ static void TestDeterministicSpaceQueries(void)
            (unsigned long long)benchmarkStats.runtimeMisses, elapsedMs);
 }
 
+typedef struct SpaceQueryWorker {
+    Vector3 observer;
+    SolarSystemDef systems[16];
+    SpaceBodyInfo bodies[16];
+    SpaceSatelliteInfo satellites[8];
+    int systemCount;
+    int bodyCount;
+    int satelliteCount;
+    bool ok;
+} SpaceQueryWorker;
+
+static void *RunConcurrentSpaceQueries(void *opaque)
+{
+    SpaceQueryWorker *worker = opaque;
+    worker->ok = true;
+    for (int iteration = 0; iteration < 16; iteration++) {
+        SolarSystemDef systems[16];
+        SpaceBodyInfo bodies[16];
+        SpaceSatelliteInfo satellites[8];
+        int systemCount = StarSystemsNear(worker->observer, 2800.0f,
+                                           systems, 16);
+        int bodyCount = SpaceBodiesNear(worker->observer, 700.0f,
+                                        bodies, 16);
+        int satelliteCount = SpaceSatellitesNear(
+            worker->observer, 900.0f, satellites, 8);
+        if (iteration == 0) {
+            worker->systemCount = systemCount;
+            worker->bodyCount = bodyCount;
+            worker->satelliteCount = satelliteCount;
+            memcpy(worker->systems, systems,
+                   sizeof(systems[0]) * (size_t)systemCount);
+            memcpy(worker->bodies, bodies,
+                   sizeof(bodies[0]) * (size_t)bodyCount);
+            memcpy(worker->satellites, satellites,
+                   sizeof(satellites[0]) * (size_t)satelliteCount);
+        } else if (systemCount != worker->systemCount ||
+                   bodyCount != worker->bodyCount ||
+                   satelliteCount != worker->satelliteCount ||
+                   memcmp(worker->systems, systems,
+                          sizeof(systems[0]) * (size_t)systemCount) != 0 ||
+                   memcmp(worker->bodies, bodies,
+                          sizeof(bodies[0]) * (size_t)bodyCount) != 0 ||
+                   memcmp(worker->satellites, satellites,
+                          sizeof(satellites[0]) *
+                              (size_t)satelliteCount) != 0) {
+            worker->ok = false;
+            break;
+        }
+    }
+    return NULL;
+}
+
+static void TestConcurrentSpaceQueries(void)
+{
+    static const Vector3 observers[8] = {
+        { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f },
+        { 1400.0f, 0.0f, 1400.0f }, { 1400.0f, 0.0f, 1400.0f },
+        { -2800.0f, 0.0f, 700.0f }, { -2800.0f, 0.0f, 700.0f },
+        { 4200.0f, 0.0f, -2100.0f }, { 4200.0f, 0.0f, -2100.0f }
+    };
+    SpaceResetOrigin();
+    SetPropertySeed(0x31415926u);
+    SpaceQueryCacheClear();
+    SpaceQueryWorker workers[8] = { 0 };
+    pthread_t threads[8];
+    for (int i = 0; i < 8; i++) {
+        workers[i].observer = observers[i];
+        assert(pthread_create(&threads[i], NULL, RunConcurrentSpaceQueries,
+                              &workers[i]) == 0);
+    }
+    for (int i = 0; i < 8; i++) {
+        assert(pthread_join(threads[i], NULL) == 0);
+        assert(workers[i].ok);
+    }
+    for (int i = 0; i < 8; i += 2) {
+        assert(workers[i].systemCount == workers[i + 1].systemCount);
+        assert(workers[i].bodyCount == workers[i + 1].bodyCount);
+        assert(workers[i].satelliteCount == workers[i + 1].satelliteCount);
+        assert(memcmp(workers[i].systems, workers[i + 1].systems,
+                      sizeof(workers[i].systems[0]) *
+                          (size_t)workers[i].systemCount) == 0);
+        assert(memcmp(workers[i].bodies, workers[i + 1].bodies,
+                      sizeof(workers[i].bodies[0]) *
+                          (size_t)workers[i].bodyCount) == 0);
+        assert(memcmp(workers[i].satellites, workers[i + 1].satellites,
+                      sizeof(workers[i].satellites[0]) *
+                          (size_t)workers[i].satelliteCount) == 0);
+    }
+    SpaceQueryCacheStats stats = SpaceQueryCacheGetStats();
+    assert(stats.definitionHits > 0);
+    assert(stats.runtimeHits > 0);
+    SetPropertySeed(DEFAULT_WORLD_SEED);
+}
+
 int main(void)
 {
     TestHomeScaleDiagnostics();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
     TestDeterministicSpaceQueries();
+    TestConcurrentSpaceQueries();
     puts("space properties tests passed");
     return 0;
 }
