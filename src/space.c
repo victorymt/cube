@@ -8,6 +8,7 @@
 #include "space_barycenter.h"
 #include "space_illumination.h"
 #include "space_physics.h"
+#include "space_query_cache.h"
 #include "space_satellite.h"
 #include "space_system.h"
 #include "space_system_physics.h"
@@ -485,7 +486,7 @@ float PlanetBodyTextureRotation(const SpaceBodyInfo *body)
            (float)solarSimulationTime * body->profile.rotationRate;
 }
 
-bool StarSystemAt(int ax, int az, SolarSystemDef *out)
+static bool StarSystemDefinitionAt(int ax, int az, SolarSystemDef *out)
 {
     if (!out) return false;
     memset(out, 0, sizeof(*out));
@@ -494,8 +495,8 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
         if (!SolarSystemPhysicalSnapshotBuild(out, &out->physicalSnapshot)) {
             return false;
         }
-        out->center.x = (float)SpaceGlobalToLocalX(0);
-        out->center.z = (float)SpaceGlobalToLocalZ(0);
+        out->center.x = 0.0f;
+        out->center.z = 0.0f;
         for (int i = 0; i < out->planetCount; i++) {
             out->planets[i].style = SolarPlanetProfile(out, i).style;
         }
@@ -517,15 +518,38 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
     ApplyPrimaryStar(out, StellarGenerate(h ^ 0xd1b54a35u));
     int verticalOffset = (int)((h >> 14) % 93u) - 46;
     out->center = (Vector3){
-        (float)SpaceGlobalToLocalX(SpaceSystemGlobalCoordinate(ax)),
+        (float)SpaceSystemGlobalCoordinate(ax),
         STAR_SYSTEM_MID_Y + (float)verticalOffset,
-        (float)SpaceGlobalToLocalZ(SpaceSystemGlobalCoordinate(az))
+        (float)SpaceSystemGlobalCoordinate(az)
     };
     if (!SolarSystemApplyFormation(out, h)) return false;
     for (int i = 0; i < out->planetCount; i++) {
         out->planets[i].style = SolarPlanetProfile(out, i).style;
     }
     return true;
+}
+
+static void ProjectSolarSystemCenter(SolarSystemDef *system)
+{
+    if (!system) return;
+    system->center.x = (float)SpaceGlobalToLocalX(
+        SpaceSystemGlobalCoordinate(system->anchorX));
+    system->center.z = (float)SpaceGlobalToLocalZ(
+        SpaceSystemGlobalCoordinate(system->anchorZ));
+}
+
+bool StarSystemAt(int ax, int az, SolarSystemDef *out)
+{
+    if (!out) return false;
+    uint32_t worldSeed = WorldGetSeed();
+    if (!SpaceQueryDefinitionCacheGet(worldSeed, ax, az, out)) {
+        if (!StarSystemDefinitionAt(ax, az, out)) {
+            out->exists = false;
+        }
+        SpaceQueryDefinitionCachePut(worldSeed, ax, az, out);
+    }
+    ProjectSolarSystemCenter(out);
+    return out->exists;
 }
 
 Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer)
@@ -729,6 +753,66 @@ bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
     }
     out->valid = true;
     return true;
+}
+
+static void SolarSystemRuntimeToRelative(const SolarSystemDef *system,
+                                         SolarSystemRuntimeState *runtime)
+{
+    if (!system || !runtime) return;
+    for (int star = 0; star < runtime->stellarCount; star++) {
+        runtime->stars[star].center = Vector3Subtract(
+            runtime->stars[star].center, system->center);
+    }
+    for (int planet = 0; planet < runtime->planetCount; planet++) {
+        runtime->planets[planet].center = Vector3Subtract(
+            runtime->planets[planet].center, system->center);
+        if (runtime->planets[planet].satelliteOrbit.exists) {
+            runtime->planets[planet].satelliteCenter = Vector3Subtract(
+                runtime->planets[planet].satelliteCenter, system->center);
+        }
+    }
+}
+
+static void SolarSystemRuntimeProject(const SolarSystemDef *system,
+                                      SolarSystemRuntimeState *runtime)
+{
+    if (!system || !runtime) return;
+    for (int star = 0; star < runtime->stellarCount; star++) {
+        runtime->stars[star].center = Vector3Add(
+            runtime->stars[star].center, system->center);
+    }
+    for (int planet = 0; planet < runtime->planetCount; planet++) {
+        runtime->planets[planet].center = Vector3Add(
+            runtime->planets[planet].center, system->center);
+        if (runtime->planets[planet].satelliteOrbit.exists) {
+            runtime->planets[planet].satelliteCenter = Vector3Add(
+                runtime->planets[planet].satelliteCenter, system->center);
+        }
+    }
+}
+
+static bool SolarSystemEvaluateCachedAtTime(
+    const SolarSystemDef *system, double simulationTime,
+    SolarSystemRuntimeState *out)
+{
+    if (!system || !out) return false;
+    uint32_t worldSeed = WorldGetSeed();
+    if (SpaceQueryRuntimeCacheGet(worldSeed, system->anchorX,
+                                  system->anchorZ, simulationTime, out)) {
+        SolarSystemRuntimeProject(system, out);
+        return out->valid;
+    }
+
+    SolarSystemRuntimeState computed;
+    if (!SolarSystemEvaluateAtTime(system, simulationTime, &computed)) {
+        return false;
+    }
+    SolarSystemRuntimeToRelative(system, &computed);
+    SpaceQueryRuntimeCachePut(worldSeed, system->anchorX, system->anchorZ,
+                              simulationTime, &computed);
+    *out = computed;
+    SolarSystemRuntimeProject(system, out);
+    return out->valid;
 }
 
 int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
@@ -1289,9 +1373,40 @@ static bool SpacePointInSolarSystemBubble(int x, int z)
     return false;
 }
 
+static int CompareSystemQueryCandidate(const SolarSystemDef *left,
+                                       float leftDistance,
+                                       const SolarSystemDef *right,
+                                       float rightDistance)
+{
+    if (leftDistance < rightDistance) return -1;
+    if (leftDistance > rightDistance) return 1;
+    if (left->anchorX < right->anchorX) return -1;
+    if (left->anchorX > right->anchorX) return 1;
+    if (left->anchorZ < right->anchorZ) return -1;
+    if (left->anchorZ > right->anchorZ) return 1;
+    return 0;
+}
+
+static int CompareSpaceBodyQueryCandidate(const SpaceBodyInfo *left,
+                                          const SpaceBodyInfo *right)
+{
+    if (left->dist < right->dist) return -1;
+    if (left->dist > right->dist) return 1;
+    if (left->systemAnchorX < right->systemAnchorX) return -1;
+    if (left->systemAnchorX > right->systemAnchorX) return 1;
+    if (left->systemAnchorZ < right->systemAnchorZ) return -1;
+    if (left->systemAnchorZ > right->systemAnchorZ) return 1;
+    if (left->isStar != right->isStar) return left->isStar ? -1 : 1;
+    if (left->index < right->index) return -1;
+    if (left->index > right->index) return 1;
+    return 0;
+}
+
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount)
 {
-    if (!out || maxCount <= 0) return 0;
+    if (!out || maxCount <= 0 || !isfinite(maxDist) || maxDist < 0.0f) {
+        return 0;
+    }
 
     int centerAx = FloorDivInt(SpaceLocalToGlobalX((int)floorf(pos.x)),
                                STAR_SYSTEM_SPACING);
@@ -1322,7 +1437,8 @@ int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCoun
                 for (int i = 1; i < foundCount; i++) {
                     if (dists[i] > dists[farthest]) farthest = i;
                 }
-                if (d < dists[farthest]) {
+                if (CompareSystemQueryCandidate(
+                        &sys, d, &found[farthest], dists[farthest]) < 0) {
                     found[farthest] = sys;
                     dists[farthest] = d;
                 }
@@ -1333,7 +1449,10 @@ int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCoun
     for (int i = 0; i < foundCount; i++) {
         int best = i;
         for (int j = i + 1; j < foundCount; j++) {
-            if (dists[j] < dists[best]) best = j;
+            if (CompareSystemQueryCandidate(
+                    &found[j], dists[j], &found[best], dists[best]) < 0) {
+                best = j;
+            }
         }
         if (best != i) {
             SolarSystemDef tmpSys = found[i];
@@ -1429,37 +1548,40 @@ static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
                                     Vector3 observer, SpaceBodyInfo *out)
 {
     SolarSystemRuntimeState runtime;
-    return SolarSystemEvaluateAtTime(system, solarSimulationTime, &runtime) &&
+    return SolarSystemEvaluateCachedAtTime(system, solarSimulationTime,
+                                           &runtime) &&
            PlanetBodyInfoForRuntime(system, &runtime, index, observer, out);
 }
 
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount)
 {
+    if (!out || maxCount <= 0 || !isfinite(maxDist) || maxDist < 0.0f) {
+        return 0;
+    }
     int count = 0;
     int centerAx = FloorDivInt(SpaceLocalToGlobalX((int)floorf(pos.x)),
                                STAR_SYSTEM_SPACING);
     int centerAz = FloorDivInt(SpaceLocalToGlobalZ((int)floorf(pos.z)),
                                STAR_SYSTEM_SPACING);
 
-    for (int ax = centerAx - 1; ax <= centerAx + 1; ax++) {
-        for (int az = centerAz - 1; az <= centerAz + 1; az++) {
+    int radiusAnchors = (int)(maxDist / (float)STAR_SYSTEM_SPACING) + 1;
+    for (int ax = centerAx - radiusAnchors; ax <= centerAx + radiusAnchors; ax++) {
+        for (int az = centerAz - radiusAnchors; az <= centerAz + radiusAnchors; az++) {
             SolarSystemDef sys;
             if (!StarSystemAt(ax, az, &sys)) continue;
-            if (count >= maxCount) return count;
 
             SolarSystemRuntimeState runtime;
-            if (!SolarSystemEvaluateAtTime(&sys, solarSimulationTime,
-                                           &runtime)) {
+            if (!SolarSystemEvaluateCachedAtTime(
+                    &sys, solarSimulationTime, &runtime)) {
                 continue;
             }
             int starCount = runtime.stellarCount;
             double parentMassKg = runtime.totalStellarMassKg;
             for (int starIndex = 0; starIndex < starCount; starIndex++) {
-                if (count >= maxCount) return count;
                 float starDist = Vector3Distance(
                     runtime.stars[starIndex].center, pos);
                 if (starDist > maxDist) continue;
-                out[count] = (SpaceBodyInfo){
+                SpaceBodyInfo body = {
                     .center = runtime.stars[starIndex].center,
                     .velocity = runtime.stars[starIndex].velocity,
                     .physicalRadiusKm = runtime.stars[starIndex].stellar.radiusKm,
@@ -1476,34 +1598,62 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .spectrum = runtime.stars[starIndex].spectrum
                 };
                 if (starIndex == 0) {
-                    snprintf(out[count].name, sizeof(out[count].name), "%s",
+                    snprintf(body.name, sizeof(body.name), "%s",
                              sys.name);
                 } else {
-                    snprintf(out[count].name, sizeof(out[count].name),
-                             "%.*s %c", (int)sizeof(out[count].name) - 3,
+                    snprintf(body.name, sizeof(body.name),
+                             "%.*s %c", (int)sizeof(body.name) - 3,
                              sys.name, 'A' + starIndex);
                 }
-                count++;
+                if (count < maxCount) {
+                    out[count++] = body;
+                } else {
+                    int worst = 0;
+                    for (int i = 1; i < count; i++) {
+                        if (CompareSpaceBodyQueryCandidate(
+                                &out[worst], &out[i]) < 0) {
+                            worst = i;
+                        }
+                    }
+                    if (CompareSpaceBodyQueryCandidate(&body, &out[worst]) < 0) {
+                        out[worst] = body;
+                    }
+                }
             }
 
             for (int i = 0; i < sys.planetCount; i++) {
-                if (count >= maxCount) return count;
                 SpaceBodyInfo body;
                 if (!PlanetBodyInfoForRuntime(&sys, &runtime, i, pos, &body) ||
                     body.dist > maxDist) continue;
-                out[count] = body;
-                count++;
+                if (count < maxCount) {
+                    out[count++] = body;
+                } else {
+                    int worst = 0;
+                    for (int candidate = 1; candidate < count; candidate++) {
+                        if (CompareSpaceBodyQueryCandidate(
+                                &out[worst], &out[candidate]) < 0) {
+                            worst = candidate;
+                        }
+                    }
+                    if (CompareSpaceBodyQueryCandidate(&body, &out[worst]) < 0) {
+                        out[worst] = body;
+                    }
+                }
             }
         }
     }
 
     for (int i = 0; i < count; i++) {
+        int best = i;
         for (int j = i + 1; j < count; j++) {
-            if (out[j].dist < out[i].dist) {
-                SpaceBodyInfo tmp = out[i];
-                out[i] = out[j];
-                out[j] = tmp;
+            if (CompareSpaceBodyQueryCandidate(&out[j], &out[best]) < 0) {
+                best = j;
             }
+        }
+        if (best != i) {
+            SpaceBodyInfo tmp = out[i];
+            out[i] = out[best];
+            out[best] = tmp;
         }
     }
     return count;
@@ -3088,6 +3238,7 @@ void SpaceReset(void)
     UnloadAllSpaceChunks();
     spaceEditCount = 0;
     solarSimulationTime = 0.0;
+    SpaceQueryCacheClear();
     SpaceResetOrigin();
     PlanetWorldReset();
     HomeWorldReset();

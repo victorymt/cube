@@ -192,6 +192,13 @@ typedef struct SpaceScaleDiagnostics {
     bool withinErrorBudget;
 } SpaceScaleDiagnostics;
 
+typedef struct SpaceQueryCacheStats {
+    uint64_t definitionHits;
+    uint64_t definitionMisses;
+    uint64_t runtimeHits;
+    uint64_t runtimeMisses;
+} SpaceQueryCacheStats;
+
 typedef enum SpaceGravityPrimaryKind {
     SPACE_GRAVITY_PRIMARY_NONE = 0,
     SPACE_GRAVITY_PRIMARY_STAR,
@@ -252,6 +259,8 @@ void UnloadAllSpaceChunks(void);
 int GetActiveSpaceChunkCount(void);
 int GetSpaceEditCount(void);
 void SpaceRebuildTorchList(void);
+void SpaceQueryCacheClear(void);
+SpaceQueryCacheStats SpaceQueryCacheGetStats(void);
 
 bool StarSystemAt(int ax, int az, SolarSystemDef *out);
 Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer);

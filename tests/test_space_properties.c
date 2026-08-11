@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define TEST_PI 3.14159265358979323846
 
@@ -780,11 +781,136 @@ static void TestSaveLoadTimeDeterminism(void)
     fclose(file);
 }
 
+static void TestDeterministicSpaceQueries(void)
+{
+    const Vector3 observer = { 120.0f, 0.0f, -220.0f };
+    const float systemRange = 8000.0f;
+    const float bodyRange = 700.0f;
+    SetPropertySeed(DEFAULT_WORLD_SEED);
+    SpaceResetOrigin();
+    SpaceQueryCacheClear();
+
+    SolarSystemDef systems[STAR_NAVIGATION_MAX_SYSTEMS];
+    int systemCount = StarSystemsNear(observer, systemRange, systems,
+                                       STAR_NAVIGATION_MAX_SYSTEMS);
+    assert(systemCount > 0);
+    SpaceQueryCacheStats coldStats = SpaceQueryCacheGetStats();
+    assert(coldStats.definitionMisses > 0);
+
+    SolarSystemDef systemsPrefix[16];
+    int prefixCount = StarSystemsNear(observer, systemRange, systemsPrefix,
+                                      16);
+    assert(prefixCount == (systemCount < 16 ? systemCount : 16));
+    for (int i = 0; i < prefixCount; i++) {
+        assert(memcmp(&systems[i], &systemsPrefix[i], sizeof(systems[i])) == 0);
+    }
+    SolarSystemDef systemsRepeat[STAR_NAVIGATION_MAX_SYSTEMS];
+    int repeatedCount = StarSystemsNear(observer, systemRange,
+                                         systemsRepeat,
+                                         STAR_NAVIGATION_MAX_SYSTEMS);
+    assert(repeatedCount == systemCount);
+    assert(memcmp(systems, systemsRepeat,
+                  sizeof(systems[0]) * (size_t)systemCount) == 0);
+    SpaceQueryCacheStats repeatedStats = SpaceQueryCacheGetStats();
+    assert(repeatedStats.definitionHits > coldStats.definitionHits);
+
+    SpaceBodyInfo bodies[64];
+    SpaceQueryCacheClear();
+    int bodyCount = SpaceBodiesNear(observer, bodyRange, bodies, 64);
+    assert(bodyCount > 0);
+    SpaceQueryCacheStats bodyColdStats = SpaceQueryCacheGetStats();
+    SpaceBodyInfo bodyPrefix[8];
+    int bodyPrefixCount = SpaceBodiesNear(observer, bodyRange, bodyPrefix, 8);
+    assert(bodyPrefixCount == (bodyCount < 8 ? bodyCount : 8));
+    for (int i = 0; i < bodyPrefixCount; i++) {
+        assert(memcmp(&bodies[i], &bodyPrefix[i], sizeof(bodies[i])) == 0);
+    }
+    SpaceQueryCacheStats bodyRepeatedStats = SpaceQueryCacheGetStats();
+    assert(bodyRepeatedStats.runtimeHits > bodyColdStats.runtimeHits);
+
+    SpaceQueryCacheClear();
+    SolarSystemDef systemsFirst[32];
+    SpaceBodyInfo bodiesFirst[32];
+    int systemsFirstCount = StarSystemsNear(observer, systemRange,
+                                            systemsFirst, 32);
+    int bodiesFirstCount = SpaceBodiesNear(observer, bodyRange,
+                                           bodiesFirst, 32);
+    SpaceQueryCacheClear();
+    SpaceBodyInfo bodiesSecond[32];
+    SolarSystemDef systemsSecond[32];
+    int bodiesSecondCount = SpaceBodiesNear(observer, bodyRange,
+                                            bodiesSecond, 32);
+    int systemsSecondCount = StarSystemsNear(observer, systemRange,
+                                             systemsSecond, 32);
+    assert(systemsFirstCount == systemsSecondCount);
+    assert(bodiesFirstCount == bodiesSecondCount);
+    assert(memcmp(systemsFirst, systemsSecond,
+                  sizeof(systemsFirst[0]) * (size_t)systemsFirstCount) == 0);
+    assert(memcmp(bodiesFirst, bodiesSecond,
+                  sizeof(bodiesFirst[0]) * (size_t)bodiesFirstCount) == 0);
+
+    SpaceQueryCacheClear();
+    SpaceResetOrigin();
+    SolarSystemDef beforeRebase[32];
+    int beforeCount = StarSystemsNear(observer, systemRange, beforeRebase, 32);
+    int rebasedOriginX = STAR_SYSTEM_SPACING * 4;
+    int rebasedOriginZ = -STAR_SYSTEM_SPACING * 3;
+    FILE *originFile = tmpfile();
+    assert(originFile);
+    assert(fwrite(&rebasedOriginX, sizeof(rebasedOriginX), 1, originFile) == 1);
+    assert(fwrite(&rebasedOriginZ, sizeof(rebasedOriginZ), 1, originFile) == 1);
+    rewind(originFile);
+    assert(SpaceLoadOrigin(originFile));
+    fclose(originFile);
+    Vector3 rebasedObserver = {
+        observer.x - (float)rebasedOriginX, observer.y,
+        observer.z - (float)rebasedOriginZ
+    };
+    SolarSystemDef afterRebase[32];
+    int afterCount = StarSystemsNear(rebasedObserver, systemRange,
+                                     afterRebase, 32);
+    assert(afterCount == beforeCount);
+    for (int i = 0; i < beforeCount; i++) {
+        SolarSystemDef before = beforeRebase[i];
+        SolarSystemDef after = afterRebase[i];
+        assert(before.anchorX == after.anchorX);
+        assert(before.anchorZ == after.anchorZ);
+        assert(before.center.y == after.center.y);
+        assert(before.center.x == after.center.x + rebasedOriginX);
+        assert(before.center.z == after.center.z + rebasedOriginZ);
+        before.center.x = before.center.z = 0.0f;
+        after.center.x = after.center.z = 0.0f;
+        assert(memcmp(&before, &after, sizeof(before)) == 0);
+    }
+    SpaceQueryCacheStats rebaseStats = SpaceQueryCacheGetStats();
+    assert(rebaseStats.definitionHits > 0);
+    SpaceResetOrigin();
+
+    SpaceQueryCacheClear();
+    SpaceBodyInfo benchmarkBodies[48];
+    clock_t benchmarkStart = clock();
+    for (int iteration = 0; iteration < 128; iteration++) {
+        assert(SpaceBodiesNear(observer, bodyRange, benchmarkBodies, 48) >= 0);
+    }
+    clock_t benchmarkEnd = clock();
+    SpaceQueryCacheStats benchmarkStats = SpaceQueryCacheGetStats();
+    double elapsedMs = (double)(benchmarkEnd - benchmarkStart) * 1000.0 /
+                       (double)CLOCKS_PER_SEC;
+    assert(benchmarkStats.runtimeHits > benchmarkStats.runtimeMisses);
+    printf("space query cache: systems=%d bodies=%d def=%llu/%llu runtime=%llu/%llu benchmark=%.2fms\n",
+           systemCount, bodyCount,
+           (unsigned long long)benchmarkStats.definitionHits,
+           (unsigned long long)benchmarkStats.definitionMisses,
+           (unsigned long long)benchmarkStats.runtimeHits,
+           (unsigned long long)benchmarkStats.runtimeMisses, elapsedMs);
+}
+
 int main(void)
 {
     TestHomeScaleDiagnostics();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
+    TestDeterministicSpaceQueries();
     puts("space properties tests passed");
     return 0;
 }
