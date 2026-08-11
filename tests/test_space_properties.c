@@ -533,6 +533,12 @@ static void TestRuntimeInputContracts(void)
     memset(&runtime, 0xa5, sizeof(runtime));
     assert(!SolarSystemEvaluateAtTime(&system, NAN, &runtime));
     assert(memcmp(&runtime, &cleared, sizeof(runtime)) == 0);
+
+    assert(SolarSystemEvaluateAtTime(&system, 0.0, &runtime));
+    SolarLightSource sources[MAX_SOLAR_LIGHTS];
+    runtime.stars[0].center.x = NAN;
+    assert(SolarSystemRuntimeLightSources(&runtime, sources,
+                                          MAX_SOLAR_LIGHTS) == 0);
 }
 
 static void TestGeneratedSystems(void)

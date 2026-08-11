@@ -897,7 +897,9 @@ bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
 int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
                                    SolarLightSource *out, int maxCount)
 {
-    if (!runtime || !runtime->valid || !out || maxCount <= 0 ||
+    if (!runtime || !runtime->valid ||
+        !SolarSystemRuntimeGeometryIsFinite(runtime) || !out ||
+        maxCount <= 0 ||
         runtime->stellarCount <= 0 ||
         runtime->stellarCount > MAX_SOLAR_LIGHTS ||
         runtime->stellarCount > maxCount) {
