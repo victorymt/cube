@@ -119,6 +119,24 @@ typedef struct SolarPlanetOrbitalState {
     Vector3 velocity;
 } SolarPlanetOrbitalState;
 
+typedef struct SolarPlanetRuntimeState {
+    bool valid;
+    Vector3 center;
+    Vector3 velocity;
+    PlanetProfile profile;
+    float currentIrradianceEarth;
+} SolarPlanetRuntimeState;
+
+typedef struct SolarSystemRuntimeState {
+    bool valid;
+    double simulationTime;
+    double totalStellarMassKg;
+    int stellarCount;
+    int planetCount;
+    SolarStellarBody stars[MAX_SOLAR_LIGHTS];
+    SolarPlanetRuntimeState planets[MAX_SOLAR_PLANETS];
+} SolarSystemRuntimeState;
+
 typedef struct SpaceBodyInfo {
     Vector3 center; // Scene position in game distance units.
     Vector3 velocity; // Scene velocity in game distance units per game time unit.
@@ -244,6 +262,11 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
 int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
                                    double simulationTime,
                                    SolarStellarBody *out, int maxCount);
+bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
+                               double simulationTime,
+                               SolarSystemRuntimeState *out);
+int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
+                                   SolarLightSource *out, int maxCount);
 bool SolarSystemPhysicalSummaryForSystem(
     const SolarSystemDef *sys, SolarSystemPhysicalSummary *out);
 double SolarSystemStellarMassKg(const SolarSystemDef *sys);

@@ -415,6 +415,49 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     }
 }
 
+static void AssertRuntimeState(const SolarSystemDef *system,
+                               const SolarStellarBody *stellarBodies,
+                               int stellarCount)
+{
+    SolarSystemRuntimeState runtime;
+    assert(SolarSystemEvaluateAtTime(system, 0.0, &runtime));
+    assert(runtime.valid);
+    assert(runtime.simulationTime == 0.0);
+    assert(runtime.stellarCount == stellarCount);
+    assert(runtime.planetCount == system->planetCount);
+    assert(runtime.totalStellarMassKg == SolarSystemStellarMassKg(system));
+    for (int star = 0; star < stellarCount; star++) {
+        assert(memcmp(&runtime.stars[star], &stellarBodies[star],
+                      sizeof(stellarBodies[star])) == 0);
+    }
+
+    SolarLightSource sources[MAX_SOLAR_LIGHTS];
+    assert(SolarSystemRuntimeLightSources(&runtime, sources,
+                                          MAX_SOLAR_LIGHTS) == stellarCount);
+    for (int planet = 0; planet < system->planetCount; planet++) {
+        assert(runtime.planets[planet].valid);
+        SolarPlanetOrbitalState orbitalState;
+        assert(SolarSystemPlanetStateAtTime(system, planet, 0.0,
+                                            &orbitalState));
+        assert(memcmp(&runtime.planets[planet].center,
+                      &orbitalState.center, sizeof(orbitalState.center)) == 0);
+        assert(memcmp(&runtime.planets[planet].velocity,
+                      &orbitalState.velocity,
+                      sizeof(orbitalState.velocity)) == 0);
+        PlanetProfile profile = SolarPlanetProfile(system, planet);
+        assert(memcmp(&runtime.planets[planet].profile, &profile,
+                      sizeof(profile)) == 0);
+        float irradiance = SolarSystemIrradianceAt(
+            sources, stellarCount, orbitalState.center);
+        assert(runtime.planets[planet].currentIrradianceEarth == irradiance);
+        assert(irradiance > 0.0f);
+    }
+
+    SolarSystemRuntimeState repeated;
+    assert(SolarSystemEvaluateAtTime(system, 0.0, &repeated));
+    assert(memcmp(&runtime, &repeated, sizeof(runtime)) == 0);
+}
+
 static void TestGeneratedSystems(void)
 {
     static const uint32_t seeds[] = {
@@ -451,6 +494,7 @@ static void TestGeneratedSystems(void)
                 assert(summary.stellarCount == bodyCount);
                 assert(summary.totalMassKg == SolarSystemStellarMassKg(&system));
                 assert(summary.ageGyr == system.star.ageGyr);
+                AssertRuntimeState(&system, bodies, bodyCount);
                 SolarSystemPhysicalSnapshot rebuiltSnapshot;
                 assert(SolarSystemPhysicalSnapshotBuild(&system,
                                                         &rebuiltSnapshot));
@@ -559,6 +603,9 @@ static void TestSaveLoadTimeDeterminism(void)
     assert(SolarSystemPlanetStateAtTime(&beforeSystem, 0,
                                         SpaceSimulationTime(),
                                         &beforeOrbitalState));
+    SolarSystemRuntimeState beforeRuntime;
+    assert(SolarSystemEvaluateAtTime(&beforeSystem, SpaceSimulationTime(),
+                                     &beforeRuntime));
     PlanetProfile beforeProfile = SolarPlanetProfile(&beforeSystem, 0);
     SolarSystemPhysicalSummary beforeSummary;
     assert(SolarSystemPhysicalSummaryForSystem(&beforeSystem, &beforeSummary));
@@ -604,6 +651,9 @@ static void TestSaveLoadTimeDeterminism(void)
     assert(SolarSystemPlanetStateAtTime(&afterSystem, 0,
                                         SpaceSimulationTime(),
                                         &afterOrbitalState));
+    SolarSystemRuntimeState afterRuntime;
+    assert(SolarSystemEvaluateAtTime(&afterSystem, SpaceSimulationTime(),
+                                     &afterRuntime));
     PlanetProfile afterProfile = SolarPlanetProfile(&afterSystem, 0);
     assert(afterSystem.anchorX == beforeSystem.anchorX);
     assert(afterSystem.anchorZ == beforeSystem.anchorZ);
@@ -614,6 +664,8 @@ static void TestSaveLoadTimeDeterminism(void)
     AssertRelative(afterSystem.star.temperatureK, beforeSystem.star.temperatureK, 0.0);
     assert(memcmp(&afterOrbitalState, &beforeOrbitalState,
                   sizeof(afterOrbitalState)) == 0);
+    assert(memcmp(&afterRuntime, &beforeRuntime,
+                  sizeof(afterRuntime)) == 0);
     AssertRelative(afterProfile.massKg, beforeProfile.massKg, 0.0);
     AssertRelative(afterProfile.physicalRadiusKm, beforeProfile.physicalRadiusKm, 0.0);
     AssertRelative(afterProfile.receivedIrradiance,
@@ -640,6 +692,9 @@ static void TestSaveLoadTimeDeterminism(void)
     assert(SolarSystemPlanetStateAtTime(&afterSystem, 0,
                                         SpaceSimulationTime(),
                                         &continuedState));
+    SolarSystemRuntimeState continuedRuntime;
+    assert(SolarSystemEvaluateAtTime(&afterSystem, SpaceSimulationTime(),
+                                     &continuedRuntime));
     afterWeatherInput.simulationTime = SpaceSimulationTime();
     WeatherFieldSample continuedWeather = WeatherFieldSampleAt(&afterWeatherInput);
     rewind(file);
@@ -653,8 +708,13 @@ static void TestSaveLoadTimeDeterminism(void)
     assert(SolarSystemPlanetStateAtTime(&replaySystem, 0,
                                         SpaceSimulationTime(),
                                         &replayState));
+    SolarSystemRuntimeState replayRuntime;
+    assert(SolarSystemEvaluateAtTime(&replaySystem, SpaceSimulationTime(),
+                                     &replayRuntime));
     assert(memcmp(&continuedState, &replayState,
                   sizeof(continuedState)) == 0);
+    assert(memcmp(&continuedRuntime, &replayRuntime,
+                  sizeof(continuedRuntime)) == 0);
     WeatherFieldInput replayWeatherInput = afterWeatherInput;
     replayWeatherInput.simulationTime = SpaceSimulationTime();
     WeatherFieldSample replayWeather = WeatherFieldSampleAt(&replayWeatherInput);

@@ -639,6 +639,79 @@ int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
         sys, snapshot, simulationTime, out, maxCount);
 }
 
+bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
+                               double simulationTime,
+                               SolarSystemRuntimeState *out)
+{
+    if (!out) return false;
+    *out = (SolarSystemRuntimeState){ 0 };
+    if (!sys || !isfinite(simulationTime) || sys->planetCount < 0 ||
+        sys->planetCount > MAX_SOLAR_PLANETS) {
+        return false;
+    }
+
+    int stellarCount = SolarSystemStellarBodiesAtTime(
+        sys, simulationTime, out->stars, MAX_SOLAR_LIGHTS);
+    if (stellarCount <= 0 || stellarCount > MAX_SOLAR_LIGHTS) return false;
+    out->simulationTime = simulationTime;
+    out->stellarCount = stellarCount;
+    out->planetCount = sys->planetCount;
+    out->totalStellarMassKg = SolarSystemStellarMassKg(sys);
+    if (!(out->totalStellarMassKg > 0.0)) return false;
+
+    SolarLightSource sources[MAX_SOLAR_LIGHTS];
+    for (int star = 0; star < stellarCount; star++) {
+        sources[star] = (SolarLightSource){
+            .center = out->stars[star].center,
+            .stellar = out->stars[star].stellar,
+            .spectrum = out->stars[star].spectrum,
+            .spaceProxyRadius = out->stars[star].spaceProxyRadius,
+            .luminosity = out->stars[star].luminosity,
+            .primary = out->stars[star].primary
+        };
+    }
+    for (int index = 0; index < sys->planetCount; index++) {
+        SolarPlanetRuntimeState *planet = &out->planets[index];
+        SolarPlanetOrbitalState orbitalState;
+        if (!SolarSystemPlanetStateAtTime(sys, index, simulationTime,
+                                          &orbitalState)) {
+            return false;
+        }
+        planet->profile = SolarPlanetProfile(sys, index);
+        planet->center = orbitalState.center;
+        planet->velocity = orbitalState.velocity;
+        planet->currentIrradianceEarth = SolarSystemIrradianceAt(
+            sources, stellarCount, planet->center);
+        planet->valid = isfinite(planet->currentIrradianceEarth) &&
+                        planet->currentIrradianceEarth >= 0.0f;
+        if (!planet->valid) return false;
+    }
+    out->valid = true;
+    return true;
+}
+
+int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
+                                   SolarLightSource *out, int maxCount)
+{
+    if (!runtime || !runtime->valid || !out || maxCount <= 0 ||
+        runtime->stellarCount <= 0 ||
+        runtime->stellarCount > MAX_SOLAR_LIGHTS ||
+        runtime->stellarCount > maxCount) {
+        return 0;
+    }
+    for (int i = 0; i < runtime->stellarCount; i++) {
+        out[i] = (SolarLightSource){
+            .center = runtime->stars[i].center,
+            .stellar = runtime->stars[i].stellar,
+            .spectrum = runtime->stars[i].spectrum,
+            .spaceProxyRadius = runtime->stars[i].spaceProxyRadius,
+            .luminosity = runtime->stars[i].luminosity,
+            .primary = runtime->stars[i].primary
+        };
+    }
+    return runtime->stellarCount;
+}
+
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
 {
     if (!sys) return false;
@@ -693,21 +766,9 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
                             int maxCount)
 {
-    if (!sys || !out || maxCount <= 0) return 0;
-    SolarStellarBody bodies[SPACE_BARYCENTER_MAX_BODIES];
-    int count = SolarSystemStellarBodiesAtTime(sys, solarSimulationTime,
-                                               bodies, maxCount);
-    for (int i = 0; i < count; i++) {
-        out[i] = (SolarLightSource){
-            .center = bodies[i].center,
-            .stellar = bodies[i].stellar,
-            .spectrum = bodies[i].spectrum,
-            .spaceProxyRadius = bodies[i].spaceProxyRadius,
-            .luminosity = bodies[i].luminosity,
-            .primary = bodies[i].primary
-        };
-    }
-    return count;
+    SolarSystemRuntimeState runtime;
+    return SolarSystemEvaluateAtTime(sys, solarSimulationTime, &runtime)
+        ? SolarSystemRuntimeLightSources(&runtime, out, maxCount) : 0;
 }
 
 float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point)
@@ -871,11 +932,18 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
     int orbitIndex = planetWorld.planetIndex - 1;
     if (orbitIndex < 0 || orbitIndex >= system.planetCount) return false;
 
+    SolarSystemRuntimeState runtime;
+    if (!SolarSystemEvaluateAtTime(&system, solarSimulationTime, &runtime)) {
+        return false;
+    }
     SolarLightSource sources[MAX_SOLAR_LIGHTS];
-    int sourceCount = SolarSystemLightSources(&system, sources, MAX_SOLAR_LIGHTS);
+    int sourceCount = SolarSystemRuntimeLightSources(
+        &runtime, sources, MAX_SOLAR_LIGHTS);
     if (sourceCount <= 0) return false;
 
-    Vector3 planetCenter = SolarSystemPlanetCenter(&system, orbitIndex);
+    if (orbitIndex >= MAX_SOLAR_PLANETS ||
+        !runtime.planets[orbitIndex].valid) return false;
+    Vector3 planetCenter = runtime.planets[orbitIndex].center;
     float spinPhase = (float)(planetWorld.seed & 0xffffu) / 65535.0f * 2.0f * PI +
                       (float)solarSimulationTime * planetWorld.profile.rotationRate * DEG2RAD;
     Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
@@ -1259,50 +1327,54 @@ static float PlanetEncounterRadiusGame(double semiMajorAxisKm,
     return Clamp(physical, minimum, maximum);
 }
 
-static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
-                                    Vector3 observer, SpaceBodyInfo *out)
+static bool PlanetBodyInfoForRuntime(const SolarSystemDef *system,
+                                     const SolarSystemRuntimeState *runtime,
+                                     int index, Vector3 observer,
+                                     SpaceBodyInfo *out)
 {
-    if (!system || !out || index < 0 || index >= system->planetCount) {
+    if (!system || !runtime || !runtime->valid || !out || index < 0 ||
+        index >= system->planetCount || index >= MAX_SOLAR_PLANETS ||
+        !runtime->planets[index].valid) {
         return false;
     }
-    PlanetProfile profile = SolarPlanetProfile(system, index);
-    SolarPlanetOrbitalState orbitalState;
-    if (!SolarSystemPlanetStateAtTime(system, index, solarSimulationTime,
-                                      &orbitalState)) {
-        return false;
-    }
-    Vector3 center = orbitalState.center;
-    double parentMassKg = SolarSystemStellarMassKg(system);
-    float landingRadius = SolarBodyTerrainProxyRadius(profile.spaceProxyRadius);
-    SolarLightSource sources[MAX_SOLAR_LIGHTS];
-    int sourceCount = SolarSystemLightSources(system, sources,
-                                              MAX_SOLAR_LIGHTS);
+    const SolarPlanetRuntimeState *planet = &runtime->planets[index];
+    const PlanetProfile *profile = &planet->profile;
+    Vector3 center = planet->center;
+    double parentMassKg = runtime->totalStellarMassKg;
+    float landingRadius = SolarBodyTerrainProxyRadius(profile->spaceProxyRadius);
     *out = (SpaceBodyInfo){
         .center = center,
-        .velocity = orbitalState.velocity,
-        .physicalRadiusKm = profile.physicalRadiusKm,
+        .velocity = planet->velocity,
+        .physicalRadiusKm = profile->physicalRadiusKm,
         .semiMajorAxisKm = system->planets[index].semiMajorAxisKm,
         .parentMassKg = parentMassKg,
-        .spaceProxyRadius = profile.spaceProxyRadius,
+        .spaceProxyRadius = profile->spaceProxyRadius,
         .landingProxyRadius = landingRadius,
         .encounterRadiusGame = PlanetEncounterRadiusGame(
-            system->planets[index].semiMajorAxisKm, profile.massKg,
+            system->planets[index].semiMajorAxisKm, profile->massKg,
             parentMassKg, landingRadius),
-        .currentIrradianceEarth = SolarSystemIrradianceAt(
-            sources, sourceCount, center),
+        .currentIrradianceEarth = planet->currentIrradianceEarth,
         .dist = Vector3Distance(center, observer),
         .isStar = false,
         .index = index + 1,
         .systemAnchorX = system->anchorX,
         .systemAnchorZ = system->anchorZ,
-        .worldSeed = profile.seed,
+        .worldSeed = profile->seed,
         .hostStar = system->star,
         .spectrum = system->spectrum,
-        .style = profile.style,
-        .profile = profile
+        .style = profile->style,
+        .profile = *profile
     };
     snprintf(out->name, sizeof(out->name), "%s", system->name);
     return true;
+}
+
+static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
+                                    Vector3 observer, SpaceBodyInfo *out)
+{
+    SolarSystemRuntimeState runtime;
+    return SolarSystemEvaluateAtTime(system, solarSimulationTime, &runtime) &&
+           PlanetBodyInfoForRuntime(system, &runtime, index, observer, out);
 }
 
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount)
@@ -1319,29 +1391,33 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
             if (!StarSystemAt(ax, az, &sys)) continue;
             if (count >= maxCount) return count;
 
-            SolarStellarBody stars[SPACE_BARYCENTER_MAX_BODIES];
-            int starCount = SolarSystemStellarBodiesAtTime(
-                &sys, solarSimulationTime, stars, SPACE_BARYCENTER_MAX_BODIES);
-            double parentMassKg = SolarSystemStellarMassKg(&sys);
+            SolarSystemRuntimeState runtime;
+            if (!SolarSystemEvaluateAtTime(&sys, solarSimulationTime,
+                                           &runtime)) {
+                continue;
+            }
+            int starCount = runtime.stellarCount;
+            double parentMassKg = runtime.totalStellarMassKg;
             for (int starIndex = 0; starIndex < starCount; starIndex++) {
                 if (count >= maxCount) return count;
-                float starDist = Vector3Distance(stars[starIndex].center, pos);
+                float starDist = Vector3Distance(
+                    runtime.stars[starIndex].center, pos);
                 if (starDist > maxDist) continue;
                 out[count] = (SpaceBodyInfo){
-                    .center = stars[starIndex].center,
-                    .velocity = stars[starIndex].velocity,
-                    .physicalRadiusKm = stars[starIndex].stellar.radiusKm,
+                    .center = runtime.stars[starIndex].center,
+                    .velocity = runtime.stars[starIndex].velocity,
+                    .physicalRadiusKm = runtime.stars[starIndex].stellar.radiusKm,
                     .parentMassKg = parentMassKg,
-                    .spaceProxyRadius = stars[starIndex].spaceProxyRadius,
-                    .landingProxyRadius = stars[starIndex].spaceProxyRadius,
+                    .spaceProxyRadius = runtime.stars[starIndex].spaceProxyRadius,
+                    .landingProxyRadius = runtime.stars[starIndex].spaceProxyRadius,
                     .encounterRadiusGame = SPACE_STAR_ENCOUNTER_RADIUS_GAME,
                     .dist = starDist,
                     .isStar = true,
-                    .index = stars[starIndex].index,
+                    .index = runtime.stars[starIndex].index,
                     .systemAnchorX = ax,
                     .systemAnchorZ = az,
-                    .hostStar = stars[starIndex].stellar,
-                    .spectrum = stars[starIndex].spectrum
+                    .hostStar = runtime.stars[starIndex].stellar,
+                    .spectrum = runtime.stars[starIndex].spectrum
                 };
                 if (starIndex == 0) {
                     snprintf(out[count].name, sizeof(out[count].name), "%s",
@@ -1357,7 +1433,7 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
             for (int i = 0; i < sys.planetCount; i++) {
                 if (count >= maxCount) return count;
                 SpaceBodyInfo body;
-                if (!PlanetBodyInfoForSystem(&sys, i, pos, &body) ||
+                if (!PlanetBodyInfoForRuntime(&sys, &runtime, i, pos, &body) ||
                     body.dist > maxDist) continue;
                 out[count] = body;
                 count++;
