@@ -5,7 +5,6 @@
 #include "ecology.h"
 #include "terrain.h"
 #include "particles.h"
-#include "planet_climate.h"
 #include "space_barycenter.h"
 #include "space_physics.h"
 #include "space_satellite.h"
@@ -448,288 +447,34 @@ static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
     return seed == 0u ? DEFAULT_WORLD_SEED : seed;
 }
 
-static float PlanetProfileHashUnit(uint32_t seed, uint32_t lane)
-{
-    uint32_t h = seed ^ (lane * 0x9e3779b9u);
-    h ^= h >> 16;
-    h *= 0x7feb352du;
-    h ^= h >> 15;
-    h *= 0x846ca68bu;
-    h ^= h >> 16;
-    return (float)(h & 0x00ffffffu) / 16777215.0f;
-}
-
-static PlanetAtmosphereType ClassifyAtmosphere(SolarBodyStyle style, float pressureAtm,
-                                                float temperatureK, float composition)
-{
-    if (pressureAtm < 0.01f) return PLANET_ATMOSPHERE_NONE;
-    if (pressureAtm < 0.35f) return PLANET_ATMOSPHERE_THIN;
-    if (style == SOLAR_STYLE_LAVA || temperatureK > 355.0f) {
-        return PLANET_ATMOSPHERE_CORROSIVE;
-    }
-    if (style == SOLAR_STYLE_TEMPERATE && temperatureK >= 250.0f &&
-        temperatureK <= 310.0f && pressureAtm <= 1.65f && composition > 0.38f) {
-        return PLANET_ATMOSPHERE_BREATHABLE;
-    }
-    return PLANET_ATMOSPHERE_DENSE;
-}
-
-static bool ApplyPlanetClimate(PlanetProfile *profile,
-                               PlanetClimateInput input)
-{
-    PlanetClimateState climate;
-    if (!profile || !PlanetClimateSolve(&input, &climate)) return false;
-    profile->receivedIrradiance = input.stellarIrradianceEarth;
-    profile->radiativeTempK = climate.radiativeTemperatureK;
-    profile->equilibriumTempK = climate.surfaceTemperatureK;
-    profile->surfacePressureAtm = climate.surfacePressureAtm;
-    profile->atmosphereDensity = climate.atmosphereDensity;
-    profile->albedo = climate.albedo;
-    profile->greenhouseEffect = climate.greenhouseOpticalDepth;
-    profile->oceanCoverage = climate.liquidWaterCoverage;
-    profile->iceCoverage = climate.iceCoverage;
-    profile->cloudCoverage = climate.cloudCoverage;
-    profile->windStrength = climate.windStrength;
-    return true;
-}
-
-static SolarBodyStyle ClassifyPlanetClimate(const PlanetProfile *profile)
-{
-    if (!profile || !profile->hasSolidSurface) return SOLAR_STYLE_GAS;
-    if (profile->equilibriumTempK > 365.0f) return SOLAR_STYLE_LAVA;
-    if (profile->surfacePressureAtm < 0.035f &&
-        profile->oceanCoverage < 0.03f && profile->iceCoverage < 0.08f) {
-        return SOLAR_STYLE_CRATER;
-    }
-    if (profile->iceCoverage > 0.38f || profile->equilibriumTempK < 245.0f) {
-        return SOLAR_STYLE_ICE;
-    }
-    if (profile->oceanCoverage > 0.10f && profile->equilibriumTempK <= 315.0f) {
-        return SOLAR_STYLE_TEMPERATE;
-    }
-    return SOLAR_STYLE_DESERT;
-}
-
-static void DerivePlanetSurfaceHistory(PlanetProfile *profile)
-{
-    if (!profile) return;
-
-    profile->axialTilt = (2.5f + PlanetProfileHashUnit(profile->seed, 21u) * 31.0f) * DEG2RAD;
-    if (profile->tidallyLocked) profile->axialTilt *= 0.35f;
-    profile->seasonPhase = PlanetProfileHashUnit(profile->seed, 22u) * 2.0f * PI;
-    if (profile->yearLength <= 0.0f) {
-        profile->yearLength = 1800.0f +
-                              PlanetProfileHashUnit(profile->seed, 23u) * 6200.0f;
-    }
-    profile->prevailingWindAngle = PlanetProfileHashUnit(profile->seed, 24u) * 2.0f * PI;
-
-    float volcanicBase = profile->style == SOLAR_STYLE_LAVA ? 0.78f :
-                         profile->style == SOLAR_STYLE_CRATER ? 0.20f : 0.08f;
-    if (profile->equilibriumTempK > 340.0f) volcanicBase += 0.14f;
-    profile->volcanicActivity = Clamp(volcanicBase +
-                                      PlanetProfileHashUnit(profile->seed, 25u) * 0.22f,
-                                      0.0f, 1.0f);
-    float impactBase = profile->style == SOLAR_STYLE_CRATER ? 0.74f :
-                       profile->style == SOLAR_STYLE_LAVA ? 0.32f : 0.12f;
-    if (profile->atmosphereType == PLANET_ATMOSPHERE_NONE) impactBase += 0.12f;
-    profile->impactRate = Clamp(impactBase +
-                                PlanetProfileHashUnit(profile->seed, 26u) * 0.20f,
-                                0.0f, 1.0f);
-}
-
 PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
 {
     PlanetProfile profile = { 0 };
     if (!sys || index < 0 || index >= sys->planetCount) return profile;
 
     const SolarPlanetDef *def = &sys->planets[index];
-    uint32_t seed = SolarPlanetWorldSeed(sys, index);
-    float sizeUnit = PlanetProfileHashUnit(seed, 1u);
-    float composition = PlanetProfileHashUnit(seed, 2u);
-    float volatileSupply = PlanetProfileHashUnit(seed, 3u);
-    double orbitAU = fmax(def->semiMajorAxisKm /
-                          SPACE_UNITS_ASTRONOMICAL_UNIT_KM, 0.18);
-    SolarLightSource climateSources[MAX_SOLAR_LIGHTS];
-    int climateSourceCount = SolarSystemLightSources(sys, climateSources,
-                                                      MAX_SOLAR_LIGHTS);
-    double orbitDistanceAuSqr = orbitAU * orbitAU;
-    double irradiance = 0.0;
-    for (int sourceIndex = 0; sourceIndex < climateSourceCount; sourceIndex++) {
-        irradiance += (double)climateSources[sourceIndex].luminosity /
-                      orbitDistanceAuSqr;
-    }
-    if (irradiance <= 0.0001) {
-        irradiance = (double)SolarSystemStarLuminosity(sys) /
-                     orbitDistanceAuSqr;
-    }
-    // Use the mean orbital radius here so binary motion does not churn terrain or
-    // cloud caches; the live position is still used by frame-by-frame lighting.
-    // One unit is the irradiance of a solar-luminosity star at one AU.
-    irradiance = fmax(irradiance, 0.0001);
-    float unshieldedTemperature = 278.5f *
-                                  (float)pow(irradiance, 0.25);
+    SolarSystemPhysicalSummary stellar;
+    if (!SolarSystemPhysicalSummaryForSystem(sys, &stellar)) return profile;
 
-    float solidRadiusEarth = (float)(def->physicalRadiusKm /
-                                     SPACE_UNITS_EARTH_RADIUS_KM);
-    solidRadiusEarth = Clamp(solidRadiusEarth, 0.35f, 1.75f);
-    bool forcedGasGiant = sys->anchorX == 0 && sys->anchorZ == 0 && index == 3;
-    bool gasGiant = forcedGasGiant || def->formationGasGiant ||
-                    (index > 0 && def->spaceProxyRadius >= 47.0f &&
-                     unshieldedTemperature < 430.0f &&
-                     def->formationMassEarth <= 0.0f &&
-                     PlanetProfileHashUnit(seed, 5u) > 0.52f);
-
-    profile.seed = seed;
-    float formationDelayGyr = 0.01f + PlanetProfileHashUnit(seed, 15u) * 0.04f;
-    float stellarAgeGyr = fmaxf(sys->star.ageGyr, 0.0f);
-    formationDelayGyr = fminf(formationDelayGyr, stellarAgeGyr * 0.35f);
-    profile.ageGyr = stellarAgeGyr - formationDelayGyr;
-    profile.spaceProxyRadius = def->spaceProxyRadius;
-    profile.hasSolidSurface = !gasGiant;
-    float tidalProximity = Clamp(1.40f - orbitAU, 0.0f, 1.0f);
-    profile.tidalLockFactor = Clamp(tidalProximity *
-                                    (0.68f + PlanetProfileHashUnit(seed, 13u) * 0.32f),
-                                    0.0f, 1.0f);
-    profile.tidallyLocked = profile.hasSolidSurface && profile.tidalLockFactor > 0.58f;
-    profile.ringTilt = (14.0f + PlanetProfileHashUnit(seed, 14u) * 17.0f) * DEG2RAD;
-    profile.yearLength = (float)SolarSystemPlanetOrbitPeriodGameTime(sys, index);
-    if (gasGiant) {
-        float gasRadiusEarth = def->formationMassEarth > 0.0f
-            ? (float)(def->physicalRadiusKm / SPACE_UNITS_EARTH_RADIUS_KM)
-            : 2.8f + sizeUnit * 1.8f;
-        double massEarth = def->formationMassEarth > 0.0f
-            ? (double)def->formationMassEarth
-            : 12.0 + (double)composition * 32.0;
-        profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
-        profile.physicalRadiusKm = (double)gasRadiusEarth *
-                                   SPACE_UNITS_EARTH_RADIUS_KM;
-        double gravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-            profile.massKg, profile.physicalRadiusKm);
-        double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-            SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
-        profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
-                                       0.75f, 2.40f);
-        profile.rotationRate = 5.0f + PlanetProfileHashUnit(seed, 6u) * 3.0f;
-        profile.hasRings = forcedGasGiant || PlanetProfileHashUnit(seed, 7u) > 0.34f;
-        profile.tidalLockFactor = 0.0f;
-        profile.tidallyLocked = false;
-    } else {
-        float density = 0.78f + composition * 0.52f;
-        double massEarth = def->formationMassEarth > 0.0f
-            ? (double)def->formationMassEarth
-            : (double)density * solidRadiusEarth * solidRadiusEarth *
-              solidRadiusEarth;
-        profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
-        profile.physicalRadiusKm = (double)solidRadiusEarth *
-                                   SPACE_UNITS_EARTH_RADIUS_KM;
-        double gravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-            profile.massKg, profile.physicalRadiusKm);
-        double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-            SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
-        profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
-                                       0.45f, 1.75f);
-        profile.rotationRate = 0.7f + PlanetProfileHashUnit(seed, 11u) * 2.5f;
-        profile.hasRings = def->spaceProxyRadius >= 46.0f &&
-                           PlanetProfileHashUnit(seed, 12u) > 0.92f;
-        if (profile.tidallyLocked && profile.yearLength > 0.0f) {
-            profile.rotationRate = 360.0f / profile.yearLength;
-        }
-    }
-
-    PlanetClimateInput climateInput = {
-        .stellarIrradianceEarth = irradiance,
-        .volatileInventory = gasGiant ? 0.78f + volatileSupply * 0.22f
-                                      : volatileSupply,
-        .greenhouseGasFraction = gasGiant
-            ? Clamp(0.42f + composition * 0.46f, 0.0f, 1.0f)
-            : Clamp(0.04f + composition * 0.18f +
-                    PlanetProfileHashUnit(seed, 20u) * 0.72f, 0.0f, 1.0f),
-        .surfaceReflectivity = gasGiant
-            ? 0.28f + PlanetProfileHashUnit(seed, 19u) * 0.18f
-            : 0.08f + composition * 0.22f +
-              PlanetProfileHashUnit(seed, 19u) * 0.12f,
-        .surfaceGravityEarth = profile.surfaceGravity,
-        .rotationRate = profile.rotationRate,
-        .tidalLockFactor = profile.tidalLockFactor,
-        .gasGiant = gasGiant
+    PlanetProfileGenerationInput input = {
+        .seed = SolarPlanetWorldSeed(sys, index),
+        .semiMajorAxisKm = def->semiMajorAxisKm,
+        .physicalRadiusKm = def->physicalRadiusKm,
+        .formationMassEarth = def->formationMassEarth,
+        .spaceProxyRadius = def->spaceProxyRadius,
+        .stellarAgeGyr = stellar.ageGyr,
+        .orbitalPeriodGameTime =
+            (float)SolarSystemPlanetOrbitPeriodGameTime(sys, index),
+        .stellarCount = stellar.stellarCount,
+        .planetIndex = index,
+        .formationGasGiant = def->formationGasGiant,
+        .forcedGasGiant =
+            sys->anchorX == 0 && sys->anchorZ == 0 && index == 3
     };
-    ApplyPlanetClimate(&profile, climateInput);
-    profile.style = ClassifyPlanetClimate(&profile);
-    profile.atmosphereType = gasGiant ? PLANET_ATMOSPHERE_DENSE :
-        ClassifyAtmosphere(profile.style, profile.surfacePressureAtm,
-                           profile.equilibriumTempK, composition);
-    float roughnessBase = profile.style == SOLAR_STYLE_CRATER ? 1.20f :
-                          profile.style == SOLAR_STYLE_LAVA ? 1.05f :
-                          profile.style == SOLAR_STYLE_DESERT ? 0.72f : 0.88f;
-    profile.terrainRoughness = gasGiant ? 0.0f : roughnessBase *
-        (0.78f + PlanetProfileHashUnit(seed, 10u) * 0.48f);
-    DerivePlanetSurfaceHistory(&profile);
-    return profile;
-}
-
-static PlanetProfile LegacyPlanetProfile(uint32_t seed, SolarBodyStyle style,
-                                         float terrainRadius)
-{
-    PlanetProfile profile = { 0 };
-    float legacyProxyRadius = fmaxf(1.0f,
-                                    (terrainRadius - 3.6f) / 1.22f);
-    float radiusEarth = Clamp(0.72f +
-                              (legacyProxyRadius - 40.0f) * 0.095f,
-                              0.62f, 1.55f);
-    float composition = PlanetProfileHashUnit(seed, 2u);
-    float density = 0.78f + composition * 0.52f;
-    profile.seed = seed;
-    profile.style = style;
-    profile.ageGyr = 0.35f + PlanetProfileHashUnit(seed, 15u) * 8.65f;
-    profile.spaceProxyRadius = legacyProxyRadius;
-    double massEarth = (double)density * radiusEarth * radiusEarth * radiusEarth;
-    profile.massKg = SpaceUnitsGameMassToKilograms(massEarth);
-    profile.physicalRadiusKm = (double)radiusEarth *
-                               SPACE_UNITS_EARTH_RADIUS_KM;
-    double gravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-        profile.massKg, profile.physicalRadiusKm);
-    double earthGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
-        SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);
-    profile.surfaceGravity = Clamp((float)(gravity / earthGravity),
-                                   0.45f, 1.75f);
-    profile.terrainRoughness = 0.82f + PlanetProfileHashUnit(seed, 10u) * 0.42f;
-    profile.rotationRate = style == SOLAR_STYLE_GAS ? 6.0f :
-                           0.7f + PlanetProfileHashUnit(seed, 11u) * 2.5f;
-    // A loaded legacy save may already be standing on a former gas-style world.
-    profile.hasSolidSurface = true;
-    profile.hasRings = false;
-    profile.tidalLockFactor = style == SOLAR_STYLE_GAS ? 0.0f :
-                              PlanetProfileHashUnit(seed, 13u) * 0.35f;
-    profile.tidallyLocked = profile.tidalLockFactor > 0.54f;
-    float irradiance = style == SOLAR_STYLE_LAVA ? 2.70f :
-                       style == SOLAR_STYLE_DESERT ? 1.45f :
-                       style == SOLAR_STYLE_ICE ? 0.28f :
-                       style == SOLAR_STYLE_CRATER ? 0.14f :
-                       style == SOLAR_STYLE_GAS ? 0.60f : 1.0f;
-    float volatiles = style == SOLAR_STYLE_CRATER ? 0.04f :
-                      style == SOLAR_STYLE_DESERT ? 0.32f :
-                      style == SOLAR_STYLE_LAVA ? 0.55f :
-                      style == SOLAR_STYLE_GAS ? 0.90f : 0.68f;
-    float greenhouse = style == SOLAR_STYLE_LAVA ? 0.90f :
-                       style == SOLAR_STYLE_DESERT ? 0.55f :
-                       style == SOLAR_STYLE_ICE ? 0.25f :
-                       style == SOLAR_STYLE_CRATER ? 0.05f : 0.38f;
-    float reflectivity = style == SOLAR_STYLE_ICE ? 0.48f :
-                         style == SOLAR_STYLE_CRATER ? 0.12f :
-                         style == SOLAR_STYLE_LAVA ? 0.14f : 0.20f;
-    ApplyPlanetClimate(&profile, (PlanetClimateInput){
-        .stellarIrradianceEarth = irradiance,
-        .volatileInventory = volatiles,
-        .greenhouseGasFraction = greenhouse,
-        .surfaceReflectivity = reflectivity,
-        .surfaceGravityEarth = profile.surfaceGravity,
-        .rotationRate = profile.rotationRate,
-        .tidalLockFactor = profile.tidalLockFactor,
-        .gasGiant = false
-    });
-    profile.atmosphereType = ClassifyAtmosphere(style, profile.surfacePressureAtm,
-                                                profile.equilibriumTempK, composition);
-    DerivePlanetSurfaceHistory(&profile);
+    memcpy(input.stellarLuminositiesSolar,
+           stellar.stellarLuminositiesSolar,
+           sizeof(input.stellarLuminositiesSolar));
+    PlanetProfileGenerate(&input, &profile);
     return profile;
 }
 
@@ -986,6 +731,33 @@ static int SolarSystemStellarProfiles(const SolarSystemDef *sys,
     return count;
 }
 
+bool SolarSystemPhysicalSummaryForSystem(
+    const SolarSystemDef *sys, SolarSystemPhysicalSummary *out)
+{
+    if (!sys || !out) return false;
+    memset(out, 0, sizeof(*out));
+
+    StellarProfile profiles[SPACE_BARYCENTER_MAX_BODIES];
+    int count = SolarSystemStellarProfiles(sys, profiles,
+                                           SPACE_BARYCENTER_MAX_BODIES, NULL);
+    if (count <= 0 || count > MAX_SOLAR_LIGHTS) return false;
+
+    out->stellarCount = count;
+    out->ageGyr = sys->star.ageGyr;
+    for (int i = 0; i < count; i++) {
+        out->totalMassKg += profiles[i].massKg;
+        out->totalLuminositySolar += fmaxf(profiles[i].luminositySolar, 0.0f);
+        out->stellarLuminositiesSolar[i] = profiles[i].luminositySolar;
+    }
+    if (!(out->totalMassKg > 0.0)) {
+        out->totalMassKg = SPACE_UNITS_SOLAR_MASS_KG;
+    }
+    if (!(out->totalLuminositySolar > 0.0f)) {
+        out->totalLuminositySolar = SolarSystemStarLuminosity(sys);
+    }
+    return true;
+}
+
 static SpaceBarycenterOrbit SolarSystemStellarOrbit(
     const SolarSystemDef *sys, const StellarProfile *profiles, int count,
     uint32_t hash)
@@ -1018,12 +790,9 @@ static SpaceBarycenterOrbit SolarSystemStellarOrbit(
 
 double SolarSystemStellarMassKg(const SolarSystemDef *sys)
 {
-    StellarProfile profiles[SPACE_BARYCENTER_MAX_BODIES];
-    int count = SolarSystemStellarProfiles(sys, profiles,
-                                           SPACE_BARYCENTER_MAX_BODIES, NULL);
-    double totalMass = 0.0;
-    for (int i = 0; i < count; i++) totalMass += profiles[i].massKg;
-    return totalMass > 0.0 ? totalMass : SPACE_UNITS_SOLAR_MASS_KG;
+    SolarSystemPhysicalSummary summary;
+    return SolarSystemPhysicalSummaryForSystem(sys, &summary)
+        ? summary.totalMassKg : SPACE_UNITS_SOLAR_MASS_KG;
 }
 
 int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
@@ -1076,24 +845,17 @@ static float SolarSystemMinimumPlanetOrbitGame(const SolarSystemDef *sys)
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
 {
     if (!sys) return false;
-    SolarLightSource lights[MAX_SOLAR_LIGHTS];
-    int lightCount = SolarSystemLightSources(sys, lights, MAX_SOLAR_LIGHTS);
-    float totalLuminosity = 0.0f;
-    for (int index = 0; index < lightCount; index++) {
-        totalLuminosity += fmaxf(lights[index].luminosity, 0.0f);
-    }
-    if (!(totalLuminosity > 0.0f)) {
-        totalLuminosity = SolarSystemStarLuminosity(sys);
-    }
+    SolarSystemPhysicalSummary stellar;
+    if (!SolarSystemPhysicalSummaryForSystem(sys, &stellar)) return false;
 
     SpaceSystemFormation formation;
     SpaceSystemFormationInput input = {
         .seed = seed,
-        .stellarMassSolar = (float)(
-            SolarSystemStellarMassKg(sys) / SPACE_UNITS_SOLAR_MASS_KG),
-        .stellarLuminositySolar = totalLuminosity,
-        .stellarAgeGyr = sys->star.ageGyr,
-        .stellarCount = lightCount,
+        .stellarMassSolar =
+            (float)(stellar.totalMassKg / SPACE_UNITS_SOLAR_MASS_KG),
+        .stellarLuminositySolar = stellar.totalLuminositySolar,
+        .stellarAgeGyr = stellar.ageGyr,
+        .stellarCount = stellar.stellarCount,
         .innerStabilityLimitGame = SolarSystemMinimumPlanetOrbitGame(sys),
         .outerLimitGame = 650.0f
     };
@@ -2780,8 +2542,8 @@ bool PlanetWorldLoadState(FILE *file)
             return false;
         }
     } else {
-        loaded.profile = LegacyPlanetProfile(loaded.seed, loaded.style,
-                                             loaded.spaceProxyRadius);
+        loaded.profile = PlanetProfileGenerateLegacy(loaded.seed, loaded.style,
+                                                     loaded.spaceProxyRadius);
     }
     loaded.name[sizeof(loaded.name) - 1] = '\0';
     planetWorld = loaded;

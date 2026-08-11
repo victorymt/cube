@@ -96,6 +96,32 @@ static void AssertPlanetClimate(const PlanetProfile *profile)
     }
 }
 
+static PlanetProfileGenerationInput ProfileGenerationInputFor(
+    const SolarSystemDef *system, int index,
+    const SolarSystemPhysicalSummary *summary, const PlanetProfile *profile)
+{
+    const SolarPlanetDef *planet = &system->planets[index];
+    PlanetProfileGenerationInput input = {
+        .seed = profile->seed,
+        .semiMajorAxisKm = planet->semiMajorAxisKm,
+        .physicalRadiusKm = planet->physicalRadiusKm,
+        .formationMassEarth = planet->formationMassEarth,
+        .spaceProxyRadius = planet->spaceProxyRadius,
+        .stellarAgeGyr = summary->ageGyr,
+        .orbitalPeriodGameTime =
+            (float)SolarSystemPlanetOrbitPeriodGameTime(system, index),
+        .stellarCount = summary->stellarCount,
+        .planetIndex = index,
+        .formationGasGiant = planet->formationGasGiant,
+        .forcedGasGiant = system->anchorX == 0 && system->anchorZ == 0 &&
+                          index == 3
+    };
+    memcpy(input.stellarLuminositiesSolar,
+           summary->stellarLuminositiesSolar,
+           sizeof(input.stellarLuminositiesSolar));
+    return input;
+}
+
 static void AssertSystemFormation(const SolarSystemDef *system)
 {
     assert(system);
@@ -262,12 +288,14 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     assert(scale.surfaceTemperatureK == profile->equilibriumTempK);
     double orbitAU = fmax(planet->semiMajorAxisKm /
                           SPACE_UNITS_ASTRONOMICAL_UNIT_KM, 0.18);
-    SolarLightSource lights[MAX_SOLAR_LIGHTS];
-    int lightCount = SolarSystemLightSources(system, lights, MAX_SOLAR_LIGHTS);
-    assert(lightCount > 0);
+    SolarSystemPhysicalSummary summary;
+    assert(SolarSystemPhysicalSummaryForSystem(system, &summary));
+    assert(summary.stellarCount == bodyCount);
+    assert(summary.stellarCount > 0);
     double expectedIrradiance = 0.0;
-    for (int light = 0; light < lightCount; light++) {
-        expectedIrradiance += (double)lights[light].luminosity /
+    for (int light = 0; light < summary.stellarCount; light++) {
+        expectedIrradiance +=
+            (double)summary.stellarLuminositiesSolar[light] /
                               (orbitAU * orbitAU);
     }
     assert(expectedIrradiance > 0.0001);
@@ -401,12 +429,28 @@ static void TestGeneratedSystems(void)
                 int bodyCount = SolarSystemStellarBodiesAtTime(
                     &system, 0.0, bodies, SPACE_BARYCENTER_MAX_BODIES);
                 assert(bodyCount >= 1 && bodyCount <= 3);
+                SolarSystemPhysicalSummary summary;
+                memset(&summary, 0xa5, sizeof(summary));
+                assert(SolarSystemPhysicalSummaryForSystem(&system, &summary));
+                assert(summary.stellarCount == bodyCount);
+                assert(summary.totalMassKg == SolarSystemStellarMassKg(&system));
+                assert(summary.ageGyr == system.star.ageGyr);
                 multiplicities[bodyCount]++;
                 for (int star = 0; star < bodyCount; star++) {
                     AssertStefanBoltzmann(&bodies[star].stellar);
+                    assert(summary.stellarLuminositiesSolar[star] ==
+                           bodies[star].stellar.luminositySolar);
                 }
                 for (int planet = 0; planet < system.planetCount; planet++) {
                     PlanetProfile profile = SolarPlanetProfile(&system, planet);
+                    PlanetProfileGenerationInput input =
+                        ProfileGenerationInputFor(&system, planet, &summary,
+                                                  &profile);
+                    PlanetProfile directProfile;
+                    memset(&directProfile, 0xa5, sizeof(directProfile));
+                    assert(PlanetProfileGenerate(&input, &directProfile));
+                    assert(memcmp(&profile, &directProfile,
+                                  sizeof(profile)) == 0);
                     assert(profile.massKg > 0.0 && profile.physicalRadiusKm > 0.0);
                     if (system.anchorX != 0 || system.anchorZ != 0) {
                         AssertRelative(
@@ -485,6 +529,8 @@ static void TestSaveLoadTimeDeterminism(void)
     Vector3 beforePosition = SolarSystemPlanetPositionAtTime(&beforeSystem, 0,
                                                               SpaceSimulationTime());
     PlanetProfile beforeProfile = SolarPlanetProfile(&beforeSystem, 0);
+    SolarSystemPhysicalSummary beforeSummary;
+    assert(SolarSystemPhysicalSummaryForSystem(&beforeSystem, &beforeSummary));
     WeatherFieldInput beforeWeatherInput = {
         .seed = beforeProfile.seed,
         .simulationTime = SpaceSimulationTime(),
@@ -505,6 +551,15 @@ static void TestSaveLoadTimeDeterminism(void)
 
     SetPropertySeed(0xabcdef01u);
     SpaceAdvanceTime(91.25f);
+    SetPropertySeed(seed);
+    PlanetProfile advancedProfile = SolarPlanetProfile(&beforeSystem, 0);
+    SolarSystemPhysicalSummary advancedSummary;
+    assert(SolarSystemPhysicalSummaryForSystem(&beforeSystem,
+                                               &advancedSummary));
+    assert(memcmp(&beforeProfile, &advancedProfile,
+                  sizeof(beforeProfile)) == 0);
+    assert(memcmp(&beforeSummary, &advancedSummary,
+                  sizeof(beforeSummary)) == 0);
     rewind(file);
     uint32_t loadedSeed = 0;
     assert(fread(&loadedSeed, sizeof(loadedSeed), 1, file) == 1);

@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_H
 #define VOXELCRAFT_SPACE_H
 
+#include "planet_profile.h"
 #include "stellar.h"
 #include "space_satellite.h"
 #include "types.h"
@@ -18,63 +19,7 @@
 #define STAR_NAVIGATION_MAX_SYSTEMS 128
 #define STAR_SYSTEM_QUERY_MAX 384
 
-typedef enum SolarBodyStyle {
-    SOLAR_STYLE_SUN = 0,
-    SOLAR_STYLE_LAVA,
-    SOLAR_STYLE_ICE,
-    SOLAR_STYLE_DESERT,
-    SOLAR_STYLE_GAS,
-    SOLAR_STYLE_CRATER,
-    SOLAR_STYLE_TEMPERATE
-} SolarBodyStyle;
-
-typedef enum PlanetAtmosphereType {
-    PLANET_ATMOSPHERE_NONE = 0,
-    PLANET_ATMOSPHERE_THIN,
-    PLANET_ATMOSPHERE_BREATHABLE,
-    PLANET_ATMOSPHERE_DENSE,
-    PLANET_ATMOSPHERE_CORROSIVE
-} PlanetAtmosphereType;
-
-typedef struct PlanetProfile {
-    uint32_t seed;
-    SolarBodyStyle style;
-    PlanetAtmosphereType atmosphereType;
-    double physicalRadiusKm;
-    double massKg;
-    float spaceProxyRadius;
-    float surfaceGravity;
-    double receivedIrradiance; // Earth solar-constant units.
-    float radiativeTempK;
-    // Mean surface temperature after albedo and atmospheric greenhouse feedback.
-    float equilibriumTempK;
-    float surfacePressureAtm;
-    float atmosphereDensity;
-    float oceanCoverage;
-    float iceCoverage;
-    float cloudCoverage;
-    float terrainRoughness;
-    float ageGyr;
-    // Degrees per game time unit; one game time unit is defined in space_units.
-    float rotationRate;
-    float tidalLockFactor;
-    float ringTilt;
-    float albedo;
-    // Grey-atmosphere optical depth, not an additional temperature offset.
-    float greenhouseEffect;
-    float axialTilt;
-    float seasonPhase;
-    float yearLength; // Game time units.
-    float prevailingWindAngle;
-    float windStrength;
-    float volcanicActivity;
-    float impactRate;
-    bool hasSolidSurface;
-    bool hasRings;
-    bool tidallyLocked;
-} PlanetProfile;
-
-#define MAX_SOLAR_LIGHTS 3
+#define MAX_SOLAR_LIGHTS PLANET_PROFILE_MAX_STARS
 
 typedef struct SolarLightSource {
     Vector3 center;
@@ -146,6 +91,14 @@ typedef struct SolarSystemDef {
     double habitableZoneOuterKm;
     SolarPlanetDef planets[6];
 } SolarSystemDef;
+
+typedef struct SolarSystemPhysicalSummary {
+    int stellarCount;
+    double totalMassKg;
+    float totalLuminositySolar;
+    float stellarLuminositiesSolar[MAX_SOLAR_LIGHTS];
+    float ageGyr;
+} SolarSystemPhysicalSummary;
 
 typedef struct SpaceBodyInfo {
     Vector3 center; // Scene position in game distance units.
@@ -269,6 +222,8 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
 int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
                                    double simulationTime,
                                    SolarStellarBody *out, int maxCount);
+bool SolarSystemPhysicalSummaryForSystem(
+    const SolarSystemDef *sys, SolarSystemPhysicalSummary *out);
 double SolarSystemStellarMassKg(const SolarSystemDef *sys);
 float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point);
 float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
