@@ -165,10 +165,51 @@ static void TestOrbitProperties(void)
     }
 }
 
+static void TestHighEccentricityOrbit(void)
+{
+    static const double eccentricities[] = { 0.80, 0.95, 0.999, 0.999999 };
+    static const double phases[] = { -3.0, -0.001, 0.001, 3.0 };
+    for (size_t eccentricityIndex = 0;
+         eccentricityIndex < sizeof(eccentricities) / sizeof(eccentricities[0]);
+         eccentricityIndex++) {
+        for (size_t phaseIndex = 0;
+             phaseIndex < sizeof(phases) / sizeof(phases[0]); phaseIndex++) {
+            SpaceKeplerOrbit orbit = {
+                .semiMajorAxisKm = SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+                .centralMassKg = SPACE_UNITS_SOLAR_MASS_KG,
+                .eccentricity = eccentricities[eccentricityIndex],
+                .inclinationRad = 0.4,
+                .longitudeAscendingNodeRad = -1.2,
+                .argumentPeriapsisRad = 2.1,
+                .meanAnomalyAtEpochRad = phases[phaseIndex]
+            };
+            SpaceKeplerState state;
+            assert(SpaceKeplerStateAtTime(&orbit, 0.0, &state));
+            assert(isfinite(state.positionGame.x) &&
+                   isfinite(state.positionGame.y) &&
+                   isfinite(state.positionGame.z) &&
+                   isfinite(state.velocityGame.x) &&
+                   isfinite(state.velocityGame.y) &&
+                   isfinite(state.velocityGame.z));
+
+            double mu = SpaceUnitsGravitationalParameterKm(
+                orbit.centralMassKg);
+            double radiusKm = SpaceUnitsGameDistanceToKilometers(
+                VectorLength(state.positionGame));
+            double speedKmPerSecond = SpaceUnitsGameVelocityToKilometersPerSecond(
+                VectorLength(state.velocityGame));
+            double expectedSpeed = sqrt(mu *
+                (2.0 / radiusKm - 1.0 / orbit.semiMajorAxisKm));
+            AssertRelative(speedKmPerSecond, expectedSpeed, 0.00005);
+        }
+    }
+}
+
 int main(void)
 {
     TestInvalidOrbit();
     TestOrbitProperties();
+    TestHighEccentricityOrbit();
     puts("space orbit tests passed");
     return 0;
 }

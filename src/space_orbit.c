@@ -5,6 +5,7 @@
 #include <math.h>
 
 #define SPACE_ORBIT_PI 3.14159265358979323846
+#define SPACE_ORBIT_TWO_PI (2.0 * SPACE_ORBIT_PI)
 
 bool SpaceKeplerOrbitIsValid(const SpaceKeplerOrbit *orbit)
 {
@@ -45,6 +46,47 @@ static bool SpaceKeplerVectorIsFinite(Vector3 value)
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
 }
 
+static bool SpaceKeplerSolveEccentricAnomaly(double meanAnomaly,
+                                             double eccentricity,
+                                             double *out)
+{
+    if (!out) return false;
+    *out = 0.0;
+    if (!isfinite(meanAnomaly) || !isfinite(eccentricity) ||
+        eccentricity < 0.0 || eccentricity >= 1.0) {
+        return false;
+    }
+
+    if (meanAnomaly > SPACE_ORBIT_PI) {
+        meanAnomaly -= SPACE_ORBIT_TWO_PI;
+    } else if (meanAnomaly < -SPACE_ORBIT_PI) {
+        meanAnomaly += SPACE_ORBIT_TWO_PI;
+    }
+    double eccentricAnomaly = eccentricity < 0.8
+        ? meanAnomaly
+        : (meanAnomaly < 0.0 ? -SPACE_ORBIT_PI : SPACE_ORBIT_PI);
+    for (int iteration = 0; iteration < 16; iteration++) {
+        double sine = sin(eccentricAnomaly);
+        double cosine = cos(eccentricAnomaly);
+        double denominator = 1.0 - eccentricity * cosine;
+        if (!(denominator > 0.0) || !isfinite(denominator)) return false;
+        double correction = (eccentricAnomaly - eccentricity * sine -
+                             meanAnomaly) / denominator;
+        if (!isfinite(correction)) return false;
+        eccentricAnomaly -= correction;
+        if (!isfinite(eccentricAnomaly)) return false;
+        if (fabs(correction) < 1e-13) {
+            double residual = eccentricAnomaly -
+                              eccentricity * sin(eccentricAnomaly) -
+                              meanAnomaly;
+            if (!isfinite(residual) || fabs(residual) > 1e-12) return false;
+            *out = eccentricAnomaly;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
                             double simulationTime,
                             SpaceKeplerState *out)
@@ -64,18 +106,10 @@ bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
             orbit->meanAnomalyAtEpochRad, meanMotion, simulationTime,
             &meanAnomaly)) return false;
 
-    double eccentricAnomaly = orbit->eccentricity < 0.8
-        ? meanAnomaly
-        : (meanAnomaly < 0.0 ? -SPACE_ORBIT_PI : SPACE_ORBIT_PI);
-    for (int iteration = 0; iteration < 12; iteration++) {
-        double sine = sin(eccentricAnomaly);
-        double cosine = cos(eccentricAnomaly);
-        double denominator = 1.0 - orbit->eccentricity * cosine;
-        if (!(denominator > 0.0)) return false;
-        double correction = (eccentricAnomaly - orbit->eccentricity * sine -
-                             meanAnomaly) / denominator;
-        eccentricAnomaly -= correction;
-        if (fabs(correction) < 1e-13) break;
+    double eccentricAnomaly = 0.0;
+    if (!SpaceKeplerSolveEccentricAnomaly(
+            meanAnomaly, orbit->eccentricity, &eccentricAnomaly)) {
+        return false;
     }
 
     double eccentricityScale = sqrt(
