@@ -80,7 +80,9 @@ static HomeWorldContext homeWorld = {
     .surfaceActive = true,
     .returnPosition = { 0.5f, 12.0f, 0.5f }
 };
-static double solarSimulationTime = 0.0;
+// Persist monotonic elapsed time. Periodic consumers derive a bounded clock
+// from it so long-running orbital precision does not erase stellar age.
+static double solarElapsedSimulationTime = 0.0;
 // World generation uses global integer coordinates. Rendering and physics use
 // this nearby local frame, which is periodically shifted during spaceflight.
 static int spaceOriginX = 0;
@@ -170,7 +172,7 @@ bool SpaceLoadOrigin(FILE *file)
         fread(&loadedZ, sizeof(loadedZ), 1, file) != 1) {
         return false;
     }
-    solarSimulationTime = 0.0;
+    solarElapsedSimulationTime = 0.0;
     spaceOriginX = loadedX;
     spaceOriginZ = loadedZ;
     return true;
@@ -179,7 +181,8 @@ bool SpaceLoadOrigin(FILE *file)
 bool SpaceSaveState(FILE *file)
 {
     if (!file) return false;
-    return fwrite(&solarSimulationTime, sizeof(solarSimulationTime), 1, file) == 1 &&
+    return fwrite(&solarElapsedSimulationTime,
+                  sizeof(solarElapsedSimulationTime), 1, file) == 1 &&
            fwrite(&spaceOriginX, sizeof(spaceOriginX), 1, file) == 1 &&
            fwrite(&spaceOriginZ, sizeof(spaceOriginZ), 1, file) == 1;
 }
@@ -193,11 +196,10 @@ bool SpaceLoadState(FILE *file)
     if (fread(&loadedTime, sizeof(loadedTime), 1, file) != 1 ||
         fread(&loadedX, sizeof(loadedX), 1, file) != 1 ||
         fread(&loadedZ, sizeof(loadedZ), 1, file) != 1 ||
-        !isfinite(loadedTime) || loadedTime < 0.0 ||
-        loadedTime > 100000000.0) {
+        !isfinite(loadedTime) || loadedTime < 0.0) {
         return false;
     }
-    solarSimulationTime = loadedTime;
+    solarElapsedSimulationTime = loadedTime;
     spaceOriginX = loadedX;
     spaceOriginZ = loadedZ;
     return true;
@@ -482,15 +484,22 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
 void SpaceAdvanceTime(float gameTimeDelta)
 {
     if (!(gameTimeDelta > 0.0f) || !isfinite(gameTimeDelta)) return;
-    solarSimulationTime += (double)gameTimeDelta;
-    if (solarSimulationTime > 100000000.0) {
-        solarSimulationTime = fmod(solarSimulationTime, 1000000.0);
-    }
+    double advanced = solarElapsedSimulationTime + (double)gameTimeDelta;
+    if (!isfinite(advanced)) return;
+    solarElapsedSimulationTime = advanced;
 }
 
 double SpaceSimulationTime(void)
 {
-    return solarSimulationTime;
+    if (solarElapsedSimulationTime > 100000000.0) {
+        return fmod(solarElapsedSimulationTime, 1000000.0);
+    }
+    return solarElapsedSimulationTime;
+}
+
+double SpaceElapsedSimulationTime(void)
+{
+    return solarElapsedSimulationTime;
 }
 
 static uint32_t PlanetBodyTextureHash(const SpaceBodyInfo *body)
@@ -509,7 +518,7 @@ float PlanetBodyTextureRotation(const SpaceBodyInfo *body)
 {
     if (!body) return 0.0f;
     return (float)((PlanetBodyTextureHash(body) >> 8) % 360u) +
-           (float)solarSimulationTime * body->profile.rotationRate;
+           (float)SpaceSimulationTime() * body->profile.rotationRate;
 }
 
 static bool StarSystemDefinitionAt(int ax, int az, SolarSystemDef *out)
@@ -632,7 +641,7 @@ Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
 
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
 {
-    return SolarSystemPlanetPositionAtTime(sys, index, solarSimulationTime);
+    return SolarSystemPlanetPositionAtTime(sys, index, SpaceSimulationTime());
 }
 
 bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
@@ -1202,7 +1211,7 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
         ? maxCount : MAX_SOLAR_LIGHTS;
     memset(out, 0, sizeof(*out) * (size_t)clearCount);
     SolarSystemRuntimeState runtime;
-    return SolarSystemEvaluateAtTime(sys, solarSimulationTime, &runtime)
+    return SolarSystemEvaluateAtTime(sys, SpaceSimulationTime(), &runtime)
         ? SolarSystemRuntimeLightSources(&runtime, out, maxCount) : 0;
 }
 
@@ -1508,7 +1517,7 @@ static bool PlanetWorldLightStateForFiniteSurface(
     if (orbitIndex < 0 || orbitIndex >= system.planetCount) return false;
 
     SolarSystemRuntimeState runtime;
-    if (!SolarSystemEvaluateAtTime(&system, solarSimulationTime, &runtime)) {
+    if (!SolarSystemEvaluateAtTime(&system, SpaceSimulationTime(), &runtime)) {
         return false;
     }
     SolarLightSource sources[MAX_SOLAR_LIGHTS];
@@ -1520,7 +1529,8 @@ static bool PlanetWorldLightStateForFiniteSurface(
         !runtime.planets[orbitIndex].valid) return false;
     Vector3 planetCenter = runtime.planets[orbitIndex].center;
     float spinPhase = (float)(planetWorld.seed & 0xffffu) / 65535.0f * 2.0f * PI +
-                      (float)solarSimulationTime * planetWorld.profile.rotationRate * DEG2RAD;
+                      (float)SpaceSimulationTime() *
+                          planetWorld.profile.rotationRate * DEG2RAD;
     Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
     Vector3 inertialSurfaceNormal = PlanetWorldSpaceDirection(
         PlanetRotateY(surfaceNormal, spinPhase));
@@ -1975,7 +1985,7 @@ static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
                                     Vector3 observer, SpaceBodyInfo *out)
 {
     SolarSystemRuntimeState runtime;
-    return SolarSystemEvaluateCachedAtTime(system, solarSimulationTime,
+    return SolarSystemEvaluateCachedAtTime(system, SpaceSimulationTime(),
                                            &runtime) &&
            PlanetBodyInfoForRuntime(system, &runtime, index, observer, out);
 }
@@ -2000,7 +2010,7 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
 
             SolarSystemRuntimeState runtime;
             if (!SolarSystemEvaluateCachedAtTime(
-                    &sys, solarSimulationTime, &runtime)) {
+                    &sys, SpaceSimulationTime(), &runtime)) {
                 continue;
             }
             int starCount = runtime.stellarCount;
@@ -2135,7 +2145,7 @@ int SpaceSatellitesNear(Vector3 pos, float maxDist,
     for (int systemIndex = 0; systemIndex < systemCount; systemIndex++) {
         SolarSystemDef *system = &systems[systemIndex];
         SolarSystemRuntimeState runtime;
-        if (!SolarSystemEvaluateAtTime(system, solarSimulationTime,
+        if (!SolarSystemEvaluateAtTime(system, SpaceSimulationTime(),
                                        &runtime)) {
             continue;
         }
@@ -2219,7 +2229,7 @@ bool SpaceSatelliteScaleDiagnosticsAt(
         return false;
     }
     SolarSystemRuntimeState runtime;
-    if (!SolarSystemEvaluateAtTime(&system, solarSimulationTime, &runtime) ||
+    if (!SolarSystemEvaluateAtTime(&system, SpaceSimulationTime(), &runtime) ||
         satellite.parentPlanetIndex < 0 ||
         satellite.parentPlanetIndex >= runtime.planetCount) {
         return false;
@@ -3045,7 +3055,7 @@ bool PlanetWorldTryLaunch(Player *player)
         orbitIndex >= 0 && orbitIndex < system.planetCount) {
         SolarPlanetOrbitalState orbitalState;
         if (SolarSystemPlanetStateAtTime(&system, orbitIndex,
-                                         solarSimulationTime,
+                                         SpaceSimulationTime(),
                                          &orbitalState)) {
             returnPosition = PlanetReturnPosition(
                 orbitalState.center, planetWorld.spaceProxyRadius, outward);
@@ -3947,7 +3957,7 @@ void SpaceReset(void)
 {
     UnloadAllSpaceChunks();
     spaceEditCount = 0;
-    solarSimulationTime = 0.0;
+    solarElapsedSimulationTime = 0.0;
     SpaceQueryCacheClear();
     SpaceResetOrigin();
     PlanetWorldReset();

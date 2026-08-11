@@ -1286,6 +1286,7 @@ static void TestSaveLoadTimeDeterminism(void)
     SetPropertySeed(loadedSeed);
     assert(SpaceLoadState(file));
     assert(SpaceSimulationTime() == 123.5);
+    assert(SpaceElapsedSimulationTime() == 123.5);
 
     SolarSystemDef afterSystem;
     assert(StarSystemAt(3, -4, &afterSystem));
@@ -1365,6 +1366,47 @@ static void TestSaveLoadTimeDeterminism(void)
     fclose(file);
 }
 
+static void TestLongTermTimeClock(void)
+{
+    FILE *original = tmpfile();
+    assert(original);
+    assert(SpaceSaveState(original));
+
+    FILE *future = tmpfile();
+    assert(future);
+    double elapsed = 100000123.75;
+    int originX = 17;
+    int originZ = -29;
+    assert(fwrite(&elapsed, sizeof(elapsed), 1, future) == 1);
+    assert(fwrite(&originX, sizeof(originX), 1, future) == 1);
+    assert(fwrite(&originZ, sizeof(originZ), 1, future) == 1);
+    rewind(future);
+    assert(SpaceLoadState(future));
+    assert(SpaceElapsedSimulationTime() == elapsed);
+    assert(SpaceSimulationTime() == 123.75);
+
+    SpaceAdvanceTime(10.25f);
+    assert(SpaceElapsedSimulationTime() == 100000134.0);
+    assert(SpaceSimulationTime() == 134.0);
+
+    FILE *replay = tmpfile();
+    assert(replay);
+    assert(SpaceSaveState(replay));
+    SpaceAdvanceTime(91.0f);
+    rewind(replay);
+    assert(SpaceLoadState(replay));
+    assert(SpaceElapsedSimulationTime() == 100000134.0);
+    assert(SpaceSimulationTime() == 134.0);
+    assert(SpaceOriginX() == originX);
+    assert(SpaceOriginZ() == originZ);
+
+    rewind(original);
+    assert(SpaceLoadState(original));
+    fclose(replay);
+    fclose(future);
+    fclose(original);
+}
+
 static void TestSpaceLoadFailureAtomicity(void)
 {
     FILE *original = tmpfile();
@@ -1382,6 +1424,7 @@ static void TestSpaceLoadFailureAtomicity(void)
     rewind(baseline);
     assert(SpaceLoadState(baseline));
     assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceElapsedSimulationTime() == baselineTime);
     assert(SpaceOriginX() == baselineX);
     assert(SpaceOriginZ() == baselineZ);
 
@@ -1393,6 +1436,7 @@ static void TestSpaceLoadFailureAtomicity(void)
     rewind(truncatedState);
     assert(!SpaceLoadState(truncatedState));
     assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceElapsedSimulationTime() == baselineTime);
     assert(SpaceOriginX() == baselineX);
     assert(SpaceOriginZ() == baselineZ);
 
@@ -1407,6 +1451,7 @@ static void TestSpaceLoadFailureAtomicity(void)
     rewind(invalidState);
     assert(!SpaceLoadState(invalidState));
     assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceElapsedSimulationTime() == baselineTime);
     assert(SpaceOriginX() == baselineX);
     assert(SpaceOriginZ() == baselineZ);
 
@@ -1417,6 +1462,7 @@ static void TestSpaceLoadFailureAtomicity(void)
     rewind(truncatedOrigin);
     assert(!SpaceLoadOrigin(truncatedOrigin));
     assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceElapsedSimulationTime() == baselineTime);
     assert(SpaceOriginX() == baselineX);
     assert(SpaceOriginZ() == baselineZ);
 
@@ -1740,6 +1786,7 @@ int main(void)
     TestExtremeAnchorDeterminism();
     TestStellarAgeClimateCausality();
     TestSaveLoadTimeDeterminism();
+    TestLongTermTimeClock();
     TestSpaceLoadFailureAtomicity();
     TestDeterministicSpaceQueries();
     TestConcurrentSpaceQueries();
