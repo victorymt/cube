@@ -410,8 +410,30 @@ static void BuildSolSystem(SolarSystemDef *out)
     }
 }
 
+static bool SolarSystemPlanetIndexIsValid(const SolarSystemDef *sys, int index)
+{
+    return sys && sys->planetCount >= 0 &&
+           sys->planetCount <= MAX_SOLAR_PLANETS && index >= 0 &&
+           index < sys->planetCount;
+}
+
+static bool SolarPlanetDefinitionIsValid(const SolarPlanetDef *planet)
+{
+    return planet && planet->semiMajorAxisKm > 0.0 &&
+           isfinite(planet->semiMajorAxisKm) && planet->physicalRadiusKm > 0.0 &&
+           isfinite(planet->physicalRadiusKm) &&
+           planet->formationMassEarth >= 0.0f &&
+           isfinite(planet->formationMassEarth) &&
+           planet->spaceProxyRadius > 0.0f &&
+           isfinite(planet->spaceProxyRadius);
+}
+
 static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
 {
+    if (!SolarSystemPlanetIndexIsValid(sys, index) ||
+        !SolarPlanetDefinitionIsValid(&sys->planets[index])) {
+        return DEFAULT_WORLD_SEED;
+    }
     const SolarPlanetDef *def = &sys->planets[index];
     float orbitGame = (float)SpaceUnitsKilometersToGameDistance(
         def->semiMajorAxisKm);
@@ -428,9 +450,10 @@ static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
 PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
 {
     PlanetProfile profile = { 0 };
-    if (!sys || index < 0 || index >= sys->planetCount) return profile;
+    if (!SolarSystemPlanetIndexIsValid(sys, index)) return profile;
 
     const SolarPlanetDef *def = &sys->planets[index];
+    if (!SolarPlanetDefinitionIsValid(def)) return profile;
     SolarSystemPhysicalSnapshot scratch;
     const SolarSystemPhysicalSnapshot *snapshot =
         SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
@@ -456,7 +479,9 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     memcpy(input.stellarLuminositiesSolar,
            stellar->stellarLuminositiesSolar,
            sizeof(input.stellarLuminositiesSolar));
-    PlanetProfileGenerate(&input, &profile);
+    if (!PlanetProfileGenerate(&input, &profile)) {
+        return (PlanetProfile){ 0 };
+    }
     return profile;
 }
 
@@ -641,10 +666,15 @@ bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
 
 double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index)
 {
-    if (!sys || index < 0 || index >= sys->planetCount) return 0.0;
+    if (!SolarSystemPlanetIndexIsValid(sys, index)) return 0.0;
 
-    return SpaceUnitsKeplerPeriodSeconds(sys->planets[index].semiMajorAxisKm,
-                                         SolarSystemStellarMassKg(sys));
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    if (!snapshot) return 0.0;
+    return SpaceUnitsKeplerPeriodSeconds(
+        snapshot->planetOrbits[index].semiMajorAxisKm,
+        snapshot->planetOrbits[index].centralMassKg);
 }
 
 double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index)

@@ -656,6 +656,15 @@ static void TestRuntimeInputContracts(void)
     system.planetCount = MAX_SOLAR_PLANETS + 1;
     assert(!SolarSystemPlanetStateAtTime(&system, MAX_SOLAR_PLANETS, 0.0,
                                          &orbitalState));
+    const PlanetProfile clearedProfile = { 0 };
+    PlanetProfile invalidProfile = SolarPlanetProfile(
+        &system, MAX_SOLAR_PLANETS);
+    assert(memcmp(&invalidProfile, &clearedProfile,
+                  sizeof(invalidProfile)) == 0);
+    assert(SolarSystemPlanetOrbitPeriodSeconds(
+               &system, MAX_SOLAR_PLANETS) == 0.0);
+    assert(SolarSystemPlanetOrbitPeriodGameTime(
+               &system, MAX_SOLAR_PLANETS) == 0.0);
 
     SpaceSatelliteOrbit satelliteOrbit;
     const SpaceSatelliteOrbit clearedSatelliteOrbit = { 0 };
@@ -666,6 +675,24 @@ static void TestRuntimeInputContracts(void)
     assert(memcmp(&satelliteOrbit, &clearedSatelliteOrbit,
                   sizeof(satelliteOrbit)) == 0);
     system.planetCount = originalPlanetCount;
+
+    invalidProfile = SolarPlanetProfile(NULL, 0);
+    assert(memcmp(&invalidProfile, &clearedProfile,
+                  sizeof(invalidProfile)) == 0);
+    assert(SolarSystemPlanetOrbitPeriodSeconds(NULL, 0) == 0.0);
+    system.planets[0].semiMajorAxisKm = NAN;
+    invalidProfile = SolarPlanetProfile(&system, 0);
+    assert(memcmp(&invalidProfile, &clearedProfile,
+                  sizeof(invalidProfile)) == 0);
+    assert(SolarSystemPlanetOrbitPeriodSeconds(&system, 0) == 0.0);
+    system.planets[0].semiMajorAxisKm = originalSemiMajorAxisKm;
+    float originalProxyRadius = system.planets[0].spaceProxyRadius;
+    system.planets[0].spaceProxyRadius = NAN;
+    invalidProfile = SolarPlanetProfile(&system, 0);
+    assert(memcmp(&invalidProfile, &clearedProfile,
+                  sizeof(invalidProfile)) == 0);
+    system.planets[0].spaceProxyRadius = originalProxyRadius;
+
     memset(&satelliteOrbit, 0xa5, sizeof(satelliteOrbit));
     assert(!SolarPlanetSatelliteOrbit(&system, 0, NULL, &satelliteOrbit));
     assert(memcmp(&satelliteOrbit, &clearedSatelliteOrbit,
