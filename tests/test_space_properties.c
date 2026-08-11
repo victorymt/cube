@@ -1,6 +1,7 @@
 #include "space.h"
 #include "space_barycenter.h"
 #include "space_physics.h"
+#include "space_query_cache.h"
 #include "space_system_physics.h"
 #include "space_units.h"
 #include "weather_model.h"
@@ -780,6 +781,37 @@ static void TestRuntimeInputContracts(void)
            direction.z == 0.0f);
 }
 
+static void TestQueryCacheInputContracts(void)
+{
+    SpaceQueryCacheClear();
+
+    SolarSystemDef definition;
+    const SolarSystemDef clearedDefinition = { 0 };
+    memset(&definition, 0xa5, sizeof(definition));
+    assert(!SpaceQueryDefinitionCacheGet(
+        0x71c35a9du, 12345, -67890, &definition));
+    assert(memcmp(&definition, &clearedDefinition, sizeof(definition)) == 0);
+
+    SolarSystemRuntimeState runtime;
+    const SolarSystemRuntimeState clearedRuntime = { 0 };
+    memset(&runtime, 0xa5, sizeof(runtime));
+    assert(!SpaceQueryRuntimeCacheGet(
+        0x71c35a9du, 12345, -67890, UINT64_C(0x4f2319a781c53d6b),
+        18.0, &runtime));
+    assert(memcmp(&runtime, &clearedRuntime, sizeof(runtime)) == 0);
+
+    memset(&runtime, 0xa5, sizeof(runtime));
+    assert(!SpaceQueryRuntimeCacheGet(
+        0x71c35a9du, 12345, -67890, UINT64_C(0x4f2319a781c53d6b),
+        NAN, &runtime));
+    assert(memcmp(&runtime, &clearedRuntime, sizeof(runtime)) == 0);
+    SpaceQueryRuntimeCachePut(
+        0x71c35a9du, 12345, -67890, UINT64_C(0x4f2319a781c53d6b),
+        NAN, &clearedRuntime);
+
+    SpaceQueryCacheClear();
+}
+
 static void TestGeneratedSystems(void)
 {
     static const uint32_t seeds[] = {
@@ -1494,6 +1526,7 @@ int main(void)
     TestSpaceQueryInputContracts();
     TestIrradianceInputContracts();
     TestRuntimeInputContracts();
+    TestQueryCacheInputContracts();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
     TestDeterministicSpaceQueries();

@@ -1,5 +1,6 @@
 #include "space_query_cache.h"
 
+#include <math.h>
 #include <pthread.h>
 #include <string.h>
 
@@ -106,6 +107,7 @@ bool SpaceQueryDefinitionCacheGet(uint32_t worldSeed, int anchorX,
                                   int anchorZ, SolarSystemDef *out)
 {
     if (!out) return false;
+    *out = (SolarSystemDef){ 0 };
     pthread_mutex_lock(&cacheMutex);
     bool hit = false;
     SpaceQueryDefinitionCacheEntry *entry = SpaceQueryDefinitionSlot(
@@ -143,6 +145,8 @@ bool SpaceQueryRuntimeCacheGet(uint32_t worldSeed, int anchorX, int anchorZ,
                                SolarSystemRuntimeState *out)
 {
     if (!out) return false;
+    *out = (SolarSystemRuntimeState){ 0 };
+    if (!isfinite(simulationTime)) return false;
     pthread_mutex_lock(&cacheMutex);
     bool hit = false;
     SpaceQueryRuntimeCacheEntry *entry = SpaceQueryRuntimeSlot(
@@ -162,7 +166,7 @@ void SpaceQueryRuntimeCachePut(uint32_t worldSeed, int anchorX, int anchorZ,
                                uint64_t systemSignature, double simulationTime,
                                const SolarSystemRuntimeState *value)
 {
-    if (!value) return;
+    if (!value || !isfinite(simulationTime)) return;
     pthread_mutex_lock(&cacheMutex);
     bool hit = false;
     SpaceQueryRuntimeCacheEntry *entry = SpaceQueryRuntimeSlot(
