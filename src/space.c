@@ -162,6 +162,7 @@ void SpaceSaveOrigin(FILE *file)
 
 bool SpaceLoadOrigin(FILE *file)
 {
+    if (!file) return false;
     int loadedX = 0;
     int loadedZ = 0;
     if (fread(&loadedX, sizeof(loadedX), 1, file) != 1 ||
@@ -3311,6 +3312,7 @@ bool HomeWorldSaveState(FILE *file)
 
 bool HomeWorldLoadState(FILE *file)
 {
+    if (!file) return false;
     uint8_t surfaceActive = 0;
     float returnPosition[3] = { 0 };
     if (fread(&surfaceActive, sizeof(surfaceActive), 1, file) != 1 ||
@@ -3867,6 +3869,7 @@ void SpaceSaveEdits(FILE *file)
 
 void SpaceLoadEdits(FILE *file)
 {
+    if (!file) return;
     spaceEditCount = 0;
 
     uint32_t count = 0;

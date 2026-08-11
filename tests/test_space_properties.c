@@ -1091,6 +1091,11 @@ static void TestIrradianceInputContracts(void)
 
 static void TestSaveLoadTimeDeterminism(void)
 {
+    assert(!SpaceLoadOrigin(NULL));
+    assert(!SpaceLoadState(NULL));
+    assert(!PlanetWorldLoadState(NULL));
+    assert(!HomeWorldLoadState(NULL));
+
     const uint32_t seed = 0x2468ace0u;
     SetPropertySeed(seed);
     SpaceAdvanceTime(123.5f);
