@@ -86,6 +86,11 @@ static double solarSimulationTime = 0.0;
 static int spaceOriginX = 0;
 static int spaceOriginZ = 0;
 
+static bool SpaceVectorIsFinite(Vector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
 static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection);
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed);
 
@@ -556,13 +561,15 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
 
 Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer)
 {
-    if (!sys) return Vector3Zero();
+    if (!sys || !SpaceVectorIsFinite(sys->center) ||
+        !SpaceVectorIsFinite(observer)) return Vector3Zero();
 
     Vector3 toStar = Vector3Subtract(sys->center, observer);
     float distance = Vector3Length(toStar);
-    if (distance < 0.001f) return Vector3Zero();
+    if (!isfinite(distance) || distance < 0.001f) return Vector3Zero();
 
     float horizontalDistance = sqrtf(toStar.x * toStar.x + toStar.z * toStar.z);
+    if (!isfinite(horizontalDistance)) return Vector3Zero();
     if (horizontalDistance < 0.001f) return Vector3Scale(toStar, 1.0f / distance);
 
     // Space voxels use a compact vertical layer. Expand that stable system
@@ -580,11 +587,12 @@ Vector3 SolarSystemApparentDirection(const SolarSystemDef *sys, Vector3 observer
     latitude = Clamp(latitude, -1.20f, 1.20f);
 
     float horizontalScale = cosf(latitude) / horizontalDistance;
-    return (Vector3){
+    Vector3 result = {
         toStar.x * horizontalScale,
         sinf(latitude),
         toStar.z * horizontalScale
     };
+    return SpaceVectorIsFinite(result) ? result : Vector3Zero();
 }
 
 Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
@@ -606,7 +614,10 @@ bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
 {
     if (!out) return false;
     *out = (SolarPlanetOrbitalState){ 0 };
-    if (!sys || index < 0 || index >= sys->planetCount) return false;
+    if (!sys || !isfinite(simulationTime) ||
+        sys->planetCount < 0 || sys->planetCount > MAX_SOLAR_PLANETS ||
+        index < 0 || index >= sys->planetCount ||
+        !SpaceVectorIsFinite(sys->center)) return false;
 
     SolarSystemPhysicalSnapshot scratch;
     const SolarSystemPhysicalSnapshot *snapshot =
@@ -620,6 +631,11 @@ bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
     }
     out->center = Vector3Add(sys->center, relative.positionGame);
     out->velocity = relative.velocityGame;
+    if (!SpaceVectorIsFinite(out->center) ||
+        !SpaceVectorIsFinite(out->velocity)) {
+        *out = (SolarPlanetOrbitalState){ 0 };
+        return false;
+    }
     return true;
 }
 
@@ -981,15 +997,10 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
         ? SolarSystemRuntimeLightSources(&runtime, out, maxCount) : 0;
 }
 
-static bool SolarLightVectorIsFinite(Vector3 value)
-{
-    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
-}
-
 float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point)
 {
-    if (!source || !SolarLightVectorIsFinite(source->center) ||
-        !SolarLightVectorIsFinite(point) ||
+    if (!source || !SpaceVectorIsFinite(source->center) ||
+        !SpaceVectorIsFinite(point) ||
         !(source->luminosity > 0.0f) || !isfinite(source->luminosity)) {
         return 0.0f;
     }
@@ -1022,7 +1033,7 @@ float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
                               Vector3 point)
 {
     if (!sources || sourceCount <= 0 || sourceCount > MAX_SOLAR_LIGHTS ||
-        !SolarLightVectorIsFinite(point)) return 0.0f;
+        !SpaceVectorIsFinite(point)) return 0.0f;
     double total = 0.0;
     for (int i = 0; i < sourceCount; i++) {
         float irradiance = SolarLightIrradianceAt(&sources[i], point);
@@ -1554,7 +1565,7 @@ static int CompareSpaceBodyQueryCandidate(const SpaceBodyInfo *left,
 static bool SpaceQueryVectorIsFinite(Vector3 value)
 {
     const float coordinateLimit = (float)(INT_MAX - 4096);
-    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z) &&
+    return SpaceVectorIsFinite(value) &&
            fabsf(value.x) <= coordinateLimit &&
            fabsf(value.y) <= coordinateLimit &&
            fabsf(value.z) <= coordinateLimit;
@@ -2036,11 +2047,6 @@ static void HomeBodyInfoForObserver(Vector3 observer, SpaceBodyInfo *out)
     snprintf(out->name, sizeof(out->name), "Home");
 }
 
-static bool SpaceBodyScaleVectorIsFinite(Vector3 value)
-{
-    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
-}
-
 static bool SpaceScaleDiagnosticsIsFinite(
     const SpaceScaleDiagnostics *diagnostics)
 {
@@ -2094,8 +2100,8 @@ bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
     if (!out) return false;
     memset(out, 0, sizeof(*out));
     if (!body || body->isStar ||
-        !SpaceBodyScaleVectorIsFinite(body->center) ||
-        !SpaceBodyScaleVectorIsFinite(body->velocity) ||
+        !SpaceVectorIsFinite(body->center) ||
+        !SpaceVectorIsFinite(body->velocity) ||
         !(body->physicalRadiusKm > 0.0) ||
         !isfinite(body->physicalRadiusKm) ||
         !(body->semiMajorAxisKm > 0.0) ||

@@ -539,6 +539,29 @@ static void TestRuntimeInputContracts(void)
     runtime.stars[0].center.x = NAN;
     assert(SolarSystemRuntimeLightSources(&runtime, sources,
                                           MAX_SOLAR_LIGHTS) == 0);
+
+    SolarPlanetOrbitalState orbitalState;
+    assert(SolarSystemPlanetStateAtTime(&system, 0, 0.0, &orbitalState));
+    Vector3 originalCenter = system.center;
+    system.center.x = NAN;
+    assert(!SolarSystemPlanetStateAtTime(&system, 0, 0.0, &orbitalState));
+    assert(orbitalState.center.x == 0.0f && orbitalState.velocity.x == 0.0f);
+    system.center = originalCenter;
+    int originalPlanetCount = system.planetCount;
+    system.planetCount = MAX_SOLAR_PLANETS + 1;
+    assert(!SolarSystemPlanetStateAtTime(&system, MAX_SOLAR_PLANETS, 0.0,
+                                         &orbitalState));
+    system.planetCount = originalPlanetCount;
+    assert(!SolarSystemPlanetStateAtTime(&system, 0, NAN, &orbitalState));
+
+    Vector3 direction = SolarSystemApparentDirection(
+        &system, (Vector3){ NAN, 0.0f, 0.0f });
+    assert(direction.x == 0.0f && direction.y == 0.0f &&
+           direction.z == 0.0f);
+    system.center.x = INFINITY;
+    direction = SolarSystemApparentDirection(&system, (Vector3){ 0 });
+    assert(direction.x == 0.0f && direction.y == 0.0f &&
+           direction.z == 0.0f);
 }
 
 static void TestGeneratedSystems(void)
