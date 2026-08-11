@@ -656,10 +656,28 @@ double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index
 bool SolarSystemPhysicalSummaryForSystem(
     const SolarSystemDef *sys, SolarSystemPhysicalSummary *out)
 {
+    if (!out) return false;
+    *out = (SolarSystemPhysicalSummary){ 0 };
+
     SolarSystemPhysicalSnapshot scratch;
     const SolarSystemPhysicalSnapshot *snapshot =
         SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
-    if (!snapshot || !out) return false;
+    if (!snapshot || snapshot->summary.stellarCount <= 0 ||
+        snapshot->summary.stellarCount > MAX_SOLAR_LIGHTS ||
+        !(snapshot->summary.totalMassKg > 0.0) ||
+        !isfinite(snapshot->summary.totalMassKg) ||
+        !(snapshot->summary.totalLuminositySolar > 0.0f) ||
+        !isfinite(snapshot->summary.totalLuminositySolar) ||
+        snapshot->summary.ageGyr < 0.0f ||
+        !isfinite(snapshot->summary.ageGyr)) {
+        return false;
+    }
+    for (int i = 0; i < snapshot->summary.stellarCount; i++) {
+        if (!(snapshot->summary.stellarLuminositiesSolar[i] > 0.0f) ||
+            !isfinite(snapshot->summary.stellarLuminositiesSolar[i])) {
+            return false;
+        }
+    }
     *out = snapshot->summary;
     return true;
 }
@@ -1123,7 +1141,10 @@ bool SolarPlanetSatelliteOrbit(const SolarSystemDef *system, int planetIndex,
                                const PlanetProfile *profile,
                                SpaceSatelliteOrbit *out)
 {
-    if (!system || !profile || !out || planetIndex < 0 ||
+    if (!out) return false;
+    *out = (SpaceSatelliteOrbit){ 0 };
+    if (!system || !profile || system->planetCount < 0 ||
+        system->planetCount > MAX_SOLAR_PLANETS || planetIndex < 0 ||
         planetIndex >= system->planetCount) {
         return false;
     }
@@ -1139,8 +1160,20 @@ bool SolarPlanetSatelliteOrbit(const SolarSystemDef *system, int planetIndex,
         }
         snapshot = &scratch;
     }
-    *out = snapshot->satelliteOrbits[planetIndex];
-    return out->exists;
+    const SpaceSatelliteOrbit orbit = snapshot->satelliteOrbits[planetIndex];
+    if (!orbit.exists || !(orbit.semiMajorAxisKm > 0.0) ||
+        !isfinite(orbit.semiMajorAxisKm) || orbit.eccentricity < 0.0 ||
+        orbit.eccentricity >= 1.0 || !isfinite(orbit.eccentricity) ||
+        !isfinite(orbit.inclinationRad) ||
+        !isfinite(orbit.longitudeAscendingNodeRad) ||
+        !isfinite(orbit.argumentPeriapsisRad) ||
+        !isfinite(orbit.meanAnomalyAtEpochRad) || !(orbit.radiusKm > 0.0) ||
+        !isfinite(orbit.radiusKm) || !(orbit.massKg > 0.0) ||
+        !isfinite(orbit.massKg)) {
+        return false;
+    }
+    *out = orbit;
+    return true;
 }
 
 static float PlanetRingShadowForPoint(Vector3 surfacePosition, Vector3 sunDirection)

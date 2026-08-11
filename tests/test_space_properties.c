@@ -540,9 +540,48 @@ static void TestRuntimeInputContracts(void)
     assert(SolarSystemRuntimeLightSources(&runtime, sources,
                                           MAX_SOLAR_LIGHTS) == 0);
 
+    SolarStellarBody stellarBodies[MAX_SOLAR_LIGHTS];
+    const SolarStellarBody clearedBodies[MAX_SOLAR_LIGHTS] = { 0 };
+    memset(stellarBodies, 0xa5, sizeof(stellarBodies));
+    assert(SolarSystemStellarBodiesAtTime(
+               &system, NAN, stellarBodies, MAX_SOLAR_LIGHTS) == 0);
+    assert(memcmp(stellarBodies, clearedBodies, sizeof(stellarBodies)) == 0);
+
+    Vector3 originalCenter = system.center;
+    system.center.x = NAN;
+    memset(stellarBodies, 0xa5, sizeof(stellarBodies));
+    assert(SolarSystemStellarBodiesAtTime(
+               &system, 0.0, stellarBodies, MAX_SOLAR_LIGHTS) == 0);
+    assert(memcmp(stellarBodies, clearedBodies, sizeof(stellarBodies)) == 0);
+    system.center = originalCenter;
+    double originalStellarMassKg =
+        system.physicalSnapshot.stellarProfiles[0].massKg;
+    system.physicalSnapshot.stellarProfiles[0].massKg = NAN;
+    memset(stellarBodies, 0xa5, sizeof(stellarBodies));
+    assert(SolarSystemStellarBodiesAtTime(
+               &system, 0.0, stellarBodies, MAX_SOLAR_LIGHTS) == 0);
+    assert(memcmp(stellarBodies, clearedBodies, sizeof(stellarBodies)) == 0);
+    system.physicalSnapshot.stellarProfiles[0].massKg = originalStellarMassKg;
+
+    SolarSystemPhysicalSummary summary;
+    const SolarSystemPhysicalSummary clearedSummary = { 0 };
+    memset(&summary, 0xa5, sizeof(summary));
+    assert(!SolarSystemPhysicalSummaryForSystem(NULL, &summary));
+    assert(memcmp(&summary, &clearedSummary, sizeof(summary)) == 0);
+    SolarSystemPhysicalSummary originalSummary = system.physicalSnapshot.summary;
+    system.physicalSnapshot.summary.totalMassKg = NAN;
+    memset(&summary, 0xa5, sizeof(summary));
+    assert(!SolarSystemPhysicalSummaryForSystem(&system, &summary));
+    assert(memcmp(&summary, &clearedSummary, sizeof(summary)) == 0);
+    system.physicalSnapshot.summary = originalSummary;
+    system.physicalSnapshot.summary.stellarLuminositiesSolar[0] = INFINITY;
+    memset(&summary, 0xa5, sizeof(summary));
+    assert(!SolarSystemPhysicalSummaryForSystem(&system, &summary));
+    assert(memcmp(&summary, &clearedSummary, sizeof(summary)) == 0);
+    system.physicalSnapshot.summary = originalSummary;
+
     SolarPlanetOrbitalState orbitalState;
     assert(SolarSystemPlanetStateAtTime(&system, 0, 0.0, &orbitalState));
-    Vector3 originalCenter = system.center;
     system.center.x = NAN;
     assert(!SolarSystemPlanetStateAtTime(&system, 0, 0.0, &orbitalState));
     assert(orbitalState.center.x == 0.0f && orbitalState.velocity.x == 0.0f);
@@ -551,7 +590,39 @@ static void TestRuntimeInputContracts(void)
     system.planetCount = MAX_SOLAR_PLANETS + 1;
     assert(!SolarSystemPlanetStateAtTime(&system, MAX_SOLAR_PLANETS, 0.0,
                                          &orbitalState));
+
+    SpaceSatelliteOrbit satelliteOrbit;
+    const SpaceSatelliteOrbit clearedSatelliteOrbit = { 0 };
+    PlanetProfile profile = { 0 };
+    memset(&satelliteOrbit, 0xa5, sizeof(satelliteOrbit));
+    assert(!SolarPlanetSatelliteOrbit(
+        &system, MAX_SOLAR_PLANETS, &profile, &satelliteOrbit));
+    assert(memcmp(&satelliteOrbit, &clearedSatelliteOrbit,
+                  sizeof(satelliteOrbit)) == 0);
     system.planetCount = originalPlanetCount;
+    memset(&satelliteOrbit, 0xa5, sizeof(satelliteOrbit));
+    assert(!SolarPlanetSatelliteOrbit(&system, 0, NULL, &satelliteOrbit));
+    assert(memcmp(&satelliteOrbit, &clearedSatelliteOrbit,
+                  sizeof(satelliteOrbit)) == 0);
+    assert(!SolarPlanetSatelliteOrbit(&system, 0, &profile, NULL));
+    profile = SolarPlanetProfile(&system, 0);
+    bool originalSatellitesBuilt = system.physicalSnapshot.satellitesBuilt;
+    SpaceSatelliteOrbit originalSatelliteOrbit =
+        system.physicalSnapshot.satelliteOrbits[0];
+    system.physicalSnapshot.satellitesBuilt = true;
+    system.physicalSnapshot.satelliteOrbits[0] = (SpaceSatelliteOrbit){
+        .exists = true,
+        .semiMajorAxisKm = NAN,
+        .eccentricity = 0.1,
+        .radiusKm = 1000.0,
+        .massKg = 1.0e20
+    };
+    memset(&satelliteOrbit, 0xa5, sizeof(satelliteOrbit));
+    assert(!SolarPlanetSatelliteOrbit(&system, 0, &profile, &satelliteOrbit));
+    assert(memcmp(&satelliteOrbit, &clearedSatelliteOrbit,
+                  sizeof(satelliteOrbit)) == 0);
+    system.physicalSnapshot.satellitesBuilt = originalSatellitesBuilt;
+    system.physicalSnapshot.satelliteOrbits[0] = originalSatelliteOrbit;
     assert(!SolarSystemPlanetStateAtTime(&system, 0, NAN, &orbitalState));
 
     Vector3 direction = SolarSystemApparentDirection(

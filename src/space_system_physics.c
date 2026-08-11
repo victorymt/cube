@@ -7,6 +7,11 @@
 #include <math.h>
 #include <string.h>
 
+static bool SolarSystemPhysicsVectorIsFinite(Vector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
 static uint32_t SolarLightHash(const SolarSystemDef *sys)
 {
     return WorldHash2D(sys->anchorX * 113 + 41, sys->anchorZ * 71 + 19);
@@ -267,7 +272,13 @@ int SolarSystemPhysicalSnapshotStellarBodiesAtTime(
     const SolarSystemDef *sys, const SolarSystemPhysicalSnapshot *snapshot,
     double simulationTime, SolarStellarBody *out, int maxCount)
 {
-    if (!sys || !snapshot || !snapshot->valid || !out || maxCount <= 0) {
+    if (!out || maxCount <= 0) return 0;
+    int clearCount = maxCount < MAX_SOLAR_LIGHTS
+        ? maxCount : MAX_SOLAR_LIGHTS;
+    memset(out, 0, sizeof(*out) * (size_t)clearCount);
+    if (!sys || !snapshot || !snapshot->valid ||
+        !isfinite(simulationTime) ||
+        !SolarSystemPhysicsVectorIsFinite(sys->center)) {
         return 0;
     }
     int count = snapshot->summary.stellarCount;
@@ -278,20 +289,33 @@ int SolarSystemPhysicalSnapshotStellarBodiesAtTime(
                              MAX_SOLAR_LIGHTS) != count) {
         return 0;
     }
-    memset(out, 0, sizeof(*out) * (size_t)count);
     for (int i = 0; i < count; i++) {
+        const StellarProfile *star = &snapshot->stellarProfiles[i];
+        float proxyRadius = i == 0 ? (float)sys->starProxyRadius :
+                                    (float)SolarSystemStellarVisualRadius(star);
+        if (!(star->massKg > 0.0) || !isfinite(star->massKg) ||
+            !(star->radiusKm > 0.0) || !isfinite(star->radiusKm) ||
+            !(star->luminositySolar > 0.0f) ||
+            !isfinite(star->luminositySolar) ||
+            !(proxyRadius > 0.0f) || !isfinite(proxyRadius)) {
+            memset(out, 0, sizeof(*out) * (size_t)clearCount);
+            return 0;
+        }
         out[i] = (SolarStellarBody){
             .center = Vector3Add(sys->center, states[i].offsetGame),
             .velocity = states[i].velocityGame,
-            .stellar = snapshot->stellarProfiles[i],
-            .spectrum = snapshot->stellarProfiles[i].spectrum,
-            .spaceProxyRadius = i == 0 ? (float)sys->starProxyRadius :
-                                        (float)SolarSystemStellarVisualRadius(
-                                            &snapshot->stellarProfiles[i]),
-            .luminosity = snapshot->stellarProfiles[i].luminositySolar,
+            .stellar = *star,
+            .spectrum = star->spectrum,
+            .spaceProxyRadius = proxyRadius,
+            .luminosity = star->luminositySolar,
             .index = i,
             .primary = i == 0
         };
+        if (!SolarSystemPhysicsVectorIsFinite(out[i].center) ||
+            !SolarSystemPhysicsVectorIsFinite(out[i].velocity)) {
+            memset(out, 0, sizeof(*out) * (size_t)clearCount);
+            return 0;
+        }
     }
     return count;
 }
