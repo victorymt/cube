@@ -1021,6 +1021,15 @@ static void TestSpaceQueryInputContracts(void)
     assert(SpaceSatellitesNear((Vector3){ 0 }, FLT_MAX,
                                satellites, 2) == 0);
     assert(!FindNearestSystem((Vector3){ 0 }, 100.0f, NULL, NULL));
+    assert(HomeWorldSpaceFade(
+               (Vector3){ NAN, 0.0f, 0.0f }) == 0.0f);
+    assert(PlanetWorldAtmosphereFade(
+               (Vector3){ 0.0f, INFINITY, 0.0f }) == 0.0f);
+    assert(!HomeWorldCanEnter((Vector3){ 0.0f, 0.0f, NAN }));
+    Vector3 skyDirection = PlanetWorldSkyDirection(
+        (Vector3){ NAN, 0.0f, 0.0f });
+    assert(skyDirection.x == 0.0f && skyDirection.y == 0.0f &&
+           skyDirection.z == 0.0f);
 
     SpaceBodyInfo picked;
     memset(&picked, 0xa5, sizeof(picked));

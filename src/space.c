@@ -221,6 +221,7 @@ float HomeWorldProxyRadius(void)
 
 float HomeWorldSpaceFade(Vector3 position)
 {
+    if (!SpaceVectorIsFinite(position)) return 0.0f;
     if (planetWorld.active) return 0.0f;
     if (!homeWorld.surfaceActive) return 1.0f;
     return Clamp((position.y - SPACE_EXIT_Y) / (SPACE_ENTER_Y - SPACE_EXIT_Y),
@@ -244,6 +245,7 @@ static float PlanetAtmosphereDepth(const PlanetProfile *profile)
 
 float PlanetWorldAtmosphereFade(Vector3 position)
 {
+    if (!SpaceVectorIsFinite(position)) return 0.0f;
     if (!planetWorld.active) return 0.0f;
 
     float depth = PlanetAtmosphereDepth(&planetWorld.profile);
@@ -1646,6 +1648,7 @@ Vector3 PlanetWorldSpaceReference(void)
 
 Vector3 PlanetWorldSkyDirection(Vector3 worldDirection)
 {
+    if (!SpaceVectorIsFinite(worldDirection)) return Vector3Zero();
     if (!planetWorld.active) return worldDirection;
 
     Vector3 up = Vector3Subtract(planetWorld.returnPosition, planetWorld.bodyCenter);
@@ -1665,6 +1668,7 @@ Vector3 PlanetWorldSkyDirection(Vector3 worldDirection)
 
 static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection)
 {
+    if (!SpaceVectorIsFinite(skyDirection)) return Vector3Zero();
     if (!planetWorld.active) return skyDirection;
 
     Vector3 up = Vector3Subtract(planetWorld.returnPosition, planetWorld.bodyCenter);
