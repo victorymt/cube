@@ -666,6 +666,62 @@ int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
         sys, snapshot, simulationTime, out, maxCount);
 }
 
+static bool SolarSystemRuntimeGeometryIsFinite(
+    const SolarSystemRuntimeState *runtime)
+{
+    if (!runtime || !isfinite(runtime->simulationTime) ||
+        runtime->stellarCount <= 0 || runtime->stellarCount > MAX_SOLAR_LIGHTS ||
+        runtime->planetCount < 0 || runtime->planetCount > MAX_SOLAR_PLANETS ||
+        !(runtime->totalStellarMassKg > 0.0) ||
+        !isfinite(runtime->totalStellarMassKg)) {
+        return false;
+    }
+    for (int star = 0; star < runtime->stellarCount; star++) {
+        const SolarStellarBody *body = &runtime->stars[star];
+        if (!isfinite(body->center.x) || !isfinite(body->center.y) ||
+            !isfinite(body->center.z) || !isfinite(body->velocity.x) ||
+            !isfinite(body->velocity.y) || !isfinite(body->velocity.z) ||
+            !(body->stellar.massKg > 0.0) ||
+            !isfinite(body->stellar.massKg) ||
+            !(body->stellar.radiusKm > 0.0) ||
+            !isfinite(body->stellar.radiusKm) ||
+            !(body->stellar.luminositySolar > 0.0f) ||
+            !isfinite(body->stellar.luminositySolar) ||
+            !(body->luminosity > 0.0f) || !isfinite(body->luminosity) ||
+            !(body->spaceProxyRadius > 0.0f) ||
+            !isfinite(body->spaceProxyRadius)) {
+            return false;
+        }
+    }
+    for (int planet = 0; planet < runtime->planetCount; planet++) {
+        const SolarPlanetRuntimeState *state = &runtime->planets[planet];
+        if (!state->valid || !isfinite(state->center.x) ||
+            !isfinite(state->center.y) || !isfinite(state->center.z) ||
+            !isfinite(state->velocity.x) || !isfinite(state->velocity.y) ||
+            !isfinite(state->velocity.z) ||
+            !isfinite(state->currentIrradianceEarth) ||
+            state->currentIrradianceEarth < 0.0f) {
+            return false;
+        }
+        if (state->satelliteOrbit.exists &&
+            (!isfinite(state->satelliteState.positionKm.x) ||
+             !isfinite(state->satelliteState.positionKm.y) ||
+             !isfinite(state->satelliteState.positionKm.z) ||
+             !isfinite(state->satelliteState.velocityKmPerSecond.x) ||
+             !isfinite(state->satelliteState.velocityKmPerSecond.y) ||
+             !isfinite(state->satelliteState.velocityKmPerSecond.z) ||
+             !isfinite(state->satelliteCenter.x) ||
+             !isfinite(state->satelliteCenter.y) ||
+             !isfinite(state->satelliteCenter.z) ||
+             !isfinite(state->satelliteVelocity.x) ||
+             !isfinite(state->satelliteVelocity.y) ||
+             !isfinite(state->satelliteVelocity.z))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool SolarSystemEvaluateUncachedAtTime(
     const SolarSystemDef *sys, double simulationTime,
     SolarSystemRuntimeState *out)
@@ -752,6 +808,10 @@ static bool SolarSystemEvaluateUncachedAtTime(
         if (!planet->valid) return false;
     }
     out->valid = true;
+    if (!SolarSystemRuntimeGeometryIsFinite(out)) {
+        *out = (SolarSystemRuntimeState){ 0 };
+        return false;
+    }
     return true;
 }
 
@@ -795,7 +855,9 @@ static bool SolarSystemEvaluateCachedAtTime(
     const SolarSystemDef *system, double simulationTime,
     SolarSystemRuntimeState *out)
 {
-    if (!system || !out) return false;
+    if (!out) return false;
+    *out = (SolarSystemRuntimeState){ 0 };
+    if (!system) return false;
     if (!system->physicalSnapshot.valid) {
         return SolarSystemEvaluateUncachedAtTime(system, simulationTime, out);
     }
@@ -803,7 +865,7 @@ static bool SolarSystemEvaluateCachedAtTime(
     if (SpaceQueryRuntimeCacheGet(worldSeed, system->anchorX,
                                   system->anchorZ, simulationTime, out)) {
         SolarSystemRuntimeProject(system, out);
-        return out->valid;
+        return out->valid && SolarSystemRuntimeGeometryIsFinite(out);
     }
 
     SolarSystemRuntimeState computed;
@@ -816,7 +878,11 @@ static bool SolarSystemEvaluateCachedAtTime(
                               simulationTime, &computed);
     *out = computed;
     SolarSystemRuntimeProject(system, out);
-    return out->valid;
+    if (!out->valid || !SolarSystemRuntimeGeometryIsFinite(out)) {
+        *out = (SolarSystemRuntimeState){ 0 };
+        return false;
+    }
+    return true;
 }
 
 bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,

@@ -515,6 +515,25 @@ static void AssertRuntimeState(const SolarSystemDef *system,
     assert(memcmp(&runtime, &repeated, sizeof(runtime)) == 0);
 }
 
+static void TestRuntimeInputContracts(void)
+{
+    SolarSystemRuntimeState runtime;
+    const SolarSystemRuntimeState cleared = { 0 };
+
+    memset(&runtime, 0xa5, sizeof(runtime));
+    assert(!SolarSystemEvaluateAtTime(NULL, 0.0, &runtime));
+    assert(memcmp(&runtime, &cleared, sizeof(runtime)) == 0);
+
+    SolarSystemDef system;
+    SetPropertySeed(DEFAULT_WORLD_SEED);
+    assert(StarSystemAt(0, 0, &system));
+    assert(!SolarSystemEvaluateAtTime(&system, 0.0, NULL));
+
+    memset(&runtime, 0xa5, sizeof(runtime));
+    assert(!SolarSystemEvaluateAtTime(&system, NAN, &runtime));
+    assert(memcmp(&runtime, &cleared, sizeof(runtime)) == 0);
+}
+
 static void TestGeneratedSystems(void)
 {
     static const uint32_t seeds[] = {
@@ -1065,6 +1084,7 @@ static void TestConcurrentSpaceQueries(void)
 int main(void)
 {
     TestHomeScaleDiagnostics();
+    TestRuntimeInputContracts();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
     TestDeterministicSpaceQueries();
