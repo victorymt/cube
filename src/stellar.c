@@ -75,6 +75,28 @@ static float MainSequenceRadius(float massSolar)
                               powf(massSolar, 0.57f);
 }
 
+static float MainSequenceAgeLuminosityScale(float lifetimeProgress)
+{
+    const float solarProgress = 0.457f;
+    float progress = StellarClamp(lifetimeProgress, 0.0f, 1.0f);
+    float scale = 0.70f + 0.40f * progress +
+                  0.55f * progress * progress;
+    float solarScale = 0.70f + 0.40f * solarProgress +
+                       0.55f * solarProgress * solarProgress;
+    return scale / solarScale;
+}
+
+static float MainSequenceAgeRadiusScale(float lifetimeProgress)
+{
+    const float solarProgress = 0.457f;
+    float progress = StellarClamp(lifetimeProgress, 0.0f, 1.0f);
+    float scale = 0.86f + 0.20f * progress +
+                  0.24f * progress * progress;
+    float solarScale = 0.86f + 0.20f * solarProgress +
+                       0.24f * solarProgress * solarProgress;
+    return scale / solarScale;
+}
+
 static SpectrumType MainSequenceSpectrum(float temperatureK)
 {
     if (temperatureK < 4000.0f) return SPECTRUM_RED_DWARF;
@@ -95,12 +117,17 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
 
     float mass = StellarClamp(initialMassSolar, 0.08f, 50.0f);
     float age = fmaxf(ageGyr, 0.0f);
-    float mainLuminosity = MainSequenceLuminosity(mass);
-    float mainRadius = MainSequenceRadius(mass);
+    float referenceLuminosity = MainSequenceLuminosity(mass);
+    float referenceRadius = MainSequenceRadius(mass);
+    float mainLifetime = 10.0f * mass / referenceLuminosity;
+    float lifetimeProgress = StellarClamp(age / mainLifetime, 0.0f, 1.0f);
+    float mainLuminosity = referenceLuminosity *
+        MainSequenceAgeLuminosityScale(lifetimeProgress);
+    float mainRadius = referenceRadius *
+        MainSequenceAgeRadiusScale(lifetimeProgress);
     // Stefan-Boltzmann then makes temperature a consequence of L and R.
     float mainTemperature = STELLAR_SOLAR_TEMPERATURE_K *
                             powf(mainLuminosity / (mainRadius * mainRadius), 0.25f);
-    float mainLifetime = 10.0f * mass / mainLuminosity;
     float giantDuration = StellarClamp(mainLifetime * 0.08f, 0.0001f, 0.80f);
     float luminousLifetime = mainLifetime + giantDuration;
     if (age > luminousLifetime) return false;
@@ -123,10 +150,13 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
 
     float phase = StellarClamp((age - mainLifetime) / giantDuration, 0.0f, 1.0f);
     float temperatureVariation = (StellarUnit(seed ^ 0x51ed270bu) - 0.5f) * 120.0f;
-    float giantTemperature = StellarClamp(4800.0f - 1350.0f * phase +
-                                           temperatureVariation,
-                                           3200.0f, 5000.0f);
-    float giantRadius = mainRadius * (8.0f + 68.0f * powf(phase, 0.72f));
+    float targetTemperature = StellarClamp(
+        4700.0f - 1250.0f * phase + temperatureVariation,
+        3200.0f, 5000.0f);
+    float giantTemperature = mainTemperature +
+        (targetTemperature - mainTemperature) * powf(phase, 0.45f);
+    float giantRadius = mainRadius *
+        (1.0f + 58.0f * powf(phase, 0.72f));
     float temperatureRatio = giantTemperature / STELLAR_SOLAR_TEMPERATURE_K;
 
     out->spectrum = SPECTRUM_RED_GIANT;

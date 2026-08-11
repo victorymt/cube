@@ -2,6 +2,7 @@
 #include "space_barycenter.h"
 #include "space_physics.h"
 #include "space_query_cache.h"
+#include "space_system.h"
 #include "space_system_physics.h"
 #include "space_units.h"
 #include "weather_model.h"
@@ -968,6 +969,59 @@ static void TestExtremeAnchorDeterminism(void)
     assert(generatedCount > 0);
 }
 
+static void TestStellarAgeClimateCausality(void)
+{
+    StellarProfile youngStar;
+    StellarProfile oldStar;
+    assert(StellarProfileAtAge(1.0f, 0.5f, 0x13579bdu, &youngStar));
+    assert(StellarProfileAtAge(1.0f, 9.5f, 0x13579bdu, &oldStar));
+    assert(oldStar.luminositySolar > youngStar.luminositySolar);
+
+    SpaceSystemFormationInput formationInput = {
+        .seed = 0x2468aceu,
+        .stellarMassSolar = 1.0f,
+        .stellarAgeGyr = youngStar.ageGyr,
+        .stellarCount = 1,
+        .innerStabilityLimitGame = 180.0f,
+        .outerLimitGame = 650.0f
+    };
+    SpaceSystemFormation youngFormation;
+    SpaceSystemFormation oldFormation;
+    formationInput.stellarLuminositySolar = youngStar.luminositySolar;
+    assert(SpaceSystemFormationGenerate(&formationInput, &youngFormation));
+    formationInput.stellarAgeGyr = oldStar.ageGyr;
+    formationInput.stellarLuminositySolar = oldStar.luminositySolar;
+    assert(SpaceSystemFormationGenerate(&formationInput, &oldFormation));
+    assert(oldFormation.snowLineGame > youngFormation.snowLineGame);
+    assert(oldFormation.habitableInnerGame >
+           youngFormation.habitableInnerGame);
+    assert(oldFormation.habitableOuterGame >
+           youngFormation.habitableOuterGame);
+
+    PlanetProfileGenerationInput planetInput = {
+        .seed = 0x10203040u,
+        .semiMajorAxisKm = SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+        .physicalRadiusKm = SPACE_UNITS_EARTH_RADIUS_KM,
+        .formationMassEarth = 1.0f,
+        .spaceProxyRadius = 44.0f,
+        .stellarAgeGyr = youngStar.ageGyr,
+        .orbitalEccentricity = 0.02,
+        .orbitalPeriodGameTime = 365.25f,
+        .stellarCount = 1,
+        .planetIndex = 0
+    };
+    PlanetProfile youngPlanet;
+    PlanetProfile oldPlanet;
+    planetInput.stellarLuminositiesSolar[0] = youngStar.luminositySolar;
+    assert(PlanetProfileGenerate(&planetInput, &youngPlanet));
+    planetInput.stellarAgeGyr = oldStar.ageGyr;
+    planetInput.stellarLuminositiesSolar[0] = oldStar.luminositySolar;
+    assert(PlanetProfileGenerate(&planetInput, &oldPlanet));
+    assert(oldPlanet.receivedIrradiance > youngPlanet.receivedIrradiance);
+    assert(oldPlanet.radiativeTempK > youngPlanet.radiativeTempK);
+    assert(oldPlanet.equilibriumTempK > youngPlanet.equilibriumTempK);
+}
+
 static void TestHomeScaleDiagnostics(void)
 {
     SpaceScaleDiagnostics scale;
@@ -1684,6 +1738,7 @@ int main(void)
     TestQueryCacheInputContracts();
     TestGeneratedSystems();
     TestExtremeAnchorDeterminism();
+    TestStellarAgeClimateCausality();
     TestSaveLoadTimeDeterminism();
     TestSpaceLoadFailureAtomicity();
     TestDeterministicSpaceQueries();

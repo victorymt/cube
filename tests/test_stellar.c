@@ -39,6 +39,24 @@ static void TestMassRelations(void)
     assert(high.mainSequenceLifetimeGyr < 2.0f);
 }
 
+static void TestMainSequenceAgeEvolution(void)
+{
+    StellarProfile young;
+    StellarProfile solarAge;
+    StellarProfile old;
+    assert(StellarProfileAtAge(1.0f, 0.1f, 7u, &young));
+    assert(StellarProfileAtAge(1.0f, 4.57f, 7u, &solarAge));
+    assert(StellarProfileAtAge(1.0f, 9.8f, 7u, &old));
+    assert(young.stage == STELLAR_STAGE_MAIN_SEQUENCE);
+    assert(solarAge.stage == STELLAR_STAGE_MAIN_SEQUENCE);
+    assert(old.stage == STELLAR_STAGE_MAIN_SEQUENCE);
+    assert(young.luminositySolar < solarAge.luminositySolar);
+    assert(solarAge.luminositySolar < old.luminositySolar);
+    assert(young.radiusSolar < solarAge.radiusSolar);
+    assert(solarAge.radiusSolar < old.radiusSolar);
+    assert(young.temperatureK < old.temperatureK);
+}
+
 static void TestGiantEvolution(void)
 {
     StellarProfile mainSequence;
@@ -115,6 +133,7 @@ int main(void)
 {
     TestSolarProfile();
     TestMassRelations();
+    TestMainSequenceAgeEvolution();
     TestGiantEvolution();
     TestStefanBoltzmannConsistency();
     TestInitialMassFunction();
