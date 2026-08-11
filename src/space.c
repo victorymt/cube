@@ -788,7 +788,8 @@ static bool SolarSystemRuntimeGeometryIsFinite(
             !isfinite(body->stellar.luminositySolar) ||
             !(body->luminosity > 0.0f) || !isfinite(body->luminosity) ||
             !(body->spaceProxyRadius > 0.0f) ||
-            !isfinite(body->spaceProxyRadius)) {
+            !isfinite(body->spaceProxyRadius) ||
+            !SpaceRemnantStateIsValid(&body->remnant)) {
             return false;
         }
     }
@@ -1247,6 +1248,94 @@ bool SolarSystemEvaluateAtElapsedTime(const SolarSystemDef *sys,
     }
     return SolarSystemEvaluateCachedSnapshotAtTime(
         sys, &evolved, SpacePeriodicSimulationTime(elapsedTime), out);
+}
+
+static bool SpaceRemnantQueryPositionIsFinite(Vector3 position)
+{
+    const float coordinateLimit = (float)(INT_MAX - 4096);
+    return SpaceVectorIsFinite(position) &&
+           fabsf(position.x) <= coordinateLimit &&
+           fabsf(position.y) <= coordinateLimit &&
+           fabsf(position.z) <= coordinateLimit;
+}
+
+bool SolarSystemRemnantEnvironmentAt(
+    const SolarSystemRuntimeState *runtime, Vector3 position,
+    SpaceRemnantEnvironment *out)
+{
+    if (!out) return false;
+    *out = (SpaceRemnantEnvironment){
+        .nearestShellDistanceGame = INFINITY
+    };
+    if (!runtime || !runtime->valid ||
+        !SpaceRemnantQueryPositionIsFinite(position) ||
+        runtime->stellarCount <= 0 ||
+        runtime->stellarCount > MAX_SOLAR_LIGHTS) {
+        *out = (SpaceRemnantEnvironment){ 0 };
+        return false;
+    }
+    for (int i = 0; i < runtime->stellarCount; i++) {
+        const SolarStellarBody *star = &runtime->stars[i];
+        if (!SpaceRemnantStateIsValid(&star->remnant)) {
+            *out = (SpaceRemnantEnvironment){ 0 };
+            return false;
+        }
+        if (!star->remnant.active) continue;
+        double distanceGame = Vector3Distance(star->center, position);
+        float hazard = SpaceRemnantRadiationHazardAtDistance(
+            &star->remnant, distanceGame);
+        float ejecta = SpaceRemnantEjectaDensityAtDistance(
+            &star->remnant, distanceGame);
+        out->active = true;
+        out->remnantCount++;
+        out->radiationHazard = 1.0f -
+            (1.0f - out->radiationHazard) * (1.0f - hazard);
+        out->ejectaDensity = fmaxf(out->ejectaDensity, ejecta);
+        float shellDistance = fabsf(
+            (float)distanceGame - star->remnant.proxyShockRadiusGame);
+        out->nearestShellDistanceGame = fminf(
+            out->nearestShellDistanceGame, shellDistance);
+    }
+    if (!out->active) out->nearestShellDistanceGame = 0.0f;
+    if (!SpaceRemnantEnvironmentIsValid(out)) {
+        *out = (SpaceRemnantEnvironment){ 0 };
+        return false;
+    }
+    return true;
+}
+
+bool SpaceRemnantEnvironmentAt(Vector3 position,
+                               SpaceRemnantEnvironment *out)
+{
+    if (!out) return false;
+    *out = (SpaceRemnantEnvironment){ 0 };
+    if (!SpaceRemnantQueryPositionIsFinite(position)) return false;
+    out->nearestShellDistanceGame = INFINITY;
+    SpaceBodyInfo bodies[STAR_NAVIGATION_MAX_SYSTEMS];
+    int count = SpaceBodiesNear(
+        position, SPACE_REMNANT_MAX_PROXY_RADIUS_GAME + 100.0f,
+        bodies, STAR_NAVIGATION_MAX_SYSTEMS);
+    for (int i = 0; i < count; i++) {
+        if (!bodies[i].isStar || !bodies[i].remnant.active) continue;
+        float hazard = SpaceRemnantRadiationHazardAtDistance(
+            &bodies[i].remnant, bodies[i].dist);
+        float ejecta = SpaceRemnantEjectaDensityAtDistance(
+            &bodies[i].remnant, bodies[i].dist);
+        out->active = true;
+        out->remnantCount++;
+        out->radiationHazard = 1.0f -
+            (1.0f - out->radiationHazard) * (1.0f - hazard);
+        out->ejectaDensity = fmaxf(out->ejectaDensity, ejecta);
+        out->nearestShellDistanceGame = fminf(
+            out->nearestShellDistanceGame,
+            fabsf(bodies[i].dist - bodies[i].remnant.proxyShockRadiusGame));
+    }
+    if (!out->active) out->nearestShellDistanceGame = 0.0f;
+    if (!SpaceRemnantEnvironmentIsValid(out)) {
+        *out = (SpaceRemnantEnvironment){ 0 };
+        return false;
+    }
+    return true;
 }
 
 int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
@@ -2175,7 +2264,8 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .systemAnchorX = ax,
                     .systemAnchorZ = az,
                     .hostStar = runtime.stars[starIndex].stellar,
-                    .spectrum = runtime.stars[starIndex].spectrum
+                    .spectrum = runtime.stars[starIndex].spectrum,
+                    .remnant = runtime.stars[starIndex].remnant
                 };
                 if (starIndex == 0) {
                     snprintf(body.name, sizeof(body.name), "%s",

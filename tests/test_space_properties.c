@@ -1508,6 +1508,21 @@ static void AssertDisruptedSystem(
     assert(memcmp(&runtime, &replay, sizeof(runtime)) == 0);
     assert(runtime.stellarCount == count);
     AssertSystemCenterOfMass(system, runtime.stars, runtime.stellarCount);
+    SpaceRemnantEnvironment coreEnvironment;
+    assert(SolarSystemRemnantEnvironmentAt(
+        &runtime, runtime.stars[0].center, &coreEnvironment));
+    assert(coreEnvironment.active && coreEnvironment.remnantCount > 0);
+    assert(coreEnvironment.radiationHazard > 0.0f);
+    Vector3 farFromRemnant = runtime.stars[0].center;
+    farFromRemnant.x += runtime.stars[0].remnant.proxyShockRadiusGame * 8.0f;
+    SpaceRemnantEnvironment farEnvironment;
+    assert(SolarSystemRemnantEnvironmentAt(
+        &runtime, farFromRemnant, &farEnvironment));
+    assert(farEnvironment.radiationHazard <
+           coreEnvironment.radiationHazard);
+    assert(coreEnvironment.nearestShellDistanceGame > 0.0f);
+    assert(farEnvironment.nearestShellDistanceGame >
+           coreEnvironment.nearestShellDistanceGame);
 
     int ejected = 0;
     for (int planet = 0; planet < system->planetCount; planet++) {
@@ -1728,6 +1743,22 @@ static void TestSpaceQueryInputContracts(void)
                                    &nearest, &nearestDistance));
         assert(!nearest.exists && nearestDistance == 0.0f);
     }
+    SpaceRemnantEnvironment remnantEnvironment;
+    const SpaceRemnantEnvironment clearedRemnantEnvironment = { 0 };
+    for (size_t i = 0; i < sizeof(invalidPositions) /
+                            sizeof(invalidPositions[0]); i++) {
+        memset(&remnantEnvironment, 0xa5, sizeof(remnantEnvironment));
+        assert(!SpaceRemnantEnvironmentAt(
+            invalidPositions[i], &remnantEnvironment));
+        assert(memcmp(&remnantEnvironment, &clearedRemnantEnvironment,
+                      sizeof(remnantEnvironment)) == 0);
+    }
+    SolarSystemRuntimeState invalidRuntime = { 0 };
+    memset(&remnantEnvironment, 0xa5, sizeof(remnantEnvironment));
+    assert(!SolarSystemRemnantEnvironmentAt(
+        &invalidRuntime, (Vector3){ 0 }, &remnantEnvironment));
+    assert(memcmp(&remnantEnvironment, &clearedRemnantEnvironment,
+                  sizeof(remnantEnvironment)) == 0);
     assert(StarSystemsNear((Vector3){ 0 }, FLT_MAX, systems, 2) == 0);
     assert(SpaceBodiesNear((Vector3){ 0 }, FLT_MAX, bodies, 2) == 0);
     assert(SpaceSatellitesNear((Vector3){ 0 }, FLT_MAX,

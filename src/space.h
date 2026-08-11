@@ -4,6 +4,7 @@
 #include "planet_profile.h"
 #include "space_barycenter.h"
 #include "space_orbit.h"
+#include "space_remnant.h"
 #include "stellar.h"
 #include "space_satellite.h"
 #include "types.h"
@@ -40,6 +41,7 @@ typedef struct SolarStellarBody {
     SpectrumType spectrum;
     float spaceProxyRadius;
     float luminosity;
+    SpaceRemnantState remnant;
     int index;
     bool primary;
 } SolarStellarBody;
@@ -168,6 +170,7 @@ typedef struct SpaceBodyInfo {
     int systemAnchorX;
     int systemAnchorZ;
     uint32_t worldSeed;
+    SpaceRemnantState remnant;
     char name[32];
     StellarProfile hostStar;
     SpectrumType spectrum;
@@ -326,6 +329,11 @@ bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
 bool SolarSystemEvaluateAtElapsedTime(const SolarSystemDef *sys,
                                       double elapsedTime,
                                       SolarSystemRuntimeState *out); // Game days.
+bool SolarSystemRemnantEnvironmentAt(
+    const SolarSystemRuntimeState *runtime, Vector3 position,
+    SpaceRemnantEnvironment *out);
+bool SpaceRemnantEnvironmentAt(Vector3 position,
+                               SpaceRemnantEnvironment *out);
 int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
                                    SolarLightSource *out, int maxCount);
 bool SolarSystemPhysicalSummaryForSystem(

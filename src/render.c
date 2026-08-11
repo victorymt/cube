@@ -2137,6 +2137,18 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
         Color color = bodies[i].isStar ? SpectrumColor(bodies[i].spectrum)
                                       : SolarStyleColor(bodies[i].style);
         if (bodies[i].isStar) {
+            if (bodies[i].remnant.active) {
+                Color remnantColor = bodies[i].remnant.blackHole
+                    ? (Color){ 120, 150, 255, 255 }
+                    : (Color){ 255, 120, 90, 255 };
+                float remnantAlpha = (0.10f +
+                                      bodies[i].remnant.ejectaStrength * 0.24f) *
+                                     spaceFade;
+                DrawSphereWires(
+                    bodies[i].center,
+                    bodies[i].remnant.proxyShockRadiusGame,
+                    20, 20, Fade(remnantColor, remnantAlpha));
+            }
             float radius = bodies[i].spaceProxyRadius;
             DrawSphere(bodies[i].center, radius * 1.08f, color);
             DrawSphere(bodies[i].center, radius * 1.15f,
@@ -2293,9 +2305,19 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
                            body->hostStar.massSolar,
                            body->hostStar.luminositySolar,
                            body->hostStar.temperatureK);
-        line3 = TextFormat("Age %.2g Gyr  Luminous life %.2g Gyr",
-                           body->hostStar.ageGyr,
-                           body->hostStar.luminousLifetimeGyr);
+        if (body->remnant.active) {
+            line3 = TextFormat(
+                "SNR %.2g kyr  shock %.2g pc  hazard %.2f",
+                body->remnant.ageYears / 1000.0,
+                body->remnant.physicalShockRadiusKm /
+                    SPACE_REMNANT_PARSEC_KM,
+                SpaceRemnantRadiationHazardAtDistance(
+                    &body->remnant, body->dist));
+        } else {
+            line3 = TextFormat("Age %.2g Gyr  Luminous life %.2g Gyr",
+                               body->hostStar.ageGyr,
+                               body->hostStar.luminousLifetimeGyr);
+        }
     } else {
         float surfaceGap = fabsf(body->dist - SolarBodyTerrainProxyRadius(
             body->spaceProxyRadius));

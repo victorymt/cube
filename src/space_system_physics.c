@@ -1124,8 +1124,10 @@ int SolarSystemPhysicalSnapshotStellarBodiesAtTime(
     for (int i = 0; i < count; i++) {
         const StellarProfile *star = &snapshot->stellarProfiles[i];
         float proxyRadius = (float)SolarSystemStellarVisualRadius(star);
+        SpaceRemnantState remnant;
         if (!SolarSystemPhysicsStellarProfileIsValid(star) ||
-            !(proxyRadius > 0.0f) || !isfinite(proxyRadius)) {
+            !(proxyRadius > 0.0f) || !isfinite(proxyRadius) ||
+            !SpaceRemnantStateForProfile(star, &remnant)) {
             memset(out, 0, sizeof(*out) * (size_t)clearCount);
             return 0;
         }
@@ -1136,6 +1138,7 @@ int SolarSystemPhysicalSnapshotStellarBodiesAtTime(
             .spectrum = star->spectrum,
             .spaceProxyRadius = proxyRadius,
             .luminosity = star->luminositySolar,
+            .remnant = remnant,
             .index = i,
             .primary = i == 0
         };
