@@ -132,12 +132,31 @@ double SpaceSatelliteFluidRocheLimitKm(double planetMassKg,
     return 2.44 * planetRadiusKm * cbrt(densityRatio);
 }
 
+static bool SpaceSatelliteOrbitIsValid(const SpaceSatelliteOrbit *orbit,
+                                       double planetMassKg)
+{
+    return orbit && orbit->exists && planetMassKg > 0.0 &&
+           isfinite(planetMassKg) && orbit->massKg > 0.0 &&
+           isfinite(orbit->massKg) &&
+           isfinite(planetMassKg + orbit->massKg) &&
+           orbit->radiusKm > 0.0 && isfinite(orbit->radiusKm) &&
+           orbit->semiMajorAxisKm > 0.0 &&
+           isfinite(orbit->semiMajorAxisKm) &&
+           orbit->eccentricity >= 0.0 && orbit->eccentricity < 1.0 &&
+           isfinite(orbit->eccentricity) &&
+           isfinite(orbit->inclinationRad) &&
+           isfinite(orbit->longitudeAscendingNodeRad) &&
+           isfinite(orbit->argumentPeriapsisRad) &&
+           isfinite(orbit->meanAnomalyAtEpochRad);
+}
+
 double SpaceSatelliteOrbitalPeriodSeconds(const SpaceSatelliteOrbit *orbit,
                                           double planetMassKg)
 {
-    if (!orbit || !orbit->exists) return 0.0;
-    return SpaceUnitsKeplerPeriodSeconds(orbit->semiMajorAxisKm,
-                                         planetMassKg + orbit->massKg);
+    if (!SpaceSatelliteOrbitIsValid(orbit, planetMassKg)) return 0.0;
+    double period = SpaceUnitsKeplerPeriodSeconds(
+        orbit->semiMajorAxisKm, planetMassKg + orbit->massKg);
+    return isfinite(period) && period > 0.0 ? period : 0.0;
 }
 
 static SpaceSatelliteVector3 SpaceSatelliteRotateFromOrbitalPlane(
@@ -165,21 +184,21 @@ bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
 {
     if (!out) return false;
     *out = (SpaceSatelliteState){ 0 };
-    if (!orbit || !orbit->exists || !isfinite(physicalTimeSeconds)) {
+    if (!SpaceSatelliteOrbitIsValid(orbit, planetMassKg) ||
+        !isfinite(physicalTimeSeconds)) {
         return false;
     }
 
     double mu = SpaceUnitsGravitationalParameterKm(planetMassKg +
                                                     orbit->massKg);
-    if (!(mu > 0.0) || !(orbit->semiMajorAxisKm > 0.0)) {
-        return false;
-    }
     double meanMotion = sqrt(mu /
                              (orbit->semiMajorAxisKm * orbit->semiMajorAxisKm *
                               orbit->semiMajorAxisKm));
+    if (!(meanMotion > 0.0) || !isfinite(meanMotion)) return false;
     double meanAnomaly = fmod(orbit->meanAnomalyAtEpochRad +
                               physicalTimeSeconds * meanMotion,
                               2.0 * SPACE_SATELLITE_PI);
+    if (!isfinite(meanAnomaly)) return false;
     double eccentricAnomaly = meanAnomaly;
     for (int iteration = 0; iteration < 7; iteration++) {
         double residual = eccentricAnomaly -

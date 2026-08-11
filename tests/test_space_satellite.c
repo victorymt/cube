@@ -10,6 +10,47 @@ static void AssertNear(double actual, double expected, double tolerance)
     assert(fabs(actual - expected) <= tolerance);
 }
 
+static SpaceSatelliteOrbit TestMoonOrbit(void)
+{
+    return (SpaceSatelliteOrbit){
+        .exists = true,
+        .semiMajorAxisKm = 384400.0,
+        .eccentricity = 0.0549,
+        .inclinationRad = 5.145 * 3.14159265358979323846 / 180.0,
+        .longitudeAscendingNodeRad = 0.3,
+        .argumentPeriapsisRad = 0.7,
+        .meanAnomalyAtEpochRad = 0.0,
+        .radiusKm = 1737.4,
+        .massKg = 7.342e22
+    };
+}
+
+static void AssertStateZero(const SpaceSatelliteState *state)
+{
+    assert(state->positionKm.x == 0.0);
+    assert(state->positionKm.y == 0.0);
+    assert(state->positionKm.z == 0.0);
+    assert(state->velocityKmPerSecond.x == 0.0);
+    assert(state->velocityKmPerSecond.y == 0.0);
+    assert(state->velocityKmPerSecond.z == 0.0);
+}
+
+static void AssertInvalidOrbit(const SpaceSatelliteOrbit *orbit,
+                               double planetMassKg)
+{
+    SpaceSatelliteState state = {
+        .positionKm = { 1.0, 2.0, 3.0 },
+        .velocityKmPerSecond = { 4.0, 5.0, 6.0 }
+    };
+    assert(!SpaceSatelliteStateAtSeconds(orbit, planetMassKg, 10.0, &state));
+    AssertStateZero(&state);
+
+    SpaceSatelliteVector3 position = SpaceSatellitePositionAtSeconds(
+        orbit, planetMassKg, 10.0);
+    assert(position.x == 0.0 && position.y == 0.0 && position.z == 0.0);
+    assert(SpaceSatelliteOrbitalPeriodSeconds(orbit, planetMassKg) == 0.0);
+}
+
 static void TestMoonOccurrenceAndStability(void)
 {
     int moonCount = 0;
@@ -54,14 +95,7 @@ static void TestRocheLimit(void)
 
 static void TestKeplerOrbit(void)
 {
-    SpaceSatelliteOrbit orbit = {
-        .exists = true,
-        .semiMajorAxisKm = 384400.0,
-        .eccentricity = 0.0549,
-        .inclinationRad = 5.145 * 3.14159265358979323846 / 180.0,
-        .radiusKm = 1737.4,
-        .massKg = 7.342e22
-    };
+    SpaceSatelliteOrbit orbit = TestMoonOrbit();
     double period = SpaceSatelliteOrbitalPeriodSeconds(
         &orbit, SPACE_UNITS_EARTH_MASS_KG);
     AssertNear(period / 86400.0, 27.285, 0.05);
@@ -102,6 +136,65 @@ static void TestKeplerOrbit(void)
                state.velocityKmPerSecond.y, 1e-9);
     AssertNear((after.positionKm.z - before.positionKm.z) / 20.0,
                state.velocityKmPerSecond.z, 1e-9);
+}
+
+static void TestInvalidKeplerOrbitInputs(void)
+{
+    SpaceSatelliteOrbit orbit = TestMoonOrbit();
+    AssertInvalidOrbit(NULL, SPACE_UNITS_EARTH_MASS_KG);
+
+    SpaceSatelliteOrbit invalid = orbit;
+    invalid.exists = false;
+    AssertInvalidOrbit(&invalid, SPACE_UNITS_EARTH_MASS_KG);
+
+#define ASSERT_INVALID_ORBIT_FIELD(field, value)                           \
+    do {                                                                  \
+        invalid = orbit;                                                  \
+        invalid.field = (value);                                         \
+        AssertInvalidOrbit(&invalid, SPACE_UNITS_EARTH_MASS_KG);         \
+    } while (0)
+    ASSERT_INVALID_ORBIT_FIELD(semiMajorAxisKm, 0.0);
+    ASSERT_INVALID_ORBIT_FIELD(semiMajorAxisKm, -1.0);
+    ASSERT_INVALID_ORBIT_FIELD(semiMajorAxisKm, NAN);
+    ASSERT_INVALID_ORBIT_FIELD(semiMajorAxisKm, INFINITY);
+    ASSERT_INVALID_ORBIT_FIELD(eccentricity, -0.01);
+    ASSERT_INVALID_ORBIT_FIELD(eccentricity, 1.0);
+    ASSERT_INVALID_ORBIT_FIELD(eccentricity, NAN);
+    ASSERT_INVALID_ORBIT_FIELD(eccentricity, INFINITY);
+    ASSERT_INVALID_ORBIT_FIELD(inclinationRad, NAN);
+    ASSERT_INVALID_ORBIT_FIELD(longitudeAscendingNodeRad, INFINITY);
+    ASSERT_INVALID_ORBIT_FIELD(argumentPeriapsisRad, NAN);
+    ASSERT_INVALID_ORBIT_FIELD(meanAnomalyAtEpochRad, INFINITY);
+    ASSERT_INVALID_ORBIT_FIELD(radiusKm, 0.0);
+    ASSERT_INVALID_ORBIT_FIELD(radiusKm, NAN);
+    ASSERT_INVALID_ORBIT_FIELD(massKg, 0.0);
+    ASSERT_INVALID_ORBIT_FIELD(massKg, -1.0);
+    ASSERT_INVALID_ORBIT_FIELD(massKg, NAN);
+#undef ASSERT_INVALID_ORBIT_FIELD
+
+    AssertInvalidOrbit(&orbit, 0.0);
+    AssertInvalidOrbit(&orbit, -SPACE_UNITS_EARTH_MASS_KG);
+    AssertInvalidOrbit(&orbit, NAN);
+    AssertInvalidOrbit(&orbit, INFINITY);
+
+    invalid = orbit;
+    invalid.semiMajorAxisKm = 1.0e103;
+    assert(SpaceSatelliteOrbitalPeriodSeconds(
+               &invalid, SPACE_UNITS_EARTH_MASS_KG) == 0.0);
+
+    SpaceSatelliteState state = {
+        .positionKm = { 1.0, 2.0, 3.0 },
+        .velocityKmPerSecond = { 4.0, 5.0, 6.0 }
+    };
+    assert(!SpaceSatelliteStateAtSeconds(
+        &orbit, SPACE_UNITS_EARTH_MASS_KG, NAN, &state));
+    AssertStateZero(&state);
+    state.positionKm.x = 1.0;
+    assert(!SpaceSatelliteStateAtSeconds(
+        &orbit, SPACE_UNITS_EARTH_MASS_KG, INFINITY, &state));
+    AssertStateZero(&state);
+    assert(!SpaceSatelliteStateAtSeconds(
+        &orbit, SPACE_UNITS_EARTH_MASS_KG, 0.0, NULL));
 }
 
 static void TestSolarOccultation(void)
@@ -149,6 +242,7 @@ int main(void)
     TestMoonOccurrenceAndStability();
     TestRocheLimit();
     TestKeplerOrbit();
+    TestInvalidKeplerOrbitInputs();
     TestSolarOccultation();
     TestPlanetUmbra();
     puts("space_satellite tests passed");
