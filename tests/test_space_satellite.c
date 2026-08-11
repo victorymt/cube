@@ -270,6 +270,34 @@ static void TestHighEccentricityKeplerSolve(void)
     }
 }
 
+static void TestLargeTimeDeterminism(void)
+{
+    SpaceSatelliteOrbit orbit = TestMoonOrbit();
+    SpaceSatelliteState first;
+    SpaceSatelliteState second;
+    assert(SpaceSatelliteStateAtSeconds(
+        &orbit, SPACE_UNITS_EARTH_MASS_KG, DBL_MAX, &first));
+    assert(SpaceSatelliteStateAtSeconds(
+        &orbit, SPACE_UNITS_EARTH_MASS_KG, DBL_MAX, &second));
+    assert(first.positionKm.x == second.positionKm.x &&
+           first.positionKm.y == second.positionKm.y &&
+           first.positionKm.z == second.positionKm.z &&
+           first.velocityKmPerSecond.x == second.velocityKmPerSecond.x &&
+           first.velocityKmPerSecond.y == second.velocityKmPerSecond.y &&
+           first.velocityKmPerSecond.z == second.velocityKmPerSecond.z);
+    assert(isfinite(first.positionKm.x) && isfinite(first.positionKm.y) &&
+           isfinite(first.positionKm.z) &&
+           isfinite(first.velocityKmPerSecond.x) &&
+           isfinite(first.velocityKmPerSecond.y) &&
+           isfinite(first.velocityKmPerSecond.z));
+
+    SpaceSatelliteState negative;
+    assert(SpaceSatelliteStateAtSeconds(
+        &orbit, SPACE_UNITS_EARTH_MASS_KG, -DBL_MAX, &negative));
+    assert(isfinite(negative.positionKm.x) &&
+           isfinite(negative.velocityKmPerSecond.x));
+}
+
 static void TestInvalidKeplerOrbitInputs(void)
 {
     SpaceSatelliteOrbit orbit = TestMoonOrbit();
@@ -403,6 +431,7 @@ int main(void)
     TestRocheLimit();
     TestKeplerOrbit();
     TestHighEccentricityKeplerSolve();
+    TestLargeTimeDeterminism();
     TestInvalidKeplerOrbitInputs();
     TestSolarOccultation();
     TestPlanetUmbra();
