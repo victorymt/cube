@@ -1681,6 +1681,8 @@ static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection)
 
 bool SurfaceHostSystem(SolarSystemDef *out)
 {
+    if (!out) return false;
+    *out = (SolarSystemDef){ 0 };
     if (HomeWorldSurfaceIsActive()) return StarSystemAt(0, 0, out);
     if (!planetWorld.active) return false;
 
@@ -2754,6 +2756,9 @@ static Vector3 PlanetReturnPosition(Vector3 center, float radius, Vector3 outwar
 
 bool PlanetWorldLandingTarget(Vector3 position, SpaceBodyInfo *out)
 {
+    if (!out) return false;
+    *out = (SpaceBodyInfo){ 0 };
+    if (!SpaceQueryVectorIsFinite(position)) return false;
     SpaceBodyInfo bodies[48];
     int count = SpaceBodiesNear(position, 160.0f, bodies, 48);
     float bestGap = 1e30f;

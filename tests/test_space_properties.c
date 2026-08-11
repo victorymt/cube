@@ -1028,6 +1028,37 @@ static void TestSpaceQueryInputContracts(void)
                           (Vector3){ NAN, 0.0f, 0.0f }, &picked));
     assert(picked.physicalRadiusKm == 0.0 && picked.spaceProxyRadius == 0.0f);
 
+    SolarSystemDef host;
+    const SolarSystemDef clearedHost = { 0 };
+    FILE *homeState = tmpfile();
+    FILE *inactiveHomeState = tmpfile();
+    assert(homeState && inactiveHomeState);
+    assert(HomeWorldSaveState(homeState));
+    uint8_t inactive = 0;
+    const float homeReturnPosition[3] = { 0.5f, 12.0f, 0.5f };
+    assert(fwrite(&inactive, sizeof(inactive), 1, inactiveHomeState) == 1);
+    assert(fwrite(homeReturnPosition, sizeof(homeReturnPosition), 1,
+                  inactiveHomeState) == 1);
+    rewind(inactiveHomeState);
+    assert(HomeWorldLoadState(inactiveHomeState));
+    memset(&host, 0xa5, sizeof(host));
+    assert(!SurfaceHostSystem(&host));
+    assert(memcmp(&host, &clearedHost, sizeof(host)) == 0);
+    assert(!SurfaceHostSystem(NULL));
+    rewind(homeState);
+    assert(HomeWorldLoadState(homeState));
+    fclose(inactiveHomeState);
+    fclose(homeState);
+
+    SpaceBodyInfo landingTarget;
+    const SpaceBodyInfo clearedLandingTarget = { 0 };
+    memset(&landingTarget, 0xa5, sizeof(landingTarget));
+    assert(!PlanetWorldLandingTarget(
+        (Vector3){ NAN, 0.0f, 0.0f }, &landingTarget));
+    assert(memcmp(&landingTarget, &clearedLandingTarget,
+                  sizeof(landingTarget)) == 0);
+    assert(!PlanetWorldLandingTarget((Vector3){ 0 }, NULL));
+
     Vector3 gravityDirection = { 1.0f, 2.0f, 3.0f };
     float surfaceDistance = 123.0f;
     float gravityScale = 456.0f;
