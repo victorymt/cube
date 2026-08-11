@@ -2516,6 +2516,13 @@ static void TestConcurrentSpaceQueries(void)
     SetPropertySeed(DEFAULT_WORLD_SEED);
 }
 
+static void TestSatelliteNameCapacity(void)
+{
+    size_t required = sizeof(((SolarSystemDef *)0)->name) +
+                      sizeof(" Moon a") - 1u;
+    assert(sizeof(((SpaceSatelliteInfo *)0)->name) >= required);
+}
+
 int main(void)
 {
     TestHomeScaleDiagnostics();
@@ -2538,6 +2545,7 @@ int main(void)
     TestSpaceLoadFailureAtomicity();
     TestDeterministicSpaceQueries();
     TestConcurrentSpaceQueries();
+    TestSatelliteNameCapacity();
     puts("space properties tests passed");
     return 0;
 }

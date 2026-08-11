@@ -193,7 +193,7 @@ typedef struct SpaceSatelliteInfo {
     int systemAnchorX;
     int systemAnchorZ;
     uint32_t worldSeed;
-    char name[32];
+    char name[40];
     SpaceSatelliteOrbit orbit;
     SpaceSatelliteState state;
 } SpaceSatelliteInfo;

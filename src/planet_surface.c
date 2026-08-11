@@ -162,8 +162,10 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
     float axialTilt = profile ? Clamp(profile->axialTilt, 0.0f, 0.75f) : 0.0f;
     float season = profile ? profile->seasonPhase : 0.0f;
     float yearLength = profile ? fmaxf(profile->yearLength, 1.0f) : 1.0f;
-    if (profile && applySeason) {
-        season += (float)(simulationTime * (2.0 * PI / (double)yearLength));
+    if (profile && applySeason && isfinite(simulationTime)) {
+        double period = (double)yearLength;
+        double periodicTime = fmod(simulationTime, period);
+        season += (float)(periodicTime * (2.0 * PI / period));
     }
     float seasonalDelta = sinf(latitude) * sinf(axialTilt) * sinf(season) * 70.0f;
     sample.meanTemperature = meanTemperature;

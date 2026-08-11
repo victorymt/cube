@@ -158,6 +158,23 @@ static void TestSeasonalTemperature(void)
     AssertNear(equatorStart.temperature, equatorQuarter.temperature, 0.0001f);
 }
 
+static void TestLargeTimeSeasonalPeriodicity(void)
+{
+    PlanetProfile profile = TestProfile(SOLAR_STYLE_TEMPERATE);
+    double referenceTime = (double)profile.yearLength * 0.25;
+    double largeTime = (double)profile.yearLength * 10000000000.0 +
+                       referenceTime;
+    PlanetSurfaceSample reference = PlanetSampleGlobalSurfaceAtTime(
+        profile.seed, &profile, 0.42f, 0.61f, referenceTime);
+    PlanetSurfaceSample repeated = PlanetSampleGlobalSurfaceAtTime(
+        profile.seed, &profile, 0.42f, 0.61f, largeTime);
+    PlanetSurfaceSample invalid = PlanetSampleGlobalSurfaceAtTime(
+        profile.seed, &profile, 0.42f, 0.61f, INFINITY);
+
+    AssertSamplesNear(reference, repeated, 0.0001f);
+    AssertValidSample(invalid);
+}
+
 static void TestBaselineIgnoresSimulationTime(void)
 {
     PlanetProfile profile = TestProfile(SOLAR_STYLE_TEMPERATE);
@@ -232,6 +249,7 @@ int main(void)
     TestDeterministicSampling();
     TestLongitudeSeam();
     TestSeasonalTemperature();
+    TestLargeTimeSeasonalPeriodicity();
     TestBaselineIgnoresSimulationTime();
     TestStyleBiomeDomains();
     TestBiomeNames();
