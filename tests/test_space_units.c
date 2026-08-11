@@ -104,6 +104,21 @@ static void TestGravityConstants(void)
         SPACE_UNITS_SOLAR_MASS_KG);
     AssertRelativeNear(earthHill, 1496500.0, 0.002);
     assert(earthSoi < earthHill);
+
+    assert(isfinite(SpaceUnitsGravitationalParameterKm(DBL_MAX)) &&
+           SpaceUnitsGravitationalParameterKm(DBL_MAX) > 0.0);
+    assert(isfinite(SpaceUnitsGravitationalParameterGame(DBL_MAX)) &&
+           SpaceUnitsGravitationalParameterGame(DBL_MAX) > 0.0);
+    assert(SpaceUnitsSurfaceGravityKmPerSecondSquared(1.0, DBL_MIN) == 0.0);
+    assert(SpaceUnitsKeplerMeanMotionGame(1.0e103,
+                                          SPACE_UNITS_SOLAR_MASS_KG) == 0.0);
+    assert(SpaceUnitsKeplerPeriodSeconds(
+               1.0e-200, SPACE_UNITS_SOLAR_MASS_KG) == 0.0);
+    assert(SpaceUnitsLaplaceSphereOfInfluenceKm(
+               DBL_MAX, DBL_MAX, DBL_MIN) == 0.0);
+    assert(SpaceUnitsHillSphereKm(DBL_MAX, DBL_MAX, DBL_MIN) == 0.0);
+    assert(SpaceUnitsProxySurfaceGravityGame(
+               DBL_MAX, DBL_MIN) == 0.0);
 }
 
 static void TestProxyScaleContract(void)
