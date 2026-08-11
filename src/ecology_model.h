@@ -22,7 +22,8 @@ typedef enum PlanetEcologyLimitingFactor {
     PLANET_ECOLOGY_LIMIT_LIGHT,
     PLANET_ECOLOGY_LIMIT_STORM,
     PLANET_ECOLOGY_LIMIT_TERRAIN,
-    PLANET_ECOLOGY_LIMIT_SEASON
+    PLANET_ECOLOGY_LIMIT_SEASON,
+    PLANET_ECOLOGY_LIMIT_RADIATION
 } PlanetEcologyLimitingFactor;
 
 typedef struct PlanetLocalEnvironment {
@@ -42,6 +43,8 @@ typedef struct PlanetLocalEnvironment {
     float shelter;
     float biomeSupport;
     float disturbance;
+    float radiationExposure;
+    float ejectaExposure;
 } PlanetLocalEnvironment;
 
 typedef struct PlanetEcologyTraits {
@@ -68,6 +71,7 @@ typedef struct PlanetEcologySuitability {
     float stormScore;
     float terrainScore;
     float seasonScore;
+    float radiationScore;
     PlanetEcologyLimitingFactor limitingFactor;
 } PlanetEcologySuitability;
 

@@ -3,6 +3,7 @@
 #include "ecology.h"
 #include "ecology_internal.h"
 #include "space.h"
+#include "space_system_physics.h"
 #include "terrain.h"
 #include "weather.h"
 #include "weather_model.h"
@@ -490,7 +491,28 @@ static void TestPlanetWorldStateCompatibilityAndAtomicity(void)
     size_t upgradedSize = 0;
     unsigned char *upgraded = CapturePlanetWorldState(&upgradedSize);
     assert(upgradedSize > 2u);
-    assert(upgraded[0] == 2u);
+    assert(upgraded[0] == 3u);
+
+    const size_t remnantStateSize =
+        sizeof(uint8_t) + sizeof(int32_t) + sizeof(float) * 3u;
+    const size_t profileOffset =
+        sizeof(uint8_t) * 2u + sizeof(uint32_t) * 2u +
+        sizeof(int32_t) * 3u + sizeof(float) * 7u + 32u +
+        remnantStateSize;
+    const size_t legacyProfileOffset = profileOffset - remnantStateSize;
+    assert(upgradedSize > remnantStateSize &&
+           profileOffset <= upgradedSize);
+    size_t version2Size = upgradedSize - remnantStateSize;
+    unsigned char *version2 = malloc(version2Size);
+    assert(version2);
+    memcpy(version2, upgraded, legacyProfileOffset);
+    memcpy(version2 + legacyProfileOffset, upgraded + profileOffset,
+           upgradedSize - profileOffset);
+    version2[0] = 2u;
+    assert(LoadPlanetWorldBytes(version2, version2Size));
+    assert(!PlanetWorldRemnantEnvironment().active);
+    assert(LoadPlanetWorldBytes(upgraded, upgradedSize));
+    free(version2);
 
     EcologyTestActivatePlanet(0xdeadbeefu, 11, -17);
     assert(LoadPlanetWorldBytes(upgraded, upgradedSize));
@@ -518,13 +540,10 @@ static void TestPlanetWorldStateCompatibilityAndAtomicity(void)
     unsigned char *corrupt = malloc(baselineSize);
     assert(corrupt);
     memcpy(corrupt, baseline, baselineSize);
-    corrupt[0] = 3u;
+    corrupt[0] = 4u;
     assert(!LoadPlanetWorldBytes(corrupt, baselineSize));
     AssertPlanetWorldStateEqual(baseline, baselineSize);
 
-    const size_t profileOffset =
-        sizeof(uint8_t) * 2u + sizeof(uint32_t) * 2u +
-        sizeof(int32_t) * 3u + sizeof(float) * 7u + 32u;
     assert(profileOffset + sizeof(uint32_t) <= baselineSize);
     memcpy(corrupt, baseline, baselineSize);
     uint32_t mismatchedSeed = PlanetWorldSeed() ^ 0x9e3779b9u;
@@ -541,6 +560,46 @@ static void TestPlanetWorldStateCompatibilityAndAtomicity(void)
     free(corrupt);
     free(baseline);
     free(upgraded);
+}
+
+static void TestEcologyRespondsToRemnantExposure(void)
+{
+    SolarSystemDef system;
+    assert(StarSystemAt(0, 0, &system));
+    StellarProfile remnant;
+    assert(StellarProfileAtAge(12.0f, 0.0, 0x5a17u, &remnant));
+    double remnantAge = (double)remnant.luminousLifetimeGyr + 0.000001;
+    assert(StellarProfileAtAge(12.0f, remnantAge, 0x5a17u, &remnant));
+    assert(remnant.stage == STELLAR_STAGE_NEUTRON_STAR);
+    system.star = remnant;
+    system.spectrum = remnant.spectrum;
+    system.starProxyRadius = SolarSystemStellarVisualRadius(&remnant);
+    assert(SolarSystemPhysicalSnapshotBuild(
+        &system, &system.physicalSnapshot));
+
+    FILE *fixture = tmpfile();
+    assert(fixture);
+    EcologyTestActivateGeneratedPlanetWithFile(fixture, &system, 0, 0, 0);
+    fclose(fixture);
+    PlanetEcologyResetState();
+    PlanetLocalEcology local = PlanetEcologyLocalAt(420, 75, 0.72f);
+    SpaceRemnantEnvironment environment = PlanetWorldRemnantEnvironment();
+    assert(environment.active && environment.remnantCount == 1);
+    assert(local.environment.radiationExposure > 0.0f);
+    assert(local.environment.ejectaExposure >= 0.0f);
+    assert(local.suitability.radiationScore < 1.0f);
+    PlanetLocalEcology repeated = PlanetEcologyLocalAt(420, 75, 0.72f);
+    assert(memcmp(&local, &repeated, sizeof(local)) == 0);
+
+    FILE *saved = tmpfile();
+    assert(saved);
+    assert(PlanetWorldSaveState(saved));
+    EcologyTestActivatePlanet(0xdeadbeefu, 17, -29);
+    rewind(saved);
+    assert(PlanetWorldLoadState(saved));
+    SpaceRemnantEnvironment loaded = PlanetWorldRemnantEnvironment();
+    assert(memcmp(&loaded, &environment, sizeof(loaded)) == 0);
+    fclose(saved);
 }
 
 static void TestEcologyMigrationOrderAndTimePartition(void)
@@ -1415,6 +1474,7 @@ int main(void)
     TestEcologySaveLoadReplay();
     TestGeneratedPlanetProfileSaveLoadReplay();
     TestPlanetWorldStateCompatibilityAndAtomicity();
+    TestEcologyRespondsToRemnantExposure();
     TestEcologyMigrationOrderAndTimePartition();
     TestEcologyPlayerEditDisturbance();
     TestEcologyFaunaHarvestFeedback();

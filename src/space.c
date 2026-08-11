@@ -36,7 +36,7 @@
 #define SPACE_STAR_ENCOUNTER_RADIUS_GAME SPACE_GRAVITY_QUERY_RADIUS
 #define SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME 170.0f
 #define SPACE_MAX_SYSTEM_QUERY_DISTANCE (STAR_NAVIGATION_RANGE * 4.0f)
-#define PLANET_WORLD_STATE_VERSION 2u
+#define PLANET_WORLD_STATE_VERSION 3u
 
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
@@ -61,6 +61,7 @@ typedef struct PlanetWorldContext {
     Vector3 bodyCenter;
     Vector3 returnPosition;
     float spaceProxyRadius;
+    SpaceRemnantEnvironment remnantEnvironment;
     char name[32];
 } PlanetWorldContext;
 
@@ -299,6 +300,12 @@ SolarBodyStyle PlanetWorldStyle(void)
 const PlanetProfile *PlanetWorldProfile(void)
 {
     return &planetWorld.profile;
+}
+
+SpaceRemnantEnvironment PlanetWorldRemnantEnvironment(void)
+{
+    return planetWorld.active ? planetWorld.remnantEnvironment
+                              : (SpaceRemnantEnvironment){ 0 };
 }
 
 float PlanetWorldGravityScale(void)
@@ -3200,6 +3207,7 @@ static void PlanetWorldActivate(const SpaceBodyInfo *body, Vector3 approachPosit
                                  (PLANET_GLOBAL_POLE_TO_POLE_BLOCKS / PI));
     next.returnPosition = PlanetReturnPosition(body->center,
                                                next.spaceProxyRadius, outward);
+    next.remnantEnvironment = body->remnantEnvironment;
 
     DrainChunkGen();
     UnloadAllChunks();
@@ -3524,8 +3532,16 @@ bool PlanetWorldSaveState(FILE *file)
                             planetWorld.bodyCenter.z };
     float returnPosition[3] = { planetWorld.returnPosition.x, planetWorld.returnPosition.y,
                                 planetWorld.returnPosition.z };
+    uint8_t remnantActive = planetWorld.remnantEnvironment.active ? 1u : 0u;
+    int32_t remnantCount = planetWorld.remnantEnvironment.remnantCount;
+    float remnantHazard = planetWorld.remnantEnvironment.radiationHazard;
+    float remnantEjecta = planetWorld.remnantEnvironment.ejectaDensity;
+    float remnantShell = planetWorld.remnantEnvironment.nearestShellDistanceGame;
 
-    if (!file || !PlanetProfileIsValid(&planetWorld.profile)) return false;
+    if (!file || !PlanetProfileIsValid(&planetWorld.profile) ||
+        !SpaceRemnantEnvironmentIsValid(&planetWorld.remnantEnvironment)) {
+        return false;
+    }
 
     return fwrite(&version, sizeof(version), 1, file) == 1 &&
            fwrite(&active, sizeof(active), 1, file) == 1 &&
@@ -3539,6 +3555,11 @@ bool PlanetWorldSaveState(FILE *file)
            fwrite(&planetWorld.spaceProxyRadius,
                   sizeof(planetWorld.spaceProxyRadius), 1, file) == 1 &&
            fwrite(planetWorld.name, sizeof(planetWorld.name), 1, file) == 1 &&
+           fwrite(&remnantActive, sizeof(remnantActive), 1, file) == 1 &&
+           fwrite(&remnantCount, sizeof(remnantCount), 1, file) == 1 &&
+           fwrite(&remnantHazard, sizeof(remnantHazard), 1, file) == 1 &&
+           fwrite(&remnantEjecta, sizeof(remnantEjecta), 1, file) == 1 &&
+           fwrite(&remnantShell, sizeof(remnantShell), 1, file) == 1 &&
            PlanetProfileSaveState(file, &planetWorld.profile);
 }
 
@@ -3553,12 +3574,19 @@ bool PlanetWorldLoadState(FILE *file)
     int32_t planetIndex = 0;
     float bodyCenter[3] = { 0 };
     float returnPosition[3] = { 0 };
+    uint8_t remnantActive = 0;
+    int32_t remnantCount = 0;
+    float remnantHazard = 0.0f;
+    float remnantEjecta = 0.0f;
+    float remnantShell = 0.0f;
 
     if (!file ||
         fread(&versionOrActive, sizeof(versionOrActive), 1, file) != 1) {
         return false;
     }
-    bool hasProfile = versionOrActive == PLANET_WORLD_STATE_VERSION;
+    bool hasProfile = versionOrActive == 2u ||
+                      versionOrActive == PLANET_WORLD_STATE_VERSION;
+    bool hasRemnantEnvironment = versionOrActive == PLANET_WORLD_STATE_VERSION;
     if (hasProfile) {
         if (fread(&active, sizeof(active), 1, file) != 1) return false;
     } else {
@@ -3578,13 +3606,21 @@ bool PlanetWorldLoadState(FILE *file)
         fread(loaded.name, sizeof(loaded.name), 1, file) != 1) {
         return false;
     }
+    if (hasRemnantEnvironment &&
+        (fread(&remnantActive, sizeof(remnantActive), 1, file) != 1 ||
+         fread(&remnantCount, sizeof(remnantCount), 1, file) != 1 ||
+         fread(&remnantHazard, sizeof(remnantHazard), 1, file) != 1 ||
+         fread(&remnantEjecta, sizeof(remnantEjecta), 1, file) != 1 ||
+         fread(&remnantShell, sizeof(remnantShell), 1, file) != 1)) {
+        return false;
+    }
 
     if (style > (uint32_t)SOLAR_STYLE_TEMPERATE ||
         planetIndex < 0 || !isfinite(loaded.spaceProxyRadius) ||
         loaded.spaceProxyRadius < 0.0f ||
         !isfinite(bodyCenter[0]) || !isfinite(bodyCenter[1]) || !isfinite(bodyCenter[2]) ||
         !isfinite(returnPosition[0]) || !isfinite(returnPosition[1]) ||
-        !isfinite(returnPosition[2])) {
+        !isfinite(returnPosition[2]) || remnantActive > 1u) {
         return false;
     }
 
@@ -3595,6 +3631,16 @@ bool PlanetWorldLoadState(FILE *file)
     loaded.planetIndex = (int)planetIndex;
     loaded.bodyCenter = (Vector3){ bodyCenter[0], bodyCenter[1], bodyCenter[2] };
     loaded.returnPosition = (Vector3){ returnPosition[0], returnPosition[1], returnPosition[2] };
+    loaded.remnantEnvironment = (SpaceRemnantEnvironment){
+        .active = remnantActive != 0u,
+        .remnantCount = (int)remnantCount,
+        .radiationHazard = remnantHazard,
+        .ejectaDensity = remnantEjecta,
+        .nearestShellDistanceGame = remnantShell
+    };
+    if (!SpaceRemnantEnvironmentIsValid(&loaded.remnantEnvironment)) {
+        return false;
+    }
     if (hasProfile) {
         if (!PlanetProfileLoadState(file, &loaded.profile) ||
             loaded.profile.seed != loaded.seed ||

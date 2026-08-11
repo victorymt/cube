@@ -71,9 +71,10 @@ static void AssertSuitabilityValid(PlanetEcologySuitability suitability)
     ASSERT_UNIT(stormScore);
     ASSERT_UNIT(terrainScore);
     ASSERT_UNIT(seasonScore);
+    ASSERT_UNIT(radiationScore);
 #undef ASSERT_UNIT
     assert(suitability.limitingFactor >= PLANET_ECOLOGY_LIMIT_NONE);
-    assert(suitability.limitingFactor <= PLANET_ECOLOGY_LIMIT_SEASON);
+    assert(suitability.limitingFactor <= PLANET_ECOLOGY_LIMIT_RADIATION);
 }
 
 static void TestDeterministicHistory(void)
@@ -228,6 +229,35 @@ static void TestLocalEnvironmentalControls(void)
         &seasonal, &traits, 0.82f, 0.56f);
     assert(seasonalResult.seasonScore < baseline.seasonScore);
     assert(seasonalResult.carryingCapacity < baseline.carryingCapacity);
+}
+
+static void TestRadiationEnvironmentalControls(void)
+{
+    PlanetLocalEnvironment clear = TemperateEnvironment();
+    PlanetEcologyTraits traits = CarbonTraits();
+    PlanetEcologySuitability baseline = PlanetEcologyEvaluateLocal(
+        &clear, &traits, 0.82f, 0.56f);
+
+    PlanetLocalEnvironment irradiated = clear;
+    irradiated.radiationExposure = 0.72f;
+    irradiated.ejectaExposure = 0.35f;
+    PlanetEcologySuitability exposed = PlanetEcologyEvaluateLocal(
+        &irradiated, &traits, 0.82f, 0.56f);
+    AssertSuitabilityValid(exposed);
+    assert(exposed.radiationScore < baseline.radiationScore);
+    assert(exposed.carryingCapacity < baseline.carryingCapacity);
+    assert(exposed.floraActivity < baseline.floraActivity);
+    assert(exposed.faunaActivity < baseline.faunaActivity);
+
+    PlanetLocalEnvironment lethal = clear;
+    lethal.radiationExposure = 1.0f;
+    lethal.ejectaExposure = 1.0f;
+    PlanetEcologySuitability lethalResult = PlanetEcologyEvaluateLocal(
+        &lethal, &traits, 0.82f, 0.56f);
+    AssertSuitabilityValid(lethalResult);
+    assert(lethalResult.radiationScore == 0.0f);
+    assert(lethalResult.carryingCapacity == 0.0f);
+    assert(lethalResult.limitingFactor == PLANET_ECOLOGY_LIMIT_RADIATION);
 }
 
 static void TestWeatherChangesActivityNotPermanentCapacity(void)
@@ -1137,6 +1167,7 @@ int main(void)
     TestDensityCapsPreComplexLife();
     TestLocalSuitabilityIsDeterministic();
     TestLocalEnvironmentalControls();
+    TestRadiationEnvironmentalControls();
     TestWeatherChangesActivityNotPermanentCapacity();
     TestCurrentSeasonChangesActivityOnly();
     TestProducerActivityFeedsFaunaActivity();

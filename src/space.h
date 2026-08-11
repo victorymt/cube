@@ -386,6 +386,7 @@ bool PlanetWorldIsActive(void);
 uint32_t PlanetWorldSeed(void);
 SolarBodyStyle PlanetWorldStyle(void);
 const PlanetProfile *PlanetWorldProfile(void);
+SpaceRemnantEnvironment PlanetWorldRemnantEnvironment(void);
 float PlanetWorldGravityScale(void);
 bool PlanetWorldIsDarkSide(void);
 bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out);

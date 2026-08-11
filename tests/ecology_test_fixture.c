@@ -189,7 +189,7 @@ static void WriteGeneratedPlanetWorldFixture(
     assert(system);
     assert(planetIndex >= 0 && planetIndex < system->planetCount);
     PlanetProfile profile = SolarPlanetProfile(system, planetIndex);
-    uint8_t version = 2u;
+    uint8_t version = 3u;
     uint8_t active = 1u;
     uint32_t style = (uint32_t)profile.style;
     int32_t savedOriginX = (int32_t)originX;
@@ -204,6 +204,15 @@ static void WriteGeneratedPlanetWorldFixture(
     char name[32] = { 0 };
     snprintf(name, sizeof(name), "%.28s %c", system->name,
              'a' + planetIndex);
+    SolarSystemRuntimeState runtime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        system, SpaceElapsedSimulationTime(), &runtime));
+    assert(planetIndex < runtime.planetCount &&
+           runtime.planets[planetIndex].valid);
+    SpaceRemnantEnvironment remnant =
+        runtime.planets[planetIndex].remnantEnvironment;
+    uint8_t remnantActive = remnant.active ? 1u : 0u;
+    int32_t remnantCount = remnant.remnantCount;
 
     assert(fwrite(&version, sizeof(version), 1, file) == 1);
     assert(fwrite(&active, sizeof(active), 1, file) == 1);
@@ -216,6 +225,14 @@ static void WriteGeneratedPlanetWorldFixture(
     assert(fwrite(returnPosition, sizeof(returnPosition), 1, file) == 1);
     assert(fwrite(&proxyRadius, sizeof(proxyRadius), 1, file) == 1);
     assert(fwrite(name, sizeof(name), 1, file) == 1);
+    assert(fwrite(&remnantActive, sizeof(remnantActive), 1, file) == 1);
+    assert(fwrite(&remnantCount, sizeof(remnantCount), 1, file) == 1);
+    assert(fwrite(&remnant.radiationHazard,
+                  sizeof(remnant.radiationHazard), 1, file) == 1);
+    assert(fwrite(&remnant.ejectaDensity,
+                  sizeof(remnant.ejectaDensity), 1, file) == 1);
+    assert(fwrite(&remnant.nearestShellDistanceGame,
+                  sizeof(remnant.nearestShellDistanceGame), 1, file) == 1);
     assert(PlanetProfileSaveState(file, &profile));
 }
 

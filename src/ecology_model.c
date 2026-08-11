@@ -143,6 +143,11 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
         1.0f - EcologyModelClamp(environment->stormExposure) *
         (1.0f - stormResistance * 0.78f));
 
+    float radiationExposure = EcologyModelClamp(environment->radiationExposure);
+    float ejectaExposure = EcologyModelClamp(environment->ejectaExposure);
+    result.radiationScore = EcologyModelClamp(
+        1.0f - radiationExposure * (0.76f + ejectaExposure * 0.24f));
+
     float slopeStress = EcologyModelClamp(environment->slope) *
                         (1.0f - EcologyModelClamp(traits->slopeTolerance));
     float altitudeStress = EcologyModelClamp(environment->elevation) *
@@ -167,24 +172,30 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
                             PLANET_ECOLOGY_LIMIT_TERRAIN, &lowest);
     EcologyModelChooseLimit(&result, result.seasonScore,
                             PLANET_ECOLOGY_LIMIT_SEASON, &lowest);
+    EcologyModelChooseLimit(&result, result.radiationScore,
+                            PLANET_ECOLOGY_LIMIT_RADIATION, &lowest);
 
     bool lacksRequiredWater = waterDependence > 0.50f &&
         environment->liquidWaterAccess < 0.01f &&
         environment->soilMoisture < 0.01f &&
         environment->meanPrecipitation < 0.01f;
     if (lacksRequiredWater || result.seasonScore < 0.005f ||
-        result.terrainScore <= 0.0f) {
+        result.terrainScore <= 0.0f || result.radiationScore < 0.005f) {
         return result;
     }
 
     const float scores[] = {
         result.waterScore, result.temperatureScore, result.lightScore,
-        result.stormScore, result.terrainScore, result.seasonScore
+        result.stormScore, result.terrainScore, result.seasonScore,
+        result.radiationScore
     };
-    const float weights[] = { 0.26f, 0.24f, 0.14f, 0.10f, 0.14f, 0.12f };
+    const float weights[] = {
+        0.26f, 0.24f, 0.14f, 0.10f, 0.14f, 0.12f,
+        radiationExposure > 0.0001f ? 0.10f : 0.0f
+    };
     float weightedLog = 0.0f;
     float weightTotal = 0.0f;
-    for (int index = 0; index < 6; index++) {
+    for (int index = 0; index < 7; index++) {
         weightedLog += weights[index] * logf(fmaxf(scores[index], 0.03f));
         weightTotal += weights[index];
     }
@@ -213,10 +224,12 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
     float gentleRain = EcologyModelClamp(environment->precipitationRate) *
                        (1.0f - currentStorm);
     float hydrationActivity = 1.0f + gentleRain * 0.16f;
+    float radiationActivity = EcologyModelClamp(
+        1.0f - radiationExposure * (0.92f + ejectaExposure * 0.08f));
 
     result.floraActivity = EcologyModelClamp(
         result.floraCapacity * currentTemperature * producerLight *
-        stormActivity * hydrationActivity);
+        stormActivity * hydrationActivity * radiationActivity);
 
     float producerActivity = result.floraCapacity > 0.0001f
         ? EcologyModelClamp(result.floraActivity / result.floraCapacity) : 0.0f;
@@ -229,7 +242,8 @@ PlanetEcologySuitability PlanetEcologyEvaluateLocal(
         daylightActivity, darknessActivity, traits->nocturnalFraction);
     result.faunaActivity = EcologyModelClamp(
         result.faunaCapacity * (0.35f + currentTemperature * 0.65f) *
-        lightActivity * stormActivity * hydrationActivity * foodActivity);
+        lightActivity * stormActivity * hydrationActivity * foodActivity *
+        radiationActivity);
     return result;
 }
 
@@ -663,6 +677,7 @@ const char *PlanetEcologyLimitingFactorName(PlanetEcologyLimitingFactor factor)
     case PLANET_ECOLOGY_LIMIT_STORM:       return "Storm";
     case PLANET_ECOLOGY_LIMIT_TERRAIN:     return "Terrain";
     case PLANET_ECOLOGY_LIMIT_SEASON:      return "Season";
+    case PLANET_ECOLOGY_LIMIT_RADIATION:   return "Radiation";
     case PLANET_ECOLOGY_LIMIT_NONE:
     default:                               return "None";
     }

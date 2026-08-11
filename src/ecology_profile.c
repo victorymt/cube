@@ -218,6 +218,16 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
     environment.precipitationRate = dynamic
         ? EcologyClamp(precipitationRate) : environment.meanPrecipitation;
     environment.currentStorm = dynamic ? EcologyClamp(currentStorm) : 0.0f;
+    SpaceRemnantEnvironment remnant = PlanetWorldRemnantEnvironment();
+    float atmosphericShield = 0.28f +
+        EcologyClamp(planet->atmosphereDensity) * 0.52f +
+        environment.elevation * 0.08f;
+    environment.radiationExposure = EcologyClamp(
+        remnant.radiationHazard * (1.0f - EcologyClamp(atmosphericShield)));
+    environment.ejectaExposure = EcologyClamp(
+        remnant.ejectaDensity *
+        (0.72f + roughness * 0.18f) *
+        (1.0f - environment.shelter * 0.22f));
     environment.biomeSupport = EcologyBiomeSupport(surface.biome, ecology);
     return environment;
 }

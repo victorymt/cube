@@ -275,6 +275,8 @@ static void AssertEnvironmentValid(const PlanetLocalEnvironment *environment)
     AssertUnit(environment->shelter);
     AssertUnit(environment->biomeSupport);
     AssertUnit(environment->disturbance);
+    AssertUnit(environment->radiationExposure);
+    AssertUnit(environment->ejectaExposure);
 }
 
 static void AssertSuitabilityValid(const PlanetEcologySuitability *suitability)
@@ -291,8 +293,9 @@ static void AssertSuitabilityValid(const PlanetEcologySuitability *suitability)
     AssertUnit(suitability->stormScore);
     AssertUnit(suitability->terrainScore);
     AssertUnit(suitability->seasonScore);
+    AssertUnit(suitability->radiationScore);
     assert(suitability->limitingFactor >= PLANET_ECOLOGY_LIMIT_NONE &&
-           suitability->limitingFactor <= PLANET_ECOLOGY_LIMIT_SEASON);
+           suitability->limitingFactor <= PLANET_ECOLOGY_LIMIT_RADIATION);
 }
 
 static void AssertPopulationValid(const PlanetRegionalPopulation *population)
