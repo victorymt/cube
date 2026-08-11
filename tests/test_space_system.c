@@ -170,12 +170,17 @@ static void TestLowMassDiskBudget(void)
 static void TestInvalidInput(void)
 {
     SpaceSystemFormation output;
+    const SpaceSystemFormation cleared = { 0 };
     SpaceSystemFormationInput input = { 0 };
     input.stellarMassSolar = NAN;
     input.stellarLuminositySolar = 1.0f;
     input.stellarAgeGyr = 1.0f;
+    memset(&output, 0xa5, sizeof(output));
     assert(!SpaceSystemFormationGenerate(&input, &output));
+    assert(memcmp(&output, &cleared, sizeof(output)) == 0);
+    memset(&output, 0xa5, sizeof(output));
     assert(!SpaceSystemFormationGenerate(NULL, &output));
+    assert(memcmp(&output, &cleared, sizeof(output)) == 0);
     assert(!SpaceSystemFormationGenerate(&input, NULL));
 }
 

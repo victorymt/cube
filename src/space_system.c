@@ -107,14 +107,15 @@ static float SpaceSystemOrbitForIndex(float inner, float outer, int count,
 bool SpaceSystemFormationGenerate(const SpaceSystemFormationInput *input,
                                   SpaceSystemFormation *out)
 {
-    if (!input || !out) return false;
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+    if (!input) return false;
     if (!isfinite(input->stellarMassSolar) ||
         !isfinite(input->stellarLuminositySolar) ||
         !isfinite(input->stellarAgeGyr)) {
         return false;
     }
 
-    memset(out, 0, sizeof(*out));
     float stellarMass = SpaceSystemClamp(input->stellarMassSolar, 0.08f, 50.0f);
     float stellarLuminosity = SpaceSystemClamp(
         input->stellarLuminositySolar, 0.001f, 100000.0f);

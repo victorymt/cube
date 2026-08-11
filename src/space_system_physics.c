@@ -195,7 +195,9 @@ static bool SolarSystemPlanetOrbitBuild(
     const SolarSystemDef *sys, int index, double centralMassKg,
     SpaceKeplerOrbit *out)
 {
-    if (!sys || !out || index < 0 || index >= sys->planetCount ||
+    if (!out) return false;
+    *out = (SpaceKeplerOrbit){ 0 };
+    if (!sys || index < 0 || index >= sys->planetCount ||
         index >= MAX_SOLAR_PLANETS) {
         return false;
     }
@@ -226,7 +228,7 @@ static bool SolarSystemPlanetOrbitBuild(
     eccentricity = fmax(0.0, fmin(eccentricity,
         fmin(0.05, fmax(hostCellLimit, 0.0))));
 
-    *out = (SpaceKeplerOrbit){
+    SpaceKeplerOrbit orbit = {
         .semiMajorAxisKm = planet->semiMajorAxisKm,
         .centralMassKg = centralMassKg,
         .eccentricity = eccentricity,
@@ -236,7 +238,9 @@ static bool SolarSystemPlanetOrbitBuild(
             (double)((orbitHash >> 3) % 6283u) / 1000.0,
         .meanAnomalyAtEpochRad = (double)(orbitHash % 6283u) / 1000.0
     };
-    return SpaceKeplerOrbitIsValid(out);
+    if (!SpaceKeplerOrbitIsValid(&orbit)) return false;
+    *out = orbit;
+    return true;
 }
 
 bool SolarSystemPhysicalSnapshotBuild(

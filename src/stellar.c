@@ -86,7 +86,9 @@ static SpectrumType MainSequenceSpectrum(float temperatureK)
 bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
                          StellarProfile *out)
 {
-    if (!out || !isfinite(initialMassSolar) || !isfinite(ageGyr) ||
+    if (!out) return false;
+    *out = (StellarProfile){ 0 };
+    if (!isfinite(initialMassSolar) || !isfinite(ageGyr) ||
         initialMassSolar <= 0.0f) {
         return false;
     }

@@ -403,7 +403,11 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
     assert(fseek(profileFile, (long)sizeof(generated.seed), SEEK_SET) == 0);
     assert(fwrite(&invalidStyle, sizeof(invalidStyle), 1, profileFile) == 1);
     rewind(profileFile);
+    memset(&profileRoundTrip, 0xa5, sizeof(profileRoundTrip));
     assert(!PlanetProfileLoadState(profileFile, &profileRoundTrip));
+    const PlanetProfile clearedProfile = { 0 };
+    assert(memcmp(&profileRoundTrip, &clearedProfile,
+                  sizeof(profileRoundTrip)) == 0);
     fclose(profileFile);
 
     PlanetProfile invalidProfile = generated;

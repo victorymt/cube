@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 static void AssertNear(float actual, float expected, float tolerance)
 {
@@ -52,6 +53,8 @@ static void TestGiantEvolution(void)
     assert(giant.temperatureK < mainSequence.temperatureK);
     assert(!StellarProfileAtAge(1.50f, giant.luminousLifetimeGyr + 0.1f,
                                 3u, &giant));
+    const StellarProfile cleared = { 0 };
+    assert(memcmp(&giant, &cleared, sizeof(giant)) == 0);
 }
 
 static void TestStefanBoltzmannConsistency(void)

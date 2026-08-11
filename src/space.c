@@ -3134,7 +3134,9 @@ bool PlanetProfileSaveState(FILE *file, const PlanetProfile *profile)
 
 bool PlanetProfileLoadState(FILE *file, PlanetProfile *outProfile)
 {
-    if (!file || !outProfile) return false;
+    if (!outProfile) return false;
+    *outProfile = (PlanetProfile){ 0 };
+    if (!file) return false;
 
     PlanetProfile loaded = { 0 };
     uint32_t style = 0;
