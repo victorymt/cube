@@ -109,6 +109,8 @@ static PlanetProfileGenerationInput ProfileGenerationInputFor(
         .formationMassEarth = planet->formationMassEarth,
         .spaceProxyRadius = planet->spaceProxyRadius,
         .stellarAgeGyr = summary->ageGyr,
+        .orbitalEccentricity =
+            system->physicalSnapshot.planetOrbits[index].eccentricity,
         .orbitalPeriodGameTime =
             (float)SolarSystemPlanetOrbitPeriodGameTime(system, index),
         .stellarCount = summary->stellarCount,
@@ -284,6 +286,9 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     assert(scale.climateIrradianceEarth == profile->receivedIrradiance);
     assert(scale.currentIrradianceEarth > 0.0);
     assert(scale.surfaceTemperatureK == profile->equilibriumTempK);
+    const SpaceKeplerOrbit *orbit =
+        &system->physicalSnapshot.planetOrbits[index];
+    assert(SpaceKeplerOrbitIsValid(orbit));
     double orbitAU = fmax(planet->semiMajorAxisKm /
                           SPACE_UNITS_ASTRONOMICAL_UNIT_KM, 0.18);
     SolarSystemPhysicalSummary summary;
@@ -296,13 +301,12 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
             (double)summary.stellarLuminositiesSolar[light] /
                               (orbitAU * orbitAU);
     }
+    expectedIrradiance /= sqrt(1.0 - orbit->eccentricity *
+                                     orbit->eccentricity);
     assert(expectedIrradiance > 0.0001);
     AssertRelative(profile->receivedIrradiance, expectedIrradiance, 0.000001);
     double centralMass = SolarSystemStellarMassKg(system);
     double semiMajorAxisKm = planet->semiMajorAxisKm;
-    const SpaceKeplerOrbit *orbit =
-        &system->physicalSnapshot.planetOrbits[index];
-    assert(SpaceKeplerOrbitIsValid(orbit));
     assert(orbit->semiMajorAxisKm == semiMajorAxisKm);
     assert(orbit->centralMassKg == centralMass);
     assert(orbit->eccentricity >= 0.0 && orbit->eccentricity <= 0.05);

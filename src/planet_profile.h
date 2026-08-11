@@ -70,6 +70,7 @@ typedef struct PlanetProfileGenerationInput {
     float spaceProxyRadius;
     float stellarAgeGyr;
     float stellarLuminositiesSolar[PLANET_PROFILE_MAX_STARS];
+    double orbitalEccentricity;
     float orbitalPeriodGameTime;
     int stellarCount;
     int planetIndex;

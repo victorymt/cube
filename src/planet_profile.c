@@ -2,6 +2,7 @@
 
 #include "planet_climate.h"
 #include "raymath.h"
+#include "space_illumination.h"
 #include "space_units.h"
 
 #include <math.h>
@@ -114,24 +115,27 @@ bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
     float volatileSupply = PlanetProfileHashUnit(input->seed, 3u);
     double orbitAU = fmax(input->semiMajorAxisKm /
                           SPACE_UNITS_ASTRONOMICAL_UNIT_KM, 0.18);
-    double orbitDistanceAuSqr = orbitAU * orbitAU;
-    double irradiance = 0.0;
+    double totalLuminositySolar = 0.0;
     int stellarCount = input->stellarCount;
     if (stellarCount < 0) stellarCount = 0;
     if (stellarCount > PLANET_PROFILE_MAX_STARS) {
         stellarCount = PLANET_PROFILE_MAX_STARS;
     }
     for (int sourceIndex = 0; sourceIndex < stellarCount; sourceIndex++) {
-        irradiance +=
-            (double)input->stellarLuminositiesSolar[sourceIndex] /
-            orbitDistanceAuSqr;
+        totalLuminositySolar += fmax(
+            (double)input->stellarLuminositiesSolar[sourceIndex], 0.0);
     }
-    if (irradiance <= 0.0001) {
+    if (totalLuminositySolar <= 0.0001) {
         float primaryLuminosity = input->stellarLuminositiesSolar[0] > 0.0f ?
             input->stellarLuminositiesSolar[0] : 1.0f;
-        irradiance = (double)primaryLuminosity / orbitDistanceAuSqr;
+        totalLuminositySolar = primaryLuminosity;
     }
-    // Mean orbital radius keeps static climate independent of live binary motion.
+    double eccentricity = fmax(0.0, fmin(input->orbitalEccentricity, 0.95));
+    double irradiance = SpaceIlluminationOrbitMeanIrradianceEarth(
+        totalLuminositySolar,
+        orbitAU * SPACE_UNITS_ASTRONOMICAL_UNIT_KM, eccentricity);
+    // Climate uses the time average; live light and weather use instantaneous
+    // star positions from SolarSystemRuntimeState.
     irradiance = fmax(irradiance, 0.0001);
     float unshieldedTemperature = 278.5f *
                                   (float)pow(irradiance, 0.25);

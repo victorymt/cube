@@ -10,6 +10,7 @@ tests/test_planet_climate
 tests/test_space_physics
 tests/test_space_barycenter
 tests/test_space_orbit
+tests/test_space_illumination
 tests/test_space_satellite
 tests/test_space_units
 tests/test_space_properties

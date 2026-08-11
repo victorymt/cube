@@ -6,6 +6,7 @@
 #include "terrain.h"
 #include "particles.h"
 #include "space_barycenter.h"
+#include "space_illumination.h"
 #include "space_physics.h"
 #include "space_satellite.h"
 #include "space_system.h"
@@ -435,6 +436,7 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
         .formationMassEarth = def->formationMassEarth,
         .spaceProxyRadius = def->spaceProxyRadius,
         .stellarAgeGyr = stellar->ageGyr,
+        .orbitalEccentricity = snapshot->planetOrbits[index].eccentricity,
         .orbitalPeriodGameTime =
             (float)SolarSystemPlanetOrbitPeriodGameTime(sys, index),
         .stellarCount = stellar->stellarCount,
@@ -778,10 +780,10 @@ float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point)
         Vector3Distance(source->center, point));
     double minimumDistanceAu = SpaceUnitsGameDistanceToKilometers(1.0) /
                                SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
-    double distanceAu = fmax(distanceKm / SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
-                             minimumDistanceAu);
-    return (float)((double)source->luminosity /
-                   (distanceAu * distanceAu));
+    distanceKm = fmax(distanceKm,
+                      minimumDistanceAu * SPACE_UNITS_ASTRONOMICAL_UNIT_KM);
+    return (float)SpaceIlluminationIrradianceEarth(
+        source->luminosity, distanceKm);
 }
 
 float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
@@ -995,35 +997,48 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
         Vector3 direction = PlanetWorldSkyDirection(toSource);
         direction = PlanetRotateY(Vector3Normalize(direction), -spinPhase);
         float weight = SolarLightIrradianceAt(&sources[i], planetCenter);
-        bool eclipsed = false;
+        double stellarOccultation = 0.0;
         for (int j = 0; j < sourceCount; j++) {
             if (i == j) continue;
             Vector3 toOther = Vector3Subtract(sources[j].center, planetCenter);
             float otherDistance = Vector3Length(toOther);
             if (otherDistance >= distance || otherDistance < 0.001f) continue;
-            Vector3 otherDirection = PlanetRotateY(Vector3Normalize(PlanetWorldSkyDirection(toOther)),
-                                                   -spinPhase);
-            float sourceAngular = asinf(Clamp(
-                sources[i].spaceProxyRadius / distance, 0.0f, 0.98f));
-            float otherAngular = asinf(Clamp(
-                sources[j].spaceProxyRadius / otherDistance, 0.0f, 0.98f));
-            if (Vector3DotProduct(direction, otherDirection) >
-                cosf(sourceAngular + otherAngular)) {
-                eclipsed = true;
-                break;
-            }
+            SpaceSatelliteVector3 otherPositionKm =
+                SatelliteVectorFromGame(toOther);
+            double occultation = SpaceIlluminationOccultationFraction(
+                (SpaceIlluminationBody){
+                    .positionKm = {
+                        otherPositionKm.x, otherPositionKm.y,
+                        otherPositionKm.z
+                    },
+                    .radiusKm = sources[j].stellar.radiusKm
+                },
+                (SpaceIlluminationBody){
+                    .positionKm = {
+                        sourcePositionsKm[i].x, sourcePositionsKm[i].y,
+                        sourcePositionsKm[i].z
+                    },
+                    .radiusKm = sources[i].stellar.radiusKm
+                });
+            stellarOccultation = 1.0 -
+                (1.0 - stellarOccultation) * (1.0 - occultation);
         }
         float sourceVisibility = 1.0f;
-        if (eclipsed) {
-            weight *= 0.12f;
-            sourceVisibility = 0.12f;
+        if (stellarOccultation > 0.001) {
+            weight *= fmaxf(0.01f, 1.0f - (float)stellarOccultation);
+            sourceVisibility = fmaxf(
+                0.06f, 1.0f - (float)stellarOccultation * 0.94f);
+            out->sourceOccultations[i] = (float)stellarOccultation;
+            out->eclipse = fmaxf(out->eclipse, (float)stellarOccultation);
             out->specialEclipse = true;
         }
         if (hasMoon) {
             double occultation = SpaceSatelliteSolarOccultationFraction(
                 observerPositionKm, satellitePositionKm, satellite.radiusKm,
                 sourcePositionsKm[i], sources[i].stellar.radiusKm);
-            out->sourceOccultations[i] = (float)occultation;
+            double combinedOccultation = 1.0 -
+                (1.0 - stellarOccultation) * (1.0 - occultation);
+            out->sourceOccultations[i] = (float)combinedOccultation;
             if (occultation > 0.001) {
                 weight *= fmaxf(0.01f, 1.0f - (float)occultation);
                 sourceVisibility *= fmaxf(0.06f,
