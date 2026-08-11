@@ -85,20 +85,23 @@ bool SolarSystemPlanetDefinitionIsValid(const SolarPlanetDef *planet)
 
 static uint32_t SolarLightHash(const SolarSystemDef *sys)
 {
-    return WorldHash2D(sys->anchorX * 113 + 41, sys->anchorZ * 71 + 19);
+    return WorldHash2DBits((uint32_t)sys->anchorX * 113u + 41u,
+                           (uint32_t)sys->anchorZ * 71u + 19u);
 }
 
 uint32_t SolarSystemPlanetOrbitHash(const SolarSystemDef *sys, int index)
 {
     if (!sys) return 0u;
-    return WorldHash2D(sys->anchorX * 53 + index * 7 + 1,
-                       sys->anchorZ * 29 + index * 3 + 2);
+    return WorldHash2DBits(
+        (uint32_t)sys->anchorX * 53u + (uint32_t)index * 7u + 1u,
+        (uint32_t)sys->anchorZ * 29u + (uint32_t)index * 3u + 2u);
 }
 
 uint32_t SolarSystemPlanetPlaneHash(const SolarSystemDef *sys)
 {
     if (!sys) return 0u;
-    return WorldHash2D(sys->anchorX * 79 + 11, sys->anchorZ * 97 + 23);
+    return WorldHash2DBits((uint32_t)sys->anchorX * 79u + 11u,
+                           (uint32_t)sys->anchorZ * 97u + 23u);
 }
 
 int SolarSystemStellarVisualRadius(const StellarProfile *star)

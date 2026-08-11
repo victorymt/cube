@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <float.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -943,6 +944,30 @@ static void TestGeneratedSystems(void)
            climates[SOLAR_STYLE_CRATER], climates[SOLAR_STYLE_TEMPERATE]);
 }
 
+static void TestExtremeAnchorDeterminism(void)
+{
+    SetPropertySeed(DEFAULT_WORLD_SEED);
+    int generatedCount = 0;
+    for (int sample = 0; sample < 512; sample++) {
+        int anchorX = INT_MAX - sample;
+        int anchorZ = INT_MIN + sample;
+        SolarSystemDef first;
+        SolarSystemDef second;
+        SpaceQueryCacheClear();
+        bool firstExists = StarSystemAt(anchorX, anchorZ, &first);
+        SpaceQueryCacheClear();
+        bool secondExists = StarSystemAt(anchorX, anchorZ, &second);
+        assert(firstExists == secondExists);
+        assert(memcmp(&first, &second, sizeof(first)) == 0);
+        assert(first.anchorX == anchorX && first.anchorZ == anchorZ);
+        if (!firstExists) continue;
+        assert(first.physicalSnapshot.valid);
+        assert(first.planetCount > 0);
+        generatedCount++;
+    }
+    assert(generatedCount > 0);
+}
+
 static void TestHomeScaleDiagnostics(void)
 {
     SpaceScaleDiagnostics scale;
@@ -1658,6 +1683,7 @@ int main(void)
     TestRuntimeInputContracts();
     TestQueryCacheInputContracts();
     TestGeneratedSystems();
+    TestExtremeAnchorDeterminism();
     TestSaveLoadTimeDeterminism();
     TestSpaceLoadFailureAtomicity();
     TestDeterministicSpaceQueries();

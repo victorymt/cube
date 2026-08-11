@@ -16,14 +16,19 @@
 
 #include "chunks.h"
 #include "world.h"
-unsigned int Hash2D(int x, int z)
+static unsigned int Hash2DBits(unsigned int xBits, unsigned int zBits)
 {
     unsigned int h = 2166136261u;
-    h = (h ^ (unsigned int)x) * 16777619u;
-    h = (h ^ ((unsigned int)z * 374761393u)) * 16777619u;
+    h = (h ^ xBits) * 16777619u;
+    h = (h ^ (zBits * 374761393u)) * 16777619u;
     h ^= h >> 13;
     h *= 1274126177u;
     return h ^ (h >> 16);
+}
+
+unsigned int Hash2D(int x, int z)
+{
+    return Hash2DBits((unsigned int)x, (unsigned int)z);
 }
 
 static unsigned int MixWorldSeed(unsigned int hash)
@@ -49,7 +54,12 @@ static float WorldSeedCoordinateOffset(unsigned int lane)
 
 unsigned int WorldHash2D(int x, int z)
 {
-    return MixWorldSeed(Hash2D(x, z));
+    return WorldHash2DBits((unsigned int)x, (unsigned int)z);
+}
+
+unsigned int WorldHash2DBits(unsigned int xBits, unsigned int zBits)
+{
+    return MixWorldSeed(Hash2DBits(xBits, zBits));
 }
 
 unsigned int WorldHash3D(int x, int y, int z)

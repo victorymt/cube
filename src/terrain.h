@@ -6,6 +6,8 @@
 
 unsigned int Hash2D(int x, int z);
 unsigned int WorldHash2D(int x, int z);
+// Accepts already-wrapped coordinate bit patterns for overflow-safe mixing.
+unsigned int WorldHash2DBits(unsigned int xBits, unsigned int zBits);
 unsigned int WorldHash3D(int x, int y, int z);
 float TerrainNoise(float x, float z);
 float BiomeNoise(int x, int z);

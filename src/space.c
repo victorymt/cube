@@ -342,12 +342,11 @@ const char *PlanetWorldName(void)
     return planetWorld.active ? planetWorld.name : "---";
 }
 
-static void BuildStarName(int ax, int az, char *out, size_t outSize)
+static void BuildStarName(unsigned int hash, char *out, size_t outSize)
 {
-    unsigned int h = WorldHash2D(ax * 31 + 7, az * 17 + 5);
-    int p1 = (int)(h % 24u);
-    int p2 = (int)((h >> 6) % 10u);
-    int p3 = (int)((h >> 12) % 10u);
+    int p1 = (int)(hash % 24u);
+    int p2 = (int)((hash >> 6) % 10u);
+    int p3 = (int)((hash >> 12) % 10u);
     snprintf(out, outSize, "%s%s%s", starNamePart1[p1], starNamePart2[p2], starNamePart3[p3]);
 }
 
@@ -545,9 +544,10 @@ static bool StarSystemDefinitionAt(int ax, int az, SolarSystemDef *out)
         return false;
     }
 
-    unsigned int h = WorldHash2D(ax * 31 + 7, az * 17 + 5);
+    unsigned int h = WorldHash2DBits(
+        (uint32_t)ax * 31u + 7u, (uint32_t)az * 17u + 5u);
     system.exists = true;
-    BuildStarName(ax, az, system.name, sizeof(system.name));
+    BuildStarName(h, system.name, sizeof(system.name));
     ApplyPrimaryStar(&system, StellarGenerate(h ^ 0xd1b54a35u));
     int verticalOffset = (int)((h >> 14) % 93u) - 46;
     system.center = (Vector3){
