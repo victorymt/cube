@@ -580,13 +580,62 @@ static void TestRuntimeInputContracts(void)
     assert(memcmp(&summary, &clearedSummary, sizeof(summary)) == 0);
     system.physicalSnapshot.summary = originalSummary;
 
+    SolarSystemPhysicalSnapshot snapshot;
+    const SolarSystemPhysicalSnapshot clearedSnapshot = { 0 };
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotBuild(NULL, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    assert(!SolarSystemPhysicalSnapshotBuild(&system, NULL));
+
+    int originalPlanetCount = system.planetCount;
+    system.planetCount = MAX_SOLAR_PLANETS + 1;
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    system.planetCount = originalPlanetCount;
+
+    double originalPrimaryMassKg = system.star.massKg;
+    system.star.massKg = NAN;
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    system.star.massKg = originalPrimaryMassKg;
+
+    double originalSemiMajorAxisKm = system.planets[0].semiMajorAxisKm;
+    system.planets[0].semiMajorAxisKm = NAN;
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    system.planets[0].semiMajorAxisKm = originalSemiMajorAxisKm;
+
+    assert(SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
+    const SpaceSatelliteOrbit clearedSatelliteOrbits[MAX_SOLAR_PLANETS] = {
+        0
+    };
+    snapshot.satellitesBuilt = true;
+    memset(snapshot.satelliteOrbits, 0xa5, sizeof(snapshot.satelliteOrbits));
+    snapshot.summary.totalMassKg = NAN;
+    assert(!SolarSystemPhysicalSnapshotBuildSatellites(&system, &snapshot));
+    assert(!snapshot.satellitesBuilt);
+    assert(memcmp(snapshot.satelliteOrbits, clearedSatelliteOrbits,
+                  sizeof(snapshot.satelliteOrbits)) == 0);
+
+    assert(SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
+    snapshot.satellitesBuilt = true;
+    memset(snapshot.satelliteOrbits, 0xa5, sizeof(snapshot.satelliteOrbits));
+    system.planets[0].semiMajorAxisKm = NAN;
+    assert(!SolarSystemPhysicalSnapshotBuildSatellites(&system, &snapshot));
+    assert(!snapshot.satellitesBuilt);
+    assert(memcmp(snapshot.satelliteOrbits, clearedSatelliteOrbits,
+                  sizeof(snapshot.satelliteOrbits)) == 0);
+    system.planets[0].semiMajorAxisKm = originalSemiMajorAxisKm;
+
     SolarPlanetOrbitalState orbitalState;
     assert(SolarSystemPlanetStateAtTime(&system, 0, 0.0, &orbitalState));
     system.center.x = NAN;
     assert(!SolarSystemPlanetStateAtTime(&system, 0, 0.0, &orbitalState));
     assert(orbitalState.center.x == 0.0f && orbitalState.velocity.x == 0.0f);
     system.center = originalCenter;
-    int originalPlanetCount = system.planetCount;
     system.planetCount = MAX_SOLAR_PLANETS + 1;
     assert(!SolarSystemPlanetStateAtTime(&system, MAX_SOLAR_PLANETS, 0.0,
                                          &orbitalState));

@@ -12,6 +12,32 @@ static bool SolarSystemPhysicsVectorIsFinite(Vector3 value)
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
 }
 
+static bool SolarSystemPhysicsStellarProfileIsValid(
+    const StellarProfile *profile)
+{
+    return profile &&
+           profile->spectrum >= SPECTRUM_RED_DWARF &&
+           profile->spectrum <= SPECTRUM_RED_GIANT &&
+           profile->stage >= STELLAR_STAGE_MAIN_SEQUENCE &&
+           profile->stage <= STELLAR_STAGE_RED_GIANT &&
+           profile->initialMassSolar > 0.0f &&
+           isfinite(profile->initialMassSolar) && profile->massKg > 0.0 &&
+           isfinite(profile->massKg) && profile->radiusKm > 0.0 &&
+           isfinite(profile->radiusKm) && profile->massSolar > 0.0f &&
+           isfinite(profile->massSolar) && profile->radiusSolar > 0.0f &&
+           isfinite(profile->radiusSolar) && profile->temperatureK > 0.0f &&
+           isfinite(profile->temperatureK) &&
+           profile->luminositySolar > 0.0f &&
+           isfinite(profile->luminositySolar) && profile->ageGyr >= 0.0f &&
+           isfinite(profile->ageGyr) &&
+           profile->mainSequenceLifetimeGyr > 0.0f &&
+           isfinite(profile->mainSequenceLifetimeGyr) &&
+           profile->luminousLifetimeGyr >=
+               profile->mainSequenceLifetimeGyr &&
+           isfinite(profile->luminousLifetimeGyr) &&
+           profile->ageGyr <= profile->luminousLifetimeGyr;
+}
+
 static uint32_t SolarLightHash(const SolarSystemDef *sys)
 {
     return WorldHash2D(sys->anchorX * 113 + 41, sys->anchorZ * 71 + 19);
@@ -171,67 +197,85 @@ static bool SolarSystemPlanetOrbitBuild(
 bool SolarSystemPhysicalSnapshotBuild(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out)
 {
-    if (!sys || !out || sys->planetCount < 0 ||
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+    if (!sys || sys->planetCount < 0 ||
         sys->planetCount > MAX_SOLAR_PLANETS) {
         return false;
     }
-    memset(out, 0, sizeof(*out));
+
+    SolarSystemPhysicalSnapshot snapshot = { 0 };
 
     uint32_t hash = 0;
     int count = SolarSystemStellarProfiles(
-        sys, out->stellarProfiles, MAX_SOLAR_LIGHTS, &hash);
+        sys, snapshot.stellarProfiles, MAX_SOLAR_LIGHTS, &hash);
     if (count <= 0 || count > MAX_SOLAR_LIGHTS) return false;
 
-    out->stellarHash = hash;
-    out->summary.stellarCount = count;
-    out->summary.ageGyr = sys->star.ageGyr;
+    snapshot.stellarHash = hash;
+    snapshot.summary.stellarCount = count;
+    snapshot.summary.ageGyr = sys->star.ageGyr;
     for (int i = 0; i < count; i++) {
-        out->summary.totalMassKg += out->stellarProfiles[i].massKg;
-        out->summary.totalLuminositySolar +=
-            fmaxf(out->stellarProfiles[i].luminositySolar, 0.0f);
-        out->summary.stellarLuminositiesSolar[i] =
-            out->stellarProfiles[i].luminositySolar;
+        if (!SolarSystemPhysicsStellarProfileIsValid(
+                &snapshot.stellarProfiles[i])) {
+            return false;
+        }
+        snapshot.summary.totalMassKg += snapshot.stellarProfiles[i].massKg;
+        snapshot.summary.totalLuminositySolar +=
+            snapshot.stellarProfiles[i].luminositySolar;
+        snapshot.summary.stellarLuminositiesSolar[i] =
+            snapshot.stellarProfiles[i].luminositySolar;
     }
-    if (!(out->summary.totalMassKg > 0.0)) {
-        out->summary.totalMassKg = SPACE_UNITS_SOLAR_MASS_KG;
-    }
-    if (!(out->summary.totalLuminositySolar > 0.0f)) {
-        out->summary.totalLuminositySolar =
-            sys->star.luminositySolar > 0.0f ? sys->star.luminositySolar : 1.0f;
+    if (!(snapshot.summary.totalMassKg > 0.0) ||
+        !isfinite(snapshot.summary.totalMassKg) ||
+        !(snapshot.summary.totalLuminositySolar > 0.0f) ||
+        !isfinite(snapshot.summary.totalLuminositySolar) ||
+        snapshot.summary.ageGyr < 0.0f ||
+        !isfinite(snapshot.summary.ageGyr)) {
+        return false;
     }
 
-    out->stellarOrbit = SolarSystemStellarOrbit(
-        out->stellarProfiles, count, hash);
+    snapshot.stellarOrbit = SolarSystemStellarOrbit(
+        snapshot.stellarProfiles, count, hash);
     if (count <= 1) {
-        out->minimumPlanetOrbitGame = 180.0f;
+        snapshot.minimumPlanetOrbitGame = 180.0f;
     } else {
         double separationKm = count == 3
-            ? out->stellarOrbit.outerSeparationKm
-            : out->stellarOrbit.innerSeparationKm;
+            ? snapshot.stellarOrbit.outerSeparationKm
+            : snapshot.stellarOrbit.innerSeparationKm;
         float minimum = (float)SpaceUnitsKilometersToGameDistance(
             separationKm) * (count == 3 ? 3.0f : 2.8f);
-        out->minimumPlanetOrbitGame = fmaxf(180.0f, minimum);
+        snapshot.minimumPlanetOrbitGame = fmaxf(180.0f, minimum);
+    }
+    if (!(snapshot.minimumPlanetOrbitGame > 0.0f) ||
+        !isfinite(snapshot.minimumPlanetOrbitGame)) {
+        return false;
     }
     for (int index = 0; index < sys->planetCount; index++) {
         if (!SolarSystemPlanetOrbitBuild(
-                sys, index, out->summary.totalMassKg,
-                &out->planetOrbits[index])) {
+                sys, index, snapshot.summary.totalMassKg,
+                &snapshot.planetOrbits[index])) {
             return false;
         }
     }
-    out->valid = true;
+    snapshot.valid = true;
+    *out = snapshot;
     return true;
 }
 
 bool SolarSystemPhysicalSnapshotBuildSatellites(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out)
 {
-    if (!sys || !out || !out->valid || sys->planetCount < 0 ||
+    if (!out) return false;
+    out->satellitesBuilt = false;
+    memset(out->satelliteOrbits, 0, sizeof(out->satelliteOrbits));
+    if (!sys || !out->valid || sys->planetCount < 0 ||
         sys->planetCount > MAX_SOLAR_PLANETS ||
-        out->summary.totalMassKg <= 0.0) {
+        !(out->summary.totalMassKg > 0.0) ||
+        !isfinite(out->summary.totalMassKg)) {
         return false;
     }
-    memset(out->satelliteOrbits, 0, sizeof(out->satelliteOrbits));
+
+    SpaceSatelliteOrbit satelliteOrbits[MAX_SOLAR_PLANETS] = { 0 };
     for (int index = 0; index < sys->planetCount; index++) {
         PlanetProfile profile = SolarPlanetProfile(sys, index);
         double earthMasses = SpaceUnitsKilogramsToGameMass(profile.massKg);
@@ -247,10 +291,12 @@ bool SolarSystemPhysicalSnapshotBuildSatellites(
                 profile.physicalRadiusKm,
                 sys->planets[index].semiMajorAxisKm,
                 out->summary.totalMassKg, occurrence, forceMoon,
-                &out->satelliteOrbits[index])) {
+                &satelliteOrbits[index])) {
             return false;
         }
     }
+    memcpy(out->satelliteOrbits, satelliteOrbits,
+           sizeof(out->satelliteOrbits));
     out->satellitesBuilt = true;
     return true;
 }
@@ -293,10 +339,7 @@ int SolarSystemPhysicalSnapshotStellarBodiesAtTime(
         const StellarProfile *star = &snapshot->stellarProfiles[i];
         float proxyRadius = i == 0 ? (float)sys->starProxyRadius :
                                     (float)SolarSystemStellarVisualRadius(star);
-        if (!(star->massKg > 0.0) || !isfinite(star->massKg) ||
-            !(star->radiusKm > 0.0) || !isfinite(star->radiusKm) ||
-            !(star->luminositySolar > 0.0f) ||
-            !isfinite(star->luminositySolar) ||
+        if (!SolarSystemPhysicsStellarProfileIsValid(star) ||
             !(proxyRadius > 0.0f) || !isfinite(proxyRadius)) {
             memset(out, 0, sizeof(*out) * (size_t)clearCount);
             return 0;
