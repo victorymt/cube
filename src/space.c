@@ -717,8 +717,7 @@ double SolarSystemStellarMassKg(const SolarSystemDef *sys)
     SolarSystemPhysicalSnapshot scratch;
     const SolarSystemPhysicalSnapshot *snapshot =
         SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
-    return snapshot ? snapshot->summary.totalMassKg :
-                      SPACE_UNITS_SOLAR_MASS_KG;
+    return snapshot ? snapshot->summary.totalMassKg : 0.0;
 }
 
 int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,

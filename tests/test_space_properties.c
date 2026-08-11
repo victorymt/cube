@@ -574,11 +574,13 @@ static void TestRuntimeInputContracts(void)
     memset(&summary, 0xa5, sizeof(summary));
     assert(!SolarSystemPhysicalSummaryForSystem(NULL, &summary));
     assert(memcmp(&summary, &clearedSummary, sizeof(summary)) == 0);
+    assert(SolarSystemStellarMassKg(NULL) == 0.0);
     SolarSystemPhysicalSummary originalSummary = system.physicalSnapshot.summary;
     system.physicalSnapshot.summary.totalMassKg = NAN;
     memset(&summary, 0xa5, sizeof(summary));
     assert(SolarSystemPhysicalSummaryForSystem(&system, &summary));
     assert(memcmp(&summary, &originalSummary, sizeof(summary)) == 0);
+    assert(SolarSystemStellarMassKg(&system) == originalSummary.totalMassKg);
     system.physicalSnapshot.summary = originalSummary;
     system.physicalSnapshot.summary.stellarLuminositiesSolar[0] = INFINITY;
     memset(&summary, 0xa5, sizeof(summary));
@@ -605,6 +607,7 @@ static void TestRuntimeInputContracts(void)
     memset(&snapshot, 0xa5, sizeof(snapshot));
     assert(!SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
     assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    assert(SolarSystemStellarMassKg(&system) == 0.0);
     system.star.massKg = originalPrimaryMassKg;
 
     double originalSemiMajorAxisKm = system.planets[0].semiMajorAxisKm;
