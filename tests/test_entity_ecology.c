@@ -757,12 +757,93 @@ static void TestEntityEcologySystemReplay(void)
     ChunksShutdownGenThread();
 }
 
+static bool TestLightVectorFinite(Vector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
+static void AssertPlanetLightStateValid(const PlanetLightState *state)
+{
+    assert(state);
+    assert(state->sourceCount > 0 && state->sourceCount <= MAX_SOLAR_LIGHTS);
+    assert(TestLightVectorFinite(state->sunDirection));
+    assert(TestLightVectorFinite(state->moonDirection));
+    assert(isfinite(state->daylight) && state->daylight >= 0.0f &&
+           state->daylight <= 1.0f);
+    assert(isfinite(state->sunset) && state->sunset >= 0.0f &&
+           state->sunset <= 1.0f);
+    assert(isfinite(state->ringShadow) && state->ringShadow >= 0.0f &&
+           state->ringShadow <= 1.0f);
+    assert(isfinite(state->eclipse) && state->eclipse >= 0.0f &&
+           state->eclipse <= 1.0f);
+    assert(isfinite(state->moonIllumination) &&
+           state->moonIllumination >= 0.0f && state->moonIllumination <= 1.0f);
+    assert(isfinite(state->moonAngularRadius) && state->moonAngularRadius >= 0.0f);
+    assert(isfinite(state->moonUmbra) && state->moonUmbra >= 0.0f &&
+           state->moonUmbra <= 1.0f);
+    assert(isfinite(state->totalIntensity) && state->totalIntensity > 0.0f);
+    for (int index = 0; index < state->sourceCount; index++) {
+        assert(TestLightVectorFinite(state->sourceDirections[index]));
+        assert(isfinite(state->sourceIntensities[index]) &&
+               state->sourceIntensities[index] >= 0.0f);
+        assert(isfinite(state->sourceVisibility[index]) &&
+               state->sourceVisibility[index] >= 0.0f &&
+               state->sourceVisibility[index] <= 1.0f);
+        assert(isfinite(state->sourceOccultations[index]) &&
+               state->sourceOccultations[index] >= 0.0f &&
+               state->sourceOccultations[index] <= 1.0f);
+    }
+}
+
+static void TestPlanetLightStateDeterminism(void)
+{
+    SolarSystemDef system;
+    assert(StarSystemAt(0, 0, &system));
+    int planetIndex = 0;
+    for (int index = 0; index < system.planetCount; index++) {
+        PlanetProfile profile = SolarPlanetProfile(&system, index);
+        SpaceSatelliteOrbit satellite;
+        if (SolarPlanetSatelliteOrbit(&system, index, &profile, &satellite)) {
+            planetIndex = index;
+            break;
+        }
+    }
+
+    FILE *file = tmpfile();
+    assert(file);
+    EcologyTestActivateGeneratedPlanetWithFile(
+        file, &system, planetIndex, 0, 0);
+    static const Vector3 surfacePositions[] = {
+        { 0.5f, 70.0f, 0.5f },
+        { 18.5f, 72.0f, -11.5f },
+        { -31.5f, 68.0f, 24.5f }
+    };
+    for (size_t index = 0;
+         index < sizeof(surfacePositions) / sizeof(surfacePositions[0]);
+         index++) {
+        PlanetLightState first;
+        PlanetLightState second;
+        assert(PlanetWorldLightStateAt(surfacePositions[index], &first));
+        assert(PlanetWorldLightStateAt(surfacePositions[index], &second));
+        AssertPlanetLightStateValid(&first);
+        assert(memcmp(&first, &second, sizeof(first)) == 0);
+    }
+    SpaceAdvanceTime(37.5f);
+    PlanetLightState advanced;
+    assert(PlanetWorldLightStateAt(surfacePositions[1], &advanced));
+    AssertPlanetLightStateValid(&advanced);
+
+    fclose(file);
+    PlanetWorldReset();
+}
+
 int main(void)
 {
     TestCrossSeedSeasonalEntityProperties();
     TestEntityDeathCauseFeedback();
     TestCrossSeedEntityHarvestFeedback();
     TestEntityEcologySystemReplay();
+    TestPlanetLightStateDeterminism();
     puts("entity ecology tests passed");
     return 0;
 }
