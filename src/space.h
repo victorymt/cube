@@ -87,11 +87,13 @@ typedef struct SolarSystemPhysicalSummary {
 
 typedef struct SolarSystemPhysicalSnapshot {
     bool valid;
+    bool satellitesBuilt;
     uint32_t stellarHash;
     StellarProfile stellarProfiles[MAX_SOLAR_LIGHTS];
     SpaceBarycenterOrbit stellarOrbit;
     SolarSystemPhysicalSummary summary;
     SpaceKeplerOrbit planetOrbits[MAX_SOLAR_PLANETS];
+    SpaceSatelliteOrbit satelliteOrbits[MAX_SOLAR_PLANETS];
     float minimumPlanetOrbitGame;
 } SolarSystemPhysicalSnapshot;
 
@@ -125,6 +127,10 @@ typedef struct SolarPlanetRuntimeState {
     Vector3 velocity;
     PlanetProfile profile;
     float currentIrradianceEarth;
+    SpaceSatelliteOrbit satelliteOrbit;
+    SpaceSatelliteState satelliteState;
+    Vector3 satelliteCenter;
+    Vector3 satelliteVelocity;
 } SolarPlanetRuntimeState;
 
 typedef struct SolarSystemRuntimeState {

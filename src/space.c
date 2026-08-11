@@ -499,7 +499,8 @@ bool StarSystemAt(int ax, int az, SolarSystemDef *out)
         for (int i = 0; i < out->planetCount; i++) {
             out->planets[i].style = SolarPlanetProfile(out, i).style;
         }
-        return true;
+        return SolarSystemPhysicalSnapshotBuildSatellites(
+            out, &out->physicalSnapshot);
     }
 
     out->exists = false;
@@ -652,13 +653,25 @@ bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
         return false;
     }
 
-    int stellarCount = SolarSystemStellarBodiesAtTime(
-        sys, simulationTime, out->stars, MAX_SOLAR_LIGHTS);
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    if (!snapshot) return false;
+    if (!snapshot->satellitesBuilt) {
+        scratch = *snapshot;
+        if (!SolarSystemPhysicalSnapshotBuildSatellites(sys, &scratch)) {
+            return false;
+        }
+        snapshot = &scratch;
+    }
+
+    int stellarCount = SolarSystemPhysicalSnapshotStellarBodiesAtTime(
+        sys, snapshot, simulationTime, out->stars, MAX_SOLAR_LIGHTS);
     if (stellarCount <= 0 || stellarCount > MAX_SOLAR_LIGHTS) return false;
     out->simulationTime = simulationTime;
     out->stellarCount = stellarCount;
     out->planetCount = sys->planetCount;
-    out->totalStellarMassKg = SolarSystemStellarMassKg(sys);
+    out->totalStellarMassKg = snapshot->summary.totalMassKg;
     if (!(out->totalStellarMassKg > 0.0)) return false;
 
     SolarLightSource sources[MAX_SOLAR_LIGHTS];
@@ -684,6 +697,32 @@ bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
         planet->velocity = orbitalState.velocity;
         planet->currentIrradianceEarth = SolarSystemIrradianceAt(
             sources, stellarCount, planet->center);
+        planet->satelliteOrbit = snapshot->satelliteOrbits[index];
+        if (planet->satelliteOrbit.exists) {
+            if (!SpaceSatelliteStateAtSeconds(
+                    &planet->satelliteOrbit, planet->profile.massKg,
+                    SpaceUnitsGameTimeToSeconds(simulationTime),
+                    &planet->satelliteState)) {
+                return false;
+            }
+            SpaceSatelliteVector3 relativePosition =
+                planet->satelliteState.positionKm;
+            SpaceSatelliteVector3 relativeVelocity =
+                planet->satelliteState.velocityKmPerSecond;
+            planet->satelliteCenter = Vector3Add(planet->center, (Vector3){
+                (float)SpaceUnitsKilometersToGameDistance(relativePosition.x),
+                (float)SpaceUnitsKilometersToGameDistance(relativePosition.y),
+                (float)SpaceUnitsKilometersToGameDistance(relativePosition.z)
+            });
+            planet->satelliteVelocity = Vector3Add(planet->velocity, (Vector3){
+                (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                    relativeVelocity.x),
+                (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                    relativeVelocity.y),
+                (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                    relativeVelocity.z)
+            });
+        }
         planet->valid = isfinite(planet->currentIrradianceEarth) &&
                         planet->currentIrradianceEarth >= 0.0f;
         if (!planet->valid) return false;
@@ -762,7 +801,11 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
             .formationGasGiant = planet->gasGiant
         };
     }
-    return SolarSystemPhysicalSnapshotBuild(sys, &sys->physicalSnapshot);
+    if (!SolarSystemPhysicalSnapshotBuild(sys, &sys->physicalSnapshot)) {
+        return false;
+    }
+    return SolarSystemPhysicalSnapshotBuildSatellites(
+        sys, &sys->physicalSnapshot);
 }
 
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
@@ -881,20 +924,19 @@ bool SolarPlanetSatelliteOrbit(const SolarSystemDef *system, int planetIndex,
         return false;
     }
 
-    double earthMasses = SpaceUnitsKilogramsToGameMass(profile->massKg);
-    double occurrence = profile->hasSolidSurface ?
-                        0.18 + Clamp((float)((earthMasses - 0.45) / 2.5),
-                                     0.0f, 1.0f) * 0.10 :
-                        0.82;
-    if (profile->tidallyLocked) occurrence *= 0.22;
-    bool forceMoon = system->anchorX == 0 && system->anchorZ == 0 &&
-                     planetIndex == 2;
-    return SpaceSatelliteGenerate(
-               profile->seed ^ 0xb5297a4du, profile->massKg,
-               profile->physicalRadiusKm,
-               system->planets[planetIndex].semiMajorAxisKm,
-               SolarSystemStellarMassKg(system), occurrence, forceMoon, out) &&
-           out->exists;
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(system, &scratch);
+    if (!snapshot) return false;
+    if (!snapshot->satellitesBuilt) {
+        scratch = *snapshot;
+        if (!SolarSystemPhysicalSnapshotBuildSatellites(system, &scratch)) {
+            return false;
+        }
+        snapshot = &scratch;
+    }
+    *out = snapshot->satelliteOrbits[planetIndex];
+    return out->exists;
 }
 
 static float PlanetRingShadowForPoint(Vector3 surfacePosition, Vector3 sunDirection)
@@ -955,15 +997,14 @@ bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
         Vector3Normalize(inertialSurfaceNormal),
         planetWorld.profile.physicalRadiusKm);
 
-    SpaceSatelliteOrbit satellite = { 0 };
-    bool hasMoon = SolarPlanetSatelliteOrbit(&system, orbitIndex,
-                                             &planetWorld.profile, &satellite);
+    const SolarPlanetRuntimeState *runtimePlanet =
+        &runtime.planets[orbitIndex];
+    SpaceSatelliteOrbit satellite = runtimePlanet->satelliteOrbit;
+    bool hasMoon = satellite.exists;
     SpaceSatelliteVector3 satellitePositionKm = { 0 };
     SpaceSatelliteVector3 observerToSatelliteKm = { 0 };
     if (hasMoon) {
-        satellitePositionKm = SpaceSatellitePositionAtSeconds(
-            &satellite, planetWorld.profile.massKg,
-            SpaceUnitsGameTimeToSeconds(solarSimulationTime));
+        satellitePositionKm = runtimePlanet->satelliteState.positionKm;
         observerToSatelliteKm = SatelliteVectorSubtract(
             satellitePositionKm, observerPositionKm);
         Vector3 moonInertialDirection = Vector3Normalize(

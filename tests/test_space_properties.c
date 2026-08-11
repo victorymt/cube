@@ -403,9 +403,13 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
                            (1.0 - satellite.eccentricity);
         double apoapsis = satellite.semiMajorAxisKm *
                           (1.0 + satellite.eccentricity);
-        assert(periapsis > 5.0 * profile->physicalRadiusKm);
+        double rocheLimitKm = SpaceSatelliteFluidRocheLimitKm(
+            profile->massKg, profile->physicalRadiusKm,
+            satellite.massKg, satellite.radiusKm);
+        assert(periapsis >= 6.0 * profile->physicalRadiusKm);
+        assert(periapsis > rocheLimitKm);
         assert(periapsis > profile->physicalRadiusKm + satellite.radiusKm);
-        assert(apoapsis < 0.5 * hillRadiusKm);
+        assert(apoapsis <= 0.35 * hillRadiusKm);
         assert(apoapsis < hillRadiusKm);
         assert(satellite.eccentricity >= 0.0 && satellite.eccentricity < 0.1);
         double moonPeriod = SpaceSatelliteOrbitalPeriodSeconds(
@@ -451,6 +455,53 @@ static void AssertRuntimeState(const SolarSystemDef *system,
         PlanetProfile profile = SolarPlanetProfile(system, planet);
         assert(memcmp(&runtime.planets[planet].profile, &profile,
                       sizeof(profile)) == 0);
+        SpaceSatelliteOrbit satellite;
+        bool hasSatellite = SolarPlanetSatelliteOrbit(
+            system, planet, &profile, &satellite);
+        assert(hasSatellite ==
+               system->physicalSnapshot.satelliteOrbits[planet].exists);
+        assert(memcmp(&runtime.planets[planet].satelliteOrbit,
+                      &system->physicalSnapshot.satelliteOrbits[planet],
+                      sizeof(satellite)) == 0);
+        if (hasSatellite) {
+            assert(memcmp(&satellite,
+                          &runtime.planets[planet].satelliteOrbit,
+                          sizeof(satellite)) == 0);
+            SpaceSatelliteState satelliteState;
+            assert(SpaceSatelliteStateAtSeconds(
+                &satellite, profile.massKg, 0.0, &satelliteState));
+            assert(memcmp(&satelliteState,
+                          &runtime.planets[planet].satelliteState,
+                          sizeof(satelliteState)) == 0);
+            Vector3 expectedCenter = {
+                orbitalState.center.x +
+                    (float)SpaceUnitsKilometersToGameDistance(
+                        satelliteState.positionKm.x),
+                orbitalState.center.y +
+                    (float)SpaceUnitsKilometersToGameDistance(
+                        satelliteState.positionKm.y),
+                orbitalState.center.z +
+                    (float)SpaceUnitsKilometersToGameDistance(
+                        satelliteState.positionKm.z)
+            };
+            Vector3 expectedVelocity = {
+                orbitalState.velocity.x +
+                    (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                        satelliteState.velocityKmPerSecond.x),
+                orbitalState.velocity.y +
+                    (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                        satelliteState.velocityKmPerSecond.y),
+                orbitalState.velocity.z +
+                    (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                        satelliteState.velocityKmPerSecond.z)
+            };
+            assert(memcmp(&expectedCenter,
+                          &runtime.planets[planet].satelliteCenter,
+                          sizeof(expectedCenter)) == 0);
+            assert(memcmp(&expectedVelocity,
+                          &runtime.planets[planet].satelliteVelocity,
+                          sizeof(expectedVelocity)) == 0);
+        }
         float irradiance = SolarSystemIrradianceAt(
             sources, stellarCount, orbitalState.center);
         assert(runtime.planets[planet].currentIrradianceEarth == irradiance);
@@ -502,6 +553,8 @@ static void TestGeneratedSystems(void)
                 SolarSystemPhysicalSnapshot rebuiltSnapshot;
                 assert(SolarSystemPhysicalSnapshotBuild(&system,
                                                         &rebuiltSnapshot));
+                assert(SolarSystemPhysicalSnapshotBuildSatellites(
+                    &system, &rebuiltSnapshot));
                 assert(memcmp(&system.physicalSnapshot, &rebuiltSnapshot,
                               sizeof(rebuiltSnapshot)) == 0);
                 multiplicities[bodyCount]++;

@@ -218,6 +218,38 @@ bool SolarSystemPhysicalSnapshotBuild(
     return true;
 }
 
+bool SolarSystemPhysicalSnapshotBuildSatellites(
+    const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out)
+{
+    if (!sys || !out || !out->valid || sys->planetCount < 0 ||
+        sys->planetCount > MAX_SOLAR_PLANETS ||
+        out->summary.totalMassKg <= 0.0) {
+        return false;
+    }
+    memset(out->satelliteOrbits, 0, sizeof(out->satelliteOrbits));
+    for (int index = 0; index < sys->planetCount; index++) {
+        PlanetProfile profile = SolarPlanetProfile(sys, index);
+        double earthMasses = SpaceUnitsKilogramsToGameMass(profile.massKg);
+        double occurrence = profile.hasSolidSurface
+            ? 0.18 + Clamp((float)((earthMasses - 0.45) / 2.5),
+                           0.0f, 1.0f) * 0.10
+            : 0.82;
+        if (profile.tidallyLocked) occurrence *= 0.22;
+        bool forceMoon = sys->anchorX == 0 && sys->anchorZ == 0 &&
+                         index == 2;
+        if (!SpaceSatelliteGenerate(
+                profile.seed ^ 0xb5297a4du, profile.massKg,
+                profile.physicalRadiusKm,
+                sys->planets[index].semiMajorAxisKm,
+                out->summary.totalMassKg, occurrence, forceMoon,
+                &out->satelliteOrbits[index])) {
+            return false;
+        }
+    }
+    out->satellitesBuilt = true;
+    return true;
+}
+
 const SolarSystemPhysicalSnapshot *SolarSystemPhysicalSnapshotForSystem(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *scratch)
 {

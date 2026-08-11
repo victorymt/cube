@@ -5,6 +5,8 @@
 
 bool SolarSystemPhysicalSnapshotBuild(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out);
+bool SolarSystemPhysicalSnapshotBuildSatellites(
+    const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out);
 const SolarSystemPhysicalSnapshot *SolarSystemPhysicalSnapshotForSystem(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *scratch);
 int SolarSystemPhysicalSnapshotStellarBodiesAtTime(

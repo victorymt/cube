@@ -1,5 +1,6 @@
 #include "space_satellite.h"
 
+#include "space_illumination.h"
 #include "space_units.h"
 
 #include <math.h>
@@ -53,44 +54,6 @@ static SpaceSatelliteVector3 SpaceSatelliteScale(SpaceSatelliteVector3 value,
                                     value.z * scale };
 }
 
-static double SpaceSatelliteCircleCoverage(double targetRadius,
-                                           double occulterRadius,
-                                           double separation)
-{
-    if (!(targetRadius > 0.0) || !(occulterRadius > 0.0) ||
-        !isfinite(separation)) {
-        return 0.0;
-    }
-    separation = fabs(separation);
-    if (separation >= targetRadius + occulterRadius) return 0.0;
-    if (separation <= fabs(targetRadius - occulterRadius)) {
-        if (occulterRadius >= targetRadius) return 1.0;
-        return (occulterRadius * occulterRadius) /
-               (targetRadius * targetRadius);
-    }
-
-    double targetTerm = SpaceSatelliteClamp(
-        (separation * separation + targetRadius * targetRadius -
-         occulterRadius * occulterRadius) /
-            (2.0 * separation * targetRadius),
-        -1.0, 1.0);
-    double occulterTerm = SpaceSatelliteClamp(
-        (separation * separation + occulterRadius * occulterRadius -
-         targetRadius * targetRadius) /
-            (2.0 * separation * occulterRadius),
-        -1.0, 1.0);
-    double radical = (-separation + targetRadius + occulterRadius) *
-                     (separation + targetRadius - occulterRadius) *
-                     (separation - targetRadius + occulterRadius) *
-                     (separation + targetRadius + occulterRadius);
-    double overlapArea = targetRadius * targetRadius * acos(targetTerm) +
-                         occulterRadius * occulterRadius * acos(occulterTerm) -
-                         0.5 * sqrt(fmax(radical, 0.0));
-    return SpaceSatelliteClamp(
-        overlapArea / (SPACE_SATELLITE_PI * targetRadius * targetRadius),
-        0.0, 1.0);
-}
-
 bool SpaceSatelliteGenerate(uint32_t seed, double planetMassKg,
                             double planetRadiusKm,
                             double planetSemiMajorAxisKm,
@@ -111,24 +74,33 @@ bool SpaceSatelliteGenerate(uint32_t seed, double planetMassKg,
         return true;
     }
 
+    double radiusRatio = 0.035 +
+                         pow(SpaceSatelliteUnit(seed, 3u), 2.2) * 0.245;
+    double densityRatio = 0.52 + SpaceSatelliteUnit(seed, 4u) * 0.38;
+    double satelliteRadiusKm = planetRadiusKm * radiusRatio;
+    double satelliteMassKg = planetMassKg * densityRatio *
+                             radiusRatio * radiusRatio * radiusRatio;
+    double eccentricity = 0.002 +
+                          pow(SpaceSatelliteUnit(seed, 5u), 1.7) * 0.078;
     double hillRadiusKm = planetSemiMajorAxisKm *
                           cbrt(planetMassKg / (3.0 * starMassKg));
+    double rocheLimitKm = SpaceSatelliteFluidRocheLimitKm(
+        planetMassKg, planetRadiusKm, satelliteMassKg, satelliteRadiusKm);
     // This system models the dominant sky-visible moon, not tiny inner rocks.
-    double minimumOrbitKm = planetRadiusKm * 6.0;
-    double maximumOrbitKm = fmin(planetRadiusKm * 70.0,
-                                 hillRadiusKm * 0.35);
+    double minimumPeriapsisKm = fmax(planetRadiusKm * 6.0,
+                                     rocheLimitKm * 1.15);
+    double maximumApoapsisKm = fmin(planetRadiusKm * 70.0,
+                                    hillRadiusKm * 0.35);
+    double minimumOrbitKm = minimumPeriapsisKm / (1.0 - eccentricity);
+    double maximumOrbitKm = maximumApoapsisKm / (1.0 + eccentricity);
     if (!(maximumOrbitKm > minimumOrbitKm * 1.15)) return true;
 
     double orbitUnit = 0.20 +
                        pow(SpaceSatelliteUnit(seed, 2u), 0.65) * 0.80;
-    double radiusRatio = 0.035 +
-                         pow(SpaceSatelliteUnit(seed, 3u), 2.2) * 0.245;
-    double densityRatio = 0.52 + SpaceSatelliteUnit(seed, 4u) * 0.38;
     out->exists = true;
     out->semiMajorAxisKm = minimumOrbitKm *
                            pow(maximumOrbitKm / minimumOrbitKm, orbitUnit);
-    out->eccentricity = 0.002 +
-                        pow(SpaceSatelliteUnit(seed, 5u), 1.7) * 0.078;
+    out->eccentricity = eccentricity;
     out->inclinationRad = (1.5 +
                                pow(SpaceSatelliteUnit(seed, 6u), 1.25) * 23.5) *
                           (SPACE_SATELLITE_PI / 180.0);
@@ -138,10 +110,25 @@ bool SpaceSatelliteGenerate(uint32_t seed, double planetMassKg,
                                 2.0 * SPACE_SATELLITE_PI;
     out->meanAnomalyAtEpochRad = SpaceSatelliteUnit(seed, 9u) *
                                  2.0 * SPACE_SATELLITE_PI;
-    out->radiusKm = planetRadiusKm * radiusRatio;
-    out->massKg = planetMassKg * densityRatio *
-                  radiusRatio * radiusRatio * radiusRatio;
+    out->radiusKm = satelliteRadiusKm;
+    out->massKg = satelliteMassKg;
     return true;
+}
+
+double SpaceSatelliteFluidRocheLimitKm(double planetMassKg,
+                                       double planetRadiusKm,
+                                       double satelliteMassKg,
+                                       double satelliteRadiusKm)
+{
+    if (!(planetMassKg > 0.0) || !(planetRadiusKm > 0.0) ||
+        !(satelliteMassKg > 0.0) || !(satelliteRadiusKm > 0.0) ||
+        !isfinite(planetMassKg) || !isfinite(planetRadiusKm) ||
+        !isfinite(satelliteMassKg) || !isfinite(satelliteRadiusKm)) {
+        return 0.0;
+    }
+    double densityRatio = (planetMassKg / satelliteMassKg) *
+                          pow(satelliteRadiusKm / planetRadiusKm, 3.0);
+    return 2.44 * planetRadiusKm * cbrt(densityRatio);
 }
 
 double SpaceSatelliteOrbitalPeriodSeconds(const SpaceSatelliteOrbit *orbit,
@@ -152,18 +139,39 @@ double SpaceSatelliteOrbitalPeriodSeconds(const SpaceSatelliteOrbit *orbit,
                                          planetMassKg + orbit->massKg);
 }
 
-SpaceSatelliteVector3 SpaceSatellitePositionAtSeconds(
-    const SpaceSatelliteOrbit *orbit, double planetMassKg,
-    double physicalTimeSeconds)
+static SpaceSatelliteVector3 SpaceSatelliteRotateFromOrbitalPlane(
+    double x, double z, double inclination, double node, double periapsis)
 {
+    double periCos = cos(periapsis);
+    double periSin = sin(periapsis);
+    double periX = x * periCos - z * periSin;
+    double periZ = x * periSin + z * periCos;
+    double inclinedY = periZ * sin(inclination);
+    double inclinedZ = periZ * cos(inclination);
+    double nodeCos = cos(node);
+    double nodeSin = sin(node);
+    return (SpaceSatelliteVector3){
+        periX * nodeCos - inclinedZ * nodeSin,
+        inclinedY,
+        periX * nodeSin + inclinedZ * nodeCos
+    };
+}
+
+bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
+                                  double planetMassKg,
+                                  double physicalTimeSeconds,
+                                  SpaceSatelliteState *out)
+{
+    if (!out) return false;
+    *out = (SpaceSatelliteState){ 0 };
     if (!orbit || !orbit->exists || !isfinite(physicalTimeSeconds)) {
-        return (SpaceSatelliteVector3){ 0 };
+        return false;
     }
 
     double mu = SpaceUnitsGravitationalParameterKm(planetMassKg +
                                                     orbit->massKg);
     if (!(mu > 0.0) || !(orbit->semiMajorAxisKm > 0.0)) {
-        return (SpaceSatelliteVector3){ 0 };
+        return false;
     }
     double meanMotion = sqrt(mu /
                              (orbit->semiMajorAxisKm * orbit->semiMajorAxisKm *
@@ -181,24 +189,35 @@ SpaceSatelliteVector3 SpaceSatellitePositionAtSeconds(
                                        cos(eccentricAnomaly));
     }
 
+    double eccentricityScale = sqrt(
+        1.0 - orbit->eccentricity * orbit->eccentricity);
+    double eccentricAnomalyRate = meanMotion /
+        (1.0 - orbit->eccentricity * cos(eccentricAnomaly));
     double x = orbit->semiMajorAxisKm *
                (cos(eccentricAnomaly) - orbit->eccentricity);
-    double z = orbit->semiMajorAxisKm *
-               sqrt(1.0 - orbit->eccentricity * orbit->eccentricity) *
+    double z = orbit->semiMajorAxisKm * eccentricityScale *
                sin(eccentricAnomaly);
-    double periCos = cos(orbit->argumentPeriapsisRad);
-    double periSin = sin(orbit->argumentPeriapsisRad);
-    double periX = x * periCos - z * periSin;
-    double periZ = x * periSin + z * periCos;
-    double inclinedY = periZ * sin(orbit->inclinationRad);
-    double inclinedZ = periZ * cos(orbit->inclinationRad);
-    double nodeCos = cos(orbit->longitudeAscendingNodeRad);
-    double nodeSin = sin(orbit->longitudeAscendingNodeRad);
-    return (SpaceSatelliteVector3){
-        periX * nodeCos - inclinedZ * nodeSin,
-        inclinedY,
-        periX * nodeSin + inclinedZ * nodeCos
-    };
+    out->positionKm = SpaceSatelliteRotateFromOrbitalPlane(
+        x, z, orbit->inclinationRad, orbit->longitudeAscendingNodeRad,
+        orbit->argumentPeriapsisRad);
+    out->velocityKmPerSecond = SpaceSatelliteRotateFromOrbitalPlane(
+        -orbit->semiMajorAxisKm * sin(eccentricAnomaly) *
+            eccentricAnomalyRate,
+        orbit->semiMajorAxisKm * eccentricityScale *
+            cos(eccentricAnomaly) * eccentricAnomalyRate,
+        orbit->inclinationRad, orbit->longitudeAscendingNodeRad,
+        orbit->argumentPeriapsisRad);
+    return true;
+}
+
+SpaceSatelliteVector3 SpaceSatellitePositionAtSeconds(
+    const SpaceSatelliteOrbit *orbit, double planetMassKg,
+    double physicalTimeSeconds)
+{
+    SpaceSatelliteState state;
+    return SpaceSatelliteStateAtSeconds(orbit, planetMassKg,
+                                        physicalTimeSeconds, &state)
+        ? state.positionKm : (SpaceSatelliteVector3){ 0 };
 }
 
 double SpaceSatelliteSolarOccultationFraction(
@@ -219,15 +238,17 @@ double SpaceSatelliteSolarOccultationFraction(
         return 0.0;
     }
 
-    double satelliteAngularRadius = asin(SpaceSatelliteClamp(
-        satelliteRadiusKm / satelliteDistance, 0.0, 1.0));
-    double sourceAngularRadius = asin(SpaceSatelliteClamp(
-        sourceRadiusKm / sourceDistance, 0.0, 1.0));
-    double alignment = SpaceSatelliteDot(toSatellite, toSource) /
-                       (satelliteDistance * sourceDistance);
-    double separation = acos(SpaceSatelliteClamp(alignment, -1.0, 1.0));
-    return SpaceSatelliteCircleCoverage(sourceAngularRadius,
-                                        satelliteAngularRadius, separation);
+    return SpaceIlluminationOccultationFraction(
+        (SpaceIlluminationBody){
+            .positionKm = {
+                toSatellite.x, toSatellite.y, toSatellite.z
+            },
+            .radiusKm = satelliteRadiusKm
+        },
+        (SpaceIlluminationBody){
+            .positionKm = { toSource.x, toSource.y, toSource.z },
+            .radiusKm = sourceRadiusKm
+        });
 }
 
 double SpaceSatellitePlanetUmbraFraction(
@@ -258,6 +279,6 @@ double SpaceSatellitePlanetUmbraFraction(
         sourceDirection, -behindDistance);
     double axisDistance = SpaceSatelliteLength(SpaceSatelliteSubtract(
         satellitePositionKm, shadowAxisPoint));
-    return SpaceSatelliteCircleCoverage(satelliteRadiusKm, umbraRadius,
-                                        axisDistance);
+    return SpaceIlluminationCircleCoverage(satelliteRadiusKm, umbraRadius,
+                                           axisDistance);
 }

@@ -87,8 +87,8 @@ $(SPACE_ORBIT_TEST_TARGET): tests/test_space_orbit.c src/space_orbit.c src/space
 $(SPACE_ILLUMINATION_TEST_TARGET): tests/test_space_illumination.c src/space_illumination.c src/space_illumination.h src/space_units.c src/space_units.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_illumination.c src/space_illumination.c src/space_units.c -lm
 
-$(SPACE_SATELLITE_TEST_TARGET): tests/test_space_satellite.c src/space_satellite.c src/space_satellite.h src/space_units.c src/space_units.h
-	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_space_satellite.c src/space_satellite.c src/space_units.c -lm
+$(SPACE_SATELLITE_TEST_TARGET): tests/test_space_satellite.c src/space_satellite.c src/space_satellite.h src/space_illumination.c src/space_illumination.h src/space_units.c src/space_units.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_space_satellite.c src/space_satellite.c src/space_illumination.c src/space_units.c -lm
 
 $(SPACE_UNITS_TEST_TARGET): tests/test_space_units.c src/space_units.c src/space_units.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_space_units.c src/space_units.c -lm

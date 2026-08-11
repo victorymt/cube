@@ -22,16 +22,29 @@ typedef struct SpaceSatelliteOrbit {
     double massKg;
 } SpaceSatelliteOrbit;
 
+typedef struct SpaceSatelliteState {
+    SpaceSatelliteVector3 positionKm;
+    SpaceSatelliteVector3 velocityKmPerSecond;
+} SpaceSatelliteState;
+
 bool SpaceSatelliteGenerate(uint32_t seed, double planetMassKg,
                             double planetRadiusKm,
                             double planetSemiMajorAxisKm,
                             double starMassKg, double occurrenceProbability,
                             bool forceExists, SpaceSatelliteOrbit *out);
+double SpaceSatelliteFluidRocheLimitKm(double planetMassKg,
+                                       double planetRadiusKm,
+                                       double satelliteMassKg,
+                                       double satelliteRadiusKm);
 double SpaceSatelliteOrbitalPeriodSeconds(const SpaceSatelliteOrbit *orbit,
                                           double planetMassKg);
 SpaceSatelliteVector3 SpaceSatellitePositionAtSeconds(
     const SpaceSatelliteOrbit *orbit, double planetMassKg,
     double physicalTimeSeconds);
+bool SpaceSatelliteStateAtSeconds(const SpaceSatelliteOrbit *orbit,
+                                  double planetMassKg,
+                                  double physicalTimeSeconds,
+                                  SpaceSatelliteState *out);
 
 double SpaceSatelliteSolarOccultationFraction(
     SpaceSatelliteVector3 observerPositionKm,
