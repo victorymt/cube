@@ -535,10 +535,21 @@ static void TestRuntimeInputContracts(void)
     assert(memcmp(&runtime, &cleared, sizeof(runtime)) == 0);
 
     assert(SolarSystemEvaluateAtTime(&system, 0.0, &runtime));
+    Vector3 originalCenter = system.center;
+    system.center.x = NAN;
+    memset(&runtime, 0xa5, sizeof(runtime));
+    assert(!SolarSystemEvaluateAtTime(&system, 0.0, &runtime));
+    assert(memcmp(&runtime, &cleared, sizeof(runtime)) == 0);
+    system.center = originalCenter;
+
+    assert(SolarSystemEvaluateAtTime(&system, 0.0, &runtime));
     SolarLightSource sources[MAX_SOLAR_LIGHTS];
+    const SolarLightSource clearedSources[MAX_SOLAR_LIGHTS] = { 0 };
     runtime.stars[0].center.x = NAN;
+    memset(sources, 0xa5, sizeof(sources));
     assert(SolarSystemRuntimeLightSources(&runtime, sources,
                                           MAX_SOLAR_LIGHTS) == 0);
+    assert(memcmp(sources, clearedSources, sizeof(sources)) == 0);
 
     SolarStellarBody stellarBodies[MAX_SOLAR_LIGHTS];
     const SolarStellarBody clearedBodies[MAX_SOLAR_LIGHTS] = { 0 };
@@ -547,7 +558,6 @@ static void TestRuntimeInputContracts(void)
                &system, NAN, stellarBodies, MAX_SOLAR_LIGHTS) == 0);
     assert(memcmp(stellarBodies, clearedBodies, sizeof(stellarBodies)) == 0);
 
-    Vector3 originalCenter = system.center;
     system.center.x = NAN;
     memset(stellarBodies, 0xa5, sizeof(stellarBodies));
     assert(SolarSystemStellarBodiesAtTime(

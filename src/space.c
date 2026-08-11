@@ -1040,7 +1040,11 @@ static bool SolarSystemEvaluateCachedAtTime(
 {
     if (!out) return false;
     *out = (SolarSystemRuntimeState){ 0 };
-    if (!system) return false;
+    if (!system || !isfinite(simulationTime) ||
+        !SpaceVectorIsFinite(system->center) || system->planetCount < 0 ||
+        system->planetCount > MAX_SOLAR_PLANETS) {
+        return false;
+    }
     if (!system->physicalSnapshot.valid) {
         return SolarSystemEvaluateUncachedAtTime(system, simulationTime, out);
     }
@@ -1054,8 +1058,16 @@ static bool SolarSystemEvaluateCachedAtTime(
     if (SpaceQueryRuntimeCacheGet(worldSeed, system->anchorX,
                                   system->anchorZ, systemSignature,
                                   simulationTime, out)) {
+        if (!out->valid || !SolarSystemRuntimeGeometryIsFinite(out)) {
+            *out = (SolarSystemRuntimeState){ 0 };
+            return false;
+        }
         SolarSystemRuntimeProject(system, out);
-        return out->valid && SolarSystemRuntimeGeometryIsFinite(out);
+        if (!SolarSystemRuntimeGeometryIsFinite(out)) {
+            *out = (SolarSystemRuntimeState){ 0 };
+            return false;
+        }
+        return true;
     }
 
     SolarSystemRuntimeState computed;
@@ -1085,9 +1097,12 @@ bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
 int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
                                    SolarLightSource *out, int maxCount)
 {
+    if (!out || maxCount <= 0) return 0;
+    int clearCount = maxCount < MAX_SOLAR_LIGHTS
+        ? maxCount : MAX_SOLAR_LIGHTS;
+    memset(out, 0, sizeof(*out) * (size_t)clearCount);
     if (!runtime || !runtime->valid ||
-        !SolarSystemRuntimeGeometryIsFinite(runtime) || !out ||
-        maxCount <= 0 ||
+        !SolarSystemRuntimeGeometryIsFinite(runtime) ||
         runtime->stellarCount <= 0 ||
         runtime->stellarCount > MAX_SOLAR_LIGHTS ||
         runtime->stellarCount > maxCount) {
