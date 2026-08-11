@@ -1193,8 +1193,12 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
     }
 }
 
+#ifndef PLANET_TEXTURE_WIDTH
 #define PLANET_TEXTURE_WIDTH 384
+#endif
+#ifndef PLANET_TEXTURE_HEIGHT
 #define PLANET_TEXTURE_HEIGHT 192
+#endif
 #define PLANET_TEXTURE_CACHE_CAPACITY 24
 #define PLANET_CLOUD_CACHE_CAPACITY 24
 
@@ -1577,6 +1581,11 @@ static void UnloadPlanetTextureSet(PlanetTextureSet *textures)
     *textures = (PlanetTextureSet){ 0 };
 }
 
+static bool PlanetTextureSetIsReady(const PlanetTextureSet *textures)
+{
+    return textures && textures->albedo.id != 0 && textures->material.id != 0;
+}
+
 static PlanetTextureSet MakePlanetSurfaceTextures(const PlanetProfile *profile,
                                                   uint32_t seed)
 {
@@ -1613,6 +1622,9 @@ static PlanetTextureSet MakePlanetSurfaceTextures(const PlanetProfile *profile,
     textures.material = LoadPlanetTexturePixels(materialPixels);
     free(albedoPixels);
     free(materialPixels);
+    if (!PlanetTextureSetIsReady(&textures)) {
+        UnloadPlanetTextureSet(&textures);
+    }
     return textures;
 }
 
@@ -1687,6 +1699,10 @@ static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
         }
     }
 
+    PlanetTextureSet textures = MakePlanetSurfaceTextures(&body->profile,
+                                                          body->worldSeed);
+    if (!PlanetTextureSetIsReady(&textures)) return (PlanetTextureSet){ 0 };
+
     PlanetTextureCacheEntry *entry = &planetTextures.planetTextures[replacement];
     if (entry->valid) UnloadPlanetTextureSet(&entry->textures);
     *entry = (PlanetTextureCacheEntry){
@@ -1696,7 +1712,7 @@ static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
         .oceanKey = oceanKey,
         .seasonKey = seasonKey,
         .lastUse = planetTextures.textureCacheTick,
-        .textures = MakePlanetSurfaceTextures(&body->profile, body->worldSeed)
+        .textures = textures
     };
     return entry->textures;
 }
@@ -1746,6 +1762,10 @@ static Texture2D PlanetCloudTextureForBody(const SpaceBodyInfo *body)
         }
     }
 
+    Texture2D texture = MakePlanetCloudTexture(&body->profile,
+                                               body->worldSeed ^ 0x8392f5u);
+    if (texture.id == 0) return (Texture2D){ 0 };
+
     PlanetCloudCacheEntry *entry = &planetTextures.cloudTextures[replacement];
     if (entry->valid && entry->texture.id != 0) UnloadTexture(entry->texture);
     *entry = (PlanetCloudCacheEntry){
@@ -1753,7 +1773,7 @@ static Texture2D PlanetCloudTextureForBody(const SpaceBodyInfo *body)
         .seed = body->worldSeed,
         .profileKey = profileKey,
         .lastUse = planetTextures.textureCacheTick,
-        .texture = MakePlanetCloudTexture(&body->profile, body->worldSeed ^ 0x8392f5u)
+        .texture = texture
     };
     return entry->texture;
 }
@@ -1816,29 +1836,32 @@ static void EnsurePlanetRenderResources(void)
 
     uint32_t homeSeed = WorldGetSeed();
     PlanetProfile homeProfile = HomePlanetRenderProfile();
-    if (planetTextures.initialized) {
-        if (planetTextures.homeCloudSeed != homeSeed) {
+    if (!PlanetTextureSetIsReady(&planetTextures.home)) {
+        PlanetTextureSet home = MakePlanetSurfaceTextures(&homeProfile, 0x48a1c3u);
+        if (PlanetTextureSetIsReady(&home)) {
+            UnloadPlanetTextureSet(&planetTextures.home);
+            planetTextures.home = home;
+        }
+    }
+
+    if (planetTextures.homeClouds.id == 0 ||
+        planetTextures.homeCloudSeed != homeSeed) {
+        Texture2D clouds = MakePlanetCloudTexture(&homeProfile,
+                                                  homeSeed ^ 0x8392f5u);
+        if (clouds.id != 0) {
             if (planetTextures.homeClouds.id != 0) {
                 UnloadTexture(planetTextures.homeClouds);
             }
-            planetTextures.homeClouds = MakePlanetCloudTexture(
-                &homeProfile, homeSeed ^ 0x8392f5u);
+            planetTextures.homeClouds = clouds;
             planetTextures.homeCloudSeed = homeSeed;
         }
-        return;
     }
-
-    planetTextures.initialized = true;
-    planetTextures.home = MakePlanetSurfaceTextures(&homeProfile, 0x48a1c3u);
-    planetTextures.homeClouds = MakePlanetCloudTexture(
-        &homeProfile, homeSeed ^ 0x8392f5u);
-    planetTextures.homeCloudSeed = homeSeed;
+    planetTextures.initialized = PlanetTextureSetIsReady(&planetTextures.home);
 }
 
 void UnloadPlanetRenderResources(void)
 {
     PlanetRendererShutdown();
-    if (!planetTextures.initialized) return;
 
     UnloadPlanetTextureSet(&planetTextures.home);
     if (planetTextures.homeClouds.id != 0) {

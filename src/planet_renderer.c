@@ -420,6 +420,17 @@ static Mesh MakePlanetSphereMesh(void)
     return mesh;
 }
 
+static void UnloadPlanetRendererResources(PlanetRendererResources *resources)
+{
+    if (!resources) return;
+    if (resources->sphere.meshCount > 0) UnloadModel(resources->sphere);
+    if (resources->lightingShader.id != 0) UnloadShader(resources->lightingShader);
+    if (resources->atmosphereShader.id != 0) {
+        UnloadShader(resources->atmosphereShader);
+    }
+    *resources = (PlanetRendererResources){ 0 };
+}
+
 void PlanetRendererEnsureResources(void)
 {
     if (renderer.initialized) return;
@@ -534,15 +545,17 @@ void PlanetRendererEnsureResources(void)
                                renderer.atmosphereMieStrengthLoc >= 0 &&
                                renderer.atmosphereAlphaLoc >= 0 &&
                                renderer.atmosphereExposureLoc >= 0;
+
+    if (renderer.sphere.meshCount <= 0 || renderer.lightingShader.id == 0 ||
+        renderer.atmosphereShader.id == 0) {
+        UnloadPlanetRendererResources(&renderer);
+    }
 }
 
 void PlanetRendererShutdown(void)
 {
     if (!renderer.initialized) return;
-    if (renderer.sphere.meshCount > 0) UnloadModel(renderer.sphere);
-    if (renderer.lightingShader.id != 0) UnloadShader(renderer.lightingShader);
-    if (renderer.atmosphereShader.id != 0) UnloadShader(renderer.atmosphereShader);
-    renderer = (PlanetRendererResources){ 0 };
+    UnloadPlanetRendererResources(&renderer);
 }
 
 void PlanetRendererDrawSurface(const PlanetSurfaceDrawParams *params)

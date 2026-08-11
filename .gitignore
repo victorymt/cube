@@ -25,3 +25,5 @@ tests/test_weather_model
 tests/test_chunk_atlas
 tests/test_entity_replay
 tests/test_entity_ecology
+tests/test_planet_renderer_resources
+tests/test_planet_texture_resources
