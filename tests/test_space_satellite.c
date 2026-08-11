@@ -11,6 +11,17 @@ static void AssertNear(double actual, double expected, double tolerance)
     assert(fabs(actual - expected) <= tolerance);
 }
 
+static double NormalizeAngle(double angle)
+{
+    angle = fmod(angle, 2.0 * 3.14159265358979323846);
+    if (angle > 3.14159265358979323846) {
+        angle -= 2.0 * 3.14159265358979323846;
+    } else if (angle < -3.14159265358979323846) {
+        angle += 2.0 * 3.14159265358979323846;
+    }
+    return angle;
+}
+
 static SpaceSatelliteOrbit TestMoonOrbit(void)
 {
     return (SpaceSatelliteOrbit){
@@ -207,6 +218,58 @@ static void TestKeplerOrbit(void)
                state.velocityKmPerSecond.z, 1e-9);
 }
 
+static void TestHighEccentricityKeplerSolve(void)
+{
+    const double semiMajorAxisKm = 100000.0;
+    const double planetMassKg = SPACE_UNITS_EARTH_MASS_KG;
+    const double satelliteMassKg = 1.0e20;
+    const double mu = SpaceUnitsGravitationalParameterKm(
+        planetMassKg + satelliteMassKg);
+    const double meanMotion = sqrt(mu /
+        (semiMajorAxisKm * semiMajorAxisKm * semiMajorAxisKm));
+    const double targetMeanAnomalies[] = {
+        -3.0, -1.5, -0.1, 0.0, 0.1, 1.5, 3.0
+    };
+    const double eccentricities[] = { 0.95, 0.999 };
+
+    for (unsigned eccentricityIndex = 0;
+         eccentricityIndex < sizeof(eccentricities) / sizeof(eccentricities[0]);
+         eccentricityIndex++) {
+        SpaceSatelliteOrbit orbit = {
+            .exists = true,
+            .semiMajorAxisKm = semiMajorAxisKm,
+            .eccentricity = eccentricities[eccentricityIndex],
+            .radiusKm = 1000.0,
+            .massKg = satelliteMassKg
+        };
+        for (unsigned anomalyIndex = 0;
+             anomalyIndex < sizeof(targetMeanAnomalies) /
+                             sizeof(targetMeanAnomalies[0]);
+             anomalyIndex++) {
+            double targetMeanAnomaly = targetMeanAnomalies[anomalyIndex];
+            double physicalTimeSeconds = targetMeanAnomaly / meanMotion;
+            SpaceSatelliteState state;
+            assert(SpaceSatelliteStateAtSeconds(
+                &orbit, planetMassKg, physicalTimeSeconds, &state));
+
+            double eccentricityScale = sqrt(
+                1.0 - orbit.eccentricity * orbit.eccentricity);
+            double eccentricCosine = state.positionKm.x /
+                                     orbit.semiMajorAxisKm +
+                                     orbit.eccentricity;
+            double eccentricSine = state.positionKm.z /
+                                   (orbit.semiMajorAxisKm *
+                                    eccentricityScale);
+            double eccentricAnomaly = atan2(eccentricSine, eccentricCosine);
+            double recoveredMeanAnomaly = NormalizeAngle(
+                eccentricAnomaly - orbit.eccentricity *
+                                   sin(eccentricAnomaly));
+            AssertNear(NormalizeAngle(recoveredMeanAnomaly -
+                                      targetMeanAnomaly), 0.0, 1e-11);
+        }
+    }
+}
+
 static void TestInvalidKeplerOrbitInputs(void)
 {
     SpaceSatelliteOrbit orbit = TestMoonOrbit();
@@ -339,6 +402,7 @@ int main(void)
     TestMoonOccurrenceAndStability();
     TestRocheLimit();
     TestKeplerOrbit();
+    TestHighEccentricityKeplerSolve();
     TestInvalidKeplerOrbitInputs();
     TestSolarOccultation();
     TestPlanetUmbra();
