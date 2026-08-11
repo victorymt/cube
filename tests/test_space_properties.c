@@ -840,6 +840,57 @@ static void TestDeterministicSpaceQueries(void)
     assert(bodyRepeatedStats.runtimeHits > bodyColdStats.runtimeHits);
 
     SpaceQueryCacheClear();
+    SpaceSatelliteInfo satellites[8];
+    int satelliteCount = SpaceSatellitesNear(
+        (Vector3){ 0.0f, 0.0f, 0.0f }, 900.0f, satellites, 8);
+    assert(satelliteCount > 0);
+    SpaceSatelliteInfo satellitesRepeat[8];
+    int repeatedSatelliteCount = SpaceSatellitesNear(
+        (Vector3){ 0.0f, 0.0f, 0.0f }, 900.0f, satellitesRepeat, 8);
+    assert(repeatedSatelliteCount == satelliteCount);
+    assert(memcmp(satellites, satellitesRepeat,
+                  sizeof(satellites[0]) * (size_t)satelliteCount) == 0);
+    for (int i = 0; i < satelliteCount; i++) {
+        const SpaceSatelliteInfo *satellite = &satellites[i];
+        SolarSystemDef system;
+        assert(StarSystemAt(satellite->systemAnchorX,
+                            satellite->systemAnchorZ, &system));
+        SolarSystemRuntimeState runtime;
+        assert(SolarSystemEvaluateAtTime(&system, SpaceSimulationTime(),
+                                         &runtime));
+        assert(satellite->parentPlanetIndex >= 0 &&
+               satellite->parentPlanetIndex < runtime.planetCount);
+        const SolarPlanetRuntimeState *parent =
+            &runtime.planets[satellite->parentPlanetIndex];
+        assert(memcmp(&satellite->center, &parent->satelliteCenter,
+                      sizeof(satellite->center)) == 0);
+        assert(memcmp(&satellite->velocity, &parent->satelliteVelocity,
+                      sizeof(satellite->velocity)) == 0);
+        double periapsis = satellite->orbit.semiMajorAxisKm *
+                           (1.0 - satellite->orbit.eccentricity);
+        double apoapsis = satellite->orbit.semiMajorAxisKm *
+                          (1.0 + satellite->orbit.eccentricity);
+        double rocheLimit = SpaceSatelliteFluidRocheLimitKm(
+            parent->profile.massKg, parent->profile.physicalRadiusKm,
+            satellite->massKg, satellite->physicalRadiusKm);
+        double hillSphere = SpaceUnitsHillSphereKm(
+            system.planets[satellite->parentPlanetIndex].semiMajorAxisKm,
+            parent->profile.massKg, runtime.totalStellarMassKg);
+        assert(periapsis > rocheLimit);
+        assert(apoapsis <= 0.35 * hillSphere);
+        assert(satellite->encounterRadiusGame > 0.0f);
+    }
+    SpaceSatelliteScaleDiagnostics satelliteScale;
+    assert(SpaceSatelliteScaleDiagnosticsAt(
+        (Vector3){ 0.0f, 0.0f, 0.0f }, &satelliteScale));
+    assert(satelliteScale.withinErrorBudget);
+    assert(satelliteScale.physicalRadiusKm > 0.0);
+    assert(satelliteScale.physicalRadiusGame > 0.0);
+    assert(satelliteScale.orbitalSpeedKilometersPerSecond > 0.0);
+    assert(satelliteScale.hillSphereKm > 0.0);
+    assert(satelliteScale.sphereOfInfluenceKm > 0.0);
+
+    SpaceQueryCacheClear();
     SolarSystemDef systemsFirst[32];
     SpaceBodyInfo bodiesFirst[32];
     int systemsFirstCount = StarSystemsNear(observer, systemRange,

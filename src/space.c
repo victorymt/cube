@@ -1670,6 +1670,170 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
     return count;
 }
 
+static int CompareSpaceSatelliteQueryCandidate(
+    const SpaceSatelliteInfo *left, const SpaceSatelliteInfo *right)
+{
+    if (left->dist < right->dist) return -1;
+    if (left->dist > right->dist) return 1;
+    if (left->systemAnchorX < right->systemAnchorX) return -1;
+    if (left->systemAnchorX > right->systemAnchorX) return 1;
+    if (left->systemAnchorZ < right->systemAnchorZ) return -1;
+    if (left->systemAnchorZ > right->systemAnchorZ) return 1;
+    if (left->parentPlanetIndex < right->parentPlanetIndex) return -1;
+    if (left->parentPlanetIndex > right->parentPlanetIndex) return 1;
+    return 0;
+}
+
+static void InsertSpaceSatelliteQueryCandidate(
+    SpaceSatelliteInfo candidate, SpaceSatelliteInfo *out, int *count,
+    int maxCount)
+{
+    if (*count < maxCount) {
+        out[(*count)++] = candidate;
+        return;
+    }
+    int worst = 0;
+    for (int i = 1; i < *count; i++) {
+        if (CompareSpaceSatelliteQueryCandidate(&out[worst], &out[i]) < 0) {
+            worst = i;
+        }
+    }
+    if (CompareSpaceSatelliteQueryCandidate(&candidate, &out[worst]) < 0) {
+        out[worst] = candidate;
+    }
+}
+
+int SpaceSatellitesNear(Vector3 pos, float maxDist,
+                        SpaceSatelliteInfo *out, int maxCount)
+{
+    if (!out || maxCount <= 0 || !isfinite(maxDist) || maxDist < 0.0f) {
+        return 0;
+    }
+    SolarSystemDef systems[STAR_NAVIGATION_MAX_SYSTEMS];
+    float systemRange = maxDist + 800.0f;
+    int systemCount = StarSystemsNear(pos, systemRange, systems,
+                                       STAR_NAVIGATION_MAX_SYSTEMS);
+    int count = 0;
+    for (int systemIndex = 0; systemIndex < systemCount; systemIndex++) {
+        SolarSystemDef *system = &systems[systemIndex];
+        SolarSystemRuntimeState runtime;
+        if (!SolarSystemEvaluateAtTime(system, solarSimulationTime,
+                                       &runtime)) {
+            continue;
+        }
+        for (int planetIndex = 0; planetIndex < runtime.planetCount;
+             planetIndex++) {
+            const SolarPlanetRuntimeState *planet =
+                &runtime.planets[planetIndex];
+            if (!planet->satelliteOrbit.exists) continue;
+            float distance = Vector3Distance(planet->satelliteCenter, pos);
+            if (distance > maxDist) continue;
+            double hillSphereKm = SpaceUnitsHillSphereKm(
+                planet->satelliteOrbit.semiMajorAxisKm,
+                planet->satelliteOrbit.massKg, planet->profile.massKg);
+            double physicalRadiusGame = SpaceUnitsKilometersToGameDistance(
+                planet->satelliteOrbit.radiusKm);
+            float minimumEncounter = (float)(physicalRadiusGame * 2.20);
+            float encounter = fmaxf(
+                minimumEncounter,
+                fminf((float)SpaceUnitsKilometersToGameDistance(
+                          hillSphereKm * 0.50), 24.0f));
+            SpaceSatelliteInfo candidate = {
+                .center = planet->satelliteCenter,
+                .velocity = planet->satelliteVelocity,
+                .physicalRadiusKm = planet->satelliteOrbit.radiusKm,
+                .massKg = planet->satelliteOrbit.massKg,
+                .semiMajorAxisKm = planet->satelliteOrbit.semiMajorAxisKm,
+                .encounterRadiusGame = encounter,
+                .dist = distance,
+                .isSatellite = true,
+                .parentPlanetIndex = planetIndex,
+                .systemAnchorX = system->anchorX,
+                .systemAnchorZ = system->anchorZ,
+                .worldSeed = planet->profile.seed,
+                .orbit = planet->satelliteOrbit,
+                .state = planet->satelliteState
+            };
+            snprintf(candidate.name, sizeof(candidate.name), "%s Moon %c",
+                     system->name, 'a' + planetIndex);
+            InsertSpaceSatelliteQueryCandidate(candidate, out, &count,
+                                                maxCount);
+        }
+    }
+    for (int i = 0; i < count; i++) {
+        int best = i;
+        for (int j = i + 1; j < count; j++) {
+            if (CompareSpaceSatelliteQueryCandidate(&out[j], &out[best]) < 0) {
+                best = j;
+            }
+        }
+        if (best != i) {
+            SpaceSatelliteInfo temporary = out[i];
+            out[i] = out[best];
+            out[best] = temporary;
+        }
+    }
+    return count;
+}
+
+bool SpaceSatelliteScaleDiagnosticsAt(
+    Vector3 observer, SpaceSatelliteScaleDiagnostics *out)
+{
+    if (!out) return false;
+    *out = (SpaceSatelliteScaleDiagnostics){ 0 };
+    SpaceSatelliteInfo satellite;
+    if (SpaceSatellitesNear(observer, 1000.0f, &satellite, 1) != 1) {
+        return false;
+    }
+    double physicalGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
+        satellite.massKg, satellite.physicalRadiusKm);
+    double orbitalSpeed = sqrt(
+        satellite.state.velocityKmPerSecond.x *
+            satellite.state.velocityKmPerSecond.x +
+        satellite.state.velocityKmPerSecond.y *
+            satellite.state.velocityKmPerSecond.y +
+        satellite.state.velocityKmPerSecond.z *
+            satellite.state.velocityKmPerSecond.z);
+    SolarSystemDef system;
+    if (!StarSystemAt(satellite.systemAnchorX, satellite.systemAnchorZ,
+                      &system)) {
+        return false;
+    }
+    SolarSystemRuntimeState runtime;
+    if (!SolarSystemEvaluateAtTime(&system, solarSimulationTime, &runtime) ||
+        satellite.parentPlanetIndex < 0 ||
+        satellite.parentPlanetIndex >= runtime.planetCount) {
+        return false;
+    }
+    const PlanetProfile *parent =
+        &runtime.planets[satellite.parentPlanetIndex].profile;
+    double stableHillSphereKm = SpaceUnitsHillSphereKm(
+        satellite.semiMajorAxisKm, satellite.massKg, parent->massKg);
+    double sphereOfInfluenceKm = SpaceUnitsLaplaceSphereOfInfluenceKm(
+        satellite.semiMajorAxisKm, satellite.massKg, parent->massKg);
+    out->center = satellite.center;
+    out->velocity = satellite.velocity;
+    snprintf(out->bodyName, sizeof(out->bodyName), "%s", satellite.name);
+    out->physicalRadiusKm = satellite.physicalRadiusKm;
+    out->physicalRadiusGame = SpaceUnitsKilometersToGameDistance(
+        satellite.physicalRadiusKm);
+    out->physicalGravityMetersPerSecondSquared = physicalGravity * 1000.0;
+    out->orbitalSpeedKilometersPerSecond = orbitalSpeed;
+    out->sphereOfInfluenceKm = sphereOfInfluenceKm;
+    out->hillSphereKm = stableHillSphereKm;
+    out->encounterRadiusGame = satellite.encounterRadiusGame;
+    out->distanceGame = satellite.dist;
+    out->withinErrorBudget = isfinite(out->physicalRadiusGame) &&
+                             out->physicalRadiusGame > 0.0 &&
+                             isfinite(out->physicalGravityMetersPerSecondSquared) &&
+                             isfinite(out->orbitalSpeedKilometersPerSecond) &&
+                             out->sphereOfInfluenceKm > 0.0 &&
+                             out->hillSphereKm > 0.0 &&
+                             out->encounterRadiusGame >=
+                                 (float)(out->physicalRadiusGame * 2.19);
+    return out->withinErrorBudget;
+}
+
 static void HomeBodyInfoForObserver(Vector3 observer, SpaceBodyInfo *out)
 {
     if (!out) return;

@@ -166,6 +166,39 @@ typedef struct SpaceBodyInfo {
     PlanetProfile profile;
 } SpaceBodyInfo;
 
+typedef struct SpaceSatelliteInfo {
+    Vector3 center;
+    Vector3 velocity;
+    double physicalRadiusKm;
+    double massKg;
+    double semiMajorAxisKm;
+    float encounterRadiusGame;
+    float dist;
+    bool isSatellite;
+    int parentPlanetIndex;
+    int systemAnchorX;
+    int systemAnchorZ;
+    uint32_t worldSeed;
+    char name[32];
+    SpaceSatelliteOrbit orbit;
+    SpaceSatelliteState state;
+} SpaceSatelliteInfo;
+
+typedef struct SpaceSatelliteScaleDiagnostics {
+    char bodyName[40];
+    Vector3 center;
+    Vector3 velocity;
+    double physicalRadiusKm;
+    double physicalRadiusGame;
+    double physicalGravityMetersPerSecondSquared;
+    double orbitalSpeedKilometersPerSecond;
+    double sphereOfInfluenceKm;
+    double hillSphereKm;
+    float encounterRadiusGame;
+    float distanceGame;
+    bool withinErrorBudget;
+} SpaceSatelliteScaleDiagnostics;
+
 typedef struct SpaceScaleDiagnostics {
     char bodyName[40];
     double physicalRadiusKm;
@@ -301,9 +334,13 @@ float SolarBodyTerrainProxyRadius(float spaceProxyRadius);
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount);
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist);
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount);
+int SpaceSatellitesNear(Vector3 pos, float maxDist,
+                        SpaceSatelliteInfo *out, int maxCount);
 bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
                                SpaceScaleDiagnostics *out);
 bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out);
+bool SpaceSatelliteScaleDiagnosticsAt(
+    Vector3 observer, SpaceSatelliteScaleDiagnostics *out);
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out);
 float PlanetBodyTextureRotation(const SpaceBodyInfo *body);
 bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,

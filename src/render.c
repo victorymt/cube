@@ -2861,6 +2861,29 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
         DrawText("Scale target: no planet within 700 u", x, y, fs,
                  Fade(WHITE, 0.68f)); y += line;
     }
+    if (!PlanetWorldIsActive() && !HomeWorldSurfaceIsActive()) {
+        SpaceSatelliteScaleDiagnostics satelliteScale;
+        if (SpaceSatelliteScaleDiagnosticsAt(playerPosition,
+                                             &satelliteScale)) {
+            DrawText(TextFormat("Moon %s radius %.0f km = %.5f linear u",
+                                satelliteScale.bodyName,
+                                satelliteScale.physicalRadiusKm,
+                                satelliteScale.physicalRadiusGame),
+                     x, y, fs, Fade(WHITE, 0.85f)); y += line;
+            DrawText(TextFormat("Moon gravity %.2f m/s2   orbit %.2f km/s",
+                                satelliteScale.physicalGravityMetersPerSecondSquared,
+                                satelliteScale.orbitalSpeedKilometersPerSecond),
+                     x, y, fs, Fade(WHITE, 0.85f)); y += line;
+            DrawText(TextFormat("Moon SOI %.0f km   Hill %.0f km",
+                                satelliteScale.sphereOfInfluenceKm,
+                                satelliteScale.hillSphereKm),
+                     x, y, fs, Fade(WHITE, 0.85f)); y += line;
+            DrawText(TextFormat("Moon encounter %.2f u [%s]",
+                                satelliteScale.encounterRadiusGame,
+                                satelliteScale.withinErrorBudget ? "OK" : "OUT"),
+                     x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        }
+    }
     DrawText(TextFormat("Block %s   music %s", BlockName(blockForHud),
                         AudioIsMusicEnabled() ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
