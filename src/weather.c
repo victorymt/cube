@@ -7,6 +7,7 @@
 #include "world.h"
 #include "world_environment.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -16,6 +17,9 @@
 #define WEATHER_TOP_OFFSET 16.0f
 #define WEATHER_MANUAL_SECONDS 45.0f
 #define WEATHER_SAMPLE_CACHE_SIZE 128u
+#define WEATHER_MAX_UPDATE_DT 0.25f
+#define WEATHER_MAX_RAIN_EMISSIONS 24u
+#define WEATHER_MAX_SNOW_EMISSIONS 12u
 
 #if defined(__GNUC__) || defined(__clang__)
 #define WEATHER_THREAD_LOCAL __thread
@@ -96,15 +100,27 @@ static bool WeatherSampleCacheMatches(const WeatherSampleCacheEntry *cached,
            cached->input.prevailingWindAngle == input->prevailingWindAngle;
 }
 
-static WeatherFieldInput WeatherInputAt(Vector3 playerPosition,
-                                        double simulationTime)
+static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
+                           WeatherFieldInput *outInput)
 {
     WeatherFieldInput input = { 0 };
-    int x = (int)floorf(playerPosition.x);
-    int z = (int)floorf(playerPosition.z);
+    if (!outInput || !isfinite(simulationTime) || simulationTime < 0.0 ||
+        !isfinite(playerPosition.x) || !isfinite(playerPosition.z)) {
+        return false;
+    }
+
+    double cellX = floor((double)playerPosition.x);
+    double cellZ = floor((double)playerPosition.z);
+    if (cellX < (double)INT_MIN || cellX > (double)INT_MAX ||
+        cellZ < (double)INT_MIN || cellZ > (double)INT_MAX) {
+        return false;
+    }
+    int x = (int)cellX;
+    int z = (int)cellZ;
     input.simulationTime = simulationTime;
     if (PlanetWorldIsActive()) {
         const PlanetProfile *planet = PlanetWorldProfile();
+        if (!planet) return false;
         PlanetSurfaceSample surface = PlanetSurfaceAtTime(
             x, z, input.simulationTime);
         int height = PlanetTerrainHeight(x, z);
@@ -118,7 +134,8 @@ static WeatherFieldInput WeatherInputAt(Vector3 playerPosition,
         input.cloudPotential = planet->cloudCoverage;
         input.windStrength = planet->windStrength;
         input.prevailingWindAngle = planet->prevailingWindAngle;
-        return input;
+        *outInput = input;
+        return true;
     }
 
     Biome biome = BiomeAt(x, z);
@@ -160,7 +177,8 @@ static WeatherFieldInput WeatherInputAt(Vector3 playerPosition,
     input.temperatureK -= fmaxf((float)height - 12.0f, 0.0f) * 0.72f;
     input.prevailingWindAngle =
         (float)(input.seed & 0xffffu) / 65535.0f * 2.0f * PI;
-    return input;
+    *outInput = input;
+    return true;
 }
 
 static WeatherFieldSample WeatherManualSample(Weather weather)
@@ -198,9 +216,12 @@ WeatherFieldSample WeatherFieldSampleAtWorldTime(
         return (WeatherFieldSample){ 0 };
     }
 
-    WeatherFieldInput input = WeatherInputAt((Vector3){
-        (float)x + 0.5f, 0.0f, (float)z + 0.5f
-    }, simulationTime);
+    WeatherFieldInput input;
+    if (!WeatherInputAt((Vector3){
+            (float)x + 0.5f, 0.0f, (float)z + 0.5f
+        }, simulationTime, &input)) {
+        return (WeatherFieldSample){ 0 };
+    }
     WeatherSampleCacheEntry *cached =
         &weatherSampleCache[WeatherSampleCacheIndex(&input)];
     if (WeatherSampleCacheMatches(cached, &input)) {
@@ -224,9 +245,12 @@ float WeatherWindAngleAtWorld(int x, int z)
 float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
 {
     if (!isfinite(simulationTime) || simulationTime < 0.0) return 0.0f;
-    WeatherFieldInput input = WeatherInputAt((Vector3){
-        (float)x + 0.5f, 0.0f, (float)z + 0.5f
-    }, simulationTime);
+    WeatherFieldInput input;
+    if (!WeatherInputAt((Vector3){
+            (float)x + 0.5f, 0.0f, (float)z + 0.5f
+        }, simulationTime, &input)) {
+        return 0.0f;
+    }
     return input.prevailingWindAngle;
 }
 
@@ -341,27 +365,70 @@ static void EmitSnow(Vector3 playerPosition)
                      (Vector3){ 0.07f, 0.07f, 0.07f }, 3.0f, 0.2f);
 }
 
+static bool WeatherPositionIsFinite(Vector3 position)
+{
+    return isfinite(position.x) && isfinite(position.y) &&
+           isfinite(position.z);
+}
+
+static unsigned WeatherAdvanceEmissionAccumulator(
+    float *accumulator, float intensity, float rate, float dt,
+    unsigned emissionLimit)
+{
+    if (!isfinite(*accumulator) || *accumulator < 0.0f) {
+        *accumulator = 0.0f;
+    }
+    if (!isfinite(intensity) || intensity <= 0.0f) return 0u;
+
+    *accumulator += WeatherClamp(intensity) * rate * dt;
+    if (!isfinite(*accumulator) || *accumulator < 0.0f) {
+        *accumulator = 0.0f;
+        return 0u;
+    }
+
+    unsigned emissions = 0u;
+    while (*accumulator >= 1.0f && emissions < emissionLimit) {
+        *accumulator -= 1.0f;
+        emissions++;
+    }
+    if (*accumulator >= 1.0f) {
+        *accumulator = fmodf(*accumulator, 1.0f);
+    }
+    return emissions;
+}
+
 void WeatherUpdate(float dt, Vector3 playerPosition)
 {
+    if (!isfinite(dt) || dt <= 0.0f) return;
+    float updateDt = fminf(dt, WEATHER_MAX_UPDATE_DT);
+
     if (manualTimer > 0.0f) {
-        manualTimer = fmaxf(manualTimer - dt, 0.0f);
+        manualTimer = fmaxf(manualTimer - updateDt, 0.0f);
         fieldSample = WeatherManualSample(manualWeather);
     } else {
-        WeatherFieldInput input = WeatherInputAt(
-            playerPosition, SpaceSimulationTime());
-        particleWindAngle = input.prevailingWindAngle;
-        fieldSample = WeatherFieldSampleAt(&input);
+        WeatherFieldInput input;
+        if (WeatherInputAt(playerPosition, SpaceSimulationTime(), &input)) {
+            particleWindAngle = isfinite(input.prevailingWindAngle) ?
+                input.prevailingWindAngle : 0.0f;
+            fieldSample = WeatherFieldSampleAt(&input);
+        } else {
+            particleWindAngle = 0.0f;
+            fieldSample = (WeatherFieldSample){ 0 };
+        }
     }
     WeatherUpdateTypeAndAudio();
 
-    rainEmissionAccumulator += fieldSample.rain * 92.0f * dt;
-    snowEmissionAccumulator += fieldSample.snow * 42.0f * dt;
-    while (rainEmissionAccumulator >= 1.0f) {
-        rainEmissionAccumulator -= 1.0f;
+    bool canEmit = WeatherPositionIsFinite(playerPosition);
+    unsigned rainCount = WeatherAdvanceEmissionAccumulator(
+        &rainEmissionAccumulator, fieldSample.rain, 92.0f, updateDt,
+        canEmit ? WEATHER_MAX_RAIN_EMISSIONS : 0u);
+    unsigned snowCount = WeatherAdvanceEmissionAccumulator(
+        &snowEmissionAccumulator, fieldSample.snow, 42.0f, updateDt,
+        canEmit ? WEATHER_MAX_SNOW_EMISSIONS : 0u);
+    for (unsigned index = 0; index < rainCount; index++) {
         EmitRain(playerPosition);
     }
-    while (snowEmissionAccumulator >= 1.0f) {
-        snowEmissionAccumulator -= 1.0f;
+    for (unsigned index = 0; index < snowCount; index++) {
         EmitSnow(playerPosition);
     }
 }
