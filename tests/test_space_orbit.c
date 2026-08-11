@@ -2,6 +2,7 @@
 #include "space_units.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -121,6 +122,19 @@ static void AssertOrbitProperties(const SpaceKeplerOrbit *orbit)
     SpaceKeplerState repeated;
     assert(SpaceKeplerStateAtTime(orbit, -17.25, &repeated));
     assert(memcmp(&initial, &repeated, sizeof(initial)) == 0);
+
+    SpaceKeplerState largeTime;
+    SpaceKeplerState repeatedLargeTime;
+    assert(SpaceKeplerStateAtTime(orbit, DBL_MAX, &largeTime));
+    assert(SpaceKeplerStateAtTime(orbit, DBL_MAX, &repeatedLargeTime));
+    assert(memcmp(&largeTime, &repeatedLargeTime,
+                  sizeof(largeTime)) == 0);
+    assert(isfinite(largeTime.positionGame.x) &&
+           isfinite(largeTime.positionGame.y) &&
+           isfinite(largeTime.positionGame.z) &&
+           isfinite(largeTime.velocityGame.x) &&
+           isfinite(largeTime.velocityGame.y) &&
+           isfinite(largeTime.velocityGame.z));
 }
 
 static void TestOrbitProperties(void)
