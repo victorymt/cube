@@ -28,6 +28,7 @@ WEATHER_MODEL_TEST_TARGET := tests/test_weather_model
 CHUNK_ATLAS_TEST_TARGET := tests/test_chunk_atlas
 ENTITY_REPLAY_TEST_TARGET := tests/test_entity_replay
 ENTITY_ECOLOGY_TEST_TARGET := tests/test_entity_ecology
+INTERACTION_RAYCAST_TEST_TARGET := tests/test_interaction_raycast
 SRC := src/main.c src/album.c src/inventory.c src/space.c src/space_query_cache.c src/planet_profile.c src/space_system_physics.c src/space_system.c src/space_barycenter.c src/space_orbit.c src/space_remnant.c src/space_illumination.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/world_environment.c src/ship.c src/nether.c src/entity.c src/fauna_motion.c src/fauna_behavior.c src/ecology_model.c src/ecology.c src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/terrain.c src/planet_climate.c src/planet_surface.c src/planet_material.c src/planet_renderer.c src/discovery.c src/chunks.c src/world.c src/player.c src/interaction.c src/render.c src/particles.c src/audio.c src/weather_model.c src/weather.c src/starmap.c
 
 .PHONY: all run test clean
@@ -40,7 +41,7 @@ $(TARGET): $(SRC)
 run: $(TARGET)
 	./$(TARGET)
 
-test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET)
+test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET)
 	./$(TEST_TARGET)
 	./$(PLANET_SURFACE_TEST_TARGET)
 	./$(PLANET_MATERIAL_TEST_TARGET)
@@ -64,6 +65,10 @@ test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET
 	./$(CHUNK_ATLAS_TEST_TARGET)
 	./$(ENTITY_REPLAY_TEST_TARGET)
 	./$(ENTITY_ECOLOGY_TEST_TARGET)
+	./$(INTERACTION_RAYCAST_TEST_TARGET)
+
+$(INTERACTION_RAYCAST_TEST_TARGET): tests/test_interaction_raycast.c src/interaction.c src/interaction.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -Isrc -o $@ tests/test_interaction_raycast.c src/interaction.c -lm
 
 $(TEST_TARGET): tests/test_world_environment.c src/world_environment.c src/world_environment.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_environment.c src/world_environment.c -lm

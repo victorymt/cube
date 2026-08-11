@@ -9,6 +9,7 @@
 #include "world_environment.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -19,6 +20,56 @@
 #include "world.h"
 #include "terrain.h"
 #include "player.h"
+
+#define RAYCAST_MAX_STEPS 4096u
+
+static bool RaycastPrepare(Vector3 origin, Vector3 *direction,
+                           float maxDistance)
+{
+    if (!direction || !isfinite(origin.x) || !isfinite(origin.y) ||
+        !isfinite(origin.z) || !isfinite(maxDistance) ||
+        maxDistance < 0.0f) {
+        return false;
+    }
+
+    double floorX = floor((double)origin.x);
+    double floorY = floor((double)origin.y);
+    double floorZ = floor((double)origin.z);
+    if (floorX < (double)INT_MIN || floorX > (double)INT_MAX ||
+        floorY < (double)INT_MIN || floorY > (double)INT_MAX ||
+        floorZ < (double)INT_MIN || floorZ > (double)INT_MAX) {
+        return false;
+    }
+
+    if (!isfinite(direction->x) || !isfinite(direction->y) ||
+        !isfinite(direction->z)) {
+        return false;
+    }
+    double lengthSquared = (double)direction->x * (double)direction->x +
+                           (double)direction->y * (double)direction->y +
+                           (double)direction->z * (double)direction->z;
+    if (!isfinite(lengthSquared) || lengthSquared <= 1.0e-12) {
+        return false;
+    }
+
+    double length = sqrt(lengthSquared);
+    direction->x = (float)((double)direction->x / length);
+    direction->y = (float)((double)direction->y / length);
+    direction->z = (float)((double)direction->z / length);
+    return isfinite(direction->x) && isfinite(direction->y) &&
+           isfinite(direction->z);
+}
+
+static bool RaycastAdvanceCoordinate(int *coordinate, int step)
+{
+    if (!coordinate || (step > 0 && *coordinate == INT_MAX) ||
+        (step < 0 && *coordinate == INT_MIN)) {
+        return false;
+    }
+    *coordinate += step;
+    return true;
+}
+
 void AdjustRenderDistance(int delta)
 {
     int nextDistance = renderDistanceChunks + delta;
@@ -373,6 +424,7 @@ static float RayAABBEnter(Vector3 origin, Vector3 direction, Vector3 min, Vector
 
 float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistance)
 {
+    if (!RaycastPrepare(origin, &direction, maxDistance)) return -1.0f;
     Vector3 pos = origin;
     int x = (int)floorf(pos.x);
     int y = (int)floorf(pos.y);
@@ -395,7 +447,7 @@ float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistanc
     float tDeltaZ = (fabsf(direction.z) < 0.0001f) ? INFINITY : fabsf(1.0f / direction.z);
 
     float travelled = 0.0f;
-    for (;;) {
+    for (unsigned step = 0; step < RAYCAST_MAX_STEPS; step++) {
         BlockType type = GetBlockAt(x, y, z);
         if (type != BLOCK_AIR && !IsTranslucentBlock(type)) {
             float height = BlockCollisionHeight(type);
@@ -411,15 +463,15 @@ float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistanc
         }
 
         if (tMaxX < tMaxY && tMaxX < tMaxZ) {
-            x += stepX;
+            if (!RaycastAdvanceCoordinate(&x, stepX)) break;
             travelled = tMaxX;
             tMaxX += tDeltaX;
         } else if (tMaxY < tMaxZ) {
-            y += stepY;
+            if (!RaycastAdvanceCoordinate(&y, stepY)) break;
             travelled = tMaxY;
             tMaxY += tDeltaY;
         } else {
-            z += stepZ;
+            if (!RaycastAdvanceCoordinate(&z, stepZ)) break;
             travelled = tMaxZ;
             tMaxZ += tDeltaZ;
         }
@@ -431,6 +483,7 @@ float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistanc
 HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
 {
     HitResult result = { 0 };
+    if (!RaycastPrepare(origin, &direction, maxDistance)) return result;
     Vector3 pos = origin;
     int x = (int)floorf(pos.x);
     int y = (int)floorf(pos.y);
@@ -457,7 +510,8 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
     int lastNz = 0;
     float travelled = 0.0f;
 
-    while (travelled <= maxDistance) {
+    for (unsigned step = 0;
+         step < RAYCAST_MAX_STEPS && travelled <= maxDistance; step++) {
         if (WorldBlockRegionAt(y) == WORLD_BLOCK_REGION_SPACE &&
             !SpaceBlockReadyAt(x, y, z)) {
             return result;
@@ -474,21 +528,21 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
         }
 
         if (tMaxX < tMaxY && tMaxX < tMaxZ) {
-            x += stepX;
+            if (!RaycastAdvanceCoordinate(&x, stepX)) break;
             travelled = tMaxX;
             tMaxX += tDeltaX;
             lastNx = -stepX;
             lastNy = 0;
             lastNz = 0;
         } else if (tMaxY < tMaxZ) {
-            y += stepY;
+            if (!RaycastAdvanceCoordinate(&y, stepY)) break;
             travelled = tMaxY;
             tMaxY += tDeltaY;
             lastNx = 0;
             lastNy = -stepY;
             lastNz = 0;
         } else {
-            z += stepZ;
+            if (!RaycastAdvanceCoordinate(&z, stepZ)) break;
             travelled = tMaxZ;
             tMaxZ += tDeltaZ;
             lastNx = 0;
