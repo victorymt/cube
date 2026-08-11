@@ -5,10 +5,17 @@
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 static void AssertNear(double actual, double expected, double tolerance)
 {
     assert(fabs(actual - expected) <= tolerance);
+}
+
+static void AssertRelative(double actual, double expected, double tolerance)
+{
+    double scale = fmax(1.0, fabs(expected));
+    assert(fabs(actual - expected) <= tolerance * scale);
 }
 
 static double NormalizeAngle(double angle)
@@ -298,6 +305,71 @@ static void TestLargeTimeDeterminism(void)
            isfinite(negative.velocityKmPerSecond.x));
 }
 
+static void TestGeneratedSatelliteStates(void)
+{
+    int satelliteCount = 0;
+    const int sampleCount = 10000;
+    const double phaseFractions[] = { 0.0, 0.37, 0.83 };
+    for (uint32_t seed = 0; seed < (uint32_t)sampleCount; seed++) {
+        SpaceSatelliteOrbit orbit;
+        assert(SpaceSatelliteGenerate(
+            seed, SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM,
+            SPACE_UNITS_ASTRONOMICAL_UNIT_KM, SPACE_UNITS_SOLAR_MASS_KG,
+            0.24, false, &orbit));
+        if (!orbit.exists) continue;
+        satelliteCount++;
+
+        double period = SpaceSatelliteOrbitalPeriodSeconds(
+            &orbit, SPACE_UNITS_EARTH_MASS_KG);
+        assert(period > 0.0 && isfinite(period));
+        double mu = SpaceUnitsGravitationalParameterKm(
+            SPACE_UNITS_EARTH_MASS_KG + orbit.massKg);
+        double periapsis = orbit.semiMajorAxisKm * (1.0 - orbit.eccentricity);
+        double apoapsis = orbit.semiMajorAxisKm * (1.0 + orbit.eccentricity);
+
+        for (unsigned phaseIndex = 0;
+             phaseIndex < sizeof(phaseFractions) / sizeof(phaseFractions[0]);
+             phaseIndex++) {
+            double time = period * phaseFractions[phaseIndex];
+            SpaceSatelliteState state;
+            SpaceSatelliteState repeated;
+            assert(SpaceSatelliteStateAtSeconds(
+                &orbit, SPACE_UNITS_EARTH_MASS_KG, time, &state));
+            assert(SpaceSatelliteStateAtSeconds(
+                &orbit, SPACE_UNITS_EARTH_MASS_KG, time, &repeated));
+            assert(memcmp(&state, &repeated, sizeof(state)) == 0);
+
+            double distance = sqrt(
+                state.positionKm.x * state.positionKm.x +
+                state.positionKm.y * state.positionKm.y +
+                state.positionKm.z * state.positionKm.z);
+            double speed = sqrt(
+                state.velocityKmPerSecond.x * state.velocityKmPerSecond.x +
+                state.velocityKmPerSecond.y * state.velocityKmPerSecond.y +
+                state.velocityKmPerSecond.z * state.velocityKmPerSecond.z);
+            assert(distance >= periapsis - 1e-7 &&
+                   distance <= apoapsis + 1e-7);
+            AssertRelative(speed * speed,
+                           mu * (2.0 / distance -
+                                 1.0 / orbit.semiMajorAxisKm), 1e-11);
+
+            SpaceSatelliteState wrapped;
+            assert(SpaceSatelliteStateAtSeconds(
+                &orbit, SPACE_UNITS_EARTH_MASS_KG, time + period, &wrapped));
+            AssertRelative(wrapped.positionKm.x, state.positionKm.x, 1e-9);
+            AssertRelative(wrapped.positionKm.y, state.positionKm.y, 1e-9);
+            AssertRelative(wrapped.positionKm.z, state.positionKm.z, 1e-9);
+            AssertRelative(wrapped.velocityKmPerSecond.x,
+                           state.velocityKmPerSecond.x, 1e-9);
+            AssertRelative(wrapped.velocityKmPerSecond.y,
+                           state.velocityKmPerSecond.y, 1e-9);
+            AssertRelative(wrapped.velocityKmPerSecond.z,
+                           state.velocityKmPerSecond.z, 1e-9);
+        }
+    }
+    assert(satelliteCount > sampleCount * 20 / 100);
+}
+
 static void TestInvalidKeplerOrbitInputs(void)
 {
     SpaceSatelliteOrbit orbit = TestMoonOrbit();
@@ -432,6 +504,7 @@ int main(void)
     TestKeplerOrbit();
     TestHighEccentricityKeplerSolve();
     TestLargeTimeDeterminism();
+    TestGeneratedSatelliteStates();
     TestInvalidKeplerOrbitInputs();
     TestSolarOccultation();
     TestPlanetUmbra();
