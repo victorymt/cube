@@ -14,6 +14,7 @@ const double SPACE_UNITS_SOLAR_RADIUS_KM = 695700.0;
 const double SPACE_UNITS_GRAVITATIONAL_CONSTANT_KM3_KG_S2 = 6.67430e-20;
 const double SPACE_UNITS_KILOMETERS_PER_GAME_DISTANCE = 149597870.7 / 340.0;
 const double SPACE_UNITS_SECONDS_PER_GAME_TIME = 86400.0;
+const double SPACE_UNITS_GAME_TIME_PER_GIGAYEAR = 365250000000.0;
 const double SPACE_UNITS_KILOGRAMS_PER_GAME_MASS = 5.9722e24;
 const double SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME = 4.5;
 const double SPACE_UNITS_MAX_RELATIVE_ERROR = 1e-6;
@@ -41,6 +42,16 @@ double SpaceUnitsGameTimeToSeconds(double gameTime)
 double SpaceUnitsSecondsToGameTime(double seconds)
 {
     return seconds / SPACE_UNITS_SECONDS_PER_GAME_TIME;
+}
+
+double SpaceUnitsGameTimeToGigayears(double gameTime)
+{
+    return gameTime / SPACE_UNITS_GAME_TIME_PER_GIGAYEAR;
+}
+
+double SpaceUnitsGigayearsToGameTime(double gigayears)
+{
+    return gigayears * SPACE_UNITS_GAME_TIME_PER_GIGAYEAR;
 }
 
 double SpaceUnitsGameMassToKilograms(double gameMass)

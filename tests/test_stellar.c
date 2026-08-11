@@ -75,6 +75,24 @@ static void TestGiantEvolution(void)
     assert(memcmp(&giant, &cleared, sizeof(giant)) == 0);
 }
 
+static void TestFinalLuminousStateFreeze(void)
+{
+    StellarProfile initial;
+    assert(StellarProfileAtAge(1.5f, 0.0f, 0x1234u, &initial));
+    StellarProfile final;
+    assert(StellarProfileAtAgeClamped(1.5f, 1.0e12, 0x1234u, &final));
+    assert(final.stage == STELLAR_STAGE_RED_GIANT);
+    assert(final.ageGyr == final.luminousLifetimeGyr);
+    assert(final.evolutionSeed == 0x1234u);
+
+    StellarProfile repeated;
+    assert(StellarProfileAtAgeClamped(1.5f, 1.0e15, 0x1234u,
+                                      &repeated));
+    assert(memcmp(&final, &repeated, sizeof(final)) == 0);
+    assert(!StellarProfileAtAgeClamped(1.5f, INFINITY, 0x1234u,
+                                       &repeated));
+}
+
 static void TestStefanBoltzmannConsistency(void)
 {
     for (uint32_t seed = 0; seed < 5000u; seed++) {
@@ -135,6 +153,7 @@ int main(void)
     TestMassRelations();
     TestMainSequenceAgeEvolution();
     TestGiantEvolution();
+    TestFinalLuminousStateFreeze();
     TestStefanBoltzmannConsistency();
     TestInitialMassFunction();
     TestPopulationDistribution();

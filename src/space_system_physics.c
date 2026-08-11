@@ -315,6 +315,73 @@ bool SolarSystemPhysicalSnapshotBuild(
     return true;
 }
 
+bool SolarSystemPhysicalSnapshotEvolve(
+    const SolarSystemDef *sys, double ageOffsetGyr,
+    SolarSystemPhysicalSnapshot *out)
+{
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+    if (!sys || !isfinite(ageOffsetGyr) || ageOffsetGyr < 0.0) return false;
+
+    SolarSystemPhysicalSnapshot baseScratch;
+    const SolarSystemPhysicalSnapshot *base =
+        SolarSystemPhysicalSnapshotForSystem(sys, &baseScratch);
+    if (!base) return false;
+    if (ageOffsetGyr == 0.0) {
+        *out = *base;
+        return true;
+    }
+
+    SolarSystemPhysicalSnapshot evolved = *base;
+    evolved.summary.totalMassKg = 0.0;
+    evolved.summary.totalLuminositySolar = 0.0f;
+    float finalSystemAgeGyr = 0.0f;
+    memset(evolved.summary.stellarLuminositiesSolar, 0,
+           sizeof(evolved.summary.stellarLuminositiesSolar));
+    for (int i = 0; i < evolved.summary.stellarCount; i++) {
+        const StellarProfile *initial = &base->stellarProfiles[i];
+        double requestedAge = (double)initial->ageGyr + ageOffsetGyr;
+        if (!StellarProfileAtAgeClamped(
+                initial->initialMassSolar, requestedAge,
+                initial->evolutionSeed, &evolved.stellarProfiles[i]) ||
+            !SolarSystemPhysicsStellarProfileIsValid(
+                &evolved.stellarProfiles[i])) {
+            return false;
+        }
+        evolved.summary.totalMassKg += evolved.stellarProfiles[i].massKg;
+        evolved.summary.totalLuminositySolar +=
+            evolved.stellarProfiles[i].luminositySolar;
+        evolved.summary.stellarLuminositiesSolar[i] =
+            evolved.stellarProfiles[i].luminositySolar;
+        finalSystemAgeGyr = fmaxf(
+            finalSystemAgeGyr,
+            evolved.stellarProfiles[i].luminousLifetimeGyr);
+    }
+    double requestedSystemAge = (double)base->summary.ageGyr + ageOffsetGyr;
+    evolved.summary.ageGyr = (float)fmin(
+        requestedSystemAge, (double)finalSystemAgeGyr);
+    if (!(evolved.summary.totalMassKg > 0.0) ||
+        !isfinite(evolved.summary.totalMassKg) ||
+        !(evolved.summary.totalLuminositySolar > 0.0f) ||
+        !isfinite(evolved.summary.totalLuminositySolar)) {
+        return false;
+    }
+
+    evolved.stellarOrbit = SolarSystemStellarOrbit(
+        evolved.stellarProfiles, evolved.summary.stellarCount,
+        evolved.stellarHash);
+    for (int index = 0; index < sys->planetCount; index++) {
+        if (!SolarSystemPlanetOrbitBuild(
+                sys, index, evolved.summary.totalMassKg,
+                &evolved.planetOrbits[index])) {
+            return false;
+        }
+    }
+    evolved.valid = true;
+    *out = evolved;
+    return true;
+}
+
 bool SolarSystemPhysicalSnapshotBuildSatellites(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out)
 {

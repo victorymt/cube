@@ -20,6 +20,7 @@ typedef enum StellarEvolutionStage {
 typedef struct StellarProfile {
     SpectrumType spectrum;
     StellarEvolutionStage stage;
+    uint32_t evolutionSeed;
     float initialMassSolar;
     double massKg;
     double radiusKm;
@@ -36,6 +37,8 @@ typedef struct StellarProfile {
 float StellarSampleInitialMass(uint32_t seed);
 bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
                          StellarProfile *out);
+bool StellarProfileAtAgeClamped(float initialMassSolar, double ageGyr,
+                                uint32_t seed, StellarProfile *out);
 StellarProfile StellarGenerate(uint32_t seed);
 StellarProfile StellarSolarProfile(void);
 

@@ -635,6 +635,16 @@ static void TestRuntimeInputContracts(void)
     assert(!SolarSystemPhysicalSnapshotBuild(NULL, &snapshot));
     assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
     assert(!SolarSystemPhysicalSnapshotBuild(&system, NULL));
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotEvolve(NULL, 1.0, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotEvolve(&system, NAN, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    memset(&snapshot, 0xa5, sizeof(snapshot));
+    assert(!SolarSystemPhysicalSnapshotEvolve(&system, -1.0, &snapshot));
+    assert(memcmp(&snapshot, &clearedSnapshot, sizeof(snapshot)) == 0);
+    assert(!SolarSystemPhysicalSnapshotEvolve(&system, 1.0, NULL));
 
     int originalPlanetCount = system.planetCount;
     system.planetCount = MAX_SOLAR_PLANETS + 1;
@@ -1022,6 +1032,132 @@ static void TestStellarAgeClimateCausality(void)
     assert(oldPlanet.equilibriumTempK > youngPlanet.equilibriumTempK);
 }
 
+static void TestRuntimeStellarEvolution(void)
+{
+    SolarSystemDef system;
+    assert(StarSystemAt(0, 0, &system));
+
+    SpaceQueryCacheClear();
+    SolarSystemRuntimeState baseline;
+    assert(SolarSystemEvaluateAtElapsedTime(&system, 0.0, &baseline));
+    SpaceQueryCacheStats baselineStats = SpaceQueryCacheGetStats();
+    SolarSystemRuntimeState repeated;
+    assert(SolarSystemEvaluateAtElapsedTime(&system, 0.0, &repeated));
+    assert(memcmp(&baseline, &repeated, sizeof(baseline)) == 0);
+    SpaceQueryCacheStats repeatedStats = SpaceQueryCacheGetStats();
+    assert(repeatedStats.runtimeHits > baselineStats.runtimeHits);
+
+    double oneGyr = SpaceUnitsGigayearsToGameTime(1.0);
+    SolarSystemRuntimeState aged;
+    assert(SolarSystemEvaluateAtElapsedTime(&system, oneGyr, &aged));
+    SpaceQueryCacheStats agedStats = SpaceQueryCacheGetStats();
+    assert(agedStats.runtimeMisses > repeatedStats.runtimeMisses);
+    assert(aged.simulationTime == baseline.simulationTime);
+    assert(aged.stars[0].stellar.ageGyr >
+           baseline.stars[0].stellar.ageGyr);
+    assert(aged.stars[0].stellar.luminositySolar >
+           baseline.stars[0].stellar.luminositySolar);
+    assert(aged.stars[0].stellar.radiusSolar >
+           baseline.stars[0].stellar.radiusSolar);
+    assert(memcmp(&aged.planets[0].center, &baseline.planets[0].center,
+                  sizeof(aged.planets[0].center)) == 0);
+    assert(aged.planets[0].profile.receivedIrradiance >
+           baseline.planets[0].profile.receivedIrradiance);
+    assert(aged.planets[0].profile.radiativeTempK >
+           baseline.planets[0].profile.radiativeTempK);
+    assert(aged.planets[0].profile.equilibriumTempK >
+           baseline.planets[0].profile.equilibriumTempK);
+
+    SolarSystemPhysicalSnapshot final;
+    SolarSystemPhysicalSnapshot later;
+    assert(SolarSystemPhysicalSnapshotEvolve(&system, 1.0e12, &final));
+    assert(SolarSystemPhysicalSnapshotEvolve(&system, 1.0e15, &later));
+    assert(memcmp(&final, &later, sizeof(final)) == 0);
+    for (int star = 0; star < final.summary.stellarCount; star++) {
+        assert(final.stellarProfiles[star].ageGyr ==
+               final.stellarProfiles[star].luminousLifetimeGyr);
+    }
+    float finalSystemAge = 0.0f;
+    for (int star = 0; star < final.summary.stellarCount; star++) {
+        finalSystemAge = fmaxf(
+            finalSystemAge,
+            final.stellarProfiles[star].luminousLifetimeGyr);
+    }
+    assert(final.summary.ageGyr == finalSystemAge);
+    SolarSystemRuntimeState finalRuntime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        &system, SpaceUnitsGigayearsToGameTime(1.0e12), &finalRuntime));
+    assert(finalRuntime.valid);
+
+    finalRuntime.valid = true;
+    assert(!SolarSystemEvaluateAtElapsedTime(&system, NAN, &finalRuntime));
+    assert(!finalRuntime.valid);
+}
+
+static void TestCrossSystemRuntimeStellarEvolution(void)
+{
+    const double ageOffsetGyr = 0.25;
+    const double elapsed = SpaceUnitsGigayearsToGameTime(ageOffsetGyr);
+    int checked = 0;
+    int multiplicities[3] = { 0 };
+    for (int ax = -24; ax <= 24 && checked < 128; ax++) {
+        for (int az = -24; az <= 24 && checked < 128; az++) {
+            SolarSystemDef system;
+            if (!StarSystemAt(ax, az, &system)) continue;
+            const SolarSystemPhysicalSnapshot *base =
+                &system.physicalSnapshot;
+            SolarSystemPhysicalSnapshot evolved;
+            SolarSystemPhysicalSnapshot repeated;
+            assert(SolarSystemPhysicalSnapshotEvolve(
+                &system, ageOffsetGyr, &evolved));
+            assert(SolarSystemPhysicalSnapshotEvolve(
+                &system, ageOffsetGyr, &repeated));
+            assert(memcmp(&evolved, &repeated, sizeof(evolved)) == 0);
+            assert(evolved.summary.stellarCount ==
+                   base->summary.stellarCount);
+            multiplicities[evolved.summary.stellarCount - 1]++;
+
+            double totalMass = 0.0;
+            float totalLuminosity = 0.0f;
+            for (int star = 0; star < evolved.summary.stellarCount; star++) {
+                const StellarProfile *before = &base->stellarProfiles[star];
+                const StellarProfile *after = &evolved.stellarProfiles[star];
+                assert(after->ageGyr >= before->ageGyr);
+                assert(after->ageGyr <= after->luminousLifetimeGyr);
+                float temperatureRatio = after->temperatureK / 5772.0f;
+                float expectedLuminosity =
+                    after->radiusSolar * after->radiusSolar *
+                    powf(temperatureRatio, 4.0f);
+                AssertRelative(after->luminositySolar,
+                               expectedLuminosity, 0.0003);
+                assert(evolved.stellarOrbit.massKg[star] == after->massKg);
+                totalMass += after->massKg;
+                totalLuminosity += after->luminositySolar;
+            }
+            assert(evolved.summary.totalMassKg == totalMass);
+            assert(evolved.summary.totalLuminositySolar == totalLuminosity);
+            for (int planet = 0; planet < system.planetCount; planet++) {
+                assert(evolved.planetOrbits[planet].centralMassKg ==
+                       totalMass);
+            }
+
+            SolarSystemRuntimeState runtime;
+            SolarSystemRuntimeState replay;
+            assert(SolarSystemEvaluateAtElapsedTime(
+                &system, elapsed, &runtime));
+            assert(SolarSystemEvaluateAtElapsedTime(
+                &system, elapsed, &replay));
+            assert(memcmp(&runtime, &replay, sizeof(runtime)) == 0);
+            assert(runtime.totalStellarMassKg == totalMass);
+            checked++;
+        }
+    }
+    assert(checked == 128);
+    assert(multiplicities[0] > 0);
+    assert(multiplicities[1] > 0);
+    assert(multiplicities[2] > 0);
+}
+
 static void TestHomeScaleDiagnostics(void)
 {
     SpaceScaleDiagnostics scale;
@@ -1374,7 +1510,7 @@ static void TestLongTermTimeClock(void)
 
     FILE *future = tmpfile();
     assert(future);
-    double elapsed = 100000123.75;
+    double elapsed = SPACE_UNITS_GAME_TIME_PER_GIGAYEAR + 123.75;
     int originX = 17;
     int originZ = -29;
     assert(fwrite(&elapsed, sizeof(elapsed), 1, future) == 1);
@@ -1385,8 +1521,17 @@ static void TestLongTermTimeClock(void)
     assert(SpaceElapsedSimulationTime() == elapsed);
     assert(SpaceSimulationTime() == 123.75);
 
+    SolarSystemDef evolvedSystem;
+    assert(StarSystemAt(0, 0, &evolvedSystem));
+    SolarSystemRuntimeState evolvedRuntime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        &evolvedSystem, SpaceElapsedSimulationTime(), &evolvedRuntime));
+    assert(evolvedRuntime.stars[0].stellar.ageGyr >
+           evolvedSystem.star.ageGyr);
+
     SpaceAdvanceTime(10.25f);
-    assert(SpaceElapsedSimulationTime() == 100000134.0);
+    assert(SpaceElapsedSimulationTime() ==
+           SPACE_UNITS_GAME_TIME_PER_GIGAYEAR + 134.0);
     assert(SpaceSimulationTime() == 134.0);
 
     FILE *replay = tmpfile();
@@ -1395,10 +1540,25 @@ static void TestLongTermTimeClock(void)
     SpaceAdvanceTime(91.0f);
     rewind(replay);
     assert(SpaceLoadState(replay));
-    assert(SpaceElapsedSimulationTime() == 100000134.0);
+    assert(SpaceElapsedSimulationTime() ==
+           SPACE_UNITS_GAME_TIME_PER_GIGAYEAR + 134.0);
     assert(SpaceSimulationTime() == 134.0);
     assert(SpaceOriginX() == originX);
     assert(SpaceOriginZ() == originZ);
+    SolarSystemRuntimeState replayRuntime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        &evolvedSystem, SpaceElapsedSimulationTime(), &replayRuntime));
+    assert(memcmp(&evolvedRuntime, &replayRuntime,
+                  sizeof(evolvedRuntime)) != 0);
+
+    rewind(replay);
+    assert(SpaceLoadState(replay));
+    SolarSystemRuntimeState deterministicRuntime;
+    assert(SolarSystemEvaluateAtElapsedTime(
+        &evolvedSystem, SpaceElapsedSimulationTime(),
+        &deterministicRuntime));
+    assert(memcmp(&replayRuntime, &deterministicRuntime,
+                  sizeof(replayRuntime)) == 0);
 
     rewind(original);
     assert(SpaceLoadState(original));
@@ -1785,6 +1945,8 @@ int main(void)
     TestGeneratedSystems();
     TestExtremeAnchorDeterminism();
     TestStellarAgeClimateCausality();
+    TestRuntimeStellarEvolution();
+    TestCrossSystemRuntimeStellarEvolution();
     TestSaveLoadTimeDeterminism();
     TestLongTermTimeClock();
     TestSpaceLoadFailureAtomicity();

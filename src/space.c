@@ -443,17 +443,18 @@ static uint32_t SolarPlanetWorldSeed(const SolarSystemDef *sys, int index)
     return seed == 0u ? DEFAULT_WORLD_SEED : seed;
 }
 
-PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
+static PlanetProfile SolarPlanetProfileForSnapshot(
+    const SolarSystemDef *sys, int index,
+    const SolarSystemPhysicalSnapshot *snapshot)
 {
     PlanetProfile profile = { 0 };
-    if (!SolarSystemPlanetIndexIsValid(sys, index)) return profile;
+    if (!SolarSystemPlanetIndexIsValid(sys, index) || !snapshot ||
+        !snapshot->valid) {
+        return profile;
+    }
 
     const SolarPlanetDef *def = &sys->planets[index];
     if (!SolarSystemPlanetDefinitionIsValid(def)) return profile;
-    SolarSystemPhysicalSnapshot scratch;
-    const SolarSystemPhysicalSnapshot *snapshot =
-        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
-    if (!snapshot) return profile;
     const SolarSystemPhysicalSummary *stellar = &snapshot->summary;
 
     PlanetProfileGenerationInput input = {
@@ -465,7 +466,10 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
         .stellarAgeGyr = stellar->ageGyr,
         .orbitalEccentricity = snapshot->planetOrbits[index].eccentricity,
         .orbitalPeriodGameTime =
-            (float)SolarSystemPlanetOrbitPeriodGameTime(sys, index),
+            (float)SpaceUnitsSecondsToGameTime(
+                SpaceUnitsKeplerPeriodSeconds(
+                    snapshot->planetOrbits[index].semiMajorAxisKm,
+                    snapshot->planetOrbits[index].centralMassKg)),
         .stellarCount = stellar->stellarCount,
         .planetIndex = index,
         .formationGasGiant = def->formationGasGiant,
@@ -481,6 +485,14 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
     return profile;
 }
 
+PlanetProfile SolarPlanetProfile(const SolarSystemDef *sys, int index)
+{
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    return SolarPlanetProfileForSnapshot(sys, index, snapshot);
+}
+
 void SpaceAdvanceTime(float gameTimeDelta)
 {
     if (!(gameTimeDelta > 0.0f) || !isfinite(gameTimeDelta)) return;
@@ -489,12 +501,15 @@ void SpaceAdvanceTime(float gameTimeDelta)
     solarElapsedSimulationTime = advanced;
 }
 
+static double SpacePeriodicSimulationTime(double elapsedTime)
+{
+    return elapsedTime > 100000000.0
+        ? fmod(elapsedTime, 1000000.0) : elapsedTime;
+}
+
 double SpaceSimulationTime(void)
 {
-    if (solarElapsedSimulationTime > 100000000.0) {
-        return fmod(solarElapsedSimulationTime, 1000000.0);
-    }
-    return solarElapsedSimulationTime;
+    return SpacePeriodicSimulationTime(solarElapsedSimulationTime);
 }
 
 double SpaceElapsedSimulationTime(void)
@@ -644,21 +659,16 @@ Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
     return SolarSystemPlanetPositionAtTime(sys, index, SpaceSimulationTime());
 }
 
-bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
-                                  double simulationTime,
-                                  SolarPlanetOrbitalState *out)
+static bool SolarSystemPlanetStateForSnapshotAtTime(
+    const SolarSystemDef *sys, const SolarSystemPhysicalSnapshot *snapshot,
+    int index, double simulationTime, SolarPlanetOrbitalState *out)
 {
     if (!out) return false;
     *out = (SolarPlanetOrbitalState){ 0 };
-    if (!sys || !isfinite(simulationTime) ||
+    if (!sys || !snapshot || !snapshot->valid || !isfinite(simulationTime) ||
         sys->planetCount < 0 || sys->planetCount > MAX_SOLAR_PLANETS ||
         index < 0 || index >= sys->planetCount ||
         !SpaceVectorIsFinite(sys->center)) return false;
-
-    SolarSystemPhysicalSnapshot scratch;
-    const SolarSystemPhysicalSnapshot *snapshot =
-        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
-    if (!snapshot) return false;
 
     SpaceKeplerState relative;
     if (!SpaceKeplerStateAtTime(&snapshot->planetOrbits[index],
@@ -673,6 +683,17 @@ bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
         return false;
     }
     return true;
+}
+
+bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
+                                  double simulationTime,
+                                  SolarPlanetOrbitalState *out)
+{
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    return SolarSystemPlanetStateForSnapshotAtTime(
+        sys, snapshot, index, simulationTime, out);
 }
 
 double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index)
@@ -798,21 +819,21 @@ static bool SolarSystemRuntimeGeometryIsFinite(
     return true;
 }
 
-static bool SolarSystemEvaluateUncachedAtTime(
-    const SolarSystemDef *sys, double simulationTime,
-    SolarSystemRuntimeState *out)
+static bool SolarSystemEvaluateSnapshotAtTime(
+    const SolarSystemDef *sys,
+    const SolarSystemPhysicalSnapshot *physicalSnapshot,
+    double simulationTime, SolarSystemRuntimeState *out)
 {
     if (!out) return false;
     *out = (SolarSystemRuntimeState){ 0 };
-    if (!sys || !isfinite(simulationTime) || sys->planetCount < 0 ||
+    if (!sys || !physicalSnapshot || !physicalSnapshot->valid ||
+        !isfinite(simulationTime) || sys->planetCount < 0 ||
         sys->planetCount > MAX_SOLAR_PLANETS) {
         return false;
     }
 
     SolarSystemPhysicalSnapshot scratch;
-    const SolarSystemPhysicalSnapshot *snapshot =
-        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
-    if (!snapshot) return false;
+    const SolarSystemPhysicalSnapshot *snapshot = physicalSnapshot;
     if (!snapshot->satellitesBuilt) {
         scratch = *snapshot;
         if (!SolarSystemPhysicalSnapshotBuildSatellites(sys, &scratch)) {
@@ -844,11 +865,11 @@ static bool SolarSystemEvaluateUncachedAtTime(
     for (int index = 0; index < sys->planetCount; index++) {
         SolarPlanetRuntimeState *planet = &out->planets[index];
         SolarPlanetOrbitalState orbitalState;
-        if (!SolarSystemPlanetStateAtTime(sys, index, simulationTime,
-                                          &orbitalState)) {
+        if (!SolarSystemPlanetStateForSnapshotAtTime(
+                sys, snapshot, index, simulationTime, &orbitalState)) {
             return false;
         }
-        planet->profile = SolarPlanetProfile(sys, index);
+        planet->profile = SolarPlanetProfileForSnapshot(sys, index, snapshot);
         if (!PlanetProfileIsValid(&planet->profile) ||
             !(planet->profile.massKg > 0.0) ||
             !(planet->profile.physicalRadiusKm > 0.0) ||
@@ -895,6 +916,17 @@ static bool SolarSystemEvaluateUncachedAtTime(
         return false;
     }
     return true;
+}
+
+static bool SolarSystemEvaluateUncachedAtTime(
+    const SolarSystemDef *sys, double simulationTime,
+    SolarSystemRuntimeState *out)
+{
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(sys, &scratch);
+    return SolarSystemEvaluateSnapshotAtTime(sys, snapshot, simulationTime,
+                                             out);
 }
 
 static void SolarSystemRuntimeToRelative(const SolarSystemDef *system,
@@ -963,6 +995,7 @@ static uint64_t SolarSystemRuntimeCacheSignature(
         const StellarProfile *star = &snapshot->stellarProfiles[i];
         hash = SolarSystemSignatureMix(hash, (uint32_t)star->spectrum);
         hash = SolarSystemSignatureMix(hash, (uint32_t)star->stage);
+        hash = SolarSystemSignatureMix(hash, star->evolutionSeed);
         hash = SolarSystemSignatureMix(
             hash, SolarSystemFloatBits(star->initialMassSolar));
         hash = SolarSystemSignatureMix(
@@ -1055,24 +1088,19 @@ static uint64_t SolarSystemRuntimeCacheSignature(
     return hash;
 }
 
-static bool SolarSystemEvaluateCachedAtTime(
-    const SolarSystemDef *system, double simulationTime,
+static bool SolarSystemEvaluateCachedSnapshotAtTime(
+    const SolarSystemDef *system,
+    const SolarSystemPhysicalSnapshot *snapshot, double simulationTime,
     SolarSystemRuntimeState *out)
 {
     if (!out) return false;
     *out = (SolarSystemRuntimeState){ 0 };
-    if (!system || !isfinite(simulationTime) ||
+    if (!system || !snapshot || !snapshot->valid ||
+        !isfinite(simulationTime) ||
         !SpaceVectorIsFinite(system->center) || system->planetCount < 0 ||
         system->planetCount > MAX_SOLAR_PLANETS) {
         return false;
     }
-    if (!system->physicalSnapshot.valid) {
-        return SolarSystemEvaluateUncachedAtTime(system, simulationTime, out);
-    }
-    SolarSystemPhysicalSnapshot signatureScratch;
-    const SolarSystemPhysicalSnapshot *snapshot =
-        SolarSystemPhysicalSnapshotForSystem(system, &signatureScratch);
-    if (!snapshot) return false;
     uint64_t systemSignature = SolarSystemRuntimeCacheSignature(
         system, snapshot);
     uint32_t worldSeed = WorldGetSeed();
@@ -1092,7 +1120,7 @@ static bool SolarSystemEvaluateCachedAtTime(
     }
 
     SolarSystemRuntimeState computed;
-    if (!SolarSystemEvaluateUncachedAtTime(system, simulationTime,
+    if (!SolarSystemEvaluateSnapshotAtTime(system, snapshot, simulationTime,
                                            &computed)) {
         return false;
     }
@@ -1108,11 +1136,42 @@ static bool SolarSystemEvaluateCachedAtTime(
     return true;
 }
 
+static bool SolarSystemEvaluateCachedAtTime(
+    const SolarSystemDef *system, double simulationTime,
+    SolarSystemRuntimeState *out)
+{
+    if (!system || !system->physicalSnapshot.valid) {
+        return SolarSystemEvaluateUncachedAtTime(system, simulationTime, out);
+    }
+    SolarSystemPhysicalSnapshot scratch;
+    const SolarSystemPhysicalSnapshot *snapshot =
+        SolarSystemPhysicalSnapshotForSystem(system, &scratch);
+    return SolarSystemEvaluateCachedSnapshotAtTime(
+        system, snapshot, simulationTime, out);
+}
+
 bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
                                double simulationTime,
                                SolarSystemRuntimeState *out)
 {
     return SolarSystemEvaluateCachedAtTime(sys, simulationTime, out);
+}
+
+bool SolarSystemEvaluateAtElapsedTime(const SolarSystemDef *sys,
+                                      double elapsedTime,
+                                      SolarSystemRuntimeState *out)
+{
+    if (!out) return false;
+    *out = (SolarSystemRuntimeState){ 0 };
+    if (!sys || !isfinite(elapsedTime) || elapsedTime < 0.0) return false;
+
+    SolarSystemPhysicalSnapshot evolved;
+    double ageOffsetGyr = SpaceUnitsGameTimeToGigayears(elapsedTime);
+    if (!SolarSystemPhysicalSnapshotEvolve(sys, ageOffsetGyr, &evolved)) {
+        return false;
+    }
+    return SolarSystemEvaluateCachedSnapshotAtTime(
+        sys, &evolved, SpacePeriodicSimulationTime(elapsedTime), out);
 }
 
 int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
@@ -1211,7 +1270,8 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
         ? maxCount : MAX_SOLAR_LIGHTS;
     memset(out, 0, sizeof(*out) * (size_t)clearCount);
     SolarSystemRuntimeState runtime;
-    return SolarSystemEvaluateAtTime(sys, SpaceSimulationTime(), &runtime)
+    return SolarSystemEvaluateAtElapsedTime(
+        sys, SpaceElapsedSimulationTime(), &runtime)
         ? SolarSystemRuntimeLightSources(&runtime, out, maxCount) : 0;
 }
 
@@ -1517,7 +1577,8 @@ static bool PlanetWorldLightStateForFiniteSurface(
     if (orbitIndex < 0 || orbitIndex >= system.planetCount) return false;
 
     SolarSystemRuntimeState runtime;
-    if (!SolarSystemEvaluateAtTime(&system, SpaceSimulationTime(), &runtime)) {
+    if (!SolarSystemEvaluateAtElapsedTime(
+            &system, SpaceElapsedSimulationTime(), &runtime)) {
         return false;
     }
     SolarLightSource sources[MAX_SOLAR_LIGHTS];
@@ -1985,8 +2046,8 @@ static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
                                     Vector3 observer, SpaceBodyInfo *out)
 {
     SolarSystemRuntimeState runtime;
-    return SolarSystemEvaluateCachedAtTime(system, SpaceSimulationTime(),
-                                           &runtime) &&
+    return SolarSystemEvaluateAtElapsedTime(
+               system, SpaceElapsedSimulationTime(), &runtime) &&
            PlanetBodyInfoForRuntime(system, &runtime, index, observer, out);
 }
 
@@ -2009,8 +2070,8 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
             if (!StarSystemAt(ax, az, &sys)) continue;
 
             SolarSystemRuntimeState runtime;
-            if (!SolarSystemEvaluateCachedAtTime(
-                    &sys, SpaceSimulationTime(), &runtime)) {
+            if (!SolarSystemEvaluateAtElapsedTime(
+                    &sys, SpaceElapsedSimulationTime(), &runtime)) {
                 continue;
             }
             int starCount = runtime.stellarCount;
@@ -2145,8 +2206,8 @@ int SpaceSatellitesNear(Vector3 pos, float maxDist,
     for (int systemIndex = 0; systemIndex < systemCount; systemIndex++) {
         SolarSystemDef *system = &systems[systemIndex];
         SolarSystemRuntimeState runtime;
-        if (!SolarSystemEvaluateAtTime(system, SpaceSimulationTime(),
-                                       &runtime)) {
+        if (!SolarSystemEvaluateAtElapsedTime(
+                system, SpaceElapsedSimulationTime(), &runtime)) {
             continue;
         }
         for (int planetIndex = 0; planetIndex < runtime.planetCount;
@@ -2229,7 +2290,8 @@ bool SpaceSatelliteScaleDiagnosticsAt(
         return false;
     }
     SolarSystemRuntimeState runtime;
-    if (!SolarSystemEvaluateAtTime(&system, SpaceSimulationTime(), &runtime) ||
+    if (!SolarSystemEvaluateAtElapsedTime(
+            &system, SpaceElapsedSimulationTime(), &runtime) ||
         satellite.parentPlanetIndex < 0 ||
         satellite.parentPlanetIndex >= runtime.planetCount) {
         return false;

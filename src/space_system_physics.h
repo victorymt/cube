@@ -5,6 +5,9 @@
 
 bool SolarSystemPhysicalSnapshotBuild(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out);
+bool SolarSystemPhysicalSnapshotEvolve(
+    const SolarSystemDef *sys, double ageOffsetGyr,
+    SolarSystemPhysicalSnapshot *out);
 bool SolarSystemPlanetDefinitionIsValid(const SolarPlanetDef *planet);
 bool SolarSystemPhysicalSnapshotBuildSatellites(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out);

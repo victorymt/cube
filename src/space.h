@@ -314,6 +314,9 @@ int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,
 bool SolarSystemEvaluateAtTime(const SolarSystemDef *sys,
                                double simulationTime,
                                SolarSystemRuntimeState *out);
+bool SolarSystemEvaluateAtElapsedTime(const SolarSystemDef *sys,
+                                      double elapsedTime,
+                                      SolarSystemRuntimeState *out); // Game days.
 int SolarSystemRuntimeLightSources(const SolarSystemRuntimeState *runtime,
                                    SolarLightSource *out, int maxCount);
 bool SolarSystemPhysicalSummaryForSystem(

@@ -135,6 +135,7 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
     *out = (StellarProfile){
         .spectrum = MainSequenceSpectrum(mainTemperature),
         .stage = STELLAR_STAGE_MAIN_SEQUENCE,
+        .evolutionSeed = seed,
         .initialMassSolar = mass,
         .massKg = (double)mass * SPACE_UNITS_SOLAR_MASS_KG,
         .radiusKm = (double)mainRadius * SPACE_UNITS_SOLAR_RADIUS_KM,
@@ -169,6 +170,25 @@ bool StellarProfileAtAge(float initialMassSolar, float ageGyr, uint32_t seed,
     out->luminositySolar = giantRadius * giantRadius *
                            powf(temperatureRatio, 4.0f);
     return true;
+}
+
+bool StellarProfileAtAgeClamped(float initialMassSolar, double ageGyr,
+                                uint32_t seed, StellarProfile *out)
+{
+    if (!out) return false;
+    *out = (StellarProfile){ 0 };
+    if (!isfinite(ageGyr)) return false;
+
+    // Freeze at the final luminous state until compact remnants are modeled.
+    StellarProfile initial;
+    if (!StellarProfileAtAge(initialMassSolar, 0.0f, seed, &initial)) {
+        return false;
+    }
+    double finalAge = fmax(ageGyr, 0.0);
+    if (finalAge > (double)initial.luminousLifetimeGyr) {
+        finalAge = (double)initial.luminousLifetimeGyr;
+    }
+    return StellarProfileAtAge(initialMassSolar, (float)finalAge, seed, out);
 }
 
 StellarProfile StellarGenerate(uint32_t seed)

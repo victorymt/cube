@@ -25,6 +25,12 @@ static void TestRoundTrips(void)
         SpaceUnitsSecondsToGameTime(SpaceUnitsGameTimeToSeconds(42.5)),
         42.5, 1e-12);
     AssertRelativeNear(
+        SpaceUnitsGameTimeToGigayears(
+            SpaceUnitsGigayearsToGameTime(4.57)),
+        4.57, 1e-12);
+    AssertRelativeNear(SpaceUnitsGigayearsToGameTime(1.0),
+                       SPACE_UNITS_GAME_TIME_PER_GIGAYEAR, 0.0);
+    AssertRelativeNear(
         SpaceUnitsKilogramsToGameMass(
             SpaceUnitsGameMassToKilograms(3.25)),
         3.25, 1e-12);
