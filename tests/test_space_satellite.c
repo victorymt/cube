@@ -2,6 +2,7 @@
 #include "space_units.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -35,6 +36,19 @@ static void AssertStateZero(const SpaceSatelliteState *state)
     assert(state->velocityKmPerSecond.z == 0.0);
 }
 
+static void AssertOrbitZero(const SpaceSatelliteOrbit *orbit)
+{
+    assert(!orbit->exists);
+    assert(orbit->semiMajorAxisKm == 0.0);
+    assert(orbit->eccentricity == 0.0);
+    assert(orbit->inclinationRad == 0.0);
+    assert(orbit->longitudeAscendingNodeRad == 0.0);
+    assert(orbit->argumentPeriapsisRad == 0.0);
+    assert(orbit->meanAnomalyAtEpochRad == 0.0);
+    assert(orbit->radiusKm == 0.0);
+    assert(orbit->massKg == 0.0);
+}
+
 static void AssertInvalidOrbit(const SpaceSatelliteOrbit *orbit,
                                double planetMassKg)
 {
@@ -49,6 +63,57 @@ static void AssertInvalidOrbit(const SpaceSatelliteOrbit *orbit,
         orbit, planetMassKg, 10.0);
     assert(position.x == 0.0 && position.y == 0.0 && position.z == 0.0);
     assert(SpaceSatelliteOrbitalPeriodSeconds(orbit, planetMassKg) == 0.0);
+}
+
+static void TestInvalidGenerationInputs(void)
+{
+    const double planetMassKg = SPACE_UNITS_EARTH_MASS_KG;
+    const double planetRadiusKm = SPACE_UNITS_EARTH_RADIUS_KM;
+    const double planetOrbitKm = SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+    const double starMassKg = SPACE_UNITS_SOLAR_MASS_KG;
+    SpaceSatelliteOrbit orbit = {
+        .exists = true,
+        .semiMajorAxisKm = 1.0,
+        .radiusKm = 2.0,
+        .massKg = 3.0
+    };
+
+#define ASSERT_INVALID_GENERATION(mass, radius, orbitKm, star, probability) \
+    do {                                                                   \
+        assert(!SpaceSatelliteGenerate(                                \
+            7u, (mass), (radius), (orbitKm), (star), (probability),     \
+            false, &orbit));                                            \
+        AssertOrbitZero(&orbit);                                         \
+    } while (0)
+    ASSERT_INVALID_GENERATION(0.0, planetRadiusKm, planetOrbitKm,
+                              starMassKg, 0.24);
+    ASSERT_INVALID_GENERATION(-planetMassKg, planetRadiusKm, planetOrbitKm,
+                              starMassKg, 0.24);
+    ASSERT_INVALID_GENERATION(NAN, planetRadiusKm, planetOrbitKm,
+                              starMassKg, 0.24);
+    ASSERT_INVALID_GENERATION(planetMassKg, 0.0, planetOrbitKm,
+                              starMassKg, 0.24);
+    ASSERT_INVALID_GENERATION(planetMassKg, NAN, planetOrbitKm,
+                              starMassKg, 0.24);
+    ASSERT_INVALID_GENERATION(planetMassKg, planetRadiusKm, 0.0,
+                              starMassKg, 0.24);
+    ASSERT_INVALID_GENERATION(planetMassKg, planetRadiusKm, INFINITY,
+                              starMassKg, 0.24);
+    ASSERT_INVALID_GENERATION(planetMassKg, planetRadiusKm, planetOrbitKm,
+                              0.0, 0.24);
+    ASSERT_INVALID_GENERATION(planetMassKg, planetRadiusKm, planetOrbitKm,
+                              starMassKg, NAN);
+    ASSERT_INVALID_GENERATION(planetMassKg, planetRadiusKm, planetOrbitKm,
+                              starMassKg, INFINITY);
+#undef ASSERT_INVALID_GENERATION
+
+    assert(!SpaceSatelliteGenerate(
+        7u, DBL_MAX, planetRadiusKm, planetOrbitKm, starMassKg, 1.0,
+        true, &orbit));
+    AssertOrbitZero(&orbit);
+    assert(!SpaceSatelliteGenerate(
+        7u, planetMassKg, planetRadiusKm, planetOrbitKm, starMassKg, 0.24,
+        false, NULL));
 }
 
 static void TestMoonOccurrenceAndStability(void)
@@ -91,6 +156,10 @@ static void TestRocheLimit(void)
     AssertNear(rocheLimitKm, 18350.0, 250.0);
     assert(SpaceSatelliteFluidRocheLimitKm(
                0.0, SPACE_UNITS_EARTH_RADIUS_KM, 7.342e22, 1737.4) == 0.0);
+    assert(SpaceSatelliteFluidRocheLimitKm(
+               DBL_MAX, 1.0, DBL_MIN, 1.0) == 0.0);
+    assert(SpaceSatelliteFluidRocheLimitKm(
+               NAN, 1.0, 1.0, 1.0) == 0.0);
 }
 
 static void TestKeplerOrbit(void)
@@ -217,6 +286,19 @@ static void TestSolarOccultation(void)
     double missed = SpaceSatelliteSolarOccultationFraction(
         observer, moon, 1737.4, sun, SPACE_UNITS_SOLAR_RADIUS_KM);
     AssertNear(missed, 0.0, 1e-12);
+
+    observer.x = NAN;
+    assert(SpaceSatelliteSolarOccultationFraction(
+               observer, moon, 1737.4, sun,
+               SPACE_UNITS_SOLAR_RADIUS_KM) == 0.0);
+    observer.x = 0.0;
+    assert(SpaceSatelliteSolarOccultationFraction(
+               observer, moon, INFINITY, sun,
+               SPACE_UNITS_SOLAR_RADIUS_KM) == 0.0);
+    sun.x = INFINITY;
+    assert(SpaceSatelliteSolarOccultationFraction(
+               observer, moon, 1737.4, sun,
+               SPACE_UNITS_SOLAR_RADIUS_KM) == 0.0);
 }
 
 static void TestPlanetUmbra(void)
@@ -235,10 +317,25 @@ static void TestPlanetUmbra(void)
         moon, 1737.4, SPACE_UNITS_EARTH_RADIUS_KM, sun,
         SPACE_UNITS_SOLAR_RADIUS_KM);
     AssertNear(eclipse, 0.0, 1e-12);
+
+    moon.x = NAN;
+    assert(SpaceSatellitePlanetUmbraFraction(
+               moon, 1737.4, SPACE_UNITS_EARTH_RADIUS_KM, sun,
+               SPACE_UNITS_SOLAR_RADIUS_KM) == 0.0);
+    moon.x = -384400.0;
+    sun.x = INFINITY;
+    assert(SpaceSatellitePlanetUmbraFraction(
+               moon, 1737.4, SPACE_UNITS_EARTH_RADIUS_KM, sun,
+               SPACE_UNITS_SOLAR_RADIUS_KM) == 0.0);
+    sun.x = SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+    assert(SpaceSatellitePlanetUmbraFraction(
+               moon, INFINITY, SPACE_UNITS_EARTH_RADIUS_KM, sun,
+               SPACE_UNITS_SOLAR_RADIUS_KM) == 0.0);
 }
 
 int main(void)
 {
+    TestInvalidGenerationInputs();
     TestMoonOccurrenceAndStability();
     TestRocheLimit();
     TestKeplerOrbit();

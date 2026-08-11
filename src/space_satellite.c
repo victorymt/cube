@@ -55,6 +55,29 @@ static SpaceSatelliteVector3 SpaceSatelliteScale(SpaceSatelliteVector3 value,
                                     value.z * scale };
 }
 
+static bool SpaceSatelliteVectorIsFinite(SpaceSatelliteVector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
+static bool SpaceSatelliteOrbitIsValid(const SpaceSatelliteOrbit *orbit,
+                                       double planetMassKg)
+{
+    return orbit && orbit->exists && planetMassKg > 0.0 &&
+           isfinite(planetMassKg) && orbit->massKg > 0.0 &&
+           isfinite(orbit->massKg) &&
+           isfinite(planetMassKg + orbit->massKg) &&
+           orbit->radiusKm > 0.0 && isfinite(orbit->radiusKm) &&
+           orbit->semiMajorAxisKm > 0.0 &&
+           isfinite(orbit->semiMajorAxisKm) &&
+           orbit->eccentricity >= 0.0 && orbit->eccentricity < 1.0 &&
+           isfinite(orbit->eccentricity) &&
+           isfinite(orbit->inclinationRad) &&
+           isfinite(orbit->longitudeAscendingNodeRad) &&
+           isfinite(orbit->argumentPeriapsisRad) &&
+           isfinite(orbit->meanAnomalyAtEpochRad);
+}
+
 bool SpaceSatelliteGenerate(uint32_t seed, double planetMassKg,
                             double planetRadiusKm,
                             double planetSemiMajorAxisKm,
@@ -66,7 +89,8 @@ bool SpaceSatelliteGenerate(uint32_t seed, double planetMassKg,
     if (!(planetMassKg > 0.0) || !(planetRadiusKm > 0.0) ||
         !(planetSemiMajorAxisKm > 0.0) || !(starMassKg > 0.0) ||
         !isfinite(planetMassKg) || !isfinite(planetRadiusKm) ||
-        !isfinite(planetSemiMajorAxisKm) || !isfinite(starMassKg)) {
+        !isfinite(planetSemiMajorAxisKm) || !isfinite(starMassKg) ||
+        !isfinite(occurrenceProbability)) {
         return false;
     }
 
@@ -113,6 +137,10 @@ bool SpaceSatelliteGenerate(uint32_t seed, double planetMassKg,
                                  2.0 * SPACE_SATELLITE_PI;
     out->radiusKm = satelliteRadiusKm;
     out->massKg = satelliteMassKg;
+    if (!SpaceSatelliteOrbitIsValid(out, planetMassKg)) {
+        memset(out, 0, sizeof(*out));
+        return false;
+    }
     return true;
 }
 
@@ -129,25 +157,8 @@ double SpaceSatelliteFluidRocheLimitKm(double planetMassKg,
     }
     double densityRatio = (planetMassKg / satelliteMassKg) *
                           pow(satelliteRadiusKm / planetRadiusKm, 3.0);
-    return 2.44 * planetRadiusKm * cbrt(densityRatio);
-}
-
-static bool SpaceSatelliteOrbitIsValid(const SpaceSatelliteOrbit *orbit,
-                                       double planetMassKg)
-{
-    return orbit && orbit->exists && planetMassKg > 0.0 &&
-           isfinite(planetMassKg) && orbit->massKg > 0.0 &&
-           isfinite(orbit->massKg) &&
-           isfinite(planetMassKg + orbit->massKg) &&
-           orbit->radiusKm > 0.0 && isfinite(orbit->radiusKm) &&
-           orbit->semiMajorAxisKm > 0.0 &&
-           isfinite(orbit->semiMajorAxisKm) &&
-           orbit->eccentricity >= 0.0 && orbit->eccentricity < 1.0 &&
-           isfinite(orbit->eccentricity) &&
-           isfinite(orbit->inclinationRad) &&
-           isfinite(orbit->longitudeAscendingNodeRad) &&
-           isfinite(orbit->argumentPeriapsisRad) &&
-           isfinite(orbit->meanAnomalyAtEpochRad);
+    double result = 2.44 * planetRadiusKm * cbrt(densityRatio);
+    return isfinite(result) && result > 0.0 ? result : 0.0;
 }
 
 double SpaceSatelliteOrbitalPeriodSeconds(const SpaceSatelliteOrbit *orbit,
@@ -245,13 +256,20 @@ double SpaceSatelliteSolarOccultationFraction(
     SpaceSatelliteVector3 satellitePositionKm, double satelliteRadiusKm,
     SpaceSatelliteVector3 sourcePositionKm, double sourceRadiusKm)
 {
+    if (!SpaceSatelliteVectorIsFinite(observerPositionKm) ||
+        !SpaceSatelliteVectorIsFinite(satellitePositionKm) ||
+        !SpaceSatelliteVectorIsFinite(sourcePositionKm) ||
+        !(satelliteRadiusKm > 0.0) || !(sourceRadiusKm > 0.0) ||
+        !isfinite(satelliteRadiusKm) || !isfinite(sourceRadiusKm)) {
+        return 0.0;
+    }
     SpaceSatelliteVector3 toSatellite = SpaceSatelliteSubtract(
         satellitePositionKm, observerPositionKm);
     SpaceSatelliteVector3 toSource = SpaceSatelliteSubtract(
         sourcePositionKm, observerPositionKm);
     double satelliteDistance = SpaceSatelliteLength(toSatellite);
     double sourceDistance = SpaceSatelliteLength(toSource);
-    if (!(satelliteRadiusKm > 0.0) || !(sourceRadiusKm > 0.0) ||
+    if (!isfinite(satelliteDistance) || !isfinite(sourceDistance) ||
         !(satelliteDistance > satelliteRadiusKm) ||
         !(sourceDistance > sourceRadiusKm) ||
         satelliteDistance >= sourceDistance) {
@@ -276,10 +294,17 @@ double SpaceSatellitePlanetUmbraFraction(
     double planetRadiusKm, SpaceSatelliteVector3 sourcePositionKm,
     double sourceRadiusKm)
 {
+    if (!SpaceSatelliteVectorIsFinite(satellitePositionKm) ||
+        !SpaceSatelliteVectorIsFinite(sourcePositionKm) ||
+        !(satelliteRadiusKm > 0.0) || !(planetRadiusKm > 0.0) ||
+        !(sourceRadiusKm > planetRadiusKm) ||
+        !isfinite(satelliteRadiusKm) || !isfinite(planetRadiusKm) ||
+        !isfinite(sourceRadiusKm)) {
+        return 0.0;
+    }
     double sourceDistance = SpaceSatelliteLength(sourcePositionKm);
     double satelliteDistance = SpaceSatelliteLength(satellitePositionKm);
-    if (!(satelliteRadiusKm > 0.0) || !(planetRadiusKm > 0.0) ||
-        !(sourceRadiusKm > planetRadiusKm) ||
+    if (!isfinite(sourceDistance) || !isfinite(satelliteDistance) ||
         !(sourceDistance > sourceRadiusKm) || !(satelliteDistance > 0.0)) {
         return 0.0;
     }
@@ -288,17 +313,20 @@ double SpaceSatellitePlanetUmbraFraction(
         sourcePositionKm, 1.0 / sourceDistance);
     double behindDistance = -SpaceSatelliteDot(satellitePositionKm,
                                                 sourceDirection);
-    if (!(behindDistance > 0.0)) return 0.0;
+    if (!(behindDistance > 0.0) || !isfinite(behindDistance)) return 0.0;
 
     double umbraLength = sourceDistance * planetRadiusKm /
                          (sourceRadiusKm - planetRadiusKm);
-    if (behindDistance >= umbraLength) return 0.0;
+    if (!(umbraLength > 0.0) || !isfinite(umbraLength) ||
+        behindDistance >= umbraLength) return 0.0;
     double umbraRadius = planetRadiusKm *
                          (1.0 - behindDistance / umbraLength);
+    if (!(umbraRadius > 0.0) || !isfinite(umbraRadius)) return 0.0;
     SpaceSatelliteVector3 shadowAxisPoint = SpaceSatelliteScale(
         sourceDirection, -behindDistance);
     double axisDistance = SpaceSatelliteLength(SpaceSatelliteSubtract(
         satellitePositionKm, shadowAxisPoint));
+    if (!isfinite(axisDistance)) return 0.0;
     return SpaceIlluminationCircleCoverage(satelliteRadiusKm, umbraRadius,
                                            axisDistance);
 }
