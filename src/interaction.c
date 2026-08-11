@@ -156,14 +156,57 @@ bool IsSupportedImageFile(const char *path)
 int ClampImportPrecision(int value)
 {
     if (value < IMPORT_MIN_BLOCKS) return IMPORT_MIN_BLOCKS;
+    if (value > IMPORT_MAX_BLOCKS) return IMPORT_MAX_BLOCKS;
     return value;
 }
 
 int AdjustImportPrecision(int value, int delta)
 {
-    if (delta > 0 && value > 2147483647 - delta) return 2147483647;
-    if (delta < 0 && value < IMPORT_MIN_BLOCKS - delta) return IMPORT_MIN_BLOCKS;
-    return ClampImportPrecision(value + delta);
+    int64_t adjusted = (int64_t)value + (int64_t)delta;
+    if (adjusted < IMPORT_MIN_BLOCKS) return IMPORT_MIN_BLOCKS;
+    if (adjusted > IMPORT_MAX_BLOCKS) return IMPORT_MAX_BLOCKS;
+    return (int)adjusted;
+}
+
+bool BuildImageImportPlan(int imageWidth, int imageHeight, int maxBlocks,
+                          bool relief, ImageImportPlan *outPlan)
+{
+    if (!outPlan || imageWidth <= 0 || imageHeight <= 0 ||
+        imageWidth > IMPORT_MAX_SOURCE_DIMENSION ||
+        imageHeight > IMPORT_MAX_SOURCE_DIMENSION) {
+        return false;
+    }
+
+    uint64_t sourcePixels = (uint64_t)(unsigned)imageWidth *
+                            (uint64_t)(unsigned)imageHeight;
+    if (sourcePixels > IMPORT_MAX_SOURCE_PIXELS) return false;
+
+    int precision = ClampImportPrecision(maxBlocks);
+    double scale = fmin((double)precision / (double)imageWidth,
+                        (double)precision / (double)imageHeight);
+    if (scale > 1.0) scale = 1.0;
+    int targetWidth = (int)floor((double)imageWidth * scale);
+    int targetHeight = (int)floor((double)imageHeight * scale);
+    if (targetWidth < 1) targetWidth = 1;
+    if (targetHeight < 1) targetHeight = 1;
+
+    uint64_t targetPixels = (uint64_t)(unsigned)targetWidth *
+                            (uint64_t)(unsigned)targetHeight;
+    uint64_t operationsPerPixel = relief ? (uint64_t)WORLD_HEIGHT * 2u : 1u;
+    uint64_t maximumBlockOperations = targetPixels * operationsPerPixel;
+    if (targetPixels > IMPORT_MAX_TARGET_PIXELS ||
+        maximumBlockOperations > IMPORT_MAX_BLOCK_OPERATIONS) {
+        return false;
+    }
+
+    *outPlan = (ImageImportPlan){
+        .targetWidth = targetWidth,
+        .targetHeight = targetHeight,
+        .sourcePixels = sourcePixels,
+        .targetPixels = targetPixels,
+        .maximumBlockOperations = maximumBlockOperations
+    };
+    return true;
 }
 
 int ImagePixelLuminance(Color pixel)
@@ -182,10 +225,57 @@ int ReliefHeightForPixel(Color pixel, int baseY)
     return 1 + (int)roundf(luminance * (float)(maxHeight - 1));
 }
 
+static bool ImportPlacementBase(const Player *player, int targetWidth,
+                                int targetHeight, int rowDx, int rowDz,
+                                int colDx, int colDz,
+                                int *outBaseX, int *outBaseZ)
+{
+    if (!player || !outBaseX || !outBaseZ ||
+        !isfinite(player->position.x) || !isfinite(player->position.z) ||
+        !isfinite(player->yaw)) {
+        return false;
+    }
+
+    double floorX = floor((double)player->position.x);
+    double floorZ = floor((double)player->position.z);
+    if (floorX < (double)INT_MIN || floorX > (double)INT_MAX ||
+        floorZ < (double)INT_MIN || floorZ > (double)INT_MAX) {
+        return false;
+    }
+
+    int64_t baseX = (int64_t)floorX + (int64_t)rowDx * 6 -
+                    (int64_t)colDx * (targetWidth / 2);
+    int64_t baseZ = (int64_t)floorZ + (int64_t)rowDz * 6 -
+                    (int64_t)colDz * (targetWidth / 2);
+    const int pxValues[2] = { 0, targetWidth - 1 };
+    const int pyValues[2] = { 0, targetHeight - 1 };
+    for (int pyIndex = 0; pyIndex < 2; pyIndex++) {
+        for (int pxIndex = 0; pxIndex < 2; pxIndex++) {
+            int64_t worldX = baseX + (int64_t)colDx * pxValues[pxIndex] +
+                             (int64_t)rowDx * pyValues[pyIndex];
+            int64_t worldZ = baseZ + (int64_t)colDz * pxValues[pxIndex] +
+                             (int64_t)rowDz * pyValues[pyIndex];
+            if (worldX < INT_MIN || worldX > INT_MAX ||
+                worldZ < INT_MIN || worldZ > INT_MAX) {
+                return false;
+            }
+        }
+    }
+
+    *outBaseX = (int)baseX;
+    *outBaseZ = (int)baseZ;
+    return true;
+}
+
 void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, bool relief)
 {
     if (terrainMode != TERRAIN_FLAT) {
         SetImportMessage("Image import is only available in Flat terrain mode.");
+        return;
+    }
+    if (!player || !isfinite(player->position.x) ||
+        !isfinite(player->position.z) || !isfinite(player->yaw)) {
+        SetImportMessage("Player position is invalid for image import.");
         return;
     }
 
@@ -206,22 +296,26 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
         return;
     }
 
-    WorldBeginUndoGroup();
+    int fileBytes = GetFileLength(imagePath);
+    if (fileBytes < 0 || fileBytes > IMPORT_MAX_FILE_BYTES) {
+        SetImportMessage("Image file is too large to import safely.");
+        return;
+    }
 
     Image image = LoadImage(imagePath);
     if (image.data == NULL || image.width <= 0 || image.height <= 0) {
+        if (image.data != NULL) UnloadImage(image);
         SetImportMessage("Image decode failed. Try exporting it as a standard PNG or JPG.");
         return;
     }
 
-    float scale = fminf((float)maxBlocks / (float)image.width,
-                       (float)maxBlocks / (float)image.height);
-    if (scale > 1.0f) scale = 1.0f;
-    int targetWidth = (int)floorf((float)image.width * scale);
-    int targetHeight = (int)floorf((float)image.height * scale);
-    if (targetWidth < 1) targetWidth = 1;
-    if (targetHeight < 1) targetHeight = 1;
-    ImageResizeNN(&image, targetWidth, targetHeight);
+    ImageImportPlan plan;
+    if (!BuildImageImportPlan(image.width, image.height, maxBlocks,
+                              relief, &plan)) {
+        UnloadImage(image);
+        SetImportMessage("Image dimensions exceed the safe import budget.");
+        return;
+    }
 
     float forwardX = sinf(player->yaw);
     float forwardZ = cosf(player->yaw);
@@ -240,8 +334,27 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
         colDx = sz;
     }
 
-    int baseX = (int)floorf(player->position.x) + rowDx * 6 - colDx * (targetWidth / 2);
-    int baseZ = (int)floorf(player->position.z) + rowDz * 6 - colDz * (targetWidth / 2);
+    int baseX = 0;
+    int baseZ = 0;
+    if (!ImportPlacementBase(player, plan.targetWidth, plan.targetHeight,
+                             rowDx, rowDz, colDx, colDz, &baseX, &baseZ)) {
+        UnloadImage(image);
+        SetImportMessage("Player position is outside the safe import range.");
+        return;
+    }
+
+    if (image.width != plan.targetWidth || image.height != plan.targetHeight) {
+        ImageResizeNN(&image, plan.targetWidth, plan.targetHeight);
+        if (image.data == NULL || image.width != plan.targetWidth ||
+            image.height != plan.targetHeight) {
+            if (image.data != NULL) UnloadImage(image);
+            SetImportMessage("Image resize failed.");
+            return;
+        }
+    }
+
+    int targetWidth = plan.targetWidth;
+    int targetHeight = plan.targetHeight;
     int placed = 0;
     int minChunkX = 0;
     int maxChunkX = 0;
@@ -249,6 +362,7 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
     int maxChunkZ = 0;
     bool haveTouchedChunk = false;
 
+    WorldBeginUndoGroup();
     for (int py = 0; py < targetHeight; py++) {
         for (int px = 0; px < targetWidth; px++) {
             Color pixel = GetImageColor(image, px, py);
@@ -291,10 +405,13 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
             }
         }
     }
+    WorldEndUndoGroup();
 
-    for (int cz = minChunkZ - 1; cz <= maxChunkZ + 1; cz++) {
-        for (int cx = minChunkX - 1; cx <= maxChunkX + 1; cx++) {
-            MarkChunkDirty(cx, cz);
+    if (haveTouchedChunk) {
+        for (int cz = minChunkZ - 1; cz <= maxChunkZ + 1; cz++) {
+            for (int cx = minChunkX - 1; cx <= maxChunkX + 1; cx++) {
+                MarkChunkDirty(cx, cz);
+            }
         }
     }
 

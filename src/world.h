@@ -42,6 +42,7 @@ float WorldGetImportMessageTimer(void);
 void WorldTickImportMessage(float dt);
 
 void WorldBeginUndoGroup(void);
+void WorldEndUndoGroup(void);
 BlockType GetBlockAt(int x, int y, int z);
 void SetBlock(int x, int y, int z, BlockType type);
 void SetBlockForImport(int x, int y, int z, BlockType type);

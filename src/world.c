@@ -513,6 +513,11 @@ void WorldBeginUndoGroup(void)
     pendingGroupStart = true;
 }
 
+void WorldEndUndoGroup(void)
+{
+    pendingGroupStart = false;
+}
+
 void PushBlockUndo(int x, int y, int z, BlockType prev, BlockType next)
 {
     if (undoCount >= UNDO_STACK_CAPACITY) {

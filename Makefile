@@ -67,7 +67,7 @@ test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET
 	./$(ENTITY_ECOLOGY_TEST_TARGET)
 	./$(INTERACTION_RAYCAST_TEST_TARGET)
 
-$(INTERACTION_RAYCAST_TEST_TARGET): tests/test_interaction_raycast.c src/interaction.c src/interaction.h
+$(INTERACTION_RAYCAST_TEST_TARGET): tests/test_interaction_raycast.c src/interaction.c src/interaction.h src/types.h src/world.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Wl,--gc-sections -Isrc -o $@ tests/test_interaction_raycast.c src/interaction.c -lm
 
 $(TEST_TARGET): tests/test_world_environment.c src/world_environment.c src/world_environment.h

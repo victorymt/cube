@@ -3,9 +3,19 @@
 
 #include "types.h"
 
+typedef struct ImageImportPlan {
+    int targetWidth;
+    int targetHeight;
+    uint64_t sourcePixels;
+    uint64_t targetPixels;
+    uint64_t maximumBlockOperations;
+} ImageImportPlan;
+
 void AdjustRenderDistance(int delta);
 int ClampImportPrecision(int value);
 int AdjustImportPrecision(int value, int delta);
+bool BuildImageImportPlan(int imageWidth, int imageHeight, int maxBlocks,
+                          bool relief, ImageImportPlan *outPlan);
 bool IsSupportedImageFile(const char *path);
 HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance);
 float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistance);

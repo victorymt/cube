@@ -7,10 +7,139 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 
 static int solidX = -1;
 static int blockQueries = 0;
+static int testFileBytes = 1024;
+static int loadImageCalls = 0;
+static int unloadImageCalls = 0;
+static int undoBeginCalls = 0;
+static int undoEndCalls = 0;
+static int importedBlockWrites = 0;
+static int dirtyChunkCalls = 0;
+static unsigned char testImageData = 0u;
+static Image nextImage = { 0 };
+static char importMessage[160] = { 0 };
+
+TerrainMode terrainMode = TERRAIN_FLAT;
+
+bool FileExists(const char *fileName)
+{
+    return fileName && fileName[0] != '\0';
+}
+
+bool IsFileExtension(const char *fileName, const char *ext)
+{
+    (void)fileName;
+    (void)ext;
+    return true;
+}
+
+int GetFileLength(const char *fileName)
+{
+    (void)fileName;
+    return testFileBytes;
+}
+
+Image LoadImage(const char *fileName)
+{
+    (void)fileName;
+    loadImageCalls++;
+    return nextImage;
+}
+
+void UnloadImage(Image image)
+{
+    assert(image.data != NULL);
+    unloadImageCalls++;
+}
+
+void ImageResizeNN(Image *image, int newWidth, int newHeight)
+{
+    assert(image && image->data);
+    image->width = newWidth;
+    image->height = newHeight;
+}
+
+Color GetImageColor(Image image, int x, int y)
+{
+    (void)image;
+    (void)x;
+    (void)y;
+    return (Color){ 0, 0, 0, 0 };
+}
+
+const char *TextFormat(const char *text, ...)
+{
+    static char formatted[256];
+    va_list args;
+    va_start(args, text);
+    vsnprintf(formatted, sizeof(formatted), text, args);
+    va_end(args);
+    return formatted;
+}
+
+void SetImportMessage(const char *message)
+{
+    snprintf(importMessage, sizeof(importMessage), "%s",
+             message ? message : "");
+}
+
+void WorldBeginUndoGroup(void)
+{
+    undoBeginCalls++;
+}
+
+void WorldEndUndoGroup(void)
+{
+    undoEndCalls++;
+}
+
+void SetBlockForImport(int x, int y, int z, BlockType type)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)type;
+    importedBlockWrites++;
+}
+
+BlockType NearestImageBlock(Color color)
+{
+    (void)color;
+    return BLOCK_STONE;
+}
+
+int TerrainHeight(int x, int z, TerrainMode mode)
+{
+    (void)x;
+    (void)z;
+    (void)mode;
+    return 0;
+}
+
+bool InHeight(int y)
+{
+    return y >= 0 && y < WORLD_HEIGHT;
+}
+
+void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
+{
+    *cx = x / CHUNK_SIZE;
+    *cz = z / CHUNK_SIZE;
+    *lx = x % CHUNK_SIZE;
+    *lz = z % CHUNK_SIZE;
+}
+
+void MarkChunkDirty(int cx, int cz)
+{
+    (void)cx;
+    (void)cz;
+    dirtyChunkCalls++;
+}
 
 BlockType GetBlockAt(int x, int y, int z)
 {
@@ -47,6 +176,19 @@ static void ResetRayWorld(void)
 {
     solidX = -1;
     blockQueries = 0;
+}
+
+static void ResetImportWorld(void)
+{
+    testFileBytes = 1024;
+    loadImageCalls = 0;
+    unloadImageCalls = 0;
+    undoBeginCalls = 0;
+    undoEndCalls = 0;
+    importedBlockWrites = 0;
+    dirtyChunkCalls = 0;
+    nextImage = (Image){ 0 };
+    importMessage[0] = '\0';
 }
 
 static void TestRaycastRejectsInvalidInput(void)
@@ -107,11 +249,95 @@ static void TestRaycastHasIterationLimit(void)
     assert(blockQueries <= 4096);
 }
 
+static void TestImageImportLimits(void)
+{
+    assert(ClampImportPrecision(INT_MIN) == IMPORT_MIN_BLOCKS);
+    assert(ClampImportPrecision(INT_MAX) == IMPORT_MAX_BLOCKS);
+    assert(AdjustImportPrecision(IMPORT_MIN_BLOCKS, INT_MIN) ==
+           IMPORT_MIN_BLOCKS);
+    assert(AdjustImportPrecision(IMPORT_MAX_BLOCKS, INT_MAX) ==
+           IMPORT_MAX_BLOCKS);
+    assert(AdjustImportPrecision(64, 16) == 80);
+
+    ImageImportPlan plan = { 0 };
+    assert(BuildImageImportPlan(1920, 1080, 64, false, &plan));
+    assert(plan.targetWidth == 64 && plan.targetHeight == 36);
+    assert(plan.sourcePixels == 1920u * 1080u);
+    assert(plan.targetPixels == 64u * 36u);
+    assert(plan.maximumBlockOperations == plan.targetPixels);
+
+    assert(BuildImageImportPlan(256, 256, 256, false, &plan));
+    assert(plan.targetPixels == IMPORT_MAX_TARGET_PIXELS);
+    assert(!BuildImageImportPlan(256, 256, 256, true, &plan));
+    assert(BuildImageImportPlan(64, 64, 64, true, &plan));
+    assert(plan.maximumBlockOperations == IMPORT_MAX_BLOCK_OPERATIONS);
+
+    assert(!BuildImageImportPlan(0, 64, 64, false, &plan));
+    assert(!BuildImageImportPlan(INT_MAX, INT_MAX, 64, false, &plan));
+    assert(!BuildImageImportPlan(IMPORT_MAX_SOURCE_DIMENSION,
+                                 IMPORT_MAX_SOURCE_DIMENSION,
+                                 64, false, &plan));
+    assert(!BuildImageImportPlan(64, 64, 64, false, NULL));
+}
+
+static void TestImageImportFailureLifecycle(void)
+{
+    Player player = {
+        .position = { 0.0f, 2.0f, 0.0f },
+        .yaw = 0.0f
+    };
+
+    ResetImportWorld();
+    testFileBytes = IMPORT_MAX_FILE_BYTES + 1;
+    ImportImageAsBlocks("test.png", &player, 64, false);
+    assert(loadImageCalls == 0);
+    assert(undoBeginCalls == 0 && undoEndCalls == 0);
+
+    ResetImportWorld();
+    ImportImageAsBlocks("test.png", &player, 64, false);
+    assert(loadImageCalls == 1 && unloadImageCalls == 0);
+    assert(undoBeginCalls == 0 && undoEndCalls == 0);
+
+    ResetImportWorld();
+    nextImage = (Image){
+        .data = &testImageData,
+        .width = IMPORT_MAX_SOURCE_DIMENSION + 1,
+        .height = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+    };
+    ImportImageAsBlocks("test.png", &player, 64, false);
+    assert(unloadImageCalls == 1);
+    assert(undoBeginCalls == 0 && undoEndCalls == 0);
+}
+
+static void TestImageImportClosesUndoGroup(void)
+{
+    ResetImportWorld();
+    Player player = {
+        .position = { 0.0f, 2.0f, 0.0f },
+        .yaw = 0.0f
+    };
+    nextImage = (Image){
+        .data = &testImageData,
+        .width = 1,
+        .height = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+    };
+    ImportImageAsBlocks("test.png", &player, 64, true);
+    assert(loadImageCalls == 1 && unloadImageCalls == 1);
+    assert(undoBeginCalls == 1 && undoEndCalls == 1);
+    assert(importedBlockWrites == WORLD_HEIGHT - 1);
+    assert(dirtyChunkCalls > 0);
+}
+
 int main(void)
 {
     TestRaycastRejectsInvalidInput();
     TestRaycastNormalizesDirection();
     TestRaycastHasIterationLimit();
+    TestImageImportLimits();
+    TestImageImportFailureLifecycle();
+    TestImageImportClosesUndoGroup();
     puts("interaction raycast tests passed");
     return 0;
 }
