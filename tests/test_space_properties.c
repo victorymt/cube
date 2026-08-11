@@ -1228,6 +1228,70 @@ static void TestSaveLoadTimeDeterminism(void)
     fclose(file);
 }
 
+static void TestSpaceLoadFailureAtomicity(void)
+{
+    FILE *original = tmpfile();
+    assert(original);
+    assert(SpaceSaveState(original));
+
+    FILE *baseline = tmpfile();
+    assert(baseline);
+    double baselineTime = 731.25;
+    int baselineX = 18421;
+    int baselineZ = -9375;
+    assert(fwrite(&baselineTime, sizeof(baselineTime), 1, baseline) == 1);
+    assert(fwrite(&baselineX, sizeof(baselineX), 1, baseline) == 1);
+    assert(fwrite(&baselineZ, sizeof(baselineZ), 1, baseline) == 1);
+    rewind(baseline);
+    assert(SpaceLoadState(baseline));
+    assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceOriginX() == baselineX);
+    assert(SpaceOriginZ() == baselineZ);
+
+    FILE *truncatedState = tmpfile();
+    assert(truncatedState);
+    double replacementTime = 19.0;
+    assert(fwrite(&replacementTime, sizeof(replacementTime), 1,
+                  truncatedState) == 1);
+    rewind(truncatedState);
+    assert(!SpaceLoadState(truncatedState));
+    assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceOriginX() == baselineX);
+    assert(SpaceOriginZ() == baselineZ);
+
+    FILE *invalidState = tmpfile();
+    assert(invalidState);
+    double invalidTime = NAN;
+    int replacementX = -11;
+    int replacementZ = 29;
+    assert(fwrite(&invalidTime, sizeof(invalidTime), 1, invalidState) == 1);
+    assert(fwrite(&replacementX, sizeof(replacementX), 1, invalidState) == 1);
+    assert(fwrite(&replacementZ, sizeof(replacementZ), 1, invalidState) == 1);
+    rewind(invalidState);
+    assert(!SpaceLoadState(invalidState));
+    assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceOriginX() == baselineX);
+    assert(SpaceOriginZ() == baselineZ);
+
+    FILE *truncatedOrigin = tmpfile();
+    assert(truncatedOrigin);
+    assert(fwrite(&replacementX, sizeof(replacementX), 1,
+                  truncatedOrigin) == 1);
+    rewind(truncatedOrigin);
+    assert(!SpaceLoadOrigin(truncatedOrigin));
+    assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceOriginX() == baselineX);
+    assert(SpaceOriginZ() == baselineZ);
+
+    rewind(original);
+    assert(SpaceLoadState(original));
+    fclose(truncatedOrigin);
+    fclose(invalidState);
+    fclose(truncatedState);
+    fclose(baseline);
+    fclose(original);
+}
+
 static void TestDeterministicSpaceQueries(void)
 {
     const Vector3 observer = { 120.0f, 0.0f, -220.0f };
@@ -1537,6 +1601,7 @@ int main(void)
     TestQueryCacheInputContracts();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
+    TestSpaceLoadFailureAtomicity();
     TestDeterministicSpaceQueries();
     TestConcurrentSpaceQueries();
     puts("space properties tests passed");
