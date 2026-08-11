@@ -17,6 +17,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <float.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -978,28 +979,56 @@ int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
         ? SolarSystemRuntimeLightSources(&runtime, out, maxCount) : 0;
 }
 
+static bool SolarLightVectorIsFinite(Vector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
 float SolarLightIrradianceAt(const SolarLightSource *source, Vector3 point)
 {
-    if (!source || source->luminosity <= 0.0f) return 0.0f;
+    if (!source || !SolarLightVectorIsFinite(source->center) ||
+        !SolarLightVectorIsFinite(point) ||
+        !(source->luminosity > 0.0f) || !isfinite(source->luminosity)) {
+        return 0.0f;
+    }
+    double dx = (double)source->center.x - point.x;
+    double dy = (double)source->center.y - point.y;
+    double dz = (double)source->center.z - point.z;
+    double distanceGameSquared = dx * dx + dy * dy + dz * dz;
+    if (!isfinite(distanceGameSquared) || distanceGameSquared < 0.0) {
+        return 0.0f;
+    }
     double distanceKm = SpaceUnitsGameDistanceToKilometers(
-        Vector3Distance(source->center, point));
+        sqrt(distanceGameSquared));
     double minimumDistanceAu = SpaceUnitsGameDistanceToKilometers(1.0) /
                                SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+    if (!isfinite(distanceKm) || !isfinite(minimumDistanceAu) ||
+        !(minimumDistanceAu > 0.0)) {
+        return 0.0f;
+    }
     distanceKm = fmax(distanceKm,
                       minimumDistanceAu * SPACE_UNITS_ASTRONOMICAL_UNIT_KM);
-    return (float)SpaceIlluminationIrradianceEarth(
+    double irradiance = SpaceIlluminationIrradianceEarth(
         source->luminosity, distanceKm);
+    if (!isfinite(irradiance) || irradiance < 0.0 || irradiance > FLT_MAX) {
+        return 0.0f;
+    }
+    return (float)irradiance;
 }
 
 float SolarSystemIrradianceAt(const SolarLightSource *sources, int sourceCount,
                               Vector3 point)
 {
-    if (!sources || sourceCount <= 0) return 0.0f;
-    float total = 0.0f;
+    if (!sources || sourceCount <= 0 || sourceCount > MAX_SOLAR_LIGHTS ||
+        !SolarLightVectorIsFinite(point)) return 0.0f;
+    double total = 0.0;
     for (int i = 0; i < sourceCount; i++) {
-        total += SolarLightIrradianceAt(&sources[i], point);
+        float irradiance = SolarLightIrradianceAt(&sources[i], point);
+        if (!isfinite(irradiance) || irradiance < 0.0f) return 0.0f;
+        total += irradiance;
+        if (!isfinite(total) || total > FLT_MAX) return 0.0f;
     }
-    return total;
+    return (float)total;
 }
 
 static Vector3 PlanetSurfaceNormalAt(Vector3 surfacePosition)

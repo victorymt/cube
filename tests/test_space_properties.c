@@ -765,6 +765,35 @@ static void TestSpaceQueryInputContracts(void)
            gravity.gravitationalParameterGame == 0.0f);
 }
 
+static void TestIrradianceInputContracts(void)
+{
+    SolarLightSource source = {
+        .center = { 0.0f, 0.0f, 0.0f },
+        .luminosity = 1.0f
+    };
+    assert(isfinite(SolarLightIrradianceAt(&source, (Vector3){ 0 })));
+    assert(SolarLightIrradianceAt(NULL, (Vector3){ 0 }) == 0.0f);
+
+    source.luminosity = NAN;
+    assert(SolarLightIrradianceAt(&source, (Vector3){ 0 }) == 0.0f);
+    source.luminosity = 1.0f;
+    source.center.x = NAN;
+    assert(SolarLightIrradianceAt(&source, (Vector3){ 0 }) == 0.0f);
+    source.center.x = 0.0f;
+    assert(SolarLightIrradianceAt(&source,
+                                  (Vector3){ INFINITY, 0.0f, 0.0f }) == 0.0f);
+
+    source.luminosity = FLT_MAX;
+    assert(SolarLightIrradianceAt(&source, (Vector3){ 0 }) == 0.0f);
+
+    source.luminosity = 1.0f;
+    assert(SolarSystemIrradianceAt(&source, 1, (Vector3){ 0 }) > 0.0f);
+    assert(SolarSystemIrradianceAt(&source, MAX_SOLAR_LIGHTS + 1,
+                                   (Vector3){ 0 }) == 0.0f);
+    assert(SolarSystemIrradianceAt(&source, 1,
+                                   (Vector3){ NAN, 0.0f, 0.0f }) == 0.0f);
+}
+
 static void TestSaveLoadTimeDeterminism(void)
 {
     const uint32_t seed = 0x2468ace0u;
@@ -1181,6 +1210,7 @@ int main(void)
     TestHomeScaleDiagnostics();
     TestScaleDiagnosticsInputContracts();
     TestSpaceQueryInputContracts();
+    TestIrradianceInputContracts();
     TestRuntimeInputContracts();
     TestGeneratedSystems();
     TestSaveLoadTimeDeterminism();
