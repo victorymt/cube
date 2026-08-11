@@ -260,6 +260,7 @@ void HomeWorldReset(void)
 
 void HomeWorldRestoreLegacyState(const Player *player)
 {
+    if (!player) return;
     homeWorld.surfaceActive = !planetWorld.active &&
                               player->position.y < (float)SPACE_LAYER_Y;
     homeWorld.returnPosition = homeWorld.surfaceActive
@@ -2780,7 +2781,7 @@ bool PlanetWorldLandingTarget(Vector3 position, SpaceBodyInfo *out)
 
 bool HomeWorldTryLaunch(Player *player)
 {
-    if (!homeWorld.surfaceActive || planetWorld.active ||
+    if (!player || !homeWorld.surfaceActive || planetWorld.active ||
         player->position.y < SPACE_ENTER_Y) {
         return false;
     }
@@ -2822,6 +2823,8 @@ static void HomeWorldActivateSurface(void)
 
 bool HomeWorldBeginDescent(Player *player, Vector3 *outLandingPosition)
 {
+    if (outLandingPosition) *outLandingPosition = (Vector3){ 0 };
+    if (!player) return false;
     if (!HomeWorldCanEnter(player->position)) return false;
 
     int landingX = (int)floorf(homeWorld.returnPosition.x);
@@ -2847,6 +2850,7 @@ bool HomeWorldBeginDescent(Player *player, Vector3 *outLandingPosition)
 
 bool HomeWorldTryEnter(Player *player)
 {
+    if (!player) return false;
     if (!HomeWorldCanEnter(player->position)) return false;
 
     HomeWorldActivateSurface();
@@ -2923,7 +2927,8 @@ static Vector3 PlanetWorldLandingPosition(int *outShipX, int *outShipZ,
 
 bool PlanetWorldBeginDescent(Player *player, Vector3 *outLandingPosition)
 {
-    if (planetWorld.active || homeWorld.surfaceActive) return false;
+    if (outLandingPosition) *outLandingPosition = (Vector3){ 0 };
+    if (!player || planetWorld.active || homeWorld.surfaceActive) return false;
 
     SpaceBodyInfo body;
     if (!PlanetWorldLandingTarget(player->position, &body)) return false;
@@ -2952,7 +2957,7 @@ bool PlanetWorldBeginDescent(Player *player, Vector3 *outLandingPosition)
 
 bool PlanetWorldTryEnter(Player *player)
 {
-    if (planetWorld.active || homeWorld.surfaceActive) return false;
+    if (!player || planetWorld.active || homeWorld.surfaceActive) return false;
 
     SpaceBodyInfo body;
     if (!PlanetWorldLandingTarget(player->position, &body)) return false;
@@ -2982,7 +2987,8 @@ bool PlanetWorldTryEnter(Player *player)
 
 bool PlanetWorldTryLaunch(Player *player)
 {
-    if (!planetWorld.active || PlanetWorldAtmosphereFade(player->position) < 1.0f) {
+    if (!player || !planetWorld.active ||
+        PlanetWorldAtmosphereFade(player->position) < 1.0f) {
         return false;
     }
 
