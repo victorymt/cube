@@ -1649,7 +1649,10 @@ int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCoun
 
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist)
 {
-    if (!out || !SpaceQueryVectorIsFinite(pos)) return false;
+    if (!out) return false;
+    *out = (SolarSystemDef){ 0 };
+    if (outDist) *outDist = 0.0f;
+    if (!SpaceQueryVectorIsFinite(pos)) return false;
     SolarSystemDef sys;
     int count = StarSystemsNear(pos, maxDist, &sys, 1);
     if (count < 1) return false;
@@ -2252,7 +2255,9 @@ bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out)
 
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
 {
-    if (!out || !SpaceQueryVectorIsFinite(origin) ||
+    if (!out) return false;
+    *out = (SpaceBodyInfo){ 0 };
+    if (!SpaceQueryVectorIsFinite(origin) ||
         !SpaceQueryVectorIsFinite(direction) ||
         Vector3LengthSqr(direction) < 0.000001f) return false;
     direction = Vector3Normalize(direction);
@@ -2328,6 +2333,12 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
 bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
                      float *gravityScale)
 {
+    if (!gravityDir || !surfaceDist) return false;
+    *gravityDir = (Vector3){ 0 };
+    *surfaceDist = 0.0f;
+    if (gravityScale) *gravityScale = 0.0f;
+    if (!SpaceQueryVectorIsFinite(position)) return false;
+
     SpaceBodyInfo bodies[8];
     int count = SpaceBodiesNear(position, 96.0f, bodies, 8);
 

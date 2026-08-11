@@ -763,8 +763,10 @@ static void TestSpaceQueryInputContracts(void)
         assert(SpaceSatellitesNear(invalidPositions[i], 100.0f,
                                    satellites, 2) == 0);
         SolarSystemDef nearest;
+        float nearestDistance = 123.0f;
         assert(!FindNearestSystem(invalidPositions[i], 100.0f,
-                                   &nearest, NULL));
+                                   &nearest, &nearestDistance));
+        assert(!nearest.exists && nearestDistance == 0.0f);
     }
     assert(StarSystemsNear((Vector3){ 0 }, FLT_MAX, systems, 2) == 0);
     assert(SpaceBodiesNear((Vector3){ 0 }, FLT_MAX, bodies, 2) == 0);
@@ -773,8 +775,24 @@ static void TestSpaceQueryInputContracts(void)
     assert(!FindNearestSystem((Vector3){ 0 }, 100.0f, NULL, NULL));
 
     SpaceBodyInfo picked;
+    memset(&picked, 0xa5, sizeof(picked));
     assert(!SpaceBodyPick((Vector3){ 0 },
                           (Vector3){ NAN, 0.0f, 0.0f }, &picked));
+    assert(picked.physicalRadiusKm == 0.0 && picked.spaceProxyRadius == 0.0f);
+
+    Vector3 gravityDirection = { 1.0f, 2.0f, 3.0f };
+    float surfaceDistance = 123.0f;
+    float gravityScale = 456.0f;
+    assert(!PlanetSurfaceAt((Vector3){ NAN, 0.0f, 0.0f },
+                            &gravityDirection, &surfaceDistance,
+                            &gravityScale));
+    assert(gravityDirection.x == 0.0f && gravityDirection.y == 0.0f &&
+           gravityDirection.z == 0.0f);
+    assert(surfaceDistance == 0.0f && gravityScale == 0.0f);
+    assert(!PlanetSurfaceAt((Vector3){ 0 }, NULL, &surfaceDistance,
+                            &gravityScale));
+    assert(!PlanetSurfaceAt((Vector3){ 0 }, &gravityDirection, NULL,
+                            &gravityScale));
 
     SpaceScaleDiagnostics scale;
     memset(&scale, 0xa5, sizeof(scale));
