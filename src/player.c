@@ -10,15 +10,24 @@
 #include "space.h"
 #include "world_environment.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
 
-#include "chunks.h"
-#include "world.h"
-#include "audio.h"
-#include "interaction.h"
-#include "particles.h"
+#define PLAYER_COLLISION_STEP 0.25f
+#define PLAYER_MAX_MOVE_SUBSTEPS 64u
+
+typedef struct PlayerCollisionBounds {
+    int minX;
+    int maxX;
+    int minY;
+    int maxY;
+    int minZ;
+    int maxZ;
+} PlayerCollisionBounds;
+
 bool IsSolidBlockAt(int x, int y, int z)
 {
     BlockType type = GetBlockAt(x, y, z);
@@ -40,25 +49,54 @@ static float StairsCollisionTop(int x, int y, int z, float playerZ)
     return (float)y + (float)(step + 1) / 3.0f;
 }
 
+static bool PlayerCollisionBoundsAt(Vector3 position,
+                                    PlayerCollisionBounds *outBounds)
+{
+    if (!outBounds || !isfinite(position.x) || !isfinite(position.y) ||
+        !isfinite(position.z)) {
+        return false;
+    }
+
+    double minX = floor((double)position.x - (double)PLAYER_RADIUS);
+    double maxX = floor((double)position.x + (double)PLAYER_RADIUS);
+    double minY = floor((double)position.y);
+    double maxY = floor((double)position.y + (double)PLAYER_HEIGHT);
+    double minZ = floor((double)position.z - (double)PLAYER_RADIUS);
+    double maxZ = floor((double)position.z + (double)PLAYER_RADIUS);
+    if (minX < (double)INT_MIN || maxX > (double)INT_MAX ||
+        minY < (double)INT_MIN || maxY > (double)INT_MAX ||
+        minZ < (double)INT_MIN || maxZ > (double)INT_MAX) {
+        return false;
+    }
+
+    *outBounds = (PlayerCollisionBounds){
+        .minX = (int)minX,
+        .maxX = (int)maxX,
+        .minY = (int)minY,
+        .maxY = (int)maxY,
+        .minZ = (int)minZ,
+        .maxZ = (int)maxZ
+    };
+    return true;
+}
+
 static float PlayerGroundCeiling(Vector3 position)
 {
-    int minX = (int)floorf(position.x - PLAYER_RADIUS);
-    int maxX = (int)floorf(position.x + PLAYER_RADIUS);
-    int minY = (int)floorf(position.y);
-    int maxY = (int)floorf(position.y + PLAYER_HEIGHT);
-    int minZ = (int)floorf(position.z - PLAYER_RADIUS);
-    int maxZ = (int)floorf(position.z + PLAYER_RADIUS);
+    PlayerCollisionBounds bounds;
+    if (!PlayerCollisionBoundsAt(position, &bounds)) return INFINITY;
 
     float minTop = INFINITY;
-    for (int x = minX; x <= maxX; x++) {
-        for (int y = minY; y <= maxY; y++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                BlockType type = GetBlockAt(x, y, z);
+    for (int64_t x = bounds.minX; x <= bounds.maxX; x++) {
+        for (int64_t y = bounds.minY; y <= bounds.maxY; y++) {
+            for (int64_t z = bounds.minZ; z <= bounds.maxZ; z++) {
+                BlockType type = GetBlockAt((int)x, (int)y, (int)z);
                 float top;
                 if (IsStairsBlock(type)) {
-                    top = StairsCollisionTop(x, y, z, position.z);
+                    top = StairsCollisionTop((int)x, (int)y, (int)z,
+                                             position.z);
                 } else {
-                    float height = BlockCollisionHeightAt(x, y, z);
+                    float height = BlockCollisionHeightAt((int)x, (int)y,
+                                                          (int)z);
                     if (height <= 0.0f) continue;
                     top = (float)y + height;
                 }
@@ -89,32 +127,30 @@ static bool TryStepUp(Player *player, Vector3 next)
 
 bool PlayerOverlapsWorld(Vector3 position)
 {
-    int minX = (int)floorf(position.x - PLAYER_RADIUS);
-    int maxX = (int)floorf(position.x + PLAYER_RADIUS);
-    int minY = (int)floorf(position.y);
-    int maxY = (int)floorf(position.y + PLAYER_HEIGHT);
-    int minZ = (int)floorf(position.z - PLAYER_RADIUS);
-    int maxZ = (int)floorf(position.z + PLAYER_RADIUS);
+    PlayerCollisionBounds bounds;
+    if (!PlayerCollisionBoundsAt(position, &bounds)) return true;
 
     if (position.y < (float)NETHER_LAYER_Y) return true;
 
-    for (int x = minX; x <= maxX; x++) {
-        for (int y = minY; y <= maxY; y++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                if (WorldBlockRegionAt(y) == WORLD_BLOCK_REGION_SPACE &&
-                    !SpaceBlockReadyAt(x, y, z)) {
+    for (int64_t x = bounds.minX; x <= bounds.maxX; x++) {
+        for (int64_t y = bounds.minY; y <= bounds.maxY; y++) {
+            for (int64_t z = bounds.minZ; z <= bounds.maxZ; z++) {
+                if (WorldBlockRegionAt((int)y) == WORLD_BLOCK_REGION_SPACE &&
+                    !SpaceBlockReadyAt((int)x, (int)y, (int)z)) {
                     // Space is streamed asynchronously. A ship may continue
                     // through an ungenerated chunk; treating it as a wall
                     // makes cruise flight stop at the streaming frontier.
                     if (ShipIsDriving()) continue;
                     return true;
                 }
-                BlockType type = GetBlockAt(x, y, z);
+                BlockType type = GetBlockAt((int)x, (int)y, (int)z);
                 float top;
                 if (IsStairsBlock(type)) {
-                    top = StairsCollisionTop(x, y, z, position.z);
+                    top = StairsCollisionTop((int)x, (int)y, (int)z,
+                                             position.z);
                 } else {
-                    float height = BlockCollisionHeightAt(x, y, z);
+                    float height = BlockCollisionHeightAt((int)x, (int)y,
+                                                          (int)z);
                     if (height <= 0.0f) continue;
                     top = (float)y + height;
                 }
@@ -125,11 +161,13 @@ bool PlayerOverlapsWorld(Vector3 position)
     return false;
 }
 
-void MovePlayer(Player *player, Vector3 delta)
+static bool PlayerVectorIsFinite(Vector3 value)
 {
-    bool canStepUp = player->onGround && !player->floating &&
-                     WorldIsSurfaceActive();
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
 
+static void MovePlayerStep(Player *player, Vector3 delta, bool canStepUp)
+{
     Vector3 next = player->position;
     next.x += delta.x;
     if (!PlayerOverlapsWorld(next)) {
@@ -156,6 +194,35 @@ void MovePlayer(Player *player, Vector3 delta)
     } else {
         if (delta.y < 0.0f) player->onGround = true;
         player->velocity.y = 0.0f;
+    }
+}
+
+void MovePlayer(Player *player, Vector3 delta)
+{
+    if (!player || !PlayerVectorIsFinite(player->position) ||
+        !PlayerVectorIsFinite(delta)) {
+        return;
+    }
+
+    bool canStepUp = player->onGround && !player->floating &&
+                     WorldIsSurfaceActive();
+    float maxDistance = fmaxf(fabsf(delta.x),
+                              fmaxf(fabsf(delta.y), fabsf(delta.z)));
+    float maxAllowedDistance = PLAYER_COLLISION_STEP *
+                               (float)PLAYER_MAX_MOVE_SUBSTEPS;
+    unsigned substeps;
+    if (maxDistance > maxAllowedDistance) {
+        substeps = PLAYER_MAX_MOVE_SUBSTEPS;
+        float scale = maxAllowedDistance / maxDistance;
+        delta = Vector3Scale(delta, scale);
+    } else {
+        substeps = (unsigned)ceilf(maxDistance / PLAYER_COLLISION_STEP);
+        if (substeps == 0u) substeps = 1u;
+    }
+
+    Vector3 step = Vector3Scale(delta, 1.0f / (float)substeps);
+    for (unsigned index = 0; index < substeps; index++) {
+        MovePlayerStep(player, step, canStepUp);
     }
 }
 
