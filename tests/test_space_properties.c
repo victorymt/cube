@@ -551,6 +551,16 @@ static void TestRuntimeInputContracts(void)
                                           MAX_SOLAR_LIGHTS) == 0);
     assert(memcmp(sources, clearedSources, sizeof(sources)) == 0);
 
+    memset(sources, 0xa5, sizeof(sources));
+    assert(SolarSystemLightSources(NULL, sources, MAX_SOLAR_LIGHTS) == 0);
+    assert(memcmp(sources, clearedSources, sizeof(sources)) == 0);
+    system.center.x = NAN;
+    memset(sources, 0xa5, sizeof(sources));
+    assert(SolarSystemLightSources(
+               &system, sources, MAX_SOLAR_LIGHTS) == 0);
+    assert(memcmp(sources, clearedSources, sizeof(sources)) == 0);
+    system.center = originalCenter;
+
     SolarStellarBody stellarBodies[MAX_SOLAR_LIGHTS];
     const SolarStellarBody clearedBodies[MAX_SOLAR_LIGHTS] = { 0 };
     memset(stellarBodies, 0xa5, sizeof(stellarBodies));

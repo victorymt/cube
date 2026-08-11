@@ -1179,6 +1179,10 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
                             int maxCount)
 {
+    if (!out || maxCount <= 0) return 0;
+    int clearCount = maxCount < MAX_SOLAR_LIGHTS
+        ? maxCount : MAX_SOLAR_LIGHTS;
+    memset(out, 0, sizeof(*out) * (size_t)clearCount);
     SolarSystemRuntimeState runtime;
     return SolarSystemEvaluateAtTime(sys, solarSimulationTime, &runtime)
         ? SolarSystemRuntimeLightSources(&runtime, out, maxCount) : 0;
