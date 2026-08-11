@@ -450,6 +450,8 @@ static void AssertRuntimeState(const SolarSystemDef *system,
                                           MAX_SOLAR_LIGHTS) == stellarCount);
     for (int planet = 0; planet < system->planetCount; planet++) {
         assert(runtime.planets[planet].valid);
+        assert(runtime.planets[planet].dynamicalStatus ==
+               SOLAR_PLANET_STABLE);
         SolarPlanetOrbitalState orbitalState;
         assert(SolarSystemPlanetStateAtTime(system, planet, 0.0,
                                             &orbitalState));
@@ -710,6 +712,15 @@ static void TestRuntimeInputContracts(void)
     assert(memcmp(snapshot.satelliteOrbits, clearedSatelliteOrbits,
                   sizeof(snapshot.satelliteOrbits)) == 0);
     system.planets[0].semiMajorAxisKm = originalSemiMajorAxisKm;
+
+    assert(SolarSystemPhysicalSnapshotBuild(&system, &snapshot));
+    snapshot.planetStatuses[0] = (SolarPlanetDynamicalStatus)99;
+    snapshot.satellitesBuilt = true;
+    memset(snapshot.satelliteOrbits, 0xa5, sizeof(snapshot.satelliteOrbits));
+    assert(!SolarSystemPhysicalSnapshotBuildSatellites(&system, &snapshot));
+    assert(!snapshot.satellitesBuilt);
+    assert(memcmp(snapshot.satelliteOrbits, clearedSatelliteOrbits,
+                  sizeof(snapshot.satelliteOrbits)) == 0);
 
     SolarPlanetOrbitalState orbitalState;
     assert(SolarSystemPlanetStateAtTime(&system, 0, 0.0, &orbitalState));
@@ -1109,6 +1120,8 @@ static void TestCrossSystemRuntimeStellarEvolution(void)
     const double elapsed = SpaceUnitsGigayearsToGameTime(ageOffsetGyr);
     int checked = 0;
     int multiplicities[3] = { 0 };
+    int stablePlanets = 0;
+    int inactivePlanets = 0;
     for (int ax = -24; ax <= 24 && checked < 128; ax++) {
         for (int az = -24; az <= 24 && checked < 128; az++) {
             SolarSystemDef system;
@@ -1169,13 +1182,27 @@ static void TestCrossSystemRuntimeStellarEvolution(void)
                     0.0000001);
             }
             for (int planet = 0; planet < system.planetCount; planet++) {
+                SolarPlanetDynamicalStatus status =
+                    evolved.planetStatuses[planet];
+                assert(status >= SOLAR_PLANET_STABLE &&
+                       status <= SOLAR_PLANET_EJECTED);
+                if (status != SOLAR_PLANET_STABLE) {
+                    const SpaceKeplerOrbit clearedOrbit = { 0 };
+                    assert(memcmp(&evolved.planetOrbits[planet],
+                                  &clearedOrbit,
+                                  sizeof(clearedOrbit)) == 0);
+                    assert(!evolved.satelliteOrbits[planet].exists);
+                    inactivePlanets++;
+                    continue;
+                }
+                stablePlanets++;
+                assert(SpaceKeplerOrbitIsValid(
+                    &evolved.planetOrbits[planet]));
                 assert(evolved.planetOrbits[planet].centralMassKg ==
                        totalMass);
-                AssertRelative(
-                    evolved.planetOrbits[planet].semiMajorAxisKm,
-                    base->planetOrbits[planet].semiMajorAxisKm * orbitScale,
-                    0.0000001);
-                assert(evolved.planetOrbits[planet].eccentricity ==
+                assert(evolved.planetOrbits[planet].semiMajorAxisKm >=
+                       base->planetOrbits[planet].semiMajorAxisKm);
+                assert(evolved.planetOrbits[planet].eccentricity >=
                        base->planetOrbits[planet].eccentricity);
                 double expectedPeriod = 2.0 * TEST_PI * sqrt(
                     evolved.planetOrbits[planet].semiMajorAxisKm *
@@ -1208,6 +1235,19 @@ static void TestCrossSystemRuntimeStellarEvolution(void)
             AssertBarycenter(&system, runtime.stars,
                              runtime.stellarCount);
             for (int planet = 0; planet < runtime.planetCount; planet++) {
+                assert(runtime.planets[planet].dynamicalStatus ==
+                       evolved.planetStatuses[planet]);
+                if (evolved.planetStatuses[planet] !=
+                        SOLAR_PLANET_STABLE) {
+                    const PlanetProfile clearedProfile = { 0 };
+                    assert(!runtime.planets[planet].valid);
+                    assert(memcmp(&runtime.planets[planet].profile,
+                                  &clearedProfile,
+                                  sizeof(clearedProfile)) == 0);
+                    assert(!runtime.planets[planet].satelliteOrbit.exists);
+                    continue;
+                }
+                assert(runtime.planets[planet].valid);
                 assert(runtime.planets[planet].semiMajorAxisKm ==
                        evolved.planetOrbits[planet].semiMajorAxisKm);
                 if (runtime.planets[planet].satelliteOrbit.exists) {
@@ -1229,6 +1269,173 @@ static void TestCrossSystemRuntimeStellarEvolution(void)
     assert(multiplicities[0] > 0);
     assert(multiplicities[1] > 0);
     assert(multiplicities[2] > 0);
+    assert(stablePlanets > 0);
+    assert(stablePlanets + inactivePlanets > 0);
+}
+
+static void TestSupernovaPlanetFates(void)
+{
+    SolarSystemDef system;
+    assert(StarSystemAt(0, 0, &system));
+    assert(StellarProfileAtAge(12.0f, 0.0, 0x6d2b79f5u,
+                               &system.star));
+    system.spectrum = system.star.spectrum;
+    system.starProxyRadius = SolarSystemStellarVisualRadius(&system.star);
+    assert(SolarSystemPhysicalSnapshotBuild(
+        &system, &system.physicalSnapshot));
+    assert(SolarSystemPhysicalSnapshotBuildSatellites(
+        &system, &system.physicalSnapshot));
+
+    double ageOffsetGyr = (double)system.star.luminousLifetimeGyr + 0.25;
+    SolarSystemPhysicalSnapshot evolved;
+    SolarSystemPhysicalSnapshot repeated;
+    assert(SolarSystemPhysicalSnapshotEvolve(
+        &system, ageOffsetGyr, &evolved));
+    assert(SolarSystemPhysicalSnapshotEvolve(
+        &system, ageOffsetGyr, &repeated));
+    assert(memcmp(&evolved, &repeated, sizeof(evolved)) == 0);
+    assert(evolved.stellarProfiles[0].stage ==
+           STELLAR_STAGE_NEUTRON_STAR);
+
+    StellarProfile terminalGiant;
+    assert(StellarProfileAtAge(
+        system.star.initialMassSolar,
+        (double)system.star.luminousLifetimeGyr,
+        system.star.evolutionSeed, &terminalGiant));
+    assert(terminalGiant.stage == STELLAR_STAGE_RED_GIANT);
+    int engulfed = 0;
+    int ejected = 0;
+    for (int planet = 0; planet < system.planetCount; planet++) {
+        const SpaceKeplerOrbit *initial =
+            &system.physicalSnapshot.planetOrbits[planet];
+        double periapsisKm = initial->semiMajorAxisKm *
+                             (1.0 - initial->eccentricity);
+        bool expectedEngulfment =
+            periapsisKm <= terminalGiant.radiusKm +
+                            system.planets[planet].physicalRadiusKm;
+        SolarPlanetDynamicalStatus expected = expectedEngulfment
+            ? SOLAR_PLANET_ENGULFED : SOLAR_PLANET_EJECTED;
+        assert(evolved.planetStatuses[planet] == expected);
+        if (expectedEngulfment) engulfed++;
+        else ejected++;
+        const SpaceKeplerOrbit clearedOrbit = { 0 };
+        assert(memcmp(&evolved.planetOrbits[planet], &clearedOrbit,
+                      sizeof(clearedOrbit)) == 0);
+    }
+    assert(engulfed > 0);
+    assert(ejected > 0);
+
+    double elapsed = SpaceUnitsGigayearsToGameTime(ageOffsetGyr);
+    SolarSystemRuntimeState runtime;
+    SolarSystemRuntimeState replay;
+    assert(SolarSystemEvaluateAtElapsedTime(&system, elapsed, &runtime));
+    assert(SolarSystemEvaluateAtElapsedTime(&system, elapsed, &replay));
+    assert(memcmp(&runtime, &replay, sizeof(runtime)) == 0);
+    assert(runtime.valid);
+    assert(runtime.planetCount == system.planetCount);
+    for (int planet = 0; planet < runtime.planetCount; planet++) {
+        const PlanetProfile clearedProfile = { 0 };
+        assert(runtime.planets[planet].dynamicalStatus ==
+               evolved.planetStatuses[planet]);
+        assert(!runtime.planets[planet].valid);
+        assert(memcmp(&runtime.planets[planet].profile, &clearedProfile,
+                      sizeof(clearedProfile)) == 0);
+        assert(!runtime.planets[planet].satelliteOrbit.exists);
+    }
+}
+
+static void TestBoundSupernovaOrbitResponse(void)
+{
+    SolarSystemDef templateSystem;
+    assert(StarSystemAt(0, 0, &templateSystem));
+    assert(StellarProfileAtAge(12.0f, 0.0, 0xa511e9b3u,
+                               &templateSystem.star));
+    templateSystem.spectrum = templateSystem.star.spectrum;
+    templateSystem.starProxyRadius = SolarSystemStellarVisualRadius(
+        &templateSystem.star);
+
+    bool found = false;
+    for (int ax = -12; ax <= 12 && !found; ax++) {
+        for (int az = -12; az <= 12 && !found; az++) {
+            if (ax == 0 && az == 0) continue;
+            SolarSystemDef system = templateSystem;
+            system.anchorX = ax;
+            system.anchorZ = az;
+            assert(SolarSystemPhysicalSnapshotBuild(
+                &system, &system.physicalSnapshot));
+            const SolarSystemPhysicalSnapshot *base =
+                &system.physicalSnapshot;
+            if (base->summary.stellarCount <= 1) continue;
+
+            double eventAgeGyr =
+                (double)base->stellarProfiles[0].luminousLifetimeGyr;
+            double beforeMassKg = 0.0;
+            double afterMassKg = 0.0;
+            for (int star = 0; star < base->summary.stellarCount; star++) {
+                const StellarProfile *initial = &base->stellarProfiles[star];
+                StellarProfile before;
+                StellarProfile after;
+                assert(StellarProfileAtAge(
+                    initial->initialMassSolar, eventAgeGyr,
+                    initial->evolutionSeed, &before));
+                assert(StellarProfileAtAge(
+                    initial->initialMassSolar,
+                    nextafter(eventAgeGyr, INFINITY),
+                    initial->evolutionSeed, &after));
+                beforeMassKg += before.massKg;
+                afterMassKg += after.massKg;
+            }
+            if (2.0 * afterMassKg <= beforeMassKg) continue;
+
+            double requestedAgeGyr = eventAgeGyr + 0.000001;
+            SolarSystemPhysicalSnapshot evolved;
+            assert(SolarSystemPhysicalSnapshotEvolve(
+                &system, requestedAgeGyr, &evolved));
+            assert(evolved.stellarProfiles[0].stage ==
+                   STELLAR_STAGE_NEUTRON_STAR);
+            for (int planet = system.planetCount - 1;
+                 planet >= 0; planet--) {
+                if (evolved.planetStatuses[planet] !=
+                    SOLAR_PLANET_STABLE) {
+                    continue;
+                }
+                const SpaceKeplerOrbit *initial =
+                    &base->planetOrbits[planet];
+                const SpaceKeplerOrbit *orbit =
+                    &evolved.planetOrbits[planet];
+                double expectedSemiMajorAxisKm =
+                    initial->semiMajorAxisKm *
+                    base->summary.totalMassKg / beforeMassKg *
+                    afterMassKg / (2.0 * afterMassKg - beforeMassKg) *
+                    afterMassKg / evolved.summary.totalMassKg;
+                double impulseEccentricity =
+                    (beforeMassKg - afterMassKg) / afterMassKg;
+                double expectedEccentricity =
+                    initial->eccentricity + impulseEccentricity *
+                    (1.0 - initial->eccentricity);
+                AssertRelative(orbit->semiMajorAxisKm,
+                               expectedSemiMajorAxisKm, 0.0000001);
+                AssertRelative(orbit->eccentricity,
+                               expectedEccentricity, 0.0000001);
+                assert(orbit->semiMajorAxisKm > initial->semiMajorAxisKm);
+                assert(orbit->eccentricity > initial->eccentricity);
+
+                SolarSystemRuntimeState runtime;
+                assert(SolarSystemEvaluateAtElapsedTime(
+                    &system,
+                    SpaceUnitsGigayearsToGameTime(requestedAgeGyr),
+                    &runtime));
+                assert(runtime.planets[planet].valid);
+                assert(runtime.planets[planet].dynamicalStatus ==
+                       SOLAR_PLANET_STABLE);
+                assert(runtime.planets[planet].semiMajorAxisKm ==
+                       orbit->semiMajorAxisKm);
+                found = true;
+                break;
+            }
+        }
+    }
+    assert(found);
 }
 
 static void TestHomeScaleDiagnostics(void)
@@ -1603,8 +1810,24 @@ static void TestLongTermTimeClock(void)
            STELLAR_STAGE_WHITE_DWARF);
     assert(evolvedRuntime.stars[0].stellar.ageGyr >
            evolvedSystem.star.ageGyr);
-    assert(evolvedRuntime.planets[0].semiMajorAxisKm >
-           evolvedSystem.planets[0].semiMajorAxisKm);
+    SolarSystemPhysicalSnapshot evolvedSnapshot;
+    assert(SolarSystemPhysicalSnapshotEvolve(
+        &evolvedSystem, 20.0, &evolvedSnapshot));
+    int stablePlanet = -1;
+    for (int planet = 0; planet < evolvedRuntime.planetCount; planet++) {
+        assert(evolvedRuntime.planets[planet].dynamicalStatus ==
+               evolvedSnapshot.planetStatuses[planet]);
+        if (evolvedSnapshot.planetStatuses[planet] ==
+                SOLAR_PLANET_STABLE) {
+            assert(evolvedRuntime.planets[planet].valid);
+            stablePlanet = planet;
+        } else {
+            assert(!evolvedRuntime.planets[planet].valid);
+        }
+    }
+    assert(stablePlanet >= 0);
+    assert(evolvedRuntime.planets[stablePlanet].semiMajorAxisKm >
+           evolvedSystem.planets[stablePlanet].semiMajorAxisKm);
 
     SpaceAdvanceTime(10.25f);
     assert(SpaceElapsedSimulationTime() ==
@@ -2024,6 +2247,8 @@ int main(void)
     TestStellarAgeClimateCausality();
     TestRuntimeStellarEvolution();
     TestCrossSystemRuntimeStellarEvolution();
+    TestSupernovaPlanetFates();
+    TestBoundSupernovaOrbitResponse();
     TestSaveLoadTimeDeterminism();
     TestLongTermTimeClock();
     TestSpaceLoadFailureAtomicity();

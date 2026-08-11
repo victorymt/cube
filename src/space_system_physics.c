@@ -302,6 +302,196 @@ static bool SolarSystemPlanetOrbitBuild(
     return true;
 }
 
+typedef struct SolarSystemMassLossEvent {
+    double ageGyr;
+    double beforeMassKg;
+    double afterMassKg;
+} SolarSystemMassLossEvent;
+
+static bool SolarSystemTotalStellarMassAtAge(
+    const SolarSystemPhysicalSnapshot *base, double ageGyr,
+    double *outMassKg)
+{
+    if (!base || !outMassKg || !isfinite(ageGyr) || ageGyr < 0.0) {
+        return false;
+    }
+    double totalMassKg = 0.0;
+    for (int i = 0; i < base->summary.stellarCount; i++) {
+        const StellarProfile *initial = &base->stellarProfiles[i];
+        StellarProfile profile;
+        if (!StellarProfileAtAge(initial->initialMassSolar, ageGyr,
+                                 initial->evolutionSeed, &profile) ||
+            !SolarSystemPhysicsStellarProfileIsValid(&profile)) {
+            return false;
+        }
+        totalMassKg += profile.massKg;
+    }
+    if (!(totalMassKg > 0.0) || !isfinite(totalMassKg)) return false;
+    *outMassKg = totalMassKg;
+    return true;
+}
+
+static int SolarSystemMassLossEvents(
+    const SolarSystemPhysicalSnapshot *base, double requestedAgeGyr,
+    SolarSystemMassLossEvent *out, int maxCount)
+{
+    if (!base || !out || maxCount < base->summary.stellarCount ||
+        !isfinite(requestedAgeGyr)) {
+        return -1;
+    }
+    int count = 0;
+    double baseAgeGyr = (double)base->summary.ageGyr;
+    for (int star = 0; star < base->summary.stellarCount; star++) {
+        const StellarProfile *profile = &base->stellarProfiles[star];
+        double eventAgeGyr = (double)profile->luminousLifetimeGyr;
+        // Core collapse is impulsive; winds and low-mass envelope loss remain
+        // part of the adiabatic mass evolution between these events.
+        if (profile->initialMassSolar < 8.0f ||
+            profile->stage >= STELLAR_STAGE_NEUTRON_STAR ||
+            eventAgeGyr < baseAgeGyr || eventAgeGyr >= requestedAgeGyr) {
+            continue;
+        }
+        out[count++].ageGyr = eventAgeGyr;
+    }
+    for (int i = 1; i < count; i++) {
+        SolarSystemMassLossEvent event = out[i];
+        int destination = i;
+        while (destination > 0 &&
+               out[destination - 1].ageGyr > event.ageGyr) {
+            out[destination] = out[destination - 1];
+            destination--;
+        }
+        out[destination] = event;
+    }
+    int uniqueCount = 0;
+    for (int i = 0; i < count; i++) {
+        if (uniqueCount > 0 &&
+            out[uniqueCount - 1].ageGyr == out[i].ageGyr) {
+            continue;
+        }
+        SolarSystemMassLossEvent event = out[i];
+        if (!SolarSystemTotalStellarMassAtAge(
+                base, event.ageGyr, &event.beforeMassKg) ||
+            !SolarSystemTotalStellarMassAtAge(
+                base, nextafter(event.ageGyr, INFINITY),
+                &event.afterMassKg) ||
+            !(event.afterMassKg < event.beforeMassKg)) {
+            return -1;
+        }
+        out[uniqueCount++] = event;
+    }
+    return uniqueCount;
+}
+
+static bool SolarSystemMaximumGiantReachKm(
+    const SolarSystemPhysicalSnapshot *base, double requestedAgeGyr,
+    double *outReachKm)
+{
+    if (!base || !outReachKm || !isfinite(requestedAgeGyr)) return false;
+    double excursionKm = 0.0;
+    // Circumbinary planets must clear both the giant envelope and the star's
+    // conservative maximum displacement from the system barycenter.
+    if (base->summary.stellarCount == 2) {
+        excursionKm = base->stellarOrbit.innerSeparationKm * 1.2;
+    } else if (base->summary.stellarCount == 3) {
+        excursionKm = (base->stellarOrbit.innerSeparationKm +
+                       base->stellarOrbit.outerSeparationKm) * 1.2;
+    }
+    if (excursionKm < 0.0 || !isfinite(excursionKm)) return false;
+
+    double reachKm = 0.0;
+    double baseAgeGyr = (double)base->summary.ageGyr;
+    for (int star = 0; star < base->summary.stellarCount; star++) {
+        const StellarProfile *initial = &base->stellarProfiles[star];
+        double giantStartGyr = (double)initial->mainSequenceLifetimeGyr;
+        double giantEndGyr = (double)initial->luminousLifetimeGyr;
+        if (requestedAgeGyr <= giantStartGyr || baseAgeGyr > giantEndGyr) {
+            continue;
+        }
+        double terminalAgeGyr = fmin(requestedAgeGyr, giantEndGyr);
+        if (terminalAgeGyr < baseAgeGyr) continue;
+        StellarProfile giant;
+        if (!StellarProfileAtAge(initial->initialMassSolar,
+                                 terminalAgeGyr, initial->evolutionSeed,
+                                 &giant) ||
+            !SolarSystemPhysicsStellarProfileIsValid(&giant)) {
+            return false;
+        }
+        reachKm = fmax(reachKm, giant.radiusKm + excursionKm);
+    }
+    if (reachKm < 0.0 || !isfinite(reachKm)) return false;
+    *outReachKm = reachKm;
+    return true;
+}
+
+static bool SolarSystemPlanetOrbitEvolve(
+    const SolarSystemDef *sys, int index,
+    const SolarSystemPhysicalSnapshot *base, double finalMassKg,
+    double giantReachKm, const SolarSystemMassLossEvent *events,
+    int eventCount, SolarPlanetDynamicalStatus *outStatus,
+    SpaceKeplerOrbit *outOrbit)
+{
+    if (!sys || !base || !events || !outStatus || !outOrbit || index < 0 ||
+        index >= sys->planetCount || !(finalMassKg > 0.0) ||
+        !isfinite(finalMassKg) || giantReachKm < 0.0 ||
+        !isfinite(giantReachKm) || eventCount < 0 ||
+        eventCount > MAX_SOLAR_LIGHTS) {
+        return false;
+    }
+    *outStatus = SOLAR_PLANET_STABLE;
+    *outOrbit = (SpaceKeplerOrbit){ 0 };
+    const SpaceKeplerOrbit *initial = &base->planetOrbits[index];
+    double periapsisKm = initial->semiMajorAxisKm *
+                         (1.0 - initial->eccentricity);
+    if (periapsisKm <= giantReachKm +
+                        sys->planets[index].physicalRadiusKm) {
+        *outStatus = SOLAR_PLANET_ENGULFED;
+        return true;
+    }
+
+    double semiMajorAxisKm = initial->semiMajorAxisKm;
+    double eccentricity = initial->eccentricity;
+    double previousMassKg = base->summary.totalMassKg;
+    for (int event = 0; event < eventCount; event++) {
+        double beforeMassKg = events[event].beforeMassKg;
+        double afterMassKg = events[event].afterMassKg;
+        if (!(beforeMassKg > 0.0) || !(afterMassKg > 0.0) ||
+            !isfinite(beforeMassKg) || !isfinite(afterMassKg) ||
+            !(afterMassKg < beforeMassKg)) {
+            return false;
+        }
+        semiMajorAxisKm *= previousMassKg / beforeMassKg;
+        if (2.0 * afterMassKg <= beforeMassKg) {
+            *outStatus = SOLAR_PLANET_EJECTED;
+            return true;
+        }
+        semiMajorAxisKm *= afterMassKg /
+                           (2.0 * afterMassKg - beforeMassKg);
+        // Generated planets are nearly circular, so use the deterministic
+        // phase-independent eccentricity response to instantaneous mass loss.
+        double impulseEccentricity =
+            (beforeMassKg - afterMassKg) / afterMassKg;
+        eccentricity += impulseEccentricity * (1.0 - eccentricity);
+        if (!(semiMajorAxisKm > 0.0) || !isfinite(semiMajorAxisKm) ||
+            eccentricity >= 1.0 || !isfinite(eccentricity)) {
+            *outStatus = SOLAR_PLANET_EJECTED;
+            return true;
+        }
+        previousMassKg = afterMassKg;
+    }
+    semiMajorAxisKm *= previousMassKg / finalMassKg;
+    SpaceKeplerOrbit evolved = *initial;
+    evolved.semiMajorAxisKm = semiMajorAxisKm;
+    evolved.centralMassKg = finalMassKg;
+    evolved.eccentricity = eccentricity;
+    if (!SpaceKeplerOrbitIsValid(&evolved)) {
+        *outStatus = SOLAR_PLANET_EJECTED;
+        return true;
+    }
+    *outOrbit = evolved;
+    return true;
+}
+
 bool SolarSystemPhysicalSnapshotBuild(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out)
 {
@@ -359,6 +549,7 @@ bool SolarSystemPhysicalSnapshotBuild(
         return false;
     }
     for (int index = 0; index < sys->planetCount; index++) {
+        snapshot.planetStatuses[index] = SOLAR_PLANET_STABLE;
         if (!SolarSystemPlanetDefinitionIsValid(&sys->planets[index]) ||
             !SolarSystemPlanetOrbitBuild(
                 sys, index, snapshot.summary.totalMassKg, 1.0,
@@ -437,12 +628,19 @@ bool SolarSystemPhysicalSnapshotEvolve(
             (evolved.summary.stellarCount == 3 ? 3.0f : 2.8f);
         evolved.minimumPlanetOrbitGame = fmaxf(180.0f, minimum);
     }
-    double semiMajorAxisScale = base->summary.totalMassKg /
-                                evolved.summary.totalMassKg;
+    SolarSystemMassLossEvent events[MAX_SOLAR_LIGHTS] = { 0 };
+    int eventCount = SolarSystemMassLossEvents(
+        base, requestedSystemAge, events, MAX_SOLAR_LIGHTS);
+    double giantReachKm = 0.0;
+    if (eventCount < 0 || !SolarSystemMaximumGiantReachKm(
+                              base, requestedSystemAge, &giantReachKm)) {
+        return false;
+    }
     for (int index = 0; index < sys->planetCount; index++) {
-        if (!SolarSystemPlanetOrbitBuild(
-                sys, index, evolved.summary.totalMassKg,
-                semiMajorAxisScale,
+        if (!SolarSystemPlanetOrbitEvolve(
+                sys, index, base, evolved.summary.totalMassKg,
+                giantReachKm, events, eventCount,
+                &evolved.planetStatuses[index],
                 &evolved.planetOrbits[index])) {
             return false;
         }
@@ -470,6 +668,11 @@ bool SolarSystemPhysicalSnapshotBuildSatellites(
         if (!SolarSystemPlanetDefinitionIsValid(&sys->planets[index])) {
             return false;
         }
+        if (out->planetStatuses[index] < SOLAR_PLANET_STABLE ||
+            out->planetStatuses[index] > SOLAR_PLANET_EJECTED) {
+            return false;
+        }
+        if (out->planetStatuses[index] != SOLAR_PLANET_STABLE) continue;
         PlanetProfile profile = SolarPlanetProfile(sys, index);
         double earthMasses = SpaceUnitsKilogramsToGameMass(profile.massKg);
         double occurrence = profile.hasSolidSurface
@@ -547,6 +750,7 @@ static bool SolarSystemPhysicalSnapshotIsUsable(
     for (int i = 0; i < sys->planetCount; i++) {
         const SpaceKeplerOrbit *orbit = &snapshot->planetOrbits[i];
         if (!SolarSystemPlanetDefinitionIsValid(&sys->planets[i]) ||
+            snapshot->planetStatuses[i] != SOLAR_PLANET_STABLE ||
             !SpaceKeplerOrbitIsValid(orbit) ||
             orbit->semiMajorAxisKm != sys->planets[i].semiMajorAxisKm ||
             orbit->centralMassKg != totalMassKg) {

@@ -77,6 +77,12 @@ typedef struct SolarPlanetDef {
     bool formationGasGiant;
 } SolarPlanetDef;
 
+typedef enum SolarPlanetDynamicalStatus {
+    SOLAR_PLANET_STABLE = 0,
+    SOLAR_PLANET_ENGULFED,
+    SOLAR_PLANET_EJECTED
+} SolarPlanetDynamicalStatus;
+
 typedef struct SolarSystemPhysicalSummary {
     int stellarCount;
     double totalMassKg;
@@ -92,6 +98,7 @@ typedef struct SolarSystemPhysicalSnapshot {
     StellarProfile stellarProfiles[MAX_SOLAR_LIGHTS];
     SpaceBarycenterOrbit stellarOrbit;
     SolarSystemPhysicalSummary summary;
+    SolarPlanetDynamicalStatus planetStatuses[MAX_SOLAR_PLANETS];
     SpaceKeplerOrbit planetOrbits[MAX_SOLAR_PLANETS];
     SpaceSatelliteOrbit satelliteOrbits[MAX_SOLAR_PLANETS];
     float minimumPlanetOrbitGame;
@@ -123,6 +130,7 @@ typedef struct SolarPlanetOrbitalState {
 
 typedef struct SolarPlanetRuntimeState {
     bool valid;
+    SolarPlanetDynamicalStatus dynamicalStatus;
     Vector3 center;
     Vector3 velocity;
     double semiMajorAxisKm;

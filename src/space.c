@@ -449,7 +449,8 @@ static PlanetProfile SolarPlanetProfileForSnapshot(
 {
     PlanetProfile profile = { 0 };
     if (!SolarSystemPlanetIndexIsValid(sys, index) || !snapshot ||
-        !snapshot->valid) {
+        !snapshot->valid ||
+        snapshot->planetStatuses[index] != SOLAR_PLANET_STABLE) {
         return profile;
     }
 
@@ -668,6 +669,7 @@ static bool SolarSystemPlanetStateForSnapshotAtTime(
     if (!sys || !snapshot || !snapshot->valid || !isfinite(simulationTime) ||
         sys->planetCount < 0 || sys->planetCount > MAX_SOLAR_PLANETS ||
         index < 0 || index >= sys->planetCount ||
+        snapshot->planetStatuses[index] != SOLAR_PLANET_STABLE ||
         !SpaceVectorIsFinite(sys->center)) return false;
 
     SpaceKeplerState relative;
@@ -792,6 +794,14 @@ static bool SolarSystemRuntimeGeometryIsFinite(
     }
     for (int planet = 0; planet < runtime->planetCount; planet++) {
         const SolarPlanetRuntimeState *state = &runtime->planets[planet];
+        if (state->dynamicalStatus < SOLAR_PLANET_STABLE ||
+            state->dynamicalStatus > SOLAR_PLANET_EJECTED) {
+            return false;
+        }
+        if (state->dynamicalStatus != SOLAR_PLANET_STABLE) {
+            if (state->valid || state->satelliteOrbit.exists) return false;
+            continue;
+        }
         if (!state->valid || !isfinite(state->center.x) ||
             !isfinite(state->center.y) || !isfinite(state->center.z) ||
             !isfinite(state->velocity.x) || !isfinite(state->velocity.y) ||
@@ -866,6 +876,12 @@ static bool SolarSystemEvaluateSnapshotAtTime(
     }
     for (int index = 0; index < sys->planetCount; index++) {
         SolarPlanetRuntimeState *planet = &out->planets[index];
+        planet->dynamicalStatus = snapshot->planetStatuses[index];
+        if (planet->dynamicalStatus < SOLAR_PLANET_STABLE ||
+            planet->dynamicalStatus > SOLAR_PLANET_EJECTED) {
+            return false;
+        }
+        if (planet->dynamicalStatus != SOLAR_PLANET_STABLE) continue;
         SolarPlanetOrbitalState orbitalState;
         if (!SolarSystemPlanetStateForSnapshotAtTime(
                 sys, snapshot, index, simulationTime, &orbitalState)) {
@@ -942,6 +958,7 @@ static void SolarSystemRuntimeToRelative(const SolarSystemDef *system,
             runtime->stars[star].center, system->center);
     }
     for (int planet = 0; planet < runtime->planetCount; planet++) {
+        if (!runtime->planets[planet].valid) continue;
         runtime->planets[planet].center = Vector3Subtract(
             runtime->planets[planet].center, system->center);
         if (runtime->planets[planet].satelliteOrbit.exists) {
@@ -960,6 +977,7 @@ static void SolarSystemRuntimeProject(const SolarSystemDef *system,
             runtime->stars[star].center, system->center);
     }
     for (int planet = 0; planet < runtime->planetCount; planet++) {
+        if (!runtime->planets[planet].valid) continue;
         runtime->planets[planet].center = Vector3Add(
             runtime->planets[planet].center, system->center);
         if (runtime->planets[planet].satelliteOrbit.exists) {
@@ -1043,6 +1061,8 @@ static uint64_t SolarSystemRuntimeCacheSignature(
     for (int i = 0; i < system->planetCount; i++) {
         const SolarPlanetDef *planet = &system->planets[i];
         const SpaceKeplerOrbit *orbit = &snapshot->planetOrbits[i];
+        hash = SolarSystemSignatureMix(
+            hash, (uint32_t)snapshot->planetStatuses[i]);
         hash = SolarSystemSignatureMix(
             hash, SolarSystemDoubleBits(planet->semiMajorAxisKm));
         hash = SolarSystemSignatureMix(
