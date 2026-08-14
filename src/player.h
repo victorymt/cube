@@ -3,6 +3,24 @@
 
 #include "types.h"
 
+typedef struct PlayerInput {
+    float forward;
+    float strafe;
+    float vertical;
+    bool sprint;
+    bool jumpPressed;
+    bool toggleFloating;
+    Vector2 lookDelta;
+} PlayerInput;
+
+typedef struct PlayerWaterState {
+    bool feetSubmerged;
+    bool bodySubmerged;
+    bool eyesSubmerged;
+    float surfaceY;
+    float eyeDepth;
+} PlayerWaterState;
+
 bool IsSolidBlockAt(int x, int y, int z);
 bool PlayerOverlapsWorld(Vector3 position);
 void MovePlayer(Player *player, Vector3 delta);
@@ -14,6 +32,9 @@ float CameraFovForHeight(float eyeHeight);
 int EffectiveRenderDistanceForHeight(float eyeHeight);
 void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool thirdPerson);
 void PlayerResetRuntimeState(Player *player);
+PlayerWaterState PlayerWaterStateAt(Vector3 position);
+PlayerInput PlayerInputFromKeyboard(void);
+void UpdatePlayerWithInput(Player *player, float dt, const PlayerInput *input);
 void UpdatePlayer(Player *player, float dt);
 
 #endif

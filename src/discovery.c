@@ -5,6 +5,7 @@
 #include "chunks.h"
 #include "ecology.h"
 #include "inventory.h"
+#include "render.h"
 #include "space.h"
 #include "terrain.h"
 #include "world.h"
@@ -316,11 +317,11 @@ void PlanetPoiDrawScanner(const Camera3D *camera, Vector3 playerPosition)
     DrawRectangleRounded(panel, 0.06f, 6, Fade(BLACK, 0.68f));
     DrawRectangleRoundedLinesEx(panel, 0.06f, 6, 1.5f, Fade(color, 0.84f));
     DrawCircle((int)panel.x + 20, (int)panel.y + 20, 6.0f, color);
-    DrawText(TextFormat("SCAN  %s  %.0f m", poi.name, distance),
+    UiDrawText(TextFormat("SCAN  %s  %.0f m", poi.name, distance),
              (int)panel.x + 36, (int)panel.y + 10, 18, RAYWHITE);
-    DrawText(TextFormat("BIOSPHERE  %s", PlanetEcologyLifeName()),
+    UiDrawText(TextFormat("BIOSPHERE  %s", PlanetEcologyLifeName()),
              (int)panel.x + 36, (int)panel.y + 36, 15, Fade(RAYWHITE, 0.82f));
-    DrawText(TextFormat("%s  |  %s  |  %s", PlanetEcologyBiomassName(),
+    UiDrawText(TextFormat("%s  |  %s  |  %s", PlanetEcologyBiomassName(),
                        PlanetEcologyChemistryName(), PlanetEcologyBodyPlanName()),
              (int)panel.x + 36, (int)panel.y + 57, 13, Fade(RAYWHITE, 0.68f));
 
@@ -337,5 +338,5 @@ void PlanetPoiDrawScanner(const Camera3D *camera, Vector3 playerPosition)
     DrawLineV(center, screen, Fade(color, 0.46f));
     DrawCircleV(screen, 10.0f, Fade(color, 0.20f));
     DrawCircleLines((int)screen.x, (int)screen.y, 7.0f, color);
-    DrawText(poi.name, (int)screen.x + 12, (int)screen.y - 8, 16, color);
+    UiDrawText(poi.name, (int)screen.x + 12, (int)screen.y - 8, 16, color);
 }

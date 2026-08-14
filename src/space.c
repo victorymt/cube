@@ -37,6 +37,8 @@
 #define SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME 170.0f
 #define SPACE_MAX_SYSTEM_QUERY_DISTANCE (STAR_NAVIGATION_RANGE * 4.0f)
 #define PLANET_WORLD_STATE_VERSION 3u
+#define PLANET_PROFILE_STATE_MAGIC 0x504c4e54u
+#define PLANET_PROFILE_STATE_VERSION 2u
 
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
@@ -266,12 +268,26 @@ void HomeWorldReset(void)
 
 void HomeWorldRestoreLegacyState(const Player *player)
 {
+    HomeWorldRestoreLegacyStateForSpaceLayer(player, SPACE_LAYER_Y);
+}
+
+void HomeWorldRestoreLegacyStateForSpaceLayer(const Player *player,
+                                              int storedLayerY)
+{
     if (!player) return;
     homeWorld.surfaceActive = !planetWorld.active &&
-                              player->position.y < (float)SPACE_LAYER_Y;
+                              player->position.y < (float)storedLayerY;
     homeWorld.returnPosition = homeWorld.surfaceActive
                                    ? player->position
                                    : (Vector3){ 0.5f, 12.0f, 0.5f };
+}
+
+void PlanetWorldMigrateSpaceLayer(int storedLayerY)
+{
+    if (!planetWorld.active || storedLayerY == SPACE_LAYER_Y) return;
+    float offset = (float)(SPACE_LAYER_Y - storedLayerY);
+    planetWorld.bodyCenter.y += offset;
+    planetWorld.returnPosition.y += offset;
 }
 
 float SolarBodyTerrainProxyRadius(float spaceProxyRadius)
@@ -501,6 +517,8 @@ static PlanetProfile SolarPlanetProfileForSnapshot(
         .spaceProxyRadius = def->spaceProxyRadius,
         .stellarAgeGyr = stellar->ageGyr,
         .orbitalEccentricity = snapshot->planetOrbits[index].eccentricity,
+        .orbitalMeanAnomalyAtEpochRad =
+            snapshot->planetOrbits[index].meanAnomalyAtEpochRad,
         .orbitalPeriodGameTime =
             (float)SpaceUnitsSecondsToGameTime(
                 SpaceUnitsKeplerPeriodSeconds(
@@ -1561,6 +1579,17 @@ static Vector3 PlanetRotateY(Vector3 direction, float angle)
     };
 }
 
+static Vector3 PlanetRotateX(Vector3 direction, float angle)
+{
+    float c = cosf(angle);
+    float s = sinf(angle);
+    return (Vector3){
+        direction.x,
+        direction.y * c - direction.z * s,
+        direction.y * s + direction.z * c
+    };
+}
+
 static SpaceSatelliteVector3 SatelliteVectorFromGame(Vector3 gameVector)
 {
     double scale = SPACE_UNITS_KILOMETERS_PER_GAME_DISTANCE;
@@ -1694,7 +1723,9 @@ static bool PlanetWorldMoonGeometryAt(
     Vector3 moonInertialDirection = Vector3Normalize(
         SatelliteVectorToRaylib(observerToSatelliteKm));
     out->moonDirection = PlanetRotateY(
-        Vector3Normalize(PlanetWorldSkyDirection(moonInertialDirection)),
+        PlanetRotateX(
+            Vector3Normalize(PlanetWorldSkyDirection(moonInertialDirection)),
+            -planetWorld.profile.axialTilt),
         -spinPhase);
     double moonDistanceKm = SatelliteVectorLength(observerToSatelliteKm);
     if (moonDistanceKm > outOrbit->radiusKm) {
@@ -1778,7 +1809,7 @@ static void PlanetWorldMoonIlluminationAt(
 }
 
 static bool PlanetWorldLightStateForFiniteSurface(
-    Vector3 surfacePosition, PlanetLightState *out)
+    Vector3 surfacePosition, double simulationTime, PlanetLightState *out)
 {
     if (!out) return false;
     *out = (PlanetLightState){ 0 };
@@ -1793,7 +1824,7 @@ static bool PlanetWorldLightStateForFiniteSurface(
 
     SolarSystemRuntimeState runtime;
     if (!SolarSystemEvaluateAtElapsedTime(
-            &system, SpaceElapsedSimulationTime(), &runtime)) {
+            &system, simulationTime, &runtime)) {
         return false;
     }
     SolarLightSource sources[MAX_SOLAR_LIGHTS];
@@ -1804,9 +1835,16 @@ static bool PlanetWorldLightStateForFiniteSurface(
     if (orbitIndex >= MAX_SOLAR_PLANETS ||
         !runtime.planets[orbitIndex].valid) return false;
     Vector3 planetCenter = runtime.planets[orbitIndex].center;
+    PlanetSeasonState season = { 0 };
+    float radius = fmaxf(planetWorld.spaceProxyRadius, 24.0f);
+    float latitude = surfacePosition.z / (radius * 0.82f);
+    if (!PlanetSeasonEvaluate(&planetWorld.profile, latitude,
+                              SpacePeriodicSimulationTime(simulationTime),
+                              &season)) {
+        season = (PlanetSeasonState){ 0 };
+    }
     float spinPhase = (float)(planetWorld.seed & 0xffffu) / 65535.0f * 2.0f * PI +
-                      (float)SpacePeriodicSimulationTime(
-                          SpaceElapsedSimulationTime()) *
+                      (float)SpacePeriodicSimulationTime(simulationTime) *
                           planetWorld.profile.rotationRate * DEG2RAD;
     Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
     Vector3 inertialSurfaceNormal = PlanetWorldSpaceDirection(
@@ -1840,6 +1878,8 @@ static bool PlanetWorldLightStateForFiniteSurface(
         // Convert the inertial star direction into the rotating planet frame.
         // The inverse rotation keeps a tidally locked face pointed at its star.
         Vector3 direction = PlanetWorldSkyDirection(toSource);
+        direction = PlanetRotateX(Vector3Normalize(direction),
+                                  -planetWorld.profile.axialTilt);
         direction = PlanetRotateY(Vector3Normalize(direction), -spinPhase);
         float weight = SolarLightIrradianceAt(&sources[i], planetCenter);
         double stellarOccultation = PlanetWorldStellarOccultationAt(
@@ -1906,6 +1946,9 @@ static bool PlanetWorldLightStateForFiniteSurface(
     out->ringShadow = PlanetRingShadowForPoint(surfacePosition, sunDirection);
     out->daylight *= (1.0f - out->ringShadow * 0.72f);
     out->daylight = Clamp(out->daylight, 0.0f, 1.0f);
+    out->solarDeclination = season.solarDeclination;
+    out->dayLengthFraction = season.dayLengthFraction;
+    out->incidentIrradiance = incidentIrradiance;
     out->totalIntensity = totalWeight;
     out->sourceCount = sourceCount;
     out->starColor = (Color){
@@ -1919,10 +1962,22 @@ static bool PlanetWorldLightStateForFiniteSurface(
 
 bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
 {
+    return PlanetWorldLightStateAtTime(
+        surfacePosition, SpaceElapsedSimulationTime(), out);
+}
+
+bool PlanetWorldLightStateAtTime(Vector3 surfacePosition,
+                                 double simulationTime,
+                                 PlanetLightState *out)
+{
     if (!out) return false;
     *out = (PlanetLightState){ 0 };
-    if (!SpaceVectorIsFinite(surfacePosition)) return false;
-    return PlanetWorldLightStateForFiniteSurface(surfacePosition, out);
+    if (!SpaceVectorIsFinite(surfacePosition) || !isfinite(simulationTime) ||
+        simulationTime < 0.0) {
+        return false;
+    }
+    return PlanetWorldLightStateForFiniteSurface(
+        surfacePosition, simulationTime, out);
 }
 
 float PlanetWorldDaylightAt(Vector3 surfacePosition)
@@ -3168,7 +3223,11 @@ bool HomeWorldBeginDescent(Player *player, Vector3 *outLandingPosition)
 
     int landingX = (int)floorf(homeWorld.returnPosition.x);
     int landingZ = (int)floorf(homeWorld.returnPosition.z);
-    int groundY = TerrainHeight(landingX, landingZ, terrainMode);
+    int groundY = 0;
+    if (!FindSafeSurfaceLanding(landingX, landingZ, 128, 2,
+                                &landingX, &landingZ, &groundY)) {
+        groundY = TerrainHeight(landingX, landingZ, terrainMode);
+    }
     Vector3 landing = { (float)landingX + 0.5f, (float)groundY + 3.0f,
                         (float)landingZ + 0.5f };
 
@@ -3196,7 +3255,11 @@ bool HomeWorldTryEnter(Player *player)
 
     int landingX = (int)floorf(homeWorld.returnPosition.x);
     int landingZ = (int)floorf(homeWorld.returnPosition.z);
-    int groundY = TerrainHeight(landingX, landingZ, terrainMode);
+    int groundY = 0;
+    if (!FindSafeSurfaceLanding(landingX, landingZ, 128, 2,
+                                &landingX, &landingZ, &groundY)) {
+        groundY = TerrainHeight(landingX, landingZ, terrainMode);
+    }
     player->position = (Vector3){ (float)landingX + 0.5f, (float)groundY + 3.0f,
                                   (float)landingZ + 0.5f };
     player->velocity = Vector3Zero();
@@ -3255,10 +3318,18 @@ static Vector3 PlanetWorldLandingPosition(int *outShipX, int *outShipZ,
 {
     int shipX = 0;
     int shipZ = 0;
-    int shipGround = PlanetTerrainHeight(shipX, shipZ);
+    int shipGround = 0;
+    if (!FindSafeSurfaceLanding(shipX, shipZ, 128, 3,
+                                &shipX, &shipZ, &shipGround)) {
+        shipGround = PlanetTerrainHeight(shipX, shipZ);
+    }
     int playerX = shipX + 3;
     int playerZ = shipZ;
-    int playerGround = PlanetTerrainHeight(playerX, playerZ);
+    int playerGround = 0;
+    if (!FindSafeSurfaceLanding(playerX, playerZ, 16, 0,
+                                &playerX, &playerZ, &playerGround)) {
+        playerGround = PlanetTerrainHeight(playerX, playerZ);
+    }
     if (outShipX) *outShipX = shipX;
     if (outShipZ) *outShipZ = shipZ;
     if (outShipGround) *outShipGround = shipGround;
@@ -3315,7 +3386,6 @@ bool PlanetWorldTryEnter(Player *player)
 
     UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
     DrainChunkGen();
-    SetBlock(shipX, shipGround + 1, shipZ, BLOCK_SPACESHIP);
     SetImportMessage(TextFormat("Landed on %s - %s. Age %.1f Gyr. Biosphere: %s / %s / %s.",
                                 planetWorld.name,
                                 PlanetBiomeName(PlanetBiomeAt((int)floorf(player->position.x),
@@ -3393,6 +3463,40 @@ static bool PlanetProfileUnitValue(float value)
     return isfinite(value) && value >= 0.0f && value <= 1.0f;
 }
 
+static void PlanetProfileDeriveSeasonalFields(PlanetProfile *profile)
+{
+    if (!profile) return;
+    float thermalBuffer = Clamp(
+        profile->atmosphereDensity * 0.48f + profile->oceanCoverage * 0.72f +
+            profile->cloudCoverage * 0.18f,
+        0.0f, 0.88f);
+    profile->seasonalTemperatureAmplitudeK =
+        profile->hasSolidSurface ?
+            sinf(Clamp(profile->axialTilt, 0.0f, 0.5f * PI)) *
+                (38.0f + 36.0f * (1.0f - thermalBuffer))
+            : 0.0f;
+    float eccentricity = Clamp(profile->orbitalEccentricity, 0.0f, 0.95f);
+    float eccentricityForcing = Clamp(
+        2.0f * eccentricity /
+            fmaxf(1.0f - eccentricity * eccentricity, 0.05f),
+        0.0f, 3.0f);
+    profile->orbitalTemperatureAmplitudeK =
+        profile->hasSolidSurface ?
+            profile->equilibriumTempK * 0.25f * eccentricityForcing *
+                (1.0f - thermalBuffer * 0.72f)
+            : 0.0f;
+    profile->polarIceVariability = profile->hasSolidSurface ? Clamp(
+        (profile->seasonalTemperatureAmplitudeK +
+         profile->orbitalTemperatureAmplitudeK * 0.45f) / 58.0f *
+            (0.35f + profile->iceCoverage * 0.65f),
+        0.0f, 1.0f) : 0.0f;
+    profile->seasonalHumidityBias = profile->hasSolidSurface ? Clamp(
+        (profile->seasonalTemperatureAmplitudeK +
+         profile->orbitalTemperatureAmplitudeK * 0.25f) / 82.0f *
+            (0.25f + profile->oceanCoverage * 0.75f),
+        0.0f, 1.0f) : 0.0f;
+}
+
 static bool PlanetProfileIsValid(const PlanetProfile *profile)
 {
     if (!profile || profile->style < SOLAR_STYLE_SUN ||
@@ -3431,9 +3535,19 @@ static bool PlanetProfileIsValid(const PlanetProfile *profile)
            PlanetProfileUnitValue(profile->albedo) &&
            isfinite(profile->greenhouseEffect) &&
            profile->greenhouseEffect >= 0.0f &&
+           isfinite(profile->orbitalEccentricity) &&
+           profile->orbitalEccentricity >= 0.0f &&
+           profile->orbitalEccentricity < 1.0f &&
+           isfinite(profile->orbitalMeanAnomalyAtEpoch) &&
            isfinite(profile->axialTilt) &&
            isfinite(profile->seasonPhase) &&
            isfinite(profile->yearLength) && profile->yearLength >= 0.0f &&
+           isfinite(profile->seasonalTemperatureAmplitudeK) &&
+           profile->seasonalTemperatureAmplitudeK >= 0.0f &&
+           isfinite(profile->orbitalTemperatureAmplitudeK) &&
+           profile->orbitalTemperatureAmplitudeK >= 0.0f &&
+           PlanetProfileUnitValue(profile->polarIceVariability) &&
+           PlanetProfileUnitValue(profile->seasonalHumidityBias) &&
            isfinite(profile->prevailingWindAngle) &&
            PlanetProfileUnitValue(profile->windStrength) &&
            PlanetProfileUnitValue(profile->volcanicActivity) &&
@@ -3446,13 +3560,17 @@ bool PlanetProfileSaveState(FILE *file, const PlanetProfile *profile)
 
     uint32_t style = (uint32_t)profile->style;
     uint32_t atmosphereType = (uint32_t)profile->atmosphereType;
+    uint32_t magic = PLANET_PROFILE_STATE_MAGIC;
+    uint32_t version = PLANET_PROFILE_STATE_VERSION;
     uint8_t hasSolidSurface = profile->hasSolidSurface ? 1u : 0u;
     uint8_t hasRings = profile->hasRings ? 1u : 0u;
     uint8_t tidallyLocked = profile->tidallyLocked ? 1u : 0u;
 
 #define WRITE_PROFILE_FIELD(field) \
     fwrite(&profile->field, sizeof(profile->field), 1, file) == 1
-    return WRITE_PROFILE_FIELD(seed) &&
+    return fwrite(&magic, sizeof(magic), 1, file) == 1 &&
+           fwrite(&version, sizeof(version), 1, file) == 1 &&
+           WRITE_PROFILE_FIELD(seed) &&
            fwrite(&style, sizeof(style), 1, file) == 1 &&
            fwrite(&atmosphereType, sizeof(atmosphereType), 1, file) == 1 &&
            WRITE_PROFILE_FIELD(physicalRadiusKm) &&
@@ -3474,9 +3592,15 @@ bool PlanetProfileSaveState(FILE *file, const PlanetProfile *profile)
            WRITE_PROFILE_FIELD(ringTilt) &&
            WRITE_PROFILE_FIELD(albedo) &&
            WRITE_PROFILE_FIELD(greenhouseEffect) &&
+           WRITE_PROFILE_FIELD(orbitalEccentricity) &&
+           WRITE_PROFILE_FIELD(orbitalMeanAnomalyAtEpoch) &&
            WRITE_PROFILE_FIELD(axialTilt) &&
            WRITE_PROFILE_FIELD(seasonPhase) &&
            WRITE_PROFILE_FIELD(yearLength) &&
+           WRITE_PROFILE_FIELD(seasonalTemperatureAmplitudeK) &&
+           WRITE_PROFILE_FIELD(orbitalTemperatureAmplitudeK) &&
+           WRITE_PROFILE_FIELD(polarIceVariability) &&
+           WRITE_PROFILE_FIELD(seasonalHumidityBias) &&
            WRITE_PROFILE_FIELD(prevailingWindAngle) &&
            WRITE_PROFILE_FIELD(windStrength) &&
            WRITE_PROFILE_FIELD(volcanicActivity) &&
@@ -3496,13 +3620,24 @@ bool PlanetProfileLoadState(FILE *file, PlanetProfile *outProfile)
     PlanetProfile loaded = { 0 };
     uint32_t style = 0;
     uint32_t atmosphereType = 0;
+    uint32_t marker = 0;
+    uint32_t version = 0;
     uint8_t hasSolidSurface = 0;
     uint8_t hasRings = 0;
     uint8_t tidallyLocked = 0;
 
 #define READ_PROFILE_FIELD(field) \
     (fread(&loaded.field, sizeof(loaded.field), 1, file) == 1)
-    if (!READ_PROFILE_FIELD(seed) ||
+    if (fread(&marker, sizeof(marker), 1, file) != 1) return false;
+    bool legacyLayout = marker != PLANET_PROFILE_STATE_MAGIC;
+    if (legacyLayout) {
+        loaded.seed = marker;
+    } else if (fread(&version, sizeof(version), 1, file) != 1 ||
+               version != PLANET_PROFILE_STATE_VERSION ||
+               !READ_PROFILE_FIELD(seed)) {
+        return false;
+    }
+    if (
         fread(&style, sizeof(style), 1, file) != 1 ||
         fread(&atmosphereType, sizeof(atmosphereType), 1, file) != 1 ||
         !READ_PROFILE_FIELD(physicalRadiusKm) ||
@@ -3523,10 +3658,28 @@ bool PlanetProfileLoadState(FILE *file, PlanetProfile *outProfile)
         !READ_PROFILE_FIELD(tidalLockFactor) ||
         !READ_PROFILE_FIELD(ringTilt) ||
         !READ_PROFILE_FIELD(albedo) ||
-        !READ_PROFILE_FIELD(greenhouseEffect) ||
+        !READ_PROFILE_FIELD(greenhouseEffect)) {
+        return false;
+    }
+    if (!legacyLayout &&
+        (!READ_PROFILE_FIELD(orbitalEccentricity) ||
+         !READ_PROFILE_FIELD(orbitalMeanAnomalyAtEpoch))) {
+        return false;
+    }
+    if (
         !READ_PROFILE_FIELD(axialTilt) ||
         !READ_PROFILE_FIELD(seasonPhase) ||
-        !READ_PROFILE_FIELD(yearLength) ||
+        !READ_PROFILE_FIELD(yearLength)) {
+        return false;
+    }
+    if (!legacyLayout &&
+        (!READ_PROFILE_FIELD(seasonalTemperatureAmplitudeK) ||
+         !READ_PROFILE_FIELD(orbitalTemperatureAmplitudeK) ||
+         !READ_PROFILE_FIELD(polarIceVariability) ||
+         !READ_PROFILE_FIELD(seasonalHumidityBias))) {
+        return false;
+    }
+    if (
         !READ_PROFILE_FIELD(prevailingWindAngle) ||
         !READ_PROFILE_FIELD(windStrength) ||
         !READ_PROFILE_FIELD(volcanicActivity) ||
@@ -3548,6 +3701,11 @@ bool PlanetProfileLoadState(FILE *file, PlanetProfile *outProfile)
     loaded.hasSolidSurface = hasSolidSurface != 0u;
     loaded.hasRings = hasRings != 0u;
     loaded.tidallyLocked = tidallyLocked != 0u;
+    if (legacyLayout) {
+        loaded.orbitalEccentricity = 0.0f;
+        loaded.orbitalMeanAnomalyAtEpoch = 0.0f;
+        PlanetProfileDeriveSeasonalFields(&loaded);
+    }
     if (!PlanetProfileIsValid(&loaded)) return false;
 
     *outProfile = loaded;
@@ -3749,6 +3907,7 @@ static pthread_cond_t spaceGenCond = PTHREAD_COND_INITIALIZER;
 static pthread_t spaceGenThread;
 static bool spaceGenThreadStarted = false;
 static bool spaceGenShutdown = false;
+static bool spaceGenWorkerActive = false;
 
 static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz);
 static void *SpaceGenWorker(void *arg);
@@ -3763,6 +3922,7 @@ void SpaceInit(void)
 
     pthread_mutex_lock(&spaceGenMutex);
     spaceGenShutdown = false;
+    spaceGenWorkerActive = false;
     pthread_mutex_unlock(&spaceGenMutex);
 
     if (pthread_create(&spaceGenThread, NULL, SpaceGenWorker, NULL) == 0) {
@@ -3785,6 +3945,7 @@ void SpaceShutdown(void)
 
     pthread_join(spaceGenThread, NULL);
     spaceGenThreadStarted = false;
+    spaceGenWorkerActive = false;
     memset(spaceGenJobs, 0, sizeof(spaceGenJobs));
 }
 
@@ -3877,7 +4038,9 @@ static void GenerateSpaceChunk(SpaceChunk *chunk, int cx, int cz)
             int wx = SpaceGlobalToLocalX(ClampCoordinate((int64_t)anchorX * ASTEROID_SPACING));
             int wz = SpaceGlobalToLocalZ(ClampCoordinate((int64_t)anchorZ * ASTEROID_SPACING));
             if (SpacePointInSolarSystemBubble(wx, wz)) continue;
-            int wy = SPACE_LAYER_Y + 8 + (int)(WorldHash2D(anchorX + 3, anchorZ) % (unsigned int)(WORLD_HEIGHT - 16));
+            int wy = SPACE_LAYER_Y + 8 +
+                     (int)(WorldHash2D(anchorX + 3, anchorZ) %
+                           (unsigned int)(SPACE_LAYER_HEIGHT - 16));
             int radius = 3 + (int)(WorldHash2D(anchorX, anchorZ + 7) % 5u);
             float radiusSqr = (float)(radius * radius);
             float shellSqr = (float)((radius - 1) * (radius - 1));
@@ -3938,6 +4101,7 @@ static void *SpaceGenWorker(void *arg)
         }
 
         job->started = true;
+        spaceGenWorkerActive = true;
         int cx = job->cx;
         int cz = job->cz;
         pthread_mutex_unlock(&spaceGenMutex);
@@ -3946,6 +4110,7 @@ static void *SpaceGenWorker(void *arg)
 
         pthread_mutex_lock(&spaceGenMutex);
         job->done = true;
+        spaceGenWorkerActive = false;
         pthread_cond_broadcast(&spaceGenCond);
         pthread_mutex_unlock(&spaceGenMutex);
     }
@@ -4254,33 +4419,50 @@ void SpaceSetBlock(int x, int y, int z, BlockType type)
     chunk->dirty = true;
 }
 
-void SpaceSaveEdits(FILE *file)
+bool SpaceSaveEdits(FILE *file)
 {
-    if (!file) return;
+    if (!file) return false;
     uint32_t count = (uint32_t)spaceEditCount;
-    fwrite(&count, sizeof(count), 1, file);
+    if (fwrite(&count, sizeof(count), 1, file) != 1) return false;
     if (spaceEditCount > 0) {
-        fwrite(spaceEdits, sizeof(BlockEdit), (size_t)spaceEditCount, file);
+        if (fwrite(spaceEdits, sizeof(BlockEdit), (size_t)spaceEditCount, file) !=
+            (size_t)spaceEditCount) return false;
     }
+    return true;
 }
 
-void SpaceLoadEdits(FILE *file)
+bool SpaceLoadEdits(FILE *file, int storedLayerY)
 {
-    if (!file) return;
-    spaceEditCount = 0;
+    if (!file) return false;
 
     uint32_t count = 0;
-    if (fread(&count, sizeof(count), 1, file) != 1) return;
+    if (fread(&count, sizeof(count), 1, file) != 1) return true;
 
-    if (count > MAX_SPACE_EDITS) return;
+    if (count > MAX_SPACE_EDITS) return false;
 
+    BlockEdit *loaded = count > 0 ? malloc((size_t)count * sizeof(*loaded)) : NULL;
+    if (count > 0 && !loaded) return false;
     for (uint32_t i = 0; i < count; i++) {
-        BlockEdit edit;
-        if (fread(&edit, sizeof(edit), 1, file) != 1) break;
-        if (edit.y < SPACE_LAYER_Y || edit.y >= SPACE_LAYER_TOP) continue;
-        if (!IsValidBlockType(edit.type)) continue;
-        if (spaceEditCount < MAX_SPACE_EDITS) spaceEdits[spaceEditCount++] = edit;
+        if (fread(&loaded[i], sizeof(loaded[i]), 1, file) != 1) {
+            free(loaded);
+            return false;
+        }
+        int64_t storedLayerTop = (int64_t)storedLayerY + SPACE_LAYER_HEIGHT;
+        int64_t migratedY = (int64_t)loaded[i].y - (int64_t)storedLayerY +
+                            (int64_t)SPACE_LAYER_Y;
+        if ((int64_t)loaded[i].y < storedLayerY ||
+            (int64_t)loaded[i].y >= storedLayerTop ||
+            migratedY < SPACE_LAYER_Y || migratedY >= SPACE_LAYER_TOP ||
+            !IsValidBlockType(loaded[i].type)) {
+            free(loaded);
+            return false;
+        }
+        loaded[i].y = (int)migratedY;
     }
+    spaceEditCount = (int)count;
+    if (count > 0) memcpy(spaceEdits, loaded, (size_t)count * sizeof(*loaded));
+    free(loaded);
+    return true;
 }
 
 void UnloadAllSpaceChunks(void)
@@ -4345,6 +4527,29 @@ int GetActiveSpaceChunkCount(void)
         if (spaceChunks[i].loaded) count++;
     }
     return count;
+}
+
+RenderResourceSnapshot SpaceGetRenderResourceSnapshot(void)
+{
+    RenderResourceSnapshot snapshot = { 0 };
+    for (int i = 0; i < MAX_SPACE_CHUNKS; i++) {
+        const SpaceChunk *chunk = &spaceChunks[i];
+        if (!chunk->loaded) continue;
+        if (chunk->hasModel) {
+            RenderResourceSnapshotAddModel(&snapshot, &chunk->model,
+                                           RENDER_RESOURCE_SOLID);
+        }
+        if (chunk->hasWaterModel) {
+            RenderResourceSnapshotAddModel(&snapshot, &chunk->waterModel,
+                                           RENDER_RESOURCE_TRANSPARENT);
+        }
+    }
+    pthread_mutex_lock(&spaceGenMutex);
+    snapshot.workerThreadsConfigured = 1;
+    snapshot.workerThreadsStarted = spaceGenThreadStarted ? 1u : 0u;
+    snapshot.workerThreadsActive = spaceGenWorkerActive ? 1u : 0u;
+    pthread_mutex_unlock(&spaceGenMutex);
+    return snapshot;
 }
 
 void SpaceRebuildTorchList(void)

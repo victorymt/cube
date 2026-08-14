@@ -2,11 +2,13 @@
 
 #include "raymath.h"
 #include "rlgl.h"
+#include "block_atlas.h"
 #include "chunks.h"
 #include "inventory.h"
 #include "world.h"
 #include "interaction.h"
 #include "planet_material.h"
+#include "planet_observation.h"
 #include "planet_renderer.h"
 #include "planet_surface.h"
 #include "terrain.h"
@@ -20,8 +22,13 @@
 #include "audio.h"
 #include "weather.h"
 #include "ecology.h"
+#include "perf.h"
+#include "render_sort.h"
+#include "world_lighting.h"
+#include "world_renderer.h"
 
 #include <math.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +46,47 @@ float shipHudHeading = 0.0f;
 char shipHudSystem[48] = "---";
 bool shipHudCruising = false;
 bool shipHudNearPlanet = false;
+
+#define UI_FONT_PATH "assets/fonts/FSEX302-alt.ttf"
+#define UI_FONT_BASE_SIZE 32
+
+static Font uiFont = { 0 };
+static bool uiFontReady = false;
+
+void UiFontShutdown(void)
+{
+    if (uiFontReady) UnloadFont(uiFont);
+    uiFont = (Font){ 0 };
+    uiFontReady = false;
+}
+
+void UiFontInit(void)
+{
+    UiFontShutdown();
+
+    char applicationPath[512] = { 0 };
+    const char *applicationDirectory = GetApplicationDirectory();
+    if (applicationDirectory) {
+        size_t length = strlen(applicationDirectory);
+        const char *separator = length > 0 && applicationDirectory[length - 1] == '/'
+                                    ? "" : "/";
+        snprintf(applicationPath, sizeof(applicationPath), "%s%s%s",
+                 applicationDirectory, separator, UI_FONT_PATH);
+    }
+    const char *paths[] = { UI_FONT_PATH, applicationPath };
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        if (paths[i][0] == '\0' || !FileExists(paths[i])) continue;
+        Font loaded = LoadFontEx(paths[i], UI_FONT_BASE_SIZE, NULL, 0);
+        if (!IsFontValid(loaded) || loaded.texture.id == 0 ||
+            loaded.texture.id == GetFontDefault().texture.id) continue;
+        uiFont = loaded;
+        uiFontReady = true;
+        SetTextureFilter(uiFont.texture, TEXTURE_FILTER_POINT);
+        return;
+    }
+
+    TraceLog(LOG_WARNING, "UI: Fixedsys font was not found; using default font");
+}
 
 #define STAR_SKY_RANGE (STAR_NAVIGATION_RANGE * 4.0f)
 #define STAR_SKY_REFRESH_DISTANCE 4200.0f
@@ -134,15 +182,19 @@ Color WorldTintForLight(float daylight, float sunset)
     return tint;
 }
 
-Color MixWeather(Color color, float daylight)
+Color MixWeather(Color color, float daylight,
+                 const WeatherVisualState *weatherVisual)
 {
     if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) return color;
 
-    float factor = WeatherSkyFactor();
+    float factor = weatherVisual && weatherVisual->active ?
+                       weatherVisual->stormDarkening : WeatherSkyFactor();
     if (factor <= 0.0f) return color;
 
-    Color overcast = WeatherGetCurrent() == WEATHER_SNOW ?
-                     (Color){ 168, 180, 196, 255 } : (Color){ 84, 96, 118, 255 };
+    float snowFraction = weatherVisual ? weatherVisual->snowFraction :
+                         (WeatherGetCurrent() == WEATHER_SNOW ? 1.0f : 0.0f);
+    Color overcast = ColorLerp((Color){ 84, 96, 118, 255 },
+                               (Color){ 168, 180, 196, 255 }, snowFraction);
     factor *= 0.35f + 0.65f * daylight;
     return ColorLerp(color, overcast, factor);
 }
@@ -236,8 +288,27 @@ static PlanetAtmosphereVisual PlanetAtmosphereVisualFor(const PlanetProfile *pro
     return visual;
 }
 
+PlanetObservationState PlanetObservationForCamera(
+    const Camera3D *camera, const PlanetLightState *light)
+{
+    PlanetObservationState state = { 0 };
+    if (!camera || !light || !PlanetWorldIsActive()) return state;
+
+    PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(PlanetWorldProfile());
+    float atmosphereVisibility = 1.0f - PlanetWorldAtmosphereFade(camera->position);
+    return PlanetObservationEvaluate(light, visual.opticalDepth, visual.mieStrength,
+                                     atmosphereVisibility);
+}
+
 void ApplyPlanetWorldPaletteWithLight(Color *top, Color *horizon, Color *worldTint,
                                       const PlanetLightState *light)
+{
+    ApplyPlanetWorldPaletteWithObservation(top, horizon, worldTint, light, NULL);
+}
+
+void ApplyPlanetWorldPaletteWithObservation(
+    Color *top, Color *horizon, Color *worldTint,
+    const PlanetLightState *light, const PlanetObservationState *observation)
 {
     if (!PlanetWorldIsActive()) return;
 
@@ -246,6 +317,12 @@ void ApplyPlanetWorldPaletteWithLight(Color *top, Color *horizon, Color *worldTi
     Color starColor = light && light->sourceCount > 0 ? light->starColor : WHITE;
     float daylight = light ? Clamp(light->daylight, 0.0f, 1.0f) : 1.0f;
     float sunset = light ? Clamp(light->sunset, 0.0f, 1.0f) : 0.0f;
+    float skyBrightness = observation && observation->valid ?
+                          observation->skyBrightness : daylight;
+    float horizonWarmth = observation && observation->valid ?
+                           observation->horizonWarmth : sunset;
+    float eclipseDarkening = observation && observation->valid ?
+                              observation->eclipseDarkening : 0.0f;
 
     if (profile->atmosphereType == PLANET_ATMOSPHERE_NONE) {
         *top = ColorLerp(*top, visual.zenith, 0.94f);
@@ -254,7 +331,7 @@ void ApplyPlanetWorldPaletteWithLight(Color *top, Color *horizon, Color *worldTi
         return;
     }
 
-    float daylightResponse = 0.24f + daylight * 0.76f;
+    float daylightResponse = 0.18f + skyBrightness * 0.82f;
     float topBlend = Clamp(0.12f + visual.opticalDepth * 0.58f * daylightResponse,
                            0.0f, 0.88f);
     float horizonBlend = Clamp(0.20f + visual.opticalDepth * 0.66f * daylightResponse,
@@ -264,13 +341,22 @@ void ApplyPlanetWorldPaletteWithLight(Color *top, Color *horizon, Color *worldTi
     *top = ColorLerp(*top, visual.zenith, topBlend);
     *horizon = ColorLerp(*horizon, litHorizon, horizonBlend);
     *worldTint = ColorLerp(*worldTint, atmosphereLight,
-                           Clamp(visual.opticalDepth * (0.10f + daylight * 0.18f),
+                           Clamp(visual.opticalDepth * (0.08f + skyBrightness * 0.20f),
                                  0.0f, 0.34f));
 
     Color sunsetColor = ColorLerp((Color){ 255, 104, 44, 255 }, starColor, 0.22f);
-    float sunsetStrength = Clamp(sunset * visual.mieStrength * 0.82f, 0.0f, 0.76f);
+    float sunsetStrength = Clamp(horizonWarmth * visual.mieStrength * 0.82f,
+                                 0.0f, 0.76f);
     *horizon = ColorLerp(*horizon, sunsetColor, sunsetStrength);
     *top = ColorLerp(*top, sunsetColor, sunsetStrength * 0.18f);
+    if (eclipseDarkening > 0.0f && daylight > 0.01f) {
+        float eclipseShade = Clamp(eclipseDarkening * 0.70f, 0.0f, 0.70f);
+        *top = ColorLerp(*top, (Color){ 8, 12, 22, 255 }, eclipseShade);
+        *horizon = ColorLerp(*horizon, (Color){ 42, 34, 38, 255 },
+                             eclipseShade * 0.72f);
+        *worldTint = ColorLerp(*worldTint, (Color){ 74, 78, 96, 255 },
+                               eclipseShade * 0.58f);
+    }
 }
 
 void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint)
@@ -278,7 +364,9 @@ void ApplyPlanetWorldPalette(Color *top, Color *horizon, Color *worldTint)
     ApplyPlanetWorldPaletteWithLight(top, horizon, worldTint, NULL);
 }
 
-void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *light)
+void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *light,
+                             const PlanetObservationState *observation,
+                             const WeatherVisualState *weatherVisual)
 {
     if (!camera || !light || !PlanetWorldIsActive()) return;
 
@@ -286,6 +374,10 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
     PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(profile);
     float atmosphereVisibility = 1.0f - PlanetWorldAtmosphereFade(camera->position);
     if (visual.opticalDepth <= 0.01f || atmosphereVisibility <= 0.01f) return;
+    PlanetObservationState fallback = PlanetObservationEvaluate(
+        light, visual.opticalDepth, visual.mieStrength, atmosphereVisibility);
+    const PlanetObservationState *observed = observation && observation->valid ?
+                                              observation : &fallback;
 
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
@@ -303,11 +395,17 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
             int bottomY = centerY + band / 3;
             if (topY < 0) topY = 0;
             if (bottomY > screenHeight) bottomY = screenHeight;
-            float hazeAlpha = (0.035f + visual.opticalDepth * 0.105f) *
-                              (0.42f + light->daylight * 0.58f);
-            hazeAlpha += light->sunset * visual.mieStrength * 0.12f;
+            float hazeAlpha = (0.026f + visual.opticalDepth * 0.112f) *
+                              (0.20f + observed->skyBrightness * 0.80f);
+            hazeAlpha += observed->twilightStrength * visual.mieStrength * 0.10f;
+            if (weatherVisual && weatherVisual->active) {
+                hazeAlpha += weatherVisual->fogDensity * 0.16f;
+            }
             hazeAlpha *= atmosphereVisibility;
             Color haze = ColorLerp(visual.haze, light->starColor, 0.16f);
+            Color warmHaze = ColorLerp((Color){ 255, 96, 38, 255 },
+                                       light->starColor, 0.22f);
+            haze = ColorLerp(haze, warmHaze, observed->horizonWarmth * 0.82f);
             if (centerY > topY) {
                 DrawRectangleGradientV(0, topY, screenWidth, centerY - topY,
                                        BLANK, Fade(haze, hazeAlpha));
@@ -333,6 +431,10 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
 
         float airMass = Clamp(1.0f / (0.20f + fmaxf(direction.y, 0.0f)), 0.85f, 4.20f);
         float visibility = Clamp(light->sourceVisibility[i], 0.0f, 1.0f);
+        if (weatherVisual && weatherVisual->active) {
+            visibility *= weatherVisual->visibility *
+                          (1.0f - weatherVisual->cloudOpacity * 0.72f);
+        }
         float sourceBrightness = PlanetExposureBrightness(light->sourceIntensities[i]);
         float scatterAlpha = Clamp(visual.opticalDepth *
                                    (0.018f + visual.mieStrength * 0.022f) * airMass *
@@ -343,6 +445,10 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
                              (0.78f + sourceBrightness * 0.42f),
                              42.0f, 230.0f);
         Color scatter = ColorLerp(visual.haze, light->sourceColors[i], 0.48f);
+        float lowSunWarmth = observed->horizonWarmth *
+                             (1.0f - Clamp(direction.y * 2.5f, 0.0f, 1.0f));
+        scatter = ColorLerp(scatter, (Color){ 255, 82, 34, 255 },
+                            lowSunWarmth * 0.70f);
         DrawCircleGradient((int)screen.x, (int)screen.y, radius,
                            Fade(scatter, scatterAlpha), BLANK);
         DrawCircleGradient((int)screen.x, (int)screen.y, radius * 0.38f,
@@ -598,9 +704,12 @@ static void RefreshSkySystems(Vector3 observer)
     skySystemCacheValid = true;
 }
 
-void DrawStars(const Camera3D *camera, float daylight)
+void DrawStars(const Camera3D *camera, float daylight,
+               const PlanetObservationState *observation,
+               const WeatherVisualState *weatherVisual)
 {
     float atmosphericDaylight = daylight;
+    float observationVisibility = -1.0f;
     bool atmosphereActive = false;
     float atmosphereVisibility = 0.0f;
     float atmosphereDensity = 0.0f;
@@ -616,6 +725,9 @@ void DrawStars(const Camera3D *camera, float daylight)
         }
         extinction *= atmosphereVisibility;
         atmosphericDaylight *= extinction;
+        if (observation && observation->valid) {
+            observationVisibility = observation->starVisibility;
+        }
     } else if (HomeWorldSurfaceIsActive()) {
         // The home world has a breathable atmosphere even though it predates
         // the generated PlanetProfile system.
@@ -623,9 +735,16 @@ void DrawStars(const Camera3D *camera, float daylight)
         atmosphereVisibility = 1.0f;
         atmosphereDensity = 0.62f;
     }
-    if (atmosphericDaylight > 0.15f) return;
-
-    float visibility = (0.15f - atmosphericDaylight) / 0.15f;
+    float visibility = observationVisibility;
+    if (visibility < 0.0f) {
+        if (atmosphericDaylight > 0.15f) return;
+        visibility = (0.15f - atmosphericDaylight) / 0.15f;
+    }
+    if (weatherVisual && weatherVisual->active) {
+        visibility *= weatherVisual->visibility *
+                      (1.0f - weatherVisual->cloudOpacity * 0.92f);
+    }
+    if (visibility <= 0.005f) return;
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
     float time = GetTime();
@@ -675,6 +794,7 @@ void DrawStars(const Camera3D *camera, float daylight)
                                        (0x9e3779b9u * (unsigned int)(sourceIndex + 1));
             float phase = (float)(sourceHash % 6283u) / 1000.0f;
             float twinkle = 1.0f;
+            float horizonTransmission = 1.0f;
             if (atmosphereActive) {
                 float airMass = Clamp(1.0f / (0.20f + fmaxf(sourceDir.y, 0.0f)),
                                       0.85f, 4.20f);
@@ -682,6 +802,10 @@ void DrawStars(const Camera3D *camera, float daylight)
                                             (airMass - 0.85f) / 3.35f,
                                             0.0f, 1.0f);
                 twinkle = 1.0f + scintillation * 0.18f * sinf(time * 1.35f + phase);
+                float opticalDepth = observation && observation->valid ?
+                                     observation->opticalDepth : atmosphereDensity;
+                horizonTransmission = expf(-opticalDepth *
+                                            fmaxf(airMass - 0.85f, 0.0f) * 0.20f);
             }
             float distanceFade = 1.0f - 0.58f * Clamp(sourceDistance / STAR_SKY_RANGE,
                                                        0.0f, 1.0f);
@@ -690,7 +814,8 @@ void DrawStars(const Camera3D *camera, float daylight)
             float luminosityScale = Clamp(0.24f + sqrtf(irradianceBrightness) * 1.10f,
                                           0.24f, 1.20f);
             unsigned char alpha = (unsigned char)Clamp(visibility * 235.0f * twinkle *
-                                                        distanceFade * luminosityScale,
+                                                        horizonTransmission * distanceFade *
+                                                        luminosityScale,
                                                         0.0f, 255.0f);
             Color color = SpectrumColor(sources[sourceIndex].spectrum);
             color.a = alpha;
@@ -718,10 +843,13 @@ void DrawStars(const Camera3D *camera, float daylight)
 }
 
 static void DrawMoonPhase(Vector2 center, float radius, float illumination,
-                          Vector3 sunDirection, Color light)
+                          Vector3 sunDirection, Color light, float visibility)
 {
     Color dark = (Color){ 24, 30, 52, 235 };
     illumination = Clamp(illumination, 0.0f, 1.0f);
+    visibility = Clamp(visibility, 0.0f, 1.0f);
+    dark.a = (unsigned char)Clamp(235.0f * visibility, 0.0f, 235.0f);
+    light.a = (unsigned char)Clamp((float)light.a * visibility, 0.0f, 255.0f);
     DrawCircleV(center, radius, dark);
     if (illumination > 0.01f) {
         Vector2 lightAxis = Vector2Normalize((Vector2){ sunDirection.x, sunDirection.z });
@@ -744,90 +872,113 @@ static void DrawMoonPhase(Vector2 center, float radius, float illumination,
     DrawCircleLines((int)center.x, (int)center.y, radius, Fade(light, 0.50f));
 }
 
-void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
+void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight,
+                   const PlanetLightState *planetLight,
+                   const PlanetObservationState *observation,
+                   const WeatherVisualState *weatherVisual)
 {
-    if (PlanetWorldIsActive()) {
-        PlanetLightState state = { 0 };
-        if (PlanetWorldLightStateAt(camera->position, &state)) {
-            Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
-            PlanetAtmosphereVisual atmosphere =
-                PlanetAtmosphereVisualFor(PlanetWorldProfile());
-            atmosphere.opticalDepth *=
-                1.0f - PlanetWorldAtmosphereFade(camera->position);
-            int sourceCount = state.sourceCount;
-            if (sourceCount > MAX_SOLAR_LIGHTS) sourceCount = MAX_SOLAR_LIGHTS;
-            for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
-                Vector3 sourceDir = state.sourceDirections[sourceIndex];
-                if (Vector3LengthSqr(sourceDir) < 0.0001f ||
-                    Vector3DotProduct(sourceDir, forward) <= 0.01f) continue;
+  float weatherVisibility = 1.0f;
+  if (weatherVisual && weatherVisual->active) {
+    weatherVisibility = Clamp(weatherVisual->visibility *
+                                  (1.0f - weatherVisual->cloudOpacity * 0.72f),
+                              0.02f, 1.0f);
+  }
+  if (PlanetWorldIsActive() && planetLight && planetLight->sourceCount > 0) {
+    const PlanetLightState *state = planetLight;
+    Vector3 forward =
+        Vector3Normalize(Vector3Subtract(camera->target, camera->position));
+    PlanetAtmosphereVisual atmosphere =
+        PlanetAtmosphereVisualFor(PlanetWorldProfile());
+    atmosphere.opticalDepth *=
+        1.0f - PlanetWorldAtmosphereFade(camera->position);
+    int sourceCount = state->sourceCount;
+    if (sourceCount > MAX_SOLAR_LIGHTS)
+      sourceCount = MAX_SOLAR_LIGHTS;
+    for (int sourceIndex = 0; sourceIndex < sourceCount; sourceIndex++) {
+      Vector3 sourceDir = state->sourceDirections[sourceIndex];
+      if (Vector3LengthSqr(sourceDir) < 0.0001f ||
+          Vector3DotProduct(sourceDir, forward) <= 0.01f)
+        continue;
 
-                float relativeContribution = Clamp(state.sourceIntensities[sourceIndex] /
-                                                   fmaxf(state.totalIntensity, 0.001f),
-                                                   0.0f, 1.0f);
-                float absoluteContribution = PlanetExposureBrightness(
-                    state.sourceIntensities[sourceIndex]);
-                float contribution = Clamp(absoluteContribution *
-                                           (0.45f + relativeContribution * 0.55f),
-                                           0.0f, 1.0f);
-                float sourceVisibility = state.sourceVisibility[sourceIndex];
-                if (sourceVisibility <= 0.0f) sourceVisibility = 1.0f;
-                Color sourceColor = ColorLerp(BLACK, state.sourceColors[sourceIndex],
-                                              sourceVisibility);
-                float sourceOccultation =
-                    state.sourceOccultations[sourceIndex];
-                if (sourceOccultation > 0.1f) {
-                    sourceColor = ColorLerp(sourceColor, (Color){ 255, 92, 40, 255 },
-                                            0.34f * sourceOccultation);
-                }
-                float airMass = Clamp(1.0f / (0.20f + fmaxf(sourceDir.y, 0.0f)),
-                                      0.85f, 4.20f);
-                float reddening = Clamp((airMass - 0.85f) * atmosphere.opticalDepth * 0.10f,
-                                        0.0f, 0.38f);
-                sourceColor = ColorLerp(sourceColor, atmosphere.haze, reddening);
-                Vector3 sourcePos = Vector3Add(camera->position,
-                                               Vector3Scale(sourceDir, SUN_DISTANCE));
-                Vector2 sourceScreen = GetWorldToScreen(sourcePos, *camera);
-                float glowRadius = 12.0f + sqrtf(contribution) * 14.0f +
-                                   atmosphere.opticalDepth * airMass * 5.0f;
-                float glowAlpha = Clamp(0.12f + contribution * 0.12f +
-                                        atmosphere.opticalDepth * airMass * 0.025f,
-                                        0.0f, 0.34f);
-                DrawCircleGradient((int)sourceScreen.x, (int)sourceScreen.y, glowRadius,
-                                   Fade(sourceColor, glowAlpha), BLANK);
-                Color sourceCore = ColorLerp((Color){ 12, 16, 28, 255 },
-                                             ColorLerp(sourceColor, WHITE, 0.48f),
-                                             0.18f + contribution * 0.82f);
-                sourceCore.a = (unsigned char)Clamp((0.24f + contribution * 0.76f) *
-                                                     255.0f, 0.0f, 255.0f);
-                DrawCircle((int)sourceScreen.x, (int)sourceScreen.y,
-                           10.0f + sqrtf(contribution) * 6.0f,
-                           sourceCore);
-                if (sourceOccultation > 0.1f) {
-                    DrawCircle((int)sourceScreen.x, (int)sourceScreen.y, 11.0f,
-                               Fade((Color){ 18, 18, 28, 255 },
-                                    0.74f * sourceOccultation));
-                }
-            }
-
-            if (state.hasMoon &&
-                Vector3DotProduct(state.moonDirection, forward) > 0.01f) {
-                Vector3 moonPos = Vector3Add(camera->position,
-                                             Vector3Scale(state.moonDirection, SUN_DISTANCE * 0.96f));
-                Vector2 moonScreen = GetWorldToScreen(moonPos, *camera);
-                float referenceAngularRadius = 0.25f * DEG2RAD;
-                float moonRadius = Clamp(12.0f * state.moonAngularRadius /
-                                         referenceAngularRadius,
-                                         3.0f, 30.0f);
-                Color moonLight = ColorLerp(
-                    (Color){ 214, 226, 244, 240 },
-                    (Color){ 172, 62, 44, 240 },
-                    Clamp(state.moonUmbra * 0.82f, 0.0f, 0.82f));
-                DrawMoonPhase(moonScreen, moonRadius, state.moonIllumination,
-                              state.sunDirection, moonLight);
-            }
-            return;
-        }
+      float relativeContribution =
+          Clamp(state->sourceIntensities[sourceIndex] /
+                    fmaxf(state->totalIntensity, 0.001f),
+                0.0f, 1.0f);
+      float absoluteContribution =
+          PlanetExposureBrightness(state->sourceIntensities[sourceIndex]);
+      float contribution =
+          Clamp(absoluteContribution * (0.45f + relativeContribution * 0.55f),
+                0.0f, 1.0f);
+      float sourceVisibility = state->sourceVisibility[sourceIndex];
+      if (sourceVisibility <= 0.0f)
+        sourceVisibility = 1.0f;
+      sourceVisibility *= weatherVisibility;
+      Color sourceColor =
+          ColorLerp(BLACK, state->sourceColors[sourceIndex], sourceVisibility);
+      float sourceOccultation = state->sourceOccultations[sourceIndex];
+      if (sourceOccultation > 0.1f) {
+        sourceColor = ColorLerp(sourceColor, (Color){255, 92, 40, 255},
+                                0.34f * sourceOccultation);
+      }
+      float airMass =
+          Clamp(1.0f / (0.20f + fmaxf(sourceDir.y, 0.0f)), 0.85f, 4.20f);
+      float reddening = Clamp(
+          (airMass - 0.85f) * atmosphere.opticalDepth * 0.10f, 0.0f, 0.38f);
+      sourceColor = ColorLerp(sourceColor, atmosphere.haze, reddening);
+      Vector3 sourcePos =
+          Vector3Add(camera->position, Vector3Scale(sourceDir, SUN_DISTANCE));
+      Vector2 sourceScreen = GetWorldToScreen(sourcePos, *camera);
+      float glowRadius = 12.0f + sqrtf(contribution) * 14.0f +
+                         atmosphere.opticalDepth * airMass * 5.0f;
+      float glowAlpha = Clamp(0.12f + contribution * 0.12f +
+                                  atmosphere.opticalDepth * airMass * 0.025f,
+                              0.0f, 0.34f);
+      glowAlpha *= weatherVisibility;
+      DrawCircleGradient((int)sourceScreen.x, (int)sourceScreen.y, glowRadius,
+                         Fade(sourceColor, glowAlpha), BLANK);
+      Color sourceCore = ColorLerp((Color){12, 16, 28, 255},
+                                   ColorLerp(sourceColor, WHITE, 0.48f),
+                                   0.18f + contribution * 0.82f);
+      sourceCore.a = (unsigned char)Clamp(
+          (0.24f + contribution * 0.76f) * weatherVisibility * 255.0f,
+          0.0f, 255.0f);
+      DrawCircle((int)sourceScreen.x, (int)sourceScreen.y,
+                 10.0f + sqrtf(contribution) * 6.0f, sourceCore);
+      if (sourceOccultation > 0.1f) {
+        DrawCircle((int)sourceScreen.x, (int)sourceScreen.y, 11.0f,
+                   Fade((Color){18, 18, 28, 255}, 0.74f * sourceOccultation));
+      }
     }
+
+    float moonVisibility =
+        observation && observation->valid ? observation->moonVisibility : 1.0f;
+    moonVisibility *= weatherVisibility;
+    if (state->hasMoon && moonVisibility > 0.005f &&
+        Vector3DotProduct(state->moonDirection, forward) > 0.01f) {
+      Vector3 moonPos =
+          Vector3Add(camera->position,
+                     Vector3Scale(state->moonDirection, SUN_DISTANCE * 0.96f));
+      Vector2 moonScreen = GetWorldToScreen(moonPos, *camera);
+      float referenceAngularRadius = 0.25f * DEG2RAD;
+      float moonRadius =
+          Clamp(12.0f * state->moonAngularRadius / referenceAngularRadius, 3.0f,
+                30.0f);
+      Color moonLight =
+          ColorLerp((Color){214, 226, 244, 240}, (Color){172, 62, 44, 240},
+                    Clamp(state->moonUmbra * 0.82f, 0.0f, 0.82f));
+      float haloStrength = observation && observation->valid
+                               ? observation->moonHaloStrength
+                               : 0.0f;
+      if (haloStrength > 0.005f) {
+        DrawCircleGradient((int)moonScreen.x, (int)moonScreen.y,
+                           moonRadius * (2.7f + atmosphere.opticalDepth),
+                           Fade(moonLight, haloStrength), BLANK);
+      }
+      DrawMoonPhase(moonScreen, moonRadius, state->moonIllumination,
+                    state->sunDirection, moonLight, moonVisibility);
+    }
+    return;
+  }
 
     float theta = (currentDayTime - 0.25f) * (2.0f * PI);
     Vector3 sunDir = Vector3Normalize((Vector3){ cosf(theta), sinf(theta), 0.18f });
@@ -842,176 +993,763 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight)
         Vector2 sunScreen = GetWorldToScreen(sunPos, *camera);
         float glowRadius = 28.0f + daylight * 24.0f;
         DrawCircleGradient((int)sunScreen.x, (int)sunScreen.y, glowRadius,
-                           Fade(sunColor, 0.28f), BLANK);
+                           Fade(sunColor, 0.28f * weatherVisibility), BLANK);
         DrawCircle((int)sunScreen.x, (int)sunScreen.y, 15.0f,
-                   ColorLerp(sunColor, WHITE, 0.48f));
+                   Fade(ColorLerp(sunColor, WHITE, 0.48f), weatherVisibility));
     }
 
     if (sinf(theta) < 0.0f && Vector3DotProduct(moonDir, forward) > 0.05f) {
         Vector3 moonPos = Vector3Add(camera->position, Vector3Scale(moonDir, SUN_DISTANCE));
         Vector2 moonScreen = GetWorldToScreen(moonPos, *camera);
-        DrawCircle((int)moonScreen.x, (int)moonScreen.y, 12.0f, (Color){ 214, 226, 244, 240 });
-        DrawCircle((int)moonScreen.x - 5, (int)moonScreen.y - 3, 10.0f, (Color){ 24, 30, 52, 235 });
+        DrawCircle((int)moonScreen.x, (int)moonScreen.y, 12.0f,
+                   Fade((Color){ 214, 226, 244, 240 }, weatherVisibility));
+        DrawCircle((int)moonScreen.x - 5, (int)moonScreen.y - 3, 10.0f,
+                   Fade((Color){ 24, 30, 52, 235 }, weatherVisibility));
     }
+}
+
+typedef struct CloudRenderResources {
+    Shader shader;
+    Texture2D noiseTexture;
+    int cameraPositionLoc;
+    int boxMinLoc;
+    int boxMaxLoc;
+    int windOffsetLoc;
+    int coverageLoc;
+    int opacityLoc;
+    int stormLoc;
+    int daylightLoc;
+    int drawDistanceLoc;
+    int sunDirectionLoc;
+    int lightColorLoc;
+    int lightStrengthLoc;
+    int rayStepsLoc;
+    int lightStepsLoc;
+    bool ready;
+} CloudRenderResources;
+
+static CloudRenderResources cloudResources = { 0 };
+
+static const char *cloudVertexShader =
+    "#version 330\n"
+    "in vec3 vertexPosition;\n"
+    "in vec4 vertexColor;\n"
+    "uniform mat4 mvp;\n"
+    "uniform mat4 matModel;\n"
+    "out vec3 fragPosition;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    "    vec4 world = matModel*vec4(vertexPosition, 1.0);\n"
+    "    fragPosition = world.xyz;\n"
+    "    fragColor = vertexColor;\n"
+    "    gl_Position = mvp*vec4(vertexPosition, 1.0);\n"
+    "}\n";
+
+static const char *cloudFragmentShader =
+    "#version 330\n"
+    "in vec3 fragPosition;\n"
+    "in vec4 fragColor;\n"
+    "uniform sampler2D texture0;\n"
+    "uniform vec4 colDiffuse;\n"
+    "uniform vec3 cameraPosition;\n"
+    "uniform vec3 cloudBoxMin;\n"
+    "uniform vec3 cloudBoxMax;\n"
+    "uniform vec2 windOffset;\n"
+    "uniform float cloudCoverage;\n"
+    "uniform float cloudOpacity;\n"
+    "uniform float stormAmount;\n"
+    "uniform float daylight;\n"
+    "uniform float drawDistance;\n"
+    "uniform vec3 sunDirection;\n"
+    "uniform vec3 lightColor;\n"
+    "uniform float lightStrength;\n"
+    "uniform int raySteps;\n"
+    "uniform int lightSteps;\n"
+    "out vec4 finalColor;\n"
+    "vec3 safeDirection(vec3 value) {\n"
+    "    return vec3(value.x < 0.0 ? min(value.x, -0.0001) : max(value.x, 0.0001),\n"
+    "                value.y < 0.0 ? min(value.y, -0.0001) : max(value.y, 0.0001),\n"
+    "                value.z < 0.0 ? min(value.z, -0.0001) : max(value.z, 0.0001));\n"
+    "}\n"
+    "vec2 boxInterval(vec3 origin, vec3 direction) {\n"
+    "    vec3 inverseDirection = 1.0/safeDirection(direction);\n"
+    "    vec3 first = (cloudBoxMin - origin)*inverseDirection;\n"
+    "    vec3 second = (cloudBoxMax - origin)*inverseDirection;\n"
+    "    vec3 nearValues = min(first, second);\n"
+    "    vec3 farValues = max(first, second);\n"
+    "    return vec2(max(max(nearValues.x, nearValues.y), nearValues.z),\n"
+    "                min(min(farValues.x, farValues.y), farValues.z));\n"
+    "}\n"
+    "float cloudNoise(vec3 point) {\n"
+    "    vec2 warped = vec2(point.x + point.y*0.63, point.z - point.y*0.37);\n"
+    "    vec2 drifted = warped - windOffset;\n"
+    "    float broad = texture(texture0, drifted*0.0046).r;\n"
+    "    float billow = texture(texture0, drifted*0.0127 + vec2(0.17, 0.43)).r;\n"
+    "    float detail = texture(texture0, drifted*0.0340 + vec2(0.61, 0.09)).r;\n"
+    "    return broad*0.58 + billow*0.29 + detail*0.13;\n"
+    "}\n"
+    "float cloudDensity(vec3 point) {\n"
+    "    float height = clamp((point.y - cloudBoxMin.y)/\n"
+    "                         max(cloudBoxMax.y - cloudBoxMin.y, 0.001), 0.0, 1.0);\n"
+    "    float bottom = smoothstep(0.0, 0.16, height);\n"
+    "    float top = 1.0 - smoothstep(0.64, 1.0, height);\n"
+    "    float verticalShape = bottom*top;\n"
+    "    float noiseValue = cloudNoise(point);\n"
+    "    float threshold = mix(0.73, 0.34, clamp(cloudCoverage, 0.0, 1.0));\n"
+    "    threshold -= stormAmount*0.06;\n"
+    "    float density = smoothstep(threshold - 0.08, threshold + 0.11, noiseValue);\n"
+    "    float baseWeight = mix(0.72, 1.08, 1.0 - height);\n"
+    "    return clamp(density*verticalShape*baseWeight, 0.0, 1.0);\n"
+    "}\n"
+    "float cloudLight(vec3 point) {\n"
+    "    float obstruction = 0.0;\n"
+    "    vec3 direction = normalize(sunDirection);\n"
+    "    for (int index = 0; index < 4; index++) {\n"
+    "        if (index >= lightSteps) break;\n"
+    "        float distanceAlongLight = 2.4 + float(index)*3.8;\n"
+    "        obstruction += cloudDensity(point + direction*distanceAlongLight);\n"
+    "    }\n"
+    "    return exp(-obstruction*0.62);\n"
+    "}\n"
+    "void main() {\n"
+    "    vec3 rayDirection = normalize(fragPosition - cameraPosition);\n"
+    "    vec2 interval = boxInterval(cameraPosition, rayDirection);\n"
+    "    float nearDistance = max(interval.x, 0.0);\n"
+    "    float farDistance = interval.y;\n"
+    "    if (farDistance <= nearDistance) discard;\n"
+    "    bool cameraInside = all(greaterThanEqual(cameraPosition, cloudBoxMin)) &&\n"
+    "                        all(lessThanEqual(cameraPosition, cloudBoxMax));\n"
+    "    float surfaceDistance = length(fragPosition - cameraPosition);\n"
+    "    float segmentLength = farDistance - nearDistance;\n"
+    "    float stepLength = segmentLength/float(max(raySteps, 1));\n"
+    "    if (!cameraInside && abs(surfaceDistance - nearDistance) > max(2.0, stepLength*1.5)) discard;\n"
+    "    float jitter = texture(texture0, fragPosition.xz*0.021).r;\n"
+    "    float travel = nearDistance + stepLength*(0.18 + jitter*0.64);\n"
+    "    float accumulatedAlpha = 0.0;\n"
+    "    vec3 accumulatedColor = vec3(0.0);\n"
+    "    float forwardScatter = pow(max(dot(rayDirection, normalize(sunDirection)), 0.0), 8.0);\n"
+    "    for (int index = 0; index < 24; index++) {\n"
+    "        if (index >= raySteps || travel >= farDistance || accumulatedAlpha > 0.985) break;\n"
+    "        vec3 point = cameraPosition + rayDirection*travel;\n"
+    "        float edgeFade = 1.0 - smoothstep(drawDistance*0.72, drawDistance,\n"
+    "                                           length(point.xz - cameraPosition.xz));\n"
+    "        float density = cloudDensity(point)*edgeFade;\n"
+    "        if (density > 0.015) {\n"
+    "            float transmission = cloudLight(point);\n"
+    "            float sampleAlpha = 1.0 - exp(-density*stepLength*0.105);\n"
+    "            vec3 shadowColor = mix(vec3(0.32, 0.37, 0.45), colDiffuse.rgb, 0.26);\n"
+    "            vec3 litColor = colDiffuse.rgb*lightColor*(0.62 + lightStrength*0.34);\n"
+    "            vec3 sampleColor = mix(shadowColor, litColor, 0.20 + transmission*0.80);\n"
+    "            sampleColor += lightColor*forwardScatter*transmission*0.22;\n"
+    "            float remaining = 1.0 - accumulatedAlpha;\n"
+    "            accumulatedColor += remaining*sampleColor*sampleAlpha;\n"
+    "            accumulatedAlpha += remaining*sampleAlpha;\n"
+    "        }\n"
+    "        travel += stepLength;\n"
+    "    }\n"
+    "    float rawAlpha = accumulatedAlpha;\n"
+    "    accumulatedAlpha *= cloudOpacity*colDiffuse.a*fragColor.a;\n"
+    "    if (accumulatedAlpha < 0.008) discard;\n"
+    "    vec3 color = accumulatedColor/max(rawAlpha, 0.001);\n"
+    "    color = mix(color, color*vec3(0.72, 0.76, 0.84), stormAmount*0.34);\n"
+    "    color *= 0.72 + daylight*0.28;\n"
+    "    finalColor = vec4(color, clamp(accumulatedAlpha, 0.0, 0.96));\n"
+    "}\n";
+
+static uint32_t CloudNoiseHash(int x, int y)
+{
+    uint32_t hash = (uint32_t)x*0x8da6b343u ^ (uint32_t)y*0xd8163841u;
+    hash ^= hash >> 13;
+    hash *= 0x85ebca6bu;
+    hash ^= hash >> 16;
+    return hash;
+}
+
+static float CloudNoiseLattice(int x, int y, int period)
+{
+    x %= period;
+    y %= period;
+    if (x < 0) x += period;
+    if (y < 0) y += period;
+    return (float)(CloudNoiseHash(x, y) & 0x00ffffffu)/16777215.0f;
+}
+
+static float CloudValueNoise(float x, float y, int period)
+{
+    int x0 = (int)floorf(x);
+    int y0 = (int)floorf(y);
+    float tx = x - (float)x0;
+    float ty = y - (float)y0;
+    tx = tx*tx*(3.0f - 2.0f*tx);
+    ty = ty*ty*(3.0f - 2.0f*ty);
+    float a = Lerp(CloudNoiseLattice(x0, y0, period),
+                   CloudNoiseLattice(x0 + 1, y0, period), tx);
+    float b = Lerp(CloudNoiseLattice(x0, y0 + 1, period),
+                   CloudNoiseLattice(x0 + 1, y0 + 1, period), tx);
+    return Lerp(a, b, ty);
+}
+
+static Texture2D MakeCloudNoiseTexture(void)
+{
+    enum { CLOUD_NOISE_SIZE = 128 };
+    Color *pixels = malloc(sizeof(*pixels)*CLOUD_NOISE_SIZE*CLOUD_NOISE_SIZE);
+    if (!pixels) return (Texture2D){ 0 };
+
+    for (int y = 0; y < CLOUD_NOISE_SIZE; y++) {
+        for (int x = 0; x < CLOUD_NOISE_SIZE; x++) {
+            float nx = (float)x/(float)CLOUD_NOISE_SIZE;
+            float ny = (float)y/(float)CLOUD_NOISE_SIZE;
+            float value = 0.0f;
+            float weight = 0.0f;
+            for (int octave = 0; octave < 5; octave++) {
+                int period = 4 << octave;
+                float amplitude = powf(0.55f, (float)octave);
+                value += CloudValueNoise(nx*(float)period,
+                                         ny*(float)period, period)*amplitude;
+                weight += amplitude;
+            }
+            unsigned char gray = (unsigned char)Clamp(value/weight*255.0f,
+                                                       0.0f, 255.0f);
+            pixels[y*CLOUD_NOISE_SIZE + x] = (Color){ gray, gray, gray, 255 };
+        }
+    }
+
+    Image image = {
+        .data = pixels,
+        .width = CLOUD_NOISE_SIZE,
+        .height = CLOUD_NOISE_SIZE,
+        .mipmaps = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+    };
+    Texture2D texture = LoadTextureFromImage(image);
+    free(pixels);
+    if (texture.id != 0) {
+        SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+        SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
+    }
+    return texture;
+}
+
+void UnloadCloudRenderResources(void)
+{
+    if (cloudModel.meshCount > 0) UnloadModel(cloudModel);
+    if (cloudResources.noiseTexture.id != 0) {
+        UnloadTexture(cloudResources.noiseTexture);
+    }
+    if (cloudResources.shader.id != 0) UnloadShader(cloudResources.shader);
+    cloudModel = (Model){ 0 };
+    cloudResources = (CloudRenderResources){ 0 };
 }
 
 Model LoadCloudModel(void)
 {
-    static const int cubes[9][3] = {
-        { -2, 0, -1 }, { -1, 0, 0 }, { 0, 0, -1 }, { 1, 0, 0 }, { 2, 0, -1 },
-        { -1, 1, 0 }, { 0, 1, 1 }, { 1, 1, 0 }, { 0, 2, 0 }
-    };
-    Color cloudColor = { 255, 255, 255, 190 };
+    UnloadCloudRenderResources();
+    cloudResources.shader = LoadShaderFromMemory(cloudVertexShader,
+                                                  cloudFragmentShader);
+    if (cloudResources.shader.id == 0) return (Model){ 0 };
 
-    Mesh mesh = { 0 };
-    mesh.vertexCount = 9 * 6 * 6;
-    mesh.triangleCount = 9 * 6 * 2;
-    mesh.vertices = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
-    mesh.texcoords = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
-    mesh.normals = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
-    mesh.colors = malloc((size_t)mesh.vertexCount * 4 * sizeof(unsigned char));
-
-    if (!mesh.vertices || !mesh.texcoords || !mesh.normals || !mesh.colors) {
-        free(mesh.vertices);
-        free(mesh.texcoords);
-        free(mesh.normals);
-        free(mesh.colors);
+#define CLOUD_LOCATION(field, name) \
+    cloudResources.field = GetShaderLocation(cloudResources.shader, name)
+    CLOUD_LOCATION(cameraPositionLoc, "cameraPosition");
+    CLOUD_LOCATION(boxMinLoc, "cloudBoxMin");
+    CLOUD_LOCATION(boxMaxLoc, "cloudBoxMax");
+    CLOUD_LOCATION(windOffsetLoc, "windOffset");
+    CLOUD_LOCATION(coverageLoc, "cloudCoverage");
+    CLOUD_LOCATION(opacityLoc, "cloudOpacity");
+    CLOUD_LOCATION(stormLoc, "stormAmount");
+    CLOUD_LOCATION(daylightLoc, "daylight");
+    CLOUD_LOCATION(drawDistanceLoc, "drawDistance");
+    CLOUD_LOCATION(sunDirectionLoc, "sunDirection");
+    CLOUD_LOCATION(lightColorLoc, "lightColor");
+    CLOUD_LOCATION(lightStrengthLoc, "lightStrength");
+    CLOUD_LOCATION(rayStepsLoc, "raySteps");
+    CLOUD_LOCATION(lightStepsLoc, "lightSteps");
+#undef CLOUD_LOCATION
+    if (cloudResources.cameraPositionLoc < 0 || cloudResources.boxMinLoc < 0 ||
+        cloudResources.boxMaxLoc < 0 || cloudResources.windOffsetLoc < 0 ||
+        cloudResources.coverageLoc < 0 || cloudResources.opacityLoc < 0 ||
+        cloudResources.stormLoc < 0 || cloudResources.daylightLoc < 0 ||
+        cloudResources.drawDistanceLoc < 0 || cloudResources.sunDirectionLoc < 0 ||
+        cloudResources.lightColorLoc < 0 || cloudResources.lightStrengthLoc < 0 ||
+        cloudResources.rayStepsLoc < 0 || cloudResources.lightStepsLoc < 0) {
+        UnloadCloudRenderResources();
         return (Model){ 0 };
     }
 
-    int vertexIndex = 0;
-    for (int i = 0; i < 9; i++) {
-        for (int face = 0; face < 6; face++) {
-            AddBlockFace(&mesh, &vertexIndex, cubes[i][0], cubes[i][1], cubes[i][2],
-                         face, BLOCK_WHITE, cloudColor, 0.0f);
-        }
+    cloudResources.noiseTexture = MakeCloudNoiseTexture();
+    if (cloudResources.noiseTexture.id == 0) {
+        UnloadCloudRenderResources();
+        return (Model){ 0 };
     }
 
-    UploadMesh(&mesh, false);
-    Model model = LoadModelFromMesh(mesh);
-    SetMaterialTexture(&model.materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
+    Model model = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
+    if (model.meshCount <= 0 || model.materialCount <= 0) {
+        if (model.meshCount > 0) UnloadModel(model);
+        UnloadCloudRenderResources();
+        return (Model){ 0 };
+    }
+    model.materials[0].shader = cloudResources.shader;
+    SetMaterialTexture(&model.materials[0], MATERIAL_MAP_DIFFUSE,
+                       cloudResources.noiseTexture);
+    cloudResources.ready = true;
     return model;
 }
 
-void DrawClouds(const Camera3D *camera, Color tint)
+static Color WeatherCloudColor(const WeatherVisualState *visual, Color tint)
 {
-    float drift = GetTime() * CLOUD_DRIFT;
-    float wrappedDrift = fmodf(drift, CLOUD_SPAN);
-    float wrappedDriftZ = fmodf(drift * 0.6f, CLOUD_SPAN);
+    float daylight = visual ? visual->daylight : 0.5f;
+    float storm = visual ? visual->stormDarkening : 0.0f;
+    float snow = visual ? visual->snowFraction : 0.0f;
+    Color cloud = ColorLerp((Color){ 96, 105, 122, 255 },
+                            (Color){ 238, 242, 246, 255 }, daylight);
+    cloud = ColorLerp(cloud, (Color){ 72, 80, 96, 255 }, storm * 0.72f);
+    cloud = ColorLerp(cloud, (Color){ 224, 232, 240, 255 }, snow * 0.36f);
+    return ColorLerp(cloud, tint, 0.18f);
+}
+
+void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
+                const WeatherVisualState *weatherVisual,
+                const EnvironmentPresentationState *presentation,
+                const WorldLightingState *lighting)
+{
+    if (!camera || !weatherVisual || !weatherVisual->active ||
+        weatherVisual->cloudCover <= 0.03f || !isfinite(simulationTime) ||
+        !cloudResources.ready || cloudModel.meshCount <= 0) {
+        return;
+    }
+
+    double phaseTime = fmod(simulationTime, 1000000.0);
+    double driftSpeed = 1.2 + (double)weatherVisual->windDrift * 3.6;
+    double driftDistance = fmod(phaseTime*driftSpeed, 8192.0);
+    Vector2 windOffset = {
+        (float)(cos((double)weatherVisual->windAngle)*driftDistance),
+        (float)(sin((double)weatherVisual->windAngle)*driftDistance)
+    };
+    double cameraX = floor((double)camera->position.x);
+    double cameraZ = floor((double)camera->position.z);
+    if (cameraX < (double)INT_MIN || cameraX > (double)INT_MAX ||
+        cameraZ < (double)INT_MIN || cameraZ > (double)INT_MAX) {
+        return;
+    }
+
+    int gridRadius = 2;
+    int raySteps = 12;
+    int lightSteps = 2;
+    float opacity = weatherVisual->cloudOpacity;
+    if (presentation) {
+        gridRadius = (int)roundf((presentation->cloudDistanceScale - 0.72f) / 0.14f);
+        if (gridRadius < 1) gridRadius = 1;
+        if (gridRadius > 3) gridRadius = 3;
+        raySteps = presentation->cloudRaySteps;
+        lightSteps = presentation->cloudLightSteps;
+        opacity = presentation->cloudOpacity;
+    }
+    raySteps = raySteps < 6 ? 6 : (raySteps > 24 ? 24 : raySteps);
+    lightSteps = lightSteps < 1 ? 1 : (lightSteps > 4 ? 4 : lightSteps);
+    float drawDistance = 120.0f + (float)gridRadius*60.0f;
+    int sampleX = (int)cameraX;
+    int sampleZ = (int)cameraZ;
+    int seaLevel = PlanetWorldIsActive() ? PlanetTerrainSeaLevel() :
+                                           TerrainSeaLevel(terrainMode);
+    float altitudeReference = seaLevel >= 0 ? (float)seaLevel :
+        (PlanetWorldIsActive() ? (float)PlanetTerrainHeight(sampleX, sampleZ) :
+                                 (float)WorldSurfaceHeightAt(sampleX, sampleZ));
+    float cloudBottom = altitudeReference + weatherVisual->cloudBaseHeight;
+    float cloudThickness = fmaxf(weatherVisual->cloudThickness, 4.0f);
+    Vector3 boxMin = {
+        camera->position.x - drawDistance,
+        cloudBottom,
+        camera->position.z - drawDistance
+    };
+    Vector3 boxMax = {
+        camera->position.x + drawDistance,
+        cloudBottom + cloudThickness,
+        camera->position.z + drawDistance
+    };
+    Vector3 center = Vector3Scale(Vector3Add(boxMin, boxMax), 0.5f);
+    Vector3 scale = Vector3Subtract(boxMax, boxMin);
+    Vector3 sunDirection = lighting ? lighting->sunDirection :
+                           (Vector3){ 0.32f, 0.88f, 0.18f };
+    Color sun = lighting ? lighting->sunColor : WHITE;
+    Vector3 lightColor = {
+        (float)sun.r/255.0f,
+        (float)sun.g/255.0f,
+        (float)sun.b/255.0f
+    };
+    float lightStrength = lighting ? Clamp(lighting->directStrength, 0.0f, 2.0f) :
+                                     weatherVisual->daylight;
+    float coverage = Clamp(weatherVisual->cloudCover, 0.0f, 1.0f);
+    opacity = Clamp(opacity, 0.0f, 1.0f);
+    float storm = Clamp(weatherVisual->stormDarkening, 0.0f, 1.0f);
+    float daylight = Clamp(weatherVisual->daylight, 0.0f, 1.0f);
+
+#define SET_CLOUD_UNIFORM(location, value, type) \
+    SetShaderValue(cloudResources.shader, location, &(value), type)
+    SET_CLOUD_UNIFORM(cloudResources.cameraPositionLoc, camera->position,
+                      SHADER_UNIFORM_VEC3);
+    SET_CLOUD_UNIFORM(cloudResources.boxMinLoc, boxMin, SHADER_UNIFORM_VEC3);
+    SET_CLOUD_UNIFORM(cloudResources.boxMaxLoc, boxMax, SHADER_UNIFORM_VEC3);
+    SET_CLOUD_UNIFORM(cloudResources.windOffsetLoc, windOffset, SHADER_UNIFORM_VEC2);
+    SET_CLOUD_UNIFORM(cloudResources.coverageLoc, coverage, SHADER_UNIFORM_FLOAT);
+    SET_CLOUD_UNIFORM(cloudResources.opacityLoc, opacity, SHADER_UNIFORM_FLOAT);
+    SET_CLOUD_UNIFORM(cloudResources.stormLoc, storm, SHADER_UNIFORM_FLOAT);
+    SET_CLOUD_UNIFORM(cloudResources.daylightLoc, daylight, SHADER_UNIFORM_FLOAT);
+    SET_CLOUD_UNIFORM(cloudResources.drawDistanceLoc, drawDistance,
+                      SHADER_UNIFORM_FLOAT);
+    SET_CLOUD_UNIFORM(cloudResources.sunDirectionLoc, sunDirection,
+                      SHADER_UNIFORM_VEC3);
+    SET_CLOUD_UNIFORM(cloudResources.lightColorLoc, lightColor,
+                      SHADER_UNIFORM_VEC3);
+    SET_CLOUD_UNIFORM(cloudResources.lightStrengthLoc, lightStrength,
+                      SHADER_UNIFORM_FLOAT);
+    SET_CLOUD_UNIFORM(cloudResources.rayStepsLoc, raySteps, SHADER_UNIFORM_INT);
+    SET_CLOUD_UNIFORM(cloudResources.lightStepsLoc, lightSteps, SHADER_UNIFORM_INT);
+#undef SET_CLOUD_UNIFORM
+
+    Color cloudTint = WeatherCloudColor(weatherVisual, tint);
+    cloudTint.a = tint.a;
     BeginBlendMode(BLEND_ALPHA);
-    for (int i = 0; i < CLOUD_COUNT; i++) {
-        unsigned int h1 = Hash2D(i * 3 + 1, 17);
-        unsigned int h2 = Hash2D(i * 7 + 5, 23);
-        float baseX = (float)(h1 % 10000u) / 10.0f;
-        float baseZ = (float)(h2 % 10000u) / 10.0f;
-        float cx = camera->position.x + fmodf(baseX + wrappedDrift, CLOUD_SPAN) - CLOUD_SPAN * 0.5f;
-        float cz = camera->position.z + fmodf(baseZ + wrappedDriftZ, CLOUD_SPAN) - CLOUD_SPAN * 0.5f;
-        float cy = CLOUD_BASE_HEIGHT + (float)((h1 >> 16) % 5u);
-        float scale = 1.5f + (float)((h2 >> 16) % 10u) / 10.0f;
-        DrawModel(cloudModel, (Vector3){ cx, cy, cz }, scale, tint);
+    rlDisableBackfaceCulling();
+    rlDisableDepthMask();
+    PerfRecordDrawCall(PERF_DRAW_CLOUD);
+    DrawModelEx(cloudModel, center, (Vector3){ 0.0f, 1.0f, 0.0f }, 0.0f,
+                scale, cloudTint);
+    rlEnableDepthMask();
+    rlEnableBackfaceCulling();
+    EndBlendMode();
+}
+
+void DrawEnvironmentPostProcess(
+    const EnvironmentPresentationState *presentation)
+{
+    if (!presentation) return;
+    int width = GetScreenWidth();
+    int height = GetScreenHeight();
+    if (presentation->skyDarkening > 0.01f) {
+        DrawRectangle(0, 0, width, height,
+                      Fade((Color){ 16, 22, 32, 255 },
+                           Clamp(presentation->skyDarkening * 0.10f, 0.0f, 0.12f)));
+    }
+    if (presentation->warmth > 0.01f) {
+        DrawRectangle(0, 0, width, height,
+                      Fade((Color){ 255, 112, 42, 255 },
+                           Clamp(presentation->warmth * 0.035f, 0.0f, 0.04f)));
+    }
+    if (presentation->lightningFlash > 0.01f) {
+        DrawRectangle(0, 0, width, height,
+                      Fade((Color){ 218, 230, 255, 255 },
+                           Clamp(presentation->lightningFlash * 0.32f,
+                                 0.0f, 0.34f)));
+    }
+}
+
+void DrawWeatherOverlay(const Camera3D *camera,
+                        const WeatherVisualState *weatherVisual)
+{
+    if (!camera || !weatherVisual || !weatherVisual->active) return;
+    float fog = weatherVisual->fogDensity;
+    float veil = weatherVisual->precipitationVeil;
+    if (fog <= 0.005f && veil <= 0.005f) return;
+
+    int screenWidth = GetScreenWidth();
+    int screenHeight = GetScreenHeight();
+    if (screenWidth <= 0 || screenHeight <= 0) return;
+
+    Vector3 forward = Vector3Normalize(
+        Vector3Subtract(camera->target, camera->position));
+    Vector3 flatForward = { forward.x, 0.0f, forward.z };
+    float horizonY = (float)screenHeight * 0.52f;
+    if (Vector3LengthSqr(flatForward) > 0.0001f) {
+        flatForward = Vector3Normalize(flatForward);
+        Vector3 horizonPoint = Vector3Add(
+            camera->position, Vector3Scale(flatForward, SUN_DISTANCE));
+        horizonY = GetWorldToScreen(horizonPoint, *camera).y;
+    }
+    int fogTop = (int)Clamp(horizonY - (float)screenHeight * 0.16f,
+                            0.0f, (float)screenHeight);
+    Color rainFog = ColorLerp((Color){ 64, 76, 92, 255 },
+                              (Color){ 142, 154, 166, 255 },
+                              weatherVisual->daylight);
+    Color snowFog = ColorLerp((Color){ 112, 126, 148, 255 },
+                              (Color){ 216, 226, 235, 255 },
+                              weatherVisual->daylight);
+    Color fogColor = ColorLerp(rainFog, snowFog,
+                               weatherVisual->snowFraction);
+    float topAlpha = Clamp(fog * 0.12f + veil * 0.04f, 0.0f, 0.14f);
+    float bottomAlpha = Clamp(fog * 0.34f + veil * 0.10f, 0.0f, 0.38f);
+    if (fogTop < screenHeight) {
+        DrawRectangleGradientV(0, fogTop, screenWidth, screenHeight - fogTop,
+                               Fade(fogColor, topAlpha),
+                               Fade(fogColor, bottomAlpha));
+    }
+    if (veil > 0.01f) {
+        DrawRectangle(0, 0, screenWidth, screenHeight,
+                      Fade(fogColor, Clamp(veil * 0.10f, 0.0f, 0.11f)));
+    }
+}
+
+WorldLightingState WorldLightingForScene(
+    const Camera3D *camera, float currentDayTime, float daylight, float sunset,
+    const PlanetLightState *planetLight,
+    const WeatherVisualState *weatherVisual, Color skyHorizon, bool inNether,
+    const EnvironmentPresentationState *presentation)
+{
+    float theta = (currentDayTime - 0.25f) * (2.0f * PI);
+    Vector3 sunDirection = Vector3Normalize(
+        (Vector3){ cosf(theta), sinf(theta), 0.18f });
+    Color sunColor = ColorLerp((Color){ 255, 150, 94, 255 },
+                               (Color){ 255, 236, 208, 255 },
+                               Clamp(daylight * 1.35f, 0.0f, 1.0f));
+    float sourceStrength = daylight;
+    if (PlanetWorldIsActive() && planetLight &&
+        planetLight->sourceCount > 0) {
+        sunDirection = planetLight->sourceDirections[0];
+        sunColor = planetLight->sourceColors[0];
+        float intensity = planetLight->sourceIntensities[0];
+        sourceStrength = Clamp((1.0f - expf(-fmaxf(intensity, 0.0f))) *
+                                   planetLight->sourceVisibility[0],
+                               0.0f, 1.6f);
+    }
+    float night = 1.0f - Clamp(daylight, 0.0f, 1.0f);
+    WorldLightingState state = {
+        .sunDirection = sunDirection,
+        .sunColor = sunColor,
+        .ambientColor = ColorLerp((Color){ 76, 94, 146, 255 },
+                                  (Color){ 194, 214, 232, 255 }, daylight),
+        .fogColor = skyHorizon,
+        .cameraPosition = camera ? camera->position : Vector3Zero(),
+        .directStrength = sourceStrength * 2.1f,
+        .ambientStrength = 0.20f + daylight * 0.42f +
+                           night * 0.08f,
+        .shadowStrength = 0.42f + daylight * 0.34f,
+        .fogDensity = 0.0f,
+        .fogStart = 38.0f,
+        .wetness = 0.0f,
+        .exposure = 1.0f,
+        .saturation = 1.0f,
+        .warmth = 0.0f,
+        .waveStrength = 0.18f,
+        .time = (float)fmod(SpaceElapsedSimulationTime(), 1000000.0),
+        .shadowsEnabled = daylight > 0.05f
+    };
+    state.ambientColor = ColorLerp(state.ambientColor,
+                                   (Color){ 255, 146, 94, 255 },
+                                   sunset * 0.18f);
+    if (inNether) {
+        state.sunDirection = (Vector3){ 0.25f, 0.88f, 0.18f };
+        state.sunColor = (Color){ 192, 62, 34, 255 };
+        state.ambientColor = (Color){ 128, 34, 28, 255 };
+        state.fogColor = (Color){ 40, 10, 8, 255 };
+        state.directStrength = 1.0f;
+        state.ambientStrength = 1.0f;
+    }
+    EnvironmentPresentationState fallback;
+    if (!presentation) {
+        fallback = WorldLightingFallbackPresentation(
+            daylight, sunset, weatherVisual, inNether);
+        presentation = &fallback;
+    }
+    return WorldLightingCompose(state, presentation);
+}
+
+#define MAX_TRANSPARENT_RENDER_ITEMS \
+    (MAX_ACTIVE_CHUNKS * SURFACE_SECTION_COUNT + MAX_SPACE_CHUNKS + \
+     MAX_NETHER_CHUNKS)
+
+static Vector3 ChunkRenderCenter(int cx, int cz, float centerY)
+{
+    return (Vector3){
+        (float)(cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
+        centerY,
+        (float)(cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
+    };
+}
+
+static void CollectSurfaceRenderItems(
+    const Camera3D *camera, int effectiveRenderDistance, Color tint,
+    TransparentRenderItem *transparent, int *transparentCount)
+{
+    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+        Chunk *chunk = &chunks[i];
+        if (!chunk->loaded) continue;
+        bool distanceVisible = ChunkWithinDrawDistance(
+            chunk, camera->position, effectiveRenderDistance);
+        if (!distanceVisible) continue;
+        for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+            ChunkSection *section = chunk->sections[sy];
+            if (!section) continue;
+            bool frustumVisible = ChunkSectionIntersectsCameraView(
+                chunk, section, camera);
+            PerfRecordWorldCandidate(distanceVisible, frustumVisible);
+            if (!frustumVisible) continue;
+            Vector3 translation = {
+                0.0f, (float)(sy * SURFACE_SECTION_HEIGHT), 0.0f
+            };
+            if (section->hasModel) {
+                PerfRecordDrawCall(PERF_DRAW_SOLID);
+                WorldRendererDrawModel(&section->model, translation, tint, false);
+            }
+            if (section->hasFloraModel) {
+                PerfRecordDrawCall(PERF_DRAW_FLORA);
+                WorldRendererDrawModel(&section->floraModel, translation, tint,
+                                       false);
+            }
+            if (section->hasWaterModel) {
+                TransparentRenderItemAppend(
+                    transparent, MAX_TRANSPARENT_RENDER_ITEMS, transparentCount,
+                    &section->waterModel, translation,
+                    ChunkRenderCenter(
+                        chunk->cx, chunk->cz,
+                        (float)(sy * SURFACE_SECTION_HEIGHT) +
+                            (float)SURFACE_SECTION_HEIGHT * 0.5f),
+                    camera->position, TRANSPARENT_RENDER_SURFACE,
+                    chunk->cx, chunk->cz, i * SURFACE_SECTION_COUNT + sy);
+            }
+        }
+    }
+}
+
+static void CollectSpaceRenderItems(
+    const Camera3D *camera, int cameraCx, int cameraCz, Color tint,
+    TransparentRenderItem *transparent, int *transparentCount)
+{
+    Vector3 translation = { 0.0f, (float)SPACE_LAYER_Y, 0.0f };
+    for (int i = 0; i < MAX_SPACE_CHUNKS; i++) {
+        SpaceChunk *chunk = &spaceChunks[i];
+        if (!chunk->loaded) continue;
+        bool distanceVisible = abs(chunk->cx - cameraCx) <= SPACE_RENDER_DISTANCE_CHUNKS &&
+                               abs(chunk->cz - cameraCz) <= SPACE_RENDER_DISTANCE_CHUNKS;
+        Vector3 center = ChunkRenderCenter(
+            chunk->cx, chunk->cz,
+            (float)SPACE_LAYER_Y + (float)SPACE_LAYER_HEIGHT * 0.5f);
+        bool frustumVisible = distanceVisible && SphereInFrustum(camera, center, 66.0f);
+        PerfRecordWorldCandidate(distanceVisible, frustumVisible);
+        if (!distanceVisible || !frustumVisible) continue;
+        if (chunk->hasModel) {
+            PerfRecordDrawCall(PERF_DRAW_SPACE);
+            WorldRendererDrawModel(&chunk->model, translation, tint, false);
+        }
+        if (chunk->hasWaterModel) {
+            TransparentRenderItemAppend(
+                transparent, MAX_TRANSPARENT_RENDER_ITEMS, transparentCount,
+                &chunk->waterModel, translation, center, camera->position,
+                TRANSPARENT_RENDER_SPACE, chunk->cx, chunk->cz, i);
+        }
+    }
+}
+
+static void CollectNetherRenderItems(
+    const Camera3D *camera, int cameraCx, int cameraCz, Color tint,
+    TransparentRenderItem *transparent, int *transparentCount)
+{
+    Vector3 translation = { 0.0f, (float)NETHER_LAYER_Y, 0.0f };
+    for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
+        NetherChunk *chunk = &netherChunks[i];
+        if (!chunk->loaded) continue;
+        bool distanceVisible = abs(chunk->cx - cameraCx) <= NETHER_RENDER_DISTANCE_CHUNKS &&
+                               abs(chunk->cz - cameraCz) <= NETHER_RENDER_DISTANCE_CHUNKS;
+        Vector3 center = ChunkRenderCenter(
+            chunk->cx, chunk->cz, (float)NETHER_LAYER_Y + 16.0f);
+        bool frustumVisible = distanceVisible && SphereInFrustum(camera, center, 34.0f);
+        PerfRecordWorldCandidate(distanceVisible, frustumVisible);
+        if (!distanceVisible || !frustumVisible) continue;
+        if (chunk->hasModel) {
+            PerfRecordDrawCall(PERF_DRAW_NETHER);
+            WorldRendererDrawModel(&chunk->model, translation, tint, false);
+        }
+        if (chunk->hasWaterModel) {
+            TransparentRenderItemAppend(
+                transparent, MAX_TRANSPARENT_RENDER_ITEMS, transparentCount,
+                &chunk->waterModel, translation, center, camera->position,
+                TRANSPARENT_RENDER_NETHER, chunk->cx, chunk->cz, i);
+        }
+    }
+}
+
+void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
+               bool drawSurfaceChunks, bool drawNetherChunks,
+               const WorldLightingState *lighting)
+{
+    if (lighting) WorldRendererPrepare(lighting);
+    TransparentRenderItem transparent[MAX_TRANSPARENT_RENDER_ITEMS];
+    int transparentCount = 0;
+    if (drawSurfaceChunks) {
+        CollectSurfaceRenderItems(camera, effectiveRenderDistance, tint,
+                                  transparent, &transparentCount);
+    }
+
+    int cameraCx = 0;
+    int cameraCz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal((int)floorf(camera->position.x),
+                      (int)floorf(camera->position.z),
+                      &cameraCx, &cameraCz, &localX, &localZ);
+    CollectSpaceRenderItems(camera, cameraCx, cameraCz, tint,
+                            transparent, &transparentCount);
+    if (drawNetherChunks) {
+        CollectNetherRenderItems(camera, cameraCx, cameraCz, tint,
+                                 transparent, &transparentCount);
+    }
+
+    SortTransparentRenderItems(transparent, transparentCount);
+    BeginBlendMode(BLEND_ALPHA);
+    for (int i = 0; i < transparentCount; i++) {
+        PerfDrawKind kind = PERF_DRAW_WATER;
+        if (transparent[i].dimension == TRANSPARENT_RENDER_SPACE) kind = PERF_DRAW_SPACE;
+        else if (transparent[i].dimension == TRANSPARENT_RENDER_NETHER) kind = PERF_DRAW_NETHER;
+        PerfRecordDrawCall(kind);
+        WorldRendererDrawModel(transparent[i].model, transparent[i].translation,
+                               tint, true);
     }
     EndBlendMode();
 }
 
-void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
-               bool drawSurfaceChunks, bool drawNetherChunks)
+void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
+                        bool drawSurfaceChunks, bool drawNetherChunks,
+                        const WorldLightingState *lighting)
 {
+    if (!WorldRendererBeginShadow(camera, lighting)) return;
+    int cameraCx = 0, cameraCz = 0, localX = 0, localZ = 0;
+    WorldToChunkLocal((int)floorf(camera->position.x),
+                      (int)floorf(camera->position.z),
+                      &cameraCx, &cameraCz, &localX, &localZ);
+    int shadowChunkRadius = WorldRendererShadowChunkRadius();
+    if (shadowChunkRadius > effectiveRenderDistance) {
+        shadowChunkRadius = effectiveRenderDistance;
+    }
     if (drawSurfaceChunks) {
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             Chunk *chunk = &chunks[i];
-            if (!chunk->loaded) continue;
-            if (!ChunkWithinDrawDistance(chunk, camera->position, effectiveRenderDistance)) continue;
-            if (!ChunkIntersectsCameraView(chunk, camera)) continue;
-            if (chunk->hasModel) DrawModel(chunk->model, Vector3Zero(), 1.0f, tint);
-            if (chunk->hasFloraModel) {
-                DrawModel(chunk->floraModel, Vector3Zero(), 1.0f, tint);
+            if (!chunk->loaded || abs(chunk->cx - cameraCx) > shadowChunkRadius ||
+                abs(chunk->cz - cameraCz) > shadowChunkRadius) continue;
+            for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+                ChunkSection *section = chunk->sections[sy];
+                if (!section) continue;
+                Vector3 translation = {
+                    0.0f, (float)(sy * SURFACE_SECTION_HEIGHT), 0.0f
+                };
+                if (section->hasModel) {
+                    WorldRendererDrawShadowModel(&section->model, translation);
+                }
+                if (section->hasFloraModel) {
+                    WorldRendererDrawShadowModel(&section->floraModel,
+                                                 translation);
+                }
             }
         }
     }
-
-    int camCx = 0;
-    int camCz = 0;
-    int camLx = 0;
-    int camLz = 0;
-    WorldToChunkLocal((int)floorf(camera->position.x), (int)floorf(camera->position.z),
-                      &camCx, &camCz, &camLx, &camLz);
-
-    for (int i = 0; i < MAX_SPACE_CHUNKS; i++) {
-        SpaceChunk *chunk = &spaceChunks[i];
-        if (!chunk->loaded) continue;
-        if (abs(chunk->cx - camCx) > SPACE_RENDER_DISTANCE_CHUNKS ||
-            abs(chunk->cz - camCz) > SPACE_RENDER_DISTANCE_CHUNKS) continue;
-        Vector3 center = {
-            (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-            (float)SPACE_LAYER_Y + (float)SPACE_LAYER_HEIGHT * 0.5f,
-            (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
-        };
-        if (!SphereInFrustum(camera, center, 66.0f)) continue;
-        if (chunk->hasModel) DrawModel(chunk->model, (Vector3){ 0.0f, (float)SPACE_LAYER_Y, 0.0f }, 1.0f, tint);
-    }
-
-    int netherCamCx = 0;
-    int netherCamCz = 0;
-    int netherCamLx = 0;
-    int netherCamLz = 0;
-    WorldToChunkLocal((int)floorf(camera->position.x), (int)floorf(camera->position.z),
-                      &netherCamCx, &netherCamCz, &netherCamLx, &netherCamLz);
-
     if (drawNetherChunks) {
+        Vector3 translation = { 0.0f, (float)NETHER_LAYER_Y, 0.0f };
         for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
             NetherChunk *chunk = &netherChunks[i];
-            if (!chunk->loaded) continue;
-            if (abs(chunk->cx - netherCamCx) > NETHER_RENDER_DISTANCE_CHUNKS ||
-                abs(chunk->cz - netherCamCz) > NETHER_RENDER_DISTANCE_CHUNKS) continue;
-            Vector3 center = {
-                (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-                (float)NETHER_LAYER_Y + 16.0f,
-                (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
-            };
-            if (!SphereInFrustum(camera, center, 34.0f)) continue;
-            if (chunk->hasModel) DrawModel(chunk->model, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
+            if (!chunk->loaded || !chunk->hasModel ||
+                abs(chunk->cx - cameraCx) > shadowChunkRadius ||
+                abs(chunk->cz - cameraCz) > shadowChunkRadius) continue;
+            WorldRendererDrawShadowModel(&chunk->model, translation);
         }
     }
-
-    BeginBlendMode(BLEND_ALPHA);
-    if (drawSurfaceChunks) {
-        for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-            Chunk *chunk = &chunks[i];
-            if (!chunk->loaded) continue;
-            if (!ChunkWithinDrawDistance(chunk, camera->position, effectiveRenderDistance)) continue;
-            if (!ChunkIntersectsCameraView(chunk, camera)) continue;
-            if (chunk->hasWaterModel) DrawModel(chunk->waterModel, Vector3Zero(), 1.0f, tint);
-        }
-    }
-    for (int i = 0; i < MAX_SPACE_CHUNKS; i++) {
-        SpaceChunk *chunk = &spaceChunks[i];
-        if (!chunk->loaded) continue;
-        if (abs(chunk->cx - camCx) > SPACE_RENDER_DISTANCE_CHUNKS ||
-            abs(chunk->cz - camCz) > SPACE_RENDER_DISTANCE_CHUNKS) continue;
-        Vector3 center = {
-            (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-            (float)SPACE_LAYER_Y + (float)SPACE_LAYER_HEIGHT * 0.5f,
-            (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
-        };
-        if (!SphereInFrustum(camera, center, 66.0f)) continue;
-        if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)SPACE_LAYER_Y, 0.0f }, 1.0f, tint);
-    }
-    if (drawNetherChunks) {
-        for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
-            NetherChunk *chunk = &netherChunks[i];
-            if (!chunk->loaded) continue;
-            if (abs(chunk->cx - netherCamCx) > NETHER_RENDER_DISTANCE_CHUNKS ||
-                abs(chunk->cz - netherCamCz) > NETHER_RENDER_DISTANCE_CHUNKS) continue;
-            Vector3 center = {
-                (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-                (float)NETHER_LAYER_Y + 16.0f,
-                (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
-            };
-            if (!SphereInFrustum(camera, center, 34.0f)) continue;
-            if (chunk->hasWaterModel) DrawModel(chunk->waterModel, (Vector3){ 0.0f, (float)NETHER_LAYER_Y, 0.0f }, 1.0f, tint);
-        }
-    }
-    EndBlendMode();
+    WorldRendererEndShadow();
 }
 
 static Color SolarStyleColor(SolarBodyStyle style)
@@ -1062,7 +1800,7 @@ static void DrawEdgeIndicator(float px, float py, bool behind, Vector3 origin, V
 
     if (label) {
         float dist = Vector3Distance(origin, center);
-        DrawText(TextFormat("%s - %.0f blocks", label, dist),
+        UiDrawText(TextFormat("%s - %.0f blocks", label, dist),
                  (int)ex + 16, (int)ey - 10, 15, Fade(WHITE, 0.9f * spaceFade));
     }
 }
@@ -1137,7 +1875,7 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
                 DrawLine((int)px, (int)py - (int)(scale * 2.0f), (int)px, (int)py + (int)(scale * 2.0f),
                          Fade(color, 0.30f * spaceFade));
                 if (bodies[i].dist < 350.0f) {
-                    DrawText(TextFormat("%s Prime", bodies[i].name), (int)px + (int)scale + 6, (int)py - 8, 15,
+                    UiDrawText(TextFormat("%s Prime", bodies[i].name), (int)px + (int)scale + 6, (int)py - 8, 15,
                              Fade(WHITE, 0.85f * spaceFade));
                 }
             } else {
@@ -1151,7 +1889,7 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
         if (onScreen) {
             DrawCircle((int)px, (int)py, 4.0f, Fade(color, spaceFade));
             if (bodies[i].dist < 350.0f) {
-                DrawText(TextFormat("%s %c", bodies[i].name,
+                UiDrawText(TextFormat("%s %c", bodies[i].name,
                                     'a' + (bodies[i].index > 0 ? bodies[i].index - 1 : 0)),
                          (int)px + 7, (int)py - 8, 15, Fade(WHITE, 0.85f * spaceFade));
             }
@@ -1170,7 +1908,7 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
         if (onScreen) {
             DrawCircle((int)homeScreen.x, (int)homeScreen.y, 6.0f,
                        Fade(homeColor, 0.9f * spaceFade));
-            DrawText(TextFormat("Homeworld - %.0f blocks", homeDist),
+            UiDrawText(TextFormat("Homeworld - %.0f blocks", homeDist),
                      (int)homeScreen.x + 10, (int)homeScreen.y - 8, 15,
                      Fade(WHITE, 0.9f * spaceFade));
         } else {
@@ -2375,15 +3113,15 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
     int maxWidth = (int)fmaxf((float)sw - 64.0f, 120.0f);
     int fs = 18;
     int detailFs = 16;
-    while (fs > 13 && MeasureText(line1, fs) > maxWidth) fs--;
+    while (fs > 13 && UiMeasureText(line1, fs) > maxWidth) fs--;
     while (detailFs > 12 &&
-           ((line2 && MeasureText(line2, detailFs) > maxWidth) ||
-            (line3 && MeasureText(line3, detailFs) > maxWidth))) {
+           ((line2 && UiMeasureText(line2, detailFs) > maxWidth) ||
+            (line3 && UiMeasureText(line3, detailFs) > maxWidth))) {
         detailFs--;
     }
-    int width = MeasureText(line1, fs);
-    if (line2) width = fmaxf((float)width, (float)MeasureText(line2, detailFs));
-    if (line3) width = fmaxf((float)width, (float)MeasureText(line3, detailFs));
+    int width = UiMeasureText(line1, fs);
+    if (line2) width = fmaxf((float)width, (float)UiMeasureText(line2, detailFs));
+    if (line3) width = fmaxf((float)width, (float)UiMeasureText(line3, detailFs));
     int x = sw / 2 - width / 2;
     int y = 64;
     float height = line3 ? 84.0f : (line2 ? 62.0f : 40.0f);
@@ -2391,68 +3129,267 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
                          0.10f, 6, Fade(BLACK, 0.55f));
     DrawRectangleRoundedLinesEx((Rectangle){ (float)x - 16, (float)y - 8, (float)width + 32, height },
                                 0.10f, 6, 1.5f, Fade(WHITE, 0.30f));
-    DrawText(line1, x, y, fs, WHITE);
-    if (line2) DrawText(line2, x, y + 24, detailFs, Fade(WHITE, 0.82f));
-    if (line3) DrawText(line3, x, y + 46, detailFs, Fade(WHITE, 0.72f));
+    UiDrawText(line1, x, y, fs, WHITE);
+    if (line2) UiDrawText(line2, x, y + 24, detailFs, Fade(WHITE, 0.82f));
+    if (line3) UiDrawText(line3, x, y + 46, detailFs, Fade(WHITE, 0.72f));
 }
 
-static void DrawUiText(const char *text, int x, int y, int fontSize, Color color)
+int UiMeasureText(const char *text, int fontSize)
 {
-    DrawText(text, x + 1, y + 2, fontSize, Fade(BLACK, 0.92f));
-    DrawText(text, x, y, fontSize, color);
+    if (!text) return 0;
+    if (!uiFontReady) return MeasureText(text, fontSize);
+    return (int)ceilf(MeasureTextEx(uiFont, text, (float)fontSize, 0.0f).x);
+}
+
+static void DrawUiTextLayer(const char *text, int x, int y, int fontSize,
+                            Color color)
+{
+    if (uiFontReady) {
+        DrawTextEx(uiFont, text, (Vector2){ (float)x, (float)y },
+                   (float)fontSize, 0.0f, color);
+    } else {
+        DrawText(text, x, y, fontSize, color);
+    }
+}
+
+void UiDrawText(const char *text, int x, int y, int fontSize, Color color)
+{
+    DrawUiTextLayer(text, x + 1, y + 2, fontSize, Fade(BLACK, 0.92f));
+    DrawUiTextLayer(text, x, y, fontSize, color);
+}
+
+static float NormalizeHudHeading(float heading)
+{
+    heading = fmodf(heading, 360.0f);
+    return heading < 0.0f ? heading + 360.0f : heading;
+}
+
+static void DrawShipHudLamp(int x, int y, Color color, const char *label)
+{
+    DrawCircle(x, y, 5.0f, Fade(BLACK, 0.90f));
+    DrawCircle(x, y, 3.0f, color);
+    DrawCircleLines(x, y, 5.0f, Fade(color, 0.55f));
+    UiDrawText(label, x + 10, y - 7, 14, Fade(WHITE, 0.88f));
+}
+
+static void DrawShipHeadingTape(Rectangle tape, float heading, Color accent)
+{
+    float centerX = tape.x + tape.width * 0.5f;
+    float baseline = tape.y + tape.height - 8.0f;
+    DrawLine((int)tape.x, (int)baseline,
+             (int)(tape.x + tape.width), (int)baseline,
+             Fade(WHITE, 0.24f));
+
+    for (int offset = -45; offset <= 45; offset += 15) {
+        float x = centerX + (float)offset * tape.width / 90.0f;
+        float tickHeight = offset % 30 == 0 ? 8.0f : 5.0f;
+        DrawLine((int)x, (int)(baseline - tickHeight),
+                 (int)x, (int)baseline, Fade(WHITE, 0.56f));
+    }
+
+    DrawTriangle((Vector2){ centerX, tape.y + 3.0f },
+                 (Vector2){ centerX - 5.0f, tape.y + 10.0f },
+                 (Vector2){ centerX + 5.0f, tape.y + 10.0f }, accent);
+    const char *headingText = TextFormat("HDG %03.0f", NormalizeHudHeading(heading));
+    int headingWidth = UiMeasureText(headingText, 15);
+    UiDrawText(headingText, (int)(centerX - (float)headingWidth * 0.5f),
+               (int)tape.y + 9, 15, accent);
 }
 
 void DrawShipHud(void)
 {
     int sw = GetScreenWidth();
-    float panelWidth = fminf(480.0f, (float)sw - 36.0f);
-    Rectangle panel = { (float)sw - panelWidth - 18.0f, 16.0f, panelWidth, 166.0f };
-    DrawRectangleRounded(panel, 0.06f, 6, Fade(BLACK, 0.72f));
-    DrawRectangleRoundedLinesEx(panel, 0.08f, 6, 1.5f, Fade(WHITE, 0.30f));
+    float panelWidth = fminf(500.0f, (float)sw - 24.0f);
+    Rectangle panel = {
+        (float)sw - panelWidth - 12.0f, 12.0f, panelWidth, 216.0f
+    };
+    const Color cyan = { 137, 217, 235, 255 };
+    const Color amber = { 255, 198, 76, 255 };
+    const Color green = { 123, 218, 157, 255 };
+    const Color red = { 238, 100, 82, 255 };
+    DrawRectangleRounded(panel, 0.035f, 6, (Color){ 12, 18, 22, 224 });
+    DrawRectangleRoundedLinesEx(panel, 0.035f, 6, 1.5f,
+                                Fade(cyan, 0.42f));
 
-    int textX = (int)panel.x + 16;
+    int left = (int)panel.x + 16;
+    int top = (int)panel.y;
     bool warping = ShipIsWarping();
-    Color speedColor = warping ? (Color){ 166, 228, 255, 255 } :
-                       (shipHudCruising ? (Color){ 130, 200, 255, 255 } : WHITE);
+    bool assist = ShipFlightAssistEnabled();
+    Color modeColor = warping ? cyan : (shipHudCruising ? cyan :
+                                      (assist ? green : amber));
     const char *driveMode = warping ? "WARP" :
-                            (shipHudCruising ?
-                             (ShipFlightAssistEnabled() ? "CRUISE+ASSIST" :
-                                                          "CRUISE+INERTIA") :
-                             (ShipFlightAssistEnabled() ? "ASSIST" : "INERTIA"));
-    DrawUiText(TextFormat("VEL %.0f blk/s  [%s]", shipHudSpeed, driveMode),
-               textX, (int)panel.y + 10, 22, speedColor);
+                            (shipHudCruising ? "CRUISE" :
+                             (assist ? "ASSIST" : "INERTIA"));
+
+    UiDrawText("FLIGHT COMPUTER", left, top + 10, 15, Fade(cyan, 0.82f));
+    int modeWidth = UiMeasureText(driveMode, 14) + 20;
+    DrawShipHudLamp((int)(panel.x + panel.width) - modeWidth - 8,
+                    top + 19, modeColor, driveMode);
+    DrawLine(left, top + 36, (int)(panel.x + panel.width) - 16, top + 36,
+             Fade(cyan, 0.24f));
+
+    int rightColumn = (int)(panel.x + panel.width * 0.56f);
+    UiDrawText("VELOCITY", left, top + 45, 13, Fade(WHITE, 0.50f));
+    UiDrawText(TextFormat("%.0f", shipHudSpeed), left, top + 57, 34, modeColor);
+    int speedWidth = UiMeasureText(TextFormat("%.0f", shipHudSpeed), 34);
+    UiDrawText("BLK/S", left + speedWidth + 8, top + 72, 13,
+               Fade(WHITE, 0.52f));
+
+    UiDrawText(shipHudNearPlanet ? "SURFACE ALT" : "ALTITUDE",
+               rightColumn, top + 45, 13, Fade(WHITE, 0.50f));
+    UiDrawText(TextFormat("%.0f", shipHudAlt), rightColumn, top + 60, 28,
+               Fade(WHITE, 0.94f));
+    int altitudeWidth = UiMeasureText(TextFormat("%.0f", shipHudAlt), 28);
+    UiDrawText("BLK", rightColumn + altitudeWidth + 7, top + 72, 13,
+               Fade(WHITE, 0.52f));
+
+    DrawShipHeadingTape(
+        (Rectangle){ panel.x + 16.0f, panel.y + 96.0f,
+                     panel.width - 32.0f, 43.0f },
+        shipHudHeading, amber);
+
+    float fuelRatio = Clamp(ShipGetFuel() / SHIP_MAX_FUEL, 0.0f, 1.0f);
+    Color fuelColor = fuelRatio > 0.20f ? amber : red;
+    UiDrawText("FUEL", left, top + 146, 13, Fade(WHITE, 0.54f));
+    UiDrawText(TextFormat("%03.0f%%", fuelRatio * 100.0f), left + 42,
+               top + 145, 15, fuelColor);
+    Rectangle fuelTrack = {
+        panel.x + 16.0f, panel.y + 166.0f,
+        panel.width * 0.48f - 22.0f, 7.0f
+    };
+    DrawRectangleRec(fuelTrack, Fade(WHITE, 0.13f));
+    Rectangle fuelFill = fuelTrack;
+    fuelFill.width *= fuelRatio;
+    DrawRectangleRec(fuelFill, fuelColor);
+
+    char environment[64];
     if (shipHudAtmosphere >= 0.0f) {
-        DrawUiText(TextFormat("ALT %.0f (surface)  ATM %.0f%%  HDG %03.0f",
-                              shipHudAlt, shipHudAtmosphere, shipHudHeading),
-                   textX, (int)panel.y + 42, 18, Fade(WHITE, 0.95f));
+        snprintf(environment, sizeof(environment), "ATM %03.0f%%",
+                 Clamp(shipHudAtmosphere, 0.0f, 100.0f));
     } else {
-        DrawUiText(TextFormat("ALT %.0f%s   HDG %03.0f", shipHudAlt,
-                              shipHudNearPlanet ? " (surface)" : "", shipHudHeading),
-                   textX, (int)panel.y + 42, 18, Fade(WHITE, 0.95f));
+        snprintf(environment, sizeof(environment), "%s",
+                 shipHudNearPlanet ? "SURFACE REF" : "VACUUM");
     }
-    Color fuelColor = ShipGetFuel() > 20.0f ? (Color){ 255, 204, 94, 255 } : (Color){ 238, 100, 82, 255 };
-    DrawUiText(TextFormat("FUEL %.0f / %.0f   R restore", ShipGetFuel(), SHIP_MAX_FUEL),
-               textX, (int)panel.y + 68, 17, fuelColor);
-    DrawUiText(TextFormat("SYS %s", shipHudSystem),
-               textX, (int)panel.y + 94, 17, Fade(WHITE, 0.84f));
+    UiDrawText("ENV", rightColumn, top + 146, 13, Fade(WHITE, 0.54f));
+    UiDrawText(environment, rightColumn + 34, top + 145, 15,
+               shipHudAtmosphere > 70.0f ? amber : cyan);
+
+    char gravity[128];
     if (ShipHasGravityPrimary()) {
-        DrawUiText(TextFormat("SOI %s  %.0f / %.0f", ShipGravityPrimaryName(),
-                              ShipGravityPrimaryDistance(),
-                              ShipGravitySphereOfInfluence()),
-                   textX, (int)panel.y + 118, 16, Fade(WHITE, 0.78f));
+        snprintf(gravity, sizeof(gravity), "GRAV %s  %.0f/%.0f",
+                 ShipGravityPrimaryName(), ShipGravityPrimaryDistance(),
+                 ShipGravitySphereOfInfluence());
     } else {
-        DrawUiText("SOI Interplanetary", textX, (int)panel.y + 118, 16,
-                   Fade(WHITE, 0.62f));
+        snprintf(gravity, sizeof(gravity), "GRAV INTERPLANETARY");
     }
+
+    char navigation[160];
     if (ShipHasWarpTarget()) {
         const char *targetKind = ShipWarpTargetIsSystem() ? "SYS" : "PLANET";
-        DrawUiText(TextFormat("%s %s %s", targetKind, warping ? "WARP" : "LOCK",
-                              ShipWarpTargetName()),
-                   textX, (int)panel.y + 142, 17, warping ? speedColor : Fade(WHITE, 0.84f));
+        snprintf(navigation, sizeof(navigation), "%s // %s // %s",
+                 targetKind, ShipWarpTargetName(), warping ? "WARP" : "LOCK");
     } else {
-        DrawUiText("Q lock planet    G engage warp", textX, (int)panel.y + 142, 16,
-                   Fade(WHITE, 0.68f));
+        snprintf(navigation, sizeof(navigation), "SYS // %s // NO TARGET",
+                 shipHudSystem);
     }
+    int statusFont = 14;
+    int statusWidth = (int)panel.width - 32;
+    while (statusFont > 11 &&
+           (UiMeasureText(gravity, statusFont) > statusWidth ||
+            UiMeasureText(navigation, statusFont) > statusWidth)) statusFont--;
+    UiDrawText(gravity, left, top + 180, statusFont, Fade(WHITE, 0.60f));
+    UiDrawText(navigation, left, top + 198, statusFont,
+               ShipHasWarpTarget() ? modeColor : Fade(WHITE, 0.76f));
+}
+
+static const char *ShipLocatorReturnHint(WorldDimension dimension)
+{
+    switch (dimension) {
+    case WORLD_DIMENSION_HOME: return "return to Homeworld";
+    case WORLD_DIMENSION_PLANET: return "travel to that planet";
+    case WORLD_DIMENSION_SPACE: return "launch into space";
+    case WORLD_DIMENSION_NETHER: return "enter the Nether";
+    default: return "return to its location";
+    }
+}
+
+void DrawShipLocator(const Camera3D *camera, const ShipLocatorTarget *target)
+{
+    if (!camera || !target || target->status == SHIP_LOCATOR_TARGET_NONE) return;
+
+    const Color accent = (Color){ 255, 198, 76, 255 };
+    if (target->status == SHIP_LOCATOR_TARGET_REMOTE) {
+        int screenWidth = GetScreenWidth();
+        if (screenWidth <= 64) return;
+        char text[128];
+        snprintf(text, sizeof(text), "SHIP  %s  |  %s", target->location,
+                 ShipLocatorReturnHint(target->dimension));
+        int fontSize = 17;
+        int maxWidth = screenWidth - 32;
+        while (fontSize > 12 && UiMeasureText(text, fontSize) + 28 > maxWidth) {
+            fontSize--;
+        }
+        if (UiMeasureText(text, fontSize) + 28 > maxWidth) {
+            snprintf(text, sizeof(text), "SHIP  %.24s", target->location);
+            while (strlen(text) > 4u &&
+                   UiMeasureText(text, fontSize) + 28 > maxWidth) {
+                text[strlen(text) - 1u] = '\0';
+            }
+        }
+        int width = fminf((float)(UiMeasureText(text, fontSize) + 28),
+                          (float)maxWidth);
+        Rectangle bar = {
+            ((float)screenWidth - (float)width) * 0.5f,
+            18.0f,
+            (float)width,
+            34.0f
+        };
+        DrawRectangleRounded(bar, 0.08f, 5, Fade(BLACK, 0.76f));
+        DrawRectangleRoundedLinesEx(bar, 0.08f, 5, 1.0f, Fade(accent, 0.68f));
+        UiDrawText(text, (int)bar.x + 12, (int)bar.y + 8, fontSize, accent);
+        return;
+    }
+
+    Vector3 cameraForward = Vector3Normalize(
+        Vector3Subtract(camera->target, camera->position));
+    Vector3 toTarget = Vector3Subtract(target->position, camera->position);
+    bool behind = Vector3DotProduct(cameraForward, toTarget) <= 0.0f;
+    Vector2 projected = GetWorldToScreen(target->position, *camera);
+    ShipLocatorMarkerLayout layout = ShipLocatorMarkerLayoutEvaluate(
+        projected, behind, GetScreenWidth(), GetScreenHeight(), 54.0f);
+    if (!layout.visible) return;
+
+    if (layout.onScreen) {
+        DrawCircleV(layout.position, 13.0f, Fade(BLACK, 0.68f));
+        DrawCircleLines((int)layout.position.x, (int)layout.position.y,
+                        12.0f, accent);
+        DrawTriangle(
+            (Vector2){ layout.position.x, layout.position.y - 7.0f },
+            (Vector2){ layout.position.x - 6.0f, layout.position.y + 6.0f },
+            (Vector2){ layout.position.x + 6.0f, layout.position.y + 6.0f },
+            accent);
+    } else {
+        Vector2 perpendicular = {
+            -layout.direction.y,
+            layout.direction.x
+        };
+        DrawTriangle(
+            Vector2Add(layout.position, Vector2Scale(layout.direction, 13.0f)),
+            Vector2Add(layout.position, Vector2Scale(perpendicular, 7.0f)),
+            Vector2Subtract(layout.position, Vector2Scale(perpendicular, 7.0f)),
+            accent);
+    }
+
+    const char *label = TextFormat("SHIP  %.0f", target->distance);
+    int fontSize = 16;
+    int labelWidth = UiMeasureText(label, fontSize);
+    int labelX = (int)(layout.position.x - (float)labelWidth * 0.5f);
+    int labelY = (int)layout.position.y + 17;
+    labelX = (int)Clamp((float)labelX, 10.0f,
+                        (float)GetScreenWidth() - (float)labelWidth - 10.0f);
+    labelY = (int)Clamp((float)labelY, 10.0f,
+                        (float)GetScreenHeight() - 24.0f);
+    UiDrawText(label, labelX, labelY, fontSize, accent);
 }
 
 void DrawCrosshair(int screenWidth, int screenHeight)
@@ -2486,16 +3423,16 @@ void DrawHotbar(const BlockType *hotbar, int selectedIndex)
         Rectangle dest = { rect.x + 14.0f, rect.y + 11.0f, 22.0f, 22.0f };
         DrawTexturePro(blockAtlas, source, dest, Vector2Zero(), 0.0f, WHITE);
         DrawRectangleLines((int)rect.x + 14, (int)rect.y + 11, 22, 22, Fade(BLACK, 0.35f));
-        DrawText(i == 9 ? "0" : TextFormat("%d", i + 1), (int)rect.x + 6, (int)rect.y + 31, 14, Fade(WHITE, 0.85f));
+        UiDrawText(i == 9 ? "0" : TextFormat("%d", i + 1), (int)rect.x + 6, (int)rect.y + 31, 14, Fade(WHITE, 0.85f));
         int count = InventoryCount(block);
         const char *countText = TextFormat("%d", count);
         int countFont = count >= 100 ? 11 : 13;
-        int countWidth = MeasureText(countText, countFont);
-        DrawText(countText, (int)(rect.x + rect.width - 5.0f - (float)countWidth), (int)rect.y + 31, countFont,
+        int countWidth = UiMeasureText(countText, countFont);
+        UiDrawText(countText, (int)(rect.x + rect.width - 5.0f - (float)countWidth), (int)rect.y + 31, countFont,
                  count > 0 ? WHITE : Fade((Color){ 238, 100, 82, 255 }, 0.9f));
     }
 
-    DrawText(TextFormat("%s  x%d", BlockName(hotbar[selectedIndex]), InventoryCount(hotbar[selectedIndex])),
+    UiDrawText(TextFormat("%s  x%d", BlockName(hotbar[selectedIndex]), InventoryCount(hotbar[selectedIndex])),
              x0, y - 24, 18, WHITE);
 }
 
@@ -2510,8 +3447,8 @@ int HotbarKeyToIndex(void)
 
 void DrawCenteredText(const char *text, int y, int fontSize, Color color)
 {
-    int width = MeasureText(text, fontSize);
-    DrawText(text, GetScreenWidth() / 2 - width / 2, y, fontSize, color);
+    int width = UiMeasureText(text, fontSize);
+    UiDrawText(text, GetScreenWidth() / 2 - width / 2, y, fontSize, color);
 }
 
 bool DrawMenuButton(Rectangle rect, const char *label, bool primary)
@@ -2525,8 +3462,8 @@ bool DrawMenuButton(Rectangle rect, const char *label, bool primary)
     DrawRectangleRoundedLinesEx(rect, 0.08f, 8, 2.0f, hovered ? WHITE : Fade(WHITE, 0.55f));
 
     int fontSize = 24;
-    int textWidth = MeasureText(label, fontSize);
-    DrawText(label, (int)(rect.x + rect.width * 0.5f - textWidth * 0.5f),
+    int textWidth = UiMeasureText(label, fontSize);
+    UiDrawText(label, (int)(rect.x + rect.width * 0.5f - textWidth * 0.5f),
              (int)(rect.y + rect.height * 0.5f - fontSize * 0.5f), fontSize, WHITE);
 
     return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
@@ -2543,8 +3480,8 @@ bool DrawTerrainOption(Rectangle rect, const char *title, const char *subtitle, 
     DrawRectangleRoundedLinesEx(rect, 0.07f, 8, selected ? 3.0f : 1.5f,
                                 selected ? (Color){ 224, 241, 202, 255 } : Fade(WHITE, 0.42f));
 
-    DrawText(title, (int)rect.x + 18, (int)rect.y + 13, 22, WHITE);
-    DrawText(subtitle, (int)rect.x + 18, (int)rect.y + 43, 15, Fade(WHITE, 0.72f));
+    UiDrawText(title, (int)rect.x + 18, (int)rect.y + 13, 22, WHITE);
+    UiDrawText(subtitle, (int)rect.x + 18, (int)rect.y + 43, 15, Fade(WHITE, 0.72f));
     return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 
@@ -2597,8 +3534,8 @@ void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain
         *selectedTerrain = TERRAIN_FLAT;
     }
 
-    Rectangle seedRect = { sw / 2 - 252.0f, sh / 2 + 96.0f, 356.0f, 48.0f };
-    Rectangle randomRect = { sw / 2 + 116.0f, sh / 2 + 96.0f, 136.0f, 48.0f };
+    Rectangle seedRect = { sw / 2 - 252.0f, sh / 2 + 106.0f, 356.0f, 48.0f };
+    Rectangle randomRect = { sw / 2 + 116.0f, sh / 2 + 106.0f, 136.0f, 48.0f };
     Vector2 mouse = GetMousePosition();
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         seedFocused = CheckCollisionPointRec(mouse, seedRect);
@@ -2629,13 +3566,13 @@ void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain
         displayedSeed = *selectedSeed;
     }
 
-    DrawText("World seed", (int)seedRect.x, (int)seedRect.y - 22, 16, Fade(WHITE, 0.78f));
+    UiDrawText("World seed", (int)seedRect.x, (int)seedRect.y - 22, 16, Fade(WHITE, 0.78f));
     DrawRectangleRounded(seedRect, 0.07f, 8, (Color){ 28, 35, 42, 255 });
     DrawRectangleRoundedLinesEx(seedRect, 0.07f, 8, 2.0f,
                                 validSeed ? (seedFocused ? WHITE : Fade(WHITE, 0.48f)) : (Color){ 230, 92, 82, 255 });
-    DrawText(seedText, (int)seedRect.x + 15, (int)seedRect.y + 12, 22, WHITE);
+    UiDrawText(seedText, (int)seedRect.x + 15, (int)seedRect.y + 12, 22, WHITE);
     if (seedFocused) {
-        int caretX = (int)seedRect.x + 15 + MeasureText(seedText, 22);
+        int caretX = (int)seedRect.x + 15 + UiMeasureText(seedText, 22);
         DrawRectangle(caretX + 2, (int)seedRect.y + 11, 2, 25, Fade(WHITE, 0.9f));
     }
     if (DrawMenuButton(randomRect, "Random", false)) {
@@ -2649,8 +3586,8 @@ void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain
         seedFocused = false;
     }
 
-    Rectangle startRect = { sw / 2 - 130.0f, sh / 2 + 160.0f, 260.0f, 54.0f };
-    Rectangle quitRect = { sw / 2 - 130.0f, sh / 2 + 226.0f, 260.0f, 48.0f };
+    Rectangle startRect = { sw / 2 - 130.0f, sh / 2 + 170.0f, 260.0f, 54.0f };
+    Rectangle quitRect = { sw / 2 - 130.0f, sh / 2 + 236.0f, 260.0f, 48.0f };
     if (validSeed && (DrawMenuButton(startRect, "Start", true) || IsKeyPressed(KEY_ENTER))) *startGame = true;
     else if (!validSeed) DrawMenuButton(startRect, "Enter a valid seed", false);
     if (DrawMenuButton(quitRect, "Quit", false)) *quitGame = true;
@@ -2665,22 +3602,22 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     int w = 430;
     int h = 398;
     DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)w, (float)h }, 0.05f, 6, Fade(BLACK, 0.68f));
-    DrawUiText("Voxelcraft", x + 14, y + 12, 24, WHITE);
-    DrawUiText("WASD move    Shift sprint    Space jump/swim", x + 14, y + 48, 17, RAYWHITE);
-    DrawUiText("LMB break    RMB place    MMB pick block", x + 14, y + 73, 17, RAYWHITE);
-    DrawUiText("F float    Ctrl down (float)    Wheel hotbar", x + 14, y + 98, 17, RAYWHITE);
-    DrawUiText("Tab mouse    M star map/warp    1-0 blocks    P album", x + 14, y + 123, 17, RAYWHITE);
-    DrawUiText("RMB on placed album opens it", x + 14, y + 148, 17, RAYWHITE);
-    DrawUiText("Esc pause    F6 day/night    O orbit paths", x + 14, y + 173, 17, RAYWHITE);
-    DrawUiText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 198, 17, RAYWHITE);
-    DrawUiText("Fly above y=120 to reach space", x + 14, y + 223, 17, RAYWHITE);
-    DrawUiText("Break collects; place consumes blocks", x + 14, y + 248, 15, RAYWHITE);
-    DrawUiText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 272, 15, RAYWHITE);
-    DrawUiText("WASD thrust, X cruise, F assist, E exit", x + 14, y + 296, 15, RAYWHITE);
-    DrawUiText("View: [ ] distance    Flat: I import image", x + 14, y + 320, 15, RAYWHITE);
-    DrawUiText("Planet: C scanner, break cores for discoveries", x + 14, y + 344, 15, RAYWHITE);
+    UiDrawText("Voxelcraft", x + 14, y + 12, 24, WHITE);
+    UiDrawText("WASD move    Shift sprint    Space jump/swim", x + 14, y + 48, 17, RAYWHITE);
+    UiDrawText("LMB break    RMB place    MMB pick block", x + 14, y + 73, 17, RAYWHITE);
+    UiDrawText("F float    Ctrl down (float)    Wheel hotbar", x + 14, y + 98, 17, RAYWHITE);
+    UiDrawText("Tab mouse    M star map/warp    L locate ship", x + 14, y + 123, 17, RAYWHITE);
+    UiDrawText("RMB on placed album opens it", x + 14, y + 148, 17, RAYWHITE);
+    UiDrawText("Esc pause    F6 day/night    O orbit paths", x + 14, y + 173, 17, RAYWHITE);
+    UiDrawText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 198, 17, RAYWHITE);
+    UiDrawText("Fly above y=120 to reach space", x + 14, y + 223, 17, RAYWHITE);
+    UiDrawText("Break collects; place consumes blocks", x + 14, y + 248, 15, RAYWHITE);
+    UiDrawText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 272, 15, RAYWHITE);
+    UiDrawText("WASD thrust, X cruise, F assist, E exit", x + 14, y + 296, 15, RAYWHITE);
+    UiDrawText("1-0 blocks    [ ] distance    Flat: I import image", x + 14, y + 320, 15, RAYWHITE);
+    UiDrawText("Planet: C scanner, break cores for discoveries", x + 14, y + 344, 15, RAYWHITE);
     const char *mode = ShipIsDriving() ? "Ship" : (floating ? "Floating" : "Walking");
-    DrawUiText(TextFormat("%s    %s    View %d    FPS %d", mode,
+    UiDrawText(TextFormat("%s    %s    View %d    FPS %d", mode,
                           cursorReleased ? "Mouse free" : "Mouse locked", viewDistance, GetFPS()),
                x + 14, y + 372, 16, Fade(RAYWHITE, 0.9f));
 }
@@ -2689,13 +3626,13 @@ void DrawCursorReleasedOverlay(void)
 {
     const char *text = "Mouse released - press Tab to return";
     int fontSize = 20;
-    int width = MeasureText(text, fontSize) + 28;
+    int width = UiMeasureText(text, fontSize) + 28;
     int x = GetScreenWidth() / 2 - width / 2;
     int y = GetScreenHeight() - 132;
     Rectangle rect = { (float)x, (float)y, (float)width, 46.0f };
     DrawRectangleRounded(rect, 0.08f, 8, Fade(BLACK, 0.58f));
     DrawRectangleRoundedLinesEx(rect, 0.08f, 8, 1.5f, Fade(WHITE, 0.42f));
-    DrawText(text, x + 14, y + 13, fontSize, WHITE);
+    UiDrawText(text, x + 14, y + 13, fontSize, WHITE);
 }
 
 void DrawImportStatus(void)
@@ -2706,22 +3643,22 @@ void DrawImportStatus(void)
     const char *message = WorldGetImportMessage();
     int fontSize = 18;
     int padding = 12;
-    int width = MeasureText(message, fontSize) + padding * 2;
+    int width = UiMeasureText(message, fontSize) + padding * 2;
     int x = GetScreenWidth() / 2 - width / 2;
     int y = 18;
     Rectangle rect = { (float)x, (float)y, (float)width, 42.0f };
     DrawRectangleRounded(rect, 0.08f, 8, Fade(BLACK, 0.54f));
     DrawRectangleRoundedLinesEx(rect, 0.08f, 8, 1.5f, Fade(WHITE, 0.38f));
-    DrawText(message, x + padding, y + 12, fontSize, WHITE);
+    UiDrawText(message, x + padding, y + 12, fontSize, WHITE);
 }
 
 const char *VisiblePathTail(const char *path, int maxWidth, int fontSize)
 {
-    if (MeasureText(path, fontSize) <= maxWidth) return path;
+    if (UiMeasureText(path, fontSize) <= maxWidth) return path;
 
     const char *tail = path;
-    int available = maxWidth - MeasureText("...", fontSize);
-    while (*tail && MeasureText(tail, fontSize) > available) tail++;
+    int available = maxWidth - UiMeasureText("...", fontSize);
+    while (*tail && UiMeasureText(tail, fontSize) > available) tail++;
     return tail;
 }
 
@@ -2738,8 +3675,8 @@ void DrawImportDialog(ImportDialog *dialog)
     DrawRectangleRounded(panel, 0.04f, 8, (Color){ 30, 38, 45, 245 });
     DrawRectangleRoundedLinesEx(panel, 0.04f, 8, 2.0f, Fade(WHITE, 0.45f));
 
-    DrawText("Import image as blocks", (int)panel.x + 30, (int)panel.y + 24, 28, WHITE);
-    DrawText("Flat mode only. PNG, JPG, BMP, TGA, GIF, QOI, PSD, HDR.",
+    UiDrawText("Import image as blocks", (int)panel.x + 30, (int)panel.y + 24, 28, WHITE);
+    UiDrawText("Flat mode only. PNG, JPG, BMP, TGA, GIF, QOI, PSD, HDR.",
              (int)panel.x + 30, (int)panel.y + 62, 16, Fade(WHITE, 0.72f));
 
     DrawRectangleRounded(input, 0.05f, 8, (Color){ 15, 20, 25, 255 });
@@ -2748,20 +3685,20 @@ void DrawImportDialog(ImportDialog *dialog)
     const char *shown = dialog->path[0] ? VisiblePathTail(dialog->path, (int)input.width - 44, 20) : "";
     int textX = (int)input.x + 16;
     if (shown != dialog->path) {
-        DrawText("...", textX, (int)input.y + 13, 20, Fade(WHITE, 0.85f));
-        textX += MeasureText("...", 20);
+        UiDrawText("...", textX, (int)input.y + 13, 20, Fade(WHITE, 0.85f));
+        textX += UiMeasureText("...", 20);
     }
-    DrawText(shown, textX, (int)input.y + 13, 20, dialog->path[0] ? WHITE : Fade(WHITE, 0.38f));
+    UiDrawText(shown, textX, (int)input.y + 13, 20, dialog->path[0] ? WHITE : Fade(WHITE, 0.38f));
 
     if (((int)(GetTime() * 2.0) % 2) == 0) {
-        int cursorX = textX + MeasureText(shown, 20) + 2;
+        int cursorX = textX + UiMeasureText(shown, 20) + 2;
         DrawLine(cursorX, (int)input.y + 11, cursorX, (int)input.y + 35, WHITE);
     }
 
     const char *modeText = TextFormat("Mode: %s  (Tab toggles)",
                                       dialog->relief ? "Grayscale relief" : "Flat color");
-    int modeWidth = MeasureText(modeText, 18);
-    DrawText(modeText, sw / 2 - modeWidth / 2, (int)panel.y + 140, 18, WHITE);
+    int modeWidth = UiMeasureText(modeText, 18);
+    UiDrawText(modeText, sw / 2 - modeWidth / 2, (int)panel.y + 140, 18, WHITE);
 
     Rectangle minusRect = { panel.x + 30.0f, panel.y + 166.0f, 44.0f, 36.0f };
     Rectangle plusRect = { panel.x + panel.width - 74.0f, panel.y + 166.0f, 44.0f, 36.0f };
@@ -2773,80 +3710,115 @@ void DrawImportDialog(ImportDialog *dialog)
     }
 
     const char *precisionText = TextFormat("Precision: max %d blocks per side (min 16)", dialog->maxBlocks);
-    int precisionWidth = MeasureText(precisionText, 18);
-    DrawText(precisionText, sw / 2 - precisionWidth / 2, (int)panel.y + 174, 18, WHITE);
+    int precisionWidth = UiMeasureText(precisionText, 18);
+    UiDrawText(precisionText, sw / 2 - precisionWidth / 2, (int)panel.y + 174, 18, WHITE);
 
-    DrawText("Type path or Ctrl+V paste. Tab mode. [ ] adjusts. Enter imports. Esc cancels.",
+    UiDrawText("Type path or Ctrl+V paste. Tab mode. [ ] adjusts. Enter imports. Esc cancels.",
              (int)panel.x + 30, (int)panel.y + 218, 16, Fade(WHITE, 0.76f));
 }
 
-void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight)
+void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight,
+                  const PlanetLightState *light,
+                  const PlanetObservationState *observation,
+                  float seasonProgress,
+                  const WeatherVisualState *weatherVisual)
 {
     int x = 18;
     int y = 76;
     int line = 20;
     int fs = 14;
 
-    DrawText(TextFormat("XYZ %.1f %.1f %.1f   yaw %.1f pitch %.1f",
+    UiDrawText(TextFormat("XYZ %.1f %.1f %.1f   yaw %.1f pitch %.1f",
                         playerPosition.x, playerPosition.y, playerPosition.z, yaw * RAD2DEG, pitch * RAD2DEG),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
-    DrawText(TextFormat("FPS %d   frame %.2f ms", GetFPS(), GetFrameTime() * 1000.0f), x, y, fs, Fade(WHITE, 0.85f)); y += line;
-    DrawText(TextFormat("Chunks loaded %d   gen queue %d   mesh queue %d",
+    UiDrawText(TextFormat("FPS %d   frame %.2f ms", GetFPS(), GetFrameTime() * 1000.0f), x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    UiDrawText(TextFormat("Chunks loaded %d   gen queue %d   mesh queue %d",
                         GetActiveChunkCount(), GetPendingGenJobCount(), GetPendingMeshJobCount()),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
-    DrawText(TextFormat("Particles %d   edits %d   render dist %d",
+    ChunkStreamingStats streaming = ChunksGetStreamingStats();
+    UiDrawText(TextFormat("Stream gen %.1fms  mesh %.1fms  upload %.1fms (max %.2f)  sync %llu",
+                        streaming.generationCpuMs, streaming.meshCpuMs,
+                        streaming.uploadCpuMs, streaming.maxUploadCpuMs,
+                        (unsigned long long)streaming.syncRebuilds),
+             x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    UiDrawText(TextFormat("Stream peak queues gen %llu  mesh %llu  upload defers %llu",
+                        (unsigned long long)streaming.generationQueuePeak,
+                        (unsigned long long)streaming.meshQueuePeak,
+                        (unsigned long long)streaming.uploadBudgetDeferrals),
+             x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    UiDrawText(TextFormat("Particles %d   edits %d   render dist %d",
                         ParticlesActiveCount(), WorldGetEditCount(), renderDistanceChunks),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
-    DrawText(TextFormat("Space %d/%d   nether %d   entities %d",
+    UiDrawText(TextFormat("Space %d/%d   nether %d   entities %d",
                         GetActiveSpaceChunkCount(), SpaceEditCountForHud,
                         GetActiveNetherChunkCount(), GetActiveEntityCount()),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
-    DrawText(TextFormat("Weather %s   time %02d:00   auto-save %s",
+    UiDrawText(TextFormat("Weather %s   time %02d:00   auto-save %s",
                         WeatherName(), (int)(dayTimeForHud * 24.0f) % 24,
                         autoSaveForHud ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
-        DrawText(TextFormat("Weather cloud %.2f   precip %.2f   storm %.2f   wind %.2f",
+        UiDrawText(TextFormat("Weather cloud %.2f   precip %.2f   storm %.2f   wind %.2f",
                             WeatherCloudCover(), WeatherPrecipitationRate(),
                             WeatherStormIntensity(), WeatherWindIntensity()),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        if (weatherVisual && weatherVisual->active) {
+            UiDrawText(TextFormat("Visibility %.2f   fog %.2f   veil %.2f   cloud AGL %.1f",
+                                weatherVisual->visibility,
+                                weatherVisual->fogDensity,
+                                weatherVisual->precipitationVeil,
+                                weatherVisual->cloudBaseHeight),
+                     x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        }
     }
     SolarSystemDef hudSystem;
     float hudSystemDist = 0.0f;
     if (FindSystemForGuide(playerPosition, &hudSystem, &hudSystemDist)) {
-        DrawText(TextFormat("System %s Prime (%.0f)", hudSystem.name, hudSystemDist),
+        UiDrawText(TextFormat("System %s Prime (%.0f)", hudSystem.name, hudSystemDist),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
     } else {
-        DrawText("Deep space", x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        UiDrawText("Deep space", x, y, fs, Fade(WHITE, 0.85f)); y += line;
     }
     if (PlanetWorldIsActive()) {
+        if (light && observation && observation->valid) {
+            UiDrawText(TextFormat(
+                         "Sky %s   season %.0f%%   day %.1fh   local flux %.3f   stars %.2f   moon %.2f   eclipse %.2f",
+                         PlanetObservationPhaseName(observation->phase),
+                         Clamp(seasonProgress, 0.0f, 1.0f) * 100.0f,
+                         Clamp(light->dayLengthFraction, 0.0f, 1.0f) * 24.0f,
+                         fmaxf(light->incidentIrradiance, 0.0f),
+                         observation->starVisibility,
+                         observation->moonVisibility,
+                         observation->eclipseDarkening),
+                     x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        }
         PlanetLocalEcology ecology = PlanetEcologyLocalAt(
             (int)floorf(playerPosition.x), (int)floorf(playerPosition.z), daylight);
-        DrawText(TextFormat("Ecology capacity %.2f   flora %.2f   fauna %.2f   limit %s",
+        UiDrawText(TextFormat("Ecology capacity %.2f   flora %.2f   fauna %.2f   limit %s",
                             ecology.suitability.carryingCapacity,
                             ecology.suitability.floraCapacity,
                             ecology.suitability.faunaCapacity,
                             PlanetEcologyLimitingFactorName(
                                 ecology.suitability.limitingFactor)),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Activity flora %.2f   fauna %.2f   water %.2f   rain %.2f",
+        UiDrawText(TextFormat("Activity flora %.2f   fauna %.2f   water %.2f   rain %.2f",
                             ecology.suitability.floraActivity,
                             ecology.suitability.faunaActivity,
                             ecology.environment.liquidWaterAccess,
                             ecology.environment.precipitationRate),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Region (%d,%d)   disturbance %.3f   flora stress %.3f",
+        UiDrawText(TextFormat("Region (%d,%d)   disturbance %.3f   flora stress %.3f",
                             ecology.diagnostics.regionX,
                             ecology.diagnostics.regionZ,
                             ecology.environment.disturbance,
                             ecology.environment.disturbance * 0.82f),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Fauna harvest %.3f   stress %.3f   net %+.5f/day",
+        UiDrawText(TextFormat("Fauna harvest %.3f   stress %.3f   net %+.5f/day",
                             ecology.population.faunaHarvestPressure,
                             ecology.diagnostics.faunaStress,
                             ecology.diagnostics.faunaNetRecoveryRate),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Population flora %.2f/%.2f   fauna %.2f/%.2f   seasonal %.2f   radiation memory %.2f",
+        UiDrawText(TextFormat("Population flora %.2f/%.2f   fauna %.2f/%.2f   seasonal %.2f   radiation memory %.2f",
                             ecology.population.floraDensity,
                             ecology.population.floraCarryingCapacity,
                             ecology.population.faunaDensity,
@@ -2854,17 +3826,17 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             ecology.population.seasonalMemory,
                             ecology.diagnostics.radiationMemory),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Migration net flora %+.3f   fauna %+.3f",
+        UiDrawText(TextFormat("Migration net flora %+.3f   fauna %+.3f",
                             ecology.migration.floraNet,
                             ecology.migration.faunaNet),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Flow flora (%+.3f,%+.3f)   fauna (%+.3f,%+.3f)",
+        UiDrawText(TextFormat("Flow flora (%+.3f,%+.3f)   fauna (%+.3f,%+.3f)",
                             ecology.migration.floraFlowX,
                             ecology.migration.floraFlowZ,
                             ecology.migration.faunaFlowX,
                             ecology.migration.faunaFlowZ),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Climate %.0f/%.0f K   light %.2f/%.2f   storm %.2f   radiation %.2f   ejecta %.2f",
+        UiDrawText(TextFormat("Climate %.0f/%.0f K   light %.2f/%.2f   storm %.2f   radiation %.2f   ejecta %.2f",
                             ecology.environment.meanTemperatureK,
                             ecology.environment.currentTemperatureK,
                             ecology.environment.meanUsableLight,
@@ -2873,7 +3845,7 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             ecology.environment.radiationExposure,
                             ecology.environment.ejectaExposure),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Terrain elevation %.2f   slope %.2f   shelter %.2f",
+        UiDrawText(TextFormat("Terrain elevation %.2f   slope %.2f   shelter %.2f",
                             ecology.environment.elevation,
                             ecology.environment.slope,
                             ecology.environment.shelter),
@@ -2881,108 +3853,167 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
     }
     SpaceScaleDiagnostics scale;
     if (SpaceScaleDiagnosticsAt(playerPosition, &scale)) {
-        DrawText(TextFormat("Scale %.0f u/AU   1 play s = 1 sim day   error %.3f ppm [%s]",
+        UiDrawText(TextFormat("Scale %.0f u/AU   1 play s = 1 sim day   error %.3f ppm [%s]",
                             SPACE_UNITS_GAME_DISTANCE_PER_AU,
                             scale.maxRelativeError * 1000000.0,
                             scale.withinErrorBudget ? "OK" : "OUT"),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("%s radius %.0f km = %.5f linear u",
+        UiDrawText(TextFormat("%s radius %.0f km = %.5f linear u",
                             scale.bodyName, scale.physicalRadiusKm,
                             scale.physicalRadiusGame),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Proxy visual %.1f u   landing %.1f u   x%.0f",
+        UiDrawText(TextFormat("Proxy visual %.1f u   landing %.1f u   x%.0f",
                             scale.visualRadiusGame, scale.landingRadiusGame,
                             scale.landingRadiusScale),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Gravity %.2f m/s2 (%.2f g)   gameplay %.2f u/s2",
+        UiDrawText(TextFormat("Gravity %.2f m/s2 (%.2f g)   gameplay %.2f u/s2",
                             scale.physicalGravityMetersPerSecondSquared,
                             scale.physicalGravityEarth,
                             scale.gameplaySurfaceGravity),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Orbit speed %.2f km/s   %.3f u/play-s",
+        UiDrawText(TextFormat("Orbit speed %.2f km/s   %.3f u/play-s",
                             scale.orbitalSpeedKilometersPerSecond,
                             scale.orbitalSpeedGame),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("SOI %.0f km (%.3f linear u)   Hill %.0f km",
+        UiDrawText(TextFormat("SOI %.0f km (%.3f linear u)   Hill %.0f km",
                             scale.sphereOfInfluenceKm,
                             scale.physicalSphereOfInfluenceGame,
                             scale.hillSphereKm),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Encounter %.1f u   x%.1f [%s]",
+        UiDrawText(TextFormat("Encounter %.1f u   x%.1f [%s]",
                             scale.encounterRadiusGame,
                             scale.encounterRadiusScale,
                             scale.encounterRadiusClamped ? "proxy clamp" : "physical"),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Flux now %.3f Earth   climate mean %.3f Earth",
+        UiDrawText(TextFormat("Flux now %.3f Earth   climate mean %.3f Earth",
                             scale.currentIrradianceEarth,
                             scale.climateIrradianceEarth),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        DrawText(TextFormat("Temperature radiative %.0f K   surface %.0f K",
+        UiDrawText(TextFormat("Temperature radiative %.0f K   surface %.0f K",
                             scale.radiativeTemperatureK,
                             scale.surfaceTemperatureK),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
     } else {
-        DrawText("Scale target: no planet within 700 u", x, y, fs,
+        UiDrawText("Scale target: no planet within 700 u", x, y, fs,
                  Fade(WHITE, 0.68f)); y += line;
     }
     if (!PlanetWorldIsActive() && !HomeWorldSurfaceIsActive()) {
         SpaceSatelliteScaleDiagnostics satelliteScale;
         if (SpaceSatelliteScaleDiagnosticsAt(playerPosition,
                                              &satelliteScale)) {
-            DrawText(TextFormat("Moon %s radius %.0f km = %.5f linear u",
+            UiDrawText(TextFormat("Moon %s radius %.0f km = %.5f linear u",
                                 satelliteScale.bodyName,
                                 satelliteScale.physicalRadiusKm,
                                 satelliteScale.physicalRadiusGame),
                      x, y, fs, Fade(WHITE, 0.85f)); y += line;
-            DrawText(TextFormat("Moon gravity %.2f m/s2   orbit %.2f km/s",
+            UiDrawText(TextFormat("Moon gravity %.2f m/s2   orbit %.2f km/s",
                                 satelliteScale.physicalGravityMetersPerSecondSquared,
                                 satelliteScale.orbitalSpeedKilometersPerSecond),
                      x, y, fs, Fade(WHITE, 0.85f)); y += line;
-            DrawText(TextFormat("Moon SOI %.0f km   Hill %.0f km",
+            UiDrawText(TextFormat("Moon SOI %.0f km   Hill %.0f km",
                                 satelliteScale.sphereOfInfluenceKm,
                                 satelliteScale.hillSphereKm),
                      x, y, fs, Fade(WHITE, 0.85f)); y += line;
-            DrawText(TextFormat("Moon encounter %.2f u [%s]",
+            UiDrawText(TextFormat("Moon encounter %.2f u [%s]",
                                 satelliteScale.encounterRadiusGame,
                                 satelliteScale.withinErrorBudget ? "OK" : "OUT"),
                      x, y, fs, Fade(WHITE, 0.85f)); y += line;
         }
     }
-    DrawText(TextFormat("Block %s   music %s", BlockName(blockForHud),
+    UiDrawText(TextFormat("Block %s   music %s", BlockName(blockForHud),
                         AudioIsMusicEnabled() ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     if (ShipIsDriving()) {
-        DrawText(TextFormat("Ship speed %.1f blocks/s", shipSpeedForHud), x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        UiDrawText(TextFormat("Ship speed %.1f blocks/s", shipSpeedForHud), x, y, fs, Fade(WHITE, 0.85f)); y += line;
     }
 }
 
-void DrawPauseMenu(bool *resume, bool *saveWorld, bool *saveAndQuit,
-                   bool *toggleMusic, bool *returnToMenu)
+static bool DrawSettingStepper(Rectangle row, const char *label, float *value)
 {
+    bool changed = false;
+    UiDrawText(label, (int)row.x, (int)row.y + 10, 17, Fade(WHITE, 0.84f));
+    Rectangle minus = { row.x + row.width - 126.0f, row.y, 38.0f, 38.0f };
+    Rectangle plus = { row.x + row.width - 38.0f, row.y, 38.0f, 38.0f };
+    if (DrawMenuButton(minus, "-", false)) {
+        *value = fmaxf(0.0f, *value - 0.10f);
+        changed = true;
+    }
+    if (DrawMenuButton(plus, "+", false)) {
+        *value = fminf(1.0f, *value + 0.10f);
+        changed = true;
+    }
+    const char *percentage = TextFormat("%d%%", (int)roundf(*value * 100.0f));
+    int textWidth = UiMeasureText(percentage, 16);
+    UiDrawText(percentage, (int)(row.x + row.width - 63.0f - textWidth * 0.5f),
+               (int)row.y + 11, 16, WHITE);
+    return changed;
+}
+
+void DrawPauseMenu(GameSettings *settings, PauseMenuActions *actions)
+{
+    if (!settings || !actions) return;
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
 
     DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.55f));
 
-    Rectangle panel = { sw / 2 - 210.0f, sh / 2 - 185.0f, 420.0f, 370.0f };
+    float panelHeight = fminf(660.0f, (float)sh - 36.0f);
+    Rectangle panel = { sw / 2 - 270.0f, ((float)sh - panelHeight) * 0.5f,
+                        540.0f, panelHeight };
     DrawRectangleRounded(panel, 0.05f, 8, (Color){ 30, 38, 45, 245 });
     DrawRectangleRoundedLinesEx(panel, 0.05f, 8, 2.0f, Fade(WHITE, 0.45f));
 
-    DrawCenteredText("Paused", sh / 2 - 155, 38, WHITE);
-    DrawCenteredText("The world is frozen. Day/night paused.", sh / 2 - 110, 16, Fade(WHITE, 0.72f));
+    int left = (int)panel.x + 36;
+    int contentWidth = (int)panel.width - 72;
+    int y = (int)panel.y + 26;
+    DrawCenteredText("Paused", y, 34, WHITE);
+    y += 58;
 
-    Rectangle resumeRect = { sw / 2 - 130.0f, sh / 2 - 74.0f, 260.0f, 48.0f };
-    Rectangle saveRect = { sw / 2 - 130.0f, sh / 2 - 14.0f, 260.0f, 48.0f };
-    Rectangle musicRect = { sw / 2 - 130.0f, sh / 2 + 46.0f, 260.0f, 48.0f };
-    Rectangle menuRect = { sw / 2 - 130.0f, sh / 2 + 106.0f, 260.0f, 48.0f };
-    Rectangle quitRect = { sw / 2 - 130.0f, sh / 2 + 166.0f, 260.0f, 48.0f };
-
-    if (DrawMenuButton(resumeRect, "Resume (Esc)", true)) *resume = true;
-    if (DrawMenuButton(saveRect, "Save World", false)) *saveWorld = true;
-    if (DrawMenuButton(musicRect, TextFormat("Music: %s", AudioIsMusicEnabled() ? "On" : "Off"), false)) *toggleMusic = true;
-    if (DrawMenuButton(menuRect, "Return to Menu", false)) *returnToMenu = true;
-    if (DrawMenuButton(quitRect, "Save & Quit", false)) *saveAndQuit = true;
-
-    DrawText(TextFormat("Volume: %d%%   (- / + to adjust)", (int)(GetMasterVolume() * 100.0f)),
-             (int)panel.x + 30, (int)(panel.y + panel.height - 34), 16, Fade(WHITE, 0.72f));
+    UiDrawText("Graphics quality", left, y, 17, Fade(WHITE, 0.84f));
+    y += 30;
+    float segmentWidth = ((float)contentWidth - 12.0f) / 3.0f;
+    for (int quality = 0; quality < GRAPHICS_QUALITY_COUNT; quality++) {
+        Rectangle segment = { (float)left + quality * (segmentWidth + 6.0f),
+                              (float)y, segmentWidth, 40.0f };
+        bool selected = settings->graphicsQuality == (GraphicsQuality)quality;
+        if (DrawMenuButton(segment,
+                           GraphicsQualityName((GraphicsQuality)quality), selected) &&
+            !selected) {
+            settings->graphicsQuality = (GraphicsQuality)quality;
+            actions->settingsChanged = true;
+            actions->qualityChanged = true;
+        }
+    }
+    y += 58;
+    Rectangle volumeRow = { (float)left, (float)y, (float)contentWidth, 38.0f };
+    if (DrawSettingStepper(volumeRow, "Master volume", &settings->masterVolume)) {
+        actions->settingsChanged = true;
+    }
+    volumeRow.y += 48.0f;
+    if (DrawSettingStepper(volumeRow, "Environment", &settings->ambientVolume)) {
+        actions->settingsChanged = true;
+    }
+    volumeRow.y += 48.0f;
+    if (DrawSettingStepper(volumeRow, "Music volume", &settings->musicVolume)) {
+        actions->settingsChanged = true;
+    }
+    y += 160;
+    Rectangle musicRect = { (float)left, (float)y, (float)contentWidth, 40.0f };
+    if (DrawMenuButton(musicRect,
+                       TextFormat("Music: %s", settings->musicEnabled ? "On" : "Off"),
+                       settings->musicEnabled)) {
+        settings->musicEnabled = !settings->musicEnabled;
+        actions->settingsChanged = true;
+    }
+    y += 58;
+    Rectangle resumeRect = { (float)left, (float)y, (float)contentWidth, 44.0f };
+    if (DrawMenuButton(resumeRect, "Resume", true)) actions->resume = true;
+    y += 54;
+    Rectangle saveRect = { (float)left, (float)y, 226.0f, 42.0f };
+    Rectangle menuRect = { (float)left + 242.0f, (float)y, 226.0f, 42.0f };
+    if (DrawMenuButton(saveRect, "Save World", false)) actions->saveWorld = true;
+    if (DrawMenuButton(menuRect, "Return to Menu", false)) actions->returnToMenu = true;
+    y += 52;
+    Rectangle quitRect = { (float)left, (float)y, (float)contentWidth, 42.0f };
+    if (DrawMenuButton(quitRect, "Save & Quit", false)) actions->saveAndQuit = true;
 }

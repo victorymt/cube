@@ -783,6 +783,12 @@ static void AssertPlanetLightStateValid(const PlanetLightState *state)
     assert(isfinite(state->moonAngularRadius) && state->moonAngularRadius >= 0.0f);
     assert(isfinite(state->moonUmbra) && state->moonUmbra >= 0.0f &&
            state->moonUmbra <= 1.0f);
+    assert(isfinite(state->solarDeclination));
+    assert(isfinite(state->dayLengthFraction) &&
+           state->dayLengthFraction >= 0.0f &&
+           state->dayLengthFraction <= 1.0f);
+    assert(isfinite(state->incidentIrradiance) &&
+           state->incidentIrradiance >= 0.0f);
     assert(isfinite(state->totalIntensity) && state->totalIntensity > 0.0f);
     for (int index = 0; index < state->sourceCount; index++) {
         assert(TestLightVectorFinite(state->sourceDirections[index]));
@@ -821,6 +827,10 @@ static void TestPlanetLightStateDeterminism(void)
     assert(!PlanetWorldLightStateAt(
         (Vector3){ NAN, 70.0f, 0.5f }, &invalid));
     assert(memcmp(&invalid, &cleared, sizeof(invalid)) == 0);
+    memset(&invalid, 0xa5, sizeof(invalid));
+    assert(!PlanetWorldLightStateAtTime(
+        (Vector3){ 0.5f, 70.0f, 0.5f }, NAN, &invalid));
+    assert(memcmp(&invalid, &cleared, sizeof(invalid)) == 0);
     static const Vector3 surfacePositions[] = {
         { 0.5f, 70.0f, 0.5f },
         { 18.5f, 72.0f, -11.5f },
@@ -836,10 +846,33 @@ static void TestPlanetLightStateDeterminism(void)
         AssertPlanetLightStateValid(&first);
         assert(memcmp(&first, &second, sizeof(first)) == 0);
     }
+    double explicitTime = SpaceElapsedSimulationTime();
+    PlanetLightState current;
+    PlanetLightState explicitFirst;
+    PlanetLightState explicitReplay;
+    assert(PlanetWorldLightStateAt(surfacePositions[1], &current));
+    assert(PlanetWorldLightStateAtTime(
+        surfacePositions[1], explicitTime, &explicitFirst));
+    assert(PlanetWorldLightStateAtTime(
+        surfacePositions[1], explicitTime, &explicitReplay));
+    assert(memcmp(&current, &explicitFirst, sizeof(current)) == 0);
+    assert(memcmp(&explicitFirst, &explicitReplay,
+                  sizeof(explicitFirst)) == 0);
     SpaceAdvanceTime(37.5f);
     PlanetLightState advanced;
     assert(PlanetWorldLightStateAt(surfacePositions[1], &advanced));
     AssertPlanetLightStateValid(&advanced);
+
+    const double seasonAdvance = (double)PlanetWorldProfile()->yearLength * 0.25;
+    if (seasonAdvance > 1.0) {
+        PlanetLightState seasonal;
+        SpaceAdvanceTime((float)seasonAdvance);
+        assert(PlanetWorldLightStateAt(surfacePositions[1], &seasonal));
+        AssertPlanetLightStateValid(&seasonal);
+        assert(fabsf(seasonal.solarDeclination - advanced.solarDeclination) > 0.01f ||
+               fabsf(seasonal.dayLengthFraction - advanced.dayLengthFraction) > 0.01f ||
+               fabsf(seasonal.daylight - advanced.daylight) > 0.01f);
+    }
 
     fclose(file);
     PlanetWorldReset();

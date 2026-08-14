@@ -12,6 +12,7 @@
 #include <string.h>
 
 static int solidX = -1;
+static int waterX = -1;
 static int blockQueries = 0;
 static int testFileBytes = 1024;
 static int loadImageCalls = 0;
@@ -144,7 +145,13 @@ void MarkChunkDirty(int cx, int cz)
 BlockType GetBlockAt(int x, int y, int z)
 {
     blockQueries++;
+    if (x == waterX && y == 0 && z == 0) return BLOCK_WATER;
     return x == solidX && y == 0 && z == 0 ? BLOCK_STONE : BLOCK_AIR;
+}
+
+bool IsLiquidBlock(BlockType type)
+{
+    return type == BLOCK_WATER || type == BLOCK_LAVA;
 }
 
 float BlockCollisionHeight(BlockType type)
@@ -175,6 +182,7 @@ bool SpaceBlockReadyAt(int x, int y, int z)
 static void ResetRayWorld(void)
 {
     solidX = -1;
+    waterX = -1;
     blockQueries = 0;
 }
 
@@ -247,6 +255,22 @@ static void TestRaycastHasIterationLimit(void)
                (Vector3){ 0.1f, 0.1f, 0.1f },
                (Vector3){ 1.0f, 0.0f, 0.0f }, FLT_MAX) < 0.0f);
     assert(blockQueries <= 4096);
+}
+
+static void TestRaycastCanIgnoreLiquids(void)
+{
+    ResetRayWorld();
+    waterX = 1;
+    solidX = 2;
+    Vector3 origin = { 0.1f, 0.1f, 0.1f };
+    Vector3 direction = { 1.0f, 0.0f, 0.0f };
+
+    HitResult all = RaycastBlocks(origin, direction, 4.0f);
+    assert(all.hit && all.x == 1);
+    HitResult solid = RaycastBlocksFiltered(origin, direction, 4.0f,
+                                            RAYCAST_BLOCK_SOLID);
+    assert(solid.hit && solid.x == 2);
+    assert(solid.nx == -1 && solid.ny == 0 && solid.nz == 0);
 }
 
 static void TestImageImportLimits(void)
@@ -335,6 +359,7 @@ int main(void)
     TestRaycastRejectsInvalidInput();
     TestRaycastNormalizesDirection();
     TestRaycastHasIterationLimit();
+    TestRaycastCanIgnoreLiquids();
     TestImageImportLimits();
     TestImageImportFailureLifecycle();
     TestImageImportClosesUndoGroup();

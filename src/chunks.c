@@ -1,7 +1,8 @@
 #include "chunks.h"
 
+#include "block_atlas.h"
+
 #include "raymath.h"
-#include "rlgl.h"
 #include "ecology.h"
 #include "space.h"
 #include "terrain.h"
@@ -9,11 +10,17 @@
 #include "weather.h"
 
 #include <math.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+#ifdef CHUNKS_TESTING
+#include <assert.h>
+#endif
 
 #include "raymath.h"
 Chunk chunks[MAX_ACTIVE_CHUNKS];
@@ -24,6 +31,17 @@ static pthread_mutex_t genMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t genCond = PTHREAD_COND_INITIALIZER;
 static pthread_t genThread = 0;
 static bool genShutdown = false;
+static bool genWorkerActive = false;
+static ChunkStreamingStats streamingStats;
+
+static double ChunkNowMs(void)
+{
+    struct timespec value;
+    if (clock_gettime(CLOCK_MONOTONIC, &value) != 0) return 0.0;
+    return (double)value.tv_sec * 1000.0 + (double)value.tv_nsec / 1000000.0;
+}
+
+static void UpdateQueuePeaksLocked(void);
 
 struct MeshJob {
     bool inUse;
@@ -31,17 +49,27 @@ struct MeshJob {
     int slotIndex;
     int cx;
     int cz;
-    bool transparent;
-    unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    int sectionY;
+    // Snapshot consistency stamps: the section content revision and the
+    // chunk incarnation captured when the snapshot was taken. An upload is
+    // only applied when both still match the live chunk state, so edits made
+    // after the snapshot keep the section dirty (rebuild) instead of being
+    // silently cleared, and jobs from a previous chunk incarnation are
+    // discarded instead of overwriting fresh terrain.
+    uint32_t sectionStamp;
+    uint32_t chunkGeneration;
+    unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     FloraStructureInstance floraStructures[MAX_CHUNK_FLORA_STRUCTURES];
     int floraStructureCount;
     int nearbyIndices[MAX_TORCH_LIGHTS];
     int nearbyCount;
     Mesh mesh;
+    Mesh waterMesh;
     Mesh floraMesh;
     FloraVisualInstance *floraInstances;
     int floraInstanceCount;
     bool hasMesh;
+    bool hasWaterMesh;
     bool hasFloraMesh;
 };
 typedef struct MeshJob MeshJob;
@@ -49,14 +77,14 @@ static bool HasPendingMeshJob(void);
 static MeshJob *NextPendingMeshJob(void);
 static void FreeMeshData(Mesh *mesh);
 static bool BuildChunkSurfaceSolidMeshData(
-    const unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
-    int chunkX, int chunkZ,
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, Mesh *outMesh);
 static bool BuildChunkFloraMeshDataFromSnapshot(
-    const unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
-    int chunkX, int chunkZ,
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, Mesh *outMesh,
@@ -69,7 +97,7 @@ bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
 
 bool InHeight(int y)
 {
-    return y >= 0 && y < WORLD_HEIGHT;
+    return y >= 0 && y < SURFACE_WORLD_HEIGHT;
 }
 
 int FloorDivInt(int value, int divisor)
@@ -100,52 +128,126 @@ Chunk *FindChunk(int cx, int cz)
     return NULL;
 }
 
-static void ClearChunkFloraRuntime(Chunk *chunk)
+ChunkSection *ChunkGetSection(Chunk *chunk, int sectionY, bool create)
 {
-    free(chunk->floraTargetScales);
-    chunk->floraTargetScales = NULL;
-    free(chunk->floraTargetWind);
-    chunk->floraTargetWind = NULL;
-    free(chunk->floraTargetWindAngle);
-    chunk->floraTargetWindAngle = NULL;
-    free(chunk->floraTargetPresence);
-    chunk->floraTargetPresence = NULL;
-    free(chunk->floraBaseVertices);
-    chunk->floraBaseVertices = NULL;
-    free(chunk->floraBaseColors);
-    chunk->floraBaseColors = NULL;
-    free(chunk->floraVisualInstances);
-    chunk->floraVisualInstances = NULL;
-    chunk->floraTargetScaleCount = 0;
+    if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT) return NULL;
+    ChunkSection *section = chunk->sections[sectionY];
+    if (!section && create) {
+        section = calloc(1, sizeof(*section));
+        if (!section) return NULL;
+        section->sectionY = sectionY;
+        section->floraVisualScale = 1.0f;
+        chunk->sections[sectionY] = section;
+    }
+    return section;
+}
+
+const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY)
+{
+    if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT) return NULL;
+    return chunk->sections[sectionY];
+}
+
+BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
+{
+    if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
+        !InHeight(y)) return BLOCK_AIR;
+    int sectionY = y / SURFACE_SECTION_HEIGHT;
+    const ChunkSection *section = ChunkGetSectionConst(chunk, sectionY);
+    return section ? (BlockType)section->blocks[lx][y % SURFACE_SECTION_HEIGHT][lz]
+                   : BLOCK_AIR;
+}
+
+bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type)
+{
+    if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
+        !InHeight(y)) return false;
+    int sectionY = y / SURFACE_SECTION_HEIGHT;
+    ChunkSection *section = ChunkGetSection(chunk, sectionY, type != BLOCK_AIR);
+    if (!section) return type == BLOCK_AIR;
+    section->blocks[lx][y % SURFACE_SECTION_HEIGHT][lz] = (unsigned short)type;
+    return true;
+}
+
+static void ClearSectionFloraRuntime(ChunkSection *section)
+{
+    if (!section) return;
+    free(section->floraTargetScales);
+    section->floraTargetScales = NULL;
+    free(section->floraTargetWind);
+    section->floraTargetWind = NULL;
+    free(section->floraTargetWindAngle);
+    section->floraTargetWindAngle = NULL;
+    free(section->floraTargetPresence);
+    section->floraTargetPresence = NULL;
+    free(section->floraBaseVertices);
+    section->floraBaseVertices = NULL;
+    free(section->floraBaseColors);
+    section->floraBaseColors = NULL;
+    free(section->floraVisualInstances);
+    section->floraVisualInstances = NULL;
+    section->floraTargetScaleCount = 0;
+}
+
+static void UnloadChunkSectionModels(ChunkSection *section)
+{
+    if (!section) return;
+    if (section->hasModel) {
+        UnloadModel(section->model);
+        section->model = (Model){ 0 };
+        section->hasModel = false;
+    }
+    if (section->hasWaterModel) {
+        UnloadModel(section->waterModel);
+        section->waterModel = (Model){ 0 };
+        section->hasWaterModel = false;
+    }
+    if (section->hasFloraModel) {
+        UnloadModel(section->floraModel);
+        section->floraModel = (Model){ 0 };
+        section->hasFloraModel = false;
+    }
+    ClearSectionFloraRuntime(section);
 }
 
 void UnloadChunkModel(Chunk *chunk)
 {
-    if (chunk->hasModel) {
-        UnloadModel(chunk->model);
-        chunk->model = (Model){ 0 };
-        chunk->hasModel = false;
+    if (!chunk) return;
+    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+        UnloadChunkSectionModels(chunk->sections[sy]);
     }
-    if (chunk->hasWaterModel) {
-        UnloadModel(chunk->waterModel);
-        chunk->waterModel = (Model){ 0 };
-        chunk->hasWaterModel = false;
+}
+
+void ChunkClearBlockStorage(Chunk *chunk)
+{
+    if (!chunk) return;
+    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+        ChunkSection *section = chunk->sections[sy];
+        if (!section) continue;
+        UnloadChunkSectionModels(section);
+        free(section);
+        chunk->sections[sy] = NULL;
     }
-    if (chunk->hasFloraModel) {
-        UnloadModel(chunk->floraModel);
-        chunk->floraModel = (Model){ 0 };
-        chunk->hasFloraModel = false;
-    }
-    ClearChunkFloraRuntime(chunk);
+}
+
+static void MarkSectionDirty(ChunkSection *section)
+{
+    if (!section) return;
+    section->dirty = true;
+    section->dirtyStamp++;
+    if (section->dirtyStamp == 0u) section->dirtyStamp = 1u;
 }
 
 void MarkChunkDirty(int cx, int cz)
 {
     Chunk *chunk = FindChunk(cx, cz);
-    if (chunk) chunk->dirty = true;
+    if (!chunk) return;
+    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+        MarkSectionDirty(chunk->sections[sy]);
+    }
 }
 
-void MarkChunkDirtyAtBlock(int x, int z)
+void MarkChunkDirtyAtBlock(int x, int y, int z)
 {
     int cx = 0;
     int cz = 0;
@@ -153,7 +255,21 @@ void MarkChunkDirtyAtBlock(int x, int z)
     int lz = 0;
     WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
 
-    MarkChunkDirty(cx, cz);
+    Chunk *chunk = FindChunk(cx, cz);
+    if (chunk && InHeight(y)) {
+        int sectionY = y / SURFACE_SECTION_HEIGHT;
+        ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
+        MarkSectionDirty(section);
+        if (y % SURFACE_SECTION_HEIGHT == 0 && sectionY > 0) {
+            section = ChunkGetSection(chunk, sectionY - 1, false);
+            MarkSectionDirty(section);
+        }
+        if (y % SURFACE_SECTION_HEIGHT == SURFACE_SECTION_HEIGHT - 1 &&
+            sectionY + 1 < SURFACE_SECTION_COUNT) {
+            section = ChunkGetSection(chunk, sectionY + 1, false);
+            MarkSectionDirty(section);
+        }
+    }
     if (lx == 0) MarkChunkDirty(cx - 1, cz);
     if (lx == CHUNK_SIZE - 1) MarkChunkDirty(cx + 1, cz);
     if (lz == 0) MarkChunkDirty(cx, cz - 1);
@@ -180,403 +296,6 @@ unsigned int Hash3D(int x, int y, int z)
     return h ^ (h >> 13);
 }
 
-Color ColorWithNoise(Color base, int amount, unsigned int hash)
-{
-    int delta = (int)(hash % (unsigned int)(amount * 2 + 1)) - amount;
-    return (Color){
-        (unsigned char)Clamp((float)((int)base.r + delta), 0.0f, 255.0f),
-        (unsigned char)Clamp((float)((int)base.g + delta), 0.0f, 255.0f),
-        (unsigned char)Clamp((float)((int)base.b + delta), 0.0f, 255.0f),
-        base.a
-    };
-}
-
-void DrawAtlasTile(Image *image, BlockTexture texture)
-{
-    int tileIndex = (int)texture;
-    int cellX = (tileIndex % ATLAS_COLUMNS) * ATLAS_CELL_SIZE;
-    int cellY = (tileIndex / ATLAS_COLUMNS) * ATLAS_CELL_SIZE;
-    int originX = cellX + ATLAS_TILE_PADDING;
-    int originY = cellY + ATLAS_TILE_PADDING;
-    bool dynamicColor = texture >= TEX_COLOR_START && texture < TEX_COUNT;
-    Color dynamicBase = dynamicColor ? ColorPalette256((int)texture - TEX_COLOR_START) : WHITE;
-
-    for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
-        for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
-            unsigned int hash = Hash3D((int)texture, x, y);
-            Color color = WHITE;
-
-            if (dynamicColor) {
-                color = ColorWithNoise(dynamicBase, 2, hash);
-                if ((x + y) % 8 == 0) color = ColorWithNoise(dynamicBase, 1, hash);
-            } else switch (texture) {
-            case TEX_GRASS_TOP:
-                color = ColorWithNoise((Color){ 84, 170, 67, 255 }, 18, hash);
-                if ((hash % 11u) == 0u) color = (Color){ 119, 199, 82, 255 };
-                break;
-            case TEX_GRASS_SIDE:
-                if (y < 5 + (int)(hash % 3u)) color = ColorWithNoise((Color){ 88, 169, 70, 255 }, 15, hash);
-                else color = ColorWithNoise((Color){ 121, 79, 45, 255 }, 17, hash);
-                break;
-            case TEX_DIRT:
-                color = ColorWithNoise((Color){ 121, 77, 43, 255 }, 22, hash);
-                if ((hash % 17u) == 0u) color = (Color){ 89, 55, 34, 255 };
-                break;
-            case TEX_STONE:
-                color = ColorWithNoise((Color){ 118, 122, 124, 255 }, 20, hash);
-                if ((x + y + (int)(hash % 5u)) % 13 == 0) color = (Color){ 84, 88, 91, 255 };
-                break;
-            case TEX_WOOD_SIDE:
-                color = ColorWithNoise((x % 5 == 0) ? (Color){ 104, 67, 32, 255 } : (Color){ 142, 91, 42, 255 }, 13, hash);
-                break;
-            case TEX_WOOD_TOP: {
-                int dx = x - ATLAS_TILE_SIZE / 2;
-                int dy = y - ATLAS_TILE_SIZE / 2;
-                int ring = (dx * dx + dy * dy) / 11;
-                color = ColorWithNoise((ring % 2 == 0) ? (Color){ 154, 105, 55, 255 } : (Color){ 118, 75, 37, 255 }, 10, hash);
-            } break;
-            case TEX_SAND:
-                color = ColorWithNoise((Color){ 214, 197, 132, 255 }, 16, hash);
-                if ((hash % 19u) == 0u) color = (Color){ 183, 165, 101, 255 };
-                break;
-            case TEX_LEAVES:
-                color = ColorWithNoise((Color){ 46, 128, 55, 255 }, 24, hash);
-                if ((hash % 7u) == 0u) color = (Color){ 31, 95, 43, 255 };
-                if ((x + y + (int)(hash % 4u)) % 9 == 0) color = (Color){ 82, 158, 68, 255 };
-                break;
-            case TEX_RED:
-                color = ColorWithNoise((Color){ 207, 55, 54, 255 }, 18, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 238, 83, 75, 255 }, 10, hash);
-                break;
-            case TEX_ORANGE:
-                color = ColorWithNoise((Color){ 229, 126, 38, 255 }, 18, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 247, 156, 55, 255 }, 10, hash);
-                break;
-            case TEX_YELLOW:
-                color = ColorWithNoise((Color){ 238, 207, 64, 255 }, 16, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 255, 228, 86, 255 }, 8, hash);
-                break;
-            case TEX_BLUE:
-                color = ColorWithNoise((Color){ 51, 116, 220, 255 }, 18, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 74, 150, 244, 255 }, 10, hash);
-                break;
-            case TEX_PURPLE:
-                color = ColorWithNoise((Color){ 143, 72, 202, 255 }, 18, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 171, 98, 231, 255 }, 10, hash);
-                break;
-            case TEX_GREEN:
-                color = ColorWithNoise((Color){ 64, 185, 85, 255 }, 18, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 91, 218, 108, 255 }, 10, hash);
-                break;
-            case TEX_CYAN:
-                color = ColorWithNoise((Color){ 47, 188, 207, 255 }, 18, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 76, 219, 235, 255 }, 10, hash);
-                break;
-            case TEX_PINK:
-                color = ColorWithNoise((Color){ 226, 96, 161, 255 }, 18, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 247, 128, 188, 255 }, 10, hash);
-                break;
-            case TEX_WHITE:
-                color = ColorWithNoise((Color){ 232, 235, 224, 255 }, 10, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 250, 250, 241, 255 }, 6, hash);
-                break;
-            case TEX_GRAY:
-                color = ColorWithNoise((Color){ 112, 119, 126, 255 }, 14, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 141, 148, 154, 255 }, 8, hash);
-                break;
-            case TEX_BLACK:
-                color = ColorWithNoise((Color){ 28, 31, 35, 255 }, 10, hash);
-                if ((x + y) % 6 == 0) color = ColorWithNoise((Color){ 52, 56, 62, 255 }, 6, hash);
-                break;
-            case TEX_PLANK:
-                color = ColorWithNoise((y % 4 == 0) ? (Color){ 118, 72, 36, 255 } : (Color){ 156, 100, 48, 255 }, 12, hash);
-                if ((x + (y / 4) % 2 * 4) % 8 == 0) color = ColorWithNoise((Color){ 108, 66, 32, 255 }, 8, hash);
-                break;
-            case TEX_BRICK: {
-                int row = y / 4;
-                int mortar = (y % 4 == 0) || ((x + (row % 2) * 4) % 8 == 0);
-                if (mortar) color = ColorWithNoise((Color){ 205, 200, 190, 255 }, 8, hash);
-                else color = ColorWithNoise((Color){ 148, 62, 48, 255 }, 16, hash);
-                if (!mortar && (hash % 13u) == 0u) color = ColorWithNoise((Color){ 168, 80, 62, 255 }, 8, hash);
-            } break;
-            case TEX_GLASS:
-                color = ColorWithNoise((Color){ 205, 230, 235, 230 }, 10, hash);
-                if ((x + y) % 7 == 0) color = ColorWithNoise((Color){ 240, 250, 250, 235 }, 5, hash);
-                if (x == 0 || y == 0 || x == ATLAS_TILE_SIZE - 1 || y == ATLAS_TILE_SIZE - 1) {
-                    color = ColorWithNoise((Color){ 165, 205, 215, 225 }, 8, hash);
-                }
-                break;
-            case TEX_WATER:
-                color = ColorWithNoise((Color){ 52, 118, 205, 195 }, 12, hash);
-                if (((y + (int)(hash % 3u)) % 6) == 0) color = ColorWithNoise((Color){ 86, 158, 228, 210 }, 10, hash);
-                if (((x + (int)(hash % 2u)) % 9) == 0) color = ColorWithNoise((Color){ 40, 96, 178, 190 }, 8, hash);
-                break;
-            case TEX_SNOW:
-                color = ColorWithNoise((Color){ 238, 244, 246, 255 }, 8, hash);
-                if ((hash % 9u) == 0u) color = ColorWithNoise((Color){ 218, 228, 234, 255 }, 6, hash);
-                break;
-            case TEX_ICE:
-                color = ColorWithNoise((Color){ 148, 205, 226, 235 }, 12, hash);
-                if ((hash % 11u) == 0u) color = (Color){ 210, 240, 248, 235 };
-                break;
-            case TEX_CACTUS:
-                color = ColorWithNoise((x % 3 == 0) ? (Color){ 52, 122, 54, 255 } : (Color){ 78, 152, 62, 255 }, 14, hash);
-                if ((y % 6) == 0) color = ColorWithNoise((Color){ 148, 196, 92, 255 }, 10, hash);
-                break;
-            case TEX_BEDROCK:
-                color = ColorWithNoise((Color){ 58, 58, 64, 255 }, 24, hash);
-                if ((hash % 7u) == 0u) color = (Color){ 32, 32, 36, 255 };
-                if ((hash % 11u) == 0u) color = (Color){ 86, 84, 88, 255 };
-                break;
-            case TEX_COAL_ORE:
-                color = ColorWithNoise((Color){ 116, 120, 122, 255 }, 18, hash);
-                if ((hash % 13u) == 0u) color = ColorWithNoise((Color){ 38, 40, 44, 255 }, 8, hash);
-                if ((hash % 31u) == 0u) color = (Color){ 62, 64, 68, 255 };
-                break;
-            case TEX_IRON_ORE:
-                color = ColorWithNoise((Color){ 116, 120, 122, 255 }, 18, hash);
-                if ((hash % 13u) == 0u) color = ColorWithNoise((Color){ 190, 152, 108, 255 }, 10, hash);
-                if ((hash % 31u) == 0u) color = (Color){ 226, 192, 150, 255 };
-                break;
-            case TEX_GOLD_ORE:
-                color = ColorWithNoise((Color){ 116, 120, 122, 255 }, 18, hash);
-                if ((hash % 11u) == 0u) color = ColorWithNoise((Color){ 232, 196, 64, 255 }, 12, hash);
-                if ((hash % 29u) == 0u) color = (Color){ 250, 226, 110, 255 };
-                break;
-            case TEX_DIAMOND_ORE:
-                color = ColorWithNoise((Color){ 116, 120, 122, 255 }, 18, hash);
-                if ((hash % 11u) == 0u) color = ColorWithNoise((Color){ 92, 214, 232, 255 }, 12, hash);
-                if ((hash % 29u) == 0u) color = (Color){ 140, 240, 250, 255 };
-                break;
-            case TEX_TORCH:
-                if (y < 3) {
-                    color = ColorWithNoise((Color){ 255, 186, 62, 255 }, 22, hash);
-                    if ((hash % 5u) == 0u) color = (Color){ 255, 236, 130, 255 };
-                } else if (y < 6) {
-                    color = ColorWithNoise((Color){ 226, 110, 36, 255 }, 20, hash);
-                } else {
-                    color = ColorWithNoise((x % 4 == 0 || y % 5 == 0) ? (Color){ 92, 60, 32, 255 } : (Color){ 128, 82, 42, 255 }, 10, hash);
-                }
-                break;
-            case TEX_DOOR:
-                if (x % 4 == 0 || x == ATLAS_TILE_SIZE - 1) {
-                    color = ColorWithNoise((Color){ 104, 66, 32, 255 }, 10, hash);
-                } else if (y == 5 || y == 6 || y == 10 || y == 11) {
-                    color = ColorWithNoise((Color){ 122, 80, 40, 255 }, 12, hash);
-                } else {
-                    color = ColorWithNoise((Color){ 156, 104, 52, 255 }, 12, hash);
-                }
-                if (x == 12 && y == 8) color = ColorWithNoise((Color){ 216, 190, 96, 255 }, 8, hash);
-                if (x == 12 && (y == 7 || y == 9)) color = ColorWithNoise((Color){ 96, 62, 30, 255 }, 6, hash);
-                break;
-            case TEX_MOON_ROCK:
-                color = ColorWithNoise((Color){ 138, 142, 148, 255 }, 14, hash);
-                if ((hash % 13u) == 0u) color = ColorWithNoise((Color){ 164, 168, 174, 255 }, 8, hash);
-                if ((hash % 23u) == 0u) color = (Color){ 104, 108, 114, 255 };
-                break;
-            case TEX_METEORITE:
-                color = ColorWithNoise((Color){ 92, 78, 70, 255 }, 16, hash);
-                if ((hash % 11u) == 0u) color = ColorWithNoise((Color){ 150, 130, 90, 255 }, 12, hash);
-                if ((hash % 17u) == 0u) color = ColorWithNoise((Color){ 60, 52, 48, 255 }, 10, hash);
-                break;
-            case TEX_MOON_SAND:
-                color = ColorWithNoise((Color){ 190, 186, 176, 255 }, 12, hash);
-                if ((hash % 15u) == 0u) color = ColorWithNoise((Color){ 164, 158, 146, 255 }, 8, hash);
-                if ((hash % 29u) == 0u) color = ColorWithNoise((Color){ 210, 208, 200, 255 }, 6, hash);
-                break;
-            case TEX_FENCE:
-                if (x == 7 || x == 8) {
-                    color = ColorWithNoise((Color){ 128, 82, 42, 255 }, 10, hash);
-                    if ((hash % 9u) == 0u) color = ColorWithNoise((Color){ 156, 104, 54, 255 }, 6, hash);
-                } else if (y == 7 || y == 8) {
-                    color = ColorWithNoise((Color){ 138, 90, 46, 255 }, 10, hash);
-                    if ((hash % 11u) == 0u) color = ColorWithNoise((Color){ 166, 112, 58, 255 }, 6, hash);
-                } else {
-                    color = ColorWithNoise((Color){ 150, 98, 50, 255 }, 10, hash);
-                    if ((hash % 17u) == 0u) color = (Color){ 110, 70, 36, 255 };
-                }
-                break;
-            case TEX_LAVA:
-                color = ColorWithNoise((Color){ 224, 96, 24, 255 }, 22, hash);
-                if ((hash % 7u) == 0u) color = ColorWithNoise((Color){ 255, 196, 48, 255 }, 14, hash);
-                if ((hash % 11u) == 0u) color = ColorWithNoise((Color){ 168, 44, 12, 255 }, 12, hash);
-                if ((hash % 19u) == 0u) color = ColorWithNoise((Color){ 255, 140, 40, 255 }, 10, hash);
-                break;
-            case TEX_FLOWER:
-                color = (Color){ 0, 0, 0, 0 };
-                if (x >= 7 && x <= 8 && y >= 10 && y <= 14) {
-                    color = ColorWithNoise((Color){ 62, 148, 54, 255 }, 10, hash);
-                }
-                if (x >= 5 && x <= 10 && y >= 6 && y <= 9) {
-                    color = ColorWithNoise((Color){ 208, 62, 54, 255 }, 14, hash);
-                }
-                if (x >= 7 && x <= 8 && y >= 7 && y <= 8) {
-                    color = ColorWithNoise((Color){ 250, 224, 96, 255 }, 10, hash);
-                }
-                break;
-            case TEX_MUSHROOM:
-                color = (Color){ 0, 0, 0, 0 };
-                if (x >= 7 && x <= 8 && y >= 12 && y <= 14) {
-                    color = ColorWithNoise((Color){ 226, 224, 216, 255 }, 8, hash);
-                }
-                if (x >= 4 && x <= 11 && y >= 5 && y <= 11) {
-                    color = ColorWithNoise((Color){ 196, 52, 46, 255 }, 14, hash);
-                    if (((x + y) % 5) == 0) color = ColorWithNoise((Color){ 240, 238, 230, 255 }, 8, hash);
-                }
-                break;
-            case TEX_BOOKSHELF:
-                if (y == 0 || y == 15 || x == 0 || x == 15) {
-                    color = ColorWithNoise((Color){ 148, 96, 48, 255 }, 10, hash);
-                } else if (x % 3 == 1) {
-                    color = ColorWithNoise((Color){ 118, 76, 40, 255 }, 10, hash);
-                } else {
-                    color = ColorWithNoise((Color){ 84, 54, 30, 255 }, 10, hash);
-                    if ((hash % 9u) == 0u) color = ColorWithNoise((Color){ 158, 90, 60, 255 }, 10, hash);
-                    if ((hash % 13u) == 0u) color = ColorWithNoise((Color){ 64, 110, 150, 255 }, 10, hash);
-                    if ((hash % 17u) == 0u) color = ColorWithNoise((Color){ 140, 150, 60, 255 }, 10, hash);
-                }
-                break;
-            case TEX_HAY:
-                color = ColorWithNoise((y % 4 == 0) ? (Color){ 176, 132, 44, 255 } : (Color){ 218, 172, 66, 255 }, 14, hash);
-                if ((hash % 11u) == 0u) color = ColorWithNoise((Color){ 236, 196, 92, 255 }, 8, hash);
-                break;
-            case TEX_PUMPKIN:
-                if (x >= 7 && x <= 8 && y <= 2) {
-                    color = ColorWithNoise((Color){ 96, 128, 52, 255 }, 10, hash);
-                } else {
-                    color = ColorWithNoise((Color){ 224, 138, 42, 255 }, 16, hash);
-                    if ((hash % 9u) == 0u) color = ColorWithNoise((Color){ 246, 168, 62, 255 }, 10, hash);
-                    if ((hash % 15u) == 0u) color = ColorWithNoise((Color){ 182, 98, 26, 255 }, 10, hash);
-                }
-                break;
-            case TEX_NETHERRACK:
-                color = ColorWithNoise((Color){ 116, 48, 42, 255 }, 22, hash);
-                if ((hash % 9u) == 0u) color = ColorWithNoise((Color){ 168, 72, 56, 255 }, 14, hash);
-                if ((hash % 17u) == 0u) color = ColorWithNoise((Color){ 76, 28, 26, 255 }, 10, hash);
-                break;
-            case TEX_SOUL_SAND:
-                color = ColorWithNoise((Color){ 124, 106, 88, 255 }, 16, hash);
-                if ((hash % 11u) == 0u) color = ColorWithNoise((Color){ 164, 148, 120, 255 }, 10, hash);
-                if ((hash % 19u) == 0u) color = ColorWithNoise((Color){ 92, 76, 66, 255 }, 8, hash);
-                break;
-            case TEX_GLOWSTONE:
-                color = ColorWithNoise((Color){ 178, 138, 62, 255 }, 18, hash);
-                if ((hash % 9u) == 0u) color = ColorWithNoise((Color){ 250, 220, 110, 255 }, 14, hash);
-                if ((hash % 13u) == 0u) color = ColorWithNoise((Color){ 240, 250, 190, 255 }, 10, hash);
-                if ((hash % 23u) == 0u) color = ColorWithNoise((Color){ 120, 88, 40, 255 }, 8, hash);
-                break;
-            case TEX_STONE_BRICKS:
-                if (y % 4 == 0 || x % 8 == 0) {
-                    color = ColorWithNoise((Color){ 118, 118, 118, 255 }, 8, hash);
-                } else {
-                    color = ColorWithNoise((Color){ 138, 140, 142, 255 }, 10, hash);
-                    if ((hash % 15u) == 0u) color = ColorWithNoise((Color){ 154, 156, 158, 255 }, 6, hash);
-                }
-                break;
-            case TEX_SANDSTONE:
-                color = ColorWithNoise((Color){ 216, 200, 150, 255 }, 10, hash);
-                if (y % 4 == 0) color = ColorWithNoise((Color){ 196, 178, 128, 255 }, 8, hash);
-                if ((hash % 19u) == 0u) color = ColorWithNoise((Color){ 230, 216, 168, 255 }, 6, hash);
-                break;
-            case TEX_OBSIDIAN:
-                color = ColorWithNoise((Color){ 22, 16, 30, 255 }, 16, hash);
-                if ((hash % 13u) == 0u) color = ColorWithNoise((Color){ 74, 48, 104, 255 }, 12, hash);
-                if ((hash % 23u) == 0u) color = ColorWithNoise((Color){ 44, 30, 60, 255 }, 10, hash);
-                break;
-            case TEX_NETHER_PORTAL:
-                if ((x + y) % 6 < 2) {
-                    color = ColorWithNoise((Color){ 96, 28, 110, 255 }, 20, hash);
-                } else {
-                    color = ColorWithNoise((Color){ 158, 52, 190, 255 }, 20, hash);
-                    if ((hash % 9u) == 0u) color = ColorWithNoise((Color){ 210, 120, 240, 255 }, 14, hash);
-                }
-                break;
-            case TEX_STAR_MATTER:
-                color = ColorWithNoise((Color){ 238, 236, 222, 255 }, 8, hash);
-                if ((hash % 7u) == 0u) color = ColorWithNoise((Color){ 255, 240, 150, 255 }, 10, hash);
-                if ((hash % 13u) == 0u) color = ColorWithNoise((Color){ 190, 210, 245, 255 }, 8, hash);
-                if ((hash % 31u) == 0u) color = (Color){ 255, 255, 235, 255 };
-                break;
-            case TEX_SPACESHIP:
-                if (y >= 12) {
-                    color = ColorWithNoise((Color){ 150, 96, 42, 255 }, 14, hash);
-                    if ((y == 13 || y == 14) && (hash % 5u) == 0u) color = (Color){ 255, 178, 66, 255 };
-                } else if (y >= 9 && y <= 11 && x >= 5 && x <= 10) {
-                    color = ColorWithNoise((Color){ 84, 132, 188, 255 }, 10, hash);
-                    if ((hash % 9u) == 0u) color = ColorWithNoise((Color){ 140, 186, 228, 255 }, 6, hash);
-                } else if (y >= 3 && y <= 7 && x >= 2 && x <= 13) {
-                    color = ColorWithNoise((Color){ 196, 202, 210, 255 }, 10, hash);
-                    if (x == 7 || x == 8) color = ColorWithNoise((Color){ 164, 170, 180, 255 }, 6, hash);
-                    if ((hash % 11u) == 0u) color = ColorWithNoise((Color){ 222, 226, 232, 255 }, 5, hash);
-                } else {
-                    color = ColorWithNoise((Color){ 140, 146, 156, 255 }, 12, hash);
-                    if ((hash % 17u) == 0u) color = (Color){ 90, 96, 106, 255 };
-                }
-                break;
-            case TEX_ALBUM:
-                if (x == 0 || x == ATLAS_TILE_SIZE - 1 || y == 0 || y == ATLAS_TILE_SIZE - 1 ||
-                    x == 1 || x == ATLAS_TILE_SIZE - 2) {
-                    color = ColorWithNoise((Color){ 150, 112, 52, 255 }, 12, hash);
-                    if ((hash % 9u) == 0u) color = (Color){ 196, 156, 70, 255 };
-                } else if (x >= 4 && x <= 11 && y >= 4 && y <= 11) {
-                    if (y == 7 || y == 8) color = ColorWithNoise((Color){ 74, 52, 30, 255 }, 8, hash);
-                    else color = ColorWithNoise((Color){ 206, 196, 176, 255 }, 12, hash);
-                } else {
-                    color = ColorWithNoise((Color){ 118, 76, 42, 255 }, 14, hash);
-                    if ((hash % 13u) == 0u) color = ColorWithNoise((Color){ 150, 100, 56, 255 }, 8, hash);
-                }
-                break;
-            default:
-                color = MAGENTA;
-                break;
-            }
-
-            ImageDrawPixel(image, originX + x, originY + y, color);
-        }
-    }
-
-    // Mip generation must never average neighboring atlas tiles. Repeat each
-    // tile's edge through a power-of-two gutter so its lower mip levels remain
-    // isolated while the visible 16x16 artwork stays unchanged.
-    for (int y = 0; y < ATLAS_CELL_SIZE; y++) {
-        int sourceY = y - ATLAS_TILE_PADDING;
-        if (sourceY < 0) sourceY = 0;
-        if (sourceY >= ATLAS_TILE_SIZE) sourceY = ATLAS_TILE_SIZE - 1;
-        for (int x = 0; x < ATLAS_CELL_SIZE; x++) {
-            bool insideTile = x >= ATLAS_TILE_PADDING &&
-                              x < ATLAS_TILE_PADDING + ATLAS_TILE_SIZE &&
-                              y >= ATLAS_TILE_PADDING &&
-                              y < ATLAS_TILE_PADDING + ATLAS_TILE_SIZE;
-            if (insideTile) continue;
-            int sourceX = x - ATLAS_TILE_PADDING;
-            if (sourceX < 0) sourceX = 0;
-            if (sourceX >= ATLAS_TILE_SIZE) sourceX = ATLAS_TILE_SIZE - 1;
-            Color edge = GetImageColor(*image, originX + sourceX,
-                                       originY + sourceY);
-            ImageDrawPixel(image, cellX + x, cellY + y, edge);
-        }
-    }
-}
-
-Texture2D LoadBlockAtlas(void)
-{
-    Image image = GenImageColor(ATLAS_CELL_SIZE * ATLAS_COLUMNS,
-                                ATLAS_CELL_SIZE * ATLAS_ROWS, BLANK);
-    for (int i = 0; i < TEX_COUNT; i++) DrawAtlasTile(&image, (BlockTexture)i);
-
-    Texture2D texture = LoadTextureFromImage(image);
-    if (texture.id != 0) {
-        GenTextureMipmaps(&texture);
-        SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
-        SetTextureFilter(texture, TEXTURE_FILTER_ANISOTROPIC_8X);
-        rlTextureParameters(texture.id, RL_TEXTURE_MAG_FILTER,
-                            RL_TEXTURE_FILTER_NEAREST);
-        SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
-    }
-    UnloadImage(image);
-    return texture;
-}
-
 bool HasPendingGenJob(void)
 {
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
@@ -596,6 +315,7 @@ ChunkGenJob *NextPendingGenJob(void)
 void *ChunkGenWorker(void *arg)
 {
     (void)arg;
+    bool preferMesh = false;
 
     for (;;) {
         pthread_mutex_lock(&genMutex);
@@ -607,49 +327,73 @@ void *ChunkGenWorker(void *arg)
             break;
         }
 
-        ChunkGenJob *job = NextPendingGenJob();
+        bool haveGeneration = HasPendingGenJob();
+        bool haveMesh = HasPendingMeshJob();
+        ChunkGenJob *job = NULL;
+        MeshJob *meshJob = NULL;
+        if (haveMesh && (preferMesh || !haveGeneration)) {
+            meshJob = NextPendingMeshJob();
+            preferMesh = false;
+        } else {
+            job = NextPendingGenJob();
+            if (job) preferMesh = true;
+        }
         if (job) {
+            genWorkerActive = true;
             pthread_mutex_unlock(&genMutex);
 
+            double startedMs = ChunkNowMs();
             GenerateChunkTerrain(&chunks[job->slotIndex], job->cx, job->cz, job->terrainMode);
+            double elapsedMs = ChunkNowMs() - startedMs;
 
             pthread_mutex_lock(&genMutex);
             job->done = true;
+            genWorkerActive = false;
+            streamingStats.generationCompleted++;
+            streamingStats.generationCpuMs += elapsedMs;
             pthread_cond_signal(&genCond);
             pthread_mutex_unlock(&genMutex);
             continue;
         }
 
-        MeshJob *meshJob = NextPendingMeshJob();
         if (meshJob) {
+            genWorkerActive = true;
             pthread_mutex_unlock(&genMutex);
 
             static const int faces[6][3] = {
                 { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
                 { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
             };
-            if (meshJob->transparent) {
-                meshJob->hasMesh = BuildSurfaceWaterMeshData(
-                    (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
-                    WORLD_HEIGHT, 0, meshJob->cx, meshJob->cz, faces,
-                    meshJob->nearbyIndices, meshJob->nearbyCount, &meshJob->mesh);
-                meshJob->hasFloraMesh = false;
-            } else {
-                meshJob->hasMesh = BuildChunkSurfaceSolidMeshData(
-                    meshJob->blocks, meshJob->cx, meshJob->cz,
-                    meshJob->floraStructures, meshJob->floraStructureCount,
-                    faces, meshJob->nearbyIndices, meshJob->nearbyCount,
-                    &meshJob->mesh);
-                meshJob->hasFloraMesh = BuildChunkFloraMeshDataFromSnapshot(
-                    meshJob->blocks, meshJob->cx, meshJob->cz,
-                    meshJob->floraStructures, meshJob->floraStructureCount,
-                    faces, meshJob->nearbyIndices, meshJob->nearbyCount,
-                    &meshJob->floraMesh, &meshJob->floraInstances,
-                    &meshJob->floraInstanceCount);
-            }
+            double startedMs = ChunkNowMs();
+            meshJob->hasMesh = BuildChunkSurfaceSolidMeshData(
+                meshJob->blocks,
+                meshJob->sectionY * SURFACE_SECTION_HEIGHT,
+                meshJob->cx, meshJob->cz,
+                meshJob->floraStructures, meshJob->floraStructureCount,
+                faces, meshJob->nearbyIndices, meshJob->nearbyCount,
+                &meshJob->mesh);
+            meshJob->hasWaterMesh = BuildSurfaceWaterMeshData(
+                (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
+                SURFACE_SECTION_HEIGHT,
+                meshJob->sectionY * SURFACE_SECTION_HEIGHT,
+                meshJob->cx, meshJob->cz, faces,
+                meshJob->nearbyIndices, meshJob->nearbyCount,
+                &meshJob->waterMesh);
+            meshJob->hasFloraMesh = BuildChunkFloraMeshDataFromSnapshot(
+                meshJob->blocks,
+                meshJob->sectionY * SURFACE_SECTION_HEIGHT,
+                meshJob->cx, meshJob->cz,
+                meshJob->floraStructures, meshJob->floraStructureCount,
+                faces, meshJob->nearbyIndices, meshJob->nearbyCount,
+                &meshJob->floraMesh, &meshJob->floraInstances,
+                &meshJob->floraInstanceCount);
+            double elapsedMs = ChunkNowMs() - startedMs;
 
             pthread_mutex_lock(&genMutex);
             meshJob->done = true;
+            genWorkerActive = false;
+            streamingStats.meshCompleted++;
+            streamingStats.meshCpuMs += elapsedMs;
             pthread_cond_signal(&genCond);
             pthread_mutex_unlock(&genMutex);
             continue;
@@ -686,6 +430,8 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
         .slotIndex = (int)(chunk - chunks),
         .terrainMode = mode
     };
+    streamingStats.generationSubmitted++;
+    UpdateQueuePeaksLocked();
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -705,7 +451,6 @@ void CompleteChunkGenJob(ChunkGenJob *job)
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
-    chunk->dirty = true;
     MarkChunkAndHorizontalNeighborsDirty(chunk->cx, chunk->cz);
 }
 
@@ -782,31 +527,53 @@ Chunk *AllocateChunkSlot(int nearCx, int nearCz)
     if (bestIndex >= 0) {
         MarkChunkAndHorizontalNeighborsDirty(chunks[bestIndex].cx, chunks[bestIndex].cz);
     }
-    return &chunks[bestIndex < 0 ? 0 : bestIndex];
+    return bestIndex >= 0 ? &chunks[bestIndex] : NULL;
 }
 
 bool EnsureChunk(int cx, int cz)
 {
     if (FindChunk(cx, cz) || FindPendingGenJob(cx, cz)) return false;
 
+    if (genThread != 0) {
+        bool haveQueueSlot = false;
+        pthread_mutex_lock(&genMutex);
+        for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+            if (!chunkGenJobs[i].inUse) {
+                haveQueueSlot = true;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&genMutex);
+        if (!haveQueueSlot) return false;
+    }
+
     Chunk *chunk = AllocateChunkSlot(cx, cz);
+    if (!chunk) return false;
+    ChunkClearBlockStorage(chunk);
     chunk->cx = cx;
     chunk->cz = cz;
+    // New incarnation: invalidates any in-flight mesh jobs captured against
+    // the previous occupant of this slot (stale terrain upload guard).
+    chunk->generation++;
+    if (chunk->generation == 0u) chunk->generation = 1u;
     chunk->generating = true;
     chunk->loaded = false;
-    UnloadChunkModel(chunk);
     chunk->floraActivity = 1.0f;
     chunk->floraCapacity = 1.0f;
     chunk->floraSampleTimer = 0.0f;
-    chunk->floraVisualScale = 1.0f;
 
     if (SubmitChunkGenJob(chunk, cx, cz, terrainMode)) return true;
 
+    double startedMs = ChunkNowMs();
     GenerateChunkTerrain(chunk, cx, cz, terrainMode);
+    double elapsedMs = ChunkNowMs() - startedMs;
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
-    chunk->dirty = true;
+    pthread_mutex_lock(&genMutex);
+    streamingStats.generationCompleted++;
+    streamingStats.generationCpuMs += elapsedMs;
+    pthread_mutex_unlock(&genMutex);
     MarkChunkAndHorizontalNeighborsDirty(cx, cz);
     return true;
 }
@@ -829,9 +596,8 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
         if (abs(chunks[i].cx - playerCx) > effectiveRenderDistance ||
             abs(chunks[i].cz - playerCz) > effectiveRenderDistance) {
             MarkChunkAndHorizontalNeighborsDirty(chunks[i].cx, chunks[i].cz);
-            UnloadChunkModel(&chunks[i]);
+            ChunkClearBlockStorage(&chunks[i]);
             chunks[i].loaded = false;
-            chunks[i].dirty = false;
         }
     }
 
@@ -944,28 +710,30 @@ bool DeformFloraMeshInstance(
     return true;
 }
 
-static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
+static void UpdateChunkSectionFloraScale(ChunkSection *section,
+                                  float elapsed,
                                   float daylight, bool refreshTargets)
 {
-    if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
+    if (!section || !section->hasFloraModel ||
+        section->floraModel.meshCount <= 0) return;
 
-    Mesh *mesh = &chunk->floraModel.meshes[0];
+    Mesh *mesh = &section->floraModel.meshes[0];
     if (!mesh->vertices || mesh->vertexCount <= 0 ||
-        !chunk->floraTargetScales || !chunk->floraTargetWind ||
-        !chunk->floraTargetWindAngle || !chunk->floraTargetPresence ||
-        !chunk->floraBaseVertices ||
-        !chunk->floraBaseColors || !chunk->floraVisualInstances ||
+        !section->floraTargetScales || !section->floraTargetWind ||
+        !section->floraTargetWindAngle || !section->floraTargetPresence ||
+        !section->floraBaseVertices ||
+        !section->floraBaseColors || !section->floraVisualInstances ||
         !mesh->colors ||
-        chunk->floraTargetScaleCount <= 0) return;
+        section->floraTargetScaleCount <= 0) return;
 
     float blend = fminf(elapsed * 1.8f, 1.0f);
     float colorBlend = fminf(elapsed * 2.2f, 1.0f);
     float scaleSum = 0.0f;
     int scaleCount = 0;
     bool changed = false;
-    for (int group = 0; group < chunk->floraTargetScaleCount; group++) {
+    for (int group = 0; group < section->floraTargetScaleCount; group++) {
         const FloraVisualInstance *instance =
-            &chunk->floraVisualInstances[group];
+            &section->floraVisualInstances[group];
         if (!isfinite(instance->anchor.x) ||
             !isfinite(instance->anchor.z)) continue;
         int cellX = (int)floorf(instance->anchor.x);
@@ -976,32 +744,32 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
             PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
                 local.suitability.floraActivity,
                 local.suitability.floraCapacity);
-            chunk->floraTargetScales[group] = runtime.growthScale;
-            chunk->floraTargetPresence[group] = runtime.visualPresence;
-            chunk->floraTargetWind[group] = WeatherFieldSampleAtWorld(
+            section->floraTargetScales[group] = runtime.growthScale;
+            section->floraTargetPresence[group] = runtime.visualPresence;
+            section->floraTargetWind[group] = WeatherFieldSampleAtWorld(
                 cellX, cellZ).wind;
-            chunk->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
+            section->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
                 cellX, cellZ);
         } else if (refreshTargets) {
-            chunk->floraTargetScales[group] = 1.0f;
-            chunk->floraTargetPresence[group] = 1.0f;
-            chunk->floraTargetWind[group] = WeatherFieldSampleAtWorld(
+            section->floraTargetScales[group] = 1.0f;
+            section->floraTargetPresence[group] = 1.0f;
+            section->floraTargetWind[group] = WeatherFieldSampleAtWorld(
                 cellX, cellZ).wind;
-            chunk->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
+            section->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
                 cellX, cellZ);
         }
 
         float phase = (float)(Hash3D(cellX, 0, cellZ) & 4095u) * 0.0015339808f;
         float sway = sinf((float)SpacePeriodicSimulationTime(
                               SpaceElapsedSimulationTime()) * 1.7f + phase) *
-                         fmaxf(chunk->floraTargetWind[group], 0.0f) * 0.07f *
+                         fmaxf(section->floraTargetWind[group], 0.0f) * 0.07f *
                          fmaxf(instance->windResponse, 0.0f);
         float newScale = 1.0f;
         bool instanceChanged = false;
         if (!DeformFloraMeshInstance(
-                mesh->vertices, chunk->floraBaseVertices, mesh->vertexCount,
-                instance, chunk->floraTargetScales[group], blend, sway,
-                chunk->floraTargetWindAngle[group], &newScale,
+                mesh->vertices, section->floraBaseVertices, mesh->vertexCount,
+                instance, section->floraTargetScales[group], blend, sway,
+                section->floraTargetWindAngle[group], &newScale,
                 &instanceChanged)) {
             continue;
         }
@@ -1014,13 +782,13 @@ static void UpdateChunkFloraScale(Chunk *chunk, float elapsed,
                          mesh->vertexCount * 3 * (int)sizeof(float), 0);
     }
     if (ApplyFloraMeshInstancePresenceColors(
-            mesh->colors, chunk->floraBaseColors, mesh->vertexCount,
-            chunk->floraTargetPresence, chunk->floraVisualInstances,
-            chunk->floraTargetScaleCount, colorBlend)) {
+            mesh->colors, section->floraBaseColors, mesh->vertexCount,
+            section->floraTargetPresence, section->floraVisualInstances,
+            section->floraTargetScaleCount, colorBlend)) {
         UpdateMeshBuffer(*mesh, 3, mesh->colors,
                          mesh->vertexCount * 4 * (int)sizeof(unsigned char), 0);
     }
-    if (scaleCount > 0) chunk->floraVisualScale = scaleSum / (float)scaleCount;
+    if (scaleCount > 0) section->floraVisualScale = scaleSum / (float)scaleCount;
 }
 
 static bool ApplyFloraMeshColors(
@@ -1115,7 +883,10 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
             chunk->floraSampleTimer = 0.75f + (float)stagger / 510.0f;
         }
 
-        UpdateChunkFloraScale(chunk, elapsed, daylight, refreshTargets);
+        for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+            UpdateChunkSectionFloraScale(chunk->sections[sy], elapsed,
+                                         daylight, refreshTargets);
+        }
     }
 }
 
@@ -1131,33 +902,60 @@ BlockType GetBlock(int x, int y, int z)
 
     Chunk *chunk = FindChunk(cx, cz);
     if (!chunk) return BLOCK_AIR;
-    return (BlockType)chunk->blocks[lx][y][lz];
+    return ChunkGetLocalBlock(chunk, lx, y, lz);
 }
 
 bool FaceIsVisible(int x, int y, int z, int nx, int ny, int nz)
 {
     int neighborY = y + ny;
     if (!InHeight(neighborY)) return true;
-    return GetBlock(x + nx, neighborY, z + nz) == BLOCK_AIR;
+    BlockType neighbor = GetBlock(x + nx, neighborY, z + nz);
+    return neighbor == BLOCK_AIR || neighbor == BLOCK_SPACESHIP_OCCUPIED;
+}
+
+static BlockType ChunkFaceNeighbor(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, int lx, int y, int lz, int nx, int ny, int nz)
+{
+    int neighborY = y + ny;
+    if (neighborY < 0 || neighborY >= height) {
+        int worldY = layerY + neighborY;
+        if (!InHeight(worldY)) return BLOCK_AIR;
+        return GetBlockAt(chunkX * CHUNK_SIZE + lx + nx, worldY,
+                          chunkZ * CHUNK_SIZE + lz + nz);
+    }
+
+    int neighborLx = lx + nx;
+    int neighborLz = lz + nz;
+    if (neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
+        neighborLz >= 0 && neighborLz < CHUNK_SIZE) {
+        return (BlockType)blocks[neighborLx * height + neighborY][neighborLz];
+    }
+
+    int wx = chunkX * CHUNK_SIZE + lx + nx;
+    int wz = chunkZ * CHUNK_SIZE + lz + nz;
+    return GetBlockAt(wx, layerY + neighborY, wz);
 }
 
 bool ChunkFaceIsVisible(const unsigned short (*blocks)[CHUNK_SIZE],
                         int height, int layerY, int chunkX, int chunkZ,
                         int lx, int y, int lz, int nx, int ny, int nz)
 {
-    int neighborY = y + ny;
-    if (neighborY < 0 || neighborY >= height) return true;
+    BlockType neighbor = ChunkFaceNeighbor(
+        blocks, height, layerY, chunkX, chunkZ, lx, y, lz, nx, ny, nz);
+    return neighbor == BLOCK_AIR || neighbor == BLOCK_SPACESHIP_OCCUPIED ||
+           IsTranslucentBlock(neighbor);
+}
 
-    int neighborLx = lx + nx;
-    int neighborLz = lz + nz;
-    if (neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
-        neighborLz >= 0 && neighborLz < CHUNK_SIZE) {
-        return (BlockType)blocks[neighborLx * height + neighborY][neighborLz] == BLOCK_AIR;
-    }
-
-    int wx = chunkX * CHUNK_SIZE + lx + nx;
-    int wz = chunkZ * CHUNK_SIZE + lz + nz;
-    return GetBlockAt(wx, layerY + neighborY, wz) == BLOCK_AIR;
+static bool ChunkTransparentFaceIsVisible(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, int lx, int y, int lz, int nx, int ny, int nz,
+    BlockType current)
+{
+    BlockType neighbor = ChunkFaceNeighbor(
+        blocks, height, layerY, chunkX, chunkZ, lx, y, lz, nx, ny, nz);
+    return neighbor == BLOCK_AIR || neighbor == BLOCK_SPACESHIP_OCCUPIED ||
+           (IsTranslucentBlock(neighbor) && neighbor != current);
 }
 
 Color ShadeColor(Color color, float brightness)
@@ -1170,156 +968,201 @@ Color ShadeColor(Color color, float brightness)
     };
 }
 
-BlockTexture TextureForBlockFace(BlockType type, int face)
-{
-    if (IsColorBlock(type)) return (BlockTexture)(TEX_COLOR_START + ColorBlockIndex(type));
+typedef struct ChunkMeshEmitter {
+    Mesh *mesh;
+    int vertexIndex;
+    int vertexCapacity;
+    bool dynamicCapacity;
+    bool failed;
+} ChunkMeshEmitter;
 
-    switch (type) {
-    case BLOCK_GRASS:
-        if (face == 2) return TEX_GRASS_TOP;
-        if (face == 3) return TEX_DIRT;
-        return TEX_GRASS_SIDE;
-    case BLOCK_DIRT: return TEX_DIRT;
-    case BLOCK_STONE: return TEX_STONE;
-    case BLOCK_WOOD:
-        if (face == 2 || face == 3) return TEX_WOOD_TOP;
-        return TEX_WOOD_SIDE;
-    case BLOCK_SAND: return TEX_SAND;
-    case BLOCK_LEAVES: return TEX_LEAVES;
-    case BLOCK_RED: return TEX_RED;
-    case BLOCK_ORANGE: return TEX_ORANGE;
-    case BLOCK_YELLOW: return TEX_YELLOW;
-    case BLOCK_BLUE: return TEX_BLUE;
-    case BLOCK_PURPLE: return TEX_PURPLE;
-    case BLOCK_GREEN: return TEX_GREEN;
-    case BLOCK_CYAN: return TEX_CYAN;
-    case BLOCK_PINK: return TEX_PINK;
-    case BLOCK_WHITE: return TEX_WHITE;
-    case BLOCK_GRAY: return TEX_GRAY;
-    case BLOCK_BLACK: return TEX_BLACK;
-    case BLOCK_PLANK: return TEX_PLANK;
-    case BLOCK_BRICK: return TEX_BRICK;
-    case BLOCK_GLASS: return TEX_GLASS;
-    case BLOCK_WATER: return TEX_WATER;
-    case BLOCK_SNOW: return TEX_SNOW;
-    case BLOCK_ICE: return TEX_ICE;
-    case BLOCK_CACTUS: return TEX_CACTUS;
-    case BLOCK_BEDROCK: return TEX_BEDROCK;
-    case BLOCK_COAL_ORE: return TEX_COAL_ORE;
-    case BLOCK_IRON_ORE: return TEX_IRON_ORE;
-    case BLOCK_GOLD_ORE: return TEX_GOLD_ORE;
-    case BLOCK_DIAMOND_ORE: return TEX_DIAMOND_ORE;
-    case BLOCK_TORCH: return TEX_TORCH;
-    case BLOCK_ALBUM: return TEX_ALBUM;
-    case BLOCK_SLAB: return TEX_STONE;
-    case BLOCK_DOOR: return TEX_DOOR;
-    case BLOCK_DOOR_OPEN: return TEX_DOOR;
-    case BLOCK_MOON_ROCK: return TEX_MOON_ROCK;
-    case BLOCK_METEORITE: return TEX_METEORITE;
-    case BLOCK_MOON_SAND: return TEX_MOON_SAND;
-    case BLOCK_STAR_MATTER: return TEX_STAR_MATTER;
-    case BLOCK_SPACESHIP: return TEX_SPACESHIP;
-    case BLOCK_STONE_STAIRS: return TEX_STONE;
-    case BLOCK_WOOD_STAIRS: return TEX_PLANK;
-    case BLOCK_FENCE: return TEX_FENCE;
-    case BLOCK_FENCE_GATE: return TEX_FENCE;
-    case BLOCK_FENCE_GATE_OPEN: return TEX_FENCE;
-    case BLOCK_GLASS_PANE: return TEX_GLASS;
-    case BLOCK_LAVA: return TEX_LAVA;
-    case BLOCK_FLOWER: return TEX_FLOWER;
-    case BLOCK_MUSHROOM: return TEX_MUSHROOM;
-    case BLOCK_BOOKSHELF: return TEX_BOOKSHELF;
-    case BLOCK_HAY_BALE: return TEX_HAY;
-    case BLOCK_PUMPKIN: return TEX_PUMPKIN;
-    case BLOCK_NETHERRACK: return TEX_NETHERRACK;
-    case BLOCK_SOUL_SAND: return TEX_SOUL_SAND;
-    case BLOCK_GLOWSTONE: return TEX_GLOWSTONE;
-    case BLOCK_STONE_BRICKS: return TEX_STONE_BRICKS;
-    case BLOCK_SANDSTONE: return TEX_SANDSTONE;
-    case BLOCK_OBSIDIAN: return TEX_OBSIDIAN;
-    case BLOCK_NETHER_PORTAL: return TEX_NETHER_PORTAL;
-    default: return TEX_DIRT;
+static bool GrowMeshVertexCapacity(Mesh *mesh, int populatedVertices,
+                                   int requiredCapacity)
+{
+    int oldCapacity = mesh->vertexCount;
+    int newCapacity = oldCapacity > 0 ? oldCapacity * 2 : 6;
+    if (newCapacity < requiredCapacity) newCapacity = requiredCapacity;
+
+    float *vertices = malloc((size_t)newCapacity * 3 * sizeof(float));
+    float *normals = malloc((size_t)newCapacity * 3 * sizeof(float));
+    float *texcoords = malloc((size_t)newCapacity * 2 * sizeof(float));
+    float *texcoords2 = malloc((size_t)newCapacity * 2 * sizeof(float));
+    unsigned char *colors = malloc((size_t)newCapacity * 4 * sizeof(unsigned char));
+    if (!vertices || !normals || !texcoords || !texcoords2 || !colors) {
+        free(vertices);
+        free(normals);
+        free(texcoords);
+        free(texcoords2);
+        free(colors);
+        return false;
     }
+
+    memcpy(vertices, mesh->vertices, (size_t)populatedVertices * 3 * sizeof(float));
+    memcpy(normals, mesh->normals, (size_t)populatedVertices * 3 * sizeof(float));
+    memcpy(texcoords, mesh->texcoords, (size_t)populatedVertices * 2 * sizeof(float));
+    if (mesh->texcoords2) {
+        memcpy(texcoords2, mesh->texcoords2,
+               (size_t)populatedVertices * 2 * sizeof(float));
+    } else {
+        for (int vertex = 0; vertex < populatedVertices; vertex++) {
+            texcoords2[vertex * 2] = 1.0f;
+            texcoords2[vertex * 2 + 1] = 0.0f;
+        }
+    }
+    memcpy(colors, mesh->colors, (size_t)populatedVertices * 4 * sizeof(unsigned char));
+    free(mesh->vertices);
+    free(mesh->normals);
+    free(mesh->texcoords);
+    free(mesh->texcoords2);
+    free(mesh->colors);
+    mesh->vertices = vertices;
+    mesh->normals = normals;
+    mesh->texcoords = texcoords;
+    mesh->texcoords2 = texcoords2;
+    mesh->colors = colors;
+    mesh->vertexCount = newCapacity;
+    mesh->triangleCount = newCapacity / 3;
+    return true;
 }
 
-void AtlasUVs(BlockTexture texture, Vector2 uvs[6])
+static void AddMeshFaceLighting(ChunkMeshEmitter *emitter,
+                                Vector3 corners[6], Vector3 normal,
+                                Vector2 uvs[6], Color color,
+                                const float ambientOcclusion[6],
+                                float localLight)
 {
-    int tileIndex = (int)texture;
-    int tileX = tileIndex % ATLAS_COLUMNS;
-    int tileY = tileIndex / ATLAS_COLUMNS;
-    float atlasWidth = (float)(ATLAS_CELL_SIZE * ATLAS_COLUMNS);
-    float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS);
-    float tileSize = (float)ATLAS_TILE_SIZE;
-    float cellSize = (float)ATLAS_CELL_SIZE;
-    float padding = (float)ATLAS_TILE_PADDING;
-    float inset = 0.25f;
-    float u0 = ((float)tileX * cellSize + padding + inset) / atlasWidth;
-    float u1 = ((float)tileX * cellSize + padding + tileSize - inset) /
-               atlasWidth;
-    float v0 = ((float)tileY * cellSize + padding + inset) / atlasHeight;
-    float v1 = ((float)tileY * cellSize + padding + tileSize - inset) /
-               atlasHeight;
+    if (emitter->failed) return;
+    if (emitter->vertexIndex > INT_MAX - 6) {
+        emitter->failed = true;
+        return;
+    }
+    int requiredCapacity = emitter->vertexIndex + 6;
+    if (!emitter->mesh) {
+        emitter->vertexIndex = requiredCapacity;
+        return;
+    }
+    if (requiredCapacity > emitter->vertexCapacity) {
+        if (!emitter->dynamicCapacity ||
+            !GrowMeshVertexCapacity(emitter->mesh, emitter->vertexIndex,
+                                    requiredCapacity)) {
+            emitter->failed = true;
+            return;
+        }
+        emitter->vertexCapacity = emitter->mesh->vertexCount;
+    }
 
-    uvs[0] = (Vector2){ u0, v1 };
-    uvs[1] = (Vector2){ u1, v1 };
-    uvs[2] = (Vector2){ u1, v0 };
-    uvs[3] = (Vector2){ u0, v1 };
-    uvs[4] = (Vector2){ u1, v0 };
-    uvs[5] = (Vector2){ u0, v0 };
-}
-
-Rectangle AtlasSourceRect(BlockTexture texture)
-{
-    int tileIndex = (int)texture;
-    return (Rectangle){
-        (float)((tileIndex % ATLAS_COLUMNS) * ATLAS_CELL_SIZE +
-                ATLAS_TILE_PADDING),
-        (float)((tileIndex / ATLAS_COLUMNS) * ATLAS_CELL_SIZE +
-                ATLAS_TILE_PADDING),
-        (float)ATLAS_TILE_SIZE,
-        (float)ATLAS_TILE_SIZE
-    };
-}
-
-void AddMeshVertex(Mesh *mesh, int *vertexIndex, Vector3 position, Vector3 normal, Vector2 uv, Color color)
-{
-    int v = *vertexIndex;
-    mesh->vertices[v * 3 + 0] = position.x;
-    mesh->vertices[v * 3 + 1] = position.y;
-    mesh->vertices[v * 3 + 2] = position.z;
-
-    mesh->normals[v * 3 + 0] = normal.x;
-    mesh->normals[v * 3 + 1] = normal.y;
-    mesh->normals[v * 3 + 2] = normal.z;
-
-    mesh->texcoords[v * 2 + 0] = uv.x;
-    mesh->texcoords[v * 2 + 1] = uv.y;
-
-    mesh->colors[v * 4 + 0] = color.r;
-    mesh->colors[v * 4 + 1] = color.g;
-    mesh->colors[v * 4 + 2] = color.b;
-    mesh->colors[v * 4 + 3] = color.a;
-    *vertexIndex = v + 1;
-}
-
-void AddMeshFace(Mesh *mesh, int *vertexIndex, Vector3 corners[6], Vector3 normal, Vector2 uvs[6], Color color)
-{
     for (int i = 0; i < 6; i++) {
-        AddMeshVertex(mesh, vertexIndex, corners[i], normal, uvs[i], color);
+        int vertex = emitter->vertexIndex + i;
+        emitter->mesh->vertices[vertex * 3 + 0] = corners[i].x;
+        emitter->mesh->vertices[vertex * 3 + 1] = corners[i].y;
+        emitter->mesh->vertices[vertex * 3 + 2] = corners[i].z;
+        emitter->mesh->normals[vertex * 3 + 0] = normal.x;
+        emitter->mesh->normals[vertex * 3 + 1] = normal.y;
+        emitter->mesh->normals[vertex * 3 + 2] = normal.z;
+        emitter->mesh->texcoords[vertex * 2 + 0] = uvs[i].x;
+        emitter->mesh->texcoords[vertex * 2 + 1] = uvs[i].y;
+        if (emitter->mesh->texcoords2) {
+            float ao = ambientOcclusion ? ambientOcclusion[i] : 1.0f;
+            emitter->mesh->texcoords2[vertex * 2 + 0] = Clamp(ao, 0.0f, 1.0f);
+            emitter->mesh->texcoords2[vertex * 2 + 1] =
+                fmaxf(localLight, 0.0f);
+        }
+        emitter->mesh->colors[vertex * 4 + 0] = color.r;
+        emitter->mesh->colors[vertex * 4 + 1] = color.g;
+        emitter->mesh->colors[vertex * 4 + 2] = color.b;
+        emitter->mesh->colors[vertex * 4 + 3] = color.a;
     }
+    emitter->vertexIndex = requiredCapacity;
+}
+
+static void AddMeshFace(ChunkMeshEmitter *emitter, Vector3 corners[6],
+                        Vector3 normal, Vector2 uvs[6], Color color)
+{
+    AddMeshFaceLighting(emitter, corners, normal, uvs, color, NULL, 0.0f);
+}
+
+static void CountMeshFace(ChunkMeshEmitter *emitter)
+{
+    emitter->vertexIndex += 6;
 }
 
 void UnloadAllChunks(void)
 {
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        UnloadChunkModel(&chunks[i]);
+        ChunkClearBlockStorage(&chunks[i]);
         chunks[i].loaded = false;
-        chunks[i].dirty = false;
     }
 }
 
-void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, BlockType type, Color baseColor, float extraLight)
+static bool BlockOccludesAmbient(BlockType block)
 {
+    return block != BLOCK_AIR && block != BLOCK_SPACESHIP_OCCUPIED &&
+           !IsTranslucentBlock(block);
+}
+
+static BlockType SnapshotBlockAt(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, int worldX, int worldY, int worldZ)
+{
+    int lx = worldX - chunkX * CHUNK_SIZE;
+    int lz = worldZ - chunkZ * CHUNK_SIZE;
+    int localY = worldY - layerY;
+    if (blocks && lx >= 0 && lx < CHUNK_SIZE && lz >= 0 &&
+        lz < CHUNK_SIZE && localY >= 0 && localY < height) {
+        return (BlockType)blocks[lx * height + localY][lz];
+    }
+    return GetBlockAt(worldX, worldY, worldZ);
+}
+
+static float BlockCornerAmbientOcclusion(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, int x, int y, int z, Vector3 normal,
+    Vector3 corner)
+{
+    int nx = (int)normal.x;
+    int ny = (int)normal.y;
+    int nz = (int)normal.z;
+    int t1x = 0, t1y = 0, t1z = 0;
+    int t2x = 0, t2y = 0, t2z = 0;
+    if (nx != 0) {
+        t1y = corner.y > (float)y + 0.5f ? 1 : -1;
+        t2z = corner.z > (float)z + 0.5f ? 1 : -1;
+    } else if (ny != 0) {
+        t1x = corner.x > (float)x + 0.5f ? 1 : -1;
+        t2z = corner.z > (float)z + 0.5f ? 1 : -1;
+    } else {
+        t1x = corner.x > (float)x + 0.5f ? 1 : -1;
+        t2y = corner.y > (float)y + 0.5f ? 1 : -1;
+    }
+    int outsideX = x + nx;
+    int outsideY = layerY + y + ny;
+    int outsideZ = z + nz;
+    bool side1 = BlockOccludesAmbient(SnapshotBlockAt(
+        blocks, height, layerY, chunkX, chunkZ,
+        outsideX + t1x, outsideY + t1y, outsideZ + t1z));
+    bool side2 = BlockOccludesAmbient(SnapshotBlockAt(
+        blocks, height, layerY, chunkX, chunkZ,
+        outsideX + t2x, outsideY + t2y, outsideZ + t2z));
+    bool diagonal = BlockOccludesAmbient(SnapshotBlockAt(
+        blocks, height, layerY, chunkX, chunkZ,
+        outsideX + t1x + t2x, outsideY + t1y + t2y,
+        outsideZ + t1z + t2z));
+    int occlusion = side1 && side2 ? 3 :
+                    (int)side1 + (int)side2 + (int)diagonal;
+    static const float factors[4] = { 1.0f, 0.84f, 0.66f, 0.48f };
+    return factors[occlusion];
+}
+
+static void AddBlockFaceInternal(
+    ChunkMeshEmitter *emitter, int x, int y, int z, int face,
+    BlockType type, Color baseColor, float extraLight,
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, bool realtimeLighting)
+{
+    if (!emitter->mesh) {
+        CountMeshFace(emitter);
+        return;
+    }
     float x0 = (float)x;
     float y0 = (float)y;
     float z0 = (float)z;
@@ -1394,14 +1237,50 @@ void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, B
         break;
     }
 
-    float brightness = shade * (1.0f + extraLight);
-    if (type == BLOCK_STAR_MATTER) brightness *= 2.1f;
-    else if (type == BLOCK_LAVA || type == BLOCK_GLOWSTONE) brightness *= 1.8f;
     AtlasUVs(TextureForBlockFace(type, face), uvs);
-    AddMeshFace(mesh, vertexIndex, corners, normal, uvs, ShadeColor(baseColor, brightness));
+    if (realtimeLighting) {
+        float ambientOcclusion[6];
+        for (int i = 0; i < 3; i++) {
+            ambientOcclusion[i] = BlockCornerAmbientOcclusion(
+                blocks, height, layerY, chunkX, chunkZ,
+                x, y, z, normal, corners[i]);
+        }
+        ambientOcclusion[3] = ambientOcclusion[0];
+        ambientOcclusion[4] = ambientOcclusion[2];
+        ambientOcclusion[5] = BlockCornerAmbientOcclusion(
+            blocks, height, layerY, chunkX, chunkZ,
+            x, y, z, normal, corners[5]);
+        AddMeshFaceLighting(emitter, corners, normal, uvs, baseColor,
+                            ambientOcclusion, extraLight);
+    } else {
+        float brightness = shade * (1.0f + extraLight);
+        if (type == BLOCK_STAR_MATTER) brightness *= 2.1f;
+        else if (type == BLOCK_LAVA || type == BLOCK_GLOWSTONE) brightness *= 1.8f;
+        AddMeshFace(emitter, corners, normal, uvs,
+                    ShadeColor(baseColor, brightness));
+    }
 }
 
-void AddTorchMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, float extraLight)
+void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z,
+                  int face, BlockType type, Color baseColor, float extraLight)
+{
+    ChunkMeshEmitter emitter = {
+        .mesh = mesh,
+        .vertexIndex = *vertexIndex,
+        .vertexCapacity = mesh->vertexCount,
+        .dynamicCapacity = true
+    };
+    AddBlockFaceInternal(&emitter, x, y, z, face, type, baseColor,
+                         extraLight, NULL, 0, 0, 0, 0, false);
+    *vertexIndex = emitter.vertexIndex;
+    if (emitter.failed) {
+        mesh->vertexCount = -1;
+        mesh->triangleCount = 0;
+    }
+}
+
+static void AddTorchMesh(ChunkMeshEmitter *emitter, int x, int y, int z,
+                         float extraLight)
 {
     float cx = (float)x + 0.5f;
     float cz = (float)z + 0.5f;
@@ -1443,7 +1322,7 @@ void AddTorchMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, float extra
             a, b, { b.x, y1, b.z },
             a, { b.x, y1, b.z }, { a.x, y1, a.z }
         };
-        AddMeshFace(mesh, vertexIndex, corners, stickNormals[face], stickUvs, stickColor);
+        AddMeshFace(emitter, corners, stickNormals[face], stickUvs, stickColor);
     }
 
     float fy = (float)y + 0.80f;
@@ -1465,7 +1344,7 @@ void AddTorchMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, float extra
         { cx - hs, fy + 0.14f, cz - hs }
     };
     Vector3 normalA = Vector3Normalize((Vector3){ 1.0f, 0.0f, 1.0f });
-    AddMeshFace(mesh, vertexIndex, flameCornersA, normalA, flameUvs, flameColor);
+    AddMeshFace(emitter, flameCornersA, normalA, flameUvs, flameColor);
 
     Vector3 flameCornersB[6] = {
         { cx - hs, fy - 0.12f, cz + hs }, { cx + hs, fy - 0.12f, cz - hs },
@@ -1474,11 +1353,12 @@ void AddTorchMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, float extra
         { cx - hs, fy + 0.14f, cz + hs }
     };
     Vector3 normalB = Vector3Normalize((Vector3){ 1.0f, 0.0f, -1.0f });
-    AddMeshFace(mesh, vertexIndex, flameCornersB, normalB, flameUvs, flameColor);
+    AddMeshFace(emitter, flameCornersB, normalB, flameUvs, flameColor);
 }
 
 
-void AddAlbumMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, float extraLight)
+static void AddAlbumMesh(ChunkMeshEmitter *emitter, int x, int y, int z,
+                         float extraLight)
 {
     float cx = (float)x + 0.5f;
     float cz = (float)z + 0.5f;
@@ -1512,11 +1392,262 @@ void AddAlbumMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, float extra
 
     for (int face = 0; face < 5; face++) {
         Color color = ShadeColor(WHITE, shades[face] * brightness);
-        AddMeshFace(mesh, vertexIndex, faces[face], normals[face], uvs, color);
+        AddMeshFace(emitter, faces[face], normals[face], uvs, color);
     }
 }
 
-void AddSlabMesh(Mesh *mesh, int *vertexIndex,
+static void AddSpaceshipQuad(ChunkMeshEmitter *emitter,
+                             Vector3 a, Vector3 b, Vector3 c, Vector3 d,
+                             BlockTexture texture, Color color,
+                             float brightness)
+{
+    if (!emitter->mesh) {
+        CountMeshFace(emitter);
+        return;
+    }
+    Vector3 normal = Vector3Normalize(Vector3CrossProduct(
+        Vector3Subtract(b, a), Vector3Subtract(c, a)));
+    float shade = 0.80f;
+    if (normal.y > 0.5f) shade = 1.06f;
+    else if (normal.y < -0.5f) shade = 0.58f;
+    else if (normal.z > 0.5f) shade = 0.94f;
+    else if (normal.z < -0.5f) shade = 0.70f;
+    else shade = normal.x > 0.0f ? 0.86f : 0.76f;
+
+    Vector3 corners[6] = { a, b, c, a, c, d };
+    Vector2 uvs[6];
+    AtlasUVs(texture, uvs);
+    AddMeshFace(emitter, corners, normal, uvs,
+                ShadeColor(color, shade * brightness));
+}
+
+static void AddSpaceshipBox(ChunkMeshEmitter *emitter,
+                            Vector3 min, Vector3 max,
+                            BlockTexture texture, Color color,
+                            float brightness)
+{
+    AddSpaceshipQuad(
+        emitter,
+        (Vector3){ max.x, min.y, max.z }, (Vector3){ max.x, min.y, min.z },
+        (Vector3){ max.x, max.y, min.z }, (Vector3){ max.x, max.y, max.z },
+        texture, color, brightness);
+    AddSpaceshipQuad(
+        emitter,
+        (Vector3){ min.x, min.y, min.z }, (Vector3){ min.x, min.y, max.z },
+        (Vector3){ min.x, max.y, max.z }, (Vector3){ min.x, max.y, min.z },
+        texture, color, brightness);
+    AddSpaceshipQuad(
+        emitter,
+        (Vector3){ min.x, max.y, max.z }, (Vector3){ max.x, max.y, max.z },
+        (Vector3){ max.x, max.y, min.z }, (Vector3){ min.x, max.y, min.z },
+        texture, color, brightness);
+    AddSpaceshipQuad(
+        emitter,
+        (Vector3){ min.x, min.y, min.z }, (Vector3){ max.x, min.y, min.z },
+        (Vector3){ max.x, min.y, max.z }, (Vector3){ min.x, min.y, max.z },
+        texture, color, brightness);
+    AddSpaceshipQuad(
+        emitter,
+        (Vector3){ min.x, min.y, max.z }, (Vector3){ max.x, min.y, max.z },
+        (Vector3){ max.x, max.y, max.z }, (Vector3){ min.x, max.y, max.z },
+        texture, color, brightness);
+    AddSpaceshipQuad(
+        emitter,
+        (Vector3){ max.x, min.y, min.z }, (Vector3){ min.x, min.y, min.z },
+        (Vector3){ min.x, max.y, min.z }, (Vector3){ max.x, max.y, min.z },
+        texture, color, brightness);
+}
+
+static void AddSpaceshipTaperedSection(
+    ChunkMeshEmitter *emitter, float centerX,
+    float rearZ, float rearY, float rearHalfWidth, float rearHalfHeight,
+    float frontZ, float frontY, float frontHalfWidth, float frontHalfHeight,
+    BlockTexture texture, Color color, float brightness)
+{
+    Vector3 rear[4] = {
+        { centerX - rearHalfWidth, rearY - rearHalfHeight, rearZ },
+        { centerX + rearHalfWidth, rearY - rearHalfHeight, rearZ },
+        { centerX + rearHalfWidth, rearY + rearHalfHeight, rearZ },
+        { centerX - rearHalfWidth, rearY + rearHalfHeight, rearZ }
+    };
+    Vector3 front[4] = {
+        { centerX - frontHalfWidth, frontY - frontHalfHeight, frontZ },
+        { centerX + frontHalfWidth, frontY - frontHalfHeight, frontZ },
+        { centerX + frontHalfWidth, frontY + frontHalfHeight, frontZ },
+        { centerX - frontHalfWidth, frontY + frontHalfHeight, frontZ }
+    };
+    AddSpaceshipQuad(emitter, front[0], front[1], front[2], front[3],
+                     texture, color, brightness);
+    AddSpaceshipQuad(emitter, rear[1], rear[0], rear[3], rear[2],
+                     texture, color, brightness);
+    AddSpaceshipQuad(emitter, front[1], rear[1], rear[2], front[2],
+                     texture, color, brightness);
+    AddSpaceshipQuad(emitter, rear[0], front[0], front[3], rear[3],
+                     texture, color, brightness);
+    AddSpaceshipQuad(emitter, front[3], front[2], rear[2], rear[3],
+                     texture, color, brightness);
+    AddSpaceshipQuad(emitter, rear[0], rear[1], front[1], front[0],
+                     texture, color, brightness);
+}
+
+// Points wind clockwise from above so the top surface faces upward.
+static void AddSpaceshipWing(ChunkMeshEmitter *emitter,
+                             const Vector2 points[4], float bottomY, float topY,
+                             BlockTexture texture, Color color,
+                             float brightness)
+{
+    Vector3 bottom[4];
+    Vector3 top[4];
+    for (int point = 0; point < 4; point++) {
+        bottom[point] = (Vector3){ points[point].x, bottomY, points[point].y };
+        top[point] = (Vector3){ points[point].x, topY, points[point].y };
+    }
+    AddSpaceshipQuad(emitter, top[0], top[1], top[2], top[3],
+                     texture, color, brightness);
+    AddSpaceshipQuad(emitter, bottom[3], bottom[2], bottom[1], bottom[0],
+                     texture, color, brightness);
+    for (int point = 0; point < 4; point++) {
+        int next = (point + 1) % 4;
+        AddSpaceshipQuad(emitter,
+                         bottom[point], bottom[next], top[next], top[point],
+                         texture, color, brightness);
+    }
+}
+
+static void AddSpaceshipMesh(ChunkMeshEmitter *emitter,
+                             int x, int y, int z, BlockType type,
+                             float extraLight)
+{
+    int firstVertex = emitter->vertexIndex;
+    float x0 = (float)x;
+    float y0 = (float)y;
+    float z0 = (float)z;
+    float cx = x0 + 0.5f;
+    float brightness = 1.0f + extraLight;
+    const Color hull = { 226, 232, 238, 255 };
+    const Color hullDark = { 132, 145, 158, 255 };
+    const Color canopy = { 132, 194, 232, 255 };
+    const Vector2 leftWing[4] = {
+        { x0 + 0.41f, z0 + 0.22f }, { x0 + 0.08f, z0 + 0.29f },
+        { x0 + 0.04f, z0 + 0.43f }, { x0 + 0.41f, z0 + 0.60f }
+    };
+    const Vector2 rightWing[4] = {
+        { x0 + 0.59f, z0 + 0.60f }, { x0 + 0.96f, z0 + 0.43f },
+        { x0 + 0.92f, z0 + 0.29f }, { x0 + 0.59f, z0 + 0.22f }
+    };
+
+    AddSpaceshipTaperedSection(
+        emitter, cx,
+        z0 + 0.18f, y0 + 0.36f, 0.15f, 0.16f,
+        z0 + 0.68f, y0 + 0.37f, 0.12f, 0.14f,
+        TEX_SPACESHIP, hull, brightness);
+    AddSpaceshipTaperedSection(
+        emitter, cx,
+        z0 + 0.68f, y0 + 0.37f, 0.12f, 0.14f,
+        z0 + 0.93f, y0 + 0.34f, 0.02f, 0.03f,
+        TEX_WHITE, hull, brightness);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.42f, y0 + 0.15f, z0 + 0.22f },
+        (Vector3){ x0 + 0.58f, y0 + 0.27f, z0 + 0.72f },
+        TEX_GRAY, hullDark, brightness);
+    AddSpaceshipTaperedSection(
+        emitter, cx,
+        z0 + 0.43f, y0 + 0.62f, 0.09f, 0.10f,
+        z0 + 0.70f, y0 + 0.57f, 0.04f, 0.04f,
+        TEX_GLASS, canopy, brightness);
+    AddSpaceshipWing(emitter, leftWing, y0 + 0.32f, y0 + 0.39f,
+                     TEX_SPACESHIP, hull, brightness);
+    AddSpaceshipWing(emitter, rightWing, y0 + 0.32f, y0 + 0.39f,
+                     TEX_SPACESHIP, hull, brightness);
+
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.29f, y0 + 0.25f, z0 + 0.10f },
+        (Vector3){ x0 + 0.39f, y0 + 0.49f, z0 + 0.32f },
+        TEX_BLACK, (Color){ 155, 166, 178, 255 }, brightness);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.61f, y0 + 0.25f, z0 + 0.10f },
+        (Vector3){ x0 + 0.71f, y0 + 0.49f, z0 + 0.32f },
+        TEX_BLACK, (Color){ 155, 166, 178, 255 }, brightness);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.30f, y0 + 0.27f, z0 + 0.07f },
+        (Vector3){ x0 + 0.38f, y0 + 0.46f, z0 + 0.11f },
+        TEX_GLOWSTONE, (Color){ 255, 198, 112, 255 }, brightness * 1.55f);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.62f, y0 + 0.27f, z0 + 0.07f },
+        (Vector3){ x0 + 0.70f, y0 + 0.46f, z0 + 0.11f },
+        TEX_GLOWSTONE, (Color){ 255, 198, 112, 255 }, brightness * 1.55f);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.33f, y0 + 0.43f, z0 + 0.13f },
+        (Vector3){ x0 + 0.38f, y0 + 0.78f, z0 + 0.25f },
+        TEX_SPACESHIP, hull, brightness);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.62f, y0 + 0.43f, z0 + 0.13f },
+        (Vector3){ x0 + 0.67f, y0 + 0.78f, z0 + 0.25f },
+        TEX_SPACESHIP, hull, brightness);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.04f, y0 + 0.38f, z0 + 0.34f },
+        (Vector3){ x0 + 0.09f, y0 + 0.47f, z0 + 0.40f },
+        TEX_RED, WHITE, brightness * 1.25f);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.91f, y0 + 0.38f, z0 + 0.34f },
+        (Vector3){ x0 + 0.96f, y0 + 0.47f, z0 + 0.40f },
+        TEX_GREEN, WHITE, brightness * 1.25f);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.36f, y0 + 0.37f, z0 + 0.38f },
+        (Vector3){ x0 + 0.38f, y0 + 0.45f, z0 + 0.66f },
+        TEX_ORANGE, WHITE, brightness);
+    AddSpaceshipBox(
+        emitter,
+        (Vector3){ x0 + 0.62f, y0 + 0.37f, z0 + 0.38f },
+        (Vector3){ x0 + 0.64f, y0 + 0.45f, z0 + 0.66f },
+        TEX_ORANGE, WHITE, brightness);
+
+    if (!emitter->mesh || type == BLOCK_SPACESHIP) return;
+
+    int direction = (int)type - (int)BLOCK_SPACESHIP_CORE_NORTH;
+    if (direction < 0 || direction > 3) direction = 0;
+    float angle = (float)direction * PI * 0.5f;
+    float sine = sinf(angle);
+    float cosine = cosf(angle);
+    float sourceCenterX = x0 + 0.5f;
+    float sourceCenterZ = z0 + 0.5f;
+    const float scaleX = 3.78f / 0.92f;
+    const float scaleY = 1.10f / 0.63f;
+    const float scaleZ = 3.90f / 0.86f;
+    float targetCenterX = x0 + 1.0f;
+    float targetCenterZ = z0 + 1.0f;
+    for (int vertex = firstVertex; vertex < emitter->vertexIndex; vertex++) {
+        Mesh *mesh = emitter->mesh;
+        float localX = (mesh->vertices[vertex * 3] - sourceCenterX) * scaleX;
+        float localZ = (mesh->vertices[vertex * 3 + 2] - sourceCenterZ) * scaleZ;
+        mesh->vertices[vertex * 3] = targetCenterX + localX * cosine + localZ * sine;
+        mesh->vertices[vertex * 3 + 1] =
+            y0 + (mesh->vertices[vertex * 3 + 1] - (y0 + 0.15f)) * scaleY;
+        mesh->vertices[vertex * 3 + 2] = targetCenterZ - localX * sine + localZ * cosine;
+
+        Vector3 normal = {
+            mesh->normals[vertex * 3] / scaleX,
+            mesh->normals[vertex * 3 + 1] / scaleY,
+            mesh->normals[vertex * 3 + 2] / scaleZ
+        };
+        normal = Vector3Normalize(normal);
+        mesh->normals[vertex * 3] = normal.x * cosine + normal.z * sine;
+        mesh->normals[vertex * 3 + 1] = normal.y;
+        mesh->normals[vertex * 3 + 2] = -normal.x * sine + normal.z * cosine;
+    }
+}
+
+static void AddSlabMesh(ChunkMeshEmitter *emitter,
                  const unsigned short (*blocks)[CHUNK_SIZE],
                  int height, int layerY, int chunkX, int chunkZ,
                  int lx, int y, int lz,
@@ -1581,11 +1712,12 @@ void AddSlabMesh(Mesh *mesh, int *vertexIndex,
             break;
         }
 
-        AddMeshFace(mesh, vertexIndex, corners, normal, faceUvs, ShadeColor(WHITE, shades[face] * brightness));
+        AddMeshFace(emitter, corners, normal, faceUvs,
+                    ShadeColor(WHITE, shades[face] * brightness));
     }
 }
 
-void AddDoorMesh(Mesh *mesh, int *vertexIndex,
+static void AddDoorMesh(ChunkMeshEmitter *emitter,
                  const unsigned short (*blocks)[CHUNK_SIZE],
                  int height, int layerY, int chunkX, int chunkZ,
                  int lx, int y, int lz,
@@ -1647,11 +1779,11 @@ void AddDoorMesh(Mesh *mesh, int *vertexIndex,
         int face = faceOrder[f];
         if (!ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) continue;
         Color color = ShadeColor(WHITE, shades[f] * brightness);
-        AddMeshFace(mesh, vertexIndex, faceCorners[f], normals[f], uvs, color);
+        AddMeshFace(emitter, faceCorners[f], normals[f], uvs, color);
     }
 }
 
-void AddStairsMesh(Mesh *mesh, int *vertexIndex,
+static void AddStairsMesh(ChunkMeshEmitter *emitter,
                    const unsigned short (*blocks)[CHUNK_SIZE],
                    int height, int layerY, int chunkX, int chunkZ,
                    int lx, int y, int lz, BlockType type, float extraLight)
@@ -1676,7 +1808,7 @@ void AddStairsMesh(Mesh *mesh, int *vertexIndex,
             { x0 + 1.0f, yHigh, zLow }, { x0, yHigh, zHigh },
             { x0 + 1.0f, yHigh, zLow }, { x0, yHigh, zLow }
         };
-        AddMeshFace(mesh, vertexIndex, top, (Vector3){ 0.0f, 1.0f, 0.0f }, uvs,
+        AddMeshFace(emitter, top, (Vector3){ 0.0f, 1.0f, 0.0f }, uvs,
                     ShadeColor(WHITE, 1.08f * brightness));
 
         Vector3 front[6] = {
@@ -1684,7 +1816,7 @@ void AddStairsMesh(Mesh *mesh, int *vertexIndex,
             { x0 + 1.0f, yHigh, zHigh }, { x0, y0, zHigh },
             { x0 + 1.0f, yHigh, zHigh }, { x0, yHigh, zHigh }
         };
-        AddMeshFace(mesh, vertexIndex, front, (Vector3){ 0.0f, 0.0f, 1.0f }, uvs,
+        AddMeshFace(emitter, front, (Vector3){ 0.0f, 0.0f, 1.0f }, uvs,
                     ShadeColor(WHITE, 0.90f * brightness));
 
         Vector3 sideA[6] = {
@@ -1692,7 +1824,7 @@ void AddStairsMesh(Mesh *mesh, int *vertexIndex,
             { x0, yHigh, zHigh }, { x0, y0, zLow },
             { x0, yHigh, zHigh }, { x0, yHigh, zLow }
         };
-        AddMeshFace(mesh, vertexIndex, sideA, (Vector3){ -1.0f, 0.0f, 0.0f }, uvs,
+        AddMeshFace(emitter, sideA, (Vector3){ -1.0f, 0.0f, 0.0f }, uvs,
                     ShadeColor(WHITE, 0.72f * brightness));
 
         Vector3 sideB[6] = {
@@ -1700,7 +1832,7 @@ void AddStairsMesh(Mesh *mesh, int *vertexIndex,
             { x0 + 1.0f, yHigh, zLow }, { x0 + 1.0f, y0, zHigh },
             { x0 + 1.0f, yHigh, zLow }, { x0 + 1.0f, yHigh, zHigh }
         };
-        AddMeshFace(mesh, vertexIndex, sideB, (Vector3){ 1.0f, 0.0f, 0.0f }, uvs,
+        AddMeshFace(emitter, sideB, (Vector3){ 1.0f, 0.0f, 0.0f }, uvs,
                     ShadeColor(WHITE, 0.82f * brightness));
     }
 }
@@ -1723,7 +1855,7 @@ static bool FenceShouldConnect(BlockType type)
     return type == BLOCK_FENCE || type == BLOCK_FENCE_GATE || type == BLOCK_FENCE_GATE_OPEN;
 }
 
-void AddFenceMesh(Mesh *mesh, int *vertexIndex,
+static void AddFenceMesh(ChunkMeshEmitter *emitter,
                   const unsigned short (*blocks)[CHUNK_SIZE],
                   int height, int layerY, int chunkX, int chunkZ,
                   int lx, int y, int lz, float extraLight)
@@ -1756,7 +1888,8 @@ void AddFenceMesh(Mesh *mesh, int *vertexIndex,
             }
         }
         Vector3 normal = { (float)dirs[d][0], 0.0f, (float)dirs[d][2] };
-        AddMeshFace(mesh, vertexIndex, corners, normal, uvs, ShadeColor(WHITE, 0.85f * brightness));
+        AddMeshFace(emitter, corners, normal, uvs,
+                    ShadeColor(WHITE, 0.85f * brightness));
     }
 
     Vector3 postCorners[6] = {
@@ -1764,13 +1897,13 @@ void AddFenceMesh(Mesh *mesh, int *vertexIndex,
         { cx + 0.06f, y0 + 1.0f, cz + 0.06f }, { cx - 0.06f, y0, cz - 0.06f },
         { cx + 0.06f, y0 + 1.0f, cz + 0.06f }, { cx - 0.06f, y0 + 1.0f, cz - 0.06f }
     };
-    AddMeshFace(mesh, vertexIndex, postCorners, (Vector3){ 0.707f, 0.0f, 0.707f }, uvs,
+    AddMeshFace(emitter, postCorners, (Vector3){ 0.707f, 0.0f, 0.707f }, uvs,
                 ShadeColor(WHITE, 1.0f * brightness));
-    AddMeshFace(mesh, vertexIndex, postCorners, (Vector3){ -0.707f, 0.0f, 0.707f }, uvs,
+    AddMeshFace(emitter, postCorners, (Vector3){ -0.707f, 0.0f, 0.707f }, uvs,
                 ShadeColor(WHITE, 0.85f * brightness));
 }
 
-void AddGateMesh(Mesh *mesh, int *vertexIndex,
+static void AddGateMesh(ChunkMeshEmitter *emitter,
                  const unsigned short (*blocks)[CHUNK_SIZE],
                  int height, int layerY, int chunkX, int chunkZ,
                  int lx, int y, int lz, bool open, float extraLight)
@@ -1817,11 +1950,12 @@ void AddGateMesh(Mesh *mesh, int *vertexIndex,
     };
     float shades[3] = { 1.0f, 0.55f, 0.90f };
     for (int f = 0; f < 3; f++) {
-        AddMeshFace(mesh, vertexIndex, faces[f], normals[f], uvs, ShadeColor(WHITE, shades[f] * brightness));
+        AddMeshFace(emitter, faces[f], normals[f], uvs,
+                    ShadeColor(WHITE, shades[f] * brightness));
     }
 }
 
-void AddPaneMesh(Mesh *mesh, int *vertexIndex,
+static void AddPaneMesh(ChunkMeshEmitter *emitter,
                  const unsigned short (*blocks)[CHUNK_SIZE],
                  int height, int layerY, int chunkX, int chunkZ,
                  int lx, int y, int lz, float extraLight)
@@ -1862,11 +1996,13 @@ void AddPaneMesh(Mesh *mesh, int *vertexIndex,
     };
     float shades[5] = { 0.85f, 0.75f, 1.0f, 0.80f, 0.85f };
     for (int f = 0; f < 5; f++) {
-        AddMeshFace(mesh, vertexIndex, faces[f], normals[f], uvs, ShadeColor(WHITE, shades[f] * brightness));
+        AddMeshFace(emitter, faces[f], normals[f], uvs,
+                    ShadeColor(WHITE, shades[f] * brightness));
     }
 }
 
-void AddPlantMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, BlockType type, float extraLight)
+static void AddPlantMesh(ChunkMeshEmitter *emitter, int x, int y, int z,
+                         BlockType type, float extraLight)
 {
     float cx = (float)x + 0.5f;
     float cz = (float)z + 0.5f;
@@ -1882,7 +2018,8 @@ void AddPlantMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, BlockType t
         { cx + 0.16f, y1, cz + 0.16f }, { cx - 0.16f, y1, cz - 0.16f }
     };
     Vector3 normalA = Vector3Normalize((Vector3){ 1.0f, 0.0f, 1.0f });
-    AddMeshFace(mesh, vertexIndex, quadA, normalA, uvs, ShadeColor(WHITE, 0.95f * brightness));
+    AddMeshFace(emitter, quadA, normalA, uvs,
+                ShadeColor(WHITE, 0.95f * brightness));
 
     Vector3 quadB[6] = {
         { cx - 0.16f, y0, cz + 0.16f }, { cx + 0.16f, y0, cz - 0.16f },
@@ -1890,77 +2027,141 @@ void AddPlantMesh(Mesh *mesh, int *vertexIndex, int x, int y, int z, BlockType t
         { cx + 0.16f, y1, cz - 0.16f }, { cx - 0.16f, y1, cz + 0.16f }
     };
     Vector3 normalB = Vector3Normalize((Vector3){ 1.0f, 0.0f, -1.0f });
-    AddMeshFace(mesh, vertexIndex, quadB, normalB, uvs, ShadeColor(WHITE, 0.85f * brightness));
+    AddMeshFace(emitter, quadB, normalB, uvs,
+                ShadeColor(WHITE, 0.85f * brightness));
 }
 bool ChunkBlockHasTransparentMesh(BlockType type)
 {
     return IsTranslucentBlock(type);
 }
 
-static int CountChunkFacesFiltered(const unsigned short (*blocks)[CHUNK_SIZE],
-                                   int height, int layerY,
-                                   int chunkX, int chunkZ,
-                                   bool transparent, bool includePlants,
-                                   bool plantsOnly, const int faces[6][3])
+typedef struct ChunkMeshBuildContext {
+    const unsigned short (*blocks)[CHUNK_SIZE];
+    int height;
+    int layerY;
+    int chunkX;
+    int chunkZ;
+    bool transparent;
+    bool includePlants;
+    bool plantsOnly;
+    const int (*faces)[3];
+    const int *nearbyTorchIndices;
+    int nearbyTorchCount;
+} ChunkMeshBuildContext;
+
+static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
+                                    ChunkMeshEmitter *emitter)
 {
-    int faceCount = 0;
+    const unsigned short (*blocks)[CHUNK_SIZE] = context->blocks;
+    int height = context->height;
+    int layerY = context->layerY;
+    int chunkX = context->chunkX;
+    int chunkZ = context->chunkZ;
+    int startX = chunkX * CHUNK_SIZE;
+    int startZ = chunkZ * CHUNK_SIZE;
+    const int (*faces)[3] = context->faces;
+    bool transparent = context->transparent;
+    bool includePlants = context->includePlants;
+    bool plantsOnly = context->plantsOnly;
+    bool counting = emitter->mesh == NULL;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int y = 0; y < height; y++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                if (emitter->failed) return;
                 BlockType type = (BlockType)blocks[lx * height + y][lz];
                 bool plant = type == BLOCK_FLOWER || type == BLOCK_MUSHROOM;
                 if (plantsOnly) {
-                    if (plant) faceCount += 2;
-                    continue;
+                    if (!plant) continue;
+                } else {
+                    if (type == BLOCK_AIR ||
+                        ChunkBlockHasTransparentMesh(type) !=
+                            transparent) continue;
+                    if (plant && !includePlants) continue;
                 }
-                if (type == BLOCK_AIR || ChunkBlockHasTransparentMesh(type) != transparent) continue;
-                if (plant) {
-                    if (includePlants) faceCount += 2;
-                    continue;
+
+                int x = lx;
+                int z = lz;
+                float blockLight = 0.0f;
+                if (!counting) {
+                    x += startX;
+                    z += startZ;
+                    blockLight = TorchLightAtBlockNearby(
+                        x, layerY + y, z, context->nearbyTorchIndices,
+                        context->nearbyTorchCount);
                 }
                 if (type == BLOCK_TORCH) {
-                    faceCount += 6;
+                    AddTorchMesh(emitter, x, y, z, blockLight);
                     continue;
                 }
                 if (type == BLOCK_ALBUM) {
-                    faceCount += 5;
+                    AddAlbumMesh(emitter, x, y, z, blockLight);
                     continue;
                 }
-                if (type == BLOCK_SLAB || type == BLOCK_DOOR || type == BLOCK_DOOR_OPEN) {
-                    int customFaces = (type == BLOCK_SLAB) ? 6 : 5;
-                    for (int face = 0; face < customFaces; face++) {
-                        if (ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) faceCount++;
-                    }
+                if (type == BLOCK_SPACESHIP ||
+                    (type >= BLOCK_SPACESHIP_CORE_NORTH &&
+                     type <= BLOCK_SPACESHIP_CORE_WEST)) {
+                    AddSpaceshipMesh(emitter, x, y, z, type, blockLight);
+                    continue;
+                }
+                if (type == BLOCK_SPACESHIP_OCCUPIED) continue;
+                if (type == BLOCK_SLAB) {
+                    AddSlabMesh(emitter, blocks, height, layerY, chunkX,
+                                chunkZ, lx, y, lz, faces, blockLight);
+                    continue;
+                }
+                if (type == BLOCK_DOOR || type == BLOCK_DOOR_OPEN) {
+                    AddDoorMesh(emitter, blocks, height, layerY, chunkX,
+                                chunkZ, lx, y, lz, faces, type, blockLight);
                     continue;
                 }
                 if (type == BLOCK_STONE_STAIRS || type == BLOCK_WOOD_STAIRS) {
-                    faceCount += 9;
+                    AddStairsMesh(emitter, blocks, height, layerY, chunkX,
+                                  chunkZ, lx, y, lz, type, blockLight);
                     continue;
                 }
                 if (type == BLOCK_FENCE) {
-                    faceCount += 2;
-                    for (int d = 0; d < 4; d++) {
-                        BlockType neighbor = FenceNeighborBlock(blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
-                                                                faces[d][0], faces[d][2]);
-                        if (neighbor == BLOCK_AIR || FenceShouldConnect(neighbor)) faceCount++;
-                    }
+                    AddFenceMesh(emitter, blocks, height, layerY, chunkX,
+                                 chunkZ, lx, y, lz, blockLight);
                     continue;
                 }
                 if (type == BLOCK_FENCE_GATE || type == BLOCK_FENCE_GATE_OPEN) {
-                    faceCount += 3;
+                    AddGateMesh(emitter, blocks, height, layerY, chunkX,
+                                chunkZ, lx, y, lz,
+                                type == BLOCK_FENCE_GATE_OPEN, blockLight);
                     continue;
                 }
                 if (type == BLOCK_GLASS_PANE) {
-                    faceCount += 5;
+                    AddPaneMesh(emitter, blocks, height, layerY, chunkX,
+                                chunkZ, lx, y, lz, blockLight);
+                    continue;
+                }
+                if (plant) {
+                    AddPlantMesh(emitter, x, y, z, type, blockLight);
                     continue;
                 }
                 for (int face = 0; face < 6; face++) {
-                    if (ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) faceCount++;
+                    bool visible = transparent ?
+                        ChunkTransparentFaceIsVisible(
+                            blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
+                            faces[face][0], faces[face][1], faces[face][2],
+                            type) :
+                        ChunkFaceIsVisible(
+                            blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
+                            faces[face][0], faces[face][1], faces[face][2]);
+                    if (visible) {
+                        if (!counting) {
+                            AddBlockFaceInternal(
+                                emitter, x, y, z, face, type, WHITE,
+                                blockLight, blocks, height, layerY, chunkX,
+                                chunkZ, true);
+                        } else {
+                            CountMeshFace(emitter);
+                        }
+                    }
                 }
             }
         }
     }
-    return faceCount;
 }
 
 static bool BuildMeshDataFiltered(
@@ -1969,93 +2170,51 @@ static bool BuildMeshDataFiltered(
     bool plantsOnly, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
 {
-    int faceCount = CountChunkFacesFiltered(
-        blocks, height, layerY, chunkX, chunkZ, transparent,
-        includePlants, plantsOnly, faces);
-    if (faceCount == 0) return false;
-
-    int startX = chunkX * CHUNK_SIZE;
-    int startZ = chunkZ * CHUNK_SIZE;
+    ChunkMeshBuildContext context = {
+        .blocks = blocks,
+        .height = height,
+        .layerY = layerY,
+        .chunkX = chunkX,
+        .chunkZ = chunkZ,
+        .transparent = transparent,
+        .includePlants = includePlants,
+        .plantsOnly = plantsOnly,
+        .faces = faces,
+        .nearbyTorchIndices = nearbyTorchIndices,
+        .nearbyTorchCount = nearbyTorchCount
+    };
+    ChunkMeshEmitter counter = { 0 };
+    EmitChunkBlocksFiltered(&context, &counter);
+    if (counter.failed || counter.vertexIndex == 0) return false;
 
     Mesh mesh = { 0 };
-    mesh.vertexCount = faceCount * 6;
-    mesh.triangleCount = faceCount * 2;
+    mesh.vertexCount = counter.vertexIndex;
+    mesh.triangleCount = counter.vertexIndex / 3;
     mesh.vertices = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
     mesh.texcoords = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
+    mesh.texcoords2 = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
     mesh.normals = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
     mesh.colors = malloc((size_t)mesh.vertexCount * 4 * sizeof(unsigned char));
 
-    if (!mesh.vertices || !mesh.texcoords || !mesh.normals || !mesh.colors) {
+    if (!mesh.vertices || !mesh.texcoords || !mesh.texcoords2 ||
+        !mesh.normals || !mesh.colors) {
         free(mesh.vertices);
         free(mesh.texcoords);
+        free(mesh.texcoords2);
         free(mesh.normals);
         free(mesh.colors);
         return false;
     }
 
-    int vertexIndex = 0;
-    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int y = 0; y < height; y++) {
-            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                BlockType type = (BlockType)blocks[lx * height + y][lz];
-                bool plant = type == BLOCK_FLOWER || type == BLOCK_MUSHROOM;
-                if (plantsOnly) {
-                    if (!plant) continue;
-                } else {
-                    if (type == BLOCK_AIR ||
-                        ChunkBlockHasTransparentMesh(type) != transparent) continue;
-                    if (plant && !includePlants) continue;
-                }
-
-                int x = startX + lx;
-                int z = startZ + lz;
-                float blockLight = TorchLightAtBlockNearby(x, y, z, nearbyTorchIndices, nearbyTorchCount);
-                if (type == BLOCK_TORCH) {
-                    AddTorchMesh(&mesh, &vertexIndex, x, y, z, blockLight);
-                    continue;
-                }
-                if (type == BLOCK_ALBUM) {
-                    AddAlbumMesh(&mesh, &vertexIndex, x, y, z, blockLight);
-                    continue;
-                }
-                if (type == BLOCK_SLAB) {
-                    AddSlabMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces, blockLight);
-                    continue;
-                }
-                if (type == BLOCK_DOOR || type == BLOCK_DOOR_OPEN) {
-                    AddDoorMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces, type, blockLight);
-                    continue;
-                }
-                if (type == BLOCK_STONE_STAIRS || type == BLOCK_WOOD_STAIRS) {
-                    AddStairsMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, type, blockLight);
-                    continue;
-                }
-                if (type == BLOCK_FENCE) {
-                    AddFenceMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, blockLight);
-                    continue;
-                }
-                if (type == BLOCK_FENCE_GATE || type == BLOCK_FENCE_GATE_OPEN) {
-                    AddGateMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
-                                type == BLOCK_FENCE_GATE_OPEN, blockLight);
-                    continue;
-                }
-                if (type == BLOCK_GLASS_PANE) {
-                    AddPaneMesh(&mesh, &vertexIndex, blocks, height, layerY, chunkX, chunkZ, lx, y, lz, blockLight);
-                    continue;
-                }
-                if (type == BLOCK_FLOWER || type == BLOCK_MUSHROOM) {
-                    AddPlantMesh(&mesh, &vertexIndex, x, y, z, type, blockLight);
-                    continue;
-                }
-                for (int face = 0; face < 6; face++) {
-                    if (ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) {
-                        AddBlockFace(&mesh, &vertexIndex, x, y, z, face, type, WHITE, blockLight);
-                    }
-                }
-            }
-        }
+    ChunkMeshEmitter writer = {
+        .mesh = &mesh,
+        .vertexCapacity = mesh.vertexCount
+    };
+    EmitChunkBlocksFiltered(&context, &writer);
+    if (writer.failed || writer.vertexIndex != counter.vertexIndex) {
+        FreeMeshData(&mesh);
+        return false;
     }
-
     *outMesh = mesh;
     return true;
 }
@@ -2206,21 +2365,21 @@ static int FloraStructureOwnerAt(
 }
 
 static void CopyBlocksWithoutFloraStructures(
-    unsigned short destination[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
-    const unsigned short source[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
-    int chunkX, int chunkZ,
+    unsigned short destination[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned short source[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount)
 {
     memcpy(destination, source,
-           sizeof(unsigned short) * CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
+           sizeof(unsigned short) * CHUNK_SIZE * SURFACE_SECTION_HEIGHT * CHUNK_SIZE);
     int startX = chunkX * CHUNK_SIZE;
     int startZ = chunkZ * CHUNK_SIZE;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int y = 0; y < WORLD_HEIGHT; y++) {
+        for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 if (FloraStructureOwnerAt(
                         structures, structureCount,
-                        startX + lx, y, startZ + lz,
+                        startX + lx, layerY + y, startZ + lz,
                         (BlockType)source[lx][y][lz]) >= 0) {
                     destination[lx][y][lz] = (unsigned short)BLOCK_AIR;
                 }
@@ -2246,11 +2405,13 @@ static bool MergeMeshData(Mesh *target, Mesh *source)
     int vertexCount = targetVertexCount + sourceVertexCount;
     float *vertices = malloc((size_t)vertexCount * 3u * sizeof(float));
     float *texcoords = malloc((size_t)vertexCount * 2u * sizeof(float));
+    float *texcoords2 = malloc((size_t)vertexCount * 2u * sizeof(float));
     float *normals = malloc((size_t)vertexCount * 3u * sizeof(float));
     unsigned char *colors = malloc((size_t)vertexCount * 4u);
-    if (!vertices || !texcoords || !normals || !colors) {
+    if (!vertices || !texcoords || !texcoords2 || !normals || !colors) {
         free(vertices);
         free(texcoords);
+        free(texcoords2);
         free(normals);
         free(colors);
         FreeMeshData(source);
@@ -2264,6 +2425,10 @@ static bool MergeMeshData(Mesh *target, Mesh *source)
     memcpy(texcoords, target->texcoords,
            (size_t)targetVertexCount * 2u * sizeof(float));
     memcpy(texcoords + targetVertexCount * 2, source->texcoords,
+           (size_t)sourceVertexCount * 2u * sizeof(float));
+    memcpy(texcoords2, target->texcoords2,
+           (size_t)targetVertexCount * 2u * sizeof(float));
+    memcpy(texcoords2 + targetVertexCount * 2, source->texcoords2,
            (size_t)sourceVertexCount * 2u * sizeof(float));
     memcpy(normals, target->normals,
            (size_t)targetVertexCount * 3u * sizeof(float));
@@ -2281,6 +2446,7 @@ static bool MergeMeshData(Mesh *target, Mesh *source)
         .triangleCount = triangleCount,
         .vertices = vertices,
         .texcoords = texcoords,
+        .texcoords2 = texcoords2,
         .normals = normals,
         .colors = colors
     };
@@ -2335,24 +2501,24 @@ static bool AppendPlantMeshInstances(
 }
 
 static bool BuildChunkSurfaceSolidMeshData(
-    const unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
-    int chunkX, int chunkZ,
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, Mesh *outMesh)
 {
-    unsigned short solidBlocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    unsigned short solidBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     CopyBlocksWithoutFloraStructures(
-        solidBlocks, blocks, chunkX, chunkZ, structures, structureCount);
+        solidBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
     return BuildSurfaceSolidMeshData(
         (const unsigned short (*)[CHUNK_SIZE])solidBlocks,
-        WORLD_HEIGHT, 0, chunkX, chunkZ, faces,
+        SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
         nearbyTorchIndices, nearbyTorchCount, outMesh);
 }
 
 static bool BuildChunkFloraMeshDataFromSnapshot(
-    const unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE],
-    int chunkX, int chunkZ,
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, Mesh *outMesh,
@@ -2362,9 +2528,9 @@ static bool BuildChunkFloraMeshDataFromSnapshot(
     *outInstances = NULL;
     *outInstanceCount = 0;
 
-    unsigned short floraBlocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    unsigned short floraBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     CopyBlocksWithoutFloraStructures(
-        floraBlocks, blocks, chunkX, chunkZ, structures, structureCount);
+        floraBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
 
     Mesh combined = { 0 };
     FloraVisualInstance *instances = NULL;
@@ -2372,7 +2538,7 @@ static bool BuildChunkFloraMeshDataFromSnapshot(
     Mesh plants = { 0 };
     if (BuildFloraMeshData(
             (const unsigned short (*)[CHUNK_SIZE])floraBlocks,
-            WORLD_HEIGHT, 0, chunkX, chunkZ, faces,
+            SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
             nearbyTorchIndices, nearbyTorchCount, &plants)) {
         if (!AppendPlantMeshInstances(
                 &instances, &instanceCount, &plants, 0) ||
@@ -2388,15 +2554,15 @@ static bool BuildChunkFloraMeshDataFromSnapshot(
     int startZ = chunkZ * CHUNK_SIZE;
     for (int structureIndex = 0; structureIndex < structureCount;
          structureIndex++) {
-        unsigned short instanceBlocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE] = { 0 };
+        unsigned short instanceBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE] = { 0 };
         bool hasBlocks = false;
         for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-            for (int y = 0; y < WORLD_HEIGHT; y++) {
+            for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
                 for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                     unsigned short block = blocks[lx][y][lz];
                     if (FloraStructureOwnerAt(
                             structures, structureCount,
-                            startX + lx, y, startZ + lz,
+                            startX + lx, layerY + y, startZ + lz,
                             (BlockType)block) != structureIndex) continue;
                     if (block == (unsigned short)BLOCK_AIR) continue;
                     instanceBlocks[lx][y][lz] = block;
@@ -2411,7 +2577,7 @@ static bool BuildChunkFloraMeshDataFromSnapshot(
         Mesh crossed = { 0 };
         if (BuildSurfaceSolidMeshData(
                 (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
-                WORLD_HEIGHT, 0, chunkX, chunkZ, faces,
+                SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
                 nearbyTorchIndices, nearbyTorchCount, &solid) &&
             !MergeMeshData(&instanceMesh, &solid)) {
             FreeMeshData(&solid);
@@ -2422,7 +2588,7 @@ static bool BuildChunkFloraMeshDataFromSnapshot(
         }
         if (BuildFloraMeshData(
                 (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
-                WORLD_HEIGHT, 0, chunkX, chunkZ, faces,
+                SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
                 nearbyTorchIndices, nearbyTorchCount, &crossed) &&
             !MergeMeshData(&instanceMesh, &crossed)) {
             FreeMeshData(&crossed);
@@ -2443,7 +2609,7 @@ static bool BuildChunkFloraMeshDataFromSnapshot(
                     .vertexCount = vertexCount,
                     .anchor = {
                         (float)structure->rootX + 0.5f,
-                        (float)structure->groundY + 1.0f,
+                        (float)(structure->groundY - layerY) + 1.0f,
                         (float)structure->rootZ + 0.5f
                     },
                     .height = (float)(structure->maxY - structure->groundY),
@@ -2472,17 +2638,84 @@ bool BuildChunkFloraMeshData(
     FloraVisualInstance **outInstances, int *outInstanceCount)
 {
     if (!chunk || !outMesh || !outInstances || !outInstanceCount) return false;
-    return BuildChunkFloraMeshDataFromSnapshot(
-        chunk->blocks, chunk->cx, chunk->cz,
-        chunk->floraStructures, chunk->floraStructureCount,
-        faces, nearbyTorchIndices, nearbyTorchCount,
-        outMesh, outInstances, outInstanceCount);
+    Mesh combined = { 0 };
+    FloraVisualInstance *instances = NULL;
+    int instanceCount = 0;
+    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+        const ChunkSection *section = ChunkGetSectionConst(chunk, sy);
+        if (!section) continue;
+        Mesh part = { 0 };
+        FloraVisualInstance *partInstances = NULL;
+        int partCount = 0;
+        if (!BuildChunkFloraMeshDataFromSnapshot(
+                section->blocks, sy * SURFACE_SECTION_HEIGHT,
+                chunk->cx, chunk->cz, chunk->floraStructures,
+                chunk->floraStructureCount, faces, nearbyTorchIndices,
+                nearbyTorchCount, &part, &partInstances, &partCount)) continue;
+        float layerY = (float)(sy * SURFACE_SECTION_HEIGHT);
+        for (int vertex = 0; vertex < part.vertexCount; vertex++) {
+            part.vertices[vertex * 3 + 1] += layerY;
+        }
+        for (int i = 0; i < partCount; i++) {
+            partInstances[i].anchor.y += layerY;
+        }
+        int firstVertex = combined.vertexCount;
+        for (int i = 0; i < partCount; i++) {
+            partInstances[i].firstVertex += firstVertex;
+            if (!AppendFloraVisualInstance(&instances, &instanceCount,
+                                           partInstances[i])) {
+                free(partInstances);
+                FreeMeshData(&part);
+                FreeMeshData(&combined);
+                free(instances);
+                return false;
+            }
+        }
+        free(partInstances);
+        if (!MergeMeshData(&combined, &part)) {
+            FreeMeshData(&combined);
+            free(instances);
+            return false;
+        }
+    }
+    if (combined.vertexCount <= 0) {
+        free(instances);
+        return false;
+    }
+    *outMesh = combined;
+    *outInstances = instances;
+    *outInstanceCount = instanceCount;
+    return true;
 }
 
-#define MAX_MESH_JOBS 64
+#define MAX_MESH_JOBS MAX_CHUNK_MESH_JOBS
 #define MAX_MESH_SUBMITS_PER_FRAME 4
 
 static MeshJob meshJobs[MAX_MESH_JOBS];
+
+static void UpdateQueuePeaksLocked(void)
+{
+    uint64_t generation = 0;
+    uint64_t mesh = 0;
+    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+        if (chunkGenJobs[i].inUse && !chunkGenJobs[i].done) generation++;
+    }
+    for (int i = 0; i < MAX_MESH_JOBS; i++) {
+        if (meshJobs[i].inUse && !meshJobs[i].done) mesh++;
+    }
+    if (generation > streamingStats.generationQueuePeak) {
+        streamingStats.generationQueuePeak = generation;
+    }
+    if (mesh > streamingStats.meshQueuePeak) streamingStats.meshQueuePeak = mesh;
+    uint64_t snapshotBytes = 0;
+    for (int i = 0; i < MAX_MESH_JOBS; i++) {
+        if (meshJobs[i].inUse) snapshotBytes += sizeof(meshJobs[i].blocks);
+    }
+    streamingStats.pendingMeshSnapshotBytes = snapshotBytes;
+    if (snapshotBytes > streamingStats.pendingMeshSnapshotBytesPeak) {
+        streamingStats.pendingMeshSnapshotBytesPeak = snapshotBytes;
+    }
+}
 
 static bool HasPendingMeshJob(void)
 {
@@ -2500,10 +2733,11 @@ static MeshJob *NextPendingMeshJob(void)
     return NULL;
 }
 
-static bool FindPendingMeshJob(int slotIndex)
+static bool FindPendingMeshJob(int slotIndex, int sectionY)
 {
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        if (meshJobs[i].inUse && meshJobs[i].slotIndex == slotIndex) return true;
+        if (meshJobs[i].inUse && meshJobs[i].slotIndex == slotIndex &&
+            meshJobs[i].sectionY == sectionY) return true;
     }
     return false;
 }
@@ -2512,6 +2746,7 @@ static void FreeMeshData(Mesh *mesh)
 {
     free(mesh->vertices);
     free(mesh->texcoords);
+    free(mesh->texcoords2);
     free(mesh->normals);
     free(mesh->colors);
     *mesh = (Mesh){ 0 };
@@ -2537,39 +2772,39 @@ static void ReplaceChunkModel(Model *model, bool *hasModel,
 }
 
 static void InitializeFloraTargets(
-    Chunk *chunk, const FloraVisualInstance *sourceInstances,
+    ChunkSection *section, const FloraVisualInstance *sourceInstances,
     int sourceInstanceCount)
 {
-    ClearChunkFloraRuntime(chunk);
-    if (!chunk->hasFloraModel || chunk->floraModel.meshCount <= 0) return;
+    ClearSectionFloraRuntime(section);
+    if (!section || !section->hasFloraModel || section->floraModel.meshCount <= 0) return;
 
-    Mesh *mesh = &chunk->floraModel.meshes[0];
+    Mesh *mesh = &section->floraModel.meshes[0];
     if (mesh->vertexCount <= 0 || !mesh->vertices || !mesh->colors) return;
     bool hasSourceInstances = sourceInstances && sourceInstanceCount > 0;
     int count = hasSourceInstances ? sourceInstanceCount :
                 (mesh->vertexCount + 11) / 12;
-    chunk->floraTargetScales = malloc((size_t)count * sizeof(float));
-    chunk->floraTargetWind = malloc((size_t)count * sizeof(float));
-    chunk->floraTargetWindAngle = malloc((size_t)count * sizeof(float));
-    chunk->floraTargetPresence = malloc((size_t)count * sizeof(float));
-    chunk->floraBaseVertices = malloc(
+    section->floraTargetScales = malloc((size_t)count * sizeof(float));
+    section->floraTargetWind = malloc((size_t)count * sizeof(float));
+    section->floraTargetWindAngle = malloc((size_t)count * sizeof(float));
+    section->floraTargetPresence = malloc((size_t)count * sizeof(float));
+    section->floraBaseVertices = malloc(
         (size_t)mesh->vertexCount * 3u * sizeof(float));
-    chunk->floraBaseColors = malloc((size_t)mesh->vertexCount * 4u);
-    chunk->floraVisualInstances = malloc(
+    section->floraBaseColors = malloc((size_t)mesh->vertexCount * 4u);
+    section->floraVisualInstances = malloc(
         (size_t)count * sizeof(FloraVisualInstance));
-    if (!chunk->floraTargetScales || !chunk->floraTargetWind ||
-        !chunk->floraTargetWindAngle || !chunk->floraTargetPresence ||
-        !chunk->floraBaseVertices ||
-        !chunk->floraBaseColors || !chunk->floraVisualInstances) {
-        ClearChunkFloraRuntime(chunk);
+    if (!section->floraTargetScales || !section->floraTargetWind ||
+        !section->floraTargetWindAngle || !section->floraTargetPresence ||
+        !section->floraBaseVertices ||
+        !section->floraBaseColors || !section->floraVisualInstances) {
+        ClearSectionFloraRuntime(section);
         return;
     }
-    memcpy(chunk->floraBaseVertices, mesh->vertices,
+    memcpy(section->floraBaseVertices, mesh->vertices,
            (size_t)mesh->vertexCount * 3u * sizeof(float));
-    memcpy(chunk->floraBaseColors, mesh->colors,
+    memcpy(section->floraBaseColors, mesh->colors,
            (size_t)mesh->vertexCount * 4u);
     if (hasSourceInstances) {
-        memcpy(chunk->floraVisualInstances, sourceInstances,
+        memcpy(section->floraVisualInstances, sourceInstances,
                (size_t)count * sizeof(FloraVisualInstance));
     }
     for (int index = 0; index < count; index++) {
@@ -2584,7 +2819,7 @@ static void InitializeFloraTargets(
             }
             float firstX = mesh->vertices[firstVertex * 3];
             float firstZ = mesh->vertices[firstVertex * 3 + 2];
-            chunk->floraVisualInstances[index] = (FloraVisualInstance){
+            section->floraVisualInstances[index] = (FloraVisualInstance){
                 .firstVertex = firstVertex,
                 .vertexCount = vertexCount,
                 .anchor = {
@@ -2596,52 +2831,71 @@ static void InitializeFloraTargets(
                 .windResponse = 1.0f
             };
         }
-        chunk->floraTargetScales[index] = 1.0f;
-        chunk->floraTargetWind[index] = 0.0f;
-        chunk->floraTargetWindAngle[index] = 0.0f;
-        chunk->floraTargetPresence[index] = 1.0f;
+        section->floraTargetScales[index] = 1.0f;
+        section->floraTargetWind[index] = 0.0f;
+        section->floraTargetWindAngle[index] = 0.0f;
+        section->floraTargetPresence[index] = 1.0f;
     }
-    chunk->floraTargetScaleCount = count;
+    section->floraTargetScaleCount = count;
 }
 
-static void UploadMeshJob(MeshJob *job)
+static bool UploadMeshJob(MeshJob *job)
 {
-    Chunk *chunk = &chunks[job->slotIndex];
-    bool valid = chunk->loaded && chunk->cx == job->cx && chunk->cz == job->cz;
+    Chunk *chunk = NULL;
+    bool valid = false;
+    if (job && job->slotIndex >= 0 && job->slotIndex < MAX_ACTIVE_CHUNKS) {
+        chunk = &chunks[job->slotIndex];
+        valid = chunk->loaded && chunk->cx == job->cx && chunk->cz == job->cz &&
+                chunk->generation == job->chunkGeneration &&
+                ChunkGetSection(chunk, job->sectionY, false) != NULL;
+    }
 
-    if (valid) {
-        if (job->transparent) {
-            ReplaceChunkModel(&chunk->waterModel, &chunk->hasWaterModel,
-                              &job->mesh, job->hasMesh, false);
-            FreeMeshData(&job->floraMesh);
-        } else {
-            ReplaceChunkModel(&chunk->model, &chunk->hasModel,
-                              &job->mesh, job->hasMesh, false);
-            ReplaceChunkModel(&chunk->floraModel, &chunk->hasFloraModel,
-                              &job->floraMesh, job->hasFloraMesh, true);
-            InitializeFloraTargets(chunk, job->floraInstances,
-                                   job->floraInstanceCount);
-            chunk->floraVisualScale = 1.0f;
-        }
-    } else {
+    if (job && valid) {
+        ChunkSection *section = ChunkGetSection(chunk, job->sectionY, false);
+        ReplaceChunkModel(&section->model, &section->hasModel,
+                          &job->mesh, job->hasMesh, false);
+        ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,
+                          &job->waterMesh, job->hasWaterMesh, false);
+        ReplaceChunkModel(&section->floraModel, &section->hasFloraModel,
+                          &job->floraMesh, job->hasFloraMesh, true);
+        InitializeFloraTargets(section, job->floraInstances,
+                               job->floraInstanceCount);
+        section->floraVisualScale = 1.0f;
+    } else if (job) {
         FreeMeshData(&job->mesh);
+        FreeMeshData(&job->waterMesh);
         FreeMeshData(&job->floraMesh);
     }
 
-    free(job->floraInstances);
-    job->floraInstances = NULL;
-    job->floraInstanceCount = 0;
+    if (job) {
+        free(job->floraInstances);
+        job->floraInstances = NULL;
+        job->floraInstanceCount = 0;
+    }
 
     pthread_mutex_lock(&genMutex);
-    job->inUse = false;
-    bool pending = valid && FindPendingMeshJob(job->slotIndex);
+    if (job) job->inUse = false;
+    bool pending = job && valid && FindPendingMeshJob(job->slotIndex,
+                                                      job->sectionY);
+    if (job && !valid) streamingStats.meshCanceled++;
     pthread_mutex_unlock(&genMutex);
-    if (valid && !pending) chunk->dirty = false;
+    if (valid && !pending) {
+        ChunkSection *section = ChunkGetSection(chunk, job->sectionY, false);
+        // Only clear the dirty flag when the uploaded snapshot still matches
+        // the current content revision. If the section was edited after the
+        // snapshot was taken, keep it dirty so a fresh job rebuilds it with
+        // the new content instead of silently losing the edit.
+        if (section && section->dirtyStamp == job->sectionStamp) {
+            section->dirty = false;
+        }
+    }
+    return valid;
 }
 
-static void PrepareMeshJob(MeshJob *job, const Chunk *chunk, bool transparent)
+static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
+                           const ChunkSection *section)
 {
-    memcpy(job->blocks, chunk->blocks, sizeof(job->blocks));
+    memcpy(job->blocks, section->blocks, sizeof(job->blocks));
     job->floraStructureCount = chunk->floraStructureCount;
     if (job->floraStructureCount < 0) job->floraStructureCount = 0;
     if (job->floraStructureCount > MAX_CHUNK_FLORA_STRUCTURES) {
@@ -2660,59 +2914,80 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk, bool transparent)
     job->slotIndex = (int)(chunk - chunks);
     job->cx = chunk->cx;
     job->cz = chunk->cz;
-    job->transparent = transparent;
+    job->sectionY = section->sectionY;
+    job->sectionStamp = section->dirtyStamp;
+    job->chunkGeneration = chunk->generation;
     job->mesh = (Mesh){ 0 };
+    job->waterMesh = (Mesh){ 0 };
     job->floraMesh = (Mesh){ 0 };
     free(job->floraInstances);
     job->floraInstances = NULL;
     job->floraInstanceCount = 0;
     job->hasMesh = false;
+    job->hasWaterMesh = false;
     job->hasFloraMesh = false;
 }
 
-static bool SubmitMeshJobs(Chunk *chunk)
+static bool SubmitMeshJobs(Chunk *chunk, ChunkSection *section)
 {
-    if (!chunk || genThread == 0) return false;
+    if (!chunk || !section || genThread == 0) return false;
 
     pthread_mutex_lock(&genMutex);
-    MeshJob *solidJob = NULL;
-    MeshJob *transparentJob = NULL;
+    MeshJob *job = NULL;
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        if (meshJobs[i].inUse) continue;
-        if (!solidJob) {
-            solidJob = &meshJobs[i];
-        } else {
-            transparentJob = &meshJobs[i];
+        if (!meshJobs[i].inUse) {
+            job = &meshJobs[i];
             break;
         }
     }
-    if (!transparentJob) {
+    if (!job) {
         pthread_mutex_unlock(&genMutex);
         return false;
     }
 
-    PrepareMeshJob(solidJob, chunk, false);
-    PrepareMeshJob(transparentJob, chunk, true);
+    PrepareMeshJob(job, chunk, section);
+    streamingStats.meshSubmitted++;
+    streamingStats.meshSnapshotBytes += sizeof(job->blocks);
+    UpdateQueuePeaksLocked();
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
 }
 
-void ProcessFinishedMeshJobs(void)
+void ProcessFinishedMeshJobs(double uploadBudgetMs)
 {
     int uploaded = 0;
+    double startedMs = ChunkNowMs();
+    if (!isfinite(uploadBudgetMs) || uploadBudgetMs < 0.0) {
+        uploadBudgetMs = 0.0;
+    }
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
         MeshJob *job = &meshJobs[i];
         pthread_mutex_lock(&genMutex);
         bool ready = job->inUse && job->done;
         pthread_mutex_unlock(&genMutex);
         if (!ready) continue;
-        UploadMeshJob(job);
+        if (uploaded > 0 && ChunkNowMs() - startedMs >= uploadBudgetMs) {
+            pthread_mutex_lock(&genMutex);
+            streamingStats.uploadBudgetDeferrals++;
+            pthread_mutex_unlock(&genMutex);
+            break;
+        }
+        double uploadStartedMs = ChunkNowMs();
+        bool uploadedJob = UploadMeshJob(job);
+        double uploadElapsedMs = ChunkNowMs() - uploadStartedMs;
+        pthread_mutex_lock(&genMutex);
+        if (uploadedJob) streamingStats.uploadedMeshes++;
+        streamingStats.uploadCpuMs += uploadElapsedMs;
+        if (uploadElapsedMs > streamingStats.maxUploadCpuMs) {
+            streamingStats.maxUploadCpuMs = uploadElapsedMs;
+        }
+        pthread_mutex_unlock(&genMutex);
         if (++uploaded >= MAX_MESH_REBUILDS_PER_FRAME) break;
     }
 }
 
-static void RebuildChunkMeshSync(Chunk *chunk)
+static void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
 {
     static const int faces[6][3] = {
         { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
@@ -2727,7 +3002,7 @@ static void RebuildChunkMeshSync(Chunk *chunk)
         chunk->cz * CHUNK_SIZE + CHUNK_SIZE - 1 + (int)TORCH_LIGHT_RADIUS,
         nearbyTorchIndices);
 
-    UnloadChunkModel(chunk);
+    UnloadChunkSectionModels(section);
 
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
@@ -2735,48 +3010,88 @@ static void RebuildChunkMeshSync(Chunk *chunk)
     FloraVisualInstance *floraInstances = NULL;
     int floraInstanceCount = 0;
     bool hasSolid = BuildChunkSurfaceSolidMeshData(
-        chunk->blocks, chunk->cx, chunk->cz,
+        section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
+        chunk->cx, chunk->cz,
         chunk->floraStructures, chunk->floraStructureCount,
         faces, nearbyTorchIndices, nearbyTorchCount, &solidMesh);
     bool hasWater = BuildSurfaceWaterMeshData(
-        (const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
-        WORLD_HEIGHT, 0, chunk->cx, chunk->cz, faces,
+        (const unsigned short (*)[CHUNK_SIZE])section->blocks,
+        SURFACE_SECTION_HEIGHT,
+        section->sectionY * SURFACE_SECTION_HEIGHT,
+        chunk->cx, chunk->cz, faces,
         nearbyTorchIndices, nearbyTorchCount, &waterMesh);
     bool hasFlora = BuildChunkFloraMeshDataFromSnapshot(
-        chunk->blocks, chunk->cx, chunk->cz,
+        section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
+        chunk->cx, chunk->cz,
         chunk->floraStructures, chunk->floraStructureCount,
         faces, nearbyTorchIndices, nearbyTorchCount, &floraMesh,
         &floraInstances, &floraInstanceCount);
 
-    ReplaceChunkModel(&chunk->model, &chunk->hasModel,
+    ReplaceChunkModel(&section->model, &section->hasModel,
                       &solidMesh, hasSolid, false);
-    ReplaceChunkModel(&chunk->waterModel, &chunk->hasWaterModel,
+    ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,
                       &waterMesh, hasWater, false);
-    ReplaceChunkModel(&chunk->floraModel, &chunk->hasFloraModel,
+    ReplaceChunkModel(&section->floraModel, &section->hasFloraModel,
                       &floraMesh, hasFlora, true);
-    InitializeFloraTargets(chunk, floraInstances, floraInstanceCount);
+    InitializeFloraTargets(section, floraInstances, floraInstanceCount);
     free(floraInstances);
-    chunk->floraVisualScale = 1.0f;
-    chunk->dirty = false;
+    section->floraVisualScale = 1.0f;
+    section->dirty = false;
 }
 
-void RebuildDirtyChunkMeshes(void)
+void RebuildDirtyChunkMeshes(Vector3 focusPosition)
 {
     int submitted = 0;
-    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        if (!chunks[i].loaded || !chunks[i].dirty) continue;
-        if (FindPendingMeshJob(i)) continue;
+    int focusCx = 0;
+    int focusCz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal((int)floorf(focusPosition.x),
+                      (int)floorf(focusPosition.z),
+                      &focusCx, &focusCz, &localX, &localZ);
+
+    bool selected[MAX_ACTIVE_CHUNKS][SURFACE_SECTION_COUNT] = { 0 };
+    while (submitted < MAX_MESH_SUBMITS_PER_FRAME) {
+        int best = -1;
+        int bestSectionY = -1;
+        int bestDistance = 0;
+        for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+            if (!chunks[i].loaded) continue;
+            int dx = abs(chunks[i].cx - focusCx);
+            int dz = abs(chunks[i].cz - focusCz);
+            int distance = dx > dz ? dx : dz;
+            for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+                ChunkSection *section = chunks[i].sections[sy];
+                if (!section || selected[i][sy] || !section->dirty ||
+                    FindPendingMeshJob(i, sy)) continue;
+                int verticalDistance = abs(
+                    sy - (int)floorf(focusPosition.y / SURFACE_SECTION_HEIGHT));
+                int priority = distance * SURFACE_SECTION_COUNT + verticalDistance;
+                if (best < 0 || priority < bestDistance) {
+                    best = i;
+                    bestSectionY = sy;
+                    bestDistance = priority;
+                }
+            }
+        }
+        if (best < 0) break;
+        selected[best][bestSectionY] = true;
+        ChunkSection *section = chunks[best].sections[bestSectionY];
 
         if (genThread == 0) {
-            RebuildChunkMeshSync(&chunks[i]);
+            double startedMs = ChunkNowMs();
+            RebuildChunkSectionMeshSync(&chunks[best], section);
+            double elapsedMs = ChunkNowMs() - startedMs;
+            pthread_mutex_lock(&genMutex);
+            streamingStats.syncRebuilds++;
+            streamingStats.meshCpuMs += elapsedMs;
+            pthread_mutex_unlock(&genMutex);
+            submitted++;
             continue;
         }
 
-        if (!SubmitMeshJobs(&chunks[i])) {
-            RebuildChunkMeshSync(&chunks[i]);
-            continue;
-        }
-        if (++submitted >= MAX_MESH_SUBMITS_PER_FRAME) break;
+        if (!SubmitMeshJobs(&chunks[best], section)) break;
+        submitted++;
     }
 }
 
@@ -2830,12 +3145,27 @@ bool ChunkIntersectsCameraView(const Chunk *chunk, const Camera3D *camera)
     return SphereInFrustum(camera, center, radius);
 }
 
+bool ChunkSectionIntersectsCameraView(const Chunk *chunk,
+                                      const ChunkSection *section,
+                                      const Camera3D *camera)
+{
+    if (!chunk || !section || !camera) return false;
+    float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
+    Vector3 center = {
+        (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
+        (float)(section->sectionY * SURFACE_SECTION_HEIGHT) + half,
+        (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
+    };
+    return SphereInFrustum(camera, center, sqrtf(half * half * 3.0f));
+}
+
 
 bool ChunksStartGenThread(void)
 {
     if (genThread != 0) return true;
     pthread_mutex_lock(&genMutex);
     genShutdown = false;
+    genWorkerActive = false;
     pthread_mutex_unlock(&genMutex);
     return pthread_create(&genThread, NULL, ChunkGenWorker, NULL) == 0;
 }
@@ -2850,10 +3180,12 @@ void ChunksShutdownGenThread(void)
         pthread_mutex_unlock(&genMutex);
         pthread_join(genThread, NULL);
         genThread = 0;
+        genWorkerActive = false;
     }
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
         if (meshJobs[i].inUse) {
             FreeMeshData(&meshJobs[i].mesh);
+            FreeMeshData(&meshJobs[i].waterMesh);
             FreeMeshData(&meshJobs[i].floraMesh);
             free(meshJobs[i].floraInstances);
             meshJobs[i].floraInstances = NULL;
@@ -2893,3 +3225,143 @@ int GetPendingMeshJobCount(void)
     pthread_mutex_unlock(&genMutex);
     return count;
 }
+
+void ChunksResetStreamingStats(void)
+{
+    pthread_mutex_lock(&genMutex);
+    streamingStats = (ChunkStreamingStats){ 0 };
+    UpdateQueuePeaksLocked();
+    pthread_mutex_unlock(&genMutex);
+}
+
+ChunkStreamingStats ChunksGetStreamingStats(void)
+{
+    pthread_mutex_lock(&genMutex);
+    UpdateQueuePeaksLocked();
+    ChunkStreamingStats result = streamingStats;
+    pthread_mutex_unlock(&genMutex);
+    return result;
+}
+
+RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void)
+{
+    RenderResourceSnapshot snapshot = { 0 };
+    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+        const Chunk *chunk = &chunks[i];
+        if (!chunk->loaded) continue;
+        for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+            const ChunkSection *section = chunk->sections[sy];
+            if (!section) continue;
+            if (section->hasModel) {
+                RenderResourceSnapshotAddModel(&snapshot, &section->model,
+                                               RENDER_RESOURCE_SOLID);
+            }
+            if (section->hasFloraModel) {
+                RenderResourceSnapshotAddModel(&snapshot, &section->floraModel,
+                                               RENDER_RESOURCE_FLORA);
+            }
+            if (section->hasWaterModel) {
+                RenderResourceSnapshotAddModel(&snapshot, &section->waterModel,
+                                               RENDER_RESOURCE_TRANSPARENT);
+            }
+        }
+    }
+    pthread_mutex_lock(&genMutex);
+    UpdateQueuePeaksLocked();
+    snapshot.pendingMeshSnapshotBytes = streamingStats.pendingMeshSnapshotBytes;
+    snapshot.workerThreadsConfigured = 1;
+    snapshot.workerThreadsStarted = genThread != 0 ? 1u : 0u;
+    snapshot.workerThreadsActive = genWorkerActive ? 1u : 0u;
+    pthread_mutex_unlock(&genMutex);
+    return snapshot;
+}
+
+#ifdef CHUNKS_TESTING
+void ChunksTestResetScheduler(void)
+{
+    pthread_mutex_lock(&genMutex);
+    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+        ChunkClearBlockStorage(&chunks[i]);
+    }
+    memset(chunks, 0, sizeof(chunks));
+    memset(chunkGenJobs, 0, sizeof(chunkGenJobs));
+    memset(meshJobs, 0, sizeof(meshJobs));
+    streamingStats = (ChunkStreamingStats){ 0 };
+    genThread = pthread_self();
+    genShutdown = false;
+    genWorkerActive = false;
+    pthread_mutex_unlock(&genMutex);
+}
+
+void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool dirty)
+{
+    assert(slotIndex >= 0 && slotIndex < MAX_ACTIVE_CHUNKS);
+    chunks[slotIndex] = (Chunk){ 0 };
+    chunks[slotIndex].cx = cx;
+    chunks[slotIndex].cz = cz;
+    chunks[slotIndex].loaded = loaded;
+    if (dirty) {
+        ChunkSection *section = ChunkGetSection(&chunks[slotIndex], 0, true);
+        if (section) section->dirty = true;
+    }
+}
+
+bool ChunksTestChunkDirty(int slotIndex)
+{
+    assert(slotIndex >= 0 && slotIndex < MAX_ACTIVE_CHUNKS);
+    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+        if (chunks[slotIndex].sections[sy] &&
+            chunks[slotIndex].sections[sy]->dirty) return true;
+    }
+    return false;
+}
+
+int ChunksTestMeshJobSlot(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    return meshJobs[jobIndex].inUse ? meshJobs[jobIndex].slotIndex : -1;
+}
+
+int ChunksTestMeshJobSectionY(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    return meshJobs[jobIndex].inUse ? meshJobs[jobIndex].sectionY : -1;
+}
+
+void ChunksTestCompleteMeshJob(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    pthread_mutex_lock(&genMutex);
+    if (meshJobs[jobIndex].inUse) meshJobs[jobIndex].done = true;
+    pthread_mutex_unlock(&genMutex);
+}
+
+void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz, bool done)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    pthread_mutex_lock(&genMutex);
+    meshJobs[jobIndex] = (MeshJob){
+        .inUse = true,
+        .done = done,
+        .slotIndex = slotIndex,
+        .cx = cx,
+        .cz = cz
+    };
+    UpdateQueuePeaksLocked();
+    pthread_mutex_unlock(&genMutex);
+}
+
+void ChunksTestFillGenerationQueue(void)
+{
+    pthread_mutex_lock(&genMutex);
+    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+        chunkGenJobs[i] = (ChunkGenJob){
+            .inUse = true,
+            .cx = 10000 + i,
+            .cz = 10000
+        };
+    }
+    UpdateQueuePeaksLocked();
+    pthread_mutex_unlock(&genMutex);
+}
+#endif

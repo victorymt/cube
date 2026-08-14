@@ -14,14 +14,22 @@ startup as a small pixel-art atlas.
   floor; desert cacti and frozen ponds in low snow valleys
 - Day/night cycle (4-minute loop) with animated sky, sun, moon, stars, clouds,
   and world lighting; pause it anytime with `F6`
+- Unified environment presentation across Homeworld, planet surfaces, space,
+  and the Nether: natural exposure and color response, weather-aware distance
+  fog, wet surfaces, wind-driven reflective water, cloud cover, lightning,
+  and scene-specific atmosphere; unsupported shader paths fall back safely
+- Low/medium/high graphics quality presets control shadow resources, cloud
+  range, and precipitation density. Medium is the default 1080p/60 FPS target
 - Water blocks with translucent rendering and simple swimming physics
 - New build blocks: plank, brick, glass, water, snow, ice, cactus, bedrock,
   and the four ore types; grab any block you see with middle-click
 - Torch block with dynamic point lighting: place torches and nearby block
   faces brighten in a radius, effective at night and underground
 - Particle effects on block break/place
-- Procedurally synthesized sound effects (no external assets): break, place,
-  footsteps (ground/water), splash, pick, and looping rain
+- Layered environmental audio crossfades between rain, wind, forest, water,
+  caves, the Nether, and ship interiors. Three compact CC0 recordings are
+  distributed with source/license records in `assets/LICENSES.md`; all other
+  effects and missing-asset fallbacks are synthesized at startup
 - Weather system: clear / rain / snow cycles; snow favors cold biomes and
   high altitudes; sky and clouds darken when stormy
 - Auto-save every 60 seconds (toggle with `F8`)
@@ -40,18 +48,26 @@ startup as a small pixel-art atlas.
   chunks use a 16-job worker queue that prioritizes the chunks nearest the
   player. Meshes are uploaded on the main thread so new areas stream in smoothly
   instead of hitching
-- Binary save format (V7) persists the world seed, inventory, ship fuel,
-  Homeworld/space mode, planet-world context, and per-planet edit dimensions;
-  it remains compatible with V1-V6 and old text saves
+- Binary save format (V12) persists the world seed, inventory, ship fuel and locator,
+  Homeworld/space mode, planet-world context, per-planet edit dimensions,
+  entities, and ecology state; it remains compatible with V2-V11 and old text
+  saves. Legacy saves are migrated in memory and rewritten as V12 only after
+  the next successful save
 - Image imports use a 256-color block palette for better color matching. Block
   edits are indexed for fast repeated imports and large builds
-- Automatic save on quit (plus manual `F5` save / `F9` load); every save
-  keeps a backup of the previous file as `voxelcraft_save.bak`
+- Automatic save on quit (plus manual `F5` save / `F9` load); every successful
+  save is written through a temporary file and atomic replacement, and keeps a
+  synced backup of the previous file as `voxelcraft_save.bak`. Failed saves
+  leave the existing main file unchanged
 - The start page accepts a deterministic world seed (or generates one at
   random); starting again after returning to the menu creates a clean world
 - `F4` switches to a third-person view (camera pulls back, walls occlude);
-  `F10` saves a screenshot; the pause menu toggles music, adjusts volume and
-  can return to the main menu
+  `F10` saves a timestamped PNG and same-name debug report under `screenshots/`;
+  the pause menu
+  selects graphics quality, controls
+  master/environment/music volume separately, and can return to the main menu.
+  Preferences are atomically saved in `voxelcraft_settings.cfg`, separately
+  from the world save
 - Every generated solid planet is a world: space uses a spherical proxy, while
   landing streams a deterministic, effectively unbounded chunk surface with
   planet-specific terrain, materials, sky colors, caves, liquids, and landmarks.
@@ -102,6 +118,28 @@ startup as a small pixel-art atlas.
 make
 ```
 
+The Linux release gate is `make release-check`. It builds a versioned archive
+under `dist/` and writes a SHA-256 checksum beside it. Release archives do not
+include user save files.
+
+Run a deterministic performance route with `./voxelcraft --perf`. Use
+`--perf-report PATH` to choose the key/value report and `--perf-baseline PATH`
+to enforce the 5% CPU/GPU/upload and estimated live-mesh regression gates.
+Performance reports use schema v3; older baselines are rejected and must be
+recaptured. Resource stability is measured after chunk generation, meshing, and
+uploads settle. Mesh byte fields estimate public raylib `Mesh` buffers and are
+not driver-reported VRAM.
+
+For scripted visual debugging, start the game with `--debug-stdin`. It accepts
+line-delimited commands: `start`, `screenshot`, `status`, `teleport X Y Z YAW
+PITCH`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, or `quit`. Movement
+components are clamped to `[-1, 1]`, sprint is `0` or `1`, and an input window
+lasts 1-600 fixed 60 FPS frames. Debug sessions ignore desktop keyboard state
+outside those input windows, so runs are reproducible. Replies begin with
+`DEBUG_CONTROL`; status includes player water flags, actual water surface and
+depth, and a successful screenshot reply contains both the PNG and TXT report
+paths. The interface is disabled during a normal launch.
+
 ## Run
 
 ```sh
@@ -116,6 +154,8 @@ make run
 - `Space` jump, or swim up while in water
 - `F` toggle floating mode; in floating mode `Space` up, `Left Ctrl` down
 - `Tab` release/capture the mouse; `M` opens the star map from Homeworld or space
+- `L` toggles the main ship locator; local ships get a direction and distance,
+  while ships in another world show their last parked location
 - Left click: break the targeted block
 - Right click: place the selected block (ghost preview shows the target cell)
 - Middle click: select the targeted block type into the selected hotbar slot
@@ -129,8 +169,10 @@ make run
 - `F8` toggle auto-save
 - `F3` toggle the debug HUD
 - `O` toggle nearby planetary orbit trajectories
-- `F4` third-person view, `F10` screenshot
-- Pause menu: music on/off, volume `-`/`+`, return to menu
+- `F4` third-person view, `F10` debug screenshot (PNG plus a same-name
+  `key=value` TXT report under `screenshots/`)
+- Pause menu: low/medium/high graphics quality, master/environment/music
+  volume, music on/off, save, and return to menu (`-`/`+` still adjust master)
 - Fly above `y=120` to enter space; approach Homeworld and press `E` to return
 - Spaceship: right-click a placed ship to enter, W/S/A/D + Space/Ctrl to fly,
   E to exit or land when a planet prompt is visible; rise above the planet's

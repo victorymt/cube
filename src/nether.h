@@ -2,6 +2,7 @@
 #define VOXELCRAFT_NETHER_H
 
 #include "types.h"
+#include "render_resources.h"
 
 #include <stdio.h>
 
@@ -17,7 +18,7 @@ typedef struct NetherChunk {
     int cz;
     Model model;
     Model waterModel;
-    unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    unsigned short blocks[CHUNK_SIZE][NETHER_HEIGHT][CHUNK_SIZE];
 } NetherChunk;
 
 extern NetherChunk netherChunks[MAX_NETHER_CHUNKS];
@@ -27,9 +28,10 @@ void NetherReset(void);
 void UpdateNetherChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 BlockType NetherBlockAt(int x, int y, int z);
 void NetherSetBlock(int x, int y, int z, BlockType type);
-void NetherSaveEdits(FILE *file);
-void NetherLoadEdits(FILE *file);
+bool NetherSaveEdits(FILE *file);
+bool NetherLoadEdits(FILE *file);
 void UnloadAllNetherChunks(void);
 int GetActiveNetherChunkCount(void);
+RenderResourceSnapshot NetherGetRenderResourceSnapshot(void);
 
 #endif

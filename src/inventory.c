@@ -10,7 +10,9 @@ static uint16_t inventoryCounts[INVENTORY_BLOCK_TYPE_COUNT];
 static bool InventoryTypeIndex(BlockType type, int *outIndex)
 {
     int index = (int)type;
-    if (index < 0 || index >= INVENTORY_BLOCK_TYPE_COUNT || !IsValidBlockType(type)) return false;
+    if (index < 0 || index >= INVENTORY_BLOCK_TYPE_COUNT ||
+        (type > BLOCK_NETHER_PORTAL && !IsColorBlock(type)) ||
+        !IsValidBlockType(type)) return false;
     *outIndex = index;
     return true;
 }

@@ -232,27 +232,29 @@ bool AlbumIsOpen(void)
     return album.open;
 }
 
-void AlbumSave(FILE *file)
+bool AlbumSave(FILE *file)
 {
-    fprintf(file, "album %d\n", album.imageCount);
+    if (!file || fprintf(file, "album %d\n", album.imageCount) < 0) return false;
     for (int i = 0; i < album.imageCount; i++) {
-        fprintf(file, "%s\n", album.images[i].path);
+        if (fprintf(file, "%s\n", album.images[i].path) < 0) return false;
     }
+    return true;
 }
 
-void AlbumLoad(FILE *file)
+bool AlbumLoad(FILE *file)
 {
     album.imageCount = 0;
 
     char label[64] = { 0 };
     int count = 0;
-    if (fscanf(file, "%63s %d", label, &count) != 2 || strcmp(label, "album") != 0) return;
-    if (count < 0 || count > ALBUM_MAX_IMAGES) return;
+    if (!file) return false;
+    if (fscanf(file, "%63s %d", label, &count) != 2) return true;
+    if (strcmp(label, "album") != 0 || count < 0 || count > ALBUM_MAX_IMAGES) return false;
     int separator = 0;
     while ((separator = fgetc(file)) != '\n' && separator != EOF) {}
     for (int i = 0; i < count; i++) {
         char path[ALBUM_PATH_MAX] = { 0 };
-        if (!fgets(path, sizeof(path), file)) break;
+        if (!fgets(path, sizeof(path), file)) return false;
         size_t len = strlen(path);
         while (len > 0 && (path[len - 1] == '\n' || path[len - 1] == '\r')) {
             path[--len] = '\0';
@@ -265,6 +267,7 @@ void AlbumLoad(FILE *file)
     }
     ClampPage();
     if (album.selectedIndex < 0 && album.imageCount > 0) album.selectedIndex = 0;
+    return true;
 }
 
 void AlbumCleanup(void)
@@ -424,8 +427,8 @@ void AlbumUpdate(void)
 
 static void DrawCenteredTextIn(const char *text, const Rectangle *rect, int fontSize)
 {
-    int width = MeasureText(text, fontSize);
-    DrawText(text, (int)(rect->x + (rect->width - (float)width) / 2.0f),
+    int width = UiMeasureText(text, fontSize);
+    UiDrawText(text, (int)(rect->x + (rect->width - (float)width) / 2.0f),
              (int)(rect->y + (rect->height - (float)fontSize) / 2.0f), fontSize, Fade(WHITE, 0.45f));
 }
 
@@ -457,8 +460,8 @@ static void DrawThumbnailCell(const Rectangle *cell, int slot)
     char name[ALBUM_PATH_MAX];
     snprintf(name, sizeof(name), "%s", GetFileName(album.images[index].path));
     int maxNameWidth = (int)cell->width - 8;
-    while (strlen(name) > 0 && MeasureText(name, 12) > maxNameWidth) name[strlen(name) - 1] = '\0';
-    DrawText(name, (int)(cell->x + (cell->width - (float)MeasureText(name, 12)) / 2.0f),
+    while (strlen(name) > 0 && UiMeasureText(name, 12) > maxNameWidth) name[strlen(name) - 1] = '\0';
+    UiDrawText(name, (int)(cell->x + (cell->width - (float)UiMeasureText(name, 12)) / 2.0f),
              (int)(cell->y + cell->height - 22), 12, Fade(WHITE, 0.65f));
 }
 
@@ -476,10 +479,10 @@ static void DrawAlbumGrid(void)
     DrawRectangleRounded(panel, 0.04f, 8, (Color){ 30, 38, 45, 245 });
     DrawRectangleRoundedLinesEx(panel, 0.04f, 8, 2.0f, Fade(WHITE, 0.45f));
 
-    DrawText("Album", (int)panel.x + 28, (int)panel.y + 18, 32, WHITE);
-    DrawText(TextFormat("%d images", album.imageCount), (int)panel.x + 28, (int)panel.y + 58, 16, Fade(WHITE, 0.75f));
+    UiDrawText("Album", (int)panel.x + 28, (int)panel.y + 18, 32, WHITE);
+    UiDrawText(TextFormat("%d images", album.imageCount), (int)panel.x + 28, (int)panel.y + 58, 16, Fade(WHITE, 0.75f));
     if (pages > 0) {
-        DrawText(TextFormat("Page %d / %d", album.page + 1, pages),
+        UiDrawText(TextFormat("Page %d / %d", album.page + 1, pages),
                  (int)(panel.x + panel.width - 150.0f), (int)panel.y + 26, 22, Fade(WHITE, 0.9f));
     }
 
@@ -521,8 +524,8 @@ static void DrawAdd(void)
     DrawRectangleRounded(panel, 0.04f, 8, (Color){ 30, 38, 45, 245 });
     DrawRectangleRoundedLinesEx(panel, 0.04f, 8, 2.0f, Fade(WHITE, 0.45f));
 
-    DrawText("Add image to album", (int)panel.x + 30, (int)panel.y + 22, 28, WHITE);
-    DrawText("Type a folder path (or Ctrl+V paste), then Enter to list images.",
+    UiDrawText("Add image to album", (int)panel.x + 30, (int)panel.y + 22, 28, WHITE);
+    UiDrawText("Type a folder path (or Ctrl+V paste), then Enter to list images.",
              (int)panel.x + 30, (int)panel.y + 60, 16, Fade(WHITE, 0.72f));
 
     Rectangle input = { panel.x + 30.0f, panel.y + 96.0f, panel.width - 60.0f, 46.0f };
@@ -531,14 +534,14 @@ static void DrawAdd(void)
 
     const char *shown = album.browser.directory[0] ? album.browser.directory : "folder path...";
     int textX = (int)input.x + 16;
-    DrawText(shown, textX, (int)input.y + 13, 20, album.browser.directory[0] ? WHITE : Fade(WHITE, 0.38f));
+    UiDrawText(shown, textX, (int)input.y + 13, 20, album.browser.directory[0] ? WHITE : Fade(WHITE, 0.38f));
     if (((int)(GetTime() * 2.0) % 2) == 0) {
-        int cursorX = textX + MeasureText(shown, 20) + 2;
+        int cursorX = textX + UiMeasureText(shown, 20) + 2;
         DrawLine(cursorX, (int)input.y + 11, cursorX, (int)input.y + 35, WHITE);
     }
 
     if (album.browser.listingError) {
-        DrawText("Folder not found. Try an absolute path.", (int)input.x, (int)input.y + 54, 16, (Color){ 240, 130, 110, 255 });
+        UiDrawText("Folder not found. Try an absolute path.", (int)input.x, (int)input.y + 54, 16, (Color){ 240, 130, 110, 255 });
     }
 
     Rectangle listRect = { panel.x + 30.0f, panel.y + 168.0f, 440.0f, 300.0f };
@@ -546,7 +549,7 @@ static void DrawAdd(void)
     DrawRectangleRoundedLinesEx(listRect, 0.05f, 8, 1.5f, Fade(WHITE, 0.25f));
 
     if (album.browser.fileCount == 0 && !album.browser.listingError) {
-        DrawText("No image files listed yet.", (int)listRect.x + 14, (int)listRect.y + 12, 16, Fade(WHITE, 0.45f));
+        UiDrawText("No image files listed yet.", (int)listRect.x + 14, (int)listRect.y + 12, 16, Fade(WHITE, 0.45f));
     }
 
     float itemH = 24.0f;
@@ -556,7 +559,7 @@ static void DrawAdd(void)
                            listRect.width - 8.0f, itemH - 2.0f };
         bool selected = i == album.browser.selected;
         if (selected) DrawRectangleRounded(item, 0.05f, 4, (Color){ 98, 160, 115, 80 });
-        DrawText(TextFormat("%s", GetFileName(album.browser.files[i])),
+        UiDrawText(TextFormat("%s", GetFileName(album.browser.files[i])),
                  (int)item.x + 8, (int)item.y + 4, 15, selected ? WHITE : Fade(WHITE, 0.82f));
     }
 
@@ -582,7 +585,7 @@ static void DrawAdd(void)
         DrawCenteredTextIn("preview", &previewRect, 16);
     }
 
-    DrawText("Enter import    Tab refresh    Esc back", (int)panel.x + 30, (int)panel.y + 486, 16, Fade(WHITE, 0.72f));
+    UiDrawText("Enter import    Tab refresh    Esc back", (int)panel.x + 30, (int)panel.y + 486, 16, Fade(WHITE, 0.72f));
 }
 
 void AlbumDraw(void)

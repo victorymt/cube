@@ -8,6 +8,7 @@
 #include "stellar.h"
 #include "space_satellite.h"
 #include "types.h"
+#include "render_resources.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -62,6 +63,9 @@ typedef struct PlanetLightState {
     float moonIllumination;
     float moonAngularRadius;
     float moonUmbra;
+    float solarDeclination;
+    float dayLengthFraction;
+    float incidentIrradiance;
     float totalIntensity;
     int sourceCount;
     bool hasMoon;
@@ -302,10 +306,11 @@ void SpaceUpdateSolarGlow(Vector3 playerPosition);
 BlockType SpaceBlockAt(int x, int y, int z);
 bool SpaceBlockReadyAt(int x, int y, int z);
 void SpaceSetBlock(int x, int y, int z, BlockType type);
-void SpaceSaveEdits(FILE *file);
-void SpaceLoadEdits(FILE *file);
+bool SpaceSaveEdits(FILE *file);
+bool SpaceLoadEdits(FILE *file, int storedLayerY);
 void UnloadAllSpaceChunks(void);
 int GetActiveSpaceChunkCount(void);
+RenderResourceSnapshot SpaceGetRenderResourceSnapshot(void);
 int GetSpaceEditCount(void);
 void SpaceRebuildTorchList(void);
 void SpaceQueryCacheClear(void);
@@ -381,6 +386,8 @@ bool HomeWorldBeginDescent(Player *player, Vector3 *outLandingPosition);
 bool HomeWorldTryEnter(Player *player);
 void HomeWorldReset(void);
 void HomeWorldRestoreLegacyState(const Player *player);
+void HomeWorldRestoreLegacyStateForSpaceLayer(const Player *player,
+                                              int storedLayerY);
 bool HomeWorldSaveState(FILE *file);
 bool HomeWorldLoadState(FILE *file);
 bool PlanetWorldIsActive(void);
@@ -391,6 +398,9 @@ SpaceRemnantEnvironment PlanetWorldRemnantEnvironment(void);
 float PlanetWorldGravityScale(void);
 bool PlanetWorldIsDarkSide(void);
 bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out);
+bool PlanetWorldLightStateAtTime(Vector3 surfacePosition,
+                                 double simulationTime,
+                                 PlanetLightState *out);
 float PlanetWorldDaylightAt(Vector3 surfacePosition);
 int PlanetWorldOriginX(void);
 int PlanetWorldOriginZ(void);
@@ -400,6 +410,7 @@ bool PlanetWorldBeginDescent(Player *player, Vector3 *outLandingPosition);
 bool PlanetWorldTryEnter(Player *player);
 bool PlanetWorldTryLaunch(Player *player);
 void PlanetWorldReset(void);
+void PlanetWorldMigrateSpaceLayer(int storedLayerY);
 bool PlanetWorldSaveState(FILE *file);
 bool PlanetWorldLoadState(FILE *file);
 Color SpectrumColor(SpectrumType type);

@@ -1,6 +1,7 @@
 #include "ship.h"
 
 #include "raymath.h"
+#include "block_atlas.h"
 #include "chunks.h"
 #include "world.h"
 #include "player.h"
@@ -11,6 +12,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -49,6 +51,250 @@ static bool flightAssist = false;
 static float fuel = SHIP_MAX_FUEL;
 static WarpTarget warpTarget = { 0 };
 static SpaceGravitySample gravityPrimary = { 0 };
+
+static bool ShipDirectionForCoreBlock(BlockType type, ShipDirection *out)
+{
+    if (type < BLOCK_SPACESHIP_CORE_NORTH ||
+        type > BLOCK_SPACESHIP_CORE_WEST) return false;
+    if (out) {
+        *out = (ShipDirection)((int)type - (int)BLOCK_SPACESHIP_CORE_NORTH);
+    }
+    return true;
+}
+
+ShipDirection ShipDirectionFromYaw(float yaw)
+{
+    if (!isfinite(yaw)) return SHIP_DIRECTION_NORTH;
+    yaw = fmodf(yaw, 2.0f * PI);
+    int quarterTurns = (int)lroundf(yaw / (PI * 0.5f));
+    quarterTurns %= 4;
+    if (quarterTurns < 0) quarterTurns += 4;
+    return (ShipDirection)quarterTurns;
+}
+
+BlockType ShipCoreBlockForDirection(ShipDirection direction)
+{
+    int value = (int)direction;
+    if (value < (int)SHIP_DIRECTION_NORTH ||
+        value > (int)SHIP_DIRECTION_WEST) value = (int)SHIP_DIRECTION_NORTH;
+    return (BlockType)((int)BLOCK_SPACESHIP_CORE_NORTH + value);
+}
+
+bool ShipBlockIsParkedCore(BlockType type)
+{
+    return ShipDirectionForCoreBlock(type, NULL);
+}
+
+bool ShipBlockIsOccupied(BlockType type)
+{
+    return type == BLOCK_SPACESHIP_OCCUPIED;
+}
+
+static bool ShipFootprintContains(const ParkedShip *ship, int x, int y, int z)
+{
+    return ship && x >= ship->coreX - 1 && x <= ship->coreX + 2 &&
+           y >= ship->coreY && y < ship->coreY + SHIP_FOOTPRINT_HEIGHT &&
+           z >= ship->coreZ - 1 && z <= ship->coreZ + 2;
+}
+
+static bool ShipCoreCoordinatesValid(int x, int y, int z)
+{
+    return x > INT_MIN && x <= INT_MAX - 2 &&
+           y <= INT_MAX - SHIP_FOOTPRINT_HEIGHT &&
+           z > INT_MIN && z <= INT_MAX - 2;
+}
+
+bool ShipResolveParkedAt(int x, int y, int z, ParkedShip *out)
+{
+    if (out) *out = (ParkedShip){ 0 };
+    BlockType hit = GetBlockAt(x, y, z);
+    if (hit == BLOCK_SPACESHIP) {
+        if (out) {
+            *out = (ParkedShip){
+                .coreX = x, .coreY = y, .coreZ = z,
+                .direction = SHIP_DIRECTION_NORTH, .legacy = true
+            };
+        }
+        return true;
+    }
+
+    ShipDirection direction;
+    if (ShipDirectionForCoreBlock(hit, &direction)) {
+        if (out) {
+            *out = (ParkedShip){
+                .coreX = x, .coreY = y, .coreZ = z,
+                .direction = direction, .legacy = false
+            };
+        }
+        return true;
+    }
+    if (hit != BLOCK_SPACESHIP_OCCUPIED) return false;
+
+    if (x <= INT_MIN + 2 || x >= INT_MAX - 1 ||
+        y <= INT_MIN + SHIP_FOOTPRINT_HEIGHT ||
+        z <= INT_MIN + 2 || z >= INT_MAX - 1) return false;
+    for (int coreY = y - (SHIP_FOOTPRINT_HEIGHT - 1); coreY <= y; coreY++) {
+        for (int coreX = x - 2; coreX <= x + 1; coreX++) {
+            for (int coreZ = z - 2; coreZ <= z + 1; coreZ++) {
+                BlockType core = GetBlockAt(coreX, coreY, coreZ);
+                if (!ShipDirectionForCoreBlock(core, &direction)) continue;
+                ParkedShip candidate = {
+                    .coreX = coreX, .coreY = coreY, .coreZ = coreZ,
+                    .direction = direction, .legacy = false
+                };
+                if (!ShipFootprintContains(&candidate, x, y, z)) continue;
+                if (out) *out = candidate;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool ShipCellOverlapsPlayer(int x, int y, int z, const Player *player)
+{
+    if (!player) return false;
+    float playerMinX = player->position.x - PLAYER_RADIUS;
+    float playerMaxX = player->position.x + PLAYER_RADIUS;
+    float playerMinY = player->position.y;
+    float playerMaxY = player->position.y + PLAYER_HEIGHT;
+    float playerMinZ = player->position.z - PLAYER_RADIUS;
+    float playerMaxZ = player->position.z + PLAYER_RADIUS;
+    return playerMaxX > (float)x && playerMinX < (float)x + 1.0f &&
+           playerMaxY > (float)y && playerMinY < (float)y + 1.0f &&
+           playerMaxZ > (float)z && playerMinZ < (float)z + 1.0f;
+}
+
+bool ShipCanPlaceParked(int coreX, int coreY, int coreZ,
+                        ShipDirection direction, const Player *player)
+{
+    if ((int)direction < (int)SHIP_DIRECTION_NORTH ||
+        (int)direction > (int)SHIP_DIRECTION_WEST) return false;
+    if (!ShipCoreCoordinatesValid(coreX, coreY, coreZ)) return false;
+    WorldBlockRegion coreRegion = WorldBlockRegionAt(coreY);
+    if (coreRegion == WORLD_BLOCK_REGION_NONE) return false;
+
+    for (int y = coreY; y < coreY + SHIP_FOOTPRINT_HEIGHT; y++) {
+        if (WorldBlockRegionAt(y) != coreRegion) return false;
+        for (int x = coreX - 1; x <= coreX + 2; x++) {
+            for (int z = coreZ - 1; z <= coreZ + 2; z++) {
+                if (coreRegion == WORLD_BLOCK_REGION_SPACE &&
+                    !SpaceBlockReadyAt(x, y, z)) return false;
+                if (GetBlockAt(x, y, z) != BLOCK_AIR ||
+                    ShipCellOverlapsPlayer(x, y, z, player)) return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void ShipSetCell(int x, int y, int z, BlockType type, bool recordUndo)
+{
+    if (recordUndo) SetBlock(x, y, z, type);
+    else SetBlockNoUndo(x, y, z, type);
+}
+
+bool ShipPlaceParked(int coreX, int coreY, int coreZ,
+                     ShipDirection direction, bool recordUndo)
+{
+    if (!ShipCanPlaceParked(coreX, coreY, coreZ, direction, NULL)) return false;
+    if (recordUndo) WorldBeginUndoGroup();
+    ShipSetCell(coreX, coreY, coreZ,
+                ShipCoreBlockForDirection(direction), recordUndo);
+    for (int y = coreY; y < coreY + SHIP_FOOTPRINT_HEIGHT; y++) {
+        for (int x = coreX - 1; x <= coreX + 2; x++) {
+            for (int z = coreZ - 1; z <= coreZ + 2; z++) {
+                if (x == coreX && y == coreY && z == coreZ) continue;
+                ShipSetCell(x, y, z, BLOCK_SPACESHIP_OCCUPIED, recordUndo);
+            }
+        }
+    }
+    if (recordUndo) WorldEndUndoGroup();
+    ShipTrackParkedAt(coreX, coreY, coreZ);
+    return true;
+}
+
+bool ShipRemoveParkedAt(int x, int y, int z, bool recordUndo)
+{
+    ParkedShip ship;
+    if (!ShipResolveParkedAt(x, y, z, &ship)) return false;
+    if (recordUndo) WorldBeginUndoGroup();
+    if (ship.legacy) {
+        ShipSetCell(ship.coreX, ship.coreY, ship.coreZ, BLOCK_AIR, recordUndo);
+    } else {
+        ShipSetCell(ship.coreX, ship.coreY, ship.coreZ, BLOCK_AIR, recordUndo);
+        for (int cellY = ship.coreY;
+             cellY < ship.coreY + SHIP_FOOTPRINT_HEIGHT; cellY++) {
+            for (int cellX = ship.coreX - 1; cellX <= ship.coreX + 2; cellX++) {
+                for (int cellZ = ship.coreZ - 1; cellZ <= ship.coreZ + 2; cellZ++) {
+                    if (cellX == ship.coreX && cellY == ship.coreY &&
+                        cellZ == ship.coreZ) continue;
+                    if (GetBlockAt(cellX, cellY, cellZ) == BLOCK_SPACESHIP_OCCUPIED) {
+                        ShipSetCell(cellX, cellY, cellZ, BLOCK_AIR, recordUndo);
+                    }
+                }
+            }
+        }
+    }
+    if (recordUndo) WorldEndUndoGroup();
+    ShipForgetParkedAt(ship.coreX, ship.coreY, ship.coreZ);
+    return true;
+}
+
+static ShipLocatorContext ShipLocatorContextAt(float y)
+{
+    WorldBlockRegion region = WorldBlockRegionAt((int)floorf(y));
+    WorldDimension dimension = WORLD_DIMENSION_HOME;
+    if (region == WORLD_BLOCK_REGION_SPACE) dimension = WORLD_DIMENSION_SPACE;
+    else if (region == WORLD_BLOCK_REGION_NETHER) dimension = WORLD_DIMENSION_NETHER;
+    else if (PlanetWorldIsActive()) dimension = WORLD_DIMENSION_PLANET;
+    else if (!HomeWorldSurfaceIsActive()) dimension = WORLD_DIMENSION_SPACE;
+
+    return (ShipLocatorContext){
+        .dimension = dimension,
+        .surfaceId = dimension == WORLD_DIMENSION_PLANET ? WorldCurrentSurfaceId() : 0u,
+        .spaceOriginX = SpaceOriginX(),
+        .spaceOriginZ = SpaceOriginZ()
+    };
+}
+
+static const char *ShipLocatorLocationName(WorldDimension dimension)
+{
+    switch (dimension) {
+    case WORLD_DIMENSION_HOME: return "Homeworld";
+    case WORLD_DIMENSION_PLANET: return PlanetWorldName();
+    case WORLD_DIMENSION_SPACE: return "Deep space";
+    case WORLD_DIMENSION_NETHER: return "Nether";
+    default: return "Unknown";
+    }
+}
+
+void ShipTrackParkedAt(int x, int y, int z)
+{
+    ShipLocatorContext context = ShipLocatorContextAt((float)y + 0.5f);
+    ShipLocatorRecordParked(context, x, y, z,
+                            ShipLocatorLocationName(context.dimension));
+}
+
+void ShipForgetParkedAt(int x, int y, int z)
+{
+    ShipLocatorRemoveIfMatches(ShipLocatorContextAt((float)y + 0.5f), x, y, z);
+}
+
+bool ShipLocatorTargetAt(Vector3 observer, ShipLocatorTarget *out)
+{
+    if (!ShipLocatorResolve(ShipLocatorContextAt(observer.y), observer, out)) {
+        return false;
+    }
+    if (out && out->status == SHIP_LOCATOR_TARGET_LOCAL &&
+        ShipBlockIsParkedCore(GetBlockAt(out->blockX, out->blockY, out->blockZ))) {
+        out->position.x += 0.5f;
+        out->position.y += 0.25f;
+        out->position.z += 0.5f;
+        out->distance = Vector3Distance(observer, out->position);
+    }
+    return true;
+}
 
 static void ClearWarpTarget(void)
 {
@@ -191,11 +437,22 @@ static void ToggleWarp(Player *player)
 
 bool ShipTryEnter(int x, int y, int z, Player *player)
 {
-    if (driving) return false;
-    if (GetBlockAt(x, y, z) != BLOCK_SPACESHIP) return false;
+    ParkedShip ship;
+    if (driving || !player || !ShipResolveParkedAt(x, y, z, &ship)) return false;
+    if (!ShipRemoveParkedAt(x, y, z, false)) return false;
 
-    SetBlock(x, y, z, BLOCK_AIR);
-    player->position = (Vector3){ (float)x + 0.5f, (float)y + 0.5f, (float)z + 0.5f };
+    if (ship.legacy) {
+        player->position = (Vector3){
+            (float)ship.coreX + 0.5f, (float)ship.coreY + 0.5f,
+            (float)ship.coreZ + 0.5f
+        };
+    } else {
+        player->position = (Vector3){
+            (float)ship.coreX + 1.0f, (float)ship.coreY + 0.5f,
+            (float)ship.coreZ + 1.0f
+        };
+        player->yaw = (float)ship.direction * PI * 0.5f;
+    }
     player->velocity = Vector3Zero();
     player->floating = true;
     driving = true;
@@ -341,20 +598,252 @@ static float ShipAtmosphereDensityAt(Vector3 position)
     return 0.0f;
 }
 
+#define SHIP_VISUAL_MAX_FACES 128
+
 static Model shipModel = { 0 };
+
+static Color ShipVisualShade(Color color, Vector3 normal)
+{
+    float shade = 0.80f;
+    if (normal.y > 0.5f) shade = 1.06f;
+    else if (normal.y < -0.5f) shade = 0.58f;
+    else if (normal.z > 0.5f) shade = 0.94f;
+    else if (normal.z < -0.5f) shade = 0.70f;
+    else shade = normal.x > 0.0f ? 0.86f : 0.76f;
+    return (Color){
+        (unsigned char)Clamp((float)color.r * shade, 0.0f, 255.0f),
+        (unsigned char)Clamp((float)color.g * shade, 0.0f, 255.0f),
+        (unsigned char)Clamp((float)color.b * shade, 0.0f, 255.0f),
+        color.a
+    };
+}
+
+static bool ShipVisualAddQuad(Mesh *mesh, int *vertexIndex,
+                              Vector3 a, Vector3 b, Vector3 c, Vector3 d,
+                              BlockType textureBlock, Color color)
+{
+    if (!mesh || !vertexIndex || *vertexIndex < 0 ||
+        *vertexIndex + 6 > mesh->vertexCount) return false;
+
+    Vector3 normal = Vector3Normalize(Vector3CrossProduct(
+        Vector3Subtract(b, a), Vector3Subtract(c, a)));
+    if (Vector3LengthSqr(normal) < 0.5f) return false;
+
+    Vector3 corners[6] = { a, b, c, a, c, d };
+    Vector2 uvs[6] = { 0 };
+    AtlasUVs(TextureForBlockFace(textureBlock, 2), uvs);
+    Color shaded = ShipVisualShade(color, normal);
+    for (int i = 0; i < 6; i++) {
+        int index = (*vertexIndex)++;
+        mesh->vertices[index * 3 + 0] = corners[i].x;
+        mesh->vertices[index * 3 + 1] = corners[i].y;
+        mesh->vertices[index * 3 + 2] = corners[i].z;
+        mesh->texcoords[index * 2 + 0] = uvs[i].x;
+        mesh->texcoords[index * 2 + 1] = uvs[i].y;
+        mesh->normals[index * 3 + 0] = normal.x;
+        mesh->normals[index * 3 + 1] = normal.y;
+        mesh->normals[index * 3 + 2] = normal.z;
+        mesh->colors[index * 4 + 0] = shaded.r;
+        mesh->colors[index * 4 + 1] = shaded.g;
+        mesh->colors[index * 4 + 2] = shaded.b;
+        mesh->colors[index * 4 + 3] = shaded.a;
+    }
+    return true;
+}
+
+static bool ShipVisualAddBox(Mesh *mesh, int *vertexIndex,
+                             Vector3 min, Vector3 max,
+                             BlockType textureBlock, Color color)
+{
+    return ShipVisualAddQuad(
+               mesh, vertexIndex,
+               (Vector3){ max.x, min.y, max.z }, (Vector3){ max.x, min.y, min.z },
+               (Vector3){ max.x, max.y, min.z }, (Vector3){ max.x, max.y, max.z },
+               textureBlock, color) &&
+           ShipVisualAddQuad(
+               mesh, vertexIndex,
+               (Vector3){ min.x, min.y, min.z }, (Vector3){ min.x, min.y, max.z },
+               (Vector3){ min.x, max.y, max.z }, (Vector3){ min.x, max.y, min.z },
+               textureBlock, color) &&
+           ShipVisualAddQuad(
+               mesh, vertexIndex,
+               (Vector3){ min.x, max.y, max.z }, (Vector3){ max.x, max.y, max.z },
+               (Vector3){ max.x, max.y, min.z }, (Vector3){ min.x, max.y, min.z },
+               textureBlock, color) &&
+           ShipVisualAddQuad(
+               mesh, vertexIndex,
+               (Vector3){ min.x, min.y, min.z }, (Vector3){ max.x, min.y, min.z },
+               (Vector3){ max.x, min.y, max.z }, (Vector3){ min.x, min.y, max.z },
+               textureBlock, color) &&
+           ShipVisualAddQuad(
+               mesh, vertexIndex,
+               (Vector3){ min.x, min.y, max.z }, (Vector3){ max.x, min.y, max.z },
+               (Vector3){ max.x, max.y, max.z }, (Vector3){ min.x, max.y, max.z },
+               textureBlock, color) &&
+           ShipVisualAddQuad(
+               mesh, vertexIndex,
+               (Vector3){ max.x, min.y, min.z }, (Vector3){ min.x, min.y, min.z },
+               (Vector3){ min.x, max.y, min.z }, (Vector3){ max.x, max.y, min.z },
+               textureBlock, color);
+}
+
+static bool ShipVisualAddTaperedSection(
+    Mesh *mesh, int *vertexIndex,
+    float rearZ, float rearY, float rearHalfWidth, float rearHalfHeight,
+    float frontZ, float frontY, float frontHalfWidth, float frontHalfHeight,
+    BlockType textureBlock, Color color)
+{
+    Vector3 rear[4] = {
+        { -rearHalfWidth, rearY - rearHalfHeight, rearZ },
+        { rearHalfWidth, rearY - rearHalfHeight, rearZ },
+        { rearHalfWidth, rearY + rearHalfHeight, rearZ },
+        { -rearHalfWidth, rearY + rearHalfHeight, rearZ }
+    };
+    Vector3 front[4] = {
+        { -frontHalfWidth, frontY - frontHalfHeight, frontZ },
+        { frontHalfWidth, frontY - frontHalfHeight, frontZ },
+        { frontHalfWidth, frontY + frontHalfHeight, frontZ },
+        { -frontHalfWidth, frontY + frontHalfHeight, frontZ }
+    };
+    return ShipVisualAddQuad(mesh, vertexIndex, front[0], front[1], front[2], front[3],
+                             textureBlock, color) &&
+           ShipVisualAddQuad(mesh, vertexIndex, rear[1], rear[0], rear[3], rear[2],
+                             textureBlock, color) &&
+           ShipVisualAddQuad(mesh, vertexIndex, front[1], rear[1], rear[2], front[2],
+                             textureBlock, color) &&
+           ShipVisualAddQuad(mesh, vertexIndex, rear[0], front[0], front[3], rear[3],
+                             textureBlock, color) &&
+           ShipVisualAddQuad(mesh, vertexIndex, front[3], front[2], rear[2], rear[3],
+                             textureBlock, color) &&
+           ShipVisualAddQuad(mesh, vertexIndex, rear[0], rear[1], front[1], front[0],
+                             textureBlock, color);
+}
+
+// Points must wind clockwise when viewed from above so the top faces upward.
+static bool ShipVisualAddWing(Mesh *mesh, int *vertexIndex,
+                              const Vector2 points[4], float bottomY, float topY,
+                              BlockType textureBlock, Color color)
+{
+    Vector3 bottom[4];
+    Vector3 top[4];
+    for (int i = 0; i < 4; i++) {
+        bottom[i] = (Vector3){ points[i].x, bottomY, points[i].y };
+        top[i] = (Vector3){ points[i].x, topY, points[i].y };
+    }
+    if (!ShipVisualAddQuad(mesh, vertexIndex, top[0], top[1], top[2], top[3],
+                           textureBlock, color) ||
+        !ShipVisualAddQuad(mesh, vertexIndex, bottom[3], bottom[2], bottom[1], bottom[0],
+                           textureBlock, color)) return false;
+    for (int i = 0; i < 4; i++) {
+        int next = (i + 1) % 4;
+        if (!ShipVisualAddQuad(mesh, vertexIndex,
+                               bottom[i], bottom[next], top[next], top[i],
+                               textureBlock, color)) return false;
+    }
+    return true;
+}
+
+static bool ShipVisualAllocateMesh(Mesh *mesh)
+{
+    if (!mesh) return false;
+    mesh->vertexCount = SHIP_VISUAL_MAX_FACES * 6;
+    mesh->triangleCount = SHIP_VISUAL_MAX_FACES * 2;
+    mesh->vertices = malloc((size_t)mesh->vertexCount * 3 * sizeof(float));
+    mesh->texcoords = malloc((size_t)mesh->vertexCount * 2 * sizeof(float));
+    mesh->normals = malloc((size_t)mesh->vertexCount * 3 * sizeof(float));
+    mesh->colors = malloc((size_t)mesh->vertexCount * 4 * sizeof(unsigned char));
+    if (mesh->vertices && mesh->texcoords && mesh->normals && mesh->colors) return true;
+    free(mesh->vertices);
+    free(mesh->texcoords);
+    free(mesh->normals);
+    free(mesh->colors);
+    *mesh = (Mesh){ 0 };
+    return false;
+}
 
 void ShipLoadModel(void)
 {
     if (shipModel.meshCount > 0) return;
 
     Mesh mesh = { 0 };
-    mesh.vertexCount = 8 * 6 * 6;
-    mesh.triangleCount = 8 * 6 * 2;
-    mesh.vertices = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
-    mesh.texcoords = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
-    mesh.normals = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
-    mesh.colors = malloc((size_t)mesh.vertexCount * 4 * sizeof(unsigned char));
-    if (!mesh.vertices || !mesh.texcoords || !mesh.normals || !mesh.colors) {
+    if (!ShipVisualAllocateMesh(&mesh)) return;
+
+    int vertexIndex = 0;
+    const Vector2 leftWing[4] = {
+        { -0.38f, -1.08f }, { -1.72f, -0.76f },
+        { -1.88f, -0.12f }, { -0.38f, 0.66f }
+    };
+    const Vector2 rightWing[4] = {
+        { 0.38f, 0.66f }, { 1.88f, -0.12f },
+        { 1.72f, -0.76f }, { 0.38f, -1.08f }
+    };
+    const Color hull = { 226, 232, 238, 255 };
+    const Color hullDark = { 132, 145, 158, 255 };
+    const Color canopy = { 132, 194, 232, 255 };
+
+    bool ok =
+        ShipVisualAddTaperedSection(&mesh, &vertexIndex,
+                                    -1.34f, 0.0f, 0.54f, 0.32f,
+                                    0.76f, 0.02f, 0.46f, 0.29f,
+                                    BLOCK_SPACESHIP, hull) &&
+        ShipVisualAddTaperedSection(&mesh, &vertexIndex,
+                                    0.76f, 0.02f, 0.46f, 0.29f,
+                                    2.18f, -0.04f, 0.07f, 0.07f,
+                                    BLOCK_WHITE, hull) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ -0.31f, -0.43f, -1.20f },
+                         (Vector3){ 0.31f, -0.26f, 0.92f },
+                         BLOCK_GRAY, hullDark) &&
+        ShipVisualAddTaperedSection(&mesh, &vertexIndex,
+                                    -0.28f, 0.43f, 0.34f, 0.18f,
+                                    0.78f, 0.34f, 0.17f, 0.07f,
+                                    BLOCK_GLASS, canopy) &&
+        ShipVisualAddWing(&mesh, &vertexIndex, leftWing, -0.13f, 0.04f,
+                          BLOCK_SPACESHIP, hull) &&
+        ShipVisualAddWing(&mesh, &vertexIndex, rightWing, -0.13f, 0.04f,
+                          BLOCK_SPACESHIP, hull) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ -0.83f, -0.25f, -1.58f },
+                         (Vector3){ -0.47f, 0.19f, -0.55f },
+                         BLOCK_BLACK, (Color){ 155, 166, 178, 255 }) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ 0.47f, -0.25f, -1.58f },
+                         (Vector3){ 0.83f, 0.19f, -0.55f },
+                         BLOCK_BLACK, (Color){ 155, 166, 178, 255 }) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ -0.80f, -0.21f, -1.72f },
+                         (Vector3){ -0.50f, 0.15f, -1.57f },
+                         BLOCK_GLOWSTONE, (Color){ 255, 198, 112, 255 }) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ 0.50f, -0.21f, -1.72f },
+                         (Vector3){ 0.80f, 0.15f, -1.57f },
+                         BLOCK_GLOWSTONE, (Color){ 255, 198, 112, 255 }) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ -0.67f, 0.12f, -1.42f },
+                         (Vector3){ -0.49f, 0.67f, -0.92f },
+                         BLOCK_SPACESHIP, hull) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ 0.49f, 0.12f, -1.42f },
+                         (Vector3){ 0.67f, 0.67f, -0.92f },
+                         BLOCK_SPACESHIP, hull) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ -1.89f, 0.00f, -0.49f },
+                         (Vector3){ -1.72f, 0.17f, -0.22f },
+                         BLOCK_RED, WHITE) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ 1.72f, 0.00f, -0.49f },
+                         (Vector3){ 1.89f, 0.17f, -0.22f },
+                         BLOCK_GREEN, WHITE) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ -0.55f, -0.04f, -0.32f },
+                         (Vector3){ -0.48f, 0.10f, 0.67f },
+                         BLOCK_ORANGE, WHITE) &&
+        ShipVisualAddBox(&mesh, &vertexIndex,
+                         (Vector3){ 0.48f, -0.04f, -0.32f },
+                         (Vector3){ 0.55f, 0.10f, 0.67f },
+                         BLOCK_ORANGE, WHITE);
+
+    if (!ok || vertexIndex <= 0) {
         free(mesh.vertices);
         free(mesh.texcoords);
         free(mesh.normals);
@@ -362,24 +851,13 @@ void ShipLoadModel(void)
         return;
     }
 
-    int vertexIndex = 0;
-    int parts[8][3] = {
-        { 0, 0, -1 }, { 0, 0, 0 }, { 0, 0, 1 },
-        { 0, 1, 0 },
-        { -1, 0, 0 }, { 1, 0, 0 },
-        { 0, 0, -2 },
-        { 0, -1, -1 }
-    };
-    for (int i = 0; i < 8; i++) {
-        for (int face = 0; face < 6; face++) {
-            AddBlockFace(&mesh, &vertexIndex, parts[i][0], parts[i][1], parts[i][2],
-                         face, BLOCK_SPACESHIP, WHITE, 0.0f);
-        }
-    }
-
+    mesh.vertexCount = vertexIndex;
+    mesh.triangleCount = vertexIndex / 3;
     UploadMesh(&mesh, false);
     shipModel = LoadModelFromMesh(mesh);
-    SetMaterialTexture(&shipModel.materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
+    if (shipModel.materialCount > 0) {
+        SetMaterialTexture(&shipModel.materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
+    }
 }
 
 void ShipCleanup(void)
@@ -390,9 +868,9 @@ void ShipCleanup(void)
 
 void ShipDraw(const Player *player)
 {
-    if (shipModel.meshCount == 0) return;
+    if (!player || shipModel.meshCount == 0) return;
     shipModel.transform = MatrixRotateXYZ((Vector3){ player->pitch, player->yaw, 0.0f });
-    Vector3 pos = Vector3Add(player->position, (Vector3){ 0.0f, 0.4f, 0.0f });
+    Vector3 pos = Vector3Add(player->position, (Vector3){ 0.0f, 0.30f, 0.0f });
     DrawModel(shipModel, pos, 1.0f, WHITE);
 }
 
@@ -604,97 +1082,77 @@ void ShipUpdate(Player *player, float dt)
     }
 }
 
-static bool FindShipPlacement(int *outX, int *outY, int *outZ, const Player *player)
+static bool FindShipPlacement(int *outX, int *outY, int *outZ,
+                              ShipDirection direction, const Player *player)
 {
-    Vector3 forward = FlatForward(player->yaw);
-    int px = (int)floorf(player->position.x + forward.x);
-    int py = (int)floorf(player->position.y);
-    int pz = (int)floorf(player->position.z + forward.z);
-    int pAbove = py + 1;
-    int pBelow = py - 1;
+    int centerX = (int)floorf(player->position.x);
+    int centerZ = (int)floorf(player->position.z);
+    int baseY = (int)floorf(player->position.y);
+    WorldBlockRegion region = WorldBlockRegionAt(baseY);
 
-    int candidates[4][3] = {
-        { px, py, pz },
-        { px, pAbove, pz },
-        { px, pBelow, pz },
-        { (int)floorf(player->position.x), pAbove, (int)floorf(player->position.z) }
-    };
-
-    for (int i = 0; i < 4; i++) {
-        int y = candidates[i][1];
-        if (y < 0 || y >= SPACE_LAYER_TOP) continue;
-        if (GetBlockAt(candidates[i][0], y, candidates[i][2]) != BLOCK_AIR) continue;
-        *outX = candidates[i][0];
-        *outY = y;
-        *outZ = candidates[i][2];
-        return true;
+    for (int radius = 0; radius <= 8; radius++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (radius > 0 && abs(dx) != radius && abs(dz) != radius) continue;
+                int coreX = centerX + dx - 1;
+                int coreZ = centerZ + dz - 1;
+                int minY = region == WORLD_BLOCK_REGION_SURFACE ? baseY - 24 : baseY - 1;
+                int maxY = baseY + 3;
+                int verticalRange = maxY - minY;
+                for (int offset = 0; offset <= verticalRange; offset++) {
+                    int candidates[2] = { baseY + offset, baseY - offset };
+                    int candidateCount = offset == 0 ? 1 : 2;
+                    for (int candidate = 0; candidate < candidateCount; candidate++) {
+                        int y = candidates[candidate];
+                        if (y < minY || y > maxY ||
+                            !ShipCanPlaceParked(coreX, y, coreZ, direction,
+                                                player)) continue;
+                        *outX = coreX;
+                        *outY = y;
+                        *outZ = coreZ;
+                        return true;
+                    }
+                }
+            }
+        }
     }
     return false;
 }
 
-static bool FindShipLandingSpot(int *outX, int *outY, int *outZ, const Player *player)
-{
-    int x = (int)floorf(player->position.x);
-    int z = (int)floorf(player->position.z);
-    int y = (int)floorf(player->position.y);
-
-    for (int sy = y; sy >= y - 24 && sy > 0; sy--) {
-        if (sy >= SPACE_LAYER_TOP) continue;
-        if (GetBlockAt(x, sy, z) != BLOCK_AIR) continue;
-        if (GetBlockAt(x, sy - 1, z) == BLOCK_AIR) continue;
-        *outX = x;
-        *outY = sy;
-        *outZ = z;
-        return true;
-    }
-    return false;
-}
-
-static void ShipPlaceAfterExit(Player *player)
+static bool ShipPlaceAfterExit(Player *player)
 {
     int sx = 0;
     int sy = 0;
     int sz = 0;
-    if (!FindShipLandingSpot(&sx, &sy, &sz, player)) {
-        if (!FindShipPlacement(&sx, &sy, &sz, player)) {
-            SetImportMessage("No room to place the ship - it floats away.");
-            driving = false;
-            cruising = false;
-            gravityPrimary = (SpaceGravitySample){ 0 };
-            ClearWarpTarget();
-            return;
-        }
+    ShipDirection direction = ShipDirectionFromYaw(player->yaw);
+    if (!FindShipPlacement(&sx, &sy, &sz, direction, player) ||
+        !ShipPlaceParked(sx, sy, sz, direction, false)) {
+        SetImportMessage("Cannot exit: spaceship needs a clear 4x4 area.");
+        return false;
     }
-    SetBlock(sx, sy, sz, BLOCK_SPACESHIP);
     driving = false;
     cruising = false;
+    player->floating = WorldIsSpaceActive();
+    player->onGround = false;
     gravityPrimary = (SpaceGravitySample){ 0 };
     ClearWarpTarget();
+    return true;
 }
 
-void ShipExit(Player *player)
+bool ShipExit(Player *player)
 {
-    if (!driving) return;
+    if (!driving) return true;
     if (HomeWorldTryEnter(player)) {
-        ShipPlaceAfterExit(player);
-        return;
+        return ShipPlaceAfterExit(player);
     }
     if (PlanetWorldTryEnter(player)) {
-        driving = false;
-        cruising = false;
-        gravityPrimary = (SpaceGravitySample){ 0 };
-        ClearWarpTarget();
-        return;
+        return ShipPlaceAfterExit(player);
     }
-    if (WorldIsSpaceActive()) {
-        SetImportMessage("Approach a planet before leaving the ship.");
-        return;
-    }
-    ShipPlaceAfterExit(player);
+    return ShipPlaceAfterExit(player);
 }
 
-void ShipForceExit(Player *player)
+bool ShipForceExit(Player *player)
 {
-    if (!driving) return;
-    ShipPlaceAfterExit(player);
+    if (!driving) return true;
+    return ShipPlaceAfterExit(player);
 }

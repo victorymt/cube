@@ -5,6 +5,8 @@
 
 typedef struct PlanetClimateInput {
     double stellarIrradianceEarth;
+    float axialTiltRad;
+    float orbitalEccentricity;
     float volatileInventory;
     float greenhouseGasFraction;
     float surfaceReflectivity;
@@ -25,6 +27,10 @@ typedef struct PlanetClimateState {
     float iceCoverage;
     float cloudCoverage;
     float windStrength;
+    float seasonalTemperatureAmplitudeK;
+    float orbitalTemperatureAmplitudeK;
+    float polarIceVariability;
+    float seasonalHumidityBias;
     double absorbedIrradianceEarth;
 } PlanetClimateState;
 

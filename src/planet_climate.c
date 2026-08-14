@@ -2,6 +2,8 @@
 
 #include <math.h>
 
+#define PLANET_CLIMATE_HALF_PI 1.57079632679489661923f
+
 static float ClimateClamp(float value, float minimum, float maximum)
 {
     if (value < minimum) return minimum;
@@ -47,6 +49,16 @@ static bool PlanetClimateStateIsValid(const PlanetClimateState *state)
            state->cloudCoverage >= 0.0f && state->cloudCoverage <= 1.0f &&
            isfinite(state->windStrength) && state->windStrength >= 0.0f &&
            state->windStrength <= 1.0f &&
+           isfinite(state->seasonalTemperatureAmplitudeK) &&
+           state->seasonalTemperatureAmplitudeK >= 0.0f &&
+           isfinite(state->orbitalTemperatureAmplitudeK) &&
+           state->orbitalTemperatureAmplitudeK >= 0.0f &&
+           isfinite(state->polarIceVariability) &&
+           state->polarIceVariability >= 0.0f &&
+           state->polarIceVariability <= 1.0f &&
+           isfinite(state->seasonalHumidityBias) &&
+           state->seasonalHumidityBias >= 0.0f &&
+           state->seasonalHumidityBias <= 1.0f &&
            isfinite(state->absorbedIrradianceEarth) &&
            state->absorbedIrradianceEarth > 0.0;
 }
@@ -113,6 +125,8 @@ bool PlanetClimateSolve(const PlanetClimateInput *input,
     *out = (PlanetClimateState){ 0 };
     if (!input || !(input->stellarIrradianceEarth > 0.0) ||
         !isfinite(input->stellarIrradianceEarth) ||
+        !isfinite(input->axialTiltRad) ||
+        !isfinite(input->orbitalEccentricity) ||
         !isfinite(input->volatileInventory) ||
         !isfinite(input->greenhouseGasFraction) ||
         !isfinite(input->surfaceReflectivity) ||
@@ -123,6 +137,10 @@ bool PlanetClimateSolve(const PlanetClimateInput *input,
 
     PlanetClimateInput climate = *input;
     climate.stellarIrradianceEarth = fmax(climate.stellarIrradianceEarth, 0.00001);
+    climate.axialTiltRad = ClimateClamp(
+        fabsf(climate.axialTiltRad), 0.0f, PLANET_CLIMATE_HALF_PI);
+    climate.orbitalEccentricity = ClimateClamp(
+        climate.orbitalEccentricity, 0.0f, 0.95f);
     climate.volatileInventory = ClimateClamp(climate.volatileInventory, 0.0f, 1.0f);
     climate.greenhouseGasFraction = ClimateClamp(climate.greenhouseGasFraction,
                                                  0.0f, 1.0f);
@@ -199,6 +217,31 @@ bool PlanetClimateSolve(const PlanetClimateInput *input,
                   climate.tidalLockFactor * 0.22f);
     if (climate.gasGiant) wind += 0.28f;
 
+    float thermalBuffer = ClimateClamp(
+        atmosphereDensity * 0.48f + feedback.liquidWater * 0.72f +
+            feedback.cloud * 0.18f,
+        0.0f, 0.88f);
+    float seasonalAmplitude = climate.gasGiant ? 0.0f :
+        sinf(climate.axialTiltRad) *
+            (38.0f + 36.0f * (1.0f - thermalBuffer));
+    float eccentricityForcing = ClimateClamp(
+        2.0f * climate.orbitalEccentricity /
+            fmaxf(1.0f - climate.orbitalEccentricity *
+                              climate.orbitalEccentricity,
+                  0.05f),
+        0.0f, 3.0f);
+    float orbitalAmplitude = climate.gasGiant ? 0.0f :
+        surfaceTemperature * 0.25f * eccentricityForcing *
+            (1.0f - thermalBuffer * 0.72f);
+    float polarIceVariability = climate.gasGiant ? 0.0f : ClimateClamp(
+        (seasonalAmplitude + orbitalAmplitude * 0.45f) / 58.0f *
+            (0.35f + feedback.ice * 0.65f),
+        0.0f, 1.0f);
+    float seasonalHumidityBias = climate.gasGiant ? 0.0f : ClimateClamp(
+        (seasonalAmplitude + orbitalAmplitude * 0.25f) / 82.0f *
+            (0.25f + feedback.liquidWater * 0.75f),
+        0.0f, 1.0f);
+
     PlanetClimateState solved = {
         .surfacePressureAtm = pressureAtm,
         .atmosphereDensity = atmosphereDensity,
@@ -210,6 +253,10 @@ bool PlanetClimateSolve(const PlanetClimateInput *input,
         .iceCoverage = feedback.ice,
         .cloudCoverage = feedback.cloud,
         .windStrength = ClimateClamp(wind, 0.0f, 1.0f),
+        .seasonalTemperatureAmplitudeK = seasonalAmplitude,
+        .orbitalTemperatureAmplitudeK = orbitalAmplitude,
+        .polarIceVariability = polarIceVariability,
+        .seasonalHumidityBias = seasonalHumidityBias,
         .absorbedIrradianceEarth = absorbed
     };
     if (!PlanetClimateStateIsValid(&solved)) return false;

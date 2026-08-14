@@ -3,6 +3,7 @@
 
 #include "raylib.h"
 #include "weather_model.h"
+#include "weather_visual.h"
 
 typedef enum Weather {
     WEATHER_CLEAR = 0,
@@ -12,6 +13,8 @@ typedef enum Weather {
 
 void WeatherInit(void);
 void WeatherUpdate(float dt, Vector3 playerPosition);
+void WeatherSetParticleScale(float scale);
+void WeatherSetSheltered(bool sheltered);
 void WeatherSuspend(void);
 Weather WeatherGetCurrent(void);
 /* Sample the deterministic weather field at a local world cell. */
@@ -20,6 +23,8 @@ WeatherFieldSample WeatherFieldSampleAtWorldTime(
     int x, int z, double simulationTime);
 float WeatherWindAngleAtWorld(int x, int z);
 float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime);
+WeatherVisualState WeatherVisualStateAtWorld(
+    Vector3 position, double simulationTime, float daylight);
 float WeatherSkyFactor(void);
 float WeatherCloudCover(void);
 float WeatherPrecipitationRate(void);

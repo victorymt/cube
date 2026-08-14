@@ -50,9 +50,17 @@ typedef struct PlanetProfile {
     float albedo;
     // Grey-atmosphere optical depth, not an additional temperature offset.
     float greenhouseEffect;
+    float orbitalEccentricity;
+    float orbitalMeanAnomalyAtEpoch;
     float axialTilt;
+    // Solstice orientation relative to the orbit, in radians.
     float seasonPhase;
     float yearLength; // Game time units.
+    // Climate response terms derived from orbit, tilt, atmosphere, and oceans.
+    float seasonalTemperatureAmplitudeK;
+    float orbitalTemperatureAmplitudeK;
+    float polarIceVariability;
+    float seasonalHumidityBias;
     float prevailingWindAngle;
     float windStrength;
     float volcanicActivity;
@@ -71,6 +79,7 @@ typedef struct PlanetProfileGenerationInput {
     float stellarAgeGyr;
     float stellarLuminositiesSolar[PLANET_PROFILE_MAX_STARS];
     double orbitalEccentricity;
+    double orbitalMeanAnomalyAtEpochRad;
     float orbitalPeriodGameTime;
     int stellarCount;
     int planetIndex;
@@ -78,9 +87,21 @@ typedef struct PlanetProfileGenerationInput {
     bool forcedGasGiant;
 } PlanetProfileGenerationInput;
 
+typedef struct PlanetSeasonState {
+    float meanAnomaly;
+    float seasonAngle;
+    float solarDeclination;
+    float dayLengthFraction;
+    float irradianceScale;
+    float temperatureDeltaK;
+    float seasonalAmplitudeK;
+} PlanetSeasonState;
+
 bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
                            PlanetProfile *out);
 PlanetProfile PlanetProfileGenerateLegacy(uint32_t seed, SolarBodyStyle style,
                                           float terrainRadius);
+bool PlanetSeasonEvaluate(const PlanetProfile *profile, float latitude,
+                          double simulationTime, PlanetSeasonState *out);
 
 #endif

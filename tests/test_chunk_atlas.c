@@ -35,98 +35,224 @@ BlockType NetherBlockAt(int x, int y, int z)
     return BLOCK_AIR;
 }
 
-static bool ColorsEqual(Color a, Color b)
-{
-    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
-}
-
-static void AssertAtlasCoordinates(void)
-{
-    const float atlasWidth = (float)(ATLAS_CELL_SIZE * ATLAS_COLUMNS);
-    const float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS);
-    assert(ATLAS_CELL_SIZE == 32);
-    assert(ATLAS_TILE_PADDING >= ATLAS_TILE_SIZE / 2);
-
-    for (int i = 0; i < TEX_COUNT; i++) {
-        BlockTexture texture = (BlockTexture)i;
-        int column = i % ATLAS_COLUMNS;
-        int row = i / ATLAS_COLUMNS;
-        Rectangle source = AtlasSourceRect(texture);
-        assert(source.x == column * ATLAS_CELL_SIZE + ATLAS_TILE_PADDING);
-        assert(source.y == row * ATLAS_CELL_SIZE + ATLAS_TILE_PADDING);
-        assert(source.width == ATLAS_TILE_SIZE);
-        assert(source.height == ATLAS_TILE_SIZE);
-
-        Vector2 uvs[6];
-        AtlasUVs(texture, uvs);
-        float minU = (source.x + 0.25f) / atlasWidth;
-        float maxU = (source.x + source.width - 0.25f) / atlasWidth;
-        float minV = (source.y + 0.25f) / atlasHeight;
-        float maxV = (source.y + source.height - 0.25f) / atlasHeight;
-        for (int vertex = 0; vertex < 6; vertex++) {
-            assert(fabsf(uvs[vertex].x - minU) < 0.000001f ||
-                   fabsf(uvs[vertex].x - maxU) < 0.000001f);
-            assert(fabsf(uvs[vertex].y - minV) < 0.000001f ||
-                   fabsf(uvs[vertex].y - maxV) < 0.000001f);
-        }
-    }
-}
-
-static void AssertTilePadding(Image image, BlockTexture texture)
-{
-    Rectangle source = AtlasSourceRect(texture);
-    int left = (int)source.x;
-    int top = (int)source.y;
-    int right = left + ATLAS_TILE_SIZE - 1;
-    int bottom = top + ATLAS_TILE_SIZE - 1;
-    int cellLeft = left - ATLAS_TILE_PADDING;
-    int cellTop = top - ATLAS_TILE_PADDING;
-    int cellRight = right + ATLAS_TILE_PADDING;
-    int cellBottom = bottom + ATLAS_TILE_PADDING;
-
-    for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
-        Color leftEdge = GetImageColor(image, left, top + y);
-        Color rightEdge = GetImageColor(image, right, top + y);
-        assert(ColorsEqual(GetImageColor(image, cellLeft, top + y), leftEdge));
-        assert(ColorsEqual(GetImageColor(image, cellRight, top + y), rightEdge));
-    }
-    for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
-        Color topEdge = GetImageColor(image, left + x, top);
-        Color bottomEdge = GetImageColor(image, left + x, bottom);
-        assert(ColorsEqual(GetImageColor(image, left + x, cellTop), topEdge));
-        assert(ColorsEqual(GetImageColor(image, left + x, cellBottom), bottomEdge));
-    }
-    assert(ColorsEqual(GetImageColor(image, cellLeft, cellTop),
-                       GetImageColor(image, left, top)));
-    assert(ColorsEqual(GetImageColor(image, cellRight, cellBottom),
-                       GetImageColor(image, right, bottom)));
-}
-
-static void AssertMipSafePadding(void)
-{
-    Image image = GenImageColor(ATLAS_CELL_SIZE * ATLAS_COLUMNS,
-                                ATLAS_CELL_SIZE * ATLAS_ROWS, BLANK);
-    assert(IsImageValid(image));
-    const BlockTexture samples[] = {
-        TEX_GRASS_TOP,
-        TEX_GLASS,
-        TEX_FLOWER,
-        (BlockTexture)(TEX_COUNT - 1)
-    };
-    for (int i = 0; i < (int)(sizeof(samples) / sizeof(samples[0])); i++) {
-        DrawAtlasTile(&image, samples[i]);
-        AssertTilePadding(image, samples[i]);
-    }
-    UnloadImage(image);
-}
-
 static void FreeTestMesh(Mesh *mesh)
 {
     free(mesh->vertices);
     free(mesh->texcoords);
+    free(mesh->texcoords2);
     free(mesh->normals);
     free(mesh->colors);
     *mesh = (Mesh){ 0 };
+}
+
+typedef enum TestMeshPartition {
+    TEST_MESH_SOLID = 0,
+    TEST_MESH_WATER,
+    TEST_MESH_FLORA
+} TestMeshPartition;
+
+static const int TEST_CHUNK_FACES[6][3] = {
+    { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+    { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+};
+
+static bool BuildTestMesh(
+    const unsigned short (*blocks)[CHUNK_SIZE], TestMeshPartition partition,
+    Mesh *mesh)
+{
+    switch (partition) {
+    case TEST_MESH_SOLID:
+        return BuildSurfaceSolidMeshData(
+            blocks, WORLD_HEIGHT, 0, 0, 0, TEST_CHUNK_FACES, NULL, 0, mesh);
+    case TEST_MESH_WATER:
+        return BuildSurfaceWaterMeshData(
+            blocks, WORLD_HEIGHT, 0, 0, 0, TEST_CHUNK_FACES, NULL, 0, mesh);
+    case TEST_MESH_FLORA:
+        return BuildFloraMeshData(
+            blocks, WORLD_HEIGHT, 0, 0, 0, TEST_CHUNK_FACES, NULL, 0, mesh);
+    }
+    return false;
+}
+
+static void AssertMeshWellFormed(const Mesh *mesh, int expectedVertexCount)
+{
+    assert(mesh->vertexCount == expectedVertexCount);
+    assert(mesh->vertexCount % 6 == 0);
+    assert(mesh->triangleCount == mesh->vertexCount / 3);
+    assert(mesh->vertices != NULL);
+    assert(mesh->normals != NULL);
+    assert(mesh->texcoords != NULL);
+    assert(mesh->texcoords2 != NULL);
+    assert(mesh->colors != NULL);
+
+    for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
+        for (int component = 0; component < 3; component++) {
+            assert(isfinite(mesh->vertices[vertex * 3 + component]));
+            assert(isfinite(mesh->normals[vertex * 3 + component]));
+        }
+        for (int component = 0; component < 2; component++) {
+            assert(isfinite(mesh->texcoords[vertex * 2 + component]));
+            assert(isfinite(mesh->texcoords2[vertex * 2 + component]));
+        }
+        assert(mesh->colors[vertex * 4 + 3] > 0);
+    }
+}
+
+static void AssertSpecialBlockMeshContracts(void)
+{
+    typedef struct SpecialBlockCase {
+        BlockType type;
+        TestMeshPartition partition;
+        int expectedVertexCount;
+    } SpecialBlockCase;
+    static const SpecialBlockCase cases[] = {
+        { BLOCK_TORCH, TEST_MESH_WATER, 36 },
+        { BLOCK_ALBUM, TEST_MESH_WATER, 30 },
+        { BLOCK_SLAB, TEST_MESH_SOLID, 36 },
+        { BLOCK_DOOR, TEST_MESH_SOLID, 30 },
+        { BLOCK_DOOR_OPEN, TEST_MESH_SOLID, 30 },
+        { BLOCK_STONE_STAIRS, TEST_MESH_SOLID, 72 },
+        { BLOCK_WOOD_STAIRS, TEST_MESH_SOLID, 72 },
+        { BLOCK_FENCE_GATE, TEST_MESH_SOLID, 18 },
+        { BLOCK_FENCE_GATE_OPEN, TEST_MESH_SOLID, 18 },
+        { BLOCK_GLASS_PANE, TEST_MESH_WATER, 30 },
+        { BLOCK_FLOWER, TEST_MESH_FLORA, 12 },
+        { BLOCK_MUSHROOM, TEST_MESH_FLORA, 12 },
+        { BLOCK_SPACESHIP, TEST_MESH_SOLID, 576 },
+        { BLOCK_SPACESHIP_CORE_NORTH, TEST_MESH_SOLID, 576 },
+        { BLOCK_SPACESHIP_CORE_EAST, TEST_MESH_SOLID, 576 },
+        { BLOCK_SPACESHIP_CORE_SOUTH, TEST_MESH_SOLID, 576 },
+        { BLOCK_SPACESHIP_CORE_WEST, TEST_MESH_SOLID, 576 }
+    };
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+
+    for (int index = 0; index < (int)(sizeof(cases) / sizeof(cases[0])); index++) {
+        memset(blocks, 0, sizeof(blocks));
+        blocks[5][6][7] = (unsigned short)cases[index].type;
+        Mesh mesh = { 0 };
+        assert(BuildTestMesh(
+            (const unsigned short (*)[CHUNK_SIZE])blocks,
+            cases[index].partition, &mesh));
+        AssertMeshWellFormed(&mesh, cases[index].expectedVertexCount);
+        FreeTestMesh(&mesh);
+    }
+
+    memset(blocks, 0, sizeof(blocks));
+    blocks[5][6][7] = BLOCK_SPACESHIP_OCCUPIED;
+    Mesh occupied = { 0 };
+    assert(!BuildTestMesh(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        TEST_MESH_SOLID, &occupied));
+    assert(occupied.vertexCount == 0);
+    assert(occupied.vertices == NULL);
+}
+
+static void AssertFenceMeshContracts(void)
+{
+    typedef struct FenceCase {
+        BlockType neighbor;
+        int expectedVertexCount;
+    } FenceCase;
+    static const FenceCase cases[] = {
+        { BLOCK_AIR, 36 },
+        { BLOCK_FENCE, 72 },
+        { BLOCK_FENCE_GATE, 54 },
+        { BLOCK_FENCE_GATE_OPEN, 54 },
+        { BLOCK_STONE, 60 }
+    };
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+
+    for (int index = 0; index < (int)(sizeof(cases) / sizeof(cases[0])); index++) {
+        memset(blocks, 0, sizeof(blocks));
+        blocks[5][6][7] = BLOCK_FENCE;
+        blocks[6][6][7] = (unsigned short)cases[index].neighbor;
+        Mesh mesh = { 0 };
+        assert(BuildTestMesh(
+            (const unsigned short (*)[CHUNK_SIZE])blocks,
+            TEST_MESH_SOLID, &mesh));
+        AssertMeshWellFormed(&mesh, cases[index].expectedVertexCount);
+        FreeTestMesh(&mesh);
+    }
+}
+
+static void AssertStandardBlockCullingAndPartitions(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    memset(blocks, 0, sizeof(blocks));
+    blocks[2][4][2] = BLOCK_STONE;
+    blocks[3][4][2] = BLOCK_STONE;
+    blocks[8][4][8] = BLOCK_WATER;
+    blocks[11][4][11] = BLOCK_FLOWER;
+
+    Mesh solid = { 0 };
+    Mesh water = { 0 };
+    Mesh flora = { 0 };
+    assert(BuildTestMesh(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        TEST_MESH_SOLID, &solid));
+    assert(BuildTestMesh(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        TEST_MESH_WATER, &water));
+    assert(BuildTestMesh(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        TEST_MESH_FLORA, &flora));
+    AssertMeshWellFormed(&solid, 60);
+    AssertMeshWellFormed(&water, 36);
+    AssertMeshWellFormed(&flora, 12);
+    FreeTestMesh(&solid);
+    FreeTestMesh(&water);
+    FreeTestMesh(&flora);
+}
+
+static void AssertSolidFacesRemainVisibleUnderwater(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    memset(blocks, 0, sizeof(blocks));
+    blocks[4][4][4] = BLOCK_STONE;
+    blocks[5][4][4] = BLOCK_WATER;
+
+    Mesh solid = { 0 };
+    Mesh water = { 0 };
+    assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
+                         TEST_MESH_SOLID, &solid));
+    assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
+                         TEST_MESH_WATER, &water));
+    AssertMeshWellFormed(&solid, 36);
+    AssertMeshWellFormed(&water, 30);
+    FreeTestMesh(&solid);
+    FreeTestMesh(&water);
+}
+
+static void AssertLightingVertexData(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    memset(blocks, 0, sizeof(blocks));
+    blocks[4][4][4] = BLOCK_STONE;
+    blocks[5][5][4] = BLOCK_STONE;
+    blocks[4][5][5] = BLOCK_STONE;
+    blocks[5][5][5] = BLOCK_STONE;
+    Mesh mesh = { 0 };
+    assert(BuildSurfaceSolidMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &mesh));
+    assert(mesh.texcoords2 != NULL);
+    bool sawOpenCorner = false;
+    bool sawOccludedCorner = false;
+    for (int vertex = 0; vertex < mesh.vertexCount; vertex++) {
+        float ao = mesh.texcoords2[vertex * 2];
+        float localLight = mesh.texcoords2[vertex * 2 + 1];
+        assert(ao >= 0.48f && ao <= 1.0f);
+        assert(localLight == 0.0f);
+        if (ao > 0.99f) sawOpenCorner = true;
+        if (ao < 0.60f) sawOccludedCorner = true;
+    }
+    assert(sawOpenCorner);
+    assert(sawOccludedCorner);
+    FreeTestMesh(&mesh);
 }
 
 static void AssertSurfaceFloraMeshPartition(void)
@@ -229,6 +355,133 @@ static void AssertSurfaceFloraMeshPartition(void)
     FreeTestMesh(&flora);
 }
 
+static void AssertStairsMeshCapacity(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    memset(blocks, 0, sizeof(blocks));
+    blocks[4][5][7] = BLOCK_STONE_STAIRS;
+
+    Mesh mesh = { 0 };
+    assert(BuildSurfaceSolidMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &mesh));
+    assert(mesh.vertexCount == 12 * 6);
+    assert(mesh.triangleCount == 12 * 2);
+    FreeTestMesh(&mesh);
+}
+
+static void AssertDoorMeshCapacityWithOcclusion(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    memset(blocks, 0, sizeof(blocks));
+    blocks[4][5][7] = BLOCK_DOOR;
+    blocks[4][5][6] = BLOCK_STONE;
+
+    Mesh mesh = { 0 };
+    assert(BuildSurfaceSolidMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &mesh));
+    assert(mesh.vertexCount == (4 + 5) * 6);
+    FreeTestMesh(&mesh);
+}
+
+static void AssertSpaceshipMeshCapacityAndBounds(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    const int blockX = 4;
+    const int blockY = 5;
+    const int blockZ = 7;
+    memset(blocks, 0, sizeof(blocks));
+    blocks[blockX][blockY][blockZ] = BLOCK_SPACESHIP;
+
+    Mesh mesh = { 0 };
+    assert(BuildSurfaceSolidMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &mesh));
+    assert(mesh.vertexCount == 96 * 6);
+    assert(mesh.triangleCount == 96 * 2);
+
+    float minX = INFINITY;
+    float minY = INFINITY;
+    float minZ = INFINITY;
+    float maxX = -INFINITY;
+    float maxY = -INFINITY;
+    float maxZ = -INFINITY;
+    for (int vertex = 0; vertex < mesh.vertexCount; vertex++) {
+        float x = mesh.vertices[vertex * 3 + 0];
+        float y = mesh.vertices[vertex * 3 + 1];
+        float z = mesh.vertices[vertex * 3 + 2];
+        minX = fminf(minX, x);
+        minY = fminf(minY, y);
+        minZ = fminf(minZ, z);
+        maxX = fmaxf(maxX, x);
+        maxY = fmaxf(maxY, y);
+        maxZ = fmaxf(maxZ, z);
+
+        float nx = mesh.normals[vertex * 3 + 0];
+        float ny = mesh.normals[vertex * 3 + 1];
+        float nz = mesh.normals[vertex * 3 + 2];
+        assert(fabsf(nx * nx + ny * ny + nz * nz - 1.0f) < 0.001f);
+    }
+    assert(minX >= (float)blockX && maxX <= (float)blockX + 1.0f);
+    assert(minY >= (float)blockY && maxY <= (float)blockY + 1.0f);
+    assert(minZ >= (float)blockZ && maxZ <= (float)blockZ + 1.0f);
+    assert(maxX - minX > 0.85f);
+    assert(maxY - minY < 0.90f);
+    assert(maxZ - minZ > 0.80f);
+    FreeTestMesh(&mesh);
+
+    for (int direction = 0; direction < 4; direction++) {
+        memset(blocks, 0, sizeof(blocks));
+        blocks[blockX][blockY][blockZ] =
+            (unsigned short)(BLOCK_SPACESHIP_CORE_NORTH + direction);
+        blocks[blockX + 1][blockY][blockZ] = BLOCK_SPACESHIP_OCCUPIED;
+        assert(BuildSurfaceSolidMeshData(
+            (const unsigned short (*)[CHUNK_SIZE])blocks,
+            WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &mesh));
+        assert(mesh.vertexCount == 96 * 6);
+
+        minX = minY = minZ = INFINITY;
+        maxX = maxY = maxZ = -INFINITY;
+        for (int vertex = 0; vertex < mesh.vertexCount; vertex++) {
+            float x = mesh.vertices[vertex * 3];
+            float y = mesh.vertices[vertex * 3 + 1];
+            float z = mesh.vertices[vertex * 3 + 2];
+            minX = fminf(minX, x);
+            minY = fminf(minY, y);
+            minZ = fminf(minZ, z);
+            maxX = fmaxf(maxX, x);
+            maxY = fmaxf(maxY, y);
+            maxZ = fmaxf(maxZ, z);
+            float nx = mesh.normals[vertex * 3];
+            float ny = mesh.normals[vertex * 3 + 1];
+            float nz = mesh.normals[vertex * 3 + 2];
+            assert(fabsf(nx * nx + ny * ny + nz * nz - 1.0f) < 0.001f);
+        }
+        assert(minX >= (float)blockX - 1.0f);
+        assert(maxX <= (float)blockX + 3.0f);
+        assert(minY >= (float)blockY);
+        assert(maxY <= (float)blockY + 2.0f);
+        assert(minZ >= (float)blockZ - 1.0f);
+        assert(maxZ <= (float)blockZ + 3.0f);
+        assert(maxX - minX > 3.70f);
+        assert(maxZ - minZ > 3.70f);
+        FreeTestMesh(&mesh);
+    }
+}
+
 static void AssertFloraStructureInstancePartition(void)
 {
     static Chunk chunk;
@@ -276,18 +529,18 @@ static void AssertFloraStructureInstancePartition(void)
         .windResponse = 0.05f
     };
 
-    chunk.blocks[2][4][2] = BLOCK_GREEN;
-    chunk.blocks[2][5][2] = BLOCK_STONE;
-    chunk.blocks[4][4][4] = BLOCK_STONE;
-    chunk.blocks[8][4][2] = BLOCK_BLUE;
-    chunk.blocks[8][5][2] = BLOCK_STONE;
-    chunk.blocks[9][5][3] = BLOCK_STONE;
-    chunk.blocks[2][4][9] = BLOCK_MUSHROOM;
-    chunk.blocks[2][5][9] = BLOCK_STONE;
-    chunk.blocks[3][4][10] = BLOCK_STONE;
-    chunk.blocks[8][4][9] = BLOCK_NETHERRACK;
-    chunk.blocks[8][5][9] = BLOCK_STONE;
-    chunk.blocks[9][5][10] = BLOCK_STONE;
+    ChunkSetLocalBlock(&chunk, 2, 4, 2, BLOCK_GREEN);
+    ChunkSetLocalBlock(&chunk, 2, 5, 2, BLOCK_STONE);
+    ChunkSetLocalBlock(&chunk, 4, 4, 4, BLOCK_STONE);
+    ChunkSetLocalBlock(&chunk, 8, 4, 2, BLOCK_BLUE);
+    ChunkSetLocalBlock(&chunk, 8, 5, 2, BLOCK_STONE);
+    ChunkSetLocalBlock(&chunk, 9, 5, 3, BLOCK_STONE);
+    ChunkSetLocalBlock(&chunk, 2, 4, 9, BLOCK_MUSHROOM);
+    ChunkSetLocalBlock(&chunk, 2, 5, 9, BLOCK_STONE);
+    ChunkSetLocalBlock(&chunk, 3, 4, 10, BLOCK_STONE);
+    ChunkSetLocalBlock(&chunk, 8, 4, 9, BLOCK_NETHERRACK);
+    ChunkSetLocalBlock(&chunk, 8, 5, 9, BLOCK_STONE);
+    ChunkSetLocalBlock(&chunk, 9, 5, 10, BLOCK_STONE);
 
     Mesh flora = { 0 };
     FloraVisualInstance *instances = NULL;
@@ -321,9 +574,15 @@ static void AssertFloraStructureInstancePartition(void)
 
 int main(void)
 {
-    AssertAtlasCoordinates();
-    AssertMipSafePadding();
+    AssertSpecialBlockMeshContracts();
+    AssertFenceMeshContracts();
+    AssertStandardBlockCullingAndPartitions();
+    AssertSolidFacesRemainVisibleUnderwater();
     AssertSurfaceFloraMeshPartition();
+    AssertLightingVertexData();
+    AssertStairsMeshCapacity();
+    AssertDoorMeshCapacityWithOcclusion();
+    AssertSpaceshipMeshCapacityAndBounds();
     AssertFloraStructureInstancePartition();
     puts("chunk atlas tests passed");
     return 0;

@@ -1,5 +1,7 @@
 #include "terrain.h"
 
+#include "subsurface.h"
+
 #include "discovery.h"
 #include "ecology.h"
 
@@ -67,73 +69,160 @@ unsigned int WorldHash3D(int x, int y, int z)
     return MixWorldSeed(Hash3D(x, y, z));
 }
 
+static float WorldHashUnit2D(int x, int z, unsigned int lane)
+{
+    unsigned int h = WorldHash2DBits((unsigned int)(x + (int)(lane * 101u)),
+                                     (unsigned int)(z - (int)(lane * 173u)));
+    return (float)(h & 0x00ffffffu) / 16777215.0f;
+}
+
+static float NoiseSmooth(float value)
+{
+    return value * value * (3.0f - 2.0f * value);
+}
+
+static float WorldValueNoise2D(float x, float z, unsigned int lane)
+{
+    int x0 = (int)floorf(x);
+    int z0 = (int)floorf(z);
+    float tx = NoiseSmooth(x - (float)x0);
+    float tz = NoiseSmooth(z - (float)z0);
+    float a = Lerp(WorldHashUnit2D(x0, z0, lane),
+                   WorldHashUnit2D(x0 + 1, z0, lane), tx);
+    float b = Lerp(WorldHashUnit2D(x0, z0 + 1, lane),
+                   WorldHashUnit2D(x0 + 1, z0 + 1, lane), tx);
+    return Lerp(a, b, tz);
+}
+
+static float WorldFractalNoise2D(float x, float z, unsigned int lane)
+{
+    float value = 0.0f;
+    float amplitude = 0.58f;
+    float total = 0.0f;
+    for (int octave = 0; octave < 5; octave++) {
+        value += WorldValueNoise2D(x, z, lane + (unsigned int)octave * 17u) *
+                 amplitude;
+        total += amplitude;
+        x = x * 2.03f + 11.3f;
+        z = z * 2.03f - 7.9f;
+        amplitude *= 0.49f;
+    }
+    return value / total;
+}
+
+static float SmoothRange(float low, float high, float value)
+{
+    if (value <= low) return 0.0f;
+    if (value >= high) return 1.0f;
+    return NoiseSmooth((value - low) / (high - low));
+}
+
+static float HomeTerrainElevationCore(int x, int z,
+                                      SurfaceTerrainSample *sample)
+{
+    float fx = (float)x + WorldSeedCoordinateOffset(1u);
+    float fz = (float)z + WorldSeedCoordinateOffset(2u);
+    float continentalness = WorldFractalNoise2D(fx * 0.00135f,
+                                                fz * 0.00135f, 21u);
+    float erosion = WorldFractalNoise2D(fx * 0.0038f, fz * 0.0038f, 79u);
+    float ridgeNoise = WorldFractalNoise2D(fx * 0.0026f, fz * 0.0026f, 131u);
+    float ridge = 1.0f - fabsf(ridgeNoise * 2.0f - 1.0f);
+    ridge = SmoothRange(0.56f, 0.94f, ridge);
+    float peakNoise = WorldFractalNoise2D(fx * 0.0065f, fz * 0.0065f, 211u);
+    float peak = SmoothRange(0.69f, 0.91f, peakNoise) * ridge;
+    float trenchBoundary = 1.0f - fabsf(
+        WorldFractalNoise2D(fx * 0.0019f, fz * 0.0019f, 307u) * 2.0f - 1.0f);
+    float trench = SmoothRange(0.80f, 0.97f, trenchBoundary);
+    float detail = WorldFractalNoise2D(fx * 0.021f, fz * 0.021f, 401u) - 0.5f;
+    const float coast = 0.50f;
+    float elevation = 0.0f;
+    if (continentalness < coast) {
+        float ocean = Clamp((coast - continentalness) / coast, 0.0f, 1.0f);
+        float shelf = SmoothRange(0.0f, 0.18f, ocean);
+        elevation = (float)HOME_SEA_LEVEL - 4.0f - shelf * 14.0f -
+                    powf(ocean, 1.35f) * 43.0f;
+        elevation -= trench * SmoothRange(0.20f, 0.72f, ocean) * 34.0f;
+        elevation += detail * 4.0f;
+    } else {
+        float land = Clamp((continentalness - coast) / (1.0f - coast),
+                           0.0f, 1.0f);
+        float mountainMask = SmoothRange(0.08f, 0.64f, land) *
+                             (1.0f - erosion * 0.48f);
+        elevation = (float)HOME_SEA_LEVEL + 3.0f + land * 34.0f;
+        elevation += ridge * mountainMask * 92.0f;
+        elevation += peak * mountainMask * 48.0f;
+        elevation += detail * (5.0f + land * 8.0f);
+    }
+    elevation = Clamp(elevation, 8.0f, 240.0f);
+    if (sample) {
+        sample->continentalness = continentalness;
+        sample->erosion = erosion;
+        sample->ridge = ridge;
+        sample->peak = peak;
+        sample->trench = trench;
+    }
+    return elevation;
+}
+
+SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
+{
+    SurfaceTerrainSample sample = { 0 };
+    sample.seaLevel = mode == TERRAIN_FLAT ? -1.0f : (float)HOME_SEA_LEVEL;
+    if (mode == TERRAIN_FLAT) {
+        sample.elevation = 8.0f;
+        sample.continentalness = 1.0f;
+        sample.biome = BIOME_PLAINS;
+        return sample;
+    }
+    sample.elevation = HomeTerrainElevationCore(x, z, &sample);
+    float east = HomeTerrainElevationCore(x + 1, z, NULL);
+    float west = HomeTerrainElevationCore(x - 1, z, NULL);
+    float north = HomeTerrainElevationCore(x, z - 1, NULL);
+    float south = HomeTerrainElevationCore(x, z + 1, NULL);
+    sample.slope = fmaxf(fabsf(east - west), fabsf(north - south)) * 0.5f;
+    float climate = WorldFractalNoise2D(
+        ((float)x + WorldSeedCoordinateOffset(3u)) * 0.0018f,
+        ((float)z + WorldSeedCoordinateOffset(4u)) * 0.0018f, 503u);
+    if (sample.elevation >= 132.0f || sample.ridge > 0.58f) {
+        sample.biome = BIOME_MOUNTAIN;
+    } else if (climate < 0.25f) {
+        sample.biome = BIOME_SNOW;
+    } else if (climate < 0.43f) {
+        sample.biome = BIOME_DESERT;
+    } else if (climate > 0.64f) {
+        sample.biome = BIOME_FOREST;
+    } else {
+        sample.biome = BIOME_PLAINS;
+    }
+    return sample;
+}
+
 float TerrainNoise(float x, float z)
 {
-    x += WorldSeedCoordinateOffset(1u);
-    z += WorldSeedCoordinateOffset(2u);
-    float h = 0.0f;
-    h += sinf(x * 0.085f) * 4.0f;
-    h += cosf(z * 0.073f) * 3.5f;
-    h += sinf((x + z) * 0.041f) * 5.0f;
-    h += cosf((x - z) * 0.113f) * 1.8f;
-    return h;
+    return HomeTerrainElevationCore((int)floorf(x), (int)floorf(z), NULL) -
+           (float)HOME_SEA_LEVEL;
 }
 
 float BiomeNoise(int x, int z)
 {
-    float fx = (float)x + WorldSeedCoordinateOffset(3u);
-    float fz = (float)z + WorldSeedCoordinateOffset(4u);
-    return sinf(fx * 0.017f) * 0.45f +
-           cosf(fz * 0.021f) * 0.40f +
-           sinf((fx + fz) * 0.009f) * 0.35f;
+    SurfaceTerrainSample sample = SurfaceTerrainAt(x, z, TERRAIN_VARIED);
+    return sample.continentalness * 2.0f - 1.0f;
 }
 
 Biome BiomeAt(int x, int z)
 {
-    float n = BiomeNoise(x, z);
-    if (n > 0.72f) return BIOME_MOUNTAIN;
-    if (n > 0.28f) return BIOME_FOREST;
-    if (n < -0.55f) return BIOME_SNOW;
-    if (n < -0.12f) return BIOME_DESERT;
-    return BIOME_PLAINS;
+    return SurfaceTerrainAt(x, z, TERRAIN_VARIED).biome;
 }
 
-float CanyonNoise(int x, int z)
+int TerrainSeaLevel(TerrainMode mode)
 {
-    float fx = (float)x + WorldSeedCoordinateOffset(5u);
-    float fz = (float)z + WorldSeedCoordinateOffset(6u);
-    float dx = sinf(fx * 0.021f) * 1.4f + cosf((fx + fz) * 0.013f) * 1.2f;
-    float dz = sinf(fz * 0.019f) * 1.4f + cosf((fx - fz) * 0.011f) * 1.1f;
-    return dx + dz;
+    return mode == TERRAIN_FLAT ? -1 : HOME_SEA_LEVEL;
 }
 
 int TerrainHeight(int x, int z, TerrainMode mode)
 {
-    if (mode == TERRAIN_FLAT) {
-        (void)x;
-        (void)z;
-        return 8;
-    }
-
-    float noise = TerrainNoise((float)x, (float)z);
-    int height;
-    switch (BiomeAt(x, z)) {
-    case BIOME_MOUNTAIN: height = 15 + (int)roundf(noise * 1.7f); break;
-    case BIOME_SNOW:     height = 9 + (int)roundf(noise * 0.9f);  break;
-    case BIOME_DESERT:   height = 9 + (int)roundf(noise * 0.7f);  break;
-    default:             height = 10 + (int)roundf(noise);        break;
-    }
-
-    float canyon = CanyonNoise(x, z);
-    if (canyon > 2.05f) {
-        int depth = (int)((canyon - 2.05f) * 9.0f);
-        if (depth > 9) depth = 9;
-        height -= depth;
-    }
-
-    if (height < 3) height = 3;
-    if (height > WORLD_HEIGHT - 4) height = WORLD_HEIGHT - 4;
-    return height;
+    if (mode == TERRAIN_FLAT) return 8;
+    return (int)lroundf(HomeTerrainElevationCore(x, z, NULL));
 }
 
 bool ShouldPlaceTree(int x, int z, TerrainMode mode)
@@ -141,7 +230,7 @@ bool ShouldPlaceTree(int x, int z, TerrainMode mode)
     if (mode == TERRAIN_FLAT) return false;
 
     int height = TerrainHeight(x, z, mode);
-    if (height <= 6) return false;
+    if (height <= TerrainSeaLevel(mode) || height > WORLD_HEIGHT - 8) return false;
     unsigned int hash = WorldHash2D(x, z);
     switch (BiomeAt(x, z)) {
     case BIOME_FOREST:   return hash % 31u == 0u;
@@ -154,34 +243,28 @@ bool ShouldPlaceTree(int x, int z, TerrainMode mode)
 
 bool CaveAt(int x, int y, int z, int height)
 {
-    if (y < 2 || y >= height - 3) return false;
-
-    float fx = (float)x + WorldSeedCoordinateOffset(7u);
-    float fy = (float)y + WorldSeedCoordinateOffset(8u);
-    float fz = (float)z + WorldSeedCoordinateOffset(9u);
-    float n = sinf(fx * 0.17f) * sinf(fz * 0.13f) * sinf(fy * 0.31f);
-    n += sinf((fx + fz) * 0.09f + fy * 0.23f) * 0.7f;
-
-    float tunnel = sinf(fx * 0.045f + fy * 0.09f) * sinf(fz * 0.045f - fy * 0.07f);
-    float branch = sinf((fx + fy) * 0.06f) * sinf((fz - fy) * 0.055f);
-    n += (tunnel + branch) * 0.55f;
-
-    if (n > 0.95f) return true;
-
-    float chamber = sinf(fx * 0.028f) * sinf(fz * 0.026f) * sinf(fy * 0.035f);
-    if (chamber > 0.90f && y < height - 6) return true;
-
-    return n > 0.60f;
+    SubsurfaceParams params = {
+        .seed = WorldGetSeed(),
+        .activity = 1.0f,
+        .minY = 2,
+        .surfaceClearance = 4,
+        .aquiferLevel = 36,
+        .aquiferChance = 0.68f
+    };
+    return SubsurfaceSampleAt(&params, x, y, z, height).cave;
 }
 
 bool CaveWaterAt(int x, int y, int z, int height)
 {
-    if (y < 4 || y >= height - 4) return false;
-    float fx = (float)x + WorldSeedCoordinateOffset(10u);
-    float fy = (float)y + WorldSeedCoordinateOffset(11u);
-    float fz = (float)z + WorldSeedCoordinateOffset(12u);
-    float n = sinf(fx * 0.11f + 3.7f) * sinf(fz * 0.13f + 1.3f) * sinf(fy * 0.19f);
-    return n > 0.90f;
+    SubsurfaceParams params = {
+        .seed = WorldGetSeed(),
+        .activity = 1.0f,
+        .minY = 2,
+        .surfaceClearance = 4,
+        .aquiferLevel = 36,
+        .aquiferChance = 0.68f
+    };
+    return SubsurfaceSampleAt(&params, x, y, z, height).flooded;
 }
 
 BlockType OreAt(int x, int y, int z)
@@ -196,7 +279,16 @@ BlockType OreAt(int x, int y, int z)
 
 BlockType StoneOrCaveBlock(int x, int y, int z, int height)
 {
-    if (CaveAt(x, y, z, height)) return BLOCK_AIR;
+    SubsurfaceParams params = {
+        .seed = WorldGetSeed(),
+        .activity = 1.0f,
+        .minY = 2,
+        .surfaceClearance = 4,
+        .aquiferLevel = 36,
+        .aquiferChance = 0.68f
+    };
+    SubsurfaceSample cave = SubsurfaceSampleAt(&params, x, y, z, height);
+    if (cave.cave) return cave.flooded ? BLOCK_WATER : BLOCK_AIR;
     return OreAt(x, y, z);
 }
 
@@ -218,7 +310,7 @@ void SetChunkLocalBlock(Chunk *chunk, int worldX, int y, int worldZ, BlockType t
     int lz = 0;
     WorldToChunkLocal(worldX, worldZ, &cx, &cz, &lx, &lz);
     if (chunk->cx == cx && chunk->cz == cz) {
-        chunk->blocks[lx][y][lz] = (unsigned short)type;
+        ChunkSetLocalBlock(chunk, lx, y, lz, type);
     }
 }
 
@@ -526,12 +618,19 @@ static PlanetSurfaceSample PlanetSampleLocalSurface(int x, int z, float *outX, f
     return PlanetSurfaceBaselineAt(x, z);
 }
 
-static int PlanetSeaLevel(SolarBodyStyle style, const PlanetProfile *profile)
+static int PlanetSeaLevelForProfile(SolarBodyStyle style,
+                                    const PlanetProfile *profile)
 {
     if (profile->oceanCoverage <= 0.05f) return -1;
-    if (style == SOLAR_STYLE_LAVA) return 11;
-    if (style == SOLAR_STYLE_ICE || style == SOLAR_STYLE_TEMPERATE) return 12;
+    if (style == SOLAR_STYLE_LAVA || style == SOLAR_STYLE_ICE ||
+        style == SOLAR_STYLE_TEMPERATE) return 80;
     return -1;
+}
+
+int PlanetTerrainSeaLevel(void)
+{
+    if (!PlanetWorldIsActive()) return TerrainSeaLevel(terrainMode);
+    return PlanetSeaLevelForProfile(PlanetWorldStyle(), PlanetWorldProfile());
 }
 
 PlanetBiome PlanetBiomeAt(int x, int z)
@@ -553,34 +652,49 @@ int PlanetTerrainHeight(int x, int z)
     float localDetail = PlanetFractalNoise2D(fx * 0.024f, fz * 0.024f, 47u);
     float hills = surface.regionalness * 0.62f + surface.detail * 0.23f +
                   localDetail * 0.15f;
-    float coast = 0.34f + profile->oceanCoverage * 0.46f;
-    float height = 12.0f + (continents - coast) * 16.0f;
-    height += (hills - 0.5f) * 9.0f * roughness;
-    height += sinf((fx + fz) * 0.010f) * 1.8f * roughness;
+    float coast = 0.27f + profile->oceanCoverage * 0.36f;
+    float height;
+    if (continents < coast && PlanetSeaLevelForProfile(
+            profile->style, profile) >= 0) {
+        float ocean = Clamp((coast - continents) / fmaxf(coast, 0.08f),
+                            0.0f, 1.0f);
+        height = 76.0f - SmoothRange(0.0f, 0.20f, ocean) * 14.0f -
+                 powf(ocean, 1.32f) * 40.0f;
+        height -= surface.trench * SmoothRange(0.20f, 0.72f, ocean) * 32.0f;
+        height += (hills - 0.5f) * 6.0f;
+    } else {
+        float land = Clamp((continents - coast) / fmaxf(1.0f - coast, 0.08f),
+                           0.0f, 1.0f);
+        float mountainMask = SmoothRange(0.08f, 0.62f, land) *
+                             (1.0f - surface.erosion * 0.48f);
+        height = 84.0f + land * 30.0f + (hills - 0.5f) * 13.0f;
+        height += surface.ridge * mountainMask * 78.0f * roughness;
+        height += surface.peak * mountainMask * 44.0f * roughness;
+    }
 
     switch (surface.biome) {
     case PLANET_BIOME_LAVA_SEA:
-        height = fminf(height, 9.5f + (hills - 0.5f) * 2.0f);
+        height = fminf(height, 74.0f + (hills - 0.5f) * 4.0f);
         break;
     case PLANET_BIOME_VOLCANIC_RIDGE:
-        height += 5.0f + fabsf(sinf(fx * 0.070f) * cosf(fz * 0.060f)) * 4.0f;
+        height += 14.0f + surface.volcanicCone * 32.0f;
         break;
     case PLANET_BIOME_BASALT_PLAINS:
         height += sinf(fx * 0.15f) * cosf(fz * 0.13f) * 2.5f;
         break;
     case PLANET_BIOME_GLACIER:
-        height = fminf(height, 10.5f + (hills - 0.5f) * 3.0f);
+        height = fminf(height, 76.0f + (hills - 0.5f) * 7.0f);
         {
             float latitude = Clamp(fz * (PI / PLANET_GLOBAL_POLE_TO_POLE_BLOCKS),
                                    -0.5f * PI, 0.5f * PI);
             // Ice flows downhill from each pole toward the equator. The
             // latitude gradient gives the cut plane a consistent flow axis.
-            height += surface.glacierFlow * (fabsf(latitude) - 0.70f) * 7.0f;
+            height += surface.glacierFlow * (fabsf(latitude) - 0.70f) * 18.0f;
         }
         height -= surface.glacierCracks * 1.4f;
         break;
     case PLANET_BIOME_ICE_SHEET:
-        height += 2.0f + sinf((fx + fz) * 0.008f) * 3.0f;
+        height += 8.0f + sinf((fx + fz) * 0.008f) * 6.0f;
         break;
     case PLANET_BIOME_DUNES:
         {
@@ -597,52 +711,114 @@ int PlanetTerrainHeight(int x, int z)
             float crossWind = Vector3DotProduct(point, crossAxis);
             float duneShape = 0.5f + 0.5f * sinf(windCoord * 24.0f +
                                                     crossWind * 5.0f);
-            height += duneShape * surface.duneBand * 6.0f;
+            height += duneShape * surface.duneBand * 12.0f;
         }
         break;
     case PLANET_BIOME_BADLANDS:
-        height += 3.0f + fabsf(sinf(fx * 0.026f) * cosf(fz * 0.022f)) * 6.0f;
+        height += 8.0f + fabsf(sinf(fx * 0.026f) * cosf(fz * 0.022f)) * 16.0f;
         break;
     case PLANET_BIOME_OASIS:
-        height = fminf(height, 11.0f + (hills - 0.5f) * 2.0f);
+        height = fminf(height, 84.0f + (hills - 0.5f) * 4.0f);
         break;
     case PLANET_BIOME_IMPACT_BASIN:
-        height -= 5.0f + (1.0f - hills) * 3.0f;
+        height -= 14.0f + (1.0f - hills) * 10.0f;
         break;
     case PLANET_BIOME_CRATER_HIGHLANDS:
-        height += fabsf(sinf(fx * 0.021f) * cosf(fz * 0.019f)) * 3.0f;
+        height += fabsf(sinf(fx * 0.021f) * cosf(fz * 0.019f)) * 10.0f;
         break;
     case PLANET_BIOME_OCEAN:
-        height = fminf(height, 10.0f + (hills - 0.5f) * 3.0f);
+        height = fminf(height, 76.0f + (hills - 0.5f) * 5.0f);
         break;
     case PLANET_BIOME_COAST:
-        height = fminf(height, 13.0f + (hills - 0.5f) * 4.0f);
+        height = fminf(height, 87.0f + (hills - 0.5f) * 6.0f);
         break;
     case PLANET_BIOME_ALPINE:
-        height += 5.0f + (hills - 0.35f) * 8.0f * roughness;
+        height += 18.0f + (hills - 0.35f) * 20.0f * roughness;
         break;
     case PLANET_BIOME_STORM_BANDS:
-        height = 14.0f + sinf(fz * 0.025f) * 4.0f + sinf(fx * 0.009f) * 3.0f;
+        height = 112.0f + sinf(fz * 0.025f) * 14.0f +
+                 sinf(fx * 0.009f) * 10.0f;
         break;
     case PLANET_BIOME_PLAINS:
     case PLANET_BIOME_FOREST:
     default:
-        height += sinf(fx * 0.024f) * cosf(fz * 0.021f) * 2.2f;
+        height += sinf(fx * 0.024f) * cosf(fz * 0.021f) * 5.0f;
         break;
     }
 
     // These fields are shared with the orbital map: the same crater walls,
     // ejecta blankets, volcanic cones and lava channels continue at landing.
-    height -= surface.impactDepth * 9.0f;
-    height += surface.impactRim * 5.5f + surface.ejecta * 2.0f;
-    height += surface.volcanicCone * 8.0f;
-    height -= surface.caldera * 5.0f;
-    height += surface.lavaFlow * (profile->style == SOLAR_STYLE_LAVA ? 2.2f : 0.8f);
+    height -= surface.impactDepth * 26.0f;
+    height += surface.impactRim * 18.0f + surface.ejecta * 7.0f;
+    height += surface.volcanicCone * 30.0f;
+    height -= surface.caldera * 18.0f;
+    height += surface.lavaFlow * (profile->style == SOLAR_STYLE_LAVA ? 7.0f : 2.5f);
 
     height = roundf(height);
     if (height < 5.0f) height = 5.0f;
-    if (height > 30.0f) height = 30.0f;
+    if (height > 240.0f) height = 240.0f;
     return (int)height;
+}
+
+static bool SurfaceLandingCandidate(int x, int z, int footprintRadius,
+                                    int *outGroundY)
+{
+    int seaLevel = PlanetWorldIsActive() ? PlanetTerrainSeaLevel()
+                                         : TerrainSeaLevel(terrainMode);
+    int minHeight = WORLD_HEIGHT;
+    int maxHeight = 0;
+    for (int dz = -footprintRadius; dz <= footprintRadius; dz++) {
+        for (int dx = -footprintRadius; dx <= footprintRadius; dx++) {
+            int height = PlanetWorldIsActive()
+                             ? PlanetTerrainHeight(x + dx, z + dz)
+                             : TerrainHeight(x + dx, z + dz, terrainMode);
+            if (seaLevel >= 0 && height <= seaLevel + 1) return false;
+            if (height < minHeight) minHeight = height;
+            if (height > maxHeight) maxHeight = height;
+        }
+    }
+    if (maxHeight - minHeight > 1 || maxHeight > WORLD_HEIGHT - 6) return false;
+    if (outGroundY) *outGroundY = maxHeight;
+    return true;
+}
+
+bool FindSafeSurfaceLanding(int preferredX, int preferredZ, int maxRadius,
+                            int footprintRadius, int *outX, int *outZ,
+                            int *outGroundY)
+{
+    if (maxRadius < 0 || footprintRadius < 0) return false;
+    for (int radius = 0; radius <= maxRadius; radius++) {
+        int step = radius > 24 ? 2 : 1;
+        if (radius == 0) {
+            int ground = 0;
+            if (SurfaceLandingCandidate(preferredX, preferredZ,
+                                        footprintRadius, &ground)) {
+                if (outX) *outX = preferredX;
+                if (outZ) *outZ = preferredZ;
+                if (outGroundY) *outGroundY = ground;
+                return true;
+            }
+            continue;
+        }
+        for (int offset = -radius; offset <= radius; offset += step) {
+            const int candidates[4][2] = {
+                { offset, -radius }, { radius, offset },
+                { -offset, radius }, { -radius, -offset }
+            };
+            for (int i = 0; i < 4; i++) {
+                int x = preferredX + candidates[i][0];
+                int z = preferredZ + candidates[i][1];
+                int ground = 0;
+                if (!SurfaceLandingCandidate(x, z, footprintRadius,
+                                             &ground)) continue;
+                if (outX) *outX = x;
+                if (outZ) *outZ = z;
+                if (outGroundY) *outGroundY = ground;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 static BlockType PlanetSubsurfaceBlock(SolarBodyStyle style, PlanetBiome biome,
@@ -704,6 +880,51 @@ static BlockType PlanetSubsurfaceBlock(SolarBodyStyle style, PlanetBiome biome,
     }
 }
 
+static SubsurfaceParams PlanetSubsurfaceParamsFor(
+    SolarBodyStyle style, const PlanetProfile *profile)
+{
+    float roughness = profile ? profile->terrainRoughness : 1.0f;
+    float oceanCoverage = profile ? profile->oceanCoverage : 0.0f;
+    SubsurfaceParams params = {
+        .seed = PlanetWorldSeed(),
+        .activity = Clamp(0.72f + roughness * 0.38f, 0.55f, 1.35f),
+        .minY = 2,
+        .surfaceClearance = 4,
+        .aquiferLevel = 36,
+        .aquiferChance = Clamp(oceanCoverage * 0.95f, 0.0f, 0.88f)
+    };
+    switch (style) {
+    case SOLAR_STYLE_LAVA:
+        params.activity = fmaxf(params.activity, 1.18f);
+        params.aquiferLevel = 42;
+        params.aquiferChance = 0.72f;
+        break;
+    case SOLAR_STYLE_ICE:
+        params.activity *= 0.88f;
+        params.aquiferLevel = 32;
+        params.aquiferChance = 0.54f;
+        break;
+    case SOLAR_STYLE_DESERT:
+        params.activity *= 0.94f;
+        params.aquiferChance *= 0.22f;
+        break;
+    case SOLAR_STYLE_GAS:
+        params.activity = 0.78f;
+        params.aquiferChance = 0.08f;
+        break;
+    case SOLAR_STYLE_CRATER:
+        params.activity = fmaxf(params.activity, 1.05f);
+        params.aquiferChance *= 0.12f;
+        break;
+    case SOLAR_STYLE_TEMPERATE:
+    default:
+        params.aquiferChance = Clamp(0.22f + oceanCoverage * 0.78f,
+                                     0.0f, 0.90f);
+        break;
+    }
+    return params;
+}
+
 static void PlacePlanetForest(Chunk *chunk, int treeX, int treeZ)
 {
     if (PlanetBiomeAt(treeX, treeZ) != PLANET_BIOME_FOREST) return;
@@ -715,7 +936,7 @@ static void PlacePlanetForest(Chunk *chunk, int treeX, int treeZ)
     if (ecologyRoll > suitability.floraCapacity) return;
 
     int base = PlanetTerrainHeight(treeX, treeZ) + 1;
-    if (base <= PlanetSeaLevel(PlanetWorldStyle(), PlanetWorldProfile())) return;
+    if (base <= PlanetSeaLevelForProfile(PlanetWorldStyle(), PlanetWorldProfile())) return;
     int trunkHeight = 4 + (int)(PlanetHash2D(treeX, treeZ, 163u) % 3u);
     for (int y = base; y < base + trunkHeight && InHeight(y); y++) {
         SetChunkLocalBlock(chunk, treeX, y, treeZ, BLOCK_WOOD);
@@ -732,11 +953,12 @@ static void PlacePlanetForest(Chunk *chunk, int treeX, int treeZ)
 
 static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
 {
-    memset(chunk->blocks, 0, sizeof(chunk->blocks));
+    ChunkClearBlockStorage(chunk);
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
     SolarBodyStyle style = PlanetWorldStyle();
     const PlanetProfile *profile = PlanetWorldProfile();
+    SubsurfaceParams subsurface = PlanetSubsurfaceParamsFor(style, profile);
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -753,64 +975,70 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
                 int depth = height - y;
                 BlockType type = y == 0 ? BLOCK_BEDROCK :
                                  PlanetSubsurfaceBlock(style, biome, depth, h);
-                bool cave = y > 2 && depth > 3 && h % 101u < 3u;
-                chunk->blocks[lx][y][lz] = (unsigned short)(cave ? BLOCK_AIR : type);
+                SubsurfaceSample cave = SubsurfaceSampleAt(
+                    &subsurface, worldX, y, worldZ, height);
+                if (cave.cave) {
+                    type = cave.flooded && style == SOLAR_STYLE_LAVA
+                               ? BLOCK_LAVA
+                               : (cave.flooded ? BLOCK_WATER : BLOCK_AIR);
+                }
+                ChunkSetLocalBlock(chunk, lx, y, lz, type);
             }
 
-            int seaLevel = PlanetSeaLevel(style, profile);
+            int seaLevel = PlanetSeaLevelForProfile(style, profile);
             if (seaLevel >= 0 && height < seaLevel) {
                 BlockType liquid = style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER;
                 if (surface.iceCoverage > 0.64f) liquid = BLOCK_ICE;
                 for (int y = height + 1; y <= seaLevel && InHeight(y); y++) {
-                    chunk->blocks[lx][y][lz] = (unsigned short)liquid;
+                    ChunkSetLocalBlock(chunk, lx, y, lz, liquid);
                 }
                 if (style == SOLAR_STYLE_ICE && InHeight(seaLevel)) {
-                    chunk->blocks[lx][seaLevel][lz] = (unsigned short)BLOCK_ICE;
+                    ChunkSetLocalBlock(chunk, lx, seaLevel, lz, BLOCK_ICE);
                 }
             }
 
             unsigned int decor = PlanetHash2D(localX, localZ, 7u);
             if (!InHeight(height + 1)) continue;
             if (surface.glacierCracks > 0.84f && decor % 67u == 0u) {
-                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_MOON_ROCK;
+                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_MOON_ROCK);
             } else if (surface.lavaFlow > 0.82f && decor % 53u == 0u) {
-                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_GLOWSTONE;
+                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_GLOWSTONE);
             } else if (surface.ejecta > 0.76f && decor % 83u == 0u) {
-                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_METEORITE;
+                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_METEORITE);
             } else if ((biome == PLANET_BIOME_DUNES || biome == PLANET_BIOME_BADLANDS) &&
                 decor % (biome == PLANET_BIOME_DUNES ? 181u : 293u) == 0u &&
                 ((float)(PlanetHash2D(worldX, worldZ, 401u) & 0x00ffffffu) /
                  16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
                      worldX, worldZ).floraCapacity) {
                 for (int y = height + 1; y <= height + 3 && InHeight(y); y++) {
-                    chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_CACTUS;
+                    ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_CACTUS);
                 }
             } else if (biome == PLANET_BIOME_GLACIER && decor % 137u == 0u) {
                 for (int y = height + 1; y <= height + 4 && InHeight(y); y++) {
-                    chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_ICE;
+                    ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_ICE);
                 }
             } else if (biome == PLANET_BIOME_ICE_SHEET && decor % 211u == 0u) {
                 for (int y = height + 1; y <= height + 2 && InHeight(y); y++) {
-                    chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_ICE;
+                    ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_ICE);
                 }
             } else if ((biome == PLANET_BIOME_BASALT_PLAINS ||
                         biome == PLANET_BIOME_VOLCANIC_RIDGE) && decor % 193u == 0u) {
-                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_GLOWSTONE;
+                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_GLOWSTONE);
             } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 157u == 0u &&
                        ((float)(PlanetHash2D(worldX, worldZ, 409u) & 0x00ffffffu) /
                         16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
                             worldX, worldZ).floraCapacity) {
-                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_MUSHROOM;
+                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_MUSHROOM);
             } else if ((biome == PLANET_BIOME_IMPACT_BASIN ||
                         biome == PLANET_BIOME_CRATER_HIGHLANDS) && decor % 149u == 0u) {
-                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_METEORITE;
+                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_METEORITE);
             } else if ((biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS ||
                         biome == PLANET_BIOME_OASIS) && height > seaLevel + 1 &&
                        decor % (biome == PLANET_BIOME_FOREST ? 61u : 97u) == 0u &&
                        ((float)(PlanetHash2D(worldX, worldZ, 419u) & 0x00ffffffu) /
                         16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
                             worldX, worldZ).floraCapacity) {
-                chunk->blocks[lx][height + 1][lz] = (unsigned short)BLOCK_FLOWER;
+                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_FLOWER);
             }
         }
     }
@@ -834,13 +1062,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
         return;
     }
 
-    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int y = 0; y < WORLD_HEIGHT; y++) {
-            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                chunk->blocks[lx][y][lz] = (unsigned short)BLOCK_AIR;
-            }
-        }
-    }
+    ChunkClearBlockStorage(chunk);
 
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
@@ -851,7 +1073,8 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
             int worldZ = startZ + lz;
             int height = TerrainHeight(worldX, worldZ, mode);
             Biome biome = BiomeAt(worldX, worldZ);
-            bool pond = mode != TERRAIN_FLAT && ShouldPlacePond(worldX, worldZ, height);
+            int seaLevel = TerrainSeaLevel(mode);
+            bool submerged = seaLevel >= 0 && height < seaLevel;
 
             for (int y = 0; y <= height; y++) {
                 BlockType type = BLOCK_STONE;
@@ -869,27 +1092,38 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
                     } else {
                         type = (y > height - 4) ? BLOCK_DIRT : StoneOrCaveBlock(worldX, y, worldZ, height);
                     }
-                } else if (pond) {
-                    type = (biome == BIOME_SNOW) ? BLOCK_ICE : BLOCK_WATER;
+                } else if (submerged && y == height) {
+                    type = height > seaLevel - 8 ? BLOCK_SAND : BLOCK_STONE;
                 } else if (biome == BIOME_DESERT) {
                     type = BLOCK_SAND;
                 } else if (biome == BIOME_SNOW) {
                     type = BLOCK_SNOW;
                 } else if (biome == BIOME_MOUNTAIN) {
-                    type = (height >= 22) ? BLOCK_SNOW : ((height >= 17) ? BLOCK_STONE : BLOCK_GRASS);
+                    type = (height >= 165) ? BLOCK_SNOW :
+                           ((height >= 125) ? BLOCK_STONE : BLOCK_GRASS);
                 } else {
                     type = BLOCK_GRASS;
                 }
-                chunk->blocks[lx][y][lz] = (unsigned short)type;
+                ChunkSetLocalBlock(chunk, lx, y, lz, type);
+            }
+
+            if (submerged) {
+                for (int y = height + 1; y <= seaLevel; y++) {
+                    ChunkSetLocalBlock(chunk, lx, y, lz,
+                                       biome == BIOME_SNOW && y == seaLevel
+                                           ? BLOCK_ICE
+                                           : BLOCK_WATER);
+                }
             }
 
             if (mode != TERRAIN_FLAT && CaveWaterAt(worldX, height - 2, worldZ, height) &&
                 CaveAt(worldX, height - 2, worldZ, height) &&
                 !CaveAt(worldX, height - 3, worldZ, height)) {
-                chunk->blocks[lx][height - 2][lz] = (unsigned short)BLOCK_WATER;
+                ChunkSetLocalBlock(chunk, lx, height - 2, lz, BLOCK_WATER);
             }
 
-            if (mode != TERRAIN_FLAT && biome == BIOME_DESERT && height > 6 &&
+            if (mode != TERRAIN_FLAT && !submerged &&
+                biome == BIOME_DESERT && height > 6 &&
                 (WorldHash2D(worldX, worldZ) % 23u) == 0u) {
                 int cactusHeight = 2 + (int)(WorldHash2D(worldX, worldZ + 13) % 2u);
                 for (int y = height + 1; y < height + 1 + cactusHeight && InHeight(y); y++) {
@@ -906,7 +1140,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
                 int worldZ = startZ + lz;
                 int height = TerrainHeight(worldX, worldZ, mode);
                 if (height < 4) continue;
-                BlockType surface = (BlockType)chunk->blocks[lx][height][lz];
+                BlockType surface = ChunkGetLocalBlock(chunk, lx, height, lz);
                 if (surface != BLOCK_GRASS) continue;
                 unsigned int h = WorldHash2D(worldX, worldZ);
                 if (h % 173u == 0u) {
@@ -980,7 +1214,7 @@ void ApplyEditsToChunk(Chunk *chunk)
         int editLz = 0;
         WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz, &editLx, &editLz);
         if (editCx == chunk->cx && editCz == chunk->cz && InHeight(edit.y)) {
-            chunk->blocks[editLx][edit.y][editLz] = (unsigned short)edit.type;
+            ChunkSetLocalBlock(chunk, editLx, edit.y, editLz, edit.type);
         }
     }
 }

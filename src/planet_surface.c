@@ -153,24 +153,32 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
     sample.continentalness = PlanetFractalNoise3D(seed, point, 1.55f, 21u);
     sample.regionalness = PlanetFractalNoise3D(seed, point, 4.35f, 101u);
     sample.detail = PlanetFractalNoise3D(seed, point, 11.0f, 47u);
+    sample.erosion = PlanetFractalNoise3D(seed, point, 2.85f, 67u);
+    float ridgeNoise = PlanetFractalNoise3D(seed, point, 3.75f, 83u);
+    sample.ridge = PlanetSmoothStep(
+        0.56f, 0.94f, 1.0f - fabsf(ridgeNoise * 2.0f - 1.0f));
+    sample.peak = sample.ridge * PlanetSmoothStep(
+        0.69f, 0.91f, PlanetFractalNoise3D(seed, point, 8.4f, 91u));
+    float trenchBoundary = 1.0f - fabsf(
+        PlanetFractalNoise3D(seed, point, 2.25f, 97u) * 2.0f - 1.0f);
+    sample.trench = PlanetSmoothStep(0.80f, 0.97f, trenchBoundary);
     float latitudeAbs = fabsf(point.y);
     float equilibrium = profile ? profile->equilibriumTempK : 282.0f;
     // The global solver has already applied albedo and greenhouse forcing. This
     // zero-mean latitude redistribution keeps its planetary average intact.
     float meanTemperature = equilibrium + 29.67f -
                             latitudeAbs * (34.0f + latitudeAbs * 38.0f);
-    float axialTilt = profile ? Clamp(profile->axialTilt, 0.0f, 0.75f) : 0.0f;
-    float season = profile ? profile->seasonPhase : 0.0f;
-    float yearLength = profile ? fmaxf(profile->yearLength, 1.0f) : 1.0f;
-    if (profile && applySeason && isfinite(simulationTime)) {
-        double period = (double)yearLength;
-        double periodicTime = fmod(simulationTime, period);
-        season += (float)(periodicTime * (2.0 * PI / period));
-    }
-    float seasonalDelta = sinf(latitude) * sinf(axialTilt) * sinf(season) * 70.0f;
+    PlanetSeasonState season = { 0 };
+    bool hasSeason = profile &&
+        PlanetSeasonEvaluate(profile, latitude,
+                             applySeason && isfinite(simulationTime)
+                                 ? simulationTime
+                                 : 0.0,
+                             &season);
     sample.meanTemperature = meanTemperature;
-    sample.seasonalAmplitude = fabsf(sinf(latitude) * sinf(axialTilt) * 70.0f);
-    sample.temperature = meanTemperature + (applySeason ? seasonalDelta : 0.0f);
+    sample.seasonalAmplitude = hasSeason ? season.seasonalAmplitudeK : 0.0f;
+    sample.temperature = meanTemperature +
+        (applySeason && hasSeason ? season.temperatureDeltaK : 0.0f);
     float thermalNoise = PlanetFractalNoise3D(seed, point, 2.35f, 137u);
     float cloudCoverage = profile ? Clamp(profile->cloudCoverage, 0.0f, 1.0f) : 0.35f;
     float globalMoisture = Clamp(oceanCoverage * 0.72f + cloudCoverage * 0.28f,
@@ -224,8 +232,12 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
                                   sample.moisture * 0.10f, 0.0f, 1.0f)
                           : 0.0f;
 
+    float seasonalIceBias = profile ?
+        Clamp(profile->polarIceVariability * latitudeAbs, 0.0f, 1.0f) : 0.0f;
     float glacierPotential = polar * Clamp(globalIce * 0.70f +
-        PlanetSmoothStep(275.0f, 218.0f, meanTemperature) * 0.72f, 0.0f, 1.0f);
+        PlanetSmoothStep(275.0f, 218.0f,
+                         meanTemperature - seasonalIceBias * 8.0f) * 0.72f,
+        0.0f, 1.0f);
     float glacierNoise = PlanetFractalNoise3D(seed, point, 5.8f, 317u);
     sample.glacierFlow = Clamp(glacierPotential * (0.54f + glacierNoise * 0.46f),
                                0.0f, 1.0f);

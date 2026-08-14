@@ -42,6 +42,8 @@ static float snowEmissionAccumulator = 0.0f;
 static bool rainAudioActive = false;
 static uint32_t particleRandomState = 0x91e10da5u;
 static float particleWindAngle = 0.0f;
+static float particleScale = 1.0f;
+static bool particlesSheltered = false;
 static WEATHER_THREAD_LOCAL WeatherSampleCacheEntry
     weatherSampleCache[WEATHER_SAMPLE_CACHE_SIZE] = { 0 };
 
@@ -123,15 +125,29 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
         if (!planet) return false;
         PlanetSurfaceSample surface = PlanetSurfaceAtTime(
             x, z, input.simulationTime);
+        PlanetLightState light = { 0 };
         int height = PlanetTerrainHeight(x, z);
         input.seed = PlanetWorldSeed();
         input.worldX = (float)PlanetWorldOriginX() + playerPosition.x;
         input.worldZ = (float)PlanetWorldOriginZ() + playerPosition.z;
-        input.temperatureK = surface.temperature -
+        float daylight = 0.5f;
+        float eclipse = 0.0f;
+        if (PlanetWorldLightStateAtTime(
+                playerPosition, simulationTime, &light)) {
+            daylight = light.daylight;
+            eclipse = light.eclipse;
+        }
+        float daylightDeltaK = (daylight - 0.5f) *
+            (2.0f + surface.seasonalAmplitude * 0.08f) *
+            (0.28f + (1.0f - planet->atmosphereDensity) * 0.72f);
+        input.temperatureK = surface.temperature + daylightDeltaK -
             fmaxf((float)height - 12.0f, 0.0f) * 0.68f;
         input.moisture = WeatherClamp(
-            surface.moisture * (1.0f - surface.iceCoverage * 0.42f));
-        input.cloudPotential = planet->cloudCoverage;
+            surface.moisture * (1.0f - surface.iceCoverage * 0.42f) +
+            planet->seasonalHumidityBias * (0.18f - daylight * 0.12f));
+        input.cloudPotential = WeatherClamp(
+            planet->cloudCoverage * (0.92f + eclipse * 0.10f) +
+            (1.0f - daylight) * planet->seasonalHumidityBias * 0.08f);
         input.windStrength = planet->windStrength;
         input.prevailingWindAngle = planet->prevailingWindAngle;
         *outInput = input;
@@ -254,6 +270,50 @@ float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
         return 0.0f;
     }
     return input.prevailingWindAngle;
+}
+
+WeatherVisualState WeatherVisualStateAtWorld(
+    Vector3 position, double simulationTime, float daylight)
+{
+    WeatherVisualState clear = { .visibility = 1.0f };
+    if (!isfinite(position.x) || !isfinite(position.y) ||
+        !isfinite(position.z) || !isfinite(simulationTime) ||
+        simulationTime < 0.0 || !isfinite(daylight)) {
+        return clear;
+    }
+
+    double cellX = floor((double)position.x);
+    double cellZ = floor((double)position.z);
+    if (cellX < (double)INT_MIN || cellX > (double)INT_MAX ||
+        cellZ < (double)INT_MIN || cellZ > (double)INT_MAX) {
+        return clear;
+    }
+
+    float atmosphereDensity = 0.0f;
+    bool atmosphereActive = false;
+    if (PlanetWorldIsActive()) {
+        const PlanetProfile *profile = PlanetWorldProfile();
+        if (profile && profile->atmosphereType != PLANET_ATMOSPHERE_NONE) {
+            atmosphereDensity = WeatherClamp(profile->atmosphereDensity) *
+                (1.0f - PlanetWorldAtmosphereFade(position));
+            atmosphereActive = atmosphereDensity > 0.01f;
+        }
+    } else if (HomeWorldSurfaceIsActive()) {
+        atmosphereDensity = 0.62f * (1.0f - HomeWorldSpaceFade(position));
+        atmosphereActive = atmosphereDensity > 0.01f;
+    }
+    if (!atmosphereActive) return clear;
+
+    int x = (int)cellX;
+    int z = (int)cellZ;
+    WeatherVisualInput input = {
+        .weather = WeatherFieldSampleAtWorldTime(x, z, simulationTime),
+        .atmosphereDensity = atmosphereDensity,
+        .daylight = daylight,
+        .windAngle = WeatherWindAngleAtWorldTime(x, z, simulationTime),
+        .atmosphereActive = true
+    };
+    return WeatherVisualStateEvaluate(&input);
 }
 
 static void WeatherUpdateTypeAndAudio(void)
@@ -423,12 +483,12 @@ void WeatherUpdate(float dt, Vector3 playerPosition)
     }
     WeatherUpdateTypeAndAudio();
 
-    bool canEmit = WeatherPositionIsFinite(playerPosition);
+    bool canEmit = WeatherPositionIsFinite(playerPosition) && !particlesSheltered;
     unsigned rainCount = WeatherAdvanceEmissionAccumulator(
-        &rainEmissionAccumulator, fieldSample.rain, 92.0f, updateDt,
+        &rainEmissionAccumulator, fieldSample.rain, 92.0f * particleScale, updateDt,
         canEmit ? WEATHER_MAX_RAIN_EMISSIONS : 0u);
     unsigned snowCount = WeatherAdvanceEmissionAccumulator(
-        &snowEmissionAccumulator, fieldSample.snow, 42.0f, updateDt,
+        &snowEmissionAccumulator, fieldSample.snow, 42.0f * particleScale, updateDt,
         canEmit ? WEATHER_MAX_SNOW_EMISSIONS : 0u);
     for (unsigned index = 0; index < rainCount; index++) {
         EmitRain(playerPosition);
@@ -436,6 +496,19 @@ void WeatherUpdate(float dt, Vector3 playerPosition)
     for (unsigned index = 0; index < snowCount; index++) {
         EmitSnow(playerPosition);
     }
+}
+
+void WeatherSetParticleScale(float scale)
+{
+    if (!isfinite(scale)) scale = 1.0f;
+    if (scale < 0.20f) scale = 0.20f;
+    if (scale > 1.50f) scale = 1.50f;
+    particleScale = scale;
+}
+
+void WeatherSetSheltered(bool sheltered)
+{
+    particlesSheltered = sheltered;
 }
 
 void WeatherSuspend(void)

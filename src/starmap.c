@@ -2,6 +2,7 @@
 
 #include "raylib.h"
 #include "raymath.h"
+#include "render.h"
 #include "space.h"
 
 #include <math.h>
@@ -161,16 +162,16 @@ void StarMapDraw(void)
     DrawRectangleRounded(panel, 0.04f, 8, (Color){ 24, 30, 38, 245 });
     DrawRectangleRoundedLinesEx(panel, 0.04f, 8, 2.0f, Fade(WHITE, 0.45f));
 
-    DrawText("Star Map", (int)panel.x + 26, (int)panel.y + 18, 27, WHITE);
-    DrawText(TextFormat("%d charted systems  |  %.0f block view",
+    UiDrawText("Star Map", (int)panel.x + 26, (int)panel.y + 18, 27, WHITE);
+    UiDrawText(TextFormat("%d charted systems  |  %.0f block view",
                         entryCount, mapRange),
              (int)panel.x + 26, (int)panel.y + 54, 15, Fade(WHITE, 0.62f));
-    DrawText("Enter warp   Up/Down select   WASD pan   PgUp/PgDn zoom",
+    UiDrawText("Enter warp   Up/Down select   WASD pan   PgUp/PgDn zoom",
              (int)(panel.x + panel.width - 420.0f), (int)panel.y + 28, 15,
              Fade(WHITE, 0.68f));
 
     if (entryCount == 0) {
-        DrawText(TextFormat("No systems within %.0f blocks of this chart position.", mapRange),
+        UiDrawText(TextFormat("No systems within %.0f blocks of this chart position.", mapRange),
                  (int)panel.x + 26, (int)panel.y + 130, 18, Fade(WHITE, 0.6f));
         return;
     }
@@ -197,9 +198,9 @@ void StarMapDraw(void)
              Fade(WHITE, 0.18f));
     DrawLine((int)map.x, (int)centerY, (int)(map.x + map.width), (int)centerY,
              Fade(WHITE, 0.18f));
-    DrawText("X", (int)(map.x + map.width - 18.0f), (int)centerY + 8, 14,
+    UiDrawText("X", (int)(map.x + map.width - 18.0f), (int)centerY + 8, 14,
              Fade(WHITE, 0.48f));
-    DrawText("Z", (int)centerX + 8, (int)map.y + 8, 14, Fade(WHITE, 0.48f));
+    UiDrawText("Z", (int)centerX + 8, (int)map.y + 8, 14, Fade(WHITE, 0.48f));
 
     for (int i = 0; i < entryCount; i++) {
         float dx = entries[i].sys.center.x - mapCenterPosition.x;
@@ -225,16 +226,16 @@ void StarMapDraw(void)
         DrawTriangle((Vector2){ playerX, playerY - 8.0f },
                      (Vector2){ playerX - 6.0f, playerY + 5.0f },
                      (Vector2){ playerX + 6.0f, playerY + 5.0f }, WHITE);
-        DrawText("You", (int)playerX + 10, (int)playerY - 7, 14, Fade(WHITE, 0.65f));
+        UiDrawText("You", (int)playerX + 10, (int)playerY - 7, 14, Fade(WHITE, 0.65f));
     }
-    DrawText(TextFormat("Chart sector  X %d   Z %d",
+    UiDrawText(TextFormat("Chart sector  X %d   Z %d",
                         (int)floorf((mapCenterPosition.x + (float)SpaceOriginX()) /
                                     (float)STAR_SYSTEM_SPACING),
                         (int)floorf((mapCenterPosition.z + (float)SpaceOriginZ()) /
                                     (float)STAR_SYSTEM_SPACING)),
              (int)map.x + 14, (int)(map.y + map.height - 25.0f), 14, Fade(WHITE, 0.6f));
 
-    DrawText("SYSTEMS", (int)listX, (int)panel.y + 88, 14, Fade(WHITE, 0.58f));
+    UiDrawText("SYSTEMS", (int)listX, (int)panel.y + 88, 14, Fade(WHITE, 0.58f));
     int rowH = 35;
     float listTop = panel.y + 110.0f;
     for (int i = scroll; i < scroll + STAR_MAP_VISIBLE_ROWS && i < entryCount; i++) {
@@ -245,12 +246,12 @@ void StarMapDraw(void)
 
         Color spec = SpectrumColor(entries[i].sys.spectrum);
         DrawCircle((int)row.x + 12, (int)row.y + 13, 5.0f, Fade(spec, 1.0f));
-        DrawText(entries[i].sys.name, (int)row.x + 26, (int)row.y + 5, 17,
+        UiDrawText(entries[i].sys.name, (int)row.x + 26, (int)row.y + 5, 17,
                  sel ? WHITE : Fade(WHITE, 0.88f));
-        DrawText(TextFormat("%d planets", entries[i].sys.planetCount),
+        UiDrawText(TextFormat("%d planets", entries[i].sys.planetCount),
                  (int)(row.x + row.width - 170.0f), (int)row.y + 7, 14,
                  Fade(WHITE, 0.58f));
-        DrawText(TextFormat("%.0f", entries[i].dist), (int)(row.x + row.width - 48.0f),
+        UiDrawText(TextFormat("%.0f", entries[i].dist), (int)(row.x + row.width - 48.0f),
                  (int)row.y + 7, 14,
                  Fade(WHITE, 0.7f));
     }
@@ -259,24 +260,24 @@ void StarMapDraw(void)
     DrawLine((int)listX, (int)infoY, (int)(listX + listWidth), (int)infoY,
              Fade(WHITE, 0.2f));
     if (entryCount > STAR_MAP_VISIBLE_ROWS) {
-        DrawText(TextFormat("Selected %d / %d", selected + 1, entryCount),
+        UiDrawText(TextFormat("Selected %d / %d", selected + 1, entryCount),
                  (int)listX, (int)infoY + 10, 14, Fade(WHITE, 0.62f));
     }
     const SolarSystemDef *sys = &entries[selected].sys;
     float detailsY = infoY + (entryCount > STAR_MAP_VISIBLE_ROWS ? 34.0f : 10.0f);
-    DrawText(sys->name, (int)listX, (int)detailsY, 22, WHITE);
-    DrawText(TextFormat("%s   |   %.0f blocks   |   %d planets",
+    UiDrawText(sys->name, (int)listX, (int)detailsY, 22, WHITE);
+    UiDrawText(TextFormat("%s   |   %.0f blocks   |   %d planets",
                         SpectrumName(sys->spectrum), entries[selected].dist,
                         sys->planetCount),
              (int)listX, (int)detailsY + 32, 15, Fade(WHITE, 0.72f));
-    DrawText(TextFormat("System anchor  [%d, %d]   |   Y %.0f",
+    UiDrawText(TextFormat("System anchor  [%d, %d]   |   Y %.0f",
                         sys->anchorX, sys->anchorZ, sys->center.y),
              (int)listX, (int)detailsY + 56, 14, Fade(WHITE, 0.58f));
-    DrawText("Enter: warp ship to this system", (int)listX, (int)detailsY + 86, 15,
+    UiDrawText("Enter: warp ship to this system", (int)listX, (int)detailsY + 86, 15,
              (Color){ 166, 220, 174, 255 });
-    DrawText("Dots are generated stars; colors show their spectra",
+    UiDrawText("Dots are generated stars; colors show their spectra",
              (int)map.x + 14, (int)map.y + 18, 13, Fade(WHITE, 0.58f));
-    DrawText("Current position", (int)map.x + 14, (int)map.y + 40, 13,
+    UiDrawText("Current position", (int)map.x + 14, (int)map.y + 40, 13,
              Fade(WHITE, 0.48f));
     DrawCircle((int)map.x + 8, (int)map.y + 46, 3.0f, WHITE);
 }

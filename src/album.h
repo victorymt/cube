@@ -54,8 +54,8 @@ void AlbumClose(void);
 bool AlbumIsOpen(void);
 void AlbumUpdate(void);
 void AlbumDraw(void);
-void AlbumSave(FILE *file);
-void AlbumLoad(FILE *file);
+bool AlbumSave(FILE *file);
+bool AlbumLoad(FILE *file);
 void AlbumCleanup(void);
 
 bool AlbumConsumePlaceRequest(void);

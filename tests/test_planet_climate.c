@@ -126,6 +126,31 @@ static void TestGravityRetainsAtmosphere(void)
     assert(highGravity.surfaceTemperatureK > lowGravity.surfaceTemperatureK);
 }
 
+static void TestTiltDrivesSeasonalAmplitude(void)
+{
+    PlanetClimateInput input = EarthLikeInput();
+    input.axialTiltRad = 0.0f;
+    PlanetClimateState flat = Solve(input);
+    input.axialTiltRad = 0.41f;
+    PlanetClimateState tilted = Solve(input);
+    assert(flat.seasonalTemperatureAmplitudeK < 0.001f);
+    assert(tilted.seasonalTemperatureAmplitudeK >
+           flat.seasonalTemperatureAmplitudeK + 8.0f);
+    assert(tilted.polarIceVariability >= flat.polarIceVariability);
+}
+
+static void TestEccentricityDrivesOrbitalAmplitude(void)
+{
+    PlanetClimateInput input = EarthLikeInput();
+    input.orbitalEccentricity = 0.0f;
+    PlanetClimateState circular = Solve(input);
+    input.orbitalEccentricity = 0.24f;
+    PlanetClimateState eccentric = Solve(input);
+    assert(circular.orbitalTemperatureAmplitudeK < 0.001f);
+    assert(eccentric.orbitalTemperatureAmplitudeK >
+           circular.orbitalTemperatureAmplitudeK + 4.0f);
+}
+
 static void TestGeneratedDomain(void)
 {
     uint32_t state = 0x12345678u;
@@ -188,6 +213,8 @@ int main(void)
     TestAlbedoControlsAbsorption();
     TestVolatilesCauseAtmosphereAndWater();
     TestGravityRetainsAtmosphere();
+    TestTiltDrivesSeasonalAmplitude();
+    TestEccentricityDrivesOrbitalAmplitude();
     TestGeneratedDomain();
     TestInvalidInputClearsOutput();
     puts("planet_climate tests passed");

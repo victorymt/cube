@@ -52,6 +52,12 @@ static bool ApplyPlanetClimate(PlanetProfile *profile,
     profile->iceCoverage = climate.iceCoverage;
     profile->cloudCoverage = climate.cloudCoverage;
     profile->windStrength = climate.windStrength;
+    profile->seasonalTemperatureAmplitudeK =
+        climate.seasonalTemperatureAmplitudeK;
+    profile->orbitalTemperatureAmplitudeK =
+        climate.orbitalTemperatureAmplitudeK;
+    profile->polarIceVariability = climate.polarIceVariability;
+    profile->seasonalHumidityBias = climate.seasonalHumidityBias;
     return true;
 }
 
@@ -73,7 +79,7 @@ static SolarBodyStyle ClassifyPlanetClimate(const PlanetProfile *profile)
     return SOLAR_STYLE_DESERT;
 }
 
-static void DerivePlanetSurfaceHistory(PlanetProfile *profile)
+static void DerivePlanetSeasonParameters(PlanetProfile *profile)
 {
     if (!profile) return;
 
@@ -89,6 +95,12 @@ static void DerivePlanetSurfaceHistory(PlanetProfile *profile)
     }
     profile->prevailingWindAngle =
         PlanetProfileHashUnit(profile->seed, 24u) * 2.0f * PI;
+}
+
+static void DerivePlanetSurfaceHistory(PlanetProfile *profile)
+{
+    if (!profile) return;
+    DerivePlanetSeasonParameters(profile);
 
     float volcanicBase = profile->style == SOLAR_STYLE_LAVA ? 0.78f :
                          profile->style == SOLAR_STYLE_CRATER ? 0.20f : 0.08f;
@@ -123,6 +135,7 @@ bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
         input->orbitalEccentricity < 0.0 ||
         input->orbitalEccentricity >= 1.0 ||
         !isfinite(input->orbitalEccentricity) ||
+        !isfinite(input->orbitalMeanAnomalyAtEpochRad) ||
         !(input->orbitalPeriodGameTime > 0.0f) ||
         !isfinite(input->orbitalPeriodGameTime) || input->planetIndex < 0) {
         return false;
@@ -187,6 +200,12 @@ bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
     profile.ringTilt =
         (14.0f + PlanetProfileHashUnit(input->seed, 14u) * 17.0f) * DEG2RAD;
     profile.yearLength = input->orbitalPeriodGameTime;
+    profile.orbitalEccentricity = (float)eccentricity;
+    profile.orbitalMeanAnomalyAtEpoch = (float)fmod(
+        input->orbitalMeanAnomalyAtEpochRad, 2.0 * PI);
+    if (profile.orbitalMeanAnomalyAtEpoch < 0.0f) {
+        profile.orbitalMeanAnomalyAtEpoch += 2.0f * PI;
+    }
     if (gasGiant) {
         float gasRadiusEarth = input->formationMassEarth > 0.0f
             ? (float)(input->physicalRadiusKm / SPACE_UNITS_EARTH_RADIUS_KM)
@@ -233,8 +252,11 @@ bool PlanetProfileGenerate(const PlanetProfileGenerationInput *input,
         }
     }
 
+    DerivePlanetSeasonParameters(&profile);
     PlanetClimateInput climateInput = {
         .stellarIrradianceEarth = irradiance,
+        .axialTiltRad = profile.axialTilt,
+        .orbitalEccentricity = profile.orbitalEccentricity,
         .volatileInventory = gasGiant ? 0.78f + volatileSupply * 0.22f
                                       : volatileSupply,
         .greenhouseGasFraction = gasGiant
@@ -318,8 +340,11 @@ PlanetProfile PlanetProfileGenerateLegacy(uint32_t seed, SolarBodyStyle style,
     float reflectivity = style == SOLAR_STYLE_ICE ? 0.48f :
                          style == SOLAR_STYLE_CRATER ? 0.12f :
                          style == SOLAR_STYLE_LAVA ? 0.14f : 0.20f;
+    DerivePlanetSeasonParameters(&profile);
     ApplyPlanetClimate(&profile, (PlanetClimateInput){
         .stellarIrradianceEarth = irradiance,
+        .axialTiltRad = profile.axialTilt,
+        .orbitalEccentricity = profile.orbitalEccentricity,
         .volatileInventory = volatiles,
         .greenhouseGasFraction = greenhouse,
         .surfaceReflectivity = reflectivity,
@@ -333,4 +358,136 @@ PlanetProfile PlanetProfileGenerateLegacy(uint32_t seed, SolarBodyStyle style,
         composition);
     DerivePlanetSurfaceHistory(&profile);
     return profile;
+}
+
+static float PlanetProfileWrapAngle(float angle)
+{
+    angle = fmodf(angle, 2.0f * PI);
+    return angle < 0.0f ? angle + 2.0f * PI : angle;
+}
+
+static float PlanetProfileEccentricAnomaly(float meanAnomaly,
+                                           float eccentricity)
+{
+    float anomaly = meanAnomaly;
+    for (int iteration = 0; iteration < 6; iteration++) {
+        float denominator = 1.0f - eccentricity * cosf(anomaly);
+        if (fabsf(denominator) < 0.0001f) break;
+        anomaly -= (anomaly - eccentricity * sinf(anomaly) - meanAnomaly) /
+                   denominator;
+    }
+    return anomaly;
+}
+
+static float PlanetProfileTrueAnomaly(float meanAnomaly, float eccentricity)
+{
+    float eccentricAnomaly = PlanetProfileEccentricAnomaly(
+        meanAnomaly, eccentricity);
+    return PlanetProfileWrapAngle(2.0f * atan2f(
+        sqrtf(1.0f + eccentricity) * sinf(0.5f * eccentricAnomaly),
+        sqrtf(1.0f - eccentricity) * cosf(0.5f * eccentricAnomaly)));
+}
+
+bool PlanetSeasonEvaluate(const PlanetProfile *profile, float latitude,
+                          double simulationTime, PlanetSeasonState *out)
+{
+    if (!out) return false;
+    *out = (PlanetSeasonState){ 0 };
+    if (!profile || !isfinite(latitude) || !isfinite(simulationTime) ||
+        !(profile->yearLength > 0.0f) || !isfinite(profile->yearLength) ||
+        !isfinite(profile->axialTilt) || !isfinite(profile->seasonPhase) ||
+        !isfinite(profile->orbitalEccentricity) ||
+        !isfinite(profile->orbitalMeanAnomalyAtEpoch)) {
+        return false;
+    }
+
+    float thermalBuffer = Clamp(
+        profile->atmosphereDensity * 0.48f + profile->oceanCoverage * 0.72f +
+            profile->cloudCoverage * 0.18f,
+        0.0f, 0.88f);
+    float seasonalTemperatureAmplitudeK =
+        isfinite(profile->seasonalTemperatureAmplitudeK) &&
+                profile->seasonalTemperatureAmplitudeK > 0.0f
+            ? profile->seasonalTemperatureAmplitudeK
+            : (profile->hasSolidSurface ?
+                   sinf(Clamp(profile->axialTilt, 0.0f, 0.5f * PI)) *
+                       (38.0f + 36.0f * (1.0f - thermalBuffer))
+                                     : 0.0f);
+    float eccentricityFallback = Clamp(profile->orbitalEccentricity, 0.0f,
+                                       0.95f);
+    float orbitalTemperatureAmplitudeK =
+        isfinite(profile->orbitalTemperatureAmplitudeK) &&
+                profile->orbitalTemperatureAmplitudeK > 0.0f
+            ? profile->orbitalTemperatureAmplitudeK
+            : (profile->hasSolidSurface ?
+                   profile->equilibriumTempK * 0.25f * Clamp(
+                       2.0f * eccentricityFallback /
+                           fmaxf(1.0f - eccentricityFallback * eccentricityFallback,
+                                 0.05f),
+                       0.0f, 3.0f) *
+                       (1.0f - thermalBuffer * 0.72f)
+                                     : 0.0f);
+
+    latitude = Clamp(latitude, -0.5f * PI, 0.5f * PI);
+    float eccentricity = Clamp(profile->orbitalEccentricity, 0.0f, 0.95f);
+    double period = (double)profile->yearLength;
+    double wrappedTime = fmod(simulationTime, period);
+    if (wrappedTime < 0.0) wrappedTime += period;
+    float epochMeanAnomaly = PlanetProfileWrapAngle(
+        profile->orbitalMeanAnomalyAtEpoch);
+    float meanAnomaly = PlanetProfileWrapAngle(
+        epochMeanAnomaly + (float)(wrappedTime * (2.0 * PI / period)));
+    float eccentricAnomaly = PlanetProfileEccentricAnomaly(
+        meanAnomaly, eccentricity);
+    float trueAnomaly = PlanetProfileTrueAnomaly(meanAnomaly, eccentricity);
+    float epochTrueAnomaly = PlanetProfileTrueAnomaly(
+        epochMeanAnomaly, eccentricity);
+    float seasonAngle = PlanetProfileWrapAngle(
+        trueAnomaly - epochTrueAnomaly + profile->seasonPhase);
+    float declination = asinf(Clamp(
+        sinf(Clamp(profile->axialTilt, 0.0f, 0.5f * PI)) *
+            sinf(seasonAngle),
+        -1.0f, 1.0f));
+
+    float horizon = -tanf(latitude) * tanf(declination);
+    float dayLengthFraction = horizon <= -1.0f ? 1.0f :
+                              horizon >= 1.0f ? 0.0f :
+                              acosf(horizon) / PI;
+    float radiusScale = 1.0f - eccentricity * cosf(eccentricAnomaly);
+    float irradianceScale = sqrtf(1.0f - eccentricity * eccentricity) /
+        fmaxf(radiusScale * radiusScale, 0.0025f);
+
+    float orbitalSignal = 0.0f;
+    if (eccentricity > 0.0001f &&
+        orbitalTemperatureAmplitudeK > 0.0f) {
+        float periapsisScale = sqrtf(1.0f - eccentricity * eccentricity) /
+            ((1.0f - eccentricity) * (1.0f - eccentricity));
+        float apoapsisScale = sqrtf(1.0f - eccentricity * eccentricity) /
+            ((1.0f + eccentricity) * (1.0f + eccentricity));
+        float maximumThermalScale = fmaxf(
+            fabsf(powf(periapsisScale, 0.25f) - 1.0f),
+            fabsf(powf(apoapsisScale, 0.25f) - 1.0f));
+        if (maximumThermalScale > 0.0001f) {
+            orbitalSignal = (powf(irradianceScale, 0.25f) - 1.0f) /
+                            maximumThermalScale;
+        }
+    }
+
+    float latitudeResponse = fabsf(sinf(latitude));
+    float seasonalDelta = sinf(latitude) * sinf(seasonAngle) *
+                          seasonalTemperatureAmplitudeK;
+    float orbitalDelta = Clamp(orbitalSignal, -1.0f, 1.0f) *
+                         orbitalTemperatureAmplitudeK;
+    *out = (PlanetSeasonState){
+        .meanAnomaly = meanAnomaly,
+        .seasonAngle = seasonAngle,
+        .solarDeclination = declination,
+        .dayLengthFraction = Clamp(dayLengthFraction, 0.0f, 1.0f),
+        .irradianceScale = irradianceScale,
+        .temperatureDeltaK = seasonalDelta + orbitalDelta,
+        .seasonalAmplitudeK = latitudeResponse *
+                                  seasonalTemperatureAmplitudeK +
+                              orbitalTemperatureAmplitudeK
+    };
+    return true;
 }

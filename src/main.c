@@ -4,6 +4,7 @@
 #include "types.h"
 #include "terrain.h"
 #include "world.h"
+#include "block_atlas.h"
 #include "chunks.h"
 #include "player.h"
 #include "interaction.h"
@@ -21,17 +22,180 @@
 #include "starmap.h"
 #include "discovery.h"
 #include "ecology.h"
+#include "perf.h"
+#include "world_renderer.h"
+#include "environment_presentation.h"
+#include "environment_runtime.h"
+#include "game_settings.h"
+#include "screenshot.h"
+#include "debug_control.h"
 
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 TerrainMode terrainMode = TERRAIN_VARIED;
 static bool autoSaveEnabled = true;
 static float autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
 static float dayTime = 0.30f;
 static bool dayCycleEnabled = true;
+// Tracks whether the quit path already saved ("Save & Quit" menu action), so
+// the loop-exit save does not run a second full write+fsync+backup cycle.
+static bool quitSaveDone = false;
+
+static const char *ScreenshotDimensionName(WorldDimension dimension)
+{
+    switch (dimension) {
+    case WORLD_DIMENSION_PLANET: return "planet";
+    case WORLD_DIMENSION_SPACE: return "space";
+    case WORLD_DIMENSION_NETHER: return "nether";
+    case WORLD_DIMENSION_HOME:
+    default: return "home";
+    }
+}
+
+static ScreenshotVector3 ScreenshotVector(Vector3 value)
+{
+    return (ScreenshotVector3){ value.x, value.y, value.z };
+}
+
+static bool CommandLineHasFlag(int argc, char **argv, const char *flag)
+{
+    for (int index = 1; index < argc; index++) {
+        if (strcmp(argv[index], flag) == 0) return true;
+    }
+    return false;
+}
+
+static bool EnvironmentSheltered(Vector3 position)
+{
+    if (!WorldIsSurfaceActive()) return false;
+    int x = (int)floorf(position.x);
+    int z = (int)floorf(position.z);
+    int startY = (int)floorf(position.y) + 1;
+    for (int y = startY; y <= startY + 10; y++) {
+        BlockType block = GetBlockAt(x, y, z);
+        if (block != BLOCK_AIR && !IsLiquidBlock(block)) return true;
+    }
+    return false;
+}
+
+static bool EnvironmentNearWater(Vector3 position)
+{
+    if (!WorldIsSurfaceActive()) return false;
+    int centerX = (int)floorf(position.x);
+    int centerY = (int)floorf(position.y);
+    int centerZ = (int)floorf(position.z);
+    for (int z = centerZ - 5; z <= centerZ + 5; z += 2) {
+        for (int x = centerX - 5; x <= centerX + 5; x += 2) {
+            for (int y = centerY - 2; y <= centerY + 1; y++) {
+                if (IsWaterBlock(GetBlockAt(x, y, z))) return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool NewWorldSpawnCandidate(int x, int z, TerrainMode mode,
+                                   Vector3 *outPosition)
+{
+    int height = TerrainHeight(x, z, mode);
+    int seaLevel = TerrainSeaLevel(mode);
+    if ((seaLevel >= 0 && height < seaLevel) || ShouldPlaceTree(x, z, mode)) {
+        return false;
+    }
+    if (height < 0 || height + 3 >= WORLD_HEIGHT) return false;
+    if (outPosition) {
+        *outPosition = (Vector3){ (float)x + 0.5f, (float)height + 1.01f,
+                                  (float)z + 0.5f };
+    }
+    return true;
+}
+
+static Vector3 FindNewWorldSpawn(TerrainMode mode)
+{
+    const int searchRadius = 512;
+    Vector3 candidate = { 0 };
+    for (int radius = 0; radius <= searchRadius; radius++) {
+        if (radius == 0) {
+            if (NewWorldSpawnCandidate(0, 0, mode, &candidate)) return candidate;
+            continue;
+        }
+        for (int offset = -radius; offset <= radius; offset++) {
+            if (NewWorldSpawnCandidate(offset, -radius, mode, &candidate) ||
+                NewWorldSpawnCandidate(radius, offset, mode, &candidate) ||
+                NewWorldSpawnCandidate(-offset, radius, mode, &candidate) ||
+                NewWorldSpawnCandidate(-radius, -offset, mode, &candidate)) {
+                return candidate;
+            }
+        }
+    }
+
+    int seaLevel = TerrainSeaLevel(mode);
+    int platformY = seaLevel >= 0 ? seaLevel + 1 : TerrainHeight(0, 0, mode) + 1;
+    for (int z = -1; z <= 1; z++) {
+        for (int x = -1; x <= 1; x++) {
+            SetBlockNoUndo(x, platformY, z, BLOCK_PLANK);
+            SetBlockNoUndo(x, platformY + 1, z, BLOCK_AIR);
+            SetBlockNoUndo(x, platformY + 2, z, BLOCK_AIR);
+        }
+    }
+    return (Vector3){ 0.5f, (float)platformY + 1.01f, 0.5f };
+}
+
+static bool ParsePerfArgs(int argc, char **argv, char *reportPath, size_t reportPathSize,
+                         char *baselinePath, size_t baselinePathSize)
+{
+    bool enabled = false;
+    reportPath[0] = '\0';
+    baselinePath[0] = '\0';
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--perf") == 0) enabled = true;
+        else if (strcmp(argv[i], "--perf-report") == 0 && i + 1 < argc)
+            snprintf(reportPath, reportPathSize, "%s", argv[++i]);
+        else if (strcmp(argv[i], "--perf-baseline") == 0 && i + 1 < argc)
+            snprintf(baselinePath, baselinePathSize, "%s", argv[++i]);
+    }
+    return enabled;
+}
+
+static void ApplyPerfRoute(Player *player, int frame)
+{
+    const float dt = 1.0f / 60.0f;
+    Vector3 previous = player->position;
+    float x = 0.5f;
+    float z = 0.5f;
+    if (frame >= 120 && !PerfRouteComplete()) {
+        int phase = (frame - 120) % 300;
+        if (phase < 150) {
+            x += (float)phase * 0.78f;
+            z += (float)phase * 0.39f;
+        } else {
+            int returning = phase - 150;
+            x += 117.0f - (float)returning * 0.78f;
+            z += 58.5f - (float)returning * 0.39f;
+        }
+    }
+    player->position = (Vector3){ x,
+        (float)TerrainHeight((int)floorf(x), (int)floorf(z), terrainMode) + 3.0f, z };
+    Vector3 delta = Vector3Scale(Vector3Subtract(player->position, previous), 1.0f / dt);
+    player->velocity = delta;
+    if (Vector3LengthSqr(delta) > 0.001f) player->yaw = atan2f(delta.x, delta.z);
+    player->pitch = -0.18f;
+    player->onGround = true;
+    player->floating = false;
+}
+
+static RenderResourceSnapshot CurrentRenderResourceSnapshot(void)
+{
+    RenderResourceSnapshot snapshot = ChunksGetRenderResourceSnapshot();
+    RenderResourceSnapshotMerge(&snapshot, SpaceGetRenderResourceSnapshot());
+    RenderResourceSnapshotMerge(&snapshot, NetherGetRenderResourceSnapshot());
+    snapshot.worldLightingTextureBytes = WorldRendererTextureBytes();
+    return snapshot;
+}
 
 static bool FindLandingSpot(Vector3 start, int minY, int maxY, Vector3 *out)
 {
@@ -242,7 +406,12 @@ static void LandingTransitionFinishLanding(LandingTransition *transition, Player
     player->pitch = -0.12f;
     player->floating = false;
     player->onGround = false;
-    ShipExit(player);
+    if (!ShipExit(player)) {
+        player->floating = true;
+        transition->active = false;
+        transition->summaryRemaining = 0.0f;
+        return;
+    }
 
     Vector3 besideShip = transition->landingPosition;
     besideShip.x += cosf(player->yaw) * 2.25f;
@@ -314,6 +483,7 @@ static bool LandingTransitionUpdate(LandingTransition *transition, Player *playe
             easeRate);
         if (transition->elapsed >= LANDING_TRANSITION_TOUCHDOWN_TIME) {
             LandingTransitionFinishLanding(transition, player);
+            if (!transition->active) return skipPressed;
         }
     }
 
@@ -322,9 +492,11 @@ static bool LandingTransitionUpdate(LandingTransition *transition, Player *playe
             return skipPressed;
         }
         if (!transition->landed) LandingTransitionFinishLanding(transition, player);
-        transition->active = false;
-        transition->summaryRemaining = LANDING_SUMMARY_DURATION;
-        SetImportMessage(TextFormat("Touchdown complete: %s.", transition->targetName));
+        if (transition->landed) {
+            transition->active = false;
+            transition->summaryRemaining = LANDING_SUMMARY_DURATION;
+            SetImportMessage(TextFormat("Touchdown complete: %s.", transition->targetName));
+        }
     }
     return skipPressed;
 }
@@ -440,10 +612,10 @@ static void DrawLandingTransitionOverlay(const LandingTransition *transition)
         DrawRectangleRoundedLinesEx((Rectangle){ (float)panelX, (float)panelY,
                                                  (float)panelWidth, 94.0f },
                                     0.06f, 6, 1.0f, Fade(WHITE, 0.30f));
-        DrawText(TextFormat("%s  //  %s", stage, transition->targetName), panelX + 16,
+        UiDrawText(TextFormat("%s  //  %s", stage, transition->targetName), panelX + 16,
                  panelY + 12, 20, RAYWHITE);
         if (transition->landed) {
-            DrawText(TextFormat("%s   %03.0f%%", transition->landingPoint,
+            UiDrawText(TextFormat("%s   %03.0f%%", transition->landingPoint,
                                 progress * 100.0f),
                      panelX + 16, panelY + 42, 16, Fade(RAYWHITE, 0.82f));
         } else if (transition->committed) {
@@ -455,14 +627,14 @@ static void DrawLandingTransitionOverlay(const LandingTransition *transition)
                                   transition->landingPosition.y,
                                   LandingEase(atmosphereProgress)) -
                              transition->landingPosition.y;
-            DrawText(TextFormat("ATMOSPHERIC ALT %.0f blk   %03.0f%%",
+            UiDrawText(TextFormat("ATMOSPHERIC ALT %.0f blk   %03.0f%%",
                                 fmaxf(altitude, 0.0f), progress * 100.0f),
                      panelX + 16, panelY + 42, 16, Fade(RAYWHITE, 0.82f));
         } else {
             float descent = LandingEase(t / LANDING_TRANSITION_COMMIT_TIME);
             float distance = Lerp(transition->startDistance,
                                   transition->targetDistance, descent);
-            DrawText(TextFormat("SURFACE RANGE %.1f blk   %03.0f%%",
+            UiDrawText(TextFormat("SURFACE RANGE %.1f blk   %03.0f%%",
                                 fmaxf(distance - transition->targetRadius, 0.0f),
                                 progress * 100.0f),
                      panelX + 16, panelY + 42, 16, Fade(RAYWHITE, 0.82f));
@@ -472,10 +644,10 @@ static void DrawLandingTransitionOverlay(const LandingTransition *transition)
                          LandingEase((t - LANDING_TRANSITION_COMMIT_TIME) /
                                      (LANDING_TRANSITION_TOUCHDOWN_TIME -
                                       LANDING_TRANSITION_COMMIT_TIME)));
-        DrawText(TextFormat("GRAVITY %.2fg   |   %s", gravity,
+        UiDrawText(TextFormat("GRAVITY %.2fg   |   %s", gravity,
                             transition->landed ? "SCAN LOCKED" : "DESCENT CONTROL"),
                  panelX + 16, panelY + 66, 16, Fade((Color){ 174, 224, 255, 255 }, 0.92f));
-        DrawText("E / ESC  skip descent", sw - 190, sh - 26, 14, Fade(WHITE, 0.58f));
+        UiDrawText("E / ESC  skip descent", sw - 190, sh - 26, 14, Fade(WHITE, 0.58f));
     }
 
     if (!transition->active && transition->summaryRemaining > 0.0f) {
@@ -490,14 +662,14 @@ static void DrawLandingTransitionOverlay(const LandingTransition *transition)
         DrawRectangleRoundedLinesEx((Rectangle){ (float)panelX, (float)panelY,
                                                  (float)panelWidth, 212.0f },
                                     0.06f, 6, 1.5f, Fade((Color){ 150, 224, 255, 255 }, 0.65f * fade));
-        DrawText(TextFormat("TOUCHDOWN  //  %s", transition->targetName), panelX + 22,
+        UiDrawText(TextFormat("TOUCHDOWN  //  %s", transition->targetName), panelX + 22,
                  panelY + 18, 22, Fade(RAYWHITE, fade));
-        DrawText("LANDING POINT", panelX + 22, panelY + 58, 14, Fade((Color){ 142, 216, 244, 255 }, fade));
-        DrawText(transition->landingPoint, panelX + 22, panelY + 78, 17, Fade(RAYWHITE, fade));
-        DrawText("ENVIRONMENT", panelX + 22, panelY + 112, 14, Fade((Color){ 142, 216, 244, 255 }, fade));
-        DrawText(transition->environment, panelX + 22, panelY + 132, 16, Fade(RAYWHITE, fade));
-        DrawText(transition->biosphere, panelX + 22, panelY + 158, 16, Fade(RAYWHITE, fade));
-        DrawText(TextFormat("SURFACE GRAVITY %.2fg", transition->targetGravity), panelX + 22,
+        UiDrawText("LANDING POINT", panelX + 22, panelY + 58, 14, Fade((Color){ 142, 216, 244, 255 }, fade));
+        UiDrawText(transition->landingPoint, panelX + 22, panelY + 78, 17, Fade(RAYWHITE, fade));
+        UiDrawText("ENVIRONMENT", panelX + 22, panelY + 112, 14, Fade((Color){ 142, 216, 244, 255 }, fade));
+        UiDrawText(transition->environment, panelX + 22, panelY + 132, 16, Fade(RAYWHITE, fade));
+        UiDrawText(transition->biosphere, panelX + 22, panelY + 158, 16, Fade(RAYWHITE, fade));
+        UiDrawText(TextFormat("SURFACE GRAVITY %.2fg", transition->targetGravity), panelX + 22,
                  panelY + 183, 14, Fade((Color){ 188, 228, 255, 255 }, fade));
     }
 }
@@ -514,13 +686,14 @@ static void BeginNewWorld(Player *player, TerrainMode mode, uint32_t seed)
     InventoryReset();
     InventoryGrantStarterKit();
     ShipReset();
+    ShipLocatorReset();
     StarMapClose();
     EntitiesClear();
     ParticlesClear();
     WeatherInit();
 
     terrainMode = mode;
-    player->position = (Vector3){ 0.5f, (float)TerrainHeight(0, 0, terrainMode) + 3.0f, 0.5f };
+    player->position = FindNewWorldSpawn(terrainMode);
     player->velocity = Vector3Zero();
     player->yaw = PI;
     player->pitch = -0.25f;
@@ -534,33 +707,49 @@ static void BeginNewWorld(Player *player, TerrainMode mode, uint32_t seed)
     UpdateChunks(player->position, EffectiveRenderDistanceForHeight(player->position.y + EYE_HEIGHT));
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     const int screenWidth = 1280;
     const int screenHeight = 720;
 
+    char perfReportPath[512];
+    char perfBaselinePath[512];
+    bool perfMode = ParsePerfArgs(argc, argv, perfReportPath, sizeof(perfReportPath),
+                                  perfBaselinePath, sizeof(perfBaselinePath));
+    bool debugControlEnabled = CommandLineHasFlag(argc, argv, "--debug-stdin");
+    GameSettings settings;
+    GameSettingsLoad(&settings);
+    if (debugControlEnabled) SetTraceLogLevel(LOG_WARNING);
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "Voxelcraft - raylib");
     if (!IsWindowReady()) {
         fprintf(stderr, "Failed to create a raylib window. Run from a graphical desktop session.\n");
         return 1;
     }
+    PerfConfigure(perfMode, perfReportPath, perfBaselinePath);
     SetExitKey(KEY_NULL);
-    SetTargetFPS(60);
+    SetTargetFPS(perfMode ? 0 : 60);
     EnableCursor();
     if (!ChunksStartGenThread()) {
         fprintf(stderr, "Warning: failed to start chunk generation thread; generating synchronously.\n");
     }
     ParticlesInit();
     AudioInit();
+    AudioSetVolumes(settings.masterVolume, settings.ambientVolume,
+                    settings.musicVolume);
+    AudioSetMusicEnabled(settings.musicEnabled);
     WeatherInit();
+    WeatherSetParticleScale(
+        GraphicsQualityProfileFor(settings.graphicsQuality).precipitationScale);
     AlbumInit();
     SpaceInit();
     NetherInit();
     EntitiesInit();
     blockAtlas = LoadBlockAtlas();
+    WorldRendererInit(settings.graphicsQuality);
     cloudModel = LoadCloudModel();
     ShipLoadModel();
+    UiFontInit();
 
     Player player = {
         .position = { 0.5f, 12.0f, 0.5f },
@@ -580,8 +769,9 @@ int main(void)
     bool showHelp = true;
     bool showDebug = false;
     bool scannerActive = false;
+    bool shipLocatorEnabled = false;
     bool showOrbitTrajectories = true;
-    int screenshotCounter = 0;
+    bool screenshotPending = false;
     bool quitRequested = false;
     bool cursorReleased = false;
     bool paused = false;
@@ -600,26 +790,155 @@ int main(void)
     TerrainMode selectedTerrain = TERRAIN_VARIED;
     uint32_t selectedSeed = DEFAULT_WORLD_SEED;
 
+    if (perfMode) {
+        ChunksResetStreamingStats();
+        BeginNewWorld(&player, TERRAIN_VARIED, DEFAULT_WORLD_SEED);
+        screen = SCREEN_PLAYING;
+        autoSaveEnabled = false;
+        showHelp = false;
+        DisableCursor();
+        PerfSetMetadata(WorldGetSeed(), EffectiveRenderDistanceForHeight(player.position.y + EYE_HEIGHT));
+    }
+
     Camera3D camera = { 0 };
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
     camera.fovy = CameraFovForHeight(player.position.y + EYE_HEIGHT);
     camera.projection = CAMERA_PERSPECTIVE;
+    EnvironmentPresentationRuntime environmentRuntime = { 0 };
+    DebugControl debugControl;
+    DebugControlInit(&debugControl, debugControlEnabled);
+    PlayerInput scriptedPlayerInput = { 0 };
+    PlayerInput appliedPlayerInput = { 0 };
+    unsigned scriptedInputFrames = 0u;
+    bool scriptedInputFirstFrame = false;
+    DebugControlReply(
+        &debugControl,
+        "DEBUG_CONTROL ready commands=start,screenshot,status,teleport,input,quit\n");
 
     while (!quitRequested && !WindowShouldClose()) {
-        float dt = GetFrameTime();
+        PerfBeginFrame();
+        float dt = (perfMode || debugControlEnabled) ?
+                       (1.0f / 60.0f) : GetFrameTime();
         if (dt > 0.05f) dt = 0.05f;
+
+        bool debugStartRequested = false;
+        switch (DebugControlPoll(&debugControl)) {
+        case DEBUG_CONTROL_COMMAND_START:
+            if (screen == SCREEN_START) {
+                debugStartRequested = true;
+            } else {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL start ignored reason=already_playing\n");
+            }
+            break;
+        case DEBUG_CONTROL_COMMAND_SCREENSHOT:
+            if (screen == SCREEN_PLAYING) {
+                screenshotPending = true;
+                DebugControlReply(&debugControl,
+                                  "DEBUG_CONTROL screenshot scheduled\n");
+            } else {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL screenshot error reason=not_playing\n");
+            }
+            break;
+        case DEBUG_CONTROL_COMMAND_STATUS:
+        {
+            PlayerWaterState statusWater = PlayerWaterStateAt(player.position);
+            DebugControlReply(
+                &debugControl,
+                "DEBUG_CONTROL status screen=%s seed=%u dimension=%s "
+                "position=%.6f,%.6f,%.6f velocity=%.6f,%.6f,%.6f "
+                "water=%d,%d,%d depth=%.6f surface=%.6f\n",
+                screen == SCREEN_PLAYING ? "playing" : "start",
+                WorldGetSeed(),
+                ScreenshotDimensionName(WorldCurrentDimension()),
+                player.position.x, player.position.y, player.position.z,
+                player.velocity.x, player.velocity.y, player.velocity.z,
+                statusWater.feetSubmerged ? 1 : 0,
+                statusWater.bodySubmerged ? 1 : 0,
+                statusWater.eyesSubmerged ? 1 : 0,
+                statusWater.eyeDepth, statusWater.surfaceY);
+            break;
+        }
+        case DEBUG_CONTROL_COMMAND_TELEPORT:
+            if (screen == SCREEN_PLAYING) {
+                player.position = (Vector3){ debugControl.teleport.x,
+                                              debugControl.teleport.y,
+                                              debugControl.teleport.z };
+                player.velocity = Vector3Zero();
+                player.yaw = debugControl.teleport.yaw;
+                player.pitch = debugControl.teleport.pitch;
+                player.onGround = false;
+                PlayerResetRuntimeState(&player);
+                scriptedInputFrames = 0u;
+                scriptedInputFirstFrame = false;
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL teleport ok position=%.6f,%.6f,%.6f\n",
+                    player.position.x, player.position.y, player.position.z);
+            } else {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL teleport error reason=not_playing\n");
+            }
+            break;
+        case DEBUG_CONTROL_COMMAND_INPUT:
+            if (screen == SCREEN_PLAYING) {
+                scriptedPlayerInput = (PlayerInput){
+                    .forward = debugControl.playerInput.forward,
+                    .strafe = debugControl.playerInput.strafe,
+                    .vertical = debugControl.playerInput.vertical,
+                    .sprint = debugControl.playerInput.sprint
+                };
+                scriptedInputFrames = debugControl.playerInput.frames;
+                scriptedInputFirstFrame = true;
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL input ok forward=%.3f strafe=%.3f "
+                    "vertical=%.3f sprint=%d frames=%u\n",
+                    scriptedPlayerInput.forward, scriptedPlayerInput.strafe,
+                    scriptedPlayerInput.vertical,
+                    scriptedPlayerInput.sprint ? 1 : 0,
+                    scriptedInputFrames);
+            } else {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL input error reason=not_playing\n");
+            }
+            break;
+        case DEBUG_CONTROL_COMMAND_QUIT:
+            quitRequested = true;
+            DebugControlReply(&debugControl, "DEBUG_CONTROL quit accepted\n");
+            break;
+        case DEBUG_CONTROL_COMMAND_INVALID:
+            DebugControlReply(
+                &debugControl,
+                "DEBUG_CONTROL error reason=unknown_command\n");
+            break;
+        case DEBUG_CONTROL_COMMAND_NONE:
+        default:
+            break;
+        }
+
+        if (perfMode) ApplyPerfRoute(&player, PerfFrameIndex());
 
         bool landingSkipPressed = LandingTransitionUpdate(&landingTransition, &player, dt);
 
-        if (screen == SCREEN_START) {
+        if (!perfMode && screen == SCREEN_START) {
+            AudioSetEnvironment(NULL);
+            AudioUpdate(dt);
             bool startGame = false;
             if (IsKeyPressed(KEY_ESCAPE)) quitRequested = true;
             BeginDrawing();
             DrawStartPage(&startGame, &quitRequested, &selectedTerrain, &selectedSeed);
+            if (debugStartRequested) startGame = true;
             EndDrawing();
 
             if (startGame) {
                 BeginNewWorld(&player, selectedTerrain, selectedSeed);
+                EnvironmentPresentationRuntimeReset(&environmentRuntime);
                 importDialog.open = false;
                 importDialog.relief = true;
                 importDialog.maxBlocks = IMPORT_DEFAULT_BLOCKS;
@@ -630,6 +949,7 @@ int main(void)
                 entitiesWorldActive = true;
                 entitiesWorldDimension = 0u;
                 thirdPerson = false;
+                shipLocatorEnabled = false;
                 landingTransition = (LandingTransition){ 0 };
                 paused = false;
                 screen = SCREEN_PLAYING;
@@ -638,15 +958,14 @@ int main(void)
                 SetImportMessage(terrainMode == TERRAIN_FLAT ?
                                  TextFormat("Flat world seed %u. Press I to import.", WorldGetSeed()) :
                                  TextFormat("World seed %u.", WorldGetSeed()));
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL start ok seed=%u\n", WorldGetSeed());
             }
             continue;
         }
 
-        if (IsKeyPressed(KEY_F10)) {
-            TakeScreenshot(TextFormat("voxelcraft_shot_%03d.png", screenshotCounter));
-            SetImportMessage(TextFormat("Screenshot saved: voxelcraft_shot_%03d.png", screenshotCounter));
-            screenshotCounter++;
-        }
+        if (!perfMode && IsKeyPressed(KEY_F10)) screenshotPending = true;
 
         if (!importDialog.open && !albumOpen && !StarMapIsOpen()) {
             if (!paused && !landingTransition.active && !landingSkipPressed && IsKeyPressed(KEY_ESCAPE)) {
@@ -753,7 +1072,7 @@ int main(void)
         }
         if (!openedImportDialog) UpdateImportDialog(&importDialog, &player, &cursorReleased);
 
-        bool inputBlocked = paused || cursorReleased || importDialog.open || albumOpen ||
+        bool inputBlocked = perfMode || paused || cursorReleased || importDialog.open || albumOpen ||
                             landingTransition.active ||
                             ShipIsDriving() || StarMapIsOpen();
         if (!paused && !albumOpen && !importDialog.open && !StarMapIsOpen() &&
@@ -765,6 +1084,15 @@ int main(void)
         }
         if (!inputBlocked && IsKeyPressed(KEY_F1)) showHelp = !showHelp;
         if (!inputBlocked && IsKeyPressed(KEY_F3)) showDebug = !showDebug;
+        // Manual save stays reachable while flying the ship: saving does not
+        // require parking (ShipSaveState only persists fuel), and a forced
+        // exit can fail when no clear 4x4 spot is nearby, which used to
+        // silently drop the save (data loss).
+        if (IsKeyPressed(KEY_F5) && !paused && !cursorReleased &&
+            !importDialog.open && !albumOpen && !landingTransition.active &&
+            !StarMapIsOpen()) {
+            SaveMap(&player);
+        }
         if (!inputBlocked) {
             int hotbarKey = HotbarKeyToIndex();
             if (hotbarKey >= 0 && hotbarKey < HOTBAR_SIZE) selectedIndex = hotbarKey;
@@ -773,7 +1101,6 @@ int main(void)
             else if (wheel < 0.0f) selectedIndex = (selectedIndex + 1) % HOTBAR_SIZE;
             if (IsKeyPressed(KEY_LEFT_BRACKET)) AdjustRenderDistance(-1);
             if (IsKeyPressed(KEY_RIGHT_BRACKET)) AdjustRenderDistance(1);
-            if (IsKeyPressed(KEY_F5)) SaveMap(&player);
             if (IsKeyPressed(KEY_F9)) {
                 LoadMap(&player);
                 landingTransition = (LandingTransition){ 0 };
@@ -796,6 +1123,16 @@ int main(void)
                 autoSaveEnabled = !autoSaveEnabled;
                 autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
                 SetImportMessage(autoSaveEnabled ? "Auto-save enabled (every 60s)." : "Auto-save disabled.");
+            }
+            if (IsKeyPressed(KEY_L)) {
+                shipLocatorEnabled = !shipLocatorEnabled;
+                if (shipLocatorEnabled) {
+                    SetImportMessage(ShipLocatorHasTarget() ?
+                                     "Ship locator online." :
+                                     "Ship locator online: deploy or board a ship to establish a signal.");
+                } else {
+                    SetImportMessage("Ship locator offline.");
+                }
             }
             if (PlanetWorldIsActive() && IsKeyPressed(KEY_C)) {
                 scannerActive = !scannerActive;
@@ -820,7 +1157,7 @@ int main(void)
         WorldTickImportMessage(dt);
         if (!importDialog.open && !paused && !albumOpen) HandleImageDrop(&player, importDialog.maxBlocks, importDialog.relief);
 
-        if (autoSaveEnabled && screen == SCREEN_PLAYING && !paused &&
+        if (!perfMode && autoSaveEnabled && screen == SCREEN_PLAYING && !paused &&
             !landingTransition.active) {
             autoSaveTimer -= dt;
             if (autoSaveTimer <= 0.0f) {
@@ -829,26 +1166,40 @@ int main(void)
             }
         }
 
-        if (dayCycleEnabled && !paused && !albumOpen && !landingTransition.active) {
+        if (!perfMode && dayCycleEnabled && !paused && !albumOpen && !landingTransition.active) {
             dayTime += dt / DAY_LENGTH_SECONDS;
             if (dayTime >= 1.0f) dayTime -= 1.0f;
         }
         if (!paused && !albumOpen && !landingTransition.active &&
             (HomeWorldSurfaceIsActive() || PlanetWorldIsActive())) {
+            WeatherSetSheltered(EnvironmentSheltered(player.position));
             WeatherUpdate(dt, player.position);
         } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
+            WeatherSetSheltered(false);
             WeatherSuspend();
         }
 
-        AudioUpdate();
-
-        if (!landingTransition.active && ShipIsDriving() && !StarMapIsOpen()) {
+        if (!perfMode && !landingTransition.active && ShipIsDriving() && !StarMapIsOpen()) {
             ShipUpdate(&player, dt);
             if (PlanetWorldTryLaunch(&player) || HomeWorldTryLaunch(&player)) {
                 wasInSpace = true;
             }
-        } else if (!inputBlocked) {
-            UpdatePlayer(&player, dt);
+        } else if (!perfMode && !inputBlocked) {
+            if (scriptedInputFrames > 0u) {
+                appliedPlayerInput = scriptedPlayerInput;
+                appliedPlayerInput.jumpPressed = scriptedInputFirstFrame &&
+                                                 scriptedPlayerInput.vertical > 0.0f;
+                scriptedInputFirstFrame = false;
+                scriptedInputFrames--;
+            } else if (debugControlEnabled) {
+                // Debug sessions are driven exclusively by stdin so a
+                // desktop key held by the test runner cannot leak into the
+                // simulation after a scripted input window expires.
+                appliedPlayerInput = (PlayerInput){ 0 };
+            } else {
+                appliedPlayerInput = PlayerInputFromKeyboard();
+            }
+            UpdatePlayerWithInput(&player, dt, &appliedPlayerInput);
             if (PlanetWorldIsActive()) {
                 wasInSpace = false;
             } else {
@@ -886,14 +1237,15 @@ int main(void)
                 spaceGenPerFrame = ShipIsWarping() ? 16 : (ShipIsCruising() ? 12 : 4);
             }
             UpdateSpaceChunks(player.position, effectiveRenderDistance, spaceGenPerFrame);
-            if (HomeWorldSurfaceIsActive()) {
+            if (HomeWorldSurfaceIsActive() &&
+                WorldCurrentDimensionAt(player.position.y + EYE_HEIGHT) == WORLD_DIMENSION_NETHER) {
                 UpdateNetherChunks(player.position, effectiveRenderDistance, 4);
             }
             SpaceUpdateSolarGlow(player.position);
         }
-        ProcessFinishedMeshJobs();
+        ProcessFinishedMeshJobs(2.0);
         ProcessFinishedChunkJobs();
-        RebuildDirtyChunkMeshes();
+        RebuildDirtyChunkMeshes(player.position);
         ParticlesUpdate(dt);
 
         UpdatePlayerCamera(&camera, &player, dt, thirdPerson);
@@ -901,10 +1253,14 @@ int main(void)
 
         Vector3 aimEye = { player.position.x, player.position.y + EYE_HEIGHT, player.position.z };
         Vector3 aimDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
-        HitResult hit = RaycastBlocks(aimEye, aimDir, REACH_DISTANCE);
+        HitResult hit = RaycastBlocksFiltered(aimEye, aimDir, REACH_DISTANCE,
+                                              RAYCAST_BLOCK_SOLID);
         int entityHit = EntityRayHit(aimEye, aimDir, REACH_DISTANCE);
         SpaceBodyInfo aimBody = { 0 };
         bool haveAimBody = SpaceBodyPick(aimEye, aimDir, &aimBody);
+        ParkedShip hitShip = { 0 };
+        bool hitParkedShip = hit.hit &&
+                             ShipResolveParkedAt(hit.x, hit.y, hit.z, &hitShip);
         if (!inputBlocked && entityHit >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             float harvestDaylight = 0.0f;
             float harvestSunset = 0.0f;
@@ -915,6 +1271,21 @@ int main(void)
                 harvestDaylight = harvestLight.daylight;
             }
             EntityKill(entityHit, ENTITY_DEATH_PLAYER, harvestDaylight);
+        } else if (!inputBlocked && hitParkedShip &&
+                   IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (InventoryAdd(BLOCK_SPACESHIP, 1) > 0) {
+                Vector3 center = {
+                    (float)hitShip.coreX + (hitShip.legacy ? 0.5f : 1.0f),
+                    (float)hitShip.coreY + 0.5f,
+                    (float)hitShip.coreZ + (hitShip.legacy ? 0.5f : 1.0f)
+                };
+                ShipRemoveParkedAt(hit.x, hit.y, hit.z, true);
+                ParticlesEmitBurst(center, BlockBaseColor(BLOCK_SPACESHIP),
+                                   20, 3.0f, 0.7f);
+                AudioPlayBreak();
+            } else {
+                SetImportMessage("Inventory full: Spaceship");
+            }
         } else if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit.y >= NETHER_LAYER_Y) {
             BlockType brokenType = GetBlockAt(hit.x, hit.y, hit.z);
             PlanetPoi claimedPoi = { 0 };
@@ -942,14 +1313,22 @@ int main(void)
         int placeY = 0;
         int placeZ = 0;
         bool canPlace = false;
+        ShipDirection placementDirection = ShipDirectionFromYaw(player.yaw);
         if (!inputBlocked && hit.hit) {
             placeX = hit.x + hit.nx;
             placeY = hit.y + hit.ny;
             placeZ = hit.z + hit.nz;
-            canPlace = InventoryCount(hotbar[selectedIndex]) > 0 &&
-                       GetBlockAt(placeX, placeY, placeZ) == BLOCK_AIR &&
-                       WorldBlockRegionAt(placeY) != WORLD_BLOCK_REGION_NONE &&
-                       !BlockWouldOverlapPlayer(placeX, placeY, placeZ, player.position);
+            if (hotbar[selectedIndex] == BLOCK_SPACESHIP) {
+                canPlace = InventoryCount(BLOCK_SPACESHIP) > 0 &&
+                           ShipCanPlaceParked(placeX, placeY, placeZ,
+                                              placementDirection, &player);
+            } else {
+                canPlace = InventoryCount(hotbar[selectedIndex]) > 0 &&
+                           GetBlockAt(placeX, placeY, placeZ) == BLOCK_AIR &&
+                           WorldBlockRegionAt(placeY) != WORLD_BLOCK_REGION_NONE &&
+                           !BlockWouldOverlapPlayer(placeX, placeY, placeZ,
+                                                    player.position);
+            }
         }
         if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
             if (GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_ALBUM) {
@@ -992,16 +1371,36 @@ int main(void)
                 SetBlock(hit.x, hit.y, hit.z, gateType);
             } else if (canPlace) {
                 BlockType placedType = hotbar[selectedIndex];
-                if (InventoryConsume(placedType, 1)) {
+                if (placedType == BLOCK_SPACESHIP) {
+                    if (InventoryConsume(placedType, 1)) {
+                        if (!ShipPlaceParked(placeX, placeY, placeZ,
+                                             placementDirection, true)) {
+                            InventoryAdd(placedType, 1);
+                            SetImportMessage("Spaceship needs a clear 4x4 area.");
+                        } else {
+                            ParticlesEmitBurst(
+                                (Vector3){ placeX + 1.0f, placeY + 0.5f,
+                                           placeZ + 1.0f },
+                                BlockBaseColor(placedType), 16, 2.5f, 0.6f);
+                            AudioPlayPlace();
+                        }
+                    }
+                } else if (InventoryConsume(placedType, 1)) {
                     ParticlesEmitBurst((Vector3){ placeX + 0.5f, placeY + 0.5f, placeZ + 0.5f },
                                        BlockBaseColor(placedType), 8, 2.0f, 0.5f);
                     AudioPlayPlace();
                     SetBlock(placeX, placeY, placeZ, placedType);
                 }
+            } else if (hotbar[selectedIndex] == BLOCK_SPACESHIP &&
+                       InventoryCount(BLOCK_SPACESHIP) > 0) {
+                SetImportMessage("Spaceship needs a clear 4x4 area.");
             }
         }
         if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
             BlockType picked = GetBlockAt(hit.x, hit.y, hit.z);
+            if (ShipResolveParkedAt(hit.x, hit.y, hit.z, NULL)) {
+                picked = BLOCK_SPACESHIP;
+            }
             if (picked != BLOCK_AIR && IsValidBlockType(picked)) {
                 hotbar[selectedIndex] = picked;
                 AudioPlayPick();
@@ -1018,6 +1417,25 @@ int main(void)
             daylight = planetLight.daylight;
             sunset = planetLight.sunset;
         }
+        PlanetObservationState planetObservation =
+            PlanetObservationForCamera(&camera, &planetLight);
+        double weatherSimulationTime = SpacePeriodicSimulationTime(
+            SpaceElapsedSimulationTime());
+        WeatherVisualState weatherVisual = WeatherVisualStateAtWorld(
+            camera.position, weatherSimulationTime, daylight);
+        float planetSeasonProgress = -1.0f;
+        if (PlanetWorldIsActive()) {
+            const PlanetProfile *profile = PlanetWorldProfile();
+            float radius = fmaxf(profile->spaceProxyRadius, 24.0f);
+            float latitude = player.position.z / (radius * 0.82f);
+            PlanetSeasonState season = { 0 };
+            if (PlanetSeasonEvaluate(profile, latitude,
+                                     SpacePeriodicSimulationTime(
+                                         SpaceElapsedSimulationTime()),
+                                     &season)) {
+                planetSeasonProgress = season.seasonAngle / (2.0f * PI);
+            }
+        }
         ChunksUpdateEcologyVisuals(dt, daylight);
         if (!paused && !albumOpen && !importDialog.open && !landingTransition.active &&
             localWorldActive) {
@@ -1027,35 +1445,93 @@ int main(void)
         Color skyTop = { 0 };
         Color skyHorizon = { 0 };
         SkyColorsForLight(daylight, sunset, &skyTop, &skyHorizon);
-        Color worldTint = MixWeather(WorldTintForLight(daylight, sunset), daylight);
-        skyTop = MixWeather(skyTop, daylight);
-        skyHorizon = MixWeather(skyHorizon, daylight);
-        ApplyPlanetWorldPaletteWithLight(&skyTop, &skyHorizon, &worldTint,
-                                         &planetLight);
+        Color worldTint = MixWeather(WorldTintForLight(daylight, sunset), daylight,
+                                     &weatherVisual);
+        skyTop = MixWeather(skyTop, daylight, &weatherVisual);
+        skyHorizon = MixWeather(skyHorizon, daylight, &weatherVisual);
+        ApplyPlanetWorldPaletteWithObservation(&skyTop, &skyHorizon, &worldTint,
+                                                &planetLight, &planetObservation);
         float planetAtmosphereFade = PlanetWorldAtmosphereFade(camera.position);
         float skyFade = fmaxf(spaceFade, planetAtmosphereFade);
         UpdatePlanetSceneExposure(&camera);
         skyTop = ColorLerp(skyTop, BLACK, skyFade);
         skyHorizon = ColorLerp(skyHorizon, BLACK, skyFade);
         worldTint = ColorLerp(worldTint, (Color){ 46, 54, 78, 255 }, skyFade);
-        bool inNether = WorldCurrentDimensionAt(camera.position.y) == WORLD_DIMENSION_NETHER;
+        WorldDimension cameraDimension =
+            WorldCurrentDimensionAt(camera.position.y);
+        bool inNether = cameraDimension == WORLD_DIMENSION_NETHER;
         if (inNether) {
             skyTop = (Color){ 24, 6, 6, 255 };
             skyHorizon = (Color){ 40, 10, 8, 255 };
             worldTint = (Color){ 150, 62, 42, 255 };
             spaceFade = 0.0f;
         }
+        PlayerWaterState playerWater = PlayerWaterStateAt(player.position);
+        bool underwater = playerWater.eyesSubmerged && IsWaterBlock(GetBlockAt(
+            (int)floorf(camera.position.x), (int)floorf(camera.position.y),
+            (int)floorf(camera.position.z)));
+        float underwaterDepth = underwater ? playerWater.eyeDepth : 0.0f;
+        EnvironmentScene environmentScene =
+            EnvironmentSceneForDimension(cameraDimension);
+        bool forest = false;
+        if (environmentScene == ENVIRONMENT_SCENE_HOME) {
+            forest = BiomeAt((int)floorf(player.position.x),
+                             (int)floorf(player.position.z)) == BIOME_FOREST;
+        } else if (environmentScene == ENVIRONMENT_SCENE_PLANET) {
+            forest = PlanetBiomeAt((int)floorf(player.position.x),
+                                   (int)floorf(player.position.z)) ==
+                     PLANET_BIOME_FOREST;
+        }
+        EnvironmentRuntimeSample environmentSample = {
+            .dimension = cameraDimension,
+            .quality = settings.graphicsQuality,
+            .weather = weatherVisual,
+            .simulationTime = weatherSimulationTime,
+            .daylight = daylight,
+            .sunset = sunset,
+            .atmosphereFade = skyFade,
+            .altitude = camera.position.y -
+                        (float)WorldSurfaceHeightAt(
+                            (int)floorf(camera.position.x),
+                            (int)floorf(camera.position.z)),
+            .underwaterDepth = underwaterDepth,
+            .underwater = underwater,
+            .sheltered = EnvironmentSheltered(camera.position),
+            .forest = forest,
+            .nearWater = EnvironmentNearWater(camera.position),
+            .shipInterior = environmentScene == ENVIRONMENT_SCENE_SPACE &&
+                            ShipIsDriving()
+        };
+        EnvironmentPresentationState environmentPresentation =
+            EnvironmentPresentationRuntimeUpdate(
+                &environmentRuntime, &environmentSample, dt);
+        AudioEnvironmentState audioEnvironment =
+            AudioEnvironmentFromPresentation(&environmentPresentation);
+        if (albumOpen || importDialog.open || screen != SCREEN_PLAYING) {
+            audioEnvironment = (AudioEnvironmentState){ 0 };
+        }
+        AudioSetEnvironment(&audioEnvironment);
+        AudioUpdate(dt);
+        WorldLightingState worldLighting = WorldLightingForScene(
+            &camera, dayTime, daylight, sunset, &planetLight, &weatherVisual,
+            skyHorizon, inNether, &environmentPresentation);
+        PerfSetMetadata(WorldGetSeed(), effectiveRenderDistance);
+        PerfMarkUpdateComplete();
 
         BeginDrawing();
         ClearBackground(skyTop);
         DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(), skyTop, skyHorizon);
-        DrawPlanetAtmosphereSky(&camera, &planetLight);
+        DrawPlanetAtmosphereSky(&camera, &planetLight, &planetObservation,
+                                &weatherVisual);
 
-        BeginMode3D(camera);
+        PerfBeginGpuFrame();
         bool drawSurfaceChunks = PlanetWorldIsActive() ||
-                                 (HomeWorldSurfaceIsActive() && spaceFade <= 0.05f);
+                                 (HomeWorldSurfaceIsActive() && !inNether && spaceFade <= 0.05f);
+        DrawWorldShadowMap(&camera, effectiveRenderDistance, drawSurfaceChunks,
+                           inNether, &worldLighting);
+        BeginMode3D(camera);
         DrawWorld(&camera, effectiveRenderDistance, worldTint, drawSurfaceChunks,
-                  HomeWorldSurfaceIsActive());
+                  inNether, &worldLighting);
         if (localWorldActive) EntitiesDraw();
         // Keep the first-person flight view clear. The ship model is only useful
         // as an exterior reference when the camera is in third person.
@@ -1063,31 +1539,37 @@ int main(void)
         DrawHomePlanet(&camera, spaceFade);
         if (showOrbitTrajectories) DrawSolarOrbitTrajectories(&camera, spaceFade);
         DrawSolarBodies(&camera, spaceFade);
-        bool drawCloudLayer = HomeWorldSurfaceIsActive() || PlanetWorldIsActive();
-        if (PlanetWorldIsActive()) {
-            const PlanetProfile *profile = PlanetWorldProfile();
-            drawCloudLayer = profile->atmosphereType != PLANET_ATMOSPHERE_NONE &&
-                             profile->atmosphereDensity > 0.28f;
-        }
+        bool drawCloudLayer = weatherVisual.active;
         if (skyFade < 0.5f && !inNether && drawCloudLayer) {
-            DrawClouds(&camera, Fade(worldTint, 1.0f - skyFade * 2.0f));
+            DrawClouds(&camera, Fade(worldTint, 1.0f - skyFade * 2.0f),
+                       weatherSimulationTime, &weatherVisual,
+                       &environmentPresentation, &worldLighting);
         }
         ParticlesDraw();
         if (hit.hit) {
-            Vector3 center = { hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f };
-            DrawCubeWires(center, 1.03f, 1.03f, 1.03f, WHITE);
+            if (hitParkedShip && !hitShip.legacy) {
+                Vector3 center = {
+                    hitShip.coreX + 1.0f, hitShip.coreY + 1.0f,
+                    hitShip.coreZ + 1.0f
+                };
+                DrawCubeWires(center, 4.03f, 2.03f, 4.03f, WHITE);
+            } else {
+                Vector3 center = { hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f };
+                DrawCubeWires(center, 1.03f, 1.03f, 1.03f, WHITE);
+            }
         }
         if (canPlace) {
-            Vector3 center = { placeX + 0.5f, placeY + 0.5f, placeZ + 0.5f };
-            DrawCubeWires(center, 1.02f, 1.02f, 1.02f, Fade(GREEN, 0.9f));
+            if (hotbar[selectedIndex] == BLOCK_SPACESHIP) {
+                Vector3 center = { placeX + 1.0f, placeY + 1.0f, placeZ + 1.0f };
+                DrawCubeWires(center, 4.02f, 2.02f, 4.02f,
+                              Fade(GREEN, 0.9f));
+            } else {
+                Vector3 center = { placeX + 0.5f, placeY + 0.5f, placeZ + 0.5f };
+                DrawCubeWires(center, 1.02f, 1.02f, 1.02f, Fade(GREEN, 0.9f));
+            }
         }
         EndMode3D();
-
-        if (IsWaterBlock(GetBlock((int)floorf(camera.position.x),
-                                  (int)floorf(camera.position.y),
-                                  (int)floorf(camera.position.z)))) {
-            DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 16, 64, 128, 130 });
-        }
+        PerfEndGpuFrame();
 
         shipSpeedForHud = Vector3Length(player.velocity);
         if (ShipIsDriving()) {
@@ -1128,15 +1610,29 @@ int main(void)
             }
         }
 
-        DrawStars(&camera, inNether ? 1.0f : daylight * (1.0f - skyFade));
+        DrawStars(&camera, inNether ? 1.0f :
+                  1.0f - environmentPresentation.starVisibility,
+                  &planetObservation, &weatherVisual);
         DrawSpaceSky(skyFade, daylight, &camera);
+        if (spaceFade < 0.5f && !inNether) {
+            DrawCelestial(&camera, dayTime, daylight, &planetLight,
+                          &planetObservation, &weatherVisual);
+        }
+        if (!inNether && skyFade < 0.5f) {
+            DrawWeatherOverlay(&camera, &weatherVisual);
+        }
+        DrawEnvironmentPostProcess(&environmentPresentation);
         DrawSolarGuide(&camera, spaceFade);
         if (scannerActive && PlanetWorldIsActive()) PlanetPoiDrawScanner(&camera, player.position);
+        ShipLocatorTarget shipLocatorTarget = { 0 };
+        if (shipLocatorEnabled && !ShipIsDriving() &&
+            ShipLocatorTargetAt(player.position, &shipLocatorTarget)) {
+            DrawShipLocator(&camera, &shipLocatorTarget);
+        }
         if (ShipIsDriving()) DrawShipHud();
         if (spaceFade > 0.05f && haveAimBody && !StarMapIsOpen()) {
             DrawBodyInfoPanel(&aimBody);
         }
-        if (spaceFade < 0.5f && !inNether) DrawCelestial(&camera, dayTime, daylight);
         DrawCrosshair(GetScreenWidth(), GetScreenHeight());
         DrawHotbar(hotbar, selectedIndex);
         DrawImportStatus();
@@ -1144,11 +1640,11 @@ int main(void)
         const char *positionText = TextFormat("XYZ %d %d %d    %02d:00", (int)floorf(player.position.x),
                                               (int)floorf(player.position.y),
                                               (int)floorf(player.position.z), hour);
-        DrawText(positionText, 15, GetScreenHeight() - 32, 17, Fade(BLACK, 0.92f));
-        DrawText(positionText, 14, GetScreenHeight() - 34, 17, Fade(WHITE, 0.9f));
+        UiDrawText(positionText, 15, GetScreenHeight() - 32, 17, Fade(BLACK, 0.92f));
+        UiDrawText(positionText, 14, GetScreenHeight() - 34, 17, Fade(WHITE, 0.9f));
         const char *saveText = TextFormat("Auto-save: %s", autoSaveEnabled ? "60s" : "off");
-        DrawText(saveText, 15, GetScreenHeight() - 14, 15, Fade(BLACK, 0.92f));
-        DrawText(saveText, 14, GetScreenHeight() - 16, 15, Fade(WHITE, 0.65f));
+        UiDrawText(saveText, 15, GetScreenHeight() - 14, 15, Fade(BLACK, 0.92f));
+        UiDrawText(saveText, 14, GetScreenHeight() - 16, 15, Fade(WHITE, 0.65f));
         if (cursorReleased && !importDialog.open) DrawCursorReleasedOverlay();
         if (showHelp) DrawHelpPanel(player.floating, cursorReleased, renderDistanceChunks);
         DrawImportDialog(&importDialog);
@@ -1159,28 +1655,52 @@ int main(void)
             autoSaveForHud = autoSaveEnabled;
             blockForHud = hit.hit ? GetBlockAt(hit.x, hit.y, hit.z) : BLOCK_AIR;
             SpaceEditCountForHud = GetSpaceEditCount();
-            DrawDebugHUD(player.position, player.yaw, player.pitch, daylight);
+            DrawDebugHUD(player.position, player.yaw, player.pitch, daylight,
+                         &planetLight, &planetObservation,
+                         planetSeasonProgress, &weatherVisual);
         }
         DrawLandingTransitionOverlay(&landingTransition);
         if (paused) {
-            if (IsKeyPressed(KEY_MINUS)) SetMasterVolume(fmaxf(0.0f, GetMasterVolume() - 0.1f));
-            if (IsKeyPressed(KEY_EQUAL)) SetMasterVolume(fminf(1.0f, GetMasterVolume() + 0.1f));
-            bool resumeGame = false;
-            bool saveWorld = false;
-            bool saveAndQuit = false;
-            bool toggleMusic = false;
-            bool returnToMenu = false;
-            DrawPauseMenu(&resumeGame, &saveWorld, &saveAndQuit, &toggleMusic, &returnToMenu);
-            if (resumeGame) {
+            if (IsKeyPressed(KEY_MINUS)) {
+                settings.masterVolume = fmaxf(0.0f, settings.masterVolume - 0.1f);
+                AudioSetVolumes(settings.masterVolume, settings.ambientVolume,
+                                settings.musicVolume);
+                GameSettingsSave(&settings);
+            }
+            if (IsKeyPressed(KEY_EQUAL)) {
+                settings.masterVolume = fminf(1.0f, settings.masterVolume + 0.1f);
+                AudioSetVolumes(settings.masterVolume, settings.ambientVolume,
+                                settings.musicVolume);
+                GameSettingsSave(&settings);
+            }
+            PauseMenuActions pauseActions = { 0 };
+            GraphicsQuality previousQuality = settings.graphicsQuality;
+            DrawPauseMenu(&settings, &pauseActions);
+            if (pauseActions.settingsChanged) {
+                if (pauseActions.qualityChanged &&
+                    !WorldRendererSetQuality(settings.graphicsQuality)) {
+                    settings.graphicsQuality = previousQuality;
+                    SetImportMessage("Graphics quality change failed; previous quality restored.");
+                }
+                WeatherSetParticleScale(
+                    GraphicsQualityProfileFor(settings.graphicsQuality).precipitationScale);
+                AudioSetVolumes(settings.masterVolume, settings.ambientVolume,
+                                settings.musicVolume);
+                AudioSetMusicEnabled(settings.musicEnabled);
+                GameSettingsSave(&settings);
+            }
+            if (pauseActions.resume) {
                 paused = false;
                 DisableCursor();
             }
-            if (toggleMusic) AudioToggleMusic();
-            if (saveWorld) {
-                if (ShipIsDriving()) ShipForceExit(&player);
+            if (pauseActions.saveWorld) {
+                // Saving is safe while flying: ShipSaveState only persists
+                // fuel. Do not gate the save on a successful parking spot
+                // (ShipForceExit can fail in a tight dock, which used to
+                // silently drop the save).
                 SaveMap(&player);
             }
-            if (returnToMenu) {
+            if (pauseActions.returnToMenu) {
                 paused = false;
                 cursorReleased = false;
                 if (albumOpen) {
@@ -1188,38 +1708,199 @@ int main(void)
                     AlbumClose();
                 }
                 screen = SCREEN_START;
+                AudioSetEnvironment(NULL);
                 EnableCursor();
             }
-            if (saveAndQuit) {
-                if (ShipIsDriving()) ShipForceExit(&player);
+            if (pauseActions.saveAndQuit) {
                 SaveMap(&player);
+                quitSaveDone = true;
                 quitRequested = true;
             }
         }
 
         EndDrawing();
+        if (screenshotPending) {
+            char screenshotPath[512];
+            char debugReportPath[512];
+            time_t screenshotTime = time(NULL);
+            ChunkStreamingStats streamingStats = ChunksGetStreamingStats();
+            ScreenshotDebugInfo debugInfo = {
+                .world = {
+                    .seed = PlanetWorldIsActive() ? PlanetWorldSeed() :
+                                                    WorldGetSeed(),
+                    .surfaceId = WorldCurrentSurfaceId(),
+                    .dimension = ScreenshotDimensionName(cameraDimension),
+                    .dayTime = dayTime,
+                    .daylight = daylight,
+                    .dayCycleEnabled = dayCycleEnabled
+                },
+                .player = {
+                    .position = ScreenshotVector(player.position),
+                    .velocity = ScreenshotVector(player.velocity),
+                    .yaw = player.yaw,
+                    .pitch = player.pitch,
+                    .onGround = player.onGround,
+                    .floating = player.floating,
+                    .driving = ShipIsDriving()
+                },
+                .camera = {
+                    .position = ScreenshotVector(camera.position),
+                    .target = ScreenshotVector(camera.target),
+                    .fovY = camera.fovy,
+                    .thirdPerson = thirdPerson
+                },
+                .weather = {
+                    .name = WeatherName(),
+                    .simulationTime = weatherSimulationTime,
+                    .active = weatherVisual.active,
+                    .atmosphereDensity = weatherVisual.atmosphereDensity,
+                    .cloudCover = weatherVisual.cloudCover,
+                    .cloudBaseHeight = weatherVisual.cloudBaseHeight,
+                    .cloudThickness = weatherVisual.cloudThickness,
+                    .cloudOpacity = weatherVisual.cloudOpacity,
+                    .fogDensity = weatherVisual.fogDensity,
+                    .visibility = weatherVisual.visibility,
+                    .precipitationVeil = weatherVisual.precipitationVeil,
+                    .stormDarkening = weatherVisual.stormDarkening,
+                    .windDrift = weatherVisual.windDrift,
+                    .windAngle = weatherVisual.windAngle,
+                    .snowFraction = weatherVisual.snowFraction
+                },
+                .environment = {
+                    .altitude = environmentSample.altitude,
+                    .atmosphereFade = skyFade,
+                    .underwaterDepth = environmentSample.underwaterDepth,
+                    .waterSurfaceY = playerWater.surfaceY,
+                    .underwater = environmentSample.underwater,
+                    .feetSubmerged = playerWater.feetSubmerged,
+                    .bodySubmerged = playerWater.bodySubmerged,
+                    .eyesSubmerged = playerWater.eyesSubmerged,
+                    .sheltered = environmentSample.sheltered,
+                    .forest = environmentSample.forest,
+                    .nearWater = environmentSample.nearWater,
+                    .shipInterior = environmentSample.shipInterior
+                },
+                .input = {
+                    .forward = appliedPlayerInput.forward,
+                    .strafe = appliedPlayerInput.strafe,
+                    .vertical = appliedPlayerInput.vertical,
+                    .sprint = appliedPlayerInput.sprint,
+                    .remainingFrames = scriptedInputFrames
+                },
+                .render = {
+                    .graphicsQuality = GraphicsQualityName(settings.graphicsQuality),
+                    .renderDistanceChunks = effectiveRenderDistance,
+                    .fps = GetFPS(),
+                    .screenWidth = GetScreenWidth(),
+                    .screenHeight = GetScreenHeight(),
+                    .frameTimeMs = dt * 1000.0f,
+                    .performanceMode = perfMode
+                },
+                .ui = {
+                    .paused = paused,
+                    .albumOpen = albumOpen,
+                    .starMapOpen = StarMapIsOpen(),
+                    .importDialogOpen = importDialog.open,
+                    .cursorReleased = cursorReleased,
+                    .helpVisible = showHelp,
+                    .debugHudVisible = showDebug,
+                    .landingTransitionActive = landingTransition.active
+                },
+                .streaming = {
+                    .activeChunks = GetActiveChunkCount(),
+                    .activeSpaceChunks = GetActiveSpaceChunkCount(),
+                    .activeNetherChunks = GetActiveNetherChunkCount(),
+                    .activeEntities = GetActiveEntityCount(),
+                    .pendingGenerationJobs = GetPendingGenJobCount(),
+                    .pendingMeshJobs = GetPendingMeshJobCount(),
+                    .generationSubmitted = streamingStats.generationSubmitted,
+                    .generationCompleted = streamingStats.generationCompleted,
+                    .generationCanceled = streamingStats.generationCanceled,
+                    .meshSubmitted = streamingStats.meshSubmitted,
+                    .meshCompleted = streamingStats.meshCompleted,
+                    .meshCanceled = streamingStats.meshCanceled,
+                    .meshSnapshotBytes = streamingStats.meshSnapshotBytes,
+                    .syncRebuilds = streamingStats.syncRebuilds,
+                    .uploadedMeshes = streamingStats.uploadedMeshes,
+                    .uploadBudgetDeferrals = streamingStats.uploadBudgetDeferrals,
+                    .generationQueuePeak = streamingStats.generationQueuePeak,
+                    .meshQueuePeak = streamingStats.meshQueuePeak,
+                    .pendingMeshSnapshotBytes =
+                        streamingStats.pendingMeshSnapshotBytes,
+                    .pendingMeshSnapshotBytesPeak =
+                        streamingStats.pendingMeshSnapshotBytesPeak,
+                    .generationCpuMs = streamingStats.generationCpuMs,
+                    .meshCpuMs = streamingStats.meshCpuMs,
+                    .uploadCpuMs = streamingStats.uploadCpuMs,
+                    .maxUploadCpuMs = streamingStats.maxUploadCpuMs
+                }
+            };
+            ScreenshotResult screenshotResult = ScreenshotCaptureFrame(
+                SCREENSHOT_DIRECTORY, screenshotTime, screenshotPath,
+                sizeof(screenshotPath));
+            if (screenshotResult == SCREENSHOT_RESULT_OK) {
+                ScreenshotResult reportResult = ScreenshotWriteDebugReport(
+                    screenshotPath, screenshotTime, &debugInfo, debugReportPath,
+                    sizeof(debugReportPath));
+                if (reportResult == SCREENSHOT_RESULT_OK) {
+                    SetImportMessage(TextFormat(
+                        "Debug capture saved: %s (+ .txt)", screenshotPath));
+                    DebugControlReply(
+                        &debugControl,
+                        "DEBUG_CONTROL capture ok png=%s report=%s\n",
+                        screenshotPath, debugReportPath);
+                } else {
+                    SetImportMessage(TextFormat(
+                        "Screenshot saved; %s",
+                        ScreenshotResultMessage(reportResult)));
+                    DebugControlReply(
+                        &debugControl,
+                        "DEBUG_CONTROL capture partial png=%s error=%s\n",
+                        screenshotPath, ScreenshotResultMessage(reportResult));
+                }
+            } else {
+                SetImportMessage(ScreenshotResultMessage(screenshotResult));
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL capture error reason=%s\n",
+                    ScreenshotResultMessage(screenshotResult));
+            }
+            screenshotPending = false;
+        }
+        PerfEndFrame(ChunksGetStreamingStats(), CurrentRenderResourceSnapshot());
+        if (perfMode && PerfReportWritten() && !debugControlEnabled) {
+            quitRequested = true;
+        }
     }
 
-    if (screen == SCREEN_PLAYING) {
+    if (!perfMode && screen == SCREEN_PLAYING) {
         if (landingTransition.active) {
             landingTransition.elapsed = landingTransition.duration;
             LandingTransitionUpdate(&landingTransition, &player, 0.0f);
         }
-        if (ShipIsDriving()) ShipForceExit(&player);
-        SaveMap(&player);
+        // Always save on quit, including while flying (fuel-only state is
+        // safe to persist) and when no parking spot is available; the menu's
+        // "Save & Quit" already saved, so skip the duplicate cycle.
+        if (!quitSaveDone) SaveMap(&player);
     }
+    GameSettingsSave(&settings);
     ChunksShutdownGenThread();
     UnloadAllChunks();
     UnloadAllSpaceChunks();
     SpaceShutdown();
     UnloadAllNetherChunks();
+    WorldRendererShutdown();
     UnloadTexture(blockAtlas);
-    if (cloudModel.meshCount > 0) UnloadModel(cloudModel);
+    UnloadCloudRenderResources();
     UnloadPlanetRenderResources();
     ShipCleanup();
     AudioShutdown();
+    UiFontShutdown();
+    bool perfPassed = PerfReportPassed();
+    PerfShutdown();
     CloseWindow();
     AlbumCleanup();
     WorldCleanup();
-    return 0;
+    DebugControlReply(&debugControl, "DEBUG_CONTROL stopped\n");
+    return perfMode && !perfPassed ? 2 : 0;
 }

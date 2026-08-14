@@ -60,6 +60,10 @@ static void AssertSamplesNear(PlanetSurfaceSample left, PlanetSurfaceSample righ
 #define ASSERT_SAMPLE_FIELD(field) AssertNear(left.field, right.field, tolerance)
     ASSERT_SAMPLE_FIELD(continentalness);
     ASSERT_SAMPLE_FIELD(regionalness);
+    ASSERT_SAMPLE_FIELD(erosion);
+    ASSERT_SAMPLE_FIELD(ridge);
+    ASSERT_SAMPLE_FIELD(peak);
+    ASSERT_SAMPLE_FIELD(trench);
     ASSERT_SAMPLE_FIELD(climate);
     ASSERT_SAMPLE_FIELD(detail);
     ASSERT_SAMPLE_FIELD(temperature);
@@ -92,6 +96,10 @@ static void AssertValidSample(PlanetSurfaceSample sample)
 {
     AssertUnitInterval(sample.continentalness);
     AssertUnitInterval(sample.regionalness);
+    AssertUnitInterval(sample.erosion);
+    AssertUnitInterval(sample.ridge);
+    AssertUnitInterval(sample.peak);
+    AssertUnitInterval(sample.trench);
     AssertUnitInterval(sample.climate);
     AssertUnitInterval(sample.detail);
     assert(isfinite(sample.temperature));
@@ -193,6 +201,45 @@ static void TestBaselineIgnoresSimulationTime(void)
     AssertNear(explicitSeason.meanTemperature, first.meanTemperature, 0.0f);
 }
 
+static void TestTiltChangesSeasonalAmplitude(void)
+{
+    PlanetProfile flat = TestProfile(SOLAR_STYLE_TEMPERATE);
+    flat.axialTilt = 0.0f;
+    PlanetProfile tilted = flat;
+    tilted.axialTilt = 0.56f;
+    simulationTime = tilted.yearLength * 0.25;
+    PlanetSurfaceSample flatSample = PlanetSampleGlobalSurface(
+        flat.seed, &flat, 0.42f, 0.61f);
+    PlanetSurfaceSample tiltedSample = PlanetSampleGlobalSurface(
+        tilted.seed, &tilted, 0.42f, 0.61f);
+    assert(tiltedSample.seasonalAmplitude >
+           flatSample.seasonalAmplitude + 8.0f);
+    assert(tiltedSample.temperature > flatSample.temperature + 8.0f);
+}
+
+static void TestEccentricityChangesSeasonalTemperature(void)
+{
+    PlanetProfile circular = TestProfile(SOLAR_STYLE_TEMPERATE);
+    circular.axialTilt = 0.0f;
+    circular.orbitalEccentricity = 0.0f;
+    circular.orbitalTemperatureAmplitudeK = 0.0f;
+    PlanetProfile eccentric = circular;
+    eccentric.orbitalEccentricity = 0.32f;
+    eccentric.orbitalTemperatureAmplitudeK = 18.0f;
+
+    PlanetSurfaceSample nearPeriapsis = PlanetSampleGlobalSurfaceAtTime(
+        eccentric.seed, &eccentric, 0.42f, 0.0f, 0.0);
+    PlanetSurfaceSample nearApoapsis = PlanetSampleGlobalSurfaceAtTime(
+        eccentric.seed, &eccentric, 0.42f, 0.0f,
+        eccentric.yearLength * 0.5);
+    PlanetSurfaceSample circularReference = PlanetSampleGlobalSurfaceAtTime(
+        circular.seed, &circular, 0.42f, 0.0f, 0.0);
+
+    assert(fabsf(nearPeriapsis.temperature - nearApoapsis.temperature) > 6.0f);
+    assert(fabsf(circularReference.temperature - circularReference.meanTemperature) <
+           0.0001f);
+}
+
 static bool BiomeMatchesStyle(SolarBodyStyle style, PlanetBiome biome)
 {
     switch (style) {
@@ -251,6 +298,8 @@ int main(void)
     TestSeasonalTemperature();
     TestLargeTimeSeasonalPeriodicity();
     TestBaselineIgnoresSimulationTime();
+    TestTiltChangesSeasonalAmplitude();
+    TestEccentricityChangesSeasonalTemperature();
     TestStyleBiomeDomains();
     TestBiomeNames();
     puts("planet_surface tests passed");

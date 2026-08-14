@@ -13,9 +13,16 @@
 static bool wallEnabled = false;
 static bool ceilingEnabled = false;
 static bool stairsEnabled = false;
+static bool waterEnabled = false;
+static bool groundEnabled = false;
 
 BlockType GetBlockAt(int x, int y, int z)
 {
+    if (waterEnabled && x >= -16 && x <= 16 && z >= -16 && z <= 16 &&
+        y >= 1 && y <= 5) {
+        return BLOCK_WATER;
+    }
+    if (groundEnabled && y == 0) return BLOCK_STONE;
     if (wallEnabled && x == 2 && y >= 0 && y < 4 && z == 0) {
         return BLOCK_STONE;
     }
@@ -28,9 +35,45 @@ BlockType GetBlockAt(int x, int y, int z)
     return BLOCK_AIR;
 }
 
+bool IsLiquidBlock(BlockType type)
+{
+    return type == BLOCK_WATER || type == BLOCK_LAVA;
+}
+
+bool IsWaterBlock(BlockType type)
+{
+    return type == BLOCK_WATER;
+}
+
+bool WorldIsSpaceActive(void) { return false; }
+float WorldGravityScale(void) { return 1.0f; }
+bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDirection,
+                     float *surfaceDistance, float *gravityScale)
+{
+    (void)position;
+    (void)gravityDirection;
+    (void)surfaceDistance;
+    (void)gravityScale;
+    return false;
+}
+void AudioPlaySplash(void) { }
+void AudioPlayStep(void) { }
+void AudioPlayWaterStep(void) { }
+void ParticlesEmitOne(Vector3 position, Vector3 velocity, Color color,
+                      Vector3 size, float life, float gravity)
+{
+    (void)position;
+    (void)velocity;
+    (void)color;
+    (void)size;
+    (void)life;
+    (void)gravity;
+}
+
 float BlockCollisionHeightAt(int x, int y, int z)
 {
-    return GetBlockAt(x, y, z) == BLOCK_AIR ? 0.0f : 1.0f;
+    BlockType block = GetBlockAt(x, y, z);
+    return block == BLOCK_AIR || block == BLOCK_WATER ? 0.0f : 1.0f;
 }
 
 WorldBlockRegion WorldBlockRegionAt(int y)
@@ -62,6 +105,8 @@ static void ResetCollisionWorld(void)
     wallEnabled = false;
     ceilingEnabled = false;
     stairsEnabled = false;
+    waterEnabled = false;
+    groundEnabled = false;
 }
 
 static void TestHighSpeedHorizontalMovementStopsAtWall(void)
@@ -190,6 +235,55 @@ static void TestRuntimeStateReset(void)
     PlayerResetRuntimeState(NULL);
 }
 
+static void TestWaterStateUsesActualColumnSurface(void)
+{
+    ResetCollisionWorld();
+    waterEnabled = true;
+    PlayerWaterState water = PlayerWaterStateAt(
+        (Vector3){ 0.5f, 1.01f, 0.5f });
+    assert(water.feetSubmerged);
+    assert(water.bodySubmerged);
+    assert(water.eyesSubmerged);
+    assert(fabsf(water.surfaceY - 6.0f) < 0.0001f);
+    assert(fabsf(water.eyeDepth - (6.0f - 1.01f - EYE_HEIGHT)) < 0.0001f);
+
+    water = PlayerWaterStateAt((Vector3){ 0.5f, 5.20f, 0.5f });
+    assert(water.feetSubmerged);
+    assert(!water.bodySubmerged);
+    assert(!water.eyesSubmerged);
+    assert(water.eyeDepth == 0.0f);
+}
+
+static void TestSwimmingSpeedAndAscent(void)
+{
+    ResetCollisionWorld();
+    waterEnabled = true;
+    groundEnabled = true;
+    Player player = {
+        .position = { 0.5f, 1.01f, 0.5f },
+        .yaw = 0.0f,
+        .onGround = true
+    };
+    PlayerInput forward = { .forward = 1.0f };
+    for (int frame = 0; frame < 120; frame++) {
+        UpdatePlayerWithInput(&player, 1.0f / 60.0f, &forward);
+    }
+    float distance = player.position.z - 0.5f;
+    assert(distance > 5.0f && distance < 6.1f);
+
+    player = (Player){
+        .position = { 0.5f, 1.01f, 0.5f },
+        .yaw = 0.0f,
+        .onGround = true
+    };
+    PlayerInput ascend = { .vertical = 1.0f, .jumpPressed = true };
+    for (int frame = 0; frame < 120; frame++) {
+        ascend.jumpPressed = frame == 0;
+        UpdatePlayerWithInput(&player, 1.0f / 60.0f, &ascend);
+    }
+    assert(player.position.y > 3.01f);
+}
+
 int main(void)
 {
     TestHighSpeedHorizontalMovementStopsAtWall();
@@ -200,6 +294,8 @@ int main(void)
     TestInvalidCollisionPositionsAreBlocked();
     TestRuntimeStateIsPerPlayer();
     TestRuntimeStateReset();
+    TestWaterStateUsesActualColumnSurface();
+    TestSwimmingSpeedAndAscent();
     puts("player collision tests passed");
     return 0;
 }

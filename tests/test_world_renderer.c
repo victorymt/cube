@@ -1,0 +1,78 @@
+#include "world_renderer.h"
+
+#include "raymath.h"
+
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+
+static void TestMaterialProfiles(void)
+{
+    WorldMaterialProfile soil = WorldMaterialForTexture(TEX_DIRT);
+    WorldMaterialProfile water = WorldMaterialForTexture(TEX_WATER);
+    WorldMaterialProfile metal = WorldMaterialForTexture(TEX_IRON_ORE);
+    WorldMaterialProfile lava = WorldMaterialForTexture(TEX_LAVA);
+    assert(soil.kind == WORLD_MATERIAL_OPAQUE);
+    assert(soil.roughness > 0.9f);
+    assert(water.kind == WORLD_MATERIAL_WATER);
+    assert(water.specular > 0.8f);
+    assert(metal.kind == WORLD_MATERIAL_METAL);
+    assert(metal.roughness < soil.roughness);
+    assert(lava.emission == 1.0f);
+}
+
+static void TestLightingSanitization(void)
+{
+    WorldLightingState invalid = {
+        .sunDirection = { NAN, 0.0f, 0.0f },
+        .cameraPosition = { INFINITY, 0.0f, 0.0f },
+        .directStrength = NAN,
+        .ambientStrength = -4.0f,
+        .shadowStrength = 12.0f,
+        .fogDensity = INFINITY,
+        .fogStart = -50.0f,
+        .wetness = 3.0f,
+        .exposure = NAN,
+        .saturation = 8.0f,
+        .warmth = -2.0f,
+        .waveStrength = INFINITY,
+        .time = NAN,
+        .shadowsEnabled = true
+    };
+    WorldLightingState state = WorldLightingStateSanitize(invalid);
+    assert(fabsf(Vector3Length(state.sunDirection) - 1.0f) < 0.0001f);
+    assert(Vector3LengthSqr(state.cameraPosition) == 0.0f);
+    assert(state.directStrength == 0.0f);
+    assert(state.ambientStrength >= 0.02f);
+    assert(state.shadowStrength <= 0.92f);
+    assert(state.fogDensity == 0.0f);
+    assert(state.fogStart == 0.0f);
+    assert(state.wetness == 1.0f);
+    assert(state.exposure == 1.0f);
+    assert(state.saturation == 1.5f);
+    assert(state.warmth == 0.0f);
+    assert(state.waveStrength == 0.18f);
+    assert(state.time == 0.0f);
+    assert(!state.shadowsEnabled);
+}
+
+static void TestNoContextFallback(void)
+{
+    WorldRendererShutdown();
+    assert(!WorldRendererIsReady());
+    assert(!WorldRendererShadowsReady());
+    assert(WorldRendererTextureBytes() == 0);
+    assert(!WorldRendererInit(GRAPHICS_QUALITY_MEDIUM));
+    assert(!WorldRendererIsReady());
+    WorldRendererShutdown();
+    WorldRendererShutdown();
+}
+
+int main(void)
+{
+    TestMaterialProfiles();
+    TestLightingSanitization();
+    TestNoContextFallback();
+    puts("world renderer tests passed");
+    return 0;
+}

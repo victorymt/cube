@@ -4,6 +4,20 @@
 #include "planet_surface.h"
 #include "types.h"
 
+#define HOME_SEA_LEVEL 80
+
+typedef struct SurfaceTerrainSample {
+    float elevation;
+    float seaLevel;
+    float continentalness;
+    float erosion;
+    float ridge;
+    float peak;
+    float trench;
+    float slope;
+    Biome biome;
+} SurfaceTerrainSample;
+
 unsigned int Hash2D(int x, int z);
 unsigned int WorldHash2D(int x, int z);
 // Accepts already-wrapped coordinate bit patterns for overflow-safe mixing.
@@ -13,7 +27,13 @@ float TerrainNoise(float x, float z);
 float BiomeNoise(int x, int z);
 Biome BiomeAt(int x, int z);
 int TerrainHeight(int x, int z, TerrainMode mode);
+SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode);
+int TerrainSeaLevel(TerrainMode mode);
 int PlanetTerrainHeight(int x, int z);
+int PlanetTerrainSeaLevel(void);
+bool FindSafeSurfaceLanding(int preferredX, int preferredZ, int maxRadius,
+                            int footprintRadius, int *outX, int *outZ,
+                            int *outGroundY);
 PlanetBiome PlanetBiomeAt(int x, int z);
 void PlanetSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude);
 PlanetSurfaceSample PlanetSurfaceBaselineAt(int x, int z);

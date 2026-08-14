@@ -27,6 +27,12 @@ uint32_t WorldGetSeed(void)
     return propertyWorldSeed;
 }
 
+bool IsValidBlockType(BlockType type)
+{
+    return (type >= BLOCK_AIR && type <= BLOCK_SPACESHIP_OCCUPIED) ||
+           (type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END);
+}
+
 static void SetPropertySeed(uint32_t seed)
 {
     propertyWorldSeed = seed == 0 ? DEFAULT_WORLD_SEED : seed;
@@ -117,6 +123,8 @@ static PlanetProfileGenerationInput ProfileGenerationInputFor(
         .stellarAgeGyr = summary->ageGyr,
         .orbitalEccentricity =
             system->physicalSnapshot.planetOrbits[index].eccentricity,
+        .orbitalMeanAnomalyAtEpochRad =
+            system->physicalSnapshot.planetOrbits[index].meanAnomalyAtEpochRad,
         .orbitalPeriodGameTime =
             (float)SolarSystemPlanetOrbitPeriodGameTime(system, index),
         .stellarCount = summary->stellarCount,
@@ -2523,6 +2531,47 @@ static void TestSatelliteNameCapacity(void)
     assert(sizeof(((SpaceSatelliteInfo *)0)->name) >= required);
 }
 
+static void WriteSpaceEditFixture(FILE *file, BlockEdit edit)
+{
+    uint32_t count = 1;
+    assert(fwrite(&count, sizeof(count), 1, file) == 1);
+    assert(fwrite(&edit, sizeof(edit), 1, file) == 1);
+    rewind(file);
+}
+
+static void TestSpaceEditLayerMigration(void)
+{
+    FILE *legacy = tmpfile();
+    assert(legacy);
+    WriteSpaceEditFixture(legacy, (BlockEdit){
+        .x = 7, .y = 112, .z = -9, .type = BLOCK_STAR_MATTER
+    });
+    assert(SpaceLoadEdits(legacy, 100));
+    fclose(legacy);
+
+    FILE *saved = tmpfile();
+    assert(saved);
+    assert(SpaceSaveEdits(saved));
+    rewind(saved);
+    uint32_t count = 0;
+    BlockEdit migrated = { 0 };
+    assert(fread(&count, sizeof(count), 1, saved) == 1);
+    assert(count == 1);
+    assert(fread(&migrated, sizeof(migrated), 1, saved) == 1);
+    assert(migrated.x == 7 && migrated.z == -9);
+    assert(migrated.y == SPACE_LAYER_Y + 12);
+    assert(migrated.type == BLOCK_STAR_MATTER);
+    fclose(saved);
+
+    FILE *invalid = tmpfile();
+    assert(invalid);
+    WriteSpaceEditFixture(invalid, (BlockEdit){
+        .x = 0, .y = 99, .z = 0, .type = BLOCK_STONE
+    });
+    assert(!SpaceLoadEdits(invalid, 100));
+    fclose(invalid);
+}
+
 int main(void)
 {
     TestHomeScaleDiagnostics();
@@ -2546,6 +2595,7 @@ int main(void)
     TestDeterministicSpaceQueries();
     TestConcurrentSpaceQueries();
     TestSatelliteNameCapacity();
+    TestSpaceEditLayerMigration();
     puts("space properties tests passed");
     return 0;
 }

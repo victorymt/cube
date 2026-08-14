@@ -71,7 +71,7 @@ static int NetherSurface(int x, int z)
 static void GenerateNetherChunk(NetherChunk *chunk, int cx, int cz)
 {
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int ly = 0; ly < WORLD_HEIGHT; ly++) {
+        for (int ly = 0; ly < NETHER_HEIGHT; ly++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 chunk->blocks[lx][ly][lz] = (unsigned short)BLOCK_AIR;
             }
@@ -90,7 +90,7 @@ static void GenerateNetherChunk(NetherChunk *chunk, int cx, int cz)
             bool lavaPit = (h % 17u) == 0u;
             int lavaLevel = surface - 3;
 
-            for (int ly = 0; ly <= surface && ly < WORLD_HEIGHT; ly++) {
+            for (int ly = 0; ly <= surface && ly < NETHER_HEIGHT; ly++) {
                 int by = NETHER_LAYER_Y + ly;
                 BlockType type = BLOCK_NETHERRACK;
                 if (lavaPit && ly <= lavaLevel) type = BLOCK_LAVA;
@@ -156,11 +156,11 @@ static void RebuildNetherChunkMesh(NetherChunk *chunk)
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
     bool hasSolid = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
-                                  WORLD_HEIGHT, NETHER_LAYER_Y,
+                                  NETHER_HEIGHT, NETHER_LAYER_Y,
                                   chunk->cx, chunk->cz, false, faces,
                                   nearbyTorchIndices, nearbyTorchCount, &solidMesh);
     bool hasWater = BuildMeshData((const unsigned short (*)[CHUNK_SIZE])chunk->blocks,
-                                  WORLD_HEIGHT, NETHER_LAYER_Y,
+                                  NETHER_HEIGHT, NETHER_LAYER_Y,
                                   chunk->cx, chunk->cz, true, faces,
                                   nearbyTorchIndices, nearbyTorchCount, &waterMesh);
 
@@ -255,31 +255,41 @@ void NetherSetBlock(int x, int y, int z, BlockType type)
     chunk->dirty = true;
 }
 
-void NetherSaveEdits(FILE *file)
+bool NetherSaveEdits(FILE *file)
 {
+    if (!file) return false;
     uint32_t count = (uint32_t)netherEditCount;
-    fwrite(&count, sizeof(count), 1, file);
+    if (fwrite(&count, sizeof(count), 1, file) != 1) return false;
     if (netherEditCount > 0) {
-        fwrite(netherEdits, sizeof(BlockEdit), (size_t)netherEditCount, file);
+        if (fwrite(netherEdits, sizeof(BlockEdit), (size_t)netherEditCount, file) !=
+            (size_t)netherEditCount) return false;
     }
+    return true;
 }
 
-void NetherLoadEdits(FILE *file)
+bool NetherLoadEdits(FILE *file)
 {
-    netherEditCount = 0;
+    if (!file) return false;
 
     uint32_t count = 0;
-    if (fread(&count, sizeof(count), 1, file) != 1) return;
+    if (fread(&count, sizeof(count), 1, file) != 1) return true;
 
-    if (count > MAX_NETHER_EDITS) return;
+    if (count > MAX_NETHER_EDITS) return false;
 
+    BlockEdit *loaded = count > 0 ? malloc((size_t)count * sizeof(*loaded)) : NULL;
+    if (count > 0 && !loaded) return false;
     for (uint32_t i = 0; i < count; i++) {
-        BlockEdit edit;
-        if (fread(&edit, sizeof(edit), 1, file) != 1) break;
-        if (edit.y < NETHER_LAYER_Y || edit.y >= NETHER_LAYER_TOP) continue;
-        if (!IsValidBlockType(edit.type)) continue;
-        if (netherEditCount < MAX_NETHER_EDITS) netherEdits[netherEditCount++] = edit;
+        if (fread(&loaded[i], sizeof(loaded[i]), 1, file) != 1 ||
+            loaded[i].y < NETHER_LAYER_Y || loaded[i].y >= NETHER_LAYER_TOP ||
+            !IsValidBlockType(loaded[i].type)) {
+            free(loaded);
+            return false;
+        }
     }
+    netherEditCount = (int)count;
+    if (count > 0) memcpy(netherEdits, loaded, (size_t)count * sizeof(*loaded));
+    free(loaded);
+    return true;
 }
 
 void UnloadAllNetherChunks(void)
@@ -304,4 +314,22 @@ int GetActiveNetherChunkCount(void)
         if (netherChunks[i].loaded) count++;
     }
     return count;
+}
+
+RenderResourceSnapshot NetherGetRenderResourceSnapshot(void)
+{
+    RenderResourceSnapshot snapshot = { 0 };
+    for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
+        const NetherChunk *chunk = &netherChunks[i];
+        if (!chunk->loaded) continue;
+        if (chunk->hasModel) {
+            RenderResourceSnapshotAddModel(&snapshot, &chunk->model,
+                                           RENDER_RESOURCE_SOLID);
+        }
+        if (chunk->hasWaterModel) {
+            RenderResourceSnapshotAddModel(&snapshot, &chunk->waterModel,
+                                           RENDER_RESOURCE_TRANSPARENT);
+        }
+    }
+    return snapshot;
 }

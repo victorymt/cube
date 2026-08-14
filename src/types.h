@@ -6,8 +6,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define WORLD_HEIGHT 32
 #define CHUNK_SIZE 16
+#define SURFACE_WORLD_HEIGHT 256
+#define SURFACE_SECTION_HEIGHT 16
+#define SURFACE_SECTION_COUNT (SURFACE_WORLD_HEIGHT / SURFACE_SECTION_HEIGHT)
+// WORLD_HEIGHT remains the public logical surface height for older call sites.
+#define WORLD_HEIGHT SURFACE_WORLD_HEIGHT
 #define MIN_RENDER_DISTANCE_CHUNKS 2
 #define DEFAULT_RENDER_DISTANCE_CHUNKS 10
 #define MAX_RENDER_DISTANCE_CHUNKS 12
@@ -32,7 +36,8 @@
 #define IMPORT_MAX_SOURCE_DIMENSION 8192
 #define IMPORT_MAX_SOURCE_PIXELS 33554432u
 #define IMPORT_MAX_TARGET_PIXELS 65536u
-#define IMPORT_MAX_BLOCK_OPERATIONS 262144u
+#define IMPORT_MAX_BLOCK_OPERATIONS \
+    (64u * 64u * (unsigned int)SURFACE_WORLD_HEIGHT * 2u)
 #define IMPORT_PRECISION_STEP 16
 #define IMPORT_PRECISION_BIG_STEP 64
 #define SAVE_FILE "voxelcraft_save.txt"
@@ -40,11 +45,6 @@
 #define DAY_LENGTH_SECONDS 240.0f
 #define DEFAULT_WORLD_SEED 0x564f5843u
 #define SUN_DISTANCE 420.0f
-#define CLOUD_COUNT 8
-#define CLOUD_SPAN 500.0f
-#define CLOUD_DRIFT 0.8f
-#define CLOUD_BASE_HEIGHT 40.0f
-
 #define PLAYER_HEIGHT 1.75f
 #define PLAYER_RADIUS 0.28f
 #define EYE_HEIGHT 1.55f
@@ -63,15 +63,16 @@
 #define CAMERA_MAX_EXTRA_DISTANCE_CHUNKS 2
 #define CAMERA_NEAR_CULL_DISTANCE 0.1f
 
-#define SPACE_LAYER_Y 100
+#define SPACE_LAYER_Y (SURFACE_WORLD_HEIGHT + 64)
 #define SPACE_LAYER_HEIGHT 128
 #define SPACE_LAYER_TOP (SPACE_LAYER_Y + SPACE_LAYER_HEIGHT)
-#define SPACE_ENTER_Y 120.0f
-#define SPACE_EXIT_Y 80.0f
+#define SPACE_ENTER_Y ((float)SPACE_LAYER_Y + 24.0f)
+#define SPACE_EXIT_Y ((float)SURFACE_WORLD_HEIGHT + 48.0f)
 #define SPACE_RENDER_DISTANCE_CHUNKS 4
 
 #define NETHER_LAYER_Y (-64)
 #define NETHER_LAYER_TOP (-32)
+#define NETHER_HEIGHT (NETHER_LAYER_TOP - NETHER_LAYER_Y)
 #define NETHER_RENDER_DISTANCE_CHUNKS 4
 
 #define MAX_TORCH_LIGHTS 512
@@ -138,6 +139,11 @@ typedef enum BlockType {
     BLOCK_SANDSTONE,
     BLOCK_OBSIDIAN,
     BLOCK_NETHER_PORTAL,
+    BLOCK_SPACESHIP_CORE_NORTH,
+    BLOCK_SPACESHIP_CORE_EAST,
+    BLOCK_SPACESHIP_CORE_SOUTH,
+    BLOCK_SPACESHIP_CORE_WEST,
+    BLOCK_SPACESHIP_OCCUPIED,
     BLOCK_COLOR_START = 256,
     BLOCK_COLOR_END = BLOCK_COLOR_START + COLOR_BLOCK_COUNT - 1
 } BlockType;
@@ -280,21 +286,19 @@ typedef struct FloraStructureInstance {
     float windResponse;
 } FloraStructureInstance;
 
-typedef struct Chunk {
-    bool loaded;
+typedef struct ChunkSection {
     bool dirty;
-    bool generating;
+    // Monotonic content revision bumped by every MarkChunkDirty* call.
+    // Mesh jobs record it at snapshot time so stale uploads do not clear
+    // dirty flags that were re-set after the snapshot (lost-edit race).
+    uint32_t dirtyStamp;
     bool hasModel;
     bool hasWaterModel;
     bool hasFloraModel;
-    int cx;
-    int cz;
+    int sectionY;
     Model model;
     Model waterModel;
     Model floraModel;
-    float floraActivity;
-    float floraCapacity;
-    float floraSampleTimer;
     float floraVisualScale;
     float *floraTargetScales;
     float *floraTargetWind;
@@ -304,10 +308,25 @@ typedef struct Chunk {
     unsigned char *floraBaseColors;
     FloraVisualInstance *floraVisualInstances;
     int floraTargetScaleCount;
+    unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+} ChunkSection;
+
+typedef struct Chunk {
+    bool loaded;
+    bool generating;
+    int cx;
+    int cz;
+    // Incarnation counter bumped on every slot reuse (EnsureChunk).
+    // In-flight mesh jobs from a previous incarnation are discarded on
+    // upload so stale terrain never overwrites a freshly generated chunk.
+    uint32_t generation;
+    float floraActivity;
+    float floraCapacity;
+    float floraSampleTimer;
     float floraWindAngle;
     FloraStructureInstance floraStructures[MAX_CHUNK_FLORA_STRUCTURES];
     int floraStructureCount;
-    unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    ChunkSection *sections[SURFACE_SECTION_COUNT];
 } Chunk;
 
 typedef struct BlockEdit {

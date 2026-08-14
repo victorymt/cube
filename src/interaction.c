@@ -597,9 +597,11 @@ float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistanc
     return -1.0f;
 }
 
-HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
+HitResult RaycastBlocksFiltered(Vector3 origin, Vector3 direction,
+                                float maxDistance, unsigned mask)
 {
     HitResult result = { 0 };
+    if ((mask & RAYCAST_BLOCK_ALL) == 0u) return result;
     if (!RaycastPrepare(origin, &direction, maxDistance)) return result;
     Vector3 pos = origin;
     int x = (int)floorf(pos.x);
@@ -633,7 +635,12 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
             !SpaceBlockReadyAt(x, y, z)) {
             return result;
         }
-        if (GetBlockAt(x, y, z) != BLOCK_AIR) {
+        BlockType block = GetBlockAt(x, y, z);
+        bool liquid = IsLiquidBlock(block);
+        bool accepted = block != BLOCK_AIR &&
+                        ((liquid && (mask & RAYCAST_BLOCK_LIQUID) != 0u) ||
+                         (!liquid && (mask & RAYCAST_BLOCK_SOLID) != 0u));
+        if (accepted) {
             result.hit = true;
             result.x = x;
             result.y = y;
@@ -669,6 +676,12 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
     }
 
     return result;
+}
+
+HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
+{
+    return RaycastBlocksFiltered(origin, direction, maxDistance,
+                                 RAYCAST_BLOCK_ALL);
 }
 
 bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition)

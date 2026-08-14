@@ -18,6 +18,13 @@
 
 #define PLAYER_COLLISION_STEP 0.25f
 #define PLAYER_MAX_MOVE_SUBSTEPS 64u
+#define WATER_WALK_SPEED 3.0f
+#define WATER_SPRINT_SPEED 4.2f
+#define WATER_VERTICAL_SPEED 3.0f
+#define WATER_MAX_VERTICAL_SPEED 3.5f
+#define WATER_HORIZONTAL_RESPONSE 6.0f
+#define WATER_VERTICAL_RESPONSE 5.0f
+#define WATER_SURFACE_SCAN_LIMIT 512
 
 typedef struct PlayerCollisionBounds {
     int minX;
@@ -284,28 +291,93 @@ void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool t
     else if (ShipIsDriving() && ShipIsCruising()) targetFov += 12.0f;
     float smoothing = Clamp(dt * CAMERA_FOV_SMOOTHING, 0.0f, 1.0f);
 
-    camera->target = Vector3Add(eye, look);
+    Vector3 pivot = eye;
+    if (thirdPerson && ShipIsDriving()) {
+        pivot.y = player->position.y + 0.62f;
+    }
+    camera->target = Vector3Add(pivot, look);
     if (thirdPerson) {
-        float distance = 3.5f;
-        float occlusion = RaycastCameraOcclusion(eye, Vector3Negate(look), distance);
+        float distance = ShipIsDriving() ? 5.6f : 3.5f;
+        float occlusion = RaycastCameraOcclusion(pivot, Vector3Negate(look), distance);
         if (occlusion > 0.3f) distance = occlusion - 0.25f;
         else if (occlusion >= 0.0f) distance = 0.3f;
-        camera->position = Vector3Add(eye, Vector3Scale(Vector3Negate(look), distance));
+        camera->position = Vector3Add(pivot, Vector3Scale(Vector3Negate(look), distance));
     } else {
         camera->position = eye;
     }
     camera->fovy = Lerp(camera->fovy, targetFov, smoothing);
 }
 
-void UpdatePlayer(Player *player, float dt)
+static bool LiquidAt(Vector3 position, float height)
 {
-    if (IsKeyPressed(KEY_F)) {
+    return IsLiquidBlock(GetBlockAt((int)floorf(position.x),
+                                    (int)floorf(position.y + height),
+                                    (int)floorf(position.z)));
+}
+
+PlayerWaterState PlayerWaterStateAt(Vector3 position)
+{
+    PlayerWaterState state = {
+        .feetSubmerged = LiquidAt(position, 0.30f),
+        .bodySubmerged = LiquidAt(position, PLAYER_HEIGHT * 0.52f),
+        .eyesSubmerged = LiquidAt(position, EYE_HEIGHT),
+        .surfaceY = position.y + EYE_HEIGHT
+    };
+    if (!state.eyesSubmerged) return state;
+
+    int x = (int)floorf(position.x);
+    int z = (int)floorf(position.z);
+    int y = (int)floorf(position.y + EYE_HEIGHT);
+    int surfaceBlockY = y;
+    for (int offset = 0; offset < WATER_SURFACE_SCAN_LIMIT; offset++) {
+        int sampleY = y + offset;
+        if (sampleY < y || !IsLiquidBlock(GetBlockAt(x, sampleY, z))) {
+            surfaceBlockY = sampleY;
+            break;
+        }
+        surfaceBlockY = sampleY + 1;
+    }
+    state.surfaceY = (float)surfaceBlockY;
+    state.eyeDepth = fmaxf(0.0f, state.surfaceY -
+                                  (position.y + EYE_HEIGHT));
+    return state;
+}
+
+PlayerInput PlayerInputFromKeyboard(void)
+{
+    PlayerInput input = {
+        .forward = (IsKeyDown(KEY_W) ? 1.0f : 0.0f) -
+                   (IsKeyDown(KEY_S) ? 1.0f : 0.0f),
+        .strafe = (IsKeyDown(KEY_D) ? 1.0f : 0.0f) -
+                  (IsKeyDown(KEY_A) ? 1.0f : 0.0f),
+        .vertical = (IsKeyDown(KEY_SPACE) ? 1.0f : 0.0f) -
+                    (IsKeyDown(KEY_LEFT_CONTROL) ? 1.0f : 0.0f),
+        .sprint = IsKeyDown(KEY_LEFT_SHIFT),
+        .jumpPressed = IsKeyPressed(KEY_SPACE),
+        .toggleFloating = IsKeyPressed(KEY_F),
+        .lookDelta = GetMouseDelta()
+    };
+    return input;
+}
+
+static float PlayerApproach(float current, float target, float dt,
+                            float response)
+{
+    if (!isfinite(current)) current = 0.0f;
+    float amount = 1.0f - expf(-fmaxf(dt, 0.0f) * response);
+    return current + (target - current) * amount;
+}
+
+void UpdatePlayerWithInput(Player *player, float dt, const PlayerInput *input)
+{
+    if (!player || !input || !isfinite(dt) || dt <= 0.0f) return;
+    if (input->toggleFloating) {
         player->floating = !player->floating;
         player->velocity.y = 0.0f;
         player->onGround = false;
     }
 
-    Vector2 mouseDelta = GetMouseDelta();
+    Vector2 mouseDelta = input->lookDelta;
     player->yaw -= mouseDelta.x * MOUSE_SENSITIVITY;
     player->pitch -= mouseDelta.y * MOUSE_SENSITIVITY;
     player->pitch = Clamp(player->pitch, -1.45f, 1.45f);
@@ -314,20 +386,29 @@ void UpdatePlayer(Player *player, float dt)
     Vector3 forward = FlatForward(player->yaw);
     Vector3 right = RightFromYaw(player->yaw);
 
-    if (IsKeyDown(KEY_W)) wish = Vector3Add(wish, forward);
-    if (IsKeyDown(KEY_S)) wish = Vector3Subtract(wish, forward);
-    if (IsKeyDown(KEY_D)) wish = Vector3Add(wish, right);
-    if (IsKeyDown(KEY_A)) wish = Vector3Subtract(wish, right);
+    float forwardInput = Clamp(input->forward, -1.0f, 1.0f);
+    float strafeInput = Clamp(input->strafe, -1.0f, 1.0f);
+    wish = Vector3Add(Vector3Scale(forward, forwardInput),
+                      Vector3Scale(right, strafeInput));
 
     if (Vector3LengthSqr(wish) > 0.0f) wish = Vector3Normalize(wish);
-    float speed = IsKeyDown(KEY_LEFT_SHIFT) ? SPRINT_SPEED : WALK_SPEED;
-    player->velocity.x = wish.x * speed;
-    player->velocity.z = wish.z * speed;
-
-    int feetX = (int)floorf(player->position.x);
-    int feetY = (int)floorf(player->position.y + 0.3f);
-    int feetZ = (int)floorf(player->position.z);
-    bool inWater = IsLiquidBlock(GetBlockAt(feetX, feetY, feetZ));
+    PlayerWaterState water = PlayerWaterStateAt(player->position);
+    bool swimming = water.bodySubmerged || water.eyesSubmerged;
+    float speed = input->sprint ? SPRINT_SPEED : WALK_SPEED;
+    if (swimming) speed = input->sprint ? WATER_SPRINT_SPEED : WATER_WALK_SPEED;
+    float targetVelocityX = wish.x * speed;
+    float targetVelocityZ = wish.z * speed;
+    if (swimming) {
+        player->velocity.x = PlayerApproach(player->velocity.x,
+                                            targetVelocityX, dt,
+                                            WATER_HORIZONTAL_RESPONSE);
+        player->velocity.z = PlayerApproach(player->velocity.z,
+                                            targetVelocityZ, dt,
+                                            WATER_HORIZONTAL_RESPONSE);
+    } else {
+        player->velocity.x = targetVelocityX;
+        player->velocity.z = targetVelocityZ;
+    }
 
     bool inSpace = WorldIsSpaceActive();
     // Scale the takeoff impulse with gravity so high-g worlds remain
@@ -346,24 +427,28 @@ void UpdatePlayer(Player *player, float dt)
         }
 
         player->velocity.y -= player->velocity.y * 2.0f * dt;
-        if (IsKeyDown(KEY_SPACE)) player->velocity.y += 12.0f * dt;
-        if (IsKeyDown(KEY_LEFT_CONTROL)) player->velocity.y -= 12.0f * dt;
+        player->velocity.y += Clamp(input->vertical, -1.0f, 1.0f) *
+                              12.0f * dt;
         if (player->velocity.y > 10.0f) player->velocity.y = 10.0f;
         if (player->velocity.y < -10.0f) player->velocity.y = -10.0f;
     } else if (player->floating) {
-        player->velocity.y = 0.0f;
-        if (IsKeyDown(KEY_SPACE)) player->velocity.y += FLOAT_VERTICAL_SPEED;
-        if (IsKeyDown(KEY_LEFT_CONTROL)) player->velocity.y -= FLOAT_VERTICAL_SPEED;
-    } else if (inWater) {
-        if (IsKeyPressed(KEY_SPACE) && player->onGround) {
-            player->velocity.y = jumpSpeed * 0.75f;
-            player->onGround = false;
+        player->velocity.y = Clamp(input->vertical, -1.0f, 1.0f) *
+                             FLOAT_VERTICAL_SPEED;
+    } else if (swimming) {
+        float verticalInput = Clamp(input->vertical, -1.0f, 1.0f);
+        float targetVertical = verticalInput * WATER_VERTICAL_SPEED;
+        if (fabsf(verticalInput) < 0.001f) {
+            targetVertical = water.eyesSubmerged ? 0.35f : -0.60f;
         }
-        player->velocity.y -= GRAVITY * gravityScale * 0.3f * dt;
-        if (IsKeyDown(KEY_SPACE)) player->velocity.y += 11.0f * dt;
-        if (player->velocity.y < -6.0f) player->velocity.y = -6.0f;
+        player->velocity.y = PlayerApproach(player->velocity.y,
+                                            targetVertical, dt,
+                                            WATER_VERTICAL_RESPONSE);
+        player->velocity.y = Clamp(player->velocity.y,
+                                   -WATER_MAX_VERTICAL_SPEED,
+                                   WATER_MAX_VERTICAL_SPEED);
+        if (verticalInput > 0.0f) player->onGround = false;
     } else {
-        if (IsKeyPressed(KEY_SPACE) && player->onGround) {
+        if (input->jumpPressed && input->vertical > 0.0f && player->onGround) {
             player->velocity.y = jumpSpeed;
             player->onGround = false;
         }
@@ -376,7 +461,8 @@ void UpdatePlayer(Player *player, float dt)
 
     float horizontalSpeed = sqrtf(player->velocity.x * player->velocity.x + player->velocity.z * player->velocity.z);
 
-    bool feetInWater = IsWaterBlock(GetBlockAt(feetX, feetY, feetZ));
+    PlayerWaterState movedWater = PlayerWaterStateAt(player->position);
+    bool feetInWater = movedWater.feetSubmerged;
     if (feetInWater && !player->wasInWater) AudioPlaySplash();
     player->wasInWater = feetInWater;
 
@@ -406,4 +492,10 @@ void UpdatePlayer(Player *player, float dt)
             }
         }
     }
+}
+
+void UpdatePlayer(Player *player, float dt)
+{
+    PlayerInput input = PlayerInputFromKeyboard();
+    UpdatePlayerWithInput(player, dt, &input);
 }

@@ -20,6 +20,11 @@ static int biomeSamples = 0;
 static int planetSurfaceSamples = 0;
 static int audioChanges = 0;
 static bool rainAudioEnabled = false;
+static float lightDaylight = 0.5f;
+static float lightEclipse = 0.0f;
+static bool homeWorldSurfaceActive = true;
+static PlanetAtmosphereType planetAtmosphereType = PLANET_ATMOSPHERE_BREATHABLE;
+static float planetAtmosphereDensity = 0.62f;
 
 void AudioSetRain(bool enabled)
 {
@@ -61,14 +66,55 @@ bool PlanetWorldIsActive(void)
     return planetWorldActive;
 }
 
+bool HomeWorldSurfaceIsActive(void)
+{
+    return homeWorldSurfaceActive && !planetWorldActive;
+}
+
+float HomeWorldSpaceFade(Vector3 position)
+{
+    (void)position;
+    return 0.0f;
+}
+
+float PlanetWorldAtmosphereFade(Vector3 position)
+{
+    (void)position;
+    return 0.0f;
+}
+
 const PlanetProfile *PlanetWorldProfile(void)
 {
     static PlanetProfile profile = {
         .cloudCoverage = 0.52f,
+        .seasonalHumidityBias = 0.24f,
         .windStrength = 0.44f,
         .prevailingWindAngle = 0.75f
     };
+    profile.atmosphereType = planetAtmosphereType;
+    profile.atmosphereDensity = planetAtmosphereDensity;
     return &profile;
+}
+
+bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
+{
+    (void)surfacePosition;
+    if (!out) return false;
+    *out = (PlanetLightState){
+        .daylight = lightDaylight,
+        .eclipse = lightEclipse,
+        .sourceCount = 1,
+        .totalIntensity = 1.0f
+    };
+    return true;
+}
+
+bool PlanetWorldLightStateAtTime(Vector3 surfacePosition,
+                                 double sampleTime,
+                                 PlanetLightState *out)
+{
+    (void)sampleTime;
+    return PlanetWorldLightStateAt(surfacePosition, out);
 }
 
 uint32_t PlanetWorldSeed(void)
@@ -135,8 +181,38 @@ static void ResetRuntime(void)
     planetSurfaceSamples = 0;
     audioChanges = 0;
     rainAudioEnabled = false;
+    lightDaylight = 0.5f;
+    lightEclipse = 0.0f;
+    homeWorldSurfaceActive = true;
+    planetAtmosphereType = PLANET_ATMOSPHERE_BREATHABLE;
+    planetAtmosphereDensity = 0.62f;
     WeatherInit();
     audioChanges = 0;
+}
+
+static void TestPlanetLightFeedbackChangesWeather(void)
+{
+    ResetRuntime();
+    planetWorldActive = true;
+    lightDaylight = 1.0f;
+    WeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    float sunlitPrecipitation = WeatherPrecipitationRate();
+    float sunlitClouds = WeatherCloudCover();
+
+    ResetRuntime();
+    planetWorldActive = true;
+    lightDaylight = 0.0f;
+    lightEclipse = 1.0f;
+    WeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    float eclipsedPrecipitation = WeatherPrecipitationRate();
+    float eclipsedClouds = WeatherCloudCover();
+
+    assert(isfinite(sunlitPrecipitation));
+    assert(isfinite(eclipsedPrecipitation));
+    assert(isfinite(sunlitClouds));
+    assert(isfinite(eclipsedClouds));
+    assert(fabsf(eclipsedPrecipitation - sunlitPrecipitation) > 0.0001f ||
+           fabsf(eclipsedClouds - sunlitClouds) > 0.0001f);
 }
 
 static void TestInvalidDeltaTimeIsIgnored(void)
@@ -174,6 +250,45 @@ static void TestHugeDeltaTimeHasBoundedEmission(void)
     particleEmissions = 0;
     WeatherUpdate(1.0f / 60.0f, (Vector3){ 4.0f, 20.0f, -8.0f });
     assert(particleEmissions <= 2);
+}
+
+static void TestLongRunStaysFiniteAndBounded(void)
+{
+    ResetRuntime();
+    WeatherCycle();
+
+    for (int frame = 0; frame < 20000; frame++) {
+        particleEmissions = 0;
+        Vector3 position = {
+            (float)((frame * 17) % 257) - 128.0f,
+            20.0f + (float)(frame % 5),
+            (float)((frame * 31) % 257) - 128.0f
+        };
+        WeatherUpdate(1.0f / 60.0f, position);
+        assert(particleEmissions <= 2);
+        assert(isfinite(WeatherSkyFactor()));
+        assert(isfinite(WeatherCloudCover()));
+        assert(isfinite(WeatherPrecipitationRate()));
+        assert(isfinite(WeatherStormIntensity()));
+        assert(isfinite(WeatherWindIntensity()));
+        assert(WeatherSkyFactor() >= 0.0f && WeatherSkyFactor() <= 1.0f);
+        assert(WeatherCloudCover() >= 0.0f && WeatherCloudCover() <= 1.0f);
+        assert(WeatherPrecipitationRate() >= 0.0f &&
+               WeatherPrecipitationRate() <= 1.0f);
+        assert(WeatherStormIntensity() >= 0.0f &&
+               WeatherStormIntensity() <= 1.0f);
+        assert(WeatherWindIntensity() >= 0.0f &&
+               WeatherWindIntensity() <= 1.0f);
+
+        if ((frame % 997) == 0) {
+            particleEmissions = 0;
+            WeatherUpdate(0.25f, (Vector3){ NAN, 20.0f, 0.0f });
+            assert(particleEmissions == 0);
+            assert(isfinite(WeatherPrecipitationRate()));
+            assert(WeatherPrecipitationRate() >= 0.0f &&
+                   WeatherPrecipitationRate() <= 1.0f);
+        }
+    }
 }
 
 static void TestInvalidPositionsAvoidSamplingAndEmission(void)
@@ -231,6 +346,66 @@ static void TestExtremeWorldCellsReturnSafeDefaults(void)
     assert(planetSurfaceSamples == 0);
 }
 
+static void TestVisualStateUsesWeatherFieldWithoutMutation(void)
+{
+    ResetRuntime();
+    Weather weatherBefore = WeatherGetCurrent();
+    WeatherVisualState first = WeatherVisualStateAtWorld(
+        (Vector3){ 18.0f, 20.0f, -42.0f }, simulationTime, 0.72f);
+    WeatherVisualState replay = WeatherVisualStateAtWorld(
+        (Vector3){ 18.0f, 20.0f, -42.0f }, simulationTime, 0.72f);
+    assert(first.active);
+    assert(first.active == replay.active);
+    assert(first.atmosphereDensity == replay.atmosphereDensity);
+    assert(first.daylight == replay.daylight);
+    assert(first.cloudCover == replay.cloudCover);
+    assert(first.cloudBaseHeight == replay.cloudBaseHeight);
+    assert(first.cloudThickness == replay.cloudThickness);
+    assert(first.cloudOpacity == replay.cloudOpacity);
+    assert(first.fogDensity == replay.fogDensity);
+    assert(first.visibility == replay.visibility);
+    assert(first.precipitationVeil == replay.precipitationVeil);
+    assert(first.stormDarkening == replay.stormDarkening);
+    assert(first.windDrift == replay.windDrift);
+    assert(first.windAngle == replay.windAngle);
+    assert(first.snowFraction == replay.snowFraction);
+    assert(WeatherGetCurrent() == weatherBefore);
+    assert(first.visibility >= 0.0f && first.visibility <= 1.0f);
+    assert(first.fogDensity >= 0.0f && first.fogDensity <= 1.0f);
+
+    float minimumClouds = 1.0f;
+    float maximumClouds = 0.0f;
+    for (int index = 0; index < 80; index++) {
+        WeatherVisualState sample = WeatherVisualStateAtWorld(
+            (Vector3){ (float)(index * 311 - 9000), 20.0f,
+                       (float)(index * index * 13 - 4000) },
+            simulationTime + (double)index * 7.0, 0.72f);
+        assert(sample.active);
+        minimumClouds = fminf(minimumClouds, sample.cloudCover);
+        maximumClouds = fmaxf(maximumClouds, sample.cloudCover);
+    }
+    assert(maximumClouds - minimumClouds > 0.12f);
+}
+
+static void TestVisualStateSafeFallbacks(void)
+{
+    ResetRuntime();
+    WeatherVisualState invalid = WeatherVisualStateAtWorld(
+        (Vector3){ NAN, 20.0f, 0.0f }, simulationTime, 0.5f);
+    assert(!invalid.active);
+    assert(invalid.visibility == 1.0f);
+
+    planetWorldActive = true;
+    planetAtmosphereType = PLANET_ATMOSPHERE_NONE;
+    planetAtmosphereDensity = 0.0f;
+    WeatherVisualState airless = WeatherVisualStateAtWorld(
+        (Vector3){ 4.0f, 20.0f, -8.0f }, simulationTime, 0.5f);
+    assert(!airless.active);
+    assert(airless.visibility == 1.0f);
+    assert(airless.cloudOpacity == 0.0f);
+    assert(planetSurfaceSamples == 0);
+}
+
 static void TestNormalRainAndSnowStillEmit(void)
 {
     ResetRuntime();
@@ -268,11 +443,15 @@ int main(void)
 {
     TestInvalidDeltaTimeIsIgnored();
     TestHugeDeltaTimeHasBoundedEmission();
+    TestLongRunStaysFiniteAndBounded();
     TestInvalidPositionsAvoidSamplingAndEmission();
     TestInvalidSimulationTimeReturnsClearWeather();
     TestExtremeWorldCellsReturnSafeDefaults();
+    TestVisualStateUsesWeatherFieldWithoutMutation();
+    TestVisualStateSafeFallbacks();
     TestNormalRainAndSnowStillEmit();
     TestInitRestoresCleanState();
+    TestPlanetLightFeedbackChangesWeather();
     puts("weather runtime tests passed");
     return 0;
 }

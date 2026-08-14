@@ -29,6 +29,10 @@ typedef enum PlanetBiome {
 typedef struct PlanetSurfaceSample {
     float continentalness;
     float regionalness;
+    float erosion;
+    float ridge;
+    float peak;
+    float trench;
     float climate;
     float detail;
     float temperature;
