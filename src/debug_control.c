@@ -42,6 +42,37 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "fluid inspect") == 0) {
+        control->fluidUsePlayerPosition = true;
+        return DEBUG_CONTROL_COMMAND_FLUID_INSPECT;
+    }
+    int fluidX = 0;
+    int fluidY = 0;
+    int fluidZ = 0;
+    unsigned fluidValue = 0u;
+    char fluidTrailing = '\0';
+    if (sscanf(line, "fluid inspect %d %d %d %c", &fluidX, &fluidY,
+               &fluidZ, &fluidTrailing) == 3) {
+        control->fluidX = fluidX;
+        control->fluidY = fluidY;
+        control->fluidZ = fluidZ;
+        control->fluidUsePlayerPosition = false;
+        return DEBUG_CONTROL_COMMAND_FLUID_INSPECT;
+    }
+    if (sscanf(line, "fluid set %d %d %d %u %c", &fluidX, &fluidY,
+               &fluidZ, &fluidValue, &fluidTrailing) == 4 &&
+        fluidValue <= 255u) {
+        control->fluidX = fluidX;
+        control->fluidY = fluidY;
+        control->fluidZ = fluidZ;
+        control->fluidVolume = fluidValue;
+        return DEBUG_CONTROL_COMMAND_FLUID_SET;
+    }
+    if (sscanf(line, "fluid step %u %c", &fluidValue, &fluidTrailing) == 1 &&
+        fluidValue >= 1u && fluidValue <= 1000000u) {
+        control->fluidTicks = fluidValue;
+        return DEBUG_CONTROL_COMMAND_FLUID_STEP;
+    }
     if (strcmp(line, "evolution region") == 0) {
         return DEBUG_CONTROL_COMMAND_EVOLUTION_REGION;
     }

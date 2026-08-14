@@ -1,4 +1,5 @@
 #include "entity.h"
+#include "fluid.h"
 #include "ecology_model.h"
 #include "terrain.h"
 #include "weather_model.h"
@@ -98,6 +99,17 @@ typedef struct TestEntityDiskStateV4 {
 } TestEntityDiskStateV4;
 
 static TestTerrainMode testTerrainMode = TEST_TERRAIN_FLAT;
+
+bool WorldIsSurfaceActive(void)
+{
+    return true;
+}
+
+FluidSample FluidSampleAt(Vector3 position)
+{
+    (void)position;
+    return (FluidSample){ 0 };
+}
 
 uint32_t WorldGetSeed(void)
 {

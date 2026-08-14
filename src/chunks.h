@@ -75,7 +75,8 @@ bool BuildSurfaceSolidMeshData(
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
 bool BuildSurfaceWaterMeshData(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    const unsigned short (*blocks)[CHUNK_SIZE],
+    const unsigned char *waterVolumes, int height, int layerY,
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
 bool BuildFloraMeshData(
@@ -130,6 +131,7 @@ void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool d
 bool ChunksTestChunkDirty(int slotIndex);
 int ChunksTestMeshJobSlot(int jobIndex);
 int ChunksTestMeshJobSectionY(int jobIndex);
+int ChunksTestBuildWaterMeshJob(int jobIndex);
 void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz, bool done);
 void ChunksTestCompleteMeshJob(int jobIndex);
 void ChunksTestFillGenerationQueue(void);

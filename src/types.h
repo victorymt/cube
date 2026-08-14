@@ -308,6 +308,11 @@ typedef struct ChunkSection {
     unsigned char *floraBaseColors;
     FloraVisualInstance *floraVisualInstances;
     int floraTargetScaleCount;
+    unsigned char *waterVolumes;
+    unsigned char *fluidQueuedBits;
+    unsigned char *fluidDeferredBits;
+    signed char *fluidFlow;
+    bool fluidDirty;
     unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
 } ChunkSection;
 

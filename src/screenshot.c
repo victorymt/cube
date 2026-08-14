@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=4\n");
+    REPORT_LINE("format.version=5\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -190,6 +190,20 @@ static bool ScreenshotWriteDebugFields(
                 ScreenshotBool(info->environment.nearWater));
     REPORT_LINE("environment.ship_interior=%s\n",
                 ScreenshotBool(info->environment.shipInterior));
+
+    REPORT_LINE("fluid.local_volume=%u\n", info->fluid.volume);
+    REPORT_LINE("fluid.local_surface_y=%.6f\n", info->fluid.surfaceY);
+    REPORT_LINE("fluid.local_flow=%.6f,%.6f,%.6f\n",
+                info->fluid.flowVelocity.x, info->fluid.flowVelocity.y,
+                info->fluid.flowVelocity.z);
+    REPORT_LINE("fluid.ticks=%" PRIu64 "\n", info->fluid.ticks);
+    REPORT_LINE("fluid.loaded_volume=%" PRIu64 "\n",
+                info->fluid.loadedVolume);
+    REPORT_LINE("fluid.active_cells=%u\n", info->fluid.activeCells);
+    REPORT_LINE("fluid.last_processed_cells=%u\n",
+                info->fluid.lastProcessedCells);
+    REPORT_LINE("fluid.edit_count=%u\n", info->fluid.editCount);
+    REPORT_LINE("fluid.queue_overflows=%u\n", info->fluid.queueOverflows);
 
     REPORT_LINE("input.forward=%.6f\n", info->input.forward);
     REPORT_LINE("input.strafe=%.6f\n", info->input.strafe);

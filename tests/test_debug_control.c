@@ -24,6 +24,8 @@ static void TestCommandStream(void)
     DebugControlInitFds(&control, true, inputPipe[0], outputPipe[1]);
     const char *commands =
         "\n START \r\nscreenshot\nstatus\n"
+        "fluid inspect\nfluid inspect 1 72 -4\n"
+        "fluid set 1 72 -4 127\nfluid step 25\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
         "input 1 -0.5 1 1 120\nunknown\nquit\n";
     assert(write(inputPipe[1], commands, strlen(commands)) ==
@@ -32,6 +34,16 @@ static void TestCommandStream(void)
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_START);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SCREENSHOT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STATUS);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLUID_INSPECT);
+    assert(control.fluidUsePlayerPosition);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLUID_INSPECT);
+    assert(!control.fluidUsePlayerPosition);
+    assert(control.fluidX == 1 && control.fluidY == 72 &&
+           control.fluidZ == -4);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLUID_SET);
+    assert(control.fluidVolume == 127u);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLUID_STEP);
+    assert(control.fluidTicks == 25u);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_TELEPORT);
     assert(control.teleport.x == 1.5f);
     assert(control.teleport.y == 72.0f);
@@ -118,10 +130,12 @@ static void TestInvalidParameterizedCommands(void)
         "teleport nan 2 3 0 0\n"
         "teleport 1 2 3 0 2\n"
         "input 2 0 0 0 1\n"
-        "input 0 0 0 0 601\n";
+        "input 0 0 0 0 601\n"
+        "fluid set 0 1 0 256\n"
+        "fluid step 0\n";
     assert(write(inputPipe[1], commands, strlen(commands)) ==
            (ssize_t)strlen(commands));
-    for (int index = 0; index < 4; index++) {
+    for (int index = 0; index < 6; index++) {
         assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_INVALID);
     }
     close(inputPipe[0]);

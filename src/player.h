@@ -19,6 +19,7 @@ typedef struct PlayerWaterState {
     bool eyesSubmerged;
     float surfaceY;
     float eyeDepth;
+    Vector3 flowVelocity;
 } PlayerWaterState;
 
 bool IsSolidBlockAt(int x, int y, int z);

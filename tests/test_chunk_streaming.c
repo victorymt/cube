@@ -2,6 +2,7 @@
 #include "world_environment.h"
 
 #include <assert.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -68,9 +69,15 @@ static void TestSingleChunkUsesSingleJobAndNearestFirst(void)
     RebuildDirtyChunkMeshes((Vector3){ 0.0f, 0.0f, 0.0f });
 
     ChunkStreamingStats stats = ChunksGetStreamingStats();
+    const size_t waterBoundaryBytes =
+        (size_t)(4 * SURFACE_SECTION_HEIGHT * CHUNK_SIZE +
+                 2 * CHUNK_SIZE * CHUNK_SIZE) *
+        (sizeof(unsigned short) + sizeof(unsigned char));
     assert(stats.meshSubmitted == 3);
     assert(stats.meshSnapshotBytes ==
-           3u * sizeof(unsigned short[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE]));
+           3u * (sizeof(unsigned short[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE]) +
+                 sizeof(unsigned char[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE]) +
+                 waterBoundaryBytes));
     assert(stats.syncRebuilds == 0);
     assert(ChunksTestMeshJobSlot(0) == 1);
     assert(ChunksTestMeshJobSlot(1) == 2);
@@ -196,6 +203,57 @@ static void TestStaleJobDiscardedAfterChunkReload(void)
     assert(ChunksTestChunkDirty(0));
 }
 
+typedef struct WaterMeshBuildProbe {
+    int jobIndex;
+    bool passed;
+} WaterMeshBuildProbe;
+
+static void *BuildWaterMeshRepeatedly(void *argument)
+{
+    WaterMeshBuildProbe *probe = argument;
+    probe->passed = true;
+    for (int iteration = 0; iteration < 64; iteration++) {
+        if (ChunksTestBuildWaterMeshJob(probe->jobIndex) != 5 * 6) {
+            probe->passed = false;
+            break;
+        }
+    }
+    return NULL;
+}
+
+static void TestWaterMeshUsesSnapshottedNeighborBoundary(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, true);
+    ChunksTestConfigureChunk(1, 1, 0, true, false);
+    ChunkSection *current = ChunkGetSection(&chunks[0], 0, true);
+    ChunkSection *east = ChunkGetSection(&chunks[1], 0, true);
+    assert(current && east);
+    current->blocks[CHUNK_SIZE - 1][1][8] = BLOCK_WATER;
+    east->blocks[0][1][8] = BLOCK_WATER;
+
+    RebuildDirtyChunkMeshes((Vector3){ 0.0f, 0.0f, 0.0f });
+    int jobIndex = FindPendingMeshJobFor(0, 0);
+    assert(jobIndex >= 0);
+
+    ChunkClearBlockStorage(&chunks[1]);
+    chunks[1].loaded = true;
+    assert(ChunksTestBuildWaterMeshJob(jobIndex) == 5 * 6);
+
+    WaterMeshBuildProbe probe = { .jobIndex = jobIndex };
+    pthread_t builder;
+    assert(pthread_create(&builder, NULL, BuildWaterMeshRepeatedly, &probe) == 0);
+    for (int iteration = 0; iteration < 64; iteration++) {
+        ChunkClearBlockStorage(&chunks[1]);
+        chunks[1].loaded = true;
+        east = ChunkGetSection(&chunks[1], 0, true);
+        assert(east);
+        east->blocks[0][1][8] = BLOCK_WATER;
+    }
+    assert(pthread_join(builder, NULL) == 0);
+    assert(probe.passed);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(chunks));
@@ -206,6 +264,7 @@ int main(void)
     TestBudgetAndInvalidSlotCleanup();
     TestEditDuringFlightKeepsSectionDirty();
     TestStaleJobDiscardedAfterChunkReload();
+    TestWaterMeshUsesSnapshottedNeighborBoundary();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

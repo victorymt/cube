@@ -2,6 +2,7 @@
 #include "ecology.h"
 #include "ecology_test_fixture.h"
 #include "entity.h"
+#include "fluid.h"
 #include "particles.h"
 #include "space.h"
 #include "terrain.h"
@@ -20,6 +21,22 @@ enum {
     ENTITY_ECOLOGY_SETTLE_FRAMES = MAX_ENTITIES * 24,
     ENTITY_ECOLOGY_STABILITY_FRAMES = 180
 };
+
+bool WorldIsSurfaceActive(void)
+{
+    return true;
+}
+
+FluidSample FluidSampleAt(Vector3 position)
+{
+    (void)position;
+    return (FluidSample){ 0 };
+}
+
+void FluidOnChunkLoaded(Chunk *chunk)
+{
+    (void)chunk;
+}
 
 typedef struct FertileSite {
     uint32_t seed;

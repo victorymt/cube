@@ -1,5 +1,6 @@
 #include "player.h"
 
+#include "fluid.h"
 #include "ship.h"
 #include "world.h"
 #include "world_environment.h"
@@ -85,6 +86,23 @@ WorldBlockRegion WorldBlockRegionAt(int y)
 bool WorldIsSurfaceActive(void)
 {
     return true;
+}
+
+uint8_t FluidGetVolumeAt(int x, int y, int z)
+{
+    return GetBlockAt(x, y, z) == BLOCK_WATER ? FLUID_CAPACITY : 0u;
+}
+
+FluidSample FluidSampleAt(Vector3 position)
+{
+    int x = (int)floorf(position.x);
+    int y = (int)floorf(position.y);
+    int z = (int)floorf(position.z);
+    uint8_t volume = FluidGetVolumeAt(x, y, z);
+    return (FluidSample){
+        .volume = volume,
+        .surfaceY = (float)y + (float)volume / (float)FLUID_CAPACITY
+    };
 }
 
 bool SpaceBlockReadyAt(int x, int y, int z)

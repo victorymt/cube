@@ -42,18 +42,19 @@ BlockType GetBlockAt(int x, int y, int z)
     return testWorld[x][y][z];
 }
 
-void SetBlock(int x, int y, int z, BlockType type)
+bool SetBlock(int x, int y, int z, BlockType type)
 {
     x += TEST_WORLD_OFFSET;
     z += TEST_WORLD_OFFSET;
     if (x < 0 || x >= TEST_WORLD_SIZE || y < 0 || y >= WORLD_HEIGHT ||
-        z < 0 || z >= TEST_WORLD_SIZE) return;
+        z < 0 || z >= TEST_WORLD_SIZE) return false;
     testWorld[x][y][z] = type;
+    return true;
 }
 
-void SetBlockNoUndo(int x, int y, int z, BlockType type)
+bool SetBlockNoUndo(int x, int y, int z, BlockType type)
 {
-    SetBlock(x, y, z, type);
+    return SetBlock(x, y, z, type);
 }
 
 void WorldBeginUndoGroup(void) { undoBeginCalls++; }

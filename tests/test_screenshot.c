@@ -145,6 +145,17 @@ static void TestDebugReport(void)
             .seabedMaterial = "rock",
             .sheltered = true
         },
+        .fluid = {
+            .volume = 127u,
+            .surfaceY = 42.498039f,
+            .flowVelocity = { 1.0f, -0.5f, 0.25f },
+            .ticks = 88u,
+            .loadedVolume = 123456u,
+            .activeCells = 12u,
+            .lastProcessedCells = 7u,
+            .editCount = 9u,
+            .queueOverflows = 2u
+        },
         .render = {
             .graphicsQuality = "high",
             .renderDistanceChunks = 12,
@@ -215,7 +226,7 @@ static void TestDebugReport(void)
 
     char contents[8192];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=4\n"));
+    assert(strstr(contents, "format.version=5\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -227,6 +238,10 @@ static void TestDebugReport(void)
     assert(strstr(contents, "environment.water_column_depth=62\n"));
     assert(strstr(contents, "environment.bathymetry_zone=trench\n"));
     assert(strstr(contents, "environment.seabed_material=rock\n"));
+    assert(strstr(contents, "fluid.local_volume=127\n"));
+    assert(strstr(contents, "fluid.local_flow=1.000000,-0.500000,0.250000\n"));
+    assert(strstr(contents, "fluid.loaded_volume=123456\n"));
+    assert(strstr(contents, "fluid.queue_overflows=2\n"));
     assert(strstr(contents, "render.screen=1280,720\n"));
     assert(strstr(contents, "render.performance_mode=true\n"));
     assert(strstr(contents, "ui.debug_hud_visible=true\n"));

@@ -12,9 +12,18 @@
 #include "entity.h"
 #include "ecology.h"
 #include "evolution_catalog.h"
+#include "fluid.h"
 #include "terrain.h"
 #include "world_environment.h"
 #include "save_io.h"
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma weak FluidCleanup
+#pragma weak FluidOnBlockChanged
+#pragma weak FluidReplayBlockDisplacement
+#pragma weak FluidReset
+#pragma weak FluidTryDisplaceForBlockTracked
+#endif
 
 #include <math.h>
 #include <stdbool.h>
@@ -25,6 +34,8 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V15 "VOXELCRAFT_SAVE_V15"
+#define SAVE_MAGIC_V15_LEN (sizeof(SAVE_MAGIC_V15) - 1)
 #define SAVE_MAGIC_V14 "VOXELCRAFT_SAVE_V14"
 #define SAVE_MAGIC_V14_LEN (sizeof(SAVE_MAGIC_V14) - 1)
 #define SAVE_MAGIC_V13 "VOXELCRAFT_SAVE_V13"
@@ -526,6 +537,7 @@ typedef struct BlockUndo {
     int z;
     BlockType prev;
     BlockType next;
+    FluidBlockDisplacement fluidDisplacement;
     bool groupStart;
 } BlockUndo;
 
@@ -541,8 +553,12 @@ static int redoCount = 0;
 static bool pendingGroupStart = false;
 static bool undoGroupActive = false;
 
-void SetBlockCore(int x, int y, int z, BlockType type, bool recordUndo);
-void SetBlockNoUndo(int x, int y, int z, BlockType type);
+static bool SetBlockCore(
+    int x, int y, int z, BlockType type, bool recordUndo,
+    const FluidBlockDisplacement *replay, bool replayAfter);
+static bool SetBlockNoUndoReplay(
+    int x, int y, int z, BlockType type,
+    const FluidBlockDisplacement *replay, bool replayAfter);
 
 void WorldBeginUndoGroup(void)
 {
@@ -556,11 +572,21 @@ void WorldEndUndoGroup(void)
     pendingGroupStart = false;
 }
 
-void PushBlockUndo(int x, int y, int z, BlockType prev, BlockType next)
+static void PushBlockUndo(
+    int x, int y, int z, BlockType prev, BlockType next,
+    const FluidBlockDisplacement *fluidDisplacement)
 {
     BlockUndo entry = {
-        x, y, z, prev, next, !undoGroupActive || pendingGroupStart
+        .x = x,
+        .y = y,
+        .z = z,
+        .prev = prev,
+        .next = next,
+        .groupStart = !undoGroupActive || pendingGroupStart
     };
+    if (fluidDisplacement) {
+        entry.fluidDisplacement = *fluidDisplacement;
+    }
     pendingGroupStart = false;
 
     if (undoCount >= UNDO_STACK_CAPACITY) {
@@ -593,6 +619,7 @@ void ClearUndoHistory(void)
 
 void WorldReset(uint32_t seed)
 {
+    if (FluidReset) FluidReset();
     blockEditCount = 0;
     BumpBlockEditRevision();
     ClearBlockEditIndex();
@@ -616,11 +643,31 @@ bool UndoBlockEdit(void)
 
     int groupSize = 0;
     for (int i = tail;; i = (i - 1 + UNDO_STACK_CAPACITY) % UNDO_STACK_CAPACITY) {
+        const FluidBlockDisplacement *replay =
+            undoStack[i].fluidDisplacement.count > 0u
+                ? &undoStack[i].fluidDisplacement : NULL;
+        if (!SetBlockNoUndoReplay(
+                undoStack[i].x, undoStack[i].y, undoStack[i].z,
+                undoStack[i].prev, replay, false)) {
+            int rollback = (i + 1) % UNDO_STACK_CAPACITY;
+            for (int restored = 0; restored < groupSize; restored++) {
+                const FluidBlockDisplacement *rollbackReplay =
+                    undoStack[rollback].fluidDisplacement.count > 0u
+                        ? &undoStack[rollback].fluidDisplacement : NULL;
+                SetBlockNoUndoReplay(
+                    undoStack[rollback].x, undoStack[rollback].y,
+                    undoStack[rollback].z, undoStack[rollback].next,
+                    rollbackReplay, true);
+                rollback = (rollback + 1) % UNDO_STACK_CAPACITY;
+            }
+            return false;
+        }
+        groupSize++;
+        if (i == start) break;
+    }
+    for (int i = tail;; i = (i - 1 + UNDO_STACK_CAPACITY) % UNDO_STACK_CAPACITY) {
         redoStack[(redoHead + redoCount) % UNDO_STACK_CAPACITY] = undoStack[i];
         redoCount++;
-        SetBlockNoUndo(undoStack[i].x, undoStack[i].y, undoStack[i].z,
-                       undoStack[i].prev);
-        groupSize++;
         if (i == start) break;
     }
     undoCount -= groupSize;
@@ -644,31 +691,44 @@ bool RedoBlockEdit(void)
 
     int groupSize = 0;
     for (int i = tail;; i = (i - 1 + UNDO_STACK_CAPACITY) % UNDO_STACK_CAPACITY) {
+        const FluidBlockDisplacement *replay =
+            redoStack[i].fluidDisplacement.count > 0u
+                ? &redoStack[i].fluidDisplacement : NULL;
+        if (!SetBlockNoUndoReplay(
+                redoStack[i].x, redoStack[i].y, redoStack[i].z,
+                redoStack[i].next, replay, true)) {
+            int rollback = (i + 1) % UNDO_STACK_CAPACITY;
+            for (int restored = 0; restored < groupSize; restored++) {
+                const FluidBlockDisplacement *rollbackReplay =
+                    redoStack[rollback].fluidDisplacement.count > 0u
+                        ? &redoStack[rollback].fluidDisplacement : NULL;
+                SetBlockNoUndoReplay(
+                    redoStack[rollback].x, redoStack[rollback].y,
+                    redoStack[rollback].z, redoStack[rollback].prev,
+                    rollbackReplay, false);
+                rollback = (rollback + 1) % UNDO_STACK_CAPACITY;
+            }
+            return false;
+        }
+        groupSize++;
+        if (i == start) break;
+    }
+    for (int i = tail;; i = (i - 1 + UNDO_STACK_CAPACITY) % UNDO_STACK_CAPACITY) {
         undoStack[(undoHead + undoCount) % UNDO_STACK_CAPACITY] = redoStack[i];
         undoCount++;
-        SetBlockNoUndo(redoStack[i].x, redoStack[i].y, redoStack[i].z,
-                       redoStack[i].next);
-        groupSize++;
         if (i == start) break;
     }
     redoCount -= groupSize;
     if (redoCount <= 0) redoHead = 0;
     return true;
 }
-void SetBlockCore(int x, int y, int z, BlockType type, bool recordUndo)
+static bool SetBlockCore(
+    int x, int y, int z, BlockType type, bool recordUndo,
+    const FluidBlockDisplacement *replay, bool replayAfter)
 {
-    if (!InHeight(y)) return;
+    if (!InHeight(y)) return false;
 
-    if (recordUndo) {
-        BlockType previous = GetBlock(x, y, z);
-        if (previous != type) PushBlockUndo(x, y, z, previous, type);
-    }
-
-    RememberBlockEdit(x, y, z, type);
-
-    if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
-    else TorchLightRemove(x, y, z);
-
+    BlockType previous = GetBlock(x, y, z);
     int cx = 0;
     int cz = 0;
     int lx = 0;
@@ -676,10 +736,42 @@ void SetBlockCore(int x, int y, int z, BlockType type, bool recordUndo)
     WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
 
     Chunk *chunk = FindChunk(cx, cz);
-    if (chunk) {
-        ChunkSetLocalBlock(chunk, lx, y, lz, type);
-        MarkChunkDirtyAtBlock(x, y, z);
+    FluidBlockDisplacement displacement = { 0 };
+    if (!replay && chunk && previous == BLOCK_WATER && type != BLOCK_WATER &&
+        FluidTryDisplaceForBlockTracked &&
+        !FluidTryDisplaceForBlockTracked(x, y, z, &displacement)) {
+        return false;
     }
+
+    if (chunk) {
+        if (!ChunkSetLocalBlock(chunk, lx, y, lz, type)) return false;
+        MarkChunkDirtyAtBlock(x, y, z);
+        if (previous != type && FluidOnBlockChanged) {
+            FluidOnBlockChanged(x, y, z, previous, type);
+        }
+        if (replay && replay->count > 0u &&
+            (!FluidReplayBlockDisplacement ||
+             !FluidReplayBlockDisplacement(replay, replayAfter))) {
+            return false;
+        }
+    }
+
+    BlockType persistedType = type;
+    if (replay && !replayAfter && type == BLOCK_WATER && replay->count > 0u) {
+        const FluidVolumeChange *source = &replay->cells[0];
+        if (source->x == x && source->y == y && source->z == z &&
+            source->baselineKnown) {
+            persistedType = source->baseline > 0u ? BLOCK_WATER : BLOCK_AIR;
+        }
+    }
+    RememberBlockEdit(x, y, z, persistedType);
+    if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
+    else TorchLightRemove(x, y, z);
+    if (recordUndo && previous != type) {
+        PushBlockUndo(x, y, z, previous, type,
+                      displacement.count > 0u ? &displacement : NULL);
+    }
+    return true;
 }
 
 BlockType GetBlockAt(int x, int y, int z)
@@ -692,10 +784,13 @@ BlockType GetBlockAt(int x, int y, int z)
     return BLOCK_AIR;
 }
 
-void SetBlockNoUndo(int x, int y, int z, BlockType type)
+static bool SetBlockNoUndoReplay(
+    int x, int y, int z, BlockType type,
+    const FluidBlockDisplacement *replay, bool replayAfter)
 {
     BlockType previous = GetBlockAt(x, y, z);
     WorldBlockRegion region = WorldBlockRegionAt(y);
+    bool changed = true;
     if (region == WORLD_BLOCK_REGION_SPACE) {
         SpaceSetBlock(x, y, z, type);
         if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
@@ -704,39 +799,49 @@ void SetBlockNoUndo(int x, int y, int z, BlockType type)
         NetherSetBlock(x, y, z, type);
         if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
         else TorchLightRemove(x, y, z);
+    } else if (region == WORLD_BLOCK_REGION_SURFACE && WorldIsSurfaceActive()) {
+        changed = SetBlockCore(
+            x, y, z, type, false, replay, replayAfter);
     } else {
-        SetBlockCore(x, y, z, type, false);
+        return false;
     }
+    if (!changed) return false;
     if ((previous == BLOCK_SPACESHIP || ShipBlockIsParkedCore(previous)) &&
         type != BLOCK_SPACESHIP && !ShipBlockIsParkedCore(type))
         ShipForgetParkedAt(x, y, z);
     else if (previous != BLOCK_SPACESHIP && !ShipBlockIsParkedCore(previous) &&
              (type == BLOCK_SPACESHIP || ShipBlockIsParkedCore(type)))
         ShipTrackParkedAt(x, y, z);
+    return true;
 }
 
-void SetBlock(int x, int y, int z, BlockType type)
+bool SetBlockNoUndo(int x, int y, int z, BlockType type)
+{
+    return SetBlockNoUndoReplay(x, y, z, type, NULL, false);
+}
+
+bool SetBlock(int x, int y, int z, BlockType type)
 {
     BlockType previous = GetBlockAt(x, y, z);
     WorldBlockRegion region = WorldBlockRegionAt(y);
     if (region == WORLD_BLOCK_REGION_SPACE) {
         BlockType previous = SpaceBlockAt(x, y, z);
-        if (previous != type) PushBlockUndo(x, y, z, previous, type);
+        if (previous != type) PushBlockUndo(x, y, z, previous, type, NULL);
         SpaceSetBlock(x, y, z, type);
         if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
         else TorchLightRemove(x, y, z);
     } else if (!WorldIsSurfaceActive()) {
-        return;
+        return false;
     } else if (region == WORLD_BLOCK_REGION_NETHER) {
         BlockType previous = NetherBlockAt(x, y, z);
-        if (previous != type) PushBlockUndo(x, y, z, previous, type);
+        if (previous != type) PushBlockUndo(x, y, z, previous, type, NULL);
         NetherSetBlock(x, y, z, type);
         if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
         else TorchLightRemove(x, y, z);
     } else if (region == WORLD_BLOCK_REGION_SURFACE) {
-        SetBlockCore(x, y, z, type, true);
+        if (!SetBlockCore(x, y, z, type, true, NULL, false)) return false;
     } else {
-        return;
+        return false;
     }
     if ((previous == BLOCK_SPACESHIP || ShipBlockIsParkedCore(previous)) &&
         type != BLOCK_SPACESHIP && !ShipBlockIsParkedCore(type))
@@ -744,11 +849,12 @@ void SetBlock(int x, int y, int z, BlockType type)
     else if (previous != BLOCK_SPACESHIP && !ShipBlockIsParkedCore(previous) &&
              (type == BLOCK_SPACESHIP || ShipBlockIsParkedCore(type)))
         ShipTrackParkedAt(x, y, z);
+    return true;
 }
 
-void SetBlockForImport(int x, int y, int z, BlockType type)
+bool SetBlockForImport(int x, int y, int z, BlockType type)
 {
-    SetBlockCore(x, y, z, type, true);
+    return SetBlockCore(x, y, z, type, true, NULL, false);
 }
 
 BlockType NearestImageBlock(Color color)
@@ -787,8 +893,8 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     const Player *player = context ? context->player : NULL;
     if (!file || !player) return false;
 
-    bool ok = fwrite(SAVE_MAGIC_V14, 1, SAVE_MAGIC_V14_LEN, file) ==
-              SAVE_MAGIC_V14_LEN;
+    bool ok = fwrite(SAVE_MAGIC_V15, 1, SAVE_MAGIC_V15_LEN, file) ==
+              SAVE_MAGIC_V15_LEN;
     uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
     uint32_t seed = WorldGetSeed();
     uint32_t terrain = (uint32_t)terrainMode;
@@ -815,7 +921,7 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     ok = ok && AlbumSave(file) && SpaceSaveEdits(file) && NetherSaveEdits(file);
     ok = ok && SpaceSaveState(file) && EntitiesSaveState(file) &&
          PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
-         ShipLocatorSaveState(file) && !ferror(file);
+         ShipLocatorSaveState(file) && FluidSaveState(file) && !ferror(file);
     return ok;
 }
 
@@ -1046,13 +1152,22 @@ void LoadMap(Player *player)
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
     ShipLocatorRecord loadedShipLocator = { 0 };
+    char magicV15[SAVE_MAGIC_V15_LEN] = { 0 };
+    bool isV15 = fread(magicV15, 1, SAVE_MAGIC_V15_LEN, file) ==
+                     SAVE_MAGIC_V15_LEN &&
+                 memcmp(magicV15, SAVE_MAGIC_V15, SAVE_MAGIC_V15_LEN) == 0;
     char magicV14[SAVE_MAGIC_V14_LEN] = { 0 };
-    bool isV14 = fread(magicV14, 1, SAVE_MAGIC_V14_LEN, file) ==
-                     SAVE_MAGIC_V14_LEN &&
-                 memcmp(magicV14, SAVE_MAGIC_V14, SAVE_MAGIC_V14_LEN) == 0;
+    bool isV14 = false;
+    if (!isV15) {
+        rewind(file);
+        isV14 = fread(magicV14, 1, SAVE_MAGIC_V14_LEN, file) ==
+                        SAVE_MAGIC_V14_LEN &&
+                    memcmp(magicV14, SAVE_MAGIC_V14, SAVE_MAGIC_V14_LEN) == 0;
+    }
+    bool isV14Family = isV15 || isV14;
     char magicV13[SAVE_MAGIC_V13_LEN] = { 0 };
     bool isV13 = false;
-    if (!isV14) {
+    if (!isV14Family) {
         rewind(file);
         isV13 = fread(magicV13, 1, SAVE_MAGIC_V13_LEN, file) ==
                      SAVE_MAGIC_V13_LEN &&
@@ -1060,7 +1175,7 @@ void LoadMap(Player *player)
     }
     char magicV12[SAVE_MAGIC_V12_LEN] = { 0 };
     bool isV12 = false;
-    if (!isV14 && !isV13) {
+    if (!isV14Family && !isV13) {
         rewind(file);
         isV12 = fread(magicV12, 1, SAVE_MAGIC_V12_LEN, file) ==
                         SAVE_MAGIC_V12_LEN &&
@@ -1068,7 +1183,7 @@ void LoadMap(Player *player)
     }
     char magicV11[SAVE_MAGIC_V11_LEN] = { 0 };
     bool isV11 = false;
-    if (!isV14 && !isV13 && !isV12) {
+    if (!isV14Family && !isV13 && !isV12) {
         rewind(file);
         isV11 = fread(magicV11, 1, SAVE_MAGIC_V11_LEN, file) ==
                     SAVE_MAGIC_V11_LEN &&
@@ -1076,7 +1191,7 @@ void LoadMap(Player *player)
     }
     char magicV10[SAVE_MAGIC_V10_LEN] = { 0 };
     bool isV10 = false;
-    if (!isV14 && !isV13 && !isV12 && !isV11) {
+    if (!isV14Family && !isV13 && !isV12 && !isV11) {
         rewind(file);
         isV10 = fread(magicV10, 1, SAVE_MAGIC_V10_LEN, file) ==
                     SAVE_MAGIC_V10_LEN &&
@@ -1084,20 +1199,20 @@ void LoadMap(Player *player)
     }
     char magicV9[SAVE_MAGIC_V9_LEN] = { 0 };
     bool isV9 = false;
-    if (!isV14 && !isV13 && !isV12 && !isV11 && !isV10) {
+    if (!isV14Family && !isV13 && !isV12 && !isV11 && !isV10) {
         rewind(file);
         isV9 = fread(magicV9, 1, SAVE_MAGIC_V9_LEN, file) == SAVE_MAGIC_V9_LEN &&
                memcmp(magicV9, SAVE_MAGIC_V9, SAVE_MAGIC_V9_LEN) == 0;
     }
     char magicV8[SAVE_MAGIC_V8_LEN] = { 0 };
     bool isV8 = false;
-    if (!isV14 && !isV13 && !isV12 && !isV11 && !isV10 && !isV9) {
+    if (!isV14Family && !isV13 && !isV12 && !isV11 && !isV10 && !isV9) {
         rewind(file);
         isV8 = fread(magicV8, 1, SAVE_MAGIC_V8_LEN, file) == SAVE_MAGIC_V8_LEN &&
                memcmp(magicV8, SAVE_MAGIC_V8, SAVE_MAGIC_V8_LEN) == 0;
     }
-    if (isV14 || isV13 || isV12 || isV11 || isV10 || isV9 || isV8) {
-        bool loaded = (isV14 || isV13)
+    if (isV14Family || isV13 || isV12 || isV11 || isV10 || isV9 || isV8) {
+        bool loaded = (isV14Family || isV13)
                           ? LoadMapV13(file, &savedTerrain, &savedPlayer,
                                        &loadedEdits, &loadedDimensions,
                                        &savedEditCount, &savedSeed,
@@ -1238,18 +1353,18 @@ void LoadMap(Player *player)
         }
     }
 
-    int storedSpaceLayerY = (isV14 || isV13) ? SPACE_LAYER_Y : LEGACY_SPACE_LAYER_Y;
-    if (((isV14 || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) || !AlbumLoad(file) ||
-        ((isV14 || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) ||
+    int storedSpaceLayerY = (isV14Family || isV13) ? SPACE_LAYER_Y : LEGACY_SPACE_LAYER_Y;
+    if (((isV14Family || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) || !AlbumLoad(file) ||
+        ((isV14Family || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) ||
             !SpaceLoadEdits(file, storedSpaceLayerY) ||
-        ((isV14 || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) || !NetherLoadEdits(file)) {
+        ((isV14Family || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) || !NetherLoadEdits(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: save file is corrupted.");
         return;
     }
-    if (isV14 || isV13 || isV12 || isV11 || isV10 || isV9) {
+    if (isV14Family || isV13 || isV12 || isV11 || isV10 || isV9) {
         if (!SpaceLoadState(file)) {
             free(loadedDimensions);
             free(loadedEdits);
@@ -1268,34 +1383,41 @@ void LoadMap(Player *player)
         }
         loadedSpaceOrigin = true;
     }
-    if ((isV14 || isV13 || isV12 || isV11 || isV10) && !EntitiesLoadState(file)) {
+    if ((isV14Family || isV13 || isV12 || isV11 || isV10) && !EntitiesLoadState(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: entity state is corrupted.");
         return;
     }
-    if ((isV14 || isV13 || isV12 || isV11) && !PlanetEcologyLoadState(file)) {
+    if ((isV14Family || isV13 || isV12 || isV11) && !PlanetEcologyLoadState(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: ecology state is corrupted.");
         return;
     }
-    if (isV14 && !EvolutionCatalogLoadState(file)) {
+    if (isV14Family && !EvolutionCatalogLoadState(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: evolution catalog state is corrupted.");
         return;
     }
-    if ((isV14 || isV13 || isV12) &&
+    if ((isV14Family || isV13 || isV12) &&
         !ShipLocatorReadStateForSpaceLayer(file, &loadedShipLocator,
                                            storedSpaceLayerY)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: ship locator state is corrupted.");
+        return;
+    }
+    if (isV15 && !FluidLoadState(file)) {
+        free(loadedDimensions);
+        free(loadedEdits);
+        fclose(file);
+        SetImportMessage("Load failed: fluid state is corrupted.");
         return;
     }
     fclose(file);
@@ -1348,23 +1470,24 @@ void LoadMap(Player *player)
     UnloadAllChunks();
     UnloadAllSpaceChunks();
     UnloadAllNetherChunks();
+    if (!isV15) FluidReset();
     terrainMode = savedTerrain;
     WorldSetSeed(savedSeed);
-    if (!isV14 && !isV13) {
+    if (!isV14Family && !isV13) {
         PlanetWorldMigrateSpaceLayer(storedSpaceLayerY);
         if (!PlanetWorldIsActive() && !HomeWorldSurfaceIsActive()) {
             savedPlayer.position.y += (float)(SPACE_LAYER_Y - storedSpaceLayerY);
         }
     }
-    if (!isV14 && !isV13 && !isV12 && !isV11 && !isV10) EntitiesClear();
-    if (!isV14 && !isV13 && !isV12 && !isV11) PlanetEcologyResetState();
-    if (!isV14) EvolutionCatalogReset();
+    if (!isV14Family && !isV13 && !isV12 && !isV11 && !isV10) EntitiesClear();
+    if (!isV14Family && !isV13 && !isV12 && !isV11) PlanetEcologyResetState();
+    if (!isV14Family) EvolutionCatalogReset();
     if (!loadedInventory) {
         InventoryReset();
         InventoryGrantStarterKit();
         ShipReset();
     }
-    if (((!isV14 && !isV13) || loadedTerrainGenerationVersion !=
+    if (((!isV14Family && !isV13) || loadedTerrainGenerationVersion !=
                      TERRAIN_GENERATION_VERSION) &&
         WorldIsSurfaceActive()) {
         int landingX = (int)floorf(savedPlayer.position.x);
@@ -1396,14 +1519,14 @@ void LoadMap(Player *player)
     RebuildTorchList();
     SpaceRebuildTorchList();
     ClearUndoHistory();
-    if (isV14 || isV13 || isV12) ShipLocatorSetRecord(&loadedShipLocator);
+    if (isV14Family || isV13 || isV12) ShipLocatorSetRecord(&loadedShipLocator);
     else ShipLocatorReset();
 
     if (WorldIsSurfaceActive()) {
         UpdateChunks(player->position,
                      EffectiveRenderDistanceForHeight(player->position.y + EYE_HEIGHT));
     }
-    if (!isV14 && !isV13) {
+    if (!isV14Family && !isV13) {
         SetImportMessage(TextFormat(
             "Upgraded terrain; moved player to safe ground and kept %d edits at original heights.",
             blockEditCount));
@@ -1463,6 +1586,7 @@ void WorldTickImportMessage(float dt)
 
 void WorldCleanup(void)
 {
+    if (FluidCleanup) FluidCleanup();
     free(blockEditIndex);
     free(blockEditDimensions);
     free(blockEdits);

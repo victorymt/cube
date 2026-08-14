@@ -379,13 +379,15 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
                     BlockType type = NearestImageBlock(pixel);
                     int columnHeight = ReliefHeightForPixel(pixel, baseY);
                     for (int y = baseY; y < baseY + columnHeight && InHeight(y); y++) {
-                        SetBlockForImport(wx, y, wz, type);
-                        placed++;
+                        if (SetBlockForImport(wx, y, wz, type)) placed++;
                     }
                 }
             } else {
-                SetBlockForImport(wx, wy, wz, pixel.a < 32 ? BLOCK_GRASS : NearestImageBlock(pixel));
-                placed++;
+                if (SetBlockForImport(
+                        wx, wy, wz,
+                        pixel.a < 32 ? BLOCK_GRASS : NearestImageBlock(pixel))) {
+                    placed++;
+                }
             }
 
             int cx = 0;

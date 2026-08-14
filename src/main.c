@@ -19,6 +19,7 @@
 #include "ship.h"
 #include "nether.h"
 #include "entity.h"
+#include "fluid.h"
 #include "evolution_catalog.h"
 #include "starmap.h"
 #include "discovery.h"
@@ -1115,7 +1116,7 @@ int main(int argc, char **argv)
     DebugControlReply(
         &debugControl,
         "DEBUG_CONTROL ready commands=start,screenshot,status,teleport,input,"
-        "evolution,quit\n");
+        "fluid,evolution,quit\n");
 
     while (!quitRequested && !WindowShouldClose()) {
         PerfBeginFrame();
@@ -1148,6 +1149,9 @@ int main(int argc, char **argv)
         case DEBUG_CONTROL_COMMAND_STATUS:
         {
             PlayerWaterState statusWater = PlayerWaterStateAt(player.position);
+            FluidSample statusFluid = FluidSampleAt(player.position);
+            FluidStats statusFluidStats = FluidGetStats();
+            uint64_t statusLoadedVolume = FluidLoadedVolume();
             ChunkWaterRenderDebugInfo statusWaterRender = { 0 };
             ChunksGetWaterRenderDebugInfo(player.position, &statusWaterRender);
             BathymetrySample statusBathymetry = {
@@ -1171,6 +1175,10 @@ int main(int argc, char **argv)
                 "DEBUG_CONTROL status screen=%s seed=%u dimension=%s "
                 "position=%.6f,%.6f,%.6f velocity=%.6f,%.6f,%.6f "
                 "water=%d,%d,%d depth=%.6f surface=%.6f "
+                "fluid_volume=%u fluid_surface=%.6f "
+                "fluid_flow=%.6f,%.6f,%.6f fluid_queue=%u "
+                "fluid_processed=%u fluid_edits=%u fluid_total=%llu "
+                "fluid_overflows=%u "
                 "bathymetry=%s seabed=%d water_column=%d material=%s "
                 "chunk=%d,%d,%d chunk_loaded=%d neighbors=0x%X "
                 "water_triangles=%d section_water_triangles=%d "
@@ -1184,6 +1192,13 @@ int main(int argc, char **argv)
                 statusWater.bodySubmerged ? 1 : 0,
                 statusWater.eyesSubmerged ? 1 : 0,
                 statusWater.eyeDepth, statusWater.surfaceY,
+                (unsigned)statusFluid.volume, statusFluid.surfaceY,
+                statusFluid.velocity.x, statusFluid.velocity.y,
+                statusFluid.velocity.z, statusFluidStats.activeCells,
+                statusFluidStats.lastProcessedCells,
+                statusFluidStats.editCount,
+                (unsigned long long)statusLoadedVolume,
+                statusFluidStats.queueOverflows,
                 BathymetryZoneName(statusBathymetry.zone),
                 statusBathymetry.seabedY, statusBathymetry.waterDepth,
                 BathymetryMaterialName(statusBathymetry.material),
@@ -1196,6 +1211,66 @@ int main(int argc, char **argv)
                 PlayerCameraPositionInsideSolid(camera.position) ? 1 : 0);
             break;
         }
+        case DEBUG_CONTROL_COMMAND_FLUID_INSPECT:
+        {
+            int x = debugControl.fluidUsePlayerPosition
+                ? (int)floorf(player.position.x) : debugControl.fluidX;
+            int y = debugControl.fluidUsePlayerPosition
+                ? (int)floorf(player.position.y) : debugControl.fluidY;
+            int z = debugControl.fluidUsePlayerPosition
+                ? (int)floorf(player.position.z) : debugControl.fluidZ;
+            FluidSample sample = FluidSampleAt((Vector3){
+                (float)x + 0.5f, (float)y + 0.5f, (float)z + 0.5f
+            });
+            FluidStats stats = FluidGetStats();
+            DebugControlReply(
+                &debugControl,
+                "DEBUG_CONTROL fluid inspect ok position=%d,%d,%d "
+                "volume=%u surface=%.6f flow=%.6f,%.6f,%.6f "
+                "queue=%u processed=%u edits=%u total=%llu overflows=%u\n",
+                x, y, z, (unsigned)sample.volume, sample.surfaceY,
+                sample.velocity.x, sample.velocity.y, sample.velocity.z,
+                stats.activeCells, stats.lastProcessedCells, stats.editCount,
+                (unsigned long long)FluidLoadedVolume(), stats.queueOverflows);
+            break;
+        }
+        case DEBUG_CONTROL_COMMAND_FLUID_SET:
+            if (screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL fluid set error reason=no_active_surface\n");
+            } else if (!FluidSetVolumeAt(
+                           debugControl.fluidX, debugControl.fluidY,
+                           debugControl.fluidZ,
+                           (uint8_t)debugControl.fluidVolume)) {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL fluid set error reason=cell_unavailable\n");
+            } else {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL fluid set ok position=%d,%d,%d volume=%u\n",
+                    debugControl.fluidX, debugControl.fluidY,
+                    debugControl.fluidZ, debugControl.fluidVolume);
+            }
+            break;
+        case DEBUG_CONTROL_COMMAND_FLUID_STEP:
+            if (screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL fluid step error reason=no_active_surface\n");
+            } else {
+                FluidStepTicks(debugControl.fluidTicks);
+                FluidStats stats = FluidGetStats();
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL fluid step ok ticks=%u queue=%u "
+                    "processed=%u total=%llu\n",
+                    debugControl.fluidTicks, stats.activeCells,
+                    stats.lastProcessedCells,
+                    (unsigned long long)FluidLoadedVolume());
+            }
+            break;
         case DEBUG_CONTROL_COMMAND_TELEPORT:
             if (screen == SCREEN_PLAYING) {
                 player.position = (Vector3){ debugControl.teleport.x,
@@ -1734,6 +1809,11 @@ int main(int argc, char **argv)
         }
         ProcessFinishedMeshJobs(2.0);
         ProcessFinishedChunkJobs();
+        if (!paused && !albumOpen && !importDialog.open &&
+            !landingTransition.active && !biologyAtlasOpen &&
+            localWorldActive) {
+            FluidUpdate(dt);
+        }
         RebuildDirtyChunkMeshes(player.position);
         ParticlesUpdate(dt);
 
@@ -1744,6 +1824,8 @@ int main(int argc, char **argv)
         Vector3 aimDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
         HitResult hit = RaycastBlocksFiltered(aimEye, aimDir, REACH_DISTANCE,
                                               RAYCAST_BLOCK_SOLID);
+        HitResult interactionHit = RaycastBlocksFiltered(
+            aimEye, aimDir, REACH_DISTANCE, RAYCAST_BLOCK_ALL);
         int entityHit = EntityRayHit(aimEye, aimDir, REACH_DISTANCE);
         if (!inputBlocked && IsKeyPressed(KEY_N)) {
             if (evolutionScanLocked) {
@@ -1769,7 +1851,23 @@ int main(int argc, char **argv)
         ParkedShip hitShip = { 0 };
         bool hitParkedShip = hit.hit &&
                              ShipResolveParkedAt(hit.x, hit.y, hit.z, &hitShip);
-        if (!inputBlocked && entityHit >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        if (!inputBlocked && interactionHit.hit &&
+            GetBlockAt(interactionHit.x, interactionHit.y, interactionHit.z) ==
+                BLOCK_WATER &&
+            IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (InventoryCount(BLOCK_WATER) >= INVENTORY_MAX_PER_BLOCK) {
+                SetImportMessage("Inventory full: Water");
+            } else if (FluidTryCollectUnit(
+                           interactionHit.x, interactionHit.y,
+                           interactionHit.z)) {
+                InventoryAdd(BLOCK_WATER, 1);
+                AudioPlayPick();
+                SetImportMessage(TextFormat("Collected Water (%d)",
+                                            InventoryCount(BLOCK_WATER)));
+            } else {
+                SetImportMessage("Need 255 connected water volume to collect.");
+            }
+        } else if (!inputBlocked && entityHit >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             float harvestDaylight = 0.0f;
             float harvestSunset = 0.0f;
             PlanetLightState harvestLight = { 0 };
@@ -1831,11 +1929,21 @@ int main(int argc, char **argv)
                            ShipCanPlaceParked(placeX, placeY, placeZ,
                                               placementDirection, &player);
             } else {
+                BlockType selectedType = hotbar[selectedIndex];
+                BlockType targetType = GetBlockAt(placeX, placeY, placeZ);
+                bool targetAvailable = targetType == BLOCK_AIR ||
+                    (WorldIsSurfaceActive() && targetType == BLOCK_WATER);
                 canPlace = InventoryCount(hotbar[selectedIndex]) > 0 &&
-                           GetBlockAt(placeX, placeY, placeZ) == BLOCK_AIR &&
+                           targetAvailable &&
                            WorldBlockRegionAt(placeY) != WORLD_BLOCK_REGION_NONE &&
-                           !BlockWouldOverlapPlayer(placeX, placeY, placeZ,
-                                                    player.position);
+                           (selectedType == BLOCK_WATER ||
+                            !BlockWouldOverlapPlayer(placeX, placeY, placeZ,
+                                                     player.position));
+                if (selectedType == BLOCK_WATER) {
+                    canPlace = canPlace && WorldIsSurfaceActive() &&
+                               WorldBlockRegionAt(placeY) ==
+                                   WORLD_BLOCK_REGION_SURFACE;
+                }
             }
         }
         if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
@@ -1893,11 +2001,32 @@ int main(int argc, char **argv)
                             AudioPlayPlace();
                         }
                     }
+                } else if (placedType == BLOCK_WATER) {
+                    if (InventoryConsume(placedType, 1)) {
+                        if (!FluidTryDepositUnit(placeX, placeY, placeZ)) {
+                            InventoryAdd(placedType, 1);
+                            SetImportMessage(
+                                "Water needs 255 free loaded neighbor volume.");
+                        } else {
+                            ParticlesEmitBurst(
+                                (Vector3){ placeX + 0.5f, placeY + 0.5f,
+                                           placeZ + 0.5f },
+                                BlockBaseColor(placedType), 8, 2.0f, 0.5f);
+                            AudioPlayPlace();
+                        }
+                    }
                 } else if (InventoryConsume(placedType, 1)) {
-                    ParticlesEmitBurst((Vector3){ placeX + 0.5f, placeY + 0.5f, placeZ + 0.5f },
-                                       BlockBaseColor(placedType), 8, 2.0f, 0.5f);
-                    AudioPlayPlace();
-                    SetBlock(placeX, placeY, placeZ, placedType);
+                    if (!SetBlock(placeX, placeY, placeZ, placedType)) {
+                        InventoryAdd(placedType, 1);
+                        SetImportMessage(
+                            "Cannot place block: water has no loaded escape volume.");
+                    } else {
+                        ParticlesEmitBurst(
+                            (Vector3){ placeX + 0.5f, placeY + 0.5f,
+                                       placeZ + 0.5f },
+                            BlockBaseColor(placedType), 8, 2.0f, 0.5f);
+                        AudioPlayPlace();
+                    }
                 }
             } else if (hotbar[selectedIndex] == BLOCK_SPACESHIP &&
                        InventoryCount(BLOCK_SPACESHIP) > 0) {
@@ -2302,6 +2431,8 @@ int main(int argc, char **argv)
             bool haveScreenshotRegion = PlanetEcologyEvolutionRegionAt(
                 (int)floorf(player.position.x),
                 (int)floorf(player.position.z), daylight, &screenshotRegion);
+            FluidSample screenshotFluid = FluidSampleAt(player.position);
+            FluidStats screenshotFluidStats = FluidGetStats();
             ScreenshotDebugInfo debugInfo = {
                 .world = {
                     .seed = PlanetWorldIsActive() ? PlanetWorldSeed() :
@@ -2364,6 +2495,19 @@ int main(int argc, char **argv)
                     .forest = environmentSample.forest,
                     .nearWater = environmentSample.nearWater,
                     .shipInterior = environmentSample.shipInterior
+                },
+                .fluid = {
+                    .volume = screenshotFluid.volume,
+                    .surfaceY = screenshotFluid.surfaceY,
+                    .flowVelocity = ScreenshotVector(
+                        screenshotFluid.velocity),
+                    .ticks = screenshotFluidStats.ticks,
+                    .loadedVolume = FluidLoadedVolume(),
+                    .activeCells = screenshotFluidStats.activeCells,
+                    .lastProcessedCells =
+                        screenshotFluidStats.lastProcessedCells,
+                    .editCount = screenshotFluidStats.editCount,
+                    .queueOverflows = screenshotFluidStats.queueOverflows
                 },
                 .input = {
                     .forward = appliedPlayerInput.forward,

@@ -113,7 +113,7 @@ static double MeasureRound(const int coordinates[][2], int count,
             coordinates[i][0], coordinates[i][1], faces, NULL, 0, &solid);
         bool hasWater = BuildSurfaceWaterMeshData(
             (const unsigned short (*)[CHUNK_SIZE])blocks,
-            SURFACE_SECTION_HEIGHT, layerY,
+            NULL, SURFACE_SECTION_HEIGHT, layerY,
             coordinates[i][0], coordinates[i][1], faces, NULL, 0, &water);
         bool hasFlora = BuildFloraMeshData(
             (const unsigned short (*)[CHUNK_SIZE])blocks,

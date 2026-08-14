@@ -1,6 +1,7 @@
 #include "entity.h"
 
 #include "fauna_motion.h"
+#include "fluid.h"
 #include "raymath.h"
 #include "world.h"
 #include "terrain.h"
@@ -20,6 +21,15 @@
 #define ENTITY_STATE_VERSION 4u
 #define ENTITY_RANDOM_FALLBACK 0x6d2b79f5u
 #define ENTITY_EVOLUTION_DAYS_PER_SECOND 0.02f
+
+static Vector3 EntityFluidCurrent(const Entity *entity)
+{
+    if (!entity || !WorldIsSurfaceActive()) return Vector3Zero();
+    Vector3 point = Vector3Add(entity->position, (Vector3){ 0.0f, 0.5f, 0.0f });
+    FluidSample sample = FluidSampleAt(point);
+    if (sample.volume == 0u || point.y >= sample.surfaceY) return Vector3Zero();
+    return sample.velocity;
+}
 
 typedef struct EntityDiskStateV1 {
     uint32_t active;
@@ -1851,12 +1861,19 @@ static void UpdatePassive(Entity *entity, int entityIndex,
         0.0f,
         entity->velocity.z
     };
+    Vector3 current = EntityFluidCurrent(entity);
+    move.x += current.x;
+    move.z += current.z;
+    if (entity->aquatic && fabsf(current.y) > 0.0001f) {
+        entity->position.y += current.y * dt;
+    }
     if (ecological && windDrift > 0.0f) {
         float coupledDrift = windDrift * motionProfile.windCoupling;
         move.x += cosf(entity->ecologyWindAngle) * coupledDrift;
         move.z += sinf(entity->ecologyWindAngle) * coupledDrift;
     }
-    if (motion.speed > 0.0f ||
+    if (motion.speed > 0.0f || fabsf(current.x) > 0.0001f ||
+        fabsf(current.z) > 0.0001f ||
         (ecological && entity->airborne && windDrift > 0.0f)) {
         if (entity->airborne || entity->aquatic) {
             MoveEntityAirborne(entity, &motionProfile, move, dt);
@@ -1873,10 +1890,12 @@ static void UpdateHostile(Entity *entity, const Player *player, float dt, float 
     float playerDist = Vector3Length(toPlayer);
     float speed = (entity->type == ENTITY_ZOMBIE) ? 1.4f : 1.2f;
 
+    Vector3 move = EntityFluidCurrent(entity);
+    move.y = 0.0f;
     if (playerDist < 34.0f) {
         entity->yaw = atan2f(toPlayer.x, toPlayer.z);
-        Vector3 move = { sinf(entity->yaw) * speed, 0.0f, cosf(entity->yaw) * speed };
-        MoveEntityHorizontal(entity, move, dt);
+        move.x += sinf(entity->yaw) * speed;
+        move.z += cosf(entity->yaw) * speed;
         if (entity->type == ENTITY_ZOMBIE) {
             int x = (int)floorf(entity->position.x);
             int z = (int)floorf(entity->position.z);
@@ -1888,6 +1907,9 @@ static void UpdateHostile(Entity *entity, const Player *player, float dt, float 
         }
     } else {
         entity->moveTimer = 0.0f;
+    }
+    if (Vector3LengthSqr(move) > 0.000001f) {
+        MoveEntityHorizontal(entity, move, dt);
     }
 
     if (entity->type == ENTITY_ZOMBIE && daylight > 0.5f &&

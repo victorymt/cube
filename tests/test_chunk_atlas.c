@@ -66,7 +66,8 @@ static bool BuildTestMesh(
             blocks, WORLD_HEIGHT, 0, 0, 0, TEST_CHUNK_FACES, NULL, 0, mesh);
     case TEST_MESH_WATER:
         return BuildSurfaceWaterMeshData(
-            blocks, WORLD_HEIGHT, 0, 0, 0, TEST_CHUNK_FACES, NULL, 0, mesh);
+            blocks, NULL, WORLD_HEIGHT, 0, 0, 0, TEST_CHUNK_FACES, NULL, 0,
+            mesh);
     case TEST_MESH_FLORA:
         return BuildFloraMeshData(
             blocks, WORLD_HEIGHT, 0, 0, 0, TEST_CHUNK_FACES, NULL, 0, mesh);
@@ -319,7 +320,7 @@ static void AssertSurfaceFloraMeshPartition(void)
         WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &solid));
     assert(BuildSurfaceWaterMeshData(
         (const unsigned short (*)[CHUNK_SIZE])blocks,
-        WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &water));
+        NULL, WORLD_HEIGHT, 0, 0, 0, faces, NULL, 0, &water));
     assert(BuildFloraMeshData((const unsigned short (*)[CHUNK_SIZE])blocks,
                               WORLD_HEIGHT, 0, 0, 0, faces,
                               NULL, 0, &flora));
@@ -388,6 +389,35 @@ static void AssertSurfaceFloraMeshPartition(void)
     FreeTestMesh(&solid);
     FreeTestMesh(&water);
     FreeTestMesh(&flora);
+}
+
+static void AssertPartialWaterVolumeHeight(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    static unsigned char volumes[CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE];
+    memset(blocks, 0, sizeof(blocks));
+    memset(volumes, 0, sizeof(volumes));
+    const int lx = 4;
+    const int y = 10;
+    const int lz = 4;
+    blocks[lx][y][lz] = BLOCK_WATER;
+    volumes[(lx * WORLD_HEIGHT + y) * CHUNK_SIZE + lz] = 127u;
+
+    Mesh mesh = { 0 };
+    assert(BuildSurfaceWaterMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])blocks, volumes,
+        WORLD_HEIGHT, 0, 0, 0, TEST_CHUNK_FACES, NULL, 0, &mesh));
+    AssertMeshWellFormed(&mesh, 36);
+    float expectedTop = (float)y + 127.0f / 255.0f;
+    float maximumY = -INFINITY;
+    for (int vertex = 0; vertex < mesh.vertexCount; vertex++) {
+        float vertexY = mesh.vertices[vertex * 3 + 1];
+        if (vertexY > maximumY) maximumY = vertexY;
+        assert(vertexY <= expectedTop + 0.0001f);
+        assert(vertexY >= (float)y - 0.0001f);
+    }
+    assert(fabsf(maximumY - expectedTop) < 0.0001f);
+    FreeTestMesh(&mesh);
 }
 
 static void AssertStairsMeshCapacity(void)
@@ -615,6 +645,7 @@ int main(void)
     AssertSolidFacesRemainVisibleUnderwater();
     AssertUnknownWaterNeighborsAreConservative();
     AssertSurfaceFloraMeshPartition();
+    AssertPartialWaterVolumeHeight();
     AssertLightingVertexData();
     AssertStairsMeshCapacity();
     AssertDoorMeshCapacityWithOcclusion();

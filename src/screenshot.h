@@ -87,6 +87,18 @@ typedef struct ScreenshotEnvironmentDebugInfo {
     bool shipInterior;
 } ScreenshotEnvironmentDebugInfo;
 
+typedef struct ScreenshotFluidDebugInfo {
+    unsigned volume;
+    float surfaceY;
+    ScreenshotVector3 flowVelocity;
+    uint64_t ticks;
+    uint64_t loadedVolume;
+    unsigned activeCells;
+    unsigned lastProcessedCells;
+    unsigned editCount;
+    unsigned queueOverflows;
+} ScreenshotFluidDebugInfo;
+
 typedef struct ScreenshotInputDebugInfo {
     float forward;
     float strafe;
@@ -193,6 +205,7 @@ typedef struct ScreenshotDebugInfo {
     ScreenshotCameraDebugInfo camera;
     ScreenshotWeatherDebugInfo weather;
     ScreenshotEnvironmentDebugInfo environment;
+    ScreenshotFluidDebugInfo fluid;
     ScreenshotInputDebugInfo input;
     ScreenshotRenderDebugInfo render;
     ScreenshotUiDebugInfo ui;

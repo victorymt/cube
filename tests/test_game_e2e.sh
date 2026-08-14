@@ -121,6 +121,23 @@ if [[ "$water_ready" != true ]]; then
     exit 1
 fi
 
+# Build a one-cell reservoir directly above the settled ocean surface. The
+# full water below acts as a floor, so the injected unit must spread sideways.
+# Conservation is checked in test_fluid against an isolated loaded world;
+# loaded-volume snapshots here can change as generation jobs finish.
+[[ "$matched_line" == *'fluid_overflows=0'* ]]
+send_command 'fluid set -2894 81 20 0'
+wait_for_reply '^DEBUG_CONTROL fluid set ok position=-2894,81,20 volume=0$'
+send_command 'fluid set -2895 81 20 255'
+wait_for_reply '^DEBUG_CONTROL fluid set ok position=-2895,81,20 volume=255$'
+send_command 'fluid inspect -2895 81 20'
+wait_for_reply '^DEBUG_CONTROL fluid inspect ok '
+send_command 'fluid step 64'
+wait_for_reply '^DEBUG_CONTROL fluid step ok ticks=64 '
+send_command 'fluid inspect -2894 81 20'
+wait_for_reply '^DEBUG_CONTROL fluid inspect ok position=-2894,81,20 '
+[[ "$matched_line" =~ volume=([1-9][0-9]*) ]]
+
 send_command 'screenshot'
 wait_for_reply '^DEBUG_CONTROL screenshot scheduled$'
 wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
@@ -131,10 +148,9 @@ report_path=${matched_line##*report=}
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=4' "$report_path"
+grep -Fxq 'format.version=5' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
-grep -Fxq 'environment.water_surface_y=81.000000' "$report_path"
 grep -Fxq 'environment.seabed_y=34' "$report_path"
 grep -Fxq 'environment.water_column_depth=46' "$report_path"
 grep -Fxq 'environment.bathymetry_zone=abyssal_plain' "$report_path"
@@ -143,6 +159,9 @@ grep -Fxq 'environment.underwater=true' "$report_path"
 grep -Fxq 'environment.feet_submerged=true' "$report_path"
 grep -Fxq 'environment.body_submerged=true' "$report_path"
 grep -Fxq 'environment.eyes_submerged=true' "$report_path"
+grep -Eq '^fluid.local_volume=([1-9][0-9]*)$' "$report_path"
+grep -Eq '^fluid.loaded_volume=([1-9][0-9]*)$' "$report_path"
+grep -Eq '^fluid.edit_count=([1-9][0-9]*)$' "$report_path"
 grep -Fxq 'evolution.entity_selected=false' "$report_path"
 grep -Fxq 'evolution.scan_locked=false' "$report_path"
 grep -Fxq 'evolution.atlas_open=false' "$report_path"
@@ -150,7 +169,9 @@ grep -Fxq 'evolution.catalog_species_count=0' "$report_path"
 grep -Fxq 'evolution.region_available=true' "$report_path"
 
 underwater_depth=$(awk -F= '$1 == "environment.underwater_depth" { print $2 }' "$report_path")
+water_surface_y=$(awk -F= '$1 == "environment.water_surface_y" { print $2 }' "$report_path")
 awk -v depth="$underwater_depth" 'BEGIN { exit !(depth >= 3.0 && depth <= 4.5) }'
+awk -v surface="$water_surface_y" 'BEGIN { exit !(surface >= 81.0 && surface <= 82.0) }'
 python3 tests/validate_png.py "$png_path" 1280 720 --underwater-scene
 
 send_command 'evolution atlas'
@@ -164,7 +185,7 @@ atlas_png_path=${atlas_png_path%% report=*}
 atlas_report_path=${matched_line##*report=}
 [[ -s "$atlas_png_path" ]]
 [[ -s "$atlas_report_path" ]]
-grep -Fxq 'format.version=4' "$atlas_report_path"
+grep -Fxq 'format.version=5' "$atlas_report_path"
 grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
 grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
 python3 tests/validate_png.py "$atlas_png_path" 1280 720 --allow-dark-ui

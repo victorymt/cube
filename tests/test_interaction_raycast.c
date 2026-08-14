@@ -99,13 +99,14 @@ void WorldEndUndoGroup(void)
     undoEndCalls++;
 }
 
-void SetBlockForImport(int x, int y, int z, BlockType type)
+bool SetBlockForImport(int x, int y, int z, BlockType type)
 {
     (void)x;
     (void)y;
     (void)z;
     (void)type;
     importedBlockWrites++;
+    return true;
 }
 
 BlockType NearestImageBlock(Color color)

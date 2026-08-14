@@ -4,10 +4,15 @@
 
 #include "raymath.h"
 #include "ecology.h"
+#include "fluid.h"
 #include "space.h"
 #include "terrain.h"
 #include "world.h"
 #include "weather.h"
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma weak FluidOnChunkLoaded
+#endif
 
 #include <math.h>
 #include <limits.h>
@@ -43,6 +48,15 @@ static double ChunkNowMs(void)
 
 static void UpdateQueuePeaksLocked(void);
 
+typedef struct SurfaceWaterBoundarySnapshot {
+    unsigned short xBlocks[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    unsigned char xVolumes[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    unsigned short zBlocks[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    unsigned char zVolumes[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    unsigned short yBlocks[2][CHUNK_SIZE][CHUNK_SIZE];
+    unsigned char yVolumes[2][CHUNK_SIZE][CHUNK_SIZE];
+} SurfaceWaterBoundarySnapshot;
+
 struct MeshJob {
     bool inUse;
     bool done;
@@ -59,6 +73,8 @@ struct MeshJob {
     uint32_t sectionStamp;
     uint32_t chunkGeneration;
     unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    unsigned char waterVolumes[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    SurfaceWaterBoundarySnapshot waterBoundary;
     FloraStructureInstance floraStructures[MAX_CHUNK_FLORA_STRUCTURES];
     int floraStructureCount;
     int nearbyIndices[MAX_TORCH_LIGHTS];
@@ -76,6 +92,13 @@ typedef struct MeshJob MeshJob;
 static bool HasPendingMeshJob(void);
 static MeshJob *NextPendingMeshJob(void);
 static void FreeMeshData(Mesh *mesh);
+static bool MergeMeshData(Mesh *target, Mesh *source);
+static bool BuildSurfaceWaterMeshDataWithSnapshot(
+    const unsigned short (*blocks)[CHUNK_SIZE],
+    const unsigned char *waterVolumes, int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount,
+    const SurfaceWaterBoundarySnapshot *boundary, Mesh *outMesh);
 static bool BuildChunkSurfaceSolidMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
@@ -225,6 +248,10 @@ void ChunkClearBlockStorage(Chunk *chunk)
         ChunkSection *section = chunk->sections[sy];
         if (!section) continue;
         UnloadChunkSectionModels(section);
+        free(section->waterVolumes);
+        free(section->fluidQueuedBits);
+        free(section->fluidDeferredBits);
+        free(section->fluidFlow);
         free(section);
         chunk->sections[sy] = NULL;
     }
@@ -372,12 +399,14 @@ void *ChunkGenWorker(void *arg)
                 meshJob->floraStructures, meshJob->floraStructureCount,
                 faces, meshJob->nearbyIndices, meshJob->nearbyCount,
                 &meshJob->mesh);
-            meshJob->hasWaterMesh = BuildSurfaceWaterMeshData(
+            meshJob->hasWaterMesh = BuildSurfaceWaterMeshDataWithSnapshot(
                 (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
+                (const unsigned char *)meshJob->waterVolumes,
                 SURFACE_SECTION_HEIGHT,
                 meshJob->sectionY * SURFACE_SECTION_HEIGHT,
                 meshJob->cx, meshJob->cz, faces,
                 meshJob->nearbyIndices, meshJob->nearbyCount,
+                &meshJob->waterBoundary,
                 &meshJob->waterMesh);
             meshJob->hasFloraMesh = BuildChunkFloraMeshDataFromSnapshot(
                 meshJob->blocks,
@@ -451,6 +480,7 @@ void CompleteChunkGenJob(ChunkGenJob *job)
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
+    if (FluidOnChunkLoaded) FluidOnChunkLoaded(chunk);
     MarkChunkAndHorizontalNeighborsDirty(chunk->cx, chunk->cz);
 }
 
@@ -570,6 +600,7 @@ bool EnsureChunk(int cx, int cz)
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
+    if (FluidOnChunkLoaded) FluidOnChunkLoaded(chunk);
     pthread_mutex_lock(&genMutex);
     streamingStats.generationCompleted++;
     streamingStats.generationCpuMs += elapsedMs;
@@ -2087,6 +2118,7 @@ typedef struct ChunkMeshBuildContext {
     bool transparent;
     bool includePlants;
     bool plantsOnly;
+    bool excludeWater;
     const int (*faces)[3];
     const int *nearbyTorchIndices;
     int nearbyTorchCount;
@@ -2106,6 +2138,7 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
     bool transparent = context->transparent;
     bool includePlants = context->includePlants;
     bool plantsOnly = context->plantsOnly;
+    bool excludeWater = context->excludeWater;
     bool counting = emitter->mesh == NULL;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int y = 0; y < height; y++) {
@@ -2119,6 +2152,7 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
                     if (type == BLOCK_AIR ||
                         ChunkBlockHasTransparentMesh(type) !=
                             transparent) continue;
+                    if (excludeWater && type == BLOCK_WATER) continue;
                     if (plant && !includePlants) continue;
                 }
 
@@ -2210,7 +2244,7 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
 static bool BuildMeshDataFiltered(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, bool transparent, bool includePlants,
-    bool plantsOnly, const int faces[6][3],
+    bool plantsOnly, bool excludeWater, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
 {
     ChunkMeshBuildContext context = {
@@ -2222,6 +2256,7 @@ static bool BuildMeshDataFiltered(
         .transparent = transparent,
         .includePlants = includePlants,
         .plantsOnly = plantsOnly,
+        .excludeWater = excludeWater,
         .faces = faces,
         .nearbyTorchIndices = nearbyTorchIndices,
         .nearbyTorchCount = nearbyTorchCount
@@ -2269,7 +2304,7 @@ bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
                    Mesh *outMesh)
 {
     return BuildMeshDataFiltered(
-        blocks, height, layerY, chunkX, chunkZ, transparent, true, false,
+        blocks, height, layerY, chunkX, chunkZ, transparent, true, false, false,
         faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
 }
 
@@ -2279,18 +2314,401 @@ bool BuildSurfaceSolidMeshData(
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
 {
     return BuildMeshDataFiltered(
-        blocks, height, layerY, chunkX, chunkZ, false, false, false,
+        blocks, height, layerY, chunkX, chunkZ, false, false, false, false,
         faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
 }
 
+static unsigned char SurfaceWaterSnapshotVolume(
+    const unsigned short (*blocks)[CHUNK_SIZE],
+    const unsigned char *waterVolumes, int height, int lx, int y, int lz)
+{
+    BlockType block = (BlockType)blocks[lx * height + y][lz];
+    if (block != BLOCK_WATER) return 0u;
+    if (!waterVolumes) return (unsigned char)FLUID_CAPACITY;
+    return waterVolumes[(lx * height + y) * CHUNK_SIZE + lz];
+}
+
+static void CaptureSurfaceWaterBoundaryCell(
+    int worldX, int worldY, int worldZ, unsigned short *outBlock,
+    unsigned char *outVolume)
+{
+    *outBlock = USHRT_MAX;
+    *outVolume = 0u;
+    if (!InHeight(worldY)) {
+        *outBlock = BLOCK_AIR;
+        return;
+    }
+
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(worldX, worldZ, &cx, &cz, &lx, &lz);
+    const Chunk *chunk = FindChunk(cx, cz);
+    if (!chunk) return;
+
+    BlockType block = ChunkGetLocalBlock(chunk, lx, worldY, lz);
+    *outBlock = (unsigned short)block;
+    if (block != BLOCK_WATER) return;
+
+    const ChunkSection *section = ChunkGetSectionConst(
+        chunk, worldY / SURFACE_SECTION_HEIGHT);
+    int index = (lx * SURFACE_SECTION_HEIGHT +
+                 worldY % SURFACE_SECTION_HEIGHT) * CHUNK_SIZE + lz;
+    *outVolume = section && section->waterVolumes
+        ? section->waterVolumes[index] : (unsigned char)FLUID_CAPACITY;
+}
+
+static void CaptureSurfaceWaterBoundary(
+    SurfaceWaterBoundarySnapshot *snapshot, int chunkX, int chunkZ,
+    int sectionY)
+{
+    memset(snapshot, 0xff, sizeof(*snapshot));
+    int baseX = chunkX * CHUNK_SIZE;
+    int baseY = sectionY * SURFACE_SECTION_HEIGHT;
+    int baseZ = chunkZ * CHUNK_SIZE;
+
+    for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
+        for (int edge = 0; edge < CHUNK_SIZE; edge++) {
+            CaptureSurfaceWaterBoundaryCell(
+                baseX - 1, baseY + y, baseZ + edge,
+                &snapshot->xBlocks[0][y][edge],
+                &snapshot->xVolumes[0][y][edge]);
+            CaptureSurfaceWaterBoundaryCell(
+                baseX + CHUNK_SIZE, baseY + y, baseZ + edge,
+                &snapshot->xBlocks[1][y][edge],
+                &snapshot->xVolumes[1][y][edge]);
+            CaptureSurfaceWaterBoundaryCell(
+                baseX + edge, baseY + y, baseZ - 1,
+                &snapshot->zBlocks[0][y][edge],
+                &snapshot->zVolumes[0][y][edge]);
+            CaptureSurfaceWaterBoundaryCell(
+                baseX + edge, baseY + y, baseZ + CHUNK_SIZE,
+                &snapshot->zBlocks[1][y][edge],
+                &snapshot->zVolumes[1][y][edge]);
+        }
+    }
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            CaptureSurfaceWaterBoundaryCell(
+                baseX + lx, baseY - 1, baseZ + lz,
+                &snapshot->yBlocks[0][lx][lz],
+                &snapshot->yVolumes[0][lx][lz]);
+            CaptureSurfaceWaterBoundaryCell(
+                baseX + lx, baseY + SURFACE_SECTION_HEIGHT, baseZ + lz,
+                &snapshot->yBlocks[1][lx][lz],
+                &snapshot->yVolumes[1][lx][lz]);
+        }
+    }
+}
+
+static bool SurfaceWaterBoundaryNeighbor(
+    const SurfaceWaterBoundarySnapshot *snapshot, int lx, int y, int lz,
+    BlockType *outBlock, unsigned char *outVolume)
+{
+    if (!snapshot) return false;
+    unsigned short block = USHRT_MAX;
+    unsigned char volume = 0u;
+    if (lx < 0 || lx >= CHUNK_SIZE) {
+        int side = lx < 0 ? 0 : 1;
+        block = snapshot->xBlocks[side][y][lz];
+        volume = snapshot->xVolumes[side][y][lz];
+    } else if (lz < 0 || lz >= CHUNK_SIZE) {
+        int side = lz < 0 ? 0 : 1;
+        block = snapshot->zBlocks[side][y][lx];
+        volume = snapshot->zVolumes[side][y][lx];
+    } else if (y < 0 || y >= SURFACE_SECTION_HEIGHT) {
+        int side = y < 0 ? 0 : 1;
+        block = snapshot->yBlocks[side][lx][lz];
+        volume = snapshot->yVolumes[side][lx][lz];
+    }
+    if (block == USHRT_MAX) return false;
+    *outBlock = (BlockType)block;
+    *outVolume = volume;
+    return true;
+}
+
+static bool SurfaceWaterNeighbor(
+    const unsigned short (*blocks)[CHUNK_SIZE],
+    const unsigned char *waterVolumes,
+    const SurfaceWaterBoundarySnapshot *boundary, int height, int layerY,
+    int chunkX, int chunkZ, int lx, int y, int lz,
+    int nx, int ny, int nz, BlockType *outBlock,
+    unsigned char *outVolume)
+{
+    if (!outBlock || !outVolume) return false;
+    int neighborY = y + ny;
+    int worldY = layerY + neighborY;
+    if (!InHeight(worldY)) {
+        *outBlock = BLOCK_AIR;
+        *outVolume = 0u;
+        return true;
+    }
+
+    int neighborLx = lx + nx;
+    int neighborLz = lz + nz;
+    if (neighborY >= 0 && neighborY < height &&
+        neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
+        neighborLz >= 0 && neighborLz < CHUNK_SIZE) {
+        *outBlock = (BlockType)blocks[
+            neighborLx * height + neighborY][neighborLz];
+        *outVolume = SurfaceWaterSnapshotVolume(
+            blocks, waterVolumes, height, neighborLx, neighborY, neighborLz);
+        return true;
+    }
+
+    if (boundary) {
+        return SurfaceWaterBoundaryNeighbor(
+            boundary, neighborLx, neighborY, neighborLz,
+            outBlock, outVolume);
+    }
+
+    int wx = chunkX * CHUNK_SIZE + lx + nx;
+    int wz = chunkZ * CHUNK_SIZE + lz + nz;
+    int neighborCx = 0;
+    int neighborCz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal(wx, wz, &neighborCx, &neighborCz, &localX, &localZ);
+    Chunk *neighborChunk = FindChunk(neighborCx, neighborCz);
+    if (!neighborChunk) return false;
+    *outBlock = ChunkGetLocalBlock(neighborChunk, localX, worldY, localZ);
+    *outVolume = 0u;
+    if (*outBlock == BLOCK_WATER) {
+        int sectionY = worldY / SURFACE_SECTION_HEIGHT;
+        const ChunkSection *section = ChunkGetSectionConst(
+            neighborChunk, sectionY);
+        int index = (localX * SURFACE_SECTION_HEIGHT +
+                     worldY % SURFACE_SECTION_HEIGHT) * CHUNK_SIZE + localZ;
+        *outVolume = section && section->waterVolumes
+            ? section->waterVolumes[index] : (unsigned char)FLUID_CAPACITY;
+    }
+    return true;
+}
+
+static void AddSurfaceWaterFace(ChunkMeshEmitter *emitter, int x, int y,
+                                int z, int face, float low, float high,
+                                float blockLight)
+{
+    float x0 = (float)x;
+    float y0 = (float)y;
+    float z0 = (float)z;
+    float x1 = x0 + 1.0f;
+    float z1 = z0 + 1.0f;
+    float lowY = y0 + low;
+    float highY = y0 + high;
+    Vector3 normal = Vector3Zero();
+    Vector3 corners[6] = { 0 };
+    static const float shades[6] = {
+        0.82f, 0.72f, 1.08f, 0.56f, 0.90f, 0.66f
+    };
+    switch (face) {
+    case 0:
+        normal = (Vector3){ 1.0f, 0.0f, 0.0f };
+        corners[0] = (Vector3){ x1, lowY, z1 };
+        corners[1] = (Vector3){ x1, lowY, z0 };
+        corners[2] = (Vector3){ x1, highY, z0 };
+        corners[3] = (Vector3){ x1, lowY, z1 };
+        corners[4] = (Vector3){ x1, highY, z0 };
+        corners[5] = (Vector3){ x1, highY, z1 };
+        break;
+    case 1:
+        normal = (Vector3){ -1.0f, 0.0f, 0.0f };
+        corners[0] = (Vector3){ x0, lowY, z0 };
+        corners[1] = (Vector3){ x0, lowY, z1 };
+        corners[2] = (Vector3){ x0, highY, z1 };
+        corners[3] = (Vector3){ x0, lowY, z0 };
+        corners[4] = (Vector3){ x0, highY, z1 };
+        corners[5] = (Vector3){ x0, highY, z0 };
+        break;
+    case 2:
+        normal = (Vector3){ 0.0f, 1.0f, 0.0f };
+        corners[0] = (Vector3){ x0, highY, z1 };
+        corners[1] = (Vector3){ x1, highY, z1 };
+        corners[2] = (Vector3){ x1, highY, z0 };
+        corners[3] = (Vector3){ x0, highY, z1 };
+        corners[4] = (Vector3){ x1, highY, z0 };
+        corners[5] = (Vector3){ x0, highY, z0 };
+        break;
+    case 3:
+        normal = (Vector3){ 0.0f, -1.0f, 0.0f };
+        corners[0] = (Vector3){ x0, lowY, z0 };
+        corners[1] = (Vector3){ x1, lowY, z0 };
+        corners[2] = (Vector3){ x1, lowY, z1 };
+        corners[3] = (Vector3){ x0, lowY, z0 };
+        corners[4] = (Vector3){ x1, lowY, z1 };
+        corners[5] = (Vector3){ x0, lowY, z1 };
+        break;
+    case 4:
+        normal = (Vector3){ 0.0f, 0.0f, 1.0f };
+        corners[0] = (Vector3){ x0, lowY, z1 };
+        corners[1] = (Vector3){ x1, lowY, z1 };
+        corners[2] = (Vector3){ x1, highY, z1 };
+        corners[3] = (Vector3){ x0, lowY, z1 };
+        corners[4] = (Vector3){ x1, highY, z1 };
+        corners[5] = (Vector3){ x0, highY, z1 };
+        break;
+    default:
+        normal = (Vector3){ 0.0f, 0.0f, -1.0f };
+        corners[0] = (Vector3){ x1, lowY, z0 };
+        corners[1] = (Vector3){ x0, lowY, z0 };
+        corners[2] = (Vector3){ x0, highY, z0 };
+        corners[3] = (Vector3){ x1, lowY, z0 };
+        corners[4] = (Vector3){ x0, highY, z0 };
+        corners[5] = (Vector3){ x1, highY, z0 };
+        break;
+    }
+    Vector2 uvs[6];
+    AtlasUVs(TextureForBlockFace(BLOCK_WATER, face), uvs);
+    AddMeshFaceLighting(emitter, corners, normal, uvs,
+                        ShadeColor(WHITE, shades[face]), NULL, blockLight);
+}
+
+static void EmitSurfaceWater(
+    const unsigned short (*blocks)[CHUNK_SIZE],
+    const unsigned char *waterVolumes,
+    const SurfaceWaterBoundarySnapshot *boundary, int height, int layerY,
+    int chunkX, int chunkZ, const int *nearbyTorchIndices,
+    int nearbyTorchCount, ChunkMeshEmitter *emitter)
+{
+    static const int directions[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    bool counting = emitter->mesh == NULL;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int y = 0; y < height; y++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                unsigned char volume = SurfaceWaterSnapshotVolume(
+                    blocks, waterVolumes, height, lx, y, lz);
+                if (volume == 0u) continue;
+                float heightFraction =
+                    (float)volume / (float)FLUID_CAPACITY;
+                int worldX = chunkX * CHUNK_SIZE + lx;
+                int worldZ = chunkZ * CHUNK_SIZE + lz;
+                float blockLight = counting ? 0.0f : TorchLightAtBlockNearby(
+                    worldX, layerY + y, worldZ, nearbyTorchIndices,
+                    nearbyTorchCount);
+                for (int face = 0; face < 6; face++) {
+                    BlockType neighbor = BLOCK_AIR;
+                    unsigned char neighborVolume = 0u;
+                    if (!SurfaceWaterNeighbor(
+                            blocks, waterVolumes, boundary, height, layerY,
+                            chunkX, chunkZ, lx, y, lz, directions[face][0],
+                            directions[face][1], directions[face][2],
+                            &neighbor, &neighborVolume)) {
+                        continue;
+                    }
+
+                    float low = 0.0f;
+                    bool visible = false;
+                    if (face == 2) {
+                        visible = neighborVolume == 0u &&
+                            (neighbor == BLOCK_AIR ||
+                             neighbor == BLOCK_SPACESHIP_OCCUPIED ||
+                             IsTranslucentBlock(neighbor));
+                        low = heightFraction;
+                    } else if (face == 3) {
+                        visible = neighborVolume == 0u &&
+                            (neighbor == BLOCK_AIR ||
+                             neighbor == BLOCK_SPACESHIP_OCCUPIED ||
+                             IsTranslucentBlock(neighbor));
+                    } else if (neighborVolume > 0u) {
+                        low = (float)neighborVolume / (float)FLUID_CAPACITY;
+                        visible = low + 0.0001f < heightFraction;
+                    } else {
+                        visible = neighbor == BLOCK_AIR ||
+                                  neighbor == BLOCK_SPACESHIP_OCCUPIED ||
+                                  IsTranslucentBlock(neighbor);
+                    }
+                    if (!visible) continue;
+                    if (counting) CountMeshFace(emitter);
+                    else AddSurfaceWaterFace(emitter, worldX, y, worldZ,
+                                             face, low, heightFraction,
+                                             blockLight);
+                }
+            }
+        }
+    }
+}
+
+static bool BuildSurfaceWaterVolumeMeshData(
+    const unsigned short (*blocks)[CHUNK_SIZE],
+    const unsigned char *waterVolumes,
+    const SurfaceWaterBoundarySnapshot *boundary, int height, int layerY,
+    int chunkX, int chunkZ, const int *nearbyTorchIndices,
+    int nearbyTorchCount, Mesh *outMesh)
+{
+    ChunkMeshEmitter counter = { 0 };
+    EmitSurfaceWater(blocks, waterVolumes, boundary, height, layerY,
+                     chunkX, chunkZ, nearbyTorchIndices, nearbyTorchCount,
+                     &counter);
+    if (counter.failed || counter.vertexIndex == 0) return false;
+
+    Mesh mesh = { 0 };
+    mesh.vertexCount = counter.vertexIndex;
+    mesh.triangleCount = counter.vertexIndex / 3;
+    mesh.vertices = malloc((size_t)mesh.vertexCount * 3u * sizeof(float));
+    mesh.texcoords = malloc((size_t)mesh.vertexCount * 2u * sizeof(float));
+    mesh.texcoords2 = malloc((size_t)mesh.vertexCount * 2u * sizeof(float));
+    mesh.normals = malloc((size_t)mesh.vertexCount * 3u * sizeof(float));
+    mesh.colors = malloc((size_t)mesh.vertexCount * 4u);
+    if (!mesh.vertices || !mesh.texcoords || !mesh.texcoords2 ||
+        !mesh.normals || !mesh.colors) {
+        FreeMeshData(&mesh);
+        return false;
+    }
+    ChunkMeshEmitter writer = {
+        .mesh = &mesh,
+        .vertexCapacity = mesh.vertexCount
+    };
+    EmitSurfaceWater(blocks, waterVolumes, boundary, height, layerY,
+                     chunkX, chunkZ, nearbyTorchIndices, nearbyTorchCount,
+                     &writer);
+    if (writer.failed || writer.vertexIndex != counter.vertexIndex) {
+        FreeMeshData(&mesh);
+        return false;
+    }
+    *outMesh = mesh;
+    return true;
+}
+
+static bool BuildSurfaceWaterMeshDataWithSnapshot(
+    const unsigned short (*blocks)[CHUNK_SIZE],
+    const unsigned char *waterVolumes, int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount,
+    const SurfaceWaterBoundarySnapshot *boundary, Mesh *outMesh)
+{
+    if (!blocks || height <= 0 || !faces || !outMesh) return false;
+    Mesh transparent = { 0 };
+    Mesh water = { 0 };
+    bool hasTransparent = BuildMeshDataFiltered(
+        blocks, height, layerY, chunkX, chunkZ, true, false, false, true,
+        faces, nearbyTorchIndices, nearbyTorchCount, &transparent);
+    bool hasWater = BuildSurfaceWaterVolumeMeshData(
+        blocks, waterVolumes, boundary, height, layerY, chunkX, chunkZ,
+        nearbyTorchIndices, nearbyTorchCount, &water);
+    if (!hasTransparent && !hasWater) return false;
+    Mesh combined = { 0 };
+    if ((hasTransparent && !MergeMeshData(&combined, &transparent)) ||
+        (hasWater && !MergeMeshData(&combined, &water))) {
+        FreeMeshData(&combined);
+        return false;
+    }
+    *outMesh = combined;
+    return true;
+}
+
 bool BuildSurfaceWaterMeshData(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    const unsigned short (*blocks)[CHUNK_SIZE],
+    const unsigned char *waterVolumes, int height, int layerY,
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
 {
-    return BuildMeshDataFiltered(
-        blocks, height, layerY, chunkX, chunkZ, true, false, false,
-        faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
+    return BuildSurfaceWaterMeshDataWithSnapshot(
+        blocks, waterVolumes, height, layerY, chunkX, chunkZ, faces,
+        nearbyTorchIndices, nearbyTorchCount, NULL, outMesh);
 }
 
 bool BuildFloraMeshData(
@@ -2299,7 +2717,7 @@ bool BuildFloraMeshData(
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
 {
     return BuildMeshDataFiltered(
-        blocks, height, layerY, chunkX, chunkZ, false, false, true,
+        blocks, height, layerY, chunkX, chunkZ, false, false, true, false,
         faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
 }
 
@@ -2752,7 +3170,11 @@ static void UpdateQueuePeaksLocked(void)
     if (mesh > streamingStats.meshQueuePeak) streamingStats.meshQueuePeak = mesh;
     uint64_t snapshotBytes = 0;
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        if (meshJobs[i].inUse) snapshotBytes += sizeof(meshJobs[i].blocks);
+        if (meshJobs[i].inUse) {
+            snapshotBytes += sizeof(meshJobs[i].blocks) +
+                             sizeof(meshJobs[i].waterVolumes) +
+                             sizeof(meshJobs[i].waterBoundary);
+        }
     }
     streamingStats.pendingMeshSnapshotBytes = snapshotBytes;
     if (snapshotBytes > streamingStats.pendingMeshSnapshotBytesPeak) {
@@ -2942,6 +3364,22 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
                            const ChunkSection *section)
 {
     memcpy(job->blocks, section->blocks, sizeof(job->blocks));
+    if (section->waterVolumes) {
+        memcpy(job->waterVolumes, section->waterVolumes,
+               sizeof(job->waterVolumes));
+    } else {
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
+                for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                    job->waterVolumes[lx][y][lz] =
+                        section->blocks[lx][y][lz] == BLOCK_WATER
+                            ? (unsigned char)FLUID_CAPACITY : 0u;
+                }
+            }
+        }
+    }
+    CaptureSurfaceWaterBoundary(
+        &job->waterBoundary, chunk->cx, chunk->cz, section->sectionY);
     job->floraStructureCount = chunk->floraStructureCount;
     if (job->floraStructureCount < 0) job->floraStructureCount = 0;
     if (job->floraStructureCount > MAX_CHUNK_FLORA_STRUCTURES) {
@@ -2993,7 +3431,9 @@ static bool SubmitMeshJobs(Chunk *chunk, ChunkSection *section)
 
     PrepareMeshJob(job, chunk, section);
     streamingStats.meshSubmitted++;
-    streamingStats.meshSnapshotBytes += sizeof(job->blocks);
+    streamingStats.meshSnapshotBytes += sizeof(job->blocks) +
+                                        sizeof(job->waterVolumes) +
+                                        sizeof(job->waterBoundary);
     UpdateQueuePeaksLocked();
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
@@ -3060,6 +3500,7 @@ static void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
         faces, nearbyTorchIndices, nearbyTorchCount, &solidMesh);
     bool hasWater = BuildSurfaceWaterMeshData(
         (const unsigned short (*)[CHUNK_SIZE])section->blocks,
+        section->waterVolumes,
         SURFACE_SECTION_HEIGHT,
         section->sectionY * SURFACE_SECTION_HEIGHT,
         chunk->cx, chunk->cz, faces,
@@ -3426,6 +3867,28 @@ int ChunksTestMeshJobSectionY(int jobIndex)
 {
     assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
     return meshJobs[jobIndex].inUse ? meshJobs[jobIndex].sectionY : -1;
+}
+
+int ChunksTestBuildWaterMeshJob(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    MeshJob *job = &meshJobs[jobIndex];
+    assert(job->inUse);
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    Mesh mesh = { 0 };
+    bool built = BuildSurfaceWaterMeshDataWithSnapshot(
+        (const unsigned short (*)[CHUNK_SIZE])job->blocks,
+        (const unsigned char *)job->waterVolumes,
+        SURFACE_SECTION_HEIGHT,
+        job->sectionY * SURFACE_SECTION_HEIGHT,
+        job->cx, job->cz, faces, job->nearbyIndices, job->nearbyCount,
+        &job->waterBoundary, &mesh);
+    int vertices = built ? mesh.vertexCount : 0;
+    FreeMeshData(&mesh);
+    return vertices;
 }
 
 void ChunksTestCompleteMeshJob(int jobIndex)
