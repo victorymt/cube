@@ -89,12 +89,21 @@ static void TestDeepWaterAttenuation(void)
     input.underwater = true;
     input.underwaterDepth = 2.0f;
     EnvironmentPresentationState shallow = EnvironmentPresentationEvaluate(&input);
+    assert(shallow.cloudOpacity == 0.0f);
+    assert(shallow.precipitation == 0.0f);
+    assert(shallow.lightningFlash == 0.0f);
+    assert(shallow.starVisibility == 0.0f);
     input.underwaterDepth = 64.0f;
     EnvironmentPresentationState deep = EnvironmentPresentationEvaluate(&input);
+    input.underwaterDepth = UNDERWATER_DEEP_REFERENCE_DEPTH;
+    EnvironmentPresentationState trench = EnvironmentPresentationEvaluate(&input);
     assert(deep.fogDensity > shallow.fogDensity);
     assert(deep.fogStart < shallow.fogStart);
     assert(deep.exposure < shallow.exposure);
     assert(deep.directLightScale < shallow.directLightScale);
+    assert(trench.fogDensity >= deep.fogDensity);
+    assert(trench.exposure <= deep.exposure);
+    assert(trench.causticStrength <= deep.causticStrength);
 }
 
 int main(void)

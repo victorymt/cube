@@ -109,7 +109,35 @@ def decode_png(path):
     return width, height, bytes_per_pixel, rows
 
 
-def validate(path, expected_width, expected_height):
+def validate_underwater_scene(width, height, bytes_per_pixel, rows):
+    sample_count = 0
+    water_color_count = 0
+    neutral_color_count = 0
+
+    # The E2E deep-ocean camera leaves this band unobstructed by the HUD or
+    # seabed. A leaked sky clear color is neutral gray; underwater fog is cyan.
+    for y in range(height * 35 // 100, height * 60 // 100):
+        row = rows[y]
+        for x in range(width * 40 // 100, width * 90 // 100):
+            offset = x * bytes_per_pixel
+            red, green, blue = row[offset:offset + 3]
+            sample_count += 1
+            if green >= red + 20 and blue >= red + 20:
+                water_color_count += 1
+            if max(red, green, blue) - min(red, green, blue) <= 16:
+                neutral_color_count += 1
+
+    water_ratio = water_color_count / sample_count
+    neutral_ratio = neutral_color_count / sample_count
+    if water_ratio < 0.80 or neutral_ratio > 0.20:
+        raise ValueError(
+            "underwater background is not fog-colored: "
+            f"water_ratio={water_ratio:.3f} neutral_ratio={neutral_ratio:.3f}"
+        )
+
+
+def validate(path, expected_width, expected_height, allow_dark_ui=False,
+             underwater_scene=False):
     width, height, bytes_per_pixel, rows = decode_png(path)
     if (width, height) != (expected_width, expected_height):
         raise ValueError(
@@ -142,12 +170,16 @@ def validate(path, expected_width, expected_height):
         maximum - minimum >= 16
         for minimum, maximum in zip(channel_min, channel_max)
     )
-    if len(colors) < 64 or varied_channels < 2 or luminance_max - luminance_min < 24:
+    minimum_colors = 8 if allow_dark_ui else 64
+    if len(colors) < minimum_colors or varied_channels < 2 or luminance_max - luminance_min < 24:
         raise ValueError(
             "image appears blank or visually degenerate: "
             f"colors={len(colors)} channels={list(zip(channel_min, channel_max))} "
             f"luminance={luminance_min}..{luminance_max}"
         )
+
+    if underwater_scene:
+        validate_underwater_scene(width, height, bytes_per_pixel, rows)
 
     print(
         f"PNG validation passed: {width}x{height}, "
@@ -156,11 +188,17 @@ def validate(path, expected_width, expected_height):
 
 
 def main():
-    if len(sys.argv) != 4:
-        print("usage: validate_png.py PATH WIDTH HEIGHT", file=sys.stderr)
+    options = set(sys.argv[4:])
+    valid_options = {"--allow-dark-ui", "--underwater-scene"}
+    if len(sys.argv) < 4 or not options.issubset(valid_options) or \
+            len(options) != len(sys.argv[4:]):
+        print("usage: validate_png.py PATH WIDTH HEIGHT "
+              "[--allow-dark-ui] [--underwater-scene]", file=sys.stderr)
         return 2
     try:
-        validate(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
+        validate(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]),
+                 "--allow-dark-ui" in options,
+                 "--underwater-scene" in options)
     except (OSError, ValueError, zlib.error) as error:
         print(f"PNG validation failed: {error}", file=sys.stderr)
         return 1

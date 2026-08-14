@@ -117,6 +117,120 @@ static float SmoothRange(float low, float high, float value)
     return NoiseSmooth((value - low) / (high - low));
 }
 
+static void BathymetryClassify(BathymetrySample *sample,
+                               float trenchRelief, float seamountRelief)
+{
+    if (!sample || sample->seaLevel < 0 || sample->waterDepth <= 0) return;
+    int depth = sample->waterDepth;
+    if (seamountRelief >= 4.0f && depth >= 8) {
+        sample->zone = BATHYMETRY_ZONE_SEAMOUNT;
+    } else if (trenchRelief >= 4.0f && depth >= 48) {
+        sample->zone = BATHYMETRY_ZONE_TRENCH;
+    } else if (depth <= 6) {
+        sample->zone = BATHYMETRY_ZONE_COAST;
+    } else if (depth <= 20) {
+        sample->zone = BATHYMETRY_ZONE_SHELF;
+    } else if (depth <= 45) {
+        sample->zone = BATHYMETRY_ZONE_SLOPE;
+    } else {
+        sample->zone = BATHYMETRY_ZONE_ABYSSAL_PLAIN;
+    }
+
+    if (depth <= 20) {
+        sample->material = BATHYMETRY_MATERIAL_SAND;
+    } else if (depth <= 45 || sample->zone == BATHYMETRY_ZONE_SEAMOUNT) {
+        sample->material = BATHYMETRY_MATERIAL_SEDIMENT;
+    } else {
+        sample->material = BATHYMETRY_MATERIAL_ROCK;
+    }
+}
+
+static BathymetrySample BathymetryFromSignals(int seaLevel, float ocean,
+                                              float trench, float seamount,
+                                              float detail)
+{
+    BathymetrySample sample = {
+        .seaLevel = seaLevel,
+        .seabedY = seaLevel,
+        .zone = BATHYMETRY_ZONE_LAND,
+        .material = BATHYMETRY_MATERIAL_ROCK
+    };
+    if (seaLevel < 0 || ocean <= 0.0f) return sample;
+
+    ocean = Clamp(ocean, 0.0f, 1.0f);
+    trench = Clamp(trench, 0.0f, 1.0f);
+    seamount = Clamp(seamount, 0.0f, 1.0f);
+    float deepOcean = SmoothRange(0.48f, 0.92f, ocean);
+    float trenchRelief = trench * SmoothRange(0.52f, 0.82f, ocean) * 12.0f;
+    float seamountRelief = seamount * deepOcean * 22.0f;
+    float depth = 1.0f;
+    depth += SmoothRange(0.00f, 0.16f, ocean) * 5.0f;
+    depth += SmoothRange(0.10f, 0.36f, ocean) * 14.0f;
+    depth += SmoothRange(0.30f, 0.67f, ocean) * 24.0f;
+    depth += SmoothRange(0.58f, 0.92f, ocean) * 16.0f;
+    depth += trenchRelief;
+    depth -= seamountRelief;
+    depth += Clamp(detail, -0.5f, 0.5f) * 4.0f;
+    depth = Clamp(depth, 1.0f, (float)BATHYMETRY_MAX_WATER_DEPTH);
+
+    sample.waterDepth = (int)lroundf(depth);
+    sample.seabedY = seaLevel - sample.waterDepth;
+    if (sample.seabedY < BATHYMETRY_MIN_SEABED_Y) {
+        sample.seabedY = BATHYMETRY_MIN_SEABED_Y;
+        sample.waterDepth = seaLevel - sample.seabedY;
+    }
+    BathymetryClassify(&sample, trenchRelief, seamountRelief);
+    return sample;
+}
+
+static BathymetrySample BathymetryForHeight(int seaLevel, int height,
+                                            float trench, float seamount)
+{
+    BathymetrySample sample = {
+        .seaLevel = seaLevel,
+        .seabedY = height,
+        .waterDepth = seaLevel >= 0 && height < seaLevel ? seaLevel - height : 0,
+        .zone = BATHYMETRY_ZONE_LAND,
+        .material = BATHYMETRY_MATERIAL_ROCK
+    };
+    BathymetryClassify(&sample, trench * 12.0f, seamount * 22.0f);
+    return sample;
+}
+
+const char *BathymetryZoneName(BathymetryZone zone)
+{
+    switch (zone) {
+    case BATHYMETRY_ZONE_COAST: return "coast";
+    case BATHYMETRY_ZONE_SHELF: return "shelf";
+    case BATHYMETRY_ZONE_SLOPE: return "slope";
+    case BATHYMETRY_ZONE_ABYSSAL_PLAIN: return "abyssal_plain";
+    case BATHYMETRY_ZONE_TRENCH: return "trench";
+    case BATHYMETRY_ZONE_SEAMOUNT: return "seamount";
+    case BATHYMETRY_ZONE_LAND:
+    default: return "land";
+    }
+}
+
+const char *BathymetryMaterialName(BathymetryMaterial material)
+{
+    switch (material) {
+    case BATHYMETRY_MATERIAL_SAND: return "sand";
+    case BATHYMETRY_MATERIAL_SEDIMENT: return "sediment";
+    case BATHYMETRY_MATERIAL_ROCK:
+    default: return "rock";
+    }
+}
+
+BlockType BathymetryMaterialBlock(BathymetryMaterial material)
+{
+    switch (material) {
+    case BATHYMETRY_MATERIAL_SAND: return BLOCK_SAND;
+    case BATHYMETRY_MATERIAL_SEDIMENT: return BLOCK_SANDSTONE;
+    case BATHYMETRY_MATERIAL_ROCK:
+    default: return BLOCK_STONE;
+    }
+}
+
 static float HomeTerrainElevationCore(int x, int z,
                                       SurfaceTerrainSample *sample)
 {
@@ -133,16 +247,19 @@ static float HomeTerrainElevationCore(int x, int z,
     float trenchBoundary = 1.0f - fabsf(
         WorldFractalNoise2D(fx * 0.0019f, fz * 0.0019f, 307u) * 2.0f - 1.0f);
     float trench = SmoothRange(0.80f, 0.97f, trenchBoundary);
+    float seamount = SmoothRange(
+        0.62f, 0.90f,
+        WorldFractalNoise2D(fx * 0.00105f, fz * 0.00105f, 353u));
     float detail = WorldFractalNoise2D(fx * 0.021f, fz * 0.021f, 401u) - 0.5f;
     const float coast = 0.50f;
     float elevation = 0.0f;
+    BathymetrySample bathymetry = BathymetryForHeight(
+        HOME_SEA_LEVEL, HOME_SEA_LEVEL, 0.0f, 0.0f);
     if (continentalness < coast) {
         float ocean = Clamp((coast - continentalness) / coast, 0.0f, 1.0f);
-        float shelf = SmoothRange(0.0f, 0.18f, ocean);
-        elevation = (float)HOME_SEA_LEVEL - 4.0f - shelf * 14.0f -
-                    powf(ocean, 1.35f) * 43.0f;
-        elevation -= trench * SmoothRange(0.20f, 0.72f, ocean) * 34.0f;
-        elevation += detail * 4.0f;
+        bathymetry = BathymetryFromSignals(HOME_SEA_LEVEL, ocean, trench,
+                                           seamount, detail);
+        elevation = (float)bathymetry.seabedY;
     } else {
         float land = Clamp((continentalness - coast) / (1.0f - coast),
                            0.0f, 1.0f);
@@ -152,6 +269,7 @@ static float HomeTerrainElevationCore(int x, int z,
         elevation += ridge * mountainMask * 92.0f;
         elevation += peak * mountainMask * 48.0f;
         elevation += detail * (5.0f + land * 8.0f);
+        bathymetry.seabedY = (int)lroundf(elevation);
     }
     elevation = Clamp(elevation, 8.0f, 240.0f);
     if (sample) {
@@ -160,6 +278,7 @@ static float HomeTerrainElevationCore(int x, int z,
         sample->ridge = ridge;
         sample->peak = peak;
         sample->trench = trench;
+        sample->bathymetry = bathymetry;
     }
     return elevation;
 }
@@ -172,6 +291,13 @@ SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
         sample.elevation = 8.0f;
         sample.continentalness = 1.0f;
         sample.biome = BIOME_PLAINS;
+        sample.bathymetry = (BathymetrySample){
+            .seaLevel = -1,
+            .seabedY = 8,
+            .waterDepth = 0,
+            .zone = BATHYMETRY_ZONE_LAND,
+            .material = BATHYMETRY_MATERIAL_ROCK
+        };
         return sample;
     }
     sample.elevation = HomeTerrainElevationCore(x, z, &sample);
@@ -223,6 +349,11 @@ int TerrainHeight(int x, int z, TerrainMode mode)
 {
     if (mode == TERRAIN_FLAT) return 8;
     return (int)lroundf(HomeTerrainElevationCore(x, z, NULL));
+}
+
+BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode)
+{
+    return SurfaceTerrainAt(x, z, mode).bathymetry;
 }
 
 bool ShouldPlaceTree(int x, int z, TerrainMode mode)
@@ -653,15 +784,18 @@ int PlanetTerrainHeight(int x, int z)
     float hills = surface.regionalness * 0.62f + surface.detail * 0.23f +
                   localDetail * 0.15f;
     float coast = 0.27f + profile->oceanCoverage * 0.36f;
+    int seaLevel = PlanetSeaLevelForProfile(profile->style, profile);
+    bool oceanColumn = continents < coast && seaLevel >= 0;
     float height;
-    if (continents < coast && PlanetSeaLevelForProfile(
-            profile->style, profile) >= 0) {
+    if (oceanColumn) {
         float ocean = Clamp((coast - continents) / fmaxf(coast, 0.08f),
                             0.0f, 1.0f);
-        height = 76.0f - SmoothRange(0.0f, 0.20f, ocean) * 14.0f -
-                 powf(ocean, 1.32f) * 40.0f;
-        height -= surface.trench * SmoothRange(0.20f, 0.72f, ocean) * 32.0f;
-        height += (hills - 0.5f) * 6.0f;
+        float seamount = SmoothRange(
+            0.62f, 0.90f,
+            PlanetFractalNoise2D(fx * 0.00105f, fz * 0.00105f, 353u));
+        BathymetrySample bathymetry = BathymetryFromSignals(
+            seaLevel, ocean, surface.trench, seamount, hills - 0.5f);
+        height = (float)bathymetry.seabedY;
     } else {
         float land = Clamp((continents - coast) / fmaxf(1.0f - coast, 0.08f),
                            0.0f, 1.0f);
@@ -727,7 +861,9 @@ int PlanetTerrainHeight(int x, int z)
         height += fabsf(sinf(fx * 0.021f) * cosf(fz * 0.019f)) * 10.0f;
         break;
     case PLANET_BIOME_OCEAN:
-        height = fminf(height, 76.0f + (hills - 0.5f) * 5.0f);
+        if (!oceanColumn) {
+            height = fminf(height, 76.0f + (hills - 0.5f) * 5.0f);
+        }
         break;
     case PLANET_BIOME_COAST:
         height = fminf(height, 87.0f + (hills - 0.5f) * 6.0f);
@@ -755,9 +891,41 @@ int PlanetTerrainHeight(int x, int z)
     height += surface.lavaFlow * (profile->style == SOLAR_STYLE_LAVA ? 7.0f : 2.5f);
 
     height = roundf(height);
-    if (height < 5.0f) height = 5.0f;
+    if (oceanColumn) {
+        height = Clamp(height, (float)BATHYMETRY_MIN_SEABED_Y,
+                       (float)(seaLevel - 1));
+    } else if (height < 5.0f) {
+        height = 5.0f;
+    }
     if (height > 240.0f) height = 240.0f;
     return (int)height;
+}
+
+BathymetrySample PlanetBathymetryAt(int x, int z)
+{
+    if (!PlanetWorldIsActive()) return TerrainBathymetryAt(x, z, terrainMode);
+
+    int seaLevel = PlanetTerrainSeaLevel();
+    int height = PlanetTerrainHeight(x, z);
+    if (seaLevel < 0 || height >= seaLevel) {
+        return (BathymetrySample){
+            .seaLevel = seaLevel,
+            .seabedY = height,
+            .waterDepth = 0,
+            .zone = BATHYMETRY_ZONE_LAND,
+            .material = BATHYMETRY_MATERIAL_ROCK
+        };
+    }
+
+    float fx = 0.0f;
+    float fz = 0.0f;
+    PlanetSurfaceSample surface = PlanetSampleLocalSurface(x, z, &fx, &fz);
+    float seamount = SmoothRange(
+        0.62f, 0.90f,
+        PlanetFractalNoise2D(fx * 0.00105f, fz * 0.00105f, 353u));
+    BathymetrySample sample = BathymetryForHeight(
+        seaLevel, height, surface.trench, seamount);
+    return sample;
 }
 
 static bool SurfaceLandingCandidate(int x, int z, int footprintRadius,
@@ -959,6 +1127,7 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
     SolarBodyStyle style = PlanetWorldStyle();
     const PlanetProfile *profile = PlanetWorldProfile();
     SubsurfaceParams subsurface = PlanetSubsurfaceParamsFor(style, profile);
+    int seaLevel = PlanetSeaLevelForProfile(style, profile);
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -966,7 +1135,8 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
             int worldZ = startZ + lz;
             int localX = worldX;
             int localZ = worldZ;
-            int height = PlanetTerrainHeight(worldX, worldZ);
+            BathymetrySample bathymetry = PlanetBathymetryAt(worldX, worldZ);
+            int height = bathymetry.seabedY;
             PlanetSurfaceSample surface = PlanetSampleLocalSurface(worldX, worldZ, NULL, NULL);
             PlanetBiome biome = surface.biome;
 
@@ -975,6 +1145,9 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
                 int depth = height - y;
                 BlockType type = y == 0 ? BLOCK_BEDROCK :
                                  PlanetSubsurfaceBlock(style, biome, depth, h);
+                if (seaLevel >= 0 && height < seaLevel && y == height) {
+                    type = BathymetryMaterialBlock(bathymetry.material);
+                }
                 SubsurfaceSample cave = SubsurfaceSampleAt(
                     &subsurface, worldX, y, worldZ, height);
                 if (cave.cave) {
@@ -985,7 +1158,6 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
                 ChunkSetLocalBlock(chunk, lx, y, lz, type);
             }
 
-            int seaLevel = PlanetSeaLevelForProfile(style, profile);
             if (seaLevel >= 0 && height < seaLevel) {
                 BlockType liquid = style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER;
                 if (surface.iceCoverage > 0.64f) liquid = BLOCK_ICE;
@@ -1071,8 +1243,10 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
             int worldX = startX + lx;
             int worldZ = startZ + lz;
-            int height = TerrainHeight(worldX, worldZ, mode);
-            Biome biome = BiomeAt(worldX, worldZ);
+            SurfaceTerrainSample surface = SurfaceTerrainAt(worldX, worldZ, mode);
+            BathymetrySample bathymetry = surface.bathymetry;
+            int height = (int)lroundf(surface.elevation);
+            Biome biome = surface.biome;
             int seaLevel = TerrainSeaLevel(mode);
             bool submerged = seaLevel >= 0 && height < seaLevel;
 
@@ -1093,7 +1267,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
                         type = (y > height - 4) ? BLOCK_DIRT : StoneOrCaveBlock(worldX, y, worldZ, height);
                     }
                 } else if (submerged && y == height) {
-                    type = height > seaLevel - 8 ? BLOCK_SAND : BLOCK_STONE;
+                    type = BathymetryMaterialBlock(bathymetry.material);
                 } else if (biome == BIOME_DESERT) {
                     type = BLOCK_SAND;
                 } else if (biome == BIOME_SNOW) {

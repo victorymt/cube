@@ -72,9 +72,13 @@ static void TestEvolutionCommands(void)
     const char *commands =
         "evolution inspect\n"
         "evolution inspect 64\n"
+        "evolution focus\n"
+        "evolution focus 48\n"
         "evolution region\n"
         "evolution advance 96\n"
-        "evolution bootstrap status\n";
+        "evolution bootstrap status\n"
+        "evolution atlas\n"
+        "evolution catalog\n";
     assert(write(inputPipe[1], commands, strlen(commands)) ==
            (ssize_t)strlen(commands));
     assert(DebugControlPoll(&control) ==
@@ -84,12 +88,22 @@ static void TestEvolutionCommands(void)
            DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT);
     assert(control.evolutionRadius == 64.0f);
     assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS);
+    assert(control.evolutionRadius == 24.0f);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS);
+    assert(control.evolutionRadius == 48.0f);
+    assert(DebugControlPoll(&control) ==
            DEBUG_CONTROL_COMMAND_EVOLUTION_REGION);
     assert(DebugControlPoll(&control) ==
            DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE);
     assert(control.evolutionAdvanceDays == 96.0f);
     assert(DebugControlPoll(&control) ==
            DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_CATALOG);
     close(inputPipe[0]);
     close(inputPipe[1]);
 }

@@ -19,11 +19,13 @@
 #include "ship.h"
 #include "nether.h"
 #include "entity.h"
+#include "evolution_catalog.h"
 #include "starmap.h"
 #include "discovery.h"
 #include "ecology.h"
 #include "perf.h"
 #include "world_renderer.h"
+#include "world_lighting.h"
 #include "environment_presentation.h"
 #include "environment_runtime.h"
 #include "game_settings.h"
@@ -41,6 +43,10 @@ static bool autoSaveEnabled = true;
 static float autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
 static float dayTime = 0.30f;
 static bool dayCycleEnabled = true;
+static bool evolutionScanLocked = false;
+static uint32_t evolutionLockedOrganismId = 0u;
+static bool biologyAtlasOpen = false;
+static int biologyAtlasSlot = -1;
 // Tracks whether the quit path already saved ("Save & Quit" menu action), so
 // the loop-exit save does not run a second full write+fsync+backup cycle.
 static bool quitSaveDone = false;
@@ -59,6 +65,63 @@ static const char *ScreenshotDimensionName(WorldDimension dimension)
 static ScreenshotVector3 ScreenshotVector(Vector3 value)
 {
     return (ScreenshotVector3){ value.x, value.y, value.z };
+}
+
+static const char *EvolutionModuleName(CreatureModuleType type)
+{
+    switch (type) {
+    case CREATURE_MODULE_TORSO: return "TORSO";
+    case CREATURE_MODULE_HEAD: return "HEAD";
+    case CREATURE_MODULE_LIMB: return "LIMB";
+    case CREATURE_MODULE_FOOT: return "FOOT";
+    case CREATURE_MODULE_WING: return "WING";
+    case CREATURE_MODULE_FIN: return "FIN";
+    case CREATURE_MODULE_TAIL: return "TAIL";
+    case CREATURE_MODULE_SENSOR: return "SENSOR";
+    case CREATURE_MODULE_ARMOR: return "ARMOR";
+    default: return "UNKNOWN";
+    }
+}
+
+static void EvolutionChildrenText(const EvolutionCatalogIndividual *individual,
+                                  unsigned first, unsigned count,
+                                  char *text, size_t textSize)
+{
+    if (!text || textSize == 0u) return;
+    text[0] = '\0';
+    if (!individual || first >= individual->childCount) {
+        snprintf(text, textSize, "none");
+        return;
+    }
+    unsigned end = first + count;
+    if (end > individual->childCount) end = individual->childCount;
+    size_t used = 0u;
+    for (unsigned child = first; child < end && used < textSize; child++) {
+        int written = snprintf(text + used, textSize - used, "%s%08X",
+                               child == first ? "" : " ",
+                               individual->childIds[child]);
+        if (written < 0 || (size_t)written >= textSize - used) break;
+        used += (size_t)written;
+    }
+}
+
+static bool ObserveEvolutionInfo(const EntityEvolutionDebugInfo *info)
+{
+    if (!info || !info->valid) return false;
+    EvolutionCatalogObservation observation = {
+        .worldSeed = PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
+        .surfaceId = WorldCurrentSurfaceId(),
+        .x = (int)floorf(info->positionX),
+        .z = (int)floorf(info->positionZ),
+        .organismId = info->organismId,
+        .lineageId = info->lineageId,
+        .speciesId = info->speciesId,
+        .motherId = info->motherId,
+        .fatherId = info->fatherId,
+        .genome = info->genome,
+        .phenotype = info->phenotype
+    };
+    return EvolutionCatalogObserve(&observation);
 }
 
 static bool CommandLineHasFlag(int argc, char **argv, const char *flag)
@@ -680,14 +743,16 @@ static void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info)
     int width = 350;
     int x = GetScreenWidth() - width - 18;
     int y = 74;
+    float height = evolutionScanLocked ? 320.0f : 150.0f;
     DrawRectangleRounded((Rectangle){ (float)x, (float)y,
-                                     (float)width, 150.0f },
+                                     (float)width, height },
                          0.04f, 6, Fade((Color){ 10, 18, 24, 255 }, 0.90f));
     DrawRectangleRoundedLinesEx((Rectangle){ (float)x, (float)y,
-                                             (float)width, 150.0f },
+                                             (float)width, height },
                                 0.04f, 6, 1.0f,
                                 Fade((Color){ 114, 218, 172, 255 }, 0.72f));
-    UiDrawText(TextFormat("SPECIES %08X  //  LINEAGE %08X",
+    UiDrawText(TextFormat("%s  SPECIES %08X  //  LINEAGE %08X",
+                          evolutionScanLocked ? "LOCKED" : "SCAN",
                           info->speciesId, info->lineageId),
                x + 14, y + 12, 16, (Color){ 176, 238, 208, 255 });
     UiDrawText(TextFormat("%s  GEN %u  MODULES %u  MUT %u",
@@ -708,6 +773,206 @@ static void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info)
                           info->corpse ? "CORPSE" :
                           info->juvenile ? "JUVENILE" : "ADULT"),
                x + 14, y + 116, 15, Fade(RAYWHITE, 0.80f));
+    if (!evolutionScanLocked) return;
+    EvolutionCatalogIndividual individual = { 0 };
+    bool haveIndividual = EvolutionCatalogGetIndividual(
+        PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
+        WorldCurrentSurfaceId(), info->organismId, &individual);
+    UiDrawText(TextFormat("PARENTS  M:%08X  F:%08X",
+                          info->motherId, info->fatherId),
+               x + 14, y + 143, 14, Fade(RAYWHITE, 0.76f));
+    UiDrawText(TextFormat("CHILDREN %u",
+                          haveIndividual ? individual.childCount : 0u),
+               x + 14, y + 166, 13, (Color){ 142, 216, 244, 255 });
+    char firstChildren[96];
+    char remainingChildren[96];
+    EvolutionChildrenText(haveIndividual ? &individual : NULL, 0u, 4u,
+                          firstChildren, sizeof(firstChildren));
+    EvolutionChildrenText(haveIndividual ? &individual : NULL, 4u, 4u,
+                          remainingChildren, sizeof(remainingChildren));
+    UiDrawText(firstChildren, x + 14, y + 184, 12, Fade(RAYWHITE, 0.72f));
+    if (haveIndividual && individual.childCount > 4u) {
+        UiDrawText(remainingChildren, x + 14, y + 201, 12,
+                   Fade(RAYWHITE, 0.72f));
+    }
+    UiDrawText(TextFormat("BODY %.2f long  %.2f radius  %.2f energy cost",
+                          info->phenotype.bodyLength,
+                          info->phenotype.bodyRadius,
+                          info->phenotype.energyCost),
+               x + 14, y + 222, 14, Fade(RAYWHITE, 0.76f));
+    UiDrawText("MODULES", x + 14, y + 245, 13,
+               (Color){ 142, 216, 244, 255 });
+    int moduleY = y + 263;
+    unsigned visible = info->phenotype.moduleCount < 4u
+        ? info->phenotype.moduleCount : 4u;
+    for (unsigned index = 0; index < visible; index++) {
+        const CreatureModule *module = &info->phenotype.modules[index];
+        UiDrawText(TextFormat("%s  %.2fx%.2fx%.2f  %.2f kg",
+                              EvolutionModuleName((CreatureModuleType)module->type),
+                              module->length, module->width, module->height,
+                              module->mass),
+                   x + 14, moduleY, 12, Fade(RAYWHITE, 0.72f));
+        moduleY += 13;
+    }
+}
+
+static int BiologyAtlasFirstSlot(void)
+{
+    for (int index = 0; index < EVOLUTION_CATALOG_MAX_SPECIES; index++) {
+        EvolutionCatalogSpecies species = { 0 };
+        if (EvolutionCatalogGetSpecies(index, &species)) return index;
+    }
+    return -1;
+}
+
+static int BiologyAtlasNextSlot(int current, int direction)
+{
+    int start = current < 0 ? (direction > 0 ? -1 : EVOLUTION_CATALOG_MAX_SPECIES) : current;
+    for (int step = 0; step < EVOLUTION_CATALOG_MAX_SPECIES; step++) {
+        start += direction;
+        if (start < 0) start = EVOLUTION_CATALOG_MAX_SPECIES - 1;
+        if (start >= EVOLUTION_CATALOG_MAX_SPECIES) start = 0;
+        EvolutionCatalogSpecies species = { 0 };
+        if (EvolutionCatalogGetSpecies(start, &species)) return start;
+    }
+    return -1;
+}
+
+static void DrawBiologyAtlas(void)
+{
+    if (!biologyAtlasOpen) return;
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    DrawRectangle(0, 0, sw, sh, Fade((Color){ 5, 12, 18, 255 }, 0.96f));
+    UiDrawText("BIOLOGY ATLAS", 30, 24, 26, (Color){ 176, 238, 208, 255 });
+    UiDrawText(TextFormat("DISCOVERED SPECIES %d   INDIVIDUAL RECORDS %d",
+                          EvolutionCatalogSpeciesCount(),
+                          EvolutionCatalogIndividualCount()),
+               32, 58, 14, Fade(RAYWHITE, 0.68f));
+    UiDrawText("B / ESC close   UP/DOWN select", sw - 270, 30, 13,
+               Fade(RAYWHITE, 0.62f));
+
+    int listX = 28;
+    int listY = 92;
+    int listWidth = 250;
+    DrawRectangleRounded((Rectangle){ (float)listX, (float)listY,
+                                     (float)listWidth, (float)sh - 126.0f },
+                         0.03f, 5, Fade((Color){ 12, 27, 34, 255 }, 0.92f));
+    int listRows = (sh - 150) / 42;
+    if (listRows < 1) listRows = 1;
+    int selectedRank = 0;
+    int rank = 0;
+    for (int slot = 0; slot < EVOLUTION_CATALOG_MAX_SPECIES; slot++) {
+        EvolutionCatalogSpecies species = { 0 };
+        if (!EvolutionCatalogGetSpecies(slot, &species)) continue;
+        if (slot == biologyAtlasSlot) selectedRank = rank;
+        rank++;
+    }
+    int listScroll = selectedRank >= listRows ? selectedRank - listRows + 1 : 0;
+    int visibleIndex = 0;
+    for (int slot = 0; slot < EVOLUTION_CATALOG_MAX_SPECIES; slot++) {
+        EvolutionCatalogSpecies species = { 0 };
+        if (!EvolutionCatalogGetSpecies(slot, &species)) continue;
+        if (visibleIndex < listScroll || visibleIndex >= listScroll + listRows) {
+            visibleIndex++;
+            continue;
+        }
+        Rectangle row = { (float)listX + 8.0f,
+                          (float)listY + 8.0f + (visibleIndex - listScroll) * 42.0f,
+                          (float)listWidth - 16.0f, 36.0f };
+        bool selected = slot == biologyAtlasSlot;
+        if (selected) DrawRectangleRounded(row, 0.12f, 4,
+                                           Fade((Color){ 50, 112, 96, 255 }, 0.85f));
+        UiDrawText(TextFormat("%08X  GEN %u", species.speciesId,
+                              species.representativeGenome.generation),
+                   (int)row.x + 8, (int)row.y + 5, 14,
+                   selected ? RAYWHITE : Fade(RAYWHITE, 0.80f));
+        CreaturePhenotype phenotype = EvolutionDevelop(
+            &species.representativeGenome);
+        UiDrawText(TextFormat("%s  %u scans", EvolutionLocomotionName(
+                              phenotype.locomotion), species.observationCount),
+                   (int)row.x + 8, (int)row.y + 21, 11,
+                   Fade(RAYWHITE, selected ? 0.82f : 0.58f));
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+            CheckCollisionPointRec(GetMousePosition(), row)) {
+            biologyAtlasSlot = slot;
+        }
+        visibleIndex++;
+    }
+
+    if (biologyAtlasSlot < 0) biologyAtlasSlot = BiologyAtlasFirstSlot();
+    EvolutionCatalogSpecies species = { 0 };
+    if (!EvolutionCatalogGetSpecies(biologyAtlasSlot, &species)) {
+        UiDrawText("No species discovered. Scan an evolvable organism first.",
+                   310, 120, 18, Fade(RAYWHITE, 0.78f));
+        return;
+    }
+    CreaturePhenotype phenotype = EvolutionDevelop(&species.representativeGenome);
+    int detailX = 310;
+    UiDrawText(TextFormat("SPECIES %08X", species.speciesId), detailX, 100, 22,
+               RAYWHITE);
+    UiDrawText(TextFormat("LINEAGE %08X   REPRESENTATIVE GENOME %08X",
+                          species.lineageId,
+                          species.representativeGenome.genomeId),
+               detailX, 132, 14, (Color){ 176, 238, 208, 255 });
+    UiDrawText(TextFormat("%s  GENERATION %u  MUTATIONS %u",
+                          EvolutionLocomotionName(phenotype.locomotion),
+                          species.representativeGenome.generation,
+                          species.representativeGenome.mutationCount),
+               detailX, 158, 16, Fade(RAYWHITE, 0.86f));
+    UiDrawText(TextFormat("MASS %.2f  LENGTH %.2f  RADIUS %.2f  SPEED %.2f",
+                          phenotype.totalMass, phenotype.bodyLength,
+                          phenotype.bodyRadius, phenotype.cruiseSpeed),
+               detailX, 184, 14, Fade(RAYWHITE, 0.76f));
+    UiDrawText(TextFormat("DIET %.2f  ATTACK %.2f  DEFENSE %.2f  ENERGY %.2f",
+                          phenotype.diet, phenotype.attack, phenotype.defense,
+                          phenotype.energyCost),
+               detailX, 208, 14, Fade(RAYWHITE, 0.76f));
+    UiDrawText(TextFormat("FIRST SEEN %d, %d   OBSERVATIONS %u",
+                          species.firstX, species.firstZ,
+                          species.observationCount),
+               detailX, 232, 14, Fade(RAYWHITE, 0.68f));
+    UiDrawText(TextFormat("WORLD %08X   SURFACE %08X",
+                          species.worldSeed, species.surfaceId),
+               detailX, 256, 13, Fade(RAYWHITE, 0.62f));
+    EntityEvolutionDebugInfo lockedInfo = { 0 };
+    EvolutionCatalogIndividual lockedIndividual = { 0 };
+    int lockedIndex = evolutionScanLocked
+        ? EntityEvolutionFindByOrganism(evolutionLockedOrganismId) : -1;
+    bool haveLockedFamily = EntityEvolutionInspect(lockedIndex, &lockedInfo) &&
+        lockedInfo.speciesId == species.speciesId &&
+        EvolutionCatalogGetIndividual(
+            PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
+            WorldCurrentSurfaceId(), lockedInfo.organismId,
+            &lockedIndividual);
+    UiDrawText(haveLockedFamily
+                   ? TextFormat("FAMILY M:%08X F:%08X  CHILDREN %u",
+                                lockedInfo.motherId, lockedInfo.fatherId,
+                                lockedIndividual.childCount)
+                   : "FAMILY lock a living representative to inspect relations",
+               detailX, 278, 13, Fade(RAYWHITE, 0.66f));
+    if (haveLockedFamily) {
+        char familyChildren[192];
+        EvolutionChildrenText(&lockedIndividual, 0u,
+                              EVOLUTION_CATALOG_MAX_CHILDREN,
+                              familyChildren, sizeof(familyChildren));
+        UiDrawText(familyChildren, detailX, 298, 12, Fade(RAYWHITE, 0.62f));
+    }
+    UiDrawText("EXPRESSED MODULES", detailX, 326, 15,
+               (Color){ 142, 216, 244, 255 });
+    int moduleY = 352;
+    unsigned moduleLimit = phenotype.moduleCount < 12u ? phenotype.moduleCount : 12u;
+    for (unsigned index = 0; index < moduleLimit; index++) {
+        if (moduleY + 14 > sh - 20) break;
+        const CreatureModule *module = &phenotype.modules[index];
+        UiDrawText(TextFormat("%02u  %-6s  %.2f x %.2f x %.2f  mass %.2f  eff %.2f",
+                              index + 1u,
+                              EvolutionModuleName((CreatureModuleType)module->type),
+                              module->length, module->width, module->height,
+                              module->mass, module->efficiency),
+                   detailX, moduleY, 13, Fade(RAYWHITE, 0.76f));
+        moduleY += 18;
+    }
 }
 
 static void BeginNewWorld(Player *player, TerrainMode mode, uint32_t seed)
@@ -883,11 +1148,33 @@ int main(int argc, char **argv)
         case DEBUG_CONTROL_COMMAND_STATUS:
         {
             PlayerWaterState statusWater = PlayerWaterStateAt(player.position);
+            ChunkWaterRenderDebugInfo statusWaterRender = { 0 };
+            ChunksGetWaterRenderDebugInfo(player.position, &statusWaterRender);
+            BathymetrySample statusBathymetry = {
+                .seaLevel = -1,
+                .seabedY = (int)floorf(player.position.y),
+                .waterDepth = 0,
+                .zone = BATHYMETRY_ZONE_LAND,
+                .material = BATHYMETRY_MATERIAL_ROCK
+            };
+            if (PlanetWorldIsActive()) {
+                statusBathymetry = PlanetBathymetryAt(
+                    (int)floorf(player.position.x),
+                    (int)floorf(player.position.z));
+            } else if (HomeWorldSurfaceIsActive()) {
+                statusBathymetry = TerrainBathymetryAt(
+                    (int)floorf(player.position.x),
+                    (int)floorf(player.position.z), terrainMode);
+            }
             DebugControlReply(
                 &debugControl,
                 "DEBUG_CONTROL status screen=%s seed=%u dimension=%s "
                 "position=%.6f,%.6f,%.6f velocity=%.6f,%.6f,%.6f "
-                "water=%d,%d,%d depth=%.6f surface=%.6f\n",
+                "water=%d,%d,%d depth=%.6f surface=%.6f "
+                "bathymetry=%s seabed=%d water_column=%d material=%s "
+                "chunk=%d,%d,%d chunk_loaded=%d neighbors=0x%X "
+                "water_triangles=%d section_water_triangles=%d "
+                "camera_inside_solid=%d\n",
                 screen == SCREEN_PLAYING ? "playing" : "start",
                 WorldGetSeed(),
                 ScreenshotDimensionName(WorldCurrentDimension()),
@@ -896,7 +1183,17 @@ int main(int argc, char **argv)
                 statusWater.feetSubmerged ? 1 : 0,
                 statusWater.bodySubmerged ? 1 : 0,
                 statusWater.eyesSubmerged ? 1 : 0,
-                statusWater.eyeDepth, statusWater.surfaceY);
+                statusWater.eyeDepth, statusWater.surfaceY,
+                BathymetryZoneName(statusBathymetry.zone),
+                statusBathymetry.seabedY, statusBathymetry.waterDepth,
+                BathymetryMaterialName(statusBathymetry.material),
+                statusWaterRender.cx, statusWaterRender.cz,
+                statusWaterRender.sectionY,
+                statusWaterRender.chunkLoaded ? 1 : 0,
+                statusWaterRender.neighborLoadedMask,
+                statusWaterRender.triangleCount,
+                statusWaterRender.sectionTriangleCount,
+                PlayerCameraPositionInsideSolid(camera.position) ? 1 : 0);
             break;
         }
         case DEBUG_CONTROL_COMMAND_TELEPORT:
@@ -973,6 +1270,29 @@ int main(int argc, char **argv)
             }
             break;
         }
+        case DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS:
+        {
+            int index = EntityNearestEvolvable(
+                player.position, debugControl.evolutionRadius);
+            EntityEvolutionDebugInfo info = { 0 };
+            if (screen != SCREEN_PLAYING ||
+                !EntityEvolutionInspect(index, &info)) {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL evolution focus none radius=%.3f\n",
+                    debugControl.evolutionRadius);
+            } else {
+                evolutionScanLocked = ObserveEvolutionInfo(&info);
+                evolutionLockedOrganismId = evolutionScanLocked
+                    ? info.organismId : 0u;
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL evolution focus %s organism=%u species=%u\n",
+                    evolutionScanLocked ? "ok" : "error",
+                    info.organismId, info.speciesId);
+            }
+            break;
+        }
         case DEBUG_CONTROL_COMMAND_EVOLUTION_REGION:
         case DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP:
         {
@@ -1018,6 +1338,29 @@ int main(int argc, char **argv)
                     &debugControl,
                     "DEBUG_CONTROL evolution advance error reason=not_playing\n");
             }
+            break;
+        case DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS:
+            if (screen != SCREEN_PLAYING) {
+                DebugControlReply(&debugControl,
+                                  "DEBUG_CONTROL evolution atlas error reason=not_playing\n");
+            } else {
+                biologyAtlasOpen = !biologyAtlasOpen;
+                biologyAtlasSlot = BiologyAtlasFirstSlot();
+                cursorReleased = biologyAtlasOpen;
+                if (biologyAtlasOpen) EnableCursor();
+                else DisableCursor();
+                DebugControlReply(&debugControl,
+                                  "DEBUG_CONTROL evolution atlas %s species=%d\n",
+                                  biologyAtlasOpen ? "open" : "closed",
+                                  EvolutionCatalogSpeciesCount());
+            }
+            break;
+        case DEBUG_CONTROL_COMMAND_EVOLUTION_CATALOG:
+            DebugControlReply(&debugControl,
+                              "DEBUG_CONTROL evolution catalog ok species=%d individuals=%d surface=%u\n",
+                              EvolutionCatalogSpeciesCount(),
+                              EvolutionCatalogIndividualCount(),
+                              WorldCurrentSurfaceId());
             break;
         case DEBUG_CONTROL_COMMAND_QUIT:
             quitRequested = true;
@@ -1078,7 +1421,15 @@ int main(int argc, char **argv)
 
         if (!perfMode && IsKeyPressed(KEY_F10)) screenshotPending = true;
 
-        if (!importDialog.open && !albumOpen && !StarMapIsOpen()) {
+        bool biologyAtlasClosed = false;
+        if (biologyAtlasOpen && IsKeyPressed(KEY_ESCAPE)) {
+            biologyAtlasOpen = false;
+            biologyAtlasClosed = true;
+            cursorReleased = false;
+            DisableCursor();
+        }
+        if (!importDialog.open && !albumOpen && !StarMapIsOpen() &&
+            !biologyAtlasOpen && !biologyAtlasClosed) {
             if (!paused && !landingTransition.active && !landingSkipPressed && IsKeyPressed(KEY_ESCAPE)) {
                 paused = true;
                 player.velocity = Vector3Zero();
@@ -1090,8 +1441,30 @@ int main(int argc, char **argv)
             }
         }
 
-        if (!paused && !albumOpen && !importDialog.open && !landingTransition.active) {
+        if (!paused && !albumOpen && !importDialog.open && !landingTransition.active &&
+            !biologyAtlasOpen) {
             SpaceAdvanceTime(dt);
+        }
+
+        if (biologyAtlasOpen && !biologyAtlasClosed && IsKeyPressed(KEY_B)) {
+            biologyAtlasOpen = false;
+            cursorReleased = false;
+            DisableCursor();
+        } else if (!biologyAtlasOpen && !importDialog.open && !paused &&
+                   !albumOpen && !landingTransition.active && !cursorReleased &&
+                   IsKeyPressed(KEY_B)) {
+            biologyAtlasOpen = true;
+            biologyAtlasSlot = BiologyAtlasFirstSlot();
+            player.velocity = Vector3Zero();
+            cursorReleased = true;
+            EnableCursor();
+        }
+        if (biologyAtlasOpen) {
+            if (IsKeyPressed(KEY_UP)) {
+                biologyAtlasSlot = BiologyAtlasNextSlot(biologyAtlasSlot, -1);
+            } else if (IsKeyPressed(KEY_DOWN)) {
+                biologyAtlasSlot = BiologyAtlasNextSlot(biologyAtlasSlot, 1);
+            }
         }
 
         if (!albumOpen && !importDialog.open && !paused && !landingTransition.active &&
@@ -1184,6 +1557,7 @@ int main(int argc, char **argv)
         if (!openedImportDialog) UpdateImportDialog(&importDialog, &player, &cursorReleased);
 
         bool inputBlocked = perfMode || paused || cursorReleased || importDialog.open || albumOpen ||
+                            biologyAtlasOpen ||
                             landingTransition.active ||
                             ShipIsDriving() || StarMapIsOpen();
         if (!paused && !albumOpen && !importDialog.open && !StarMapIsOpen() &&
@@ -1283,7 +1657,9 @@ int main(int argc, char **argv)
         }
         if (!paused && !albumOpen && !landingTransition.active &&
             (HomeWorldSurfaceIsActive() || PlanetWorldIsActive())) {
-            WeatherSetSheltered(EnvironmentSheltered(player.position));
+            bool weatherSheltered = EnvironmentSheltered(player.position) ||
+                PlayerWaterStateAt(player.position).eyesSubmerged;
+            WeatherSetSheltered(weatherSheltered);
             WeatherUpdate(dt, player.position);
         } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
             WeatherSetSheltered(false);
@@ -1337,6 +1713,8 @@ int main(int argc, char **argv)
         if (localWorldActive != entitiesWorldActive ||
             (localWorldActive && currentEntityDimension != entitiesWorldDimension)) {
             EntitiesClear();
+            evolutionScanLocked = false;
+            evolutionLockedOrganismId = 0u;
             entitiesWorldActive = localWorldActive;
             entitiesWorldDimension = currentEntityDimension;
         }
@@ -1367,6 +1745,25 @@ int main(int argc, char **argv)
         HitResult hit = RaycastBlocksFiltered(aimEye, aimDir, REACH_DISTANCE,
                                               RAYCAST_BLOCK_SOLID);
         int entityHit = EntityRayHit(aimEye, aimDir, REACH_DISTANCE);
+        if (!inputBlocked && IsKeyPressed(KEY_N)) {
+            if (evolutionScanLocked) {
+                evolutionScanLocked = false;
+                evolutionLockedOrganismId = 0u;
+                SetImportMessage("Evolution scan unlocked.");
+            } else {
+                EntityEvolutionDebugInfo scanInfo = { 0 };
+                if (EntityEvolutionInspect(entityHit, &scanInfo)) {
+                    evolutionScanLocked = ObserveEvolutionInfo(&scanInfo);
+                    evolutionLockedOrganismId = evolutionScanLocked
+                        ? scanInfo.organismId : 0u;
+                    SetImportMessage(evolutionScanLocked
+                        ? "Evolution scan locked; species added to atlas."
+                        : "Evolution scan failed.");
+                } else {
+                    SetImportMessage("Aim at an evolvable organism to scan.");
+                }
+            }
+        }
         SpaceBodyInfo aimBody = { 0 };
         bool haveAimBody = SpaceBodyPick(aimEye, aimDir, &aimBody);
         ParkedShip hitShip = { 0 };
@@ -1582,6 +1979,14 @@ int main(int argc, char **argv)
             (int)floorf(camera.position.x), (int)floorf(camera.position.y),
             (int)floorf(camera.position.z)));
         float underwaterDepth = underwater ? playerWater.eyeDepth : 0.0f;
+        if (underwater) {
+            float deep = Clamp(
+                underwaterDepth / UNDERWATER_DEEP_REFERENCE_DEPTH,
+                0.0f, 1.0f);
+            skyHorizon = WorldLightingUnderwaterFogColor(underwaterDepth);
+            skyTop = ColorLerp(skyHorizon, (Color){ 3, 18, 30, 255 },
+                               0.28f + deep * 0.42f);
+        }
         EnvironmentScene environmentScene =
             EnvironmentSceneForDimension(cameraDimension);
         bool forest = false;
@@ -1613,6 +2018,22 @@ int main(int argc, char **argv)
             .shipInterior = environmentScene == ENVIRONMENT_SCENE_SPACE &&
                             ShipIsDriving()
         };
+        BathymetrySample bathymetryForDebug = {
+            .seaLevel = -1,
+            .seabedY = (int)floorf(player.position.y),
+            .waterDepth = 0,
+            .zone = BATHYMETRY_ZONE_LAND,
+            .material = BATHYMETRY_MATERIAL_ROCK
+        };
+        if (PlanetWorldIsActive()) {
+            bathymetryForDebug = PlanetBathymetryAt(
+                (int)floorf(player.position.x),
+                (int)floorf(player.position.z));
+        } else if (HomeWorldSurfaceIsActive()) {
+            bathymetryForDebug = TerrainBathymetryAt(
+                (int)floorf(player.position.x),
+                (int)floorf(player.position.z), terrainMode);
+        }
         EnvironmentPresentationState environmentPresentation =
             EnvironmentPresentationRuntimeUpdate(
                 &environmentRuntime, &environmentSample, dt);
@@ -1632,8 +2053,10 @@ int main(int argc, char **argv)
         BeginDrawing();
         ClearBackground(skyTop);
         DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(), skyTop, skyHorizon);
-        DrawPlanetAtmosphereSky(&camera, &planetLight, &planetObservation,
-                                &weatherVisual);
+        if (!underwater) {
+            DrawPlanetAtmosphereSky(&camera, &planetLight, &planetObservation,
+                                    &weatherVisual);
+        }
 
         PerfBeginGpuFrame();
         bool drawSurfaceChunks = PlanetWorldIsActive() ||
@@ -1647,11 +2070,15 @@ int main(int argc, char **argv)
         // Keep the first-person flight view clear. The ship model is only useful
         // as an exterior reference when the camera is in third person.
         if (ShipIsDriving() && thirdPerson) ShipDraw(&player);
-        DrawHomePlanet(&camera, spaceFade);
-        if (showOrbitTrajectories) DrawSolarOrbitTrajectories(&camera, spaceFade);
-        DrawSolarBodies(&camera, spaceFade);
+        if (!underwater) {
+            DrawHomePlanet(&camera, spaceFade);
+            if (showOrbitTrajectories) {
+                DrawSolarOrbitTrajectories(&camera, spaceFade);
+            }
+            DrawSolarBodies(&camera, spaceFade);
+        }
         bool drawCloudLayer = weatherVisual.active;
-        if (skyFade < 0.5f && !inNether && drawCloudLayer) {
+        if (skyFade < 0.5f && !inNether && !underwater && drawCloudLayer) {
             DrawClouds(&camera, Fade(worldTint, 1.0f - skyFade * 2.0f),
                        weatherSimulationTime, &weatherVisual,
                        &environmentPresentation, &worldLighting);
@@ -1721,16 +2148,18 @@ int main(int argc, char **argv)
             }
         }
 
-        DrawStars(&camera, inNether ? 1.0f :
-                  1.0f - environmentPresentation.starVisibility,
-                  &planetObservation, &weatherVisual);
-        DrawSpaceSky(skyFade, daylight, &camera);
-        if (spaceFade < 0.5f && !inNether) {
-            DrawCelestial(&camera, dayTime, daylight, &planetLight,
-                          &planetObservation, &weatherVisual);
-        }
-        if (!inNether && skyFade < 0.5f) {
-            DrawWeatherOverlay(&camera, &weatherVisual);
+        if (!underwater) {
+            DrawStars(&camera, inNether ? 1.0f :
+                      1.0f - environmentPresentation.starVisibility,
+                      &planetObservation, &weatherVisual);
+            DrawSpaceSky(skyFade, daylight, &camera);
+            if (spaceFade < 0.5f && !inNether) {
+                DrawCelestial(&camera, dayTime, daylight, &planetLight,
+                              &planetObservation, &weatherVisual);
+            }
+            if (!inNether && skyFade < 0.5f) {
+                DrawWeatherOverlay(&camera, &weatherVisual);
+            }
         }
         DrawEnvironmentPostProcess(&environmentPresentation);
         DrawSolarGuide(&camera, spaceFade);
@@ -1744,36 +2173,51 @@ int main(int argc, char **argv)
         if (spaceFade > 0.05f && haveAimBody && !StarMapIsOpen()) {
             DrawBodyInfoPanel(&aimBody);
         }
-        DrawCrosshair(GetScreenWidth(), GetScreenHeight());
+        if (!biologyAtlasOpen) DrawCrosshair(GetScreenWidth(), GetScreenHeight());
         EntityEvolutionDebugInfo aimedEvolution = { 0 };
-        if (EntityEvolutionInspect(entityHit, &aimedEvolution)) {
+        int evolutionDisplayEntity = entityHit;
+        if (evolutionScanLocked) {
+            evolutionDisplayEntity = EntityEvolutionFindByOrganism(
+                evolutionLockedOrganismId);
+            if (evolutionDisplayEntity < 0) {
+                evolutionScanLocked = false;
+                evolutionLockedOrganismId = 0u;
+            }
+        }
+        if (EntityEvolutionInspect(evolutionDisplayEntity, &aimedEvolution)) {
             DrawEvolutionScanPanel(&aimedEvolution);
         }
-        DrawHotbar(hotbar, selectedIndex);
-        DrawImportStatus();
-        int hour = (int)(dayTime * 24.0f) % 24;
-        const char *positionText = TextFormat("XYZ %d %d %d    %02d:00", (int)floorf(player.position.x),
-                                              (int)floorf(player.position.y),
-                                              (int)floorf(player.position.z), hour);
-        UiDrawText(positionText, 15, GetScreenHeight() - 32, 17, Fade(BLACK, 0.92f));
-        UiDrawText(positionText, 14, GetScreenHeight() - 34, 17, Fade(WHITE, 0.9f));
-        const char *saveText = TextFormat("Auto-save: %s", autoSaveEnabled ? "60s" : "off");
-        UiDrawText(saveText, 15, GetScreenHeight() - 14, 15, Fade(BLACK, 0.92f));
-        UiDrawText(saveText, 14, GetScreenHeight() - 16, 15, Fade(WHITE, 0.65f));
-        if (cursorReleased && !importDialog.open) DrawCursorReleasedOverlay();
-        if (showHelp) DrawHelpPanel(player.floating, cursorReleased, renderDistanceChunks);
+        if (!biologyAtlasOpen) {
+            DrawHotbar(hotbar, selectedIndex);
+            DrawImportStatus();
+            int hour = (int)(dayTime * 24.0f) % 24;
+            const char *positionText = TextFormat("XYZ %d %d %d    %02d:00", (int)floorf(player.position.x),
+                                                  (int)floorf(player.position.y),
+                                                  (int)floorf(player.position.z), hour);
+            UiDrawText(positionText, 15, GetScreenHeight() - 32, 17, Fade(BLACK, 0.92f));
+            UiDrawText(positionText, 14, GetScreenHeight() - 34, 17, Fade(WHITE, 0.9f));
+            const char *saveText = TextFormat("Auto-save: %s", autoSaveEnabled ? "60s" : "off");
+            UiDrawText(saveText, 15, GetScreenHeight() - 14, 15, Fade(BLACK, 0.92f));
+            UiDrawText(saveText, 14, GetScreenHeight() - 16, 15, Fade(WHITE, 0.65f));
+            if (cursorReleased && !importDialog.open) DrawCursorReleasedOverlay();
+        }
+        if (showHelp && !biologyAtlasOpen) {
+            DrawHelpPanel(player.floating, cursorReleased, renderDistanceChunks);
+        }
         DrawImportDialog(&importDialog);
         AlbumDraw();
         StarMapDraw();
-        if (showDebug) {
+        if (showDebug && !biologyAtlasOpen) {
             dayTimeForHud = dayTime;
             autoSaveForHud = autoSaveEnabled;
             blockForHud = hit.hit ? GetBlockAt(hit.x, hit.y, hit.z) : BLOCK_AIR;
             SpaceEditCountForHud = GetSpaceEditCount();
             DrawDebugHUD(player.position, player.yaw, player.pitch, daylight,
                          &planetLight, &planetObservation,
-                         planetSeasonProgress, &weatherVisual);
+                         planetSeasonProgress, &weatherVisual,
+                         &bathymetryForDebug);
         }
+        DrawBiologyAtlas();
         DrawLandingTransitionOverlay(&landingTransition);
         if (paused) {
             if (IsKeyPressed(KEY_MINUS)) {
@@ -1839,11 +2283,21 @@ int main(int argc, char **argv)
             char debugReportPath[512];
             time_t screenshotTime = time(NULL);
             ChunkStreamingStats streamingStats = ChunksGetStreamingStats();
+            ChunkWaterRenderDebugInfo screenshotWaterRender = { 0 };
+            ChunksGetWaterRenderDebugInfo(player.position,
+                                          &screenshotWaterRender);
             EntityEvolutionDebugInfo screenshotEntity = { 0 };
-            int screenshotEntityIndex = EntityNearestEvolvable(
-                player.position, 32.0f);
+            int screenshotEntityIndex = evolutionScanLocked
+                ? EntityEvolutionFindByOrganism(evolutionLockedOrganismId)
+                : EntityNearestEvolvable(player.position, 32.0f);
             bool haveScreenshotEntity = EntityEvolutionInspect(
                 screenshotEntityIndex, &screenshotEntity);
+            EvolutionCatalogIndividual screenshotIndividual = { 0 };
+            bool haveScreenshotIndividual = haveScreenshotEntity &&
+                EvolutionCatalogGetIndividual(
+                    PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
+                    WorldCurrentSurfaceId(), screenshotEntity.organismId,
+                    &screenshotIndividual);
             PlanetEvolutionRegion screenshotRegion = { 0 };
             bool haveScreenshotRegion = PlanetEcologyEvolutionRegionAt(
                 (int)floorf(player.position.x),
@@ -1871,7 +2325,9 @@ int main(int argc, char **argv)
                     .position = ScreenshotVector(camera.position),
                     .target = ScreenshotVector(camera.target),
                     .fovY = camera.fovy,
-                    .thirdPerson = thirdPerson
+                    .thirdPerson = thirdPerson,
+                    .insideSolid =
+                        PlayerCameraPositionInsideSolid(camera.position)
                 },
                 .weather = {
                     .name = WeatherName(),
@@ -1895,6 +2351,11 @@ int main(int argc, char **argv)
                     .atmosphereFade = skyFade,
                     .underwaterDepth = environmentSample.underwaterDepth,
                     .waterSurfaceY = playerWater.surfaceY,
+                    .seabedY = bathymetryForDebug.seabedY,
+                    .waterColumnDepth = bathymetryForDebug.waterDepth,
+                    .bathymetryZone = BathymetryZoneName(bathymetryForDebug.zone),
+                    .seabedMaterial = BathymetryMaterialName(
+                        bathymetryForDebug.material),
                     .underwater = environmentSample.underwater,
                     .feetSubmerged = playerWater.feetSubmerged,
                     .bodySubmerged = playerWater.bodySubmerged,
@@ -1937,6 +2398,15 @@ int main(int argc, char **argv)
                     .activeEntities = GetActiveEntityCount(),
                     .pendingGenerationJobs = GetPendingGenJobCount(),
                     .pendingMeshJobs = GetPendingMeshJobCount(),
+                    .surfaceChunkX = screenshotWaterRender.cx,
+                    .surfaceChunkZ = screenshotWaterRender.cz,
+                    .surfaceSectionY = screenshotWaterRender.sectionY,
+                    .surfaceChunkLoaded = screenshotWaterRender.chunkLoaded,
+                    .waterNeighborLoadedMask =
+                        screenshotWaterRender.neighborLoadedMask,
+                    .waterTriangleCount = screenshotWaterRender.triangleCount,
+                    .waterSectionTriangleCount =
+                        screenshotWaterRender.sectionTriangleCount,
                     .generationSubmitted = streamingStats.generationSubmitted,
                     .generationCompleted = streamingStats.generationCompleted,
                     .generationCanceled = streamingStats.generationCanceled,
@@ -1960,6 +2430,8 @@ int main(int argc, char **argv)
                 },
                 .evolution = {
                     .entitySelected = haveScreenshotEntity,
+                    .scanLocked = evolutionScanLocked,
+                    .atlasOpen = biologyAtlasOpen,
                     .corpse = screenshotEntity.corpse,
                     .juvenile = screenshotEntity.juvenile,
                     .pregnant = screenshotEntity.pregnant,
@@ -1972,6 +2444,14 @@ int main(int argc, char **argv)
                     .generation = screenshotEntity.generation,
                     .mutationCount = screenshotEntity.mutationCount,
                     .moduleCount = screenshotEntity.moduleCount,
+                    .motherId = screenshotEntity.motherId,
+                    .fatherId = screenshotEntity.fatherId,
+                    .childCount = haveScreenshotIndividual
+                        ? screenshotIndividual.childCount : 0u,
+                    .catalogSpeciesCount =
+                        (uint32_t)EvolutionCatalogSpeciesCount(),
+                    .catalogIndividualCount =
+                        (uint32_t)EvolutionCatalogIndividualCount(),
                     .regionalLineageCount = screenshotRegion.lineageCount,
                     .bootstrapGeneration =
                         screenshotRegion.bootstrapGeneration,

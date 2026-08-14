@@ -223,6 +223,41 @@ static void AssertSolidFacesRemainVisibleUnderwater(void)
     FreeTestMesh(&water);
 }
 
+static void AssertUnknownWaterNeighborsAreConservative(void)
+{
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    memset(blocks, 0, sizeof(blocks));
+    memset(chunks, 0, sizeof(chunks));
+    blocks[CHUNK_SIZE - 1][4][8] = BLOCK_WATER;
+
+    Mesh water = { 0 };
+    assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
+                         TEST_MESH_WATER, &water));
+    // The east face is hidden while the streamed neighbor is unknown.
+    AssertMeshWellFormed(&water, 30);
+    FreeTestMesh(&water);
+
+    chunks[0].loaded = true;
+    chunks[0].cx = 1;
+    chunks[0].cz = 0;
+    assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
+                         TEST_MESH_WATER, &water));
+    // A loaded air neighbor makes the actual exposed face visible.
+    AssertMeshWellFormed(&water, 36);
+    FreeTestMesh(&water);
+
+    ChunkSection *neighbor = ChunkGetSection(&chunks[0], 0, true);
+    assert(neighbor != NULL);
+    neighbor->blocks[0][4][8] = BLOCK_WATER;
+    assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
+                         TEST_MESH_WATER, &water));
+    // Matching water on both sides of the chunk border has no internal face.
+    AssertMeshWellFormed(&water, 30);
+    FreeTestMesh(&water);
+    ChunkClearBlockStorage(&chunks[0]);
+    memset(chunks, 0, sizeof(chunks));
+}
+
 static void AssertLightingVertexData(void)
 {
     static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
@@ -578,6 +613,7 @@ int main(void)
     AssertFenceMeshContracts();
     AssertStandardBlockCullingAndPartitions();
     AssertSolidFacesRemainVisibleUnderwater();
+    AssertUnknownWaterNeighborsAreConservative();
     AssertSurfaceFloraMeshPartition();
     AssertLightingVertexData();
     AssertStairsMeshCapacity();

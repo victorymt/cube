@@ -8,6 +8,7 @@
 #include "weather_visual.h"
 #include "world_renderer.h"
 #include "environment_presentation.h"
+#include "terrain.h"
 
 #include <stdint.h>
 
@@ -96,7 +97,8 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                   const PlanetLightState *light,
                   const PlanetObservationState *observation,
                   float seasonProgress,
-                  const WeatherVisualState *weatherVisual);
+                  const WeatherVisualState *weatherVisual,
+                  const BathymetrySample *bathymetry);
 extern float dayTimeForHud;
 extern bool autoSaveForHud;
 extern BlockType blockForHud;

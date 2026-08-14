@@ -637,12 +637,18 @@ static void TestEvolutionLifecycleAndPredation(void)
     assert(EntityEvolutionInspect(0, &inspected));
     assert(inspected.genomeId == mother.genome.genomeId);
     assert(inspected.moduleCount > 0u);
+    assert(inspected.phenotype.valid);
+    assert(inspected.positionX == mother.entity.entity.entity.position[0]);
+    assert(inspected.motherId == mother.motherId);
+    assert(inspected.fatherId == mother.fatherId);
     RunFrames(&player, 3800);
     EntityEvolutionDebugInfo child = { 0 };
     assert(EntityEvolutionInspect(2, &child));
     assert(child.generation == 1u);
     assert(child.juvenile);
     assert(child.mutationCount <= 100u);
+    assert(child.motherId == mother.organismId);
+    assert(child.fatherId == father.organismId);
     FILE *familyState = tmpfile();
     assert(familyState);
     assert(EntitiesSaveState(familyState));

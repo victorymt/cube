@@ -1552,9 +1552,9 @@ WorldLightingState WorldLightingForScene(
     return WorldLightingCompose(state, presentation);
 }
 
-#define MAX_TRANSPARENT_RENDER_ITEMS \
-    (MAX_ACTIVE_CHUNKS * SURFACE_SECTION_COUNT + MAX_SPACE_CHUNKS + \
-     MAX_NETHER_CHUNKS)
+#define MAX_SURFACE_TRANSPARENT_ITEMS \
+    (MAX_ACTIVE_CHUNKS * SURFACE_SECTION_COUNT)
+#define MAX_OTHER_TRANSPARENT_ITEMS (MAX_SPACE_CHUNKS + MAX_NETHER_CHUNKS)
 
 static Vector3 ChunkRenderCenter(int cx, int cz, float centerY)
 {
@@ -1596,7 +1596,7 @@ static void CollectSurfaceRenderItems(
             }
             if (section->hasWaterModel) {
                 TransparentRenderItemAppend(
-                    transparent, MAX_TRANSPARENT_RENDER_ITEMS, transparentCount,
+                    transparent, MAX_SURFACE_TRANSPARENT_ITEMS, transparentCount,
                     &section->waterModel, translation,
                     ChunkRenderCenter(
                         chunk->cx, chunk->cz,
@@ -1631,7 +1631,7 @@ static void CollectSpaceRenderItems(
         }
         if (chunk->hasWaterModel) {
             TransparentRenderItemAppend(
-                transparent, MAX_TRANSPARENT_RENDER_ITEMS, transparentCount,
+                transparent, MAX_OTHER_TRANSPARENT_ITEMS, transparentCount,
                 &chunk->waterModel, translation, center, camera->position,
                 TRANSPARENT_RENDER_SPACE, chunk->cx, chunk->cz, i);
         }
@@ -1659,7 +1659,7 @@ static void CollectNetherRenderItems(
         }
         if (chunk->hasWaterModel) {
             TransparentRenderItemAppend(
-                transparent, MAX_TRANSPARENT_RENDER_ITEMS, transparentCount,
+                transparent, MAX_OTHER_TRANSPARENT_ITEMS, transparentCount,
                 &chunk->waterModel, translation, center, camera->position,
                 TRANSPARENT_RENDER_NETHER, chunk->cx, chunk->cz, i);
         }
@@ -1671,11 +1671,13 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
                const WorldLightingState *lighting)
 {
     if (lighting) WorldRendererPrepare(lighting);
-    TransparentRenderItem transparent[MAX_TRANSPARENT_RENDER_ITEMS];
+    TransparentRenderItem water[MAX_SURFACE_TRANSPARENT_ITEMS];
+    int waterCount = 0;
+    TransparentRenderItem transparent[MAX_OTHER_TRANSPARENT_ITEMS];
     int transparentCount = 0;
     if (drawSurfaceChunks) {
         CollectSurfaceRenderItems(camera, effectiveRenderDistance, tint,
-                                  transparent, &transparentCount);
+                                  water, &waterCount);
     }
 
     int cameraCx = 0;
@@ -1692,12 +1694,22 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
                                  transparent, &transparentCount);
     }
 
+    SortTransparentRenderItems(water, waterCount);
+    BeginBlendMode(BLEND_ALPHA);
+    WorldRendererBeginWaterPass();
+    for (int i = 0; i < waterCount; i++) {
+        PerfRecordDrawCall(PERF_DRAW_WATER);
+        WorldRendererDrawModel(water[i].model, water[i].translation,
+                               tint, true);
+    }
+    WorldRendererEndWaterPass();
+    EndBlendMode();
+
     SortTransparentRenderItems(transparent, transparentCount);
     BeginBlendMode(BLEND_ALPHA);
     for (int i = 0; i < transparentCount; i++) {
-        PerfDrawKind kind = PERF_DRAW_WATER;
-        if (transparent[i].dimension == TRANSPARENT_RENDER_SPACE) kind = PERF_DRAW_SPACE;
-        else if (transparent[i].dimension == TRANSPARENT_RENDER_NETHER) kind = PERF_DRAW_NETHER;
+        PerfDrawKind kind = transparent[i].dimension == TRANSPARENT_RENDER_SPACE
+            ? PERF_DRAW_SPACE : PERF_DRAW_NETHER;
         PerfRecordDrawCall(kind);
         WorldRendererDrawModel(transparent[i].model, transparent[i].translation,
                                tint, true);
@@ -3600,26 +3612,27 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     int x = 18;
     int y = 18;
     int w = 430;
-    int h = 398;
+    int h = 422;
     DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)w, (float)h }, 0.05f, 6, Fade(BLACK, 0.68f));
     UiDrawText("Voxelcraft", x + 14, y + 12, 24, WHITE);
     UiDrawText("WASD move    Shift sprint    Space jump/swim", x + 14, y + 48, 17, RAYWHITE);
     UiDrawText("LMB break    RMB place    MMB pick block", x + 14, y + 73, 17, RAYWHITE);
     UiDrawText("F float    Ctrl down (float)    Wheel hotbar", x + 14, y + 98, 17, RAYWHITE);
     UiDrawText("Tab mouse    M star map/warp    L locate ship", x + 14, y + 123, 17, RAYWHITE);
-    UiDrawText("RMB on placed album opens it", x + 14, y + 148, 17, RAYWHITE);
-    UiDrawText("Esc pause    F6 day/night    O orbit paths", x + 14, y + 173, 17, RAYWHITE);
-    UiDrawText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 198, 17, RAYWHITE);
-    UiDrawText("Fly above y=120 to reach space", x + 14, y + 223, 17, RAYWHITE);
-    UiDrawText("Break collects; place consumes blocks", x + 14, y + 248, 15, RAYWHITE);
-    UiDrawText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 272, 15, RAYWHITE);
-    UiDrawText("WASD thrust, X cruise, F assist, E exit", x + 14, y + 296, 15, RAYWHITE);
-    UiDrawText("1-0 blocks    [ ] distance    Flat: I import image", x + 14, y + 320, 15, RAYWHITE);
-    UiDrawText("Planet: C scanner, break cores for discoveries", x + 14, y + 344, 15, RAYWHITE);
+    UiDrawText("N scan organism    B biology atlas", x + 14, y + 148, 17, RAYWHITE);
+    UiDrawText("RMB on placed album opens it", x + 14, y + 173, 17, RAYWHITE);
+    UiDrawText("Esc pause    F6 day/night    O orbit paths", x + 14, y + 198, 17, RAYWHITE);
+    UiDrawText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 223, 17, RAYWHITE);
+    UiDrawText("Fly above y=120 to reach space", x + 14, y + 248, 17, RAYWHITE);
+    UiDrawText("Break collects; place consumes blocks", x + 14, y + 273, 15, RAYWHITE);
+    UiDrawText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 297, 15, RAYWHITE);
+    UiDrawText("WASD thrust, X cruise, F assist, E exit", x + 14, y + 321, 15, RAYWHITE);
+    UiDrawText("1-0 blocks    [ ] distance    Flat: I import image", x + 14, y + 345, 15, RAYWHITE);
+    UiDrawText("Planet: C scanner, break cores for discoveries", x + 14, y + 369, 15, RAYWHITE);
     const char *mode = ShipIsDriving() ? "Ship" : (floating ? "Floating" : "Walking");
     UiDrawText(TextFormat("%s    %s    View %d    FPS %d", mode,
                           cursorReleased ? "Mouse free" : "Mouse locked", viewDistance, GetFPS()),
-               x + 14, y + 372, 16, Fade(RAYWHITE, 0.9f));
+               x + 14, y + 397, 16, Fade(RAYWHITE, 0.9f));
 }
 
 void DrawCursorReleasedOverlay(void)
@@ -3721,7 +3734,8 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                   const PlanetLightState *light,
                   const PlanetObservationState *observation,
                   float seasonProgress,
-                  const WeatherVisualState *weatherVisual)
+                  const WeatherVisualState *weatherVisual,
+                  const BathymetrySample *bathymetry)
 {
     int x = 18;
     int y = 76;
@@ -3770,6 +3784,14 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                                 weatherVisual->cloudBaseHeight),
                      x, y, fs, Fade(WHITE, 0.85f)); y += line;
         }
+    }
+    if (bathymetry && bathymetry->seaLevel >= 0) {
+        UiDrawText(TextFormat("Bathymetry %s   seabed %d   water %d   material %s",
+                            BathymetryZoneName(bathymetry->zone),
+                            bathymetry->seabedY,
+                            bathymetry->waterDepth,
+                            BathymetryMaterialName(bathymetry->material)),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
     }
     SolarSystemDef hudSystem;
     float hudSystemDist = 0.0f;

@@ -165,14 +165,17 @@ not driver-reported VRAM.
 For scripted visual debugging, start the game with `--debug-stdin`. It accepts
 line-delimited commands: `start`, `screenshot`, `status`, `teleport X Y Z YAW
 PITCH`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, `evolution inspect [RADIUS]`,
-`evolution region`, `evolution advance DAYS`, `evolution bootstrap status`, or
+`evolution focus [RADIUS]`, `evolution region`, `evolution advance DAYS`,
+`evolution bootstrap status`, `evolution atlas`, `evolution catalog`, or
 `quit`. Movement
 components are clamped to `[-1, 1]`, sprint is `0` or `1`, and an input window
 lasts 1-600 fixed 60 FPS frames. Debug sessions ignore desktop keyboard state
 outside those input windows, so runs are reproducible. Replies begin with
 `DEBUG_CONTROL`; status includes player water flags, actual water surface and
-depth, and a successful screenshot reply contains both the PNG and TXT report
-paths. Evolution inspection and region/bootstrap commands work on both
+depth, plus bathymetry zone, seabed height, water-column depth and seabed
+material. Screenshot reports include the same bathymetry diagnostics, and a
+successful screenshot reply contains both the PNG and TXT report paths.
+Evolution inspection and region/bootstrap commands work on both
 Homeworld and generated planet surfaces. The interface is disabled during a
 normal launch.
 
@@ -204,6 +207,8 @@ make run
 - `F7` cycle the weather manually
 - `F8` toggle auto-save
 - `F3` toggle the debug HUD
+- `N` lock/unlock the targeted evolvable organism for scanning, `B` open/close
+  the Biology Atlas
 - `O` toggle nearby planetary orbit trajectories
 - `F4` third-person view, `F10` debug screenshot (PNG plus a same-name
   `key=value` TXT report under `screenshots/`)

@@ -57,6 +57,8 @@ bool WorldRendererShadowsReady(void);
 uint64_t WorldRendererTextureBytes(void);
 
 void WorldRendererPrepare(const WorldLightingState *state);
+void WorldRendererBeginWaterPass(void);
+void WorldRendererEndWaterPass(void);
 void WorldRendererDrawModel(const Model *model, Vector3 translation, Color fallbackTint,
                             bool transparent);
 

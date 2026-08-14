@@ -589,6 +589,19 @@ void WorldRendererDrawModel(const Model *model, Vector3 translation,
     if (transparent) rlEnableBackfaceCulling();
 }
 
+void WorldRendererBeginWaterPass(void)
+{
+    rlDrawRenderBatchActive();
+    rlEnableDepthTest();
+    rlDisableDepthMask();
+}
+
+void WorldRendererEndWaterPass(void)
+{
+    rlDrawRenderBatchActive();
+    rlEnableDepthMask();
+}
+
 bool WorldRendererBeginShadow(const Camera3D *camera,
                               const WorldLightingState *state)
 {

@@ -32,6 +32,23 @@ typedef struct ChunkStreamingStats {
     double maxUploadCpuMs;
 } ChunkStreamingStats;
 
+enum {
+    CHUNK_WATER_NEIGHBOR_WEST = 1u << 0,
+    CHUNK_WATER_NEIGHBOR_EAST = 1u << 1,
+    CHUNK_WATER_NEIGHBOR_NORTH = 1u << 2,
+    CHUNK_WATER_NEIGHBOR_SOUTH = 1u << 3
+};
+
+typedef struct ChunkWaterRenderDebugInfo {
+    int cx;
+    int cz;
+    int sectionY;
+    bool chunkLoaded;
+    unsigned int neighborLoadedMask;
+    int triangleCount;
+    int sectionTriangleCount;
+} ChunkWaterRenderDebugInfo;
+
 bool InHeight(int y);
 int FloorDivInt(int value, int divisor);
 int PositiveMod(int value, int divisor);
@@ -91,6 +108,8 @@ int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
 ChunkStreamingStats ChunksGetStreamingStats(void);
+bool ChunksGetWaterRenderDebugInfo(Vector3 position,
+                                   ChunkWaterRenderDebugInfo *outInfo);
 RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void);
 void DrainChunkGen(void);
 void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance);

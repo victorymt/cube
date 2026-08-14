@@ -45,6 +45,12 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     if (strcmp(line, "evolution region") == 0) {
         return DEBUG_CONTROL_COMMAND_EVOLUTION_REGION;
     }
+    if (strcmp(line, "evolution atlas") == 0) {
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS;
+    }
+    if (strcmp(line, "evolution catalog") == 0) {
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_CATALOG;
+    }
     if (strcmp(line, "evolution bootstrap status") == 0) {
         return DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP;
     }
@@ -59,6 +65,16 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         evolutionValue >= 1.0f && evolutionValue <= 256.0f) {
         control->evolutionRadius = evolutionValue;
         return DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT;
+    }
+    if (sscanf(line, "evolution focus %f %c", &evolutionValue,
+               &evolutionTrailing) == 1 && isfinite(evolutionValue) &&
+        evolutionValue >= 1.0f && evolutionValue <= 256.0f) {
+        control->evolutionRadius = evolutionValue;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS;
+    }
+    if (strcmp(line, "evolution focus") == 0) {
+        control->evolutionRadius = 24.0f;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS;
     }
     if (sscanf(line, "evolution advance %f %c", &evolutionValue,
                &evolutionTrailing) == 1 && isfinite(evolutionValue) &&

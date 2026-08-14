@@ -2423,6 +2423,17 @@ int EntityNearestEvolvable(Vector3 position, float radius)
     return best;
 }
 
+int EntityEvolutionFindByOrganism(uint32_t organismId)
+{
+    if (organismId == 0u) return -1;
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        const Entity *entity = &entities[index];
+        if (entity->active && entity->evolvable &&
+            entity->organismId == organismId) return index;
+    }
+    return -1;
+}
+
 bool EntityEvolutionInspect(int index, EntityEvolutionDebugInfo *out)
 {
     if (!out) return false;
@@ -2437,9 +2448,13 @@ bool EntityEvolutionInspect(int index, EntityEvolutionDebugInfo *out)
         .corpse = entity->corpse,
         .juvenile = entity->ageDays < entity->maturityAgeDays,
         .pregnant = entity->pregnant,
+        .positionX = entity->position.x,
+        .positionZ = entity->position.z,
         .organismId = entity->organismId,
         .lineageId = entity->lineageId,
         .speciesId = entity->speciesId,
+        .motherId = entity->motherId,
+        .fatherId = entity->fatherId,
         .genomeId = entity->genome.genomeId,
         .generation = entity->genome.generation,
         .mutationCount = entity->genome.mutationCount,
@@ -2452,7 +2467,9 @@ bool EntityEvolutionInspect(int index, EntityEvolutionDebugInfo *out)
         .diet = entity->phenotype.diet,
         .mass = entity->phenotype.totalMass,
         .speed = entity->phenotype.cruiseSpeed,
-        .moduleCount = entity->phenotype.moduleCount
+        .moduleCount = entity->phenotype.moduleCount,
+        .genome = entity->genome,
+        .phenotype = entity->phenotype
     };
     return true;
 }

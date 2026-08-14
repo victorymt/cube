@@ -11,6 +11,7 @@
 #include "ship.h"
 #include "entity.h"
 #include "ecology.h"
+#include "evolution_catalog.h"
 #include "terrain.h"
 #include "world_environment.h"
 #include "save_io.h"
@@ -24,6 +25,8 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V14 "VOXELCRAFT_SAVE_V14"
+#define SAVE_MAGIC_V14_LEN (sizeof(SAVE_MAGIC_V14) - 1)
 #define SAVE_MAGIC_V13 "VOXELCRAFT_SAVE_V13"
 #define SAVE_MAGIC_V13_LEN (sizeof(SAVE_MAGIC_V13) - 1)
 #define TERRAIN_GENERATION_VERSION 3u
@@ -593,6 +596,7 @@ void WorldReset(uint32_t seed)
     blockEditCount = 0;
     BumpBlockEditRevision();
     ClearBlockEditIndex();
+    EvolutionCatalogReset();
     memset(torchLights, 0, sizeof(torchLights));
     ClearUndoHistory();
     WorldSetSeed(seed);
@@ -783,8 +787,8 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     const Player *player = context ? context->player : NULL;
     if (!file || !player) return false;
 
-    bool ok = fwrite(SAVE_MAGIC_V13, 1, SAVE_MAGIC_V13_LEN, file) ==
-              SAVE_MAGIC_V13_LEN;
+    bool ok = fwrite(SAVE_MAGIC_V14, 1, SAVE_MAGIC_V14_LEN, file) ==
+              SAVE_MAGIC_V14_LEN;
     uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
     uint32_t seed = WorldGetSeed();
     uint32_t terrain = (uint32_t)terrainMode;
@@ -810,7 +814,8 @@ static bool WriteSaveFile(FILE *file, void *opaque)
          HomeWorldSaveState(file);
     ok = ok && AlbumSave(file) && SpaceSaveEdits(file) && NetherSaveEdits(file);
     ok = ok && SpaceSaveState(file) && EntitiesSaveState(file) &&
-         PlanetEcologySaveState(file) && ShipLocatorSaveState(file) && !ferror(file);
+         PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
+         ShipLocatorSaveState(file) && !ferror(file);
     return ok;
 }
 
@@ -1041,13 +1046,21 @@ void LoadMap(Player *player)
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
     ShipLocatorRecord loadedShipLocator = { 0 };
+    char magicV14[SAVE_MAGIC_V14_LEN] = { 0 };
+    bool isV14 = fread(magicV14, 1, SAVE_MAGIC_V14_LEN, file) ==
+                     SAVE_MAGIC_V14_LEN &&
+                 memcmp(magicV14, SAVE_MAGIC_V14, SAVE_MAGIC_V14_LEN) == 0;
     char magicV13[SAVE_MAGIC_V13_LEN] = { 0 };
-    bool isV13 = fread(magicV13, 1, SAVE_MAGIC_V13_LEN, file) ==
+    bool isV13 = false;
+    if (!isV14) {
+        rewind(file);
+        isV13 = fread(magicV13, 1, SAVE_MAGIC_V13_LEN, file) ==
                      SAVE_MAGIC_V13_LEN &&
                  memcmp(magicV13, SAVE_MAGIC_V13, SAVE_MAGIC_V13_LEN) == 0;
+    }
     char magicV12[SAVE_MAGIC_V12_LEN] = { 0 };
     bool isV12 = false;
-    if (!isV13) {
+    if (!isV14 && !isV13) {
         rewind(file);
         isV12 = fread(magicV12, 1, SAVE_MAGIC_V12_LEN, file) ==
                         SAVE_MAGIC_V12_LEN &&
@@ -1055,7 +1068,7 @@ void LoadMap(Player *player)
     }
     char magicV11[SAVE_MAGIC_V11_LEN] = { 0 };
     bool isV11 = false;
-    if (!isV13 && !isV12) {
+    if (!isV14 && !isV13 && !isV12) {
         rewind(file);
         isV11 = fread(magicV11, 1, SAVE_MAGIC_V11_LEN, file) ==
                     SAVE_MAGIC_V11_LEN &&
@@ -1063,7 +1076,7 @@ void LoadMap(Player *player)
     }
     char magicV10[SAVE_MAGIC_V10_LEN] = { 0 };
     bool isV10 = false;
-    if (!isV13 && !isV12 && !isV11) {
+    if (!isV14 && !isV13 && !isV12 && !isV11) {
         rewind(file);
         isV10 = fread(magicV10, 1, SAVE_MAGIC_V10_LEN, file) ==
                     SAVE_MAGIC_V10_LEN &&
@@ -1071,20 +1084,20 @@ void LoadMap(Player *player)
     }
     char magicV9[SAVE_MAGIC_V9_LEN] = { 0 };
     bool isV9 = false;
-    if (!isV13 && !isV12 && !isV11 && !isV10) {
+    if (!isV14 && !isV13 && !isV12 && !isV11 && !isV10) {
         rewind(file);
         isV9 = fread(magicV9, 1, SAVE_MAGIC_V9_LEN, file) == SAVE_MAGIC_V9_LEN &&
                memcmp(magicV9, SAVE_MAGIC_V9, SAVE_MAGIC_V9_LEN) == 0;
     }
     char magicV8[SAVE_MAGIC_V8_LEN] = { 0 };
     bool isV8 = false;
-    if (!isV13 && !isV12 && !isV11 && !isV10 && !isV9) {
+    if (!isV14 && !isV13 && !isV12 && !isV11 && !isV10 && !isV9) {
         rewind(file);
         isV8 = fread(magicV8, 1, SAVE_MAGIC_V8_LEN, file) == SAVE_MAGIC_V8_LEN &&
                memcmp(magicV8, SAVE_MAGIC_V8, SAVE_MAGIC_V8_LEN) == 0;
     }
-    if (isV13 || isV12 || isV11 || isV10 || isV9 || isV8) {
-        bool loaded = isV13
+    if (isV14 || isV13 || isV12 || isV11 || isV10 || isV9 || isV8) {
+        bool loaded = (isV14 || isV13)
                           ? LoadMapV13(file, &savedTerrain, &savedPlayer,
                                        &loadedEdits, &loadedDimensions,
                                        &savedEditCount, &savedSeed,
@@ -1225,18 +1238,18 @@ void LoadMap(Player *player)
         }
     }
 
-    int storedSpaceLayerY = isV13 ? SPACE_LAYER_Y : LEGACY_SPACE_LAYER_Y;
-    if (((isV13 || isV12 || isV11) && !SaveDataAvailable(file)) || !AlbumLoad(file) ||
-        ((isV13 || isV12 || isV11) && !SaveDataAvailable(file)) ||
+    int storedSpaceLayerY = (isV14 || isV13) ? SPACE_LAYER_Y : LEGACY_SPACE_LAYER_Y;
+    if (((isV14 || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) || !AlbumLoad(file) ||
+        ((isV14 || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) ||
             !SpaceLoadEdits(file, storedSpaceLayerY) ||
-        ((isV13 || isV12 || isV11) && !SaveDataAvailable(file)) || !NetherLoadEdits(file)) {
+        ((isV14 || isV13 || isV12 || isV11) && !SaveDataAvailable(file)) || !NetherLoadEdits(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: save file is corrupted.");
         return;
     }
-    if (isV13 || isV12 || isV11 || isV10 || isV9) {
+    if (isV14 || isV13 || isV12 || isV11 || isV10 || isV9) {
         if (!SpaceLoadState(file)) {
             free(loadedDimensions);
             free(loadedEdits);
@@ -1255,21 +1268,28 @@ void LoadMap(Player *player)
         }
         loadedSpaceOrigin = true;
     }
-    if ((isV13 || isV12 || isV11 || isV10) && !EntitiesLoadState(file)) {
+    if ((isV14 || isV13 || isV12 || isV11 || isV10) && !EntitiesLoadState(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: entity state is corrupted.");
         return;
     }
-    if ((isV13 || isV12 || isV11) && !PlanetEcologyLoadState(file)) {
+    if ((isV14 || isV13 || isV12 || isV11) && !PlanetEcologyLoadState(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
         SetImportMessage("Load failed: ecology state is corrupted.");
         return;
     }
-    if ((isV13 || isV12) &&
+    if (isV14 && !EvolutionCatalogLoadState(file)) {
+        free(loadedDimensions);
+        free(loadedEdits);
+        fclose(file);
+        SetImportMessage("Load failed: evolution catalog state is corrupted.");
+        return;
+    }
+    if ((isV14 || isV13 || isV12) &&
         !ShipLocatorReadStateForSpaceLayer(file, &loadedShipLocator,
                                            storedSpaceLayerY)) {
         free(loadedDimensions);
@@ -1330,20 +1350,21 @@ void LoadMap(Player *player)
     UnloadAllNetherChunks();
     terrainMode = savedTerrain;
     WorldSetSeed(savedSeed);
-    if (!isV13) {
+    if (!isV14 && !isV13) {
         PlanetWorldMigrateSpaceLayer(storedSpaceLayerY);
         if (!PlanetWorldIsActive() && !HomeWorldSurfaceIsActive()) {
             savedPlayer.position.y += (float)(SPACE_LAYER_Y - storedSpaceLayerY);
         }
     }
-    if (!isV13 && !isV12 && !isV11 && !isV10) EntitiesClear();
-    if (!isV13 && !isV12 && !isV11) PlanetEcologyResetState();
+    if (!isV14 && !isV13 && !isV12 && !isV11 && !isV10) EntitiesClear();
+    if (!isV14 && !isV13 && !isV12 && !isV11) PlanetEcologyResetState();
+    if (!isV14) EvolutionCatalogReset();
     if (!loadedInventory) {
         InventoryReset();
         InventoryGrantStarterKit();
         ShipReset();
     }
-    if ((!isV13 || loadedTerrainGenerationVersion !=
+    if (((!isV14 && !isV13) || loadedTerrainGenerationVersion !=
                      TERRAIN_GENERATION_VERSION) &&
         WorldIsSurfaceActive()) {
         int landingX = (int)floorf(savedPlayer.position.x);
@@ -1375,14 +1396,14 @@ void LoadMap(Player *player)
     RebuildTorchList();
     SpaceRebuildTorchList();
     ClearUndoHistory();
-    if (isV13 || isV12) ShipLocatorSetRecord(&loadedShipLocator);
+    if (isV14 || isV13 || isV12) ShipLocatorSetRecord(&loadedShipLocator);
     else ShipLocatorReset();
 
     if (WorldIsSurfaceActive()) {
         UpdateChunks(player->position,
                      EffectiveRenderDistanceForHeight(player->position.y + EYE_HEIGHT));
     }
-    if (!isV13) {
+    if (!isV14 && !isV13) {
         SetImportMessage(TextFormat(
             "Upgraded terrain; moved player to safe ground and kept %d edits at original heights.",
             blockEditCount));

@@ -2,6 +2,20 @@
 
 #include "raymath.h"
 
+Color WorldLightingUnderwaterFogColor(float underwaterDepth)
+{
+    float deep = Clamp(underwaterDepth / UNDERWATER_DEEP_REFERENCE_DEPTH,
+                       0.0f, 1.0f);
+    Color shallow = { 43, 132, 151, 255 };
+    Color depthColor = { 8, 38, 61, 255 };
+    return (Color){
+        (unsigned char)Lerp((float)shallow.r, (float)depthColor.r, deep),
+        (unsigned char)Lerp((float)shallow.g, (float)depthColor.g, deep),
+        (unsigned char)Lerp((float)shallow.b, (float)depthColor.b, deep),
+        255
+    };
+}
+
 EnvironmentPresentationState WorldLightingFallbackPresentation(
     float daylight, float sunset, const WeatherVisualState *weatherVisual,
     bool inNether)
@@ -31,15 +45,8 @@ WorldLightingState WorldLightingCompose(
     physical.underwaterDepth = presentation->underwaterDepth;
     physical.causticStrength = presentation->causticStrength;
     if (presentation->underwaterAmount > 0.001f) {
-        float deep = Clamp(presentation->underwaterDepth / 32.0f, 0.0f, 1.0f);
-        Color shallow = { 43, 132, 151, 255 };
-        Color depthColor = { 8, 38, 61, 255 };
-        physical.fogColor = (Color){
-            (unsigned char)Lerp((float)shallow.r, (float)depthColor.r, deep),
-            (unsigned char)Lerp((float)shallow.g, (float)depthColor.g, deep),
-            (unsigned char)Lerp((float)shallow.b, (float)depthColor.b, deep),
-            255
-        };
+        physical.fogColor = WorldLightingUnderwaterFogColor(
+            presentation->underwaterDepth);
     }
     physical.wetness = presentation->wetness;
     physical.exposure = presentation->exposure;

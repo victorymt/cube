@@ -111,7 +111,7 @@ EnvironmentPresentationState EnvironmentPresentationEvaluate(
                           Unit(0.16f + night * 0.10f) : 0.0f;
     if (input->underwater) {
         float depth = fmaxf(input->underwaterDepth, 0.0f);
-        float deep = Unit(depth / 32.0f);
+        float deep = Unit(depth / UNDERWATER_DEEP_REFERENCE_DEPTH);
         state.underwaterAmount = 1.0f;
         state.underwaterDepth = depth;
         state.causticStrength = input->quality == GRAPHICS_QUALITY_LOW ? 0.0f :
@@ -128,6 +128,10 @@ EnvironmentPresentationState EnvironmentPresentationEvaluate(
         state.audioForest = 0.0f;
         state.audioWater = 0.42f;
         state.audioCave = 0.0f;
+        state.cloudOpacity = 0.0f;
+        state.precipitation = 0.0f;
+        state.lightningFlash = 0.0f;
+        state.starVisibility = 0.0f;
     }
     return state;
 }

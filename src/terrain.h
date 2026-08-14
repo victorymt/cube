@@ -5,6 +5,32 @@
 #include "types.h"
 
 #define HOME_SEA_LEVEL 80
+#define BATHYMETRY_MIN_SEABED_Y 8
+#define BATHYMETRY_MAX_WATER_DEPTH 72
+
+typedef enum BathymetryZone {
+    BATHYMETRY_ZONE_LAND = 0,
+    BATHYMETRY_ZONE_COAST,
+    BATHYMETRY_ZONE_SHELF,
+    BATHYMETRY_ZONE_SLOPE,
+    BATHYMETRY_ZONE_ABYSSAL_PLAIN,
+    BATHYMETRY_ZONE_TRENCH,
+    BATHYMETRY_ZONE_SEAMOUNT
+} BathymetryZone;
+
+typedef enum BathymetryMaterial {
+    BATHYMETRY_MATERIAL_SAND = 0,
+    BATHYMETRY_MATERIAL_SEDIMENT,
+    BATHYMETRY_MATERIAL_ROCK
+} BathymetryMaterial;
+
+typedef struct BathymetrySample {
+    int seaLevel;
+    int seabedY;
+    int waterDepth;
+    BathymetryZone zone;
+    BathymetryMaterial material;
+} BathymetrySample;
 
 typedef struct SurfaceTerrainSample {
     float elevation;
@@ -16,6 +42,7 @@ typedef struct SurfaceTerrainSample {
     float trench;
     float slope;
     Biome biome;
+    BathymetrySample bathymetry;
 } SurfaceTerrainSample;
 
 unsigned int Hash2D(int x, int z);
@@ -28,9 +55,14 @@ float BiomeNoise(int x, int z);
 Biome BiomeAt(int x, int z);
 int TerrainHeight(int x, int z, TerrainMode mode);
 SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode);
+BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode);
 int TerrainSeaLevel(TerrainMode mode);
 int PlanetTerrainHeight(int x, int z);
 int PlanetTerrainSeaLevel(void);
+BathymetrySample PlanetBathymetryAt(int x, int z);
+const char *BathymetryZoneName(BathymetryZone zone);
+const char *BathymetryMaterialName(BathymetryMaterial material);
+BlockType BathymetryMaterialBlock(BathymetryMaterial material);
 bool FindSafeSurfaceLanding(int preferredX, int preferredZ, int maxRadius,
                             int footprintRadius, int *outX, int *outZ,
                             int *outGroundY);

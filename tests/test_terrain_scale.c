@@ -5,10 +5,13 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+static uint32_t terrainSeed = DEFAULT_WORLD_SEED;
 
 uint32_t WorldGetSeed(void)
 {
-    return DEFAULT_WORLD_SEED;
+    return terrainSeed;
 }
 
 static void TestSurfaceSampleContracts(void)
@@ -44,6 +47,11 @@ static void TestSurfaceSampleContracts(void)
     assert(flat.biome == BIOME_PLAINS);
     assert(TerrainHeight(-91, 73, TERRAIN_FLAT) == 8);
     assert(TerrainSeaLevel(TERRAIN_FLAT) == -1);
+    BathymetrySample flatBathymetry = TerrainBathymetryAt(-91, 73,
+                                                          TERRAIN_FLAT);
+    assert(flatBathymetry.seaLevel == -1);
+    assert(flatBathymetry.waterDepth == 0);
+    assert(flatBathymetry.zone == BATHYMETRY_ZONE_LAND);
 }
 
 static void TestEarthScaleRelief(void)
@@ -82,6 +90,74 @@ static void TestEarthScaleRelief(void)
     assert(buildablePlainCount > sampleCount / 10);
 }
 
+static void TestBathymetryContracts(void)
+{
+    BathymetrySample first = TerrainBathymetryAt(1234, -5678,
+                                                 TERRAIN_VARIED);
+    BathymetrySample repeat = TerrainBathymetryAt(1234, -5678,
+                                                  TERRAIN_VARIED);
+    assert(first.seaLevel == HOME_SEA_LEVEL);
+    assert(first.seabedY == repeat.seabedY);
+    assert(first.waterDepth == repeat.waterDepth);
+    assert(first.zone == repeat.zone);
+    assert(first.material == repeat.material);
+    assert(first.seabedY >= BATHYMETRY_MIN_SEABED_Y);
+    assert(first.waterDepth >= 0 &&
+           first.waterDepth <= BATHYMETRY_MAX_WATER_DEPTH);
+
+    int coastCount = 0;
+    int shelfCount = 0;
+    int slopeCount = 0;
+    int abyssCount = 0;
+    int trenchCount = 0;
+    int seamountCount = 0;
+    for (int z = -8192; z <= 8192; z += 32) {
+        for (int x = -8192; x <= 8192; x += 32) {
+            BathymetrySample sample = TerrainBathymetryAt(x, z,
+                                                           TERRAIN_VARIED);
+            assert(sample.seaLevel == HOME_SEA_LEVEL);
+            assert(sample.seabedY >= BATHYMETRY_MIN_SEABED_Y);
+            assert(sample.waterDepth == HOME_SEA_LEVEL - sample.seabedY ||
+                   sample.waterDepth == 0);
+            switch (sample.zone) {
+            case BATHYMETRY_ZONE_COAST: coastCount++; break;
+            case BATHYMETRY_ZONE_SHELF: shelfCount++; break;
+            case BATHYMETRY_ZONE_SLOPE: slopeCount++; break;
+            case BATHYMETRY_ZONE_ABYSSAL_PLAIN: abyssCount++; break;
+            case BATHYMETRY_ZONE_TRENCH: trenchCount++; break;
+            case BATHYMETRY_ZONE_SEAMOUNT: seamountCount++; break;
+            case BATHYMETRY_ZONE_LAND: break;
+            }
+        }
+    }
+    assert(coastCount > 0);
+    assert(shelfCount > 0);
+    assert(slopeCount > 0);
+    assert(abyssCount > 0);
+    assert(trenchCount > 0);
+    assert(seamountCount > 0);
+
+    BathymetrySample boundaryLeft = TerrainBathymetryAt(15, 2048,
+                                                        TERRAIN_VARIED);
+    BathymetrySample boundaryRight = TerrainBathymetryAt(16, 2048,
+                                                         TERRAIN_VARIED);
+    assert(abs(boundaryLeft.seabedY - boundaryRight.seabedY) <= 8);
+
+    assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_SAND) == BLOCK_SAND);
+    assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_SEDIMENT) ==
+           BLOCK_SANDSTONE);
+    assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_ROCK) == BLOCK_STONE);
+
+    terrainSeed = 1448040515u;
+    BathymetrySample seeded = TerrainBathymetryAt(-2896, 16,
+                                                  TERRAIN_VARIED);
+    assert(seeded.waterDepth == 46);
+    assert(seeded.seabedY == 34);
+    assert(seeded.zone == BATHYMETRY_ZONE_ABYSSAL_PLAIN);
+    assert(seeded.material == BATHYMETRY_MATERIAL_ROCK);
+    terrainSeed = DEFAULT_WORLD_SEED;
+}
+
 static void TestChunkSectionBoundaries(void)
 {
     static const int heights[] = { 0, 15, 16, HOME_SEA_LEVEL, 240, 255 };
@@ -116,6 +192,7 @@ int main(void)
     assert(SURFACE_SECTION_COUNT == 16);
     TestSurfaceSampleContracts();
     TestEarthScaleRelief();
+    TestBathymetryContracts();
     TestChunkSectionBoundaries();
     puts("terrain scale tests passed");
     return 0;

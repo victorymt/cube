@@ -30,6 +30,8 @@ Vector3 RightFromYaw(float yaw);
 float CameraHeightFactor(float eyeHeight);
 float CameraFovForHeight(float eyeHeight);
 int EffectiveRenderDistanceForHeight(float eyeHeight);
+bool PlayerCameraPositionInsideSolid(Vector3 position);
+Vector3 PlayerResolveCameraPosition(Vector3 pivot, Vector3 desired);
 void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool thirdPerson);
 void PlayerResetRuntimeState(Player *player);
 PlayerWaterState PlayerWaterStateAt(Vector3 position);

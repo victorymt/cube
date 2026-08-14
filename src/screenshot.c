@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=3\n");
+    REPORT_LINE("format.version=4\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -139,6 +139,8 @@ static bool ScreenshotWriteDebugFields(
     REPORT_LINE("camera.fov_y_degrees=%.6f\n", info->camera.fovY);
     REPORT_LINE("camera.third_person=%s\n",
                 ScreenshotBool(info->camera.thirdPerson));
+    REPORT_LINE("camera.inside_solid=%s\n",
+                ScreenshotBool(info->camera.insideSolid));
 
     REPORT_LINE("weather.name=%s\n", ScreenshotText(info->weather.name));
     REPORT_LINE("weather.simulation_time=%.6f\n", info->weather.simulationTime);
@@ -165,6 +167,13 @@ static bool ScreenshotWriteDebugFields(
                 info->environment.underwaterDepth);
     REPORT_LINE("environment.water_surface_y=%.6f\n",
                 info->environment.waterSurfaceY);
+    REPORT_LINE("environment.seabed_y=%d\n", info->environment.seabedY);
+    REPORT_LINE("environment.water_column_depth=%d\n",
+                info->environment.waterColumnDepth);
+    REPORT_LINE("environment.bathymetry_zone=%s\n",
+                ScreenshotText(info->environment.bathymetryZone));
+    REPORT_LINE("environment.seabed_material=%s\n",
+                ScreenshotText(info->environment.seabedMaterial));
     REPORT_LINE("environment.underwater=%s\n",
                 ScreenshotBool(info->environment.underwater));
     REPORT_LINE("environment.feet_submerged=%s\n",
@@ -213,6 +222,10 @@ static bool ScreenshotWriteDebugFields(
 
     REPORT_LINE("evolution.entity_selected=%s\n",
                 ScreenshotBool(info->evolution.entitySelected));
+    REPORT_LINE("evolution.scan_locked=%s\n",
+                ScreenshotBool(info->evolution.scanLocked));
+    REPORT_LINE("evolution.atlas_open=%s\n",
+                ScreenshotBool(info->evolution.atlasOpen));
     REPORT_LINE("evolution.organism_id=%" PRIu32 "\n",
                 info->evolution.organismId);
     REPORT_LINE("evolution.lineage_id=%" PRIu32 "\n",
@@ -227,6 +240,16 @@ static bool ScreenshotWriteDebugFields(
                 info->evolution.mutationCount);
     REPORT_LINE("evolution.module_count=%" PRIu32 "\n",
                 info->evolution.moduleCount);
+    REPORT_LINE("evolution.mother_id=%" PRIu32 "\n",
+                info->evolution.motherId);
+    REPORT_LINE("evolution.father_id=%" PRIu32 "\n",
+                info->evolution.fatherId);
+    REPORT_LINE("evolution.child_count=%" PRIu32 "\n",
+                info->evolution.childCount);
+    REPORT_LINE("evolution.catalog_species_count=%" PRIu32 "\n",
+                info->evolution.catalogSpeciesCount);
+    REPORT_LINE("evolution.catalog_individual_count=%" PRIu32 "\n",
+                info->evolution.catalogIndividualCount);
     REPORT_LINE("evolution.sex=%s\n", ScreenshotText(info->evolution.sex));
     REPORT_LINE("evolution.locomotion=%s\n",
                 ScreenshotText(info->evolution.locomotion));
@@ -269,6 +292,19 @@ static bool ScreenshotWriteDebugFields(
                 info->streaming.pendingGenerationJobs);
     REPORT_LINE("streaming.pending_mesh_jobs=%d\n",
                 info->streaming.pendingMeshJobs);
+    REPORT_LINE("streaming.surface_chunk=%d,%d\n",
+                info->streaming.surfaceChunkX,
+                info->streaming.surfaceChunkZ);
+    REPORT_LINE("streaming.surface_section_y=%d\n",
+                info->streaming.surfaceSectionY);
+    REPORT_LINE("streaming.surface_chunk_loaded=%s\n",
+                ScreenshotBool(info->streaming.surfaceChunkLoaded));
+    REPORT_LINE("streaming.water_neighbor_loaded_mask=0x%X\n",
+                info->streaming.waterNeighborLoadedMask);
+    REPORT_LINE("streaming.water_triangle_count=%d\n",
+                info->streaming.waterTriangleCount);
+    REPORT_LINE("streaming.water_section_triangle_count=%d\n",
+                info->streaming.waterSectionTriangleCount);
     REPORT_LINE("streaming.generation_submitted=%" PRIu64 "\n",
                 info->streaming.generationSubmitted);
     REPORT_LINE("streaming.generation_completed=%" PRIu64 "\n",

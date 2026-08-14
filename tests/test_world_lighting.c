@@ -65,6 +65,16 @@ static void TestClearAndStormComposition(void)
     assert(Near(stormLighting.wetness, storm.wetness));
 }
 
+static void TestUnderwaterFogPalette(void)
+{
+    Color shallow = WorldLightingUnderwaterFogColor(0.0f);
+    Color deep = WorldLightingUnderwaterFogColor(
+        UNDERWATER_DEEP_REFERENCE_DEPTH);
+    assert(shallow.r == 43 && shallow.g == 132 && shallow.b == 151);
+    assert(deep.r == 8 && deep.g == 38 && deep.b == 61);
+    assert(deep.r < shallow.r && deep.g < shallow.g && deep.b < shallow.b);
+}
+
 static void TestNetherComposition(void)
 {
     EnvironmentPresentationInput input = ClearInput();
@@ -107,6 +117,7 @@ static void TestFallbacks(void)
 int main(void)
 {
     TestClearAndStormComposition();
+    TestUnderwaterFogPalette();
     TestNetherComposition();
     TestFallbacks();
     puts("world lighting tests passed");

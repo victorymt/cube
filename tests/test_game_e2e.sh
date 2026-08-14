@@ -91,15 +91,21 @@ send_command 'evolution region'
 wait_for_reply '^DEBUG_CONTROL evolution region ok lineages=3 '
 send_command 'evolution bootstrap status'
 wait_for_reply '^DEBUG_CONTROL evolution region ok lineages=3 '
+send_command 'evolution catalog'
+wait_for_reply '^DEBUG_CONTROL evolution catalog ok species=0 individuals=0 surface=[0-9]+$'
+send_command 'evolution atlas'
+wait_for_reply '^DEBUG_CONTROL evolution atlas open species=0$'
+send_command 'evolution atlas'
+wait_for_reply '^DEBUG_CONTROL evolution atlas closed species=0$'
 
-send_command 'teleport 0.5 76.002960 0.5 3.141593 -0.25'
+send_command 'teleport -2895.5 76.002960 16.5 3.141593 -0.25'
 wait_for_reply '^DEBUG_CONTROL teleport ok '
 
 water_ready=false
 settle_deadline=$((SECONDS + settle_timeout))
 while ((SECONDS < settle_deadline)); do
     sleep 1
-    send_command 'teleport 0.5 76.002960 0.5 3.141593 -0.25'
+    send_command 'teleport -2895.5 76.002960 16.5 3.141593 -0.25'
     wait_for_reply '^DEBUG_CONTROL teleport ok '
     send_command 'status'
     wait_for_reply '^DEBUG_CONTROL status '
@@ -125,20 +131,48 @@ report_path=${matched_line##*report=}
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=3' "$report_path"
+grep -Fxq 'format.version=4' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
 grep -Fxq 'environment.water_surface_y=81.000000' "$report_path"
+grep -Fxq 'environment.seabed_y=34' "$report_path"
+grep -Fxq 'environment.water_column_depth=46' "$report_path"
+grep -Fxq 'environment.bathymetry_zone=abyssal_plain' "$report_path"
+grep -Fxq 'environment.seabed_material=rock' "$report_path"
 grep -Fxq 'environment.underwater=true' "$report_path"
 grep -Fxq 'environment.feet_submerged=true' "$report_path"
 grep -Fxq 'environment.body_submerged=true' "$report_path"
 grep -Fxq 'environment.eyes_submerged=true' "$report_path"
 grep -Fxq 'evolution.entity_selected=false' "$report_path"
+grep -Fxq 'evolution.scan_locked=false' "$report_path"
+grep -Fxq 'evolution.atlas_open=false' "$report_path"
+grep -Fxq 'evolution.catalog_species_count=0' "$report_path"
 grep -Fxq 'evolution.region_available=true' "$report_path"
 
 underwater_depth=$(awk -F= '$1 == "environment.underwater_depth" { print $2 }' "$report_path")
 awk -v depth="$underwater_depth" 'BEGIN { exit !(depth >= 3.0 && depth <= 4.5) }'
-python3 tests/validate_png.py "$png_path" 1280 720
+python3 tests/validate_png.py "$png_path" 1280 720 --underwater-scene
+
+send_command 'evolution atlas'
+wait_for_reply '^DEBUG_CONTROL evolution atlas open species=0$'
+send_command 'screenshot'
+wait_for_reply '^DEBUG_CONTROL screenshot scheduled$'
+wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
+
+atlas_png_path=${matched_line#*png=}
+atlas_png_path=${atlas_png_path%% report=*}
+atlas_report_path=${matched_line##*report=}
+[[ -s "$atlas_png_path" ]]
+[[ -s "$atlas_report_path" ]]
+grep -Fxq 'format.version=4' "$atlas_report_path"
+grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
+grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
+python3 tests/validate_png.py "$atlas_png_path" 1280 720 --allow-dark-ui
+send_command 'evolution atlas'
+wait_for_reply '^DEBUG_CONTROL evolution atlas closed species=0$'
+
+send_command 'evolution focus'
+wait_for_reply '^DEBUG_CONTROL evolution focus (none radius=24\.000|ok organism=[0-9]+ species=[0-9]+)$'
 
 send_command 'quit'
 wait_for_reply '^DEBUG_CONTROL quit accepted$'
@@ -146,4 +180,5 @@ exec {game_input}>&-
 wait "$game_pid"
 trap - EXIT
 
-printf 'game end-to-end test passed: %s\n' "$png_path"
+printf 'game end-to-end test passed: world=%s atlas=%s\n' \
+    "$png_path" "$atlas_png_path"

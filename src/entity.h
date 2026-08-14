@@ -99,9 +99,13 @@ typedef struct EntityEvolutionDebugInfo {
     bool corpse;
     bool juvenile;
     bool pregnant;
+    float positionX;
+    float positionZ;
     uint32_t organismId;
     uint32_t lineageId;
     uint32_t speciesId;
+    uint32_t motherId;
+    uint32_t fatherId;
     uint32_t genomeId;
     uint32_t generation;
     uint32_t mutationCount;
@@ -115,6 +119,8 @@ typedef struct EntityEvolutionDebugInfo {
     float mass;
     float speed;
     unsigned moduleCount;
+    CreatureGenome genome;
+    CreaturePhenotype phenotype;
 } EntityEvolutionDebugInfo;
 
 void EntitiesInit(void);
@@ -127,6 +133,7 @@ int GetActiveEntityCount(void);
 int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance);
 bool EntityKill(int index, EntityDeathCause cause, float daylight);
 int EntityNearestEvolvable(Vector3 position, float radius);
+int EntityEvolutionFindByOrganism(uint32_t organismId);
 bool EntityEvolutionInspect(int index, EntityEvolutionDebugInfo *out);
 
 #endif

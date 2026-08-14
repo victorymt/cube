@@ -116,7 +116,8 @@ static void TestDebugReport(void)
             .position = { 2.0f, 43.0f, -7.0f },
             .target = { 3.0f, 43.5f, -6.0f },
             .fovY = 70.0f,
-            .thirdPerson = true
+            .thirdPerson = true,
+            .insideSolid = false
         },
         .weather = {
             .name = "Rain",
@@ -138,6 +139,10 @@ static void TestDebugReport(void)
         .environment = {
             .altitude = 31.0f,
             .atmosphereFade = 0.0f,
+            .seabedY = 18,
+            .waterColumnDepth = 62,
+            .bathymetryZone = "trench",
+            .seabedMaterial = "rock",
             .sheltered = true
         },
         .render = {
@@ -155,12 +160,21 @@ static void TestDebugReport(void)
         .streaming = {
             .activeChunks = 81,
             .activeEntities = 7,
+            .surfaceChunkX = -181,
+            .surfaceChunkZ = 1,
+            .surfaceSectionY = 4,
+            .surfaceChunkLoaded = true,
+            .waterNeighborLoadedMask = 0xFu,
+            .waterTriangleCount = 972,
+            .waterSectionTriangleCount = 144,
             .generationSubmitted = 123u,
             .meshCompleted = 456u,
             .meshCpuMs = 78.25
         },
         .evolution = {
             .entitySelected = true,
+            .scanLocked = true,
+            .atlasOpen = true,
             .organismId = 71u,
             .lineageId = 72u,
             .speciesId = 73u,
@@ -168,6 +182,11 @@ static void TestDebugReport(void)
             .generation = 4u,
             .mutationCount = 3u,
             .moduleCount = 12u,
+            .motherId = 69u,
+            .fatherId = 70u,
+            .childCount = 2u,
+            .catalogSpeciesCount = 5u,
+            .catalogIndividualCount = 9u,
             .regionalLineageCount = 3u,
             .bootstrapGeneration = 24u,
             .bootstrapComplete = true,
@@ -196,19 +215,32 @@ static void TestDebugReport(void)
 
     char contents[8192];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=3\n"));
+    assert(strstr(contents, "format.version=4\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
     assert(strstr(contents, "player.position=1.250000,42.500000,-8.750000\n"));
+    assert(strstr(contents, "camera.inside_solid=false\n"));
     assert(strstr(contents, "weather.cloud_cover=0.812500\n"));
     assert(strstr(contents, "weather.cloud_thickness=18.000000\n"));
+    assert(strstr(contents, "environment.seabed_y=18\n"));
+    assert(strstr(contents, "environment.water_column_depth=62\n"));
+    assert(strstr(contents, "environment.bathymetry_zone=trench\n"));
+    assert(strstr(contents, "environment.seabed_material=rock\n"));
     assert(strstr(contents, "render.screen=1280,720\n"));
     assert(strstr(contents, "render.performance_mode=true\n"));
     assert(strstr(contents, "ui.debug_hud_visible=true\n"));
     assert(strstr(contents, "streaming.active_chunks=81\n"));
+    assert(strstr(contents, "streaming.surface_chunk=-181,1\n"));
+    assert(strstr(contents, "streaming.water_neighbor_loaded_mask=0xF\n"));
+    assert(strstr(contents, "streaming.water_triangle_count=972\n"));
+    assert(strstr(contents, "streaming.water_section_triangle_count=144\n"));
     assert(strstr(contents, "streaming.mesh_completed=456\n"));
     assert(strstr(contents, "evolution.organism_id=71\n"));
+    assert(strstr(contents, "evolution.scan_locked=true\n"));
+    assert(strstr(contents, "evolution.atlas_open=true\n"));
+    assert(strstr(contents, "evolution.child_count=2\n"));
+    assert(strstr(contents, "evolution.catalog_species_count=5\n"));
     assert(strstr(contents, "evolution.locomotion=flight\n"));
     assert(strstr(contents, "evolution.bootstrap_complete=true\n"));
 

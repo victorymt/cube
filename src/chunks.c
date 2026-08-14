@@ -947,13 +947,56 @@ bool ChunkFaceIsVisible(const unsigned short (*blocks)[CHUNK_SIZE],
            IsTranslucentBlock(neighbor);
 }
 
+static bool ChunkTransparentNeighbor(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, int lx, int y, int lz, int nx, int ny, int nz,
+    BlockType *outNeighbor)
+{
+    if (!outNeighbor) return false;
+    int neighborY = y + ny;
+    int worldY = layerY + neighborY;
+    if (!InHeight(worldY)) {
+        *outNeighbor = BLOCK_AIR;
+        return true;
+    }
+
+    int neighborLx = lx + nx;
+    int neighborLz = lz + nz;
+    if (neighborY >= 0 && neighborY < height &&
+        neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
+        neighborLz >= 0 && neighborLz < CHUNK_SIZE) {
+        *outNeighbor = (BlockType)blocks[
+            neighborLx * height + neighborY][neighborLz];
+        return true;
+    }
+
+    int wx = chunkX * CHUNK_SIZE + lx + nx;
+    int wz = chunkZ * CHUNK_SIZE + lz + nz;
+    int neighborCx = 0;
+    int neighborCz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal(wx, wz, &neighborCx, &neighborCz, &localX, &localZ);
+    Chunk *neighborChunk = FindChunk(neighborCx, neighborCz);
+    if (!neighborChunk) return false;
+    *outNeighbor = ChunkGetLocalBlock(neighborChunk, localX, worldY, localZ);
+    return true;
+}
+
 static bool ChunkTransparentFaceIsVisible(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, int lx, int y, int lz, int nx, int ny, int nz,
     BlockType current)
 {
-    BlockType neighbor = ChunkFaceNeighbor(
-        blocks, height, layerY, chunkX, chunkZ, lx, y, lz, nx, ny, nz);
+    BlockType neighbor = BLOCK_AIR;
+    if (!ChunkTransparentNeighbor(
+            blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
+            nx, ny, nz, &neighbor)) {
+        // Missing streamed neighbors are unknown, not air. Hiding this face
+        // avoids transient water walls until the neighbor loads and dirties
+        // both chunk borders for a definitive rebuild.
+        return false;
+    }
     return neighbor == BLOCK_AIR || neighbor == BLOCK_SPACESHIP_OCCUPIED ||
            (IsTranslucentBlock(neighbor) && neighbor != current);
 }
@@ -2755,19 +2798,24 @@ static void FreeMeshData(Mesh *mesh)
 static void ReplaceChunkModel(Model *model, bool *hasModel,
                               Mesh *mesh, bool hasMesh, bool dynamic)
 {
-    if (*hasModel) {
-        UnloadModel(*model);
-        *model = (Model){ 0 };
-        *hasModel = false;
-    }
     if (!hasMesh) {
+        if (*hasModel) {
+            UnloadModel(*model);
+            *model = (Model){ 0 };
+            *hasModel = false;
+        }
         FreeMeshData(mesh);
         return;
     }
 
     UploadMesh(mesh, dynamic);
-    *model = LoadModelFromMesh(*mesh);
-    SetMaterialTexture(&model->materials[0], MATERIAL_MAP_DIFFUSE, blockAtlas);
+    Model replacement = LoadModelFromMesh(*mesh);
+    if (replacement.materialCount > 0 && replacement.materials) {
+        SetMaterialTexture(&replacement.materials[0], MATERIAL_MAP_DIFFUSE,
+                           blockAtlas);
+    }
+    if (*hasModel) UnloadModel(*model);
+    *model = replacement;
     *hasModel = true;
 }
 
@@ -2842,16 +2890,21 @@ static void InitializeFloraTargets(
 static bool UploadMeshJob(MeshJob *job)
 {
     Chunk *chunk = NULL;
-    bool valid = false;
+    ChunkSection *section = NULL;
+    bool targetValid = false;
+    bool snapshotCurrent = false;
     if (job && job->slotIndex >= 0 && job->slotIndex < MAX_ACTIVE_CHUNKS) {
         chunk = &chunks[job->slotIndex];
-        valid = chunk->loaded && chunk->cx == job->cx && chunk->cz == job->cz &&
-                chunk->generation == job->chunkGeneration &&
-                ChunkGetSection(chunk, job->sectionY, false) != NULL;
+        section = ChunkGetSection(chunk, job->sectionY, false);
+        targetValid = chunk->loaded && chunk->cx == job->cx &&
+                      chunk->cz == job->cz &&
+                      chunk->generation == job->chunkGeneration &&
+                      section != NULL;
+        snapshotCurrent = targetValid &&
+                          section->dirtyStamp == job->sectionStamp;
     }
 
-    if (job && valid) {
-        ChunkSection *section = ChunkGetSection(chunk, job->sectionY, false);
+    if (job && snapshotCurrent) {
         ReplaceChunkModel(&section->model, &section->hasModel,
                           &job->mesh, job->hasMesh, false);
         ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,
@@ -2875,21 +2928,14 @@ static bool UploadMeshJob(MeshJob *job)
 
     pthread_mutex_lock(&genMutex);
     if (job) job->inUse = false;
-    bool pending = job && valid && FindPendingMeshJob(job->slotIndex,
-                                                      job->sectionY);
-    if (job && !valid) streamingStats.meshCanceled++;
+    bool pending = job && snapshotCurrent && FindPendingMeshJob(
+        job->slotIndex, job->sectionY);
+    if (job && !snapshotCurrent) streamingStats.meshCanceled++;
     pthread_mutex_unlock(&genMutex);
-    if (valid && !pending) {
-        ChunkSection *section = ChunkGetSection(chunk, job->sectionY, false);
-        // Only clear the dirty flag when the uploaded snapshot still matches
-        // the current content revision. If the section was edited after the
-        // snapshot was taken, keep it dirty so a fresh job rebuilds it with
-        // the new content instead of silently losing the edit.
-        if (section && section->dirtyStamp == job->sectionStamp) {
-            section->dirty = false;
-        }
+    if (snapshotCurrent && !pending) {
+        section->dirty = false;
     }
-    return valid;
+    return snapshotCurrent;
 }
 
 static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
@@ -3001,8 +3047,6 @@ static void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
         chunk->cz * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
         chunk->cz * CHUNK_SIZE + CHUNK_SIZE - 1 + (int)TORCH_LIGHT_RADIUS,
         nearbyTorchIndices);
-
-    UnloadChunkSectionModels(section);
 
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
@@ -3241,6 +3285,62 @@ ChunkStreamingStats ChunksGetStreamingStats(void)
     ChunkStreamingStats result = streamingStats;
     pthread_mutex_unlock(&genMutex);
     return result;
+}
+
+bool ChunksGetWaterRenderDebugInfo(Vector3 position,
+                                   ChunkWaterRenderDebugInfo *outInfo)
+{
+    if (!outInfo || !isfinite(position.x) || !isfinite(position.y) ||
+        !isfinite(position.z) || position.x < (float)INT_MIN ||
+        position.x > (float)INT_MAX || position.z < (float)INT_MIN ||
+        position.z > (float)INT_MAX) {
+        return false;
+    }
+
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal((int)floorf(position.x), (int)floorf(position.z),
+                      &cx, &cz, &lx, &lz);
+    int sectionY = InHeight((int)floorf(position.y))
+        ? (int)floorf(position.y) / SURFACE_SECTION_HEIGHT : -1;
+    *outInfo = (ChunkWaterRenderDebugInfo){
+        .cx = cx,
+        .cz = cz,
+        .sectionY = sectionY
+    };
+
+    if (FindChunk(cx - 1, cz)) {
+        outInfo->neighborLoadedMask |= CHUNK_WATER_NEIGHBOR_WEST;
+    }
+    if (FindChunk(cx + 1, cz)) {
+        outInfo->neighborLoadedMask |= CHUNK_WATER_NEIGHBOR_EAST;
+    }
+    if (FindChunk(cx, cz - 1)) {
+        outInfo->neighborLoadedMask |= CHUNK_WATER_NEIGHBOR_NORTH;
+    }
+    if (FindChunk(cx, cz + 1)) {
+        outInfo->neighborLoadedMask |= CHUNK_WATER_NEIGHBOR_SOUTH;
+    }
+
+    Chunk *chunk = FindChunk(cx, cz);
+    if (!chunk) return false;
+    outInfo->chunkLoaded = true;
+    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
+        const ChunkSection *section = ChunkGetSectionConst(chunk, sy);
+        if (!section || !section->hasWaterModel ||
+            !section->waterModel.meshes) {
+            continue;
+        }
+        for (int meshIndex = 0; meshIndex < section->waterModel.meshCount;
+             meshIndex++) {
+            int triangles = section->waterModel.meshes[meshIndex].triangleCount;
+            outInfo->triangleCount += triangles;
+            if (sy == sectionY) outInfo->sectionTriangleCount += triangles;
+        }
+    }
+    return true;
 }
 
 RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void)

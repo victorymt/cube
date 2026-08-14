@@ -47,6 +47,7 @@ typedef struct ScreenshotCameraDebugInfo {
     ScreenshotVector3 target;
     float fovY;
     bool thirdPerson;
+    bool insideSolid;
 } ScreenshotCameraDebugInfo;
 
 typedef struct ScreenshotWeatherDebugInfo {
@@ -72,6 +73,10 @@ typedef struct ScreenshotEnvironmentDebugInfo {
     float atmosphereFade;
     float underwaterDepth;
     float waterSurfaceY;
+    int seabedY;
+    int waterColumnDepth;
+    const char *bathymetryZone;
+    const char *seabedMaterial;
     bool underwater;
     bool feetSubmerged;
     bool bodySubmerged;
@@ -118,6 +123,13 @@ typedef struct ScreenshotStreamingDebugInfo {
     int activeEntities;
     int pendingGenerationJobs;
     int pendingMeshJobs;
+    int surfaceChunkX;
+    int surfaceChunkZ;
+    int surfaceSectionY;
+    bool surfaceChunkLoaded;
+    unsigned int waterNeighborLoadedMask;
+    int waterTriangleCount;
+    int waterSectionTriangleCount;
     uint64_t generationSubmitted;
     uint64_t generationCompleted;
     uint64_t generationCanceled;
@@ -140,6 +152,8 @@ typedef struct ScreenshotStreamingDebugInfo {
 
 typedef struct ScreenshotEvolutionDebugInfo {
     bool entitySelected;
+    bool scanLocked;
+    bool atlasOpen;
     bool corpse;
     bool juvenile;
     bool pregnant;
@@ -152,6 +166,11 @@ typedef struct ScreenshotEvolutionDebugInfo {
     uint32_t generation;
     uint32_t mutationCount;
     uint32_t moduleCount;
+    uint32_t motherId;
+    uint32_t fatherId;
+    uint32_t childCount;
+    uint32_t catalogSpeciesCount;
+    uint32_t catalogIndividualCount;
     uint32_t regionalLineageCount;
     uint32_t bootstrapGeneration;
     const char *sex;

@@ -155,9 +155,13 @@ static void TestEditDuringFlightKeepsSectionDirty(void)
     ProcessFinishedMeshJobs(0.0);
 
     // The uploaded mesh predates the edit, so the dirty flag must survive to
-    // trigger a rebuild with the new content on the next frame.
+    // trigger a rebuild with the new content on the next frame. The stale
+    // snapshot is discarded so it cannot flash an obsolete water border.
     assert(ChunksTestMeshJobSlot(jobIndex) == -1);
     assert(ChunksTestChunkDirty(0));
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    assert(stats.uploadedMeshes == 0);
+    assert(stats.meshCanceled >= 1);
 }
 
 // H-3: a completed mesh job from a previous chunk incarnation must be

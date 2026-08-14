@@ -206,6 +206,25 @@ static void TestInvalidCollisionPositionsAreBlocked(void)
     assert(PlayerOverlapsWorld((Vector3){ 0.0f, 0x1p31f, 0.0f }));
 }
 
+static void TestCameraIsPushedOutOfSolidBlocks(void)
+{
+    ResetCollisionWorld();
+    wallEnabled = true;
+    Vector3 inside = { 2.5f, 1.5f, 0.5f };
+    Vector3 pivot = { 1.5f, 1.5f, 0.5f };
+    assert(PlayerCameraPositionInsideSolid(inside));
+
+    Vector3 resolved = PlayerResolveCameraPosition(pivot, inside);
+    assert(!PlayerCameraPositionInsideSolid(resolved));
+    assert(resolved.x < 2.0f);
+
+    resolved = PlayerResolveCameraPosition(inside, inside);
+    assert(!PlayerCameraPositionInsideSolid(resolved));
+
+    waterEnabled = true;
+    assert(!PlayerCameraPositionInsideSolid((Vector3){ 0.5f, 2.5f, 0.5f }));
+}
+
 static void TestRuntimeStateIsPerPlayer(void)
 {
     Player first = { 0 };
@@ -292,6 +311,7 @@ int main(void)
     TestSubstepsPreserveStepUp();
     TestNonFiniteMovementIsIgnored();
     TestInvalidCollisionPositionsAreBlocked();
+    TestCameraIsPushedOutOfSolidBlocks();
     TestRuntimeStateIsPerPlayer();
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();

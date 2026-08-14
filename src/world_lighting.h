@@ -7,6 +7,7 @@
 EnvironmentPresentationState WorldLightingFallbackPresentation(
     float daylight, float sunset, const WeatherVisualState *weatherVisual,
     bool inNether);
+Color WorldLightingUnderwaterFogColor(float underwaterDepth);
 WorldLightingState WorldLightingCompose(
     WorldLightingState physical,
     const EnvironmentPresentationState *presentation);
