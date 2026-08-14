@@ -4,124 +4,106 @@ PKG_CONFIG ?= pkg-config
 RAYLIB_CFLAGS := $(shell $(PKG_CONFIG) --cflags raylib)
 RAYLIB_LIBS := $(shell $(PKG_CONFIG) --libs raylib)
 
-TARGET := voxelcraft
-TEST_TARGET := tests/test_world_environment
-PLANET_SURFACE_TEST_TARGET := tests/test_planet_surface
-PLANET_MATERIAL_TEST_TARGET := tests/test_planet_material
-PLANET_CLIMATE_TEST_TARGET := tests/test_planet_climate
-PLANET_OBSERVATION_TEST_TARGET := tests/test_planet_observation
-SPACE_PHYSICS_TEST_TARGET := tests/test_space_physics
-SPACE_BARYCENTER_TEST_TARGET := tests/test_space_barycenter
-SPACE_ORBIT_TEST_TARGET := tests/test_space_orbit
-SPACE_REMNANT_TEST_TARGET := tests/test_space_remnant
-SPACE_ILLUMINATION_TEST_TARGET := tests/test_space_illumination
-SPACE_SATELLITE_TEST_TARGET := tests/test_space_satellite
-SPACE_UNITS_TEST_TARGET := tests/test_space_units
-SPACE_PROPERTIES_TEST_TARGET := tests/test_space_properties
-SPACE_SYSTEM_TEST_TARGET := tests/test_space_system
-ECOLOGY_SYSTEM_TEST_TARGET := tests/test_ecology_system
-ECOLOGY_PROPERTIES_TEST_TARGET := tests/test_ecology_properties
-STELLAR_TEST_TARGET := tests/test_stellar
-ECOLOGY_MODEL_TEST_TARGET := tests/test_ecology_model
-FAUNA_MOTION_TEST_TARGET := tests/test_fauna_motion
-FAUNA_BEHAVIOR_TEST_TARGET := tests/test_fauna_behavior
-WEATHER_MODEL_TEST_TARGET := tests/test_weather_model
-WEATHER_RUNTIME_TEST_TARGET := tests/test_weather_runtime
-WEATHER_VISUAL_TEST_TARGET := tests/test_weather_visual
-PLAYER_COLLISION_TEST_TARGET := tests/test_player_collision
-SHIP_STATE_TEST_TARGET := tests/test_ship_state
-SHIP_LOCATOR_TEST_TARGET := tests/test_ship_locator
-BLOCK_ATLAS_TEST_TARGET := tests/test_block_atlas
-CHUNK_ATLAS_TEST_TARGET := tests/test_chunk_atlas
-CHUNK_STREAMING_TEST_TARGET := tests/test_chunk_streaming
-TERRAIN_SCALE_TEST_TARGET := tests/test_terrain_scale
-SUBSURFACE_TEST_TARGET := tests/test_subsurface
-CHUNK_BENCHMARK_TARGET := tests/benchmark_chunks
-PERF_TEST_TARGET := tests/test_perf
-RENDER_SORT_TEST_TARGET := tests/test_render_sort
-RENDER_RESOURCES_TEST_TARGET := tests/test_render_resources
-WORLD_RENDERER_TEST_TARGET := tests/test_world_renderer
-WORLD_LIGHTING_TEST_TARGET := tests/test_world_lighting
-SAVE_IO_TEST_TARGET := tests/test_save_io
-GAME_SETTINGS_TEST_TARGET := tests/test_game_settings
-SCREENSHOT_TEST_TARGET := tests/test_screenshot
-DEBUG_CONTROL_TEST_TARGET := tests/test_debug_control
-ENVIRONMENT_PRESENTATION_TEST_TARGET := tests/test_environment_presentation
-ENVIRONMENT_RUNTIME_TEST_TARGET := tests/test_environment_runtime
-AUDIO_ENVIRONMENT_TEST_TARGET := tests/test_audio_environment
-ENTITY_REPLAY_TEST_TARGET := tests/test_entity_replay
-ENTITY_ECOLOGY_TEST_TARGET := tests/test_entity_ecology
-INTERACTION_RAYCAST_TEST_TARGET := tests/test_interaction_raycast
-PLANET_RENDERER_RESOURCES_TEST_TARGET := tests/test_planet_renderer_resources
-PLANET_TEXTURE_RESOURCES_TEST_TARGET := tests/test_planet_texture_resources
+BUILD_ROOT ?= build
+BUILD_VARIANT ?= normal
+BUILD_DIR := $(BUILD_ROOT)/$(BUILD_VARIANT)
+TEST_BUILD_DIR := $(BUILD_DIR)/tests
+TARGET := $(BUILD_DIR)/voxelcraft
+TEST_TARGET := $(TEST_BUILD_DIR)/test_world_environment
+PLANET_SURFACE_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_surface
+PLANET_MATERIAL_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_material
+PLANET_CLIMATE_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_climate
+PLANET_OBSERVATION_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_observation
+SPACE_PHYSICS_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_physics
+SPACE_BARYCENTER_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_barycenter
+SPACE_ORBIT_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_orbit
+SPACE_REMNANT_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_remnant
+SPACE_ILLUMINATION_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_illumination
+SPACE_SATELLITE_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_satellite
+SPACE_UNITS_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_units
+SPACE_PROPERTIES_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_properties
+SPACE_SYSTEM_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_system
+ECOLOGY_SYSTEM_TEST_TARGET := $(TEST_BUILD_DIR)/test_ecology_system
+ECOLOGY_PROPERTIES_TEST_TARGET := $(TEST_BUILD_DIR)/test_ecology_properties
+STELLAR_TEST_TARGET := $(TEST_BUILD_DIR)/test_stellar
+ECOLOGY_MODEL_TEST_TARGET := $(TEST_BUILD_DIR)/test_ecology_model
+FAUNA_MOTION_TEST_TARGET := $(TEST_BUILD_DIR)/test_fauna_motion
+FAUNA_BEHAVIOR_TEST_TARGET := $(TEST_BUILD_DIR)/test_fauna_behavior
+WEATHER_MODEL_TEST_TARGET := $(TEST_BUILD_DIR)/test_weather_model
+WEATHER_RUNTIME_TEST_TARGET := $(TEST_BUILD_DIR)/test_weather_runtime
+WEATHER_VISUAL_TEST_TARGET := $(TEST_BUILD_DIR)/test_weather_visual
+PLAYER_COLLISION_TEST_TARGET := $(TEST_BUILD_DIR)/test_player_collision
+SHIP_STATE_TEST_TARGET := $(TEST_BUILD_DIR)/test_ship_state
+SHIP_LOCATOR_TEST_TARGET := $(TEST_BUILD_DIR)/test_ship_locator
+BLOCK_ATLAS_TEST_TARGET := $(TEST_BUILD_DIR)/test_block_atlas
+CHUNK_ATLAS_TEST_TARGET := $(TEST_BUILD_DIR)/test_chunk_atlas
+CHUNK_STREAMING_TEST_TARGET := $(TEST_BUILD_DIR)/test_chunk_streaming
+TERRAIN_SCALE_TEST_TARGET := $(TEST_BUILD_DIR)/test_terrain_scale
+SUBSURFACE_TEST_TARGET := $(TEST_BUILD_DIR)/test_subsurface
+CHUNK_BENCHMARK_TARGET := $(TEST_BUILD_DIR)/benchmark_chunks
+PERF_TEST_TARGET := $(TEST_BUILD_DIR)/test_perf
+RENDER_SORT_TEST_TARGET := $(TEST_BUILD_DIR)/test_render_sort
+RENDER_RESOURCES_TEST_TARGET := $(TEST_BUILD_DIR)/test_render_resources
+WORLD_RENDERER_TEST_TARGET := $(TEST_BUILD_DIR)/test_world_renderer
+WORLD_LIGHTING_TEST_TARGET := $(TEST_BUILD_DIR)/test_world_lighting
+SAVE_IO_TEST_TARGET := $(TEST_BUILD_DIR)/test_save_io
+GAME_SETTINGS_TEST_TARGET := $(TEST_BUILD_DIR)/test_game_settings
+SCREENSHOT_TEST_TARGET := $(TEST_BUILD_DIR)/test_screenshot
+DEBUG_CONTROL_TEST_TARGET := $(TEST_BUILD_DIR)/test_debug_control
+ENVIRONMENT_PRESENTATION_TEST_TARGET := $(TEST_BUILD_DIR)/test_environment_presentation
+ENVIRONMENT_RUNTIME_TEST_TARGET := $(TEST_BUILD_DIR)/test_environment_runtime
+AUDIO_ENVIRONMENT_TEST_TARGET := $(TEST_BUILD_DIR)/test_audio_environment
+ENTITY_REPLAY_TEST_TARGET := $(TEST_BUILD_DIR)/test_entity_replay
+ENTITY_ECOLOGY_TEST_TARGET := $(TEST_BUILD_DIR)/test_entity_ecology
+INTERACTION_RAYCAST_TEST_TARGET := $(TEST_BUILD_DIR)/test_interaction_raycast
+PLANET_RENDERER_RESOURCES_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_renderer_resources
+PLANET_TEXTURE_RESOURCES_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_texture_resources
 SRC := src/main.c src/album.c src/inventory.c src/space.c src/space_query_cache.c src/planet_profile.c src/space_system_physics.c src/space_system.c src/space_barycenter.c src/space_orbit.c src/space_remnant.c src/space_illumination.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/world_environment.c src/ship.c src/ship_locator.c src/nether.c src/entity.c src/fauna_motion.c src/fauna_behavior.c src/ecology_model.c src/ecology.c src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/terrain.c src/subsurface.c src/planet_climate.c src/planet_observation.c src/planet_surface.c src/planet_material.c src/planet_renderer.c src/discovery.c src/block_atlas.c src/chunks.c src/world.c src/save_io.c src/game_settings.c src/screenshot.c src/debug_control.c src/environment_presentation.c src/environment_runtime.c src/world_lighting.c src/player.c src/interaction.c src/render.c src/world_renderer.c src/render_sort.c src/render_resources.c src/perf.c src/particles.c src/audio.c src/weather_model.c src/weather_visual.c src/weather.c src/starmap.c
 
-.PHONY: all run test test-sanitize test-long-run benchmark-chunks release-linux release-check clean
+TEST_TARGETS := $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(PLANET_OBSERVATION_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(WEATHER_RUNTIME_TEST_TARGET) $(WEATHER_VISUAL_TEST_TARGET) $(PLAYER_COLLISION_TEST_TARGET) $(SHIP_STATE_TEST_TARGET) $(SHIP_LOCATOR_TEST_TARGET) $(BLOCK_ATLAS_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(CHUNK_STREAMING_TEST_TARGET) $(TERRAIN_SCALE_TEST_TARGET) $(SUBSURFACE_TEST_TARGET) $(PERF_TEST_TARGET) $(RENDER_SORT_TEST_TARGET) $(RENDER_RESOURCES_TEST_TARGET) $(WORLD_RENDERER_TEST_TARGET) $(WORLD_LIGHTING_TEST_TARGET) $(SAVE_IO_TEST_TARGET) $(GAME_SETTINGS_TEST_TARGET) $(SCREENSHOT_TEST_TARGET) $(DEBUG_CONTROL_TEST_TARGET) $(ENVIRONMENT_PRESENTATION_TEST_TARGET) $(ENVIRONMENT_RUNTIME_TEST_TARGET) $(AUDIO_ENVIRONMENT_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET) $(PLANET_RENDERER_RESOURCES_TEST_TARGET) $(PLANET_TEXTURE_RESOURCES_TEST_TARGET)
+TEST_TIMEOUT_SECONDS ?= 120
+SANITIZER_LEAKS ?= 1
+SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=address,undefined -fno-omit-frame-pointer
+COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
+CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
+
+.PHONY: all voxelcraft run test test-ci test-sanitize test-coverage test-e2e test-long-run benchmark-chunks release-linux release-check clean
 
 all: $(TARGET)
 
-$(TARGET): $(SRC)
+voxelcraft: $(TARGET)
+
+$(BUILD_DIR) $(TEST_BUILD_DIR):
+	mkdir -p $@
+
+$(TARGET): $(SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -o $@ $(SRC) $(RAYLIB_LIBS) -lm -pthread
+
+$(TEST_TARGETS) $(CHUNK_BENCHMARK_TARGET): | $(TEST_BUILD_DIR)
 
 run: $(TARGET)
 	./$(TARGET)
 
-test: $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(PLANET_OBSERVATION_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(WEATHER_RUNTIME_TEST_TARGET) $(WEATHER_VISUAL_TEST_TARGET) $(PLAYER_COLLISION_TEST_TARGET) $(SHIP_STATE_TEST_TARGET) $(SHIP_LOCATOR_TEST_TARGET) $(BLOCK_ATLAS_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(CHUNK_STREAMING_TEST_TARGET) $(TERRAIN_SCALE_TEST_TARGET) $(SUBSURFACE_TEST_TARGET) $(PERF_TEST_TARGET) $(RENDER_SORT_TEST_TARGET) $(RENDER_RESOURCES_TEST_TARGET) $(WORLD_RENDERER_TEST_TARGET) $(WORLD_LIGHTING_TEST_TARGET) $(SAVE_IO_TEST_TARGET) $(GAME_SETTINGS_TEST_TARGET) $(SCREENSHOT_TEST_TARGET) $(DEBUG_CONTROL_TEST_TARGET) $(ENVIRONMENT_PRESENTATION_TEST_TARGET) $(ENVIRONMENT_RUNTIME_TEST_TARGET) $(AUDIO_ENVIRONMENT_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET) $(PLANET_RENDERER_RESOURCES_TEST_TARGET) $(PLANET_TEXTURE_RESOURCES_TEST_TARGET)
-	./$(TEST_TARGET)
-	./$(PLANET_SURFACE_TEST_TARGET)
-	./$(PLANET_MATERIAL_TEST_TARGET)
-	./$(PLANET_CLIMATE_TEST_TARGET)
-	./$(PLANET_OBSERVATION_TEST_TARGET)
-	./$(SPACE_PHYSICS_TEST_TARGET)
-	./$(SPACE_BARYCENTER_TEST_TARGET)
-	./$(SPACE_ORBIT_TEST_TARGET)
-	./$(SPACE_REMNANT_TEST_TARGET)
-	./$(SPACE_ILLUMINATION_TEST_TARGET)
-	./$(SPACE_SATELLITE_TEST_TARGET)
-	./$(SPACE_UNITS_TEST_TARGET)
-	./$(SPACE_PROPERTIES_TEST_TARGET)
-	./$(SPACE_SYSTEM_TEST_TARGET)
-	./$(ECOLOGY_SYSTEM_TEST_TARGET)
-	./$(ECOLOGY_PROPERTIES_TEST_TARGET)
-	./$(STELLAR_TEST_TARGET)
-	./$(ECOLOGY_MODEL_TEST_TARGET)
-	./$(FAUNA_MOTION_TEST_TARGET)
-	./$(FAUNA_BEHAVIOR_TEST_TARGET)
-	./$(WEATHER_MODEL_TEST_TARGET)
-	./$(WEATHER_RUNTIME_TEST_TARGET)
-	./$(WEATHER_VISUAL_TEST_TARGET)
-	./$(PLAYER_COLLISION_TEST_TARGET)
-	./$(SHIP_STATE_TEST_TARGET)
-	./$(SHIP_LOCATOR_TEST_TARGET)
-	./$(BLOCK_ATLAS_TEST_TARGET)
-	./$(CHUNK_ATLAS_TEST_TARGET)
-	./$(CHUNK_STREAMING_TEST_TARGET)
-	./$(TERRAIN_SCALE_TEST_TARGET)
-	./$(SUBSURFACE_TEST_TARGET)
-	./$(PERF_TEST_TARGET)
-	./$(RENDER_SORT_TEST_TARGET)
-	./$(RENDER_RESOURCES_TEST_TARGET)
-	./$(WORLD_RENDERER_TEST_TARGET)
-	./$(WORLD_LIGHTING_TEST_TARGET)
-	./$(SAVE_IO_TEST_TARGET)
-	./$(GAME_SETTINGS_TEST_TARGET)
-	./$(SCREENSHOT_TEST_TARGET)
-	./$(DEBUG_CONTROL_TEST_TARGET)
-	./$(ENVIRONMENT_PRESENTATION_TEST_TARGET)
-	./$(ENVIRONMENT_RUNTIME_TEST_TARGET)
-	./$(AUDIO_ENVIRONMENT_TEST_TARGET)
-	./$(ENTITY_REPLAY_TEST_TARGET)
-	./$(ENTITY_ECOLOGY_TEST_TARGET)
-	./$(INTERACTION_RAYCAST_TEST_TARGET)
-	./$(PLANET_RENDERER_RESOURCES_TEST_TARGET)
-	./$(PLANET_TEXTURE_RESOURCES_TEST_TARGET)
+test: $(TEST_TARGETS)
+	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 
-# Rebuild every test with runtime memory and undefined-behavior checks. The
-# recursive invocation keeps this target aligned with the regular test matrix
-# as new test binaries are added to the list above.
+test-ci:
+	$(MAKE) BUILD_VARIANT=normal CFLAGS='$(CI_CFLAGS)' test
+	$(MAKE) test-sanitize
+	@test -z "$$(git status --porcelain --untracked-files=normal)" || { git status --short; exit 1; }
+
 test-sanitize:
-	$(MAKE) clean
-	$(MAKE) CFLAGS='$(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' test
+	ASAN_OPTIONS='detect_leaks=$(SANITIZER_LEAKS):halt_on_error=1:strict_string_checks=1' \
+	UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' \
+	$(MAKE) BUILD_VARIANT=sanitize CFLAGS='$(SANITIZE_CFLAGS)' test
+
+test-coverage:
+	$(MAKE) BUILD_VARIANT=coverage CFLAGS='$(COVERAGE_CFLAGS)' test
+	@command -v gcovr >/dev/null 2>&1 || { echo 'gcovr is required for test-coverage'; exit 1; }
+	gcovr --root . --filter '^src/' --exclude 'tests/' --xml-pretty --xml build/coverage/coverage.xml --html-details build/coverage/coverage.html
+
+test-e2e: $(TARGET)
+	bash tests/test_game_e2e.sh $(TARGET)
 
 # The weather runtime test includes a deterministic multi-thousand-frame
 # simulation loop in addition to its focused boundary cases.
@@ -296,4 +278,4 @@ release-check:
 	@set -eu; archive=$$(find dist -maxdepth 1 -name 'voxelcraft-linux-*.tar.gz' | sort | tail -n 1); test -n "$${archive}"; tar -tzf "$${archive}" | grep -q '/voxelcraft$$'; tar -tzf "$${archive}" | grep -q '/README.md$$'; tar -tzf "$${archive}" | grep -q '/assets/fonts/FSEX302-alt.ttf$$'; tar -tzf "$${archive}" | grep -q '/assets/LICENSES.md$$'; tar -tzf "$${archive}" | grep -q '/assets/audio/rain.ogg$$'; tar -tzf "$${archive}" | grep -q '/assets/audio/water.ogg$$'; tar -tzf "$${archive}" | grep -q '/assets/audio/cave.ogg$$'; sha256sum -c "$${archive}.sha256"; printf '%s\n' 'release check passed'
 
 clean:
-	rm -f $(TARGET) $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(PLANET_OBSERVATION_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(WEATHER_RUNTIME_TEST_TARGET) $(WEATHER_VISUAL_TEST_TARGET) $(PLAYER_COLLISION_TEST_TARGET) $(SHIP_STATE_TEST_TARGET) $(SHIP_LOCATOR_TEST_TARGET) $(BLOCK_ATLAS_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(CHUNK_STREAMING_TEST_TARGET) $(TERRAIN_SCALE_TEST_TARGET) $(SUBSURFACE_TEST_TARGET) $(CHUNK_BENCHMARK_TARGET) $(PERF_TEST_TARGET) $(RENDER_SORT_TEST_TARGET) $(RENDER_RESOURCES_TEST_TARGET) $(WORLD_RENDERER_TEST_TARGET) $(WORLD_LIGHTING_TEST_TARGET) $(SAVE_IO_TEST_TARGET) $(GAME_SETTINGS_TEST_TARGET) $(SCREENSHOT_TEST_TARGET) $(DEBUG_CONTROL_TEST_TARGET) $(ENVIRONMENT_PRESENTATION_TEST_TARGET) $(ENVIRONMENT_RUNTIME_TEST_TARGET) $(AUDIO_ENVIRONMENT_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET) $(PLANET_RENDERER_RESOURCES_TEST_TARGET) $(PLANET_TEXTURE_RESOURCES_TEST_TARGET)
+	rm -rf $(BUILD_ROOT) dist

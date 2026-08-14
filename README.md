@@ -118,11 +118,43 @@ startup as a small pixel-art atlas.
 make
 ```
 
+The executable is written to `build/normal/voxelcraft`; `make voxelcraft`
+remains available as an explicit build target and `make run` builds and starts
+that binary. Build and test artifacts stay under `build/` and are never written
+into `src/` or `tests/`.
+
+## Test
+
+```sh
+make test
+make test-sanitize
+```
+
+`make test` builds and runs every test binary with a per-test timeout and a
+summary. `make test-sanitize` rebuilds the same matrix under
+`build/sanitize/` with AddressSanitizer and UndefinedBehaviorSanitizer, so it
+cannot contaminate a later regular test run. Environments that run every
+process under `ptrace` can use `make SANITIZER_LEAKS=0 test-sanitize`; CI keeps
+leak detection enabled.
+
+The real-game smoke test uses the debug stdin protocol with Mesa software
+rendering. It prefers Xvfb and can use an existing display session on a
+development machine:
+
+```sh
+make test-e2e
+```
+
+It verifies deterministic startup, a known underwater location, the debug
+report, and a nonblank 1280x720 PNG. `make test-coverage` produces XML and HTML
+reports under `build/coverage/` when `gcovr` is installed. GitHub Actions runs
+GCC, Clang, sanitizer, game E2E, coverage, and release-package jobs.
+
 The Linux release gate is `make release-check`. It builds a versioned archive
 under `dist/` and writes a SHA-256 checksum beside it. Release archives do not
 include user save files.
 
-Run a deterministic performance route with `./voxelcraft --perf`. Use
+Run a deterministic performance route with `build/normal/voxelcraft --perf`. Use
 `--perf-report PATH` to choose the key/value report and `--perf-baseline PATH`
 to enforce the 5% CPU/GPU/upload and estimated live-mesh regression gates.
 Performance reports use schema v3; older baselines are rejected and must be
