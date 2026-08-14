@@ -63,6 +63,37 @@ static void TestCommandStream(void)
     close(outputPipe[0]);
 }
 
+static void TestEvolutionCommands(void)
+{
+    int inputPipe[2];
+    assert(pipe(inputPipe) == 0);
+    DebugControl control;
+    DebugControlInitFds(&control, true, inputPipe[0], STDOUT_FILENO);
+    const char *commands =
+        "evolution inspect\n"
+        "evolution inspect 64\n"
+        "evolution region\n"
+        "evolution advance 96\n"
+        "evolution bootstrap status\n";
+    assert(write(inputPipe[1], commands, strlen(commands)) ==
+           (ssize_t)strlen(commands));
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT);
+    assert(control.evolutionRadius == 24.0f);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT);
+    assert(control.evolutionRadius == 64.0f);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_REGION);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE);
+    assert(control.evolutionAdvanceDays == 96.0f);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP);
+    close(inputPipe[0]);
+    close(inputPipe[1]);
+}
+
 static void TestInvalidParameterizedCommands(void)
 {
     int inputPipe[2];
@@ -104,6 +135,7 @@ int main(void)
     TestCommandStream();
     TestFinalCommandWithoutNewline();
     TestInvalidParameterizedCommands();
+    TestEvolutionCommands();
     puts("debug control tests passed");
     return 0;
 }

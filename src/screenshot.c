@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=2\n");
+    REPORT_LINE("format.version=3\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -210,6 +210,54 @@ static bool ScreenshotWriteDebugFields(
                 ScreenshotBool(info->ui.debugHudVisible));
     REPORT_LINE("ui.landing_transition_active=%s\n",
                 ScreenshotBool(info->ui.landingTransitionActive));
+
+    REPORT_LINE("evolution.entity_selected=%s\n",
+                ScreenshotBool(info->evolution.entitySelected));
+    REPORT_LINE("evolution.organism_id=%" PRIu32 "\n",
+                info->evolution.organismId);
+    REPORT_LINE("evolution.lineage_id=%" PRIu32 "\n",
+                info->evolution.lineageId);
+    REPORT_LINE("evolution.species_id=%" PRIu32 "\n",
+                info->evolution.speciesId);
+    REPORT_LINE("evolution.genome_id=%" PRIu32 "\n",
+                info->evolution.genomeId);
+    REPORT_LINE("evolution.generation=%" PRIu32 "\n",
+                info->evolution.generation);
+    REPORT_LINE("evolution.mutation_count=%" PRIu32 "\n",
+                info->evolution.mutationCount);
+    REPORT_LINE("evolution.module_count=%" PRIu32 "\n",
+                info->evolution.moduleCount);
+    REPORT_LINE("evolution.sex=%s\n", ScreenshotText(info->evolution.sex));
+    REPORT_LINE("evolution.locomotion=%s\n",
+                ScreenshotText(info->evolution.locomotion));
+    REPORT_LINE("evolution.corpse=%s\n",
+                ScreenshotBool(info->evolution.corpse));
+    REPORT_LINE("evolution.juvenile=%s\n",
+                ScreenshotBool(info->evolution.juvenile));
+    REPORT_LINE("evolution.pregnant=%s\n",
+                ScreenshotBool(info->evolution.pregnant));
+    REPORT_LINE("evolution.age_days=%.6f\n", info->evolution.ageDays);
+    REPORT_LINE("evolution.maturity_age_days=%.6f\n",
+                info->evolution.maturityAgeDays);
+    REPORT_LINE("evolution.health=%.6f\n", info->evolution.health);
+    REPORT_LINE("evolution.energy=%.6f\n", info->evolution.energy);
+    REPORT_LINE("evolution.diet=%.6f\n", info->evolution.diet);
+    REPORT_LINE("evolution.mass=%.6f\n", info->evolution.mass);
+    REPORT_LINE("evolution.speed=%.6f\n", info->evolution.speed);
+    REPORT_LINE("evolution.region_available=%s\n",
+                ScreenshotBool(info->evolution.regionAvailable));
+    REPORT_LINE("evolution.regional_lineage_count=%" PRIu32 "\n",
+                info->evolution.regionalLineageCount);
+    REPORT_LINE("evolution.bootstrap_generation=%" PRIu32 "\n",
+                info->evolution.bootstrapGeneration);
+    REPORT_LINE("evolution.bootstrap_complete=%s\n",
+                ScreenshotBool(info->evolution.bootstrapComplete));
+    REPORT_LINE("evolution.herbivore_density=%.6f\n",
+                info->evolution.herbivoreDensity);
+    REPORT_LINE("evolution.omnivore_density=%.6f\n",
+                info->evolution.omnivoreDensity);
+    REPORT_LINE("evolution.carnivore_density=%.6f\n",
+                info->evolution.carnivoreDensity);
 
     REPORT_LINE("streaming.active_chunks=%d\n", info->streaming.activeChunks);
     REPORT_LINE("streaming.active_space_chunks=%d\n",

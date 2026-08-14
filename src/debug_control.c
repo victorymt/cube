@@ -42,6 +42,30 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "evolution region") == 0) {
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_REGION;
+    }
+    if (strcmp(line, "evolution bootstrap status") == 0) {
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP;
+    }
+    float evolutionValue = 0.0f;
+    char evolutionTrailing = '\0';
+    if (strcmp(line, "evolution inspect") == 0) {
+        control->evolutionRadius = 24.0f;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT;
+    }
+    if (sscanf(line, "evolution inspect %f %c", &evolutionValue,
+               &evolutionTrailing) == 1 && isfinite(evolutionValue) &&
+        evolutionValue >= 1.0f && evolutionValue <= 256.0f) {
+        control->evolutionRadius = evolutionValue;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT;
+    }
+    if (sscanf(line, "evolution advance %f %c", &evolutionValue,
+               &evolutionTrailing) == 1 && isfinite(evolutionValue) &&
+        evolutionValue >= 0.25f && evolutionValue <= 4096.0f) {
+        control->evolutionAdvanceDays = evolutionValue;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE;
+    }
     if (strcmp(line, "quit") == 0) return DEBUG_CONTROL_COMMAND_QUIT;
     DebugControlTeleport teleport = { 0 };
     char trailing = '\0';

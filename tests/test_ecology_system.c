@@ -983,6 +983,7 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     float upgradedMigration[6] = { 0 };
     float upgradedPressure = -1.0f;
     float upgradedRadiationMemory = -1.0f;
+    PlanetEvolutionRegion upgradedEvolution = { 0 };
     assert(fread(upgradedHeader, sizeof(upgradedHeader), 1, upgraded) == 1);
     assert(fread(&upgradedAccessSerial,
                  sizeof(upgradedAccessSerial), 1, upgraded) == 1);
@@ -1002,7 +1003,9 @@ static void TestEcologyLegacyPopulationStateLoad(void)
                  sizeof(upgradedPressure), 1, upgraded) == 1);
     assert(fread(&upgradedRadiationMemory,
                  sizeof(upgradedRadiationMemory), 1, upgraded) == 1);
-    assert(upgradedHeader[0] == 4u && upgradedHeader[1] == 1u);
+    assert(fread(&upgradedEvolution,
+                 sizeof(upgradedEvolution), 1, upgraded) == 1);
+    assert(upgradedHeader[0] == 5u && upgradedHeader[1] == 1u);
     assert(upgradedAccessSerial == accessSerial);
     assert(upgradedSurfaceId == surfaceId);
     assert(memcmp(upgradedCoordinates, coordinates,
@@ -1015,6 +1018,7 @@ static void TestEcologyLegacyPopulationStateLoad(void)
                   sizeof(migration)) == 0);
     assert(upgradedPressure == 0.0f);
     assert(upgradedRadiationMemory == 0.0f);
+    assert(upgradedEvolution.lineageCount == 0u);
 
     FILE *invalid = tmpfile();
     assert(invalid);
@@ -1047,6 +1051,149 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     } while (expectedByte != EOF);
     fclose(afterFailure);
     fclose(upgraded);
+}
+
+static void TestEvolutionRegionAndGenomeReplay(void)
+{
+    const float daylight = 0.72f;
+    const int sampleX = 32;
+    const int sampleZ = 32;
+    uint32_t seed = 0u;
+    for (uint32_t index = 0; index < 2048u; index++) {
+        uint32_t candidate = 0x71a5c39du + index * 0x9e3779b9u;
+        EcologyTestSetSeed(candidate);
+        PlanetEcologyResetState();
+        EcologyTestActivatePlanet(candidate, 0, 0);
+        PlanetLocalEcology local = PlanetEcologyLocalAt(
+            sampleX, sampleZ, daylight);
+        if (local.population.faunaDensity > 0.03f) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
+
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 0, 0);
+    PlanetEcologyResetState();
+    PlanetEcologyLocalAt(sampleX, sampleZ, daylight);
+    PlanetEvolutionRegion initial = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &initial));
+    assert(initial.lineageCount == 3u);
+    assert(!initial.bootstrapComplete);
+    assert(initial.herbivoreDensity > 0.0f);
+
+    CreatureGenome first = { 0 };
+    CreatureGenome replay = { 0 };
+    uint32_t lineageId = 0u;
+    uint32_t speciesId = 0u;
+    assert(PlanetEcologySampleGenome(
+        sampleX, sampleZ, daylight, 0x1234abcdu, &first,
+        &lineageId, &speciesId));
+    assert(PlanetEcologySampleGenome(
+        sampleX, sampleZ, daylight, 0x1234abcdu, &replay,
+        NULL, NULL));
+    assert(lineageId != 0u && speciesId != 0u);
+    assert(memcmp(&first, &replay, sizeof(first)) == 0);
+    CreaturePhenotype phenotype = EvolutionDevelop(&first);
+    assert(phenotype.valid);
+
+    SpaceAdvanceTime(96.0f);
+    PlanetEvolutionRegion evolved = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &evolved));
+    assert(evolved.bootstrapComplete);
+    assert(evolved.bootstrapGeneration == 24u);
+    assert(evolved.lineageCount == initial.lineageCount);
+    float evolvedDensity = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &evolved.lineages[index];
+        if (!lineage->active) continue;
+        assert(lineage->founderSeed != 0u);
+        assert(lineage->lineageId != 0u);
+        assert(lineage->speciesId != 0u);
+        evolvedDensity += lineage->density;
+    }
+    PlanetLocalEcology evolvedLocal = PlanetEcologyLocalAt(
+        sampleX, sampleZ, daylight);
+    assert(fabsf(evolvedDensity - evolvedLocal.population.faunaDensity) <
+           0.00001f);
+    CreatureGenome evolvedSample = { 0 };
+    uint32_t evolvedLineageId = 0u;
+    assert(PlanetEcologySampleGenome(
+        sampleX, sampleZ, daylight, 0x8f271abdu, &evolvedSample,
+        &evolvedLineageId, NULL));
+    CreaturePhenotype evolvedPhenotype = EvolutionDevelop(&evolvedSample);
+    assert(evolvedPhenotype.valid);
+    bool matchedEvolvedLineage = false;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &evolved.lineages[index];
+        if (!lineage->active || lineage->lineageId != evolvedLineageId) {
+            continue;
+        }
+        matchedEvolvedLineage = true;
+        assert(evolvedSample.generation == lineage->generation);
+        assert(fabsf(evolvedPhenotype.diet - lineage->dietMean) < 0.25f);
+    }
+    assert(matchedEvolvedLineage);
+
+    FILE *saved = tmpfile();
+    assert(saved);
+    assert(PlanetEcologySaveState(saved));
+    PlanetEcologyResetState();
+    rewind(saved);
+    assert(PlanetEcologyLoadState(saved));
+    PlanetEvolutionRegion loaded = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &loaded));
+    assert(memcmp(&loaded, &evolved, sizeof(loaded)) == 0);
+    fclose(saved);
+
+    float beforeBirth = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (loaded.lineages[index].lineageId == lineageId) {
+            beforeBirth = loaded.lineages[index].density;
+        }
+    }
+    assert(beforeBirth > 0.0f);
+    assert(PlanetEcologyRecordEvolutionEvent(
+        sampleX, sampleZ, daylight, lineageId,
+        PLANET_EVOLUTION_EVENT_BIRTH, 8.0f));
+    PlanetEvolutionRegion afterBirth = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &afterBirth));
+    float birthDensity = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (afterBirth.lineages[index].lineageId == lineageId) {
+            birthDensity = afterBirth.lineages[index].density;
+        }
+    }
+    assert(birthDensity > beforeBirth);
+    assert(PlanetEcologyRecordEvolutionEvent(
+        sampleX, sampleZ, daylight, lineageId,
+        PLANET_EVOLUTION_EVENT_PREDATION_DEATH, 8.0f));
+    assert(!PlanetEcologyRecordEvolutionEvent(
+        sampleX, sampleZ, daylight, lineageId,
+        (PlanetEvolutionEvent)99, 8.0f));
+    PlanetEvolutionRegion afterDeath = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &afterDeath));
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (afterDeath.lineages[index].lineageId == lineageId) {
+            assert(afterDeath.lineages[index].density < birthDensity);
+        }
+    }
+    float afterDeathDensity = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (afterDeath.lineages[index].active) {
+            afterDeathDensity += afterDeath.lineages[index].density;
+        }
+    }
+    PlanetLocalEcology afterDeathLocal = PlanetEcologyLocalAt(
+        sampleX, sampleZ, daylight);
+    assert(fabsf(afterDeathDensity -
+                 afterDeathLocal.population.faunaDensity) < 0.00001f);
 }
 
 typedef struct ChunkBlockSnapshot {
@@ -1572,6 +1719,7 @@ int main(void)
     TestEcologyPlayerEditDisturbance();
     TestEcologyFaunaHarvestFeedback();
     TestEcologyLegacyPopulationStateLoad();
+    TestEvolutionRegionAndGenomeReplay();
     TestFloraMeshDeformationProperties();
     TestChunkUnloadReloadDeterminism();
     puts("ecology system tests passed");

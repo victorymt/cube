@@ -138,6 +138,36 @@ typedef struct ScreenshotStreamingDebugInfo {
     double maxUploadCpuMs;
 } ScreenshotStreamingDebugInfo;
 
+typedef struct ScreenshotEvolutionDebugInfo {
+    bool entitySelected;
+    bool corpse;
+    bool juvenile;
+    bool pregnant;
+    bool regionAvailable;
+    bool bootstrapComplete;
+    uint32_t organismId;
+    uint32_t lineageId;
+    uint32_t speciesId;
+    uint32_t genomeId;
+    uint32_t generation;
+    uint32_t mutationCount;
+    uint32_t moduleCount;
+    uint32_t regionalLineageCount;
+    uint32_t bootstrapGeneration;
+    const char *sex;
+    const char *locomotion;
+    float ageDays;
+    float maturityAgeDays;
+    float health;
+    float energy;
+    float diet;
+    float mass;
+    float speed;
+    float herbivoreDensity;
+    float omnivoreDensity;
+    float carnivoreDensity;
+} ScreenshotEvolutionDebugInfo;
+
 typedef struct ScreenshotDebugInfo {
     ScreenshotWorldDebugInfo world;
     ScreenshotPlayerDebugInfo player;
@@ -148,6 +178,7 @@ typedef struct ScreenshotDebugInfo {
     ScreenshotRenderDebugInfo render;
     ScreenshotUiDebugInfo ui;
     ScreenshotStreamingDebugInfo streaming;
+    ScreenshotEvolutionDebugInfo evolution;
 } ScreenshotDebugInfo;
 
 ScreenshotResult ScreenshotNextPath(

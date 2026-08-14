@@ -11,10 +11,11 @@
 #define ECOLOGY_POPULATION_STEP_DAYS 4.0
 #define ECOLOGY_POPULATION_MAX_REGIONS \
     (ECOLOGY_POPULATION_SET_COUNT * ECOLOGY_POPULATION_SET_WAYS)
-#define ECOLOGY_POPULATION_STATE_VERSION 4u
+#define ECOLOGY_POPULATION_STATE_VERSION 5u
 #define ECOLOGY_POPULATION_MIGRATION_STATE_VERSION 2u
 #define ECOLOGY_POPULATION_HARVEST_STATE_VERSION 3u
 #define ECOLOGY_POPULATION_RADIATION_STATE_VERSION 4u
+#define ECOLOGY_POPULATION_EVOLUTION_STATE_VERSION 5u
 #define ECOLOGY_POPULATION_LEGACY_STATE_VERSION 1u
 
 uint32_t EcologyMix(uint32_t value);
@@ -49,5 +50,17 @@ bool EcologyPopulationRecordFaunaHarvest(
     int x, int z, double simulationTime, float daylight,
     const PlanetEcologyProfile *profile, float organismScale,
     float ecologyCapacity);
+bool EcologyEvolutionRegionAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, PlanetEvolutionRegion *out);
+bool EcologyEvolutionSampleGenome(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t sampleSeed,
+    CreatureGenome *outGenome, uint32_t *outLineageId,
+    uint32_t *outSpeciesId);
+bool EcologyEvolutionRecordEvent(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t lineageId,
+    PlanetEvolutionEvent event, float biomass);
 
 #endif

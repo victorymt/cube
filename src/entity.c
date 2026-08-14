@@ -17,8 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ENTITY_STATE_VERSION 3u
+#define ENTITY_STATE_VERSION 4u
 #define ENTITY_RANDOM_FALLBACK 0x6d2b79f5u
+#define ENTITY_EVOLUTION_DAYS_PER_SECOND 0.02f
 
 typedef struct EntityDiskStateV1 {
     uint32_t active;
@@ -69,9 +70,37 @@ typedef struct EntityDiskStateV3 {
     uint32_t behavior;
 } EntityDiskStateV3;
 
+typedef struct EntityDiskStateV4 {
+    EntityDiskStateV3 entity;
+    uint32_t evolvable;
+    uint32_t aquatic;
+    uint32_t corpse;
+    uint32_t pregnant;
+    uint32_t sex;
+    uint32_t organismId;
+    uint32_t lineageId;
+    uint32_t speciesId;
+    uint32_t motherId;
+    uint32_t fatherId;
+    uint32_t pendingFatherId;
+    float ageDays;
+    float lifespanDays;
+    float maturityAgeDays;
+    float reproductionCooldownDays;
+    float gestationProgressDays;
+    float gestationDurationDays;
+    float health;
+    float corpseEnergy;
+    int32_t targetEntity;
+    CreatureGenome genome;
+    CreatureGenome pendingOffspring;
+} EntityDiskStateV4;
+
 static Entity entities[MAX_ENTITIES];
 static uint32_t entityRandomState = ENTITY_RANDOM_FALLBACK;
 static float entitySpawnTimer = 0.0f;
+
+static bool EntityIsAlien(EntityType type);
 
 static uint32_t EntityMix(uint32_t value)
 {
@@ -106,6 +135,100 @@ static int EntityRandomBounded(unsigned bound)
 {
     if (bound == 0u) return 0;
     return (int)(EntityRandomNext() % bound);
+}
+
+static EvolutionArchetype EntityEvolutionArchetypeForBodyPlan(
+    PlanetBodyPlan bodyPlan)
+{
+    if (bodyPlan == PLANET_BODY_FLOATING) return EVOLUTION_ARCHETYPE_FLIGHT;
+    if (bodyPlan == PLANET_BODY_SERPENTINE) return EVOLUTION_ARCHETYPE_AQUATIC;
+    return EVOLUTION_ARCHETYPE_GROUND;
+}
+
+static EvolutionArchetype EntityEvolutionArchetypeForType(EntityType type)
+{
+    if (type == ENTITY_ALIEN_HOPPER) return EVOLUTION_ARCHETYPE_FLIGHT;
+    if (type == ENTITY_ALIEN_STRIDER) return EVOLUTION_ARCHETYPE_AQUATIC;
+    return EVOLUTION_ARCHETYPE_GROUND;
+}
+
+static PlanetBodyPlan EntityBodyPlanForPhenotype(
+    const CreaturePhenotype *phenotype)
+{
+    if (!phenotype) return PLANET_BODY_QUADRUPED;
+    if (phenotype->locomotion == CREATURE_LOCOMOTION_FLIGHT) {
+        return PLANET_BODY_FLOATING;
+    }
+    if (phenotype->locomotion == CREATURE_LOCOMOTION_AQUATIC) {
+        return PLANET_BODY_SERPENTINE;
+    }
+    int limbCount = 0;
+    for (unsigned index = 0; index < phenotype->moduleCount; index++) {
+        if (phenotype->modules[index].type == CREATURE_MODULE_LIMB) limbCount++;
+    }
+    if (limbCount >= 6) return PLANET_BODY_HEXAPOD;
+    if (limbCount == 2) return PLANET_BODY_BIPED;
+    return PLANET_BODY_QUADRUPED;
+}
+
+static void EntityApplyEvolutionPhenotype(Entity *entity)
+{
+    if (!entity || !entity->evolvable) return;
+    entity->phenotype = EvolutionDevelop(&entity->genome);
+    if (!entity->phenotype.valid) {
+        entity->evolvable = false;
+        return;
+    }
+    entity->bodyPlan = EntityBodyPlanForPhenotype(&entity->phenotype);
+    entity->aquatic = entity->phenotype.locomotion ==
+                      CREATURE_LOCOMOTION_AQUATIC;
+    entity->airborne = entity->phenotype.locomotion ==
+                       CREATURE_LOCOMOTION_FLIGHT;
+    entity->colony = false;
+    entity->organismScale = fminf(fmaxf(
+        sqrtf(entity->phenotype.totalMass) * 0.52f, 0.35f), 2.6f);
+    entity->bodyArmor = fminf(entity->phenotype.defense / 8.0f, 1.0f);
+    entity->movementSpeed = entity->phenotype.cruiseSpeed;
+    entity->temperament = fminf(fmaxf(
+        entity->phenotype.diet * 0.72f +
+        entity->phenotype.attack / 20.0f, 0.05f), 1.0f);
+    entity->maturityAgeDays = entity->phenotype.maturityAgeDays;
+    entity->limbCount = 0;
+    for (unsigned index = 0; index < entity->phenotype.moduleCount; index++) {
+        if (entity->phenotype.modules[index].type == CREATURE_MODULE_LIMB ||
+            entity->phenotype.modules[index].type == CREATURE_MODULE_WING ||
+            entity->phenotype.modules[index].type == CREATURE_MODULE_FIN) {
+            entity->limbCount++;
+        }
+    }
+}
+
+static void EntityInitializeEvolution(Entity *entity,
+                                      EvolutionArchetype archetype,
+                                      uint32_t seed, bool juvenile)
+{
+    if (!entity) return;
+    entity->evolvable = true;
+    entity->genome = EvolutionGenomeSeed(seed, archetype);
+    entity->organismId = EntityMix(seed ^ entity->genome.genomeId);
+    if (entity->organismId == 0u) entity->organismId = 1u;
+    entity->lineageId = EvolutionGenomeHash(&entity->genome) & 0x00ffffffu;
+    if (entity->lineageId == 0u) entity->lineageId = 1u;
+    entity->speciesId = EntityMix(entity->lineageId ^ 0x51ed270bu);
+    if (entity->speciesId == 0u) entity->speciesId = entity->lineageId;
+    entity->sex = (EntityMix(seed ^ 0xa511e9b3u) & 1u) ?
+                  CREATURE_SEX_MALE : CREATURE_SEX_FEMALE;
+    entity->ageDays = juvenile ? 0.0f :
+        18.0f + (float)(EntityMix(seed ^ 0x18f2a43du) % 3200u) / 100.0f;
+    entity->lifespanDays = 96.0f +
+        (float)(EntityMix(seed ^ 0x77d89f21u) % 9600u) / 100.0f;
+    entity->reproductionCooldownDays = juvenile ? 0.0f :
+        (float)(EntityMix(seed ^ 0xb5297a4du) % 600u) / 100.0f;
+    entity->gestationDurationDays = archetype == EVOLUTION_ARCHETYPE_AQUATIC ?
+        3.0f : archetype == EVOLUTION_ARCHETYPE_FLIGHT ? 5.0f : 7.0f;
+    entity->health = 1.0f;
+    entity->targetEntity = -1;
+    EntityApplyEvolutionPhenotype(entity);
 }
 
 void EntitiesInit(void)
@@ -206,6 +329,69 @@ static bool EntityDiskStateV3Valid(const EntityDiskStateV3 *saved)
         if (!EntityUnitFloatValid(values[index])) return false;
     }
     return FaunaBehaviorActionValid((FaunaBehaviorAction)saved->behavior);
+}
+
+static bool EntityGenomeValid(const CreatureGenome *genome)
+{
+    if (!genome || genome->genomeId == 0u ||
+        genome->genomeId != EvolutionGenomeHash(genome)) return false;
+    for (int chromosome = 0; chromosome < 2; chromosome++) {
+        if (genome->chromosomes[chromosome].geneCount == 0u ||
+            genome->chromosomes[chromosome].geneCount >
+                EVOLUTION_GENES_PER_CHROMOSOME) return false;
+        bool seen[EVOLUTION_GENES_PER_CHROMOSOME + 1] = { false };
+        for (unsigned index = 0;
+             index < genome->chromosomes[chromosome].geneCount; index++) {
+            const DevelopmentGene *gene =
+                &genome->chromosomes[chromosome].genes[index];
+            if (gene->locusId == 0u ||
+                gene->locusId > EVOLUTION_GENES_PER_CHROMOSOME ||
+                seen[gene->locusId] ||
+                gene->parentLocusId > EVOLUTION_GENES_PER_CHROMOSOME ||
+                gene->crossLocusId > EVOLUTION_GENES_PER_CHROMOSOME ||
+                gene->moduleType >= CREATURE_MODULE_TYPE_COUNT ||
+                (gene->flags & ~(DEVELOPMENT_GENE_ENABLED |
+                                 DEVELOPMENT_GENE_MIRRORED |
+                                 DEVELOPMENT_GENE_CROSS_LINK)) != 0u) {
+                return false;
+            }
+            seen[gene->locusId] = true;
+        }
+    }
+    CreaturePhenotype phenotype = EvolutionDevelop(genome);
+    return phenotype.valid;
+}
+
+static bool EntityDiskStateV4Valid(const EntityDiskStateV4 *saved)
+{
+    if (!saved || !EntityDiskStateV3Valid(&saved->entity)) return false;
+    if (saved->entity.entity.entity.active == 0u) return true;
+    if (saved->evolvable > 1u || saved->aquatic > 1u ||
+        saved->corpse > 1u || saved->pregnant > 1u ||
+        saved->sex > (uint32_t)CREATURE_SEX_MALE ||
+        saved->targetEntity < -1 || saved->targetEntity >= MAX_ENTITIES) {
+        return false;
+    }
+    const float values[] = {
+        saved->ageDays, saved->lifespanDays, saved->maturityAgeDays,
+        saved->reproductionCooldownDays, saved->gestationProgressDays,
+        saved->gestationDurationDays, saved->health, saved->corpseEnergy
+    };
+    for (unsigned index = 0; index < sizeof(values) / sizeof(values[0]); index++) {
+        if (!EntityFloatValid(values[index]) || values[index] < 0.0f) {
+            return false;
+        }
+    }
+    if (saved->evolvable == 0u) return true;
+    if (saved->organismId == 0u || saved->lineageId == 0u ||
+        saved->speciesId == 0u || !EntityGenomeValid(&saved->genome)) {
+        return false;
+    }
+    if (saved->pregnant != 0u) {
+        if (saved->pendingFatherId == 0u ||
+            !EntityGenomeValid(&saved->pendingOffspring)) return false;
+    }
+    return true;
 }
 
 static void EntityInitializeBehaviorState(Entity *entity)
@@ -352,6 +538,78 @@ static void EntityReadDiskStateV3(Entity *entity,
     entity->behavior = (FaunaBehaviorAction)disk->behavior;
 }
 
+static void EntityWriteDiskStateV4(EntityDiskStateV4 *disk,
+                                   const Entity *entity)
+{
+    memset(disk, 0, sizeof(*disk));
+    EntityWriteDiskStateV3(&disk->entity, entity);
+    if (!entity->active) return;
+    disk->evolvable = entity->evolvable ? 1u : 0u;
+    disk->aquatic = entity->aquatic ? 1u : 0u;
+    disk->corpse = entity->corpse ? 1u : 0u;
+    disk->pregnant = entity->pregnant ? 1u : 0u;
+    disk->sex = (uint32_t)entity->sex;
+    disk->organismId = entity->organismId;
+    disk->lineageId = entity->lineageId;
+    disk->speciesId = entity->speciesId;
+    disk->motherId = entity->motherId;
+    disk->fatherId = entity->fatherId;
+    disk->pendingFatherId = entity->pendingFatherId;
+    disk->ageDays = entity->ageDays;
+    disk->lifespanDays = entity->lifespanDays;
+    disk->maturityAgeDays = entity->maturityAgeDays;
+    disk->reproductionCooldownDays = entity->reproductionCooldownDays;
+    disk->gestationProgressDays = entity->gestationProgressDays;
+    disk->gestationDurationDays = entity->gestationDurationDays;
+    disk->health = entity->health;
+    disk->corpseEnergy = entity->corpseEnergy;
+    disk->targetEntity = entity->targetEntity;
+    if (entity->evolvable) disk->genome = entity->genome;
+    if (entity->pregnant) disk->pendingOffspring = entity->pendingOffspring;
+}
+
+static void EntityReadDiskStateV4(Entity *entity,
+                                  const EntityDiskStateV4 *disk)
+{
+    EntityReadDiskStateV3(entity, &disk->entity);
+    if (!entity->active) return;
+    entity->evolvable = disk->evolvable != 0u;
+    entity->aquatic = disk->aquatic != 0u;
+    entity->corpse = disk->corpse != 0u;
+    entity->pregnant = disk->pregnant != 0u;
+    entity->sex = (CreatureSex)disk->sex;
+    entity->organismId = disk->organismId;
+    entity->lineageId = disk->lineageId;
+    entity->speciesId = disk->speciesId;
+    entity->motherId = disk->motherId;
+    entity->fatherId = disk->fatherId;
+    entity->pendingFatherId = disk->pendingFatherId;
+    entity->ageDays = disk->ageDays;
+    entity->lifespanDays = disk->lifespanDays;
+    entity->maturityAgeDays = disk->maturityAgeDays;
+    entity->reproductionCooldownDays = disk->reproductionCooldownDays;
+    entity->gestationProgressDays = disk->gestationProgressDays;
+    entity->gestationDurationDays = disk->gestationDurationDays;
+    entity->health = disk->health;
+    entity->corpseEnergy = disk->corpseEnergy;
+    entity->targetEntity = disk->targetEntity;
+    if (entity->evolvable) {
+        entity->genome = disk->genome;
+        if (entity->pregnant) {
+            entity->pendingOffspring = disk->pendingOffspring;
+        }
+        EntityApplyEvolutionPhenotype(entity);
+    }
+}
+
+static void EntityMigrateEvolution(Entity *entity, uint32_t migrationSeed)
+{
+    if (!entity || !entity->active || !EntityIsAlien(entity->type)) return;
+    EntityInitializeEvolution(entity,
+        EntityEvolutionArchetypeForBodyPlan(entity->bodyPlan), migrationSeed,
+        false);
+}
+
 bool EntitiesSaveState(FILE *file)
 {
     if (!file || !isfinite(entitySpawnTimer)) return false;
@@ -363,12 +621,12 @@ bool EntitiesSaveState(FILE *file)
         return false;
     }
 
-    EntityDiskStateV3 saved[MAX_ENTITIES] = { 0 };
+    EntityDiskStateV4 saved[MAX_ENTITIES] = { 0 };
     for (int index = 0; index < MAX_ENTITIES; index++) {
         const Entity *entity = &entities[index];
-        EntityDiskStateV3 *disk = &saved[index];
-        EntityWriteDiskStateV3(disk, entity);
-        if (!EntityDiskStateV3Valid(disk)) return false;
+        EntityDiskStateV4 *disk = &saved[index];
+        EntityWriteDiskStateV4(disk, entity);
+        if (!EntityDiskStateV4Valid(disk)) return false;
     }
     return fwrite(saved, sizeof(saved), 1, file) == 1;
 }
@@ -402,12 +660,25 @@ bool EntitiesLoadState(FILE *file)
             if (!EntityDiskStateV2Valid(&saved[index])) return false;
             EntityReadDiskStateV2(&loaded[index], &saved[index]);
         }
-    } else {
+    } else if (header[0] == 3u) {
         EntityDiskStateV3 saved[MAX_ENTITIES];
         if (fread(saved, sizeof(saved), 1, file) != 1) return false;
         for (int index = 0; index < MAX_ENTITIES; index++) {
             if (!EntityDiskStateV3Valid(&saved[index])) return false;
             EntityReadDiskStateV3(&loaded[index], &saved[index]);
+        }
+    } else {
+        EntityDiskStateV4 saved[MAX_ENTITIES];
+        if (fread(saved, sizeof(saved), 1, file) != 1) return false;
+        for (int index = 0; index < MAX_ENTITIES; index++) {
+            if (!EntityDiskStateV4Valid(&saved[index])) return false;
+            EntityReadDiskStateV4(&loaded[index], &saved[index]);
+        }
+    }
+    if (header[0] < 4u) {
+        for (int index = 0; index < MAX_ENTITIES; index++) {
+            EntityMigrateEvolution(&loaded[index], EntityMix(
+                header[2] ^ (uint32_t)index * 0x9e3779b9u));
         }
     }
 
@@ -576,18 +847,30 @@ static void SpawnPassive(const Player *player, float daylight)
         return;
     }
     EntityType type = ENTITY_COW;
+    EvolutionArchetype evolutionArchetype = EVOLUTION_ARCHETYPE_GROUND;
     if (alienWorld) {
         if (ecology.faunaDensity <= 0.0f) return;
         uint32_t speciesSeed = PlanetWorldSeed();
         int species = (int)((speciesSeed +
-            (uint32_t)EntityRandomBounded(2u) * 17u) % 3u);
+            (uint32_t)EntityRandomBounded(3u) * 17u) % 3u);
         type = (EntityType)(ENTITY_ALIEN_GRAZER + species);
+        evolutionArchetype = EntityEvolutionArchetypeForType(type);
+        if (evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT &&
+            !ecology.supportsFlight) {
+            type = ENTITY_ALIEN_GRAZER;
+            evolutionArchetype = EVOLUTION_ARCHETYPE_GROUND;
+        }
     } else {
         EntityType types[4] = { ENTITY_COW, ENTITY_SHEEP, ENTITY_PIG, ENTITY_CHICKEN };
         type = types[EntityRandomBounded(4u)];
     }
 
     PlanetLocalEcology localEcology = { 0 };
+    CreatureGenome sampledGenome = { 0 };
+    uint32_t sampledLineage = 0u;
+    uint32_t sampledSpecies = 0u;
+    uint32_t organismSeed = 0u;
+    bool haveSampledGenome = false;
     float angle = (float)EntityRandomBounded(628u) / 100.0f;
     float dist = alienWorld ? 12.0f + (float)EntityRandomBounded(160u) / 10.0f
                             : 14.0f + (float)EntityRandomBounded(300u) / 10.0f;
@@ -600,11 +883,47 @@ static void SpawnPassive(const Player *player, float daylight)
                 faunaActivity, (uint32_t)EntityRandomBounded(1000u))) {
             return;
         }
+        organismSeed = EntityMix(PlanetWorldSeed() ^
+            (uint32_t)gx * 0x9e3779b9u ^ (uint32_t)gz * 0x85ebca6bu ^
+            EntityRandomNext());
+        if (organismSeed == 0u) organismSeed = 1u;
+        haveSampledGenome = PlanetEcologySampleGenome(
+            gx, gz, daylight, organismSeed, &sampledGenome,
+            &sampledLineage, &sampledSpecies);
+        if (haveSampledGenome) {
+            CreaturePhenotype sampledPhenotype = EvolutionDevelop(
+                &sampledGenome);
+            haveSampledGenome = sampledPhenotype.valid;
+            if (haveSampledGenome) {
+                evolutionArchetype = sampledPhenotype.locomotion ==
+                    CREATURE_LOCOMOTION_FLIGHT ? EVOLUTION_ARCHETYPE_FLIGHT :
+                    sampledPhenotype.locomotion ==
+                    CREATURE_LOCOMOTION_AQUATIC ?
+                    EVOLUTION_ARCHETYPE_AQUATIC : EVOLUTION_ARCHETYPE_GROUND;
+                type = evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT ?
+                    ENTITY_ALIEN_HOPPER : evolutionArchetype ==
+                    EVOLUTION_ARCHETYPE_AQUATIC ? ENTITY_ALIEN_STRIDER :
+                    ENTITY_ALIEN_GRAZER;
+            }
+        }
     }
-    if (alienWorld && !ecology.supportsFlight && !PlanetBiomeSupportsFauna(gx, gz) &&
+    if (alienWorld && evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT &&
+        !ecology.supportsFlight) return;
+    if (alienWorld && evolutionArchetype == EVOLUTION_ARCHETYPE_GROUND &&
+        !PlanetBiomeSupportsFauna(gx, gz) &&
         ecology.niche != PLANET_NICHE_CRYSTAL_GRAZER) return;
     int groundY = EntitySurfaceHeight(gx, gz);
-    if (!alienWorld || !ecology.supportsFlight) {
+    int waterY = -1;
+    if (alienWorld && evolutionArchetype == EVOLUTION_ARCHETYPE_AQUATIC) {
+        for (int y = groundY + 2; y >= groundY - 5; y--) {
+            if (GetBlockAt(gx, y, gz) == BLOCK_WATER) {
+                waterY = y;
+                break;
+            }
+        }
+        if (waterY < 0) return;
+    }
+    if (!alienWorld || evolutionArchetype == EVOLUTION_ARCHETYPE_GROUND) {
         BlockType spawnAt = GetBlockAt(gx, groundY + 1, gz);
         BlockType spawnAbove = GetBlockAt(gx, groundY + 2, gz);
         if (spawnAt != BLOCK_AIR && spawnAt != BLOCK_WATER && spawnAt != BLOCK_LAVA) return;
@@ -612,10 +931,12 @@ static void SpawnPassive(const Player *player, float daylight)
     }
 
     Entity *entity = &entities[slot];
+    memset(entity, 0, sizeof(*entity));
     entity->active = true;
     entity->type = type;
-    float spawnY = (float)groundY + 1.0f;
-    if (alienWorld && ecology.supportsFlight) {
+    float spawnY = evolutionArchetype == EVOLUTION_ARCHETYPE_AQUATIC ?
+        (float)waterY + 0.35f : (float)groundY + 1.0f;
+    if (alienWorld && evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT) {
         float flightBase = fmaxf(spawnY + 3.0f, player->position.y + 1.5f);
         spawnY = fminf((float)WORLD_HEIGHT - 3.0f,
                        flightBase + (float)EntityRandomBounded(45u) / 10.0f);
@@ -637,6 +958,22 @@ static void SpawnPassive(const Player *player, float daylight)
     entity->limbCount = alienWorld ? ecology.limbCount : 4;
     entity->airborne = alienWorld && ecology.bodyPlan == PLANET_BODY_FLOATING;
     entity->colony = alienWorld && ecology.bodyPlan == PLANET_BODY_COLONY;
+    if (alienWorld) {
+        if (organismSeed == 0u) {
+            organismSeed = EntityMix(PlanetWorldSeed() ^
+                (uint32_t)gx * 0x9e3779b9u ^
+                (uint32_t)gz * 0x85ebca6bu ^ EntityRandomNext());
+            if (organismSeed == 0u) organismSeed = 1u;
+        }
+        EntityInitializeEvolution(entity, evolutionArchetype,
+                                  organismSeed, false);
+        if (haveSampledGenome) {
+            entity->genome = sampledGenome;
+            entity->lineageId = sampledLineage;
+            entity->speciesId = sampledSpecies;
+            EntityApplyEvolutionPhenotype(entity);
+        }
+    }
     entity->hoverHeight = spawnY;
     entity->phase = (float)EntityRandomBounded(628u) / 100.0f;
     entity->ecologyActivity = alienWorld
@@ -679,6 +1016,7 @@ static void SpawnHostile(const Player *player, float daylight)
     if (spawnAbove != BLOCK_AIR && spawnAbove != BLOCK_WATER && spawnAbove != BLOCK_LAVA) return;
 
     Entity *entity = &entities[slot];
+    memset(entity, 0, sizeof(*entity));
     entity->active = true;
     entity->type = type;
     entity->position = (Vector3){ (float)gx + 0.5f, (float)groundY + 1.0f, (float)gz + 0.5f };
@@ -754,7 +1092,18 @@ static FaunaMotionProfile EntityMotionProfile(const Entity *entity,
         .gravityScale = WorldGravityScale(),
         .windStrength = entity->ecologyWindStrength
     };
-    return FaunaMotionProfileDerive(&input);
+    FaunaMotionProfile result = FaunaMotionProfileDerive(&input);
+    if (entity->evolvable && entity->phenotype.valid) {
+        result.bodyRadius = fminf(fmaxf(
+            entity->phenotype.bodyRadius * 0.42f, 0.18f), 0.90f);
+    }
+    if (entity->aquatic) {
+        result.airborne = true;
+        result.canTraverseLiquid = true;
+        result.hoverClearance = 0.0f;
+        result.windCoupling = 0.0f;
+    }
+    return result;
 }
 
 static bool EntityStandHeightAt(const Entity *entity,
@@ -845,6 +1194,7 @@ static FaunaTerrainCandidate EntityAirCandidateAt(
         candidate.lava = candidate.lava ||
             body == BLOCK_LAVA || head == BLOCK_LAVA;
     }
+    if (entity->aquatic && !candidate.liquid) candidate.blocked = true;
     return candidate;
 }
 
@@ -976,13 +1326,233 @@ static float EntityBehaviorMovementFloor(FaunaBehaviorAction action)
     case FAUNA_ACTION_SEEK_FOOD:
     case FAUNA_ACTION_SEEK_HABITAT: return 0.22f;
     case FAUNA_ACTION_SEEK_SHELTER: return 0.20f;
+    case FAUNA_ACTION_HUNT: return 0.30f;
+    case FAUNA_ACTION_SCAVENGE: return 0.20f;
+    case FAUNA_ACTION_MATE: return 0.16f;
     default: return 0.0f;
     }
 }
 
-static void UpdatePassive(Entity *entity, const Player *player, float dt,
+static float EntityDistanceSquared(const Entity *first, const Entity *second)
+{
+    float dx = first->position.x - second->position.x;
+    float dy = first->position.y - second->position.y;
+    float dz = first->position.z - second->position.z;
+    return dx * dx + dy * dy + dz * dz;
+}
+
+static bool EntityAdult(const Entity *entity)
+{
+    return entity && entity->evolvable && !entity->corpse &&
+           entity->ageDays >= entity->maturityAgeDays;
+}
+
+static bool EntityCompatibleMate(const Entity *first, const Entity *second)
+{
+    if (!EntityAdult(first) || !EntityAdult(second) ||
+        first->sex == second->sex || first->pregnant || second->pregnant ||
+        first->reproductionCooldownDays > 0.0f ||
+        second->reproductionCooldownDays > 0.0f ||
+        first->phenotype.locomotion != second->phenotype.locomotion ||
+        first->needs.energy < 0.62f || second->needs.energy < 0.62f) {
+        return false;
+    }
+    return EvolutionGenomeDistance(&first->genome, &second->genome) <= 0.35f;
+}
+
+static int EntityFindEvolutionTarget(int selfIndex, FaunaBehaviorAction action)
+{
+    if (selfIndex < 0 || selfIndex >= MAX_ENTITIES) return -1;
+    const Entity *self = &entities[selfIndex];
+    int selected = -1;
+    float selectedDistance = 18.0f * 18.0f;
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        const Entity *candidate = &entities[index];
+        if (index == selfIndex || !candidate->active || !candidate->evolvable) {
+            continue;
+        }
+        bool eligible = false;
+        if (action == FAUNA_ACTION_MATE) {
+            eligible = EntityCompatibleMate(self, candidate);
+        } else if (action == FAUNA_ACTION_SCAVENGE) {
+            eligible = candidate->corpse && candidate->corpseEnergy > 0.02f;
+        } else if (action == FAUNA_ACTION_HUNT) {
+            eligible = !candidate->corpse &&
+                self->phenotype.diet > candidate->phenotype.diet + 0.18f &&
+                candidate->phenotype.totalMass <=
+                    self->phenotype.totalMass * 1.65f;
+        }
+        if (!eligible) continue;
+        float distance = EntityDistanceSquared(self, candidate);
+        if (distance < selectedDistance) {
+            selected = index;
+            selectedDistance = distance;
+        }
+    }
+    return selected;
+}
+
+static void EntityBecomeCorpse(Entity *entity)
+{
+    if (!entity || entity->corpse) return;
+    entity->corpse = true;
+    entity->pregnant = false;
+    entity->pendingFatherId = 0u;
+    memset(&entity->pendingOffspring, 0, sizeof(entity->pendingOffspring));
+    entity->health = 0.0f;
+    entity->corpseEnergy = fminf(fmaxf(
+        entity->phenotype.totalMass * 0.16f, 0.12f), 1.0f);
+    entity->velocity = Vector3Zero();
+    entity->moveTimer = 0.0f;
+    entity->behavior = FAUNA_ACTION_IDLE;
+    entity->targetEntity = -1;
+}
+
+static void EntityConceive(Entity *first, Entity *second)
+{
+    Entity *mother = first->sex == CREATURE_SEX_FEMALE ? first : second;
+    Entity *father = first->sex == CREATURE_SEX_MALE ? first : second;
+    uint32_t birthSeed = EntityMix(EntityRandomNext() ^ mother->organismId ^
+        father->organismId ^ mother->genome.genomeId);
+    CreatureGenome child = EvolutionGenomeBreed(
+        &mother->genome, &father->genome, birthSeed, 0.025f);
+    CreaturePhenotype phenotype = EvolutionDevelop(&child);
+    if (!phenotype.valid) {
+        mother->reproductionCooldownDays = 1.0f;
+        father->reproductionCooldownDays = 1.0f;
+        return;
+    }
+    mother->pendingOffspring = child;
+    mother->pregnant = true;
+    mother->gestationProgressDays = 0.0f;
+    mother->pendingFatherId = father->organismId;
+    mother->reproductionCooldownDays = mother->gestationDurationDays + 4.0f;
+    father->reproductionCooldownDays = 4.0f;
+    mother->needs.energy = fmaxf(0.0f, mother->needs.energy - 0.12f);
+    father->needs.energy = fmaxf(0.0f, father->needs.energy - 0.05f);
+    first->targetEntity = -1;
+    second->targetEntity = -1;
+}
+
+static bool EntityBirthOffspring(Entity *mother, float daylight)
+{
+    int slot = NextFreeEntity();
+    if (slot < 0 || !mother || !mother->pregnant) return false;
+    CreaturePhenotype phenotype = EvolutionDevelop(&mother->pendingOffspring);
+    if (!phenotype.valid) {
+        mother->pregnant = false;
+        mother->pendingFatherId = 0u;
+        memset(&mother->pendingOffspring, 0, sizeof(mother->pendingOffspring));
+        return false;
+    }
+    Entity *child = &entities[slot];
+    memset(child, 0, sizeof(*child));
+    child->active = true;
+    child->type = phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT ?
+        ENTITY_ALIEN_HOPPER :
+        phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC ?
+        ENTITY_ALIEN_STRIDER : ENTITY_ALIEN_GRAZER;
+    child->position = mother->position;
+    child->position.x += (float)EntityRandomBounded(21u) / 20.0f - 0.5f;
+    child->position.z += (float)EntityRandomBounded(21u) / 20.0f - 0.5f;
+    child->yaw = (float)EntityRandomBounded(628u) / 100.0f;
+    child->motionTargetYaw = child->yaw;
+    child->thinkTimer = 0.5f;
+    child->hoverHeight = child->position.y;
+    child->phase = (float)EntityRandomBounded(628u) / 100.0f;
+    child->chemistry = mother->chemistry;
+    child->niche = mother->niche;
+    child->ecologyActivity = mother->ecologyActivity;
+    child->ecologyCapacity = mother->ecologyCapacity;
+    child->ecologySampleTimer = 0.25f + (float)slot / (float)MAX_ENTITIES;
+    child->ecologyWindStrength = mother->ecologyWindStrength;
+    child->ecologyWindAngle = mother->ecologyWindAngle;
+    child->primaryBlock = mother->primaryBlock;
+    child->accentBlock = mother->accentBlock;
+    EntityInitializeBehaviorState(child);
+    child->evolvable = true;
+    child->genome = mother->pendingOffspring;
+    child->organismId = EntityMix(child->genome.genomeId ^ EntityRandomNext());
+    if (child->organismId == 0u) child->organismId = 1u;
+    child->motherId = mother->organismId;
+    child->fatherId = mother->pendingFatherId;
+    child->lineageId = EvolutionGenomeDistance(
+        &mother->genome, &child->genome) < 0.35f ?
+        mother->lineageId : child->genome.genomeId & 0x00ffffffu;
+    if (child->lineageId == 0u) child->lineageId = 1u;
+    child->speciesId = EvolutionShouldSpeciate(
+        EvolutionGenomeDistance(&mother->genome, &child->genome),
+        0.0f, 3u) ? EntityMix(child->lineageId ^ child->genome.genomeId) :
+        mother->speciesId;
+    if (child->speciesId == 0u) child->speciesId = child->lineageId;
+    child->sex = (EntityRandomNext() & 1u) ?
+                 CREATURE_SEX_MALE : CREATURE_SEX_FEMALE;
+    child->ageDays = 0.0f;
+    child->lifespanDays = 96.0f +
+        (float)(EntityRandomNext() % 9600u) / 100.0f;
+    child->gestationDurationDays = phenotype.locomotion ==
+        CREATURE_LOCOMOTION_AQUATIC ? 3.0f : phenotype.locomotion ==
+        CREATURE_LOCOMOTION_FLIGHT ? 5.0f : 7.0f;
+    child->health = 1.0f;
+    child->targetEntity = -1;
+    EntityApplyEvolutionPhenotype(child);
+    PlanetEcologyRecordEvolutionEvent(
+        (int)floorf(child->position.x), (int)floorf(child->position.z),
+        daylight, child->lineageId, PLANET_EVOLUTION_EVENT_BIRTH,
+        child->phenotype.totalMass);
+    mother->pregnant = false;
+    mother->gestationProgressDays = 0.0f;
+    mother->pendingFatherId = 0u;
+    memset(&mother->pendingOffspring, 0, sizeof(mother->pendingOffspring));
+    return true;
+}
+
+static void EntityUpdateEvolutionLifecycle(Entity *entity, int entityIndex,
+                                           float dt, float daylight)
+{
+    if (!entity->evolvable) return;
+    float elapsedDays = fmaxf(dt, 0.0f) * ENTITY_EVOLUTION_DAYS_PER_SECOND;
+    if (entity->corpse) {
+        entity->corpseEnergy = fmaxf(
+            0.0f, entity->corpseEnergy - elapsedDays * 0.055f);
+        if (entity->corpseEnergy <= 0.0f) entity->active = false;
+        return;
+    }
+    entity->ageDays += elapsedDays;
+    entity->reproductionCooldownDays = fmaxf(
+        0.0f, entity->reproductionCooldownDays - elapsedDays);
+    if (entity->pregnant) {
+        entity->gestationProgressDays += elapsedDays;
+        entity->behavior = FAUNA_ACTION_NEST;
+        if (entity->gestationProgressDays >= entity->gestationDurationDays) {
+            EntityBirthOffspring(entity, daylight);
+        }
+    }
+    if (entity->ageDays >= entity->lifespanDays ||
+        entity->needs.energy <= 0.001f || entity->needs.hydration <= 0.001f ||
+        entity->health <= 0.0f) {
+        PlanetEcologyRecordEvolutionEvent(
+            (int)floorf(entity->position.x),
+            (int)floorf(entity->position.z), daylight,
+            entity->lineageId, PLANET_EVOLUTION_EVENT_ENVIRONMENT_DEATH,
+            entity->phenotype.totalMass);
+        EntityBecomeCorpse(entity);
+        return;
+    }
+    if (entity->targetEntity >= 0 &&
+        (entity->targetEntity >= MAX_ENTITIES ||
+         !entities[entity->targetEntity].active ||
+         entity->targetEntity == entityIndex)) {
+        entity->targetEntity = -1;
+    }
+}
+
+static void UpdatePassive(Entity *entity, int entityIndex,
+                          const Player *player, float dt,
                           float daylight)
 {
+    EntityUpdateEvolutionLifecycle(entity, entityIndex, dt, daylight);
+    if (!entity->active || entity->corpse) return;
     bool alien = EntityIsAlien(entity->type);
     PlanetFaunaRuntimeState runtime = PlanetEcologyFaunaRuntime(1.0f, 1.0f);
     if (alien) {
@@ -1079,6 +1649,43 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
             .dormant = alien && runtime.dormant
         };
         FaunaBehaviorDecision decision = FaunaBehaviorEvaluate(&behaviorInput);
+        int evolutionTarget = -1;
+        FaunaBehaviorAction evolutionAction = FAUNA_ACTION_IDLE;
+        if (entity->evolvable && !entity->pregnant && !threatened) {
+            if (entity->phenotype.diet >= 0.36f && entity->needs.energy < 0.78f) {
+                evolutionTarget = EntityFindEvolutionTarget(
+                    entityIndex, FAUNA_ACTION_SCAVENGE);
+                evolutionAction = FAUNA_ACTION_SCAVENGE;
+            }
+            if (evolutionTarget < 0 && entity->phenotype.diet >= 0.58f &&
+                entity->needs.energy < 0.70f) {
+                evolutionTarget = EntityFindEvolutionTarget(
+                    entityIndex, FAUNA_ACTION_HUNT);
+                evolutionAction = FAUNA_ACTION_HUNT;
+            }
+            if (evolutionTarget < 0 && EntityAdult(entity) &&
+                entity->reproductionCooldownDays <= 0.0f) {
+                evolutionTarget = EntityFindEvolutionTarget(
+                    entityIndex, FAUNA_ACTION_MATE);
+                evolutionAction = FAUNA_ACTION_MATE;
+            }
+        }
+        if (evolutionTarget >= 0) {
+            Entity *target = &entities[evolutionTarget];
+            Vector3 toTarget = Vector3Subtract(target->position,
+                                               entity->position);
+            decision.action = evolutionAction;
+            decision.yaw = atan2f(toTarget.x, toTarget.z);
+            decision.moveDuration = 1.25f;
+            decision.thinkInterval = 0.35f;
+            entity->targetEntity = evolutionTarget;
+        } else if (entity->targetEntity >= 0) {
+            entity->targetEntity = -1;
+        }
+        if (entity->pregnant) {
+            decision.action = FAUNA_ACTION_NEST;
+            decision.moveDuration = 0.6f;
+        }
         entity->behavior = decision.action;
         entity->thinkTimer = decision.thinkInterval;
         entity->moveTimer = decision.moveDuration;
@@ -1087,13 +1694,73 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
         }
     }
 
+    if (entity->evolvable && entity->targetEntity >= 0) {
+        Entity *target = &entities[entity->targetEntity];
+        Vector3 toTarget = Vector3Subtract(target->position, entity->position);
+        float targetDistance = Vector3Length(toTarget);
+        entity->motionTargetYaw = atan2f(toTarget.x, toTarget.z);
+        if (targetDistance <= entity->phenotype.bodyRadius +
+                              target->phenotype.bodyRadius + 0.55f) {
+            if (entity->behavior == FAUNA_ACTION_SCAVENGE && target->corpse) {
+                float consumed = fminf(target->corpseEnergy, dt * 0.10f);
+                target->corpseEnergy -= consumed;
+                entity->needs.energy = fminf(1.0f,
+                    entity->needs.energy + consumed * 0.85f);
+                if (target->corpseEnergy <= 0.0f) {
+                    target->active = false;
+                    entity->targetEntity = -1;
+                }
+            } else if (entity->behavior == FAUNA_ACTION_HUNT &&
+                       !target->corpse) {
+                float damage = dt * (0.08f + entity->phenotype.attack * 0.035f) /
+                    fmaxf(0.5f, target->phenotype.defense * 0.22f);
+                target->health -= damage;
+                if (target->health <= 0.0f) {
+                    PlanetEcologyRecordEvolutionEvent(
+                        (int)floorf(target->position.x),
+                        (int)floorf(target->position.z), daylight,
+                        target->lineageId,
+                        PLANET_EVOLUTION_EVENT_PREDATION_DEATH,
+                        target->phenotype.totalMass);
+                    EntityBecomeCorpse(target);
+                    entity->needs.energy = fminf(1.0f,
+                        entity->needs.energy + 0.12f);
+                    entity->targetEntity = -1;
+                }
+            } else if (entity->behavior == FAUNA_ACTION_MATE &&
+                       EntityCompatibleMate(entity, target)) {
+                EntityConceive(entity, target);
+            }
+        }
+    }
+
     actionActive = entity->moveTimer > 0.0f;
     float animationScale = alien ? runtime.animationScale : 1.0f;
     if (actionActive && entity->behavior == FAUNA_ACTION_REST) {
         animationScale *= 0.35f;
     }
-    entity->phase += dt * (0.7f + baseSpeed * 0.35f) * animationScale;
-    if (entity->airborne) {
+    float controllerOutputs[EVOLUTION_CONTROLLER_OUTPUTS] = { 0 };
+    if (entity->evolvable) {
+        float controllerInputs[EVOLUTION_CONTROLLER_INPUTS] = {
+            1.0f - entity->needs.energy,
+            1.0f - entity->needs.hydration,
+            entity->needs.fatigue,
+            entity->needs.stress,
+            entity->ecologyFoodAvailability * 2.0f - 1.0f,
+            entity->ecologyWaterAvailability * 2.0f - 1.0f,
+            entity->targetEntity >= 0 ? 1.0f : -1.0f,
+            entity->aquatic ? 1.0f : entity->airborne ? 0.5f : -0.5f
+        };
+        EvolutionControllerEvaluate(&entity->genome, controllerInputs,
+                                    controllerOutputs);
+        entity->motionTargetYaw += controllerOutputs[0] * 0.22f;
+        movementScale *= fminf(fmaxf(
+            1.0f + controllerOutputs[1] * 0.16f, 0.82f), 1.18f);
+    }
+    float neuralPhaseScale = 1.0f + controllerOutputs[2] * 0.15f;
+    entity->phase += dt * (0.7f + baseSpeed * 0.35f) * animationScale *
+                     neuralPhaseScale;
+    if (entity->airborne && !entity->aquatic) {
         int groundY = EntitySurfaceHeight(
             (int)floorf(entity->position.x),
             (int)floorf(entity->position.z));
@@ -1146,7 +1813,7 @@ static void UpdatePassive(Entity *entity, const Player *player, float dt,
         move.z += sinf(entity->ecologyWindAngle) * coupledDrift;
     }
     if (motion.speed > 0.0f || (alien && entity->airborne && windDrift > 0.0f)) {
-        if (entity->airborne) {
+        if (entity->airborne || entity->aquatic) {
             MoveEntityAirborne(entity, &motionProfile, move, dt);
         } else {
             MoveEntityGrounded(entity, &motionProfile, move, dt);
@@ -1228,7 +1895,7 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
             continue;
         }
 
-        if (!entity->airborne) {
+        if (!entity->airborne && !entity->aquatic) {
             float gravityScale = WorldGravityScale();
             entity->velocity.y -= 24.0f * gravityScale * dt;
             entity->position.y += entity->velocity.y * dt;
@@ -1246,7 +1913,7 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
         if (entity->type >= ENTITY_ZOMBIE) {
             UpdateHostile(entity, player, dt, daylight);
         } else {
-            UpdatePassive(entity, player, dt, daylight);
+            UpdatePassive(entity, i, player, dt, daylight);
         }
     }
 }
@@ -1320,6 +1987,95 @@ static Color AlienActivityColor(Color color, float visualPresence)
     return ColorLerp(color, (Color){ 72, 78, 82, 255 }, stress * 0.72f);
 }
 
+static float EntityEvolutionGrowthScale(const Entity *entity)
+{
+    if (!entity->evolvable || entity->maturityAgeDays <= 0.0f) return 1.0f;
+    float maturity = fminf(fmaxf(
+        entity->ageDays / entity->maturityAgeDays, 0.0f), 1.0f);
+    return 0.35f + maturity * 0.65f;
+}
+
+static void DrawEvolvedAlienEntity(const Entity *entity,
+                                   PlanetFaunaRuntimeState runtime,
+                                   Color body, Color accent, float scale)
+{
+    Vector3 positions[EVOLUTION_MAX_MODULES] = { 0 };
+    Vector3 forward = { sinf(entity->yaw), 0.0f, cosf(entity->yaw) };
+    Vector3 side = { forward.z, 0.0f, -forward.x };
+    float growth = EntityEvolutionGrowthScale(entity);
+    scale *= growth;
+    if (entity->corpse) {
+        body = ColorLerp(body, (Color){ 74, 68, 62, 255 }, 0.68f);
+        accent = ColorLerp(accent, body, 0.72f);
+    }
+    for (unsigned index = 0; index < entity->phenotype.moduleCount; index++) {
+        const CreatureModule *module = &entity->phenotype.modules[index];
+        Vector3 base = entity->position;
+        if (module->parentIndex >= 0 &&
+            module->parentIndex < (int)index) {
+            base = positions[(unsigned)module->parentIndex];
+        } else if (index == 0u) {
+            base.y += module->height * scale * 0.5f;
+        }
+        Vector3 position = AlienPartPosition(
+            base, forward, side, module->localX * scale,
+            module->localY * scale, module->localZ * scale);
+        float gaitSide = module->localY >= 0.0f ? 0.0f : 3.14159265f;
+        if (!entity->corpse &&
+            (module->type == CREATURE_MODULE_LIMB ||
+             module->type == CREATURE_MODULE_FOOT)) {
+            position.y += sinf(entity->phase * 2.2f + gaitSide +
+                               (float)index * 0.45f) * 0.10f * scale *
+                          runtime.animationScale;
+        } else if (!entity->corpse && module->type == CREATURE_MODULE_WING) {
+            position.y += sinf(entity->phase * 3.4f + gaitSide) *
+                          module->width * 0.34f * scale *
+                          runtime.animationScale;
+        } else if (!entity->corpse && module->type == CREATURE_MODULE_FIN) {
+            position = Vector3Add(position, Vector3Scale(
+                side, sinf(entity->phase * 2.6f + (float)index) *
+                0.09f * scale * runtime.animationScale));
+        }
+        if (entity->corpse) position.y = entity->position.y +
+            fmaxf(0.10f, module->height * scale * 0.18f);
+        positions[index] = position;
+    }
+    for (unsigned index = 0; index < entity->phenotype.connectionCount; index++) {
+        const CreatureConnection *connection =
+            &entity->phenotype.connections[index];
+        if (connection->articulated ||
+            connection->first >= entity->phenotype.moduleCount ||
+            connection->second >= entity->phenotype.moduleCount) continue;
+        Vector3 first = positions[connection->first];
+        Vector3 second = positions[connection->second];
+        Vector3 center = Vector3Scale(Vector3Add(first, second), 0.5f);
+        Vector3 delta = Vector3Subtract(first, second);
+        DrawEntityBox(center, (Vector3){
+            fmaxf(fabsf(delta.x), 0.08f * scale),
+            fmaxf(fabsf(delta.y), 0.08f * scale),
+            fmaxf(fabsf(delta.z), 0.08f * scale)
+        }, ColorLerp(body, accent, 0.35f));
+    }
+    for (unsigned index = 0; index < entity->phenotype.moduleCount; index++) {
+        const CreatureModule *module = &entity->phenotype.modules[index];
+        Color color = body;
+        if (module->type == CREATURE_MODULE_HEAD ||
+            module->type == CREATURE_MODULE_SENSOR ||
+            module->type == CREATURE_MODULE_WING ||
+            module->type == CREATURE_MODULE_FIN) {
+            color = accent;
+        } else if (module->type == CREATURE_MODULE_ARMOR) {
+            color = ColorLerp(body, (Color){ 190, 194, 202, 255 }, 0.42f);
+        }
+        Vector3 size = {
+            module->width * scale,
+            module->height * scale * (entity->corpse ? 0.36f : 1.0f),
+            module->length * scale
+        };
+        DrawEntityBox(positions[index], size, color);
+    }
+}
+
 static void DrawAlienEntity(const Entity *entity)
 {
     PlanetFaunaRuntimeState runtime = PlanetEcologyFaunaRuntime(
@@ -1334,6 +2090,14 @@ static void DrawAlienEntity(const Entity *entity)
     float scale = entity->organismScale > 0.1f ? entity->organismScale : 1.0f;
     scale *= runtime.visualScale;
     float armor = 1.0f + entity->bodyArmor * 0.38f;
+
+    if (entity->evolvable && entity->phenotype.valid) {
+        Color geneticAccent = ColorPalette256(
+            20 + (int)(entity->genome.pigmentation % 216u));
+        accent = ColorLerp(accent, geneticAccent, 0.32f);
+        DrawEvolvedAlienEntity(entity, runtime, body, accent, scale);
+        return;
+    }
 
     if (entity->bodyPlan == PLANET_BODY_FLOATING) {
         DrawEntityBox(pos, (Vector3){ 1.25f * scale, 0.66f * scale,
@@ -1521,7 +2285,16 @@ int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance)
             float scale = entity->organismScale > 0.1f ? entity->organismScale : 1.0f;
             radius = 0.62f * scale;
             height = 1.55f * scale;
-            if (entity->bodyPlan == PLANET_BODY_FLOATING) {
+            if (entity->evolvable && entity->phenotype.valid) {
+                float growth = EntityEvolutionGrowthScale(entity);
+                radius = fminf(fmaxf(
+                    entity->phenotype.bodyRadius * scale * growth,
+                    0.25f), 3.0f);
+                height = fminf(fmaxf(
+                    entity->phenotype.bodyRadius * 1.7f * scale * growth,
+                    0.45f), 4.5f);
+                if (entity->corpse) height *= 0.42f;
+            } else if (entity->bodyPlan == PLANET_BODY_FLOATING) {
                 radius = 0.95f * scale;
                 height = 1.15f * scale;
             } else if (entity->bodyPlan == PLANET_BODY_SERPENTINE) {
@@ -1533,7 +2306,8 @@ int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance)
             }
         }
         Vector3 center = { entity->position.x, entity->position.y + height * 0.5f, entity->position.z };
-        if (EntityIsAlien(entity->type) && entity->bodyPlan == PLANET_BODY_FLOATING) {
+        if (EntityIsAlien(entity->type) &&
+            (entity->bodyPlan == PLANET_BODY_FLOATING || entity->aquatic)) {
             center.y = entity->position.y;
         }
 
@@ -1569,6 +2343,69 @@ bool EntityKill(int index, EntityDeathCause cause, float daylight)
 
     ParticlesEmitBurst(entity->position, EntityBodyColor(entity->type), 18, 3.0f, 0.7f);
     AudioPlayBreak();
-    entity->active = false;
+    if (cause == ENTITY_DEATH_PREDATION && entity->evolvable) {
+        PlanetEcologyRecordEvolutionEvent(
+            (int)floorf(entity->position.x),
+            (int)floorf(entity->position.z), daylight,
+            entity->lineageId, PLANET_EVOLUTION_EVENT_PREDATION_DEATH,
+            entity->phenotype.totalMass);
+        EntityBecomeCorpse(entity);
+    } else {
+        entity->active = false;
+    }
+    return true;
+}
+
+int EntityNearestEvolvable(Vector3 position, float radius)
+{
+    if (!isfinite(radius) || radius <= 0.0f) return -1;
+    float bestDistance = radius * radius;
+    int best = -1;
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        const Entity *entity = &entities[index];
+        if (!entity->active || !entity->evolvable) continue;
+        float dx = entity->position.x - position.x;
+        float dy = entity->position.y - position.y;
+        float dz = entity->position.z - position.z;
+        float distance = dx * dx + dy * dy + dz * dz;
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = index;
+        }
+    }
+    return best;
+}
+
+bool EntityEvolutionInspect(int index, EntityEvolutionDebugInfo *out)
+{
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+    if (index < 0 || index >= MAX_ENTITIES) return false;
+    const Entity *entity = &entities[index];
+    if (!entity->active || !entity->evolvable || !entity->phenotype.valid) {
+        return false;
+    }
+    *out = (EntityEvolutionDebugInfo){
+        .valid = true,
+        .corpse = entity->corpse,
+        .juvenile = entity->ageDays < entity->maturityAgeDays,
+        .pregnant = entity->pregnant,
+        .organismId = entity->organismId,
+        .lineageId = entity->lineageId,
+        .speciesId = entity->speciesId,
+        .genomeId = entity->genome.genomeId,
+        .generation = entity->genome.generation,
+        .mutationCount = entity->genome.mutationCount,
+        .sex = entity->sex,
+        .locomotion = entity->phenotype.locomotion,
+        .ageDays = entity->ageDays,
+        .maturityAgeDays = entity->maturityAgeDays,
+        .health = entity->health,
+        .energy = entity->needs.energy,
+        .diet = entity->phenotype.diet,
+        .mass = entity->phenotype.totalMass,
+        .speed = entity->phenotype.cruiseSpeed,
+        .moduleCount = entity->phenotype.moduleCount
+    };
     return true;
 }

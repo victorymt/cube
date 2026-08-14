@@ -134,6 +134,40 @@ bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
         organismScale, ecologyCapacity);
 }
 
+bool PlanetEcologyEvolutionRegionAt(int x, int z, float daylight,
+                                    PlanetEvolutionRegion *out)
+{
+    if (!PlanetWorldIsActive() || !out) return false;
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    return EcologyEvolutionRegionAt(
+        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        EcologyClamp(daylight), &profile, out);
+}
+
+bool PlanetEcologySampleGenome(int x, int z, float daylight,
+                               uint32_t sampleSeed, CreatureGenome *outGenome,
+                               uint32_t *outLineageId,
+                               uint32_t *outSpeciesId)
+{
+    if (!PlanetWorldIsActive()) return false;
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    return EcologyEvolutionSampleGenome(
+        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        EcologyClamp(daylight), &profile, sampleSeed, outGenome,
+        outLineageId, outSpeciesId);
+}
+
+bool PlanetEcologyRecordEvolutionEvent(
+    int x, int z, float daylight, uint32_t lineageId,
+    PlanetEvolutionEvent event, float biomass)
+{
+    if (!PlanetWorldIsActive()) return false;
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    return EcologyEvolutionRecordEvent(
+        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        EcologyClamp(daylight), &profile, lineageId, event, biomass);
+}
+
 PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
 {
     PlanetLocalEcology local = { 0 };

@@ -674,6 +674,42 @@ static void DrawLandingTransitionOverlay(const LandingTransition *transition)
     }
 }
 
+static void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info)
+{
+    if (!info || !info->valid) return;
+    int width = 350;
+    int x = GetScreenWidth() - width - 18;
+    int y = 74;
+    DrawRectangleRounded((Rectangle){ (float)x, (float)y,
+                                     (float)width, 150.0f },
+                         0.04f, 6, Fade((Color){ 10, 18, 24, 255 }, 0.90f));
+    DrawRectangleRoundedLinesEx((Rectangle){ (float)x, (float)y,
+                                             (float)width, 150.0f },
+                                0.04f, 6, 1.0f,
+                                Fade((Color){ 114, 218, 172, 255 }, 0.72f));
+    UiDrawText(TextFormat("SPECIES %08X  //  LINEAGE %08X",
+                          info->speciesId, info->lineageId),
+               x + 14, y + 12, 16, (Color){ 176, 238, 208, 255 });
+    UiDrawText(TextFormat("%s  GEN %u  MODULES %u  MUT %u",
+                          EvolutionLocomotionName(info->locomotion),
+                          info->generation, info->moduleCount,
+                          info->mutationCount),
+               x + 14, y + 39, 15, Fade(RAYWHITE, 0.90f));
+    UiDrawText(TextFormat("AGE %.1f / %.1f d   %s%s",
+                          info->ageDays, info->maturityAgeDays,
+                          info->sex == CREATURE_SEX_FEMALE ? "F" : "M",
+                          info->pregnant ? "  GESTATING" : ""),
+               x + 14, y + 64, 15, Fade(RAYWHITE, 0.80f));
+    UiDrawText(TextFormat("MASS %.2f   SPEED %.2f   DIET %.2f",
+                          info->mass, info->speed, info->diet),
+               x + 14, y + 89, 15, Fade(RAYWHITE, 0.80f));
+    UiDrawText(TextFormat("HEALTH %3.0f%%   ENERGY %3.0f%%  %s",
+                          info->health * 100.0f, info->energy * 100.0f,
+                          info->corpse ? "CORPSE" :
+                          info->juvenile ? "JUVENILE" : "ADULT"),
+               x + 14, y + 116, 15, Fade(RAYWHITE, 0.80f));
+}
+
 static void BeginNewWorld(Player *player, TerrainMode mode, uint32_t seed)
 {
     DrainChunkGen();
@@ -813,7 +849,8 @@ int main(int argc, char **argv)
     bool scriptedInputFirstFrame = false;
     DebugControlReply(
         &debugControl,
-        "DEBUG_CONTROL ready commands=start,screenshot,status,teleport,input,quit\n");
+        "DEBUG_CONTROL ready commands=start,screenshot,status,teleport,input,"
+        "evolution,quit\n");
 
     while (!quitRequested && !WindowShouldClose()) {
         PerfBeginFrame();
@@ -906,6 +943,80 @@ int main(int argc, char **argv)
                 DebugControlReply(
                     &debugControl,
                     "DEBUG_CONTROL input error reason=not_playing\n");
+            }
+            break;
+        case DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT:
+        {
+            int index = EntityNearestEvolvable(
+                player.position, debugControl.evolutionRadius);
+            EntityEvolutionDebugInfo info = { 0 };
+            if (index < 0 || !EntityEvolutionInspect(index, &info)) {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL evolution inspect none radius=%.3f\n",
+                    debugControl.evolutionRadius);
+            } else {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL evolution inspect ok organism=%u lineage=%u "
+                    "species=%u genome=%u generation=%u mutations=%u "
+                    "locomotion=%s modules=%u age=%.3f maturity=%.3f "
+                    "health=%.3f energy=%.3f diet=%.3f mass=%.3f speed=%.3f "
+                    "juvenile=%d pregnant=%d corpse=%d\n",
+                    info.organismId, info.lineageId, info.speciesId,
+                    info.genomeId, info.generation, info.mutationCount,
+                    EvolutionLocomotionName(info.locomotion), info.moduleCount,
+                    info.ageDays, info.maturityAgeDays, info.health,
+                    info.energy, info.diet, info.mass, info.speed,
+                    info.juvenile ? 1 : 0, info.pregnant ? 1 : 0,
+                    info.corpse ? 1 : 0);
+            }
+            break;
+        }
+        case DEBUG_CONTROL_COMMAND_EVOLUTION_REGION:
+        case DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP:
+        {
+            PlanetEvolutionRegion evolution = { 0 };
+            float evolutionDaylight = 0.0f;
+            float evolutionSunset = 0.0f;
+            PlanetLightState evolutionLight = { 0 };
+            if (PlanetWorldLightStateAt(player.position, &evolutionLight)) {
+                evolutionDaylight = evolutionLight.daylight;
+            } else {
+                DayNightFactors(dayTime, &evolutionDaylight,
+                                &evolutionSunset);
+            }
+            if (!PlanetEcologyEvolutionRegionAt(
+                    (int)floorf(player.position.x),
+                    (int)floorf(player.position.z), evolutionDaylight,
+                    &evolution)) {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL evolution region error reason=no_active_ecology\n");
+            } else {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL evolution region ok lineages=%u "
+                    "bootstrap=%u complete=%d herbivore=%.6f omnivore=%.6f "
+                    "carnivore=%.6f\n",
+                    evolution.lineageCount, evolution.bootstrapGeneration,
+                    evolution.bootstrapComplete ? 1 : 0,
+                    evolution.herbivoreDensity, evolution.omnivoreDensity,
+                    evolution.carnivoreDensity);
+            }
+            break;
+        }
+        case DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE:
+            if (screen == SCREEN_PLAYING) {
+                SpaceAdvanceTime(debugControl.evolutionAdvanceDays);
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL evolution advance ok days=%.3f\n",
+                    debugControl.evolutionAdvanceDays);
+            } else {
+                DebugControlReply(
+                    &debugControl,
+                    "DEBUG_CONTROL evolution advance error reason=not_playing\n");
             }
             break;
         case DEBUG_CONTROL_COMMAND_QUIT:
@@ -1634,6 +1745,10 @@ int main(int argc, char **argv)
             DrawBodyInfoPanel(&aimBody);
         }
         DrawCrosshair(GetScreenWidth(), GetScreenHeight());
+        EntityEvolutionDebugInfo aimedEvolution = { 0 };
+        if (EntityEvolutionInspect(entityHit, &aimedEvolution)) {
+            DrawEvolutionScanPanel(&aimedEvolution);
+        }
         DrawHotbar(hotbar, selectedIndex);
         DrawImportStatus();
         int hour = (int)(dayTime * 24.0f) % 24;
@@ -1724,6 +1839,15 @@ int main(int argc, char **argv)
             char debugReportPath[512];
             time_t screenshotTime = time(NULL);
             ChunkStreamingStats streamingStats = ChunksGetStreamingStats();
+            EntityEvolutionDebugInfo screenshotEntity = { 0 };
+            int screenshotEntityIndex = EntityNearestEvolvable(
+                player.position, 32.0f);
+            bool haveScreenshotEntity = EntityEvolutionInspect(
+                screenshotEntityIndex, &screenshotEntity);
+            PlanetEvolutionRegion screenshotRegion = { 0 };
+            bool haveScreenshotRegion = PlanetEcologyEvolutionRegionAt(
+                (int)floorf(player.position.x),
+                (int)floorf(player.position.z), daylight, &screenshotRegion);
             ScreenshotDebugInfo debugInfo = {
                 .world = {
                     .seed = PlanetWorldIsActive() ? PlanetWorldSeed() :
@@ -1833,6 +1957,40 @@ int main(int argc, char **argv)
                     .meshCpuMs = streamingStats.meshCpuMs,
                     .uploadCpuMs = streamingStats.uploadCpuMs,
                     .maxUploadCpuMs = streamingStats.maxUploadCpuMs
+                },
+                .evolution = {
+                    .entitySelected = haveScreenshotEntity,
+                    .corpse = screenshotEntity.corpse,
+                    .juvenile = screenshotEntity.juvenile,
+                    .pregnant = screenshotEntity.pregnant,
+                    .regionAvailable = haveScreenshotRegion,
+                    .bootstrapComplete = screenshotRegion.bootstrapComplete,
+                    .organismId = screenshotEntity.organismId,
+                    .lineageId = screenshotEntity.lineageId,
+                    .speciesId = screenshotEntity.speciesId,
+                    .genomeId = screenshotEntity.genomeId,
+                    .generation = screenshotEntity.generation,
+                    .mutationCount = screenshotEntity.mutationCount,
+                    .moduleCount = screenshotEntity.moduleCount,
+                    .regionalLineageCount = screenshotRegion.lineageCount,
+                    .bootstrapGeneration =
+                        screenshotRegion.bootstrapGeneration,
+                    .sex = !haveScreenshotEntity ? "none" :
+                           screenshotEntity.sex == CREATURE_SEX_FEMALE ?
+                           "female" : "male",
+                    .locomotion = haveScreenshotEntity ?
+                        EvolutionLocomotionName(screenshotEntity.locomotion) :
+                        "none",
+                    .ageDays = screenshotEntity.ageDays,
+                    .maturityAgeDays = screenshotEntity.maturityAgeDays,
+                    .health = screenshotEntity.health,
+                    .energy = screenshotEntity.energy,
+                    .diet = screenshotEntity.diet,
+                    .mass = screenshotEntity.mass,
+                    .speed = screenshotEntity.speed,
+                    .herbivoreDensity = screenshotRegion.herbivoreDensity,
+                    .omnivoreDensity = screenshotRegion.omnivoreDensity,
+                    .carnivoreDensity = screenshotRegion.carnivoreDensity
                 }
             };
             ScreenshotResult screenshotResult = ScreenshotCaptureFrame(

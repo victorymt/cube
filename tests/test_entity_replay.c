@@ -71,6 +71,32 @@ typedef struct TestEntityDiskStateV3 {
     uint32_t behavior;
 } TestEntityDiskStateV3;
 
+typedef struct TestEntityDiskStateV4 {
+    TestEntityDiskStateV3 entity;
+    uint32_t evolvable;
+    uint32_t aquatic;
+    uint32_t corpse;
+    uint32_t pregnant;
+    uint32_t sex;
+    uint32_t organismId;
+    uint32_t lineageId;
+    uint32_t speciesId;
+    uint32_t motherId;
+    uint32_t fatherId;
+    uint32_t pendingFatherId;
+    float ageDays;
+    float lifespanDays;
+    float maturityAgeDays;
+    float reproductionCooldownDays;
+    float gestationProgressDays;
+    float gestationDurationDays;
+    float health;
+    float corpseEnergy;
+    int32_t targetEntity;
+    CreatureGenome genome;
+    CreatureGenome pendingOffspring;
+} TestEntityDiskStateV4;
+
 static TestTerrainMode testTerrainMode = TEST_TERRAIN_FLAT;
 
 uint32_t WorldGetSeed(void)
@@ -114,6 +140,12 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     PlanetLocalEcology local = { 0 };
     local.suitability.faunaActivity = 1.0f;
     local.suitability.faunaCapacity = 1.0f;
+    local.suitability.floraActivity = 0.9f;
+    local.suitability.temperatureScore = 1.0f;
+    local.environment.liquidWaterAccess = 0.9f;
+    local.environment.soilMoisture = 0.8f;
+    local.environment.shelter = 0.8f;
+    local.population.floraDensity = 0.9f;
     return local;
 }
 
@@ -138,6 +170,34 @@ float PlanetEcologyFaunaDensityAt(int x, int z, float daylight)
     (void)z;
     (void)daylight;
     return 1.0f;
+}
+
+bool PlanetEcologySampleGenome(int x, int z, float daylight,
+                               uint32_t sampleSeed, CreatureGenome *outGenome,
+                               uint32_t *outLineageId,
+                               uint32_t *outSpeciesId)
+{
+    (void)x;
+    (void)z;
+    (void)daylight;
+    (void)sampleSeed;
+    (void)outGenome;
+    (void)outLineageId;
+    (void)outSpeciesId;
+    return false;
+}
+
+bool PlanetEcologyRecordEvolutionEvent(
+    int x, int z, float daylight, uint32_t lineageId,
+    PlanetEvolutionEvent event, float biomass)
+{
+    (void)x;
+    (void)z;
+    (void)daylight;
+    (void)lineageId;
+    (void)event;
+    (void)biomass;
+    return true;
 }
 
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
@@ -326,7 +386,7 @@ static TestEntityDiskStateV3 CurrentMovingEntity(void)
 {
     uint32_t header[3];
     float spawnTimer = 0.0f;
-    TestEntityDiskStateV3 saved[MAX_ENTITIES];
+    TestEntityDiskStateV4 saved[MAX_ENTITIES];
     FILE *file = tmpfile();
     assert(file);
     assert(EntitiesSaveState(file));
@@ -335,10 +395,10 @@ static TestEntityDiskStateV3 CurrentMovingEntity(void)
     assert(fread(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
     assert(fread(saved, sizeof(saved), 1, file) == 1);
     fclose(file);
-    assert(header[0] == 3u && header[1] == MAX_ENTITIES);
+    assert(header[0] == 4u && header[1] == MAX_ENTITIES);
     assert(spawnTimer > 0.0f);
-    assert(saved[0].entity.entity.active == 1u);
-    return saved[0];
+    assert(saved[0].entity.entity.entity.active == 1u);
+    return saved[0].entity;
 }
 
 static void TestEntityReplay(void)
@@ -504,6 +564,118 @@ static TestEntityDiskStateV3 BehaviorTestEntity(void)
     return entity;
 }
 
+static TestEntityDiskStateV4 EvolutionTestEntity(
+    EvolutionArchetype archetype, uint32_t seed, CreatureSex sex)
+{
+    TestEntityDiskStateV4 entity = { 0 };
+    entity.entity = BehaviorTestEntity();
+    entity.entity.entity.entity.type = archetype == EVOLUTION_ARCHETYPE_FLIGHT ?
+        ENTITY_ALIEN_HOPPER : archetype == EVOLUTION_ARCHETYPE_AQUATIC ?
+        ENTITY_ALIEN_STRIDER : ENTITY_ALIEN_GRAZER;
+    entity.entity.entity.entity.bodyPlan = archetype ==
+        EVOLUTION_ARCHETYPE_FLIGHT ? PLANET_BODY_FLOATING : archetype ==
+        EVOLUTION_ARCHETYPE_AQUATIC ? PLANET_BODY_SERPENTINE :
+        PLANET_BODY_QUADRUPED;
+    entity.entity.entity.entity.airborne = archetype ==
+        EVOLUTION_ARCHETYPE_FLIGHT;
+    entity.entity.energy = 0.95f;
+    entity.entity.hydration = 0.95f;
+    entity.entity.entity.entity.thinkTimer = 0.01f;
+    entity.evolvable = 1u;
+    entity.aquatic = archetype == EVOLUTION_ARCHETYPE_AQUATIC;
+    entity.sex = (uint32_t)sex;
+    entity.genome = EvolutionGenomeSeed(seed, archetype);
+    entity.organismId = seed ^ 0x51ed270bu;
+    entity.lineageId = seed ^ 0xa511e9b3u;
+    entity.speciesId = seed ^ 0x9e3779b9u;
+    if (entity.organismId == 0u) entity.organismId = 1u;
+    if (entity.lineageId == 0u) entity.lineageId = 2u;
+    if (entity.speciesId == 0u) entity.speciesId = 3u;
+    CreaturePhenotype phenotype = EvolutionDevelop(&entity.genome);
+    assert(phenotype.valid);
+    entity.ageDays = phenotype.maturityAgeDays + 2.0f;
+    entity.lifespanDays = 180.0f;
+    entity.maturityAgeDays = phenotype.maturityAgeDays;
+    entity.gestationDurationDays = archetype == EVOLUTION_ARCHETYPE_AQUATIC ?
+        3.0f : archetype == EVOLUTION_ARCHETYPE_FLIGHT ? 5.0f : 7.0f;
+    entity.health = 1.0f;
+    entity.targetEntity = -1;
+    return entity;
+}
+
+static void LoadVersion4Entities(const TestEntityDiskStateV4 *first,
+                                 const TestEntityDiskStateV4 *second)
+{
+    const uint32_t header[3] = { 4u, MAX_ENTITIES, 0x671fd2a9u };
+    const float spawnTimer = 10000.0f;
+    TestEntityDiskStateV4 saved[MAX_ENTITIES] = { 0 };
+    if (first) saved[0] = *first;
+    if (second) saved[1] = *second;
+    FILE *file = tmpfile();
+    assert(file);
+    assert(fwrite(header, sizeof(header), 1, file) == 1);
+    assert(fwrite(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
+    assert(fwrite(saved, sizeof(saved), 1, file) == 1);
+    rewind(file);
+    assert(EntitiesLoadState(file));
+    fclose(file);
+}
+
+static void TestEvolutionLifecycleAndPredation(void)
+{
+    Player player = { 0 };
+    player.position = (Vector3){ -20.0f, 12.0f, 0.5f };
+    testTerrainMode = TEST_TERRAIN_FLAT;
+
+    TestEntityDiskStateV4 mother = EvolutionTestEntity(
+        EVOLUTION_ARCHETYPE_GROUND, 0x11117231u, CREATURE_SEX_FEMALE);
+    TestEntityDiskStateV4 father = EvolutionTestEntity(
+        EVOLUTION_ARCHETYPE_GROUND, 0x22228463u, CREATURE_SEX_MALE);
+    father.entity.entity.entity.position[0] = 0.65f;
+    LoadVersion4Entities(&mother, &father);
+    EntityEvolutionDebugInfo inspected = { 0 };
+    assert(EntityEvolutionInspect(0, &inspected));
+    assert(inspected.genomeId == mother.genome.genomeId);
+    assert(inspected.moduleCount > 0u);
+    RunFrames(&player, 3800);
+    EntityEvolutionDebugInfo child = { 0 };
+    assert(EntityEvolutionInspect(2, &child));
+    assert(child.generation == 1u);
+    assert(child.juvenile);
+    assert(child.mutationCount <= 100u);
+    FILE *familyState = tmpfile();
+    assert(familyState);
+    assert(EntitiesSaveState(familyState));
+    uint32_t familyHeader[3];
+    float familySpawnTimer = 0.0f;
+    TestEntityDiskStateV4 family[MAX_ENTITIES];
+    rewind(familyState);
+    assert(fread(familyHeader, sizeof(familyHeader), 1, familyState) == 1);
+    assert(fread(&familySpawnTimer, sizeof(familySpawnTimer), 1,
+                 familyState) == 1);
+    assert(fread(family, sizeof(family), 1, familyState) == 1);
+    fclose(familyState);
+    assert(familyHeader[0] == 4u);
+    assert(family[0].motherId == mother.motherId);
+    assert(family[0].fatherId == mother.fatherId);
+    assert(family[0].pendingFatherId == 0u);
+    assert(family[2].motherId == mother.organismId);
+    assert(family[2].fatherId == father.organismId);
+
+    TestEntityDiskStateV4 predator = EvolutionTestEntity(
+        EVOLUTION_ARCHETYPE_AQUATIC, 0x33339695u, CREATURE_SEX_MALE);
+    TestEntityDiskStateV4 prey = EvolutionTestEntity(
+        EVOLUTION_ARCHETYPE_GROUND, 0x4444a8c7u, CREATURE_SEX_MALE);
+    predator.entity.energy = 0.45f;
+    prey.entity.entity.entity.position[0] = 0.60f;
+    LoadVersion4Entities(&predator, &prey);
+    RunFrames(&player, 300);
+    EntityEvolutionDebugInfo corpse = { 0 };
+    assert(EntityEvolutionInspect(1, &corpse));
+    assert(corpse.corpse);
+    assert(corpse.health == 0.0f);
+}
+
 static void TestNeedsDriveEntityBehavior(void)
 {
     Player player = { 0 };
@@ -543,6 +715,7 @@ int main(void)
     TestTerrainAwareGroundMotion();
     TestTerrainFollowingFlight();
     TestNeedsDriveEntityBehavior();
+    TestEvolutionLifecycleAndPredation();
     puts("entity replay tests passed");
     return 0;
 }

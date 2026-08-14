@@ -2,6 +2,7 @@
 #define VOXELCRAFT_ECOLOGY_H
 
 #include "ecology_model.h"
+#include "evolution.h"
 #include "types.h"
 
 #include <stdio.h>
@@ -90,6 +91,39 @@ typedef struct PlanetLocalEcology {
     } diagnostics;
 } PlanetLocalEcology;
 
+#define PLANET_EVOLUTION_MAX_LINEAGES 8
+
+typedef struct PlanetEvolutionLineage {
+    uint32_t lineageId;
+    uint32_t speciesId;
+    uint32_t founderSeed;
+    float density;
+    float dietMean;
+    float geneticVariance;
+    float geneFlow;
+    float fitness;
+    uint8_t archetype;
+    uint8_t generation;
+    uint8_t isolatedGenerations;
+    uint8_t active;
+} PlanetEvolutionLineage;
+
+typedef struct PlanetEvolutionRegion {
+    float herbivoreDensity;
+    float omnivoreDensity;
+    float carnivoreDensity;
+    uint32_t bootstrapGeneration;
+    uint32_t lineageCount;
+    bool bootstrapComplete;
+    PlanetEvolutionLineage lineages[PLANET_EVOLUTION_MAX_LINEAGES];
+} PlanetEvolutionRegion;
+
+typedef enum PlanetEvolutionEvent {
+    PLANET_EVOLUTION_EVENT_BIRTH = 0,
+    PLANET_EVOLUTION_EVENT_ENVIRONMENT_DEATH,
+    PLANET_EVOLUTION_EVENT_PREDATION_DEATH
+} PlanetEvolutionEvent;
+
 PlanetEcologyProfile PlanetEcologyProfileForPlanet(
     const struct PlanetProfile *planet, uint32_t worldSeed, bool darkSide);
 PlanetEcologyProfile PlanetEcologyCurrent(void);
@@ -101,6 +135,15 @@ float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);
 bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
                                      float organismScale,
                                      float ecologyCapacity);
+bool PlanetEcologyEvolutionRegionAt(int x, int z, float daylight,
+                                    PlanetEvolutionRegion *out);
+bool PlanetEcologySampleGenome(int x, int z, float daylight,
+                               uint32_t sampleSeed, CreatureGenome *outGenome,
+                               uint32_t *outLineageId,
+                               uint32_t *outSpeciesId);
+bool PlanetEcologyRecordEvolutionEvent(
+    int x, int z, float daylight, uint32_t lineageId,
+    PlanetEvolutionEvent event, float biomass);
 /*
  * Local queries and population save/load/reset serialize their shared
  * population cache internally. The active PlanetWorld must remain unchanged

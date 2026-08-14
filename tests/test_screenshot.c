@@ -158,6 +158,32 @@ static void TestDebugReport(void)
             .generationSubmitted = 123u,
             .meshCompleted = 456u,
             .meshCpuMs = 78.25
+        },
+        .evolution = {
+            .entitySelected = true,
+            .organismId = 71u,
+            .lineageId = 72u,
+            .speciesId = 73u,
+            .genomeId = 74u,
+            .generation = 4u,
+            .mutationCount = 3u,
+            .moduleCount = 12u,
+            .regionalLineageCount = 3u,
+            .bootstrapGeneration = 24u,
+            .bootstrapComplete = true,
+            .regionAvailable = true,
+            .sex = "female",
+            .locomotion = "flight",
+            .ageDays = 22.0f,
+            .maturityAgeDays = 18.0f,
+            .health = 0.9f,
+            .energy = 0.8f,
+            .diet = 0.6f,
+            .mass = 2.4f,
+            .speed = 1.7f,
+            .herbivoreDensity = 0.2f,
+            .omnivoreDensity = 0.1f,
+            .carnivoreDensity = 0.05f
         }
     };
 
@@ -170,7 +196,7 @@ static void TestDebugReport(void)
 
     char contents[8192];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=2\n"));
+    assert(strstr(contents, "format.version=3\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -182,6 +208,9 @@ static void TestDebugReport(void)
     assert(strstr(contents, "ui.debug_hud_visible=true\n"));
     assert(strstr(contents, "streaming.active_chunks=81\n"));
     assert(strstr(contents, "streaming.mesh_completed=456\n"));
+    assert(strstr(contents, "evolution.organism_id=71\n"));
+    assert(strstr(contents, "evolution.locomotion=flight\n"));
+    assert(strstr(contents, "evolution.bootstrap_complete=true\n"));
 
     unlink(reportPath);
     rmdir(directory);

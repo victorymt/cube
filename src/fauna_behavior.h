@@ -13,7 +13,11 @@ typedef enum FaunaBehaviorAction {
     FAUNA_ACTION_SEEK_WATER,
     FAUNA_ACTION_REST,
     FAUNA_ACTION_SEEK_SHELTER,
-    FAUNA_ACTION_FLEE
+    FAUNA_ACTION_FLEE,
+    FAUNA_ACTION_HUNT,
+    FAUNA_ACTION_SCAVENGE,
+    FAUNA_ACTION_MATE,
+    FAUNA_ACTION_NEST
 } FaunaBehaviorAction;
 
 typedef struct FaunaNeeds {

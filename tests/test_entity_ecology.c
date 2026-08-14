@@ -617,6 +617,19 @@ static void TestEntityDeathCauseFeedback(void)
     float playerPressure = MaxNearbyHarvestPressure(
         centerX, centerZ, daylight);
     assert(playerPressure > 0.0f);
+    PlanetEvolutionRegion harvestedRegion = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        centerX, centerZ, daylight, &harvestedRegion));
+    float harvestedLineageDensity = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (harvestedRegion.lineages[index].active) {
+            harvestedLineageDensity += harvestedRegion.lineages[index].density;
+        }
+    }
+    PlanetLocalEcology harvestedLocal = PlanetEcologyLocalAt(
+        centerX, centerZ, daylight);
+    assert(fabsf(harvestedLineageDensity -
+                 harvestedLocal.population.faunaDensity) < 0.00001f);
     assert(!EntityKill(0, ENTITY_DEATH_PLAYER, daylight));
     assert(MaxNearbyHarvestPressure(centerX, centerZ, daylight) ==
            playerPressure);

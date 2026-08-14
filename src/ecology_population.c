@@ -38,6 +38,7 @@ typedef struct EcologyPopulationRecord {
     uint64_t lastAccess;
     PlanetRegionalPopulation population;
     PlanetPopulationMigrationState migration;
+    PlanetEvolutionRegion evolution;
 } EcologyPopulationRecord;
 
 typedef struct EcologyPopulationStepState {
@@ -49,6 +50,8 @@ typedef struct EcologyPopulationStepState {
     float windZ;
     float floraStress;
     float faunaStress;
+    float aquaticSuitability;
+    PlanetEvolutionRegion evolution;
 } EcologyPopulationStepState;
 
 typedef struct EcologyPopulationStepContext {
@@ -99,6 +102,210 @@ static float EcologyPopulationOccupancy(uint32_t surfaceId, int regionX,
     hash = EcologyMix(hash);
     float unit = (float)(hash & 0x00ffffffu) / 16777215.0f;
     return minimum + unit * range;
+}
+
+static void EcologyEvolutionRefreshTrophic(PlanetEvolutionRegion *evolution)
+{
+    evolution->herbivoreDensity = 0.0f;
+    evolution->omnivoreDensity = 0.0f;
+    evolution->carnivoreDensity = 0.0f;
+    evolution->lineageCount = 0u;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (!lineage->active) continue;
+        if (lineage->density <= 0.0f) {
+            lineage->active = 0u;
+            continue;
+        }
+        evolution->lineageCount++;
+        if (lineage->dietMean < 0.36f) {
+            evolution->herbivoreDensity += lineage->density;
+        } else if (lineage->dietMean < 0.64f) {
+            evolution->omnivoreDensity += lineage->density;
+        } else {
+            evolution->carnivoreDensity += lineage->density;
+        }
+    }
+    evolution->herbivoreDensity = EcologyClamp(evolution->herbivoreDensity);
+    evolution->omnivoreDensity = EcologyClamp(evolution->omnivoreDensity);
+    evolution->carnivoreDensity = EcologyClamp(evolution->carnivoreDensity);
+}
+
+static void EcologyEvolutionScaleToFauna(
+    PlanetEvolutionRegion *evolution, float faunaDensity)
+{
+    if (!evolution || !isfinite(faunaDensity) || faunaDensity < 0.0f) return;
+    float lineageDensity = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (evolution->lineages[index].active) {
+            lineageDensity += evolution->lineages[index].density;
+        }
+    }
+    float densityScale = lineageDensity > 0.0001f
+        ? faunaDensity / lineageDensity : 1.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (!lineage->active) continue;
+        lineage->density = EcologyClamp(lineage->density * densityScale);
+    }
+    EcologyEvolutionRefreshTrophic(evolution);
+}
+
+static uint32_t EcologyEvolutionNonzeroId(uint32_t value, uint32_t fallback)
+{
+    uint32_t mixed = EcologyMix(value);
+    return mixed != 0u ? mixed : fallback;
+}
+
+static float EcologyEvolutionArchetypeFitness(
+    EvolutionArchetype archetype, const CreaturePhenotype *phenotype,
+    const EcologyPopulationStepState *state,
+    const PlanetEcologyProfile *profile)
+{
+    if (!phenotype || !phenotype->valid || !state || !profile ||
+        phenotype->locomotion != (CreatureLocomotion)(archetype + 1)) {
+        return 0.0f;
+    }
+    float habitat = state->habitat.faunaSuitability;
+    if (archetype == EVOLUTION_ARCHETYPE_GROUND) {
+        habitat = state->habitat.floraSuitability *
+                  (1.0f - state->habitat.stormPressure * 0.45f);
+    } else if (archetype == EVOLUTION_ARCHETYPE_FLIGHT) {
+        habitat *= profile->supportsFlight ?
+            1.0f - state->habitat.stormPressure * 0.70f : 0.05f;
+    } else {
+        habitat = state->aquaticSuitability;
+    }
+    float efficiency = 1.0f /
+        (1.0f + phenotype->energyCost * 0.18f);
+    float mobility = fminf(phenotype->cruiseSpeed / 3.0f, 1.0f);
+    float plantFood = state->population.floraDensity;
+    float animalFood = state->population.faunaDensity;
+    float food = plantFood * (1.0f - phenotype->diet) +
+                 animalFood * phenotype->diet;
+    return EcologyClamp(habitat * 0.52f + efficiency * 0.20f +
+                        mobility * 0.10f + food * 0.18f);
+}
+
+static void EcologyEvolutionInitialize(
+    EcologyPopulationRecord *record, const EcologyPopulationStepState *state,
+    const PlanetEcologyProfile *profile)
+{
+    record->evolution = (PlanetEvolutionRegion){ 0 };
+    if (!state || !profile || record->population.faunaDensity <= 0.0f) return;
+    float weights[3] = {
+        0.52f,
+        profile->supportsFlight ? 0.25f : 0.02f,
+        state->aquaticSuitability > 0.18f ? 0.23f : 0.02f
+    };
+    float weightSum = weights[0] + weights[1] + weights[2];
+    for (unsigned index = 0; index < 3u; index++) {
+        uint32_t seed = EcologyEvolutionNonzeroId(record->surfaceId ^
+            (uint32_t)record->regionX * 0x9e3779b9u ^
+            (uint32_t)record->regionZ * 0x85ebca6bu ^
+            (index + 1u) * 0xc2b2ae35u, index + 1u);
+        PlanetEvolutionLineage *lineage = &record->evolution.lineages[index];
+        lineage->active = 1u;
+        lineage->archetype = (uint8_t)index;
+        lineage->founderSeed = seed;
+        lineage->lineageId = EcologyEvolutionNonzeroId(
+            seed ^ 0x51ed270bu, index + 1u);
+        lineage->speciesId = EcologyEvolutionNonzeroId(
+            lineage->lineageId ^ 0xa511e9b3u, lineage->lineageId);
+        lineage->density = record->population.faunaDensity *
+                           weights[index] / weightSum;
+        CreatureGenome genome = EvolutionGenomeSeed(
+            seed, (EvolutionArchetype)index);
+        CreaturePhenotype phenotype = EvolutionDevelop(&genome);
+        lineage->dietMean = phenotype.diet;
+        lineage->fitness = EcologyEvolutionArchetypeFitness(
+            (EvolutionArchetype)index, &phenotype, state, profile);
+    }
+    EcologyEvolutionRefreshTrophic(&record->evolution);
+}
+
+static void EcologyEvolutionAdvance(
+    PlanetEvolutionRegion *evolution, const EcologyPopulationStepState *state,
+    const PlanetEcologyProfile *profile, uint32_t surfaceId,
+    int regionX, int regionZ, double elapsedTime)
+{
+    if (!evolution || !state || !profile || elapsedTime <= 0.0) return;
+    unsigned generations = (unsigned)fmax(
+        1.0, floor(elapsedTime / ECOLOGY_POPULATION_STEP_DAYS + 0.5));
+    for (unsigned generation = 0; generation < generations; generation++) {
+        if (evolution->bootstrapGeneration < 24u) {
+            evolution->bootstrapGeneration++;
+        }
+        float fitnessSum = 0.0f;
+        for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+            PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+            if (!lineage->active) continue;
+            EvolutionArchetype archetype =
+                (EvolutionArchetype)lineage->archetype;
+            uint32_t bestSeed = lineage->founderSeed;
+            float bestFitness = -1.0f;
+            float bestDiet = lineage->dietMean;
+            for (unsigned candidate = 0; candidate < 8u; candidate++) {
+                uint32_t candidateSeed = EcologyEvolutionNonzeroId(
+                    lineage->founderSeed ^ surfaceId ^
+                    (uint32_t)regionX * 0x27d4eb2fu ^
+                    (uint32_t)regionZ * 0x165667b1u ^
+                    evolution->bootstrapGeneration * 0x9e3779b9u ^
+                    candidate * 0x85ebca6bu,
+                    lineage->founderSeed != 0u ? lineage->founderSeed : 1u);
+                CreatureGenome genome = EvolutionGenomeSeed(
+                    candidateSeed, archetype);
+                CreaturePhenotype phenotype = EvolutionDevelop(&genome);
+                float fitness = EcologyEvolutionArchetypeFitness(
+                    archetype, &phenotype, state, profile);
+                if (fitness > bestFitness) {
+                    bestFitness = fitness;
+                    bestSeed = candidateSeed;
+                    bestDiet = phenotype.diet;
+                }
+            }
+            lineage->founderSeed = bestSeed;
+            lineage->fitness = EcologyClamp(bestFitness);
+            lineage->dietMean = EcologyClamp(
+                lineage->dietMean * 0.85f + bestDiet * 0.15f);
+            lineage->generation = (uint8_t)fminf(
+                (float)lineage->generation + 1.0f, 255.0f);
+            lineage->geneticVariance = EcologyClamp(
+                lineage->geneticVariance + 0.0035f +
+                state->population.radiationMemory * 0.012f);
+            lineage->geneFlow = EcologyClamp(lineage->geneFlow * 0.88f);
+            if (lineage->geneFlow < 0.05f) {
+                if (lineage->isolatedGenerations < 255u) {
+                    lineage->isolatedGenerations++;
+                }
+            } else {
+                lineage->isolatedGenerations = 0u;
+            }
+            if (EvolutionShouldSpeciate(
+                    lineage->geneticVariance, lineage->geneFlow,
+                    lineage->isolatedGenerations)) {
+                lineage->speciesId = EcologyEvolutionNonzeroId(
+                    lineage->lineageId ^ lineage->founderSeed ^
+                    lineage->generation, lineage->lineageId);
+                lineage->isolatedGenerations = 0u;
+                lineage->geneticVariance *= 0.55f;
+            }
+            fitnessSum += lineage->fitness;
+        }
+        if (fitnessSum > 0.0001f) {
+            for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES;
+                 index++) {
+                PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+                if (!lineage->active) continue;
+                float target = state->population.faunaDensity *
+                               lineage->fitness / fitnessSum;
+                lineage->density = EcologyClamp(
+                    lineage->density * 0.82f + target * 0.18f);
+            }
+        }
+    }
+    evolution->bootstrapComplete = evolution->bootstrapGeneration >= 24u;
+    EcologyEvolutionRefreshTrophic(evolution);
 }
 
 static EcologyPopulationRecord *EcologyPopulationRecordAt(
@@ -277,6 +484,9 @@ static void EcologyPopulationConditionsAt(
         .faunaSuitability = regional.suitability.faunaActivity,
         .stormPressure = regional.environment.currentStorm
     };
+    state->aquaticSuitability = EcologyClamp(
+        regional.environment.liquidWaterAccess * 0.72f +
+        regional.suitability.waterScore * 0.28f);
     float disturbance = EcologyRegionalDisturbance(
         record->surfaceId, record->regionX, record->regionZ,
         originX, originZ);
@@ -309,7 +519,22 @@ static void EcologyPopulationInitializeRecord(
         0xc0a1e5u, 0.42f, 0.43f);
     record->population = PlanetPopulationInitialize(
         &state.input, floraOccupancy, faunaOccupancy);
+    state.population = record->population;
+    EcologyEvolutionInitialize(record, &state, profile);
     record->lastUpdateTime = simulationTime;
+}
+
+static void EcologyEvolutionEnsureInitialized(
+    EcologyPopulationRecord *record, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, int originX, int originZ)
+{
+    if (!record || record->evolution.lineageCount > 0u ||
+        record->population.faunaDensity <= 0.0f) return;
+    EcologyPopulationStepState state = { 0 };
+    EcologyPopulationConditionsAt(
+        record, simulationTime, daylight, profile, originX, originZ, &state);
+    state.population = record->population;
+    EcologyEvolutionInitialize(record, &state, profile);
 }
 
 static bool EcologyPopulationRewindFutureRecords(
@@ -357,6 +582,7 @@ static void EcologyPopulationPrepareStep(
         }
         buffers->states[index].active = true;
         buffers->states[index].population = record->population;
+        buffers->states[index].evolution = record->evolution;
         EcologyPopulationConditionsAt(
             record, context->stepEnd, context->daylight, context->profile,
             context->originX, context->originZ, &buffers->states[index]);
@@ -367,6 +593,10 @@ static void EcologyPopulationPrepareStep(
             &buffers->states[index].population,
             buffers->states[index].floraStress,
             buffers->states[index].faunaStress, context->elapsedTime);
+        EcologyEvolutionAdvance(
+            &buffers->states[index].evolution, &buffers->states[index],
+            context->profile, record->surfaceId, record->regionX,
+            record->regionZ, context->elapsedTime);
     }
 }
 
@@ -434,6 +664,17 @@ static bool EcologyPopulationCommitStep(
             buffers->states[index].population.faunaDensity +
             (float)buffers->faunaDelta[index]);
         record->population = buffers->states[index].population;
+        record->evolution = buffers->states[index].evolution;
+        for (unsigned lineageIndex = 0;
+             lineageIndex < PLANET_EVOLUTION_MAX_LINEAGES; lineageIndex++) {
+            PlanetEvolutionLineage *lineage =
+                &record->evolution.lineages[lineageIndex];
+            if (!lineage->active) continue;
+            lineage->geneFlow = EcologyClamp(lineage->geneFlow +
+                fabsf((float)buffers->faunaDelta[index]) * 0.35f);
+        }
+        EcologyEvolutionScaleToFauna(
+            &record->evolution, record->population.faunaDensity);
         record->migration = (PlanetPopulationMigrationState){
             .floraNet = fminf(fmaxf(
                 (float)buffers->floraDelta[index], -1.0f), 1.0f),
@@ -527,6 +768,9 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
             EcologyPopulationInitializeRecord(
                 neighbor, stepTime, daylight, profile, originX, originZ);
             createdAny = true;
+        } else {
+            EcologyEvolutionEnsureInitialized(
+                neighbor, stepTime, daylight, profile, originX, originZ);
         }
     }
     int recordIndex = EcologyPopulationFindRecordIndex(
@@ -544,6 +788,161 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
     PlanetRegionalPopulation result = record->population;
     pthread_mutex_unlock(&ecologyPopulationMutex);
     return result;
+}
+
+static EcologyPopulationRecord *EcologyEvolutionRecordAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, bool *created)
+{
+    int originX = PlanetWorldOriginX();
+    int originZ = PlanetWorldOriginZ();
+    int regionX = EcologyFloorDivide(
+        originX + x, ECOLOGY_POPULATION_REGION_SIZE);
+    int regionZ = EcologyFloorDivide(
+        originZ + z, ECOLOGY_POPULATION_REGION_SIZE);
+    uint32_t surfaceId = PlanetWorldSeed();
+    double stepTime = EcologyPopulationStepTime(simulationTime);
+    EcologyPopulationAdvanceRecords(
+        surfaceId, stepTime, daylight, profile, originX, originZ);
+    bool isNew = false;
+    EcologyPopulationRecord *record = EcologyPopulationRecordAt(
+        surfaceId, regionX, regionZ, &isNew);
+    if (!record) return NULL;
+    if (isNew) {
+        EcologyPopulationInitializeRecord(
+            record, stepTime, daylight, profile, originX, originZ);
+    } else {
+        EcologyEvolutionEnsureInitialized(
+            record, stepTime, daylight, profile, originX, originZ);
+    }
+    if (created) *created = isNew;
+    return record;
+}
+
+bool EcologyEvolutionRegionAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, PlanetEvolutionRegion *out)
+{
+    if (!profile || !out || !isfinite(simulationTime) || simulationTime < 0.0 ||
+        !isfinite(daylight)) return false;
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    bool created = false;
+    EcologyPopulationRecord *record = EcologyEvolutionRecordAt(
+        x, z, simulationTime, daylight, profile, &created);
+    if (!record) {
+        pthread_mutex_unlock(&ecologyPopulationMutex);
+        return false;
+    }
+    *out = record->evolution;
+    if (created) {
+        ecologyPopulationEpoch++;
+        if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
+    }
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return true;
+}
+
+bool EcologyEvolutionSampleGenome(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t sampleSeed,
+    CreatureGenome *outGenome, uint32_t *outLineageId,
+    uint32_t *outSpeciesId)
+{
+    if (!profile || !outGenome || sampleSeed == 0u) return false;
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    EcologyPopulationRecord *record = EcologyEvolutionRecordAt(
+        x, z, simulationTime, daylight, profile, NULL);
+    if (!record || record->evolution.lineageCount == 0u) {
+        pthread_mutex_unlock(&ecologyPopulationMutex);
+        return false;
+    }
+    float densityTotal = record->evolution.herbivoreDensity +
+        record->evolution.omnivoreDensity +
+        record->evolution.carnivoreDensity;
+    float roll = (float)(EcologyMix(sampleSeed) & 0x00ffffffu) /
+                 16777215.0f * fmaxf(densityTotal, 0.0001f);
+    PlanetEvolutionLineage *selected = NULL;
+    float accumulated = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        PlanetEvolutionLineage *lineage = &record->evolution.lineages[index];
+        if (!lineage->active) continue;
+        accumulated += lineage->density;
+        if (!selected || roll <= accumulated) selected = lineage;
+        if (roll <= accumulated) break;
+    }
+    if (!selected) {
+        pthread_mutex_unlock(&ecologyPopulationMutex);
+        return false;
+    }
+    EvolutionArchetype archetype = (EvolutionArchetype)selected->archetype;
+    CreatureGenome first = EvolutionGenomeSeed(
+        selected->founderSeed, archetype);
+    CreatureGenome second = EvolutionGenomeSeed(
+        EcologyMix(selected->founderSeed ^ 0x9e3779b9u ^
+                   selected->generation), archetype);
+    uint8_t parentGeneration = selected->generation > 0u ?
+        (uint8_t)(selected->generation - 1u) : 0u;
+    first.generation = parentGeneration;
+    second.generation = parentGeneration;
+    first.genomeId = EvolutionGenomeHash(&first);
+    second.genomeId = EvolutionGenomeHash(&second);
+    CreatureGenome sampled = EvolutionGenomeBreed(
+        &first, &second, sampleSeed,
+        0.006f + selected->geneticVariance * 0.055f);
+    CreaturePhenotype phenotype = EvolutionDevelop(&sampled);
+    if (!phenotype.valid) sampled = first;
+    *outGenome = sampled;
+    if (outLineageId) *outLineageId = selected->lineageId;
+    if (outSpeciesId) *outSpeciesId = selected->speciesId;
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return true;
+}
+
+bool EcologyEvolutionRecordEvent(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t lineageId,
+    PlanetEvolutionEvent event, float biomass)
+{
+    if (!profile || lineageId == 0u || !isfinite(biomass) || biomass <= 0.0f) {
+        return false;
+    }
+    if (event < PLANET_EVOLUTION_EVENT_BIRTH ||
+        event > PLANET_EVOLUTION_EVENT_PREDATION_DEATH) {
+        return false;
+    }
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    EcologyPopulationRecord *record = EcologyEvolutionRecordAt(
+        x, z, simulationTime, daylight, profile, NULL);
+    if (!record) {
+        pthread_mutex_unlock(&ecologyPopulationMutex);
+        return false;
+    }
+    PlanetEvolutionLineage *selected = NULL;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (record->evolution.lineages[index].active &&
+            record->evolution.lineages[index].lineageId == lineageId) {
+            selected = &record->evolution.lineages[index];
+            break;
+        }
+    }
+    if (!selected) {
+        pthread_mutex_unlock(&ecologyPopulationMutex);
+        return false;
+    }
+    float strength = EcologyClamp(biomass / 120.0f);
+    float change = event == PLANET_EVOLUTION_EVENT_BIRTH ?
+        strength * 0.12f : -strength *
+        (event == PLANET_EVOLUTION_EVENT_PREDATION_DEATH ? 0.10f : 0.07f);
+    float previousDensity = selected->density;
+    selected->density = EcologyClamp(previousDensity + change);
+    float appliedChange = selected->density - previousDensity;
+    record->population.faunaDensity = EcologyClamp(
+        record->population.faunaDensity + appliedChange);
+    EcologyEvolutionRefreshTrophic(&record->evolution);
+    ecologyPopulationEpoch++;
+    if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return true;
 }
 
 bool EcologyPopulationRecordFaunaHarvest(
@@ -582,6 +981,8 @@ bool EcologyPopulationRecordFaunaHarvest(
             record, stepTime, daylight, profile, originX, originZ);
     }
     PlanetPopulationApplyFaunaHarvest(&record->population, eventStrength);
+    EcologyEvolutionScaleToFauna(
+        &record->evolution, record->population.faunaDensity);
     ecologyPopulationEpoch++;
     if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
     pthread_mutex_unlock(&ecologyPopulationMutex);
@@ -625,6 +1026,41 @@ static bool EcologyPopulationMigrationStateValid(
         }
     }
     return true;
+}
+
+static bool EcologyEvolutionStateValid(const PlanetEvolutionRegion *evolution)
+{
+    if (!evolution || evolution->lineageCount > PLANET_EVOLUTION_MAX_LINEAGES ||
+        evolution->bootstrapGeneration > 24u) return false;
+    const float trophic[] = {
+        evolution->herbivoreDensity, evolution->omnivoreDensity,
+        evolution->carnivoreDensity
+    };
+    for (unsigned index = 0; index < sizeof(trophic) / sizeof(trophic[0]);
+         index++) {
+        if (!isfinite(trophic[index]) || trophic[index] < 0.0f ||
+            trophic[index] > 1.0f) return false;
+    }
+    unsigned activeCount = 0u;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (lineage->active > 1u || lineage->archetype >
+            (uint8_t)EVOLUTION_ARCHETYPE_AQUATIC) return false;
+        if (!lineage->active) continue;
+        activeCount++;
+        const float values[] = {
+            lineage->density, lineage->dietMean, lineage->geneticVariance,
+            lineage->geneFlow, lineage->fitness
+        };
+        if (lineage->lineageId == 0u || lineage->speciesId == 0u ||
+            lineage->founderSeed == 0u) return false;
+        for (unsigned value = 0; value < sizeof(values) / sizeof(values[0]);
+             value++) {
+            if (!isfinite(values[value]) || values[value] < 0.0f ||
+                values[value] > 1.0f) return false;
+        }
+    }
+    return activeCount == evolution->lineageCount;
 }
 
 uint32_t EcologyPopulationEpoch(void)
@@ -680,6 +1116,7 @@ bool EcologyPopulationSaveState(FILE *file)
         };
         if (!EcologyPopulationStateValid(&record->population) ||
             !EcologyPopulationMigrationStateValid(&record->migration) ||
+            !EcologyEvolutionStateValid(&record->evolution) ||
             !isfinite(record->lastUpdateTime) ||
             fwrite(&record->surfaceId, sizeof(record->surfaceId), 1, file) != 1 ||
             fwrite(coordinates, sizeof(coordinates), 1, file) != 1 ||
@@ -692,7 +1129,9 @@ bool EcologyPopulationSaveState(FILE *file)
                    sizeof(record->population.faunaHarvestPressure),
                    1, file) != 1 ||
             fwrite(&record->population.radiationMemory,
-                   sizeof(record->population.radiationMemory), 1, file) != 1) {
+                   sizeof(record->population.radiationMemory), 1, file) != 1 ||
+            fwrite(&record->evolution,
+                   sizeof(record->evolution), 1, file) != 1) {
             goto save_done;
         }
     }
@@ -726,6 +1165,7 @@ bool EcologyPopulationLoadState(FILE *file)
         float migrationValues[6] = { 0 };
         float faunaHarvestPressure = 0.0f;
         float radiationMemory = 0.0f;
+        PlanetEvolutionRegion evolution = { 0 };
         if (fread(&surfaceId, sizeof(surfaceId), 1, file) != 1 ||
             fread(coordinates, sizeof(coordinates), 1, file) != 1 ||
             fread(&lastUpdateTime, sizeof(lastUpdateTime), 1, file) != 1 ||
@@ -744,6 +1184,10 @@ bool EcologyPopulationLoadState(FILE *file)
         }
         if (header[0] >= ECOLOGY_POPULATION_RADIATION_STATE_VERSION &&
             fread(&radiationMemory, sizeof(radiationMemory), 1, file) != 1) {
+            goto load_done;
+        }
+        if (header[0] >= ECOLOGY_POPULATION_EVOLUTION_STATE_VERSION &&
+            fread(&evolution, sizeof(evolution), 1, file) != 1) {
             goto load_done;
         }
         PlanetRegionalPopulation population = {
@@ -767,7 +1211,8 @@ bool EcologyPopulationLoadState(FILE *file)
             lastUpdateTime < 0.0 || lastAccess == 0u ||
             lastAccess > loadedAccessSerial ||
             !EcologyPopulationStateValid(&population) ||
-            !EcologyPopulationMigrationStateValid(&migration)) {
+            !EcologyPopulationMigrationStateValid(&migration) ||
+            !EcologyEvolutionStateValid(&evolution)) {
             goto load_done;
         }
 
@@ -793,7 +1238,8 @@ bool EcologyPopulationLoadState(FILE *file)
             .lastUpdateTime = lastUpdateTime,
             .lastAccess = lastAccess,
             .population = population,
-            .migration = migration
+            .migration = migration,
+            .evolution = evolution
         };
     }
 

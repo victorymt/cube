@@ -210,10 +210,13 @@ bool FaunaBehaviorActionMoves(FaunaBehaviorAction action)
            action == FAUNA_ACTION_SEEK_FOOD ||
            action == FAUNA_ACTION_SEEK_WATER ||
            action == FAUNA_ACTION_SEEK_SHELTER ||
-           action == FAUNA_ACTION_FLEE;
+           action == FAUNA_ACTION_FLEE ||
+           action == FAUNA_ACTION_HUNT ||
+           action == FAUNA_ACTION_SCAVENGE ||
+           action == FAUNA_ACTION_MATE;
 }
 
 bool FaunaBehaviorActionValid(FaunaBehaviorAction action)
 {
-    return action >= FAUNA_ACTION_IDLE && action <= FAUNA_ACTION_FLEE;
+    return action >= FAUNA_ACTION_IDLE && action <= FAUNA_ACTION_NEST;
 }

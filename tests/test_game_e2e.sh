@@ -83,6 +83,11 @@ wait_for_reply '^DEBUG_CONTROL status '
 [[ "$matched_line" == *'screen=playing seed=1448040515 dimension=home'* ]]
 [[ "$matched_line" == *'water=0,0,0'* ]]
 
+send_command 'evolution inspect'
+wait_for_reply '^DEBUG_CONTROL evolution inspect none radius=24.000$'
+send_command 'evolution advance 1'
+wait_for_reply '^DEBUG_CONTROL evolution advance ok days=1.000$'
+
 send_command 'teleport 0.5 76.002960 0.5 3.141593 -0.25'
 wait_for_reply '^DEBUG_CONTROL teleport ok '
 
@@ -116,7 +121,7 @@ report_path=${matched_line##*report=}
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=2' "$report_path"
+grep -Fxq 'format.version=3' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
 grep -Fxq 'environment.water_surface_y=81.000000' "$report_path"
@@ -124,6 +129,8 @@ grep -Fxq 'environment.underwater=true' "$report_path"
 grep -Fxq 'environment.feet_submerged=true' "$report_path"
 grep -Fxq 'environment.body_submerged=true' "$report_path"
 grep -Fxq 'environment.eyes_submerged=true' "$report_path"
+grep -Fxq 'evolution.entity_selected=false' "$report_path"
+grep -Fxq 'evolution.region_available=false' "$report_path"
 
 underwater_depth=$(awk -F= '$1 == "environment.underwater_depth" { print $2 }' "$report_path")
 awk -v depth="$underwater_depth" 'BEGIN { exit !(depth >= 3.0 && depth <= 4.5) }'
