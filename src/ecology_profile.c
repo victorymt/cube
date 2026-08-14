@@ -17,6 +17,7 @@
 
 typedef struct EcologyProfileCache {
     bool valid;
+    bool homeWorld;
     bool darkSide;
     uint32_t worldSeed;
     uint32_t generation;
@@ -74,6 +75,90 @@ static float EcologyBiomeSupport(PlanetBiome biome,
         if (biome == PLANET_BIOME_CRATER_HIGHLANDS) support = 0.34f;
     }
     return support;
+}
+
+static PlanetLocalEnvironment EcologyHomeEnvironmentAt(
+    int x, int z, float daylight, float precipitationRate,
+    float currentStorm, bool dynamic)
+{
+    PlanetLocalEnvironment environment = { 0 };
+    int height = TerrainHeight(x, z, terrainMode);
+    int east = TerrainHeight(x + 2, z, terrainMode);
+    int west = TerrainHeight(x - 2, z, terrainMode);
+    int south = TerrainHeight(x, z + 2, terrainMode);
+    int north = TerrainHeight(x, z - 2, terrainMode);
+    int seaLevel = TerrainSeaLevel(terrainMode);
+    Biome biome = BiomeAt(x, z);
+    float temperature = 288.0f;
+    float moisture = 0.58f;
+    float biomeSupport = 0.86f;
+    float meanPrecipitation = 0.48f;
+    switch (biome) {
+    case BIOME_FOREST:
+        temperature = 285.0f;
+        moisture = 0.82f;
+        biomeSupport = 1.0f;
+        meanPrecipitation = 0.68f;
+        break;
+    case BIOME_DESERT:
+        temperature = 306.0f;
+        moisture = 0.12f;
+        biomeSupport = 0.34f;
+        meanPrecipitation = 0.12f;
+        break;
+    case BIOME_SNOW:
+        temperature = 263.0f;
+        moisture = 0.46f;
+        biomeSupport = 0.48f;
+        meanPrecipitation = 0.42f;
+        break;
+    case BIOME_MOUNTAIN:
+        temperature = 276.0f;
+        moisture = 0.42f;
+        biomeSupport = 0.56f;
+        meanPrecipitation = 0.46f;
+        break;
+    case BIOME_PLAINS:
+    default:
+        break;
+    }
+
+    float maxSlope = fmaxf(fabsf((float)(east - west)),
+                           fabsf((float)(south - north))) * 0.25f;
+    environment.slope = EcologyClamp(maxSlope / 3.5f);
+    environment.elevation = EcologyClamp(
+        ((float)height - (float)(seaLevel >= 0 ? seaLevel : 8) + 18.0f) /
+        90.0f);
+    float surrounding = ((float)east + (float)west + (float)south +
+                         (float)north) * 0.25f;
+    environment.shelter = EcologyClamp(
+        0.50f + (surrounding - (float)height) / 7.0f);
+    float lapseCooling = fmaxf(
+        (float)height - (float)(seaLevel >= 0 ? seaLevel + 14 : 22), 0.0f) *
+        0.16f;
+    environment.meanTemperatureK = EcologyProfileFiniteNonNegative(
+        temperature - lapseCooling);
+    float dayTemperature = dynamic ? (daylight - 0.5f) * 8.0f : 0.0f;
+    environment.currentTemperatureK = EcologyProfileFiniteNonNegative(
+        environment.meanTemperatureK + dayTemperature -
+        EcologyClamp(precipitationRate) * 2.0f);
+    environment.seasonalAmplitudeK = 10.0f;
+    float drainage = 1.0f - environment.slope * 0.62f;
+    environment.soilMoisture = EcologyClamp(moisture * drainage);
+    environment.meanPrecipitation = meanPrecipitation;
+    environment.precipitationRate = dynamic ?
+        EcologyClamp(precipitationRate) : meanPrecipitation;
+    bool submerged = seaLevel >= 0 && height < seaLevel;
+    environment.liquidWaterAccess = submerged ? 1.0f : EcologyClamp(
+        environment.soilMoisture * 0.62f + meanPrecipitation * 0.22f);
+    environment.meanUsableLight = 0.74f;
+    environment.currentUsableLight = dynamic ? EcologyClamp(daylight) :
+                                               environment.meanUsableLight;
+    environment.stormExposure = EcologyClamp(
+        0.34f * (1.0f - environment.shelter * 0.30f));
+    environment.currentStorm = dynamic ? EcologyClamp(currentStorm) : 0.0f;
+    environment.biomeSupport = submerged ? 0.72f : biomeSupport;
+    return environment;
 }
 
 PlanetEcologyTraits EcologyTraitsForProfile(
@@ -154,7 +239,12 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
     const PlanetEcologyProfile *ecology)
 {
     PlanetLocalEnvironment environment = { 0 };
-    if (!PlanetWorldIsActive()) return environment;
+    if (!EcologyWorldIsActive()) return environment;
+
+    if (!PlanetWorldIsActive()) {
+        return EcologyHomeEnvironmentAt(
+            x, z, daylight, precipitationRate, currentStorm, dynamic);
+    }
 
     const PlanetProfile *planet = PlanetWorldProfile();
     if (!planet) return environment;
@@ -530,28 +620,61 @@ PlanetEcologyProfile PlanetEcologyProfileForPlanet(
 PlanetEcologyProfile PlanetEcologyCurrent(void)
 {
     PlanetEcologyProfile result = { 0 };
-    if (!PlanetWorldIsActive()) return result;
+    bool homeWorld = HomeWorldSurfaceIsActive();
+    if (!PlanetWorldIsActive() && !homeWorld) return result;
 
-    const PlanetProfile *planet = PlanetWorldProfile();
-    uint32_t worldSeed = PlanetWorldSeed();
-    bool darkSide = PlanetWorldIsDarkSide();
+    const PlanetProfile *planet = homeWorld ? NULL : PlanetWorldProfile();
+    uint32_t worldSeed = homeWorld ? WorldGetSeed() : PlanetWorldSeed();
+    bool darkSide = homeWorld ? false : PlanetWorldIsDarkSide();
     if (ecologyProfileCache.valid &&
+        ecologyProfileCache.homeWorld == homeWorld &&
         ecologyProfileCache.worldSeed == worldSeed &&
         ecologyProfileCache.darkSide == darkSide &&
-        memcmp(&ecologyProfileCache.planet, planet, sizeof(*planet)) == 0) {
+        (homeWorld ||
+         memcmp(&ecologyProfileCache.planet, planet, sizeof(*planet)) == 0)) {
         return ecologyProfileCache.ecology;
     }
 
-    result = PlanetEcologyProfileForPlanet(planet, worldSeed, darkSide);
+    if (homeWorld) {
+        result = (PlanetEcologyProfile){
+            .flora = PLANET_FLORA_ALIEN_CANOPY,
+            .biomass = PLANET_BIOMASS_LUSH,
+            .chemistry = PLANET_CHEMISTRY_CARBON,
+            .bodyPlan = PLANET_BODY_QUADRUPED,
+            .niche = PLANET_NICHE_GRAZER,
+            .floraDensity = 0.90f,
+            .faunaDensity = 0.76f,
+            .lifeDensity = 0.94f,
+            .planetAgeGyr = 4.54f,
+            .lifeOriginProbability = 1.0f,
+            .complexLifeProbability = 1.0f,
+            .evolutionProgress = 1.0f,
+            .organismScale = 1.0f,
+            .bodyArmor = 0.12f,
+            .movementSpeed = 0.88f,
+            .temperament = 0.24f,
+            .limbCount = 4,
+            .lifeOriginated = true,
+            .hasComplexLife = true,
+            .supportsFlight = true,
+            .darkSideColony = false,
+            .primaryBlock = BLOCK_GRASS,
+            .accentBlock = BLOCK_DIRT
+        };
+    } else {
+        result = PlanetEcologyProfileForPlanet(planet, worldSeed, darkSide);
+    }
 
     ecologyProfileCache.valid = true;
+    ecologyProfileCache.homeWorld = homeWorld;
     ecologyProfileCache.darkSide = darkSide;
     ecologyProfileCache.worldSeed = worldSeed;
     ecologyProfileCache.generation++;
     if (ecologyProfileCache.generation == 0u) {
         ecologyProfileCache.generation = 1u;
     }
-    memcpy(&ecologyProfileCache.planet, planet, sizeof(*planet));
+    if (planet) memcpy(&ecologyProfileCache.planet, planet, sizeof(*planet));
+    else memset(&ecologyProfileCache.planet, 0, sizeof(ecologyProfileCache.planet));
     ecologyProfileCache.ecology = result;
     return result;
 }

@@ -42,6 +42,32 @@ uint32_t EcologyMix(uint32_t value)
     return value;
 }
 
+bool EcologyWorldIsActive(void)
+{
+    return PlanetWorldIsActive() || HomeWorldSurfaceIsActive();
+}
+
+uint32_t EcologyWorldSurfaceId(void)
+{
+    return PlanetWorldIsActive() ? PlanetWorldSeed() :
+                                   ECOLOGY_HOMEWORLD_SURFACE_ID;
+}
+
+uint32_t EcologyWorldSeed(void)
+{
+    return PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed();
+}
+
+int EcologyWorldOriginX(void)
+{
+    return PlanetWorldIsActive() ? PlanetWorldOriginX() : 0;
+}
+
+int EcologyWorldOriginZ(void)
+{
+    return PlanetWorldIsActive() ? PlanetWorldOriginZ() : 0;
+}
+
 static uint32_t EcologyFloatBits(float value)
 {
     uint32_t bits;
@@ -86,7 +112,7 @@ int EcologyFloorDivide(int value, int divisor)
 
 uint32_t EcologyHash(int x, int z, uint32_t salt)
 {
-    uint32_t hash = PlanetWorldSeed() ^ salt;
+    uint32_t hash = EcologyWorldSeed() ^ salt;
     hash ^= (uint32_t)x * 0x9e3779b9u;
     hash ^= (uint32_t)z * 0x85ebca6bu;
     return EcologyMix(hash);
@@ -126,7 +152,7 @@ bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
                                      float organismScale,
                                      float ecologyCapacity)
 {
-    if (!PlanetWorldIsActive()) return false;
+    if (!EcologyWorldIsActive()) return false;
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyPopulationRecordFaunaHarvest(
         x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
@@ -137,7 +163,7 @@ bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
 bool PlanetEcologyEvolutionRegionAt(int x, int z, float daylight,
                                     PlanetEvolutionRegion *out)
 {
-    if (!PlanetWorldIsActive() || !out) return false;
+    if (!EcologyWorldIsActive() || !out) return false;
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRegionAt(
         x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
@@ -149,7 +175,7 @@ bool PlanetEcologySampleGenome(int x, int z, float daylight,
                                uint32_t *outLineageId,
                                uint32_t *outSpeciesId)
 {
-    if (!PlanetWorldIsActive()) return false;
+    if (!EcologyWorldIsActive()) return false;
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionSampleGenome(
         x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
@@ -161,7 +187,7 @@ bool PlanetEcologyRecordEvolutionEvent(
     int x, int z, float daylight, uint32_t lineageId,
     PlanetEvolutionEvent event, float biomass)
 {
-    if (!PlanetWorldIsActive()) return false;
+    if (!EcologyWorldIsActive()) return false;
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRecordEvent(
         x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
@@ -171,7 +197,7 @@ bool PlanetEcologyRecordEvolutionEvent(
 PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
 {
     PlanetLocalEcology local = { 0 };
-    if (!PlanetWorldIsActive()) return local;
+    if (!EcologyWorldIsActive()) return local;
 
     // Invalid daylight is the same as a dark cell; normalize before hashing so
     // it cannot create a distinct cache entry or poison a later replay.
@@ -181,8 +207,8 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     uint32_t populationEpoch = EcologyPopulationEpoch();
     double simulationTime = SpacePeriodicSimulationTime(
         SpaceElapsedSimulationTime());
-    int originX = PlanetWorldOriginX();
-    int originZ = PlanetWorldOriginZ();
+    int originX = EcologyWorldOriginX();
+    int originZ = EcologyWorldOriginZ();
     uint64_t editRevision = WorldGetEditRevision();
     uint32_t daylightBits = EcologyFloatBits(daylight);
     unsigned cacheIndex = EcologyLocalCacheIndex(
@@ -209,7 +235,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     int regionZ = EcologyFloorDivide(
         originZ + z, ECOLOGY_POPULATION_REGION_SIZE);
     local.environment.disturbance = EcologyRegionalDisturbance(
-        PlanetWorldSeed(), regionX, regionZ, originX, originZ);
+        EcologyWorldSurfaceId(), regionX, regionZ, originX, originZ);
     local.diagnostics.regionX = regionX;
     local.diagnostics.regionZ = regionZ;
     local.diagnostics.habitatStress = EcologyClamp(

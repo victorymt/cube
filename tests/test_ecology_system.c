@@ -1196,6 +1196,60 @@ static void TestEvolutionRegionAndGenomeReplay(void)
                  afterDeathLocal.population.faunaDensity) < 0.00001f);
 }
 
+static void TestHomeWorldEcologyAndEvolution(void)
+{
+    const float daylight = 0.72f;
+    SpaceReset();
+    EcologyTestSetSeed(0x13579bdfu);
+    PlanetEcologyResetState();
+    assert(HomeWorldSurfaceIsActive());
+
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    assert(profile.chemistry == PLANET_CHEMISTRY_CARBON);
+    assert(profile.lifeOriginated && profile.hasComplexLife);
+    assert(profile.supportsFlight);
+    assert(profile.faunaDensity > 0.0f);
+
+    PlanetLocalEcology local = PlanetEcologyLocalAt(0, 0, daylight);
+    assert(local.suitability.faunaActivity >= 0.0f &&
+           local.suitability.faunaActivity <= 1.0f);
+    PlanetEvolutionRegion initial = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(0, 0, daylight, &initial));
+    assert(initial.lineageCount == 3u);
+    assert(initial.herbivoreDensity + initial.omnivoreDensity +
+           initial.carnivoreDensity > 0.0f);
+
+    CreatureGenome first = { 0 };
+    CreatureGenome replay = { 0 };
+    uint32_t lineageId = 0u;
+    uint32_t speciesId = 0u;
+    assert(PlanetEcologySampleGenome(
+        0, 0, daylight, 0x2468ace0u, &first, &lineageId, &speciesId));
+    assert(PlanetEcologySampleGenome(
+        0, 0, daylight, 0x2468ace0u, &replay, NULL, NULL));
+    assert(memcmp(&first, &replay, sizeof(first)) == 0);
+    assert(lineageId != 0u && speciesId != 0u);
+    assert(EvolutionDevelop(&first).valid);
+
+    SpaceAdvanceTime(96.0f);
+    PlanetEvolutionRegion evolved = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(0, 0, daylight, &evolved));
+    assert(evolved.bootstrapComplete);
+    assert(evolved.bootstrapGeneration == 24u);
+
+    FILE *saved = tmpfile();
+    assert(saved);
+    assert(PlanetEcologySaveState(saved));
+    PlanetEcologyResetState();
+    rewind(saved);
+    assert(PlanetEcologyLoadState(saved));
+    PlanetEvolutionRegion loaded = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(0, 0, daylight, &loaded));
+    assert(memcmp(&loaded, &evolved, sizeof(loaded)) == 0);
+    fclose(saved);
+    SpaceReset();
+}
+
 typedef struct ChunkBlockSnapshot {
     int cx;
     int cz;
@@ -1720,6 +1774,7 @@ int main(void)
     TestEcologyFaunaHarvestFeedback();
     TestEcologyLegacyPopulationStateLoad();
     TestEvolutionRegionAndGenomeReplay();
+    TestHomeWorldEcologyAndEvolution();
     TestFloraMeshDeformationProperties();
     TestChunkUnloadReloadDeterminism();
     puts("ecology system tests passed");

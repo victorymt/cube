@@ -87,6 +87,10 @@ send_command 'evolution inspect'
 wait_for_reply '^DEBUG_CONTROL evolution inspect none radius=24.000$'
 send_command 'evolution advance 1'
 wait_for_reply '^DEBUG_CONTROL evolution advance ok days=1.000$'
+send_command 'evolution region'
+wait_for_reply '^DEBUG_CONTROL evolution region ok lineages=3 '
+send_command 'evolution bootstrap status'
+wait_for_reply '^DEBUG_CONTROL evolution region ok lineages=3 '
 
 send_command 'teleport 0.5 76.002960 0.5 3.141593 -0.25'
 wait_for_reply '^DEBUG_CONTROL teleport ok '
@@ -130,7 +134,7 @@ grep -Fxq 'environment.feet_submerged=true' "$report_path"
 grep -Fxq 'environment.body_submerged=true' "$report_path"
 grep -Fxq 'environment.eyes_submerged=true' "$report_path"
 grep -Fxq 'evolution.entity_selected=false' "$report_path"
-grep -Fxq 'evolution.region_available=false' "$report_path"
+grep -Fxq 'evolution.region_available=true' "$report_path"
 
 underwater_depth=$(awk -F= '$1 == "environment.underwater_depth" { print $2 }' "$report_path")
 awk -v depth="$underwater_depth" 'BEGIN { exit !(depth >= 3.0 && depth <= 4.5) }'

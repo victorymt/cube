@@ -728,6 +728,31 @@ static bool EntityIsAlien(EntityType type)
     return type >= ENTITY_ALIEN_GRAZER && type <= ENTITY_ALIEN_STRIDER;
 }
 
+static bool EntityUsesEcology(const Entity *entity)
+{
+    return entity && (entity->evolvable || EntityIsAlien(entity->type));
+}
+
+static bool EntityAnyEvolvable(void)
+{
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        if (entities[index].active && entities[index].evolvable) return true;
+    }
+    return false;
+}
+
+static EntityType EntityEvolutionTypeForArchetype(
+    EvolutionArchetype archetype, bool alienWorld)
+{
+    if (alienWorld) {
+        return archetype == EVOLUTION_ARCHETYPE_FLIGHT ? ENTITY_ALIEN_HOPPER :
+            archetype == EVOLUTION_ARCHETYPE_AQUATIC ? ENTITY_ALIEN_STRIDER :
+            ENTITY_ALIEN_GRAZER;
+    }
+    return archetype == EVOLUTION_ARCHETYPE_FLIGHT ? ENTITY_CHICKEN :
+        archetype == EVOLUTION_ARCHETYPE_AQUATIC ? ENTITY_PIG : ENTITY_COW;
+}
+
 static float EntityUnit(float value)
 {
     if (!isfinite(value) || value <= 0.0f) return 0.0f;
@@ -839,26 +864,35 @@ static void SpawnPassive(const Player *player, float daylight)
     if (slot < 0) return;
 
     bool alienWorld = PlanetWorldIsActive();
+    bool homeWorld = !alienWorld &&
+        WorldBlockRegionAt((int)floorf(player->position.y)) ==
+        WORLD_BLOCK_REGION_SURFACE;
     PlanetEcologyProfile ecology = { 0 };
     if (alienWorld) {
         ecology = PlanetEcologyCurrent();
         if (!ecology.supportsFlight && player->position.y > 40.0f) return;
-    } else if (player->position.y > 40.0f) {
+    } else if (!homeWorld && player->position.y > 40.0f) {
         return;
     }
     EntityType type = ENTITY_COW;
     EvolutionArchetype evolutionArchetype = EVOLUTION_ARCHETYPE_GROUND;
-    if (alienWorld) {
+    bool evolvableSpawn = alienWorld ||
+        (homeWorld && (!EntityAnyEvolvable() ||
+                       EntityRandomBounded(100u) < 45));
+    if (evolvableSpawn) {
+        ecology = PlanetEcologyCurrent();
         if (ecology.faunaDensity <= 0.0f) return;
         uint32_t speciesSeed = PlanetWorldSeed();
-        int species = (int)((speciesSeed +
-            (uint32_t)EntityRandomBounded(3u) * 17u) % 3u);
-        type = (EntityType)(ENTITY_ALIEN_GRAZER + species);
-        evolutionArchetype = EntityEvolutionArchetypeForType(type);
-        if (evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT &&
-            !ecology.supportsFlight) {
-            type = ENTITY_ALIEN_GRAZER;
-            evolutionArchetype = EVOLUTION_ARCHETYPE_GROUND;
+        if (alienWorld) {
+            int species = (int)((speciesSeed +
+                (uint32_t)EntityRandomBounded(3u) * 17u) % 3u);
+            type = (EntityType)(ENTITY_ALIEN_GRAZER + species);
+            evolutionArchetype = EntityEvolutionArchetypeForType(type);
+            if (evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT &&
+                !ecology.supportsFlight) {
+                type = ENTITY_ALIEN_GRAZER;
+                evolutionArchetype = EVOLUTION_ARCHETYPE_GROUND;
+            }
         }
     } else {
         EntityType types[4] = { ENTITY_COW, ENTITY_SHEEP, ENTITY_PIG, ENTITY_CHICKEN };
@@ -872,18 +906,19 @@ static void SpawnPassive(const Player *player, float daylight)
     uint32_t organismSeed = 0u;
     bool haveSampledGenome = false;
     float angle = (float)EntityRandomBounded(628u) / 100.0f;
-    float dist = alienWorld ? 12.0f + (float)EntityRandomBounded(160u) / 10.0f
+    float dist = evolvableSpawn ? 12.0f + (float)EntityRandomBounded(160u) / 10.0f
                             : 14.0f + (float)EntityRandomBounded(300u) / 10.0f;
     int gx = (int)floorf(player->position.x + cosf(angle) * dist);
     int gz = (int)floorf(player->position.z + sinf(angle) * dist);
-    if (alienWorld) {
+    if (evolvableSpawn) {
         localEcology = PlanetEcologyLocalAt(gx, gz, daylight);
         float faunaActivity = localEcology.suitability.faunaActivity;
         if (!PlanetFaunaSpawnAccepted(
                 faunaActivity, (uint32_t)EntityRandomBounded(1000u))) {
             return;
         }
-        organismSeed = EntityMix(PlanetWorldSeed() ^
+        organismSeed = EntityMix((PlanetWorldIsActive() ? PlanetWorldSeed() :
+            WorldGetSeed()) ^
             (uint32_t)gx * 0x9e3779b9u ^ (uint32_t)gz * 0x85ebca6bu ^
             EntityRandomNext());
         if (organismSeed == 0u) organismSeed = 1u;
@@ -900,22 +935,24 @@ static void SpawnPassive(const Player *player, float daylight)
                     sampledPhenotype.locomotion ==
                     CREATURE_LOCOMOTION_AQUATIC ?
                     EVOLUTION_ARCHETYPE_AQUATIC : EVOLUTION_ARCHETYPE_GROUND;
-                type = evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT ?
-                    ENTITY_ALIEN_HOPPER : evolutionArchetype ==
-                    EVOLUTION_ARCHETYPE_AQUATIC ? ENTITY_ALIEN_STRIDER :
-                    ENTITY_ALIEN_GRAZER;
+                type = EntityEvolutionTypeForArchetype(
+                    evolutionArchetype, alienWorld);
             }
         }
     }
-    if (alienWorld && evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT &&
+    if (evolvableSpawn && evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT &&
         !ecology.supportsFlight) return;
-    if (alienWorld && evolutionArchetype == EVOLUTION_ARCHETYPE_GROUND &&
+    if (evolvableSpawn && evolutionArchetype == EVOLUTION_ARCHETYPE_GROUND &&
         !PlanetBiomeSupportsFauna(gx, gz) &&
         ecology.niche != PLANET_NICHE_CRYSTAL_GRAZER) return;
     int groundY = EntitySurfaceHeight(gx, gz);
     int waterY = -1;
-    if (alienWorld && evolutionArchetype == EVOLUTION_ARCHETYPE_AQUATIC) {
-        for (int y = groundY + 2; y >= groundY - 5; y--) {
+    if (evolvableSpawn && evolutionArchetype == EVOLUTION_ARCHETYPE_AQUATIC) {
+        int seaLevel = homeWorld ? HOME_SEA_LEVEL : -1;
+        int scanTop = fmaxf((float)groundY + 2.0f,
+                            (float)(seaLevel >= 0 ? seaLevel : groundY + 2));
+        scanTop = (int)fminf(scanTop, (float)WORLD_HEIGHT - 2.0f);
+        for (int y = scanTop; y >= groundY - 5; y--) {
             if (GetBlockAt(gx, y, gz) == BLOCK_WATER) {
                 waterY = y;
                 break;
@@ -923,11 +960,15 @@ static void SpawnPassive(const Player *player, float daylight)
         }
         if (waterY < 0) return;
     }
-    if (!alienWorld || evolutionArchetype == EVOLUTION_ARCHETYPE_GROUND) {
+    if (!evolvableSpawn || evolutionArchetype == EVOLUTION_ARCHETYPE_GROUND) {
         BlockType spawnAt = GetBlockAt(gx, groundY + 1, gz);
         BlockType spawnAbove = GetBlockAt(gx, groundY + 2, gz);
-        if (spawnAt != BLOCK_AIR && spawnAt != BLOCK_WATER && spawnAt != BLOCK_LAVA) return;
-        if (spawnAbove != BLOCK_AIR && spawnAbove != BLOCK_WATER && spawnAbove != BLOCK_LAVA) return;
+        if (evolvableSpawn) {
+            if (spawnAt != BLOCK_AIR || spawnAbove != BLOCK_AIR) return;
+        } else {
+            if (spawnAt != BLOCK_AIR && spawnAt != BLOCK_WATER && spawnAt != BLOCK_LAVA) return;
+            if (spawnAbove != BLOCK_AIR && spawnAbove != BLOCK_WATER && spawnAbove != BLOCK_LAVA) return;
+        }
     }
 
     Entity *entity = &entities[slot];
@@ -936,7 +977,7 @@ static void SpawnPassive(const Player *player, float daylight)
     entity->type = type;
     float spawnY = evolutionArchetype == EVOLUTION_ARCHETYPE_AQUATIC ?
         (float)waterY + 0.35f : (float)groundY + 1.0f;
-    if (alienWorld && evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT) {
+    if (evolvableSpawn && evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT) {
         float flightBase = fmaxf(spawnY + 3.0f, player->position.y + 1.5f);
         spawnY = fminf((float)WORLD_HEIGHT - 3.0f,
                        flightBase + (float)EntityRandomBounded(45u) / 10.0f);
@@ -948,19 +989,20 @@ static void SpawnPassive(const Player *player, float daylight)
     entity->moveTimer = 0.0f;
     entity->thinkTimer = 1.0f + (float)EntityRandomBounded(200u) / 100.0f;
     entity->burnTimer = 0.0f;
-    entity->bodyPlan = alienWorld ? ecology.bodyPlan : PLANET_BODY_QUADRUPED;
-    entity->chemistry = alienWorld ? ecology.chemistry : PLANET_CHEMISTRY_CARBON;
-    entity->niche = alienWorld ? ecology.niche : PLANET_NICHE_GRAZER;
-    entity->organismScale = alienWorld ? ecology.organismScale : 1.0f;
-    entity->bodyArmor = alienWorld ? ecology.bodyArmor : 0.0f;
-    entity->movementSpeed = alienWorld ? ecology.movementSpeed : 0.85f;
-    entity->temperament = alienWorld ? ecology.temperament : 0.2f;
-    entity->limbCount = alienWorld ? ecology.limbCount : 4;
-    entity->airborne = alienWorld && ecology.bodyPlan == PLANET_BODY_FLOATING;
-    entity->colony = alienWorld && ecology.bodyPlan == PLANET_BODY_COLONY;
-    if (alienWorld) {
+    entity->bodyPlan = evolvableSpawn ? ecology.bodyPlan : PLANET_BODY_QUADRUPED;
+    entity->chemistry = evolvableSpawn ? ecology.chemistry : PLANET_CHEMISTRY_CARBON;
+    entity->niche = evolvableSpawn ? ecology.niche : PLANET_NICHE_GRAZER;
+    entity->organismScale = evolvableSpawn ? ecology.organismScale : 1.0f;
+    entity->bodyArmor = evolvableSpawn ? ecology.bodyArmor : 0.0f;
+    entity->movementSpeed = evolvableSpawn ? ecology.movementSpeed : 0.85f;
+    entity->temperament = evolvableSpawn ? ecology.temperament : 0.2f;
+    entity->limbCount = evolvableSpawn ? ecology.limbCount : 4;
+    entity->airborne = evolvableSpawn && ecology.bodyPlan == PLANET_BODY_FLOATING;
+    entity->colony = evolvableSpawn && ecology.bodyPlan == PLANET_BODY_COLONY;
+    if (evolvableSpawn) {
         if (organismSeed == 0u) {
-            organismSeed = EntityMix(PlanetWorldSeed() ^
+            organismSeed = EntityMix((PlanetWorldIsActive() ? PlanetWorldSeed() :
+                WorldGetSeed()) ^
                 (uint32_t)gx * 0x9e3779b9u ^
                 (uint32_t)gz * 0x85ebca6bu ^ EntityRandomNext());
             if (organismSeed == 0u) organismSeed = 1u;
@@ -976,23 +1018,23 @@ static void SpawnPassive(const Player *player, float daylight)
     }
     entity->hoverHeight = spawnY;
     entity->phase = (float)EntityRandomBounded(628u) / 100.0f;
-    entity->ecologyActivity = alienWorld
+    entity->ecologyActivity = evolvableSpawn
         ? localEcology.suitability.faunaActivity : 1.0f;
-    entity->ecologyCapacity = alienWorld
+    entity->ecologyCapacity = evolvableSpawn
         ? localEcology.suitability.faunaCapacity : 1.0f;
     entity->ecologyWindStrength = 0.0f;
     entity->ecologyWindAngle = 0.0f;
     EntityInitializeBehaviorState(entity);
-    if (alienWorld) {
+    if (evolvableSpawn) {
         WeatherFieldSample weather = WeatherFieldSampleAtWorld(gx, gz);
         entity->ecologyWindStrength = weather.wind;
         entity->ecologyWindAngle = WeatherWindAngleAtWorld(gx, gz);
         EntityApplyLocalBehaviorEnvironment(entity, &localEcology, weather);
     }
-    entity->ecologySampleTimer = alienWorld
+    entity->ecologySampleTimer = evolvableSpawn
         ? 0.25f + (float)slot / (float)MAX_ENTITIES : 1.0f;
-    entity->primaryBlock = alienWorld ? ecology.primaryBlock : BLOCK_GRASS;
-    entity->accentBlock = alienWorld ? ecology.accentBlock : BLOCK_DIRT;
+    entity->primaryBlock = evolvableSpawn ? ecology.primaryBlock : BLOCK_GRASS;
+    entity->accentBlock = evolvableSpawn ? ecology.accentBlock : BLOCK_DIRT;
 }
 
 static void SpawnHostile(const Player *player, float daylight)
@@ -1448,10 +1490,12 @@ static bool EntityBirthOffspring(Entity *mother, float daylight)
     Entity *child = &entities[slot];
     memset(child, 0, sizeof(*child));
     child->active = true;
-    child->type = phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT ?
-        ENTITY_ALIEN_HOPPER :
-        phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC ?
-        ENTITY_ALIEN_STRIDER : ENTITY_ALIEN_GRAZER;
+    child->type = EntityEvolutionTypeForArchetype(
+        phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT ?
+            EVOLUTION_ARCHETYPE_FLIGHT :
+            phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC ?
+            EVOLUTION_ARCHETYPE_AQUATIC : EVOLUTION_ARCHETYPE_GROUND,
+        EntityIsAlien(mother->type));
     child->position = mother->position;
     child->position.x += (float)EntityRandomBounded(21u) / 20.0f - 0.5f;
     child->position.z += (float)EntityRandomBounded(21u) / 20.0f - 0.5f;
@@ -1553,9 +1597,9 @@ static void UpdatePassive(Entity *entity, int entityIndex,
 {
     EntityUpdateEvolutionLifecycle(entity, entityIndex, dt, daylight);
     if (!entity->active || entity->corpse) return;
-    bool alien = EntityIsAlien(entity->type);
+    bool ecological = EntityUsesEcology(entity);
     PlanetFaunaRuntimeState runtime = PlanetEcologyFaunaRuntime(1.0f, 1.0f);
-    if (alien) {
+    if (ecological) {
         entity->ecologySampleTimer -= dt;
         if (entity->ecologySampleTimer <= 0.0f) {
             PlanetLocalEcology local = PlanetEcologyLocalAt(
@@ -1578,18 +1622,18 @@ static void UpdatePassive(Entity *entity, int entityIndex,
     }
 
     float baseSpeed = (entity->type == ENTITY_CHICKEN) ? 0.7f : 1.0f;
-    if (alien) {
+    if (ecological) {
         baseSpeed = entity->movementSpeed;
-        if (entity->type == ENTITY_ALIEN_HOPPER) baseSpeed *= 1.25f;
-        else if (entity->type == ENTITY_ALIEN_STRIDER) baseSpeed *= 1.10f;
-        else if (entity->type == ENTITY_ALIEN_GRAZER) baseSpeed *= 0.92f;
+        if (entity->airborne) baseSpeed *= 1.25f;
+        else if (entity->aquatic) baseSpeed *= 1.10f;
+        else baseSpeed *= 0.92f;
     }
     Vector3 toPlayer = Vector3Subtract(player->position, entity->position);
     float playerDist = Vector3Length(toPlayer);
     bool threatened = playerDist < 5.0f;
-    float movementScale = alien ? runtime.movementScale : 1.0f;
-    if (alien && threatened) movementScale = fmaxf(movementScale, 0.28f);
-    float windDrift = alien
+    float movementScale = ecological ? runtime.movementScale : 1.0f;
+    if (ecological && threatened) movementScale = fmaxf(movementScale, 0.28f);
+    float windDrift = ecological
         ? PlanetEcologyWindDrift(entity->ecologyWindStrength,
                                  entity->airborne)
         : 0.0f;
@@ -1626,7 +1670,7 @@ static void UpdatePassive(Entity *entity, int entityIndex,
         float baseThinkInterval = 2.0f +
             (float)EntityRandomBounded(300u) / 100.0f;
         EntityBehaviorDirections directions = { 0 };
-        if (alien && !threatened && !entity->colony) {
+        if (ecological && !threatened && !entity->colony) {
             directions = AlienBehaviorDirectionsAt(entity, daylight);
         }
         FaunaBehaviorInput behaviorInput = {
@@ -1646,7 +1690,7 @@ static void UpdatePassive(Entity *entity, int entityIndex,
                 (float)EntityRandomBounded(200u) / 100.0f,
             .currentAction = entity->behavior,
             .colony = entity->colony,
-            .dormant = alien && runtime.dormant
+            .dormant = ecological && runtime.dormant
         };
         FaunaBehaviorDecision decision = FaunaBehaviorEvaluate(&behaviorInput);
         int evolutionTarget = -1;
@@ -1735,7 +1779,7 @@ static void UpdatePassive(Entity *entity, int entityIndex,
     }
 
     actionActive = entity->moveTimer > 0.0f;
-    float animationScale = alien ? runtime.animationScale : 1.0f;
+    float animationScale = ecological ? runtime.animationScale : 1.0f;
     if (actionActive && entity->behavior == FAUNA_ACTION_REST) {
         animationScale *= 0.35f;
     }
@@ -1807,12 +1851,13 @@ static void UpdatePassive(Entity *entity, int entityIndex,
         0.0f,
         entity->velocity.z
     };
-    if (alien && windDrift > 0.0f) {
+    if (ecological && windDrift > 0.0f) {
         float coupledDrift = windDrift * motionProfile.windCoupling;
         move.x += cosf(entity->ecologyWindAngle) * coupledDrift;
         move.z += sinf(entity->ecologyWindAngle) * coupledDrift;
     }
-    if (motion.speed > 0.0f || (alien && entity->airborne && windDrift > 0.0f)) {
+    if (motion.speed > 0.0f ||
+        (ecological && entity->airborne && windDrift > 0.0f)) {
         if (entity->airborne || entity->aquatic) {
             MoveEntityAirborne(entity, &motionProfile, move, dt);
         } else {
@@ -1867,7 +1912,10 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
     if (entitySpawnTimer <= 0.0f) {
         entitySpawnTimer = 1.5f;
         int populationCap = MAX_ENTITIES - 4;
-        if (PlanetWorldIsActive()) {
+        bool ecologyWorld = PlanetWorldIsActive() ||
+            WorldBlockRegionAt((int)floorf(player->position.y)) ==
+            WORLD_BLOCK_REGION_SURFACE;
+        if (ecologyWorld) {
             int playerX = (int)floorf(player->position.x);
             int playerZ = (int)floorf(player->position.z);
             float localFauna = PlanetEcologyFaunaDensityAt(
@@ -2221,7 +2269,7 @@ void EntitiesDraw(void)
         const Entity *entity = &entities[i];
         if (!entity->active) continue;
 
-        if (EntityIsAlien(entity->type)) {
+        if (EntityUsesEcology(entity)) {
             DrawAlienEntity(entity);
             continue;
         }
@@ -2281,7 +2329,7 @@ int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance)
             radius = 0.9f;
             height = 2.8f;
         }
-        if (EntityIsAlien(entity->type)) {
+        if (EntityUsesEcology(entity)) {
             float scale = entity->organismScale > 0.1f ? entity->organismScale : 1.0f;
             radius = 0.62f * scale;
             height = 1.55f * scale;
@@ -2306,7 +2354,7 @@ int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance)
             }
         }
         Vector3 center = { entity->position.x, entity->position.y + height * 0.5f, entity->position.z };
-        if (EntityIsAlien(entity->type) &&
+        if (EntityUsesEcology(entity) &&
             (entity->bodyPlan == PLANET_BODY_FLOATING || entity->aquatic)) {
             center.y = entity->position.y;
         }
@@ -2333,8 +2381,7 @@ bool EntityKill(int index, EntityDeathCause cause, float daylight)
     Entity *entity = &entities[index];
     if (!entity->active) return false;
 
-    if (cause == ENTITY_DEATH_PLAYER && PlanetWorldIsActive() &&
-        EntityIsAlien(entity->type)) {
+    if (cause == ENTITY_DEATH_PLAYER && EntityUsesEcology(entity)) {
         PlanetEcologyRecordFaunaHarvest(
             (int)floorf(entity->position.x),
             (int)floorf(entity->position.z), daylight,

@@ -164,13 +164,17 @@ not driver-reported VRAM.
 
 For scripted visual debugging, start the game with `--debug-stdin`. It accepts
 line-delimited commands: `start`, `screenshot`, `status`, `teleport X Y Z YAW
-PITCH`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, or `quit`. Movement
+PITCH`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, `evolution inspect [RADIUS]`,
+`evolution region`, `evolution advance DAYS`, `evolution bootstrap status`, or
+`quit`. Movement
 components are clamped to `[-1, 1]`, sprint is `0` or `1`, and an input window
 lasts 1-600 fixed 60 FPS frames. Debug sessions ignore desktop keyboard state
 outside those input windows, so runs are reproducible. Replies begin with
 `DEBUG_CONTROL`; status includes player water flags, actual water surface and
 depth, and a successful screenshot reply contains both the PNG and TXT report
-paths. The interface is disabled during a normal launch.
+paths. Evolution inspection and region/bootstrap commands work on both
+Homeworld and generated planet surfaces. The interface is disabled during a
+normal launch.
 
 ## Run
 

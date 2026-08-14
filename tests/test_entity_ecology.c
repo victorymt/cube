@@ -891,6 +891,44 @@ static void TestPlanetLightStateDeterminism(void)
     PlanetWorldReset();
 }
 
+static void TestHomeWorldEvolvableEntities(void)
+{
+    const float daylight = 0.72f;
+    SpaceReset();
+    EcologyTestSetSeed(0x2468ace1u);
+    PlanetEcologyResetState();
+    assert(HomeWorldSurfaceIsActive());
+    assert(PlanetEcologyCurrent().faunaDensity > 0.0f);
+
+    assert(ChunksStartGenThread());
+    Player player = { 0 };
+    PlacePlayerAt(&player, 0, 0);
+    PrepareChunksAt(&player);
+    EntitiesInit();
+    for (int frame = 0; frame < 1800; frame++) {
+        RunEntityFrames(&player, 1, daylight);
+    }
+    assert(GetActiveEntityCount() > 0);
+    int nearest = EntityNearestEvolvable(player.position, 96.0f);
+    assert(nearest >= 0);
+    EntityEvolutionDebugInfo info = { 0 };
+    assert(EntityEvolutionInspect(nearest, &info));
+    assert(info.valid && info.moduleCount > 0u);
+
+    int removedEvolvable = 0;
+    while ((nearest = EntityNearestEvolvable(player.position, 96.0f)) >= 0) {
+        assert(EntityKill(nearest, ENTITY_DEATH_ENVIRONMENT, daylight));
+        removedEvolvable++;
+        if (removedEvolvable > MAX_ENTITIES) break;
+    }
+    assert(removedEvolvable > 0);
+    assert(GetActiveEntityCount() > 0);
+
+    UnloadAllChunks();
+    ChunksShutdownGenThread();
+    SpaceReset();
+}
+
 int main(void)
 {
     TestCrossSeedSeasonalEntityProperties();
@@ -898,6 +936,7 @@ int main(void)
     TestCrossSeedEntityHarvestFeedback();
     TestEntityEcologySystemReplay();
     TestPlanetLightStateDeterminism();
+    TestHomeWorldEvolvableEntities();
     puts("entity ecology tests passed");
     return 0;
 }

@@ -742,13 +742,13 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
     PlanetRegionalPopulation empty = { 0 };
     if (outMigration) *outMigration = (PlanetPopulationMigrationState){ 0 };
     pthread_mutex_lock(&ecologyPopulationMutex);
-    int originX = PlanetWorldOriginX();
-    int originZ = PlanetWorldOriginZ();
+    int originX = EcologyWorldOriginX();
+    int originZ = EcologyWorldOriginZ();
     int globalX = originX + x;
     int globalZ = originZ + z;
     int regionX = EcologyFloorDivide(globalX, ECOLOGY_POPULATION_REGION_SIZE);
     int regionZ = EcologyFloorDivide(globalZ, ECOLOGY_POPULATION_REGION_SIZE);
-    uint32_t surfaceId = PlanetWorldSeed();
+    uint32_t surfaceId = EcologyWorldSurfaceId();
     double stepTime = EcologyPopulationStepTime(simulationTime);
     EcologyPopulationAdvanceRecords(
         surfaceId, stepTime, daylight, profile, originX, originZ);
@@ -794,13 +794,13 @@ static EcologyPopulationRecord *EcologyEvolutionRecordAt(
     int x, int z, double simulationTime, float daylight,
     const PlanetEcologyProfile *profile, bool *created)
 {
-    int originX = PlanetWorldOriginX();
-    int originZ = PlanetWorldOriginZ();
+    int originX = EcologyWorldOriginX();
+    int originZ = EcologyWorldOriginZ();
     int regionX = EcologyFloorDivide(
         originX + x, ECOLOGY_POPULATION_REGION_SIZE);
     int regionZ = EcologyFloorDivide(
         originZ + z, ECOLOGY_POPULATION_REGION_SIZE);
-    uint32_t surfaceId = PlanetWorldSeed();
+    uint32_t surfaceId = EcologyWorldSurfaceId();
     double stepTime = EcologyPopulationStepTime(simulationTime);
     EcologyPopulationAdvanceRecords(
         surfaceId, stepTime, daylight, profile, originX, originZ);
@@ -958,13 +958,13 @@ bool EcologyPopulationRecordFaunaHarvest(
     }
 
     pthread_mutex_lock(&ecologyPopulationMutex);
-    int originX = PlanetWorldOriginX();
-    int originZ = PlanetWorldOriginZ();
+    int originX = EcologyWorldOriginX();
+    int originZ = EcologyWorldOriginZ();
     int regionX = EcologyFloorDivide(
         originX + x, ECOLOGY_POPULATION_REGION_SIZE);
     int regionZ = EcologyFloorDivide(
         originZ + z, ECOLOGY_POPULATION_REGION_SIZE);
-    uint32_t surfaceId = PlanetWorldSeed();
+    uint32_t surfaceId = EcologyWorldSurfaceId();
     double stepTime = EcologyPopulationStepTime(simulationTime);
     EcologyPopulationAdvanceRecords(
         surfaceId, stepTime, daylight, profile, originX, originZ);
