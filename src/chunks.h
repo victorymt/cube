@@ -125,6 +125,8 @@ bool ChunkSectionIntersectsCameraView(const Chunk *chunk,
 bool SphereInFrustum(const Camera3D *camera, Vector3 center, float radius);
 
 #ifdef CHUNKS_TESTING
+bool ChunksTestSphereInFrustum(const Camera3D *camera, Vector3 center,
+                               float radius, float aspect);
 void ChunksTestResetScheduler(void);
 void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool dirty);
 bool ChunksTestChunkDirty(int slotIndex);

@@ -3590,8 +3590,13 @@ bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int eff
            abs(chunk->cz - cameraCz) <= effectiveRenderDistance;
 }
 
-bool SphereInFrustum(const Camera3D *camera, Vector3 center, float radius)
+static bool SphereInFrustumWithAspect(const Camera3D *camera, Vector3 center,
+                                      float radius, float aspect)
 {
+    if (!camera || !isfinite(radius) || radius < 0.0f ||
+        !isfinite(aspect) || aspect <= 0.0f) {
+        return false;
+    }
     Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
     Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera->up));
     Vector3 up = Vector3Normalize(Vector3CrossProduct(right, forward));
@@ -3602,14 +3607,29 @@ bool SphereInFrustum(const Camera3D *camera, Vector3 center, float radius)
 
     float visibleDepth = fmaxf(depth, CAMERA_NEAR_CULL_DISTANCE);
     float verticalTan = tanf(camera->fovy * DEG2RAD * 0.5f);
-    int screenHeight = GetScreenHeight();
-    float aspect = screenHeight > 0 ? (float)GetScreenWidth() / (float)screenHeight : 1.0f;
     float horizontalTan = verticalTan * aspect;
     float horizontalOffset = fabsf(Vector3DotProduct(toCenter, right));
     float verticalOffset = fabsf(Vector3DotProduct(toCenter, up));
+    // The side-plane equations are not normalized, so scale the sphere
+    // radius by each plane normal's length before comparing distances.
+    float horizontalRadius = radius * sqrtf(1.0f + horizontalTan * horizontalTan);
+    float verticalRadius = radius * sqrtf(1.0f + verticalTan * verticalTan);
 
-    return horizontalOffset <= visibleDepth * horizontalTan + radius &&
-           verticalOffset <= visibleDepth * verticalTan + radius;
+    return horizontalOffset <= visibleDepth * horizontalTan + horizontalRadius &&
+           verticalOffset <= visibleDepth * verticalTan + verticalRadius;
+}
+
+bool SphereInFrustum(const Camera3D *camera, Vector3 center, float radius)
+{
+    int renderWidth = GetRenderWidth();
+    int renderHeight = GetRenderHeight();
+    if (renderWidth <= 0 || renderHeight <= 0) {
+        renderWidth = GetScreenWidth();
+        renderHeight = GetScreenHeight();
+    }
+    float aspect = renderWidth > 0 && renderHeight > 0
+        ? (float)renderWidth / (float)renderHeight : 1.0f;
+    return SphereInFrustumWithAspect(camera, center, radius, aspect);
 }
 
 bool ChunkIntersectsCameraView(const Chunk *chunk, const Camera3D *camera)
@@ -3814,6 +3834,12 @@ RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void)
 }
 
 #ifdef CHUNKS_TESTING
+bool ChunksTestSphereInFrustum(const Camera3D *camera, Vector3 center,
+                               float radius, float aspect)
+{
+    return SphereInFrustumWithAspect(camera, center, radius, aspect);
+}
+
 void ChunksTestResetScheduler(void)
 {
     pthread_mutex_lock(&genMutex);

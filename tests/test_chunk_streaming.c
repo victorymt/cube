@@ -2,6 +2,7 @@
 #include "world_environment.h"
 
 #include <assert.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -57,6 +58,61 @@ static void AssertFreshStats(void)
     assert(stats.meshSubmitted == 0);
     assert(stats.meshSnapshotBytes == 0);
     assert(stats.syncRebuilds == 0);
+}
+
+static Camera3D TestPerspectiveCamera(float fovY)
+{
+    return (Camera3D){
+        .position = { 0.0f, 0.0f, 0.0f },
+        .target = { 0.0f, 0.0f, 1.0f },
+        .up = { 0.0f, 1.0f, 0.0f },
+        .fovy = fovY,
+        .projection = CAMERA_PERSPECTIVE
+    };
+}
+
+static void TestFrustumSphereEdgesRemainVisible(void)
+{
+    Camera3D camera = TestPerspectiveCamera(90.0f);
+    const float aspect = 16.0f / 9.0f;
+    const float radius = sqrtf(8.0f * 8.0f * 3.0f);
+    const float depth = 32.0f;
+    const float verticalTan = tanf(camera.fovy * DEG2RAD * 0.5f);
+    const float horizontalTan = verticalTan * aspect;
+    const float horizontalLimit = depth * horizontalTan +
+        radius * sqrtf(1.0f + horizontalTan * horizontalTan);
+    const float verticalLimit = depth * verticalTan +
+        radius * sqrtf(1.0f + verticalTan * verticalTan);
+
+    assert(ChunksTestSphereInFrustum(
+        &camera, (Vector3){ horizontalLimit - 0.05f, 0.0f, depth },
+        radius, aspect));
+    assert(!ChunksTestSphereInFrustum(
+        &camera, (Vector3){ horizontalLimit + 0.05f, 0.0f, depth },
+        radius, aspect));
+    assert(ChunksTestSphereInFrustum(
+        &camera, (Vector3){ 0.0f, verticalLimit - 0.05f, depth },
+        radius, aspect));
+    assert(!ChunksTestSphereInFrustum(
+        &camera, (Vector3){ 0.0f, verticalLimit + 0.05f, depth },
+        radius, aspect));
+}
+
+static void TestFrustumNearPlaneAndRenderAspect(void)
+{
+    Camera3D camera = TestPerspectiveCamera(90.0f);
+    assert(!ChunksTestSphereInFrustum(
+        &camera, (Vector3){ 0.0f, 0.0f, -2.0f }, 1.0f, 1.0f));
+    assert(ChunksTestSphereInFrustum(
+        &camera, (Vector3){ 0.0f, 0.0f, -0.5f }, 1.0f, 1.0f));
+
+    const float logicalAspect = 1280.0f / 720.0f;
+    const float renderAspect = 1692.0f / 926.0f;
+    Vector3 edgeCenter = { 182.0f, 0.0f, 100.0f };
+    assert(!ChunksTestSphereInFrustum(
+        &camera, edgeCenter, 1.0f, logicalAspect));
+    assert(ChunksTestSphereInFrustum(
+        &camera, edgeCenter, 1.0f, renderAspect));
 }
 
 static void TestSingleChunkUsesSingleJobAndNearestFirst(void)
@@ -258,6 +314,8 @@ int main(void)
 {
     memset(chunks, 0, sizeof(chunks));
     AssertFreshStats();
+    TestFrustumSphereEdgesRemainVisible();
+    TestFrustumNearPlaneAndRenderAspect();
     TestSingleChunkUsesSingleJobAndNearestFirst();
     TestFullQueueLeavesDirtyChunkForLater();
     TestFullGenerationQueueDoesNotFallBackToMainThread();
