@@ -196,8 +196,21 @@ typedef struct PlanetAtmosphereVisual {
     float scaleHeight;
 } PlanetAtmosphereVisual;
 
-static Color PlanetAtmosphereBaseColor(SolarBodyStyle style)
+static Color PlanetAtmosphereBaseColor(const PlanetProfile *profile)
 {
+    if (profile) {
+        switch (profile->canonicalBodyId) {
+        case 2u: return (Color){ 218, 174, 72, 255 };
+        case 3u: return (Color){ 82, 154, 218, 255 };
+        case 4u: return (Color){ 198, 112, 70, 255 };
+        case 5u: return (Color){ 202, 164, 126, 255 };
+        case 6u: return (Color){ 220, 198, 150, 255 };
+        case 7u: return (Color){ 116, 205, 213, 255 };
+        case 8u: return (Color){ 55, 103, 206, 255 };
+        default: break;
+        }
+    }
+    SolarBodyStyle style = profile ? profile->style : SOLAR_STYLE_SUN;
     switch (style) {
     case SOLAR_STYLE_LAVA:      return (Color){ 232, 88, 42, 255 };
     case SOLAR_STYLE_ICE:       return (Color){ 116, 196, 232, 255 };
@@ -218,7 +231,7 @@ static PlanetAtmosphereVisual PlanetAtmosphereVisualFor(const PlanetProfile *pro
     float gravity = fmaxf(profile->surfaceGravity, 0.20f);
     float temperature = fmaxf(profile->equilibriumTempK, 80.0f);
     visual.scaleHeight = Clamp((temperature / 288.0f) / gravity, 0.52f, 1.85f);
-    Color base = PlanetAtmosphereBaseColor(profile->style);
+    Color base = PlanetAtmosphereBaseColor(profile);
 
     switch (profile->atmosphereType) {
     case PLANET_ATMOSPHERE_NONE:
@@ -2045,6 +2058,7 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
 typedef struct PlanetTextureCacheEntry {
     bool valid;
     uint32_t seed;
+    uint32_t canonicalBodyId;
     SolarBodyStyle style;
     uint32_t oceanKey;
     uint32_t seasonKey;
@@ -2218,14 +2232,14 @@ static Color PlanetCloudColorFor(const PlanetProfile *profile)
 {
     if (profile->atmosphereType == PLANET_ATMOSPHERE_CORROSIVE) {
         return ColorLerp((Color){ 244, 218, 132, 255 },
-                         PlanetAtmosphereBaseColor(profile->style), 0.22f);
+                         PlanetAtmosphereBaseColor(profile), 0.22f);
     }
     if (profile->style == SOLAR_STYLE_ICE || profile->equilibriumTempK < 238.0f) {
         return (Color){ 222, 240, 248, 255 };
     }
     if (profile->atmosphereType == PLANET_ATMOSPHERE_DENSE) {
         return ColorLerp((Color){ 239, 240, 235, 255 },
-                         PlanetAtmosphereBaseColor(profile->style), 0.12f);
+                         PlanetAtmosphereBaseColor(profile), 0.12f);
     }
     return (Color){ 246, 250, 255, 255 };
 }
@@ -2273,6 +2287,61 @@ static Color PlanetCloudPixel(const PlanetProfile *profile, float nx, float ny,
                                      ny * 3.0f, nz * 4.0f - ny * 0.9f, seed);
     float detail = PlanetFractalNoise(nx * 10.5f - 3.1f, ny * 8.0f + 5.7f,
                                       nz * 10.5f + 2.3f, seed ^ 0x9e3779u);
+
+    if (profile) {
+        switch (profile->canonicalBodyId) {
+        case 2u: {
+            float bands = 0.5f + 0.5f * sinf(latitude * 32.0f + warp * 5.0f);
+            Color color = ColorLerp((Color){ 246, 218, 142, 255 },
+                                    (Color){ 205, 161, 82, 255 },
+                                    broad * 0.24f + bands * 0.18f);
+            color.a = PlanetColorChannel((0.88f + detail * 0.10f) * 255.0f);
+            return color;
+        }
+        case 4u: {
+            float polarDust = Clamp((fabsf(ny) - 0.56f) / 0.44f, 0.0f, 1.0f);
+            float dust = broad * 0.54f + detail * 0.18f + polarDust * 0.28f;
+            Color color = ColorLerp((Color){ 211, 153, 116, 255 },
+                                    (Color){ 237, 193, 151, 255 }, detail);
+            color.a = PlanetColorChannel(Clamp((dust - 0.61f) * 1.35f,
+                                               0.0f, 0.28f) * 255.0f);
+            return color;
+        }
+        case 5u: {
+            float lanes = 0.5f + 0.5f * sinf(latitude * 76.0f + warp * 6.0f);
+            Color color = ColorLerp((Color){ 248, 237, 211, 255 },
+                                    (Color){ 219, 185, 145, 255 }, lanes);
+            color.a = PlanetColorChannel((0.10f + lanes * detail * 0.24f) * 255.0f);
+            return color;
+        }
+        case 6u: {
+            float lanes = 0.5f + 0.5f * sinf(latitude * 64.0f + warp * 4.0f);
+            Color color = ColorLerp((Color){ 249, 239, 205, 255 },
+                                    (Color){ 226, 204, 162, 255 }, lanes);
+            color.a = PlanetColorChannel((0.08f + lanes * detail * 0.17f) * 255.0f);
+            return color;
+        }
+        case 7u: {
+            float polarHaze = Clamp((ny - 0.38f) / 0.62f, 0.0f, 1.0f);
+            Color color = ColorLerp((Color){ 199, 237, 236, 255 },
+                                    (Color){ 224, 245, 239, 255 }, polarHaze);
+            color.a = PlanetColorChannel((0.05f + polarHaze * 0.12f +
+                                          detail * 0.04f) * 255.0f);
+            return color;
+        }
+        case 8u: {
+            float lanes = 0.5f + 0.5f * sinf(latitude * 49.0f + warp * 7.0f);
+            float storm = PlanetCloudStorm(point, seed, 0, 1.0f);
+            float opacity = 0.05f + lanes * detail * 0.16f + storm * 0.62f;
+            Color color = ColorLerp((Color){ 190, 223, 247, 255 },
+                                    (Color){ 242, 249, 251, 255 }, storm);
+            color.a = PlanetColorChannel(Clamp(opacity, 0.0f, 0.78f) * 255.0f);
+            return color;
+        }
+        default:
+            break;
+        }
+    }
 
     float equatorialConvergence = expf(-powf(latitude / 0.24f, 2.0f));
     float midLatitudeTracks = expf(-powf((absLatitude - 0.74f) / 0.22f, 2.0f));
@@ -2323,6 +2392,135 @@ static Color CraterPlanetPixel(float nx, float ny, float nz, float noise, uint32
                     PlanetColorChannel(tone), 255 };
 }
 
+static float PlanetTextureWrappedDistance(float left, float right)
+{
+    float distance = fabsf(left - right);
+    return fminf(distance, 1.0f - distance);
+}
+
+static float PlanetTextureEllipse(float u, float v, float centerU, float centerV,
+                                  float radiusU, float radiusV)
+{
+    float du = PlanetTextureWrappedDistance(u, centerU) / radiusU;
+    float dv = (v - centerV) / radiusV;
+    return sqrtf(du * du + dv * dv);
+}
+
+static bool CanonicalSolarPlanetPixel(
+    const PlanetProfile *profile, float nx, float ny, float nz, float u, float v,
+    uint32_t seed, const PlanetSurfaceSample *surface, Color *outColor)
+{
+    if (!profile || !surface || !outColor || profile->canonicalBodyId == 0u) {
+        return false;
+    }
+
+    float broad = surface->continentalness;
+    float fine = surface->detail;
+    switch (profile->canonicalBodyId) {
+    case 1u: {
+        Color color = CraterPlanetPixel(nx, ny, nz, broad, seed);
+        color = ColorLerp(color, (Color){ 103, 98, 91, 255 },
+                          surface->regionalness * 0.22f);
+        color = ColorLerp(color, (Color){ 55, 57, 61, 255 },
+                          surface->impactDepth * 0.52f);
+        color = ColorLerp(color, (Color){ 183, 180, 169, 255 },
+                          surface->ejecta * 0.22f);
+        if (surface->iceCoverage > 0.56f) {
+            color = ColorLerp(color, (Color){ 198, 209, 211, 255 },
+                              (surface->iceCoverage - 0.56f) * 0.72f);
+        }
+        *outColor = color;
+        return true;
+    }
+    case 2u: {
+        float waves = 0.5f + 0.5f * sinf(ny * 24.0f + broad * 5.0f);
+        Color color = ColorLerp((Color){ 170, 112, 43, 255 },
+                                (Color){ 226, 183, 91, 255 },
+                                broad * 0.54f + waves * 0.18f);
+        color = ColorLerp(color, (Color){ 115, 76, 43, 255 },
+                          surface->ridge * 0.28f);
+        color = ColorLerp(color, (Color){ 238, 205, 126, 255 },
+                          surface->volcanicCone * 0.16f + fine * 0.08f);
+        *outColor = color;
+        return true;
+    }
+    case 3u:
+        *outColor = TemperatePlanetPixel(profile, ny, surface);
+        return true;
+    case 4u: {
+        float highland = Clamp(surface->regionalness * 0.58f +
+                               surface->ridge * 0.42f, 0.0f, 1.0f);
+        Color color = ColorLerp((Color){ 125, 57, 34, 255 },
+                                (Color){ 204, 111, 61, 255 },
+                                broad * 0.62f + fine * 0.16f);
+        color = ColorLerp(color, (Color){ 79, 51, 45, 255 }, highland * 0.34f);
+        color = ColorLerp(color, (Color){ 63, 49, 47, 255 },
+                          surface->impactDepth * 0.38f);
+        color = ColorLerp(color, (Color){ 231, 225, 204, 255 },
+                          Clamp((surface->iceCoverage - 0.42f) * 1.52f,
+                                0.0f, 0.82f));
+        *outColor = color;
+        return true;
+    }
+    case 5u: {
+        float narrow = 0.5f + 0.5f * sinf(ny * 78.0f + broad * 9.0f);
+        float wide = 0.5f + 0.5f * sinf(ny * 22.0f - fine * 4.0f);
+        Color color = ColorLerp((Color){ 232, 218, 185, 255 },
+                                (Color){ 151, 91, 59, 255 },
+                                narrow * 0.38f + wide * 0.24f);
+        float zone = expf(-powf(ny / 0.22f, 2.0f));
+        color = ColorLerp(color, (Color){ 220, 174, 116, 255 }, zone * 0.28f);
+        float spot = PlanetTextureEllipse(u, v, 0.68f, 0.62f, 0.105f, 0.045f);
+        if (spot < 1.0f) {
+            float swirl = 0.5f + 0.5f * sinf(spot * 31.0f + broad * 8.0f);
+            Color redSpot = ColorLerp((Color){ 160, 62, 43, 255 },
+                                      (Color){ 230, 142, 104, 255 }, swirl);
+            color = ColorLerp(color, redSpot, (1.0f - spot) * 0.92f);
+        }
+        *outColor = color;
+        return true;
+    }
+    case 6u: {
+        float narrow = 0.5f + 0.5f * sinf(ny * 68.0f + broad * 5.0f);
+        float wide = 0.5f + 0.5f * sinf(ny * 18.0f - fine * 3.0f);
+        Color color = ColorLerp((Color){ 235, 222, 184, 255 },
+                                (Color){ 183, 145, 91, 255 },
+                                narrow * 0.22f + wide * 0.18f);
+        float polar = Clamp((fabsf(ny) - 0.72f) / 0.28f, 0.0f, 1.0f);
+        color = ColorLerp(color, (Color){ 192, 163, 116, 255 }, polar * 0.20f);
+        *outColor = color;
+        return true;
+    }
+    case 7u: {
+        float bands = 0.5f + 0.5f * sinf(ny * 31.0f + broad * 2.0f);
+        Color color = ColorLerp((Color){ 111, 198, 207, 255 },
+                                (Color){ 151, 220, 219, 255 }, bands * 0.18f);
+        float hood = Clamp((ny - 0.48f) / 0.52f, 0.0f, 1.0f);
+        color = ColorLerp(color, (Color){ 177, 226, 219, 255 }, hood * 0.30f);
+        *outColor = color;
+        return true;
+    }
+    case 8u: {
+        float bands = 0.5f + 0.5f * sinf(ny * 54.0f + broad * 5.0f);
+        Color color = ColorLerp((Color){ 35, 72, 171, 255 },
+                                (Color){ 59, 120, 224, 255 },
+                                bands * 0.30f + fine * 0.12f);
+        float spot = PlanetTextureEllipse(u, v, 0.60f, 0.43f, 0.115f, 0.060f);
+        if (spot < 1.0f) {
+            color = ColorLerp(color, (Color){ 24, 38, 105, 255 },
+                              (1.0f - spot) * 0.76f);
+        }
+        float brightBand = expf(-powf((ny + 0.34f) / 0.065f, 2.0f));
+        color = ColorLerp(color, (Color){ 138, 190, 242, 255 },
+                          brightBand * (0.22f + broad * 0.18f));
+        *outColor = color;
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
 static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny, float nz,
                                float u, float v, uint32_t seed,
                                const PlanetSurfaceSample *surfaceSample)
@@ -2332,6 +2530,11 @@ static Color StyledPlanetPixel(const PlanetProfile *profile, float nx, float ny,
     float noise = surface.continentalness;
     float fine = surface.detail;
     Color color = (Color){ 120, 120, 120, 255 };
+
+    if (CanonicalSolarPlanetPixel(profile, nx, ny, nz, u, v, seed,
+                                  &surface, &color)) {
+        return color;
+    }
 
     switch (style) {
     case SOLAR_STYLE_LAVA: {
@@ -2517,6 +2720,7 @@ static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
     for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
         PlanetTextureCacheEntry *entry = &planetTextures.planetTextures[i];
         if (!entry->valid || entry->seed != body->worldSeed ||
+            entry->canonicalBodyId != body->profile.canonicalBodyId ||
             entry->style != body->style || entry->oceanKey != oceanKey ||
             entry->seasonKey != seasonKey) {
             continue;
@@ -2548,6 +2752,7 @@ static PlanetTextureSet PlanetTextureForBody(const SpaceBodyInfo *body)
     *entry = (PlanetTextureCacheEntry){
         .valid = true,
         .seed = body->worldSeed,
+        .canonicalBodyId = body->profile.canonicalBodyId,
         .style = body->style,
         .oceanKey = oceanKey,
         .seasonKey = seasonKey,
@@ -2564,7 +2769,8 @@ static uint32_t PlanetCloudProfileKey(const PlanetProfile *profile)
     int temperatureKey = (int)lroundf(Clamp(profile->equilibriumTempK, 80.0f, 900.0f));
     int windKey = (int)lroundf(Clamp(profile->windStrength, 0.0f, 1.0f) * 1023.0f);
     uint32_t lanes = (uint32_t)profile->style * 0x9e3779b9u ^
-                     (uint32_t)profile->atmosphereType * 0x85ebca6bu;
+                     (uint32_t)profile->atmosphereType * 0x85ebca6bu ^
+                     profile->canonicalBodyId * 0xc2b2ae35u;
     return PlanetTextureHash(cloudKey, temperatureKey, windKey, lanes);
 }
 

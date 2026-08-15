@@ -283,6 +283,70 @@ static void TestStyleBiomeDomains(void)
     }
 }
 
+static PlanetProfile CanonicalSurfaceProfile(uint32_t bodyId,
+                                             SolarBodyStyle style)
+{
+    PlanetProfile profile = TestProfile(style);
+    profile.canonicalBodyId = bodyId;
+    if (bodyId == 2u) {
+        profile.equilibriumTempK = 737.0f;
+        profile.oceanCoverage = 0.0f;
+        profile.iceCoverage = 0.0f;
+        profile.cloudCoverage = 0.98f;
+        profile.volcanicActivity = 0.86f;
+        profile.impactRate = 0.10f;
+    } else if (bodyId == 3u) {
+        profile.equilibriumTempK = 288.0f;
+        profile.oceanCoverage = 0.71f;
+        profile.iceCoverage = 0.03f;
+        profile.cloudCoverage = 0.60f;
+    } else if (bodyId == 4u) {
+        profile.equilibriumTempK = 210.0f;
+        profile.oceanCoverage = 0.0f;
+        profile.iceCoverage = 0.12f;
+        profile.cloudCoverage = 0.12f;
+        profile.impactRate = 0.74f;
+    }
+    return profile;
+}
+
+static void TestCanonicalSurfaceCharacter(void)
+{
+    PlanetProfile venus = CanonicalSurfaceProfile(2u, SOLAR_STYLE_LAVA);
+    for (int index = 0; index < 96; index++) {
+        float longitude = -PI + 2.0f * PI * (float)index / 96.0f;
+        float latitude = -1.45f + 2.90f * (float)(index % 19) / 18.0f;
+        PlanetSurfaceSample sample = PlanetSampleGlobalSurfaceBaseline(
+            venus.seed, &venus, longitude, latitude);
+        assert(sample.biome != PLANET_BIOME_LAVA_SEA);
+    }
+
+    PlanetProfile earth = CanonicalSurfaceProfile(3u, SOLAR_STYLE_TEMPERATE);
+    int oceanSamples = 0;
+    int totalSamples = 0;
+    for (int latitudeIndex = 0; latitudeIndex < 40; latitudeIndex++) {
+        float latitude = -1.48f + 2.96f * (float)latitudeIndex / 39.0f;
+        for (int longitudeIndex = 0; longitudeIndex < 80; longitudeIndex++) {
+            float longitude = -PI + 2.0f * PI * (float)longitudeIndex / 80.0f;
+            PlanetSurfaceSample sample = PlanetSampleGlobalSurfaceBaseline(
+                earth.seed, &earth, longitude, latitude);
+            oceanSamples += sample.biome == PLANET_BIOME_OCEAN ||
+                            sample.biome == PLANET_BIOME_COAST;
+            totalSamples++;
+        }
+    }
+    float oceanFraction = (float)oceanSamples / (float)totalSamples;
+    assert(oceanFraction > 0.58f && oceanFraction < 0.82f);
+
+    PlanetProfile mars = CanonicalSurfaceProfile(4u, SOLAR_STYLE_DESERT);
+    PlanetSurfaceSample northPole = PlanetSampleGlobalSurfaceBaseline(
+        mars.seed, &mars, 0.3f, 1.50f);
+    PlanetSurfaceSample southPole = PlanetSampleGlobalSurfaceBaseline(
+        mars.seed, &mars, -1.1f, -1.50f);
+    assert(northPole.biome == PLANET_BIOME_ICE_SHEET);
+    assert(southPole.biome == PLANET_BIOME_ICE_SHEET);
+}
+
 static void TestBiomeNames(void)
 {
     for (int biome = 0; biome < PLANET_BIOME_COUNT; biome++) {
@@ -301,6 +365,7 @@ int main(void)
     TestTiltChangesSeasonalAmplitude();
     TestEccentricityChangesSeasonalTemperature();
     TestStyleBiomeDomains();
+    TestCanonicalSurfaceCharacter();
     TestBiomeNames();
     puts("planet_surface tests passed");
     return 0;

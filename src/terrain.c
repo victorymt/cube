@@ -1346,6 +1346,22 @@ int PlanetTerrainHeight(int x, int z)
         break;
     }
 
+    switch (profile->canonicalBodyId) {
+    case 1u:
+        height += (surface.detail - 0.5f) * 12.0f;
+        break;
+    case 2u:
+        height = 82.0f + (height - 82.0f) * 0.62f;
+        height += surface.ridge * 9.0f + surface.volcanicCone * 18.0f;
+        break;
+    case 4u:
+        height -= surface.trench * 24.0f;
+        height += surface.peak * 16.0f + surface.volcanicCone * 24.0f;
+        break;
+    default:
+        break;
+    }
+
     // These fields are shared with the orbital map: the same crater walls,
     // ejecta blankets, volcanic cones and lava channels continue at landing.
     height -= surface.impactDepth * 26.0f;

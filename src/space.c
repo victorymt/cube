@@ -40,7 +40,7 @@
 #define SPACE_MAX_SYSTEM_QUERY_DISTANCE (STAR_NAVIGATION_RANGE * 4.0f)
 #define PLANET_WORLD_STATE_VERSION 3u
 #define PLANET_PROFILE_STATE_MAGIC 0x504c4e54u
-#define PLANET_PROFILE_STATE_VERSION 2u
+#define PLANET_PROFILE_STATE_VERSION 3u
 #define SPACE_STATE_MAGIC 0x53504345u
 #define SPACE_STATE_VERSION 2u
 
@@ -105,6 +105,7 @@ static bool SpaceVectorIsFinite(Vector3 value)
 static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection);
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed);
 static bool PlanetProfileIsValid(const PlanetProfile *profile);
+static void PlanetProfileDeriveSeasonalFields(PlanetProfile *profile);
 
 #define SPACE_REBASE_THRESHOLD (STAR_SYSTEM_SPACING * 12)
 
@@ -602,6 +603,18 @@ static PlanetProfile SolarPlanetProfileForSnapshot(
            sizeof(input.stellarLuminositiesSolar));
     if (!PlanetProfileGenerate(&input, &profile)) {
         return (PlanetProfile){ 0 };
+    }
+    if (sys->anchorX == 0 && sys->anchorZ == 0) {
+        if (!SolarCatalogApplyPlanetProfile(index, &profile)) {
+            return (PlanetProfile){ 0 };
+        }
+        double rotationGameTime = SpaceUnitsSecondsToGameTime(
+            fabs(def->rotationPeriodSeconds));
+        if (!(rotationGameTime > 0.0) || !isfinite(rotationGameTime)) {
+            return (PlanetProfile){ 0 };
+        }
+        profile.rotationRate = (float)(360.0 / rotationGameTime);
+        PlanetProfileDeriveSeasonalFields(&profile);
     }
     return profile;
 }
@@ -3766,6 +3779,7 @@ static bool PlanetProfileIsValid(const PlanetProfile *profile)
     }
 
     return isfinite(profile->physicalRadiusKm) &&
+           profile->canonicalBodyId <= 8u &&
            profile->physicalRadiusKm >= 0.0 &&
            isfinite(profile->massKg) && profile->massKg >= 0.0 &&
            isfinite(profile->spaceProxyRadius) &&
@@ -3830,6 +3844,7 @@ bool PlanetProfileSaveState(FILE *file, const PlanetProfile *profile)
     return fwrite(&magic, sizeof(magic), 1, file) == 1 &&
            fwrite(&version, sizeof(version), 1, file) == 1 &&
            WRITE_PROFILE_FIELD(seed) &&
+           WRITE_PROFILE_FIELD(canonicalBodyId) &&
            fwrite(&style, sizeof(style), 1, file) == 1 &&
            fwrite(&atmosphereType, sizeof(atmosphereType), 1, file) == 1 &&
            WRITE_PROFILE_FIELD(physicalRadiusKm) &&
@@ -3892,8 +3907,9 @@ bool PlanetProfileLoadState(FILE *file, PlanetProfile *outProfile)
     if (legacyLayout) {
         loaded.seed = marker;
     } else if (fread(&version, sizeof(version), 1, file) != 1 ||
-               version != PLANET_PROFILE_STATE_VERSION ||
-               !READ_PROFILE_FIELD(seed)) {
+               (version != 2u && version != PLANET_PROFILE_STATE_VERSION) ||
+               !READ_PROFILE_FIELD(seed) ||
+               (version >= 3u && !READ_PROFILE_FIELD(canonicalBodyId))) {
         return false;
     }
     if (

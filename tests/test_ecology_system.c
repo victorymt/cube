@@ -82,6 +82,7 @@ static void AssertPlanetProfileEqual(const PlanetProfile *actual,
 #define ASSERT_PLANET_FIELD(field) \
     assert(actual->field == expected->field)
     ASSERT_PLANET_FIELD(seed);
+    ASSERT_PLANET_FIELD(canonicalBodyId);
     ASSERT_PLANET_FIELD(style);
     ASSERT_PLANET_FIELD(atmosphereType);
     ASSERT_PLANET_FIELD(physicalRadiusKm);

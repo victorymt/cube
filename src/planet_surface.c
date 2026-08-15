@@ -119,6 +119,8 @@ static void PlanetSampleImpactFields(uint32_t seed, const PlanetProfile *profile
     float impactRate = profile ? Clamp(profile->impactRate, 0.0f, 1.0f) : 0.0f;
     int craterCount = 2 +
                       (int)(PlanetSeedHash2D(seed, (int)seed, (int)(seed >> 16), 401u) % 5u);
+    if (profile && profile->canonicalBodyId == 1u) craterCount += 7;
+    if (profile && profile->canonicalBodyId == 4u) craterCount += 3;
     for (int i = 0; i < craterCount; i++) {
         Vector3 center = PlanetSeedDirection(seed, 410u + (unsigned int)i * 11u);
         float angularDistance = sqrtf(fmaxf(0.0f, 2.0f *
@@ -162,6 +164,41 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
     float trenchBoundary = 1.0f - fabsf(
         PlanetFractalNoise3D(seed, point, 2.25f, 97u) * 2.0f - 1.0f);
     sample.trench = PlanetSmoothStep(0.80f, 0.97f, trenchBoundary);
+    if (profile) {
+        switch (profile->canonicalBodyId) {
+        case 1u:
+            sample.regionalness = Clamp(sample.regionalness * 0.82f +
+                                         sample.detail * 0.18f, 0.0f, 1.0f);
+            sample.erosion *= 0.42f;
+            sample.ridge = Clamp(sample.ridge * 0.76f +
+                                 sample.detail * 0.16f, 0.0f, 1.0f);
+            sample.trench *= 0.12f;
+            break;
+        case 2u:
+            sample.detail = Clamp(0.24f + sample.detail * 0.48f, 0.0f, 1.0f);
+            sample.erosion = Clamp(0.48f + sample.erosion * 0.42f, 0.0f, 1.0f);
+            sample.ridge = Clamp(sample.ridge * 0.58f +
+                                 PlanetSmoothStep(0.72f, 0.91f,
+                                                  sample.regionalness) * 0.48f,
+                                 0.0f, 1.0f);
+            sample.trench *= 0.18f;
+            break;
+        case 3u:
+            // The shared noise field is centered near 0.5; this shift makes
+            // the canonical Earth sample close to its observed 71% ocean.
+            sample.continentalness = Clamp(sample.continentalness + 0.06f,
+                                            0.0f, 1.0f);
+            break;
+        case 4u:
+            sample.erosion *= 0.62f;
+            sample.ridge = Clamp(sample.ridge * 1.12f, 0.0f, 1.0f);
+            sample.peak = Clamp(sample.peak * 1.28f, 0.0f, 1.0f);
+            sample.trench = Clamp(sample.trench * 1.42f, 0.0f, 1.0f);
+            break;
+        default:
+            break;
+        }
+    }
     float latitudeAbs = fabsf(point.y);
     float equilibrium = profile ? profile->equilibriumTempK : 282.0f;
     // The global solver has already applied albedo and greenhouse forcing. This
@@ -218,6 +255,11 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
                                             flowAcross * 8.0f + volcanicNoise * 9.0f);
     sample.lavaFlow = Clamp(volcanic * PlanetSmoothStep(0.54f, 0.76f, volcanicNoise) *
                             flowRidge, 0.0f, 1.0f);
+    if (profile && profile->canonicalBodyId == 2u) {
+        // Modern Venus is volcanically active, but its plains are not a
+        // planet-wide exposed magma ocean.
+        sample.lavaFlow *= 0.08f;
+    }
 
     float windAngle = profile ? profile->prevailingWindAngle : 0.0f;
     Vector3 windAxis = { cosf(windAngle), 0.0f, sinf(windAngle) };
@@ -250,20 +292,34 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
 
     switch (style) {
     case SOLAR_STYLE_LAVA:
-        sample.biome = sample.continentalness < 0.18f + oceanCoverage * 0.30f
-                           ? PLANET_BIOME_LAVA_SEA
-                           : (sample.regionalness > 0.68f ? PLANET_BIOME_VOLCANIC_RIDGE
-                                                           : PLANET_BIOME_BASALT_PLAINS);
+        if (profile && profile->canonicalBodyId == 2u) {
+            sample.biome = sample.regionalness > 0.72f ||
+                                   sample.volcanicCone > 0.32f
+                               ? PLANET_BIOME_VOLCANIC_RIDGE
+                               : PLANET_BIOME_BASALT_PLAINS;
+        } else {
+            sample.biome = sample.continentalness < 0.18f + oceanCoverage * 0.30f
+                               ? PLANET_BIOME_LAVA_SEA
+                               : (sample.regionalness > 0.68f
+                                      ? PLANET_BIOME_VOLCANIC_RIDGE
+                                      : PLANET_BIOME_BASALT_PLAINS);
+        }
         break;
     case SOLAR_STYLE_ICE:
         sample.biome = sample.glacierFlow > 0.28f || sample.continentalness < 0.34f
                            ? PLANET_BIOME_GLACIER : PLANET_BIOME_ICE_SHEET;
         break;
     case SOLAR_STYLE_DESERT:
-        sample.biome = sample.continentalness < 0.12f && oceanCoverage > 0.18f
-                           ? PLANET_BIOME_OASIS
-                           : (sample.regionalness > 0.66f ? PLANET_BIOME_BADLANDS
-                                                           : PLANET_BIOME_DUNES);
+        if (profile && profile->canonicalBodyId == 4u &&
+            sample.iceCoverage > 0.52f) {
+            sample.biome = PLANET_BIOME_ICE_SHEET;
+        } else {
+            sample.biome = sample.continentalness < 0.12f && oceanCoverage > 0.18f
+                               ? PLANET_BIOME_OASIS
+                               : (sample.regionalness > 0.66f
+                                      ? PLANET_BIOME_BADLANDS
+                                      : PLANET_BIOME_DUNES);
+        }
         break;
     case SOLAR_STYLE_CRATER:
         if (sample.glacierFlow > 0.38f) {

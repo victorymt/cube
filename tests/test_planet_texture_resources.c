@@ -142,6 +142,76 @@ static SpaceBodyInfo TestBody(uint32_t seed, bool clouds)
     return body;
 }
 
+static int ColorDistance(Color left, Color right)
+{
+    return abs((int)left.r - (int)right.r) +
+           abs((int)left.g - (int)right.g) +
+           abs((int)left.b - (int)right.b);
+}
+
+static Color CanonicalTexturePixel(uint32_t bodyId)
+{
+    PlanetProfile profile = TestProfile(true);
+    profile.canonicalBodyId = bodyId;
+    profile.style = bodyId >= 5u ? SOLAR_STYLE_GAS :
+                    bodyId == 2u ? SOLAR_STYLE_LAVA :
+                    bodyId == 3u ? SOLAR_STYLE_TEMPERATE :
+                    bodyId == 4u ? SOLAR_STYLE_DESERT : SOLAR_STYLE_CRATER;
+    PlanetSurfaceSample surface = {
+        .continentalness = 0.52f,
+        .regionalness = 0.35f,
+        .detail = 0.40f,
+        .temperature = bodyId == 2u ? 737.0f : 288.0f,
+        .moisture = 0.4f,
+        .biome = bodyId == 3u ? PLANET_BIOME_OCEAN
+                              : PLANET_BIOME_CRATER_HIGHLANDS
+    };
+    return StyledPlanetPixel(&profile, 0.82f, 0.18f, 0.54f,
+                             0.41f, 0.44f, 0x39217u, &surface);
+}
+
+static void TestCanonicalTexturesAreDistinct(void)
+{
+    Color jupiter = CanonicalTexturePixel(5u);
+    Color saturn = CanonicalTexturePixel(6u);
+    Color uranus = CanonicalTexturePixel(7u);
+    Color neptune = CanonicalTexturePixel(8u);
+    assert(ColorDistance(jupiter, saturn) > 18);
+    assert(ColorDistance(saturn, uranus) > 40);
+    assert(ColorDistance(uranus, neptune) > 80);
+    assert(jupiter.r > jupiter.b);
+    assert(saturn.r > saturn.b);
+    assert(uranus.g > uranus.r && uranus.b > uranus.r);
+    assert(neptune.b > neptune.r * 2);
+
+    PlanetProfile venus = TestProfile(true);
+    venus.canonicalBodyId = 2u;
+    venus.style = SOLAR_STYLE_LAVA;
+    venus.atmosphereType = PLANET_ATMOSPHERE_CORROSIVE;
+    venus.cloudCoverage = 0.98f;
+    Color venusCloud = PlanetCloudPixel(&venus, 0.82f, 0.18f, 0.54f, 17u);
+    assert(venusCloud.a > 220);
+    assert(venusCloud.r > venusCloud.g && venusCloud.g > venusCloud.b);
+}
+
+static void TestCanonicalIdentityIsPartOfTextureCacheKey(void)
+{
+    ResetTextureMocks();
+    SpaceBodyInfo body = TestBody(731u, false);
+    body.style = SOLAR_STYLE_GAS;
+    body.profile.style = SOLAR_STYLE_GAS;
+    body.profile.canonicalBodyId = 5u;
+    const unsigned int ids[] = { 701, 702, 703, 704 };
+    QueueTextures(ids, 4);
+    PlanetTextureSet jupiter = PlanetTextureForBody(&body);
+    assert(jupiter.albedo.id == 701 && jupiter.material.id == 702);
+
+    body.profile.canonicalBodyId = 6u;
+    PlanetTextureSet saturn = PlanetTextureForBody(&body);
+    assert(saturn.albedo.id == 703 && saturn.material.id == 704);
+    assert(textureLoadCalls == 4);
+}
+
 static void TestPartialSurfaceCreationRollsBack(void)
 {
     ResetTextureMocks();
@@ -297,6 +367,8 @@ static void TestHomeCloudSeedReplacementIsAtomic(void)
 
 int main(void)
 {
+    TestCanonicalTexturesAreDistinct();
+    TestCanonicalIdentityIsPartOfTextureCacheKey();
     TestPartialSurfaceCreationRollsBack();
     TestSurfaceCacheKeepsOldEntryOnFailure();
     TestCloudCacheKeepsOldEntryOnFailure();

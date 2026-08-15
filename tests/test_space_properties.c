@@ -90,12 +90,14 @@ static void AssertPlanetClimate(const PlanetProfile *profile)
     double expectedDensity = profile->surfacePressureAtm /
                              (profile->surfacePressureAtm + 0.30);
     AssertRelative(profile->atmosphereDensity, expectedDensity, 0.000001);
-    double absorbed = profile->receivedIrradiance * (1.0 - profile->albedo);
-    double expectedRadiative = 278.5 * pow(absorbed, 0.25);
-    double expectedSurface = expectedRadiative *
-        pow(1.0 + 0.75 * profile->greenhouseEffect, 0.25);
-    AssertRelative(profile->radiativeTempK, expectedRadiative, 0.00001);
-    AssertRelative(profile->equilibriumTempK, expectedSurface, 0.00001);
+    if (profile->canonicalBodyId == 0u) {
+        double absorbed = profile->receivedIrradiance * (1.0 - profile->albedo);
+        double expectedRadiative = 278.5 * pow(absorbed, 0.25);
+        double expectedSurface = expectedRadiative *
+            pow(1.0 + 0.75 * profile->greenhouseEffect, 0.25);
+        AssertRelative(profile->radiativeTempK, expectedRadiative, 0.00001);
+        AssertRelative(profile->equilibriumTempK, expectedSurface, 0.00001);
+    }
     assert(profile->equilibriumTempK >= profile->radiativeTempK);
     if (profile->style == SOLAR_STYLE_GAS) {
         assert(profile->oceanCoverage == 0.0f);
@@ -988,8 +990,14 @@ static void TestGeneratedSystems(void)
                     PlanetProfile directProfile;
                     memset(&directProfile, 0xa5, sizeof(directProfile));
                     assert(PlanetProfileGenerate(&input, &directProfile));
-                    assert(memcmp(&profile, &directProfile,
-                                  sizeof(profile)) == 0);
+                    if (system.anchorX != 0 || system.anchorZ != 0) {
+                        assert(memcmp(&profile, &directProfile,
+                                      sizeof(profile)) == 0);
+                        assert(profile.canonicalBodyId == 0u);
+                    } else {
+                        assert(profile.canonicalBodyId ==
+                               system.planets[planet].bodyId);
+                    }
                     assert(profile.massKg > 0.0 && profile.physicalRadiusKm > 0.0);
                     if (system.anchorX != 0 || system.anchorZ != 0) {
                         AssertRelative(
@@ -2713,6 +2721,37 @@ static void TestCanonicalSolCatalog(void)
     assert(sol.satellites[0].parentPlanetIndex == 2);
     assert(strcmp(sol.satellites[19].name, "Triton") == 0);
     assert(sol.satellites[19].parentPlanetIndex == 7);
+
+    static const float meanTemperatureK[] = {
+        440.0f, 737.0f, 288.0f, 210.0f, 165.0f, 134.0f, 76.0f, 72.0f
+    };
+    static const float surfacePressureAtm[] = {
+        0.0f, 92.0f, 1.0f, 0.00636f, 1.0f, 1.0f, 1.0f, 1.0f
+    };
+    for (int index = 0; index < sol.planetCount; index++) {
+        PlanetProfile profile = SolarPlanetProfile(&sol, index);
+        assert(profile.canonicalBodyId == (uint32_t)(index + 1));
+        AssertRelative(profile.equilibriumTempK, meanTemperatureK[index],
+                       0.000001);
+        AssertRelative(profile.surfacePressureAtm, surfacePressureAtm[index],
+                       0.000001);
+        assert(profile.hasSolidSurface == (index < 4));
+        assert(profile.hasRings == (index >= 4));
+        if (index >= 4) assert(profile.style == SOLAR_STYLE_GAS);
+    }
+    PlanetProfile earth = SolarPlanetProfile(&sol, 2);
+    AssertRelative(earth.oceanCoverage, 0.71, 0.000001);
+    AssertRelative(earth.cloudCoverage, 0.60, 0.000001);
+    assert(earth.atmosphereType == PLANET_ATMOSPHERE_BREATHABLE);
+
+    FILE *profileFile = tmpfile();
+    assert(profileFile);
+    assert(PlanetProfileSaveState(profileFile, &earth));
+    rewind(profileFile);
+    PlanetProfile loaded = { 0 };
+    assert(PlanetProfileLoadState(profileFile, &loaded));
+    assert(memcmp(&earth, &loaded, sizeof(earth)) == 0);
+    fclose(profileFile);
 }
 
 int main(void)

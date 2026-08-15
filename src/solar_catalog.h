@@ -7,6 +7,23 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+typedef struct SolarCatalogEnvironment {
+    float radiativeTempK;
+    float meanTemperatureK;
+    float surfacePressureAtm;
+    float oceanCoverage;
+    float iceCoverage;
+    float cloudCoverage;
+    float terrainRoughness;
+    float albedo;
+    float greenhouseOpticalDepth;
+    float prevailingWindAngle;
+    float windStrength;
+    float volcanicActivity;
+    float impactRate;
+    PlanetAtmosphereType atmosphereType;
+} SolarCatalogEnvironment;
+
 typedef struct SolarCatalogPlanet {
     uint32_t bodyId;
     const char *name;
@@ -22,6 +39,8 @@ typedef struct SolarCatalogPlanet {
     double axialTiltDeg;
     SolarBodyStyle style;
     bool gasGiant;
+    bool hasRings;
+    SolarCatalogEnvironment environment;
 } SolarCatalogPlanet;
 
 typedef struct SolarCatalogSatellite {
@@ -33,6 +52,7 @@ typedef struct SolarCatalogSatellite {
 
 int SolarCatalogPlanetCount(void);
 const SolarCatalogPlanet *SolarCatalogPlanetAt(int index);
+bool SolarCatalogApplyPlanetProfile(int index, PlanetProfile *profile);
 int SolarCatalogSatelliteCount(void);
 const SolarCatalogSatellite *SolarCatalogSatelliteAt(int index);
 bool SolarCatalogValidate(void);

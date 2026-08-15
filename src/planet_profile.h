@@ -26,6 +26,8 @@ typedef enum PlanetAtmosphereType {
 
 typedef struct PlanetProfile {
     uint32_t seed;
+    // Zero for generated worlds; 1-8 identify the canonical planets of Sol.
+    uint32_t canonicalBodyId;
     SolarBodyStyle style;
     PlanetAtmosphereType atmosphereType;
     double physicalRadiusKm;
