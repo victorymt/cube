@@ -748,9 +748,11 @@ static void FluidRefillDeferredQueue(void)
     for (int chunkIndex = 0; chunkIndex < MAX_ACTIVE_CHUNKS; chunkIndex++) {
         Chunk *chunk = &chunks[chunkIndex];
         if (!chunk->loaded) continue;
-        for (int sectionY = 0; sectionY < SURFACE_SECTION_COUNT; sectionY++) {
-            ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
-            if (!section || !section->fluidDeferredBits) continue;
+        for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+             sectionIndex++) {
+            ChunkSection *section = chunk->sections[sectionIndex];
+            if (!section->fluidDeferredBits) continue;
+            int sectionY = section->sectionY;
             for (int lx = 0; lx < CHUNK_SIZE; lx++) {
                 for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
                     for (int lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -1275,31 +1277,46 @@ static void FluidWakeLoadedBoundaryPair(int ax, int y, int az,
     }
 }
 
+static void FluidWakeLoadedBoundarySection(Chunk *chunk, int sectionY)
+{
+    int westX = chunk->cx * CHUNK_SIZE;
+    int eastX = westX + CHUNK_SIZE - 1;
+    int northZ = chunk->cz * CHUNK_SIZE;
+    int southZ = northZ + CHUNK_SIZE - 1;
+    int firstY = sectionY * SURFACE_SECTION_HEIGHT;
+    int lastY = firstY + SURFACE_SECTION_HEIGHT;
+    for (int y = firstY; y < lastY; y++) {
+        for (int edge = 0; edge < CHUNK_SIZE; edge++) {
+            int z = northZ + edge;
+            int x = westX + edge;
+            FluidWakeLoadedBoundaryPair(westX, y, z, westX - 1, z);
+            FluidWakeLoadedBoundaryPair(eastX, y, z, eastX + 1, z);
+            FluidWakeLoadedBoundaryPair(x, y, northZ, x, northZ - 1);
+            FluidWakeLoadedBoundaryPair(x, y, southZ, x, southZ + 1);
+        }
+    }
+}
+
 void FluidOnChunkLoaded(Chunk *chunk)
 {
     if (!chunk || !chunk->loaded || !WorldIsSurfaceActive()) return;
     FluidApplyEditsToChunk(chunk);
     if (fluidEditCount == 0u) return;
-    int westX = chunk->cx * CHUNK_SIZE;
-    int eastX = westX + CHUNK_SIZE - 1;
-    int northZ = chunk->cz * CHUNK_SIZE;
-    int southZ = northZ + CHUNK_SIZE - 1;
-    for (int sectionY = 0; sectionY < SURFACE_SECTION_COUNT; sectionY++) {
-        int firstY = sectionY * SURFACE_SECTION_HEIGHT;
-        int lastY = firstY + SURFACE_SECTION_HEIGHT;
-        for (int y = firstY; y < lastY; y++) {
-            for (int edge = 0; edge < CHUNK_SIZE; edge++) {
-                int z = northZ + edge;
-                int x = westX + edge;
-                FluidWakeLoadedBoundaryPair(westX, y, z,
-                                            westX - 1, z);
-                FluidWakeLoadedBoundaryPair(eastX, y, z,
-                                            eastX + 1, z);
-                FluidWakeLoadedBoundaryPair(x, y, northZ,
-                                            x, northZ - 1);
-                FluidWakeLoadedBoundaryPair(x, y, southZ,
-                                            x, southZ + 1);
-            }
+
+    Chunk *sources[5] = {
+        chunk,
+        FindChunk(chunk->cx - 1, chunk->cz),
+        FindChunk(chunk->cx + 1, chunk->cz),
+        FindChunk(chunk->cx, chunk->cz - 1),
+        FindChunk(chunk->cx, chunk->cz + 1)
+    };
+    for (int sourceIndex = 0; sourceIndex < 5; sourceIndex++) {
+        Chunk *source = sources[sourceIndex];
+        if (!source) continue;
+        for (int sectionIndex = 0; sectionIndex < source->sectionCount;
+             sectionIndex++) {
+            FluidWakeLoadedBoundarySection(
+                chunk, source->sections[sectionIndex]->sectionY);
         }
     }
 }
@@ -1310,9 +1327,9 @@ uint64_t FluidLoadedVolume(void)
     for (int chunkIndex = 0; chunkIndex < MAX_ACTIVE_CHUNKS; chunkIndex++) {
         const Chunk *chunk = &chunks[chunkIndex];
         if (!chunk->loaded) continue;
-        for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-            const ChunkSection *section = ChunkGetSectionConst(chunk, sy);
-            if (!section) continue;
+        for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+             sectionIndex++) {
+            const ChunkSection *section = chunk->sections[sectionIndex];
             for (int lx = 0; lx < CHUNK_SIZE; lx++) {
                 for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
                     for (int lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -1479,9 +1496,9 @@ static void FluidClearLoadedRuntime(void)
     for (int chunkIndex = 0; chunkIndex < MAX_ACTIVE_CHUNKS; chunkIndex++) {
         Chunk *chunk = &chunks[chunkIndex];
         if (!chunk->loaded) continue;
-        for (int sectionY = 0; sectionY < SURFACE_SECTION_COUNT; sectionY++) {
-            ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
-            if (!section) continue;
+        for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+             sectionIndex++) {
+            ChunkSection *section = chunk->sections[sectionIndex];
             if (section->fluidQueuedBits) {
                 memset(section->fluidQueuedBits, 0,
                        (FLUID_SECTION_CELLS + 7u) / 8u);

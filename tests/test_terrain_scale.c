@@ -180,9 +180,9 @@ static void TestChunkSectionBoundaries(void)
     assert(ChunkSetLocalBlock(&chunk, 3, 16, 11, BLOCK_AIR));
     assert(ChunkGetLocalBlock(&chunk, 3, 16, 11) == BLOCK_AIR);
     ChunkClearBlockStorage(&chunk);
-    for (int sectionY = 0; sectionY < SURFACE_SECTION_COUNT; sectionY++) {
-        assert(!ChunkGetSectionConst(&chunk, sectionY));
-    }
+    assert(chunk.sections == NULL);
+    assert(chunk.sectionCount == 0);
+    assert(chunk.sectionCapacity == 0);
 }
 
 typedef struct TreePoint {

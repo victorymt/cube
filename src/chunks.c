@@ -146,24 +146,65 @@ Chunk *FindChunk(int cx, int cz)
     return NULL;
 }
 
+static int ChunkSectionLowerBound(const Chunk *chunk, int sectionY)
+{
+    int low = 0;
+    int high = chunk ? chunk->sectionCount : 0;
+    while (low < high) {
+        int middle = low + (high - low) / 2;
+        if (chunk->sections[middle]->sectionY < sectionY) low = middle + 1;
+        else high = middle;
+    }
+    return low;
+}
+
 ChunkSection *ChunkGetSection(Chunk *chunk, int sectionY, bool create)
 {
-    if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT) return NULL;
-    ChunkSection *section = chunk->sections[sectionY];
-    if (!section && create) {
-        section = calloc(1, sizeof(*section));
-        if (!section) return NULL;
-        section->sectionY = sectionY;
-        section->floraVisualScale = 1.0f;
-        chunk->sections[sectionY] = section;
+    if (!chunk) return NULL;
+    int index = ChunkSectionLowerBound(chunk, sectionY);
+    if (index < chunk->sectionCount &&
+        chunk->sections[index]->sectionY == sectionY) {
+        return chunk->sections[index];
     }
+    if (!create) return NULL;
+
+    ChunkSection *section = calloc(1, sizeof(*section));
+    if (!section) return NULL;
+    if (chunk->sectionCount == chunk->sectionCapacity) {
+        if (chunk->sectionCapacity > INT_MAX / 2) {
+            free(section);
+            return NULL;
+        }
+        int capacity = chunk->sectionCapacity > 0
+            ? chunk->sectionCapacity * 2 : 4;
+        ChunkSection **sections = realloc(
+            chunk->sections, (size_t)capacity * sizeof(*sections));
+        if (!sections) {
+            free(section);
+            return NULL;
+        }
+        chunk->sections = sections;
+        chunk->sectionCapacity = capacity;
+    }
+    if (index < chunk->sectionCount) {
+        memmove(&chunk->sections[index + 1], &chunk->sections[index],
+                (size_t)(chunk->sectionCount - index) *
+                    sizeof(*chunk->sections));
+    }
+    section->sectionY = sectionY;
+    section->floraVisualScale = 1.0f;
+    chunk->sections[index] = section;
+    chunk->sectionCount++;
     return section;
 }
 
 const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY)
 {
-    if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT) return NULL;
-    return chunk->sections[sectionY];
+    if (!chunk) return NULL;
+    int index = ChunkSectionLowerBound(chunk, sectionY);
+    return index < chunk->sectionCount &&
+           chunk->sections[index]->sectionY == sectionY
+        ? chunk->sections[index] : NULL;
 }
 
 BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
@@ -231,25 +272,27 @@ static void UnloadChunkSectionModels(ChunkSection *section)
 void UnloadChunkModel(Chunk *chunk)
 {
     if (!chunk) return;
-    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-        UnloadChunkSectionModels(chunk->sections[sy]);
+    for (int index = 0; index < chunk->sectionCount; index++) {
+        UnloadChunkSectionModels(chunk->sections[index]);
     }
 }
 
 void ChunkClearBlockStorage(Chunk *chunk)
 {
     if (!chunk) return;
-    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-        ChunkSection *section = chunk->sections[sy];
-        if (!section) continue;
+    for (int index = 0; index < chunk->sectionCount; index++) {
+        ChunkSection *section = chunk->sections[index];
         UnloadChunkSectionModels(section);
         free(section->waterVolumes);
         free(section->fluidQueuedBits);
         free(section->fluidDeferredBits);
         free(section->fluidFlow);
         free(section);
-        chunk->sections[sy] = NULL;
     }
+    free(chunk->sections);
+    chunk->sections = NULL;
+    chunk->sectionCount = 0;
+    chunk->sectionCapacity = 0;
 }
 
 static void MarkSectionDirty(ChunkSection *section)
@@ -264,8 +307,8 @@ void MarkChunkDirty(int cx, int cz)
 {
     Chunk *chunk = FindChunk(cx, cz);
     if (!chunk) return;
-    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-        MarkSectionDirty(chunk->sections[sy]);
+    for (int index = 0; index < chunk->sectionCount; index++) {
+        MarkSectionDirty(chunk->sections[index]);
     }
 }
 
@@ -287,7 +330,7 @@ void MarkChunkDirtyAtBlock(int x, int y, int z)
             MarkSectionDirty(section);
         }
         if (y % SURFACE_SECTION_HEIGHT == SURFACE_SECTION_HEIGHT - 1 &&
-            sectionY + 1 < SURFACE_SECTION_COUNT) {
+            InHeight(y + 1)) {
             section = ChunkGetSection(chunk, sectionY + 1, false);
             MarkSectionDirty(section);
         }
@@ -909,8 +952,8 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
             chunk->floraSampleTimer = 0.75f + (float)stagger / 510.0f;
         }
 
-        for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-            UpdateChunkSectionFloraScale(chunk->sections[sy], elapsed,
+        for (int index = 0; index < chunk->sectionCount; index++) {
+            UpdateChunkSectionFloraScale(chunk->sections[index], elapsed,
                                          daylight, refreshTargets);
         }
     }
@@ -3098,18 +3141,19 @@ bool BuildChunkFloraMeshData(
     Mesh combined = { 0 };
     FloraVisualInstance *instances = NULL;
     int instanceCount = 0;
-    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-        const ChunkSection *section = ChunkGetSectionConst(chunk, sy);
-        if (!section) continue;
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        const ChunkSection *section = chunk->sections[sectionIndex];
+        int sectionY = section->sectionY;
         Mesh part = { 0 };
         FloraVisualInstance *partInstances = NULL;
         int partCount = 0;
         if (!BuildChunkFloraMeshDataFromSnapshot(
-                section->blocks, sy * SURFACE_SECTION_HEIGHT,
+                section->blocks, sectionY * SURFACE_SECTION_HEIGHT,
                 chunk->cx, chunk->cz, chunk->floraStructures,
                 chunk->floraStructureCount, faces, nearbyTorchIndices,
                 nearbyTorchCount, &part, &partInstances, &partCount)) continue;
-        float layerY = (float)(sy * SURFACE_SECTION_HEIGHT);
+        float layerY = (float)(sectionY * SURFACE_SECTION_HEIGHT);
         for (int vertex = 0; vertex < part.vertexCount; vertex++) {
             part.vertices[vertex * 3 + 1] += layerY;
         }
@@ -3531,33 +3575,51 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
                       (int)floorf(focusPosition.z),
                       &focusCx, &focusCz, &localX, &localZ);
 
-    bool selected[MAX_ACTIVE_CHUNKS][SURFACE_SECTION_COUNT] = { 0 };
+    int selectedChunks[MAX_MESH_SUBMITS_PER_FRAME] = { 0 };
+    int selectedSectionYs[MAX_MESH_SUBMITS_PER_FRAME] = { 0 };
+    int focusSectionY = FloorDivInt((int)floorf(focusPosition.y),
+                                    SURFACE_SECTION_HEIGHT);
     while (submitted < MAX_MESH_SUBMITS_PER_FRAME) {
         int best = -1;
+        int bestSectionIndex = -1;
         int bestSectionY = -1;
-        int bestDistance = 0;
+        int bestHorizontalDistance = 0;
+        int bestVerticalDistance = 0;
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             if (!chunks[i].loaded) continue;
             int dx = abs(chunks[i].cx - focusCx);
             int dz = abs(chunks[i].cz - focusCz);
             int distance = dx > dz ? dx : dz;
-            for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-                ChunkSection *section = chunks[i].sections[sy];
-                if (!section || selected[i][sy] || !section->dirty ||
-                    FindPendingMeshJob(i, sy)) continue;
-                int verticalDistance = abs(
-                    sy - (int)floorf(focusPosition.y / SURFACE_SECTION_HEIGHT));
-                int priority = distance * SURFACE_SECTION_COUNT + verticalDistance;
-                if (best < 0 || priority < bestDistance) {
+            for (int sectionIndex = 0;
+                 sectionIndex < chunks[i].sectionCount; sectionIndex++) {
+                ChunkSection *section = chunks[i].sections[sectionIndex];
+                int sectionY = section->sectionY;
+                bool alreadySelected = false;
+                for (int selected = 0; selected < submitted; selected++) {
+                    if (selectedChunks[selected] == i &&
+                        selectedSectionYs[selected] == sectionY) {
+                        alreadySelected = true;
+                        break;
+                    }
+                }
+                if (alreadySelected || !section->dirty ||
+                    FindPendingMeshJob(i, sectionY)) continue;
+                int verticalDistance = abs(sectionY - focusSectionY);
+                if (best < 0 || distance < bestHorizontalDistance ||
+                    (distance == bestHorizontalDistance &&
+                     verticalDistance < bestVerticalDistance)) {
                     best = i;
-                    bestSectionY = sy;
-                    bestDistance = priority;
+                    bestSectionIndex = sectionIndex;
+                    bestSectionY = sectionY;
+                    bestHorizontalDistance = distance;
+                    bestVerticalDistance = verticalDistance;
                 }
             }
         }
         if (best < 0) break;
-        selected[best][bestSectionY] = true;
-        ChunkSection *section = chunks[best].sections[bestSectionY];
+        selectedChunks[submitted] = best;
+        selectedSectionYs[submitted] = bestSectionY;
+        ChunkSection *section = chunks[best].sections[bestSectionIndex];
 
         if (genThread == 0) {
             double startedMs = ChunkNowMs();
@@ -3784,9 +3846,10 @@ bool ChunksGetWaterRenderDebugInfo(Vector3 position,
     Chunk *chunk = FindChunk(cx, cz);
     if (!chunk) return false;
     outInfo->chunkLoaded = true;
-    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-        const ChunkSection *section = ChunkGetSectionConst(chunk, sy);
-        if (!section || !section->hasWaterModel ||
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        const ChunkSection *section = chunk->sections[sectionIndex];
+        if (!section->hasWaterModel ||
             !section->waterModel.meshes) {
             continue;
         }
@@ -3794,7 +3857,9 @@ bool ChunksGetWaterRenderDebugInfo(Vector3 position,
              meshIndex++) {
             int triangles = section->waterModel.meshes[meshIndex].triangleCount;
             outInfo->triangleCount += triangles;
-            if (sy == sectionY) outInfo->sectionTriangleCount += triangles;
+            if (section->sectionY == sectionY) {
+                outInfo->sectionTriangleCount += triangles;
+            }
         }
     }
     return true;
@@ -3806,9 +3871,9 @@ RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void)
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         const Chunk *chunk = &chunks[i];
         if (!chunk->loaded) continue;
-        for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-            const ChunkSection *section = chunk->sections[sy];
-            if (!section) continue;
+        for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+             sectionIndex++) {
+            const ChunkSection *section = chunk->sections[sectionIndex];
             if (section->hasModel) {
                 RenderResourceSnapshotAddModel(&snapshot, &section->model,
                                                RENDER_RESOURCE_SOLID);
@@ -3872,9 +3937,9 @@ void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool d
 bool ChunksTestChunkDirty(int slotIndex)
 {
     assert(slotIndex >= 0 && slotIndex < MAX_ACTIVE_CHUNKS);
-    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-        if (chunks[slotIndex].sections[sy] &&
-            chunks[slotIndex].sections[sy]->dirty) return true;
+    for (int sectionIndex = 0;
+         sectionIndex < chunks[slotIndex].sectionCount; sectionIndex++) {
+        if (chunks[slotIndex].sections[sectionIndex]->dirty) return true;
     }
     return false;
 }

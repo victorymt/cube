@@ -210,9 +210,10 @@ static void TestEditDuringFlightKeepsSectionDirty(void)
 
     // The player edits the section after the snapshot was taken: the content
     // revision bumps (MarkSectionDirty semantics) while dirty stays set.
-    assert(chunks[0].sections[0] != NULL);
-    chunks[0].sections[0]->dirtyStamp++;
-    assert(chunks[0].sections[0]->dirty);
+    ChunkSection *editedSection = ChunkGetSection(&chunks[0], 0, false);
+    assert(editedSection != NULL);
+    editedSection->dirtyStamp++;
+    assert(editedSection->dirty);
 
     ChunksTestCompleteMeshJob(jobIndex);
     ProcessFinishedMeshJobs(0.0);
@@ -310,6 +311,36 @@ static void TestWaterMeshUsesSnapshottedNeighborBoundary(void)
     assert(probe.passed);
 }
 
+static void TestSparseSignedSectionStorage(void)
+{
+    ChunksTestResetScheduler();
+    Chunk *chunk = &chunks[0];
+
+    ChunkSection *high = ChunkGetSection(chunk, 700, true);
+    ChunkSection *below = ChunkGetSection(chunk, -4, true);
+    ChunkSection *middle = ChunkGetSection(chunk, 3, true);
+    assert(high && below && middle);
+    assert(chunk->sectionCount == 3);
+    assert(chunk->sections[0] == below);
+    assert(chunk->sections[1] == middle);
+    assert(chunk->sections[2] == high);
+    assert(ChunkGetSection(chunk, -4, false) == below);
+    assert(ChunkGetSectionConst(chunk, 700) == high);
+    assert(ChunkGetSectionConst(chunk, 699) == NULL);
+
+    chunk->loaded = true;
+    below->dirty = true;
+    high->dirty = true;
+    RebuildDirtyChunkMeshes((Vector3){ 0.0f, -63.0f, 0.0f });
+    assert(ChunksTestMeshJobSectionY(0) == -4);
+    assert(ChunksTestMeshJobSectionY(1) == 700);
+
+    ChunkClearBlockStorage(chunk);
+    assert(chunk->sections == NULL);
+    assert(chunk->sectionCount == 0);
+    assert(chunk->sectionCapacity == 0);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(chunks));
@@ -323,6 +354,7 @@ int main(void)
     TestEditDuringFlightKeepsSectionDirty();
     TestStaleJobDiscardedAfterChunkReload();
     TestWaterMeshUsesSnapshottedNeighborBoundary();
+    TestSparseSignedSectionStorage();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

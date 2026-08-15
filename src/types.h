@@ -332,7 +332,11 @@ typedef struct Chunk {
     float floraWindAngle;
     FloraStructureInstance floraStructures[MAX_CHUNK_FLORA_STRUCTURES];
     int floraStructureCount;
-    ChunkSection *sections[SURFACE_SECTION_COUNT];
+    // Materialized vertical sections, sorted by signed sectionY. The logical
+    // world height must not determine the size of every resident XZ column.
+    ChunkSection **sections;
+    int sectionCount;
+    int sectionCapacity;
 } Chunk;
 
 typedef struct BlockEdit {

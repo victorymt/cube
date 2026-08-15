@@ -50,19 +50,44 @@ Chunk *FindChunk(int cx, int cz)
 
 ChunkSection *ChunkGetSection(Chunk *chunk, int sectionY, bool create)
 {
-    if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT) return NULL;
-    if (!chunk->sections[sectionY] && create) {
-        chunk->sections[sectionY] = calloc(1, sizeof(ChunkSection));
-        assert(chunk->sections[sectionY]);
-        chunk->sections[sectionY]->sectionY = sectionY;
+    if (!chunk) return NULL;
+    int index = 0;
+    while (index < chunk->sectionCount &&
+           chunk->sections[index]->sectionY < sectionY) index++;
+    if (index < chunk->sectionCount &&
+        chunk->sections[index]->sectionY == sectionY) {
+        return chunk->sections[index];
     }
-    return chunk->sections[sectionY];
+    if (!create) return NULL;
+    if (chunk->sectionCount == chunk->sectionCapacity) {
+        int capacity = chunk->sectionCapacity > 0
+            ? chunk->sectionCapacity * 2 : 4;
+        ChunkSection **sections = realloc(
+            chunk->sections, (size_t)capacity * sizeof(*sections));
+        assert(sections);
+        chunk->sections = sections;
+        chunk->sectionCapacity = capacity;
+    }
+    memmove(&chunk->sections[index + 1], &chunk->sections[index],
+            (size_t)(chunk->sectionCount - index) * sizeof(*chunk->sections));
+    ChunkSection *section = calloc(1, sizeof(*section));
+    assert(section);
+    section->sectionY = sectionY;
+    chunk->sections[index] = section;
+    chunk->sectionCount++;
+    return section;
 }
 
 const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY)
 {
-    if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT) return NULL;
-    return chunk->sections[sectionY];
+    if (!chunk) return NULL;
+    for (int index = 0; index < chunk->sectionCount; index++) {
+        if (chunk->sections[index]->sectionY == sectionY) {
+            return chunk->sections[index];
+        }
+        if (chunk->sections[index]->sectionY > sectionY) break;
+    }
+    return NULL;
 }
 
 BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
@@ -103,15 +128,16 @@ uint32_t WorldCurrentSurfaceId(void)
 static void ClearChunks(void)
 {
     for (int chunkIndex = 0; chunkIndex < MAX_ACTIVE_CHUNKS; chunkIndex++) {
-        for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-            ChunkSection *section = chunks[chunkIndex].sections[sy];
-            if (!section) continue;
+        for (int sectionIndex = 0;
+             sectionIndex < chunks[chunkIndex].sectionCount; sectionIndex++) {
+            ChunkSection *section = chunks[chunkIndex].sections[sectionIndex];
             free(section->waterVolumes);
             free(section->fluidQueuedBits);
             free(section->fluidDeferredBits);
             free(section->fluidFlow);
             free(section);
         }
+        free(chunks[chunkIndex].sections);
     }
     memset(chunks, 0, sizeof(chunks));
 }

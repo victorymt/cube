@@ -1274,9 +1274,9 @@ static void SnapshotChunkBlocks(
 
 static void AssertChunkSectionsHaveNoModels(const Chunk *chunk)
 {
-    for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-        const ChunkSection *section = ChunkGetSectionConst(chunk, sy);
-        if (!section) continue;
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        const ChunkSection *section = chunk->sections[sectionIndex];
         assert(!section->hasModel && !section->hasWaterModel &&
                !section->hasFloraModel);
         assert(section->floraTargetScales == NULL);
@@ -1710,9 +1710,9 @@ static void TestChunkUnloadReloadDeterminism(void)
     assert(GetActiveChunkCount() == 0);
     for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
         assert(!chunks[index].loaded);
-        for (int sy = 0; sy < SURFACE_SECTION_COUNT; sy++) {
-            assert(chunks[index].sections[sy] == NULL);
-        }
+        assert(chunks[index].sections == NULL);
+        assert(chunks[index].sectionCount == 0);
+        assert(chunks[index].sectionCapacity == 0);
         chunks[index].floraStructureCount = MAX_CHUNK_FLORA_STRUCTURES;
         memset(chunks[index].floraStructures, 0xa5,
                sizeof(chunks[index].floraStructures));
