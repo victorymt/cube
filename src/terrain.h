@@ -94,6 +94,10 @@ void ApplyEditsToChunkSection(Chunk *chunk, int sectionY);
 void ApplyEditsToChunk(Chunk *chunk);
 
 #ifdef TERRAIN_TESTING
+void TerrainTestBootstrapHomeChunk(Chunk *chunk, int cx, int cz,
+                                   TerrainMode mode);
+void TerrainTestGenerateMineshaft(Chunk *chunk, int cx, int cz,
+                                  TerrainMode mode);
 int TerrainTestHomeTreeVariantAt(int treeX, int treeZ, bool conifer);
 int TerrainTestHomeTreeCrownRadiusAt(int treeX, int treeZ);
 void TerrainTestPlaceHomeTree(Chunk *chunk, int treeX, int base, int treeZ,

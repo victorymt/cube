@@ -279,6 +279,67 @@ static void TestIndependentSectionBaseGeneration(void)
     terrainSeed = DEFAULT_WORLD_SEED;
 }
 
+static void TestSparseChunkBootstrap(void)
+{
+    terrainSeed = 1448040515u;
+    int cx = FloorDivInt(-2896, CHUNK_SIZE);
+    int cz = FloorDivInt(16, CHUNK_SIZE);
+    Chunk chunk = { 0 };
+    TerrainTestBootstrapHomeChunk(&chunk, cx, cz, TERRAIN_VARIED);
+
+    int seabedSectionY = SurfaceSectionYFromBlockY(
+        TerrainBathymetryAt(-2896, 16, TERRAIN_VARIED).seabedY);
+    assert(ChunkGetSectionConst(&chunk, 5));
+    assert(ChunkGetSectionConst(&chunk, 4));
+    assert(!ChunkGetSectionConst(&chunk, seabedSectionY));
+    assert(chunk.sectionCount >= 2 && chunk.sectionCount <= 4);
+    assert(ChunkGetLocalBlock(&chunk, 0, HOME_SEA_LEVEL, 0) ==
+           TerrainBaseBlockAt(-2896, HOME_SEA_LEVEL, 16,
+                              TERRAIN_VARIED));
+    ChunkClearBlockStorage(&chunk);
+    terrainSeed = DEFAULT_WORLD_SEED;
+}
+
+static void TestUndergroundFeaturesMaterializeTheirBase(void)
+{
+    bool found = false;
+    for (int anchorX = -40; anchorX <= 40 && !found; anchorX++) {
+        for (int anchorZ = -40; anchorZ <= 40 && !found; anchorZ++) {
+            if (WorldHash2D(anchorX + 17, anchorZ + 29) % 100u >= 30u) {
+                continue;
+            }
+            int wx = anchorX * 40;
+            int wz = anchorZ * 40;
+            int cx = FloorDivInt(wx, CHUNK_SIZE);
+            int cz = FloorDivInt(wz, CHUNK_SIZE);
+            int sampleX = cx * CHUNK_SIZE + CHUNK_SIZE - 1;
+            int sampleZ = cz * CHUNK_SIZE + CHUNK_SIZE - 1;
+            if (TerrainBathymetryAt(sampleX, sampleZ,
+                                    TERRAIN_VARIED).waterDepth < 1000) {
+                continue;
+            }
+
+            Chunk chunk = { 0 };
+            TerrainTestBootstrapHomeChunk(
+                &chunk, cx, cz, TERRAIN_VARIED);
+            TerrainTestGenerateMineshaft(
+                &chunk, cx, cz, TERRAIN_VARIED);
+            const ChunkSection *featureSection = ChunkGetSectionConst(
+                &chunk, SurfaceSectionYFromBlockY(8));
+            assert(featureSection);
+            BlockType expected = TerrainBaseBlockAt(
+                sampleX, 1, sampleZ, TERRAIN_VARIED);
+            assert(expected != BLOCK_AIR);
+            assert(ChunkGetLocalBlock(
+                       &chunk, CHUNK_SIZE - 1, 1, CHUNK_SIZE - 1) ==
+                   expected);
+            ChunkClearBlockStorage(&chunk);
+            found = true;
+        }
+    }
+    assert(found);
+}
+
 typedef struct TreePoint {
     int x;
     int z;
@@ -490,6 +551,8 @@ int main(void)
     TestChunkSectionBoundaries();
     TestTerrainBaseBlockQueries();
     TestIndependentSectionBaseGeneration();
+    TestSparseChunkBootstrap();
+    TestUndergroundFeaturesMaterializeTheirBase();
     TestTreePlacementSpacing();
     TestHomeTreeVariantSelection();
     TestHomeTreeShapes();

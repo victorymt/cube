@@ -897,9 +897,20 @@ void TerrainTestPlaceHomeTree(Chunk *chunk, int treeX, int base, int treeZ,
 }
 #endif
 
+static void MaterializeHomeTerrainRange(Chunk *chunk, int cx, int cz,
+                                        int minY, int maxY,
+                                        TerrainMode mode)
+{
+    int firstSectionY = SurfaceSectionYFromBlockY(minY);
+    int lastSectionY = SurfaceSectionYFromBlockY(maxY);
+    for (int sectionY = firstSectionY;
+         sectionY <= lastSectionY; sectionY++) {
+        GenerateChunkTerrainSectionBase(chunk, cx, cz, sectionY, mode);
+    }
+}
+
 static void GenerateMineshaft(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
-    (void)mode;
     const int spacing = 40;
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
@@ -918,6 +929,8 @@ static void GenerateMineshaft(Chunk *chunk, int cx, int cz, TerrainMode mode)
             int dx = (WorldHash2D(anchorX + 7, anchorZ + 11) % 2u) ? 1 : -1;
             int dz = (WorldHash2D(anchorX + 13, anchorZ + 19) % 2u) ? 1 : -1;
             int length = 12 + (int)(WorldHash2D(anchorX + 23, anchorZ + 31) % 9u);
+            MaterializeHomeTerrainRange(
+                chunk, cx, cz, wy, wy + 3, mode);
 
             for (int i = 0; i < length; i++) {
                 int bx = wx + dx * i;
@@ -941,7 +954,6 @@ static void GenerateMineshaft(Chunk *chunk, int cx, int cz, TerrainMode mode)
 
 static void GenerateDungeon(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
-    (void)mode;
     const int spacing = 80;
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
@@ -957,6 +969,8 @@ static void GenerateDungeon(Chunk *chunk, int cx, int cz, TerrainMode mode)
             int wx = anchorX * spacing;
             int wz = anchorZ * spacing;
             int wy = 10 + (int)(WorldHash2D(anchorX + 2, anchorZ + 4) % 4u);
+            MaterializeHomeTerrainRange(
+                chunk, cx, cz, wy, wy + 3, mode);
 
             for (int ox = -3; ox <= 3; ox++) {
                 for (int oz = -3; oz <= 3; oz++) {
@@ -1823,6 +1837,26 @@ bool GenerateChunkTerrainSectionBase(Chunk *chunk, int cx, int cz,
         chunk, cx, cz, sectionY, mode, samples);
 }
 
+static void GenerateHomeVisibleTerrainSections(
+    Chunk *chunk, int cx, int cz, TerrainMode mode,
+    const SurfaceTerrainSample samples[CHUNK_SIZE][CHUNK_SIZE])
+{
+    int seaLevel = TerrainSeaLevel(mode);
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int height = (int)lroundf(samples[lx][lz].elevation);
+            int top = seaLevel >= 0 && height < seaLevel ? seaLevel : height;
+            int topSectionY = SurfaceSectionYFromBlockY(top);
+            GenerateChunkTerrainSectionBaseFromSamples(
+                chunk, cx, cz, topSectionY, mode, samples);
+            if (SurfaceSectionInBounds(topSectionY - 1)) {
+                GenerateChunkTerrainSectionBaseFromSamples(
+                    chunk, cx, cz, topSectionY - 1, mode, samples);
+            }
+        }
+    }
+}
+
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
     chunk->cx = cx;
@@ -1841,19 +1875,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
     SampleHomeChunkColumns(cx, cz, mode, samples);
 
     int seaLevel = TerrainSeaLevel(mode);
-    int highestBaseY = 0;
-    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-            int height = (int)lroundf(samples[lx][lz].elevation);
-            int top = seaLevel >= 0 && height < seaLevel ? seaLevel : height;
-            if (top > highestBaseY) highestBaseY = top;
-        }
-    }
-    int highestBaseSection = SurfaceSectionYFromBlockY(highestBaseY);
-    for (int sectionY = 0; sectionY <= highestBaseSection; sectionY++) {
-        GenerateChunkTerrainSectionBaseFromSamples(
-            chunk, cx, cz, sectionY, mode, samples);
-    }
+    GenerateHomeVisibleTerrainSections(chunk, cx, cz, mode, samples);
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -1917,6 +1939,26 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
         GenerateDesertTemple(chunk, cx, cz, mode);
     }
 }
+
+#ifdef TERRAIN_TESTING
+void TerrainTestBootstrapHomeChunk(Chunk *chunk, int cx, int cz,
+                                   TerrainMode mode)
+{
+    if (!chunk) return;
+    chunk->cx = cx;
+    chunk->cz = cz;
+    ChunkClearBlockStorage(chunk);
+    SurfaceTerrainSample samples[CHUNK_SIZE][CHUNK_SIZE];
+    SampleHomeChunkColumns(cx, cz, mode, samples);
+    GenerateHomeVisibleTerrainSections(chunk, cx, cz, mode, samples);
+}
+
+void TerrainTestGenerateMineshaft(Chunk *chunk, int cx, int cz,
+                                  TerrainMode mode)
+{
+    GenerateMineshaft(chunk, cx, cz, mode);
+}
+#endif
 
 void ApplyEditsToChunkSection(Chunk *chunk, int sectionY)
 {
