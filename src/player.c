@@ -178,6 +178,30 @@ bool PlayerOverlapsWorld(Vector3 position)
     return false;
 }
 
+bool PlayerFindLandingSpot(Vector3 start, int minY, int maxY, Vector3 *out)
+{
+    Vector3 spot = start;
+    if (spot.y < (float)minY) spot.y = (float)minY;
+    if (spot.y > (float)maxY) spot.y = (float)maxY;
+
+    int safety = 0;
+    while (PlayerOverlapsWorld(spot) && safety < 12) {
+        spot.y += 1.0f;
+        safety++;
+        if (spot.y > (float)maxY) spot.y = (float)maxY;
+    }
+    if (PlayerOverlapsWorld(spot)) return false;
+
+    while (spot.y > (float)minY) {
+        Vector3 below = spot;
+        below.y -= 1.0f;
+        if (below.y < (float)minY || PlayerOverlapsWorld(below)) break;
+        spot = below;
+    }
+    if (out) *out = spot;
+    return true;
+}
+
 static bool PlayerVectorIsFinite(Vector3 value)
 {
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);

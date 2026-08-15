@@ -24,6 +24,7 @@ typedef struct PlayerWaterState {
 
 bool IsSolidBlockAt(int x, int y, int z);
 bool PlayerOverlapsWorld(Vector3 position);
+bool PlayerFindLandingSpot(Vector3 start, int minY, int maxY, Vector3 *out);
 void MovePlayer(Player *player, Vector3 delta);
 Vector3 ForwardFromAngles(float yaw, float pitch);
 Vector3 FlatForward(float yaw);

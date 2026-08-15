@@ -32,4 +32,10 @@ if grep -nE '^(float|bool|int|BlockType|char) (dayTimeForHud|autoSaveForHud|bloc
     fail "render HUD state must be passed through frame structs"
 fi
 
+grep -q 'GameUpdateInteractions(' src/game.c ||
+    fail "game frame updates must delegate world interactions"
+if grep -nE 'RaycastBlocksFiltered|FluidTryCollectUnit|FluidTryDepositUnit|ShipTryEnter' src/game.c; then
+    fail "world interaction mechanics must remain in game_interaction.c"
+fi
+
 echo "architecture checks passed"

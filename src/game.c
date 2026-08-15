@@ -2,6 +2,7 @@
 #include "raymath.h"
 
 #include "game.h"
+#include "game_interaction.h"
 #include "game_runtime.h"
 #include "types.h"
 #include "terrain.h"
@@ -94,25 +95,6 @@ static void EvolutionChildrenText(const EvolutionCatalogIndividual *individual,
         if (written < 0 || (size_t)written >= textSize - used) break;
         used += (size_t)written;
     }
-}
-
-static bool ObserveEvolutionInfo(const EntityEvolutionDebugInfo *info)
-{
-    if (!info || !info->valid) return false;
-    EvolutionCatalogObservation observation = {
-        .worldSeed = PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
-        .surfaceId = WorldCurrentSurfaceId(),
-        .x = (int)floorf(info->positionX),
-        .z = (int)floorf(info->positionZ),
-        .organismId = info->organismId,
-        .lineageId = info->lineageId,
-        .speciesId = info->speciesId,
-        .motherId = info->motherId,
-        .fatherId = info->fatherId,
-        .genome = info->genome,
-        .phenotype = info->phenotype
-    };
-    return EvolutionCatalogObserve(&observation);
 }
 
 static bool EnvironmentSheltered(Vector3 position)
@@ -226,30 +208,6 @@ static RenderResourceSnapshot CurrentRenderResourceSnapshot(void)
     RenderResourceSnapshotMerge(&snapshot, NetherGetRenderResourceSnapshot());
     snapshot.worldLightingTextureBytes = WorldRendererTextureBytes();
     return snapshot;
-}
-
-static bool FindLandingSpot(Vector3 start, int minY, int maxY, Vector3 *out)
-{
-    Vector3 spot = start;
-    if (spot.y < (float)minY) spot.y = (float)minY;
-    if (spot.y > (float)maxY) spot.y = (float)maxY;
-
-    int safety = 0;
-    while (PlayerOverlapsWorld(spot) && safety < 12) {
-        spot.y += 1.0f;
-        safety++;
-        if (spot.y > (float)maxY) spot.y = (float)maxY;
-    }
-    if (PlayerOverlapsWorld(spot)) return false;
-
-    while (spot.y > (float)minY) {
-        Vector3 below = spot;
-        below.y -= 1.0f;
-        if (below.y < (float)minY || PlayerOverlapsWorld(below)) break;
-        spot = below;
-    }
-    *out = spot;
-    return true;
 }
 
 #define LANDING_TRANSITION_DURATION 9.6f
@@ -419,7 +377,8 @@ static void LandingTransitionFinishLanding(LandingTransition *transition, Player
     Vector3 besideShip = transition->landingPosition;
     besideShip.x += cosf(player->yaw) * 2.25f;
     besideShip.z -= sinf(player->yaw) * 2.25f;
-    if (FindLandingSpot(besideShip, 0, WORLD_HEIGHT - 1, &besideShip)) {
+    if (PlayerFindLandingSpot(besideShip, 0, WORLD_HEIGHT - 1,
+                              &besideShip)) {
         player->position = besideShip;
     }
     player->velocity = Vector3Zero();
@@ -2313,7 +2272,7 @@ static bool GameDispatchDebugCommand(GameRuntime *game) {
                         "DEBUG_CONTROL evolution focus none radius=%.3f\n",
                         game->debugControl.evolutionRadius);
     } else {
-      game->evolutionScanLocked = ObserveEvolutionInfo(&info);
+      game->evolutionScanLocked = GameInteractionObserveEvolutionInfo(&info);
       game->evolutionLockedOrganismId =
           game->evolutionScanLocked ? info.organismId : 0u;
       DebugControlReply(
@@ -2433,248 +2392,24 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         GameUpdateWorldStreaming(game, &localWorldActive);
     GameUpdateWorldJobs(game, dt, localWorldActive);
 
-    UpdatePlayerCamera(&game->camera, &game->player, dt, game->thirdPerson);
-    effectiveRenderDistance = EffectiveRenderDistanceForHeight(game->camera.position.y);
-
-    Vector3 aimEye = { game->player.position.x, game->player.position.y + EYE_HEIGHT, game->player.position.z };
-    Vector3 aimDir = Vector3Normalize(Vector3Subtract(game->camera.target, game->camera.position));
-    HitResult hit = RaycastBlocksFiltered(aimEye, aimDir, REACH_DISTANCE,
-                                          RAYCAST_BLOCK_SOLID);
-    HitResult interactionHit = RaycastBlocksFiltered(
-        aimEye, aimDir, REACH_DISTANCE, RAYCAST_BLOCK_ALL);
-    int entityHit = EntityRayHit(aimEye, aimDir, REACH_DISTANCE);
-    if (!inputBlocked && IsKeyPressed(KEY_N)) {
-        if (game->evolutionScanLocked) {
-            game->evolutionScanLocked = false;
-            game->evolutionLockedOrganismId = 0u;
-            SetImportMessage("Evolution scan unlocked.");
-        } else {
-            EntityEvolutionDebugInfo scanInfo = { 0 };
-            if (EntityEvolutionInspect(entityHit, &scanInfo)) {
-                game->evolutionScanLocked = ObserveEvolutionInfo(&scanInfo);
-                game->evolutionLockedOrganismId = game->evolutionScanLocked
-                    ? scanInfo.organismId : 0u;
-                SetImportMessage(game->evolutionScanLocked
-                    ? "Evolution scan locked; species added to atlas."
-                    : "Evolution scan failed.");
-            } else {
-                SetImportMessage("Aim at an evolvable organism to scan.");
-            }
-        }
-    }
-    SpaceBodyInfo aimBody = { 0 };
-    bool haveAimBody = SpaceBodyPick(aimEye, aimDir, &aimBody);
-    ParkedShip hitShip = { 0 };
-    bool hitParkedShip = hit.hit &&
-                         ShipResolveParkedAt(hit.x, hit.y, hit.z, &hitShip);
-    if (!inputBlocked && interactionHit.hit &&
-        GetBlockAt(interactionHit.x, interactionHit.y, interactionHit.z) ==
-            BLOCK_WATER &&
-        IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        if (InventoryCount(BLOCK_WATER) >= INVENTORY_MAX_PER_BLOCK) {
-            SetImportMessage("Inventory full: Water");
-        } else if (FluidTryCollectUnit(
-                       interactionHit.x, interactionHit.y,
-                       interactionHit.z)) {
-            InventoryAdd(BLOCK_WATER, 1);
-            AudioPlayPick();
-            SetImportMessage(TextFormat("Collected Water (%d)",
-                                        InventoryCount(BLOCK_WATER)));
-        } else {
-            SetImportMessage("Need 255 connected water volume to collect.");
-        }
-    } else if (!inputBlocked && entityHit >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        float harvestDaylight = 0.0f;
-        float harvestSunset = 0.0f;
-        PlanetLightState harvestLight = { 0 };
-        if (!PlanetWorldLightStateAt(game->player.position, &harvestLight)) {
-            DayNightFactors(game->dayTime, &harvestDaylight, &harvestSunset);
-        } else {
-            harvestDaylight = harvestLight.daylight;
-        }
-        EntityKill(entityHit, ENTITY_DEATH_PLAYER, harvestDaylight);
-    } else if (!inputBlocked && hitParkedShip &&
-               IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        if (InventoryAdd(BLOCK_SPACESHIP, 1) > 0) {
-            Vector3 center = {
-                (float)hitShip.coreX + (hitShip.legacy ? 0.5f : 1.0f),
-                (float)hitShip.coreY + 0.5f,
-                (float)hitShip.coreZ + (hitShip.legacy ? 0.5f : 1.0f)
-            };
-            ShipRemoveParkedAt(hit.x, hit.y, hit.z, true);
-            ParticlesEmitBurst(center, BlockBaseColor(BLOCK_SPACESHIP),
-                               20, 3.0f, 0.7f);
-            AudioPlayBreak();
-        } else {
-            SetImportMessage("Inventory full: Spaceship");
-        }
-    } else if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit.y >= NETHER_LAYER_Y) {
-        BlockType brokenType = GetBlockAt(hit.x, hit.y, hit.z);
-        PlanetPoi claimedPoi = { 0 };
-        bool poiCore = PlanetPoiIsCore(hit.x, hit.y, hit.z);
-        bool poiClaimed = PlanetPoiIsClaimed(hit.x, hit.y, hit.z);
-        if (PlanetPoiTryClaim(hit.x, hit.y, hit.z, &claimedPoi)) {
-            ParticlesEmitBurst((Vector3){ hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f },
-                               BlockBaseColor(claimedPoi.rewardBlock), 24, 3.8f, 0.85f);
-            AudioPlayBreak();
-            SetImportMessage(TextFormat("Survey complete: %s, +%d %s", claimedPoi.name,
-                                        claimedPoi.rewardAmount,
-                                        BlockName(claimedPoi.rewardBlock)));
-        } else if (poiClaimed) {
-            SetImportMessage("This discovery has already been catalogued.");
-        } else if (!poiCore && brokenType != BLOCK_AIR && InventoryAdd(brokenType, 1) > 0) {
-            ParticlesEmitBurst((Vector3){ hit.x + 0.5f, hit.y + 0.5f, hit.z + 0.5f },
-                               BlockBaseColor(brokenType), 16, 3.0f, 0.7f);
-            AudioPlayBreak();
-            SetBlock(hit.x, hit.y, hit.z, BLOCK_AIR);
-        } else if (!poiCore && brokenType != BLOCK_AIR) {
-            SetImportMessage(TextFormat("Inventory full: %s", BlockName(brokenType)));
-        }
-    }
-    int placeX = 0;
-    int placeY = 0;
-    int placeZ = 0;
-    bool canPlace = false;
-    ShipDirection placementDirection = ShipDirectionFromYaw(game->player.yaw);
-    if (!inputBlocked && hit.hit) {
-        placeX = hit.x + hit.nx;
-        placeY = hit.y + hit.ny;
-        placeZ = hit.z + hit.nz;
-        if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP) {
-            canPlace = InventoryCount(BLOCK_SPACESHIP) > 0 &&
-                       ShipCanPlaceParked(placeX, placeY, placeZ,
-                                          placementDirection, &game->player);
-        } else {
-            BlockType selectedType = game->hotbar[game->selectedIndex];
-            BlockType targetType = GetBlockAt(placeX, placeY, placeZ);
-            bool targetAvailable = targetType == BLOCK_AIR ||
-                (WorldIsSurfaceActive() && targetType == BLOCK_WATER);
-            canPlace = InventoryCount(game->hotbar[game->selectedIndex]) > 0 &&
-                       targetAvailable &&
-                       WorldBlockRegionAt(placeY) != WORLD_BLOCK_REGION_NONE &&
-                       (selectedType == BLOCK_WATER ||
-                        !BlockWouldOverlapPlayer(placeX, placeY, placeZ,
-                                                 game->player.position));
-            if (selectedType == BLOCK_WATER) {
-                canPlace = canPlace && WorldIsSurfaceActive() &&
-                           WorldBlockRegionAt(placeY) ==
-                               WORLD_BLOCK_REGION_SURFACE;
-            }
-        }
-    }
-    if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-        if (GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_ALBUM) {
-            if (WeatherGetCurrent() == WEATHER_RAIN) {
-                game->albumRainSuspended = true;
-                AudioSetRain(false);
-            }
-            AlbumOpen();
-            game->albumOpen = true;
-            game->player.velocity = Vector3Zero();
-            game->cursorReleased = false;
-            EnableCursor();
-        } else if (!ShipIsDriving() && ShipTryEnter(hit.x, hit.y, hit.z, &game->player)) {
-        } else if (GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_NETHER_PORTAL) {
-            Vector3 landing = game->player.position;
-            if (game->player.position.y > 0.0f) {
-                landing.y = -46.0f;
-                FindLandingSpot(landing, NETHER_LAYER_Y + 1, NETHER_LAYER_TOP - 1, &landing);
-                SetImportMessage("Entered the Nether.");
-            } else {
-                float groundY = (float)TerrainHeight((int)floorf(game->player.position.x),
-                                                     (int)floorf(game->player.position.z), WorldTerrainMode());
-                landing.y = groundY + 3.0f;
-                FindLandingSpot(landing, 0, WORLD_HEIGHT - 1, &landing);
-                SetImportMessage("Back to the surface.");
-            }
-            game->player.position = landing;
-            game->player.velocity = Vector3Zero();
-            game->player.floating = false;
-            game->wasInSpace = false;
-        } else if (GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_DOOR ||
-                   GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_DOOR_OPEN) {
-            BlockType doorType = GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_DOOR ? BLOCK_DOOR_OPEN : BLOCK_DOOR;
-            AudioPlayPlace();
-            SetBlock(hit.x, hit.y, hit.z, doorType);
-        } else if (GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_FENCE_GATE ||
-                   GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_FENCE_GATE_OPEN) {
-            BlockType gateType = GetBlockAt(hit.x, hit.y, hit.z) == BLOCK_FENCE_GATE ? BLOCK_FENCE_GATE_OPEN : BLOCK_FENCE_GATE;
-            AudioPlayPlace();
-            SetBlock(hit.x, hit.y, hit.z, gateType);
-        } else if (canPlace) {
-            BlockType placedType = game->hotbar[game->selectedIndex];
-            if (placedType == BLOCK_SPACESHIP) {
-                if (InventoryConsume(placedType, 1)) {
-                    if (!ShipPlaceParked(placeX, placeY, placeZ,
-                                         placementDirection, true)) {
-                        InventoryAdd(placedType, 1);
-                        SetImportMessage("Spaceship needs a clear 4x4 area.");
-                    } else {
-                        ParticlesEmitBurst(
-                            (Vector3){ placeX + 1.0f, placeY + 0.5f,
-                                       placeZ + 1.0f },
-                            BlockBaseColor(placedType), 16, 2.5f, 0.6f);
-                        AudioPlayPlace();
-                    }
-                }
-            } else if (placedType == BLOCK_WATER) {
-                if (InventoryConsume(placedType, 1)) {
-                    if (!FluidTryDepositUnit(placeX, placeY, placeZ)) {
-                        InventoryAdd(placedType, 1);
-                        SetImportMessage(
-                            "Water needs 255 free loaded neighbor volume.");
-                    } else {
-                        ParticlesEmitBurst(
-                            (Vector3){ placeX + 0.5f, placeY + 0.5f,
-                                       placeZ + 0.5f },
-                            BlockBaseColor(placedType), 8, 2.0f, 0.5f);
-                        AudioPlayPlace();
-                    }
-                }
-            } else if (InventoryConsume(placedType, 1)) {
-                if (!SetBlock(placeX, placeY, placeZ, placedType)) {
-                    InventoryAdd(placedType, 1);
-                    SetImportMessage(
-                        "Cannot place block: water has no loaded escape volume.");
-                } else {
-                    ParticlesEmitBurst(
-                        (Vector3){ placeX + 0.5f, placeY + 0.5f,
-                                   placeZ + 0.5f },
-                        BlockBaseColor(placedType), 8, 2.0f, 0.5f);
-                    AudioPlayPlace();
-                }
-            }
-        } else if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP &&
-                   InventoryCount(BLOCK_SPACESHIP) > 0) {
-            SetImportMessage("Spaceship needs a clear 4x4 area.");
-        }
-    }
-    if (!inputBlocked && hit.hit && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
-        BlockType picked = GetBlockAt(hit.x, hit.y, hit.z);
-        if (ShipResolveParkedAt(hit.x, hit.y, hit.z, NULL)) {
-            picked = BLOCK_SPACESHIP;
-        }
-        if (picked != BLOCK_AIR && IsValidBlockType(picked)) {
-            game->hotbar[game->selectedIndex] = picked;
-            AudioPlayPick();
-            SetImportMessage(TextFormat("Picked %s (%d)", BlockName(picked), InventoryCount(picked)));
-        }
-    }
+    GameInteractionContext interaction = { 0 };
+    effectiveRenderDistance = GameUpdateInteractions(
+        game, dt, inputBlocked, &interaction);
 
     GameFrameView frame = {
-        .hit = hit,
-        .hitShip = hitShip,
-        .aimBody = aimBody,
+        .hit = interaction.hit,
+        .hitShip = interaction.hitShip,
+        .aimBody = interaction.aimBody,
         .dt = dt,
         .effectiveRenderDistance = effectiveRenderDistance,
-        .entityHit = entityHit,
-        .placeX = placeX,
-        .placeY = placeY,
-        .placeZ = placeZ,
+        .entityHit = interaction.entityHit,
+        .placeX = interaction.placeX,
+        .placeY = interaction.placeY,
+        .placeZ = interaction.placeZ,
         .localWorldActive = localWorldActive,
-        .hitParkedShip = hitParkedShip,
-        .haveAimBody = haveAimBody,
-        .canPlace = canPlace
+        .hitParkedShip = interaction.hitParkedShip,
+        .haveAimBody = interaction.haveAimBody,
+        .canPlace = interaction.canPlace
     };
     GameUpdateFrameEnvironment(game, &frame);
     GameRenderFrame(game, &frame);
