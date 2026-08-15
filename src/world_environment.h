@@ -22,10 +22,12 @@ typedef enum WorldBlockRegion {
     WORLD_BLOCK_REGION_SPACE
 } WorldBlockRegion;
 
-// The no-argument query describes the active host environment. Use the
-// position-aware form when the player may be inside the Nether layer.
+// Dimension selection is explicit; the position-aware form remains for
+// callers that also use altitude for presentation decisions.
 WorldDimension WorldCurrentDimension(void);
 WorldDimension WorldCurrentDimensionAt(float y);
+bool WorldNetherIsActive(void);
+void WorldSetNetherActive(bool active);
 const char *WorldDimensionName(WorldDimension dimension);
 WorldBlockRegion WorldBlockRegionAt(int y);
 

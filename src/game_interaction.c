@@ -239,18 +239,27 @@ static void GameOpenAlbumFromWorld(GameRuntime *game)
 static void GameUseNetherPortal(GameRuntime *game)
 {
     Vector3 landing = game->player.position;
-    if (game->player.position.y > 0.0f) {
+    bool entering = !WorldNetherIsActive();
+    WorldSetNetherActive(entering);
+    bool foundLanding = false;
+    if (entering) {
         landing.y = -46.0f;
-        PlayerFindLandingSpot(landing, NETHER_LAYER_Y + 1,
-                              NETHER_LAYER_TOP - 1, &landing);
+        foundLanding = PlayerFindLandingSpot(
+            landing, NETHER_LAYER_Y + 1, NETHER_LAYER_TOP - 1, &landing);
         SetImportMessage("Entered the Nether.");
     } else {
         float groundY = (float)TerrainHeight(
             (int)floorf(game->player.position.x),
             (int)floorf(game->player.position.z), WorldTerrainMode());
         landing.y = groundY + 3.0f;
-        PlayerFindLandingSpot(landing, 0, WORLD_HEIGHT - 1, &landing);
+        foundLanding = PlayerFindLandingSpot(
+            landing, 0, WORLD_HEIGHT - 1, &landing);
         SetImportMessage("Back to the surface.");
+    }
+    if (!foundLanding) {
+        WorldSetNetherActive(!entering);
+        SetImportMessage("Portal destination is obstructed.");
+        return;
     }
     game->player.position = landing;
     game->player.velocity = Vector3Zero();

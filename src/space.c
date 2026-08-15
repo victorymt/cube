@@ -14,6 +14,7 @@
 #include "space_system_physics.h"
 #include "space_units.h"
 #include "world.h"
+#include "world_environment.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -3211,6 +3212,7 @@ static void HomeWorldActivateSurface(void)
     UnloadAllChunks();
     UnloadAllSpaceChunks();
     homeWorld.surfaceActive = true;
+    WorldSetNetherActive(false);
     RebuildTorchList();
     ClearUndoHistory();
 }

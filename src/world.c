@@ -682,6 +682,7 @@ void ClearUndoHistory(void)
 void WorldReset(uint32_t seed)
 {
     WorldExtensionReset();
+    WorldSetNetherActive(false);
     blockEditCount = 0;
     BumpBlockEditRevision();
     ClearBlockEditIndex();
@@ -1605,6 +1606,10 @@ void LoadMap(Player *player)
         }
     }
     *player = savedPlayer;
+    WorldSetNetherActive(
+        HomeWorldSurfaceIsActive() && !PlanetWorldIsActive() &&
+        player->position.y >= (float)NETHER_LAYER_Y &&
+        player->position.y < (float)NETHER_LAYER_TOP);
     PlayerResetRuntimeState(player);
     blockEditCount = savedEditCount;
     BumpBlockEditRevision();
