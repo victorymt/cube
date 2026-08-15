@@ -1345,7 +1345,8 @@ static Vector3 FindFloraGenerationCenter(
                         abs(cz) != radius) {
                         continue;
                     }
-                    GenerateChunkTerrain(&probe, cx, cz, terrainMode);
+                    GenerateChunkTerrain(&probe, cx, cz,
+                                         WorldTerrainMode());
                     int chunkMinX = cx * CHUNK_SIZE;
                     int chunkMinZ = cz * CHUNK_SIZE;
                     int chunkMaxX = chunkMinX + CHUNK_SIZE - 1;

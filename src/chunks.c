@@ -4,15 +4,10 @@
 
 #include "raymath.h"
 #include "ecology.h"
-#include "fluid.h"
 #include "space.h"
 #include "terrain.h"
 #include "world.h"
 #include "weather.h"
-
-#if defined(__GNUC__) || defined(__clang__)
-#pragma weak FluidOnChunkLoaded
-#endif
 
 #include <math.h>
 #include <limits.h>
@@ -480,7 +475,7 @@ void CompleteChunkGenJob(ChunkGenJob *job)
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
-    if (FluidOnChunkLoaded) FluidOnChunkLoaded(chunk);
+    WorldNotifyChunkLoaded(chunk);
     MarkChunkAndHorizontalNeighborsDirty(chunk->cx, chunk->cz);
 }
 
@@ -592,15 +587,15 @@ bool EnsureChunk(int cx, int cz)
     chunk->floraCapacity = 1.0f;
     chunk->floraSampleTimer = 0.0f;
 
-    if (SubmitChunkGenJob(chunk, cx, cz, terrainMode)) return true;
+    if (SubmitChunkGenJob(chunk, cx, cz, WorldTerrainMode())) return true;
 
     double startedMs = ChunkNowMs();
-    GenerateChunkTerrain(chunk, cx, cz, terrainMode);
+    GenerateChunkTerrain(chunk, cx, cz, WorldTerrainMode());
     double elapsedMs = ChunkNowMs() - startedMs;
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
-    if (FluidOnChunkLoaded) FluidOnChunkLoaded(chunk);
+    WorldNotifyChunkLoaded(chunk);
     pthread_mutex_lock(&genMutex);
     streamingStats.generationCompleted++;
     streamingStats.generationCpuMs += elapsedMs;
@@ -2324,7 +2319,7 @@ static unsigned char SurfaceWaterSnapshotVolume(
 {
     BlockType block = (BlockType)blocks[lx * height + y][lz];
     if (block != BLOCK_WATER) return 0u;
-    if (!waterVolumes) return (unsigned char)FLUID_CAPACITY;
+    if (!waterVolumes) return (unsigned char)WATER_VOLUME_CAPACITY;
     return waterVolumes[(lx * height + y) * CHUNK_SIZE + lz];
 }
 
@@ -2356,7 +2351,7 @@ static void CaptureSurfaceWaterBoundaryCell(
     int index = (lx * SURFACE_SECTION_HEIGHT +
                  worldY % SURFACE_SECTION_HEIGHT) * CHUNK_SIZE + lz;
     *outVolume = section && section->waterVolumes
-        ? section->waterVolumes[index] : (unsigned char)FLUID_CAPACITY;
+        ? section->waterVolumes[index] : (unsigned char)WATER_VOLUME_CAPACITY;
 }
 
 static void CaptureSurfaceWaterBoundary(
@@ -2481,7 +2476,7 @@ static bool SurfaceWaterNeighbor(
         int index = (localX * SURFACE_SECTION_HEIGHT +
                      worldY % SURFACE_SECTION_HEIGHT) * CHUNK_SIZE + localZ;
         *outVolume = section && section->waterVolumes
-            ? section->waterVolumes[index] : (unsigned char)FLUID_CAPACITY;
+            ? section->waterVolumes[index] : (unsigned char)WATER_VOLUME_CAPACITY;
     }
     return true;
 }
@@ -2583,7 +2578,7 @@ static void EmitSurfaceWater(
                     blocks, waterVolumes, height, lx, y, lz);
                 if (volume == 0u) continue;
                 float heightFraction =
-                    (float)volume / (float)FLUID_CAPACITY;
+                    (float)volume / (float)WATER_VOLUME_CAPACITY;
                 int worldX = chunkX * CHUNK_SIZE + lx;
                 int worldZ = chunkZ * CHUNK_SIZE + lz;
                 float blockLight = counting ? 0.0f : TorchLightAtBlockNearby(
@@ -2614,7 +2609,8 @@ static void EmitSurfaceWater(
                              neighbor == BLOCK_SPACESHIP_OCCUPIED ||
                              IsTranslucentBlock(neighbor));
                     } else if (neighborVolume > 0u) {
-                        low = (float)neighborVolume / (float)FLUID_CAPACITY;
+                        low = (float)neighborVolume /
+                              (float)WATER_VOLUME_CAPACITY;
                         visible = low + 0.0001f < heightFraction;
                     } else {
                         visible = neighbor == BLOCK_AIR ||
@@ -3373,7 +3369,7 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
                 for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                     job->waterVolumes[lx][y][lz] =
                         section->blocks[lx][y][lz] == BLOCK_WATER
-                            ? (unsigned char)FLUID_CAPACITY : 0u;
+                            ? (unsigned char)WATER_VOLUME_CAPACITY : 0u;
                 }
             }
         }

@@ -15,6 +15,21 @@ static uint64_t propertyBlockEditRevision = 1u;
 static int propertyBlockEditReadCount = 0;
 TerrainMode terrainMode = TERRAIN_VARIED;
 
+TerrainMode WorldTerrainMode(void)
+{
+    return terrainMode;
+}
+
+void WorldSetTerrainMode(TerrainMode mode)
+{
+    terrainMode = mode;
+}
+
+void WorldNotifyChunkLoaded(Chunk *chunk)
+{
+    (void)chunk;
+}
+
 uint32_t WorldGetSeed(void)
 {
     return propertyWorldSeed;

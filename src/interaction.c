@@ -269,7 +269,7 @@ static bool ImportPlacementBase(const Player *player, int targetWidth,
 
 void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, bool relief)
 {
-    if (terrainMode != TERRAIN_FLAT) {
+    if (WorldTerrainMode() != TERRAIN_FLAT) {
         SetImportMessage("Image import is only available in Flat terrain mode.");
         return;
     }
@@ -368,7 +368,7 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
             Color pixel = GetImageColor(image, px, py);
             int wx = baseX + colDx * px + rowDx * py;
             int wz = baseZ + colDz * px + rowDz * py;
-            int wy = TerrainHeight(wx, wz, terrainMode);
+            int wy = TerrainHeight(wx, wz, WorldTerrainMode());
             if (relief) {
                 int baseY = wy + 1;
                 for (int y = baseY; y < WORLD_HEIGHT; y++) {
@@ -443,7 +443,7 @@ void AppendImportText(ImportDialog *dialog, const char *text)
 
 void OpenImportDialog(ImportDialog *dialog)
 {
-    if (terrainMode != TERRAIN_FLAT) {
+    if (WorldTerrainMode() != TERRAIN_FLAT) {
         SetImportMessage("Image import is only available in Flat terrain mode.");
         return;
     }

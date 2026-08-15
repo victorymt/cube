@@ -23,6 +23,24 @@ typedef struct PauseMenuActions {
     bool qualityChanged;
 } PauseMenuActions;
 
+typedef struct HudFrameState {
+    float dayTime;
+    float shipSpeed;
+    BlockType targetedBlock;
+    int spaceEditCount;
+    bool autoSaveEnabled;
+} HudFrameState;
+
+typedef struct ShipHudState {
+    float speed;
+    float altitude;
+    float atmosphere;
+    float heading;
+    const char *systemName;
+    bool cruising;
+    bool nearPlanet;
+} ShipHudState;
+
 void UiFontInit(void);
 void UiFontShutdown(void);
 int UiMeasureText(const char *text, int fontSize);
@@ -98,20 +116,9 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                   const PlanetObservationState *observation,
                   float seasonProgress,
                   const WeatherVisualState *weatherVisual,
-                  const BathymetrySample *bathymetry);
-extern float dayTimeForHud;
-extern bool autoSaveForHud;
-extern BlockType blockForHud;
-extern int SpaceEditCountForHud;
-extern float shipSpeedForHud;
-extern float shipHudSpeed;
-extern float shipHudAlt;
-extern float shipHudAtmosphere;
-extern float shipHudHeading;
-extern char shipHudSystem[48];
-extern bool shipHudCruising;
-extern bool shipHudNearPlanet;
-void DrawShipHud(void);
+                  const BathymetrySample *bathymetry,
+                  const HudFrameState *hud);
+void DrawShipHud(const ShipHudState *hud);
 void DrawShipLocator(const Camera3D *camera, const ShipLocatorTarget *target);
 
 #endif

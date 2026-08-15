@@ -3226,7 +3226,7 @@ bool HomeWorldBeginDescent(Player *player, Vector3 *outLandingPosition)
     int groundY = 0;
     if (!FindSafeSurfaceLanding(landingX, landingZ, 128, 2,
                                 &landingX, &landingZ, &groundY)) {
-        groundY = TerrainHeight(landingX, landingZ, terrainMode);
+        groundY = TerrainHeight(landingX, landingZ, WorldTerrainMode());
     }
     Vector3 landing = { (float)landingX + 0.5f, (float)groundY + 3.0f,
                         (float)landingZ + 0.5f };
@@ -3258,7 +3258,7 @@ bool HomeWorldTryEnter(Player *player)
     int groundY = 0;
     if (!FindSafeSurfaceLanding(landingX, landingZ, 128, 2,
                                 &landingX, &landingZ, &groundY)) {
-        groundY = TerrainHeight(landingX, landingZ, terrainMode);
+        groundY = TerrainHeight(landingX, landingZ, WorldTerrainMode());
     }
     player->position = (Vector3){ (float)landingX + 0.5f, (float)groundY + 3.0f,
                                   (float)landingZ + 0.5f };

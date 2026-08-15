@@ -57,7 +57,7 @@ float WorldGravityScale(void)
 int WorldSurfaceHeightAt(int x, int z)
 {
     return PlanetWorldIsActive() ? PlanetTerrainHeight(x, z)
-                                 : TerrainHeight(x, z, terrainMode);
+                                 : TerrainHeight(x, z, WorldTerrainMode());
 }
 
 uint32_t WorldCurrentSurfaceId(void)

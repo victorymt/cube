@@ -12,18 +12,10 @@
 #include "entity.h"
 #include "ecology.h"
 #include "evolution_catalog.h"
-#include "fluid.h"
 #include "terrain.h"
 #include "world_environment.h"
+#include "world_extension.h"
 #include "save_io.h"
-
-#if defined(__GNUC__) || defined(__clang__)
-#pragma weak FluidCleanup
-#pragma weak FluidOnBlockChanged
-#pragma weak FluidReplayBlockDisplacement
-#pragma weak FluidReset
-#pragma weak FluidTryDisplaceForBlockTracked
-#endif
 
 #include <math.h>
 #include <stdbool.h>
@@ -85,6 +77,66 @@ int blockEditCount = 0;
 int blockEditCapacity = 0;
 static uint64_t blockEditRevision = 1u;
 static uint32_t worldSeed = DEFAULT_WORLD_SEED;
+static TerrainMode worldTerrainMode = TERRAIN_VARIED;
+static WorldExtensionHooks worldExtensionHooks = { 0 };
+
+void WorldInstallExtensionHooks(const WorldExtensionHooks *hooks)
+{
+    worldExtensionHooks = hooks ? *hooks : (WorldExtensionHooks){ 0 };
+}
+
+static void WorldExtensionReset(void)
+{
+    if (worldExtensionHooks.reset) worldExtensionHooks.reset();
+}
+
+static void WorldExtensionCleanup(void)
+{
+    if (worldExtensionHooks.cleanup) worldExtensionHooks.cleanup();
+}
+
+static bool WorldExtensionSaveState(FILE *file)
+{
+    return worldExtensionHooks.saveState &&
+           worldExtensionHooks.saveState(file);
+}
+
+static bool WorldExtensionLoadState(FILE *file)
+{
+    return worldExtensionHooks.loadState &&
+           worldExtensionHooks.loadState(file);
+}
+
+static bool WorldExtensionTryDisplaceBlock(
+    int x, int y, int z, FluidBlockDisplacement *outDisplacement)
+{
+    return !worldExtensionHooks.tryDisplaceBlock ||
+           worldExtensionHooks.tryDisplaceBlock(
+               x, y, z, outDisplacement);
+}
+
+static bool WorldExtensionReplayBlockDisplacement(
+    const FluidBlockDisplacement *displacement, bool after)
+{
+    if (!displacement || displacement->count == 0u) return true;
+    return worldExtensionHooks.replayBlockDisplacement &&
+           worldExtensionHooks.replayBlockDisplacement(displacement, after);
+}
+
+static void WorldExtensionOnBlockChanged(
+    int x, int y, int z, BlockType previous, BlockType next)
+{
+    if (worldExtensionHooks.onBlockChanged) {
+        worldExtensionHooks.onBlockChanged(x, y, z, previous, next);
+    }
+}
+
+void WorldNotifyChunkLoaded(Chunk *chunk)
+{
+    if (worldExtensionHooks.onChunkLoaded) {
+        worldExtensionHooks.onChunkLoaded(chunk);
+    }
+}
 
 static void BumpBlockEditRevision(void)
 {
@@ -100,6 +152,16 @@ uint32_t WorldGetSeed(void)
 void WorldSetSeed(uint32_t seed)
 {
     worldSeed = seed == 0 ? DEFAULT_WORLD_SEED : seed;
+}
+
+TerrainMode WorldTerrainMode(void)
+{
+    return worldTerrainMode;
+}
+
+void WorldSetTerrainMode(TerrainMode mode)
+{
+    worldTerrainMode = mode;
 }
 
 static uint32_t WorldCurrentEditDimension(void)
@@ -619,7 +681,7 @@ void ClearUndoHistory(void)
 
 void WorldReset(uint32_t seed)
 {
-    if (FluidReset) FluidReset();
+    WorldExtensionReset();
     blockEditCount = 0;
     BumpBlockEditRevision();
     ClearBlockEditIndex();
@@ -738,20 +800,18 @@ static bool SetBlockCore(
     Chunk *chunk = FindChunk(cx, cz);
     FluidBlockDisplacement displacement = { 0 };
     if (!replay && chunk && previous == BLOCK_WATER && type != BLOCK_WATER &&
-        FluidTryDisplaceForBlockTracked &&
-        !FluidTryDisplaceForBlockTracked(x, y, z, &displacement)) {
+        !WorldExtensionTryDisplaceBlock(x, y, z, &displacement)) {
         return false;
     }
 
     if (chunk) {
         if (!ChunkSetLocalBlock(chunk, lx, y, lz, type)) return false;
         MarkChunkDirtyAtBlock(x, y, z);
-        if (previous != type && FluidOnBlockChanged) {
-            FluidOnBlockChanged(x, y, z, previous, type);
+        if (previous != type) {
+            WorldExtensionOnBlockChanged(x, y, z, previous, type);
         }
         if (replay && replay->count > 0u &&
-            (!FluidReplayBlockDisplacement ||
-             !FluidReplayBlockDisplacement(replay, replayAfter))) {
+            !WorldExtensionReplayBlockDisplacement(replay, replayAfter)) {
             return false;
         }
     }
@@ -897,7 +957,7 @@ static bool WriteSaveFile(FILE *file, void *opaque)
               SAVE_MAGIC_V15_LEN;
     uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
     uint32_t seed = WorldGetSeed();
-    uint32_t terrain = (uint32_t)terrainMode;
+    uint32_t terrain = (uint32_t)worldTerrainMode;
     float playerData[6] = {
         player->position.x, player->position.y, player->position.z,
         player->yaw, player->pitch, player->floating ? 1.0f : 0.0f
@@ -921,7 +981,8 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     ok = ok && AlbumSave(file) && SpaceSaveEdits(file) && NetherSaveEdits(file);
     ok = ok && SpaceSaveState(file) && EntitiesSaveState(file) &&
          PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
-         ShipLocatorSaveState(file) && FluidSaveState(file) && !ferror(file);
+         ShipLocatorSaveState(file) && WorldExtensionSaveState(file) &&
+         !ferror(file);
     return ok;
 }
 
@@ -1413,7 +1474,7 @@ void LoadMap(Player *player)
         SetImportMessage("Load failed: ship locator state is corrupted.");
         return;
     }
-    if (isV15 && !FluidLoadState(file)) {
+    if (isV15 && !WorldExtensionLoadState(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
@@ -1470,8 +1531,8 @@ void LoadMap(Player *player)
     UnloadAllChunks();
     UnloadAllSpaceChunks();
     UnloadAllNetherChunks();
-    if (!isV15) FluidReset();
-    terrainMode = savedTerrain;
+    if (!isV15) WorldExtensionReset();
+    worldTerrainMode = savedTerrain;
     WorldSetSeed(savedSeed);
     if (!isV14Family && !isV13) {
         PlanetWorldMigrateSpaceLayer(storedSpaceLayerY);
@@ -1586,7 +1647,7 @@ void WorldTickImportMessage(float dt)
 
 void WorldCleanup(void)
 {
-    if (FluidCleanup) FluidCleanup();
+    WorldExtensionCleanup();
     free(blockEditIndex);
     free(blockEditDimensions);
     free(blockEdits);

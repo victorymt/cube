@@ -34,19 +34,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-float dayTimeForHud = 0.30f;
-bool autoSaveForHud = true;
-BlockType blockForHud = BLOCK_AIR;
-int SpaceEditCountForHud = 0;
-float shipSpeedForHud = 0.0f;
-float shipHudSpeed = 0.0f;
-float shipHudAlt = 0.0f;
-float shipHudAtmosphere = -1.0f;
-float shipHudHeading = 0.0f;
-char shipHudSystem[48] = "---";
-bool shipHudCruising = false;
-bool shipHudNearPlanet = false;
-
 #define UI_FONT_PATH "assets/fonts/FSEX302-alt.ttf"
 #define UI_FONT_BASE_SIZE 32
 
@@ -1350,7 +1337,7 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     int sampleX = (int)cameraX;
     int sampleZ = (int)cameraZ;
     int seaLevel = PlanetWorldIsActive() ? PlanetTerrainSeaLevel() :
-                                           TerrainSeaLevel(terrainMode);
+                                           TerrainSeaLevel(WorldTerrainMode());
     float altitudeReference = seaLevel >= 0 ? (float)seaLevel :
         (PlanetWorldIsActive() ? (float)PlanetTerrainHeight(sampleX, sampleZ) :
                                  (float)WorldSurfaceHeightAt(sampleX, sampleZ));
@@ -3001,7 +2988,7 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
 
 static Color HomePlanetColor(void)
 {
-    if (terrainMode == TERRAIN_FLAT) return (Color){ 72, 138, 88, 255 };
+    if (WorldTerrainMode() == TERRAIN_FLAT) return (Color){ 72, 138, 88, 255 };
 
     switch (BiomeAt(0, 0)) {
     case BIOME_DESERT:  return (Color){ 184, 140, 76, 255 };
@@ -3208,8 +3195,9 @@ static void DrawShipHeadingTape(Rectangle tape, float heading, Color accent)
                (int)tape.y + 9, 15, accent);
 }
 
-void DrawShipHud(void)
+void DrawShipHud(const ShipHudState *hud)
 {
+    if (!hud) return;
     int sw = GetScreenWidth();
     float panelWidth = fminf(500.0f, (float)sw - 24.0f);
     Rectangle panel = {
@@ -3227,10 +3215,10 @@ void DrawShipHud(void)
     int top = (int)panel.y;
     bool warping = ShipIsWarping();
     bool assist = ShipFlightAssistEnabled();
-    Color modeColor = warping ? cyan : (shipHudCruising ? cyan :
+    Color modeColor = warping ? cyan : (hud->cruising ? cyan :
                                       (assist ? green : amber));
     const char *driveMode = warping ? "WARP" :
-                            (shipHudCruising ? "CRUISE" :
+                            (hud->cruising ? "CRUISE" :
                              (assist ? "ASSIST" : "INERTIA"));
 
     UiDrawText("FLIGHT COMPUTER", left, top + 10, 15, Fade(cyan, 0.82f));
@@ -3242,23 +3230,23 @@ void DrawShipHud(void)
 
     int rightColumn = (int)(panel.x + panel.width * 0.56f);
     UiDrawText("VELOCITY", left, top + 45, 13, Fade(WHITE, 0.50f));
-    UiDrawText(TextFormat("%.0f", shipHudSpeed), left, top + 57, 34, modeColor);
-    int speedWidth = UiMeasureText(TextFormat("%.0f", shipHudSpeed), 34);
+    UiDrawText(TextFormat("%.0f", hud->speed), left, top + 57, 34, modeColor);
+    int speedWidth = UiMeasureText(TextFormat("%.0f", hud->speed), 34);
     UiDrawText("BLK/S", left + speedWidth + 8, top + 72, 13,
                Fade(WHITE, 0.52f));
 
-    UiDrawText(shipHudNearPlanet ? "SURFACE ALT" : "ALTITUDE",
+    UiDrawText(hud->nearPlanet ? "SURFACE ALT" : "ALTITUDE",
                rightColumn, top + 45, 13, Fade(WHITE, 0.50f));
-    UiDrawText(TextFormat("%.0f", shipHudAlt), rightColumn, top + 60, 28,
+    UiDrawText(TextFormat("%.0f", hud->altitude), rightColumn, top + 60, 28,
                Fade(WHITE, 0.94f));
-    int altitudeWidth = UiMeasureText(TextFormat("%.0f", shipHudAlt), 28);
+    int altitudeWidth = UiMeasureText(TextFormat("%.0f", hud->altitude), 28);
     UiDrawText("BLK", rightColumn + altitudeWidth + 7, top + 72, 13,
                Fade(WHITE, 0.52f));
 
     DrawShipHeadingTape(
         (Rectangle){ panel.x + 16.0f, panel.y + 96.0f,
                      panel.width - 32.0f, 43.0f },
-        shipHudHeading, amber);
+        hud->heading, amber);
 
     float fuelRatio = Clamp(ShipGetFuel() / SHIP_MAX_FUEL, 0.0f, 1.0f);
     Color fuelColor = fuelRatio > 0.20f ? amber : red;
@@ -3275,16 +3263,16 @@ void DrawShipHud(void)
     DrawRectangleRec(fuelFill, fuelColor);
 
     char environment[64];
-    if (shipHudAtmosphere >= 0.0f) {
+    if (hud->atmosphere >= 0.0f) {
         snprintf(environment, sizeof(environment), "ATM %03.0f%%",
-                 Clamp(shipHudAtmosphere, 0.0f, 100.0f));
+                 Clamp(hud->atmosphere, 0.0f, 100.0f));
     } else {
         snprintf(environment, sizeof(environment), "%s",
-                 shipHudNearPlanet ? "SURFACE REF" : "VACUUM");
+                 hud->nearPlanet ? "SURFACE REF" : "VACUUM");
     }
     UiDrawText("ENV", rightColumn, top + 146, 13, Fade(WHITE, 0.54f));
     UiDrawText(environment, rightColumn + 34, top + 145, 15,
-               shipHudAtmosphere > 70.0f ? amber : cyan);
+               hud->atmosphere > 70.0f ? amber : cyan);
 
     char gravity[128];
     if (ShipHasGravityPrimary()) {
@@ -3302,7 +3290,7 @@ void DrawShipHud(void)
                  targetKind, ShipWarpTargetName(), warping ? "WARP" : "LOCK");
     } else {
         snprintf(navigation, sizeof(navigation), "SYS // %s // NO TARGET",
-                 shipHudSystem);
+                 hud->systemName ? hud->systemName : "---");
     }
     int statusFont = 14;
     int statusWidth = (int)panel.width - 32;
@@ -3735,8 +3723,10 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                   const PlanetObservationState *observation,
                   float seasonProgress,
                   const WeatherVisualState *weatherVisual,
-                  const BathymetrySample *bathymetry)
+                  const BathymetrySample *bathymetry,
+                  const HudFrameState *hud)
 {
+    if (!hud) return;
     int x = 18;
     int y = 76;
     int line = 20;
@@ -3764,12 +3754,12 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                         ParticlesActiveCount(), WorldGetEditCount(), renderDistanceChunks),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     UiDrawText(TextFormat("Space %d/%d   nether %d   entities %d",
-                        GetActiveSpaceChunkCount(), SpaceEditCountForHud,
+                        GetActiveSpaceChunkCount(), hud->spaceEditCount,
                         GetActiveNetherChunkCount(), GetActiveEntityCount()),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     UiDrawText(TextFormat("Weather %s   time %02d:00   auto-save %s",
-                        WeatherName(), (int)(dayTimeForHud * 24.0f) % 24,
-                        autoSaveForHud ? "on" : "off"),
+                        WeatherName(), (int)(hud->dayTime * 24.0f) % 24,
+                        hud->autoSaveEnabled ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
         UiDrawText(TextFormat("Weather cloud %.2f   precip %.2f   storm %.2f   wind %.2f",
@@ -3942,11 +3932,11 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                      x, y, fs, Fade(WHITE, 0.85f)); y += line;
         }
     }
-    UiDrawText(TextFormat("Block %s   music %s", BlockName(blockForHud),
+    UiDrawText(TextFormat("Block %s   music %s", BlockName(hud->targetedBlock),
                         AudioIsMusicEnabled() ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     if (ShipIsDriving()) {
-        UiDrawText(TextFormat("Ship speed %.1f blocks/s", shipSpeedForHud), x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        UiDrawText(TextFormat("Ship speed %.1f blocks/s", hud->shipSpeed), x, y, fs, Fade(WHITE, 0.85f)); y += line;
     }
 }
 

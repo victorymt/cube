@@ -760,7 +760,7 @@ static int PlanetSeaLevelForProfile(SolarBodyStyle style,
 
 int PlanetTerrainSeaLevel(void)
 {
-    if (!PlanetWorldIsActive()) return TerrainSeaLevel(terrainMode);
+    if (!PlanetWorldIsActive()) return TerrainSeaLevel(WorldTerrainMode());
     return PlanetSeaLevelForProfile(PlanetWorldStyle(), PlanetWorldProfile());
 }
 
@@ -772,7 +772,7 @@ PlanetBiome PlanetBiomeAt(int x, int z)
 
 int PlanetTerrainHeight(int x, int z)
 {
-    if (!PlanetWorldIsActive()) return TerrainHeight(x, z, terrainMode);
+    if (!PlanetWorldIsActive()) return TerrainHeight(x, z, WorldTerrainMode());
 
     const PlanetProfile *profile = PlanetWorldProfile();
     float fx = 0.0f;
@@ -903,7 +903,7 @@ int PlanetTerrainHeight(int x, int z)
 
 BathymetrySample PlanetBathymetryAt(int x, int z)
 {
-    if (!PlanetWorldIsActive()) return TerrainBathymetryAt(x, z, terrainMode);
+    if (!PlanetWorldIsActive()) return TerrainBathymetryAt(x, z, WorldTerrainMode());
 
     int seaLevel = PlanetTerrainSeaLevel();
     int height = PlanetTerrainHeight(x, z);
@@ -932,14 +932,14 @@ static bool SurfaceLandingCandidate(int x, int z, int footprintRadius,
                                     int *outGroundY)
 {
     int seaLevel = PlanetWorldIsActive() ? PlanetTerrainSeaLevel()
-                                         : TerrainSeaLevel(terrainMode);
+                                         : TerrainSeaLevel(WorldTerrainMode());
     int minHeight = WORLD_HEIGHT;
     int maxHeight = 0;
     for (int dz = -footprintRadius; dz <= footprintRadius; dz++) {
         for (int dx = -footprintRadius; dx <= footprintRadius; dx++) {
             int height = PlanetWorldIsActive()
                              ? PlanetTerrainHeight(x + dx, z + dz)
-                             : TerrainHeight(x + dx, z + dz, terrainMode);
+                             : TerrainHeight(x + dx, z + dz, WorldTerrainMode());
             if (seaLevel >= 0 && height <= seaLevel + 1) return false;
             if (height < minHeight) minHeight = height;
             if (height > maxHeight) maxHeight = height;

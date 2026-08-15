@@ -2,14 +2,15 @@
 #define VOXELCRAFT_FLUID_H
 
 #include "types.h"
+#include "world_extension.h"
 
 #include <stdio.h>
 #include <stdint.h>
 
-#define FLUID_CAPACITY 255u
+#define FLUID_CAPACITY WATER_VOLUME_CAPACITY
 #define FLUID_TICK_RATE 10.0f
 #define FLUID_MAX_CELLS_PER_TICK 4096u
-#define FLUID_BLOCK_DISPLACEMENT_MAX_CELLS 7
+#define FLUID_BLOCK_DISPLACEMENT_MAX_CELLS WORLD_BLOCK_DISPLACEMENT_MAX_CELLS
 
 typedef struct FluidSample {
     uint8_t volume;
@@ -27,21 +28,6 @@ typedef struct FluidStats {
     uint32_t queueOverflows;
     uint32_t lastProcessedCells;
 } FluidStats;
-
-typedef struct FluidVolumeChange {
-    int x;
-    int y;
-    int z;
-    uint8_t before;
-    uint8_t after;
-    uint8_t baseline;
-    bool baselineKnown;
-} FluidVolumeChange;
-
-typedef struct FluidBlockDisplacement {
-    uint8_t count;
-    FluidVolumeChange cells[FLUID_BLOCK_DISPLACEMENT_MAX_CELLS];
-} FluidBlockDisplacement;
 
 void FluidReset(void);
 void FluidCleanup(void);

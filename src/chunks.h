@@ -9,7 +9,6 @@
 extern Chunk chunks[MAX_ACTIVE_CHUNKS];
 extern Texture2D blockAtlas;
 extern int renderDistanceChunks;
-extern TerrainMode terrainMode;
 
 typedef struct ChunkStreamingStats {
     uint64_t generationSubmitted;

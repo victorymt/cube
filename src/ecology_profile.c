@@ -82,12 +82,12 @@ static PlanetLocalEnvironment EcologyHomeEnvironmentAt(
     float currentStorm, bool dynamic)
 {
     PlanetLocalEnvironment environment = { 0 };
-    int height = TerrainHeight(x, z, terrainMode);
-    int east = TerrainHeight(x + 2, z, terrainMode);
-    int west = TerrainHeight(x - 2, z, terrainMode);
-    int south = TerrainHeight(x, z + 2, terrainMode);
-    int north = TerrainHeight(x, z - 2, terrainMode);
-    int seaLevel = TerrainSeaLevel(terrainMode);
+    int height = TerrainHeight(x, z, WorldTerrainMode());
+    int east = TerrainHeight(x + 2, z, WorldTerrainMode());
+    int west = TerrainHeight(x - 2, z, WorldTerrainMode());
+    int south = TerrainHeight(x, z + 2, WorldTerrainMode());
+    int north = TerrainHeight(x, z - 2, WorldTerrainMode());
+    int seaLevel = TerrainSeaLevel(WorldTerrainMode());
     Biome biome = BiomeAt(x, z);
     float temperature = 288.0f;
     float moisture = 0.58f;

@@ -27,6 +27,16 @@ static char importMessage[160] = { 0 };
 
 TerrainMode terrainMode = TERRAIN_FLAT;
 
+TerrainMode WorldTerrainMode(void)
+{
+    return terrainMode;
+}
+
+void WorldSetTerrainMode(TerrainMode mode)
+{
+    terrainMode = mode;
+}
+
 bool FileExists(const char *fileName)
 {
     return fileName && fileName[0] != '\0';

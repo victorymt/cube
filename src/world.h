@@ -5,11 +5,12 @@
 
 #include <stdint.h>
 
-extern TerrainMode terrainMode;
-
 uint32_t WorldGetSeed(void);
 void WorldSetSeed(uint32_t seed);
 void WorldReset(uint32_t seed);
+TerrainMode WorldTerrainMode(void);
+void WorldSetTerrainMode(TerrainMode mode);
+void WorldNotifyChunkLoaded(Chunk *chunk);
 
 const char *BlockName(BlockType type);
 bool IsColorBlock(BlockType type);

@@ -10,6 +10,16 @@ static uint32_t planetSeed = 0u;
 
 TerrainMode terrainMode = TERRAIN_VARIED;
 
+TerrainMode WorldTerrainMode(void)
+{
+    return terrainMode;
+}
+
+void WorldSetTerrainMode(TerrainMode mode)
+{
+    terrainMode = mode;
+}
+
 bool HomeWorldSurfaceIsActive(void)
 {
     return homeSurfaceActive && !planetWorldActive;
