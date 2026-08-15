@@ -75,8 +75,13 @@ bool CaveAt(int x, int y, int z, int height);
 bool CaveWaterAt(int x, int y, int z, int height);
 BlockType OreAt(int x, int y, int z);
 BlockType StoneOrCaveBlock(int x, int y, int z, int height);
+BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode);
 bool ShouldPlacePond(int x, int z, int height);
 void SetChunkLocalBlock(Chunk *chunk, int worldX, int y, int worldZ, BlockType type);
+// Generates only the procedural base layer for one absent vertical section.
+// Decorations, structures, edits, and runtime fluid state are applied later.
+bool GenerateChunkTerrainSectionBase(Chunk *chunk, int cx, int cz,
+                                     int sectionY, TerrainMode mode);
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode);
 void ApplyEditsToChunk(Chunk *chunk);
 

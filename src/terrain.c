@@ -1606,6 +1606,136 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
     PlanetPoiApplyToChunk(chunk, cx, cz);
 }
 
+static BlockType HomeTerrainBaseBlockFromSample(
+    int worldX, int y, int worldZ, TerrainMode mode,
+    const SurfaceTerrainSample *surface, int seaLevel)
+{
+    if (!surface || !InHeight(y)) return BLOCK_AIR;
+    int height = (int)lroundf(surface->elevation);
+    Biome biome = surface->biome;
+    bool submerged = seaLevel >= 0 && height < seaLevel;
+
+    if (y > height) {
+        if (!submerged || y > seaLevel) return BLOCK_AIR;
+        return biome == BIOME_SNOW && y == seaLevel
+            ? BLOCK_ICE : BLOCK_WATER;
+    }
+
+    BlockType type = BLOCK_STONE;
+    if (mode == TERRAIN_FLAT) {
+        type = y == height ? BLOCK_GRASS : BLOCK_DIRT;
+    } else if (y == 0) {
+        type = BLOCK_BEDROCK;
+    } else if (y < height) {
+        if (biome == BIOME_DESERT) {
+            type = y > height - 3
+                ? BLOCK_SAND
+                : StoneOrCaveBlock(worldX, y, worldZ, height);
+        } else if (biome == BIOME_SNOW) {
+            type = y > height - 3
+                ? BLOCK_DIRT
+                : StoneOrCaveBlock(worldX, y, worldZ, height);
+        } else if (biome == BIOME_MOUNTAIN) {
+            type = y > height - 4 && height < 24
+                ? BLOCK_DIRT
+                : StoneOrCaveBlock(worldX, y, worldZ, height);
+        } else {
+            type = y > height - 4
+                ? BLOCK_DIRT
+                : StoneOrCaveBlock(worldX, y, worldZ, height);
+        }
+    } else if (submerged) {
+        type = BathymetryMaterialBlock(surface->bathymetry.material);
+    } else if (biome == BIOME_DESERT) {
+        type = BLOCK_SAND;
+    } else if (biome == BIOME_SNOW) {
+        type = BLOCK_SNOW;
+    } else if (biome == BIOME_MOUNTAIN) {
+        type = height >= 165 ? BLOCK_SNOW
+                             : (height >= 125 ? BLOCK_STONE : BLOCK_GRASS);
+    } else {
+        type = BLOCK_GRASS;
+    }
+
+    if (mode != TERRAIN_FLAT && y == height - 2 &&
+        CaveWaterAt(worldX, y, worldZ, height) &&
+        CaveAt(worldX, y, worldZ, height) &&
+        !CaveAt(worldX, y - 1, worldZ, height)) {
+        return BLOCK_WATER;
+    }
+    return type;
+}
+
+BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
+{
+    if (!InHeight(y)) return BLOCK_AIR;
+    SurfaceTerrainSample surface = SurfaceTerrainAt(x, z, mode);
+    return HomeTerrainBaseBlockFromSample(
+        x, y, z, mode, &surface, TerrainSeaLevel(mode));
+}
+
+static void SampleHomeChunkColumns(
+    int cx, int cz, TerrainMode mode,
+    SurfaceTerrainSample samples[CHUNK_SIZE][CHUNK_SIZE])
+{
+    int startX = cx * CHUNK_SIZE;
+    int startZ = cz * CHUNK_SIZE;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            samples[lx][lz] = SurfaceTerrainAt(
+                startX + lx, startZ + lz, mode);
+        }
+    }
+}
+
+static bool GenerateChunkTerrainSectionBaseFromSamples(
+    Chunk *chunk, int cx, int cz, int sectionY, TerrainMode mode,
+    const SurfaceTerrainSample samples[CHUNK_SIZE][CHUNK_SIZE])
+{
+    if (!chunk || !samples || sectionY < 0 ||
+        sectionY >= SURFACE_SECTION_COUNT ||
+        ChunkGetSectionConst(chunk, sectionY)) {
+        return false;
+    }
+
+    int startX = cx * CHUNK_SIZE;
+    int startZ = cz * CHUNK_SIZE;
+    int firstY = sectionY * SURFACE_SECTION_HEIGHT;
+    int lastY = firstY + SURFACE_SECTION_HEIGHT;
+    int seaLevel = TerrainSeaLevel(mode);
+    chunk->cx = cx;
+    chunk->cz = cz;
+
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int worldX = startX + lx;
+            int worldZ = startZ + lz;
+            for (int y = firstY; y < lastY; y++) {
+                BlockType type = HomeTerrainBaseBlockFromSample(
+                    worldX, y, worldZ, mode, &samples[lx][lz], seaLevel);
+                if (type != BLOCK_AIR &&
+                    !ChunkSetLocalBlock(chunk, lx, y, lz, type)) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool GenerateChunkTerrainSectionBase(Chunk *chunk, int cx, int cz,
+                                     int sectionY, TerrainMode mode)
+{
+    if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT ||
+        ChunkGetSectionConst(chunk, sectionY)) {
+        return false;
+    }
+    SurfaceTerrainSample samples[CHUNK_SIZE][CHUNK_SIZE];
+    SampleHomeChunkColumns(cx, cz, mode, samples);
+    return GenerateChunkTerrainSectionBaseFromSamples(
+        chunk, cx, cz, sectionY, mode, samples);
+}
+
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
     chunk->cx = cx;
@@ -1620,63 +1750,32 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
+    SurfaceTerrainSample samples[CHUNK_SIZE][CHUNK_SIZE];
+    SampleHomeChunkColumns(cx, cz, mode, samples);
+
+    int seaLevel = TerrainSeaLevel(mode);
+    int highestBaseY = 0;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int height = (int)lroundf(samples[lx][lz].elevation);
+            int top = seaLevel >= 0 && height < seaLevel ? seaLevel : height;
+            if (top > highestBaseY) highestBaseY = top;
+        }
+    }
+    int highestBaseSection = highestBaseY / SURFACE_SECTION_HEIGHT;
+    for (int sectionY = 0; sectionY <= highestBaseSection; sectionY++) {
+        GenerateChunkTerrainSectionBaseFromSamples(
+            chunk, cx, cz, sectionY, mode, samples);
+    }
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
             int worldX = startX + lx;
             int worldZ = startZ + lz;
-            SurfaceTerrainSample surface = SurfaceTerrainAt(worldX, worldZ, mode);
-            BathymetrySample bathymetry = surface.bathymetry;
-            int height = (int)lroundf(surface.elevation);
-            Biome biome = surface.biome;
-            int seaLevel = TerrainSeaLevel(mode);
+            const SurfaceTerrainSample *surface = &samples[lx][lz];
+            int height = (int)lroundf(surface->elevation);
+            Biome biome = surface->biome;
             bool submerged = seaLevel >= 0 && height < seaLevel;
-
-            for (int y = 0; y <= height; y++) {
-                BlockType type = BLOCK_STONE;
-                if (mode == TERRAIN_FLAT) {
-                    type = (y == height) ? BLOCK_GRASS : BLOCK_DIRT;
-                } else if (y == 0) {
-                    type = BLOCK_BEDROCK;
-                } else if (y < height) {
-                    if (biome == BIOME_DESERT) {
-                        type = (y > height - 3) ? BLOCK_SAND : StoneOrCaveBlock(worldX, y, worldZ, height);
-                    } else if (biome == BIOME_SNOW) {
-                        type = (y > height - 3) ? BLOCK_DIRT : StoneOrCaveBlock(worldX, y, worldZ, height);
-                    } else if (biome == BIOME_MOUNTAIN) {
-                        type = (y > height - 4 && height < 24) ? BLOCK_DIRT : StoneOrCaveBlock(worldX, y, worldZ, height);
-                    } else {
-                        type = (y > height - 4) ? BLOCK_DIRT : StoneOrCaveBlock(worldX, y, worldZ, height);
-                    }
-                } else if (submerged && y == height) {
-                    type = BathymetryMaterialBlock(bathymetry.material);
-                } else if (biome == BIOME_DESERT) {
-                    type = BLOCK_SAND;
-                } else if (biome == BIOME_SNOW) {
-                    type = BLOCK_SNOW;
-                } else if (biome == BIOME_MOUNTAIN) {
-                    type = (height >= 165) ? BLOCK_SNOW :
-                           ((height >= 125) ? BLOCK_STONE : BLOCK_GRASS);
-                } else {
-                    type = BLOCK_GRASS;
-                }
-                ChunkSetLocalBlock(chunk, lx, y, lz, type);
-            }
-
-            if (submerged) {
-                for (int y = height + 1; y <= seaLevel; y++) {
-                    ChunkSetLocalBlock(chunk, lx, y, lz,
-                                       biome == BIOME_SNOW && y == seaLevel
-                                           ? BLOCK_ICE
-                                           : BLOCK_WATER);
-                }
-            }
-
-            if (mode != TERRAIN_FLAT && CaveWaterAt(worldX, height - 2, worldZ, height) &&
-                CaveAt(worldX, height - 2, worldZ, height) &&
-                !CaveAt(worldX, height - 3, worldZ, height)) {
-                ChunkSetLocalBlock(chunk, lx, height - 2, lz, BLOCK_WATER);
-            }
 
             if (mode != TERRAIN_FLAT && !submerged &&
                 biome == BIOME_DESERT && height > 6 &&
@@ -1694,7 +1793,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 int worldX = startX + lx;
                 int worldZ = startZ + lz;
-                int height = TerrainHeight(worldX, worldZ, mode);
+                int height = (int)lroundf(samples[lx][lz].elevation);
                 if (height < 4) continue;
                 BlockType surface = ChunkGetLocalBlock(chunk, lx, height, lz);
                 if (surface != BLOCK_GRASS) continue;
