@@ -72,7 +72,7 @@ bool GenerateChunkTerrainSectionBase(
             }
         }
     }
-    return true;
+    return ChunkMarkTerrainSectionResolved(chunk, sectionY);
 }
 
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
@@ -429,6 +429,15 @@ static void TestSparseSignedSectionStorage(void)
     assert(ChunkGetSectionConst(chunk, 700) == high);
     assert(ChunkGetSectionConst(chunk, 699) == NULL);
 
+    assert(ChunkMarkTerrainSectionResolved(chunk, 700));
+    assert(ChunkMarkTerrainSectionResolved(chunk, -4));
+    assert(ChunkMarkTerrainSectionResolved(chunk, 3));
+    assert(ChunkMarkTerrainSectionResolved(chunk, 3));
+    assert(chunk->resolvedTerrainSectionCount == 3);
+    assert(chunk->resolvedTerrainSectionYs[0] == -4);
+    assert(chunk->resolvedTerrainSectionYs[1] == 3);
+    assert(chunk->resolvedTerrainSectionYs[2] == 700);
+
     chunk->loaded = true;
     below->dirty = true;
     high->dirty = true;
@@ -440,6 +449,9 @@ static void TestSparseSignedSectionStorage(void)
     assert(chunk->sections == NULL);
     assert(chunk->sectionCount == 0);
     assert(chunk->sectionCapacity == 0);
+    assert(chunk->resolvedTerrainSectionYs == NULL);
+    assert(chunk->resolvedTerrainSectionCount == 0);
+    assert(chunk->resolvedTerrainSectionCapacity == 0);
 }
 
 static void TestMaterializedAirDiffersFromMissingSection(void)
@@ -519,6 +531,8 @@ static void TestSectionGenerationJobsStageAndValidateResults(void)
     ChunksTestRunGenerationJob(0);
     ProcessFinishedChunkJobs();
     assert(ChunkGetSectionConst(&chunks[0], 1) == NULL);
+    assert(ChunkTerrainSectionIsResolved(&chunks[0], 1));
+    assert(!RequestChunkTerrainSection(7, 1, 0));
 
     ChunksTestConfigureChunk(1, 8, 0, true, false);
     chunks[1].generation = 21u;
@@ -528,6 +542,22 @@ static void TestSectionGenerationJobsStageAndValidateResults(void)
     ProcessFinishedChunkJobs();
     assert(ChunkGetSectionConst(&chunks[1], 0) == NULL);
     assert(ChunksGetStreamingStats().generationCanceled == 1u);
+}
+
+static void TestNearbySectionSchedulingPrioritizesPlayerSection(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    chunks[0].generation = 31u;
+
+    int submitted = ChunksTestScheduleTerrainSections(
+        (Vector3){ 0.5f, 20.0f, 0.5f });
+    assert(submitted == 3);
+    assert(ChunksTestGenerationJobSectionY(0) == 1);
+    assert(ChunksTestGenerationJobSectionY(1) == 0);
+    assert(ChunksTestGenerationJobSectionY(2) == 2);
+    assert(ChunksTestScheduleTerrainSections(
+        (Vector3){ 0.5f, 20.0f, 0.5f }) == 0);
 }
 
 int main(void)
@@ -547,6 +577,7 @@ int main(void)
     TestMaterializedAirDiffersFromMissingSection();
     TestImplicitTerrainLookupAndEditOverride();
     TestSectionGenerationJobsStageAndValidateResults();
+    TestNearbySectionSchedulingPrioritizesPlayerSection();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

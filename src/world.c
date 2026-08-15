@@ -808,12 +808,14 @@ static BlockType GetSurfaceBlockAt(int x, int y, int z)
 static bool MaterializeHomeSurfaceSectionForWrite(
     Chunk *chunk, int sectionY)
 {
-    if (!chunk || ChunkGetSectionConst(chunk, sectionY) ||
+    if (!chunk || ChunkTerrainSectionIsResolved(chunk, sectionY) ||
+        ChunkGetSectionConst(chunk, sectionY) ||
         !HomeWorldSurfaceIsActive()) {
         return chunk != NULL;
     }
     if (!GenerateChunkTerrainSectionBase(
-            chunk, chunk->cx, chunk->cz, sectionY, WorldTerrainMode())) {
+            chunk, chunk->cx, chunk->cz, sectionY, WorldTerrainMode()) &&
+        !ChunkGetSectionConst(chunk, sectionY)) {
         return false;
     }
     ApplyEditsToChunkSection(chunk, sectionY);

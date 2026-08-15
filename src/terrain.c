@@ -1694,6 +1694,7 @@ static bool GenerateChunkTerrainSectionBaseFromSamples(
 {
     if (!chunk || !samples || sectionY < 0 ||
         sectionY >= SURFACE_SECTION_COUNT ||
+        ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
     }
@@ -1720,13 +1721,14 @@ static bool GenerateChunkTerrainSectionBaseFromSamples(
             }
         }
     }
-    return true;
+    return ChunkMarkTerrainSectionResolved(chunk, sectionY);
 }
 
 bool GenerateChunkTerrainSectionBase(Chunk *chunk, int cx, int cz,
                                      int sectionY, TerrainMode mode)
 {
     if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT ||
+        ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
     }
@@ -1864,7 +1866,8 @@ void ApplyEditsToChunk(Chunk *chunk)
         WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz, &editLx, &editLz);
         if (editCx == chunk->cx && editCz == chunk->cz && InHeight(edit.y)) {
             int sectionY = edit.y / SURFACE_SECTION_HEIGHT;
-            if (!ChunkGetSectionConst(chunk, sectionY) &&
+            if (!ChunkTerrainSectionIsResolved(chunk, sectionY) &&
+                !ChunkGetSectionConst(chunk, sectionY) &&
                 HomeWorldSurfaceIsActive() &&
                 !GenerateChunkTerrainSectionBase(
                     chunk, chunk->cx, chunk->cz, sectionY,

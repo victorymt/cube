@@ -45,6 +45,8 @@ static void UpdateQueuePeaksLocked(void);
 static void MarkGeneratedSectionAndNeighborsDirty(
     Chunk *chunk, int sectionY);
 
+#define SECTION_GEN_SUBMISSIONS_PER_FRAME 8
+
 typedef struct SurfaceWaterBoundarySnapshot {
     unsigned short xBlocks[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     unsigned char xVolumes[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
@@ -209,6 +211,63 @@ const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY)
         ? chunk->sections[index] : NULL;
 }
 
+static int ResolvedTerrainSectionLowerBound(
+    const Chunk *chunk, int sectionY)
+{
+    int low = 0;
+    int high = chunk ? chunk->resolvedTerrainSectionCount : 0;
+    while (low < high) {
+        int middle = low + (high - low) / 2;
+        if (chunk->resolvedTerrainSectionYs[middle] < sectionY) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low;
+}
+
+bool ChunkTerrainSectionIsResolved(const Chunk *chunk, int sectionY)
+{
+    if (!chunk) return false;
+    int index = ResolvedTerrainSectionLowerBound(chunk, sectionY);
+    return index < chunk->resolvedTerrainSectionCount &&
+           chunk->resolvedTerrainSectionYs[index] == sectionY;
+}
+
+bool ChunkMarkTerrainSectionResolved(Chunk *chunk, int sectionY)
+{
+    if (!chunk) return false;
+    int index = ResolvedTerrainSectionLowerBound(chunk, sectionY);
+    if (index < chunk->resolvedTerrainSectionCount &&
+        chunk->resolvedTerrainSectionYs[index] == sectionY) {
+        return true;
+    }
+    if (chunk->resolvedTerrainSectionCount ==
+        chunk->resolvedTerrainSectionCapacity) {
+        if (chunk->resolvedTerrainSectionCapacity > INT_MAX / 2) {
+            return false;
+        }
+        int capacity = chunk->resolvedTerrainSectionCapacity > 0
+            ? chunk->resolvedTerrainSectionCapacity * 2 : 4;
+        int *sectionYs = realloc(
+            chunk->resolvedTerrainSectionYs,
+            (size_t)capacity * sizeof(*sectionYs));
+        if (!sectionYs) return false;
+        chunk->resolvedTerrainSectionYs = sectionYs;
+        chunk->resolvedTerrainSectionCapacity = capacity;
+    }
+    if (index < chunk->resolvedTerrainSectionCount) {
+        memmove(&chunk->resolvedTerrainSectionYs[index + 1],
+                &chunk->resolvedTerrainSectionYs[index],
+                (size_t)(chunk->resolvedTerrainSectionCount - index) *
+                    sizeof(*chunk->resolvedTerrainSectionYs));
+    }
+    chunk->resolvedTerrainSectionYs[index] = sectionY;
+    chunk->resolvedTerrainSectionCount++;
+    return true;
+}
+
 bool ChunkTryGetLocalBlock(const Chunk *chunk, int lx, int y, int lz,
                            BlockType *outBlock)
 {
@@ -305,6 +364,10 @@ void ChunkClearBlockStorage(Chunk *chunk)
     chunk->sections = NULL;
     chunk->sectionCount = 0;
     chunk->sectionCapacity = 0;
+    free(chunk->resolvedTerrainSectionYs);
+    chunk->resolvedTerrainSectionYs = NULL;
+    chunk->resolvedTerrainSectionCount = 0;
+    chunk->resolvedTerrainSectionCapacity = 0;
 }
 
 static void MarkSectionDirty(ChunkSection *section)
@@ -550,6 +613,7 @@ static bool SubmitChunkSectionGenJob(
     if (genThread == 0 || !chunk || !chunk->loaded ||
         !HomeWorldSurfaceIsActive() || sectionY < 0 ||
         sectionY >= SURFACE_SECTION_COUNT ||
+        ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
     }
@@ -596,7 +660,10 @@ bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
         return false;
     }
     Chunk *chunk = FindChunk(cx, cz);
-    if (!chunk || ChunkGetSectionConst(chunk, sectionY)) return false;
+    if (!chunk || ChunkTerrainSectionIsResolved(chunk, sectionY) ||
+        ChunkGetSectionConst(chunk, sectionY)) {
+        return false;
+    }
     if (SubmitChunkSectionGenJob(chunk, sectionY, WorldTerrainMode())) {
         return true;
     }
@@ -652,6 +719,7 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
     if (!stale && (!chunk->loaded || chunk->cx != job->cx ||
                    chunk->cz != job->cz ||
                    chunk->generation != job->chunkGeneration ||
+                   ChunkTerrainSectionIsResolved(chunk, job->sectionY) ||
                    ChunkGetSectionConst(chunk, job->sectionY))) {
         stale = true;
     }
@@ -673,6 +741,13 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
         }
         memcpy(section->blocks, job->sectionBlocks,
                sizeof(job->sectionBlocks));
+    }
+    if (!ChunkMarkTerrainSectionResolved(chunk, job->sectionY) &&
+        !job->hasSectionBlocks) {
+        pthread_mutex_lock(&genMutex);
+        streamingStats.generationCanceled++;
+        pthread_mutex_unlock(&genMutex);
+        return;
     }
     ApplyEditsToChunkSection(chunk, job->sectionY);
     MarkGeneratedSectionAndNeighborsDirty(chunk, job->sectionY);
@@ -817,6 +892,48 @@ bool EnsureChunk(int cx, int cz)
     return true;
 }
 
+static int ScheduleNearbyTerrainSections(Vector3 playerPosition)
+{
+    if (!HomeWorldSurfaceIsActive()) return 0;
+    int playerY = (int)floorf(playerPosition.y);
+    if (!InHeight(playerY)) return 0;
+
+    int playerCx = 0;
+    int playerCz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal((int)floorf(playerPosition.x),
+                      (int)floorf(playerPosition.z),
+                      &playerCx, &playerCz, &localX, &localZ);
+    int playerSectionY = playerY / SURFACE_SECTION_HEIGHT;
+    static const int horizontalOffsets[9][2] = {
+        { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 }
+    };
+    static const int verticalOffsets[3] = { 0, -1, 1 };
+
+    int submissions = 0;
+    for (int vertical = 0;
+         vertical < (int)(sizeof(verticalOffsets) /
+                          sizeof(verticalOffsets[0])); vertical++) {
+        int sectionY = playerSectionY + verticalOffsets[vertical];
+        if (sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT) continue;
+        for (int horizontal = 0;
+             horizontal < (int)(sizeof(horizontalOffsets) /
+                                sizeof(horizontalOffsets[0])); horizontal++) {
+            int cx = playerCx + horizontalOffsets[horizontal][0];
+            int cz = playerCz + horizontalOffsets[horizontal][1];
+            if (RequestChunkTerrainSection(cx, sectionY, cz)) {
+                submissions++;
+                if (submissions >= SECTION_GEN_SUBMISSIONS_PER_FRAME) {
+                    return submissions;
+                }
+            }
+        }
+    }
+    return submissions;
+}
+
 void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
 {
     if (effectiveRenderDistance < MIN_RENDER_DISTANCE_CHUNKS) effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS;
@@ -869,6 +986,7 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
     for (int i = 0; i < missingCount && submissions < CHUNK_GEN_SUBMISSIONS_PER_FRAME; i++) {
         if (EnsureChunk(missingChunks[i][0], missingChunks[i][1])) submissions++;
     }
+    ScheduleNearbyTerrainSections(playerPosition);
 }
 
 bool DeformFloraMeshInstance(
@@ -4210,5 +4328,10 @@ void ChunksTestRunGenerationJob(int jobIndex)
     job->done = true;
     streamingStats.generationCompleted++;
     pthread_mutex_unlock(&genMutex);
+}
+
+int ChunksTestScheduleTerrainSections(Vector3 playerPosition)
+{
+    return ScheduleNearbyTerrainSections(playerPosition);
 }
 #endif

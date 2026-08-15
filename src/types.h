@@ -352,6 +352,11 @@ typedef struct Chunk {
     ChunkSection **sections;
     int sectionCount;
     int sectionCapacity;
+    // Sorted Section Y values whose procedural baseline has been evaluated.
+    // This records all-air results without allocating a full ChunkSection.
+    int *resolvedTerrainSectionYs;
+    int resolvedTerrainSectionCount;
+    int resolvedTerrainSectionCapacity;
 } Chunk;
 
 typedef struct BlockEdit {

@@ -233,6 +233,9 @@ static void TestIndependentSectionBaseGeneration(void)
         &flat, 2, -3, 1, TERRAIN_FLAT));
     assert(flat.sectionCount == 1);
     assert(ChunkGetSectionConst(&flat, 1) == NULL);
+    assert(ChunkTerrainSectionIsResolved(&flat, 1));
+    assert(!GenerateChunkTerrainSectionBase(
+        &flat, 2, -3, 1, TERRAIN_FLAT));
 
     assert(ChunkSetLocalBlock(&flat, 3, 4, 5, BLOCK_AIR));
     assert(ChunkGetLocalBlock(&flat, 3, 4, 5) == BLOCK_AIR);
