@@ -152,4 +152,9 @@ int EntityNearestEvolvable(Vector3 position, float radius);
 int EntityEvolutionFindByOrganism(uint32_t organismId);
 bool EntityEvolutionInspect(int index, EntityEvolutionDebugInfo *out);
 
+#ifdef ENTITY_TESTING
+bool EntityTestFindAquaticSpawnY(int x, int preferredY, int z,
+                                 int fallbackY, int *outY);
+#endif
+
 #endif

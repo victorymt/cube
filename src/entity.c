@@ -22,6 +22,9 @@
 #define ENTITY_STATE_VERSION 4u
 #define ENTITY_RANDOM_FALLBACK 0x6d2b79f5u
 #define ENTITY_EVOLUTION_DAYS_PER_SECOND 0.02f
+#define ENTITY_AQUATIC_SPAWN_SEARCH_RADIUS 12
+#define ENTITY_GROUND_SPAWN_VERTICAL_RANGE 48.0f
+#define ENTITY_DESPAWN_DISTANCE 96.0f
 
 static Vector3 EntityFluidCurrent(const Entity *entity)
 {
@@ -891,8 +894,9 @@ static void DespawnDistantAlien(const Player *player)
         Entity *entity = &entities[index];
         if (!entity->active || !EntityIsAlien(entity->type)) continue;
         float dx = entity->position.x - player->position.x;
+        float dy = entity->position.y - player->position.y;
         float dz = entity->position.z - player->position.z;
-        float distanceSquared = dx * dx + dz * dz;
+        float distanceSquared = dx * dx + dy * dy + dz * dz;
         if (distanceSquared > farthestDistanceSquared) {
             farthestDistanceSquared = distanceSquared;
             farthest = index;
@@ -900,6 +904,48 @@ static void DespawnDistantAlien(const Player *player)
     }
     if (farthest >= 0) entities[farthest].active = false;
 }
+
+static bool EntityFindWaterNearY(int x, int z, int centerY, int radius,
+                                 int *outY)
+{
+    if (!outY || radius < 0) return false;
+    for (int offset = 0; offset <= radius; offset++) {
+        int above = centerY + offset;
+        if (above >= SURFACE_MIN_Y && above < SURFACE_MAX_Y_EXCLUSIVE &&
+            GetBlockAt(x, above, z) == BLOCK_WATER) {
+            *outY = above;
+            return true;
+        }
+        int below = centerY - offset;
+        if (offset > 0 && below >= SURFACE_MIN_Y &&
+            below < SURFACE_MAX_Y_EXCLUSIVE &&
+            GetBlockAt(x, below, z) == BLOCK_WATER) {
+            *outY = below;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool EntityFindAquaticSpawnY(int x, int z, int preferredY,
+                                    int fallbackY, int *outY)
+{
+    if (EntityFindWaterNearY(
+            x, z, preferredY, ENTITY_AQUATIC_SPAWN_SEARCH_RADIUS, outY)) {
+        return true;
+    }
+    if (fallbackY == preferredY) return false;
+    return EntityFindWaterNearY(
+        x, z, fallbackY, ENTITY_AQUATIC_SPAWN_SEARCH_RADIUS, outY);
+}
+
+#ifdef ENTITY_TESTING
+bool EntityTestFindAquaticSpawnY(int x, int preferredY, int z,
+                                 int fallbackY, int *outY)
+{
+    return EntityFindAquaticSpawnY(x, z, preferredY, fallbackY, outY);
+}
+#endif
 
 static void SpawnPassive(const Player *player, float daylight)
 {
@@ -989,21 +1035,28 @@ static void SpawnPassive(const Player *player, float daylight)
         !PlanetBiomeSupportsFauna(gx, gz) &&
         ecology.niche != PLANET_NICHE_CRYSTAL_GRAZER) return;
     int groundY = EntitySurfaceHeight(gx, gz);
-    int waterY = -1;
+    int waterY = 0;
+    int playerY = (int)floorf(player->position.y);
+    bool playerUnderwater = GetBlockAt(
+        (int)floorf(player->position.x), playerY,
+        (int)floorf(player->position.z)) == BLOCK_WATER;
+    if (evolvableSpawn && evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT &&
+        playerUnderwater) {
+        return;
+    }
     if (evolvableSpawn && evolutionArchetype == EVOLUTION_ARCHETYPE_AQUATIC) {
         int seaLevel = homeWorld ? HOME_SEA_LEVEL : -1;
-        int scanTop = fmaxf((float)groundY + 2.0f,
-                            (float)(seaLevel >= 0 ? seaLevel : groundY + 2));
-        scanTop = (int)fminf(scanTop, (float)WORLD_HEIGHT - 2.0f);
-        for (int y = scanTop; y >= groundY - 5; y--) {
-            if (GetBlockAt(gx, y, gz) == BLOCK_WATER) {
-                waterY = y;
-                break;
-            }
-        }
-        if (waterY < 0) return;
+        int verticalJitter = (int)EntityRandomBounded(13u) - 6;
+        int preferredY = playerY + verticalJitter;
+        int fallbackY = seaLevel >= 0 ? seaLevel : groundY + 2;
+        if (!EntityFindAquaticSpawnY(
+                gx, gz, preferredY, fallbackY, &waterY)) return;
     }
     if (!evolvableSpawn || evolutionArchetype == EVOLUTION_ARCHETYPE_GROUND) {
+        if (fabsf((float)groundY + 1.0f - player->position.y) >
+            ENTITY_GROUND_SPAWN_VERTICAL_RANGE) {
+            return;
+        }
         BlockType spawnAt = GetBlockAt(gx, groundY + 1, gz);
         BlockType spawnAbove = GetBlockAt(gx, groundY + 2, gz);
         if (evolvableSpawn) {
@@ -1022,7 +1075,10 @@ static void SpawnPassive(const Player *player, float daylight)
         (float)waterY + 0.35f : (float)groundY + 1.0f;
     if (evolvableSpawn && evolutionArchetype == EVOLUTION_ARCHETYPE_FLIGHT) {
         float flightBase = fmaxf(spawnY + 3.0f, player->position.y + 1.5f);
-        spawnY = fminf((float)WORLD_HEIGHT - 3.0f,
+        float flightCeiling = homeWorld
+            ? (float)SURFACE_MAX_Y_EXCLUSIVE - 3.0f
+            : (float)WORLD_HEIGHT - 3.0f;
+        spawnY = fminf(flightCeiling,
                        flightBase + (float)EntityRandomBounded(45u) / 10.0f);
     }
     entity->position = (Vector3){ (float)gx + 0.5f, spawnY, (float)gz + 0.5f };
@@ -1851,8 +1907,11 @@ static void UpdatePassive(Entity *entity, int entityIndex,
         int groundY = EntitySurfaceHeight(
             (int)floorf(entity->position.x),
             (int)floorf(entity->position.z));
+        float flightCeiling = PlanetWorldIsActive()
+            ? (float)WORLD_HEIGHT - 3.0f
+            : (float)SURFACE_MAX_Y_EXCLUSIVE - 3.0f;
         float terrainHover = fminf(
-            (float)WORLD_HEIGHT - 3.0f,
+            flightCeiling,
             (float)groundY + 1.0f + motionProfile.hoverClearance);
         entity->hoverHeight += (terrainHover - entity->hoverHeight) *
             fminf(1.0f, dt * 0.75f);
@@ -1992,8 +2051,10 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
         if (!entity->active) continue;
 
         float dx = entity->position.x - player->position.x;
+        float dy = entity->position.y - player->position.y;
         float dz = entity->position.z - player->position.z;
-        if (dx * dx + dz * dz > 96.0f * 96.0f) {
+        if (dx * dx + dy * dy + dz * dz >
+            ENTITY_DESPAWN_DISTANCE * ENTITY_DESPAWN_DISTANCE) {
             entity->active = false;
             continue;
         }

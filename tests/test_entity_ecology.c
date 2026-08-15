@@ -921,6 +921,15 @@ static void TestHomeWorldEvolvableEntities(void)
     Player player = { 0 };
     PlacePlayerAt(&player, 0, 0);
     PrepareChunksAt(&player);
+    Chunk *spawnChunk = FindChunk(0, 0);
+    assert(spawnChunk != NULL);
+    const int deepWaterY = -400;
+    assert(ChunkSetLocalBlock(
+        spawnChunk, 1, deepWaterY, 1, BLOCK_WATER));
+    int aquaticSpawnY = 0;
+    assert(EntityTestFindAquaticSpawnY(
+        1, deepWaterY + 10, 1, HOME_SEA_LEVEL, &aquaticSpawnY));
+    assert(aquaticSpawnY == deepWaterY);
     EntitiesInit();
     for (int frame = 0; frame < 1800; frame++) {
         RunEntityFrames(&player, 1, daylight);
