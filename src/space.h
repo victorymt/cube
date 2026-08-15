@@ -412,6 +412,8 @@ bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out);
 bool SpaceSatelliteScaleDiagnosticsAt(
     Vector3 observer, SpaceSatelliteScaleDiagnostics *out);
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out);
+bool SpacePlanetNavigationPick(Vector3 origin, Vector3 direction,
+                               SpaceBodyInfo *out);
 float PlanetBodyTextureRotation(const SpaceBodyInfo *body);
 bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
                      float *gravityScale);

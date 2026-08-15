@@ -3058,6 +3058,51 @@ bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out)
     return found && SpaceBodyScaleDiagnostics(&selected, out);
 }
 
+#define SPACE_PLANET_NAVIGATION_ASSIST_ANGLE (4.0f * DEG2RAD)
+
+bool SpacePlanetNavigationPick(Vector3 origin, Vector3 direction,
+                               SpaceBodyInfo *out)
+{
+    if (!out) return false;
+    *out = (SpaceBodyInfo){ 0 };
+    if (planetWorld.active || !SpaceQueryVectorIsFinite(origin) ||
+        !SpaceQueryVectorIsFinite(direction) ||
+        Vector3LengthSqr(direction) < 0.000001f) {
+        return false;
+    }
+    direction = Vector3Normalize(direction);
+
+    SpaceBodyInfo bodies[48];
+    int count = SpaceBodiesNear(origin, 700.0f, bodies, 48);
+    float bestAlignment = -1.0f;
+    float bestDistance = INFINITY;
+    bool found = false;
+    for (int i = 0; i < count; i++) {
+        if (bodies[i].isStar) continue;
+        Vector3 toBody = Vector3Subtract(bodies[i].center, origin);
+        float distance = Vector3Length(toBody);
+        if (!(distance > 0.0f)) continue;
+        float alignment = Vector3DotProduct(
+            Vector3Scale(toBody, 1.0f / distance), direction);
+        float radiusRatio = Clamp(bodies[i].physicalRadiusGame / distance,
+                                  0.0f, 1.0f);
+        float apparentRadius = asinf(radiusRatio);
+        float selectionAngle = fmaxf(SPACE_PLANET_NAVIGATION_ASSIST_ANGLE,
+                                     apparentRadius);
+        if (alignment < cosf(selectionAngle)) continue;
+        if (alignment < bestAlignment - 0.000001f ||
+            (fabsf(alignment - bestAlignment) <= 0.000001f &&
+             distance >= bestDistance)) {
+            continue;
+        }
+        bestAlignment = alignment;
+        bestDistance = distance;
+        *out = bodies[i];
+        found = true;
+    }
+    return found;
+}
+
 bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
 {
     if (!out) return false;

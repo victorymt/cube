@@ -49,11 +49,14 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
     UpdatePlayerCamera(&game->camera, &game->player, dt, game->thirdPerson);
     int effectiveRenderDistance = EffectiveRenderDistanceForHeight(
         game->camera.position.y);
-    Vector3 aimEye = {
-        game->player.position.x,
-        game->player.position.y + EYE_HEIGHT,
-        game->player.position.z
-    };
+    Vector3 aimEye = game->camera.position;
+    if (!WorldIsSpaceActive()) {
+        aimEye = (Vector3){
+            game->player.position.x,
+            game->player.position.y + EYE_HEIGHT,
+            game->player.position.z
+        };
+    }
     Vector3 aimDir = Vector3Normalize(
         Vector3Subtract(game->camera.target, game->camera.position));
     context->hit = RaycastBlocksFiltered(aimEye, aimDir, REACH_DISTANCE,
@@ -81,7 +84,13 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
             }
         }
     }
-    context->haveAimBody = SpaceBodyPick(aimEye, aimDir, &context->aimBody);
+    if (ShipIsDriving() && WorldIsSpaceActive()) {
+        context->haveAimBody = SpacePlanetNavigationPick(
+            game->player.position, aimDir, &context->aimBody);
+    } else {
+        context->haveAimBody = SpaceBodyPick(
+            aimEye, aimDir, &context->aimBody);
+    }
     context->hitParkedShip =
         context->hit.hit &&
         ShipResolveParkedAt(context->hit.x, context->hit.y,

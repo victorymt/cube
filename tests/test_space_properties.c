@@ -1758,6 +1758,30 @@ static void TestCanonicalSolParkingRadii(void)
            0.0f);
 }
 
+static void TestPlanetNavigationAssist(void)
+{
+    SetPropertySeed(DEFAULT_WORLD_SEED);
+    SpaceResetOrigin();
+
+    SolarSystemDef sol;
+    assert(StarSystemAt(0, 0, &sol));
+    const int earthIndex = 2;
+    Vector3 earthCenter = SolarSystemPlanetCenter(&sol, earthIndex);
+    Vector3 observer = {
+        earthCenter.x, earthCenter.y, earthCenter.z - 1.0f
+    };
+    float offset = 3.0f * DEG2RAD;
+    Vector3 assistedDirection = {
+        sinf(offset), 0.0f, cosf(offset)
+    };
+    SpaceBodyInfo target;
+    assert(SpacePlanetNavigationPick(
+        observer, assistedDirection, &target));
+    assert(!target.isStar);
+    assert(target.bodyId == sol.planets[earthIndex].bodyId);
+    assert(strcmp(target.name, "Earth") == 0);
+}
+
 static void TestScaleDiagnosticsInputContracts(void)
 {
     SpaceBodyInfo body = {
@@ -1862,6 +1886,12 @@ static void TestSpaceQueryInputContracts(void)
     assert(!SpaceBodyPick((Vector3){ 0 },
                           (Vector3){ NAN, 0.0f, 0.0f }, &picked));
     assert(picked.physicalRadiusKm == 0.0 && picked.spaceProxyRadius == 0.0f);
+    memset(&picked, 0xa5, sizeof(picked));
+    assert(!SpacePlanetNavigationPick(
+        (Vector3){ 0 }, (Vector3){ NAN, 0.0f, 0.0f }, &picked));
+    assert(picked.physicalRadiusKm == 0.0 && picked.spaceProxyRadius == 0.0f);
+    assert(!SpacePlanetNavigationPick(
+        (Vector3){ 0 }, (Vector3){ 0.0f, 0.0f, 1.0f }, NULL));
 
     SolarSystemDef host;
     const SolarSystemDef clearedHost = { 0 };
@@ -2690,6 +2720,7 @@ int main(void)
     TestCanonicalSolCatalog();
     TestHomeScaleDiagnostics();
     TestCanonicalSolParkingRadii();
+    TestPlanetNavigationAssist();
     TestScaleDiagnosticsInputContracts();
     TestSpaceQueryInputContracts();
     TestIrradianceInputContracts();

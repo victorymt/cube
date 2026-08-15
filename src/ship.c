@@ -348,17 +348,17 @@ static bool ResolveWarpTarget(Vector3 *center, float *safeDistance)
     return true;
 }
 
-static void LockWarpTarget(const Player *player, Vector3 forward)
+static bool LockWarpTarget(const Player *player, Vector3 forward)
 {
     if (WorldIsSurfaceActive()) {
         SetImportMessage("Launch into space before locking a warp target.");
-        return;
+        return false;
     }
 
     SpaceBodyInfo body;
-    if (!SpaceBodyPick(player->position, forward, &body) || body.isStar) {
-        SetImportMessage("Aim at a nearby planet to lock a warp target.");
-        return;
+    if (!SpacePlanetNavigationPick(player->position, forward, &body)) {
+        SetImportMessage("Move a planet marker near the crosshair to lock it.");
+        return false;
     }
 
     warpTarget.locked = true;
@@ -370,6 +370,7 @@ static void LockWarpTarget(const Player *player, Vector3 forward)
     snprintf(warpTarget.name, sizeof(warpTarget.name), "%s", body.name);
     warping = false;
     SetImportMessage(TextFormat("Locked %s. Press G to engage warp.", warpTarget.name));
+    return true;
 }
 
 bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
@@ -918,7 +919,13 @@ void ShipUpdate(Player *player, float dt)
 
     Vector3 forward = ForwardFromAngles(player->yaw, player->pitch);
     if (IsKeyPressed(KEY_Q)) LockWarpTarget(player, forward);
-    if (IsKeyPressed(KEY_G)) ToggleWarp(player);
+    if (IsKeyPressed(KEY_G)) {
+        if (!warpTarget.locked && !WorldIsSurfaceActive()) {
+            if (LockWarpTarget(player, forward)) ToggleWarp(player);
+        } else {
+            ToggleWarp(player);
+        }
+    }
 
     Vector3 right = RightFromYaw(player->yaw);
     Vector3 accel = Vector3Zero();
@@ -978,8 +985,13 @@ void ShipUpdate(Player *player, float dt)
                 warping = false;
                 player->velocity = Vector3Zero();
                 if (warpTarget.type == WARP_TARGET_SYSTEM) {
-                    SetImportMessage(TextFormat("Arrived at %s. Lock a planet with Q.",
-                                                warpTarget.name));
+                    char systemName[sizeof(warpTarget.name)];
+                    snprintf(systemName, sizeof(systemName), "%s",
+                             warpTarget.name);
+                    ClearWarpTarget();
+                    SetImportMessage(TextFormat(
+                        "Arrived at %s. Aim near a planet marker and press G.",
+                        systemName));
                 } else {
                     SetImportMessage(TextFormat("Reached %s approach. Press E to land.",
                                                 warpTarget.name));
