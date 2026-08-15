@@ -1,5 +1,6 @@
 #include "entity.h"
 
+#include "creature_renderer.h"
 #include "fauna_motion.h"
 #include "fluid.h"
 #include "raymath.h"
@@ -2077,6 +2078,10 @@ static void DrawEvolvedAlienEntity(const Entity *entity,
     if (entity->corpse) {
         body = ColorLerp(body, (Color){ 74, 68, 62, 255 }, 0.68f);
         accent = ColorLerp(accent, body, 0.72f);
+    }
+    if (entity->phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC &&
+        CreatureRendererDrawAquatic(entity, runtime, body, accent, scale)) {
+        return;
     }
     for (unsigned index = 0; index < entity->phenotype.moduleCount; index++) {
         const CreatureModule *module = &entity->phenotype.modules[index];

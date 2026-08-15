@@ -1,4 +1,5 @@
 #include "evolution.h"
+#include "creature_visual.h"
 
 #include <assert.h>
 #include <math.h>
@@ -32,6 +33,48 @@ static void TestSeedArchetypes(void)
         AssertPhenotypeValid(&phenotype);
         assert(phenotype.locomotion == expected[archetype]);
         assert(genome.genomeId != 0u);
+    }
+}
+
+static void AssertAquaticVisualProfile(
+    const CreatureAquaticVisualProfile *profile)
+{
+    assert(isfinite(profile->torsoLength));
+    assert(isfinite(profile->torsoWidth));
+    assert(isfinite(profile->torsoHeight));
+    assert(profile->torsoLength >= 0.80f && profile->torsoLength <= 3.00f);
+    assert(profile->torsoWidth >= 0.42f && profile->torsoWidth <= 1.45f);
+    assert(profile->torsoHeight >= 0.32f && profile->torsoHeight <= 1.15f);
+    assert(profile->headLength < profile->torsoLength);
+    assert(profile->headWidth < profile->torsoWidth);
+    assert(profile->tailLength < profile->torsoLength);
+    assert(profile->tailWidth < profile->torsoWidth);
+    assert(profile->finSpan >= 0.34f && profile->finSpan <= 1.45f);
+    assert(profile->finChord >= 0.22f && profile->finChord <= 0.88f);
+    assert(profile->finThickness >= 0.055f &&
+           profile->finThickness <= 0.18f);
+    assert(profile->finThickness < profile->finChord);
+    assert(profile->finPairs >= 1u && profile->finPairs <= 2u);
+}
+
+static void TestAquaticVisualProfiles(void)
+{
+    CreatureGenome groundGenome = EvolutionGenomeSeed(
+        81u, EVOLUTION_ARCHETYPE_GROUND);
+    CreaturePhenotype ground = EvolutionDevelop(&groundGenome);
+    CreatureAquaticVisualProfile profile = { 0 };
+    assert(!CreatureAquaticVisualProfileBuild(&ground, &profile));
+    assert(!CreatureAquaticVisualProfileBuild(NULL, &profile));
+    assert(!CreatureAquaticVisualProfileBuild(&ground, NULL));
+
+    for (uint32_t seed = 1u; seed <= 256u; seed++) {
+        CreatureGenome genome = EvolutionGenomeSeed(
+            seed * 0x9e3779b9u, EVOLUTION_ARCHETYPE_AQUATIC);
+        CreaturePhenotype phenotype = EvolutionDevelop(&genome);
+        AssertPhenotypeValid(&phenotype);
+        assert(phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC);
+        assert(CreatureAquaticVisualProfileBuild(&phenotype, &profile));
+        AssertAquaticVisualProfile(&profile);
     }
 }
 
@@ -170,6 +213,7 @@ static void TestStructuralMutation(void)
 int main(void)
 {
     TestSeedArchetypes();
+    TestAquaticVisualProfiles();
     TestDeterministicInheritance();
     TestCrossSeedProperties();
     TestRepairAndLimits();
