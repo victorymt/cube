@@ -228,13 +228,13 @@ $(CHUNK_STREAMING_TEST_TARGET): tests/test_chunk_streaming.c src/block_atlas.c s
 	$(CC) $(CFLAGS) -DCHUNKS_TESTING -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_chunk_streaming.c src/block_atlas.c src/chunks.c src/world.c $(RAYLIB_LIBS) -lm -pthread
 
 $(TERRAIN_SCALE_TEST_TARGET): tests/test_terrain_scale.c src/terrain.c src/terrain.h src/subsurface.c src/subsurface.h src/chunks.c src/chunks.h src/types.h
-	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_terrain_scale.c src/terrain.c src/subsurface.c src/chunks.c $(RAYLIB_LIBS) -lm -pthread
+	$(CC) $(CFLAGS) -DTERRAIN_TESTING -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_terrain_scale.c src/terrain.c src/subsurface.c src/chunks.c $(RAYLIB_LIBS) -lm -pthread
 
 $(SUBSURFACE_TEST_TARGET): tests/test_subsurface.c src/subsurface.c src/subsurface.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_subsurface.c src/subsurface.c -lm
 
-$(CHUNK_BENCHMARK_TARGET): tests/benchmark_chunks.c src/block_atlas.c src/block_atlas.h src/chunks.c src/chunks.h src/terrain.c src/terrain.h src/subsurface.c src/subsurface.h src/world.c src/world.h
-	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/benchmark_chunks.c src/block_atlas.c src/chunks.c src/terrain.c src/subsurface.c src/world.c $(RAYLIB_LIBS) -lm -pthread
+$(CHUNK_BENCHMARK_TARGET): tests/benchmark_chunks.c src/block_atlas.c src/block_atlas.h src/chunks.c src/chunks.h src/terrain.c src/terrain.h src/subsurface.c src/subsurface.h src/world.c src/world.h src/evolution_catalog.c src/evolution_catalog.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/benchmark_chunks.c src/block_atlas.c src/chunks.c src/terrain.c src/subsurface.c src/world.c src/evolution_catalog.c $(RAYLIB_LIBS) -lm -pthread
 
 benchmark-chunks: $(CHUNK_BENCHMARK_TARGET)
 	./$(CHUNK_BENCHMARK_TARGET)

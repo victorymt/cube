@@ -356,20 +356,137 @@ BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode)
     return SurfaceTerrainAt(x, z, mode).bathymetry;
 }
 
-bool ShouldPlaceTree(int x, int z, TerrainMode mode)
+enum {
+    HOME_TREE_MIN_SPACING_RADIUS = 3,
+    HOME_TREE_MAX_CROWN_RADIUS = 4,
+    HOME_TREE_BROADLEAF_VARIANT_COUNT = 3,
+    HOME_TREE_CONIFER_VARIANT_COUNT = 2
+};
+
+typedef enum HomeTreeKind {
+    HOME_TREE_BROADLEAF_ROUND = 0,
+    HOME_TREE_BROADLEAF_SPREADING,
+    HOME_TREE_BROADLEAF_COLUMNAR,
+    HOME_TREE_CONIFER_SPRUCE,
+    HOME_TREE_CONIFER_PINE
+} HomeTreeKind;
+
+static int HomeTreeDensityDivisor(Biome biome)
+{
+    switch (biome) {
+    case BIOME_FOREST:   return 47;
+    case BIOME_PLAINS:   return 131;
+    case BIOME_MOUNTAIN: return 149;
+    case BIOME_SNOW:     return 67;
+    default:             return 0;
+    }
+}
+
+static unsigned int HomeTreeShapeHash(int treeX, int treeZ)
+{
+    return WorldHash2DBits((unsigned int)treeX ^ 0xa511e9b3u,
+                           (unsigned int)treeZ ^ 0x63d83595u);
+}
+
+static HomeTreeKind HomeTreeKindForFamily(int treeX, int treeZ,
+                                          bool conifer)
+{
+    unsigned int roll = HomeTreeShapeHash(treeX, treeZ) % 100u;
+    if (conifer) {
+        return roll < 62u ? HOME_TREE_CONIFER_SPRUCE
+                          : HOME_TREE_CONIFER_PINE;
+    }
+    if (roll < 45u) return HOME_TREE_BROADLEAF_ROUND;
+    if (roll < 75u) return HOME_TREE_BROADLEAF_SPREADING;
+    return HOME_TREE_BROADLEAF_COLUMNAR;
+}
+
+static HomeTreeKind HomeTreeKindForBiome(int treeX, int treeZ, Biome biome)
+{
+    bool conifer = biome == BIOME_SNOW || biome == BIOME_MOUNTAIN;
+    return HomeTreeKindForFamily(treeX, treeZ, conifer);
+}
+
+static int HomeTreeCrownRadius(HomeTreeKind kind)
+{
+    switch (kind) {
+    case HOME_TREE_BROADLEAF_ROUND:
+    case HOME_TREE_BROADLEAF_SPREADING:
+    case HOME_TREE_CONIFER_SPRUCE:
+        return 4;
+    case HOME_TREE_BROADLEAF_COLUMNAR:
+        return 2;
+    case HOME_TREE_CONIFER_PINE:
+        return 3;
+    }
+    return HOME_TREE_MIN_SPACING_RADIUS;
+}
+
+static bool HomeTreeCandidateAt(int x, int z, TerrainMode mode,
+                                Biome *outBiome)
 {
     if (mode == TERRAIN_FLAT) return false;
 
-    int height = TerrainHeight(x, z, mode);
-    if (height <= TerrainSeaLevel(mode) || height > WORLD_HEIGHT - 8) return false;
-    unsigned int hash = WorldHash2D(x, z);
-    switch (BiomeAt(x, z)) {
-    case BIOME_FOREST:   return hash % 31u == 0u;
-    case BIOME_PLAINS:   return hash % 107u == 0u;
-    case BIOME_MOUNTAIN: return hash % 139u == 0u;
-    case BIOME_SNOW:     return hash % 53u == 0u;
-    default:             return false;
+    SurfaceTerrainSample surface = SurfaceTerrainAt(x, z, mode);
+    int divisor = HomeTreeDensityDivisor(surface.biome);
+    if (divisor == 0 || WorldHash2D(x, z) % (unsigned int)divisor != 0u) {
+        return false;
     }
+    int height = (int)lroundf(surface.elevation);
+    if (height <= (int)lroundf(surface.seaLevel) ||
+        height > WORLD_HEIGHT - 18) {
+        return false;
+    }
+    if (outBiome) *outBiome = surface.biome;
+    return true;
+}
+
+static unsigned int HomeTreePlacementPriority(int x, int z)
+{
+    return WorldHash2DBits((unsigned int)x ^ 0x68bc21ebu,
+                           (unsigned int)z ^ 0x02e5be93u);
+}
+
+bool ShouldPlaceTree(int x, int z, TerrainMode mode)
+{
+    Biome biome = BIOME_PLAINS;
+    if (!HomeTreeCandidateAt(x, z, mode, &biome)) return false;
+
+    unsigned int priority = HomeTreePlacementPriority(x, z);
+    int crownRadius = HomeTreeCrownRadius(
+        HomeTreeKindForBiome(x, z, biome));
+    for (int dx = -HOME_TREE_MAX_CROWN_RADIUS;
+         dx <= HOME_TREE_MAX_CROWN_RADIUS; dx++) {
+        for (int dz = -HOME_TREE_MAX_CROWN_RADIUS;
+             dz <= HOME_TREE_MAX_CROWN_RADIUS; dz++) {
+            if (dx == 0 && dz == 0) continue;
+            int neighborX = x + dx;
+            int neighborZ = z + dz;
+            Biome neighborBiome = BIOME_PLAINS;
+            if (!HomeTreeCandidateAt(neighborX, neighborZ, mode,
+                                     &neighborBiome)) {
+                continue;
+            }
+            int neighborCrownRadius = HomeTreeCrownRadius(
+                HomeTreeKindForBiome(neighborX, neighborZ, neighborBiome));
+            int requiredSpacing = crownRadius > neighborCrownRadius
+                ? crownRadius : neighborCrownRadius;
+            if (requiredSpacing < HOME_TREE_MIN_SPACING_RADIUS) {
+                requiredSpacing = HOME_TREE_MIN_SPACING_RADIUS;
+            }
+            int distance = abs(dx) > abs(dz) ? abs(dx) : abs(dz);
+            if (distance > requiredSpacing) continue;
+            unsigned int neighborPriority =
+                HomeTreePlacementPriority(neighborX, neighborZ);
+            if (neighborPriority < priority ||
+                (neighborPriority == priority &&
+                 (neighborX < x ||
+                  (neighborX == x && neighborZ < z)))) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool CaveAt(int x, int y, int z, int height)
@@ -445,7 +562,272 @@ void SetChunkLocalBlock(Chunk *chunk, int worldX, int y, int worldZ, BlockType t
     }
 }
 
+static void SetChunkLocalBlockIfAir(Chunk *chunk, int worldX, int y,
+                                    int worldZ, BlockType type)
+{
+    if (!InHeight(y)) return;
 
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(worldX, worldZ, &cx, &cz, &lx, &lz);
+    if (chunk->cx == cx && chunk->cz == cz &&
+        ChunkGetLocalBlock(chunk, lx, y, lz) == BLOCK_AIR) {
+        ChunkSetLocalBlock(chunk, lx, y, lz, type);
+    }
+}
+
+static void PlaceHomeLeafCluster(Chunk *chunk, int centerX, int centerY,
+                                 int centerZ, int radiusX, int radiusY,
+                                 int radiusZ, unsigned int lane)
+{
+    bool compactCluster = radiusX == 1 && radiusY == 1 && radiusZ == 1;
+    float distanceLimit = compactCluster ? 2.05f : 1.18f;
+    for (int dx = -radiusX; dx <= radiusX; dx++) {
+        for (int dy = -radiusY; dy <= radiusY; dy++) {
+            for (int dz = -radiusZ; dz <= radiusZ; dz++) {
+                float nx = (float)dx / (float)radiusX;
+                float ny = (float)dy / (float)radiusY;
+                float nz = (float)dz / (float)radiusZ;
+                float distance = nx * nx + ny * ny + nz * nz;
+                if (distance > distanceLimit) continue;
+                unsigned int edgeHash = WorldHash3D(
+                    centerX + dx, centerY + dy + (int)(lane % 503u),
+                    centerZ + dz);
+                if (distance > 0.72f && edgeHash % 6u == 0u) continue;
+                SetChunkLocalBlockIfAir(chunk, centerX + dx, centerY + dy,
+                                        centerZ + dz, BLOCK_LEAVES);
+            }
+        }
+    }
+}
+
+static void HomeTreeDirection(int direction, int *outX, int *outZ)
+{
+    static const int directions[4][2] = {
+        { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 }
+    };
+    int index = direction & 3;
+    *outX = directions[index][0];
+    *outZ = directions[index][1];
+}
+
+static void PlaceHomeBranch(Chunk *chunk, int treeX, int startY, int treeZ,
+                            int direction, int reach, int rise, int bend,
+                            int *outX, int *outY, int *outZ)
+{
+    int directionX = 0;
+    int directionZ = 0;
+    HomeTreeDirection(direction, &directionX, &directionZ);
+    int endX = treeX;
+    int endY = startY;
+    int endZ = treeZ;
+    for (int step = 1; step <= reach; step++) {
+        endX = treeX + directionX * step;
+        endY = startY + (rise * step) / reach;
+        endZ = treeZ + directionZ * step;
+        SetChunkLocalBlock(chunk, endX, endY, endZ, BLOCK_WOOD);
+    }
+    if (bend != 0) {
+        endX += -directionZ * bend;
+        endZ += directionX * bend;
+        SetChunkLocalBlock(chunk, endX, endY, endZ, BLOCK_WOOD);
+    }
+    if (outX) *outX = endX;
+    if (outY) *outY = endY;
+    if (outZ) *outZ = endZ;
+}
+
+static void PlaceHomeBroadleafTree(Chunk *chunk, int treeX, int base,
+                                   int treeZ, HomeTreeKind kind)
+{
+    unsigned int shapeHash = HomeTreeShapeHash(treeX, treeZ);
+    int trunkHeight = 6 + (int)(shapeHash % 3u);
+    int branchCount = 4 + (int)((shapeHash >> 5) % 2u);
+    int baseReach = 2;
+    int reachRange = 1;
+    int leafRadius = 2;
+    if (kind == HOME_TREE_BROADLEAF_SPREADING) {
+        trunkHeight = 5 + (int)(shapeHash % 2u);
+        branchCount = 5 + (int)((shapeHash >> 5) % 2u);
+        baseReach = 2;
+        reachRange = 2;
+        leafRadius = 1;
+    } else if (kind == HOME_TREE_BROADLEAF_COLUMNAR) {
+        trunkHeight = 9 + (int)(shapeHash % 3u);
+        branchCount = 4;
+        baseReach = 1;
+        reachRange = 1;
+        leafRadius = 1;
+    }
+
+    for (int y = base; y < base + trunkHeight; y++) {
+        SetChunkLocalBlock(chunk, treeX, y, treeZ, BLOCK_WOOD);
+    }
+
+    int trunkTop = base + trunkHeight - 1;
+    int baseDirection = (int)((shapeHash >> 9) & 3u);
+    for (int branch = 0; branch < branchCount; branch++) {
+        unsigned int branchHash = WorldHash3D(
+            treeX, 601 + branch * 17, treeZ);
+        int startDepth = kind == HOME_TREE_BROADLEAF_COLUMNAR ? 4 : 3;
+        int startY = trunkTop - startDepth +
+                     (int)(branchHash % (unsigned int)startDepth);
+        if (startY < base + 2) startY = base + 2;
+        int reach = baseReach +
+                    (int)((branchHash >> 3) % (unsigned int)reachRange);
+        int rise = kind == HOME_TREE_BROADLEAF_SPREADING
+            ? (int)((branchHash >> 6) % 2u)
+            : 1 + (int)((branchHash >> 6) % 2u);
+        if (kind == HOME_TREE_BROADLEAF_COLUMNAR) {
+            rise = 1 + (int)((branchHash >> 6) % 3u);
+        }
+        int bend = kind == HOME_TREE_BROADLEAF_COLUMNAR
+            ? 0 : (int)((branchHash >> 10) % 3u) - 1;
+        int endX = treeX;
+        int endY = startY;
+        int endZ = treeZ;
+        PlaceHomeBranch(chunk, treeX, startY, treeZ,
+                        baseDirection + branch, reach, rise, bend,
+                        &endX, &endY, &endZ);
+        int leafHeight = kind == HOME_TREE_BROADLEAF_COLUMNAR ? 2 : 1;
+        PlaceHomeLeafCluster(chunk, endX, endY, endZ,
+                             leafRadius, leafHeight, leafRadius,
+                             branchHash);
+    }
+
+    if (kind == HOME_TREE_BROADLEAF_ROUND) {
+        PlaceHomeLeafCluster(chunk, treeX, trunkTop + 1, treeZ,
+                             2, 2, 2, shapeHash);
+    } else if (kind == HOME_TREE_BROADLEAF_SPREADING) {
+        PlaceHomeLeafCluster(chunk, treeX, trunkTop + 1, treeZ,
+                             3, 1, 3, shapeHash);
+        PlaceHomeLeafCluster(chunk, treeX, trunkTop + 2, treeZ,
+                             1, 1, 1, shapeHash >> 8);
+    } else {
+        PlaceHomeLeafCluster(chunk, treeX, trunkTop - 5, treeZ,
+                             1, 2, 1, shapeHash >> 4);
+        PlaceHomeLeafCluster(chunk, treeX, trunkTop - 2, treeZ,
+                             2, 2, 2, shapeHash);
+        PlaceHomeLeafCluster(chunk, treeX, trunkTop + 1, treeZ,
+                             1, 2, 1, shapeHash >> 8);
+    }
+}
+
+static void PlaceHomeConiferWhorl(Chunk *chunk, int treeX, int y, int treeZ,
+                                  int branchLength, int ringIndex,
+                                  bool sparse)
+{
+    unsigned int ringHash = WorldHash3D(treeX, 907 + ringIndex * 23,
+                                        treeZ);
+    int skippedDirection = sparse ? (int)(ringHash & 3u) : -1;
+    int baseDirection = (int)((ringHash >> 3) & 3u);
+    for (int branch = 0; branch < 4; branch++) {
+        if (branch == skippedDirection) continue;
+        unsigned int branchHash = WorldHash3D(
+            treeX, 991 + ringIndex * 31 + branch * 7, treeZ);
+        int direction = baseDirection + branch;
+        int rise = branchLength >= 3 ? -1 : 0;
+        if (sparse && branchLength == 1) rise = 1;
+        int bend = (int)((branchHash >> 4) % 3u) - 1;
+        int endX = treeX;
+        int endY = y;
+        int endZ = treeZ;
+        PlaceHomeBranch(chunk, treeX, y, treeZ, direction, branchLength,
+                        rise, bend, &endX, &endY, &endZ);
+
+        int directionX = 0;
+        int directionZ = 0;
+        HomeTreeDirection(direction, &directionX, &directionZ);
+        int sideX = -directionZ;
+        int sideZ = directionX;
+        for (int step = 1; step <= branchLength; step++) {
+            int branchX = treeX + directionX * step;
+            int branchY = y + (rise * step) / branchLength;
+            int branchZ = treeZ + directionZ * step;
+            SetChunkLocalBlockIfAir(chunk, branchX, branchY + 1,
+                                    branchZ, BLOCK_LEAVES);
+            if (step > 1 || branchLength == 1) {
+                SetChunkLocalBlockIfAir(chunk, branchX + sideX, branchY,
+                                        branchZ + sideZ, BLOCK_LEAVES);
+                SetChunkLocalBlockIfAir(chunk, branchX - sideX, branchY,
+                                        branchZ - sideZ, BLOCK_LEAVES);
+            }
+        }
+        PlaceHomeLeafCluster(chunk, endX, endY, endZ,
+                             1, 1, 1, branchHash);
+    }
+    PlaceHomeLeafCluster(chunk, treeX, y + 1, treeZ,
+                         1, 1, 1, ringHash);
+}
+
+static void PlaceHomeConiferTree(Chunk *chunk, int treeX, int base,
+                                 int treeZ, HomeTreeKind kind)
+{
+    unsigned int shapeHash = HomeTreeShapeHash(treeX, treeZ);
+    bool sparse = kind == HOME_TREE_CONIFER_PINE;
+    int trunkHeight = sparse ? 12 + (int)(shapeHash % 4u)
+                             : 9 + (int)(shapeHash % 4u);
+    for (int y = base; y < base + trunkHeight; y++) {
+        SetChunkLocalBlock(chunk, treeX, y, treeZ, BLOCK_WOOD);
+    }
+
+    int trunkTop = base + trunkHeight - 1;
+    int crownBase = base + (sparse ? 5 : 2);
+    int crownSpan = trunkTop - crownBase;
+    int ringIndex = 0;
+    for (int y = crownBase; y < trunkTop; y += 2) {
+        int remaining = trunkTop - y;
+        int branchLength = sparse
+            ? 1 + remaining / crownSpan
+            : 1 + (remaining * 2) / crownSpan;
+        PlaceHomeConiferWhorl(chunk, treeX, y, treeZ, branchLength,
+                              ringIndex++, sparse);
+    }
+    PlaceHomeLeafCluster(chunk, treeX, trunkTop, treeZ,
+                         1, 2, 1, shapeHash);
+}
+
+static void PlaceHomeTree(Chunk *chunk, int treeX, int base, int treeZ,
+                          HomeTreeKind kind)
+{
+    if (kind == HOME_TREE_CONIFER_SPRUCE ||
+        kind == HOME_TREE_CONIFER_PINE) {
+        PlaceHomeConiferTree(chunk, treeX, base, treeZ, kind);
+    } else {
+        PlaceHomeBroadleafTree(chunk, treeX, base, treeZ, kind);
+    }
+}
+
+#ifdef TERRAIN_TESTING
+int TerrainTestHomeTreeVariantAt(int treeX, int treeZ, bool conifer)
+{
+    HomeTreeKind kind = HomeTreeKindForFamily(treeX, treeZ, conifer);
+    return conifer ? (int)kind - (int)HOME_TREE_CONIFER_SPRUCE
+                   : (int)kind;
+}
+
+int TerrainTestHomeTreeCrownRadiusAt(int treeX, int treeZ)
+{
+    HomeTreeKind kind = HomeTreeKindForBiome(
+        treeX, treeZ, BiomeAt(treeX, treeZ));
+    return HomeTreeCrownRadius(kind);
+}
+
+void TerrainTestPlaceHomeTree(Chunk *chunk, int treeX, int base, int treeZ,
+                              bool conifer, int variant)
+{
+    int count = conifer ? HOME_TREE_CONIFER_VARIANT_COUNT
+                        : HOME_TREE_BROADLEAF_VARIANT_COUNT;
+    int normalized = variant % count;
+    if (normalized < 0) normalized += count;
+    HomeTreeKind kind = conifer
+        ? (HomeTreeKind)(HOME_TREE_CONIFER_SPRUCE + normalized)
+        : (HomeTreeKind)normalized;
+    PlaceHomeTree(chunk, treeX, base, treeZ, kind);
+}
+#endif
 
 static void GenerateMineshaft(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
@@ -1326,45 +1708,19 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
         }
     }
 
-    for (int treeX = startX - 2; treeX < startX + CHUNK_SIZE + 2; treeX++) {
-        for (int treeZ = startZ - 2; treeZ < startZ + CHUNK_SIZE + 2; treeZ++) {
+    for (int treeX = startX - HOME_TREE_MAX_CROWN_RADIUS;
+         treeX < startX + CHUNK_SIZE + HOME_TREE_MAX_CROWN_RADIUS;
+         treeX++) {
+        for (int treeZ = startZ - HOME_TREE_MAX_CROWN_RADIUS;
+             treeZ < startZ + CHUNK_SIZE + HOME_TREE_MAX_CROWN_RADIUS;
+             treeZ++) {
             if (!ShouldPlaceTree(treeX, treeZ, mode)) continue;
 
             int base = TerrainHeight(treeX, treeZ, mode) + 1;
             Biome treeBiome = BiomeAt(treeX, treeZ);
-            bool pine = treeBiome == BIOME_SNOW || treeBiome == BIOME_MOUNTAIN;
-
-            if (pine) {
-                int trunkHeight = 5 + (int)(WorldHash2D(treeX, treeZ + 31) % 3u);
-                for (int y = base; y < base + trunkHeight; y++) {
-                    SetChunkLocalBlock(chunk, treeX, y, treeZ, BLOCK_WOOD);
-                }
-                for (int layer = 0; layer < 4; layer++) {
-                    int radius = (layer < 2) ? 1 : 2;
-                    int ly = base + trunkHeight - 2 - layer;
-                    if (ly < base || !InHeight(ly)) continue;
-                    for (int dx = -radius; dx <= radius; dx++) {
-                        for (int dz = -radius; dz <= radius; dz++) {
-                            if (dx == 0 && dz == 0) continue;
-                            SetChunkLocalBlock(chunk, treeX + dx, ly, treeZ + dz, BLOCK_LEAVES);
-                        }
-                    }
-                }
-            } else {
-                for (int y = base; y < base + 4; y++) {
-                    SetChunkLocalBlock(chunk, treeX, y, treeZ, BLOCK_WOOD);
-                }
-
-                for (int ox = -2; ox <= 2; ox++) {
-                    for (int oz = -2; oz <= 2; oz++) {
-                        for (int oy = 3; oy <= 4; oy++) {
-                            if (abs(ox) + abs(oz) + (oy == 4 ? 1 : 0) <= 4) {
-                                SetChunkLocalBlock(chunk, treeX + ox, base + oy, treeZ + oz, BLOCK_LEAVES);
-                            }
-                        }
-                    }
-                }
-            }
+            HomeTreeKind kind = HomeTreeKindForBiome(
+                treeX, treeZ, treeBiome);
+            PlaceHomeTree(chunk, treeX, base, treeZ, kind);
         }
     }
 

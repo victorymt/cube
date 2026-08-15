@@ -80,4 +80,11 @@ void SetChunkLocalBlock(Chunk *chunk, int worldX, int y, int worldZ, BlockType t
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode);
 void ApplyEditsToChunk(Chunk *chunk);
 
+#ifdef TERRAIN_TESTING
+int TerrainTestHomeTreeVariantAt(int treeX, int treeZ, bool conifer);
+int TerrainTestHomeTreeCrownRadiusAt(int treeX, int treeZ);
+void TerrainTestPlaceHomeTree(Chunk *chunk, int treeX, int base, int treeZ,
+                              bool conifer, int variant);
+#endif
+
 #endif

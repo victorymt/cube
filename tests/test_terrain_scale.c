@@ -185,6 +185,203 @@ static void TestChunkSectionBoundaries(void)
     }
 }
 
+typedef struct TreePoint {
+    int x;
+    int z;
+    int crownRadius;
+} TreePoint;
+
+typedef struct TreeShapeStats {
+    int woodCount;
+    int leafCount;
+    int trunkHeight;
+    int horizontalRadius;
+    int minLeafY;
+    int maxLeafY;
+} TreeShapeStats;
+
+static int CountChunkBlocks(const Chunk *chunk, BlockType type)
+{
+    int count = 0;
+    for (int y = 0; y < WORLD_HEIGHT; y++) {
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                if (ChunkGetLocalBlock(chunk, lx, y, lz) == type) count++;
+            }
+        }
+    }
+    return count;
+}
+
+static TreeShapeStats AnalyzeTreeShape(const Chunk *chunk, int centerX,
+                                       int baseY, int centerZ)
+{
+    TreeShapeStats stats = {
+        .minLeafY = WORLD_HEIGHT,
+        .maxLeafY = -1
+    };
+    for (int y = 0; y < WORLD_HEIGHT; y++) {
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                BlockType type = ChunkGetLocalBlock(chunk, lx, y, lz);
+                if (type != BLOCK_WOOD && type != BLOCK_LEAVES) continue;
+                int worldX = chunk->cx * CHUNK_SIZE + lx;
+                int worldZ = chunk->cz * CHUNK_SIZE + lz;
+                int radiusX = abs(worldX - centerX);
+                int radiusZ = abs(worldZ - centerZ);
+                int radius = radiusX > radiusZ ? radiusX : radiusZ;
+                if (radius > stats.horizontalRadius) {
+                    stats.horizontalRadius = radius;
+                }
+                if (type == BLOCK_WOOD) {
+                    stats.woodCount++;
+                } else {
+                    stats.leafCount++;
+                    if (y < stats.minLeafY) stats.minLeafY = y;
+                    if (y > stats.maxLeafY) stats.maxLeafY = y;
+                }
+            }
+        }
+    }
+
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(centerX, centerZ, &cx, &cz, &lx, &lz);
+    assert(cx == chunk->cx && cz == chunk->cz);
+    while (baseY + stats.trunkHeight < WORLD_HEIGHT &&
+           ChunkGetLocalBlock(chunk, lx, baseY + stats.trunkHeight, lz) ==
+               BLOCK_WOOD) {
+        stats.trunkHeight++;
+    }
+    return stats;
+}
+
+static void AssertChunkBlocksEqual(const Chunk *first, const Chunk *second)
+{
+    assert(first->cx == second->cx && first->cz == second->cz);
+    for (int y = 0; y < WORLD_HEIGHT; y++) {
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                assert(ChunkGetLocalBlock(first, lx, y, lz) ==
+                       ChunkGetLocalBlock(second, lx, y, lz));
+            }
+        }
+    }
+}
+
+static void TestTreePlacementSpacing(void)
+{
+    terrainSeed = 1448040515u;
+    TreePoint points[4096];
+    int treeCount = 0;
+    for (int z = -96; z <= 96; z++) {
+        for (int x = -96; x <= 96; x++) {
+            bool placed = ShouldPlaceTree(x, z, TERRAIN_VARIED);
+            assert(placed == ShouldPlaceTree(x, z, TERRAIN_VARIED));
+            if (!placed) continue;
+            assert(treeCount < (int)(sizeof(points) / sizeof(points[0])));
+            int crownRadius = TerrainTestHomeTreeCrownRadiusAt(x, z);
+            for (int i = 0; i < treeCount; i++) {
+                int requiredSpacing = crownRadius > points[i].crownRadius
+                    ? crownRadius : points[i].crownRadius;
+                if (requiredSpacing < 3) requiredSpacing = 3;
+                int dx = abs(points[i].x - x);
+                int dz = abs(points[i].z - z);
+                int distance = dx > dz ? dx : dz;
+                assert(distance > requiredSpacing);
+            }
+            points[treeCount++] = (TreePoint){ x, z, crownRadius };
+        }
+    }
+    assert(treeCount > 20);
+    terrainSeed = DEFAULT_WORLD_SEED;
+}
+
+static void TestHomeTreeVariantSelection(void)
+{
+    bool broadleafSeen[3] = { false };
+    bool coniferSeen[2] = { false };
+    for (int i = 0; i < 128; i++) {
+        int x = i * 17 - 503;
+        int z = 211 - i * 29;
+        int broadleaf = TerrainTestHomeTreeVariantAt(x, z, false);
+        int conifer = TerrainTestHomeTreeVariantAt(x, z, true);
+        assert(broadleaf == TerrainTestHomeTreeVariantAt(x, z, false));
+        assert(conifer == TerrainTestHomeTreeVariantAt(x, z, true));
+        assert(broadleaf >= 0 && broadleaf < 3);
+        assert(conifer >= 0 && conifer < 2);
+        broadleafSeen[broadleaf] = true;
+        coniferSeen[conifer] = true;
+    }
+    for (int i = 0; i < 3; i++) assert(broadleafSeen[i]);
+    for (int i = 0; i < 2; i++) assert(coniferSeen[i]);
+}
+
+static void TestHomeTreeShapes(void)
+{
+    TreeShapeStats broadleafStats[3] = { 0 };
+    int broadleafSignatures[3] = { 0 };
+    for (int variant = 0; variant < 3; variant++) {
+        Chunk tree = { .cx = 0, .cz = 0 };
+        assert(ChunkSetLocalBlock(&tree, 8, 40, 8, BLOCK_FLOWER));
+        TerrainTestPlaceHomeTree(&tree, 8, 40, 8, false, variant);
+        broadleafStats[variant] = AnalyzeTreeShape(&tree, 8, 40, 8);
+        TreeShapeStats stats = broadleafStats[variant];
+        assert(ChunkGetLocalBlock(&tree, 8, 40, 8) == BLOCK_WOOD);
+        assert(stats.trunkHeight >= 5 && stats.trunkHeight <= 11);
+        assert(stats.woodCount > stats.trunkHeight);
+        assert(stats.leafCount > 20);
+        assert(stats.maxLeafY > 40 + stats.trunkHeight - 1);
+        assert(stats.maxLeafY - stats.minLeafY >= 3);
+        assert(stats.horizontalRadius >= 2 &&
+               stats.horizontalRadius <= 4);
+        broadleafSignatures[variant] =
+            stats.woodCount * 10000 + stats.leafCount * 10 +
+            stats.horizontalRadius;
+        ChunkClearBlockStorage(&tree);
+    }
+    assert(broadleafStats[0].horizontalRadius >= 3);
+    assert(broadleafStats[1].horizontalRadius >= 3);
+    assert(broadleafStats[2].horizontalRadius <= 2);
+    assert(broadleafSignatures[0] != broadleafSignatures[1]);
+    assert(broadleafSignatures[0] != broadleafSignatures[2]);
+    assert(broadleafSignatures[1] != broadleafSignatures[2]);
+
+    TreeShapeStats coniferStats[2] = { 0 };
+    for (int variant = 0; variant < 2; variant++) {
+        Chunk tree = { .cx = 0, .cz = 0 };
+        TerrainTestPlaceHomeTree(&tree, 8, 40, 8, true, variant);
+        coniferStats[variant] = AnalyzeTreeShape(&tree, 8, 40, 8);
+        TreeShapeStats stats = coniferStats[variant];
+        assert(stats.trunkHeight >= 9 && stats.trunkHeight <= 15);
+        assert(stats.woodCount > stats.trunkHeight);
+        assert(stats.leafCount > 20);
+        assert(stats.maxLeafY > 40 + stats.trunkHeight - 1);
+        assert(stats.maxLeafY - stats.minLeafY >= 6);
+        assert(stats.horizontalRadius >= 2 &&
+               stats.horizontalRadius <= 4);
+        ChunkClearBlockStorage(&tree);
+    }
+    assert(coniferStats[0].horizontalRadius >= 3);
+    assert(coniferStats[1].horizontalRadius <= 3);
+    assert(coniferStats[1].trunkHeight > coniferStats[0].trunkHeight);
+
+    Chunk left = { .cx = 0, .cz = 0 };
+    Chunk right = { .cx = 1, .cz = 0 };
+    Chunk rightRepeat = { .cx = 1, .cz = 0 };
+    TerrainTestPlaceHomeTree(&left, 15, 40, 8, false, 1);
+    TerrainTestPlaceHomeTree(&right, 15, 40, 8, false, 1);
+    TerrainTestPlaceHomeTree(&rightRepeat, 15, 40, 8, false, 1);
+    assert(CountChunkBlocks(&right, BLOCK_LEAVES) > 0);
+    AssertChunkBlocksEqual(&right, &rightRepeat);
+
+    ChunkClearBlockStorage(&left);
+    ChunkClearBlockStorage(&right);
+    ChunkClearBlockStorage(&rightRepeat);
+}
+
 int main(void)
 {
     assert(SURFACE_WORLD_HEIGHT == 256);
@@ -194,6 +391,9 @@ int main(void)
     TestEarthScaleRelief();
     TestBathymetryContracts();
     TestChunkSectionBoundaries();
+    TestTreePlacementSpacing();
+    TestHomeTreeVariantSelection();
+    TestHomeTreeShapes();
     puts("terrain scale tests passed");
     return 0;
 }
