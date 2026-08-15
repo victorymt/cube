@@ -94,7 +94,7 @@ void ApplyEditsToChunkSection(Chunk *chunk, int sectionY)
     for (int index = 0; index < WorldGetEditCount(); index++) {
         BlockEdit edit;
         if (!WorldGetEditForCurrentDimension(index, &edit) ||
-            edit.y / SURFACE_SECTION_HEIGHT != sectionY) {
+            SurfaceSectionYFromBlockY(edit.y) != sectionY) {
             continue;
         }
         int cx = 0;
@@ -474,7 +474,7 @@ static void TestMaterializedAirDiffersFromMissingSection(void)
     assert(block == BLOCK_DIRT);
 
     assert(!ChunkTryGetLocalBlock(chunk, -1, 17, 3, &block));
-    assert(!ChunkTryGetLocalBlock(chunk, 2, SURFACE_WORLD_HEIGHT, 3,
+    assert(!ChunkTryGetLocalBlock(chunk, 2, SURFACE_MAX_Y_EXCLUSIVE, 3,
                                   &block));
     assert(!ChunkTryGetLocalBlock(chunk, 2, 17, 3, NULL));
 }
@@ -492,6 +492,12 @@ static void TestImplicitTerrainLookupAndEditOverride(void)
     assert(ChunkGetSectionConst(&chunks[0], 0) != NULL);
     assert(GetBlockAt(2, 4, 3) == BLOCK_AIR);
     assert(GetBlockAt(3, 4, 3) == BLOCK_STONE);
+
+    assert(GetBlockAt(2, -1, 3) == BLOCK_AIR);
+    assert(SetBlock(2, -1, 3, BLOCK_GLASS));
+    assert(ChunkGetSectionConst(&chunks[0], -1) != NULL);
+    assert(GetBlockAt(2, -1, 3) == BLOCK_GLASS);
+    assert(GetBlockAt(3, -1, 3) == BLOCK_AIR);
 
     assert(SetBlock(2 * CHUNK_SIZE, 4, 0, BLOCK_GLASS));
     ChunksTestConfigureChunk(1, 2, 0, true, false);
@@ -558,6 +564,16 @@ static void TestNearbySectionSchedulingPrioritizesPlayerSection(void)
     assert(ChunksTestGenerationJobSectionY(2) == 2);
     assert(ChunksTestScheduleTerrainSections(
         (Vector3){ 0.5f, 20.0f, 0.5f }) == 0);
+
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    chunks[0].generation = 32u;
+    submitted = ChunksTestScheduleTerrainSections(
+        (Vector3){ 0.5f, -0.5f, 0.5f });
+    assert(submitted == 3);
+    assert(ChunksTestGenerationJobSectionY(0) == -1);
+    assert(ChunksTestGenerationJobSectionY(1) == -2);
+    assert(ChunksTestGenerationJobSectionY(2) == 0);
 }
 
 int main(void)

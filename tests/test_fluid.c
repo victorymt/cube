@@ -12,7 +12,7 @@ Chunk chunks[MAX_ACTIVE_CHUNKS];
 
 bool InHeight(int y)
 {
-    return y >= 0 && y < WORLD_HEIGHT;
+    return y >= SURFACE_MIN_Y && y < SURFACE_MAX_Y_EXCLUSIVE;
 }
 
 int FloorDivInt(int value, int divisor)
@@ -27,6 +27,22 @@ int PositiveMod(int value, int divisor)
 {
     int result = value % divisor;
     return result < 0 ? result + divisor : result;
+}
+
+bool SurfaceSectionInBounds(int sectionY)
+{
+    return sectionY >= SURFACE_SECTION_MIN_Y &&
+           sectionY < SURFACE_SECTION_MAX_Y_EXCLUSIVE;
+}
+
+int SurfaceSectionYFromBlockY(int y)
+{
+    return FloorDivInt(y, SURFACE_SECTION_HEIGHT);
+}
+
+int SurfaceSectionLocalYFromBlockY(int y)
+{
+    return PositiveMod(y, SURFACE_SECTION_HEIGHT);
 }
 
 void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
@@ -93,18 +109,19 @@ const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY)
 BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
 {
     const ChunkSection *section = ChunkGetSectionConst(
-        chunk, y / SURFACE_SECTION_HEIGHT);
+        chunk, SurfaceSectionYFromBlockY(y));
     return section
-        ? (BlockType)section->blocks[lx][y % SURFACE_SECTION_HEIGHT][lz]
+        ? (BlockType)section->blocks[
+              lx][SurfaceSectionLocalYFromBlockY(y)][lz]
         : BLOCK_AIR;
 }
 
 bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type)
 {
     ChunkSection *section = ChunkGetSection(
-        chunk, y / SURFACE_SECTION_HEIGHT, type != BLOCK_AIR);
+        chunk, SurfaceSectionYFromBlockY(y), type != BLOCK_AIR);
     if (!section) return type == BLOCK_AIR;
-    section->blocks[lx][y % SURFACE_SECTION_HEIGHT][lz] = type;
+    section->blocks[lx][SurfaceSectionLocalYFromBlockY(y)][lz] = type;
     return true;
 }
 
@@ -151,7 +168,8 @@ static Chunk *CreateChunk(int slot, int cx, int cz)
 
 static void CreateAllSections(Chunk *chunk)
 {
-    for (int sectionY = 0; sectionY < SURFACE_SECTION_COUNT; sectionY++) {
+    for (int sectionY = 0;
+         sectionY < SURFACE_GENERATION_SECTION_COUNT; sectionY++) {
         assert(ChunkGetSection(chunk, sectionY, true));
     }
 }
@@ -202,6 +220,17 @@ static void TestGravityAndConservation(void)
             }
         }
     }
+}
+
+static void TestNegativeSectionCoordinates(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    assert(FluidSetVolumeAt(4, -1, 4, FLUID_CAPACITY));
+    const ChunkSection *section = ChunkGetSectionConst(chunk, -1);
+    assert(section != NULL);
+    assert(section->blocks[4][SURFACE_SECTION_HEIGHT - 1][4] == BLOCK_WATER);
+    assert(FluidGetVolumeAt(4, -1, 4) == FLUID_CAPACITY);
 }
 
 static void TestCrossChunkFlow(void)
@@ -464,6 +493,7 @@ static void TestCorruptLoadPreservesState(void)
 
 int main(void)
 {
+    TestNegativeSectionCoordinates();
     TestGravityAndConservation();
     TestCrossChunkFlow();
     TestChunkLoadBoundaryActivation();

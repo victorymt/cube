@@ -846,7 +846,7 @@ static bool SetBlockCore(
     }
 
     if (chunk) {
-        int sectionY = y / SURFACE_SECTION_HEIGHT;
+        int sectionY = SurfaceSectionYFromBlockY(y);
         if (!MaterializeHomeSurfaceSectionForWrite(chunk, sectionY)) {
             return false;
         }

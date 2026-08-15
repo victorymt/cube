@@ -119,7 +119,7 @@ bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
 
 bool InHeight(int y)
 {
-    return y >= 0 && y < SURFACE_WORLD_HEIGHT;
+    return y >= SURFACE_MIN_Y && y < SURFACE_MAX_Y_EXCLUSIVE;
 }
 
 int FloorDivInt(int value, int divisor)
@@ -132,6 +132,22 @@ int PositiveMod(int value, int divisor)
 {
     int result = value % divisor;
     return result < 0 ? result + divisor : result;
+}
+
+bool SurfaceSectionInBounds(int sectionY)
+{
+    return sectionY >= SURFACE_SECTION_MIN_Y &&
+           sectionY < SURFACE_SECTION_MAX_Y_EXCLUSIVE;
+}
+
+int SurfaceSectionYFromBlockY(int y)
+{
+    return FloorDivInt(y, SURFACE_SECTION_HEIGHT);
+}
+
+int SurfaceSectionLocalYFromBlockY(int y)
+{
+    return PositiveMod(y, SURFACE_SECTION_HEIGHT);
 }
 
 void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
@@ -273,11 +289,11 @@ bool ChunkTryGetLocalBlock(const Chunk *chunk, int lx, int y, int lz,
 {
     if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
         !InHeight(y) || !outBlock) return false;
-    int sectionY = y / SURFACE_SECTION_HEIGHT;
+    int sectionY = SurfaceSectionYFromBlockY(y);
     const ChunkSection *section = ChunkGetSectionConst(chunk, sectionY);
     if (!section) return false;
     *outBlock = (BlockType)section->blocks[
-        lx][y % SURFACE_SECTION_HEIGHT][lz];
+        lx][SurfaceSectionLocalYFromBlockY(y)][lz];
     return true;
 }
 
@@ -292,10 +308,11 @@ bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type)
 {
     if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
         !InHeight(y)) return false;
-    int sectionY = y / SURFACE_SECTION_HEIGHT;
+    int sectionY = SurfaceSectionYFromBlockY(y);
     ChunkSection *section = ChunkGetSection(chunk, sectionY, type != BLOCK_AIR);
     if (!section) return type == BLOCK_AIR;
-    section->blocks[lx][y % SURFACE_SECTION_HEIGHT][lz] = (unsigned short)type;
+    section->blocks[lx][SurfaceSectionLocalYFromBlockY(y)][lz] =
+        (unsigned short)type;
     return true;
 }
 
@@ -397,14 +414,15 @@ void MarkChunkDirtyAtBlock(int x, int y, int z)
 
     Chunk *chunk = FindChunk(cx, cz);
     if (chunk && InHeight(y)) {
-        int sectionY = y / SURFACE_SECTION_HEIGHT;
+        int sectionY = SurfaceSectionYFromBlockY(y);
+        int localY = SurfaceSectionLocalYFromBlockY(y);
         ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
         MarkSectionDirty(section);
-        if (y % SURFACE_SECTION_HEIGHT == 0 && sectionY > 0) {
+        if (localY == 0 && SurfaceSectionInBounds(sectionY - 1)) {
             section = ChunkGetSection(chunk, sectionY - 1, false);
             MarkSectionDirty(section);
         }
-        if (y % SURFACE_SECTION_HEIGHT == SURFACE_SECTION_HEIGHT - 1 &&
+        if (localY == SURFACE_SECTION_HEIGHT - 1 &&
             InHeight(y + 1)) {
             section = ChunkGetSection(chunk, sectionY + 1, false);
             MarkSectionDirty(section);
@@ -611,8 +629,7 @@ static bool SubmitChunkSectionGenJob(
     Chunk *chunk, int sectionY, TerrainMode mode)
 {
     if (genThread == 0 || !chunk || !chunk->loaded ||
-        !HomeWorldSurfaceIsActive() || sectionY < 0 ||
-        sectionY >= SURFACE_SECTION_COUNT ||
+        !HomeWorldSurfaceIsActive() || !SurfaceSectionInBounds(sectionY) ||
         ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
@@ -655,7 +672,7 @@ static bool SubmitChunkSectionGenJob(
 
 bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
 {
-    if (sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT ||
+    if (!SurfaceSectionInBounds(sectionY) ||
         !HomeWorldSurfaceIsActive()) {
         return false;
     }
@@ -905,7 +922,7 @@ static int ScheduleNearbyTerrainSections(Vector3 playerPosition)
     WorldToChunkLocal((int)floorf(playerPosition.x),
                       (int)floorf(playerPosition.z),
                       &playerCx, &playerCz, &localX, &localZ);
-    int playerSectionY = playerY / SURFACE_SECTION_HEIGHT;
+    int playerSectionY = SurfaceSectionYFromBlockY(playerY);
     static const int horizontalOffsets[9][2] = {
         { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
         { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 }
@@ -917,7 +934,7 @@ static int ScheduleNearbyTerrainSections(Vector3 playerPosition)
          vertical < (int)(sizeof(verticalOffsets) /
                           sizeof(verticalOffsets[0])); vertical++) {
         int sectionY = playerSectionY + verticalOffsets[vertical];
-        if (sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT) continue;
+        if (!SurfaceSectionInBounds(sectionY)) continue;
         for (int horizontal = 0;
              horizontal < (int)(sizeof(horizontalOffsets) /
                                 sizeof(horizontalOffsets[0])); horizontal++) {
@@ -2678,9 +2695,9 @@ static void CaptureSurfaceWaterBoundaryCell(
     if (block != BLOCK_WATER) return;
 
     const ChunkSection *section = ChunkGetSectionConst(
-        chunk, worldY / SURFACE_SECTION_HEIGHT);
+        chunk, SurfaceSectionYFromBlockY(worldY));
     int index = (lx * SURFACE_SECTION_HEIGHT +
-                 worldY % SURFACE_SECTION_HEIGHT) * CHUNK_SIZE + lz;
+                 SurfaceSectionLocalYFromBlockY(worldY)) * CHUNK_SIZE + lz;
     *outVolume = section && section->waterVolumes
         ? section->waterVolumes[index] : (unsigned char)WATER_VOLUME_CAPACITY;
 }
@@ -2801,11 +2818,12 @@ static bool SurfaceWaterNeighbor(
     *outBlock = ChunkGetLocalBlock(neighborChunk, localX, worldY, localZ);
     *outVolume = 0u;
     if (*outBlock == BLOCK_WATER) {
-        int sectionY = worldY / SURFACE_SECTION_HEIGHT;
+        int sectionY = SurfaceSectionYFromBlockY(worldY);
         const ChunkSection *section = ChunkGetSectionConst(
             neighborChunk, sectionY);
         int index = (localX * SURFACE_SECTION_HEIGHT +
-                     worldY % SURFACE_SECTION_HEIGHT) * CHUNK_SIZE + localZ;
+                     SurfaceSectionLocalYFromBlockY(worldY)) * CHUNK_SIZE +
+                    localZ;
         *outVolume = section && section->waterVolumes
             ? section->waterVolumes[index] : (unsigned char)WATER_VOLUME_CAPACITY;
     }
@@ -4110,8 +4128,9 @@ bool ChunksGetWaterRenderDebugInfo(Vector3 position,
     int lz = 0;
     WorldToChunkLocal((int)floorf(position.x), (int)floorf(position.z),
                       &cx, &cz, &lx, &lz);
-    int sectionY = InHeight((int)floorf(position.y))
-        ? (int)floorf(position.y) / SURFACE_SECTION_HEIGHT : -1;
+    int blockY = (int)floorf(position.y);
+    int sectionY = InHeight(blockY)
+        ? SurfaceSectionYFromBlockY(blockY) : SURFACE_SECTION_MIN_Y - 1;
     *outInfo = (ChunkWaterRenderDebugInfo){
         .cx = cx,
         .cz = cz,

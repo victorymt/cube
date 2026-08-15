@@ -68,8 +68,14 @@ static void TestBlockRegions(void)
     assert(strcmp(WorldDimensionName(WORLD_DIMENSION_PLANET), "planet") == 0);
     assert(strcmp(WorldDimensionName(WORLD_DIMENSION_SPACE), "space") == 0);
     assert(strcmp(WorldDimensionName(WORLD_DIMENSION_NETHER), "nether") == 0);
-    assert(WorldBlockRegionAt(NETHER_LAYER_Y - 1) == WORLD_BLOCK_REGION_NONE);
-    assert(WorldBlockRegionAt(NETHER_LAYER_Y) == WORLD_BLOCK_REGION_NONE);
+    assert(WorldBlockRegionAt(SURFACE_MIN_Y - 1) == WORLD_BLOCK_REGION_NONE);
+    assert(WorldBlockRegionAt(SURFACE_MIN_Y) == WORLD_BLOCK_REGION_SURFACE);
+    assert(WorldBlockRegionAt(-1) == WORLD_BLOCK_REGION_SURFACE);
+    assert(WorldBlockRegionAt(SPACE_LAYER_Y) == WORLD_BLOCK_REGION_SURFACE);
+    assert(WorldBlockRegionAt(SURFACE_MAX_Y_EXCLUSIVE - 1) ==
+           WORLD_BLOCK_REGION_SURFACE);
+    assert(WorldBlockRegionAt(SURFACE_MAX_Y_EXCLUSIVE) ==
+           WORLD_BLOCK_REGION_NONE);
     WorldSetNetherActive(true);
     assert(WorldBlockRegionAt(NETHER_LAYER_Y) == WORLD_BLOCK_REGION_NETHER);
     assert(WorldBlockRegionAt(NETHER_LAYER_TOP - 1) == WORLD_BLOCK_REGION_NETHER);
@@ -79,7 +85,9 @@ static void TestBlockRegions(void)
     WorldSetNetherActive(false);
     assert(WorldBlockRegionAt(0) == WORLD_BLOCK_REGION_SURFACE);
     assert(WorldBlockRegionAt(WORLD_HEIGHT - 1) == WORLD_BLOCK_REGION_SURFACE);
-    assert(WorldBlockRegionAt(WORLD_HEIGHT) == WORLD_BLOCK_REGION_NONE);
+    assert(WorldBlockRegionAt(WORLD_HEIGHT) == WORLD_BLOCK_REGION_SURFACE);
+
+    SetEnvironment(false, false, 1.0f, 0u);
     assert(WorldBlockRegionAt(SPACE_LAYER_Y) == WORLD_BLOCK_REGION_SPACE);
     assert(WorldBlockRegionAt(SPACE_LAYER_TOP - 1) == WORLD_BLOCK_REGION_SPACE);
     assert(WorldBlockRegionAt(SPACE_LAYER_TOP) == WORLD_BLOCK_REGION_NONE);
@@ -93,7 +101,7 @@ static void TestHomeAndNether(void)
     assert(WorldIsSurfaceActive());
     assert(!WorldIsSpaceActive());
     assert(WorldCanAccessBlockY(4));
-    assert(!WorldCanAccessBlockY(-40));
+    assert(WorldCanAccessBlockY(-40));
     WorldSetNetherActive(true);
     assert(WorldNetherIsActive());
     assert(WorldCurrentDimension() == WORLD_DIMENSION_NETHER);
@@ -115,6 +123,7 @@ static void TestPlanet(void)
     assert(WorldGravityScale() == 1.35f);
     assert(WorldCurrentSurfaceId() == 0x1234u);
     assert(WorldSurfaceHeightAt(7, 2) == 105);
+    assert(WorldCanAccessBlockY(-40));
 }
 
 static void TestSpace(void)

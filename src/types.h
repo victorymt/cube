@@ -7,10 +7,26 @@
 #include <stdint.h>
 
 #define CHUNK_SIZE 16
-#define SURFACE_WORLD_HEIGHT 256
 #define SURFACE_SECTION_HEIGHT 16
-#define SURFACE_SECTION_COUNT (SURFACE_WORLD_HEIGHT / SURFACE_SECTION_HEIGHT)
-// WORLD_HEIGHT remains the public logical surface height for older call sites.
+#define SURFACE_MIN_Y (-16384)
+#define SURFACE_MAX_Y_EXCLUSIVE 16384
+#define SURFACE_COORDINATE_SPAN \
+    (SURFACE_MAX_Y_EXCLUSIVE - SURFACE_MIN_Y)
+#define SURFACE_SECTION_MIN_Y (SURFACE_MIN_Y / SURFACE_SECTION_HEIGHT)
+#define SURFACE_SECTION_MAX_Y_EXCLUSIVE \
+    (SURFACE_MAX_Y_EXCLUSIVE / SURFACE_SECTION_HEIGHT)
+#define SURFACE_SECTION_COUNT \
+    (SURFACE_SECTION_MAX_Y_EXCLUSIVE - SURFACE_SECTION_MIN_Y)
+
+// Existing terrain generation remains in this band while signed coordinate
+// support is rolled out independently of the terrain scale model.
+#define SURFACE_WORLD_HEIGHT 256
+#define SURFACE_GENERATION_MIN_Y 0
+#define SURFACE_GENERATION_MAX_Y_EXCLUSIVE SURFACE_WORLD_HEIGHT
+#define SURFACE_GENERATION_SECTION_COUNT \
+    (SURFACE_WORLD_HEIGHT / SURFACE_SECTION_HEIGHT)
+// WORLD_HEIGHT is the legacy generation height for older call sites. It is
+// not the minimum/maximum coordinate contract for sparse Surface sections.
 #define WORLD_HEIGHT SURFACE_WORLD_HEIGHT
 #define MIN_RENDER_DISTANCE_CHUNKS 2
 #define DEFAULT_RENDER_DISTANCE_CHUNKS 10

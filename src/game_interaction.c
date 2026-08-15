@@ -141,7 +141,7 @@ static void GameHandleLeftInteraction(
         }
     } else if (!inputBlocked && context->hit.hit &&
                IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
-               context->hit.y >= NETHER_LAYER_Y) {
+               WorldCanAccessBlockY(context->hit.y)) {
         BlockType brokenType = GetBlockAt(context->hit.x, context->hit.y,
                                           context->hit.z);
         PlanetPoi claimedPoi = { 0 };

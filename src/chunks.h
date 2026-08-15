@@ -51,6 +51,9 @@ typedef struct ChunkWaterRenderDebugInfo {
 bool InHeight(int y);
 int FloorDivInt(int value, int divisor);
 int PositiveMod(int value, int divisor);
+bool SurfaceSectionInBounds(int sectionY);
+int SurfaceSectionYFromBlockY(int y);
+int SurfaceSectionLocalYFromBlockY(int y);
 void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz);
 
 Chunk *FindChunk(int cx, int cz);

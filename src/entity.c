@@ -2008,7 +2008,10 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
                 entity->velocity.y = 0.0f;
             }
         }
-        if (entity->position.y < (float)NETHER_LAYER_Y) {
+        float minimumY =
+            WorldBlockRegionAt(NETHER_LAYER_Y) == WORLD_BLOCK_REGION_NETHER
+            ? (float)NETHER_LAYER_Y : (float)SURFACE_MIN_Y;
+        if (WorldIsSurfaceActive() && entity->position.y < minimumY) {
             entity->active = false;
             continue;
         }

@@ -302,9 +302,9 @@ static bool FluidLocateCell(int x, int y, int z, Chunk **outChunk,
     WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
     Chunk *chunk = FindChunk(cx, cz);
     if (!chunk) return false;
-    int sectionY = y / SURFACE_SECTION_HEIGHT;
+    int sectionY = SurfaceSectionYFromBlockY(y);
     ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
-    int ly = y % SURFACE_SECTION_HEIGHT;
+    int ly = SurfaceSectionLocalYFromBlockY(y);
     BlockType block = section
         ? (BlockType)section->blocks[lx][ly][lz] : BLOCK_AIR;
     if (outChunk) *outChunk = chunk;
@@ -580,7 +580,7 @@ static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
         }
         if (!section) {
             section = ChunkGetSection(
-                chunk, mutation->y / SURFACE_SECTION_HEIGHT, true);
+                chunk, SurfaceSectionYFromBlockY(mutation->y), true);
         }
         if (!section || !FluidEnsureVolumes(section)) return false;
 
@@ -677,9 +677,11 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
         int lx = 0;
         int lz = 0;
         WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
-        section = ChunkGetSection(chunk, y / SURFACE_SECTION_HEIGHT, true);
+        section = ChunkGetSection(
+            chunk, SurfaceSectionYFromBlockY(y), true);
         if (!section) return false;
-        index = FluidCellIndex(lx, y % SURFACE_SECTION_HEIGHT, lz);
+        index = FluidCellIndex(
+            lx, SurfaceSectionLocalYFromBlockY(y), lz);
     }
     uint8_t previous = section && section->waterVolumes
         ? section->waterVolumes[index]
@@ -697,7 +699,7 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
     int lz = 0;
     WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
     if (block == BLOCK_AIR || block == BLOCK_WATER) {
-        section->blocks[lx][y % SURFACE_SECTION_HEIGHT][lz] =
+        section->blocks[lx][SurfaceSectionLocalYFromBlockY(y)][lz] =
             volume > 0u ? BLOCK_WATER : BLOCK_AIR;
     }
     section->fluidDirty = true;

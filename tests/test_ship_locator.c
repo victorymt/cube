@@ -37,6 +37,14 @@ static void TestLocalAndRemoteResolution(void)
     assert(!ShipLocatorRemoveIfMatches(HomeContext(), 11, 4, -8));
     assert(ShipLocatorRemoveIfMatches(HomeContext(), 12, 4, -8));
     assert(!ShipLocatorHasTarget());
+
+    assert(ShipLocatorRecordParked(
+        HomeContext(), 2, SURFACE_MIN_Y, 3, "Deep Homeworld"));
+    assert(!ShipLocatorRecordParked(
+        HomeContext(), 2, SURFACE_MIN_Y - 1, 3, "Too deep"));
+    assert(!ShipLocatorRecordParked(
+        HomeContext(), 2, SURFACE_MAX_Y_EXCLUSIVE, 3, "Too high"));
+    ShipLocatorReset();
 }
 
 static void TestPlanetIdentityAndSpaceRebase(void)

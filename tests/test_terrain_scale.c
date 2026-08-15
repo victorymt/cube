@@ -160,21 +160,36 @@ static void TestBathymetryContracts(void)
 
 static void TestChunkSectionBoundaries(void)
 {
-    static const int heights[] = { 0, 15, 16, HOME_SEA_LEVEL, 240, 255 };
+    static const int heights[] = {
+        SURFACE_MIN_Y, -17, -16, -1, 0, 15, 16,
+        HOME_SEA_LEVEL, 240, SURFACE_MAX_Y_EXCLUSIVE - 1
+    };
     Chunk chunk = { 0 };
+
+    assert(SurfaceSectionYFromBlockY(-17) == -2);
+    assert(SurfaceSectionLocalYFromBlockY(-17) == 15);
+    assert(SurfaceSectionYFromBlockY(-16) == -1);
+    assert(SurfaceSectionLocalYFromBlockY(-16) == 0);
+    assert(SurfaceSectionYFromBlockY(-1) == -1);
+    assert(SurfaceSectionLocalYFromBlockY(-1) == 15);
 
     for (size_t i = 0; i < sizeof(heights) / sizeof(heights[0]); i++) {
         int y = heights[i];
         BlockType type = (BlockType)(BLOCK_GRASS + (int)i);
         assert(ChunkSetLocalBlock(&chunk, 3, y, 11, type));
         assert(ChunkGetLocalBlock(&chunk, 3, y, 11) == type);
-        assert(ChunkGetSectionConst(&chunk, y / SURFACE_SECTION_HEIGHT));
+        assert(ChunkGetSectionConst(
+            &chunk, SurfaceSectionYFromBlockY(y)));
     }
 
-    assert(ChunkGetLocalBlock(&chunk, 3, -1, 11) == BLOCK_AIR);
-    assert(ChunkGetLocalBlock(&chunk, 3, WORLD_HEIGHT, 11) == BLOCK_AIR);
-    assert(!ChunkSetLocalBlock(&chunk, 3, -1, 11, BLOCK_STONE));
-    assert(!ChunkSetLocalBlock(&chunk, 3, WORLD_HEIGHT, 11, BLOCK_STONE));
+    assert(ChunkGetLocalBlock(&chunk, 3, SURFACE_MIN_Y - 1, 11) ==
+           BLOCK_AIR);
+    assert(ChunkGetLocalBlock(
+               &chunk, 3, SURFACE_MAX_Y_EXCLUSIVE, 11) == BLOCK_AIR);
+    assert(!ChunkSetLocalBlock(
+        &chunk, 3, SURFACE_MIN_Y - 1, 11, BLOCK_STONE));
+    assert(!ChunkSetLocalBlock(
+        &chunk, 3, SURFACE_MAX_Y_EXCLUSIVE, 11, BLOCK_STONE));
     assert(!ChunkGetSectionConst(&chunk, 2));
 
     assert(ChunkSetLocalBlock(&chunk, 3, 16, 11, BLOCK_AIR));
@@ -460,7 +475,10 @@ int main(void)
 {
     assert(SURFACE_WORLD_HEIGHT == 256);
     assert(SURFACE_SECTION_HEIGHT == 16);
-    assert(SURFACE_SECTION_COUNT == 16);
+    assert(SURFACE_MIN_Y == -16384);
+    assert(SURFACE_MAX_Y_EXCLUSIVE == 16384);
+    assert(SURFACE_SECTION_COUNT == 2048);
+    assert(SURFACE_GENERATION_SECTION_COUNT == 16);
     TestSurfaceSampleContracts();
     TestEarthScaleRelief();
     TestBathymetryContracts();

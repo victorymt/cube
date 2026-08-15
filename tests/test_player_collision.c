@@ -222,6 +222,13 @@ static void TestInvalidCollisionPositionsAreBlocked(void)
     assert(PlayerOverlapsWorld((Vector3){ NAN, 2.0f, 0.0f }));
     assert(PlayerOverlapsWorld((Vector3){ 0x1p31f, 2.0f, 0.0f }));
     assert(PlayerOverlapsWorld((Vector3){ 0.0f, 0x1p31f, 0.0f }));
+    assert(!PlayerOverlapsWorld(
+        (Vector3){ 0.0f, (float)SURFACE_MIN_Y, 0.0f }));
+    assert(PlayerOverlapsWorld(
+        (Vector3){ 0.0f, (float)SURFACE_MIN_Y - 0.25f, 0.0f }));
+    assert(PlayerOverlapsWorld((Vector3){
+        0.0f, (float)SURFACE_MAX_Y_EXCLUSIVE - 1.0f, 0.0f
+    }));
 }
 
 static void TestCameraIsPushedOutOfSolidBlocks(void)

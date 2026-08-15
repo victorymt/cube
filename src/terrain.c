@@ -1610,7 +1610,10 @@ static BlockType HomeTerrainBaseBlockFromSample(
     int worldX, int y, int worldZ, TerrainMode mode,
     const SurfaceTerrainSample *surface, int seaLevel)
 {
-    if (!surface || !InHeight(y)) return BLOCK_AIR;
+    if (!surface || y < SURFACE_GENERATION_MIN_Y ||
+        y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE) {
+        return BLOCK_AIR;
+    }
     int height = (int)lroundf(surface->elevation);
     Biome biome = surface->biome;
     bool submerged = seaLevel >= 0 && height < seaLevel;
@@ -1668,7 +1671,10 @@ static BlockType HomeTerrainBaseBlockFromSample(
 
 BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
 {
-    if (!InHeight(y)) return BLOCK_AIR;
+    if (y < SURFACE_GENERATION_MIN_Y ||
+        y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE) {
+        return BLOCK_AIR;
+    }
     SurfaceTerrainSample surface = SurfaceTerrainAt(x, z, mode);
     return HomeTerrainBaseBlockFromSample(
         x, y, z, mode, &surface, TerrainSeaLevel(mode));
@@ -1692,8 +1698,7 @@ static bool GenerateChunkTerrainSectionBaseFromSamples(
     Chunk *chunk, int cx, int cz, int sectionY, TerrainMode mode,
     const SurfaceTerrainSample samples[CHUNK_SIZE][CHUNK_SIZE])
 {
-    if (!chunk || !samples || sectionY < 0 ||
-        sectionY >= SURFACE_SECTION_COUNT ||
+    if (!chunk || !samples || !SurfaceSectionInBounds(sectionY) ||
         ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
@@ -1727,7 +1732,7 @@ static bool GenerateChunkTerrainSectionBaseFromSamples(
 bool GenerateChunkTerrainSectionBase(Chunk *chunk, int cx, int cz,
                                      int sectionY, TerrainMode mode)
 {
-    if (!chunk || sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT ||
+    if (!chunk || !SurfaceSectionInBounds(sectionY) ||
         ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
@@ -1764,7 +1769,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
             if (top > highestBaseY) highestBaseY = top;
         }
     }
-    int highestBaseSection = highestBaseY / SURFACE_SECTION_HEIGHT;
+    int highestBaseSection = SurfaceSectionYFromBlockY(highestBaseY);
     for (int sectionY = 0; sectionY <= highestBaseSection; sectionY++) {
         GenerateChunkTerrainSectionBaseFromSamples(
             chunk, cx, cz, sectionY, mode, samples);
@@ -1846,7 +1851,7 @@ void ApplyEditsToChunkSection(Chunk *chunk, int sectionY)
         int editLz = 0;
         WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz, &editLx, &editLz);
         if (editCx == chunk->cx && editCz == chunk->cz && InHeight(edit.y) &&
-            edit.y / SURFACE_SECTION_HEIGHT == sectionY) {
+            SurfaceSectionYFromBlockY(edit.y) == sectionY) {
             ChunkSetLocalBlock(chunk, editLx, edit.y, editLz, edit.type);
         }
     }
@@ -1865,7 +1870,7 @@ void ApplyEditsToChunk(Chunk *chunk)
         int editLz = 0;
         WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz, &editLx, &editLz);
         if (editCx == chunk->cx && editCz == chunk->cz && InHeight(edit.y)) {
-            int sectionY = edit.y / SURFACE_SECTION_HEIGHT;
+            int sectionY = SurfaceSectionYFromBlockY(edit.y);
             if (!ChunkTerrainSectionIsResolved(chunk, sectionY) &&
                 !ChunkGetSectionConst(chunk, sectionY) &&
                 HomeWorldSurfaceIsActive() &&

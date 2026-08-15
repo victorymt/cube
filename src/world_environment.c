@@ -44,12 +44,16 @@ const char *WorldDimensionName(WorldDimension dimension)
 
 WorldBlockRegion WorldBlockRegionAt(int y)
 {
-    if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP) return WORLD_BLOCK_REGION_SPACE;
+    if (WorldIsSpaceActive()) {
+        return y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP
+            ? WORLD_BLOCK_REGION_SPACE : WORLD_BLOCK_REGION_NONE;
+    }
     if (WorldNetherIsActive() &&
         y >= NETHER_LAYER_Y && y < NETHER_LAYER_TOP) {
         return WORLD_BLOCK_REGION_NETHER;
     }
-    if (!WorldNetherIsActive() && y >= 0 && y < WORLD_HEIGHT) {
+    if (!WorldNetherIsActive() &&
+        y >= SURFACE_MIN_Y && y < SURFACE_MAX_Y_EXCLUSIVE) {
         return WORLD_BLOCK_REGION_SURFACE;
     }
     return WORLD_BLOCK_REGION_NONE;

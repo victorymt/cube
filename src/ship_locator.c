@@ -29,7 +29,7 @@ static bool CoordinateIsValid(WorldDimension dimension, int y)
     switch (dimension) {
     case WORLD_DIMENSION_HOME:
     case WORLD_DIMENSION_PLANET:
-        return y >= 0 && y < WORLD_HEIGHT;
+        return y >= SURFACE_MIN_Y && y < SURFACE_MAX_Y_EXCLUSIVE;
     case WORLD_DIMENSION_SPACE:
         return y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP;
     case WORLD_DIMENSION_NETHER:

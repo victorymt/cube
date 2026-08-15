@@ -147,7 +147,14 @@ bool PlayerOverlapsWorld(Vector3 position)
     PlayerCollisionBounds bounds;
     if (!PlayerCollisionBoundsAt(position, &bounds)) return true;
 
-    if (position.y < (float)NETHER_LAYER_Y) return true;
+    if (WorldBlockRegionAt(NETHER_LAYER_Y) == WORLD_BLOCK_REGION_NETHER) {
+        if (position.y < (float)NETHER_LAYER_Y) return true;
+    } else if (WorldIsSurfaceActive() &&
+               (position.y < (float)SURFACE_MIN_Y ||
+                position.y + PLAYER_HEIGHT >
+                    (float)SURFACE_MAX_Y_EXCLUSIVE)) {
+        return true;
+    }
 
     for (int64_t x = bounds.minX; x <= bounds.maxX; x++) {
         for (int64_t y = bounds.minY; y <= bounds.maxY; y++) {
