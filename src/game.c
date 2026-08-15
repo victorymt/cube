@@ -1315,6 +1315,142 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     }
 }
 
+static void GameUpdateTemporalState(GameRuntime *game, float dt)
+{
+    if (!game->perfMode && game->autoSaveEnabled &&
+        game->screen == SCREEN_PLAYING && !game->paused &&
+        !game->landingTransition.active) {
+        game->autoSaveTimer -= dt;
+        if (game->autoSaveTimer <= 0.0f) {
+            game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
+            SaveMap(&game->player);
+        }
+    }
+
+    if (!game->perfMode && game->dayCycleEnabled && !game->paused &&
+        !game->albumOpen && !game->landingTransition.active) {
+        game->dayTime += dt / DAY_LENGTH_SECONDS;
+        if (game->dayTime >= 1.0f) game->dayTime -= 1.0f;
+    }
+    if (!game->paused && !game->albumOpen &&
+        !game->landingTransition.active &&
+        (HomeWorldSurfaceIsActive() || PlanetWorldIsActive())) {
+        bool weatherSheltered =
+            EnvironmentSheltered(game->player.position) ||
+            PlayerWaterStateAt(game->player.position).eyesSubmerged;
+        WeatherSetSheltered(weatherSheltered);
+        WeatherUpdate(dt, game->player.position);
+    } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
+        WeatherSetSheltered(false);
+        WeatherSuspend();
+    }
+}
+
+static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
+                                   bool inputBlocked)
+{
+    if (!game->perfMode && !game->landingTransition.active &&
+        ShipIsDriving() && !StarMapIsOpen()) {
+        ShipUpdate(&game->player, dt);
+        if (PlanetWorldTryLaunch(&game->player) ||
+            HomeWorldTryLaunch(&game->player)) {
+            game->wasInSpace = true;
+        }
+    } else if (!game->perfMode && !inputBlocked) {
+        if (game->scriptedInputFrames > 0u) {
+            game->appliedPlayerInput = game->scriptedPlayerInput;
+            game->appliedPlayerInput.jumpPressed =
+                game->scriptedInputFirstFrame &&
+                game->scriptedPlayerInput.vertical > 0.0f;
+            game->scriptedInputFirstFrame = false;
+            game->scriptedInputFrames--;
+        } else if (game->debugControlEnabled) {
+            // Debug sessions are driven exclusively by stdin so a
+            // desktop key held by the test runner cannot leak into the
+            // simulation after a scripted input window expires.
+            game->appliedPlayerInput = (PlayerInput){ 0 };
+        } else {
+            game->appliedPlayerInput = PlayerInputFromKeyboard();
+        }
+        UpdatePlayerWithInput(&game->player, dt, &game->appliedPlayerInput);
+        if (PlanetWorldIsActive()) {
+            game->wasInSpace = false;
+        } else {
+            bool launchedHome = HomeWorldTryLaunch(&game->player);
+            bool inSpaceNow = WorldIsSpaceActive();
+            if (inSpaceNow && !game->wasInSpace) {
+                if (!launchedHome) {
+                    SetImportMessage(
+                        "Entered space - no gravity; follow the sun to "
+                        "the solar system.");
+                }
+            } else if (!inSpaceNow && game->wasInSpace) {
+                SetImportMessage("Back in the atmosphere.");
+            }
+            game->wasInSpace = inSpaceNow;
+        }
+    }
+    if (!game->landingTransition.active && WorldIsSpaceActive() &&
+        !StarMapIsOpen() && SpaceRebasePlayer(&game->player)) {
+        // Particles are cosmetic local-frame data; discard the old frame.
+        ParticlesClear();
+    }
+}
+
+static int GameUpdateWorldStreaming(GameRuntime *game,
+                                    bool *localWorldActive)
+{
+    int effectiveRenderDistance = EffectiveRenderDistanceForHeight(
+        game->player.position.y + EYE_HEIGHT);
+    *localWorldActive = WorldIsSurfaceActive();
+    uint32_t currentEntityDimension = WorldCurrentSurfaceId();
+    if (*localWorldActive != game->entitiesWorldActive ||
+        (*localWorldActive &&
+         currentEntityDimension != game->entitiesWorldDimension)) {
+        EntitiesClear();
+        game->evolutionScanLocked = false;
+        game->evolutionLockedOrganismId = 0u;
+        game->entitiesWorldActive = *localWorldActive;
+        game->entitiesWorldDimension = currentEntityDimension;
+    }
+    if (*localWorldActive) {
+        UpdateChunks(game->player.position, effectiveRenderDistance);
+    }
+    if (WorldCurrentDimension() != WORLD_DIMENSION_PLANET) {
+        SpaceProcessFinishedGenJobs();
+        int spaceGenPerFrame = 2;
+        if (ShipIsDriving()) {
+            spaceGenPerFrame = ShipIsWarping()
+                                   ? 16
+                                   : (ShipIsCruising() ? 12 : 4);
+        }
+        UpdateSpaceChunks(game->player.position, effectiveRenderDistance,
+                          spaceGenPerFrame);
+        if (HomeWorldSurfaceIsActive() &&
+            WorldCurrentDimensionAt(game->player.position.y + EYE_HEIGHT) ==
+                WORLD_DIMENSION_NETHER) {
+            UpdateNetherChunks(game->player.position,
+                               effectiveRenderDistance, 4);
+        }
+        SpaceUpdateSolarGlow(game->player.position);
+    }
+    return effectiveRenderDistance;
+}
+
+static void GameUpdateWorldJobs(GameRuntime *game, float dt,
+                                bool localWorldActive)
+{
+    ProcessFinishedMeshJobs(2.0);
+    ProcessFinishedChunkJobs();
+    if (!game->paused && !game->albumOpen &&
+        !game->importDialog.open && !game->landingTransition.active &&
+        !game->biologyAtlasOpen && localWorldActive) {
+        FluidUpdate(dt);
+    }
+    RebuildDirtyChunkMeshes(game->player.position);
+    ParticlesUpdate(dt);
+}
+
 static void GameUpdateFrameEnvironment(GameRuntime *game,
                                        GameFrameView *frame)
 {
@@ -2290,105 +2426,12 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     WorldTickImportMessage(dt);
     if (!game->importDialog.open && !game->paused && !game->albumOpen) HandleImageDrop(&game->player, game->importDialog.maxBlocks, game->importDialog.relief);
 
-    if (!game->perfMode && game->autoSaveEnabled && game->screen == SCREEN_PLAYING && !game->paused &&
-        !game->landingTransition.active) {
-        game->autoSaveTimer -= dt;
-        if (game->autoSaveTimer <= 0.0f) {
-            game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
-            SaveMap(&game->player);
-        }
-    }
-
-    if (!game->perfMode && game->dayCycleEnabled && !game->paused && !game->albumOpen && !game->landingTransition.active) {
-        game->dayTime += dt / DAY_LENGTH_SECONDS;
-        if (game->dayTime >= 1.0f) game->dayTime -= 1.0f;
-    }
-    if (!game->paused && !game->albumOpen && !game->landingTransition.active &&
-        (HomeWorldSurfaceIsActive() || PlanetWorldIsActive())) {
-        bool weatherSheltered = EnvironmentSheltered(game->player.position) ||
-            PlayerWaterStateAt(game->player.position).eyesSubmerged;
-        WeatherSetSheltered(weatherSheltered);
-        WeatherUpdate(dt, game->player.position);
-    } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
-        WeatherSetSheltered(false);
-        WeatherSuspend();
-    }
-
-    if (!game->perfMode && !game->landingTransition.active && ShipIsDriving() && !StarMapIsOpen()) {
-        ShipUpdate(&game->player, dt);
-        if (PlanetWorldTryLaunch(&game->player) || HomeWorldTryLaunch(&game->player)) {
-            game->wasInSpace = true;
-        }
-    } else if (!game->perfMode && !inputBlocked) {
-        if (game->scriptedInputFrames > 0u) {
-            game->appliedPlayerInput = game->scriptedPlayerInput;
-            game->appliedPlayerInput.jumpPressed = game->scriptedInputFirstFrame &&
-                                             game->scriptedPlayerInput.vertical > 0.0f;
-            game->scriptedInputFirstFrame = false;
-            game->scriptedInputFrames--;
-        } else if (game->debugControlEnabled) {
-            // Debug sessions are driven exclusively by stdin so a
-            // desktop key held by the test runner cannot leak into the
-            // simulation after a scripted input window expires.
-            game->appliedPlayerInput = (PlayerInput){ 0 };
-        } else {
-            game->appliedPlayerInput = PlayerInputFromKeyboard();
-        }
-        UpdatePlayerWithInput(&game->player, dt, &game->appliedPlayerInput);
-        if (PlanetWorldIsActive()) {
-            game->wasInSpace = false;
-        } else {
-            bool launchedHome = HomeWorldTryLaunch(&game->player);
-            bool inSpaceNow = WorldIsSpaceActive();
-            if (inSpaceNow && !game->wasInSpace) {
-                if (!launchedHome) {
-                    SetImportMessage("Entered space - no gravity; follow the sun to the solar system.");
-                }
-            } else if (!inSpaceNow && game->wasInSpace) {
-                SetImportMessage("Back in the atmosphere.");
-            }
-            game->wasInSpace = inSpaceNow;
-        }
-    }
-    if (!game->landingTransition.active && WorldIsSpaceActive() && !StarMapIsOpen() &&
-        SpaceRebasePlayer(&game->player)) {
-        // Particles are cosmetic local-frame data; discard the old frame.
-        ParticlesClear();
-    }
-    int effectiveRenderDistance = EffectiveRenderDistanceForHeight(game->player.position.y + EYE_HEIGHT);
-    bool localWorldActive = WorldIsSurfaceActive();
-    uint32_t currentEntityDimension = WorldCurrentSurfaceId();
-    if (localWorldActive != game->entitiesWorldActive ||
-        (localWorldActive && currentEntityDimension != game->entitiesWorldDimension)) {
-        EntitiesClear();
-        game->evolutionScanLocked = false;
-        game->evolutionLockedOrganismId = 0u;
-        game->entitiesWorldActive = localWorldActive;
-        game->entitiesWorldDimension = currentEntityDimension;
-    }
-    if (localWorldActive) UpdateChunks(game->player.position, effectiveRenderDistance);
-    if (WorldCurrentDimension() != WORLD_DIMENSION_PLANET) {
-        SpaceProcessFinishedGenJobs();
-        int spaceGenPerFrame = 2;
-        if (ShipIsDriving()) {
-            spaceGenPerFrame = ShipIsWarping() ? 16 : (ShipIsCruising() ? 12 : 4);
-        }
-        UpdateSpaceChunks(game->player.position, effectiveRenderDistance, spaceGenPerFrame);
-        if (HomeWorldSurfaceIsActive() &&
-            WorldCurrentDimensionAt(game->player.position.y + EYE_HEIGHT) == WORLD_DIMENSION_NETHER) {
-            UpdateNetherChunks(game->player.position, effectiveRenderDistance, 4);
-        }
-        SpaceUpdateSolarGlow(game->player.position);
-    }
-    ProcessFinishedMeshJobs(2.0);
-    ProcessFinishedChunkJobs();
-    if (!game->paused && !game->albumOpen && !game->importDialog.open &&
-        !game->landingTransition.active && !game->biologyAtlasOpen &&
-        localWorldActive) {
-        FluidUpdate(dt);
-    }
-    RebuildDirtyChunkMeshes(game->player.position);
-    ParticlesUpdate(dt);
+    GameUpdateTemporalState(game, dt);
+    GameUpdatePlayerMotion(game, dt, inputBlocked);
+    bool localWorldActive = false;
+    int effectiveRenderDistance =
+        GameUpdateWorldStreaming(game, &localWorldActive);
+    GameUpdateWorldJobs(game, dt, localWorldActive);
 
     UpdatePlayerCamera(&game->camera, &game->player, dt, game->thirdPerson);
     effectiveRenderDistance = EffectiveRenderDistanceForHeight(game->camera.position.y);
