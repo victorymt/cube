@@ -1080,6 +1080,241 @@ static void GameUpdateAlbum(GameRuntime *game)
     }
 }
 
+static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game, float dt,
+                                           bool landingSkipPressed)
+{
+    bool biologyAtlasClosed = false;
+    if (game->biologyAtlasOpen && IsKeyPressed(KEY_ESCAPE)) {
+        game->biologyAtlasOpen = false;
+        biologyAtlasClosed = true;
+        game->cursorReleased = false;
+        DisableCursor();
+    }
+    if (!game->importDialog.open && !game->albumOpen && !StarMapIsOpen() &&
+        !game->biologyAtlasOpen && !biologyAtlasClosed) {
+        if (!game->paused && !game->landingTransition.active &&
+            !landingSkipPressed && IsKeyPressed(KEY_ESCAPE)) {
+            game->paused = true;
+            game->player.velocity = Vector3Zero();
+            game->cursorReleased = false;
+            EnableCursor();
+        } else if (game->paused &&
+                   (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_ENTER))) {
+            game->paused = false;
+            DisableCursor();
+        }
+    }
+
+    if (!game->paused && !game->albumOpen && !game->importDialog.open &&
+        !game->landingTransition.active && !game->biologyAtlasOpen) {
+        SpaceAdvanceTime(dt);
+    }
+
+    if (game->biologyAtlasOpen && !biologyAtlasClosed &&
+        IsKeyPressed(KEY_B)) {
+        game->biologyAtlasOpen = false;
+        game->cursorReleased = false;
+        DisableCursor();
+    } else if (!game->biologyAtlasOpen && !game->importDialog.open &&
+               !game->paused && !game->albumOpen &&
+               !game->landingTransition.active && !game->cursorReleased &&
+               IsKeyPressed(KEY_B)) {
+        game->biologyAtlasOpen = true;
+        game->biologyAtlasSlot = BiologyAtlasFirstSlot();
+        game->player.velocity = Vector3Zero();
+        game->cursorReleased = true;
+        EnableCursor();
+    }
+    if (game->biologyAtlasOpen) {
+        if (IsKeyPressed(KEY_UP)) {
+            game->biologyAtlasSlot =
+                BiologyAtlasNextSlot(game->biologyAtlasSlot, -1);
+        } else if (IsKeyPressed(KEY_DOWN)) {
+            game->biologyAtlasSlot =
+                BiologyAtlasNextSlot(game->biologyAtlasSlot, 1);
+        }
+    }
+}
+
+static void GameUpdateViewModes(GameRuntime *game)
+{
+    GameUpdateAlbum(game);
+
+    if (!game->importDialog.open && !game->paused && !game->albumOpen &&
+        !game->landingTransition.active && IsKeyPressed(KEY_TAB)) {
+        game->cursorReleased = !game->cursorReleased;
+        if (game->cursorReleased) {
+            game->player.velocity = Vector3Zero();
+            EnableCursor();
+        } else {
+            DisableCursor();
+        }
+    }
+    if (!game->landingTransition.active && ShipIsDriving() &&
+        IsKeyPressed(KEY_E)) {
+        if (!WorldIsSpaceActive() ||
+            !LandingTransitionBegin(&game->landingTransition,
+                                    &game->player)) {
+            ShipExit(&game->player);
+        }
+    }
+    if (!game->landingTransition.active &&
+        WorldCurrentDimension() != WORLD_DIMENSION_PLANET &&
+        IsKeyPressed(KEY_M) && !StarMapIsOpen() && !game->paused &&
+        !game->cursorReleased) {
+        StarMapOpen();
+        game->player.velocity = Vector3Zero();
+        game->cursorReleased = true;
+        EnableCursor();
+    }
+    if (StarMapIsOpen()) {
+        SolarSystemDef destination = { 0 };
+        StarMapUpdate(game->player.position);
+        if (StarMapConsumeTravel(&destination)) {
+            ShipBeginSystemWarp(&game->player, destination.anchorX,
+                                destination.anchorZ);
+            StarMapClose();
+            game->cursorReleased = false;
+            DisableCursor();
+        }
+        if (!StarMapIsOpen()) {
+            game->cursorReleased = false;
+            DisableCursor();
+        }
+    }
+    if (!game->paused && !game->albumOpen && !game->importDialog.open &&
+        !game->landingTransition.active && IsKeyPressed(KEY_F4)) {
+        game->thirdPerson = !game->thirdPerson;
+        SetImportMessage(game->thirdPerson ? "Third person view."
+                                           : "First person view.");
+    }
+
+    bool openedImportDialog = false;
+    if (!game->importDialog.open && !game->paused &&
+        !game->landingTransition.active && IsKeyPressed(KEY_I)) {
+        OpenImportDialog(&game->importDialog);
+        if (game->importDialog.open) {
+            openedImportDialog = true;
+            game->cursorReleased = true;
+            game->player.velocity = Vector3Zero();
+            EnableCursor();
+        }
+    }
+    if (!openedImportDialog) {
+        UpdateImportDialog(&game->importDialog, &game->player,
+                           &game->cursorReleased);
+    }
+}
+
+static bool GameInputBlocked(const GameRuntime *game)
+{
+    return game->perfMode || game->paused || game->cursorReleased ||
+           game->importDialog.open || game->albumOpen ||
+           game->biologyAtlasOpen || game->landingTransition.active ||
+           ShipIsDriving() || StarMapIsOpen();
+}
+
+static void GameUpdateGameplayShortcuts(GameRuntime *game,
+                                        bool inputBlocked)
+{
+    if (!game->paused && !game->albumOpen && !game->importDialog.open &&
+        !StarMapIsOpen() && !game->landingTransition.active &&
+        IsKeyPressed(KEY_O)) {
+        game->showOrbitTrajectories = !game->showOrbitTrajectories;
+        SetImportMessage(game->showOrbitTrajectories
+                             ? "Orbit trajectories shown."
+                             : "Orbit trajectories hidden.");
+    }
+    if (!inputBlocked && IsKeyPressed(KEY_F1)) {
+        game->showHelp = !game->showHelp;
+    }
+    if (!inputBlocked && IsKeyPressed(KEY_F3)) {
+        game->showDebug = !game->showDebug;
+    }
+    // Saving while flying is valid; ShipSaveState persists the ship state.
+    if (IsKeyPressed(KEY_F5) && !game->paused && !game->cursorReleased &&
+        !game->importDialog.open && !game->albumOpen &&
+        !game->landingTransition.active && !StarMapIsOpen()) {
+        SaveMap(&game->player);
+    }
+    if (inputBlocked) return;
+
+    int hotbarKey = HotbarKeyToIndex();
+    if (hotbarKey >= 0 && hotbarKey < HOTBAR_SIZE) {
+        game->selectedIndex = hotbarKey;
+    }
+    float wheel = GetMouseWheelMove();
+    if (wheel > 0.0f) {
+        game->selectedIndex =
+            (game->selectedIndex + HOTBAR_SIZE - 1) % HOTBAR_SIZE;
+    } else if (wheel < 0.0f) {
+        game->selectedIndex = (game->selectedIndex + 1) % HOTBAR_SIZE;
+    }
+    if (IsKeyPressed(KEY_LEFT_BRACKET)) AdjustRenderDistance(-1);
+    if (IsKeyPressed(KEY_RIGHT_BRACKET)) AdjustRenderDistance(1);
+    if (IsKeyPressed(KEY_F9)) {
+        LoadMap(&game->player);
+        game->landingTransition = (LandingTransition){ 0 };
+        game->wasInSpace = WorldIsSpaceActive();
+        game->entitiesWorldActive = WorldIsSurfaceActive();
+        game->entitiesWorldDimension = WorldCurrentSurfaceId();
+        game->cursorReleased = false;
+        DisableCursor();
+        game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
+    }
+    if (IsKeyPressed(KEY_F6)) {
+        game->dayCycleEnabled = !game->dayCycleEnabled;
+        SetImportMessage(game->dayCycleEnabled ? "Day/night cycle enabled."
+                                               : "Day/night cycle paused.");
+    }
+    if (IsKeyPressed(KEY_F7)) {
+        WeatherCycle();
+        SetImportMessage(TextFormat("Weather: %s", WeatherName()));
+    }
+    if (IsKeyPressed(KEY_F8)) {
+        game->autoSaveEnabled = !game->autoSaveEnabled;
+        game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
+        SetImportMessage(game->autoSaveEnabled
+                             ? "Auto-save enabled (every 60s)."
+                             : "Auto-save disabled.");
+    }
+    if (IsKeyPressed(KEY_L)) {
+        game->shipLocatorEnabled = !game->shipLocatorEnabled;
+        if (game->shipLocatorEnabled) {
+            SetImportMessage(
+                ShipLocatorHasTarget()
+                    ? "Ship locator online."
+                    : "Ship locator online: deploy or board a ship to "
+                      "establish a signal.");
+        } else {
+            SetImportMessage("Ship locator offline.");
+        }
+    }
+    if (PlanetWorldIsActive() && IsKeyPressed(KEY_C)) {
+        game->scannerActive = !game->scannerActive;
+        if (game->scannerActive) {
+            PlanetPoi poi = { 0 };
+            if (PlanetPoiNearest(game->player.position, &poi)) {
+                SetImportMessage(
+                    TextFormat("Scanner online: %s", poi.name));
+            } else {
+                SetImportMessage("Scanner online: no signal found.");
+            }
+        } else {
+            SetImportMessage("Scanner offline.");
+        }
+    }
+    bool ctrlHeld =
+        IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    if (ctrlHeld && IsKeyPressed(KEY_Z) && !IsKeyDown(KEY_LEFT_SHIFT)) {
+        if (UndoBlockEdit()) SetImportMessage("Undo");
+    } else if (ctrlHeld &&
+               (IsKeyPressed(KEY_Y) ||
+                (IsKeyDown(KEY_LEFT_SHIFT) && IsKeyPressed(KEY_Z)))) {
+        if (RedoBlockEdit()) SetImportMessage("Redo");
+    }
+}
+
 static void GameUpdateFrameEnvironment(GameRuntime *game,
                                        GameFrameView *frame)
 {
@@ -2048,191 +2283,10 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
 
     if (!game->perfMode && IsKeyPressed(KEY_F10)) game->screenshotPending = true;
 
-    bool biologyAtlasClosed = false;
-    if (game->biologyAtlasOpen && IsKeyPressed(KEY_ESCAPE)) {
-        game->biologyAtlasOpen = false;
-        biologyAtlasClosed = true;
-        game->cursorReleased = false;
-        DisableCursor();
-    }
-    if (!game->importDialog.open && !game->albumOpen && !StarMapIsOpen() &&
-        !game->biologyAtlasOpen && !biologyAtlasClosed) {
-        if (!game->paused && !game->landingTransition.active && !landingSkipPressed && IsKeyPressed(KEY_ESCAPE)) {
-            game->paused = true;
-            game->player.velocity = Vector3Zero();
-            game->cursorReleased = false;
-            EnableCursor();
-        } else if (game->paused && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_ENTER))) {
-            game->paused = false;
-            DisableCursor();
-        }
-    }
-
-    if (!game->paused && !game->albumOpen && !game->importDialog.open && !game->landingTransition.active &&
-        !game->biologyAtlasOpen) {
-        SpaceAdvanceTime(dt);
-    }
-
-    if (game->biologyAtlasOpen && !biologyAtlasClosed && IsKeyPressed(KEY_B)) {
-        game->biologyAtlasOpen = false;
-        game->cursorReleased = false;
-        DisableCursor();
-    } else if (!game->biologyAtlasOpen && !game->importDialog.open && !game->paused &&
-               !game->albumOpen && !game->landingTransition.active && !game->cursorReleased &&
-               IsKeyPressed(KEY_B)) {
-        game->biologyAtlasOpen = true;
-        game->biologyAtlasSlot = BiologyAtlasFirstSlot();
-        game->player.velocity = Vector3Zero();
-        game->cursorReleased = true;
-        EnableCursor();
-    }
-    if (game->biologyAtlasOpen) {
-        if (IsKeyPressed(KEY_UP)) {
-            game->biologyAtlasSlot = BiologyAtlasNextSlot(game->biologyAtlasSlot, -1);
-        } else if (IsKeyPressed(KEY_DOWN)) {
-            game->biologyAtlasSlot = BiologyAtlasNextSlot(game->biologyAtlasSlot, 1);
-        }
-    }
-
-    GameUpdateAlbum(game);
-
-    if (!game->importDialog.open && !game->paused && !game->albumOpen && !game->landingTransition.active &&
-        IsKeyPressed(KEY_TAB)) {
-        game->cursorReleased = !game->cursorReleased;
-        if (game->cursorReleased) {
-            game->player.velocity = Vector3Zero();
-            EnableCursor();
-        } else {
-            DisableCursor();
-        }
-    }
-    if (!game->landingTransition.active && ShipIsDriving() && IsKeyPressed(KEY_E)) {
-        if (!WorldIsSpaceActive() ||
-            !LandingTransitionBegin(&game->landingTransition, &game->player)) {
-            ShipExit(&game->player);
-        }
-    }
-    if (!game->landingTransition.active && WorldCurrentDimension() != WORLD_DIMENSION_PLANET &&
-        IsKeyPressed(KEY_M) && !StarMapIsOpen() && !game->paused && !game->cursorReleased) {
-        StarMapOpen();
-        game->player.velocity = Vector3Zero();
-        game->cursorReleased = true;
-        EnableCursor();
-    }
-    if (StarMapIsOpen()) {
-        SolarSystemDef destination = { 0 };
-        StarMapUpdate(game->player.position);
-        if (StarMapConsumeTravel(&destination)) {
-            ShipBeginSystemWarp(&game->player, destination.anchorX, destination.anchorZ);
-            StarMapClose();
-            game->cursorReleased = false;
-            DisableCursor();
-        }
-        if (!StarMapIsOpen()) {
-            game->cursorReleased = false;
-            DisableCursor();
-        }
-    }
-    if (!game->paused && !game->albumOpen && !game->importDialog.open && !game->landingTransition.active &&
-        IsKeyPressed(KEY_F4)) {
-        game->thirdPerson = !game->thirdPerson;
-        SetImportMessage(game->thirdPerson ? "Third person view." : "First person view.");
-    }
-    bool openedImportDialog = false;
-    if (!game->importDialog.open && !game->paused && !game->landingTransition.active && IsKeyPressed(KEY_I)) {
-        OpenImportDialog(&game->importDialog);
-        if (game->importDialog.open) {
-            openedImportDialog = true;
-            game->cursorReleased = true;
-            game->player.velocity = Vector3Zero();
-            EnableCursor();
-        }
-    }
-    if (!openedImportDialog) UpdateImportDialog(&game->importDialog, &game->player, &game->cursorReleased);
-
-    bool inputBlocked = game->perfMode || game->paused || game->cursorReleased || game->importDialog.open || game->albumOpen ||
-                        game->biologyAtlasOpen ||
-                        game->landingTransition.active ||
-                        ShipIsDriving() || StarMapIsOpen();
-    if (!game->paused && !game->albumOpen && !game->importDialog.open && !StarMapIsOpen() &&
-        !game->landingTransition.active &&
-        IsKeyPressed(KEY_O)) {
-        game->showOrbitTrajectories = !game->showOrbitTrajectories;
-        SetImportMessage(game->showOrbitTrajectories ? "Orbit trajectories shown."
-                                               : "Orbit trajectories hidden.");
-    }
-    if (!inputBlocked && IsKeyPressed(KEY_F1)) game->showHelp = !game->showHelp;
-    if (!inputBlocked && IsKeyPressed(KEY_F3)) game->showDebug = !game->showDebug;
-    // Manual save stays reachable while flying the ship: saving does not
-    // require parking (ShipSaveState only persists fuel), and a forced
-    // exit can fail when no clear 4x4 spot is nearby, which used to
-    // silently drop the save (data loss).
-    if (IsKeyPressed(KEY_F5) && !game->paused && !game->cursorReleased &&
-        !game->importDialog.open && !game->albumOpen && !game->landingTransition.active &&
-        !StarMapIsOpen()) {
-        SaveMap(&game->player);
-    }
-    if (!inputBlocked) {
-        int hotbarKey = HotbarKeyToIndex();
-        if (hotbarKey >= 0 && hotbarKey < HOTBAR_SIZE) game->selectedIndex = hotbarKey;
-        float wheel = GetMouseWheelMove();
-        if (wheel > 0.0f) game->selectedIndex = (game->selectedIndex + HOTBAR_SIZE - 1) % HOTBAR_SIZE;
-        else if (wheel < 0.0f) game->selectedIndex = (game->selectedIndex + 1) % HOTBAR_SIZE;
-        if (IsKeyPressed(KEY_LEFT_BRACKET)) AdjustRenderDistance(-1);
-        if (IsKeyPressed(KEY_RIGHT_BRACKET)) AdjustRenderDistance(1);
-        if (IsKeyPressed(KEY_F9)) {
-            LoadMap(&game->player);
-            game->landingTransition = (LandingTransition){ 0 };
-            game->wasInSpace = WorldIsSpaceActive();
-            game->entitiesWorldActive = WorldIsSurfaceActive();
-            game->entitiesWorldDimension = WorldCurrentSurfaceId();
-            game->cursorReleased = false;
-            DisableCursor();
-            game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
-        }
-        if (IsKeyPressed(KEY_F6)) {
-            game->dayCycleEnabled = !game->dayCycleEnabled;
-            SetImportMessage(game->dayCycleEnabled ? "Day/night cycle enabled." : "Day/night cycle paused.");
-        }
-        if (IsKeyPressed(KEY_F7)) {
-            WeatherCycle();
-            SetImportMessage(TextFormat("Weather: %s", WeatherName()));
-        }
-        if (IsKeyPressed(KEY_F8)) {
-            game->autoSaveEnabled = !game->autoSaveEnabled;
-            game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
-            SetImportMessage(game->autoSaveEnabled ? "Auto-save enabled (every 60s)." : "Auto-save disabled.");
-        }
-        if (IsKeyPressed(KEY_L)) {
-            game->shipLocatorEnabled = !game->shipLocatorEnabled;
-            if (game->shipLocatorEnabled) {
-                SetImportMessage(ShipLocatorHasTarget() ?
-                                 "Ship locator online." :
-                                 "Ship locator online: deploy or board a ship to establish a signal.");
-            } else {
-                SetImportMessage("Ship locator offline.");
-            }
-        }
-        if (PlanetWorldIsActive() && IsKeyPressed(KEY_C)) {
-            game->scannerActive = !game->scannerActive;
-            if (game->scannerActive) {
-                PlanetPoi poi = { 0 };
-                if (PlanetPoiNearest(game->player.position, &poi)) {
-                    SetImportMessage(TextFormat("Scanner online: %s", poi.name));
-                } else {
-                    SetImportMessage("Scanner online: no signal found.");
-                }
-            } else {
-                SetImportMessage("Scanner offline.");
-            }
-        }
-        bool ctrlHeld = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-        if (ctrlHeld && IsKeyPressed(KEY_Z) && !IsKeyDown(KEY_LEFT_SHIFT)) {
-            if (UndoBlockEdit()) SetImportMessage("Undo");
-        } else if (ctrlHeld && (IsKeyPressed(KEY_Y) || (IsKeyDown(KEY_LEFT_SHIFT) && IsKeyPressed(KEY_Z)))) {
-            if (RedoBlockEdit()) SetImportMessage("Redo");
-        }
-    }
+    GameUpdatePauseAndBiologyAtlas(game, dt, landingSkipPressed);
+    GameUpdateViewModes(game);
+    bool inputBlocked = GameInputBlocked(game);
+    GameUpdateGameplayShortcuts(game, inputBlocked);
     WorldTickImportMessage(dt);
     if (!game->importDialog.open && !game->paused && !game->albumOpen) HandleImageDrop(&game->player, game->importDialog.maxBlocks, game->importDialog.relief);
 
