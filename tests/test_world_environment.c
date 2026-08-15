@@ -140,6 +140,17 @@ static void TestHomeAndNether(void)
     float waterSurface = 0.0f;
     assert(WorldProceduralWaterSurfaceAt(3, 4, &waterSurface));
     assert(waterSurface == (float)HOME_SEA_LEVEL + 1.0f);
+    assert(!WorldIsProceduralOceanWaterAt(3, 20, 4));
+    assert(WorldIsProceduralOceanWaterAt(3, 21, 4));
+    assert(WorldIsProceduralOceanWaterAt(3, HOME_SEA_LEVEL, 4));
+    assert(!WorldIsProceduralOceanWaterAt(3, HOME_SEA_LEVEL + 1, 4));
+
+    WorldSetTerrainMode(TERRAIN_FLAT);
+    assert(!WorldIsProceduralOceanWaterAt(3, 21, 4));
+    WorldSetTerrainMode(TERRAIN_VARIED);
+    WorldSetNetherActive(true);
+    assert(!WorldIsProceduralOceanWaterAt(3, 21, 4));
+    WorldSetNetherActive(false);
 }
 
 static void TestPlanet(void)
@@ -161,6 +172,10 @@ static void TestPlanet(void)
     float waterSurface = 0.0f;
     assert(WorldProceduralWaterSurfaceAt(7, 2, &waterSurface));
     assert(waterSurface == 81.0f);
+    assert(!WorldIsProceduralOceanWaterAt(7, 30, 2));
+    assert(WorldIsProceduralOceanWaterAt(7, 31, 2));
+    assert(WorldIsProceduralOceanWaterAt(7, 80, 2));
+    assert(!WorldIsProceduralOceanWaterAt(7, 81, 2));
 }
 
 static void TestSpace(void)
@@ -173,6 +188,7 @@ static void TestSpace(void)
     assert(!WorldCanAccessBlockY(-40));
     assert(WorldCanAccessBlockY(SPACE_LAYER_Y));
     assert(!WorldProceduralWaterSurfaceAt(0, 0, NULL));
+    assert(!WorldIsProceduralOceanWaterAt(0, 40, 0));
     assert(WorldGravityScale() == 0.0f);
 }
 

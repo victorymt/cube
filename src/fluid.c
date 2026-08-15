@@ -686,6 +686,10 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
     uint8_t previous = section && section->waterVolumes
         ? section->waterVolumes[index]
         : (block == BLOCK_WATER ? (uint8_t)FLUID_CAPACITY : 0u);
+    if (volume < FLUID_CAPACITY && block == BLOCK_WATER &&
+        WorldIsProceduralOceanWaterAt(x, y, z)) {
+        volume = FLUID_CAPACITY;
+    }
     if (previous == volume) return true;
     if (!section || !FluidEnsureVolumes(section)) return false;
     if (remember && !FluidRememberEdit(
@@ -1225,9 +1229,41 @@ void FluidOnBlockChanged(int x, int y, int z, BlockType previous,
     FluidWakeNeighborhood(x, y, z);
 }
 
+static void FluidPruneReservoirDeficitsInSection(Chunk *chunk, int sectionY)
+{
+    uint32_t surfaceId = WorldCurrentSurfaceId();
+    int bucketSlot = FluidFindChunkEditBucket(
+        surfaceId, chunk->cx, chunk->cz);
+    uint32_t listIndex = 0u;
+    while (bucketSlot >= 0) {
+        FluidChunkEditBucket *bucket = &fluidChunkEditIndex[bucketSlot];
+        if (listIndex >= bucket->count) return;
+        uint32_t editIndex = bucket->editIndices[listIndex];
+        if (editIndex >= fluidEditCount) {
+            listIndex++;
+            continue;
+        }
+        FluidEdit edit = fluidEdits[editIndex];
+        bool staleReservoirDeficit =
+            edit.surfaceId == surfaceId && edit.baselineKnown &&
+            edit.baseline == FLUID_CAPACITY &&
+            edit.volume < FLUID_CAPACITY && InHeight(edit.y) &&
+            SurfaceSectionYFromBlockY(edit.y) == sectionY &&
+            WorldIsProceduralOceanWaterAt(edit.x, edit.y, edit.z);
+        if (!staleReservoirDeficit) {
+            listIndex++;
+            continue;
+        }
+        FluidRemoveEdit(editIndex);
+        bucketSlot = FluidFindChunkEditBucket(
+            surfaceId, chunk->cx, chunk->cz);
+    }
+}
+
 void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
 {
     if (!chunk || !WorldIsSurfaceActive()) return;
+    FluidPruneReservoirDeficitsInSection(chunk, sectionY);
     ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
     uint32_t surfaceId = WorldCurrentSurfaceId();
     int bucketSlot = FluidFindChunkEditBucket(

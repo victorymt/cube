@@ -106,17 +106,37 @@ int WorldSurfaceHeightAt(int x, int z)
                                  : TerrainHeight(x, z, WorldTerrainMode());
 }
 
-bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY)
+static bool WorldProceduralOceanBathymetryAt(int x, int z,
+                                              BathymetrySample *outSample)
 {
-    if (!outSurfaceY || !WorldIsSurfaceActive() || WorldNetherIsActive()) {
+    if (!outSample || !WorldIsSurfaceActive() || WorldNetherIsActive()) {
         return false;
     }
     BathymetrySample sample = PlanetWorldIsActive()
         ? PlanetBathymetryAt(x, z)
         : TerrainBathymetryAt(x, z, WorldTerrainMode());
-    if (sample.waterDepth <= 0 || sample.seaLevel < 0) return false;
+    if (sample.waterDepth <= 0 || sample.seaLevel < 0 ||
+        sample.seabedY >= sample.seaLevel) {
+        return false;
+    }
+    *outSample = sample;
+    return true;
+}
+
+bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY)
+{
+    BathymetrySample sample = { 0 };
+    if (!outSurfaceY ||
+        !WorldProceduralOceanBathymetryAt(x, z, &sample)) return false;
     *outSurfaceY = (float)sample.seaLevel + 1.0f;
     return true;
+}
+
+bool WorldIsProceduralOceanWaterAt(int x, int y, int z)
+{
+    BathymetrySample sample = { 0 };
+    if (!WorldProceduralOceanBathymetryAt(x, z, &sample)) return false;
+    return y > sample.seabedY && y <= sample.seaLevel;
 }
 
 uint32_t WorldCurrentSurfaceId(void)
