@@ -37,6 +37,7 @@ bool WorldIsSurfaceDimension(WorldDimension dimension);
 bool WorldCanAccessBlockY(int y);
 float WorldGravityScale(void);
 int WorldSurfaceHeightAt(int x, int z);
+bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY);
 uint32_t WorldCurrentSurfaceId(void);
 
 #endif

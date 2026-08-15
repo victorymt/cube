@@ -1,4 +1,5 @@
 #include "homeworld_map_model.h"
+#include "terrain.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -72,11 +73,14 @@ Color HomeWorldMapTerrainColor(HomeWorldMapTerrainCell cell)
 {
     Color base = { 86, 132, 76, 255 };
     if (cell.waterDepth > 0) {
-        float depth = MapClamp((float)cell.waterDepth / 48.0f, 0.0f, 1.0f);
+        float depth = MapClamp(
+            log1pf((float)cell.waterDepth) /
+                log1pf((float)HOME_BATHYMETRY_MAX_WATER_DEPTH),
+            0.0f, 1.0f);
         base = (Color){
-            MapChannel(42.0f - depth * 18.0f),
-            MapChannel(112.0f - depth * 36.0f),
-            MapChannel(153.0f - depth * 28.0f),
+            MapChannel(44.0f - depth * 38.0f),
+            MapChannel(122.0f - depth * 96.0f),
+            MapChannel(164.0f - depth * 99.0f),
             255
         };
     } else {

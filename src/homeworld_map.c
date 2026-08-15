@@ -780,9 +780,19 @@ void HomeWorldMapDraw(void)
         if (strcmp(hoverTitle, "Homeworld survey") == 0) {
             hoverTitle = HomeWorldMapBiomeName(
                 sample.biome, sample.bathymetry.waterDepth > 0);
-            snprintf(hoverDetail, sizeof(hoverDetail),
-                     "XZ %.0f, %.0f   |   elevation %.0f   |   fauna %.0f%%",
-                     world.x, world.y, sample.elevation, fauna * 100.0f);
+            if (sample.bathymetry.waterDepth > 0) {
+                snprintf(
+                    hoverDetail, sizeof(hoverDetail),
+                    "XZ %.0f,%.0f | fauna %.0f%%\nY %d | %d m | %s",
+                    world.x, world.y, fauna * 100.0f,
+                    sample.bathymetry.seabedY, sample.bathymetry.waterDepth,
+                    BathymetryZoneName(sample.bathymetry.zone));
+            } else {
+                snprintf(
+                    hoverDetail, sizeof(hoverDetail),
+                    "XZ %.0f, %.0f   |   elevation %.0f   |   fauna %.0f%%",
+                    world.x, world.y, sample.elevation, fauna * 100.0f);
+            }
         }
     }
     MapDrawSidebar(&layout, hoverTitle, hoverDetail);

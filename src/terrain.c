@@ -183,6 +183,74 @@ static BathymetrySample BathymetryFromSignals(int seaLevel, float ocean,
     return sample;
 }
 
+static void HomeBathymetryClassify(BathymetrySample *sample,
+                                   float trenchRelief,
+                                   float seamountRelief)
+{
+    if (!sample || sample->waterDepth <= 0) return;
+    int depth = sample->waterDepth;
+    if (seamountRelief >= 600.0f && depth >= 200) {
+        sample->zone = BATHYMETRY_ZONE_SEAMOUNT;
+    } else if (trenchRelief >= 900.0f && depth >= 6000) {
+        sample->zone = BATHYMETRY_ZONE_TRENCH;
+    } else if (depth <= 50) {
+        sample->zone = BATHYMETRY_ZONE_COAST;
+    } else if (depth <= 200) {
+        sample->zone = BATHYMETRY_ZONE_SHELF;
+    } else if (depth <= 3000) {
+        sample->zone = BATHYMETRY_ZONE_SLOPE;
+    } else {
+        sample->zone = BATHYMETRY_ZONE_ABYSSAL_PLAIN;
+    }
+
+    if (depth <= 200) {
+        sample->material = BATHYMETRY_MATERIAL_SAND;
+    } else if (depth <= 6000 || sample->zone == BATHYMETRY_ZONE_SEAMOUNT) {
+        sample->material = BATHYMETRY_MATERIAL_SEDIMENT;
+    } else {
+        sample->material = BATHYMETRY_MATERIAL_ROCK;
+    }
+}
+
+static BathymetrySample HomeBathymetryFromSignals(
+    float ocean, float trench, float seamount, float detail)
+{
+    BathymetrySample sample = {
+        .seaLevel = HOME_SEA_LEVEL,
+        .seabedY = HOME_SEA_LEVEL,
+        .zone = BATHYMETRY_ZONE_LAND,
+        .material = BATHYMETRY_MATERIAL_ROCK
+    };
+    if (ocean <= 0.0f) return sample;
+
+    ocean = Clamp(ocean, 0.0f, 1.0f);
+    trench = Clamp(trench, 0.0f, 1.0f);
+    seamount = Clamp(seamount, 0.0f, 1.0f);
+    float deepOcean = SmoothRange(0.48f, 0.92f, ocean);
+    float trenchRelief =
+        trench * SmoothRange(0.52f, 0.82f, ocean) * 6500.0f;
+    float seamountRelief = seamount * deepOcean * 2600.0f;
+    float depth = 8.0f;
+    depth += SmoothRange(0.00f, 0.16f, ocean) * 42.0f;
+    depth += SmoothRange(0.10f, 0.36f, ocean) * 150.0f;
+    depth += SmoothRange(0.30f, 0.67f, ocean) * 2800.0f;
+    depth += SmoothRange(0.58f, 0.92f, ocean) * 3900.0f;
+    depth += trenchRelief;
+    depth -= seamountRelief;
+    depth += Clamp(detail, -0.5f, 0.5f) * 200.0f;
+    depth = Clamp(depth, 1.0f,
+                  (float)HOME_BATHYMETRY_MAX_WATER_DEPTH);
+
+    sample.waterDepth = (int)lroundf(depth);
+    sample.seabedY = HOME_SEA_LEVEL - sample.waterDepth;
+    if (sample.seabedY < HOME_BATHYMETRY_MIN_SEABED_Y) {
+        sample.seabedY = HOME_BATHYMETRY_MIN_SEABED_Y;
+        sample.waterDepth = HOME_SEA_LEVEL - sample.seabedY;
+    }
+    HomeBathymetryClassify(&sample, trenchRelief, seamountRelief);
+    return sample;
+}
+
 static BathymetrySample BathymetryForHeight(int seaLevel, int height,
                                             float trench, float seamount)
 {
@@ -257,8 +325,8 @@ static float HomeTerrainElevationCore(int x, int z,
         HOME_SEA_LEVEL, HOME_SEA_LEVEL, 0.0f, 0.0f);
     if (continentalness < coast) {
         float ocean = Clamp((coast - continentalness) / coast, 0.0f, 1.0f);
-        bathymetry = BathymetryFromSignals(HOME_SEA_LEVEL, ocean, trench,
-                                           seamount, detail);
+        bathymetry = HomeBathymetryFromSignals(
+            ocean, trench, seamount, detail);
         elevation = (float)bathymetry.seabedY;
     } else {
         float land = Clamp((continentalness - coast) / (1.0f - coast),
@@ -269,9 +337,9 @@ static float HomeTerrainElevationCore(int x, int z,
         elevation += ridge * mountainMask * 92.0f;
         elevation += peak * mountainMask * 48.0f;
         elevation += detail * (5.0f + land * 8.0f);
+        elevation = Clamp(elevation, 8.0f, 240.0f);
         bathymetry.seabedY = (int)lroundf(elevation);
     }
-    elevation = Clamp(elevation, 8.0f, 240.0f);
     if (sample) {
         sample->continentalness = continentalness;
         sample->erosion = erosion;
@@ -1610,8 +1678,9 @@ static BlockType HomeTerrainBaseBlockFromSample(
     int worldX, int y, int worldZ, TerrainMode mode,
     const SurfaceTerrainSample *surface, int seaLevel)
 {
-    if (!surface || y < SURFACE_GENERATION_MIN_Y ||
-        y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE) {
+    if (!surface || !InHeight(y) ||
+        y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE ||
+        (mode == TERRAIN_FLAT && y < SURFACE_GENERATION_MIN_Y)) {
         return BLOCK_AIR;
     }
     int height = (int)lroundf(surface->elevation);
@@ -1627,8 +1696,21 @@ static BlockType HomeTerrainBaseBlockFromSample(
     BlockType type = BLOCK_STONE;
     if (mode == TERRAIN_FLAT) {
         type = y == height ? BLOCK_GRASS : BLOCK_DIRT;
-    } else if (y == 0) {
+    } else if (y == SURFACE_MIN_Y || (!submerged && y == 0)) {
         type = BLOCK_BEDROCK;
+    } else if (submerged) {
+        int sedimentDepth = 2;
+        if (surface->bathymetry.zone == BATHYMETRY_ZONE_COAST ||
+            surface->bathymetry.zone == BATHYMETRY_ZONE_SHELF) {
+            sedimentDepth = 6;
+        } else if (surface->bathymetry.zone == BATHYMETRY_ZONE_SLOPE ||
+                   surface->bathymetry.zone ==
+                       BATHYMETRY_ZONE_ABYSSAL_PLAIN) {
+            sedimentDepth = 4;
+        }
+        type = y > height - sedimentDepth
+            ? BathymetryMaterialBlock(surface->bathymetry.material)
+            : StoneOrCaveBlock(worldX, y, worldZ, height);
     } else if (y < height) {
         if (biome == BIOME_DESERT) {
             type = y > height - 3
@@ -1647,8 +1729,6 @@ static BlockType HomeTerrainBaseBlockFromSample(
                 ? BLOCK_DIRT
                 : StoneOrCaveBlock(worldX, y, worldZ, height);
         }
-    } else if (submerged) {
-        type = BathymetryMaterialBlock(surface->bathymetry.material);
     } else if (biome == BIOME_DESERT) {
         type = BLOCK_SAND;
     } else if (biome == BIOME_SNOW) {
@@ -1671,8 +1751,8 @@ static BlockType HomeTerrainBaseBlockFromSample(
 
 BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
 {
-    if (y < SURFACE_GENERATION_MIN_Y ||
-        y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE) {
+    if (!InHeight(y) || y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE ||
+        (mode == TERRAIN_FLAT && y < SURFACE_GENERATION_MIN_Y)) {
         return BLOCK_AIR;
     }
     SurfaceTerrainSample surface = SurfaceTerrainAt(x, z, mode);

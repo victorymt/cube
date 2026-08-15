@@ -95,6 +95,19 @@ int WorldSurfaceHeightAt(int x, int z)
                                  : TerrainHeight(x, z, WorldTerrainMode());
 }
 
+bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY)
+{
+    if (!outSurfaceY || !WorldIsSurfaceActive() || WorldNetherIsActive()) {
+        return false;
+    }
+    BathymetrySample sample = PlanetWorldIsActive()
+        ? PlanetBathymetryAt(x, z)
+        : TerrainBathymetryAt(x, z, WorldTerrainMode());
+    if (sample.waterDepth <= 0 || sample.seaLevel < 0) return false;
+    *outSurfaceY = (float)sample.seaLevel + 1.0f;
+    return true;
+}
+
 uint32_t WorldCurrentSurfaceId(void)
 {
     return PlanetWorldIsActive() ? PlanetWorldSeed() : 0u;

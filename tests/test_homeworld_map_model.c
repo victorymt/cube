@@ -1,4 +1,5 @@
 #include "homeworld_map_model.h"
+#include "terrain.h"
 
 #include <assert.h>
 #include <math.h>
@@ -65,6 +66,12 @@ static void TestTerrainPalette(void)
     };
     Color waterColor = HomeWorldMapTerrainColor(water);
     assert(waterColor.b > waterColor.r);
+    water.elevation = (float)HOME_BATHYMETRY_MIN_SEABED_Y;
+    water.waterDepth = HOME_BATHYMETRY_MAX_WATER_DEPTH;
+    Color trenchColor = HomeWorldMapTerrainColor(water);
+    assert(trenchColor.r < waterColor.r);
+    assert(trenchColor.g < waterColor.g);
+    assert(trenchColor.b < waterColor.b);
     assert(strcmp(HomeWorldMapBiomeName(BIOME_PLAINS, true), "Water") == 0);
 }
 

@@ -5,6 +5,13 @@
 #include "types.h"
 
 #define HOME_SEA_LEVEL 80
+// Homeworld uses one block per vertical metre for ocean depth. The deepest
+// generated trenches fit inside the signed Surface coordinate contract.
+#define HOME_BATHYMETRY_MAX_WATER_DEPTH 10900
+#define HOME_BATHYMETRY_MIN_SEABED_Y \
+    (HOME_SEA_LEVEL - HOME_BATHYMETRY_MAX_WATER_DEPTH)
+// Planet surfaces retain the compact local scale until their vertical
+// streaming path is separated from the legacy column generator.
 #define BATHYMETRY_MIN_SEABED_Y 8
 #define BATHYMETRY_MAX_WATER_DEPTH 72
 

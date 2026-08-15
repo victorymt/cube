@@ -16,11 +16,15 @@ static bool ceilingEnabled = false;
 static bool stairsEnabled = false;
 static bool waterEnabled = false;
 static bool groundEnabled = false;
+static bool proceduralWaterEnabled = false;
+static float proceduralWaterSurface = 0.0f;
+static int waterMinY = 1;
+static int waterMaxY = 5;
 
 BlockType GetBlockAt(int x, int y, int z)
 {
     if (waterEnabled && x >= -16 && x <= 16 && z >= -16 && z <= 16 &&
-        y >= 1 && y <= 5) {
+        y >= waterMinY && y <= waterMaxY) {
         return BLOCK_WATER;
     }
     if (groundEnabled && y == 0) return BLOCK_STONE;
@@ -88,6 +92,15 @@ bool WorldIsSurfaceActive(void)
     return true;
 }
 
+bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY)
+{
+    (void)x;
+    (void)z;
+    if (!proceduralWaterEnabled || !outSurfaceY) return false;
+    *outSurfaceY = proceduralWaterSurface;
+    return true;
+}
+
 uint8_t FluidGetVolumeAt(int x, int y, int z)
 {
     return GetBlockAt(x, y, z) == BLOCK_WATER ? FLUID_CAPACITY : 0u;
@@ -125,6 +138,10 @@ static void ResetCollisionWorld(void)
     stairsEnabled = false;
     waterEnabled = false;
     groundEnabled = false;
+    proceduralWaterEnabled = false;
+    proceduralWaterSurface = 0.0f;
+    waterMinY = 1;
+    waterMaxY = 5;
 }
 
 static void TestHighSpeedHorizontalMovementStopsAtWall(void)
@@ -290,6 +307,21 @@ static void TestWaterStateUsesActualColumnSurface(void)
     assert(water.eyesSubmerged);
     assert(fabsf(water.surfaceY - 6.0f) < 0.0001f);
     assert(fabsf(water.eyeDepth - (6.0f - 1.01f - EYE_HEIGHT)) < 0.0001f);
+
+    proceduralWaterEnabled = true;
+    proceduralWaterSurface = 81.0f;
+    water = PlayerWaterStateAt((Vector3){ 0.5f, 1.01f, 0.5f });
+    assert(fabsf(water.surfaceY - 6.0f) < 0.0001f);
+
+    waterMinY = -2000;
+    waterMaxY = 80;
+    water = PlayerWaterStateAt((Vector3){ 0.5f, -1000.0f, 0.5f });
+    assert(fabsf(water.surfaceY - 81.0f) < 0.0001f);
+    assert(fabsf(water.eyeDepth - (81.0f + 1000.0f - EYE_HEIGHT)) <
+           0.0001f);
+    proceduralWaterEnabled = false;
+    waterMinY = 1;
+    waterMaxY = 5;
 
     water = PlayerWaterStateAt((Vector3){ 0.5f, 5.20f, 0.5f });
     assert(water.feetSubmerged);

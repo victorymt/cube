@@ -479,6 +479,14 @@ PlayerWaterState PlayerWaterStateAt(Vector3 position)
         }
         surfaceBlockY = sampleY + 1;
     }
+    float proceduralSurface = 0.0f;
+    if (surfaceBlockY == y + WATER_SURFACE_SCAN_LIMIT &&
+        WorldProceduralWaterSurfaceAt(x, z, &proceduralSurface) &&
+        proceduralSurface > position.y + EYE_HEIGHT) {
+        state.surfaceY = proceduralSurface;
+        state.eyeDepth = proceduralSurface - (position.y + EYE_HEIGHT);
+        return state;
+    }
     state.surfaceY = (float)surfaceBlockY;
     state.eyeDepth = fmaxf(0.0f, state.surfaceY -
                                   (position.y + EYE_HEIGHT));

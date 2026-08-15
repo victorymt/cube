@@ -30,7 +30,8 @@ static void TestSurfaceSampleContracts(void)
     assert(isfinite(first.peak));
     assert(isfinite(first.trench));
     assert(isfinite(first.slope));
-    assert(first.elevation >= 5.0f && first.elevation <= 240.0f);
+    assert(first.elevation >= (float)HOME_BATHYMETRY_MIN_SEABED_Y &&
+           first.elevation <= 240.0f);
     assert(first.seaLevel == (float)HOME_SEA_LEVEL);
     assert(first.continentalness >= 0.0f && first.continentalness <= 1.0f);
     assert(first.erosion >= 0.0f && first.erosion <= 1.0f);
@@ -71,8 +72,8 @@ static void TestEarthScaleRelief(void)
             int height = TerrainHeight(x, z, TERRAIN_VARIED);
             if (height < minHeight) minHeight = height;
             if (height > maxHeight) maxHeight = height;
-            if (height <= HOME_SEA_LEVEL - 40) deepOceanCount++;
-            if (height <= HOME_SEA_LEVEL - 60) trenchCount++;
+            if (height <= HOME_SEA_LEVEL - 3000) deepOceanCount++;
+            if (height <= HOME_SEA_LEVEL - 6000) trenchCount++;
             if (height >= HOME_SEA_LEVEL + 120) extremePeakCount++;
             if (height >= HOME_SEA_LEVEL + 2 &&
                 height <= HOME_SEA_LEVEL + 25 && sample.slope <= 1.5f) {
@@ -82,9 +83,9 @@ static void TestEarthScaleRelief(void)
         }
     }
 
-    assert(minHeight <= HOME_SEA_LEVEL - 60);
+    assert(minHeight <= HOME_SEA_LEVEL - 9000);
     assert(maxHeight >= HOME_SEA_LEVEL + 120);
-    assert(deepOceanCount > sampleCount / 100);
+    assert(deepOceanCount > sampleCount / 1000);
     assert(trenchCount > 0);
     assert(extremePeakCount > 0);
     assert(buildablePlainCount > sampleCount / 10);
@@ -101,9 +102,9 @@ static void TestBathymetryContracts(void)
     assert(first.waterDepth == repeat.waterDepth);
     assert(first.zone == repeat.zone);
     assert(first.material == repeat.material);
-    assert(first.seabedY >= BATHYMETRY_MIN_SEABED_Y);
+    assert(first.seabedY >= HOME_BATHYMETRY_MIN_SEABED_Y);
     assert(first.waterDepth >= 0 &&
-           first.waterDepth <= BATHYMETRY_MAX_WATER_DEPTH);
+           first.waterDepth <= HOME_BATHYMETRY_MAX_WATER_DEPTH);
 
     int coastCount = 0;
     int shelfCount = 0;
@@ -116,7 +117,7 @@ static void TestBathymetryContracts(void)
             BathymetrySample sample = TerrainBathymetryAt(x, z,
                                                            TERRAIN_VARIED);
             assert(sample.seaLevel == HOME_SEA_LEVEL);
-            assert(sample.seabedY >= BATHYMETRY_MIN_SEABED_Y);
+            assert(sample.seabedY >= HOME_BATHYMETRY_MIN_SEABED_Y);
             assert(sample.waterDepth == HOME_SEA_LEVEL - sample.seabedY ||
                    sample.waterDepth == 0);
             switch (sample.zone) {
@@ -141,7 +142,7 @@ static void TestBathymetryContracts(void)
                                                         TERRAIN_VARIED);
     BathymetrySample boundaryRight = TerrainBathymetryAt(16, 2048,
                                                          TERRAIN_VARIED);
-    assert(abs(boundaryLeft.seabedY - boundaryRight.seabedY) <= 8);
+    assert(abs(boundaryLeft.seabedY - boundaryRight.seabedY) <= 256);
 
     assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_SAND) == BLOCK_SAND);
     assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_SEDIMENT) ==
@@ -151,10 +152,10 @@ static void TestBathymetryContracts(void)
     terrainSeed = 1448040515u;
     BathymetrySample seeded = TerrainBathymetryAt(-2896, 16,
                                                   TERRAIN_VARIED);
-    assert(seeded.waterDepth == 46);
-    assert(seeded.seabedY == 34);
+    assert(seeded.waterDepth == 4379);
+    assert(seeded.seabedY == -4299);
     assert(seeded.zone == BATHYMETRY_ZONE_ABYSSAL_PLAIN);
-    assert(seeded.material == BATHYMETRY_MATERIAL_ROCK);
+    assert(seeded.material == BATHYMETRY_MATERIAL_SEDIMENT);
     terrainSeed = DEFAULT_WORLD_SEED;
 }
 
@@ -209,9 +210,10 @@ static void TestTerrainBaseBlockQueries(void)
 
     terrainSeed = 1448040515u;
     BathymetrySample deep = TerrainBathymetryAt(-2896, 16, TERRAIN_VARIED);
-    assert(deep.seabedY == 34);
-    assert(TerrainBaseBlockAt(-2896, 0, 16, TERRAIN_VARIED) ==
-           BLOCK_BEDROCK);
+    assert(deep.seabedY == -4299);
+    assert(TerrainBaseBlockAt(-2896, 0, 16, TERRAIN_VARIED) == BLOCK_WATER);
+    assert(TerrainBaseBlockAt(
+               -2896, SURFACE_MIN_Y, 16, TERRAIN_VARIED) == BLOCK_BEDROCK);
     assert(TerrainBaseBlockAt(-2896, deep.seabedY, 16, TERRAIN_VARIED) ==
            BathymetryMaterialBlock(deep.material));
     assert(TerrainBaseBlockAt(-2896, deep.seabedY + 1, 16,
@@ -261,12 +263,15 @@ static void TestIndependentSectionBaseGeneration(void)
     Chunk deep = { 0 };
     int cx = FloorDivInt(-2896, CHUNK_SIZE);
     int cz = FloorDivInt(16, CHUNK_SIZE);
+    int seabedY = TerrainBathymetryAt(
+        -2896, 16, TERRAIN_VARIED).seabedY;
+    int seabedSectionY = SurfaceSectionYFromBlockY(seabedY);
     assert(GenerateChunkTerrainSectionBase(
-        &deep, cx, cz, 2, TERRAIN_VARIED));
+        &deep, cx, cz, seabedSectionY, TERRAIN_VARIED));
     assert(deep.sectionCount == 1);
-    assert(deep.sections[0]->sectionY == 2);
-    for (int y = 2 * SURFACE_SECTION_HEIGHT;
-         y < 3 * SURFACE_SECTION_HEIGHT; y++) {
+    assert(deep.sections[0]->sectionY == seabedSectionY);
+    for (int y = seabedSectionY * SURFACE_SECTION_HEIGHT;
+         y < (seabedSectionY + 1) * SURFACE_SECTION_HEIGHT; y++) {
         assert(ChunkGetLocalBlock(&deep, 0, y, 0) ==
                TerrainBaseBlockAt(-2896, y, 16, TERRAIN_VARIED));
     }

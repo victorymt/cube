@@ -6,7 +6,7 @@
 
 #include <stdbool.h>
 
-#define UNDERWATER_DEEP_REFERENCE_DEPTH 72.0f
+#define UNDERWATER_DEEP_REFERENCE_DEPTH 200.0f
 
 typedef enum EnvironmentScene {
     ENVIRONMENT_SCENE_HOME = 0,

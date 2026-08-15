@@ -1,4 +1,5 @@
 #include "world_environment.h"
+#include "terrain.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -49,6 +50,28 @@ int TerrainHeight(int x, int z, TerrainMode mode)
 int PlanetTerrainHeight(int x, int z)
 {
     return 100 + x - z;
+}
+
+BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode)
+{
+    (void)x;
+    (void)z;
+    return (BathymetrySample){
+        .seaLevel = mode == TERRAIN_FLAT ? -1 : HOME_SEA_LEVEL,
+        .seabedY = 20,
+        .waterDepth = mode == TERRAIN_FLAT ? 0 : HOME_SEA_LEVEL - 20
+    };
+}
+
+BathymetrySample PlanetBathymetryAt(int x, int z)
+{
+    (void)x;
+    (void)z;
+    return (BathymetrySample){
+        .seaLevel = 80,
+        .seabedY = 30,
+        .waterDepth = 50
+    };
 }
 
 static void SetEnvironment(bool homeActive, bool planetActive,
@@ -112,6 +135,9 @@ static void TestHomeAndNether(void)
     assert(WorldGravityScale() == 1.0f);
     assert(WorldCurrentSurfaceId() == 0u);
     assert(WorldSurfaceHeightAt(3, 4) == 7 + (int)terrainMode);
+    float waterSurface = 0.0f;
+    assert(WorldProceduralWaterSurfaceAt(3, 4, &waterSurface));
+    assert(waterSurface == (float)HOME_SEA_LEVEL + 1.0f);
 }
 
 static void TestPlanet(void)
@@ -124,6 +150,9 @@ static void TestPlanet(void)
     assert(WorldCurrentSurfaceId() == 0x1234u);
     assert(WorldSurfaceHeightAt(7, 2) == 105);
     assert(WorldCanAccessBlockY(-40));
+    float waterSurface = 0.0f;
+    assert(WorldProceduralWaterSurfaceAt(7, 2, &waterSurface));
+    assert(waterSurface == 81.0f);
 }
 
 static void TestSpace(void)
@@ -135,6 +164,7 @@ static void TestSpace(void)
     assert(!WorldCanAccessBlockY(4));
     assert(!WorldCanAccessBlockY(-40));
     assert(WorldCanAccessBlockY(SPACE_LAYER_Y));
+    assert(!WorldProceduralWaterSurfaceAt(0, 0, NULL));
     assert(WorldGravityScale() == 0.0f);
 }
 
