@@ -103,7 +103,8 @@ static bool PlanetPoiForCell(int cellX, int cellZ, PlanetPoi *out)
         int z = baseZ + PLANET_POI_MARGIN + (int)(zHash % (uint32_t)span);
         int groundY = PlanetTerrainHeight(x, z);
         PlanetBiome biome = PlanetBiomeAt(x, z);
-        if (PlanetPoiIsWaterBiome(biome) || groundY > WORLD_HEIGHT - 6) continue;
+        if (PlanetPoiIsWaterBiome(biome) ||
+            groundY > SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 6) continue;
 
         out->x = x;
         out->y = groundY + 2;

@@ -96,7 +96,8 @@ static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
     int chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
     if (structure.maxX < chunkMinX || structure.minX > chunkMaxX ||
         structure.maxZ < chunkMinZ || structure.minZ > chunkMaxZ ||
-        structure.maxY < 0 || structure.minY >= WORLD_HEIGHT) return;
+        structure.maxY < SURFACE_GENERATION_MIN_Y ||
+        structure.minY >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE) return;
 
     for (int index = 0; index < chunk->floraStructureCount; index++) {
         const FloraStructureInstance *existing = &chunk->floraStructures[index];
@@ -186,7 +187,7 @@ static void PlacePlanetFlora(Chunk *chunk, int x, int z,
     if (biome == PLANET_BIOME_OCEAN || biome == PLANET_BIOME_LAVA_SEA ||
         biome == PLANET_BIOME_STORM_BANDS) return;
     int ground = PlanetTerrainHeight(x, z);
-    if (ground > WORLD_HEIGHT - 7) return;
+    if (ground > SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 7) return;
 
     PlanetFloraArchetype type = profile->flora;
     if (type == PLANET_FLORA_ALIEN_CANOPY && biome != PLANET_BIOME_FOREST &&

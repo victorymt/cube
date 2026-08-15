@@ -239,6 +239,21 @@ static void TestFrustumNearPlaneAndRenderAspect(void)
         &camera, edgeCenter, 1.0f, renderAspect));
 }
 
+static void TestChunkFrustumUsesSparseSectionHeights(void)
+{
+    Camera3D camera = TestPerspectiveCamera(90.0f);
+    camera.position = (Vector3){ 8.0f, -472.0f, 0.0f };
+    camera.target = (Vector3){ 8.0f, -472.0f, 1.0f };
+    Chunk chunk = { .cx = 0, .cz = 2 };
+    ChunkSection *deep = ChunkGetSection(&chunk, -30, true);
+    assert(deep != NULL);
+    assert(ChunkSectionIntersectsCameraView(&chunk, deep, &camera));
+    assert(ChunkIntersectsCameraView(&chunk, &camera));
+    assert(!ChunkIntersectsCameraView(NULL, &camera));
+    assert(!ChunkIntersectsCameraView(&chunk, NULL));
+    ChunkClearBlockStorage(&chunk);
+}
+
 static void TestSingleChunkUsesSingleJobAndNearestFirst(void)
 {
     ChunksTestResetScheduler();
@@ -742,6 +757,7 @@ int main(void)
     AssertFreshStats();
     TestFrustumSphereEdgesRemainVisible();
     TestFrustumNearPlaneAndRenderAspect();
+    TestChunkFrustumUsesSparseSectionHeights();
     TestSingleChunkUsesSingleJobAndNearestFirst();
     TestFullQueueLeavesDirtyChunkForLater();
     TestFullGenerationQueueDoesNotFallBackToMainThread();

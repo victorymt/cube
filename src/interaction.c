@@ -192,7 +192,8 @@ bool BuildImageImportPlan(int imageWidth, int imageHeight, int maxBlocks,
 
     uint64_t targetPixels = (uint64_t)(unsigned)targetWidth *
                             (uint64_t)(unsigned)targetHeight;
-    uint64_t operationsPerPixel = relief ? (uint64_t)WORLD_HEIGHT * 2u : 1u;
+    uint64_t operationsPerPixel = relief
+        ? (uint64_t)SURFACE_WORLD_HEIGHT * 2u : 1u;
     uint64_t maximumBlockOperations = targetPixels * operationsPerPixel;
     if (targetPixels > IMPORT_MAX_TARGET_PIXELS ||
         maximumBlockOperations > IMPORT_MAX_BLOCK_OPERATIONS) {
@@ -218,7 +219,7 @@ int ImagePixelLuminance(Color pixel)
 
 int ReliefHeightForPixel(Color pixel, int baseY)
 {
-    int maxHeight = WORLD_HEIGHT - baseY;
+    int maxHeight = SURFACE_GENERATION_MAX_Y_EXCLUSIVE - baseY;
     if (maxHeight <= 1) return 1;
 
     float luminance = Clamp((float)ImagePixelLuminance(pixel) / 255.0f, 0.0f, 1.0f);
@@ -371,7 +372,8 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
             int wy = TerrainHeight(wx, wz, WorldTerrainMode());
             if (relief) {
                 int baseY = wy + 1;
-                for (int y = baseY; y < WORLD_HEIGHT; y++) {
+                for (int y = baseY;
+                     y < SURFACE_GENERATION_MAX_Y_EXCLUSIVE; y++) {
                     SetBlockForImport(wx, y, wz, BLOCK_AIR);
                 }
 

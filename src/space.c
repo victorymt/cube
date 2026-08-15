@@ -77,7 +77,8 @@ typedef struct HomeWorldContext {
 #define HOME_WORLD_PROXY_RADIUS 62.0f
 #define HOME_WORLD_CENTER_Y (-30.0f)
 #define HOME_WORLD_LANDING_MARGIN 20.0f
-#define PLANET_ATMOSPHERE_FADE_START ((float)WORLD_HEIGHT + 18.0f)
+#define PLANET_ATMOSPHERE_FADE_START \
+    ((float)SURFACE_GENERATION_MAX_Y_EXCLUSIVE + 18.0f)
 #define PLANET_ATMOSPHERE_MIN_DEPTH 64.0f
 
 static PlanetWorldContext planetWorld = { 0 };

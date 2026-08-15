@@ -1077,7 +1077,7 @@ static void SpawnPassive(const Player *player, float daylight)
         float flightBase = fmaxf(spawnY + 3.0f, player->position.y + 1.5f);
         float flightCeiling = homeWorld
             ? (float)SURFACE_MAX_Y_EXCLUSIVE - 3.0f
-            : (float)WORLD_HEIGHT - 3.0f;
+            : (float)SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 3.0f;
         spawnY = fminf(flightCeiling,
                        flightBase + (float)EntityRandomBounded(45u) / 10.0f);
     }
@@ -1908,7 +1908,7 @@ static void UpdatePassive(Entity *entity, int entityIndex,
             (int)floorf(entity->position.x),
             (int)floorf(entity->position.z));
         float flightCeiling = PlanetWorldIsActive()
-            ? (float)WORLD_HEIGHT - 3.0f
+            ? (float)SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 3.0f
             : (float)SURFACE_MAX_Y_EXCLUSIVE - 3.0f;
         float terrainHover = fminf(
             flightCeiling,

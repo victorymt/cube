@@ -4177,16 +4177,12 @@ bool SphereInFrustum(const Camera3D *camera, Vector3 center, float radius)
 
 bool ChunkIntersectsCameraView(const Chunk *chunk, const Camera3D *camera)
 {
-    Vector3 center = {
-        (float)(chunk->cx * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f,
-        (float)WORLD_HEIGHT * 0.5f,
-        (float)(chunk->cz * CHUNK_SIZE) + (float)CHUNK_SIZE * 0.5f
-    };
-    float halfChunk = (float)CHUNK_SIZE * 0.5f;
-    float halfHeight = (float)WORLD_HEIGHT * 0.5f;
-    float radius = sqrtf(halfChunk * halfChunk * 2.0f + halfHeight * halfHeight);
-
-    return SphereInFrustum(camera, center, radius);
+    if (!chunk || !camera) return false;
+    for (int index = 0; index < chunk->sectionCount; index++) {
+        if (ChunkSectionIntersectsCameraView(
+                chunk, chunk->sections[index], camera)) return true;
+    }
+    return false;
 }
 
 bool ChunkSectionIntersectsCameraView(const Chunk *chunk,
