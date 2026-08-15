@@ -130,7 +130,8 @@ static bool NewWorldSpawnCandidate(int x, int z, TerrainMode mode,
     if ((seaLevel >= 0 && height < seaLevel) || ShouldPlaceTree(x, z, mode)) {
         return false;
     }
-    if (height < 0 || height + 3 >= WORLD_HEIGHT) return false;
+    if (height < SURFACE_MIN_Y ||
+        height + 3 >= SURFACE_MAX_Y_EXCLUSIVE) return false;
     if (outPosition) {
         *outPosition = (Vector3){ (float)x + 0.5f, (float)height + 1.01f,
                                   (float)z + 0.5f };
@@ -373,8 +374,14 @@ static void LandingTransitionFinishLanding(LandingTransition *transition, Player
     Vector3 besideShip = transition->landingPosition;
     besideShip.x += cosf(player->yaw) * 2.25f;
     besideShip.z -= sinf(player->yaw) * 2.25f;
-    if (PlayerFindLandingSpot(besideShip, 0, WORLD_HEIGHT - 1,
-                              &besideShip)) {
+    int landingMinY = (int)floorf(besideShip.y) -
+                      PLAYER_LANDING_SEARCH_DEPTH;
+    if (landingMinY < WorldSurfaceMinY()) {
+        landingMinY = WorldSurfaceMinY();
+    }
+    if (PlayerFindLandingSpot(
+            besideShip, landingMinY, WorldSurfaceMaxYExclusive() - 1,
+            &besideShip)) {
         player->position = besideShip;
     }
     player->velocity = Vector3Zero();

@@ -34,6 +34,8 @@ WorldBlockRegion WorldBlockRegionAt(int y);
 bool WorldIsSurfaceActive(void);
 bool WorldIsSpaceActive(void);
 bool WorldIsSurfaceDimension(WorldDimension dimension);
+int WorldSurfaceMinY(void);
+int WorldSurfaceMaxYExclusive(void);
 bool WorldCanAccessBlockY(int y);
 float WorldGravityScale(void);
 int WorldSurfaceHeightAt(int x, int z);

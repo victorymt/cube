@@ -502,7 +502,7 @@ static bool HomeTreeCandidateAt(int x, int z, TerrainMode mode,
     }
     int height = (int)lroundf(surface.elevation);
     if (height <= (int)lroundf(surface.seaLevel) ||
-        height > WORLD_HEIGHT - 18) {
+        height > SURFACE_MAX_Y_EXCLUSIVE - 18) {
         return false;
     }
     if (outBiome) *outBiome = surface.biome;
@@ -1395,21 +1395,36 @@ BathymetrySample PlanetBathymetryAt(int x, int z)
 static bool SurfaceLandingCandidate(int x, int z, int footprintRadius,
                                     int *outGroundY)
 {
-    int seaLevel = PlanetWorldIsActive() ? PlanetTerrainSeaLevel()
-                                         : TerrainSeaLevel(WorldTerrainMode());
-    int minHeight = WORLD_HEIGHT;
+    bool planetSurface = PlanetWorldIsActive();
+    int seaLevel = planetSurface ? PlanetTerrainSeaLevel()
+                                 : TerrainSeaLevel(WorldTerrainMode());
+    int surfaceMinY = planetSurface ? SURFACE_GENERATION_MIN_Y
+                                    : SURFACE_MIN_Y;
+    int surfaceMaxYExclusive = planetSurface
+        ? SURFACE_GENERATION_MAX_Y_EXCLUSIVE
+        : SURFACE_MAX_Y_EXCLUSIVE;
+    int minHeight = 0;
     int maxHeight = 0;
+    bool haveHeight = false;
     for (int dz = -footprintRadius; dz <= footprintRadius; dz++) {
         for (int dx = -footprintRadius; dx <= footprintRadius; dx++) {
-            int height = PlanetWorldIsActive()
+            int height = planetSurface
                              ? PlanetTerrainHeight(x + dx, z + dz)
                              : TerrainHeight(x + dx, z + dz, WorldTerrainMode());
             if (seaLevel >= 0 && height <= seaLevel + 1) return false;
-            if (height < minHeight) minHeight = height;
-            if (height > maxHeight) maxHeight = height;
+            if (!haveHeight) {
+                minHeight = height;
+                maxHeight = height;
+                haveHeight = true;
+            } else {
+                if (height < minHeight) minHeight = height;
+                if (height > maxHeight) maxHeight = height;
+            }
         }
     }
-    if (maxHeight - minHeight > 1 || maxHeight > WORLD_HEIGHT - 6) return false;
+    if (!haveHeight || minHeight < surfaceMinY ||
+        maxHeight - minHeight > 1 ||
+        maxHeight > surfaceMaxYExclusive - 6) return false;
     if (outGroundY) *outGroundY = maxHeight;
     return true;
 }

@@ -252,8 +252,13 @@ static void GameUseNetherPortal(GameRuntime *game)
             (int)floorf(game->player.position.x),
             (int)floorf(game->player.position.z), WorldTerrainMode());
         landing.y = groundY + 3.0f;
+        int landingMinY = (int)floorf(landing.y) -
+                          PLAYER_LANDING_SEARCH_DEPTH;
+        if (landingMinY < WorldSurfaceMinY()) {
+            landingMinY = WorldSurfaceMinY();
+        }
         foundLanding = PlayerFindLandingSpot(
-            landing, 0, WORLD_HEIGHT - 1, &landing);
+            landing, landingMinY, WorldSurfaceMaxYExclusive() - 1, &landing);
         SetImportMessage("Back to the surface.");
     }
     if (!foundLanding) {

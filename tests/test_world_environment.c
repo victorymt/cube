@@ -87,6 +87,8 @@ static void SetEnvironment(bool homeActive, bool planetActive,
 static void TestBlockRegions(void)
 {
     SetEnvironment(true, false, 1.0f, 0u);
+    assert(WorldSurfaceMinY() == SURFACE_MIN_Y);
+    assert(WorldSurfaceMaxYExclusive() == SURFACE_MAX_Y_EXCLUSIVE);
     assert(strcmp(WorldDimensionName(WORLD_DIMENSION_HOME), "home") == 0);
     assert(strcmp(WorldDimensionName(WORLD_DIMENSION_PLANET), "planet") == 0);
     assert(strcmp(WorldDimensionName(WORLD_DIMENSION_SPACE), "space") == 0);
@@ -143,13 +145,19 @@ static void TestHomeAndNether(void)
 static void TestPlanet(void)
 {
     SetEnvironment(false, true, 1.35f, 0x1234u);
+    assert(WorldSurfaceMinY() == SURFACE_GENERATION_MIN_Y);
+    assert(WorldSurfaceMaxYExclusive() ==
+           SURFACE_GENERATION_MAX_Y_EXCLUSIVE);
     assert(WorldCurrentDimension() == WORLD_DIMENSION_PLANET);
     assert(WorldCurrentDimensionAt(-40.0f) == WORLD_DIMENSION_PLANET);
     assert(WorldIsSurfaceDimension(WorldCurrentDimension()));
     assert(WorldGravityScale() == 1.35f);
     assert(WorldCurrentSurfaceId() == 0x1234u);
     assert(WorldSurfaceHeightAt(7, 2) == 105);
-    assert(WorldCanAccessBlockY(-40));
+    assert(!WorldCanAccessBlockY(-40));
+    assert(WorldCanAccessBlockY(SURFACE_GENERATION_MIN_Y));
+    assert(WorldCanAccessBlockY(SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 1));
+    assert(!WorldCanAccessBlockY(SURFACE_GENERATION_MAX_Y_EXCLUSIVE));
     float waterSurface = 0.0f;
     assert(WorldProceduralWaterSurfaceAt(7, 2, &waterSurface));
     assert(waterSurface == 81.0f);

@@ -53,7 +53,7 @@ WorldBlockRegion WorldBlockRegionAt(int y)
         return WORLD_BLOCK_REGION_NETHER;
     }
     if (!WorldNetherIsActive() &&
-        y >= SURFACE_MIN_Y && y < SURFACE_MAX_Y_EXCLUSIVE) {
+        y >= WorldSurfaceMinY() && y < WorldSurfaceMaxYExclusive()) {
         return WORLD_BLOCK_REGION_SURFACE;
     }
     return WORLD_BLOCK_REGION_NONE;
@@ -72,6 +72,17 @@ bool WorldIsSpaceActive(void)
 bool WorldIsSurfaceDimension(WorldDimension dimension)
 {
     return dimension == WORLD_DIMENSION_HOME || dimension == WORLD_DIMENSION_PLANET;
+}
+
+int WorldSurfaceMinY(void)
+{
+    return PlanetWorldIsActive() ? SURFACE_GENERATION_MIN_Y : SURFACE_MIN_Y;
+}
+
+int WorldSurfaceMaxYExclusive(void)
+{
+    return PlanetWorldIsActive() ? SURFACE_GENERATION_MAX_Y_EXCLUSIVE
+                                 : SURFACE_MAX_Y_EXCLUSIVE;
 }
 
 bool WorldCanAccessBlockY(int y)
