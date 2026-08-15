@@ -83,6 +83,7 @@ void SetChunkLocalBlock(Chunk *chunk, int worldX, int y, int worldZ, BlockType t
 bool GenerateChunkTerrainSectionBase(Chunk *chunk, int cx, int cz,
                                      int sectionY, TerrainMode mode);
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode);
+void ApplyEditsToChunkSection(Chunk *chunk, int sectionY);
 void ApplyEditsToChunk(Chunk *chunk);
 
 #ifdef TERRAIN_TESTING

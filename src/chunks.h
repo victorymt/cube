@@ -56,6 +56,8 @@ void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz);
 Chunk *FindChunk(int cx, int cz);
 ChunkSection *ChunkGetSection(Chunk *chunk, int sectionY, bool create);
 const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY);
+bool ChunkTryGetLocalBlock(const Chunk *chunk, int lx, int y, int lz,
+                           BlockType *outBlock);
 BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz);
 bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type);
 void ChunkClearBlockStorage(Chunk *chunk);

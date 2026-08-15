@@ -1831,8 +1831,28 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
     }
 }
 
+void ApplyEditsToChunkSection(Chunk *chunk, int sectionY)
+{
+    if (!chunk) return;
+    int editCount = WorldGetEditCount();
+    for (int i = 0; i < editCount; i++) {
+        BlockEdit edit;
+        if (!WorldGetEditForCurrentDimension(i, &edit)) continue;
+        int editCx = 0;
+        int editCz = 0;
+        int editLx = 0;
+        int editLz = 0;
+        WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz, &editLx, &editLz);
+        if (editCx == chunk->cx && editCz == chunk->cz && InHeight(edit.y) &&
+            edit.y / SURFACE_SECTION_HEIGHT == sectionY) {
+            ChunkSetLocalBlock(chunk, editLx, edit.y, editLz, edit.type);
+        }
+    }
+}
+
 void ApplyEditsToChunk(Chunk *chunk)
 {
+    if (!chunk) return;
     int editCount = WorldGetEditCount();
     for (int i = 0; i < editCount; i++) {
         BlockEdit edit;
@@ -1843,6 +1863,14 @@ void ApplyEditsToChunk(Chunk *chunk)
         int editLz = 0;
         WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz, &editLx, &editLz);
         if (editCx == chunk->cx && editCz == chunk->cz && InHeight(edit.y)) {
+            int sectionY = edit.y / SURFACE_SECTION_HEIGHT;
+            if (!ChunkGetSectionConst(chunk, sectionY) &&
+                HomeWorldSurfaceIsActive() &&
+                !GenerateChunkTerrainSectionBase(
+                    chunk, chunk->cx, chunk->cz, sectionY,
+                    WorldTerrainMode())) {
+                continue;
+            }
             ChunkSetLocalBlock(chunk, editLx, edit.y, editLz, edit.type);
         }
     }

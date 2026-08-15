@@ -1,4 +1,5 @@
 #include "chunks.h"
+#include "terrain.h"
 #include "world_environment.h"
 
 #include <assert.h>
@@ -6,6 +7,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+uint32_t WorldCurrentSurfaceId(void)
+{
+    return 1u;
+}
+
+bool HomeWorldSurfaceIsActive(void)
+{
+    return true;
+}
+
+BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)mode;
+    return BLOCK_AIR;
+}
 
 WorldBlockRegion WorldBlockRegionAt(int y)
 {

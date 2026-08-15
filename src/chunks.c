@@ -207,14 +207,24 @@ const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY)
         ? chunk->sections[index] : NULL;
 }
 
-BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
+bool ChunkTryGetLocalBlock(const Chunk *chunk, int lx, int y, int lz,
+                           BlockType *outBlock)
 {
     if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
-        !InHeight(y)) return BLOCK_AIR;
+        !InHeight(y) || !outBlock) return false;
     int sectionY = y / SURFACE_SECTION_HEIGHT;
     const ChunkSection *section = ChunkGetSectionConst(chunk, sectionY);
-    return section ? (BlockType)section->blocks[lx][y % SURFACE_SECTION_HEIGHT][lz]
-                   : BLOCK_AIR;
+    if (!section) return false;
+    *outBlock = (BlockType)section->blocks[
+        lx][y % SURFACE_SECTION_HEIGHT][lz];
+    return true;
+}
+
+BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
+{
+    BlockType block = BLOCK_AIR;
+    return ChunkTryGetLocalBlock(chunk, lx, y, lz, &block)
+        ? block : BLOCK_AIR;
 }
 
 bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type)

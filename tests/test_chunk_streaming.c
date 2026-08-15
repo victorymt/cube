@@ -1,4 +1,6 @@
 #include "chunks.h"
+#include "terrain.h"
+#include "world.h"
 #include "world_environment.h"
 
 #include <assert.h>
@@ -8,6 +10,70 @@
 #include <string.h>
 
 TerrainMode terrainMode = TERRAIN_VARIED;
+
+uint32_t WorldCurrentSurfaceId(void)
+{
+    return 1u;
+}
+
+bool HomeWorldSurfaceIsActive(void)
+{
+    return true;
+}
+
+bool WorldIsSurfaceActive(void)
+{
+    return true;
+}
+
+bool ShipBlockIsParkedCore(BlockType type)
+{
+    (void)type;
+    return false;
+}
+
+void ShipForgetParkedAt(int x, int y, int z)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+}
+
+void ShipTrackParkedAt(int x, int y, int z)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+}
+
+BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
+{
+    (void)x;
+    (void)z;
+    (void)mode;
+    return y >= 0 && y <= 8 ? BLOCK_STONE : BLOCK_AIR;
+}
+
+bool GenerateChunkTerrainSectionBase(
+    Chunk *chunk, int cx, int cz, int sectionY, TerrainMode mode)
+{
+    if (!chunk || ChunkGetSectionConst(chunk, sectionY)) return false;
+    int firstY = sectionY * SURFACE_SECTION_HEIGHT;
+    int lastY = firstY + SURFACE_SECTION_HEIGHT;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int y = firstY; y < lastY; y++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                BlockType type = TerrainBaseBlockAt(
+                    cx * CHUNK_SIZE + lx, y, cz * CHUNK_SIZE + lz, mode);
+                if (type != BLOCK_AIR &&
+                    !ChunkSetLocalBlock(chunk, lx, y, lz, type)) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
 
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
@@ -21,6 +87,25 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 void ApplyEditsToChunk(Chunk *chunk)
 {
     (void)chunk;
+}
+
+void ApplyEditsToChunkSection(Chunk *chunk, int sectionY)
+{
+    for (int index = 0; index < WorldGetEditCount(); index++) {
+        BlockEdit edit;
+        if (!WorldGetEditForCurrentDimension(index, &edit) ||
+            edit.y / SURFACE_SECTION_HEIGHT != sectionY) {
+            continue;
+        }
+        int cx = 0;
+        int cz = 0;
+        int lx = 0;
+        int lz = 0;
+        WorldToChunkLocal(edit.x, edit.z, &cx, &cz, &lx, &lz);
+        if (cx == chunk->cx && cz == chunk->cz) {
+            assert(ChunkSetLocalBlock(chunk, lx, edit.y, lz, edit.type));
+        }
+    }
 }
 
 WorldBlockRegion WorldBlockRegionAt(int y)
@@ -49,6 +134,22 @@ BlockType NetherBlockAt(int x, int y, int z)
     (void)y;
     (void)z;
     return BLOCK_AIR;
+}
+
+void SpaceSetBlock(int x, int y, int z, BlockType type)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)type;
+}
+
+void NetherSetBlock(int x, int y, int z, BlockType type)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)type;
 }
 
 static void AssertFreshStats(void)
@@ -341,6 +442,58 @@ static void TestSparseSignedSectionStorage(void)
     assert(chunk->sectionCapacity == 0);
 }
 
+static void TestMaterializedAirDiffersFromMissingSection(void)
+{
+    ChunksTestResetScheduler();
+    Chunk *chunk = &chunks[0];
+    BlockType block = BLOCK_STONE;
+
+    assert(!ChunkTryGetLocalBlock(chunk, 2, 17, 3, &block));
+    assert(block == BLOCK_STONE);
+    assert(ChunkGetLocalBlock(chunk, 2, 17, 3) == BLOCK_AIR);
+
+    ChunkSection *section = ChunkGetSection(chunk, 1, true);
+    assert(section != NULL);
+    assert(ChunkTryGetLocalBlock(chunk, 2, 17, 3, &block));
+    assert(block == BLOCK_AIR);
+
+    section->blocks[2][1][3] = BLOCK_DIRT;
+    assert(ChunkTryGetLocalBlock(chunk, 2, 17, 3, &block));
+    assert(block == BLOCK_DIRT);
+
+    assert(!ChunkTryGetLocalBlock(chunk, -1, 17, 3, &block));
+    assert(!ChunkTryGetLocalBlock(chunk, 2, SURFACE_WORLD_HEIGHT, 3,
+                                  &block));
+    assert(!ChunkTryGetLocalBlock(chunk, 2, 17, 3, NULL));
+}
+
+static void TestImplicitTerrainLookupAndEditOverride(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+
+    assert(ChunkGetSectionConst(&chunks[0], 0) == NULL);
+    assert(GetBlockAt(2, 4, 3) == BLOCK_STONE);
+    assert(GetBlockAt(2, 12, 3) == BLOCK_AIR);
+
+    assert(SetBlock(2, 4, 3, BLOCK_AIR));
+    assert(ChunkGetSectionConst(&chunks[0], 0) != NULL);
+    assert(GetBlockAt(2, 4, 3) == BLOCK_AIR);
+    assert(GetBlockAt(3, 4, 3) == BLOCK_STONE);
+
+    assert(SetBlock(2 * CHUNK_SIZE, 4, 0, BLOCK_GLASS));
+    ChunksTestConfigureChunk(1, 2, 0, true, false);
+    assert(ChunkGetSectionConst(&chunks[1], 0) == NULL);
+    assert(GetBlockAt(2 * CHUNK_SIZE, 4, 0) == BLOCK_GLASS);
+    assert(GetBlockAt(2 * CHUNK_SIZE + 1, 4, 0) == BLOCK_STONE);
+
+    assert(SetBlock(2 * CHUNK_SIZE + 1, 4, 0, BLOCK_AIR));
+    assert(ChunkGetSectionConst(&chunks[1], 0) != NULL);
+    assert(GetBlockAt(2 * CHUNK_SIZE, 4, 0) == BLOCK_GLASS);
+    assert(GetBlockAt(2 * CHUNK_SIZE + 1, 4, 0) == BLOCK_AIR);
+    assert(GetBlockAt(2 * CHUNK_SIZE + 2, 4, 0) == BLOCK_STONE);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(chunks));
@@ -355,6 +508,8 @@ int main(void)
     TestStaleJobDiscardedAfterChunkReload();
     TestWaterMeshUsesSnapshottedNeighborBoundary();
     TestSparseSignedSectionStorage();
+    TestMaterializedAirDiffersFromMissingSection();
+    TestImplicitTerrainLookupAndEditOverride();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

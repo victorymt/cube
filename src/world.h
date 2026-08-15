@@ -36,6 +36,8 @@ uint64_t WorldGetEditRevision(void);
 const BlockEdit *WorldGetEditAt(int index);
 uint32_t WorldGetEditDimensionAt(int index);
 bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit);
+bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
+                                            BlockType *outType);
 
 void SetImportMessage(const char *message);
 const char *WorldGetImportMessage(void);

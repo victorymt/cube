@@ -784,13 +784,49 @@ bool RedoBlockEdit(void)
     if (redoCount <= 0) redoHead = 0;
     return true;
 }
+static BlockType GetSurfaceBlockAt(int x, int y, int z)
+{
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+
+    Chunk *chunk = FindChunk(cx, cz);
+    if (!chunk) return BLOCK_AIR;
+
+    BlockType block = BLOCK_AIR;
+    if (ChunkTryGetLocalBlock(chunk, lx, y, lz, &block)) return block;
+    if (WorldGetBlockEditForCurrentDimensionAt(x, y, z, &block)) {
+        return block;
+    }
+    return HomeWorldSurfaceIsActive()
+        ? TerrainBaseBlockAt(x, y, z, WorldTerrainMode())
+        : BLOCK_AIR;
+}
+
+static bool MaterializeHomeSurfaceSectionForWrite(
+    Chunk *chunk, int sectionY)
+{
+    if (!chunk || ChunkGetSectionConst(chunk, sectionY) ||
+        !HomeWorldSurfaceIsActive()) {
+        return chunk != NULL;
+    }
+    if (!GenerateChunkTerrainSectionBase(
+            chunk, chunk->cx, chunk->cz, sectionY, WorldTerrainMode())) {
+        return false;
+    }
+    ApplyEditsToChunkSection(chunk, sectionY);
+    return true;
+}
+
 static bool SetBlockCore(
     int x, int y, int z, BlockType type, bool recordUndo,
     const FluidBlockDisplacement *replay, bool replayAfter)
 {
     if (!InHeight(y)) return false;
 
-    BlockType previous = GetBlock(x, y, z);
+    BlockType previous = GetSurfaceBlockAt(x, y, z);
     int cx = 0;
     int cz = 0;
     int lx = 0;
@@ -805,6 +841,10 @@ static bool SetBlockCore(
     }
 
     if (chunk) {
+        int sectionY = y / SURFACE_SECTION_HEIGHT;
+        if (!MaterializeHomeSurfaceSectionForWrite(chunk, sectionY)) {
+            return false;
+        }
         if (!ChunkSetLocalBlock(chunk, lx, y, lz, type)) return false;
         MarkChunkDirtyAtBlock(x, y, z);
         if (previous != type) {
@@ -840,7 +880,7 @@ BlockType GetBlockAt(int x, int y, int z)
     if (!WorldCanAccessBlockY(y)) return BLOCK_AIR;
     if (region == WORLD_BLOCK_REGION_SPACE) return SpaceBlockAt(x, y, z);
     if (region == WORLD_BLOCK_REGION_NETHER) return NetherBlockAt(x, y, z);
-    if (region == WORLD_BLOCK_REGION_SURFACE) return GetBlock(x, y, z);
+    if (region == WORLD_BLOCK_REGION_SURFACE) return GetSurfaceBlockAt(x, y, z);
     return BLOCK_AIR;
 }
 
@@ -1627,6 +1667,16 @@ bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
         return false;
     }
     *outEdit = blockEdits[index];
+    return true;
+}
+
+bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
+                                            BlockType *outType)
+{
+    if (!outType) return false;
+    int index = FindBlockEditIndex(WorldCurrentEditDimension(), x, y, z);
+    if (index < 0) return false;
+    *outType = blockEdits[index].type;
     return true;
 }
 
