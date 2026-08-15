@@ -715,6 +715,7 @@ bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
     double elapsedMs = ChunkNowMs() - startedMs;
     if (!generated) return false;
     ApplyEditsToChunkSection(chunk, sectionY);
+    WorldNotifyChunkSectionLoaded(chunk, sectionY);
     MarkGeneratedSectionAndNeighborsDirty(chunk, sectionY);
     pthread_mutex_lock(&genMutex);
     streamingStats.generationCompleted++;
@@ -790,6 +791,7 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
         return;
     }
     ApplyEditsToChunkSection(chunk, job->sectionY);
+    WorldNotifyChunkSectionLoaded(chunk, job->sectionY);
     MarkGeneratedSectionAndNeighborsDirty(chunk, job->sectionY);
 }
 
@@ -3668,9 +3670,13 @@ static int PruneDistantNegativeTerrainSections(int playerSectionY)
                 sectionIndex++;
                 continue;
             }
-            if (ChunkSectionHasFluidRuntimeState(section) ||
-                ChunkSectionHasInFlightWork(
+            if (ChunkSectionHasInFlightWork(
                     slotIndex, chunk->generation, sectionY)) {
+                sectionIndex++;
+                continue;
+            }
+            if (ChunkSectionHasFluidRuntimeState(section) &&
+                !WorldPrepareChunkSectionUnload(chunk, sectionY)) {
                 sectionIndex++;
                 continue;
             }

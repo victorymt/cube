@@ -1225,9 +1225,10 @@ void FluidOnBlockChanged(int x, int y, int z, BlockType previous,
     FluidWakeNeighborhood(x, y, z);
 }
 
-void FluidApplyEditsToChunk(Chunk *chunk)
+void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
 {
     if (!chunk || !WorldIsSurfaceActive()) return;
+    ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
     uint32_t surfaceId = WorldCurrentSurfaceId();
     int bucketSlot = FluidFindChunkEditBucket(
         surfaceId, chunk->cx, chunk->cz);
@@ -1242,8 +1243,17 @@ void FluidApplyEditsToChunk(Chunk *chunk)
         int lx = 0;
         int lz = 0;
         WorldToChunkLocal(edit->x, edit->z, &cx, &cz, &lx, &lz);
-        if (cx != chunk->cx || cz != chunk->cz || !InHeight(edit->y)) continue;
-        BlockType block = ChunkGetLocalBlock(chunk, lx, edit->y, lz);
+        if (cx != chunk->cx || cz != chunk->cz || !InHeight(edit->y) ||
+            SurfaceSectionYFromBlockY(edit->y) != sectionY) {
+            continue;
+        }
+        if (!section) {
+            if (edit->volume == 0u) continue;
+            section = ChunkGetSection(chunk, sectionY, true);
+            if (!section) return;
+        }
+        int ly = SurfaceSectionLocalYFromBlockY(edit->y);
+        BlockType block = (BlockType)section->blocks[lx][ly][lz];
         if (edit->volume > 0u && block != BLOCK_AIR && block != BLOCK_WATER) {
             continue;
         }
@@ -1253,29 +1263,39 @@ void FluidApplyEditsToChunk(Chunk *chunk)
     }
 }
 
-static void FluidWakeLoadedBoundaryPair(int ax, int y, int az,
-                                        int bx, int bz)
+void FluidApplyEditsToChunk(Chunk *chunk)
+{
+    if (!chunk || !WorldIsSurfaceActive()) return;
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        FluidApplyEditsToChunkSection(
+            chunk, chunk->sections[sectionIndex]->sectionY);
+    }
+}
+
+static void FluidWakeLoadedBoundaryPair(int ax, int ay, int az,
+                                        int bx, int by, int bz)
 {
     uint32_t surfaceId = WorldCurrentSurfaceId();
-    if (FluidFindEdit(surfaceId, ax, y, az) < 0 &&
-        FluidFindEdit(surfaceId, bx, y, bz) < 0) {
+    if (FluidFindEdit(surfaceId, ax, ay, az) < 0 &&
+        FluidFindEdit(surfaceId, bx, by, bz) < 0) {
         return;
     }
     BlockType aBlock = BLOCK_AIR;
     BlockType bBlock = BLOCK_AIR;
-    if (!FluidLocateCell(ax, y, az, NULL, NULL, NULL, &aBlock) ||
-        !FluidLocateCell(bx, y, bz, NULL, NULL, NULL, &bBlock)) {
+    if (!FluidLocateCell(ax, ay, az, NULL, NULL, NULL, &aBlock) ||
+        !FluidLocateCell(bx, by, bz, NULL, NULL, NULL, &bBlock)) {
         return;
     }
 
-    unsigned aVolume = FluidGetVolumeAt(ax, y, az);
-    unsigned bVolume = FluidGetVolumeAt(bx, y, bz);
+    unsigned aVolume = FluidGetVolumeAt(ax, ay, az);
+    unsigned bVolume = FluidGetVolumeAt(bx, by, bz);
     if (aVolume > bVolume + 1u &&
         (bBlock == BLOCK_AIR || bBlock == BLOCK_WATER)) {
-        FluidWakeCell(ax, y, az);
+        FluidWakeCell(ax, ay, az);
     } else if (bVolume > aVolume + 1u &&
                (aBlock == BLOCK_AIR || aBlock == BLOCK_WATER)) {
-        FluidWakeCell(bx, y, bz);
+        FluidWakeCell(bx, by, bz);
     }
 }
 
@@ -1291,12 +1311,47 @@ static void FluidWakeLoadedBoundarySection(Chunk *chunk, int sectionY)
         for (int edge = 0; edge < CHUNK_SIZE; edge++) {
             int z = northZ + edge;
             int x = westX + edge;
-            FluidWakeLoadedBoundaryPair(westX, y, z, westX - 1, z);
-            FluidWakeLoadedBoundaryPair(eastX, y, z, eastX + 1, z);
-            FluidWakeLoadedBoundaryPair(x, y, northZ, x, northZ - 1);
-            FluidWakeLoadedBoundaryPair(x, y, southZ, x, southZ + 1);
+            FluidWakeLoadedBoundaryPair(
+                westX, y, z, westX - 1, y, z);
+            FluidWakeLoadedBoundaryPair(
+                eastX, y, z, eastX + 1, y, z);
+            FluidWakeLoadedBoundaryPair(
+                x, y, northZ, x, y, northZ - 1);
+            FluidWakeLoadedBoundaryPair(
+                x, y, southZ, x, y, southZ + 1);
         }
     }
+}
+
+static void FluidWakeLoadedVerticalBoundarySection(
+    Chunk *chunk, int sectionY)
+{
+    int firstX = chunk->cx * CHUNK_SIZE;
+    int firstZ = chunk->cz * CHUNK_SIZE;
+    int firstY = sectionY * SURFACE_SECTION_HEIGHT;
+    int lastY = firstY + SURFACE_SECTION_HEIGHT - 1;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int x = firstX + lx;
+            int z = firstZ + lz;
+            FluidWakeLoadedBoundaryPair(
+                x, firstY, z, x, firstY - 1, z);
+            FluidWakeLoadedBoundaryPair(
+                x, lastY, z, x, lastY + 1, z);
+        }
+    }
+}
+
+void FluidOnChunkSectionLoaded(Chunk *chunk, int sectionY)
+{
+    if (!chunk || !chunk->loaded || !WorldIsSurfaceActive()) {
+        return;
+    }
+    FluidApplyEditsToChunkSection(chunk, sectionY);
+    if (!ChunkGetSectionConst(chunk, sectionY)) return;
+    if (fluidEditCount == 0u) return;
+    FluidWakeLoadedBoundarySection(chunk, sectionY);
+    FluidWakeLoadedVerticalBoundarySection(chunk, sectionY);
 }
 
 void FluidOnChunkLoaded(Chunk *chunk)
@@ -1321,6 +1376,52 @@ void FluidOnChunkLoaded(Chunk *chunk)
                 chunk, source->sections[sectionIndex]->sectionY);
         }
     }
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        FluidWakeLoadedVerticalBoundarySection(
+            chunk, chunk->sections[sectionIndex]->sectionY);
+    }
+}
+
+static bool FluidQueueCellMatchesSection(
+    const FluidQueueCell *cell, const Chunk *chunk, int sectionY,
+    uint32_t surfaceId)
+{
+    return cell && chunk && cell->surfaceId == surfaceId &&
+           FloorDivInt(cell->x, CHUNK_SIZE) == chunk->cx &&
+           FloorDivInt(cell->z, CHUNK_SIZE) == chunk->cz &&
+           SurfaceSectionYFromBlockY(cell->y) == sectionY;
+}
+
+bool FluidPrepareChunkSectionUnload(Chunk *chunk, int sectionY)
+{
+    if (!chunk || !chunk->loaded || !WorldIsSurfaceActive() ||
+        !ChunkGetSectionConst(chunk, sectionY)) {
+        return false;
+    }
+
+    uint32_t previousCount = fluidQueueCount;
+    uint32_t kept = 0u;
+    uint32_t surfaceId = WorldCurrentSurfaceId();
+    for (uint32_t read = 0u; read < previousCount; read++) {
+        uint32_t source = (fluidQueueHead + read) % FLUID_QUEUE_CAPACITY;
+        FluidQueueCell cell = fluidQueue[source];
+        if (FluidQueueCellMatchesSection(
+                &cell, chunk, sectionY, surfaceId)) {
+            continue;
+        }
+        uint32_t destination =
+            (fluidQueueHead + kept) % FLUID_QUEUE_CAPACITY;
+        fluidQueue[destination] = cell;
+        kept++;
+    }
+    for (uint32_t index = kept; index < previousCount; index++) {
+        uint32_t slot = (fluidQueueHead + index) % FLUID_QUEUE_CAPACITY;
+        fluidQueue[slot] = (FluidQueueCell){ 0 };
+    }
+    fluidQueueCount = kept;
+    fluidStats.activeCells = kept;
+    return true;
 }
 
 uint64_t FluidLoadedVolume(void)

@@ -30,6 +30,19 @@ void WorldNotifyChunkLoaded(Chunk *chunk)
     (void)chunk;
 }
 
+void WorldNotifyChunkSectionLoaded(Chunk *chunk, int sectionY)
+{
+    (void)chunk;
+    (void)sectionY;
+}
+
+bool WorldPrepareChunkSectionUnload(Chunk *chunk, int sectionY)
+{
+    (void)chunk;
+    (void)sectionY;
+    return false;
+}
+
 uint32_t WorldGetSeed(void)
 {
     return propertyWorldSeed;

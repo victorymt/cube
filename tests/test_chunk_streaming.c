@@ -2,6 +2,7 @@
 #include "terrain.h"
 #include "world.h"
 #include "world_environment.h"
+#include "world_extension.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -12,6 +13,26 @@
 #include <string.h>
 
 TerrainMode terrainMode = TERRAIN_VARIED;
+
+static int sectionLoadedNotifications = 0;
+static int sectionUnloadPreparations = 0;
+static int lastSectionLoaded = 0;
+static int lastSectionPrepared = 0;
+
+static void TestOnChunkSectionLoaded(Chunk *chunk, int sectionY)
+{
+    assert(chunk != NULL);
+    sectionLoadedNotifications++;
+    lastSectionLoaded = sectionY;
+}
+
+static bool TestPrepareChunkSectionUnload(Chunk *chunk, int sectionY)
+{
+    assert(chunk != NULL);
+    sectionUnloadPreparations++;
+    lastSectionPrepared = sectionY;
+    return true;
+}
 
 uint32_t WorldCurrentSurfaceId(void)
 {
@@ -679,6 +700,42 @@ static void TestDistantSectionJobsReleaseQueueCapacity(void)
     assert(stats.meshCanceled == 2u);
 }
 
+static void TestSectionLifecycleHooksPermitFluidRuntimePruning(void)
+{
+    ChunksTestResetScheduler();
+    const WorldExtensionHooks hooks = {
+        .onChunkSectionLoaded = TestOnChunkSectionLoaded,
+        .prepareChunkSectionUnload = TestPrepareChunkSectionUnload
+    };
+    WorldInstallExtensionHooks(&hooks);
+    sectionLoadedNotifications = 0;
+    sectionUnloadPreparations = 0;
+
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    Chunk *chunk = &chunks[0];
+    chunk->generation = 61u;
+    ChunkSection *runtime = ChunkGetSection(chunk, -30, true);
+    assert(runtime != NULL);
+    runtime->waterVolumes = malloc(1u);
+    assert(runtime->waterVolumes != NULL);
+    runtime->fluidDirty = true;
+
+    assert(ChunksTestPruneTerrainSections(
+        (Vector3){ 0.5f, -319.0f, 0.5f }) == 1);
+    assert(sectionUnloadPreparations == 1);
+    assert(lastSectionPrepared == -30);
+    assert(ChunkGetSectionConst(chunk, -30) == NULL);
+
+    assert(RequestChunkTerrainSection(0, 0, 0));
+    ChunksTestRunGenerationJob(0);
+    ProcessFinishedChunkJobs();
+    assert(sectionLoadedNotifications == 1);
+    assert(lastSectionLoaded == 0);
+    assert(ChunkGetSectionConst(chunk, 0) != NULL);
+
+    WorldInstallExtensionHooks(NULL);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(chunks));
@@ -700,6 +757,7 @@ int main(void)
     TestNegativeSectionPruningKeepsVerticalWindow();
     TestNegativeSectionPruningPreservesRuntimeState();
     TestDistantSectionJobsReleaseQueueCapacity();
+    TestSectionLifecycleHooksPermitFluidRuntimePruning();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

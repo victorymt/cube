@@ -140,6 +140,19 @@ void WorldNotifyChunkLoaded(Chunk *chunk)
     }
 }
 
+void WorldNotifyChunkSectionLoaded(Chunk *chunk, int sectionY)
+{
+    if (worldExtensionHooks.onChunkSectionLoaded) {
+        worldExtensionHooks.onChunkSectionLoaded(chunk, sectionY);
+    }
+}
+
+bool WorldPrepareChunkSectionUnload(Chunk *chunk, int sectionY)
+{
+    return worldExtensionHooks.prepareChunkSectionUnload &&
+           worldExtensionHooks.prepareChunkSectionUnload(chunk, sectionY);
+}
+
 static void BumpBlockEditRevision(void)
 {
     blockEditRevision++;
@@ -821,7 +834,9 @@ static bool MaterializeHomeSurfaceSectionForWrite(
         !ChunkGetSectionConst(chunk, sectionY)) {
         return false;
     }
+    if (!ChunkGetSection(chunk, sectionY, true)) return false;
     ApplyEditsToChunkSection(chunk, sectionY);
+    WorldNotifyChunkSectionLoaded(chunk, sectionY);
     return true;
 }
 

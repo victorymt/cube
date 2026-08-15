@@ -2242,7 +2242,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
         .tryDisplaceBlock = FluidTryDisplaceForBlockTracked,
         .replayBlockDisplacement = FluidReplayBlockDisplacement,
         .onBlockChanged = FluidOnBlockChanged,
-        .onChunkLoaded = FluidOnChunkLoaded
+        .onChunkLoaded = FluidOnChunkLoaded,
+        .onChunkSectionLoaded = FluidOnChunkSectionLoaded,
+        .prepareChunkSectionUnload = FluidPrepareChunkSectionUnload
     };
     WorldInstallExtensionHooks(&worldExtensionHooks);
     if (game->debugControlEnabled) SetTraceLogLevel(LOG_WARNING);

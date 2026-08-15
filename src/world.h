@@ -11,6 +11,8 @@ void WorldReset(uint32_t seed);
 TerrainMode WorldTerrainMode(void);
 void WorldSetTerrainMode(TerrainMode mode);
 void WorldNotifyChunkLoaded(Chunk *chunk);
+void WorldNotifyChunkSectionLoaded(Chunk *chunk, int sectionY);
+bool WorldPrepareChunkSectionUnload(Chunk *chunk, int sectionY);
 
 const char *BlockName(BlockType type);
 bool IsColorBlock(BlockType type);

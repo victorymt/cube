@@ -233,6 +233,28 @@ static void TestNegativeSectionCoordinates(void)
     assert(FluidGetVolumeAt(4, -1, 4) == FLUID_CAPACITY);
 }
 
+static void TestSectionUnloadRehydratesPersistedEdit(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    const int y = -17;
+    const int sectionY = SurfaceSectionYFromBlockY(y);
+    assert(FluidSetVolumeAt(4, y, 4, 77u));
+    assert(FluidGetStats().activeCells == 1u);
+    assert(FluidPrepareChunkSectionUnload(chunk, sectionY));
+    assert(FluidGetStats().activeCells == 0u);
+
+    ClearChunks();
+    chunk = CreateChunk(0, 0, 0);
+    FluidApplyEditsToChunk(chunk);
+    assert(ChunkGetSectionConst(chunk, sectionY) == NULL);
+
+    assert(ChunkGetSection(chunk, sectionY, true) != NULL);
+    FluidOnChunkSectionLoaded(chunk, sectionY);
+    assert(FluidGetVolumeAt(4, y, 4) == 77u);
+    assert(FluidGetStats().activeCells > 0u);
+}
+
 static void TestCrossChunkFlow(void)
 {
     ResetWorld();
@@ -326,6 +348,7 @@ static void TestEditDeletionMaintainsChunkIndex(void)
 
     ClearChunks();
     CreateChunk(0, 0, 0);
+    assert(ChunkGetSection(&chunks[0], 0, true) != NULL);
     FluidApplyEditsToChunk(&chunks[0]);
     for (int x = 0; x < CHUNK_SIZE; x++) {
         for (int z = 0; z < CHUNK_SIZE; z++) {
@@ -443,6 +466,7 @@ static void TestSaveLoadReplay(void)
     FluidReset();
     ClearChunks();
     CreateChunk(0, 0, 0);
+    assert(ChunkGetSection(&chunks[0], 0, true) != NULL);
     assert(FluidLoadState(file));
     FluidApplyEditsToChunk(&chunks[0]);
     assert(FluidGetVolumeAt(3, 6, 9) == 77u);
@@ -494,6 +518,7 @@ static void TestCorruptLoadPreservesState(void)
 int main(void)
 {
     TestNegativeSectionCoordinates();
+    TestSectionUnloadRehydratesPersistedEdit();
     TestGravityAndConservation();
     TestCrossChunkFlow();
     TestChunkLoadBoundaryActivation();

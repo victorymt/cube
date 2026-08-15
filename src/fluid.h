@@ -37,7 +37,10 @@ void FluidWakeCell(int x, int y, int z);
 void FluidOnBlockChanged(int x, int y, int z, BlockType previous,
                          BlockType next);
 void FluidApplyEditsToChunk(Chunk *chunk);
+void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY);
 void FluidOnChunkLoaded(Chunk *chunk);
+void FluidOnChunkSectionLoaded(Chunk *chunk, int sectionY);
+bool FluidPrepareChunkSectionUnload(Chunk *chunk, int sectionY);
 
 uint8_t FluidGetVolumeAt(int x, int y, int z);
 bool FluidSetVolumeAt(int x, int y, int z, uint8_t volume);

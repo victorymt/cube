@@ -35,6 +35,8 @@ typedef struct WorldExtensionHooks {
   void (*onBlockChanged)(int x, int y, int z, BlockType previous,
                          BlockType next);
   void (*onChunkLoaded)(Chunk *chunk);
+  void (*onChunkSectionLoaded)(Chunk *chunk, int sectionY);
+  bool (*prepareChunkSectionUnload)(Chunk *chunk, int sectionY);
 } WorldExtensionHooks;
 
 void WorldInstallExtensionHooks(const WorldExtensionHooks *hooks);
