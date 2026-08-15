@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_ORBIT_H
 #define VOXELCRAFT_SPACE_ORBIT_H
 
+#include "space_coordinates.h"
 #include "types.h"
 
 #include <stdbool.h>
@@ -16,6 +17,9 @@ typedef struct SpaceKeplerOrbit {
 } SpaceKeplerOrbit;
 
 typedef struct SpaceKeplerState {
+    CelestialVector3 positionKm;
+    CelestialVector3 velocityKmPerSecond;
+    // Compatibility projection for local gameplay and raylib rendering.
     Vector3 positionGame;
     Vector3 velocityGame;
 } SpaceKeplerState;

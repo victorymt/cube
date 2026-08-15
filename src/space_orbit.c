@@ -16,10 +16,8 @@ bool SpaceKeplerOrbitIsValid(const SpaceKeplerOrbit *orbit)
            isfinite(orbit->meanAnomalyAtEpochRad);
 }
 
-static Vector3 SpaceKeplerRotateFromOrbitalPlane(double x, double z,
-                                                  double inclination,
-                                                  double node,
-                                                  double periapsis)
+static CelestialVector3 SpaceKeplerRotateFromOrbitalPlane(
+    double x, double z, double inclination, double node, double periapsis)
 {
     double periapsisCosine = cos(periapsis);
     double periapsisSine = sin(periapsis);
@@ -31,16 +29,39 @@ static Vector3 SpaceKeplerRotateFromOrbitalPlane(double x, double z,
     double planeZ = orbitZ * inclinationCosine;
     double nodeCosine = cos(node);
     double nodeSine = sin(node);
-    return (Vector3){
-        (float)(orbitX * nodeCosine - planeZ * nodeSine),
-        (float)planeY,
-        (float)(orbitX * nodeSine + planeZ * nodeCosine)
+    return (CelestialVector3){
+        orbitX * nodeCosine - planeZ * nodeSine,
+        planeY,
+        orbitX * nodeSine + planeZ * nodeCosine
     };
 }
 
 static bool SpaceKeplerVectorIsFinite(Vector3 value)
 {
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
+static bool SpaceKeplerCelestialVectorIsFinite(CelestialVector3 value)
+{
+    return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
+}
+
+static Vector3 SpaceKeplerPositionToGame(CelestialVector3 value)
+{
+    return (Vector3){
+        (float)SpaceUnitsKilometersToGameDistance(value.x),
+        (float)SpaceUnitsKilometersToGameDistance(value.y),
+        (float)SpaceUnitsKilometersToGameDistance(value.z)
+    };
+}
+
+static Vector3 SpaceKeplerVelocityToGame(CelestialVector3 value)
+{
+    return (Vector3){
+        (float)SpaceUnitsKilometersPerSecondToGameVelocity(value.x),
+        (float)SpaceUnitsKilometersPerSecondToGameVelocity(value.y),
+        (float)SpaceUnitsKilometersPerSecondToGameVelocity(value.z)
+    };
 }
 
 typedef struct SpaceKeplerVectorD {
@@ -234,8 +255,6 @@ bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
 
     double eccentricityScale = sqrt(
         (1.0 - orbit->eccentricity) * (1.0 + orbit->eccentricity));
-    double semiMajorAxisGame = SpaceUnitsKilometersToGameDistance(
-        orbit->semiMajorAxisKm);
     double sine = sin(eccentricAnomaly);
     double cosine = cos(eccentricAnomaly);
     double eccentricAnomalyDenominator =
@@ -246,17 +265,27 @@ bool SpaceKeplerStateAtTime(const SpaceKeplerOrbit *orbit,
                                   eccentricAnomalyDenominator;
     if (!isfinite(eccentricAnomalyRate)) return false;
 
-    out->positionGame = SpaceKeplerRotateFromOrbitalPlane(
-        semiMajorAxisGame * (cosine - orbit->eccentricity),
-        semiMajorAxisGame * eccentricityScale * sine,
+    out->positionKm = SpaceKeplerRotateFromOrbitalPlane(
+        orbit->semiMajorAxisKm * (cosine - orbit->eccentricity),
+        orbit->semiMajorAxisKm * eccentricityScale * sine,
         orbit->inclinationRad, orbit->longitudeAscendingNodeRad,
         orbit->argumentPeriapsisRad);
-    out->velocityGame = SpaceKeplerRotateFromOrbitalPlane(
-        -semiMajorAxisGame * sine * eccentricAnomalyRate,
-        semiMajorAxisGame * eccentricityScale * cosine * eccentricAnomalyRate,
+    CelestialVector3 velocityKmPerGameTime = SpaceKeplerRotateFromOrbitalPlane(
+        -orbit->semiMajorAxisKm * sine * eccentricAnomalyRate,
+        orbit->semiMajorAxisKm * eccentricityScale * cosine * eccentricAnomalyRate,
         orbit->inclinationRad, orbit->longitudeAscendingNodeRad,
         orbit->argumentPeriapsisRad);
-    if (!SpaceKeplerVectorIsFinite(out->positionGame) ||
+    double perSecond = 1.0 / SPACE_UNITS_SECONDS_PER_GAME_TIME;
+    out->velocityKmPerSecond = (CelestialVector3){
+        velocityKmPerGameTime.x * perSecond,
+        velocityKmPerGameTime.y * perSecond,
+        velocityKmPerGameTime.z * perSecond
+    };
+    out->positionGame = SpaceKeplerPositionToGame(out->positionKm);
+    out->velocityGame = SpaceKeplerVelocityToGame(out->velocityKmPerSecond);
+    if (!SpaceKeplerCelestialVectorIsFinite(out->positionKm) ||
+        !SpaceKeplerCelestialVectorIsFinite(out->velocityKmPerSecond) ||
+        !SpaceKeplerVectorIsFinite(out->positionGame) ||
         !SpaceKeplerVectorIsFinite(out->velocityGame)) {
         *out = (SpaceKeplerState){ 0 };
         return false;

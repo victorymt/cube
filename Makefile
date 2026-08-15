@@ -21,6 +21,7 @@ SPACE_REMNANT_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_remnant
 SPACE_ILLUMINATION_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_illumination
 SPACE_SATELLITE_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_satellite
 SPACE_UNITS_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_units
+SPACE_COORDINATES_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_coordinates
 SPACE_PROPERTIES_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_properties
 SPACE_SYSTEM_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_system
 ECOLOGY_SYSTEM_TEST_TARGET := $(TEST_BUILD_DIR)/test_ecology_system
@@ -63,8 +64,10 @@ PLANET_RENDERER_RESOURCES_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_renderer_
 PLANET_TEXTURE_RESOURCES_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_texture_resources
 HOMEWORLD_MAP_MODEL_TEST_TARGET := $(TEST_BUILD_DIR)/test_homeworld_map_model
 SRC := src/main.c src/game.c src/game_debug.c src/game_interaction.c src/game_runtime.c src/album.c src/inventory.c src/space.c src/space_query_cache.c src/planet_profile.c src/space_system_physics.c src/space_system.c src/space_barycenter.c src/space_orbit.c src/space_remnant.c src/space_illumination.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/world_environment.c src/ship.c src/ship_locator.c src/nether.c src/entity.c src/creature_renderer.c src/creature_visual.c src/homeworld_map.c src/homeworld_map_model.c src/fauna_motion.c src/fauna_behavior.c src/evolution.c src/evolution_catalog.c src/fluid.c src/ecology_model.c src/ecology.c src/ecology_profile.c src/ecology_population.c src/ecology_flora.c src/terrain.c src/subsurface.c src/planet_climate.c src/planet_observation.c src/planet_surface.c src/planet_material.c src/planet_renderer.c src/discovery.c src/block_atlas.c src/chunks.c src/world.c src/save_io.c src/game_settings.c src/screenshot.c src/debug_control.c src/environment_presentation.c src/environment_runtime.c src/world_lighting.c src/player.c src/interaction.c src/render.c src/world_renderer.c src/render_sort.c src/render_resources.c src/perf.c src/particles.c src/audio.c src/weather_model.c src/weather_visual.c src/weather.c src/starmap.c
+SRC += src/space_coordinates.c
 
 TEST_TARGETS := $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(PLANET_OBSERVATION_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(EVOLUTION_TEST_TARGET) $(EVOLUTION_CATALOG_TEST_TARGET) $(FLUID_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(WEATHER_RUNTIME_TEST_TARGET) $(WEATHER_VISUAL_TEST_TARGET) $(PLAYER_COLLISION_TEST_TARGET) $(SHIP_STATE_TEST_TARGET) $(SHIP_LOCATOR_TEST_TARGET) $(BLOCK_ATLAS_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(CHUNK_STREAMING_TEST_TARGET) $(TERRAIN_SCALE_TEST_TARGET) $(SUBSURFACE_TEST_TARGET) $(PERF_TEST_TARGET) $(RENDER_SORT_TEST_TARGET) $(RENDER_RESOURCES_TEST_TARGET) $(WORLD_RENDERER_TEST_TARGET) $(WORLD_LIGHTING_TEST_TARGET) $(SAVE_IO_TEST_TARGET) $(GAME_SETTINGS_TEST_TARGET) $(SCREENSHOT_TEST_TARGET) $(DEBUG_CONTROL_TEST_TARGET) $(ENVIRONMENT_PRESENTATION_TEST_TARGET) $(ENVIRONMENT_RUNTIME_TEST_TARGET) $(AUDIO_ENVIRONMENT_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET) $(PLANET_RENDERER_RESOURCES_TEST_TARGET) $(PLANET_TEXTURE_RESOURCES_TEST_TARGET) $(HOMEWORLD_MAP_MODEL_TEST_TARGET)
+TEST_TARGETS += $(SPACE_COORDINATES_TEST_TARGET)
 TEST_TIMEOUT_SECONDS ?= 120
 SANITIZER_LEAKS ?= 1
 SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=address,undefined -fno-omit-frame-pointer
@@ -148,8 +151,8 @@ $(SPACE_PHYSICS_TEST_TARGET): tests/test_space_physics.c src/space_physics.c src
 $(SPACE_BARYCENTER_TEST_TARGET): tests/test_space_barycenter.c src/space_barycenter.c src/space_barycenter.h src/space_orbit.c src/space_orbit.h src/space_units.c src/space_units.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_barycenter.c src/space_barycenter.c src/space_orbit.c src/space_units.c -lm
 
-$(SPACE_ORBIT_TEST_TARGET): tests/test_space_orbit.c src/space_orbit.c src/space_orbit.h src/space_units.c src/space_units.h
-	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_orbit.c src/space_orbit.c src/space_units.c -lm
+$(SPACE_ORBIT_TEST_TARGET): tests/test_space_orbit.c src/space_orbit.c src/space_orbit.h src/space_coordinates.c src/space_coordinates.h src/space_units.c src/space_units.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_orbit.c src/space_orbit.c src/space_coordinates.c src/space_units.c -lm
 
 $(SPACE_REMNANT_TEST_TARGET): tests/test_space_remnant.c src/space_remnant.c src/space_remnant.h src/stellar.c src/stellar.h src/space_units.c src/space_units.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_space_remnant.c src/space_remnant.c src/stellar.c src/space_units.c -lm
@@ -162,6 +165,9 @@ $(SPACE_SATELLITE_TEST_TARGET): tests/test_space_satellite.c src/space_satellite
 
 $(SPACE_UNITS_TEST_TARGET): tests/test_space_units.c src/space_units.c src/space_units.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_space_units.c src/space_units.c -lm
+
+$(SPACE_COORDINATES_TEST_TARGET): tests/test_space_coordinates.c src/space_coordinates.c src/space_coordinates.h src/space_units.c src/space_units.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_space_coordinates.c src/space_coordinates.c src/space_units.c -lm
 
 $(SPACE_PROPERTIES_TEST_TARGET): tests/test_space_properties.c src/space.c src/space.h src/planet_profile.c src/planet_profile.h src/space_system_physics.c src/space_system_physics.h src/space_system.c src/space_system.h src/space_barycenter.c src/space_barycenter.h src/space_orbit.c src/space_orbit.h src/space_remnant.c src/space_remnant.h src/space_illumination.c src/space_illumination.h src/planet_climate.c src/planet_climate.h src/planet_surface.c src/planet_surface.h src/space_physics.c src/space_physics.h src/space_satellite.c src/space_satellite.h src/space_units.c src/space_units.h src/stellar.c src/stellar.h src/terrain.c src/terrain.h src/subsurface.c src/subsurface.h src/block_atlas.c src/block_atlas.h src/chunks.c src/chunks.h src/weather_model.c src/weather_model.h
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_space_properties.c src/space.c src/space_query_cache.c src/planet_profile.c src/space_system_physics.c src/space_system.c src/space_barycenter.c src/space_orbit.c src/space_remnant.c src/space_illumination.c src/planet_climate.c src/planet_surface.c src/space_physics.c src/space_satellite.c src/space_units.c src/stellar.c src/terrain.c src/subsurface.c src/block_atlas.c src/chunks.c src/weather_model.c -lm -pthread

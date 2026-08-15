@@ -1132,6 +1132,23 @@ int SolarSystemPhysicalSnapshotStellarBodiesAtTime(
             return 0;
         }
         out[i] = (SolarStellarBody){
+            .celestialPosition = {
+                .systemAnchorX = sys->anchorX,
+                .systemAnchorZ = sys->anchorZ,
+                .offsetKm = {
+                    SpaceUnitsGameDistanceToKilometers(states[i].offsetGame.x),
+                    SpaceUnitsGameDistanceToKilometers(states[i].offsetGame.y),
+                    SpaceUnitsGameDistanceToKilometers(states[i].offsetGame.z)
+                }
+            },
+            .celestialVelocityKmPerSecond = {
+                SpaceUnitsGameVelocityToKilometersPerSecond(
+                    states[i].velocityGame.x),
+                SpaceUnitsGameVelocityToKilometersPerSecond(
+                    states[i].velocityGame.y),
+                SpaceUnitsGameVelocityToKilometersPerSecond(
+                    states[i].velocityGame.z)
+            },
             .center = Vector3Add(sys->center, states[i].offsetGame),
             .velocity = states[i].velocityGame,
             .stellar = *star,

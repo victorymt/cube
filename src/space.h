@@ -7,6 +7,7 @@
 #include "space_remnant.h"
 #include "stellar.h"
 #include "space_satellite.h"
+#include "space_coordinates.h"
 #include "types.h"
 #include "render_resources.h"
 
@@ -36,6 +37,8 @@ typedef struct SolarLightSource {
 } SolarLightSource;
 
 typedef struct SolarStellarBody {
+    CelestialPosition celestialPosition;
+    CelestialVector3 celestialVelocityKmPerSecond;
     Vector3 center;
     Vector3 velocity;
     StellarProfile stellar;
@@ -130,6 +133,8 @@ typedef struct SolarSystemDef {
 } SolarSystemDef;
 
 typedef struct SolarPlanetOrbitalState {
+    CelestialPosition celestialPosition;
+    CelestialVector3 celestialVelocityKmPerSecond;
     Vector3 center;
     Vector3 velocity;
 } SolarPlanetOrbitalState;
@@ -137,6 +142,8 @@ typedef struct SolarPlanetOrbitalState {
 typedef struct SolarPlanetRuntimeState {
     bool valid;
     SolarPlanetDynamicalStatus dynamicalStatus;
+    CelestialPosition celestialPosition;
+    CelestialVector3 celestialVelocityKmPerSecond;
     Vector3 center;
     Vector3 velocity;
     double semiMajorAxisKm;
@@ -160,6 +167,8 @@ typedef struct SolarSystemRuntimeState {
 } SolarSystemRuntimeState;
 
 typedef struct SpaceBodyInfo {
+    CelestialPosition celestialPosition;
+    CelestialVector3 celestialVelocityKmPerSecond;
     Vector3 center; // Scene position in game distance units.
     Vector3 velocity; // Scene velocity in game distance units per game time unit.
     double physicalRadiusKm;

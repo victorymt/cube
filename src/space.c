@@ -737,6 +737,12 @@ static bool SolarSystemPlanetStateForSnapshotAtTime(
     }
     out->center = Vector3Add(sys->center, relative.positionGame);
     out->velocity = relative.velocityGame;
+    out->celestialPosition = (CelestialPosition){
+        .systemAnchorX = sys->anchorX,
+        .systemAnchorZ = sys->anchorZ,
+        .offsetKm = relative.positionKm
+    };
+    out->celestialVelocityKmPerSecond = relative.velocityKmPerSecond;
     if (!SpaceVectorIsFinite(out->center) ||
         !SpaceVectorIsFinite(out->velocity)) {
         *out = (SolarPlanetOrbitalState){ 0 };
@@ -964,6 +970,9 @@ static bool SolarSystemEvaluateSnapshotAtTime(
         }
         planet->center = orbitalState.center;
         planet->velocity = orbitalState.velocity;
+        planet->celestialPosition = orbitalState.celestialPosition;
+        planet->celestialVelocityKmPerSecond =
+            orbitalState.celestialVelocityKmPerSecond;
         planet->semiMajorAxisKm =
             snapshot->planetOrbits[index].semiMajorAxisKm;
         planet->currentIrradianceEarth = SolarSystemIrradianceAt(
@@ -2295,6 +2304,9 @@ static bool PlanetBodyInfoForRuntime(const SolarSystemDef *system,
     double parentMassKg = runtime->totalStellarMassKg;
     float landingRadius = SolarBodyTerrainProxyRadius(profile->spaceProxyRadius);
     *out = (SpaceBodyInfo){
+        .celestialPosition = planet->celestialPosition,
+        .celestialVelocityKmPerSecond =
+            planet->celestialVelocityKmPerSecond,
         .center = center,
         .velocity = planet->velocity,
         .physicalRadiusKm = profile->physicalRadiusKm,
@@ -2361,6 +2373,10 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     runtime.stars[starIndex].center, pos);
                 if (starDist > maxDist) continue;
                 SpaceBodyInfo body = {
+                    .celestialPosition =
+                        runtime.stars[starIndex].celestialPosition,
+                    .celestialVelocityKmPerSecond =
+                        runtime.stars[starIndex].celestialVelocityKmPerSecond,
                     .center = runtime.stars[starIndex].center,
                     .velocity = runtime.stars[starIndex].velocity,
                     .physicalRadiusKm = runtime.stars[starIndex].stellar.radiusKm,
