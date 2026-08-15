@@ -44,4 +44,20 @@ if grep -n 'DebugControlPoll' src/game.c; then
     fail "debug command routing must remain in game_debug.c"
 fi
 
+render_frame_body=$(sed -n '/^static void GameRenderFrame(/,/^}/p' src/game.c)
+for render_stage in \
+    GameRenderBackground \
+    GameRenderWorldPass \
+    GameBuildShipHud \
+    GameRenderEnvironmentOverlays \
+    GameRenderHud \
+    GameRenderPauseOverlay
+do
+    printf '%s\n' "$render_frame_body" | grep -q "$render_stage(" ||
+        fail "game rendering must delegate to $render_stage"
+done
+render_frame_lines=$(printf '%s\n' "$render_frame_body" | wc -l)
+[ "$render_frame_lines" -le 25 ] ||
+    fail "GameRenderFrame must remain a render-stage coordinator"
+
 echo "architecture checks passed"

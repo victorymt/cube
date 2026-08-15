@@ -1547,28 +1547,73 @@ static void GameUpdateFrameEnvironment(GameRuntime *game,
     PerfMarkUpdateComplete();
 }
 
-static void GameRenderFrame(GameRuntime *game,
-                            const GameFrameView *frame)
+static void GameRenderBackground(GameRuntime *game,
+                                 const GameFrameView *frame)
 {
-    BeginDrawing();
     ClearBackground(frame->skyTop);
-    DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(), frame->skyTop, frame->skyHorizon);
+    DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(),
+                           frame->skyTop, frame->skyHorizon);
     if (!frame->underwater) {
-        DrawPlanetAtmosphereSky(&game->camera, &frame->planetLight, &frame->planetObservation,
+        DrawPlanetAtmosphereSky(&game->camera, &frame->planetLight,
+                                &frame->planetObservation,
                                 &frame->weatherVisual);
     }
+}
 
+static void GameRenderInteractionGuides(GameRuntime *game,
+                                        const GameFrameView *frame)
+{
+    if (frame->hit.hit) {
+        if (frame->hitParkedShip && !frame->hitShip.legacy) {
+            Vector3 center = {
+                frame->hitShip.coreX + 1.0f,
+                frame->hitShip.coreY + 1.0f,
+                frame->hitShip.coreZ + 1.0f
+            };
+            DrawCubeWires(center, 4.03f, 2.03f, 4.03f, WHITE);
+        } else {
+            Vector3 center = {
+                frame->hit.x + 0.5f,
+                frame->hit.y + 0.5f,
+                frame->hit.z + 0.5f
+            };
+            DrawCubeWires(center, 1.03f, 1.03f, 1.03f, WHITE);
+        }
+    }
+    if (!frame->canPlace) return;
+
+    if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP) {
+        Vector3 center = {
+            frame->placeX + 1.0f,
+            frame->placeY + 1.0f,
+            frame->placeZ + 1.0f
+        };
+        DrawCubeWires(center, 4.02f, 2.02f, 4.02f, Fade(GREEN, 0.9f));
+    } else {
+        Vector3 center = {
+            frame->placeX + 0.5f,
+            frame->placeY + 0.5f,
+            frame->placeZ + 0.5f
+        };
+        DrawCubeWires(center, 1.02f, 1.02f, 1.02f, Fade(GREEN, 0.9f));
+    }
+}
+
+static void GameRenderWorldPass(GameRuntime *game,
+                                const GameFrameView *frame)
+{
     PerfBeginGpuFrame();
     bool drawSurfaceChunks = PlanetWorldIsActive() ||
-                             (HomeWorldSurfaceIsActive() && !frame->inNether && frame->spaceFade <= 0.05f);
-    DrawWorldShadowMap(&game->camera, frame->effectiveRenderDistance, drawSurfaceChunks,
-                       frame->inNether, &frame->worldLighting);
+        (HomeWorldSurfaceIsActive() && !frame->inNether &&
+         frame->spaceFade <= 0.05f);
+    DrawWorldShadowMap(&game->camera, frame->effectiveRenderDistance,
+                       drawSurfaceChunks, frame->inNether,
+                       &frame->worldLighting);
     BeginMode3D(game->camera);
-    DrawWorld(&game->camera, frame->effectiveRenderDistance, frame->worldTint, drawSurfaceChunks,
-              frame->inNether, &frame->worldLighting);
+    DrawWorld(&game->camera, frame->effectiveRenderDistance, frame->worldTint,
+              drawSurfaceChunks, frame->inNether, &frame->worldLighting);
     if (frame->localWorldActive) EntitiesDraw();
-    // Keep the first-person flight view clear. The ship model is only useful
-    // as an exterior reference when the camera is in third person.
+    // The ship model is only useful as an exterior reference.
     if (ShipIsDriving() && game->thirdPerson) ShipDraw(&game->player);
     if (!frame->underwater) {
         DrawHomePlanet(&game->camera, frame->spaceFade);
@@ -1577,91 +1622,89 @@ static void GameRenderFrame(GameRuntime *game,
         }
         DrawSolarBodies(&game->camera, frame->spaceFade);
     }
-    bool drawCloudLayer = frame->weatherVisual.active;
-    if (frame->skyFade < 0.5f && !frame->inNether && !frame->underwater && drawCloudLayer) {
-        DrawClouds(&game->camera, Fade(frame->worldTint, 1.0f - frame->skyFade * 2.0f),
+    if (frame->skyFade < 0.5f && !frame->inNether &&
+        !frame->underwater && frame->weatherVisual.active) {
+        DrawClouds(&game->camera,
+                   Fade(frame->worldTint, 1.0f - frame->skyFade * 2.0f),
                    frame->weatherSimulationTime, &frame->weatherVisual,
                    &frame->environmentPresentation, &frame->worldLighting);
     }
     ParticlesDraw();
-    if (frame->hit.hit) {
-        if (frame->hitParkedShip && !frame->hitShip.legacy) {
-            Vector3 center = {
-                frame->hitShip.coreX + 1.0f, frame->hitShip.coreY + 1.0f,
-                frame->hitShip.coreZ + 1.0f
-            };
-            DrawCubeWires(center, 4.03f, 2.03f, 4.03f, WHITE);
-        } else {
-            Vector3 center = { frame->hit.x + 0.5f, frame->hit.y + 0.5f, frame->hit.z + 0.5f };
-            DrawCubeWires(center, 1.03f, 1.03f, 1.03f, WHITE);
-        }
-    }
-    if (frame->canPlace) {
-        if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP) {
-            Vector3 center = { frame->placeX + 1.0f, frame->placeY + 1.0f, frame->placeZ + 1.0f };
-            DrawCubeWires(center, 4.02f, 2.02f, 4.02f,
-                          Fade(GREEN, 0.9f));
-        } else {
-            Vector3 center = { frame->placeX + 0.5f, frame->placeY + 0.5f, frame->placeZ + 0.5f };
-            DrawCubeWires(center, 1.02f, 1.02f, 1.02f, Fade(GREEN, 0.9f));
-        }
-    }
+    GameRenderInteractionGuides(game, frame);
     EndMode3D();
     PerfEndGpuFrame();
+}
 
+static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
+                              char *systemName, size_t systemNameSize)
+{
     float shipSpeed = Vector3Length(game->player.velocity);
-    char shipHudSystem[48] = "---";
-    ShipHudState shipHud = {
+    snprintf(systemName, systemNameSize, "---");
+    *shipHud = (ShipHudState){
         .speed = shipSpeed,
         .atmosphere = -1.0f,
-        .systemName = shipHudSystem
+        .systemName = systemName
     };
-    if (ShipIsDriving()) {
-        shipHud.cruising = ShipIsCruising();
-        Vector3 gravityDir = Vector3Zero();
-        float surfaceDist = 0.0f;
-        if (PlanetWorldIsActive()) {
-            shipHud.nearPlanet = true;
-            shipHud.altitude = game->player.position.y -
-                (float)PlanetTerrainHeight((int)floorf(game->player.position.x),
-                                           (int)floorf(game->player.position.z));
-            shipHud.atmosphere =
-                (1.0f - PlanetWorldAtmosphereFade(game->camera.position)) * 100.0f;
-        } else if (HomeWorldSurfaceIsActive()) {
-            shipHud.nearPlanet = true;
-            shipHud.altitude = game->player.position.y -
-                (float)TerrainHeight((int)floorf(game->player.position.x),
-                                     (int)floorf(game->player.position.z), WorldTerrainMode());
-            shipHud.atmosphere =
-                (1.0f - HomeWorldSpaceFade(game->camera.position)) * 100.0f;
-        } else if (PlanetSurfaceAt(game->player.position, &gravityDir, &surfaceDist,
-                                   NULL)) {
-            shipHud.nearPlanet = true;
-            shipHud.altitude = surfaceDist;
-        } else {
-            shipHud.nearPlanet = false;
-            shipHud.altitude = game->player.position.y - (float)SPACE_LAYER_Y;
-        }
-        shipHud.heading = fmodf(game->player.yaw * RAD2DEG + 360.0f, 360.0f);
-        SolarSystemDef hudSys;
-        float hudDist = 0.0f;
-        if (PlanetWorldIsActive()) {
-            snprintf(shipHudSystem, sizeof(shipHudSystem), "%s surface", PlanetWorldName());
-        } else if (FindNearestSystem(game->player.position, 3000.0f, &hudSys, &hudDist)) {
-            snprintf(shipHudSystem, sizeof(shipHudSystem), "%s Prime (%.0f)", hudSys.name, hudDist);
-        } else {
-            snprintf(shipHudSystem, sizeof(shipHudSystem), "Deep space");
-        }
-    }
+    if (!ShipIsDriving()) return shipSpeed;
 
+    shipHud->cruising = ShipIsCruising();
+    Vector3 gravityDir = Vector3Zero();
+    float surfaceDist = 0.0f;
+    if (PlanetWorldIsActive()) {
+        shipHud->nearPlanet = true;
+        shipHud->altitude = game->player.position.y -
+            (float)PlanetTerrainHeight(
+                (int)floorf(game->player.position.x),
+                (int)floorf(game->player.position.z));
+        shipHud->atmosphere =
+            (1.0f - PlanetWorldAtmosphereFade(game->camera.position)) * 100.0f;
+    } else if (HomeWorldSurfaceIsActive()) {
+        shipHud->nearPlanet = true;
+        shipHud->altitude = game->player.position.y -
+            (float)TerrainHeight(
+                (int)floorf(game->player.position.x),
+                (int)floorf(game->player.position.z), WorldTerrainMode());
+        shipHud->atmosphere =
+            (1.0f - HomeWorldSpaceFade(game->camera.position)) * 100.0f;
+    } else if (PlanetSurfaceAt(game->player.position, &gravityDir,
+                               &surfaceDist, NULL)) {
+        shipHud->nearPlanet = true;
+        shipHud->altitude = surfaceDist;
+    } else {
+        shipHud->nearPlanet = false;
+        shipHud->altitude = game->player.position.y - (float)SPACE_LAYER_Y;
+    }
+    shipHud->heading = fmodf(
+        game->player.yaw * RAD2DEG + 360.0f, 360.0f);
+    SolarSystemDef hudSystem = { 0 };
+    float hudDistance = 0.0f;
+    if (PlanetWorldIsActive()) {
+        snprintf(systemName, systemNameSize, "%s surface", PlanetWorldName());
+    } else if (FindNearestSystem(game->player.position, 3000.0f,
+                                 &hudSystem, &hudDistance)) {
+        snprintf(systemName, systemNameSize, "%s Prime (%.0f)",
+                 hudSystem.name, hudDistance);
+    } else {
+        snprintf(systemName, systemNameSize, "Deep space");
+    }
+    return shipSpeed;
+}
+
+static void GameRenderEnvironmentOverlays(GameRuntime *game,
+                                          const GameFrameView *frame,
+                                          const ShipHudState *shipHud)
+{
     if (!frame->underwater) {
-        DrawStars(&game->camera, frame->inNether ? 1.0f :
-                  1.0f - frame->environmentPresentation.starVisibility,
+        DrawStars(&game->camera,
+                  frame->inNether
+                      ? 1.0f
+                      : 1.0f - frame->environmentPresentation.starVisibility,
                   &frame->planetObservation, &frame->weatherVisual);
         DrawSpaceSky(frame->skyFade, frame->daylight, &game->camera);
         if (frame->spaceFade < 0.5f && !frame->inNether) {
-            DrawCelestial(&game->camera, game->dayTime, frame->daylight, &frame->planetLight,
-                          &frame->planetObservation, &frame->weatherVisual);
+            DrawCelestial(&game->camera, game->dayTime, frame->daylight,
+                          &frame->planetLight, &frame->planetObservation,
+                          &frame->weatherVisual);
         }
         if (!frame->inNether && frame->skyFade < 0.5f) {
             DrawWeatherOverlay(&game->camera, &frame->weatherVisual);
@@ -1669,17 +1712,24 @@ static void GameRenderFrame(GameRuntime *game,
     }
     DrawEnvironmentPostProcess(&frame->environmentPresentation);
     DrawSolarGuide(&game->camera, frame->spaceFade);
-    if (game->scannerActive && PlanetWorldIsActive()) PlanetPoiDrawScanner(&game->camera, game->player.position);
+    if (game->scannerActive && PlanetWorldIsActive()) {
+        PlanetPoiDrawScanner(&game->camera, game->player.position);
+    }
     ShipLocatorTarget shipLocatorTarget = { 0 };
     if (game->shipLocatorEnabled && !ShipIsDriving() &&
         ShipLocatorTargetAt(game->player.position, &shipLocatorTarget)) {
         DrawShipLocator(&game->camera, &shipLocatorTarget);
     }
-    if (ShipIsDriving()) DrawShipHud(&shipHud);
-    if (frame->spaceFade > 0.05f && frame->haveAimBody && !StarMapIsOpen()) {
+    if (ShipIsDriving()) DrawShipHud(shipHud);
+    if (frame->spaceFade > 0.05f && frame->haveAimBody &&
+        !StarMapIsOpen()) {
         DrawBodyInfoPanel(&frame->aimBody);
     }
-    if (!game->biologyAtlasOpen) DrawCrosshair(GetScreenWidth(), GetScreenHeight());
+}
+
+static void GameRenderEvolutionPanel(GameRuntime *game,
+                                     const GameFrameView *frame)
+{
     EntityEvolutionDebugInfo aimedEvolution = { 0 };
     int evolutionDisplayEntity = frame->entityHit;
     if (game->evolutionScanLocked) {
@@ -1691,25 +1741,46 @@ static void GameRenderFrame(GameRuntime *game,
         }
     }
     if (EntityEvolutionInspect(evolutionDisplayEntity, &aimedEvolution)) {
-        DrawEvolutionScanPanel(&aimedEvolution,
-                               game->evolutionScanLocked);
+        DrawEvolutionScanPanel(&aimedEvolution, game->evolutionScanLocked);
     }
+}
+
+static void GameRenderStatusHud(GameRuntime *game)
+{
+    DrawHotbar(game->hotbar, game->selectedIndex);
+    DrawImportStatus();
+    int hour = (int)(game->dayTime * 24.0f) % 24;
+    const char *positionText = TextFormat(
+        "XYZ %d %d %d    %02d:00",
+        (int)floorf(game->player.position.x),
+        (int)floorf(game->player.position.y),
+        (int)floorf(game->player.position.z), hour);
+    UiDrawText(positionText, 15, GetScreenHeight() - 32, 17,
+               Fade(BLACK, 0.92f));
+    UiDrawText(positionText, 14, GetScreenHeight() - 34, 17,
+               Fade(WHITE, 0.9f));
+    const char *saveText = TextFormat(
+        "Auto-save: %s", game->autoSaveEnabled ? "60s" : "off");
+    UiDrawText(saveText, 15, GetScreenHeight() - 14, 15,
+               Fade(BLACK, 0.92f));
+    UiDrawText(saveText, 14, GetScreenHeight() - 16, 15,
+               Fade(WHITE, 0.65f));
+    if (game->cursorReleased && !game->importDialog.open) {
+        DrawCursorReleasedOverlay();
+    }
+}
+
+static void GameRenderHud(GameRuntime *game, const GameFrameView *frame,
+                          float shipSpeed)
+{
     if (!game->biologyAtlasOpen) {
-        DrawHotbar(game->hotbar, game->selectedIndex);
-        DrawImportStatus();
-        int hour = (int)(game->dayTime * 24.0f) % 24;
-        const char *positionText = TextFormat("XYZ %d %d %d    %02d:00", (int)floorf(game->player.position.x),
-                                              (int)floorf(game->player.position.y),
-                                              (int)floorf(game->player.position.z), hour);
-        UiDrawText(positionText, 15, GetScreenHeight() - 32, 17, Fade(BLACK, 0.92f));
-        UiDrawText(positionText, 14, GetScreenHeight() - 34, 17, Fade(WHITE, 0.9f));
-        const char *saveText = TextFormat("Auto-save: %s", game->autoSaveEnabled ? "60s" : "off");
-        UiDrawText(saveText, 15, GetScreenHeight() - 14, 15, Fade(BLACK, 0.92f));
-        UiDrawText(saveText, 14, GetScreenHeight() - 16, 15, Fade(WHITE, 0.65f));
-        if (game->cursorReleased && !game->importDialog.open) DrawCursorReleasedOverlay();
+        DrawCrosshair(GetScreenWidth(), GetScreenHeight());
     }
+    GameRenderEvolutionPanel(game, frame);
+    if (!game->biologyAtlasOpen) GameRenderStatusHud(game);
     if (game->showHelp && !game->biologyAtlasOpen) {
-        DrawHelpPanel(game->player.floating, game->cursorReleased, renderDistanceChunks);
+        DrawHelpPanel(game->player.floating, game->cursorReleased,
+                      renderDistanceChunks);
     }
     DrawImportDialog(&game->importDialog);
     AlbumDraw();
@@ -1719,78 +1790,102 @@ static void GameRenderFrame(GameRuntime *game,
             .dayTime = game->dayTime,
             .shipSpeed = shipSpeed,
             .targetedBlock = frame->hit.hit
-                ? GetBlockAt(frame->hit.x, frame->hit.y, frame->hit.z) : BLOCK_AIR,
+                ? GetBlockAt(frame->hit.x, frame->hit.y, frame->hit.z)
+                : BLOCK_AIR,
             .spaceEditCount = GetSpaceEditCount(),
             .autoSaveEnabled = game->autoSaveEnabled
         };
-        DrawDebugHUD(game->player.position, game->player.yaw, game->player.pitch, frame->daylight,
+        DrawDebugHUD(game->player.position, game->player.yaw,
+                     game->player.pitch, frame->daylight,
                      &frame->planetLight, &frame->planetObservation,
                      frame->planetSeasonProgress, &frame->weatherVisual,
                      &frame->bathymetry, &hud);
     }
-    DrawBiologyAtlas(game);
-    DrawLandingTransitionOverlay(&game->landingTransition);
-    if (game->paused) {
-        if (IsKeyPressed(KEY_MINUS)) {
-            game->settings.masterVolume = fmaxf(0.0f, game->settings.masterVolume - 0.1f);
-            AudioSetVolumes(game->settings.masterVolume, game->settings.ambientVolume,
-                            game->settings.musicVolume);
-            GameSettingsSave(&game->settings);
-        }
-        if (IsKeyPressed(KEY_EQUAL)) {
-            game->settings.masterVolume = fminf(1.0f, game->settings.masterVolume + 0.1f);
-            AudioSetVolumes(game->settings.masterVolume, game->settings.ambientVolume,
-                            game->settings.musicVolume);
-            GameSettingsSave(&game->settings);
-        }
-        PauseMenuActions pauseActions = { 0 };
-        GraphicsQuality previousQuality = game->settings.graphicsQuality;
-        DrawPauseMenu(&game->settings, &pauseActions);
-        if (pauseActions.settingsChanged) {
-            if (pauseActions.qualityChanged &&
-                !WorldRendererSetQuality(game->settings.graphicsQuality)) {
-                game->settings.graphicsQuality = previousQuality;
-                SetImportMessage("Graphics quality change failed; previous quality restored.");
-            }
-            WeatherSetParticleScale(
-                GraphicsQualityProfileFor(game->settings.graphicsQuality).precipitationScale);
-            AudioSetVolumes(game->settings.masterVolume, game->settings.ambientVolume,
-                            game->settings.musicVolume);
-            AudioSetMusicEnabled(game->settings.musicEnabled);
-            GameSettingsSave(&game->settings);
-        }
-        if (pauseActions.resume) {
-            game->paused = false;
-            DisableCursor();
-        }
-        if (pauseActions.saveWorld) {
-            // Saving is safe while flying: ShipSaveState only persists
-            // fuel. Do not gate the save on a successful parking spot
-            // (ShipForceExit can fail in a tight dock, which used to
-            // silently drop the save).
-            SaveMap(&game->player);
-        }
-        if (pauseActions.returnToMenu) {
-            game->paused = false;
-            game->cursorReleased = false;
-            if (game->albumOpen) {
-                game->albumOpen = false;
-                AlbumClose();
-            }
-            game->screen = SCREEN_START;
-            AudioSetEnvironment(NULL);
-            EnableCursor();
-        }
-        if (pauseActions.saveAndQuit) {
-            SaveMap(&game->player);
-            game->quitSaveDone = true;
-            game->quitRequested = true;
-        }
-    }
-
-    EndDrawing();
 }
 
+static void GameRenderPauseOverlay(GameRuntime *game)
+{
+    if (!game->paused) return;
+
+    if (IsKeyPressed(KEY_MINUS)) {
+        game->settings.masterVolume = fmaxf(
+            0.0f, game->settings.masterVolume - 0.1f);
+        AudioSetVolumes(game->settings.masterVolume,
+                        game->settings.ambientVolume,
+                        game->settings.musicVolume);
+        GameSettingsSave(&game->settings);
+    }
+    if (IsKeyPressed(KEY_EQUAL)) {
+        game->settings.masterVolume = fminf(
+            1.0f, game->settings.masterVolume + 0.1f);
+        AudioSetVolumes(game->settings.masterVolume,
+                        game->settings.ambientVolume,
+                        game->settings.musicVolume);
+        GameSettingsSave(&game->settings);
+    }
+    PauseMenuActions pauseActions = { 0 };
+    GraphicsQuality previousQuality = game->settings.graphicsQuality;
+    DrawPauseMenu(&game->settings, &pauseActions);
+    if (pauseActions.settingsChanged) {
+        if (pauseActions.qualityChanged &&
+            !WorldRendererSetQuality(game->settings.graphicsQuality)) {
+            game->settings.graphicsQuality = previousQuality;
+            SetImportMessage(
+                "Graphics quality change failed; previous quality restored.");
+        }
+        WeatherSetParticleScale(
+            GraphicsQualityProfileFor(
+                game->settings.graphicsQuality).precipitationScale);
+        AudioSetVolumes(game->settings.masterVolume,
+                        game->settings.ambientVolume,
+                        game->settings.musicVolume);
+        AudioSetMusicEnabled(game->settings.musicEnabled);
+        GameSettingsSave(&game->settings);
+    }
+    if (pauseActions.resume) {
+        game->paused = false;
+        DisableCursor();
+    }
+    if (pauseActions.saveWorld) {
+        // Ship state can be saved even when no parking spot is available.
+        SaveMap(&game->player);
+    }
+    if (pauseActions.returnToMenu) {
+        game->paused = false;
+        game->cursorReleased = false;
+        if (game->albumOpen) {
+            game->albumOpen = false;
+            AlbumClose();
+        }
+        game->screen = SCREEN_START;
+        AudioSetEnvironment(NULL);
+        EnableCursor();
+    }
+    if (pauseActions.saveAndQuit) {
+        SaveMap(&game->player);
+        game->quitSaveDone = true;
+        game->quitRequested = true;
+    }
+}
+
+static void GameRenderFrame(GameRuntime *game,
+                            const GameFrameView *frame)
+{
+    BeginDrawing();
+    GameRenderBackground(game, frame);
+    GameRenderWorldPass(game, frame);
+
+    char shipHudSystem[48] = { 0 };
+    ShipHudState shipHud = { 0 };
+    float shipSpeed = GameBuildShipHud(
+        game, &shipHud, shipHudSystem, sizeof(shipHudSystem));
+    GameRenderEnvironmentOverlays(game, frame, &shipHud);
+    GameRenderHud(game, frame, shipSpeed);
+    DrawBiologyAtlas(game);
+    DrawLandingTransitionOverlay(&game->landingTransition);
+    GameRenderPauseOverlay(game);
+    EndDrawing();
+}
 static void GameCaptureScreenshot(GameRuntime *game,
                                   const GameFrameView *frame)
 {
