@@ -20,6 +20,7 @@
 #include "audio.h"
 #include "weather.h"
 #include "space.h"
+#include "space_units.h"
 #include "world_environment.h"
 #include "ship.h"
 #include "nether.h"
@@ -210,7 +211,7 @@ static RenderResourceSnapshot CurrentRenderResourceSnapshot(void)
 #define LANDING_TRANSITION_DURATION 9.6f
 #define LANDING_TRANSITION_COMMIT_TIME 3.15f
 #define LANDING_TRANSITION_TOUCHDOWN_TIME 8.55f
-#define LANDING_APPROACH_CLEARANCE 3.0f
+#define LANDING_MIN_APPROACH_DISTANCE 0.012f
 #define LANDING_SUMMARY_DURATION 7.0f
 
 static float LandingEase(float value)
@@ -273,10 +274,11 @@ static bool LandingTransitionBegin(LandingTransition *transition, Player *player
     SpaceBodyInfo body = { 0 };
     if (homeWorldTarget) {
         center = HomeWorldCenter();
-        radius = HomeWorldProxyRadius();
+        radius = (float)SpaceUnitsKilometersToGameDistance(
+            SPACE_UNITS_EARTH_RADIUS_KM);
     } else if (PlanetWorldLandingTarget(player->position, &body)) {
         center = body.center;
-        radius = SolarBodyTerrainProxyRadius(body.spaceProxyRadius);
+        radius = body.physicalRadiusGame;
         gravity = body.profile.surfaceGravity;
     } else {
         return false;
@@ -287,7 +289,8 @@ static bool LandingTransitionBegin(LandingTransition *transition, Player *player
     if (startDistance < 0.001f) outward = (Vector3){ 0.0f, 1.0f, 0.0f };
     else outward = Vector3Scale(outward, 1.0f / startDistance);
     Vector3 inward = Vector3Negate(outward);
-    float targetDistance = radius + LANDING_APPROACH_CLEARANCE;
+    float targetDistance = radius +
+        fmaxf(radius * 12.0f, LANDING_MIN_APPROACH_DISTANCE);
 
     *transition = (LandingTransition){
         .active = true,
@@ -312,10 +315,11 @@ static bool LandingTransitionBegin(LandingTransition *transition, Player *player
         .outward = outward
     };
     if (homeWorldTarget) {
-        snprintf(transition->targetName, sizeof(transition->targetName), "HOMEWORLD");
+        snprintf(transition->targetName, sizeof(transition->targetName),
+                 "Earth");
     } else {
-        snprintf(transition->targetName, sizeof(transition->targetName), "%s %c", body.name,
-                 'a' + (body.index > 0 ? body.index - 1 : 0));
+        snprintf(transition->targetName, sizeof(transition->targetName), "%s",
+                 body.name);
     }
     player->velocity = Vector3Zero();
     SetImportMessage(TextFormat("Descent initiated: %s.", transition->targetName));
@@ -1738,8 +1742,10 @@ static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
         snprintf(systemName, systemNameSize, "%s surface", PlanetWorldName());
     } else if (FindNearestSystem(game->player.position, 3000.0f,
                                  &hudSystem, &hudDistance)) {
-        snprintf(systemName, systemNameSize, "%s Prime (%.0f)",
-                 hudSystem.name, hudDistance);
+        double distanceAu = SpaceUnitsGameDistanceToKilometers(hudDistance) /
+                            SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+        snprintf(systemName, systemNameSize, "%s (%.3g AU)",
+                 hudSystem.name, distanceAu);
     } else {
         snprintf(systemName, systemNameSize, "Deep space");
     }

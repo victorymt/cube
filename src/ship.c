@@ -23,8 +23,8 @@
 #define SHIP_WARP_MAX_SPEED 1200.0f
 #define SHIP_WARP_ACCEL 320.0f
 #define SHIP_WARP_DECEL 1200.0f
-#define SHIP_WARP_STANDOFF 14.0f
-#define SHIP_SYSTEM_WARP_STANDOFF 760.0f
+#define SHIP_PLANET_WARP_MIN_TOLERANCE 0.00025f
+#define SHIP_SPACE_COLLISION_CLEARANCE 0.00025f
 #define SHIP_THRUST_FUEL_RATE 0.20f
 #define SHIP_CRUISE_FUEL_RATE 0.65f
 #define SHIP_WARP_FUEL_RATE 2.50f
@@ -40,6 +40,7 @@ typedef struct WarpTarget {
     WarpTargetType type;
     int systemAnchorX;
     int systemAnchorZ;
+    uint32_t bodyId;
     int planetIndex;
     char name[48];
 } WarpTarget;
@@ -51,6 +52,13 @@ static bool flightAssist = false;
 static float fuel = SHIP_MAX_FUEL;
 static WarpTarget warpTarget = { 0 };
 static SpaceGravitySample gravityPrimary = { 0 };
+
+static float WarpArrivalTolerance(float safeDistance)
+{
+    if (warpTarget.type == WARP_TARGET_SYSTEM) return 1.0f;
+    return fmaxf(safeDistance * 0.05f,
+                 SHIP_PLANET_WARP_MIN_TOLERANCE);
+}
 
 static bool ShipDirectionForCoreBlock(BlockType type, ShipDirection *out)
 {
@@ -314,20 +322,28 @@ static bool ResolveWarpTarget(Vector3 *center, float *safeDistance)
     if (warpTarget.type == WARP_TARGET_SYSTEM) {
         if (center) *center = system.center;
         if (safeDistance) {
-            *safeDistance = (float)system.starProxyRadius +
-                            SHIP_SYSTEM_WARP_STANDOFF;
+            *safeDistance = SolarSystemParkingRadiusGame(&system);
         }
         return true;
     }
 
-    if (warpTarget.type != WARP_TARGET_PLANET || warpTarget.planetIndex < 0 ||
-        warpTarget.planetIndex >= system.planetCount) return false;
+    if (warpTarget.type != WARP_TARGET_PLANET) return false;
+    int planetIndex = warpTarget.planetIndex;
+    if (warpTarget.bodyId != 0u) {
+        planetIndex = -1;
+        for (int i = 0; i < system.planetCount; i++) {
+            if (system.planets[i].bodyId == warpTarget.bodyId) {
+                planetIndex = i;
+                break;
+            }
+        }
+    }
+    if (planetIndex < 0 || planetIndex >= system.planetCount) return false;
 
-    PlanetProfile profile = SolarPlanetProfile(&system, warpTarget.planetIndex);
-    if (center) *center = SolarSystemPlanetCenter(&system, warpTarget.planetIndex);
+    if (center) *center = SolarSystemPlanetCenter(&system, planetIndex);
     if (safeDistance) {
-        *safeDistance = SolarBodyTerrainProxyRadius(profile.spaceProxyRadius) +
-                        SHIP_WARP_STANDOFF;
+        *safeDistance = SolarSystemPlanetParkingRadiusGame(
+            &system, planetIndex);
     }
     return true;
 }
@@ -349,9 +365,9 @@ static void LockWarpTarget(const Player *player, Vector3 forward)
     warpTarget.type = WARP_TARGET_PLANET;
     warpTarget.systemAnchorX = body.systemAnchorX;
     warpTarget.systemAnchorZ = body.systemAnchorZ;
+    warpTarget.bodyId = body.bodyId;
     warpTarget.planetIndex = body.index - 1;
-    snprintf(warpTarget.name, sizeof(warpTarget.name), "%s %c", body.name,
-             'a' + (body.index > 0 ? body.index - 1 : 0));
+    snprintf(warpTarget.name, sizeof(warpTarget.name), "%s", body.name);
     warping = false;
     SetImportMessage(TextFormat("Locked %s. Press G to engage warp.", warpTarget.name));
 }
@@ -378,7 +394,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
     }
 
     float gap = Vector3Distance(player->position, system.center) -
-                ((float)system.starProxyRadius + SHIP_SYSTEM_WARP_STANDOFF);
+                SolarSystemParkingRadiusGame(&system);
     if (gap <= 1.0f) {
         player->velocity = Vector3Zero();
         SetImportMessage("Already within this star system's approach zone.");
@@ -389,6 +405,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
     warpTarget.type = WARP_TARGET_SYSTEM;
     warpTarget.systemAnchorX = systemAnchorX;
     warpTarget.systemAnchorZ = systemAnchorZ;
+    warpTarget.bodyId = 0u;
     warpTarget.planetIndex = -1;
     snprintf(warpTarget.name, sizeof(warpTarget.name), "%s", system.name);
     cruising = false;
@@ -424,7 +441,7 @@ static void ToggleWarp(Player *player)
     }
 
     float gap = Vector3Distance(player->position, targetCenter) - safeDistance;
-    if (gap <= 1.0f) {
+    if (gap <= WarpArrivalTolerance(safeDistance)) {
         player->velocity = Vector3Zero();
         SetImportMessage("Already at the target approach distance.");
         return;
@@ -956,7 +973,8 @@ void ShipUpdate(Player *player, float dt)
             Vector3 toTarget = Vector3Subtract(targetCenter, player->position);
             float targetDistance = Vector3Length(toTarget);
             float gap = targetDistance - safeDistance;
-            if (gap <= 1.0f || targetDistance < 0.001f) {
+            float arrivalTolerance = WarpArrivalTolerance(safeDistance);
+            if (gap <= arrivalTolerance || targetDistance < 0.001f) {
                 warping = false;
                 player->velocity = Vector3Zero();
                 if (warpTarget.type == WARP_TARGET_SYSTEM) {
@@ -979,8 +997,9 @@ void ShipUpdate(Player *player, float dt)
 
                     float speed = Vector3Length(player->velocity);
                     float maxSafeSpeed = gap / fmaxf(dt, 0.001f);
-                    float brakingSpeed = sqrtf(fmaxf(0.0f, 2.0f * SHIP_WARP_DECEL *
-                                                            fmaxf(gap - 1.0f, 0.0f)));
+                    float brakingSpeed = sqrtf(fmaxf(
+                        0.0f, 2.0f * SHIP_WARP_DECEL *
+                                  fmaxf(gap - arrivalTolerance, 0.0f)));
                     float desiredSpeed = fminf(SHIP_WARP_MAX_SPEED,
                                                fminf(brakingSpeed, maxSafeSpeed));
                     float rate = desiredSpeed > speed ? SHIP_WARP_ACCEL : SHIP_WARP_DECEL;
@@ -1042,10 +1061,12 @@ void ShipUpdate(Player *player, float dt)
         float correctedSurfaceDist = 0.0f;
         if (PlanetSurfaceAt(player->position, &correctionDir, &correctedSurfaceDist,
                             NULL) &&
-            correctedSurfaceDist < 2.0f) {
+            correctedSurfaceDist < SHIP_SPACE_COLLISION_CLEARANCE) {
             player->position = Vector3Add(
                 player->position,
-                Vector3Scale(Vector3Negate(correctionDir), 2.0f - correctedSurfaceDist));
+                Vector3Scale(Vector3Negate(correctionDir),
+                             SHIP_SPACE_COLLISION_CLEARANCE -
+                                 correctedSurfaceDist));
             float inwardSpeed = Vector3DotProduct(player->velocity, correctionDir);
             if (inwardSpeed > 0.0f) {
                 player->velocity = Vector3Subtract(

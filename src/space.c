@@ -41,6 +41,8 @@
 #define PLANET_WORLD_STATE_VERSION 3u
 #define PLANET_PROFILE_STATE_MAGIC 0x504c4e54u
 #define PLANET_PROFILE_STATE_VERSION 2u
+#define SPACE_STATE_MAGIC 0x53504345u
+#define SPACE_STATE_VERSION 2u
 
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
@@ -75,7 +77,7 @@ typedef struct HomeWorldContext {
     Vector3 returnPosition;
 } HomeWorldContext;
 
-#define HOME_WORLD_PROXY_RADIUS 62.0f
+#define HOME_WORLD_PROXY_RADIUS 6.0f
 #define HOME_WORLD_CENTER_Y (-30.0f)
 #define HOME_WORLD_LANDING_MARGIN 20.0f
 #define PLANET_ATMOSPHERE_FADE_START \
@@ -188,24 +190,61 @@ bool SpaceLoadOrigin(FILE *file)
 bool SpaceSaveState(FILE *file)
 {
     if (!file) return false;
-    return fwrite(&solarElapsedSimulationTime,
+    uint32_t magic = SPACE_STATE_MAGIC;
+    uint32_t version = SPACE_STATE_VERSION;
+    int64_t originX = spaceOriginX;
+    int64_t originZ = spaceOriginZ;
+    double projectionScale = SPACE_UNITS_GAME_DISTANCE_PER_AU;
+    return fwrite(&magic, sizeof(magic), 1, file) == 1 &&
+           fwrite(&version, sizeof(version), 1, file) == 1 &&
+           fwrite(&solarElapsedSimulationTime,
                   sizeof(solarElapsedSimulationTime), 1, file) == 1 &&
-           fwrite(&spaceOriginX, sizeof(spaceOriginX), 1, file) == 1 &&
-           fwrite(&spaceOriginZ, sizeof(spaceOriginZ), 1, file) == 1;
+           fwrite(&originX, sizeof(originX), 1, file) == 1 &&
+           fwrite(&originZ, sizeof(originZ), 1, file) == 1 &&
+           fwrite(&projectionScale, sizeof(projectionScale), 1, file) == 1;
 }
 
 bool SpaceLoadState(FILE *file)
 {
     if (!file) return false;
+    uint32_t magic = 0;
+    uint32_t version = 0;
     double loadedTime = 0.0;
-    int loadedX = 0;
-    int loadedZ = 0;
+    int64_t loadedX = 0;
+    int64_t loadedZ = 0;
+    double projectionScale = 0.0;
+    if (fread(&magic, sizeof(magic), 1, file) != 1 ||
+        fread(&version, sizeof(version), 1, file) != 1 ||
+        magic != SPACE_STATE_MAGIC || version != SPACE_STATE_VERSION ||
+        fread(&loadedTime, sizeof(loadedTime), 1, file) != 1 ||
+        fread(&loadedX, sizeof(loadedX), 1, file) != 1 ||
+        fread(&loadedZ, sizeof(loadedZ), 1, file) != 1 ||
+        fread(&projectionScale, sizeof(projectionScale), 1, file) != 1 ||
+        !isfinite(loadedTime) || loadedTime < 0.0 ||
+        loadedX < INT_MIN || loadedX > INT_MAX ||
+        loadedZ < INT_MIN || loadedZ > INT_MAX ||
+        !isfinite(projectionScale) || projectionScale <= 0.0 ||
+        !SpaceUnitsWithinRelativeError(
+            projectionScale, SPACE_UNITS_GAME_DISTANCE_PER_AU,
+            SPACE_UNITS_MAX_RELATIVE_ERROR)) {
+        return false;
+    }
+    solarElapsedSimulationTime = loadedTime;
+    spaceOriginX = (int)loadedX;
+    spaceOriginZ = (int)loadedZ;
+    return true;
+}
+
+bool SpaceLoadLegacyState(FILE *file)
+{
+    if (!file) return false;
+    double loadedTime = 0.0;
+    int32_t loadedX = 0;
+    int32_t loadedZ = 0;
     if (fread(&loadedTime, sizeof(loadedTime), 1, file) != 1 ||
         fread(&loadedX, sizeof(loadedX), 1, file) != 1 ||
         fread(&loadedZ, sizeof(loadedZ), 1, file) != 1 ||
-        !isfinite(loadedTime) || loadedTime < 0.0) {
-        return false;
-    }
+        !isfinite(loadedTime) || loadedTime < 0.0) return false;
     solarElapsedSimulationTime = loadedTime;
     spaceOriginX = loadedX;
     spaceOriginZ = loadedZ;
@@ -219,6 +258,12 @@ bool HomeWorldSurfaceIsActive(void)
 
 Vector3 HomeWorldCenter(void)
 {
+    if (!homeWorld.surfaceActive && !planetWorld.active) {
+        SolarSystemDef sol;
+        if (StarSystemAt(0, 0, &sol) && sol.planetCount > 2) {
+            return SolarSystemPlanetCenter(&sol, 2);
+        }
+    }
     return (Vector3){ (float)SpaceGlobalToLocalX(0), HOME_WORLD_CENTER_Y,
                       (float)SpaceGlobalToLocalZ(0) };
 }
@@ -799,6 +844,40 @@ double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index
 {
     return SpaceUnitsSecondsToGameTime(
         SolarSystemPlanetOrbitPeriodSeconds(sys, index));
+}
+
+float SolarSystemParkingRadiusGame(const SolarSystemDef *sys)
+{
+    if (!sys || !(sys->star.radiusKm > 0.0) ||
+        !isfinite(sys->star.radiusKm)) return 0.0f;
+    float stellarClearance = (float)SpaceUnitsKilometersToGameDistance(
+        sys->star.radiusKm * 12.0);
+    return fmaxf(stellarClearance,
+                 (float)SPACE_UNITS_GAME_DISTANCE_PER_AU * 1.5f);
+}
+
+float SolarSystemPlanetParkingRadiusGame(const SolarSystemDef *sys, int index)
+{
+    if (!SolarSystemPlanetIndexIsValid(sys, index)) return 0.0f;
+    PlanetProfile profile = SolarPlanetProfile(sys, index);
+    double parentMassKg = SolarSystemStellarMassKg(sys);
+    if (!(profile.massKg > 0.0) || !(profile.physicalRadiusKm > 0.0) ||
+        !(parentMassKg > 0.0)) return 0.0f;
+    double soiKm = SpaceUnitsLaplaceSphereOfInfluenceKm(
+        sys->planets[index].semiMajorAxisKm, profile.massKg, parentMassKg);
+    double parkingKm = fmax(profile.physicalRadiusKm * 8.0, soiKm * 0.15);
+    return (float)SpaceUnitsKilometersToGameDistance(parkingKm);
+}
+
+float HomeWorldParkingRadiusGame(void)
+{
+    SolarSystemDef sol;
+    if (StarSystemAt(0, 0, &sol) && sol.planetCount > 2) {
+        float parking = SolarSystemPlanetParkingRadiusGame(&sol, 2);
+        if (parking > 0.0f && isfinite(parking)) return parking;
+    }
+    return (float)SpaceUnitsKilometersToGameDistance(
+        SPACE_UNITS_EARTH_RADIUS_KM * 16.0);
 }
 
 bool SolarSystemPhysicalSummaryForSystem(
@@ -1528,6 +1607,7 @@ static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed)
             ? 47.0f + (float)((planetHash >> 6) % 4u)
             : 40.0f + (float)((planetHash >> 6) % 9u);
         formed.planets[index] = (SolarPlanetDef){
+            .bodyId = (uint32_t)(index + 1),
             .semiMajorAxisKm = SpaceUnitsGameDistanceToKilometers(
                 planet->orbitGame),
             .physicalRadiusKm = (double)planet->radiusEarth *
@@ -2316,15 +2396,16 @@ bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *o
 static float PlanetEncounterRadiusGame(double semiMajorAxisKm,
                                        double bodyMassKg,
                                        double parentMassKg,
-                                       float landingRadiusGame)
+                                       double physicalRadiusKm)
 {
     if (!(semiMajorAxisKm > 0.0) || !(bodyMassKg > 0.0) ||
-        !(parentMassKg > 0.0) || !(landingRadiusGame > 0.0f)) {
+        !(parentMassKg > 0.0) || !(physicalRadiusKm > 0.0)) {
         return 0.0f;
     }
     float orbitRadiusGame = (float)SpaceUnitsKilometersToGameDistance(
         semiMajorAxisKm);
-    float minimum = landingRadiusGame * 2.20f;
+    float minimum = (float)SpaceUnitsKilometersToGameDistance(
+        physicalRadiusKm * 4.0);
     float maximum = fmaxf(minimum,
                           fminf(orbitRadiusGame * 0.36f,
                                 SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME));
@@ -2356,16 +2437,19 @@ static bool PlanetBodyInfoForRuntime(const SolarSystemDef *system,
         .center = center,
         .velocity = planet->velocity,
         .physicalRadiusKm = profile->physicalRadiusKm,
+        .physicalRadiusGame = (float)SpaceUnitsKilometersToGameDistance(
+            profile->physicalRadiusKm),
         .semiMajorAxisKm = planet->semiMajorAxisKm,
         .parentMassKg = parentMassKg,
         .spaceProxyRadius = profile->spaceProxyRadius,
         .landingProxyRadius = landingRadius,
         .encounterRadiusGame = PlanetEncounterRadiusGame(
             planet->semiMajorAxisKm, profile->massKg,
-            parentMassKg, landingRadius),
+            parentMassKg, profile->physicalRadiusKm),
         .currentIrradianceEarth = planet->currentIrradianceEarth,
         .dist = Vector3Distance(center, observer),
         .isStar = false,
+        .bodyId = system->planets[index].bodyId,
         .index = index + 1,
         .systemAnchorX = system->anchorX,
         .systemAnchorZ = system->anchorZ,
@@ -2428,6 +2512,9 @@ int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount
                     .center = runtime.stars[starIndex].center,
                     .velocity = runtime.stars[starIndex].velocity,
                     .physicalRadiusKm = runtime.stars[starIndex].stellar.radiusKm,
+                    .physicalRadiusGame =
+                        (float)SpaceUnitsKilometersToGameDistance(
+                            runtime.stars[starIndex].stellar.radiusKm),
                     .parentMassKg = parentMassKg,
                     .spaceProxyRadius = runtime.stars[starIndex].spaceProxyRadius,
                     .landingProxyRadius = runtime.stars[starIndex].spaceProxyRadius,
@@ -2732,6 +2819,8 @@ static void HomeBodyInfoForObserver(Vector3 observer, SpaceBodyInfo *out)
         .center = HomeWorldCenter(),
         .velocity = { 0 },
         .physicalRadiusKm = SPACE_UNITS_EARTH_RADIUS_KM,
+        .physicalRadiusGame = (float)SpaceUnitsKilometersToGameDistance(
+            SPACE_UNITS_EARTH_RADIUS_KM),
         .semiMajorAxisKm = SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
         .parentMassKg = SPACE_UNITS_SOLAR_MASS_KG,
         .spaceProxyRadius = radius,
@@ -2848,15 +2937,16 @@ bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
         ? body->parentMassKg : body->hostStar.massKg;
     if (!(parentMassKg > 0.0) || !isfinite(parentMassKg)) return false;
     if (body->index > 0) {
-        snprintf(out->bodyName, sizeof(out->bodyName), "%s %c", body->name,
-                 'a' + body->index - 1);
+        snprintf(out->bodyName, sizeof(out->bodyName), "%s", body->name);
     } else {
         snprintf(out->bodyName, sizeof(out->bodyName), "%s", body->name);
     }
     out->physicalRadiusKm = body->physicalRadiusKm;
     out->physicalRadiusGame = SpaceUnitsKilometersToGameDistance(
         body->physicalRadiusKm);
-    out->visualRadiusGame = body->spaceProxyRadius;
+    out->visualRadiusGame = body->physicalRadiusGame > 0.0f
+        ? body->physicalRadiusGame
+        : (float)out->physicalRadiusGame;
     out->landingRadiusGame = body->landingProxyRadius > 0.0f
         ? body->landingProxyRadius
         : SolarBodyTerrainProxyRadius(body->spaceProxyRadius);
@@ -2892,7 +2982,7 @@ bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,
         ? body->encounterRadiusGame
         : PlanetEncounterRadiusGame(body->semiMajorAxisKm,
                                      body->profile.massKg, parentMassKg,
-                                     out->landingRadiusGame);
+                                     body->physicalRadiusKm);
     out->encounterRadiusScale = out->physicalSphereOfInfluenceGame > 0.0
         ? out->encounterRadiusGame / out->physicalSphereOfInfluenceGame : 0.0;
     out->currentIrradianceEarth = body->currentIrradianceEarth > 0.0
@@ -2990,8 +3080,9 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
             Vector3 closest = Vector3Add(origin, Vector3Scale(direction, proj));
             Vector3 diff = Vector3Subtract(closest, bodies[i].center);
             float lateral = sqrtf(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-            float radius = SolarBodyTerrainProxyRadius(
-                bodies[i].spaceProxyRadius);
+            float markerRadius = bodies[i].dist * tanf(0.45f * DEG2RAD);
+            float radius = fmaxf(bodies[i].physicalRadiusGame,
+                                 markerRadius);
             if (lateral > radius) continue;
             best = proj;
             *out = bodies[i];
@@ -3039,6 +3130,8 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
         .center = primary->center,
         .velocity = primary->velocity,
         .physicalRadiusKm = primary->stellar.radiusKm,
+        .physicalRadiusGame = (float)SpaceUnitsKilometersToGameDistance(
+            primary->stellar.radiusKm),
         .parentMassKg = runtime.totalStellarMassKg,
         .spaceProxyRadius = primary->spaceProxyRadius,
         .landingProxyRadius = primary->spaceProxyRadius,
@@ -3073,26 +3166,38 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDir, float *surfaceDist,
     if (!homeWorld.surfaceActive && !planetWorld.active) {
         Vector3 homeCenter = HomeWorldCenter();
         float homeDistance = Vector3Distance(position, homeCenter);
-        if (homeDistance <= HOME_WORLD_PROXY_RADIUS + 25.0f) {
+        float homePhysicalRadius =
+            (float)SpaceUnitsKilometersToGameDistance(
+                SPACE_UNITS_EARTH_RADIUS_KM);
+        float homeApproachRadius = HomeWorldParkingRadiusGame() * 1.25f;
+        float legacySurfaceGap = fabsf(homeDistance -
+                                       HOME_WORLD_PROXY_RADIUS);
+        if (homeDistance <= homeApproachRadius ||
+            legacySurfaceGap <= HOME_WORLD_LANDING_MARGIN) {
             best = homeDistance;
             *gravityDir = homeDistance > 0.001f
                               ? Vector3Scale(Vector3Subtract(homeCenter, position),
                                              1.0f / homeDistance)
                               : (Vector3){ 0.0f, -1.0f, 0.0f };
-            *surfaceDist = homeDistance - HOME_WORLD_PROXY_RADIUS;
+            *surfaceDist = homeDistance - homePhysicalRadius;
             if (gravityScale) *gravityScale = 1.0f;
             found = true;
         }
     }
     for (int i = 0; i < count; i++) {
         if (bodies[i].isStar) continue;
-        float terrainR = SolarBodyTerrainProxyRadius(
+        float physicalRadius = bodies[i].physicalRadiusGame;
+        float parkingRadius = fmaxf(physicalRadius * 8.0f,
+                                    bodies[i].encounterRadiusGame * 0.15f);
+        float legacyRadius = SolarBodyTerrainProxyRadius(
             bodies[i].spaceProxyRadius);
-        if (bodies[i].dist > terrainR + 25.0f) continue;
+        float legacySurfaceGap = fabsf(bodies[i].dist - legacyRadius);
+        if (bodies[i].dist > parkingRadius * 1.25f &&
+            legacySurfaceGap > 20.0f) continue;
         if (bodies[i].dist < best) {
             best = bodies[i].dist;
             *gravityDir = Vector3Normalize(Vector3Subtract(bodies[i].center, position));
-            *surfaceDist = best - terrainR;
+            *surfaceDist = best - physicalRadius;
             if (gravityScale) *gravityScale = bodies[i].profile.surfaceGravity;
             found = true;
         }
@@ -3132,21 +3237,6 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
 
     SpaceGravityCandidate candidates[64];
     int candidateCount = 0;
-    float homeRadius = HomeWorldProxyRadius();
-    AddSpaceGravityCandidate(
-        candidates, &candidateCount, 64,
-        (SpacePhysicsGravityBody){
-            .center = HomeWorldCenter(),
-            .softeningRadiusGame = homeRadius,
-            .gravitationalParameterGame = (float)
-                SpaceUnitsProxyGravitationalParameterGame(
-                SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM,
-                homeRadius),
-            .encounterRadiusGame = homeRadius * 2.15f,
-            .hierarchy = 1
-        },
-        Vector3Zero(),
-        SPACE_GRAVITY_PRIMARY_HOME, "Home");
 
     SpaceBodyInfo bodies[48];
     int bodyCount = SpaceBodiesNear(position, SPACE_GRAVITY_QUERY_RADIUS,
@@ -3157,7 +3247,7 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
                 candidates, &candidateCount, 64,
                 (SpacePhysicsGravityBody){
                     .center = bodies[i].center,
-                    .softeningRadiusGame = bodies[i].spaceProxyRadius,
+                    .softeningRadiusGame = bodies[i].physicalRadiusGame,
                     .gravitationalParameterGame = (float)
                         SpaceUnitsGravitationalParameterGame(
                             bodies[i].hostStar.massKg),
@@ -3172,19 +3262,17 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
         int planetIndex = bodies[i].index - 1;
         if (planetIndex < 0 || bodies[i].semiMajorAxisKm <= 0.0) continue;
 
-        float terrainRadius = bodies[i].landingProxyRadius;
+        float physicalRadius = bodies[i].physicalRadiusGame;
         float soi = bodies[i].encounterRadiusGame;
-        float mu = (float)SpaceUnitsProxyGravitationalParameterGame(
-            bodies[i].profile.massKg, bodies[i].profile.physicalRadiusKm,
-            terrainRadius);
+        float mu = (float)SpaceUnitsGravitationalParameterGame(
+            bodies[i].profile.massKg);
         char planetName[40];
-        snprintf(planetName, sizeof(planetName), "%s %c", bodies[i].name,
-                 'a' + planetIndex);
+        snprintf(planetName, sizeof(planetName), "%s", bodies[i].name);
         AddSpaceGravityCandidate(
             candidates, &candidateCount, 64,
             (SpacePhysicsGravityBody){
                 .center = bodies[i].center,
-                .softeningRadiusGame = terrainRadius,
+                .softeningRadiusGame = physicalRadius,
                 .gravitationalParameterGame = mu,
                 .encounterRadiusGame = soi,
                 .hierarchy = 1
@@ -3236,23 +3324,16 @@ bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
     return true;
 }
 
-static Vector3 PlanetReturnPosition(Vector3 center, float radius, Vector3 outward)
+static Vector3 PlanetReturnPosition(Vector3 center, float parkingRadius,
+                                    Vector3 outward)
 {
-    const float orbitDistance = radius + 14.0f;
-    const float minY = (float)SPACE_LAYER_Y + 2.5f;
-    const float maxY = (float)SPACE_LAYER_TOP - 3.5f;
-    Vector3 candidate = Vector3Add(center, Vector3Scale(outward, orbitDistance));
-    if (candidate.y >= minY && candidate.y <= maxY) return candidate;
-
-    candidate.y = Clamp(candidate.y, minY, maxY);
-    float dy = candidate.y - center.y;
-    float horizontalDistance = sqrtf(fmaxf(0.0f, orbitDistance * orbitDistance - dy * dy));
-    Vector2 horizontal = { outward.x, outward.z };
-    if (Vector2LengthSqr(horizontal) < 0.001f) horizontal = (Vector2){ 1.0f, 0.0f };
-    else horizontal = Vector2Normalize(horizontal);
-    candidate.x = center.x + horizontal.x * horizontalDistance;
-    candidate.z = center.z + horizontal.y * horizontalDistance;
-    return candidate;
+    if (!(parkingRadius > 0.0f) || !isfinite(parkingRadius)) return center;
+    if (Vector3LengthSqr(outward) < 0.000001f) {
+        outward = (Vector3){ 1.0f, 0.0f, 0.0f };
+    } else {
+        outward = Vector3Normalize(outward);
+    }
+    return Vector3Add(center, Vector3Scale(outward, parkingRadius));
 }
 
 bool PlanetWorldLandingTarget(Vector3 position, SpaceBodyInfo *out)
@@ -3262,17 +3343,23 @@ bool PlanetWorldLandingTarget(Vector3 position, SpaceBodyInfo *out)
     if (!SpaceQueryVectorIsFinite(position)) return false;
     SpaceBodyInfo bodies[48];
     int count = SpaceBodiesNear(position, 160.0f, bodies, 48);
-    float bestGap = 1e30f;
+    float bestApproach = 1e30f;
     bool found = false;
 
     for (int i = 0; i < count; i++) {
         if (bodies[i].isStar) continue;
         if (!bodies[i].profile.hasSolidSurface) continue;
-        float radius = SolarBodyTerrainProxyRadius(
+        float parkingRadius = fmaxf(bodies[i].physicalRadiusGame * 8.0f,
+                                    bodies[i].encounterRadiusGame * 0.15f);
+        float approach = parkingRadius > 0.0f
+            ? bodies[i].dist / parkingRadius
+            : INFINITY;
+        float legacyRadius = SolarBodyTerrainProxyRadius(
             bodies[i].spaceProxyRadius);
-        float gap = fabsf(bodies[i].dist - radius);
-        if (gap > 20.0f || gap >= bestGap) continue;
-        bestGap = gap;
+        bool legacyApproach = fabsf(bodies[i].dist - legacyRadius) <= 20.0f;
+        if ((approach > 1.25f && !legacyApproach) ||
+            approach >= bestApproach) continue;
+        bestApproach = approach;
         *out = bodies[i];
         found = true;
     }
@@ -3294,7 +3381,26 @@ bool HomeWorldTryLaunch(Player *player)
     ClearUndoHistory();
 
     Vector3 homeCenter = HomeWorldCenter();
-    player->position = (Vector3){ homeCenter.x, SPACE_ENTER_Y + 2.0f, homeCenter.z };
+    float parkingRadius = HomeWorldParkingRadiusGame();
+    Vector3 orbitalVelocity = Vector3Zero();
+    SolarSystemDef sol;
+    SolarPlanetOrbitalState earthState;
+    if (StarSystemAt(0, 0, &sol) && sol.planetCount > 2 &&
+        SolarSystemPlanetStateAtTime(
+            &sol, 2,
+            SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+            &earthState)) {
+        homeCenter = earthState.center;
+        orbitalVelocity = earthState.velocity;
+    }
+    Vector3 forward = Vector3Normalize((Vector3){
+        sinf(player->yaw) * cosf(player->pitch),
+        sinf(player->pitch),
+        cosf(player->yaw) * cosf(player->pitch)
+    });
+    player->position = Vector3Subtract(
+        homeCenter, Vector3Scale(forward, parkingRadius));
+    player->velocity = Vector3Add(player->velocity, orbitalVelocity);
     player->floating = false;
     player->onGround = false;
     SetImportMessage("Left Homeworld atmosphere. Spaceflight is now three-dimensional.");
@@ -3306,9 +3412,10 @@ bool HomeWorldCanEnter(Vector3 position)
     if (homeWorld.surfaceActive || planetWorld.active) return false;
 
     Vector3 center = HomeWorldCenter();
-    float surfaceGap = fabsf(Vector3Distance(position, center) -
-                             HOME_WORLD_PROXY_RADIUS);
-    return surfaceGap <= HOME_WORLD_LANDING_MARGIN;
+    float distance = Vector3Distance(position, center);
+    if (distance <= HomeWorldParkingRadiusGame() * 1.25f) return true;
+    float legacySurfaceGap = fabsf(distance - HOME_WORLD_PROXY_RADIUS);
+    return legacySurfaceGap <= HOME_WORLD_LANDING_MARGIN;
 }
 
 static void HomeWorldActivateSurface(void)
@@ -3390,8 +3497,7 @@ static void PlanetWorldActivate(const SpaceBodyInfo *body, Vector3 approachPosit
     next.spaceProxyRadius = SolarBodyTerrainProxyRadius(
         body->spaceProxyRadius);
     next.seed = body->worldSeed;
-    snprintf(next.name, sizeof(next.name), "%.28s %c", body->name,
-             'a' + (body->index > 0 ? body->index - 1 : 0));
+    snprintf(next.name, sizeof(next.name), "%s", body->name);
 
     Vector3 outward = Vector3Subtract(approachPosition, body->center);
     if (Vector3LengthSqr(outward) < 0.001f) outward = (Vector3){ 0.0f, 1.0f, 0.0f };
@@ -3407,8 +3513,7 @@ static void PlanetWorldActivate(const SpaceBodyInfo *body, Vector3 approachPosit
                                  (PLANET_GLOBAL_CIRCUMFERENCE_BLOCKS / (2.0f * PI)));
     next.originZ = (int)lroundf(latitude *
                                  (PLANET_GLOBAL_POLE_TO_POLE_BLOCKS / PI));
-    next.returnPosition = PlanetReturnPosition(body->center,
-                                               next.spaceProxyRadius, outward);
+    next.returnPosition = approachPosition;
     next.remnantEnvironment = body->remnantEnvironment;
     next.remnantEnvironmentSimulationTime = -1.0;
 
@@ -3535,8 +3640,10 @@ bool PlanetWorldTryLaunch(Player *player)
                                          SpacePeriodicSimulationTime(
                                              SpaceElapsedSimulationTime()),
                                          &orbitalState)) {
+            float parkingRadius = SolarSystemPlanetParkingRadiusGame(
+                &system, orbitIndex);
             returnPosition = PlanetReturnPosition(
-                orbitalState.center, planetWorld.spaceProxyRadius, outward);
+                orbitalState.center, parkingRadius, outward);
             launchVelocity = Vector3Add(launchVelocity,
                                         orbitalState.velocity);
         }

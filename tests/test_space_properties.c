@@ -309,7 +309,7 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     assert(scale.orbitalSpeedKilometersPerSecond > 0.0);
     assert(scale.sphereOfInfluenceKm > 0.0);
     assert(scale.hillSphereKm > scale.sphereOfInfluenceKm);
-    assert(scale.encounterRadiusGame >= scale.landingRadiusGame * 2.19f);
+    assert(scale.encounterRadiusGame >= scale.physicalRadiusGame * 3.99f);
     assert(scale.climateIrradianceEarth == profile->receivedIrradiance);
     assert(scale.currentIrradianceEarth > 0.0);
     assert(scale.surfaceTemperatureK == profile->equilibriumTempK);
@@ -1607,7 +1607,7 @@ static void AssertDisruptionSaveLoadDeterminism(
     assert(fwrite(&originX, sizeof(originX), 1, target) == 1);
     assert(fwrite(&originZ, sizeof(originZ), 1, target) == 1);
     rewind(target);
-    assert(SpaceLoadState(target));
+    assert(SpaceLoadLegacyState(target));
     assert(SpaceElapsedSimulationTime() == elapsed);
 
     SolarSystemRuntimeState savedRuntime;
@@ -1710,9 +1710,9 @@ static void TestHomeScaleDiagnostics(void)
     assert(SpaceScaleDiagnosticsAt((Vector3){ 0 }, &scale));
     assert(scale.withinErrorBudget);
     assert(scale.physicalRadiusKm == SPACE_UNITS_EARTH_RADIUS_KM);
-    assert(scale.visualRadiusGame == 62.0f);
-    assert(scale.landingRadiusGame == 62.0f);
-    assert(scale.landingRadiusScale > 4200.0);
+    AssertRelative(scale.visualRadiusGame, scale.physicalRadiusGame, 0.000001);
+    assert(scale.landingRadiusGame == 6.0f);
+    assert(scale.landingRadiusScale > 7000.0);
     AssertRelative(scale.physicalGravityEarth, 1.0, 0.000001);
     AssertRelative(scale.gameplaySurfaceGravity,
                    SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME,
@@ -1725,6 +1725,37 @@ static void TestHomeScaleDiagnostics(void)
     assert(scale.climateIrradianceEarth == 1.0);
     assert(scale.radiativeTemperatureK == 255.0f);
     assert(scale.surfaceTemperatureK == 288.0f);
+}
+
+static void TestCanonicalSolParkingRadii(void)
+{
+    SolarSystemDef sol;
+    assert(StarSystemAt(0, 0, &sol));
+    assert(sol.planetCount == 8);
+
+    float systemParking = SolarSystemParkingRadiusGame(&sol);
+    assert(systemParking >=
+           (float)SPACE_UNITS_GAME_DISTANCE_PER_AU * 1.5f);
+
+    const int earthIndex = 2;
+    PlanetProfile earth = SolarPlanetProfile(&sol, earthIndex);
+    float earthParking = SolarSystemPlanetParkingRadiusGame(
+        &sol, earthIndex);
+    AssertRelative(HomeWorldParkingRadiusGame(), earthParking, 0.000001);
+    double earthPhysicalRadius = SpaceUnitsKilometersToGameDistance(
+        earth.physicalRadiusKm);
+    double earthSphereOfInfluence = SpaceUnitsKilometersToGameDistance(
+        SpaceUnitsLaplaceSphereOfInfluenceKm(
+            sol.planets[earthIndex].semiMajorAxisKm, earth.massKg,
+            SolarSystemStellarMassKg(&sol)));
+    assert(earthParking > earthPhysicalRadius * 8.0);
+    assert(earthParking < earthSphereOfInfluence);
+
+    assert(SolarSystemParkingRadiusGame(NULL) == 0.0f);
+    assert(SolarSystemPlanetParkingRadiusGame(NULL, earthIndex) == 0.0f);
+    assert(SolarSystemPlanetParkingRadiusGame(&sol, -1) == 0.0f);
+    assert(SolarSystemPlanetParkingRadiusGame(&sol, sol.planetCount) ==
+           0.0f);
 }
 
 static void TestScaleDiagnosticsInputContracts(void)
@@ -2079,7 +2110,7 @@ static void TestLongTermTimeClock(void)
     assert(fwrite(&originX, sizeof(originX), 1, future) == 1);
     assert(fwrite(&originZ, sizeof(originZ), 1, future) == 1);
     rewind(future);
-    assert(SpaceLoadState(future));
+    assert(SpaceLoadLegacyState(future));
     assert(SpaceElapsedSimulationTime() == elapsed);
     assert(SpaceSimulationTime() == elapsed);
     assert(SpacePeriodicSimulationTime(SpaceSimulationTime()) == 123.75);
@@ -2177,7 +2208,22 @@ static void TestSpaceLoadFailureAtomicity(void)
     assert(fwrite(&baselineX, sizeof(baselineX), 1, baseline) == 1);
     assert(fwrite(&baselineZ, sizeof(baselineZ), 1, baseline) == 1);
     rewind(baseline);
-    assert(SpaceLoadState(baseline));
+    assert(SpaceLoadLegacyState(baseline));
+    assert(SpaceSimulationTime() == baselineTime);
+    assert(SpaceElapsedSimulationTime() == baselineTime);
+    assert(SpaceOriginX() == baselineX);
+    assert(SpaceOriginZ() == baselineZ);
+
+    FILE *invalidProjection = tmpfile();
+    assert(invalidProjection);
+    assert(SpaceSaveState(invalidProjection));
+    assert(fseek(invalidProjection, -(long)sizeof(double), SEEK_END) == 0);
+    double incompatibleProjection =
+        SPACE_UNITS_GAME_DISTANCE_PER_AU * 0.5;
+    assert(fwrite(&incompatibleProjection, sizeof(incompatibleProjection), 1,
+                  invalidProjection) == 1);
+    rewind(invalidProjection);
+    assert(!SpaceLoadState(invalidProjection));
     assert(SpaceSimulationTime() == baselineTime);
     assert(SpaceElapsedSimulationTime() == baselineTime);
     assert(SpaceOriginX() == baselineX);
@@ -2189,7 +2235,7 @@ static void TestSpaceLoadFailureAtomicity(void)
     assert(fwrite(&replacementTime, sizeof(replacementTime), 1,
                   truncatedState) == 1);
     rewind(truncatedState);
-    assert(!SpaceLoadState(truncatedState));
+    assert(!SpaceLoadLegacyState(truncatedState));
     assert(SpaceSimulationTime() == baselineTime);
     assert(SpaceElapsedSimulationTime() == baselineTime);
     assert(SpaceOriginX() == baselineX);
@@ -2204,7 +2250,7 @@ static void TestSpaceLoadFailureAtomicity(void)
     assert(fwrite(&replacementX, sizeof(replacementX), 1, invalidState) == 1);
     assert(fwrite(&replacementZ, sizeof(replacementZ), 1, invalidState) == 1);
     rewind(invalidState);
-    assert(!SpaceLoadState(invalidState));
+    assert(!SpaceLoadLegacyState(invalidState));
     assert(SpaceSimulationTime() == baselineTime);
     assert(SpaceElapsedSimulationTime() == baselineTime);
     assert(SpaceOriginX() == baselineX);
@@ -2223,11 +2269,33 @@ static void TestSpaceLoadFailureAtomicity(void)
 
     rewind(original);
     assert(SpaceLoadState(original));
+    fclose(invalidProjection);
     fclose(truncatedOrigin);
     fclose(invalidState);
     fclose(truncatedState);
     fclose(baseline);
     fclose(original);
+}
+
+static void TestPhysicalPlanetLandingApproach(void)
+{
+    SetPropertySeed(DEFAULT_WORLD_SEED);
+    SpaceResetOrigin();
+
+    SolarSystemDef sol;
+    assert(StarSystemAt(0, 0, &sol));
+    const int marsIndex = 3;
+    Vector3 marsCenter = SolarSystemPlanetCenter(&sol, marsIndex);
+    float marsParking = SolarSystemPlanetParkingRadiusGame(&sol, marsIndex);
+    Vector3 marsApproach = {
+        marsCenter.x,
+        marsCenter.y + marsParking,
+        marsCenter.z
+    };
+    SpaceBodyInfo target;
+    assert(PlanetWorldLandingTarget(marsApproach, &target));
+    assert(target.bodyId == sol.planets[marsIndex].bodyId);
+    assert(strcmp(target.name, "Mars") == 0);
 }
 
 static void TestDeterministicSpaceQueries(void)
@@ -2621,6 +2689,7 @@ int main(void)
 {
     TestCanonicalSolCatalog();
     TestHomeScaleDiagnostics();
+    TestCanonicalSolParkingRadii();
     TestScaleDiagnosticsInputContracts();
     TestSpaceQueryInputContracts();
     TestIrradianceInputContracts();
@@ -2642,6 +2711,7 @@ int main(void)
     TestConcurrentSpaceQueries();
     TestSatelliteNameCapacity();
     TestSpaceEditLayerMigration();
+    TestPhysicalPlanetLandingApproach();
     puts("space properties tests passed");
     return 0;
 }

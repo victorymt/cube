@@ -8,10 +8,9 @@
 // units are 1 AU. One unpaused gameplay second advances one game time unit, while one
 // game time unit represents one physical Earth day in the celestial simulation.
 //
-// Planet visuals, landing surfaces, and encounter spheres are gameplay proxies,
-// not linearly scaled physical radii. Proxy gravity preserves physical surface-g
-// ratios at the proxy surface; it does not preserve physical density or escape
-// velocity across the enlarged radius.
+// Orbital body meshes, gravity, and encounter spheres use the same linear
+// physical scale. Voxel surfaces remain local gameplay reference frames after
+// a landing transition; their terrain dimensions are not celestial radii.
 extern const double SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
 extern const double SPACE_UNITS_GAME_DISTANCE_PER_AU;
 extern const double SPACE_UNITS_EARTH_MASS_KG;

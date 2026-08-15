@@ -1802,6 +1802,42 @@ static Color SolarStyleColor(SolarBodyStyle style)
     }
 }
 
+static float CelestialRadiusPixels(const Camera3D *camera, Vector3 center,
+                                   float radius);
+
+static void FormatCelestialDistance(char *out, size_t outSize,
+                                    float gameDistance)
+{
+    if (!out || outSize == 0) return;
+    double kilometers = SpaceUnitsGameDistanceToKilometers(gameDistance);
+    double au = kilometers / SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+    if (au >= 0.1) {
+        snprintf(out, outSize, "%.3g AU", au);
+    } else {
+        snprintf(out, outSize, "%.3g km", kilometers);
+    }
+}
+
+static void DrawCelestialLabel(Vector2 center, float radiusPixels,
+                               const char *text, int fontSize, Color color)
+{
+    if (!text) return;
+    int screenWidth = GetScreenWidth();
+    int screenHeight = GetScreenHeight();
+    int textWidth = UiMeasureText(text, fontSize);
+    int clearance = (int)ceilf(fmaxf(radiusPixels, 4.0f)) + 8;
+    int textX = (int)center.x + clearance;
+    if (textX + textWidth > screenWidth - 8) {
+        textX = (int)center.x - clearance - textWidth;
+    }
+    int textY = (int)center.y - fontSize / 2;
+    textX = (int)Clamp((float)textX, 8.0f,
+                       fmaxf(8.0f, (float)screenWidth - textWidth - 8.0f));
+    textY = (int)Clamp((float)textY, 8.0f,
+                       fmaxf(8.0f, (float)screenHeight - 96.0f));
+    UiDrawText(text, textX, textY, fontSize, color);
+}
+
 static void DrawEdgeIndicator(float px, float py, bool behind, Vector3 origin, Vector3 center,
                               Color color, float spaceFade, const char *label)
 {
@@ -1837,8 +1873,18 @@ static void DrawEdgeIndicator(float px, float py, bool behind, Vector3 origin, V
 
     if (label) {
         float dist = Vector3Distance(origin, center);
-        UiDrawText(TextFormat("%s - %.0f blocks", label, dist),
-                 (int)ex + 16, (int)ey - 10, 15, Fade(WHITE, 0.9f * spaceFade));
+        char distance[32];
+        FormatCelestialDistance(distance, sizeof(distance), dist);
+        const char *indicator = TextFormat("%s - %s", label, distance);
+        int textWidth = UiMeasureText(indicator, 15);
+        int textX = dx > 0.0f ? (int)ex - textWidth - 16 : (int)ex + 16;
+        int textY = (int)ey - 10;
+        textX = (int)Clamp((float)textX, 8.0f,
+                           fmaxf(8.0f, (float)sw - textWidth - 8.0f));
+        textY = (int)Clamp((float)textY, 8.0f,
+                           fmaxf(8.0f, (float)sh - 96.0f));
+        UiDrawText(indicator, textX, textY, 15,
+                 Fade(WHITE, 0.9f * spaceFade));
     }
 }
 
@@ -1891,6 +1937,10 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
     int sh = GetScreenHeight();
 
     for (int i = 0; i < count; i++) {
+        if (!bodies[i].isStar && bodies[i].systemAnchorX == 0 &&
+            bodies[i].systemAnchorZ == 0 && bodies[i].bodyId == 3u) {
+            continue;
+        }
         Vector3 toBody = Vector3Subtract(bodies[i].center, camera->position);
         bool behind = Vector3DotProduct(toBody, forward) < 0.0f;
         Vector2 screen = GetWorldToScreen(bodies[i].center, *camera);
@@ -1912,30 +1962,37 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
                 DrawLine((int)px, (int)py - (int)(scale * 2.0f), (int)px, (int)py + (int)(scale * 2.0f),
                          Fade(color, 0.30f * spaceFade));
                 if (bodies[i].dist < 350.0f) {
-                    UiDrawText(TextFormat("%s Prime", bodies[i].name), (int)px + (int)scale + 6, (int)py - 8, 15,
+                    UiDrawText(bodies[i].name, (int)px + (int)scale + 6,
+                             (int)py - 8, 15,
                              Fade(WHITE, 0.85f * spaceFade));
                 }
             } else {
                 DrawEdgeIndicator(px, py, behind, camera->position, bodies[i].center, color, spaceFade,
-                                  TextFormat("%s Prime", bodies[i].name));
+                                  bodies[i].name);
             }
             continue;
         }
 
         Color color = SolarStyleColor(bodies[i].style);
         if (onScreen) {
-            DrawCircle((int)px, (int)py, 4.0f, Fade(color, spaceFade));
+            float radiusPixels = CelestialRadiusPixels(
+                camera, bodies[i].center, bodies[i].physicalRadiusGame);
+            if (radiusPixels < 0.75f) {
+                DrawCircle((int)px, (int)py, 4.0f,
+                           Fade(color, spaceFade));
+            }
             if (bodies[i].dist < 350.0f) {
-                UiDrawText(TextFormat("%s %c", bodies[i].name,
-                                    'a' + (bodies[i].index > 0 ? bodies[i].index - 1 : 0)),
-                         (int)px + 7, (int)py - 8, 15, Fade(WHITE, 0.85f * spaceFade));
+                DrawCelestialLabel((Vector2){ px, py }, radiusPixels,
+                                   bodies[i].name, 15,
+                                   Fade(WHITE, 0.85f * spaceFade));
             }
         }
     }
 
     Vector3 homeCenter = HomeWorldCenter();
     float homeDist = Vector3Distance(camera->position, homeCenter);
-    if (homeDist > 90.0f) {
+    if ((!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) ||
+        homeDist > 90.0f) {
         Vector3 toHome = Vector3Subtract(homeCenter, camera->position);
         bool behind = Vector3DotProduct(toHome, forward) < 0.0f;
         Vector2 homeScreen = GetWorldToScreen(homeCenter, *camera);
@@ -1943,14 +2000,22 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
                         homeScreen.y > -10.0f && homeScreen.y < (float)sh + 10.0f;
         Color homeColor = (Color){ 130, 202, 255, 255 };
         if (onScreen) {
-            DrawCircle((int)homeScreen.x, (int)homeScreen.y, 6.0f,
-                       Fade(homeColor, 0.9f * spaceFade));
-            UiDrawText(TextFormat("Homeworld - %.0f blocks", homeDist),
-                     (int)homeScreen.x + 10, (int)homeScreen.y - 8, 15,
-                     Fade(WHITE, 0.9f * spaceFade));
+            char distance[32];
+            FormatCelestialDistance(distance, sizeof(distance), homeDist);
+            float earthRadius = (float)SpaceUnitsKilometersToGameDistance(
+                SPACE_UNITS_EARTH_RADIUS_KM);
+            float radiusPixels = CelestialRadiusPixels(
+                camera, homeCenter, earthRadius);
+            if (radiusPixels < 0.75f) {
+                DrawCircle((int)homeScreen.x, (int)homeScreen.y, 6.0f,
+                           Fade(homeColor, 0.9f * spaceFade));
+            }
+            DrawCelestialLabel(homeScreen, radiusPixels,
+                               TextFormat("Earth - %s", distance), 15,
+                               Fade(WHITE, 0.9f * spaceFade));
         } else {
             DrawEdgeIndicator(homeScreen.x, homeScreen.y, behind, camera->position,
-                              homeCenter, homeColor, spaceFade, "Homeworld");
+                              homeCenter, homeColor, spaceFade, "Earth");
         }
     }
 
@@ -1963,7 +2028,7 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
             Vector2 screen = GetWorldToScreen(sys.center, *camera);
             Color color = SpectrumColor(sys.spectrum);
             DrawEdgeIndicator(screen.x, screen.y, behind, camera->position, sys.center, color, spaceFade,
-                              TextFormat("%s Prime", sys.name));
+                              sys.name);
         }
     }
 }
@@ -2927,6 +2992,48 @@ static void DrawPlanetRings(const PlanetRingLayer *ring, float planetRadius,
     EndBlendMode();
 }
 
+static float CelestialRadiusPixels(const Camera3D *camera, Vector3 center,
+                                   float radius)
+{
+    float distance = Vector3Distance(camera->position, center);
+    if (!(distance > 0.0f) || !(radius > 0.0f)) return 0.0f;
+    float focalPixels = (float)GetScreenHeight() /
+        (2.0f * tanf(camera->fovy * DEG2RAD * 0.5f));
+    return radius / distance * focalPixels;
+}
+
+#define CELESTIAL_RENDER_NEAREST_SURFACE 0.075f
+
+static float CelestialRenderScale(const Camera3D *camera, Vector3 center,
+                                  float radius)
+{
+    float distance = Vector3Distance(camera->position, center);
+    float nearestSurface = distance - radius;
+    if (!(nearestSurface > 0.0f) ||
+        nearestSurface >= CELESTIAL_RENDER_NEAREST_SURFACE) {
+        return 1.0f;
+    }
+    return CELESTIAL_RENDER_NEAREST_SURFACE / nearestSurface;
+}
+
+static Vector3 CelestialRenderPoint(const Camera3D *camera, Vector3 point,
+                                    float scale)
+{
+    return Vector3Add(camera->position,
+                      Vector3Scale(Vector3Subtract(point, camera->position),
+                                   scale));
+}
+
+static void CelestialRenderLighting(const Camera3D *camera, float scale,
+                                    PlanetSpaceLighting *lighting)
+{
+    if (!lighting || scale <= 1.0f) return;
+    for (int i = 0; i < lighting->count; i++) {
+        lighting->positions[i] = CelestialRenderPoint(
+            camera, lighting->positions[i], scale);
+    }
+}
+
 void DrawSolarBodies(const Camera3D *camera, float spaceFade)
 {
     if (spaceFade <= 0.05f) return;
@@ -2936,9 +3043,23 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
     SpaceBodyInfo bodies[48];
     int count = SpaceBodiesNear(camera->position, 700.0f, bodies, 48);
     for (int i = 0; i < count; i++) {
+        if (!bodies[i].isStar && bodies[i].systemAnchorX == 0 &&
+            bodies[i].systemAnchorZ == 0 && bodies[i].bodyId == 3u) {
+            continue;
+        }
         Color color = bodies[i].isStar ? SpectrumColor(bodies[i].spectrum)
                                       : SolarStyleColor(bodies[i].style);
         if (bodies[i].isStar) {
+            float physicalRadius = bodies[i].physicalRadiusGame;
+            if (CelestialRadiusPixels(camera, bodies[i].center,
+                                      physicalRadius) < 0.75f) {
+                continue;
+            }
+            float renderScale = CelestialRenderScale(
+                camera, bodies[i].center, physicalRadius);
+            Vector3 renderCenter = CelestialRenderPoint(
+                camera, bodies[i].center, renderScale);
+            float renderRadius = physicalRadius * renderScale;
             if (bodies[i].remnant.active) {
                 Color remnantColor = bodies[i].remnant.blackHole
                     ? (Color){ 120, 150, 255, 255 }
@@ -2946,22 +3067,33 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
                 float remnantAlpha = (0.10f +
                                       bodies[i].remnant.ejectaStrength * 0.24f) *
                                      spaceFade;
-                DrawSphereWires(
-                    bodies[i].center,
-                    bodies[i].remnant.proxyShockRadiusGame,
-                    20, 20, Fade(remnantColor, remnantAlpha));
+                float shockRadius =
+                    (float)SpaceUnitsKilometersToGameDistance(
+                        bodies[i].remnant.physicalShockRadiusKm) * renderScale;
+                if (shockRadius > 0.0f) {
+                    DrawSphereWires(renderCenter, shockRadius, 20, 20,
+                                    Fade(remnantColor, remnantAlpha));
+                }
             }
-            float radius = bodies[i].spaceProxyRadius;
-            DrawSphere(bodies[i].center, radius * 1.08f, color);
-            DrawSphere(bodies[i].center, radius * 1.15f,
+            DrawSphere(renderCenter, renderRadius * 1.08f, color);
+            DrawSphere(renderCenter, renderRadius * 1.15f,
                        Fade(color, 0.12f * spaceFade));
         } else {
-            float radius = SolarBodyTerrainProxyRadius(
-                bodies[i].spaceProxyRadius);
+            float physicalRadius = bodies[i].physicalRadiusGame;
+            if (CelestialRadiusPixels(camera, bodies[i].center,
+                                      physicalRadius) < 0.75f) {
+                continue;
+            }
+            float renderScale = CelestialRenderScale(
+                camera, bodies[i].center, physicalRadius);
+            Vector3 renderCenter = CelestialRenderPoint(
+                camera, bodies[i].center, renderScale);
+            float renderRadius = physicalRadius * renderScale;
             PlanetTextureSet textures = PlanetTextureForBody(&bodies[i]);
             float rotation = PlanetBodyTextureRotation(&bodies[i]);
             PlanetSpaceLighting lighting = PlanetSpaceLightingFor(
                 bodies[i].systemAnchorX, bodies[i].systemAnchorZ, bodies[i].center);
+            CelestialRenderLighting(camera, renderScale, &lighting);
             float atmosphereAlpha = 0.08f + bodies[i].profile.atmosphereDensity * 0.54f;
             float ambientLight = 0.025f + bodies[i].profile.atmosphereDensity * 0.040f;
             float emissiveStrength = bodies[i].style == SOLAR_STYLE_LAVA ? 0.82f : 0.0f;
@@ -2975,7 +3107,7 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             PlanetRingLayer ringLayer = { 0 };
             PlanetRingLayer *activeRing = NULL;
             if (bodies[i].profile.hasRings) {
-                ringLayer = PlanetRingLayerFor(bodies[i].center, radius,
+                ringLayer = PlanetRingLayerFor(renderCenter, renderRadius,
                                                bodies[i].profile.ringTilt,
                                                bodies[i].worldSeed);
                 activeRing = &ringLayer;
@@ -2983,8 +3115,8 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
             PlanetMaterialResponse material = PlanetMaterialResponseFor(
                 &bodies[i].profile, false);
             PlanetRendererDrawSurface(&(PlanetSurfaceDrawParams){
-                .center = bodies[i].center,
-                .radius = radius + 0.08f,
+                .center = renderCenter,
+                .radius = renderRadius,
                 .textures = textures,
                 .rotation = rotation,
                 .fallback = color,
@@ -3001,8 +3133,8 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
                 PlanetMaterialResponse cloudMaterial = PlanetMaterialResponseFor(
                     &bodies[i].profile, true);
                 PlanetRendererDrawSurface(&(PlanetSurfaceDrawParams){
-                    .center = bodies[i].center,
-                    .radius = radius * 1.014f,
+                    .center = renderCenter,
+                    .radius = renderRadius * 1.014f,
                     .textures = { .albedo = cloudLayer.texture },
                     .rotation = cloudLayer.rotation,
                     .fallback = WHITE,
@@ -3014,13 +3146,30 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
                     .sceneExposure = planetSceneExposure
                 });
             }
-            DrawPlanetAtmosphere(camera, bodies[i].center, radius, &bodies[i].profile,
-                                 &lighting, atmosphereAlpha * spaceFade);
+            DrawPlanetAtmosphere(camera, renderCenter, renderRadius,
+                                 &bodies[i].profile, &lighting,
+                                 atmosphereAlpha * spaceFade);
             if (activeRing) {
-                DrawPlanetRings(activeRing, radius + 0.08f, bodies[i].style, spaceFade,
-                                &lighting);
+                DrawPlanetRings(activeRing, renderRadius, bodies[i].style,
+                                spaceFade, &lighting);
             }
         }
+    }
+
+    SpaceSatelliteInfo satellites[48];
+    int satelliteCount = SpaceSatellitesNear(
+        camera->position, 700.0f, satellites, 48);
+    for (int i = 0; i < satelliteCount; i++) {
+        float radius = (float)SpaceUnitsKilometersToGameDistance(
+            satellites[i].physicalRadiusKm);
+        if (CelestialRadiusPixels(camera, satellites[i].center, radius) <
+            0.75f) continue;
+        float renderScale = CelestialRenderScale(
+            camera, satellites[i].center, radius);
+        DrawSphere(CelestialRenderPoint(camera, satellites[i].center,
+                                        renderScale),
+                   radius * renderScale,
+                   (Color){ 174, 180, 188, 255 });
     }
 }
 
@@ -3042,17 +3191,28 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
 {
     if (spaceFade <= 0.05f) return;
 
-    const Vector3 center = HomeWorldCenter();
-    const float radius = HomeWorldProxyRadius();
-    float distance = Vector3Distance(camera->position, center);
-    if (distance <= radius + 0.5f || distance > 24000.0f) return;
+    const Vector3 physicalCenter = HomeWorldCenter();
+    const float physicalRadius = (float)SpaceUnitsKilometersToGameDistance(
+        SPACE_UNITS_EARTH_RADIUS_KM);
+    if (CelestialRadiusPixels(camera, physicalCenter, physicalRadius) < 0.75f) {
+        return;
+    }
+    float distance = Vector3Distance(camera->position, physicalCenter);
+    if (distance <= physicalRadius * 1.05f || distance > 24000.0f) return;
+
+    float renderScale = CelestialRenderScale(
+        camera, physicalCenter, physicalRadius);
+    const Vector3 center = CelestialRenderPoint(
+        camera, physicalCenter, renderScale);
+    const float radius = physicalRadius * renderScale;
 
     EnsurePlanetRenderResources();
     PlanetProfile homeAtmosphere = HomePlanetRenderProfile();
     float homeRotation = -18.0f +
                          (float)SpacePeriodicSimulationTime(
                              SpaceElapsedSimulationTime()) * 1.2f;
-    PlanetSpaceLighting lighting = PlanetSpaceLightingFor(0, 0, center);
+    PlanetSpaceLighting lighting = PlanetSpaceLightingFor(0, 0, physicalCenter);
+    CelestialRenderLighting(camera, renderScale, &lighting);
     PlanetCloudLayer cloudLayer = {
         .texture = planetTextures.homeClouds,
         .rotation = PlanetCloudRotation(&homeAtmosphere,
@@ -3104,7 +3264,10 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
     const char *line2 = NULL;
     const char *line3 = NULL;
     if (body->isStar) {
-        line1 = TextFormat("%s Prime - %s - %.0f blocks", body->name, typeName, body->dist);
+        double distanceAu = SpaceUnitsGameDistanceToKilometers(body->dist) /
+                            SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+        line1 = TextFormat("%s - %s - %.3g AU", body->name, typeName,
+                           distanceAu);
         line2 = TextFormat("M %.2f Msol  L %.2g Lsol  T %.0f K",
                            body->hostStar.massSolar,
                            body->hostStar.luminositySolar,
@@ -3125,8 +3288,7 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
     } else {
         float surfaceGap = fabsf(body->dist - SolarBodyTerrainProxyRadius(
             body->spaceProxyRadius));
-        line1 = TextFormat("%s %c - %s - %.0f K - %.2f g", body->name,
-                           'a' + (body->index > 0 ? body->index - 1 : 0), typeName,
+        line1 = TextFormat("%s - %s - %.0f K - %.2f g", body->name, typeName,
                            body->profile.equilibriumTempK, body->profile.surfaceGravity);
         if (!body->profile.hasSolidSurface) {
             line2 = "Dense gas envelope - no solid surface";
@@ -3134,8 +3296,10 @@ void DrawBodyInfoPanel(const SpaceBodyInfo *body)
             line2 = TextFormat("%s - E land",
                                PlanetAtmosphereName(body->profile.atmosphereType));
         } else {
-            line2 = TextFormat("%s - %.0f blocks",
-                               PlanetAtmosphereName(body->profile.atmosphereType), body->dist);
+            double distanceKm = SpaceUnitsGameDistanceToKilometers(body->dist);
+            line2 = TextFormat("%s - %.3g km",
+                               PlanetAtmosphereName(body->profile.atmosphereType),
+                               distanceKm);
         }
         if (body->remnantEnvironment.active) {
             line3 = TextFormat(
@@ -3267,20 +3431,38 @@ void DrawShipHud(const ShipHudState *hud)
              Fade(cyan, 0.24f));
 
     int rightColumn = (int)(panel.x + panel.width * 0.56f);
+    bool physicalUnits = WorldIsSpaceActive();
+    double displayedSpeed = physicalUnits
+        ? SpaceUnitsGameVelocityToKilometersPerSecond(hud->speed)
+        : hud->speed;
     UiDrawText("VELOCITY", left, top + 45, 13, Fade(WHITE, 0.50f));
-    UiDrawText(TextFormat("%.0f", hud->speed), left, top + 57, 34, modeColor);
-    int speedWidth = UiMeasureText(TextFormat("%.0f", hud->speed), 34);
-    UiDrawText("BLK/S", left + speedWidth + 8, top + 72, 13,
+    const char *speedText = physicalUnits
+        ? TextFormat("%.2f", displayedSpeed)
+        : TextFormat("%.0f", displayedSpeed);
+    UiDrawText(speedText, left, top + 57, 34, modeColor);
+    int speedWidth = UiMeasureText(speedText, 34);
+    UiDrawText(physicalUnits ? "KM/S" : "BLK/S",
+               left + speedWidth + 8, top + 72, 13,
                Fade(WHITE, 0.52f));
 
-    const char *altitudeLabel = hud->subsurface ? "SUBSURFACE" :
-                                (hud->nearPlanet ? "SURFACE ALT" : "ALTITUDE");
+    const char *altitudeLabel = physicalUnits && !hud->nearPlanet
+        ? "LOCAL Y"
+        : (hud->subsurface ? "SUBSURFACE" :
+           (hud->nearPlanet ? "SURFACE ALT" : "ALTITUDE"));
+    double displayedAltitude = physicalUnits && hud->nearPlanet
+        ? SpaceUnitsGameDistanceToKilometers(hud->altitude)
+        : hud->altitude;
     UiDrawText(altitudeLabel,
                rightColumn, top + 45, 13, Fade(WHITE, 0.50f));
-    UiDrawText(TextFormat("%.0f", hud->altitude), rightColumn, top + 60, 28,
+    const char *altitudeText = physicalUnits && hud->nearPlanet
+        ? TextFormat("%.3g", displayedAltitude)
+        : TextFormat("%.0f", displayedAltitude);
+    UiDrawText(altitudeText, rightColumn, top + 60, 28,
                Fade(WHITE, 0.94f));
-    int altitudeWidth = UiMeasureText(TextFormat("%.0f", hud->altitude), 28);
-    UiDrawText("BLK", rightColumn + altitudeWidth + 7, top + 72, 13,
+    int altitudeWidth = UiMeasureText(altitudeText, 28);
+    UiDrawText(physicalUnits && hud->nearPlanet ? "KM" :
+                   (physicalUnits ? "U" : "BLK"),
+               rightColumn + altitudeWidth + 7, top + 72, 13,
                Fade(WHITE, 0.52f));
 
     DrawShipHeadingTape(
@@ -3655,7 +3837,8 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     UiDrawText("RMB on placed album opens it", x + 14, y + 173, 17, RAYWHITE);
     UiDrawText("Esc pause    F6 day/night    O orbit paths", x + 14, y + 198, 17, RAYWHITE);
     UiDrawText("F4 view    F5 save    F9 load    F10 shot", x + 14, y + 223, 17, RAYWHITE);
-    UiDrawText("Fly above y=120 to reach space", x + 14, y + 248, 17, RAYWHITE);
+    UiDrawText(TextFormat("Fly above y=%.0f to reach space", SPACE_ENTER_Y),
+             x + 14, y + 248, 17, RAYWHITE);
     UiDrawText("Break collects; place consumes blocks", x + 14, y + 273, 15, RAYWHITE);
     UiDrawText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 297, 15, RAYWHITE);
     UiDrawText("WASD thrust, X cruise, F assist, E exit", x + 14, y + 321, 15, RAYWHITE);
@@ -3830,7 +4013,10 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
     SolarSystemDef hudSystem;
     float hudSystemDist = 0.0f;
     if (FindSystemForGuide(playerPosition, &hudSystem, &hudSystemDist)) {
-        UiDrawText(TextFormat("System %s Prime (%.0f)", hudSystem.name, hudSystemDist),
+        double distanceAu = SpaceUnitsGameDistanceToKilometers(hudSystemDist) /
+                            SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
+        UiDrawText(TextFormat("System %s (%.3g AU)", hudSystem.name,
+                              distanceAu),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
     } else {
         UiDrawText("Deep space", x, y, fs, Fade(WHITE, 0.85f)); y += line;
@@ -3980,7 +4166,15 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                         AudioIsMusicEnabled() ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     if (ShipIsDriving()) {
-        UiDrawText(TextFormat("Ship speed %.1f blocks/s", hud->shipSpeed), x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        if (WorldIsSpaceActive()) {
+            UiDrawText(TextFormat("Ship speed %.2f km/s",
+                                  SpaceUnitsGameVelocityToKilometersPerSecond(
+                                      hud->shipSpeed)),
+                     x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        } else {
+            UiDrawText(TextFormat("Ship speed %.1f blocks/s", hud->shipSpeed),
+                     x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        }
     }
 }
 

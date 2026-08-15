@@ -26,6 +26,8 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V17 "VOXELCRAFT_SAVE_V17"
+#define SAVE_MAGIC_V17_LEN (sizeof(SAVE_MAGIC_V17) - 1)
 #define SAVE_MAGIC_V16 "VOXELCRAFT_SAVE_V16"
 #define SAVE_MAGIC_V16_LEN (sizeof(SAVE_MAGIC_V16) - 1)
 #define SAVE_MAGIC_V15 "VOXELCRAFT_SAVE_V15"
@@ -1013,8 +1015,8 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     const Player *player = context ? context->player : NULL;
     if (!file || !player) return false;
 
-    bool ok = fwrite(SAVE_MAGIC_V16, 1, SAVE_MAGIC_V16_LEN, file) ==
-              SAVE_MAGIC_V16_LEN;
+    bool ok = fwrite(SAVE_MAGIC_V17, 1, SAVE_MAGIC_V17_LEN, file) ==
+              SAVE_MAGIC_V17_LEN;
     uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
     uint32_t activeDimension = (uint32_t)WorldCurrentDimension();
     uint32_t seed = WorldGetSeed();
@@ -1303,19 +1305,28 @@ void LoadMap(Player *player)
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
     ShipLocatorRecord loadedShipLocator = { 0 };
+    char magicV17[SAVE_MAGIC_V17_LEN] = { 0 };
+    bool isV17 = fread(magicV17, 1, SAVE_MAGIC_V17_LEN, file) ==
+                     SAVE_MAGIC_V17_LEN &&
+                 memcmp(magicV17, SAVE_MAGIC_V17, SAVE_MAGIC_V17_LEN) == 0;
     char magicV16[SAVE_MAGIC_V16_LEN] = { 0 };
-    bool isV16 = fread(magicV16, 1, SAVE_MAGIC_V16_LEN, file) ==
+    bool isV16 = false;
+    if (!isV17) {
+        rewind(file);
+        isV16 = fread(magicV16, 1, SAVE_MAGIC_V16_LEN, file) ==
                      SAVE_MAGIC_V16_LEN &&
                  memcmp(magicV16, SAVE_MAGIC_V16, SAVE_MAGIC_V16_LEN) == 0;
+    }
     char magicV15[SAVE_MAGIC_V15_LEN] = { 0 };
     bool isV15 = false;
-    if (!isV16) {
+    if (!isV17 && !isV16) {
         rewind(file);
         isV15 = fread(magicV15, 1, SAVE_MAGIC_V15_LEN, file) ==
                         SAVE_MAGIC_V15_LEN &&
                     memcmp(magicV15, SAVE_MAGIC_V15, SAVE_MAGIC_V15_LEN) == 0;
     }
-    bool isV15Family = isV16 || isV15;
+    bool isV16Family = isV17 || isV16;
+    bool isV15Family = isV16Family || isV15;
     char magicV14[SAVE_MAGIC_V14_LEN] = { 0 };
     bool isV14 = false;
     if (!isV15Family) {
@@ -1373,7 +1384,7 @@ void LoadMap(Player *player)
     }
     if (isV14Family || isV13 || isV12 || isV11 || isV10 || isV9 || isV8) {
         bool loaded = false;
-        if (isV16) {
+        if (isV16Family) {
             loaded = LoadMapV16(
                 file, &savedTerrain, &savedPlayer, &loadedEdits,
                 &loadedDimensions, &savedEditCount, &savedSeed,
@@ -1533,7 +1544,9 @@ void LoadMap(Player *player)
         return;
     }
     if (isV14Family || isV13 || isV12 || isV11 || isV10 || isV9) {
-        if (!SpaceLoadState(file)) {
+        bool spaceLoaded = isV17 ? SpaceLoadState(file)
+                                 : SpaceLoadLegacyState(file);
+        if (!spaceLoaded) {
             free(loadedDimensions);
             free(loadedEdits);
             fclose(file);
@@ -1655,7 +1668,7 @@ void LoadMap(Player *player)
         InventoryGrantStarterKit();
         ShipReset();
     }
-    bool savedInNether = isV16
+    bool savedInNether = isV16Family
         ? savedDimension == WORLD_DIMENSION_NETHER
         : HomeWorldSurfaceIsActive() && !PlanetWorldIsActive() &&
               savedPlayer.position.y >= (float)NETHER_LAYER_Y &&

@@ -196,6 +196,7 @@ typedef struct SpaceBodyInfo {
     Vector3 center; // Scene position in game distance units.
     Vector3 velocity; // Scene velocity in game distance units per game time unit.
     double physicalRadiusKm;
+    float physicalRadiusGame;
     double semiMajorAxisKm;
     double parentMassKg;
     float spaceProxyRadius;
@@ -204,6 +205,7 @@ typedef struct SpaceBodyInfo {
     double currentIrradianceEarth;
     float dist; // Observer distance in game distance units.
     bool isStar;
+    uint32_t bodyId;
     int index;
     int systemAnchorX;
     int systemAnchorZ;
@@ -335,6 +337,7 @@ void SpaceSaveOrigin(FILE *file);
 bool SpaceLoadOrigin(FILE *file);
 bool SpaceSaveState(FILE *file);
 bool SpaceLoadState(FILE *file);
+bool SpaceLoadLegacyState(FILE *file);
 void UpdateSpaceChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 void SpaceProcessFinishedGenJobs(void);
 void SpaceUpdateSolarGlow(Vector3 playerPosition);
@@ -361,6 +364,9 @@ bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
                                   SolarPlanetOrbitalState *out);
 double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index);
 double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index);
+float SolarSystemParkingRadiusGame(const SolarSystemDef *sys);
+float SolarSystemPlanetParkingRadiusGame(const SolarSystemDef *sys, int index);
+float HomeWorldParkingRadiusGame(void);
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,
                             int maxCount);
 int SolarSystemStellarBodiesAtTime(const SolarSystemDef *sys,

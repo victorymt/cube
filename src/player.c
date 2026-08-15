@@ -386,7 +386,9 @@ Vector3 PlayerResolveCameraPosition(Vector3 pivot, Vector3 desired)
 
 void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool thirdPerson)
 {
-    Vector3 eye = Vector3Add(player->position, (Vector3){ 0.0f, EYE_HEIGHT, 0.0f });
+    float eyeHeight = WorldIsSpaceActive() ? 0.0f : EYE_HEIGHT;
+    Vector3 eye = Vector3Add(player->position,
+                             (Vector3){ 0.0f, eyeHeight, 0.0f });
     Vector3 look = ForwardFromAngles(player->yaw, player->pitch);
     float targetFov = CameraFovForHeight(eye.y);
     if (ShipIsDriving() && ShipIsWarping()) targetFov += 24.0f;
