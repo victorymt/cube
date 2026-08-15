@@ -2703,15 +2703,15 @@ static unsigned char SurfaceWaterSnapshotVolume(
     return waterVolumes[(lx * height + y) * CHUNK_SIZE + lz];
 }
 
-static void CaptureSurfaceWaterBoundaryCell(
-    int worldX, int worldY, int worldZ, unsigned short *outBlock,
+static bool TrySampleSurfaceWaterCell(
+    int worldX, int worldY, int worldZ, BlockType *outBlock,
     unsigned char *outVolume)
 {
-    *outBlock = USHRT_MAX;
-    *outVolume = 0u;
+    if (!outBlock || !outVolume) return false;
     if (!InHeight(worldY)) {
         *outBlock = BLOCK_AIR;
-        return;
+        *outVolume = 0u;
+        return true;
     }
 
     int cx = 0;
@@ -2720,18 +2720,38 @@ static void CaptureSurfaceWaterBoundaryCell(
     int lz = 0;
     WorldToChunkLocal(worldX, worldZ, &cx, &cz, &lx, &lz);
     const Chunk *chunk = FindChunk(cx, cz);
-    if (!chunk) return;
+    if (!chunk) return false;
 
-    BlockType block = ChunkGetLocalBlock(chunk, lx, worldY, lz);
-    *outBlock = (unsigned short)block;
-    if (block != BLOCK_WATER) return;
+    int sectionY = SurfaceSectionYFromBlockY(worldY);
+    BlockType block = BLOCK_AIR;
+    if (!ChunkTryGetLocalBlock(chunk, lx, worldY, lz, &block)) {
+        if (!ChunkTerrainSectionIsResolved(chunk, sectionY)) return false;
+    }
 
-    const ChunkSection *section = ChunkGetSectionConst(
-        chunk, SurfaceSectionYFromBlockY(worldY));
+    *outBlock = block;
+    *outVolume = 0u;
+    if (block != BLOCK_WATER) return true;
+
+    const ChunkSection *section = ChunkGetSectionConst(chunk, sectionY);
     int index = (lx * SURFACE_SECTION_HEIGHT +
                  SurfaceSectionLocalYFromBlockY(worldY)) * CHUNK_SIZE + lz;
     *outVolume = section && section->waterVolumes
         ? section->waterVolumes[index] : (unsigned char)WATER_VOLUME_CAPACITY;
+    return true;
+}
+
+static void CaptureSurfaceWaterBoundaryCell(
+    int worldX, int worldY, int worldZ, unsigned short *outBlock,
+    unsigned char *outVolume)
+{
+    *outBlock = USHRT_MAX;
+    *outVolume = 0u;
+    BlockType block = BLOCK_AIR;
+    unsigned char volume = 0u;
+    if (!TrySampleSurfaceWaterCell(
+            worldX, worldY, worldZ, &block, &volume)) return;
+    *outBlock = (unsigned short)block;
+    *outVolume = volume;
 }
 
 static void CaptureSurfaceWaterBoundary(
@@ -2840,26 +2860,8 @@ static bool SurfaceWaterNeighbor(
 
     int wx = chunkX * CHUNK_SIZE + lx + nx;
     int wz = chunkZ * CHUNK_SIZE + lz + nz;
-    int neighborCx = 0;
-    int neighborCz = 0;
-    int localX = 0;
-    int localZ = 0;
-    WorldToChunkLocal(wx, wz, &neighborCx, &neighborCz, &localX, &localZ);
-    Chunk *neighborChunk = FindChunk(neighborCx, neighborCz);
-    if (!neighborChunk) return false;
-    *outBlock = ChunkGetLocalBlock(neighborChunk, localX, worldY, localZ);
-    *outVolume = 0u;
-    if (*outBlock == BLOCK_WATER) {
-        int sectionY = SurfaceSectionYFromBlockY(worldY);
-        const ChunkSection *section = ChunkGetSectionConst(
-            neighborChunk, sectionY);
-        int index = (localX * SURFACE_SECTION_HEIGHT +
-                     SurfaceSectionLocalYFromBlockY(worldY)) * CHUNK_SIZE +
-                    localZ;
-        *outVolume = section && section->waterVolumes
-            ? section->waterVolumes[index] : (unsigned char)WATER_VOLUME_CAPACITY;
-    }
-    return true;
+    return TrySampleSurfaceWaterCell(
+        wx, worldY, wz, outBlock, outVolume);
 }
 
 static void AddSurfaceWaterFace(ChunkMeshEmitter *emitter, int x, int y,

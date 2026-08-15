@@ -263,7 +263,14 @@ static void AssertUnknownWaterNeighborsAreConservative(void)
     chunks[0].cz = 0;
     assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
                          TEST_MESH_WATER, &water));
-    // A loaded air neighbor makes the actual exposed face visible.
+    // A loaded chunk with an unresolved section is still unknown.
+    AssertMeshWellFormed(&water, 30);
+    FreeTestMesh(&water);
+
+    assert(ChunkMarkTerrainSectionResolved(&chunks[0], 0));
+    assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
+                         TEST_MESH_WATER, &water));
+    // A resolved empty section makes the actual exposed face visible.
     AssertMeshWellFormed(&water, 36);
     FreeTestMesh(&water);
 

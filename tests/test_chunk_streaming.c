@@ -451,6 +451,40 @@ static void TestWaterMeshUsesSnapshottedNeighborBoundary(void)
     assert(probe.passed);
 }
 
+static int BuildSparseWaterBoundaryMesh(bool vertical, bool resolved)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, true);
+    ChunkSection *current = ChunkGetSection(&chunks[0], 0, false);
+    assert(current);
+
+    if (vertical) {
+        current->blocks[8][SURFACE_SECTION_HEIGHT - 1][8] = BLOCK_WATER;
+        if (resolved) {
+            assert(ChunkMarkTerrainSectionResolved(&chunks[0], 1));
+        }
+    } else {
+        ChunksTestConfigureChunk(1, 1, 0, true, false);
+        current->blocks[CHUNK_SIZE - 1][1][8] = BLOCK_WATER;
+        if (resolved) {
+            assert(ChunkMarkTerrainSectionResolved(&chunks[1], 0));
+        }
+    }
+
+    RebuildDirtyChunkMeshes((Vector3){ 0.0f, 0.0f, 0.0f });
+    int jobIndex = FindPendingMeshJobFor(0, 0);
+    assert(jobIndex >= 0);
+    return ChunksTestBuildWaterMeshJob(jobIndex);
+}
+
+static void TestSparseWaterBoundariesPreserveUnknownSections(void)
+{
+    assert(BuildSparseWaterBoundaryMesh(false, false) == 5 * 6);
+    assert(BuildSparseWaterBoundaryMesh(false, true) == 6 * 6);
+    assert(BuildSparseWaterBoundaryMesh(true, false) == 5 * 6);
+    assert(BuildSparseWaterBoundaryMesh(true, true) == 6 * 6);
+}
+
 static void TestSparseSignedSectionStorage(void)
 {
     ChunksTestResetScheduler();
@@ -765,6 +799,7 @@ int main(void)
     TestEditDuringFlightKeepsSectionDirty();
     TestStaleJobDiscardedAfterChunkReload();
     TestWaterMeshUsesSnapshottedNeighborBoundary();
+    TestSparseWaterBoundariesPreserveUnknownSections();
     TestSparseSignedSectionStorage();
     TestMaterializedAirDiffersFromMissingSection();
     TestImplicitTerrainLookupAndEditOverride();
