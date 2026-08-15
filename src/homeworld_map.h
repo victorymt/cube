@@ -3,7 +3,7 @@
 
 #include "types.h"
 
-void HomeWorldMapOpen(Vector3 playerPosition);
+void HomeWorldMapOpen(Vector3 playerPosition, float daylight);
 void HomeWorldMapClose(void);
 bool HomeWorldMapIsOpen(void);
 void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,

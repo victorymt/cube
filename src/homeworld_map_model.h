@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_HOMEWORLD_MAP_MODEL_H
 #define VOXELCRAFT_HOMEWORLD_MAP_MODEL_H
 
+#include "planet_surface.h"
 #include "types.h"
 
 #define HOMEWORLD_MAP_RASTER_SIZE 64
@@ -15,7 +16,9 @@ typedef struct HomeWorldMapBounds {
 } HomeWorldMapBounds;
 
 typedef struct HomeWorldMapTerrainCell {
+    bool planetSurface;
     Biome biome;
+    PlanetBiome planetBiome;
     float elevation;
     float seaLevel;
     float slope;

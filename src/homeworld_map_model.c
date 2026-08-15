@@ -72,10 +72,37 @@ bool HomeWorldMapWorldVisible(HomeWorldMapBounds bounds, float worldX,
 Color HomeWorldMapTerrainColor(HomeWorldMapTerrainCell cell)
 {
     Color base = { 86, 132, 76, 255 };
-    if (cell.waterDepth > 0) {
+    if (cell.planetSurface && cell.planetBiome == PLANET_BIOME_LAVA_SEA) {
         float depth = MapClamp(
             log1pf((float)cell.waterDepth) /
-                log1pf((float)HOME_BATHYMETRY_MAX_WATER_DEPTH),
+                log1pf((float)BATHYMETRY_MAX_WATER_DEPTH),
+            0.0f, 1.0f);
+        base = (Color){
+            MapChannel(224.0f - depth * 112.0f),
+            MapChannel(76.0f - depth * 50.0f),
+            MapChannel(24.0f - depth * 16.0f),
+            255
+        };
+    } else if (cell.waterDepth > 0 && cell.planetSurface &&
+               (cell.planetBiome == PLANET_BIOME_ICE_SHEET ||
+                cell.planetBiome == PLANET_BIOME_GLACIER)) {
+        float depth = MapClamp(
+            log1pf((float)cell.waterDepth) /
+                log1pf((float)BATHYMETRY_MAX_WATER_DEPTH),
+            0.0f, 1.0f);
+        base = (Color){
+            MapChannel(204.0f - depth * 68.0f),
+            MapChannel(228.0f - depth * 64.0f),
+            MapChannel(235.0f - depth * 52.0f),
+            255
+        };
+    } else if (cell.waterDepth > 0) {
+        int maxDepth = cell.planetSurface
+            ? BATHYMETRY_MAX_WATER_DEPTH
+            : HOME_BATHYMETRY_MAX_WATER_DEPTH;
+        float depth = MapClamp(
+            log1pf((float)cell.waterDepth) /
+                log1pf((float)maxDepth),
             0.0f, 1.0f);
         base = (Color){
             MapChannel(44.0f - depth * 38.0f),
@@ -83,6 +110,42 @@ Color HomeWorldMapTerrainColor(HomeWorldMapTerrainCell cell)
             MapChannel(164.0f - depth * 99.0f),
             255
         };
+    } else if (cell.planetSurface) {
+        switch (cell.planetBiome) {
+        case PLANET_BIOME_BASALT_PLAINS:
+            base = (Color){ 74, 72, 70, 255 }; break;
+        case PLANET_BIOME_LAVA_SEA:
+            base = (Color){ 214, 69, 22, 255 }; break;
+        case PLANET_BIOME_VOLCANIC_RIDGE:
+            base = (Color){ 105, 73, 65, 255 }; break;
+        case PLANET_BIOME_ICE_SHEET:
+            base = (Color){ 219, 231, 235, 255 }; break;
+        case PLANET_BIOME_GLACIER:
+            base = (Color){ 166, 211, 224, 255 }; break;
+        case PLANET_BIOME_DUNES:
+            base = (Color){ 203, 171, 104, 255 }; break;
+        case PLANET_BIOME_BADLANDS:
+            base = (Color){ 166, 100, 74, 255 }; break;
+        case PLANET_BIOME_OASIS:
+            base = (Color){ 57, 126, 83, 255 }; break;
+        case PLANET_BIOME_IMPACT_BASIN:
+            base = (Color){ 96, 96, 94, 255 }; break;
+        case PLANET_BIOME_CRATER_HIGHLANDS:
+            base = (Color){ 137, 134, 128, 255 }; break;
+        case PLANET_BIOME_OCEAN:
+            base = (Color){ 49, 105, 137, 255 }; break;
+        case PLANET_BIOME_COAST:
+            base = (Color){ 196, 181, 126, 255 }; break;
+        case PLANET_BIOME_FOREST:
+            base = (Color){ 39, 91, 54, 255 }; break;
+        case PLANET_BIOME_ALPINE:
+            base = (Color){ 145, 151, 151, 255 }; break;
+        case PLANET_BIOME_STORM_BANDS:
+            base = (Color){ 183, 150, 113, 255 }; break;
+        case PLANET_BIOME_PLAINS:
+        default:
+            base = (Color){ 92, 136, 80, 255 }; break;
+        }
     } else {
         switch (cell.biome) {
         case BIOME_FOREST: base = (Color){ 44, 102, 60, 255 }; break;
@@ -94,7 +157,11 @@ Color HomeWorldMapTerrainColor(HomeWorldMapTerrainCell cell)
         }
     }
 
-    float relative = MapClamp((cell.elevation - cell.seaLevel) / 72.0f,
+    float elevationReference = cell.seaLevel >= 0.0f
+        ? cell.seaLevel : 84.0f;
+    float elevationScale = cell.planetSurface ? 96.0f : 72.0f;
+    float relative = MapClamp(
+        (cell.elevation - elevationReference) / elevationScale,
                               -0.45f, 0.75f);
     float shade = 1.0f + relative * 0.22f - MapClamp(cell.slope, 0.0f, 12.0f) * 0.012f;
     int contour = (int)floorf(cell.elevation);
@@ -190,11 +257,17 @@ static float MapLandmarkScore(const HomeWorldMapTerrainCell *cells,
         }
         return -1.0f;
     case HOMEWORLD_MAP_LANDMARK_FOREST:
-        if (cell->waterDepth > 0 || cell->biome != BIOME_FOREST) return -1.0f;
+        if (cell->waterDepth > 0 ||
+            (cell->planetSurface
+                 ? cell->planetBiome != PLANET_BIOME_FOREST
+                 : cell->biome != BIOME_FOREST)) return -1.0f;
         for (int dz = -1; dz <= 1; dz++) {
             for (int dx = -1; dx <= 1; dx++) {
-                if (cells[(z + dz) * HOMEWORLD_MAP_RASTER_SIZE + x + dx]
-                        .biome != BIOME_FOREST) return -1.0f;
+                const HomeWorldMapTerrainCell *neighbor =
+                    &cells[(z + dz) * HOMEWORLD_MAP_RASTER_SIZE + x + dx];
+                if (neighbor->planetSurface
+                        ? neighbor->planetBiome != PLANET_BIOME_FOREST
+                        : neighbor->biome != BIOME_FOREST) return -1.0f;
             }
         }
         return 500.0f + cell->faunaActivity * 80.0f + cell->elevation * 0.02f;

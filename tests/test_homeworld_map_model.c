@@ -75,6 +75,55 @@ static void TestTerrainPalette(void)
     assert(strcmp(HomeWorldMapBiomeName(BIOME_PLAINS, true), "Water") == 0);
 }
 
+static void TestPlanetTerrainPalette(void)
+{
+    Color colors[PLANET_BIOME_COUNT];
+    for (int biome = 0; biome < PLANET_BIOME_COUNT; biome++) {
+        HomeWorldMapTerrainCell cell = {
+            .planetSurface = true,
+            .planetBiome = (PlanetBiome)biome,
+            .elevation = 84.0f,
+            .seaLevel = 80.0f,
+            .slope = 1.0f
+        };
+        colors[biome] = HomeWorldMapTerrainColor(cell);
+        assert(colors[biome].a == 255);
+    }
+    for (int a = 0; a < PLANET_BIOME_COUNT; a++) {
+        for (int b = a + 1; b < PLANET_BIOME_COUNT; b++) {
+            assert(colors[a].r != colors[b].r ||
+                   colors[a].g != colors[b].g ||
+                   colors[a].b != colors[b].b);
+        }
+    }
+
+    HomeWorldMapTerrainCell ocean = {
+        .planetSurface = true,
+        .planetBiome = PLANET_BIOME_OCEAN,
+        .elevation = 72.0f,
+        .seaLevel = 80.0f,
+        .waterDepth = 8
+    };
+    Color shelfColor = HomeWorldMapTerrainColor(ocean);
+    ocean.elevation = (float)BATHYMETRY_MIN_SEABED_Y;
+    ocean.waterDepth = BATHYMETRY_MAX_WATER_DEPTH;
+    Color trenchColor = HomeWorldMapTerrainColor(ocean);
+    assert(trenchColor.r < shelfColor.r);
+    assert(trenchColor.g < shelfColor.g);
+    assert(trenchColor.b < shelfColor.b);
+
+    HomeWorldMapTerrainCell lava = ocean;
+    lava.planetBiome = PLANET_BIOME_LAVA_SEA;
+    Color lavaColor = HomeWorldMapTerrainColor(lava);
+    assert(lavaColor.r > lavaColor.g);
+    assert(lavaColor.g > lavaColor.b);
+
+    HomeWorldMapTerrainCell ice = ocean;
+    ice.planetBiome = PLANET_BIOME_GLACIER;
+    Color iceColor = HomeWorldMapTerrainColor(ice);
+    assert(iceColor.b > iceColor.r);
+}
+
 static void TestHeatInterpolation(void)
 {
     float heat[HOMEWORLD_MAP_HEAT_SIZE * HOMEWORLD_MAP_HEAT_SIZE] = { 0 };
@@ -132,13 +181,42 @@ static void TestLandmarkSelection(void)
     assert(HasLandmark(landmarks, count, HOMEWORLD_MAP_LANDMARK_FAUNA));
 }
 
+static void TestPlanetForestLandmark(void)
+{
+    HomeWorldMapTerrainCell cells[
+        HOMEWORLD_MAP_RASTER_SIZE * HOMEWORLD_MAP_RASTER_SIZE];
+    for (int i = 0;
+         i < HOMEWORLD_MAP_RASTER_SIZE * HOMEWORLD_MAP_RASTER_SIZE; i++) {
+        cells[i] = (HomeWorldMapTerrainCell){
+            .planetSurface = true,
+            .planetBiome = PLANET_BIOME_PLAINS,
+            .elevation = 84.0f,
+            .seaLevel = 80.0f
+        };
+    }
+    for (int z = 30; z <= 34; z++) {
+        for (int x = 30; x <= 34; x++) {
+            cells[z * HOMEWORLD_MAP_RASTER_SIZE + x].planetBiome =
+                PLANET_BIOME_FOREST;
+        }
+    }
+
+    HomeWorldMapLandmark landmarks[HOMEWORLD_MAP_MAX_LANDMARKS];
+    int count = HomeWorldMapSelectLandmarks(
+        cells, (HomeWorldMapBounds){ 0.0f, 0.0f, 512.0f },
+        landmarks, HOMEWORLD_MAP_MAX_LANDMARKS);
+    assert(HasLandmark(landmarks, count, HOMEWORLD_MAP_LANDMARK_FOREST));
+}
+
 int main(void)
 {
     TestZoomLevels();
     TestCoordinateRoundTrip();
     TestTerrainPalette();
+    TestPlanetTerrainPalette();
     TestHeatInterpolation();
     TestLandmarkSelection();
+    TestPlanetForestLandmark();
     puts("homeworld map model tests passed");
     return 0;
 }

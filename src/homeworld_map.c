@@ -27,6 +27,11 @@ typedef struct HomeWorldMapLayout {
     bool compact;
 } HomeWorldMapLayout;
 
+typedef struct MapSurfaceTerrainSample {
+    HomeWorldMapTerrainCell cell;
+    BathymetrySample bathymetry;
+} MapSurfaceTerrainSample;
+
 typedef struct HomeWorldMapState {
     bool open;
     bool textureReady;
@@ -36,7 +41,9 @@ typedef struct HomeWorldMapState {
     bool showEcology;
     bool showCreatures;
     bool showLandmarks;
+    bool planetSurface;
     int zoomLevel;
+    char surfaceName[40];
     HomeWorldMapBounds bounds;
     Vector2 dragOffset;
     Vector3 playerPosition;
@@ -128,6 +135,42 @@ static HomeWorldMapBounds MapViewBounds(const HomeWorldMapLayout *layout)
     return bounds;
 }
 
+static MapSurfaceTerrainSample MapTerrainAt(int x, int z,
+                                            TerrainMode terrainMode)
+{
+    if (!homeMap.planetSurface) {
+        SurfaceTerrainSample sample = SurfaceTerrainAt(x, z, terrainMode);
+        return (MapSurfaceTerrainSample){
+            .cell = {
+                .planetSurface = false,
+                .biome = sample.biome,
+                .elevation = sample.elevation,
+                .seaLevel = sample.seaLevel,
+                .slope = sample.slope,
+                .waterDepth = sample.bathymetry.waterDepth
+            },
+            .bathymetry = sample.bathymetry
+        };
+    }
+
+    BathymetrySample bathymetry = PlanetBathymetryAt(x, z);
+    float east = (float)PlanetTerrainHeight(x + 1, z);
+    float west = (float)PlanetTerrainHeight(x - 1, z);
+    float north = (float)PlanetTerrainHeight(x, z - 1);
+    float south = (float)PlanetTerrainHeight(x, z + 1);
+    return (MapSurfaceTerrainSample){
+        .cell = {
+            .planetSurface = true,
+            .planetBiome = PlanetBiomeAt(x, z),
+            .elevation = (float)bathymetry.seabedY,
+            .seaLevel = (float)bathymetry.seaLevel,
+            .slope = fmaxf(fabsf(east - west), fabsf(north - south)) * 0.5f,
+            .waterDepth = bathymetry.waterDepth
+        },
+        .bathymetry = bathymetry
+    };
+}
+
 static void MapRefresh(float daylight)
 {
     homeMap.daylight = daylight;
@@ -143,18 +186,11 @@ static void MapRefresh(float daylight)
                                      u * homeMap.bounds.span);
             int worldZ = (int)floorf(homeMap.bounds.centerZ - half +
                                      v * homeMap.bounds.span);
-            SurfaceTerrainSample sample =
-                SurfaceTerrainAt(worldX, worldZ, terrainMode);
+            MapSurfaceTerrainSample sample =
+                MapTerrainAt(worldX, worldZ, terrainMode);
             HomeWorldMapTerrainCell *cell =
                 &homeMap.cells[z * HOMEWORLD_MAP_RASTER_SIZE + x];
-            *cell = (HomeWorldMapTerrainCell){
-                .biome = sample.biome,
-                .elevation = sample.elevation,
-                .seaLevel = sample.seaLevel,
-                .slope = sample.slope,
-                .waterDepth = sample.bathymetry.waterDepth,
-                .faunaActivity = 0.0f
-            };
+            *cell = sample.cell;
         }
     }
 
@@ -211,13 +247,17 @@ static void MapRefresh(float daylight)
     homeMap.cacheDirty = false;
 }
 
-void HomeWorldMapOpen(Vector3 playerPosition)
+void HomeWorldMapOpen(Vector3 playerPosition, float daylight)
 {
     homeMap.open = true;
     homeMap.cacheDirty = true;
     homeMap.dragging = false;
     homeMap.dragOffset = Vector2Zero();
     homeMap.zoomLevel = 1;
+    homeMap.planetSurface = PlanetWorldIsActive() &&
+                            WorldCurrentDimension() == WORLD_DIMENSION_PLANET;
+    snprintf(homeMap.surfaceName, sizeof(homeMap.surfaceName), "%s",
+             homeMap.planetSurface ? PlanetWorldName() : "Homeworld");
     homeMap.bounds = (HomeWorldMapBounds){
         floorf(playerPosition.x), floorf(playerPosition.z),
         HomeWorldMapSpanForLevel(homeMap.zoomLevel)
@@ -227,6 +267,7 @@ void HomeWorldMapOpen(Vector3 playerPosition)
     homeMap.showEcology = true;
     homeMap.showCreatures = true;
     homeMap.showLandmarks = true;
+    MapRefresh(daylight);
 }
 
 void HomeWorldMapClose(void)
@@ -528,7 +569,7 @@ static bool MapShipPosition(Vector3 *position)
 {
     if (!position) return false;
     ShipLocatorRecord record = ShipLocatorGetRecord();
-    if (!record.deployed || record.dimension != WORLD_DIMENSION_HOME ||
+    if (!record.deployed || record.dimension != WorldCurrentDimension() ||
         record.surfaceId != WorldCurrentSurfaceId()) return false;
     *position = (Vector3){ (float)record.x + 0.5f, (float)record.y + 0.5f,
                            (float)record.z + 0.5f };
@@ -575,6 +616,75 @@ static void MapDrawLayerToggle(Rectangle row, bool enabled,
                enabled ? WHITE : Fade(WHITE, 0.52f));
 }
 
+static const char *MapTerrainName(HomeWorldMapTerrainCell cell)
+{
+    return cell.planetSurface
+        ? PlanetBiomeName(cell.planetBiome)
+        : HomeWorldMapBiomeName(cell.biome, cell.waterDepth > 0);
+}
+
+static void MapDrawTerrainLegend(const HomeWorldMapLayout *layout,
+                                 float legendY)
+{
+    if (!homeMap.planetSurface) {
+        const Color terrainColors[] = {
+            { 89, 143, 76, 255 }, { 44, 102, 60, 255 },
+            { 184, 156, 88, 255 }, { 202, 216, 218, 255 },
+            { 42, 112, 153, 255 }
+        };
+        const char *terrainNames[] = {
+            "Plains", "Forest", "Desert", "Snow / highland", "Water"
+        };
+        for (int i = 0; i < 5; i++) {
+            DrawRectangle((int)layout->sidebar.x,
+                          (int)legendY + 26 + i * 22, 14, 14,
+                          terrainColors[i]);
+            UiDrawText(terrainNames[i], (int)layout->sidebar.x + 22,
+                       (int)legendY + 24 + i * 22, 14,
+                       Fade(WHITE, 0.76f));
+        }
+        return;
+    }
+
+    int counts[PLANET_BIOME_COUNT] = { 0 };
+    bool drawn[PLANET_BIOME_COUNT] = { false };
+    for (int i = 0;
+         i < HOMEWORLD_MAP_RASTER_SIZE * HOMEWORLD_MAP_RASTER_SIZE; i++) {
+        PlanetBiome biome = homeMap.cells[i].planetBiome;
+        if (biome >= 0 && biome < PLANET_BIOME_COUNT) counts[biome]++;
+    }
+    for (int row = 0; row < 5; row++) {
+        int selected = -1;
+        for (int biome = 0; biome < PLANET_BIOME_COUNT; biome++) {
+            if (!drawn[biome] && counts[biome] > 0 &&
+                (selected < 0 || counts[biome] > counts[selected])) {
+                selected = biome;
+            }
+        }
+        if (selected < 0) break;
+        drawn[selected] = true;
+        HomeWorldMapTerrainCell cell = {
+            .planetSurface = true,
+            .planetBiome = (PlanetBiome)selected,
+            .elevation = 84.0f,
+            .seaLevel = 80.0f
+        };
+        if (selected == PLANET_BIOME_OCEAN ||
+            selected == PLANET_BIOME_LAVA_SEA ||
+            selected == PLANET_BIOME_GLACIER) {
+            cell.elevation = 56.0f;
+            cell.waterDepth = 24;
+        }
+        DrawRectangle((int)layout->sidebar.x,
+                      (int)legendY + 26 + row * 22, 14, 14,
+                      HomeWorldMapTerrainColor(cell));
+        UiDrawText(MapTerrainName(cell),
+                   (int)layout->sidebar.x + 22,
+                   (int)legendY + 24 + row * 22, 14,
+                   Fade(WHITE, 0.76f));
+    }
+}
+
 static void MapDrawSidebar(const HomeWorldMapLayout *layout,
                            const char *hoverTitle, const char *hoverDetail)
 {
@@ -600,20 +710,7 @@ static void MapDrawSidebar(const HomeWorldMapLayout *layout,
     float legendY = layout->sidebar.y + 164.0f;
     UiDrawText("TERRAIN", (int)layout->sidebar.x, (int)legendY, 14,
                Fade(WHITE, 0.58f));
-    const Color terrainColors[] = {
-        { 89, 143, 76, 255 }, { 44, 102, 60, 255 },
-        { 184, 156, 88, 255 }, { 202, 216, 218, 255 },
-        { 42, 112, 153, 255 }
-    };
-    const char *terrainNames[] = {
-        "Plains", "Forest", "Desert", "Snow / highland", "Water"
-    };
-    for (int i = 0; i < 5; i++) {
-        DrawRectangle((int)layout->sidebar.x,
-                      (int)legendY + 26 + i * 22, 14, 14, terrainColors[i]);
-        UiDrawText(terrainNames[i], (int)layout->sidebar.x + 22,
-                   (int)legendY + 24 + i * 22, 14, Fade(WHITE, 0.76f));
-    }
+    MapDrawTerrainLegend(layout, legendY);
 
     float markerY = legendY + 150.0f;
     UiDrawText("MARKERS", (int)layout->sidebar.x, (int)markerY, 14,
@@ -644,7 +741,12 @@ void HomeWorldMapDraw(void)
     HomeWorldMapLayout layout = MapLayout();
     HomeWorldMapBounds viewBounds = MapViewBounds(&layout);
     Vector2 mouse = GetMousePosition();
-    const char *hoverTitle = "Homeworld survey";
+    char mapTitle[64];
+    char surveyTitle[64];
+    snprintf(mapTitle, sizeof(mapTitle), "%s Map", homeMap.surfaceName);
+    snprintf(surveyTitle, sizeof(surveyTitle), "%s survey",
+             homeMap.surfaceName);
+    const char *hoverTitle = surveyTitle;
     char hoverDetail[128];
     snprintf(hoverDetail, sizeof(hoverDetail),
              "Center %.0f, %.0f   |   %.0f block view",
@@ -656,7 +758,7 @@ void HomeWorldMapDraw(void)
                          (Color){ 22, 28, 29, 250 });
     DrawRectangleRoundedLinesEx(layout.panel, 0.018f, 6, 1.5f,
                                 Fade(WHITE, 0.34f));
-    UiDrawText("Homeworld Map", (int)layout.panel.x + 22,
+    UiDrawText(mapTitle, (int)layout.panel.x + 22,
                (int)layout.panel.y + 13, 25, WHITE);
     UiDrawText(TextFormat("%.0f block regional survey", viewBounds.span),
                (int)layout.panel.x + 22, (int)layout.panel.y + 42, 14,
@@ -764,34 +866,35 @@ void HomeWorldMapDraw(void)
         snprintf(hoverDetail, sizeof(hoverDetail), "Return to your position");
     } else if (CheckCollisionPointRec(mouse, layout.closeButton)) {
         hoverTitle = "Close map";
-        snprintf(hoverDetail, sizeof(hoverDetail), "Return to Homeworld");
+        snprintf(hoverDetail, sizeof(hoverDetail), "Return to %s",
+                 homeMap.surfaceName);
     }
 
     if (CheckCollisionPointRec(mouse, layout.map)) {
         Vector2 world = HomeWorldMapScreenToWorld(
             viewBounds, layout.map, mouse);
-        SurfaceTerrainSample sample = SurfaceTerrainAt(
+        MapSurfaceTerrainSample sample = MapTerrainAt(
             (int)floorf(world.x), (int)floorf(world.y), WorldTerrainMode());
         float u = (world.x - (homeMap.bounds.centerX - homeMap.bounds.span * 0.5f)) /
                   homeMap.bounds.span;
         float v = (world.y - (homeMap.bounds.centerZ - homeMap.bounds.span * 0.5f)) /
                   homeMap.bounds.span;
         float fauna = HomeWorldMapHeatSample(homeMap.heat, u, v);
-        if (strcmp(hoverTitle, "Homeworld survey") == 0) {
-            hoverTitle = HomeWorldMapBiomeName(
-                sample.biome, sample.bathymetry.waterDepth > 0);
-            if (sample.bathymetry.waterDepth > 0) {
+        if (hoverTitle == surveyTitle) {
+            hoverTitle = MapTerrainName(sample.cell);
+            if (sample.cell.waterDepth > 0) {
                 snprintf(
                     hoverDetail, sizeof(hoverDetail),
                     "XZ %.0f,%.0f | fauna %.0f%%\nY %d | %d m | %s",
                     world.x, world.y, fauna * 100.0f,
-                    sample.bathymetry.seabedY, sample.bathymetry.waterDepth,
+                    sample.bathymetry.seabedY, sample.cell.waterDepth,
                     BathymetryZoneName(sample.bathymetry.zone));
             } else {
                 snprintf(
                     hoverDetail, sizeof(hoverDetail),
                     "XZ %.0f, %.0f   |   elevation %.0f   |   fauna %.0f%%",
-                    world.x, world.y, sample.elevation, fauna * 100.0f);
+                    world.x, world.y, sample.cell.elevation,
+                    fauna * 100.0f);
             }
         }
     }

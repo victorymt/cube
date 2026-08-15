@@ -1096,6 +1096,17 @@ static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game, float dt,
     }
 }
 
+static float GameSurfaceMapDaylight(const GameRuntime *game)
+{
+    if (WorldCurrentDimension() == WORLD_DIMENSION_PLANET) {
+        return PlanetWorldDaylightAt(game->player.position);
+    }
+    float daylight = 1.0f;
+    float sunset = 0.0f;
+    DayNightFactors(game->dayTime, &daylight, &sunset);
+    return daylight;
+}
+
 static void GameUpdateViewModes(GameRuntime *game)
 {
     GameUpdateAlbum(game);
@@ -1122,22 +1133,22 @@ static void GameUpdateViewModes(GameRuntime *game)
     }
     bool openedHomeMap = false;
     bool homeMapWasOpen = HomeWorldMapIsOpen();
-    if (!game->landingTransition.active && HomeWorldSurfaceIsActive() &&
-        WorldCurrentDimension() == WORLD_DIMENSION_HOME &&
+    WorldDimension currentDimension = WorldCurrentDimension();
+    bool surfaceMapAvailable = currentDimension == WORLD_DIMENSION_HOME ||
+        (currentDimension == WORLD_DIMENSION_PLANET && PlanetWorldIsActive());
+    if (!game->landingTransition.active && surfaceMapAvailable &&
         IsKeyPressed(KEY_M) && !HomeWorldMapIsOpen() &&
         !StarMapIsOpen() && !game->paused && !game->cursorReleased) {
-        HomeWorldMapOpen(game->player.position);
+        HomeWorldMapOpen(game->player.position,
+                         GameSurfaceMapDaylight(game));
         game->player.velocity = Vector3Zero();
         game->cursorReleased = true;
         EnableCursor();
         openedHomeMap = true;
     }
     if (!openedHomeMap && HomeWorldMapIsOpen()) {
-        float mapDaylight = 1.0f;
-        float mapSunset = 0.0f;
-        DayNightFactors(game->dayTime, &mapDaylight, &mapSunset);
         HomeWorldMapUpdate(game->player.position, game->player.yaw,
-                           mapDaylight);
+                           GameSurfaceMapDaylight(game));
         if (!HomeWorldMapIsOpen()) {
             game->cursorReleased = false;
             DisableCursor();
