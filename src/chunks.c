@@ -42,6 +42,8 @@ static double ChunkNowMs(void)
 }
 
 static void UpdateQueuePeaksLocked(void);
+static void MarkGeneratedSectionAndNeighborsDirty(
+    Chunk *chunk, int sectionY);
 
 typedef struct SurfaceWaterBoundarySnapshot {
     unsigned short xBlocks[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
@@ -387,6 +389,32 @@ ChunkGenJob *NextPendingGenJob(void)
     return NULL;
 }
 
+static void GenerateChunkJobPayload(ChunkGenJob *job)
+{
+    if (!job) return;
+    job->succeeded = false;
+    job->hasSectionBlocks = false;
+
+    if (job->scope == CHUNK_GEN_SCOPE_COLUMN) {
+        GenerateChunkTerrain(
+            &chunks[job->slotIndex], job->cx, job->cz, job->terrainMode);
+        job->succeeded = true;
+        return;
+    }
+
+    Chunk staged = { .cx = job->cx, .cz = job->cz };
+    job->succeeded = GenerateChunkTerrainSectionBase(
+        &staged, job->cx, job->cz, job->sectionY, job->terrainMode);
+    const ChunkSection *section = ChunkGetSectionConst(
+        &staged, job->sectionY);
+    if (job->succeeded && section) {
+        memcpy(job->sectionBlocks, section->blocks,
+               sizeof(job->sectionBlocks));
+        job->hasSectionBlocks = true;
+    }
+    ChunkClearBlockStorage(&staged);
+}
+
 void *ChunkGenWorker(void *arg)
 {
     (void)arg;
@@ -418,7 +446,7 @@ void *ChunkGenWorker(void *arg)
             pthread_mutex_unlock(&genMutex);
 
             double startedMs = ChunkNowMs();
-            GenerateChunkTerrain(&chunks[job->slotIndex], job->cx, job->cz, job->terrainMode);
+            GenerateChunkJobPayload(job);
             double elapsedMs = ChunkNowMs() - startedMs;
 
             pthread_mutex_lock(&genMutex);
@@ -502,14 +530,88 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
     *job = (ChunkGenJob){
         .inUse = true,
         .done = false,
+        .scope = CHUNK_GEN_SCOPE_COLUMN,
         .cx = cx,
         .cz = cz,
         .slotIndex = (int)(chunk - chunks),
+        .chunkGeneration = chunk->generation,
         .terrainMode = mode
     };
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
     pthread_cond_signal(&genCond);
+    pthread_mutex_unlock(&genMutex);
+    return true;
+}
+
+static bool SubmitChunkSectionGenJob(
+    Chunk *chunk, int sectionY, TerrainMode mode)
+{
+    if (genThread == 0 || !chunk || !chunk->loaded ||
+        !HomeWorldSurfaceIsActive() || sectionY < 0 ||
+        sectionY >= SURFACE_SECTION_COUNT ||
+        ChunkGetSectionConst(chunk, sectionY)) {
+        return false;
+    }
+
+    pthread_mutex_lock(&genMutex);
+    ChunkGenJob *job = NULL;
+    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+        if (chunkGenJobs[i].inUse &&
+            chunkGenJobs[i].scope == CHUNK_GEN_SCOPE_SECTION &&
+            chunkGenJobs[i].slotIndex == (int)(chunk - chunks) &&
+            chunkGenJobs[i].chunkGeneration == chunk->generation &&
+            chunkGenJobs[i].sectionY == sectionY) {
+            pthread_mutex_unlock(&genMutex);
+            return false;
+        }
+        if (!chunkGenJobs[i].inUse && !job) job = &chunkGenJobs[i];
+    }
+    if (!job) {
+        pthread_mutex_unlock(&genMutex);
+        return false;
+    }
+
+    *job = (ChunkGenJob){
+        .inUse = true,
+        .scope = CHUNK_GEN_SCOPE_SECTION,
+        .cx = chunk->cx,
+        .cz = chunk->cz,
+        .sectionY = sectionY,
+        .slotIndex = (int)(chunk - chunks),
+        .chunkGeneration = chunk->generation,
+        .terrainMode = mode
+    };
+    streamingStats.generationSubmitted++;
+    UpdateQueuePeaksLocked();
+    pthread_cond_signal(&genCond);
+    pthread_mutex_unlock(&genMutex);
+    return true;
+}
+
+bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
+{
+    if (sectionY < 0 || sectionY >= SURFACE_SECTION_COUNT ||
+        !HomeWorldSurfaceIsActive()) {
+        return false;
+    }
+    Chunk *chunk = FindChunk(cx, cz);
+    if (!chunk || ChunkGetSectionConst(chunk, sectionY)) return false;
+    if (SubmitChunkSectionGenJob(chunk, sectionY, WorldTerrainMode())) {
+        return true;
+    }
+    if (genThread != 0) return false;
+
+    double startedMs = ChunkNowMs();
+    bool generated = GenerateChunkTerrainSectionBase(
+        chunk, cx, cz, sectionY, WorldTerrainMode());
+    double elapsedMs = ChunkNowMs() - startedMs;
+    if (!generated) return false;
+    ApplyEditsToChunkSection(chunk, sectionY);
+    MarkGeneratedSectionAndNeighborsDirty(chunk, sectionY);
+    pthread_mutex_lock(&genMutex);
+    streamingStats.generationCompleted++;
+    streamingStats.generationCpuMs += elapsedMs;
     pthread_mutex_unlock(&genMutex);
     return true;
 }
@@ -522,8 +624,66 @@ bool FindPendingGenJob(int cx, int cz)
     return false;
 }
 
+static void MarkGeneratedSectionAndNeighborsDirty(
+    Chunk *chunk, int sectionY)
+{
+    if (!chunk) return;
+    MarkSectionDirty(ChunkGetSection(chunk, sectionY, false));
+    MarkSectionDirty(ChunkGetSection(chunk, sectionY - 1, false));
+    MarkSectionDirty(ChunkGetSection(chunk, sectionY + 1, false));
+
+    static const int offsets[4][2] = {
+        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
+    };
+    for (int i = 0; i < 4; i++) {
+        Chunk *neighbor = FindChunk(
+            chunk->cx + offsets[i][0], chunk->cz + offsets[i][1]);
+        if (neighbor) {
+            MarkSectionDirty(ChunkGetSection(neighbor, sectionY, false));
+        }
+    }
+}
+
+static void CompleteChunkSectionGenJob(ChunkGenJob *job)
+{
+    bool stale = !job || !job->succeeded || job->slotIndex < 0 ||
+        job->slotIndex >= MAX_ACTIVE_CHUNKS;
+    Chunk *chunk = stale ? NULL : &chunks[job->slotIndex];
+    if (!stale && (!chunk->loaded || chunk->cx != job->cx ||
+                   chunk->cz != job->cz ||
+                   chunk->generation != job->chunkGeneration ||
+                   ChunkGetSectionConst(chunk, job->sectionY))) {
+        stale = true;
+    }
+    if (stale) {
+        pthread_mutex_lock(&genMutex);
+        streamingStats.generationCanceled++;
+        pthread_mutex_unlock(&genMutex);
+        return;
+    }
+
+    if (job->hasSectionBlocks) {
+        ChunkSection *section = ChunkGetSection(
+            chunk, job->sectionY, true);
+        if (!section) {
+            pthread_mutex_lock(&genMutex);
+            streamingStats.generationCanceled++;
+            pthread_mutex_unlock(&genMutex);
+            return;
+        }
+        memcpy(section->blocks, job->sectionBlocks,
+               sizeof(job->sectionBlocks));
+    }
+    ApplyEditsToChunkSection(chunk, job->sectionY);
+    MarkGeneratedSectionAndNeighborsDirty(chunk, job->sectionY);
+}
+
 void CompleteChunkGenJob(ChunkGenJob *job)
 {
+    if (job && job->scope == CHUNK_GEN_SCOPE_SECTION) {
+        CompleteChunkSectionGenJob(job);
+        return;
+    }
     Chunk *chunk = &chunks[job->slotIndex];
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
@@ -4022,6 +4182,33 @@ void ChunksTestFillGenerationQueue(void)
         };
     }
     UpdateQueuePeaksLocked();
+    pthread_mutex_unlock(&genMutex);
+}
+
+int ChunksTestGenerationJobSectionY(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_CHUNK_GEN_JOBS);
+    pthread_mutex_lock(&genMutex);
+    int sectionY = chunkGenJobs[jobIndex].inUse &&
+        chunkGenJobs[jobIndex].scope == CHUNK_GEN_SCOPE_SECTION
+        ? chunkGenJobs[jobIndex].sectionY : INT_MIN;
+    pthread_mutex_unlock(&genMutex);
+    return sectionY;
+}
+
+void ChunksTestRunGenerationJob(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_CHUNK_GEN_JOBS);
+    pthread_mutex_lock(&genMutex);
+    ChunkGenJob *job = &chunkGenJobs[jobIndex];
+    assert(job->inUse && !job->done);
+    pthread_mutex_unlock(&genMutex);
+
+    GenerateChunkJobPayload(job);
+
+    pthread_mutex_lock(&genMutex);
+    job->done = true;
+    streamingStats.generationCompleted++;
     pthread_mutex_unlock(&genMutex);
 }
 #endif

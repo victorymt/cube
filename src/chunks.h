@@ -115,6 +115,7 @@ bool ChunksGetWaterRenderDebugInfo(Vector3 position,
 RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void);
 void DrainChunkGen(void);
 void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance);
+bool RequestChunkTerrainSection(int cx, int sectionY, int cz);
 void ChunksUpdateEcologyVisuals(float dt, float daylight);
 BlockType GetBlock(int x, int y, int z);
 void RebuildDirtyChunkMeshes(Vector3 focusPosition);
@@ -138,6 +139,8 @@ int ChunksTestBuildWaterMeshJob(int jobIndex);
 void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz, bool done);
 void ChunksTestCompleteMeshJob(int jobIndex);
 void ChunksTestFillGenerationQueue(void);
+int ChunksTestGenerationJobSectionY(int jobIndex);
+void ChunksTestRunGenerationJob(int jobIndex);
 #endif
 
 #endif

@@ -494,6 +494,42 @@ static void TestImplicitTerrainLookupAndEditOverride(void)
     assert(GetBlockAt(2 * CHUNK_SIZE + 2, 4, 0) == BLOCK_STONE);
 }
 
+static void TestSectionGenerationJobsStageAndValidateResults(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 7, 0, true, false);
+    chunks[0].generation = 11u;
+
+    assert(RequestChunkTerrainSection(7, 0, 0));
+    assert(!RequestChunkTerrainSection(7, 0, 0));
+    assert(GetPendingGenJobCount() == 1);
+    assert(ChunksTestGenerationJobSectionY(0) == 0);
+    ChunksTestRunGenerationJob(0);
+    assert(ChunkGetSectionConst(&chunks[0], 0) == NULL);
+    ProcessFinishedChunkJobs();
+
+    const ChunkSection *generated = ChunkGetSectionConst(&chunks[0], 0);
+    assert(generated != NULL);
+    assert(generated->blocks[4][4][5] == BLOCK_STONE);
+    assert(generated->dirty);
+    assert(GetPendingGenJobCount() == 0);
+
+    assert(RequestChunkTerrainSection(7, 1, 0));
+    assert(ChunksTestGenerationJobSectionY(0) == 1);
+    ChunksTestRunGenerationJob(0);
+    ProcessFinishedChunkJobs();
+    assert(ChunkGetSectionConst(&chunks[0], 1) == NULL);
+
+    ChunksTestConfigureChunk(1, 8, 0, true, false);
+    chunks[1].generation = 21u;
+    assert(RequestChunkTerrainSection(8, 0, 0));
+    ChunksTestRunGenerationJob(0);
+    chunks[1].generation++;
+    ProcessFinishedChunkJobs();
+    assert(ChunkGetSectionConst(&chunks[1], 0) == NULL);
+    assert(ChunksGetStreamingStats().generationCanceled == 1u);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(chunks));
@@ -510,6 +546,7 @@ int main(void)
     TestSparseSignedSectionStorage();
     TestMaterializedAirDiffersFromMissingSection();
     TestImplicitTerrainLookupAndEditOverride();
+    TestSectionGenerationJobsStageAndValidateResults();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

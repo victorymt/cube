@@ -217,6 +217,11 @@ typedef enum TerrainMode {
     TERRAIN_FLAT
 } TerrainMode;
 
+typedef enum ChunkGenScope {
+    CHUNK_GEN_SCOPE_COLUMN = 0,
+    CHUNK_GEN_SCOPE_SECTION
+} ChunkGenScope;
+
 typedef enum Biome {
     BIOME_PLAINS = 0,
     BIOME_FOREST,
@@ -228,10 +233,20 @@ typedef enum Biome {
 typedef struct ChunkGenJob {
     bool inUse;
     bool done;
+    bool succeeded;
+    bool hasSectionBlocks;
+    ChunkGenScope scope;
     int cx;
     int cz;
+    int sectionY;
     int slotIndex;
+    uint32_t chunkGeneration;
     TerrainMode terrainMode;
+    // Section jobs generate into staging storage because their target chunk
+    // is already visible to the main/render thread. Completion copies this
+    // snapshot only if the chunk incarnation still matches.
+    unsigned short sectionBlocks
+        [CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
 } ChunkGenJob;
 
 typedef struct Player {
