@@ -248,6 +248,7 @@ typedef enum Biome {
 
 typedef struct ChunkGenJob {
     bool inUse;
+    bool running;
     bool done;
     bool succeeded;
     bool hasSectionBlocks;

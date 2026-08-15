@@ -44,10 +44,21 @@ static double ChunkNowMs(void)
 static void UpdateQueuePeaksLocked(void);
 static void MarkGeneratedSectionAndNeighborsDirty(
     Chunk *chunk, int sectionY);
+static int CancelDistantNegativeSectionJobs(int playerSectionY);
 static int PruneDistantNegativeTerrainSections(int playerSectionY);
 
 #define SECTION_GEN_SUBMISSIONS_PER_FRAME 8
 #define NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS 6
+
+static bool NegativeTerrainSectionOutsideWindow(
+    int sectionY, int playerSectionY)
+{
+    return sectionY < 0 &&
+           (sectionY < playerSectionY -
+                           NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS ||
+            sectionY > playerSectionY +
+                           NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS);
+}
 
 typedef struct SurfaceWaterBoundarySnapshot {
     unsigned short xBlocks[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
@@ -60,6 +71,7 @@ typedef struct SurfaceWaterBoundarySnapshot {
 
 struct MeshJob {
     bool inUse;
+    bool running;
     bool done;
     int slotIndex;
     int cx;
@@ -530,6 +542,7 @@ void *ChunkGenWorker(void *arg)
             if (job) preferMesh = true;
         }
         if (job) {
+            job->running = true;
             genWorkerActive = true;
             pthread_mutex_unlock(&genMutex);
 
@@ -538,6 +551,7 @@ void *ChunkGenWorker(void *arg)
             double elapsedMs = ChunkNowMs() - startedMs;
 
             pthread_mutex_lock(&genMutex);
+            job->running = false;
             job->done = true;
             genWorkerActive = false;
             streamingStats.generationCompleted++;
@@ -548,6 +562,7 @@ void *ChunkGenWorker(void *arg)
         }
 
         if (meshJob) {
+            meshJob->running = true;
             genWorkerActive = true;
             pthread_mutex_unlock(&genMutex);
 
@@ -583,6 +598,7 @@ void *ChunkGenWorker(void *arg)
             double elapsedMs = ChunkNowMs() - startedMs;
 
             pthread_mutex_lock(&genMutex);
+            meshJob->running = false;
             meshJob->done = true;
             genWorkerActive = false;
             streamingStats.meshCompleted++;
@@ -983,8 +999,9 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
 
     int playerY = (int)floorf(playerPosition.y);
     if (InHeight(playerY)) {
-        PruneDistantNegativeTerrainSections(
-            SurfaceSectionYFromBlockY(playerY));
+        int playerSectionY = SurfaceSectionYFromBlockY(playerY);
+        CancelDistantNegativeSectionJobs(playerSectionY);
+        PruneDistantNegativeTerrainSections(playerSectionY);
     }
 
     int missingChunks[MAX_ACTIVE_CHUNKS][2];
@@ -3646,10 +3663,8 @@ static int PruneDistantNegativeTerrainSections(int playerSectionY)
             ChunkSection *section = chunk->sections[sectionIndex];
             int sectionY = section->sectionY;
             if (sectionY >= 0) break;
-            if (sectionY >= playerSectionY -
-                                NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS &&
-                sectionY <= playerSectionY +
-                                NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS) {
+            if (!NegativeTerrainSectionOutsideWindow(
+                    sectionY, playerSectionY)) {
                 sectionIndex++;
                 continue;
             }
@@ -3677,6 +3692,44 @@ static void FreeMeshData(Mesh *mesh)
     free(mesh->normals);
     free(mesh->colors);
     *mesh = (Mesh){ 0 };
+}
+
+static int CancelDistantNegativeSectionJobs(int playerSectionY)
+{
+    if (!HomeWorldSurfaceIsActive()) return 0;
+
+    int canceled = 0;
+    pthread_mutex_lock(&genMutex);
+    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+        ChunkGenJob *job = &chunkGenJobs[i];
+        if (!job->inUse || job->running ||
+            job->scope != CHUNK_GEN_SCOPE_SECTION ||
+            !NegativeTerrainSectionOutsideWindow(
+                job->sectionY, playerSectionY)) {
+            continue;
+        }
+        *job = (ChunkGenJob){ 0 };
+        streamingStats.generationCanceled++;
+        canceled++;
+    }
+    for (int i = 0; i < MAX_MESH_JOBS; i++) {
+        MeshJob *job = &meshJobs[i];
+        if (!job->inUse || job->running ||
+            !NegativeTerrainSectionOutsideWindow(
+                job->sectionY, playerSectionY)) {
+            continue;
+        }
+        FreeMeshData(&job->mesh);
+        FreeMeshData(&job->waterMesh);
+        FreeMeshData(&job->floraMesh);
+        free(job->floraInstances);
+        *job = (MeshJob){ 0 };
+        streamingStats.meshCanceled++;
+        canceled++;
+    }
+    UpdateQueuePeaksLocked();
+    pthread_mutex_unlock(&genMutex);
+    return canceled;
 }
 
 static void ReplaceChunkModel(Model *model, bool *hasModel,
@@ -4457,11 +4510,13 @@ void ChunksTestRunGenerationJob(int jobIndex)
     pthread_mutex_lock(&genMutex);
     ChunkGenJob *job = &chunkGenJobs[jobIndex];
     assert(job->inUse && !job->done);
+    job->running = true;
     pthread_mutex_unlock(&genMutex);
 
     GenerateChunkJobPayload(job);
 
     pthread_mutex_lock(&genMutex);
+    job->running = false;
     job->done = true;
     streamingStats.generationCompleted++;
     pthread_mutex_unlock(&genMutex);
@@ -4479,5 +4534,32 @@ int ChunksTestPruneTerrainSections(Vector3 playerPosition)
         ? PruneDistantNegativeTerrainSections(
               SurfaceSectionYFromBlockY(playerY))
         : 0;
+}
+
+int ChunksTestCancelDistantSectionJobs(Vector3 playerPosition)
+{
+    int playerY = (int)floorf(playerPosition.y);
+    return InHeight(playerY)
+        ? CancelDistantNegativeSectionJobs(
+              SurfaceSectionYFromBlockY(playerY))
+        : 0;
+}
+
+void ChunksTestSetGenerationJobRunning(int jobIndex, bool running)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_CHUNK_GEN_JOBS);
+    pthread_mutex_lock(&genMutex);
+    assert(chunkGenJobs[jobIndex].inUse);
+    chunkGenJobs[jobIndex].running = running;
+    pthread_mutex_unlock(&genMutex);
+}
+
+void ChunksTestSetMeshJobRunning(int jobIndex, bool running)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    pthread_mutex_lock(&genMutex);
+    assert(meshJobs[jobIndex].inUse);
+    meshJobs[jobIndex].running = running;
+    pthread_mutex_unlock(&genMutex);
 }
 #endif

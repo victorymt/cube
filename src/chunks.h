@@ -149,6 +149,9 @@ int ChunksTestGenerationJobSectionY(int jobIndex);
 void ChunksTestRunGenerationJob(int jobIndex);
 int ChunksTestScheduleTerrainSections(Vector3 playerPosition);
 int ChunksTestPruneTerrainSections(Vector3 playerPosition);
+int ChunksTestCancelDistantSectionJobs(Vector3 playerPosition);
+void ChunksTestSetGenerationJobRunning(int jobIndex, bool running);
+void ChunksTestSetMeshJobRunning(int jobIndex, bool running);
 #endif
 
 #endif

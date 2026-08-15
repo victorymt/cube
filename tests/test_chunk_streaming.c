@@ -4,6 +4,7 @@
 #include "world_environment.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -635,6 +636,49 @@ static void TestNegativeSectionPruningPreservesRuntimeState(void)
     assert(ChunkGetSectionConst(chunk, -34) == NULL);
 }
 
+static void TestDistantSectionJobsReleaseQueueCapacity(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    chunks[0].generation = 51u;
+
+    assert(RequestChunkTerrainSection(0, -30, 0));
+    ChunksTestRunGenerationJob(0);
+    assert(RequestChunkTerrainSection(0, -31, 0));
+    assert(RequestChunkTerrainSection(0, -20, 0));
+    assert(RequestChunkTerrainSection(0, 2, 0));
+    ChunksTestSetGenerationJobRunning(1, true);
+
+    ChunksTestSeedMeshJob(0, 0, 0, 0, -32, false);
+    ChunksTestSeedMeshJob(1, 0, 0, 0, -33, false);
+    ChunksTestSeedMeshJob(2, 0, 0, 0, -21, false);
+    ChunksTestSetMeshJobRunning(0, true);
+
+    Vector3 playerPosition = { 0.5f, -319.0f, 0.5f };
+    assert(ChunksTestCancelDistantSectionJobs(playerPosition) == 2);
+    assert(ChunksTestGenerationJobSectionY(0) == INT_MIN);
+    assert(ChunksTestGenerationJobSectionY(1) == -31);
+    assert(ChunksTestGenerationJobSectionY(2) == -20);
+    assert(ChunksTestGenerationJobSectionY(3) == 2);
+    assert(ChunksTestMeshJobSlot(0) == 0);
+    assert(ChunksTestMeshJobSlot(1) == -1);
+    assert(ChunksTestMeshJobSlot(2) == 0);
+
+    ChunksTestSetGenerationJobRunning(1, false);
+    ChunksTestSetMeshJobRunning(0, false);
+    assert(ChunksTestCancelDistantSectionJobs(playerPosition) == 2);
+    assert(ChunksTestGenerationJobSectionY(1) == INT_MIN);
+    assert(ChunksTestMeshJobSlot(0) == -1);
+    assert(GetPendingGenJobCount() == 2);
+    assert(GetPendingMeshJobCount() == 1);
+
+    ProcessFinishedChunkJobs();
+    assert(ChunkGetSectionConst(&chunks[0], -30) == NULL);
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    assert(stats.generationCanceled == 2u);
+    assert(stats.meshCanceled == 2u);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(chunks));
@@ -655,6 +699,7 @@ int main(void)
     TestNearbySectionSchedulingPrioritizesPlayerSection();
     TestNegativeSectionPruningKeepsVerticalWindow();
     TestNegativeSectionPruningPreservesRuntimeState();
+    TestDistantSectionJobsReleaseQueueCapacity();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;
