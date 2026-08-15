@@ -13,7 +13,8 @@ static void AssertRelativeNear(double actual, double expected, double tolerance)
 
 static void TestRoundTrips(void)
 {
-    AssertRelativeNear(SpaceUnitsGameDistanceToKilometers(340.0),
+    AssertRelativeNear(SpaceUnitsGameDistanceToKilometers(
+                           SPACE_UNITS_GAME_DISTANCE_PER_AU),
                        SPACE_UNITS_ASTRONOMICAL_UNIT_KM, 1e-12);
     AssertRelativeNear(SpaceUnitsGameMassToKilograms(1.0),
                        SPACE_UNITS_EARTH_MASS_KG, 1e-12);
@@ -183,10 +184,14 @@ static void TestProxyScaleContract(void)
 {
     double linearEarthRadius = SpaceUnitsKilometersToGameDistance(
         SPACE_UNITS_EARTH_RADIUS_KM);
-    AssertRelativeNear(linearEarthRadius, 0.0144809, 2e-5);
+    AssertRelativeNear(
+        linearEarthRadius,
+        SPACE_UNITS_EARTH_RADIUS_KM /
+            SPACE_UNITS_KILOMETERS_PER_GAME_DISTANCE,
+        1e-12);
     double radiusScale = SpaceUnitsProxyRadiusScale(
         SPACE_UNITS_EARTH_RADIUS_KM, 62.0);
-    assert(radiusScale > 4200.0 && radiusScale < 4400.0);
+    assert(radiusScale > 70000.0 && radiusScale < 75000.0);
 
     double proxyGravity = SpaceUnitsProxySurfaceGravityGame(
         SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);

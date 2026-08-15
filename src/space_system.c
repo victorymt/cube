@@ -6,7 +6,7 @@
 #include <string.h>
 
 #define SPACE_SYSTEM_DEFAULT_OUTER_GAME 650.0f
-#define SPACE_SYSTEM_MIN_SPACING_GAME 38.0f
+#define SPACE_SYSTEM_MIN_SPACING_GAME 3.0f
 #define SPACE_SYSTEM_MIN_SPACING_RATIO 1.20f
 
 static uint32_t SpaceSystemMix(uint32_t value)
@@ -126,7 +126,7 @@ bool SpaceSystemFormationGenerate(const SpaceSystemFormationInput *input,
     float outer = SpaceSystemSanitizeLimit(
         input->outerLimitGame, SPACE_SYSTEM_DEFAULT_OUTER_GAME);
     outer = fmaxf(outer, inner + SPACE_SYSTEM_MIN_SPACING_GAME);
-    outer = fminf(outer, 2400.0f);
+    outer = fminf(outer, 650.0f);
 
     float ageMetallicityScale = 1.05f - age * 0.0175f;
     float metallicity = SpaceSystemClamp(

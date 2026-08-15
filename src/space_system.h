@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define SPACE_SYSTEM_MAX_PLANETS 6
-#define SPACE_SYSTEM_MIN_ORBIT_GAME 80.0f
+#define SPACE_SYSTEM_MIN_ORBIT_GAME 4.0f
 
 typedef struct SpaceSystemFormationInput {
     uint32_t seed;

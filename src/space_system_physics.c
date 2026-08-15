@@ -2,6 +2,7 @@
 
 #include "raymath.h"
 #include "space_units.h"
+#include "space_system.h"
 #include "terrain.h"
 
 #include <float.h>
@@ -86,7 +87,17 @@ bool SolarSystemPlanetDefinitionIsValid(const SolarPlanetDef *planet)
            planet->formationMassEarth >= 0.0f &&
            isfinite(planet->formationMassEarth) &&
            planet->spaceProxyRadius > 0.0f &&
-           isfinite(planet->spaceProxyRadius);
+           isfinite(planet->spaceProxyRadius) &&
+           (!planet->hasCanonicalOrbit ||
+            (planet->physicalMassKg > 0.0 &&
+             isfinite(planet->physicalMassKg) &&
+             planet->orbitalEccentricity >= 0.0 &&
+             planet->orbitalEccentricity < 1.0 &&
+             isfinite(planet->orbitalEccentricity) &&
+             isfinite(planet->orbitalInclinationRad) &&
+             isfinite(planet->orbitalLongitudeAscendingNodeRad) &&
+             isfinite(planet->orbitalArgumentPeriapsisRad) &&
+             isfinite(planet->orbitalMeanAnomalyAtEpochRad)));
 }
 
 static uint32_t SolarLightHash(const SolarSystemDef *sys)
@@ -221,6 +232,21 @@ static bool SolarSystemPlanetOrbitBuild(
         return false;
     }
     const SolarPlanetDef *planet = &sys->planets[index];
+    if (planet->hasCanonicalOrbit) {
+        SpaceKeplerOrbit canonical = {
+            .semiMajorAxisKm = planet->semiMajorAxisKm * semiMajorAxisScale,
+            .centralMassKg = centralMassKg,
+            .eccentricity = planet->orbitalEccentricity,
+            .inclinationRad = planet->orbitalInclinationRad,
+            .longitudeAscendingNodeRad =
+                planet->orbitalLongitudeAscendingNodeRad,
+            .argumentPeriapsisRad = planet->orbitalArgumentPeriapsisRad,
+            .meanAnomalyAtEpochRad = planet->orbitalMeanAnomalyAtEpochRad
+        };
+        if (!SpaceKeplerOrbitIsValid(&canonical)) return false;
+        *out = canonical;
+        return true;
+    }
     uint32_t orbitHash = SolarSystemPlanetOrbitHash(sys, index);
     uint32_t planeHash = SolarSystemPlanetPlaneHash(sys);
     double systemInclination =
@@ -850,15 +876,23 @@ bool SolarSystemPhysicalSnapshotBuild(
 
     snapshot.stellarOrbit = SolarSystemStellarOrbit(
         snapshot.stellarProfiles, count, hash);
+    float stellarClearanceGame = SPACE_SYSTEM_MIN_ORBIT_GAME;
+    for (int i = 0; i < count; i++) {
+        stellarClearanceGame = fmaxf(
+            stellarClearanceGame,
+            (float)SpaceUnitsKilometersToGameDistance(
+                snapshot.stellarProfiles[i].radiusKm) * 3.0f);
+    }
     if (count <= 1) {
-        snapshot.minimumPlanetOrbitGame = 180.0f;
+        snapshot.minimumPlanetOrbitGame = stellarClearanceGame;
     } else {
         double separationKm = count == 3
             ? snapshot.stellarOrbit.outerSeparationKm
             : snapshot.stellarOrbit.innerSeparationKm;
         float minimum = (float)SpaceUnitsKilometersToGameDistance(
             separationKm) * (count == 3 ? 3.0f : 2.8f);
-        snapshot.minimumPlanetOrbitGame = fmaxf(180.0f, minimum);
+        snapshot.minimumPlanetOrbitGame = fmaxf(
+            stellarClearanceGame, minimum);
     }
     if (!(snapshot.minimumPlanetOrbitGame > 0.0f) ||
         !isfinite(snapshot.minimumPlanetOrbitGame)) {
@@ -898,6 +932,11 @@ bool SolarSystemPhysicalSnapshotEvolve(
     SolarSystemPhysicalSnapshot evolved = *base;
     evolved.satellitesBuilt = false;
     memset(evolved.satelliteOrbits, 0, sizeof(evolved.satelliteOrbits));
+    evolved.satelliteCount = 0;
+    memset(evolved.satelliteParentPlanetIndices, 0,
+           sizeof(evolved.satelliteParentPlanetIndices));
+    memset(evolved.allSatelliteOrbits, 0,
+           sizeof(evolved.allSatelliteOrbits));
     evolved.summary.totalMassKg = 0.0;
     evolved.summary.totalLuminositySolar = 0.0f;
     memset(evolved.summary.stellarLuminositiesSolar, 0,
@@ -937,9 +976,16 @@ bool SolarSystemPhysicalSnapshotEvolve(
                               &evolved.stellarOrbit)) {
         return false;
     }
+    float stellarClearanceGame = SPACE_SYSTEM_MIN_ORBIT_GAME;
+    for (int i = 0; i < evolved.summary.stellarCount; i++) {
+        stellarClearanceGame = fmaxf(
+            stellarClearanceGame,
+            (float)SpaceUnitsKilometersToGameDistance(
+                evolved.stellarProfiles[i].radiusKm) * 3.0f);
+    }
     if (evolved.summary.stellarCount <= 1 ||
         evolved.stellarOrbit.motion != SPACE_BARYCENTER_BOUND) {
-        evolved.minimumPlanetOrbitGame = 180.0f;
+        evolved.minimumPlanetOrbitGame = stellarClearanceGame;
     } else {
         double separationKm = evolved.summary.stellarCount == 3
             ? evolved.stellarOrbit.outerSeparationKm
@@ -947,7 +993,8 @@ bool SolarSystemPhysicalSnapshotEvolve(
         float minimum = (float)SpaceUnitsKilometersToGameDistance(
             separationKm) *
             (evolved.summary.stellarCount == 3 ? 3.0f : 2.8f);
-        evolved.minimumPlanetOrbitGame = fmaxf(180.0f, minimum);
+        evolved.minimumPlanetOrbitGame = fmaxf(
+            stellarClearanceGame, minimum);
     }
     double giantReachKm = 0.0;
     if (!SolarSystemMaximumGiantReachKm(
@@ -975,6 +1022,11 @@ bool SolarSystemPhysicalSnapshotBuildSatellites(
     if (!out) return false;
     out->satellitesBuilt = false;
     memset(out->satelliteOrbits, 0, sizeof(out->satelliteOrbits));
+    out->satelliteCount = 0;
+    memset(out->satelliteParentPlanetIndices, 0,
+           sizeof(out->satelliteParentPlanetIndices));
+    memset(out->allSatelliteOrbits, 0,
+           sizeof(out->allSatelliteOrbits));
     if (!sys || !out->valid || sys->planetCount < 0 ||
         sys->planetCount > MAX_SOLAR_PLANETS ||
         !(out->summary.totalMassKg > 0.0) ||
@@ -983,6 +1035,26 @@ bool SolarSystemPhysicalSnapshotBuildSatellites(
     }
 
     SpaceSatelliteOrbit satelliteOrbits[MAX_SOLAR_PLANETS] = { 0 };
+    SpaceSatelliteOrbit allSatelliteOrbits[MAX_SOLAR_SATELLITES] = { 0 };
+    int satelliteParents[MAX_SOLAR_SATELLITES] = { 0 };
+    int satelliteCount = 0;
+    if (sys->satelliteCount < 0 ||
+        sys->satelliteCount > MAX_SOLAR_SATELLITES) return false;
+    if (sys->satelliteCount > 0) {
+        for (int satellite = 0; satellite < sys->satelliteCount; satellite++) {
+            const SolarSatelliteDef *definition = &sys->satellites[satellite];
+            int parent = definition->parentPlanetIndex;
+            if (parent < 0 || parent >= sys->planetCount ||
+                !SolarSystemPhysicsSatelliteOrbitIsValid(&definition->orbit) ||
+                !definition->orbit.exists) return false;
+            allSatelliteOrbits[satelliteCount] = definition->orbit;
+            satelliteParents[satelliteCount] = parent;
+            if (!satelliteOrbits[parent].exists) {
+                satelliteOrbits[parent] = definition->orbit;
+            }
+            satelliteCount++;
+        }
+    }
     for (int index = 0; index < sys->planetCount; index++) {
         if (!SolarSystemPlanetDefinitionIsValid(&sys->planets[index])) {
             return false;
@@ -992,6 +1064,7 @@ bool SolarSystemPhysicalSnapshotBuildSatellites(
             return false;
         }
         if (out->planetStatuses[index] != SOLAR_PLANET_STABLE) continue;
+        if (sys->satelliteCount > 0) continue;
         PlanetProfile profile = SolarPlanetProfile(sys, index);
         double earthMasses = SpaceUnitsKilogramsToGameMass(profile.massKg);
         double occurrence = profile.hasSolidSurface
@@ -1009,9 +1082,20 @@ bool SolarSystemPhysicalSnapshotBuildSatellites(
                 &satelliteOrbits[index])) {
             return false;
         }
+        if (satelliteOrbits[index].exists) {
+            if (satelliteCount >= MAX_SOLAR_SATELLITES) return false;
+            allSatelliteOrbits[satelliteCount] = satelliteOrbits[index];
+            satelliteParents[satelliteCount] = index;
+            satelliteCount++;
+        }
     }
     memcpy(out->satelliteOrbits, satelliteOrbits,
            sizeof(out->satelliteOrbits));
+    memcpy(out->allSatelliteOrbits, allSatelliteOrbits,
+           sizeof(out->allSatelliteOrbits));
+    memcpy(out->satelliteParentPlanetIndices, satelliteParents,
+           sizeof(out->satelliteParentPlanetIndices));
+    out->satelliteCount = satelliteCount;
     out->satellitesBuilt = true;
     return true;
 }
@@ -1084,6 +1168,24 @@ static bool SolarSystemPhysicalSnapshotIsUsable(
             !SolarSystemPhysicsSatelliteOrbitIsValid(
                 &snapshot->satelliteOrbits[i])) {
             return false;
+        }
+    }
+    if (snapshot->satellitesBuilt) {
+        if (snapshot->satelliteCount < 0 ||
+            snapshot->satelliteCount > MAX_SOLAR_SATELLITES ||
+            (sys->satelliteCount > 0 &&
+             snapshot->satelliteCount != sys->satelliteCount)) {
+            return false;
+        }
+        for (int satellite = 0; satellite < snapshot->satelliteCount;
+             satellite++) {
+            int parent = snapshot->satelliteParentPlanetIndices[satellite];
+            if (parent < 0 || parent >= sys->planetCount ||
+                !SolarSystemPhysicsSatelliteOrbitIsValid(
+                    &snapshot->allSatelliteOrbits[satellite]) ||
+                !snapshot->allSatelliteOrbits[satellite].exists) {
+                return false;
+            }
         }
     }
     return true;

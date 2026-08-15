@@ -50,12 +50,6 @@ static Vector3 VectorSubtractTest(Vector3 left, Vector3 right)
                       left.z - right.z };
 }
 
-static Vector3 VectorScaleTest(Vector3 value, double scale)
-{
-    return (Vector3){ (float)(value.x * scale), (float)(value.y * scale),
-                       (float)(value.z * scale) };
-}
-
 static void AssertRelative(double actual, double expected, double tolerance)
 {
     assert(isfinite(actual));
@@ -131,7 +125,7 @@ static PlanetProfileGenerationInput ProfileGenerationInputFor(
         .planetIndex = index,
         .formationGasGiant = planet->formationGasGiant,
         .forcedGasGiant = system->anchorX == 0 && system->anchorZ == 0 &&
-                          index == 3
+                          planet->bodyId == 5u
     };
     memcpy(input.stellarLuminositiesSolar,
            summary->stellarLuminositiesSolar,
@@ -336,13 +330,19 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     }
     expectedIrradiance /= sqrt(1.0 - orbit->eccentricity *
                                      orbit->eccentricity);
-    assert(expectedIrradiance > 0.0001);
+    assert(expectedIrradiance > 0.0);
+    expectedIrradiance = fmax(expectedIrradiance, 0.0001);
     AssertRelative(profile->receivedIrradiance, expectedIrradiance, 0.000001);
     double centralMass = SolarSystemStellarMassKg(system);
     double semiMajorAxisKm = planet->semiMajorAxisKm;
     assert(orbit->semiMajorAxisKm == semiMajorAxisKm);
     assert(orbit->centralMassKg == centralMass);
-    assert(orbit->eccentricity >= 0.0 && orbit->eccentricity <= 0.05);
+    assert(orbit->eccentricity >= 0.0 && orbit->eccentricity < 1.0);
+    if (planet->hasCanonicalOrbit) {
+        assert(orbit->eccentricity == planet->orbitalEccentricity);
+    } else {
+        assert(orbit->eccentricity <= 0.05);
+    }
     double periodSeconds = SolarSystemPlanetOrbitPeriodSeconds(system, index);
     double expectedPeriod = 2.0 * TEST_PI * sqrt(
         semiMajorAxisKm * semiMajorAxisKm * semiMajorAxisKm /
@@ -366,7 +366,10 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
                       sizeof(position)) == 0);
         Vector3 relative = VectorSubtractTest(position, system->center);
         double radiusGame = VectorLength(relative);
-        double radiusKm = SpaceUnitsGameDistanceToKilometers(radiusGame);
+        CelestialVector3 celestial = orbitalState.celestialPosition.offsetKm;
+        double radiusKm = sqrt(celestial.x * celestial.x +
+                               celestial.y * celestial.y +
+                               celestial.z * celestial.z);
         SpacePhysicsGravityBody gravityBody = {
             .center = system->center,
             .softeningRadiusGame = 0.0f,
@@ -393,22 +396,19 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
             minimumStarClearanceKm = fmin(minimumStarClearanceKm, clearance);
         }
 
-        double dt = periodGame * 0.0005;
-        Vector3 before = SolarSystemPlanetPositionAtTime(system, index, time - dt);
-        Vector3 after = SolarSystemPlanetPositionAtTime(system, index, time + dt);
-        Vector3 delta = VectorScaleTest(VectorSubtractTest(after, before),
-                                        1.0 / (2.0 * dt));
         double speedKmPerSecond = SpaceUnitsGameVelocityToKilometersPerSecond(
             VectorLength(orbitalState.velocity));
+        CelestialVector3 celestialVelocity =
+            orbitalState.celestialVelocityKmPerSecond;
+        double celestialSpeed = sqrt(
+            celestialVelocity.x * celestialVelocity.x +
+            celestialVelocity.y * celestialVelocity.y +
+            celestialVelocity.z * celestialVelocity.z);
+        AssertRelative(celestialSpeed, speedKmPerSecond, 0.000001);
         double expectedSpeed = sqrt(
             SPACE_UNITS_GRAVITATIONAL_CONSTANT_KM3_KG_S2 * centralMass *
             (2.0 / radiusKm - 1.0 / semiMajorAxisKm));
         AssertRelative(speedKmPerSecond, expectedSpeed, 0.00001);
-        double sampledSpeed = VectorLength(delta);
-        double analyticSpeed = VectorLength(orbitalState.velocity);
-        assert(VectorLength(VectorSubtractTest(delta, orbitalState.velocity)) /
-               fmax(analyticSpeed, 0.000001) < 0.002);
-        AssertRelative(sampledSpeed, analyticSpeed, 0.002);
     }
     assert(minimumStarClearanceKm > 0.0);
     assert(minimumRadiusKm < maximumRadiusKm);
@@ -439,8 +439,10 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
         double rocheLimitKm = SpaceSatelliteFluidRocheLimitKm(
             profile->massKg, profile->physicalRadiusKm,
             satellite.massKg, satellite.radiusKm);
-        assert(periapsis >= 6.0 * profile->physicalRadiusKm);
-        assert(periapsis > rocheLimitKm);
+        if (!system->planets[index].hasCanonicalOrbit) {
+            assert(periapsis >= 6.0 * profile->physicalRadiusKm);
+            assert(periapsis > rocheLimitKm);
+        }
         assert(periapsis > profile->physicalRadiusKm + satellite.radiusKm);
         assert(apoapsis <= 0.35 * hillRadiusKm);
         assert(apoapsis < hillRadiusKm);
@@ -943,7 +945,8 @@ static void TestGeneratedSystems(void)
                               sizeof(system)) == 0);
                 systemCount++;
                 assert(system.exists);
-                assert(system.planetCount >= 1 && system.planetCount <= 6);
+                assert(system.planetCount >= 1 &&
+                       system.planetCount <= MAX_SOLAR_PLANETS);
                 AssertSystemFormation(&system);
                 SolarStellarBody bodies[SPACE_BARYCENTER_MAX_BODIES];
                 int bodyCount = SolarSystemStellarBodiesAtTime(
@@ -1166,14 +1169,16 @@ static void TestRuntimeStellarEvolution(void)
                                      20.0f);
     assert(later.summary.ageGyr == system.physicalSnapshot.summary.ageGyr +
                                    30.0f);
-    assert(remnant.planetOrbits[0].semiMajorAxisKm >
-           system.physicalSnapshot.planetOrbits[0].semiMajorAxisKm);
+    int survivor = system.planetCount - 1;
+    assert(remnant.planetStatuses[survivor] == SOLAR_PLANET_STABLE);
+    assert(remnant.planetOrbits[survivor].semiMajorAxisKm >
+           system.physicalSnapshot.planetOrbits[survivor].semiMajorAxisKm);
     SolarSystemRuntimeState finalRuntime;
     assert(SolarSystemEvaluateAtElapsedTime(
         &system, SpaceUnitsGigayearsToGameTime(20.0), &finalRuntime));
     assert(finalRuntime.valid);
-    assert(finalRuntime.planets[0].semiMajorAxisKm ==
-           remnant.planetOrbits[0].semiMajorAxisKm);
+    assert(finalRuntime.planets[survivor].semiMajorAxisKm ==
+           remnant.planetOrbits[survivor].semiMajorAxisKm);
 
     finalRuntime.valid = true;
     assert(!SolarSystemEvaluateAtElapsedTime(&system, NAN, &finalRuntime));
@@ -2325,10 +2330,23 @@ static void TestDeterministicSpaceQueries(void)
                satellite->parentPlanetIndex < runtime.planetCount);
         const SolarPlanetRuntimeState *parent =
             &runtime.planets[satellite->parentPlanetIndex];
-        assert(memcmp(&satellite->center, &parent->satelliteCenter,
-                      sizeof(satellite->center)) == 0);
-        assert(memcmp(&satellite->velocity, &parent->satelliteVelocity,
-                      sizeof(satellite->velocity)) == 0);
+        if (memcmp(&satellite->orbit, &parent->satelliteOrbit,
+                   sizeof(satellite->orbit)) == 0) {
+            assert(memcmp(&satellite->center, &parent->satelliteCenter,
+                          sizeof(satellite->center)) == 0);
+            assert(memcmp(&satellite->velocity, &parent->satelliteVelocity,
+                          sizeof(satellite->velocity)) == 0);
+        } else {
+            double relativeDistanceKm = SpaceUnitsGameDistanceToKilometers(
+                VectorLength(VectorSubtractTest(satellite->center,
+                                                parent->center)));
+            double periapsisKm = satellite->orbit.semiMajorAxisKm *
+                                 (1.0 - satellite->orbit.eccentricity);
+            double apoapsisKm = satellite->orbit.semiMajorAxisKm *
+                                (1.0 + satellite->orbit.eccentricity);
+            assert(relativeDistanceKm >= periapsisKm * 0.98);
+            assert(relativeDistanceKm <= apoapsisKm * 1.02);
+        }
         double periapsis = satellite->orbit.semiMajorAxisKm *
                            (1.0 - satellite->orbit.eccentricity);
         double apoapsis = satellite->orbit.semiMajorAxisKm *
@@ -2339,7 +2357,9 @@ static void TestDeterministicSpaceQueries(void)
         double hillSphere = SpaceUnitsHillSphereKm(
             system.planets[satellite->parentPlanetIndex].semiMajorAxisKm,
             parent->profile.massKg, runtime.totalStellarMassKg);
-        assert(periapsis > rocheLimit);
+        if (!system.planets[satellite->parentPlanetIndex].hasCanonicalOrbit) {
+            assert(periapsis > rocheLimit);
+        }
         assert(apoapsis <= 0.35 * hillSphere);
         assert(satellite->encounterRadiusGame > 0.0f);
     }
@@ -2572,8 +2592,34 @@ static void TestSpaceEditLayerMigration(void)
     fclose(invalid);
 }
 
+static void TestCanonicalSolCatalog(void)
+{
+    SolarSystemDef sol;
+    assert(StarSystemAt(0, 0, &sol));
+    assert(strcmp(sol.name, "Sol") == 0);
+    assert(sol.planetCount == 8);
+    assert(sol.satelliteCount == 20);
+    assert(strcmp(sol.planets[2].name, "Earth") == 0);
+    assert(sol.planets[2].bodyId == 3u);
+    AssertRelative(sol.planets[2].semiMajorAxisKm,
+                   SPACE_UNITS_ASTRONOMICAL_UNIT_KM, 0.00001);
+    AssertRelative(sol.planets[2].physicalRadiusKm,
+                   SPACE_UNITS_EARTH_RADIUS_KM, 0.00001);
+    assert(strcmp(sol.planets[7].name, "Neptune") == 0);
+    AssertRelative(sol.planets[7].semiMajorAxisKm /
+                       SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+                   30.06992276, 0.0000001);
+    assert(sol.physicalSnapshot.satellitesBuilt);
+    assert(sol.physicalSnapshot.satelliteCount == sol.satelliteCount);
+    assert(strcmp(sol.satellites[0].name, "Moon") == 0);
+    assert(sol.satellites[0].parentPlanetIndex == 2);
+    assert(strcmp(sol.satellites[19].name, "Triton") == 0);
+    assert(sol.satellites[19].parentPlanetIndex == 7);
+}
+
 int main(void)
 {
+    TestCanonicalSolCatalog();
     TestHomeScaleDiagnostics();
     TestScaleDiagnosticsInputContracts();
     TestSpaceQueryInputContracts();

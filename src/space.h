@@ -25,7 +25,8 @@
 #define STAR_SYSTEM_QUERY_MAX 384
 
 #define MAX_SOLAR_LIGHTS PLANET_PROFILE_MAX_STARS
-#define MAX_SOLAR_PLANETS 6
+#define MAX_SOLAR_PLANETS 8
+#define MAX_SOLAR_SATELLITES 24
 
 typedef struct SolarLightSource {
     Vector3 center;
@@ -77,14 +78,32 @@ typedef struct PlanetLightState {
 
 typedef struct SolarPlanetDef {
     // Canonical orbital and body dimensions. Proxy size is presentation only.
+    uint32_t bodyId;
+    char name[24];
     double semiMajorAxisKm;
     double physicalRadiusKm;
+    double physicalMassKg;
+    double rotationPeriodSeconds;
+    float axialTiltRad;
     float formationMassEarth;
     float spaceProxyRadius;
     int yOffset;
     SolarBodyStyle style;
     bool formationGasGiant;
+    bool hasCanonicalOrbit;
+    double orbitalEccentricity;
+    double orbitalInclinationRad;
+    double orbitalLongitudeAscendingNodeRad;
+    double orbitalArgumentPeriapsisRad;
+    double orbitalMeanAnomalyAtEpochRad;
 } SolarPlanetDef;
+
+typedef struct SolarSatelliteDef {
+    uint32_t bodyId;
+    int parentPlanetIndex;
+    char name[24];
+    SpaceSatelliteOrbit orbit;
+} SolarSatelliteDef;
 
 typedef enum SolarPlanetDynamicalStatus {
     SOLAR_PLANET_STABLE = 0,
@@ -110,6 +129,9 @@ typedef struct SolarSystemPhysicalSnapshot {
     SolarPlanetDynamicalStatus planetStatuses[MAX_SOLAR_PLANETS];
     SpaceKeplerOrbit planetOrbits[MAX_SOLAR_PLANETS];
     SpaceSatelliteOrbit satelliteOrbits[MAX_SOLAR_PLANETS];
+    int satelliteCount;
+    int satelliteParentPlanetIndices[MAX_SOLAR_SATELLITES];
+    SpaceSatelliteOrbit allSatelliteOrbits[MAX_SOLAR_SATELLITES];
     float minimumPlanetOrbitGame;
 } SolarSystemPhysicalSnapshot;
 
@@ -129,6 +151,8 @@ typedef struct SolarSystemDef {
     double habitableZoneInnerKm;
     double habitableZoneOuterKm;
     SolarPlanetDef planets[MAX_SOLAR_PLANETS];
+    int satelliteCount;
+    SolarSatelliteDef satellites[MAX_SOLAR_SATELLITES];
     SolarSystemPhysicalSnapshot physicalSnapshot;
 } SolarSystemDef;
 
@@ -202,6 +226,8 @@ typedef struct SpaceSatelliteInfo {
     float encounterRadiusGame;
     float dist;
     bool isSatellite;
+    int index;
+    uint32_t bodyId;
     int parentPlanetIndex;
     int systemAnchorX;
     int systemAnchorZ;

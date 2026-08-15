@@ -13,6 +13,7 @@
 #include "space_system.h"
 #include "space_system_physics.h"
 #include "space_units.h"
+#include "solar_catalog.h"
 #include "world.h"
 #include "world_environment.h"
 
@@ -423,13 +424,6 @@ static void ApplyPrimaryStar(SolarSystemDef *system, StellarProfile star)
     system->starProxyRadius = SolarSystemStellarVisualRadius(&star);
 }
 
-static double SolidPlanetRadiusKilometersForProxy(float proxyRadius)
-{
-    float radiusEarth = 0.72f + (proxyRadius - 40.0f) * 0.095f;
-    radiusEarth = Clamp(radiusEarth, 0.62f, 1.55f);
-    return (double)radiusEarth * SPACE_UNITS_EARTH_RADIUS_KM;
-}
-
 static void BuildSolSystem(SolarSystemDef *out)
 {
     memset(out, 0, sizeof(*out));
@@ -444,29 +438,55 @@ static void BuildSolSystem(SolarSystemDef *out)
     out->snowLineKm = 2.70 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
     out->habitableZoneInnerKm = 0.75 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
     out->habitableZoneOuterKm = 1.70 * SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
-    out->planetCount = 6;
-    static const float orbitGameDistances[6] = {
-        180.0f, 260.0f, 340.0f, 430.0f, 520.0f, 650.0f
-    };
-    static const float proxyRadii[6] = {
-        44.0f, 42.0f, 46.0f, 48.0f, 45.0f, 40.0f
-    };
-    static const SolarBodyStyle styles[6] = {
-        SOLAR_STYLE_LAVA, SOLAR_STYLE_ICE, SOLAR_STYLE_DESERT,
-        SOLAR_STYLE_GAS, SOLAR_STYLE_CRATER, SOLAR_STYLE_LAVA
-    };
-    for (int i = 0; i < 6; i++) {
+    if (!SolarCatalogValidate()) return;
+    out->planetCount = SolarCatalogPlanetCount();
+    for (int i = 0; i < out->planetCount; i++) {
+        const SolarCatalogPlanet *planet = SolarCatalogPlanetAt(i);
+        float proxyRadius = planet->gasGiant ? 48.0f : 42.0f;
         out->planets[i] = (SolarPlanetDef){
-            .semiMajorAxisKm = SpaceUnitsGameDistanceToKilometers(
-                orbitGameDistances[i]),
-            .physicalRadiusKm = SolidPlanetRadiusKilometersForProxy(
-                proxyRadii[i]),
-            .formationMassEarth = 0.0f,
-            .spaceProxyRadius = proxyRadii[i],
+            .bodyId = planet->bodyId,
+            .semiMajorAxisKm = planet->semiMajorAxisAu *
+                               SPACE_UNITS_ASTRONOMICAL_UNIT_KM,
+            .physicalRadiusKm = planet->radiusKm,
+            .physicalMassKg = planet->massEarth *
+                              SPACE_UNITS_EARTH_MASS_KG,
+            .rotationPeriodSeconds = planet->rotationPeriodHours * 3600.0,
+            .axialTiltRad = (float)(planet->axialTiltDeg * DEG2RAD),
+            .formationMassEarth = (float)planet->massEarth,
+            .spaceProxyRadius = proxyRadius,
             .yOffset = 0,
-            .style = styles[i],
-            .formationGasGiant = styles[i] == SOLAR_STYLE_GAS
+            .style = planet->style,
+            .formationGasGiant = planet->gasGiant,
+            .hasCanonicalOrbit = true,
+            .orbitalEccentricity = planet->eccentricity,
+            .orbitalInclinationRad = planet->inclinationDeg * DEG2RAD,
+            .orbitalLongitudeAscendingNodeRad =
+                planet->longitudeAscendingNodeDeg * DEG2RAD,
+            .orbitalArgumentPeriapsisRad =
+                planet->argumentPeriapsisDeg * DEG2RAD,
+            .orbitalMeanAnomalyAtEpochRad =
+                planet->meanAnomalyAtEpochDeg * DEG2RAD
         };
+        snprintf(out->planets[i].name, sizeof(out->planets[i].name), "%s",
+                 planet->name);
+    }
+    out->satelliteCount = SolarCatalogSatelliteCount();
+    for (int i = 0; i < out->satelliteCount; i++) {
+        const SolarCatalogSatellite *satellite = SolarCatalogSatelliteAt(i);
+        int parentIndex = -1;
+        for (int planet = 0; planet < out->planetCount; planet++) {
+            if (out->planets[planet].bodyId == satellite->parentBodyId) {
+                parentIndex = planet;
+                break;
+            }
+        }
+        out->satellites[i] = (SolarSatelliteDef){
+            .bodyId = satellite->bodyId,
+            .parentPlanetIndex = parentIndex,
+            .orbit = satellite->orbit
+        };
+        snprintf(out->satellites[i].name,
+                 sizeof(out->satellites[i].name), "%s", satellite->name);
     }
 }
 
@@ -530,7 +550,7 @@ static PlanetProfile SolarPlanetProfileForSnapshot(
         .planetIndex = index,
         .formationGasGiant = def->formationGasGiant,
         .forcedGasGiant =
-            sys->anchorX == 0 && sys->anchorZ == 0 && index == 3
+            sys->anchorX == 0 && sys->anchorZ == 0 && def->bodyId == 5u
     };
     memcpy(input.stellarLuminositiesSolar,
            stellar->stellarLuminositiesSolar,
@@ -1195,6 +1215,13 @@ static uint64_t SolarSystemRuntimeCacheSignature(
             hash, SolarSystemDoubleBits(planet->semiMajorAxisKm));
         hash = SolarSystemSignatureMix(
             hash, SolarSystemDoubleBits(planet->physicalRadiusKm));
+        hash = SolarSystemSignatureMix(hash, planet->bodyId);
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(planet->physicalMassKg));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(planet->rotationPeriodSeconds));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemFloatBits(planet->axialTiltRad));
         hash = SolarSystemSignatureMix(
             hash, SolarSystemFloatBits(planet->formationMassEarth));
         hash = SolarSystemSignatureMix(
@@ -1202,6 +1229,20 @@ static uint64_t SolarSystemRuntimeCacheSignature(
         hash = SolarSystemSignatureMix(hash, (uint32_t)planet->yOffset);
         hash = SolarSystemSignatureMix(hash, (uint32_t)planet->style);
         hash = SolarSystemSignatureMix(hash, planet->formationGasGiant);
+        hash = SolarSystemSignatureMix(hash, planet->hasCanonicalOrbit);
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(planet->orbitalEccentricity));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(planet->orbitalInclinationRad));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(
+                      planet->orbitalLongitudeAscendingNodeRad));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(
+                      planet->orbitalArgumentPeriapsisRad));
+        hash = SolarSystemSignatureMix(
+            hash, SolarSystemDoubleBits(
+                      planet->orbitalMeanAnomalyAtEpochRad));
         hash = SolarSystemSignatureMix(
             hash, SolarSystemDoubleBits(orbit->eccentricity));
         hash = SolarSystemSignatureMix(
@@ -1219,8 +1260,13 @@ static uint64_t SolarSystemRuntimeCacheSignature(
     }
     hash = SolarSystemSignatureMix(hash, snapshot->satellitesBuilt);
     if (snapshot->satellitesBuilt) {
-        for (int i = 0; i < system->planetCount; i++) {
-            const SpaceSatelliteOrbit *orbit = &snapshot->satelliteOrbits[i];
+        hash = SolarSystemSignatureMix(
+            hash, (uint32_t)snapshot->satelliteCount);
+        for (int i = 0; i < snapshot->satelliteCount; i++) {
+            const SpaceSatelliteOrbit *orbit =
+                &snapshot->allSatelliteOrbits[i];
+            hash = SolarSystemSignatureMix(
+                hash, (uint32_t)snapshot->satelliteParentPlanetIndices[i]);
             hash = SolarSystemSignatureMix(hash, orbit->exists);
             hash = SolarSystemSignatureMix(
                 hash, SolarSystemDoubleBits(orbit->semiMajorAxisKm));
@@ -2330,7 +2376,9 @@ static bool PlanetBodyInfoForRuntime(const SolarSystemDef *system,
         .style = profile->style,
         .profile = *profile
     };
-    snprintf(out->name, sizeof(out->name), "%s", system->name);
+    snprintf(out->name, sizeof(out->name), "%s",
+             system->planets[index].name[0]
+                 ? system->planets[index].name : system->name);
     return true;
 }
 
@@ -2507,41 +2555,81 @@ int SpaceSatellitesNear(Vector3 pos, float maxDist,
                 system, SpaceElapsedSimulationTime(), &runtime)) {
             continue;
         }
-        for (int planetIndex = 0; planetIndex < runtime.planetCount;
-             planetIndex++) {
-            const SolarPlanetRuntimeState *planet =
-                &runtime.planets[planetIndex];
-            if (!planet->satelliteOrbit.exists) continue;
-            float distance = Vector3Distance(planet->satelliteCenter, pos);
+        SolarSystemPhysicalSnapshot scratch;
+        const SolarSystemPhysicalSnapshot *snapshot =
+            SolarSystemPhysicalSnapshotForSystem(system, &scratch);
+        if (!snapshot) continue;
+        if (!snapshot->satellitesBuilt) {
+            scratch = *snapshot;
+            if (!SolarSystemPhysicalSnapshotBuildSatellites(system, &scratch)) {
+                continue;
+            }
+            snapshot = &scratch;
+        }
+        for (int satelliteIndex = 0;
+             satelliteIndex < snapshot->satelliteCount; satelliteIndex++) {
+            int planetIndex =
+                snapshot->satelliteParentPlanetIndices[satelliteIndex];
+            if (planetIndex < 0 || planetIndex >= runtime.planetCount) continue;
+            const SolarPlanetRuntimeState *planet = &runtime.planets[planetIndex];
+            if (!planet->valid) continue;
+            SpaceSatelliteOrbit orbit =
+                snapshot->allSatelliteOrbits[satelliteIndex];
+            SpaceSatelliteState state;
+            if (!SpaceSatelliteStateAtSeconds(
+                    &orbit, planet->profile.massKg,
+                    SpaceUnitsGameTimeToSeconds(runtime.simulationTime),
+                    &state)) continue;
+            Vector3 center = Vector3Add(planet->center, (Vector3){
+                (float)SpaceUnitsKilometersToGameDistance(state.positionKm.x),
+                (float)SpaceUnitsKilometersToGameDistance(state.positionKm.y),
+                (float)SpaceUnitsKilometersToGameDistance(state.positionKm.z)
+            });
+            Vector3 velocity = Vector3Add(planet->velocity, (Vector3){
+                (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                    state.velocityKmPerSecond.x),
+                (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                    state.velocityKmPerSecond.y),
+                (float)SpaceUnitsKilometersPerSecondToGameVelocity(
+                    state.velocityKmPerSecond.z)
+            });
+            float distance = Vector3Distance(center, pos);
             if (distance > maxDist) continue;
             double hillSphereKm = SpaceUnitsHillSphereKm(
-                planet->satelliteOrbit.semiMajorAxisKm,
-                planet->satelliteOrbit.massKg, planet->profile.massKg);
+                orbit.semiMajorAxisKm, orbit.massKg, planet->profile.massKg);
             double physicalRadiusGame = SpaceUnitsKilometersToGameDistance(
-                planet->satelliteOrbit.radiusKm);
+                orbit.radiusKm);
             float minimumEncounter = (float)(physicalRadiusGame * 2.20);
             float encounter = fmaxf(
                 minimumEncounter,
                 fminf((float)SpaceUnitsKilometersToGameDistance(
                           hillSphereKm * 0.50), 24.0f));
             SpaceSatelliteInfo candidate = {
-                .center = planet->satelliteCenter,
-                .velocity = planet->satelliteVelocity,
-                .physicalRadiusKm = planet->satelliteOrbit.radiusKm,
-                .massKg = planet->satelliteOrbit.massKg,
-                .semiMajorAxisKm = planet->satelliteOrbit.semiMajorAxisKm,
+                .center = center,
+                .velocity = velocity,
+                .physicalRadiusKm = orbit.radiusKm,
+                .massKg = orbit.massKg,
+                .semiMajorAxisKm = orbit.semiMajorAxisKm,
                 .encounterRadiusGame = encounter,
                 .dist = distance,
                 .isSatellite = true,
+                .index = satelliteIndex,
                 .parentPlanetIndex = planetIndex,
                 .systemAnchorX = system->anchorX,
                 .systemAnchorZ = system->anchorZ,
-                .worldSeed = planet->profile.seed,
-                .orbit = planet->satelliteOrbit,
-                .state = planet->satelliteState
+                .worldSeed = planet->profile.seed ^
+                             (uint32_t)(satelliteIndex + 1) * 0x9e3779b9u,
+                .orbit = orbit,
+                .state = state
             };
-            snprintf(candidate.name, sizeof(candidate.name), "%s Moon %c",
-                     system->name, 'a' + planetIndex);
+            if (system->satelliteCount > satelliteIndex) {
+                candidate.bodyId = system->satellites[satelliteIndex].bodyId;
+                snprintf(candidate.name, sizeof(candidate.name), "%s",
+                         system->satellites[satelliteIndex].name);
+            } else {
+                snprintf(candidate.name, sizeof(candidate.name), "%s Moon %c",
+                         system->name, 'a' + planetIndex);
+            }
             InsertSpaceSatelliteQueryCandidate(candidate, out, &count,
                                                 maxCount);
         }

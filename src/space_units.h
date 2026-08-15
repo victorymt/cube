@@ -4,8 +4,8 @@
 #include <stdbool.h>
 
 // Canonical physical constants use kilometers, seconds, and kilograms.
-// Orbital scene coordinates use a linear compression: 340 game distance units
-// are 1 AU. One unpaused gameplay second advances one game time unit, while one
+// Orbital scene coordinates use a linear system projection: 20 game distance
+// units are 1 AU. One unpaused gameplay second advances one game time unit, while one
 // game time unit represents one physical Earth day in the celestial simulation.
 //
 // Planet visuals, landing surfaces, and encounter spheres are gameplay proxies,
