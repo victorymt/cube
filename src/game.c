@@ -2,6 +2,7 @@
 #include "raymath.h"
 
 #include "game.h"
+#include "game_debug.h"
 #include "game_interaction.h"
 #include "game_runtime.h"
 #include "types.h"
@@ -42,17 +43,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-static const char *ScreenshotDimensionName(WorldDimension dimension)
-{
-    switch (dimension) {
-    case WORLD_DIMENSION_PLANET: return "planet";
-    case WORLD_DIMENSION_SPACE: return "space";
-    case WORLD_DIMENSION_NETHER: return "nether";
-    case WORLD_DIMENSION_HOME:
-    default: return "home";
-    }
-}
 
 static ScreenshotVector3 ScreenshotVector(Vector3 value)
 {
@@ -716,15 +706,6 @@ static void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info,
     }
 }
 
-static int BiologyAtlasFirstSlot(void)
-{
-    for (int index = 0; index < EVOLUTION_CATALOG_MAX_SPECIES; index++) {
-        EvolutionCatalogSpecies species = { 0 };
-        if (EvolutionCatalogGetSpecies(index, &species)) return index;
-    }
-    return -1;
-}
-
 static int BiologyAtlasNextSlot(int current, int direction)
 {
     int start = current < 0 ? (direction > 0 ? -1 : EVOLUTION_CATALOG_MAX_SPECIES) : current;
@@ -801,7 +782,7 @@ static void DrawBiologyAtlas(GameRuntime *game)
     }
 
     if (game->biologyAtlasSlot < 0) {
-        game->biologyAtlasSlot = BiologyAtlasFirstSlot();
+        game->biologyAtlasSlot = EvolutionCatalogFirstSpeciesSlot();
     }
     EvolutionCatalogSpecies species = { 0 };
     if (!EvolutionCatalogGetSpecies(game->biologyAtlasSlot, &species)) {
@@ -1079,7 +1060,7 @@ static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game, float dt,
                !game->landingTransition.active && !game->cursorReleased &&
                IsKeyPressed(KEY_B)) {
         game->biologyAtlasOpen = true;
-        game->biologyAtlasSlot = BiologyAtlasFirstSlot();
+        game->biologyAtlasSlot = EvolutionCatalogFirstSpeciesSlot();
         game->player.velocity = Vector3Zero();
         game->cursorReleased = true;
         EnableCursor();
@@ -1844,7 +1825,7 @@ static void GameCaptureScreenshot(GameRuntime *game,
                 .seed = PlanetWorldIsActive() ? PlanetWorldSeed() :
                                                 WorldGetSeed(),
                 .surfaceId = WorldCurrentSurfaceId(),
-                .dimension = ScreenshotDimensionName(frame->cameraDimension),
+                .dimension = WorldDimensionName(frame->cameraDimension),
                 .dayTime = game->dayTime,
                 .daylight = frame->daylight,
                 .dayCycleEnabled = game->dayCycleEnabled
@@ -2055,316 +2036,6 @@ static void GameCaptureScreenshot(GameRuntime *game,
         }
         game->screenshotPending = false;
     }
-}
-
-static bool GameDispatchDebugCommand(GameRuntime *game) {
-  bool debugStartRequested = false;
-  switch (DebugControlPoll(&game->debugControl)) {
-  case DEBUG_CONTROL_COMMAND_START:
-    if (game->screen == SCREEN_START) {
-      debugStartRequested = true;
-    } else {
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL start ignored reason=already_playing\n");
-    }
-    break;
-  case DEBUG_CONTROL_COMMAND_SCREENSHOT:
-    if (game->screen == SCREEN_PLAYING) {
-      game->screenshotPending = true;
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL screenshot scheduled\n");
-    } else {
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL screenshot error reason=not_playing\n");
-    }
-    break;
-  case DEBUG_CONTROL_COMMAND_STATUS: {
-    PlayerWaterState statusWater = PlayerWaterStateAt(game->player.position);
-    FluidSample statusFluid = FluidSampleAt(game->player.position);
-    FluidStats statusFluidStats = FluidGetStats();
-    uint64_t statusLoadedVolume = FluidLoadedVolume();
-    ChunkWaterRenderDebugInfo statusWaterRender = {0};
-    ChunksGetWaterRenderDebugInfo(game->player.position, &statusWaterRender);
-    BathymetrySample statusBathymetry = {
-        .seaLevel = -1,
-        .seabedY = (int)floorf(game->player.position.y),
-        .waterDepth = 0,
-        .zone = BATHYMETRY_ZONE_LAND,
-        .material = BATHYMETRY_MATERIAL_ROCK};
-    if (PlanetWorldIsActive()) {
-      statusBathymetry =
-          PlanetBathymetryAt((int)floorf(game->player.position.x),
-                             (int)floorf(game->player.position.z));
-    } else if (HomeWorldSurfaceIsActive()) {
-      statusBathymetry = TerrainBathymetryAt(
-          (int)floorf(game->player.position.x),
-          (int)floorf(game->player.position.z), WorldTerrainMode());
-    }
-    DebugControlReply(
-        &game->debugControl,
-        "DEBUG_CONTROL status screen=%s seed=%u dimension=%s "
-        "position=%.6f,%.6f,%.6f velocity=%.6f,%.6f,%.6f "
-        "water=%d,%d,%d depth=%.6f surface=%.6f "
-        "fluid_volume=%u fluid_surface=%.6f "
-        "fluid_flow=%.6f,%.6f,%.6f fluid_queue=%u "
-        "fluid_processed=%u fluid_edits=%u fluid_total=%llu "
-        "fluid_overflows=%u "
-        "bathymetry=%s seabed=%d water_column=%d material=%s "
-        "chunk=%d,%d,%d chunk_loaded=%d neighbors=0x%X "
-        "water_triangles=%d section_water_triangles=%d "
-        "camera_inside_solid=%d\n",
-        game->screen == SCREEN_PLAYING ? "playing" : "start", WorldGetSeed(),
-        ScreenshotDimensionName(WorldCurrentDimension()),
-        game->player.position.x, game->player.position.y,
-        game->player.position.z, game->player.velocity.x,
-        game->player.velocity.y, game->player.velocity.z,
-        statusWater.feetSubmerged ? 1 : 0, statusWater.bodySubmerged ? 1 : 0,
-        statusWater.eyesSubmerged ? 1 : 0, statusWater.eyeDepth,
-        statusWater.surfaceY, (unsigned)statusFluid.volume,
-        statusFluid.surfaceY, statusFluid.velocity.x, statusFluid.velocity.y,
-        statusFluid.velocity.z, statusFluidStats.activeCells,
-        statusFluidStats.lastProcessedCells, statusFluidStats.editCount,
-        (unsigned long long)statusLoadedVolume, statusFluidStats.queueOverflows,
-        BathymetryZoneName(statusBathymetry.zone), statusBathymetry.seabedY,
-        statusBathymetry.waterDepth,
-        BathymetryMaterialName(statusBathymetry.material), statusWaterRender.cx,
-        statusWaterRender.cz, statusWaterRender.sectionY,
-        statusWaterRender.chunkLoaded ? 1 : 0,
-        statusWaterRender.neighborLoadedMask, statusWaterRender.triangleCount,
-        statusWaterRender.sectionTriangleCount,
-        PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0);
-    break;
-  }
-  case DEBUG_CONTROL_COMMAND_FLUID_INSPECT: {
-    int x = game->debugControl.fluidUsePlayerPosition
-                ? (int)floorf(game->player.position.x)
-                : game->debugControl.fluidX;
-    int y = game->debugControl.fluidUsePlayerPosition
-                ? (int)floorf(game->player.position.y)
-                : game->debugControl.fluidY;
-    int z = game->debugControl.fluidUsePlayerPosition
-                ? (int)floorf(game->player.position.z)
-                : game->debugControl.fluidZ;
-    FluidSample sample = FluidSampleAt(
-        (Vector3){(float)x + 0.5f, (float)y + 0.5f, (float)z + 0.5f});
-    FluidStats stats = FluidGetStats();
-    DebugControlReply(
-        &game->debugControl,
-        "DEBUG_CONTROL fluid inspect ok position=%d,%d,%d "
-        "volume=%u surface=%.6f flow=%.6f,%.6f,%.6f "
-        "queue=%u processed=%u edits=%u total=%llu overflows=%u\n",
-        x, y, z, (unsigned)sample.volume, sample.surfaceY, sample.velocity.x,
-        sample.velocity.y, sample.velocity.z, stats.activeCells,
-        stats.lastProcessedCells, stats.editCount,
-        (unsigned long long)FluidLoadedVolume(), stats.queueOverflows);
-    break;
-  }
-  case DEBUG_CONTROL_COMMAND_FLUID_SET:
-    if (game->screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL fluid set error reason=no_active_surface\n");
-    } else if (!FluidSetVolumeAt(game->debugControl.fluidX,
-                                 game->debugControl.fluidY,
-                                 game->debugControl.fluidZ,
-                                 (uint8_t)game->debugControl.fluidVolume)) {
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL fluid set error reason=cell_unavailable\n");
-    } else {
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL fluid set ok position=%d,%d,%d volume=%u\n",
-          game->debugControl.fluidX, game->debugControl.fluidY,
-          game->debugControl.fluidZ, game->debugControl.fluidVolume);
-    }
-    break;
-  case DEBUG_CONTROL_COMMAND_FLUID_STEP:
-    if (game->screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL fluid step error reason=no_active_surface\n");
-    } else {
-      FluidStepTicks(game->debugControl.fluidTicks);
-      FluidStats stats = FluidGetStats();
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL fluid step ok ticks=%u queue=%u "
-                        "processed=%u total=%llu\n",
-                        game->debugControl.fluidTicks, stats.activeCells,
-                        stats.lastProcessedCells,
-                        (unsigned long long)FluidLoadedVolume());
-    }
-    break;
-  case DEBUG_CONTROL_COMMAND_TELEPORT:
-    if (game->screen == SCREEN_PLAYING) {
-      game->player.position = (Vector3){game->debugControl.teleport.x,
-                                        game->debugControl.teleport.y,
-                                        game->debugControl.teleport.z};
-      game->player.velocity = Vector3Zero();
-      game->player.yaw = game->debugControl.teleport.yaw;
-      game->player.pitch = game->debugControl.teleport.pitch;
-      game->player.onGround = false;
-      PlayerResetRuntimeState(&game->player);
-      game->scriptedInputFrames = 0u;
-      game->scriptedInputFirstFrame = false;
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL teleport ok position=%.6f,%.6f,%.6f\n",
-                        game->player.position.x, game->player.position.y,
-                        game->player.position.z);
-    } else {
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL teleport error reason=not_playing\n");
-    }
-    break;
-  case DEBUG_CONTROL_COMMAND_INPUT:
-    if (game->screen == SCREEN_PLAYING) {
-      game->scriptedPlayerInput =
-          (PlayerInput){.forward = game->debugControl.playerInput.forward,
-                        .strafe = game->debugControl.playerInput.strafe,
-                        .vertical = game->debugControl.playerInput.vertical,
-                        .sprint = game->debugControl.playerInput.sprint};
-      game->scriptedInputFrames = game->debugControl.playerInput.frames;
-      game->scriptedInputFirstFrame = true;
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL input ok forward=%.3f strafe=%.3f "
-          "vertical=%.3f sprint=%d frames=%u\n",
-          game->scriptedPlayerInput.forward, game->scriptedPlayerInput.strafe,
-          game->scriptedPlayerInput.vertical,
-          game->scriptedPlayerInput.sprint ? 1 : 0, game->scriptedInputFrames);
-    } else {
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL input error reason=not_playing\n");
-    }
-    break;
-  case DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT: {
-    int index = EntityNearestEvolvable(game->player.position,
-                                       game->debugControl.evolutionRadius);
-    EntityEvolutionDebugInfo info = {0};
-    if (index < 0 || !EntityEvolutionInspect(index, &info)) {
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL evolution inspect none radius=%.3f\n",
-                        game->debugControl.evolutionRadius);
-    } else {
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL evolution inspect ok organism=%u lineage=%u "
-          "species=%u genome=%u generation=%u mutations=%u "
-          "locomotion=%s modules=%u age=%.3f maturity=%.3f "
-          "health=%.3f energy=%.3f diet=%.3f mass=%.3f speed=%.3f "
-          "juvenile=%d pregnant=%d corpse=%d\n",
-          info.organismId, info.lineageId, info.speciesId, info.genomeId,
-          info.generation, info.mutationCount,
-          EvolutionLocomotionName(info.locomotion), info.moduleCount,
-          info.ageDays, info.maturityAgeDays, info.health, info.energy,
-          info.diet, info.mass, info.speed, info.juvenile ? 1 : 0,
-          info.pregnant ? 1 : 0, info.corpse ? 1 : 0);
-    }
-    break;
-  }
-  case DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS: {
-    int index = EntityNearestEvolvable(game->player.position,
-                                       game->debugControl.evolutionRadius);
-    EntityEvolutionDebugInfo info = {0};
-    if (game->screen != SCREEN_PLAYING ||
-        !EntityEvolutionInspect(index, &info)) {
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL evolution focus none radius=%.3f\n",
-                        game->debugControl.evolutionRadius);
-    } else {
-      game->evolutionScanLocked = GameInteractionObserveEvolutionInfo(&info);
-      game->evolutionLockedOrganismId =
-          game->evolutionScanLocked ? info.organismId : 0u;
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL evolution focus %s organism=%u species=%u\n",
-          game->evolutionScanLocked ? "ok" : "error", info.organismId,
-          info.speciesId);
-    }
-    break;
-  }
-  case DEBUG_CONTROL_COMMAND_EVOLUTION_REGION:
-  case DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP: {
-    PlanetEvolutionRegion evolution = {0};
-    float evolutionDaylight = 0.0f;
-    float evolutionSunset = 0.0f;
-    PlanetLightState evolutionLight = {0};
-    if (PlanetWorldLightStateAt(game->player.position, &evolutionLight)) {
-      evolutionDaylight = evolutionLight.daylight;
-    } else {
-      DayNightFactors(game->dayTime, &evolutionDaylight, &evolutionSunset);
-    }
-    if (!PlanetEcologyEvolutionRegionAt((int)floorf(game->player.position.x),
-                                        (int)floorf(game->player.position.z),
-                                        evolutionDaylight, &evolution)) {
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL evolution region error reason=no_active_ecology\n");
-    } else {
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL evolution region ok lineages=%u "
-                        "bootstrap=%u complete=%d herbivore=%.6f omnivore=%.6f "
-                        "carnivore=%.6f\n",
-                        evolution.lineageCount, evolution.bootstrapGeneration,
-                        evolution.bootstrapComplete ? 1 : 0,
-                        evolution.herbivoreDensity, evolution.omnivoreDensity,
-                        evolution.carnivoreDensity);
-    }
-    break;
-  }
-  case DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE:
-    if (game->screen == SCREEN_PLAYING) {
-      SpaceAdvanceTime(game->debugControl.evolutionAdvanceDays);
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL evolution advance ok days=%.3f\n",
-                        game->debugControl.evolutionAdvanceDays);
-    } else {
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL evolution advance error reason=not_playing\n");
-    }
-    break;
-  case DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS:
-    if (game->screen != SCREEN_PLAYING) {
-      DebugControlReply(
-          &game->debugControl,
-          "DEBUG_CONTROL evolution atlas error reason=not_playing\n");
-    } else {
-      game->biologyAtlasOpen = !game->biologyAtlasOpen;
-      game->biologyAtlasSlot = BiologyAtlasFirstSlot();
-      game->cursorReleased = game->biologyAtlasOpen;
-      if (game->biologyAtlasOpen)
-        EnableCursor();
-      else
-        DisableCursor();
-      DebugControlReply(&game->debugControl,
-                        "DEBUG_CONTROL evolution atlas %s species=%d\n",
-                        game->biologyAtlasOpen ? "open" : "closed",
-                        EvolutionCatalogSpeciesCount());
-    }
-    break;
-  case DEBUG_CONTROL_COMMAND_EVOLUTION_CATALOG:
-    DebugControlReply(&game->debugControl,
-                      "DEBUG_CONTROL evolution catalog ok species=%d "
-                      "individuals=%d surface=%u\n",
-                      EvolutionCatalogSpeciesCount(),
-                      EvolutionCatalogIndividualCount(),
-                      WorldCurrentSurfaceId());
-    break;
-  case DEBUG_CONTROL_COMMAND_QUIT:
-    game->quitRequested = true;
-    DebugControlReply(&game->debugControl, "DEBUG_CONTROL quit accepted\n");
-    break;
-  case DEBUG_CONTROL_COMMAND_INVALID:
-    DebugControlReply(&game->debugControl,
-                      "DEBUG_CONTROL error reason=unknown_command\n");
-    break;
-  case DEBUG_CONTROL_COMMAND_NONE:
-  default:
-    break;
-  }
-
-  return debugStartRequested;
 }
 
 static bool GameUpdateFrame(GameRuntime *game, float dt,

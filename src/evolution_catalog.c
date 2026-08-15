@@ -195,6 +195,14 @@ int EvolutionCatalogIndividualCount(void)
     return count;
 }
 
+int EvolutionCatalogFirstSpeciesSlot(void)
+{
+    for (int index = 0; index < EVOLUTION_CATALOG_MAX_SPECIES; index++) {
+        if (catalogSpecies[index].valid) return index;
+    }
+    return -1;
+}
+
 bool EvolutionCatalogGetSpecies(int index, EvolutionCatalogSpecies *out)
 {
     if (!out || index < 0 || index >= EVOLUTION_CATALOG_MAX_SPECIES ||

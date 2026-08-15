@@ -17,6 +17,17 @@ WorldDimension WorldCurrentDimension(void)
     return WorldCurrentDimensionAt(0.0f);
 }
 
+const char *WorldDimensionName(WorldDimension dimension)
+{
+    switch (dimension) {
+    case WORLD_DIMENSION_PLANET: return "planet";
+    case WORLD_DIMENSION_SPACE: return "space";
+    case WORLD_DIMENSION_NETHER: return "nether";
+    case WORLD_DIMENSION_HOME:
+    default: return "home";
+    }
+}
+
 WorldBlockRegion WorldBlockRegionAt(int y)
 {
     if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP) return WORLD_BLOCK_REGION_SPACE;

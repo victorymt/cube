@@ -26,6 +26,7 @@ typedef enum WorldBlockRegion {
 // position-aware form when the player may be inside the Nether layer.
 WorldDimension WorldCurrentDimension(void);
 WorldDimension WorldCurrentDimensionAt(float y);
+const char *WorldDimensionName(WorldDimension dimension);
 WorldBlockRegion WorldBlockRegionAt(int y);
 
 bool WorldIsSurfaceActive(void);

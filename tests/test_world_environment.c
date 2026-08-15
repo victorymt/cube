@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 static bool homeSurfaceActive = true;
 static bool planetWorldActive = false;
@@ -61,6 +62,10 @@ static void SetEnvironment(bool homeActive, bool planetActive,
 
 static void TestBlockRegions(void)
 {
+    assert(strcmp(WorldDimensionName(WORLD_DIMENSION_HOME), "home") == 0);
+    assert(strcmp(WorldDimensionName(WORLD_DIMENSION_PLANET), "planet") == 0);
+    assert(strcmp(WorldDimensionName(WORLD_DIMENSION_SPACE), "space") == 0);
+    assert(strcmp(WorldDimensionName(WORLD_DIMENSION_NETHER), "nether") == 0);
     assert(WorldBlockRegionAt(NETHER_LAYER_Y - 1) == WORLD_BLOCK_REGION_NONE);
     assert(WorldBlockRegionAt(NETHER_LAYER_Y) == WORLD_BLOCK_REGION_NETHER);
     assert(WorldBlockRegionAt(NETHER_LAYER_TOP - 1) == WORLD_BLOCK_REGION_NETHER);

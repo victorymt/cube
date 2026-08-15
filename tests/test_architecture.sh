@@ -38,4 +38,10 @@ if grep -nE 'RaycastBlocksFiltered|FluidTryCollectUnit|FluidTryDepositUnit|ShipT
     fail "world interaction mechanics must remain in game_interaction.c"
 fi
 
+grep -q 'GameDispatchDebugCommand(&game)' src/game.c ||
+    fail "game loop must delegate debug command dispatch"
+if grep -n 'DebugControlPoll' src/game.c; then
+    fail "debug command routing must remain in game_debug.c"
+fi
+
 echo "architecture checks passed"

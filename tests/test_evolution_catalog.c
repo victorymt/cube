@@ -29,6 +29,7 @@ static EvolutionCatalogObservation Observation(uint32_t seed,
 int main(void)
 {
     EvolutionCatalogReset();
+    assert(EvolutionCatalogFirstSpeciesSlot() == -1);
     EvolutionCatalogObservation mother = Observation(42u, 1u, 100u, 0u, 0u);
     EvolutionCatalogObservation father = Observation(42u, 2u, 100u, 0u, 0u);
     EvolutionCatalogObservation child = Observation(42u, 3u, 100u, 1u, 2u);
@@ -38,6 +39,7 @@ int main(void)
     assert(EvolutionCatalogObserve(&child));
     assert(EvolutionCatalogSpeciesCount() == 1);
     assert(EvolutionCatalogIndividualCount() == 3);
+    assert(EvolutionCatalogFirstSpeciesSlot() == 0);
 
     EvolutionCatalogSpecies species = { 0 };
     assert(EvolutionCatalogFindSpecies(42u, 0x484f4d45u, 100u, &species));

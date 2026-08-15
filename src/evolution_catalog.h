@@ -55,6 +55,7 @@ void EvolutionCatalogReset(void);
 bool EvolutionCatalogObserve(const EvolutionCatalogObservation *observation);
 int EvolutionCatalogSpeciesCount(void);
 int EvolutionCatalogIndividualCount(void);
+int EvolutionCatalogFirstSpeciesSlot(void);
 bool EvolutionCatalogGetSpecies(int index, EvolutionCatalogSpecies *out);
 bool EvolutionCatalogFindSpecies(uint32_t worldSeed, uint32_t surfaceId,
                                  uint32_t speciesId,
