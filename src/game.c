@@ -988,6 +988,254 @@ typedef struct GameFrameView {
     bool canPlace;
 } GameFrameView;
 
+static bool GameUpdateStartScreen(GameRuntime *game, float dt,
+                                  bool debugStartRequested)
+{
+    if (game->perfMode || game->screen != SCREEN_START) return false;
+
+    AudioSetEnvironment(NULL);
+    AudioUpdate(dt);
+    bool startGame = false;
+    if (IsKeyPressed(KEY_ESCAPE)) game->quitRequested = true;
+    BeginDrawing();
+    DrawStartPage(&startGame, &game->quitRequested, &game->selectedTerrain,
+                  &game->selectedSeed);
+    if (debugStartRequested) startGame = true;
+    EndDrawing();
+
+    if (startGame) {
+        BeginNewWorld(game, game->selectedTerrain, game->selectedSeed);
+        EnvironmentPresentationRuntimeReset(&game->environment);
+        game->importDialog.open = false;
+        game->importDialog.relief = true;
+        game->importDialog.maxBlocks = IMPORT_DEFAULT_BLOCKS;
+        game->importDialog.path[0] = '\0';
+        game->albumOpen = false;
+        game->albumRainSuspended = false;
+        game->wasInSpace = false;
+        game->entitiesWorldActive = true;
+        game->entitiesWorldDimension = 0u;
+        game->thirdPerson = false;
+        game->shipLocatorEnabled = false;
+        game->landingTransition = (LandingTransition){ 0 };
+        game->paused = false;
+        game->screen = SCREEN_PLAYING;
+        game->cursorReleased = false;
+        DisableCursor();
+        SetImportMessage(
+            WorldTerrainMode() == TERRAIN_FLAT
+                ? TextFormat("Flat world seed %u. Press I to import.",
+                             WorldGetSeed())
+                : TextFormat("World seed %u.", WorldGetSeed()));
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL start ok seed=%u\n",
+                          WorldGetSeed());
+    }
+    return true;
+}
+
+static void GameUpdateAlbum(GameRuntime *game)
+{
+    if (!game->albumOpen && !game->importDialog.open && !game->paused &&
+        !game->landingTransition.active && IsKeyPressed(KEY_P)) {
+        if (WeatherGetCurrent() == WEATHER_RAIN) {
+            game->albumRainSuspended = true;
+            AudioSetRain(false);
+        }
+        AlbumOpen();
+        game->albumOpen = true;
+        game->player.velocity = Vector3Zero();
+        game->cursorReleased = false;
+        EnableCursor();
+    }
+
+    AlbumUpdate();
+    if (AlbumConsumePlaceRequest()) {
+        const char *placedPath = AlbumSelectedPath();
+        AlbumClose();
+        game->albumOpen = false;
+        if (game->albumRainSuspended) {
+            game->albumRainSuspended = false;
+            AudioSetRain(true);
+        }
+        if (!game->paused && !game->cursorReleased &&
+            !game->importDialog.open) {
+            DisableCursor();
+        }
+        if (placedPath) {
+            ImportImageAsBlocks(placedPath, &game->player,
+                                IMPORT_DEFAULT_BLOCKS, false);
+        }
+    }
+    if (!AlbumIsOpen() && game->albumOpen) {
+        game->albumOpen = false;
+        if (game->albumRainSuspended) {
+            game->albumRainSuspended = false;
+            AudioSetRain(true);
+        }
+        if (!game->paused && !game->cursorReleased &&
+            !game->importDialog.open) {
+            DisableCursor();
+        }
+    }
+}
+
+static void GameUpdateFrameEnvironment(GameRuntime *game,
+                                       GameFrameView *frame)
+{
+    float sunset = 0.0f;
+    frame->planetLight = (PlanetLightState){ 0 };
+    if (!PlanetWorldLightStateAt(game->player.position,
+                                 &frame->planetLight)) {
+        DayNightFactors(game->dayTime, &frame->daylight, &sunset);
+    } else {
+        frame->daylight = frame->planetLight.daylight;
+        sunset = frame->planetLight.sunset;
+    }
+    frame->planetObservation =
+        PlanetObservationForCamera(&game->camera, &frame->planetLight);
+    frame->weatherSimulationTime = SpacePeriodicSimulationTime(
+        SpaceElapsedSimulationTime());
+    frame->weatherVisual = WeatherVisualStateAtWorld(
+        game->camera.position, frame->weatherSimulationTime,
+        frame->daylight);
+    frame->planetSeasonProgress = -1.0f;
+    if (PlanetWorldIsActive()) {
+        const PlanetProfile *profile = PlanetWorldProfile();
+        float radius = fmaxf(profile->spaceProxyRadius, 24.0f);
+        float latitude = game->player.position.z / (radius * 0.82f);
+        PlanetSeasonState season = { 0 };
+        if (PlanetSeasonEvaluate(
+                profile, latitude,
+                SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+                &season)) {
+            frame->planetSeasonProgress = season.seasonAngle / (2.0f * PI);
+        }
+    }
+
+    ChunksUpdateEcologyVisuals(frame->dt, frame->daylight);
+    if (!game->paused && !game->albumOpen && !game->importDialog.open &&
+        !game->landingTransition.active && frame->localWorldActive) {
+        EntitiesUpdate(frame->dt, &game->player, frame->daylight);
+    }
+
+    frame->spaceFade = HomeWorldSpaceFade(game->camera.position);
+    SkyColorsForLight(frame->daylight, sunset, &frame->skyTop,
+                      &frame->skyHorizon);
+    frame->worldTint =
+        MixWeather(WorldTintForLight(frame->daylight, sunset),
+                   frame->daylight, &frame->weatherVisual);
+    frame->skyTop = MixWeather(frame->skyTop, frame->daylight,
+                               &frame->weatherVisual);
+    frame->skyHorizon = MixWeather(frame->skyHorizon, frame->daylight,
+                                   &frame->weatherVisual);
+    ApplyPlanetWorldPaletteWithObservation(
+        &frame->skyTop, &frame->skyHorizon, &frame->worldTint,
+        &frame->planetLight, &frame->planetObservation);
+    float planetAtmosphereFade =
+        PlanetWorldAtmosphereFade(game->camera.position);
+    frame->skyFade = fmaxf(frame->spaceFade, planetAtmosphereFade);
+    UpdatePlanetSceneExposure(&game->camera);
+    frame->skyTop = ColorLerp(frame->skyTop, BLACK, frame->skyFade);
+    frame->skyHorizon =
+        ColorLerp(frame->skyHorizon, BLACK, frame->skyFade);
+    frame->worldTint = ColorLerp(
+        frame->worldTint, (Color){ 46, 54, 78, 255 }, frame->skyFade);
+
+    frame->cameraDimension =
+        WorldCurrentDimensionAt(game->camera.position.y);
+    frame->inNether = frame->cameraDimension == WORLD_DIMENSION_NETHER;
+    if (frame->inNether) {
+        frame->skyTop = (Color){ 24, 6, 6, 255 };
+        frame->skyHorizon = (Color){ 40, 10, 8, 255 };
+        frame->worldTint = (Color){ 150, 62, 42, 255 };
+        frame->spaceFade = 0.0f;
+    }
+
+    frame->playerWater = PlayerWaterStateAt(game->player.position);
+    frame->underwater =
+        frame->playerWater.eyesSubmerged &&
+        IsWaterBlock(GetBlockAt((int)floorf(game->camera.position.x),
+                                (int)floorf(game->camera.position.y),
+                                (int)floorf(game->camera.position.z)));
+    float underwaterDepth =
+        frame->underwater ? frame->playerWater.eyeDepth : 0.0f;
+    if (frame->underwater) {
+        float deep = Clamp(
+            underwaterDepth / UNDERWATER_DEEP_REFERENCE_DEPTH, 0.0f, 1.0f);
+        frame->skyHorizon =
+            WorldLightingUnderwaterFogColor(underwaterDepth);
+        frame->skyTop = ColorLerp(frame->skyHorizon,
+                                  (Color){ 3, 18, 30, 255 },
+                                  0.28f + deep * 0.42f);
+    }
+
+    EnvironmentScene environmentScene =
+        EnvironmentSceneForDimension(frame->cameraDimension);
+    bool forest = false;
+    if (environmentScene == ENVIRONMENT_SCENE_HOME) {
+        forest = BiomeAt((int)floorf(game->player.position.x),
+                         (int)floorf(game->player.position.z)) == BIOME_FOREST;
+    } else if (environmentScene == ENVIRONMENT_SCENE_PLANET) {
+        forest = PlanetBiomeAt((int)floorf(game->player.position.x),
+                               (int)floorf(game->player.position.z)) ==
+                 PLANET_BIOME_FOREST;
+    }
+    frame->environmentSample = (EnvironmentRuntimeSample){
+        .dimension = frame->cameraDimension,
+        .quality = game->settings.graphicsQuality,
+        .weather = frame->weatherVisual,
+        .simulationTime = frame->weatherSimulationTime,
+        .daylight = frame->daylight,
+        .sunset = sunset,
+        .atmosphereFade = frame->skyFade,
+        .altitude = game->camera.position.y -
+                    (float)WorldSurfaceHeightAt(
+                        (int)floorf(game->camera.position.x),
+                        (int)floorf(game->camera.position.z)),
+        .underwaterDepth = underwaterDepth,
+        .underwater = frame->underwater,
+        .sheltered = EnvironmentSheltered(game->camera.position),
+        .forest = forest,
+        .nearWater = EnvironmentNearWater(game->camera.position),
+        .shipInterior = environmentScene == ENVIRONMENT_SCENE_SPACE &&
+                        ShipIsDriving()
+    };
+    frame->bathymetry = (BathymetrySample){
+        .seaLevel = -1,
+        .seabedY = (int)floorf(game->player.position.y),
+        .waterDepth = 0,
+        .zone = BATHYMETRY_ZONE_LAND,
+        .material = BATHYMETRY_MATERIAL_ROCK
+    };
+    if (PlanetWorldIsActive()) {
+        frame->bathymetry = PlanetBathymetryAt(
+            (int)floorf(game->player.position.x),
+            (int)floorf(game->player.position.z));
+    } else if (HomeWorldSurfaceIsActive()) {
+        frame->bathymetry = TerrainBathymetryAt(
+            (int)floorf(game->player.position.x),
+            (int)floorf(game->player.position.z), WorldTerrainMode());
+    }
+
+    frame->environmentPresentation = EnvironmentPresentationRuntimeUpdate(
+        &game->environment, &frame->environmentSample, frame->dt);
+    AudioEnvironmentState audioEnvironment =
+        AudioEnvironmentFromPresentation(&frame->environmentPresentation);
+    if (game->albumOpen || game->importDialog.open ||
+        game->screen != SCREEN_PLAYING) {
+        audioEnvironment = (AudioEnvironmentState){ 0 };
+    }
+    AudioSetEnvironment(&audioEnvironment);
+    AudioUpdate(frame->dt);
+    frame->worldLighting = WorldLightingForScene(
+        &game->camera, game->dayTime, frame->daylight, sunset,
+        &frame->planetLight, &frame->weatherVisual, frame->skyHorizon,
+        frame->inNether, &frame->environmentPresentation);
+    PerfSetMetadata(WorldGetSeed(), frame->effectiveRenderDistance);
+    PerfMarkUpdateComplete();
+}
+
 static void GameRenderFrame(GameRuntime *game,
                             const GameFrameView *frame)
 {
@@ -1796,44 +2044,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
 
     bool landingSkipPressed = LandingTransitionUpdate(&game->landingTransition, &game->player, dt);
 
-    if (!game->perfMode && game->screen == SCREEN_START) {
-        AudioSetEnvironment(NULL);
-        AudioUpdate(dt);
-        bool startGame = false;
-        if (IsKeyPressed(KEY_ESCAPE)) game->quitRequested = true;
-        BeginDrawing();
-        DrawStartPage(&startGame, &game->quitRequested, &game->selectedTerrain, &game->selectedSeed);
-        if (debugStartRequested) startGame = true;
-        EndDrawing();
-
-        if (startGame) {
-            BeginNewWorld(game, game->selectedTerrain, game->selectedSeed);
-            EnvironmentPresentationRuntimeReset(&game->environment);
-            game->importDialog.open = false;
-            game->importDialog.relief = true;
-            game->importDialog.maxBlocks = IMPORT_DEFAULT_BLOCKS;
-            game->importDialog.path[0] = '\0';
-            game->albumOpen = false;
-            game->albumRainSuspended = false;
-            game->wasInSpace = false;
-            game->entitiesWorldActive = true;
-            game->entitiesWorldDimension = 0u;
-            game->thirdPerson = false;
-            game->shipLocatorEnabled = false;
-            game->landingTransition = (LandingTransition){ 0 };
-            game->paused = false;
-            game->screen = SCREEN_PLAYING;
-            game->cursorReleased = false;
-            DisableCursor();
-            SetImportMessage(WorldTerrainMode() == TERRAIN_FLAT ?
-                             TextFormat("Flat world seed %u. Press I to import.", WorldGetSeed()) :
-                             TextFormat("World seed %u.", WorldGetSeed()));
-            DebugControlReply(
-                &game->debugControl,
-                "DEBUG_CONTROL start ok seed=%u\n", WorldGetSeed());
-        }
-        return false;
-    }
+    if (GameUpdateStartScreen(game, dt, debugStartRequested)) return false;
 
     if (!game->perfMode && IsKeyPressed(KEY_F10)) game->screenshotPending = true;
 
@@ -1883,40 +2094,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         }
     }
 
-    if (!game->albumOpen && !game->importDialog.open && !game->paused && !game->landingTransition.active &&
-        IsKeyPressed(KEY_P)) {
-        if (WeatherGetCurrent() == WEATHER_RAIN) {
-            game->albumRainSuspended = true;
-            AudioSetRain(false);
-        }
-        AlbumOpen();
-        game->albumOpen = true;
-        game->player.velocity = Vector3Zero();
-        game->cursorReleased = false;
-        EnableCursor();
-    }
-    AlbumUpdate();
-    if (AlbumConsumePlaceRequest()) {
-        const char *placedPath = AlbumSelectedPath();
-        AlbumClose();
-        game->albumOpen = false;
-        if (game->albumRainSuspended) {
-            game->albumRainSuspended = false;
-            AudioSetRain(true);
-        }
-        if (!game->paused && !game->cursorReleased && !game->importDialog.open) DisableCursor();
-        if (placedPath) {
-            ImportImageAsBlocks(placedPath, &game->player, IMPORT_DEFAULT_BLOCKS, false);
-        }
-    }
-    if (!AlbumIsOpen() && game->albumOpen) {
-        game->albumOpen = false;
-        if (game->albumRainSuspended) {
-            game->albumRainSuspended = false;
-            AudioSetRain(true);
-        }
-        if (!game->paused && !game->cursorReleased && !game->importDialog.open) DisableCursor();
-    }
+    GameUpdateAlbum(game);
 
     if (!game->importDialog.open && !game->paused && !game->albumOpen && !game->landingTransition.active &&
         IsKeyPressed(KEY_TAB)) {
@@ -2386,161 +2564,10 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         }
     }
 
-    float daylight = 0.0f;
-    float sunset = 0.0f;
-    PlanetLightState planetLight = { 0 };
-    if (!PlanetWorldLightStateAt(game->player.position, &planetLight)) {
-        DayNightFactors(game->dayTime, &daylight, &sunset);
-    } else {
-        daylight = planetLight.daylight;
-        sunset = planetLight.sunset;
-    }
-    PlanetObservationState planetObservation =
-        PlanetObservationForCamera(&game->camera, &planetLight);
-    double weatherSimulationTime = SpacePeriodicSimulationTime(
-        SpaceElapsedSimulationTime());
-    WeatherVisualState weatherVisual = WeatherVisualStateAtWorld(
-        game->camera.position, weatherSimulationTime, daylight);
-    float planetSeasonProgress = -1.0f;
-    if (PlanetWorldIsActive()) {
-        const PlanetProfile *profile = PlanetWorldProfile();
-        float radius = fmaxf(profile->spaceProxyRadius, 24.0f);
-        float latitude = game->player.position.z / (radius * 0.82f);
-        PlanetSeasonState season = { 0 };
-        if (PlanetSeasonEvaluate(profile, latitude,
-                                 SpacePeriodicSimulationTime(
-                                     SpaceElapsedSimulationTime()),
-                                 &season)) {
-            planetSeasonProgress = season.seasonAngle / (2.0f * PI);
-        }
-    }
-    ChunksUpdateEcologyVisuals(dt, daylight);
-    if (!game->paused && !game->albumOpen && !game->importDialog.open && !game->landingTransition.active &&
-        localWorldActive) {
-        EntitiesUpdate(dt, &game->player, daylight);
-    }
-    float spaceFade = HomeWorldSpaceFade(game->camera.position);
-    Color skyTop = { 0 };
-    Color skyHorizon = { 0 };
-    SkyColorsForLight(daylight, sunset, &skyTop, &skyHorizon);
-    Color worldTint = MixWeather(WorldTintForLight(daylight, sunset), daylight,
-                                 &weatherVisual);
-    skyTop = MixWeather(skyTop, daylight, &weatherVisual);
-    skyHorizon = MixWeather(skyHorizon, daylight, &weatherVisual);
-    ApplyPlanetWorldPaletteWithObservation(&skyTop, &skyHorizon, &worldTint,
-                                            &planetLight, &planetObservation);
-    float planetAtmosphereFade = PlanetWorldAtmosphereFade(game->camera.position);
-    float skyFade = fmaxf(spaceFade, planetAtmosphereFade);
-    UpdatePlanetSceneExposure(&game->camera);
-    skyTop = ColorLerp(skyTop, BLACK, skyFade);
-    skyHorizon = ColorLerp(skyHorizon, BLACK, skyFade);
-    worldTint = ColorLerp(worldTint, (Color){ 46, 54, 78, 255 }, skyFade);
-    WorldDimension cameraDimension =
-        WorldCurrentDimensionAt(game->camera.position.y);
-    bool inNether = cameraDimension == WORLD_DIMENSION_NETHER;
-    if (inNether) {
-        skyTop = (Color){ 24, 6, 6, 255 };
-        skyHorizon = (Color){ 40, 10, 8, 255 };
-        worldTint = (Color){ 150, 62, 42, 255 };
-        spaceFade = 0.0f;
-    }
-    PlayerWaterState playerWater = PlayerWaterStateAt(game->player.position);
-    bool underwater = playerWater.eyesSubmerged && IsWaterBlock(GetBlockAt(
-        (int)floorf(game->camera.position.x), (int)floorf(game->camera.position.y),
-        (int)floorf(game->camera.position.z)));
-    float underwaterDepth = underwater ? playerWater.eyeDepth : 0.0f;
-    if (underwater) {
-        float deep = Clamp(
-            underwaterDepth / UNDERWATER_DEEP_REFERENCE_DEPTH,
-            0.0f, 1.0f);
-        skyHorizon = WorldLightingUnderwaterFogColor(underwaterDepth);
-        skyTop = ColorLerp(skyHorizon, (Color){ 3, 18, 30, 255 },
-                           0.28f + deep * 0.42f);
-    }
-    EnvironmentScene environmentScene =
-        EnvironmentSceneForDimension(cameraDimension);
-    bool forest = false;
-    if (environmentScene == ENVIRONMENT_SCENE_HOME) {
-        forest = BiomeAt((int)floorf(game->player.position.x),
-                         (int)floorf(game->player.position.z)) == BIOME_FOREST;
-    } else if (environmentScene == ENVIRONMENT_SCENE_PLANET) {
-        forest = PlanetBiomeAt((int)floorf(game->player.position.x),
-                               (int)floorf(game->player.position.z)) ==
-                 PLANET_BIOME_FOREST;
-    }
-    EnvironmentRuntimeSample environmentSample = {
-        .dimension = cameraDimension,
-        .quality = game->settings.graphicsQuality,
-        .weather = weatherVisual,
-        .simulationTime = weatherSimulationTime,
-        .daylight = daylight,
-        .sunset = sunset,
-        .atmosphereFade = skyFade,
-        .altitude = game->camera.position.y -
-                    (float)WorldSurfaceHeightAt(
-                        (int)floorf(game->camera.position.x),
-                        (int)floorf(game->camera.position.z)),
-        .underwaterDepth = underwaterDepth,
-        .underwater = underwater,
-        .sheltered = EnvironmentSheltered(game->camera.position),
-        .forest = forest,
-        .nearWater = EnvironmentNearWater(game->camera.position),
-        .shipInterior = environmentScene == ENVIRONMENT_SCENE_SPACE &&
-                        ShipIsDriving()
-    };
-    BathymetrySample bathymetryForDebug = {
-        .seaLevel = -1,
-        .seabedY = (int)floorf(game->player.position.y),
-        .waterDepth = 0,
-        .zone = BATHYMETRY_ZONE_LAND,
-        .material = BATHYMETRY_MATERIAL_ROCK
-    };
-    if (PlanetWorldIsActive()) {
-        bathymetryForDebug = PlanetBathymetryAt(
-            (int)floorf(game->player.position.x),
-            (int)floorf(game->player.position.z));
-    } else if (HomeWorldSurfaceIsActive()) {
-        bathymetryForDebug = TerrainBathymetryAt(
-            (int)floorf(game->player.position.x),
-            (int)floorf(game->player.position.z), WorldTerrainMode());
-    }
-    EnvironmentPresentationState environmentPresentation =
-        EnvironmentPresentationRuntimeUpdate(
-            &game->environment, &environmentSample, dt);
-    AudioEnvironmentState audioEnvironment =
-        AudioEnvironmentFromPresentation(&environmentPresentation);
-    if (game->albumOpen || game->importDialog.open || game->screen != SCREEN_PLAYING) {
-        audioEnvironment = (AudioEnvironmentState){ 0 };
-    }
-    AudioSetEnvironment(&audioEnvironment);
-    AudioUpdate(dt);
-    WorldLightingState worldLighting = WorldLightingForScene(
-        &game->camera, game->dayTime, daylight, sunset, &planetLight, &weatherVisual,
-        skyHorizon, inNether, &environmentPresentation);
-    PerfSetMetadata(WorldGetSeed(), effectiveRenderDistance);
-    PerfMarkUpdateComplete();
-
-    const GameFrameView frame = {
+    GameFrameView frame = {
         .hit = hit,
         .hitShip = hitShip,
         .aimBody = aimBody,
-        .planetLight = planetLight,
-        .planetObservation = planetObservation,
-        .weatherVisual = weatherVisual,
-        .environmentPresentation = environmentPresentation,
-        .environmentSample = environmentSample,
-        .worldLighting = worldLighting,
-        .playerWater = playerWater,
-        .bathymetry = bathymetryForDebug,
-        .cameraDimension = cameraDimension,
-        .skyTop = skyTop,
-        .skyHorizon = skyHorizon,
-        .worldTint = worldTint,
-        .weatherSimulationTime = weatherSimulationTime,
-        .daylight = daylight,
-        .planetSeasonProgress = planetSeasonProgress,
-        .spaceFade = spaceFade,
-        .skyFade = skyFade,
         .dt = dt,
         .effectiveRenderDistance = effectiveRenderDistance,
         .entityHit = entityHit,
@@ -2548,12 +2575,11 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         .placeY = placeY,
         .placeZ = placeZ,
         .localWorldActive = localWorldActive,
-        .underwater = underwater,
-        .inNether = inNether,
         .hitParkedShip = hitParkedShip,
         .haveAimBody = haveAimBody,
         .canPlace = canPlace
     };
+    GameUpdateFrameEnvironment(game, &frame);
     GameRenderFrame(game, &frame);
     GameCaptureScreenshot(game, &frame);
     return true;
