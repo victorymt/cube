@@ -26,6 +26,8 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V16 "VOXELCRAFT_SAVE_V16"
+#define SAVE_MAGIC_V16_LEN (sizeof(SAVE_MAGIC_V16) - 1)
 #define SAVE_MAGIC_V15 "VOXELCRAFT_SAVE_V15"
 #define SAVE_MAGIC_V15_LEN (sizeof(SAVE_MAGIC_V15) - 1)
 #define SAVE_MAGIC_V14 "VOXELCRAFT_SAVE_V14"
@@ -996,9 +998,10 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     const Player *player = context ? context->player : NULL;
     if (!file || !player) return false;
 
-    bool ok = fwrite(SAVE_MAGIC_V15, 1, SAVE_MAGIC_V15_LEN, file) ==
-              SAVE_MAGIC_V15_LEN;
+    bool ok = fwrite(SAVE_MAGIC_V16, 1, SAVE_MAGIC_V16_LEN, file) ==
+              SAVE_MAGIC_V16_LEN;
     uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
+    uint32_t activeDimension = (uint32_t)WorldCurrentDimension();
     uint32_t seed = WorldGetSeed();
     uint32_t terrain = (uint32_t)worldTerrainMode;
     float playerData[6] = {
@@ -1008,6 +1011,7 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     uint32_t editCount = (uint32_t)blockEditCount;
     ok = ok && fwrite(&terrainGenerationVersion,
                       sizeof(terrainGenerationVersion), 1, file) == 1;
+    ok = ok && fwrite(&activeDimension, sizeof(activeDimension), 1, file) == 1;
     ok = ok && fwrite(&seed, sizeof(seed), 1, file) == 1;
     ok = ok && fwrite(&terrain, sizeof(terrain), 1, file) == 1;
     ok = ok && fwrite(playerData, sizeof(playerData), 1, file) == 1;
@@ -1225,6 +1229,33 @@ static bool LoadMapV13(FILE *file, TerrainMode *savedTerrain,
                      outDimensions, outCount, outSeed);
 }
 
+static bool LoadMapV16(FILE *file, TerrainMode *savedTerrain,
+                       Player *savedPlayer, BlockEdit **outEdits,
+                       uint32_t **outDimensions, int *outCount,
+                       uint32_t *outSeed,
+                       uint32_t *outTerrainGenerationVersion,
+                       WorldDimension *outActiveDimension)
+{
+    uint32_t terrainGenerationVersion = 0;
+    uint32_t activeDimension = 0;
+    if (fread(&terrainGenerationVersion, sizeof(terrainGenerationVersion),
+              1, file) != 1 ||
+        terrainGenerationVersion < MIN_SUPPORTED_TERRAIN_GENERATION_VERSION ||
+        terrainGenerationVersion > TERRAIN_GENERATION_VERSION ||
+        fread(&activeDimension, sizeof(activeDimension), 1, file) != 1 ||
+        activeDimension > (uint32_t)WORLD_DIMENSION_NETHER) {
+        return false;
+    }
+    if (outTerrainGenerationVersion) {
+        *outTerrainGenerationVersion = terrainGenerationVersion;
+    }
+    if (outActiveDimension) {
+        *outActiveDimension = (WorldDimension)activeDimension;
+    }
+    return LoadMapV7(file, savedTerrain, savedPlayer, outEdits,
+                     outDimensions, outCount, outSeed);
+}
+
 void LoadMap(Player *player)
 {
     DrainChunkGen();
@@ -1251,24 +1282,34 @@ void LoadMap(Player *player)
     bool loadedSpaceOrigin = false;
     bool legacyPlanetCoordinates = false;
     uint32_t loadedTerrainGenerationVersion = 0;
+    WorldDimension savedDimension = WORLD_DIMENSION_HOME;
     Player savedPlayer = { 0 };
     int savedEditCount = 0;
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
     ShipLocatorRecord loadedShipLocator = { 0 };
+    char magicV16[SAVE_MAGIC_V16_LEN] = { 0 };
+    bool isV16 = fread(magicV16, 1, SAVE_MAGIC_V16_LEN, file) ==
+                     SAVE_MAGIC_V16_LEN &&
+                 memcmp(magicV16, SAVE_MAGIC_V16, SAVE_MAGIC_V16_LEN) == 0;
     char magicV15[SAVE_MAGIC_V15_LEN] = { 0 };
-    bool isV15 = fread(magicV15, 1, SAVE_MAGIC_V15_LEN, file) ==
-                     SAVE_MAGIC_V15_LEN &&
-                 memcmp(magicV15, SAVE_MAGIC_V15, SAVE_MAGIC_V15_LEN) == 0;
+    bool isV15 = false;
+    if (!isV16) {
+        rewind(file);
+        isV15 = fread(magicV15, 1, SAVE_MAGIC_V15_LEN, file) ==
+                        SAVE_MAGIC_V15_LEN &&
+                    memcmp(magicV15, SAVE_MAGIC_V15, SAVE_MAGIC_V15_LEN) == 0;
+    }
+    bool isV15Family = isV16 || isV15;
     char magicV14[SAVE_MAGIC_V14_LEN] = { 0 };
     bool isV14 = false;
-    if (!isV15) {
+    if (!isV15Family) {
         rewind(file);
         isV14 = fread(magicV14, 1, SAVE_MAGIC_V14_LEN, file) ==
                         SAVE_MAGIC_V14_LEN &&
                     memcmp(magicV14, SAVE_MAGIC_V14, SAVE_MAGIC_V14_LEN) == 0;
     }
-    bool isV14Family = isV15 || isV14;
+    bool isV14Family = isV15Family || isV14;
     char magicV13[SAVE_MAGIC_V13_LEN] = { 0 };
     bool isV13 = false;
     if (!isV14Family) {
@@ -1316,14 +1357,22 @@ void LoadMap(Player *player)
                memcmp(magicV8, SAVE_MAGIC_V8, SAVE_MAGIC_V8_LEN) == 0;
     }
     if (isV14Family || isV13 || isV12 || isV11 || isV10 || isV9 || isV8) {
-        bool loaded = (isV14Family || isV13)
-                          ? LoadMapV13(file, &savedTerrain, &savedPlayer,
-                                       &loadedEdits, &loadedDimensions,
-                                       &savedEditCount, &savedSeed,
-                                       &loadedTerrainGenerationVersion)
-                          : LoadMapV7(file, &savedTerrain, &savedPlayer,
-                                      &loadedEdits, &loadedDimensions,
-                                      &savedEditCount, &savedSeed);
+        bool loaded = false;
+        if (isV16) {
+            loaded = LoadMapV16(
+                file, &savedTerrain, &savedPlayer, &loadedEdits,
+                &loadedDimensions, &savedEditCount, &savedSeed,
+                &loadedTerrainGenerationVersion, &savedDimension);
+        } else if (isV14Family || isV13) {
+            loaded = LoadMapV13(
+                file, &savedTerrain, &savedPlayer, &loadedEdits,
+                &loadedDimensions, &savedEditCount, &savedSeed,
+                &loadedTerrainGenerationVersion);
+        } else {
+            loaded = LoadMapV7(file, &savedTerrain, &savedPlayer,
+                               &loadedEdits, &loadedDimensions,
+                               &savedEditCount, &savedSeed);
+        }
         if (!loaded) {
             fclose(file);
             SetImportMessage("Load failed: save file is corrupted.");
@@ -1517,7 +1566,7 @@ void LoadMap(Player *player)
         SetImportMessage("Load failed: ship locator state is corrupted.");
         return;
     }
-    if (isV15 && !WorldExtensionLoadState(file)) {
+    if (isV15Family && !WorldExtensionLoadState(file)) {
         free(loadedDimensions);
         free(loadedEdits);
         fclose(file);
@@ -1574,7 +1623,7 @@ void LoadMap(Player *player)
     UnloadAllChunks();
     UnloadAllSpaceChunks();
     UnloadAllNetherChunks();
-    if (!isV15) WorldExtensionReset();
+    if (!isV15Family) WorldExtensionReset();
     worldTerrainMode = savedTerrain;
     WorldSetSeed(savedSeed);
     if (!isV14Family && !isV13) {
@@ -1591,9 +1640,14 @@ void LoadMap(Player *player)
         InventoryGrantStarterKit();
         ShipReset();
     }
+    bool savedInNether = isV16
+        ? savedDimension == WORLD_DIMENSION_NETHER
+        : HomeWorldSurfaceIsActive() && !PlanetWorldIsActive() &&
+              savedPlayer.position.y >= (float)NETHER_LAYER_Y &&
+              savedPlayer.position.y < (float)NETHER_LAYER_TOP;
     if (((!isV14Family && !isV13) || loadedTerrainGenerationVersion !=
                      TERRAIN_GENERATION_VERSION) &&
-        WorldIsSurfaceActive()) {
+        WorldIsSurfaceActive() && !savedInNether) {
         int landingX = (int)floorf(savedPlayer.position.x);
         int landingZ = (int)floorf(savedPlayer.position.z);
         int groundY = 0;
@@ -1606,10 +1660,7 @@ void LoadMap(Player *player)
         }
     }
     *player = savedPlayer;
-    WorldSetNetherActive(
-        HomeWorldSurfaceIsActive() && !PlanetWorldIsActive() &&
-        player->position.y >= (float)NETHER_LAYER_Y &&
-        player->position.y < (float)NETHER_LAYER_TOP);
+    WorldSetNetherActive(savedInNether);
     PlayerResetRuntimeState(player);
     blockEditCount = savedEditCount;
     BumpBlockEditRevision();
