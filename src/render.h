@@ -39,6 +39,8 @@ typedef struct ShipHudState {
     const char *systemName;
     bool cruising;
     bool nearPlanet;
+    bool subsurface;
+    bool submerged;
 } ShipHudState;
 
 void UiFontInit(void);

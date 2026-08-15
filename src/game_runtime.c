@@ -61,6 +61,8 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       runtime->perfBaselinePath, sizeof(runtime->perfBaselinePath));
   runtime->debugControlEnabled =
       CommandLineHasFlag(argc, argv, "--debug-stdin");
+  if (runtime->debugControlEnabled)
+    runtime->autoSaveEnabled = false;
   GameSettingsLoad(&runtime->settings);
   PlayerResetRuntimeState(&runtime->player);
   runtime->camera.up = (Vector3){0.0f, 1.0f, 0.0f};

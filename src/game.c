@@ -1725,6 +1725,11 @@ static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
         shipHud->nearPlanet = false;
         shipHud->altitude = game->player.position.y - (float)SPACE_LAYER_Y;
     }
+    if (shipHud->nearPlanet) {
+        shipHud->subsurface = shipHud->altitude < -0.5f;
+        shipHud->submerged =
+            PlayerWaterStateAt(game->player.position).eyesSubmerged;
+    }
     shipHud->heading = fmodf(
         game->player.yaw * RAD2DEG + 360.0f, 360.0f);
     SolarSystemDef hudSystem = { 0 };
@@ -2313,7 +2318,8 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
 static int GameStop(GameRuntime *game)
 {
-    if (!game->perfMode && game->screen == SCREEN_PLAYING) {
+    if (!game->perfMode && !game->debugControlEnabled &&
+        game->screen == SCREEN_PLAYING) {
         if (game->landingTransition.active) {
             game->landingTransition.elapsed = game->landingTransition.duration;
             LandingTransitionUpdate(&game->landingTransition, &game->player,
@@ -2321,7 +2327,7 @@ static int GameStop(GameRuntime *game)
         }
         if (!game->quitSaveDone) SaveMap(&game->player);
     }
-    GameSettingsSave(&game->settings);
+    if (!game->debugControlEnabled) GameSettingsSave(&game->settings);
     ChunksShutdownGenThread();
     UnloadAllChunks();
     UnloadAllSpaceChunks();

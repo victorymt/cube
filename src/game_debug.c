@@ -57,7 +57,7 @@ static void GameDebugReplyStatus(GameRuntime *game)
         "bathymetry=%s seabed=%d water_column=%d material=%s "
         "chunk=%d,%d,%d chunk_loaded=%d neighbors=0x%X "
         "water_triangles=%d section_water_triangles=%d "
-        "camera_inside_solid=%d\n",
+        "camera_inside_solid=%d autosave=%d\n",
         game->screen == SCREEN_PLAYING ? "playing" : "start", WorldGetSeed(),
         WorldDimensionName(WorldCurrentDimension()),
         game->player.position.x, game->player.position.y,
@@ -74,7 +74,8 @@ static void GameDebugReplyStatus(GameRuntime *game)
         waterRender.cx, waterRender.cz, waterRender.sectionY,
         waterRender.chunkLoaded ? 1 : 0, waterRender.neighborLoadedMask,
         waterRender.triangleCount, waterRender.sectionTriangleCount,
-        PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0);
+        PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0,
+        game->autoSaveEnabled ? 1 : 0);
 }
 
 static void GameDebugInspectFluid(GameRuntime *game)

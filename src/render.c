@@ -3273,7 +3273,9 @@ void DrawShipHud(const ShipHudState *hud)
     UiDrawText("BLK/S", left + speedWidth + 8, top + 72, 13,
                Fade(WHITE, 0.52f));
 
-    UiDrawText(hud->nearPlanet ? "SURFACE ALT" : "ALTITUDE",
+    const char *altitudeLabel = hud->subsurface ? "SUBSURFACE" :
+                                (hud->nearPlanet ? "SURFACE ALT" : "ALTITUDE");
+    UiDrawText(altitudeLabel,
                rightColumn, top + 45, 13, Fade(WHITE, 0.50f));
     UiDrawText(TextFormat("%.0f", hud->altitude), rightColumn, top + 60, 28,
                Fade(WHITE, 0.94f));
@@ -3301,7 +3303,10 @@ void DrawShipHud(const ShipHudState *hud)
     DrawRectangleRec(fuelFill, fuelColor);
 
     char environment[64];
-    if (hud->atmosphere >= 0.0f) {
+    if (hud->submerged) {
+        snprintf(environment, sizeof(environment), "%s",
+                 hud->subsurface ? "AQUIFER" : "SUBMERGED");
+    } else if (hud->atmosphere >= 0.0f) {
         snprintf(environment, sizeof(environment), "ATM %03.0f%%",
                  Clamp(hud->atmosphere, 0.0f, 100.0f));
     } else {
@@ -3310,7 +3315,8 @@ void DrawShipHud(const ShipHudState *hud)
     }
     UiDrawText("ENV", rightColumn, top + 146, 13, Fade(WHITE, 0.54f));
     UiDrawText(environment, rightColumn + 34, top + 145, 15,
-               hud->atmosphere > 70.0f ? amber : cyan);
+               hud->submerged ? cyan :
+               (hud->atmosphere > 70.0f ? amber : cyan));
 
     char gravity[128];
     if (ShipHasGravityPrimary()) {

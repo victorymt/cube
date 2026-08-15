@@ -11,6 +11,20 @@ if [[ ! -x "$game_binary" ]]; then
     exit 2
 fi
 
+persistent_state_fingerprint() {
+    local path
+    for path in voxelcraft_save.txt voxelcraft_save.bak \
+                voxelcraft_settings.cfg voxelcraft_settings.cfg.bak; do
+        if [[ -f "$path" ]]; then
+            cksum "$path"
+        else
+            printf 'missing %s\n' "$path"
+        fi
+    done
+}
+
+persistent_state_before=$(persistent_state_fingerprint)
+
 for requirement in python3; do
     if ! command -v "$requirement" >/dev/null 2>&1; then
         echo "$requirement is required for the game end-to-end test" >&2
@@ -82,6 +96,7 @@ send_command 'status'
 wait_for_reply '^DEBUG_CONTROL status '
 [[ "$matched_line" == *'screen=playing seed=1448040515 dimension=home'* ]]
 [[ "$matched_line" == *'water=0,0,0'* ]]
+[[ "$matched_line" == *'autosave=0'* ]]
 
 send_command 'evolution inspect'
 wait_for_reply '^DEBUG_CONTROL evolution inspect none radius=24.000$'
@@ -151,10 +166,10 @@ report_path=${matched_line##*report=}
 grep -Fxq 'format.version=5' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
-grep -Fxq 'environment.seabed_y=34' "$report_path"
-grep -Fxq 'environment.water_column_depth=46' "$report_path"
+grep -Fxq 'environment.seabed_y=-4299' "$report_path"
+grep -Fxq 'environment.water_column_depth=4379' "$report_path"
 grep -Fxq 'environment.bathymetry_zone=abyssal_plain' "$report_path"
-grep -Fxq 'environment.seabed_material=rock' "$report_path"
+grep -Fxq 'environment.seabed_material=sediment' "$report_path"
 grep -Fxq 'environment.underwater=true' "$report_path"
 grep -Fxq 'environment.feet_submerged=true' "$report_path"
 grep -Fxq 'environment.body_submerged=true' "$report_path"
@@ -200,6 +215,8 @@ wait_for_reply '^DEBUG_CONTROL quit accepted$'
 exec {game_input}>&-
 wait "$game_pid"
 trap - EXIT
+
+[[ "$(persistent_state_fingerprint)" == "$persistent_state_before" ]]
 
 printf 'game end-to-end test passed: world=%s atlas=%s\n' \
     "$png_path" "$atlas_png_path"
