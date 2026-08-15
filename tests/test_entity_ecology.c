@@ -926,6 +926,20 @@ static void TestHomeWorldEvolvableEntities(void)
         RunEntityFrames(&player, 1, daylight);
     }
     assert(GetActiveEntityCount() > 0);
+    EntityMapMarker mapMarkers[MAX_ENTITIES];
+    int mapMarkerCount = EntitiesCollectMapMarkers(
+        mapMarkers, MAX_ENTITIES);
+    assert(mapMarkerCount == GetActiveEntityCount());
+    assert(EntitiesCollectMapMarkers(NULL, MAX_ENTITIES) == 0);
+    assert(EntitiesCollectMapMarkers(mapMarkers, 0) == 0);
+    EntityMapMarker firstMarker = { 0 };
+    assert(EntitiesCollectMapMarkers(&firstMarker, 1) == 1);
+    for (int marker = 0; marker < mapMarkerCount; marker++) {
+        assert(isfinite(mapMarkers[marker].position.x));
+        assert(isfinite(mapMarkers[marker].position.z));
+        assert(mapMarkers[marker].kind >= ENTITY_MAP_MARKER_LAND);
+        assert(mapMarkers[marker].kind <= ENTITY_MAP_MARKER_HOSTILE);
+    }
     int nearest = EntityNearestEvolvable(player.position, 96.0f);
     assert(nearest >= 0);
     EntityEvolutionDebugInfo info = { 0 };

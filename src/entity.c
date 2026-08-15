@@ -263,6 +263,38 @@ int GetActiveEntityCount(void)
     return count;
 }
 
+int EntitiesCollectMapMarkers(EntityMapMarker *out, int capacity)
+{
+    if (!out || capacity <= 0) return 0;
+
+    int written = 0;
+    for (int i = 0; i < MAX_ENTITIES && written < capacity; i++) {
+        const Entity *entity = &entities[i];
+        if (!entity->active || entity->corpse) continue;
+
+        EntityMapMarkerKind kind = ENTITY_MAP_MARKER_LAND;
+        if (entity->type == ENTITY_ZOMBIE ||
+            entity->type == ENTITY_SKELETON) {
+            kind = ENTITY_MAP_MARKER_HOSTILE;
+        } else if (entity->aquatic) {
+            kind = ENTITY_MAP_MARKER_AQUATIC;
+        } else if (entity->airborne ||
+                   (entity->evolvable &&
+                    entity->phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT)) {
+            kind = ENTITY_MAP_MARKER_AERIAL;
+        }
+
+        out[written++] = (EntityMapMarker){
+            .position = entity->position,
+            .type = entity->type,
+            .kind = kind,
+            .speciesId = entity->speciesId,
+            .evolvable = entity->evolvable
+        };
+    }
+    return written;
+}
+
 static bool EntityFloatValid(float value)
 {
     return isfinite(value) && fabsf(value) <= 1000000000.0f;

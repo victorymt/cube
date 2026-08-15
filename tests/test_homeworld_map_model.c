@@ -1,0 +1,137 @@
+#include "homeworld_map_model.h"
+
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+static void TestZoomLevels(void)
+{
+    assert(HomeWorldMapSpanForLevel(-1) == 256.0f);
+    assert(HomeWorldMapSpanForLevel(0) == 256.0f);
+    assert(HomeWorldMapSpanForLevel(1) == 512.0f);
+    assert(HomeWorldMapSpanForLevel(2) == 1024.0f);
+    assert(HomeWorldMapSpanForLevel(3) == 2048.0f);
+    assert(HomeWorldMapSpanForLevel(99) == 2048.0f);
+}
+
+static void TestCoordinateRoundTrip(void)
+{
+    HomeWorldMapBounds bounds = { -320.0f, 144.0f, 512.0f };
+    Rectangle map = { 40.0f, 60.0f, 640.0f, 480.0f };
+    const Vector2 positions[] = {
+        { -320.0f, 144.0f },
+        { -576.0f, -112.0f },
+        { -64.0f, 400.0f },
+        { -417.5f, 237.25f }
+    };
+    for (size_t i = 0; i < sizeof(positions) / sizeof(positions[0]); i++) {
+        Vector2 screen = HomeWorldMapWorldToScreen(
+            bounds, map, positions[i].x, positions[i].y);
+        Vector2 world = HomeWorldMapScreenToWorld(bounds, map, screen);
+        assert(fabsf(world.x - positions[i].x) < 0.001f);
+        assert(fabsf(world.y - positions[i].y) < 0.001f);
+    }
+    assert(HomeWorldMapWorldVisible(bounds, -576.0f, -112.0f));
+    assert(!HomeWorldMapWorldVisible(bounds, -576.1f, -112.0f));
+}
+
+static void TestTerrainPalette(void)
+{
+    Color colors[5];
+    for (int biome = BIOME_PLAINS; biome <= BIOME_MOUNTAIN; biome++) {
+        HomeWorldMapTerrainCell cell = {
+            .biome = (Biome)biome,
+            .elevation = 83.0f,
+            .seaLevel = 80.0f,
+            .slope = 1.0f
+        };
+        colors[biome] = HomeWorldMapTerrainColor(cell);
+        assert(colors[biome].a == 255);
+        assert(strlen(HomeWorldMapBiomeName((Biome)biome, false)) > 0u);
+    }
+    for (int a = 0; a < 5; a++) {
+        for (int b = a + 1; b < 5; b++) {
+            assert(colors[a].r != colors[b].r ||
+                   colors[a].g != colors[b].g ||
+                   colors[a].b != colors[b].b);
+        }
+    }
+    HomeWorldMapTerrainCell water = {
+        .biome = BIOME_PLAINS,
+        .elevation = 64.0f,
+        .seaLevel = 80.0f,
+        .waterDepth = 16
+    };
+    Color waterColor = HomeWorldMapTerrainColor(water);
+    assert(waterColor.b > waterColor.r);
+    assert(strcmp(HomeWorldMapBiomeName(BIOME_PLAINS, true), "Water") == 0);
+}
+
+static void TestHeatInterpolation(void)
+{
+    float heat[HOMEWORLD_MAP_HEAT_SIZE * HOMEWORLD_MAP_HEAT_SIZE] = { 0 };
+    heat[0] = 0.25f;
+    heat[HOMEWORLD_MAP_HEAT_SIZE - 1] = 0.5f;
+    heat[(HOMEWORLD_MAP_HEAT_SIZE - 1) * HOMEWORLD_MAP_HEAT_SIZE] = 0.75f;
+    heat[HOMEWORLD_MAP_HEAT_SIZE * HOMEWORLD_MAP_HEAT_SIZE - 1] = 1.0f;
+    assert(fabsf(HomeWorldMapHeatSample(heat, 0.0f, 0.0f) - 0.25f) < 0.001f);
+    assert(fabsf(HomeWorldMapHeatSample(heat, 1.0f, 1.0f) - 1.0f) < 0.001f);
+    assert(HomeWorldMapHeatSample(NULL, 0.5f, 0.5f) == 0.0f);
+}
+
+static bool HasLandmark(const HomeWorldMapLandmark *landmarks, int count,
+                        HomeWorldMapLandmarkKind kind)
+{
+    for (int i = 0; i < count; i++) {
+        if (landmarks[i].kind == kind) return true;
+    }
+    return false;
+}
+
+static void TestLandmarkSelection(void)
+{
+    HomeWorldMapTerrainCell cells[
+        HOMEWORLD_MAP_RASTER_SIZE * HOMEWORLD_MAP_RASTER_SIZE];
+    for (int i = 0;
+         i < HOMEWORLD_MAP_RASTER_SIZE * HOMEWORLD_MAP_RASTER_SIZE; i++) {
+        cells[i] = (HomeWorldMapTerrainCell){
+            .biome = BIOME_PLAINS,
+            .elevation = 84.0f,
+            .seaLevel = 80.0f
+        };
+    }
+    int peak = 15 * HOMEWORLD_MAP_RASTER_SIZE + 15;
+    cells[peak].elevation = 126.0f;
+    for (int z = 30; z <= 34; z++) {
+        for (int x = 30; x <= 34; x++) {
+            cells[z * HOMEWORLD_MAP_RASTER_SIZE + x].biome = BIOME_FOREST;
+        }
+    }
+    int fauna = 49 * HOMEWORLD_MAP_RASTER_SIZE + 49;
+    cells[fauna].faunaActivity = 0.95f;
+    for (int z = 8; z <= 10; z++) {
+        cells[z * HOMEWORLD_MAP_RASTER_SIZE + 40].waterDepth = 12;
+    }
+
+    HomeWorldMapLandmark landmarks[HOMEWORLD_MAP_MAX_LANDMARKS];
+    int count = HomeWorldMapSelectLandmarks(
+        cells, (HomeWorldMapBounds){ 0.0f, 0.0f, 512.0f },
+        landmarks, HOMEWORLD_MAP_MAX_LANDMARKS);
+    assert(count > 0 && count <= HOMEWORLD_MAP_MAX_LANDMARKS);
+    assert(HasLandmark(landmarks, count, HOMEWORLD_MAP_LANDMARK_PEAK));
+    assert(HasLandmark(landmarks, count, HOMEWORLD_MAP_LANDMARK_SHORE));
+    assert(HasLandmark(landmarks, count, HOMEWORLD_MAP_LANDMARK_FOREST));
+    assert(HasLandmark(landmarks, count, HOMEWORLD_MAP_LANDMARK_FAUNA));
+}
+
+int main(void)
+{
+    TestZoomLevels();
+    TestCoordinateRoundTrip();
+    TestTerrainPalette();
+    TestHeatInterpolation();
+    TestLandmarkSelection();
+    puts("homeworld map model tests passed");
+    return 0;
+}

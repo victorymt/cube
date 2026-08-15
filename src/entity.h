@@ -31,6 +31,21 @@ typedef enum CreatureSex {
     CREATURE_SEX_MALE
 } CreatureSex;
 
+typedef enum EntityMapMarkerKind {
+    ENTITY_MAP_MARKER_LAND = 0,
+    ENTITY_MAP_MARKER_AQUATIC,
+    ENTITY_MAP_MARKER_AERIAL,
+    ENTITY_MAP_MARKER_HOSTILE
+} EntityMapMarkerKind;
+
+typedef struct EntityMapMarker {
+    Vector3 position;
+    EntityType type;
+    EntityMapMarkerKind kind;
+    uint32_t speciesId;
+    bool evolvable;
+} EntityMapMarker;
+
 #define MAX_ENTITIES 48
 
 typedef struct Entity {
@@ -130,6 +145,7 @@ void EntitiesClear(void);
 bool EntitiesSaveState(FILE *file);
 bool EntitiesLoadState(FILE *file);
 int GetActiveEntityCount(void);
+int EntitiesCollectMapMarkers(EntityMapMarker *out, int capacity);
 int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance);
 bool EntityKill(int index, EntityDeathCause cause, float daylight);
 int EntityNearestEvolvable(Vector3 position, float radius);
