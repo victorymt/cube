@@ -141,12 +141,14 @@ bool ChunksTestChunkDirty(int slotIndex);
 int ChunksTestMeshJobSlot(int jobIndex);
 int ChunksTestMeshJobSectionY(int jobIndex);
 int ChunksTestBuildWaterMeshJob(int jobIndex);
-void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz, bool done);
+void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,
+                           int sectionY, bool done);
 void ChunksTestCompleteMeshJob(int jobIndex);
 void ChunksTestFillGenerationQueue(void);
 int ChunksTestGenerationJobSectionY(int jobIndex);
 void ChunksTestRunGenerationJob(int jobIndex);
 int ChunksTestScheduleTerrainSections(Vector3 playerPosition);
+int ChunksTestPruneTerrainSections(Vector3 playerPosition);
 #endif
 
 #endif

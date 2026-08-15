@@ -44,8 +44,10 @@ static double ChunkNowMs(void)
 static void UpdateQueuePeaksLocked(void);
 static void MarkGeneratedSectionAndNeighborsDirty(
     Chunk *chunk, int sectionY);
+static int PruneDistantNegativeTerrainSections(int playerSectionY);
 
 #define SECTION_GEN_SUBMISSIONS_PER_FRAME 8
+#define NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS 6
 
 typedef struct SurfaceWaterBoundarySnapshot {
     unsigned short xBlocks[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
@@ -357,6 +359,17 @@ static void UnloadChunkSectionModels(ChunkSection *section)
     ClearSectionFloraRuntime(section);
 }
 
+static void FreeChunkSectionStorage(ChunkSection *section)
+{
+    if (!section) return;
+    UnloadChunkSectionModels(section);
+    free(section->waterVolumes);
+    free(section->fluidQueuedBits);
+    free(section->fluidDeferredBits);
+    free(section->fluidFlow);
+    free(section);
+}
+
 void UnloadChunkModel(Chunk *chunk)
 {
     if (!chunk) return;
@@ -369,13 +382,7 @@ void ChunkClearBlockStorage(Chunk *chunk)
 {
     if (!chunk) return;
     for (int index = 0; index < chunk->sectionCount; index++) {
-        ChunkSection *section = chunk->sections[index];
-        UnloadChunkSectionModels(section);
-        free(section->waterVolumes);
-        free(section->fluidQueuedBits);
-        free(section->fluidDeferredBits);
-        free(section->fluidFlow);
-        free(section);
+        FreeChunkSectionStorage(chunk->sections[index]);
     }
     free(chunk->sections);
     chunk->sections = NULL;
@@ -972,6 +979,12 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
             ChunkClearBlockStorage(&chunks[i]);
             chunks[i].loaded = false;
         }
+    }
+
+    int playerY = (int)floorf(playerPosition.y);
+    if (InHeight(playerY)) {
+        PruneDistantNegativeTerrainSections(
+            SurfaceSectionYFromBlockY(playerY));
     }
 
     int missingChunks[MAX_ACTIVE_CHUNKS][2];
@@ -3553,6 +3566,109 @@ static bool FindPendingMeshJob(int slotIndex, int sectionY)
     return false;
 }
 
+static bool ChunkSectionHasFluidRuntimeState(const ChunkSection *section)
+{
+    return section && (section->waterVolumes || section->fluidQueuedBits ||
+                       section->fluidDeferredBits || section->fluidFlow ||
+                       section->fluidDirty);
+}
+
+static bool ChunkSectionHasInFlightWork(
+    int slotIndex, uint32_t chunkGeneration, int sectionY)
+{
+    bool pending = false;
+    pthread_mutex_lock(&genMutex);
+    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+        const ChunkGenJob *job = &chunkGenJobs[i];
+        if (job->inUse && job->scope == CHUNK_GEN_SCOPE_SECTION &&
+            job->slotIndex == slotIndex &&
+            job->chunkGeneration == chunkGeneration &&
+            job->sectionY == sectionY) {
+            pending = true;
+            break;
+        }
+    }
+    if (!pending) pending = FindPendingMeshJob(slotIndex, sectionY);
+    pthread_mutex_unlock(&genMutex);
+    return pending;
+}
+
+static void ChunkForgetTerrainSectionResolved(Chunk *chunk, int sectionY)
+{
+    if (!chunk) return;
+    int index = ResolvedTerrainSectionLowerBound(chunk, sectionY);
+    if (index >= chunk->resolvedTerrainSectionCount ||
+        chunk->resolvedTerrainSectionYs[index] != sectionY) {
+        return;
+    }
+    if (index + 1 < chunk->resolvedTerrainSectionCount) {
+        memmove(&chunk->resolvedTerrainSectionYs[index],
+                &chunk->resolvedTerrainSectionYs[index + 1],
+                (size_t)(chunk->resolvedTerrainSectionCount - index - 1) *
+                    sizeof(*chunk->resolvedTerrainSectionYs));
+    }
+    chunk->resolvedTerrainSectionCount--;
+}
+
+static bool ChunkRemoveTerrainSection(Chunk *chunk, int sectionY)
+{
+    if (!chunk) return false;
+    int index = ChunkSectionLowerBound(chunk, sectionY);
+    if (index >= chunk->sectionCount ||
+        chunk->sections[index]->sectionY != sectionY) {
+        return false;
+    }
+
+    ChunkSection *section = chunk->sections[index];
+    if (index + 1 < chunk->sectionCount) {
+        memmove(&chunk->sections[index], &chunk->sections[index + 1],
+                (size_t)(chunk->sectionCount - index - 1) *
+                    sizeof(*chunk->sections));
+    }
+    chunk->sectionCount--;
+    ChunkForgetTerrainSectionResolved(chunk, sectionY);
+    FreeChunkSectionStorage(section);
+    MarkGeneratedSectionAndNeighborsDirty(chunk, sectionY);
+    return true;
+}
+
+static int PruneDistantNegativeTerrainSections(int playerSectionY)
+{
+    if (!HomeWorldSurfaceIsActive()) return 0;
+
+    int pruned = 0;
+    for (int slotIndex = 0; slotIndex < MAX_ACTIVE_CHUNKS; slotIndex++) {
+        Chunk *chunk = &chunks[slotIndex];
+        if (!chunk->loaded) continue;
+
+        int sectionIndex = 0;
+        while (sectionIndex < chunk->sectionCount) {
+            ChunkSection *section = chunk->sections[sectionIndex];
+            int sectionY = section->sectionY;
+            if (sectionY >= 0) break;
+            if (sectionY >= playerSectionY -
+                                NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS &&
+                sectionY <= playerSectionY +
+                                NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS) {
+                sectionIndex++;
+                continue;
+            }
+            if (ChunkSectionHasFluidRuntimeState(section) ||
+                ChunkSectionHasInFlightWork(
+                    slotIndex, chunk->generation, sectionY)) {
+                sectionIndex++;
+                continue;
+            }
+            if (ChunkRemoveTerrainSection(chunk, sectionY)) {
+                pruned++;
+                continue;
+            }
+            sectionIndex++;
+        }
+    }
+    return pruned;
+}
+
 static void FreeMeshData(Mesh *mesh)
 {
     free(mesh->vertices);
@@ -4293,7 +4409,8 @@ void ChunksTestCompleteMeshJob(int jobIndex)
     pthread_mutex_unlock(&genMutex);
 }
 
-void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz, bool done)
+void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,
+                           int sectionY, bool done)
 {
     assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
     pthread_mutex_lock(&genMutex);
@@ -4302,7 +4419,8 @@ void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz, bool don
         .done = done,
         .slotIndex = slotIndex,
         .cx = cx,
-        .cz = cz
+        .cz = cz,
+        .sectionY = sectionY
     };
     UpdateQueuePeaksLocked();
     pthread_mutex_unlock(&genMutex);
@@ -4352,5 +4470,14 @@ void ChunksTestRunGenerationJob(int jobIndex)
 int ChunksTestScheduleTerrainSections(Vector3 playerPosition)
 {
     return ScheduleNearbyTerrainSections(playerPosition);
+}
+
+int ChunksTestPruneTerrainSections(Vector3 playerPosition)
+{
+    int playerY = (int)floorf(playerPosition.y);
+    return InHeight(playerY)
+        ? PruneDistantNegativeTerrainSections(
+              SurfaceSectionYFromBlockY(playerY))
+        : 0;
 }
 #endif

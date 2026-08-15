@@ -7,6 +7,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 TerrainMode terrainMode = TERRAIN_VARIED;
@@ -245,7 +246,8 @@ static void TestFullQueueLeavesDirtyChunkForLater(void)
 {
     ChunksTestResetScheduler();
     for (int i = 0; i < 64; i++) {
-        ChunksTestSeedMeshJob(i, i % MAX_ACTIVE_CHUNKS, i, 0, false);
+        ChunksTestSeedMeshJob(
+            i, i % MAX_ACTIVE_CHUNKS, i, 0, 0, false);
     }
     ChunksTestConfigureChunk(0, 0, 0, true, true);
 
@@ -276,8 +278,8 @@ static void TestBudgetAndInvalidSlotCleanup(void)
 {
     ChunksTestResetScheduler();
     ChunksTestConfigureChunk(1, 1, 1, true, false);
-    ChunksTestSeedMeshJob(0, -1, 0, 0, true);
-    ChunksTestSeedMeshJob(1, 1, 1, 1, true);
+    ChunksTestSeedMeshJob(0, -1, 0, 0, 0, true);
+    ChunksTestSeedMeshJob(1, 1, 1, 1, 0, true);
 
     ProcessFinishedMeshJobs(0.0);
 
@@ -576,6 +578,63 @@ static void TestNearbySectionSchedulingPrioritizesPlayerSection(void)
     assert(ChunksTestGenerationJobSectionY(2) == 0);
 }
 
+static void TestNegativeSectionPruningKeepsVerticalWindow(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    Chunk *chunk = &chunks[0];
+
+    ChunkSection *near = ChunkGetSection(chunk, -26, true);
+    ChunkSection *far = ChunkGetSection(chunk, -27, true);
+    ChunkSection *surface = ChunkGetSection(chunk, 2, true);
+    assert(near && far && surface);
+    assert(ChunkMarkTerrainSectionResolved(chunk, -26));
+    assert(ChunkMarkTerrainSectionResolved(chunk, -27));
+    assert(ChunkMarkTerrainSectionResolved(chunk, 2));
+
+    assert(ChunksTestPruneTerrainSections(
+        (Vector3){ 0.5f, -319.0f, 0.5f }) == 1);
+    assert(ChunkGetSectionConst(chunk, -26) == near);
+    assert(near->dirty);
+    assert(ChunkGetSectionConst(chunk, -27) == NULL);
+    assert(!ChunkTerrainSectionIsResolved(chunk, -27));
+    assert(ChunkGetSectionConst(chunk, 2) == surface);
+    assert(ChunkTerrainSectionIsResolved(chunk, 2));
+
+    assert(RequestChunkTerrainSection(0, -27, 0));
+    assert(ChunksTestGenerationJobSectionY(0) == -27);
+}
+
+static void TestNegativeSectionPruningPreservesRuntimeState(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    Chunk *chunk = &chunks[0];
+    chunk->generation = 41u;
+
+    ChunkSection *fluidRuntime = ChunkGetSection(chunk, -30, true);
+    ChunkSection *fluidDirty = ChunkGetSection(chunk, -31, true);
+    ChunkSection *meshPending = ChunkGetSection(chunk, -32, true);
+    ChunkSection *plain = ChunkGetSection(chunk, -34, true);
+    assert(fluidRuntime && fluidDirty && meshPending && plain);
+    fluidRuntime->waterVolumes = malloc(1u);
+    assert(fluidRuntime->waterVolumes != NULL);
+    fluidDirty->fluidDirty = true;
+    ChunksTestSeedMeshJob(0, 0, 0, 0, -32, false);
+
+    assert(RequestChunkTerrainSection(0, -33, 0));
+    ChunkSection *generationPending = ChunkGetSection(chunk, -33, true);
+    assert(generationPending != NULL);
+
+    assert(ChunksTestPruneTerrainSections(
+        (Vector3){ 0.5f, -319.0f, 0.5f }) == 1);
+    assert(ChunkGetSectionConst(chunk, -30) == fluidRuntime);
+    assert(ChunkGetSectionConst(chunk, -31) == fluidDirty);
+    assert(ChunkGetSectionConst(chunk, -32) == meshPending);
+    assert(ChunkGetSectionConst(chunk, -33) == generationPending);
+    assert(ChunkGetSectionConst(chunk, -34) == NULL);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(chunks));
@@ -594,6 +653,8 @@ int main(void)
     TestImplicitTerrainLookupAndEditOverride();
     TestSectionGenerationJobsStageAndValidateResults();
     TestNearbySectionSchedulingPrioritizesPlayerSection();
+    TestNegativeSectionPruningKeepsVerticalWindow();
+    TestNegativeSectionPruningPreservesRuntimeState();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;
