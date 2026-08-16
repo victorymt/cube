@@ -61,6 +61,7 @@ float ShipTargetSpeed(void);
 float ShipTargetClosingSpeed(void);
 float ShipTargetBrakingDistance(void);
 float ShipTargetEtaSeconds(void);
+float ShipWarpVisualIntensity(void);
 bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ);
 void ShipReset(void);
 float ShipGetFuel(void);

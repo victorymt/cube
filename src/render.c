@@ -685,6 +685,143 @@ void DrawSpaceSky(float spaceFade, float daylight, const Camera3D *camera)
     DrawNebulae(camera, spaceFade);
 }
 
+static uint32_t WarpTunnelHash(uint32_t value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    return value ^ (value >> 16);
+}
+
+static float WarpTunnelUnit(uint32_t value)
+{
+    return (float)(WarpTunnelHash(value) & 0x00ffffffu) / 16777215.0f;
+}
+
+static float WarpTunnelEnvelope(float phase)
+{
+    float enter = Clamp(phase / 0.10f, 0.0f, 1.0f);
+    float exit = Clamp((1.0f - phase) / 0.18f, 0.0f, 1.0f);
+    return fminf(enter, exit);
+}
+
+static Vector2 WarpTunnelPoint(Vector2 center, float angle, float depth,
+                               float radiusX, float radiusY)
+{
+    return (Vector2){
+        center.x + cosf(angle) * radiusX * depth,
+        center.y + sinf(angle) * radiusY * depth
+    };
+}
+
+void DrawWarpTunnel(const Camera3D *camera, float intensity)
+{
+    if (!camera || !isfinite(intensity) || intensity <= 0.0f) return;
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    if (sw <= 0 || sh <= 0) return;
+    intensity = Clamp(intensity, 0.0f, 1.0f);
+
+    Vector3 look = Vector3Subtract(camera->target, camera->position);
+    float lookLength = Vector3Length(look);
+    if (!(lookLength > 0.0001f) || !isfinite(lookLength)) return;
+    look = Vector3Scale(look, 1.0f / lookLength);
+    Vector2 center = GetWorldToScreen(
+        Vector3Add(camera->position, Vector3Scale(look, 64.0f)), *camera);
+    if (!isfinite(center.x) || !isfinite(center.y)) {
+        center = (Vector2){ (float)sw * 0.5f, (float)sh * 0.5f };
+    }
+    center.x = Clamp(center.x, (float)sw * 0.20f, (float)sw * 0.80f);
+    center.y = Clamp(center.y, (float)sh * 0.20f, (float)sh * 0.80f);
+
+    double clock = GetTime();
+    float time = isfinite(clock) ? (float)fmod(clock, 4096.0) : 0.0f;
+    float travel = 0.34f + intensity * 1.85f;
+    float radiusX = (float)sw * 0.78f;
+    float radiusY = (float)sh * 0.78f;
+
+    DrawRectangle(0, 0, sw, sh,
+                  (Color){ 1, 8, 15,
+                           (unsigned char)(10.0f + intensity * 26.0f) });
+
+    BeginBlendMode(BLEND_ADDITIVE);
+    float corePulse = 0.88f + 0.12f * sinf(time * 8.0f);
+    float coreRadius = fminf((float)sw, (float)sh) *
+                       (0.055f + intensity * 0.035f) * corePulse;
+    DrawCircleGradient((int)center.x, (int)center.y, coreRadius,
+                       (Color){ 205, 244, 255,
+                                (unsigned char)(34.0f + intensity * 54.0f) },
+                       BLANK);
+
+    const int ringCount = 6;
+    const int ringSegments = 48;
+    for (int ring = 0; ring < ringCount; ring++) {
+        float phase = fmodf((float)ring / (float)ringCount +
+                                time * travel * 0.38f,
+                            1.0f);
+        float depth = powf(phase, 1.62f);
+        float alpha = WarpTunnelEnvelope(phase) *
+                      (24.0f + intensity * 64.0f);
+        float width = 0.75f + phase * (0.75f + intensity);
+        for (int segment = 0; segment < ringSegments; segment++) {
+            if ((segment + ring * 3) % 7 >= 5) continue;
+            float angle0 = 2.0f * PI * (float)segment /
+                           (float)ringSegments;
+            float angle1 = 2.0f * PI * (float)(segment + 1) /
+                           (float)ringSegments;
+            Vector2 start = WarpTunnelPoint(center, angle0, depth,
+                                             radiusX, radiusY);
+            Vector2 end = WarpTunnelPoint(center, angle1, depth,
+                                           radiusX, radiusY);
+            DrawLineEx(start, end, width,
+                       (Color){ 96, 211, 235, (unsigned char)alpha });
+        }
+    }
+
+    const int streakCount = 88;
+    for (int streak = 0; streak < streakCount; streak++) {
+        uint32_t seed = WarpTunnelHash((uint32_t)streak + 0x51f2a39du);
+        float angle = WarpTunnelUnit(seed) * 2.0f * PI;
+        float lane = 0.72f + WarpTunnelUnit(seed ^ 0xa4c31b09u) * 0.52f;
+        float pace = 0.82f + WarpTunnelUnit(seed ^ 0x1d93e5abu) * 0.42f;
+        float phase = fmodf(WarpTunnelUnit(seed ^ 0xc736f821u) +
+                                time * travel * pace,
+                            1.0f);
+        float tailPhase = fmaxf(
+            phase - (0.025f + intensity * 0.12f), 0.0f);
+        float headDepth = powf(phase, 1.72f);
+        float tailDepth = powf(tailPhase, 1.72f);
+        float twist = (1.0f - headDepth) *
+                      sinf(time * 0.9f + (float)streak) * 0.035f;
+        Vector2 head = WarpTunnelPoint(center, angle + twist, headDepth,
+                                        radiusX * lane, radiusY * lane);
+        Vector2 tail = WarpTunnelPoint(center, angle + twist, tailDepth,
+                                        radiusX * lane, radiusY * lane);
+        float alpha = WarpTunnelEnvelope(phase) *
+                      (54.0f + intensity * 190.0f);
+        float width = 0.8f + phase * intensity * 2.8f;
+        Color color;
+        switch (seed & 3u) {
+        case 0u: color = (Color){ 224, 249, 255, (unsigned char)alpha }; break;
+        case 1u: color = (Color){ 93, 218, 235, (unsigned char)alpha }; break;
+        case 2u: color = (Color){ 104, 184, 255, (unsigned char)alpha }; break;
+        default: color = (Color){ 190, 255, 231, (unsigned char)alpha }; break;
+        }
+        DrawLineEx(tail, head, width, color);
+        if (phase > 0.32f) {
+            DrawCircleV(head, 0.7f + width * 0.42f, color);
+        }
+    }
+
+    DrawCircleGradient((int)center.x, (int)center.y,
+                       coreRadius * (0.32f + intensity * 0.12f),
+                       (Color){ 246, 255, 255,
+                                (unsigned char)(70.0f + intensity * 80.0f) },
+                       BLANK);
+    EndBlendMode();
+}
+
 #define STAR_SHELL_DISTANCE 500.0f
 
 static void RefreshSkySystems(Vector3 observer)

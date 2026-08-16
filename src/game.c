@@ -1793,6 +1793,7 @@ static void GameRenderEnvironmentOverlays(GameRuntime *game,
         }
     }
     DrawEnvironmentPostProcess(&frame->environmentPresentation);
+    DrawWarpTunnel(&game->camera, ShipWarpVisualIntensity());
     DrawSolarGuide(&game->camera, frame->spaceFade);
     if (game->scannerActive && PlanetWorldIsActive()) {
         PlanetPoiDrawScanner(&game->camera, game->player.position);

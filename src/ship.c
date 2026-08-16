@@ -622,6 +622,13 @@ float ShipTargetEtaSeconds(void)
     return targetEtaSeconds;
 }
 
+float ShipWarpVisualIntensity(void)
+{
+    if (driveMode != SHIP_DRIVE_WARP) return 0.0f;
+    float speedRatio = Clamp(relativeSpeed / SHIP_WARP_MAX_SPEED, 0.0f, 1.0f);
+    return 0.22f + 0.78f * sqrtf(speedRatio);
+}
+
 void ShipReset(void)
 {
     driving = false;
