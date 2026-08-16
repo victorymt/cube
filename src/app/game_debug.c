@@ -11,6 +11,7 @@
 #include "world/fluid.h"
 #include "app/game_interaction.h"
 #include "app/game_runtime.h"
+#include "gameplay/map_markers.h"
 #include "gameplay/player.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/render.h"
@@ -21,6 +22,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <strings.h>
 
 static void GameDebugReplyStatus(GameRuntime *game)
 {
@@ -109,6 +111,126 @@ static void GameDebugToggleSurfaceMap(GameRuntime *game)
     game->cursorReleased = true;
     EnableCursor();
     DebugControlReply(&game->debugControl, "DEBUG_CONTROL map open\n");
+}
+
+static MapMarkerSurface GameDebugMarkerSurface(void)
+{
+    return (MapMarkerSurface){
+        .dimension = WorldCurrentDimension(),
+        .surfaceId = WorldCurrentSurfaceId()
+    };
+}
+
+static bool GameDebugMarkerColor(const char *name, MapMarkerColor *out)
+{
+    static const char *names[MAP_MARKER_COLOR_COUNT] = {
+        "red", "amber", "green", "cyan", "blue", "magenta"
+    };
+    if (!name || !out) return false;
+    for (int i = 0; i < MAP_MARKER_COLOR_COUNT; i++) {
+        if (strcasecmp(name, names[i]) == 0) {
+            *out = (MapMarkerColor)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static const char *GameDebugMarkerColorName(MapMarkerColor color)
+{
+    static const char *names[MAP_MARKER_COLOR_COUNT] = {
+        "red", "amber", "green", "cyan", "blue", "magenta"
+    };
+    return color >= 0 && color < MAP_MARKER_COLOR_COUNT
+        ? names[color] : "invalid";
+}
+
+static bool GameDebugMarkerAvailable(GameRuntime *game)
+{
+    if (game->screen == SCREEN_PLAYING && WorldIsSurfaceActive()) return true;
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL marker error reason=no_active_surface\n");
+    return false;
+}
+
+static void GameDebugMarkerAdd(GameRuntime *game)
+{
+    if (!GameDebugMarkerAvailable(game)) return;
+    MapMarkerColor color = MAP_MARKER_RED;
+    if (!GameDebugMarkerColor(game->debugControl.marker.color, &color)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL marker add error reason=invalid_color\n");
+        return;
+    }
+    uint32_t id = 0u;
+    if (!MapMarkersCreate(GameDebugMarkerSurface(),
+                          game->debugControl.marker.x,
+                          game->debugControl.marker.z,
+                          game->debugControl.marker.name, color, &id)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL marker add error reason=invalid_or_limit\n");
+        return;
+    }
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL marker add ok id=%u dimension=%s surface=%u "
+        "x=%.3f z=%.3f color=%s name=%s\n",
+        id, WorldDimensionName(WorldCurrentDimension()),
+        WorldCurrentSurfaceId(), game->debugControl.marker.x,
+        game->debugControl.marker.z, GameDebugMarkerColorName(color),
+        game->debugControl.marker.name);
+}
+
+static void GameDebugMarkerList(GameRuntime *game)
+{
+    if (!GameDebugMarkerAvailable(game)) return;
+    MapMarker markers[MAP_MARKERS_PER_SURFACE];
+    int count = MapMarkersCollect(GameDebugMarkerSurface(), markers,
+                                  MAP_MARKERS_PER_SURFACE);
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL marker list ok dimension=%s surface=%u count=%d "
+        "target=%u\n",
+        WorldDimensionName(WorldCurrentDimension()), WorldCurrentSurfaceId(),
+        count, MapMarkersTargetId());
+    for (int i = 0; i < count; i++) {
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL marker item id=%u x=%.3f z=%.3f color=%s "
+            "target=%d name=%s\n",
+            markers[i].id, markers[i].x, markers[i].z,
+            GameDebugMarkerColorName(markers[i].color),
+            markers[i].id == MapMarkersTargetId() ? 1 : 0,
+            markers[i].name);
+    }
+}
+
+static void GameDebugMarkerTarget(GameRuntime *game)
+{
+    if (!GameDebugMarkerAvailable(game)) return;
+    uint32_t id = game->debugControl.marker.id;
+    if (!MapMarkersSetTarget(id)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL marker target error reason=not_found id=%u\n",
+                          id);
+        return;
+    }
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL marker target ok id=%u\n", id);
+}
+
+static void GameDebugMarkerRemove(GameRuntime *game)
+{
+    if (!GameDebugMarkerAvailable(game)) return;
+    uint32_t id = game->debugControl.marker.id;
+    if (!MapMarkersRemove(id)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL marker remove error reason=not_found id=%u\n",
+                          id);
+        return;
+    }
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL marker remove ok id=%u\n", id);
 }
 
 static void GameDebugInspectFluid(GameRuntime *game)
@@ -387,6 +509,18 @@ bool GameDispatchDebugCommand(GameRuntime *game)
         break;
     case DEBUG_CONTROL_COMMAND_MAP:
         GameDebugToggleSurfaceMap(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_MARKER_ADD:
+        GameDebugMarkerAdd(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_MARKER_LIST:
+        GameDebugMarkerList(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_MARKER_TARGET:
+        GameDebugMarkerTarget(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_MARKER_REMOVE:
+        GameDebugMarkerRemove(game);
         break;
     case DEBUG_CONTROL_COMMAND_FLUID_INSPECT:
         GameDebugInspectFluid(game);

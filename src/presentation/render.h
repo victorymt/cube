@@ -136,5 +136,6 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                   const HudFrameState *hud);
 void DrawShipHud(const ShipHudState *hud);
 void DrawShipLocator(const Camera3D *camera, const ShipLocatorTarget *target);
+void DrawMapNavigation(Vector3 playerPosition, float playerYaw);
 
 #endif

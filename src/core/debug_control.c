@@ -25,6 +25,51 @@ void DebugControlInit(DebugControl *control, bool enabled)
     DebugControlInitFds(control, enabled, STDIN_FILENO, STDOUT_FILENO);
 }
 
+static DebugControlCommand DebugControlParseMarker(
+    DebugControl *control, const char *original, const char *normalized)
+{
+    if (strcmp(normalized, "marker list") == 0) {
+        return DEBUG_CONTROL_COMMAND_MARKER_LIST;
+    }
+    if (strcmp(normalized, "marker target none") == 0) {
+        control->marker.id = 0u;
+        return DEBUG_CONTROL_COMMAND_MARKER_TARGET;
+    }
+
+    unsigned id = 0u;
+    char trailing = '\0';
+    if (sscanf(normalized, "marker target %u %c", &id, &trailing) == 1 &&
+        id != 0u) {
+        control->marker.id = id;
+        return DEBUG_CONTROL_COMMAND_MARKER_TARGET;
+    }
+    if (sscanf(normalized, "marker remove %u %c", &id, &trailing) == 1 &&
+        id != 0u) {
+        control->marker.id = id;
+        return DEBUG_CONTROL_COMMAND_MARKER_REMOVE;
+    }
+
+    float x = 0.0f;
+    float z = 0.0f;
+    char color[DEBUG_CONTROL_MARKER_COLOR_SIZE] = { 0 };
+    int nameOffset = -1;
+    if (sscanf(normalized, "marker add %f %f %15s %n",
+               &x, &z, color, &nameOffset) == 3 &&
+        nameOffset >= 0 && original[nameOffset] != '\0' &&
+        isfinite(x) && isfinite(z) && fabsf(x) <= 1000000.0f &&
+        fabsf(z) <= 1000000.0f &&
+        strlen(original + nameOffset) < sizeof(control->marker.name)) {
+        control->marker.x = x;
+        control->marker.z = z;
+        snprintf(control->marker.color, sizeof(control->marker.color),
+                 "%s", color);
+        snprintf(control->marker.name, sizeof(control->marker.name),
+                 "%s", original + nameOffset);
+        return DEBUG_CONTROL_COMMAND_MARKER_ADD;
+    }
+    return DEBUG_CONTROL_COMMAND_INVALID;
+}
+
 static DebugControlCommand DebugControlParseLine(DebugControl *control,
                                                  char *line)
 {
@@ -32,11 +77,18 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     char *end = line + strlen(line);
     while (end > line && isspace((unsigned char)end[-1])) end--;
     *end = '\0';
-    for (char *cursor = line; *cursor != '\0'; cursor++) {
-        *cursor = (char)tolower((unsigned char)*cursor);
+    char normalized[DEBUG_CONTROL_BUFFER_SIZE];
+    size_t length = strlen(line);
+    for (size_t index = 0u; index <= length; index++) {
+        normalized[index] = (char)tolower((unsigned char)line[index]);
     }
 
     if (line[0] == '\0') return DEBUG_CONTROL_COMMAND_NONE;
+    if (strncmp(normalized, "marker", 6) == 0 &&
+        (normalized[6] == '\0' || isspace((unsigned char)normalized[6]))) {
+        return DebugControlParseMarker(control, line, normalized);
+    }
+    line = normalized;
     if (strcmp(line, "start") == 0) return DEBUG_CONTROL_COMMAND_START;
     if (strcmp(line, "screenshot") == 0) {
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;

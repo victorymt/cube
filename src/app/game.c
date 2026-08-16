@@ -1065,6 +1065,9 @@ static void GameRenderEnvironmentOverlays(GameRuntime *game,
         ShipLocatorTargetAt(game->player.position, &shipLocatorTarget)) {
         DrawShipLocator(&game->camera, &shipLocatorTarget);
     }
+    if (!game->paused && !HomeWorldMapIsOpen() && !StarMapIsOpen()) {
+        DrawMapNavigation(game->player.position, game->player.yaw);
+    }
     if (ShipIsDriving()) DrawShipHud(shipHud);
     if (frame->spaceFade > 0.05f && frame->haveAimBody &&
         !StarMapIsOpen()) {
@@ -1353,7 +1356,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready commands=start,screenshot,status,save,load,map,teleport,input,"
+        "DEBUG_CONTROL ready commands=start,screenshot,status,save,load,map,marker,teleport,input,"
         "fluid,evolution,quit\n");
     return true;
 }

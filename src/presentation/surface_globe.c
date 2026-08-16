@@ -95,6 +95,24 @@ bool SurfaceGlobeDraw(const SurfaceGlobeDrawParams *params)
         DrawSphere(Vector3Zero(), 1.0f, fallback);
     }
 
+    if (params->markers && params->markerCount > 0) {
+        for (int i = 0; i < params->markerCount; i++) {
+            const SurfaceGlobeMarker *marker = &params->markers[i];
+            if (!isfinite(marker->longitude) || !isfinite(marker->latitude)) {
+                continue;
+            }
+            Vector3 direction = SurfaceGlobeDirection(
+                marker->longitude, marker->latitude);
+            float baseRadius = marker->selected ? 0.047f : 0.032f;
+            if (marker->selected) {
+                DrawSphereEx(Vector3Scale(direction, 1.052f), 0.060f,
+                             10, 10, Fade(WHITE, 0.92f));
+            }
+            DrawSphereEx(Vector3Scale(direction, 1.075f), baseRadius,
+                         10, 10, marker->color);
+        }
+    }
+
     Vector3 markerDirection = SurfaceGlobeDirection(
         params->markerLongitude, params->markerLatitude);
     DrawSphereEx(Vector3Scale(markerDirection, 1.045f), 0.058f, 10, 10,

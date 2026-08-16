@@ -5,6 +5,13 @@
 
 #include <stdbool.h>
 
+typedef struct SurfaceGlobeMarker {
+    float longitude;
+    float latitude;
+    Color color;
+    bool selected;
+} SurfaceGlobeMarker;
+
 typedef struct SurfaceGlobeDrawParams {
     Rectangle destination;
     bool planetSurface;
@@ -12,6 +19,8 @@ typedef struct SurfaceGlobeDrawParams {
     float cameraLatitude;
     float markerLongitude;
     float markerLatitude;
+    const SurfaceGlobeMarker *markers;
+    int markerCount;
 } SurfaceGlobeDrawParams;
 
 bool SurfaceGlobeDraw(const SurfaceGlobeDrawParams *params);

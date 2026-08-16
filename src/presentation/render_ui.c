@@ -6,6 +6,7 @@
 #include "world/block_atlas.h"
 #include "world/chunks.h"
 #include "gameplay/inventory.h"
+#include "gameplay/map_markers.h"
 #include "world/world.h"
 #include "gameplay/interaction.h"
 #include "space/planet_material.h"
@@ -37,15 +38,54 @@
 
 #define UI_FONT_PATH "assets/fonts/FSEX302-alt.ttf"
 #define UI_FONT_BASE_SIZE 32
+#define UI_CJK_FONT_PATH "assets/fonts/NotoSansCJKsc-Regular.otf"
+#define UI_CJK_CODEPOINTS_PATH "assets/fonts/cjk-common.txt"
+#define UI_CJK_FONT_BASE_SIZE 28
 
 static Font uiFont = { 0 };
 static bool uiFontReady = false;
+static Font uiCjkFont = { 0 };
+static bool uiCjkFontReady = false;
 
 void UiFontShutdown(void)
 {
     if (uiFontReady) UnloadFont(uiFont);
+    if (uiCjkFontReady) UnloadFont(uiCjkFont);
     uiFont = (Font){ 0 };
     uiFontReady = false;
+    uiCjkFont = (Font){ 0 };
+    uiCjkFontReady = false;
+}
+
+static void UiAssetPaths(const char *relative, char *applicationPath,
+                         size_t applicationPathSize, const char **paths)
+{
+    if (!applicationPath || applicationPathSize == 0u || !paths) return;
+    applicationPath[0] = '\0';
+    const char *applicationDirectory = GetApplicationDirectory();
+    if (applicationDirectory) {
+        size_t length = strlen(applicationDirectory);
+        const char *separator = length > 0 && applicationDirectory[length - 1] == '/'
+                                    ? "" : "/";
+        snprintf(applicationPath, applicationPathSize, "%s%s%s",
+                 applicationDirectory, separator, relative);
+    }
+    paths[0] = relative;
+    paths[1] = applicationPath;
+}
+
+static const char *UiFirstExistingPath(const char *relative,
+                                       char *applicationPath,
+                                       size_t applicationPathSize)
+{
+    const char *paths[2] = { 0 };
+    UiAssetPaths(relative, applicationPath, applicationPathSize, paths);
+    for (int i = 0; i < 2; i++) {
+        if (paths[i] && paths[i][0] != '\0' && FileExists(paths[i])) {
+            return paths[i];
+        }
+    }
+    return NULL;
 }
 
 void UiFontInit(void)
@@ -53,43 +93,107 @@ void UiFontInit(void)
     UiFontShutdown();
 
     char applicationPath[512] = { 0 };
-    const char *applicationDirectory = GetApplicationDirectory();
-    if (applicationDirectory) {
-        size_t length = strlen(applicationDirectory);
-        const char *separator = length > 0 && applicationDirectory[length - 1] == '/'
-                                    ? "" : "/";
-        snprintf(applicationPath, sizeof(applicationPath), "%s%s%s",
-                 applicationDirectory, separator, UI_FONT_PATH);
-    }
-    const char *paths[] = { UI_FONT_PATH, applicationPath };
-    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
-        if (paths[i][0] == '\0' || !FileExists(paths[i])) continue;
+    const char *paths[2] = { 0 };
+    UiAssetPaths(UI_FONT_PATH, applicationPath, sizeof(applicationPath), paths);
+    for (int i = 0; i < 2; i++) {
+        if (!paths[i] || paths[i][0] == '\0' || !FileExists(paths[i])) continue;
         Font loaded = LoadFontEx(paths[i], UI_FONT_BASE_SIZE, NULL, 0);
         if (!IsFontValid(loaded) || loaded.texture.id == 0 ||
             loaded.texture.id == GetFontDefault().texture.id) continue;
         uiFont = loaded;
         uiFontReady = true;
         SetTextureFilter(uiFont.texture, TEXTURE_FILTER_POINT);
-        return;
+        break;
+    }
+    if (!uiFontReady) {
+        TraceLog(LOG_WARNING, "UI: Fixedsys font was not found; using default font");
     }
 
-    TraceLog(LOG_WARNING, "UI: Fixedsys font was not found; using default font");
+    char cjkFontApplicationPath[512] = { 0 };
+    char codepointsApplicationPath[512] = { 0 };
+    const char *cjkFontPath = UiFirstExistingPath(
+        UI_CJK_FONT_PATH, cjkFontApplicationPath,
+        sizeof(cjkFontApplicationPath));
+    const char *codepointsPath = UiFirstExistingPath(
+        UI_CJK_CODEPOINTS_PATH, codepointsApplicationPath,
+        sizeof(codepointsApplicationPath));
+    if (cjkFontPath && codepointsPath) {
+        char *text = LoadFileText(codepointsPath);
+        int codepointCount = 0;
+        int *codepoints = text ? LoadCodepoints(text, &codepointCount) : NULL;
+        if (codepoints && codepointCount > 0) {
+            Font loaded = LoadFontEx(cjkFontPath, UI_CJK_FONT_BASE_SIZE,
+                                     codepoints, codepointCount);
+            if (IsFontValid(loaded) && loaded.texture.id != 0u &&
+                loaded.texture.id != GetFontDefault().texture.id) {
+                uiCjkFont = loaded;
+                uiCjkFontReady = true;
+                SetTextureFilter(uiCjkFont.texture, TEXTURE_FILTER_BILINEAR);
+            }
+        }
+        if (codepoints) UnloadCodepoints(codepoints);
+        if (text) UnloadFileText(text);
+    }
+    if (!uiCjkFontReady) {
+        TraceLog(LOG_WARNING, "UI: Noto CJK fallback font was not loaded");
+    }
 }
+
+static Font UiCodepointFont(int codepoint)
+{
+    if (codepoint > 127 && uiCjkFontReady) return uiCjkFont;
+    return uiFontReady ? uiFont : GetFontDefault();
+}
+
+static float UiCodepointAdvance(Font font, int codepoint, float fontSize)
+{
+    GlyphInfo glyph = GetGlyphInfo(font, codepoint);
+    float advance = glyph.advanceX > 0
+        ? (float)glyph.advanceX : (float)glyph.image.width;
+    if (advance <= 0.0f) advance = (float)font.baseSize * 0.5f;
+    return advance * fontSize / (float)font.baseSize;
+}
+
 int UiMeasureText(const char *text, int fontSize)
 {
     if (!text) return 0;
-    if (!uiFontReady) return MeasureText(text, fontSize);
-    return (int)ceilf(MeasureTextEx(uiFont, text, (float)fontSize, 0.0f).x);
+    float width = 0.0f;
+    float maximum = 0.0f;
+    for (int offset = 0; text[offset] != '\0';) {
+        int bytes = 0;
+        int codepoint = GetCodepointNext(text + offset, &bytes);
+        if (bytes <= 0) bytes = 1;
+        offset += bytes;
+        if (codepoint == '\n') {
+            maximum = fmaxf(maximum, width);
+            width = 0.0f;
+            continue;
+        }
+        width += UiCodepointAdvance(UiCodepointFont(codepoint), codepoint,
+                                    (float)fontSize);
+    }
+    return (int)ceilf(fmaxf(maximum, width));
 }
 
 static void DrawUiTextLayer(const char *text, int x, int y, int fontSize,
                             Color color)
 {
-    if (uiFontReady) {
-        DrawTextEx(uiFont, text, (Vector2){ (float)x, (float)y },
-                   (float)fontSize, 0.0f, color);
-    } else {
-        DrawText(text, x, y, fontSize, color);
+    if (!text) return;
+    Vector2 position = { (float)x, (float)y };
+    float lineStart = position.x;
+    for (int offset = 0; text[offset] != '\0';) {
+        int bytes = 0;
+        int codepoint = GetCodepointNext(text + offset, &bytes);
+        if (bytes <= 0) bytes = 1;
+        offset += bytes;
+        if (codepoint == '\n') {
+            position.x = lineStart;
+            position.y += (float)fontSize * 1.45f;
+            continue;
+        }
+        Font font = UiCodepointFont(codepoint);
+        DrawTextCodepoint(font, codepoint, position, (float)fontSize, color);
+        position.x += UiCodepointAdvance(font, codepoint, (float)fontSize);
     }
 }
 
@@ -385,6 +489,104 @@ void DrawShipLocator(const Camera3D *camera, const ShipLocatorTarget *target)
     labelY = (int)Clamp((float)labelY, 10.0f,
                         (float)GetScreenHeight() - 24.0f);
     UiDrawText(label, labelX, labelY, fontSize, accent);
+}
+
+static Vector2 MapNavigationEdgePosition(Vector2 direction, float margin)
+{
+    float screenWidth = (float)GetScreenWidth();
+    float screenHeight = (float)GetScreenHeight();
+    Vector2 center = { screenWidth * 0.5f, screenHeight * 0.5f };
+    float halfWidth = fmaxf(20.0f, center.x - margin);
+    float halfHeight = fmaxf(20.0f, center.y - margin);
+    float horizontal = fabsf(direction.x) > 0.0001f
+        ? halfWidth / fabsf(direction.x) : INFINITY;
+    float vertical = fabsf(direction.y) > 0.0001f
+        ? halfHeight / fabsf(direction.y) : INFINITY;
+    return Vector2Add(center, Vector2Scale(direction,
+                                            fminf(horizontal, vertical)));
+}
+
+void DrawMapNavigation(Vector3 playerPosition, float playerYaw)
+{
+    if (!WorldIsSurfaceActive()) return;
+    MapMarkerSurface surface = {
+        .dimension = WorldCurrentDimension(),
+        .surfaceId = WorldCurrentSurfaceId()
+    };
+    MapMarker target;
+    if (!MapMarkersTargetOnSurface(surface, &target)) return;
+
+    float playerLongitude = 0.0f;
+    float playerLatitude = 0.0f;
+    float targetLongitude = 0.0f;
+    float targetLatitude = 0.0f;
+    if (surface.dimension == WORLD_DIMENSION_PLANET) {
+        PlanetSurfaceLatLonAt((int)floorf(playerPosition.x),
+                              (int)floorf(playerPosition.z),
+                              &playerLongitude, &playerLatitude);
+        PlanetSurfaceLatLonAt((int)floorf(target.x), (int)floorf(target.z),
+                              &targetLongitude, &targetLatitude);
+    } else {
+        HomeSurfaceLatLonAt((int)floorf(playerPosition.x),
+                            (int)floorf(playerPosition.z),
+                            &playerLongitude, &playerLatitude);
+        HomeSurfaceLatLonAt((int)floorf(target.x), (int)floorf(target.z),
+                            &targetLongitude, &targetLatitude);
+    }
+    float bearing = 0.0f;
+    float distance = 0.0f;
+    if (!MapMarkerGreatCircle(playerLongitude, playerLatitude,
+                              targetLongitude, targetLatitude,
+                              &bearing, &distance)) {
+        return;
+    }
+
+    float relative = atan2f(sinf(bearing - playerYaw),
+                            cosf(bearing - playerYaw));
+    Vector2 direction = { sinf(relative), -cosf(relative) };
+    Vector2 position = MapNavigationEdgePosition(direction, 88.0f);
+    Vector2 perpendicular = { -direction.y, direction.x };
+    Color accent = MapMarkerColorValue(target.color);
+    DrawCircleV(position, 16.0f, Fade(BLACK, 0.72f));
+    DrawTriangle(
+        Vector2Add(position, Vector2Scale(direction, 12.0f)),
+        Vector2Add(Vector2Subtract(position, Vector2Scale(direction, 6.0f)),
+                   Vector2Scale(perpendicular, 8.0f)),
+        Vector2Subtract(Vector2Subtract(position, Vector2Scale(direction, 6.0f)),
+                        Vector2Scale(perpendicular, 8.0f)),
+        accent);
+    DrawCircleLines((int)position.x, (int)position.y, 15.0f,
+                    Fade(accent, 0.82f));
+
+    char name[MAP_MARKER_NAME_SIZE];
+    snprintf(name, sizeof(name), "%s", target.name);
+    char label[MAP_MARKER_NAME_SIZE + 32];
+    int fontSize = 16;
+    snprintf(label, sizeof(label), "%s  %.0f blk", name, distance);
+    int maximumWidth = GetScreenWidth() - 32;
+    while (fontSize > 12 && UiMeasureText(label, fontSize) > maximumWidth) {
+        fontSize--;
+    }
+    while (name[0] != '\0' && UiMeasureText(label, fontSize) > maximumWidth) {
+        MapMarkerNameBackspace(name);
+        snprintf(label, sizeof(label), "%s...  %.0f blk", name, distance);
+    }
+    int labelWidth = UiMeasureText(label, fontSize);
+    Vector2 labelCenter = Vector2Subtract(
+        position, Vector2Scale(direction, 36.0f));
+    int labelX = (int)(labelCenter.x - (float)labelWidth * 0.5f);
+    int labelY = (int)labelCenter.y - fontSize / 2;
+    labelX = (int)Clamp((float)labelX, 10.0f,
+                        (float)GetScreenWidth() - (float)labelWidth - 10.0f);
+    labelY = (int)Clamp((float)labelY, 10.0f,
+                        (float)GetScreenHeight() - 26.0f);
+    Rectangle background = {
+        (float)labelX - 7.0f, (float)labelY - 4.0f,
+        (float)labelWidth + 14.0f, (float)fontSize + 10.0f
+    };
+    DrawRectangleRec(background, Fade(BLACK, 0.72f));
+    DrawRectangleLinesEx(background, 1.0f, Fade(accent, 0.54f));
+    UiDrawText(label, labelX, labelY, fontSize, WHITE);
 }
 
 void DrawCrosshair(int screenWidth, int screenHeight)

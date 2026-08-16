@@ -67,6 +67,7 @@ INTERACTION_RAYCAST_TEST_TARGET := $(TEST_BUILD_DIR)/test_interaction_raycast
 PLANET_RENDERER_RESOURCES_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_renderer_resources
 PLANET_TEXTURE_RESOURCES_TEST_TARGET := $(TEST_BUILD_DIR)/test_planet_texture_resources
 HOMEWORLD_MAP_MODEL_TEST_TARGET := $(TEST_BUILD_DIR)/test_homeworld_map_model
+MAP_MARKERS_TEST_TARGET := $(TEST_BUILD_DIR)/test_map_markers
 
 include mk/modules.mk
 
@@ -78,6 +79,7 @@ TEST_TARGETS := $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_T
 TEST_TARGETS += $(SPACE_COORDINATES_TEST_TARGET)
 TEST_TARGETS += $(SURFACE_TOPOLOGY_TEST_TARGET)
 TEST_TARGETS += $(SURFACE_SAVE_TEST_TARGET)
+TEST_TARGETS += $(MAP_MARKERS_TEST_TARGET)
 TEST_TIMEOUT_SECONDS ?= 120
 SANITIZER_LEAKS ?= 1
 SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=address,undefined -fno-omit-frame-pointer
@@ -240,6 +242,9 @@ $(WEATHER_VISUAL_TEST_TARGET): tests/test_weather_visual.c src/presentation/weat
 
 $(HOMEWORLD_MAP_MODEL_TEST_TARGET): tests/test_homeworld_map_model.c src/presentation/homeworld_map_model.c src/presentation/homeworld_map_model.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_homeworld_map_model.c src/presentation/homeworld_map_model.c -lm
+
+$(MAP_MARKERS_TEST_TARGET): tests/test_map_markers.c src/gameplay/map_markers.c src/gameplay/map_markers.h src/world/surface_topology.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_map_markers.c src/gameplay/map_markers.c -lm
 
 $(PLAYER_COLLISION_TEST_TARGET): tests/test_player_collision.c src/gameplay/player.c src/gameplay/player.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_player_collision.c src/gameplay/player.c -lm

@@ -5,6 +5,8 @@
 #include <stddef.h>
 
 #define DEBUG_CONTROL_BUFFER_SIZE 512
+#define DEBUG_CONTROL_MARKER_COLOR_SIZE 16
+#define DEBUG_CONTROL_MARKER_NAME_SIZE 64
 
 typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_NONE = 0,
@@ -14,6 +16,10 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_SAVE,
     DEBUG_CONTROL_COMMAND_LOAD,
     DEBUG_CONTROL_COMMAND_MAP,
+    DEBUG_CONTROL_COMMAND_MARKER_ADD,
+    DEBUG_CONTROL_COMMAND_MARKER_LIST,
+    DEBUG_CONTROL_COMMAND_MARKER_TARGET,
+    DEBUG_CONTROL_COMMAND_MARKER_REMOVE,
     DEBUG_CONTROL_COMMAND_FLUID_INSPECT,
     DEBUG_CONTROL_COMMAND_FLUID_SET,
     DEBUG_CONTROL_COMMAND_FLUID_STEP,
@@ -46,6 +52,14 @@ typedef struct DebugControlInput {
     unsigned frames;
 } DebugControlInput;
 
+typedef struct DebugControlMarker {
+    float x;
+    float z;
+    unsigned id;
+    char color[DEBUG_CONTROL_MARKER_COLOR_SIZE];
+    char name[DEBUG_CONTROL_MARKER_NAME_SIZE];
+} DebugControlMarker;
+
 typedef struct DebugControl {
     bool enabled;
     bool inputClosed;
@@ -55,6 +69,7 @@ typedef struct DebugControl {
     size_t inputLength;
     DebugControlTeleport teleport;
     DebugControlInput playerInput;
+    DebugControlMarker marker;
     float evolutionRadius;
     float evolutionAdvanceDays;
     int fluidX;

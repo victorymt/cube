@@ -31,3 +31,12 @@ recordings are dedicated to the public domain under Creative Commons Zero
 
 The Fixedsys Excelsior font license remains distributed with its source asset
 when required by that asset's upstream terms.
+
+## `fonts/NotoSansCJKsc-Regular.otf`
+
+- Source: Noto Sans CJK by Adobe and Google
+- Changes: extracted the Simplified Chinese face from the upstream font
+  collection without changing glyph data
+- Usage: fallback glyphs for player-authored Chinese map marker names
+- License: SIL Open Font License 1.1
+- Full license: `fonts/NotoSansCJK-OFL.txt`

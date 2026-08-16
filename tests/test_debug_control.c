@@ -123,6 +123,36 @@ static void TestEvolutionCommands(void)
     close(inputPipe[1]);
 }
 
+static void TestMarkerCommandsPreserveUtf8Names(void)
+{
+    int inputPipe[2];
+    assert(pipe(inputPipe) == 0);
+    DebugControl control;
+    DebugControlInitFds(&control, true, inputPipe[0], STDOUT_FILENO);
+    const char *commands =
+        "MARKER ADD 12.5 -8 Cyan Base \xe8\x83\xa1\xe9\x9b\xaa\xe5\xb2\xa9\n"
+        "marker list\n"
+        "marker target 42\n"
+        "marker target none\n"
+        "marker remove 42\n";
+    assert(write(inputPipe[1], commands, strlen(commands)) ==
+           (ssize_t)strlen(commands));
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MARKER_ADD);
+    assert(control.marker.x == 12.5f && control.marker.z == -8.0f);
+    assert(strcmp(control.marker.color, "cyan") == 0);
+    assert(strcmp(control.marker.name,
+                  "Base \xe8\x83\xa1\xe9\x9b\xaa\xe5\xb2\xa9") == 0);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MARKER_LIST);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MARKER_TARGET);
+    assert(control.marker.id == 42u);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MARKER_TARGET);
+    assert(control.marker.id == 0u);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MARKER_REMOVE);
+    assert(control.marker.id == 42u);
+    close(inputPipe[0]);
+    close(inputPipe[1]);
+}
+
 static void TestInvalidParameterizedCommands(void)
 {
     int inputPipe[2];
@@ -135,10 +165,12 @@ static void TestInvalidParameterizedCommands(void)
         "input 2 0 0 0 1\n"
         "input 0 0 0 0 601\n"
         "fluid set 0 1 0 256\n"
-        "fluid step 0\n";
+        "fluid step 0\n"
+        "marker add 1 2 red\n"
+        "marker target 0\n";
     assert(write(inputPipe[1], commands, strlen(commands)) ==
            (ssize_t)strlen(commands));
-    for (int index = 0; index < 6; index++) {
+    for (int index = 0; index < 8; index++) {
         assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_INVALID);
     }
     close(inputPipe[0]);
@@ -167,6 +199,7 @@ int main(void)
     TestFinalCommandWithoutNewline();
     TestInvalidParameterizedCommands();
     TestEvolutionCommands();
+    TestMarkerCommandsPreserveUtf8Names();
     puts("debug control tests passed");
     return 0;
 }

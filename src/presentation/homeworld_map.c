@@ -7,6 +7,7 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "presentation/render.h"
+#include "gameplay/map_markers.h"
 #include "gameplay/ship.h"
 #include "space/space.h"
 #include "world/terrain.h"
@@ -35,6 +36,15 @@ typedef struct MapSurfaceTerrainSample {
     BathymetrySample bathymetry;
 } MapSurfaceTerrainSample;
 
+typedef struct MapMarkerEditorLayout {
+    Rectangle panel;
+    Rectangle input;
+    Rectangle swatches[MAP_MARKER_COLOR_COUNT];
+    Rectangle saveButton;
+    Rectangle cancelButton;
+    Rectangle deleteButton;
+} MapMarkerEditorLayout;
+
 typedef struct HomeWorldMapState {
     bool open;
     bool textureReady;
@@ -46,10 +56,20 @@ typedef struct HomeWorldMapState {
     bool showLandmarks;
     bool planetSurface;
     bool globeDragging;
+    bool mapPressPending;
+    bool markerEditorOpen;
+    bool markerEditorEditing;
     int zoomLevel;
+    uint32_t mapPressMarkerId;
+    uint32_t markerEditorId;
+    MapMarkerColor markerEditorColor;
     char surfaceName[40];
+    char markerEditorName[MAP_MARKER_NAME_SIZE];
+    char markerEditorError[80];
     HomeWorldMapBounds bounds;
     Vector2 dragOffset;
+    Vector2 mapPressStart;
+    Vector2 markerEditorWorld;
     Vector3 playerPosition;
     float playerYaw;
     float daylight;
@@ -65,6 +85,8 @@ typedef struct HomeWorldMapState {
 } HomeWorldMapState;
 
 static HomeWorldMapState homeMap = { 0 };
+
+static void MapCloseMarkerEditor(void);
 
 static void MapPlayerLatLon(float *outLongitude, float *outLatitude)
 {
@@ -287,6 +309,8 @@ void HomeWorldMapOpen(Vector3 playerPosition, float daylight)
     homeMap.cacheDirty = true;
     homeMap.dragging = false;
     homeMap.globeDragging = false;
+    homeMap.mapPressPending = false;
+    MapCloseMarkerEditor();
     homeMap.dragOffset = Vector2Zero();
     homeMap.zoomLevel = 1;
     homeMap.planetSurface = PlanetWorldIsActive() &&
@@ -310,6 +334,8 @@ void HomeWorldMapClose(void)
 {
     homeMap.open = false;
     homeMap.dragging = false;
+    homeMap.mapPressPending = false;
+    MapCloseMarkerEditor();
     homeMap.dragOffset = Vector2Zero();
 }
 
@@ -371,6 +397,202 @@ static bool MapPointInButton(Vector2 mouse, Rectangle button)
     return CheckCollisionPointRec(mouse, button);
 }
 
+static MapMarkerSurface MapCurrentSurface(void)
+{
+    return (MapMarkerSurface){
+        .dimension = WorldCurrentDimension(),
+        .surfaceId = WorldCurrentSurfaceId()
+    };
+}
+
+static void MapMarkerLatLon(const MapMarker *marker, float *outLongitude,
+                            float *outLatitude)
+{
+    if (!marker || !outLongitude || !outLatitude) return;
+    if (marker->surface.dimension == WORLD_DIMENSION_PLANET) {
+        PlanetSurfaceLatLonAt((int)floorf(marker->x), (int)floorf(marker->z),
+                              outLongitude, outLatitude);
+    } else {
+        HomeSurfaceLatLonAt((int)floorf(marker->x), (int)floorf(marker->z),
+                            outLongitude, outLatitude);
+    }
+}
+
+static uint32_t MapMarkerAt(const HomeWorldMapLayout *layout,
+                            HomeWorldMapBounds viewBounds, Vector2 screen)
+{
+    MapMarker markers[MAP_MARKERS_PER_SURFACE];
+    int count = MapMarkersCollect(MapCurrentSurface(), markers,
+                                  MAP_MARKERS_PER_SURFACE);
+    uint32_t closestId = 0u;
+    float closestDistance = 13.0f;
+    for (int i = 0; i < count; i++) {
+        if (!HomeWorldMapWorldVisible(viewBounds, markers[i].x,
+                                      markers[i].z)) continue;
+        Vector2 point = HomeWorldMapWorldToScreen(
+            viewBounds, layout->map, markers[i].x, markers[i].z);
+        float distance = Vector2Distance(screen, point);
+        if (distance < closestDistance) {
+            closestDistance = distance;
+            closestId = markers[i].id;
+        }
+    }
+    return closestId;
+}
+
+static MapMarkerEditorLayout MapEditorLayout(
+    const HomeWorldMapLayout *layout)
+{
+    float width = fminf(430.0f, layout->panel.width - 28.0f);
+    float height = 236.0f;
+    Rectangle panel = {
+        layout->panel.x + (layout->panel.width - width) * 0.5f,
+        layout->panel.y + (layout->panel.height - height) * 0.5f,
+        width, height
+    };
+    MapMarkerEditorLayout editor = {
+        .panel = panel,
+        .input = { panel.x + 24.0f, panel.y + 66.0f,
+                   panel.width - 48.0f, 42.0f },
+        .deleteButton = { panel.x + 24.0f, panel.y + 182.0f,
+                          82.0f, 34.0f },
+        .cancelButton = { panel.x + panel.width - 202.0f,
+                          panel.y + 182.0f, 82.0f, 34.0f },
+        .saveButton = { panel.x + panel.width - 106.0f,
+                        panel.y + 182.0f, 82.0f, 34.0f }
+    };
+    float swatchSize = 28.0f;
+    float swatchGap = 10.0f;
+    float total = (float)MAP_MARKER_COLOR_COUNT * swatchSize +
+                  (float)(MAP_MARKER_COLOR_COUNT - 1) * swatchGap;
+    float startX = panel.x + (panel.width - total) * 0.5f;
+    for (int i = 0; i < MAP_MARKER_COLOR_COUNT; i++) {
+        editor.swatches[i] = (Rectangle){
+            startX + (float)i * (swatchSize + swatchGap), panel.y + 130.0f,
+            swatchSize, swatchSize
+        };
+    }
+    return editor;
+}
+
+static void MapCloseMarkerEditor(void)
+{
+    homeMap.markerEditorOpen = false;
+    homeMap.markerEditorEditing = false;
+    homeMap.markerEditorId = 0u;
+    homeMap.markerEditorError[0] = '\0';
+}
+
+static void MapOpenMarkerEditor(uint32_t markerId, Vector2 world)
+{
+    MapMarker marker;
+    memset(homeMap.markerEditorName, 0, sizeof(homeMap.markerEditorName));
+    homeMap.markerEditorError[0] = '\0';
+    homeMap.markerEditorOpen = true;
+    homeMap.markerEditorEditing = markerId != 0u &&
+                                  MapMarkersFind(markerId, &marker);
+    homeMap.markerEditorId = homeMap.markerEditorEditing ? markerId : 0u;
+    homeMap.markerEditorColor = homeMap.markerEditorEditing
+        ? marker.color : MAP_MARKER_RED;
+    homeMap.markerEditorWorld = homeMap.markerEditorEditing
+        ? (Vector2){ marker.x, marker.z } : world;
+    if (homeMap.markerEditorEditing) {
+        snprintf(homeMap.markerEditorName,
+                 sizeof(homeMap.markerEditorName), "%s", marker.name);
+    }
+}
+
+static bool MapSaveMarkerEditor(void)
+{
+    if (!MapMarkerNameIsValid(homeMap.markerEditorName)) {
+        snprintf(homeMap.markerEditorName,
+                 sizeof(homeMap.markerEditorName), "Marker %d",
+                 MapMarkersCount(MapCurrentSurface()) + 1);
+    }
+    bool saved = homeMap.markerEditorEditing
+        ? MapMarkersUpdate(homeMap.markerEditorId,
+                           homeMap.markerEditorName,
+                           homeMap.markerEditorColor)
+        : MapMarkersCreate(MapCurrentSurface(), homeMap.markerEditorWorld.x,
+                           homeMap.markerEditorWorld.y,
+                           homeMap.markerEditorName,
+                           homeMap.markerEditorColor,
+                           &homeMap.markerEditorId);
+    if (!saved) {
+        snprintf(homeMap.markerEditorError,
+                 sizeof(homeMap.markerEditorError),
+                 "This surface already has 64 markers");
+        return false;
+    }
+    MapCloseMarkerEditor();
+    return true;
+}
+
+static void MapUpdateMarkerEditor(const HomeWorldMapLayout *layout)
+{
+    MapMarkerEditorLayout editor = MapEditorLayout(layout);
+    Vector2 mouse = GetMousePosition();
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        MapCloseMarkerEditor();
+        return;
+    }
+
+    bool controlDown = IsKeyDown(KEY_LEFT_CONTROL) ||
+                       IsKeyDown(KEY_RIGHT_CONTROL);
+    if (controlDown && IsKeyPressed(KEY_V)) {
+        const char *clipboard = GetClipboardText();
+        if (clipboard && clipboard[0] != '\0' &&
+            !MapMarkerNameAppendUtf8(homeMap.markerEditorName,
+                                     sizeof(homeMap.markerEditorName),
+                                     clipboard)) {
+            snprintf(homeMap.markerEditorError,
+                     sizeof(homeMap.markerEditorError),
+                     "Name is invalid or too long");
+        }
+    }
+    if (!controlDown) {
+        for (int codepoint = GetCharPressed(); codepoint > 0;
+             codepoint = GetCharPressed()) {
+            if (!MapMarkerNameAppendCodepoint(
+                    homeMap.markerEditorName,
+                    sizeof(homeMap.markerEditorName), codepoint)) {
+                snprintf(homeMap.markerEditorError,
+                         sizeof(homeMap.markerEditorError),
+                         "Name is limited to 63 UTF-8 bytes");
+            } else {
+                homeMap.markerEditorError[0] = '\0';
+            }
+        }
+    }
+    if (IsKeyPressed(KEY_BACKSPACE)) {
+        MapMarkerNameBackspace(homeMap.markerEditorName);
+        homeMap.markerEditorError[0] = '\0';
+    }
+
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        for (int i = 0; i < MAP_MARKER_COLOR_COUNT; i++) {
+            if (CheckCollisionPointRec(mouse, editor.swatches[i])) {
+                homeMap.markerEditorColor = (MapMarkerColor)i;
+            }
+        }
+        if (CheckCollisionPointRec(mouse, editor.cancelButton)) {
+            MapCloseMarkerEditor();
+            return;
+        }
+        if (homeMap.markerEditorEditing &&
+            CheckCollisionPointRec(mouse, editor.deleteButton)) {
+            MapMarkersRemove(homeMap.markerEditorId);
+            MapCloseMarkerEditor();
+            return;
+        }
+        if (CheckCollisionPointRec(mouse, editor.saveButton)) {
+            MapSaveMarkerEditor();
+            return;
+        }
+    }
+    if (IsKeyPressed(KEY_ENTER)) MapSaveMarkerEditor();
+}
+
 void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
                         float daylight)
 {
@@ -385,10 +607,26 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
 
     HomeWorldMapLayout layout = MapLayout();
     Vector2 mouse = GetMousePosition();
+    if (homeMap.markerEditorOpen) {
+        MapUpdateMarkerEditor(&layout);
+        return;
+    }
     if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_M) ||
         (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
          MapPointInButton(mouse, layout.closeButton))) {
         HomeWorldMapClose();
+        return;
+    }
+
+    HomeWorldMapBounds viewBounds = MapViewBounds(&layout);
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) &&
+        CheckCollisionPointRec(mouse, layout.map)) {
+        uint32_t markerId = MapMarkerAt(&layout, viewBounds, mouse);
+        Vector2 world = HomeWorldMapScreenToWorld(
+            viewBounds, layout.map, mouse);
+        MapOpenMarkerEditor(markerId, world);
+        homeMap.mapPressPending = false;
+        homeMap.dragging = false;
         return;
     }
 
@@ -444,13 +682,30 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
         if (wheel > 0.0f) MapZoom(-1);
         if (wheel < 0.0f) MapZoom(1);
         if (!pointerHandled && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            homeMap.dragging = true;
+            homeMap.mapPressPending = true;
+            homeMap.mapPressStart = mouse;
+            homeMap.mapPressMarkerId = MapMarkerAt(
+                &layout, viewBounds, mouse);
         }
     }
-    if (homeMap.dragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+    if (homeMap.mapPressPending &&
+        IsMouseButtonDown(MOUSE_BUTTON_LEFT) &&
+        Vector2Distance(mouse, homeMap.mapPressStart) > 6.0f) {
+        homeMap.mapPressPending = false;
+        homeMap.dragging = true;
+        homeMap.dragOffset = Vector2Subtract(mouse, homeMap.mapPressStart);
+    } else if (homeMap.dragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
         Vector2 delta = GetMouseDelta();
         homeMap.dragOffset.x += delta.x;
         homeMap.dragOffset.y += delta.y;
+    }
+    if (homeMap.mapPressPending &&
+        IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+        if (homeMap.mapPressMarkerId != 0u) {
+            MapMarkersToggleTarget(homeMap.mapPressMarkerId);
+        }
+        homeMap.mapPressPending = false;
+        homeMap.mapPressMarkerId = 0u;
     }
     if (homeMap.dragging && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
         homeMap.dragging = false;
@@ -619,6 +874,27 @@ static void MapDrawEntityMarker(Vector2 point, EntityMapMarkerKind kind)
     }
 }
 
+static void MapDrawCustomMarker(Vector2 point, const MapMarker *marker,
+                                bool selected)
+{
+    if (!marker) return;
+    Color color = MapMarkerColorValue(marker->color);
+    if (selected) {
+        DrawCircleLines((int)point.x, (int)point.y - 4, 10.0f,
+                        Fade(WHITE, 0.94f));
+        DrawCircleLines((int)point.x, (int)point.y - 4, 12.0f,
+                        Fade(color, 0.62f));
+    }
+    DrawTriangle((Vector2){ point.x, point.y + 7.0f },
+                 (Vector2){ point.x - 5.0f, point.y - 2.0f },
+                 (Vector2){ point.x + 5.0f, point.y - 2.0f }, color);
+    DrawCircleV((Vector2){ point.x, point.y - 4.0f }, 6.0f,
+                Fade(BLACK, 0.78f));
+    DrawCircleV((Vector2){ point.x, point.y - 4.0f }, 4.2f, color);
+    UiDrawText(marker->name, (int)point.x + 10, (int)point.y - 13, 13,
+               selected ? WHITE : Fade(WHITE, 0.88f));
+}
+
 static void MapDrawPlayer(const HomeWorldMapLayout *layout,
                           HomeWorldMapBounds viewBounds)
 {
@@ -763,13 +1039,31 @@ static void MapDrawGlobe(const HomeWorldMapLayout *layout)
     float longitude = 0.0f;
     float latitude = 0.0f;
     MapPlayerLatLon(&longitude, &latitude);
+    MapMarker mapMarkers[MAP_MARKERS_PER_SURFACE];
+    SurfaceGlobeMarker globeMarkers[MAP_MARKERS_PER_SURFACE];
+    int markerCount = MapMarkersCollect(
+        MapCurrentSurface(), mapMarkers, MAP_MARKERS_PER_SURFACE);
+    uint32_t targetId = MapMarkersTargetId();
+    for (int i = 0; i < markerCount; i++) {
+        float markerLongitude = 0.0f;
+        float markerLatitude = 0.0f;
+        MapMarkerLatLon(&mapMarkers[i], &markerLongitude, &markerLatitude);
+        globeMarkers[i] = (SurfaceGlobeMarker){
+            .longitude = markerLongitude,
+            .latitude = markerLatitude,
+            .color = MapMarkerColorValue(mapMarkers[i].color),
+            .selected = mapMarkers[i].id == targetId
+        };
+    }
     SurfaceGlobeDraw(&(SurfaceGlobeDrawParams){
         .destination = layout->globe,
         .planetSurface = homeMap.planetSurface,
         .cameraLongitude = homeMap.globeLongitude,
         .cameraLatitude = homeMap.globeLatitude,
         .markerLongitude = longitude,
-        .markerLatitude = latitude
+        .markerLatitude = latitude,
+        .markers = globeMarkers,
+        .markerCount = markerCount
     });
     DrawCircleLines((int)(layout->globe.x + layout->globe.width * 0.5f),
                     (int)(layout->globe.y + layout->globe.height * 0.5f),
@@ -837,6 +1131,86 @@ static void MapDrawSidebar(const HomeWorldMapLayout *layout,
                Fade(WHITE, 0.66f));
 }
 
+static void MapDrawEditorButton(Rectangle button, const char *label,
+                                Color accent)
+{
+    bool hovered = CheckCollisionPointRec(GetMousePosition(), button);
+    DrawRectangleRec(button, hovered ? Fade(accent, 0.42f)
+                                     : Fade(accent, 0.24f));
+    DrawRectangleLinesEx(button, 1.0f,
+                         hovered ? Fade(accent, 0.92f)
+                                 : Fade(WHITE, 0.34f));
+    int width = UiMeasureText(label, 15);
+    UiDrawText(label, (int)(button.x + (button.width - width) * 0.5f),
+               (int)button.y + 8, 15, WHITE);
+}
+
+static void MapDrawMarkerEditor(const HomeWorldMapLayout *layout)
+{
+    if (!homeMap.markerEditorOpen) return;
+    MapMarkerEditorLayout editor = MapEditorLayout(layout);
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
+                  Fade(BLACK, 0.48f));
+    DrawRectangleRec(editor.panel, (Color){ 24, 31, 33, 255 });
+    DrawRectangleLinesEx(editor.panel, 1.5f, Fade(WHITE, 0.48f));
+    UiDrawText(homeMap.markerEditorEditing ? "Edit map marker"
+                                           : "Add map marker",
+               (int)editor.panel.x + 24, (int)editor.panel.y + 16,
+               21, WHITE);
+    UiDrawText(TextFormat("XZ %.0f, %.0f", homeMap.markerEditorWorld.x,
+                          homeMap.markerEditorWorld.y),
+               (int)editor.panel.x + 24, (int)editor.panel.y + 42,
+               13, Fade(WHITE, 0.58f));
+
+    DrawRectangleRec(editor.input, (Color){ 11, 17, 19, 255 });
+    DrawRectangleLinesEx(editor.input, 1.0f, Fade(WHITE, 0.48f));
+    int nameFont = 19;
+    while (nameFont > 13 &&
+           UiMeasureText(homeMap.markerEditorName, nameFont) >
+               (int)editor.input.width - 18) {
+        nameFont--;
+    }
+    UiDrawText(homeMap.markerEditorName, (int)editor.input.x + 9,
+               (int)editor.input.y + 11, nameFont, WHITE);
+    if (((int)(GetTime() * 2.0) & 1) == 0) {
+        int cursorX = (int)editor.input.x + 9 +
+                      UiMeasureText(homeMap.markerEditorName, nameFont) + 2;
+        cursorX = (int)fminf((float)cursorX,
+                             editor.input.x + editor.input.width - 7.0f);
+        DrawLine(cursorX, (int)editor.input.y + 9,
+                 cursorX, (int)(editor.input.y + editor.input.height) - 8,
+                 WHITE);
+    }
+
+    for (int i = 0; i < MAP_MARKER_COLOR_COUNT; i++) {
+        Rectangle swatch = editor.swatches[i];
+        Color color = MapMarkerColorValue((MapMarkerColor)i);
+        DrawCircleV((Vector2){ swatch.x + swatch.width * 0.5f,
+                               swatch.y + swatch.height * 0.5f },
+                    10.0f, color);
+        if (homeMap.markerEditorColor == (MapMarkerColor)i) {
+            DrawCircleLines((int)(swatch.x + swatch.width * 0.5f),
+                            (int)(swatch.y + swatch.height * 0.5f),
+                            13.0f, WHITE);
+        }
+    }
+
+    if (homeMap.markerEditorEditing) {
+        MapDrawEditorButton(editor.deleteButton, "Delete",
+                            (Color){ 216, 72, 68, 255 });
+    }
+    MapDrawEditorButton(editor.cancelButton, "Cancel",
+                        (Color){ 95, 108, 112, 255 });
+    MapDrawEditorButton(editor.saveButton, "Save",
+                        (Color){ 68, 161, 128, 255 });
+    if (homeMap.markerEditorError[0] != '\0') {
+        UiDrawText(homeMap.markerEditorError,
+                   (int)editor.panel.x + 24,
+                   (int)editor.panel.y + 164, 12,
+                   (Color){ 242, 112, 96, 255 });
+    }
+}
+
 void HomeWorldMapDraw(void)
 {
     if (!homeMap.open) return;
@@ -849,6 +1223,7 @@ void HomeWorldMapDraw(void)
     snprintf(surveyTitle, sizeof(surveyTitle), "%s survey",
              homeMap.surfaceName);
     const char *hoverTitle = surveyTitle;
+    char customHoverTitle[MAP_MARKER_NAME_SIZE] = { 0 };
     char hoverDetail[128];
     snprintf(hoverDetail, sizeof(hoverDetail),
              "Center %.0f, %.0f   |   %.0f block view",
@@ -926,6 +1301,28 @@ void HomeWorldMapDraw(void)
                          "XZ %.0f, %.0f", marker->position.x,
                          marker->position.z);
             }
+        }
+    }
+
+    MapMarker customMarkers[MAP_MARKERS_PER_SURFACE];
+    int customMarkerCount = MapMarkersCollect(
+        MapCurrentSurface(), customMarkers, MAP_MARKERS_PER_SURFACE);
+    uint32_t targetId = MapMarkersTargetId();
+    for (int i = 0; i < customMarkerCount; i++) {
+        MapMarker *marker = &customMarkers[i];
+        if (!HomeWorldMapWorldVisible(viewBounds, marker->x, marker->z)) {
+            continue;
+        }
+        Vector2 point = HomeWorldMapWorldToScreen(
+            viewBounds, layout.map, marker->x, marker->z);
+        MapDrawCustomMarker(point, marker, marker->id == targetId);
+        if (Vector2Distance(mouse, point) <= 13.0f) {
+            snprintf(customHoverTitle, sizeof(customHoverTitle), "%s",
+                     marker->name);
+            hoverTitle = customHoverTitle;
+            snprintf(hoverDetail, sizeof(hoverDetail),
+                     "XZ %.0f, %.0f%s", marker->x, marker->z,
+                     marker->id == targetId ? "   |   navigation target" : "");
         }
     }
 
@@ -1012,6 +1409,7 @@ void HomeWorldMapDraw(void)
         }
     }
     MapDrawSidebar(&layout, hoverTitle, hoverDetail);
+    MapDrawMarkerEditor(&layout);
 }
 
 void HomeWorldMapUnload(void)

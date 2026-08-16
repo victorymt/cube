@@ -8,6 +8,7 @@
 #include "world/nether.h"
 #include "gameplay/album.h"
 #include "gameplay/inventory.h"
+#include "gameplay/map_markers.h"
 #include "gameplay/ship.h"
 #include "ecology/entity.h"
 #include "ecology/ecology.h"
@@ -27,6 +28,8 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V19 "VOXELCRAFT_SAVE_V19"
+#define SAVE_MAGIC_V19_LEN (sizeof(SAVE_MAGIC_V19) - 1)
 #define SAVE_MAGIC_V18 "VOXELCRAFT_SAVE_V18"
 #define SAVE_MAGIC_V18_LEN (sizeof(SAVE_MAGIC_V18) - 1)
 #define SAVE_MAGIC_V17 "VOXELCRAFT_SAVE_V17"
@@ -712,6 +715,7 @@ void ClearUndoHistory(void)
 void WorldReset(uint32_t seed)
 {
     WorldExtensionReset();
+    MapMarkersReset();
     WorldSetNetherActive(false);
     blockEditCount = 0;
     BumpBlockEditRevision();
@@ -1098,8 +1102,8 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     const Player *player = context ? context->player : NULL;
     if (!file || !player) return false;
 
-    bool ok = fwrite(SAVE_MAGIC_V18, 1, SAVE_MAGIC_V18_LEN, file) ==
-              SAVE_MAGIC_V18_LEN;
+    bool ok = fwrite(SAVE_MAGIC_V19, 1, SAVE_MAGIC_V19_LEN, file) ==
+              SAVE_MAGIC_V19_LEN;
     uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
     uint32_t activeDimension = (uint32_t)WorldCurrentDimension();
     uint32_t seed = WorldGetSeed();
@@ -1129,6 +1133,7 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     ok = ok && SpaceSaveState(file) && EntitiesSaveState(file) &&
          PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
          ShipLocatorSaveState(file) && WorldExtensionSaveState(file) &&
+         MapMarkersSaveState(file) &&
          WriteSphericalSaveTrailer(file, player) &&
          !ferror(file);
     return ok;
@@ -1391,19 +1396,26 @@ void LoadMap(Player *player)
     SurfaceAddress loadedPlayerAddress = { 0 };
     SurfaceAddress *loadedEditAddresses = NULL;
     ShipLocatorRecord loadedShipLocator = { 0 };
+    MapMarkerState loadedMapMarkers;
+    MapMarkersEmptyState(&loadedMapMarkers);
+    char magicV19[SAVE_MAGIC_V19_LEN] = { 0 };
+    bool isV19 = fread(magicV19, 1, SAVE_MAGIC_V19_LEN, file) ==
+                     SAVE_MAGIC_V19_LEN &&
+                 memcmp(magicV19, SAVE_MAGIC_V19, SAVE_MAGIC_V19_LEN) == 0;
+    if (!isV19) rewind(file);
     char magicV18[SAVE_MAGIC_V18_LEN] = { 0 };
-    bool isV18 = fread(magicV18, 1, SAVE_MAGIC_V18_LEN, file) ==
+    bool isV18 = !isV19 &&
+                 fread(magicV18, 1, SAVE_MAGIC_V18_LEN, file) ==
                      SAVE_MAGIC_V18_LEN &&
                  memcmp(magicV18, SAVE_MAGIC_V18, SAVE_MAGIC_V18_LEN) == 0;
-    if (!isV18) {
+    if (!isV19 && !isV18) {
         fclose(file);
         SetImportMessage(
             "Load failed: V17 and older flat saves are incompatible with spherical worlds.");
         return;
     }
-    // The V18 core payload deliberately retains the proven V17 reader. The
-    // spherical identity trailer below is mandatory and validated before any
-    // loaded state is installed.
+    // V18 and V19 retain the proven V17 core payload. V19 adds map markers
+    // immediately before the mandatory spherical identity trailer.
     bool isV17 = true;
     char magicV16[SAVE_MAGIC_V16_LEN] = { 0 };
     bool isV16 = false;
@@ -1700,6 +1712,13 @@ void LoadMap(Player *player)
         SetImportMessage("Load failed: fluid state is corrupted.");
         return;
     }
+    if (isV19 && !MapMarkersReadState(file, &loadedMapMarkers)) {
+        free(loadedDimensions);
+        free(loadedEdits);
+        fclose(file);
+        SetImportMessage("Load failed: map marker state is corrupted.");
+        return;
+    }
     if (!ReadSphericalSaveTrailer(
             file, savedDimension, &savedPlayer, loadedEdits,
             loadedDimensions, savedEditCount, &loadedPlayerAddress,
@@ -1821,6 +1840,7 @@ void LoadMap(Player *player)
     ClearUndoHistory();
     if (isV14Family || isV13 || isV12) ShipLocatorSetRecord(&loadedShipLocator);
     else ShipLocatorReset();
+    MapMarkersInstallState(&loadedMapMarkers);
 
     if (WorldIsSurfaceActive()) {
         UpdateChunks(player->position,
