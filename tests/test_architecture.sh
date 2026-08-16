@@ -88,6 +88,13 @@ do
     [ "$lines" -le 1500 ] || fail "$split_file exceeds the 1500-line hotspot limit"
 done
 
+ship_lines=$(wc -l < src/gameplay/ship.c)
+[ "$ship_lines" -le 1800 ] ||
+    fail "src/gameplay/ship.c exceeds its 1800-line responsibility limit"
+ship_visual_lines=$(wc -l < src/gameplay/ship_visual.c)
+[ "$ship_visual_lines" -le 700 ] ||
+    fail "src/gameplay/ship_visual.c exceeds its 700-line responsibility limit"
+
 oversized_files=$(
     find src -name '*.c' -exec wc -l {} \; |
         awk '$1 > 2100 { print $2 " (" $1 " lines)" }'

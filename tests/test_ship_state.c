@@ -1,6 +1,7 @@
 #include "gameplay/ship.h"
 #include "gameplay/ship_navigation.h"
 #include "space/space.h"
+#include "raymath.h"
 
 #include <assert.h>
 #include <math.h>
@@ -16,17 +17,27 @@ static int undoBeginCalls;
 static int undoEndCalls;
 static SolarSystemDef testWarpSystem;
 static bool testWarpSolidSurfaces[MAX_SOLAR_PLANETS];
+static bool testWorldSpaceActive;
+static WorldDimension testWorldDimension = WORLD_DIMENSION_HOME;
+static float testLastExhaustDemand;
+static int testGroundEffectCalls;
 
 static void ResetTestWorld(void)
 {
     memset(testWorld, 0, sizeof(testWorld));
     undoBeginCalls = 0;
     undoEndCalls = 0;
+    testWorldSpaceActive = false;
+    testWorldDimension = WORLD_DIMENSION_HOME;
+    testLastExhaustDemand = 0.0f;
+    testGroundEffectCalls = 0;
 }
 
 bool PlanetWorldIsActive(void) { return false; }
 bool HomeWorldSurfaceIsActive(void) { return true; }
 bool WorldIsSurfaceActive(void) { return false; }
+WorldDimension WorldCurrentDimension(void) { return testWorldDimension; }
+bool WorldIsSpaceActive(void) { return testWorldSpaceActive; }
 WorldBlockRegion WorldBlockRegionAt(int y)
 {
     if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP) return WORLD_BLOCK_REGION_SPACE;
@@ -38,6 +49,23 @@ uint32_t WorldCurrentSurfaceId(void) { return 0u; }
 int SpaceOriginX(void) { return 0; }
 int SpaceOriginZ(void) { return 0; }
 const char *PlanetWorldName(void) { return "Test Planet"; }
+
+float HomeWorldSpaceFade(Vector3 position)
+{
+    (void)position;
+    return 0.0f;
+}
+
+float PlanetWorldAtmosphereFade(Vector3 position)
+{
+    (void)position;
+    return 0.0f;
+}
+
+const PlanetProfile *PlanetWorldProfile(void)
+{
+    return NULL;
+}
 
 BlockType GetBlockAt(int x, int y, int z)
 {
@@ -76,6 +104,113 @@ bool SpaceBlockReadyAt(int x, int y, int z)
 void SetImportMessage(const char *message)
 {
     (void)message;
+}
+
+bool IsKeyDown(int key)
+{
+    (void)key;
+    return false;
+}
+
+bool IsKeyPressed(int key)
+{
+    (void)key;
+    return false;
+}
+
+Vector2 GetMouseDelta(void)
+{
+    return (Vector2){ 0 };
+}
+
+Vector3 ForwardFromAngles(float yaw, float pitch)
+{
+    return (Vector3){ sinf(yaw) * cosf(pitch), sinf(pitch),
+                      cosf(yaw) * cosf(pitch) };
+}
+
+Vector3 RightFromYaw(float yaw)
+{
+    return (Vector3){ cosf(yaw), 0.0f, -sinf(yaw) };
+}
+
+void MovePlayer(Player *player, Vector3 delta)
+{
+    if (player) player->position = Vector3Add(player->position, delta);
+}
+
+bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDirection,
+                     float *surfaceDistance, float *gravityScale)
+{
+    (void)position;
+    if (gravityDirection) *gravityDirection = (Vector3){ 0 };
+    if (surfaceDistance) *surfaceDistance = 0.0f;
+    if (gravityScale) *gravityScale = 0.0f;
+    return false;
+}
+
+bool SpaceGravityAt(Vector3 position, SpaceGravitySample *out)
+{
+    (void)position;
+    if (out) *out = (SpaceGravitySample){ 0 };
+    return false;
+}
+
+bool SpacePlanetNavigationPick(Vector3 origin, Vector3 direction,
+                               SpaceBodyInfo *out)
+{
+    (void)origin;
+    (void)direction;
+    (void)out;
+    return false;
+}
+
+bool FindNearestSystem(Vector3 position, float maxDistance,
+                       SolarSystemDef *out, float *outDistance)
+{
+    (void)position;
+    (void)maxDistance;
+    (void)out;
+    (void)outDistance;
+    return false;
+}
+
+Vector3 SpacePhysicsBrakeVelocity(Vector3 velocity, float deceleration,
+                                  float dt)
+{
+    (void)deceleration;
+    (void)dt;
+    return velocity;
+}
+
+void ShipResetVisualEffects(void) {}
+float ShipVisualExhaustIntensity(void) { return 0.0f; }
+void ShipVisualSetDebugExhaust(const Player *player, float demand,
+                               float atmosphereDensity)
+{
+    (void)player;
+    (void)demand;
+    (void)atmosphereDensity;
+}
+void ShipVisualUpdateMainExhaust(const Player *player, float dt,
+                                 ShipDriveMode mode, float demand,
+                                 float atmosphereDensity)
+{
+    (void)player;
+    (void)dt;
+    (void)mode;
+    (void)atmosphereDensity;
+    testLastExhaustDemand = demand;
+}
+void ShipGroundEffectsReset(void) {}
+void ShipGroundEffectsEmit(const Player *player, float dt,
+                           float intensity, bool touchdown)
+{
+    (void)player;
+    (void)dt;
+    (void)intensity;
+    (void)touchdown;
+    testGroundEffectCalls++;
 }
 
 const char *TextFormat(const char *text, ...)
@@ -201,6 +336,42 @@ static void TestFuelConsumptionContract(void)
     assert(!ShipConsumeFuel(0.01f));
     assert(ShipRefuel());
     assert(ShipGetFuel() == SHIP_MAX_FUEL);
+}
+
+static void TestScriptedFlightUpdateContract(void)
+{
+    ResetTestWorld();
+    SetBlock(0, 4, 0, BLOCK_SPACESHIP);
+    Player player = { 0 };
+    ShipReset();
+    assert(ShipTryEnter(0, 4, 0, &player));
+
+    ShipControlInput input = { .forward = 2.0f, .strafe = 0.0f,
+                               .vertical = 0.0f };
+    float beforeFuel = ShipGetFuel();
+    Vector3 before = player.position;
+    ShipUpdateWithInput(&player, 0.1f, &input);
+    assert(player.position.z > before.z);
+    assert(player.velocity.z > 0.0f);
+    assert(ShipGetFuel() < beforeFuel);
+    assert(fabsf(testLastExhaustDemand - 0.65f) < 0.0001f);
+    assert(testGroundEffectCalls == 0);
+
+    before = player.position;
+    beforeFuel = ShipGetFuel();
+    ShipUpdateWithInput(&player, 0.0f, &input);
+    assert(player.position.x == before.x && player.position.y == before.y &&
+           player.position.z == before.z);
+    assert(ShipGetFuel() == beforeFuel);
+
+    assert(!ShipConsumeFuel(SHIP_MAX_FUEL));
+    assert(ShipGetFuel() == 0.0f);
+    player.velocity = Vector3Zero();
+    ShipUpdateWithInput(&player, 0.1f, &input);
+    assert(player.velocity.x == 0.0f && player.velocity.y == 0.0f &&
+           player.velocity.z == 0.0f);
+    assert(testLastExhaustDemand == 0.0f);
+    ShipReset();
 }
 
 static void TestLoadIsAtomicAndResetsRuntimeState(void)
@@ -457,6 +628,7 @@ static void TestStateFileValidation(void)
 int main(void)
 {
     TestFuelConsumptionContract();
+    TestScriptedFlightUpdateContract();
     TestLoadIsAtomicAndResetsRuntimeState();
     TestParkedShipLayoutAndInteraction();
     TestShipDirectionQuantization();

@@ -56,6 +56,7 @@ RENDER_RESOURCES_TEST_TARGET := $(TEST_BUILD_DIR)/test_render_resources
 WORLD_RENDERER_TEST_TARGET := $(TEST_BUILD_DIR)/test_world_renderer
 WORLD_LIGHTING_TEST_TARGET := $(TEST_BUILD_DIR)/test_world_lighting
 SAVE_IO_TEST_TARGET := $(TEST_BUILD_DIR)/test_save_io
+SAVE_FORMAT_TEST_TARGET := $(TEST_BUILD_DIR)/test_save_format
 GAME_SETTINGS_TEST_TARGET := $(TEST_BUILD_DIR)/test_game_settings
 SCREENSHOT_TEST_TARGET := $(TEST_BUILD_DIR)/test_screenshot
 DEBUG_CONTROL_TEST_TARGET := $(TEST_BUILD_DIR)/test_debug_control
@@ -81,6 +82,7 @@ TEST_TARGETS += $(SPACE_COORDINATES_TEST_TARGET)
 TEST_TARGETS += $(SURFACE_TOPOLOGY_TEST_TARGET)
 TEST_TARGETS += $(SURFACE_SAVE_TEST_TARGET)
 TEST_TARGETS += $(MAP_MARKERS_TEST_TARGET)
+TEST_TARGETS += $(SAVE_FORMAT_TEST_TARGET)
 TEST_TIMEOUT_SECONDS ?= 120
 SANITIZER_LEAKS ?= 1
 SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=address,undefined -fno-omit-frame-pointer
@@ -250,8 +252,8 @@ $(MAP_MARKERS_TEST_TARGET): tests/test_map_markers.c src/gameplay/map_markers.c 
 $(PLAYER_COLLISION_TEST_TARGET): tests/test_player_collision.c src/gameplay/player.c src/gameplay/player.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_player_collision.c src/gameplay/player.c -lm
 
-$(SHIP_STATE_TEST_TARGET): tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship.h src/gameplay/ship_exhaust.c src/gameplay/ship_exhaust.h src/gameplay/ship_ground_effects.c src/gameplay/ship_ground_effects.h src/gameplay/ship_navigation.c src/gameplay/ship_navigation.h src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h src/gameplay/ship_locator.c src/gameplay/ship_locator.h
-	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship_exhaust.c src/gameplay/ship_ground_effects.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c -lm
+$(SHIP_STATE_TEST_TARGET): tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship.h src/gameplay/ship_visual_internal.h src/gameplay/ship_navigation.c src/gameplay/ship_navigation.h src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h src/gameplay/ship_locator.c src/gameplay/ship_locator.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c $(RAYLIB_LIBS) -lm
 
 $(SHIP_FLIGHT_CONTROLLER_TEST_TARGET): tests/test_ship_flight_controller.c src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_ship_flight_controller.c src/gameplay/ship_flight_controller.c $(RAYLIB_LIBS) -lm
@@ -300,6 +302,9 @@ $(WORLD_LIGHTING_TEST_TARGET): tests/test_world_lighting.c src/world/world_light
 
 $(SAVE_IO_TEST_TARGET): tests/test_save_io.c src/core/save_io.c src/core/save_io.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_save_io.c src/core/save_io.c
+
+$(SAVE_FORMAT_TEST_TARGET): tests/test_save_format.c src/world/save_format.c src/world/save_format_internal.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_save_format.c src/world/save_format.c
 
 $(GAME_SETTINGS_TEST_TARGET): tests/test_game_settings.c src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_game_settings.c src/app/game_settings.c src/core/save_io.c -lm
