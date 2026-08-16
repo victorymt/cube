@@ -106,6 +106,11 @@ static bool SpaceVectorIsFinite(Vector3 value)
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
 }
 
+static float PlanetEncounterRadiusGame(double semiMajorAxisKm,
+                                       double bodyMassKg,
+                                       double parentMassKg,
+                                       double physicalRadiusKm);
+
 static Vector3 PlanetWorldSpaceDirection(Vector3 skyDirection);
 static bool SolarSystemApplyFormation(SolarSystemDef *sys, uint32_t seed);
 static bool PlanetProfileIsValid(const PlanetProfile *profile);
@@ -891,13 +896,56 @@ float SolarSystemPlanetParkingRadiusGame(const SolarSystemDef *sys, int index)
 {
     if (!SolarSystemPlanetIndexIsValid(sys, index)) return 0.0f;
     PlanetProfile profile = SolarPlanetProfile(sys, index);
+    if (!(profile.physicalRadiusKm > 0.0) ||
+        !isfinite(profile.physicalRadiusKm)) return 0.0f;
+
+    float physicalRadius = (float)SpaceUnitsKilometersToGameDistance(
+        profile.physicalRadiusKm);
+    float atmosphereClearance = profile.atmosphereType ==
+                                PLANET_ATMOSPHERE_NONE
+        ? physicalRadius
+        : physicalRadius * 1.12f;
+    float ringClearance = profile.hasRings ? physicalRadius * 1.86f * 1.12f :
+                                             physicalRadius;
+    return fmaxf(physicalRadius * 8.0f,
+                 fmaxf(atmosphereClearance, ringClearance));
+}
+
+float SolarSystemPlanetEncounterRadiusGame(const SolarSystemDef *sys, int index)
+{
+    if (!SolarSystemPlanetIndexIsValid(sys, index)) return 0.0f;
+    PlanetProfile profile = SolarPlanetProfile(sys, index);
     double parentMassKg = SolarSystemStellarMassKg(sys);
     if (!(profile.massKg > 0.0) || !(profile.physicalRadiusKm > 0.0) ||
         !(parentMassKg > 0.0)) return 0.0f;
+
     double soiKm = SpaceUnitsLaplaceSphereOfInfluenceKm(
         sys->planets[index].semiMajorAxisKm, profile.massKg, parentMassKg);
-    double parkingKm = fmax(profile.physicalRadiusKm * 8.0, soiKm * 0.15);
-    return (float)SpaceUnitsKilometersToGameDistance(parkingKm);
+    float physicalRadius = (float)SpaceUnitsKilometersToGameDistance(
+        profile.physicalRadiusKm);
+    float physicalEncounter = physicalRadius * 64.0f;
+    float soiEncounter = (float)SpaceUnitsKilometersToGameDistance(soiKm * 0.15);
+    return fmaxf(physicalEncounter, soiEncounter);
+}
+
+float SolarSystemPlanetSupercruiseExitRadiusGame(const SolarSystemDef *sys,
+                                                 int index)
+{
+    if (!SolarSystemPlanetIndexIsValid(sys, index)) return 0.0f;
+    PlanetProfile profile = SolarPlanetProfile(sys, index);
+    if (!(profile.physicalRadiusKm > 0.0) ||
+        !isfinite(profile.physicalRadiusKm)) return 0.0f;
+
+    float physicalRadius = (float)SpaceUnitsKilometersToGameDistance(
+        profile.physicalRadiusKm);
+    float parkingRadius = SolarSystemPlanetParkingRadiusGame(sys, index);
+    float encounterRadius = SolarSystemPlanetEncounterRadiusGame(sys, index);
+    float cruiseRadius = fmaxf(physicalRadius * 16.0f,
+                               parkingRadius * 2.0f);
+    if (encounterRadius > 0.0f) {
+        cruiseRadius = fminf(cruiseRadius, encounterRadius * 0.5f);
+    }
+    return fmaxf(cruiseRadius, parkingRadius * 1.15f);
 }
 
 float HomeWorldParkingRadiusGame(void)

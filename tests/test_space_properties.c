@@ -1759,6 +1759,10 @@ static void TestCanonicalSolParkingRadii(void)
     PlanetProfile earth = SolarPlanetProfile(&sol, earthIndex);
     float earthParking = SolarSystemPlanetParkingRadiusGame(
         &sol, earthIndex);
+    float earthEncounter = SolarSystemPlanetEncounterRadiusGame(
+        &sol, earthIndex);
+    float earthSupercruise = SolarSystemPlanetSupercruiseExitRadiusGame(
+        &sol, earthIndex);
     AssertRelative(HomeWorldParkingRadiusGame(), earthParking, 0.000001);
     double earthPhysicalRadius = SpaceUnitsKilometersToGameDistance(
         earth.physicalRadiusKm);
@@ -1766,11 +1770,26 @@ static void TestCanonicalSolParkingRadii(void)
         SpaceUnitsLaplaceSphereOfInfluenceKm(
             sol.planets[earthIndex].semiMajorAxisKm, earth.massKg,
             SolarSystemStellarMassKg(&sol)));
-    assert(earthParking > earthPhysicalRadius * 8.0);
+    assert(earthParking >= earthPhysicalRadius * 7.99);
+    assert(earthEncounter > earthSupercruise);
+    assert(earthSupercruise > earthParking);
+    assert(earthEncounter >= earthPhysicalRadius * 63.9);
     assert(earthParking < earthSphereOfInfluence);
+
+    for (int index = 0; index < sol.planetCount; index++) {
+        float parking = SolarSystemPlanetParkingRadiusGame(&sol, index);
+        float encounter = SolarSystemPlanetEncounterRadiusGame(&sol, index);
+        float supercruise = SolarSystemPlanetSupercruiseExitRadiusGame(
+            &sol, index);
+        assert(parking > 0.0f);
+        assert(encounter > supercruise);
+        assert(supercruise > parking);
+    }
 
     assert(SolarSystemParkingRadiusGame(NULL) == 0.0f);
     assert(SolarSystemPlanetParkingRadiusGame(NULL, earthIndex) == 0.0f);
+    assert(SolarSystemPlanetEncounterRadiusGame(NULL, earthIndex) == 0.0f);
+    assert(SolarSystemPlanetSupercruiseExitRadiusGame(NULL, earthIndex) == 0.0f);
     assert(SolarSystemPlanetParkingRadiusGame(&sol, -1) == 0.0f);
     assert(SolarSystemPlanetParkingRadiusGame(&sol, sol.planetCount) ==
            0.0f);

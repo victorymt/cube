@@ -10,6 +10,7 @@
 #include "player.h"
 #include "particles.h"
 #include "space.h"
+#include "space_units.h"
 #include "space_physics.h"
 #include "world_environment.h"
 
@@ -354,8 +355,83 @@ static void ClearNavigationTarget(void)
     targetEtaSeconds = 0.0f;
 }
 
-static bool ResolveNavigationTarget(Vector3 *center, Vector3 *velocity,
-                                    float *safeDistance)
+static float NavigationPlanetDistance(const SolarSystemDef *system,
+                                      int planetIndex, ShipDriveMode mode)
+{
+    if (!system || planetIndex < 0 || planetIndex >= system->planetCount) {
+        return 0.0f;
+    }
+    switch (mode) {
+    case SHIP_DRIVE_INTERSTELLAR_WARP:
+        return SolarSystemPlanetEncounterRadiusGame(system, planetIndex);
+    case SHIP_DRIVE_SUPERCRUISE:
+        return SolarSystemPlanetSupercruiseExitRadiusGame(system, planetIndex);
+    default:
+        return SolarSystemPlanetParkingRadiusGame(system, planetIndex);
+    }
+}
+
+static bool NavigationPositionClearOfSatellites(
+    Vector3 position, const SpaceSatelliteInfo *satellites, int count,
+    int systemAnchorX, int systemAnchorZ, int planetIndex)
+{
+    for (int i = 0; i < count; i++) {
+        const SpaceSatelliteInfo *satellite = &satellites[i];
+        if (satellite->systemAnchorX != systemAnchorX ||
+            satellite->systemAnchorZ != systemAnchorZ ||
+            satellite->parentPlanetIndex != planetIndex) continue;
+        float physicalRadius = (float)SpaceUnitsKilometersToGameDistance(
+            satellite->physicalRadiusKm);
+        float clearance = fmaxf(satellite->encounterRadiusGame,
+                                physicalRadius * 2.20f) + 0.5f;
+        if (Vector3Distance(position, satellite->center) < clearance) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static Vector3 NavigationArrivalPosition(const SolarSystemDef *system,
+                                         int planetIndex, Vector3 center,
+                                         Vector3 currentPosition,
+                                         float parkingRadius)
+{
+    if (!system || planetIndex < 0 || !(parkingRadius > 0.0f) ||
+        !isfinite(parkingRadius)) return currentPosition;
+
+    Vector3 outward = Vector3Subtract(currentPosition, center);
+    if (Vector3LengthSqr(outward) < 0.000001f) {
+        outward = (Vector3){ 0.0f, 1.0f, 0.0f };
+    } else {
+        outward = Vector3Normalize(outward);
+    }
+
+    float queryRadius = fminf(SOLAR_SYSTEM_QUERY_RADIUS,
+                              fmaxf(parkingRadius + 64.0f, 128.0f));
+    SpaceSatelliteInfo satellites[48];
+    int satelliteCount = SpaceSatellitesNear(center, queryRadius,
+                                             satellites, 48);
+    Vector3 directions[7] = {
+        outward,
+        { 1.0f, 0.0f, 0.0f }, { -1.0f, 0.0f, 0.0f },
+        { 0.0f, 1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f },
+        { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f }
+    };
+    for (int i = 0; i < 7; i++) {
+        Vector3 direction = Vector3Normalize(directions[i]);
+        Vector3 candidate = Vector3Add(
+            center, Vector3Scale(direction, parkingRadius));
+        if (NavigationPositionClearOfSatellites(
+                candidate, satellites, satelliteCount,
+                system->anchorX, system->anchorZ, planetIndex)) {
+            return candidate;
+        }
+    }
+    return Vector3Add(center, Vector3Scale(outward, parkingRadius));
+}
+
+static bool ResolveNavigationTarget(ShipDriveMode mode, Vector3 *center,
+                                    Vector3 *velocity, float *safeDistance)
 {
     if (!navigationTarget.locked) return false;
 
@@ -395,8 +471,7 @@ static bool ResolveNavigationTarget(Vector3 *center, Vector3 *velocity,
     if (center) *center = state.center;
     if (velocity) *velocity = state.velocity;
     if (safeDistance) {
-        *safeDistance = SolarSystemPlanetParkingRadiusGame(
-            &system, planetIndex);
+        *safeDistance = NavigationPlanetDistance(&system, planetIndex, mode);
     }
     return true;
 }
@@ -558,7 +633,8 @@ void ShipToggleNavigation(Player *player)
 
     Vector3 targetCenter;
     float safeDistance = 0.0f;
-    if (!ResolveNavigationTarget(&targetCenter, NULL, &safeDistance)) {
+    if (!ResolveNavigationTarget(driveMode, &targetCenter, NULL,
+                                 &safeDistance)) {
         ClearNavigationTarget();
         SetImportMessage("Navigation target is no longer available.");
         return;
@@ -1259,8 +1335,8 @@ void ShipUpdate(Player *player, float dt)
         float safeDistance = 0.0f;
         ShipDriveMode guidanceMode = driveMode;
         bool highSpeedTransit = ShipDriveIsWarpTransit();
-        if (!ResolveNavigationTarget(&targetCenter, &targetVelocity,
-                                     &safeDistance)) {
+        if (!ResolveNavigationTarget(guidanceMode, &targetCenter,
+                                     &targetVelocity, &safeDistance)) {
             ClearNavigationTarget();
             if (highSpeedTransit) player->velocity = Vector3Zero();
             SetImportMessage("Navigation target is no longer available.");
@@ -1270,8 +1346,6 @@ void ShipUpdate(Player *player, float dt)
             float acceleration = SHIP_CRUISE_ACCEL;
             float deceleration = SHIP_CRUISE_DECEL;
             if (guidanceMode == SHIP_DRIVE_SUPERCRUISE) {
-                guidanceSafeDistance += ShipNavigationSupercruiseExitMargin(
-                    safeDistance, SHIP_CRUISE_MAX_SPEED);
                 maxSpeed = SHIP_SUPERCRUISE_MAX_SPEED;
                 acceleration = SHIP_SUPERCRUISE_ACCEL;
                 deceleration = SHIP_SUPERCRUISE_DECEL;
@@ -1323,13 +1397,32 @@ void ShipUpdate(Player *player, float dt)
                     } else if (guidanceMode ==
                                SHIP_DRIVE_INTERSTELLAR_WARP) {
                         player->velocity = targetVelocity;
-                        ClearNavigationTarget();
-                        SetImportMessage(targetIsSystem
-                            ? TextFormat("Arrived in %s.", targetName)
-                            : TextFormat("Arrived near %s. Press E to land.",
-                                         targetName));
+                        if (targetIsSystem) {
+                            ClearNavigationTarget();
+                            SetImportMessage(TextFormat("Arrived in %s.",
+                                                        targetName));
+                        } else {
+                            navigationIntent = NAVIGATION_INTENT_CONTEXTUAL;
+                            driveMode = SHIP_DRIVE_SUPERCRUISE;
+                            SetImportMessage(TextFormat(
+                                "Warp complete. Supercruise engaged: %s.",
+                                targetName));
+                        }
                     } else {
                         driveMode = SHIP_DRIVE_MANEUVER;
+                        if (!targetIsSystem) {
+                            SolarSystemDef arrivalSystem;
+                            if (StarSystemAt(
+                                    navigationTarget.systemAnchorX,
+                                    navigationTarget.systemAnchorZ,
+                                    &arrivalSystem)) {
+                                player->position = NavigationArrivalPosition(
+                                    &arrivalSystem,
+                                    navigationTarget.planetIndex,
+                                    targetCenter, player->position,
+                                    safeDistance);
+                            }
+                        }
                         player->velocity = targetVelocity;
                         targetSpeed = 0.0f;
                         targetClosingSpeed = 0.0f;

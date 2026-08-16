@@ -373,6 +373,10 @@ bool SolarSystemPlanetStateAtTime(const SolarSystemDef *sys, int index,
 double SolarSystemPlanetOrbitPeriodSeconds(const SolarSystemDef *sys, int index);
 double SolarSystemPlanetOrbitPeriodGameTime(const SolarSystemDef *sys, int index);
 float SolarSystemParkingRadiusGame(const SolarSystemDef *sys);
+float SolarSystemPlanetEncounterRadiusGame(const SolarSystemDef *sys,
+                                           int index);
+float SolarSystemPlanetSupercruiseExitRadiusGame(const SolarSystemDef *sys,
+                                                 int index);
 float SolarSystemPlanetParkingRadiusGame(const SolarSystemDef *sys, int index);
 float HomeWorldParkingRadiusGame(void);
 int SolarSystemLightSources(const SolarSystemDef *sys, SolarLightSource *out,

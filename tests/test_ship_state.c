@@ -131,6 +131,22 @@ float SolarSystemParkingRadiusGame(const SolarSystemDef *system)
     return 10.0f;
 }
 
+float SolarSystemPlanetEncounterRadiusGame(const SolarSystemDef *system,
+                                           int index)
+{
+    (void)system;
+    (void)index;
+    return 16.0f;
+}
+
+float SolarSystemPlanetSupercruiseExitRadiusGame(
+    const SolarSystemDef *system, int index)
+{
+    (void)system;
+    (void)index;
+    return 6.0f;
+}
+
 float SolarSystemPlanetParkingRadiusGame(const SolarSystemDef *system,
                                          int index)
 {
