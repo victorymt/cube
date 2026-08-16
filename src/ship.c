@@ -1,6 +1,7 @@
 #include "ship.h"
 
 #include "ship_flight_controller.h"
+#include "ship_navigation.h"
 
 #include "raymath.h"
 #include "block_atlas.h"
@@ -27,39 +28,49 @@
 #define SHIP_CRUISE_SPEED_CHANGE 12.0f
 #define SHIP_CRUISE_ACCEL 6.0f
 #define SHIP_CRUISE_DECEL 10.0f
+#define SHIP_SUPERCRUISE_MAX_SPEED 1200.0f
+#define SHIP_SUPERCRUISE_ACCEL 180.0f
+#define SHIP_SUPERCRUISE_DECEL 360.0f
 #define SHIP_ATMOSPHERE_DRAG 0.65f
 #define SHIP_SURFACE_ASSIST_DECEL 18.0f
 #define SHIP_SPACE_ASSIST_DECEL 5.0f
-#define SHIP_WARP_MAX_SPEED 6000.0f
-#define SHIP_WARP_ACCEL 900.0f
-#define SHIP_WARP_DECEL 1800.0f
+#define SHIP_INTERSTELLAR_MAX_SPEED 6000.0f
+#define SHIP_INTERSTELLAR_ACCEL 900.0f
+#define SHIP_INTERSTELLAR_DECEL 1800.0f
 #define SHIP_PLANET_CRUISE_MIN_TOLERANCE 0.05f
 #define SHIP_SPACE_COLLISION_CLEARANCE 0.00025f
 #define SHIP_THRUST_FUEL_RATE 0.08f
 #define SHIP_CRUISE_FUEL_RATE 0.16f
-#define SHIP_WARP_FUEL_RATE 0.45f
+#define SHIP_SUPERCRUISE_FUEL_RATE 0.24f
+#define SHIP_INTERSTELLAR_FUEL_RATE 0.45f
 
-typedef enum WarpTargetType {
-    WARP_TARGET_NONE = 0,
-    WARP_TARGET_PLANET,
-    WARP_TARGET_SYSTEM
-} WarpTargetType;
+typedef enum NavigationTargetType {
+    NAVIGATION_TARGET_NONE = 0,
+    NAVIGATION_TARGET_PLANET,
+    NAVIGATION_TARGET_SYSTEM
+} NavigationTargetType;
 
-typedef struct WarpTarget {
+typedef enum NavigationIntent {
+    NAVIGATION_INTENT_CONTEXTUAL = 0,
+    NAVIGATION_INTENT_INTERSTELLAR
+} NavigationIntent;
+
+typedef struct NavigationTarget {
     bool locked;
-    WarpTargetType type;
+    NavigationTargetType type;
     int systemAnchorX;
     int systemAnchorZ;
     uint32_t bodyId;
     int planetIndex;
     char name[48];
-} WarpTarget;
+} NavigationTarget;
 
 static bool driving = false;
 static ShipDriveMode driveMode = SHIP_DRIVE_MANEUVER;
 static bool flightAssist = false;
 static float fuel = SHIP_MAX_FUEL;
-static WarpTarget warpTarget = { 0 };
+static NavigationTarget navigationTarget = { 0 };
+static NavigationIntent navigationIntent = NAVIGATION_INTENT_CONTEXTUAL;
 static SpaceGravitySample gravityPrimary = { 0 };
 static float cruiseSetSpeed = 0.0f;
 static float relativeSpeed = 0.0f;
@@ -68,11 +79,24 @@ static float targetClosingSpeed = 0.0f;
 static float targetBrakingDistance = 0.0f;
 static float targetEtaSeconds = 0.0f;
 
-static float WarpArrivalTolerance(float safeDistance)
+static float NavigationArrivalTolerance(float safeDistance)
 {
-    if (warpTarget.type == WARP_TARGET_SYSTEM) return 1.0f;
+    if (navigationTarget.type == NAVIGATION_TARGET_SYSTEM) return 1.0f;
     return fmaxf(safeDistance * 0.05f,
                  SHIP_PLANET_CRUISE_MIN_TOLERANCE);
+}
+
+static bool ShipDriveIsGuided(void)
+{
+    return driveMode == SHIP_DRIVE_APPROACH ||
+           driveMode == SHIP_DRIVE_SUPERCRUISE ||
+           driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
+}
+
+static bool ShipDriveIsWarpTransit(void)
+{
+    return driveMode == SHIP_DRIVE_SUPERCRUISE ||
+           driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
 }
 
 static bool ShipDirectionForCoreBlock(BlockType type, ShipDirection *out)
@@ -319,30 +343,29 @@ bool ShipLocatorTargetAt(Vector3 observer, ShipLocatorTarget *out)
     return true;
 }
 
-static void ClearWarpTarget(void)
+static void ClearNavigationTarget(void)
 {
-    warpTarget = (WarpTarget){ 0 };
-    if (driveMode == SHIP_DRIVE_AUTO_CRUISE ||
-        driveMode == SHIP_DRIVE_WARP) {
-        driveMode = SHIP_DRIVE_MANEUVER;
-    }
+    navigationTarget = (NavigationTarget){ 0 };
+    navigationIntent = NAVIGATION_INTENT_CONTEXTUAL;
+    if (ShipDriveIsGuided()) driveMode = SHIP_DRIVE_MANEUVER;
     targetSpeed = 0.0f;
     targetClosingSpeed = 0.0f;
     targetBrakingDistance = 0.0f;
     targetEtaSeconds = 0.0f;
 }
 
-static bool ResolveWarpTarget(Vector3 *center, Vector3 *velocity,
-                              float *safeDistance)
+static bool ResolveNavigationTarget(Vector3 *center, Vector3 *velocity,
+                                    float *safeDistance)
 {
-    if (!warpTarget.locked) return false;
+    if (!navigationTarget.locked) return false;
 
     SolarSystemDef system;
-    if (!StarSystemAt(warpTarget.systemAnchorX, warpTarget.systemAnchorZ, &system)) {
+    if (!StarSystemAt(navigationTarget.systemAnchorX,
+                      navigationTarget.systemAnchorZ, &system)) {
         return false;
     }
 
-    if (warpTarget.type == WARP_TARGET_SYSTEM) {
+    if (navigationTarget.type == NAVIGATION_TARGET_SYSTEM) {
         if (center) *center = system.center;
         if (velocity) *velocity = Vector3Zero();
         if (safeDistance) {
@@ -351,12 +374,12 @@ static bool ResolveWarpTarget(Vector3 *center, Vector3 *velocity,
         return true;
     }
 
-    if (warpTarget.type != WARP_TARGET_PLANET) return false;
-    int planetIndex = warpTarget.planetIndex;
-    if (warpTarget.bodyId != 0u) {
+    if (navigationTarget.type != NAVIGATION_TARGET_PLANET) return false;
+    int planetIndex = navigationTarget.planetIndex;
+    if (navigationTarget.bodyId != 0u) {
         planetIndex = -1;
         for (int i = 0; i < system.planetCount; i++) {
-            if (system.planets[i].bodyId == warpTarget.bodyId) {
+            if (system.planets[i].bodyId == navigationTarget.bodyId) {
                 planetIndex = i;
                 break;
             }
@@ -378,7 +401,7 @@ static bool ResolveWarpTarget(Vector3 *center, Vector3 *velocity,
     return true;
 }
 
-static int PreferredSystemWarpPlanet(const SolarSystemDef *system)
+static int PreferredSystemArrivalPlanet(const SolarSystemDef *system)
 {
     if (!system) return -1;
 
@@ -403,10 +426,10 @@ static int PreferredSystemWarpPlanet(const SolarSystemDef *system)
     return largestSolidPlanet >= 0 ? largestSolidPlanet : largestPlanet;
 }
 
-static bool LockWarpTarget(const Player *player, Vector3 forward)
+static bool LockNavigationTarget(const Player *player, Vector3 forward)
 {
     if (WorldIsSurfaceActive()) {
-        SetImportMessage("Launch into space before locking a warp target.");
+        SetImportMessage("Launch into space before locking a navigation target.");
         return false;
     }
 
@@ -416,18 +439,25 @@ static bool LockWarpTarget(const Player *player, Vector3 forward)
         return false;
     }
 
-    warpTarget.locked = true;
-    warpTarget.type = WARP_TARGET_PLANET;
-    warpTarget.systemAnchorX = body.systemAnchorX;
-    warpTarget.systemAnchorZ = body.systemAnchorZ;
-    warpTarget.bodyId = body.bodyId;
-    warpTarget.planetIndex = body.index - 1;
-    snprintf(warpTarget.name, sizeof(warpTarget.name), "%s", body.name);
-    if (driveMode == SHIP_DRIVE_AUTO_CRUISE) {
-        driveMode = SHIP_DRIVE_MANEUVER;
-    }
+    SolarSystemDef currentSystem;
+    bool inTargetSystem = FindNearestSystem(
+        player->position, SOLAR_SYSTEM_QUERY_RADIUS, &currentSystem, NULL) &&
+        currentSystem.anchorX == body.systemAnchorX &&
+        currentSystem.anchorZ == body.systemAnchorZ;
+
+    navigationTarget.locked = true;
+    navigationTarget.type = NAVIGATION_TARGET_PLANET;
+    navigationIntent = inTargetSystem ? NAVIGATION_INTENT_CONTEXTUAL :
+                                        NAVIGATION_INTENT_INTERSTELLAR;
+    navigationTarget.systemAnchorX = body.systemAnchorX;
+    navigationTarget.systemAnchorZ = body.systemAnchorZ;
+    navigationTarget.bodyId = body.bodyId;
+    navigationTarget.planetIndex = body.index - 1;
+    snprintf(navigationTarget.name, sizeof(navigationTarget.name), "%s",
+             body.name);
+    if (driveMode == SHIP_DRIVE_APPROACH) driveMode = SHIP_DRIVE_MANEUVER;
     SetImportMessage(TextFormat(
-        "Locked %s. Press G for assisted cruise.", warpTarget.name));
+        "Locked %s. Press G to engage navigation.", navigationTarget.name));
     return true;
 }
 
@@ -452,7 +482,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
         return false;
     }
 
-    int planetIndex = PreferredSystemWarpPlanet(&system);
+    int planetIndex = PreferredSystemArrivalPlanet(&system);
     Vector3 targetCenter = system.center;
     float safeDistance = SolarSystemParkingRadiusGame(&system);
     if (planetIndex >= 0) {
@@ -477,71 +507,94 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
         return false;
     }
 
-    warpTarget.locked = true;
-    warpTarget.type = planetIndex >= 0 ? WARP_TARGET_PLANET :
-                                         WARP_TARGET_SYSTEM;
-    warpTarget.systemAnchorX = systemAnchorX;
-    warpTarget.systemAnchorZ = systemAnchorZ;
-    warpTarget.bodyId = planetIndex >= 0
+    navigationTarget.locked = true;
+    navigationTarget.type = planetIndex >= 0 ? NAVIGATION_TARGET_PLANET :
+                                               NAVIGATION_TARGET_SYSTEM;
+    navigationIntent = NAVIGATION_INTENT_INTERSTELLAR;
+    navigationTarget.systemAnchorX = systemAnchorX;
+    navigationTarget.systemAnchorZ = systemAnchorZ;
+    navigationTarget.bodyId = planetIndex >= 0
         ? system.planets[planetIndex].bodyId : 0u;
-    warpTarget.planetIndex = planetIndex;
-    snprintf(warpTarget.name, sizeof(warpTarget.name), "%s",
+    navigationTarget.planetIndex = planetIndex;
+    snprintf(navigationTarget.name, sizeof(navigationTarget.name), "%s",
              planetIndex >= 0 && system.planets[planetIndex].name[0]
                  ? system.planets[planetIndex].name : system.name);
-    driveMode = SHIP_DRIVE_WARP;
+    driveMode = SHIP_DRIVE_INTERSTELLAR_WARP;
     cruiseSetSpeed = 0.0f;
     player->velocity = Vector3Zero();
     SetImportMessage(planetIndex >= 0
-        ? TextFormat("System warp engaged: %s in %s.",
-                     warpTarget.name, system.name)
-        : TextFormat("System warp engaged: %s.", warpTarget.name));
+        ? TextFormat("Interstellar warp engaged: %s in %s.",
+                     navigationTarget.name, system.name)
+        : TextFormat("Interstellar warp engaged: %s.",
+                     navigationTarget.name));
     return true;
 }
 
-static void ToggleWarp(Player *player)
+void ShipToggleNavigation(Player *player)
 {
-    if (driveMode == SHIP_DRIVE_AUTO_CRUISE ||
-        driveMode == SHIP_DRIVE_WARP) {
-        bool wasWarping = driveMode == SHIP_DRIVE_WARP;
+    if (!player) return;
+    if (ShipDriveIsGuided()) {
+        bool highSpeed = ShipDriveIsWarpTransit();
+        bool interstellar = driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
         driveMode = SHIP_DRIVE_MANEUVER;
-        if (wasWarping) player->velocity = Vector3Zero();
-        SetImportMessage(wasWarping ? "Warp cancelled." :
-                                      "Assisted cruise cancelled.");
+        if (highSpeed) player->velocity = Vector3Zero();
+        SetImportMessage(interstellar ? "Interstellar warp cancelled." :
+                         highSpeed ? "Supercruise cancelled." :
+                                     "Approach guidance cancelled.");
+        return;
+    }
+    if (!driving) {
+        SetImportMessage("Board your ship before engaging navigation.");
         return;
     }
     if (WorldIsSurfaceActive()) {
-        SetImportMessage("Launch into space before engaging warp.");
+        SetImportMessage("Launch into space before engaging navigation.");
         return;
     }
     if (fuel <= 0.0f) {
-        SetImportMessage("Warp unavailable: ship is out of fuel.");
+        SetImportMessage("Navigation unavailable: ship is out of fuel.");
         return;
     }
 
     Vector3 targetCenter;
     float safeDistance = 0.0f;
-    if (!ResolveWarpTarget(&targetCenter, NULL, &safeDistance)) {
-        ClearWarpTarget();
-        SetImportMessage("Warp target is no longer available.");
+    if (!ResolveNavigationTarget(&targetCenter, NULL, &safeDistance)) {
+        ClearNavigationTarget();
+        SetImportMessage("Navigation target is no longer available.");
         return;
     }
 
     float gap = Vector3Distance(player->position, targetCenter) - safeDistance;
-    if (gap <= WarpArrivalTolerance(safeDistance)) {
+    if (gap <= NavigationArrivalTolerance(safeDistance)) {
         player->velocity = Vector3Zero();
         SetImportMessage("Already at the target approach distance.");
         return;
     }
 
     cruiseSetSpeed = 0.0f;
-    if (warpTarget.type == WARP_TARGET_SYSTEM) {
-        driveMode = SHIP_DRIVE_WARP;
-        SetImportMessage(TextFormat("System warp engaged: %s.",
-                                    warpTarget.name));
-    } else {
-        driveMode = SHIP_DRIVE_AUTO_CRUISE;
-        SetImportMessage(TextFormat("Assisted cruise engaged: %s.",
-                                    warpTarget.name));
+    ShipNavigationRoute route = ShipNavigationSelectRoute(
+        &(ShipNavigationRouteInput){
+            .gap = gap,
+            .safeDistance = safeDistance,
+            .approachSpeed = SHIP_CRUISE_MAX_SPEED,
+            .interstellar = navigationIntent == NAVIGATION_INTENT_INTERSTELLAR
+        });
+    switch (route) {
+    case SHIP_NAVIGATION_INTERSTELLAR_WARP:
+        driveMode = SHIP_DRIVE_INTERSTELLAR_WARP;
+        SetImportMessage(TextFormat("Interstellar warp engaged: %s.",
+                                    navigationTarget.name));
+        break;
+    case SHIP_NAVIGATION_SUPERCRUISE:
+        driveMode = SHIP_DRIVE_SUPERCRUISE;
+        SetImportMessage(TextFormat("Supercruise engaged: %s.",
+                                    navigationTarget.name));
+        break;
+    default:
+        driveMode = SHIP_DRIVE_APPROACH;
+        SetImportMessage(TextFormat("Approach guidance engaged: %s.",
+                                    navigationTarget.name));
+        break;
     }
 }
 
@@ -570,7 +623,7 @@ bool ShipTryEnter(int x, int y, int z, Player *player)
     cruiseSetSpeed = 0.0f;
     relativeSpeed = 0.0f;
     gravityPrimary = (SpaceGravitySample){ 0 };
-    ClearWarpTarget();
+    ClearNavigationTarget();
     SetImportMessage("Ship: inertial flight. F toggles braking assist; E exits.");
     return true;
 }
@@ -583,12 +636,28 @@ bool ShipIsDriving(void)
 bool ShipIsCruising(void)
 {
     return driveMode == SHIP_DRIVE_MANUAL_CRUISE ||
-           driveMode == SHIP_DRIVE_AUTO_CRUISE;
+           driveMode == SHIP_DRIVE_APPROACH ||
+           driveMode == SHIP_DRIVE_SUPERCRUISE;
 }
 
-bool ShipIsWarping(void)
+bool ShipIsApproaching(void)
 {
-    return driveMode == SHIP_DRIVE_WARP;
+    return driveMode == SHIP_DRIVE_APPROACH;
+}
+
+bool ShipIsSupercruising(void)
+{
+    return driveMode == SHIP_DRIVE_SUPERCRUISE;
+}
+
+bool ShipIsInterstellarWarping(void)
+{
+    return driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
+}
+
+bool ShipIsHighSpeedTransit(void)
+{
+    return ShipDriveIsWarpTransit();
 }
 
 ShipDriveMode ShipGetDriveMode(void)
@@ -600,8 +669,9 @@ const char *ShipDriveModeName(void)
 {
     switch (driveMode) {
     case SHIP_DRIVE_MANUAL_CRUISE: return "MANUAL CRUISE";
-    case SHIP_DRIVE_AUTO_CRUISE: return "AUTO CRUISE";
-    case SHIP_DRIVE_WARP: return "WARP";
+    case SHIP_DRIVE_APPROACH: return "APPROACH";
+    case SHIP_DRIVE_SUPERCRUISE: return "SUPERCRUISE";
+    case SHIP_DRIVE_INTERSTELLAR_WARP: return "INTERSTELLAR WARP";
     default: return flightAssist ? "MANEUVER ASSIST" : "MANEUVER";
     }
 }
@@ -631,19 +701,20 @@ float ShipGravitySphereOfInfluence(void)
     return gravityPrimary.active ? gravityPrimary.encounterRadiusGame : 0.0f;
 }
 
-bool ShipHasWarpTarget(void)
+bool ShipHasNavigationTarget(void)
 {
-    return warpTarget.locked;
+    return navigationTarget.locked;
 }
 
-bool ShipWarpTargetIsSystem(void)
+bool ShipNavigationTargetIsSystem(void)
 {
-    return warpTarget.locked && warpTarget.type == WARP_TARGET_SYSTEM;
+    return navigationTarget.locked &&
+           navigationTarget.type == NAVIGATION_TARGET_SYSTEM;
 }
 
-const char *ShipWarpTargetName(void)
+const char *ShipNavigationTargetName(void)
 {
-    return warpTarget.locked ? warpTarget.name : "---";
+    return navigationTarget.locked ? navigationTarget.name : "---";
 }
 
 float ShipRelativeSpeed(void)
@@ -671,23 +742,24 @@ float ShipTargetEtaSeconds(void)
     return targetEtaSeconds;
 }
 
-float ShipWarpVisualIntensity(void)
+float ShipInterstellarWarpVisualIntensity(void)
 {
-    if (driveMode != SHIP_DRIVE_WARP) return 0.0f;
-    float speedRatio = Clamp(relativeSpeed / SHIP_WARP_MAX_SPEED, 0.0f, 1.0f);
-    return 0.22f + 0.78f * sqrtf(speedRatio);
+    if (driveMode != SHIP_DRIVE_INTERSTELLAR_WARP) return 0.0f;
+    float speedRatio = Clamp(relativeSpeed / SHIP_INTERSTELLAR_MAX_SPEED,
+                             0.0f, 1.0f);
+    return 0.30f + 0.70f * sqrtf(speedRatio);
 }
 
 float ShipDriveTunnelIntensity(void)
 {
-    float warpIntensity = ShipWarpVisualIntensity();
+    float warpIntensity = ShipInterstellarWarpVisualIntensity();
     if (warpIntensity > 0.0f) return warpIntensity;
-    if (driveMode != SHIP_DRIVE_AUTO_CRUISE) return 0.0f;
+    if (driveMode != SHIP_DRIVE_SUPERCRUISE) return 0.0f;
 
     float commandedSpeed = fmaxf(targetSpeed, relativeSpeed);
-    float speedRatio = Clamp(commandedSpeed / SHIP_CRUISE_MAX_SPEED,
+    float speedRatio = Clamp(commandedSpeed / SHIP_SUPERCRUISE_MAX_SPEED,
                              0.0f, 1.0f);
-    return 0.20f + 0.42f * sqrtf(speedRatio);
+    return 0.16f + 0.52f * sqrtf(speedRatio);
 }
 
 void ShipReset(void)
@@ -698,7 +770,7 @@ void ShipReset(void)
     cruiseSetSpeed = 0.0f;
     relativeSpeed = 0.0f;
     gravityPrimary = (SpaceGravitySample){ 0 };
-    ClearWarpTarget();
+    ClearNavigationTarget();
     fuel = SHIP_MAX_FUEL;
 }
 
@@ -752,7 +824,7 @@ bool ShipLoadState(FILE *file)
 
 void ShipToggleCruise(void)
 {
-    if (driveMode == SHIP_DRIVE_WARP || !driving || fuel <= 0.0f) return;
+    if (ShipDriveIsGuided() || !driving || fuel <= 0.0f) return;
     if (driveMode == SHIP_DRIVE_MANUAL_CRUISE) {
         driveMode = SHIP_DRIVE_MANEUVER;
         cruiseSetSpeed = 0.0f;
@@ -1063,9 +1135,8 @@ void ShipUpdate(Player *player, float dt)
 
     bool surfaceActive = WorldIsSurfaceActive();
     if (IsKeyPressed(KEY_X)) {
-        if (driveMode == SHIP_DRIVE_AUTO_CRUISE ||
-            driveMode == SHIP_DRIVE_WARP) {
-            ToggleWarp(player);
+        if (ShipDriveIsGuided()) {
+            SetImportMessage("Navigation active. Press G to cancel it.");
         } else if (surfaceActive) {
             SetImportMessage("Launch into space before engaging cruise.");
         } else {
@@ -1073,15 +1144,14 @@ void ShipUpdate(Player *player, float dt)
         }
     }
     if (IsKeyPressed(KEY_R)) ShipRefuel();
-    if (IsKeyPressed(KEY_F) && driveMode != SHIP_DRIVE_WARP) {
+    if (IsKeyPressed(KEY_F) && !ShipDriveIsGuided()) {
         flightAssist = !flightAssist;
         SetImportMessage(flightAssist ?
                          "Flight assist enabled: releasing thrust brakes the ship." :
                          "Flight assist disabled: inertial flight active.");
     }
 
-    bool automaticDrive = driveMode == SHIP_DRIVE_AUTO_CRUISE ||
-                          driveMode == SHIP_DRIVE_WARP;
+    bool automaticDrive = ShipDriveIsGuided();
     Vector2 mouseDelta = GetMouseDelta();
     if (!automaticDrive) {
         player->yaw -= mouseDelta.x * MOUSE_SENSITIVITY;
@@ -1090,18 +1160,21 @@ void ShipUpdate(Player *player, float dt)
     player->pitch = Clamp(player->pitch, -1.45f, 1.45f);
 
     Vector3 forward = ForwardFromAngles(player->yaw, player->pitch);
-    if (IsKeyPressed(KEY_Q) && driveMode != SHIP_DRIVE_WARP) {
-        LockWarpTarget(player, forward);
-    }
-    if (IsKeyPressed(KEY_G)) {
-        if (!warpTarget.locked && !surfaceActive) {
-            if (LockWarpTarget(player, forward)) ToggleWarp(player);
+    if (IsKeyPressed(KEY_Q)) {
+        if (ShipDriveIsWarpTransit()) {
+            SetImportMessage("Cancel high-speed navigation before changing target.");
         } else {
-            ToggleWarp(player);
+            LockNavigationTarget(player, forward);
         }
     }
-    automaticDrive = driveMode == SHIP_DRIVE_AUTO_CRUISE ||
-                     driveMode == SHIP_DRIVE_WARP;
+    if (IsKeyPressed(KEY_G)) {
+        if (!navigationTarget.locked && !ShipDriveIsGuided()) {
+            SetImportMessage("Lock a navigation target with Q first.");
+        } else {
+            ShipToggleNavigation(player);
+        }
+    }
+    automaticDrive = ShipDriveIsGuided();
 
     Vector3 right = RightFromYaw(player->yaw);
     Vector3 accel = Vector3Zero();
@@ -1153,59 +1226,76 @@ void ShipUpdate(Player *player, float dt)
     bool propulsionRequested = translationInput ||
         (driveMode == SHIP_DRIVE_MANUAL_CRUISE &&
          fabsf(cruiseSetSpeed) > 0.001f) ||
-        driveMode == SHIP_DRIVE_AUTO_CRUISE ||
-        driveMode == SHIP_DRIVE_WARP;
+        ShipDriveIsGuided();
     if (propulsionRequested) {
-        float fuelRate = driveMode == SHIP_DRIVE_WARP
-            ? SHIP_WARP_FUEL_RATE
-            : (ShipIsCruising() ? SHIP_CRUISE_FUEL_RATE :
-                                  SHIP_THRUST_FUEL_RATE);
+        float fuelRate = SHIP_THRUST_FUEL_RATE;
+        if (driveMode == SHIP_DRIVE_INTERSTELLAR_WARP) {
+            fuelRate = SHIP_INTERSTELLAR_FUEL_RATE;
+        } else if (driveMode == SHIP_DRIVE_SUPERCRUISE) {
+            fuelRate = SHIP_SUPERCRUISE_FUEL_RATE;
+        } else if (driveMode == SHIP_DRIVE_APPROACH ||
+                   driveMode == SHIP_DRIVE_MANUAL_CRUISE) {
+            fuelRate = SHIP_CRUISE_FUEL_RATE;
+        }
         if (!ShipConsumeFuel(fuelRate * dt)) {
-            bool haltedWarp = driveMode == SHIP_DRIVE_WARP;
+            bool haltedHighSpeedTransit = ShipDriveIsWarpTransit();
             driveMode = SHIP_DRIVE_MANEUVER;
             cruiseSetSpeed = 0.0f;
             translationInput = false;
             accel = Vector3Zero();
-            if (haltedWarp) player->velocity = Vector3Zero();
+            if (haltedHighSpeedTransit) player->velocity = Vector3Zero();
             SetImportMessage("Propulsion disabled: ship is out of fuel.");
         }
     }
 
-    if (dt > 0.0f && driveMode != SHIP_DRIVE_WARP && hasGravity) {
+    if (dt > 0.0f && !ShipDriveIsWarpTransit() && hasGravity) {
         player->velocity = Vector3Add(
             player->velocity, Vector3Scale(gravity.acceleration, dt));
     }
 
-    if (dt > 0.0f && (driveMode == SHIP_DRIVE_AUTO_CRUISE ||
-                      driveMode == SHIP_DRIVE_WARP)) {
+    if (dt > 0.0f && ShipDriveIsGuided()) {
         Vector3 targetCenter;
         Vector3 targetVelocity;
         float safeDistance = 0.0f;
-        bool wasWarping = driveMode == SHIP_DRIVE_WARP;
-        if (!ResolveWarpTarget(&targetCenter, &targetVelocity, &safeDistance)) {
-            ClearWarpTarget();
-            if (wasWarping) player->velocity = Vector3Zero();
+        ShipDriveMode guidanceMode = driveMode;
+        bool highSpeedTransit = ShipDriveIsWarpTransit();
+        if (!ResolveNavigationTarget(&targetCenter, &targetVelocity,
+                                     &safeDistance)) {
+            ClearNavigationTarget();
+            if (highSpeedTransit) player->velocity = Vector3Zero();
             SetImportMessage("Navigation target is no longer available.");
         } else {
+            float guidanceSafeDistance = safeDistance;
+            float maxSpeed = SHIP_CRUISE_MAX_SPEED;
+            float acceleration = SHIP_CRUISE_ACCEL;
+            float deceleration = SHIP_CRUISE_DECEL;
+            if (guidanceMode == SHIP_DRIVE_SUPERCRUISE) {
+                guidanceSafeDistance += ShipNavigationSupercruiseExitMargin(
+                    safeDistance, SHIP_CRUISE_MAX_SPEED);
+                maxSpeed = SHIP_SUPERCRUISE_MAX_SPEED;
+                acceleration = SHIP_SUPERCRUISE_ACCEL;
+                deceleration = SHIP_SUPERCRUISE_DECEL;
+            } else if (guidanceMode == SHIP_DRIVE_INTERSTELLAR_WARP) {
+                maxSpeed = SHIP_INTERSTELLAR_MAX_SPEED;
+                acceleration = SHIP_INTERSTELLAR_ACCEL;
+                deceleration = SHIP_INTERSTELLAR_DECEL;
+            }
             ShipFlightGuidance guidance;
             ShipFlightGuidanceInput input = {
                 .position = player->position,
                 .velocity = player->velocity,
                 .targetPosition = targetCenter,
                 .targetVelocity = targetVelocity,
-                .safeDistance = safeDistance,
-                .arrivalTolerance = WarpArrivalTolerance(safeDistance),
-                .maxSpeed = wasWarping ? SHIP_WARP_MAX_SPEED :
-                                        SHIP_CRUISE_MAX_SPEED,
-                .acceleration = wasWarping ? SHIP_WARP_ACCEL :
-                                            SHIP_CRUISE_ACCEL,
-                .deceleration = wasWarping ? SHIP_WARP_DECEL :
-                                            SHIP_CRUISE_DECEL,
+                .safeDistance = guidanceSafeDistance,
+                .arrivalTolerance = NavigationArrivalTolerance(safeDistance),
+                .maxSpeed = maxSpeed,
+                .acceleration = acceleration,
+                .deceleration = deceleration,
                 .dt = dt
             };
             if (!ShipFlightGuideToTarget(&input, &guidance)) {
-                ClearWarpTarget();
-                if (wasWarping) player->velocity = Vector3Zero();
+                ClearNavigationTarget();
+                if (highSpeedTransit) player->velocity = Vector3Zero();
                 SetImportMessage("Navigation guidance failed.");
             } else {
                 targetSpeed = guidance.desiredSpeed;
@@ -1219,16 +1309,36 @@ void ShipUpdate(Player *player, float dt)
                     player->pitch = asinf(Clamp(forward.y, -1.0f, 1.0f));
                 }
                 if (guidance.arrived) {
-                    char targetName[sizeof(warpTarget.name)];
+                    char targetName[sizeof(navigationTarget.name)];
                     snprintf(targetName, sizeof(targetName), "%s",
-                             warpTarget.name);
-                    driveMode = SHIP_DRIVE_MANEUVER;
-                    if (wasWarping) ClearWarpTarget();
-                    SetImportMessage(wasWarping
-                        ? TextFormat("Arrived near %s. Press E to land.",
-                                     targetName)
-                        : TextFormat("Matched %s approach velocity. Press E to land.",
-                                     targetName));
+                             navigationTarget.name);
+                    bool targetIsSystem = navigationTarget.type ==
+                                          NAVIGATION_TARGET_SYSTEM;
+                    if (guidanceMode == SHIP_DRIVE_SUPERCRUISE) {
+                        driveMode = SHIP_DRIVE_APPROACH;
+                        player->velocity = targetVelocity;
+                        SetImportMessage(TextFormat(
+                            "Supercruise complete. Approach guidance engaged: %s.",
+                            targetName));
+                    } else if (guidanceMode ==
+                               SHIP_DRIVE_INTERSTELLAR_WARP) {
+                        player->velocity = targetVelocity;
+                        ClearNavigationTarget();
+                        SetImportMessage(targetIsSystem
+                            ? TextFormat("Arrived in %s.", targetName)
+                            : TextFormat("Arrived near %s. Press E to land.",
+                                         targetName));
+                    } else {
+                        driveMode = SHIP_DRIVE_MANEUVER;
+                        player->velocity = targetVelocity;
+                        targetSpeed = 0.0f;
+                        targetClosingSpeed = 0.0f;
+                        targetBrakingDistance = 0.0f;
+                        targetEtaSeconds = 0.0f;
+                        SetImportMessage(TextFormat(
+                            "Matched %s approach velocity. Press E to land.",
+                            targetName));
+                    }
                 }
             }
         }
@@ -1273,7 +1383,7 @@ void ShipUpdate(Player *player, float dt)
 
     float atmosphereDensity = ShipAtmosphereDensityAt(player->position);
     if (dt > 0.0f && atmosphereDensity > 0.0f &&
-        driveMode != SHIP_DRIVE_WARP) {
+        !ShipDriveIsWarpTransit()) {
         float drag = expf(-SHIP_ATMOSPHERE_DRAG * atmosphereDensity * dt);
         player->velocity = Vector3Scale(player->velocity, drag);
     }
@@ -1281,7 +1391,7 @@ void ShipUpdate(Player *player, float dt)
                                                    referenceVelocity));
 
     Vector3 delta = Vector3Scale(player->velocity, dt);
-    if (driveMode == SHIP_DRIVE_WARP) {
+    if (ShipDriveIsWarpTransit()) {
         Vector3 nextPosition = Vector3Add(player->position, delta);
         if (isfinite(nextPosition.x) && isfinite(nextPosition.y) &&
             isfinite(nextPosition.z)) {
@@ -1290,7 +1400,7 @@ void ShipUpdate(Player *player, float dt)
         } else {
             player->velocity = Vector3Zero();
             driveMode = SHIP_DRIVE_MANEUVER;
-            SetImportMessage("Warp halted: navigation solution became invalid.");
+            SetImportMessage("Transit halted: navigation solution became invalid.");
         }
     } else {
         float total = Vector3Length(delta);
@@ -1330,7 +1440,7 @@ void ShipUpdate(Player *player, float dt)
         }
     }
 
-    bool poweredDrive = ShipIsCruising() || driveMode == SHIP_DRIVE_WARP;
+    bool poweredDrive = driveMode != SHIP_DRIVE_MANEUVER;
     int exhaustCount = poweredDrive ? 3 : 1;
     if (IsKeyDown(KEY_W) || poweredDrive) {
         for (int k = 0; k < exhaustCount; k++) {
@@ -1343,7 +1453,7 @@ void ShipUpdate(Player *player, float dt)
                              0.45f, 0.0f);
         }
         if (poweredDrive) {
-            bool warpEffect = driveMode == SHIP_DRIVE_WARP;
+            bool warpEffect = driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
             Vector3 tail = Vector3Subtract(player->position,
                                            Vector3Scale(forward, 1.4f));
             ParticlesEmitOne(tail,
@@ -1420,7 +1530,7 @@ static bool ShipPlaceAfterExit(Player *player)
     player->floating = WorldIsSpaceActive();
     player->onGround = false;
     gravityPrimary = (SpaceGravitySample){ 0 };
-    ClearWarpTarget();
+    ClearNavigationTarget();
     return true;
 }
 

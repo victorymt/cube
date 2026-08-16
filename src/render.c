@@ -715,7 +715,8 @@ static Vector2 WarpTunnelPoint(Vector2 center, float angle, float depth,
     };
 }
 
-void DrawWarpTunnel(const Camera3D *camera, float intensity)
+void DrawWarpTunnel(const Camera3D *camera, float intensity,
+                    bool supercruise)
 {
     if (!camera || !isfinite(intensity) || intensity <= 0.0f) return;
     int sw = GetScreenWidth();
@@ -737,24 +738,30 @@ void DrawWarpTunnel(const Camera3D *camera, float intensity)
 
     double clock = GetTime();
     float time = isfinite(clock) ? (float)fmod(clock, 4096.0) : 0.0f;
-    float travel = 0.34f + intensity * 1.85f;
+    float travel = supercruise ? 0.24f + intensity * 1.10f
+                               : 0.34f + intensity * 1.85f;
     float radiusX = (float)sw * 0.78f;
     float radiusY = (float)sh * 0.78f;
 
-    DrawRectangle(0, 0, sw, sh,
-                  (Color){ 1, 8, 15,
-                           (unsigned char)(10.0f + intensity * 26.0f) });
+    DrawRectangle(0, 0, sw, sh, supercruise
+        ? (Color){ 16, 11, 3,
+                   (unsigned char)(4.0f + intensity * 12.0f) }
+        : (Color){ 1, 8, 15,
+                   (unsigned char)(10.0f + intensity * 26.0f) });
 
     BeginBlendMode(BLEND_ADDITIVE);
     float corePulse = 0.88f + 0.12f * sinf(time * 8.0f);
     float coreRadius = fminf((float)sw, (float)sh) *
                        (0.055f + intensity * 0.035f) * corePulse;
     DrawCircleGradient((int)center.x, (int)center.y, coreRadius,
-                       (Color){ 205, 244, 255,
-                                (unsigned char)(34.0f + intensity * 54.0f) },
+                       supercruise
+                           ? (Color){ 255, 235, 183,
+                                      (unsigned char)(22.0f + intensity * 42.0f) }
+                           : (Color){ 205, 244, 255,
+                                      (unsigned char)(34.0f + intensity * 54.0f) },
                        BLANK);
 
-    const int ringCount = 6;
+    const int ringCount = supercruise ? 4 : 6;
     const int ringSegments = 48;
     for (int ring = 0; ring < ringCount; ring++) {
         float phase = fmodf((float)ring / (float)ringCount +
@@ -775,11 +782,13 @@ void DrawWarpTunnel(const Camera3D *camera, float intensity)
             Vector2 end = WarpTunnelPoint(center, angle1, depth,
                                            radiusX, radiusY);
             DrawLineEx(start, end, width,
-                       (Color){ 96, 211, 235, (unsigned char)alpha });
+                       supercruise
+                           ? (Color){ 255, 193, 91, (unsigned char)(alpha * 0.72f) }
+                           : (Color){ 96, 211, 235, (unsigned char)alpha });
         }
     }
 
-    const int streakCount = 88;
+    const int streakCount = supercruise ? 56 : 88;
     for (int streak = 0; streak < streakCount; streak++) {
         uint32_t seed = WarpTunnelHash((uint32_t)streak + 0x51f2a39du);
         float angle = WarpTunnelUnit(seed) * 2.0f * PI;
@@ -802,11 +811,21 @@ void DrawWarpTunnel(const Camera3D *camera, float intensity)
                       (54.0f + intensity * 190.0f);
         float width = 0.8f + phase * intensity * 2.8f;
         Color color;
-        switch (seed & 3u) {
-        case 0u: color = (Color){ 224, 249, 255, (unsigned char)alpha }; break;
-        case 1u: color = (Color){ 93, 218, 235, (unsigned char)alpha }; break;
-        case 2u: color = (Color){ 104, 184, 255, (unsigned char)alpha }; break;
-        default: color = (Color){ 190, 255, 231, (unsigned char)alpha }; break;
+        if (supercruise) {
+            alpha *= 0.72f;
+            switch (seed & 3u) {
+            case 0u: color = (Color){ 255, 245, 214, (unsigned char)alpha }; break;
+            case 1u: color = (Color){ 255, 201, 112, (unsigned char)alpha }; break;
+            case 2u: color = (Color){ 255, 224, 157, (unsigned char)alpha }; break;
+            default: color = (Color){ 238, 178, 86, (unsigned char)alpha }; break;
+            }
+        } else {
+            switch (seed & 3u) {
+            case 0u: color = (Color){ 224, 249, 255, (unsigned char)alpha }; break;
+            case 1u: color = (Color){ 93, 218, 235, (unsigned char)alpha }; break;
+            case 2u: color = (Color){ 104, 184, 255, (unsigned char)alpha }; break;
+            default: color = (Color){ 190, 255, 231, (unsigned char)alpha }; break;
+            }
         }
         DrawLineEx(tail, head, width, color);
         if (phase > 0.32f) {
@@ -816,8 +835,11 @@ void DrawWarpTunnel(const Camera3D *camera, float intensity)
 
     DrawCircleGradient((int)center.x, (int)center.y,
                        coreRadius * (0.32f + intensity * 0.12f),
-                       (Color){ 246, 255, 255,
-                                (unsigned char)(70.0f + intensity * 80.0f) },
+                       supercruise
+                           ? (Color){ 255, 249, 222,
+                                      (unsigned char)(42.0f + intensity * 58.0f) }
+                           : (Color){ 246, 255, 255,
+                                      (unsigned char)(70.0f + intensity * 80.0f) },
                        BLANK);
     EndBlendMode();
 }
@@ -3767,8 +3789,9 @@ void DrawShipHud(const ShipHudState *hud)
     int top = (int)panel.y;
     bool assist = ShipFlightAssistEnabled();
     Color modeColor = hud->warping ? cyan :
-                      (hud->autoCruising ? green :
-                       (hud->cruising ? cyan : (assist ? green : amber)));
+                      (hud->supercruising ? amber :
+                       (hud->approaching ? green :
+                        (hud->cruising ? cyan : (assist ? green : amber))));
     const char *driveMode = hud->driveMode ? hud->driveMode : "MANEUVER";
 
     UiDrawText("FLIGHT COMPUTER", left, top + 10, 15, Fade(cyan, 0.82f));
@@ -3862,12 +3885,14 @@ void DrawShipHud(const ShipHudState *hud)
     }
 
     char navigation[160];
-    if (ShipHasWarpTarget()) {
-        const char *targetKind = ShipWarpTargetIsSystem() ? "SYS" : "PLANET";
+    if (ShipHasNavigationTarget()) {
+        const char *targetKind = ShipNavigationTargetIsSystem() ? "SYS" :
+                                                                  "PLANET";
+        const char *route = hud->warping ? "INTERSTELLAR WARP" :
+                            (hud->supercruising ? "SUPERCRUISE" :
+                             (hud->approaching ? "APPROACH" : "LOCK"));
         snprintf(navigation, sizeof(navigation), "%s // %s // %s",
-                 targetKind, ShipWarpTargetName(),
-                 hud->warping ? "WARP" :
-                 (hud->autoCruising ? "AUTO CRUISE" : "LOCK"));
+                 targetKind, ShipNavigationTargetName(), route);
     } else {
         snprintf(navigation, sizeof(navigation), "SYS // %s // NO TARGET",
                  hud->systemName ? hud->systemName : "---");
@@ -3901,7 +3926,7 @@ void DrawShipHud(const ShipHudState *hud)
     UiDrawText(guidance, left, top + 200, statusFont, Fade(WHITE, 0.60f));
     UiDrawText(gravity, left, top + 220, statusFont, Fade(WHITE, 0.60f));
     UiDrawText(navigation, left, top + 242, statusFont,
-               ShipHasWarpTarget() ? modeColor : Fade(WHITE, 0.76f));
+               ShipHasNavigationTarget() ? modeColor : Fade(WHITE, 0.76f));
 }
 
 static const char *ShipLocatorReturnHint(WorldDimension dimension)

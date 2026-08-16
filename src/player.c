@@ -391,7 +391,7 @@ void UpdatePlayerCamera(Camera3D *camera, const Player *player, float dt, bool t
                              (Vector3){ 0.0f, eyeHeight, 0.0f });
     Vector3 look = ForwardFromAngles(player->yaw, player->pitch);
     float targetFov = CameraFovForHeight(eye.y);
-    if (ShipIsDriving() && ShipIsWarping()) targetFov += 24.0f;
+    if (ShipIsDriving() && ShipIsHighSpeedTransit()) targetFov += 24.0f;
     else if (ShipIsDriving() && ShipIsCruising()) targetFov += 12.0f;
     float smoothing = Clamp(dt * CAMERA_FOV_SMOOTHING, 0.0f, 1.0f);
 

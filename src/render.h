@@ -43,7 +43,8 @@ typedef struct ShipHudState {
     const char *systemName;
     const char *driveMode;
     bool cruising;
-    bool autoCruising;
+    bool approaching;
+    bool supercruising;
     bool warping;
     bool nearPlanet;
     bool subsurface;
@@ -82,7 +83,8 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight,
                    const WeatherVisualState *weatherVisual);
 void UpdatePlanetSceneExposure(const Camera3D *camera);
 void DrawSpaceSky(float spaceFade, float daylight, const Camera3D *camera);
-void DrawWarpTunnel(const Camera3D *camera, float intensity);
+void DrawWarpTunnel(const Camera3D *camera, float intensity,
+                    bool supercruise);
 void DrawSolarGuide(const Camera3D *camera, float spaceFade);
 void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade);
 void DrawSolarBodies(const Camera3D *camera, float spaceFade);

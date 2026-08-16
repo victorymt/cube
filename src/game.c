@@ -1423,7 +1423,7 @@ static int GameUpdateWorldStreaming(GameRuntime *game,
         SpaceProcessFinishedGenJobs();
         int spaceGenPerFrame = 2;
         if (ShipIsDriving()) {
-            spaceGenPerFrame = ShipIsWarping()
+            spaceGenPerFrame = ShipIsHighSpeedTransit()
                                    ? 16
                                    : (ShipIsCruising() ? 12 : 4);
         }
@@ -1716,8 +1716,9 @@ static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
         .atmosphere = -1.0f,
         .systemName = systemName,
         .driveMode = ShipDriveModeName(),
-        .autoCruising = ShipGetDriveMode() == SHIP_DRIVE_AUTO_CRUISE,
-        .warping = ShipIsWarping()
+        .approaching = ShipIsApproaching(),
+        .supercruising = ShipIsSupercruising(),
+        .warping = ShipIsInterstellarWarping()
     };
     if (!ShipIsDriving()) return shipSpeed;
 
@@ -1793,7 +1794,8 @@ static void GameRenderEnvironmentOverlays(GameRuntime *game,
         }
     }
     DrawEnvironmentPostProcess(&frame->environmentPresentation);
-    DrawWarpTunnel(&game->camera, ShipDriveTunnelIntensity());
+    DrawWarpTunnel(&game->camera, ShipDriveTunnelIntensity(),
+                   ShipIsSupercruising());
     DrawSolarGuide(&game->camera, frame->spaceFade);
     if (game->scannerActive && PlanetWorldIsActive()) {
         PlanetPoiDrawScanner(&game->camera, game->player.position);

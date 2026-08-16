@@ -20,8 +20,9 @@ typedef enum ShipDirection {
 typedef enum ShipDriveMode {
     SHIP_DRIVE_MANEUVER = 0,
     SHIP_DRIVE_MANUAL_CRUISE,
-    SHIP_DRIVE_AUTO_CRUISE,
-    SHIP_DRIVE_WARP
+    SHIP_DRIVE_APPROACH,
+    SHIP_DRIVE_SUPERCRUISE,
+    SHIP_DRIVE_INTERSTELLAR_WARP
 } ShipDriveMode;
 
 typedef struct ParkedShip {
@@ -45,7 +46,10 @@ bool ShipPlaceParked(int coreX, int coreY, int coreZ,
 bool ShipRemoveParkedAt(int x, int y, int z, bool recordUndo);
 bool ShipIsDriving(void);
 bool ShipIsCruising(void);
-bool ShipIsWarping(void);
+bool ShipIsApproaching(void);
+bool ShipIsSupercruising(void);
+bool ShipIsInterstellarWarping(void);
+bool ShipIsHighSpeedTransit(void);
 ShipDriveMode ShipGetDriveMode(void);
 const char *ShipDriveModeName(void);
 bool ShipFlightAssistEnabled(void);
@@ -53,17 +57,18 @@ bool ShipHasGravityPrimary(void);
 const char *ShipGravityPrimaryName(void);
 float ShipGravityPrimaryDistance(void);
 float ShipGravitySphereOfInfluence(void);
-bool ShipHasWarpTarget(void);
-bool ShipWarpTargetIsSystem(void);
-const char *ShipWarpTargetName(void);
+bool ShipHasNavigationTarget(void);
+bool ShipNavigationTargetIsSystem(void);
+const char *ShipNavigationTargetName(void);
 float ShipRelativeSpeed(void);
 float ShipTargetSpeed(void);
 float ShipTargetClosingSpeed(void);
 float ShipTargetBrakingDistance(void);
 float ShipTargetEtaSeconds(void);
-float ShipWarpVisualIntensity(void);
+float ShipInterstellarWarpVisualIntensity(void);
 float ShipDriveTunnelIntensity(void);
 bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ);
+void ShipToggleNavigation(Player *player);
 void ShipReset(void);
 float ShipGetFuel(void);
 /* Consume fuel atomically; invalid or insufficient amounts return false. */

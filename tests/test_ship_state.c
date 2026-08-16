@@ -1,4 +1,5 @@
 #include "ship.h"
+#include "ship_navigation.h"
 #include "space.h"
 
 #include <assert.h>
@@ -180,7 +181,7 @@ static void TestLoadIsAtomicAndResetsRuntimeState(void)
     assert(ShipIsCruising());
     assert(ShipGetDriveMode() == SHIP_DRIVE_MANUAL_CRUISE);
     assert(strcmp(ShipDriveModeName(), "MANUAL CRUISE") == 0);
-    assert(ShipWarpVisualIntensity() == 0.0f);
+    assert(ShipInterstellarWarpVisualIntensity() == 0.0f);
     assert(ShipDriveTunnelIntensity() == 0.0f);
     assert(!ShipLocatorHasTarget());
     assert(ShipConsumeFuel(12.0f));
@@ -199,15 +200,18 @@ static void TestLoadIsAtomicAndResetsRuntimeState(void)
     assert(ShipGetFuel() == 31.5f);
     assert(!ShipIsDriving());
     assert(!ShipIsCruising());
-    assert(!ShipIsWarping());
+    assert(!ShipIsApproaching());
+    assert(!ShipIsSupercruising());
+    assert(!ShipIsInterstellarWarping());
+    assert(!ShipIsHighSpeedTransit());
     assert(ShipGetDriveMode() == SHIP_DRIVE_MANEUVER);
     assert(ShipRelativeSpeed() == 0.0f);
     assert(ShipTargetSpeed() == 0.0f);
-    assert(ShipWarpVisualIntensity() == 0.0f);
+    assert(ShipInterstellarWarpVisualIntensity() == 0.0f);
     assert(ShipDriveTunnelIntensity() == 0.0f);
     assert(!ShipFlightAssistEnabled());
     assert(!ShipHasGravityPrimary());
-    assert(!ShipHasWarpTarget());
+    assert(!ShipHasNavigationTarget());
 }
 
 static void TestParkedShipLayoutAndInteraction(void)
@@ -292,6 +296,30 @@ static void TestShipDirectionQuantization(void)
     assert(ShipDirectionFromYaw(-PI * 0.5f) == SHIP_DIRECTION_WEST);
 }
 
+static void TestNavigationRouteSelection(void)
+{
+    assert(ShipNavigationSelectRoute(NULL) == SHIP_NAVIGATION_APPROACH);
+    assert(fabsf(ShipNavigationSupercruiseExitMargin(2.0f, 40.0f) -
+                  100.0f) < 0.001f);
+
+    ShipNavigationRouteInput route = {
+        .gap = 420.0f,
+        .safeDistance = 2.0f,
+        .approachSpeed = 40.0f,
+        .interstellar = false
+    };
+    assert(ShipNavigationSelectRoute(&route) == SHIP_NAVIGATION_APPROACH);
+    route.gap = 421.0f;
+    assert(ShipNavigationSelectRoute(&route) == SHIP_NAVIGATION_SUPERCRUISE);
+    route.gap = 1.0f;
+    route.interstellar = true;
+    assert(ShipNavigationSelectRoute(&route) ==
+           SHIP_NAVIGATION_INTERSTELLAR_WARP);
+    route.interstellar = false;
+    route.gap = NAN;
+    assert(ShipNavigationSelectRoute(&route) == SHIP_NAVIGATION_APPROACH);
+}
+
 static void TestSystemWarpTargetsPreferredPlanet(void)
 {
     ResetTestWorld();
@@ -319,25 +347,38 @@ static void TestSystemWarpTargetsPreferredPlanet(void)
     SetBlock(0, 4, 0, BLOCK_SPACESHIP);
     assert(ShipTryEnter(0, 4, 0, &player));
     assert(ShipBeginSystemWarp(&player, 7, 9));
-    assert(ShipIsWarping());
-    assert(!ShipWarpTargetIsSystem());
-    assert(strcmp(ShipWarpTargetName(), "Terra") == 0);
+    assert(ShipGetDriveMode() == SHIP_DRIVE_INTERSTELLAR_WARP);
+    assert(ShipIsInterstellarWarping());
+    assert(ShipIsHighSpeedTransit());
+    assert(!ShipNavigationTargetIsSystem());
+    assert(strcmp(ShipNavigationTargetName(), "Terra") == 0);
+    assert(ShipInterstellarWarpVisualIntensity() > 0.0f);
+    assert(ShipDriveTunnelIntensity() > 0.0f);
+
+    ShipToggleNavigation(&player);
+    assert(ShipGetDriveMode() == SHIP_DRIVE_MANEUVER);
+    assert(!ShipIsInterstellarWarping());
+    assert(ShipHasNavigationTarget());
+    assert(ShipDriveTunnelIntensity() == 0.0f);
+    ShipToggleNavigation(&player);
+    assert(ShipGetDriveMode() == SHIP_DRIVE_INTERSTELLAR_WARP);
+    assert(ShipIsInterstellarWarping());
 
     ShipReset();
     SetBlock(0, 4, 0, BLOCK_SPACESHIP);
     assert(ShipTryEnter(0, 4, 0, &player));
     memset(testWarpSolidSurfaces, 0, sizeof(testWarpSolidSurfaces));
     assert(ShipBeginSystemWarp(&player, 7, 9));
-    assert(!ShipWarpTargetIsSystem());
-    assert(strcmp(ShipWarpTargetName(), "Gas") == 0);
+    assert(!ShipNavigationTargetIsSystem());
+    assert(strcmp(ShipNavigationTargetName(), "Gas") == 0);
 
     ShipReset();
     SetBlock(0, 4, 0, BLOCK_SPACESHIP);
     assert(ShipTryEnter(0, 4, 0, &player));
     testWarpSystem.planetCount = 0;
     assert(ShipBeginSystemWarp(&player, 7, 9));
-    assert(ShipWarpTargetIsSystem());
-    assert(strcmp(ShipWarpTargetName(), "Test System") == 0);
+    assert(ShipNavigationTargetIsSystem());
+    assert(strcmp(ShipNavigationTargetName(), "Test System") == 0);
     ShipReset();
 }
 
@@ -370,6 +411,7 @@ int main(void)
     TestLoadIsAtomicAndResetsRuntimeState();
     TestParkedShipLayoutAndInteraction();
     TestShipDirectionQuantization();
+    TestNavigationRouteSelection();
     TestSystemWarpTargetsPreferredPlanet();
     TestStateFileValidation();
     puts("ship state tests passed");
