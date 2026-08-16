@@ -1,7 +1,9 @@
 #include "ship.h"
+#include "space.h"
 
 #include <assert.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -11,6 +13,8 @@
 static BlockType testWorld[TEST_WORLD_SIZE][WORLD_HEIGHT][TEST_WORLD_SIZE];
 static int undoBeginCalls;
 static int undoEndCalls;
+static SolarSystemDef testWarpSystem;
+static bool testWarpSolidSurfaces[MAX_SOLAR_PLANETS];
 
 static void ResetTestWorld(void)
 {
@@ -21,6 +25,7 @@ static void ResetTestWorld(void)
 
 bool PlanetWorldIsActive(void) { return false; }
 bool HomeWorldSurfaceIsActive(void) { return true; }
+bool WorldIsSurfaceActive(void) { return false; }
 WorldBlockRegion WorldBlockRegionAt(int y)
 {
     if (y >= SPACE_LAYER_Y && y < SPACE_LAYER_TOP) return WORLD_BLOCK_REGION_SPACE;
@@ -70,6 +75,67 @@ bool SpaceBlockReadyAt(int x, int y, int z)
 void SetImportMessage(const char *message)
 {
     (void)message;
+}
+
+const char *TextFormat(const char *text, ...)
+{
+    static char buffer[256];
+    va_list args;
+    va_start(args, text);
+    vsnprintf(buffer, sizeof(buffer), text, args);
+    va_end(args);
+    return buffer;
+}
+
+bool StarSystemAt(int ax, int az, SolarSystemDef *out)
+{
+    if (!out || ax != testWarpSystem.anchorX ||
+        az != testWarpSystem.anchorZ) return false;
+    *out = testWarpSystem;
+    return true;
+}
+
+PlanetProfile SolarPlanetProfile(const SolarSystemDef *system, int index)
+{
+    if (!system || index < 0 || index >= system->planetCount) {
+        return (PlanetProfile){ 0 };
+    }
+    return (PlanetProfile){
+        .physicalRadiusKm = system->planets[index].physicalRadiusKm,
+        .massKg = 1.0,
+        .hasSolidSurface = testWarpSolidSurfaces[index]
+    };
+}
+
+double SpaceSimulationTime(void) { return 0.0; }
+
+bool SolarSystemPlanetStateAtTime(const SolarSystemDef *system, int index,
+                                  double simulationTime,
+                                  SolarPlanetOrbitalState *out)
+{
+    (void)simulationTime;
+    if (!system || !out || index < 0 || index >= system->planetCount) {
+        return false;
+    }
+    *out = (SolarPlanetOrbitalState){
+        .center = { 100.0f + index * 100.0f, 0.0f, 0.0f },
+        .velocity = { 0.0f, 0.0f, 0.0f }
+    };
+    return true;
+}
+
+float SolarSystemParkingRadiusGame(const SolarSystemDef *system)
+{
+    (void)system;
+    return 10.0f;
+}
+
+float SolarSystemPlanetParkingRadiusGame(const SolarSystemDef *system,
+                                         int index)
+{
+    (void)system;
+    (void)index;
+    return 2.0f;
 }
 
 static FILE *FuelStateFile(float value)
@@ -226,6 +292,55 @@ static void TestShipDirectionQuantization(void)
     assert(ShipDirectionFromYaw(-PI * 0.5f) == SHIP_DIRECTION_WEST);
 }
 
+static void TestSystemWarpTargetsPreferredPlanet(void)
+{
+    ResetTestWorld();
+    memset(&testWarpSystem, 0, sizeof(testWarpSystem));
+    memset(testWarpSolidSurfaces, 0, sizeof(testWarpSolidSurfaces));
+    testWarpSystem.anchorX = 7;
+    testWarpSystem.anchorZ = 9;
+    testWarpSystem.center = (Vector3){ 500.0f, 0.0f, 0.0f };
+    snprintf(testWarpSystem.name, sizeof(testWarpSystem.name), "Test System");
+    testWarpSystem.planetCount = 3;
+    testWarpSystem.planets[0].physicalRadiusKm = 6000.0;
+    testWarpSystem.planets[1].physicalRadiusKm = 70000.0;
+    testWarpSystem.planets[2].physicalRadiusKm = 7000.0;
+    snprintf(testWarpSystem.planets[0].name,
+             sizeof(testWarpSystem.planets[0].name), "Rock");
+    snprintf(testWarpSystem.planets[1].name,
+             sizeof(testWarpSystem.planets[1].name), "Gas");
+    snprintf(testWarpSystem.planets[2].name,
+             sizeof(testWarpSystem.planets[2].name), "Terra");
+    testWarpSolidSurfaces[0] = true;
+    testWarpSolidSurfaces[2] = true;
+
+    Player player = { 0 };
+    ShipReset();
+    SetBlock(0, 4, 0, BLOCK_SPACESHIP);
+    assert(ShipTryEnter(0, 4, 0, &player));
+    assert(ShipBeginSystemWarp(&player, 7, 9));
+    assert(ShipIsWarping());
+    assert(!ShipWarpTargetIsSystem());
+    assert(strcmp(ShipWarpTargetName(), "Terra") == 0);
+
+    ShipReset();
+    SetBlock(0, 4, 0, BLOCK_SPACESHIP);
+    assert(ShipTryEnter(0, 4, 0, &player));
+    memset(testWarpSolidSurfaces, 0, sizeof(testWarpSolidSurfaces));
+    assert(ShipBeginSystemWarp(&player, 7, 9));
+    assert(!ShipWarpTargetIsSystem());
+    assert(strcmp(ShipWarpTargetName(), "Gas") == 0);
+
+    ShipReset();
+    SetBlock(0, 4, 0, BLOCK_SPACESHIP);
+    assert(ShipTryEnter(0, 4, 0, &player));
+    testWarpSystem.planetCount = 0;
+    assert(ShipBeginSystemWarp(&player, 7, 9));
+    assert(ShipWarpTargetIsSystem());
+    assert(strcmp(ShipWarpTargetName(), "Test System") == 0);
+    ShipReset();
+}
+
 static void TestStateFileValidation(void)
 {
     ShipReset();
@@ -255,6 +370,7 @@ int main(void)
     TestLoadIsAtomicAndResetsRuntimeState();
     TestParkedShipLayoutAndInteraction();
     TestShipDirectionQuantization();
+    TestSystemWarpTargetsPreferredPlanet();
     TestStateFileValidation();
     puts("ship state tests passed");
     return 0;

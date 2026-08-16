@@ -378,6 +378,31 @@ static bool ResolveWarpTarget(Vector3 *center, Vector3 *velocity,
     return true;
 }
 
+static int PreferredSystemWarpPlanet(const SolarSystemDef *system)
+{
+    if (!system) return -1;
+
+    int largestPlanet = -1;
+    int largestSolidPlanet = -1;
+    double largestRadiusKm = 0.0;
+    double largestSolidRadiusKm = 0.0;
+    for (int i = 0; i < system->planetCount; i++) {
+        double radiusKm = system->planets[i].physicalRadiusKm;
+        if (!(radiusKm > 0.0) || !isfinite(radiusKm)) continue;
+        if (radiusKm > largestRadiusKm) {
+            largestRadiusKm = radiusKm;
+            largestPlanet = i;
+        }
+
+        PlanetProfile profile = SolarPlanetProfile(system, i);
+        if (profile.hasSolidSurface && radiusKm > largestSolidRadiusKm) {
+            largestSolidRadiusKm = radiusKm;
+            largestSolidPlanet = i;
+        }
+    }
+    return largestSolidPlanet >= 0 ? largestSolidPlanet : largestPlanet;
+}
+
 static bool LockWarpTarget(const Player *player, Vector3 forward)
 {
     if (WorldIsSurfaceActive()) {
@@ -427,25 +452,49 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
         return false;
     }
 
-    float gap = Vector3Distance(player->position, system.center) -
-                SolarSystemParkingRadiusGame(&system);
+    int planetIndex = PreferredSystemWarpPlanet(&system);
+    Vector3 targetCenter = system.center;
+    float safeDistance = SolarSystemParkingRadiusGame(&system);
+    if (planetIndex >= 0) {
+        SolarPlanetOrbitalState state;
+        if (!SolarSystemPlanetStateAtTime(
+                &system, planetIndex, SpaceSimulationTime(), &state)) {
+            planetIndex = -1;
+        } else {
+            targetCenter = state.center;
+            safeDistance = SolarSystemPlanetParkingRadiusGame(
+                &system, planetIndex);
+        }
+    }
+
+    float gap = Vector3Distance(player->position, targetCenter) - safeDistance;
     if (gap <= 1.0f) {
         player->velocity = Vector3Zero();
-        SetImportMessage("Already within this star system's approach zone.");
+        SetImportMessage(planetIndex >= 0
+            ? TextFormat("Already within %s's approach zone.",
+                         system.planets[planetIndex].name)
+            : "Already within this star system's approach zone.");
         return false;
     }
 
     warpTarget.locked = true;
-    warpTarget.type = WARP_TARGET_SYSTEM;
+    warpTarget.type = planetIndex >= 0 ? WARP_TARGET_PLANET :
+                                         WARP_TARGET_SYSTEM;
     warpTarget.systemAnchorX = systemAnchorX;
     warpTarget.systemAnchorZ = systemAnchorZ;
-    warpTarget.bodyId = 0u;
-    warpTarget.planetIndex = -1;
-    snprintf(warpTarget.name, sizeof(warpTarget.name), "%s", system.name);
+    warpTarget.bodyId = planetIndex >= 0
+        ? system.planets[planetIndex].bodyId : 0u;
+    warpTarget.planetIndex = planetIndex;
+    snprintf(warpTarget.name, sizeof(warpTarget.name), "%s",
+             planetIndex >= 0 && system.planets[planetIndex].name[0]
+                 ? system.planets[planetIndex].name : system.name);
     driveMode = SHIP_DRIVE_WARP;
     cruiseSetSpeed = 0.0f;
     player->velocity = Vector3Zero();
-    SetImportMessage(TextFormat("System warp engaged: %s.", warpTarget.name));
+    SetImportMessage(planetIndex >= 0
+        ? TextFormat("System warp engaged: %s in %s.",
+                     warpTarget.name, system.name)
+        : TextFormat("System warp engaged: %s.", warpTarget.name));
     return true;
 }
 
@@ -1176,7 +1225,7 @@ void ShipUpdate(Player *player, float dt)
                     driveMode = SHIP_DRIVE_MANEUVER;
                     if (wasWarping) ClearWarpTarget();
                     SetImportMessage(wasWarping
-                        ? TextFormat("Arrived at %s. Lock a planet for assisted cruise.",
+                        ? TextFormat("Arrived near %s. Press E to land.",
                                      targetName)
                         : TextFormat("Matched %s approach velocity. Press E to land.",
                                      targetName));
