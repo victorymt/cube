@@ -1,5 +1,7 @@
 #include "gameplay/ship.h"
 
+#include "gameplay/ship_exhaust.h"
+#include "gameplay/ship_ground_effects.h"
 #include "gameplay/ship_flight_controller.h"
 #include "gameplay/ship_navigation.h"
 
@@ -16,6 +18,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,6 +91,19 @@ static float targetSpeed = 0.0f;
 static float targetClosingSpeed = 0.0f;
 static float targetBrakingDistance = 0.0f;
 static float targetEtaSeconds = 0.0f;
+
+typedef struct ShipVisualEffectsState {
+    ShipExhaustProfile profile;
+    float intensity;
+    float phase;
+    float exhaustCarry;
+    unsigned nozzleCursor;
+    uint32_t randomState;
+    bool debugExhaustOverride;
+    float debugExhaustDemand;
+} ShipVisualEffectsState;
+
+static ShipVisualEffectsState shipVisualEffects = { 0 };
 
 static float NavigationArrivalTolerance(float safeDistance)
 {
@@ -822,6 +838,20 @@ void ShipToggleNavigation(Player *player)
     }
 }
 
+static void ShipBeginFlight(Player *player)
+{
+    player->velocity = Vector3Zero();
+    player->floating = true;
+    driving = true;
+    driveMode = SHIP_DRIVE_MANEUVER;
+    cruiseSetSpeed = 0.0f;
+    relativeSpeed = 0.0f;
+    gravityPrimary = (SpaceGravitySample){ 0 };
+    ClearNavigationTarget();
+    ShipResetVisualEffects();
+    SetImportMessage("Ship: inertial flight. F toggles braking assist; E exits.");
+}
+
 bool ShipTryEnter(int x, int y, int z, Player *player)
 {
     ParkedShip ship;
@@ -840,15 +870,14 @@ bool ShipTryEnter(int x, int y, int z, Player *player)
         };
         player->yaw = (float)ship.direction * PI * 0.5f;
     }
-    player->velocity = Vector3Zero();
-    player->floating = true;
-    driving = true;
-    driveMode = SHIP_DRIVE_MANEUVER;
-    cruiseSetSpeed = 0.0f;
-    relativeSpeed = 0.0f;
-    gravityPrimary = (SpaceGravitySample){ 0 };
-    ClearNavigationTarget();
-    SetImportMessage("Ship: inertial flight. F toggles braking assist; E exits.");
+    ShipBeginFlight(player);
+    return true;
+}
+
+bool ShipBeginDebugFlight(Player *player)
+{
+    if (driving || !player) return false;
+    ShipBeginFlight(player);
     return true;
 }
 
@@ -1002,6 +1031,7 @@ void ShipReset(void)
     gravityPrimary = (SpaceGravitySample){ 0 };
     ClearNavigationTarget();
     fuel = SHIP_MAX_FUEL;
+    ShipResetVisualEffects();
 }
 
 float ShipGetFuel(void)
@@ -1091,6 +1121,153 @@ static float ShipAtmosphereDensityAt(Vector3 position)
 #define SHIP_VISUAL_MAX_FACES 128
 
 static Model shipModel = { 0 };
+
+static float ShipVisualRandom(void)
+{
+    uint32_t value = shipVisualEffects.randomState;
+    if (value == 0u) value = 0x9e3779b9u;
+    value ^= value << 13;
+    value ^= value >> 17;
+    value ^= value << 5;
+    shipVisualEffects.randomState = value;
+    return (float)(value >> 8) * (1.0f / 16777216.0f);
+}
+
+static Matrix ShipVisualRotation(const Player *player)
+{
+    return MatrixRotateXYZ((Vector3){ player->pitch, player->yaw, 0.0f });
+}
+
+static Vector3 ShipVisualOrigin(const Player *player)
+{
+    return Vector3Add(player->position, (Vector3){ 0.0f, 0.30f, 0.0f });
+}
+
+static Vector3 ShipVisualWorldPoint(const Player *player, Vector3 local)
+{
+    return Vector3Add(ShipVisualOrigin(player),
+                      Vector3Transform(local, ShipVisualRotation(player)));
+}
+
+static Vector3 ShipVisualWorldDirection(const Player *player, Vector3 local)
+{
+    return Vector3Normalize(Vector3Transform(
+        local, ShipVisualRotation(player)));
+}
+
+static Vector3 ShipVisualNozzle(const Player *player, int index)
+{
+    float x = index == 0 ? -0.65f : 0.65f;
+    return ShipVisualWorldPoint(player, (Vector3){ x, -0.03f, -1.73f });
+}
+
+static Vector3 ShipVisualPlumeDirection(const Player *player, int index)
+{
+    Vector3 backward = ShipVisualWorldDirection(
+        player, (Vector3){ 0.0f, 0.0f, -1.0f });
+    Vector3 right = ShipVisualWorldDirection(
+        player, (Vector3){ 1.0f, 0.0f, 0.0f });
+    float outward = index == 0 ? -0.30f : 0.30f;
+    return Vector3Normalize(Vector3Add(
+        backward, Vector3Scale(right, outward)));
+}
+
+void ShipResetVisualEffects(void)
+{
+    shipVisualEffects = (ShipVisualEffectsState){ 0 };
+    shipVisualEffects.randomState = 0x6d2b79f5u;
+    shipVisualEffects.profile = ShipExhaustProfileFor(
+        SHIP_DRIVE_MANEUVER, 1.0f, 0.0f);
+    ShipGroundEffectsReset();
+}
+
+float ShipVisualExhaustIntensity(void)
+{
+    return shipVisualEffects.intensity;
+}
+
+bool ShipSetDebugExhaust(const Player *player, float demand)
+{
+    if (!player || !isfinite(demand) || demand < 0.0f || demand > 1.0f) {
+        return false;
+    }
+    shipVisualEffects.debugExhaustOverride = demand > 0.0f;
+    shipVisualEffects.debugExhaustDemand = demand;
+    shipVisualEffects.profile = ShipExhaustProfileFor(
+        SHIP_DRIVE_MANEUVER, demand,
+        ShipAtmosphereDensityAt(player->position));
+    shipVisualEffects.intensity = demand;
+    shipVisualEffects.exhaustCarry = 0.0f;
+    return true;
+}
+
+static void ShipUpdateMainExhaust(const Player *player, float dt,
+                                  ShipDriveMode mode, float demand,
+                                  float atmosphereDensity)
+{
+    if (!player || !isfinite(dt) || dt <= 0.0f) return;
+    if (shipVisualEffects.debugExhaustOverride) {
+        mode = SHIP_DRIVE_MANEUVER;
+        demand = shipVisualEffects.debugExhaustDemand;
+    }
+    ShipExhaustProfile next = ShipExhaustProfileFor(
+        mode, demand, atmosphereDensity);
+    if (next.intensity > 0.0f) shipVisualEffects.profile = next;
+
+    float target = next.intensity;
+    float response = target > shipVisualEffects.intensity ? 10.0f : 14.0f;
+    float change = Clamp(target - shipVisualEffects.intensity,
+                         -response * dt, response * dt);
+    shipVisualEffects.intensity = Clamp(
+        shipVisualEffects.intensity + change, 0.0f, 1.0f);
+    shipVisualEffects.phase += dt;
+    if (shipVisualEffects.phase > 1000.0f) {
+        shipVisualEffects.phase = fmodf(shipVisualEffects.phase, 1000.0f);
+    }
+    if (shipVisualEffects.intensity <= 0.01f) return;
+
+    int count = ShipExhaustEmissionCount(
+        shipVisualEffects.profile.particleRate * shipVisualEffects.intensity,
+        dt, &shipVisualEffects.exhaustCarry, 4);
+    Vector3 localRight = ShipVisualWorldDirection(
+        player, (Vector3){ 1.0f, 0.0f, 0.0f });
+    Vector3 localUp = ShipVisualWorldDirection(
+        player, (Vector3){ 0.0f, 1.0f, 0.0f });
+    for (int i = 0; i < count; i++) {
+        int nozzleIndex = (int)(shipVisualEffects.nozzleCursor++ & 1u);
+        float lateral = (ShipVisualRandom() - 0.5f) * 0.12f;
+        float vertical = (ShipVisualRandom() - 0.5f) * 0.12f;
+        Vector3 plumeDirection = ShipVisualPlumeDirection(
+            player, nozzleIndex);
+        Vector3 jitter = Vector3Add(
+            Vector3Scale(localRight, lateral),
+            Vector3Scale(localUp, vertical));
+        Vector3 position = Vector3Add(
+            ShipVisualNozzle(player, nozzleIndex),
+            Vector3Add(Vector3Scale(plumeDirection, 0.08f), jitter));
+        Vector3 velocity = Vector3Add(
+            player->velocity,
+            Vector3Add(Vector3Scale(
+                           plumeDirection,
+                           2.4f + shipVisualEffects.intensity * 3.2f),
+                       Vector3Scale(jitter, 1.8f)));
+        float size = 0.035f + ShipVisualRandom() * 0.025f;
+        Color start = shipVisualEffects.profile.outerColor;
+        start.a = (unsigned char)Clamp(
+            90.0f + shipVisualEffects.intensity * 70.0f, 0.0f, 255.0f);
+        Color end = start;
+        end.a = 0;
+        ParticleStyle style = {
+            .startSize = { size, size, size },
+            .endSize = { size * 0.28f, size * 0.28f, size * 0.28f },
+            .startColor = start,
+            .endColor = end,
+            .gravity = 0.0f
+        };
+        ParticlesEmitStyled(position, velocity, &style,
+                            0.16f + ShipVisualRandom() * 0.10f);
+    }
+}
 
 static Color ShipVisualShade(Color color, Vector3 normal)
 {
@@ -1355,25 +1532,88 @@ void ShipCleanup(void)
 {
     if (shipModel.meshCount > 0) UnloadModel(shipModel);
     shipModel = (Model){ 0 };
+    ShipResetVisualEffects();
 }
 
 void ShipDraw(const Player *player)
 {
     if (!player || shipModel.meshCount == 0) return;
-    shipModel.transform = MatrixRotateXYZ((Vector3){ player->pitch, player->yaw, 0.0f });
-    Vector3 pos = Vector3Add(player->position, (Vector3){ 0.0f, 0.30f, 0.0f });
+    shipModel.transform = ShipVisualRotation(player);
+    Vector3 pos = ShipVisualOrigin(player);
     DrawModel(shipModel, pos, 1.0f, WHITE);
+    if (shipVisualEffects.intensity <= 0.01f) return;
+
+    BeginBlendMode(BLEND_ADDITIVE);
+    for (int i = 0; i < 2; i++) {
+        float flicker = 1.0f + 0.075f * sinf(
+            shipVisualEffects.phase * 31.0f + (float)i * 2.17f);
+        float intensity = shipVisualEffects.intensity;
+        float length = shipVisualEffects.profile.flameLength *
+                       sqrtf(intensity) * flicker;
+        float radius = shipVisualEffects.profile.outerRadius *
+                       (0.55f + 0.45f * intensity);
+        Vector3 nozzle = ShipVisualNozzle(player, i);
+        Vector3 plumeDirection = ShipVisualPlumeDirection(player, i);
+        Vector3 outerEnd = Vector3Add(
+            nozzle, Vector3Scale(plumeDirection, length));
+        Color outer = shipVisualEffects.profile.outerColor;
+        outer.a = (unsigned char)Clamp((float)outer.a * intensity,
+                                       0.0f, 255.0f);
+        DrawCylinderEx(nozzle, outerEnd, radius, 0.018f, 10, outer);
+        Vector3 glowCenter = Vector3Add(
+            nozzle, Vector3Scale(plumeDirection, 0.025f));
+        DrawSphereEx(glowCenter, radius * 1.05f, 8, 8, outer);
+        DrawSphereEx(outerEnd, radius * 0.24f, 6, 6, outer);
+
+        Vector3 coreStart = Vector3Add(nozzle,
+                                       Vector3Scale(plumeDirection, 0.015f));
+        Vector3 coreEnd = Vector3Add(
+            nozzle, Vector3Scale(plumeDirection, length * 0.62f));
+        Color core = shipVisualEffects.profile.coreColor;
+        core.a = (unsigned char)Clamp((float)core.a * intensity,
+                                      0.0f, 255.0f);
+        DrawCylinderEx(coreStart, coreEnd, radius * 0.48f, 0.008f,
+                       8, core);
+        DrawSphereEx(glowCenter, radius * 0.35f, 8, 8, core);
+        DrawSphereEx(coreEnd, radius * 0.12f, 6, 6, core);
+    }
+    EndBlendMode();
 }
 
 void ShipUpdate(Player *player, float dt)
+{
+    ShipUpdateWithInput(player, dt, NULL);
+}
+
+void ShipUpdateWithInput(Player *player, float dt,
+                         const ShipControlInput *input)
 {
     if (!player) return;
     if (!isfinite(dt) || dt <= 0.0f) dt = 0.0f;
     if (dt > 0.25f) dt = 0.25f;
     bool positionControlledByDrive = false;
+    bool scriptedInput = input != NULL;
+    float forwardInput = 0.0f;
+    float strafeInput = 0.0f;
+    float verticalInput = 0.0f;
+    if (scriptedInput) {
+        forwardInput = isfinite(input->forward)
+            ? Clamp(input->forward, -1.0f, 1.0f) : 0.0f;
+        strafeInput = isfinite(input->strafe)
+            ? Clamp(input->strafe, -1.0f, 1.0f) : 0.0f;
+        verticalInput = isfinite(input->vertical)
+            ? Clamp(input->vertical, -1.0f, 1.0f) : 0.0f;
+    } else {
+        forwardInput = (IsKeyDown(KEY_W) ? 1.0f : 0.0f) -
+                       (IsKeyDown(KEY_S) ? 1.0f : 0.0f);
+        strafeInput = (IsKeyDown(KEY_D) ? 1.0f : 0.0f) -
+                      (IsKeyDown(KEY_A) ? 1.0f : 0.0f);
+        verticalInput = (IsKeyDown(KEY_SPACE) ? 1.0f : 0.0f) -
+                        (IsKeyDown(KEY_LEFT_CONTROL) ? 1.0f : 0.0f);
+    }
 
     bool surfaceActive = WorldIsSurfaceActive();
-    if (IsKeyPressed(KEY_X)) {
+    if (!scriptedInput && IsKeyPressed(KEY_X)) {
         if (ShipDriveIsGuided()) {
             SetImportMessage("Navigation active. Press G to cancel it.");
         } else if (surfaceActive) {
@@ -1382,8 +1622,8 @@ void ShipUpdate(Player *player, float dt)
             ShipToggleCruise();
         }
     }
-    if (IsKeyPressed(KEY_R)) ShipRefuel();
-    if (IsKeyPressed(KEY_F) && !ShipDriveIsGuided()) {
+    if (!scriptedInput && IsKeyPressed(KEY_R)) ShipRefuel();
+    if (!scriptedInput && IsKeyPressed(KEY_F) && !ShipDriveIsGuided()) {
         flightAssist = !flightAssist;
         SetImportMessage(flightAssist ?
                          "Flight assist enabled: releasing thrust brakes the ship." :
@@ -1391,7 +1631,7 @@ void ShipUpdate(Player *player, float dt)
     }
 
     bool automaticDrive = ShipDriveIsGuided();
-    Vector2 mouseDelta = GetMouseDelta();
+    Vector2 mouseDelta = scriptedInput ? Vector2Zero() : GetMouseDelta();
     if (!automaticDrive) {
         player->yaw -= mouseDelta.x * MOUSE_SENSITIVITY;
         player->pitch -= mouseDelta.y * MOUSE_SENSITIVITY;
@@ -1399,14 +1639,14 @@ void ShipUpdate(Player *player, float dt)
     player->pitch = Clamp(player->pitch, -1.45f, 1.45f);
 
     Vector3 forward = ForwardFromAngles(player->yaw, player->pitch);
-    if (IsKeyPressed(KEY_Q)) {
+    if (!scriptedInput && IsKeyPressed(KEY_Q)) {
         if (ShipDriveIsWarpTransit()) {
             SetImportMessage("Cancel high-speed navigation before changing target.");
         } else {
             LockNavigationTarget(player, forward);
         }
     }
-    if (IsKeyPressed(KEY_G)) {
+    if (!scriptedInput && IsKeyPressed(KEY_G)) {
         if (!navigationTarget.locked && !ShipDriveIsGuided()) {
             SetImportMessage("Lock a navigation target with Q first.");
         } else {
@@ -1418,12 +1658,10 @@ void ShipUpdate(Player *player, float dt)
     Vector3 right = RightFromYaw(player->yaw);
     Vector3 accel = Vector3Zero();
     if (!automaticDrive && driveMode != SHIP_DRIVE_MANUAL_CRUISE) {
-        if (IsKeyDown(KEY_W)) accel = Vector3Add(accel, forward);
-        if (IsKeyDown(KEY_S)) accel = Vector3Subtract(accel, forward);
+        accel = Vector3Add(accel, Vector3Scale(forward, forwardInput));
     }
     if (!automaticDrive) {
-        if (IsKeyDown(KEY_D)) accel = Vector3Add(accel, right);
-        if (IsKeyDown(KEY_A)) accel = Vector3Subtract(accel, right);
+        accel = Vector3Add(accel, Vector3Scale(right, strafeInput));
     }
 
     Vector3 planetDir = Vector3Zero();
@@ -1448,8 +1686,7 @@ void ShipUpdate(Player *player, float dt)
     }
 
     if (!automaticDrive) {
-        if (IsKeyDown(KEY_SPACE)) accel = Vector3Add(accel, vertical);
-        if (IsKeyDown(KEY_LEFT_CONTROL)) accel = Vector3Subtract(accel, vertical);
+        accel = Vector3Add(accel, Vector3Scale(vertical, verticalInput));
     }
     bool translationInput = Vector3LengthSqr(accel) > 0.0f;
     if (translationInput) accel = Vector3Normalize(accel);
@@ -1460,8 +1697,7 @@ void ShipUpdate(Player *player, float dt)
     }
 
     if (driveMode == SHIP_DRIVE_MANUAL_CRUISE && dt > 0.0f) {
-        if (IsKeyDown(KEY_W)) cruiseSetSpeed += SHIP_CRUISE_SPEED_CHANGE * dt;
-        if (IsKeyDown(KEY_S)) cruiseSetSpeed -= SHIP_CRUISE_SPEED_CHANGE * dt;
+        cruiseSetSpeed += forwardInput * SHIP_CRUISE_SPEED_CHANGE * dt;
         cruiseSetSpeed = Clamp(cruiseSetSpeed,
                                -SHIP_MANUAL_CRUISE_REVERSE_SPEED,
                                SHIP_CRUISE_MAX_SPEED);
@@ -1730,43 +1966,49 @@ void ShipUpdate(Player *player, float dt)
         }
     }
 
-    bool poweredDrive = driveMode == SHIP_DRIVE_MANUAL_CRUISE ||
-                        driveMode == SHIP_DRIVE_APPROACH ||
+    bool manualForward = !automaticDrive && forwardInput > 0.001f;
+    bool positiveCruise = driveMode == SHIP_DRIVE_MANUAL_CRUISE &&
+                          cruiseSetSpeed > 0.001f;
+    bool poweredDrive = driveMode == SHIP_DRIVE_APPROACH ||
                         driveMode == SHIP_DRIVE_SUPERCRUISE ||
-                        driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
-    int exhaustCount = poweredDrive ? 3 : 1;
-    if (IsKeyDown(KEY_W) || poweredDrive) {
-        for (int k = 0; k < exhaustCount; k++) {
-            Vector3 tail = Vector3Subtract(player->position,
-                                           Vector3Scale(forward, 0.9f));
-            ParticlesEmitOne(tail,
-                             Vector3Negate(Vector3Scale(forward, 2.5f)),
-                             (Color){ 255, 170, 60, 230 },
-                             (Vector3){ 0.16f, 0.16f, 0.16f },
-                             0.45f, 0.0f);
-        }
-        if (poweredDrive) {
-            bool warpEffect = driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
-            Vector3 tail = Vector3Subtract(player->position,
-                                           Vector3Scale(forward, 1.4f));
-            ParticlesEmitOne(tail,
-                             Vector3Negate(Vector3Scale(forward, 8.0f)),
-                             warpEffect ? (Color){ 160, 220, 255, 220 } :
-                                          (Color){ 255, 220, 130, 200 },
-                             warpEffect ? (Vector3){ 0.30f, 0.30f, 0.30f } :
-                                          (Vector3){ 0.22f, 0.22f, 0.22f },
-                             0.6f, 0.0f);
+                        driveMode == SHIP_DRIVE_INTERSTELLAR_WARP ||
+                        positiveCruise;
+    float exhaustDemand = 0.0f;
+    if (fuel > 0.0f && (manualForward || poweredDrive)) {
+        switch (driveMode) {
+        case SHIP_DRIVE_MANUAL_CRUISE: exhaustDemand = 0.80f; break;
+        case SHIP_DRIVE_APPROACH: exhaustDemand = 0.76f; break;
+        case SHIP_DRIVE_SUPERCRUISE: exhaustDemand = 0.94f; break;
+        case SHIP_DRIVE_INTERSTELLAR_WARP: exhaustDemand = 1.0f; break;
+        default: exhaustDemand = 0.65f; break;
         }
     }
+    ShipUpdateMainExhaust(player, dt, driveMode, exhaustDemand,
+                          atmosphereDensity);
+    if (surfaceActive && fuel > 0.0f && !automaticDrive &&
+        verticalInput > 0.001f) {
+        ShipGroundEffectsEmit(player, dt, 1.0f, false);
+    }
+}
 
-    if (nearPlanet && IsKeyDown(KEY_LEFT_CONTROL)) {
-        Vector3 exhaustPos = Vector3Add(player->position,
-                                        Vector3Scale(vertical, 0.9f));
-        ParticlesEmitOne(exhaustPos, Vector3Scale(vertical, 2.2f),
-                         (Color){ 190, 220, 255, 210 },
-                         (Vector3){ 0.14f, 0.14f, 0.14f },
-                         0.4f, 0.0f);
+void ShipUpdateLandingEffects(const Player *player, float dt,
+                              float descentProgress)
+{
+    if (!player || !driving || !isfinite(dt) || dt <= 0.0f) return;
+    float progress = Clamp(descentProgress, 0.0f, 1.0f);
+    float demand = 0.32f + progress * 0.26f;
+    ShipUpdateMainExhaust(player, dt, SHIP_DRIVE_MANEUVER, demand,
+                          ShipAtmosphereDensityAt(player->position));
+    if (WorldIsSurfaceActive() && progress > 0.55f) {
+        ShipGroundEffectsEmit(player, dt,
+                              (progress - 0.55f) / 0.45f, false);
     }
+}
+
+void ShipEmitTouchdownDust(const Player *player)
+{
+    if (!player) return;
+    ShipGroundEffectsEmit(player, 0.0f, 1.0f, true);
 }
 
 static bool FindShipPlacement(int *outX, int *outY, int *outZ,
@@ -1824,6 +2066,7 @@ static bool ShipPlaceAfterExit(Player *player)
     player->onGround = false;
     gravityPrimary = (SpaceGravitySample){ 0 };
     ClearNavigationTarget();
+    ShipResetVisualEffects();
     return true;
 }
 

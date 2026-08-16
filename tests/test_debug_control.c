@@ -27,7 +27,11 @@ static void TestCommandStream(void)
         "fluid inspect\nfluid inspect 1 72 -4\n"
         "fluid set 1 72 -4 127\nfluid step 25\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
-        "input 1 -0.5 1 1 120\nunknown\nquit\n";
+        "input 1 -0.5 1 1 120\n"
+        "ship begin\nship enter\nship input 0.75 -0.25 1 180\n"
+        "ship exhaust 0.65\n"
+        "ship dust\n"
+        "view third\nview first\nunknown\nquit\n";
     assert(write(inputPipe[1], commands, strlen(commands)) ==
            (ssize_t)strlen(commands));
 
@@ -58,6 +62,20 @@ static void TestCommandStream(void)
     assert(control.playerInput.vertical == 1.0f);
     assert(control.playerInput.sprint);
     assert(control.playerInput.frames == 120u);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_BEGIN);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_ENTER);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_INPUT);
+    assert(control.shipInput.forward == 0.75f);
+    assert(control.shipInput.strafe == -0.25f);
+    assert(control.shipInput.vertical == 1.0f);
+    assert(control.shipInput.frames == 180u);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_EXHAUST);
+    assert(control.shipExhaustDemand == 0.65f);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_DUST);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_VIEW);
+    assert(control.thirdPerson);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_VIEW);
+    assert(!control.thirdPerson);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_QUIT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_NONE);
@@ -164,13 +182,16 @@ static void TestInvalidParameterizedCommands(void)
         "teleport 1 2 3 0 2\n"
         "input 2 0 0 0 1\n"
         "input 0 0 0 0 601\n"
+        "ship input 0 0 2 1\n"
+        "ship input 0 0 0 0\n"
+        "ship exhaust 1.1\n"
         "fluid set 0 1 0 256\n"
         "fluid step 0\n"
         "marker add 1 2 red\n"
         "marker target 0\n";
     assert(write(inputPipe[1], commands, strlen(commands)) ==
            (ssize_t)strlen(commands));
-    for (int index = 0; index < 8; index++) {
+    for (int index = 0; index < 11; index++) {
         assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_INVALID);
     }
     close(inputPipe[0]);

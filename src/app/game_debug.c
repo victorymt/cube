@@ -13,6 +13,7 @@
 #include "app/game_runtime.h"
 #include "gameplay/map_markers.h"
 #include "gameplay/player.h"
+#include "gameplay/ship.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/render.h"
 #include "space/space.h"
@@ -60,6 +61,8 @@ static void GameDebugReplyStatus(GameRuntime *game)
         "bathymetry=%s seabed=%d water_column=%d material=%s "
         "chunk=%d,%d,%d chunk_loaded=%d neighbors=0x%X "
         "water_triangles=%d section_water_triangles=%d "
+        "ship_driving=%d ship_mode=%s ship_exhaust=%.3f "
+        "ship_input_frames=%u third_person=%d "
         "camera_inside_solid=%d autosave=%d\n",
         game->screen == SCREEN_PLAYING ? "playing" : "start", WorldGetSeed(),
         WorldDimensionName(WorldCurrentDimension()),
@@ -77,6 +80,9 @@ static void GameDebugReplyStatus(GameRuntime *game)
         waterRender.cx, waterRender.cz, waterRender.sectionY,
         waterRender.chunkLoaded ? 1 : 0, waterRender.neighborLoadedMask,
         waterRender.triangleCount, waterRender.sectionTriangleCount,
+        ShipIsDriving() ? 1 : 0, ShipDriveModeName(),
+        ShipVisualExhaustIntensity(), game->scriptedShipInputFrames,
+        game->thirdPerson ? 1 : 0,
         PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0,
         game->autoSaveEnabled ? 1 : 0);
 }
@@ -345,6 +351,129 @@ static void GameDebugApplyInput(GameRuntime *game)
         game->scriptedPlayerInput.sprint ? 1 : 0, game->scriptedInputFrames);
 }
 
+static void GameDebugEnterShip(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship enter error reason=not_playing\n");
+        return;
+    }
+    if (ShipIsDriving()) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship enter ignored reason=already_driving\n");
+        return;
+    }
+
+    ShipLocatorTarget target = { 0 };
+    if (!ShipLocatorTargetAt(game->player.position, &target)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship enter error reason=no_recorded_ship\n");
+        return;
+    }
+    if (target.status != SHIP_LOCATOR_TARGET_LOCAL) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship enter error reason=ship_not_local\n");
+        return;
+    }
+    if (!ShipTryEnter(target.blockX, target.blockY, target.blockZ,
+                      &game->player)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship enter error reason=unavailable\n");
+        return;
+    }
+    game->scriptedShipInput = (ShipControlInput){ 0 };
+    game->scriptedShipInputFrames = 0u;
+    game->scriptedShipInputFrameCarry = 0.0f;
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL ship enter ok block=%d,%d,%d\n",
+                      target.blockX, target.blockY, target.blockZ);
+}
+
+static void GameDebugBeginShip(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship begin error reason=not_playing\n");
+        return;
+    }
+    if (!ShipBeginDebugFlight(&game->player)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship begin error reason=already_driving\n");
+        return;
+    }
+    game->scriptedShipInput = (ShipControlInput){ 0 };
+    game->scriptedShipInputFrames = 0u;
+    game->scriptedShipInputFrameCarry = 0.0f;
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL ship begin ok position=%.6f,%.6f,%.6f\n",
+                      game->player.position.x, game->player.position.y,
+                      game->player.position.z);
+}
+
+static void GameDebugApplyShipInput(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING || !ShipIsDriving()) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship input error reason=not_driving\n");
+        return;
+    }
+    game->scriptedShipInput = (ShipControlInput){
+        .forward = game->debugControl.shipInput.forward,
+        .strafe = game->debugControl.shipInput.strafe,
+        .vertical = game->debugControl.shipInput.vertical
+    };
+    game->scriptedShipInputFrames = game->debugControl.shipInput.frames;
+    game->scriptedShipInputFrameCarry = 0.0f;
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL ship input ok forward=%.3f strafe=%.3f "
+        "vertical=%.3f frames=%u\n",
+        game->scriptedShipInput.forward, game->scriptedShipInput.strafe,
+        game->scriptedShipInput.vertical, game->scriptedShipInputFrames);
+}
+
+static void GameDebugSetShipExhaust(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING || !ShipIsDriving()) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship exhaust error reason=not_driving\n");
+        return;
+    }
+    float demand = game->debugControl.shipExhaustDemand;
+    if (!ShipSetDebugExhaust(&game->player, demand)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship exhaust error reason=invalid\n");
+        return;
+    }
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL ship exhaust ok demand=%.3f\n", demand);
+}
+
+static void GameDebugEmitShipDust(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING || !ShipIsDriving() ||
+        !WorldIsSurfaceActive()) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ship dust error reason=no_surface_ship\n");
+        return;
+    }
+    ShipEmitTouchdownDust(&game->player);
+    DebugControlReply(&game->debugControl, "DEBUG_CONTROL ship dust ok\n");
+}
+
+static void GameDebugSetView(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL view error reason=not_playing\n");
+        return;
+    }
+    game->thirdPerson = game->debugControl.thirdPerson;
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL view ok mode=%s\n",
+                      game->thirdPerson ? "third" : "first");
+}
+
 static void GameDebugInspectEvolution(GameRuntime *game)
 {
     int index = EntityNearestEvolvable(game->player.position,
@@ -492,6 +621,9 @@ bool GameDispatchDebugCommand(GameRuntime *game)
     case DEBUG_CONTROL_COMMAND_LOAD:
         if (game->screen == SCREEN_PLAYING) {
             LoadMap(&game->player);
+            game->scriptedShipInput = (ShipControlInput){ 0 };
+            game->scriptedShipInputFrames = 0u;
+            game->scriptedShipInputFrameCarry = 0.0f;
             game->landingTransition = (LandingTransition){ 0 };
             game->wasInSpace = WorldIsSpaceActive();
             game->entitiesWorldActive = WorldIsSurfaceActive();
@@ -536,6 +668,24 @@ bool GameDispatchDebugCommand(GameRuntime *game)
         break;
     case DEBUG_CONTROL_COMMAND_INPUT:
         GameDebugApplyInput(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_SHIP_BEGIN:
+        GameDebugBeginShip(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_SHIP_ENTER:
+        GameDebugEnterShip(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_SHIP_INPUT:
+        GameDebugApplyShipInput(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_SHIP_EXHAUST:
+        GameDebugSetShipExhaust(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_SHIP_DUST:
+        GameDebugEmitShipDust(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_VIEW:
+        GameDebugSetView(game);
         break;
     case DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT:
         GameDebugInspectEvolution(game);

@@ -612,7 +612,23 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
     if (!game->perfMode && !GameWorldSimulationPaused(game) &&
         !game->landingTransition.active &&
         ShipIsDriving() && !StarMapIsOpen()) {
-        ShipUpdate(&game->player, dt);
+        if (game->debugControlEnabled) {
+            ShipControlInput input = { 0 };
+            if (game->scriptedShipInputFrames > 0u) {
+                input = game->scriptedShipInput;
+                game->scriptedShipInputFrameCarry += dt * 60.0f;
+                unsigned consumed = (unsigned)floorf(
+                    game->scriptedShipInputFrameCarry);
+                if (consumed > game->scriptedShipInputFrames) {
+                    consumed = game->scriptedShipInputFrames;
+                }
+                game->scriptedShipInputFrames -= consumed;
+                game->scriptedShipInputFrameCarry -= (float)consumed;
+            }
+            ShipUpdateWithInput(&game->player, dt, &input);
+        } else {
+            ShipUpdate(&game->player, dt);
+        }
         if (PlanetWorldTryLaunch(&game->player) ||
             HomeWorldTryLaunch(&game->player)) {
             game->wasInSpace = true;
@@ -1356,7 +1372,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready commands=start,screenshot,status,save,load,map,marker,teleport,input,"
+        "DEBUG_CONTROL ready commands=start,screenshot,status,save,load,map,marker,teleport,input,ship,view,"
         "fluid,evolution,quit\n");
     return true;
 }

@@ -185,12 +185,19 @@ For scripted visual debugging, start the game with `--debug-stdin`. It accepts
 line-delimited commands: `start`, `screenshot`, `status`, `save`, `load`, `map`, `teleport X Y Z YAW
 PITCH`, `marker add X Z COLOR NAME`, `marker list`, `marker target ID|none`,
 `marker remove ID`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, `evolution inspect [RADIUS]`,
+`ship begin`, `ship enter`, `ship input FORWARD STRAFE VERTICAL FRAMES`,
+`ship exhaust DEMAND`, `ship dust`, `view first|third`,
 `evolution focus [RADIUS]`, `evolution region`, `evolution advance DAYS`,
 `evolution bootstrap status`, `evolution atlas`, `evolution catalog`, or
 `quit`. Movement
 components are clamped to `[-1, 1]`, sprint is `0` or `1`, and an input window
 lasts 1-600 fixed 60 FPS frames. Debug sessions ignore desktop keyboard state
-outside those input windows, so runs are reproducible. Replies begin with
+outside those input windows, including while piloting a ship, so runs are
+reproducible. `ship begin` starts a debug-only flight at the current position
+without editing the world, while `ship enter` uses the current world's recorded
+local ship. `ship exhaust` locks a visual preview at demand `[0,1]`; use `0` to
+return to normal thrust-driven exhaust. `ship dust` triggers the touchdown
+ground-effect burst at the current position. Replies begin with
 `DEBUG_CONTROL`; status includes player water flags, actual water surface and
 depth, plus bathymetry zone, seabed height, water-column depth and seabed
 material. Screenshot reports include the same bathymetry diagnostics, and a

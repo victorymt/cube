@@ -11,8 +11,10 @@ typedef struct Particle {
     Vector3 velocity;
     float life;
     float maxLife;
-    Vector3 size;
-    Color color;
+    Vector3 startSize;
+    Vector3 endSize;
+    Color startColor;
+    Color endColor;
     float gravity;
 } Particle;
 
@@ -33,17 +35,36 @@ void ParticlesInit(void)
     for (int i = 0; i < PARTICLES_MAX; i++) particles[i].active = false;
 }
 
-void ParticlesEmitOne(Vector3 position, Vector3 velocity, Color color, Vector3 size, float life, float gravity)
+void ParticlesEmitStyled(Vector3 position, Vector3 velocity,
+                         const ParticleStyle *style, float life)
 {
+    if (!style || !isfinite(life) || life <= 0.0f) return;
     Particle *particle = &particles[NextFreeParticle()];
     particle->active = true;
     particle->position = position;
     particle->velocity = velocity;
-    particle->color = color;
-    particle->size = size;
+    particle->startColor = style->startColor;
+    particle->endColor = style->endColor;
+    particle->startSize = style->startSize;
+    particle->endSize = style->endSize;
     particle->life = life;
-    particle->maxLife = life > 0.0f ? life : 1.0f;
-    particle->gravity = gravity;
+    particle->maxLife = life;
+    particle->gravity = style->gravity;
+}
+
+void ParticlesEmitOne(Vector3 position, Vector3 velocity, Color color,
+                      Vector3 size, float life, float gravity)
+{
+    Color endColor = color;
+    endColor.a = 0;
+    ParticleStyle style = {
+        .startSize = size,
+        .endSize = size,
+        .startColor = color,
+        .endColor = endColor,
+        .gravity = gravity
+    };
+    ParticlesEmitStyled(position, velocity, &style, life);
 }
 
 void ParticlesEmitBurst(Vector3 position, Color color, int count, float speed, float life)
@@ -84,10 +105,13 @@ void ParticlesDraw(void)
         const Particle *particle = &particles[i];
         if (!particle->active) continue;
 
-        float alpha = particle->life / particle->maxLife;
-        Color color = particle->color;
-        color.a = (unsigned char)((float)color.a * alpha);
-        DrawCubeV(particle->position, particle->size, color);
+        float amount = 1.0f - particle->life / particle->maxLife;
+        amount = Clamp(amount, 0.0f, 1.0f);
+        Vector3 size = Vector3Lerp(particle->startSize,
+                                   particle->endSize, amount);
+        Color color = ColorLerp(particle->startColor,
+                                particle->endColor, amount);
+        DrawCubeV(particle->position, size, color);
     }
 }
 

@@ -97,6 +97,28 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;
     if (strcmp(line, "load") == 0) return DEBUG_CONTROL_COMMAND_LOAD;
     if (strcmp(line, "map") == 0) return DEBUG_CONTROL_COMMAND_MAP;
+    if (strcmp(line, "ship begin") == 0) {
+        return DEBUG_CONTROL_COMMAND_SHIP_BEGIN;
+    }
+    if (strcmp(line, "ship enter") == 0) {
+        return DEBUG_CONTROL_COMMAND_SHIP_ENTER;
+    }
+    if (strcmp(line, "ship dust") == 0) {
+        return DEBUG_CONTROL_COMMAND_SHIP_DUST;
+    }
+    if (strcmp(line, "view first") == 0 ||
+        strcmp(line, "view third") == 0) {
+        control->thirdPerson = strcmp(line, "view third") == 0;
+        return DEBUG_CONTROL_COMMAND_VIEW;
+    }
+    float shipExhaustDemand = 0.0f;
+    char shipExhaustTrailing = '\0';
+    if (sscanf(line, "ship exhaust %f %c", &shipExhaustDemand,
+               &shipExhaustTrailing) == 1 && isfinite(shipExhaustDemand) &&
+        shipExhaustDemand >= 0.0f && shipExhaustDemand <= 1.0f) {
+        control->shipExhaustDemand = shipExhaustDemand;
+        return DEBUG_CONTROL_COMMAND_SHIP_EXHAUST;
+    }
     if (strcmp(line, "fluid inspect") == 0) {
         control->fluidUsePlayerPosition = true;
         return DEBUG_CONTROL_COMMAND_FLUID_INSPECT;
@@ -198,6 +220,20 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         input.frames = frames;
         control->playerInput = input;
         return DEBUG_CONTROL_COMMAND_INPUT;
+    }
+    input = (DebugControlInput){ 0 };
+    frames = 0u;
+    if (sscanf(line, "ship input %f %f %f %u %c",
+               &input.forward, &input.strafe, &input.vertical,
+               &frames, &trailing) == 4 && isfinite(input.forward) &&
+        isfinite(input.strafe) && isfinite(input.vertical) &&
+        input.forward >= -1.0f && input.forward <= 1.0f &&
+        input.strafe >= -1.0f && input.strafe <= 1.0f &&
+        input.vertical >= -1.0f && input.vertical <= 1.0f &&
+        frames >= 1u && frames <= 600u) {
+        input.frames = frames;
+        control->shipInput = input;
+        return DEBUG_CONTROL_COMMAND_SHIP_INPUT;
     }
     return DEBUG_CONTROL_COMMAND_INVALID;
 }

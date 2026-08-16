@@ -42,6 +42,7 @@ WEATHER_VISUAL_TEST_TARGET := $(TEST_BUILD_DIR)/test_weather_visual
 PLAYER_COLLISION_TEST_TARGET := $(TEST_BUILD_DIR)/test_player_collision
 SHIP_STATE_TEST_TARGET := $(TEST_BUILD_DIR)/test_ship_state
 SHIP_FLIGHT_CONTROLLER_TEST_TARGET := $(TEST_BUILD_DIR)/test_ship_flight_controller
+SHIP_EXHAUST_TEST_TARGET := $(TEST_BUILD_DIR)/test_ship_exhaust
 SHIP_LOCATOR_TEST_TARGET := $(TEST_BUILD_DIR)/test_ship_locator
 BLOCK_ATLAS_TEST_TARGET := $(TEST_BUILD_DIR)/test_block_atlas
 CHUNK_ATLAS_TEST_TARGET := $(TEST_BUILD_DIR)/test_chunk_atlas
@@ -75,7 +76,7 @@ OBJ_DIR := $(BUILD_DIR)/obj
 OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(MODULE_SRC))
 DEP := $(OBJ:.o=.d)
 
-TEST_TARGETS := $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(PLANET_OBSERVATION_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(EVOLUTION_TEST_TARGET) $(EVOLUTION_CATALOG_TEST_TARGET) $(FLUID_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(WEATHER_RUNTIME_TEST_TARGET) $(WEATHER_VISUAL_TEST_TARGET) $(PLAYER_COLLISION_TEST_TARGET) $(SHIP_STATE_TEST_TARGET) $(SHIP_FLIGHT_CONTROLLER_TEST_TARGET) $(SHIP_LOCATOR_TEST_TARGET) $(BLOCK_ATLAS_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(CHUNK_STREAMING_TEST_TARGET) $(TERRAIN_SCALE_TEST_TARGET) $(SUBSURFACE_TEST_TARGET) $(PERF_TEST_TARGET) $(RENDER_SORT_TEST_TARGET) $(RENDER_RESOURCES_TEST_TARGET) $(WORLD_RENDERER_TEST_TARGET) $(WORLD_LIGHTING_TEST_TARGET) $(SAVE_IO_TEST_TARGET) $(GAME_SETTINGS_TEST_TARGET) $(SCREENSHOT_TEST_TARGET) $(DEBUG_CONTROL_TEST_TARGET) $(ENVIRONMENT_PRESENTATION_TEST_TARGET) $(ENVIRONMENT_RUNTIME_TEST_TARGET) $(AUDIO_ENVIRONMENT_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET) $(PLANET_RENDERER_RESOURCES_TEST_TARGET) $(PLANET_TEXTURE_RESOURCES_TEST_TARGET) $(HOMEWORLD_MAP_MODEL_TEST_TARGET)
+TEST_TARGETS := $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(PLANET_OBSERVATION_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(EVOLUTION_TEST_TARGET) $(EVOLUTION_CATALOG_TEST_TARGET) $(FLUID_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(WEATHER_RUNTIME_TEST_TARGET) $(WEATHER_VISUAL_TEST_TARGET) $(PLAYER_COLLISION_TEST_TARGET) $(SHIP_STATE_TEST_TARGET) $(SHIP_FLIGHT_CONTROLLER_TEST_TARGET) $(SHIP_EXHAUST_TEST_TARGET) $(SHIP_LOCATOR_TEST_TARGET) $(BLOCK_ATLAS_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(CHUNK_STREAMING_TEST_TARGET) $(TERRAIN_SCALE_TEST_TARGET) $(SUBSURFACE_TEST_TARGET) $(PERF_TEST_TARGET) $(RENDER_SORT_TEST_TARGET) $(RENDER_RESOURCES_TEST_TARGET) $(WORLD_RENDERER_TEST_TARGET) $(WORLD_LIGHTING_TEST_TARGET) $(SAVE_IO_TEST_TARGET) $(GAME_SETTINGS_TEST_TARGET) $(SCREENSHOT_TEST_TARGET) $(DEBUG_CONTROL_TEST_TARGET) $(ENVIRONMENT_PRESENTATION_TEST_TARGET) $(ENVIRONMENT_RUNTIME_TEST_TARGET) $(AUDIO_ENVIRONMENT_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET) $(PLANET_RENDERER_RESOURCES_TEST_TARGET) $(PLANET_TEXTURE_RESOURCES_TEST_TARGET) $(HOMEWORLD_MAP_MODEL_TEST_TARGET)
 TEST_TARGETS += $(SPACE_COORDINATES_TEST_TARGET)
 TEST_TARGETS += $(SURFACE_TOPOLOGY_TEST_TARGET)
 TEST_TARGETS += $(SURFACE_SAVE_TEST_TARGET)
@@ -249,11 +250,14 @@ $(MAP_MARKERS_TEST_TARGET): tests/test_map_markers.c src/gameplay/map_markers.c 
 $(PLAYER_COLLISION_TEST_TARGET): tests/test_player_collision.c src/gameplay/player.c src/gameplay/player.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_player_collision.c src/gameplay/player.c -lm
 
-$(SHIP_STATE_TEST_TARGET): tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship.h src/gameplay/ship_navigation.c src/gameplay/ship_navigation.h src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h src/gameplay/ship_locator.c src/gameplay/ship_locator.h
-	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c -lm
+$(SHIP_STATE_TEST_TARGET): tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship.h src/gameplay/ship_exhaust.c src/gameplay/ship_exhaust.h src/gameplay/ship_ground_effects.c src/gameplay/ship_ground_effects.h src/gameplay/ship_navigation.c src/gameplay/ship_navigation.h src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h src/gameplay/ship_locator.c src/gameplay/ship_locator.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship_exhaust.c src/gameplay/ship_ground_effects.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c -lm
 
 $(SHIP_FLIGHT_CONTROLLER_TEST_TARGET): tests/test_ship_flight_controller.c src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_ship_flight_controller.c src/gameplay/ship_flight_controller.c $(RAYLIB_LIBS) -lm
+
+$(SHIP_EXHAUST_TEST_TARGET): tests/test_ship_exhaust.c src/gameplay/ship_exhaust.c src/gameplay/ship_exhaust.h src/gameplay/ship.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_ship_exhaust.c src/gameplay/ship_exhaust.c -lm
 
 $(SHIP_LOCATOR_TEST_TARGET): tests/test_ship_locator.c src/gameplay/ship_locator.c src/gameplay/ship_locator.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_ship_locator.c src/gameplay/ship_locator.c -lm

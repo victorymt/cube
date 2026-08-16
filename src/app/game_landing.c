@@ -135,6 +135,7 @@ bool LandingTransitionBegin(LandingTransition *transition, Player *player)
         snprintf(transition->targetName, sizeof(transition->targetName), "%s",
                  body.name);
     }
+    ShipResetVisualEffects();
     player->velocity = transition->targetVelocity;
     SetImportMessage(TextFormat("Descent initiated: %s.", transition->targetName));
     return true;
@@ -189,6 +190,7 @@ static bool LandingTransitionCommit(LandingTransition *transition, Player *playe
     if (!enteredAtmosphere || !WorldIsSurfaceActive()) {
         transition->active = false;
         transition->summaryRemaining = 0.0f;
+        ShipResetVisualEffects();
         SetImportMessage("Descent aborted: landing target moved out of range.");
         return false;
     }
@@ -208,10 +210,12 @@ static void LandingTransitionFinishLanding(LandingTransition *transition, Player
     player->pitch = -0.12f;
     player->floating = false;
     player->onGround = false;
+    ShipEmitTouchdownDust(player);
     if (!ShipExit(player)) {
         player->floating = true;
         transition->active = false;
         transition->summaryRemaining = 0.0f;
+        ShipResetVisualEffects();
         return;
     }
 
@@ -250,6 +254,7 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
         !LandingTransitionRefreshTarget(transition, player, dt)) {
         transition->active = false;
         transition->summaryRemaining = 0.0f;
+        ShipResetVisualEffects();
         SetImportMessage("Descent aborted: landing target is unavailable.");
         return false;
     }
@@ -279,9 +284,12 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
             transition->targetVelocity,
             Vector3Scale(transition->outward, radialSpeed));
 
-        if (transition->elapsed >= LANDING_TRANSITION_COMMIT_TIME &&
-            !LandingTransitionCommit(transition, player)) {
-            return skipPressed;
+        if (transition->elapsed >= LANDING_TRANSITION_COMMIT_TIME) {
+            if (!LandingTransitionCommit(transition, player)) {
+                return skipPressed;
+            }
+        } else {
+            ShipUpdateLandingEffects(player, dt, 0.0f);
         }
     }
 
@@ -301,6 +309,7 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
             Vector3Subtract(transition->landingPosition,
                             transition->atmosphereStart),
             easeRate);
+        ShipUpdateLandingEffects(player, dt, linearAtmosphere);
         if (transition->elapsed >= LANDING_TRANSITION_TOUCHDOWN_TIME) {
             LandingTransitionFinishLanding(transition, player);
             if (!transition->active) return skipPressed;

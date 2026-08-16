@@ -25,6 +25,12 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_FLUID_STEP,
     DEBUG_CONTROL_COMMAND_TELEPORT,
     DEBUG_CONTROL_COMMAND_INPUT,
+    DEBUG_CONTROL_COMMAND_SHIP_BEGIN,
+    DEBUG_CONTROL_COMMAND_SHIP_ENTER,
+    DEBUG_CONTROL_COMMAND_SHIP_INPUT,
+    DEBUG_CONTROL_COMMAND_SHIP_EXHAUST,
+    DEBUG_CONTROL_COMMAND_SHIP_DUST,
+    DEBUG_CONTROL_COMMAND_VIEW,
     DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT,
     DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS,
     DEBUG_CONTROL_COMMAND_EVOLUTION_REGION,
@@ -69,15 +75,18 @@ typedef struct DebugControl {
     size_t inputLength;
     DebugControlTeleport teleport;
     DebugControlInput playerInput;
+    DebugControlInput shipInput;
     DebugControlMarker marker;
     float evolutionRadius;
     float evolutionAdvanceDays;
+    float shipExhaustDemand;
     int fluidX;
     int fluidY;
     int fluidZ;
     unsigned fluidVolume;
     unsigned fluidTicks;
     bool fluidUsePlayerPosition;
+    bool thirdPerson;
 } DebugControl;
 
 void DebugControlInit(DebugControl *control, bool enabled);

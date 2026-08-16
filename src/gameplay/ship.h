@@ -27,6 +27,12 @@ typedef enum ShipDriveMode {
     SHIP_DRIVE_INTERSTELLAR_WARP
 } ShipDriveMode;
 
+typedef struct ShipControlInput {
+    float forward;
+    float strafe;
+    float vertical;
+} ShipControlInput;
+
 typedef struct ParkedShip {
     int coreX;
     int coreY;
@@ -36,6 +42,7 @@ typedef struct ParkedShip {
 } ParkedShip;
 
 bool ShipTryEnter(int x, int y, int z, Player *player);
+bool ShipBeginDebugFlight(Player *player);
 ShipDirection ShipDirectionFromYaw(float yaw);
 BlockType ShipCoreBlockForDirection(ShipDirection direction);
 bool ShipBlockIsParkedCore(BlockType type);
@@ -84,10 +91,18 @@ void ShipForgetParkedAt(int x, int y, int z);
 bool ShipLocatorTargetAt(Vector3 observer, ShipLocatorTarget *out);
 void ShipToggleCruise(void);
 void ShipUpdate(Player *player, float dt);
+void ShipUpdateWithInput(Player *player, float dt,
+                         const ShipControlInput *input);
 bool ShipExit(Player *player);
 bool ShipForceExit(Player *player);
 void ShipLoadModel(void);
 void ShipCleanup(void);
 void ShipDraw(const Player *player);
+void ShipResetVisualEffects(void);
+float ShipVisualExhaustIntensity(void);
+bool ShipSetDebugExhaust(const Player *player, float demand);
+void ShipUpdateLandingEffects(const Player *player, float dt,
+                              float descentProgress);
+void ShipEmitTouchdownDust(const Player *player);
 
 #endif

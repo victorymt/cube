@@ -6,6 +6,7 @@
 #include "app/game_settings.h"
 #include "space/planet_profile.h"
 #include "gameplay/player.h"
+#include "gameplay/ship.h"
 #include "world/world_types.h"
 #include "app/app_types.h"
 #include "gameplay/player_types.h"
@@ -54,6 +55,7 @@ typedef struct GameRuntime {
   DebugControl debugControl;
   PlayerInput scriptedPlayerInput;
   PlayerInput appliedPlayerInput;
+  ShipControlInput scriptedShipInput;
   BlockType hotbar[HOTBAR_SIZE];
   ImportDialog importDialog;
   LandingTransition landingTransition;
@@ -62,6 +64,8 @@ typedef struct GameRuntime {
   TerrainMode selectedTerrain;
   uint32_t selectedSeed;
   unsigned scriptedInputFrames;
+  unsigned scriptedShipInputFrames;
+  float scriptedShipInputFrameCarry;
 
   int selectedIndex;
   int biologyAtlasSlot;
