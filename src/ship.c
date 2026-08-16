@@ -629,6 +629,18 @@ float ShipWarpVisualIntensity(void)
     return 0.22f + 0.78f * sqrtf(speedRatio);
 }
 
+float ShipDriveTunnelIntensity(void)
+{
+    float warpIntensity = ShipWarpVisualIntensity();
+    if (warpIntensity > 0.0f) return warpIntensity;
+    if (driveMode != SHIP_DRIVE_AUTO_CRUISE) return 0.0f;
+
+    float commandedSpeed = fmaxf(targetSpeed, relativeSpeed);
+    float speedRatio = Clamp(commandedSpeed / SHIP_CRUISE_MAX_SPEED,
+                             0.0f, 1.0f);
+    return 0.20f + 0.42f * sqrtf(speedRatio);
+}
+
 void ShipReset(void)
 {
     driving = false;

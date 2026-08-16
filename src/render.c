@@ -4216,7 +4216,7 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)
     UiDrawText(TextFormat("Fly above y=%.0f to reach space", SPACE_ENTER_Y),
              x + 14, y + 248, 17, RAYWHITE);
     UiDrawText("Break collects; place consumes blocks", x + 14, y + 273, 15, RAYWHITE);
-    UiDrawText("Ship: RMB enter, Q lock planet, G warp/cancel", x + 14, y + 297, 15, RAYWHITE);
+    UiDrawText("Ship: RMB enter, Q lock planet, G navigate/cancel", x + 14, y + 297, 15, RAYWHITE);
     UiDrawText("WASD thrust, X cruise, F assist, E exit", x + 14, y + 321, 15, RAYWHITE);
     UiDrawText("1-0 blocks    [ ] distance    Flat: I import image", x + 14, y + 345, 15, RAYWHITE);
     UiDrawText("Planet: C scanner, break cores for discoveries", x + 14, y + 369, 15, RAYWHITE);
