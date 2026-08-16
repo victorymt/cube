@@ -127,10 +127,12 @@ static HomeWorldMapLayout MapLayout(void)
             panel.y + panel.height - map.y - map.height - 20.0f
         };
     }
-    float globeSize = sidebar.width - (compact ? 206.0f : 92.0f);
+    float globeSize = compact
+        ? sidebar.width - 206.0f
+        : fminf(sidebar.width * 0.48f, sidebar.height * 0.31f);
     float maximumGlobeSize = compact
-        ? fmaxf(1.0f, sidebar.height - 24.0f) : 132.0f;
-    float minimumGlobeSize = compact ? 64.0f : 96.0f;
+        ? fmaxf(1.0f, sidebar.height - 24.0f) : 320.0f;
+    float minimumGlobeSize = compact ? 64.0f : 160.0f;
     globeSize = fminf(fmaxf(globeSize, minimumGlobeSize), maximumGlobeSize);
     Rectangle globe = compact
         ? (Rectangle){ sidebar.x, sidebar.y + 18.0f, globeSize, globeSize }

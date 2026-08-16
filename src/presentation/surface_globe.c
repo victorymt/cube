@@ -6,7 +6,7 @@
 
 #include <math.h>
 
-#define SURFACE_GLOBE_TEXTURE_SIZE 256
+#define SURFACE_GLOBE_TEXTURE_SIZE 512
 
 typedef struct SurfaceGlobeResources {
     bool initialized;
