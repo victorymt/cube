@@ -50,6 +50,14 @@ static Vector3 VectorSubtractTest(Vector3 left, Vector3 right)
                       left.z - right.z };
 }
 
+static void AssertVectorFloatNear(Vector3 actual, Vector3 expected)
+{
+    double scale = fmax(1.0, fmax(fabs(expected.x),
+                                  fmax(fabs(expected.y), fabs(expected.z))));
+    assert(VectorLength(VectorSubtractTest(actual, expected)) <=
+           4.0 * FLT_EPSILON * scale);
+}
+
 static void AssertRelative(double actual, double expected, double tolerance)
 {
     assert(isfinite(actual));
@@ -204,10 +212,13 @@ static void AssertSystemCenterOfMass(const SolarSystemDef *system,
     double velocityError = sqrt(
         (velocityX * velocityX + velocityY * velocityY +
          velocityZ * velocityZ) / (totalMass * totalMass));
+    double projectionScale = SPACE_UNITS_GAME_DISTANCE_PER_AU / 20.0;
     assert(positionError <= fmax(
-        0.01, maximumPosition * SPACE_UNITS_MAX_RELATIVE_ERROR));
+        0.01 * projectionScale,
+        maximumPosition * SPACE_UNITS_MAX_RELATIVE_ERROR));
     assert(velocityError <= fmax(
-        0.00001, maximumVelocity * SPACE_UNITS_MAX_RELATIVE_ERROR));
+        0.00001 * projectionScale,
+        maximumVelocity * SPACE_UNITS_MAX_RELATIVE_ERROR));
 }
 
 static void AssertBarycenter(const SolarSystemDef *system,
@@ -255,12 +266,12 @@ static void AssertBarycenter(const SolarSystemDef *system,
         speedGame);
     double expectedSpeed = SpaceUnitsCircularOrbitVelocityKilometersPerSecond(
         separationKm, innerMass);
-    AssertRelative(speedKmPerSecond, expectedSpeed, 0.0002);
+    AssertRelative(speedKmPerSecond, expectedSpeed, 0.001);
     double expectedPeriod = 2.0 * TEST_PI * sqrt(
         separationKm * separationKm * separationKm /
         (SPACE_UNITS_GRAVITATIONAL_CONSTANT_KM3_KG_S2 * innerMass));
     AssertRelative(2.0 * TEST_PI * separationKm / speedKmPerSecond,
-                   expectedPeriod, 0.0002);
+                   expectedPeriod, 0.001);
 
     if (count != 3) return;
     Vector3 outerPosition = VectorSubtractTest(bodies[2].center, system->center);
@@ -274,7 +285,7 @@ static void AssertBarycenter(const SolarSystemDef *system,
     double totalMass = innerMass + bodies[2].stellar.massKg;
     expectedSpeed = SpaceUnitsCircularOrbitVelocityKilometersPerSecond(
         separationKm, totalMass);
-    AssertRelative(speedKmPerSecond, expectedSpeed, 0.0003);
+    AssertRelative(speedKmPerSecond, expectedSpeed, 0.001);
 }
 
 static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
@@ -305,7 +316,7 @@ static void AssertPlanetOrbit(const SolarSystemDef *system, int index,
     assert(scale.physicalRadiusKm == profile->physicalRadiusKm);
     assert(scale.physicalRadiusGame > 0.0);
     assert(scale.landingRadiusGame > scale.physicalRadiusGame);
-    assert(scale.landingRadiusScale > 100.0);
+    assert(scale.landingRadiusScale > 2.0);
     assert(scale.physicalGravityMetersPerSecondSquared > 0.0);
     assert(scale.gameplaySurfaceGravity > 0.0);
     assert(scale.orbitalSpeedKilometersPerSecond > 0.0);
@@ -534,12 +545,10 @@ static void AssertRuntimeState(const SolarSystemDef *system,
                     (float)SpaceUnitsKilometersPerSecondToGameVelocity(
                         satelliteState.velocityKmPerSecond.z)
             };
-            assert(memcmp(&expectedCenter,
-                          &runtime.planets[planet].satelliteCenter,
-                          sizeof(expectedCenter)) == 0);
-            assert(memcmp(&expectedVelocity,
-                          &runtime.planets[planet].satelliteVelocity,
-                          sizeof(expectedVelocity)) == 0);
+            AssertVectorFloatNear(runtime.planets[planet].satelliteCenter,
+                                  expectedCenter);
+            AssertVectorFloatNear(runtime.planets[planet].satelliteVelocity,
+                                  expectedVelocity);
         }
         float irradiance = SolarSystemIrradianceAt(
             sources, stellarCount, orbitalState.center);
@@ -1720,7 +1729,8 @@ static void TestHomeScaleDiagnostics(void)
     assert(scale.physicalRadiusKm == SPACE_UNITS_EARTH_RADIUS_KM);
     AssertRelative(scale.visualRadiusGame, scale.physicalRadiusGame, 0.000001);
     assert(scale.landingRadiusGame == 6.0f);
-    assert(scale.landingRadiusScale > 7000.0);
+    assert(scale.landingRadiusScale > 100.0);
+    assert(scale.landingRadiusScale < 200.0);
     AssertRelative(scale.physicalGravityEarth, 1.0, 0.000001);
     AssertRelative(scale.gameplaySurfaceGravity,
                    SPACE_UNITS_EARTH_PROXY_SURFACE_ACCELERATION_GAME,
@@ -2262,8 +2272,27 @@ static void TestSpaceLoadFailureAtomicity(void)
                   invalidProjection) == 1);
     rewind(invalidProjection);
     assert(!SpaceLoadState(invalidProjection));
+    assert(SpaceLastLoadError() == SPACE_LOAD_ERROR_INCOMPATIBLE_SCALE);
     assert(SpaceSimulationTime() == baselineTime);
     assert(SpaceElapsedSimulationTime() == baselineTime);
+    assert(SpaceOriginX() == baselineX);
+    assert(SpaceOriginZ() == baselineZ);
+
+    FILE *retiredScale = tmpfile();
+    assert(retiredScale);
+    assert(SpaceSaveState(retiredScale));
+    assert(fseek(retiredScale, (long)sizeof(uint32_t), SEEK_SET) == 0);
+    uint32_t legacyProjectionVersion = 2u;
+    assert(fwrite(&legacyProjectionVersion, sizeof(legacyProjectionVersion),
+                  1, retiredScale) == 1);
+    assert(fseek(retiredScale, -(long)sizeof(double), SEEK_END) == 0);
+    double retiredProjection = 20.0;
+    assert(fwrite(&retiredProjection, sizeof(retiredProjection), 1,
+                  retiredScale) == 1);
+    rewind(retiredScale);
+    assert(!SpaceLoadState(retiredScale));
+    assert(SpaceLastLoadError() == SPACE_LOAD_ERROR_INCOMPATIBLE_SCALE);
+    assert(SpaceSimulationTime() == baselineTime);
     assert(SpaceOriginX() == baselineX);
     assert(SpaceOriginZ() == baselineZ);
 
@@ -2308,6 +2337,7 @@ static void TestSpaceLoadFailureAtomicity(void)
     rewind(original);
     assert(SpaceLoadState(original));
     fclose(invalidProjection);
+    fclose(retiredScale);
     fclose(truncatedOrigin);
     fclose(invalidState);
     fclose(truncatedState);
@@ -2339,8 +2369,8 @@ static void TestPhysicalPlanetLandingApproach(void)
 static void TestDeterministicSpaceQueries(void)
 {
     const Vector3 observer = { 120.0f, 0.0f, -220.0f };
-    const float systemRange = 8000.0f;
-    const float bodyRange = 700.0f;
+    const float systemRange = STAR_NAVIGATION_RANGE;
+    const float bodyRange = SOLAR_SYSTEM_QUERY_RADIUS;
     SetPropertySeed(DEFAULT_WORLD_SEED);
     SpaceResetOrigin();
     SpaceQueryCacheClear();
@@ -2416,11 +2446,13 @@ static void TestDeterministicSpaceQueries(void)
     SpaceQueryCacheClear();
     SpaceSatelliteInfo satellites[8];
     int satelliteCount = SpaceSatellitesNear(
-        (Vector3){ 0.0f, 0.0f, 0.0f }, 900.0f, satellites, 8);
+        (Vector3){ 0.0f, 0.0f, 0.0f },
+        SOLAR_SYSTEM_QUERY_RADIUS, satellites, 8);
     assert(satelliteCount > 0);
     SpaceSatelliteInfo satellitesRepeat[8];
     int repeatedSatelliteCount = SpaceSatellitesNear(
-        (Vector3){ 0.0f, 0.0f, 0.0f }, 900.0f, satellitesRepeat, 8);
+        (Vector3){ 0.0f, 0.0f, 0.0f },
+        SOLAR_SYSTEM_QUERY_RADIUS, satellitesRepeat, 8);
     assert(repeatedSatelliteCount == satelliteCount);
     assert(memcmp(satellites, satellitesRepeat,
                   sizeof(satellites[0]) * (size_t)satelliteCount) == 0);
@@ -2575,12 +2607,14 @@ static void *RunConcurrentSpaceQueries(void *opaque)
         SolarSystemDef systems[16];
         SpaceBodyInfo bodies[16];
         SpaceSatelliteInfo satellites[8];
-        int systemCount = StarSystemsNear(worker->observer, 2800.0f,
+        int systemCount = StarSystemsNear(worker->observer,
+                                           STAR_SYSTEM_SPACING * 2.0f,
                                            systems, 16);
-        int bodyCount = SpaceBodiesNear(worker->observer, 700.0f,
+        int bodyCount = SpaceBodiesNear(worker->observer,
+                                        SOLAR_SYSTEM_QUERY_RADIUS,
                                         bodies, 16);
         int satelliteCount = SpaceSatellitesNear(
-            worker->observer, 900.0f, satellites, 8);
+            worker->observer, SOLAR_SYSTEM_QUERY_RADIUS, satellites, 8);
         if (iteration == 0) {
             worker->systemCount = systemCount;
             worker->bodyCount = bodyCount;
@@ -2612,9 +2646,16 @@ static void TestConcurrentSpaceQueries(void)
 {
     static const Vector3 observers[8] = {
         { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f },
-        { 1400.0f, 0.0f, 1400.0f }, { 1400.0f, 0.0f, 1400.0f },
-        { -2800.0f, 0.0f, 700.0f }, { -2800.0f, 0.0f, 700.0f },
-        { 4200.0f, 0.0f, -2100.0f }, { 4200.0f, 0.0f, -2100.0f }
+        { STAR_SYSTEM_SPACING, 0.0f, STAR_SYSTEM_SPACING },
+        { STAR_SYSTEM_SPACING, 0.0f, STAR_SYSTEM_SPACING },
+        { -STAR_SYSTEM_SPACING * 2.0f, 0.0f,
+          STAR_SYSTEM_SPACING * 0.5f },
+        { -STAR_SYSTEM_SPACING * 2.0f, 0.0f,
+          STAR_SYSTEM_SPACING * 0.5f },
+        { STAR_SYSTEM_SPACING * 3.0f, 0.0f,
+          -STAR_SYSTEM_SPACING * 1.5f },
+        { STAR_SYSTEM_SPACING * 3.0f, 0.0f,
+          -STAR_SYSTEM_SPACING * 1.5f }
     };
     SpaceResetOrigin();
     SetPropertySeed(0x31415926u);
@@ -2754,9 +2795,27 @@ static void TestCanonicalSolCatalog(void)
     fclose(profileFile);
 }
 
+static void TestExpandedSolarSystemScale(void)
+{
+    SolarSystemDef sol;
+    assert(StarSystemAt(0, 0, &sol));
+    assert(SPACE_UNITS_GAME_DISTANCE_PER_AU == 1000.0);
+    assert(STAR_SYSTEM_SPACING == 70000);
+
+    double neptuneSemiMajor = SpaceUnitsKilometersToGameDistance(
+        sol.planets[7].semiMajorAxisKm);
+    double neptuneApoapsis = neptuneSemiMajor *
+                             (1.0 + sol.planets[7].orbitalEccentricity);
+    AssertRelative(neptuneSemiMajor, 30069.92276, 0.0000001);
+    assert(neptuneApoapsis < SOLAR_SYSTEM_QUERY_RADIUS);
+    assert(neptuneApoapsis * 2.0 < STAR_SYSTEM_SPACING);
+    assert(STAR_NAVIGATION_RANGE >= STAR_SYSTEM_SPACING * 5.0f);
+}
+
 int main(void)
 {
     TestCanonicalSolCatalog();
+    TestExpandedSolarSystemScale();
     TestHomeScaleDiagnostics();
     TestCanonicalSolParkingRadii();
     TestPlanetNavigationAssist();

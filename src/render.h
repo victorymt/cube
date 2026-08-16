@@ -33,11 +33,18 @@ typedef struct HudFrameState {
 
 typedef struct ShipHudState {
     float speed;
+    float targetSpeed;
+    float closingSpeed;
+    float brakingDistance;
+    float etaSeconds;
     float altitude;
     float atmosphere;
     float heading;
     const char *systemName;
+    const char *driveMode;
     bool cruising;
+    bool autoCruising;
+    bool warping;
     bool nearPlanet;
     bool subsurface;
     bool submerged;

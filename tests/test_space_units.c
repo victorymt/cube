@@ -191,7 +191,7 @@ static void TestProxyScaleContract(void)
         1e-12);
     double radiusScale = SpaceUnitsProxyRadiusScale(
         SPACE_UNITS_EARTH_RADIUS_KM, 62.0);
-    assert(radiusScale > 70000.0 && radiusScale < 75000.0);
+    AssertRelativeNear(radiusScale, 62.0 / linearEarthRadius, 1e-12);
 
     double proxyGravity = SpaceUnitsProxySurfaceGravityGame(
         SPACE_UNITS_EARTH_MASS_KG, SPACE_UNITS_EARTH_RADIUS_KM);

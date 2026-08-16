@@ -17,6 +17,13 @@ typedef enum ShipDirection {
     SHIP_DIRECTION_WEST
 } ShipDirection;
 
+typedef enum ShipDriveMode {
+    SHIP_DRIVE_MANEUVER = 0,
+    SHIP_DRIVE_MANUAL_CRUISE,
+    SHIP_DRIVE_AUTO_CRUISE,
+    SHIP_DRIVE_WARP
+} ShipDriveMode;
+
 typedef struct ParkedShip {
     int coreX;
     int coreY;
@@ -39,6 +46,8 @@ bool ShipRemoveParkedAt(int x, int y, int z, bool recordUndo);
 bool ShipIsDriving(void);
 bool ShipIsCruising(void);
 bool ShipIsWarping(void);
+ShipDriveMode ShipGetDriveMode(void);
+const char *ShipDriveModeName(void);
 bool ShipFlightAssistEnabled(void);
 bool ShipHasGravityPrimary(void);
 const char *ShipGravityPrimaryName(void);
@@ -47,6 +56,11 @@ float ShipGravitySphereOfInfluence(void);
 bool ShipHasWarpTarget(void);
 bool ShipWarpTargetIsSystem(void);
 const char *ShipWarpTargetName(void);
+float ShipRelativeSpeed(void);
+float ShipTargetSpeed(void);
+float ShipTargetClosingSpeed(void);
+float ShipTargetBrakingDistance(void);
+float ShipTargetEtaSeconds(void);
 bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ);
 void ShipReset(void);
 float ShipGetFuel(void);

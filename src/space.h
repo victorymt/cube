@@ -18,11 +18,12 @@
 #define MAX_SPACE_EDITS 65536
 #define MAX_SPACE_GEN_JOBS 16
 
-#define STAR_SYSTEM_SPACING 1400
+#define STAR_SYSTEM_SPACING 70000
 #define STAR_SYSTEM_PROBABILITY 65u
-#define STAR_NAVIGATION_RANGE 8000.0f
+#define STAR_NAVIGATION_RANGE 400000.0f
 #define STAR_NAVIGATION_MAX_SYSTEMS 128
 #define STAR_SYSTEM_QUERY_MAX 384
+#define SOLAR_SYSTEM_QUERY_RADIUS (STAR_SYSTEM_SPACING * 0.5f)
 
 #define MAX_SOLAR_LIGHTS PLANET_PROFILE_MAX_STARS
 #define MAX_SOLAR_PLANETS 8
@@ -294,6 +295,12 @@ typedef enum SpaceGravityPrimaryKind {
     SPACE_GRAVITY_PRIMARY_HOME
 } SpaceGravityPrimaryKind;
 
+typedef enum SpaceLoadError {
+    SPACE_LOAD_ERROR_NONE = 0,
+    SPACE_LOAD_ERROR_INVALID,
+    SPACE_LOAD_ERROR_INCOMPATIBLE_SCALE
+} SpaceLoadError;
+
 typedef struct SpaceGravitySample {
     bool active;
     SpaceGravityPrimaryKind kind;
@@ -337,6 +344,7 @@ void SpaceSaveOrigin(FILE *file);
 bool SpaceLoadOrigin(FILE *file);
 bool SpaceSaveState(FILE *file);
 bool SpaceLoadState(FILE *file);
+SpaceLoadError SpaceLastLoadError(void);
 bool SpaceLoadLegacyState(FILE *file);
 void UpdateSpaceChunks(Vector3 playerPosition, int groundRenderDistance, int generationPerFrame);
 void SpaceProcessFinishedGenJobs(void);

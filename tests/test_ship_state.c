@@ -112,6 +112,8 @@ static void TestLoadIsAtomicAndResetsRuntimeState(void)
     ShipToggleCruise();
     assert(ShipIsDriving());
     assert(ShipIsCruising());
+    assert(ShipGetDriveMode() == SHIP_DRIVE_MANUAL_CRUISE);
+    assert(strcmp(ShipDriveModeName(), "MANUAL CRUISE") == 0);
     assert(!ShipLocatorHasTarget());
     assert(ShipConsumeFuel(12.0f));
     float beforeInvalidLoad = ShipGetFuel();
@@ -130,6 +132,9 @@ static void TestLoadIsAtomicAndResetsRuntimeState(void)
     assert(!ShipIsDriving());
     assert(!ShipIsCruising());
     assert(!ShipIsWarping());
+    assert(ShipGetDriveMode() == SHIP_DRIVE_MANEUVER);
+    assert(ShipRelativeSpeed() == 0.0f);
+    assert(ShipTargetSpeed() == 0.0f);
     assert(!ShipFlightAssistEnabled());
     assert(!ShipHasGravityPrimary());
     assert(!ShipHasWarpTarget());

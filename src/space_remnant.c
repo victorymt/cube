@@ -5,7 +5,7 @@
 
 const double SPACE_REMNANT_ACTIVE_LIFETIME_YEARS = 250000.0;
 const double SPACE_REMNANT_PARSEC_KM = 3.0856775814913673e13;
-const float SPACE_REMNANT_MAX_PROXY_RADIUS_GAME = 720.0f;
+const float SPACE_REMNANT_MAX_PROXY_RADIUS_GAME = 36000.0f;
 
 static float SpaceRemnantClamp(float value, float minimum, float maximum)
 {
@@ -96,10 +96,10 @@ bool SpaceRemnantStateForProfile(const StellarProfile *profile,
                      pow(explosionEnergy / ambientDensity, 0.2);
     double shockRadiusPc = fmax(1.0e-6, fmin(freeExpansionPc, sedovPc));
     double progress = ageYears / SPACE_REMNANT_ACTIVE_LIFETIME_YEARS;
-    double proxyRadius = 12.0 +
+    double proxyRadius = 600.0 +
                          (double)SPACE_REMNANT_MAX_PROXY_RADIUS_GAME *
                          pow(progress, 0.38);
-    double shellThickness = fmax(4.0, proxyRadius * 0.13);
+    double shellThickness = fmax(200.0, proxyRadius * 0.13);
     double fade = pow(fmax(0.0, 1.0 - progress), 0.65);
     double radiationBase = blackHole ? 0.55 : 1.0;
     double coreRadiation = radiationBase * fmax(0.08, pow(fade, 0.55));

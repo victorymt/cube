@@ -36,13 +36,16 @@
 #define STAR_SKY_LATITUDE_SCALE 0.92f
 #define SPACE_GRAVITY_QUERY_RADIUS (STAR_SYSTEM_SPACING * 0.58f)
 #define SPACE_STAR_ENCOUNTER_RADIUS_GAME SPACE_GRAVITY_QUERY_RADIUS
-#define SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME 170.0f
+#define SPACE_MAX_PLANET_ENCOUNTER_RADIUS_GAME 8500.0f
+#define PLANET_LANDING_QUERY_RADIUS (STAR_SYSTEM_SPACING * (4.0f / 35.0f))
+#define SOLAR_GLOW_QUERY_RADIUS (STAR_SYSTEM_SPACING * (3.0f / 70.0f))
 #define SPACE_MAX_SYSTEM_QUERY_DISTANCE (STAR_NAVIGATION_RANGE * 4.0f)
 #define PLANET_WORLD_STATE_VERSION 3u
 #define PLANET_PROFILE_STATE_MAGIC 0x504c4e54u
 #define PLANET_PROFILE_STATE_VERSION 3u
 #define SPACE_STATE_MAGIC 0x53504345u
-#define SPACE_STATE_VERSION 2u
+#define SPACE_STATE_VERSION 3u
+#define SPACE_STATE_LEGACY_PROJECTION_VERSION 2u
 
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
@@ -96,6 +99,7 @@ static double solarElapsedSimulationTime = 0.0;
 // this nearby local frame, which is periodically shifted during spaceflight.
 static int spaceOriginX = 0;
 static int spaceOriginZ = 0;
+static SpaceLoadError spaceLastLoadError = SPACE_LOAD_ERROR_NONE;
 
 static bool SpaceVectorIsFinite(Vector3 value)
 {
@@ -207,6 +211,7 @@ bool SpaceSaveState(FILE *file)
 
 bool SpaceLoadState(FILE *file)
 {
+    spaceLastLoadError = SPACE_LOAD_ERROR_INVALID;
     if (!file) return false;
     uint32_t magic = 0;
     uint32_t version = 0;
@@ -216,7 +221,9 @@ bool SpaceLoadState(FILE *file)
     double projectionScale = 0.0;
     if (fread(&magic, sizeof(magic), 1, file) != 1 ||
         fread(&version, sizeof(version), 1, file) != 1 ||
-        magic != SPACE_STATE_MAGIC || version != SPACE_STATE_VERSION ||
+        magic != SPACE_STATE_MAGIC ||
+        (version != SPACE_STATE_VERSION &&
+         version != SPACE_STATE_LEGACY_PROJECTION_VERSION) ||
         fread(&loadedTime, sizeof(loadedTime), 1, file) != 1 ||
         fread(&loadedX, sizeof(loadedX), 1, file) != 1 ||
         fread(&loadedZ, sizeof(loadedZ), 1, file) != 1 ||
@@ -224,20 +231,30 @@ bool SpaceLoadState(FILE *file)
         !isfinite(loadedTime) || loadedTime < 0.0 ||
         loadedX < INT_MIN || loadedX > INT_MAX ||
         loadedZ < INT_MIN || loadedZ > INT_MAX ||
-        !isfinite(projectionScale) || projectionScale <= 0.0 ||
-        !SpaceUnitsWithinRelativeError(
+        !isfinite(projectionScale) || projectionScale <= 0.0) {
+        return false;
+    }
+    if (!SpaceUnitsWithinRelativeError(
             projectionScale, SPACE_UNITS_GAME_DISTANCE_PER_AU,
             SPACE_UNITS_MAX_RELATIVE_ERROR)) {
+        spaceLastLoadError = SPACE_LOAD_ERROR_INCOMPATIBLE_SCALE;
         return false;
     }
     solarElapsedSimulationTime = loadedTime;
     spaceOriginX = (int)loadedX;
     spaceOriginZ = (int)loadedZ;
+    spaceLastLoadError = SPACE_LOAD_ERROR_NONE;
     return true;
+}
+
+SpaceLoadError SpaceLastLoadError(void)
+{
+    return spaceLastLoadError;
 }
 
 bool SpaceLoadLegacyState(FILE *file)
 {
+    spaceLastLoadError = SPACE_LOAD_ERROR_INVALID;
     if (!file) return false;
     double loadedTime = 0.0;
     int32_t loadedX = 0;
@@ -249,6 +266,7 @@ bool SpaceLoadLegacyState(FILE *file)
     solarElapsedSimulationTime = loadedTime;
     spaceOriginX = loadedX;
     spaceOriginZ = loadedZ;
+    spaceLastLoadError = SPACE_LOAD_ERROR_NONE;
     return true;
 }
 
@@ -1531,7 +1549,7 @@ bool SpaceRemnantEnvironmentAt(Vector3 position,
     out->nearestShellDistanceGame = INFINITY;
     SpaceBodyInfo bodies[STAR_NAVIGATION_MAX_SYSTEMS];
     int count = SpaceBodiesNear(
-        position, SPACE_REMNANT_MAX_PROXY_RADIUS_GAME + 100.0f,
+        position, SPACE_REMNANT_MAX_PROXY_RADIUS_GAME + 5000.0f,
         bodies, STAR_NAVIGATION_MAX_SYSTEMS);
     for (int i = 0; i < count; i++) {
         if (!bodies[i].isStar || !bodies[i].remnant.active) continue;
@@ -2757,7 +2775,8 @@ bool SpaceSatelliteScaleDiagnosticsAt(
     *out = (SpaceSatelliteScaleDiagnostics){ 0 };
     if (!SpaceQueryVectorIsFinite(observer)) return false;
     SpaceSatelliteInfo satellite;
-    if (SpaceSatellitesNear(observer, 1000.0f, &satellite, 1) != 1) {
+    if (SpaceSatellitesNear(observer, SOLAR_SYSTEM_QUERY_RADIUS,
+                            &satellite, 1) != 1) {
         return false;
     }
     double physicalGravity = SpaceUnitsSurfaceGravityKmPerSecondSquared(
@@ -3053,7 +3072,8 @@ bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out)
         found = true;
     } else {
         SpaceBodyInfo bodies[48];
-        int count = SpaceBodiesNear(observer, 700.0f, bodies, 48);
+        int count = SpaceBodiesNear(observer, SOLAR_SYSTEM_QUERY_RADIUS,
+                                    bodies, 48);
         for (int i = 0; i < count; i++) {
             if (bodies[i].isStar) continue;
             if (!found || bodies[i].dist < selected.dist) {
@@ -3065,7 +3085,7 @@ bool SpaceScaleDiagnosticsAt(Vector3 observer, SpaceScaleDiagnostics *out)
         HomeBodyInfoForObserver(observer, &home);
         if (!found || home.dist < selected.dist) {
             selected = home;
-            found = home.dist <= 700.0f;
+            found = home.dist <= SOLAR_SYSTEM_QUERY_RADIUS;
         }
     }
     return found && SpaceBodyScaleDiagnostics(&selected, out);
@@ -3086,7 +3106,7 @@ bool SpacePlanetNavigationPick(Vector3 origin, Vector3 direction,
     direction = Vector3Normalize(direction);
 
     SpaceBodyInfo bodies[48];
-    int count = SpaceBodiesNear(origin, 700.0f, bodies, 48);
+    int count = SpaceBodiesNear(origin, SOLAR_SYSTEM_QUERY_RADIUS, bodies, 48);
     float bestAlignment = -1.0f;
     float bestDistance = INFINITY;
     bool found = false;
@@ -3130,7 +3150,8 @@ bool SpaceBodyPick(Vector3 origin, Vector3 direction, SpaceBodyInfo *out)
 
     if (!planetWorld.active) {
         SpaceBodyInfo bodies[48];
-        int count = SpaceBodiesNear(origin, 700.0f, bodies, 48);
+        int count = SpaceBodiesNear(origin, SOLAR_SYSTEM_QUERY_RADIUS,
+                                    bodies, 48);
         for (int i = 0; i < count; i++) {
             Vector3 to = Vector3Subtract(bodies[i].center, origin);
             float proj = Vector3DotProduct(to, direction);
@@ -3400,7 +3421,8 @@ bool PlanetWorldLandingTarget(Vector3 position, SpaceBodyInfo *out)
     *out = (SpaceBodyInfo){ 0 };
     if (!SpaceQueryVectorIsFinite(position)) return false;
     SpaceBodyInfo bodies[48];
-    int count = SpaceBodiesNear(position, 160.0f, bodies, 48);
+    int count = SpaceBodiesNear(position, PLANET_LANDING_QUERY_RADIUS,
+                                bodies, 48);
     float bestApproach = 1e30f;
     bool found = false;
 
@@ -4757,6 +4779,7 @@ void SpaceReset(void)
     UnloadAllSpaceChunks();
     spaceEditCount = 0;
     solarElapsedSimulationTime = 0.0;
+    spaceLastLoadError = SPACE_LOAD_ERROR_NONE;
     SpaceQueryCacheClear();
     SpaceResetOrigin();
     PlanetWorldReset();
@@ -4845,7 +4868,7 @@ int GetSpaceEditCount(void)
 void SpaceUpdateSolarGlow(Vector3 playerPosition)
 {
     SpaceBodyInfo bodies[STAR_NAVIGATION_MAX_SYSTEMS];
-    int bodyCount = SpaceBodiesNear(playerPosition, 60.0f, bodies,
+    int bodyCount = SpaceBodiesNear(playerPosition, SOLAR_GLOW_QUERY_RADIUS, bodies,
                                      STAR_NAVIGATION_MAX_SYSTEMS);
     for (int i = 0; i < bodyCount; i++) {
         if (!bodies[i].isStar) continue;

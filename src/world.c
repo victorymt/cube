@@ -1550,7 +1550,10 @@ void LoadMap(Player *player)
             free(loadedDimensions);
             free(loadedEdits);
             fclose(file);
-            SetImportMessage("Load failed: save file is corrupted.");
+            SetImportMessage(SpaceLastLoadError() ==
+                                     SPACE_LOAD_ERROR_INCOMPATIBLE_SCALE
+                                 ? "Load failed: save uses the retired 20 u/AU space scale."
+                                 : "Load failed: save file is corrupted.");
             return;
         }
         loadedSpaceOrigin = true;

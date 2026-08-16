@@ -76,7 +76,7 @@ void UiFontInit(void)
 }
 
 #define STAR_SKY_RANGE (STAR_NAVIGATION_RANGE * 4.0f)
-#define STAR_SKY_REFRESH_DISTANCE 4200.0f
+#define STAR_SKY_REFRESH_DISTANCE (STAR_SYSTEM_SPACING * 3.0f)
 
 static SolarSystemDef skySystems[STAR_SYSTEM_QUERY_MAX];
 static int skySystemCount = 0;
@@ -767,7 +767,7 @@ void DrawStars(const Camera3D *camera, float daylight,
         Vector3 primaryToStar = Vector3Subtract(system->center, observer);
         float primaryDistance = Vector3Length(primaryToStar);
         if (primaryDistance < 0.01f) continue;
-        if (!surfaceActive && primaryDistance < 700.0f) continue;
+        if (!surfaceActive && primaryDistance < SOLAR_SYSTEM_QUERY_RADIUS) continue;
 
         SolarLightSource sources[MAX_SOLAR_LIGHTS];
         int sourceCount = SolarSystemLightSources(system, sources, MAX_SOLAR_LIGHTS);
@@ -1903,7 +1903,11 @@ static void DrawEdgeIndicator(float px, float py, bool behind, Vector3 origin, V
 
 static bool FindSystemForGuide(Vector3 pos, SolarSystemDef *sys, float *dist)
 {
-    static const float probes[3] = { 3000.0f, 7000.0f, 14000.0f };
+    static const float probes[3] = {
+        STAR_SYSTEM_SPACING * 2.15f,
+        STAR_SYSTEM_SPACING * 5.0f,
+        STAR_SYSTEM_SPACING * 10.0f
+    };
     for (int i = 0; i < 3; i++) {
         if (FindNearestSystem(pos, probes[i], sys, dist)) return true;
     }
@@ -1916,7 +1920,8 @@ void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade)
 
     SolarSystemDef system = { 0 };
     float systemDistance = 0.0f;
-    if (!FindNearestSystem(camera->position, 2600.0f, &system, &systemDistance)) return;
+    if (!FindNearestSystem(camera->position, STAR_SYSTEM_SPACING * 1.9f,
+                           &system, &systemDistance)) return;
 
     const int samples = 64;
     double now = SpacePeriodicSimulationTime(SpaceElapsedSimulationTime());
@@ -1944,7 +1949,8 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
     if (spaceFade <= 0.05f) return;
 
     SpaceBodyInfo bodies[48];
-    int count = SpaceBodiesNear(camera->position, 700.0f, bodies, 48);
+    int count = SpaceBodiesNear(camera->position, SOLAR_SYSTEM_QUERY_RADIUS,
+                                bodies, 48);
     Vector3 forward = Vector3Normalize(Vector3Subtract(camera->target, camera->position));
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
@@ -3247,7 +3253,8 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
     EnsurePlanetRenderResources();
 
     SpaceBodyInfo bodies[48];
-    int count = SpaceBodiesNear(camera->position, 700.0f, bodies, 48);
+    int count = SpaceBodiesNear(camera->position, SOLAR_SYSTEM_QUERY_RADIUS,
+                                bodies, 48);
     for (int i = 0; i < count; i++) {
         if (!bodies[i].isStar && bodies[i].systemAnchorX == 0 &&
             bodies[i].systemAnchorZ == 0 && bodies[i].bodyId == 3u) {
@@ -3364,7 +3371,7 @@ void DrawSolarBodies(const Camera3D *camera, float spaceFade)
 
     SpaceSatelliteInfo satellites[48];
     int satelliteCount = SpaceSatellitesNear(
-        camera->position, 700.0f, satellites, 48);
+        camera->position, SOLAR_SYSTEM_QUERY_RADIUS, satellites, 48);
     for (int i = 0; i < satelliteCount; i++) {
         float radius = (float)SpaceUnitsKilometersToGameDistance(
             satellites[i].physicalRadiusKm);
@@ -3609,7 +3616,7 @@ void DrawShipHud(const ShipHudState *hud)
     int sw = GetScreenWidth();
     float panelWidth = fminf(500.0f, (float)sw - 24.0f);
     Rectangle panel = {
-        (float)sw - panelWidth - 12.0f, 12.0f, panelWidth, 216.0f
+        (float)sw - panelWidth - 12.0f, 12.0f, panelWidth, 276.0f
     };
     const Color cyan = { 137, 217, 235, 255 };
     const Color amber = { 255, 198, 76, 255 };
@@ -3621,13 +3628,11 @@ void DrawShipHud(const ShipHudState *hud)
 
     int left = (int)panel.x + 16;
     int top = (int)panel.y;
-    bool warping = ShipIsWarping();
     bool assist = ShipFlightAssistEnabled();
-    Color modeColor = warping ? cyan : (hud->cruising ? cyan :
-                                      (assist ? green : amber));
-    const char *driveMode = warping ? "WARP" :
-                            (hud->cruising ? "CRUISE" :
-                             (assist ? "ASSIST" : "INERTIA"));
+    Color modeColor = hud->warping ? cyan :
+                      (hud->autoCruising ? green :
+                       (hud->cruising ? cyan : (assist ? green : amber)));
+    const char *driveMode = hud->driveMode ? hud->driveMode : "MANEUVER";
 
     UiDrawText("FLIGHT COMPUTER", left, top + 10, 15, Fade(cyan, 0.82f));
     int modeWidth = UiMeasureText(driveMode, 14) + 20;
@@ -3641,7 +3646,8 @@ void DrawShipHud(const ShipHudState *hud)
     double displayedSpeed = physicalUnits
         ? SpaceUnitsGameVelocityToKilometersPerSecond(hud->speed)
         : hud->speed;
-    UiDrawText("VELOCITY", left, top + 45, 13, Fade(WHITE, 0.50f));
+    UiDrawText(physicalUnits ? "REL VELOCITY" : "VELOCITY",
+               left, top + 45, 13, Fade(WHITE, 0.50f));
     const char *speedText = physicalUnits
         ? TextFormat("%.2f", displayedSpeed)
         : TextFormat("%.0f", displayedSpeed);
@@ -3708,9 +3714,12 @@ void DrawShipHud(const ShipHudState *hud)
 
     char gravity[128];
     if (ShipHasGravityPrimary()) {
-        snprintf(gravity, sizeof(gravity), "GRAV %s  %.0f/%.0f",
-                 ShipGravityPrimaryName(), ShipGravityPrimaryDistance(),
-                 ShipGravitySphereOfInfluence());
+        snprintf(gravity, sizeof(gravity), "GRAV %s  %.3g/%.3g AU",
+                 ShipGravityPrimaryName(),
+                 ShipGravityPrimaryDistance() /
+                     (float)SPACE_UNITS_GAME_DISTANCE_PER_AU,
+                 ShipGravitySphereOfInfluence() /
+                     (float)SPACE_UNITS_GAME_DISTANCE_PER_AU);
     } else {
         snprintf(gravity, sizeof(gravity), "GRAV INTERPLANETARY");
     }
@@ -3719,18 +3728,42 @@ void DrawShipHud(const ShipHudState *hud)
     if (ShipHasWarpTarget()) {
         const char *targetKind = ShipWarpTargetIsSystem() ? "SYS" : "PLANET";
         snprintf(navigation, sizeof(navigation), "%s // %s // %s",
-                 targetKind, ShipWarpTargetName(), warping ? "WARP" : "LOCK");
+                 targetKind, ShipWarpTargetName(),
+                 hud->warping ? "WARP" :
+                 (hud->autoCruising ? "AUTO CRUISE" : "LOCK"));
     } else {
         snprintf(navigation, sizeof(navigation), "SYS // %s // NO TARGET",
                  hud->systemName ? hud->systemName : "---");
     }
+    double setSpeed = physicalUnits
+        ? SpaceUnitsGameVelocityToKilometersPerSecond(hud->targetSpeed)
+        : hud->targetSpeed;
+    double closingSpeed = physicalUnits
+        ? SpaceUnitsGameVelocityToKilometersPerSecond(hud->closingSpeed)
+        : hud->closingSpeed;
+    char propulsion[160];
+    snprintf(propulsion, sizeof(propulsion), "SET %.2f %s  CLOSE %.2f %s",
+             setSpeed, physicalUnits ? "KM/S" : "BLK/S",
+             closingSpeed, physicalUnits ? "KM/S" : "BLK/S");
+    char guidance[160];
+    snprintf(guidance, sizeof(guidance), "BRAKE %.3g AU  ETA %s",
+             hud->brakingDistance /
+                 (float)SPACE_UNITS_GAME_DISTANCE_PER_AU,
+             hud->etaSeconds > 0.0f && isfinite(hud->etaSeconds)
+                 ? TextFormat("%.0f S", hud->etaSeconds)
+                 : "---");
+
     int statusFont = 14;
     int statusWidth = (int)panel.width - 32;
     while (statusFont > 11 &&
-           (UiMeasureText(gravity, statusFont) > statusWidth ||
+           (UiMeasureText(propulsion, statusFont) > statusWidth ||
+            UiMeasureText(guidance, statusFont) > statusWidth ||
+            UiMeasureText(gravity, statusFont) > statusWidth ||
             UiMeasureText(navigation, statusFont) > statusWidth)) statusFont--;
-    UiDrawText(gravity, left, top + 180, statusFont, Fade(WHITE, 0.60f));
-    UiDrawText(navigation, left, top + 198, statusFont,
+    UiDrawText(propulsion, left, top + 180, statusFont, Fade(WHITE, 0.72f));
+    UiDrawText(guidance, left, top + 200, statusFont, Fade(WHITE, 0.60f));
+    UiDrawText(gravity, left, top + 220, statusFont, Fade(WHITE, 0.60f));
+    UiDrawText(navigation, left, top + 242, statusFont,
                ShipHasWarpTarget() ? modeColor : Fade(WHITE, 0.76f));
 }
 

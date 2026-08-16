@@ -1704,12 +1704,20 @@ static void GameRenderWorldPass(GameRuntime *game,
 static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
                               char *systemName, size_t systemNameSize)
 {
-    float shipSpeed = Vector3Length(game->player.velocity);
+    float shipSpeed = ShipIsDriving() ? ShipRelativeSpeed() :
+                                        Vector3Length(game->player.velocity);
     snprintf(systemName, systemNameSize, "---");
     *shipHud = (ShipHudState){
         .speed = shipSpeed,
+        .targetSpeed = ShipTargetSpeed(),
+        .closingSpeed = ShipTargetClosingSpeed(),
+        .brakingDistance = ShipTargetBrakingDistance(),
+        .etaSeconds = ShipTargetEtaSeconds(),
         .atmosphere = -1.0f,
-        .systemName = systemName
+        .systemName = systemName,
+        .driveMode = ShipDriveModeName(),
+        .autoCruising = ShipGetDriveMode() == SHIP_DRIVE_AUTO_CRUISE,
+        .warping = ShipIsWarping()
     };
     if (!ShipIsDriving()) return shipSpeed;
 
@@ -1751,7 +1759,8 @@ static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
     float hudDistance = 0.0f;
     if (PlanetWorldIsActive()) {
         snprintf(systemName, systemNameSize, "%s surface", PlanetWorldName());
-    } else if (FindNearestSystem(game->player.position, 3000.0f,
+    } else if (FindNearestSystem(game->player.position,
+                                 SOLAR_SYSTEM_QUERY_RADIUS,
                                  &hudSystem, &hudDistance)) {
         double distanceAu = SpaceUnitsGameDistanceToKilometers(hudDistance) /
                             SPACE_UNITS_ASTRONOMICAL_UNIT_KM;
