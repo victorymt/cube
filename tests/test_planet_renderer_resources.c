@@ -14,7 +14,7 @@ static int failModelLoads;
 static int failShaderLoadCall;
 static Mesh storedMesh;
 
-#include "../src/planet_renderer.c"
+#include "../src/presentation/planet_renderer.c"
 
 void UploadMesh(Mesh *mesh, bool dynamic)
 {

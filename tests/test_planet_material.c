@@ -1,4 +1,4 @@
-#include "planet_material.h"
+#include "space/planet_material.h"
 
 #include <assert.h>
 #include <math.h>

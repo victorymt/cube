@@ -1,4 +1,4 @@
-#include "evolution_catalog.h"
+#include "ecology/evolution_catalog.h"
 
 #include <assert.h>
 #include <stdio.h>

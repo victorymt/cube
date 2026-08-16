@@ -1,5 +1,5 @@
-#include "evolution.h"
-#include "creature_visual.h"
+#include "ecology/evolution.h"
+#include "ecology/creature_visual.h"
 
 #include <assert.h>
 #include <math.h>

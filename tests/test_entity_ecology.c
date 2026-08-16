@@ -1,12 +1,12 @@
-#include "chunks.h"
-#include "ecology.h"
+#include "world/chunks.h"
+#include "ecology/ecology.h"
 #include "ecology_test_fixture.h"
-#include "entity.h"
-#include "fluid.h"
-#include "particles.h"
-#include "space.h"
-#include "terrain.h"
-#include "world_environment.h"
+#include "ecology/entity.h"
+#include "world/fluid.h"
+#include "presentation/particles.h"
+#include "space/space.h"
+#include "world/terrain.h"
+#include "world/world_environment.h"
 
 #include <assert.h>
 #include <math.h>

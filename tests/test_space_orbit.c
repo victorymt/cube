@@ -1,5 +1,5 @@
-#include "space_orbit.h"
-#include "space_units.h"
+#include "space/space_orbit.h"
+#include "space/space_units.h"
 
 #include <assert.h>
 #include <float.h>

@@ -1,7 +1,7 @@
 #include "ecology_test_fixture.h"
 
-#include "ecology.h"
-#include "terrain.h"
+#include "ecology/ecology.h"
+#include "world/terrain.h"
 
 #include <assert.h>
 #include <stdint.h>

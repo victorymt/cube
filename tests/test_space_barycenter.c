@@ -1,6 +1,6 @@
-#include "space_barycenter.h"
+#include "space/space_barycenter.h"
 
-#include "space_units.h"
+#include "space/space_units.h"
 
 #include <assert.h>
 #include <float.h>

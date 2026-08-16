@@ -20,7 +20,7 @@ static uint32_t testWorldSeed;
 static int rendererEnsureCalls;
 static int rendererShutdownCalls;
 
-#include "../src/render.c"
+#include "../src/presentation/render_planets.c"
 
 Texture2D LoadTextureFromImage(Image image)
 {

@@ -1,4 +1,4 @@
-#include "game_settings.h"
+#include "app/game_settings.h"
 
 #include <assert.h>
 #include <math.h>

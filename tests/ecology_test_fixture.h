@@ -1,9 +1,9 @@
 #ifndef VOXELCRAFT_ECOLOGY_TEST_FIXTURE_H
 #define VOXELCRAFT_ECOLOGY_TEST_FIXTURE_H
 
-#include "chunks.h"
-#include "space.h"
-#include "world.h"
+#include "world/chunks.h"
+#include "space/space.h"
+#include "world/world.h"
 
 #include <stdint.h>
 #include <stdio.h>

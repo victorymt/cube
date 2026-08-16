@@ -1,5 +1,5 @@
-#include "homeworld_map_model.h"
-#include "terrain.h"
+#include "presentation/homeworld_map_model.h"
+#include "world/terrain.h"
 
 #include <assert.h>
 #include <math.h>

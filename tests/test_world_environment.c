@@ -1,5 +1,5 @@
-#include "world_environment.h"
-#include "terrain.h"
+#include "world/world_environment.h"
+#include "world/terrain.h"
 
 #include <assert.h>
 #include <stdio.h>

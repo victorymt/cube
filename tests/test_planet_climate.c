@@ -1,4 +1,4 @@
-#include "planet_climate.h"
+#include "space/planet_climate.h"
 
 #include <assert.h>
 #include <float.h>

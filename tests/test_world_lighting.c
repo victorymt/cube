@@ -1,4 +1,4 @@
-#include "world_lighting.h"
+#include "world/world_lighting.h"
 
 #include <assert.h>
 #include <math.h>

@@ -1,10 +1,10 @@
-#include "entity.h"
-#include "fluid.h"
-#include "ecology_model.h"
-#include "terrain.h"
-#include "weather_model.h"
-#include "world.h"
-#include "world_environment.h"
+#include "ecology/entity.h"
+#include "world/fluid.h"
+#include "ecology/ecology_model.h"
+#include "world/terrain.h"
+#include "world/weather_model.h"
+#include "world/world.h"
+#include "world/world_environment.h"
 
 #include <assert.h>
 #include <math.h>

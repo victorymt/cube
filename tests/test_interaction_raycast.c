@@ -1,7 +1,7 @@
-#include "interaction.h"
-#include "space.h"
-#include "world.h"
-#include "world_environment.h"
+#include "gameplay/interaction.h"
+#include "space/space.h"
+#include "world/world.h"
+#include "world/world_environment.h"
 
 #include <assert.h>
 #include <float.h>

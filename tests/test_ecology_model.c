@@ -1,4 +1,4 @@
-#include "ecology_model.h"
+#include "ecology/ecology_model.h"
 
 #include <assert.h>
 #include <math.h>

@@ -1,5 +1,5 @@
-#include "space_illumination.h"
-#include "space_units.h"
+#include "space/space_illumination.h"
+#include "space/space_units.h"
 
 #include <assert.h>
 #include <float.h>

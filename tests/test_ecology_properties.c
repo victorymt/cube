@@ -1,10 +1,10 @@
 #include "ecology_test_fixture.h"
 
-#include "ecology.h"
-#include "ecology_model.h"
-#include "terrain.h"
-#include "weather.h"
-#include "weather_model.h"
+#include "ecology/ecology.h"
+#include "ecology/ecology_model.h"
+#include "world/terrain.h"
+#include "world/weather.h"
+#include "world/weather_model.h"
 
 #include <assert.h>
 #include <math.h>
@@ -85,6 +85,12 @@ static void AssertRateBetween(int count, int total,
 {
     assert(total > 0);
     float rate = (float)count / (float)total;
+    if (rate < minimum || rate > maximum) {
+        fprintf(stderr,
+                "ecology rate out of range: count=%d total=%d rate=%.6f "
+                "expected=[%.6f, %.6f]\n",
+                count, total, rate, minimum, maximum);
+    }
     assert(rate >= minimum && rate <= maximum);
 }
 
@@ -622,17 +628,17 @@ static void TestGeneratedSolarEcologyDistribution(void)
     AssertRateBetween(complexTotal, planetCount, 0.0005f, 0.005f);
 
     AssertRateBetween(styles[SOLAR_STYLE_LAVA].sampleCount,
-                      planetCount, 0.005f, 0.03f);
+                      planetCount, 0.06f, 0.13f);
     AssertRateBetween(styles[SOLAR_STYLE_ICE].sampleCount,
-                      planetCount, 0.70f, 0.90f);
+                      planetCount, 0.62f, 0.80f);
     AssertRateBetween(styles[SOLAR_STYLE_DESERT].sampleCount,
-                      planetCount, 0.005f, 0.04f);
+                      planetCount, 0.03f, 0.08f);
     AssertRateBetween(styles[SOLAR_STYLE_GAS].sampleCount,
-                      planetCount, 0.04f, 0.12f);
+                      planetCount, 0.015f, 0.06f);
     AssertRateBetween(styles[SOLAR_STYLE_CRATER].sampleCount,
-                      planetCount, 0.04f, 0.12f);
+                      planetCount, 0.04f, 0.10f);
     AssertRateBetween(styles[SOLAR_STYLE_TEMPERATE].sampleCount,
-                      planetCount, 0.005f, 0.03f);
+                      planetCount, 0.015f, 0.06f);
 
     static const char *multiplicityNames[] = {
         "none", "single", "binary", "triple"

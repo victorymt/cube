@@ -109,8 +109,26 @@ startup as a small pixel-art atlas.
   in, then fly between stars at up to 30 blocks/s (W/S/A/D thrust, mouse
   steer, Space/Ctrl up/down). Approach a named planet and press E to land in
   its surface world; take off above the atmosphere to return to the same orbit
-- Code is split into modules: terrain, chunks, world, world_environment, player, interaction,
-  render, particles, audio, weather, plus a shared types header
+- Code is organized by ownership under `core`, `world`, `space`, `ecology`,
+  `gameplay`, `presentation`, and `app`; large runtime, rendering, entity, and
+  streaming implementations are split into focused translation units
+
+## Architecture
+
+Production code lives entirely in the seven directories under `src/`. Public
+headers use module-qualified includes, while shared implementation details stay
+in module-private `*_internal.h` and `*_dependencies.h` headers. Common data is
+owned by `core/config.h`, `world/world_types.h`,
+`gameplay/player_types.h`, and `presentation/ui_types.h` instead of a global
+catch-all types header. Mutable chunk, space, Nether, renderer, and entity state
+is not exported from public headers; consumers use read-only views, snapshots,
+or explicit setters.
+
+Make remains the only build system. `mk/modules.mk` discovers production source
+files per module, and the main build emits one object and dependency file per C
+source. `tests/test_architecture.sh` enforces module placement, include
+qualification, public-state boundaries, hotspot size limits, and the expected
+facades.
 
 ## Build
 

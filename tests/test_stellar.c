@@ -1,5 +1,5 @@
-#include "stellar.h"
-#include "space_units.h"
+#include "space/stellar.h"
+#include "space/space_units.h"
 
 #include <assert.h>
 #include <math.h>

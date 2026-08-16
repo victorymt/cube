@@ -1,11 +1,11 @@
-#include "space.h"
-#include "space_barycenter.h"
-#include "space_physics.h"
-#include "space_query_cache.h"
-#include "space_system.h"
-#include "space_system_physics.h"
-#include "space_units.h"
-#include "weather_model.h"
+#include "space/space.h"
+#include "space/space_barycenter.h"
+#include "space/space_physics.h"
+#include "space/space_query_cache.h"
+#include "space/space_system.h"
+#include "space/space_system_physics.h"
+#include "space/space_units.h"
+#include "world/weather_model.h"
 
 #include <assert.h>
 #include <float.h>

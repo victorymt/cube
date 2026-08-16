@@ -56,7 +56,7 @@
 
 #### H-1：射线 DDA 可能因异常输入陷入死循环
 
-- **位置：** `src/interaction.c:374-429`（`RaycastCameraOcclusion`）、`src/interaction.c:431-501`（`RaycastBlocks`）。
+- **位置：** `src/gameplay/interaction.c:374-429`（`RaycastCameraOcclusion`）、`src/gameplay/interaction.c:431-501`（`RaycastBlocks`）。
 - **问题：** 未见对 direction 是否 finite、是否为零向量，以及 `maxDistance` 是否 finite/非负进行完整校验。零方向可能使 DDA 的步进条件无法推进；NaN 也可能破坏比较逻辑。
 - **影响：** 卡死主线程、阻塞渲染或交互更新；异常输入若来自脚本、网络、导入数据或上层数值污染，风险更高。
 - **建议：** 入口处校验向量和距离；必要时归一化方向；增加最大迭代次数/距离保护；为零向量、NaN、Inf、负距离补充测试。
@@ -64,7 +64,7 @@
 
 #### H-2：图片导入精度缺少最大上限，可能造成资源耗尽或整数问题
 
-- **位置：** `src/interaction.c:105-116`（`ClampImportPrecision`、`AdjustImportPrecision`）、`src/interaction.c:134-253`（`ImportImageAsBlocks`）。
+- **位置：** `src/gameplay/interaction.c:105-116`（`ClampImportPrecision`、`AdjustImportPrecision`）、`src/gameplay/interaction.c:134-253`（`ImportImageAsBlocks`）。
 - **问题：** 精度只设置了最小限制，没有看到足够的最大值、图片尺寸、像素总数和生成方块总数约束。
 - **影响：** 超大精度或恶意图片可能导致大量内存分配、长时间运行、整数溢出、错误坐标或不可控的撤销记录。
 - **建议：** 限制 precision、图片宽高、像素数、总方块数；使用 `size_t`/`int64_t` 做中间计算并检查到目标整数类型的转换；在执行前预估成本并拒绝超限输入。
@@ -74,7 +74,7 @@
 
 #### M-1：`WeatherUpdate` 对异常 `dt` 防护不足
 
-- **位置：** `src/weather.c:344-367`。
+- **位置：** `src/world/weather.c:344-367`。
 - **问题：** `dt=+Inf` 时 accumulator 可能永久保持 Inf，导致 while 循环无法结束；NaN 会污染状态；负 `dt` 会反向增长；极大有限 `dt` 可能触发巨量补偿步和粒子生成。
 - **影响：** 更新卡顿、主线程长时间占用、天气状态污染，极端情况下表现为应用无响应。
 - **建议：** 要求 `isfinite(dt)`；对 `dt <= 0` 明确处理；限制单帧最大 `dt`；限制 accumulator 补偿步数、单步粒子数和总粒子数，并在超限时丢弃或压缩时间。
@@ -82,21 +82,21 @@
 
 #### M-2：`WeatherInputAt` 的坐标转换顺序存在未定义/错误转换风险
 
-- **位置：** `src/weather.c:99-164`。
+- **位置：** `src/world/weather.c:99-164`。
 - **问题：** 先 `floorf` 再转 `int` 并检查范围；NaN、Inf 或超大坐标在转换阶段可能已产生未定义行为或实现相关结果。
 - **影响：** 越界访问、错误天气采样或状态污染。
 - **建议：** 先用 `isfinite` 检查；确认值落在可安全转换的整数范围后再转换；对世界边界使用明确的 `int64_t`/`size_t` 计算。
 
 #### M-3：生态 clamp 无法阻止 NaN 传播
 
-- **位置：** `src/ecology_profile.c:94-99`（`EcologyClamp`）；相关路径包括 `EcologyEnvironmentAt`、`EcologyDynamicLocalAt`、`src/ecology.c:134-210`（`PlanetEcologyLocalAt`）。
+- **位置：** `src/ecology/ecology_profile.c:94-99`（`EcologyClamp`）；相关路径包括 `EcologyEnvironmentAt`、`EcologyDynamicLocalAt`、`src/ecology/ecology.c:134-210`（`PlanetEcologyLocalAt`）。
 - **问题：** 典型 `min/max` clamp 对 NaN 通常无效，NaN 可能继续进入生态计算和缓存。
 - **影响：** 局部生态结果不可预测，缓存被污染后可能放大影响范围。
 - **建议：** 在 clamp 和缓存边界定义非有限值策略（拒绝、替换为默认值或返回错误）；写入缓存前验证关键字段；增加 NaN/Inf 属性测试。
 
 #### M-4：生态全局状态缺少并发保护
 
-- **位置：** `src/ecology_population.c`（全局数组、serial/epoch 等状态）。
+- **位置：** `src/ecology/ecology_population.c`（全局数组、serial/epoch 等状态）。
 - **问题：** 未见 mutex/atomic 或明确的单线程约束。
 - **影响：** 若 API 被多线程调用，可能产生数据竞争、缓存错乱或 use-after-update 类问题。
 - **条件说明：** 若项目明确规定所有生态 API 仅由主线程调用，则该问题主要是契约/文档缺失，而非当前必现缺陷。
@@ -104,28 +104,28 @@
 
 #### M-5：图片导入失败路径可能遗留 Undo Group 或资源
 
-- **位置：** `src/interaction.c:134-253`（`ImportImageAsBlocks`）。
+- **位置：** `src/gameplay/interaction.c:134-253`（`ImportImageAsBlocks`）。
 - **问题：** 导入流程先调用 `WorldBeginUndoGroup`，若后续 `LoadImage` 失败而直接返回，可能没有对应的结束/回滚操作；同时需要确认所有临时图像资源在错误路径释放。
 - **影响：** 撤销栈状态不一致、后续撤销行为异常、资源泄漏。
 - **建议：** 使用统一 cleanup/fail 标签；确保每个成功的 begin 都有 end 或 cancel；所有资源采用成对释放；补充加载失败和中途方块写入失败测试。
 
 #### M-6：玩家移动只检查终点，存在高速穿墙风险
 
-- **位置：** `src/player.c:128-160`（`MovePlayer`）、`src/player.c:226-335`（`UpdatePlayer`）。
+- **位置：** `src/gameplay/player.c:128-160`（`MovePlayer`）、`src/gameplay/player.c:226-335`（`UpdatePlayer`）。
 - **问题：** 主要依据移动后的终点进行碰撞判断，未见按运动路径进行连续检测。
 - **影响：** 大 `dt`、高速移动、瞬移或帧率下降时，玩家可能穿过薄墙或障碍物。
 - **建议：** 使用 swept AABB/capsule、分段移动或基于速度的最大步长；补充低帧率和高速移动测试。
 
 #### M-7：高偏心轨道的偏心近点角求解缺少回退
 
-- **位置：** `src/space_units.c:132-171`（`SpaceUnitsSolveEccentricAnomaly`）。
+- **位置：** `src/space/space_units.c:132-171`（`SpaceUnitsSolveEccentricAnomaly`）。
 - **问题：** 固定 16 次 Newton 迭代且没有明显的失败回退；在 `e` 接近 1、`M` 接近 0 等区域，收敛性和误差保证不足。
 - **影响：** 轨道位置误差、天体抖动或长时间模拟中的数值漂移。
 - **建议：** 使用更稳健的初值（如 Markley/Danby 类方法）并加入二分或阻尼 Newton 回退；对 `e=0.999999, M=0` 等边界增加单元测试。
 
 #### M-8：公共模拟时间在大值后回绕
 
-- **位置：** `src/space.c:106-110`（`SpaceSimulationTime` / `SpaceAdvanceTime`）。
+- **位置：** `src/space/space.c:106-110`（`SpaceSimulationTime` / `SpaceAdvanceTime`）。
 - **问题：** elapsed 超过 `1e8` 后使用 `fmod(elapsed, 1e6)`，公共模拟时间可能突然跳变。
 - **影响：** 轨道、恒星、卫星、纹理和季节相位等依赖公共时间的模块出现不连续行为。
 - **建议：** 公共时钟保持单调或使用更高精度表示；各消费者按自身周期独立取模；增加长时间推进和边界回绕测试。
@@ -134,7 +134,7 @@
 
 #### L-1：月球名称缓冲区可能截断
 
-- **位置：** `src/space.c:2431`。
+- **位置：** `src/space/space.c:2431`。
 - **建议：** 使用基于实际长度的分配/格式化策略，并对截断进行明确处理。
 
 #### L-2：太阳系时间缓存使用精确 double 作为键
@@ -145,32 +145,32 @@
 
 #### L-3：表面相位在大时间值转 `float` 前未先取模
 
-- **位置：** `src/planet_surface.c:166-167`。
+- **位置：** `src/space/planet_surface.c:166-167`。
 - **建议：** 在 double 精度下按旋转周期/纹理周期 `fmod` 后再转换为 float。
 
 #### L-4：`ShipLoadState` 未完整重置运行时状态（条件性）
 
-- **位置：** `src/ship.c:42-48`、`src/ship.c:253-261`、`src/ship.c:280-290`。
+- **位置：** `src/gameplay/ship.c:42-48`、`src/gameplay/ship.c:253-261`、`src/gameplay/ship.c:280-290`。
 - **问题：** 未明显重置 `driving`、`cruising`、`flightAssist`、`gravityPrimary` 等字段。
 - **条件说明：** 若上层始终在加载前调用 `ShipReset`，风险不成立；否则旧状态可能泄漏到新存档。
 - **建议：** 让 `ShipLoadState` 自包含地恢复/清零所有运行时字段，或明确并断言调用前置条件。
 
 #### L-5：船只燃料字段可能未参与推进消耗（待确认）
 
-- **位置：** `src/ship.c:369-554`（`ShipUpdate`）。
+- **位置：** `src/gameplay/ship.c:369-554`（`ShipUpdate`）。
 - **问题：** 未明显看到 fuel 扣减。
 - **影响：** 如果设计要求燃料限制推进，则可能是功能缺陷；如果 fuel 只是预留字段，则不构成问题。
 - **建议：** 对照设计文档/测试确认；若应生效，添加燃料消耗、耗尽行为和存档测试。
 
 #### L-6：`UpdatePlayer` 的函数静态状态跨玩家/存档共享
 
-- **位置：** `src/player.c` 中 `UpdatePlayer` 的 `static wasInWater`、`stepTimer`。
+- **位置：** `src/gameplay/player.c` 中 `UpdatePlayer` 的 `static wasInWater`、`stepTimer`。
 - **影响：** 多玩家、切换存档或重置玩家后可能继承旧状态。
 - **建议：** 将其移入 `Player` 实例字段，并在初始化/加载时显式重置。
 
 #### L-7：交互 API 的 NULL 契约不明确
 
-- **位置：** `src/interaction.c:134-332`。
+- **位置：** `src/gameplay/interaction.c:134-332`。
 - **问题：** 多个公开函数直接解引用指针。
 - **建议：** 对公共边界增加 NULL 检查，或在头文件中明确非 NULL 契约并使用断言。
 

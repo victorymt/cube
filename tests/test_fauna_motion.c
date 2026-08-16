@@ -1,4 +1,4 @@
-#include "fauna_motion.h"
+#include "ecology/fauna_motion.h"
 
 #include <assert.h>
 #include <math.h>

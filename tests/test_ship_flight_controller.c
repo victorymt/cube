@@ -1,4 +1,4 @@
-#include "ship_flight_controller.h"
+#include "gameplay/ship_flight_controller.h"
 
 #include "raymath.h"
 

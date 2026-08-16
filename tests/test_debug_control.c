@@ -1,4 +1,4 @@
-#include "debug_control.h"
+#include "core/debug_control.h"
 
 #include <assert.h>
 #include <stdio.h>

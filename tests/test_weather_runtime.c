@@ -1,10 +1,10 @@
-#include "audio.h"
-#include "particles.h"
-#include "space.h"
-#include "terrain.h"
-#include "weather.h"
-#include "world.h"
-#include "world_environment.h"
+#include "presentation/audio.h"
+#include "presentation/particles.h"
+#include "space/space.h"
+#include "world/terrain.h"
+#include "world/weather.h"
+#include "world/world.h"
+#include "world/world_environment.h"
 
 #include <assert.h>
 #include <limits.h>

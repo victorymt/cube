@@ -1,8 +1,10 @@
-#include "chunks.h"
-#include "terrain.h"
-#include "world.h"
-#include "world_environment.h"
-#include "world_extension.h"
+#include "world/chunks.h"
+
+#define chunks (ChunksMutableForTesting())
+#include "world/terrain.h"
+#include "world/world.h"
+#include "world/world_environment.h"
+#include "world/world_extension.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -787,7 +789,7 @@ static void TestSectionLifecycleHooksPermitFluidRuntimePruning(void)
 
 int main(void)
 {
-    memset(chunks, 0, sizeof(chunks));
+    memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
     AssertFreshStats();
     TestFrustumSphereEdgesRemainVisible();
     TestFrustumNearPlaneAndRenderAspect();

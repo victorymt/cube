@@ -1,9 +1,9 @@
-#include "player.h"
+#include "gameplay/player.h"
 
-#include "fluid.h"
-#include "ship.h"
-#include "world.h"
-#include "world_environment.h"
+#include "world/fluid.h"
+#include "gameplay/ship.h"
+#include "world/world.h"
+#include "world/world_environment.h"
 
 #include <assert.h>
 #include <math.h>

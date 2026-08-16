@@ -1,7 +1,7 @@
-#include "fluid.h"
+#include "world/fluid.h"
 
-#include "chunks.h"
-#include "world_environment.h"
+#include "world/chunks.h"
+#include "world/world_environment.h"
 
 #include <assert.h>
 #include <stdio.h>

@@ -1,12 +1,14 @@
-#include "chunks.h"
+#include "world/chunks.h"
+
+#define chunks (ChunksMutableForTesting())
 #include "ecology_test_fixture.h"
-#include "ecology.h"
-#include "ecology_internal.h"
-#include "space.h"
-#include "space_system_physics.h"
-#include "terrain.h"
-#include "weather.h"
-#include "weather_model.h"
+#include "ecology/ecology.h"
+#include "ecology/ecology_internal.h"
+#include "space/space.h"
+#include "space/space_system_physics.h"
+#include "world/terrain.h"
+#include "world/weather.h"
+#include "world/weather_model.h"
 
 #include <assert.h>
 #include <limits.h>

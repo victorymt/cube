@@ -1,6 +1,6 @@
-#include "ship.h"
-#include "ship_navigation.h"
-#include "space.h"
+#include "gameplay/ship.h"
+#include "gameplay/ship_navigation.h"
+#include "space/space.h"
 
 #include <assert.h>
 #include <math.h>

@@ -1,4 +1,4 @@
-#include "block_atlas.h"
+#include "world/block_atlas.h"
 
 #include <assert.h>
 #include <math.h>

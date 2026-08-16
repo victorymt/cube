@@ -1,6 +1,8 @@
-#include "chunks.h"
-#include "terrain.h"
-#include "world_environment.h"
+#include "world/chunks.h"
+
+#define chunks (ChunksMutableForTesting())
+#include "world/terrain.h"
+#include "world/world_environment.h"
 
 #include <assert.h>
 #include <math.h>
@@ -248,7 +250,7 @@ static void AssertUnknownWaterNeighborsAreConservative(void)
 {
     static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
     memset(blocks, 0, sizeof(blocks));
-    memset(chunks, 0, sizeof(chunks));
+    memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
     blocks[CHUNK_SIZE - 1][4][8] = BLOCK_WATER;
 
     Mesh water = { 0 };
@@ -283,7 +285,7 @@ static void AssertUnknownWaterNeighborsAreConservative(void)
     AssertMeshWellFormed(&water, 30);
     FreeTestMesh(&water);
     ChunkClearBlockStorage(&chunks[0]);
-    memset(chunks, 0, sizeof(chunks));
+    memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
 }
 
 static void AssertLightingVertexData(void)

@@ -1,5 +1,5 @@
-#include "space_coordinates.h"
-#include "space_units.h"
+#include "space/space_coordinates.h"
+#include "space/space_units.h"
 
 #include <assert.h>
 #include <math.h>

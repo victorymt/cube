@@ -1,4 +1,4 @@
-#include "ship_locator.h"
+#include "gameplay/ship_locator.h"
 #include "raymath.h"
 
 #include <assert.h>

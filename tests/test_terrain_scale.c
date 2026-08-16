@@ -1,5 +1,5 @@
-#include "chunks.h"
-#include "terrain.h"
+#include "world/chunks.h"
+#include "world/terrain.h"
 
 #include <assert.h>
 #include <math.h>
