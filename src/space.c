@@ -2285,8 +2285,9 @@ static bool SpacePointInSolarSystemBubble(int x, int z)
 
             float dx = (float)x - sys.center.x;
             float dz = (float)z - sys.center.z;
-            // The largest orbit plus a small margin defines the clean system area.
-            if (dx * dx + dz * dz <= 780.0f * 780.0f) return true;
+            // Keep every stable orbit and its navigation corridor asteroid-free.
+            float clearRadius = SOLAR_SYSTEM_QUERY_RADIUS;
+            if (dx * dx + dz * dz <= clearRadius * clearRadius) return true;
         }
     }
     return false;
