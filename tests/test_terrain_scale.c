@@ -9,6 +9,26 @@
 
 static uint32_t terrainSeed = DEFAULT_WORLD_SEED;
 
+bool WorldIsSurfaceActive(void)
+{
+    return false;
+}
+
+uint32_t WorldCurrentSurfaceId(void)
+{
+    return 0u;
+}
+
+int WorldSurfaceMapOriginX(void)
+{
+    return 0;
+}
+
+int WorldSurfaceMapOriginZ(void)
+{
+    return 0;
+}
+
 uint32_t WorldGetSeed(void)
 {
     return terrainSeed;

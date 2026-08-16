@@ -41,6 +41,16 @@ uint32_t WorldCurrentSurfaceId(void)
     return 1u;
 }
 
+int WorldSurfaceMapOriginX(void)
+{
+    return 0;
+}
+
+int WorldSurfaceMapOriginZ(void)
+{
+    return 0;
+}
+
 bool HomeWorldSurfaceIsActive(void)
 {
     return true;
@@ -594,6 +604,9 @@ static void TestSectionGenerationJobsStageAndValidateResults(void)
     chunks[0].generation = 11u;
 
     assert(RequestChunkTerrainSection(7, 0, 0));
+    SurfaceAddress jobAddress = { 0 };
+    assert(ChunksTestGenerationJobSurfaceAddress(0, &jobAddress));
+    assert(SurfaceAddressEqual(jobAddress, chunks[0].surfaceAddress));
     assert(!RequestChunkTerrainSection(7, 0, 0));
     assert(GetPendingGenJobCount() == 1);
     assert(ChunksTestGenerationJobSectionY(0) == 0);
@@ -622,6 +635,16 @@ static void TestSectionGenerationJobsStageAndValidateResults(void)
     chunks[1].generation++;
     ProcessFinishedChunkJobs();
     assert(ChunkGetSectionConst(&chunks[1], 0) == NULL);
+    assert(ChunksGetStreamingStats().generationCanceled == 1u);
+
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 9, 0, true, false);
+    chunks[0].generation = 22u;
+    assert(RequestChunkTerrainSection(9, 0, 0));
+    ChunksTestRunGenerationJob(0);
+    chunks[0].surfaceAddress.bodyId++;
+    ProcessFinishedChunkJobs();
+    assert(ChunkGetSectionConst(&chunks[0], 0) == NULL);
     assert(ChunksGetStreamingStats().generationCanceled == 1u);
 }
 

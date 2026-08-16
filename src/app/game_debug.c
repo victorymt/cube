@@ -12,6 +12,7 @@
 #include "app/game_interaction.h"
 #include "app/game_runtime.h"
 #include "gameplay/player.h"
+#include "presentation/homeworld_map.h"
 #include "presentation/render.h"
 #include "space/space.h"
 #include "world/terrain.h"
@@ -76,6 +77,38 @@ static void GameDebugReplyStatus(GameRuntime *game)
         waterRender.triangleCount, waterRender.sectionTriangleCount,
         PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0,
         game->autoSaveEnabled ? 1 : 0);
+}
+
+static void GameDebugToggleSurfaceMap(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL map error reason=no_active_surface\n");
+        return;
+    }
+    if (HomeWorldMapIsOpen()) {
+        HomeWorldMapClose();
+        game->cursorReleased = false;
+        DisableCursor();
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL map closed\n");
+        return;
+    }
+
+    float daylight = 0.0f;
+    float sunset = 0.0f;
+    PlanetLightState light = { 0 };
+    if (PlanetWorldLightStateAt(game->player.position, &light)) {
+        daylight = light.daylight;
+    } else {
+        DayNightFactors(game->dayTime, &daylight, &sunset);
+    }
+    HomeWorldMapOpen(game->player.position, daylight);
+    game->player.velocity = Vector3Zero();
+    game->cursorReleased = true;
+    EnableCursor();
+    DebugControlReply(&game->debugControl, "DEBUG_CONTROL map open\n");
 }
 
 static void GameDebugInspectFluid(GameRuntime *game)
@@ -321,6 +354,39 @@ bool GameDispatchDebugCommand(GameRuntime *game)
         break;
     case DEBUG_CONTROL_COMMAND_STATUS:
         GameDebugReplyStatus(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_SAVE:
+        if (game->screen == SCREEN_PLAYING) {
+            SaveMap(&game->player);
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL save result=%s\n",
+                              WorldGetImportMessage());
+        } else {
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL save error reason=not_playing\n");
+        }
+        break;
+    case DEBUG_CONTROL_COMMAND_LOAD:
+        if (game->screen == SCREEN_PLAYING) {
+            LoadMap(&game->player);
+            game->landingTransition = (LandingTransition){ 0 };
+            game->wasInSpace = WorldIsSpaceActive();
+            game->entitiesWorldActive = WorldIsSurfaceActive();
+            game->entitiesWorldDimension = WorldCurrentSurfaceId();
+            game->cursorReleased = false;
+            DisableCursor();
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL load result=%s\n",
+                              WorldGetImportMessage());
+        } else {
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL load error reason=not_playing\n");
+        }
+        break;
+    case DEBUG_CONTROL_COMMAND_MAP:
+        GameDebugToggleSurfaceMap(game);
         break;
     case DEBUG_CONTROL_COMMAND_FLUID_INSPECT:
         GameDebugInspectFluid(game);

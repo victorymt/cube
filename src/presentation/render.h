@@ -9,6 +9,7 @@
 #include "presentation/weather_visual.h"
 #include "presentation/world_renderer.h"
 #include "presentation/environment_presentation.h"
+#include "presentation/planet_renderer.h"
 #include "world/terrain.h"
 
 #include <stdint.h>
@@ -89,6 +90,9 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade);
 void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade);
 void DrawSolarBodies(const Camera3D *camera, float spaceFade);
 void DrawHomePlanet(const Camera3D *camera, float spaceFade);
+bool PlanetRenderSurfaceVisual(bool planetSurface,
+                               PlanetTextureSet *outTextures,
+                               Color *outFallback);
 void UnloadPlanetRenderResources(void);
 void DrawBodyInfoPanel(const SpaceBodyInfo *body);
 void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,

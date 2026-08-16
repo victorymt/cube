@@ -3,6 +3,7 @@
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
 #include "presentation/homeworld_map_model.h"
+#include "presentation/surface_globe.h"
 #include "raylib.h"
 #include "raymath.h"
 #include "presentation/render.h"
@@ -24,6 +25,8 @@ typedef struct HomeWorldMapLayout {
     Rectangle zoomOutButton;
     Rectangle zoomInButton;
     Rectangle recenterButton;
+    Rectangle globe;
+    Rectangle globeResetButton;
     bool compact;
 } HomeWorldMapLayout;
 
@@ -42,6 +45,7 @@ typedef struct HomeWorldMapState {
     bool showCreatures;
     bool showLandmarks;
     bool planetSurface;
+    bool globeDragging;
     int zoomLevel;
     char surfaceName[40];
     HomeWorldMapBounds bounds;
@@ -49,6 +53,8 @@ typedef struct HomeWorldMapState {
     Vector3 playerPosition;
     float playerYaw;
     float daylight;
+    float globeLongitude;
+    float globeLatitude;
     Texture2D terrainTexture;
     Color pixels[HOMEWORLD_MAP_RASTER_SIZE * HOMEWORLD_MAP_RASTER_SIZE];
     HomeWorldMapTerrainCell cells[
@@ -59,6 +65,19 @@ typedef struct HomeWorldMapState {
 } HomeWorldMapState;
 
 static HomeWorldMapState homeMap = { 0 };
+
+static void MapPlayerLatLon(float *outLongitude, float *outLatitude)
+{
+    if (homeMap.planetSurface) {
+        PlanetSurfaceLatLonAt((int)floorf(homeMap.playerPosition.x),
+                              (int)floorf(homeMap.playerPosition.z),
+                              outLongitude, outLatitude);
+    } else {
+        HomeSurfaceLatLonAt((int)floorf(homeMap.playerPosition.x),
+                            (int)floorf(homeMap.playerPosition.z),
+                            outLongitude, outLatitude);
+    }
+}
 
 static float MapClamp(float value, float low, float high)
 {
@@ -76,7 +95,7 @@ static HomeWorldMapLayout MapLayout(void)
         margin, margin, (float)sw - margin * 2.0f,
         (float)sh - margin * 2.0f
     };
-    bool compact = sw < 900 || sh < 580;
+    bool compact = sw < 900 || sh < 700;
     Rectangle map = { 0 };
     Rectangle sidebar = { 0 };
     if (!compact) {
@@ -95,7 +114,7 @@ static HomeWorldMapLayout MapLayout(void)
             panel.height - 88.0f
         };
     } else {
-        float sidebarHeight = fminf(142.0f, panel.height * 0.32f);
+        float sidebarHeight = fminf(178.0f, panel.height * 0.42f);
         float availableHeight = panel.height - sidebarHeight - 92.0f;
         float mapSize = fminf(panel.width - 32.0f, availableHeight);
         map = (Rectangle){
@@ -108,6 +127,15 @@ static HomeWorldMapLayout MapLayout(void)
             panel.y + panel.height - map.y - map.height - 20.0f
         };
     }
+    float globeSize = sidebar.width - (compact ? 206.0f : 92.0f);
+    float maximumGlobeSize = compact
+        ? fmaxf(1.0f, sidebar.height - 24.0f) : 132.0f;
+    float minimumGlobeSize = compact ? 64.0f : 96.0f;
+    globeSize = fminf(fmaxf(globeSize, minimumGlobeSize), maximumGlobeSize);
+    Rectangle globe = compact
+        ? (Rectangle){ sidebar.x, sidebar.y + 18.0f, globeSize, globeSize }
+        : (Rectangle){ sidebar.x + (sidebar.width - globeSize) * 0.5f,
+                       sidebar.y + 18.0f, globeSize, globeSize };
     return (HomeWorldMapLayout){
         .panel = panel,
         .map = map,
@@ -119,6 +147,10 @@ static HomeWorldMapLayout MapLayout(void)
         .zoomInButton = { map.x + 44.0f, map.y + 10.0f, 30.0f, 30.0f },
         .recenterButton = {
             map.x + map.width - 40.0f, map.y + 10.0f, 30.0f, 30.0f
+        },
+        .globe = globe,
+        .globeResetButton = {
+            globe.x + globe.width - 25.0f, globe.y + 5.0f, 21.0f, 21.0f
         },
         .compact = compact
     };
@@ -252,6 +284,7 @@ void HomeWorldMapOpen(Vector3 playerPosition, float daylight)
     homeMap.open = true;
     homeMap.cacheDirty = true;
     homeMap.dragging = false;
+    homeMap.globeDragging = false;
     homeMap.dragOffset = Vector2Zero();
     homeMap.zoomLevel = 1;
     homeMap.planetSurface = PlanetWorldIsActive() &&
@@ -263,6 +296,7 @@ void HomeWorldMapOpen(Vector3 playerPosition, float daylight)
         HomeWorldMapSpanForLevel(homeMap.zoomLevel)
     };
     homeMap.playerPosition = playerPosition;
+    MapPlayerLatLon(&homeMap.globeLongitude, &homeMap.globeLatitude);
     homeMap.showTerrain = true;
     homeMap.showEcology = true;
     homeMap.showCreatures = true;
@@ -313,15 +347,20 @@ static void MapRecenter(void)
 static Rectangle MapLayerButton(const HomeWorldMapLayout *layout, int index)
 {
     if (layout->compact) {
-        float width = fminf(130.0f, layout->sidebar.width * 0.24f);
+        float startX = layout->globe.x + layout->globe.width + 12.0f;
+        float available = layout->sidebar.x + layout->sidebar.width - startX;
+        float width = fmaxf(78.0f, (available - 6.0f) * 0.5f);
         return (Rectangle){
-            layout->sidebar.x + (float)index * width,
-            layout->sidebar.y + 24.0f, width, 24.0f
+            startX + (float)(index % 2) * (width + 6.0f),
+            layout->sidebar.y + 24.0f + (float)(index / 2) * 28.0f,
+            width, 24.0f
         };
     }
+    float width = (layout->sidebar.width - 8.0f) * 0.5f;
+    float startY = layout->globe.y + layout->globe.height + 34.0f;
     return (Rectangle){
-        layout->sidebar.x, layout->sidebar.y + 34.0f + (float)index * 28.0f,
-        layout->sidebar.width, 24.0f
+        layout->sidebar.x + (float)(index % 2) * (width + 8.0f),
+        startY + (float)(index / 2) * 28.0f, width, 24.0f
     };
 }
 
@@ -337,6 +376,9 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
     homeMap.playerPosition = playerPosition;
     homeMap.playerYaw = playerYaw;
     homeMap.daylight = daylight;
+    float playerLongitude = 0.0f;
+    float playerLatitude = 0.0f;
+    MapPlayerLatLon(&playerLongitude, &playerLatitude);
     if (!homeMap.textureReady || homeMap.cacheDirty) MapRefresh(daylight);
 
     HomeWorldMapLayout layout = MapLayout();
@@ -359,20 +401,43 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
         } else if (MapPointInButton(mouse, layout.recenterButton)) {
             MapRecenter();
             pointerHandled = true;
+        } else if (MapPointInButton(mouse, layout.globeResetButton)) {
+            homeMap.globeLongitude = playerLongitude;
+            homeMap.globeLatitude = playerLatitude;
+            pointerHandled = true;
+        } else if (MapPointInButton(mouse, layout.globe)) {
+            homeMap.globeDragging = true;
+            pointerHandled = true;
         }
-        bool *layers[] = {
-            &homeMap.showTerrain, &homeMap.showEcology,
-            &homeMap.showCreatures, &homeMap.showLandmarks
-        };
-        for (int i = 0; i < 4; i++) {
-            if (MapPointInButton(mouse, MapLayerButton(&layout, i))) {
-                *layers[i] = !*layers[i];
-                pointerHandled = true;
+        if (!pointerHandled) {
+            bool *layers[] = {
+                &homeMap.showTerrain, &homeMap.showEcology,
+                &homeMap.showCreatures, &homeMap.showLandmarks
+            };
+            for (int i = 0; i < 4; i++) {
+                if (MapPointInButton(mouse, MapLayerButton(&layout, i))) {
+                    *layers[i] = !*layers[i];
+                    pointerHandled = true;
+                }
             }
         }
     }
 
-    if (CheckCollisionPointRec(mouse, layout.map)) {
+    if (homeMap.globeDragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        Vector2 delta = GetMouseDelta();
+        homeMap.globeLongitude -= delta.x * 0.012f;
+        homeMap.globeLongitude = atan2f(sinf(homeMap.globeLongitude),
+                                        cosf(homeMap.globeLongitude));
+        homeMap.globeLatitude = MapClamp(
+            homeMap.globeLatitude + delta.y * 0.010f,
+            -PI * 0.48f, PI * 0.48f);
+    }
+    if (homeMap.globeDragging &&
+        IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+        homeMap.globeDragging = false;
+    }
+
+    if (!homeMap.globeDragging && CheckCollisionPointRec(mouse, layout.map)) {
         float wheel = GetMouseWheelMove();
         if (wheel > 0.0f) MapZoom(-1);
         if (wheel < 0.0f) MapZoom(1);
@@ -424,11 +489,17 @@ static void MapDrawIconButton(Rectangle button, int icon)
     } else if (icon == 2) {
         DrawCircleLines((int)cx, (int)cy, 6.0f, WHITE);
         DrawCircle((int)cx, (int)cy, 2.0f, WHITE);
-    } else {
+    } else if (icon == 3) {
         DrawLineEx((Vector2){ cx - 5.0f, cy - 5.0f },
                    (Vector2){ cx + 5.0f, cy + 5.0f }, 2.0f, WHITE);
         DrawLineEx((Vector2){ cx + 5.0f, cy - 5.0f },
                    (Vector2){ cx - 5.0f, cy + 5.0f }, 2.0f, WHITE);
+    } else {
+        DrawCircleSectorLines((Vector2){ cx, cy }, 6.0f, -48.0f, 250.0f,
+                               16, WHITE);
+        DrawTriangle((Vector2){ cx + 5.0f, cy - 6.0f },
+                     (Vector2){ cx + 7.0f, cy + 1.0f },
+                     (Vector2){ cx, cy - 1.0f }, WHITE);
     }
 }
 
@@ -685,11 +756,36 @@ static void MapDrawTerrainLegend(const HomeWorldMapLayout *layout,
     }
 }
 
+static void MapDrawGlobe(const HomeWorldMapLayout *layout)
+{
+    float longitude = 0.0f;
+    float latitude = 0.0f;
+    MapPlayerLatLon(&longitude, &latitude);
+    SurfaceGlobeDraw(&(SurfaceGlobeDrawParams){
+        .destination = layout->globe,
+        .planetSurface = homeMap.planetSurface,
+        .cameraLongitude = homeMap.globeLongitude,
+        .cameraLatitude = homeMap.globeLatitude,
+        .markerLongitude = longitude,
+        .markerLatitude = latitude
+    });
+    DrawCircleLines((int)(layout->globe.x + layout->globe.width * 0.5f),
+                    (int)(layout->globe.y + layout->globe.height * 0.5f),
+                    layout->globe.width * 0.49f, Fade(WHITE, 0.42f));
+    MapDrawIconButton(layout->globeResetButton, 4);
+}
+
 static void MapDrawSidebar(const HomeWorldMapLayout *layout,
                            const char *hoverTitle, const char *hoverDetail)
 {
-    UiDrawText("LAYERS", (int)layout->sidebar.x,
-               (int)layout->sidebar.y, 14, Fade(WHITE, 0.58f));
+    MapDrawGlobe(layout);
+    float layerX = layout->compact
+        ? layout->globe.x + layout->globe.width + 12.0f
+        : layout->sidebar.x;
+    float layerY = layout->compact
+        ? layout->sidebar.y
+        : layout->globe.y + layout->globe.height + 8.0f;
+    UiDrawText("LAYERS", (int)layerX, (int)layerY, 14, Fade(WHITE, 0.58f));
     const char *labels[] = { "Terrain", "Ecology", "Creatures", "Landmarks" };
     bool enabled[] = {
         homeMap.showTerrain, homeMap.showEcology,
@@ -700,30 +796,34 @@ static void MapDrawSidebar(const HomeWorldMapLayout *layout,
     }
 
     if (layout->compact) {
-        int infoY = (int)layout->sidebar.y + 58;
-        UiDrawText(hoverTitle, (int)layout->sidebar.x, infoY, 16, WHITE);
-        UiDrawText(hoverDetail, (int)layout->sidebar.x, infoY + 22, 14,
+        int infoY = (int)layout->sidebar.y + 88;
+        UiDrawText(hoverTitle, (int)layerX, infoY, 15, WHITE);
+        UiDrawText(hoverDetail, (int)layerX, infoY + 21, 12,
                    Fade(WHITE, 0.66f));
         return;
     }
 
-    float legendY = layout->sidebar.y + 164.0f;
+    float legendY = layout->globe.y + layout->globe.height + 110.0f;
     UiDrawText("TERRAIN", (int)layout->sidebar.x, (int)legendY, 14,
                Fade(WHITE, 0.58f));
     MapDrawTerrainLegend(layout, legendY);
 
-    float markerY = legendY + 150.0f;
+    float markerY = legendY + 142.0f;
     UiDrawText("MARKERS", (int)layout->sidebar.x, (int)markerY, 14,
                Fade(WHITE, 0.58f));
     const char *markerNames[] = {
         "Land", "Aquatic", "Aerial", "Hostile"
     };
+    float markerWidth = (layout->sidebar.width - 8.0f) * 0.5f;
     for (int i = 0; i < 4; i++) {
-        DrawCircle((int)layout->sidebar.x + 7,
-                   (int)markerY + 30 + i * 22, 4.0f,
+        int column = i % 2;
+        int row = i / 2;
+        float markerX = layout->sidebar.x + (float)column * (markerWidth + 8.0f);
+        DrawCircle((int)markerX + 7,
+                   (int)markerY + 30 + row * 22, 4.0f,
                    MapEntityColor((EntityMapMarkerKind)i));
-        UiDrawText(markerNames[i], (int)layout->sidebar.x + 22,
-                   (int)markerY + 22 + i * 22, 14, Fade(WHITE, 0.76f));
+        UiDrawText(markerNames[i], (int)markerX + 22,
+                   (int)markerY + 22 + row * 22, 14, Fade(WHITE, 0.76f));
     }
 
     float infoY = layout->sidebar.y + layout->sidebar.height - 72.0f;
@@ -868,6 +968,17 @@ void HomeWorldMapDraw(void)
         hoverTitle = "Close map";
         snprintf(hoverDetail, sizeof(hoverDetail), "Return to %s",
                  homeMap.surfaceName);
+    } else if (CheckCollisionPointRec(mouse, layout.globeResetButton)) {
+        hoverTitle = "Center globe";
+        snprintf(hoverDetail, sizeof(hoverDetail), "Show your current surface");
+    } else if (CheckCollisionPointRec(mouse, layout.globe)) {
+        hoverTitle = "Global surface";
+        float longitudeDegrees = homeMap.globeLongitude * RAD2DEG;
+        float latitudeDegrees = homeMap.globeLatitude * RAD2DEG;
+        snprintf(hoverDetail, sizeof(hoverDetail),
+                 "Center %.1f %c   |   %.1f %c",
+                 fabsf(longitudeDegrees), longitudeDegrees < 0.0f ? 'W' : 'E',
+                 fabsf(latitudeDegrees), latitudeDegrees < 0.0f ? 'S' : 'N');
     }
 
     if (CheckCollisionPointRec(mouse, layout.map)) {
@@ -906,5 +1017,6 @@ void HomeWorldMapUnload(void)
     if (homeMap.textureReady) {
         UnloadTexture(homeMap.terrainTexture);
     }
+    SurfaceGlobeUnload();
     memset(&homeMap, 0, sizeof(homeMap));
 }

@@ -27,6 +27,10 @@ typedef struct MeshJob {
     int sectionY;
     uint32_t sectionStamp;
     uint32_t chunkGeneration;
+    bool spherical;
+    SurfaceAddress surfaceAddress;
+    int surfaceMapOriginX;
+    int surfaceMapOriginZ;
     unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     unsigned char waterVolumes[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     SurfaceWaterBoundarySnapshot waterBoundary;
@@ -81,6 +85,14 @@ int PruneDistantNegativeTerrainSections(int playerSectionY);
 bool HasPendingMeshJob(void);
 MeshJob *NextPendingMeshJob(void);
 void FreeMeshData(Mesh *mesh);
+void LocalizeChunkMeshData(Mesh *mesh, int chunkX, int chunkZ);
+void LocalizeChunkFloraInstances(FloraVisualInstance *instances, int count,
+                                 int chunkX, int chunkZ);
+void CurveChunkMeshData(Mesh *mesh, int chunkX, int chunkZ, int sectionY,
+                        uint32_t bodyId, int mapOriginX, int mapOriginZ);
+void CurveChunkFloraInstances(
+    FloraVisualInstance *instances, int count, int chunkX, int chunkZ,
+    int sectionY, uint32_t bodyId, int mapOriginX, int mapOriginZ);
 bool MergeMeshData(Mesh *target, Mesh *source);
 bool BuildSurfaceWaterMeshDataWithSnapshot(
     const unsigned short (*blocks)[CHUNK_SIZE],

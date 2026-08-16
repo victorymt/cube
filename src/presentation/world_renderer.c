@@ -589,6 +589,27 @@ void WorldRendererDrawModel(const Model *model, Vector3 translation,
     if (transparent) rlEnableBackfaceCulling();
 }
 
+void WorldRendererDrawModelTransformed(const Model *model, Matrix transform,
+                                       Color fallbackTint, bool transparent)
+{
+    if (!model || model->materialCount <= 0 || !model->materials) return;
+    Shader shader = transparent && resources.waterReady ? resources.waterShader :
+                    resources.surfaceShader;
+    Model drawModel = *model;
+    drawModel.transform = transform;
+    if (!resources.surfaceReady || shader.id == 0) {
+        DrawModel(drawModel, Vector3Zero(), 1.0f, fallbackTint);
+        return;
+    }
+    Material material = model->materials[0];
+    material.shader = shader;
+    drawModel.materials = &material;
+    drawModel.materialCount = 1;
+    if (transparent) rlDisableBackfaceCulling();
+    DrawModel(drawModel, Vector3Zero(), 1.0f, WHITE);
+    if (transparent) rlEnableBackfaceCulling();
+}
+
 void WorldRendererBeginWaterPass(void)
 {
     rlDrawRenderBatchActive();
@@ -655,6 +676,20 @@ void WorldRendererDrawShadowModel(const Model *model, Vector3 translation)
     drawModel.materials = &material;
     drawModel.materialCount = 1;
     DrawModel(drawModel, translation, 1.0f, WHITE);
+}
+
+void WorldRendererDrawShadowModelTransformed(const Model *model,
+                                             Matrix transform)
+{
+    if (!resources.shadowPassActive || !model || model->materialCount <= 0 ||
+        !model->materials) return;
+    Model drawModel = *model;
+    Material material = model->materials[0];
+    material.shader = resources.shadowShader;
+    drawModel.materials = &material;
+    drawModel.materialCount = 1;
+    drawModel.transform = transform;
+    DrawModel(drawModel, Vector3Zero(), 1.0f, WHITE);
 }
 
 void WorldRendererEndShadow(void)

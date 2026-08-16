@@ -48,11 +48,11 @@ startup as a small pixel-art atlas.
   chunks use a 16-job worker queue that prioritizes the chunks nearest the
   player. Meshes are uploaded on the main thread so new areas stream in smoothly
   instead of hitching
-- Binary save format (V12) persists the world seed, inventory, ship fuel and locator,
-  Homeworld/space mode, planet-world context, per-planet edit dimensions,
-  entities, and ecology state; it remains compatible with V2-V11 and old text
-  saves. Legacy saves are migrated in memory and rewritten as V12 only after
-  the next successful save
+- Binary save format V18 persists the world seed, inventory, ship fuel and
+  locator, active dimension, planet-world context, entities, ecology state,
+  and stable cube-sphere addresses for the player and every surface edit.
+  V17 and older flat-world saves are intentionally rejected because their
+  coordinates cannot identify positions on the spherical worlds safely
 - Image imports use a 256-color block palette for better color matching. Block
   edits are indexed for fast repeated imports and large builds
 - Automatic save on quit (plus manual `F5` save / `F9` load); every successful
@@ -181,7 +181,7 @@ uploads settle. Mesh byte fields estimate public raylib `Mesh` buffers and are
 not driver-reported VRAM.
 
 For scripted visual debugging, start the game with `--debug-stdin`. It accepts
-line-delimited commands: `start`, `screenshot`, `status`, `teleport X Y Z YAW
+line-delimited commands: `start`, `screenshot`, `status`, `save`, `load`, `map`, `teleport X Y Z YAW
 PITCH`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, `evolution inspect [RADIUS]`,
 `evolution focus [RADIUS]`, `evolution region`, `evolution advance DAYS`,
 `evolution bootstrap status`, `evolution atlas`, `evolution catalog`, or

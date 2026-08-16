@@ -1353,7 +1353,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready commands=start,screenshot,status,teleport,input,"
+        "DEBUG_CONTROL ready commands=start,screenshot,status,save,load,map,teleport,input,"
         "fluid,evolution,quit\n");
     return true;
 }

@@ -15,6 +15,21 @@ uint32_t WorldCurrentSurfaceId(void)
     return 1u;
 }
 
+int WorldSurfaceMapOriginX(void)
+{
+    return 0;
+}
+
+int WorldSurfaceMapOriginZ(void)
+{
+    return 0;
+}
+
+bool WorldIsSurfaceActive(void)
+{
+    return true;
+}
+
 bool HomeWorldSurfaceIsActive(void)
 {
     return true;
@@ -261,8 +276,10 @@ static void AssertUnknownWaterNeighborsAreConservative(void)
     FreeTestMesh(&water);
 
     chunks[0].loaded = true;
+    chunks[0].spherical = true;
     chunks[0].cx = 1;
     chunks[0].cz = 0;
+    chunks[0].surfaceAddress = ChunkSurfaceAddressAt(1, 0);
     assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
                          TEST_MESH_WATER, &water));
     // A loaded chunk with an unresolved section is still unknown.

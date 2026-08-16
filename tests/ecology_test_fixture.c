@@ -15,6 +15,26 @@ static uint64_t propertyBlockEditRevision = 1u;
 static int propertyBlockEditReadCount = 0;
 TerrainMode terrainMode = TERRAIN_VARIED;
 
+__attribute__((weak)) bool WorldIsSurfaceActive(void)
+{
+    return true;
+}
+
+__attribute__((weak)) uint32_t WorldCurrentSurfaceId(void)
+{
+    return 0u;
+}
+
+int WorldSurfaceMapOriginX(void)
+{
+    return 0;
+}
+
+int WorldSurfaceMapOriginZ(void)
+{
+    return 0;
+}
+
 TerrainMode WorldTerrainMode(void)
 {
     return terrainMode;

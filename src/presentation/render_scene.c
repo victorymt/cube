@@ -54,6 +54,17 @@ static void CollectSurfaceRenderItems(
     int *transparentCount)
 {
     const Chunk *surfaceChunks = ChunksView();
+    int referenceX = (int)floorf(camera->position.x);
+    int referenceZ = (int)floorf(camera->position.z);
+    int mapOriginX = WorldSurfaceMapOriginX();
+    int mapOriginZ = WorldSurfaceMapOriginZ();
+    Vector2 referenceMap = {
+        (float)(mapOriginX + referenceX),
+        (float)(mapOriginZ + referenceZ)
+    };
+    Vector3 referenceOrigin = {
+        (float)referenceX, 0.0f, (float)referenceZ
+    };
     int stableOrder = 0;
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         const Chunk *chunk = &surfaceChunks[i];
@@ -65,30 +76,41 @@ static void CollectSurfaceRenderItems(
              sectionIndex++, stableOrder++) {
             ChunkSection *section = chunk->sections[sectionIndex];
             int sectionY = section->sectionY;
-            bool frustumVisible = ChunkSectionIntersectsCameraView(
-                chunk, section, camera);
+            int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
+            Vector2 patchMap = {
+                (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
+                (float)(mapOriginZ + chunk->cz * CHUNK_SIZE)
+            };
+            Matrix transform = chunk->spherical
+                ? SurfacePatchTransformAtMap(
+                    chunk->surfaceAddress.bodyId, referenceMap,
+                    referenceOrigin, patchMap, radialBase)
+                : MatrixTranslate((float)(chunk->cx * CHUNK_SIZE),
+                                  (float)radialBase,
+                                  (float)(chunk->cz * CHUNK_SIZE));
+            Vector3 center = Vector3Transform(
+                (Vector3){ (float)CHUNK_SIZE * 0.5f,
+                           (float)SURFACE_SECTION_HEIGHT * 0.5f,
+                           (float)CHUNK_SIZE * 0.5f }, transform);
+            float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
+            bool frustumVisible = SphereInFrustum(
+                camera, center, sqrtf(half * half * 3.0f));
             PerfRecordWorldCandidate(distanceVisible, frustumVisible);
             if (!frustumVisible) continue;
-            Vector3 translation = {
-                0.0f, (float)(sectionY * SURFACE_SECTION_HEIGHT), 0.0f
-            };
             if (section->hasModel) {
                 PerfRecordDrawCall(PERF_DRAW_SOLID);
-                WorldRendererDrawModel(&section->model, translation, tint, false);
+                WorldRendererDrawModelTransformed(
+                    &section->model, transform, tint, false);
             }
             if (section->hasFloraModel) {
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
-                WorldRendererDrawModel(&section->floraModel, translation, tint,
-                                       false);
+                WorldRendererDrawModelTransformed(
+                    &section->floraModel, transform, tint, false);
             }
             if (section->hasWaterModel) {
-                TransparentRenderItemAppend(
+                TransparentRenderItemAppendTransformed(
                     transparent, transparentCapacity, transparentCount,
-                    &section->waterModel, translation,
-                    ChunkRenderCenter(
-                        chunk->cx, chunk->cz,
-                        (float)(sectionY * SURFACE_SECTION_HEIGHT) +
-                            (float)SURFACE_SECTION_HEIGHT * 0.5f),
+                    &section->waterModel, transform, center,
                     camera->position, TRANSPARENT_RENDER_SURFACE,
                     chunk->cx, chunk->cz, stableOrder);
             }
@@ -189,8 +211,13 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
     WorldRendererBeginWaterPass();
     for (int i = 0; i < waterCount; i++) {
         PerfRecordDrawCall(PERF_DRAW_WATER);
-        WorldRendererDrawModel(water[i].model, water[i].translation,
-                               tint, true);
+        if (water[i].transformed) {
+            WorldRendererDrawModelTransformed(
+                water[i].model, water[i].transform, tint, true);
+        } else {
+            WorldRendererDrawModel(water[i].model, water[i].translation,
+                                   tint, true);
+        }
     }
     WorldRendererEndWaterPass();
     EndBlendMode();
@@ -223,6 +250,17 @@ void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
         shadowChunkRadius = effectiveRenderDistance;
     }
     if (drawSurfaceChunks) {
+        int referenceX = (int)floorf(camera->position.x);
+        int referenceZ = (int)floorf(camera->position.z);
+        int mapOriginX = WorldSurfaceMapOriginX();
+        int mapOriginZ = WorldSurfaceMapOriginZ();
+        Vector2 referenceMap = {
+            (float)(mapOriginX + referenceX),
+            (float)(mapOriginZ + referenceZ)
+        };
+        Vector3 referenceOrigin = {
+            (float)referenceX, 0.0f, (float)referenceZ
+        };
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             const Chunk *chunk = &surfaceChunks[i];
             if (!chunk->loaded || abs(chunk->cx - cameraCx) > shadowChunkRadius ||
@@ -230,17 +268,25 @@ void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
             for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
                  sectionIndex++) {
                 const ChunkSection *section = chunk->sections[sectionIndex];
-                Vector3 translation = {
-                    0.0f,
-                    (float)(section->sectionY * SURFACE_SECTION_HEIGHT),
-                    0.0f
+                int radialBase = section->sectionY * SURFACE_SECTION_HEIGHT;
+                Vector2 patchMap = {
+                    (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
+                    (float)(mapOriginZ + chunk->cz * CHUNK_SIZE)
                 };
+                Matrix transform = chunk->spherical
+                    ? SurfacePatchTransformAtMap(
+                          chunk->surfaceAddress.bodyId, referenceMap,
+                          referenceOrigin, patchMap, radialBase)
+                    : MatrixTranslate((float)(chunk->cx * CHUNK_SIZE),
+                                      (float)radialBase,
+                                      (float)(chunk->cz * CHUNK_SIZE));
                 if (section->hasModel) {
-                    WorldRendererDrawShadowModel(&section->model, translation);
+                    WorldRendererDrawShadowModelTransformed(
+                        &section->model, transform);
                 }
                 if (section->hasFloraModel) {
-                    WorldRendererDrawShadowModel(&section->floraModel,
-                                                 translation);
+                    WorldRendererDrawShadowModelTransformed(
+                        &section->floraModel, transform);
                 }
             }
         }

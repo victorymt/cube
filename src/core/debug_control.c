@@ -42,6 +42,9 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;
+    if (strcmp(line, "load") == 0) return DEBUG_CONTROL_COMMAND_LOAD;
+    if (strcmp(line, "map") == 0) return DEBUG_CONTROL_COMMAND_MAP;
     if (strcmp(line, "fluid inspect") == 0) {
         control->fluidUsePlayerPosition = true;
         return DEBUG_CONTROL_COMMAND_FLUID_INSPECT;

@@ -15,6 +15,7 @@
 #include "world/terrain.h"
 #include "world/world_environment.h"
 #include "world/world_extension.h"
+#include "world/surface_save.h"
 #include "core/save_io.h"
 
 #include <math.h>
@@ -26,6 +27,8 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
+#define SAVE_MAGIC_V18 "VOXELCRAFT_SAVE_V18"
+#define SAVE_MAGIC_V18_LEN (sizeof(SAVE_MAGIC_V18) - 1)
 #define SAVE_MAGIC_V17 "VOXELCRAFT_SAVE_V17"
 #define SAVE_MAGIC_V17_LEN (sizeof(SAVE_MAGIC_V17) - 1)
 #define SAVE_MAGIC_V16 "VOXELCRAFT_SAVE_V16"
@@ -76,6 +79,7 @@
 #include "gameplay/album.h"
 BlockEdit *blockEdits = NULL;
 uint32_t *blockEditDimensions = NULL;
+SurfaceAddress *blockEditSurfaceAddresses = NULL;
 BlockEditIndex *blockEditIndex = NULL;
 int blockEditCount = 0;
 int blockEditCapacity = 0;
@@ -495,20 +499,27 @@ bool EnsureBlockEditCapacity(int capacity)
 
     BlockEdit *nextEdits = malloc((size_t)nextCapacity * sizeof(*nextEdits));
     uint32_t *nextDimensions = malloc((size_t)nextCapacity * sizeof(*nextDimensions));
-    if (!nextEdits || !nextDimensions) {
+    SurfaceAddress *nextAddresses = malloc(
+        (size_t)nextCapacity * sizeof(*nextAddresses));
+    if (!nextEdits || !nextDimensions || !nextAddresses) {
         free(nextEdits);
         free(nextDimensions);
+        free(nextAddresses);
         return false;
     }
     if (blockEditCount > 0) {
         memcpy(nextEdits, blockEdits, (size_t)blockEditCount * sizeof(*nextEdits));
         memcpy(nextDimensions, blockEditDimensions,
                (size_t)blockEditCount * sizeof(*nextDimensions));
+        memcpy(nextAddresses, blockEditSurfaceAddresses,
+               (size_t)blockEditCount * sizeof(*nextAddresses));
     }
     free(blockEdits);
     free(blockEditDimensions);
+    free(blockEditSurfaceAddresses);
     blockEdits = nextEdits;
     blockEditDimensions = nextDimensions;
+    blockEditSurfaceAddresses = nextAddresses;
     blockEditCapacity = nextCapacity;
     return RebuildBlockEditIndex(blockEditCapacity);
 }
@@ -603,6 +614,8 @@ void RememberBlockEdit(int x, int y, int z, BlockType type)
 
     blockEdits[blockEditCount] = (BlockEdit){ x, y, z, type };
     blockEditDimensions[blockEditCount] = dimension;
+    blockEditSurfaceAddresses[blockEditCount] = SurfaceAddressAtWorld(
+        (float)x, (float)z, y);
     InsertBlockEditIndex(blockEditCount);
     blockEditCount++;
     BumpBlockEditRevision();
@@ -1009,14 +1022,84 @@ typedef struct SaveMapContext {
     const Player *player;
 } SaveMapContext;
 
+static bool WriteSphericalSaveTrailer(FILE *file, const Player *player)
+{
+    if (!file || !player) return false;
+    WorldDimension dimension = WorldCurrentDimension();
+    bool playerHasSurfaceAddress = WorldIsSurfaceDimension(dimension);
+    SurfaceAddress playerAddress = playerHasSurfaceAddress
+        ? SurfaceAddressAtWorld(player->position.x, player->position.z,
+                                (int)floorf(player->position.y))
+        : SurfaceAddressFromMapCoordinates(0u, 0.0f, 0.0f, 0);
+    bool ok = true;
+    for (int index = 0; ok && index < blockEditCount; index++) {
+        SurfaceAddress address = blockEditSurfaceAddresses[index];
+        ok = address.bodyId == blockEditDimensions[index] &&
+             address.radial == blockEdits[index].y;
+    }
+    return ok && SurfaceSaveWriteTrailer(
+        file, playerHasSurfaceAddress, playerAddress,
+        blockEditSurfaceAddresses, (uint32_t)blockEditCount);
+}
+
+static bool ReadSphericalSaveTrailer(
+    FILE *file, WorldDimension savedDimension, const Player *savedPlayer,
+    const BlockEdit *loadedEdits, const uint32_t *loadedDimensions,
+    int editCount, SurfaceAddress *outPlayerAddress,
+    SurfaceAddress **outEditAddresses)
+{
+    if (!file || !savedPlayer || !outPlayerAddress || !outEditAddresses ||
+        editCount < 0) return false;
+    bool playerHasSurfaceAddress = false;
+    SurfaceAddress playerAddress = { 0 };
+    SurfaceAddress *addresses = NULL;
+    if (!SurfaceSaveReadTrailer(
+            file, (uint32_t)editCount, &playerHasSurfaceAddress,
+            &playerAddress, &addresses)) {
+        return false;
+    }
+
+    bool surfaceDimension = WorldIsSurfaceDimension(savedDimension);
+    uint32_t expectedBodyId = savedDimension == WORLD_DIMENSION_PLANET
+        ? PlanetWorldSeed() : 0u;
+    if (playerHasSurfaceAddress != surfaceDimension ||
+        (surfaceDimension && playerAddress.bodyId != expectedBodyId)) {
+        free(addresses);
+        return false;
+    }
+    if (surfaceDimension) {
+        SurfaceAddress expected = SurfaceAddressFromMapCoordinates(
+            expectedBodyId,
+            savedPlayer->position.x + (float)WorldSurfaceMapOriginX(),
+            savedPlayer->position.z + (float)WorldSurfaceMapOriginZ(),
+            (int)floorf(savedPlayer->position.y));
+        if (!SurfaceAddressEqual(playerAddress, expected)) {
+            free(addresses);
+            return false;
+        }
+    }
+
+    for (int index = 0; index < editCount; index++) {
+        if (!loadedEdits || !loadedDimensions ||
+            addresses[index].bodyId != loadedDimensions[index] ||
+            addresses[index].radial != loadedEdits[index].y) {
+            free(addresses);
+            return false;
+        }
+    }
+    *outPlayerAddress = playerAddress;
+    *outEditAddresses = addresses;
+    return true;
+}
+
 static bool WriteSaveFile(FILE *file, void *opaque)
 {
     const SaveMapContext *context = opaque;
     const Player *player = context ? context->player : NULL;
     if (!file || !player) return false;
 
-    bool ok = fwrite(SAVE_MAGIC_V17, 1, SAVE_MAGIC_V17_LEN, file) ==
-              SAVE_MAGIC_V17_LEN;
+    bool ok = fwrite(SAVE_MAGIC_V18, 1, SAVE_MAGIC_V18_LEN, file) ==
+              SAVE_MAGIC_V18_LEN;
     uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
     uint32_t activeDimension = (uint32_t)WorldCurrentDimension();
     uint32_t seed = WorldGetSeed();
@@ -1046,6 +1129,7 @@ static bool WriteSaveFile(FILE *file, void *opaque)
     ok = ok && SpaceSaveState(file) && EntitiesSaveState(file) &&
          PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
          ShipLocatorSaveState(file) && WorldExtensionSaveState(file) &&
+         WriteSphericalSaveTrailer(file, player) &&
          !ferror(file);
     return ok;
 }
@@ -1304,11 +1388,23 @@ void LoadMap(Player *player)
     int savedEditCount = 0;
     BlockEdit *loadedEdits = NULL;
     uint32_t *loadedDimensions = NULL;
+    SurfaceAddress loadedPlayerAddress = { 0 };
+    SurfaceAddress *loadedEditAddresses = NULL;
     ShipLocatorRecord loadedShipLocator = { 0 };
-    char magicV17[SAVE_MAGIC_V17_LEN] = { 0 };
-    bool isV17 = fread(magicV17, 1, SAVE_MAGIC_V17_LEN, file) ==
-                     SAVE_MAGIC_V17_LEN &&
-                 memcmp(magicV17, SAVE_MAGIC_V17, SAVE_MAGIC_V17_LEN) == 0;
+    char magicV18[SAVE_MAGIC_V18_LEN] = { 0 };
+    bool isV18 = fread(magicV18, 1, SAVE_MAGIC_V18_LEN, file) ==
+                     SAVE_MAGIC_V18_LEN &&
+                 memcmp(magicV18, SAVE_MAGIC_V18, SAVE_MAGIC_V18_LEN) == 0;
+    if (!isV18) {
+        fclose(file);
+        SetImportMessage(
+            "Load failed: V17 and older flat saves are incompatible with spherical worlds.");
+        return;
+    }
+    // The V18 core payload deliberately retains the proven V17 reader. The
+    // spherical identity trailer below is mandatory and validated before any
+    // loaded state is installed.
+    bool isV17 = true;
     char magicV16[SAVE_MAGIC_V16_LEN] = { 0 };
     bool isV16 = false;
     if (!isV17) {
@@ -1604,6 +1700,16 @@ void LoadMap(Player *player)
         SetImportMessage("Load failed: fluid state is corrupted.");
         return;
     }
+    if (!ReadSphericalSaveTrailer(
+            file, savedDimension, &savedPlayer, loadedEdits,
+            loadedDimensions, savedEditCount, &loadedPlayerAddress,
+            &loadedEditAddresses)) {
+        free(loadedDimensions);
+        free(loadedEdits);
+        fclose(file);
+        SetImportMessage("Load failed: spherical save state is corrupted.");
+        return;
+    }
     fclose(file);
 
     if (!loadedPlanetWorld) PlanetWorldReset();
@@ -1646,6 +1752,7 @@ void LoadMap(Player *player)
     if (!EnsureBlockEditCapacity(savedEditCount)) {
         free(loadedEdits);
         free(loadedDimensions);
+        free(loadedEditAddresses);
         SetImportMessage("Load failed: not enough memory to apply save.");
         return;
     }
@@ -1699,9 +1806,12 @@ void LoadMap(Player *player)
         memcpy(blockEdits, loadedEdits, (size_t)savedEditCount * sizeof(*loadedEdits));
         memcpy(blockEditDimensions, loadedDimensions,
                (size_t)savedEditCount * sizeof(*loadedDimensions));
+        memcpy(blockEditSurfaceAddresses, loadedEditAddresses,
+               (size_t)savedEditCount * sizeof(*loadedEditAddresses));
     }
     free(loadedEdits);
     free(loadedDimensions);
+    free(loadedEditAddresses);
     if (!RebuildBlockEditIndex(blockEditCapacity)) {
         SetImportMessage("Load warning: edit index rebuild failed.");
         return;
@@ -1749,6 +1859,13 @@ uint32_t WorldGetEditDimensionAt(int index)
     return blockEditDimensions[index];
 }
 
+bool WorldGetEditSurfaceAddressAt(int index, SurfaceAddress *outAddress)
+{
+    if (!outAddress || index < 0 || index >= blockEditCount) return false;
+    *outAddress = blockEditSurfaceAddresses[index];
+    return SurfaceAddressIsValid(*outAddress);
+}
+
 bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
 {
     if (!outEdit || index < 0 || index >= blockEditCount ||
@@ -1788,6 +1905,7 @@ void WorldCleanup(void)
 {
     WorldExtensionCleanup();
     free(blockEditIndex);
+    free(blockEditSurfaceAddresses);
     free(blockEditDimensions);
     free(blockEdits);
 }

@@ -29,7 +29,12 @@ void GenerateChunkJobPayload(ChunkGenJob *job)
         return;
     }
 
-    Chunk staged = { .cx = job->cx, .cz = job->cz };
+    Chunk staged = {
+        .cx = job->cx,
+        .cz = job->cz,
+        .spherical = job->spherical,
+        .surfaceAddress = job->surfaceAddress
+    };
     job->succeeded = GenerateChunkTerrainSectionBase(
         &staged, job->cx, job->cz, job->sectionY, job->terrainMode);
     const ChunkSection *section = ChunkGetSectionConst(
@@ -122,6 +127,51 @@ void *ChunkGenWorker(void *arg)
                 faces, meshJob->nearbyIndices, meshJob->nearbyCount,
                 &meshJob->floraMesh, &meshJob->floraInstances,
                 &meshJob->floraInstanceCount);
+            if (meshJob->spherical) {
+                if (meshJob->hasMesh) {
+                    CurveChunkMeshData(
+                        &meshJob->mesh, meshJob->cx, meshJob->cz,
+                        meshJob->sectionY, meshJob->surfaceAddress.bodyId,
+                        meshJob->surfaceMapOriginX,
+                        meshJob->surfaceMapOriginZ);
+                }
+                if (meshJob->hasWaterMesh) {
+                    CurveChunkMeshData(
+                        &meshJob->waterMesh, meshJob->cx, meshJob->cz,
+                        meshJob->sectionY, meshJob->surfaceAddress.bodyId,
+                        meshJob->surfaceMapOriginX,
+                        meshJob->surfaceMapOriginZ);
+                }
+                if (meshJob->hasFloraMesh) {
+                    CurveChunkMeshData(
+                        &meshJob->floraMesh, meshJob->cx, meshJob->cz,
+                        meshJob->sectionY, meshJob->surfaceAddress.bodyId,
+                        meshJob->surfaceMapOriginX,
+                        meshJob->surfaceMapOriginZ);
+                }
+                CurveChunkFloraInstances(
+                    meshJob->floraInstances, meshJob->floraInstanceCount,
+                    meshJob->cx, meshJob->cz, meshJob->sectionY,
+                    meshJob->surfaceAddress.bodyId,
+                    meshJob->surfaceMapOriginX,
+                    meshJob->surfaceMapOriginZ);
+            } else {
+                if (meshJob->hasMesh) {
+                    LocalizeChunkMeshData(&meshJob->mesh,
+                                          meshJob->cx, meshJob->cz);
+                }
+                if (meshJob->hasWaterMesh) {
+                    LocalizeChunkMeshData(&meshJob->waterMesh,
+                                          meshJob->cx, meshJob->cz);
+                }
+                if (meshJob->hasFloraMesh) {
+                    LocalizeChunkMeshData(&meshJob->floraMesh,
+                                          meshJob->cx, meshJob->cz);
+                }
+                LocalizeChunkFloraInstances(
+                    meshJob->floraInstances, meshJob->floraInstanceCount,
+                    meshJob->cx, meshJob->cz);
+            }
             double elapsedMs = ChunkNowMs() - startedMs;
 
             pthread_mutex_lock(&genMutex);
@@ -166,6 +216,8 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
         .cz = cz,
         .slotIndex = (int)(chunk - chunks),
         .chunkGeneration = chunk->generation,
+        .spherical = chunk->spherical,
+        .surfaceAddress = chunk->surfaceAddress,
         .terrainMode = mode
     };
     streamingStats.generationSubmitted++;
@@ -211,6 +263,8 @@ static bool SubmitChunkSectionGenJob(
         .sectionY = sectionY,
         .slotIndex = (int)(chunk - chunks),
         .chunkGeneration = chunk->generation,
+        .spherical = chunk->spherical,
+        .surfaceAddress = chunk->surfaceAddress,
         .terrainMode = mode
     };
     streamingStats.generationSubmitted++;
@@ -253,8 +307,14 @@ bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
 
 bool FindPendingGenJob(int cx, int cz)
 {
+    bool spherical = WorldIsSurfaceActive();
+    SurfaceAddress address = spherical
+        ? ChunkSurfaceAddressAt(cx, cz) : (SurfaceAddress){ 0 };
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-        if (chunkGenJobs[i].inUse && chunkGenJobs[i].cx == cx && chunkGenJobs[i].cz == cz) return true;
+        ChunkGenJob *job = &chunkGenJobs[i];
+        if (!job->inUse || job->spherical != spherical) continue;
+        if (spherical ? SurfaceAddressEqual(job->surfaceAddress, address)
+                      : (job->cx == cx && job->cz == cz)) return true;
     }
     return false;
 }
@@ -287,6 +347,9 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
     if (!stale && (!chunk->loaded || chunk->cx != job->cx ||
                    chunk->cz != job->cz ||
                    chunk->generation != job->chunkGeneration ||
+                   chunk->spherical != job->spherical ||
+                   (job->spherical && !SurfaceAddressEqual(
+                       chunk->surfaceAddress, job->surfaceAddress)) ||
                    ChunkTerrainSectionIsResolved(chunk, job->sectionY) ||
                    ChunkGetSectionConst(chunk, job->sectionY))) {
         stale = true;
@@ -328,7 +391,23 @@ void CompleteChunkGenJob(ChunkGenJob *job)
         CompleteChunkSectionGenJob(job);
         return;
     }
-    Chunk *chunk = &chunks[job->slotIndex];
+    bool stale = !job || !job->succeeded || job->slotIndex < 0 ||
+        job->slotIndex >= MAX_ACTIVE_CHUNKS;
+    Chunk *chunk = stale ? NULL : &chunks[job->slotIndex];
+    if (!stale && (!chunk->generating || chunk->loaded ||
+                   chunk->cx != job->cx || chunk->cz != job->cz ||
+                   chunk->generation != job->chunkGeneration ||
+                   chunk->spherical != job->spherical ||
+                   (job->spherical && !SurfaceAddressEqual(
+                       chunk->surfaceAddress, job->surfaceAddress)))) {
+        stale = true;
+    }
+    if (stale) {
+        pthread_mutex_lock(&genMutex);
+        streamingStats.generationCanceled++;
+        pthread_mutex_unlock(&genMutex);
+        return;
+    }
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
@@ -414,7 +493,11 @@ Chunk *AllocateChunkSlot(int nearCx, int nearCz)
 
 bool EnsureChunk(int cx, int cz)
 {
-    if (FindChunk(cx, cz) || FindPendingGenJob(cx, cz)) return false;
+    bool spherical = WorldIsSurfaceActive();
+    SurfaceAddress surfaceAddress = spherical
+        ? ChunkSurfaceAddressAt(cx, cz) : (SurfaceAddress){ 0 };
+    if ((spherical ? FindSurfaceChunk(surfaceAddress) : FindChunk(cx, cz)) ||
+        FindPendingGenJob(cx, cz)) return false;
 
     if (genThread != 0) {
         bool haveQueueSlot = false;
@@ -434,6 +517,8 @@ bool EnsureChunk(int cx, int cz)
     ChunkClearBlockStorage(chunk);
     chunk->cx = cx;
     chunk->cz = cz;
+    chunk->spherical = spherical;
+    chunk->surfaceAddress = surfaceAddress;
     // New incarnation: invalidates any in-flight mesh jobs captured against
     // the previous occupant of this slot (stale terrain upload guard).
     chunk->generation++;

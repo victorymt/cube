@@ -38,6 +38,20 @@ bool TransparentRenderItemAppend(
     return true;
 }
 
+bool TransparentRenderItemAppendTransformed(
+    TransparentRenderItem *items, int capacity, int *count,
+    const Model *model, Matrix transform, Vector3 center,
+    Vector3 cameraPosition, TransparentRenderDimension dimension,
+    int cx, int cz, int slot)
+{
+    if (!TransparentRenderItemAppend(
+            items, capacity, count, model, (Vector3){ 0 }, center,
+            cameraPosition, dimension, cx, cz, slot)) return false;
+    items[*count - 1].transform = transform;
+    items[*count - 1].transformed = true;
+    return true;
+}
+
 void SortTransparentRenderItems(TransparentRenderItem *items, int count)
 {
     if (!items || count <= 1) return;

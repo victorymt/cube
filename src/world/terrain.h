@@ -75,6 +75,7 @@ bool FindSafeSurfaceLanding(int preferredX, int preferredZ, int maxRadius,
                             int *outGroundY);
 PlanetBiome PlanetBiomeAt(int x, int z);
 void PlanetSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude);
+void HomeSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude);
 PlanetSurfaceSample PlanetSurfaceBaselineAt(int x, int z);
 PlanetSurfaceSample PlanetSurfaceAtTime(int x, int z, double simulationTime);
 bool ShouldPlaceTree(int x, int z, TerrainMode mode);

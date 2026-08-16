@@ -143,3 +143,13 @@ uint32_t WorldCurrentSurfaceId(void)
 {
     return PlanetWorldIsActive() ? PlanetWorldSeed() : 0u;
 }
+
+int WorldSurfaceMapOriginX(void)
+{
+    return PlanetWorldIsActive() ? PlanetWorldOriginX() : 0;
+}
+
+int WorldSurfaceMapOriginZ(void)
+{
+    return PlanetWorldIsActive() ? PlanetWorldOriginZ() : 0;
+}

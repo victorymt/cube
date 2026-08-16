@@ -1185,6 +1185,12 @@ void PlanetSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude
     PlanetMapCoordinatesToLatLon(mapX, mapZ, outLongitude, outLatitude);
 }
 
+void HomeSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude)
+{
+    PlanetMapCoordinatesToLatLon((float)x, (float)z,
+                                 outLongitude, outLatitude);
+}
+
 PlanetSurfaceSample PlanetSurfaceBaselineAt(int x, int z)
 {
     float longitude = 0.0f;

@@ -42,6 +42,16 @@ uint32_t PlanetWorldSeed(void)
     return planetSeed;
 }
 
+int PlanetWorldOriginX(void)
+{
+    return planetWorldActive ? 1200 : 0;
+}
+
+int PlanetWorldOriginZ(void)
+{
+    return planetWorldActive ? -340 : 0;
+}
+
 int TerrainHeight(int x, int z, TerrainMode mode)
 {
     return x + z + (int)mode;

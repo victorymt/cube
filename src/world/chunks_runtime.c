@@ -170,6 +170,104 @@ void FreeMeshData(Mesh *mesh)
     *mesh = (Mesh){ 0 };
 }
 
+void LocalizeChunkMeshData(Mesh *mesh, int chunkX, int chunkZ)
+{
+    if (!mesh || !mesh->vertices || mesh->vertexCount <= 0) return;
+    float originX = (float)(chunkX * CHUNK_SIZE);
+    float originZ = (float)(chunkZ * CHUNK_SIZE);
+    for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
+        mesh->vertices[vertex * 3 + 0] -= originX;
+        mesh->vertices[vertex * 3 + 2] -= originZ;
+    }
+}
+
+void LocalizeChunkFloraInstances(FloraVisualInstance *instances, int count,
+                                 int chunkX, int chunkZ)
+{
+    if (!instances || count <= 0) return;
+    float originX = (float)(chunkX * CHUNK_SIZE);
+    float originZ = (float)(chunkZ * CHUNK_SIZE);
+    for (int index = 0; index < count; index++) {
+        instances[index].anchor.x -= originX;
+        instances[index].anchor.z -= originZ;
+    }
+}
+
+static Vector3 CurveSurfacePoint(const SurfaceFrame *anchorFrame,
+                                 uint32_t bodyId, float mapX, float localY,
+                                 float mapZ, int radialBase)
+{
+    SurfaceFrame vertexFrame = SurfaceFrameAtMapCoordinates(
+        bodyId, mapX, mapZ, radialBase);
+    Vector3 planet = Vector3Add(
+        vertexFrame.origin, Vector3Scale(vertexFrame.up, localY));
+    return SurfaceFramePlanetToLocal(anchorFrame, planet);
+}
+
+void CurveChunkMeshData(Mesh *mesh, int chunkX, int chunkZ, int sectionY,
+                        uint32_t bodyId, int mapOriginX, int mapOriginZ)
+{
+    if (!mesh || !mesh->vertices || mesh->vertexCount <= 0) return;
+    int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
+    float anchorMapX = (float)(mapOriginX + chunkX * CHUNK_SIZE);
+    float anchorMapZ = (float)(mapOriginZ + chunkZ * CHUNK_SIZE);
+    SurfaceFrame anchorFrame = SurfaceFrameAtMapCoordinates(
+        bodyId, anchorMapX, anchorMapZ, radialBase);
+    for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
+        float mapX = (float)mapOriginX + mesh->vertices[vertex * 3 + 0];
+        float localY = mesh->vertices[vertex * 3 + 1];
+        float mapZ = (float)mapOriginZ + mesh->vertices[vertex * 3 + 2];
+        Vector3 curved = CurveSurfacePoint(
+            &anchorFrame, bodyId, mapX, localY, mapZ, radialBase);
+        mesh->vertices[vertex * 3 + 0] = curved.x;
+        mesh->vertices[vertex * 3 + 1] = curved.y;
+        mesh->vertices[vertex * 3 + 2] = curved.z;
+
+        if (mesh->normals) {
+            SurfaceFrame vertexFrame = SurfaceFrameAtMapCoordinates(
+                bodyId, mapX, mapZ, radialBase);
+            Vector3 source = {
+                mesh->normals[vertex * 3 + 0],
+                mesh->normals[vertex * 3 + 1],
+                mesh->normals[vertex * 3 + 2]
+            };
+            Vector3 planet = Vector3Add(
+                Vector3Scale(vertexFrame.east, source.x),
+                Vector3Scale(vertexFrame.up, source.y));
+            planet = Vector3Add(
+                planet, Vector3Scale(vertexFrame.north, source.z));
+            Vector3 normal = {
+                Vector3DotProduct(planet, anchorFrame.east),
+                Vector3DotProduct(planet, anchorFrame.up),
+                Vector3DotProduct(planet, anchorFrame.north)
+            };
+            normal = Vector3Normalize(normal);
+            mesh->normals[vertex * 3 + 0] = normal.x;
+            mesh->normals[vertex * 3 + 1] = normal.y;
+            mesh->normals[vertex * 3 + 2] = normal.z;
+        }
+    }
+}
+
+void CurveChunkFloraInstances(
+    FloraVisualInstance *instances, int count, int chunkX, int chunkZ,
+    int sectionY, uint32_t bodyId, int mapOriginX, int mapOriginZ)
+{
+    if (!instances || count <= 0) return;
+    int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
+    float anchorMapX = (float)(mapOriginX + chunkX * CHUNK_SIZE);
+    float anchorMapZ = (float)(mapOriginZ + chunkZ * CHUNK_SIZE);
+    SurfaceFrame anchorFrame = SurfaceFrameAtMapCoordinates(
+        bodyId, anchorMapX, anchorMapZ, radialBase);
+    for (int index = 0; index < count; index++) {
+        float mapX = (float)mapOriginX + instances[index].anchor.x;
+        float mapZ = (float)mapOriginZ + instances[index].anchor.z;
+        instances[index].anchor = CurveSurfacePoint(
+            &anchorFrame, bodyId, mapX, instances[index].anchor.y, mapZ,
+            radialBase);
+    }
+}
+
 int CancelDistantNegativeSectionJobs(int playerSectionY)
 {
     if (!HomeWorldSurfaceIsActive()) return 0;
@@ -312,6 +410,9 @@ static bool UploadMeshJob(MeshJob *job)
         targetValid = chunk->loaded && chunk->cx == job->cx &&
                       chunk->cz == job->cz &&
                       chunk->generation == job->chunkGeneration &&
+                      chunk->spherical == job->spherical &&
+                      (!job->spherical || SurfaceAddressEqual(
+                          chunk->surfaceAddress, job->surfaceAddress)) &&
                       section != NULL;
         snapshotCurrent = targetValid &&
                           section->dirtyStamp == job->sectionStamp;
@@ -392,6 +493,10 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     job->sectionY = section->sectionY;
     job->sectionStamp = section->dirtyStamp;
     job->chunkGeneration = chunk->generation;
+    job->spherical = chunk->spherical;
+    job->surfaceAddress = chunk->surfaceAddress;
+    job->surfaceMapOriginX = WorldSurfaceMapOriginX();
+    job->surfaceMapOriginZ = WorldSurfaceMapOriginZ();
     job->mesh = (Mesh){ 0 };
     job->waterMesh = (Mesh){ 0 };
     job->floraMesh = (Mesh){ 0 };
@@ -502,6 +607,36 @@ static void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
         chunk->floraStructures, chunk->floraStructureCount,
         faces, nearbyTorchIndices, nearbyTorchCount, &floraMesh,
         &floraInstances, &floraInstanceCount);
+
+    if (chunk->spherical) {
+        int mapOriginX = WorldSurfaceMapOriginX();
+        int mapOriginZ = WorldSurfaceMapOriginZ();
+        if (hasSolid) {
+            CurveChunkMeshData(
+                &solidMesh, chunk->cx, chunk->cz, section->sectionY,
+                chunk->surfaceAddress.bodyId, mapOriginX, mapOriginZ);
+        }
+        if (hasWater) {
+            CurveChunkMeshData(
+                &waterMesh, chunk->cx, chunk->cz, section->sectionY,
+                chunk->surfaceAddress.bodyId, mapOriginX, mapOriginZ);
+        }
+        if (hasFlora) {
+            CurveChunkMeshData(
+                &floraMesh, chunk->cx, chunk->cz, section->sectionY,
+                chunk->surfaceAddress.bodyId, mapOriginX, mapOriginZ);
+        }
+        CurveChunkFloraInstances(
+            floraInstances, floraInstanceCount, chunk->cx, chunk->cz,
+            section->sectionY, chunk->surfaceAddress.bodyId,
+            mapOriginX, mapOriginZ);
+    } else {
+        if (hasSolid) LocalizeChunkMeshData(&solidMesh, chunk->cx, chunk->cz);
+        if (hasWater) LocalizeChunkMeshData(&waterMesh, chunk->cx, chunk->cz);
+        if (hasFlora) LocalizeChunkMeshData(&floraMesh, chunk->cx, chunk->cz);
+        LocalizeChunkFloraInstances(floraInstances, floraInstanceCount,
+                                    chunk->cx, chunk->cz);
+    }
 
     ReplaceChunkModel(&section->model, &section->hasModel,
                       &solidMesh, hasSolid, false);
@@ -875,6 +1010,10 @@ void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool d
     chunks[slotIndex] = (Chunk){ 0 };
     chunks[slotIndex].cx = cx;
     chunks[slotIndex].cz = cz;
+    chunks[slotIndex].spherical = WorldIsSurfaceActive();
+    if (chunks[slotIndex].spherical) {
+        chunks[slotIndex].surfaceAddress = ChunkSurfaceAddressAt(cx, cz);
+    }
     chunks[slotIndex].loaded = loaded;
     if (dirty) {
         ChunkSection *section = ChunkGetSection(&chunks[slotIndex], 0, true);
@@ -974,6 +1113,20 @@ int ChunksTestGenerationJobSectionY(int jobIndex)
         ? chunkGenJobs[jobIndex].sectionY : INT_MIN;
     pthread_mutex_unlock(&genMutex);
     return sectionY;
+}
+
+bool ChunksTestGenerationJobSurfaceAddress(
+    int jobIndex, SurfaceAddress *outAddress)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_CHUNK_GEN_JOBS);
+    pthread_mutex_lock(&genMutex);
+    bool spherical = chunkGenJobs[jobIndex].inUse &&
+        chunkGenJobs[jobIndex].spherical;
+    if (spherical && outAddress) {
+        *outAddress = chunkGenJobs[jobIndex].surfaceAddress;
+    }
+    pthread_mutex_unlock(&genMutex);
+    return spherical;
 }
 
 void ChunksTestRunGenerationJob(int jobIndex)

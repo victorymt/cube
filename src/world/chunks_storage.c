@@ -109,8 +109,39 @@ void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
 
 Chunk *FindChunk(int cx, int cz)
 {
+    if (WorldIsSurfaceActive()) {
+        return FindSurfaceChunk(ChunkSurfaceAddressAt(cx, cz));
+    }
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        if (chunks[i].loaded && chunks[i].cx == cx && chunks[i].cz == cz) return &chunks[i];
+        if (chunks[i].loaded && !chunks[i].spherical &&
+            chunks[i].cx == cx && chunks[i].cz == cz) return &chunks[i];
+    }
+    return NULL;
+}
+
+SurfaceAddress SurfaceAddressAtWorld(float x, float z, int radial)
+{
+    x += (float)WorldSurfaceMapOriginX();
+    z += (float)WorldSurfaceMapOriginZ();
+    return SurfaceAddressFromMapCoordinates(
+        WorldCurrentSurfaceId(), x, z, radial);
+}
+
+SurfaceAddress ChunkSurfaceAddressAt(int cx, int cz)
+{
+    return SurfaceAddressAtWorld(
+        (float)cx * (float)CHUNK_SIZE,
+        (float)cz * (float)CHUNK_SIZE, 0);
+}
+
+Chunk *FindSurfaceChunk(SurfaceAddress address)
+{
+    if (!SurfaceAddressIsValid(address)) return NULL;
+    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+        if (chunks[i].loaded && chunks[i].spherical &&
+            SurfaceAddressEqual(chunks[i].surfaceAddress, address)) {
+            return &chunks[i];
+        }
     }
     return NULL;
 }

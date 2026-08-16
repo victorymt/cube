@@ -2,6 +2,7 @@
 #define VOXELCRAFT_WORLD_TYPES_H
 
 #include "core/config.h"
+#include "world/surface_topology.h"
 
 #include "raylib.h"
 
@@ -165,6 +166,8 @@ typedef struct ChunkGenJob {
     int sectionY;
     int slotIndex;
     uint32_t chunkGeneration;
+    bool spherical;
+    SurfaceAddress surfaceAddress;
     TerrainMode terrainMode;
     // Section jobs generate into staging storage because their target chunk
     // is already visible to the main/render thread. Completion copies this
@@ -240,6 +243,8 @@ typedef struct Chunk {
     bool generating;
     int cx;
     int cz;
+    bool spherical;
+    SurfaceAddress surfaceAddress;
     // Incarnation counter bumped on every slot reuse (EnsureChunk).
     // In-flight mesh jobs from a previous incarnation are discarded on
     // upload so stale terrain never overwrites a freshly generated chunk.

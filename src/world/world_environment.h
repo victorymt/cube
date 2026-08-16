@@ -42,5 +42,7 @@ int WorldSurfaceHeightAt(int x, int z);
 bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY);
 bool WorldIsProceduralOceanWaterAt(int x, int y, int z);
 uint32_t WorldCurrentSurfaceId(void);
+int WorldSurfaceMapOriginX(void);
+int WorldSurfaceMapOriginZ(void);
 
 #endif

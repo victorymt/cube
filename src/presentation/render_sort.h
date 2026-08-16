@@ -14,6 +14,8 @@ typedef enum TransparentRenderDimension {
 typedef struct TransparentRenderItem {
     const Model *model;
     Vector3 translation;
+    Matrix transform;
+    bool transformed;
     float distanceSquared;
     TransparentRenderDimension dimension;
     int cx;
@@ -24,6 +26,11 @@ typedef struct TransparentRenderItem {
 bool TransparentRenderItemAppend(
     TransparentRenderItem *items, int capacity, int *count,
     const Model *model, Vector3 translation, Vector3 center,
+    Vector3 cameraPosition, TransparentRenderDimension dimension,
+    int cx, int cz, int slot);
+bool TransparentRenderItemAppendTransformed(
+    TransparentRenderItem *items, int capacity, int *count,
+    const Model *model, Matrix transform, Vector3 center,
     Vector3 cameraPosition, TransparentRenderDimension dimension,
     int cx, int cz, int slot);
 void SortTransparentRenderItems(TransparentRenderItem *items, int count);

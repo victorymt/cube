@@ -58,6 +58,9 @@ int ChunksRenderDistance(void);
 void ChunksSetRenderDistance(int distance);
 
 Chunk *FindChunk(int cx, int cz);
+SurfaceAddress SurfaceAddressAtWorld(float x, float z, int radial);
+SurfaceAddress ChunkSurfaceAddressAt(int cx, int cz);
+Chunk *FindSurfaceChunk(SurfaceAddress address);
 ChunkSection *ChunkGetSection(Chunk *chunk, int sectionY, bool create);
 const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY);
 bool ChunkTerrainSectionIsResolved(const Chunk *chunk, int sectionY);
@@ -148,6 +151,8 @@ void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,
 void ChunksTestCompleteMeshJob(int jobIndex);
 void ChunksTestFillGenerationQueue(void);
 int ChunksTestGenerationJobSectionY(int jobIndex);
+bool ChunksTestGenerationJobSurfaceAddress(
+    int jobIndex, SurfaceAddress *outAddress);
 void ChunksTestRunGenerationJob(int jobIndex);
 int ChunksTestScheduleTerrainSections(Vector3 playerPosition);
 int ChunksTestPruneTerrainSections(Vector3 playerPosition);

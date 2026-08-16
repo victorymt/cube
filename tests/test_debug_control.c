@@ -23,7 +23,7 @@ static void TestCommandStream(void)
     DebugControl control;
     DebugControlInitFds(&control, true, inputPipe[0], outputPipe[1]);
     const char *commands =
-        "\n START \r\nscreenshot\nstatus\n"
+        "\n START \r\nscreenshot\nstatus\nsave\nload\nmap\n"
         "fluid inspect\nfluid inspect 1 72 -4\n"
         "fluid set 1 72 -4 127\nfluid step 25\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
@@ -34,6 +34,9 @@ static void TestCommandStream(void)
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_START);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SCREENSHOT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STATUS);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SAVE);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_LOAD);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MAP);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLUID_INSPECT);
     assert(control.fluidUsePlayerPosition);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLUID_INSPECT);

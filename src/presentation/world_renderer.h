@@ -61,10 +61,14 @@ void WorldRendererBeginWaterPass(void);
 void WorldRendererEndWaterPass(void);
 void WorldRendererDrawModel(const Model *model, Vector3 translation, Color fallbackTint,
                             bool transparent);
+void WorldRendererDrawModelTransformed(const Model *model, Matrix transform,
+                                       Color fallbackTint, bool transparent);
 
 bool WorldRendererBeginShadow(const Camera3D *camera,
                               const WorldLightingState *state);
 void WorldRendererDrawShadowModel(const Model *model, Vector3 translation);
+void WorldRendererDrawShadowModelTransformed(const Model *model,
+                                             Matrix transform);
 void WorldRendererEndShadow(void);
 
 #endif

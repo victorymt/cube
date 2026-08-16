@@ -23,6 +23,8 @@ SPACE_ILLUMINATION_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_illumination
 SPACE_SATELLITE_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_satellite
 SPACE_UNITS_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_units
 SPACE_COORDINATES_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_coordinates
+SURFACE_TOPOLOGY_TEST_TARGET := $(TEST_BUILD_DIR)/test_surface_topology
+SURFACE_SAVE_TEST_TARGET := $(TEST_BUILD_DIR)/test_surface_save
 SPACE_PROPERTIES_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_properties
 SPACE_SYSTEM_TEST_TARGET := $(TEST_BUILD_DIR)/test_space_system
 ECOLOGY_SYSTEM_TEST_TARGET := $(TEST_BUILD_DIR)/test_ecology_system
@@ -74,6 +76,8 @@ DEP := $(OBJ:.o=.d)
 
 TEST_TARGETS := $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(PLANET_OBSERVATION_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(EVOLUTION_TEST_TARGET) $(EVOLUTION_CATALOG_TEST_TARGET) $(FLUID_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(WEATHER_RUNTIME_TEST_TARGET) $(WEATHER_VISUAL_TEST_TARGET) $(PLAYER_COLLISION_TEST_TARGET) $(SHIP_STATE_TEST_TARGET) $(SHIP_FLIGHT_CONTROLLER_TEST_TARGET) $(SHIP_LOCATOR_TEST_TARGET) $(BLOCK_ATLAS_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(CHUNK_STREAMING_TEST_TARGET) $(TERRAIN_SCALE_TEST_TARGET) $(SUBSURFACE_TEST_TARGET) $(PERF_TEST_TARGET) $(RENDER_SORT_TEST_TARGET) $(RENDER_RESOURCES_TEST_TARGET) $(WORLD_RENDERER_TEST_TARGET) $(WORLD_LIGHTING_TEST_TARGET) $(SAVE_IO_TEST_TARGET) $(GAME_SETTINGS_TEST_TARGET) $(SCREENSHOT_TEST_TARGET) $(DEBUG_CONTROL_TEST_TARGET) $(ENVIRONMENT_PRESENTATION_TEST_TARGET) $(ENVIRONMENT_RUNTIME_TEST_TARGET) $(AUDIO_ENVIRONMENT_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET) $(PLANET_RENDERER_RESOURCES_TEST_TARGET) $(PLANET_TEXTURE_RESOURCES_TEST_TARGET) $(HOMEWORLD_MAP_MODEL_TEST_TARGET)
 TEST_TARGETS += $(SPACE_COORDINATES_TEST_TARGET)
+TEST_TARGETS += $(SURFACE_TOPOLOGY_TEST_TARGET)
+TEST_TARGETS += $(SURFACE_SAVE_TEST_TARGET)
 TEST_TIMEOUT_SECONDS ?= 120
 SANITIZER_LEAKS ?= 1
 SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=address,undefined -fno-omit-frame-pointer
@@ -147,6 +151,12 @@ $(TEST_TARGET): tests/test_world_environment.c src/world/world_environment.c src
 
 $(PLANET_SURFACE_TEST_TARGET): tests/test_planet_surface.c src/space/planet_surface.c src/space/planet_surface.h src/space/space.h src/space/planet_profile.c src/space/planet_profile.h src/space/planet_climate.c src/space/planet_climate.h src/space/space_illumination.c src/space/space_illumination.h src/space/space_units.c src/space/space_units.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_planet_surface.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c src/space/space_illumination.c src/space/space_units.c -lm
+
+$(SURFACE_TOPOLOGY_TEST_TARGET): tests/test_surface_topology.c src/world/surface_topology.c src/world/surface_topology.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_surface_topology.c src/world/surface_topology.c -lm
+
+$(SURFACE_SAVE_TEST_TARGET): tests/test_surface_save.c src/world/surface_save.c src/world/surface_save.h src/world/surface_topology.c src/world/surface_topology.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_surface_save.c src/world/surface_save.c src/world/surface_topology.c -lm
 
 $(PLANET_MATERIAL_TEST_TARGET): tests/test_planet_material.c src/space/planet_material.c src/space/planet_material.h src/space/planet_surface.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_planet_material.c src/space/planet_material.c -lm
