@@ -1232,23 +1232,33 @@ void ShipUpdate(Player *player, float dt)
                                                    referenceVelocity));
 
     Vector3 delta = Vector3Scale(player->velocity, dt);
-    float total = Vector3Length(delta);
-    if (total > 0.001f) {
-        Vector3 dir = Vector3Scale(delta, 1.0f / total);
-        float remaining = total;
-        while (remaining > 0.0f) {
-            float stepLen = fminf(remaining, 1.0f);
-            Vector3 before = player->position;
-            MovePlayer(player, Vector3Scale(dir, stepLen));
-            if (Vector3Distance(before, player->position) < stepLen * 0.9f) {
-                player->velocity = Vector3Zero();
-                if (driveMode == SHIP_DRIVE_WARP) {
-                    driveMode = SHIP_DRIVE_MANEUVER;
-                    SetImportMessage("Warp halted by an obstacle.");
+    if (driveMode == SHIP_DRIVE_WARP) {
+        Vector3 nextPosition = Vector3Add(player->position, delta);
+        if (isfinite(nextPosition.x) && isfinite(nextPosition.y) &&
+            isfinite(nextPosition.z)) {
+            player->position = nextPosition;
+            player->onGround = false;
+        } else {
+            player->velocity = Vector3Zero();
+            driveMode = SHIP_DRIVE_MANEUVER;
+            SetImportMessage("Warp halted: navigation solution became invalid.");
+        }
+    } else {
+        float total = Vector3Length(delta);
+        if (total > 0.001f) {
+            Vector3 dir = Vector3Scale(delta, 1.0f / total);
+            float remaining = total;
+            while (remaining > 0.0f) {
+                float stepLen = fminf(remaining, 1.0f);
+                Vector3 before = player->position;
+                MovePlayer(player, Vector3Scale(dir, stepLen));
+                if (Vector3Distance(before, player->position) <
+                    stepLen * 0.9f) {
+                    player->velocity = Vector3Zero();
+                    break;
                 }
-                break;
+                remaining -= stepLen;
             }
-            remaining -= stepLen;
         }
     }
 
