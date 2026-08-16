@@ -2383,6 +2383,18 @@ static void TestPhysicalPlanetLandingApproach(void)
     assert(PlanetWorldLandingTarget(marsApproach, &target));
     assert(target.bodyId == sol.planets[marsIndex].bodyId);
     assert(strcmp(target.name, "Mars") == 0);
+
+    SpaceBodyInfo resolved;
+    assert(SpacePlanetBodyAt(sol.anchorX, sol.anchorZ, marsIndex,
+                             marsApproach, &resolved));
+    assert(resolved.bodyId == target.bodyId);
+    assert(fabsf(resolved.center.x - target.center.x) < 0.0001f);
+    assert(fabsf(resolved.center.y - target.center.y) < 0.0001f);
+    assert(fabsf(resolved.center.z - target.center.z) < 0.0001f);
+    assert(!SpacePlanetBodyAt(sol.anchorX, sol.anchorZ, -1,
+                              marsApproach, &resolved));
+    assert(!SpacePlanetBodyAt(sol.anchorX, sol.anchorZ, marsIndex,
+                              marsApproach, NULL));
 }
 
 static void TestDeterministicSpaceQueries(void)

@@ -109,6 +109,24 @@ PlanetProfile SolarPlanetProfile(const SolarSystemDef *system, int index)
 }
 
 double SpaceSimulationTime(void) { return 0.0; }
+double SpaceUnitsGravitationalParameterGame(double massKg)
+{
+    return massKg > 0.0 ? 4.0 : 0.0;
+}
+double SpaceUnitsKilometersToGameDistance(double kilometers)
+{
+    return kilometers;
+}
+
+int SpaceSatellitesNear(Vector3 position, float maxDistance,
+                        SpaceSatelliteInfo *out, int maxCount)
+{
+    (void)position;
+    (void)maxDistance;
+    (void)out;
+    (void)maxCount;
+    return 0;
+}
 
 bool SolarSystemPlanetStateAtTime(const SolarSystemDef *system, int index,
                                   double simulationTime,
@@ -216,6 +234,7 @@ static void TestLoadIsAtomicAndResetsRuntimeState(void)
     assert(ShipGetFuel() == 31.5f);
     assert(!ShipIsDriving());
     assert(!ShipIsCruising());
+    assert(!ShipIsOrbiting());
     assert(!ShipIsApproaching());
     assert(!ShipIsSupercruising());
     assert(!ShipIsInterstellarWarping());
@@ -379,6 +398,20 @@ static void TestSystemWarpTargetsPreferredPlanet(void)
     ShipToggleNavigation(&player);
     assert(ShipGetDriveMode() == SHIP_DRIVE_INTERSTELLAR_WARP);
     assert(ShipIsInterstellarWarping());
+
+    ShipToggleNavigation(&player);
+    player.position = (Vector3){ 302.0f, 0.0f, 0.0f };
+    ShipToggleNavigation(&player);
+    assert(ShipIsOrbiting());
+    assert(ShipGetDriveMode() == SHIP_DRIVE_ORBIT);
+    assert(strcmp(ShipDriveModeName(), "ORBIT") == 0);
+    assert(fabsf(player.position.x - 302.0f) < 0.0001f);
+    assert(fabsf(player.position.y) < 0.0001f);
+    assert(fabsf(player.position.z) < 0.0001f);
+    ShipToggleNavigation(&player);
+    assert(ShipGetDriveMode() == SHIP_DRIVE_MANEUVER);
+    assert(!ShipIsOrbiting());
+    assert(!ShipHasNavigationTarget());
 
     ShipReset();
     SetBlock(0, 4, 0, BLOCK_SPACESHIP);

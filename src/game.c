@@ -311,7 +311,11 @@ static bool LandingTransitionBegin(LandingTransition *transition, Player *player
         .atmosphereDensity = homeWorldTarget ? 0.85f : body.profile.atmosphereDensity,
         .atmosphereType = homeWorldTarget ? PLANET_ATMOSPHERE_BREATHABLE :
                                             body.profile.atmosphereType,
+        .targetSystemAnchorX = homeWorldTarget ? 0 : body.systemAnchorX,
+        .targetSystemAnchorZ = homeWorldTarget ? 0 : body.systemAnchorZ,
+        .targetPlanetIndex = homeWorldTarget ? -1 : body.index - 1,
         .targetCenter = center,
+        .targetVelocity = homeWorldTarget ? Vector3Zero() : body.velocity,
         .outward = outward
     };
     if (homeWorldTarget) {
@@ -321,8 +325,34 @@ static bool LandingTransitionBegin(LandingTransition *transition, Player *player
         snprintf(transition->targetName, sizeof(transition->targetName), "%s",
                  body.name);
     }
-    player->velocity = Vector3Zero();
+    player->velocity = transition->targetVelocity;
     SetImportMessage(TextFormat("Descent initiated: %s.", transition->targetName));
+    return true;
+}
+
+static bool LandingTransitionRefreshTarget(LandingTransition *transition,
+                                           const Player *player, float dt)
+{
+    Vector3 previousCenter = transition->targetCenter;
+    if (transition->homeWorldTarget) {
+        transition->targetCenter = HomeWorldCenter();
+        if (dt > 0.0f) {
+            transition->targetVelocity = Vector3Scale(
+                Vector3Subtract(transition->targetCenter, previousCenter),
+                1.0f / dt);
+        }
+        return true;
+    }
+
+    SpaceBodyInfo body;
+    if (!SpacePlanetBodyAt(transition->targetSystemAnchorX,
+                           transition->targetSystemAnchorZ,
+                           transition->targetPlanetIndex,
+                           player->position, &body)) {
+        return false;
+    }
+    transition->targetCenter = body.center;
+    transition->targetVelocity = body.velocity;
     return true;
 }
 
@@ -405,6 +435,14 @@ static bool LandingTransitionUpdate(LandingTransition *transition, Player *playe
         return false;
     }
 
+    if (!transition->committed &&
+        !LandingTransitionRefreshTarget(transition, player, dt)) {
+        transition->active = false;
+        transition->summaryRemaining = 0.0f;
+        SetImportMessage("Descent aborted: landing target is unavailable.");
+        return false;
+    }
+
     bool skipPressed = IsKeyPressed(KEY_E) || IsKeyPressed(KEY_ESCAPE);
     if (skipPressed) transition->elapsed = transition->duration;
     else transition->elapsed += dt;
@@ -426,7 +464,9 @@ static bool LandingTransitionUpdate(LandingTransition *transition, Player *playe
                          LANDING_TRANSITION_COMMIT_TIME;
         float radialSpeed = (transition->targetDistance - transition->startDistance) *
                             easeRate;
-        player->velocity = Vector3Scale(transition->outward, radialSpeed);
+        player->velocity = Vector3Add(
+            transition->targetVelocity,
+            Vector3Scale(transition->outward, radialSpeed));
 
         if (transition->elapsed >= LANDING_TRANSITION_COMMIT_TIME &&
             !LandingTransitionCommit(transition, player)) {

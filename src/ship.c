@@ -66,11 +66,20 @@ typedef struct NavigationTarget {
     char name[48];
 } NavigationTarget;
 
+typedef struct ShipOrbitState {
+    bool active;
+    Vector3 normal;
+    Vector3 radial;
+    float radius;
+    float gravitationalParameter;
+} ShipOrbitState;
+
 static bool driving = false;
 static ShipDriveMode driveMode = SHIP_DRIVE_MANEUVER;
 static bool flightAssist = false;
 static float fuel = SHIP_MAX_FUEL;
 static NavigationTarget navigationTarget = { 0 };
+static ShipOrbitState orbitState = { 0 };
 static NavigationIntent navigationIntent = NAVIGATION_INTENT_CONTEXTUAL;
 static SpaceGravitySample gravityPrimary = { 0 };
 static float cruiseSetSpeed = 0.0f;
@@ -99,6 +108,14 @@ static bool ShipDriveIsWarpTransit(void)
     return driveMode == SHIP_DRIVE_SUPERCRUISE ||
            driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
 }
+
+static void ClearOrbitState(void)
+{
+    orbitState = (ShipOrbitState){ 0 };
+}
+
+static bool ResolveNavigationTarget(ShipDriveMode mode, Vector3 *center,
+                                    Vector3 *velocity, float *safeDistance);
 
 static bool ShipDirectionForCoreBlock(BlockType type, ShipDirection *out)
 {
@@ -348,7 +365,10 @@ static void ClearNavigationTarget(void)
 {
     navigationTarget = (NavigationTarget){ 0 };
     navigationIntent = NAVIGATION_INTENT_CONTEXTUAL;
-    if (ShipDriveIsGuided()) driveMode = SHIP_DRIVE_MANEUVER;
+    if (ShipDriveIsGuided() || driveMode == SHIP_DRIVE_ORBIT) {
+        driveMode = SHIP_DRIVE_MANEUVER;
+    }
+    ClearOrbitState();
     targetSpeed = 0.0f;
     targetClosingSpeed = 0.0f;
     targetBrakingDistance = 0.0f;
@@ -430,6 +450,111 @@ static Vector3 NavigationArrivalPosition(const SolarSystemDef *system,
     return Vector3Add(center, Vector3Scale(outward, parkingRadius));
 }
 
+static int NavigationPlanetIndexForSystem(const SolarSystemDef *system)
+{
+    if (!system || navigationTarget.type != NAVIGATION_TARGET_PLANET) return -1;
+    if (navigationTarget.bodyId != 0u) {
+        for (int i = 0; i < system->planetCount; i++) {
+            if (system->planets[i].bodyId == navigationTarget.bodyId) return i;
+        }
+        return -1;
+    }
+    return navigationTarget.planetIndex >= 0 &&
+           navigationTarget.planetIndex < system->planetCount
+        ? navigationTarget.planetIndex : -1;
+}
+
+static bool EstablishNavigationOrbit(Player *player,
+                                     const SolarSystemDef *system,
+                                     int planetIndex, Vector3 center,
+                                     Vector3 centerVelocity,
+                                     float parkingRadius,
+                                     bool *hasSolidSurface)
+{
+    if (!player || !system || planetIndex < 0 ||
+        planetIndex >= system->planetCount) return false;
+    PlanetProfile profile = SolarPlanetProfile(system, planetIndex);
+    float mu = (float)SpaceUnitsGravitationalParameterGame(profile.massKg);
+    if (!(mu > 0.0f) || !isfinite(mu) || !(parkingRadius > 0.0f)) return false;
+
+    Vector3 arrival = NavigationArrivalPosition(
+        system, planetIndex, center, player->position, parkingRadius);
+    Vector3 radial = Vector3Subtract(arrival, center);
+    float radialLength = Vector3Length(radial);
+    if (!(radialLength > 0.000001f) || !isfinite(radialLength)) return false;
+    radial = Vector3Scale(radial, 1.0f / radialLength);
+
+    Vector3 tangent = Vector3Subtract(
+        centerVelocity,
+        Vector3Scale(radial, Vector3DotProduct(centerVelocity, radial)));
+    if (Vector3LengthSqr(tangent) < 0.000001f) {
+        Vector3 axis = fabsf(radial.y) < 0.90f
+            ? (Vector3){ 0.0f, 1.0f, 0.0f }
+            : (Vector3){ 1.0f, 0.0f, 0.0f };
+        tangent = Vector3CrossProduct(axis, radial);
+    }
+    tangent = Vector3Normalize(tangent);
+    Vector3 normal = Vector3Normalize(Vector3CrossProduct(radial, tangent));
+
+    ShipCircularOrbitState orbit;
+    if (!ShipFlightStepCircularOrbit(&(ShipCircularOrbitInput){
+            .center = center,
+            .centerVelocity = centerVelocity,
+            .position = arrival,
+            .normal = normal,
+            .gravitationalParameter = mu,
+            .radius = parkingRadius,
+            .dt = 0.0f
+        }, &orbit)) {
+        return false;
+    }
+
+    orbitState = (ShipOrbitState){
+        .active = true,
+        .normal = normal,
+        .radial = orbit.radial,
+        .radius = parkingRadius,
+        .gravitationalParameter = mu
+    };
+    driveMode = SHIP_DRIVE_ORBIT;
+    player->position = orbit.position;
+    player->velocity = orbit.velocity;
+    player->onGround = false;
+    if (hasSolidSurface) *hasSolidSurface = profile.hasSolidSurface;
+    return true;
+}
+
+static bool UpdateNavigationOrbit(Player *player, float dt)
+{
+    if (!player || !orbitState.active ||
+        navigationTarget.type != NAVIGATION_TARGET_PLANET) return false;
+
+    Vector3 center;
+    Vector3 centerVelocity;
+    if (!ResolveNavigationTarget(SHIP_DRIVE_ORBIT, &center, &centerVelocity,
+                                 NULL)) {
+        return false;
+    }
+    ShipCircularOrbitState orbit;
+    if (!ShipFlightStepCircularOrbit(&(ShipCircularOrbitInput){
+            .center = center,
+            .centerVelocity = centerVelocity,
+            .position = Vector3Add(
+                center, Vector3Scale(orbitState.radial, orbitState.radius)),
+            .normal = orbitState.normal,
+            .gravitationalParameter = orbitState.gravitationalParameter,
+            .radius = orbitState.radius,
+            .dt = dt
+        }, &orbit)) {
+        return false;
+    }
+    orbitState.radial = orbit.radial;
+    player->position = orbit.position;
+    player->velocity = orbit.velocity;
+    player->onGround = false;
+    return true;
+}
+
 static bool ResolveNavigationTarget(ShipDriveMode mode, Vector3 *center,
                                     Vector3 *velocity, float *safeDistance)
 {
@@ -451,16 +576,7 @@ static bool ResolveNavigationTarget(ShipDriveMode mode, Vector3 *center,
     }
 
     if (navigationTarget.type != NAVIGATION_TARGET_PLANET) return false;
-    int planetIndex = navigationTarget.planetIndex;
-    if (navigationTarget.bodyId != 0u) {
-        planetIndex = -1;
-        for (int i = 0; i < system.planetCount; i++) {
-            if (system.planets[i].bodyId == navigationTarget.bodyId) {
-                planetIndex = i;
-                break;
-            }
-        }
-    }
+    int planetIndex = NavigationPlanetIndexForSystem(&system);
     if (planetIndex < 0 || planetIndex >= system.planetCount) return false;
 
     SolarPlanetOrbitalState state;
@@ -520,6 +636,10 @@ static bool LockNavigationTarget(const Player *player, Vector3 forward)
         currentSystem.anchorX == body.systemAnchorX &&
         currentSystem.anchorZ == body.systemAnchorZ;
 
+    if (driveMode == SHIP_DRIVE_ORBIT) {
+        driveMode = SHIP_DRIVE_MANEUVER;
+        ClearOrbitState();
+    }
     navigationTarget.locked = true;
     navigationTarget.type = NAVIGATION_TARGET_PLANET;
     navigationIntent = inTargetSystem ? NAVIGATION_INTENT_CONTEXTUAL :
@@ -594,6 +714,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
     snprintf(navigationTarget.name, sizeof(navigationTarget.name), "%s",
              planetIndex >= 0 && system.planets[planetIndex].name[0]
                  ? system.planets[planetIndex].name : system.name);
+    ClearOrbitState();
     driveMode = SHIP_DRIVE_INTERSTELLAR_WARP;
     cruiseSetSpeed = 0.0f;
     player->velocity = Vector3Zero();
@@ -608,6 +729,11 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
 void ShipToggleNavigation(Player *player)
 {
     if (!player) return;
+    if (driveMode == SHIP_DRIVE_ORBIT) {
+        ClearNavigationTarget();
+        SetImportMessage("Orbit disengaged. Manual maneuvering active.");
+        return;
+    }
     if (ShipDriveIsGuided()) {
         bool highSpeed = ShipDriveIsWarpTransit();
         bool interstellar = driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
@@ -632,8 +758,9 @@ void ShipToggleNavigation(Player *player)
     }
 
     Vector3 targetCenter;
+    Vector3 targetVelocity;
     float safeDistance = 0.0f;
-    if (!ResolveNavigationTarget(driveMode, &targetCenter, NULL,
+    if (!ResolveNavigationTarget(driveMode, &targetCenter, &targetVelocity,
                                  &safeDistance)) {
         ClearNavigationTarget();
         SetImportMessage("Navigation target is no longer available.");
@@ -642,12 +769,33 @@ void ShipToggleNavigation(Player *player)
 
     float gap = Vector3Distance(player->position, targetCenter) - safeDistance;
     if (gap <= NavigationArrivalTolerance(safeDistance)) {
+        if (navigationTarget.type == NAVIGATION_TARGET_PLANET) {
+            SolarSystemDef system;
+            if (StarSystemAt(navigationTarget.systemAnchorX,
+                             navigationTarget.systemAnchorZ, &system)) {
+                int planetIndex = NavigationPlanetIndexForSystem(&system);
+                bool hasSolidSurface = false;
+                if (EstablishNavigationOrbit(
+                        player, &system, planetIndex, targetCenter,
+                        targetVelocity, safeDistance, &hasSolidSurface)) {
+                    SetImportMessage(hasSolidSurface
+                        ? TextFormat(
+                            "Orbit established around %s. Press E to land.",
+                            navigationTarget.name)
+                        : TextFormat(
+                            "Orbit established around %s. No solid surface available.",
+                            navigationTarget.name));
+                    return;
+                }
+            }
+        }
         player->velocity = Vector3Zero();
         SetImportMessage("Already at the target approach distance.");
         return;
     }
 
     cruiseSetSpeed = 0.0f;
+    ClearOrbitState();
     ShipNavigationRoute route = ShipNavigationSelectRoute(
         &(ShipNavigationRouteInput){
             .gap = gap,
@@ -716,6 +864,11 @@ bool ShipIsCruising(void)
            driveMode == SHIP_DRIVE_SUPERCRUISE;
 }
 
+bool ShipIsOrbiting(void)
+{
+    return driveMode == SHIP_DRIVE_ORBIT;
+}
+
 bool ShipIsApproaching(void)
 {
     return driveMode == SHIP_DRIVE_APPROACH;
@@ -744,6 +897,7 @@ ShipDriveMode ShipGetDriveMode(void)
 const char *ShipDriveModeName(void)
 {
     switch (driveMode) {
+    case SHIP_DRIVE_ORBIT: return "ORBIT";
     case SHIP_DRIVE_MANUAL_CRUISE: return "MANUAL CRUISE";
     case SHIP_DRIVE_APPROACH: return "APPROACH";
     case SHIP_DRIVE_SUPERCRUISE: return "SUPERCRUISE";
@@ -900,6 +1054,12 @@ bool ShipLoadState(FILE *file)
 
 void ShipToggleCruise(void)
 {
+    if (driveMode == SHIP_DRIVE_ORBIT) {
+        driveMode = SHIP_DRIVE_MANEUVER;
+        ClearOrbitState();
+        SetImportMessage("Orbit disengaged. Manual maneuvering active.");
+        return;
+    }
     if (ShipDriveIsGuided() || !driving || fuel <= 0.0f) return;
     if (driveMode == SHIP_DRIVE_MANUAL_CRUISE) {
         driveMode = SHIP_DRIVE_MANEUVER;
@@ -907,6 +1067,7 @@ void ShipToggleCruise(void)
         SetImportMessage("Manual cruise off.");
         return;
     }
+    ClearOrbitState();
     driveMode = SHIP_DRIVE_MANUAL_CRUISE;
     cruiseSetSpeed = fmaxf(cruiseSetSpeed,
                            SHIP_MANUAL_CRUISE_INITIAL_SPEED);
@@ -1208,6 +1369,7 @@ void ShipUpdate(Player *player, float dt)
     if (!player) return;
     if (!isfinite(dt) || dt <= 0.0f) dt = 0.0f;
     if (dt > 0.25f) dt = 0.25f;
+    bool positionControlledByDrive = false;
 
     bool surfaceActive = WorldIsSurfaceActive();
     if (IsKeyPressed(KEY_X)) {
@@ -1290,6 +1452,11 @@ void ShipUpdate(Player *player, float dt)
     }
     bool translationInput = Vector3LengthSqr(accel) > 0.0f;
     if (translationInput) accel = Vector3Normalize(accel);
+    if (translationInput && driveMode == SHIP_DRIVE_ORBIT) {
+        driveMode = SHIP_DRIVE_MANEUVER;
+        ClearOrbitState();
+        SetImportMessage("Orbit disengaged by manual thrust.");
+    }
 
     if (driveMode == SHIP_DRIVE_MANUAL_CRUISE && dt > 0.0f) {
         if (IsKeyDown(KEY_W)) cruiseSetSpeed += SHIP_CRUISE_SPEED_CHANGE * dt;
@@ -1324,7 +1491,8 @@ void ShipUpdate(Player *player, float dt)
         }
     }
 
-    if (dt > 0.0f && !ShipDriveIsWarpTransit() && hasGravity) {
+    if (dt > 0.0f && !ShipDriveIsWarpTransit() &&
+        driveMode != SHIP_DRIVE_ORBIT && hasGravity) {
         player->velocity = Vector3Add(
             player->velocity, Vector3Scale(gravity.acceleration, dt));
     }
@@ -1409,31 +1577,56 @@ void ShipUpdate(Player *player, float dt)
                                 targetName));
                         }
                     } else {
-                        driveMode = SHIP_DRIVE_MANEUVER;
+                        bool orbitEstablished = false;
+                        bool hasSolidSurface = false;
                         if (!targetIsSystem) {
                             SolarSystemDef arrivalSystem;
                             if (StarSystemAt(
                                     navigationTarget.systemAnchorX,
                                     navigationTarget.systemAnchorZ,
                                     &arrivalSystem)) {
-                                player->position = NavigationArrivalPosition(
-                                    &arrivalSystem,
-                                    navigationTarget.planetIndex,
-                                    targetCenter, player->position,
-                                    safeDistance);
+                                int planetIndex =
+                                    NavigationPlanetIndexForSystem(
+                                        &arrivalSystem);
+                                orbitEstablished = EstablishNavigationOrbit(
+                                    player, &arrivalSystem, planetIndex,
+                                    targetCenter, targetVelocity, safeDistance,
+                                    &hasSolidSurface);
                             }
                         }
-                        player->velocity = targetVelocity;
+                        if (!orbitEstablished) {
+                            driveMode = SHIP_DRIVE_MANEUVER;
+                            ClearOrbitState();
+                            player->velocity = targetVelocity;
+                        } else {
+                            positionControlledByDrive = true;
+                        }
                         targetSpeed = 0.0f;
                         targetClosingSpeed = 0.0f;
                         targetBrakingDistance = 0.0f;
                         targetEtaSeconds = 0.0f;
-                        SetImportMessage(TextFormat(
-                            "Matched %s approach velocity. Press E to land.",
-                            targetName));
+                        if (orbitEstablished) {
+                            SetImportMessage(hasSolidSurface
+                                ? TextFormat(
+                                    "Orbit established around %s. Press E to land.",
+                                    targetName)
+                                : TextFormat(
+                                    "Orbit established around %s. No solid surface available.",
+                                    targetName));
+                        } else {
+                            SetImportMessage(TextFormat(
+                                "Matched %s approach velocity.", targetName));
+                        }
                     }
                 }
             }
+        }
+    } else if (dt > 0.0f && driveMode == SHIP_DRIVE_ORBIT) {
+        if (UpdateNavigationOrbit(player, dt)) {
+            positionControlledByDrive = true;
+        } else {
+            ClearNavigationTarget();
+            SetImportMessage("Orbit control lost its target. Manual maneuvering active.");
         }
     } else if (dt > 0.0f && driveMode == SHIP_DRIVE_MANUAL_CRUISE) {
         Vector3 relative = Vector3Subtract(player->velocity, referenceVelocity);
@@ -1484,7 +1677,9 @@ void ShipUpdate(Player *player, float dt)
                                                    referenceVelocity));
 
     Vector3 delta = Vector3Scale(player->velocity, dt);
-    if (ShipDriveIsWarpTransit()) {
+    if (positionControlledByDrive) {
+        player->onGround = false;
+    } else if (ShipDriveIsWarpTransit()) {
         Vector3 nextPosition = Vector3Add(player->position, delta);
         if (isfinite(nextPosition.x) && isfinite(nextPosition.y) &&
             isfinite(nextPosition.z)) {
@@ -1514,7 +1709,8 @@ void ShipUpdate(Player *player, float dt)
         }
     }
 
-    if (WorldCurrentDimension() != WORLD_DIMENSION_PLANET) {
+    if (driveMode != SHIP_DRIVE_ORBIT &&
+        WorldCurrentDimension() != WORLD_DIMENSION_PLANET) {
         Vector3 correctionDir = Vector3Zero();
         float correctedSurfaceDist = 0.0f;
         if (PlanetSurfaceAt(player->position, &correctionDir, &correctedSurfaceDist,
@@ -1533,7 +1729,10 @@ void ShipUpdate(Player *player, float dt)
         }
     }
 
-    bool poweredDrive = driveMode != SHIP_DRIVE_MANEUVER;
+    bool poweredDrive = driveMode == SHIP_DRIVE_MANUAL_CRUISE ||
+                        driveMode == SHIP_DRIVE_APPROACH ||
+                        driveMode == SHIP_DRIVE_SUPERCRUISE ||
+                        driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
     int exhaustCount = poweredDrive ? 3 : 1;
     if (IsKeyDown(KEY_W) || poweredDrive) {
         for (int k = 0; k < exhaustCount; k++) {

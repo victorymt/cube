@@ -29,7 +29,11 @@ typedef struct LandingTransition {
   float targetPitch;
   float atmosphereDensity;
   PlanetAtmosphereType atmosphereType;
+  int targetSystemAnchorX;
+  int targetSystemAnchorZ;
+  int targetPlanetIndex;
   Vector3 targetCenter;
+  Vector3 targetVelocity;
   Vector3 outward;
   Vector3 atmosphereStart;
   Vector3 landingPosition;

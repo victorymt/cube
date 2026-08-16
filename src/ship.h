@@ -19,6 +19,7 @@ typedef enum ShipDirection {
 
 typedef enum ShipDriveMode {
     SHIP_DRIVE_MANEUVER = 0,
+    SHIP_DRIVE_ORBIT,
     SHIP_DRIVE_MANUAL_CRUISE,
     SHIP_DRIVE_APPROACH,
     SHIP_DRIVE_SUPERCRUISE,
@@ -46,6 +47,7 @@ bool ShipPlaceParked(int coreX, int coreY, int coreZ,
 bool ShipRemoveParkedAt(int x, int y, int z, bool recordUndo);
 bool ShipIsDriving(void);
 bool ShipIsCruising(void);
+bool ShipIsOrbiting(void);
 bool ShipIsApproaching(void);
 bool ShipIsSupercruising(void);
 bool ShipIsInterstellarWarping(void);

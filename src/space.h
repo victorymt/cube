@@ -416,6 +416,8 @@ float SolarBodyTerrainProxyRadius(float spaceProxyRadius);
 int StarSystemsNear(Vector3 pos, float maxDist, SolarSystemDef *out, int maxCount);
 bool FindNearestSystem(Vector3 pos, float maxDist, SolarSystemDef *out, float *outDist);
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount);
+bool SpacePlanetBodyAt(int systemAnchorX, int systemAnchorZ, int planetIndex,
+                       Vector3 observer, SpaceBodyInfo *out);
 int SpaceSatellitesNear(Vector3 pos, float maxDist,
                         SpaceSatelliteInfo *out, int maxCount);
 bool SpaceBodyScaleDiagnostics(const SpaceBodyInfo *body,

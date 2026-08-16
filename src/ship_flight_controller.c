@@ -9,6 +9,20 @@ static bool ShipFlightVectorIsFinite(Vector3 value)
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
 }
 
+static float ShipFlightVectorLength(Vector3 value)
+{
+    return sqrtf(value.x * value.x + value.y * value.y + value.z * value.z);
+}
+
+static Vector3 ShipFlightVectorCross(Vector3 left, Vector3 right)
+{
+    return (Vector3){
+        left.y * right.z - left.z * right.y,
+        left.z * right.x - left.x * right.z,
+        left.x * right.y - left.y * right.x
+    };
+}
+
 Vector3 ShipFlightApproachVelocity(Vector3 velocity, Vector3 desiredVelocity,
                                    float acceleration, float deceleration,
                                    float dt)
@@ -47,6 +61,59 @@ Vector3 ShipFlightClampRelativeVelocity(Vector3 velocity,
     if (!(speed > maxSpeed) || !(speed > 0.0f)) return velocity;
     return Vector3Add(referenceVelocity,
                       Vector3Scale(relative, maxSpeed / speed));
+}
+
+bool ShipFlightStepCircularOrbit(const ShipCircularOrbitInput *input,
+                                 ShipCircularOrbitState *out)
+{
+    if (!out) return false;
+    *out = (ShipCircularOrbitState){ 0 };
+    if (!input || !ShipFlightVectorIsFinite(input->center) ||
+        !ShipFlightVectorIsFinite(input->centerVelocity) ||
+        !ShipFlightVectorIsFinite(input->position) ||
+        !ShipFlightVectorIsFinite(input->normal) ||
+        !isfinite(input->gravitationalParameter) ||
+        input->gravitationalParameter <= 0.0f ||
+        !isfinite(input->radius) || input->radius <= 0.0f ||
+        !isfinite(input->dt) || input->dt < 0.0f) {
+        return false;
+    }
+
+    Vector3 radial = Vector3Subtract(input->position, input->center);
+    float radialLength = ShipFlightVectorLength(radial);
+    if (!(radialLength > 0.000001f) || !isfinite(radialLength)) return false;
+    radial = Vector3Scale(radial, 1.0f / radialLength);
+
+    Vector3 normal = Vector3Subtract(
+        input->normal,
+        Vector3Scale(radial, Vector3DotProduct(input->normal, radial)));
+    float normalLength = ShipFlightVectorLength(normal);
+    if (!(normalLength > 0.000001f) || !isfinite(normalLength)) return false;
+    normal = Vector3Scale(normal, 1.0f / normalLength);
+
+    Vector3 tangent = ShipFlightVectorCross(normal, radial);
+    float tangentLength = ShipFlightVectorLength(tangent);
+    if (!(tangentLength > 0.000001f) || !isfinite(tangentLength)) return false;
+    tangent = Vector3Scale(tangent, 1.0f / tangentLength);
+    float speed = sqrtf(input->gravitationalParameter / input->radius);
+    float angle = speed * input->dt / input->radius;
+    if (!isfinite(speed) || !isfinite(angle)) return false;
+
+    float cosine = cosf(angle);
+    float sine = sinf(angle);
+    Vector3 nextRadial = Vector3Add(Vector3Scale(radial, cosine),
+                                    Vector3Scale(tangent, sine));
+    Vector3 nextTangent = Vector3Add(Vector3Scale(radial, -sine),
+                                     Vector3Scale(tangent, cosine));
+    out->position = Vector3Add(input->center,
+                               Vector3Scale(nextRadial, input->radius));
+    out->velocity = Vector3Add(input->centerVelocity,
+                               Vector3Scale(nextTangent, speed));
+    out->radial = nextRadial;
+    out->tangent = nextTangent;
+    out->speed = speed;
+    return ShipFlightVectorIsFinite(out->position) &&
+           ShipFlightVectorIsFinite(out->velocity);
 }
 
 bool ShipFlightGuideToTarget(const ShipFlightGuidanceInput *input,

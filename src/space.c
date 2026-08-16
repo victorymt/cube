@@ -2555,6 +2555,21 @@ static bool PlanetBodyInfoForSystem(const SolarSystemDef *system, int index,
            PlanetBodyInfoForRuntime(system, &runtime, index, observer, out);
 }
 
+bool SpacePlanetBodyAt(int systemAnchorX, int systemAnchorZ, int planetIndex,
+                       Vector3 observer, SpaceBodyInfo *out)
+{
+    if (!out) return false;
+    *out = (SpaceBodyInfo){ 0 };
+    if (!SpaceQueryVectorIsFinite(observer)) return false;
+
+    SolarSystemDef system;
+    if (!StarSystemAt(systemAnchorX, systemAnchorZ, &system) ||
+        planetIndex < 0 || planetIndex >= system.planetCount) {
+        return false;
+    }
+    return PlanetBodyInfoForSystem(&system, planetIndex, observer, out);
+}
+
 int SpaceBodiesNear(Vector3 pos, float maxDist, SpaceBodyInfo *out, int maxCount)
 {
     int radiusAnchors = 0;

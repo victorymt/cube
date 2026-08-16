@@ -89,6 +89,72 @@ static void TestInvalidInputs(void)
     assert(!ShipFlightGuideToTarget(&input, &guidance));
 }
 
+static void TestCircularOrbitTracksMovingCenter(void)
+{
+    ShipCircularOrbitInput input = {
+        .center = { 100.0f, 20.0f, -30.0f },
+        .centerVelocity = { 4.0f, 0.0f, -2.0f },
+        .position = { 108.0f, 20.0f, -30.0f },
+        .normal = { 0.0f, 1.0f, 0.0f },
+        .gravitationalParameter = 32.0f,
+        .radius = 8.0f,
+        .dt = 0.25f
+    };
+    ShipCircularOrbitState orbit;
+    assert(ShipFlightStepCircularOrbit(&input, &orbit));
+    assert(Near(Vector3Distance(orbit.position, input.center), 8.0f,
+                0.0001f));
+    assert(Near(orbit.speed, 2.0f, 0.0001f));
+    assert(Near(Vector3Length(Vector3Subtract(orbit.velocity,
+                                              input.centerVelocity)),
+                2.0f, 0.0001f));
+    assert(Near(Vector3DotProduct(orbit.radial, orbit.tangent), 0.0f,
+                0.0001f));
+}
+
+static void TestCircularOrbitHasNoLongTermRadiusDrift(void)
+{
+    const float radius = 0.34f;
+    const float mu = 0.88f;
+    Vector3 center = { 1000.0f, 0.0f, 0.0f };
+    Vector3 position = Vector3Add(center, (Vector3){ radius, 0.0f, 0.0f });
+    Vector3 radial = { 1.0f, 0.0f, 0.0f };
+    ShipCircularOrbitState orbit = { 0 };
+    for (int frame = 0; frame < 60 * 30; frame++) {
+        assert(ShipFlightStepCircularOrbit(&(ShipCircularOrbitInput){
+            .center = center,
+            .centerVelocity = { 0.0f, 0.0f, 17.0f },
+            .position = Vector3Add(center, Vector3Scale(radial, radius)),
+            .normal = { 0.0f, 1.0f, 0.0f },
+            .gravitationalParameter = mu,
+            .radius = radius,
+            .dt = 1.0f / 60.0f
+        }, &orbit));
+        position = orbit.position;
+        radial = orbit.radial;
+    }
+    assert(Near(Vector3Distance(position, center), radius, 0.0001f));
+}
+
+static void TestCircularOrbitRejectsInvalidInputs(void)
+{
+    ShipCircularOrbitState orbit;
+    ShipCircularOrbitInput input = {
+        .position = { 1.0f, 0.0f, 0.0f },
+        .normal = { 0.0f, 1.0f, 0.0f },
+        .gravitationalParameter = 1.0f,
+        .radius = 1.0f,
+        .dt = 0.1f
+    };
+    assert(!ShipFlightStepCircularOrbit(NULL, &orbit));
+    assert(!ShipFlightStepCircularOrbit(&input, NULL));
+    input.normal = input.position;
+    assert(!ShipFlightStepCircularOrbit(&input, &orbit));
+    input.normal = (Vector3){ 0.0f, 1.0f, 0.0f };
+    input.gravitationalParameter = NAN;
+    assert(!ShipFlightStepCircularOrbit(&input, &orbit));
+}
+
 static void TestTypicalInterplanetaryPacing(void)
 {
     const float dt = 1.0f / 60.0f;
@@ -127,6 +193,9 @@ int main(void)
     TestApproachIsFrameRateIndependent();
     TestMovingTargetGuidanceAndBraking();
     TestInvalidInputs();
+    TestCircularOrbitTracksMovingCenter();
+    TestCircularOrbitHasNoLongTermRadiusDrift();
+    TestCircularOrbitRejectsInvalidInputs();
     TestTypicalInterplanetaryPacing();
     puts("ship flight controller tests passed");
     return 0;
