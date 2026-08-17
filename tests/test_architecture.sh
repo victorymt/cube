@@ -134,6 +134,7 @@ for split_file in \
     src/world/chunks_mesh.c \
     src/world/chunks_water.c \
     src/world/chunks_runtime.c \
+    src/world/terrain_structures.c \
     src/ecology/entity.c \
     src/ecology/entity_simulation.c \
     src/app/game.c \

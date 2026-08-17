@@ -36,6 +36,7 @@ TERRAIN_FEATURE_SRC := \
 	src/world/terrain.c \
 	src/world/terrain_geology.c \
 	src/world/terrain_home_materials.c \
+	src/world/terrain_structures.c \
 	src/world/subsurface.c
 
 MODULE_SRC := \

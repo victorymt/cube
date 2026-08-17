@@ -40,6 +40,55 @@ bool IsTranslucentBlock(BlockType type)
            type == BLOCK_ICE || type == BLOCK_LEAVES;
 }
 
+static uint64_t TerrainChunkHash(const Chunk *chunk)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+         sectionIndex++) {
+        const ChunkSection *section = chunk->sections[sectionIndex];
+        uint32_t sectionY = (uint32_t)section->sectionY;
+        hash ^= sectionY;
+        hash *= UINT64_C(1099511628211);
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
+                for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                    hash ^= section->blocks[lx][ly][lz];
+                    hash *= UINT64_C(1099511628211);
+                }
+            }
+        }
+    }
+    return hash;
+}
+
+static void TestTerrainStructureBaselines(void)
+{
+    static const struct {
+        int cx;
+        int cz;
+        uint64_t expectedHash;
+    } baselines[] = {
+        { -200, -200, UINT64_C(720793662725742776) },
+        { -100, -88, UINT64_C(10736014997267761075) },
+        { -120, -105, UINT64_C(2370091399078723620) },
+        { -225, 90, UINT64_C(2351837019884026484) }
+    };
+
+    terrainSeed = DEFAULT_WORLD_SEED;
+    for (size_t index = 0;
+         index < sizeof(baselines) / sizeof(baselines[0]); index++) {
+        Chunk chunk = { 0 };
+        TerrainTestBootstrapHomeChunk(
+            &chunk, baselines[index].cx, baselines[index].cz,
+            TERRAIN_VARIED);
+        TerrainTestGenerateStructures(
+            &chunk, baselines[index].cx, baselines[index].cz,
+            TERRAIN_VARIED);
+        assert(TerrainChunkHash(&chunk) == baselines[index].expectedHash);
+        ChunkClearBlockStorage(&chunk);
+    }
+}
+
 static void TestSurfaceSampleContracts(void)
 {
     SurfaceTerrainSample first = SurfaceTerrainAt(1234, -5678,
@@ -806,6 +855,7 @@ static void TestTerrainSectionExposureClassification(void)
 
 int main(void)
 {
+    TestTerrainStructureBaselines();
     assert(SURFACE_WORLD_HEIGHT == 256);
     assert(SURFACE_SECTION_HEIGHT == 16);
     assert(SURFACE_MIN_Y == -16384);
