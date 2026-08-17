@@ -21,10 +21,12 @@ startup as a small pixel-art atlas.
 - Low/medium/high graphics quality presets control shadow resources, cloud
   range, and precipitation density. Medium is the default 1080p/60 FPS target
 - Water blocks with translucent rendering and simple swimming physics
-- Natural geology blocks include gravel, clay, mud, mossy stone, red sand,
-  basalt, copper ore, and crystal. They appear across seabeds, wet lowlands,
-  forests, deserts, volcanic planets, and alien terrain; mine them or grab any
-  visible block with middle-click
+- Natural geology includes layered granite, limestone, shale and marble;
+  peat, permafrost, rock salt, volcanic ash, pumice, sulfur, packed ice and
+  quartz join the existing gravel, clay, mud, mossy stone, red sand, basalt,
+  copper and crystal. The materials form deterministic deposits across
+  seabeds, wetlands, mountains, deserts and planet-specific terrain; mine
+  them or grab any visible block with middle-click
 - Torch block with dynamic point lighting: place torches and nearby block
   faces brighten in a radius, effective at night and underground
 - Particle effects on block break/place
@@ -54,8 +56,8 @@ startup as a small pixel-art atlas.
   locator, active dimension, planet-world context, entities, ecology state,
   player-authored map markers and navigation target, and stable cube-sphere
   addresses for the player and every surface edit.
-  Terrain generation version 5 rebuilds unedited terrain in older compatible
-  saves so the new geology appears while preserving player-authored edits.
+  Terrain generation version 6 rebuilds unedited terrain in older compatible
+  saves so the expanded geology appears while preserving player-authored edits.
   V17 and older flat-world saves are intentionally rejected because their
   coordinates cannot identify positions on the spherical worlds safely
 - Image imports use a 256-color block palette for better color matching. Block

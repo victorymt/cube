@@ -18,11 +18,15 @@ static void TestNaturalBlocks(void)
 {
     assert(BLOCK_SPACESHIP_OCCUPIED == 63);
     assert(BLOCK_NATURAL_START == 64);
-    assert(BLOCK_NATURAL_END == 71);
+    assert(BLOCK_CRYSTAL == 71);
+    assert(BLOCK_GRANITE == 72);
+    assert(BLOCK_QUARTZ_ORE == 83);
+    assert(BLOCK_NATURAL_END == 83);
     assert(BLOCK_COLOR_START == 256);
 
     InventoryReset();
-    for (int index = 0; index < 8; index++) {
+    int naturalCount = BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1;
+    for (int index = 0; index < naturalCount; index++) {
         BlockType type = (BlockType)(BLOCK_NATURAL_START + index);
         assert(InventoryAdd(type, index + 2) == index + 2);
         assert(InventoryCount(type) == index + 2);
@@ -43,7 +47,8 @@ static void TestSaveLoadRoundTrip(void)
     InventoryReset();
     assert(InventoryCount(BLOCK_GRAVEL) == 0);
     assert(InventoryLoad(file));
-    for (int index = 0; index < 8; index++) {
+    int naturalCount = BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1;
+    for (int index = 0; index < naturalCount; index++) {
         BlockType type = (BlockType)(BLOCK_NATURAL_START + index);
         assert(InventoryCount(type) == index + 1);
     }
@@ -54,7 +59,8 @@ static void TestStarterKitDoesNotGrantNaturalBlocks(void)
 {
     InventoryReset();
     InventoryGrantStarterKit();
-    for (int index = 0; index < 8; index++) {
+    int naturalCount = BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1;
+    for (int index = 0; index < naturalCount; index++) {
         assert(InventoryCount(
                    (BlockType)(BLOCK_NATURAL_START + index)) == 0);
     }

@@ -254,6 +254,14 @@ static void TestNaturalGeologyDistribution(void)
     bool mossyStone = false;
     bool redSand = false;
     bool copperOre = false;
+    bool granite = false;
+    bool limestone = false;
+    bool shale = false;
+    bool marble = false;
+    bool peat = false;
+    bool permafrost = false;
+    bool rockSalt = false;
+    bool quartzOre = false;
 
     terrainSeed = DEFAULT_WORLD_SEED;
     for (int z = -4096; z <= 4096; z += 32) {
@@ -276,6 +284,14 @@ static void TestNaturalGeologyDistribution(void)
                 mossyStone = mossyStone || type == BLOCK_MOSSY_STONE;
                 redSand = redSand || type == BLOCK_RED_SAND;
                 copperOre = copperOre || type == BLOCK_COPPER_ORE;
+                granite = granite || type == BLOCK_GRANITE;
+                limestone = limestone || type == BLOCK_LIMESTONE;
+                shale = shale || type == BLOCK_SHALE;
+                marble = marble || type == BLOCK_MARBLE;
+                peat = peat || type == BLOCK_PEAT;
+                permafrost = permafrost || type == BLOCK_PERMAFROST;
+                rockSalt = rockSalt || type == BLOCK_ROCK_SALT;
+                quartzOre = quartzOre || type == BLOCK_QUARTZ_ORE;
             }
         }
     }
@@ -285,6 +301,14 @@ static void TestNaturalGeologyDistribution(void)
     assert(mossyStone);
     assert(redSand);
     assert(copperOre);
+    assert(granite);
+    assert(limestone);
+    assert(shale);
+    assert(marble);
+    assert(peat);
+    assert(permafrost);
+    assert(rockSalt);
+    assert(quartzOre);
 
     assert(TerrainTestPlanetSubsurfaceBlock(
                SOLAR_STYLE_LAVA, PLANET_BIOME_BASALT_PLAINS, 0, 1u) ==
@@ -304,6 +328,39 @@ static void TestNaturalGeologyDistribution(void)
     assert(TerrainTestPlanetSubsurfaceBlock(
                SOLAR_STYLE_GAS, PLANET_BIOME_STORM_BANDS, 0, 7u) ==
            BLOCK_CRYSTAL);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_VOLCANIC_RIDGE, 0, 3u) ==
+           BLOCK_VOLCANIC_ASH);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_LAVA_SEA, 0, 5u) ==
+           BLOCK_PUMICE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_BASALT_PLAINS, 4, 43u) ==
+           BLOCK_SULFUR_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_ICE, PLANET_BIOME_GLACIER, 0, 1u) ==
+           BLOCK_PACKED_ICE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_ICE, PLANET_BIOME_ALPINE, 1, 1u) ==
+           BLOCK_PERMAFROST);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_DUNES, 2, 11u) ==
+           BLOCK_ROCK_SALT);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_DUNES, 8, 1u) ==
+           BLOCK_LIMESTONE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_CRATER, PLANET_BIOME_CRATER_HIGHLANDS, 5, 89u) ==
+           BLOCK_QUARTZ_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_CRATER, PLANET_BIOME_CRATER_HIGHLANDS, 5, 5u) ==
+           BLOCK_GRANITE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_OASIS, 1, 1u) ==
+           BLOCK_PEAT);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_COAST, 5, 1u) ==
+           BLOCK_SHALE);
 
     for (int z = -32; z <= 32; z += 8) {
         for (int x = -32; x <= 32; x += 8) {

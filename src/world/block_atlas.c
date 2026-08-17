@@ -312,6 +312,93 @@ static Color GeologyAtlasPixel(BlockTexture texture, int x, int y,
         if ((hash % 13u) == 0u) color = (Color){ 151, 112, 201, 255 };
         return color;
     }
+    case TEX_GRANITE:
+        color = AtlasColorWithNoise((Color){ 126, 113, 108, 255 }, 17,
+                                    hash);
+        if ((hash % 7u) == 0u) color = (Color){ 91, 91, 94, 255 };
+        if ((hash % 11u) == 0u) color = (Color){ 169, 139, 131, 255 };
+        if ((hash % 19u) == 0u) color = (Color){ 218, 211, 199, 255 };
+        return color;
+    case TEX_LIMESTONE:
+        color = AtlasColorWithNoise((Color){ 188, 183, 157, 255 }, 12,
+                                    hash);
+        if ((y + (int)(hash % 2u)) % 6 == 0) {
+            color = AtlasColorWithNoise((Color){ 157, 153, 133, 255 }, 8,
+                                        hash);
+        }
+        if ((hash % 29u) == 0u) color = (Color){ 220, 215, 188, 255 };
+        return color;
+    case TEX_SHALE:
+        color = AtlasColorWithNoise((Color){ 75, 82, 86, 255 }, 12, hash);
+        if (y % 4 == 0 || (y + (int)(hash % 3u)) % 7 == 0) {
+            color = AtlasColorWithNoise((Color){ 48, 55, 59, 255 }, 7,
+                                        hash);
+        }
+        return color;
+    case TEX_MARBLE: {
+        int vein = (x * 2 + y + (int)(hash % 7u)) % 13;
+        color = AtlasColorWithNoise((Color){ 211, 211, 205, 255 }, 8,
+                                    hash);
+        if (vein < 2) {
+            color = AtlasColorWithNoise((Color){ 137, 145, 151, 255 }, 10,
+                                        hash);
+        }
+        return color;
+    }
+    case TEX_PEAT:
+        color = AtlasColorWithNoise((Color){ 67, 50, 38, 255 }, 15, hash);
+        if ((hash % 8u) == 0u) color = (Color){ 91, 72, 48, 255 };
+        if ((x + y + (int)(hash % 4u)) % 10 == 0) {
+            color = (Color){ 43, 39, 31, 255 };
+        }
+        return color;
+    case TEX_PERMAFROST:
+        color = AtlasColorWithNoise((Color){ 126, 137, 139, 255 }, 13,
+                                    hash);
+        if ((hash % 9u) == 0u) color = (Color){ 175, 190, 194, 255 };
+        if ((hash % 17u) == 0u) color = (Color){ 90, 78, 67, 255 };
+        return color;
+    case TEX_ROCK_SALT:
+        color = AtlasColorWithNoise((Color){ 218, 207, 198, 255 }, 9,
+                                    hash);
+        if ((hash % 11u) == 0u) color = (Color){ 241, 231, 221, 255 };
+        if ((x + y) % 9 == 0) color = (Color){ 181, 170, 166, 255 };
+        return color;
+    case TEX_VOLCANIC_ASH:
+        color = AtlasColorWithNoise((Color){ 73, 68, 67, 255 }, 18, hash);
+        if ((hash % 7u) == 0u) color = (Color){ 39, 38, 40, 255 };
+        if ((hash % 13u) == 0u) color = (Color){ 104, 94, 89, 255 };
+        return color;
+    case TEX_PUMICE:
+        color = AtlasColorWithNoise((Color){ 167, 157, 143, 255 }, 16,
+                                    hash);
+        if ((hash % 5u) == 0u) color = (Color){ 104, 99, 94, 255 };
+        if ((hash % 17u) == 0u) color = (Color){ 205, 196, 180, 255 };
+        return color;
+    case TEX_SULFUR_ORE:
+        color = AtlasColorWithNoise((Color){ 72, 70, 69, 255 }, 17, hash);
+        if ((hash % 9u) == 0u) {
+            color = AtlasColorWithNoise((Color){ 206, 183, 50, 255 }, 14,
+                                        hash);
+        }
+        if ((hash % 31u) == 0u) color = (Color){ 240, 219, 79, 255 };
+        return color;
+    case TEX_PACKED_ICE:
+        color = AtlasColorWithNoise((Color){ 101, 164, 193, 255 }, 10,
+                                    hash);
+        if ((x + y + (int)(hash % 5u)) % 11 < 2) {
+            color = (Color){ 170, 215, 228, 255 };
+        }
+        return color;
+    case TEX_QUARTZ_ORE:
+        color = AtlasColorWithNoise((Color){ 103, 106, 110, 255 }, 17,
+                                    hash);
+        if ((hash % 9u) == 0u) {
+            color = AtlasColorWithNoise((Color){ 205, 196, 205, 255 }, 10,
+                                        hash);
+        }
+        if ((hash % 37u) == 0u) color = (Color){ 239, 231, 240, 255 };
+        return color;
     default:
         return MAGENTA;
     }
@@ -721,7 +808,7 @@ static Color AtlasPixelColor(BlockTexture texture, int x, int y)
     if (texture >= TEX_NETHERRACK && texture <= TEX_NETHER_PORTAL) {
         return NetherAtlasPixel(texture, x, y, hash);
     }
-    if (texture >= TEX_GRAVEL && texture <= TEX_CRYSTAL) {
+    if (texture >= TEX_GRAVEL && texture <= TEX_QUARTZ_ORE) {
         return GeologyAtlasPixel(texture, x, y, hash);
     }
     return ItemAtlasPixel(texture, x, y, hash);
@@ -876,6 +963,18 @@ BlockTexture TextureForBlockFace(BlockType type, int face)
     case BLOCK_BASALT: return TEX_BASALT;
     case BLOCK_COPPER_ORE: return TEX_COPPER_ORE;
     case BLOCK_CRYSTAL: return TEX_CRYSTAL;
+    case BLOCK_GRANITE: return TEX_GRANITE;
+    case BLOCK_LIMESTONE: return TEX_LIMESTONE;
+    case BLOCK_SHALE: return TEX_SHALE;
+    case BLOCK_MARBLE: return TEX_MARBLE;
+    case BLOCK_PEAT: return TEX_PEAT;
+    case BLOCK_PERMAFROST: return TEX_PERMAFROST;
+    case BLOCK_ROCK_SALT: return TEX_ROCK_SALT;
+    case BLOCK_VOLCANIC_ASH: return TEX_VOLCANIC_ASH;
+    case BLOCK_PUMICE: return TEX_PUMICE;
+    case BLOCK_SULFUR_ORE: return TEX_SULFUR_ORE;
+    case BLOCK_PACKED_ICE: return TEX_PACKED_ICE;
+    case BLOCK_QUARTZ_ORE: return TEX_QUARTZ_ORE;
     default: return TEX_DIRT;
     }
 }

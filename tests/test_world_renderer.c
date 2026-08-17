@@ -14,6 +14,10 @@ static void TestMaterialProfiles(void)
     WorldMaterialProfile copper = WorldMaterialForTexture(TEX_COPPER_ORE);
     WorldMaterialProfile gravel = WorldMaterialForTexture(TEX_GRAVEL);
     WorldMaterialProfile crystal = WorldMaterialForTexture(TEX_CRYSTAL);
+    WorldMaterialProfile granite = WorldMaterialForTexture(TEX_GRANITE);
+    WorldMaterialProfile peat = WorldMaterialForTexture(TEX_PEAT);
+    WorldMaterialProfile sulfur = WorldMaterialForTexture(TEX_SULFUR_ORE);
+    WorldMaterialProfile packedIce = WorldMaterialForTexture(TEX_PACKED_ICE);
     WorldMaterialProfile lava = WorldMaterialForTexture(TEX_LAVA);
     assert(soil.kind == WORLD_MATERIAL_OPAQUE);
     assert(soil.roughness > 0.9f);
@@ -26,6 +30,14 @@ static void TestMaterialProfiles(void)
     assert(crystal.kind == WORLD_MATERIAL_OPAQUE);
     assert(crystal.specular > 0.6f);
     assert(crystal.emission == 0.0f);
+    assert(granite.kind == WORLD_MATERIAL_OPAQUE);
+    assert(granite.roughness > 0.85f);
+    assert(peat.kind == WORLD_MATERIAL_OPAQUE);
+    assert(peat.roughness > 0.9f);
+    assert(sulfur.kind == WORLD_MATERIAL_OPAQUE);
+    assert(sulfur.roughness > 0.85f);
+    assert(packedIce.kind == WORLD_MATERIAL_OPAQUE);
+    assert(packedIce.specular > 0.6f);
     assert(metal.roughness < soil.roughness);
     assert(lava.emission == 1.0f);
 }

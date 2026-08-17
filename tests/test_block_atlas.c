@@ -166,7 +166,13 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0xf6391e5e7d71dbe4), UINT64_C(0xebb232b5ce43d7f2),
     UINT64_C(0xbd283f90b2b797d7), UINT64_C(0x9a35ed39f98c128d),
     UINT64_C(0xf2fc9320537028bb), UINT64_C(0xb1a379f2060abff5),
-    UINT64_C(0xbb6d0595bf0e67b9), UINT64_C(0xb8359a06a2e459f9)
+    UINT64_C(0xbb6d0595bf0e67b9), UINT64_C(0xb8359a06a2e459f9),
+    UINT64_C(0xc1f215fba22bc5c2), UINT64_C(0x2495b5fbe7f4da56),
+    UINT64_C(0x5a63afcfc7b1339f), UINT64_C(0xbab23cb047322244),
+    UINT64_C(0x55eb24c82745247c), UINT64_C(0x93409ea0dd64f45b),
+    UINT64_C(0x8f40964fa1b32f95), UINT64_C(0x82265c28c7fb6564),
+    UINT64_C(0x79ec777cdff62840), UINT64_C(0xfdfe007771ef12f1),
+    UINT64_C(0x8399944af2a12177), UINT64_C(0x28d3a81935ef6881)
 };
 
 _Static_assert(sizeof(EXPECTED_TILE_HASHES) /
@@ -262,7 +268,7 @@ static void AssertPixelContract(Image image)
         }
     }
     uint64_t atlas = HashRegion(image, 0, 0, image.width, image.height);
-    if (atlas != UINT64_C(0x19a33f71703691e3)) {
+    if (atlas != UINT64_C(0x0f79d2cb1ff919a5)) {
         fprintf(stderr, "atlas digest: got 0x%016llx\n",
                 (unsigned long long)atlas);
         matched = false;
@@ -314,9 +320,14 @@ static void AssertTextureMapping(void)
     assert(TextureForBlockFace(BLOCK_AIR, 0) == TEX_DIRT);
     static const BlockType geologyBlocks[] = {
         BLOCK_GRAVEL, BLOCK_CLAY, BLOCK_MUD, BLOCK_MOSSY_STONE,
-        BLOCK_RED_SAND, BLOCK_BASALT, BLOCK_COPPER_ORE, BLOCK_CRYSTAL
+        BLOCK_RED_SAND, BLOCK_BASALT, BLOCK_COPPER_ORE, BLOCK_CRYSTAL,
+        BLOCK_GRANITE, BLOCK_LIMESTONE, BLOCK_SHALE, BLOCK_MARBLE,
+        BLOCK_PEAT, BLOCK_PERMAFROST, BLOCK_ROCK_SALT,
+        BLOCK_VOLCANIC_ASH, BLOCK_PUMICE, BLOCK_SULFUR_ORE,
+        BLOCK_PACKED_ICE, BLOCK_QUARTZ_ORE
     };
-    for (int index = 0; index < 8; index++) {
+    for (size_t index = 0;
+         index < sizeof(geologyBlocks) / sizeof(geologyBlocks[0]); index++) {
         assert(TextureForBlockFace(geologyBlocks[index], 0) ==
                (BlockTexture)(TEX_GRAVEL + index));
     }
@@ -331,9 +342,14 @@ static void AssertNaturalBlockContract(void)
 {
     static const char *names[] = {
         "Gravel", "Clay", "Mud", "Mossy Stone",
-        "Red Sand", "Basalt", "Copper Ore", "Crystal"
+        "Red Sand", "Basalt", "Copper Ore", "Crystal",
+        "Granite", "Limestone", "Shale", "Marble", "Peat",
+        "Permafrost", "Rock Salt", "Volcanic Ash", "Pumice",
+        "Sulfur Ore", "Packed Ice", "Quartz Ore"
     };
-    for (int index = 0; index < 8; index++) {
+    assert(BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1 ==
+           (int)(sizeof(names) / sizeof(names[0])));
+    for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
         BlockType type = (BlockType)(BLOCK_NATURAL_START + index);
         assert(IsValidBlockType(type));
         assert(strcmp(BlockName(type), names[index]) == 0);

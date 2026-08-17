@@ -29,7 +29,7 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
-#define TERRAIN_GENERATION_VERSION 5u
+#define TERRAIN_GENERATION_VERSION 6u
 #define MIN_SUPPORTED_TERRAIN_GENERATION_VERSION 2u
 #define SAVE_MAX_FILE_BYTES (256u * 1024u * 1024u)
 // Upper bound for edit counts read from save files. Keeps transient
@@ -228,6 +228,18 @@ const char *BlockName(BlockType type)
     case BLOCK_BASALT: return "Basalt";
     case BLOCK_COPPER_ORE: return "Copper Ore";
     case BLOCK_CRYSTAL: return "Crystal";
+    case BLOCK_GRANITE: return "Granite";
+    case BLOCK_LIMESTONE: return "Limestone";
+    case BLOCK_SHALE: return "Shale";
+    case BLOCK_MARBLE: return "Marble";
+    case BLOCK_PEAT: return "Peat";
+    case BLOCK_PERMAFROST: return "Permafrost";
+    case BLOCK_ROCK_SALT: return "Rock Salt";
+    case BLOCK_VOLCANIC_ASH: return "Volcanic Ash";
+    case BLOCK_PUMICE: return "Pumice";
+    case BLOCK_SULFUR_ORE: return "Sulfur Ore";
+    case BLOCK_PACKED_ICE: return "Packed Ice";
+    case BLOCK_QUARTZ_ORE: return "Quartz Ore";
     default: return "Air";
     }
 }
@@ -378,6 +390,18 @@ Color BlockBaseColor(BlockType type)
     case BLOCK_BASALT: return (Color){ 58, 61, 66, 255 };
     case BLOCK_COPPER_ORE: return (Color){ 184, 112, 72, 255 };
     case BLOCK_CRYSTAL: return (Color){ 126, 188, 212, 255 };
+    case BLOCK_GRANITE: return (Color){ 126, 113, 108, 255 };
+    case BLOCK_LIMESTONE: return (Color){ 188, 183, 157, 255 };
+    case BLOCK_SHALE: return (Color){ 75, 82, 86, 255 };
+    case BLOCK_MARBLE: return (Color){ 211, 211, 205, 255 };
+    case BLOCK_PEAT: return (Color){ 67, 50, 38, 255 };
+    case BLOCK_PERMAFROST: return (Color){ 126, 137, 139, 255 };
+    case BLOCK_ROCK_SALT: return (Color){ 218, 207, 198, 255 };
+    case BLOCK_VOLCANIC_ASH: return (Color){ 73, 68, 67, 255 };
+    case BLOCK_PUMICE: return (Color){ 167, 157, 143, 255 };
+    case BLOCK_SULFUR_ORE: return (Color){ 206, 183, 50, 255 };
+    case BLOCK_PACKED_ICE: return (Color){ 101, 164, 193, 255 };
+    case BLOCK_QUARTZ_ORE: return (Color){ 205, 196, 205, 255 };
     case BLOCK_STONE:
     default: return (Color){ 118, 122, 124, 255 };
     }

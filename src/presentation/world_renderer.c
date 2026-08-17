@@ -276,6 +276,12 @@ WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture)
     case TEX_GRAVEL:
     case TEX_MOSSY_STONE:
     case TEX_BASALT:
+    case TEX_GRANITE:
+    case TEX_LIMESTONE:
+    case TEX_SHALE:
+    case TEX_MARBLE:
+    case TEX_PUMICE:
+    case TEX_SULFUR_ORE:
         profile.roughness = texture == TEX_OBSIDIAN ? 0.30f : 0.90f;
         profile.specular = texture == TEX_OBSIDIAN ? 0.58f : 0.08f;
         return profile;
@@ -288,6 +294,10 @@ WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture)
     case TEX_CLAY:
     case TEX_MUD:
     case TEX_RED_SAND:
+    case TEX_PEAT:
+    case TEX_PERMAFROST:
+    case TEX_ROCK_SALT:
+    case TEX_VOLCANIC_ASH:
         profile.roughness = 0.96f;
         profile.specular = 0.04f;
         return profile;
@@ -300,6 +310,8 @@ WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture)
         profile.specular = 0.08f;
         return profile;
     case TEX_CRYSTAL:
+    case TEX_PACKED_ICE:
+    case TEX_QUARTZ_ORE:
         profile.roughness = 0.28f;
         profile.specular = 0.64f;
         return profile;
