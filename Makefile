@@ -266,8 +266,8 @@ $(MAP_MARKERS_TEST_TARGET): tests/test_map_markers.c src/gameplay/map_markers.c 
 $(PLAYER_COLLISION_TEST_TARGET): tests/test_player_collision.c src/gameplay/player.c src/gameplay/player.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_player_collision.c src/gameplay/player.c $(GAME_EFFECTS_SRC) -lm
 
-$(SHIP_STATE_TEST_TARGET): tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship.h src/gameplay/ship_visual_internal.h src/gameplay/ship_navigation.c src/gameplay/ship_navigation.h src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h src/gameplay/ship_locator.c src/gameplay/ship_locator.h
-	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c $(RAYLIB_LIBS) -lm
+$(SHIP_STATE_TEST_TARGET): tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship.h src/gameplay/ship_internal.h src/gameplay/ship_runtime.c src/gameplay/ship_visual_internal.h src/gameplay/ship_navigation.c src/gameplay/ship_navigation.h src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h src/gameplay/ship_locator.c src/gameplay/ship_locator.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_ship_state.c src/gameplay/ship.c src/gameplay/ship_runtime.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c $(RAYLIB_LIBS) -lm
 
 $(SHIP_FLIGHT_CONTROLLER_TEST_TARGET): tests/test_ship_flight_controller.c src/gameplay/ship_flight_controller.c src/gameplay/ship_flight_controller.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_ship_flight_controller.c src/gameplay/ship_flight_controller.c $(RAYLIB_LIBS) -lm

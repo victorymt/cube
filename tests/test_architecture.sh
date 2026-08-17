@@ -137,6 +137,7 @@ for split_file in \
     src/world/terrain_structures.c \
     src/ecology/entity.c \
     src/ecology/entity_simulation.c \
+    src/gameplay/ship_runtime.c \
     src/app/game.c \
     src/app/game_landing.c \
     src/app/game_world_transition.c \
@@ -149,8 +150,8 @@ do
 done
 
 ship_lines=$(wc -l < src/gameplay/ship.c)
-[ "$ship_lines" -le 1800 ] ||
-    fail "src/gameplay/ship.c exceeds its 1800-line responsibility limit"
+[ "$ship_lines" -le 1750 ] ||
+    fail "src/gameplay/ship.c exceeds its 1750-line responsibility limit"
 ship_visual_lines=$(wc -l < src/gameplay/ship_visual.c)
 [ "$ship_visual_lines" -le 700 ] ||
     fail "src/gameplay/ship_visual.c exceeds its 700-line responsibility limit"
