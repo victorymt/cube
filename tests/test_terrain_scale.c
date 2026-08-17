@@ -234,8 +234,10 @@ static void TestTerrainBaseBlockQueries(void)
     assert(TerrainBaseBlockAt(-2896, 0, 16, TERRAIN_VARIED) == BLOCK_WATER);
     assert(TerrainBaseBlockAt(
                -2896, SURFACE_MIN_Y, 16, TERRAIN_VARIED) == BLOCK_BEDROCK);
-    assert(TerrainBaseBlockAt(-2896, deep.seabedY, 16, TERRAIN_VARIED) ==
-           BathymetryMaterialBlock(deep.material));
+    BlockType seabed = TerrainBaseBlockAt(
+        -2896, deep.seabedY, 16, TERRAIN_VARIED);
+    assert(seabed == BathymetryMaterialBlock(deep.material) ||
+           seabed == BLOCK_SILT);
     assert(TerrainBaseBlockAt(-2896, deep.seabedY + 1, 16,
                               TERRAIN_VARIED) == BLOCK_WATER);
     BlockType seaSurface = TerrainBaseBlockAt(
@@ -262,6 +264,15 @@ static void TestNaturalGeologyDistribution(void)
     bool permafrost = false;
     bool rockSalt = false;
     bool quartzOre = false;
+    bool loam = false;
+    bool podzol = false;
+    bool silt = false;
+    bool chalk = false;
+    bool gneiss = false;
+    bool laterite = false;
+    bool tinOre = false;
+    bool silverOre = false;
+    bool nickelOre = false;
 
     terrainSeed = DEFAULT_WORLD_SEED;
     for (int z = -4096; z <= 4096; z += 32) {
@@ -292,6 +303,15 @@ static void TestNaturalGeologyDistribution(void)
                 permafrost = permafrost || type == BLOCK_PERMAFROST;
                 rockSalt = rockSalt || type == BLOCK_ROCK_SALT;
                 quartzOre = quartzOre || type == BLOCK_QUARTZ_ORE;
+                loam = loam || type == BLOCK_LOAM;
+                podzol = podzol || type == BLOCK_PODZOL;
+                silt = silt || type == BLOCK_SILT;
+                chalk = chalk || type == BLOCK_CHALK;
+                gneiss = gneiss || type == BLOCK_GNEISS;
+                laterite = laterite || type == BLOCK_LATERITE;
+                tinOre = tinOre || type == BLOCK_TIN_ORE;
+                silverOre = silverOre || type == BLOCK_SILVER_ORE;
+                nickelOre = nickelOre || type == BLOCK_NICKEL_ORE;
             }
         }
     }
@@ -309,6 +329,15 @@ static void TestNaturalGeologyDistribution(void)
     assert(permafrost);
     assert(rockSalt);
     assert(quartzOre);
+    assert(loam);
+    assert(podzol);
+    assert(silt);
+    assert(chalk);
+    assert(gneiss);
+    assert(laterite);
+    assert(tinOre);
+    assert(silverOre);
+    assert(nickelOre);
 
     assert(TerrainTestPlanetSubsurfaceBlock(
                SOLAR_STYLE_LAVA, PLANET_BIOME_BASALT_PLAINS, 0, 1u) ==
@@ -361,6 +390,36 @@ static void TestNaturalGeologyDistribution(void)
     assert(TerrainTestPlanetSubsurfaceBlock(
                SOLAR_STYLE_TEMPERATE, PLANET_BIOME_COAST, 5, 1u) ==
            BLOCK_SHALE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_LAVA_SEA, 0, 3u) ==
+           BLOCK_SCORIA);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_BADLANDS, 0, 3u) ==
+           BLOCK_LATERITE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_DUNES, 0, 17u) ==
+           BLOCK_SALT_CRUST);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_COAST, 0, 5u) ==
+           BLOCK_SILT);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_FOREST, 0, 5u) ==
+           BLOCK_PODZOL);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_PLAINS, 0, 11u) ==
+           BLOCK_LOAM);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_CRATER, PLANET_BIOME_IMPACT_BASIN, 0, 1u) ==
+           BLOCK_REGOLITH);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_PLAINS, 6, 131u) ==
+           BLOCK_TIN_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_ICE, PLANET_BIOME_ICE_SHEET, 8, 173u) ==
+           BLOCK_SILVER_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_BASALT_PLAINS, 6, 127u) ==
+           BLOCK_NICKEL_ORE);
 
     for (int z = -32; z <= 32; z += 8) {
         for (int x = -32; x <= 32; x += 8) {

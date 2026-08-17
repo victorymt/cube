@@ -68,6 +68,24 @@ static bool HomePeatDepositAt(int worldX, int worldZ)
                                  (float)worldZ * 0.014f, 941u) > 0.48f;
 }
 
+static bool HomePodzolAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.018f,
+                                 (float)worldZ * 0.018f, 997u) > 0.55f;
+}
+
+static bool HomeLoamAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.012f,
+                                 (float)worldZ * 0.012f, 1031u) > 0.43f;
+}
+
+static bool HomeLateriteAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.009f,
+                                 (float)worldZ * 0.009f, 1063u) > 0.72f;
+}
+
 static BlockType HomeRockBlock(int worldX, int y, int worldZ, int height,
                                Biome biome)
 {
@@ -96,6 +114,12 @@ BlockType TerrainHomeBaseBlockFromSample(
     bool wetSoil = HomeWetSoilAt(surface);
     bool peat = y <= height && wetSoil && y >= height - 4 &&
                 HomePeatDepositAt(worldX, worldZ);
+    bool podzol = biome == BIOME_FOREST &&
+                  HomePodzolAt(worldX, worldZ);
+    bool loam = (biome == BIOME_PLAINS || biome == BIOME_FOREST) &&
+                HomeLoamAt(worldX, worldZ);
+    bool laterite = biome == BIOME_DESERT &&
+                    HomeLateriteAt(worldX, worldZ);
     bool salt = y <= height && (biome == BIOME_DESERT || submerged) &&
                 y >= height - 6 &&
                 HomeSaltDepositAt(worldX, worldZ);
@@ -123,6 +147,14 @@ BlockType TerrainHomeBaseBlockFromSample(
         }
         if (y > height - sedimentDepth) {
             type = BathymetryMaterialBlock(surface->bathymetry.material);
+            if ((surface->bathymetry.zone == BATHYMETRY_ZONE_SLOPE ||
+                 surface->bathymetry.zone ==
+                     BATHYMETRY_ZONE_ABYSSAL_PLAIN) &&
+                HomeWorldValueNoise2D((float)worldX * 0.011f,
+                                      (float)worldZ * 0.011f,
+                                      1097u) > 0.42f) {
+                type = BLOCK_SILT;
+            }
             if ((surface->bathymetry.zone == BATHYMETRY_ZONE_COAST ||
                  surface->bathymetry.zone == BATHYMETRY_ZONE_SHELF) &&
                 surface->bathymetry.material == BATHYMETRY_MATERIAL_SAND &&
@@ -142,7 +174,9 @@ BlockType TerrainHomeBaseBlockFromSample(
         if (biome == BIOME_DESERT) {
             type = y > height - 3
                 ? (salt ? BLOCK_ROCK_SALT
-                        : (redSand ? BLOCK_RED_SAND : BLOCK_SAND))
+                        : (laterite ? BLOCK_LATERITE
+                                   : (redSand ? BLOCK_RED_SAND
+                                              : BLOCK_SAND)))
                 : HomeRockBlock(worldX, y, worldZ, height, biome);
         } else if (biome == BIOME_SNOW) {
             type = y > height - 3
@@ -154,19 +188,26 @@ BlockType TerrainHomeBaseBlockFromSample(
                 : HomeRockBlock(worldX, y, worldZ, height, biome);
         } else {
             type = y > height - 4
-                ? (peat ? BLOCK_PEAT : (wetSoil ? BLOCK_MUD : BLOCK_DIRT))
+                ? (peat ? BLOCK_PEAT
+                        : (podzol ? BLOCK_PODZOL
+                                  : (wetSoil ? BLOCK_MUD
+                                             : (loam ? BLOCK_LOAM
+                                                     : BLOCK_DIRT))))
                 : HomeRockBlock(worldX, y, worldZ, height, biome);
         }
     } else if (biome == BIOME_DESERT) {
         type = salt ? BLOCK_ROCK_SALT
-                    : (redSand ? BLOCK_RED_SAND : BLOCK_SAND);
+                    : (laterite ? BLOCK_LATERITE
+                                : (redSand ? BLOCK_RED_SAND : BLOCK_SAND));
     } else if (biome == BIOME_SNOW) {
         type = BLOCK_SNOW;
     } else if (biome == BIOME_MOUNTAIN) {
         type = height >= 165 ? BLOCK_SNOW
                              : (height >= 125 ? BLOCK_STONE : BLOCK_GRASS);
     } else {
-        type = peat ? BLOCK_PEAT : (wetSoil ? BLOCK_MUD : BLOCK_GRASS);
+        type = peat ? BLOCK_PEAT
+                    : (podzol ? BLOCK_PODZOL
+                              : (wetSoil ? BLOCK_MUD : BLOCK_GRASS));
     }
 
     if (mode != TERRAIN_FLAT && y == height - 2 &&

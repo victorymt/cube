@@ -10,6 +10,10 @@ BlockType TerrainGeologyHomeStoneBlock(Biome biome, int depth, float region,
         region > 0.55f && strata > 0.79f) {
         return BLOCK_MARBLE;
     }
+    if ((biome == BIOME_MOUNTAIN && depth >= 18 && strata < 0.54f) ||
+        (depth >= 92 && region < 0.45f)) {
+        return BLOCK_GNEISS;
+    }
     if ((biome == BIOME_MOUNTAIN && depth >= 4 && region > 0.40f) ||
         (depth >= 64 && region > 0.57f)) {
         return BLOCK_GRANITE;
@@ -17,6 +21,10 @@ BlockType TerrainGeologyHomeStoneBlock(Biome biome, int depth, float region,
     if ((biome == BIOME_PLAINS || biome == BIOME_DESERT) &&
         depth >= 3 && depth <= 52 && region > 0.58f) {
         return BLOCK_LIMESTONE;
+    }
+    if ((biome == BIOME_PLAINS || biome == BIOME_DESERT) &&
+        depth >= 3 && depth <= 28 && region > 0.48f && strata > 0.70f) {
+        return BLOCK_CHALK;
     }
     if ((biome == BIOME_PLAINS || biome == BIOME_FOREST ||
          biome == BIOME_SNOW) && depth >= 4 && depth <= 44 &&
@@ -29,6 +37,18 @@ BlockType TerrainGeologyHomeStoneBlock(Biome biome, int depth, float region,
 static BlockType PlanetOreBlock(SolarBodyStyle style, int depth,
                                 unsigned int hash)
 {
+    if (style == SOLAR_STYLE_TEMPERATE && depth >= 6 &&
+        hash % 131u == 0u) {
+        return BLOCK_TIN_ORE;
+    }
+    if ((style == SOLAR_STYLE_CRATER || style == SOLAR_STYLE_ICE) &&
+        depth >= 8 && hash % 173u == 0u) {
+        return BLOCK_SILVER_ORE;
+    }
+    if ((style == SOLAR_STYLE_LAVA || style == SOLAR_STYLE_CRATER) &&
+        depth >= 6 && hash % 127u == 0u) {
+        return BLOCK_NICKEL_ORE;
+    }
     if (style == SOLAR_STYLE_TEMPERATE && depth >= 4 &&
         hash % 47u == 0u) {
         return BLOCK_COPPER_ORE;
@@ -50,7 +70,7 @@ static BlockType PlanetSurfaceBiomeBlock(PlanetBiome biome,
     switch (biome) {
     case PLANET_BIOME_LAVA_SEA:
         if (hash % 5u == 0u) return BLOCK_PUMICE;
-        return hash % 3u == 0u ? BLOCK_VOLCANIC_ASH : BLOCK_BASALT;
+        return hash % 3u == 0u ? BLOCK_SCORIA : BLOCK_BASALT;
     case PLANET_BIOME_BASALT_PLAINS:
     case PLANET_BIOME_VOLCANIC_RIDGE:
         if (hash % 19u == 0u) return BLOCK_GLOWSTONE;
@@ -61,22 +81,25 @@ static BlockType PlanetSurfaceBiomeBlock(PlanetBiome biome,
     case PLANET_BIOME_ALPINE:
         return BLOCK_SNOW;
     case PLANET_BIOME_BADLANDS:
-        return BLOCK_RED_SAND;
+        return hash % 3u == 0u ? BLOCK_LATERITE : BLOCK_RED_SAND;
     case PLANET_BIOME_DUNES:
+        if (hash % 17u == 0u) return BLOCK_SALT_CRUST;
         return hash % 5u == 0u ? BLOCK_RED_SAND : BLOCK_SAND;
     case PLANET_BIOME_COAST:
+        return hash % 5u == 0u ? BLOCK_SILT : BLOCK_SAND;
     case PLANET_BIOME_OCEAN:
-        return BLOCK_SAND;
+        return hash % 3u == 0u ? BLOCK_SILT : BLOCK_SAND;
     case PLANET_BIOME_OASIS:
         return BLOCK_MUD;
     case PLANET_BIOME_FOREST:
-        return BLOCK_GRASS;
+        return hash % 5u == 0u ? BLOCK_PODZOL : BLOCK_GRASS;
     case PLANET_BIOME_PLAINS:
+        if (hash % 11u == 0u) return BLOCK_LOAM;
         return hash % 7u == 0u ? BLOCK_MUD : BLOCK_GRASS;
     case PLANET_BIOME_IMPACT_BASIN:
-        return hash % 9u == 0u ? BLOCK_METEORITE : BLOCK_MOON_SAND;
+        return hash % 9u == 0u ? BLOCK_METEORITE : BLOCK_REGOLITH;
     case PLANET_BIOME_CRATER_HIGHLANDS:
-        return BLOCK_MOON_ROCK;
+        return hash % 4u == 0u ? BLOCK_REGOLITH : BLOCK_MOON_ROCK;
     case PLANET_BIOME_STORM_BANDS:
         return hash % 7u == 0u ? BLOCK_CRYSTAL : BLOCK_SOUL_SAND;
     default:
@@ -88,7 +111,8 @@ static BlockType PlanetLavaBlock(int depth, unsigned int hash)
 {
     if (depth <= 3) {
         if (hash % 11u == 0u) return BLOCK_GLOWSTONE;
-        return hash % 5u == 0u ? BLOCK_PUMICE : BLOCK_VOLCANIC_ASH;
+        if (hash % 5u == 0u) return BLOCK_PUMICE;
+        return hash % 3u == 0u ? BLOCK_SCORIA : BLOCK_VOLCANIC_ASH;
     }
     return hash % 17u == 0u ? BLOCK_METEORITE : BLOCK_BASALT;
 }
@@ -108,6 +132,10 @@ static BlockType PlanetDesertBlock(PlanetBiome biome, int depth,
 {
     if (depth <= 3) {
         if (hash % 11u == 0u) return BLOCK_ROCK_SALT;
+        if (hash % 17u == 0u) return BLOCK_SALT_CRUST;
+        if (biome == PLANET_BIOME_BADLANDS && hash % 3u == 0u) {
+            return BLOCK_LATERITE;
+        }
         return biome == PLANET_BIOME_BADLANDS ? BLOCK_RED_SAND : BLOCK_SAND;
     }
     if (depth <= 16) return BLOCK_LIMESTONE;
@@ -126,9 +154,10 @@ static BlockType PlanetGasBlock(int depth, unsigned int hash)
 static BlockType PlanetCraterBlock(int depth, unsigned int hash)
 {
     if (depth == 0) {
-        return hash % 13u == 0u ? BLOCK_METEORITE : BLOCK_MOON_SAND;
+        return hash % 13u == 0u ? BLOCK_METEORITE : BLOCK_REGOLITH;
     }
-    return hash % 5u == 0u ? BLOCK_GRANITE : BLOCK_MOON_ROCK;
+    if (hash % 5u == 0u) return BLOCK_GRANITE;
+    return depth <= 3 ? BLOCK_REGOLITH : BLOCK_MOON_ROCK;
 }
 
 static BlockType PlanetTemperateBlock(PlanetBiome biome, int depth,
@@ -140,7 +169,7 @@ static BlockType PlanetTemperateBlock(PlanetBiome biome, int depth,
             (biome == PLANET_BIOME_FOREST && hash % 3u == 0u)) {
             return BLOCK_PEAT;
         }
-        return BLOCK_DIRT;
+        return hash % 5u == 0u ? BLOCK_LOAM : BLOCK_DIRT;
     }
     if (biome == PLANET_BIOME_FOREST && depth <= 8 &&
         hash % 4u == 0u) return BLOCK_MOSSY_STONE;

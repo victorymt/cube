@@ -18,6 +18,9 @@ static void TestMaterialProfiles(void)
     WorldMaterialProfile peat = WorldMaterialForTexture(TEX_PEAT);
     WorldMaterialProfile sulfur = WorldMaterialForTexture(TEX_SULFUR_ORE);
     WorldMaterialProfile packedIce = WorldMaterialForTexture(TEX_PACKED_ICE);
+    WorldMaterialProfile gneiss = WorldMaterialForTexture(TEX_GNEISS);
+    WorldMaterialProfile loam = WorldMaterialForTexture(TEX_LOAM);
+    WorldMaterialProfile nickel = WorldMaterialForTexture(TEX_NICKEL_ORE);
     WorldMaterialProfile lava = WorldMaterialForTexture(TEX_LAVA);
     assert(soil.kind == WORLD_MATERIAL_OPAQUE);
     assert(soil.roughness > 0.9f);
@@ -38,6 +41,9 @@ static void TestMaterialProfiles(void)
     assert(sulfur.roughness > 0.85f);
     assert(packedIce.kind == WORLD_MATERIAL_OPAQUE);
     assert(packedIce.specular > 0.6f);
+    assert(gneiss.roughness > 0.85f);
+    assert(loam.roughness > 0.9f);
+    assert(nickel.kind == WORLD_MATERIAL_METAL);
     assert(metal.roughness < soil.roughness);
     assert(lava.emission == 1.0f);
 }

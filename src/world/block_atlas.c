@@ -400,6 +400,77 @@ static Color GeologyAtlasPixel(BlockTexture texture, int x, int y,
         }
         if ((hash % 37u) == 0u) color = (Color){ 239, 231, 240, 255 };
         return color;
+    case TEX_LOAM:
+        color = AtlasColorWithNoise((Color){ 112, 76, 48, 255 }, 17, hash);
+        if ((hash % 9u) == 0u) color = (Color){ 78, 55, 38, 255 };
+        if ((hash % 17u) == 0u) color = (Color){ 145, 102, 65, 255 };
+        return color;
+    case TEX_PODZOL:
+        color = AtlasColorWithNoise((Color){ 91, 67, 43, 255 }, 15, hash);
+        if ((y + (int)(hash % 3u)) % 6 == 0) {
+            color = (Color){ 55, 48, 34, 255 };
+        }
+        if ((hash % 13u) == 0u) color = (Color){ 126, 88, 48, 255 };
+        return color;
+    case TEX_SILT:
+        color = AtlasColorWithNoise((Color){ 132, 121, 103, 255 }, 11,
+                                    hash);
+        if ((y + (int)(hash % 2u)) % 5 == 0) {
+            color = (Color){ 108, 101, 88, 255 };
+        }
+        return color;
+    case TEX_CHALK:
+        color = AtlasColorWithNoise((Color){ 218, 216, 199, 255 }, 7,
+                                    hash);
+        if ((hash % 19u) == 0u) color = (Color){ 185, 188, 177, 255 };
+        if ((x + y + (int)(hash % 5u)) % 13 == 0) {
+            color = (Color){ 239, 236, 217, 255 };
+        }
+        return color;
+    case TEX_GNEISS: {
+        int band = (x + y * 2 + (int)(hash % 4u)) % 8;
+        color = AtlasColorWithNoise((Color){ 116, 112, 119, 255 }, 12,
+                                    hash);
+        if (band < 2) color = (Color){ 72, 72, 79, 255 };
+        if (band == 4) color = (Color){ 168, 161, 159, 255 };
+        return color;
+    }
+    case TEX_LATERITE:
+        color = AtlasColorWithNoise((Color){ 154, 74, 45, 255 }, 18, hash);
+        if ((hash % 7u) == 0u) color = (Color){ 102, 54, 39, 255 };
+        if ((hash % 17u) == 0u) color = (Color){ 197, 105, 57, 255 };
+        return color;
+    case TEX_SCORIA:
+        color = AtlasColorWithNoise((Color){ 73, 48, 45, 255 }, 17, hash);
+        if ((hash % 5u) == 0u) color = (Color){ 31, 29, 31, 255 };
+        if ((hash % 13u) == 0u) color = (Color){ 119, 60, 45, 255 };
+        return color;
+    case TEX_REGOLITH:
+        color = AtlasColorWithNoise((Color){ 143, 136, 127, 255 }, 16,
+                                    hash);
+        if ((hash % 11u) == 0u) color = (Color){ 102, 99, 96, 255 };
+        if ((hash % 23u) == 0u) color = (Color){ 180, 169, 153, 255 };
+        return color;
+    case TEX_SALT_CRUST:
+        color = AtlasColorWithNoise((Color){ 232, 224, 207, 255 }, 7,
+                                    hash);
+        if (x % 7 == 0 || y % 7 == 0) color = (Color){ 188, 178, 166, 255 };
+        if ((hash % 17u) == 0u) color = (Color){ 248, 243, 229, 255 };
+        return color;
+    case TEX_TIN_ORE:
+    case TEX_SILVER_ORE:
+    case TEX_NICKEL_ORE: {
+        Color ore = texture == TEX_TIN_ORE
+            ? (Color){ 166, 174, 176, 255 }
+            : (texture == TEX_SILVER_ORE
+                   ? (Color){ 196, 202, 207, 255 }
+                   : (Color){ 151, 166, 132, 255 });
+        color = AtlasColorWithNoise((Color){ 104, 108, 111, 255 }, 17,
+                                    hash);
+        if ((hash % 9u) == 0u) color = AtlasColorWithNoise(ore, 10, hash);
+        if ((hash % 31u) == 0u) color = ore;
+        return color;
+    }
     default:
         return MAGENTA;
     }
@@ -809,7 +880,7 @@ static Color AtlasPixelColor(BlockTexture texture, int x, int y)
     if (texture >= TEX_NETHERRACK && texture <= TEX_NETHER_PORTAL) {
         return NetherAtlasPixel(texture, x, y, hash);
     }
-    if (texture >= TEX_GRAVEL && texture <= TEX_QUARTZ_ORE) {
+    if (texture >= TEX_GRAVEL && texture <= TEX_NICKEL_ORE) {
         return GeologyAtlasPixel(texture, x, y, hash);
     }
     return ItemAtlasPixel(texture, x, y, hash);

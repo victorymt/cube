@@ -21,7 +21,9 @@ startup as a small pixel-art atlas.
 - Low/medium/high graphics quality presets control shadow resources, cloud
   range, and precipitation density. Medium is the default 1080p/60 FPS target
 - Water blocks with translucent rendering and simple swimming physics
-- Natural geology includes layered granite, limestone, shale and marble;
+- Natural geology includes layered granite, limestone, shale, marble,
+  chalk and gneiss; loam, podzol, silt and laterite vary soils and seabeds,
+  while scoria, regolith, salt crust and new metal ores distinguish planets;
   peat, permafrost, rock salt, volcanic ash, pumice, sulfur, packed ice and
   quartz join the existing gravel, clay, mud, mossy stone, red sand, basalt,
   copper and crystal. The materials form deterministic deposits across

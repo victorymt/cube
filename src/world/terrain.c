@@ -591,8 +591,11 @@ BlockType OreAt(int x, int y, int z)
     unsigned int h = WorldHash3D(x, y, z);
     if (y <= 11 && (h % 281u) == 0u) return BLOCK_DIAMOND_ORE;
     if (y <= 16 && (h % 149u) == 0u) return BLOCK_GOLD_ORE;
+    if (y <= 24 && (h % 223u) == 0u) return BLOCK_SILVER_ORE;
     if (y <= 26 && (h % 71u) == 0u) return BLOCK_IRON_ORE;
+    if (y <= 36 && (h % 181u) == 0u) return BLOCK_NICKEL_ORE;
     if (y <= 42 && (h % 59u) == 0u) return BLOCK_COPPER_ORE;
+    if (y <= 52 && (h % 127u) == 0u) return BLOCK_TIN_ORE;
     if (y <= 30 && (h % 43u) == 0u) return BLOCK_COAL_ORE;
     unsigned int quartz = WorldHash3D(
         FloorDivInt(x, 3) + 719, FloorDivInt(y, 2) - 431,

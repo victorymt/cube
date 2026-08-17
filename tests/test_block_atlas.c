@@ -172,7 +172,13 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x55eb24c82745247c), UINT64_C(0x93409ea0dd64f45b),
     UINT64_C(0x8f40964fa1b32f95), UINT64_C(0x82265c28c7fb6564),
     UINT64_C(0x79ec777cdff62840), UINT64_C(0xfdfe007771ef12f1),
-    UINT64_C(0x8399944af2a12177), UINT64_C(0x28d3a81935ef6881)
+    UINT64_C(0x8399944af2a12177), UINT64_C(0x28d3a81935ef6881),
+    UINT64_C(0x7c7c30c36b9c9d9a), UINT64_C(0xd18c3a89a6830e35),
+    UINT64_C(0x52f36dd92d027c4b), UINT64_C(0x826031a64fc0545c),
+    UINT64_C(0xcaeb2c6a30589ba2), UINT64_C(0xbafaf9b2623f1490),
+    UINT64_C(0x46070567ccfd8102), UINT64_C(0x2f78b6c0b423c2bb),
+    UINT64_C(0xf3771ab04c72b99d), UINT64_C(0x2abce7f2d321a876),
+    UINT64_C(0xed3a54d83b3dbb6b), UINT64_C(0xfe409b4b838c94d7)
 };
 
 _Static_assert(sizeof(EXPECTED_TILE_HASHES) /
@@ -268,7 +274,7 @@ static void AssertPixelContract(Image image)
         }
     }
     uint64_t atlas = HashRegion(image, 0, 0, image.width, image.height);
-    if (atlas != UINT64_C(0x0f79d2cb1ff919a5)) {
+    if (atlas != UINT64_C(0xcea079ed083907f9)) {
         fprintf(stderr, "atlas digest: got 0x%016llx\n",
                 (unsigned long long)atlas);
         matched = false;
@@ -324,7 +330,10 @@ static void AssertTextureMapping(void)
         BLOCK_GRANITE, BLOCK_LIMESTONE, BLOCK_SHALE, BLOCK_MARBLE,
         BLOCK_PEAT, BLOCK_PERMAFROST, BLOCK_ROCK_SALT,
         BLOCK_VOLCANIC_ASH, BLOCK_PUMICE, BLOCK_SULFUR_ORE,
-        BLOCK_PACKED_ICE, BLOCK_QUARTZ_ORE
+        BLOCK_PACKED_ICE, BLOCK_QUARTZ_ORE, BLOCK_LOAM, BLOCK_PODZOL,
+        BLOCK_SILT, BLOCK_CHALK, BLOCK_GNEISS, BLOCK_LATERITE,
+        BLOCK_SCORIA, BLOCK_REGOLITH, BLOCK_SALT_CRUST, BLOCK_TIN_ORE,
+        BLOCK_SILVER_ORE, BLOCK_NICKEL_ORE
     };
     for (size_t index = 0;
          index < sizeof(geologyBlocks) / sizeof(geologyBlocks[0]); index++) {
@@ -345,7 +354,9 @@ static void AssertNaturalBlockContract(void)
         "Red Sand", "Basalt", "Copper Ore", "Crystal",
         "Granite", "Limestone", "Shale", "Marble", "Peat",
         "Permafrost", "Rock Salt", "Volcanic Ash", "Pumice",
-        "Sulfur Ore", "Packed Ice", "Quartz Ore"
+        "Sulfur Ore", "Packed Ice", "Quartz Ore", "Loam", "Podzol",
+        "Silt", "Chalk", "Gneiss", "Laterite", "Scoria", "Regolith",
+        "Salt Crust", "Tin Ore", "Silver Ore", "Nickel Ore"
     };
     assert(BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1 ==
            (int)(sizeof(names) / sizeof(names[0])));
