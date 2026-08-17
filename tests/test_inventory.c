@@ -23,7 +23,9 @@ static void TestNaturalBlocks(void)
     assert(BLOCK_QUARTZ_ORE == 83);
     assert(BLOCK_LOAM == 84);
     assert(BLOCK_NICKEL_ORE == 95);
-    assert(BLOCK_NATURAL_END == 95);
+    assert(BLOCK_TALL_GRASS == 96);
+    assert(BLOCK_CHEMO_MAT == 110);
+    assert(BLOCK_NATURAL_END == 110);
     assert(BLOCK_COLOR_START == 256);
 
     InventoryReset();

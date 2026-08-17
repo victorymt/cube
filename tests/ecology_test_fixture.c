@@ -125,7 +125,50 @@ bool IsTranslucentBlock(BlockType type)
     return type == BLOCK_AIR || type == BLOCK_GLASS ||
            type == BLOCK_WATER || type == BLOCK_ICE ||
            type == BLOCK_FLOWER || type == BLOCK_MUSHROOM ||
-           type == BLOCK_GLASS_PANE || type == BLOCK_NETHER_PORTAL;
+           type == BLOCK_GLASS_PANE || type == BLOCK_NETHER_PORTAL ||
+           type == BLOCK_TORCH || type == BLOCK_ALBUM ||
+           type == BLOCK_LAVA || type == BLOCK_TALL_GRASS ||
+           type == BLOCK_FERN || type == BLOCK_REED ||
+           type == BLOCK_MOSS_CARPET || type == BLOCK_LICHEN ||
+           type == BLOCK_MICROBIAL_MAT || type == BLOCK_MYCELIUM ||
+           type == BLOCK_CANOPY_FROND || type == BLOCK_LUMINOUS_POD ||
+           type == BLOCK_SPORE_CAP || type == BLOCK_CHEMO_MAT;
+}
+
+BlockRenderShape BlockRenderShapeFor(BlockType type)
+{
+    switch (type) {
+    case BLOCK_FLOWER:
+    case BLOCK_MUSHROOM:
+    case BLOCK_TALL_GRASS:
+    case BLOCK_FERN:
+    case BLOCK_REED:
+    case BLOCK_LICHEN:
+        return BLOCK_RENDER_CROSS;
+    case BLOCK_MOSS_CARPET:
+    case BLOCK_MICROBIAL_MAT:
+    case BLOCK_MYCELIUM:
+    case BLOCK_CHEMO_MAT:
+        return BLOCK_RENDER_CARPET;
+    default:
+        return BLOCK_RENDER_CUBE;
+    }
+}
+
+bool IsPlantBlock(BlockType type)
+{
+    return BlockRenderShapeFor(type) != BLOCK_RENDER_CUBE;
+}
+
+float BlockCollisionHeight(BlockType type)
+{
+    if (type == BLOCK_AIR || type == BLOCK_WATER || type == BLOCK_LAVA ||
+        type == BLOCK_FLOWER || type == BLOCK_MUSHROOM ||
+        type == BLOCK_FENCE_GATE_OPEN || type == BLOCK_DOOR_OPEN ||
+        IsPlantBlock(type)) return 0.0f;
+    if (type == BLOCK_SLAB || type == BLOCK_STONE_STAIRS ||
+        type == BLOCK_WOOD_STAIRS) return 0.5f;
+    return 1.0f;
 }
 
 BlockType GetBlockAt(int x, int y, int z)

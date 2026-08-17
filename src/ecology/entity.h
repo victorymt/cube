@@ -157,6 +157,7 @@ bool EntityEvolutionInspect(int index, EntityEvolutionDebugInfo *out);
 #ifdef ENTITY_TESTING
 bool EntityTestFindAquaticSpawnY(int x, int preferredY, int z,
                                  int fallbackY, int *outY);
+bool EntityTestBlockTypeBlocks(BlockType type);
 #endif
 
 #endif

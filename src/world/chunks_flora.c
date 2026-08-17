@@ -27,7 +27,7 @@ static bool FloraStructureExpectedBlockAt(
         int distance = abs(offsetX) + abs(offsetZ);
         if (offsetX == 0 && offsetZ == 0 &&
             y == base + trunkHeight + 1) {
-            *outBlock = BLOCK_GLOWSTONE;
+            *outBlock = BLOCK_LUMINOUS_POD;
             return true;
         }
         if ((y == base + trunkHeight - 1 && distance <= 3) ||
@@ -64,7 +64,7 @@ static bool FloraStructureExpectedBlockAt(
         int distance = abs(offsetX) + abs(offsetZ);
         if (offsetX == 0 && offsetZ == 0 &&
             y == base + stemHeight + 1) {
-            *outBlock = structure->primaryBlock;
+            *outBlock = BLOCK_LUMINOUS_POD;
             return true;
         }
         if (y == base + stemHeight && distance <= 1) {
@@ -73,7 +73,7 @@ static bool FloraStructureExpectedBlockAt(
         }
         if (offsetX == 0 && offsetZ == 0 &&
             y >= base && y < base + stemHeight) {
-            *outBlock = BLOCK_MUSHROOM;
+            *outBlock = structure->primaryBlock;
             return true;
         }
     } break;
@@ -84,16 +84,16 @@ static bool FloraStructureExpectedBlockAt(
             return true;
         }
         if (offsetX == 0 && offsetZ == 0 && y == base + height) {
-            *outBlock = BLOCK_GLOWSTONE;
+            *outBlock = BLOCK_LUMINOUS_POD;
             return true;
         }
         if (abs(offsetX) == 1 && offsetZ == 0 && y == base) {
-            *outBlock = BLOCK_OBSIDIAN;
+            *outBlock = BLOCK_SCORIA;
             return true;
         }
         if (offsetX == 0 && offsetZ == 0 &&
             y >= base && y < base + height) {
-            *outBlock = BLOCK_NETHERRACK;
+            *outBlock = structure->primaryBlock;
             return true;
         }
     } break;
@@ -226,9 +226,11 @@ static bool AppendPlantMeshInstances(
         int vertexCount = mesh->vertexCount - firstVertex;
         if (vertexCount > 12) vertexCount = 12;
         float groundY = INFINITY;
+        float topY = -INFINITY;
         for (int vertex = firstVertex;
              vertex < firstVertex + vertexCount; vertex++) {
             groundY = fminf(groundY, mesh->vertices[vertex * 3 + 1]);
+            topY = fmaxf(topY, mesh->vertices[vertex * 3 + 1]);
         }
         float firstX = mesh->vertices[firstVertex * 3];
         float firstZ = mesh->vertices[firstVertex * 3 + 2];
@@ -241,8 +243,8 @@ static bool AppendPlantMeshInstances(
                         groundY,
                         floorf(firstZ) + 0.5f
                     },
-                    .height = 0.4f,
-                    .windResponse = 1.0f
+                    .height = topY - groundY,
+                    .windResponse = topY - groundY < 0.10f ? 0.05f : 1.0f
                 })) {
             return false;
         }
@@ -264,6 +266,23 @@ bool BuildChunkSurfaceSolidMeshData(
         (const unsigned short (*)[CHUNK_SIZE])solidBlocks,
         SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
         nearbyTorchIndices, nearbyTorchCount, outMesh);
+}
+
+bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const int *nearbyTorchIndices,
+    int nearbyTorchCount, const SurfaceWaterBoundarySnapshot *boundary,
+    Mesh *outMesh)
+{
+    unsigned short waterBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    CopyBlocksWithoutFloraStructures(
+        waterBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
+    return BuildSurfaceWaterMeshDataWithSnapshot(
+        (const unsigned short (*)[CHUNK_SIZE])waterBlocks,
+        waterVolumes, SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
+        faces, nearbyTorchIndices, nearbyTorchCount, boundary, outMesh);
 }
 
 bool BuildChunkFloraMeshDataFromSnapshot(
@@ -324,6 +343,7 @@ bool BuildChunkFloraMeshDataFromSnapshot(
 
         Mesh instanceMesh = { 0 };
         Mesh solid = { 0 };
+        Mesh transparent = { 0 };
         Mesh crossed = { 0 };
         if (BuildSurfaceSolidMeshData(
                 (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
@@ -331,6 +351,18 @@ bool BuildChunkFloraMeshDataFromSnapshot(
                 nearbyTorchIndices, nearbyTorchCount, &solid) &&
             !MergeMeshData(&instanceMesh, &solid)) {
             FreeMeshData(&solid);
+            FreeMeshData(&instanceMesh);
+            FreeMeshData(&combined);
+            free(instances);
+            return false;
+        }
+        if (BuildMeshDataFiltered(
+                (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
+                SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
+                true, false, false, true, faces,
+                nearbyTorchIndices, nearbyTorchCount, &transparent) &&
+            !MergeMeshData(&instanceMesh, &transparent)) {
+            FreeMeshData(&transparent);
             FreeMeshData(&instanceMesh);
             FreeMeshData(&combined);
             free(instances);

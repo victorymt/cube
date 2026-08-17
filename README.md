@@ -29,6 +29,12 @@ startup as a small pixel-art atlas.
   copper and crystal. The materials form deterministic deposits across
   seabeds, wetlands, mountains, deserts and planet-specific terrain; mine
   them or grab any visible block with middle-click
+- Ecological terrain uses dedicated blocks instead of generic colors: homeworld
+  plains, forests, and wet lowlands grow tall grass, ferns, moss carpets, and
+  reeds; planetary biomass adds lichen, microbial mats, mycelium, crystal
+  blooms, living canopies, luminous pods, spore caps, vent chimneys, and
+  chemosynthetic mats. Ground cover is non-colliding, while stems and large
+  structures remain solid and participate in flora wind/deformation rendering
 - Torch block with dynamic point lighting: place torches and nearby block
   faces brighten in a radius, effective at night and underground
 - Particle effects on block break/place

@@ -601,13 +601,12 @@ static void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
         chunk->cx, chunk->cz,
         chunk->floraStructures, chunk->floraStructureCount,
         faces, nearbyTorchIndices, nearbyTorchCount, &solidMesh);
-    bool hasWater = BuildSurfaceWaterMeshData(
-        (const unsigned short (*)[CHUNK_SIZE])section->blocks,
-        section->waterVolumes,
-        SURFACE_SECTION_HEIGHT,
+    bool hasWater = BuildChunkSurfaceWaterMeshDataWithSnapshot(
+        section->blocks, section->waterVolumes,
         section->sectionY * SURFACE_SECTION_HEIGHT,
-        chunk->cx, chunk->cz, faces,
-        nearbyTorchIndices, nearbyTorchCount, &waterMesh);
+        chunk->cx, chunk->cz,
+        chunk->floraStructures, chunk->floraStructureCount,
+        faces, nearbyTorchIndices, nearbyTorchCount, NULL, &waterMesh);
     bool hasFlora = BuildChunkFloraMeshDataFromSnapshot(
         section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
         chunk->cx, chunk->cz,

@@ -160,4 +160,13 @@ const char *PlanetEcologyBodyPlanName(void);
 const char *PlanetEcologyNicheName(void);
 void PlanetEcologyApplyToChunk(Chunk *chunk, int chunkX, int chunkZ);
 
+#ifdef CHUNKS_TESTING
+BlockType PlanetEcologyTestGroundCoverBlock(
+    PlanetBiomassClass biomass, PlanetFloraArchetype flora,
+    int biome, uint32_t hash);
+void PlanetEcologyTestApplyProfileToChunk(
+    Chunk *chunk, int chunkX, int chunkZ,
+    const PlanetEcologyProfile *profile);
+#endif
+
 #endif

@@ -680,6 +680,36 @@ static void TestHomeTreeVariantSelection(void)
     for (int i = 0; i < 2; i++) assert(coniferSeen[i]);
 }
 
+static void TestHomeGroundCoverSelection(void)
+{
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_PLAINS, HOME_SEA_LEVEL + 8, HOME_SEA_LEVEL, 173u) ==
+        BLOCK_FLOWER);
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_FOREST, HOME_SEA_LEVEL, HOME_SEA_LEVEL, 397u) ==
+        BLOCK_MUSHROOM);
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_FOREST, HOME_SEA_LEVEL + 8, HOME_SEA_LEVEL, 13u) ==
+        BLOCK_FERN);
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_FOREST, HOME_SEA_LEVEL + 8, HOME_SEA_LEVEL, 19u) ==
+        BLOCK_MOSS_CARPET);
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_PLAINS, HOME_SEA_LEVEL + 4, HOME_SEA_LEVEL, 23u) ==
+        BLOCK_REED);
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_PLAINS, HOME_SEA_LEVEL + 5, HOME_SEA_LEVEL, 23u) ==
+        BLOCK_AIR);
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_PLAINS, HOME_SEA_LEVEL + 8, HOME_SEA_LEVEL, 7u) ==
+        BLOCK_TALL_GRASS);
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_SNOW, HOME_SEA_LEVEL, HOME_SEA_LEVEL, 7u) == BLOCK_AIR);
+    assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_FOREST, HOME_SEA_LEVEL, HOME_SEA_LEVEL, 173u * 13u) ==
+        BLOCK_FLOWER);
+}
+
 static void TestHomeTreeShapes(void)
 {
     TreeShapeStats broadleafStats[3] = { 0 };
@@ -761,6 +791,7 @@ int main(void)
     TestSparseChunkBootstrap();
     TestUndergroundFeaturesMaterializeTheirBase();
     TestTreePlacementSpacing();
+    TestHomeGroundCoverSelection();
     TestHomeTreeVariantSelection();
     TestHomeTreeShapes();
     puts("terrain scale tests passed");

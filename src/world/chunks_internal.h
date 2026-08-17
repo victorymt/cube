@@ -106,6 +106,13 @@ bool BuildChunkSurfaceSolidMeshData(
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
     int nearbyTorchCount, Mesh *outMesh);
+bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const int *nearbyTorchIndices,
+    int nearbyTorchCount, const SurfaceWaterBoundarySnapshot *boundary,
+    Mesh *outMesh);
 bool BuildChunkFloraMeshDataFromSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,

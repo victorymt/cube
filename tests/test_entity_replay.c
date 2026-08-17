@@ -268,6 +268,12 @@ bool IsLiquidBlock(BlockType type)
     return type == BLOCK_WATER || type == BLOCK_LAVA;
 }
 
+float BlockCollisionHeight(BlockType type)
+{
+    return type == BLOCK_AIR || type == BLOCK_WATER || type == BLOCK_LAVA
+        ? 0.0f : 1.0f;
+}
+
 void ParticlesEmitBurst(Vector3 position, Color color, int count,
                         float speed, float life)
 {

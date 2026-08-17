@@ -1152,24 +1152,68 @@ static void AddPlantMesh(ChunkMeshEmitter *emitter, int x, int y, int z,
     float cx = (float)x + 0.5f;
     float cz = (float)z + 0.5f;
     float y0 = (float)y;
-    float y1 = y0 + 0.4f;
     float brightness = 1.0f + extraLight;
     Vector2 uvs[6];
-    AtlasUVs((type == BLOCK_FLOWER) ? TEX_FLOWER : TEX_MUSHROOM, uvs);
+    AtlasUVs(TextureForBlockFace(type, 0), uvs);
+
+    if (BlockRenderShapeFor(type) == BLOCK_RENDER_CARPET) {
+        float inset = 0.035f;
+        float top = y0 + 0.035f;
+        Vector3 topFace[6] = {
+            { (float)x + inset, top, (float)z + inset },
+            { (float)x + 1.0f - inset, top, (float)z + inset },
+            { (float)x + 1.0f - inset, top, (float)z + 1.0f - inset },
+            { (float)x + inset, top, (float)z + inset },
+            { (float)x + 1.0f - inset, top, (float)z + 1.0f - inset },
+            { (float)x + inset, top, (float)z + 1.0f - inset }
+        };
+        Vector3 bottomFace[6] = {
+            topFace[5], topFace[4], topFace[3],
+            topFace[2], topFace[1], topFace[0]
+        };
+        AddMeshFace(emitter, topFace, (Vector3){ 0.0f, 1.0f, 0.0f }, uvs,
+                    ShadeColor(WHITE, brightness));
+        AddMeshFace(emitter, bottomFace, (Vector3){ 0.0f, -1.0f, 0.0f },
+                    uvs, ShadeColor(WHITE, 0.72f * brightness));
+        return;
+    }
+
+    float plantHeight = 0.4f;
+    float halfWidth = 0.16f;
+    if (type == BLOCK_TALL_GRASS) {
+        plantHeight = 0.78f;
+        halfWidth = 0.25f;
+    } else if (type == BLOCK_FERN) {
+        plantHeight = 0.62f;
+        halfWidth = 0.28f;
+    } else if (type == BLOCK_REED) {
+        plantHeight = 0.96f;
+        halfWidth = 0.20f;
+    } else if (type == BLOCK_LICHEN) {
+        plantHeight = 0.30f;
+        halfWidth = 0.24f;
+    }
+    float y1 = y0 + plantHeight;
 
     Vector3 quadA[6] = {
-        { cx - 0.16f, y0, cz - 0.16f }, { cx + 0.16f, y0, cz + 0.16f },
-        { cx + 0.16f, y1, cz + 0.16f }, { cx - 0.16f, y0, cz - 0.16f },
-        { cx + 0.16f, y1, cz + 0.16f }, { cx - 0.16f, y1, cz - 0.16f }
+        { cx - halfWidth, y0, cz - halfWidth },
+        { cx + halfWidth, y0, cz + halfWidth },
+        { cx + halfWidth, y1, cz + halfWidth },
+        { cx - halfWidth, y0, cz - halfWidth },
+        { cx + halfWidth, y1, cz + halfWidth },
+        { cx - halfWidth, y1, cz - halfWidth }
     };
     Vector3 normalA = Vector3Normalize((Vector3){ 1.0f, 0.0f, 1.0f });
     AddMeshFace(emitter, quadA, normalA, uvs,
                 ShadeColor(WHITE, 0.95f * brightness));
 
     Vector3 quadB[6] = {
-        { cx - 0.16f, y0, cz + 0.16f }, { cx + 0.16f, y0, cz - 0.16f },
-        { cx + 0.16f, y1, cz - 0.16f }, { cx - 0.16f, y0, cz + 0.16f },
-        { cx + 0.16f, y1, cz - 0.16f }, { cx - 0.16f, y1, cz + 0.16f }
+        { cx - halfWidth, y0, cz + halfWidth },
+        { cx + halfWidth, y0, cz - halfWidth },
+        { cx + halfWidth, y1, cz - halfWidth },
+        { cx - halfWidth, y0, cz + halfWidth },
+        { cx + halfWidth, y1, cz - halfWidth },
+        { cx - halfWidth, y1, cz + halfWidth }
     };
     Vector3 normalB = Vector3Normalize((Vector3){ 1.0f, 0.0f, -1.0f });
     AddMeshFace(emitter, quadB, normalB, uvs,
@@ -1216,7 +1260,7 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 if (emitter->failed) return;
                 BlockType type = (BlockType)blocks[lx * height + y][lz];
-                bool plant = type == BLOCK_FLOWER || type == BLOCK_MUSHROOM;
+                bool plant = IsPlantBlock(type);
                 if (plantsOnly) {
                     if (!plant) continue;
                 } else {

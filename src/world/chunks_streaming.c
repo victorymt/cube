@@ -110,12 +110,13 @@ void *ChunkGenWorker(void *arg)
                 meshJob->floraStructures, meshJob->floraStructureCount,
                 faces, meshJob->nearbyIndices, meshJob->nearbyCount,
                 &meshJob->mesh);
-            meshJob->hasWaterMesh = BuildSurfaceWaterMeshDataWithSnapshot(
-                (const unsigned short (*)[CHUNK_SIZE])meshJob->blocks,
+            meshJob->hasWaterMesh = BuildChunkSurfaceWaterMeshDataWithSnapshot(
+                meshJob->blocks,
                 (const unsigned char *)meshJob->waterVolumes,
-                SURFACE_SECTION_HEIGHT,
                 meshJob->sectionY * SURFACE_SECTION_HEIGHT,
-                meshJob->cx, meshJob->cz, faces,
+                meshJob->cx, meshJob->cz,
+                meshJob->floraStructures, meshJob->floraStructureCount,
+                faces,
                 meshJob->nearbyIndices, meshJob->nearbyCount,
                 &meshJob->waterBoundary,
                 &meshJob->waterMesh);

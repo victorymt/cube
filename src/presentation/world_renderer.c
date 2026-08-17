@@ -262,9 +262,11 @@ WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture)
     case TEX_STAR_MATTER:
     case TEX_GLOWSTONE:
     case TEX_TORCH:
+    case TEX_LUMINOUS_POD:
         profile.roughness = 0.48f;
         profile.specular = 0.22f;
-        profile.emission = texture == TEX_TORCH ? 0.82f : 1.0f;
+        profile.emission = texture == TEX_TORCH ? 0.82f :
+                           texture == TEX_LUMINOUS_POD ? 0.76f : 1.0f;
         return profile;
     case TEX_SNOW:
         profile.roughness = 0.88f;
@@ -288,6 +290,7 @@ WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture)
     case TEX_CHALK:
     case TEX_GNEISS:
     case TEX_SCORIA:
+    case TEX_VENT_CHIMNEY:
         profile.roughness = texture == TEX_OBSIDIAN ? 0.30f : 0.90f;
         profile.specular = texture == TEX_OBSIDIAN ? 0.58f : 0.08f;
         return profile;
@@ -310,6 +313,11 @@ WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture)
     case TEX_LATERITE:
     case TEX_REGOLITH:
     case TEX_SALT_CRUST:
+    case TEX_MOSS_CARPET:
+    case TEX_LICHEN:
+    case TEX_MICROBIAL_MAT:
+    case TEX_MYCELIUM:
+    case TEX_CHEMO_MAT:
         profile.roughness = 0.96f;
         profile.specular = 0.04f;
         return profile;
@@ -318,14 +326,25 @@ WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture)
     case TEX_PLANK:
     case TEX_FENCE:
     case TEX_DOOR:
+    case TEX_LIVING_STEM:
+    case TEX_FUNGAL_STEM:
         profile.roughness = 0.78f;
         profile.specular = 0.08f;
         return profile;
     case TEX_CRYSTAL:
     case TEX_PACKED_ICE:
     case TEX_QUARTZ_ORE:
+    case TEX_CRYSTAL_BLOOM:
         profile.roughness = 0.28f;
         profile.specular = 0.64f;
+        return profile;
+    case TEX_TALL_GRASS:
+    case TEX_FERN:
+    case TEX_REED:
+    case TEX_CANOPY_FROND:
+    case TEX_SPORE_CAP:
+        profile.roughness = 0.84f;
+        profile.specular = 0.10f;
         return profile;
     default:
         return profile;

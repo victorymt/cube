@@ -180,13 +180,27 @@ bool IsLiquidBlock(BlockType type)
     return type == BLOCK_WATER || type == BLOCK_LAVA;
 }
 
+BlockRenderShape BlockRenderShapeFor(BlockType type)
+{
+    if (IsColorBlock(type)) return BLOCK_RENDER_CUBE;
+    return BlockCatalogGet(type)->renderShape;
+}
+
+bool IsPlantBlock(BlockType type)
+{
+    BlockRenderShape shape = BlockRenderShapeFor(type);
+    return shape == BLOCK_RENDER_CROSS || shape == BLOCK_RENDER_CARPET;
+}
+
+bool IsEcologyBlock(BlockType type)
+{
+    return type >= BLOCK_TALL_GRASS && type <= BLOCK_CHEMO_MAT;
+}
+
 float BlockCollisionHeight(BlockType type)
 {
-    if (type == BLOCK_AIR || type == BLOCK_WATER || type == BLOCK_LAVA ||
-        type == BLOCK_FLOWER || type == BLOCK_MUSHROOM || type == BLOCK_FENCE_GATE_OPEN ||
-        type == BLOCK_DOOR_OPEN) return 0.0f;
-    if (type == BLOCK_SLAB || type == BLOCK_STONE_STAIRS || type == BLOCK_WOOD_STAIRS) return 0.5f;
-    return 1.0f;
+    if (IsColorBlock(type)) return 1.0f;
+    return BlockCatalogGet(type)->collisionHeight;
 }
 
 float BlockCollisionHeightAt(int x, int y, int z)
@@ -197,9 +211,8 @@ float BlockCollisionHeightAt(int x, int y, int z)
 
 bool IsTranslucentBlock(BlockType type)
 {
-    return type == BLOCK_WATER || type == BLOCK_GLASS || type == BLOCK_TORCH || type == BLOCK_ALBUM ||
-           type == BLOCK_GLASS_PANE || type == BLOCK_LAVA || type == BLOCK_FLOWER || type == BLOCK_MUSHROOM ||
-           type == BLOCK_NETHER_PORTAL;
+    if (IsColorBlock(type)) return false;
+    return BlockCatalogGet(type)->translucent;
 }
 
 int ColorBlockIndex(BlockType type)

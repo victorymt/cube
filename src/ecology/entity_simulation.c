@@ -37,7 +37,7 @@ static int NextFreeEntity(void)
 static bool BlockBlocksEntity(int x, int y, int z)
 {
     BlockType type = GetBlockAt(x, y, z);
-    return type != BLOCK_AIR && type != BLOCK_WATER && type != BLOCK_LAVA;
+    return BlockCollisionHeight(type) > 0.0f;
 }
 
 static bool GroundBelow(Vector3 position)
@@ -263,6 +263,11 @@ bool EntityTestFindAquaticSpawnY(int x, int preferredY, int z,
                                  int fallbackY, int *outY)
 {
     return EntityFindAquaticSpawnY(x, z, preferredY, fallbackY, outY);
+}
+
+bool EntityTestBlockTypeBlocks(BlockType type)
+{
+    return BlockCollisionHeight(type) > 0.0f;
 }
 #endif
 

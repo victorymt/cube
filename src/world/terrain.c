@@ -1796,6 +1796,20 @@ static void GenerateHomeVisibleTerrainSections(
     }
 }
 
+static BlockType HomeGroundCoverBlock(Biome biome, int height, int seaLevel,
+                                      unsigned int hash)
+{
+    if (hash % 173u == 0u) return BLOCK_FLOWER;
+    if (hash % 397u == 0u) return BLOCK_MUSHROOM;
+    if (biome == BIOME_FOREST && hash % 13u == 0u) return BLOCK_FERN;
+    if (biome == BIOME_FOREST && hash % 19u == 0u) return BLOCK_MOSS_CARPET;
+    if ((biome == BIOME_PLAINS || biome == BIOME_FOREST) &&
+        height <= seaLevel + 4 && hash % 23u == 0u) return BLOCK_REED;
+    if ((biome == BIOME_PLAINS || biome == BIOME_FOREST) &&
+        hash % 7u == 0u) return BLOCK_TALL_GRASS;
+    return BLOCK_AIR;
+}
+
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
     chunk->cx = cx;
@@ -1841,15 +1855,20 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 int worldX = startX + lx;
                 int worldZ = startZ + lz;
-                int height = (int)lroundf(samples[lx][lz].elevation);
+                const SurfaceTerrainSample *sample = &samples[lx][lz];
+                int height = (int)lroundf(sample->elevation);
                 if (height < 4) continue;
-                BlockType surface = ChunkGetLocalBlock(chunk, lx, height, lz);
-                if (surface != BLOCK_GRASS) continue;
+                BlockType ground = ChunkGetLocalBlock(chunk, lx, height, lz);
+                bool livingGround = ground == BLOCK_GRASS ||
+                                    ground == BLOCK_PODZOL ||
+                                    ground == BLOCK_MUD;
+                if (!livingGround) continue;
                 unsigned int h = WorldHash2D(worldX, worldZ);
-                if (h % 173u == 0u) {
-                    SetChunkLocalBlock(chunk, worldX, height + 1, worldZ, BLOCK_FLOWER);
-                } else if (h % 397u == 0u) {
-                    SetChunkLocalBlock(chunk, worldX, height + 1, worldZ, BLOCK_MUSHROOM);
+                BlockType cover = HomeGroundCoverBlock(
+                    sample->biome, height, seaLevel, h);
+                if (cover != BLOCK_AIR) {
+                    SetChunkLocalBlock(chunk, worldX, height + 1, worldZ,
+                                       cover);
                 }
             }
         }
@@ -1880,6 +1899,12 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 }
 
 #ifdef TERRAIN_TESTING
+BlockType TerrainTestHomeGroundCoverBlock(
+    Biome biome, int height, int seaLevel, unsigned int hash)
+{
+    return HomeGroundCoverBlock(biome, height, seaLevel, hash);
+}
+
 void TerrainTestBootstrapHomeChunk(Chunk *chunk, int cx, int cz,
                                    TerrainMode mode)
 {

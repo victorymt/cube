@@ -106,6 +106,8 @@ int TerrainTestHomeTreeVariantAt(int treeX, int treeZ, bool conifer);
 int TerrainTestHomeTreeCrownRadiusAt(int treeX, int treeZ);
 void TerrainTestPlaceHomeTree(Chunk *chunk, int treeX, int base, int treeZ,
                               bool conifer, int variant);
+BlockType TerrainTestHomeGroundCoverBlock(
+    Biome biome, int height, int seaLevel, unsigned int hash);
 #endif
 
 #endif

@@ -221,6 +221,19 @@ static void AssertSignedUnitValue(float value)
     assert(value >= -1.0f && value <= 1.0f);
 }
 
+static void TestEcologyPlantCollisionContract(void)
+{
+    static const BlockType plants[] = {
+        BLOCK_TALL_GRASS, BLOCK_FERN, BLOCK_REED, BLOCK_MOSS_CARPET,
+        BLOCK_LICHEN, BLOCK_MICROBIAL_MAT, BLOCK_MYCELIUM, BLOCK_CHEMO_MAT
+    };
+    for (size_t index = 0; index < sizeof(plants) / sizeof(plants[0]); index++) {
+        assert(!EntityTestBlockTypeBlocks(plants[index]));
+    }
+    assert(EntityTestBlockTypeBlocks(BLOCK_LIVING_STEM));
+    assert(EntityTestBlockTypeBlocks(BLOCK_VENT_CHIMNEY));
+}
+
 static void AssertEntityLocalEcologyValid(const PlanetLocalEcology *local)
 {
     assert(local);
@@ -971,6 +984,7 @@ static void TestHomeWorldEvolvableEntities(void)
 
 int main(void)
 {
+    TestEcologyPlantCollisionContract();
     TestCrossSeedSeasonalEntityProperties();
     TestEntityDeathCauseFeedback();
     TestCrossSeedEntityHarvestFeedback();

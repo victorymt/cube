@@ -1383,6 +1383,83 @@ static Vector3 FindFloraGenerationCenter(
     return (Vector3){ 0 };
 }
 
+static void AssertSemanticFloraStructure(
+    const FloraStructureInstance *structure)
+{
+    assert(structure);
+    switch (structure->kind) {
+    case FLORA_STRUCTURE_ALIEN_CANOPY:
+        assert(structure->primaryBlock == BLOCK_LIVING_STEM);
+        assert(structure->accentBlock == BLOCK_CANOPY_FROND);
+        break;
+    case FLORA_STRUCTURE_CRYSTAL:
+        assert(structure->primaryBlock == BLOCK_CRYSTAL_BLOOM);
+        assert(structure->accentBlock == BLOCK_CRYSTAL_BLOOM);
+        break;
+    case FLORA_STRUCTURE_SPORE:
+        assert(structure->primaryBlock == BLOCK_FUNGAL_STEM);
+        assert(structure->accentBlock == BLOCK_SPORE_CAP);
+        break;
+    case FLORA_STRUCTURE_THERMAL_VENT:
+        assert(structure->primaryBlock == BLOCK_VENT_CHIMNEY);
+        assert(structure->accentBlock == BLOCK_CHEMO_MAT);
+        break;
+    }
+}
+
+static void TestPlanetGroundCoverContracts(void)
+{
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_BARREN, PLANET_FLORA_SPORE,
+        PLANET_BIOME_PLAINS, 1u) == BLOCK_AIR);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_MICROBIAL, PLANET_FLORA_SPORE,
+        PLANET_BIOME_PLAINS, 0u) == BLOCK_LICHEN);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_MICROBIAL, PLANET_FLORA_SPORE,
+        PLANET_BIOME_PLAINS, 1u) == BLOCK_MICROBIAL_MAT);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_FUNGAL, PLANET_FLORA_SPORE,
+        PLANET_BIOME_PLAINS, 0u) == BLOCK_LICHEN);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_FUNGAL, PLANET_FLORA_SPORE,
+        PLANET_BIOME_PLAINS, 1u) == BLOCK_MYCELIUM);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_CRYSTALLINE, PLANET_FLORA_CRYSTAL,
+        PLANET_BIOME_PLAINS, 0u) == BLOCK_LICHEN);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_CRYSTALLINE, PLANET_FLORA_CRYSTAL,
+        PLANET_BIOME_PLAINS, 1u) == BLOCK_MICROBIAL_MAT);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_ANOMALOUS, PLANET_FLORA_SPORE,
+        PLANET_BIOME_PLAINS, 0u) == BLOCK_MYCELIUM);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_ANOMALOUS, PLANET_FLORA_SPORE,
+        PLANET_BIOME_PLAINS, 1u) == BLOCK_MICROBIAL_MAT);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_LUSH, PLANET_FLORA_ALIEN_CANOPY,
+        PLANET_BIOME_FOREST, 1u) == BLOCK_MOSS_CARPET);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_LUSH, PLANET_FLORA_ALIEN_CANOPY,
+        PLANET_BIOME_PLAINS, 0u) == BLOCK_FERN);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_LUSH, PLANET_FLORA_ALIEN_CANOPY,
+        PLANET_BIOME_PLAINS, 1u) == BLOCK_LICHEN);
+    assert(PlanetEcologyTestGroundCoverBlock(
+        PLANET_BIOMASS_LUSH, PLANET_FLORA_THERMAL_VENT,
+        PLANET_BIOME_VOLCANIC_RIDGE, 1u) == BLOCK_CHEMO_MAT);
+
+    EcologyTestActivatePlanet(0x4e434f53u, 0, 0);
+    Chunk microbial = { .cx = 0, .cz = 0 };
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    profile.biomass = PLANET_BIOMASS_MICROBIAL;
+    profile.floraDensity = 1.0f;
+    profile.flora = PLANET_FLORA_ALIEN_CANOPY;
+    PlanetEcologyTestApplyProfileToChunk(&microbial, 0, 0, &profile);
+    assert(microbial.floraStructureCount == 0);
+    ChunkClearBlockStorage(&microbial);
+}
+
 static void TestFloraMeshDeformationProperties(void)
 {
     enum { vertexCount = 64 };
@@ -1521,6 +1598,7 @@ static void TestChunkUnloadReloadDeterminism(void)
     FloraStructureInstance crossingStructure = { 0 };
     Vector3 playerPosition = FindFloraGenerationCenter(
         &seed, &crossingStructure);
+    AssertSemanticFloraStructure(&crossingStructure);
     assert(seed != 0u);
     assert(WorldGetSeed() == seed);
     assert(ChunksStartGenThread());
@@ -1779,6 +1857,7 @@ int main(void)
     TestEcologyLegacyPopulationStateLoad();
     TestEvolutionRegionAndGenomeReplay();
     TestHomeWorldEcologyAndEvolution();
+    TestPlanetGroundCoverContracts();
     TestFloraMeshDeformationProperties();
     TestChunkUnloadReloadDeterminism();
     puts("ecology system tests passed");

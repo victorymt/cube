@@ -22,6 +22,11 @@ static void TestMaterialProfiles(void)
     WorldMaterialProfile loam = WorldMaterialForTexture(TEX_LOAM);
     WorldMaterialProfile nickel = WorldMaterialForTexture(TEX_NICKEL_ORE);
     WorldMaterialProfile lava = WorldMaterialForTexture(TEX_LAVA);
+    WorldMaterialProfile moss = WorldMaterialForTexture(TEX_MOSS_CARPET);
+    WorldMaterialProfile microbial = WorldMaterialForTexture(TEX_MICROBIAL_MAT);
+    WorldMaterialProfile luminous = WorldMaterialForTexture(TEX_LUMINOUS_POD);
+    WorldMaterialProfile bloom = WorldMaterialForTexture(TEX_CRYSTAL_BLOOM);
+    WorldMaterialProfile frond = WorldMaterialForTexture(TEX_CANOPY_FROND);
     assert(soil.kind == WORLD_MATERIAL_OPAQUE);
     assert(soil.roughness > 0.9f);
     assert(water.kind == WORLD_MATERIAL_WATER);
@@ -46,6 +51,12 @@ static void TestMaterialProfiles(void)
     assert(nickel.kind == WORLD_MATERIAL_METAL);
     assert(metal.roughness < soil.roughness);
     assert(lava.emission == 1.0f);
+    assert(moss.roughness > 0.9f && moss.specular < 0.1f);
+    assert(microbial.roughness == moss.roughness);
+    assert(luminous.emission > 0.7f);
+    assert(luminous.emission < lava.emission);
+    assert(bloom.specular > 0.6f && bloom.roughness < 0.3f);
+    assert(frond.roughness > 0.8f && frond.emission == 0.0f);
 }
 
 static void TestLightingSanitization(void)

@@ -9,15 +9,24 @@ typedef struct BlockCatalogEntry {
     BlockTexture sideTexture;
     BlockTexture topTexture;
     BlockTexture bottomTexture;
+    BlockRenderShape renderShape;
+    float collisionHeight;
+    bool translucent;
 } BlockCatalogEntry;
 
 #define BLOCK_ENTRY(TYPE, NAME, R, G, B, TEXTURE) \
-    [TYPE] = { NAME, { R, G, B, 255 }, TEXTURE, TEXTURE, TEXTURE }
+    [TYPE] = { NAME, { R, G, B, 255 }, TEXTURE, TEXTURE, TEXTURE, \
+               BLOCK_RENDER_CUBE, 1.0f, false }
 #define BLOCK_FACE_ENTRY(TYPE, NAME, R, G, B, SIDE, TOP, BOTTOM) \
-    [TYPE] = { NAME, { R, G, B, 255 }, SIDE, TOP, BOTTOM }
+    [TYPE] = { NAME, { R, G, B, 255 }, SIDE, TOP, BOTTOM, \
+               BLOCK_RENDER_CUBE, 1.0f, false }
+#define BLOCK_META_ENTRY(TYPE, NAME, R, G, B, TEXTURE, SHAPE, HEIGHT, TRANS) \
+    [TYPE] = { NAME, { R, G, B, 255 }, TEXTURE, TEXTURE, TEXTURE, \
+               SHAPE, HEIGHT, TRANS }
 
 static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
-    BLOCK_ENTRY(BLOCK_AIR, "Air", 118, 122, 124, TEX_DIRT),
+    BLOCK_META_ENTRY(BLOCK_AIR, "Air", 118, 122, 124, TEX_DIRT,
+                     BLOCK_RENDER_CUBE, 0.0f, false),
     BLOCK_FACE_ENTRY(BLOCK_GRASS, "Grass", 84, 170, 67,
                      TEX_GRASS_SIDE, TEX_GRASS_TOP, TEX_DIRT),
     BLOCK_ENTRY(BLOCK_DIRT, "Dirt", 121, 77, 43, TEX_DIRT),
@@ -39,8 +48,10 @@ static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
     BLOCK_ENTRY(BLOCK_BLACK, "Black", 28, 31, 35, TEX_BLACK),
     BLOCK_ENTRY(BLOCK_PLANK, "Plank", 156, 100, 48, TEX_PLANK),
     BLOCK_ENTRY(BLOCK_BRICK, "Brick", 148, 62, 48, TEX_BRICK),
-    BLOCK_ENTRY(BLOCK_GLASS, "Glass", 205, 230, 235, TEX_GLASS),
-    BLOCK_ENTRY(BLOCK_WATER, "Water", 52, 118, 205, TEX_WATER),
+    BLOCK_META_ENTRY(BLOCK_GLASS, "Glass", 205, 230, 235, TEX_GLASS,
+                     BLOCK_RENDER_CUBE, 1.0f, true),
+    BLOCK_META_ENTRY(BLOCK_WATER, "Water", 52, 118, 205, TEX_WATER,
+                     BLOCK_RENDER_CUBE, 0.0f, true),
     BLOCK_ENTRY(BLOCK_SNOW, "Snow", 238, 244, 246, TEX_SNOW),
     BLOCK_ENTRY(BLOCK_ICE, "Ice", 148, 205, 226, TEX_ICE),
     BLOCK_ENTRY(BLOCK_CACTUS, "Cactus", 78, 152, 62, TEX_CACTUS),
@@ -50,11 +61,15 @@ static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
     BLOCK_ENTRY(BLOCK_GOLD_ORE, "Gold Ore", 232, 196, 64, TEX_GOLD_ORE),
     BLOCK_ENTRY(BLOCK_DIAMOND_ORE, "Diamond Ore", 92, 214, 232,
                 TEX_DIAMOND_ORE),
-    BLOCK_ENTRY(BLOCK_TORCH, "Torch", 255, 186, 62, TEX_TORCH),
-    BLOCK_ENTRY(BLOCK_ALBUM, "Album", 118, 76, 42, TEX_ALBUM),
-    BLOCK_ENTRY(BLOCK_SLAB, "Stone Slab", 118, 122, 124, TEX_STONE),
+    BLOCK_META_ENTRY(BLOCK_TORCH, "Torch", 255, 186, 62, TEX_TORCH,
+                     BLOCK_RENDER_CUBE, 1.0f, true),
+    BLOCK_META_ENTRY(BLOCK_ALBUM, "Album", 118, 76, 42, TEX_ALBUM,
+                     BLOCK_RENDER_CUBE, 1.0f, true),
+    BLOCK_META_ENTRY(BLOCK_SLAB, "Stone Slab", 118, 122, 124, TEX_STONE,
+                     BLOCK_RENDER_CUBE, 0.5f, false),
     BLOCK_ENTRY(BLOCK_DOOR, "Door", 156, 104, 52, TEX_DOOR),
-    BLOCK_ENTRY(BLOCK_DOOR_OPEN, "Open Door", 140, 92, 46, TEX_DOOR),
+    BLOCK_META_ENTRY(BLOCK_DOOR_OPEN, "Open Door", 140, 92, 46, TEX_DOOR,
+                     BLOCK_RENDER_CUBE, 0.0f, false),
     BLOCK_ENTRY(BLOCK_MOON_ROCK, "Moon Rock", 138, 142, 148,
                 TEX_MOON_ROCK),
     BLOCK_ENTRY(BLOCK_METEORITE, "Meteorite", 92, 78, 70, TEX_METEORITE),
@@ -64,18 +79,22 @@ static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
                 TEX_STAR_MATTER),
     BLOCK_ENTRY(BLOCK_SPACESHIP, "Spaceship", 196, 202, 210,
                 TEX_SPACESHIP),
-    BLOCK_ENTRY(BLOCK_STONE_STAIRS, "Stone Stairs", 118, 122, 124,
-                TEX_STONE),
-    BLOCK_ENTRY(BLOCK_WOOD_STAIRS, "Wood Stairs", 156, 100, 48,
-                TEX_PLANK),
+    BLOCK_META_ENTRY(BLOCK_STONE_STAIRS, "Stone Stairs", 118, 122, 124,
+                     TEX_STONE, BLOCK_RENDER_CUBE, 0.5f, false),
+    BLOCK_META_ENTRY(BLOCK_WOOD_STAIRS, "Wood Stairs", 156, 100, 48,
+                     TEX_PLANK, BLOCK_RENDER_CUBE, 0.5f, false),
     BLOCK_ENTRY(BLOCK_FENCE, "Fence", 150, 98, 50, TEX_FENCE),
     BLOCK_ENTRY(BLOCK_FENCE_GATE, "Fence Gate", 150, 98, 50, TEX_FENCE),
-    BLOCK_ENTRY(BLOCK_FENCE_GATE_OPEN, "Open Fence Gate", 138, 90, 46,
-                TEX_FENCE),
-    BLOCK_ENTRY(BLOCK_GLASS_PANE, "Glass Pane", 205, 230, 235, TEX_GLASS),
-    BLOCK_ENTRY(BLOCK_LAVA, "Lava", 224, 96, 24, TEX_LAVA),
-    BLOCK_ENTRY(BLOCK_FLOWER, "Flower", 208, 62, 54, TEX_FLOWER),
-    BLOCK_ENTRY(BLOCK_MUSHROOM, "Mushroom", 196, 52, 46, TEX_MUSHROOM),
+    BLOCK_META_ENTRY(BLOCK_FENCE_GATE_OPEN, "Open Fence Gate", 138, 90, 46,
+                     TEX_FENCE, BLOCK_RENDER_CUBE, 0.0f, false),
+    BLOCK_META_ENTRY(BLOCK_GLASS_PANE, "Glass Pane", 205, 230, 235,
+                     TEX_GLASS, BLOCK_RENDER_CUBE, 1.0f, true),
+    BLOCK_META_ENTRY(BLOCK_LAVA, "Lava", 224, 96, 24, TEX_LAVA,
+                     BLOCK_RENDER_CUBE, 0.0f, true),
+    BLOCK_META_ENTRY(BLOCK_FLOWER, "Flower", 208, 62, 54, TEX_FLOWER,
+                     BLOCK_RENDER_CROSS, 0.0f, true),
+    BLOCK_META_ENTRY(BLOCK_MUSHROOM, "Mushroom", 196, 52, 46,
+                     TEX_MUSHROOM, BLOCK_RENDER_CROSS, 0.0f, true),
     BLOCK_ENTRY(BLOCK_BOOKSHELF, "Bookshelf", 118, 76, 40,
                 TEX_BOOKSHELF),
     BLOCK_ENTRY(BLOCK_HAY_BALE, "Hay Bale", 218, 172, 66, TEX_HAY),
@@ -91,8 +110,8 @@ static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
     BLOCK_ENTRY(BLOCK_SANDSTONE, "Sandstone", 216, 200, 150,
                 TEX_SANDSTONE),
     BLOCK_ENTRY(BLOCK_OBSIDIAN, "Obsidian", 22, 16, 30, TEX_OBSIDIAN),
-    BLOCK_ENTRY(BLOCK_NETHER_PORTAL, "Nether Portal", 158, 52, 190,
-                TEX_NETHER_PORTAL),
+    BLOCK_META_ENTRY(BLOCK_NETHER_PORTAL, "Nether Portal", 158, 52, 190,
+                     TEX_NETHER_PORTAL, BLOCK_RENDER_CUBE, 1.0f, true),
     BLOCK_ENTRY(BLOCK_SPACESHIP_CORE_NORTH, "Spaceship", 196, 202, 210,
                 TEX_SPACESHIP),
     BLOCK_ENTRY(BLOCK_SPACESHIP_CORE_EAST, "Spaceship", 196, 202, 210,
@@ -146,9 +165,40 @@ static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
     BLOCK_ENTRY(BLOCK_SILVER_ORE, "Silver Ore", 196, 202, 207,
                 TEX_SILVER_ORE),
     BLOCK_ENTRY(BLOCK_NICKEL_ORE, "Nickel Ore", 151, 166, 132,
-                TEX_NICKEL_ORE)
+                TEX_NICKEL_ORE),
+    BLOCK_META_ENTRY(BLOCK_TALL_GRASS, "Tall Grass", 83, 151, 63,
+                     TEX_TALL_GRASS, BLOCK_RENDER_CROSS, 0.0f, true),
+    BLOCK_META_ENTRY(BLOCK_FERN, "Fern", 53, 126, 66, TEX_FERN,
+                     BLOCK_RENDER_CROSS, 0.0f, true),
+    BLOCK_META_ENTRY(BLOCK_REED, "Reed", 116, 153, 70, TEX_REED,
+                     BLOCK_RENDER_CROSS, 0.0f, true),
+    BLOCK_META_ENTRY(BLOCK_MOSS_CARPET, "Moss Carpet", 62, 111, 53,
+                     TEX_MOSS_CARPET, BLOCK_RENDER_CARPET, 0.0f, true),
+    BLOCK_META_ENTRY(BLOCK_LICHEN, "Lichen", 137, 151, 92, TEX_LICHEN,
+                     BLOCK_RENDER_CROSS, 0.0f, true),
+    BLOCK_META_ENTRY(BLOCK_MICROBIAL_MAT, "Microbial Mat", 96, 126, 105,
+                     TEX_MICROBIAL_MAT, BLOCK_RENDER_CARPET, 0.0f, true),
+    BLOCK_META_ENTRY(BLOCK_MYCELIUM, "Mycelium", 142, 132, 151,
+                     TEX_MYCELIUM, BLOCK_RENDER_CARPET, 0.0f, true),
+    BLOCK_ENTRY(BLOCK_LIVING_STEM, "Living Stem", 99, 91, 67,
+                TEX_LIVING_STEM),
+    BLOCK_META_ENTRY(BLOCK_CANOPY_FROND, "Canopy Frond", 63, 137, 101,
+                     TEX_CANOPY_FROND, BLOCK_RENDER_CUBE, 1.0f, true),
+    BLOCK_META_ENTRY(BLOCK_LUMINOUS_POD, "Luminous Pod", 126, 220, 174,
+                     TEX_LUMINOUS_POD, BLOCK_RENDER_CUBE, 1.0f, true),
+    BLOCK_ENTRY(BLOCK_FUNGAL_STEM, "Fungal Stem", 174, 164, 152,
+                TEX_FUNGAL_STEM),
+    BLOCK_META_ENTRY(BLOCK_SPORE_CAP, "Spore Cap", 164, 86, 151,
+                     TEX_SPORE_CAP, BLOCK_RENDER_CUBE, 1.0f, true),
+    BLOCK_ENTRY(BLOCK_CRYSTAL_BLOOM, "Crystal Bloom", 137, 205, 220,
+                TEX_CRYSTAL_BLOOM),
+    BLOCK_ENTRY(BLOCK_VENT_CHIMNEY, "Vent Chimney", 72, 67, 65,
+                TEX_VENT_CHIMNEY),
+    BLOCK_META_ENTRY(BLOCK_CHEMO_MAT, "Chemosynthetic Mat", 170, 133, 54,
+                     TEX_CHEMO_MAT, BLOCK_RENDER_CARPET, 0.0f, true)
 };
 
+#undef BLOCK_META_ENTRY
 #undef BLOCK_FACE_ENTRY
 #undef BLOCK_ENTRY
 

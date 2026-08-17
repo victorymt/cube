@@ -1,4 +1,5 @@
 #include "world/chunks.h"
+#include "world/chunks_internal.h"
 
 #define chunks (ChunksMutableForTesting())
 #include "world/terrain.h"
@@ -156,6 +157,21 @@ static void AssertSpecialBlockMeshContracts(void)
         { BLOCK_GLASS_PANE, TEST_MESH_WATER, 30 },
         { BLOCK_FLOWER, TEST_MESH_FLORA, 12 },
         { BLOCK_MUSHROOM, TEST_MESH_FLORA, 12 },
+        { BLOCK_TALL_GRASS, TEST_MESH_FLORA, 12 },
+        { BLOCK_FERN, TEST_MESH_FLORA, 12 },
+        { BLOCK_REED, TEST_MESH_FLORA, 12 },
+        { BLOCK_MOSS_CARPET, TEST_MESH_FLORA, 12 },
+        { BLOCK_LICHEN, TEST_MESH_FLORA, 12 },
+        { BLOCK_MICROBIAL_MAT, TEST_MESH_FLORA, 12 },
+        { BLOCK_MYCELIUM, TEST_MESH_FLORA, 12 },
+        { BLOCK_CHEMO_MAT, TEST_MESH_FLORA, 12 },
+        { BLOCK_LIVING_STEM, TEST_MESH_SOLID, 36 },
+        { BLOCK_CANOPY_FROND, TEST_MESH_WATER, 36 },
+        { BLOCK_LUMINOUS_POD, TEST_MESH_WATER, 36 },
+        { BLOCK_FUNGAL_STEM, TEST_MESH_SOLID, 36 },
+        { BLOCK_SPORE_CAP, TEST_MESH_WATER, 36 },
+        { BLOCK_CRYSTAL_BLOOM, TEST_MESH_SOLID, 36 },
+        { BLOCK_VENT_CHIMNEY, TEST_MESH_SOLID, 36 },
         { BLOCK_SPACESHIP, TEST_MESH_SOLID, 576 },
         { BLOCK_SPACESHIP_CORE_NORTH, TEST_MESH_SOLID, 576 },
         { BLOCK_SPACESHIP_CORE_EAST, TEST_MESH_SOLID, 576 },
@@ -183,6 +199,58 @@ static void AssertSpecialBlockMeshContracts(void)
         TEST_MESH_SOLID, &occupied));
     assert(occupied.vertexCount == 0);
     assert(occupied.vertices == NULL);
+}
+
+static void AssertEcologyPlantMeshShapes(void)
+{
+    typedef struct PlantShapeCase {
+        BlockType type;
+        float expectedHeight;
+        bool carpet;
+    } PlantShapeCase;
+    static const PlantShapeCase cases[] = {
+        { BLOCK_TALL_GRASS, 0.78f, false },
+        { BLOCK_FERN, 0.62f, false },
+        { BLOCK_REED, 0.96f, false },
+        { BLOCK_MOSS_CARPET, 0.0f, true },
+        { BLOCK_LICHEN, 0.30f, false },
+        { BLOCK_MICROBIAL_MAT, 0.0f, true },
+        { BLOCK_MYCELIUM, 0.0f, true },
+        { BLOCK_CHEMO_MAT, 0.0f, true }
+    };
+    static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
+    for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
+        memset(blocks, 0, sizeof(blocks));
+        blocks[5][6][7] = (unsigned short)cases[index].type;
+        Mesh mesh = { 0 };
+        assert(BuildTestMesh(
+            (const unsigned short (*)[CHUNK_SIZE])blocks,
+            TEST_MESH_FLORA, &mesh));
+        AssertMeshWellFormed(&mesh, 12);
+        float minX = INFINITY;
+        float minY = INFINITY;
+        float minZ = INFINITY;
+        float maxX = -INFINITY;
+        float maxY = -INFINITY;
+        float maxZ = -INFINITY;
+        for (int vertex = 0; vertex < mesh.vertexCount; vertex++) {
+            minX = fminf(minX, mesh.vertices[vertex * 3]);
+            minY = fminf(minY, mesh.vertices[vertex * 3 + 1]);
+            minZ = fminf(minZ, mesh.vertices[vertex * 3 + 2]);
+            maxX = fmaxf(maxX, mesh.vertices[vertex * 3]);
+            maxY = fmaxf(maxY, mesh.vertices[vertex * 3 + 1]);
+            maxZ = fmaxf(maxZ, mesh.vertices[vertex * 3 + 2]);
+        }
+        assert(fabsf((maxY - minY) - cases[index].expectedHeight) < 0.0001f);
+        if (cases[index].carpet) {
+            assert(maxX - minX > 0.9f);
+            assert(maxZ - minZ > 0.9f);
+        } else {
+            assert(maxX - minX < 0.6f);
+            assert(maxZ - minZ < 0.6f);
+        }
+        FreeTestMesh(&mesh);
+    }
 }
 
 static void AssertFenceMeshContracts(void)
@@ -609,7 +677,8 @@ static void AssertFloraStructureInstancePartition(void)
         .rootX = 2, .groundY = 3, .rootZ = 2,
         .minX = 0, .minY = 4, .minZ = 0,
         .maxX = 4, .maxY = 8, .maxZ = 4,
-        .primaryBlock = BLOCK_GREEN, .accentBlock = BLOCK_CYAN,
+        .primaryBlock = BLOCK_LIVING_STEM,
+        .accentBlock = BLOCK_CANOPY_FROND,
         .windResponse = 1.0f
     };
     chunk.floraStructures[1] = (FloraStructureInstance){
@@ -618,7 +687,8 @@ static void AssertFloraStructureInstancePartition(void)
         .rootX = 8, .groundY = 3, .rootZ = 2,
         .minX = 7, .minY = 4, .minZ = 1,
         .maxX = 9, .maxY = 6, .maxZ = 3,
-        .primaryBlock = BLOCK_BLUE, .accentBlock = BLOCK_PURPLE,
+        .primaryBlock = BLOCK_CRYSTAL_BLOOM,
+        .accentBlock = BLOCK_CRYSTAL_BLOOM,
         .windResponse = 0.12f
     };
     chunk.floraStructures[2] = (FloraStructureInstance){
@@ -627,7 +697,8 @@ static void AssertFloraStructureInstancePartition(void)
         .rootX = 2, .groundY = 3, .rootZ = 9,
         .minX = 1, .minY = 4, .minZ = 8,
         .maxX = 3, .maxY = 8, .maxZ = 10,
-        .primaryBlock = BLOCK_GREEN, .accentBlock = BLOCK_PURPLE,
+        .primaryBlock = BLOCK_FUNGAL_STEM,
+        .accentBlock = BLOCK_SPORE_CAP,
         .windResponse = 0.65f
     };
     chunk.floraStructures[3] = (FloraStructureInstance){
@@ -636,20 +707,22 @@ static void AssertFloraStructureInstancePartition(void)
         .rootX = 8, .groundY = 3, .rootZ = 9,
         .minX = 7, .minY = 4, .minZ = 9,
         .maxX = 9, .maxY = 7, .maxZ = 10,
-        .primaryBlock = BLOCK_ORANGE, .accentBlock = BLOCK_YELLOW,
+        .primaryBlock = BLOCK_VENT_CHIMNEY,
+        .accentBlock = BLOCK_CHEMO_MAT,
         .windResponse = 0.05f
     };
 
-    ChunkSetLocalBlock(&chunk, 2, 4, 2, BLOCK_GREEN);
+    ChunkSetLocalBlock(&chunk, 2, 6, 2, BLOCK_CANOPY_FROND);
+    ChunkSetLocalBlock(&chunk, 2, 8, 2, BLOCK_LUMINOUS_POD);
     ChunkSetLocalBlock(&chunk, 2, 5, 2, BLOCK_STONE);
     ChunkSetLocalBlock(&chunk, 4, 4, 4, BLOCK_STONE);
-    ChunkSetLocalBlock(&chunk, 8, 4, 2, BLOCK_BLUE);
+    ChunkSetLocalBlock(&chunk, 8, 4, 2, BLOCK_CRYSTAL_BLOOM);
     ChunkSetLocalBlock(&chunk, 8, 5, 2, BLOCK_STONE);
     ChunkSetLocalBlock(&chunk, 9, 5, 3, BLOCK_STONE);
-    ChunkSetLocalBlock(&chunk, 2, 4, 9, BLOCK_MUSHROOM);
+    ChunkSetLocalBlock(&chunk, 2, 6, 9, BLOCK_SPORE_CAP);
     ChunkSetLocalBlock(&chunk, 2, 5, 9, BLOCK_STONE);
     ChunkSetLocalBlock(&chunk, 3, 4, 10, BLOCK_STONE);
-    ChunkSetLocalBlock(&chunk, 8, 4, 9, BLOCK_NETHERRACK);
+    ChunkSetLocalBlock(&chunk, 8, 4, 9, BLOCK_VENT_CHIMNEY);
     ChunkSetLocalBlock(&chunk, 8, 5, 9, BLOCK_STONE);
     ChunkSetLocalBlock(&chunk, 9, 5, 10, BLOCK_STONE);
 
@@ -659,7 +732,7 @@ static void AssertFloraStructureInstancePartition(void)
     assert(BuildChunkFloraMeshData(
         &chunk, faces, NULL, 0, &flora, &instances, &instanceCount));
     assert(instanceCount == 4);
-    const int expectedVertexCounts[4] = { 36, 36, 12, 36 };
+    const int expectedVertexCounts[4] = { 72, 36, 36, 36 };
     int firstVertex = 0;
     for (int index = 0; index < instanceCount; index++) {
         assert(instances[index].firstVertex == firstVertex);
@@ -679,6 +752,22 @@ static void AssertFloraStructureInstancePartition(void)
     }
     assert(flora.vertexCount == firstVertex);
 
+    const ChunkSection *section = ChunkGetSectionConst(&chunk, 0);
+    assert(section);
+    Mesh rawTransparent = { 0 };
+    assert(BuildSurfaceWaterMeshData(
+        (const unsigned short (*)[CHUNK_SIZE])section->blocks, NULL,
+        SURFACE_SECTION_HEIGHT, 0, 0, 0, faces, NULL, 0,
+        &rawTransparent));
+    AssertMeshWellFormed(&rawTransparent, 96);
+    FreeTestMesh(&rawTransparent);
+    Mesh waterWithoutFlora = { 0 };
+    assert(!BuildChunkSurfaceWaterMeshDataWithSnapshot(
+        section->blocks, NULL, 0, 0, 0,
+        chunk.floraStructures, chunk.floraStructureCount,
+        faces, NULL, 0, NULL, &waterWithoutFlora));
+    assert(waterWithoutFlora.vertexCount == 0);
+
     free(instances);
     FreeTestMesh(&flora);
 }
@@ -686,6 +775,7 @@ static void AssertFloraStructureInstancePartition(void)
 int main(void)
 {
     AssertSpecialBlockMeshContracts();
+    AssertEcologyPlantMeshShapes();
     AssertFenceMeshContracts();
     AssertStandardBlockCullingAndPartitions();
     AssertSolidFacesRemainVisibleUnderwater();

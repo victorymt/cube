@@ -178,7 +178,15 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0xcaeb2c6a30589ba2), UINT64_C(0xbafaf9b2623f1490),
     UINT64_C(0x46070567ccfd8102), UINT64_C(0x2f78b6c0b423c2bb),
     UINT64_C(0xf3771ab04c72b99d), UINT64_C(0x2abce7f2d321a876),
-    UINT64_C(0xed3a54d83b3dbb6b), UINT64_C(0xfe409b4b838c94d7)
+    UINT64_C(0xed3a54d83b3dbb6b), UINT64_C(0xfe409b4b838c94d7),
+    UINT64_C(0x7545e3d915f51b1b), UINT64_C(0xf4f26fd836b6b4fc),
+    UINT64_C(0xb9f7073b5655bb02), UINT64_C(0x7381eea200bfc190),
+    UINT64_C(0xe6ff15bad812e07c), UINT64_C(0x55239f9e229372e4),
+    UINT64_C(0x35872746e6516180), UINT64_C(0xe366e75477c5402e),
+    UINT64_C(0x8df048737a6c80d7), UINT64_C(0xf72ba9903c08646c),
+    UINT64_C(0xc5b4ee8637bffe1f), UINT64_C(0x264b4169f4ee7b95),
+    UINT64_C(0xbd95f376cf081b2d), UINT64_C(0x9e0af6cec12d20cd),
+    UINT64_C(0x82e6c2392d9be6fa)
 };
 
 _Static_assert(sizeof(EXPECTED_TILE_HASHES) /
@@ -274,7 +282,7 @@ static void AssertPixelContract(Image image)
         }
     }
     uint64_t atlas = HashRegion(image, 0, 0, image.width, image.height);
-    if (atlas != UINT64_C(0xcea079ed083907f9)) {
+    if (atlas != UINT64_C(0x93db53eaa526f404)) {
         fprintf(stderr, "atlas digest: got 0x%016llx\n",
                 (unsigned long long)atlas);
         matched = false;
@@ -307,12 +315,25 @@ static void AssertMipSafePadding(Image image)
 
 static void AssertTransparentArtwork(Image image)
 {
-    const BlockTexture textures[] = { TEX_FLOWER, TEX_MUSHROOM };
-    for (int index = 0; index < 2; index++) {
+    const BlockTexture textures[] = {
+        TEX_FLOWER, TEX_MUSHROOM, TEX_TALL_GRASS, TEX_FERN,
+        TEX_REED, TEX_LICHEN, TEX_CANOPY_FROND, TEX_LUMINOUS_POD
+    };
+    for (size_t index = 0;
+         index < sizeof(textures) / sizeof(textures[0]); index++) {
         Rectangle source = AtlasSourceRect(textures[index]);
-        assert(GetImageColor(image, (int)source.x, (int)source.y).a == 0);
-        assert(GetImageColor(image, (int)source.x + 7,
-                             (int)source.y + 7).a == 255);
+        bool hasTransparentPixel = false;
+        bool hasVisiblePixel = false;
+        for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
+            for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
+                Color pixel = GetImageColor(
+                    image, (int)source.x + x, (int)source.y + y);
+                hasTransparentPixel |= pixel.a == 0;
+                hasVisiblePixel |= pixel.a > 0;
+            }
+        }
+        assert(hasTransparentPixel);
+        assert(hasVisiblePixel);
     }
 }
 
@@ -340,6 +361,18 @@ static void AssertTextureMapping(void)
         assert(TextureForBlockFace(geologyBlocks[index], 0) ==
                (BlockTexture)(TEX_GRAVEL + index));
     }
+    static const BlockType ecologyBlocks[] = {
+        BLOCK_TALL_GRASS, BLOCK_FERN, BLOCK_REED, BLOCK_MOSS_CARPET,
+        BLOCK_LICHEN, BLOCK_MICROBIAL_MAT, BLOCK_MYCELIUM,
+        BLOCK_LIVING_STEM, BLOCK_CANOPY_FROND, BLOCK_LUMINOUS_POD,
+        BLOCK_FUNGAL_STEM, BLOCK_SPORE_CAP, BLOCK_CRYSTAL_BLOOM,
+        BLOCK_VENT_CHIMNEY, BLOCK_CHEMO_MAT
+    };
+    for (size_t index = 0;
+         index < sizeof(ecologyBlocks) / sizeof(ecologyBlocks[0]); index++) {
+        assert(TextureForBlockFace(ecologyBlocks[index], 0) ==
+               (BlockTexture)(TEX_TALL_GRASS + index));
+    }
     for (int index = 0; index < COLOR_BLOCK_COUNT; index++) {
         BlockType block = (BlockType)(BLOCK_COLOR_START + index);
         assert(TextureForBlockFace(block, 0) ==
@@ -349,7 +382,7 @@ static void AssertTextureMapping(void)
 
 static void AssertNaturalBlockContract(void)
 {
-    static const char *names[] = {
+    static const char *geologyNames[] = {
         "Gravel", "Clay", "Mud", "Mossy Stone",
         "Red Sand", "Basalt", "Copper Ore", "Crystal",
         "Granite", "Limestone", "Shale", "Marble", "Peat",
@@ -358,15 +391,59 @@ static void AssertNaturalBlockContract(void)
         "Silt", "Chalk", "Gneiss", "Laterite", "Scoria", "Regolith",
         "Salt Crust", "Tin Ore", "Silver Ore", "Nickel Ore"
     };
-    assert(BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1 ==
-           (int)(sizeof(names) / sizeof(names[0])));
-    for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
+    assert(BLOCK_TALL_GRASS - BLOCK_NATURAL_START ==
+           (int)(sizeof(geologyNames) / sizeof(geologyNames[0])));
+    for (size_t index = 0;
+         index < sizeof(geologyNames) / sizeof(geologyNames[0]); index++) {
         BlockType type = (BlockType)(BLOCK_NATURAL_START + index);
         assert(IsValidBlockType(type));
-        assert(strcmp(BlockName(type), names[index]) == 0);
+        assert(strcmp(BlockName(type), geologyNames[index]) == 0);
         assert(BlockCollisionHeight(type) == 1.0f);
         assert(!IsTranslucentBlock(type));
+        assert(BlockRenderShapeFor(type) == BLOCK_RENDER_CUBE);
+        assert(!IsPlantBlock(type));
+        assert(!IsEcologyBlock(type));
         assert(BlockBaseColor(type).a == 255);
+    }
+
+    typedef struct EcologyBlockContract {
+        BlockType type;
+        const char *name;
+        BlockRenderShape shape;
+        float collisionHeight;
+        bool translucent;
+    } EcologyBlockContract;
+    static const EcologyBlockContract ecology[] = {
+        { BLOCK_TALL_GRASS, "Tall Grass", BLOCK_RENDER_CROSS, 0.0f, true },
+        { BLOCK_FERN, "Fern", BLOCK_RENDER_CROSS, 0.0f, true },
+        { BLOCK_REED, "Reed", BLOCK_RENDER_CROSS, 0.0f, true },
+        { BLOCK_MOSS_CARPET, "Moss Carpet", BLOCK_RENDER_CARPET, 0.0f, true },
+        { BLOCK_LICHEN, "Lichen", BLOCK_RENDER_CROSS, 0.0f, true },
+        { BLOCK_MICROBIAL_MAT, "Microbial Mat", BLOCK_RENDER_CARPET, 0.0f, true },
+        { BLOCK_MYCELIUM, "Mycelium", BLOCK_RENDER_CARPET, 0.0f, true },
+        { BLOCK_LIVING_STEM, "Living Stem", BLOCK_RENDER_CUBE, 1.0f, false },
+        { BLOCK_CANOPY_FROND, "Canopy Frond", BLOCK_RENDER_CUBE, 1.0f, true },
+        { BLOCK_LUMINOUS_POD, "Luminous Pod", BLOCK_RENDER_CUBE, 1.0f, true },
+        { BLOCK_FUNGAL_STEM, "Fungal Stem", BLOCK_RENDER_CUBE, 1.0f, false },
+        { BLOCK_SPORE_CAP, "Spore Cap", BLOCK_RENDER_CUBE, 1.0f, true },
+        { BLOCK_CRYSTAL_BLOOM, "Crystal Bloom", BLOCK_RENDER_CUBE, 1.0f, false },
+        { BLOCK_VENT_CHIMNEY, "Vent Chimney", BLOCK_RENDER_CUBE, 1.0f, false },
+        { BLOCK_CHEMO_MAT, "Chemosynthetic Mat", BLOCK_RENDER_CARPET, 0.0f, true }
+    };
+    assert(BLOCK_NATURAL_END - BLOCK_TALL_GRASS + 1 ==
+           (int)(sizeof(ecology) / sizeof(ecology[0])));
+    for (size_t index = 0; index < sizeof(ecology) / sizeof(ecology[0]); index++) {
+        const EcologyBlockContract *contract = &ecology[index];
+        assert(contract->type == (BlockType)(BLOCK_TALL_GRASS + index));
+        assert(IsValidBlockType(contract->type));
+        assert(strcmp(BlockName(contract->type), contract->name) == 0);
+        assert(BlockRenderShapeFor(contract->type) == contract->shape);
+        assert(BlockCollisionHeight(contract->type) == contract->collisionHeight);
+        assert(IsTranslucentBlock(contract->type) == contract->translucent);
+        assert(IsPlantBlock(contract->type) ==
+               (contract->shape != BLOCK_RENDER_CUBE));
+        assert(IsEcologyBlock(contract->type));
+        assert(BlockBaseColor(contract->type).a == 255);
     }
 }
 

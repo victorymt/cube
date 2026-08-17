@@ -16,6 +16,7 @@ static bool ceilingEnabled = false;
 static bool stairsEnabled = false;
 static bool waterEnabled = false;
 static bool groundEnabled = false;
+static BlockType ecologyPlant = BLOCK_AIR;
 static bool proceduralWaterEnabled = false;
 static float proceduralWaterSurface = 0.0f;
 static int waterMinY = 1;
@@ -36,6 +37,9 @@ BlockType GetBlockAt(int x, int y, int z)
     }
     if (stairsEnabled && x == 2 && y == 1 && z == 0) {
         return BLOCK_STONE_STAIRS;
+    }
+    if (ecologyPlant != BLOCK_AIR && x == 2 && y == 1 && z == 0) {
+        return ecologyPlant;
     }
     return BLOCK_AIR;
 }
@@ -78,7 +82,9 @@ void ParticlesEmitOne(Vector3 position, Vector3 velocity, Color color,
 float BlockCollisionHeightAt(int x, int y, int z)
 {
     BlockType block = GetBlockAt(x, y, z);
-    return block == BLOCK_AIR || block == BLOCK_WATER ? 0.0f : 1.0f;
+    return block == BLOCK_AIR || block == BLOCK_WATER ||
+           block == BLOCK_TALL_GRASS || block == BLOCK_MOSS_CARPET
+        ? 0.0f : 1.0f;
 }
 
 WorldBlockRegion WorldBlockRegionAt(int y)
@@ -138,6 +144,7 @@ static void ResetCollisionWorld(void)
     stairsEnabled = false;
     waterEnabled = false;
     groundEnabled = false;
+    ecologyPlant = BLOCK_AIR;
     proceduralWaterEnabled = false;
     proceduralWaterSurface = 0.0f;
     waterMinY = 1;
@@ -231,6 +238,22 @@ static void TestNonFiniteMovementIsIgnored(void)
     before = player;
     MovePlayer(&player, (Vector3){ 1.0f, 0.0f, 0.0f });
     assert(memcmp(&player, &before, sizeof(player)) == 0);
+}
+
+static void TestEcologyPlantsDoNotBlockMovement(void)
+{
+    const BlockType plants[] = { BLOCK_TALL_GRASS, BLOCK_MOSS_CARPET };
+    for (size_t index = 0; index < sizeof(plants) / sizeof(plants[0]); index++) {
+        ResetCollisionWorld();
+        ecologyPlant = plants[index];
+        Player player = {
+            .position = { 0.5f, 1.0f, 0.5f },
+            .velocity = { 5.0f, 0.0f, 0.0f },
+            .floating = true
+        };
+        MovePlayer(&player, (Vector3){ 3.0f, 0.0f, 0.0f });
+        assert(player.position.x > 3.0f);
+    }
 }
 
 static void TestInvalidCollisionPositionsAreBlocked(void)
@@ -367,6 +390,7 @@ int main(void)
     TestHugeMovementIsBounded();
     TestSubstepsPreserveStepUp();
     TestNonFiniteMovementIsIgnored();
+    TestEcologyPlantsDoNotBlockMovement();
     TestInvalidCollisionPositionsAreBlocked();
     TestCameraIsPushedOutOfSolidBlocks();
     TestRuntimeStateIsPerPlayer();
