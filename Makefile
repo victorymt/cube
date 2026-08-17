@@ -336,6 +336,11 @@ $(ENTITY_ECOLOGY_TEST_TARGET): tests/test_entity_ecology.c tests/ecology_test_fi
 $(ENTITY_ECOLOGY_TEST_TARGET): src/ecology/evolution.c src/ecology/evolution.h
 $(ENTITY_ECOLOGY_TEST_TARGET): src/space/space_query_cache.c src/space/space_query_cache.h
 
+$(BLOCK_ATLAS_TEST_TARGET) \
+$(CHUNK_ATLAS_TEST_TARGET) \
+$(CHUNK_STREAMING_TEST_TARGET) \
+$(CHUNK_BENCHMARK_TARGET): src/world/block_catalog.h
+
 $(SPACE_PROPERTIES_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET): src/space/solar_catalog.c src/space/solar_catalog.h
 
 $(SPACE_PROPERTIES_TEST_TARGET) \
@@ -344,7 +349,10 @@ $(ECOLOGY_PROPERTIES_TEST_TARGET) \
 $(TERRAIN_SCALE_TEST_TARGET) \
 $(CHUNK_BENCHMARK_TARGET) \
 $(ENTITY_ECOLOGY_TEST_TARGET): \
-	src/world/terrain_geology.c src/world/terrain_geology_internal.h
+	$(TERRAIN_FEATURE_SRC) \
+	src/world/terrain.h \
+	src/world/terrain_geology_internal.h \
+	src/world/terrain_home_materials_internal.h
 
 release-linux: all
 	@set -eu; version=$$(git describe --tags --always --dirty 2>/dev/null || echo dev); out="dist/voxelcraft-linux-$${version}"; rm -rf "$${out}" "$${out}.tar.gz"; mkdir -p "$${out}"; cp $(TARGET) README.md "$${out}/"; cp -R assets "$${out}/"; printf '%s\n' "Voxelcraft Linux build $${version}" > "$${out}/BUILD.txt"; tar -czf "$${out}.tar.gz" -C dist "$$(basename "$${out}")"; sha256sum "$${out}.tar.gz" > "$${out}.tar.gz.sha256"; printf 'release=%s\narchive=%s.tar.gz\n' "$${version}" "$${out}";

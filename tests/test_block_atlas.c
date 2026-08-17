@@ -359,11 +359,35 @@ static void AssertNaturalBlockContract(void)
     }
 }
 
+static void AssertBlockCatalogCompleteness(void)
+{
+    for (int value = BLOCK_AIR; value <= BLOCK_NATURAL_END; value++) {
+        BlockType type = (BlockType)value;
+        const char *name = BlockName(type);
+        assert(IsValidBlockType(type));
+        assert(name != NULL && name[0] != '\0');
+        assert(type == BLOCK_AIR || strcmp(name, "Air") != 0);
+        assert(BlockBaseColor(type).a == 255);
+        for (int face = 0; face < 6; face++) {
+            BlockTexture texture = TextureForBlockFace(type, face);
+            assert(texture >= 0 && texture < TEX_COUNT);
+        }
+    }
+
+    BlockType invalid = (BlockType)(BLOCK_NATURAL_END + 1);
+    Color fallback = BlockBaseColor(invalid);
+    assert(strcmp(BlockName(invalid), "Air") == 0);
+    assert(fallback.r == 118 && fallback.g == 122 &&
+           fallback.b == 124 && fallback.a == 255);
+    assert(TextureForBlockFace(invalid, 0) == TEX_DIRT);
+}
+
 int main(void)
 {
     AssertAtlasCoordinates();
     AssertTextureMapping();
     AssertNaturalBlockContract();
+    AssertBlockCatalogCompleteness();
 
     Image first = GenerateAtlas();
     Image second = GenerateAtlas();

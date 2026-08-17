@@ -3,6 +3,7 @@
 #include "world/subsurface.h"
 #include "world/surface_topology.h"
 #include "world/terrain_geology_internal.h"
+#include "world/terrain_home_materials_internal.h"
 
 #include "gameplay/discovery.h"
 #include "ecology/ecology.h"
@@ -1698,151 +1699,6 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
     PlanetPoiApplyToChunk(chunk, cx, cz);
 }
 
-static bool HomeRedSandAt(int worldX, int worldZ)
-{
-    return WorldHash2D(FloorDivInt(worldX, 10) + 947,
-                       FloorDivInt(worldZ, 10) - 947) % 3u == 0u;
-}
-
-static bool HomeWetSoilAt(const SurfaceTerrainSample *surface)
-{
-    if (!surface) return false;
-    return (surface->biome == BIOME_PLAINS ||
-            surface->biome == BIOME_FOREST) &&
-           surface->elevation <= (float)HOME_SEA_LEVEL + 6.0f &&
-           surface->continentalness < 0.56f;
-}
-
-static float HomeGeologyField(int worldX, int y, int worldZ,
-                              unsigned int lane)
-{
-    float fx = (float)worldX * 0.0085f + (float)y * 0.0041f;
-    float fz = (float)worldZ * 0.0085f - (float)y * 0.0037f;
-    return WorldValueNoise2D(fx, fz, lane);
-}
-
-static bool HomeSaltDepositAt(int worldX, int worldZ)
-{
-    return WorldValueNoise2D((float)worldX * 0.010f,
-                             (float)worldZ * 0.010f, 887u) > 0.74f;
-}
-
-static bool HomePeatDepositAt(int worldX, int worldZ)
-{
-    return WorldValueNoise2D((float)worldX * 0.014f,
-                             (float)worldZ * 0.014f, 941u) > 0.48f;
-}
-
-static BlockType HomeRockBlock(int worldX, int y, int worldZ, int height,
-                               Biome biome)
-{
-    BlockType type = StoneOrCaveBlock(worldX, y, worldZ, height);
-    int depth = height - y;
-    if (type != BLOCK_STONE) return type;
-    return TerrainGeologyHomeStoneBlock(
-        biome, depth, HomeGeologyField(worldX, y, worldZ, 733u),
-        HomeGeologyField(worldX, y, worldZ, 811u));
-}
-
-static BlockType HomeTerrainBaseBlockFromSample(
-    int worldX, int y, int worldZ, TerrainMode mode,
-    const SurfaceTerrainSample *surface, int seaLevel)
-{
-    if (!surface || !InHeight(y) ||
-        y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE ||
-        (mode == TERRAIN_FLAT && y < SURFACE_GENERATION_MIN_Y)) {
-        return BLOCK_AIR;
-    }
-    int height = (int)lroundf(surface->elevation);
-    Biome biome = surface->biome;
-    bool submerged = seaLevel >= 0 && height < seaLevel;
-    bool redSand = biome == BIOME_DESERT &&
-                   HomeRedSandAt(worldX, worldZ);
-    bool wetSoil = HomeWetSoilAt(surface);
-    bool peat = y <= height && wetSoil && y >= height - 4 &&
-                HomePeatDepositAt(worldX, worldZ);
-    bool salt = y <= height && (biome == BIOME_DESERT || submerged) &&
-                y >= height - 6 &&
-                HomeSaltDepositAt(worldX, worldZ);
-
-    if (y > height) {
-        if (!submerged || y > seaLevel) return BLOCK_AIR;
-        return biome == BIOME_SNOW && y == seaLevel
-            ? BLOCK_ICE : BLOCK_WATER;
-    }
-
-    BlockType type = BLOCK_STONE;
-    if (mode == TERRAIN_FLAT) {
-        type = y == height ? BLOCK_GRASS : BLOCK_DIRT;
-    } else if (y == SURFACE_MIN_Y || (!submerged && y == 0)) {
-        type = BLOCK_BEDROCK;
-    } else if (submerged) {
-        int sedimentDepth = 2;
-        if (surface->bathymetry.zone == BATHYMETRY_ZONE_COAST ||
-            surface->bathymetry.zone == BATHYMETRY_ZONE_SHELF) {
-            sedimentDepth = 6;
-        } else if (surface->bathymetry.zone == BATHYMETRY_ZONE_SLOPE ||
-                   surface->bathymetry.zone ==
-                       BATHYMETRY_ZONE_ABYSSAL_PLAIN) {
-            sedimentDepth = 4;
-        }
-        if (y > height - sedimentDepth) {
-            type = BathymetryMaterialBlock(surface->bathymetry.material);
-            if ((surface->bathymetry.zone == BATHYMETRY_ZONE_COAST ||
-                 surface->bathymetry.zone == BATHYMETRY_ZONE_SHELF) &&
-                surface->bathymetry.material == BATHYMETRY_MATERIAL_SAND &&
-                salt) {
-                type = BLOCK_ROCK_SALT;
-            } else if ((surface->bathymetry.zone == BATHYMETRY_ZONE_COAST ||
-                        surface->bathymetry.zone == BATHYMETRY_ZONE_SHELF) &&
-                surface->bathymetry.material == BATHYMETRY_MATERIAL_SAND &&
-                WorldHash2D(FloorDivInt(worldX, 6) + 313,
-                            FloorDivInt(worldZ, 6) - 197) % 5u == 0u) {
-                type = BLOCK_CLAY;
-            }
-        } else {
-            type = HomeRockBlock(worldX, y, worldZ, height, biome);
-        }
-    } else if (y < height) {
-        if (biome == BIOME_DESERT) {
-            type = y > height - 3
-                ? (salt ? BLOCK_ROCK_SALT
-                        : (redSand ? BLOCK_RED_SAND : BLOCK_SAND))
-                : HomeRockBlock(worldX, y, worldZ, height, biome);
-        } else if (biome == BIOME_SNOW) {
-            type = y > height - 3
-                ? BLOCK_PERMAFROST
-                : HomeRockBlock(worldX, y, worldZ, height, biome);
-        } else if (biome == BIOME_MOUNTAIN) {
-            type = y > height - 4 && height < 24
-                ? BLOCK_DIRT
-                : HomeRockBlock(worldX, y, worldZ, height, biome);
-        } else {
-            type = y > height - 4
-                ? (peat ? BLOCK_PEAT : (wetSoil ? BLOCK_MUD : BLOCK_DIRT))
-                : HomeRockBlock(worldX, y, worldZ, height, biome);
-        }
-    } else if (biome == BIOME_DESERT) {
-        type = salt ? BLOCK_ROCK_SALT
-                    : (redSand ? BLOCK_RED_SAND : BLOCK_SAND);
-    } else if (biome == BIOME_SNOW) {
-        type = BLOCK_SNOW;
-    } else if (biome == BIOME_MOUNTAIN) {
-        type = height >= 165 ? BLOCK_SNOW
-                             : (height >= 125 ? BLOCK_STONE : BLOCK_GRASS);
-    } else {
-        type = peat ? BLOCK_PEAT : (wetSoil ? BLOCK_MUD : BLOCK_GRASS);
-    }
-
-    if (mode != TERRAIN_FLAT && y == height - 2 &&
-        CaveWaterAt(worldX, y, worldZ, height) &&
-        CaveAt(worldX, y, worldZ, height) &&
-        !CaveAt(worldX, y - 1, worldZ, height)) {
-        return BLOCK_WATER;
-    }
-    return type;
-}
-
 BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
 {
     if (!InHeight(y) || y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE ||
@@ -1850,7 +1706,7 @@ BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
         return BLOCK_AIR;
     }
     SurfaceTerrainSample surface = SurfaceTerrainAt(x, z, mode);
-    return HomeTerrainBaseBlockFromSample(
+    return TerrainHomeBaseBlockFromSample(
         x, y, z, mode, &surface, TerrainSeaLevel(mode));
 }
 
@@ -1891,7 +1747,7 @@ static bool GenerateChunkTerrainSectionBaseFromSamples(
             int worldX = startX + lx;
             int worldZ = startZ + lz;
             for (int y = firstY; y < lastY; y++) {
-                BlockType type = HomeTerrainBaseBlockFromSample(
+                BlockType type = TerrainHomeBaseBlockFromSample(
                     worldX, y, worldZ, mode, &samples[lx][lz], seaLevel);
                 if (type != BLOCK_AIR &&
                     !ChunkSetLocalBlock(chunk, lx, y, lz, type)) {

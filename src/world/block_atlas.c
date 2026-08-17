@@ -2,6 +2,7 @@
 
 #include "raymath.h"
 #include "rlgl.h"
+#include "world/block_catalog.h"
 #include "world/world.h"
 
 #include <stdbool.h>
@@ -885,98 +886,10 @@ BlockTexture TextureForBlockFace(BlockType type, int face)
     if (IsColorBlock(type)) {
         return (BlockTexture)(TEX_COLOR_START + ColorBlockIndex(type));
     }
-
-    switch (type) {
-    case BLOCK_GRASS:
-        if (face == 2) return TEX_GRASS_TOP;
-        if (face == 3) return TEX_DIRT;
-        return TEX_GRASS_SIDE;
-    case BLOCK_DIRT: return TEX_DIRT;
-    case BLOCK_STONE: return TEX_STONE;
-    case BLOCK_WOOD:
-        if (face == 2 || face == 3) return TEX_WOOD_TOP;
-        return TEX_WOOD_SIDE;
-    case BLOCK_SAND: return TEX_SAND;
-    case BLOCK_LEAVES: return TEX_LEAVES;
-    case BLOCK_RED: return TEX_RED;
-    case BLOCK_ORANGE: return TEX_ORANGE;
-    case BLOCK_YELLOW: return TEX_YELLOW;
-    case BLOCK_BLUE: return TEX_BLUE;
-    case BLOCK_PURPLE: return TEX_PURPLE;
-    case BLOCK_GREEN: return TEX_GREEN;
-    case BLOCK_CYAN: return TEX_CYAN;
-    case BLOCK_PINK: return TEX_PINK;
-    case BLOCK_WHITE: return TEX_WHITE;
-    case BLOCK_GRAY: return TEX_GRAY;
-    case BLOCK_BLACK: return TEX_BLACK;
-    case BLOCK_PLANK: return TEX_PLANK;
-    case BLOCK_BRICK: return TEX_BRICK;
-    case BLOCK_GLASS: return TEX_GLASS;
-    case BLOCK_WATER: return TEX_WATER;
-    case BLOCK_SNOW: return TEX_SNOW;
-    case BLOCK_ICE: return TEX_ICE;
-    case BLOCK_CACTUS: return TEX_CACTUS;
-    case BLOCK_BEDROCK: return TEX_BEDROCK;
-    case BLOCK_COAL_ORE: return TEX_COAL_ORE;
-    case BLOCK_IRON_ORE: return TEX_IRON_ORE;
-    case BLOCK_GOLD_ORE: return TEX_GOLD_ORE;
-    case BLOCK_DIAMOND_ORE: return TEX_DIAMOND_ORE;
-    case BLOCK_TORCH: return TEX_TORCH;
-    case BLOCK_ALBUM: return TEX_ALBUM;
-    case BLOCK_SLAB: return TEX_STONE;
-    case BLOCK_DOOR:
-    case BLOCK_DOOR_OPEN: return TEX_DOOR;
-    case BLOCK_MOON_ROCK: return TEX_MOON_ROCK;
-    case BLOCK_METEORITE: return TEX_METEORITE;
-    case BLOCK_MOON_SAND: return TEX_MOON_SAND;
-    case BLOCK_STAR_MATTER: return TEX_STAR_MATTER;
-    case BLOCK_SPACESHIP: return TEX_SPACESHIP;
-    case BLOCK_STONE_STAIRS: return TEX_STONE;
-    case BLOCK_WOOD_STAIRS: return TEX_PLANK;
-    case BLOCK_FENCE:
-    case BLOCK_FENCE_GATE:
-    case BLOCK_FENCE_GATE_OPEN: return TEX_FENCE;
-    case BLOCK_GLASS_PANE: return TEX_GLASS;
-    case BLOCK_LAVA: return TEX_LAVA;
-    case BLOCK_FLOWER: return TEX_FLOWER;
-    case BLOCK_MUSHROOM: return TEX_MUSHROOM;
-    case BLOCK_BOOKSHELF: return TEX_BOOKSHELF;
-    case BLOCK_HAY_BALE: return TEX_HAY;
-    case BLOCK_PUMPKIN: return TEX_PUMPKIN;
-    case BLOCK_NETHERRACK: return TEX_NETHERRACK;
-    case BLOCK_SOUL_SAND: return TEX_SOUL_SAND;
-    case BLOCK_GLOWSTONE: return TEX_GLOWSTONE;
-    case BLOCK_STONE_BRICKS: return TEX_STONE_BRICKS;
-    case BLOCK_SANDSTONE: return TEX_SANDSTONE;
-    case BLOCK_OBSIDIAN: return TEX_OBSIDIAN;
-    case BLOCK_NETHER_PORTAL: return TEX_NETHER_PORTAL;
-    case BLOCK_SPACESHIP_CORE_NORTH:
-    case BLOCK_SPACESHIP_CORE_EAST:
-    case BLOCK_SPACESHIP_CORE_SOUTH:
-    case BLOCK_SPACESHIP_CORE_WEST:
-    case BLOCK_SPACESHIP_OCCUPIED: return TEX_SPACESHIP;
-    case BLOCK_GRAVEL: return TEX_GRAVEL;
-    case BLOCK_CLAY: return TEX_CLAY;
-    case BLOCK_MUD: return TEX_MUD;
-    case BLOCK_MOSSY_STONE: return TEX_MOSSY_STONE;
-    case BLOCK_RED_SAND: return TEX_RED_SAND;
-    case BLOCK_BASALT: return TEX_BASALT;
-    case BLOCK_COPPER_ORE: return TEX_COPPER_ORE;
-    case BLOCK_CRYSTAL: return TEX_CRYSTAL;
-    case BLOCK_GRANITE: return TEX_GRANITE;
-    case BLOCK_LIMESTONE: return TEX_LIMESTONE;
-    case BLOCK_SHALE: return TEX_SHALE;
-    case BLOCK_MARBLE: return TEX_MARBLE;
-    case BLOCK_PEAT: return TEX_PEAT;
-    case BLOCK_PERMAFROST: return TEX_PERMAFROST;
-    case BLOCK_ROCK_SALT: return TEX_ROCK_SALT;
-    case BLOCK_VOLCANIC_ASH: return TEX_VOLCANIC_ASH;
-    case BLOCK_PUMICE: return TEX_PUMICE;
-    case BLOCK_SULFUR_ORE: return TEX_SULFUR_ORE;
-    case BLOCK_PACKED_ICE: return TEX_PACKED_ICE;
-    case BLOCK_QUARTZ_ORE: return TEX_QUARTZ_ORE;
-    default: return TEX_DIRT;
-    }
+    const BlockCatalogEntry *entry = BlockCatalogGet(type);
+    if (face == 2) return entry->topTexture;
+    if (face == 3) return entry->bottomTexture;
+    return entry->sideTexture;
 }
 
 void AtlasUVs(BlockTexture texture, Vector2 uvs[6])

@@ -2,6 +2,7 @@
 #include "world/world.h"
 
 #include "raymath.h"
+#include "world/block_catalog.h"
 #include "world/chunks.h"
 #include "gameplay/player.h"
 #include "space/space.h"
@@ -155,93 +156,7 @@ float importMessageTimer = 8.0f;
 const char *BlockName(BlockType type)
 {
     if (type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END) return TextFormat("Color %03d", (int)type - BLOCK_COLOR_START);
-
-    switch (type) {
-    case BLOCK_GRASS: return "Grass";
-    case BLOCK_DIRT: return "Dirt";
-    case BLOCK_STONE: return "Stone";
-    case BLOCK_WOOD: return "Wood";
-    case BLOCK_SAND: return "Sand";
-    case BLOCK_LEAVES: return "Leaves";
-    case BLOCK_RED: return "Red";
-    case BLOCK_ORANGE: return "Orange";
-    case BLOCK_YELLOW: return "Yellow";
-    case BLOCK_BLUE: return "Blue";
-    case BLOCK_PURPLE: return "Purple";
-    case BLOCK_GREEN: return "Green";
-    case BLOCK_CYAN: return "Cyan";
-    case BLOCK_PINK: return "Pink";
-    case BLOCK_WHITE: return "White";
-    case BLOCK_GRAY: return "Gray";
-    case BLOCK_BLACK: return "Black";
-    case BLOCK_PLANK: return "Plank";
-    case BLOCK_BRICK: return "Brick";
-    case BLOCK_GLASS: return "Glass";
-    case BLOCK_WATER: return "Water";
-    case BLOCK_SNOW: return "Snow";
-    case BLOCK_ICE: return "Ice";
-    case BLOCK_CACTUS: return "Cactus";
-    case BLOCK_BEDROCK: return "Bedrock";
-    case BLOCK_COAL_ORE: return "Coal Ore";
-    case BLOCK_IRON_ORE: return "Iron Ore";
-    case BLOCK_GOLD_ORE: return "Gold Ore";
-    case BLOCK_DIAMOND_ORE: return "Diamond Ore";
-    case BLOCK_TORCH: return "Torch";
-    case BLOCK_ALBUM: return "Album";
-    case BLOCK_SLAB: return "Stone Slab";
-    case BLOCK_DOOR: return "Door";
-    case BLOCK_DOOR_OPEN: return "Open Door";
-    case BLOCK_MOON_ROCK: return "Moon Rock";
-    case BLOCK_METEORITE: return "Meteorite";
-    case BLOCK_MOON_SAND: return "Moon Sand";
-    case BLOCK_STAR_MATTER: return "Star Matter";
-    case BLOCK_SPACESHIP: return "Spaceship";
-    case BLOCK_STONE_STAIRS: return "Stone Stairs";
-    case BLOCK_WOOD_STAIRS: return "Wood Stairs";
-    case BLOCK_FENCE: return "Fence";
-    case BLOCK_FENCE_GATE: return "Fence Gate";
-    case BLOCK_FENCE_GATE_OPEN: return "Open Fence Gate";
-    case BLOCK_GLASS_PANE: return "Glass Pane";
-    case BLOCK_LAVA: return "Lava";
-    case BLOCK_FLOWER: return "Flower";
-    case BLOCK_MUSHROOM: return "Mushroom";
-    case BLOCK_BOOKSHELF: return "Bookshelf";
-    case BLOCK_HAY_BALE: return "Hay Bale";
-    case BLOCK_PUMPKIN: return "Pumpkin";
-    case BLOCK_NETHERRACK: return "Netherrack";
-    case BLOCK_SOUL_SAND: return "Soul Sand";
-    case BLOCK_GLOWSTONE: return "Glowstone";
-    case BLOCK_STONE_BRICKS: return "Stone Bricks";
-    case BLOCK_SANDSTONE: return "Sandstone";
-    case BLOCK_OBSIDIAN: return "Obsidian";
-    case BLOCK_NETHER_PORTAL: return "Nether Portal";
-    case BLOCK_SPACESHIP_CORE_NORTH:
-    case BLOCK_SPACESHIP_CORE_EAST:
-    case BLOCK_SPACESHIP_CORE_SOUTH:
-    case BLOCK_SPACESHIP_CORE_WEST:
-    case BLOCK_SPACESHIP_OCCUPIED: return "Spaceship";
-    case BLOCK_GRAVEL: return "Gravel";
-    case BLOCK_CLAY: return "Clay";
-    case BLOCK_MUD: return "Mud";
-    case BLOCK_MOSSY_STONE: return "Mossy Stone";
-    case BLOCK_RED_SAND: return "Red Sand";
-    case BLOCK_BASALT: return "Basalt";
-    case BLOCK_COPPER_ORE: return "Copper Ore";
-    case BLOCK_CRYSTAL: return "Crystal";
-    case BLOCK_GRANITE: return "Granite";
-    case BLOCK_LIMESTONE: return "Limestone";
-    case BLOCK_SHALE: return "Shale";
-    case BLOCK_MARBLE: return "Marble";
-    case BLOCK_PEAT: return "Peat";
-    case BLOCK_PERMAFROST: return "Permafrost";
-    case BLOCK_ROCK_SALT: return "Rock Salt";
-    case BLOCK_VOLCANIC_ASH: return "Volcanic Ash";
-    case BLOCK_PUMICE: return "Pumice";
-    case BLOCK_SULFUR_ORE: return "Sulfur Ore";
-    case BLOCK_PACKED_ICE: return "Packed Ice";
-    case BLOCK_QUARTZ_ORE: return "Quartz Ore";
-    default: return "Air";
-    }
+    return BlockCatalogGet(type)->name;
 }
 
 bool IsColorBlock(BlockType type)
@@ -318,93 +233,7 @@ Color ColorPalette256(int index)
 Color BlockBaseColor(BlockType type)
 {
     if (IsColorBlock(type)) return ColorPalette256(ColorBlockIndex(type));
-
-    switch (type) {
-    case BLOCK_GRASS: return (Color){ 84, 170, 67, 255 };
-    case BLOCK_DIRT: return (Color){ 121, 77, 43, 255 };
-    case BLOCK_WOOD: return (Color){ 142, 91, 42, 255 };
-    case BLOCK_LEAVES: return (Color){ 46, 128, 55, 255 };
-    case BLOCK_SAND: return (Color){ 214, 197, 132, 255 };
-    case BLOCK_RED: return (Color){ 207, 55, 54, 255 };
-    case BLOCK_ORANGE: return (Color){ 229, 126, 38, 255 };
-    case BLOCK_YELLOW: return (Color){ 238, 207, 64, 255 };
-    case BLOCK_BLUE: return (Color){ 51, 116, 220, 255 };
-    case BLOCK_PURPLE: return (Color){ 143, 72, 202, 255 };
-    case BLOCK_GREEN: return (Color){ 64, 185, 85, 255 };
-    case BLOCK_CYAN: return (Color){ 47, 188, 207, 255 };
-    case BLOCK_PINK: return (Color){ 226, 96, 161, 255 };
-    case BLOCK_WHITE: return (Color){ 232, 235, 224, 255 };
-    case BLOCK_GRAY: return (Color){ 112, 119, 126, 255 };
-    case BLOCK_BLACK: return (Color){ 28, 31, 35, 255 };
-    case BLOCK_PLANK: return (Color){ 156, 100, 48, 255 };
-    case BLOCK_BRICK: return (Color){ 148, 62, 48, 255 };
-    case BLOCK_GLASS: return (Color){ 205, 230, 235, 255 };
-    case BLOCK_WATER: return (Color){ 52, 118, 205, 255 };
-    case BLOCK_SNOW: return (Color){ 238, 244, 246, 255 };
-    case BLOCK_ICE: return (Color){ 148, 205, 226, 255 };
-    case BLOCK_CACTUS: return (Color){ 78, 152, 62, 255 };
-    case BLOCK_BEDROCK: return (Color){ 58, 58, 64, 255 };
-    case BLOCK_COAL_ORE: return (Color){ 90, 92, 96, 255 };
-    case BLOCK_IRON_ORE: return (Color){ 190, 152, 108, 255 };
-    case BLOCK_GOLD_ORE: return (Color){ 232, 196, 64, 255 };
-    case BLOCK_DIAMOND_ORE: return (Color){ 92, 214, 232, 255 };
-    case BLOCK_TORCH: return (Color){ 255, 186, 62, 255 };
-    case BLOCK_ALBUM: return (Color){ 118, 76, 42, 255 };
-    case BLOCK_SLAB: return (Color){ 118, 122, 124, 255 };
-    case BLOCK_DOOR: return (Color){ 156, 104, 52, 255 };
-    case BLOCK_DOOR_OPEN: return (Color){ 140, 92, 46, 255 };
-    case BLOCK_MOON_ROCK: return (Color){ 138, 142, 148, 255 };
-    case BLOCK_METEORITE: return (Color){ 92, 78, 70, 255 };
-    case BLOCK_MOON_SAND: return (Color){ 190, 186, 176, 255 };
-    case BLOCK_STAR_MATTER: return (Color){ 238, 236, 222, 255 };
-    case BLOCK_SPACESHIP: return (Color){ 196, 202, 210, 255 };
-    case BLOCK_STONE_STAIRS: return (Color){ 118, 122, 124, 255 };
-    case BLOCK_WOOD_STAIRS: return (Color){ 156, 100, 48, 255 };
-    case BLOCK_FENCE: return (Color){ 150, 98, 50, 255 };
-    case BLOCK_FENCE_GATE: return (Color){ 150, 98, 50, 255 };
-    case BLOCK_FENCE_GATE_OPEN: return (Color){ 138, 90, 46, 255 };
-    case BLOCK_GLASS_PANE: return (Color){ 205, 230, 235, 255 };
-    case BLOCK_LAVA: return (Color){ 224, 96, 24, 255 };
-    case BLOCK_FLOWER: return (Color){ 208, 62, 54, 255 };
-    case BLOCK_MUSHROOM: return (Color){ 196, 52, 46, 255 };
-    case BLOCK_BOOKSHELF: return (Color){ 118, 76, 40, 255 };
-    case BLOCK_HAY_BALE: return (Color){ 218, 172, 66, 255 };
-    case BLOCK_PUMPKIN: return (Color){ 224, 138, 42, 255 };
-    case BLOCK_NETHERRACK: return (Color){ 116, 48, 42, 255 };
-    case BLOCK_SOUL_SAND: return (Color){ 124, 106, 88, 255 };
-    case BLOCK_GLOWSTONE: return (Color){ 250, 220, 110, 255 };
-    case BLOCK_STONE_BRICKS: return (Color){ 138, 140, 142, 255 };
-    case BLOCK_SANDSTONE: return (Color){ 216, 200, 150, 255 };
-    case BLOCK_OBSIDIAN: return (Color){ 22, 16, 30, 255 };
-    case BLOCK_NETHER_PORTAL: return (Color){ 158, 52, 190, 255 };
-    case BLOCK_SPACESHIP_CORE_NORTH:
-    case BLOCK_SPACESHIP_CORE_EAST:
-    case BLOCK_SPACESHIP_CORE_SOUTH:
-    case BLOCK_SPACESHIP_CORE_WEST:
-    case BLOCK_SPACESHIP_OCCUPIED: return (Color){ 196, 202, 210, 255 };
-    case BLOCK_GRAVEL: return (Color){ 112, 108, 104, 255 };
-    case BLOCK_CLAY: return (Color){ 151, 164, 170, 255 };
-    case BLOCK_MUD: return (Color){ 91, 68, 48, 255 };
-    case BLOCK_MOSSY_STONE: return (Color){ 92, 112, 76, 255 };
-    case BLOCK_RED_SAND: return (Color){ 184, 96, 54, 255 };
-    case BLOCK_BASALT: return (Color){ 58, 61, 66, 255 };
-    case BLOCK_COPPER_ORE: return (Color){ 184, 112, 72, 255 };
-    case BLOCK_CRYSTAL: return (Color){ 126, 188, 212, 255 };
-    case BLOCK_GRANITE: return (Color){ 126, 113, 108, 255 };
-    case BLOCK_LIMESTONE: return (Color){ 188, 183, 157, 255 };
-    case BLOCK_SHALE: return (Color){ 75, 82, 86, 255 };
-    case BLOCK_MARBLE: return (Color){ 211, 211, 205, 255 };
-    case BLOCK_PEAT: return (Color){ 67, 50, 38, 255 };
-    case BLOCK_PERMAFROST: return (Color){ 126, 137, 139, 255 };
-    case BLOCK_ROCK_SALT: return (Color){ 218, 207, 198, 255 };
-    case BLOCK_VOLCANIC_ASH: return (Color){ 73, 68, 67, 255 };
-    case BLOCK_PUMICE: return (Color){ 167, 157, 143, 255 };
-    case BLOCK_SULFUR_ORE: return (Color){ 206, 183, 50, 255 };
-    case BLOCK_PACKED_ICE: return (Color){ 101, 164, 193, 255 };
-    case BLOCK_QUARTZ_ORE: return (Color){ 205, 196, 205, 255 };
-    case BLOCK_STONE:
-    default: return (Color){ 118, 122, 124, 255 };
-    }
+    return BlockCatalogGet(type)->baseColor;
 }
 
 unsigned int HashBlockCoord(uint32_t dimension, int x, int y, int z)
