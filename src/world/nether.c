@@ -1,5 +1,6 @@
 #include "world/nether.h"
 
+#include "presentation/render_resources.h"
 #include "raymath.h"
 #include "world/chunks.h"
 #include "world/terrain.h"

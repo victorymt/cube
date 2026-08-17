@@ -23,6 +23,14 @@ typedef struct PauseMenuActions {
     bool qualityChanged;
 } PauseMenuActions;
 
+typedef struct PauseMenuSettings {
+    GraphicsQuality graphicsQuality;
+    float masterVolume;
+    float ambientVolume;
+    float musicVolume;
+    bool musicEnabled;
+} PauseMenuSettings;
+
 typedef struct HudFrameState {
     float dayTime;
     float shipSpeed;
@@ -128,7 +136,7 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance);
 void DrawCursorReleasedOverlay(void);
 void DrawImportStatus(void);
 void DrawImportDialog(ImportDialog *dialog);
-void DrawPauseMenu(GameSettings *settings, PauseMenuActions *actions);
+void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions);
 void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight,
                   const PlanetLightState *light,
                   const PlanetObservationState *observation,

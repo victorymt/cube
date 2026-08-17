@@ -89,6 +89,7 @@ TEST_TARGETS += $(MAP_MARKERS_TEST_TARGET)
 TEST_TARGETS += $(SAVE_FORMAT_TEST_TARGET)
 TEST_TARGETS += $(GAME_DEBUG_TRACE_TEST_TARGET)
 TEST_TARGETS += $(GAME_STREAM_AUDIT_TEST_TARGET)
+TEST_HEADERS := $(sort $(wildcard src/*/*.h) $(wildcard tests/*.h))
 TEST_TIMEOUT_SECONDS ?= 120
 SANITIZER_LEAKS ?= 1
 SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=address,undefined -fno-omit-frame-pointer
@@ -113,7 +114,10 @@ $(OBJ_DIR)/%.o: src/%.c
 
 -include $(DEP)
 
-$(TEST_TARGETS) $(CHUNK_BENCHMARK_TARGET): | $(TEST_BUILD_DIR)
+# Test executables currently compile focused source closures in one command.
+# Depend on every project header so a transitive header change cannot reuse a
+# stale binary while those closures are migrated to per-source test objects.
+$(TEST_TARGETS) $(CHUNK_BENCHMARK_TARGET): $(TEST_HEADERS) | $(TEST_BUILD_DIR)
 
 run: $(TARGET)
 	./$(TARGET)
@@ -294,8 +298,8 @@ $(CHUNK_BENCHMARK_TARGET): tests/benchmark_chunks.c src/world/block_atlas.c src/
 benchmark-chunks: $(CHUNK_BENCHMARK_TARGET)
 	./$(CHUNK_BENCHMARK_TARGET)
 
-$(PERF_TEST_TARGET): tests/test_perf.c src/core/perf.c src/core/perf.h src/world/chunks.h src/presentation/render_resources.c src/presentation/render_resources.h
-	$(CC) $(CFLAGS) -DPERF_TESTING $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_perf.c src/core/perf.c src/presentation/render_resources.c $(RAYLIB_LIBS) -lm
+$(PERF_TEST_TARGET): tests/test_perf.c src/core/perf.c src/core/perf.h src/core/perf_metrics.h
+	$(CC) $(CFLAGS) -DPERF_TESTING $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_perf.c src/core/perf.c $(RAYLIB_LIBS) -lm
 
 $(RENDER_SORT_TEST_TARGET): tests/test_render_sort.c src/presentation/render_sort.c src/presentation/render_sort.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_render_sort.c src/presentation/render_sort.c
@@ -306,11 +310,11 @@ $(RENDER_RESOURCES_TEST_TARGET): tests/test_render_resources.c src/presentation/
 $(RENDER_UI_TEST_TARGET): tests/test_render_ui.c src/presentation/render_ui.c src/presentation/render_ui.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_render_ui.c src/presentation/render_ui.c $(RAYLIB_LIBS) -lm
 
-$(WORLD_RENDERER_TEST_TARGET): tests/test_world_renderer.c src/presentation/world_renderer.c src/presentation/world_renderer.h src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h
-	$(CC) $(CFLAGS) -DWORLD_RENDERER_TESTING $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_renderer.c src/presentation/world_renderer.c src/app/game_settings.c src/core/save_io.c $(RAYLIB_LIBS) -lm
+$(WORLD_RENDERER_TEST_TARGET): tests/test_world_renderer.c src/presentation/world_renderer.c src/presentation/world_renderer.h src/presentation/render_quality.c src/presentation/render_quality.h
+	$(CC) $(CFLAGS) -DWORLD_RENDERER_TESTING $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_renderer.c src/presentation/world_renderer.c src/presentation/render_quality.c $(RAYLIB_LIBS) -lm
 
-$(WORLD_LIGHTING_TEST_TARGET): tests/test_world_lighting.c src/world/world_lighting.c src/world/world_lighting.h src/presentation/world_renderer.c src/presentation/world_renderer.h src/presentation/environment_presentation.c src/presentation/environment_presentation.h src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h
-	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_lighting.c src/world/world_lighting.c src/presentation/world_renderer.c src/presentation/environment_presentation.c src/app/game_settings.c src/core/save_io.c $(RAYLIB_LIBS) -lm
+$(WORLD_LIGHTING_TEST_TARGET): tests/test_world_lighting.c src/world/world_lighting.c src/world/world_lighting.h src/presentation/world_renderer.c src/presentation/world_renderer.h src/presentation/environment_presentation.c src/presentation/environment_presentation.h src/presentation/render_quality.c src/presentation/render_quality.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_lighting.c src/world/world_lighting.c src/presentation/world_renderer.c src/presentation/environment_presentation.c src/presentation/render_quality.c $(RAYLIB_LIBS) -lm
 
 $(SAVE_IO_TEST_TARGET): tests/test_save_io.c src/core/save_io.c src/core/save_io.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_save_io.c src/core/save_io.c
@@ -318,8 +322,8 @@ $(SAVE_IO_TEST_TARGET): tests/test_save_io.c src/core/save_io.c src/core/save_io
 $(SAVE_FORMAT_TEST_TARGET): tests/test_save_format.c src/world/save_format.c src/world/save_format_internal.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_save_format.c src/world/save_format.c
 
-$(GAME_SETTINGS_TEST_TARGET): tests/test_game_settings.c src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h
-	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_game_settings.c src/app/game_settings.c src/core/save_io.c -lm
+$(GAME_SETTINGS_TEST_TARGET): tests/test_game_settings.c src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h src/presentation/render_quality.c src/presentation/render_quality.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_game_settings.c src/app/game_settings.c src/core/save_io.c src/presentation/render_quality.c -lm
 
 $(SCREENSHOT_TEST_TARGET): tests/test_screenshot.c src/app/screenshot.c src/app/screenshot.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_screenshot.c src/app/screenshot.c $(RAYLIB_LIBS)
@@ -333,13 +337,13 @@ $(GAME_DEBUG_TRACE_TEST_TARGET): tests/test_game_debug_trace.c src/app/game_debu
 $(GAME_STREAM_AUDIT_TEST_TARGET): tests/test_game_stream_audit.c src/app/game_stream_audit.c src/app/game_stream_audit.h
 	$(CC) $(CFLAGS) -DGAME_STREAM_AUDIT_TESTING $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_game_stream_audit.c src/app/game_stream_audit.c $(RAYLIB_LIBS) -lm
 
-$(ENVIRONMENT_PRESENTATION_TEST_TARGET): tests/test_environment_presentation.c src/presentation/environment_presentation.c src/presentation/environment_presentation.h src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h
-	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_environment_presentation.c src/presentation/environment_presentation.c src/app/game_settings.c src/core/save_io.c -lm
+$(ENVIRONMENT_PRESENTATION_TEST_TARGET): tests/test_environment_presentation.c src/presentation/environment_presentation.c src/presentation/environment_presentation.h src/presentation/render_quality.c src/presentation/render_quality.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_environment_presentation.c src/presentation/environment_presentation.c src/presentation/render_quality.c -lm
 
-$(ENVIRONMENT_RUNTIME_TEST_TARGET): tests/test_environment_runtime.c src/presentation/environment_runtime.c src/presentation/environment_runtime.h src/presentation/environment_presentation.c src/presentation/environment_presentation.h src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h src/world/world_environment.h
-	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_environment_runtime.c src/presentation/environment_runtime.c src/presentation/environment_presentation.c src/app/game_settings.c src/core/save_io.c -lm
+$(ENVIRONMENT_RUNTIME_TEST_TARGET): tests/test_environment_runtime.c src/presentation/environment_runtime.c src/presentation/environment_runtime.h src/presentation/environment_presentation.c src/presentation/environment_presentation.h src/presentation/render_quality.c src/presentation/render_quality.h src/world/world_environment.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_environment_runtime.c src/presentation/environment_runtime.c src/presentation/environment_presentation.c src/presentation/render_quality.c -lm
 
-$(AUDIO_ENVIRONMENT_TEST_TARGET): tests/test_audio_environment.c src/presentation/audio.c src/presentation/audio.h src/presentation/environment_presentation.h src/app/game_settings.h
+$(AUDIO_ENVIRONMENT_TEST_TARGET): tests/test_audio_environment.c src/presentation/audio.c src/presentation/audio.h src/presentation/environment_presentation.h src/presentation/render_quality.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_audio_environment.c src/presentation/audio.c $(RAYLIB_LIBS) -lm
 
 $(ENTITY_REPLAY_TEST_TARGET): tests/test_entity_replay.c $(ENTITY_FEATURE_SRC) src/ecology/entity.h src/presentation/creature_renderer.c src/presentation/creature_renderer.h src/ecology/creature_visual.c src/ecology/creature_visual.h src/ecology/fauna_motion.c src/ecology/fauna_motion.h src/ecology/fauna_behavior.c src/ecology/fauna_behavior.h src/ecology/evolution.c src/ecology/evolution.h src/ecology/ecology_model.c src/ecology/ecology_model.h

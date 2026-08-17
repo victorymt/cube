@@ -37,10 +37,26 @@ if printf '%s\n' "$unqualified_includes" |
     fail "project-local includes must use module-qualified paths"
 fi
 
-if grep -R -nE '#include "app/(app_types|game|game_debug|game_internal|game_interaction|game_landing|game_runtime)\.h"' \
-    src/core src/world src/space src/ecology src/gameplay src/presentation; then
-    fail "lower modules must not depend on app orchestration headers"
+if grep -R -n '#include "app/' \
+    src/core src/world src/space src/ecology src/gameplay src/presentation \
+    --include='*.c' --include='*.h'; then
+    fail "only app may depend on app headers"
 fi
+
+if grep -R -nE '#include "(world|space|ecology|gameplay|presentation)/' \
+    src/core --include='*.c' --include='*.h'; then
+    fail "core must not depend on higher-level modules"
+fi
+
+for public_header in \
+    src/world/chunks.h \
+    src/world/nether.h \
+    src/space/space.h
+do
+    if grep -n '#include "presentation/' "$public_header"; then
+        fail "$public_header must expose neutral metrics, not presentation types"
+    fi
+done
 
 public_externs=$(
     grep -R -n '^extern ' src --include='*.h' |
@@ -119,8 +135,19 @@ grep -q -- '-MMD -MP' Makefile ||
     fail "production compilation must emit header dependencies"
 grep -q '$(OBJ_DIR)/%.o: src/%.c' Makefile ||
     fail "production sources must compile to one object per source"
+grep -q '^TEST_HEADERS :=' Makefile ||
+    fail "test builds must track project headers"
+grep -q '\$(TEST_TARGETS) \$(CHUNK_BENCHMARK_TARGET): \$(TEST_HEADERS)' Makefile ||
+    fail "test binaries must rebuild after transitive header changes"
 grep -q 'cp $(TARGET) README.md' Makefile ||
     fail "release packaging must use the selected build target"
+
+grep -q '^GraphicsQualityProfile GraphicsQualityProfileFor(' \
+    src/presentation/render_quality.c ||
+    fail "presentation must own graphics quality profiles"
+if grep -n 'GraphicsQualityProfileFor' src/app/game_settings.c; then
+    fail "settings persistence must not own rendering quality policy"
+fi
 
 if grep -n '#[[:space:]]*include[[:space:]]*"fluid.h"' \
     src/world/world.c src/world/chunks.c; then

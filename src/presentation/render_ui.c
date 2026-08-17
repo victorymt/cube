@@ -1230,7 +1230,7 @@ static bool DrawSettingStepper(Rectangle row, const char *label, float *value)
     return changed;
 }
 
-void DrawPauseMenu(GameSettings *settings, PauseMenuActions *actions)
+void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions)
 {
     if (!settings || !actions) return;
     int sw = GetScreenWidth();

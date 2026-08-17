@@ -2,7 +2,7 @@
 #define VOXELCRAFT_WORLD_RENDERER_H
 
 #include "world/world_types.h"
-#include "app/game_settings.h"
+#include "presentation/render_quality.h"
 
 #include <stdbool.h>
 #include <stdint.h>

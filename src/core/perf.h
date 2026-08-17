@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_PERF_H
 #define VOXELCRAFT_PERF_H
 
-#include "world/chunks.h"
+#include "core/config.h"
+#include "core/perf_metrics.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -27,7 +28,7 @@ void PerfBeginGpuFrame(void);
 void PerfEndGpuFrame(void);
 void PerfRecordWorldCandidate(bool distanceVisible, bool frustumVisible);
 void PerfRecordDrawCall(PerfDrawKind kind);
-void PerfEndFrame(ChunkStreamingStats streaming, RenderResourceSnapshot resources);
+void PerfEndFrame(PerfStreamingStats streaming, PerfResourceSnapshot resources);
 bool PerfReportWritten(void);
 bool PerfReportPassed(void);
 void PerfShutdown(void);

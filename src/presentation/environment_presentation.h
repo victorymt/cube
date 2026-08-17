@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_ENVIRONMENT_PRESENTATION_H
 #define VOXELCRAFT_ENVIRONMENT_PRESENTATION_H
 
-#include "app/game_settings.h"
+#include "presentation/render_quality.h"
 #include "presentation/weather_visual.h"
 
 #include <stdbool.h>

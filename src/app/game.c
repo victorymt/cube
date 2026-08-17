@@ -20,6 +20,7 @@
 #include "gameplay/album.h"
 #include "gameplay/inventory.h"
 #include "presentation/render.h"
+#include "presentation/render_resources.h"
 #include "presentation/render_ui.h"
 #include "presentation/particles.h"
 #include "presentation/audio.h"
@@ -1181,9 +1182,21 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         GameSettingsSave(&game->settings);
     }
     PauseMenuActions pauseActions = { 0 };
+    PauseMenuSettings pauseSettings = {
+        .graphicsQuality = game->settings.graphicsQuality,
+        .masterVolume = game->settings.masterVolume,
+        .ambientVolume = game->settings.ambientVolume,
+        .musicVolume = game->settings.musicVolume,
+        .musicEnabled = game->settings.musicEnabled
+    };
     GraphicsQuality previousQuality = game->settings.graphicsQuality;
-    DrawPauseMenu(&game->settings, &pauseActions);
+    DrawPauseMenu(&pauseSettings, &pauseActions);
     if (pauseActions.settingsChanged) {
+        game->settings.graphicsQuality = pauseSettings.graphicsQuality;
+        game->settings.masterVolume = pauseSettings.masterVolume;
+        game->settings.ambientVolume = pauseSettings.ambientVolume;
+        game->settings.musicVolume = pauseSettings.musicVolume;
+        game->settings.musicEnabled = pauseSettings.musicEnabled;
         if (pauseActions.qualityChanged &&
             !WorldRendererSetQuality(game->settings.graphicsQuality)) {
             game->settings.graphicsQuality = previousQuality;

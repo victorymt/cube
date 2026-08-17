@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_H
 #define VOXELCRAFT_SPACE_H
 
+#include "core/perf_metrics.h"
 #include "space/planet_profile.h"
 #include "space/space_barycenter.h"
 #include "space/space_orbit.h"
@@ -10,7 +11,6 @@
 #include "space/space_coordinates.h"
 #include "world/world_types.h"
 #include "gameplay/player_types.h"
-#include "presentation/render_resources.h"
 
 #include <stdio.h>
 #include <stdint.h>

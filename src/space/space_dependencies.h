@@ -5,6 +5,7 @@
 
 #include "ecology/ecology.h"
 #include "presentation/particles.h"
+#include "presentation/render_resources.h"
 #include "space/solar_catalog.h"
 #include "space/space_barycenter.h"
 #include "space/space_illumination.h"

@@ -1,5 +1,7 @@
 #include "core/perf.h"
 
+#include "core/config.h"
+
 #include "raylib.h"
 #include "rlgl.h"
 
@@ -306,8 +308,28 @@ static bool PerfWithinFivePercent(uint64_t value, uint64_t baseline)
     return value <= limit;
 }
 
-static bool PerfStreamingSettled(ChunkStreamingStats streaming,
-                                 RenderResourceSnapshot resources)
+static void PerfResourceSnapshotMax(PerfResourceSnapshot *target,
+                                    PerfResourceSnapshot value)
+{
+    if (!target) return;
+#define PERF_MAX_FIELD(field) \
+    do { if (value.field > target->field) target->field = value.field; } while (0)
+    PERF_MAX_FIELD(solidModels);
+    PERF_MAX_FIELD(floraModels);
+    PERF_MAX_FIELD(transparentModels);
+    PERF_MAX_FIELD(meshVertices);
+    PERF_MAX_FIELD(meshIndices);
+    PERF_MAX_FIELD(estimatedMeshBytes);
+    PERF_MAX_FIELD(worldLightingTextureBytes);
+    PERF_MAX_FIELD(pendingMeshSnapshotBytes);
+    PERF_MAX_FIELD(workerThreadsConfigured);
+    PERF_MAX_FIELD(workerThreadsStarted);
+    PERF_MAX_FIELD(workerThreadsActive);
+#undef PERF_MAX_FIELD
+}
+
+static bool PerfStreamingSettled(PerfStreamingStats streaming,
+                                 PerfResourceSnapshot resources)
 {
     uint64_t generationFinished = streaming.generationCompleted +
                                   streaming.generationCanceled;
@@ -320,7 +342,7 @@ static bool PerfStreamingSettled(ChunkStreamingStats streaming,
            resources.workerThreadsActive == 0;
 }
 
-static void PerfWriteReport(ChunkStreamingStats streaming)
+static void PerfWriteReport(PerfStreamingStats streaming)
 {
     if (!collector.enabled || collector.reportWritten) return;
     PerfDrainGpu();
@@ -572,11 +594,11 @@ void PerfRecordDrawCall(PerfDrawKind kind)
     collector.currentCounters.draws[kind]++;
 }
 
-void PerfEndFrame(ChunkStreamingStats streaming, RenderResourceSnapshot resources)
+void PerfEndFrame(PerfStreamingStats streaming, PerfResourceSnapshot resources)
 {
     if (!collector.enabled) return;
     double now = PerfNowMs();
-    RenderResourceSnapshotMax(&collector.resourcePeak, resources);
+    PerfResourceSnapshotMax(&collector.resourcePeak, resources);
     if (!collector.updateMarked) collector.updateCompletedMs = now;
     if (collector.frame >= PERF_WARMUP_FRAMES && collector.frame < PERF_WARMUP_FRAMES + PERF_SAMPLE_FRAMES) {
         int sample = collector.frame - PERF_WARMUP_FRAMES;
