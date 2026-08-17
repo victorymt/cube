@@ -1727,6 +1727,59 @@ static void SampleHomeChunkColumns(
     }
 }
 
+static bool TerrainSectionFaceIsVisible(BlockType current,
+                                        BlockType neighbor)
+{
+    if (neighbor == BLOCK_AIR || neighbor == BLOCK_SPACESHIP_OCCUPIED) {
+        return true;
+    }
+    if (!IsTranslucentBlock(current)) return IsTranslucentBlock(neighbor);
+    return IsTranslucentBlock(neighbor) && neighbor != current;
+}
+
+bool TerrainSectionHasExposedFaces(const ChunkSection *section, int cx,
+                                   int cz, int sectionY, TerrainMode mode)
+{
+    if (!section || section->sectionY != sectionY) return false;
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    int startX = cx * CHUNK_SIZE;
+    int startY = sectionY * SURFACE_SECTION_HEIGHT;
+    int startZ = cz * CHUNK_SIZE;
+
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                BlockType current = (BlockType)section->blocks[lx][ly][lz];
+                if (current == BLOCK_AIR) continue;
+                for (int face = 0; face < 6; face++) {
+                    int neighborX = lx + faces[face][0];
+                    int neighborY = ly + faces[face][1];
+                    int neighborZ = lz + faces[face][2];
+                    BlockType neighbor = BLOCK_AIR;
+                    if (neighborX >= 0 && neighborX < CHUNK_SIZE &&
+                        neighborY >= 0 &&
+                        neighborY < SURFACE_SECTION_HEIGHT &&
+                        neighborZ >= 0 && neighborZ < CHUNK_SIZE) {
+                        neighbor = (BlockType)section->blocks
+                            [neighborX][neighborY][neighborZ];
+                    } else {
+                        neighbor = TerrainBaseBlockAt(
+                            startX + neighborX, startY + neighborY,
+                            startZ + neighborZ, mode);
+                    }
+                    if (TerrainSectionFaceIsVisible(current, neighbor)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 static bool GenerateChunkTerrainSectionBaseFromSamples(
     Chunk *chunk, int cx, int cz, int sectionY, TerrainMode mode,
     const SurfaceTerrainSample samples[CHUNK_SIZE][CHUNK_SIZE])

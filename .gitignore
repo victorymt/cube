@@ -1,6 +1,7 @@
 /build/
 /dist/
 /screenshots/
+/debug-traces/
 /voxelcraft
 /rlgl_test
 /tests/benchmark_chunks

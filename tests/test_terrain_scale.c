@@ -34,6 +34,12 @@ uint32_t WorldGetSeed(void)
     return terrainSeed;
 }
 
+bool IsTranslucentBlock(BlockType type)
+{
+    return type == BLOCK_WATER || type == BLOCK_GLASS ||
+           type == BLOCK_ICE || type == BLOCK_LEAVES;
+}
+
 static void TestSurfaceSampleContracts(void)
 {
     SurfaceTerrainSample first = SurfaceTerrainAt(1234, -5678,
@@ -773,6 +779,31 @@ static void TestHomeTreeShapes(void)
     ChunkClearBlockStorage(&rightRepeat);
 }
 
+static void TestTerrainSectionExposureClassification(void)
+{
+    terrainSeed = 1448040515u;
+
+    Chunk exposed = { .cx = -8, .cz = -18 };
+    assert(GenerateChunkTerrainSectionBase(
+        &exposed, -8, -18, 5, TERRAIN_VARIED));
+    const ChunkSection *exposedSection = ChunkGetSectionConst(&exposed, 5);
+    assert(exposedSection != NULL);
+    assert(TerrainSectionHasExposedFaces(
+        exposedSection, -8, -18, 5, TERRAIN_VARIED));
+
+    Chunk enclosed = { .cx = 0, .cz = 0 };
+    assert(GenerateChunkTerrainSectionBase(
+        &enclosed, 0, 0, 1, TERRAIN_VARIED));
+    const ChunkSection *enclosedSection = ChunkGetSectionConst(&enclosed, 1);
+    assert(enclosedSection != NULL);
+    assert(!TerrainSectionHasExposedFaces(
+        enclosedSection, 0, 0, 1, TERRAIN_VARIED));
+
+    ChunkClearBlockStorage(&exposed);
+    ChunkClearBlockStorage(&enclosed);
+    terrainSeed = DEFAULT_WORLD_SEED;
+}
+
 int main(void)
 {
     assert(SURFACE_WORLD_HEIGHT == 256);
@@ -794,6 +825,7 @@ int main(void)
     TestHomeGroundCoverSelection();
     TestHomeTreeVariantSelection();
     TestHomeTreeShapes();
+    TestTerrainSectionExposureClassification();
     puts("terrain scale tests passed");
     return 0;
 }

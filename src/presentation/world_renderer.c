@@ -17,6 +17,9 @@ typedef struct WorldRendererResources {
     Texture2D normalAtlas;
     RenderTexture2D shadowTarget;
     Matrix lightMatrix;
+    Vector3 shadowTargetPosition;
+    Vector3 shadowRight;
+    Vector3 shadowUp;
     WorldLightingState state;
     GraphicsQuality quality;
     GraphicsQualityProfile qualityProfile;
@@ -525,6 +528,25 @@ int WorldRendererShadowChunkRadius(void)
     return resources.qualityProfile.shadowChunkRadius;
 }
 
+static bool ShadowSphereVisibleForBasis(Vector3 target, Vector3 right,
+                                        Vector3 up, Vector3 center,
+                                        float radius)
+{
+    if (!isfinite(radius) || radius < 0.0f) return false;
+    Vector3 offset = Vector3Subtract(center, target);
+    float halfSpan = WORLD_SHADOW_SPAN * 0.5f;
+    return fabsf(Vector3DotProduct(offset, right)) <= halfSpan + radius &&
+           fabsf(Vector3DotProduct(offset, up)) <= halfSpan + radius;
+}
+
+bool WorldRendererShadowSphereVisible(Vector3 center, float radius)
+{
+    if (!resources.shadowPassActive) return false;
+    return ShadowSphereVisibleForBasis(
+        resources.shadowTargetPosition, resources.shadowRight,
+        resources.shadowUp, center, radius);
+}
+
 bool WorldRendererIsReady(void) { return resources.surfaceReady; }
 bool WorldRendererShadowsReady(void) { return resources.shadowReady; }
 
@@ -622,6 +644,14 @@ void WorldRendererPrepare(const WorldLightingState *state)
     if (resources.waterReady) SetCommonUniforms(resources.waterShader);
 }
 
+static bool DrawSingleMesh(const Model *model, Material material,
+                           Matrix transform)
+{
+    if (model->meshCount != 1 || !model->meshes) return false;
+    DrawMesh(model->meshes[0], material, transform);
+    return true;
+}
+
 void WorldRendererDrawModel(const Model *model, Vector3 translation,
                             Color fallbackTint,
                             bool transparent)
@@ -636,9 +666,16 @@ void WorldRendererDrawModel(const Model *model, Vector3 translation,
     Model drawModel = *model;
     Material material = model->materials[0];
     material.shader = shader;
+    Matrix transform = MatrixMultiply(
+        model->transform,
+        MatrixTranslate(translation.x, translation.y, translation.z));
+    if (transparent) rlDisableBackfaceCulling();
+    if (DrawSingleMesh(model, material, transform)) {
+        if (transparent) rlEnableBackfaceCulling();
+        return;
+    }
     drawModel.materials = &material;
     drawModel.materialCount = 1;
-    if (transparent) rlDisableBackfaceCulling();
     DrawModel(drawModel, translation, 1.0f, WHITE);
     if (transparent) rlEnableBackfaceCulling();
 }
@@ -657,9 +694,13 @@ void WorldRendererDrawModelTransformed(const Model *model, Matrix transform,
     }
     Material material = model->materials[0];
     material.shader = shader;
+    if (transparent) rlDisableBackfaceCulling();
+    if (DrawSingleMesh(model, material, transform)) {
+        if (transparent) rlEnableBackfaceCulling();
+        return;
+    }
     drawModel.materials = &material;
     drawModel.materialCount = 1;
-    if (transparent) rlDisableBackfaceCulling();
     DrawModel(drawModel, Vector3Zero(), 1.0f, WHITE);
     if (transparent) rlEnableBackfaceCulling();
 }
@@ -706,6 +747,13 @@ bool WorldRendererBeginShadow(const Camera3D *camera,
         .fovy = WORLD_SHADOW_SPAN,
         .projection = CAMERA_ORTHOGRAPHIC
     };
+    Vector3 forward = Vector3Normalize(
+        Vector3Subtract(lightCamera.target, lightCamera.position));
+    resources.shadowTargetPosition = target;
+    resources.shadowRight = Vector3Normalize(
+        Vector3CrossProduct(forward, lightCamera.up));
+    resources.shadowUp = Vector3Normalize(
+        Vector3CrossProduct(resources.shadowRight, forward));
     Matrix view = GetCameraMatrix(lightCamera);
     Matrix projection = MatrixOrtho(-WORLD_SHADOW_SPAN*0.5,
                                      WORLD_SHADOW_SPAN*0.5,
@@ -720,6 +768,23 @@ bool WorldRendererBeginShadow(const Camera3D *camera,
     return true;
 }
 
+#ifdef WORLD_RENDERER_TESTING
+bool WorldRendererTestShadowSphereVisible(Vector3 target,
+                                          Vector3 lightDirection,
+                                          Vector3 center, float radius)
+{
+    lightDirection = Vector3Normalize(lightDirection);
+    Vector3 cameraUp = fabsf(lightDirection.y) > 0.96f ?
+                           (Vector3){ 0.0f, 0.0f, 1.0f } :
+                           (Vector3){ 0.0f, 1.0f, 0.0f };
+    Vector3 forward = Vector3Negate(lightDirection);
+    Vector3 right = Vector3Normalize(
+        Vector3CrossProduct(forward, cameraUp));
+    Vector3 up = Vector3Normalize(Vector3CrossProduct(right, forward));
+    return ShadowSphereVisibleForBasis(target, right, up, center, radius);
+}
+#endif
+
 void WorldRendererDrawShadowModel(const Model *model, Vector3 translation)
 {
     if (!resources.shadowPassActive || !model || model->materialCount <= 0 ||
@@ -727,6 +792,10 @@ void WorldRendererDrawShadowModel(const Model *model, Vector3 translation)
     Model drawModel = *model;
     Material material = model->materials[0];
     material.shader = resources.shadowShader;
+    Matrix transform = MatrixMultiply(
+        model->transform,
+        MatrixTranslate(translation.x, translation.y, translation.z));
+    if (DrawSingleMesh(model, material, transform)) return;
     drawModel.materials = &material;
     drawModel.materialCount = 1;
     DrawModel(drawModel, translation, 1.0f, WHITE);
@@ -740,6 +809,7 @@ void WorldRendererDrawShadowModelTransformed(const Model *model,
     Model drawModel = *model;
     Material material = model->materials[0];
     material.shader = resources.shadowShader;
+    if (DrawSingleMesh(model, material, transform)) return;
     drawModel.materials = &material;
     drawModel.materialCount = 1;
     drawModel.transform = transform;

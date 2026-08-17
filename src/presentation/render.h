@@ -108,11 +108,13 @@ WorldLightingState WorldLightingForScene(
     const PlanetLightState *planetLight,
     const WeatherVisualState *weatherVisual, Color skyHorizon, bool inNether,
     const EnvironmentPresentationState *presentation);
-void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
-               bool drawSurfaceChunks, bool drawNetherChunks,
+void WorldRenderFramePrepare(const Camera3D *camera,
+                             int effectiveRenderDistance,
+                             bool drawSurfaceChunks);
+void WorldRenderFrameShutdown(void);
+void DrawWorld(const Camera3D *camera, Color tint, bool drawNetherChunks,
                const WorldLightingState *lighting);
-void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
-                        bool drawSurfaceChunks, bool drawNetherChunks,
+void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                         const WorldLightingState *lighting);
 
 void DrawCrosshair(int screenWidth, int screenHeight);

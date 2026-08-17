@@ -73,6 +73,7 @@ typedef struct GameRuntime {
 
   bool perfMode;
   bool debugControlEnabled;
+  bool debugTraceEnabled;
   bool showHelp;
   bool showDebug;
   bool scannerActive;
@@ -99,6 +100,7 @@ typedef struct GameRuntime {
   float dayTime;
   char perfReportPath[512];
   char perfBaselinePath[512];
+  char debugTracePath[512];
 } GameRuntime;
 
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv);

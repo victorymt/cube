@@ -106,10 +106,29 @@ static void TestNoContextFallback(void)
     WorldRendererShutdown();
 }
 
+static void TestShadowBounds(void)
+{
+    Vector3 target = { 0.0f, 0.0f, 0.0f };
+    Vector3 lightDirection = { 0.0f, -1.0f, 0.0f };
+    assert(WorldRendererTestShadowSphereVisible(
+        target, lightDirection, (Vector3){ 0.0f, 0.0f, 0.0f }, 8.0f));
+    assert(WorldRendererTestShadowSphereVisible(
+        target, lightDirection, (Vector3){ 72.0f, 0.0f, 0.0f }, 8.0f));
+    assert(!WorldRendererTestShadowSphereVisible(
+        target, lightDirection, (Vector3){ 72.1f, 0.0f, 0.0f }, 8.0f));
+    assert(WorldRendererTestShadowSphereVisible(
+        target, lightDirection, (Vector3){ 0.0f, 0.0f, -72.0f }, 8.0f));
+    assert(!WorldRendererTestShadowSphereVisible(
+        target, lightDirection, (Vector3){ 0.0f, 0.0f, -72.1f }, 8.0f));
+    assert(!WorldRendererTestShadowSphereVisible(
+        target, lightDirection, target, -1.0f));
+}
+
 int main(void)
 {
     TestMaterialProfiles();
     TestLightingSanitization();
+    TestShadowBounds();
     TestNoContextFallback();
     puts("world renderer tests passed");
     return 0;

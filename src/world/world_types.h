@@ -263,6 +263,7 @@ typedef struct ChunkGenJob {
     bool done;
     bool succeeded;
     bool hasSectionBlocks;
+    bool forceSectionBlocks;
     ChunkGenScope scope;
     int cx;
     int cz;

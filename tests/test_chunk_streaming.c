@@ -20,6 +20,7 @@ static int sectionLoadedNotifications = 0;
 static int sectionUnloadPreparations = 0;
 static int lastSectionLoaded = 0;
 static int lastSectionPrepared = 0;
+static bool terrainSectionFacesExposed = true;
 
 static void TestOnChunkSectionLoaded(Chunk *chunk, int sectionY)
 {
@@ -87,6 +88,16 @@ BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
     (void)z;
     (void)mode;
     return y >= 0 && y <= 8 ? BLOCK_STONE : BLOCK_AIR;
+}
+
+bool TerrainSectionHasExposedFaces(const ChunkSection *section, int cx,
+                                   int cz, int sectionY, TerrainMode mode)
+{
+    (void)cx;
+    (void)cz;
+    (void)mode;
+    return section && section->sectionY == sectionY &&
+           terrainSectionFacesExposed;
 }
 
 bool GenerateChunkTerrainSectionBase(
@@ -276,15 +287,15 @@ static void TestSingleChunkUsesSingleJobAndNearestFirst(void)
     RebuildDirtyChunkMeshes((Vector3){ 0.0f, 0.0f, 0.0f });
 
     ChunkStreamingStats stats = ChunksGetStreamingStats();
-    const size_t waterBoundaryBytes =
-        (size_t)(4 * SURFACE_SECTION_HEIGHT * CHUNK_SIZE +
-                 2 * CHUNK_SIZE * CHUNK_SIZE) *
-        (sizeof(unsigned short) + sizeof(unsigned char));
+    const size_t boundaryBytes =
+        (size_t)(CHUNK_SIZE + 2) * (SURFACE_SECTION_HEIGHT + 2) *
+        (CHUNK_SIZE + 2) *
+        (sizeof(unsigned short) + 2 * sizeof(unsigned char));
     assert(stats.meshSubmitted == 3);
     assert(stats.meshSnapshotBytes ==
            3u * (sizeof(unsigned short[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE]) +
                  sizeof(unsigned char[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE]) +
-                 waterBoundaryBytes));
+                 boundaryBytes));
     assert(stats.syncRebuilds == 0);
     assert(ChunksTestMeshJobSlot(0) == 1);
     assert(ChunksTestMeshJobSlot(1) == 2);
@@ -655,23 +666,104 @@ static void TestNearbySectionSchedulingPrioritizesPlayerSection(void)
     chunks[0].generation = 31u;
 
     int submitted = ChunksTestScheduleTerrainSections(
-        (Vector3){ 0.5f, 20.0f, 0.5f });
+        (Vector3){ 0.5f, 20.0f, 0.5f }, 2);
     assert(submitted == 3);
     assert(ChunksTestGenerationJobSectionY(0) == 1);
     assert(ChunksTestGenerationJobSectionY(1) == 0);
     assert(ChunksTestGenerationJobSectionY(2) == 2);
     assert(ChunksTestScheduleTerrainSections(
-        (Vector3){ 0.5f, 20.0f, 0.5f }) == 0);
+        (Vector3){ 0.5f, 20.0f, 0.5f }, 2) == 0);
 
     ChunksTestResetScheduler();
     ChunksTestConfigureChunk(0, 0, 0, true, false);
     chunks[0].generation = 32u;
     submitted = ChunksTestScheduleTerrainSections(
-        (Vector3){ 0.5f, -0.5f, 0.5f });
+        (Vector3){ 0.5f, -0.5f, 0.5f }, 2);
     assert(submitted == 3);
     assert(ChunksTestGenerationJobSectionY(0) == -1);
     assert(ChunksTestGenerationJobSectionY(1) == -2);
     assert(ChunksTestGenerationJobSectionY(2) == 0);
+}
+
+static void TestNearbySectionSchedulingUsesRenderDistance(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    ChunksTestConfigureChunk(1, 2, 0, true, false);
+    chunks[0].generation = 41u;
+    chunks[1].generation = 42u;
+
+    int submitted = ChunksTestScheduleTerrainSections(
+        (Vector3){ 0.5f, 20.0f, 0.5f }, 2);
+    assert(submitted == 6);
+    assert(ChunksTestGenerationJobSlot(0) == 0);
+    assert(ChunksTestGenerationJobSlot(1) == 0);
+    assert(ChunksTestGenerationJobSlot(2) == 0);
+    assert(ChunksTestGenerationJobSlot(3) == 1);
+    assert(ChunksTestGenerationJobSlot(4) == 1);
+    assert(ChunksTestGenerationJobSlot(5) == 1);
+
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    ChunksTestConfigureChunk(1, 3, 0, true, false);
+    chunks[0].generation = 43u;
+    chunks[1].generation = 44u;
+    assert(ChunksTestScheduleTerrainSections(
+        (Vector3){ 0.5f, 20.0f, 0.5f }, 2) == 3);
+}
+
+static void TestSectionExposureControlsMaterialization(void)
+{
+    terrainSectionFacesExposed = false;
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 30, 0, true, false);
+    chunks[0].generation = 51u;
+    assert(RequestChunkTerrainSection(30, 0, 0));
+    ChunksTestRunGenerationJob(0);
+    ProcessFinishedChunkJobs();
+    assert(ChunkGetSectionConst(&chunks[0], 0) == NULL);
+    assert(ChunkTerrainSectionIsResolved(&chunks[0], 0));
+
+    terrainSectionFacesExposed = true;
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 31, 0, true, false);
+    chunks[0].generation = 52u;
+    assert(RequestChunkTerrainSection(31, 0, 0));
+    ChunksTestRunGenerationJob(0);
+    ProcessFinishedChunkJobs();
+    assert(ChunkGetSectionConst(&chunks[0], 0) != NULL);
+}
+
+static void TestSavedEditForcesSectionMaterialization(void)
+{
+    const int cx = 40;
+    assert(SetBlock(cx * CHUNK_SIZE + 2, 4, 3, BLOCK_GLASS));
+
+    terrainSectionFacesExposed = false;
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, cx, 0, true, false);
+    chunks[0].generation = 53u;
+    assert(RequestChunkTerrainSection(cx, 0, 0));
+    ChunksTestRunGenerationJob(0);
+    ProcessFinishedChunkJobs();
+
+    const ChunkSection *section = ChunkGetSectionConst(&chunks[0], 0);
+    assert(section != NULL);
+    assert(section->blocks[2][4][3] == BLOCK_GLASS);
+    assert(section->blocks[3][4][3] == BLOCK_STONE);
+
+    assert(SetBlock((cx + 1) * CHUNK_SIZE - 1, 4, 3, BLOCK_GLASS));
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, cx + 1, 0, true, false);
+    chunks[0].generation = 54u;
+    assert(RequestChunkTerrainSection(cx + 1, 0, 0));
+    ChunksTestRunGenerationJob(0);
+    ProcessFinishedChunkJobs();
+    const ChunkSection *neighborSection = ChunkGetSectionConst(
+        &chunks[0], 0);
+    assert(neighborSection != NULL);
+    assert(neighborSection->blocks[0][4][3] == BLOCK_STONE);
+    terrainSectionFacesExposed = true;
 }
 
 static void TestNegativeSectionPruningKeepsVerticalWindow(void)
@@ -830,6 +922,9 @@ int main(void)
     TestImplicitTerrainLookupAndEditOverride();
     TestSectionGenerationJobsStageAndValidateResults();
     TestNearbySectionSchedulingPrioritizesPlayerSection();
+    TestNearbySectionSchedulingUsesRenderDistance();
+    TestSectionExposureControlsMaterialization();
+    TestSavedEditForcesSectionMaterialization();
     TestNegativeSectionPruningKeepsVerticalWindow();
     TestNegativeSectionPruningPreservesRuntimeState();
     TestDistantSectionJobsReleaseQueueCapacity();

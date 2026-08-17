@@ -151,10 +151,12 @@ void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,
 void ChunksTestCompleteMeshJob(int jobIndex);
 void ChunksTestFillGenerationQueue(void);
 int ChunksTestGenerationJobSectionY(int jobIndex);
+int ChunksTestGenerationJobSlot(int jobIndex);
 bool ChunksTestGenerationJobSurfaceAddress(
     int jobIndex, SurfaceAddress *outAddress);
 void ChunksTestRunGenerationJob(int jobIndex);
-int ChunksTestScheduleTerrainSections(Vector3 playerPosition);
+int ChunksTestScheduleTerrainSections(Vector3 playerPosition,
+                                      int effectiveRenderDistance);
 int ChunksTestPruneTerrainSections(Vector3 playerPosition);
 int ChunksTestCancelDistantSectionJobs(Vector3 playerPosition);
 void ChunksTestSetGenerationJobRunning(int jobIndex, bool running);

@@ -196,8 +196,9 @@ uploads settle. Mesh byte fields estimate public raylib `Mesh` buffers and are
 not driver-reported VRAM.
 
 For scripted visual debugging, start the game with `--debug-stdin`. It accepts
-line-delimited commands: `start`, `screenshot`, `status`, `save`, `load`, `map`, `teleport X Y Z YAW
-PITCH`, `marker add X Z COLOR NAME`, `marker list`, `marker target ID|none`,
+line-delimited commands: `start`, `screenshot`, `status`, `stream audit [RADIUS]`, `save`, `load`, `map`, `teleport X Y Z YAW
+PITCH`, `look YAW PITCH`, `look delta YAW_DELTA PITCH_DELTA`,
+`marker add X Z COLOR NAME`, `marker list`, `marker target ID|none`,
 `marker remove ID`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, `evolution inspect [RADIUS]`,
 `ship begin`, `ship enter`, `ship input FORWARD STRAFE VERTICAL FRAMES`,
 `ship exhaust DEMAND`, `ship dust`, `view first|third`,
@@ -221,6 +222,13 @@ marker names retain their original UTF-8 text and may contain spaces.
 Evolution inspection and region/bootstrap commands work on both
 Homeworld and generated planet surfaces. The interface is disabled during a
 normal launch.
+
+Use `--debug-trace [PATH]` to continuously write a line-buffered JSONL trace.
+Without an explicit path, traces are written under `debug-traces/`. Samples
+include player and camera motion, facing direction, environment state,
+targeted blocks, current section model state, and chunk generation/mesh queue
+metrics. Chunk/section transitions and invisible targeted blocks trigger
+immediate records in addition to the regular 10 Hz samples.
 
 ## Run
 

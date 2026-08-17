@@ -94,6 +94,18 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "stream audit") == 0) {
+        control->streamAuditRadius = 2;
+        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
+    }
+    int streamAuditRadius = 0;
+    char streamAuditTrailing = '\0';
+    if (sscanf(line, "stream audit %d %c", &streamAuditRadius,
+               &streamAuditTrailing) == 1 &&
+        streamAuditRadius >= 1 && streamAuditRadius <= 4) {
+        control->streamAuditRadius = streamAuditRadius;
+        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
+    }
     if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;
     if (strcmp(line, "load") == 0) return DEBUG_CONTROL_COMMAND_LOAD;
     if (strcmp(line, "map") == 0) return DEBUG_CONTROL_COMMAND_MAP;
@@ -191,6 +203,28 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE;
     }
     if (strcmp(line, "quit") == 0) return DEBUG_CONTROL_COMMAND_QUIT;
+    float lookYaw = 0.0f;
+    float lookPitch = 0.0f;
+    char lookTrailing = '\0';
+    if (sscanf(line, "look delta %f %f %c", &lookYaw, &lookPitch,
+               &lookTrailing) == 2 &&
+        isfinite(lookYaw) && isfinite(lookPitch) &&
+        fabsf(lookYaw) <= 1000.0f && fabsf(lookPitch) <= 1000.0f) {
+        control->lookYaw = lookYaw;
+        control->lookPitch = lookPitch;
+        control->lookRelative = true;
+        return DEBUG_CONTROL_COMMAND_LOOK;
+    }
+    if (sscanf(line, "look %f %f %c", &lookYaw, &lookPitch,
+               &lookTrailing) == 2 &&
+        isfinite(lookYaw) && isfinite(lookPitch) &&
+        fabsf(lookYaw) <= 1000.0f && lookPitch >= -1.45f &&
+        lookPitch <= 1.45f) {
+        control->lookYaw = lookYaw;
+        control->lookPitch = lookPitch;
+        control->lookRelative = false;
+        return DEBUG_CONTROL_COMMAND_LOOK;
+    }
     DebugControlTeleport teleport = { 0 };
     char trailing = '\0';
     if (sscanf(line, "teleport %f %f %f %f %f %c",

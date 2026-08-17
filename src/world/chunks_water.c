@@ -47,93 +47,79 @@ static bool TrySampleSurfaceWaterCell(
     return true;
 }
 
-static void CaptureSurfaceWaterBoundaryCell(
+static void CaptureSurfaceBoundaryCell(
     int worldX, int worldY, int worldZ, unsigned short *outBlock,
-    unsigned char *outVolume)
+    unsigned char *outVolume, unsigned char *outKnown)
 {
-    *outBlock = USHRT_MAX;
-    *outVolume = 0u;
     BlockType block = BLOCK_AIR;
     unsigned char volume = 0u;
     if (!TrySampleSurfaceWaterCell(
-            worldX, worldY, worldZ, &block, &volume)) return;
+            worldX, worldY, worldZ, &block, &volume)) {
+        *outBlock = (unsigned short)GetBlockAt(worldX, worldY, worldZ);
+        *outVolume = 0u;
+        *outKnown = 0u;
+        return;
+    }
     *outBlock = (unsigned short)block;
     *outVolume = volume;
+    *outKnown = 1u;
 }
 
-void CaptureSurfaceWaterBoundary(
-    SurfaceWaterBoundarySnapshot *snapshot, int chunkX, int chunkZ,
-    int sectionY)
+void CaptureSurfaceBoundary(SurfaceBoundarySnapshot *snapshot,
+                            int chunkX, int chunkZ, int sectionY)
 {
-    memset(snapshot, 0xff, sizeof(*snapshot));
+    memset(snapshot, 0, sizeof(*snapshot));
     int baseX = chunkX * CHUNK_SIZE;
     int baseY = sectionY * SURFACE_SECTION_HEIGHT;
     int baseZ = chunkZ * CHUNK_SIZE;
 
-    for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
-        for (int edge = 0; edge < CHUNK_SIZE; edge++) {
-            CaptureSurfaceWaterBoundaryCell(
-                baseX - 1, baseY + y, baseZ + edge,
-                &snapshot->xBlocks[0][y][edge],
-                &snapshot->xVolumes[0][y][edge]);
-            CaptureSurfaceWaterBoundaryCell(
-                baseX + CHUNK_SIZE, baseY + y, baseZ + edge,
-                &snapshot->xBlocks[1][y][edge],
-                &snapshot->xVolumes[1][y][edge]);
-            CaptureSurfaceWaterBoundaryCell(
-                baseX + edge, baseY + y, baseZ - 1,
-                &snapshot->zBlocks[0][y][edge],
-                &snapshot->zVolumes[0][y][edge]);
-            CaptureSurfaceWaterBoundaryCell(
-                baseX + edge, baseY + y, baseZ + CHUNK_SIZE,
-                &snapshot->zBlocks[1][y][edge],
-                &snapshot->zVolumes[1][y][edge]);
-        }
-    }
-    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-            CaptureSurfaceWaterBoundaryCell(
-                baseX + lx, baseY - 1, baseZ + lz,
-                &snapshot->yBlocks[0][lx][lz],
-                &snapshot->yVolumes[0][lx][lz]);
-            CaptureSurfaceWaterBoundaryCell(
-                baseX + lx, baseY + SURFACE_SECTION_HEIGHT, baseZ + lz,
-                &snapshot->yBlocks[1][lx][lz],
-                &snapshot->yVolumes[1][lx][lz]);
+    for (int px = 0; px < CHUNK_SIZE + 2; px++) {
+        for (int py = 0; py < SURFACE_SECTION_HEIGHT + 2; py++) {
+            for (int pz = 0; pz < CHUNK_SIZE + 2; pz++) {
+                bool boundary = px == 0 || px == CHUNK_SIZE + 1 ||
+                                py == 0 ||
+                                py == SURFACE_SECTION_HEIGHT + 1 ||
+                                pz == 0 || pz == CHUNK_SIZE + 1;
+                if (!boundary) continue;
+                CaptureSurfaceBoundaryCell(
+                    baseX + px - 1, baseY + py - 1, baseZ + pz - 1,
+                    &snapshot->blocks[px][py][pz],
+                    &snapshot->volumes[px][py][pz],
+                    &snapshot->known[px][py][pz]);
+            }
         }
     }
 }
 
-static bool SurfaceWaterBoundaryNeighbor(
-    const SurfaceWaterBoundarySnapshot *snapshot, int lx, int y, int lz,
-    BlockType *outBlock, unsigned char *outVolume)
+bool SurfaceBoundaryBlockAt(const SurfaceBoundarySnapshot *snapshot,
+                            int lx, int y, int lz, BlockType *outBlock)
 {
-    if (!snapshot) return false;
-    unsigned short block = USHRT_MAX;
-    unsigned char volume = 0u;
-    if (lx < 0 || lx >= CHUNK_SIZE) {
-        int side = lx < 0 ? 0 : 1;
-        block = snapshot->xBlocks[side][y][lz];
-        volume = snapshot->xVolumes[side][y][lz];
-    } else if (lz < 0 || lz >= CHUNK_SIZE) {
-        int side = lz < 0 ? 0 : 1;
-        block = snapshot->zBlocks[side][y][lx];
-        volume = snapshot->zVolumes[side][y][lx];
-    } else if (y < 0 || y >= SURFACE_SECTION_HEIGHT) {
-        int side = y < 0 ? 0 : 1;
-        block = snapshot->yBlocks[side][lx][lz];
-        volume = snapshot->yVolumes[side][lx][lz];
-    }
-    if (block == USHRT_MAX) return false;
-    *outBlock = (BlockType)block;
-    *outVolume = volume;
+    if (!snapshot || !outBlock || lx < -1 || lx > CHUNK_SIZE ||
+        y < -1 || y > SURFACE_SECTION_HEIGHT ||
+        lz < -1 || lz > CHUNK_SIZE) return false;
+    bool outside = lx < 0 || lx >= CHUNK_SIZE || y < 0 ||
+                   y >= SURFACE_SECTION_HEIGHT || lz < 0 ||
+                   lz >= CHUNK_SIZE;
+    if (!outside) return false;
+    *outBlock = (BlockType)snapshot->blocks[lx + 1][y + 1][lz + 1];
+    return true;
+}
+
+bool SurfaceBoundaryCellAt(const SurfaceBoundarySnapshot *snapshot,
+                           int lx, int y, int lz, BlockType *outBlock,
+                           unsigned char *outVolume)
+{
+    if (!outVolume ||
+        !SurfaceBoundaryBlockAt(snapshot, lx, y, lz, outBlock)) return false;
+    if (!snapshot->known[lx + 1][y + 1][lz + 1]) return false;
+    *outVolume = snapshot->volumes[lx + 1][y + 1][lz + 1];
     return true;
 }
 
 static bool SurfaceWaterNeighbor(
     const unsigned short (*blocks)[CHUNK_SIZE],
     const unsigned char *waterVolumes,
-    const SurfaceWaterBoundarySnapshot *boundary, int height, int layerY,
+    const SurfaceBoundarySnapshot *boundary, int height, int layerY,
     int chunkX, int chunkZ, int lx, int y, int lz,
     int nx, int ny, int nz, BlockType *outBlock,
     unsigned char *outVolume)
@@ -160,9 +146,8 @@ static bool SurfaceWaterNeighbor(
     }
 
     if (boundary) {
-        return SurfaceWaterBoundaryNeighbor(
-            boundary, neighborLx, neighborY, neighborLz,
-            outBlock, outVolume);
+        return SurfaceBoundaryCellAt(boundary, neighborLx, neighborY,
+                                     neighborLz, outBlock, outVolume);
     }
 
     int wx = chunkX * CHUNK_SIZE + lx + nx;
@@ -252,7 +237,7 @@ static void AddSurfaceWaterFace(ChunkMeshEmitter *emitter, int x, int y,
 static void EmitSurfaceWater(
     const unsigned short (*blocks)[CHUNK_SIZE],
     const unsigned char *waterVolumes,
-    const SurfaceWaterBoundarySnapshot *boundary, int height, int layerY,
+    const SurfaceBoundarySnapshot *boundary, int height, int layerY,
     int chunkX, int chunkZ, const int *nearbyTorchIndices,
     int nearbyTorchCount, ChunkMeshEmitter *emitter)
 {
@@ -321,7 +306,7 @@ static void EmitSurfaceWater(
 static bool BuildSurfaceWaterVolumeMeshData(
     const unsigned short (*blocks)[CHUNK_SIZE],
     const unsigned char *waterVolumes,
-    const SurfaceWaterBoundarySnapshot *boundary, int height, int layerY,
+    const SurfaceBoundarySnapshot *boundary, int height, int layerY,
     int chunkX, int chunkZ, const int *nearbyTorchIndices,
     int nearbyTorchCount, Mesh *outMesh)
 {
@@ -364,7 +349,7 @@ bool BuildSurfaceWaterMeshDataWithSnapshot(
     const unsigned char *waterVolumes, int height, int layerY,
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount,
-    const SurfaceWaterBoundarySnapshot *boundary, Mesh *outMesh)
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
 {
     if (!blocks || height <= 0 || !faces || !outMesh) return false;
     Mesh transparent = { 0 };

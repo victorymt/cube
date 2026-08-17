@@ -13,6 +13,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_START,
     DEBUG_CONTROL_COMMAND_SCREENSHOT,
     DEBUG_CONTROL_COMMAND_STATUS,
+    DEBUG_CONTROL_COMMAND_STREAM_AUDIT,
     DEBUG_CONTROL_COMMAND_SAVE,
     DEBUG_CONTROL_COMMAND_LOAD,
     DEBUG_CONTROL_COMMAND_MAP,
@@ -24,6 +25,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_FLUID_SET,
     DEBUG_CONTROL_COMMAND_FLUID_STEP,
     DEBUG_CONTROL_COMMAND_TELEPORT,
+    DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
     DEBUG_CONTROL_COMMAND_SHIP_BEGIN,
     DEBUG_CONTROL_COMMAND_SHIP_ENTER,
@@ -85,6 +87,10 @@ typedef struct DebugControl {
     int fluidZ;
     unsigned fluidVolume;
     unsigned fluidTicks;
+    int streamAuditRadius;
+    float lookYaw;
+    float lookPitch;
+    bool lookRelative;
     bool fluidUsePlayerPosition;
     bool thirdPerson;
 } DebugControl;

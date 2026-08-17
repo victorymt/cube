@@ -946,12 +946,13 @@ static void GameRenderWorldPass(GameRuntime *game,
     bool drawSurfaceChunks = PlanetWorldIsActive() ||
         (HomeWorldSurfaceIsActive() && !frame->inNether &&
          frame->spaceFade <= 0.05f);
-    DrawWorldShadowMap(&game->camera, frame->effectiveRenderDistance,
-                       drawSurfaceChunks, frame->inNether,
+    WorldRenderFramePrepare(&game->camera, frame->effectiveRenderDistance,
+                            drawSurfaceChunks);
+    DrawWorldShadowMap(&game->camera, frame->inNether,
                        &frame->worldLighting);
     BeginMode3D(game->camera);
-    DrawWorld(&game->camera, frame->effectiveRenderDistance, frame->worldTint,
-              drawSurfaceChunks, frame->inNether, &frame->worldLighting);
+    DrawWorld(&game->camera, frame->worldTint, frame->inNether,
+              &frame->worldLighting);
     if (frame->localWorldActive) {
         EntityRendererDraw(EntitiesView(), MAX_ENTITIES);
     }
@@ -1302,6 +1303,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     GameUpdateFrameEnvironment(game, &frame);
     GameRenderFrame(game, &frame);
     GameCaptureScreenshot(game, &frame);
+    GameDebugTraceFrame(game, dt);
     return true;
 }
 
@@ -1320,7 +1322,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
         .prepareChunkSectionUnload = FluidPrepareChunkSectionUnload
     };
     WorldInstallExtensionHooks(&worldExtensionHooks);
-    if (game->debugControlEnabled) SetTraceLogLevel(LOG_WARNING);
+    if (game->debugControlEnabled || game->debugTraceEnabled) {
+        SetTraceLogLevel(LOG_WARNING);
+    }
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "Voxelcraft - raylib");
     if (!IsWindowReady()) {
@@ -1328,6 +1332,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                         "Run from a graphical desktop session.\n");
         return false;
     }
+    GameDebugTraceStart(game);
 
     PerfConfigure(game->perfMode, game->perfReportPath,
                   game->perfBaselinePath);
@@ -1372,13 +1377,14 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready commands=start,screenshot,status,save,load,map,marker,teleport,input,ship,view,"
+        "DEBUG_CONTROL ready commands=start,screenshot,status,stream,save,load,map,marker,teleport,look,input,ship,view,"
         "fluid,evolution,quit\n");
     return true;
 }
 
 static int GameStop(GameRuntime *game)
 {
+    GameDebugTraceEvent(game, "stop");
     if (!game->perfMode && !game->debugControlEnabled &&
         game->screen == SCREEN_PLAYING) {
         if (game->landingTransition.active) {
@@ -1390,6 +1396,7 @@ static int GameStop(GameRuntime *game)
     }
     if (!game->debugControlEnabled) GameSettingsSave(&game->settings);
     ChunksShutdownGenThread();
+    WorldRenderFrameShutdown();
     UnloadAllChunks();
     UnloadAllSpaceChunks();
     SpaceShutdown();
@@ -1407,6 +1414,7 @@ static int GameStop(GameRuntime *game)
     CloseWindow();
     AlbumCleanup();
     WorldCleanup();
+    GameDebugTraceStop(game);
     DebugControlReply(&game->debugControl, "DEBUG_CONTROL stopped\n");
     return game->perfMode && !perfPassed ? 2 : 0;
 }
@@ -1427,7 +1435,10 @@ int GameRun(int argc, char **argv)
 
         bool debugStartRequested = GameDispatchDebugCommand(&game);
 
-        if (!GameUpdateFrame(&game, dt, debugStartRequested)) continue;
+        if (!GameUpdateFrame(&game, dt, debugStartRequested)) {
+            GameDebugTraceFrame(&game, dt);
+            continue;
+        }
         PerfEndFrame(ChunksGetStreamingStats(), CurrentRenderResourceSnapshot());
         if (game.perfMode && PerfReportWritten() && !game.debugControlEnabled) {
             game.quitRequested = true;

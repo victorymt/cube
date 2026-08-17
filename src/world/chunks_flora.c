@@ -1,13 +1,24 @@
 #include "world/chunks_internal.h"
 
+static bool BuildFloraMeshDataWithSnapshot(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount,
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
+{
+    return BuildMeshDataFilteredWithSnapshot(
+        blocks, height, layerY, chunkX, chunkZ, false, false, true, false,
+        faces, nearbyTorchIndices, nearbyTorchCount, boundary, outMesh);
+}
+
 bool BuildFloraMeshData(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
 {
-    return BuildMeshDataFiltered(
-        blocks, height, layerY, chunkX, chunkZ, false, false, true, false,
-        faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
+    return BuildFloraMeshDataWithSnapshot(
+        blocks, height, layerY, chunkX, chunkZ, faces,
+        nearbyTorchIndices, nearbyTorchCount, NULL, outMesh);
 }
 
 static bool FloraStructureExpectedBlockAt(
@@ -257,15 +268,17 @@ bool BuildChunkSurfaceSolidMeshData(
     int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
-    int nearbyTorchCount, Mesh *outMesh)
+    int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
+    Mesh *outMesh)
 {
     unsigned short solidBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     CopyBlocksWithoutFloraStructures(
         solidBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
-    return BuildSurfaceSolidMeshData(
+    return BuildMeshDataFilteredWithSnapshot(
         (const unsigned short (*)[CHUNK_SIZE])solidBlocks,
-        SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
-        nearbyTorchIndices, nearbyTorchCount, outMesh);
+        SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
+        false, false, false, false, faces,
+        nearbyTorchIndices, nearbyTorchCount, boundary, outMesh);
 }
 
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
@@ -273,7 +286,7 @@ bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
     const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
-    int nearbyTorchCount, const SurfaceWaterBoundarySnapshot *boundary,
+    int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh)
 {
     unsigned short waterBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
@@ -290,7 +303,8 @@ bool BuildChunkFloraMeshDataFromSnapshot(
     int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
-    int nearbyTorchCount, Mesh *outMesh,
+    int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
+    Mesh *outMesh,
     FloraVisualInstance **outInstances, int *outInstanceCount)
 {
     *outMesh = (Mesh){ 0 };
@@ -305,10 +319,10 @@ bool BuildChunkFloraMeshDataFromSnapshot(
     FloraVisualInstance *instances = NULL;
     int instanceCount = 0;
     Mesh plants = { 0 };
-    if (BuildFloraMeshData(
+    if (BuildFloraMeshDataWithSnapshot(
             (const unsigned short (*)[CHUNK_SIZE])floraBlocks,
             SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
-            nearbyTorchIndices, nearbyTorchCount, &plants)) {
+            nearbyTorchIndices, nearbyTorchCount, boundary, &plants)) {
         if (!AppendPlantMeshInstances(
                 &instances, &instanceCount, &plants, 0) ||
             !MergeMeshData(&combined, &plants)) {
@@ -345,10 +359,11 @@ bool BuildChunkFloraMeshDataFromSnapshot(
         Mesh solid = { 0 };
         Mesh transparent = { 0 };
         Mesh crossed = { 0 };
-        if (BuildSurfaceSolidMeshData(
+        if (BuildMeshDataFilteredWithSnapshot(
                 (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
-                SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
-                nearbyTorchIndices, nearbyTorchCount, &solid) &&
+                SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
+                false, false, false, false, faces,
+                nearbyTorchIndices, nearbyTorchCount, boundary, &solid) &&
             !MergeMeshData(&instanceMesh, &solid)) {
             FreeMeshData(&solid);
             FreeMeshData(&instanceMesh);
@@ -356,11 +371,12 @@ bool BuildChunkFloraMeshDataFromSnapshot(
             free(instances);
             return false;
         }
-        if (BuildMeshDataFiltered(
+        if (BuildMeshDataFilteredWithSnapshot(
                 (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
                 SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
                 true, false, false, true, faces,
-                nearbyTorchIndices, nearbyTorchCount, &transparent) &&
+                nearbyTorchIndices, nearbyTorchCount, boundary,
+                &transparent) &&
             !MergeMeshData(&instanceMesh, &transparent)) {
             FreeMeshData(&transparent);
             FreeMeshData(&instanceMesh);
@@ -368,10 +384,10 @@ bool BuildChunkFloraMeshDataFromSnapshot(
             free(instances);
             return false;
         }
-        if (BuildFloraMeshData(
+        if (BuildFloraMeshDataWithSnapshot(
                 (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
                 SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
-                nearbyTorchIndices, nearbyTorchCount, &crossed) &&
+                nearbyTorchIndices, nearbyTorchCount, boundary, &crossed) &&
             !MergeMeshData(&instanceMesh, &crossed)) {
             FreeMeshData(&crossed);
             FreeMeshData(&instanceMesh);
@@ -434,7 +450,8 @@ bool BuildChunkFloraMeshData(
                 section->blocks, sectionY * SURFACE_SECTION_HEIGHT,
                 chunk->cx, chunk->cz, chunk->floraStructures,
                 chunk->floraStructureCount, faces, nearbyTorchIndices,
-                nearbyTorchCount, &part, &partInstances, &partCount)) continue;
+                nearbyTorchCount, NULL, &part, &partInstances,
+                &partCount)) continue;
         float layerY = (float)(sectionY * SURFACE_SECTION_HEIGHT);
         for (int vertex = 0; vertex < part.vertexCount; vertex++) {
             part.vertices[vertex * 3 + 1] += layerY;

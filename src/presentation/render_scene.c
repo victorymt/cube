@@ -3,25 +3,19 @@
 #include "presentation/render_internal.h"
 
 static TransparentRenderItem *surfaceTransparentItems;
+static int surfaceTransparentCount;
 static int surfaceTransparentCapacity;
+static int worldFrameCameraCx;
+static int worldFrameCameraCz;
+static int worldFrameShadowChunkRadius;
+static int worldFrameEffectiveRenderDistance;
+static bool worldFrameDrawSurfaceChunks;
 
 #define MAX_OTHER_TRANSPARENT_ITEMS (MAX_SPACE_CHUNKS + MAX_NETHER_CHUNKS)
 
-static int MaterializedSurfaceSectionCount(void)
+static bool EnsureSurfaceTransparentCapacity(int required)
 {
-    const Chunk *surfaceChunks = ChunksView();
-    int count = 0;
-    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        if (!surfaceChunks[i].loaded) continue;
-        if (surfaceChunks[i].sectionCount > INT_MAX - count) return INT_MAX;
-        count += surfaceChunks[i].sectionCount;
-    }
-    return count;
-}
-
-static void EnsureSurfaceTransparentCapacity(int required)
-{
-    if (required <= surfaceTransparentCapacity) return;
+    if (required <= surfaceTransparentCapacity) return true;
     int capacity = surfaceTransparentCapacity > 0
         ? surfaceTransparentCapacity : 256;
     while (capacity < required) {
@@ -31,12 +25,15 @@ static void EnsureSurfaceTransparentCapacity(int required)
         }
         capacity *= 2;
     }
-    if ((size_t)capacity > SIZE_MAX / sizeof(*surfaceTransparentItems)) return;
+    if ((size_t)capacity > SIZE_MAX / sizeof(*surfaceTransparentItems)) {
+        return false;
+    }
     TransparentRenderItem *items = realloc(
         surfaceTransparentItems, (size_t)capacity * sizeof(*items));
-    if (!items) return;
+    if (!items) return false;
     surfaceTransparentItems = items;
     surfaceTransparentCapacity = capacity;
+    return true;
 }
 
 static Vector3 ChunkRenderCenter(int cx, int cz, float centerY)
@@ -48,11 +45,31 @@ static Vector3 ChunkRenderCenter(int cx, int cz, float centerY)
     };
 }
 
-static void CollectSurfaceRenderItems(
-    const Camera3D *camera, int effectiveRenderDistance, Color tint,
-    TransparentRenderItem *transparent, int transparentCapacity,
-    int *transparentCount)
+void WorldRenderFramePrepare(const Camera3D *camera,
+                             int effectiveRenderDistance,
+                             bool drawSurfaceChunks)
 {
+    surfaceTransparentCount = 0;
+    worldFrameCameraCx = 0;
+    worldFrameCameraCz = 0;
+    worldFrameEffectiveRenderDistance = effectiveRenderDistance;
+    worldFrameDrawSurfaceChunks = drawSurfaceChunks;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal((int)floorf(camera->position.x),
+                      (int)floorf(camera->position.z),
+                      &worldFrameCameraCx, &worldFrameCameraCz,
+                      &localX, &localZ);
+    worldFrameShadowChunkRadius = WorldRendererShadowChunkRadius();
+    if (worldFrameShadowChunkRadius > effectiveRenderDistance) {
+        worldFrameShadowChunkRadius = effectiveRenderDistance;
+    }
+}
+
+static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
+{
+    if (!worldFrameDrawSurfaceChunks) return;
+
     const Chunk *surfaceChunks = ChunksView();
     float referenceX = camera->position.x;
     float referenceZ = camera->position.z;
@@ -65,22 +82,27 @@ static void CollectSurfaceRenderItems(
     Vector3 referenceOrigin = {
         referenceX, 0.0f, referenceZ
     };
+    float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
+    float radius = sqrtf(half * half * 3.0f);
     int stableOrder = 0;
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         const Chunk *chunk = &surfaceChunks[i];
         if (!chunk->loaded) continue;
-        bool distanceVisible = ChunkWithinDrawDistance(
-            chunk, camera->position, effectiveRenderDistance);
+        bool distanceVisible =
+            abs(chunk->cx - worldFrameCameraCx) <=
+                worldFrameEffectiveRenderDistance &&
+            abs(chunk->cz - worldFrameCameraCz) <=
+                worldFrameEffectiveRenderDistance;
         if (!distanceVisible) continue;
+        Vector2 patchMap = {
+            (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
+            (float)(mapOriginZ + chunk->cz * CHUNK_SIZE)
+        };
         for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
-             sectionIndex++, stableOrder++) {
-            ChunkSection *section = chunk->sections[sectionIndex];
+             sectionIndex++) {
+            const ChunkSection *section = chunk->sections[sectionIndex];
             int sectionY = section->sectionY;
             int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
-            Vector2 patchMap = {
-                (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
-                (float)(mapOriginZ + chunk->cz * CHUNK_SIZE)
-            };
             Matrix transform = chunk->spherical
                 ? SurfacePatchTransformAtMap(
                     chunk->surfaceAddress.bodyId, referenceMap,
@@ -92,10 +114,18 @@ static void CollectSurfaceRenderItems(
                 (Vector3){ (float)CHUNK_SIZE * 0.5f,
                            (float)SURFACE_SECTION_HEIGHT * 0.5f,
                            (float)CHUNK_SIZE * 0.5f }, transform);
-            float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
-            bool frustumVisible = SphereInFrustum(
-                camera, center, sqrtf(half * half * 3.0f));
-            PerfRecordWorldCandidate(distanceVisible, frustumVisible);
+            bool frustumVisible = SphereInFrustum(camera, center, radius);
+            PerfRecordWorldCandidate(true, frustumVisible);
+            if (frustumVisible && section->hasWaterModel &&
+                EnsureSurfaceTransparentCapacity(surfaceTransparentCount + 1)) {
+                TransparentRenderItemAppendTransformed(
+                    surfaceTransparentItems, surfaceTransparentCapacity,
+                    &surfaceTransparentCount,
+                    &section->waterModel, transform, center,
+                    camera->position, TRANSPARENT_RENDER_SURFACE,
+                    chunk->cx, chunk->cz, stableOrder);
+            }
+            stableOrder++;
             if (!frustumVisible) continue;
             if (section->hasModel) {
                 PerfRecordDrawCall(PERF_DRAW_SOLID);
@@ -107,15 +137,16 @@ static void CollectSurfaceRenderItems(
                 WorldRendererDrawModelTransformed(
                     &section->floraModel, transform, tint, false);
             }
-            if (section->hasWaterModel) {
-                TransparentRenderItemAppendTransformed(
-                    transparent, transparentCapacity, transparentCount,
-                    &section->waterModel, transform, center,
-                    camera->position, TRANSPARENT_RENDER_SURFACE,
-                    chunk->cx, chunk->cz, stableOrder);
-            }
         }
     }
+}
+
+void WorldRenderFrameShutdown(void)
+{
+    free(surfaceTransparentItems);
+    surfaceTransparentItems = NULL;
+    surfaceTransparentCount = 0;
+    surfaceTransparentCapacity = 0;
 }
 
 static void CollectSpaceRenderItems(
@@ -177,35 +208,24 @@ static void CollectNetherRenderItems(
     }
 }
 
-void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
-               bool drawSurfaceChunks, bool drawNetherChunks,
+void DrawWorld(const Camera3D *camera, Color tint, bool drawNetherChunks,
                const WorldLightingState *lighting)
 {
     if (lighting) WorldRendererPrepare(lighting);
-    EnsureSurfaceTransparentCapacity(MaterializedSurfaceSectionCount());
-    TransparentRenderItem *water = surfaceTransparentItems;
-    int waterCount = 0;
     TransparentRenderItem transparent[MAX_OTHER_TRANSPARENT_ITEMS];
     int transparentCount = 0;
-    if (drawSurfaceChunks) {
-        CollectSurfaceRenderItems(camera, effectiveRenderDistance, tint,
-                                  water, surfaceTransparentCapacity, &waterCount);
-    }
+    CollectSurfaceRenderItems(camera, tint);
 
-    int cameraCx = 0;
-    int cameraCz = 0;
-    int localX = 0;
-    int localZ = 0;
-    WorldToChunkLocal((int)floorf(camera->position.x),
-                      (int)floorf(camera->position.z),
-                      &cameraCx, &cameraCz, &localX, &localZ);
-    CollectSpaceRenderItems(camera, cameraCx, cameraCz, tint,
+    CollectSpaceRenderItems(camera, worldFrameCameraCx, worldFrameCameraCz, tint,
                             transparent, &transparentCount);
     if (drawNetherChunks) {
-        CollectNetherRenderItems(camera, cameraCx, cameraCz, tint,
+        CollectNetherRenderItems(camera, worldFrameCameraCx, worldFrameCameraCz,
+                                 tint,
                                  transparent, &transparentCount);
     }
 
+    TransparentRenderItem *water = surfaceTransparentItems;
+    int waterCount = surfaceTransparentCount;
     SortTransparentRenderItems(water, waterCount);
     BeginBlendMode(BLEND_ALPHA);
     WorldRendererBeginWaterPass();
@@ -234,22 +254,12 @@ void DrawWorld(const Camera3D *camera, int effectiveRenderDistance, Color tint,
     EndBlendMode();
 }
 
-void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
-                        bool drawSurfaceChunks, bool drawNetherChunks,
+void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                         const WorldLightingState *lighting)
 {
     if (!WorldRendererBeginShadow(camera, lighting)) return;
-    const Chunk *surfaceChunks = ChunksView();
-    const NetherChunk *netherChunks = NetherChunksView();
-    int cameraCx = 0, cameraCz = 0, localX = 0, localZ = 0;
-    WorldToChunkLocal((int)floorf(camera->position.x),
-                      (int)floorf(camera->position.z),
-                      &cameraCx, &cameraCz, &localX, &localZ);
-    int shadowChunkRadius = WorldRendererShadowChunkRadius();
-    if (shadowChunkRadius > effectiveRenderDistance) {
-        shadowChunkRadius = effectiveRenderDistance;
-    }
-    if (drawSurfaceChunks) {
+    if (worldFrameDrawSurfaceChunks) {
+        const Chunk *surfaceChunks = ChunksView();
         float referenceX = camera->position.x;
         float referenceZ = camera->position.z;
         int mapOriginX = WorldSurfaceMapOriginX();
@@ -258,21 +268,26 @@ void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
             (float)mapOriginX + referenceX,
             (float)mapOriginZ + referenceZ
         };
-        Vector3 referenceOrigin = {
-            referenceX, 0.0f, referenceZ
-        };
+        Vector3 referenceOrigin = { referenceX, 0.0f, referenceZ };
+        float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
+        float radius = sqrtf(half * half * 3.0f);
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             const Chunk *chunk = &surfaceChunks[i];
-            if (!chunk->loaded || abs(chunk->cx - cameraCx) > shadowChunkRadius ||
-                abs(chunk->cz - cameraCz) > shadowChunkRadius) continue;
+            if (!chunk->loaded ||
+                abs(chunk->cx - worldFrameCameraCx) >
+                    worldFrameShadowChunkRadius ||
+                abs(chunk->cz - worldFrameCameraCz) >
+                    worldFrameShadowChunkRadius) {
+                continue;
+            }
+            Vector2 patchMap = {
+                (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
+                (float)(mapOriginZ + chunk->cz * CHUNK_SIZE)
+            };
             for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
                  sectionIndex++) {
                 const ChunkSection *section = chunk->sections[sectionIndex];
                 int radialBase = section->sectionY * SURFACE_SECTION_HEIGHT;
-                Vector2 patchMap = {
-                    (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
-                    (float)(mapOriginZ + chunk->cz * CHUNK_SIZE)
-                };
                 Matrix transform = chunk->spherical
                     ? SurfacePatchTransformAtMap(
                           chunk->surfaceAddress.bodyId, referenceMap,
@@ -280,6 +295,11 @@ void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
                     : MatrixTranslate((float)(chunk->cx * CHUNK_SIZE),
                                       (float)radialBase,
                                       (float)(chunk->cz * CHUNK_SIZE));
+                Vector3 center = Vector3Transform(
+                    (Vector3){ (float)CHUNK_SIZE * 0.5f,
+                               (float)SURFACE_SECTION_HEIGHT * 0.5f,
+                               (float)CHUNK_SIZE * 0.5f }, transform);
+                if (!WorldRendererShadowSphereVisible(center, radius)) continue;
                 if (section->hasModel) {
                     WorldRendererDrawShadowModelTransformed(
                         &section->model, transform);
@@ -291,13 +311,16 @@ void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
             }
         }
     }
+    const NetherChunk *netherChunks = NetherChunksView();
     if (drawNetherChunks) {
         Vector3 translation = { 0.0f, (float)NETHER_LAYER_Y, 0.0f };
         for (int i = 0; i < MAX_NETHER_CHUNKS; i++) {
             const NetherChunk *chunk = &netherChunks[i];
             if (!chunk->loaded || !chunk->hasModel ||
-                abs(chunk->cx - cameraCx) > shadowChunkRadius ||
-                abs(chunk->cz - cameraCz) > shadowChunkRadius) continue;
+                abs(chunk->cx - worldFrameCameraCx) > worldFrameShadowChunkRadius ||
+                abs(chunk->cz - worldFrameCameraCz) > worldFrameShadowChunkRadius) {
+                continue;
+            }
             WorldRendererDrawShadowModel(&chunk->model, translation);
         }
     }

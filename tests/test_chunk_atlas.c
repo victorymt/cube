@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int terrainBaseBlockLookups = 0;
+
 uint32_t WorldCurrentSurfaceId(void)
 {
     return 1u;
@@ -38,6 +40,7 @@ bool HomeWorldSurfaceIsActive(void)
 
 BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
 {
+    terrainBaseBlockLookups++;
     (void)x;
     (void)y;
     (void)z;
@@ -772,6 +775,40 @@ static void AssertFloraStructureInstancePartition(void)
     FreeTestMesh(&flora);
 }
 
+static void AssertSolidSnapshotDoesNotReadLiveChunks(void)
+{
+    UnloadAllChunks();
+
+    unsigned short blocks[CHUNK_SIZE]
+                         [SURFACE_SECTION_HEIGHT]
+                         [CHUNK_SIZE] = { 0 };
+    blocks[CHUNK_SIZE - 1][8][8] = BLOCK_STONE;
+
+    SurfaceBoundarySnapshot boundary = { 0 };
+    boundary.blocks[CHUNK_SIZE + 1][8 + 1][8 + 1] = BLOCK_STONE;
+    boundary.blocks[0][8 + 1][8 + 1] = BLOCK_WATER;
+    boundary.volumes[0][8 + 1][8 + 1] = WATER_VOLUME_CAPACITY;
+    boundary.known[0][8 + 1][8 + 1] = 1u;
+
+    BlockType boundaryBlock = BLOCK_AIR;
+    unsigned char boundaryVolume = 0u;
+    assert(SurfaceBoundaryCellAt(
+        &boundary, -1, 8, 8, &boundaryBlock, &boundaryVolume));
+    assert(boundaryBlock == BLOCK_WATER);
+    assert(boundaryVolume == WATER_VOLUME_CAPACITY);
+
+    terrainBaseBlockLookups = 0;
+    Mesh mesh = { 0 };
+    assert(BuildMeshDataFilteredWithSnapshot(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        SURFACE_SECTION_HEIGHT, 0, 0, 0,
+        false, false, false, false, TEST_CHUNK_FACES,
+        NULL, 0, &boundary, &mesh));
+    AssertMeshWellFormed(&mesh, 30);
+    assert(terrainBaseBlockLookups == 0);
+    FreeTestMesh(&mesh);
+}
+
 int main(void)
 {
     AssertSpecialBlockMeshContracts();
@@ -787,6 +824,7 @@ int main(void)
     AssertDoorMeshCapacityWithOcclusion();
     AssertSpaceshipMeshCapacityAndBounds();
     AssertFloraStructureInstancePartition();
+    AssertSolidSnapshotDoesNotReadLiveChunks();
     puts("chunk atlas tests passed");
     return 0;
 }

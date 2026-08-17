@@ -39,7 +39,10 @@ void GenerateChunkJobPayload(ChunkGenJob *job)
         &staged, job->cx, job->cz, job->sectionY, job->terrainMode);
     const ChunkSection *section = ChunkGetSectionConst(
         &staged, job->sectionY);
-    if (job->succeeded && section) {
+    if (job->succeeded && section &&
+        (job->forceSectionBlocks || TerrainSectionHasExposedFaces(
+            section, job->cx, job->cz, job->sectionY,
+            job->terrainMode))) {
         memcpy(job->sectionBlocks, section->blocks,
                sizeof(job->sectionBlocks));
         job->hasSectionBlocks = true;
@@ -109,7 +112,7 @@ void *ChunkGenWorker(void *arg)
                 meshJob->cx, meshJob->cz,
                 meshJob->floraStructures, meshJob->floraStructureCount,
                 faces, meshJob->nearbyIndices, meshJob->nearbyCount,
-                &meshJob->mesh);
+                &meshJob->boundary, &meshJob->mesh);
             meshJob->hasWaterMesh = BuildChunkSurfaceWaterMeshDataWithSnapshot(
                 meshJob->blocks,
                 (const unsigned char *)meshJob->waterVolumes,
@@ -118,7 +121,7 @@ void *ChunkGenWorker(void *arg)
                 meshJob->floraStructures, meshJob->floraStructureCount,
                 faces,
                 meshJob->nearbyIndices, meshJob->nearbyCount,
-                &meshJob->waterBoundary,
+                &meshJob->boundary,
                 &meshJob->waterMesh);
             meshJob->hasFloraMesh = BuildChunkFloraMeshDataFromSnapshot(
                 meshJob->blocks,
@@ -126,7 +129,8 @@ void *ChunkGenWorker(void *arg)
                 meshJob->cx, meshJob->cz,
                 meshJob->floraStructures, meshJob->floraStructureCount,
                 faces, meshJob->nearbyIndices, meshJob->nearbyCount,
-                &meshJob->floraMesh, &meshJob->floraInstances,
+                &meshJob->boundary, &meshJob->floraMesh,
+                &meshJob->floraInstances,
                 &meshJob->floraInstanceCount);
             if (meshJob->spherical) {
                 if (meshJob->hasMesh) {
@@ -228,6 +232,46 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
     return true;
 }
 
+static bool ChunkSectionHasRelevantSavedEdit(const Chunk *chunk,
+                                             int sectionY)
+{
+    if (!chunk) return false;
+    int editCount = WorldGetEditCount();
+    for (int index = 0; index < editCount; index++) {
+        BlockEdit edit;
+        if (!WorldGetEditForCurrentDimension(index, &edit)) continue;
+        int editCx = 0;
+        int editCz = 0;
+        int editLx = 0;
+        int editLz = 0;
+        WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz,
+                          &editLx, &editLz);
+        int editSectionY = SurfaceSectionYFromBlockY(edit.y);
+        if (editSectionY == sectionY) {
+            if (editCx == chunk->cx && editCz == chunk->cz) return true;
+            if (editCz == chunk->cz &&
+                ((editCx == chunk->cx - 1 && editLx == CHUNK_SIZE - 1) ||
+                 (editCx == chunk->cx + 1 && editLx == 0))) {
+                return true;
+            }
+            if (editCx == chunk->cx &&
+                ((editCz == chunk->cz - 1 && editLz == CHUNK_SIZE - 1) ||
+                 (editCz == chunk->cz + 1 && editLz == 0))) {
+                return true;
+            }
+        }
+        if (editCx == chunk->cx && editCz == chunk->cz) {
+            int editLocalY = SurfaceSectionLocalYFromBlockY(edit.y);
+            if ((editSectionY == sectionY - 1 &&
+                 editLocalY == SURFACE_SECTION_HEIGHT - 1) ||
+                (editSectionY == sectionY + 1 && editLocalY == 0)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static bool SubmitChunkSectionGenJob(
     Chunk *chunk, int sectionY, TerrainMode mode)
 {
@@ -258,6 +302,8 @@ static bool SubmitChunkSectionGenJob(
 
     *job = (ChunkGenJob){
         .inUse = true,
+        .forceSectionBlocks = ChunkSectionHasRelevantSavedEdit(
+            chunk, sectionY),
         .scope = CHUNK_GEN_SCOPE_SECTION,
         .cx = chunk->cx,
         .cz = chunk->cz,
@@ -275,13 +321,8 @@ static bool SubmitChunkSectionGenJob(
     return true;
 }
 
-bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
+static bool RequestLoadedChunkTerrainSection(Chunk *chunk, int sectionY)
 {
-    if (!SurfaceSectionInBounds(sectionY) ||
-        !HomeWorldSurfaceIsActive()) {
-        return false;
-    }
-    Chunk *chunk = FindChunk(cx, cz);
     if (!chunk || ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
@@ -293,7 +334,7 @@ bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
 
     double startedMs = ChunkNowMs();
     bool generated = GenerateChunkTerrainSectionBase(
-        chunk, cx, cz, sectionY, WorldTerrainMode());
+        chunk, chunk->cx, chunk->cz, sectionY, WorldTerrainMode());
     double elapsedMs = ChunkNowMs() - startedMs;
     if (!generated) return false;
     ApplyEditsToChunkSection(chunk, sectionY);
@@ -304,6 +345,15 @@ bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
     streamingStats.generationCpuMs += elapsedMs;
     pthread_mutex_unlock(&genMutex);
     return true;
+}
+
+bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
+{
+    if (!SurfaceSectionInBounds(sectionY) ||
+        !HomeWorldSurfaceIsActive()) {
+        return false;
+    }
+    return RequestLoadedChunkTerrainSection(FindChunk(cx, cz), sectionY);
 }
 
 bool FindPendingGenJob(int cx, int cz)
@@ -547,9 +597,16 @@ bool EnsureChunk(int cx, int cz)
     return true;
 }
 
-int ScheduleNearbyTerrainSections(Vector3 playerPosition)
+int ScheduleNearbyTerrainSections(Vector3 playerPosition,
+                                  int effectiveRenderDistance)
 {
     if (!HomeWorldSurfaceIsActive()) return 0;
+    if (effectiveRenderDistance < MIN_RENDER_DISTANCE_CHUNKS) {
+        effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS;
+    }
+    if (effectiveRenderDistance > MAX_RENDER_DISTANCE_CHUNKS) {
+        effectiveRenderDistance = MAX_RENDER_DISTANCE_CHUNKS;
+    }
     int playerY = (int)floorf(playerPosition.y);
     if (!InHeight(playerY)) return 0;
 
@@ -561,27 +618,29 @@ int ScheduleNearbyTerrainSections(Vector3 playerPosition)
                       (int)floorf(playerPosition.z),
                       &playerCx, &playerCz, &localX, &localZ);
     int playerSectionY = SurfaceSectionYFromBlockY(playerY);
-    static const int horizontalOffsets[9][2] = {
-        { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
-        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 }
-    };
     static const int verticalOffsets[3] = { 0, -1, 1 };
 
     int submissions = 0;
-    for (int vertical = 0;
-         vertical < (int)(sizeof(verticalOffsets) /
-                          sizeof(verticalOffsets[0])); vertical++) {
-        int sectionY = playerSectionY + verticalOffsets[vertical];
-        if (!SurfaceSectionInBounds(sectionY)) continue;
-        for (int horizontal = 0;
-             horizontal < (int)(sizeof(horizontalOffsets) /
-                                sizeof(horizontalOffsets[0])); horizontal++) {
-            int cx = playerCx + horizontalOffsets[horizontal][0];
-            int cz = playerCz + horizontalOffsets[horizontal][1];
-            if (RequestChunkTerrainSection(cx, sectionY, cz)) {
-                submissions++;
-                if (submissions >= SECTION_GEN_SUBMISSIONS_PER_FRAME) {
-                    return submissions;
+    for (int distance = 0; distance <= effectiveRenderDistance; distance++) {
+        for (int vertical = 0;
+             vertical < (int)(sizeof(verticalOffsets) /
+                              sizeof(verticalOffsets[0])); vertical++) {
+            int sectionY = playerSectionY + verticalOffsets[vertical];
+            if (!SurfaceSectionInBounds(sectionY)) continue;
+            for (int dz = -distance; dz <= distance; dz++) {
+                for (int dx = -distance; dx <= distance; dx++) {
+                    if (abs(dx) != distance && abs(dz) != distance) {
+                        continue;
+                    }
+                    Chunk *chunk = FindChunk(playerCx + dx,
+                                             playerCz + dz);
+                    if (RequestLoadedChunkTerrainSection(chunk, sectionY)) {
+                        submissions++;
+                        if (submissions >=
+                            SECTION_GEN_SUBMISSIONS_PER_FRAME) {
+                            return submissions;
+                        }
+                    }
                 }
             }
         }
@@ -648,5 +707,5 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
     for (int i = 0; i < missingCount && submissions < CHUNK_GEN_SUBMISSIONS_PER_FRAME; i++) {
         if (EnsureChunk(missingChunks[i][0], missingChunks[i][1])) submissions++;
     }
-    ScheduleNearbyTerrainSections(playerPosition);
+    ScheduleNearbyTerrainSections(playerPosition, effectiveRenderDistance);
 }

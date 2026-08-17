@@ -25,41 +25,48 @@ bool FaceIsVisible(int x, int y, int z, int nx, int ny, int nz)
 
 static BlockType ChunkFaceNeighbor(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, int lx, int y, int lz, int nx, int ny, int nz)
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    int lx, int y, int lz, int nx, int ny, int nz)
 {
     int neighborY = y + ny;
-    if (neighborY < 0 || neighborY >= height) {
-        int worldY = layerY + neighborY;
-        if (!InHeight(worldY)) return BLOCK_AIR;
-        return GetBlockAt(chunkX * CHUNK_SIZE + lx + nx, worldY,
-                          chunkZ * CHUNK_SIZE + lz + nz);
-    }
-
     int neighborLx = lx + nx;
     int neighborLz = lz + nz;
-    if (neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
+    if (neighborY >= 0 && neighborY < height &&
+        neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
         neighborLz >= 0 && neighborLz < CHUNK_SIZE) {
         return (BlockType)blocks[neighborLx * height + neighborY][neighborLz];
     }
 
+    int worldY = layerY + neighborY;
+    if (!InHeight(worldY)) return BLOCK_AIR;
+    if (boundary) {
+        BlockType neighbor = BLOCK_AIR;
+        return SurfaceBoundaryBlockAt(
+            boundary, neighborLx, neighborY, neighborLz, &neighbor)
+            ? neighbor : BLOCK_AIR;
+    }
+
     int wx = chunkX * CHUNK_SIZE + lx + nx;
     int wz = chunkZ * CHUNK_SIZE + lz + nz;
-    return GetBlockAt(wx, layerY + neighborY, wz);
+    return GetBlockAt(wx, worldY, wz);
 }
 
-bool ChunkFaceIsVisible(const unsigned short (*blocks)[CHUNK_SIZE],
-                        int height, int layerY, int chunkX, int chunkZ,
-                        int lx, int y, int lz, int nx, int ny, int nz)
+static bool ChunkFaceIsVisibleWithSnapshot(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    int lx, int y, int lz, int nx, int ny, int nz)
 {
     BlockType neighbor = ChunkFaceNeighbor(
-        blocks, height, layerY, chunkX, chunkZ, lx, y, lz, nx, ny, nz);
+        blocks, height, layerY, chunkX, chunkZ, boundary,
+        lx, y, lz, nx, ny, nz);
     return neighbor == BLOCK_AIR || neighbor == BLOCK_SPACESHIP_OCCUPIED ||
            IsTranslucentBlock(neighbor);
 }
 
 static bool ChunkTransparentNeighbor(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, int lx, int y, int lz, int nx, int ny, int nz,
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    int lx, int y, int lz, int nx, int ny, int nz,
     BlockType *outNeighbor)
 {
     if (!outNeighbor) return false;
@@ -80,6 +87,13 @@ static bool ChunkTransparentNeighbor(
         return true;
     }
 
+    if (boundary) {
+        unsigned char ignoredVolume = 0u;
+        return SurfaceBoundaryCellAt(
+            boundary, neighborLx, neighborY, neighborLz,
+            outNeighbor, &ignoredVolume);
+    }
+
     int wx = chunkX * CHUNK_SIZE + lx + nx;
     int wz = chunkZ * CHUNK_SIZE + lz + nz;
     int neighborCx = 0;
@@ -95,12 +109,13 @@ static bool ChunkTransparentNeighbor(
 
 static bool ChunkTransparentFaceIsVisible(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, int lx, int y, int lz, int nx, int ny, int nz,
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    int lx, int y, int lz, int nx, int ny, int nz,
     BlockType current)
 {
     BlockType neighbor = BLOCK_AIR;
     if (!ChunkTransparentNeighbor(
-            blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
+            blocks, height, layerY, chunkX, chunkZ, boundary, lx, y, lz,
             nx, ny, nz, &neighbor)) {
         // Missing streamed neighbors are unknown, not air. Hiding this face
         // avoids transient water walls until the neighbor loads and dirties
@@ -247,7 +262,8 @@ static bool BlockOccludesAmbient(BlockType block)
 
 static BlockType SnapshotBlockAt(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, int worldX, int worldY, int worldZ)
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    int worldX, int worldY, int worldZ)
 {
     int lx = worldX - chunkX * CHUNK_SIZE;
     int lz = worldZ - chunkZ * CHUNK_SIZE;
@@ -256,12 +272,18 @@ static BlockType SnapshotBlockAt(
         lz < CHUNK_SIZE && localY >= 0 && localY < height) {
         return (BlockType)blocks[lx * height + localY][lz];
     }
+    if (boundary) {
+        BlockType block = BLOCK_AIR;
+        return SurfaceBoundaryBlockAt(boundary, lx, localY, lz, &block)
+            ? block : BLOCK_AIR;
+    }
     return GetBlockAt(worldX, worldY, worldZ);
 }
 
 static float BlockCornerAmbientOcclusion(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, int x, int y, int z, Vector3 normal,
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    int x, int y, int z, Vector3 normal,
     Vector3 corner)
 {
     int nx = (int)normal.x;
@@ -283,13 +305,13 @@ static float BlockCornerAmbientOcclusion(
     int outsideY = layerY + y + ny;
     int outsideZ = z + nz;
     bool side1 = BlockOccludesAmbient(SnapshotBlockAt(
-        blocks, height, layerY, chunkX, chunkZ,
+        blocks, height, layerY, chunkX, chunkZ, boundary,
         outsideX + t1x, outsideY + t1y, outsideZ + t1z));
     bool side2 = BlockOccludesAmbient(SnapshotBlockAt(
-        blocks, height, layerY, chunkX, chunkZ,
+        blocks, height, layerY, chunkX, chunkZ, boundary,
         outsideX + t2x, outsideY + t2y, outsideZ + t2z));
     bool diagonal = BlockOccludesAmbient(SnapshotBlockAt(
-        blocks, height, layerY, chunkX, chunkZ,
+        blocks, height, layerY, chunkX, chunkZ, boundary,
         outsideX + t1x + t2x, outsideY + t1y + t2y,
         outsideZ + t1z + t2z));
     int occlusion = side1 && side2 ? 3 :
@@ -302,7 +324,8 @@ static void AddBlockFaceInternal(
     ChunkMeshEmitter *emitter, int x, int y, int z, int face,
     BlockType type, Color baseColor, float extraLight,
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, bool realtimeLighting)
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    bool realtimeLighting)
 {
     if (!emitter->mesh) {
         CountMeshFace(emitter);
@@ -387,13 +410,13 @@ static void AddBlockFaceInternal(
         float ambientOcclusion[6];
         for (int i = 0; i < 3; i++) {
             ambientOcclusion[i] = BlockCornerAmbientOcclusion(
-                blocks, height, layerY, chunkX, chunkZ,
+                blocks, height, layerY, chunkX, chunkZ, boundary,
                 x, y, z, normal, corners[i]);
         }
         ambientOcclusion[3] = ambientOcclusion[0];
         ambientOcclusion[4] = ambientOcclusion[2];
         ambientOcclusion[5] = BlockCornerAmbientOcclusion(
-            blocks, height, layerY, chunkX, chunkZ,
+            blocks, height, layerY, chunkX, chunkZ, boundary,
             x, y, z, normal, corners[5]);
         AddMeshFaceLighting(emitter, corners, normal, uvs, baseColor,
                             ambientOcclusion, extraLight);
@@ -416,7 +439,7 @@ void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z,
         .dynamicCapacity = true
     };
     AddBlockFaceInternal(&emitter, x, y, z, face, type, baseColor,
-                         extraLight, NULL, 0, 0, 0, 0, false);
+                         extraLight, NULL, 0, 0, 0, 0, NULL, false);
     *vertexIndex = emitter.vertexIndex;
     if (emitter.failed) {
         mesh->vertexCount = -1;
@@ -795,6 +818,7 @@ static void AddSpaceshipMesh(ChunkMeshEmitter *emitter,
 static void AddSlabMesh(ChunkMeshEmitter *emitter,
                  const unsigned short (*blocks)[CHUNK_SIZE],
                  int height, int layerY, int chunkX, int chunkZ,
+                 const SurfaceBoundarySnapshot *boundary,
                  int lx, int y, int lz,
                  const int faces[6][3], float extraLight)
 {
@@ -804,7 +828,10 @@ static void AddSlabMesh(ChunkMeshEmitter *emitter,
     AtlasUVs(TEX_STONE, uvs);
 
     for (int face = 0; face < 6; face++) {
-        if (!ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) continue;
+        if (!ChunkFaceIsVisibleWithSnapshot(
+                blocks, height, layerY, chunkX, chunkZ, boundary,
+                lx, y, lz, faces[face][0], faces[face][1],
+                faces[face][2])) continue;
 
         int x = chunkX * CHUNK_SIZE + lx;
         int z = chunkZ * CHUNK_SIZE + lz;
@@ -865,6 +892,7 @@ static void AddSlabMesh(ChunkMeshEmitter *emitter,
 static void AddDoorMesh(ChunkMeshEmitter *emitter,
                  const unsigned short (*blocks)[CHUNK_SIZE],
                  int height, int layerY, int chunkX, int chunkZ,
+                 const SurfaceBoundarySnapshot *boundary,
                  int lx, int y, int lz,
                  const int faces[6][3], BlockType type, float extraLight)
 {
@@ -922,7 +950,10 @@ static void AddDoorMesh(ChunkMeshEmitter *emitter,
 
     for (int f = 0; f < 5; f++) {
         int face = faceOrder[f];
-        if (!ChunkFaceIsVisible(blocks, height, layerY, chunkX, chunkZ, lx, y, lz, faces[face][0], faces[face][1], faces[face][2])) continue;
+        if (!ChunkFaceIsVisibleWithSnapshot(
+                blocks, height, layerY, chunkX, chunkZ, boundary,
+                lx, y, lz, faces[face][0], faces[face][1],
+                faces[face][2])) continue;
         Color color = ShadeColor(WHITE, shades[f] * brightness);
         AddMeshFace(emitter, faceCorners[f], normals[f], uvs, color);
     }
@@ -984,6 +1015,7 @@ static void AddStairsMesh(ChunkMeshEmitter *emitter,
 
 static BlockType FenceNeighborBlock(const unsigned short (*blocks)[CHUNK_SIZE],
                                     int height, int layerY, int chunkX, int chunkZ,
+                                    const SurfaceBoundarySnapshot *boundary,
                                     int lx, int y, int lz, int nx, int nz)
 {
     int neighborLx = lx + nx;
@@ -991,6 +1023,12 @@ static BlockType FenceNeighborBlock(const unsigned short (*blocks)[CHUNK_SIZE],
     if (neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
         neighborLz >= 0 && neighborLz < CHUNK_SIZE && y >= 0 && y < height) {
         return (BlockType)blocks[neighborLx * height + y][neighborLz];
+    }
+    if (boundary) {
+        BlockType neighbor = BLOCK_AIR;
+        return SurfaceBoundaryBlockAt(
+            boundary, neighborLx, y, neighborLz, &neighbor)
+            ? neighbor : BLOCK_AIR;
     }
     return GetBlockAt(chunkX * CHUNK_SIZE + lx + nx, layerY + y, chunkZ * CHUNK_SIZE + lz + nz);
 }
@@ -1003,6 +1041,7 @@ static bool FenceShouldConnect(BlockType type)
 static void AddFenceMesh(ChunkMeshEmitter *emitter,
                   const unsigned short (*blocks)[CHUNK_SIZE],
                   int height, int layerY, int chunkX, int chunkZ,
+                  const SurfaceBoundarySnapshot *boundary,
                   int lx, int y, int lz, float extraLight)
 {
     float cx = (float)(chunkX * CHUNK_SIZE + lx) + 0.5f;
@@ -1014,7 +1053,9 @@ static void AddFenceMesh(ChunkMeshEmitter *emitter,
 
     static const int dirs[4][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
     for (int d = 0; d < 4; d++) {
-        BlockType neighbor = FenceNeighborBlock(blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
+        BlockType neighbor = FenceNeighborBlock(blocks, height, layerY,
+                                                chunkX, chunkZ, boundary,
+                                                lx, y, lz,
                                                 dirs[d][0], dirs[d][2]);
         if (neighbor != BLOCK_AIR && !FenceShouldConnect(neighbor)) continue;
 
@@ -1230,6 +1271,7 @@ typedef struct ChunkMeshBuildContext {
     int layerY;
     int chunkX;
     int chunkZ;
+    const SurfaceBoundarySnapshot *boundary;
     bool transparent;
     bool includePlants;
     bool plantsOnly;
@@ -1298,12 +1340,14 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
                 if (type == BLOCK_SPACESHIP_OCCUPIED) continue;
                 if (type == BLOCK_SLAB) {
                     AddSlabMesh(emitter, blocks, height, layerY, chunkX,
-                                chunkZ, lx, y, lz, faces, blockLight);
+                                chunkZ, context->boundary, lx, y, lz,
+                                faces, blockLight);
                     continue;
                 }
                 if (type == BLOCK_DOOR || type == BLOCK_DOOR_OPEN) {
                     AddDoorMesh(emitter, blocks, height, layerY, chunkX,
-                                chunkZ, lx, y, lz, faces, type, blockLight);
+                                chunkZ, context->boundary, lx, y, lz,
+                                faces, type, blockLight);
                     continue;
                 }
                 if (type == BLOCK_STONE_STAIRS || type == BLOCK_WOOD_STAIRS) {
@@ -1313,7 +1357,8 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
                 }
                 if (type == BLOCK_FENCE) {
                     AddFenceMesh(emitter, blocks, height, layerY, chunkX,
-                                 chunkZ, lx, y, lz, blockLight);
+                                 chunkZ, context->boundary,
+                                 lx, y, lz, blockLight);
                     continue;
                 }
                 if (type == BLOCK_FENCE_GATE || type == BLOCK_FENCE_GATE_OPEN) {
@@ -1334,18 +1379,20 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
                 for (int face = 0; face < 6; face++) {
                     bool visible = transparent ?
                         ChunkTransparentFaceIsVisible(
-                            blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
+                            blocks, height, layerY, chunkX, chunkZ,
+                            context->boundary, lx, y, lz,
                             faces[face][0], faces[face][1], faces[face][2],
                             type) :
-                        ChunkFaceIsVisible(
-                            blocks, height, layerY, chunkX, chunkZ, lx, y, lz,
+                        ChunkFaceIsVisibleWithSnapshot(
+                            blocks, height, layerY, chunkX, chunkZ,
+                            context->boundary, lx, y, lz,
                             faces[face][0], faces[face][1], faces[face][2]);
                     if (visible) {
                         if (!counting) {
                             AddBlockFaceInternal(
                                 emitter, x, y, z, face, type, WHITE,
                                 blockLight, blocks, height, layerY, chunkX,
-                                chunkZ, true);
+                                chunkZ, context->boundary, true);
                         } else {
                             CountMeshFace(emitter);
                         }
@@ -1356,11 +1403,12 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
     }
 }
 
-bool BuildMeshDataFiltered(
+bool BuildMeshDataFilteredWithSnapshot(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, bool transparent, bool includePlants,
     bool plantsOnly, bool excludeWater, const int faces[6][3],
-    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
+    const int *nearbyTorchIndices, int nearbyTorchCount,
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
 {
     ChunkMeshBuildContext context = {
         .blocks = blocks,
@@ -1368,6 +1416,7 @@ bool BuildMeshDataFiltered(
         .layerY = layerY,
         .chunkX = chunkX,
         .chunkZ = chunkZ,
+        .boundary = boundary,
         .transparent = transparent,
         .includePlants = includePlants,
         .plantsOnly = plantsOnly,
@@ -1410,6 +1459,18 @@ bool BuildMeshDataFiltered(
     }
     *outMesh = mesh;
     return true;
+}
+
+bool BuildMeshDataFiltered(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, bool transparent, bool includePlants,
+    bool plantsOnly, bool excludeWater, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
+{
+    return BuildMeshDataFilteredWithSnapshot(
+        blocks, height, layerY, chunkX, chunkZ, transparent, includePlants,
+        plantsOnly, excludeWater, faces, nearbyTorchIndices, nearbyTorchCount,
+        NULL, outMesh);
 }
 
 bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],

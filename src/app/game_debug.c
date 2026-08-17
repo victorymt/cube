@@ -11,6 +11,7 @@
 #include "world/fluid.h"
 #include "app/game_interaction.h"
 #include "app/game_runtime.h"
+#include "gameplay/interaction.h"
 #include "gameplay/map_markers.h"
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
@@ -18,15 +19,136 @@
 #include "presentation/render.h"
 #include "space/space.h"
 #include "world/terrain.h"
+#include "world/surface_topology.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 
+#include <errno.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static int GameDebugCountSurfaceFaceVertices(
+    const Chunk *chunk, const ChunkSection *section,
+    int worldX, int worldY, int worldZ, int nx, int ny, int nz)
+{
+    if (!chunk || !section || !section->hasModel ||
+        section->model.meshCount <= 0 || !section->model.meshes) return 0;
+    const Mesh *mesh = &section->model.meshes[0];
+    if (!mesh->vertices || !mesh->normals || mesh->vertexCount <= 0) return 0;
+
+    int radialBase = section->sectionY * SURFACE_SECTION_HEIGHT;
+    float chunkOriginX = (float)(chunk->cx * CHUNK_SIZE);
+    float chunkOriginZ = (float)(chunk->cz * CHUNK_SIZE);
+    SurfaceFrame anchorFrame = SurfaceLocalFrameAtOffset(
+        0.0f, 0.0f, radialBase);
+    int matches = 0;
+    for (int cornerA = 0; cornerA <= 1; cornerA++) {
+        for (int cornerB = 0; cornerB <= 1; cornerB++) {
+            int cornerX = worldX;
+            int cornerY = worldY;
+            int cornerZ = worldZ;
+            if (nx != 0) {
+                cornerX += nx > 0 ? 1 : 0;
+                cornerY += cornerA;
+                cornerZ += cornerB;
+            } else if (ny != 0) {
+                cornerX += cornerA;
+                cornerY += ny > 0 ? 1 : 0;
+                cornerZ += cornerB;
+            } else {
+                cornerX += cornerA;
+                cornerY += cornerB;
+                cornerZ += nz > 0 ? 1 : 0;
+            }
+            float offsetX = (float)cornerX - chunkOriginX;
+            float offsetZ = (float)cornerZ - chunkOriginZ;
+            float localY = (float)(cornerY - radialBase);
+            SurfaceFrame vertexFrame = SurfaceLocalFrameAtOffset(
+                offsetX, offsetZ, radialBase);
+            Vector3 planet = Vector3Add(
+                vertexFrame.origin, Vector3Scale(vertexFrame.up, localY));
+            Vector3 expected = SurfaceFramePlanetToLocal(
+                &anchorFrame, planet);
+            Vector3 planetNormal = Vector3Add(
+                Vector3Scale(vertexFrame.east, (float)nx),
+                Vector3Scale(vertexFrame.up, (float)ny));
+            planetNormal = Vector3Add(
+                planetNormal, Vector3Scale(vertexFrame.north, (float)nz));
+            Vector3 expectedNormal = {
+                Vector3DotProduct(planetNormal, anchorFrame.east),
+                Vector3DotProduct(planetNormal, anchorFrame.up),
+                Vector3DotProduct(planetNormal, anchorFrame.north)
+            };
+            for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
+                Vector3 actual = {
+                    mesh->vertices[vertex * 3],
+                    mesh->vertices[vertex * 3 + 1],
+                    mesh->vertices[vertex * 3 + 2]
+                };
+                Vector3 normal = {
+                    mesh->normals[vertex * 3],
+                    mesh->normals[vertex * 3 + 1],
+                    mesh->normals[vertex * 3 + 2]
+                };
+                if (Vector3DistanceSqr(actual, expected) < 0.000001f &&
+                    Vector3DotProduct(normal, expectedNormal) > 0.999f) {
+                    matches++;
+                }
+            }
+        }
+    }
+    return matches;
+}
 
 static void GameDebugReplyStatus(GameRuntime *game)
 {
+    Vector3 aimEye = {
+        game->player.position.x,
+        game->player.position.y + EYE_HEIGHT,
+        game->player.position.z
+    };
+    Vector3 aimDirection = Vector3Normalize(
+        Vector3Subtract(game->camera.target, game->camera.position));
+    HitResult targeted = RaycastBlocksFiltered(
+        aimEye, aimDirection, REACH_DISTANCE, RAYCAST_BLOCK_SOLID);
+    BlockType targetedBlock = targeted.hit
+        ? GetBlockAt(targeted.x, targeted.y, targeted.z) : BLOCK_AIR;
+    BlockType targetNeighbor = targeted.hit
+        ? GetBlockAt(targeted.x + targeted.nx, targeted.y + targeted.ny,
+                     targeted.z + targeted.nz)
+        : BLOCK_AIR;
+    int targetCx = 0;
+    int targetCz = 0;
+    int targetLx = 0;
+    int targetLz = 0;
+    const ChunkSection *targetSection = NULL;
+    BlockType targetStoredBlock = BLOCK_AIR;
+    bool targetStored = false;
+    if (targeted.hit) {
+        WorldToChunkLocal(targeted.x, targeted.z, &targetCx, &targetCz,
+                          &targetLx, &targetLz);
+        const Chunk *targetChunk = FindChunk(targetCx, targetCz);
+        targetSection = targetChunk
+            ? ChunkGetSectionConst(
+                  targetChunk, SurfaceSectionYFromBlockY(targeted.y))
+            : NULL;
+        targetStored = targetChunk && ChunkTryGetLocalBlock(
+            targetChunk, targetLx, targeted.y, targetLz,
+            &targetStoredBlock);
+    }
+    int targetSolidVertices = targetSection && targetSection->hasModel &&
+                                      targetSection->model.meshes
+        ? targetSection->model.meshes[0].vertexCount : 0;
+    const Chunk *targetChunk = targeted.hit ? FindChunk(targetCx, targetCz)
+                                             : NULL;
+    int targetFaceVertices = targeted.hit ? GameDebugCountSurfaceFaceVertices(
+        targetChunk, targetSection, targeted.x, targeted.y, targeted.z,
+        targeted.nx, targeted.ny, targeted.nz) : 0;
     PlayerWaterState water = PlayerWaterStateAt(game->player.position);
     FluidSample fluid = FluidSampleAt(game->player.position);
     FluidStats fluidStats = FluidGetStats();
@@ -63,6 +185,11 @@ static void GameDebugReplyStatus(GameRuntime *game)
         "water_triangles=%d section_water_triangles=%d "
         "ship_driving=%d ship_mode=%s ship_exhaust=%.3f "
         "ship_input_frames=%u third_person=%d "
+        "target=%d,%d,%d target_hit=%d target_block=%s "
+        "target_normal=%d,%d,%d target_neighbor=%s "
+        "target_stored=%d target_stored_block=%s target_section=%d "
+        "target_dirty=%d target_stamp=%u target_solid_vertices=%d "
+        "target_face_vertices=%d "
         "camera_inside_solid=%d autosave=%d\n",
         game->screen == SCREEN_PLAYING ? "playing" : "start", WorldGetSeed(),
         WorldDimensionName(WorldCurrentDimension()),
@@ -83,8 +210,471 @@ static void GameDebugReplyStatus(GameRuntime *game)
         ShipIsDriving() ? 1 : 0, ShipDriveModeName(),
         ShipVisualExhaustIntensity(), game->scriptedShipInputFrames,
         game->thirdPerson ? 1 : 0,
+        targeted.x, targeted.y, targeted.z, targeted.hit ? 1 : 0,
+        BlockName(targetedBlock),
+        targeted.nx, targeted.ny, targeted.nz, BlockName(targetNeighbor),
+        targetStored ? 1 : 0, BlockName(targetStoredBlock),
+        targetSection ? 1 : 0,
+        targetSection && targetSection->dirty ? 1 : 0,
+        targetSection ? targetSection->dirtyStamp : 0u, targetSolidVertices,
+        targetFaceVertices,
         PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0,
         game->autoSaveEnabled ? 1 : 0);
+}
+
+static int GameDebugModelVertexCount(const Model *model, bool present)
+{
+    if (!present || !model || model->meshCount <= 0 || !model->meshes) {
+        return 0;
+    }
+    int vertices = 0;
+    for (int meshIndex = 0; meshIndex < model->meshCount; meshIndex++) {
+        vertices += model->meshes[meshIndex].vertexCount;
+    }
+    return vertices;
+}
+
+static int GameDebugCountEffectiveSectionBlocks(int cx, int sectionY, int cz,
+                                                int *outExposedBlocks)
+{
+    static const int neighbors[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    int count = 0;
+    int exposedBlocks = 0;
+    int startX = cx * CHUNK_SIZE;
+    int startY = sectionY * SURFACE_SECTION_HEIGHT;
+    int startZ = cz * CHUNK_SIZE;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                int worldX = startX + lx;
+                int worldY = startY + ly;
+                int worldZ = startZ + lz;
+                BlockType block = GetBlockAt(worldX, worldY, worldZ);
+                if (block == BLOCK_AIR) continue;
+                count++;
+                for (int side = 0; side < 6; side++) {
+                    BlockType neighbor = GetBlockAt(
+                        worldX + neighbors[side][0],
+                        worldY + neighbors[side][1],
+                        worldZ + neighbors[side][2]);
+                    if (neighbor == BLOCK_AIR ||
+                        neighbor == BLOCK_SPACESHIP_OCCUPIED ||
+                        IsTranslucentBlock(neighbor)) {
+                        exposedBlocks++;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (outExposedBlocks) *outExposedBlocks = exposedBlocks;
+    return count;
+}
+
+static void GameDebugReplyStreamAudit(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL stream audit error reason=not_in_surface_world\n");
+        return;
+    }
+
+    int radius = game->debugControl.streamAuditRadius;
+    if (radius < 1 || radius > 4) radius = 2;
+    int focusCx = 0;
+    int focusCz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal((int)floorf(game->player.position.x),
+                      (int)floorf(game->player.position.z),
+                      &focusCx, &focusCz, &localX, &localZ);
+    int focusSectionY = SurfaceSectionYFromBlockY(
+        (int)floorf(game->player.position.y));
+
+    int loadedChunks = 0;
+    int missingChunks = 0;
+    int resolvedSections = 0;
+    int materializedSections = 0;
+    int implicitOnlySections = 0;
+    int unmeshedSections = 0;
+    int modeledSections = 0;
+    int dirtySections = 0;
+    int problemLines = 0;
+    for (int dz = -radius; dz <= radius; dz++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            int cx = focusCx + dx;
+            int cz = focusCz + dz;
+            const Chunk *chunk = FindChunk(cx, cz);
+            if (!chunk || !chunk->loaded) {
+                missingChunks++;
+                DebugControlReply(
+                    &game->debugControl,
+                    "DEBUG_CONTROL stream issue chunk=%d,%d loaded=0\n",
+                    cx, cz);
+                problemLines++;
+                continue;
+            }
+            loadedChunks++;
+            for (int vertical = -1; vertical <= 1; vertical++) {
+                int sectionY = focusSectionY + vertical;
+                if (!SurfaceSectionInBounds(sectionY)) continue;
+                bool resolved = ChunkTerrainSectionIsResolved(chunk, sectionY);
+                const ChunkSection *section = ChunkGetSectionConst(
+                    chunk, sectionY);
+                int exposedBlocks = 0;
+                int effectiveBlocks = GameDebugCountEffectiveSectionBlocks(
+                    cx, sectionY, cz, &exposedBlocks);
+                int solidVertices = section
+                    ? GameDebugModelVertexCount(&section->model,
+                                                section->hasModel)
+                    : 0;
+                int waterVertices = section
+                    ? GameDebugModelVertexCount(&section->waterModel,
+                                                section->hasWaterModel)
+                    : 0;
+                int floraVertices = section
+                    ? GameDebugModelVertexCount(&section->floraModel,
+                                                section->hasFloraModel)
+                    : 0;
+                bool modeled = solidVertices > 0 || waterVertices > 0 ||
+                               floraVertices > 0;
+                bool implicitOnly = !section && exposedBlocks > 0;
+                bool unmeshed = section && exposedBlocks > 0 && !modeled;
+                if (resolved) resolvedSections++;
+                if (section) materializedSections++;
+                if (implicitOnly) implicitOnlySections++;
+                if (unmeshed) unmeshedSections++;
+                if (modeled) modeledSections++;
+                if (section && section->dirty) dirtySections++;
+                if (!implicitOnly && !unmeshed) continue;
+                DebugControlReply(
+                    &game->debugControl,
+                    "DEBUG_CONTROL stream issue chunk=%d,%d section=%d "
+                    "resolved=%d materialized=%d blocks=%d exposed=%d "
+                    "dirty=%d stamp=%u vertices=%d,%d,%d\n",
+                    cx, cz, sectionY, resolved ? 1 : 0,
+                    section ? 1 : 0, effectiveBlocks, exposedBlocks,
+                    section && section->dirty ? 1 : 0,
+                    section ? section->dirtyStamp : 0u,
+                    solidVertices, waterVertices, floraVertices);
+                problemLines++;
+            }
+        }
+    }
+
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL stream audit focus=%d,%d,%d radius=%d "
+        "chunks_loaded=%d chunks_missing=%d sections_resolved=%d "
+        "sections_materialized=%d sections_implicit_only=%d "
+        "sections_unmeshed=%d sections_modeled=%d sections_dirty=%d "
+        "problems=%d active_chunks=%d pending_gen=%d pending_mesh=%d "
+        "gen_submitted=%llu gen_completed=%llu gen_canceled=%llu "
+        "mesh_submitted=%llu mesh_completed=%llu mesh_canceled=%llu "
+        "mesh_uploaded=%llu upload_deferrals=%llu\n",
+        focusCx, focusSectionY, focusCz, radius,
+        loadedChunks, missingChunks, resolvedSections,
+        materializedSections, implicitOnlySections, unmeshedSections,
+        modeledSections, dirtySections, problemLines,
+        GetActiveChunkCount(), GetPendingGenJobCount(),
+        GetPendingMeshJobCount(),
+        (unsigned long long)stats.generationSubmitted,
+        (unsigned long long)stats.generationCompleted,
+        (unsigned long long)stats.generationCanceled,
+        (unsigned long long)stats.meshSubmitted,
+        (unsigned long long)stats.meshCompleted,
+        (unsigned long long)stats.meshCanceled,
+        (unsigned long long)stats.uploadedMeshes,
+        (unsigned long long)stats.uploadBudgetDeferrals);
+}
+
+typedef struct GameDebugTraceState {
+    FILE *file;
+    double elapsed;
+    double nextSample;
+    uint64_t frame;
+    int lastCx;
+    int lastCz;
+    int lastSectionY;
+    bool haveFocus;
+    bool lastInvisibleTarget;
+    bool lastFeetSubmerged;
+    bool lastBodySubmerged;
+    bool lastEyesSubmerged;
+} GameDebugTraceState;
+
+static GameDebugTraceState gameDebugTrace = { 0 };
+
+static void GameDebugTraceResolveDefaultPath(GameRuntime *game)
+{
+    if (!game || game->debugTracePath[0] != '\0') return;
+    if (mkdir("debug-traces", 0755) != 0 && errno != EEXIST) {
+        snprintf(game->debugTracePath, sizeof(game->debugTracePath),
+                 "voxelcraft_debug_trace.jsonl");
+        return;
+    }
+    time_t now = time(NULL);
+    struct tm local = { 0 };
+    localtime_r(&now, &local);
+    char stamp[32] = { 0 };
+    strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &local);
+    snprintf(game->debugTracePath, sizeof(game->debugTracePath),
+             "debug-traces/voxelcraft_%s.jsonl", stamp);
+}
+
+static int GameDebugTraceSectionVertices(const ChunkSection *section)
+{
+    if (!section) return 0;
+    return GameDebugModelVertexCount(&section->model, section->hasModel) +
+           GameDebugModelVertexCount(&section->waterModel,
+                                     section->hasWaterModel) +
+           GameDebugModelVertexCount(&section->floraModel,
+                                     section->hasFloraModel);
+}
+
+static bool GameDebugTraceWriteSample(GameRuntime *game, const char *reason)
+{
+    if (!game || !gameDebugTrace.file) return false;
+
+    int playerX = (int)floorf(game->player.position.x);
+    int playerY = (int)floorf(game->player.position.y);
+    int playerZ = (int)floorf(game->player.position.z);
+    int focusCx = 0;
+    int focusCz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal(playerX, playerZ, &focusCx, &focusCz,
+                      &localX, &localZ);
+    int focusSectionY = SurfaceSectionYFromBlockY(playerY);
+    const Chunk *focusChunk = FindChunk(focusCx, focusCz);
+    const ChunkSection *focusSection = focusChunk
+        ? ChunkGetSectionConst(focusChunk, focusSectionY) : NULL;
+
+    Vector3 aimEye = {
+        game->player.position.x,
+        game->player.position.y + EYE_HEIGHT,
+        game->player.position.z
+    };
+    Vector3 aimDirection = Vector3Normalize(
+        Vector3Subtract(game->camera.target, game->camera.position));
+    HitResult targeted = RaycastBlocksFiltered(
+        aimEye, aimDirection, REACH_DISTANCE, RAYCAST_BLOCK_SOLID);
+    int targetCx = 0;
+    int targetCz = 0;
+    int targetLx = 0;
+    int targetLz = 0;
+    const Chunk *targetChunk = NULL;
+    const ChunkSection *targetSection = NULL;
+    BlockType targetBlock = BLOCK_AIR;
+    if (targeted.hit) {
+        targetBlock = GetBlockAt(targeted.x, targeted.y, targeted.z);
+        WorldToChunkLocal(targeted.x, targeted.z, &targetCx, &targetCz,
+                          &targetLx, &targetLz);
+        targetChunk = FindChunk(targetCx, targetCz);
+        targetSection = targetChunk ? ChunkGetSectionConst(
+            targetChunk, SurfaceSectionYFromBlockY(targeted.y)) : NULL;
+    }
+
+    PlayerWaterState water = PlayerWaterStateAt(game->player.position);
+    FluidSample fluid = FluidSampleAt(game->player.position);
+    BathymetrySample bathymetry = {
+        .seaLevel = -1,
+        .seabedY = playerY,
+        .waterDepth = 0,
+        .zone = BATHYMETRY_ZONE_LAND,
+        .material = BATHYMETRY_MATERIAL_ROCK
+    };
+    if (PlanetWorldIsActive()) {
+        bathymetry = PlanetBathymetryAt(playerX, playerZ);
+    } else if (HomeWorldSurfaceIsActive()) {
+        bathymetry = TerrainBathymetryAt(
+            playerX, playerZ, WorldTerrainMode());
+    }
+
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    int focusVertices = GameDebugTraceSectionVertices(focusSection);
+    int targetVertices = GameDebugTraceSectionVertices(targetSection);
+    bool invisibleTarget = targeted.hit && targetVertices == 0;
+    int written = fprintf(
+        gameDebugTrace.file,
+        "{\"version\":1,\"type\":\"sample\",\"reason\":\"%s\","
+        "\"time\":%.6f,\"frame\":%llu,\"screen\":%d,"
+        "\"seed\":%u,\"dimension\":\"%s\","
+        "\"player\":{\"position\":[%.6f,%.6f,%.6f],"
+        "\"velocity\":[%.6f,%.6f,%.6f],\"yaw\":%.6f,"
+        "\"pitch\":%.6f,\"floating\":%d,\"on_ground\":%d},"
+        "\"camera\":{\"position\":[%.6f,%.6f,%.6f],"
+        "\"target\":[%.6f,%.6f,%.6f]},"
+        "\"focus\":{\"chunk\":[%d,%d],\"section\":%d,"
+        "\"chunk_loaded\":%d,\"section_materialized\":%d,"
+        "\"dirty\":%d,\"stamp\":%u,\"vertices\":%d},"
+        "\"stream\":{\"active_chunks\":%d,\"pending_gen\":%d,"
+        "\"pending_mesh\":%d,\"gen_submitted\":%llu,"
+        "\"gen_completed\":%llu,\"gen_canceled\":%llu,"
+        "\"mesh_submitted\":%llu,\"mesh_completed\":%llu,"
+        "\"mesh_canceled\":%llu,\"mesh_uploaded\":%llu,"
+        "\"upload_deferrals\":%llu},"
+        "\"environment\":{\"water\":[%d,%d,%d],\"water_depth\":%.6f,"
+        "\"water_surface\":%.6f,\"fluid_volume\":%u,"
+        "\"fluid_surface\":%.6f,\"bathymetry\":\"%s\","
+        "\"seabed\":%d,\"water_column\":%d},"
+        "\"target\":{\"hit\":%d,\"position\":[%d,%d,%d],"
+        "\"normal\":[%d,%d,%d],\"block\":%d,"
+        "\"section_materialized\":%d,\"dirty\":%d,"
+        "\"vertices\":%d,\"invisible\":%d}}\n",
+        reason ? reason : "periodic", gameDebugTrace.elapsed,
+        (unsigned long long)gameDebugTrace.frame, (int)game->screen,
+        WorldGetSeed(), WorldDimensionName(WorldCurrentDimension()),
+        game->player.position.x, game->player.position.y,
+        game->player.position.z, game->player.velocity.x,
+        game->player.velocity.y, game->player.velocity.z,
+        game->player.yaw, game->player.pitch,
+        game->player.floating ? 1 : 0, game->player.onGround ? 1 : 0,
+        game->camera.position.x, game->camera.position.y,
+        game->camera.position.z, game->camera.target.x,
+        game->camera.target.y, game->camera.target.z,
+        focusCx, focusCz, focusSectionY,
+        focusChunk && focusChunk->loaded ? 1 : 0,
+        focusSection ? 1 : 0,
+        focusSection && focusSection->dirty ? 1 : 0,
+        focusSection ? focusSection->dirtyStamp : 0u, focusVertices,
+        GetActiveChunkCount(), GetPendingGenJobCount(),
+        GetPendingMeshJobCount(),
+        (unsigned long long)stats.generationSubmitted,
+        (unsigned long long)stats.generationCompleted,
+        (unsigned long long)stats.generationCanceled,
+        (unsigned long long)stats.meshSubmitted,
+        (unsigned long long)stats.meshCompleted,
+        (unsigned long long)stats.meshCanceled,
+        (unsigned long long)stats.uploadedMeshes,
+        (unsigned long long)stats.uploadBudgetDeferrals,
+        water.feetSubmerged ? 1 : 0, water.bodySubmerged ? 1 : 0,
+        water.eyesSubmerged ? 1 : 0, water.eyeDepth, water.surfaceY,
+        (unsigned)fluid.volume, fluid.surfaceY,
+        BathymetryZoneName(bathymetry.zone), bathymetry.seabedY,
+        bathymetry.waterDepth, targeted.hit ? 1 : 0,
+        targeted.x, targeted.y, targeted.z,
+        targeted.nx, targeted.ny, targeted.nz, (int)targetBlock,
+        targetSection ? 1 : 0,
+        targetSection && targetSection->dirty ? 1 : 0,
+        targetVertices, invisibleTarget ? 1 : 0);
+    return written > 0;
+}
+
+bool GameDebugTraceStart(GameRuntime *game)
+{
+    if (!game || !game->debugTraceEnabled) return true;
+    GameDebugTraceResolveDefaultPath(game);
+    gameDebugTrace.file = fopen(game->debugTracePath, "wb");
+    if (!gameDebugTrace.file) {
+        fprintf(stderr, "Failed to open debug trace %s: %s\n",
+                game->debugTracePath, strerror(errno));
+        game->debugTraceEnabled = false;
+        return false;
+    }
+    setvbuf(gameDebugTrace.file, NULL, _IOLBF, 0);
+    gameDebugTrace.elapsed = 0.0;
+    gameDebugTrace.nextSample = 0.0;
+    gameDebugTrace.frame = 0u;
+    gameDebugTrace.haveFocus = false;
+    gameDebugTrace.lastInvisibleTarget = false;
+    gameDebugTrace.lastFeetSubmerged = false;
+    gameDebugTrace.lastBodySubmerged = false;
+    gameDebugTrace.lastEyesSubmerged = false;
+    fprintf(stderr, "DEBUG_TRACE path=%s\n", game->debugTracePath);
+    fprintf(gameDebugTrace.file,
+            "{\"version\":1,\"type\":\"start\"}\n");
+    return true;
+}
+
+void GameDebugTraceFrame(GameRuntime *game, float dt)
+{
+    if (!game || !gameDebugTrace.file) return;
+    gameDebugTrace.frame++;
+    if (isfinite(dt) && dt > 0.0f) gameDebugTrace.elapsed += dt;
+    if (game->screen != SCREEN_PLAYING) return;
+
+    int focusCx = 0;
+    int focusCz = 0;
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal((int)floorf(game->player.position.x),
+                      (int)floorf(game->player.position.z),
+                      &focusCx, &focusCz, &localX, &localZ);
+    int focusSectionY = SurfaceSectionYFromBlockY(
+        (int)floorf(game->player.position.y));
+    bool focusChanged = !gameDebugTrace.haveFocus ||
+                        focusCx != gameDebugTrace.lastCx ||
+                        focusCz != gameDebugTrace.lastCz ||
+                        focusSectionY != gameDebugTrace.lastSectionY;
+
+    Vector3 aimDirection = Vector3Normalize(
+        Vector3Subtract(game->camera.target, game->camera.position));
+    HitResult targeted = RaycastBlocksFiltered(
+        (Vector3){ game->player.position.x,
+                   game->player.position.y + EYE_HEIGHT,
+                   game->player.position.z },
+        aimDirection, REACH_DISTANCE, RAYCAST_BLOCK_SOLID);
+    const ChunkSection *targetSection = NULL;
+    if (targeted.hit) {
+        int targetCx = 0;
+        int targetCz = 0;
+        int targetLx = 0;
+        int targetLz = 0;
+        WorldToChunkLocal(targeted.x, targeted.z, &targetCx, &targetCz,
+                          &targetLx, &targetLz);
+        const Chunk *targetChunk = FindChunk(targetCx, targetCz);
+        targetSection = targetChunk ? ChunkGetSectionConst(
+            targetChunk, SurfaceSectionYFromBlockY(targeted.y)) : NULL;
+    }
+    bool invisibleTarget = targeted.hit &&
+        GameDebugTraceSectionVertices(targetSection) == 0;
+    bool invisibleChanged = invisibleTarget !=
+        gameDebugTrace.lastInvisibleTarget;
+    PlayerWaterState water = PlayerWaterStateAt(game->player.position);
+    bool waterChanged =
+        water.feetSubmerged != gameDebugTrace.lastFeetSubmerged ||
+        water.bodySubmerged != gameDebugTrace.lastBodySubmerged ||
+        water.eyesSubmerged != gameDebugTrace.lastEyesSubmerged;
+    bool periodic = gameDebugTrace.elapsed >= gameDebugTrace.nextSample;
+    if (periodic || focusChanged || invisibleChanged || waterChanged) {
+        const char *reason = focusChanged ? "focus_change" :
+            (invisibleChanged ? "target_visibility_change" :
+             (waterChanged ? "water_state_change" : "periodic"));
+        GameDebugTraceWriteSample(game, reason);
+        gameDebugTrace.nextSample = gameDebugTrace.elapsed + 0.1;
+    }
+
+    gameDebugTrace.haveFocus = true;
+    gameDebugTrace.lastCx = focusCx;
+    gameDebugTrace.lastCz = focusCz;
+    gameDebugTrace.lastSectionY = focusSectionY;
+    gameDebugTrace.lastInvisibleTarget = invisibleTarget;
+    gameDebugTrace.lastFeetSubmerged = water.feetSubmerged;
+    gameDebugTrace.lastBodySubmerged = water.bodySubmerged;
+    gameDebugTrace.lastEyesSubmerged = water.eyesSubmerged;
+}
+
+void GameDebugTraceEvent(GameRuntime *game, const char *reason)
+{
+    if (!game || !gameDebugTrace.file || game->screen != SCREEN_PLAYING) {
+        return;
+    }
+    GameDebugTraceWriteSample(game, reason ? reason : "event");
+}
+
+void GameDebugTraceStop(GameRuntime *game)
+{
+    (void)game;
+    if (!gameDebugTrace.file) return;
+    fflush(gameDebugTrace.file);
+    fclose(gameDebugTrace.file);
+    gameDebugTrace = (GameDebugTraceState){ 0 };
 }
 
 static void GameDebugToggleSurfaceMap(GameRuntime *game)
@@ -325,6 +915,29 @@ static void GameDebugTeleport(GameRuntime *game)
                       "DEBUG_CONTROL teleport ok position=%.6f,%.6f,%.6f\n",
                       game->player.position.x, game->player.position.y,
                       game->player.position.z);
+    GameDebugTraceEvent(game, "teleport");
+}
+
+static void GameDebugLook(GameRuntime *game)
+{
+    if (game->screen != SCREEN_PLAYING) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL look error reason=not_playing\n");
+        return;
+    }
+    if (game->debugControl.lookRelative) {
+        game->player.yaw += game->debugControl.lookYaw;
+        game->player.pitch = Clamp(
+            game->player.pitch + game->debugControl.lookPitch,
+            -1.45f, 1.45f);
+    } else {
+        game->player.yaw = game->debugControl.lookYaw;
+        game->player.pitch = game->debugControl.lookPitch;
+    }
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL look ok yaw=%.6f pitch=%.6f\n",
+                      game->player.yaw, game->player.pitch);
+    GameDebugTraceEvent(game, "look");
 }
 
 static void GameDebugApplyInput(GameRuntime *game)
@@ -606,6 +1219,9 @@ bool GameDispatchDebugCommand(GameRuntime *game)
     case DEBUG_CONTROL_COMMAND_STATUS:
         GameDebugReplyStatus(game);
         break;
+    case DEBUG_CONTROL_COMMAND_STREAM_AUDIT:
+        GameDebugReplyStreamAudit(game);
+        break;
     case DEBUG_CONTROL_COMMAND_SAVE:
         if (game->screen == SCREEN_PLAYING) {
             SaveMap(&game->player);
@@ -665,6 +1281,9 @@ bool GameDispatchDebugCommand(GameRuntime *game)
         break;
     case DEBUG_CONTROL_COMMAND_TELEPORT:
         GameDebugTeleport(game);
+        break;
+    case DEBUG_CONTROL_COMMAND_LOOK:
+        GameDebugLook(game);
         break;
     case DEBUG_CONTROL_COMMAND_INPUT:
         GameDebugApplyInput(game);

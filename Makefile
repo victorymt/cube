@@ -299,7 +299,7 @@ $(RENDER_RESOURCES_TEST_TARGET): tests/test_render_resources.c src/presentation/
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_render_resources.c src/presentation/render_resources.c
 
 $(WORLD_RENDERER_TEST_TARGET): tests/test_world_renderer.c src/presentation/world_renderer.c src/presentation/world_renderer.h src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h
-	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_renderer.c src/presentation/world_renderer.c src/app/game_settings.c src/core/save_io.c $(RAYLIB_LIBS) -lm
+	$(CC) $(CFLAGS) -DWORLD_RENDERER_TESTING $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_renderer.c src/presentation/world_renderer.c src/app/game_settings.c src/core/save_io.c $(RAYLIB_LIBS) -lm
 
 $(WORLD_LIGHTING_TEST_TARGET): tests/test_world_lighting.c src/world/world_lighting.c src/world/world_lighting.h src/presentation/world_renderer.c src/presentation/world_renderer.h src/presentation/environment_presentation.c src/presentation/environment_presentation.h src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_lighting.c src/world/world_lighting.c src/presentation/world_renderer.c src/presentation/environment_presentation.c src/app/game_settings.c src/core/save_io.c $(RAYLIB_LIBS) -lm

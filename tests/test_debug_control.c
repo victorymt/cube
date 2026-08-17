@@ -23,10 +23,11 @@ static void TestCommandStream(void)
     DebugControl control;
     DebugControlInitFds(&control, true, inputPipe[0], outputPipe[1]);
     const char *commands =
-        "\n START \r\nscreenshot\nstatus\nsave\nload\nmap\n"
+        "\n START \r\nscreenshot\nstatus\nstream audit 3\nsave\nload\nmap\n"
         "fluid inspect\nfluid inspect 1 72 -4\n"
         "fluid set 1 72 -4 127\nfluid step 25\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
+        "look 1.25 -0.3\nlook delta -0.5 0.1\n"
         "input 1 -0.5 1 1 120\n"
         "ship begin\nship enter\nship input 0.75 -0.25 1 180\n"
         "ship exhaust 0.65\n"
@@ -38,6 +39,8 @@ static void TestCommandStream(void)
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_START);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SCREENSHOT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STATUS);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STREAM_AUDIT);
+    assert(control.streamAuditRadius == 3);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SAVE);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_LOAD);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MAP);
@@ -56,6 +59,12 @@ static void TestCommandStream(void)
     assert(control.teleport.y == 72.0f);
     assert(control.teleport.z == -4.25f);
     assert(control.teleport.pitch == -0.4f);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_LOOK);
+    assert(!control.lookRelative);
+    assert(control.lookYaw == 1.25f && control.lookPitch == -0.3f);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_LOOK);
+    assert(control.lookRelative);
+    assert(control.lookYaw == -0.5f && control.lookPitch == 0.1f);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_INPUT);
     assert(control.playerInput.forward == 1.0f);
     assert(control.playerInput.strafe == -0.5f);

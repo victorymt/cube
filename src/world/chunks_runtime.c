@@ -21,7 +21,7 @@ void UpdateQueuePeaksLocked(void)
         if (meshJobs[i].inUse) {
             snapshotBytes += sizeof(meshJobs[i].blocks) +
                              sizeof(meshJobs[i].waterVolumes) +
-                             sizeof(meshJobs[i].waterBoundary);
+                             sizeof(meshJobs[i].boundary);
         }
     }
     streamingStats.pendingMeshSnapshotBytes = snapshotBytes;
@@ -477,8 +477,8 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
             }
         }
     }
-    CaptureSurfaceWaterBoundary(
-        &job->waterBoundary, chunk->cx, chunk->cz, section->sectionY);
+    CaptureSurfaceBoundary(
+        &job->boundary, chunk->cx, chunk->cz, section->sectionY);
     job->floraStructureCount = chunk->floraStructureCount;
     if (job->floraStructureCount < 0) job->floraStructureCount = 0;
     if (job->floraStructureCount > MAX_CHUNK_FLORA_STRUCTURES) {
@@ -536,7 +536,7 @@ static bool SubmitMeshJobs(Chunk *chunk, ChunkSection *section)
     streamingStats.meshSubmitted++;
     streamingStats.meshSnapshotBytes += sizeof(job->blocks) +
                                         sizeof(job->waterVolumes) +
-                                        sizeof(job->waterBoundary);
+                                        sizeof(job->boundary);
     UpdateQueuePeaksLocked();
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
@@ -576,7 +576,7 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
     }
 }
 
-static void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
+void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
 {
     static const int faces[6][3] = {
         { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
@@ -596,22 +596,25 @@ static void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
     Mesh floraMesh = { 0 };
     FloraVisualInstance *floraInstances = NULL;
     int floraInstanceCount = 0;
+    SurfaceBoundarySnapshot boundary = { 0 };
+    CaptureSurfaceBoundary(
+        &boundary, chunk->cx, chunk->cz, section->sectionY);
     bool hasSolid = BuildChunkSurfaceSolidMeshData(
         section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
         chunk->cx, chunk->cz,
         chunk->floraStructures, chunk->floraStructureCount,
-        faces, nearbyTorchIndices, nearbyTorchCount, &solidMesh);
+        faces, nearbyTorchIndices, nearbyTorchCount, &boundary, &solidMesh);
     bool hasWater = BuildChunkSurfaceWaterMeshDataWithSnapshot(
         section->blocks, section->waterVolumes,
         section->sectionY * SURFACE_SECTION_HEIGHT,
         chunk->cx, chunk->cz,
         chunk->floraStructures, chunk->floraStructureCount,
-        faces, nearbyTorchIndices, nearbyTorchCount, NULL, &waterMesh);
+        faces, nearbyTorchIndices, nearbyTorchCount, &boundary, &waterMesh);
     bool hasFlora = BuildChunkFloraMeshDataFromSnapshot(
         section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
         chunk->cx, chunk->cz,
         chunk->floraStructures, chunk->floraStructureCount,
-        faces, nearbyTorchIndices, nearbyTorchCount, &floraMesh,
+        faces, nearbyTorchIndices, nearbyTorchCount, &boundary, &floraMesh,
         &floraInstances, &floraInstanceCount);
 
     if (chunk->spherical) {
@@ -1065,7 +1068,7 @@ int ChunksTestBuildWaterMeshJob(int jobIndex)
         SURFACE_SECTION_HEIGHT,
         job->sectionY * SURFACE_SECTION_HEIGHT,
         job->cx, job->cz, faces, job->nearbyIndices, job->nearbyCount,
-        &job->waterBoundary, &mesh);
+        &job->boundary, &mesh);
     int vertices = built ? mesh.vertexCount : 0;
     FreeMeshData(&mesh);
     return vertices;
@@ -1121,6 +1124,17 @@ int ChunksTestGenerationJobSectionY(int jobIndex)
     return sectionY;
 }
 
+int ChunksTestGenerationJobSlot(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_CHUNK_GEN_JOBS);
+    pthread_mutex_lock(&genMutex);
+    int slotIndex = chunkGenJobs[jobIndex].inUse &&
+        chunkGenJobs[jobIndex].scope == CHUNK_GEN_SCOPE_SECTION
+        ? chunkGenJobs[jobIndex].slotIndex : -1;
+    pthread_mutex_unlock(&genMutex);
+    return slotIndex;
+}
+
 bool ChunksTestGenerationJobSurfaceAddress(
     int jobIndex, SurfaceAddress *outAddress)
 {
@@ -1153,9 +1167,11 @@ void ChunksTestRunGenerationJob(int jobIndex)
     pthread_mutex_unlock(&genMutex);
 }
 
-int ChunksTestScheduleTerrainSections(Vector3 playerPosition)
+int ChunksTestScheduleTerrainSections(Vector3 playerPosition,
+                                      int effectiveRenderDistance)
 {
-    return ScheduleNearbyTerrainSections(playerPosition);
+    return ScheduleNearbyTerrainSections(playerPosition,
+                                         effectiveRenderDistance);
 }
 
 int ChunksTestPruneTerrainSections(Vector3 playerPosition)

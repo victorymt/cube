@@ -8,14 +8,17 @@
 #define MAX_MESH_JOBS MAX_CHUNK_MESH_JOBS
 #define MAX_MESH_SUBMITS_PER_FRAME 4
 
-typedef struct SurfaceWaterBoundarySnapshot {
-    unsigned short xBlocks[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
-    unsigned char xVolumes[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
-    unsigned short zBlocks[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
-    unsigned char zVolumes[2][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
-    unsigned short yBlocks[2][CHUNK_SIZE][CHUNK_SIZE];
-    unsigned char yVolumes[2][CHUNK_SIZE][CHUNK_SIZE];
-} SurfaceWaterBoundarySnapshot;
+typedef struct SurfaceBoundarySnapshot {
+    unsigned short blocks[CHUNK_SIZE + 2]
+                         [SURFACE_SECTION_HEIGHT + 2]
+                         [CHUNK_SIZE + 2];
+    unsigned char volumes[CHUNK_SIZE + 2]
+                         [SURFACE_SECTION_HEIGHT + 2]
+                         [CHUNK_SIZE + 2];
+    unsigned char known[CHUNK_SIZE + 2]
+                       [SURFACE_SECTION_HEIGHT + 2]
+                       [CHUNK_SIZE + 2];
+} SurfaceBoundarySnapshot;
 
 typedef struct MeshJob {
     bool inUse;
@@ -33,7 +36,7 @@ typedef struct MeshJob {
     int surfaceMapOriginZ;
     unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     unsigned char waterVolumes[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
-    SurfaceWaterBoundarySnapshot waterBoundary;
+    SurfaceBoundarySnapshot boundary;
     FloraStructureInstance floraStructures[MAX_CHUNK_FLORA_STRUCTURES];
     int floraStructureCount;
     int nearbyIndices[MAX_TORCH_LIGHTS];
@@ -77,9 +80,11 @@ void FreeChunkSectionStorage(ChunkSection *section);
 void MarkSectionDirty(ChunkSection *section);
 void *ChunkGenWorker(void *arg);
 void GenerateChunkJobPayload(ChunkGenJob *job);
-int ScheduleNearbyTerrainSections(Vector3 playerPosition);
+int ScheduleNearbyTerrainSections(Vector3 playerPosition,
+                                  int effectiveRenderDistance);
 void UpdateQueuePeaksLocked(void);
 void MarkGeneratedSectionAndNeighborsDirty(Chunk *chunk, int sectionY);
+void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section);
 int CancelDistantNegativeSectionJobs(int playerSectionY);
 int PruneDistantNegativeTerrainSections(int playerSectionY);
 bool HasPendingMeshJob(void);
@@ -99,35 +104,47 @@ bool BuildSurfaceWaterMeshDataWithSnapshot(
     const unsigned char *waterVolumes, int height, int layerY,
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount,
-    const SurfaceWaterBoundarySnapshot *boundary, Mesh *outMesh);
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh);
 bool BuildChunkSurfaceSolidMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
-    int nearbyTorchCount, Mesh *outMesh);
+    int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
+    Mesh *outMesh);
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
-    int nearbyTorchCount, const SurfaceWaterBoundarySnapshot *boundary,
+    int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh);
 bool BuildChunkFloraMeshDataFromSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
-    int nearbyTorchCount, Mesh *outMesh,
+    int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
+    Mesh *outMesh,
     FloraVisualInstance **outInstances, int *outInstanceCount);
+bool BuildMeshDataFilteredWithSnapshot(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, bool transparent, bool includePlants,
+    bool plantsOnly, bool excludeWater, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount,
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh);
 bool BuildMeshDataFiltered(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, bool transparent, bool includePlants,
     bool plantsOnly, bool excludeWater, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
-void CaptureSurfaceWaterBoundary(
-    SurfaceWaterBoundarySnapshot *snapshot, int chunkX, int chunkZ,
-    int sectionY);
+void CaptureSurfaceBoundary(SurfaceBoundarySnapshot *snapshot,
+                            int chunkX, int chunkZ, int sectionY);
+bool SurfaceBoundaryBlockAt(const SurfaceBoundarySnapshot *snapshot,
+                            int lx, int y, int lz, BlockType *outBlock);
+bool SurfaceBoundaryCellAt(const SurfaceBoundarySnapshot *snapshot,
+                           int lx, int y, int lz, BlockType *outBlock,
+                           unsigned char *outVolume);
 Color ShadeColor(Color color, float brightness);
 void AddMeshFaceLighting(ChunkMeshEmitter *emitter,
                          Vector3 corners[6], Vector3 normal,

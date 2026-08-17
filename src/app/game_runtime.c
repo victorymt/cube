@@ -32,6 +32,24 @@ static bool ParsePerfArgs(int argc, char **argv, char *reportPath,
   return enabled;
 }
 
+static bool ParseDebugTraceArgs(int argc, char **argv, char *path,
+                                size_t pathSize) {
+  bool enabled = false;
+  path[0] = '\0';
+  for (int index = 1; index < argc; index++) {
+    if (strcmp(argv[index], "--debug-trace") == 0) {
+      enabled = true;
+      if (index + 1 < argc && strncmp(argv[index + 1], "--", 2) != 0) {
+        snprintf(path, pathSize, "%s", argv[++index]);
+      }
+    } else if (strncmp(argv[index], "--debug-trace=", 14) == 0) {
+      enabled = true;
+      snprintf(path, pathSize, "%s", argv[index] + 14);
+    }
+  }
+  return enabled;
+}
+
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   if (!runtime)
     return;
@@ -61,6 +79,8 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       runtime->perfBaselinePath, sizeof(runtime->perfBaselinePath));
   runtime->debugControlEnabled =
       CommandLineHasFlag(argc, argv, "--debug-stdin");
+  runtime->debugTraceEnabled = ParseDebugTraceArgs(
+      argc, argv, runtime->debugTracePath, sizeof(runtime->debugTracePath));
   if (runtime->debugControlEnabled)
     runtime->autoSaveEnabled = false;
   GameSettingsLoad(&runtime->settings);

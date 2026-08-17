@@ -66,9 +66,16 @@ void WorldRendererDrawModelTransformed(const Model *model, Matrix transform,
 
 bool WorldRendererBeginShadow(const Camera3D *camera,
                               const WorldLightingState *state);
+bool WorldRendererShadowSphereVisible(Vector3 center, float radius);
 void WorldRendererDrawShadowModel(const Model *model, Vector3 translation);
 void WorldRendererDrawShadowModelTransformed(const Model *model,
                                              Matrix transform);
 void WorldRendererEndShadow(void);
+
+#ifdef WORLD_RENDERER_TESTING
+bool WorldRendererTestShadowSphereVisible(Vector3 target,
+                                          Vector3 lightDirection,
+                                          Vector3 center, float radius);
+#endif
 
 #endif
