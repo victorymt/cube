@@ -24,6 +24,7 @@ persistent_state_fingerprint() {
 }
 
 persistent_state_before=$(persistent_state_fingerprint)
+trace_path=$(mktemp "${TMPDIR:-/tmp}/voxelcraft-e2e-trace.XXXXXX.jsonl")
 
 for requirement in python3; do
     if ! command -v "$requirement" >/dev/null 2>&1; then
@@ -44,7 +45,7 @@ fi
 
 coproc GAME_PROCESS {
     env LIBGL_ALWAYS_SOFTWARE=1 "${game_runner[@]}" \
-        "$game_binary" --debug-stdin 2>&1
+        "$game_binary" --debug-stdin --debug-trace "$trace_path" 2>&1
 }
 game_pid=$GAME_PROCESS_PID
 exec {game_output}<&"${GAME_PROCESS[0]}"
@@ -55,6 +56,7 @@ cleanup() {
         printf 'quit\n' >&"$game_input" || true
         kill "$game_pid" >/dev/null 2>&1 || true
     fi
+    rm -f "$trace_path"
 }
 trap cleanup EXIT
 
@@ -97,6 +99,44 @@ wait_for_reply '^DEBUG_CONTROL status '
 [[ "$matched_line" == *'screen=playing seed=1448040515 dimension=home'* ]]
 [[ "$matched_line" == *'water=0,0,0'* ]]
 [[ "$matched_line" == *'autosave=0'* ]]
+
+# This chunk-boundary coordinate previously exposed unloaded surface chunks as
+# air. While streaming catches up, walking collision must hold the player in
+# place; after the audit settles, the same coordinate must be fully usable.
+send_command 'teleport 15 110 -252 3.141593 -0.25'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=15.000000,110.000000,-252.000000$'
+send_command 'input 1 0 0 0 120'
+wait_for_reply '^DEBUG_CONTROL input ok '
+send_command 'status'
+wait_for_reply '^DEBUG_CONTROL status '
+if [[ "$matched_line" == *'surface_ready=0'* ]]; then
+    [[ "$matched_line" == *'velocity=0.000000,0.000000,0.000000'* ]]
+fi
+
+ravine_ready=false
+settle_deadline=$((SECONDS + settle_timeout))
+while ((SECONDS < settle_deadline)); do
+    send_command 'stream audit at 15 110 -252 1'
+    wait_for_reply '^DEBUG_CONTROL stream audit started focus=0,6,-16 radius=1$'
+    wait_for_reply '^DEBUG_CONTROL stream audit result='
+    if [[ "$matched_line" == *'result=complete'* &&
+          "$matched_line" == *'chunks_missing=0'* &&
+          "$matched_line" == *'issues_total=0 '* ]]; then
+        ravine_ready=true
+        break
+    fi
+    sleep 0.5
+done
+
+if [[ "$ravine_ready" != true ]]; then
+    echo "ravine regression coordinate did not settle within ${settle_timeout}s" >&2
+    exit 1
+fi
+send_command 'status'
+wait_for_reply '^DEBUG_CONTROL status '
+[[ "$matched_line" == *'surface_ready=1 player_missing_surface_chunks=0'* ]]
+ravine_y=$(sed -n 's/.*position=[^,]*,\([^,]*\),.*/\1/p' <<<"$matched_line")
+awk -v y="$ravine_y" 'BEGIN { exit !(y > 100.0) }'
 
 send_command 'evolution inspect'
 wait_for_reply '^DEBUG_CONTROL evolution inspect none radius=24.000$'
@@ -174,6 +214,8 @@ grep -Fxq 'environment.underwater=true' "$report_path"
 grep -Fxq 'environment.feet_submerged=true' "$report_path"
 grep -Fxq 'environment.body_submerged=true' "$report_path"
 grep -Fxq 'environment.eyes_submerged=true' "$report_path"
+grep -Fxq 'streaming.surface_ready=true' "$report_path"
+grep -Fxq 'streaming.player_missing_surface_chunks=0' "$report_path"
 grep -Eq '^fluid.local_volume=([1-9][0-9]*)$' "$report_path"
 grep -Eq '^fluid.loaded_volume=([1-9][0-9]*)$' "$report_path"
 grep -Eq '^fluid.edit_count=([1-9][0-9]*)$' "$report_path"
@@ -214,6 +256,26 @@ send_command 'quit'
 wait_for_reply '^DEBUG_CONTROL quit accepted$'
 exec {game_input}>&-
 wait "$game_pid"
+
+python3 - "$trace_path" <<'PY'
+import json
+import sys
+
+types = set()
+with open(sys.argv[1], encoding="utf-8") as trace:
+    for line_number, line in enumerate(trace, 1):
+        record = json.loads(line)
+        assert record["version"] == 1, (line_number, record)
+        assert record["timestamp_unix_ms"] > 0, (line_number, record)
+        assert record["elapsed_real_ms"] >= 0, (line_number, record)
+        if record["type"] == "sample":
+            pipeline = record["pipeline"]
+            assert pipeline["focus_stage"], (line_number, record)
+            assert pipeline["focus_stage_age_ms"] >= 0
+        types.add(record["type"])
+assert {"start", "sample", "event", "stop"} <= types, types
+PY
+rm -f "$trace_path"
 trap - EXIT
 
 [[ "$(persistent_state_fingerprint)" == "$persistent_state_before" ]]

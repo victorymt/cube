@@ -58,6 +58,8 @@ void GameCaptureScreenshot(GameRuntime *game,
             (int)floorf(game->player.position.z), frame->daylight, &screenshotRegion);
         FluidSample screenshotFluid = FluidSampleAt(game->player.position);
         FluidStats screenshotFluidStats = FluidGetStats();
+        int screenshotMissingSurfaceChunks =
+            PlayerMissingSurfaceChunkCount(game->player.position);
         ScreenshotDebugInfo debugInfo = {
             .world = {
                 .seed = PlanetWorldIsActive() ? PlanetWorldSeed() :
@@ -171,6 +173,9 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .surfaceChunkZ = screenshotWaterRender.cz,
                 .surfaceSectionY = screenshotWaterRender.sectionY,
                 .surfaceChunkLoaded = screenshotWaterRender.chunkLoaded,
+                .playerMissingSurfaceChunks =
+                    screenshotMissingSurfaceChunks,
+                .surfaceReady = screenshotMissingSurfaceChunks == 0,
                 .waterNeighborLoadedMask =
                     screenshotWaterRender.neighborLoadedMask,
                 .waterTriangleCount = screenshotWaterRender.triangleCount,

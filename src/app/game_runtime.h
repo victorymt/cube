@@ -4,6 +4,8 @@
 #include "core/debug_control.h"
 #include "presentation/environment_runtime.h"
 #include "app/game_settings.h"
+#include "app/game_stream_audit.h"
+#include "app/game_debug_trace.h"
 #include "space/planet_profile.h"
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
@@ -59,6 +61,8 @@ typedef struct GameRuntime {
   BlockType hotbar[HOTBAR_SIZE];
   ImportDialog importDialog;
   LandingTransition landingTransition;
+  GameStreamAuditState streamAudit;
+  GameDebugTraceState debugTrace;
 
   GameScreen screen;
   TerrainMode selectedTerrain;
@@ -74,6 +78,7 @@ typedef struct GameRuntime {
   bool perfMode;
   bool debugControlEnabled;
   bool debugTraceEnabled;
+  bool debugTracePathInvalid;
   bool showHelp;
   bool showDebug;
   bool scannerActive;

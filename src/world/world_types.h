@@ -273,6 +273,10 @@ typedef struct ChunkGenJob {
     bool spherical;
     SurfaceAddress surfaceAddress;
     TerrainMode terrainMode;
+    uint64_t queueSequence;
+    double submittedAtMs;
+    double startedAtMs;
+    double completedAtMs;
     // Section jobs generate into staging storage because their target chunk
     // is already visible to the main/render thread. Completion copies this
     // snapshot only if the chunk incarnation still matches.
@@ -318,6 +322,7 @@ typedef struct ChunkSection {
     // Mesh jobs record it at snapshot time so stale uploads do not clear
     // dirty flags that were re-set after the snapshot (lost-edit race).
     uint32_t dirtyStamp;
+    double dirtySinceMs;
     bool hasModel;
     bool hasWaterModel;
     bool hasFloraModel;

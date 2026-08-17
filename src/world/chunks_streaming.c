@@ -1,5 +1,7 @@
 #include "world/chunks_internal.h"
 
+static uint64_t nextGenerationQueueSequence = 0u;
+
 bool HasPendingGenJob(void)
 {
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
@@ -10,10 +12,15 @@ bool HasPendingGenJob(void)
 
 ChunkGenJob *NextPendingGenJob(void)
 {
+    ChunkGenJob *oldest = NULL;
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-        if (chunkGenJobs[i].inUse && !chunkGenJobs[i].done) return &chunkGenJobs[i];
+        ChunkGenJob *job = &chunkGenJobs[i];
+        if (!job->inUse || job->running || job->done) continue;
+        if (!oldest || job->queueSequence < oldest->queueSequence) {
+            oldest = job;
+        }
     }
-    return NULL;
+    return oldest;
 }
 
 void GenerateChunkJobPayload(ChunkGenJob *job)
@@ -78,6 +85,7 @@ void *ChunkGenWorker(void *arg)
         }
         if (job) {
             job->running = true;
+            job->startedAtMs = ChunkNowMs();
             genWorkerActive = true;
             pthread_mutex_unlock(&genMutex);
 
@@ -88,6 +96,7 @@ void *ChunkGenWorker(void *arg)
             pthread_mutex_lock(&genMutex);
             job->running = false;
             job->done = true;
+            job->completedAtMs = ChunkNowMs();
             genWorkerActive = false;
             streamingStats.generationCompleted++;
             streamingStats.generationCpuMs += elapsedMs;
@@ -98,6 +107,7 @@ void *ChunkGenWorker(void *arg)
 
         if (meshJob) {
             meshJob->running = true;
+            meshJob->startedAtMs = ChunkNowMs();
             genWorkerActive = true;
             pthread_mutex_unlock(&genMutex);
 
@@ -182,6 +192,7 @@ void *ChunkGenWorker(void *arg)
             pthread_mutex_lock(&genMutex);
             meshJob->running = false;
             meshJob->done = true;
+            meshJob->completedAtMs = ChunkNowMs();
             genWorkerActive = false;
             streamingStats.meshCompleted++;
             streamingStats.meshCpuMs += elapsedMs;
@@ -223,7 +234,9 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
         .chunkGeneration = chunk->generation,
         .spherical = chunk->spherical,
         .surfaceAddress = chunk->surfaceAddress,
-        .terrainMode = mode
+        .terrainMode = mode,
+        .queueSequence = ++nextGenerationQueueSequence,
+        .submittedAtMs = ChunkNowMs()
     };
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
@@ -312,7 +325,9 @@ static bool SubmitChunkSectionGenJob(
         .chunkGeneration = chunk->generation,
         .spherical = chunk->spherical,
         .surfaceAddress = chunk->surfaceAddress,
-        .terrainMode = mode
+        .terrainMode = mode,
+        .queueSequence = ++nextGenerationQueueSequence,
+        .submittedAtMs = ChunkNowMs()
     };
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
@@ -709,3 +724,33 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
     }
     ScheduleNearbyTerrainSections(playerPosition, effectiveRenderDistance);
 }
+
+#ifdef CHUNKS_TESTING
+void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
+                                 int sectionY, bool done)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_CHUNK_GEN_JOBS);
+    pthread_mutex_lock(&genMutex);
+    chunkGenJobs[jobIndex] = (ChunkGenJob){
+        .inUse = true,
+        .done = done,
+        .scope = CHUNK_GEN_SCOPE_SECTION,
+        .cx = cx,
+        .cz = cz,
+        .sectionY = sectionY,
+        .queueSequence = ++nextGenerationQueueSequence,
+        .submittedAtMs = ChunkNowMs(),
+        .completedAtMs = done ? ChunkNowMs() : 0.0
+    };
+    pthread_mutex_unlock(&genMutex);
+}
+
+int ChunksTestNextGenerationJobIndex(void)
+{
+    pthread_mutex_lock(&genMutex);
+    ChunkGenJob *job = NextPendingGenJob();
+    int index = job ? (int)(job - chunkGenJobs) : -1;
+    pthread_mutex_unlock(&genMutex);
+    return index;
+}
+#endif

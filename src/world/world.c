@@ -679,6 +679,21 @@ static BlockType GetSurfaceBlockAt(int x, int y, int z)
         : BLOCK_AIR;
 }
 
+bool SurfaceBlockReadyAt(int x, int y, int z)
+{
+    if (WorldBlockRegionAt(y) != WORLD_BLOCK_REGION_SURFACE) return true;
+
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    (void)lx;
+    (void)lz;
+    const Chunk *chunk = FindChunk(cx, cz);
+    return chunk && chunk->loaded;
+}
+
 static bool MaterializeHomeSurfaceSectionForWrite(
     Chunk *chunk, int sectionY)
 {

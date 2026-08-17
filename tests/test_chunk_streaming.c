@@ -22,6 +22,8 @@ static int lastSectionLoaded = 0;
 static int lastSectionPrepared = 0;
 static bool terrainSectionFacesExposed = true;
 
+static int FindPendingMeshJobFor(int slotIndex, int sectionY);
+
 static void TestOnChunkSectionLoaded(Chunk *chunk, int sectionY)
 {
     assert(chunk != NULL);
@@ -319,6 +321,52 @@ static void TestFullQueueLeavesDirtyChunkForLater(void)
     assert(ChunksTestChunkDirty(0));
 }
 
+static void TestReusedLowSlotsDoNotStarveOlderJobs(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestSeedGenerationJob(63, 10, 20, 5, false);
+    ChunksTestSeedGenerationJob(0, 11, 20, 5, false);
+    assert(ChunksTestNextGenerationJobIndex() == 63);
+
+    ChunksTestSeedMeshJob(63, 1, 10, 20, 5, false);
+    ChunksTestSeedMeshJob(0, 2, 11, 20, 5, false);
+    assert(ChunksTestNextMeshJobIndex() == 63);
+
+    ChunksTestResetScheduler();
+    ChunksTestSeedMeshJob(63, 1, 10, 20, 5, true);
+    ChunksTestSeedMeshJob(0, 2, 11, 20, 5, true);
+    ProcessFinishedMeshJobs(0.0);
+    assert(ChunksTestMeshJobSlot(63) == -1);
+    assert(ChunksTestMeshJobSlot(0) == 2);
+}
+
+static void TestSectionPipelineReportsMeshWaitStage(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, true);
+    ChunkSection *section = ChunkGetSection(&chunks[0], 0, false);
+    assert(section != NULL);
+    MarkChunkDirty(0, 0);
+
+    RebuildDirtyChunkMeshes((Vector3){ 0.5f, 1.0f, 0.5f });
+    int jobIndex = FindPendingMeshJobFor(0, 0);
+    assert(jobIndex >= 0);
+    ChunkSectionPipelineInfo info = { 0 };
+    assert(ChunksGetSectionPipelineInfo(0, 0, 0, &info));
+    assert(info.stage == CHUNK_PIPELINE_MESH_QUEUED);
+    assert(info.stageAgeMs >= 0.0);
+    assert(info.snapshotStamp == section->dirtyStamp);
+    assert(info.currentStamp == section->dirtyStamp);
+
+    ChunksTestSetMeshJobRunning(jobIndex, true);
+    assert(ChunksGetSectionPipelineInfo(0, 0, 0, &info));
+    assert(info.stage == CHUNK_PIPELINE_MESH_RUNNING);
+    ChunksTestSetMeshJobRunning(jobIndex, false);
+    ChunksTestCompleteMeshJob(jobIndex);
+    assert(ChunksGetSectionPipelineInfo(0, 0, 0, &info));
+    assert(info.stage == CHUNK_PIPELINE_MESH_DONE);
+}
+
 static void TestFullGenerationQueueDoesNotFallBackToMainThread(void)
 {
     ChunksTestResetScheduler();
@@ -578,8 +626,10 @@ static void TestMaterializedAirDiffersFromMissingSection(void)
 static void TestImplicitTerrainLookupAndEditOverride(void)
 {
     ChunksTestResetScheduler();
+    assert(!SurfaceBlockReadyAt(2, 4, 3));
     ChunksTestConfigureChunk(0, 0, 0, true, false);
 
+    assert(SurfaceBlockReadyAt(2, 4, 3));
     assert(ChunkGetSectionConst(&chunks[0], 0) == NULL);
     assert(GetBlockAt(2, 4, 3) == BLOCK_STONE);
     assert(GetBlockAt(2, 12, 3) == BLOCK_AIR);
@@ -911,6 +961,8 @@ int main(void)
     TestChunkFrustumUsesSparseSectionHeights();
     TestSingleChunkUsesSingleJobAndNearestFirst();
     TestFullQueueLeavesDirtyChunkForLater();
+    TestReusedLowSlotsDoNotStarveOlderJobs();
+    TestSectionPipelineReportsMeshWaitStage();
     TestFullGenerationQueueDoesNotFallBackToMainThread();
     TestBudgetAndInvalidSlotCleanup();
     TestEditDuringFlightKeepsSectionDirty();

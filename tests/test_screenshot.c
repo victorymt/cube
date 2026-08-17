@@ -231,6 +231,9 @@ static void TestDebugReport(void)
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
     assert(strstr(contents, "player.position=1.250000,42.500000,-8.750000\n"));
+    assert(strstr(contents, "streaming.surface_ready=false\n"));
+    assert(strstr(contents,
+                  "streaming.player_missing_surface_chunks=0\n"));
     assert(strstr(contents, "camera.inside_solid=false\n"));
     assert(strstr(contents, "weather.cloud_cover=0.812500\n"));
     assert(strstr(contents, "weather.cloud_thickness=18.000000\n"));

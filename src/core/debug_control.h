@@ -85,6 +85,9 @@ typedef struct DebugControl {
     int fluidX;
     int fluidY;
     int fluidZ;
+    int streamAuditX;
+    int streamAuditY;
+    int streamAuditZ;
     unsigned fluidVolume;
     unsigned fluidTicks;
     int streamAuditRadius;
@@ -92,6 +95,7 @@ typedef struct DebugControl {
     float lookPitch;
     bool lookRelative;
     bool fluidUsePlayerPosition;
+    bool streamAuditUsePlayerPosition;
     bool thirdPerson;
 } DebugControl;
 

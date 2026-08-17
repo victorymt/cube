@@ -1,6 +1,7 @@
 #include "world/chunks_internal.h"
 
 MeshJob meshJobs[MAX_MESH_JOBS];
+static uint64_t nextMeshQueueSequence = 0u;
 
 void UpdateQueuePeaksLocked(void)
 {
@@ -40,10 +41,15 @@ bool HasPendingMeshJob(void)
 
 MeshJob *NextPendingMeshJob(void)
 {
+    MeshJob *oldest = NULL;
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        if (meshJobs[i].inUse && !meshJobs[i].done) return &meshJobs[i];
+        MeshJob *job = &meshJobs[i];
+        if (!job->inUse || job->running || job->done) continue;
+        if (!oldest || job->queueSequence < oldest->queueSequence) {
+            oldest = job;
+        }
     }
-    return NULL;
+    return oldest;
 }
 
 static bool FindPendingMeshJob(int slotIndex, int sectionY)
@@ -455,6 +461,7 @@ static bool UploadMeshJob(MeshJob *job)
     pthread_mutex_unlock(&genMutex);
     if (snapshotCurrent && !pending) {
         section->dirty = false;
+        section->dirtySinceMs = 0.0;
     }
     return snapshotCurrent;
 }
@@ -500,6 +507,10 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     job->sectionY = section->sectionY;
     job->sectionStamp = section->dirtyStamp;
     job->chunkGeneration = chunk->generation;
+    job->queueSequence = ++nextMeshQueueSequence;
+    job->submittedAtMs = ChunkNowMs();
+    job->startedAtMs = 0.0;
+    job->completedAtMs = 0.0;
     job->spherical = chunk->spherical;
     job->surfaceAddress = chunk->surfaceAddress;
     job->surfaceMapOriginX = WorldSurfaceMapOriginX();
@@ -550,12 +561,18 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
     if (!isfinite(uploadBudgetMs) || uploadBudgetMs < 0.0) {
         uploadBudgetMs = 0.0;
     }
-    for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        MeshJob *job = &meshJobs[i];
+    while (uploaded < MAX_MESH_REBUILDS_PER_FRAME) {
         pthread_mutex_lock(&genMutex);
-        bool ready = job->inUse && job->done;
+        MeshJob *job = NULL;
+        for (int index = 0; index < MAX_MESH_JOBS; index++) {
+            MeshJob *candidate = &meshJobs[index];
+            if (!candidate->inUse || !candidate->done) continue;
+            if (!job || candidate->queueSequence < job->queueSequence) {
+                job = candidate;
+            }
+        }
         pthread_mutex_unlock(&genMutex);
-        if (!ready) continue;
+        if (!job) break;
         if (uploaded > 0 && ChunkNowMs() - startedMs >= uploadBudgetMs) {
             pthread_mutex_lock(&genMutex);
             streamingStats.uploadBudgetDeferrals++;
@@ -572,7 +589,7 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
             streamingStats.maxUploadCpuMs = uploadElapsedMs;
         }
         pthread_mutex_unlock(&genMutex);
-        if (++uploaded >= MAX_MESH_REBUILDS_PER_FRAME) break;
+        uploaded++;
     }
 }
 
@@ -657,6 +674,7 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
     free(floraInstances);
     section->floraVisualScale = 1.0f;
     section->dirty = false;
+    section->dirtySinceMs = 0.0;
 }
 
 void RebuildDirtyChunkMeshes(Vector3 focusPosition)
@@ -897,6 +915,135 @@ ChunkStreamingStats ChunksGetStreamingStats(void)
     return result;
 }
 
+static int PipelineModelVertexCount(const Model *model, bool present)
+{
+    if (!present || !model || !model->meshes || model->meshCount <= 0) {
+        return 0;
+    }
+    int vertices = 0;
+    for (int index = 0; index < model->meshCount; index++) {
+        vertices += model->meshes[index].vertexCount;
+    }
+    return vertices;
+}
+
+static double PipelineStageAge(double now, double since)
+{
+    return since > 0.0 && now >= since ? now - since : 0.0;
+}
+
+const char *ChunkPipelineStageName(ChunkPipelineStage stage)
+{
+    switch (stage) {
+    case CHUNK_PIPELINE_MISSING_CHUNK: return "missing_chunk";
+    case CHUNK_PIPELINE_GENERATION_WAIT: return "generation_wait";
+    case CHUNK_PIPELINE_GENERATION_QUEUED: return "generation_queued";
+    case CHUNK_PIPELINE_GENERATION_RUNNING: return "generation_running";
+    case CHUNK_PIPELINE_GENERATION_DONE: return "generation_done_wait_apply";
+    case CHUNK_PIPELINE_IMPLICIT: return "implicit";
+    case CHUNK_PIPELINE_DIRTY_WAIT: return "dirty_wait_submit";
+    case CHUNK_PIPELINE_MESH_QUEUED: return "mesh_queued";
+    case CHUNK_PIPELINE_MESH_RUNNING: return "mesh_running";
+    case CHUNK_PIPELINE_MESH_DONE: return "mesh_done_wait_upload";
+    case CHUNK_PIPELINE_READY: return "ready";
+    default: return "unknown";
+    }
+}
+
+bool ChunksGetSectionPipelineInfo(int cx, int sectionY, int cz,
+                                  ChunkSectionPipelineInfo *outInfo)
+{
+    if (!outInfo || !SurfaceSectionInBounds(sectionY)) return false;
+    *outInfo = (ChunkSectionPipelineInfo){
+        .stage = CHUNK_PIPELINE_MISSING_CHUNK
+    };
+    Chunk *chunk = FindChunk(cx, cz);
+    const ChunkSection *section = chunk
+        ? ChunkGetSectionConst(chunk, sectionY) : NULL;
+    if (chunk) {
+        outInfo->chunkLoaded = chunk->loaded;
+        outInfo->resolved = ChunkTerrainSectionIsResolved(chunk, sectionY);
+    }
+    if (section) {
+        outInfo->materialized = true;
+        outInfo->dirty = section->dirty;
+        outInfo->currentStamp = section->dirtyStamp;
+        outInfo->solidVertices = PipelineModelVertexCount(
+            &section->model, section->hasModel);
+        outInfo->waterVertices = PipelineModelVertexCount(
+            &section->waterModel, section->hasWaterModel);
+        outInfo->floraVertices = PipelineModelVertexCount(
+            &section->floraModel, section->hasFloraModel);
+    }
+
+    double now = ChunkNowMs();
+    const ChunkGenJob *generation = NULL;
+    const MeshJob *mesh = NULL;
+    pthread_mutex_lock(&genMutex);
+    for (int index = 0; index < MAX_CHUNK_GEN_JOBS; index++) {
+        const ChunkGenJob *candidate = &chunkGenJobs[index];
+        if (!candidate->inUse || candidate->cx != cx ||
+            candidate->cz != cz ||
+            (candidate->scope == CHUNK_GEN_SCOPE_SECTION &&
+             candidate->sectionY != sectionY)) continue;
+        generation = candidate;
+        break;
+    }
+    for (int index = 0; index < MAX_MESH_JOBS; index++) {
+        const MeshJob *candidate = &meshJobs[index];
+        if (!candidate->inUse || candidate->cx != cx ||
+            candidate->cz != cz || candidate->sectionY != sectionY ||
+            (chunk && candidate->chunkGeneration != chunk->generation)) {
+            continue;
+        }
+        mesh = candidate;
+        break;
+    }
+
+    if (generation) {
+        if (generation->done) {
+            outInfo->stage = CHUNK_PIPELINE_GENERATION_DONE;
+            outInfo->stageAgeMs = PipelineStageAge(
+                now, generation->completedAtMs);
+        } else if (generation->running) {
+            outInfo->stage = CHUNK_PIPELINE_GENERATION_RUNNING;
+            outInfo->stageAgeMs = PipelineStageAge(
+                now, generation->startedAtMs);
+        } else {
+            outInfo->stage = CHUNK_PIPELINE_GENERATION_QUEUED;
+            outInfo->stageAgeMs = PipelineStageAge(
+                now, generation->submittedAtMs);
+        }
+    } else if (!chunk || !chunk->loaded) {
+        outInfo->stage = CHUNK_PIPELINE_MISSING_CHUNK;
+    } else if (mesh) {
+        outInfo->snapshotStamp = mesh->sectionStamp;
+        if (mesh->done) {
+            outInfo->stage = CHUNK_PIPELINE_MESH_DONE;
+            outInfo->stageAgeMs = PipelineStageAge(
+                now, mesh->completedAtMs);
+        } else if (mesh->running) {
+            outInfo->stage = CHUNK_PIPELINE_MESH_RUNNING;
+            outInfo->stageAgeMs = PipelineStageAge(
+                now, mesh->startedAtMs);
+        } else {
+            outInfo->stage = CHUNK_PIPELINE_MESH_QUEUED;
+            outInfo->stageAgeMs = PipelineStageAge(
+                now, mesh->submittedAtMs);
+        }
+    } else if (!section) {
+        outInfo->stage = outInfo->resolved
+            ? CHUNK_PIPELINE_IMPLICIT : CHUNK_PIPELINE_GENERATION_WAIT;
+    } else if (section->dirty) {
+        outInfo->stage = CHUNK_PIPELINE_DIRTY_WAIT;
+        outInfo->stageAgeMs = PipelineStageAge(now, section->dirtySinceMs);
+    } else {
+        outInfo->stage = CHUNK_PIPELINE_READY;
+    }
+    pthread_mutex_unlock(&genMutex);
+    return true;
+}
+
 bool ChunksGetWaterRenderDebugInfo(Vector3 position,
                                    ChunkWaterRenderDebugInfo *outInfo)
 {
@@ -1006,6 +1153,7 @@ void ChunksTestResetScheduler(void)
     memset(chunks, 0, sizeof(chunks));
     memset(chunkGenJobs, 0, sizeof(chunkGenJobs));
     memset(meshJobs, 0, sizeof(meshJobs));
+    nextMeshQueueSequence = 0u;
     streamingStats = (ChunkStreamingStats){ 0 };
     genThread = pthread_self();
     genShutdown = false;
@@ -1078,7 +1226,10 @@ void ChunksTestCompleteMeshJob(int jobIndex)
 {
     assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
     pthread_mutex_lock(&genMutex);
-    if (meshJobs[jobIndex].inUse) meshJobs[jobIndex].done = true;
+    if (meshJobs[jobIndex].inUse) {
+        meshJobs[jobIndex].done = true;
+        meshJobs[jobIndex].completedAtMs = ChunkNowMs();
+    }
     pthread_mutex_unlock(&genMutex);
 }
 
@@ -1093,10 +1244,22 @@ void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,
         .slotIndex = slotIndex,
         .cx = cx,
         .cz = cz,
-        .sectionY = sectionY
+        .sectionY = sectionY,
+        .queueSequence = ++nextMeshQueueSequence,
+        .submittedAtMs = ChunkNowMs(),
+        .completedAtMs = done ? ChunkNowMs() : 0.0
     };
     UpdateQueuePeaksLocked();
     pthread_mutex_unlock(&genMutex);
+}
+
+int ChunksTestNextMeshJobIndex(void)
+{
+    pthread_mutex_lock(&genMutex);
+    MeshJob *job = NextPendingMeshJob();
+    int index = job ? (int)(job - meshJobs) : -1;
+    pthread_mutex_unlock(&genMutex);
+    return index;
 }
 
 void ChunksTestFillGenerationQueue(void)

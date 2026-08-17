@@ -4,6 +4,7 @@
 #include "app/game.h"
 #include "app/game_biology.h"
 #include "app/game_debug.h"
+#include "app/game_debug_trace.h"
 #include "app/game_interaction.h"
 #include "app/game_internal.h"
 #include "app/game_landing.h"
@@ -19,6 +20,7 @@
 #include "gameplay/album.h"
 #include "gameplay/inventory.h"
 #include "presentation/render.h"
+#include "presentation/render_ui.h"
 #include "presentation/particles.h"
 #include "presentation/audio.h"
 #include "world/weather.h"
@@ -1031,8 +1033,7 @@ static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
         shipHud->submerged =
             PlayerWaterStateAt(game->player.position).eyesSubmerged;
     }
-    shipHud->heading = fmodf(
-        game->player.yaw * RAD2DEG + 360.0f, 360.0f);
+    shipHud->heading = HudHeadingFromYaw(game->player.yaw);
     SolarSystemDef hudSystem = { 0 };
     float hudDistance = 0.0f;
     if (PlanetWorldIsActive()) {
@@ -1114,22 +1115,9 @@ static void GameRenderStatusHud(GameRuntime *game)
 {
     DrawHotbar(game->hotbar, game->selectedIndex);
     DrawImportStatus();
-    int hour = (int)(game->dayTime * 24.0f) % 24;
-    const char *positionText = TextFormat(
-        "XYZ %d %d %d    %02d:00",
-        (int)floorf(game->player.position.x),
-        (int)floorf(game->player.position.y),
-        (int)floorf(game->player.position.z), hour);
-    UiDrawText(positionText, 15, GetScreenHeight() - 32, 17,
-               Fade(BLACK, 0.92f));
-    UiDrawText(positionText, 14, GetScreenHeight() - 34, 17,
-               Fade(WHITE, 0.9f));
-    const char *saveText = TextFormat(
-        "Auto-save: %s", game->autoSaveEnabled ? "60s" : "off");
-    UiDrawText(saveText, 15, GetScreenHeight() - 14, 15,
-               Fade(BLACK, 0.92f));
-    UiDrawText(saveText, 14, GetScreenHeight() - 16, 15,
-               Fade(WHITE, 0.65f));
+    DrawStatusHUD(game->player.position, game->player.yaw,
+                  game->player.pitch, game->dayTime,
+                  game->autoSaveEnabled);
     if (game->cursorReleased && !game->importDialog.open) {
         DrawCursorReleasedOverlay();
     }
@@ -1303,7 +1291,8 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     GameUpdateFrameEnvironment(game, &frame);
     GameRenderFrame(game, &frame);
     GameCaptureScreenshot(game, &frame);
-    GameDebugTraceFrame(game, dt);
+    GameDebugTraceFrame(game, &frame);
+    GameStreamAuditFrame(game);
     return true;
 }
 
@@ -1332,7 +1321,10 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                         "Run from a graphical desktop session.\n");
         return false;
     }
-    GameDebugTraceStart(game);
+    if (!GameDebugTraceStart(game)) {
+        CloseWindow();
+        return false;
+    }
 
     PerfConfigure(game->perfMode, game->perfReportPath,
                   game->perfBaselinePath);
@@ -1384,7 +1376,6 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
 static int GameStop(GameRuntime *game)
 {
-    GameDebugTraceEvent(game, "stop");
     if (!game->perfMode && !game->debugControlEnabled &&
         game->screen == SCREEN_PLAYING) {
         if (game->landingTransition.active) {
@@ -1436,7 +1427,7 @@ int GameRun(int argc, char **argv)
         bool debugStartRequested = GameDispatchDebugCommand(&game);
 
         if (!GameUpdateFrame(&game, dt, debugStartRequested)) {
-            GameDebugTraceFrame(&game, dt);
+            GameStreamAuditFrame(&game);
             continue;
         }
         PerfEndFrame(ChunksGetStreamingStats(), CurrentRenderResourceSnapshot());

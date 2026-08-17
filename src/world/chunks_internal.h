@@ -30,6 +30,10 @@ typedef struct MeshJob {
     int sectionY;
     uint32_t sectionStamp;
     uint32_t chunkGeneration;
+    uint64_t queueSequence;
+    double submittedAtMs;
+    double startedAtMs;
+    double completedAtMs;
     bool spherical;
     SurfaceAddress surfaceAddress;
     int surfaceMapOriginX;

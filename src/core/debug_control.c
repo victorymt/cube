@@ -96,14 +96,44 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
     if (strcmp(line, "stream audit") == 0) {
         control->streamAuditRadius = 2;
+        control->streamAuditUsePlayerPosition = true;
         return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
     }
+    int streamAuditX = 0;
+    int streamAuditY = 0;
+    int streamAuditZ = 0;
     int streamAuditRadius = 0;
     char streamAuditTrailing = '\0';
+    int streamAuditOffset = -1;
+    int streamAuditFields = sscanf(
+        line, "stream audit at %d %d %d %d %n", &streamAuditX,
+        &streamAuditY, &streamAuditZ, &streamAuditRadius,
+        &streamAuditOffset);
+    bool streamAuditAtValid = streamAuditFields == 4 &&
+        streamAuditOffset >= 0 && line[streamAuditOffset] == '\0' &&
+        streamAuditRadius >= 1 && streamAuditRadius <= 4;
+    if (!streamAuditAtValid) {
+        streamAuditOffset = -1;
+        streamAuditFields = sscanf(
+            line, "stream audit at %d %d %d %n", &streamAuditX,
+            &streamAuditY, &streamAuditZ, &streamAuditOffset);
+        streamAuditAtValid = streamAuditFields == 3 &&
+            streamAuditOffset >= 0 && line[streamAuditOffset] == '\0';
+        if (streamAuditAtValid) streamAuditRadius = 2;
+    }
+    if (streamAuditAtValid) {
+        control->streamAuditX = streamAuditX;
+        control->streamAuditY = streamAuditY;
+        control->streamAuditZ = streamAuditZ;
+        control->streamAuditRadius = streamAuditRadius;
+        control->streamAuditUsePlayerPosition = false;
+        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
+    }
     if (sscanf(line, "stream audit %d %c", &streamAuditRadius,
                &streamAuditTrailing) == 1 &&
         streamAuditRadius >= 1 && streamAuditRadius <= 4) {
         control->streamAuditRadius = streamAuditRadius;
+        control->streamAuditUsePlayerPosition = true;
         return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
     }
     if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;

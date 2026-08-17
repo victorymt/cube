@@ -18,6 +18,8 @@ static bool waterEnabled = false;
 static bool groundEnabled = false;
 static BlockType ecologyPlant = BLOCK_AIR;
 static bool proceduralWaterEnabled = false;
+static bool surfaceReady = true;
+static bool shipDriving = false;
 static float proceduralWaterSurface = 0.0f;
 static int waterMinY = 1;
 static int waterMaxY = 5;
@@ -132,9 +134,17 @@ bool SpaceBlockReadyAt(int x, int y, int z)
     return true;
 }
 
+bool SurfaceBlockReadyAt(int x, int y, int z)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    return surfaceReady;
+}
+
 bool ShipIsDriving(void)
 {
-    return false;
+    return shipDriving;
 }
 
 static void ResetCollisionWorld(void)
@@ -146,9 +156,52 @@ static void ResetCollisionWorld(void)
     groundEnabled = false;
     ecologyPlant = BLOCK_AIR;
     proceduralWaterEnabled = false;
+    surfaceReady = true;
+    shipDriving = false;
     proceduralWaterSurface = 0.0f;
     waterMinY = 1;
     waterMaxY = 5;
+}
+
+static void TestSurfaceStreamingFrontierBlocksWalkingPlayer(void)
+{
+    ResetCollisionWorld();
+    surfaceReady = false;
+    Player player = {
+        .position = { 0.5f, 10.0f, 0.5f },
+        .velocity = { 4.0f, -4.0f, 0.0f },
+        .floating = true
+    };
+
+    assert(PlayerOverlapsWorld(player.position));
+    assert(PlayerMissingSurfaceChunkCount(player.position) == 1);
+    MovePlayer(&player, (Vector3){ 2.0f, -2.0f, 0.0f });
+    assert(player.position.x == 0.5f);
+    assert(player.position.y == 10.0f);
+    assert(player.velocity.x == 0.0f);
+    assert(player.velocity.y == 0.0f);
+
+    surfaceReady = true;
+    assert(PlayerMissingSurfaceChunkCount(player.position) == 0);
+    MovePlayer(&player, (Vector3){ 1.0f, -1.0f, 0.0f });
+    assert(player.position.x > 0.5f);
+    assert(player.position.y < 10.0f);
+}
+
+static void TestShipMayCrossSurfaceStreamingFrontier(void)
+{
+    ResetCollisionWorld();
+    surfaceReady = false;
+    shipDriving = true;
+    Player player = {
+        .position = { 0.5f, 10.0f, 0.5f },
+        .floating = true
+    };
+
+    assert(!PlayerOverlapsWorld(player.position));
+    MovePlayer(&player, (Vector3){ 1.0f, -1.0f, 0.0f });
+    assert(player.position.x > 0.5f);
+    assert(player.position.y < 10.0f);
 }
 
 static void TestHighSpeedHorizontalMovementStopsAtWall(void)
@@ -387,6 +440,8 @@ int main(void)
 {
     TestHighSpeedHorizontalMovementStopsAtWall();
     TestHighSpeedVerticalMovementStopsAtCeiling();
+    TestSurfaceStreamingFrontierBlocksWalkingPlayer();
+    TestShipMayCrossSurfaceStreamingFrontier();
     TestHugeMovementIsBounded();
     TestSubstepsPreserveStepUp();
     TestNonFiniteMovementIsIgnored();

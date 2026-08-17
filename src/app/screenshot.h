@@ -139,6 +139,8 @@ typedef struct ScreenshotStreamingDebugInfo {
     int surfaceChunkZ;
     int surfaceSectionY;
     bool surfaceChunkLoaded;
+    bool surfaceReady;
+    int playerMissingSurfaceChunks;
     unsigned int waterNeighborLoadedMask;
     int waterTriangleCount;
     int waterSectionTriangleCount;

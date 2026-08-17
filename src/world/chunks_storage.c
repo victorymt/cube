@@ -375,6 +375,7 @@ void ChunkClearBlockStorage(Chunk *chunk)
 void MarkSectionDirty(ChunkSection *section)
 {
     if (!section) return;
+    if (!section->dirty) section->dirtySinceMs = ChunkNowMs();
     section->dirty = true;
     section->dirtyStamp++;
     if (section->dirtyStamp == 0u) section->dirtyStamp = 1u;

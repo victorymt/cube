@@ -196,7 +196,8 @@ uploads settle. Mesh byte fields estimate public raylib `Mesh` buffers and are
 not driver-reported VRAM.
 
 For scripted visual debugging, start the game with `--debug-stdin`. It accepts
-line-delimited commands: `start`, `screenshot`, `status`, `stream audit [RADIUS]`, `save`, `load`, `map`, `teleport X Y Z YAW
+line-delimited commands: `start`, `screenshot`, `status`, `stream audit [RADIUS]`,
+`stream audit at X Y Z [RADIUS]`, `save`, `load`, `map`, `teleport X Y Z YAW
 PITCH`, `look YAW PITCH`, `look delta YAW_DELTA PITCH_DELTA`,
 `marker add X Z COLOR NAME`, `marker list`, `marker target ID|none`,
 `marker remove ID`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, `evolution inspect [RADIUS]`,
@@ -223,12 +224,18 @@ Evolution inspection and region/bootstrap commands work on both
 Homeworld and generated planet surfaces. The interface is disabled during a
 normal launch.
 
-Use `--debug-trace [PATH]` to continuously write a line-buffered JSONL trace.
+Use `--debug-trace [PATH]` to continuously write a 10 Hz JSONL trace.
 Without an explicit path, traces are written under `debug-traces/`. Samples
 include player and camera motion, facing direction, environment state,
 targeted blocks, current section model state, and chunk generation/mesh queue
-metrics. Chunk/section transitions and invisible targeted blocks trigger
-immediate records in addition to the regular 10 Hz samples.
+metrics. Each record is flushed and write failures disable tracing after one
+error. Chunk/section transitions and invisible targeted blocks trigger samples
+without shifting the periodic deadline; debug actions are lightweight event
+records. Records include Unix milliseconds and monotonic elapsed milliseconds;
+samples also report the focus/target section pipeline stage, stage age, mesh
+snapshot/current stamps, and solid/water/flora vertex counts. `stream audit`
+runs incrementally, emits at most 16 issue details, and
+marks results stale when chunks change during the scan.
 
 ## Run
 

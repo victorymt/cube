@@ -44,6 +44,34 @@ typedef struct ChunkWaterRenderDebugInfo {
     int sectionTriangleCount;
 } ChunkWaterRenderDebugInfo;
 
+typedef enum ChunkPipelineStage {
+    CHUNK_PIPELINE_MISSING_CHUNK = 0,
+    CHUNK_PIPELINE_GENERATION_WAIT,
+    CHUNK_PIPELINE_GENERATION_QUEUED,
+    CHUNK_PIPELINE_GENERATION_RUNNING,
+    CHUNK_PIPELINE_GENERATION_DONE,
+    CHUNK_PIPELINE_IMPLICIT,
+    CHUNK_PIPELINE_DIRTY_WAIT,
+    CHUNK_PIPELINE_MESH_QUEUED,
+    CHUNK_PIPELINE_MESH_RUNNING,
+    CHUNK_PIPELINE_MESH_DONE,
+    CHUNK_PIPELINE_READY
+} ChunkPipelineStage;
+
+typedef struct ChunkSectionPipelineInfo {
+    ChunkPipelineStage stage;
+    double stageAgeMs;
+    uint32_t currentStamp;
+    uint32_t snapshotStamp;
+    int solidVertices;
+    int waterVertices;
+    int floraVertices;
+    bool chunkLoaded;
+    bool resolved;
+    bool materialized;
+    bool dirty;
+} ChunkSectionPipelineInfo;
+
 bool InHeight(int y);
 int FloorDivInt(int value, int divisor);
 int PositiveMod(int value, int divisor);
@@ -121,6 +149,9 @@ void ChunksResetStreamingStats(void);
 ChunkStreamingStats ChunksGetStreamingStats(void);
 bool ChunksGetWaterRenderDebugInfo(Vector3 position,
                                    ChunkWaterRenderDebugInfo *outInfo);
+bool ChunksGetSectionPipelineInfo(int cx, int sectionY, int cz,
+                                  ChunkSectionPipelineInfo *outInfo);
+const char *ChunkPipelineStageName(ChunkPipelineStage stage);
 RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void);
 void DrainChunkGen(void);
 void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance);
@@ -161,6 +192,10 @@ int ChunksTestPruneTerrainSections(Vector3 playerPosition);
 int ChunksTestCancelDistantSectionJobs(Vector3 playerPosition);
 void ChunksTestSetGenerationJobRunning(int jobIndex, bool running);
 void ChunksTestSetMeshJobRunning(int jobIndex, bool running);
+void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
+                                 int sectionY, bool done);
+int ChunksTestNextGenerationJobIndex(void);
+int ChunksTestNextMeshJobIndex(void);
 #endif
 
 #endif

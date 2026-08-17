@@ -313,6 +313,10 @@ static bool ScreenshotWriteDebugFields(
                 info->streaming.surfaceSectionY);
     REPORT_LINE("streaming.surface_chunk_loaded=%s\n",
                 ScreenshotBool(info->streaming.surfaceChunkLoaded));
+    REPORT_LINE("streaming.surface_ready=%s\n",
+                ScreenshotBool(info->streaming.surfaceReady));
+    REPORT_LINE("streaming.player_missing_surface_chunks=%d\n",
+                info->streaming.playerMissingSurfaceChunks);
     REPORT_LINE("streaming.water_neighbor_loaded_mask=0x%X\n",
                 info->streaming.waterNeighborLoadedMask);
     REPORT_LINE("streaming.water_triangle_count=%d\n",

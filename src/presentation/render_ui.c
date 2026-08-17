@@ -1,5 +1,6 @@
 #include "presentation/render.h"
 #include "presentation/render_internal.h"
+#include "presentation/render_ui.h"
 
 #include "raymath.h"
 #include "rlgl.h"
@@ -205,8 +206,48 @@ void UiDrawText(const char *text, int x, int y, int fontSize, Color color)
 
 static float NormalizeHudHeading(float heading)
 {
+    if (!isfinite(heading)) return 0.0f;
     heading = fmodf(heading, 360.0f);
     return heading < 0.0f ? heading + 360.0f : heading;
+}
+
+float HudHeadingFromYaw(float yawRadians)
+{
+    return NormalizeHudHeading(180.0f - yawRadians * RAD2DEG);
+}
+
+const char *HudHeadingDirection(float headingDegrees)
+{
+    static const char *directions[] = {
+        "N", "NE", "E", "SE", "S", "SW", "W", "NW"
+    };
+    float heading = NormalizeHudHeading(headingDegrees);
+    int octant = (int)floorf((heading + 22.5f) / 45.0f) % 8;
+    return directions[octant];
+}
+
+static int HudRoundedHeading(float headingDegrees)
+{
+    return (int)floorf(NormalizeHudHeading(headingDegrees) + 0.5f) % 360;
+}
+
+void HudFormatStatusLine(char *buffer, size_t bufferSize,
+                         Vector3 playerPosition, float yaw, float pitch,
+                         float dayTime)
+{
+    if (!buffer || bufferSize == 0u) return;
+    float heading = HudHeadingFromYaw(yaw);
+    int pitchDegrees = isfinite(pitch) ? (int)lroundf(pitch * RAD2DEG) : 0;
+    float normalizedTime = isfinite(dayTime) ? fmodf(dayTime, 1.0f) : 0.0f;
+    if (normalizedTime < 0.0f) normalizedTime += 1.0f;
+    int hour = (int)(normalizedTime * 24.0f) % 24;
+    snprintf(buffer, bufferSize,
+             "XYZ %d %d %d   %s %03d   P%+03d   %02d:00",
+             (int)floorf(playerPosition.x),
+             (int)floorf(playerPosition.y),
+             (int)floorf(playerPosition.z),
+             HudHeadingDirection(heading), HudRoundedHeading(heading),
+             pitchDegrees, hour);
 }
 
 static void DrawShipHudLamp(int x, int y, Color color, const char *label)
@@ -235,7 +276,7 @@ static void DrawShipHeadingTape(Rectangle tape, float heading, Color accent)
     DrawTriangle((Vector2){ centerX, tape.y + 3.0f },
                  (Vector2){ centerX - 5.0f, tape.y + 10.0f },
                  (Vector2){ centerX + 5.0f, tape.y + 10.0f }, accent);
-    const char *headingText = TextFormat("HDG %03.0f", NormalizeHudHeading(heading));
+    const char *headingText = TextFormat("HDG %03d", HudRoundedHeading(heading));
     int headingWidth = UiMeasureText(headingText, 15);
     UiDrawText(headingText, (int)(centerX - (float)headingWidth * 0.5f),
                (int)tape.y + 9, 15, accent);
@@ -632,6 +673,22 @@ void DrawHotbar(const BlockType *hotbar, int selectedIndex)
 
     UiDrawText(TextFormat("%s  x%d", BlockName(hotbar[selectedIndex]), InventoryCount(hotbar[selectedIndex])),
              x0, y - 24, 18, WHITE);
+}
+
+void DrawStatusHUD(Vector3 playerPosition, float yaw, float pitch,
+                   float dayTime, bool autoSaveEnabled)
+{
+    char status[128];
+    HudFormatStatusLine(status, sizeof(status), playerPosition, yaw, pitch,
+                        dayTime);
+    UiDrawText(status, 15, GetScreenHeight() - 32, 17, Fade(BLACK, 0.92f));
+    UiDrawText(status, 14, GetScreenHeight() - 34, 17, Fade(WHITE, 0.9f));
+    const char *saveText = TextFormat(
+        "Auto-save: %s", autoSaveEnabled ? "60s" : "off");
+    UiDrawText(saveText, 15, GetScreenHeight() - 14, 15,
+               Fade(BLACK, 0.92f));
+    UiDrawText(saveText, 14, GetScreenHeight() - 16, 15,
+               Fade(WHITE, 0.65f));
 }
 
 int HotbarKeyToIndex(void)

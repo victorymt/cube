@@ -54,6 +54,7 @@ void WorldTickImportMessage(float dt);
 void WorldBeginUndoGroup(void);
 void WorldEndUndoGroup(void);
 BlockType GetBlockAt(int x, int y, int z);
+bool SurfaceBlockReadyAt(int x, int y, int z);
 bool SetBlock(int x, int y, int z, BlockType type);
 bool SetBlockNoUndo(int x, int y, int z, BlockType type);
 bool SetBlockForImport(int x, int y, int z, BlockType type);

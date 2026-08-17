@@ -97,6 +97,50 @@ static bool PlayerCollisionBoundsAt(Vector3 position,
     return true;
 }
 
+static int PlayerChunkCoordinate(int blockCoordinate)
+{
+    if (blockCoordinate >= 0) return blockCoordinate / CHUNK_SIZE;
+    return -(((-blockCoordinate - 1) / CHUNK_SIZE) + 1);
+}
+
+int PlayerMissingSurfaceChunkCount(Vector3 position)
+{
+    PlayerCollisionBounds bounds;
+    if (!PlayerCollisionBoundsAt(position, &bounds)) return 0;
+    int surfaceY = INT_MIN;
+    for (int y = bounds.minY; y <= bounds.maxY; y++) {
+        if (WorldBlockRegionAt(y) == WORLD_BLOCK_REGION_SURFACE) {
+            surfaceY = y;
+            break;
+        }
+    }
+    if (surfaceY == INT_MIN) return 0;
+
+    int missingCx[4] = { 0 };
+    int missingCz[4] = { 0 };
+    int missingCount = 0;
+    for (int x = bounds.minX; x <= bounds.maxX; x++) {
+        for (int z = bounds.minZ; z <= bounds.maxZ; z++) {
+            if (SurfaceBlockReadyAt(x, surfaceY, z)) continue;
+            int cx = PlayerChunkCoordinate(x);
+            int cz = PlayerChunkCoordinate(z);
+            bool found = false;
+            for (int index = 0; index < missingCount; index++) {
+                if (missingCx[index] == cx && missingCz[index] == cz) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && missingCount < 4) {
+                missingCx[missingCount] = cx;
+                missingCz[missingCount] = cz;
+                missingCount++;
+            }
+        }
+    }
+    return missingCount;
+}
+
 static float PlayerGroundCeiling(Vector3 position)
 {
     PlayerCollisionBounds bounds;
@@ -159,11 +203,14 @@ bool PlayerOverlapsWorld(Vector3 position)
     for (int64_t x = bounds.minX; x <= bounds.maxX; x++) {
         for (int64_t y = bounds.minY; y <= bounds.maxY; y++) {
             for (int64_t z = bounds.minZ; z <= bounds.maxZ; z++) {
-                if (WorldBlockRegionAt((int)y) == WORLD_BLOCK_REGION_SPACE &&
-                    !SpaceBlockReadyAt((int)x, (int)y, (int)z)) {
-                    // Space is streamed asynchronously. A ship may continue
-                    // through an ungenerated chunk; treating it as a wall
-                    // makes cruise flight stop at the streaming frontier.
+                WorldBlockRegion region = WorldBlockRegionAt((int)y);
+                bool ready = region == WORLD_BLOCK_REGION_SURFACE
+                    ? SurfaceBlockReadyAt((int)x, (int)y, (int)z)
+                    : (region != WORLD_BLOCK_REGION_SPACE ||
+                       SpaceBlockReadyAt((int)x, (int)y, (int)z));
+                if (!ready) {
+                    // Streamed frontiers are temporary walls for a walking
+                    // player. Ships may continue while chunks catch up.
                     if (ShipIsDriving()) continue;
                     return true;
                 }
