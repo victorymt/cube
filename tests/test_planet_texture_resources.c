@@ -3,9 +3,10 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-#include "raylib.h"
+#include "presentation/render.h"
 
 #define PLANET_TEXTURE_WIDTH 8
 #define PLANET_TEXTURE_HEIGHT 4
@@ -19,8 +20,6 @@ static size_t unloadedTextureCount;
 static uint32_t testWorldSeed;
 static int rendererEnsureCalls;
 static int rendererShutdownCalls;
-
-#include "../src/presentation/render_planets.c"
 
 Texture2D LoadTextureFromImage(Image image)
 {
@@ -99,7 +98,7 @@ void PlanetRendererShutdown(void)
 
 static void ResetTextureMocks(void)
 {
-    planetTextures = (PlanetTextureResources){ 0 };
+    RenderPlanetsTestResetState();
     memset(textureResults, 0, sizeof(textureResults));
     textureResultCount = 0;
     textureResultIndex = 0;
@@ -166,8 +165,8 @@ static Color CanonicalTexturePixel(uint32_t bodyId)
         .biome = bodyId == 3u ? PLANET_BIOME_OCEAN
                               : PLANET_BIOME_CRATER_HIGHLANDS
     };
-    return StyledPlanetPixel(&profile, 0.82f, 0.18f, 0.54f,
-                             0.41f, 0.44f, 0x39217u, &surface);
+    return RenderPlanetsTestStyledPixel(&profile, 0.82f, 0.18f, 0.54f,
+                                        0.41f, 0.44f, 0x39217u, &surface);
 }
 
 static void TestCanonicalTexturesAreDistinct(void)
@@ -189,7 +188,8 @@ static void TestCanonicalTexturesAreDistinct(void)
     venus.style = SOLAR_STYLE_LAVA;
     venus.atmosphereType = PLANET_ATMOSPHERE_CORROSIVE;
     venus.cloudCoverage = 0.98f;
-    Color venusCloud = PlanetCloudPixel(&venus, 0.82f, 0.18f, 0.54f, 17u);
+    Color venusCloud = RenderPlanetsTestCloudPixel(&venus, 0.82f, 0.18f,
+                                                    0.54f, 17u);
     assert(venusCloud.a > 220);
     assert(venusCloud.r > venusCloud.g && venusCloud.g > venusCloud.b);
 }
@@ -203,11 +203,11 @@ static void TestCanonicalIdentityIsPartOfTextureCacheKey(void)
     body.profile.canonicalBodyId = 5u;
     const unsigned int ids[] = { 701, 702, 703, 704 };
     QueueTextures(ids, 4);
-    PlanetTextureSet jupiter = PlanetTextureForBody(&body);
+    PlanetTextureSet jupiter = RenderPlanetsTestTextureForBody(&body);
     assert(jupiter.albedo.id == 701 && jupiter.material.id == 702);
 
     body.profile.canonicalBodyId = 6u;
-    PlanetTextureSet saturn = PlanetTextureForBody(&body);
+    PlanetTextureSet saturn = RenderPlanetsTestTextureForBody(&body);
     assert(saturn.albedo.id == 703 && saturn.material.id == 704);
     assert(textureLoadCalls == 4);
 }
@@ -219,7 +219,7 @@ static void TestPartialSurfaceCreationRollsBack(void)
     const unsigned int ids[] = { 101, 0 };
     QueueTextures(ids, 2);
 
-    PlanetTextureSet textures = MakePlanetSurfaceTextures(&profile, 3);
+    PlanetTextureSet textures = RenderPlanetsTestMakeSurfaceTextures(&profile, 3);
     assert(textures.albedo.id == 0);
     assert(textures.material.id == 0);
     assert(unloadedTextureCount == 1);
@@ -228,19 +228,11 @@ static void TestPartialSurfaceCreationRollsBack(void)
 
 static void FillSurfaceCache(void)
 {
-    for (int i = 0; i < PLANET_TEXTURE_CACHE_CAPACITY; i++) {
-        planetTextures.planetTextures[i] = (PlanetTextureCacheEntry){
-            .valid = true,
-            .seed = (uint32_t)(100 + i),
-            .style = SOLAR_STYLE_LAVA,
-            .oceanKey = 77,
-            .seasonKey = 0,
-            .lastUse = (uint64_t)(i + 1),
-            .textures = {
-                .albedo = { .id = (unsigned int)(1000 + i) },
-                .material = { .id = (unsigned int)(2000 + i) }
-            }
-        };
+    for (int i = 0; i < RENDER_PLANETS_TEST_SURFACE_CACHE_CAPACITY; i++) {
+        RenderPlanetsTestSetSurfaceCacheEntry(i, true, (PlanetTextureSet){
+            .albedo = { .id = (unsigned int)(1000 + i) },
+            .material = { .id = (unsigned int)(2000 + i) }
+        });
     }
 }
 
@@ -252,16 +244,17 @@ static void TestSurfaceCacheKeepsOldEntryOnFailure(void)
     const unsigned int failed[] = { 0, 0 };
     QueueTextures(failed, 2);
 
-    PlanetTextureSet textures = PlanetTextureForBody(&body);
+    PlanetTextureSet textures = RenderPlanetsTestTextureForBody(&body);
     assert(textures.albedo.id == 0);
     assert(textures.material.id == 0);
-    assert(planetTextures.planetTextures[0].valid);
-    assert(planetTextures.planetTextures[0].textures.albedo.id == 1000);
+    PlanetTextureSet cached;
+    assert(RenderPlanetsTestGetSurfaceCacheEntry(0, &cached));
+    assert(cached.albedo.id == 1000);
     assert(unloadedTextureCount == 0);
 
     const unsigned int created[] = { 301, 302 };
     QueueTextures(created, 2);
-    textures = PlanetTextureForBody(&body);
+    textures = RenderPlanetsTestTextureForBody(&body);
     assert(textures.albedo.id == 301);
     assert(textures.material.id == 302);
     assert(unloadedTextureCount == 2);
@@ -271,14 +264,9 @@ static void TestSurfaceCacheKeepsOldEntryOnFailure(void)
 
 static void FillCloudCache(void)
 {
-    for (int i = 0; i < PLANET_CLOUD_CACHE_CAPACITY; i++) {
-        planetTextures.cloudTextures[i] = (PlanetCloudCacheEntry){
-            .valid = true,
-            .seed = (uint32_t)(100 + i),
-            .profileKey = (uint32_t)(200 + i),
-            .lastUse = (uint64_t)(i + 1),
-            .texture = { .id = (unsigned int)(3000 + i) }
-        };
+    for (int i = 0; i < RENDER_PLANETS_TEST_CLOUD_CACHE_CAPACITY; i++) {
+        RenderPlanetsTestSetCloudCacheEntry(
+            i, true, (Texture2D){ .id = (unsigned int)(3000 + i) });
     }
 }
 
@@ -290,15 +278,16 @@ static void TestCloudCacheKeepsOldEntryOnFailure(void)
     const unsigned int failed[] = { 0 };
     QueueTextures(failed, 1);
 
-    Texture2D texture = PlanetCloudTextureForBody(&body);
+    Texture2D texture = RenderPlanetsTestCloudTextureForBody(&body);
     assert(texture.id == 0);
-    assert(planetTextures.cloudTextures[0].valid);
-    assert(planetTextures.cloudTextures[0].texture.id == 3000);
+    Texture2D cached;
+    assert(RenderPlanetsTestGetCloudCacheEntry(0, &cached));
+    assert(cached.id == 3000);
     assert(unloadedTextureCount == 0);
 
     const unsigned int created[] = { 401 };
     QueueTextures(created, 1);
-    texture = PlanetCloudTextureForBody(&body);
+    texture = RenderPlanetsTestCloudTextureForBody(&body);
     assert(texture.id == 401);
     assert(unloadedTextureCount == 1);
     assert(unloadedTextureIds[0] == 3000);
@@ -310,20 +299,25 @@ static void TestHomeResourcesRetryIndependently(void)
     testWorldSeed = 7;
     const unsigned int first[] = { 501, 0, 502 };
     QueueTextures(first, 3);
-    EnsurePlanetRenderResources();
-    assert(!planetTextures.initialized);
-    assert(planetTextures.home.albedo.id == 0);
-    assert(planetTextures.homeClouds.id == 502);
-    assert(planetTextures.homeCloudSeed == 7);
+    RenderPlanetsTestEnsureResources();
+    PlanetTextureSet home;
+    Texture2D homeClouds;
+    uint32_t homeCloudSeed;
+    RenderPlanetsTestGetHomeResources(&home, &homeClouds, &homeCloudSeed);
+    assert(!RenderPlanetsTestInitialized());
+    assert(home.albedo.id == 0);
+    assert(homeClouds.id == 502);
+    assert(homeCloudSeed == 7);
     assert(rendererEnsureCalls == 1);
 
     const unsigned int second[] = { 503, 504 };
     QueueTextures(second, 2);
-    EnsurePlanetRenderResources();
-    assert(planetTextures.initialized);
-    assert(planetTextures.home.albedo.id == 503);
-    assert(planetTextures.home.material.id == 504);
-    assert(planetTextures.homeClouds.id == 502);
+    RenderPlanetsTestEnsureResources();
+    RenderPlanetsTestGetHomeResources(&home, &homeClouds, &homeCloudSeed);
+    assert(RenderPlanetsTestInitialized());
+    assert(home.albedo.id == 503);
+    assert(home.material.id == 504);
+    assert(homeClouds.id == 502);
     assert(textureLoadCalls == 5);
 
     UnloadPlanetRenderResources();
@@ -344,22 +338,28 @@ static void TestHomeCloudSeedReplacementIsAtomic(void)
     testWorldSeed = 11;
     const unsigned int initial[] = { 601, 602, 603 };
     QueueTextures(initial, 3);
-    EnsurePlanetRenderResources();
-    assert(planetTextures.homeClouds.id == 603);
+    RenderPlanetsTestEnsureResources();
+    PlanetTextureSet home;
+    Texture2D homeClouds;
+    uint32_t homeCloudSeed;
+    RenderPlanetsTestGetHomeResources(&home, &homeClouds, &homeCloudSeed);
+    assert(homeClouds.id == 603);
 
     testWorldSeed = 12;
     const unsigned int failed[] = { 0 };
     QueueTextures(failed, 1);
-    EnsurePlanetRenderResources();
-    assert(planetTextures.homeClouds.id == 603);
-    assert(planetTextures.homeCloudSeed == 11);
+    RenderPlanetsTestEnsureResources();
+    RenderPlanetsTestGetHomeResources(&home, &homeClouds, &homeCloudSeed);
+    assert(homeClouds.id == 603);
+    assert(homeCloudSeed == 11);
     assert(unloadedTextureCount == 0);
 
     const unsigned int replacement[] = { 604 };
     QueueTextures(replacement, 1);
-    EnsurePlanetRenderResources();
-    assert(planetTextures.homeClouds.id == 604);
-    assert(planetTextures.homeCloudSeed == 12);
+    RenderPlanetsTestEnsureResources();
+    RenderPlanetsTestGetHomeResources(&home, &homeClouds, &homeCloudSeed);
+    assert(homeClouds.id == 604);
+    assert(homeCloudSeed == 12);
     assert(unloadedTextureCount == 1);
     assert(unloadedTextureIds[0] == 603);
     UnloadPlanetRenderResources();

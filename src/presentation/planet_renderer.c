@@ -56,6 +56,60 @@ typedef struct PlanetRendererResources {
 
 static PlanetRendererResources renderer = { 0 };
 
+typedef struct PlanetRendererResourceBackend {
+    void (*uploadMesh)(Mesh *mesh, bool dynamic);
+    Model (*loadModelFromMesh)(Mesh mesh);
+    Shader (*loadShaderFromMemory)(const char *vsCode, const char *fsCode);
+    int (*getShaderLocation)(Shader shader, const char *uniformName);
+    void (*unloadModel)(Model model);
+    void (*unloadShader)(Shader shader);
+} PlanetRendererResourceBackend;
+
+static const PlanetRendererResourceBackend defaultResourceBackend = {
+    UploadMesh,
+    LoadModelFromMesh,
+    LoadShaderFromMemory,
+    GetShaderLocation,
+    UnloadModel,
+    UnloadShader
+};
+
+static PlanetRendererResourceBackend rendererBackend = {
+    UploadMesh,
+    LoadModelFromMesh,
+    LoadShaderFromMemory,
+    GetShaderLocation,
+    UnloadModel,
+    UnloadShader
+};
+
+#ifdef PLANET_RENDERER_TESTING
+void PlanetRendererTestSetBackend(const PlanetRendererTestBackend *backend)
+{
+    if (!backend) {
+        rendererBackend = defaultResourceBackend;
+        return;
+    }
+    rendererBackend.uploadMesh = backend->uploadMesh
+        ? backend->uploadMesh : defaultResourceBackend.uploadMesh;
+    rendererBackend.loadModelFromMesh = backend->loadModelFromMesh
+        ? backend->loadModelFromMesh : defaultResourceBackend.loadModelFromMesh;
+    rendererBackend.loadShaderFromMemory = backend->loadShaderFromMemory
+        ? backend->loadShaderFromMemory : defaultResourceBackend.loadShaderFromMemory;
+    rendererBackend.getShaderLocation = backend->getShaderLocation
+        ? backend->getShaderLocation : defaultResourceBackend.getShaderLocation;
+    rendererBackend.unloadModel = backend->unloadModel
+        ? backend->unloadModel : defaultResourceBackend.unloadModel;
+    rendererBackend.unloadShader = backend->unloadShader
+        ? backend->unloadShader : defaultResourceBackend.unloadShader;
+}
+
+bool PlanetRendererTestIsInitialized(void)
+{
+    return renderer.initialized;
+}
+#endif
+
 static const char *planetLightingVertexShader =
     "#version 330\n"
     "in vec3 vertexPosition;\n"
@@ -416,70 +470,71 @@ static Mesh MakePlanetSphereMesh(void)
             mesh.indices[index++] = bottomRight;
         }
     }
-    UploadMesh(&mesh, false);
+    rendererBackend.uploadMesh(&mesh, false);
     return mesh;
 }
 
 static void UnloadPlanetRendererResources(PlanetRendererResources *resources)
 {
     if (!resources) return;
-    if (resources->sphere.meshCount > 0) UnloadModel(resources->sphere);
-    if (resources->lightingShader.id != 0) UnloadShader(resources->lightingShader);
+    if (resources->sphere.meshCount > 0) rendererBackend.unloadModel(resources->sphere);
+    if (resources->lightingShader.id != 0) rendererBackend.unloadShader(resources->lightingShader);
     if (resources->atmosphereShader.id != 0) {
-        UnloadShader(resources->atmosphereShader);
+        rendererBackend.unloadShader(resources->atmosphereShader);
     }
     *resources = (PlanetRendererResources){ 0 };
 }
 
 void PlanetRendererEnsureResources(void)
 {
+    if (!rendererBackend.uploadMesh) rendererBackend = defaultResourceBackend;
     if (renderer.initialized) return;
     renderer.initialized = true;
 
     Mesh sphereMesh = MakePlanetSphereMesh();
-    if (sphereMesh.vertexCount > 0) renderer.sphere = LoadModelFromMesh(sphereMesh);
-    renderer.lightingShader = LoadShaderFromMemory(planetLightingVertexShader,
+    if (sphereMesh.vertexCount > 0) renderer.sphere = rendererBackend.loadModelFromMesh(sphereMesh);
+    renderer.lightingShader = rendererBackend.loadShaderFromMemory(planetLightingVertexShader,
                                                     planetLightingFragmentShader);
-    renderer.lightCountLoc = GetShaderLocation(renderer.lightingShader, "lightCount");
-    renderer.lightPositionLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.lightCountLoc = rendererBackend.getShaderLocation(renderer.lightingShader, "lightCount");
+    renderer.lightPositionLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                    "lightPosition[0]");
-    renderer.lightColorLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.lightColorLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                 "lightColor[0]");
-    renderer.lightIntensityLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.lightIntensityLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                     "lightIntensity[0]");
-    renderer.cameraPositionLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.cameraPositionLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                    "cameraPosition");
-    renderer.ambientLightLoc = GetShaderLocation(renderer.lightingShader, "ambientLight");
-    renderer.emissiveStrengthLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.ambientLightLoc = rendererBackend.getShaderLocation(renderer.lightingShader, "ambientLight");
+    renderer.emissiveStrengthLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                       "emissiveStrength");
-    renderer.exposureLoc = GetShaderLocation(renderer.lightingShader, "sceneExposure");
-    renderer.materialRoughnessLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.exposureLoc = rendererBackend.getShaderLocation(renderer.lightingShader, "sceneExposure");
+    renderer.materialRoughnessLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                        "materialRoughness");
-    renderer.materialSpecularLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.materialSpecularLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                       "materialSpecular");
-    renderer.materialMetallicLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.materialMetallicLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                       "materialMetallic");
-    renderer.materialModelLoc = GetShaderLocation(renderer.lightingShader, "materialModel");
-    renderer.materialMapLoc = GetShaderLocation(renderer.lightingShader, "materialMap");
-    renderer.materialMapEnabledLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.materialModelLoc = rendererBackend.getShaderLocation(renderer.lightingShader, "materialModel");
+    renderer.materialMapLoc = rendererBackend.getShaderLocation(renderer.lightingShader, "materialMap");
+    renderer.materialMapEnabledLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                         "materialMapEnabled");
-    renderer.cloudShadowMapLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.cloudShadowMapLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                     "cloudShadowMap");
-    renderer.cloudShadowEnabledLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.cloudShadowEnabledLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                         "cloudShadowEnabled");
-    renderer.cloudShadowRotationLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.cloudShadowRotationLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                          "cloudShadowRotation");
-    renderer.cloudShadowStrengthLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.cloudShadowStrengthLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                          "cloudShadowStrength");
-    renderer.ringShadowEnabledLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.ringShadowEnabledLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                        "ringShadowEnabled");
-    renderer.ringShadowCenterLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.ringShadowCenterLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                       "ringShadowCenter");
-    renderer.ringShadowNormalLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.ringShadowNormalLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                       "ringShadowNormal");
-    renderer.ringShadowRadiiLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.ringShadowRadiiLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                      "ringShadowRadii");
-    renderer.ringShadowParamsLoc = GetShaderLocation(renderer.lightingShader,
+    renderer.ringShadowParamsLoc = rendererBackend.getShaderLocation(renderer.lightingShader,
                                                       "ringShadowParams");
     renderer.lightingReady = renderer.lightingShader.id != 0 &&
                              renderer.lightCountLoc >= 0 &&
@@ -509,29 +564,29 @@ void PlanetRendererEnsureResources(void)
         renderer.sphere.materials[0].shader = renderer.lightingShader;
     }
 
-    renderer.atmosphereShader = LoadShaderFromMemory(planetAtmosphereVertexShader,
+    renderer.atmosphereShader = rendererBackend.loadShaderFromMemory(planetAtmosphereVertexShader,
                                                       planetAtmosphereFragmentShader);
-    renderer.atmosphereLightCountLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereLightCountLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                           "lightCount");
-    renderer.atmosphereLightPositionLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereLightPositionLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                              "lightPosition[0]");
-    renderer.atmosphereLightColorLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereLightColorLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                           "lightColor[0]");
-    renderer.atmosphereLightIntensityLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereLightIntensityLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                               "lightIntensity[0]");
-    renderer.atmosphereCameraPositionLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereCameraPositionLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                               "cameraPosition");
-    renderer.atmosphereRayleighColorLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereRayleighColorLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                              "rayleighColor");
-    renderer.atmosphereHorizonColorLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereHorizonColorLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                             "horizonColor");
-    renderer.atmosphereOpticalDepthLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereOpticalDepthLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                             "opticalDepth");
-    renderer.atmosphereMieStrengthLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereMieStrengthLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                            "mieStrength");
-    renderer.atmosphereAlphaLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereAlphaLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                      "atmosphereAlpha");
-    renderer.atmosphereExposureLoc = GetShaderLocation(renderer.atmosphereShader,
+    renderer.atmosphereExposureLoc = rendererBackend.getShaderLocation(renderer.atmosphereShader,
                                                         "sceneExposure");
     renderer.atmosphereReady = renderer.atmosphereShader.id != 0 &&
                                renderer.atmosphereLightCountLoc >= 0 &&

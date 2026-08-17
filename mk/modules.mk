@@ -17,6 +17,7 @@ SPACE_FEATURE_SRC := \
 
 CHUNKS_FEATURE_SRC := \
 	src/world/chunks.c \
+	src/world/chunks_test_api.c \
 	src/world/chunks_storage.c \
 	src/world/chunks_streaming.c \
 	src/world/chunks_ecology.c \

@@ -3,7 +3,6 @@
 #define chunks (ChunksMutableForTesting())
 #include "ecology_test_fixture.h"
 #include "ecology/ecology.h"
-#include "ecology/ecology_internal.h"
 #include "space/space.h"
 #include "space/space_system_physics.h"
 #include "world/terrain.h"
@@ -888,12 +887,12 @@ static void TestEcologyFaunaHarvestFeedback(void)
     PlanetLocalEcology neighbor = PlanetEcologyLocalAt(
         sampleX + 64, sampleZ, 0.72f);
     assert(neighbor.population.faunaHarvestPressure == 0.0f);
-    uint32_t epoch = EcologyPopulationEpoch();
+    uint32_t epoch = PlanetEcologyTestPopulationEpoch();
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     assert(PlanetEcologyRecordFaunaHarvest(
         sampleX, sampleZ, 0.72f, profile.organismScale,
         baseline.suitability.faunaCapacity));
-    assert(EcologyPopulationEpoch() != epoch);
+    assert(PlanetEcologyTestPopulationEpoch() != epoch);
 
     PlanetLocalEcology harvested = PlanetEcologyLocalAt(
         sampleX, sampleZ, 0.72f);

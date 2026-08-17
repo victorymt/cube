@@ -14,15 +14,15 @@ static int failModelLoads;
 static int failShaderLoadCall;
 static Mesh storedMesh;
 
-#include "../src/presentation/planet_renderer.c"
+#include "presentation/planet_renderer.h"
 
-void UploadMesh(Mesh *mesh, bool dynamic)
+static void MockUploadMesh(Mesh *mesh, bool dynamic)
 {
     (void)mesh;
     (void)dynamic;
 }
 
-Model LoadModelFromMesh(Mesh mesh)
+static Model MockLoadModelFromMesh(Mesh mesh)
 {
     modelLoadCalls++;
     if (failModelLoads > 0) {
@@ -44,7 +44,7 @@ Model LoadModelFromMesh(Mesh mesh)
     };
 }
 
-Shader LoadShaderFromMemory(const char *vsCode, const char *fsCode)
+static Shader MockLoadShaderFromMemory(const char *vsCode, const char *fsCode)
 {
     (void)vsCode;
     (void)fsCode;
@@ -53,13 +53,13 @@ Shader LoadShaderFromMemory(const char *vsCode, const char *fsCode)
     return (Shader){ .id = (unsigned int)shaderLoadCalls };
 }
 
-int GetShaderLocation(Shader shader, const char *uniformName)
+static int MockGetShaderLocation(Shader shader, const char *uniformName)
 {
     (void)uniformName;
     return shader.id == 0 ? -1 : 0;
 }
 
-void UnloadModel(Model model)
+static void MockUnloadModel(Model model)
 {
     modelUnloadCalls++;
     if (model.meshes == &storedMesh) {
@@ -71,13 +71,23 @@ void UnloadModel(Model model)
     }
 }
 
-void UnloadShader(Shader shader)
+static void MockUnloadShader(Shader shader)
 {
     if (shader.id != 0) shaderUnloadCalls++;
 }
 
+static const PlanetRendererTestBackend testBackend = {
+    .uploadMesh = MockUploadMesh,
+    .loadModelFromMesh = MockLoadModelFromMesh,
+    .loadShaderFromMemory = MockLoadShaderFromMemory,
+    .getShaderLocation = MockGetShaderLocation,
+    .unloadModel = MockUnloadModel,
+    .unloadShader = MockUnloadShader
+};
+
 static void ResetRendererMocks(void)
 {
+    PlanetRendererTestSetBackend(&testBackend);
     PlanetRendererShutdown();
     modelLoadCalls = 0;
     modelUnloadCalls = 0;
@@ -93,14 +103,14 @@ static void TestModelFailureRollsBackAndRetries(void)
     failModelLoads = 1;
 
     PlanetRendererEnsureResources();
-    assert(!renderer.initialized);
+    assert(!PlanetRendererTestIsInitialized());
     assert(modelLoadCalls == 1);
     assert(shaderLoadCalls == 2);
     assert(modelUnloadCalls == 0);
     assert(shaderUnloadCalls == 2);
 
     PlanetRendererEnsureResources();
-    assert(renderer.initialized);
+    assert(PlanetRendererTestIsInitialized());
     assert(modelLoadCalls == 2);
     assert(shaderLoadCalls == 4);
     PlanetRendererEnsureResources();
@@ -121,13 +131,13 @@ static void TestShaderFailureRollsBackAndRetries(void)
     failShaderLoadCall = 2;
 
     PlanetRendererEnsureResources();
-    assert(!renderer.initialized);
+    assert(!PlanetRendererTestIsInitialized());
     assert(modelLoadCalls == 1);
     assert(modelUnloadCalls == 1);
     assert(shaderUnloadCalls == 1);
 
     PlanetRendererEnsureResources();
-    assert(renderer.initialized);
+    assert(PlanetRendererTestIsInitialized());
     assert(modelLoadCalls == 2);
     assert(shaderLoadCalls == 4);
     PlanetRendererShutdown();

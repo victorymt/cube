@@ -885,6 +885,48 @@ void UnloadPlanetRenderResources(void)
     planetTextures = (PlanetTextureResources){ 0 };
 }
 
+#ifdef RENDER_PLANETS_TESTING
+void RenderPlanetsTestResetState(void) { planetTextures = (PlanetTextureResources){ 0 }; }
+bool RenderPlanetsTestInitialized(void) { return planetTextures.initialized; }
+Color RenderPlanetsTestStyledPixel(const PlanetProfile *p, float nx, float ny, float nz, float u, float v, uint32_t seed, const PlanetSurfaceSample *s) { return StyledPlanetPixel(p, nx, ny, nz, u, v, seed, s); }
+Color RenderPlanetsTestCloudPixel(const PlanetProfile *p, float nx, float ny, float nz, uint32_t seed) { return PlanetCloudPixel(p, nx, ny, nz, seed); }
+PlanetTextureSet RenderPlanetsTestMakeSurfaceTextures(const PlanetProfile *p, uint32_t seed) { return MakePlanetSurfaceTextures(p, seed); }
+PlanetTextureSet RenderPlanetsTestTextureForBody(const SpaceBodyInfo *body)
+{ return PlanetTextureForBody(body); }
+Texture2D RenderPlanetsTestCloudTextureForBody(const SpaceBodyInfo *body)
+{ return PlanetCloudTextureForBody(body); }
+void RenderPlanetsTestEnsureResources(void) { EnsurePlanetRenderResources(); }
+void RenderPlanetsTestGetHomeResources(PlanetTextureSet *home, Texture2D *clouds,
+                                       uint32_t *seed)
+{
+    if (home) *home = planetTextures.home;
+    if (clouds) *clouds = planetTextures.homeClouds;
+    if (seed) *seed = planetTextures.homeCloudSeed;
+}
+void RenderPlanetsTestSetSurfaceCacheEntry(int i, bool valid, PlanetTextureSet t)
+{
+    if (i >= 0 && i < PLANET_TEXTURE_CACHE_CAPACITY)
+        planetTextures.planetTextures[i] = (PlanetTextureCacheEntry){ valid, 0, 0, 0, 0, 0, 0, t };
+}
+bool RenderPlanetsTestGetSurfaceCacheEntry(int i, PlanetTextureSet *t)
+{
+    if (i < 0 || i >= PLANET_TEXTURE_CACHE_CAPACITY) return false;
+    if (t) *t = planetTextures.planetTextures[i].textures;
+    return planetTextures.planetTextures[i].valid;
+}
+void RenderPlanetsTestSetCloudCacheEntry(int i, bool valid, Texture2D t)
+{
+    if (i >= 0 && i < PLANET_CLOUD_CACHE_CAPACITY)
+        planetTextures.cloudTextures[i] = (PlanetCloudCacheEntry){ valid, 0, 0, 0, t };
+}
+bool RenderPlanetsTestGetCloudCacheEntry(int i, Texture2D *t)
+{
+    if (i < 0 || i >= PLANET_CLOUD_CACHE_CAPACITY) return false;
+    if (t) *t = planetTextures.cloudTextures[i].texture;
+    return planetTextures.cloudTextures[i].valid;
+}
+#endif
+
 bool PlanetRenderSurfaceVisual(bool planetSurface,
                                PlanetTextureSet *outTextures,
                                Color *outFallback)

@@ -194,6 +194,13 @@ bool PlanetEcologyRecordEvolutionEvent(
         EcologyClamp(daylight), &profile, lineageId, event, biomass);
 }
 
+#ifdef ECOLOGY_TESTING
+uint32_t PlanetEcologyTestPopulationEpoch(void)
+{
+    return EcologyPopulationEpoch();
+}
+#endif
+
 PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
 {
     PlanetLocalEcology local = { 0 };

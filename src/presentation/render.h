@@ -102,6 +102,36 @@ bool PlanetRenderSurfaceVisual(bool planetSurface,
                                PlanetTextureSet *outTextures,
                                Color *outFallback);
 void UnloadPlanetRenderResources(void);
+
+#ifdef RENDER_PLANETS_TESTING
+#define RENDER_PLANETS_TEST_SURFACE_CACHE_CAPACITY 24
+#define RENDER_PLANETS_TEST_CLOUD_CACHE_CAPACITY 24
+
+void RenderPlanetsTestResetState(void);
+bool RenderPlanetsTestInitialized(void);
+Color RenderPlanetsTestStyledPixel(const PlanetProfile *profile,
+                                   float nx, float ny, float nz,
+                                   float u, float v, uint32_t seed,
+                                   const PlanetSurfaceSample *surface);
+Color RenderPlanetsTestCloudPixel(const PlanetProfile *profile,
+                                  float nx, float ny, float nz,
+                                  uint32_t seed);
+PlanetTextureSet RenderPlanetsTestMakeSurfaceTextures(
+    const PlanetProfile *profile, uint32_t seed);
+PlanetTextureSet RenderPlanetsTestTextureForBody(const SpaceBodyInfo *body);
+Texture2D RenderPlanetsTestCloudTextureForBody(const SpaceBodyInfo *body);
+void RenderPlanetsTestEnsureResources(void);
+void RenderPlanetsTestGetHomeResources(PlanetTextureSet *home,
+                                       Texture2D *clouds,
+                                       uint32_t *cloudSeed);
+void RenderPlanetsTestSetSurfaceCacheEntry(int index, bool valid,
+                                           PlanetTextureSet textures);
+bool RenderPlanetsTestGetSurfaceCacheEntry(int index,
+                                           PlanetTextureSet *textures);
+void RenderPlanetsTestSetCloudCacheEntry(int index, bool valid,
+                                         Texture2D texture);
+bool RenderPlanetsTestGetCloudCacheEntry(int index, Texture2D *texture);
+#endif
 void DrawBodyInfoPanel(const SpaceBodyInfo *body);
 void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
                 const WeatherVisualState *weatherVisual,

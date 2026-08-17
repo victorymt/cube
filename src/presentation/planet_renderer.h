@@ -72,4 +72,18 @@ void PlanetRendererShutdown(void);
 void PlanetRendererDrawSurface(const PlanetSurfaceDrawParams *params);
 void PlanetRendererDrawAtmosphere(const PlanetAtmosphereDrawParams *params);
 
+#ifdef PLANET_RENDERER_TESTING
+typedef struct PlanetRendererTestBackend {
+    void (*uploadMesh)(Mesh *mesh, bool dynamic);
+    Model (*loadModelFromMesh)(Mesh mesh);
+    Shader (*loadShaderFromMemory)(const char *vsCode, const char *fsCode);
+    int (*getShaderLocation)(Shader shader, const char *uniformName);
+    void (*unloadModel)(Model model);
+    void (*unloadShader)(Shader shader);
+} PlanetRendererTestBackend;
+
+void PlanetRendererTestSetBackend(const PlanetRendererTestBackend *backend);
+bool PlanetRendererTestIsInitialized(void);
+#endif
+
 #endif

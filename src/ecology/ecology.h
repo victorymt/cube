@@ -144,6 +144,10 @@ bool PlanetEcologySampleGenome(int x, int z, float daylight,
 bool PlanetEcologyRecordEvolutionEvent(
     int x, int z, float daylight, uint32_t lineageId,
     PlanetEvolutionEvent event, float biomass);
+
+#ifdef ECOLOGY_TESTING
+uint32_t PlanetEcologyTestPopulationEpoch(void);
+#endif
 /*
  * Local queries and population save/load/reset serialize their shared
  * population cache internally. The active PlanetWorld must remain unchanged

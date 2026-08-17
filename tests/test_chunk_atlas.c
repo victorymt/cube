@@ -1,5 +1,4 @@
 #include "world/chunks.h"
-#include "world/chunks_internal.h"
 
 #define chunks (ChunksMutableForTesting())
 #include "world/terrain.h"
@@ -765,7 +764,7 @@ static void AssertFloraStructureInstancePartition(void)
     AssertMeshWellFormed(&rawTransparent, 96);
     FreeTestMesh(&rawTransparent);
     Mesh waterWithoutFlora = { 0 };
-    assert(!BuildChunkSurfaceWaterMeshDataWithSnapshot(
+    assert(!ChunksTestBuildSurfaceWaterMeshDataWithSnapshot(
         section->blocks, NULL, 0, 0, 0,
         chunk.floraStructures, chunk.floraStructureCount,
         faces, NULL, 0, NULL, &waterWithoutFlora));
@@ -784,7 +783,7 @@ static void AssertSolidSnapshotDoesNotReadLiveChunks(void)
                          [CHUNK_SIZE] = { 0 };
     blocks[CHUNK_SIZE - 1][8][8] = BLOCK_STONE;
 
-    SurfaceBoundarySnapshot boundary = { 0 };
+    ChunkTestBoundarySnapshot boundary = { 0 };
     boundary.blocks[CHUNK_SIZE + 1][8 + 1][8 + 1] = BLOCK_STONE;
     boundary.blocks[0][8 + 1][8 + 1] = BLOCK_WATER;
     boundary.volumes[0][8 + 1][8 + 1] = WATER_VOLUME_CAPACITY;
@@ -792,14 +791,14 @@ static void AssertSolidSnapshotDoesNotReadLiveChunks(void)
 
     BlockType boundaryBlock = BLOCK_AIR;
     unsigned char boundaryVolume = 0u;
-    assert(SurfaceBoundaryCellAt(
+    assert(ChunksTestSurfaceBoundaryCellAt(
         &boundary, -1, 8, 8, &boundaryBlock, &boundaryVolume));
     assert(boundaryBlock == BLOCK_WATER);
     assert(boundaryVolume == WATER_VOLUME_CAPACITY);
 
     terrainBaseBlockLookups = 0;
     Mesh mesh = { 0 };
-    assert(BuildMeshDataFilteredWithSnapshot(
+    assert(ChunksTestBuildMeshDataFilteredWithSnapshot(
         (const unsigned short (*)[CHUNK_SIZE])blocks,
         SURFACE_SECTION_HEIGHT, 0, 0, 0,
         false, false, false, false, TEST_CHUNK_FACES,

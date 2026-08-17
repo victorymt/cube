@@ -173,6 +173,35 @@ void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
                                  int sectionY, bool done);
 int ChunksTestNextGenerationJobIndex(void);
 int ChunksTestNextMeshJobIndex(void);
+
+typedef struct ChunkTestBoundarySnapshot {
+    unsigned short blocks[CHUNK_SIZE + 2]
+                         [SURFACE_SECTION_HEIGHT + 2]
+                         [CHUNK_SIZE + 2];
+    unsigned char volumes[CHUNK_SIZE + 2]
+                         [SURFACE_SECTION_HEIGHT + 2]
+                         [CHUNK_SIZE + 2];
+    unsigned char known[CHUNK_SIZE + 2]
+                       [SURFACE_SECTION_HEIGHT + 2]
+                       [CHUNK_SIZE + 2];
+} ChunkTestBoundarySnapshot;
+
+bool ChunksTestBuildSurfaceWaterMeshDataWithSnapshot(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const int *nearbyTorchIndices,
+    int nearbyTorchCount, const ChunkTestBoundarySnapshot *boundary,
+    Mesh *outMesh);
+bool ChunksTestBuildMeshDataFilteredWithSnapshot(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, bool transparent, bool includePlants,
+    bool plantsOnly, bool excludeWater, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount,
+    const ChunkTestBoundarySnapshot *boundary, Mesh *outMesh);
+bool ChunksTestSurfaceBoundaryCellAt(
+    const ChunkTestBoundarySnapshot *boundary, int lx, int y, int lz,
+    BlockType *outBlock, unsigned char *outVolume);
 #endif
 
 #endif
