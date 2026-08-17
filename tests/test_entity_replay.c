@@ -274,20 +274,6 @@ float BlockCollisionHeight(BlockType type)
         ? 0.0f : 1.0f;
 }
 
-void ParticlesEmitBurst(Vector3 position, Color color, int count,
-                        float speed, float life)
-{
-    (void)position;
-    (void)color;
-    (void)count;
-    (void)speed;
-    (void)life;
-}
-
-void AudioPlayBreak(void)
-{
-}
-
 static unsigned char *CaptureState(size_t *size)
 {
     FILE *file = tmpfile();

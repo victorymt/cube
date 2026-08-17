@@ -1,9 +1,8 @@
 #include "ecology/entity_internal.h"
 
+#include "core/game_effects.h"
 #include "ecology/ecology.h"
 #include "ecology/fauna_motion.h"
-#include "presentation/audio.h"
-#include "presentation/particles.h"
 #include "space/space.h"
 #include "world/fluid.h"
 #include "world/terrain.h"
@@ -1334,10 +1333,14 @@ static void UpdateHostile(Entity *entity, const Player *player, float dt, float 
                                   (int)floorf(entity->position.z)))) {
         entity->burnTimer -= dt;
         if ((int)(entity->burnTimer * 5.0f) != (int)((entity->burnTimer + dt) * 5.0f)) {
-            ParticlesEmitBurst(entity->position, (Color){ 255, 140, 40, 255 }, 4, 1.5f, 0.5f);
+            GameEffectsEmitParticleBurst(
+                entity->position, (Color){ 255, 140, 40, 255 },
+                4, 1.5f, 0.5f);
         }
         if (entity->burnTimer <= 0.0f) {
-            ParticlesEmitBurst(entity->position, (Color){ 255, 170, 60, 255 }, 14, 2.5f, 0.6f);
+            GameEffectsEmitParticleBurst(
+                entity->position, (Color){ 255, 170, 60, 255 },
+                14, 2.5f, 0.6f);
             entity->active = false;
             return;
         }

@@ -1,7 +1,7 @@
 #include "gameplay/ship_ground_effects.h"
 
+#include "core/game_effects.h"
 #include "gameplay/ship_exhaust.h"
-#include "presentation/particles.h"
 #include "raymath.h"
 #include "world/block_atlas.h"
 #include "world/world.h"
@@ -106,15 +106,16 @@ void ShipGroundEffectsEmit(const Player *player, float dt,
         float endSize = startSize * (ground.liquid ? 2.2f : 3.6f);
         Color endColor = startColor;
         endColor.a = 0;
-        ParticleStyle style = {
+        GameParticleStyle style = {
             .startSize = { startSize, startSize, startSize },
             .endSize = { endSize, endSize * 0.72f, endSize },
             .startColor = startColor,
             .endColor = endColor,
             .gravity = ground.liquid ? 1.5f : 2.4f
         };
-        ParticlesEmitStyled(position, velocity, &style,
-                            (ground.liquid ? 0.48f : 0.62f) +
-                                GroundEffectRandom() * 0.28f);
+        GameEffectsEmitParticleStyled(
+            position, velocity, &style,
+            (ground.liquid ? 0.48f : 0.62f) +
+                GroundEffectRandom() * 0.28f);
     }
 }

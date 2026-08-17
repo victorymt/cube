@@ -1,5 +1,4 @@
-#include "presentation/audio.h"
-#include "presentation/particles.h"
+#include "core/game_effects.h"
 #include "space/space.h"
 #include "world/terrain.h"
 #include "world/weather.h"
@@ -26,24 +25,40 @@ static bool homeWorldSurfaceActive = true;
 static PlanetAtmosphereType planetAtmosphereType = PLANET_ATMOSPHERE_BREATHABLE;
 static float planetAtmosphereDensity = 0.62f;
 
-void AudioSetRain(bool enabled)
+static void CaptureGameEffects(void)
 {
-    audioChanges++;
-    rainAudioEnabled = enabled;
+    GameEffect effect;
+    while (GameEffectsPoll(&effect)) {
+        if (effect.type == GAME_EFFECT_AUDIO) {
+            assert(effect.data.audio.cue == GAME_AUDIO_SET_RAIN);
+            audioChanges++;
+            rainAudioEnabled = effect.data.audio.enabled;
+            continue;
+        }
+        assert(effect.type == GAME_EFFECT_PARTICLE_ONE);
+        assert(isfinite(effect.data.particleOne.position.x));
+        assert(isfinite(effect.data.particleOne.position.y));
+        assert(isfinite(effect.data.particleOne.position.z));
+        particleEmissions++;
+    }
 }
 
-void ParticlesEmitOne(Vector3 position, Vector3 velocity, Color color,
-                      Vector3 size, float life, float gravity)
+static void TestWeatherInit(void)
 {
-    (void)velocity;
-    (void)color;
-    (void)size;
-    (void)life;
-    (void)gravity;
-    assert(isfinite(position.x));
-    assert(isfinite(position.y));
-    assert(isfinite(position.z));
-    particleEmissions++;
+    WeatherInit();
+    CaptureGameEffects();
+}
+
+static void TestWeatherCycle(void)
+{
+    WeatherCycle();
+    CaptureGameEffects();
+}
+
+static void TestWeatherUpdate(float dt, Vector3 position)
+{
+    WeatherUpdate(dt, position);
+    CaptureGameEffects();
 }
 
 double SpaceSimulationTime(void)
@@ -186,7 +201,8 @@ static void ResetRuntime(void)
     homeWorldSurfaceActive = true;
     planetAtmosphereType = PLANET_ATMOSPHERE_BREATHABLE;
     planetAtmosphereDensity = 0.62f;
-    WeatherInit();
+    GameEffectsReset();
+    TestWeatherInit();
     audioChanges = 0;
 }
 
@@ -195,7 +211,7 @@ static void TestPlanetLightFeedbackChangesWeather(void)
     ResetRuntime();
     planetWorldActive = true;
     lightDaylight = 1.0f;
-    WeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    TestWeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
     float sunlitPrecipitation = WeatherPrecipitationRate();
     float sunlitClouds = WeatherCloudCover();
 
@@ -203,7 +219,7 @@ static void TestPlanetLightFeedbackChangesWeather(void)
     planetWorldActive = true;
     lightDaylight = 0.0f;
     lightEclipse = 1.0f;
-    WeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    TestWeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
     float eclipsedPrecipitation = WeatherPrecipitationRate();
     float eclipsedClouds = WeatherCloudCover();
 
@@ -221,13 +237,13 @@ static void TestInvalidDeltaTimeIsIgnored(void)
     for (unsigned index = 0;
          index < sizeof(invalidDeltas) / sizeof(invalidDeltas[0]); index++) {
         ResetRuntime();
-        WeatherCycle();
+        TestWeatherCycle();
         Weather weatherBefore = WeatherGetCurrent();
         float precipitationBefore = WeatherPrecipitationRate();
         int audioBefore = audioChanges;
         particleEmissions = 0;
 
-        WeatherUpdate(invalidDeltas[index], (Vector3){ 4.0f, 20.0f, -8.0f });
+        TestWeatherUpdate(invalidDeltas[index], (Vector3){ 4.0f, 20.0f, -8.0f });
 
         assert(WeatherGetCurrent() == weatherBefore);
         assert(WeatherPrecipitationRate() == precipitationBefore);
@@ -240,22 +256,22 @@ static void TestInvalidDeltaTimeIsIgnored(void)
 static void TestHugeDeltaTimeHasBoundedEmission(void)
 {
     ResetRuntime();
-    WeatherCycle();
+    TestWeatherCycle();
     particleEmissions = 0;
 
-    WeatherUpdate(1000000.0f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    TestWeatherUpdate(1000000.0f, (Vector3){ 4.0f, 20.0f, -8.0f });
     assert(particleEmissions > 0);
     assert(particleEmissions <= 24);
 
     particleEmissions = 0;
-    WeatherUpdate(1.0f / 60.0f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    TestWeatherUpdate(1.0f / 60.0f, (Vector3){ 4.0f, 20.0f, -8.0f });
     assert(particleEmissions <= 2);
 }
 
 static void TestLongRunStaysFiniteAndBounded(void)
 {
     ResetRuntime();
-    WeatherCycle();
+    TestWeatherCycle();
 
     for (int frame = 0; frame < 20000; frame++) {
         particleEmissions = 0;
@@ -264,7 +280,7 @@ static void TestLongRunStaysFiniteAndBounded(void)
             20.0f + (float)(frame % 5),
             (float)((frame * 31) % 257) - 128.0f
         };
-        WeatherUpdate(1.0f / 60.0f, position);
+        TestWeatherUpdate(1.0f / 60.0f, position);
         assert(particleEmissions <= 2);
         assert(isfinite(WeatherSkyFactor()));
         assert(isfinite(WeatherCloudCover()));
@@ -282,7 +298,7 @@ static void TestLongRunStaysFiniteAndBounded(void)
 
         if ((frame % 997) == 0) {
             particleEmissions = 0;
-            WeatherUpdate(0.25f, (Vector3){ NAN, 20.0f, 0.0f });
+            TestWeatherUpdate(0.25f, (Vector3){ NAN, 20.0f, 0.0f });
             assert(particleEmissions == 0);
             assert(isfinite(WeatherPrecipitationRate()));
             assert(WeatherPrecipitationRate() >= 0.0f &&
@@ -304,7 +320,7 @@ static void TestInvalidPositionsAvoidSamplingAndEmission(void)
          index < sizeof(invalidPositions) / sizeof(invalidPositions[0]);
          index++) {
         ResetRuntime();
-        WeatherUpdate(0.25f, invalidPositions[index]);
+        TestWeatherUpdate(0.25f, invalidPositions[index]);
         assert(WeatherGetCurrent() == WEATHER_CLEAR);
         assert(WeatherPrecipitationRate() == 0.0f);
         assert(particleEmissions == 0);
@@ -313,11 +329,11 @@ static void TestInvalidPositionsAvoidSamplingAndEmission(void)
     }
 
     ResetRuntime();
-    WeatherCycle();
+    TestWeatherCycle();
     particleEmissions = 0;
-    WeatherUpdate(0.25f, (Vector3){ 1.0f, NAN, 2.0f });
+    TestWeatherUpdate(0.25f, (Vector3){ 1.0f, NAN, 2.0f });
     assert(particleEmissions == 0);
-    WeatherUpdate(1.0f / 60.0f, (Vector3){ 1.0f, 20.0f, 2.0f });
+    TestWeatherUpdate(1.0f / 60.0f, (Vector3){ 1.0f, 20.0f, 2.0f });
     assert(particleEmissions <= 2);
 }
 
@@ -325,7 +341,7 @@ static void TestInvalidSimulationTimeReturnsClearWeather(void)
 {
     ResetRuntime();
     simulationTime = NAN;
-    WeatherUpdate(0.25f, (Vector3){ 1.0f, 20.0f, 2.0f });
+    TestWeatherUpdate(0.25f, (Vector3){ 1.0f, 20.0f, 2.0f });
     assert(WeatherGetCurrent() == WEATHER_CLEAR);
     assert(WeatherPrecipitationRate() == 0.0f);
     assert(particleEmissions == 0);
@@ -409,16 +425,16 @@ static void TestVisualStateSafeFallbacks(void)
 static void TestNormalRainAndSnowStillEmit(void)
 {
     ResetRuntime();
-    WeatherCycle();
+    TestWeatherCycle();
     particleEmissions = 0;
-    WeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    TestWeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
     assert(WeatherGetCurrent() == WEATHER_RAIN);
     assert(rainAudioEnabled);
     assert(particleEmissions > 0);
 
-    WeatherCycle();
+    TestWeatherCycle();
     particleEmissions = 0;
-    WeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    TestWeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
     assert(WeatherGetCurrent() == WEATHER_SNOW);
     assert(!rainAudioEnabled);
     assert(particleEmissions > 0);
@@ -427,15 +443,15 @@ static void TestNormalRainAndSnowStillEmit(void)
 static void TestInitRestoresCleanState(void)
 {
     ResetRuntime();
-    WeatherCycle();
-    WeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    TestWeatherCycle();
+    TestWeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
     particleEmissions = 0;
 
-    WeatherInit();
+    TestWeatherInit();
     assert(WeatherGetCurrent() == WEATHER_CLEAR);
     assert(WeatherPrecipitationRate() == 0.0f);
     assert(!rainAudioEnabled);
-    WeatherUpdate(1.0f / 60.0f, (Vector3){ 4.0f, 20.0f, -8.0f });
+    TestWeatherUpdate(1.0f / 60.0f, (Vector3){ 4.0f, 20.0f, -8.0f });
     assert(particleEmissions == 0);
 }
 

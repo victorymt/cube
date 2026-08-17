@@ -67,20 +67,6 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDirection,
     (void)gravityScale;
     return false;
 }
-void AudioPlaySplash(void) { }
-void AudioPlayStep(void) { }
-void AudioPlayWaterStep(void) { }
-void ParticlesEmitOne(Vector3 position, Vector3 velocity, Color color,
-                      Vector3 size, float life, float gravity)
-{
-    (void)position;
-    (void)velocity;
-    (void)color;
-    (void)size;
-    (void)life;
-    (void)gravity;
-}
-
 float BlockCollisionHeightAt(int x, int y, int z)
 {
     BlockType block = GetBlockAt(x, y, z);

@@ -9,6 +9,7 @@
 #include "app/game_internal.h"
 #include "app/game_landing.h"
 #include "app/game_runtime.h"
+#include "core/game_effects.h"
 #include "world/world_types.h"
 #include "world/terrain.h"
 #include "world/world.h"
@@ -43,6 +44,7 @@
 #include "world/world_lighting.h"
 #include "presentation/environment_presentation.h"
 #include "presentation/environment_runtime.h"
+#include "presentation/effect_dispatch.h"
 #include "app/game_settings.h"
 #include "app/screenshot.h"
 #include "core/debug_control.h"
@@ -187,6 +189,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     StarMapClose();
     EntitiesClear();
     ParticlesClear();
+    GameEffectsReset();
     WeatherInit();
 
     WorldSetTerrainMode(mode);
@@ -728,6 +731,7 @@ static void GameUpdateWorldJobs(GameRuntime *game, float dt,
         FluidUpdate(dt);
     }
     RebuildDirtyChunkMeshes(game->player.position);
+    EffectDispatchPending();
     ParticlesUpdate(dt);
 }
 
@@ -772,6 +776,7 @@ static void GameUpdateFrameEnvironment(GameRuntime *game,
         !game->landingTransition.active && frame->localWorldActive) {
         EntitiesUpdate(frame->dt, &game->player, frame->daylight);
     }
+    EffectDispatchPending();
 
     frame->spaceFade = HomeWorldSpaceFade(game->camera.position);
     SkyColorsForLight(frame->daylight, sunset, &frame->skyTop,
@@ -1349,6 +1354,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                         "generating synchronously.\n");
     }
     ParticlesInit();
+    GameEffectsReset();
     AudioInit();
     AudioSetVolumes(game->settings.masterVolume,
                     game->settings.ambientVolume,
@@ -1411,6 +1417,7 @@ static int GameStop(GameRuntime *game)
     UnloadPlanetRenderResources();
     ShipCleanup();
     HomeWorldMapUnload();
+    GameEffectsReset();
     AudioShutdown();
     UiFontShutdown();
     bool perfPassed = PerfReportPassed();

@@ -1,7 +1,6 @@
 #include "world/weather.h"
 
-#include "presentation/audio.h"
-#include "presentation/particles.h"
+#include "core/game_effects.h"
 #include "space/space.h"
 #include "world/terrain.h"
 #include "world/world.h"
@@ -326,7 +325,7 @@ static void WeatherUpdateTypeAndAudio(void)
         (rainAudioActive ? 0.035f : 0.075f);
     if (shouldPlayRain != rainAudioActive) {
         rainAudioActive = shouldPlayRain;
-        AudioSetRain(rainAudioActive);
+        GameEffectsSetRain(rainAudioActive);
     }
 }
 
@@ -342,7 +341,7 @@ void WeatherInit(void)
     particleRandomState = 0x91e10da5u;
     particleWindAngle = 0.0f;
     memset(weatherSampleCache, 0, sizeof(weatherSampleCache));
-    AudioSetRain(false);
+    GameEffectsSetRain(false);
 }
 
 const char *WeatherName(void)
@@ -402,11 +401,12 @@ static void EmitRain(Vector3 playerPosition)
     float y = playerPosition.y + WEATHER_TOP_OFFSET +
         WeatherParticleRandom() * 8.0f;
     float drift = fieldSample.wind * 2.8f;
-    ParticlesEmitOne((Vector3){ x, y, z },
-                     (Vector3){ cosf(particleWindAngle) * drift, -20.0f,
-                                sinf(particleWindAngle) * drift },
-                     (Color){ 168, 190, 215, 220 },
-                     (Vector3){ 0.03f, 0.5f, 0.03f }, 1.4f, 0.0f);
+    GameEffectsEmitParticleOne(
+        (Vector3){ x, y, z },
+        (Vector3){ cosf(particleWindAngle) * drift, -20.0f,
+                   sinf(particleWindAngle) * drift },
+        (Color){ 168, 190, 215, 220 },
+        (Vector3){ 0.03f, 0.5f, 0.03f }, 1.4f, 0.0f);
 }
 
 static void EmitSnow(Vector3 playerPosition)
@@ -422,9 +422,10 @@ static void EmitSnow(Vector3 playerPosition)
                    cosf(particleWindAngle) * fieldSample.wind * 1.8f;
     float driftZ = (WeatherParticleRandom() - 0.5f) * driftScale +
                    sinf(particleWindAngle) * fieldSample.wind * 1.8f;
-    ParticlesEmitOne((Vector3){ x, y, z }, (Vector3){ driftX, -2.2f, driftZ },
-                     (Color){ 235, 242, 248, 235 },
-                     (Vector3){ 0.07f, 0.07f, 0.07f }, 3.0f, 0.2f);
+    GameEffectsEmitParticleOne(
+        (Vector3){ x, y, z }, (Vector3){ driftX, -2.2f, driftZ },
+        (Color){ 235, 242, 248, 235 },
+        (Vector3){ 0.07f, 0.07f, 0.07f }, 3.0f, 0.2f);
 }
 
 static bool WeatherPositionIsFinite(Vector3 position)
@@ -517,6 +518,6 @@ void WeatherSuspend(void)
     snowEmissionAccumulator = 0.0f;
     if (rainAudioActive) {
         rainAudioActive = false;
-        AudioSetRain(false);
+        GameEffectsSetRain(false);
     }
 }

@@ -48,6 +48,21 @@ if grep -R -nE '#include "(world|space|ecology|gameplay|presentation)/' \
     fail "core must not depend on higher-level modules"
 fi
 
+domain_effect_calls=$(
+    grep -R -nE \
+        '(AudioPlay(Break|Step|WaterStep|Splash)|AudioSetRain|ParticlesEmit(One|Burst|Styled))[[:space:]]*\(' \
+        src/world src/space src/ecology src/gameplay \
+        --include='*.c' --include='*.h' || true
+)
+[ -z "$domain_effect_calls" ] || {
+    printf '%s\n' "$domain_effect_calls" >&2
+    fail "domain modules must publish neutral effects instead of calling presentation"
+}
+
+effect_dispatch_count=$(grep -c 'EffectDispatchPending();' src/app/game.c || true)
+[ "$effect_dispatch_count" -ge 2 ] ||
+    fail "app must dispatch domain effects at both frame boundaries"
+
 for public_header in \
     src/world/chunks.h \
     src/world/nether.h \

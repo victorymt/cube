@@ -1,5 +1,7 @@
 #include "space/space_internal.h"
 
+#include "core/game_effects.h"
+
 static SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
 static BlockEdit spaceEdits[MAX_SPACE_EDITS];
 static int spaceEditCount = 0;
@@ -707,13 +709,14 @@ void SpaceUpdateSolarGlow(Vector3 playerPosition)
                 ((float)rand() / (float)RAND_MAX - 0.5f) * spread,
                 ((float)rand() / (float)RAND_MAX - 0.5f) * spread
             };
-            ParticlesEmitOne(Vector3Add(bodies[i].center, offset),
-                             (Vector3){ ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f,
-                                        0.2f + (float)rand() / (float)RAND_MAX * 0.5f,
-                                        ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f },
-                             glow,
-                             (Vector3){ 0.14f, 0.14f, 0.14f },
-                             1.8f, 0.0f);
+            GameEffectsEmitParticleOne(
+                Vector3Add(bodies[i].center, offset),
+                (Vector3){
+                    ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f,
+                    0.2f + (float)rand() / (float)RAND_MAX * 0.5f,
+                    ((float)rand() / (float)RAND_MAX - 0.5f) * 0.8f
+                },
+                glow, (Vector3){ 0.14f, 0.14f, 0.14f }, 1.8f, 0.0f);
         }
     }
 }

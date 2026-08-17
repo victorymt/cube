@@ -3,7 +3,6 @@
 #include "ecology_test_fixture.h"
 #include "ecology/entity.h"
 #include "world/fluid.h"
-#include "presentation/particles.h"
 #include "space/space.h"
 #include "world/terrain.h"
 #include "world/world_environment.h"
@@ -77,20 +76,6 @@ float WorldGravityScale(void)
 bool IsLiquidBlock(BlockType type)
 {
     return type == BLOCK_WATER || type == BLOCK_LAVA;
-}
-
-void ParticlesEmitBurst(Vector3 position, Color color, int count,
-                        float speed, float life)
-{
-    (void)position;
-    (void)color;
-    (void)count;
-    (void)speed;
-    (void)life;
-}
-
-void AudioPlayBreak(void)
-{
 }
 
 Color ColorLerp(Color color1, Color color2, float factor)

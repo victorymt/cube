@@ -30,6 +30,8 @@ ENTITY_FEATURE_SRC := \
 	src/ecology/entity.c \
 	src/ecology/entity_simulation.c
 
+GAME_EFFECTS_SRC := src/core/game_effects.c
+
 TERRAIN_FEATURE_SRC := \
 	src/world/terrain.c \
 	src/world/terrain_geology.c \

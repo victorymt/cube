@@ -1,11 +1,11 @@
 #include "gameplay/ship_visual_internal.h"
 
+#include "core/game_effects.h"
 #include "gameplay/ship_exhaust.h"
 #include "gameplay/ship_ground_effects.h"
 #include "raymath.h"
 #include "world/block_atlas.h"
 #include "world/chunks.h"
-#include "presentation/particles.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -160,15 +160,16 @@ void ShipVisualUpdateMainExhaust(const Player *player, float dt,
             90.0f + shipVisualEffects.intensity * 70.0f, 0.0f, 255.0f);
         Color end = start;
         end.a = 0;
-        ParticleStyle style = {
+        GameParticleStyle style = {
             .startSize = { size, size, size },
             .endSize = { size * 0.28f, size * 0.28f, size * 0.28f },
             .startColor = start,
             .endColor = end,
             .gravity = 0.0f
         };
-        ParticlesEmitStyled(position, velocity, &style,
-                            0.16f + ShipVisualRandom() * 0.10f);
+        GameEffectsEmitParticleStyled(
+            position, velocity, &style,
+            0.16f + ShipVisualRandom() * 0.10f);
     }
 }
 

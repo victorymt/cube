@@ -1,6 +1,7 @@
 #include "ecology/entity.h"
 #include "ecology/entity_internal.h"
 
+#include "core/game_effects.h"
 #include "ecology/fauna_motion.h"
 #include "world/fluid.h"
 #include "raymath.h"
@@ -9,8 +10,6 @@
 #include "ecology/ecology.h"
 #include "space/space.h"
 #include "world/world_environment.h"
-#include "presentation/particles.h"
-#include "presentation/audio.h"
 #include "world/weather.h"
 
 #include <math.h>
@@ -809,9 +808,10 @@ bool EntityKill(int index, EntityDeathCause cause, float daylight)
             entity->organismScale, entity->ecologyCapacity);
     }
 
-    ParticlesEmitBurst(entity->position, EntityParticleColor(entity->type),
-                       18, 3.0f, 0.7f);
-    AudioPlayBreak();
+    GameEffectsEmitParticleBurst(
+        entity->position, EntityParticleColor(entity->type),
+        18, 3.0f, 0.7f);
+    GameEffectsPlayAudio(GAME_AUDIO_BREAK);
     if (cause == ENTITY_DEATH_PREDATION && entity->evolvable) {
         PlanetEcologyRecordEvolutionEvent(
             (int)floorf(entity->position.x),

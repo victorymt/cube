@@ -1,12 +1,11 @@
 #include "gameplay/player.h"
 
+#include "core/game_effects.h"
 #include "raymath.h"
 #include "world/chunks.h"
 #include "world/fluid.h"
 #include "world/world.h"
-#include "presentation/audio.h"
 #include "gameplay/interaction.h"
-#include "presentation/particles.h"
 #include "gameplay/ship.h"
 #include "space/space.h"
 #include "world/world_environment.h"
@@ -665,7 +664,9 @@ void UpdatePlayerWithInput(Player *player, float dt, const PlayerInput *input)
 
     PlayerWaterState movedWater = PlayerWaterStateAt(player->position);
     bool feetInWater = movedWater.feetSubmerged;
-    if (feetInWater && !player->wasInWater) AudioPlaySplash();
+    if (feetInWater && !player->wasInWater) {
+        GameEffectsPlayAudio(GAME_AUDIO_SPLASH);
+    }
     player->wasInWater = feetInWater;
 
     if (feetInWater && horizontalSpeed > 0.5f) {
@@ -674,10 +675,10 @@ void UpdatePlayerWithInput(Player *player, float dt, const PlayerInput *input)
             player->position.y + 0.5f,
             player->position.z + ((float)rand() / (float)RAND_MAX - 0.5f) * 0.5f
         };
-        ParticlesEmitOne(bubblePos, (Vector3){ 0.0f, 1.1f, 0.0f },
-                         (Color){ 235, 244, 250, 110 },
-                         (Vector3){ 0.05f, 0.05f, 0.05f },
-                         1.2f, 0.0f);
+        GameEffectsEmitParticleOne(
+            bubblePos, (Vector3){ 0.0f, 1.1f, 0.0f },
+            (Color){ 235, 244, 250, 110 },
+            (Vector3){ 0.05f, 0.05f, 0.05f }, 1.2f, 0.0f);
     }
 
     if (!isfinite(player->stepTimer)) player->stepTimer = 0.0f;
@@ -686,10 +687,10 @@ void UpdatePlayerWithInput(Player *player, float dt, const PlayerInput *input)
     if (player->stepTimer <= 0.0f && horizontalSpeed > 0.5f) {
         if (!player->floating && !inSpace) {
             if (feetInWater) {
-                AudioPlayWaterStep();
+                GameEffectsPlayAudio(GAME_AUDIO_WATER_STEP);
                 player->stepTimer = 0.35f;
             } else if (player->onGround) {
-                AudioPlayStep();
+                GameEffectsPlayAudio(GAME_AUDIO_STEP);
                 player->stepTimer = 0.38f;
             }
         }
