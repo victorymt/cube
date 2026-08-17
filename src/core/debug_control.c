@@ -70,6 +70,274 @@ static DebugControlCommand DebugControlParseMarker(
     return DEBUG_CONTROL_COMMAND_INVALID;
 }
 
+static DebugControlCommand DebugControlParseStreamAudit(
+    DebugControl *control, const char *line)
+{
+    if (strcmp(line, "stream audit") == 0) {
+        control->streamAuditRadius = 2;
+        control->streamAuditUsePlayerPosition = true;
+        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
+    }
+
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    int radius = 0;
+    int offset = -1;
+    int fields = sscanf(line, "stream audit at %d %d %d %d %n",
+                        &x, &y, &z, &radius, &offset);
+    bool atValid = fields == 4 && offset >= 0 && line[offset] == '\0' &&
+        radius >= 1 && radius <= 4;
+    if (!atValid) {
+        offset = -1;
+        fields = sscanf(line, "stream audit at %d %d %d %n",
+                        &x, &y, &z, &offset);
+        atValid = fields == 3 && offset >= 0 && line[offset] == '\0';
+        if (atValid) radius = 2;
+    }
+    if (atValid) {
+        control->streamAuditX = x;
+        control->streamAuditY = y;
+        control->streamAuditZ = z;
+        control->streamAuditRadius = radius;
+        control->streamAuditUsePlayerPosition = false;
+        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
+    }
+
+    char trailing = '\0';
+    if (sscanf(line, "stream audit %d %c", &radius, &trailing) == 1 &&
+        radius >= 1 && radius <= 4) {
+        control->streamAuditRadius = radius;
+        control->streamAuditUsePlayerPosition = true;
+        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static DebugControlCommand DebugControlParseShip(DebugControl *control,
+                                                 const char *line)
+{
+    if (strcmp(line, "ship begin") == 0) {
+        return DEBUG_CONTROL_COMMAND_SHIP_BEGIN;
+    }
+    if (strcmp(line, "ship enter") == 0) {
+        return DEBUG_CONTROL_COMMAND_SHIP_ENTER;
+    }
+    if (strcmp(line, "ship dust") == 0) {
+        return DEBUG_CONTROL_COMMAND_SHIP_DUST;
+    }
+
+    float exhaustDemand = 0.0f;
+    char trailing = '\0';
+    if (sscanf(line, "ship exhaust %f %c", &exhaustDemand, &trailing) == 1 &&
+        isfinite(exhaustDemand) && exhaustDemand >= 0.0f &&
+        exhaustDemand <= 1.0f) {
+        control->shipExhaustDemand = exhaustDemand;
+        return DEBUG_CONTROL_COMMAND_SHIP_EXHAUST;
+    }
+
+    DebugControlInput input = { 0 };
+    unsigned frames = 0u;
+    if (sscanf(line, "ship input %f %f %f %u %c",
+               &input.forward, &input.strafe, &input.vertical,
+               &frames, &trailing) == 4 && isfinite(input.forward) &&
+        isfinite(input.strafe) && isfinite(input.vertical) &&
+        input.forward >= -1.0f && input.forward <= 1.0f &&
+        input.strafe >= -1.0f && input.strafe <= 1.0f &&
+        input.vertical >= -1.0f && input.vertical <= 1.0f &&
+        frames >= 1u && frames <= 600u) {
+        input.frames = frames;
+        control->shipInput = input;
+        return DEBUG_CONTROL_COMMAND_SHIP_INPUT;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static DebugControlCommand DebugControlParseFluid(DebugControl *control,
+                                                  const char *line)
+{
+    if (strcmp(line, "fluid inspect") == 0) {
+        control->fluidUsePlayerPosition = true;
+        return DEBUG_CONTROL_COMMAND_FLUID_INSPECT;
+    }
+
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    unsigned value = 0u;
+    char trailing = '\0';
+    if (sscanf(line, "fluid inspect %d %d %d %c", &x, &y, &z,
+               &trailing) == 3) {
+        control->fluidX = x;
+        control->fluidY = y;
+        control->fluidZ = z;
+        control->fluidUsePlayerPosition = false;
+        return DEBUG_CONTROL_COMMAND_FLUID_INSPECT;
+    }
+    if (sscanf(line, "fluid set %d %d %d %u %c", &x, &y, &z,
+               &value, &trailing) == 4 && value <= 255u) {
+        control->fluidX = x;
+        control->fluidY = y;
+        control->fluidZ = z;
+        control->fluidVolume = value;
+        return DEBUG_CONTROL_COMMAND_FLUID_SET;
+    }
+    if (sscanf(line, "fluid step %u %c", &value, &trailing) == 1 &&
+        value >= 1u && value <= 1000000u) {
+        control->fluidTicks = value;
+        return DEBUG_CONTROL_COMMAND_FLUID_STEP;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static DebugControlCommand DebugControlParseEvolution(
+    DebugControl *control, const char *line)
+{
+    if (strcmp(line, "evolution region") == 0) {
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_REGION;
+    }
+    if (strcmp(line, "evolution atlas") == 0) {
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS;
+    }
+    if (strcmp(line, "evolution catalog") == 0) {
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_CATALOG;
+    }
+    if (strcmp(line, "evolution bootstrap status") == 0) {
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP;
+    }
+    if (strcmp(line, "evolution inspect") == 0) {
+        control->evolutionRadius = 24.0f;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT;
+    }
+    if (strcmp(line, "evolution focus") == 0) {
+        control->evolutionRadius = 24.0f;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS;
+    }
+
+    float value = 0.0f;
+    char trailing = '\0';
+    if (sscanf(line, "evolution inspect %f %c", &value, &trailing) == 1 &&
+        isfinite(value) && value >= 1.0f && value <= 256.0f) {
+        control->evolutionRadius = value;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT;
+    }
+    if (sscanf(line, "evolution focus %f %c", &value, &trailing) == 1 &&
+        isfinite(value) && value >= 1.0f && value <= 256.0f) {
+        control->evolutionRadius = value;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS;
+    }
+    if (sscanf(line, "evolution advance %f %c", &value, &trailing) == 1 &&
+        isfinite(value) && value >= 0.25f && value <= 4096.0f) {
+        control->evolutionAdvanceDays = value;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static DebugControlCommand DebugControlParseLook(DebugControl *control,
+                                                 const char *line)
+{
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    char trailing = '\0';
+    if (sscanf(line, "look delta %f %f %c", &yaw, &pitch, &trailing) == 2 &&
+        isfinite(yaw) && isfinite(pitch) && fabsf(yaw) <= 1000.0f &&
+        fabsf(pitch) <= 1000.0f) {
+        control->lookYaw = yaw;
+        control->lookPitch = pitch;
+        control->lookRelative = true;
+        return DEBUG_CONTROL_COMMAND_LOOK;
+    }
+    if (sscanf(line, "look %f %f %c", &yaw, &pitch, &trailing) == 2 &&
+        isfinite(yaw) && isfinite(pitch) && fabsf(yaw) <= 1000.0f &&
+        pitch >= -1.45f && pitch <= 1.45f) {
+        control->lookYaw = yaw;
+        control->lookPitch = pitch;
+        control->lookRelative = false;
+        return DEBUG_CONTROL_COMMAND_LOOK;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static DebugControlCommand DebugControlParseTeleport(DebugControl *control,
+                                                     const char *line)
+{
+    DebugControlTeleport teleport = { 0 };
+    char trailing = '\0';
+    if (sscanf(line, "teleport %f %f %f %f %f %c",
+               &teleport.x, &teleport.y, &teleport.z,
+               &teleport.yaw, &teleport.pitch, &trailing) == 5 &&
+        isfinite(teleport.x) && isfinite(teleport.y) &&
+        isfinite(teleport.z) && isfinite(teleport.yaw) &&
+        isfinite(teleport.pitch) && fabsf(teleport.x) <= 1000000.0f &&
+        fabsf(teleport.y) <= 1000000.0f &&
+        fabsf(teleport.z) <= 1000000.0f &&
+        fabsf(teleport.yaw) <= 1000.0f &&
+        teleport.pitch >= -1.45f && teleport.pitch <= 1.45f) {
+        control->teleport = teleport;
+        return DEBUG_CONTROL_COMMAND_TELEPORT;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static DebugControlCommand DebugControlParsePlayerInput(
+    DebugControl *control, const char *line)
+{
+    DebugControlInput input = { 0 };
+    int sprint = 0;
+    unsigned frames = 0u;
+    char trailing = '\0';
+    if (sscanf(line, "input %f %f %f %d %u %c",
+               &input.forward, &input.strafe, &input.vertical, &sprint,
+               &frames, &trailing) == 5 && isfinite(input.forward) &&
+        isfinite(input.strafe) && isfinite(input.vertical) &&
+        input.forward >= -1.0f && input.forward <= 1.0f &&
+        input.strafe >= -1.0f && input.strafe <= 1.0f &&
+        input.vertical >= -1.0f && input.vertical <= 1.0f &&
+        (sprint == 0 || sprint == 1) && frames >= 1u && frames <= 600u) {
+        input.sprint = sprint != 0;
+        input.frames = frames;
+        control->playerInput = input;
+        return DEBUG_CONTROL_COMMAND_INPUT;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static DebugControlCommand DebugControlParseMotion(DebugControl *control,
+                                                   const char *line)
+{
+    DebugControlCommand command = DebugControlParseLook(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseTeleport(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    return DebugControlParsePlayerInput(control, line);
+}
+
+static DebugControlCommand DebugControlParseBasic(const char *line)
+{
+    if (strcmp(line, "start") == 0) return DEBUG_CONTROL_COMMAND_START;
+    if (strcmp(line, "screenshot") == 0) {
+        return DEBUG_CONTROL_COMMAND_SCREENSHOT;
+    }
+    if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;
+    if (strcmp(line, "load") == 0) return DEBUG_CONTROL_COMMAND_LOAD;
+    if (strcmp(line, "map") == 0) return DEBUG_CONTROL_COMMAND_MAP;
+    if (strcmp(line, "quit") == 0) return DEBUG_CONTROL_COMMAND_QUIT;
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static DebugControlCommand DebugControlParseView(DebugControl *control,
+                                                 const char *line)
+{
+    if (strcmp(line, "view first") != 0 &&
+        strcmp(line, "view third") != 0) {
+        return DEBUG_CONTROL_COMMAND_NONE;
+    }
+    control->thirdPerson = strcmp(line, "view third") == 0;
+    return DEBUG_CONTROL_COMMAND_VIEW;
+}
+
 static DebugControlCommand DebugControlParseLine(DebugControl *control,
                                                  char *line)
 {
@@ -89,216 +357,20 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         return DebugControlParseMarker(control, line, normalized);
     }
     line = normalized;
-    if (strcmp(line, "start") == 0) return DEBUG_CONTROL_COMMAND_START;
-    if (strcmp(line, "screenshot") == 0) {
-        return DEBUG_CONTROL_COMMAND_SCREENSHOT;
-    }
-    if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
-    if (strcmp(line, "stream audit") == 0) {
-        control->streamAuditRadius = 2;
-        control->streamAuditUsePlayerPosition = true;
-        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
-    }
-    int streamAuditX = 0;
-    int streamAuditY = 0;
-    int streamAuditZ = 0;
-    int streamAuditRadius = 0;
-    char streamAuditTrailing = '\0';
-    int streamAuditOffset = -1;
-    int streamAuditFields = sscanf(
-        line, "stream audit at %d %d %d %d %n", &streamAuditX,
-        &streamAuditY, &streamAuditZ, &streamAuditRadius,
-        &streamAuditOffset);
-    bool streamAuditAtValid = streamAuditFields == 4 &&
-        streamAuditOffset >= 0 && line[streamAuditOffset] == '\0' &&
-        streamAuditRadius >= 1 && streamAuditRadius <= 4;
-    if (!streamAuditAtValid) {
-        streamAuditOffset = -1;
-        streamAuditFields = sscanf(
-            line, "stream audit at %d %d %d %n", &streamAuditX,
-            &streamAuditY, &streamAuditZ, &streamAuditOffset);
-        streamAuditAtValid = streamAuditFields == 3 &&
-            streamAuditOffset >= 0 && line[streamAuditOffset] == '\0';
-        if (streamAuditAtValid) streamAuditRadius = 2;
-    }
-    if (streamAuditAtValid) {
-        control->streamAuditX = streamAuditX;
-        control->streamAuditY = streamAuditY;
-        control->streamAuditZ = streamAuditZ;
-        control->streamAuditRadius = streamAuditRadius;
-        control->streamAuditUsePlayerPosition = false;
-        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
-    }
-    if (sscanf(line, "stream audit %d %c", &streamAuditRadius,
-               &streamAuditTrailing) == 1 &&
-        streamAuditRadius >= 1 && streamAuditRadius <= 4) {
-        control->streamAuditRadius = streamAuditRadius;
-        control->streamAuditUsePlayerPosition = true;
-        return DEBUG_CONTROL_COMMAND_STREAM_AUDIT;
-    }
-    if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;
-    if (strcmp(line, "load") == 0) return DEBUG_CONTROL_COMMAND_LOAD;
-    if (strcmp(line, "map") == 0) return DEBUG_CONTROL_COMMAND_MAP;
-    if (strcmp(line, "ship begin") == 0) {
-        return DEBUG_CONTROL_COMMAND_SHIP_BEGIN;
-    }
-    if (strcmp(line, "ship enter") == 0) {
-        return DEBUG_CONTROL_COMMAND_SHIP_ENTER;
-    }
-    if (strcmp(line, "ship dust") == 0) {
-        return DEBUG_CONTROL_COMMAND_SHIP_DUST;
-    }
-    if (strcmp(line, "view first") == 0 ||
-        strcmp(line, "view third") == 0) {
-        control->thirdPerson = strcmp(line, "view third") == 0;
-        return DEBUG_CONTROL_COMMAND_VIEW;
-    }
-    float shipExhaustDemand = 0.0f;
-    char shipExhaustTrailing = '\0';
-    if (sscanf(line, "ship exhaust %f %c", &shipExhaustDemand,
-               &shipExhaustTrailing) == 1 && isfinite(shipExhaustDemand) &&
-        shipExhaustDemand >= 0.0f && shipExhaustDemand <= 1.0f) {
-        control->shipExhaustDemand = shipExhaustDemand;
-        return DEBUG_CONTROL_COMMAND_SHIP_EXHAUST;
-    }
-    if (strcmp(line, "fluid inspect") == 0) {
-        control->fluidUsePlayerPosition = true;
-        return DEBUG_CONTROL_COMMAND_FLUID_INSPECT;
-    }
-    int fluidX = 0;
-    int fluidY = 0;
-    int fluidZ = 0;
-    unsigned fluidValue = 0u;
-    char fluidTrailing = '\0';
-    if (sscanf(line, "fluid inspect %d %d %d %c", &fluidX, &fluidY,
-               &fluidZ, &fluidTrailing) == 3) {
-        control->fluidX = fluidX;
-        control->fluidY = fluidY;
-        control->fluidZ = fluidZ;
-        control->fluidUsePlayerPosition = false;
-        return DEBUG_CONTROL_COMMAND_FLUID_INSPECT;
-    }
-    if (sscanf(line, "fluid set %d %d %d %u %c", &fluidX, &fluidY,
-               &fluidZ, &fluidValue, &fluidTrailing) == 4 &&
-        fluidValue <= 255u) {
-        control->fluidX = fluidX;
-        control->fluidY = fluidY;
-        control->fluidZ = fluidZ;
-        control->fluidVolume = fluidValue;
-        return DEBUG_CONTROL_COMMAND_FLUID_SET;
-    }
-    if (sscanf(line, "fluid step %u %c", &fluidValue, &fluidTrailing) == 1 &&
-        fluidValue >= 1u && fluidValue <= 1000000u) {
-        control->fluidTicks = fluidValue;
-        return DEBUG_CONTROL_COMMAND_FLUID_STEP;
-    }
-    if (strcmp(line, "evolution region") == 0) {
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_REGION;
-    }
-    if (strcmp(line, "evolution atlas") == 0) {
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS;
-    }
-    if (strcmp(line, "evolution catalog") == 0) {
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_CATALOG;
-    }
-    if (strcmp(line, "evolution bootstrap status") == 0) {
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP;
-    }
-    float evolutionValue = 0.0f;
-    char evolutionTrailing = '\0';
-    if (strcmp(line, "evolution inspect") == 0) {
-        control->evolutionRadius = 24.0f;
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT;
-    }
-    if (sscanf(line, "evolution inspect %f %c", &evolutionValue,
-               &evolutionTrailing) == 1 && isfinite(evolutionValue) &&
-        evolutionValue >= 1.0f && evolutionValue <= 256.0f) {
-        control->evolutionRadius = evolutionValue;
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT;
-    }
-    if (sscanf(line, "evolution focus %f %c", &evolutionValue,
-               &evolutionTrailing) == 1 && isfinite(evolutionValue) &&
-        evolutionValue >= 1.0f && evolutionValue <= 256.0f) {
-        control->evolutionRadius = evolutionValue;
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS;
-    }
-    if (strcmp(line, "evolution focus") == 0) {
-        control->evolutionRadius = 24.0f;
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS;
-    }
-    if (sscanf(line, "evolution advance %f %c", &evolutionValue,
-               &evolutionTrailing) == 1 && isfinite(evolutionValue) &&
-        evolutionValue >= 0.25f && evolutionValue <= 4096.0f) {
-        control->evolutionAdvanceDays = evolutionValue;
-        return DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE;
-    }
-    if (strcmp(line, "quit") == 0) return DEBUG_CONTROL_COMMAND_QUIT;
-    float lookYaw = 0.0f;
-    float lookPitch = 0.0f;
-    char lookTrailing = '\0';
-    if (sscanf(line, "look delta %f %f %c", &lookYaw, &lookPitch,
-               &lookTrailing) == 2 &&
-        isfinite(lookYaw) && isfinite(lookPitch) &&
-        fabsf(lookYaw) <= 1000.0f && fabsf(lookPitch) <= 1000.0f) {
-        control->lookYaw = lookYaw;
-        control->lookPitch = lookPitch;
-        control->lookRelative = true;
-        return DEBUG_CONTROL_COMMAND_LOOK;
-    }
-    if (sscanf(line, "look %f %f %c", &lookYaw, &lookPitch,
-               &lookTrailing) == 2 &&
-        isfinite(lookYaw) && isfinite(lookPitch) &&
-        fabsf(lookYaw) <= 1000.0f && lookPitch >= -1.45f &&
-        lookPitch <= 1.45f) {
-        control->lookYaw = lookYaw;
-        control->lookPitch = lookPitch;
-        control->lookRelative = false;
-        return DEBUG_CONTROL_COMMAND_LOOK;
-    }
-    DebugControlTeleport teleport = { 0 };
-    char trailing = '\0';
-    if (sscanf(line, "teleport %f %f %f %f %f %c",
-               &teleport.x, &teleport.y, &teleport.z,
-               &teleport.yaw, &teleport.pitch, &trailing) == 5 &&
-        isfinite(teleport.x) && isfinite(teleport.y) &&
-        isfinite(teleport.z) && isfinite(teleport.yaw) &&
-        isfinite(teleport.pitch) && fabsf(teleport.x) <= 1000000.0f &&
-        fabsf(teleport.y) <= 1000000.0f &&
-        fabsf(teleport.z) <= 1000000.0f && fabsf(teleport.yaw) <= 1000.0f &&
-        teleport.pitch >= -1.45f && teleport.pitch <= 1.45f) {
-        control->teleport = teleport;
-        return DEBUG_CONTROL_COMMAND_TELEPORT;
-    }
-    DebugControlInput input = { 0 };
-    int sprint = 0;
-    unsigned frames = 0;
-    if (sscanf(line, "input %f %f %f %d %u %c",
-               &input.forward, &input.strafe, &input.vertical, &sprint,
-               &frames, &trailing) == 5 && isfinite(input.forward) &&
-        isfinite(input.strafe) && isfinite(input.vertical) &&
-        input.forward >= -1.0f && input.forward <= 1.0f &&
-        input.strafe >= -1.0f && input.strafe <= 1.0f &&
-        input.vertical >= -1.0f && input.vertical <= 1.0f &&
-        (sprint == 0 || sprint == 1) && frames >= 1u && frames <= 600u) {
-        input.sprint = sprint != 0;
-        input.frames = frames;
-        control->playerInput = input;
-        return DEBUG_CONTROL_COMMAND_INPUT;
-    }
-    input = (DebugControlInput){ 0 };
-    frames = 0u;
-    if (sscanf(line, "ship input %f %f %f %u %c",
-               &input.forward, &input.strafe, &input.vertical,
-               &frames, &trailing) == 4 && isfinite(input.forward) &&
-        isfinite(input.strafe) && isfinite(input.vertical) &&
-        input.forward >= -1.0f && input.forward <= 1.0f &&
-        input.strafe >= -1.0f && input.strafe <= 1.0f &&
-        input.vertical >= -1.0f && input.vertical <= 1.0f &&
-        frames >= 1u && frames <= 600u) {
-        input.frames = frames;
-        control->shipInput = input;
-        return DEBUG_CONTROL_COMMAND_SHIP_INPUT;
-    }
+    DebugControlCommand command = DebugControlParseBasic(line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseStreamAudit(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseShip(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseView(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseFluid(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseEvolution(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseMotion(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     return DEBUG_CONTROL_COMMAND_INVALID;
 }
 
