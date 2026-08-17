@@ -747,14 +747,21 @@ static void GameDebugToggleEvolutionAtlas(GameRuntime *game)
                       EvolutionCatalogSpeciesCount());
 }
 
-bool GameDispatchDebugCommand(GameRuntime *game)
+typedef enum GameDebugDispatchResult {
+    GAME_DEBUG_DISPATCH_UNHANDLED = 0,
+    GAME_DEBUG_DISPATCH_HANDLED,
+    GAME_DEBUG_DISPATCH_START
+} GameDebugDispatchResult;
+
+static GameDebugDispatchResult GameDebugDispatchSystemCommand(
+    GameRuntime *game, DebugControlCommand command)
 {
-    switch (DebugControlPoll(&game->debugControl)) {
+    switch (command) {
     case DEBUG_CONTROL_COMMAND_START:
-        if (game->screen == SCREEN_START) return true;
+        if (game->screen == SCREEN_START) return GAME_DEBUG_DISPATCH_START;
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL start ignored reason=already_playing\n");
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_SCREENSHOT:
         if (game->screen == SCREEN_PLAYING) {
             game->screenshotPending = true;
@@ -765,13 +772,33 @@ bool GameDispatchDebugCommand(GameRuntime *game)
                 &game->debugControl,
                 "DEBUG_CONTROL screenshot error reason=not_playing\n");
         }
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_STATUS:
         GameDebugReplyStatus(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_STREAM_AUDIT:
         GameStreamAuditStart(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_QUIT:
+        game->quitRequested = true;
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL quit accepted\n");
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_INVALID:
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL error reason=unknown_command\n");
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_NONE:
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    default:
+        return GAME_DEBUG_DISPATCH_UNHANDLED;
+    }
+}
+
+static GameDebugDispatchResult GameDebugDispatchPersistenceCommand(
+    GameRuntime *game, DebugControlCommand command)
+{
+    switch (command) {
     case DEBUG_CONTROL_COMMAND_SAVE:
         if (game->screen == SCREEN_PLAYING) {
             GameSaveMap(&game->player);
@@ -783,7 +810,7 @@ bool GameDispatchDebugCommand(GameRuntime *game)
                 &game->debugControl,
                 "DEBUG_CONTROL save error reason=not_playing\n");
         }
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_LOAD:
         if (game->screen == SCREEN_PLAYING) {
             GameLoadMap(&game->player);
@@ -804,74 +831,119 @@ bool GameDispatchDebugCommand(GameRuntime *game)
                 &game->debugControl,
                 "DEBUG_CONTROL load error reason=not_playing\n");
         }
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    default:
+        return GAME_DEBUG_DISPATCH_UNHANDLED;
+    }
+}
+
+static GameDebugDispatchResult GameDebugDispatchMapCommand(
+    GameRuntime *game, DebugControlCommand command)
+{
+    switch (command) {
     case DEBUG_CONTROL_COMMAND_MAP:
         GameDebugToggleSurfaceMap(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_MARKER_ADD:
         GameDebugMarkerAdd(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_MARKER_LIST:
         GameDebugMarkerList(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_MARKER_TARGET:
         GameDebugMarkerTarget(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_MARKER_REMOVE:
         GameDebugMarkerRemove(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    default:
+        return GAME_DEBUG_DISPATCH_UNHANDLED;
+    }
+}
+
+static GameDebugDispatchResult GameDebugDispatchFluidCommand(
+    GameRuntime *game, DebugControlCommand command)
+{
+    switch (command) {
     case DEBUG_CONTROL_COMMAND_FLUID_INSPECT:
         GameDebugInspectFluid(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_FLUID_SET:
         GameDebugSetFluid(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_FLUID_STEP:
         GameDebugStepFluid(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    default:
+        return GAME_DEBUG_DISPATCH_UNHANDLED;
+    }
+}
+
+static GameDebugDispatchResult GameDebugDispatchMotionCommand(
+    GameRuntime *game, DebugControlCommand command)
+{
+    switch (command) {
     case DEBUG_CONTROL_COMMAND_TELEPORT:
         GameDebugTeleport(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_LOOK:
         GameDebugLook(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_INPUT:
         GameDebugApplyInput(game);
-        break;
-    case DEBUG_CONTROL_COMMAND_SHIP_BEGIN:
-        GameDebugBeginShip(game);
-        break;
-    case DEBUG_CONTROL_COMMAND_SHIP_ENTER:
-        GameDebugEnterShip(game);
-        break;
-    case DEBUG_CONTROL_COMMAND_SHIP_INPUT:
-        GameDebugApplyShipInput(game);
-        break;
-    case DEBUG_CONTROL_COMMAND_SHIP_EXHAUST:
-        GameDebugSetShipExhaust(game);
-        break;
-    case DEBUG_CONTROL_COMMAND_SHIP_DUST:
-        GameDebugEmitShipDust(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_VIEW:
         GameDebugSetView(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    default:
+        return GAME_DEBUG_DISPATCH_UNHANDLED;
+    }
+}
+
+static GameDebugDispatchResult GameDebugDispatchShipCommand(
+    GameRuntime *game, DebugControlCommand command)
+{
+    switch (command) {
+    case DEBUG_CONTROL_COMMAND_SHIP_BEGIN:
+        GameDebugBeginShip(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_SHIP_ENTER:
+        GameDebugEnterShip(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_SHIP_INPUT:
+        GameDebugApplyShipInput(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_SHIP_EXHAUST:
+        GameDebugSetShipExhaust(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_SHIP_DUST:
+        GameDebugEmitShipDust(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    default:
+        return GAME_DEBUG_DISPATCH_UNHANDLED;
+    }
+}
+
+static GameDebugDispatchResult GameDebugDispatchEvolutionCommand(
+    GameRuntime *game, DebugControlCommand command)
+{
+    switch (command) {
     case DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT:
         GameDebugInspectEvolution(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS:
         GameDebugFocusEvolution(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_EVOLUTION_REGION:
     case DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP:
         GameDebugReplyEvolutionRegion(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE:
         GameDebugAdvanceEvolution(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS:
         GameDebugToggleEvolutionAtlas(game);
-        break;
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_EVOLUTION_CATALOG:
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL evolution catalog ok species=%d "
@@ -879,19 +951,34 @@ bool GameDispatchDebugCommand(GameRuntime *game)
                           EvolutionCatalogSpeciesCount(),
                           EvolutionCatalogIndividualCount(),
                           WorldCurrentSurfaceId());
-        break;
-    case DEBUG_CONTROL_COMMAND_QUIT:
-        game->quitRequested = true;
-        DebugControlReply(&game->debugControl,
-                          "DEBUG_CONTROL quit accepted\n");
-        break;
-    case DEBUG_CONTROL_COMMAND_INVALID:
-        DebugControlReply(&game->debugControl,
-                          "DEBUG_CONTROL error reason=unknown_command\n");
-        break;
-    case DEBUG_CONTROL_COMMAND_NONE:
+        return GAME_DEBUG_DISPATCH_HANDLED;
     default:
-        break;
+        return GAME_DEBUG_DISPATCH_UNHANDLED;
     }
-    return false;
+}
+
+bool GameDispatchDebugCommand(GameRuntime *game)
+{
+    DebugControlCommand command = DebugControlPoll(&game->debugControl);
+    GameDebugDispatchResult result = GameDebugDispatchSystemCommand(
+        game, command);
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
+        result = GameDebugDispatchPersistenceCommand(game, command);
+    }
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
+        result = GameDebugDispatchMapCommand(game, command);
+    }
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
+        result = GameDebugDispatchFluidCommand(game, command);
+    }
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
+        result = GameDebugDispatchMotionCommand(game, command);
+    }
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
+        result = GameDebugDispatchShipCommand(game, command);
+    }
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
+        result = GameDebugDispatchEvolutionCommand(game, command);
+    }
+    return result == GAME_DEBUG_DISPATCH_START;
 }
