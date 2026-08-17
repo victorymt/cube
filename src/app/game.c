@@ -10,6 +10,7 @@
 #include "app/game_landing.h"
 #include "app/game_runtime.h"
 #include "app/game_save.h"
+#include "app/game_world_transition.h"
 #include "core/game_effects.h"
 #include "world/world_types.h"
 #include "world/terrain.h"
@@ -639,8 +640,7 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
         } else {
             ShipUpdate(&game->player, dt);
         }
-        if (PlanetWorldTryLaunch(&game->player) ||
-            HomeWorldTryLaunch(&game->player)) {
+        if (GameWorldTransitionTryLaunch(&game->player)) {
             game->wasInSpace = true;
         }
     } else if (!game->perfMode && !inputBlocked) {
@@ -663,7 +663,7 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
         if (PlanetWorldIsActive()) {
             game->wasInSpace = false;
         } else {
-            bool launchedHome = HomeWorldTryLaunch(&game->player);
+            bool launchedHome = GameWorldTransitionTryLaunch(&game->player);
             bool inSpaceNow = WorldIsSpaceActive();
             if (inSpaceNow && !game->wasInSpace) {
                 if (!launchedHome) {

@@ -2397,6 +2397,74 @@ static void TestPhysicalPlanetLandingApproach(void)
                               marsApproach, NULL));
 }
 
+static void TestWorldTransitionContracts(void)
+{
+    SetPropertySeed(DEFAULT_WORLD_SEED);
+    SpaceResetOrigin();
+    HomeWorldReset();
+    PlanetWorldReset();
+
+    SolarSystemDef sol;
+    assert(StarSystemAt(0, 0, &sol));
+    const int marsIndex = 3;
+    Vector3 marsCenter = SolarSystemPlanetCenter(&sol, marsIndex);
+    float marsParking = SolarSystemPlanetParkingRadiusGame(&sol, marsIndex);
+    Vector3 marsApproach = {
+        marsCenter.x,
+        marsCenter.y + marsParking,
+        marsCenter.z
+    };
+    SpaceBodyInfo target;
+    assert(PlanetWorldLandingTarget(marsApproach, &target));
+    assert(!PlanetWorldEnterSurface(NULL, marsApproach));
+    assert(!PlanetWorldEnterSurface(&target, marsApproach));
+
+    HomeWorldLeaveSurface((Vector3){ 0.5f, 12.0f, 0.5f });
+    assert(PlanetWorldEnterSurface(&target, marsApproach));
+    assert(PlanetWorldIsActive());
+    assert(!HomeWorldEnterSurface());
+    assert(strcmp(PlanetWorldName(), "Mars") == 0);
+
+    SpaceTravelPose planetSurface = {
+        .position = { 4.0f, PlanetWorldAtmosphereEntryHeight(), -3.0f },
+        .velocity = { 0.25f, 0.5f, -0.75f },
+        .yaw = 0.35f,
+        .pitch = 0.12f
+    };
+    SpaceTravelPose planetSpace = { 0 };
+    assert(PlanetWorldLaunchTarget(&planetSurface, &planetSpace));
+    assert(PlanetWorldIsActive());
+    assert(isfinite(planetSpace.position.x));
+    assert(isfinite(planetSpace.position.y));
+    assert(isfinite(planetSpace.position.z));
+    assert(isfinite(planetSpace.yaw));
+    assert(isfinite(planetSpace.pitch));
+
+    PlanetWorldLeaveSurface();
+    assert(!PlanetWorldIsActive());
+    assert(!HomeWorldSurfaceIsActive());
+
+    assert(HomeWorldEnterSurface());
+    SpaceTravelPose homeSurface = {
+        .position = { 7.5f, SPACE_ENTER_Y, -2.5f },
+        .velocity = { 0.1f, 0.2f, 0.3f },
+        .yaw = 0.4f,
+        .pitch = 0.1f
+    };
+    SpaceTravelPose homeSpace = { 0 };
+    assert(HomeWorldLaunchTarget(&homeSurface, &homeSpace));
+    assert(HomeWorldSurfaceIsActive());
+    assert(isfinite(homeSpace.position.x));
+    assert(isfinite(homeSpace.position.y));
+    assert(isfinite(homeSpace.position.z));
+
+    HomeWorldLeaveSurface(homeSurface.position);
+    assert(!HomeWorldSurfaceIsActive());
+    AssertVectorFloatNear(HomeWorldSurfaceReturnPosition(),
+                          homeSurface.position);
+    assert(HomeWorldEnterSurface());
+}
+
 static void TestDeterministicSpaceQueries(void)
 {
     const Vector3 observer = { 120.0f, 0.0f, -220.0f };
@@ -2872,6 +2940,7 @@ int main(void)
     TestSatelliteNameCapacity();
     TestSpaceEditLayerMigration();
     TestPhysicalPlanetLandingApproach();
+    TestWorldTransitionContracts();
     puts("space properties tests passed");
     return 0;
 }

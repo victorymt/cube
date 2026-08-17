@@ -221,6 +221,13 @@ typedef struct SpaceBodyInfo {
     PlanetProfile profile;
 } SpaceBodyInfo;
 
+typedef struct SpaceTravelPose {
+    Vector3 position;
+    Vector3 velocity;
+    float yaw;
+    float pitch;
+} SpaceTravelPose;
+
 typedef struct SpaceSatelliteInfo {
     Vector3 center;
     Vector3 velocity;
@@ -437,10 +444,12 @@ Vector3 HomeWorldCenter(void);
 float HomeWorldProxyRadius(void);
 float HomeWorldSpaceFade(Vector3 position);
 float PlanetWorldAtmosphereFade(Vector3 position);
-bool HomeWorldTryLaunch(Player *player);
 bool HomeWorldCanEnter(Vector3 position);
-bool HomeWorldBeginDescent(Player *player, Vector3 *outLandingPosition);
-bool HomeWorldTryEnter(Player *player);
+Vector3 HomeWorldSurfaceReturnPosition(void);
+bool HomeWorldLaunchTarget(const SpaceTravelPose *surfacePose,
+                           SpaceTravelPose *outSpacePose);
+bool HomeWorldEnterSurface(void);
+void HomeWorldLeaveSurface(Vector3 returnPosition);
 void HomeWorldReset(void);
 void HomeWorldRestoreLegacyState(const Player *player);
 void HomeWorldRestoreLegacyStateForSpaceLayer(const Player *player,
@@ -463,9 +472,12 @@ int PlanetWorldOriginX(void);
 int PlanetWorldOriginZ(void);
 const char *PlanetWorldName(void);
 bool PlanetWorldLandingTarget(Vector3 position, SpaceBodyInfo *out);
-bool PlanetWorldBeginDescent(Player *player, Vector3 *outLandingPosition);
-bool PlanetWorldTryEnter(Player *player);
-bool PlanetWorldTryLaunch(Player *player);
+bool PlanetWorldEnterSurface(const SpaceBodyInfo *body,
+                             Vector3 approachPosition);
+float PlanetWorldAtmosphereEntryHeight(void);
+bool PlanetWorldLaunchTarget(const SpaceTravelPose *surfacePose,
+                             SpaceTravelPose *outSpacePose);
+void PlanetWorldLeaveSurface(void);
 void PlanetWorldReset(void);
 void PlanetWorldMigrateSpaceLayer(int storedLayerY);
 bool PlanetWorldSaveState(FILE *file);

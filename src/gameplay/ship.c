@@ -1743,12 +1743,6 @@ static bool ShipPlaceAfterExit(Player *player)
 bool ShipExit(Player *player)
 {
     if (!driving) return true;
-    if (HomeWorldTryEnter(player)) {
-        return ShipPlaceAfterExit(player);
-    }
-    if (PlanetWorldTryEnter(player)) {
-        return ShipPlaceAfterExit(player);
-    }
     return ShipPlaceAfterExit(player);
 }
 

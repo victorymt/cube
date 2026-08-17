@@ -2,6 +2,7 @@
 #include "app/game_landing.h"
 
 #include "app/screenshot.h"
+#include "app/game_world_transition.h"
 #include "ecology/ecology.h"
 #include "presentation/render.h"
 #include "gameplay/ship.h"
@@ -184,9 +185,8 @@ static bool LandingTransitionCommit(LandingTransition *transition, Player *playe
                                                transition->targetDistance));
     player->velocity = Vector3Zero();
     Vector3 landingPosition = Vector3Zero();
-    bool enteredAtmosphere = transition->homeWorldTarget ?
-                             HomeWorldBeginDescent(player, &landingPosition) :
-                             PlanetWorldBeginDescent(player, &landingPosition);
+    bool enteredAtmosphere = GameWorldTransitionBeginDescent(
+        player, transition->homeWorldTarget, &landingPosition);
     if (!enteredAtmosphere || !WorldIsSurfaceActive()) {
         transition->active = false;
         transition->summaryRemaining = 0.0f;

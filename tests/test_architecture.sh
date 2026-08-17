@@ -111,6 +111,7 @@ for split_file in \
     src/ecology/entity_simulation.c \
     src/app/game.c \
     src/app/game_landing.c \
+    src/app/game_world_transition.c \
     src/app/game_biology.c \
     src/app/game_capture.c
 do
@@ -142,7 +143,7 @@ grep -q '^void EntitiesUpdate(' src/ecology/entity_simulation.c ||
 grep -q '^void UpdateChunks(' src/world/chunks_streaming.c ||
     fail "chunk streaming must live in chunks_streaming.c"
 grep -q '^bool PlanetWorldLandingTarget(' src/space/planet_world.c ||
-    fail "planet transitions must live in planet_world.c"
+    fail "space must own neutral planet landing target selection"
 
 grep -q '^include mk/modules.mk' Makefile ||
     fail "Makefile must source the module manifest"
@@ -174,6 +175,21 @@ if grep -nE '\b(Inventory|Ship|PlanetWorld|HomeWorld|Album|Space|Entities|Planet
 fi
 if grep -n 'gameplay/player_types.h' src/world/world.h; then
     fail "world API must not depend on player state"
+fi
+
+grep -q '^bool GameWorldTransitionBeginDescent(' \
+    src/app/game_world_transition.c ||
+    fail "app must coordinate surface entry"
+grep -q '^bool GameWorldTransitionTryLaunch(' \
+    src/app/game_world_transition.c ||
+    fail "app must coordinate surface launch"
+if grep -nE '\b(Player|DrainChunkGen|UnloadAll(Space)?Chunks|UpdateChunks|RebuildTorchList|ClearUndoHistory|WorldSetNetherActive|SetImportMessage|FindSafeSurfaceLanding|TerrainHeight|PlanetTerrainHeight|PlanetEcology)' \
+    src/space/planet_world.c; then
+    fail "space planet state must not coordinate player, world, or ecology"
+fi
+if grep -nE '\b(HomeWorldTryEnter|PlanetWorldTryEnter)\b' \
+    src/gameplay/ship.c; then
+    fail "ship exit must not trigger a world transition"
 fi
 
 if grep -n '#[[:space:]]*include[[:space:]]*"fluid.h"' \
