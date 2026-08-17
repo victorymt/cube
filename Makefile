@@ -1,4 +1,5 @@
 CC ?= cc
+AR ?= ar
 CPPFLAGS ?= -Isrc
 CFLAGS ?= -std=c99 -Wall -Wextra -O2 -pthread
 PKG_CONFIG ?= pkg-config
@@ -82,6 +83,23 @@ include mk/modules.mk
 OBJ_DIR := $(BUILD_DIR)/obj
 OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(MODULE_SRC))
 DEP := $(OBJ:.o=.d)
+MODULE_BUILD_DIR := $(BUILD_DIR)/modules
+CORE_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(CORE_SRC))
+WORLD_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(WORLD_SRC))
+SPACE_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SPACE_SRC))
+ECOLOGY_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(ECOLOGY_SRC))
+GAMEPLAY_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(GAMEPLAY_SRC))
+PRESENTATION_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(PRESENTATION_SRC))
+APP_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(APP_SRC))
+MODULE_ARCHIVES := \
+	$(MODULE_BUILD_DIR)/core.a \
+	$(MODULE_BUILD_DIR)/world.a \
+	$(MODULE_BUILD_DIR)/space.a \
+	$(MODULE_BUILD_DIR)/ecology.a \
+	$(MODULE_BUILD_DIR)/gameplay.a \
+	$(MODULE_BUILD_DIR)/presentation.a \
+	$(MODULE_BUILD_DIR)/app.a
+PUBLIC_HEADERS := $(filter-out %_internal.h,$(sort $(wildcard src/*/*.h)))
 
 TEST_TARGETS := $(TEST_TARGET) $(PLANET_SURFACE_TEST_TARGET) $(PLANET_MATERIAL_TEST_TARGET) $(PLANET_CLIMATE_TEST_TARGET) $(PLANET_OBSERVATION_TEST_TARGET) $(SPACE_PHYSICS_TEST_TARGET) $(SPACE_BARYCENTER_TEST_TARGET) $(SPACE_ORBIT_TEST_TARGET) $(SPACE_REMNANT_TEST_TARGET) $(SPACE_ILLUMINATION_TEST_TARGET) $(SPACE_SATELLITE_TEST_TARGET) $(SPACE_UNITS_TEST_TARGET) $(SPACE_PROPERTIES_TEST_TARGET) $(SPACE_SYSTEM_TEST_TARGET) $(ECOLOGY_SYSTEM_TEST_TARGET) $(ECOLOGY_PROPERTIES_TEST_TARGET) $(STELLAR_TEST_TARGET) $(ECOLOGY_MODEL_TEST_TARGET) $(FAUNA_MOTION_TEST_TARGET) $(FAUNA_BEHAVIOR_TEST_TARGET) $(EVOLUTION_TEST_TARGET) $(EVOLUTION_CATALOG_TEST_TARGET) $(FLUID_TEST_TARGET) $(WEATHER_MODEL_TEST_TARGET) $(WEATHER_RUNTIME_TEST_TARGET) $(WEATHER_VISUAL_TEST_TARGET) $(PLAYER_COLLISION_TEST_TARGET) $(SHIP_STATE_TEST_TARGET) $(SHIP_FLIGHT_CONTROLLER_TEST_TARGET) $(SHIP_EXHAUST_TEST_TARGET) $(SHIP_LOCATOR_TEST_TARGET) $(BLOCK_ATLAS_TEST_TARGET) $(INVENTORY_TEST_TARGET) $(CHUNK_ATLAS_TEST_TARGET) $(CHUNK_STREAMING_TEST_TARGET) $(TERRAIN_SCALE_TEST_TARGET) $(SUBSURFACE_TEST_TARGET) $(PERF_TEST_TARGET) $(RENDER_SORT_TEST_TARGET) $(RENDER_RESOURCES_TEST_TARGET) $(RENDER_UI_TEST_TARGET) $(WORLD_RENDERER_TEST_TARGET) $(WORLD_LIGHTING_TEST_TARGET) $(SAVE_IO_TEST_TARGET) $(GAME_SETTINGS_TEST_TARGET) $(SCREENSHOT_TEST_TARGET) $(DEBUG_CONTROL_TEST_TARGET) $(ENVIRONMENT_PRESENTATION_TEST_TARGET) $(ENVIRONMENT_RUNTIME_TEST_TARGET) $(AUDIO_ENVIRONMENT_TEST_TARGET) $(ENTITY_REPLAY_TEST_TARGET) $(ENTITY_ECOLOGY_TEST_TARGET) $(INTERACTION_RAYCAST_TEST_TARGET) $(PLANET_RENDERER_RESOURCES_TEST_TARGET) $(PLANET_TEXTURE_RESOURCES_TEST_TARGET) $(HOMEWORLD_MAP_MODEL_TEST_TARGET)
 TEST_TARGETS += $(SPACE_COORDINATES_TEST_TARGET)
@@ -100,13 +118,13 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run test test-architecture test-ci test-sanitize test-coverage test-e2e test-long-run benchmark-chunks release-linux release-check clean
+.PHONY: all voxelcraft run test test-headers test-modules test-architecture test-ci test-sanitize test-coverage test-e2e test-long-run benchmark-chunks release-linux release-check clean
 
 all: $(TARGET)
 
 voxelcraft: $(TARGET)
 
-$(BUILD_DIR) $(TEST_BUILD_DIR):
+$(BUILD_DIR) $(TEST_BUILD_DIR) $(MODULE_BUILD_DIR):
 	mkdir -p $@
 
 $(TARGET): $(OBJ) | $(BUILD_DIR)
@@ -118,6 +136,27 @@ $(OBJ_DIR)/%.o: src/%.c
 
 -include $(DEP)
 
+$(MODULE_BUILD_DIR)/core.a: $(CORE_OBJ) | $(MODULE_BUILD_DIR)
+	$(AR) rcs $@ $^
+
+$(MODULE_BUILD_DIR)/world.a: $(WORLD_OBJ) | $(MODULE_BUILD_DIR)
+	$(AR) rcs $@ $^
+
+$(MODULE_BUILD_DIR)/space.a: $(SPACE_OBJ) | $(MODULE_BUILD_DIR)
+	$(AR) rcs $@ $^
+
+$(MODULE_BUILD_DIR)/ecology.a: $(ECOLOGY_OBJ) | $(MODULE_BUILD_DIR)
+	$(AR) rcs $@ $^
+
+$(MODULE_BUILD_DIR)/gameplay.a: $(GAMEPLAY_OBJ) | $(MODULE_BUILD_DIR)
+	$(AR) rcs $@ $^
+
+$(MODULE_BUILD_DIR)/presentation.a: $(PRESENTATION_OBJ) | $(MODULE_BUILD_DIR)
+	$(AR) rcs $@ $^
+
+$(MODULE_BUILD_DIR)/app.a: $(APP_OBJ) | $(MODULE_BUILD_DIR)
+	$(AR) rcs $@ $^
+
 # Test executables currently compile focused source closures in one command.
 # Depend on every project header so a transitive header change cannot reuse a
 # stale binary while those closures are migrated to per-source test objects.
@@ -126,15 +165,28 @@ $(TEST_TARGETS) $(CHUNK_BENCHMARK_TARGET): $(TEST_HEADERS) | $(TEST_BUILD_DIR)
 run: $(TARGET)
 	./$(TARGET)
 
-test: $(TEST_TARGETS)
+test: test-headers test-modules $(TEST_TARGETS)
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
+
+test-headers:
+	@set -eu; \
+	for header in $(PUBLIC_HEADERS); do \
+		include=$${header#src/}; \
+		printf '#include "%s"\n' "$${include}" | \
+			$(CC) $(CPPFLAGS) $(CFLAGS) $(RAYLIB_CFLAGS) \
+			-Werror -x c -fsyntax-only -; \
+	done; \
+	printf 'public headers passed: %s\n' '$(words $(PUBLIC_HEADERS))'
+
+test-modules: $(MODULE_ARCHIVES)
+	@printf 'module archives passed: %s\n' '$(words $(MODULE_ARCHIVES))'
 
 test-architecture:
 	@sh tests/test_architecture.sh
 
 test-ci:
-	$(MAKE) BUILD_VARIANT=normal CFLAGS='$(CI_CFLAGS)' test
+	$(MAKE) BUILD_VARIANT=ci CFLAGS='$(CI_CFLAGS)' test
 	$(MAKE) test-sanitize
 	@test -z "$$(git status --porcelain --untracked-files=normal)" || { git status --short; exit 1; }
 

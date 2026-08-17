@@ -184,6 +184,18 @@ grep -q '^TEST_HEADERS :=' Makefile ||
     fail "test builds must track project headers"
 grep -q '\$(TEST_TARGETS) \$(CHUNK_BENCHMARK_TARGET): \$(TEST_HEADERS)' Makefile ||
     fail "test binaries must rebuild after transitive header changes"
+grep -q '^PUBLIC_HEADERS :=' Makefile ||
+    fail "build must identify independently compilable public headers"
+grep -q '^test: test-headers test-modules ' Makefile ||
+    fail "test must enforce public header and module build gates"
+grep -q '^test-modules: \$(MODULE_ARCHIVES)' Makefile ||
+    fail "module build gate must compile every module archive"
+grep -q "BUILD_VARIANT=ci CFLAGS='\$(CI_CFLAGS)' test" Makefile ||
+    fail "CI warning checks must use an isolated build variant"
+if grep -R -n '#include ".*_internal\.h"' src \
+    --include='*.h' | grep -v '_internal\.h:'; then
+    fail "public headers must not include private module headers"
+fi
 grep -q 'cp $(TARGET) README.md' Makefile ||
     fail "release packaging must use the selected build target"
 
