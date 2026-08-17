@@ -304,6 +304,8 @@ static bool EntityUnitFloatValid(float value)
 static bool EntityBlockValid(uint32_t value)
 {
     return value <= (uint32_t)BLOCK_NETHER_PORTAL ||
+           (value >= (uint32_t)BLOCK_NATURAL_START &&
+            value <= (uint32_t)BLOCK_NATURAL_END) ||
            (value >= (uint32_t)BLOCK_COLOR_START &&
             value <= (uint32_t)BLOCK_COLOR_END);
 }

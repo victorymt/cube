@@ -10,8 +10,8 @@ startup as a small pixel-art atlas.
 
 - Procedural world with five biomes: plains, forest, desert, snow, and
   mountains, each with its own surface blocks, tree density, and height profile
-- Caves and ore veins (coal, iron, gold, diamond) underground, plus a bedrock
-  floor; desert cacti and frozen ponds in low snow valleys
+- Caves and ore veins (coal, copper, iron, gold, diamond) underground, plus a
+  bedrock floor; desert cacti and frozen ponds in low snow valleys
 - Day/night cycle (4-minute loop) with animated sky, sun, moon, stars, clouds,
   and world lighting; pause it anytime with `F6`
 - Unified environment presentation across Homeworld, planet surfaces, space,
@@ -21,8 +21,10 @@ startup as a small pixel-art atlas.
 - Low/medium/high graphics quality presets control shadow resources, cloud
   range, and precipitation density. Medium is the default 1080p/60 FPS target
 - Water blocks with translucent rendering and simple swimming physics
-- New build blocks: plank, brick, glass, water, snow, ice, cactus, bedrock,
-  and the four ore types; grab any block you see with middle-click
+- Natural geology blocks include gravel, clay, mud, mossy stone, red sand,
+  basalt, copper ore, and crystal. They appear across seabeds, wet lowlands,
+  forests, deserts, volcanic planets, and alien terrain; mine them or grab any
+  visible block with middle-click
 - Torch block with dynamic point lighting: place torches and nearby block
   faces brighten in a radius, effective at night and underground
 - Particle effects on block break/place
@@ -52,6 +54,8 @@ startup as a small pixel-art atlas.
   locator, active dimension, planet-world context, entities, ecology state,
   player-authored map markers and navigation target, and stable cube-sphere
   addresses for the player and every surface edit.
+  Terrain generation version 5 rebuilds unedited terrain in older compatible
+  saves so the new geology appears while preserving player-authored edits.
   V17 and older flat-world saves are intentionally rejected because their
   coordinates cannot identify positions on the spherical worlds safely
 - Image imports use a 256-color block palette for better color matching. Block

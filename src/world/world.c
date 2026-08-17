@@ -29,7 +29,7 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
-#define TERRAIN_GENERATION_VERSION 4u
+#define TERRAIN_GENERATION_VERSION 5u
 #define MIN_SUPPORTED_TERRAIN_GENERATION_VERSION 2u
 #define SAVE_MAX_FILE_BYTES (256u * 1024u * 1024u)
 // Upper bound for edit counts read from save files. Keeps transient
@@ -220,6 +220,14 @@ const char *BlockName(BlockType type)
     case BLOCK_SPACESHIP_CORE_SOUTH:
     case BLOCK_SPACESHIP_CORE_WEST:
     case BLOCK_SPACESHIP_OCCUPIED: return "Spaceship";
+    case BLOCK_GRAVEL: return "Gravel";
+    case BLOCK_CLAY: return "Clay";
+    case BLOCK_MUD: return "Mud";
+    case BLOCK_MOSSY_STONE: return "Mossy Stone";
+    case BLOCK_RED_SAND: return "Red Sand";
+    case BLOCK_BASALT: return "Basalt";
+    case BLOCK_COPPER_ORE: return "Copper Ore";
+    case BLOCK_CRYSTAL: return "Crystal";
     default: return "Air";
     }
 }
@@ -231,7 +239,7 @@ bool IsColorBlock(BlockType type)
 
 bool IsValidBlockType(BlockType type)
 {
-    return (type >= BLOCK_AIR && type <= BLOCK_SPACESHIP_OCCUPIED) ||
+    return (type >= BLOCK_AIR && type <= BLOCK_NATURAL_END) ||
            IsColorBlock(type);
 }
 
@@ -362,6 +370,14 @@ Color BlockBaseColor(BlockType type)
     case BLOCK_SPACESHIP_CORE_SOUTH:
     case BLOCK_SPACESHIP_CORE_WEST:
     case BLOCK_SPACESHIP_OCCUPIED: return (Color){ 196, 202, 210, 255 };
+    case BLOCK_GRAVEL: return (Color){ 112, 108, 104, 255 };
+    case BLOCK_CLAY: return (Color){ 151, 164, 170, 255 };
+    case BLOCK_MUD: return (Color){ 91, 68, 48, 255 };
+    case BLOCK_MOSSY_STONE: return (Color){ 92, 112, 76, 255 };
+    case BLOCK_RED_SAND: return (Color){ 184, 96, 54, 255 };
+    case BLOCK_BASALT: return (Color){ 58, 61, 66, 255 };
+    case BLOCK_COPPER_ORE: return (Color){ 184, 112, 72, 255 };
+    case BLOCK_CRYSTAL: return (Color){ 126, 188, 212, 255 };
     case BLOCK_STONE:
     default: return (Color){ 118, 122, 124, 255 };
     }

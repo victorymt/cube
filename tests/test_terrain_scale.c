@@ -166,8 +166,8 @@ static void TestBathymetryContracts(void)
 
     assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_SAND) == BLOCK_SAND);
     assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_SEDIMENT) ==
-           BLOCK_SANDSTONE);
-    assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_ROCK) == BLOCK_STONE);
+           BLOCK_MUD);
+    assert(BathymetryMaterialBlock(BATHYMETRY_MATERIAL_ROCK) == BLOCK_GRAVEL);
 
     terrainSeed = 1448040515u;
     BathymetrySample seeded = TerrainBathymetryAt(-2896, 16,
@@ -244,6 +244,76 @@ static void TestTerrainBaseBlockQueries(void)
     assert(TerrainBaseBlockAt(-2896, HOME_SEA_LEVEL + 1, 16,
                               TERRAIN_VARIED) == BLOCK_AIR);
     terrainSeed = DEFAULT_WORLD_SEED;
+}
+
+static void TestNaturalGeologyDistribution(void)
+{
+    bool gravel = false;
+    bool clay = false;
+    bool mud = false;
+    bool mossyStone = false;
+    bool redSand = false;
+    bool copperOre = false;
+
+    terrainSeed = DEFAULT_WORLD_SEED;
+    for (int z = -4096; z <= 4096; z += 32) {
+        for (int x = -4096; x <= 4096; x += 32) {
+            SurfaceTerrainSample surface = SurfaceTerrainAt(
+                x, z, TERRAIN_VARIED);
+            int height = (int)lroundf(surface.elevation);
+            const int sampleY[] = { height, height - 1, height - 5, 40 };
+            for (int index = 0; index < 4; index++) {
+                int y = sampleY[index];
+                if (y > height || y < SURFACE_MIN_Y ||
+                    y >= SURFACE_MAX_Y_EXCLUSIVE) continue;
+                BlockType type = TerrainBaseBlockAt(
+                    x, y, z, TERRAIN_VARIED);
+                assert(type == TerrainBaseBlockAt(
+                    x, y, z, TERRAIN_VARIED));
+                gravel = gravel || type == BLOCK_GRAVEL;
+                clay = clay || type == BLOCK_CLAY;
+                mud = mud || type == BLOCK_MUD;
+                mossyStone = mossyStone || type == BLOCK_MOSSY_STONE;
+                redSand = redSand || type == BLOCK_RED_SAND;
+                copperOre = copperOre || type == BLOCK_COPPER_ORE;
+            }
+        }
+    }
+    assert(gravel);
+    assert(clay);
+    assert(mud);
+    assert(mossyStone);
+    assert(redSand);
+    assert(copperOre);
+
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_BASALT_PLAINS, 0, 1u) ==
+           BLOCK_BASALT);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_BADLANDS, 0, 1u) ==
+           BLOCK_RED_SAND);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_OASIS, 0, 1u) ==
+           BLOCK_MUD);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_FOREST, 5, 4u) ==
+           BLOCK_MOSSY_STONE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_FOREST, 5, 47u) ==
+           BLOCK_COPPER_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_GAS, PLANET_BIOME_STORM_BANDS, 0, 7u) ==
+           BLOCK_CRYSTAL);
+
+    for (int z = -32; z <= 32; z += 8) {
+        for (int x = -32; x <= 32; x += 8) {
+            for (int y = 0; y <= 9; y++) {
+                BlockType type = TerrainBaseBlockAt(x, y, z, TERRAIN_FLAT);
+                assert(type < BLOCK_NATURAL_START ||
+                       type > BLOCK_NATURAL_END);
+            }
+        }
+    }
 }
 
 static void TestIndependentSectionBaseGeneration(void)
@@ -570,6 +640,7 @@ int main(void)
     TestBathymetryContracts();
     TestChunkSectionBoundaries();
     TestTerrainBaseBlockQueries();
+    TestNaturalGeologyDistribution();
     TestIndependentSectionBaseGeneration();
     TestSparseChunkBootstrap();
     TestUndergroundFeaturesMaterializeTheirBase();

@@ -95,6 +95,9 @@ void ApplyEditsToChunkSection(Chunk *chunk, int sectionY);
 void ApplyEditsToChunk(Chunk *chunk);
 
 #ifdef TERRAIN_TESTING
+BlockType TerrainTestPlanetSubsurfaceBlock(SolarBodyStyle style,
+                                           PlanetBiome biome, int depth,
+                                           unsigned int hash);
 void TerrainTestBootstrapHomeChunk(Chunk *chunk, int cx, int cz,
                                    TerrainMode mode);
 void TerrainTestGenerateMineshaft(Chunk *chunk, int cx, int cz,

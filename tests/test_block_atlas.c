@@ -1,9 +1,11 @@
 #include "world/block_atlas.h"
+#include "world/world.h"
 
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x4098031764733f2c), UINT64_C(0xf9e47e1b7a79d992),
@@ -160,7 +162,11 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0xe7023197954ed7df), UINT64_C(0x0da5d621992d63c6),
     UINT64_C(0x4323eb7394071e16), UINT64_C(0x2eee4c1e1f7b29e7),
     UINT64_C(0x69a6d955590181af), UINT64_C(0x9af32e2c23636a45),
-    UINT64_C(0x9f27afe7ef0acfef)
+    UINT64_C(0x9f27afe7ef0acfef),
+    UINT64_C(0xf6391e5e7d71dbe4), UINT64_C(0xebb232b5ce43d7f2),
+    UINT64_C(0xbd283f90b2b797d7), UINT64_C(0x9a35ed39f98c128d),
+    UINT64_C(0xf2fc9320537028bb), UINT64_C(0xb1a379f2060abff5),
+    UINT64_C(0xbb6d0595bf0e67b9), UINT64_C(0xb8359a06a2e459f9)
 };
 
 _Static_assert(sizeof(EXPECTED_TILE_HASHES) /
@@ -240,14 +246,28 @@ static void AssertAtlasCoordinates(void)
 
 static void AssertPixelContract(Image image)
 {
+    bool matched = true;
     for (int texture = 0; texture < TEX_COUNT; texture++) {
         int cellX = (texture % ATLAS_COLUMNS) * ATLAS_CELL_SIZE;
         int cellY = (texture / ATLAS_COLUMNS) * ATLAS_CELL_SIZE;
-        assert(HashRegion(image, cellX, cellY, ATLAS_CELL_SIZE,
-                          ATLAS_CELL_SIZE) == EXPECTED_TILE_HASHES[texture]);
+        uint64_t actual = HashRegion(image, cellX, cellY, ATLAS_CELL_SIZE,
+                                     ATLAS_CELL_SIZE);
+        if (actual != EXPECTED_TILE_HASHES[texture]) {
+            fprintf(stderr,
+                    "texture %d digest: expected 0x%016llx, got 0x%016llx\n",
+                    texture,
+                    (unsigned long long)EXPECTED_TILE_HASHES[texture],
+                    (unsigned long long)actual);
+            matched = false;
+        }
     }
-    assert(HashRegion(image, 0, 0, image.width, image.height) ==
-           UINT64_C(0x16ae29886bd65931));
+    uint64_t atlas = HashRegion(image, 0, 0, image.width, image.height);
+    if (atlas != UINT64_C(0x19a33f71703691e3)) {
+        fprintf(stderr, "atlas digest: got 0x%016llx\n",
+                (unsigned long long)atlas);
+        matched = false;
+    }
+    assert(matched);
 }
 
 static void AssertMipSafePadding(Image image)
@@ -292,6 +312,14 @@ static void AssertTextureMapping(void)
     assert(TextureForBlockFace(BLOCK_WOOD, 2) == TEX_WOOD_TOP);
     assert(TextureForBlockFace(BLOCK_WOOD, 0) == TEX_WOOD_SIDE);
     assert(TextureForBlockFace(BLOCK_AIR, 0) == TEX_DIRT);
+    static const BlockType geologyBlocks[] = {
+        BLOCK_GRAVEL, BLOCK_CLAY, BLOCK_MUD, BLOCK_MOSSY_STONE,
+        BLOCK_RED_SAND, BLOCK_BASALT, BLOCK_COPPER_ORE, BLOCK_CRYSTAL
+    };
+    for (int index = 0; index < 8; index++) {
+        assert(TextureForBlockFace(geologyBlocks[index], 0) ==
+               (BlockTexture)(TEX_GRAVEL + index));
+    }
     for (int index = 0; index < COLOR_BLOCK_COUNT; index++) {
         BlockType block = (BlockType)(BLOCK_COLOR_START + index);
         assert(TextureForBlockFace(block, 0) ==
@@ -299,10 +327,27 @@ static void AssertTextureMapping(void)
     }
 }
 
+static void AssertNaturalBlockContract(void)
+{
+    static const char *names[] = {
+        "Gravel", "Clay", "Mud", "Mossy Stone",
+        "Red Sand", "Basalt", "Copper Ore", "Crystal"
+    };
+    for (int index = 0; index < 8; index++) {
+        BlockType type = (BlockType)(BLOCK_NATURAL_START + index);
+        assert(IsValidBlockType(type));
+        assert(strcmp(BlockName(type), names[index]) == 0);
+        assert(BlockCollisionHeight(type) == 1.0f);
+        assert(!IsTranslucentBlock(type));
+        assert(BlockBaseColor(type).a == 255);
+    }
+}
+
 int main(void)
 {
     AssertAtlasCoordinates();
     AssertTextureMapping();
+    AssertNaturalBlockContract();
 
     Image first = GenerateAtlas();
     Image second = GenerateAtlas();

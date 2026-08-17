@@ -246,6 +246,77 @@ static Color SurfaceAtlasPixel(BlockTexture texture, int x, int y,
     }
 }
 
+static Color GeologyAtlasPixel(BlockTexture texture, int x, int y,
+                               unsigned int hash)
+{
+    Color color = WHITE;
+    switch (texture) {
+    case TEX_GRAVEL:
+        color = AtlasColorWithNoise((Color){ 112, 108, 104, 255 }, 24,
+                                    hash);
+        if ((hash % 7u) == 0u) color = (Color){ 78, 76, 74, 255 };
+        if ((hash % 11u) == 0u) color = (Color){ 151, 145, 137, 255 };
+        return color;
+    case TEX_CLAY:
+        color = AtlasColorWithNoise((Color){ 151, 164, 170, 255 }, 12,
+                                    hash);
+        if ((y + (int)(hash % 2u)) % 5 == 0) {
+            color = AtlasColorWithNoise((Color){ 128, 143, 151, 255 }, 8,
+                                        hash);
+        }
+        return color;
+    case TEX_MUD:
+        color = AtlasColorWithNoise((Color){ 91, 68, 48, 255 }, 18, hash);
+        if ((hash % 9u) == 0u) color = (Color){ 61, 49, 39, 255 };
+        if ((x + y + (int)(hash % 3u)) % 11 == 0) {
+            color = (Color){ 119, 91, 62, 255 };
+        }
+        return color;
+    case TEX_MOSSY_STONE:
+        color = AtlasColorWithNoise((Color){ 111, 116, 112, 255 }, 18,
+                                    hash);
+        if ((hash % 5u) == 0u ||
+            ((x + y + (int)(hash % 4u)) % 9 == 0)) {
+            color = AtlasColorWithNoise((Color){ 78, 111, 62, 255 }, 16,
+                                        hash);
+        }
+        return color;
+    case TEX_RED_SAND:
+        color = AtlasColorWithNoise((Color){ 184, 96, 54, 255 }, 18, hash);
+        if ((y + (int)(hash % 3u)) % 6 == 0) {
+            color = AtlasColorWithNoise((Color){ 215, 126, 70, 255 }, 10,
+                                        hash);
+        }
+        return color;
+    case TEX_BASALT:
+        color = AtlasColorWithNoise(
+            (x % 4 == 0) ? (Color){ 42, 44, 49, 255 }
+                         : (Color){ 66, 69, 74, 255 },
+            13, hash);
+        if ((hash % 17u) == 0u) color = (Color){ 91, 91, 94, 255 };
+        return color;
+    case TEX_COPPER_ORE:
+        color = AtlasColorWithNoise((Color){ 116, 120, 122, 255 }, 18,
+                                    hash);
+        if ((hash % 11u) == 0u) {
+            color = AtlasColorWithNoise((Color){ 184, 112, 72, 255 }, 14,
+                                        hash);
+        }
+        if ((hash % 29u) == 0u) color = (Color){ 85, 151, 126, 255 };
+        return color;
+    case TEX_CRYSTAL: {
+        int diagonal = (x + y * 2 + (int)(hash % 5u)) % 9;
+        color = AtlasColorWithNoise((Color){ 104, 170, 202, 255 }, 16,
+                                    hash);
+        if (diagonal < 2) color = (Color){ 181, 229, 239, 255 };
+        if ((hash % 13u) == 0u) color = (Color){ 151, 112, 201, 255 };
+        return color;
+    }
+    default:
+        return MAGENTA;
+    }
+}
+
 static Color ItemAtlasPixel(BlockTexture texture, int x, int y,
                             unsigned int hash)
 {
@@ -627,7 +698,7 @@ static Color NetherAtlasPixel(BlockTexture texture, int x, int y,
 static Color AtlasPixelColor(BlockTexture texture, int x, int y)
 {
     unsigned int hash = AtlasHash3D((int)texture, x, y);
-    if (texture >= TEX_COLOR_START && texture < TEX_COUNT) {
+    if (texture >= TEX_COLOR_START && texture <= TEX_COLOR_END) {
         Color base = ColorPalette256((int)texture - TEX_COLOR_START);
         Color color = AtlasColorWithNoise(base, 2, hash);
         if ((x + y) % 8 == 0) {
@@ -649,6 +720,9 @@ static Color AtlasPixelColor(BlockTexture texture, int x, int y)
     }
     if (texture >= TEX_NETHERRACK && texture <= TEX_NETHER_PORTAL) {
         return NetherAtlasPixel(texture, x, y, hash);
+    }
+    if (texture >= TEX_GRAVEL && texture <= TEX_CRYSTAL) {
+        return GeologyAtlasPixel(texture, x, y, hash);
     }
     return ItemAtlasPixel(texture, x, y, hash);
 }
@@ -794,6 +868,14 @@ BlockTexture TextureForBlockFace(BlockType type, int face)
     case BLOCK_SPACESHIP_CORE_SOUTH:
     case BLOCK_SPACESHIP_CORE_WEST:
     case BLOCK_SPACESHIP_OCCUPIED: return TEX_SPACESHIP;
+    case BLOCK_GRAVEL: return TEX_GRAVEL;
+    case BLOCK_CLAY: return TEX_CLAY;
+    case BLOCK_MUD: return TEX_MUD;
+    case BLOCK_MOSSY_STONE: return TEX_MOSSY_STONE;
+    case BLOCK_RED_SAND: return TEX_RED_SAND;
+    case BLOCK_BASALT: return TEX_BASALT;
+    case BLOCK_COPPER_ORE: return TEX_COPPER_ORE;
+    case BLOCK_CRYSTAL: return TEX_CRYSTAL;
     default: return TEX_DIRT;
     }
 }

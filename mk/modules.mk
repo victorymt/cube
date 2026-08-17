@@ -30,6 +30,11 @@ ENTITY_FEATURE_SRC := \
 	src/ecology/entity.c \
 	src/ecology/entity_simulation.c
 
+TERRAIN_FEATURE_SRC := \
+	src/world/terrain.c \
+	src/world/terrain_geology.c \
+	src/world/subsurface.c
+
 MODULE_SRC := \
 	$(CORE_SRC) \
 	$(WORLD_SRC) \

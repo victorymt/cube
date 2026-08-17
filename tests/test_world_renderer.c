@@ -11,12 +11,21 @@ static void TestMaterialProfiles(void)
     WorldMaterialProfile soil = WorldMaterialForTexture(TEX_DIRT);
     WorldMaterialProfile water = WorldMaterialForTexture(TEX_WATER);
     WorldMaterialProfile metal = WorldMaterialForTexture(TEX_IRON_ORE);
+    WorldMaterialProfile copper = WorldMaterialForTexture(TEX_COPPER_ORE);
+    WorldMaterialProfile gravel = WorldMaterialForTexture(TEX_GRAVEL);
+    WorldMaterialProfile crystal = WorldMaterialForTexture(TEX_CRYSTAL);
     WorldMaterialProfile lava = WorldMaterialForTexture(TEX_LAVA);
     assert(soil.kind == WORLD_MATERIAL_OPAQUE);
     assert(soil.roughness > 0.9f);
     assert(water.kind == WORLD_MATERIAL_WATER);
     assert(water.specular > 0.8f);
     assert(metal.kind == WORLD_MATERIAL_METAL);
+    assert(copper.kind == WORLD_MATERIAL_METAL);
+    assert(gravel.kind == WORLD_MATERIAL_OPAQUE);
+    assert(gravel.roughness > 0.85f);
+    assert(crystal.kind == WORLD_MATERIAL_OPAQUE);
+    assert(crystal.specular > 0.6f);
+    assert(crystal.emission == 0.0f);
     assert(metal.roughness < soil.roughness);
     assert(lava.emission == 1.0f);
 }

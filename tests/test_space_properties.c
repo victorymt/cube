@@ -29,7 +29,7 @@ uint32_t WorldGetSeed(void)
 
 bool IsValidBlockType(BlockType type)
 {
-    return (type >= BLOCK_AIR && type <= BLOCK_SPACESHIP_OCCUPIED) ||
+    return (type >= BLOCK_AIR && type <= BLOCK_NATURAL_END) ||
            (type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END);
 }
 
