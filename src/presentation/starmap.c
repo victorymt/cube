@@ -3,7 +3,8 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "presentation/render.h"
-#include "space/space.h"
+#include "space/space_query.h"
+#include "space/space_state.h"
 
 #include <math.h>
 #include <string.h>

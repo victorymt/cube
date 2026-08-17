@@ -8,7 +8,7 @@
 #include "presentation/environment_runtime.h"
 #include "presentation/weather_visual.h"
 #include "space/planet_observation.h"
-#include "space/space.h"
+#include "space/space_types.h"
 #include "world/terrain.h"
 #include "world/world_environment.h"
 #include "world/world_lighting.h"

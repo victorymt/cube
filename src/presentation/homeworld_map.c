@@ -9,7 +9,7 @@
 #include "presentation/render.h"
 #include "gameplay/map_markers.h"
 #include "gameplay/ship.h"
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/terrain.h"
 #include "world/world.h"
 #include "world/world_environment.h"

@@ -3,6 +3,8 @@
 
 #include "space/planet_surface.h"
 
+#include "raylib.h"
+
 #define PLANET_SURFACE_TYPE_MAX_VALUE 6
 
 // Material texture RGBA stores roughness, specular, emissive, and normalized surface type.

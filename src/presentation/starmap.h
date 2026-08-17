@@ -1,8 +1,7 @@
 #ifndef VOXELCRAFT_STARMAP_H
 #define VOXELCRAFT_STARMAP_H
 
-#include "world/world_types.h"
-#include "space/space.h"
+#include "space/space_types.h"
 
 void StarMapOpen(void);
 bool StarMapIsOpen(void);

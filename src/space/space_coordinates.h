@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_COORDINATES_H
 #define VOXELCRAFT_SPACE_COORDINATES_H
 
-#include "world/world_types.h"
+#include "raylib.h"
 
 #include <stdbool.h>
 #include <stdint.h>

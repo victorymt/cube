@@ -2,7 +2,8 @@
 #define VOXELCRAFT_SPACE_ORBIT_H
 
 #include "space/space_coordinates.h"
-#include "world/world_types.h"
+
+#include "raylib.h"
 
 #include <stdbool.h>
 

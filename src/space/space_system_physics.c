@@ -1,6 +1,7 @@
 #include "space/space_system_physics.h"
 
 #include "raymath.h"
+#include "space/space_query.h"
 #include "space/space_units.h"
 #include "space/space_system.h"
 #include "world/terrain.h"

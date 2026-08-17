@@ -73,6 +73,31 @@ do
     fi
 done
 
+space_facade_imports=$(
+    grep -R -n '#include "space/space.h"' src \
+        --include='*.c' --include='*.h' |
+        grep -v '^src/space/space.c:' || true
+)
+[ -z "$space_facade_imports" ] || {
+    printf '%s\n' "$space_facade_imports" >&2
+    fail "production code must use narrow space interfaces"
+}
+for space_header in \
+    src/space/space_types.h \
+    src/space/space_runtime.h \
+    src/space/space_state.h \
+    src/space/space_query.h \
+    src/space/space_chunks.h \
+    src/space/space_world_transition.h \
+    src/space/space_persistence.h
+do
+    [ -f "$space_header" ] || fail "missing narrow space interface $space_header"
+done
+if grep -nE '#include "(world|gameplay|presentation)/' \
+    src/space/space_types.h; then
+    fail "space value types must not depend on higher-level modules"
+fi
+
 public_externs=$(
     grep -R -n '^extern ' src --include='*.h' |
         grep -v '_internal\.h:' |

@@ -1,7 +1,9 @@
 #include "app/game_world_transition.h"
 
 #include "core/config.h"
-#include "space/space.h"
+#include "space/space_chunks.h"
+#include "space/space_state.h"
+#include "space/space_world_transition.h"
 #include "world/chunks.h"
 #include "world/terrain.h"
 #include "world/world.h"

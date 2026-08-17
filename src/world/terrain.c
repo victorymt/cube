@@ -10,7 +10,7 @@
 
 #include "raymath.h"
 #include "world/chunks.h"
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/world.h"
 
 #include <math.h>

@@ -1,6 +1,6 @@
 #include "world/world_environment.h"
 
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/terrain.h"
 #include "world/world.h"
 

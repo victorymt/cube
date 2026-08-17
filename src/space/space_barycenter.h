@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_BARYCENTER_H
 #define VOXELCRAFT_SPACE_BARYCENTER_H
 
-#include "world/world_types.h"
+#include "raylib.h"
 
 #define SPACE_BARYCENTER_MAX_BODIES 3
 

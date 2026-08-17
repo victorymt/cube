@@ -3,7 +3,7 @@
 #include "core/game_effects.h"
 #include "ecology/ecology.h"
 #include "ecology/fauna_motion.h"
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/fluid.h"
 #include "world/terrain.h"
 #include "world/weather.h"

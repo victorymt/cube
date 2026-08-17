@@ -1,7 +1,9 @@
 #ifndef VOXELCRAFT_PLANET_SURFACE_H
 #define VOXELCRAFT_PLANET_SURFACE_H
 
-#include "space/space.h"
+#include "space/planet_profile.h"
+
+#include <stdint.h>
 
 #define PLANET_GLOBAL_CIRCUMFERENCE_BLOCKS 16384.0f
 #define PLANET_GLOBAL_POLE_TO_POLE_BLOCKS 8192.0f

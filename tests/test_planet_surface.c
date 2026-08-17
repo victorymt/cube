@@ -1,5 +1,7 @@
 #include "space/planet_surface.h"
 
+#include "raylib.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>

@@ -3,7 +3,7 @@
 
 #include "world/world_types.h"
 #include "presentation/ui_types.h"
-#include "space/space.h"
+#include "space/space_types.h"
 #include "space/planet_observation.h"
 #include "gameplay/ship_locator.h"
 #include "presentation/weather_visual.h"

@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_RENDER_INTERNAL_H
 #define VOXELCRAFT_RENDER_INTERNAL_H
 
-#include "space/space.h"
+#include "space/space_types.h"
 
 typedef struct PlanetAtmosphereVisual {
     Color zenith;

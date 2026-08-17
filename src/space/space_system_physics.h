@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_SYSTEM_PHYSICS_H
 #define VOXELCRAFT_SPACE_SYSTEM_PHYSICS_H
 
-#include "space/space.h"
+#include "space/space_types.h"
 
 bool SolarSystemPhysicalSnapshotBuild(
     const SolarSystemDef *sys, SolarSystemPhysicalSnapshot *out);

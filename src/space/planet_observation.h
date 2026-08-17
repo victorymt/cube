@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_PLANET_OBSERVATION_H
 #define VOXELCRAFT_PLANET_OBSERVATION_H
 
-#include "space/space.h"
+#include "space/space_types.h"
 
 typedef enum PlanetObservationPhase {
     PLANET_OBSERVATION_NIGHT = 0,

@@ -2,7 +2,7 @@
 
 #include "presentation/creature_renderer.h"
 #include "ecology/ecology.h"
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/world.h"
 
 #include "raymath.h"

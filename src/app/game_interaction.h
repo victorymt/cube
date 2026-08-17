@@ -2,7 +2,7 @@
 #define VOXELCRAFT_GAME_INTERACTION_H
 
 #include "gameplay/ship.h"
-#include "space/space.h"
+#include "space/space_types.h"
 #include "world/world_types.h"
 
 struct EntityEvolutionDebugInfo;

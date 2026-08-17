@@ -3,7 +3,7 @@
 #include "ecology/evolution.h"
 #include "ecology/evolution_catalog.h"
 #include "presentation/render.h"
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/world.h"
 
 #include "raylib.h"

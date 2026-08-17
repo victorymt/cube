@@ -5,7 +5,7 @@
 
 #include "ecology/ecology.h"
 #include "presentation/render_resources.h"
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/block_atlas.h"
 #include "world/terrain.h"
 #include "world/weather.h"

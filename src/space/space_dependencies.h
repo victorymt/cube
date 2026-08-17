@@ -1,9 +1,16 @@
 #ifndef VOXELCRAFT_SPACE_DEPENDENCIES_H
 #define VOXELCRAFT_SPACE_DEPENDENCIES_H
 
-#include "space/space.h"
+#include "space/space_chunks.h"
+#include "space/space_persistence.h"
+#include "space/space_query.h"
+#include "space/space_runtime.h"
+#include "space/space_state.h"
+#include "space/space_types.h"
+#include "space/space_world_transition.h"
 
 #include "ecology/ecology.h"
+#include "gameplay/player_types.h"
 #include "presentation/render_resources.h"
 #include "space/solar_catalog.h"
 #include "space/space_barycenter.h"

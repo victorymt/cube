@@ -5,7 +5,7 @@
 #include "world/world.h"
 #include "world/terrain.h"
 #include "gameplay/player.h"
-#include "space/space.h"
+#include "space/space_chunks.h"
 #include "world/world_environment.h"
 
 #include <ctype.h>

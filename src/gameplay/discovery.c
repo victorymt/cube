@@ -2,7 +2,7 @@
 
 #include "world/chunks.h"
 #include "gameplay/inventory.h"
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/terrain.h"
 #include "world/world.h"
 

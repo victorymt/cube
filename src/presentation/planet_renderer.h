@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_PLANET_RENDERER_H
 #define VOXELCRAFT_PLANET_RENDERER_H
 
-#include "space/space.h"
+#include "space/space_types.h"
 
 typedef struct PlanetTextureSet {
     Texture2D albedo;

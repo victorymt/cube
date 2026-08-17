@@ -1,5 +1,7 @@
 #include "space/planet_surface.h"
 
+#include "space/space_state.h"
+
 #include "raymath.h"
 
 #include <math.h>

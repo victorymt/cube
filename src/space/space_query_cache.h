@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_QUERY_CACHE_H
 #define VOXELCRAFT_SPACE_QUERY_CACHE_H
 
-#include "space/space.h"
+#include "space/space_types.h"
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -1,7 +1,9 @@
 #include "presentation/render.h"
 
 #include "gameplay/ship.h"
+#include "space/space_query.h"
 #include "space/space_remnant.h"
+#include "space/space_state.h"
 #include "space/space_units.h"
 
 #include <math.h>

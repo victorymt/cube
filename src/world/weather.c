@@ -1,7 +1,7 @@
 #include "world/weather.h"
 
 #include "core/game_effects.h"
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/terrain.h"
 #include "world/world.h"
 #include "world/world_environment.h"

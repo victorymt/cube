@@ -1,6 +1,6 @@
 #include "ecology/ecology_internal.h"
 
-#include "space/space.h"
+#include "space/space_state.h"
 #include "world/world.h"
 
 #include <math.h>

@@ -8,7 +8,6 @@
 #include "world/world.h"
 #include "world/terrain.h"
 #include "ecology/ecology.h"
-#include "space/space.h"
 #include "world/world_environment.h"
 #include "world/weather.h"
 

@@ -7,7 +7,8 @@
 #include "world/world.h"
 #include "gameplay/interaction.h"
 #include "gameplay/ship.h"
-#include "space/space.h"
+#include "space/space_chunks.h"
+#include "space/space_query.h"
 #include "world/world_environment.h"
 
 #include <limits.h>
