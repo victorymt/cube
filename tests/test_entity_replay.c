@@ -290,6 +290,16 @@ static unsigned char *CaptureState(size_t *size)
     return data;
 }
 
+static uint64_t EntityStateHash(const unsigned char *data, size_t size)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    for (size_t index = 0; index < size; index++) {
+        hash ^= data[index];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
 static void RunFrames(Player *player, int count)
 {
     for (int frame = 0; frame < count; frame++) {
@@ -417,6 +427,8 @@ static void TestEntityReplay(void)
     RunFrames(&player, 80);
     size_t expectedSize = 0;
     unsigned char *expected = CaptureState(&expectedSize);
+    assert(EntityStateHash(expected, expectedSize) ==
+           UINT64_C(3340331984177728549));
 
     LoadBytes(checkpoint, checkpointSize);
     RunFrames(&player, 80);

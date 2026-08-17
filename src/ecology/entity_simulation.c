@@ -1013,98 +1013,124 @@ static void EntityUpdateEvolutionLifecycle(Entity *entity, int entityIndex,
     }
 }
 
-static void UpdatePassive(Entity *entity, int entityIndex,
-                          const Player *player, float dt,
-                          float daylight)
-{
-    EntityUpdateEvolutionLifecycle(entity, entityIndex, dt, daylight);
-    if (!entity->active || entity->corpse) return;
-    bool ecological = EntityUsesEcology(entity);
-    PlanetFaunaRuntimeState runtime = PlanetEcologyFaunaRuntime(1.0f, 1.0f);
-    if (ecological) {
-        entity->ecologySampleTimer -= dt;
-        if (entity->ecologySampleTimer <= 0.0f) {
-            PlanetLocalEcology local = PlanetEcologyLocalAt(
-                (int)floorf(entity->position.x),
-                (int)floorf(entity->position.z), daylight);
-            entity->ecologyActivity = local.suitability.faunaActivity;
-            entity->ecologyCapacity = local.suitability.faunaCapacity;
-            WeatherFieldSample weather = WeatherFieldSampleAtWorld(
-                (int)floorf(entity->position.x),
-                (int)floorf(entity->position.z));
-            entity->ecologyWindStrength = weather.wind;
-            entity->ecologyWindAngle = WeatherWindAngleAtWorld(
-                (int)floorf(entity->position.x),
-                (int)floorf(entity->position.z));
-            EntityApplyLocalBehaviorEnvironment(entity, &local, weather);
-            entity->ecologySampleTimer = 1.0f;
-        }
-        runtime = PlanetEcologyFaunaRuntime(entity->ecologyActivity,
-                                             entity->ecologyCapacity);
-    }
+typedef struct PassiveUpdateContext {
+    Entity *entity;
+    int entityIndex;
+    const Player *player;
+    float dt;
+    float daylight;
+    bool ecological;
+    bool threatened;
+    PlanetFaunaRuntimeState runtime;
+    float baseSpeed;
+    float movementScale;
+    float windDrift;
+    float horizontalSpeed;
+    Vector3 toPlayer;
+    FaunaMotionProfile motionProfile;
+    FaunaNeedInput needInput;
+} PassiveUpdateContext;
 
-    float baseSpeed = (entity->type == ENTITY_CHICKEN) ? 0.7f : 1.0f;
-    if (ecological) {
-        baseSpeed = entity->movementSpeed;
-        if (entity->airborne) baseSpeed *= 1.25f;
-        else if (entity->aquatic) baseSpeed *= 1.10f;
-        else baseSpeed *= 0.92f;
+static void PassiveSampleEnvironment(PassiveUpdateContext *context)
+{
+    Entity *entity = context->entity;
+    context->ecological = EntityUsesEcology(entity);
+    context->runtime = PlanetEcologyFaunaRuntime(1.0f, 1.0f);
+    if (!context->ecological) return;
+
+    entity->ecologySampleTimer -= context->dt;
+    if (entity->ecologySampleTimer <= 0.0f) {
+        int x = (int)floorf(entity->position.x);
+        int z = (int)floorf(entity->position.z);
+        PlanetLocalEcology local = PlanetEcologyLocalAt(
+            x, z, context->daylight);
+        entity->ecologyActivity = local.suitability.faunaActivity;
+        entity->ecologyCapacity = local.suitability.faunaCapacity;
+        WeatherFieldSample weather = WeatherFieldSampleAtWorld(x, z);
+        entity->ecologyWindStrength = weather.wind;
+        entity->ecologyWindAngle = WeatherWindAngleAtWorld(x, z);
+        EntityApplyLocalBehaviorEnvironment(entity, &local, weather);
+        entity->ecologySampleTimer = 1.0f;
     }
-    Vector3 toPlayer = Vector3Subtract(player->position, entity->position);
-    float playerDist = Vector3Length(toPlayer);
-    bool threatened = playerDist < 5.0f;
-    float movementScale = ecological ? runtime.movementScale : 1.0f;
-    if (ecological && threatened) movementScale = fmaxf(movementScale, 0.28f);
-    float windDrift = ecological
+    context->runtime = PlanetEcologyFaunaRuntime(
+        entity->ecologyActivity, entity->ecologyCapacity);
+}
+
+static void PassiveAdvanceNeeds(PassiveUpdateContext *context)
+{
+    Entity *entity = context->entity;
+    context->baseSpeed = entity->type == ENTITY_CHICKEN ? 0.7f : 1.0f;
+    if (context->ecological) {
+        context->baseSpeed = entity->movementSpeed;
+        if (entity->airborne) context->baseSpeed *= 1.25f;
+        else if (entity->aquatic) context->baseSpeed *= 1.10f;
+        else context->baseSpeed *= 0.92f;
+    }
+    context->toPlayer = Vector3Subtract(
+        context->player->position, entity->position);
+    context->threatened = Vector3Length(context->toPlayer) < 5.0f;
+    context->movementScale = context->ecological
+        ? context->runtime.movementScale : 1.0f;
+    if (context->ecological && context->threatened) {
+        context->movementScale = fmaxf(context->movementScale, 0.28f);
+    }
+    context->windDrift = context->ecological
         ? PlanetEcologyWindDrift(entity->ecologyWindStrength,
                                  entity->airborne)
         : 0.0f;
-    FaunaMotionProfile motionProfile = EntityMotionProfile(entity, baseSpeed);
-    float horizontalSpeed = sqrtf(
+    context->motionProfile = EntityMotionProfile(
+        entity, context->baseSpeed);
+    context->horizontalSpeed = sqrtf(
         entity->velocity.x * entity->velocity.x +
         entity->velocity.z * entity->velocity.z);
     bool actionActive = entity->moveTimer > 0.0f;
     bool filterFeeding = entity->niche == PLANET_NICHE_FILTER_FEEDER &&
                          entity->behavior == FAUNA_ACTION_SEEK_FOOD;
-    FaunaNeedInput needInput = {
-        .activityRatio = runtime.activityRatio,
-        .movementRatio = motionProfile.sprintSpeed > 0.0001f
-            ? horizontalSpeed / motionProfile.sprintSpeed : 0.0f,
+    context->needInput = (FaunaNeedInput){
+        .activityRatio = context->runtime.activityRatio,
+        .movementRatio = context->motionProfile.sprintSpeed > 0.0001f
+            ? context->horizontalSpeed / context->motionProfile.sprintSpeed
+            : 0.0f,
         .foodAvailability = entity->ecologyFoodAvailability,
         .waterAvailability = entity->ecologyWaterAvailability,
         .shelterAvailability = entity->ecologyShelterAvailability,
         .stormPressure = entity->ecologyStormPressure,
         .temperatureStress = entity->ecologyTemperatureStress,
         .moving = actionActive && FaunaBehaviorActionMoves(entity->behavior),
-        .threatened = threatened,
+        .threatened = context->threatened,
         .feeding = actionActive &&
             (entity->behavior == FAUNA_ACTION_FORAGE || filterFeeding),
         .drinking = actionActive && entity->behavior == FAUNA_ACTION_DRINK,
         .resting = actionActive && entity->behavior == FAUNA_ACTION_REST
     };
-    entity->needs = FaunaNeedsAdvance(&entity->needs, &needInput, dt);
+    entity->needs = FaunaNeedsAdvance(
+        &entity->needs, &context->needInput, context->dt);
+}
 
-    entity->thinkTimer -= dt;
-    if (threatened && entity->behavior != FAUNA_ACTION_FLEE) {
+static void PassiveChooseBehavior(PassiveUpdateContext *context)
+{
+    Entity *entity = context->entity;
+    entity->thinkTimer -= context->dt;
+    if (context->threatened && entity->behavior != FAUNA_ACTION_FLEE) {
         entity->thinkTimer = 0.0f;
     }
     if (entity->thinkTimer <= 0.0f) {
         float baseThinkInterval = 2.0f +
             (float)EntityRandomBounded(300u) / 100.0f;
         EntityBehaviorDirections directions = { 0 };
-        if (ecological && !threatened && !entity->colony) {
-            directions = AlienBehaviorDirectionsAt(entity, daylight);
+        if (context->ecological && !context->threatened && !entity->colony) {
+            directions = AlienBehaviorDirectionsAt(entity, context->daylight);
         }
         FaunaBehaviorInput behaviorInput = {
             .needs = entity->needs,
-            .environment = needInput,
+            .environment = context->needInput,
             .food = directions.food,
             .water = directions.water,
             .shelter = directions.shelter,
             .habitat = directions.habitat,
             .foodDependence = EntityFoodDependence(entity->niche),
             .waterDependence = EntityWaterDependence(entity->chemistry),
-            .fleeYaw = atan2f(-toPlayer.x, -toPlayer.z),
+            .fleeYaw = atan2f(-context->toPlayer.x, -context->toPlayer.z),
             .baseThinkInterval = baseThinkInterval,
             .wanderRoll = (unsigned)EntityRandomBounded(100u),
             .wanderYaw = (float)EntityRandomBounded(628u) / 100.0f,
@@ -1112,27 +1138,28 @@ static void UpdatePassive(Entity *entity, int entityIndex,
                 (float)EntityRandomBounded(200u) / 100.0f,
             .currentAction = entity->behavior,
             .colony = entity->colony,
-            .dormant = ecological && runtime.dormant
+            .dormant = context->ecological && context->runtime.dormant
         };
         FaunaBehaviorDecision decision = FaunaBehaviorEvaluate(&behaviorInput);
         int evolutionTarget = -1;
         FaunaBehaviorAction evolutionAction = FAUNA_ACTION_IDLE;
-        if (entity->evolvable && !entity->pregnant && !threatened) {
+        if (entity->evolvable && !entity->pregnant &&
+            !context->threatened) {
             if (entity->phenotype.diet >= 0.36f && entity->needs.energy < 0.78f) {
                 evolutionTarget = EntityFindEvolutionTarget(
-                    entityIndex, FAUNA_ACTION_SCAVENGE);
+                    context->entityIndex, FAUNA_ACTION_SCAVENGE);
                 evolutionAction = FAUNA_ACTION_SCAVENGE;
             }
             if (evolutionTarget < 0 && entity->phenotype.diet >= 0.58f &&
                 entity->needs.energy < 0.70f) {
                 evolutionTarget = EntityFindEvolutionTarget(
-                    entityIndex, FAUNA_ACTION_HUNT);
+                    context->entityIndex, FAUNA_ACTION_HUNT);
                 evolutionAction = FAUNA_ACTION_HUNT;
             }
             if (evolutionTarget < 0 && EntityAdult(entity) &&
                 entity->reproductionCooldownDays <= 0.0f) {
                 evolutionTarget = EntityFindEvolutionTarget(
-                    entityIndex, FAUNA_ACTION_MATE);
+                    context->entityIndex, FAUNA_ACTION_MATE);
                 evolutionAction = FAUNA_ACTION_MATE;
             }
         }
@@ -1159,7 +1186,11 @@ static void UpdatePassive(Entity *entity, int entityIndex,
             entity->motionTargetYaw = decision.yaw;
         }
     }
+}
 
+static void PassiveInteractWithTarget(PassiveUpdateContext *context)
+{
+    Entity *entity = context->entity;
     if (entity->evolvable && entity->targetEntity >= 0) {
         Entity *target = &entities[entity->targetEntity];
         Vector3 toTarget = Vector3Subtract(target->position, entity->position);
@@ -1168,7 +1199,8 @@ static void UpdatePassive(Entity *entity, int entityIndex,
         if (targetDistance <= entity->phenotype.bodyRadius +
                               target->phenotype.bodyRadius + 0.55f) {
             if (entity->behavior == FAUNA_ACTION_SCAVENGE && target->corpse) {
-                float consumed = fminf(target->corpseEnergy, dt * 0.10f);
+                float consumed = fminf(
+                    target->corpseEnergy, context->dt * 0.10f);
                 target->corpseEnergy -= consumed;
                 entity->needs.energy = fminf(1.0f,
                     entity->needs.energy + consumed * 0.85f);
@@ -1178,13 +1210,14 @@ static void UpdatePassive(Entity *entity, int entityIndex,
                 }
             } else if (entity->behavior == FAUNA_ACTION_HUNT &&
                        !target->corpse) {
-                float damage = dt * (0.08f + entity->phenotype.attack * 0.035f) /
+                float damage = context->dt *
+                    (0.08f + entity->phenotype.attack * 0.035f) /
                     fmaxf(0.5f, target->phenotype.defense * 0.22f);
                 target->health -= damage;
                 if (target->health <= 0.0f) {
                     PlanetEcologyRecordEvolutionEvent(
                         (int)floorf(target->position.x),
-                        (int)floorf(target->position.z), daylight,
+                        (int)floorf(target->position.z), context->daylight,
                         target->lineageId,
                         PLANET_EVOLUTION_EVENT_PREDATION_DEATH,
                         target->phenotype.totalMass);
@@ -1199,9 +1232,14 @@ static void UpdatePassive(Entity *entity, int entityIndex,
             }
         }
     }
+}
 
-    actionActive = entity->moveTimer > 0.0f;
-    float animationScale = ecological ? runtime.animationScale : 1.0f;
+static void PassiveAdvanceController(PassiveUpdateContext *context)
+{
+    Entity *entity = context->entity;
+    bool actionActive = entity->moveTimer > 0.0f;
+    float animationScale = context->ecological
+        ? context->runtime.animationScale : 1.0f;
     if (actionActive && entity->behavior == FAUNA_ACTION_REST) {
         animationScale *= 0.35f;
     }
@@ -1220,12 +1258,13 @@ static void UpdatePassive(Entity *entity, int entityIndex,
         EvolutionControllerEvaluate(&entity->genome, controllerInputs,
                                     controllerOutputs);
         entity->motionTargetYaw += controllerOutputs[0] * 0.22f;
-        movementScale *= fminf(fmaxf(
+        context->movementScale *= fminf(fmaxf(
             1.0f + controllerOutputs[1] * 0.16f, 0.82f), 1.18f);
     }
     float neuralPhaseScale = 1.0f + controllerOutputs[2] * 0.15f;
-    entity->phase += dt * (0.7f + baseSpeed * 0.35f) * animationScale *
-                     neuralPhaseScale;
+    entity->phase += context->dt *
+        (0.7f + context->baseSpeed * 0.35f) * animationScale *
+        neuralPhaseScale;
     if (entity->airborne && !entity->aquatic) {
         int groundY = EntitySurfaceHeight(
             (int)floorf(entity->position.x),
@@ -1235,34 +1274,40 @@ static void UpdatePassive(Entity *entity, int entityIndex,
             : (float)SURFACE_MAX_Y_EXCLUSIVE - 3.0f;
         float terrainHover = fminf(
             flightCeiling,
-            (float)groundY + 1.0f + motionProfile.hoverClearance);
+            (float)groundY + 1.0f + context->motionProfile.hoverClearance);
         entity->hoverHeight += (terrainHover - entity->hoverHeight) *
-            fminf(1.0f, dt * 0.75f);
+            fminf(1.0f, context->dt * 0.75f);
         float targetY = entity->hoverHeight + sinf(entity->phase) *
                         (0.45f + entity->organismScale * 0.22f) *
                         (0.20f + animationScale * 0.80f);
-        entity->position.y += (targetY - entity->position.y) * fminf(1.0f, dt * 2.2f);
+        entity->position.y += (targetY - entity->position.y) *
+            fminf(1.0f, context->dt * 2.2f);
     }
+}
 
+static void PassiveIntegrateMotion(PassiveUpdateContext *context)
+{
+    Entity *entity = context->entity;
     bool moving = entity->moveTimer > 0.0f && !entity->colony &&
                   FaunaBehaviorActionMoves(entity->behavior);
-    if (entity->moveTimer > 0.0f) entity->moveTimer -= dt;
+    if (entity->moveTimer > 0.0f) entity->moveTimer -= context->dt;
 
     FaunaMotionInput motionInput = {
-        .profile = motionProfile,
+        .profile = context->motionProfile,
         .currentYaw = entity->yaw,
         .targetYaw = entity->motionTargetYaw,
-        .currentSpeed = horizontalSpeed,
+        .currentSpeed = context->horizontalSpeed,
         .movementScale = fmaxf(
-            movementScale, EntityBehaviorMovementFloor(entity->behavior)),
-        .deltaTime = dt,
+            context->movementScale,
+            EntityBehaviorMovementFloor(entity->behavior)),
+        .deltaTime = context->dt,
         .moving = moving,
         .sprinting = entity->behavior == FAUNA_ACTION_FLEE
     };
-    float lookahead = motionProfile.bodyRadius + 0.38f +
+    float lookahead = context->motionProfile.bodyRadius + 0.38f +
         fminf(motionInput.currentSpeed * 0.25f, 0.45f);
     if (moving) {
-        EntityMotionCandidates(entity, &motionProfile,
+        EntityMotionCandidates(entity, &context->motionProfile,
                                entity->motionTargetYaw, lookahead,
                                motionInput.candidates);
     }
@@ -1280,22 +1325,47 @@ static void UpdatePassive(Entity *entity, int entityIndex,
     move.x += current.x;
     move.z += current.z;
     if (entity->aquatic && fabsf(current.y) > 0.0001f) {
-        entity->position.y += current.y * dt;
+        entity->position.y += current.y * context->dt;
     }
-    if (ecological && windDrift > 0.0f) {
-        float coupledDrift = windDrift * motionProfile.windCoupling;
+    if (context->ecological && context->windDrift > 0.0f) {
+        float coupledDrift = context->windDrift *
+            context->motionProfile.windCoupling;
         move.x += cosf(entity->ecologyWindAngle) * coupledDrift;
         move.z += sinf(entity->ecologyWindAngle) * coupledDrift;
     }
     if (motion.speed > 0.0f || fabsf(current.x) > 0.0001f ||
         fabsf(current.z) > 0.0001f ||
-        (ecological && entity->airborne && windDrift > 0.0f)) {
+        (context->ecological && entity->airborne &&
+         context->windDrift > 0.0f)) {
         if (entity->airborne || entity->aquatic) {
-            MoveEntityAirborne(entity, &motionProfile, move, dt);
+            MoveEntityAirborne(
+                entity, &context->motionProfile, move, context->dt);
         } else {
-            MoveEntityGrounded(entity, &motionProfile, move, dt);
+            MoveEntityGrounded(
+                entity, &context->motionProfile, move, context->dt);
         }
     }
+}
+
+static void UpdatePassive(Entity *entity, int entityIndex,
+                          const Player *player, float dt,
+                          float daylight)
+{
+    EntityUpdateEvolutionLifecycle(entity, entityIndex, dt, daylight);
+    if (!entity->active || entity->corpse) return;
+    PassiveUpdateContext context = {
+        .entity = entity,
+        .entityIndex = entityIndex,
+        .player = player,
+        .dt = dt,
+        .daylight = daylight
+    };
+    PassiveSampleEnvironment(&context);
+    PassiveAdvanceNeeds(&context);
+    PassiveChooseBehavior(&context);
+    PassiveInteractWithTarget(&context);
+    PassiveAdvanceController(&context);
+    PassiveIntegrateMotion(&context);
 }
 
 static void UpdateHostile(Entity *entity, const Player *player, float dt, float daylight)
