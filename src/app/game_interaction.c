@@ -2,7 +2,7 @@
 #include "raymath.h"
 
 #include "app/game_interaction.h"
-#include "gameplay/album.h"
+#include "presentation/album_ui.h"
 #include "presentation/audio.h"
 #include "gameplay/discovery.h"
 #include "ecology/entity.h"
@@ -238,7 +238,7 @@ static void GameOpenAlbumFromWorld(GameRuntime *game)
         game->albumRainSuspended = true;
         AudioSetRain(false);
     }
-    AlbumOpen();
+    AlbumUiOpen();
     game->albumOpen = true;
     game->player.velocity = Vector3Zero();
     game->cursorReleased = false;

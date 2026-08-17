@@ -46,6 +46,7 @@ SHIP_EXHAUST_TEST_TARGET := $(TEST_BUILD_DIR)/test_ship_exhaust
 SHIP_LOCATOR_TEST_TARGET := $(TEST_BUILD_DIR)/test_ship_locator
 BLOCK_ATLAS_TEST_TARGET := $(TEST_BUILD_DIR)/test_block_atlas
 INVENTORY_TEST_TARGET := $(TEST_BUILD_DIR)/test_inventory
+ALBUM_TEST_TARGET := $(TEST_BUILD_DIR)/test_album
 CHUNK_ATLAS_TEST_TARGET := $(TEST_BUILD_DIR)/test_chunk_atlas
 CHUNK_STREAMING_TEST_TARGET := $(TEST_BUILD_DIR)/test_chunk_streaming
 TERRAIN_SCALE_TEST_TARGET := $(TEST_BUILD_DIR)/test_terrain_scale
@@ -91,6 +92,7 @@ TEST_TARGETS += $(SAVE_FORMAT_TEST_TARGET)
 TEST_TARGETS += $(GAME_DEBUG_TRACE_TEST_TARGET)
 TEST_TARGETS += $(GAME_STREAM_AUDIT_TEST_TARGET)
 TEST_TARGETS += $(GAME_EFFECTS_TEST_TARGET)
+TEST_TARGETS += $(ALBUM_TEST_TARGET)
 TEST_HEADERS := $(sort $(wildcard src/*/*.h) $(wildcard tests/*.h))
 TEST_TIMEOUT_SECONDS ?= 120
 SANITIZER_LEAKS ?= 1
@@ -281,6 +283,9 @@ $(BLOCK_ATLAS_TEST_TARGET): tests/test_block_atlas.c src/world/block_atlas.c src
 
 $(INVENTORY_TEST_TARGET): tests/test_inventory.c src/gameplay/inventory.c src/gameplay/inventory.h src/world/world_types.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_inventory.c src/gameplay/inventory.c
+
+$(ALBUM_TEST_TARGET): tests/test_album.c src/gameplay/album.c src/gameplay/album.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_album.c src/gameplay/album.c $(RAYLIB_LIBS)
 
 $(CHUNK_ATLAS_TEST_TARGET): tests/test_chunk_atlas.c src/world/block_atlas.c src/world/block_atlas.h $(CHUNKS_FEATURE_SRC) src/world/chunks.h src/world/world_types.h src/world/world.c src/world/world.h
 	$(CC) $(CFLAGS) -DCHUNKS_TESTING -ffunction-sections -fdata-sections $(RAYLIB_CFLAGS) -Isrc -Wl,--gc-sections -o $@ tests/test_chunk_atlas.c src/world/block_atlas.c $(CHUNKS_FEATURE_SRC) src/world/world.c $(RAYLIB_LIBS) -lm -pthread

@@ -97,6 +97,8 @@ for split_file in \
     src/presentation/render_planets.c \
     src/presentation/render_sky.c \
     src/presentation/render_ui.c \
+    src/presentation/album_ui.c \
+    src/presentation/scanner_overlay.c \
     src/space/space_state.c \
     src/space/space_runtime.c \
     src/space/space_query.c \
@@ -191,6 +193,21 @@ if grep -nE '\b(HomeWorldTryEnter|PlanetWorldTryEnter)\b' \
     src/gameplay/ship.c; then
     fail "ship exit must not trigger a world transition"
 fi
+
+if grep -nE '\b(Draw|Texture2D|LoadTexture|UnloadTexture|GetScreen|GetMouse|IsMouse|UiDrawText)' \
+    src/gameplay/album.c src/gameplay/album.h \
+    src/gameplay/discovery.c src/gameplay/discovery.h; then
+    fail "gameplay album and discovery must expose data, not presentation"
+fi
+if grep -n '#include "presentation/' \
+    src/gameplay/album.c src/gameplay/album.h \
+    src/gameplay/discovery.c src/gameplay/discovery.h; then
+    fail "gameplay album and discovery must not depend on presentation"
+fi
+grep -q '^void AlbumUiDraw(' src/presentation/album_ui.c ||
+    fail "presentation must own album drawing"
+grep -q '^void DrawPlanetPoiScanner(' src/presentation/scanner_overlay.c ||
+    fail "presentation must own the planet scanner overlay"
 
 if grep -n '#[[:space:]]*include[[:space:]]*"fluid.h"' \
     src/world/world.c src/world/chunks.c; then

@@ -21,11 +21,14 @@
 #include "gameplay/player.h"
 #include "gameplay/interaction.h"
 #include "gameplay/album.h"
+#include "gameplay/discovery.h"
 #include "gameplay/inventory.h"
 #include "gameplay/map_markers.h"
 #include "presentation/render.h"
 #include "presentation/render_resources.h"
 #include "presentation/render_ui.h"
+#include "presentation/album_ui.h"
+#include "presentation/scanner_overlay.h"
 #include "presentation/particles.h"
 #include "presentation/audio.h"
 #include "world/weather.h"
@@ -40,7 +43,6 @@
 #include "ecology/evolution_catalog.h"
 #include "presentation/starmap.h"
 #include "presentation/homeworld_map.h"
-#include "gameplay/discovery.h"
 #include "ecology/ecology.h"
 #include "core/perf.h"
 #include "presentation/world_renderer.h"
@@ -183,6 +185,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     SpaceReset();
     NetherReset();
     AlbumReset();
+    AlbumUiReset();
     WorldReset(seed);
     MapMarkersReset();
     EvolutionCatalogReset();
@@ -269,17 +272,34 @@ static void GameUpdateAlbum(GameRuntime *game)
             game->albumRainSuspended = true;
             AudioSetRain(false);
         }
-        AlbumOpen();
+        AlbumUiOpen();
         game->albumOpen = true;
         game->player.velocity = Vector3Zero();
         game->cursorReleased = false;
         EnableCursor();
     }
 
-    AlbumUpdate();
-    if (AlbumConsumePlaceRequest()) {
-        const char *placedPath = AlbumSelectedPath();
-        AlbumClose();
+    AlbumUiEvent albumEvent = AlbumUiUpdate();
+    switch (albumEvent) {
+    case ALBUM_UI_EVENT_IMAGE_ADDED:
+        SetImportMessage("Added image to album.");
+        break;
+    case ALBUM_UI_EVENT_ALBUM_FULL:
+        SetImportMessage("Album is full (64 images).");
+        break;
+    case ALBUM_UI_EVENT_DUPLICATE_IMAGE:
+        SetImportMessage("Image already in album.");
+        break;
+    case ALBUM_UI_EVENT_INVALID_IMAGE:
+        SetImportMessage("Unable to add the selected image.");
+        break;
+    case ALBUM_UI_EVENT_NONE:
+    default:
+        break;
+    }
+    if (AlbumUiConsumePlaceRequest()) {
+        const char *placedPath = AlbumUiSelectedPath();
+        AlbumUiClose();
         game->albumOpen = false;
         if (game->albumRainSuspended) {
             game->albumRainSuspended = false;
@@ -294,7 +314,7 @@ static void GameUpdateAlbum(GameRuntime *game)
                                 IMPORT_DEFAULT_BLOCKS, false);
         }
     }
-    if (!AlbumIsOpen() && game->albumOpen) {
+    if (!AlbumUiIsOpen() && game->albumOpen) {
         game->albumOpen = false;
         if (game->albumRainSuspended) {
             game->albumRainSuspended = false;
@@ -1086,7 +1106,7 @@ static void GameRenderEnvironmentOverlays(GameRuntime *game,
                    ShipIsSupercruising());
     DrawSolarGuide(&game->camera, frame->spaceFade);
     if (game->scannerActive && PlanetWorldIsActive()) {
-        PlanetPoiDrawScanner(&game->camera, game->player.position);
+        DrawPlanetPoiScanner(&game->camera, game->player.position);
     }
     ShipLocatorTarget shipLocatorTarget = { 0 };
     if (game->shipLocatorEnabled && !ShipIsDriving() &&
@@ -1149,7 +1169,7 @@ static void GameRenderHud(GameRuntime *game, const GameFrameView *frame,
                       ChunksRenderDistance());
     }
     DrawImportDialog(&game->importDialog);
-    AlbumDraw();
+    AlbumUiDraw();
     StarMapDraw();
     if (game->showDebug && !game->biologyAtlasOpen &&
         !HomeWorldMapIsOpen()) {
@@ -1234,7 +1254,7 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         game->cursorReleased = false;
         if (game->albumOpen) {
             game->albumOpen = false;
-            AlbumClose();
+            AlbumUiClose();
         }
         game->screen = SCREEN_START;
         AudioSetEnvironment(NULL);
@@ -1369,6 +1389,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
         GraphicsQualityProfileFor(
             game->settings.graphicsQuality).precipitationScale);
     AlbumInit();
+    AlbumUiInit();
     SpaceInit();
     NetherInit();
     EntitiesInit();
@@ -1424,10 +1445,10 @@ static int GameStop(GameRuntime *game)
     GameEffectsReset();
     AudioShutdown();
     UiFontShutdown();
+    AlbumUiCleanup();
     bool perfPassed = PerfReportPassed();
     PerfShutdown();
     CloseWindow();
-    AlbumCleanup();
     WorldCleanup();
     GameDebugTraceStop(game);
     DebugControlReply(&game->debugControl, "DEBUG_CONTROL stopped\n");

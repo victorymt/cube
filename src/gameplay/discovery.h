@@ -25,6 +25,5 @@ bool PlanetPoiNearest(Vector3 playerPosition, PlanetPoi *out);
 bool PlanetPoiIsCore(int x, int y, int z);
 bool PlanetPoiIsClaimed(int x, int y, int z);
 bool PlanetPoiTryClaim(int x, int y, int z, PlanetPoi *out);
-void PlanetPoiDrawScanner(const Camera3D *camera, Vector3 playerPosition);
 
 #endif
