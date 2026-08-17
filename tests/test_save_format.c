@@ -1,4 +1,4 @@
-#include "world/save_format_internal.h"
+#include "world/save_format.h"
 
 #include <assert.h>
 #include <stdio.h>

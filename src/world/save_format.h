@@ -1,5 +1,5 @@
-#ifndef VOXELCRAFT_SAVE_FORMAT_INTERNAL_H
-#define VOXELCRAFT_SAVE_FORMAT_INTERNAL_H
+#ifndef VOXELCRAFT_SAVE_FORMAT_H
+#define VOXELCRAFT_SAVE_FORMAT_H
 
 #include <stdbool.h>
 #include <stdio.h>

@@ -1,25 +1,15 @@
-#define _POSIX_C_SOURCE 200809L
 #include "world/world.h"
 
 #include "raymath.h"
 #include "world/block_catalog.h"
 #include "world/chunks.h"
-#include "gameplay/player.h"
 #include "space/space.h"
 #include "world/nether.h"
-#include "gameplay/album.h"
-#include "gameplay/inventory.h"
-#include "gameplay/map_markers.h"
 #include "gameplay/ship.h"
-#include "ecology/entity.h"
-#include "ecology/ecology.h"
-#include "ecology/evolution_catalog.h"
 #include "world/terrain.h"
 #include "world/world_environment.h"
 #include "world/world_extension.h"
-#include "world/surface_save.h"
-#include "world/save_format_internal.h"
-#include "core/save_io.h"
+#include "world/world_persistence.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -27,16 +17,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-
-#define SAVE_FILE_BAK "voxelcraft_save.bak"
-#define TERRAIN_GENERATION_VERSION 6u
-#define MIN_SUPPORTED_TERRAIN_GENERATION_VERSION 2u
-#define SAVE_MAX_FILE_BYTES (256u * 1024u * 1024u)
-// Upper bound for edit counts read from save files. Keeps transient
-// allocations (edits + dimensions + the edit-index hash) bounded for
-// crafted/corrupt files; normal saves are far below this.
-#define MAX_LOAD_EDIT_COUNT 1000000u
 
 BlockEdit *blockEdits = NULL;
 uint32_t *blockEditDimensions = NULL;
@@ -64,13 +44,13 @@ static void WorldExtensionCleanup(void)
     if (worldExtensionHooks.cleanup) worldExtensionHooks.cleanup();
 }
 
-static bool WorldExtensionSaveState(FILE *file)
+bool WorldPersistenceSaveExtension(FILE *file)
 {
     return worldExtensionHooks.saveState &&
            worldExtensionHooks.saveState(file);
 }
 
-static bool WorldExtensionLoadState(FILE *file)
+bool WorldPersistenceLoadExtension(FILE *file)
 {
     return worldExtensionHooks.loadState &&
            worldExtensionHooks.loadState(file);
@@ -366,6 +346,33 @@ bool EnsureBlockEditCapacity(int capacity)
     return RebuildBlockEditIndex(blockEditCapacity);
 }
 
+bool WorldPersistenceReserveEdits(int capacity)
+{
+    return capacity >= 0 && EnsureBlockEditCapacity(capacity);
+}
+
+bool WorldPersistenceInstallEdits(const BlockEdit *edits,
+                                  const uint32_t *dimensions,
+                                  const SurfaceAddress *addresses,
+                                  int count)
+{
+    if (count < 0 ||
+        (count > 0 && (!edits || !dimensions || !addresses)) ||
+        !EnsureBlockEditCapacity(count)) {
+        return false;
+    }
+    if (count > 0) {
+        memcpy(blockEdits, edits, (size_t)count * sizeof(*edits));
+        memcpy(blockEditDimensions, dimensions,
+               (size_t)count * sizeof(*dimensions));
+        memcpy(blockEditSurfaceAddresses, addresses,
+               (size_t)count * sizeof(*addresses));
+    }
+    blockEditCount = count;
+    BumpBlockEditRevision();
+    return RebuildBlockEditIndex(blockEditCapacity);
+}
+
 typedef struct TorchLight {
     int x;
     int y;
@@ -554,12 +561,10 @@ void ClearUndoHistory(void)
 void WorldReset(uint32_t seed)
 {
     WorldExtensionReset();
-    MapMarkersReset();
     WorldSetNetherActive(false);
     blockEditCount = 0;
     BumpBlockEditRevision();
     ClearBlockEditIndex();
-    EvolutionCatalogReset();
     memset(torchLights, 0, sizeof(torchLights));
     ClearUndoHistory();
     WorldSetSeed(seed);
@@ -874,393 +879,6 @@ void SetImportMessage(const char *message)
 {
     snprintf(importMessage, sizeof(importMessage), "%s", message);
     importMessageTimer = 6.0f;
-}
-
-typedef struct SaveMapContext {
-    const Player *player;
-} SaveMapContext;
-
-static bool WriteSphericalSaveTrailer(FILE *file, const Player *player)
-{
-    if (!file || !player) return false;
-    WorldDimension dimension = WorldCurrentDimension();
-    bool playerHasSurfaceAddress = WorldIsSurfaceDimension(dimension);
-    SurfaceAddress playerAddress = playerHasSurfaceAddress
-        ? SurfaceAddressAtWorld(player->position.x, player->position.z,
-                                (int)floorf(player->position.y))
-        : SurfaceAddressFromMapCoordinates(0u, 0.0f, 0.0f, 0);
-    bool ok = true;
-    for (int index = 0; ok && index < blockEditCount; index++) {
-        SurfaceAddress address = blockEditSurfaceAddresses[index];
-        ok = address.bodyId == blockEditDimensions[index] &&
-             address.radial == blockEdits[index].y;
-    }
-    return ok && SurfaceSaveWriteTrailer(
-        file, playerHasSurfaceAddress, playerAddress,
-        blockEditSurfaceAddresses, (uint32_t)blockEditCount);
-}
-
-static bool ReadSphericalSaveTrailer(
-    FILE *file, WorldDimension savedDimension, const Player *savedPlayer,
-    const BlockEdit *loadedEdits, const uint32_t *loadedDimensions,
-    int editCount, SurfaceAddress *outPlayerAddress,
-    SurfaceAddress **outEditAddresses)
-{
-    if (!file || !savedPlayer || !outPlayerAddress || !outEditAddresses ||
-        editCount < 0) return false;
-    bool playerHasSurfaceAddress = false;
-    SurfaceAddress playerAddress = { 0 };
-    SurfaceAddress *addresses = NULL;
-    if (!SurfaceSaveReadTrailer(
-            file, (uint32_t)editCount, &playerHasSurfaceAddress,
-            &playerAddress, &addresses)) {
-        return false;
-    }
-
-    bool surfaceDimension = WorldIsSurfaceDimension(savedDimension);
-    uint32_t expectedBodyId = savedDimension == WORLD_DIMENSION_PLANET
-        ? PlanetWorldSeed() : 0u;
-    if (playerHasSurfaceAddress != surfaceDimension ||
-        (surfaceDimension && playerAddress.bodyId != expectedBodyId)) {
-        free(addresses);
-        return false;
-    }
-    if (surfaceDimension) {
-        SurfaceAddress expected = SurfaceAddressFromMapCoordinates(
-            expectedBodyId,
-            savedPlayer->position.x + (float)WorldSurfaceMapOriginX(),
-            savedPlayer->position.z + (float)WorldSurfaceMapOriginZ(),
-            (int)floorf(savedPlayer->position.y));
-        if (!SurfaceAddressEqual(playerAddress, expected)) {
-            free(addresses);
-            return false;
-        }
-    }
-
-    for (int index = 0; index < editCount; index++) {
-        if (!loadedEdits || !loadedDimensions ||
-            addresses[index].bodyId != loadedDimensions[index] ||
-            addresses[index].radial != loadedEdits[index].y) {
-            free(addresses);
-            return false;
-        }
-    }
-    *outPlayerAddress = playerAddress;
-    *outEditAddresses = addresses;
-    return true;
-}
-
-static bool WriteSaveFile(FILE *file, void *opaque)
-{
-    const SaveMapContext *context = opaque;
-    const Player *player = context ? context->player : NULL;
-    if (!file || !player) return false;
-
-    bool ok = WorldSaveFormatWriteCurrent(file);
-    uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
-    uint32_t activeDimension = (uint32_t)WorldCurrentDimension();
-    uint32_t seed = WorldGetSeed();
-    uint32_t terrain = (uint32_t)worldTerrainMode;
-    float playerData[6] = {
-        player->position.x, player->position.y, player->position.z,
-        player->yaw, player->pitch, player->floating ? 1.0f : 0.0f
-    };
-    uint32_t editCount = (uint32_t)blockEditCount;
-    ok = ok && fwrite(&terrainGenerationVersion,
-                      sizeof(terrainGenerationVersion), 1, file) == 1;
-    ok = ok && fwrite(&activeDimension, sizeof(activeDimension), 1, file) == 1;
-    ok = ok && fwrite(&seed, sizeof(seed), 1, file) == 1;
-    ok = ok && fwrite(&terrain, sizeof(terrain), 1, file) == 1;
-    ok = ok && fwrite(playerData, sizeof(playerData), 1, file) == 1;
-    ok = ok && fwrite(&editCount, sizeof(editCount), 1, file) == 1;
-    if (blockEditCount > 0) {
-        ok = ok && fwrite(blockEdits, sizeof(BlockEdit), (size_t)blockEditCount, file) ==
-             (size_t)blockEditCount;
-        ok = ok && fwrite(blockEditDimensions, sizeof(*blockEditDimensions),
-                          (size_t)blockEditCount, file) == (size_t)blockEditCount;
-    }
-
-    ok = ok && InventorySave(file) && ShipSaveState(file) && PlanetWorldSaveState(file) &&
-         HomeWorldSaveState(file);
-    ok = ok && AlbumSave(file) && SpaceSaveEdits(file) && NetherSaveEdits(file);
-    ok = ok && SpaceSaveState(file) && EntitiesSaveState(file) &&
-         PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
-         ShipLocatorSaveState(file) && WorldExtensionSaveState(file) &&
-         MapMarkersSaveState(file) &&
-         WriteSphericalSaveTrailer(file, player) &&
-         !ferror(file);
-    return ok;
-}
-
-void SaveMap(const Player *player)
-{
-    if (!player) {
-        SetImportMessage("Save failed: player state is unavailable.");
-        return;
-    }
-
-    SaveMapContext context = { .player = player };
-    if (!SaveIoWriteAtomic(SAVE_FILE, SAVE_FILE_BAK, WriteSaveFile, &context)) {
-        SetImportMessage("Save failed: existing save was kept intact.");
-        return;
-    }
-    SetImportMessage(TextFormat("Saved map to %s (%d edits).", SAVE_FILE, blockEditCount));
-}
-
-typedef struct LoadedMapData {
-    TerrainMode terrain;
-    uint32_t seed;
-    uint32_t terrainGenerationVersion;
-    WorldDimension dimension;
-    Player player;
-    int editCount;
-    BlockEdit *edits;
-    uint32_t *dimensions;
-    SurfaceAddress playerAddress;
-    SurfaceAddress *editAddresses;
-    ShipLocatorRecord shipLocator;
-    MapMarkerState mapMarkers;
-} LoadedMapData;
-
-static void LoadedMapDataRelease(LoadedMapData *data)
-{
-    if (!data) return;
-    free(data->edits);
-    free(data->dimensions);
-    free(data->editAddresses);
-    data->edits = NULL;
-    data->dimensions = NULL;
-    data->editAddresses = NULL;
-}
-
-static bool LoadBlockEditPayload(FILE *file, LoadedMapData *data)
-{
-    uint32_t seed = DEFAULT_WORLD_SEED;
-    uint32_t terrain = 0;
-    float playerData[6];
-    uint32_t count = 0;
-    if (!file || !data ||
-        fread(&seed, sizeof(seed), 1, file) != 1 ||
-        fread(&terrain, sizeof(terrain), 1, file) != 1 ||
-        terrain > (uint32_t)TERRAIN_FLAT ||
-        fread(playerData, sizeof(playerData), 1, file) != 1 ||
-        fread(&count, sizeof(count), 1, file) != 1 ||
-        count > MAX_LOAD_EDIT_COUNT) {
-        return false;
-    }
-    for (int i = 0; i < 6; i++) {
-        if (!isfinite(playerData[i])) return false;
-    }
-    if (playerData[5] != 0.0f && playerData[5] != 1.0f) return false;
-
-    BlockEdit *edits = NULL;
-    uint32_t *dimensions = NULL;
-    if (count > 0) {
-        edits = malloc((size_t)count * sizeof(*edits));
-        dimensions = malloc((size_t)count * sizeof(*dimensions));
-        if (!edits || !dimensions ||
-            fread(edits, sizeof(*edits), (size_t)count, file) != count ||
-            fread(dimensions, sizeof(*dimensions), (size_t)count, file) != count) {
-            free(edits);
-            free(dimensions);
-            return false;
-        }
-        for (uint32_t i = 0; i < count; i++) {
-            if (!InHeight(edits[i].y) || !IsValidBlockType(edits[i].type)) {
-                free(edits);
-                free(dimensions);
-                return false;
-            }
-        }
-    }
-
-    data->terrain = (TerrainMode)terrain;
-    data->seed = seed == 0 ? DEFAULT_WORLD_SEED : seed;
-    data->player.position = (Vector3){
-        playerData[0], playerData[1], playerData[2]
-    };
-    data->player.yaw = playerData[3];
-    data->player.pitch = playerData[4];
-    data->player.floating = playerData[5] != 0.0f;
-    data->player.velocity = Vector3Zero();
-    data->player.onGround = false;
-    data->editCount = (int)count;
-    data->edits = edits;
-    data->dimensions = dimensions;
-    return true;
-}
-
-static bool LoadCurrentCorePayload(FILE *file, LoadedMapData *data)
-{
-    uint32_t terrainGenerationVersion = 0;
-    uint32_t activeDimension = 0;
-    if (!file || !data ||
-        fread(&terrainGenerationVersion, sizeof(terrainGenerationVersion),
-              1, file) != 1 ||
-        terrainGenerationVersion < MIN_SUPPORTED_TERRAIN_GENERATION_VERSION ||
-        terrainGenerationVersion > TERRAIN_GENERATION_VERSION ||
-        fread(&activeDimension, sizeof(activeDimension), 1, file) != 1 ||
-        activeDimension > (uint32_t)WORLD_DIMENSION_NETHER ||
-        !LoadBlockEditPayload(file, data)) {
-        return false;
-    }
-    if (!InventoryLoad(file) || !ShipLoadState(file) ||
-        !PlanetWorldLoadState(file) || !HomeWorldLoadState(file)) {
-        LoadedMapDataRelease(data);
-        return false;
-    }
-    data->terrainGenerationVersion = terrainGenerationVersion;
-    data->dimension = (WorldDimension)activeDimension;
-    return true;
-}
-
-static const char *LoadCurrentExtendedPayload(
-    FILE *file, WorldSaveFormat format, LoadedMapData *data)
-{
-    if (!AlbumLoad(file) || !SpaceLoadEdits(file, SPACE_LAYER_Y) ||
-        !NetherLoadEdits(file)) {
-        return "Load failed: save file is corrupted.";
-    }
-    if (!SpaceLoadState(file)) {
-        return SpaceLastLoadError() == SPACE_LOAD_ERROR_INCOMPATIBLE_SCALE
-            ? "Load failed: save uses the retired 20 u/AU space scale."
-            : "Load failed: save file is corrupted.";
-    }
-    if (!EntitiesLoadState(file)) {
-        return "Load failed: entity state is corrupted.";
-    }
-    if (!PlanetEcologyLoadState(file)) {
-        return "Load failed: ecology state is corrupted.";
-    }
-    if (!EvolutionCatalogLoadState(file)) {
-        return "Load failed: evolution catalog state is corrupted.";
-    }
-    if (!ShipLocatorReadStateForSpaceLayer(
-            file, &data->shipLocator, SPACE_LAYER_Y)) {
-        return "Load failed: ship locator state is corrupted.";
-    }
-    if (!WorldExtensionLoadState(file)) {
-        return "Load failed: fluid state is corrupted.";
-    }
-    if (WorldSaveFormatHasMapMarkers(format) &&
-        !MapMarkersReadState(file, &data->mapMarkers)) {
-        return "Load failed: map marker state is corrupted.";
-    }
-    if (!ReadSphericalSaveTrailer(
-            file, data->dimension, &data->player, data->edits,
-            data->dimensions, data->editCount, &data->playerAddress,
-            &data->editAddresses)) {
-        return "Load failed: spherical save state is corrupted.";
-    }
-    return NULL;
-}
-
-void LoadMap(Player *player)
-{
-    DrainChunkGen();
-    UnloadAllSpaceChunks();
-    FILE *file = fopen(SAVE_FILE, "rb");
-    if (!file) {
-        SetImportMessage("Load failed: voxelcraft_save.txt was not found.");
-        return;
-    }
-
-    struct stat saveStat;
-    if (fstat(fileno(file), &saveStat) != 0 || saveStat.st_size < 0 ||
-        (uint64_t)saveStat.st_size > SAVE_MAX_FILE_BYTES) {
-        fclose(file);
-        SetImportMessage("Load failed: save file is too large or unreadable.");
-        return;
-    }
-
-    LoadedMapData data = {
-        .terrain = TERRAIN_VARIED,
-        .seed = DEFAULT_WORLD_SEED,
-        .dimension = WORLD_DIMENSION_HOME
-    };
-    MapMarkersEmptyState(&data.mapMarkers);
-
-    WorldSaveFormat format = WorldSaveFormatRead(file);
-    if (format == WORLD_SAVE_FORMAT_UNSUPPORTED) {
-        fclose(file);
-        SetImportMessage(
-            "Load failed: V17 and older flat saves are incompatible with spherical worlds.");
-        return;
-    }
-    if (!LoadCurrentCorePayload(file, &data)) {
-        fclose(file);
-        LoadedMapDataRelease(&data);
-        SetImportMessage("Load failed: save file is corrupted.");
-        return;
-    }
-
-    const char *loadError = LoadCurrentExtendedPayload(file, format, &data);
-    fclose(file);
-    if (loadError) {
-        LoadedMapDataRelease(&data);
-        SetImportMessage(loadError);
-        return;
-    }
-    if (!EnsureBlockEditCapacity(data.editCount)) {
-        LoadedMapDataRelease(&data);
-        SetImportMessage("Load failed: not enough memory to apply save.");
-        return;
-    }
-
-    DrainChunkGen();
-    UnloadAllChunks();
-    UnloadAllSpaceChunks();
-    UnloadAllNetherChunks();
-    worldTerrainMode = data.terrain;
-    WorldSetSeed(data.seed);
-
-    bool savedInNether = data.dimension == WORLD_DIMENSION_NETHER;
-    if (data.terrainGenerationVersion != TERRAIN_GENERATION_VERSION &&
-        WorldIsSurfaceActive() && !savedInNether) {
-        int landingX = (int)floorf(data.player.position.x);
-        int landingZ = (int)floorf(data.player.position.z);
-        int groundY = 0;
-        if (FindSafeSurfaceLanding(landingX, landingZ, 128, 0,
-                                   &landingX, &landingZ, &groundY)) {
-            data.player.position = (Vector3){
-                (float)landingX + 0.5f, (float)groundY + 3.0f,
-                (float)landingZ + 0.5f
-            };
-        }
-    }
-
-    *player = data.player;
-    WorldSetNetherActive(savedInNether);
-    PlayerResetRuntimeState(player);
-    blockEditCount = data.editCount;
-    BumpBlockEditRevision();
-    if (data.editCount > 0) {
-        memcpy(blockEdits, data.edits,
-               (size_t)data.editCount * sizeof(*data.edits));
-        memcpy(blockEditDimensions, data.dimensions,
-               (size_t)data.editCount * sizeof(*data.dimensions));
-        memcpy(blockEditSurfaceAddresses, data.editAddresses,
-               (size_t)data.editCount * sizeof(*data.editAddresses));
-    }
-    LoadedMapDataRelease(&data);
-
-    if (!RebuildBlockEditIndex(blockEditCapacity)) {
-        SetImportMessage("Load warning: edit index rebuild failed.");
-        return;
-    }
-    RebuildTorchList();
-    SpaceRebuildTorchList();
-    ClearUndoHistory();
-    ShipLocatorSetRecord(&data.shipLocator);
-    MapMarkersInstallState(&data.mapMarkers);
-
-    if (WorldIsSurfaceActive()) {
-        UpdateChunks(player->position,
-                     EffectiveRenderDistanceForHeight(
-                         player->position.y + EYE_HEIGHT));
-    }
-    SetImportMessage(TextFormat("Loaded %s (%d edits).", SAVE_FILE,
-                                blockEditCount));
 }
 
 int WorldGetEditCount(void)

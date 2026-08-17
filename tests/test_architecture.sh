@@ -164,6 +164,18 @@ if grep -n 'GraphicsQualityProfileFor' src/app/game_settings.c; then
     fail "settings persistence must not own rendering quality policy"
 fi
 
+grep -q '^void GameSaveMap(' src/app/game_save.c ||
+    fail "app must coordinate cross-module persistence"
+grep -q '^void GameLoadMap(' src/app/game_save.c ||
+    fail "app must coordinate cross-module restore"
+if grep -nE '\b(Inventory|Ship|PlanetWorld|HomeWorld|Album|Space|Entities|PlanetEcology|EvolutionCatalog|ShipLocator|MapMarkers)(Save|Load|ReadState|SaveState)' \
+    src/world/world.c; then
+    fail "world must not coordinate other modules' persistence"
+fi
+if grep -n 'gameplay/player_types.h' src/world/world.h; then
+    fail "world API must not depend on player state"
+fi
+
 if grep -n '#[[:space:]]*include[[:space:]]*"fluid.h"' \
     src/world/world.c src/world/chunks.c; then
     fail "world and chunks must use extension hooks instead of fluid includes"

@@ -321,7 +321,7 @@ $(WORLD_LIGHTING_TEST_TARGET): tests/test_world_lighting.c src/world/world_light
 $(SAVE_IO_TEST_TARGET): tests/test_save_io.c src/core/save_io.c src/core/save_io.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_save_io.c src/core/save_io.c
 
-$(SAVE_FORMAT_TEST_TARGET): tests/test_save_format.c src/world/save_format.c src/world/save_format_internal.h
+$(SAVE_FORMAT_TEST_TARGET): tests/test_save_format.c src/world/save_format.c src/world/save_format.h
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_save_format.c src/world/save_format.c
 
 $(GAME_SETTINGS_TEST_TARGET): tests/test_game_settings.c src/app/game_settings.c src/app/game_settings.h src/core/save_io.c src/core/save_io.h src/presentation/render_quality.c src/presentation/render_quality.h

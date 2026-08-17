@@ -2,7 +2,6 @@
 #define VOXELCRAFT_WORLD_H
 
 #include "world/world_types.h"
-#include "gameplay/player_types.h"
 
 #include <stdint.h>
 
@@ -62,8 +61,6 @@ bool UndoBlockEdit(void);
 bool RedoBlockEdit(void);
 void ClearUndoHistory(void);
 
-void SaveMap(const Player *player);
-void LoadMap(Player *player);
 void WorldCleanup(void);
 
 #endif

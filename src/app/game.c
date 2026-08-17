@@ -9,6 +9,7 @@
 #include "app/game_internal.h"
 #include "app/game_landing.h"
 #include "app/game_runtime.h"
+#include "app/game_save.h"
 #include "core/game_effects.h"
 #include "world/world_types.h"
 #include "world/terrain.h"
@@ -20,6 +21,7 @@
 #include "gameplay/interaction.h"
 #include "gameplay/album.h"
 #include "gameplay/inventory.h"
+#include "gameplay/map_markers.h"
 #include "presentation/render.h"
 #include "presentation/render_resources.h"
 #include "presentation/render_ui.h"
@@ -181,6 +183,8 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     NetherReset();
     AlbumReset();
     WorldReset(seed);
+    MapMarkersReset();
+    EvolutionCatalogReset();
     PlanetEcologyResetState();
     InventoryReset();
     InventoryGrantStarterKit();
@@ -500,7 +504,7 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
         !game->importDialog.open && !game->albumOpen &&
         !game->landingTransition.active && !StarMapIsOpen() &&
         !HomeWorldMapIsOpen()) {
-        SaveMap(&game->player);
+        GameSaveMap(&game->player);
     }
     if (inputBlocked) return;
 
@@ -518,7 +522,7 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     if (IsKeyPressed(KEY_LEFT_BRACKET)) AdjustRenderDistance(-1);
     if (IsKeyPressed(KEY_RIGHT_BRACKET)) AdjustRenderDistance(1);
     if (IsKeyPressed(KEY_F9)) {
-        LoadMap(&game->player);
+        GameLoadMap(&game->player);
         game->landingTransition = (LandingTransition){ 0 };
         game->wasInSpace = WorldIsSpaceActive();
         game->entitiesWorldActive = WorldIsSurfaceActive();
@@ -588,7 +592,7 @@ static void GameUpdateTemporalState(GameRuntime *game, float dt)
         game->autoSaveTimer -= dt;
         if (game->autoSaveTimer <= 0.0f) {
             game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
-            SaveMap(&game->player);
+            GameSaveMap(&game->player);
         }
     }
 
@@ -1223,7 +1227,7 @@ static void GameRenderPauseOverlay(GameRuntime *game)
     }
     if (pauseActions.saveWorld) {
         // Ship state can be saved even when no parking spot is available.
-        SaveMap(&game->player);
+        GameSaveMap(&game->player);
     }
     if (pauseActions.returnToMenu) {
         game->paused = false;
@@ -1237,7 +1241,7 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         EnableCursor();
     }
     if (pauseActions.saveAndQuit) {
-        SaveMap(&game->player);
+        GameSaveMap(&game->player);
         game->quitSaveDone = true;
         game->quitRequested = true;
     }
@@ -1402,7 +1406,7 @@ static int GameStop(GameRuntime *game)
             LandingTransitionUpdate(&game->landingTransition, &game->player,
                                     0.0f);
         }
-        if (!game->quitSaveDone) SaveMap(&game->player);
+        if (!game->quitSaveDone) GameSaveMap(&game->player);
     }
     if (!game->debugControlEnabled) GameSettingsSave(&game->settings);
     ChunksShutdownGenThread();

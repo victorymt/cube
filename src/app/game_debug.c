@@ -3,6 +3,7 @@
 
 #include "app/game_debug.h"
 #include "app/game_debug_trace.h"
+#include "app/game_save.h"
 #include "world/chunks.h"
 #include "core/debug_control.h"
 #include "ecology/ecology.h"
@@ -771,7 +772,7 @@ bool GameDispatchDebugCommand(GameRuntime *game)
         break;
     case DEBUG_CONTROL_COMMAND_SAVE:
         if (game->screen == SCREEN_PLAYING) {
-            SaveMap(&game->player);
+            GameSaveMap(&game->player);
             DebugControlReply(&game->debugControl,
                               "DEBUG_CONTROL save result=%s\n",
                               WorldGetImportMessage());
@@ -783,7 +784,7 @@ bool GameDispatchDebugCommand(GameRuntime *game)
         break;
     case DEBUG_CONTROL_COMMAND_LOAD:
         if (game->screen == SCREEN_PLAYING) {
-            LoadMap(&game->player);
+            GameLoadMap(&game->player);
             game->scriptedShipInput = (ShipControlInput){ 0 };
             game->scriptedShipInputFrames = 0u;
             game->scriptedShipInputFrameCarry = 0.0f;
