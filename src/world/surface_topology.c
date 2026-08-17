@@ -153,17 +153,48 @@ SurfaceAddress SurfaceAddressFromLatLon(uint32_t bodyId, float longitude,
         radial);
 }
 
+SurfaceMapProjection SurfaceProjectMapCoordinates(float mapX, float mapZ)
+{
+    if (!isfinite(mapX)) mapX = 0.0f;
+    if (!isfinite(mapZ)) mapZ = 0.0f;
+
+    const float poleToPole = (float)SURFACE_POLE_TO_POLE_BLOCKS;
+    const float latitudePeriod = poleToPole * 2.0f;
+    const float pole = poleToPole * 0.5f;
+
+    // Crossing a pole reflects latitude and rotates longitude by half a turn.
+    float latitudePhase = fmodf(mapZ, latitudePeriod) + pole;
+    if (latitudePhase < 0.0f) latitudePhase += latitudePeriod;
+    else if (latitudePhase >= latitudePeriod) latitudePhase -= latitudePeriod;
+
+    bool reflected = latitudePhase > poleToPole;
+    float canonicalZ = reflected
+        ? latitudePeriod - latitudePhase - pole
+        : latitudePhase - pole;
+    float longitudePhase = fmodf(
+        mapX, (float)SURFACE_EQUATOR_BLOCKS);
+    if (reflected) {
+        longitudePhase += (float)SURFACE_EQUATOR_BLOCKS * 0.5f;
+    }
+    float longitude = longitudePhase *
+        (2.0f * PI / (float)SURFACE_EQUATOR_BLOCKS);
+    longitude = fmodf(longitude + PI, 2.0f * PI);
+    if (longitude < 0.0f) longitude += 2.0f * PI;
+
+    return (SurfaceMapProjection){
+        .longitude = longitude - PI,
+        .latitude = canonicalZ * (PI / poleToPole),
+        // Increasing map Z runs toward canonical south in a reflected band.
+        .northDirection = reflected ? -1.0f : 1.0f
+    };
+}
+
 SurfaceAddress SurfaceAddressFromMapCoordinates(uint32_t bodyId, float x,
                                                 float z, int radial)
 {
-    if (!isfinite(x)) x = 0.0f;
-    if (!isfinite(z)) z = 0.0f;
-    float longitude = fmodf(
-        x * (2.0f * PI / (float)SURFACE_EQUATOR_BLOCKS), 2.0f * PI);
-    float latitude = SurfaceClamp(
-        z * (PI / (float)SURFACE_POLE_TO_POLE_BLOCKS),
-        -0.5f * PI, 0.5f * PI);
-    return SurfaceAddressFromLatLon(bodyId, longitude, latitude, radial);
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(x, z);
+    return SurfaceAddressFromLatLon(
+        bodyId, projection.longitude, projection.latitude, radial);
 }
 
 void SurfaceAddressLatLon(SurfaceAddress address, float *outLongitude,
@@ -219,13 +250,10 @@ SurfaceFrame SurfaceFrameAt(SurfaceAddress anchor)
 SurfaceFrame SurfaceFrameAtMapCoordinates(uint32_t bodyId, float mapX,
                                           float mapZ, int radial)
 {
-    if (!isfinite(mapX)) mapX = 0.0f;
-    if (!isfinite(mapZ)) mapZ = 0.0f;
-    float longitude = mapX * (2.0f * PI /
-                              (float)SURFACE_EQUATOR_BLOCKS);
-    float latitude = SurfaceClamp(
-        mapZ * (PI / (float)SURFACE_POLE_TO_POLE_BLOCKS),
-        -0.5f * PI, 0.5f * PI);
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+        mapX, mapZ);
+    float longitude = projection.longitude;
+    float latitude = projection.latitude;
     float sinLongitude = sinf(longitude);
     float cosLongitude = cosf(longitude);
     float sinLatitude = sinf(latitude);
@@ -234,13 +262,62 @@ SurfaceFrame SurfaceFrameAtMapCoordinates(uint32_t bodyId, float mapX,
         .anchor = SurfaceAddressFromLatLon(bodyId, longitude, latitude,
                                             radial),
         .east = { -sinLongitude, 0.0f, cosLongitude },
-        .north = { -sinLatitude * cosLongitude, cosLatitude,
-                   -sinLatitude * sinLongitude },
+        .north = {
+            -sinLatitude * cosLongitude * projection.northDirection,
+            cosLatitude * projection.northDirection,
+            -sinLatitude * sinLongitude * projection.northDirection
+        },
         .up = { cosLatitude * cosLongitude, sinLatitude,
                 cosLatitude * sinLongitude }
     };
     frame.origin = Vector3Scale(
         frame.up, SURFACE_RADIUS_BLOCKS + (float)radial);
+    return frame;
+}
+
+SurfaceFrame SurfaceLocalFrameAtOffset(float offsetX, float offsetZ,
+                                       int radial)
+{
+    if (!isfinite(offsetX)) offsetX = 0.0f;
+    if (!isfinite(offsetZ)) offsetZ = 0.0f;
+
+    float distance = sqrtf(offsetX * offsetX + offsetZ * offsetZ);
+    if (distance < 0.0001f) {
+        return (SurfaceFrame){
+            .origin = { 0.0f, (float)radial, 0.0f },
+            .east = { 1.0f, 0.0f, 0.0f },
+            .north = { 0.0f, 0.0f, 1.0f },
+            .up = { 0.0f, 1.0f, 0.0f }
+        };
+    }
+
+    float tangentX = offsetX / distance;
+    float tangentZ = offsetZ / distance;
+    float angle = distance / SURFACE_RADIUS_BLOCKS;
+    float sinAngle = sinf(angle);
+    float cosAngle = cosf(angle);
+    Vector3 radialTangent = {
+        tangentX * cosAngle, -sinAngle, tangentZ * cosAngle
+    };
+    Vector3 azimuthTangent = { -tangentZ, 0.0f, tangentX };
+    Vector3 up = {
+        tangentX * sinAngle, cosAngle, tangentZ * sinAngle
+    };
+    float radius = SURFACE_RADIUS_BLOCKS + (float)radial;
+    SurfaceFrame frame = {
+        .origin = {
+            up.x * radius,
+            up.y * radius - SURFACE_RADIUS_BLOCKS,
+            up.z * radius
+        },
+        .east = Vector3Subtract(
+            Vector3Scale(radialTangent, tangentX),
+            Vector3Scale(azimuthTangent, tangentZ)),
+        .north = Vector3Add(
+            Vector3Scale(radialTangent, tangentZ),
+            Vector3Scale(azimuthTangent, tangentX)),
+        .up = up
+    };
     return frame;
 }
 
@@ -315,23 +392,21 @@ Matrix SurfacePatchTransformAtMap(
     uint32_t bodyId, Vector2 referenceMap, Vector3 referenceLocalOrigin,
     Vector2 patchMap, int radialBase)
 {
-    SurfaceFrame referenceFrame = SurfaceFrameAtMapCoordinates(
-        bodyId, referenceMap.x, referenceMap.y, 0);
-    SurfaceFrame patchFrame = SurfaceFrameAtMapCoordinates(
-        bodyId, patchMap.x, patchMap.y, radialBase);
-    Vector3 east = SurfaceFrameTransformVector(
-        &patchFrame, &referenceFrame, (Vector3){ 1.0f, 0.0f, 0.0f });
-    Vector3 up = SurfaceFrameTransformVector(
-        &patchFrame, &referenceFrame, (Vector3){ 0.0f, 1.0f, 0.0f });
-    Vector3 north = SurfaceFrameTransformVector(
-        &patchFrame, &referenceFrame, (Vector3){ 0.0f, 0.0f, 1.0f });
-    Vector3 origin = Vector3Add(
-        SurfaceFramePlanetToLocal(&referenceFrame, patchFrame.origin),
-        referenceLocalOrigin);
+    (void)bodyId;
+    SurfaceFrame patchFrame = SurfaceLocalFrameAtOffset(
+        patchMap.x - referenceMap.x, patchMap.y - referenceMap.y,
+        radialBase);
+    Vector3 origin = Vector3Add(patchFrame.origin, referenceLocalOrigin);
     return (Matrix){
-        .m0 = east.x, .m1 = east.y, .m2 = east.z,
-        .m4 = up.x, .m5 = up.y, .m6 = up.z,
-        .m8 = north.x, .m9 = north.y, .m10 = north.z,
+        .m0 = patchFrame.east.x,
+        .m1 = patchFrame.east.y,
+        .m2 = patchFrame.east.z,
+        .m4 = patchFrame.up.x,
+        .m5 = patchFrame.up.y,
+        .m6 = patchFrame.up.z,
+        .m8 = patchFrame.north.x,
+        .m9 = patchFrame.north.y,
+        .m10 = patchFrame.north.z,
         .m12 = origin.x, .m13 = origin.y, .m14 = origin.z,
         .m15 = 1.0f
     };

@@ -54,16 +54,16 @@ static void CollectSurfaceRenderItems(
     int *transparentCount)
 {
     const Chunk *surfaceChunks = ChunksView();
-    int referenceX = (int)floorf(camera->position.x);
-    int referenceZ = (int)floorf(camera->position.z);
+    float referenceX = camera->position.x;
+    float referenceZ = camera->position.z;
     int mapOriginX = WorldSurfaceMapOriginX();
     int mapOriginZ = WorldSurfaceMapOriginZ();
     Vector2 referenceMap = {
-        (float)(mapOriginX + referenceX),
-        (float)(mapOriginZ + referenceZ)
+        (float)mapOriginX + referenceX,
+        (float)mapOriginZ + referenceZ
     };
     Vector3 referenceOrigin = {
-        (float)referenceX, 0.0f, (float)referenceZ
+        referenceX, 0.0f, referenceZ
     };
     int stableOrder = 0;
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
@@ -250,16 +250,16 @@ void DrawWorldShadowMap(const Camera3D *camera, int effectiveRenderDistance,
         shadowChunkRadius = effectiveRenderDistance;
     }
     if (drawSurfaceChunks) {
-        int referenceX = (int)floorf(camera->position.x);
-        int referenceZ = (int)floorf(camera->position.z);
+        float referenceX = camera->position.x;
+        float referenceZ = camera->position.z;
         int mapOriginX = WorldSurfaceMapOriginX();
         int mapOriginZ = WorldSurfaceMapOriginZ();
         Vector2 referenceMap = {
-            (float)(mapOriginX + referenceX),
-            (float)(mapOriginZ + referenceZ)
+            (float)mapOriginX + referenceX,
+            (float)mapOriginZ + referenceZ
         };
         Vector3 referenceOrigin = {
-            (float)referenceX, 0.0f, (float)referenceZ
+            referenceX, 0.0f, referenceZ
         };
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             const Chunk *chunk = &surfaceChunks[i];

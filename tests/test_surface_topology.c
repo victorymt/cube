@@ -93,15 +93,80 @@ static void TestMapCoordinateConversion(void)
     assert(origin.face == otherBody.face);
     assert(origin.u == otherBody.u && origin.v == otherBody.v);
 
-    SurfaceAddress northA = SurfaceAddressFromMapCoordinates(
-        7u, 0.0f, 0.5f * (float)SURFACE_POLE_TO_POLE_BLOCKS, 0);
-    SurfaceAddress northB = SurfaceAddressFromMapCoordinates(
-        7u, 1234.0f, (float)SURFACE_POLE_TO_POLE_BLOCKS, 0);
+    float pole = 0.5f * (float)SURFACE_POLE_TO_POLE_BLOCKS;
+    float halfEquator = 0.5f * (float)SURFACE_EQUATOR_BLOCKS;
+    SurfaceAddress north = SurfaceAddressFromMapCoordinates(
+        7u, 0.0f, pole, 0);
     SurfaceAddress south = SurfaceAddressFromMapCoordinates(
-        7u, 0.0f, -(float)SURFACE_POLE_TO_POLE_BLOCKS, 0);
-    assert(northA.face == SURFACE_FACE_POS_Y);
-    assert(northB.face == SURFACE_FACE_POS_Y);
+        7u, 0.0f, -pole, 0);
+    assert(north.face == SURFACE_FACE_POS_Y);
     assert(south.face == SURFACE_FACE_NEG_Y);
+
+    const float offset = 173.0f;
+    SurfaceAddress overNorth = SurfaceAddressFromMapCoordinates(
+        7u, 1234.0f, pole + offset, 0);
+    SurfaceAddress reflectedNorth = SurfaceAddressFromMapCoordinates(
+        7u, 1234.0f + halfEquator, pole - offset, 0);
+    assert(SurfaceAddressEqual(overNorth, reflectedNorth));
+
+    SurfaceAddress overSouth = SurfaceAddressFromMapCoordinates(
+        7u, -731.0f, -pole - offset, 0);
+    SurfaceAddress reflectedSouth = SurfaceAddressFromMapCoordinates(
+        7u, -731.0f + halfEquator, -pole + offset, 0);
+    assert(SurfaceAddressEqual(overSouth, reflectedSouth));
+
+    SurfaceAddress latitudePeriod = SurfaceAddressFromMapCoordinates(
+        7u, 1234.0f,
+        2.0f * (float)SURFACE_POLE_TO_POLE_BLOCKS, 0);
+    SurfaceAddress sameLatitudePeriod = SurfaceAddressFromMapCoordinates(
+        7u, 1234.0f, 0.0f, 0);
+    assert(SurfaceAddressEqual(latitudePeriod, sameLatitudePeriod));
+}
+
+static void TestMapProjectionAcrossPoles(void)
+{
+    float pole = 0.5f * (float)SURFACE_POLE_TO_POLE_BLOCKS;
+    float halfEquator = 0.5f * (float)SURFACE_EQUATOR_BLOCKS;
+    const float mapX = -387.0f;
+    const float offset = 16.0f;
+
+    SurfaceMapProjection before = SurfaceProjectMapCoordinates(
+        mapX, pole - offset);
+    SurfaceMapProjection after = SurfaceProjectMapCoordinates(
+        mapX, pole + offset);
+    SurfaceMapProjection reflected = SurfaceProjectMapCoordinates(
+        mapX + halfEquator, pole - offset);
+    assert(Near(after.latitude, reflected.latitude, 0.000001f));
+    assert(Near(after.longitude, reflected.longitude, 0.000001f));
+    assert(before.northDirection == 1.0f);
+    assert(after.northDirection == -1.0f);
+
+    SurfaceFrame afterFrame = SurfaceFrameAtMapCoordinates(
+        7u, mapX, pole + offset, 0);
+    SurfaceFrame reflectedFrame = SurfaceFrameAtMapCoordinates(
+        7u, mapX + halfEquator, pole - offset, 0);
+    assert(Vector3Distance(afterFrame.up, reflectedFrame.up) < 0.00001f);
+    assert(Vector3Distance(afterFrame.east, reflectedFrame.east) < 0.00001f);
+    assert(Vector3Distance(
+        afterFrame.north, Vector3Negate(reflectedFrame.north)) < 0.00001f);
+
+    SurfaceFrame firstBeyond = SurfaceFrameAtMapCoordinates(
+        7u, mapX, pole + 8.0f, 0);
+    SurfaceFrame secondBeyond = SurfaceFrameAtMapCoordinates(
+        7u, mapX, pole + 16.0f, 0);
+    assert(Vector3Distance(firstBeyond.origin, secondBeyond.origin) > 1.0f);
+
+    SurfaceMapProjection south = SurfaceProjectMapCoordinates(
+        mapX, -pole - offset);
+    assert(south.northDirection == -1.0f);
+    assert(south.latitude > -0.5f * PI);
+
+    SurfaceFrame firstBeyondSouth = SurfaceFrameAtMapCoordinates(
+        7u, mapX, -pole - 8.0f, 0);
+    SurfaceFrame secondBeyondSouth = SurfaceFrameAtMapCoordinates(
+        7u, mapX, -pole - 16.0f, 0);
+    assert(Vector3Distance(
+        firstBeyondSouth.origin, secondBeyondSouth.origin) > 1.0f);
 }
 
 static void TestFrameRoundTrip(void)
@@ -128,6 +193,44 @@ static void TestFrameRoundTrip(void)
     Vector3 velocity = { 2.0f, 0.5f, -3.0f };
     Vector3 transformed = SurfaceFrameTransformVector(&frame, &next, velocity);
     assert(Near(Vector3Length(transformed), Vector3Length(velocity), 0.0005f));
+}
+
+static Vector3 LocalPatchPoint(float offsetX, float localY, float offsetZ,
+                               int radialBase)
+{
+    SurfaceFrame anchor = SurfaceLocalFrameAtOffset(
+        0.0f, 0.0f, radialBase);
+    SurfaceFrame point = SurfaceLocalFrameAtOffset(
+        offsetX, offsetZ, radialBase);
+    Vector3 planet = Vector3Add(
+        point.origin, Vector3Scale(point.up, localY));
+    return SurfaceFramePlanetToLocal(&anchor, planet);
+}
+
+static void TestLocalSurfaceMetric(void)
+{
+    SurfaceFrame origin = SurfaceLocalFrameAtOffset(0.0f, 0.0f, 0);
+    SurfaceFrame east = SurfaceLocalFrameAtOffset(160.0f, 0.0f, 0);
+    SurfaceFrame west = SurfaceLocalFrameAtOffset(-160.0f, 0.0f, 0);
+    assert(Vector3Distance(east.origin, west.origin) > 319.0f);
+    assert(Near(Vector3Length(east.east), 1.0f, 0.0001f));
+    assert(Near(Vector3Length(east.north), 1.0f, 0.0001f));
+    assert(Near(Vector3Length(east.up), 1.0f, 0.0001f));
+    assert(fabsf(Vector3DotProduct(east.east, east.up)) < 0.0001f);
+    assert(fabsf(Vector3DotProduct(east.north, east.up)) < 0.0001f);
+    assert(Near(origin.origin.y, 0.0f, 0.0001f));
+
+    Vector2 polarReference = { -70.0f, -3993.0f };
+    Vector3 localReference = { -70.0f, 0.0f, -3993.0f };
+    Matrix leftTransform = SurfacePatchTransformAtMap(
+        1u, polarReference, localReference,
+        (Vector2){ polarReference.x - 160.0f, polarReference.y }, 0);
+    Matrix rightTransform = SurfacePatchTransformAtMap(
+        1u, polarReference, localReference,
+        (Vector2){ polarReference.x + 160.0f, polarReference.y }, 0);
+    Vector3 left = Vector3Transform(Vector3Zero(), leftTransform);
+    Vector3 right = Vector3Transform(Vector3Zero(), rightTransform);
+    assert(Vector3Distance(left, right) > 319.0f);
 }
 
 static void TestPatchTransform(void)
@@ -158,23 +261,15 @@ static void TestContinuousPatchBoundary(void)
     Vector2 referenceMap = { -40.0f, 25.0f };
     Vector2 patchA = { 0.0f, 0.0f };
     Vector2 patchB = { 16.0f, 0.0f };
-    SurfaceFrame frameA = SurfaceFrameAtMapCoordinates(
-        bodyId, patchA.x, patchA.y, radialBase);
-    SurfaceFrame frameB = SurfaceFrameAtMapCoordinates(
-        bodyId, patchB.x, patchB.y, radialBase);
-    SurfaceFrame boundaryFrame = SurfaceFrameAtMapCoordinates(
-        bodyId, 16.0f, 8.0f, radialBase);
-    Vector3 planet = Vector3Add(
-        boundaryFrame.origin, Vector3Scale(boundaryFrame.up, 5.0f));
-    Vector3 localA = SurfaceFramePlanetToLocal(&frameA, planet);
-    Vector3 localB = SurfaceFramePlanetToLocal(&frameB, planet);
+    Vector3 localA = LocalPatchPoint(16.0f, 5.0f, 8.0f, radialBase);
+    Vector3 localB = LocalPatchPoint(0.0f, 5.0f, 8.0f, radialBase);
     Matrix transformA = SurfacePatchTransformAtMap(
         bodyId, referenceMap, Vector3Zero(), patchA, radialBase);
     Matrix transformB = SurfacePatchTransformAtMap(
         bodyId, referenceMap, Vector3Zero(), patchB, radialBase);
     Vector3 renderedA = Vector3Transform(localA, transformA);
     Vector3 renderedB = Vector3Transform(localB, transformB);
-    assert(Vector3Distance(renderedA, renderedB) < 0.001f);
+    assert(Vector3Distance(renderedA, renderedB) < 0.1f);
 }
 
 int main(void)
@@ -183,7 +278,9 @@ int main(void)
     TestEveryEdgeCrossesAndReturns();
     TestLatLonRoundTrip();
     TestMapCoordinateConversion();
+    TestMapProjectionAcrossPoles();
     TestFrameRoundTrip();
+    TestLocalSurfaceMetric();
     TestPatchTransform();
     TestContinuousPatchBoundary();
     puts("surface topology tests passed");

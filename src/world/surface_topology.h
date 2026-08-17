@@ -39,6 +39,12 @@ typedef struct SurfaceFrame {
     Vector3 up;
 } SurfaceFrame;
 
+typedef struct SurfaceMapProjection {
+    float longitude;
+    float latitude;
+    float northDirection;
+} SurfaceMapProjection;
+
 bool SurfaceFaceIsValid(SurfaceFace face);
 bool SurfaceAddressIsValid(SurfaceAddress address);
 bool SurfaceAddressEqual(SurfaceAddress a, SurfaceAddress b);
@@ -47,6 +53,7 @@ SurfaceAddress SurfaceAddressFromDirection(uint32_t bodyId, Vector3 direction,
                                            int radial);
 SurfaceAddress SurfaceAddressFromLatLon(uint32_t bodyId, float longitude,
                                         float latitude, int radial);
+SurfaceMapProjection SurfaceProjectMapCoordinates(float mapX, float mapZ);
 SurfaceAddress SurfaceAddressFromMapCoordinates(uint32_t bodyId, float x,
                                                 float z, int radial);
 void SurfaceAddressLatLon(SurfaceAddress address, float *outLongitude,
@@ -56,6 +63,8 @@ SurfaceAddress SurfaceAddressOffset(SurfaceAddress address, int deltaU,
 SurfaceFrame SurfaceFrameAt(SurfaceAddress anchor);
 SurfaceFrame SurfaceFrameAtMapCoordinates(uint32_t bodyId, float mapX,
                                           float mapZ, int radial);
+SurfaceFrame SurfaceLocalFrameAtOffset(float offsetX, float offsetZ,
+                                       int radial);
 Vector3 SurfaceFrameLocalToPlanet(const SurfaceFrame *frame, Vector3 local);
 Vector3 SurfaceFramePlanetToLocal(const SurfaceFrame *frame, Vector3 planet);
 Vector3 SurfaceFrameTransformPoint(const SurfaceFrame *from,

@@ -1,6 +1,7 @@
 #include "world/terrain.h"
 
 #include "world/subsurface.h"
+#include "world/surface_topology.h"
 #include "world/terrain_geology_internal.h"
 
 #include "gameplay/discovery.h"
@@ -1171,12 +1172,10 @@ static void PlanetSurfaceCoordinates(int x, int z, float *outX, float *outZ)
 static void PlanetMapCoordinatesToLatLon(float mapX, float mapZ,
                                           float *outLongitude, float *outLatitude)
 {
-    float longitude = mapX * (2.0f * PI / PLANET_GLOBAL_CIRCUMFERENCE_BLOCKS);
-    longitude = fmodf(longitude + PI, 2.0f * PI);
-    if (longitude < 0.0f) longitude += 2.0f * PI;
-    *outLongitude = longitude - PI;
-    *outLatitude = Clamp(mapZ * (PI / PLANET_GLOBAL_POLE_TO_POLE_BLOCKS),
-                         -0.5f * PI, 0.5f * PI);
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+        mapX, mapZ);
+    *outLongitude = projection.longitude;
+    *outLatitude = projection.latitude;
 }
 
 void PlanetSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude)
@@ -1291,8 +1290,7 @@ int PlanetTerrainHeight(int x, int z)
     case PLANET_BIOME_GLACIER:
         height = fminf(height, 76.0f + (hills - 0.5f) * 7.0f);
         {
-            float latitude = Clamp(fz * (PI / PLANET_GLOBAL_POLE_TO_POLE_BLOCKS),
-                                   -0.5f * PI, 0.5f * PI);
+            float latitude = SurfaceProjectMapCoordinates(fx, fz).latitude;
             // Ice flows downhill from each pole toward the equator. The
             // latitude gradient gives the cut plane a consistent flow axis.
             height += surface.glacierFlow * (fabsf(latitude) - 0.70f) * 18.0f;
@@ -1305,9 +1303,10 @@ int PlanetTerrainHeight(int x, int z)
     case PLANET_BIOME_DUNES:
         {
             float wind = profile->prevailingWindAngle;
-            float longitude = fx * (2.0f * PI / PLANET_GLOBAL_CIRCUMFERENCE_BLOCKS);
-            float latitude = Clamp(fz * (PI / PLANET_GLOBAL_POLE_TO_POLE_BLOCKS),
-                                   -0.5f * PI, 0.5f * PI);
+            SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+                fx, fz);
+            float longitude = projection.longitude;
+            float latitude = projection.latitude;
             float latitudeCos = cosf(latitude);
             Vector3 point = { latitudeCos * cosf(longitude), sinf(latitude),
                               latitudeCos * sinf(longitude) };

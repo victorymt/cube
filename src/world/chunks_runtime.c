@@ -197,8 +197,9 @@ static Vector3 CurveSurfacePoint(const SurfaceFrame *anchorFrame,
                                  uint32_t bodyId, float mapX, float localY,
                                  float mapZ, int radialBase)
 {
-    SurfaceFrame vertexFrame = SurfaceFrameAtMapCoordinates(
-        bodyId, mapX, mapZ, radialBase);
+    (void)bodyId;
+    SurfaceFrame vertexFrame = SurfaceLocalFrameAtOffset(
+        mapX, mapZ, radialBase);
     Vector3 planet = Vector3Add(
         vertexFrame.origin, Vector3Scale(vertexFrame.up, localY));
     return SurfaceFramePlanetToLocal(anchorFrame, planet);
@@ -208,24 +209,27 @@ void CurveChunkMeshData(Mesh *mesh, int chunkX, int chunkZ, int sectionY,
                         uint32_t bodyId, int mapOriginX, int mapOriginZ)
 {
     if (!mesh || !mesh->vertices || mesh->vertexCount <= 0) return;
+    (void)bodyId;
+    (void)mapOriginX;
+    (void)mapOriginZ;
     int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
-    float anchorMapX = (float)(mapOriginX + chunkX * CHUNK_SIZE);
-    float anchorMapZ = (float)(mapOriginZ + chunkZ * CHUNK_SIZE);
-    SurfaceFrame anchorFrame = SurfaceFrameAtMapCoordinates(
-        bodyId, anchorMapX, anchorMapZ, radialBase);
+    float anchorX = (float)(chunkX * CHUNK_SIZE);
+    float anchorZ = (float)(chunkZ * CHUNK_SIZE);
+    SurfaceFrame anchorFrame = SurfaceLocalFrameAtOffset(
+        0.0f, 0.0f, radialBase);
     for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
-        float mapX = (float)mapOriginX + mesh->vertices[vertex * 3 + 0];
+        float offsetX = mesh->vertices[vertex * 3 + 0] - anchorX;
         float localY = mesh->vertices[vertex * 3 + 1];
-        float mapZ = (float)mapOriginZ + mesh->vertices[vertex * 3 + 2];
+        float offsetZ = mesh->vertices[vertex * 3 + 2] - anchorZ;
         Vector3 curved = CurveSurfacePoint(
-            &anchorFrame, bodyId, mapX, localY, mapZ, radialBase);
+            &anchorFrame, bodyId, offsetX, localY, offsetZ, radialBase);
         mesh->vertices[vertex * 3 + 0] = curved.x;
         mesh->vertices[vertex * 3 + 1] = curved.y;
         mesh->vertices[vertex * 3 + 2] = curved.z;
 
         if (mesh->normals) {
-            SurfaceFrame vertexFrame = SurfaceFrameAtMapCoordinates(
-                bodyId, mapX, mapZ, radialBase);
+            SurfaceFrame vertexFrame = SurfaceLocalFrameAtOffset(
+                offsetX, offsetZ, radialBase);
             Vector3 source = {
                 mesh->normals[vertex * 3 + 0],
                 mesh->normals[vertex * 3 + 1],
@@ -254,16 +258,19 @@ void CurveChunkFloraInstances(
     int sectionY, uint32_t bodyId, int mapOriginX, int mapOriginZ)
 {
     if (!instances || count <= 0) return;
+    (void)bodyId;
+    (void)mapOriginX;
+    (void)mapOriginZ;
     int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
-    float anchorMapX = (float)(mapOriginX + chunkX * CHUNK_SIZE);
-    float anchorMapZ = (float)(mapOriginZ + chunkZ * CHUNK_SIZE);
-    SurfaceFrame anchorFrame = SurfaceFrameAtMapCoordinates(
-        bodyId, anchorMapX, anchorMapZ, radialBase);
+    float anchorX = (float)(chunkX * CHUNK_SIZE);
+    float anchorZ = (float)(chunkZ * CHUNK_SIZE);
+    SurfaceFrame anchorFrame = SurfaceLocalFrameAtOffset(
+        0.0f, 0.0f, radialBase);
     for (int index = 0; index < count; index++) {
-        float mapX = (float)mapOriginX + instances[index].anchor.x;
-        float mapZ = (float)mapOriginZ + instances[index].anchor.z;
+        float offsetX = instances[index].anchor.x - anchorX;
+        float offsetZ = instances[index].anchor.z - anchorZ;
         instances[index].anchor = CurveSurfacePoint(
-            &anchorFrame, bodyId, mapX, instances[index].anchor.y, mapZ,
+            &anchorFrame, bodyId, offsetX, instances[index].anchor.y, offsetZ,
             radialBase);
     }
 }
