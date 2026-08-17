@@ -48,6 +48,9 @@ typedef struct GameFrameView {
     bool canPlace;
 } GameFrameView;
 
+bool GameWorldSimulationPaused(const GameRuntime *game);
+bool GameEnvironmentSheltered(Vector3 position);
+void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame);
 void GameCaptureScreenshot(GameRuntime *game, const GameFrameView *frame);
 
 #endif

@@ -66,7 +66,10 @@ fi
 grep -q '^void GameNoticePost(' src/core/game_notice.c ||
     fail "core must own neutral status notices"
 
-effect_dispatch_count=$(grep -c 'EffectDispatchPending();' src/app/game.c || true)
+effect_dispatch_count=$(
+    grep -h 'EffectDispatchPending();' \
+        src/app/game.c src/app/game_environment.c | wc -l
+)
 [ "$effect_dispatch_count" -ge 2 ] ||
     fail "app must dispatch domain effects at both frame boundaries"
 
