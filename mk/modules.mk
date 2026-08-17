@@ -31,6 +31,13 @@ ENTITY_FEATURE_SRC := \
 	src/ecology/entity_simulation.c \
 	src/ecology/entity_spawn.c
 
+BLOCK_ATLAS_FEATURE_SRC := \
+	src/world/block_atlas.c \
+	src/world/block_atlas_ecology.c \
+	src/world/block_atlas_geology.c \
+	src/world/block_atlas_items.c \
+	src/world/block_atlas_space.c
+
 GAME_EFFECTS_SRC := src/core/game_effects.c
 
 TERRAIN_FEATURE_SRC := \
