@@ -235,123 +235,146 @@ static float ClampFinite(float value, float minimum, float maximum, float fallba
     return Clamp(value, minimum, maximum);
 }
 
+typedef enum MaterialProfileId {
+    MATERIAL_PROFILE_DEFAULT = 0,
+    MATERIAL_PROFILE_WATER,
+    MATERIAL_PROFILE_GLASS,
+    MATERIAL_PROFILE_ICE,
+    MATERIAL_PROFILE_PORTAL,
+    MATERIAL_PROFILE_METAL,
+    MATERIAL_PROFILE_EMISSIVE,
+    MATERIAL_PROFILE_TORCH,
+    MATERIAL_PROFILE_LUMINOUS_POD,
+    MATERIAL_PROFILE_SNOW,
+    MATERIAL_PROFILE_STONE,
+    MATERIAL_PROFILE_OBSIDIAN,
+    MATERIAL_PROFILE_SOIL,
+    MATERIAL_PROFILE_WOOD,
+    MATERIAL_PROFILE_CRYSTAL,
+    MATERIAL_PROFILE_FOLIAGE,
+    MATERIAL_PROFILE_COUNT
+} MaterialProfileId;
+
+static const WorldMaterialProfile materialProfiles[MATERIAL_PROFILE_COUNT] = {
+    [MATERIAL_PROFILE_DEFAULT] = { 0.82f, 0.10f, 0.0f,
+                                   WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_WATER] = { 0.12f, 0.88f, 0.0f,
+                                 WORLD_MATERIAL_WATER },
+    [MATERIAL_PROFILE_GLASS] = { 0.10f, 0.82f, 0.0f,
+                                 WORLD_MATERIAL_GLASS },
+    [MATERIAL_PROFILE_ICE] = { 0.24f, 0.82f, 0.0f,
+                               WORLD_MATERIAL_GLASS },
+    [MATERIAL_PROFILE_PORTAL] = { 0.10f, 0.82f, 0.62f,
+                                  WORLD_MATERIAL_GLASS },
+    [MATERIAL_PROFILE_METAL] = { 0.34f, 0.72f, 0.0f,
+                                 WORLD_MATERIAL_METAL },
+    [MATERIAL_PROFILE_EMISSIVE] = { 0.48f, 0.22f, 1.0f,
+                                    WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_TORCH] = { 0.48f, 0.22f, 0.82f,
+                                 WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_LUMINOUS_POD] = { 0.48f, 0.22f, 0.76f,
+                                        WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_SNOW] = { 0.88f, 0.22f, 0.0f,
+                                WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_STONE] = { 0.90f, 0.08f, 0.0f,
+                                 WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_OBSIDIAN] = { 0.30f, 0.58f, 0.0f,
+                                    WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_SOIL] = { 0.96f, 0.04f, 0.0f,
+                                WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_WOOD] = { 0.78f, 0.08f, 0.0f,
+                                WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_CRYSTAL] = { 0.28f, 0.64f, 0.0f,
+                                   WORLD_MATERIAL_OPAQUE },
+    [MATERIAL_PROFILE_FOLIAGE] = { 0.84f, 0.10f, 0.0f,
+                                   WORLD_MATERIAL_OPAQUE }
+};
+
+static const unsigned char materialProfileByTexture[TEX_COUNT] = {
+    [TEX_WATER] = MATERIAL_PROFILE_WATER,
+    [TEX_GLASS] = MATERIAL_PROFILE_GLASS,
+    [TEX_ICE] = MATERIAL_PROFILE_ICE,
+    [TEX_NETHER_PORTAL] = MATERIAL_PROFILE_PORTAL,
+    [TEX_IRON_ORE] = MATERIAL_PROFILE_METAL,
+    [TEX_GOLD_ORE] = MATERIAL_PROFILE_METAL,
+    [TEX_COPPER_ORE] = MATERIAL_PROFILE_METAL,
+    [TEX_TIN_ORE] = MATERIAL_PROFILE_METAL,
+    [TEX_SILVER_ORE] = MATERIAL_PROFILE_METAL,
+    [TEX_NICKEL_ORE] = MATERIAL_PROFILE_METAL,
+    [TEX_METEORITE] = MATERIAL_PROFILE_METAL,
+    [TEX_SPACESHIP] = MATERIAL_PROFILE_METAL,
+    [TEX_LAVA] = MATERIAL_PROFILE_EMISSIVE,
+    [TEX_STAR_MATTER] = MATERIAL_PROFILE_EMISSIVE,
+    [TEX_GLOWSTONE] = MATERIAL_PROFILE_EMISSIVE,
+    [TEX_TORCH] = MATERIAL_PROFILE_TORCH,
+    [TEX_LUMINOUS_POD] = MATERIAL_PROFILE_LUMINOUS_POD,
+    [TEX_SNOW] = MATERIAL_PROFILE_SNOW,
+    [TEX_STONE] = MATERIAL_PROFILE_STONE,
+    [TEX_BEDROCK] = MATERIAL_PROFILE_STONE,
+    [TEX_MOON_ROCK] = MATERIAL_PROFILE_STONE,
+    [TEX_NETHERRACK] = MATERIAL_PROFILE_STONE,
+    [TEX_STONE_BRICKS] = MATERIAL_PROFILE_STONE,
+    [TEX_OBSIDIAN] = MATERIAL_PROFILE_OBSIDIAN,
+    [TEX_GRAVEL] = MATERIAL_PROFILE_STONE,
+    [TEX_MOSSY_STONE] = MATERIAL_PROFILE_STONE,
+    [TEX_BASALT] = MATERIAL_PROFILE_STONE,
+    [TEX_GRANITE] = MATERIAL_PROFILE_STONE,
+    [TEX_LIMESTONE] = MATERIAL_PROFILE_STONE,
+    [TEX_SHALE] = MATERIAL_PROFILE_STONE,
+    [TEX_MARBLE] = MATERIAL_PROFILE_STONE,
+    [TEX_PUMICE] = MATERIAL_PROFILE_STONE,
+    [TEX_SULFUR_ORE] = MATERIAL_PROFILE_STONE,
+    [TEX_CHALK] = MATERIAL_PROFILE_STONE,
+    [TEX_GNEISS] = MATERIAL_PROFILE_STONE,
+    [TEX_SCORIA] = MATERIAL_PROFILE_STONE,
+    [TEX_VENT_CHIMNEY] = MATERIAL_PROFILE_STONE,
+    [TEX_GRASS_TOP] = MATERIAL_PROFILE_SOIL,
+    [TEX_GRASS_SIDE] = MATERIAL_PROFILE_SOIL,
+    [TEX_DIRT] = MATERIAL_PROFILE_SOIL,
+    [TEX_SAND] = MATERIAL_PROFILE_SOIL,
+    [TEX_MOON_SAND] = MATERIAL_PROFILE_SOIL,
+    [TEX_SOUL_SAND] = MATERIAL_PROFILE_SOIL,
+    [TEX_CLAY] = MATERIAL_PROFILE_SOIL,
+    [TEX_MUD] = MATERIAL_PROFILE_SOIL,
+    [TEX_RED_SAND] = MATERIAL_PROFILE_SOIL,
+    [TEX_PEAT] = MATERIAL_PROFILE_SOIL,
+    [TEX_PERMAFROST] = MATERIAL_PROFILE_SOIL,
+    [TEX_ROCK_SALT] = MATERIAL_PROFILE_SOIL,
+    [TEX_VOLCANIC_ASH] = MATERIAL_PROFILE_SOIL,
+    [TEX_LOAM] = MATERIAL_PROFILE_SOIL,
+    [TEX_PODZOL] = MATERIAL_PROFILE_SOIL,
+    [TEX_SILT] = MATERIAL_PROFILE_SOIL,
+    [TEX_LATERITE] = MATERIAL_PROFILE_SOIL,
+    [TEX_REGOLITH] = MATERIAL_PROFILE_SOIL,
+    [TEX_SALT_CRUST] = MATERIAL_PROFILE_SOIL,
+    [TEX_MOSS_CARPET] = MATERIAL_PROFILE_SOIL,
+    [TEX_LICHEN] = MATERIAL_PROFILE_SOIL,
+    [TEX_MICROBIAL_MAT] = MATERIAL_PROFILE_SOIL,
+    [TEX_MYCELIUM] = MATERIAL_PROFILE_SOIL,
+    [TEX_CHEMO_MAT] = MATERIAL_PROFILE_SOIL,
+    [TEX_WOOD_SIDE] = MATERIAL_PROFILE_WOOD,
+    [TEX_WOOD_TOP] = MATERIAL_PROFILE_WOOD,
+    [TEX_PLANK] = MATERIAL_PROFILE_WOOD,
+    [TEX_FENCE] = MATERIAL_PROFILE_WOOD,
+    [TEX_DOOR] = MATERIAL_PROFILE_WOOD,
+    [TEX_LIVING_STEM] = MATERIAL_PROFILE_WOOD,
+    [TEX_FUNGAL_STEM] = MATERIAL_PROFILE_WOOD,
+    [TEX_CRYSTAL] = MATERIAL_PROFILE_CRYSTAL,
+    [TEX_PACKED_ICE] = MATERIAL_PROFILE_CRYSTAL,
+    [TEX_QUARTZ_ORE] = MATERIAL_PROFILE_CRYSTAL,
+    [TEX_CRYSTAL_BLOOM] = MATERIAL_PROFILE_CRYSTAL,
+    [TEX_TALL_GRASS] = MATERIAL_PROFILE_FOLIAGE,
+    [TEX_FERN] = MATERIAL_PROFILE_FOLIAGE,
+    [TEX_REED] = MATERIAL_PROFILE_FOLIAGE,
+    [TEX_CANOPY_FROND] = MATERIAL_PROFILE_FOLIAGE,
+    [TEX_SPORE_CAP] = MATERIAL_PROFILE_FOLIAGE
+};
+
 WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture)
 {
-    WorldMaterialProfile profile = { 0.82f, 0.10f, 0.0f,
-                                     WORLD_MATERIAL_OPAQUE };
-    switch (texture) {
-    case TEX_WATER:
-        return (WorldMaterialProfile){ 0.12f, 0.88f, 0.0f,
-                                       WORLD_MATERIAL_WATER };
-    case TEX_GLASS:
-    case TEX_ICE:
-    case TEX_NETHER_PORTAL:
-        profile.roughness = texture == TEX_ICE ? 0.24f : 0.10f;
-        profile.specular = 0.82f;
-        profile.emission = texture == TEX_NETHER_PORTAL ? 0.62f : 0.0f;
-        profile.kind = WORLD_MATERIAL_GLASS;
-        return profile;
-    case TEX_IRON_ORE:
-    case TEX_GOLD_ORE:
-    case TEX_COPPER_ORE:
-    case TEX_TIN_ORE:
-    case TEX_SILVER_ORE:
-    case TEX_NICKEL_ORE:
-    case TEX_METEORITE:
-    case TEX_SPACESHIP:
-        return (WorldMaterialProfile){ 0.34f, 0.72f, 0.0f,
-                                       WORLD_MATERIAL_METAL };
-    case TEX_LAVA:
-    case TEX_STAR_MATTER:
-    case TEX_GLOWSTONE:
-    case TEX_TORCH:
-    case TEX_LUMINOUS_POD:
-        profile.roughness = 0.48f;
-        profile.specular = 0.22f;
-        profile.emission = texture == TEX_TORCH ? 0.82f :
-                           texture == TEX_LUMINOUS_POD ? 0.76f : 1.0f;
-        return profile;
-    case TEX_SNOW:
-        profile.roughness = 0.88f;
-        profile.specular = 0.22f;
-        return profile;
-    case TEX_STONE:
-    case TEX_BEDROCK:
-    case TEX_MOON_ROCK:
-    case TEX_NETHERRACK:
-    case TEX_STONE_BRICKS:
-    case TEX_OBSIDIAN:
-    case TEX_GRAVEL:
-    case TEX_MOSSY_STONE:
-    case TEX_BASALT:
-    case TEX_GRANITE:
-    case TEX_LIMESTONE:
-    case TEX_SHALE:
-    case TEX_MARBLE:
-    case TEX_PUMICE:
-    case TEX_SULFUR_ORE:
-    case TEX_CHALK:
-    case TEX_GNEISS:
-    case TEX_SCORIA:
-    case TEX_VENT_CHIMNEY:
-        profile.roughness = texture == TEX_OBSIDIAN ? 0.30f : 0.90f;
-        profile.specular = texture == TEX_OBSIDIAN ? 0.58f : 0.08f;
-        return profile;
-    case TEX_GRASS_TOP:
-    case TEX_GRASS_SIDE:
-    case TEX_DIRT:
-    case TEX_SAND:
-    case TEX_MOON_SAND:
-    case TEX_SOUL_SAND:
-    case TEX_CLAY:
-    case TEX_MUD:
-    case TEX_RED_SAND:
-    case TEX_PEAT:
-    case TEX_PERMAFROST:
-    case TEX_ROCK_SALT:
-    case TEX_VOLCANIC_ASH:
-    case TEX_LOAM:
-    case TEX_PODZOL:
-    case TEX_SILT:
-    case TEX_LATERITE:
-    case TEX_REGOLITH:
-    case TEX_SALT_CRUST:
-    case TEX_MOSS_CARPET:
-    case TEX_LICHEN:
-    case TEX_MICROBIAL_MAT:
-    case TEX_MYCELIUM:
-    case TEX_CHEMO_MAT:
-        profile.roughness = 0.96f;
-        profile.specular = 0.04f;
-        return profile;
-    case TEX_WOOD_SIDE:
-    case TEX_WOOD_TOP:
-    case TEX_PLANK:
-    case TEX_FENCE:
-    case TEX_DOOR:
-    case TEX_LIVING_STEM:
-    case TEX_FUNGAL_STEM:
-        profile.roughness = 0.78f;
-        profile.specular = 0.08f;
-        return profile;
-    case TEX_CRYSTAL:
-    case TEX_PACKED_ICE:
-    case TEX_QUARTZ_ORE:
-    case TEX_CRYSTAL_BLOOM:
-        profile.roughness = 0.28f;
-        profile.specular = 0.64f;
-        return profile;
-    case TEX_TALL_GRASS:
-    case TEX_FERN:
-    case TEX_REED:
-    case TEX_CANOPY_FROND:
-    case TEX_SPORE_CAP:
-        profile.roughness = 0.84f;
-        profile.specular = 0.10f;
-        return profile;
-    default:
-        return profile;
-    }
+    if ((unsigned int)texture >= (unsigned int)TEX_COUNT)
+        return materialProfiles[MATERIAL_PROFILE_DEFAULT];
+    return materialProfiles[materialProfileByTexture[texture]];
 }
 
 WorldLightingState WorldLightingStateSanitize(WorldLightingState state)

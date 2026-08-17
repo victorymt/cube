@@ -59,6 +59,31 @@ static void TestMaterialProfiles(void)
     assert(frond.roughness > 0.8f && frond.emission == 0.0f);
 }
 
+static void TestEveryTextureHasValidMaterialProfile(void)
+{
+    for (int texture = 0; texture < TEX_COUNT; texture++) {
+        WorldMaterialProfile profile =
+            WorldMaterialForTexture((BlockTexture)texture);
+        assert(isfinite(profile.roughness));
+        assert(isfinite(profile.specular));
+        assert(isfinite(profile.emission));
+        assert(profile.roughness >= 0.0f && profile.roughness <= 1.0f);
+        assert(profile.specular >= 0.0f && profile.specular <= 1.0f);
+        assert(profile.emission >= 0.0f && profile.emission <= 1.0f);
+        assert(profile.kind >= WORLD_MATERIAL_OPAQUE);
+        assert(profile.kind <= WORLD_MATERIAL_METAL);
+    }
+
+    WorldMaterialProfile below = WorldMaterialForTexture((BlockTexture)-1);
+    WorldMaterialProfile above = WorldMaterialForTexture((BlockTexture)TEX_COUNT);
+    assert(below.roughness == 0.82f && below.specular == 0.10f);
+    assert(below.emission == 0.0f && below.kind == WORLD_MATERIAL_OPAQUE);
+    assert(above.roughness == below.roughness);
+    assert(above.specular == below.specular);
+    assert(above.emission == below.emission);
+    assert(above.kind == below.kind);
+}
+
 static void TestLightingSanitization(void)
 {
     WorldLightingState invalid = {
@@ -127,6 +152,7 @@ static void TestShadowBounds(void)
 int main(void)
 {
     TestMaterialProfiles();
+    TestEveryTextureHasValidMaterialProfile();
     TestLightingSanitization();
     TestShadowBounds();
     TestNoContextFallback();
