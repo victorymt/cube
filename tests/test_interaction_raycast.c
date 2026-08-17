@@ -93,7 +93,7 @@ const char *TextFormat(const char *text, ...)
     return formatted;
 }
 
-void SetImportMessage(const char *message)
+void GameNoticePost(const char *message)
 {
     snprintf(importMessage, sizeof(importMessage), "%s",
              message ? message : "");

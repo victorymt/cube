@@ -2,6 +2,7 @@
 #include "raymath.h"
 
 #include "app/game_interaction.h"
+#include "core/game_notice.h"
 #include "presentation/album_ui.h"
 #include "presentation/audio.h"
 #include "gameplay/discovery.h"
@@ -69,7 +70,7 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
         if (game->evolutionScanLocked) {
             game->evolutionScanLocked = false;
             game->evolutionLockedOrganismId = 0u;
-            SetImportMessage("Evolution scan unlocked.");
+            GameNoticePost("Evolution scan unlocked.");
         } else {
             EntityEvolutionDebugInfo scanInfo = { 0 };
             if (EntityEvolutionInspect(context->entityHit, &scanInfo)) {
@@ -77,11 +78,11 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
                     GameInteractionObserveEvolutionInfo(&scanInfo);
                 game->evolutionLockedOrganismId = game->evolutionScanLocked
                     ? scanInfo.organismId : 0u;
-                SetImportMessage(game->evolutionScanLocked
+                GameNoticePost(game->evolutionScanLocked
                     ? "Evolution scan locked; species added to atlas."
                     : "Evolution scan failed.");
             } else {
-                SetImportMessage("Aim at an evolvable organism to scan.");
+                GameNoticePost("Aim at an evolvable organism to scan.");
             }
         }
     }
@@ -108,16 +109,16 @@ static void GameHandleLeftInteraction(
                    context->interactionHit.z) == BLOCK_WATER &&
         IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         if (InventoryCount(BLOCK_WATER) >= INVENTORY_MAX_PER_BLOCK) {
-            SetImportMessage("Inventory full: Water");
+            GameNoticePost("Inventory full: Water");
         } else if (FluidTryCollectUnit(
                        context->interactionHit.x, context->interactionHit.y,
                        context->interactionHit.z)) {
             InventoryAdd(BLOCK_WATER, 1);
             AudioPlayPick();
-            SetImportMessage(TextFormat(
+            GameNoticePost(TextFormat(
                 "Collected Water (%d)", InventoryCount(BLOCK_WATER)));
         } else {
-            SetImportMessage("Need 255 connected water volume to collect.");
+            GameNoticePost("Need 255 connected water volume to collect.");
         }
     } else if (!inputBlocked && context->entityHit >= 0 &&
                IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -147,7 +148,7 @@ static void GameHandleLeftInteraction(
                                20, 3.0f, 0.7f);
             AudioPlayBreak();
         } else {
-            SetImportMessage("Inventory full: Spaceship");
+            GameNoticePost("Inventory full: Spaceship");
         }
     } else if (!inputBlocked && context->hit.hit &&
                IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
@@ -167,12 +168,12 @@ static void GameHandleLeftInteraction(
                            context->hit.z + 0.5f },
                 BlockBaseColor(claimedPoi.rewardBlock), 24, 3.8f, 0.85f);
             AudioPlayBreak();
-            SetImportMessage(TextFormat(
+            GameNoticePost(TextFormat(
                 "Survey complete: %s, +%d %s", claimedPoi.name,
                 claimedPoi.rewardAmount,
                 BlockName(claimedPoi.rewardBlock)));
         } else if (poiClaimed) {
-            SetImportMessage("This discovery has already been catalogued.");
+            GameNoticePost("This discovery has already been catalogued.");
         } else if (!poiCore && brokenType != BLOCK_AIR &&
                    InventoryAdd(brokenType, 1) > 0) {
             ParticlesEmitBurst(
@@ -184,7 +185,7 @@ static void GameHandleLeftInteraction(
             SetBlock(context->hit.x, context->hit.y, context->hit.z,
                      BLOCK_AIR);
         } else if (!poiCore && brokenType != BLOCK_AIR) {
-            SetImportMessage(
+            GameNoticePost(
                 TextFormat("Inventory full: %s", BlockName(brokenType)));
         }
     }
@@ -256,7 +257,7 @@ static void GameUseNetherPortal(GameRuntime *game)
         landing.y = -46.0f;
         foundLanding = PlayerFindLandingSpot(
             landing, NETHER_LAYER_Y + 1, NETHER_LAYER_TOP - 1, &landing);
-        SetImportMessage("Entered the Nether.");
+        GameNoticePost("Entered the Nether.");
     } else {
         float groundY = (float)TerrainHeight(
             (int)floorf(game->player.position.x),
@@ -269,11 +270,11 @@ static void GameUseNetherPortal(GameRuntime *game)
         }
         foundLanding = PlayerFindLandingSpot(
             landing, landingMinY, WorldSurfaceMaxYExclusive() - 1, &landing);
-        SetImportMessage("Back to the surface.");
+        GameNoticePost("Back to the surface.");
     }
     if (!foundLanding) {
         WorldSetNetherActive(!entering);
-        SetImportMessage("Portal destination is obstructed.");
+        GameNoticePost("Portal destination is obstructed.");
         return;
     }
     game->player.position = landing;
@@ -302,7 +303,7 @@ static void GamePlaceSelectedBlock(GameRuntime *game,
                     context->placeX, context->placeY, context->placeZ,
                     context->placementDirection, true)) {
                 InventoryAdd(placedType, 1);
-                SetImportMessage("Spaceship needs a clear 4x4 area.");
+                GameNoticePost("Spaceship needs a clear 4x4 area.");
             } else {
                 ParticlesEmitBurst(
                     (Vector3){ context->placeX + 1.0f,
@@ -317,7 +318,7 @@ static void GamePlaceSelectedBlock(GameRuntime *game,
             if (!FluidTryDepositUnit(context->placeX, context->placeY,
                                      context->placeZ)) {
                 InventoryAdd(placedType, 1);
-                SetImportMessage(
+                GameNoticePost(
                     "Water needs 255 free loaded neighbor volume.");
             } else {
                 ParticlesEmitBurst(
@@ -332,7 +333,7 @@ static void GamePlaceSelectedBlock(GameRuntime *game,
         if (!SetBlock(context->placeX, context->placeY, context->placeZ,
                       placedType)) {
             InventoryAdd(placedType, 1);
-            SetImportMessage(
+            GameNoticePost(
                 "Cannot place block: water has no loaded escape volume.");
         } else {
             ParticlesEmitBurst(
@@ -373,7 +374,7 @@ static void GameHandleRightInteraction(
         GamePlaceSelectedBlock(game, context);
     } else if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP &&
                InventoryCount(BLOCK_SPACESHIP) > 0) {
-        SetImportMessage("Spaceship needs a clear 4x4 area.");
+        GameNoticePost("Spaceship needs a clear 4x4 area.");
     }
 }
 
@@ -393,7 +394,7 @@ static void GameHandleMiddlePick(GameRuntime *game, bool inputBlocked,
     if (picked != BLOCK_AIR && IsValidBlockType(picked)) {
         game->hotbar[game->selectedIndex] = picked;
         AudioPlayPick();
-        SetImportMessage(TextFormat(
+        GameNoticePost(TextFormat(
             "Picked %s (%d)", BlockName(picked), InventoryCount(picked)));
     }
 }

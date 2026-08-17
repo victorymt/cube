@@ -132,8 +132,6 @@ static uint32_t WorldCurrentEditDimension(void)
     return WorldCurrentSurfaceId();
 }
 int blockEditIndexCapacity = 0;
-char importMessage[160] = "Flat mode: press I to import an image path.";
-float importMessageTimer = 8.0f;
 const char *BlockName(BlockType type)
 {
     if (type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END) return TextFormat("Color %03d", (int)type - BLOCK_COLOR_START);
@@ -876,12 +874,6 @@ BlockType NearestImageBlock(Color color)
     return ColorBlockFromIndex(bestIndex);
 }
 
-void SetImportMessage(const char *message)
-{
-    snprintf(importMessage, sizeof(importMessage), "%s", message);
-    importMessageTimer = 6.0f;
-}
-
 int WorldGetEditCount(void)
 {
     return blockEditCount;
@@ -929,21 +921,6 @@ bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
     if (index < 0) return false;
     *outType = blockEdits[index].type;
     return true;
-}
-
-const char *WorldGetImportMessage(void)
-{
-    return importMessage;
-}
-
-float WorldGetImportMessageTimer(void)
-{
-    return importMessageTimer;
-}
-
-void WorldTickImportMessage(float dt)
-{
-    if (importMessageTimer > 0.0f) importMessageTimer -= dt;
 }
 
 void WorldCleanup(void)

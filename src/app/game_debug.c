@@ -6,6 +6,7 @@
 #include "app/game_save.h"
 #include "world/chunks.h"
 #include "core/debug_control.h"
+#include "core/game_notice.h"
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
 #include "ecology/evolution.h"
@@ -776,7 +777,7 @@ bool GameDispatchDebugCommand(GameRuntime *game)
             GameSaveMap(&game->player);
             DebugControlReply(&game->debugControl,
                               "DEBUG_CONTROL save result=%s\n",
-                              WorldGetImportMessage());
+                              GameNoticeCurrent());
         } else {
             DebugControlReply(
                 &game->debugControl,
@@ -797,7 +798,7 @@ bool GameDispatchDebugCommand(GameRuntime *game)
             DisableCursor();
             DebugControlReply(&game->debugControl,
                               "DEBUG_CONTROL load result=%s\n",
-                              WorldGetImportMessage());
+                              GameNoticeCurrent());
         } else {
             DebugControlReply(
                 &game->debugControl,

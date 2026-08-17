@@ -101,7 +101,7 @@ bool SpaceBlockReadyAt(int x, int y, int z)
     return true;
 }
 
-void SetImportMessage(const char *message)
+void GameNoticePost(const char *message)
 {
     (void)message;
 }

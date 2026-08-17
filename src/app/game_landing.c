@@ -3,6 +3,7 @@
 
 #include "app/screenshot.h"
 #include "app/game_world_transition.h"
+#include "core/game_notice.h"
 #include "ecology/ecology.h"
 #include "presentation/render.h"
 #include "gameplay/ship.h"
@@ -140,7 +141,7 @@ bool LandingTransitionBegin(LandingTransition *transition, Player *player)
     }
     ShipResetVisualEffects();
     player->velocity = transition->targetVelocity;
-    SetImportMessage(TextFormat("Descent initiated: %s.", transition->targetName));
+    GameNoticePost(TextFormat("Descent initiated: %s.", transition->targetName));
     return true;
 }
 
@@ -193,7 +194,7 @@ static bool LandingTransitionCommit(LandingTransition *transition, Player *playe
         transition->active = false;
         transition->summaryRemaining = 0.0f;
         ShipResetVisualEffects();
-        SetImportMessage("Descent aborted: landing target moved out of range.");
+        GameNoticePost("Descent aborted: landing target moved out of range.");
         return false;
     }
 
@@ -257,7 +258,7 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
         transition->active = false;
         transition->summaryRemaining = 0.0f;
         ShipResetVisualEffects();
-        SetImportMessage("Descent aborted: landing target is unavailable.");
+        GameNoticePost("Descent aborted: landing target is unavailable.");
         return false;
     }
 
@@ -326,7 +327,7 @@ bool LandingTransitionUpdate(LandingTransition *transition, Player *player,
         if (transition->landed) {
             transition->active = false;
             transition->summaryRemaining = LANDING_SUMMARY_DURATION;
-            SetImportMessage(TextFormat("Touchdown complete: %s.", transition->targetName));
+            GameNoticePost(TextFormat("Touchdown complete: %s.", transition->targetName));
         }
     }
     return skipPressed;

@@ -2,6 +2,7 @@
 #include "presentation/render_internal.h"
 #include "presentation/render_ui.h"
 
+#include "core/game_notice.h"
 #include "raymath.h"
 #include "rlgl.h"
 #include "world/block_atlas.h"
@@ -897,10 +898,10 @@ void DrawCursorReleasedOverlay(void)
 
 void DrawImportStatus(void)
 {
-    float timer = WorldGetImportMessageTimer();
+    float timer = GameNoticeRemaining();
     if (timer <= 0.0f) return;
 
-    const char *message = WorldGetImportMessage();
+    const char *message = GameNoticeCurrent();
     int fontSize = 18;
     int padding = 12;
     int width = UiMeasureText(message, fontSize) + padding * 2;

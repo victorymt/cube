@@ -1,5 +1,6 @@
 #include "gameplay/interaction.h"
 
+#include "core/game_notice.h"
 #include "raymath.h"
 #include "world/chunks.h"
 #include "world/world.h"
@@ -79,7 +80,7 @@ void AdjustRenderDistance(int delta)
     if (nextDistance == currentDistance) return;
 
     ChunksSetRenderDistance(nextDistance);
-    SetImportMessage(TextFormat("View distance: %d chunks.",
+    GameNoticePost(TextFormat("View distance: %d chunks.",
                                 ChunksRenderDistance()));
 }
 
@@ -273,12 +274,12 @@ static bool ImportPlacementBase(const Player *player, int targetWidth,
 void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, bool relief)
 {
     if (WorldTerrainMode() != TERRAIN_FLAT) {
-        SetImportMessage("Image import is only available in Flat terrain mode.");
+        GameNoticePost("Image import is only available in Flat terrain mode.");
         return;
     }
     if (!player || !isfinite(player->position.x) ||
         !isfinite(player->position.z) || !isfinite(player->yaw)) {
-        SetImportMessage("Player position is invalid for image import.");
+        GameNoticePost("Player position is invalid for image import.");
         return;
     }
 
@@ -290,25 +291,25 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
     if (!imagePath) {
         char normalized[96] = { 0 };
         NormalizeDroppedPath(path, normalized, sizeof(normalized));
-        SetImportMessage(TextFormat("No image file path found: %.80s", normalized[0] ? normalized : "(empty path)"));
+        GameNoticePost(TextFormat("No image file path found: %.80s", normalized[0] ? normalized : "(empty path)"));
         return;
     }
 
     if (!IsSupportedImageFile(imagePath)) {
-        SetImportMessage("Unsupported image type. Try PNG, JPG, BMP, TGA, GIF, QOI, PSD, or HDR.");
+        GameNoticePost("Unsupported image type. Try PNG, JPG, BMP, TGA, GIF, QOI, PSD, or HDR.");
         return;
     }
 
     int fileBytes = GetFileLength(imagePath);
     if (fileBytes < 0 || fileBytes > IMPORT_MAX_FILE_BYTES) {
-        SetImportMessage("Image file is too large to import safely.");
+        GameNoticePost("Image file is too large to import safely.");
         return;
     }
 
     Image image = LoadImage(imagePath);
     if (image.data == NULL || image.width <= 0 || image.height <= 0) {
         if (image.data != NULL) UnloadImage(image);
-        SetImportMessage("Image decode failed. Try exporting it as a standard PNG or JPG.");
+        GameNoticePost("Image decode failed. Try exporting it as a standard PNG or JPG.");
         return;
     }
 
@@ -316,7 +317,7 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
     if (!BuildImageImportPlan(image.width, image.height, maxBlocks,
                               relief, &plan)) {
         UnloadImage(image);
-        SetImportMessage("Image dimensions exceed the safe import budget.");
+        GameNoticePost("Image dimensions exceed the safe import budget.");
         return;
     }
 
@@ -342,7 +343,7 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
     if (!ImportPlacementBase(player, plan.targetWidth, plan.targetHeight,
                              rowDx, rowDz, colDx, colDz, &baseX, &baseZ)) {
         UnloadImage(image);
-        SetImportMessage("Player position is outside the safe import range.");
+        GameNoticePost("Player position is outside the safe import range.");
         return;
     }
 
@@ -351,7 +352,7 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
         if (image.data == NULL || image.width != plan.targetWidth ||
             image.height != plan.targetHeight) {
             if (image.data != NULL) UnloadImage(image);
-            SetImportMessage("Image resize failed.");
+            GameNoticePost("Image resize failed.");
             return;
         }
     }
@@ -422,7 +423,7 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
     }
 
     UnloadImage(image);
-    SetImportMessage(TextFormat("Imported %dx%d %s blocks (%d total), precision %d.",
+    GameNoticePost(TextFormat("Imported %dx%d %s blocks (%d total), precision %d.",
                                 targetWidth, targetHeight, relief ? "relief" : "flat", placed, maxBlocks));
 }
 
@@ -448,7 +449,7 @@ void AppendImportText(ImportDialog *dialog, const char *text)
 void OpenImportDialog(ImportDialog *dialog)
 {
     if (WorldTerrainMode() != TERRAIN_FLAT) {
-        SetImportMessage("Image import is only available in Flat terrain mode.");
+        GameNoticePost("Image import is only available in Flat terrain mode.");
         return;
     }
 
@@ -456,7 +457,7 @@ void OpenImportDialog(ImportDialog *dialog)
     if (dialog->maxBlocks == 0) dialog->maxBlocks = IMPORT_DEFAULT_BLOCKS;
     dialog->maxBlocks = ClampImportPrecision(dialog->maxBlocks);
     dialog->path[0] = '\0';
-    SetImportMessage("Type or paste an image path. Tab toggles relief mode.");
+    GameNoticePost("Type or paste an image path. Tab toggles relief mode.");
 }
 
 void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursorReleased)
@@ -499,7 +500,7 @@ void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursor
         DisableCursor();
     } else if (IsKeyPressed(KEY_ESCAPE)) {
         dialog->open = false;
-        SetImportMessage("Image import canceled.");
+        GameNoticePost("Image import canceled.");
         *cursorReleased = false;
         DisableCursor();
     }

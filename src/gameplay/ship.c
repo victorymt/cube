@@ -1,5 +1,6 @@
 #include "gameplay/ship.h"
 
+#include "core/game_notice.h"
 #include "gameplay/ship_ground_effects.h"
 #include "gameplay/ship_flight_controller.h"
 #include "gameplay/ship_internal.h"
@@ -579,13 +580,13 @@ static int PreferredSystemArrivalPlanet(const SolarSystemDef *system)
 static bool LockNavigationTarget(const Player *player, Vector3 forward)
 {
     if (WorldIsSurfaceActive()) {
-        SetImportMessage("Launch into space before locking a navigation target.");
+        GameNoticePost("Launch into space before locking a navigation target.");
         return false;
     }
 
     SpaceBodyInfo body;
     if (!SpacePlanetNavigationPick(player->position, forward, &body)) {
-        SetImportMessage("Move a planet marker near the crosshair to lock it.");
+        GameNoticePost("Move a planet marker near the crosshair to lock it.");
         return false;
     }
 
@@ -610,7 +611,7 @@ static bool LockNavigationTarget(const Player *player, Vector3 forward)
     snprintf(shipRuntime.navigationTarget.name, sizeof(shipRuntime.navigationTarget.name), "%s",
              body.name);
     if (shipRuntime.driveMode == SHIP_DRIVE_APPROACH) shipRuntime.driveMode = SHIP_DRIVE_MANEUVER;
-    SetImportMessage(TextFormat(
+    GameNoticePost(TextFormat(
         "Locked %s. Press G to engage navigation.", shipRuntime.navigationTarget.name));
     return true;
 }
@@ -618,21 +619,21 @@ static bool LockNavigationTarget(const Player *player, Vector3 forward)
 bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
 {
     if (!shipRuntime.driving) {
-        SetImportMessage("Board your ship before initiating a system warp.");
+        GameNoticePost("Board your ship before initiating a system warp.");
         return false;
     }
     if (WorldIsSurfaceActive()) {
-        SetImportMessage("Launch into space before initiating a system warp.");
+        GameNoticePost("Launch into space before initiating a system warp.");
         return false;
     }
     if (shipRuntime.fuel <= 0.0f) {
-        SetImportMessage("System warp unavailable: ship is out of fuel.");
+        GameNoticePost("System warp unavailable: ship is out of fuel.");
         return false;
     }
 
     SolarSystemDef system;
     if (!StarSystemAt(systemAnchorX, systemAnchorZ, &system)) {
-        SetImportMessage("Selected star system is unavailable.");
+        GameNoticePost("Selected star system is unavailable.");
         return false;
     }
 
@@ -654,7 +655,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
     float gap = Vector3Distance(player->position, targetCenter) - safeDistance;
     if (gap <= 1.0f) {
         player->velocity = Vector3Zero();
-        SetImportMessage(planetIndex >= 0
+        GameNoticePost(planetIndex >= 0
             ? TextFormat("Already within %s's approach zone.",
                          system.planets[planetIndex].name)
             : "Already within this star system's approach zone.");
@@ -677,7 +678,7 @@ bool ShipBeginSystemWarp(Player *player, int systemAnchorX, int systemAnchorZ)
     shipRuntime.driveMode = SHIP_DRIVE_INTERSTELLAR_WARP;
     shipRuntime.cruiseSetSpeed = 0.0f;
     player->velocity = Vector3Zero();
-    SetImportMessage(planetIndex >= 0
+    GameNoticePost(planetIndex >= 0
         ? TextFormat("Interstellar warp engaged: %s in %s.",
                      shipRuntime.navigationTarget.name, system.name)
         : TextFormat("Interstellar warp engaged: %s.",
@@ -690,7 +691,7 @@ void ShipToggleNavigation(Player *player)
     if (!player) return;
     if (shipRuntime.driveMode == SHIP_DRIVE_ORBIT) {
         ClearNavigationTarget();
-        SetImportMessage("Orbit disengaged. Manual maneuvering active.");
+        GameNoticePost("Orbit disengaged. Manual maneuvering active.");
         return;
     }
     if (ShipDriveIsGuided()) {
@@ -698,21 +699,21 @@ void ShipToggleNavigation(Player *player)
         bool interstellar = shipRuntime.driveMode == SHIP_DRIVE_INTERSTELLAR_WARP;
         shipRuntime.driveMode = SHIP_DRIVE_MANEUVER;
         if (highSpeed) player->velocity = Vector3Zero();
-        SetImportMessage(interstellar ? "Interstellar warp cancelled." :
+        GameNoticePost(interstellar ? "Interstellar warp cancelled." :
                          highSpeed ? "Supercruise cancelled." :
                                      "Approach guidance cancelled.");
         return;
     }
     if (!shipRuntime.driving) {
-        SetImportMessage("Board your ship before engaging navigation.");
+        GameNoticePost("Board your ship before engaging navigation.");
         return;
     }
     if (WorldIsSurfaceActive()) {
-        SetImportMessage("Launch into space before engaging navigation.");
+        GameNoticePost("Launch into space before engaging navigation.");
         return;
     }
     if (shipRuntime.fuel <= 0.0f) {
-        SetImportMessage("Navigation unavailable: ship is out of fuel.");
+        GameNoticePost("Navigation unavailable: ship is out of fuel.");
         return;
     }
 
@@ -722,7 +723,7 @@ void ShipToggleNavigation(Player *player)
     if (!ResolveNavigationTarget(shipRuntime.driveMode, &targetCenter, &targetVelocity,
                                  &safeDistance)) {
         ClearNavigationTarget();
-        SetImportMessage("Navigation target is no longer available.");
+        GameNoticePost("Navigation target is no longer available.");
         return;
     }
 
@@ -737,7 +738,7 @@ void ShipToggleNavigation(Player *player)
                 if (EstablishNavigationOrbit(
                         player, &system, planetIndex, targetCenter,
                         targetVelocity, safeDistance, &hasSolidSurface)) {
-                    SetImportMessage(hasSolidSurface
+                    GameNoticePost(hasSolidSurface
                         ? TextFormat(
                             "Orbit established around %s. Press E to land.",
                             shipRuntime.navigationTarget.name)
@@ -749,7 +750,7 @@ void ShipToggleNavigation(Player *player)
             }
         }
         player->velocity = Vector3Zero();
-        SetImportMessage("Already at the target approach distance.");
+        GameNoticePost("Already at the target approach distance.");
         return;
     }
 
@@ -765,17 +766,17 @@ void ShipToggleNavigation(Player *player)
     switch (route) {
     case SHIP_NAVIGATION_INTERSTELLAR_WARP:
         shipRuntime.driveMode = SHIP_DRIVE_INTERSTELLAR_WARP;
-        SetImportMessage(TextFormat("Interstellar warp engaged: %s.",
+        GameNoticePost(TextFormat("Interstellar warp engaged: %s.",
                                     shipRuntime.navigationTarget.name));
         break;
     case SHIP_NAVIGATION_SUPERCRUISE:
         shipRuntime.driveMode = SHIP_DRIVE_SUPERCRUISE;
-        SetImportMessage(TextFormat("Supercruise engaged: %s.",
+        GameNoticePost(TextFormat("Supercruise engaged: %s.",
                                     shipRuntime.navigationTarget.name));
         break;
     default:
         shipRuntime.driveMode = SHIP_DRIVE_APPROACH;
-        SetImportMessage(TextFormat("Approach guidance engaged: %s.",
+        GameNoticePost(TextFormat("Approach guidance engaged: %s.",
                                     shipRuntime.navigationTarget.name));
         break;
     }
@@ -792,7 +793,7 @@ static void ShipBeginFlight(Player *player)
     shipRuntime.gravityPrimary = (SpaceGravitySample){ 0 };
     ClearNavigationTarget();
     ShipResetVisualEffects();
-    SetImportMessage("Ship: inertial flight. F toggles braking assist; E exits.");
+    GameNoticePost("Ship: inertial flight. F toggles braking assist; E exits.");
 }
 
 bool ShipTryEnter(int x, int y, int z, Player *player)
@@ -996,7 +997,7 @@ bool ShipConsumeFuel(float amount)
 bool ShipRefuel(void)
 {
     shipRuntime.fuel = SHIP_MAX_FUEL;
-    SetImportMessage("Ship fuel restored to maximum.");
+    GameNoticePost("Ship fuel restored to maximum.");
     return true;
 }
 
@@ -1026,21 +1027,21 @@ void ShipToggleCruise(void)
     if (shipRuntime.driveMode == SHIP_DRIVE_ORBIT) {
         shipRuntime.driveMode = SHIP_DRIVE_MANEUVER;
         ClearOrbitState();
-        SetImportMessage("Orbit disengaged. Manual maneuvering active.");
+        GameNoticePost("Orbit disengaged. Manual maneuvering active.");
         return;
     }
     if (ShipDriveIsGuided() || !shipRuntime.driving || shipRuntime.fuel <= 0.0f) return;
     if (shipRuntime.driveMode == SHIP_DRIVE_MANUAL_CRUISE) {
         shipRuntime.driveMode = SHIP_DRIVE_MANEUVER;
         shipRuntime.cruiseSetSpeed = 0.0f;
-        SetImportMessage("Manual cruise off.");
+        GameNoticePost("Manual cruise off.");
         return;
     }
     ClearOrbitState();
     shipRuntime.driveMode = SHIP_DRIVE_MANUAL_CRUISE;
     shipRuntime.cruiseSetSpeed = fmaxf(shipRuntime.cruiseSetSpeed,
                            SHIP_MANUAL_CRUISE_INITIAL_SPEED);
-    SetImportMessage("Manual cruise: W/S set speed, X returns to maneuver.");
+    GameNoticePost("Manual cruise: W/S set speed, X returns to maneuver.");
 }
 
 static float ShipAtmosphereDensityAt(Vector3 position)
@@ -1117,9 +1118,9 @@ static Vector3 ShipApplyFrameCommands(Player *player, bool scripted,
 {
     if (!scripted && IsKeyPressed(KEY_X)) {
         if (ShipDriveIsGuided()) {
-            SetImportMessage("Navigation active. Press G to cancel it.");
+            GameNoticePost("Navigation active. Press G to cancel it.");
         } else if (surfaceActive) {
-            SetImportMessage("Launch into space before engaging cruise.");
+            GameNoticePost("Launch into space before engaging cruise.");
         } else {
             ShipToggleCruise();
         }
@@ -1127,7 +1128,7 @@ static Vector3 ShipApplyFrameCommands(Player *player, bool scripted,
     if (!scripted && IsKeyPressed(KEY_R)) ShipRefuel();
     if (!scripted && IsKeyPressed(KEY_F) && !ShipDriveIsGuided()) {
         shipRuntime.flightAssist = !shipRuntime.flightAssist;
-        SetImportMessage(shipRuntime.flightAssist ?
+        GameNoticePost(shipRuntime.flightAssist ?
                          "Flight assist enabled: releasing thrust brakes the ship." :
                          "Flight assist disabled: inertial flight active.");
     }
@@ -1142,14 +1143,14 @@ static Vector3 ShipApplyFrameCommands(Player *player, bool scripted,
     Vector3 forward = ForwardFromAngles(player->yaw, player->pitch);
     if (!scripted && IsKeyPressed(KEY_Q)) {
         if (ShipDriveIsWarpTransit()) {
-            SetImportMessage("Cancel high-speed navigation before changing target.");
+            GameNoticePost("Cancel high-speed navigation before changing target.");
         } else {
             LockNavigationTarget(player, forward);
         }
     }
     if (!scripted && IsKeyPressed(KEY_G)) {
         if (!shipRuntime.navigationTarget.locked && !ShipDriveIsGuided()) {
-            SetImportMessage("Lock a navigation target with Q first.");
+            GameNoticePost("Lock a navigation target with Q first.");
         } else {
             ShipToggleNavigation(player);
         }
@@ -1205,7 +1206,7 @@ static bool ShipConsumeFrameFuel(Player *player, float dt,
     shipRuntime.driveMode = SHIP_DRIVE_MANEUVER;
     shipRuntime.cruiseSetSpeed = 0.0f;
     if (haltedHighSpeedTransit) player->velocity = Vector3Zero();
-    SetImportMessage("Propulsion disabled: ship is out of fuel.");
+    GameNoticePost("Propulsion disabled: ship is out of fuel.");
     return false;
 }
 
@@ -1226,7 +1227,7 @@ static void ShipMoveForFrame(Player *player, float dt,
         } else {
             player->velocity = Vector3Zero();
             shipRuntime.driveMode = SHIP_DRIVE_MANEUVER;
-            SetImportMessage("Transit halted: navigation solution became invalid.");
+            GameNoticePost("Transit halted: navigation solution became invalid.");
         }
         return;
     }
@@ -1332,7 +1333,7 @@ static ShipFrameState ShipPrepareFrameState(
     if (frame.translationInput && shipRuntime.driveMode == SHIP_DRIVE_ORBIT) {
         shipRuntime.driveMode = SHIP_DRIVE_MANEUVER;
         ClearOrbitState();
-        SetImportMessage("Orbit disengaged by manual thrust.");
+        GameNoticePost("Orbit disengaged by manual thrust.");
     }
     return frame;
 }
@@ -1387,7 +1388,7 @@ static bool ShipCompleteGuidance(
     if (guidanceMode == SHIP_DRIVE_SUPERCRUISE) {
         shipRuntime.driveMode = SHIP_DRIVE_APPROACH;
         player->velocity = targetVelocity;
-        SetImportMessage(TextFormat(
+        GameNoticePost(TextFormat(
             "Supercruise complete. Approach guidance engaged: %s.",
             targetName));
         return false;
@@ -1396,11 +1397,11 @@ static bool ShipCompleteGuidance(
         player->velocity = targetVelocity;
         if (targetIsSystem) {
             ClearNavigationTarget();
-            SetImportMessage(TextFormat("Arrived in %s.", targetName));
+            GameNoticePost(TextFormat("Arrived in %s.", targetName));
         } else {
             shipRuntime.navigationIntent = NAVIGATION_INTENT_CONTEXTUAL;
             shipRuntime.driveMode = SHIP_DRIVE_SUPERCRUISE;
-            SetImportMessage(TextFormat(
+            GameNoticePost(TextFormat(
                 "Warp complete. Supercruise engaged: %s.", targetName));
         }
         return false;
@@ -1428,14 +1429,14 @@ static bool ShipCompleteGuidance(
     shipRuntime.targetBrakingDistance = 0.0f;
     shipRuntime.targetEtaSeconds = 0.0f;
     if (orbitEstablished) {
-        SetImportMessage(hasSolidSurface
+        GameNoticePost(hasSolidSurface
             ? TextFormat("Orbit established around %s. Press E to land.",
                          targetName)
             : TextFormat(
                 "Orbit established around %s. No solid surface available.",
                 targetName));
     } else {
-        SetImportMessage(TextFormat(
+        GameNoticePost(TextFormat(
             "Matched %s approach velocity.", targetName));
     }
     return orbitEstablished;
@@ -1453,7 +1454,7 @@ static bool ShipUpdateGuidedDrive(Player *player, float dt,
                                  &targetVelocity, &safeDistance)) {
         ClearNavigationTarget();
         if (highSpeedTransit) player->velocity = Vector3Zero();
-        SetImportMessage("Navigation target is no longer available.");
+        GameNoticePost("Navigation target is no longer available.");
         return false;
     }
 
@@ -1478,7 +1479,7 @@ static bool ShipUpdateGuidedDrive(Player *player, float dt,
     if (!ShipFlightGuideToTarget(&guidanceInput, &guidance)) {
         ClearNavigationTarget();
         if (highSpeedTransit) player->velocity = Vector3Zero();
-        SetImportMessage("Navigation guidance failed.");
+        GameNoticePost("Navigation guidance failed.");
         return false;
     }
 
@@ -1555,7 +1556,7 @@ static bool ShipUpdateDriveForFrame(Player *player, float dt,
     if (shipRuntime.driveMode == SHIP_DRIVE_ORBIT) {
         if (UpdateNavigationOrbit(player, dt)) return true;
         ClearNavigationTarget();
-        SetImportMessage(
+        GameNoticePost(
             "Orbit control lost its target. Manual maneuvering active.");
         return false;
     }
@@ -1681,7 +1682,7 @@ static bool ShipPlaceAfterExit(Player *player)
     ShipDirection direction = ShipDirectionFromYaw(player->yaw);
     if (!FindShipPlacement(&sx, &sy, &sz, direction, player) ||
         !ShipPlaceParked(sx, sy, sz, direction, false)) {
-        SetImportMessage("Cannot exit: spaceship needs a clear 4x4 area.");
+        GameNoticePost("Cannot exit: spaceship needs a clear 4x4 area.");
         return false;
     }
     shipRuntime.driving = false;

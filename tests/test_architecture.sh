@@ -59,6 +59,13 @@ domain_effect_calls=$(
     fail "domain modules must publish neutral effects instead of calling presentation"
 }
 
+if grep -nE '\b(SetImportMessage|WorldGetImportMessage|WorldTickImportMessage)\b' \
+    src/world/world.c src/world/world.h; then
+    fail "world must not own cross-module status notices"
+fi
+grep -q '^void GameNoticePost(' src/core/game_notice.c ||
+    fail "core must own neutral status notices"
+
 effect_dispatch_count=$(grep -c 'EffectDispatchPending();' src/app/game.c || true)
 [ "$effect_dispatch_count" -ge 2 ] ||
     fail "app must dispatch domain effects at both frame boundaries"

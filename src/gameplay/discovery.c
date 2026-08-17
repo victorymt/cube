@@ -1,5 +1,6 @@
 #include "gameplay/discovery.h"
 
+#include "core/game_notice.h"
 #include "world/chunks.h"
 #include "gameplay/inventory.h"
 #include "space/space_state.h"
@@ -276,7 +277,7 @@ bool PlanetPoiTryClaim(int x, int y, int z, PlanetPoi *out)
     if (GetBlockAt(x, y, z) != poi.coreBlock) return false;
     int added = InventoryAdd(poi.rewardBlock, poi.rewardAmount);
     if (added <= 0) {
-        SetImportMessage("Inventory full: exploration reward not claimed.");
+        GameNoticePost("Inventory full: exploration reward not claimed.");
         return false;
     }
 

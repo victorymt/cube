@@ -45,11 +45,6 @@ bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit);
 bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
                                             BlockType *outType);
 
-void SetImportMessage(const char *message);
-const char *WorldGetImportMessage(void);
-float WorldGetImportMessageTimer(void);
-void WorldTickImportMessage(float dt);
-
 void WorldBeginUndoGroup(void);
 void WorldEndUndoGroup(void);
 BlockType GetBlockAt(int x, int y, int z);

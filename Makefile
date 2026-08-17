@@ -67,6 +67,7 @@ DEBUG_CONTROL_TEST_TARGET := $(TEST_BUILD_DIR)/test_debug_control
 GAME_DEBUG_TRACE_TEST_TARGET := $(TEST_BUILD_DIR)/test_game_debug_trace
 GAME_STREAM_AUDIT_TEST_TARGET := $(TEST_BUILD_DIR)/test_game_stream_audit
 GAME_EFFECTS_TEST_TARGET := $(TEST_BUILD_DIR)/test_game_effects
+GAME_NOTICE_TEST_TARGET := $(TEST_BUILD_DIR)/test_game_notice
 ENVIRONMENT_PRESENTATION_TEST_TARGET := $(TEST_BUILD_DIR)/test_environment_presentation
 ENVIRONMENT_RUNTIME_TEST_TARGET := $(TEST_BUILD_DIR)/test_environment_runtime
 AUDIO_ENVIRONMENT_TEST_TARGET := $(TEST_BUILD_DIR)/test_audio_environment
@@ -110,6 +111,7 @@ TEST_TARGETS += $(SAVE_FORMAT_TEST_TARGET)
 TEST_TARGETS += $(GAME_DEBUG_TRACE_TEST_TARGET)
 TEST_TARGETS += $(GAME_STREAM_AUDIT_TEST_TARGET)
 TEST_TARGETS += $(GAME_EFFECTS_TEST_TARGET)
+TEST_TARGETS += $(GAME_NOTICE_TEST_TARGET)
 TEST_TARGETS += $(ALBUM_TEST_TARGET)
 TEST_HEADERS := $(sort $(wildcard src/*/*.h) $(wildcard tests/*.h))
 TEST_TIMEOUT_SECONDS ?= 120
@@ -366,8 +368,8 @@ $(RENDER_SORT_TEST_TARGET): tests/test_render_sort.c src/presentation/render_sor
 $(RENDER_RESOURCES_TEST_TARGET): tests/test_render_resources.c src/presentation/render_resources.c src/presentation/render_resources.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_render_resources.c src/presentation/render_resources.c
 
-$(RENDER_UI_TEST_TARGET): tests/test_render_ui.c src/presentation/render_ui.c src/presentation/render_ui.h
-	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_render_ui.c src/presentation/render_ui.c $(RAYLIB_LIBS) -lm
+$(RENDER_UI_TEST_TARGET): tests/test_render_ui.c src/presentation/render_ui.c src/presentation/render_ui.h src/core/game_notice.c src/core/game_notice.h
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_render_ui.c src/presentation/render_ui.c src/core/game_notice.c $(RAYLIB_LIBS) -lm
 
 $(WORLD_RENDERER_TEST_TARGET): tests/test_world_renderer.c src/presentation/world_renderer.c src/presentation/world_renderer.h src/presentation/render_quality.c src/presentation/render_quality.h
 	$(CC) $(CFLAGS) -DWORLD_RENDERER_TESTING $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_world_renderer.c src/presentation/world_renderer.c src/presentation/render_quality.c $(RAYLIB_LIBS) -lm
@@ -392,6 +394,9 @@ $(DEBUG_CONTROL_TEST_TARGET): tests/test_debug_control.c src/core/debug_control.
 
 $(GAME_EFFECTS_TEST_TARGET): tests/test_game_effects.c $(GAME_EFFECTS_SRC) src/core/game_effects.h
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -Isrc -o $@ tests/test_game_effects.c $(GAME_EFFECTS_SRC)
+
+$(GAME_NOTICE_TEST_TARGET): tests/test_game_notice.c src/core/game_notice.c src/core/game_notice.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_game_notice.c src/core/game_notice.c
 
 $(GAME_DEBUG_TRACE_TEST_TARGET): tests/test_game_debug_trace.c src/app/game_debug_trace.c src/app/game_debug_trace.h
 	$(CC) $(CFLAGS) -DGAME_DEBUG_TRACE_TESTING $(RAYLIB_CFLAGS) -ffunction-sections -fdata-sections -Isrc -Wl,--gc-sections -o $@ tests/test_game_debug_trace.c src/app/game_debug_trace.c $(RAYLIB_LIBS) -lm

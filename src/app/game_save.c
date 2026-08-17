@@ -2,6 +2,7 @@
 #include "app/game_save.h"
 
 #include "core/config.h"
+#include "core/game_notice.h"
 #include "core/save_io.h"
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
@@ -156,17 +157,17 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
 void GameSaveMap(const Player *player)
 {
     if (!player) {
-        SetImportMessage("Save failed: player state is unavailable.");
+        GameNoticePost("Save failed: player state is unavailable.");
         return;
     }
 
     GameSaveContext context = { .player = player };
     if (!SaveIoWriteAtomic(
             SAVE_FILE, SAVE_FILE_BAK, GameSaveWriteFile, &context)) {
-        SetImportMessage("Save failed: existing save was kept intact.");
+        GameNoticePost("Save failed: existing save was kept intact.");
         return;
     }
-    SetImportMessage(TextFormat("Saved map to %s (%d edits).", SAVE_FILE,
+    GameNoticePost(TextFormat("Saved map to %s (%d edits).", SAVE_FILE,
                                 WorldGetEditCount()));
 }
 
@@ -338,14 +339,14 @@ static const char *GameLoadCurrentExtendedPayload(
 void GameLoadMap(Player *player)
 {
     if (!player) {
-        SetImportMessage("Load failed: player state is unavailable.");
+        GameNoticePost("Load failed: player state is unavailable.");
         return;
     }
     DrainChunkGen();
     UnloadAllSpaceChunks();
     FILE *file = fopen(SAVE_FILE, "rb");
     if (!file) {
-        SetImportMessage("Load failed: voxelcraft_save.txt was not found.");
+        GameNoticePost("Load failed: voxelcraft_save.txt was not found.");
         return;
     }
 
@@ -353,7 +354,7 @@ void GameLoadMap(Player *player)
     if (fstat(fileno(file), &saveStat) != 0 || saveStat.st_size < 0 ||
         (uint64_t)saveStat.st_size > SAVE_MAX_FILE_BYTES) {
         fclose(file);
-        SetImportMessage("Load failed: save file is too large or unreadable.");
+        GameNoticePost("Load failed: save file is too large or unreadable.");
         return;
     }
 
@@ -367,14 +368,14 @@ void GameLoadMap(Player *player)
     WorldSaveFormat format = WorldSaveFormatRead(file);
     if (format == WORLD_SAVE_FORMAT_UNSUPPORTED) {
         fclose(file);
-        SetImportMessage(
+        GameNoticePost(
             "Load failed: V17 and older flat saves are incompatible with spherical worlds.");
         return;
     }
     if (!GameLoadCurrentCorePayload(file, &data)) {
         fclose(file);
         LoadedGameSaveRelease(&data);
-        SetImportMessage("Load failed: save file is corrupted.");
+        GameNoticePost("Load failed: save file is corrupted.");
         return;
     }
 
@@ -383,12 +384,12 @@ void GameLoadMap(Player *player)
     fclose(file);
     if (loadError) {
         LoadedGameSaveRelease(&data);
-        SetImportMessage(loadError);
+        GameNoticePost(loadError);
         return;
     }
     if (!WorldPersistenceReserveEdits(data.editCount)) {
         LoadedGameSaveRelease(&data);
-        SetImportMessage("Load failed: not enough memory to apply save.");
+        GameNoticePost("Load failed: not enough memory to apply save.");
         return;
     }
 
@@ -424,7 +425,7 @@ void GameLoadMap(Player *player)
     LoadedGameSaveRelease(&data);
 
     if (!editIndexReady) {
-        SetImportMessage("Load warning: edit index rebuild failed.");
+        GameNoticePost("Load warning: edit index rebuild failed.");
         return;
     }
     RebuildTorchList();
@@ -438,6 +439,6 @@ void GameLoadMap(Player *player)
                      EffectiveRenderDistanceForHeight(
                          player->position.y + EYE_HEIGHT));
     }
-    SetImportMessage(TextFormat("Loaded %s (%d edits).", SAVE_FILE,
+    GameNoticePost(TextFormat("Loaded %s (%d edits).", SAVE_FILE,
                                 WorldGetEditCount()));
 }

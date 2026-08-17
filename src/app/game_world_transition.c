@@ -1,6 +1,7 @@
 #include "app/game_world_transition.h"
 
 #include "core/config.h"
+#include "core/game_notice.h"
 #include "space/space_chunks.h"
 #include "space/space_state.h"
 #include "space/space_world_transition.h"
@@ -87,7 +88,7 @@ bool GameWorldTransitionBeginDescent(Player *player, bool homeWorldTarget,
             landing.x, SPACE_ENTER_Y - 2.0f, landing.z - 96.0f
         };
         player->yaw = 0.0f;
-        SetImportMessage("Crossing Homeworld upper atmosphere.");
+        GameNoticePost("Crossing Homeworld upper atmosphere.");
     } else {
         if (PlanetWorldIsActive() || HomeWorldSurfaceIsActive()) return false;
         SpaceBodyInfo body;
@@ -105,7 +106,7 @@ bool GameWorldTransitionBeginDescent(Player *player, bool homeWorldTarget,
             landing, Vector3Scale(forward, 96.0f));
         player->position.y = PlanetWorldAtmosphereEntryHeight();
         player->yaw = atan2f(forward.x, forward.z);
-        SetImportMessage(TextFormat("Crossing %s upper atmosphere.",
+        GameNoticePost(TextFormat("Crossing %s upper atmosphere.",
                                     PlanetWorldName()));
     }
 
@@ -155,9 +156,9 @@ bool GameWorldTransitionTryLaunch(Player *player)
     player->floating = false;
     player->onGround = false;
     if (fromPlanet) {
-        SetImportMessage(TextFormat("Left %s atmosphere.", planetName));
+        GameNoticePost(TextFormat("Left %s atmosphere.", planetName));
     } else {
-        SetImportMessage(
+        GameNoticePost(
             "Left Homeworld atmosphere. Spaceflight is now three-dimensional.");
     }
     return true;

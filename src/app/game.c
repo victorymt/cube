@@ -12,6 +12,7 @@
 #include "app/game_save.h"
 #include "app/game_world_transition.h"
 #include "core/game_effects.h"
+#include "core/game_notice.h"
 #include "world/world_types.h"
 #include "world/terrain.h"
 #include "world/world.h"
@@ -254,7 +255,7 @@ static bool GameUpdateStartScreen(GameRuntime *game, float dt,
         game->screen = SCREEN_PLAYING;
         game->cursorReleased = false;
         DisableCursor();
-        SetImportMessage(
+        GameNoticePost(
             WorldTerrainMode() == TERRAIN_FLAT
                 ? TextFormat("Flat world seed %u. Press I to import.",
                              WorldGetSeed())
@@ -285,16 +286,16 @@ static void GameUpdateAlbum(GameRuntime *game)
     AlbumUiEvent albumEvent = AlbumUiUpdate();
     switch (albumEvent) {
     case ALBUM_UI_EVENT_IMAGE_ADDED:
-        SetImportMessage("Added image to album.");
+        GameNoticePost("Added image to album.");
         break;
     case ALBUM_UI_EVENT_ALBUM_FULL:
-        SetImportMessage("Album is full (64 images).");
+        GameNoticePost("Album is full (64 images).");
         break;
     case ALBUM_UI_EVENT_DUPLICATE_IMAGE:
-        SetImportMessage("Image already in album.");
+        GameNoticePost("Image already in album.");
         break;
     case ALBUM_UI_EVENT_INVALID_IMAGE:
-        SetImportMessage("Unable to add the selected image.");
+        GameNoticePost("Unable to add the selected image.");
         break;
     case ALBUM_UI_EVENT_NONE:
     default:
@@ -475,7 +476,7 @@ static void GameUpdateViewModes(GameRuntime *game)
         !HomeWorldMapIsOpen() &&
         !game->landingTransition.active && IsKeyPressed(KEY_F4)) {
         game->thirdPerson = !game->thirdPerson;
-        SetImportMessage(game->thirdPerson ? "Third person view."
+        GameNoticePost(game->thirdPerson ? "Third person view."
                                            : "First person view.");
     }
 
@@ -513,7 +514,7 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
         !game->landingTransition.active &&
         IsKeyPressed(KEY_O)) {
         game->showOrbitTrajectories = !game->showOrbitTrajectories;
-        SetImportMessage(game->showOrbitTrajectories
+        GameNoticePost(game->showOrbitTrajectories
                              ? "Orbit trajectories shown."
                              : "Orbit trajectories hidden.");
     }
@@ -557,30 +558,30 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     }
     if (IsKeyPressed(KEY_F6)) {
         game->dayCycleEnabled = !game->dayCycleEnabled;
-        SetImportMessage(game->dayCycleEnabled ? "Day/night cycle enabled."
+        GameNoticePost(game->dayCycleEnabled ? "Day/night cycle enabled."
                                                : "Day/night cycle paused.");
     }
     if (IsKeyPressed(KEY_F7)) {
         WeatherCycle();
-        SetImportMessage(TextFormat("Weather: %s", WeatherName()));
+        GameNoticePost(TextFormat("Weather: %s", WeatherName()));
     }
     if (IsKeyPressed(KEY_F8)) {
         game->autoSaveEnabled = !game->autoSaveEnabled;
         game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
-        SetImportMessage(game->autoSaveEnabled
+        GameNoticePost(game->autoSaveEnabled
                              ? "Auto-save enabled (every 60s)."
                              : "Auto-save disabled.");
     }
     if (IsKeyPressed(KEY_L)) {
         game->shipLocatorEnabled = !game->shipLocatorEnabled;
         if (game->shipLocatorEnabled) {
-            SetImportMessage(
+            GameNoticePost(
                 ShipLocatorHasTarget()
                     ? "Ship locator online."
                     : "Ship locator online: deploy or board a ship to "
                       "establish a signal.");
         } else {
-            SetImportMessage("Ship locator offline.");
+            GameNoticePost("Ship locator offline.");
         }
     }
     if (PlanetWorldIsActive() && IsKeyPressed(KEY_C)) {
@@ -588,23 +589,23 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
         if (game->scannerActive) {
             PlanetPoi poi = { 0 };
             if (PlanetPoiNearest(game->player.position, &poi)) {
-                SetImportMessage(
+                GameNoticePost(
                     TextFormat("Scanner online: %s", poi.name));
             } else {
-                SetImportMessage("Scanner online: no signal found.");
+                GameNoticePost("Scanner online: no signal found.");
             }
         } else {
-            SetImportMessage("Scanner offline.");
+            GameNoticePost("Scanner offline.");
         }
     }
     bool ctrlHeld =
         IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
     if (ctrlHeld && IsKeyPressed(KEY_Z) && !IsKeyDown(KEY_LEFT_SHIFT)) {
-        if (UndoBlockEdit()) SetImportMessage("Undo");
+        if (UndoBlockEdit()) GameNoticePost("Undo");
     } else if (ctrlHeld &&
                (IsKeyPressed(KEY_Y) ||
                 (IsKeyDown(KEY_LEFT_SHIFT) && IsKeyPressed(KEY_Z)))) {
-        if (RedoBlockEdit()) SetImportMessage("Redo");
+        if (RedoBlockEdit()) GameNoticePost("Redo");
     }
 }
 
@@ -690,12 +691,12 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
             bool inSpaceNow = WorldIsSpaceActive();
             if (inSpaceNow && !game->wasInSpace) {
                 if (!launchedHome) {
-                    SetImportMessage(
+                    GameNoticePost(
                         "Entered space - no gravity; follow the sun to "
                         "the solar system.");
                 }
             } else if (!inSpaceNow && game->wasInSpace) {
-                SetImportMessage("Back in the atmosphere.");
+                GameNoticePost("Back in the atmosphere.");
             }
             game->wasInSpace = inSpaceNow;
         }
@@ -1232,7 +1233,7 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         if (pauseActions.qualityChanged &&
             !WorldRendererSetQuality(game->settings.graphicsQuality)) {
             game->settings.graphicsQuality = previousQuality;
-            SetImportMessage(
+            GameNoticePost(
                 "Graphics quality change failed; previous quality restored.");
         }
         WeatherSetParticleScale(
@@ -1304,7 +1305,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     GameUpdateViewModes(game);
     bool inputBlocked = GameInputBlocked(game);
     GameUpdateGameplayShortcuts(game, inputBlocked);
-    WorldTickImportMessage(dt);
+    GameNoticeTick(dt);
     if (!game->importDialog.open && !game->paused && !game->albumOpen) HandleImageDrop(&game->player, game->importDialog.maxBlocks, game->importDialog.relief);
 
     GameUpdateTemporalState(game, dt);

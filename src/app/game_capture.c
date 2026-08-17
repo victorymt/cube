@@ -2,6 +2,7 @@
 
 #include "app/screenshot.h"
 #include "core/debug_control.h"
+#include "core/game_notice.h"
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
 #include "ecology/evolution.h"
@@ -256,14 +257,14 @@ void GameCaptureScreenshot(GameRuntime *game,
                 screenshotPath, screenshotTime, &debugInfo, debugReportPath,
                 sizeof(debugReportPath));
             if (reportResult == SCREENSHOT_RESULT_OK) {
-                SetImportMessage(TextFormat(
+                GameNoticePost(TextFormat(
                     "Debug capture saved: %s (+ .txt)", screenshotPath));
                 DebugControlReply(
                     &game->debugControl,
                     "DEBUG_CONTROL capture ok png=%s report=%s\n",
                     screenshotPath, debugReportPath);
             } else {
-                SetImportMessage(TextFormat(
+                GameNoticePost(TextFormat(
                     "Screenshot saved; %s",
                     ScreenshotResultMessage(reportResult)));
                 DebugControlReply(
@@ -272,7 +273,7 @@ void GameCaptureScreenshot(GameRuntime *game,
                     screenshotPath, ScreenshotResultMessage(reportResult));
             }
         } else {
-            SetImportMessage(ScreenshotResultMessage(screenshotResult));
+            GameNoticePost(ScreenshotResultMessage(screenshotResult));
             DebugControlReply(
                 &game->debugControl,
                 "DEBUG_CONTROL capture error reason=%s\n",
