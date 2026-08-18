@@ -1,5 +1,7 @@
 #include "world/chunks_internal.h"
 
+#include <limits.h>
+
 static bool BuildFloraMeshDataWithSnapshot(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, const int faces[6][3],
@@ -214,22 +216,186 @@ bool MergeMeshData(Mesh *target, Mesh *source)
     return true;
 }
 
+typedef struct FloraMeshBuilder {
+    Mesh mesh;
+    int vertexCapacity;
+} FloraMeshBuilder;
+
+typedef struct FloraInstanceBuilder {
+    FloraVisualInstance *data;
+    int count;
+    int capacity;
+} FloraInstanceBuilder;
+
+static void FloraMeshBuilderRelease(FloraMeshBuilder *builder)
+{
+    if (!builder) return;
+    FreeMeshData(&builder->mesh);
+    builder->vertexCapacity = 0;
+}
+
+static bool FloraMeshBuilderReserve(
+    FloraMeshBuilder *builder, int minimumVertexCount)
+{
+    if (minimumVertexCount <= builder->vertexCapacity) return true;
+
+    int capacity = builder->vertexCapacity > 0 ? builder->vertexCapacity : 12;
+    while (capacity < minimumVertexCount) {
+        if (capacity > INT_MAX - capacity) {
+            capacity = minimumVertexCount;
+            break;
+        }
+        capacity *= 2;
+    }
+
+    float *vertices = malloc((size_t)capacity * 3u * sizeof(float));
+    float *texcoords = malloc((size_t)capacity * 2u * sizeof(float));
+    float *texcoords2 = malloc((size_t)capacity * 2u * sizeof(float));
+    float *normals = malloc((size_t)capacity * 3u * sizeof(float));
+    unsigned char *colors = malloc((size_t)capacity * 4u);
+    if (!vertices || !texcoords || !texcoords2 || !normals || !colors) {
+        free(vertices);
+        free(texcoords);
+        free(texcoords2);
+        free(normals);
+        free(colors);
+        return false;
+    }
+
+    int vertexCount = builder->mesh.vertexCount;
+    if (vertexCount > 0) {
+        memcpy(vertices, builder->mesh.vertices,
+               (size_t)vertexCount * 3u * sizeof(float));
+        memcpy(texcoords, builder->mesh.texcoords,
+               (size_t)vertexCount * 2u * sizeof(float));
+        memcpy(texcoords2, builder->mesh.texcoords2,
+               (size_t)vertexCount * 2u * sizeof(float));
+        memcpy(normals, builder->mesh.normals,
+               (size_t)vertexCount * 3u * sizeof(float));
+        memcpy(colors, builder->mesh.colors, (size_t)vertexCount * 4u);
+    }
+    free(builder->mesh.vertices);
+    free(builder->mesh.texcoords);
+    free(builder->mesh.texcoords2);
+    free(builder->mesh.normals);
+    free(builder->mesh.colors);
+    builder->mesh.vertices = vertices;
+    builder->mesh.texcoords = texcoords;
+    builder->mesh.texcoords2 = texcoords2;
+    builder->mesh.normals = normals;
+    builder->mesh.colors = colors;
+    builder->vertexCapacity = capacity;
+    return true;
+}
+
+static bool FloraMeshBuilderAppend(
+    FloraMeshBuilder *builder, Mesh *source)
+{
+    if (!builder || !source) return false;
+    if (source->vertexCount <= 0) {
+        FreeMeshData(source);
+        return true;
+    }
+    if (builder->mesh.vertexCount <= 0) {
+        builder->mesh = *source;
+        builder->vertexCapacity = source->vertexCount;
+        *source = (Mesh){ 0 };
+        return true;
+    }
+
+    if (source->vertexCount > INT_MAX - builder->mesh.vertexCount) {
+        return false;
+    }
+    int oldVertexCount = builder->mesh.vertexCount;
+    int newVertexCount = oldVertexCount + source->vertexCount;
+    if (!FloraMeshBuilderReserve(builder, newVertexCount)) return false;
+
+    memcpy(builder->mesh.vertices + oldVertexCount * 3,
+           source->vertices,
+           (size_t)source->vertexCount * 3u * sizeof(float));
+    memcpy(builder->mesh.texcoords + oldVertexCount * 2,
+           source->texcoords,
+           (size_t)source->vertexCount * 2u * sizeof(float));
+    memcpy(builder->mesh.texcoords2 + oldVertexCount * 2,
+           source->texcoords2,
+           (size_t)source->vertexCount * 2u * sizeof(float));
+    memcpy(builder->mesh.normals + oldVertexCount * 3,
+           source->normals,
+           (size_t)source->vertexCount * 3u * sizeof(float));
+    memcpy(builder->mesh.colors + oldVertexCount * 4,
+           source->colors,
+           (size_t)source->vertexCount * 4u);
+    builder->mesh.vertexCount = newVertexCount;
+    builder->mesh.triangleCount += source->triangleCount;
+    FreeMeshData(source);
+    return true;
+}
+
+static void FloraMeshBuilderTake(FloraMeshBuilder *builder, Mesh *outMesh)
+{
+    *outMesh = builder->mesh;
+    *builder = (FloraMeshBuilder){ 0 };
+}
+
+static void FloraInstanceBuilderRelease(FloraInstanceBuilder *builder)
+{
+    if (!builder) return;
+    free(builder->data);
+    *builder = (FloraInstanceBuilder){ 0 };
+}
+
+static bool FloraInstanceBuilderReserve(
+    FloraInstanceBuilder *builder, int minimumCount)
+{
+    if (minimumCount <= builder->capacity) return true;
+    int capacity = builder->capacity > 0 ? builder->capacity : 8;
+    while (capacity < minimumCount) {
+        if (capacity > INT_MAX - capacity) {
+            capacity = minimumCount;
+            break;
+        }
+        capacity *= 2;
+    }
+    FloraVisualInstance *resized = realloc(
+        builder->data, (size_t)capacity * sizeof(*resized));
+    if (!resized) return false;
+    builder->data = resized;
+    builder->capacity = capacity;
+    return true;
+}
+
 static bool AppendFloraVisualInstance(
-    FloraVisualInstance **instances, int *instanceCount,
+    FloraInstanceBuilder *builder,
     FloraVisualInstance instance)
 {
-    FloraVisualInstance *resized = realloc(
-        *instances,
-        (size_t)(*instanceCount + 1) * sizeof(FloraVisualInstance));
-    if (!resized) return false;
-    resized[*instanceCount] = instance;
-    *instances = resized;
-    (*instanceCount)++;
+    if (!builder || builder->count == INT_MAX) return false;
+    if (!FloraInstanceBuilderReserve(builder, builder->count + 1)) {
+        return false;
+    }
+    builder->data[builder->count++] = instance;
+    return true;
+}
+
+static bool FloraInstanceBuilderAppendArray(
+    FloraInstanceBuilder *builder, const FloraVisualInstance *instances,
+    int count)
+{
+    if (!builder || count < 0 || (count > 0 && !instances) ||
+        count > INT_MAX - builder->count) {
+        return false;
+    }
+    if (count == 0) return true;
+    if (!FloraInstanceBuilderReserve(builder, builder->count + count)) {
+        return false;
+    }
+    memcpy(builder->data + builder->count, instances,
+           (size_t)count * sizeof(*instances));
+    builder->count += count;
     return true;
 }
 
 static bool AppendPlantMeshInstances(
-    FloraVisualInstance **instances, int *instanceCount,
+    FloraInstanceBuilder *builder,
     const Mesh *mesh, int firstVertexOffset)
 {
     for (int firstVertex = 0; firstVertex < mesh->vertexCount;
@@ -246,7 +412,7 @@ static bool AppendPlantMeshInstances(
         float firstX = mesh->vertices[firstVertex * 3];
         float firstZ = mesh->vertices[firstVertex * 3 + 2];
         if (!AppendFloraVisualInstance(
-                instances, instanceCount, (FloraVisualInstance){
+                builder, (FloraVisualInstance){
                     .firstVertex = firstVertexOffset + firstVertex,
                     .vertexCount = vertexCount,
                     .anchor = {
@@ -315,20 +481,19 @@ bool BuildChunkFloraMeshDataFromSnapshot(
     CopyBlocksWithoutFloraStructures(
         floraBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
 
-    Mesh combined = { 0 };
-    FloraVisualInstance *instances = NULL;
-    int instanceCount = 0;
+    FloraMeshBuilder combined = { 0 };
+    FloraInstanceBuilder instances = { 0 };
     Mesh plants = { 0 };
     if (BuildFloraMeshDataWithSnapshot(
             (const unsigned short (*)[CHUNK_SIZE])floraBlocks,
             SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
             nearbyTorchIndices, nearbyTorchCount, boundary, &plants)) {
         if (!AppendPlantMeshInstances(
-                &instances, &instanceCount, &plants, 0) ||
-            !MergeMeshData(&combined, &plants)) {
+                &instances, &plants, 0) ||
+            !FloraMeshBuilderAppend(&combined, &plants)) {
             FreeMeshData(&plants);
-            FreeMeshData(&combined);
-            free(instances);
+            FloraMeshBuilderRelease(&combined);
+            FloraInstanceBuilderRelease(&instances);
             return false;
         }
     }
@@ -355,20 +520,20 @@ bool BuildChunkFloraMeshDataFromSnapshot(
         }
         if (!hasBlocks) continue;
 
-        Mesh instanceMesh = { 0 };
         Mesh solid = { 0 };
         Mesh transparent = { 0 };
         Mesh crossed = { 0 };
+        FloraMeshBuilder instanceMesh = { 0 };
         if (BuildMeshDataFilteredWithSnapshot(
                 (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
                 SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
                 false, false, false, false, faces,
                 nearbyTorchIndices, nearbyTorchCount, boundary, &solid) &&
-            !MergeMeshData(&instanceMesh, &solid)) {
+            !FloraMeshBuilderAppend(&instanceMesh, &solid)) {
             FreeMeshData(&solid);
-            FreeMeshData(&instanceMesh);
-            FreeMeshData(&combined);
-            free(instances);
+            FloraMeshBuilderRelease(&instanceMesh);
+            FloraMeshBuilderRelease(&combined);
+            FloraInstanceBuilderRelease(&instances);
             return false;
         }
         if (BuildMeshDataFilteredWithSnapshot(
@@ -377,32 +542,37 @@ bool BuildChunkFloraMeshDataFromSnapshot(
                 true, false, false, true, faces,
                 nearbyTorchIndices, nearbyTorchCount, boundary,
                 &transparent) &&
-            !MergeMeshData(&instanceMesh, &transparent)) {
+            !FloraMeshBuilderAppend(&instanceMesh, &transparent)) {
             FreeMeshData(&transparent);
-            FreeMeshData(&instanceMesh);
-            FreeMeshData(&combined);
-            free(instances);
+            FloraMeshBuilderRelease(&instanceMesh);
+            FloraMeshBuilderRelease(&combined);
+            FloraInstanceBuilderRelease(&instances);
             return false;
         }
         if (BuildFloraMeshDataWithSnapshot(
                 (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
                 SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
                 nearbyTorchIndices, nearbyTorchCount, boundary, &crossed) &&
-            !MergeMeshData(&instanceMesh, &crossed)) {
+            !FloraMeshBuilderAppend(&instanceMesh, &crossed)) {
             FreeMeshData(&crossed);
-            FreeMeshData(&instanceMesh);
-            FreeMeshData(&combined);
-            free(instances);
+            FloraMeshBuilderRelease(&instanceMesh);
+            FloraMeshBuilderRelease(&combined);
+            FloraInstanceBuilderRelease(&instances);
             return false;
         }
-        if (instanceMesh.vertexCount <= 0) continue;
+        if (instanceMesh.mesh.vertexCount <= 0) {
+            FloraMeshBuilderRelease(&instanceMesh);
+            continue;
+        }
 
-        int firstVertex = combined.vertexCount;
-        int vertexCount = instanceMesh.vertexCount;
+        int firstVertex = combined.mesh.vertexCount;
+        int vertexCount = instanceMesh.mesh.vertexCount;
         const FloraStructureInstance *structure = &structures[structureIndex];
-        if (!MergeMeshData(&combined, &instanceMesh) ||
+        Mesh completedInstanceMesh = { 0 };
+        FloraMeshBuilderTake(&instanceMesh, &completedInstanceMesh);
+        if (!FloraMeshBuilderAppend(&combined, &completedInstanceMesh) ||
             !AppendFloraVisualInstance(
-                &instances, &instanceCount, (FloraVisualInstance){
+                &instances, (FloraVisualInstance){
                     .firstVertex = firstVertex,
                     .vertexCount = vertexCount,
                     .anchor = {
@@ -413,20 +583,23 @@ bool BuildChunkFloraMeshDataFromSnapshot(
                     .height = (float)(structure->maxY - structure->groundY),
                     .windResponse = structure->windResponse
                 })) {
-            FreeMeshData(&instanceMesh);
-            FreeMeshData(&combined);
-            free(instances);
+            FreeMeshData(&completedInstanceMesh);
+            FloraMeshBuilderRelease(&instanceMesh);
+            FloraMeshBuilderRelease(&combined);
+            FloraInstanceBuilderRelease(&instances);
             return false;
         }
     }
 
-    if (combined.vertexCount <= 0) {
-        free(instances);
+    if (combined.mesh.vertexCount <= 0) {
+        FloraMeshBuilderRelease(&combined);
+        FloraInstanceBuilderRelease(&instances);
         return false;
     }
-    *outMesh = combined;
-    *outInstances = instances;
-    *outInstanceCount = instanceCount;
+    FloraMeshBuilderTake(&combined, outMesh);
+    *outInstances = instances.data;
+    *outInstanceCount = instances.count;
+    instances = (FloraInstanceBuilder){ 0 };
     return true;
 }
 
@@ -436,9 +609,12 @@ bool BuildChunkFloraMeshData(
     FloraVisualInstance **outInstances, int *outInstanceCount)
 {
     if (!chunk || !outMesh || !outInstances || !outInstanceCount) return false;
-    Mesh combined = { 0 };
-    FloraVisualInstance *instances = NULL;
-    int instanceCount = 0;
+    *outMesh = (Mesh){ 0 };
+    *outInstances = NULL;
+    *outInstanceCount = 0;
+
+    FloraMeshBuilder combined = { 0 };
+    FloraInstanceBuilder instances = { 0 };
     for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
          sectionIndex++) {
         const ChunkSection *section = chunk->sections[sectionIndex];
@@ -459,31 +635,33 @@ bool BuildChunkFloraMeshData(
         for (int i = 0; i < partCount; i++) {
             partInstances[i].anchor.y += layerY;
         }
-        int firstVertex = combined.vertexCount;
+        int firstVertex = combined.mesh.vertexCount;
         for (int i = 0; i < partCount; i++) {
             partInstances[i].firstVertex += firstVertex;
-            if (!AppendFloraVisualInstance(&instances, &instanceCount,
-                                           partInstances[i])) {
-                free(partInstances);
-                FreeMeshData(&part);
-                FreeMeshData(&combined);
-                free(instances);
-                return false;
-            }
+        }
+        if (!FloraInstanceBuilderAppendArray(
+                &instances, partInstances, partCount)) {
+            free(partInstances);
+            FreeMeshData(&part);
+            FloraMeshBuilderRelease(&combined);
+            FloraInstanceBuilderRelease(&instances);
+            return false;
         }
         free(partInstances);
-        if (!MergeMeshData(&combined, &part)) {
-            FreeMeshData(&combined);
-            free(instances);
+        if (!FloraMeshBuilderAppend(&combined, &part)) {
+            FreeMeshData(&part);
+            FloraMeshBuilderRelease(&combined);
+            FloraInstanceBuilderRelease(&instances);
             return false;
         }
     }
-    if (combined.vertexCount <= 0) {
-        free(instances);
+    if (combined.mesh.vertexCount <= 0) {
+        FloraMeshBuilderRelease(&combined);
+        FloraInstanceBuilderRelease(&instances);
         return false;
     }
-    *outMesh = combined;
-    *outInstances = instances;
-    *outInstanceCount = instanceCount;
+    FloraMeshBuilderTake(&combined, outMesh);
+    *outInstances = instances.data;
+    *outInstanceCount = instances.count;
     return true;
 }
