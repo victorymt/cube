@@ -170,9 +170,9 @@ cannot contaminate a later regular test run. Environments that run every
 process under `ptrace` can use `make SANITIZER_LEAKS=0 test-sanitize`; CI keeps
 leak detection enabled.
 
-The real-game smoke test uses the debug stdin protocol with Mesa software
-rendering. It prefers Xvfb and can use an existing display session on a
-development machine:
+The real-game smoke test uses the debug stdin protocol in the active Hyprland
+Wayland session. It uses the session GPU and does not provide an Xvfb/software
+rendering fallback:
 
 ```sh
 make test-e2e
@@ -181,7 +181,8 @@ make test-e2e
 It verifies deterministic startup, a known underwater location, the debug
 report, and a nonblank 1280x720 PNG. `make test-coverage` produces XML and HTML
 reports under `build/coverage/` when `gcovr` is installed. GitHub Actions runs
-GCC, Clang, sanitizer, game E2E, coverage, and release-package jobs.
+GCC, Clang, sanitizer, coverage, and release-package jobs; the graphical E2E
+test runs only inside the active Hyprland session.
 
 The Linux release gate is `make release-check`. It builds a versioned archive
 under `dist/` and writes a SHA-256 checksum beside it. Release archives do not
@@ -195,34 +196,73 @@ recaptured. Resource stability is measured after chunk generation, meshing, and
 uploads settle. Mesh byte fields estimate public raylib `Mesh` buffers and are
 not driver-reported VRAM.
 
-For scripted visual debugging, start the game with `--debug-stdin`. It accepts
-line-delimited commands: `start`, `screenshot`, `status`, `stream audit [RADIUS]`,
-`stream audit at X Y Z [RADIUS]`, `save`, `load`, `map`, `teleport X Y Z YAW
-PITCH`, `look YAW PITCH`, `look delta YAW_DELTA PITCH_DELTA`,
-`marker add X Z COLOR NAME`, `marker list`, `marker target ID|none`,
-`marker remove ID`, `input FORWARD STRAFE VERTICAL SPRINT FRAMES`, `evolution inspect [RADIUS]`,
-`ship begin`, `ship enter`, `ship input FORWARD STRAFE VERTICAL FRAMES`,
-`ship exhaust DEMAND`, `ship dust`, `view first|third`,
-`evolution focus [RADIUS]`, `evolution region`, `evolution advance DAYS`,
-`evolution bootstrap status`, `evolution atlas`, `evolution catalog`, or
-`quit`. Movement
-components are clamped to `[-1, 1]`, sprint is `0` or `1`, and an input window
-lasts 1-600 fixed 60 FPS frames. Debug sessions ignore desktop keyboard state
-outside those input windows, including while piloting a ship, so runs are
-reproducible. `ship begin` starts a debug-only flight at the current position
-without editing the world, while `ship enter` uses the current world's recorded
-local ship. `ship exhaust` locks a visual preview at demand `[0,1]`; use `0` to
-return to normal thrust-driven exhaust. `ship dust` triggers the touchdown
-ground-effect burst at the current position. Replies begin with
-`DEBUG_CONTROL`; status includes player water flags, actual water surface and
-depth, plus bathymetry zone, seabed height, water-column depth and seabed
-material. Screenshot reports include the same bathymetry diagnostics, and a
-successful screenshot reply contains both the PNG and TXT report paths.
-Marker colors are `red`, `amber`, `green`, `cyan`, `blue`, or `magenta`;
-marker names retain their original UTF-8 text and may contain spaces.
-Evolution inspection and region/bootstrap commands work on both
-Homeworld and generated planet surfaces. The interface is disabled during a
-normal launch.
+Visual debugging uses a small scene DSL. Start the binary with one of these
+debug entry points:
+
+```sh
+build/normal/voxelcraft --debug-stdin
+build/normal/voxelcraft --debug-script PATH
+build/normal/voxelcraft --debug-script=PATH
+```
+
+`--debug-stdin` accepts complete DSL blocks from standard input, while
+`--debug-script` loads one file before the first frame. The two options can be
+combined: the file runs first, then stdin blocks are accepted after the file
+completes without `exit` or after a non-batch error stops its executor. A file
+whose final top-level statement is `exit` owns the process and does not hand
+off to stdin; success returns the requested code, while an earlier DSL failure
+returns a nonzero code. A top-level `exit [CODE]` submitted through stdin also
+ends the process. Once a non-batch file has loaded, completion or DSL failure
+leaves the game running (and, when `--debug-stdin` is present, ready for the
+next stdin block). Invalid script options and unreadable files fail startup.
+Both modes use a fixed 60 FPS debug clock and disable autosave.
+
+Debug runs open a real window in the active Hyprland/Wayland session. Ensure
+`WAYLAND_DISPLAY` names a socket below `XDG_RUNTIME_DIR` before starting the
+binary; the graphical E2E test uses the same session GPU. See the
+[full Debug DSL reference](docs/debug-dsl.md) for the grammar, command
+catalog, runtime fields, lifecycle details, and troubleshooting.
+
+```text
+let origin = [15, 110, -252]
+start
+wait until game.screen == "playing" timeout 7200
+teleport ${origin.x} ${origin.y} ${origin.z} 3.141593 -0.25
+stream wait 300
+assert stream.surface_ready
+repeat 2 {
+  water debug on
+  water debug off
+}
+exit 0
+```
+
+The DSL provides immutable `let` values, numbers, booleans, strings and
+`[x,y,z]` or `vec3(x,y,z)` vectors; arithmetic, comparisons and boolean
+expressions (`and`/`or`/`not` or `&&`/`||`/`!`); optional trailing semicolons;
+`${expression}` command interpolation; `assert`; frame-based `wait until ...
+timeout FRAMES`; finite `repeat`; and top-level `exit [CODE]`. It intentionally
+has no `if`, `while`, or functions. The executor caps total statement steps and
+expression depth so malformed automation cannot run without bound. Replies use
+`DEBUG_SCRIPT` for scene lifecycle and `DEBUG_CONTROL` for command diagnostics.
+
+Expressions can read `game.screen`, `world.seed`, `world.dimension`,
+`player.position`, `player.velocity`, water submersion/surface fields,
+`stream.surface_ready`, `stream.missing_surface_chunks`,
+`stream.audit_complete`, fluid volume/surface/overflow fields, target hit/block
+and position, ship driving/mode, water-render debug fields, and
+`settings.autosave`. These are typed runtime values; assertions do not parse
+the human-readable `status` reply.
+
+Command statements retain the debugging actions: `start`, `screenshot`,
+`status`, `stream audit [RADIUS]`, `stream audit at X Y Z [RADIUS]`,
+`stream wait [FRAMES]`, `save`, `load`, `water debug [on|off]`,
+`water debug through [on|off]`, `map`, `teleport X Y Z YAW PITCH`, look,
+marker, player input, ship, view, fluid, and evolution commands. Movement
+components are clamped to `[-1,1]`, scripted input lasts 1-600 frames, marker
+names retain UTF-8 text, and marker colors are `red`, `amber`, `green`, `cyan`,
+`blue`, or `magenta`. Screenshot replies contain both PNG and TXT report paths.
+The debug interface is disabled during a normal launch.
 
 Use `--debug-trace [PATH]` to continuously write a 10 Hz JSONL trace.
 Without an explicit path, traces are written under `debug-traces/`. Samples
@@ -236,6 +276,14 @@ samples also report the focus/target section pipeline stage, stage age, mesh
 snapshot/current stamps, and solid/water/flora vertex counts. `stream audit`
 runs incrementally, emits at most 16 issue details, and
 marks results stale when chunks change during the scan.
+`stream wait` keeps the simulation running until the 3x3x3 section region
+around the command's starting position reaches the ready/implicit pipeline
+stages. Global generation and mesh queue counts remain in the reply as
+diagnostics but do not prevent local work from settling. Queued commands resume
+after two ready frames or a timeout (300 frames by default, up to 3600).
+`water debug` draws visible surface-water section bounds and reports their
+triangle counts; `water debug through on` draws those bounds through terrain
+for diagnosing hidden or overlapping water geometry.
 
 ## Run
 
