@@ -57,7 +57,12 @@ static GameStreamAuditExpected CountExpectedLayers(
                     BlockType neighbor = GetBlockAt(
                         x + neighbors[side][0], y + neighbors[side][1],
                         z + neighbors[side][2]);
-                    if (water ? !IsWaterBlock(neighbor) :
+                    bool waterFaceVisible =
+                        neighbor == BLOCK_AIR ||
+                        neighbor == BLOCK_SPACESHIP_OCCUPIED ||
+                        (IsTranslucentBlock(neighbor) &&
+                         !IsWaterBlock(neighbor));
+                    if (water ? waterFaceVisible :
                         (neighbor == BLOCK_AIR ||
                          neighbor == BLOCK_SPACESHIP_OCCUPIED ||
                          IsTranslucentBlock(neighbor))) {
