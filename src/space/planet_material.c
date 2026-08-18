@@ -39,8 +39,11 @@ PlanetSurfaceType PlanetSurfaceTypeFor(const PlanetProfile *profile,
         return PLANET_SURFACE_OCEAN;
     case PLANET_BIOME_DUNES:
     case PLANET_BIOME_COAST:
+    case PLANET_BIOME_SALT_MARSH:
         return PLANET_SURFACE_SAND;
     case PLANET_BIOME_OASIS:
+    case PLANET_BIOME_TEMPERATE_MARSH:
+    case PLANET_BIOME_CRATER_BOG:
         return PLANET_SURFACE_GENERIC;
     case PLANET_BIOME_BADLANDS:
         return surface->duneBand > 0.42f ? PLANET_SURFACE_SAND : PLANET_SURFACE_ROCK;
@@ -49,6 +52,7 @@ PlanetSurfaceType PlanetSurfaceTypeFor(const PlanetProfile *profile,
     case PLANET_BIOME_IMPACT_BASIN:
     case PLANET_BIOME_CRATER_HIGHLANDS:
     case PLANET_BIOME_ALPINE:
+    case PLANET_BIOME_MAGMA_MIRE:
         return PLANET_SURFACE_ROCK;
     default:
         break;

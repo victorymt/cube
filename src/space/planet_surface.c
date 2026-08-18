@@ -292,6 +292,11 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
     sample.glacierCracks = sample.glacierFlow *
                            PlanetSmoothStep(0.74f, 0.96f, crackSignal);
 
+    float wetlandSignal = Clamp(
+        sample.moisture * 0.56f + (1.0f - sample.regionalness) * 0.24f +
+        (1.0f - sample.erosion) * 0.20f,
+        0.0f, 1.0f);
+
     switch (style) {
     case SOLAR_STYLE_LAVA:
         if (profile && profile->canonicalBodyId == 2u) {
@@ -300,27 +305,43 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
                                ? PLANET_BIOME_VOLCANIC_RIDGE
                                : PLANET_BIOME_BASALT_PLAINS;
         } else {
-            sample.biome = sample.continentalness < 0.18f + oceanCoverage * 0.30f
-                               ? PLANET_BIOME_LAVA_SEA
-                               : (sample.regionalness > 0.68f
-                                      ? PLANET_BIOME_VOLCANIC_RIDGE
-                                      : PLANET_BIOME_BASALT_PLAINS);
+            float lavaLine = 0.18f + oceanCoverage * 0.30f;
+            if (sample.continentalness < lavaLine) {
+                sample.biome = PLANET_BIOME_LAVA_SEA;
+            } else if (sample.regionalness > 0.68f) {
+                sample.biome = PLANET_BIOME_VOLCANIC_RIDGE;
+            } else if (sample.continentalness < lavaLine + 0.22f &&
+                       sample.regionalness < 0.55f &&
+                       sample.erosion < 0.42f &&
+                       sample.volcanicActivity > 0.06f) {
+                sample.biome = PLANET_BIOME_MAGMA_MIRE;
+            } else {
+                sample.biome = PLANET_BIOME_BASALT_PLAINS;
+            }
         }
         break;
     case SOLAR_STYLE_ICE:
-        sample.biome = sample.glacierFlow > 0.28f || sample.continentalness < 0.34f
-                           ? PLANET_BIOME_GLACIER : PLANET_BIOME_ICE_SHEET;
+        if (sample.glacierFlow > 0.28f || sample.continentalness < 0.34f) {
+            sample.biome = PLANET_BIOME_GLACIER;
+        } else if (wetlandSignal > 0.47f && sample.regionalness < 0.58f) {
+            sample.biome = PLANET_BIOME_FROZEN_MIRE;
+        } else {
+            sample.biome = PLANET_BIOME_ICE_SHEET;
+        }
         break;
     case SOLAR_STYLE_DESERT:
         if (profile && profile->canonicalBodyId == 4u &&
             sample.iceCoverage > 0.52f) {
             sample.biome = PLANET_BIOME_ICE_SHEET;
+        } else if (sample.continentalness < 0.12f && oceanCoverage > 0.18f) {
+            sample.biome = PLANET_BIOME_OASIS;
+        } else if (sample.regionalness > 0.66f) {
+            sample.biome = PLANET_BIOME_BADLANDS;
+        } else if (wetlandSignal > 0.47f &&
+                   sample.continentalness < 0.30f + oceanCoverage * 0.20f) {
+            sample.biome = PLANET_BIOME_SALT_MARSH;
         } else {
-            sample.biome = sample.continentalness < 0.12f && oceanCoverage > 0.18f
-                               ? PLANET_BIOME_OASIS
-                               : (sample.regionalness > 0.66f
-                                      ? PLANET_BIOME_BADLANDS
-                                      : PLANET_BIOME_DUNES);
+            sample.biome = PLANET_BIOME_DUNES;
         }
         break;
     case SOLAR_STYLE_CRATER:
@@ -328,6 +349,9 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
             sample.biome = PLANET_BIOME_GLACIER;
         } else if (sample.iceCoverage > 0.68f) {
             sample.biome = PLANET_BIOME_ICE_SHEET;
+        } else if (wetlandSignal > 0.40f && sample.regionalness < 0.38f &&
+                   (sample.impactDepth > 0.12f || sample.iceCoverage > 0.12f)) {
+            sample.biome = PLANET_BIOME_CRATER_BOG;
         } else {
             sample.biome = sample.impactDepth > 0.40f ||
                                    sample.regionalness < 0.22f || sample.climate > 0.76f
@@ -347,6 +371,9 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
             sample.biome = PLANET_BIOME_ICE_SHEET;
         } else if (sample.regionalness > 0.72f) {
             sample.biome = PLANET_BIOME_ALPINE;
+        } else if (wetlandSignal > 0.48f &&
+                   sample.continentalness < waterline + 0.28f) {
+            sample.biome = PLANET_BIOME_TEMPERATE_MARSH;
         } else {
             sample.biome = sample.climate > 0.56f ? PLANET_BIOME_FOREST
                                                   : PLANET_BIOME_PLAINS;
@@ -407,6 +434,11 @@ const char *PlanetBiomeName(PlanetBiome biome)
     case PLANET_BIOME_FOREST: return "Forest";
     case PLANET_BIOME_ALPINE: return "Alpine range";
     case PLANET_BIOME_STORM_BANDS: return "Storm bands";
+    case PLANET_BIOME_TEMPERATE_MARSH: return "Temperate marsh";
+    case PLANET_BIOME_SALT_MARSH: return "Salt marsh";
+    case PLANET_BIOME_FROZEN_MIRE: return "Frozen mire";
+    case PLANET_BIOME_MAGMA_MIRE: return "Magma mire";
+    case PLANET_BIOME_CRATER_BOG: return "Crater bog";
     default: return "Unknown terrain";
     }
 }

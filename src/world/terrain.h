@@ -52,6 +52,19 @@ typedef struct SurfaceTerrainSample {
     BathymetrySample bathymetry;
 } SurfaceTerrainSample;
 
+typedef enum TerrainSubsurfaceLiquidKind {
+    TERRAIN_SUBSURFACE_LIQUID_NONE = 0,
+    TERRAIN_SUBSURFACE_LIQUID_WATER,
+    TERRAIN_SUBSURFACE_LIQUID_LAVA
+} TerrainSubsurfaceLiquidKind;
+
+typedef struct TerrainSubsurfaceLiquidSummary {
+    TerrainSubsurfaceLiquidKind kind;
+    int minY;
+    int maxY;
+    float floodedFraction;
+} TerrainSubsurfaceLiquidSummary;
+
 typedef void (*PlanetChunkDecorator)(Chunk *chunk, int chunkX, int chunkZ);
 
 unsigned int Hash2D(int x, int z);
@@ -83,6 +96,8 @@ PlanetSurfaceSample PlanetSurfaceAtTime(int x, int z, double simulationTime);
 bool ShouldPlaceTree(int x, int z, TerrainMode mode);
 bool CaveAt(int x, int y, int z, int height);
 bool CaveWaterAt(int x, int y, int z, int height);
+TerrainSubsurfaceLiquidSummary TerrainSubsurfaceLiquidSummaryAt(
+    int x, int z, int surfaceHeight);
 BlockType OreAt(int x, int y, int z);
 BlockType StoneOrCaveBlock(int x, int y, int z, int height);
 BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode);

@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define DEBUG_CONTROL_BUFFER_SIZE 2048
 #define DEBUG_CONTROL_MARKER_COLOR_SIZE 16
@@ -22,6 +23,9 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_SAVE,
     DEBUG_CONTROL_COMMAND_LOAD,
     DEBUG_CONTROL_COMMAND_MAP,
+    DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS,
+    DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME,
+    DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET,
     DEBUG_CONTROL_COMMAND_MARKER_ADD,
     DEBUG_CONTROL_COMMAND_MARKER_LIST,
     DEBUG_CONTROL_COMMAND_MARKER_TARGET,
@@ -55,6 +59,14 @@ typedef enum DebugControlReadResult {
     DEBUG_CONTROL_READ_EOF,
     DEBUG_CONTROL_READ_ERROR
 } DebugControlReadResult;
+
+typedef enum DebugControlSurfaceStyle {
+    DEBUG_CONTROL_SURFACE_TEMPERATE = 0,
+    DEBUG_CONTROL_SURFACE_DESERT,
+    DEBUG_CONTROL_SURFACE_ICE,
+    DEBUG_CONTROL_SURFACE_LAVA,
+    DEBUG_CONTROL_SURFACE_CRATER
+} DebugControlSurfaceStyle;
 
 typedef struct DebugControlTeleport {
     float x;
@@ -112,6 +124,9 @@ typedef struct DebugControl {
     bool waterDebugEnabled;
     bool waterDebugThrough;
     bool thirdPerson;
+    bool mapLiquidsVisible;
+    DebugControlSurfaceStyle surfaceDebugStyle;
+    uint32_t surfaceDebugSeed;
 } DebugControl;
 
 void DebugControlInit(DebugControl *control, bool enabled);

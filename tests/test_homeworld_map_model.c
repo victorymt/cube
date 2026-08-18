@@ -39,8 +39,8 @@ static void TestCoordinateRoundTrip(void)
 
 static void TestTerrainPalette(void)
 {
-    Color colors[5];
-    for (int biome = BIOME_PLAINS; biome <= BIOME_MOUNTAIN; biome++) {
+    Color colors[BIOME_SWAMP + 1];
+    for (int biome = BIOME_PLAINS; biome <= BIOME_SWAMP; biome++) {
         HomeWorldMapTerrainCell cell = {
             .biome = (Biome)biome,
             .elevation = 83.0f,
@@ -51,8 +51,8 @@ static void TestTerrainPalette(void)
         assert(colors[biome].a == 255);
         assert(strlen(HomeWorldMapBiomeName((Biome)biome, false)) > 0u);
     }
-    for (int a = 0; a < 5; a++) {
-        for (int b = a + 1; b < 5; b++) {
+    for (int a = 0; a <= BIOME_SWAMP; a++) {
+        for (int b = a + 1; b <= BIOME_SWAMP; b++) {
             assert(colors[a].r != colors[b].r ||
                    colors[a].g != colors[b].g ||
                    colors[a].b != colors[b].b);

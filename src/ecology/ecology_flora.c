@@ -222,6 +222,11 @@ static BlockType PlanetGroundCoverBlock(
     PlanetBiome biome, uint32_t hash)
 {
     BlockType type = BLOCK_LICHEN;
+    bool wetland = biome == PLANET_BIOME_TEMPERATE_MARSH ||
+                   biome == PLANET_BIOME_SALT_MARSH ||
+                   biome == PLANET_BIOME_FROZEN_MIRE ||
+                   biome == PLANET_BIOME_MAGMA_MIRE ||
+                   biome == PLANET_BIOME_CRATER_BOG;
     switch (biomass) {
     case PLANET_BIOMASS_MICROBIAL:
         type = hash % 4u == 0u ? BLOCK_LICHEN : BLOCK_MICROBIAL_MAT;
@@ -246,6 +251,18 @@ static BlockType PlanetGroundCoverBlock(
     }
     if (flora == PLANET_FLORA_THERMAL_VENT) {
         type = BLOCK_CHEMO_MAT;
+    } else if (wetland && biomass == PLANET_BIOMASS_LUSH) {
+        if (biome == PLANET_BIOME_TEMPERATE_MARSH) {
+            type = hash % 3u == 0u ? BLOCK_REED
+                                   : (hash % 2u == 0u ? BLOCK_FERN
+                                                      : BLOCK_MOSS_CARPET);
+        } else if (biome == PLANET_BIOME_SALT_MARSH) {
+            type = hash % 3u == 0u ? BLOCK_REED : BLOCK_LICHEN;
+        } else if (biome == PLANET_BIOME_FROZEN_MIRE) {
+            type = hash % 3u == 0u ? BLOCK_MOSS_CARPET : BLOCK_LICHEN;
+        } else if (biome == PLANET_BIOME_CRATER_BOG) {
+            type = hash % 2u == 0u ? BLOCK_REED : BLOCK_MOSS_CARPET;
+        }
     }
     return type;
 }
@@ -287,7 +304,9 @@ static void PlacePlanetFlora(Chunk *chunk, int x, int z,
 
     PlanetFloraArchetype type = profile->flora;
     if (type == PLANET_FLORA_ALIEN_CANOPY && biome != PLANET_BIOME_FOREST &&
-        biome != PLANET_BIOME_PLAINS && biome != PLANET_BIOME_OASIS) {
+        biome != PLANET_BIOME_PLAINS && biome != PLANET_BIOME_OASIS &&
+        biome != PLANET_BIOME_TEMPERATE_MARSH &&
+        biome != PLANET_BIOME_CRATER_BOG) {
         type = PLANET_FLORA_SPORE;
     }
     RegisterFloraStructure(chunk, x, z, ground, profile, type, hash);

@@ -16,6 +16,7 @@
 #include "app/game_interaction.h"
 #include "app/game_runtime.h"
 #include "app/game_stream_audit.h"
+#include "app/game_world_transition.h"
 #include "gameplay/interaction.h"
 #include "gameplay/map_markers.h"
 #include "gameplay/player.h"
@@ -923,6 +924,46 @@ static GameDebugDispatchResult GameDebugDispatchMapCommand(
     case DEBUG_CONTROL_COMMAND_MAP:
         GameDebugToggleSurfaceMap(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS:
+        HomeWorldMapSetSubsurfaceLiquidsVisible(
+            game->debugControl.mapLiquidsVisible);
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL map layer liquids enabled=%d\n",
+            HomeWorldMapSubsurfaceLiquidsVisible() ? 1 : 0);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
+    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET: {
+        bool homeWorld = command == DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME;
+        SolarBodyStyle styles[] = {
+            SOLAR_STYLE_TEMPERATE, SOLAR_STYLE_DESERT, SOLAR_STYLE_ICE,
+            SOLAR_STYLE_LAVA, SOLAR_STYLE_CRATER
+        };
+        SolarBodyStyle style = styles[game->debugControl.surfaceDebugStyle];
+        HomeWorldMapClose();
+        bool activated = GameWorldTransitionDebugSurface(
+            &game->player, homeWorld, style,
+            game->debugControl.surfaceDebugSeed);
+        if (!activated) {
+            GameDebugMarkCommandError(game, "surface_activation_failed");
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL surface debug error reason=activation_failed\n");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        game->landingTransition = (LandingTransition){ 0 };
+        game->wasInSpace = false;
+        game->entitiesWorldActive = true;
+        game->entitiesWorldDimension = WorldCurrentSurfaceId();
+        game->cursorReleased = false;
+        DisableCursor();
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL surface debug ok world=%s seed=%u\n",
+            homeWorld ? "home" : PlanetWorldName(),
+            homeWorld ? WorldGetSeed() : PlanetWorldSeed());
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
     case DEBUG_CONTROL_COMMAND_MARKER_ADD:
         GameDebugMarkerAdd(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -1256,6 +1297,7 @@ static const char *GameDebugDslCommandBlocked(
                        WorldIsSurfaceActive()
             ? NULL : "no_surface_ship";
     case DEBUG_CONTROL_COMMAND_MAP:
+    case DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS:
     case DEBUG_CONTROL_COMMAND_MARKER_ADD:
     case DEBUG_CONTROL_COMMAND_MARKER_LIST:
     case DEBUG_CONTROL_COMMAND_MARKER_TARGET:
@@ -1263,6 +1305,9 @@ static const char *GameDebugDslCommandBlocked(
     case DEBUG_CONTROL_COMMAND_FLUID_SET:
     case DEBUG_CONTROL_COMMAND_FLUID_STEP:
         return WorldIsSurfaceActive() ? NULL : "no_active_surface";
+    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
+    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET:
+        return game->screen == SCREEN_PLAYING ? NULL : "not_playing";
     case DEBUG_CONTROL_COMMAND_STREAM_AUDIT:
     case DEBUG_CONTROL_COMMAND_STREAM_WAIT:
         if (game->screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {

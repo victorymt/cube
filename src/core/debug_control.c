@@ -363,6 +363,38 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
     if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;
     if (strcmp(line, "load") == 0) return DEBUG_CONTROL_COMMAND_LOAD;
     if (strcmp(line, "map") == 0) return DEBUG_CONTROL_COMMAND_MAP;
+    if (strcmp(line, "map layer liquids on") == 0) {
+        control->mapLiquidsVisible = true;
+        return DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS;
+    }
+    if (strcmp(line, "map layer liquids off") == 0) {
+        control->mapLiquidsVisible = false;
+        return DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS;
+    }
+    if (strcmp(line, "surface debug home") == 0) {
+        return DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME;
+    }
+    char style[16] = { 0 };
+    unsigned seed = 0u;
+    char trailing = '\0';
+    if (sscanf(line, "surface debug planet %15s %u %c",
+               style, &seed, &trailing) == 2) {
+        if (strcmp(style, "temperate") == 0) {
+            control->surfaceDebugStyle = DEBUG_CONTROL_SURFACE_TEMPERATE;
+        } else if (strcmp(style, "desert") == 0) {
+            control->surfaceDebugStyle = DEBUG_CONTROL_SURFACE_DESERT;
+        } else if (strcmp(style, "ice") == 0) {
+            control->surfaceDebugStyle = DEBUG_CONTROL_SURFACE_ICE;
+        } else if (strcmp(style, "lava") == 0) {
+            control->surfaceDebugStyle = DEBUG_CONTROL_SURFACE_LAVA;
+        } else if (strcmp(style, "crater") == 0) {
+            control->surfaceDebugStyle = DEBUG_CONTROL_SURFACE_CRATER;
+        } else {
+            return DEBUG_CONTROL_COMMAND_INVALID;
+        }
+        control->surfaceDebugSeed = (uint32_t)seed;
+        return DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET;
+    }
     if (strcmp(line, "quit") == 0) return DEBUG_CONTROL_COMMAND_QUIT;
     return DEBUG_CONTROL_COMMAND_NONE;
 }

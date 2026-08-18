@@ -254,7 +254,8 @@ typedef enum Biome {
     BIOME_FOREST,
     BIOME_DESERT,
     BIOME_SNOW,
-    BIOME_MOUNTAIN
+    BIOME_MOUNTAIN,
+    BIOME_SWAMP
 } Biome;
 
 typedef struct ChunkGenJob {

@@ -54,6 +54,7 @@ typedef struct HomeWorldMapState {
     bool showEcology;
     bool showCreatures;
     bool showLandmarks;
+    bool showSubsurfaceLiquids;
     bool planetSurface;
     bool globeDragging;
     bool mapPressPending;
@@ -80,6 +81,8 @@ typedef struct HomeWorldMapState {
     HomeWorldMapTerrainCell cells[
         HOMEWORLD_MAP_RASTER_SIZE * HOMEWORLD_MAP_RASTER_SIZE];
     float heat[HOMEWORLD_MAP_HEAT_SIZE * HOMEWORLD_MAP_HEAT_SIZE];
+    TerrainSubsurfaceLiquidSummary subsurfaceLiquids[
+        HOMEWORLD_MAP_HEAT_SIZE * HOMEWORLD_MAP_HEAT_SIZE];
     HomeWorldMapLandmark landmarks[HOMEWORLD_MAP_MAX_LANDMARKS];
     int landmarkCount;
 } HomeWorldMapState;
@@ -154,7 +157,7 @@ static HomeWorldMapLayout MapLayout(void)
         : fminf(sidebar.width * 0.48f, sidebar.height * 0.31f);
     float maximumGlobeSize = compact
         ? fmaxf(1.0f, sidebar.height - 24.0f) : 320.0f;
-    float minimumGlobeSize = compact ? 64.0f : 160.0f;
+    float minimumGlobeSize = compact ? 64.0f : 128.0f;
     globeSize = fminf(fmaxf(globeSize, minimumGlobeSize), maximumGlobeSize);
     Rectangle globe = compact
         ? (Rectangle){ sidebar.x, sidebar.y + 18.0f, globeSize, globeSize }
@@ -262,8 +265,15 @@ static void MapRefresh(float daylight)
                                      v * homeMap.bounds.span);
             PlanetLocalEcology ecology =
                 PlanetEcologyLocalAt(worldX, worldZ, daylight);
-            homeMap.heat[z * HOMEWORLD_MAP_HEAT_SIZE + x] =
+            int index = z * HOMEWORLD_MAP_HEAT_SIZE + x;
+            homeMap.heat[index] =
                 MapClamp(ecology.suitability.faunaActivity, 0.0f, 1.0f);
+            int surfaceHeight = homeMap.planetSurface
+                ? PlanetTerrainHeight(worldX, worldZ)
+                : TerrainHeight(worldX, worldZ, terrainMode);
+            homeMap.subsurfaceLiquids[index] =
+                TerrainSubsurfaceLiquidSummaryAt(
+                    worldX, worldZ, surfaceHeight);
         }
     }
 
@@ -327,6 +337,7 @@ void HomeWorldMapOpen(Vector3 playerPosition, float daylight)
     homeMap.showEcology = true;
     homeMap.showCreatures = true;
     homeMap.showLandmarks = true;
+    homeMap.showSubsurfaceLiquids = true;
     MapRefresh(daylight);
 }
 
@@ -342,6 +353,16 @@ void HomeWorldMapClose(void)
 bool HomeWorldMapIsOpen(void)
 {
     return homeMap.open;
+}
+
+void HomeWorldMapSetSubsurfaceLiquidsVisible(bool visible)
+{
+    homeMap.showSubsurfaceLiquids = visible;
+}
+
+bool HomeWorldMapSubsurfaceLiquidsVisible(void)
+{
+    return homeMap.showSubsurfaceLiquids;
 }
 
 static void MapZoom(int direction)
@@ -378,6 +399,12 @@ static Rectangle MapLayerButton(const HomeWorldMapLayout *layout, int index)
         float startX = layout->globe.x + layout->globe.width + 12.0f;
         float available = layout->sidebar.x + layout->sidebar.width - startX;
         float width = fmaxf(78.0f, (available - 6.0f) * 0.5f);
+        if (index == 4) {
+            return (Rectangle){
+                startX, layout->sidebar.y + 80.0f,
+                available, 24.0f
+            };
+        }
         return (Rectangle){
             startX + (float)(index % 2) * (width + 6.0f),
             layout->sidebar.y + 24.0f + (float)(index / 2) * 28.0f,
@@ -386,6 +413,12 @@ static Rectangle MapLayerButton(const HomeWorldMapLayout *layout, int index)
     }
     float width = (layout->sidebar.width - 8.0f) * 0.5f;
     float startY = layout->globe.y + layout->globe.height + 34.0f;
+    if (index == 4) {
+        return (Rectangle){
+            layout->sidebar.x, startY + 56.0f,
+            layout->sidebar.width, 24.0f
+        };
+    }
     return (Rectangle){
         layout->sidebar.x + (float)(index % 2) * (width + 8.0f),
         startY + (float)(index / 2) * 28.0f, width, 24.0f
@@ -652,9 +685,10 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
         if (!pointerHandled) {
             bool *layers[] = {
                 &homeMap.showTerrain, &homeMap.showEcology,
-                &homeMap.showCreatures, &homeMap.showLandmarks
+                &homeMap.showCreatures, &homeMap.showLandmarks,
+                &homeMap.showSubsurfaceLiquids
             };
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 5; i++) {
                 if (MapPointInButton(mouse, MapLayerButton(&layout, i))) {
                     *layers[i] = !*layers[i];
                     pointerHandled = true;
@@ -777,6 +811,51 @@ static void MapDrawHeat(const HomeWorldMapLayout *layout)
                 ? (Color){ 232, 90, 62, (unsigned char)(activity * 82.0f) }
                 : (Color){ 232, 185, 66, (unsigned char)(activity * 65.0f) };
             DrawRectangleRec(cell, heatColor);
+        }
+    }
+}
+
+static Color MapSubsurfaceLiquidColor(TerrainSubsurfaceLiquidKind kind,
+                                      unsigned char alpha)
+{
+    if (kind == TERRAIN_SUBSURFACE_LIQUID_LAVA) {
+        return (Color){ 246, 92, 40, alpha };
+    }
+    return (Color){ 44, 177, 226, alpha };
+}
+
+static void MapDrawSubsurfaceLiquids(const HomeWorldMapLayout *layout)
+{
+    float cellWidth = layout->map.width / (float)HOMEWORLD_MAP_HEAT_SIZE;
+    float cellHeight = layout->map.height / (float)HOMEWORLD_MAP_HEAT_SIZE;
+    for (int z = 0; z < HOMEWORLD_MAP_HEAT_SIZE; z++) {
+        for (int x = 0; x < HOMEWORLD_MAP_HEAT_SIZE; x++) {
+            TerrainSubsurfaceLiquidSummary summary =
+                homeMap.subsurfaceLiquids[
+                    z * HOMEWORLD_MAP_HEAT_SIZE + x];
+            if (summary.kind == TERRAIN_SUBSURFACE_LIQUID_NONE) continue;
+            unsigned char alpha = (unsigned char)MapClamp(
+                18.0f + summary.floodedFraction * 70.0f, 18.0f, 58.0f);
+            Rectangle cell = {
+                layout->map.x + (float)x * cellWidth + homeMap.dragOffset.x,
+                layout->map.y + (float)z * cellHeight + homeMap.dragOffset.y,
+                cellWidth + 1.0f, cellHeight + 1.0f
+            };
+            Color fill = MapSubsurfaceLiquidColor(summary.kind, alpha);
+            Color hatch = MapSubsurfaceLiquidColor(
+                summary.kind, (unsigned char)MapClamp(
+                    (float)alpha + 60.0f, 0.0f, 118.0f));
+            DrawRectangleRec(cell, fill);
+            DrawLineEx(
+                (Vector2){ cell.x, cell.y + cell.height * 0.72f },
+                (Vector2){ cell.x + cell.width * 0.72f, cell.y },
+                1.0f, hatch);
+            DrawLineEx(
+                (Vector2){ cell.x + cell.width * 0.28f,
+                           cell.y + cell.height },
+                (Vector2){ cell.x + cell.width,
+                           cell.y + cell.height * 0.28f },
+                1.0f, hatch);
         }
     }
 }
@@ -979,12 +1058,13 @@ static void MapDrawTerrainLegend(const HomeWorldMapLayout *layout,
         const Color terrainColors[] = {
             { 89, 143, 76, 255 }, { 44, 102, 60, 255 },
             { 184, 156, 88, 255 }, { 202, 216, 218, 255 },
-            { 42, 112, 153, 255 }
+            { 52, 96, 69, 255 }, { 42, 112, 153, 255 }
         };
         const char *terrainNames[] = {
-            "Plains", "Forest", "Desert", "Snow / highland", "Water"
+            "Plains", "Forest", "Desert", "Snow / highland", "Swamp",
+            "Water"
         };
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             DrawRectangle((int)layout->sidebar.x,
                           (int)legendY + 26 + i * 22, 14, 14,
                           terrainColors[i]);
@@ -1082,47 +1162,65 @@ static void MapDrawSidebar(const HomeWorldMapLayout *layout,
         ? layout->sidebar.y
         : layout->globe.y + layout->globe.height + 8.0f;
     UiDrawText("LAYERS", (int)layerX, (int)layerY, 14, Fade(WHITE, 0.58f));
-    const char *labels[] = { "Terrain", "Ecology", "Creatures", "Landmarks" };
+    const char *labels[] = {
+        "Terrain", "Ecology", "Creatures", "Landmarks",
+        "Subsurface liquids"
+    };
     bool enabled[] = {
         homeMap.showTerrain, homeMap.showEcology,
-        homeMap.showCreatures, homeMap.showLandmarks
+        homeMap.showCreatures, homeMap.showLandmarks,
+        homeMap.showSubsurfaceLiquids
     };
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         MapDrawLayerToggle(MapLayerButton(layout, i), enabled[i], labels[i]);
     }
 
     if (layout->compact) {
-        int infoY = (int)layout->sidebar.y + 88;
+        int infoY = (int)layout->sidebar.y + 116;
         UiDrawText(hoverTitle, (int)layerX, infoY, 15, WHITE);
         UiDrawText(hoverDetail, (int)layerX, infoY + 21, 12,
                    Fade(WHITE, 0.66f));
         return;
     }
 
-    float legendY = layout->globe.y + layout->globe.height + 110.0f;
+    float legendY = layout->globe.y + layout->globe.height + 122.0f;
     UiDrawText("TERRAIN", (int)layout->sidebar.x, (int)legendY, 14,
                Fade(WHITE, 0.58f));
     MapDrawTerrainLegend(layout, legendY);
 
-    float markerY = legendY + 142.0f;
+    float infoY = layout->sidebar.y + layout->sidebar.height - 72.0f;
+    bool tightSidebar = layout->sidebar.height < 620.0f;
+    float markerY = tightSidebar ? infoY - 34.0f : legendY + 154.0f;
     UiDrawText("MARKERS", (int)layout->sidebar.x, (int)markerY, 14,
                Fade(WHITE, 0.58f));
     const char *markerNames[] = {
         "Land", "Aquatic", "Aerial", "Hostile"
     };
-    float markerWidth = (layout->sidebar.width - 8.0f) * 0.5f;
-    for (int i = 0; i < 4; i++) {
-        int column = i % 2;
-        int row = i / 2;
-        float markerX = layout->sidebar.x + (float)column * (markerWidth + 8.0f);
-        DrawCircle((int)markerX + 7,
-                   (int)markerY + 30 + row * 22, 4.0f,
-                   MapEntityColor((EntityMapMarkerKind)i));
-        UiDrawText(markerNames[i], (int)markerX + 22,
-                   (int)markerY + 22 + row * 22, 14, Fade(WHITE, 0.76f));
+    if (tightSidebar) {
+        float markerWidth = layout->sidebar.width / 4.0f;
+        for (int i = 0; i < 4; i++) {
+            float markerX = layout->sidebar.x + (float)i * markerWidth;
+            DrawCircle((int)markerX + 4, (int)markerY + 24, 3.0f,
+                       MapEntityColor((EntityMapMarkerKind)i));
+            UiDrawText(markerNames[i], (int)markerX + 11,
+                       (int)markerY + 17, 11, Fade(WHITE, 0.76f));
+        }
+    } else {
+        float markerWidth = (layout->sidebar.width - 8.0f) * 0.5f;
+        for (int i = 0; i < 4; i++) {
+            int column = i % 2;
+            int row = i / 2;
+            float markerX = layout->sidebar.x +
+                            (float)column * (markerWidth + 8.0f);
+            DrawCircle((int)markerX + 7,
+                       (int)markerY + 30 + row * 22, 4.0f,
+                       MapEntityColor((EntityMapMarkerKind)i));
+            UiDrawText(markerNames[i], (int)markerX + 22,
+                       (int)markerY + 22 + row * 22, 14,
+                       Fade(WHITE, 0.76f));
+        }
     }
 
-    float infoY = layout->sidebar.y + layout->sidebar.height - 72.0f;
     DrawLine((int)layout->sidebar.x, (int)infoY - 12,
              (int)(layout->sidebar.x + layout->sidebar.width),
              (int)infoY - 12, Fade(WHITE, 0.16f));
@@ -1258,6 +1356,9 @@ void HomeWorldMapDraw(void)
                        Vector2Zero(), 0.0f, WHITE);
     }
     if (homeMap.showEcology) MapDrawHeat(&layout);
+    if (homeMap.showSubsurfaceLiquids) {
+        MapDrawSubsurfaceLiquids(&layout);
+    }
 
     if (homeMap.showLandmarks) {
         for (int i = 0; i < homeMap.landmarkCount; i++) {
@@ -1391,8 +1492,21 @@ void HomeWorldMapDraw(void)
                   homeMap.bounds.span;
         float fauna = HomeWorldMapHeatSample(homeMap.heat, u, v);
         if (hoverTitle == surveyTitle) {
-            hoverTitle = MapTerrainName(sample.cell);
-            if (sample.cell.waterDepth > 0) {
+            TerrainSubsurfaceLiquidSummary liquid =
+                TerrainSubsurfaceLiquidSummaryAt(
+                    (int)floorf(world.x), (int)floorf(world.y),
+                    (int)lroundf(sample.cell.elevation));
+            if (homeMap.showSubsurfaceLiquids &&
+                liquid.kind != TERRAIN_SUBSURFACE_LIQUID_NONE) {
+                hoverTitle = liquid.kind == TERRAIN_SUBSURFACE_LIQUID_LAVA
+                    ? "Lava cavity" : "Water cave";
+                snprintf(
+                    hoverDetail, sizeof(hoverDetail),
+                    "XZ %.0f, %.0f   |   Y %d-%d   |   flooded %.0f%%",
+                    world.x, world.y, liquid.minY, liquid.maxY,
+                    liquid.floodedFraction * 100.0f);
+            } else if (sample.cell.waterDepth > 0) {
+                hoverTitle = MapTerrainName(sample.cell);
                 snprintf(
                     hoverDetail, sizeof(hoverDetail),
                     "XZ %.0f,%.0f | fauna %.0f%%\nY %d | %d m | %s",
@@ -1400,6 +1514,7 @@ void HomeWorldMapDraw(void)
                     sample.bathymetry.seabedY, sample.cell.waterDepth,
                     BathymetryZoneName(sample.bathymetry.zone));
             } else {
+                hoverTitle = MapTerrainName(sample.cell);
                 snprintf(
                     hoverDetail, sizeof(hoverDetail),
                     "XZ %.0f, %.0f   |   elevation %.0f   |   fauna %.0f%%",

@@ -1245,7 +1245,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,marker,teleport,look,input,ship,view,"
+        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,"
         "fluid,water,evolution statements=let,assert,wait,repeat,exit\n");
     return true;
 }

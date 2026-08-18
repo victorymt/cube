@@ -248,25 +248,87 @@ static bool BiomeMatchesStyle(SolarBodyStyle style, PlanetBiome biome)
     case SOLAR_STYLE_LAVA:
         return biome == PLANET_BIOME_LAVA_SEA ||
                biome == PLANET_BIOME_VOLCANIC_RIDGE ||
-               biome == PLANET_BIOME_BASALT_PLAINS;
+               biome == PLANET_BIOME_BASALT_PLAINS ||
+               biome == PLANET_BIOME_MAGMA_MIRE;
     case SOLAR_STYLE_ICE:
-        return biome == PLANET_BIOME_GLACIER || biome == PLANET_BIOME_ICE_SHEET;
+        return biome == PLANET_BIOME_GLACIER ||
+               biome == PLANET_BIOME_ICE_SHEET ||
+               biome == PLANET_BIOME_FROZEN_MIRE;
     case SOLAR_STYLE_DESERT:
         return biome == PLANET_BIOME_OASIS || biome == PLANET_BIOME_BADLANDS ||
-               biome == PLANET_BIOME_DUNES;
+               biome == PLANET_BIOME_DUNES ||
+               biome == PLANET_BIOME_SALT_MARSH ||
+               biome == PLANET_BIOME_ICE_SHEET;
     case SOLAR_STYLE_CRATER:
         return biome == PLANET_BIOME_GLACIER || biome == PLANET_BIOME_ICE_SHEET ||
                biome == PLANET_BIOME_IMPACT_BASIN ||
-               biome == PLANET_BIOME_CRATER_HIGHLANDS;
+               biome == PLANET_BIOME_CRATER_HIGHLANDS ||
+               biome == PLANET_BIOME_CRATER_BOG;
     case SOLAR_STYLE_TEMPERATE:
         return biome == PLANET_BIOME_OCEAN || biome == PLANET_BIOME_COAST ||
                biome == PLANET_BIOME_ICE_SHEET || biome == PLANET_BIOME_ALPINE ||
-               biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS;
+               biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS ||
+               biome == PLANET_BIOME_TEMPERATE_MARSH;
     case SOLAR_STYLE_GAS:
         return biome == PLANET_BIOME_STORM_BANDS;
     default:
         return false;
     }
+}
+
+static PlanetBiome WetlandBiomeForStyle(SolarBodyStyle style)
+{
+    switch (style) {
+    case SOLAR_STYLE_LAVA: return PLANET_BIOME_MAGMA_MIRE;
+    case SOLAR_STYLE_ICE: return PLANET_BIOME_FROZEN_MIRE;
+    case SOLAR_STYLE_DESERT: return PLANET_BIOME_SALT_MARSH;
+    case SOLAR_STYLE_CRATER: return PLANET_BIOME_CRATER_BOG;
+    case SOLAR_STYLE_TEMPERATE: return PLANET_BIOME_TEMPERATE_MARSH;
+    default: return PLANET_BIOME_COUNT;
+    }
+}
+
+static bool IsOpenLiquidBiome(PlanetBiome biome)
+{
+    return biome == PLANET_BIOME_OCEAN ||
+           biome == PLANET_BIOME_LAVA_SEA ||
+           biome == PLANET_BIOME_STORM_BANDS;
+}
+
+static void TestWetlandDistribution(void)
+{
+    bool allValid = true;
+    for (int style = SOLAR_STYLE_LAVA; style <= SOLAR_STYLE_TEMPERATE;
+         style++) {
+        if (style == SOLAR_STYLE_GAS) continue;
+        PlanetProfile profile = TestProfile((SolarBodyStyle)style);
+        PlanetBiome wetland = WetlandBiomeForStyle(profile.style);
+        int wetlandSamples = 0;
+        int landSamples = 0;
+        for (int latitudeIndex = 0; latitudeIndex < 40; latitudeIndex++) {
+            float latitude = -1.48f +
+                2.96f * (float)latitudeIndex / 39.0f;
+            for (int longitudeIndex = 0; longitudeIndex < 80;
+                 longitudeIndex++) {
+                float longitude = -PI +
+                    2.0f * PI * (float)longitudeIndex / 80.0f;
+                PlanetSurfaceSample sample =
+                    PlanetSampleGlobalSurfaceBaseline(
+                        profile.seed, &profile, longitude, latitude);
+                if (IsOpenLiquidBiome(sample.biome)) continue;
+                landSamples++;
+                wetlandSamples += sample.biome == wetland;
+            }
+        }
+        float fraction = landSamples > 0
+            ? (float)wetlandSamples / (float)landSamples : 0.0f;
+        if (fraction < 0.02f || fraction > 0.12f) {
+            fprintf(stderr, "style %d wetland fraction %.4f (%d/%d)\n",
+                    style, fraction, wetlandSamples, landSamples);
+            allValid = false;
+        }
+    }
+    assert(allValid);
 }
 
 static void TestStyleBiomeDomains(void)
@@ -367,6 +429,7 @@ int main(void)
     TestTiltChangesSeasonalAmplitude();
     TestEccentricityChangesSeasonalTemperature();
     TestStyleBiomeDomains();
+    TestWetlandDistribution();
     TestCanonicalSurfaceCharacter();
     TestBiomeNames();
     puts("planet_surface tests passed");

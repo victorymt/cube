@@ -34,6 +34,26 @@ uint32_t WorldGetSeed(void)
     return terrainSeed;
 }
 
+bool PlanetWorldIsActive(void)
+{
+    return false;
+}
+
+uint32_t PlanetWorldSeed(void)
+{
+    return terrainSeed;
+}
+
+SolarBodyStyle PlanetWorldStyle(void)
+{
+    return SOLAR_STYLE_TEMPERATE;
+}
+
+const PlanetProfile *PlanetWorldProfile(void)
+{
+    return NULL;
+}
+
 bool IsTranslucentBlock(BlockType type)
 {
     return type == BLOCK_WATER || type == BLOCK_GLASS ||
@@ -475,6 +495,21 @@ static void TestNaturalGeologyDistribution(void)
     assert(TerrainTestPlanetSubsurfaceBlock(
                SOLAR_STYLE_LAVA, PLANET_BIOME_BASALT_PLAINS, 6, 127u) ==
            BLOCK_NICKEL_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_TEMPERATE_MARSH,
+               0, 1u) == BLOCK_MUD);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_SALT_MARSH,
+               0, 4u) == BLOCK_SALT_CRUST);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_ICE, PLANET_BIOME_FROZEN_MIRE,
+               1, 1u) == BLOCK_PERMAFROST);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_MAGMA_MIRE,
+               0, 7u) == BLOCK_SULFUR_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_CRATER, PLANET_BIOME_CRATER_BOG,
+               0, 3u) == BLOCK_PACKED_ICE);
 
     for (int z = -32; z <= 32; z += 8) {
         for (int x = -32; x <= 32; x += 8) {
@@ -485,6 +520,55 @@ static void TestNaturalGeologyDistribution(void)
             }
         }
     }
+}
+
+static void TestSwampTerrainGeneration(void)
+{
+    terrainSeed = DEFAULT_WORLD_SEED;
+    int landSamples = 0;
+    int swampSamples = 0;
+    int poolSamples = 0;
+    for (int z = -1024; z <= 1024; z += 16) {
+        for (int x = -1024; x <= 1024; x += 16) {
+            SurfaceTerrainSample sample = SurfaceTerrainAt(
+                x, z, TERRAIN_VARIED);
+            if (sample.bathymetry.waterDepth > 0) continue;
+            landSamples++;
+            if (sample.biome != BIOME_SWAMP) continue;
+            swampSamples++;
+            int height = (int)lroundf(sample.elevation);
+            BlockType surface = TerrainBaseBlockAt(
+                x, height, z, TERRAIN_VARIED);
+            assert(surface == BLOCK_WATER || surface == BLOCK_MUD ||
+                   surface == BLOCK_PEAT);
+            poolSamples += surface == BLOCK_WATER;
+        }
+    }
+    float fraction = landSamples > 0
+        ? (float)swampSamples / (float)landSamples : 0.0f;
+    assert(fraction >= 0.01f && fraction <= 0.20f);
+    assert(poolSamples > 0);
+}
+
+static void TestSubsurfaceLiquidSummary(void)
+{
+    terrainSeed = DEFAULT_WORLD_SEED;
+    bool foundWater = false;
+    for (int z = -256; z <= 256 && !foundWater; z += 8) {
+        for (int x = -256; x <= 256; x += 8) {
+            int surfaceHeight = TerrainHeight(x, z, TERRAIN_VARIED);
+            TerrainSubsurfaceLiquidSummary summary =
+                TerrainSubsurfaceLiquidSummaryAt(x, z, surfaceHeight);
+            if (summary.kind == TERRAIN_SUBSURFACE_LIQUID_NONE) continue;
+            assert(summary.kind == TERRAIN_SUBSURFACE_LIQUID_WATER);
+            assert(summary.minY <= summary.maxY);
+            assert(summary.floodedFraction > 0.0f &&
+                   summary.floodedFraction <= 1.0f);
+            foundWater = true;
+            break;
+        }
+    }
+    assert(foundWater);
 }
 
 static void TestIndependentSectionBaseGeneration(void)
@@ -873,6 +957,8 @@ int main(void)
     TestUndergroundFeaturesMaterializeTheirBase();
     TestTreePlacementSpacing();
     TestHomeGroundCoverSelection();
+    TestSwampTerrainGeneration();
+    TestSubsurfaceLiquidSummary();
     TestHomeTreeVariantSelection();
     TestHomeTreeShapes();
     TestTerrainSectionExposureClassification();

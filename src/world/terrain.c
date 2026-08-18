@@ -388,12 +388,19 @@ SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
     float climate = WorldFractalNoise2D(
         ((float)x + WorldSeedCoordinateOffset(3u)) * 0.0018f,
         ((float)z + WorldSeedCoordinateOffset(4u)) * 0.0018f, 503u);
+    float wetness = WorldFractalNoise2D(
+        ((float)x + WorldSeedCoordinateOffset(5u)) * 0.0024f,
+        ((float)z + WorldSeedCoordinateOffset(6u)) * 0.0024f, 607u);
     if (sample.elevation >= 132.0f || sample.ridge > 0.58f) {
         sample.biome = BIOME_MOUNTAIN;
     } else if (climate < 0.25f) {
         sample.biome = BIOME_SNOW;
     } else if (climate < 0.43f) {
         sample.biome = BIOME_DESERT;
+    } else if (sample.bathymetry.waterDepth == 0 &&
+               sample.elevation <= sample.seaLevel + 12.0f &&
+               sample.slope <= 2.4f && wetness > 0.55f) {
+        sample.biome = BIOME_SWAMP;
     } else if (climate > 0.64f) {
         sample.biome = BIOME_FOREST;
     } else {
@@ -457,6 +464,7 @@ static int HomeTreeDensityDivisor(Biome biome)
     case BIOME_PLAINS:   return 131;
     case BIOME_MOUNTAIN: return 149;
     case BIOME_SNOW:     return 67;
+    case BIOME_SWAMP:    return 211;
     default:             return 0;
     }
 }
@@ -568,9 +576,9 @@ bool ShouldPlaceTree(int x, int z, TerrainMode mode)
     return true;
 }
 
-bool CaveAt(int x, int y, int z, int height)
+static SubsurfaceParams HomeSubsurfaceParams(void)
 {
-    SubsurfaceParams params = {
+    return (SubsurfaceParams){
         .seed = WorldGetSeed(),
         .activity = 1.0f,
         .minY = 2,
@@ -578,19 +586,17 @@ bool CaveAt(int x, int y, int z, int height)
         .aquiferLevel = 36,
         .aquiferChance = 0.68f
     };
+}
+
+bool CaveAt(int x, int y, int z, int height)
+{
+    SubsurfaceParams params = HomeSubsurfaceParams();
     return SubsurfaceSampleAt(&params, x, y, z, height).cave;
 }
 
 bool CaveWaterAt(int x, int y, int z, int height)
 {
-    SubsurfaceParams params = {
-        .seed = WorldGetSeed(),
-        .activity = 1.0f,
-        .minY = 2,
-        .surfaceClearance = 4,
-        .aquiferLevel = 36,
-        .aquiferChance = 0.68f
-    };
+    SubsurfaceParams params = HomeSubsurfaceParams();
     return SubsurfaceSampleAt(&params, x, y, z, height).flooded;
 }
 
@@ -614,14 +620,7 @@ BlockType OreAt(int x, int y, int z)
 
 BlockType StoneOrCaveBlock(int x, int y, int z, int height)
 {
-    SubsurfaceParams params = {
-        .seed = WorldGetSeed(),
-        .activity = 1.0f,
-        .minY = 2,
-        .surfaceClearance = 4,
-        .aquiferLevel = 36,
-        .aquiferChance = 0.68f
-    };
+    SubsurfaceParams params = HomeSubsurfaceParams();
     SubsurfaceSample cave = SubsurfaceSampleAt(&params, x, y, z, height);
     if (cave.cave) return cave.flooded ? BLOCK_WATER : BLOCK_AIR;
     return OreAt(x, y, z);
@@ -629,10 +628,14 @@ BlockType StoneOrCaveBlock(int x, int y, int z, int height)
 
 bool ShouldPlacePond(int x, int z, int height)
 {
-    if (height > 6) return false;
     Biome biome = BiomeAt(x, z);
     if (biome == BIOME_DESERT || biome == BIOME_MOUNTAIN) return false;
-    return WorldHash2D(x, z) % 97u == 0u;
+    if (biome == BIOME_SWAMP) {
+        return height <= HOME_SEA_LEVEL + 12 &&
+               WorldHash2D(x, z) % 13u == 0u;
+    }
+    return height <= HOME_SEA_LEVEL + 4 &&
+           WorldHash2D(x, z) % 97u == 0u;
 }
 
 void SetChunkLocalBlock(Chunk *chunk, int worldX, int y, int worldZ, BlockType type)
@@ -1128,6 +1131,21 @@ int PlanetTerrainHeight(int x, int z)
     case PLANET_BIOME_OASIS:
         height = fminf(height, 84.0f + (hills - 0.5f) * 4.0f);
         break;
+    case PLANET_BIOME_MAGMA_MIRE:
+        height = fminf(height, 84.0f + (hills - 0.5f) * 3.0f);
+        break;
+    case PLANET_BIOME_FROZEN_MIRE:
+        height = fminf(height, 86.0f + (hills - 0.5f) * 3.0f);
+        break;
+    case PLANET_BIOME_SALT_MARSH:
+        height = fminf(height, 84.0f + (hills - 0.5f) * 3.0f);
+        break;
+    case PLANET_BIOME_CRATER_BOG:
+        height = fminf(height, 82.0f + (hills - 0.5f) * 3.0f);
+        break;
+    case PLANET_BIOME_TEMPERATE_MARSH:
+        height = fminf(height, 86.0f + (hills - 0.5f) * 3.0f);
+        break;
     case PLANET_BIOME_IMPACT_BASIN:
         height -= 14.0f + (1.0f - hills) * 10.0f;
         break;
@@ -1348,6 +1366,50 @@ static SubsurfaceParams PlanetSubsurfaceParamsFor(
     return params;
 }
 
+TerrainSubsurfaceLiquidSummary TerrainSubsurfaceLiquidSummaryAt(
+    int x, int z, int surfaceHeight)
+{
+    SubsurfaceParams params = HomeSubsurfaceParams();
+    TerrainSubsurfaceLiquidKind kind = TERRAIN_SUBSURFACE_LIQUID_WATER;
+    if (PlanetWorldIsActive()) {
+        SolarBodyStyle style = PlanetWorldStyle();
+        params = PlanetSubsurfaceParamsFor(style, PlanetWorldProfile());
+        if (style == SOLAR_STYLE_LAVA) {
+            kind = TERRAIN_SUBSURFACE_LIQUID_LAVA;
+        }
+    }
+
+    TerrainSubsurfaceLiquidSummary summary = { 0 };
+    int maxY = surfaceHeight - params.surfaceClearance - 1;
+    int aquiferCeiling = params.aquiferLevel + 12;
+    if (maxY > aquiferCeiling) maxY = aquiferCeiling;
+    if (maxY < params.minY) return summary;
+
+    int floodedCount = 0;
+    int sampleCount = maxY - params.minY + 1;
+    for (int y = params.minY; y <= maxY; y++) {
+        SubsurfaceSample sample = SubsurfaceSampleAt(
+            &params, x, y, z, surfaceHeight);
+        if (!sample.flooded) continue;
+        if (floodedCount == 0) summary.minY = y;
+        summary.maxY = y;
+        floodedCount++;
+    }
+    if (floodedCount == 0) return summary;
+    summary.kind = kind;
+    summary.floodedFraction = (float)floodedCount / (float)sampleCount;
+    return summary;
+}
+
+static bool PlanetWetlandBiome(PlanetBiome biome)
+{
+    return biome == PLANET_BIOME_TEMPERATE_MARSH ||
+           biome == PLANET_BIOME_SALT_MARSH ||
+           biome == PLANET_BIOME_FROZEN_MIRE ||
+           biome == PLANET_BIOME_MAGMA_MIRE ||
+           biome == PLANET_BIOME_CRATER_BOG;
+}
+
 static void PlacePlanetForest(Chunk *chunk, int treeX, int treeZ)
 {
     if (PlanetBiomeAt(treeX, treeZ) != PLANET_BIOME_FOREST) return;
@@ -1422,6 +1484,15 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
                                : (cave.flooded ? BLOCK_WATER : BLOCK_AIR);
                 }
                 ChunkSetLocalBlock(chunk, lx, y, lz, type);
+            }
+
+            if (height > 1 && PlanetWetlandBiome(biome) &&
+                PlanetHash2D(worldX, worldZ, 557u) % 11u == 0u) {
+                BlockType liquid = biome == PLANET_BIOME_MAGMA_MIRE
+                    ? BLOCK_LAVA
+                    : (biome == PLANET_BIOME_FROZEN_MIRE
+                           ? BLOCK_ICE : BLOCK_WATER);
+                ChunkSetLocalBlock(chunk, lx, height, lz, liquid);
             }
 
             if (seaLevel >= 0 && height < seaLevel) {
@@ -1651,6 +1722,9 @@ static BlockType HomeGroundCoverBlock(Biome biome, int height, int seaLevel,
     if (hash % 397u == 0u) return BLOCK_MUSHROOM;
     if (biome == BIOME_FOREST && hash % 13u == 0u) return BLOCK_FERN;
     if (biome == BIOME_FOREST && hash % 19u == 0u) return BLOCK_MOSS_CARPET;
+    if (biome == BIOME_SWAMP && hash % 3u == 0u) return BLOCK_REED;
+    if (biome == BIOME_SWAMP && hash % 5u == 0u) return BLOCK_FERN;
+    if (biome == BIOME_SWAMP && hash % 11u == 0u) return BLOCK_MOSS_CARPET;
     if ((biome == BIOME_PLAINS || biome == BIOME_FOREST) &&
         height <= seaLevel + 4 && hash % 23u == 0u) return BLOCK_REED;
     if ((biome == BIOME_PLAINS || biome == BIOME_FOREST) &&

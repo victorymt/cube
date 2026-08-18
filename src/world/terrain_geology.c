@@ -3,7 +3,8 @@
 BlockType TerrainGeologyHomeStoneBlock(Biome biome, int depth, float region,
                                        float strata)
 {
-    if (biome == BIOME_FOREST && depth <= 12 && strata > 0.61f) {
+    if ((biome == BIOME_FOREST || biome == BIOME_SWAMP) &&
+        depth <= 12 && strata > 0.61f) {
         return BLOCK_MOSSY_STONE;
     }
     if (biome == BIOME_MOUNTAIN && depth >= 5 && depth <= 72 &&
@@ -18,7 +19,8 @@ BlockType TerrainGeologyHomeStoneBlock(Biome biome, int depth, float region,
         (depth >= 64 && region > 0.57f)) {
         return BLOCK_GRANITE;
     }
-    if ((biome == BIOME_PLAINS || biome == BIOME_DESERT) &&
+    if ((biome == BIOME_PLAINS || biome == BIOME_DESERT ||
+         biome == BIOME_SWAMP) &&
         depth >= 3 && depth <= 52 && region > 0.58f) {
         return BLOCK_LIMESTONE;
     }
@@ -27,6 +29,7 @@ BlockType TerrainGeologyHomeStoneBlock(Biome biome, int depth, float region,
         return BLOCK_CHALK;
     }
     if ((biome == BIOME_PLAINS || biome == BIOME_FOREST ||
+         biome == BIOME_SWAMP ||
          biome == BIOME_SNOW) && depth >= 4 && depth <= 44 &&
         (region < 0.34f || strata < 0.30f)) {
         return BLOCK_SHALE;
@@ -91,6 +94,23 @@ static BlockType PlanetSurfaceBiomeBlock(PlanetBiome biome,
         return hash % 3u == 0u ? BLOCK_SILT : BLOCK_SAND;
     case PLANET_BIOME_OASIS:
         return BLOCK_MUD;
+    case PLANET_BIOME_TEMPERATE_MARSH:
+        return hash % 5u == 0u ? BLOCK_PEAT
+                               : (hash % 3u == 0u ? BLOCK_SILT : BLOCK_MUD);
+    case PLANET_BIOME_SALT_MARSH:
+        return hash % 4u == 0u ? BLOCK_SALT_CRUST
+                               : (hash % 3u == 0u ? BLOCK_SILT : BLOCK_MUD);
+    case PLANET_BIOME_FROZEN_MIRE:
+        return hash % 4u == 0u ? BLOCK_PERMAFROST : BLOCK_PACKED_ICE;
+    case PLANET_BIOME_MAGMA_MIRE:
+        if (hash % 7u == 0u) return BLOCK_SULFUR_ORE;
+        return hash % 3u == 0u ? BLOCK_PUMICE
+                               : (hash % 2u == 0u ? BLOCK_SCORIA
+                                                  : BLOCK_VOLCANIC_ASH);
+    case PLANET_BIOME_CRATER_BOG:
+        return hash % 5u == 0u ? BLOCK_REGOLITH
+                               : (hash % 3u == 0u ? BLOCK_PACKED_ICE
+                                                  : BLOCK_MUD);
     case PLANET_BIOME_FOREST:
         return hash % 5u == 0u ? BLOCK_PODZOL : BLOCK_GRASS;
     case PLANET_BIOME_PLAINS:
@@ -119,7 +139,13 @@ static BlockType PlanetLavaBlock(int depth, unsigned int hash)
 
 static BlockType PlanetIceBlock(PlanetBiome biome, int depth)
 {
-    if (depth == 0) return BLOCK_SNOW;
+    if (depth == 0) {
+        return biome == PLANET_BIOME_FROZEN_MIRE
+            ? BLOCK_PACKED_ICE : BLOCK_SNOW;
+    }
+    if (biome == PLANET_BIOME_FROZEN_MIRE && depth <= 5) {
+        return BLOCK_PERMAFROST;
+    }
     if (depth <= 2 && biome == PLANET_BIOME_ALPINE) {
         return BLOCK_PERMAFROST;
     }
@@ -131,6 +157,10 @@ static BlockType PlanetDesertBlock(PlanetBiome biome, int depth,
                                    unsigned int hash)
 {
     if (depth <= 3) {
+        if (biome == PLANET_BIOME_SALT_MARSH) {
+            if (depth == 0 && hash % 4u == 0u) return BLOCK_SALT_CRUST;
+            return hash % 3u == 0u ? BLOCK_SILT : BLOCK_MUD;
+        }
         if (hash % 11u == 0u) return BLOCK_ROCK_SALT;
         if (hash % 17u == 0u) return BLOCK_SALT_CRUST;
         if (biome == PLANET_BIOME_BADLANDS && hash % 3u == 0u) {
@@ -163,8 +193,16 @@ static BlockType PlanetCraterBlock(int depth, unsigned int hash)
 static BlockType PlanetTemperateBlock(PlanetBiome biome, int depth,
                                       unsigned int hash)
 {
-    if (depth == 0) return BLOCK_GRASS;
+    if (depth == 0) {
+        if (biome == PLANET_BIOME_TEMPERATE_MARSH) {
+            return hash % 5u == 0u ? BLOCK_PEAT : BLOCK_MUD;
+        }
+        return BLOCK_GRASS;
+    }
     if (depth <= 3) {
+        if (biome == PLANET_BIOME_TEMPERATE_MARSH) {
+            return hash % 3u == 0u ? BLOCK_SILT : BLOCK_PEAT;
+        }
         if (biome == PLANET_BIOME_OASIS ||
             (biome == PLANET_BIOME_FOREST && hash % 3u == 0u)) {
             return BLOCK_PEAT;

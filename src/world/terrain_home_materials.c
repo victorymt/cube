@@ -42,10 +42,22 @@ static bool HomeRedSandAt(int worldX, int worldZ)
 static bool HomeWetSoilAt(const SurfaceTerrainSample *surface)
 {
     if (!surface) return false;
-    return (surface->biome == BIOME_PLAINS ||
+    return (surface->biome == BIOME_SWAMP ||
+            surface->biome == BIOME_PLAINS ||
             surface->biome == BIOME_FOREST) &&
            surface->elevation <= (float)HOME_SEA_LEVEL + 6.0f &&
            surface->continentalness < 0.56f;
+}
+
+static bool HomeSwampPoolAt(int worldX, int worldZ,
+                            const SurfaceTerrainSample *surface)
+{
+    if (!surface || surface->biome != BIOME_SWAMP) return false;
+    float pools = HomeWorldValueNoise2D(
+        (float)worldX * 0.075f, (float)worldZ * 0.075f, 1151u);
+    float edges = HomeWorldValueNoise2D(
+        (float)worldX * 0.19f, (float)worldZ * 0.19f, 1171u);
+    return pools > 0.59f && edges > 0.34f;
 }
 
 static float HomeGeologyField(int worldX, int y, int worldZ,
@@ -112,6 +124,7 @@ BlockType TerrainHomeBaseBlockFromSample(
     bool redSand = biome == BIOME_DESERT &&
                    HomeRedSandAt(worldX, worldZ);
     bool wetSoil = HomeWetSoilAt(surface);
+    bool swampPool = HomeSwampPoolAt(worldX, worldZ, surface);
     bool peat = y <= height && wetSoil && y >= height - 4 &&
                 HomePeatDepositAt(worldX, worldZ);
     bool podzol = biome == BIOME_FOREST &&
@@ -186,6 +199,11 @@ BlockType TerrainHomeBaseBlockFromSample(
             type = y > height - 4 && height < 24
                 ? BLOCK_DIRT
                 : HomeRockBlock(worldX, y, worldZ, height, biome);
+        } else if (biome == BIOME_SWAMP) {
+            type = y > height - 5
+                ? (peat ? BLOCK_PEAT
+                        : (y >= height - 2 ? BLOCK_MUD : BLOCK_SILT))
+                : HomeRockBlock(worldX, y, worldZ, height, biome);
         } else {
             type = y > height - 4
                 ? (peat ? BLOCK_PEAT
@@ -204,6 +222,9 @@ BlockType TerrainHomeBaseBlockFromSample(
     } else if (biome == BIOME_MOUNTAIN) {
         type = height >= 165 ? BLOCK_SNOW
                              : (height >= 125 ? BLOCK_STONE : BLOCK_GRASS);
+    } else if (biome == BIOME_SWAMP) {
+        type = swampPool ? BLOCK_WATER
+                         : (peat ? BLOCK_PEAT : BLOCK_MUD);
     } else {
         type = peat ? BLOCK_PEAT
                     : (podzol ? BLOCK_PODZOL

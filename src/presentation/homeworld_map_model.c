@@ -142,6 +142,16 @@ Color HomeWorldMapTerrainColor(HomeWorldMapTerrainCell cell)
             base = (Color){ 145, 151, 151, 255 }; break;
         case PLANET_BIOME_STORM_BANDS:
             base = (Color){ 183, 150, 113, 255 }; break;
+        case PLANET_BIOME_TEMPERATE_MARSH:
+            base = (Color){ 53, 108, 77, 255 }; break;
+        case PLANET_BIOME_SALT_MARSH:
+            base = (Color){ 155, 148, 113, 255 }; break;
+        case PLANET_BIOME_FROZEN_MIRE:
+            base = (Color){ 137, 188, 199, 255 }; break;
+        case PLANET_BIOME_MAGMA_MIRE:
+            base = (Color){ 155, 55, 34, 255 }; break;
+        case PLANET_BIOME_CRATER_BOG:
+            base = (Color){ 86, 108, 89, 255 }; break;
         case PLANET_BIOME_PLAINS:
         default:
             base = (Color){ 92, 136, 80, 255 }; break;
@@ -152,6 +162,7 @@ Color HomeWorldMapTerrainColor(HomeWorldMapTerrainCell cell)
         case BIOME_DESERT: base = (Color){ 184, 156, 88, 255 }; break;
         case BIOME_SNOW: base = (Color){ 202, 216, 218, 255 }; break;
         case BIOME_MOUNTAIN: base = (Color){ 118, 116, 108, 255 }; break;
+        case BIOME_SWAMP: base = (Color){ 52, 96, 69, 255 }; break;
         case BIOME_PLAINS:
         default: base = (Color){ 89, 143, 76, 255 }; break;
         }
@@ -179,6 +190,7 @@ const char *HomeWorldMapBiomeName(Biome biome, bool water)
     case BIOME_DESERT: return "Desert";
     case BIOME_SNOW: return "Snow";
     case BIOME_MOUNTAIN: return "Mountain";
+    case BIOME_SWAMP: return "Swamp";
     case BIOME_PLAINS:
     default: return "Plains";
     }

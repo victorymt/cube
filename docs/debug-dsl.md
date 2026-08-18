@@ -43,7 +43,7 @@ Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,marker,teleport,look,input,ship,view,fluid,water,evolution statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,evolution statements=let,assert,wait,repeat,exit
 ```
 
 ## Process and stdin lifetime
@@ -201,6 +201,9 @@ screenshot
 save
 load
 map
+map layer liquids on|off
+surface debug home
+surface debug planet temperate|desert|ice|lava|crater SEED
 water debug
 water debug on|off
 water debug through
@@ -214,7 +217,11 @@ view first|third
 `DEBUG_CONTROL screenshot scheduled`; after the frame capture it reports
 `DEBUG_CONTROL capture ok png=PATH report=PATH`. The report is a key/value text
 file next to the PNG. `map` toggles the surface map and requires an active
-surface world. `save` and `load` require the playing screen.
+surface world. `map layer liquids` controls the map's water-cave/lava-cavity
+overlay. `surface debug home` switches directly to Homeworld; the planet form
+creates a deterministic solid surface for the requested style and seed. These
+surface commands use normal chunk teardown and surface activation, and require
+the playing screen. `save` and `load` require the playing screen.
 
 ### Streaming
 

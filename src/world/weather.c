@@ -185,6 +185,12 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
         input.cloudPotential = 0.50f;
         input.windStrength = 0.72f;
         break;
+    case BIOME_SWAMP:
+        input.temperatureK = 286.0f;
+        input.moisture = 0.94f;
+        input.cloudPotential = 0.70f;
+        input.windStrength = 0.24f;
+        break;
     case BIOME_PLAINS:
     default:
         break;

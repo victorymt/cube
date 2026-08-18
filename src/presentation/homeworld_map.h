@@ -6,6 +6,8 @@
 void HomeWorldMapOpen(Vector3 playerPosition, float daylight);
 void HomeWorldMapClose(void);
 bool HomeWorldMapIsOpen(void);
+void HomeWorldMapSetSubsurfaceLiquidsVisible(bool visible);
+bool HomeWorldMapSubsurfaceLiquidsVisible(void);
 void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
                         float daylight);
 void HomeWorldMapDraw(void);

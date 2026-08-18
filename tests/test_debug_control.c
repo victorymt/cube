@@ -152,6 +152,37 @@ static void TestCommandStream(void)
     close(outputPipe[0]);
 }
 
+static void TestTerrainMapCommands(void)
+{
+    DebugControl control;
+    DebugControlInit(&control, true);
+    assert(DebugControlParseText(&control, "map layer liquids on") ==
+           DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS);
+    assert(control.mapLiquidsVisible);
+    assert(DebugControlParseText(&control, "map layer liquids off") ==
+           DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS);
+    assert(!control.mapLiquidsVisible);
+    assert(DebugControlParseText(&control, "surface debug home") ==
+           DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME);
+
+    const char *styles[] = { "temperate", "desert", "ice", "lava", "crater" };
+    for (int style = 0; style < 5; style++) {
+        char command[80];
+        snprintf(command, sizeof(command), "surface debug planet %s %u",
+                 styles[style], 100u + (unsigned)style);
+        assert(DebugControlParseText(&control, command) ==
+               DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET);
+        assert(control.surfaceDebugStyle == (DebugControlSurfaceStyle)style);
+        assert(control.surfaceDebugSeed == 100u + (unsigned)style);
+    }
+    assert(DebugControlParseText(
+               &control, "surface debug planet gas 1") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "surface debug planet lava") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+}
+
 static void TestEvolutionCommands(void)
 {
     int inputPipe[2];
@@ -277,6 +308,7 @@ int main(void)
     TestDisabledControl();
     TestLongReply();
     TestCommandStream();
+    TestTerrainMapCommands();
     TestFinalCommandWithoutNewline();
     TestInvalidParameterizedCommands();
     TestEvolutionCommands();

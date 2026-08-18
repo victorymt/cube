@@ -163,3 +163,60 @@ bool GameWorldTransitionTryLaunch(Player *player)
     }
     return true;
 }
+
+bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
+                                     SolarBodyStyle style, uint32_t seed)
+{
+    if (!player || (!homeWorld &&
+        (style == SOLAR_STYLE_SUN || style == SOLAR_STYLE_GAS))) {
+        return false;
+    }
+
+    GameWorldTransitionUnloadSurfaceData();
+    if (PlanetWorldIsActive()) PlanetWorldLeaveSurface();
+    if (HomeWorldSurfaceIsActive()) HomeWorldLeaveSurface(player->position);
+
+    if (homeWorld) {
+        if (!HomeWorldEnterSurface()) return false;
+    } else {
+        PlanetProfile profile = PlanetProfileGenerateLegacy(seed, style,
+                                                             600.0f);
+        SpaceBodyInfo body = {
+            .center = Vector3Zero(),
+            .spaceProxyRadius = profile.spaceProxyRadius,
+            .worldSeed = seed,
+            .index = 0,
+            .style = style,
+            .profile = profile
+        };
+        snprintf(body.name, sizeof(body.name), "Debug %s",
+                 style == SOLAR_STYLE_TEMPERATE ? "Temperate" :
+                 style == SOLAR_STYLE_DESERT ? "Desert" :
+                 style == SOLAR_STYLE_ICE ? "Ice" :
+                 style == SOLAR_STYLE_LAVA ? "Lava" : "Crater");
+        Vector3 approach = { profile.spaceProxyRadius, 0.0f, 0.0f };
+        if (!PlanetWorldEnterSurface(&body, approach)) return false;
+    }
+
+    GameWorldTransitionFinishSurfaceActivation();
+    int landingX = 0;
+    int landingZ = 0;
+    int groundY = 0;
+    if (!FindSafeSurfaceLanding(landingX, landingZ, 128, 2,
+                                &landingX, &landingZ, &groundY)) {
+        groundY = WorldSurfaceHeightAt(landingX, landingZ);
+    }
+    player->position = (Vector3){
+        (float)landingX + 0.5f,
+        (float)groundY + 3.0f,
+        (float)landingZ + 0.5f
+    };
+    player->velocity = Vector3Zero();
+    player->yaw = 0.0f;
+    player->pitch = -0.25f;
+    player->floating = false;
+    player->onGround = false;
+    UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
+    DrainChunkGen();
+    return true;
+}

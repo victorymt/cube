@@ -51,6 +51,11 @@ static float EcologyBiomeSupport(PlanetBiome biome,
     case PLANET_BIOME_ICE_SHEET:          support = 0.10f; break;
     case PLANET_BIOME_IMPACT_BASIN:       support = 0.22f; break;
     case PLANET_BIOME_CRATER_HIGHLANDS:   support = 0.14f; break;
+    case PLANET_BIOME_TEMPERATE_MARSH:    support = 0.94f; break;
+    case PLANET_BIOME_SALT_MARSH:         support = 0.46f; break;
+    case PLANET_BIOME_FROZEN_MIRE:        support = 0.32f; break;
+    case PLANET_BIOME_MAGMA_MIRE:         support = 0.24f; break;
+    case PLANET_BIOME_CRATER_BOG:         support = 0.38f; break;
     case PLANET_BIOME_OCEAN:
     case PLANET_BIOME_LAVA_SEA:
     case PLANET_BIOME_STORM_BANDS:
@@ -67,12 +72,18 @@ static float EcologyBiomeSupport(PlanetBiome biome,
         if (biome == PLANET_BIOME_CRATER_HIGHLANDS) support = 0.52f;
         if (biome == PLANET_BIOME_BASALT_PLAINS) support = 0.55f;
         if (biome == PLANET_BIOME_VOLCANIC_RIDGE) support = 0.68f;
+        if (biome == PLANET_BIOME_FROZEN_MIRE) support = 0.78f;
+        if (biome == PLANET_BIOME_SALT_MARSH) support = 0.62f;
+        if (biome == PLANET_BIOME_CRATER_BOG) support = 0.68f;
     } else if (profile->flora == PLANET_FLORA_THERMAL_VENT) {
         if (biome == PLANET_BIOME_VOLCANIC_RIDGE) support = 0.88f;
         if (biome == PLANET_BIOME_BASALT_PLAINS) support = 0.68f;
+        if (biome == PLANET_BIOME_MAGMA_MIRE) support = 0.96f;
     } else if (profile->flora == PLANET_FLORA_SPORE) {
         if (biome == PLANET_BIOME_IMPACT_BASIN) support = 0.42f;
         if (biome == PLANET_BIOME_CRATER_HIGHLANDS) support = 0.34f;
+        if (biome == PLANET_BIOME_TEMPERATE_MARSH) support = 0.90f;
+        if (biome == PLANET_BIOME_CRATER_BOG) support = 0.72f;
     }
     return support;
 }
@@ -117,6 +128,12 @@ static PlanetLocalEnvironment EcologyHomeEnvironmentAt(
         moisture = 0.42f;
         biomeSupport = 0.56f;
         meanPrecipitation = 0.46f;
+        break;
+    case BIOME_SWAMP:
+        temperature = 286.0f;
+        moisture = 0.94f;
+        biomeSupport = 1.0f;
+        meanPrecipitation = 0.78f;
         break;
     case BIOME_PLAINS:
     default:
@@ -301,6 +318,9 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
     if (surface.biome == PLANET_BIOME_COAST) nearbyWater = 0.62f;
     else if (surface.biome == PLANET_BIOME_OASIS) nearbyWater = 0.86f;
     else if (surface.biome == PLANET_BIOME_OCEAN) nearbyWater = 1.0f;
+    else if (surface.biome == PLANET_BIOME_TEMPERATE_MARSH) nearbyWater = 0.82f;
+    else if (surface.biome == PLANET_BIOME_SALT_MARSH) nearbyWater = 0.54f;
+    else if (surface.biome == PLANET_BIOME_CRATER_BOG) nearbyWater = 0.66f;
     environment.liquidWaterAccess = EcologyClamp(
         environment.soilMoisture * 0.58f +
         environment.meanPrecipitation * 0.22f + nearbyWater) * liquidThermal;
