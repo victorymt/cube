@@ -186,14 +186,37 @@ grep -q '^bool PlanetWorldLandingTarget(' src/space/planet_world.c ||
 
 grep -q '^include mk/modules.mk' Makefile ||
     fail "Makefile must source the module manifest"
+grep -q '^include mk/tests.mk' Makefile ||
+    fail "Makefile must source the declarative test manifest"
+grep -q '^define define_test' mk/tests.mk ||
+    fail "test manifest must provide the shared declaration template"
+manifest_test_count=$(grep -c '^\$(eval \$(call define_test,' mk/tests.mk)
+test_source_count=$(find tests -maxdepth 1 -name 'test_*.c' -print | wc -l)
+[ "$manifest_test_count" -eq "$test_source_count" ] ||
+    fail "test manifest count does not match test source count"
+test_target_count=$(make -s -pn | awk '/^TEST_TARGETS :=/ { print NF - 2 }')
+[ "$test_target_count" -eq "$test_source_count" ] ||
+    fail "TEST_TARGETS count does not match test source count"
 grep -q -- '-MMD -MP' Makefile ||
     fail "production compilation must emit header dependencies"
 grep -q '$(OBJ_DIR)/%.o: src/%.c' Makefile ||
     fail "production sources must compile to one object per source"
 grep -q '^TEST_HEADERS :=' Makefile ||
     fail "test builds must track project headers"
-grep -q '\$(TEST_TARGETS) \$(CHUNK_BENCHMARK_TARGET): \$(TEST_HEADERS)' Makefile ||
+grep -Fq '$(TEST_BUILD_DIR)/%: tests/%.c' Makefile ||
+    fail "test builds must use the shared pattern rule"
+grep -Fq '$(TEST_HEADERS)' Makefile ||
     fail "test binaries must rebuild after transitive header changes"
+grep -q '^BUILD_CONFIG := .*\.build-config' Makefile ||
+    fail "build must define a configuration fingerprint"
+grep -q '^\$(BUILD_CONFIG): FORCE' Makefile ||
+    fail "build configuration fingerprint must be content-stable"
+if grep -nE '^\s*\$\(CC\).*tests/test_' Makefile; then
+    fail "test binaries must not use per-target hand-written recipes"
+fi
+if grep -nF '$(AR) rcs $@ $^' Makefile; then
+    fail "module archives must not package non-object build metadata"
+fi
 grep -q '^PUBLIC_HEADERS :=' Makefile ||
     fail "build must identify independently compilable public headers"
 grep -q '^test: test-headers test-modules ' Makefile ||
