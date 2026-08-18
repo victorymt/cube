@@ -354,9 +354,9 @@ bool BuildSurfaceWaterMeshDataWithSnapshot(
     if (!blocks || height <= 0 || !faces || !outMesh) return false;
     Mesh transparent = { 0 };
     Mesh water = { 0 };
-    bool hasTransparent = BuildMeshDataFiltered(
+    bool hasTransparent = BuildMeshDataFilteredWithSnapshot(
         blocks, height, layerY, chunkX, chunkZ, true, false, false, true,
-        faces, nearbyTorchIndices, nearbyTorchCount, &transparent);
+        faces, nearbyTorchIndices, nearbyTorchCount, boundary, &transparent);
     bool hasWater = BuildSurfaceWaterVolumeMeshData(
         blocks, waterVolumes, boundary, height, layerY, chunkX, chunkZ,
         nearbyTorchIndices, nearbyTorchCount, &water);
