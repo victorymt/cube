@@ -201,14 +201,16 @@ screenshot
 save
 load
 map
-water debug             # toggle
+water debug
 water debug on|off
-water debug through     # toggle
+water debug through
 water debug through on|off
 view first|third
 ```
 
-`start` is valid on the start screen. `screenshot` first reports
+`water debug` and `water debug through` toggle their current setting when the
+`on`/`off` argument is omitted. `start` is valid on the start screen.
+`screenshot` first reports
 `DEBUG_CONTROL screenshot scheduled`; after the frame capture it reports
 `DEBUG_CONTROL capture ok png=PATH report=PATH`. The report is a key/value text
 file next to the PNG. `map` toggles the surface map and requires an active
@@ -334,7 +336,7 @@ to stderr.
 ## Complete example
 
 The following script starts from the menu, waits for the world and local stream
-to settle, checks water state, enables water geometry bounds, captures a
+to settle, checks streaming state, enables water geometry bounds, captures a
 screenshot, and exits successfully. Save it as `/tmp/water-check.dsl`:
 
 ```sh
@@ -344,7 +346,7 @@ let origin = [15, 110, -252]
 assert game.screen == "start"
 assert settings.autosave == false
 start
-wait until game.screen == "playing" timeout 120
+wait until game.screen == "playing" timeout 7200
 teleport ${origin.x} ${origin.y} ${origin.z} 3.141593 -0.25
 stream wait 300
 wait until stream.surface_ready timeout 600
