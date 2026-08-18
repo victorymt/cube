@@ -53,6 +53,11 @@ typedef struct EnvironmentPresentationState {
     int cloudLightSteps;
     float precipitation;
     float snowFraction;
+    float hailFraction;
+    float dust;
+    float frost;
+    float rainbow;
+    float aurora;
     float lightningFlash;
     float starVisibility;
     float audioRain;

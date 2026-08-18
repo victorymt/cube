@@ -6,6 +6,7 @@
 #include "ecology/ecology.h"
 #include "ecology/evolution.h"
 #include "ecology/fauna_behavior.h"
+#include "world/weather_model.h"
 
 #include <stdio.h>
 
@@ -141,6 +142,8 @@ typedef struct EntityEvolutionDebugInfo {
 
 void EntitiesInit(void);
 void EntitiesUpdate(float dt, const Player *player, float daylight);
+void EntitiesApplyWeatherHazards(float dt, WeatherFieldSample weather,
+                                 float daylight);
 void EntitiesClear(void);
 const Entity *EntitiesView(void);
 float EntityEvolutionGrowthScale(const Entity *entity);

@@ -24,6 +24,7 @@
 #include "world/world.h"
 #include "world/world_environment.h"
 #include "world/world_persistence.h"
+#include "world/weather_impact.h"
 
 #include "raymath.h"
 
@@ -155,7 +156,8 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
     ok = ok && SpaceSaveState(file) && EntitiesSaveState(file) &&
          PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
          ShipLocatorSaveState(file) &&
-         WorldPersistenceSaveExtension(file) && MapMarkersSaveState(file) &&
+         WorldPersistenceSaveExtension(file) && WeatherImpactSaveState(file) &&
+         MapMarkersSaveState(file) &&
          GameSaveWriteSphericalTrailer(file, player) && !ferror(file);
     return ok;
 }
@@ -331,6 +333,13 @@ static const char *GameLoadCurrentExtendedPayload(
     }
     if (!WorldPersistenceLoadExtension(file)) {
         return "Load failed: fluid state is corrupted.";
+    }
+    if (format == WORLD_SAVE_FORMAT_V20) {
+        if (!WeatherImpactLoadState(file)) {
+            return "Load failed: weather impact state is corrupted.";
+        }
+    } else {
+        WeatherImpactReset();
     }
     if (WorldSaveFormatHasMapMarkers(format) &&
         !MapMarkersReadState(file, &data->mapMarkers)) {

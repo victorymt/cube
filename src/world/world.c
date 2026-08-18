@@ -28,6 +28,7 @@ static uint64_t blockEditRevision = 1u;
 static uint32_t worldSeed = DEFAULT_WORLD_SEED;
 static TerrainMode worldTerrainMode = TERRAIN_VARIED;
 static WorldExtensionHooks worldExtensionHooks = { 0 };
+static WorldMutationSource worldMutationSource = WORLD_MUTATION_PLAYER;
 
 void WorldInstallExtensionHooks(const WorldExtensionHooks *hooks)
 {
@@ -233,6 +234,20 @@ Color BlockBaseColor(BlockType type)
 {
     if (IsColorBlock(type)) return ColorPalette256(ColorBlockIndex(type));
     return BlockCatalogGet(type)->baseColor;
+}
+
+BlockMaterialResponse BlockMaterialResponseFor(BlockType type)
+{
+    if (IsColorBlock(type)) {
+        return (BlockMaterialResponse){ 0.82f, 0.78f, 0.08f, 0.04f };
+    }
+    const BlockCatalogEntry *entry = BlockCatalogGet(type);
+    return (BlockMaterialResponse){
+        entry->windResistance,
+        entry->impactResistance,
+        entry->flammability,
+        entry->waterErodibility
+    };
 }
 
 unsigned int HashBlockCoord(uint32_t dimension, int x, int y, int z)
@@ -818,7 +833,27 @@ static bool SetBlockNoUndoReplay(
 
 bool SetBlockNoUndo(int x, int y, int z, BlockType type)
 {
-    return SetBlockNoUndoReplay(x, y, z, type, NULL, false);
+    return SetBlockNoUndoFromSource(
+        x, y, z, type, WORLD_MUTATION_SYSTEM);
+}
+
+bool SetBlockNoUndoFromSource(int x, int y, int z, BlockType type,
+                              WorldMutationSource source)
+{
+    if (source < WORLD_MUTATION_PLAYER ||
+        source > WORLD_MUTATION_ENVIRONMENT) {
+        return false;
+    }
+    WorldMutationSource previousSource = worldMutationSource;
+    worldMutationSource = source;
+    bool changed = SetBlockNoUndoReplay(x, y, z, type, NULL, false);
+    worldMutationSource = previousSource;
+    return changed;
+}
+
+WorldMutationSource WorldCurrentMutationSource(void)
+{
+    return worldMutationSource;
 }
 
 bool SetBlock(int x, int y, int z, BlockType type)

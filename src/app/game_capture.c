@@ -18,6 +18,7 @@
 #include "world/nether.h"
 #include "world/terrain.h"
 #include "world/weather.h"
+#include "world/weather_impact.h"
 #include "world/world.h"
 
 #include "raylib.h"
@@ -63,6 +64,13 @@ void GameCaptureScreenshot(GameRuntime *game,
             (int)floorf(game->player.position.z), frame->daylight, &screenshotRegion);
         FluidSample screenshotFluid = FluidSampleAt(game->player.position);
         FluidStats screenshotFluidStats = FluidGetStats();
+        WeatherFieldSample screenshotWeather = WeatherCurrentSample();
+        LocalClimateState screenshotClimate = { 0 };
+        bool haveScreenshotClimate = WeatherLocalClimateAtWorldTime(
+            (int)floorf(game->player.position.x),
+            (int)floorf(game->player.position.z),
+            frame->weatherSimulationTime, &screenshotClimate);
+        WeatherImpactStats screenshotWeatherImpacts = WeatherImpactGetStats();
         int screenshotMissingSurfaceChunks =
             PlayerMissingSurfaceChunkCount(game->player.position);
         ScreenshotDebugInfo debugInfo = {
@@ -94,6 +102,11 @@ void GameCaptureScreenshot(GameRuntime *game,
             },
             .weather = {
                 .name = WeatherName(),
+                .climate = haveScreenshotClimate
+                    ? ClimateRegimeName(screenshotClimate.regime)
+                    : "unavailable",
+                .phenomenon = WeatherPhenomenonName(
+                    screenshotWeather.dominantPhenomenon),
                 .simulationTime = frame->weatherSimulationTime,
                 .active = frame->weatherVisual.active,
                 .atmosphereDensity = frame->weatherVisual.atmosphereDensity,
@@ -107,7 +120,33 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .stormDarkening = frame->weatherVisual.stormDarkening,
                 .windDrift = frame->weatherVisual.windDrift,
                 .windAngle = frame->weatherVisual.windAngle,
-                .snowFraction = frame->weatherVisual.snowFraction
+                .snowFraction = frame->weatherVisual.snowFraction,
+                .temperatureK = screenshotWeather.temperatureK,
+                .temperatureAnomalyK = screenshotWeather.temperatureAnomalyK,
+                .pressureAtm = screenshotWeather.pressureAtm,
+                .relativeHumidity = screenshotWeather.relativeHumidity,
+                .dewPointK = screenshotWeather.dewPointK,
+                .wetBulbK = screenshotWeather.wetBulbK,
+                .precipitation = screenshotWeather.precipitation,
+                .drizzle = screenshotWeather.drizzle,
+                .rain = screenshotWeather.rain,
+                .snow = screenshotWeather.snow,
+                .sleet = screenshotWeather.sleet,
+                .freezingRain = screenshotWeather.freezingRain,
+                .hail = screenshotWeather.hail,
+                .lightning = screenshotWeather.lightning,
+                .frost = screenshotWeather.frost,
+                .dust = screenshotWeather.dust,
+                .wind = screenshotWeather.wind,
+                .gust = screenshotWeather.gust,
+                .rainbow = screenshotWeather.rainbow,
+                .aurora = screenshotWeather.aurora,
+                .forcedFrames = WeatherForcedFramesRemaining(),
+                .surfaceCount = screenshotWeatherImpacts.surfaceCount,
+                .activeFires = screenshotWeatherImpacts.activeFires,
+                .blockDamageEvents =
+                    screenshotWeatherImpacts.blockDamageEvents,
+                .damageEnabled = WeatherImpactEnabled()
             },
             .environment = {
                 .altitude = frame->environmentSample.altitude,

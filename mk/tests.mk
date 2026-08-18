@@ -103,6 +103,7 @@ ECOLOGY_SYSTEM_SOURCES := \
 	src/ecology/evolution.c \
 	src/world/weather.c \
 	src/world/weather_model.c \
+	src/world/local_climate.c \
 	$(GAME_EFFECTS_SRC)
 $(eval $(call define_test,ECOLOGY_SYSTEM_TEST_TARGET,test_ecology_system,$(ECOLOGY_SYSTEM_SOURCES),-Itests,-DCHUNKS_TESTING -DECOLOGY_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,ECOLOGY_PROPERTIES_TEST_TARGET,test_ecology_properties,$(ECOLOGY_SYSTEM_SOURCES),-Itests,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
@@ -114,8 +115,11 @@ $(eval $(call define_test,FAUNA_BEHAVIOR_TEST_TARGET,test_fauna_behavior,src/eco
 $(eval $(call define_test,EVOLUTION_TEST_TARGET,test_evolution,src/ecology/evolution.c src/ecology/creature_visual.c,,,, -lm,,))
 $(eval $(call define_test,EVOLUTION_CATALOG_TEST_TARGET,test_evolution_catalog,src/ecology/evolution_catalog.c src/ecology/evolution.c,,,, -lm,,))
 $(eval $(call define_test,FLUID_TEST_TARGET,test_fluid,src/world/fluid.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,BLOCK_MATERIAL_TEST_TARGET,test_block_material,,,,,,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,LOCAL_CLIMATE_TEST_TARGET,test_local_climate,src/world/local_climate.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_MODEL_TEST_TARGET,test_weather_model,src/world/weather_model.c,,,, -lm,,))
-$(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/world/weather.c src/world/weather_model.c src/presentation/weather_visual.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/presentation/weather_visual.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_VISUAL_TEST_TARGET,test_weather_visual,src/presentation/weather_visual.c,,,, -lm,,))
 $(eval $(call define_test,HOMEWORLD_MAP_MODEL_TEST_TARGET,test_homeworld_map_model,src/presentation/homeworld_map_model.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,MAP_MARKERS_TEST_TARGET,test_map_markers,src/gameplay/map_markers.c,,,, -lm,$(RAYLIB_CFLAGS),))
@@ -187,6 +191,7 @@ ENTITY_ECOLOGY_SOURCES := \
 	src/ecology/ecology_model.c \
 	src/world/weather.c \
 	src/world/weather_model.c \
+	src/world/local_climate.c \
 	$(GAME_EFFECTS_SRC)
 $(eval $(call define_test,ENTITY_ECOLOGY_TEST_TARGET,test_entity_ecology,$(ENTITY_ECOLOGY_SOURCES),-Itests,-DENTITY_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
 

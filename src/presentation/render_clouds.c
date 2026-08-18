@@ -448,7 +448,11 @@ void DrawWeatherOverlay(const Camera3D *camera,
     if (!camera || !weatherVisual || !weatherVisual->active) return;
     float fog = weatherVisual->fogDensity;
     float veil = weatherVisual->precipitationVeil;
-    if (fog <= 0.005f && veil <= 0.005f) return;
+    float dust = weatherVisual->dustDensity;
+    float rainbow = weatherVisual->rainbowStrength;
+    float aurora = weatherVisual->auroraStrength;
+    if (fog <= 0.005f && veil <= 0.005f && dust <= 0.005f &&
+        rainbow <= 0.005f && aurora <= 0.005f) return;
 
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
@@ -474,8 +478,11 @@ void DrawWeatherOverlay(const Camera3D *camera,
                               weatherVisual->daylight);
     Color fogColor = ColorLerp(rainFog, snowFog,
                                weatherVisual->snowFraction);
-    float topAlpha = Clamp(fog * 0.12f + veil * 0.04f, 0.0f, 0.14f);
-    float bottomAlpha = Clamp(fog * 0.34f + veil * 0.10f, 0.0f, 0.38f);
+    fogColor = ColorLerp(fogColor, (Color){ 154, 126, 86, 255 }, dust * 0.72f);
+    float topAlpha = Clamp(fog * 0.12f + veil * 0.04f + dust * 0.08f,
+                           0.0f, 0.18f);
+    float bottomAlpha = Clamp(fog * 0.34f + veil * 0.10f + dust * 0.28f,
+                              0.0f, 0.42f);
     if (fogTop < screenHeight) {
         DrawRectangleGradientV(0, fogTop, screenWidth, screenHeight - fogTop,
                                Fade(fogColor, topAlpha),
@@ -484,6 +491,40 @@ void DrawWeatherOverlay(const Camera3D *camera,
     if (veil > 0.01f) {
         DrawRectangle(0, 0, screenWidth, screenHeight,
                       Fade(fogColor, Clamp(veil * 0.10f, 0.0f, 0.11f)));
+    }
+    if (aurora > 0.01f) {
+        int auroraHeight = (int)((float)screenHeight * 0.46f);
+        DrawRectangleGradientV(
+            0, 0, screenWidth, auroraHeight,
+            Fade((Color){ 38, 210, 146, 255 }, Clamp(aurora * 0.16f, 0.0f, 0.18f)),
+            Fade((Color){ 74, 82, 176, 255 }, 0.0f));
+        for (int band = 0; band < 5; band++) {
+            float x = ((float)band + 0.5f) * (float)screenWidth / 5.0f;
+            float bend = sinf((float)band * 1.7f + weatherVisual->windAngle) *
+                         (float)screenWidth * 0.06f;
+            DrawLineEx((Vector2){ x, 0.0f },
+                       (Vector2){ x + bend, (float)auroraHeight * 0.72f },
+                       10.0f + aurora * 18.0f,
+                       Fade((Color){ 112, 244, 194, 255 },
+                            Clamp(aurora * 0.11f, 0.0f, 0.13f)));
+        }
+    }
+    if (rainbow > 0.01f) {
+        static const Color colors[] = {
+            { 224, 66, 64, 255 }, { 234, 146, 54, 255 },
+            { 232, 214, 76, 255 }, { 76, 190, 108, 255 },
+            { 66, 132, 218, 255 }, { 142, 82, 190, 255 }
+        };
+        Vector2 center = {
+            (float)screenWidth * 0.5f, (float)screenHeight * 1.04f
+        };
+        float baseRadius = (float)screenHeight * 0.62f;
+        for (unsigned band = 0; band < sizeof(colors) / sizeof(colors[0]);
+             band++) {
+            float inner = baseRadius + (float)band * 4.0f;
+            DrawRing(center, inner, inner + 3.5f, 205.0f, 335.0f, 96,
+                     Fade(colors[band], Clamp(rainbow * 0.34f, 0.0f, 0.36f)));
+        }
     }
 }
 

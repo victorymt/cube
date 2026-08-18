@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define GAME_SETTINGS_VERSION 1
+#define GAME_SETTINGS_VERSION 2
 
 static float SettingsUnit(float value, float fallback)
 {
@@ -25,7 +25,8 @@ GameSettings GameSettingsDefaults(void)
         .masterVolume = 1.0f,
         .ambientVolume = 0.70f,
         .musicVolume = 0.22f,
-        .musicEnabled = true
+        .musicEnabled = true,
+        .weatherDamageEnabled = true
     };
 }
 
@@ -70,7 +71,7 @@ bool GameSettingsLoadPath(const char *path, GameSettings *settings)
     }
     int version = 0;
     if (sscanf(line, "VOXELCRAFT_SETTINGS %d", &version) != 1 ||
-        version != GAME_SETTINGS_VERSION) {
+        version < 1 || version > GAME_SETTINGS_VERSION) {
         fclose(file);
         return false;
     }
@@ -101,6 +102,10 @@ bool GameSettingsLoadPath(const char *path, GameSettings *settings)
             if (sscanf(value, "%d", &integer) != 1 ||
                 (integer != 0 && integer != 1)) valid = false;
             else loaded.musicEnabled = integer != 0;
+        } else if (strcmp(key, "weather_damage_enabled") == 0) {
+            if (sscanf(value, "%d", &integer) != 1 ||
+                (integer != 0 && integer != 1)) valid = false;
+            else loaded.weatherDamageEnabled = integer != 0;
         }
     }
     if (ferror(file)) valid = false;
@@ -119,10 +124,12 @@ static bool WriteSettings(FILE *file, void *context)
                    "master_volume=%.3f\n"
                    "ambient_volume=%.3f\n"
                    "music_volume=%.3f\n"
-                   "music_enabled=%d\n",
+                   "music_enabled=%d\n"
+                   "weather_damage_enabled=%d\n",
                    GAME_SETTINGS_VERSION, (int)settings->graphicsQuality,
                    settings->masterVolume, settings->ambientVolume,
-                   settings->musicVolume, settings->musicEnabled ? 1 : 0) > 0;
+                   settings->musicVolume, settings->musicEnabled ? 1 : 0,
+                   settings->weatherDamageEnabled ? 1 : 0) > 0;
 }
 
 bool GameSettingsSavePath(const char *path, const GameSettings *settings)

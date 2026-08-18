@@ -13,6 +13,7 @@ static void TestDefaultsAndQualityProfiles(void)
     assert(settings.ambientVolume == 0.70f);
     assert(settings.musicVolume == 0.22f);
     assert(settings.musicEnabled);
+    assert(settings.weatherDamageEnabled);
     assert(GraphicsQualityProfileFor(GRAPHICS_QUALITY_LOW).shadowMapSize == 0);
     assert(GraphicsQualityProfileFor(GRAPHICS_QUALITY_MEDIUM).shadowUpdateInterval == 2);
     assert(GraphicsQualityProfileFor(GRAPHICS_QUALITY_HIGH).shadowMapSize >
@@ -37,6 +38,7 @@ static void TestRoundTripAndCorruption(void)
     written.ambientVolume = 0.41f;
     written.musicVolume = 0.17f;
     written.musicEnabled = false;
+    written.weatherDamageEnabled = false;
     assert(GameSettingsSavePath(path, &written));
     GameSettings loaded;
     assert(GameSettingsLoadPath(path, &loaded));
@@ -45,6 +47,7 @@ static void TestRoundTripAndCorruption(void)
     assert(fabsf(loaded.ambientVolume - 0.41f) < 0.001f);
     assert(fabsf(loaded.musicVolume - 0.17f) < 0.001f);
     assert(!loaded.musicEnabled);
+    assert(!loaded.weatherDamageEnabled);
 
     FILE *file = fopen(path, "wb");
     assert(file);
@@ -54,6 +57,26 @@ static void TestRoundTripAndCorruption(void)
     assert(loaded.graphicsQuality == GRAPHICS_QUALITY_MEDIUM);
     unlink(path);
     unlink("/tmp/voxelcraft_settings_test.cfg.bak");
+}
+
+static void TestVersionOneMigration(void)
+{
+    const char *path = "/tmp/voxelcraft_settings_v1_test.cfg";
+    FILE *file = fopen(path, "wb");
+    assert(file);
+    fputs("VOXELCRAFT_SETTINGS 1\n"
+          "graphics_quality=0\n"
+          "master_volume=0.5\n"
+          "ambient_volume=0.4\n"
+          "music_volume=0.3\n"
+          "music_enabled=0\n", file);
+    fclose(file);
+    GameSettings loaded;
+    assert(GameSettingsLoadPath(path, &loaded));
+    assert(loaded.graphicsQuality == GRAPHICS_QUALITY_LOW);
+    assert(!loaded.musicEnabled);
+    assert(loaded.weatherDamageEnabled);
+    unlink(path);
 }
 
 static void TestSanitize(void)
@@ -74,6 +97,7 @@ int main(void)
 {
     TestDefaultsAndQualityProfiles();
     TestRoundTripAndCorruption();
+    TestVersionOneMigration();
     TestSanitize();
     puts("game settings tests passed");
     return 0;

@@ -78,6 +78,8 @@ typedef struct GameRuntime {
   int selectedIndex;
   int biologyAtlasSlot;
   uint32_t evolutionLockedOrganismId;
+  int screenWidth;
+  int screenHeight;
 
   bool perfMode;
   bool debugControlEnabled;
@@ -91,6 +93,7 @@ typedef struct GameRuntime {
   bool debugStreamWaitFailed;
   bool debugTraceEnabled;
   bool debugTracePathInvalid;
+  bool debugResolutionInvalid;
   bool showHelp;
   bool showDebug;
   bool scannerActive;

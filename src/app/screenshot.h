@@ -52,6 +52,8 @@ typedef struct ScreenshotCameraDebugInfo {
 
 typedef struct ScreenshotWeatherDebugInfo {
     const char *name;
+    const char *climate;
+    const char *phenomenon;
     double simulationTime;
     bool active;
     float atmosphereDensity;
@@ -66,6 +68,31 @@ typedef struct ScreenshotWeatherDebugInfo {
     float windDrift;
     float windAngle;
     float snowFraction;
+    float temperatureK;
+    float temperatureAnomalyK;
+    float pressureAtm;
+    float relativeHumidity;
+    float dewPointK;
+    float wetBulbK;
+    float precipitation;
+    float drizzle;
+    float rain;
+    float snow;
+    float sleet;
+    float freezingRain;
+    float hail;
+    float lightning;
+    float frost;
+    float dust;
+    float wind;
+    float gust;
+    float rainbow;
+    float aurora;
+    unsigned forcedFrames;
+    uint32_t surfaceCount;
+    uint32_t activeFires;
+    uint32_t blockDamageEvents;
+    bool damageEnabled;
 } ScreenshotWeatherDebugInfo;
 
 typedef struct ScreenshotEnvironmentDebugInfo {

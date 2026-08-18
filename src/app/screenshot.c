@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=6\n");
+    REPORT_LINE("format.version=7\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -143,6 +143,10 @@ static bool ScreenshotWriteDebugFields(
                 ScreenshotBool(info->camera.insideSolid));
 
     REPORT_LINE("weather.name=%s\n", ScreenshotText(info->weather.name));
+    REPORT_LINE("weather.climate=%s\n",
+                ScreenshotText(info->weather.climate));
+    REPORT_LINE("weather.phenomenon=%s\n",
+                ScreenshotText(info->weather.phenomenon));
     REPORT_LINE("weather.simulation_time=%.6f\n", info->weather.simulationTime);
     REPORT_LINE("weather.active=%s\n", ScreenshotBool(info->weather.active));
     REPORT_LINE("weather.atmosphere_density=%.6f\n",
@@ -159,6 +163,37 @@ static bool ScreenshotWriteDebugFields(
     REPORT_LINE("weather.wind_drift=%.6f\n", info->weather.windDrift);
     REPORT_LINE("weather.wind_angle_radians=%.6f\n", info->weather.windAngle);
     REPORT_LINE("weather.snow_fraction=%.6f\n", info->weather.snowFraction);
+    REPORT_LINE("weather.temperature_k=%.6f\n", info->weather.temperatureK);
+    REPORT_LINE("weather.temperature_anomaly_k=%.6f\n",
+                info->weather.temperatureAnomalyK);
+    REPORT_LINE("weather.pressure_atm=%.6f\n", info->weather.pressureAtm);
+    REPORT_LINE("weather.relative_humidity=%.6f\n",
+                info->weather.relativeHumidity);
+    REPORT_LINE("weather.dew_point_k=%.6f\n", info->weather.dewPointK);
+    REPORT_LINE("weather.wet_bulb_k=%.6f\n", info->weather.wetBulbK);
+    REPORT_LINE("weather.precipitation=%.6f\n", info->weather.precipitation);
+    REPORT_LINE("weather.drizzle=%.6f\n", info->weather.drizzle);
+    REPORT_LINE("weather.rain=%.6f\n", info->weather.rain);
+    REPORT_LINE("weather.snow=%.6f\n", info->weather.snow);
+    REPORT_LINE("weather.sleet=%.6f\n", info->weather.sleet);
+    REPORT_LINE("weather.freezing_rain=%.6f\n", info->weather.freezingRain);
+    REPORT_LINE("weather.hail=%.6f\n", info->weather.hail);
+    REPORT_LINE("weather.lightning=%.6f\n", info->weather.lightning);
+    REPORT_LINE("weather.frost=%.6f\n", info->weather.frost);
+    REPORT_LINE("weather.dust=%.6f\n", info->weather.dust);
+    REPORT_LINE("weather.wind=%.6f\n", info->weather.wind);
+    REPORT_LINE("weather.gust=%.6f\n", info->weather.gust);
+    REPORT_LINE("weather.rainbow=%.6f\n", info->weather.rainbow);
+    REPORT_LINE("weather.aurora=%.6f\n", info->weather.aurora);
+    REPORT_LINE("weather.forced_frames=%u\n", info->weather.forcedFrames);
+    REPORT_LINE("weather.damage_enabled=%s\n",
+                ScreenshotBool(info->weather.damageEnabled));
+    REPORT_LINE("weather.surface_count=%" PRIu32 "\n",
+                info->weather.surfaceCount);
+    REPORT_LINE("weather.active_fires=%" PRIu32 "\n",
+                info->weather.activeFires);
+    REPORT_LINE("weather.block_damage_events=%" PRIu32 "\n",
+                info->weather.blockDamageEvents);
 
     REPORT_LINE("environment.altitude=%.6f\n", info->environment.altitude);
     REPORT_LINE("environment.atmosphere_fade=%.6f\n",

@@ -824,6 +824,88 @@ bool EntityKill(int index, EntityDeathCause cause, float daylight)
     return true;
 }
 
+static void EntityWeatherTolerance(const Entity *entity,
+                                   float *outMinimumK, float *outMaximumK)
+{
+    float minimumK = 263.0f;
+    float maximumK = 315.0f;
+    switch (entity->type) {
+    case ENTITY_SHEEP:
+        minimumK = 255.0f;
+        maximumK = 310.0f;
+        break;
+    case ENTITY_CHICKEN:
+        minimumK = 268.0f;
+        maximumK = 313.0f;
+        break;
+    case ENTITY_PIG:
+        minimumK = 268.0f;
+        maximumK = 315.0f;
+        break;
+    case ENTITY_ALIEN_GRAZER:
+    case ENTITY_ALIEN_HOPPER:
+    case ENTITY_ALIEN_STRIDER:
+        minimumK = 230.0f;
+        maximumK = 345.0f;
+        break;
+    case ENTITY_ZOMBIE:
+    case ENTITY_SKELETON:
+        minimumK = 235.0f;
+        maximumK = 340.0f;
+        break;
+    case ENTITY_COW:
+    default:
+        break;
+    }
+    float speciesShift = entity->evolvable ?
+        ((float)(entity->speciesId % 17u) - 8.0f) * 0.7f : 0.0f;
+    float insulation = fminf(fmaxf(entity->bodyArmor, 0.0f), 1.0f) * 8.0f;
+    *outMinimumK = minimumK + speciesShift - insulation;
+    *outMaximumK = maximumK + speciesShift + insulation * 0.45f;
+}
+
+void EntitiesApplyWeatherHazards(float dt, WeatherFieldSample weather,
+                                 float daylight)
+{
+    if (!isfinite(dt) || dt <= 0.0f || !isfinite(weather.temperatureK) ||
+        !isfinite(weather.gust) || !isfinite(weather.windAngle) ||
+        !isfinite(weather.hail) || !isfinite(weather.lightning)) {
+        return;
+    }
+    float step = fminf(dt, 0.25f);
+    float windX = cosf(weather.windAngle);
+    float windZ = sinf(weather.windAngle);
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        Entity *entity = &entities[index];
+        if (!entity->active || entity->corpse) continue;
+        float minimumK = 0.0f;
+        float maximumK = 0.0f;
+        EntityWeatherTolerance(entity, &minimumK, &maximumK);
+        float coldStress = fmaxf(minimumK - weather.temperatureK, 0.0f) / 24.0f;
+        float heatStress = fmaxf(weather.temperatureK - maximumK, 0.0f) / 20.0f;
+        float hailStress = fmaxf(weather.hail - entity->bodyArmor, 0.0f);
+        float damage = step * (coldStress * 0.010f + heatStress * 0.014f +
+                               hailStress * 0.006f);
+        if (weather.lightning > 0.78f) {
+            uint32_t strike = EntityMix(
+                (uint32_t)floorf(entity->thinkTimer * 10.0f) ^
+                (uint32_t)index * 0x9e3779b9u ^ entity->organismId);
+            float chance = (float)(strike & 0xffffu) / 65535.0f;
+            if (chance < weather.lightning * step * 0.0025f) damage += 1.0f;
+        }
+        entity->health -= damage;
+        if (!entity->aquatic && weather.gust > 0.58f) {
+            float push = (weather.gust - 0.58f) * (1.0f - entity->bodyArmor * 0.5f) *
+                         step * 2.2f;
+            entity->velocity.x += windX * push;
+            entity->velocity.z += windZ * push;
+        }
+        if (entity->health <= 0.0f) {
+            EntityKill(index, ENTITY_DEATH_ENVIRONMENT, daylight);
+        }
+    }
+}
+
 int EntityNearestEvolvable(Vector3 position, float radius)
 {
     if (!isfinite(radius) || radius <= 0.0f) return -1;

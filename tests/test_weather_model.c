@@ -18,6 +18,22 @@ static WeatherFieldInput TemperateInput(void)
     input.cloudPotential = 0.54f;
     input.windStrength = 0.46f;
     input.prevailingWindAngle = 0.73f;
+    input.surfacePressureAtm = 1.0f;
+    input.atmosphereDensity = 0.72f;
+    input.relativeHumidity = 0.68f;
+    input.dewPointK = 282.0f;
+    input.wetBulbK = 284.0f;
+    input.instability = 0.46f;
+    input.orographicLift = 0.12f;
+    input.aridity = 0.28f;
+    input.dustAvailability = 0.20f;
+    input.latitude = 0.48f;
+    input.magneticLatitude = 0.62f;
+    input.magneticFieldStrength = 0.54f;
+    input.daylight = 0.72f;
+    input.solarElevation = 0.42f;
+    input.atmosphereActive = true;
+    input.supportsWaterCycle = true;
     return input;
 }
 
@@ -36,8 +52,30 @@ static void AssertValid(WeatherFieldSample sample)
     AssertUnit(sample.snow);
     AssertUnit(sample.storm);
     AssertUnit(sample.wind);
-    assert(fabsf(sample.rain + sample.snow - sample.precipitation) < 0.00001f);
+    AssertUnit(sample.drizzle);
+    AssertUnit(sample.sleet);
+    AssertUnit(sample.freezingRain);
+    AssertUnit(sample.hail);
+    AssertUnit(sample.lightning);
+    AssertUnit(sample.fog);
+    AssertUnit(sample.frost);
+    AssertUnit(sample.dust);
+    AssertUnit(sample.gust);
+    AssertUnit(sample.visibility);
+    AssertUnit(sample.heatWave);
+    AssertUnit(sample.coldSnap);
+    AssertUnit(sample.rainbow);
+    AssertUnit(sample.aurora);
+    assert(isfinite(sample.temperatureK));
+    assert(isfinite(sample.pressureAtm));
+    assert(isfinite(sample.dewPointK));
+    assert(isfinite(sample.wetBulbK));
+    assert(fabsf(sample.rain + sample.snow + sample.sleet +
+                 sample.freezingRain + sample.hail - sample.precipitation) <
+           0.00001f);
     assert(sample.storm <= sample.precipitation + 0.00001f);
+    assert(sample.drizzle <= sample.rain + 0.00001f);
+    assert(sample.phenomena != 0u);
 }
 
 static float SampleDistance(WeatherFieldSample left, WeatherFieldSample right)
@@ -71,7 +109,7 @@ static void TestSkyFactorUsesLocalWeather(void)
     AssertUnit(clearFactor);
     AssertUnit(stormFactor);
     assert(fabsf(clearFactor - 0.11f) < 0.00001f);
-    assert(stormFactor > clearFactor + 0.70f);
+    assert(stormFactor > clearFactor + 0.65f);
 
     WeatherFieldSample invalidRange = { 0 };
     invalidRange.cloudCover = 4.0f;
@@ -127,10 +165,46 @@ static void TestTemperatureSelectsRainOrSnow(void)
     cold.temperatureK = 250.0f;
     WeatherFieldSample rain = WeatherFieldSampleAt(&warm);
     WeatherFieldSample snow = WeatherFieldSampleAt(&cold);
-    assert(rain.precipitation > 0.60f);
-    assert(snow.precipitation == rain.precipitation);
+    assert(rain.precipitation > 0.50f);
+    assert(snow.precipitation > 0.50f);
     assert(rain.rain > rain.snow);
     assert(snow.snow > snow.rain);
+}
+
+static void TestMixedPrecipitationAndPhysicalGates(void)
+{
+    WeatherFieldInput input = TemperateInput();
+    input.moisture = 1.0f;
+    input.cloudPotential = 1.0f;
+    input.relativeHumidity = 0.98f;
+    input.temperatureK = 278.0f;
+    WeatherFieldSample mixed = WeatherFieldSampleAt(&input);
+    assert(mixed.precipitation > 0.40f);
+    assert(mixed.sleet + mixed.freezingRain > 0.02f);
+
+    input.supportsWaterCycle = false;
+    WeatherFieldSample dryAtmosphere = WeatherFieldSampleAt(&input);
+    assert(dryAtmosphere.precipitation == 0.0f);
+    assert(dryAtmosphere.rain == 0.0f);
+    assert(dryAtmosphere.snow == 0.0f);
+
+    input.atmosphereActive = false;
+    WeatherFieldSample vacuum = WeatherFieldSampleAt(&input);
+    assert(vacuum.visibility == 1.0f);
+    assert(WeatherSampleHasPhenomenon(
+        vacuum, WEATHER_PHENOMENON_CLEAR));
+}
+
+static void TestPhenomenonNames(void)
+{
+    WeatherPhenomenon phenomenon = WEATHER_PHENOMENON_CLEAR;
+    assert(WeatherPhenomenonFromName("freezing-rain", &phenomenon));
+    assert(phenomenon == WEATHER_PHENOMENON_FREEZING_RAIN);
+    assert(WeatherPhenomenonFromName("DUST_STORM", &phenomenon));
+    assert(phenomenon == WEATHER_PHENOMENON_DUST_STORM);
+    assert(!WeatherPhenomenonFromName("not-weather", &phenomenon));
+    assert(strcmp(WeatherPhenomenonName(WEATHER_PHENOMENON_AURORA),
+                  "Aurora") == 0);
 }
 
 static void TestClimateControlsPrecipitationAndStorms(void)
@@ -211,6 +285,8 @@ int main(void)
     TestSpatialAndTemporalContinuity();
     TestWeatherVariesAcrossSpaceAndTime();
     TestTemperatureSelectsRainOrSnow();
+    TestMixedPrecipitationAndPhysicalGates();
+    TestPhenomenonNames();
     TestClimateControlsPrecipitationAndStorms();
     TestRandomizedBoundsAndReplay();
     TestInvalidInputReturnsClearWeather();

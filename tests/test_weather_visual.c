@@ -12,7 +12,9 @@ static WeatherVisualInput TemperateInput(void)
             .precipitation = 0.24f,
             .rain = 0.24f,
             .storm = 0.10f,
-            .wind = 0.42f
+            .wind = 0.42f,
+            .gust = 0.48f,
+            .visibility = 0.88f
         },
         .atmosphereDensity = 0.68f,
         .daylight = 0.72f,
@@ -38,11 +40,19 @@ static void AssertValid(WeatherVisualState state)
     assert(isfinite(state.windAngle));
     AssertUnit(state.cloudOpacity);
     AssertUnit(state.fogDensity);
+    AssertUnit(state.dustDensity);
     AssertUnit(state.visibility);
     AssertUnit(state.precipitationVeil);
     AssertUnit(state.stormDarkening);
     AssertUnit(state.windDrift);
     AssertUnit(state.snowFraction);
+    AssertUnit(state.sleetFraction);
+    AssertUnit(state.freezingRainFraction);
+    AssertUnit(state.hailFraction);
+    AssertUnit(state.frost);
+    AssertUnit(state.lightningIntensity);
+    AssertUnit(state.rainbowStrength);
+    AssertUnit(state.auroraStrength);
 }
 
 static void TestDeterministicAndBounded(void)
@@ -71,14 +81,18 @@ static void TestDeterministicAndBounded(void)
 static void TestStormReducesVisibility(void)
 {
     WeatherVisualInput clearInput = TemperateInput();
-    clearInput.weather = (WeatherFieldSample){ .cloudCover = 0.12f, .wind = 0.18f };
+    clearInput.weather = (WeatherFieldSample){
+        .cloudCover = 0.12f, .wind = 0.18f, .visibility = 1.0f
+    };
     WeatherVisualInput stormInput = clearInput;
     stormInput.weather = (WeatherFieldSample){
         .cloudCover = 0.94f,
         .precipitation = 0.86f,
         .rain = 0.86f,
         .storm = 0.78f,
-        .wind = 0.92f
+        .wind = 0.92f,
+        .gust = 1.0f,
+        .visibility = 0.42f
     };
     WeatherVisualState clear = WeatherVisualStateEvaluate(&clearInput);
     WeatherVisualState storm = WeatherVisualStateEvaluate(&stormInput);

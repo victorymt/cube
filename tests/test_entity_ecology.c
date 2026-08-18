@@ -650,7 +650,25 @@ static void TestEntityDeathCauseFeedback(void)
            playerPressure);
 
     WaitForEntitySpawn(&player, daylight);
-    assert(EntityKill(0, ENTITY_DEATH_ENVIRONMENT, daylight));
+    const Entity *weatherEntity = EntitiesView();
+    assert(weatherEntity[0].active && !weatherEntity[0].aquatic);
+    float velocityBefore = weatherEntity[0].velocity.x;
+    EntitiesApplyWeatherHazards(0.25f, (WeatherFieldSample){
+        .temperatureK = 288.0f,
+        .gust = 1.0f,
+        .windAngle = 0.0f
+    }, daylight);
+    assert(EntitiesView()[0].velocity.x > velocityBefore);
+    float healthBefore = EntitiesView()[0].health;
+    WeatherFieldSample heat = {
+        .temperatureK = 1200.0f,
+        .windAngle = 0.0f
+    };
+    EntitiesApplyWeatherHazards(0.25f, heat, daylight);
+    assert(EntitiesView()[0].health < healthBefore);
+    for (int step = 0; step < 100 && GetActiveEntityCount() > 0; step++) {
+        EntitiesApplyWeatherHazards(0.25f, heat, daylight);
+    }
     assert(GetActiveEntityCount() == 0);
     assert(MaxNearbyHarvestPressure(centerX, centerZ, daylight) ==
            playerPressure);

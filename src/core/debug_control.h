@@ -8,6 +8,7 @@
 #define DEBUG_CONTROL_BUFFER_SIZE 2048
 #define DEBUG_CONTROL_MARKER_COLOR_SIZE 16
 #define DEBUG_CONTROL_MARKER_NAME_SIZE 64
+#define DEBUG_CONTROL_WEATHER_NAME_SIZE 32
 #define DEBUG_CONTROL_STREAM_WAIT_DEFAULT_FRAMES 300u
 #define DEBUG_CONTROL_STREAM_WAIT_MAX_FRAMES 3600u
 
@@ -33,6 +34,11 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_FLUID_INSPECT,
     DEBUG_CONTROL_COMMAND_FLUID_SET,
     DEBUG_CONTROL_COMMAND_FLUID_STEP,
+    DEBUG_CONTROL_COMMAND_WEATHER_INSPECT,
+    DEBUG_CONTROL_COMMAND_WEATHER_FORCE,
+    DEBUG_CONTROL_COMMAND_WEATHER_CLEAR,
+    DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE,
+    DEBUG_CONTROL_COMMAND_WEATHER_STEP,
     DEBUG_CONTROL_COMMAND_TELEPORT,
     DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
@@ -114,6 +120,8 @@ typedef struct DebugControl {
     int streamAuditZ;
     unsigned fluidVolume;
     unsigned fluidTicks;
+    unsigned weatherFrames;
+    unsigned weatherTicks;
     int streamAuditRadius;
     unsigned streamWaitFrames;
     float lookYaw;
@@ -123,10 +131,13 @@ typedef struct DebugControl {
     bool streamAuditUsePlayerPosition;
     bool waterDebugEnabled;
     bool waterDebugThrough;
+    bool weatherDamageEnabled;
     bool thirdPerson;
     bool mapLiquidsVisible;
     DebugControlSurfaceStyle surfaceDebugStyle;
     uint32_t surfaceDebugSeed;
+    float weatherIntensity;
+    char weatherPhenomenon[DEBUG_CONTROL_WEATHER_NAME_SIZE];
 } DebugControl;
 
 void DebugControlInit(DebugControl *control, bool enabled);

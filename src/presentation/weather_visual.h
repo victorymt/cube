@@ -22,12 +22,21 @@ typedef struct WeatherVisualState {
     float cloudThickness;
     float cloudOpacity;
     float fogDensity;
+    float dustDensity;
     float visibility;
     float precipitationVeil;
     float stormDarkening;
     float windDrift;
     float windAngle;
     float snowFraction;
+    float sleetFraction;
+    float freezingRainFraction;
+    float hailFraction;
+    float frost;
+    float lightningIntensity;
+    float rainbowStrength;
+    float auroraStrength;
+    float temperatureAnomalyK;
 } WeatherVisualState;
 
 /* Derive renderer-facing weather values without mutating simulation state. */

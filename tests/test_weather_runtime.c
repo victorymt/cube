@@ -101,6 +101,13 @@ float PlanetWorldAtmosphereFade(Vector3 position)
 const PlanetProfile *PlanetWorldProfile(void)
 {
     static PlanetProfile profile = {
+        .style = SOLAR_STYLE_TEMPERATE,
+        .atmosphereType = PLANET_ATMOSPHERE_BREATHABLE,
+        .equilibriumTempK = 288.0f,
+        .surfacePressureAtm = 1.0f,
+        .atmosphereDensity = 0.62f,
+        .oceanCoverage = 0.54f,
+        .iceCoverage = 0.08f,
         .cloudCoverage = 0.52f,
         .seasonalHumidityBias = 0.24f,
         .windStrength = 0.44f,
@@ -165,6 +172,22 @@ int PlanetTerrainHeight(int x, int z)
     (void)x;
     (void)z;
     return 10;
+}
+
+void PlanetSurfaceLatLonAt(int x, int z, float *longitude, float *latitude)
+{
+    (void)x;
+    (void)z;
+    if (longitude) *longitude = 0.25f;
+    if (latitude) *latitude = 0.52f;
+}
+
+void HomeSurfaceLatLonAt(int x, int z, float *longitude, float *latitude)
+{
+    (void)x;
+    (void)z;
+    if (longitude) *longitude = -0.15f;
+    if (latitude) *latitude = 0.42f;
 }
 
 Biome BiomeAt(int x, int z)
@@ -440,6 +463,60 @@ static void TestNormalRainAndSnowStillEmit(void)
     assert(particleEmissions > 0);
 }
 
+static void TestForcedPhenomena(void)
+{
+    ResetRuntime();
+    for (int value = 0; value < WEATHER_PHENOMENON_COUNT; value++) {
+        WeatherPhenomenon phenomenon = (WeatherPhenomenon)value;
+        assert(WeatherForcePhenomenon(phenomenon, 0.8f, 2u));
+        assert(WeatherForcedFramesRemaining() == 2u);
+
+        WeatherFieldSample sample = WeatherCurrentSample();
+        assert(sample.dominantPhenomenon == phenomenon);
+        assert(WeatherSampleHasPhenomenon(sample, phenomenon));
+        assert(isfinite(sample.temperatureK));
+        assert(isfinite(sample.pressureAtm));
+        assert(isfinite(sample.relativeHumidity));
+        assert(sample.relativeHumidity >= 0.0f &&
+               sample.relativeHumidity <= 1.0f);
+        assert(sample.dewPointK <= sample.temperatureK);
+        assert(sample.wetBulbK <= sample.temperatureK);
+        assert(isfinite(sample.wind));
+        assert(isfinite(sample.gust));
+        assert(sample.cloudCover >= 0.0f && sample.cloudCover <= 1.0f);
+        assert(sample.precipitation >= 0.0f && sample.precipitation <= 1.0f);
+        assert(sample.wind >= 0.0f && sample.wind <= 1.0f);
+        assert(sample.gust >= sample.wind && sample.gust <= 1.0f);
+        assert(sample.visibility >= 0.0f && sample.visibility <= 1.0f);
+
+        WeatherFieldSample spatial = WeatherFieldSampleAtWorldTime(
+            4, -8, simulationTime);
+        assert(spatial.dominantPhenomenon == phenomenon);
+        TestWeatherUpdate(1.0f / 60.0f,
+                          (Vector3){ 4.0f, 20.0f, -8.0f });
+        assert(WeatherForcedFramesRemaining() == 1u);
+        assert(WeatherCurrentSample().dominantPhenomenon == phenomenon);
+        TestWeatherUpdate(1.0f / 60.0f,
+                          (Vector3){ 4.0f, 20.0f, -8.0f });
+        assert(WeatherForcedFramesRemaining() == 0u);
+        assert(WeatherCurrentSample().dominantPhenomenon == phenomenon);
+        TestWeatherUpdate(1.0f / 60.0f,
+                          (Vector3){ 4.0f, 20.0f, -8.0f });
+    }
+
+    assert(!WeatherForcePhenomenon(
+        WEATHER_PHENOMENON_COUNT, 0.5f, 10u));
+    assert(!WeatherForcePhenomenon(WEATHER_PHENOMENON_RAINBOW, NAN, 10u));
+    assert(!WeatherForcePhenomenon(WEATHER_PHENOMENON_RAINBOW, -0.1f, 10u));
+    assert(!WeatherForcePhenomenon(WEATHER_PHENOMENON_RAINBOW, 1.1f, 10u));
+    assert(!WeatherForcePhenomenon(WEATHER_PHENOMENON_RAINBOW, 0.5f, 0u));
+
+    assert(WeatherForcePhenomenon(
+        WEATHER_PHENOMENON_THUNDERSTORM, 1.0f, 60u));
+    WeatherClearForced();
+    assert(WeatherForcedFramesRemaining() == 0u);
+}
+
 static void TestInitRestoresCleanState(void)
 {
     ResetRuntime();
@@ -466,6 +543,7 @@ int main(void)
     TestVisualStateUsesWeatherFieldWithoutMutation();
     TestVisualStateSafeFallbacks();
     TestNormalRainAndSnowStillEmit();
+    TestForcedPhenomena();
     TestInitRestoresCleanState();
     TestPlanetLightFeedbackChangesWeather();
     puts("weather runtime tests passed");

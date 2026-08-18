@@ -31,6 +31,7 @@ There are two entry points:
 build/normal/voxelcraft --debug-stdin
 build/normal/voxelcraft --debug-script PATH
 build/normal/voxelcraft --debug-script=PATH
+build/normal/voxelcraft --debug-resolution 1920x1080 --debug-script PATH
 ```
 
 `--debug-script` accepts exactly one readable file. A missing path, an empty
@@ -39,11 +40,18 @@ file is loaded before the first frame. `--debug-stdin` reads complete DSL
 blocks from standard input. The options can be combined; the file is loaded
 first and stdin is then available.
 
+`--debug-resolution WIDTHxHEIGHT` sets the initial window size before the
+first frame; the `--debug-resolution=WIDTHxHEIGHT` form is equivalent. Width
+must be 320-7,680 pixels and height 240-4,320 pixels. A missing, malformed,
+out-of-range, or repeated resolution option is a startup error with exit code
+2. The option only controls window creation and does not enable the DSL by
+itself.
+
 Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,evolution statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,weather,evolution statements=let,assert,wait,repeat,exit
 ```
 
 ## Process and stdin lifetime
@@ -165,6 +173,10 @@ Runtime values are sampled when an expression is evaluated:
 | `world.dimension` | string | Current dimension name |
 | `player.position` | vec3 | Player world position |
 | `player.velocity` | vec3 | Player velocity |
+| `perf.enabled` | bool | Performance collection is enabled |
+| `perf.route_complete` | bool | Warmup and frame sampling are complete |
+| `perf.report_written` | bool | The performance report has been written |
+| `perf.report_passed` | bool | The written report passed its configured baseline |
 | `water.feet_submerged` | bool | Feet are in water |
 | `water.body_submerged` | bool | Body is in water |
 | `water.eyes_submerged` | bool | Eyes are in water |
@@ -175,6 +187,22 @@ Runtime values are sampled when an expression is evaluated:
 | `fluid.volume` | number | Fluid volume at the player |
 | `fluid.surface_y` | number | Fluid surface at the player |
 | `fluid.queue_overflows` | number | Fluid solver queue overflow count |
+| `weather.climate` | string | Local named climate regime, or `"unavailable"` outside a surface world |
+| `weather.phenomenon` | string | Dominant current weather phenomenon |
+| `weather.temperature`, `weather.temperature_k` | number | Local air temperature in kelvin |
+| `weather.pressure`, `weather.pressure_atm` | number | Surface pressure in atmospheres |
+| `weather.humidity`, `weather.relative_humidity` | number | Relative humidity from 0 to 1 |
+| `weather.dew_point`, `weather.dew_point_k` | number | Dew point in kelvin |
+| `weather.wet_bulb`, `weather.wet_bulb_k` | number | Wet-bulb temperature in kelvin |
+| `weather.wind`, `weather.gust`, `weather.visibility` | number | Normalized wind, gust, and visibility values |
+| `weather.rain`, `weather.snow`, `weather.sleet` | number | Normalized precipitation-phase intensities |
+| `weather.freezing_rain`, `weather.hail` | number | Normalized freezing-rain and hail intensities |
+| `weather.lightning`, `weather.fog`, `weather.dust` | number | Normalized phenomenon intensities |
+| `weather.rainbow`, `weather.aurora` | number | Normalized optical-phenomenon intensities |
+| `weather.surface_count` | number | Tracked weather-affected surface count |
+| `weather.active_fires` | number | Active weather fire count |
+| `weather.forced_frames` | number | Remaining forced-weather update frames |
+| `weather.damage_enabled` | bool | Environmental weather effects are enabled |
 | `target.hit` | bool | Current solid raycast hit exists |
 | `target.position` | vec3 | Current raycast block position; only meaningful when `target.hit` is true |
 | `target.block` | string | Target block name, or `air` when there is no hit |
@@ -277,6 +305,34 @@ fluid step TICKS
 `fluid inspect` without coordinates samples the player cell. `VOLUME` is
 0-255; `TICKS` is 1-1,000,000. `fluid set` and `fluid step` require an active
 surface world.
+
+### Weather and climate
+
+```text
+weather inspect
+weather force PHENOMENON INTENSITY FRAMES
+weather clear
+weather damage on|off
+weather step TICKS
+```
+
+`weather inspect` reports the local climate regime, temperature, pressure,
+humidity, wind, visibility, all precipitation phases, optical phenomena, and
+environmental-effect counts. `weather force` bypasses natural eligibility and
+rarity for deterministic testing. `INTENSITY` is 0-1 and `FRAMES` is
+1-36,000. Multiword phenomena use hyphens or underscores, for example
+`heavy-rain`, `freezing_rain`, `strong-wind`, `dust-storm`, `heat-wave`, and
+`cold-snap`. The complete set is `clear`, `cloudy`, `fog`, `frost`, `drizzle`,
+`showers`, `heavy-rain`, `thunderstorm`, `lightning`, `sleet`,
+`freezing-rain`, `hail`, `snow`, `blizzard`, `strong-wind`, `dust-storm`,
+`heat-wave`, `cold-snap`, `rainbow`, and `aurora`.
+
+Forced weather is runtime-only and is never saved. `weather clear` returns to
+the natural field. `weather damage off` restores reversible weather-owned
+snow/ice and clears active weather fires; it changes the current game setting,
+but debug runs do not save settings on exit. `weather step` advances
+environmental effects by 1-100,000 fixed 2 Hz ticks without advancing world
+time. Inspect, force, and step require an active surface world.
 
 ### Ships
 

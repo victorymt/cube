@@ -14,6 +14,7 @@ typedef struct GameSettings {
     float ambientVolume;
     float musicVolume;
     bool musicEnabled;
+    bool weatherDamageEnabled;
 } GameSettings;
 
 GameSettings GameSettingsDefaults(void);

@@ -121,6 +121,8 @@ static void TestDebugReport(void)
         },
         .weather = {
             .name = "Rain",
+            .climate = "Oceanic",
+            .phenomenon = "Heavy rain",
             .simulationTime = 1234.5,
             .active = true,
             .atmosphereDensity = 0.9f,
@@ -134,7 +136,23 @@ static void TestDebugReport(void)
             .stormDarkening = 0.3f,
             .windDrift = 5.0f,
             .windAngle = 2.25f,
-            .snowFraction = 0.0f
+            .snowFraction = 0.0f,
+            .temperatureK = 286.25f,
+            .temperatureAnomalyK = -1.5f,
+            .pressureAtm = 0.992f,
+            .relativeHumidity = 0.91f,
+            .dewPointK = 284.0f,
+            .wetBulbK = 285.0f,
+            .precipitation = 0.84f,
+            .rain = 0.82f,
+            .lightning = 0.35f,
+            .wind = 0.58f,
+            .gust = 0.81f,
+            .forcedFrames = 117u,
+            .surfaceCount = 23u,
+            .activeFires = 2u,
+            .blockDamageEvents = 5u,
+            .damageEnabled = true
         },
         .environment = {
             .altitude = 31.0f,
@@ -235,7 +253,7 @@ static void TestDebugReport(void)
 
     char contents[8192];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=6\n"));
+    assert(strstr(contents, "format.version=7\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -246,6 +264,12 @@ static void TestDebugReport(void)
     assert(strstr(contents, "camera.inside_solid=false\n"));
     assert(strstr(contents, "weather.cloud_cover=0.812500\n"));
     assert(strstr(contents, "weather.cloud_thickness=18.000000\n"));
+    assert(strstr(contents, "weather.climate=Oceanic\n"));
+    assert(strstr(contents, "weather.phenomenon=Heavy rain\n"));
+    assert(strstr(contents, "weather.temperature_k=286.250000\n"));
+    assert(strstr(contents, "weather.gust=0.810000\n"));
+    assert(strstr(contents, "weather.damage_enabled=true\n"));
+    assert(strstr(contents, "weather.surface_count=23\n"));
     assert(strstr(contents, "environment.seabed_y=18\n"));
     assert(strstr(contents, "environment.water_column_depth=62\n"));
     assert(strstr(contents, "environment.bathymetry_zone=trench\n"));

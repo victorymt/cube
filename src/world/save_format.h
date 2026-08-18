@@ -7,7 +7,8 @@
 typedef enum WorldSaveFormat {
     WORLD_SAVE_FORMAT_UNSUPPORTED = 0,
     WORLD_SAVE_FORMAT_V18,
-    WORLD_SAVE_FORMAT_V19
+    WORLD_SAVE_FORMAT_V19,
+    WORLD_SAVE_FORMAT_V20
 } WorldSaveFormat;
 
 WorldSaveFormat WorldSaveFormatRead(FILE *file);

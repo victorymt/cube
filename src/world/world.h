@@ -5,6 +5,19 @@
 
 #include <stdint.h>
 
+typedef enum WorldMutationSource {
+    WORLD_MUTATION_PLAYER = 0,
+    WORLD_MUTATION_SYSTEM,
+    WORLD_MUTATION_ENVIRONMENT
+} WorldMutationSource;
+
+typedef struct BlockMaterialResponse {
+    float windResistance;
+    float impactResistance;
+    float flammability;
+    float waterErodibility;
+} BlockMaterialResponse;
+
 uint32_t WorldGetSeed(void);
 void WorldSetSeed(uint32_t seed);
 void WorldReset(uint32_t seed);
@@ -29,6 +42,7 @@ int ColorBlockIndex(BlockType type);
 BlockType ColorBlockFromIndex(int index);
 Color ColorPalette256(int index);
 Color BlockBaseColor(BlockType type);
+BlockMaterialResponse BlockMaterialResponseFor(BlockType type);
 BlockType NearestImageBlock(Color color);
 
 void TorchLightAdd(int x, int y, int z);
@@ -51,6 +65,9 @@ BlockType GetBlockAt(int x, int y, int z);
 bool SurfaceBlockReadyAt(int x, int y, int z);
 bool SetBlock(int x, int y, int z, BlockType type);
 bool SetBlockNoUndo(int x, int y, int z, BlockType type);
+bool SetBlockNoUndoFromSource(int x, int y, int z, BlockType type,
+                              WorldMutationSource source);
+WorldMutationSource WorldCurrentMutationSource(void);
 bool SetBlockForImport(int x, int y, int z, BlockType type);
 bool UndoBlockEdit(void);
 bool RedoBlockEdit(void);

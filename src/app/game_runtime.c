@@ -2,9 +2,16 @@
 
 #include "gameplay/player.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <string.h>
+
+#define DEBUG_RESOLUTION_MIN_WIDTH 320
+#define DEBUG_RESOLUTION_MIN_HEIGHT 240
+#define DEBUG_RESOLUTION_MAX_WIDTH 7680
+#define DEBUG_RESOLUTION_MAX_HEIGHT 4320
 
 static bool CommandLineHasFlag(int argc, char **argv, const char *flag) {
   for (int index = 1; index < argc; index++) {
@@ -86,6 +93,59 @@ static bool ParseDebugScriptArgs(int argc, char **argv, char *path,
   return enabled;
 }
 
+static bool ParseDebugResolutionValue(const char *value, int *outWidth,
+                                      int *outHeight) {
+  if (!value || !outWidth || !outHeight || value[0] == '\0')
+    return false;
+
+  errno = 0;
+  char *widthEnd = NULL;
+  long width = strtol(value, &widthEnd, 10);
+  if (errno != 0 || widthEnd == value || *widthEnd != 'x')
+    return false;
+
+  const char *heightText = widthEnd + 1;
+  errno = 0;
+  char *heightEnd = NULL;
+  long height = strtol(heightText, &heightEnd, 10);
+  if (errno != 0 || heightEnd == heightText || *heightEnd != '\0' ||
+      width < DEBUG_RESOLUTION_MIN_WIDTH ||
+      width > DEBUG_RESOLUTION_MAX_WIDTH ||
+      height < DEBUG_RESOLUTION_MIN_HEIGHT ||
+      height > DEBUG_RESOLUTION_MAX_HEIGHT) {
+    return false;
+  }
+
+  *outWidth = (int)width;
+  *outHeight = (int)height;
+  return true;
+}
+
+static bool ParseDebugResolutionArgs(int argc, char **argv, int *outWidth,
+                                     int *outHeight, bool *outInvalid) {
+  bool enabled = false;
+  bool invalid = false;
+  for (int index = 1; index < argc; index++) {
+    const char *value = NULL;
+    if (strcmp(argv[index], "--debug-resolution") == 0) {
+      if (index + 1 < argc && strncmp(argv[index + 1], "--", 2) != 0)
+        value = argv[++index];
+      else
+        invalid = true;
+    } else if (strncmp(argv[index], "--debug-resolution=", 19) == 0) {
+      value = argv[index] + 19;
+    } else {
+      continue;
+    }
+
+    if (enabled || !ParseDebugResolutionValue(value, outWidth, outHeight))
+      invalid = true;
+    enabled = true;
+  }
+  if (outInvalid) *outInvalid = invalid;
+  return enabled;
+}
+
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   if (!runtime)
     return;
@@ -102,6 +162,8 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       .selectedTerrain = TERRAIN_VARIED,
       .selectedSeed = DEFAULT_WORLD_SEED,
       .biologyAtlasSlot = -1,
+      .screenWidth = 1280,
+      .screenHeight = 720,
       .showHelp = true,
       .showOrbitTrajectories = true,
       .entitiesWorldActive = true,
@@ -123,6 +185,9 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   runtime->debugTraceEnabled = ParseDebugTraceArgs(
       argc, argv, runtime->debugTracePath, sizeof(runtime->debugTracePath),
       &runtime->debugTracePathInvalid);
+  ParseDebugResolutionArgs(argc, argv, &runtime->screenWidth,
+                           &runtime->screenHeight,
+                           &runtime->debugResolutionInvalid);
   if (runtime->debugControlEnabled)
     runtime->autoSaveEnabled = false;
   GameSettingsLoad(&runtime->settings);

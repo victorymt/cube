@@ -32,7 +32,14 @@ static bool WeatherVisualSampleIsFinite(WeatherFieldSample sample)
 {
     return isfinite(sample.cloudCover) && isfinite(sample.precipitation) &&
            isfinite(sample.rain) && isfinite(sample.snow) &&
-           isfinite(sample.storm) && isfinite(sample.wind);
+           isfinite(sample.sleet) && isfinite(sample.freezingRain) &&
+           isfinite(sample.hail) && isfinite(sample.storm) &&
+           isfinite(sample.lightning) && isfinite(sample.fog) &&
+           isfinite(sample.frost) && isfinite(sample.dust) &&
+           isfinite(sample.wind) && isfinite(sample.gust) &&
+           isfinite(sample.visibility) && isfinite(sample.rainbow) &&
+           isfinite(sample.aurora) &&
+           isfinite(sample.temperatureAnomalyK);
 }
 
 WeatherVisualState WeatherVisualStateEvaluate(const WeatherVisualInput *input)
@@ -54,14 +61,20 @@ WeatherVisualState WeatherVisualStateEvaluate(const WeatherVisualInput *input)
     float wind = WeatherVisualClamp(input->weather.wind);
     float daylight = WeatherVisualClamp(input->daylight);
     float snow = WeatherVisualClamp(input->weather.snow);
+    float sleet = WeatherVisualClamp(input->weather.sleet);
+    float freezingRain = WeatherVisualClamp(input->weather.freezingRain);
+    float hail = WeatherVisualClamp(input->weather.hail);
 
     state.active = true;
     state.atmosphereDensity = density;
     state.daylight = daylight;
     state.cloudCover = WeatherVisualClamp(
         cloud * (0.44f + density * 0.56f) + precipitation * 0.12f);
-    state.cloudBaseHeight = 46.0f - state.cloudCover * 17.0f -
-                            precipitation * 9.0f - storm * 6.0f;
+    float physicalCloudBase = input->weather.cloudBaseHeight > 0.0f ?
+        14.0f + WeatherVisualClamp(input->weather.cloudBaseHeight / 2500.0f) *
+        38.0f : 46.0f;
+    state.cloudBaseHeight = physicalCloudBase - state.cloudCover * 8.0f -
+                            precipitation * 7.0f - storm * 5.0f;
     if (state.cloudBaseHeight < 14.0f) state.cloudBaseHeight = 14.0f;
     state.cloudThickness = 5.0f + state.cloudCover * 12.0f +
                            precipitation * 7.0f + storm * 5.0f;
@@ -69,16 +82,33 @@ WeatherVisualState WeatherVisualStateEvaluate(const WeatherVisualInput *input)
         state.cloudCover * (0.42f + density * 0.42f) + precipitation * 0.18f);
     state.precipitationVeil = WeatherVisualClamp(
         precipitation * (0.42f + storm * 0.36f) * density);
+    state.dustDensity = WeatherVisualClamp(input->weather.dust * density);
     state.fogDensity = WeatherVisualClamp(
-        (state.cloudCover * 0.11f + precipitation * 0.39f + storm * 0.31f) *
+        (input->weather.fog * 0.68f + state.cloudCover * 0.07f +
+         precipitation * 0.24f + storm * 0.16f) *
         density * (0.80f + (1.0f - daylight) * 0.20f));
     state.stormDarkening = WeatherVisualClamp(
         state.cloudCover * 0.20f + precipitation * 0.34f + storm * 0.42f);
-    state.visibility = WeatherVisualClamp(
-        1.0f - state.fogDensity * 0.76f - state.precipitationVeil * 0.28f);
+    state.visibility = fminf(WeatherVisualClamp(input->weather.visibility),
+        WeatherVisualClamp(1.0f - state.fogDensity * 0.76f -
+                           state.precipitationVeil * 0.28f -
+                           state.dustDensity * 0.70f));
     state.windDrift = WeatherVisualClamp(wind * (0.42f + storm * 0.58f));
     state.windAngle = input->windAngle;
     state.snowFraction = precipitation > 0.001f ?
                              WeatherVisualClamp(snow / precipitation) : 0.0f;
+    state.sleetFraction = precipitation > 0.001f ?
+        WeatherVisualClamp(sleet / precipitation) : 0.0f;
+    state.freezingRainFraction = precipitation > 0.001f ?
+        WeatherVisualClamp(freezingRain / precipitation) : 0.0f;
+    state.hailFraction = precipitation > 0.001f ?
+        WeatherVisualClamp(hail / precipitation) : 0.0f;
+    state.frost = WeatherVisualClamp(input->weather.frost);
+    state.lightningIntensity = WeatherVisualClamp(input->weather.lightning);
+    state.rainbowStrength = WeatherVisualClamp(
+        input->weather.rainbow * daylight * density);
+    state.auroraStrength = WeatherVisualClamp(
+        input->weather.aurora * (1.0f - daylight) * density);
+    state.temperatureAnomalyK = input->weather.temperatureAnomalyK;
     return state;
 }

@@ -97,8 +97,14 @@ EnvironmentPresentationState EnvironmentPresentationEvaluate(
     state.cloudOpacity = cloud;
     state.precipitation = veil * shelter * quality.precipitationScale;
     state.snowFraction = Unit(weather->snowFraction);
+    state.hailFraction = Unit(weather->hailFraction);
+    state.dust = Unit(weather->dustDensity) * shelter;
+    state.frost = Unit(weather->frost);
+    state.rainbow = Unit(weather->rainbowStrength) * shelter;
+    state.aurora = Unit(weather->auroraStrength);
     state.lightningFlash = input->sheltered ? 0.0f :
-        LightningAt(input->simulationTime, storm);
+        LightningAt(input->simulationTime,
+                    fmaxf(storm, Unit(weather->lightningIntensity)));
     state.starVisibility = Unit(night * (1.0f - cloud) * (1.0f - atmosphereFade));
     state.audioRain = rain * shelter;
     float altitudeWind = Unit(input->altitude / 96.0f);
@@ -167,6 +173,11 @@ EnvironmentPresentationState EnvironmentPresentationAdvance(
     ADVANCE(cloudDistanceScale, 2.0f);
     ADVANCE(precipitation, 2.4f);
     ADVANCE(snowFraction, 2.0f);
+    ADVANCE(hailFraction, 2.8f);
+    ADVANCE(dust, 1.2f);
+    ADVANCE(frost, 0.4f);
+    ADVANCE(rainbow, 1.4f);
+    ADVANCE(aurora, 0.8f);
     ADVANCE(lightningFlash, 18.0f);
     ADVANCE(starVisibility, 2.0f);
     ADVANCE(audioRain, 1.8f);

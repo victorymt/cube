@@ -46,10 +46,21 @@ if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ||
 fi
 hyprctl monitors -j >/dev/null
 
+set +e
+resolution_error=$(
+    "$game_binary" --debug-resolution 319x240 2>&1
+)
+resolution_status=$?
+set -e
+printf '%s\n' "$resolution_error"
+[[ "$resolution_status" -eq 2 ]]
+grep -Fq 'Invalid or repeated --debug-resolution option' \
+    <<<"$resolution_error"
+
 coproc GAME_PROCESS {
     env -u LIBGL_ALWAYS_SOFTWARE \
         "$game_binary" --debug-script "$startup_script" --debug-stdin \
-        --debug-trace "$trace_path" 2>&1
+        --debug-trace "$trace_path" --debug-resolution=1280x720 2>&1
 }
 game_pid=$GAME_PROCESS_PID
 exec {game_output}<&"${GAME_PROCESS[0]}"
@@ -98,6 +109,8 @@ wait_for_reply '^DEBUG_SCRIPT loaded .* batch=0$'
 wait_for_reply '^DEBUG_CONTROL ready '
 wait_for_reply '^DEBUG_SCRIPT complete source='
 send_command 'assert startup_screen == "start"'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert perf.enabled == false && perf.route_complete == false && perf.report_written == false'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'start'
 wait_for_reply '^DEBUG_CONTROL start ok seed=1448040515$' 120
@@ -242,7 +255,7 @@ report_path=${matched_line##*report=}
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=6' "$report_path"
+grep -Fxq 'format.version=7' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
 grep -Fxq 'environment.seabed_y=-4299' "$report_path"
@@ -287,7 +300,7 @@ atlas_png_path=${atlas_png_path%% report=*}
 atlas_report_path=${matched_line##*report=}
 [[ -s "$atlas_png_path" ]]
 [[ -s "$atlas_report_path" ]]
-grep -Fxq 'format.version=6' "$atlas_report_path"
+grep -Fxq 'format.version=7' "$atlas_report_path"
 grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
 grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
 python3 tests/validate_png.py "$atlas_png_path" 1280 720 --allow-dark-ui

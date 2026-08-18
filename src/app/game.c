@@ -33,6 +33,7 @@
 #include "presentation/particles.h"
 #include "presentation/audio.h"
 #include "world/weather.h"
+#include "world/weather_impact.h"
 #include "space/space_chunks.h"
 #include "space/space_query.h"
 #include "space/space_runtime.h"
@@ -72,6 +73,7 @@ bool GameWorldSimulationPaused(const GameRuntime *game)
 static void GameOnWorldBlockCommitted(
     int x, int y, int z, BlockType previous, BlockType next)
 {
+    WeatherImpactOnBlockChanged(x, y, z);
     bool previousIsShip = previous == BLOCK_SPACESHIP ||
                           ShipBlockIsParkedCore(previous);
     bool nextIsShip = next == BLOCK_SPACESHIP || ShipBlockIsParkedCore(next);
@@ -617,8 +619,19 @@ static void GameUpdateTemporalState(GameRuntime *game, float dt)
         bool weatherSheltered =
             GameEnvironmentSheltered(game->player.position) ||
             PlayerWaterStateAt(game->player.position).eyesSubmerged;
+        float weatherDaylight = 0.5f;
+        float weatherSunset = 0.0f;
+        DayNightFactors(game->dayTime, &weatherDaylight, &weatherSunset);
+        (void)weatherSunset;
+        WeatherSetDaylight(weatherDaylight);
         WeatherSetSheltered(weatherSheltered);
         WeatherUpdate(dt, game->player.position);
+        WeatherImpactUpdate(dt, game->player.position,
+                            WeatherCurrentSample());
+        if (game->settings.weatherDamageEnabled) {
+            EntitiesApplyWeatherHazards(dt, WeatherCurrentSample(),
+                                        weatherDaylight);
+        }
     } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
         WeatherSetSheltered(false);
         WeatherSuspend();
@@ -1046,7 +1059,8 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         .masterVolume = game->settings.masterVolume,
         .ambientVolume = game->settings.ambientVolume,
         .musicVolume = game->settings.musicVolume,
-        .musicEnabled = game->settings.musicEnabled
+        .musicEnabled = game->settings.musicEnabled,
+        .weatherDamageEnabled = game->settings.weatherDamageEnabled
     };
     GraphicsQuality previousQuality = game->settings.graphicsQuality;
     DrawPauseMenu(&pauseSettings, &pauseActions);
@@ -1056,6 +1070,8 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         game->settings.ambientVolume = pauseSettings.ambientVolume;
         game->settings.musicVolume = pauseSettings.musicVolume;
         game->settings.musicEnabled = pauseSettings.musicEnabled;
+        game->settings.weatherDamageEnabled = pauseSettings.weatherDamageEnabled;
+        WeatherImpactSetEnabled(game->settings.weatherDamageEnabled);
         if (pauseActions.qualityChanged &&
             !WorldRendererSetQuality(game->settings.graphicsQuality)) {
             game->settings.graphicsQuality = previousQuality;
@@ -1217,6 +1233,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                     game->settings.musicVolume);
     AudioSetMusicEnabled(game->settings.musicEnabled);
     WeatherInit();
+    WeatherImpactInit(game->settings.weatherDamageEnabled);
     WeatherSetParticleScale(
         GraphicsQualityProfileFor(
             game->settings.graphicsQuality).precipitationScale);
@@ -1246,7 +1263,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     DebugControlReply(
         &game->debugControl,
         "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,"
-        "fluid,water,evolution statements=let,assert,wait,repeat,exit\n");
+        "fluid,water,weather,evolution statements=let,assert,wait,repeat,exit\n");
     return true;
 }
 
@@ -1293,14 +1310,18 @@ static int GameStop(GameRuntime *game)
 
 int GameRun(int argc, char **argv)
 {
-    const int screenWidth = 1280;
-    const int screenHeight = 720;
     GameRuntime game;
     GameRuntimeInit(&game, argc, argv);
+    if (game.debugResolutionInvalid) {
+        fprintf(stderr,
+                "Invalid or repeated --debug-resolution option; expected "
+                "WIDTHxHEIGHT within 320x240-7680x4320.\n");
+        return 2;
+    }
     if (!GameDebugScriptLoad(&game)) {
         return game.processExitCode != 0 ? game.processExitCode : 1;
     }
-    if (!GameStart(&game, screenWidth, screenHeight)) return 1;
+    if (!GameStart(&game, game.screenWidth, game.screenHeight)) return 1;
 
     while (!game.quitRequested && !WindowShouldClose()) {
         PerfBeginFrame();

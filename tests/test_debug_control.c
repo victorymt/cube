@@ -228,6 +228,45 @@ static void TestEvolutionCommands(void)
     close(inputPipe[1]);
 }
 
+static void TestWeatherCommands(void)
+{
+    DebugControl control;
+    DebugControlInit(&control, true);
+    assert(DebugControlParseText(&control, "weather inspect") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_INSPECT);
+    assert(DebugControlParseText(
+               &control, "weather force freezing-rain 0.75 240") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_FORCE);
+    assert(strcmp(control.weatherPhenomenon, "freezing-rain") == 0);
+    assert(control.weatherIntensity == 0.75f);
+    assert(control.weatherFrames == 240u);
+    assert(DebugControlParseText(&control, "weather clear") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_CLEAR);
+    assert(DebugControlParseText(&control, "weather damage off") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE);
+    assert(!control.weatherDamageEnabled);
+    assert(DebugControlParseText(&control, "weather damage on") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE);
+    assert(control.weatherDamageEnabled);
+    assert(DebugControlParseText(&control, "weather step 25") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_STEP);
+    assert(control.weatherTicks == 25u);
+
+    assert(DebugControlParseText(
+               &control, "weather force hail -0.1 10") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather force hail 1.1 10") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather force hail 0.5 0") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "weather step 0") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "weather damage maybe") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+}
+
 static void TestMarkerCommandsPreserveUtf8Names(void)
 {
     int inputPipe[2];
@@ -312,6 +351,7 @@ int main(void)
     TestFinalCommandWithoutNewline();
     TestInvalidParameterizedCommands();
     TestEvolutionCommands();
+    TestWeatherCommands();
     TestMarkerCommandsPreserveUtf8Names();
     puts("debug control tests passed");
     return 0;

@@ -8,6 +8,7 @@
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
 #include "core/game_notice.h"
+#include "core/perf.h"
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
 #include "ecology/evolution.h"
@@ -27,6 +28,8 @@
 #include "space/space_state.h"
 #include "world/terrain.h"
 #include "world/surface_topology.h"
+#include "world/weather.h"
+#include "world/weather_impact.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 
@@ -999,6 +1002,110 @@ static GameDebugDispatchResult GameDebugDispatchFluidCommand(
     }
 }
 
+static bool GameDebugLocalClimate(const GameRuntime *game,
+                                  LocalClimateState *outClimate)
+{
+    if (!game || !outClimate || !WorldIsSurfaceActive() ||
+        !isfinite(game->player.position.x) ||
+        !isfinite(game->player.position.z)) {
+        return false;
+    }
+    return WeatherLocalClimateAtWorldTime(
+        (int)floorf(game->player.position.x),
+        (int)floorf(game->player.position.z),
+        SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        outClimate);
+}
+
+static void GameDebugInspectWeather(GameRuntime *game)
+{
+    WeatherFieldSample weather = WeatherCurrentSample();
+    WeatherImpactStats impacts = WeatherImpactGetStats();
+    LocalClimateState climate = { 0 };
+    bool haveClimate = GameDebugLocalClimate(game, &climate);
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL weather inspect ok climate=%s phenomenon=%s "
+        "temperature_k=%.3f temperature_c=%.3f pressure_atm=%.6f "
+        "humidity=%.6f dew_point_k=%.3f wet_bulb_k=%.3f "
+        "wind=%.6f gust=%.6f visibility=%.6f rain=%.6f snow=%.6f "
+        "sleet=%.6f freezing_rain=%.6f hail=%.6f lightning=%.6f "
+        "fog=%.6f dust=%.6f rainbow=%.6f aurora=%.6f "
+        "forced_frames=%u damage=%d surfaces=%u fires=%u\n",
+        haveClimate ? ClimateRegimeName(climate.regime) : "unavailable",
+        WeatherPhenomenonName(weather.dominantPhenomenon),
+        weather.temperatureK, weather.temperatureK - 273.15f,
+        weather.pressureAtm, weather.relativeHumidity, weather.dewPointK,
+        weather.wetBulbK, weather.wind, weather.gust, weather.visibility,
+        weather.rain, weather.snow, weather.sleet, weather.freezingRain,
+        weather.hail, weather.lightning, weather.fog, weather.dust,
+        weather.rainbow, weather.aurora, WeatherForcedFramesRemaining(),
+        WeatherImpactEnabled() ? 1 : 0, impacts.surfaceCount,
+        impacts.activeFires);
+}
+
+static GameDebugDispatchResult GameDebugDispatchWeatherCommand(
+    GameRuntime *game, DebugControlCommand command)
+{
+    switch (command) {
+    case DEBUG_CONTROL_COMMAND_WEATHER_INSPECT:
+        GameDebugInspectWeather(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WEATHER_FORCE: {
+        WeatherPhenomenon phenomenon;
+        if (!WeatherPhenomenonFromName(
+                game->debugControl.weatherPhenomenon, &phenomenon) ||
+            !WeatherForcePhenomenon(
+                phenomenon, game->debugControl.weatherIntensity,
+                game->debugControl.weatherFrames)) {
+            GameDebugMarkCommandError(game, "invalid_weather_force");
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL weather force error reason=invalid_arguments\n");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL weather force ok phenomenon=%s intensity=%.6f "
+            "frames=%u\n",
+            WeatherPhenomenonName(phenomenon),
+            game->debugControl.weatherIntensity,
+            game->debugControl.weatherFrames);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
+    case DEBUG_CONTROL_COMMAND_WEATHER_CLEAR:
+        WeatherClearForced();
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL weather clear ok\n");
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE:
+        game->settings.weatherDamageEnabled =
+            game->debugControl.weatherDamageEnabled;
+        WeatherImpactSetEnabled(game->settings.weatherDamageEnabled);
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL weather damage enabled=%d\n",
+            WeatherImpactEnabled() ? 1 : 0);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WEATHER_STEP: {
+        WeatherImpactStepTicks(game->debugControl.weatherTicks,
+                               game->player.position,
+                               WeatherCurrentSample());
+        WeatherImpactStats stats = WeatherImpactGetStats();
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL weather step ok ticks=%u total_ticks=%llu "
+            "surfaces=%u fires=%u damage_events=%u\n",
+            game->debugControl.weatherTicks,
+            (unsigned long long)stats.ticks, stats.surfaceCount,
+            stats.activeFires, stats.blockDamageEvents);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
+    default:
+        return GAME_DEBUG_DISPATCH_UNHANDLED;
+    }
+}
+
 static GameDebugDispatchResult GameDebugDispatchMotionCommand(
     GameRuntime *game, DebugControlCommand command)
 {
@@ -1094,6 +1201,9 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
         result = GameDebugDispatchFluidCommand(game, command);
     }
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
+        result = GameDebugDispatchWeatherCommand(game, command);
+    }
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
         result = GameDebugDispatchMotionCommand(game, command);
     }
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
@@ -1183,6 +1293,19 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         return GameDebugDslVec3(outValue, game->player.velocity);
     }
 
+    if (strcmp(name, "perf.enabled") == 0) {
+        return GameDebugDslBool(outValue, PerfIsEnabled());
+    }
+    if (strcmp(name, "perf.route_complete") == 0) {
+        return GameDebugDslBool(outValue, PerfRouteComplete());
+    }
+    if (strcmp(name, "perf.report_written") == 0) {
+        return GameDebugDslBool(outValue, PerfReportWritten());
+    }
+    if (strcmp(name, "perf.report_passed") == 0) {
+        return GameDebugDslBool(outValue, PerfReportPassed());
+    }
+
     if (strncmp(name, "water.", 6u) == 0) {
         PlayerWaterState water = PlayerWaterStateAt(game->player.position);
         if (strcmp(name, "water.feet_submerged") == 0) {
@@ -1196,6 +1319,58 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         }
         if (strcmp(name, "water.surface_y") == 0) {
             return GameDebugDslNumber(outValue, water.surfaceY);
+        }
+    }
+
+    if (strncmp(name, "weather.", 8u) == 0) {
+        WeatherFieldSample weather = WeatherCurrentSample();
+        WeatherImpactStats impacts = WeatherImpactGetStats();
+        LocalClimateState climate = { 0 };
+        bool haveClimate = GameDebugLocalClimate(game, &climate);
+        if (strcmp(name, "weather.climate") == 0) {
+            return GameDebugDslString(
+                outValue, haveClimate ? ClimateRegimeName(climate.regime) :
+                                        "unavailable");
+        }
+        if (strcmp(name, "weather.phenomenon") == 0) {
+            return GameDebugDslString(
+                outValue,
+                WeatherPhenomenonName(weather.dominantPhenomenon));
+        }
+#define WEATHER_NUMBER(fieldName, fieldValue) \
+        if (strcmp(name, fieldName) == 0) { \
+            return GameDebugDslNumber(outValue, (fieldValue)); \
+        }
+        WEATHER_NUMBER("weather.temperature", weather.temperatureK)
+        WEATHER_NUMBER("weather.temperature_k", weather.temperatureK)
+        WEATHER_NUMBER("weather.pressure", weather.pressureAtm)
+        WEATHER_NUMBER("weather.pressure_atm", weather.pressureAtm)
+        WEATHER_NUMBER("weather.humidity", weather.relativeHumidity)
+        WEATHER_NUMBER("weather.relative_humidity", weather.relativeHumidity)
+        WEATHER_NUMBER("weather.dew_point", weather.dewPointK)
+        WEATHER_NUMBER("weather.dew_point_k", weather.dewPointK)
+        WEATHER_NUMBER("weather.wet_bulb", weather.wetBulbK)
+        WEATHER_NUMBER("weather.wet_bulb_k", weather.wetBulbK)
+        WEATHER_NUMBER("weather.wind", weather.wind)
+        WEATHER_NUMBER("weather.gust", weather.gust)
+        WEATHER_NUMBER("weather.visibility", weather.visibility)
+        WEATHER_NUMBER("weather.rain", weather.rain)
+        WEATHER_NUMBER("weather.snow", weather.snow)
+        WEATHER_NUMBER("weather.sleet", weather.sleet)
+        WEATHER_NUMBER("weather.freezing_rain", weather.freezingRain)
+        WEATHER_NUMBER("weather.hail", weather.hail)
+        WEATHER_NUMBER("weather.lightning", weather.lightning)
+        WEATHER_NUMBER("weather.fog", weather.fog)
+        WEATHER_NUMBER("weather.dust", weather.dust)
+        WEATHER_NUMBER("weather.rainbow", weather.rainbow)
+        WEATHER_NUMBER("weather.aurora", weather.aurora)
+        WEATHER_NUMBER("weather.surface_count", impacts.surfaceCount)
+        WEATHER_NUMBER("weather.active_fires", impacts.activeFires)
+        WEATHER_NUMBER("weather.forced_frames",
+                       WeatherForcedFramesRemaining())
+#undef WEATHER_NUMBER
+        if (strcmp(name, "weather.damage_enabled") == 0) {
+            return GameDebugDslBool(outValue, WeatherImpactEnabled());
         }
     }
 
@@ -1304,6 +1479,9 @@ static const char *GameDebugDslCommandBlocked(
     case DEBUG_CONTROL_COMMAND_MARKER_REMOVE:
     case DEBUG_CONTROL_COMMAND_FLUID_SET:
     case DEBUG_CONTROL_COMMAND_FLUID_STEP:
+    case DEBUG_CONTROL_COMMAND_WEATHER_INSPECT:
+    case DEBUG_CONTROL_COMMAND_WEATHER_FORCE:
+    case DEBUG_CONTROL_COMMAND_WEATHER_STEP:
         return WorldIsSurfaceActive() ? NULL : "no_active_surface";
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET:

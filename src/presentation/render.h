@@ -29,6 +29,7 @@ typedef struct PauseMenuSettings {
     float ambientVolume;
     float musicVolume;
     bool musicEnabled;
+    bool weatherDamageEnabled;
 } PauseMenuSettings;
 
 typedef struct HudFrameState {

@@ -205,6 +205,45 @@ static DebugControlCommand DebugControlParseFluid(DebugControl *control,
     return DEBUG_CONTROL_COMMAND_NONE;
 }
 
+static DebugControlCommand DebugControlParseWeather(DebugControl *control,
+                                                    const char *line)
+{
+    if (strcmp(line, "weather inspect") == 0) {
+        return DEBUG_CONTROL_COMMAND_WEATHER_INSPECT;
+    }
+    if (strcmp(line, "weather clear") == 0) {
+        return DEBUG_CONTROL_COMMAND_WEATHER_CLEAR;
+    }
+    if (strcmp(line, "weather damage on") == 0 ||
+        strcmp(line, "weather damage off") == 0) {
+        control->weatherDamageEnabled = strcmp(line, "weather damage on") == 0;
+        return DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE;
+    }
+
+    unsigned value = 0u;
+    char trailing = '\0';
+    if (sscanf(line, "weather step %u %c", &value, &trailing) == 1 &&
+        value >= 1u && value <= 100000u) {
+        control->weatherTicks = value;
+        return DEBUG_CONTROL_COMMAND_WEATHER_STEP;
+    }
+
+    char phenomenon[DEBUG_CONTROL_WEATHER_NAME_SIZE] = { 0 };
+    float intensity = 0.0f;
+    unsigned frames = 0u;
+    if (sscanf(line, "weather force %31s %f %u %c", phenomenon,
+               &intensity, &frames, &trailing) == 3 &&
+        isfinite(intensity) && intensity >= 0.0f && intensity <= 1.0f &&
+        frames >= 1u && frames <= 36000u) {
+        snprintf(control->weatherPhenomenon,
+                 sizeof(control->weatherPhenomenon), "%s", phenomenon);
+        control->weatherIntensity = intensity;
+        control->weatherFrames = frames;
+        return DEBUG_CONTROL_COMMAND_WEATHER_FORCE;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
 static DebugControlCommand DebugControlParseEvolution(
     DebugControl *control, const char *line)
 {
@@ -438,6 +477,8 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     command = DebugControlParseView(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseFluid(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseWeather(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseEvolution(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;

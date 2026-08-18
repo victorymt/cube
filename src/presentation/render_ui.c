@@ -27,6 +27,7 @@
 #include "gameplay/ship.h"
 #include "presentation/audio.h"
 #include "world/weather.h"
+#include "world/weather_impact.h"
 #include "ecology/ecology.h"
 #include "core/perf.h"
 #include "presentation/render_sort.h"
@@ -1023,9 +1024,35 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                         hud->autoSaveEnabled ? "on" : "off"),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     if (HomeWorldSurfaceIsActive() || PlanetWorldIsActive()) {
-        UiDrawText(TextFormat("Weather cloud %.2f   precip %.2f   storm %.2f   wind %.2f",
-                            WeatherCloudCover(), WeatherPrecipitationRate(),
-                            WeatherStormIntensity(), WeatherWindIntensity()),
+        WeatherFieldSample localWeather = WeatherCurrentSample();
+        LocalClimateState localClimate = { 0 };
+        bool haveClimate = WeatherLocalClimateAtWorldTime(
+            (int)floorf(playerPosition.x), (int)floorf(playerPosition.z),
+            SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+            &localClimate);
+        WeatherImpactStats weatherImpacts = WeatherImpactGetStats();
+        UiDrawText(TextFormat("Climate %s   phenomenon %s",
+                            haveClimate ? ClimateRegimeName(localClimate.regime) :
+                                          "unavailable",
+                            WeatherPhenomenonName(
+                                localWeather.dominantPhenomenon)),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        UiDrawText(TextFormat("T %.1f C   P %.3f atm   RH %.0f%%   wind %.2f gust %.2f",
+                            localWeather.temperatureK - 273.15f,
+                            localWeather.pressureAtm,
+                            localWeather.relativeHumidity * 100.0f,
+                            localWeather.wind, localWeather.gust),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        UiDrawText(TextFormat("Cloud %.2f   precip %.2f   storm %.2f   visibility %.2f",
+                            localWeather.cloudCover,
+                            localWeather.precipitation,
+                            localWeather.storm, localWeather.visibility),
+                 x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        UiDrawText(TextFormat("Weather effects surfaces %u   fires %u   damage %s (%u)",
+                            weatherImpacts.surfaceCount,
+                            weatherImpacts.activeFires,
+                            WeatherImpactEnabled() ? "on" : "off",
+                            weatherImpacts.blockDamageEvents),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
         if (weatherVisual && weatherVisual->active) {
             UiDrawText(TextFormat("Visibility %.2f   fog %.2f   veil %.2f   cloud AGL %.1f",
@@ -1290,6 +1317,18 @@ void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions)
         actions->settingsChanged = true;
     }
     y += 58;
+    Rectangle weatherDamageRect = {
+        (float)left, (float)y, (float)contentWidth, 40.0f
+    };
+    if (DrawMenuButton(
+            weatherDamageRect,
+            TextFormat("Weather damage: %s",
+                       settings->weatherDamageEnabled ? "On" : "Off"),
+            settings->weatherDamageEnabled)) {
+        settings->weatherDamageEnabled = !settings->weatherDamageEnabled;
+        actions->settingsChanged = true;
+    }
+    y += 52;
     Rectangle resumeRect = { (float)left, (float)y, (float)contentWidth, 44.0f };
     if (DrawMenuButton(resumeRect, "Resume", true)) actions->resume = true;
     y += 54;

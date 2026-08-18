@@ -19,10 +19,13 @@ static void TestSupportedFormats(void)
 {
     const char v18[] = "VOXELCRAFT_SAVE_V18";
     const char v19[] = "VOXELCRAFT_SAVE_V19";
+    const char v20[] = "VOXELCRAFT_SAVE_V20";
     assert(ReadBytes(v18, sizeof(v18) - 1u) == WORLD_SAVE_FORMAT_V18);
     assert(ReadBytes(v19, sizeof(v19) - 1u) == WORLD_SAVE_FORMAT_V19);
+    assert(ReadBytes(v20, sizeof(v20) - 1u) == WORLD_SAVE_FORMAT_V20);
     assert(!WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V18));
     assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V19));
+    assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V20));
 }
 
 static void TestUnsupportedFormats(void)
@@ -42,7 +45,7 @@ static void TestCurrentFormatWriter(void)
     assert(file != NULL);
     assert(WorldSaveFormatWriteCurrent(file));
     rewind(file);
-    assert(WorldSaveFormatRead(file) == WORLD_SAVE_FORMAT_V19);
+    assert(WorldSaveFormatRead(file) == WORLD_SAVE_FORMAT_V20);
     fclose(file);
     assert(!WorldSaveFormatWriteCurrent(NULL));
 }
