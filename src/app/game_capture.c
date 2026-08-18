@@ -10,6 +10,7 @@
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
 #include "presentation/starmap.h"
+#include "presentation/render.h"
 #include "space/space_chunks.h"
 #include "space/space_state.h"
 #include "world/chunks.h"
@@ -42,6 +43,8 @@ void GameCaptureScreenshot(GameRuntime *game,
         ChunkWaterRenderDebugInfo screenshotWaterRender = { 0 };
         ChunksGetWaterRenderDebugInfo(game->player.position,
                                       &screenshotWaterRender);
+        WorldWaterRenderDebugInfo screenshotWaterPass =
+            WorldRenderWaterDebugSnapshot();
         EntityEvolutionDebugInfo screenshotEntity = { 0 };
         int screenshotEntityIndex = game->evolutionScanLocked
             ? EntityEvolutionFindByOrganism(game->evolutionLockedOrganismId)
@@ -183,6 +186,16 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .waterTriangleCount = screenshotWaterRender.triangleCount,
                 .waterSectionTriangleCount =
                     screenshotWaterRender.sectionTriangleCount,
+                .waterDebugEnabled = screenshotWaterPass.enabled,
+                .waterDebugThrough = screenshotWaterPass.through,
+                .waterVisibleSectionCount =
+                    screenshotWaterPass.visibleSectionCount,
+                .waterDrawItemCount = screenshotWaterPass.drawItemCount,
+                .waterDrawTriangleCount = screenshotWaterPass.triangleCount,
+                .waterHasNearest = screenshotWaterPass.hasNearest,
+                .waterNearestChunkX = screenshotWaterPass.nearestChunkX,
+                .waterNearestChunkZ = screenshotWaterPass.nearestChunkZ,
+                .waterNearestSectionY = screenshotWaterPass.nearestSectionY,
                 .generationSubmitted = streamingStats.generationSubmitted,
                 .generationCompleted = streamingStats.generationCompleted,
                 .generationCanceled = streamingStats.generationCanceled,

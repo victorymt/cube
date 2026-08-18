@@ -29,6 +29,7 @@ bool TransparentRenderItemAppend(
         .model = model,
         .translation = translation,
         .distanceSquared = dx * dx + dy * dy + dz * dz,
+        .center = center,
         .dimension = dimension,
         .cx = cx,
         .cz = cz,

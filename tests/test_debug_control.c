@@ -13,6 +13,27 @@ static void TestDisabledControl(void)
     assert(!DebugControlReply(&control, "unused\n"));
 }
 
+static void TestLongReply(void)
+{
+    int outputPipe[2];
+    assert(pipe(outputPipe) == 0);
+    DebugControl control;
+    DebugControlInitFds(&control, true, -1, outputPipe[1]);
+
+    char payload[2049];
+    memset(payload, 'x', sizeof(payload) - 1u);
+    payload[sizeof(payload) - 1u] = '\0';
+    assert(DebugControlReply(&control, "%s\n", payload));
+    close(outputPipe[1]);
+
+    char response[4096];
+    ssize_t responseLength = read(outputPipe[0], response, sizeof(response));
+    assert(responseLength == (ssize_t)strlen(payload) + 1);
+    assert(memcmp(response, payload, strlen(payload)) == 0);
+    assert(response[responseLength - 1] == '\n');
+    close(outputPipe[0]);
+}
+
 static void TestCommandStream(void)
 {
     int inputPipe[2];
@@ -23,8 +44,10 @@ static void TestCommandStream(void)
     DebugControl control;
     DebugControlInitFds(&control, true, inputPipe[0], outputPipe[1]);
     const char *commands =
-        "\n START \r\nscreenshot\nstatus\nstream audit 3\n"
-        "stream audit at 15 110 -252 4\nsave\nload\nmap\n"
+        "\n START \r\nscreenshot\nstatus\nwater debug on\nwater debug through on\n"
+        "water debug\nwater debug through\nwater debug off\nstream audit 3\n"
+        "stream audit at 15 110 -252 4\nstream wait\nstream wait 45\n"
+        "save\nload\nmap\n"
         "fluid inspect\nfluid inspect 1 72 -4\n"
         "fluid set 1 72 -4 127\nfluid step 25\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
@@ -40,6 +63,18 @@ static void TestCommandStream(void)
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_START);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SCREENSHOT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STATUS);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_WATER_DEBUG);
+    assert(control.waterDebugEnabled);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH);
+    assert(control.waterDebugThrough);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_WATER_DEBUG);
+    assert(!control.waterDebugEnabled);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH);
+    assert(!control.waterDebugThrough);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_WATER_DEBUG);
+    assert(!control.waterDebugEnabled);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STREAM_AUDIT);
     assert(control.streamAuditRadius == 3);
     assert(control.streamAuditUsePlayerPosition);
@@ -48,6 +83,11 @@ static void TestCommandStream(void)
     assert(control.streamAuditX == 15 && control.streamAuditY == 110 &&
            control.streamAuditZ == -252);
     assert(control.streamAuditRadius == 4);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STREAM_WAIT);
+    assert(control.streamWaitFrames ==
+           DEBUG_CONTROL_STREAM_WAIT_DEFAULT_FRAMES);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STREAM_WAIT);
+    assert(control.streamWaitFrames == 45u);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SAVE);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_LOAD);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MAP);
@@ -203,11 +243,14 @@ static void TestInvalidParameterizedCommands(void)
         "ship exhaust 1.1\n"
         "fluid set 0 1 0 256\n"
         "fluid step 0\n"
+        "stream wait 0\n"
+        "stream wait 3601\n"
+        "stream wait 12 trailing\n"
         "marker add 1 2 red\n"
         "marker target 0\n";
     assert(write(inputPipe[1], commands, strlen(commands)) ==
            (ssize_t)strlen(commands));
-    for (int index = 0; index < 11; index++) {
+    for (int index = 0; index < 14; index++) {
         assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_INVALID);
     }
     close(inputPipe[0]);
@@ -232,6 +275,7 @@ static void TestFinalCommandWithoutNewline(void)
 int main(void)
 {
     TestDisabledControl();
+    TestLongReply();
     TestCommandStream();
     TestFinalCommandWithoutNewline();
     TestInvalidParameterizedCommands();

@@ -5,6 +5,7 @@
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
@@ -73,6 +74,20 @@ static DebugControlCommand DebugControlParseMarker(
 static DebugControlCommand DebugControlParseStreamAudit(
     DebugControl *control, const char *line)
 {
+    if (strcmp(line, "stream wait") == 0) {
+        control->streamWaitFrames = DEBUG_CONTROL_STREAM_WAIT_DEFAULT_FRAMES;
+        return DEBUG_CONTROL_COMMAND_STREAM_WAIT;
+    }
+
+    unsigned waitFrames = 0u;
+    char waitTrailing = '\0';
+    if (sscanf(line, "stream wait %u %c", &waitFrames, &waitTrailing) == 1 &&
+        waitFrames >= 1u &&
+        waitFrames <= DEBUG_CONTROL_STREAM_WAIT_MAX_FRAMES) {
+        control->streamWaitFrames = waitFrames;
+        return DEBUG_CONTROL_COMMAND_STREAM_WAIT;
+    }
+
     if (strcmp(line, "stream audit") == 0) {
         control->streamAuditRadius = 2;
         control->streamAuditUsePlayerPosition = true;
@@ -313,13 +328,38 @@ static DebugControlCommand DebugControlParseMotion(DebugControl *control,
     return DebugControlParsePlayerInput(control, line);
 }
 
-static DebugControlCommand DebugControlParseBasic(const char *line)
+static DebugControlCommand DebugControlParseBasic(DebugControl *control,
+                                                  const char *line)
 {
     if (strcmp(line, "start") == 0) return DEBUG_CONTROL_COMMAND_START;
     if (strcmp(line, "screenshot") == 0) {
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "water debug") == 0) {
+        control->waterDebugEnabled = !control->waterDebugEnabled;
+        return DEBUG_CONTROL_COMMAND_WATER_DEBUG;
+    }
+    if (strcmp(line, "water debug through") == 0) {
+        control->waterDebugThrough = !control->waterDebugThrough;
+        return DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH;
+    }
+    if (strcmp(line, "water debug through on") == 0) {
+        control->waterDebugThrough = true;
+        return DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH;
+    }
+    if (strcmp(line, "water debug through off") == 0) {
+        control->waterDebugThrough = false;
+        return DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH;
+    }
+    if (strcmp(line, "water debug on") == 0) {
+        control->waterDebugEnabled = true;
+        return DEBUG_CONTROL_COMMAND_WATER_DEBUG;
+    }
+    if (strcmp(line, "water debug off") == 0) {
+        control->waterDebugEnabled = false;
+        return DEBUG_CONTROL_COMMAND_WATER_DEBUG;
+    }
     if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;
     if (strcmp(line, "load") == 0) return DEBUG_CONTROL_COMMAND_LOAD;
     if (strcmp(line, "map") == 0) return DEBUG_CONTROL_COMMAND_MAP;
@@ -357,7 +397,7 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
         return DebugControlParseMarker(control, line, normalized);
     }
     line = normalized;
-    DebugControlCommand command = DebugControlParseBasic(line);
+    DebugControlCommand command = DebugControlParseBasic(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseStreamAudit(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
@@ -372,6 +412,17 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     command = DebugControlParseMotion(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     return DEBUG_CONTROL_COMMAND_INVALID;
+}
+
+DebugControlCommand DebugControlParseText(DebugControl *control,
+                                           const char *text)
+{
+    if (!control || !text) return DEBUG_CONTROL_COMMAND_INVALID;
+    size_t length = strlen(text);
+    char line[DEBUG_CONTROL_BUFFER_SIZE];
+    if (length >= sizeof(line)) return DEBUG_CONTROL_COMMAND_INVALID;
+    memcpy(line, text, length + 1u);
+    return DebugControlParseLine(control, line);
 }
 
 static bool DebugControlTakeLine(DebugControl *control, char *line,
@@ -393,16 +444,17 @@ static bool DebugControlTakeLine(DebugControl *control, char *line,
     return false;
 }
 
-DebugControlCommand DebugControlPoll(DebugControl *control)
+DebugControlReadResult DebugControlReadLine(DebugControl *control,
+                                             char *line, size_t lineSize)
 {
-    if (!control || !control->enabled) return DEBUG_CONTROL_COMMAND_NONE;
-
-    char line[DEBUG_CONTROL_BUFFER_SIZE];
-    while (DebugControlTakeLine(control, line, sizeof(line))) {
-        DebugControlCommand command = DebugControlParseLine(control, line);
-        if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    if (!control || !control->enabled || !line || lineSize == 0u) {
+        return DEBUG_CONTROL_READ_NONE;
     }
-    if (control->inputClosed) return DEBUG_CONTROL_COMMAND_NONE;
+
+    if (DebugControlTakeLine(control, line, lineSize)) {
+        return DEBUG_CONTROL_READ_LINE;
+    }
+    if (control->inputClosed) return DEBUG_CONTROL_READ_EOF;
 
     fd_set readSet;
     FD_ZERO(&readSet);
@@ -410,56 +462,92 @@ DebugControlCommand DebugControlPoll(DebugControl *control)
     struct timeval timeout = { 0 };
     int selected = select(control->inputFd + 1, &readSet, NULL, NULL, &timeout);
     if (selected <= 0 || !FD_ISSET(control->inputFd, &readSet)) {
-        return DEBUG_CONTROL_COMMAND_NONE;
+        return DEBUG_CONTROL_READ_NONE;
     }
 
     if (control->inputLength == sizeof(control->input)) {
         control->inputLength = 0;
-        return DEBUG_CONTROL_COMMAND_INVALID;
+        return DEBUG_CONTROL_READ_ERROR;
     }
     ssize_t count = read(control->inputFd,
                          control->input + control->inputLength,
                          sizeof(control->input) - control->inputLength);
     if (count < 0) {
         if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
-            return DEBUG_CONTROL_COMMAND_NONE;
+            return DEBUG_CONTROL_READ_NONE;
         }
         control->inputClosed = true;
-        return DEBUG_CONTROL_COMMAND_INVALID;
+        return DEBUG_CONTROL_READ_ERROR;
     }
     if (count == 0) {
         control->inputClosed = true;
-        if (control->inputLength == 0) return DEBUG_CONTROL_COMMAND_NONE;
+        if (control->inputLength == 0) return DEBUG_CONTROL_READ_EOF;
         if (control->inputLength == sizeof(control->input)) {
             control->inputLength = 0;
-            return DEBUG_CONTROL_COMMAND_INVALID;
+            return DEBUG_CONTROL_READ_ERROR;
         }
         control->input[control->inputLength++] = '\n';
     } else {
         control->inputLength += (size_t)count;
     }
 
-    while (DebugControlTakeLine(control, line, sizeof(line))) {
-        DebugControlCommand command = DebugControlParseLine(control, line);
-        if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    if (DebugControlTakeLine(control, line, lineSize)) {
+        return DEBUG_CONTROL_READ_LINE;
     }
     if (control->inputLength == sizeof(control->input)) {
         control->inputLength = 0;
-        return DEBUG_CONTROL_COMMAND_INVALID;
+        return DEBUG_CONTROL_READ_ERROR;
     }
-    return DEBUG_CONTROL_COMMAND_NONE;
+    return control->inputClosed ? DEBUG_CONTROL_READ_EOF
+                                : DEBUG_CONTROL_READ_NONE;
+}
+
+DebugControlCommand DebugControlPoll(DebugControl *control)
+{
+    char line[DEBUG_CONTROL_BUFFER_SIZE];
+    for (;;) {
+        DebugControlReadResult result = DebugControlReadLine(
+            control, line, sizeof(line));
+        if (result == DEBUG_CONTROL_READ_ERROR) {
+            return DEBUG_CONTROL_COMMAND_INVALID;
+        }
+        if (result != DEBUG_CONTROL_READ_LINE) {
+            return DEBUG_CONTROL_COMMAND_NONE;
+        }
+        DebugControlCommand command = DebugControlParseLine(control, line);
+        if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    }
 }
 
 bool DebugControlReply(DebugControl *control, const char *format, ...)
 {
     if (!control || !control->enabled || !format) return false;
 
-    char message[1024];
     va_list arguments;
     va_start(arguments, format);
-    int length = vsnprintf(message, sizeof(message), format, arguments);
+    va_list measurement;
+    va_copy(measurement, arguments);
+    int length = vsnprintf(NULL, 0, format, measurement);
+    va_end(measurement);
+    if (length < 0) {
+        va_end(arguments);
+        return false;
+    }
+
+    char stackMessage[1024];
+    size_t capacity = (size_t)length + 1u;
+    char *message = capacity <= sizeof(stackMessage)
+        ? stackMessage : malloc(capacity);
+    if (!message) {
+        va_end(arguments);
+        return false;
+    }
+    int formatted = vsnprintf(message, capacity, format, arguments);
     va_end(arguments);
-    if (length < 0 || (size_t)length >= sizeof(message)) return false;
+    if (formatted != length) {
+        if (message != stackMessage) free(message);
+        return false;
+    }
 
     size_t written = 0;
     while (written < (size_t)length) {
@@ -467,10 +555,15 @@ bool DebugControlReply(DebugControl *control, const char *format, ...)
                               (size_t)length - written);
         if (count < 0) {
             if (errno == EINTR) continue;
+            if (message != stackMessage) free(message);
             return false;
         }
-        if (count == 0) return false;
+        if (count == 0) {
+            if (message != stackMessage) free(message);
+            return false;
+        }
         written += (size_t)count;
     }
+    if (message != stackMessage) free(message);
     return true;
 }

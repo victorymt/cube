@@ -806,6 +806,8 @@ static void GameRenderWorldPass(GameRuntime *game,
     bool drawSurfaceChunks = PlanetWorldIsActive() ||
         (HomeWorldSurfaceIsActive() && !frame->inNether &&
          frame->spaceFade <= 0.05f);
+    WorldRenderSetWaterDebug(game->debugControl.waterDebugEnabled);
+    WorldRenderSetWaterDebugThrough(game->debugControl.waterDebugThrough);
     WorldRenderFramePrepare(&game->camera, frame->effectiveRenderDistance,
                             drawSurfaceChunks);
     DrawWorldShadowMap(&game->camera, frame->inNether,
@@ -1243,8 +1245,8 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready commands=start,screenshot,status,stream,save,load,map,marker,teleport,look,input,ship,view,"
-        "fluid,evolution,quit\n");
+        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,marker,teleport,look,input,ship,view,"
+        "fluid,water,evolution statements=let,assert,wait,repeat,exit\n");
     return true;
 }
 
@@ -1282,6 +1284,10 @@ static int GameStop(GameRuntime *game)
     WorldCleanup();
     GameDebugTraceStop(game);
     DebugControlReply(&game->debugControl, "DEBUG_CONTROL stopped\n");
+    GameDebugScriptStop(game);
+    DebugDslEnvironmentDestroy(game->debugDslEnvironment);
+    game->debugDslEnvironment = NULL;
+    if (game->processExitRequested) return game->processExitCode;
     return game->perfMode && !perfPassed ? 2 : 0;
 }
 
@@ -1291,6 +1297,9 @@ int GameRun(int argc, char **argv)
     const int screenHeight = 720;
     GameRuntime game;
     GameRuntimeInit(&game, argc, argv);
+    if (!GameDebugScriptLoad(&game)) {
+        return game.processExitCode != 0 ? game.processExitCode : 1;
+    }
     if (!GameStart(&game, screenWidth, screenHeight)) return 1;
 
     while (!game.quitRequested && !WindowShouldClose()) {

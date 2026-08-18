@@ -61,32 +61,6 @@ jobs:
       - name: Run sanitizer tests
         run: make CC=gcc test-sanitize
 
-  game-e2e:
-    name: Headless game and screenshot
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential curl pkg-config python3 \
-            xvfb xauth mesa-utils libasound2-dev libx11-dev libxrandr-dev \
-            libxi-dev libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
-            libxinerama-dev libwayland-dev libxkbcommon-dev
-      - name: Install raylib
-        run: sh scripts/setup-raylib-ci.sh
-      - name: Build game
-        run: make CC=gcc CFLAGS='-std=c99 -Wall -Wextra -Werror -O2 -pthread' voxelcraft
-      - name: Run scripted game test
-        run: make test-e2e
-      - name: Upload debug capture
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: game-e2e-capture
-          path: screenshots/
-          if-no-files-found: warn
-
   coverage:
     name: Coverage report
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -5,5 +5,7 @@
 
 struct GameRuntime;
 
+bool GameDebugScriptLoad(struct GameRuntime *game);
+void GameDebugScriptStop(struct GameRuntime *game);
 bool GameDispatchDebugCommand(struct GameRuntime *game);
 #endif

@@ -2,6 +2,8 @@
 #include "presentation/render_dependencies.h"
 #include "presentation/render_internal.h"
 
+#include <limits.h>
+
 static TransparentRenderItem *surfaceTransparentItems;
 static int surfaceTransparentCount;
 static int surfaceTransparentCapacity;
@@ -10,6 +12,9 @@ static int worldFrameCameraCz;
 static int worldFrameShadowChunkRadius;
 static int worldFrameEffectiveRenderDistance;
 static bool worldFrameDrawSurfaceChunks;
+static bool worldWaterDebugEnabled;
+static bool worldWaterDebugThrough;
+static WorldWaterRenderDebugInfo worldWaterDebugSnapshot;
 
 #define MAX_OTHER_TRANSPARENT_ITEMS (MAX_SPACE_CHUNKS + MAX_NETHER_CHUNKS)
 
@@ -50,6 +55,10 @@ void WorldRenderFramePrepare(const Camera3D *camera,
                              bool drawSurfaceChunks)
 {
     surfaceTransparentCount = 0;
+    worldWaterDebugSnapshot = (WorldWaterRenderDebugInfo){
+        .enabled = worldWaterDebugEnabled,
+        .through = worldWaterDebugThrough
+    };
     worldFrameCameraCx = 0;
     worldFrameCameraCz = 0;
     worldFrameEffectiveRenderDistance = effectiveRenderDistance;
@@ -64,6 +73,28 @@ void WorldRenderFramePrepare(const Camera3D *camera,
     if (worldFrameShadowChunkRadius > effectiveRenderDistance) {
         worldFrameShadowChunkRadius = effectiveRenderDistance;
     }
+}
+
+void WorldRenderSetWaterDebug(bool enabled)
+{
+    worldWaterDebugEnabled = enabled;
+    worldWaterDebugSnapshot.enabled = enabled;
+}
+
+void WorldRenderSetWaterDebugThrough(bool enabled)
+{
+    worldWaterDebugThrough = enabled;
+    worldWaterDebugSnapshot.through = enabled;
+}
+
+bool WorldRenderWaterDebugEnabled(void)
+{
+    return worldWaterDebugEnabled;
+}
+
+WaterRenderDebugInfo WorldRenderWaterDebugSnapshot(void)
+{
+    return worldWaterDebugSnapshot;
 }
 
 static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
@@ -118,12 +149,15 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
             PerfRecordWorldCandidate(true, frustumVisible);
             if (frustumVisible && section->hasWaterModel &&
                 EnsureSurfaceTransparentCapacity(surfaceTransparentCount + 1)) {
-                TransparentRenderItemAppendTransformed(
+                if (TransparentRenderItemAppendTransformed(
                     surfaceTransparentItems, surfaceTransparentCapacity,
                     &surfaceTransparentCount,
                     &section->waterModel, transform, center,
                     camera->position, TRANSPARENT_RENDER_SURFACE,
-                    chunk->cx, chunk->cz, stableOrder);
+                    chunk->cx, chunk->cz, stableOrder)) {
+                    surfaceTransparentItems[surfaceTransparentCount - 1].sectionY =
+                        sectionY;
+                }
             }
             stableOrder++;
             if (!frustumVisible) continue;
@@ -147,6 +181,67 @@ void WorldRenderFrameShutdown(void)
     surfaceTransparentItems = NULL;
     surfaceTransparentCount = 0;
     surfaceTransparentCapacity = 0;
+    worldWaterDebugSnapshot = (WorldWaterRenderDebugInfo){
+        .enabled = worldWaterDebugEnabled,
+        .through = worldWaterDebugThrough
+    };
+}
+
+static int WaterModelTriangleCount(const Model *model)
+{
+    if (!model || !model->meshes || model->meshCount <= 0) return 0;
+    int total = 0;
+    for (int meshIndex = 0; meshIndex < model->meshCount; meshIndex++) {
+        int triangles = model->meshes[meshIndex].triangleCount;
+        if (triangles <= 0) continue;
+        if (total > INT_MAX - triangles) return INT_MAX;
+        total += triangles;
+    }
+    return total;
+}
+
+static Vector3 WaterDebugPoint(
+    const TransparentRenderItem *item, float x, float y, float z)
+{
+    Vector3 point = { x, y, z };
+    return item->transformed
+        ? Vector3Transform(point, item->transform)
+        : Vector3Add(point, item->translation);
+}
+
+static void DrawWaterDebugBounds(const TransparentRenderItem *items, int count)
+{
+    if (!worldWaterDebugEnabled) return;
+    if (worldWaterDebugThrough) rlDisableDepthTest();
+    Color color = Fade(SKYBLUE, 0.78f);
+    for (int index = 0; index < count; index++) {
+        if (items[index].dimension != TRANSPARENT_RENDER_SURFACE) continue;
+        const TransparentRenderItem *item = &items[index];
+        Vector3 corners[8] = {
+            WaterDebugPoint(item, 0.0f, 0.0f, 0.0f),
+            WaterDebugPoint(item, (float)CHUNK_SIZE, 0.0f, 0.0f),
+            WaterDebugPoint(item, (float)CHUNK_SIZE,
+                            (float)SURFACE_SECTION_HEIGHT, 0.0f),
+            WaterDebugPoint(item, 0.0f, (float)SURFACE_SECTION_HEIGHT, 0.0f),
+            WaterDebugPoint(item, 0.0f, 0.0f, (float)CHUNK_SIZE),
+            WaterDebugPoint(item, (float)CHUNK_SIZE, 0.0f,
+                            (float)CHUNK_SIZE),
+            WaterDebugPoint(item, (float)CHUNK_SIZE,
+                            (float)SURFACE_SECTION_HEIGHT,
+                            (float)CHUNK_SIZE),
+            WaterDebugPoint(item, 0.0f, (float)SURFACE_SECTION_HEIGHT,
+                            (float)CHUNK_SIZE)
+        };
+        static const unsigned char edges[12][2] = {
+            { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 },
+            { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
+            { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 }
+        };
+        for (int edge = 0; edge < 12; edge++) {
+            DrawLine3D(corners[edges[edge][0]], corners[edges[edge][1]], color);
+        }
+    }
+    if (worldWaterDebugThrough) rlEnableDepthTest();
 }
 
 static void CollectSpaceRenderItems(
@@ -227,6 +322,30 @@ void DrawWorld(const Camera3D *camera, Color tint, bool drawNetherChunks,
     TransparentRenderItem *water = surfaceTransparentItems;
     int waterCount = surfaceTransparentCount;
     SortTransparentRenderItems(water, waterCount);
+    worldWaterDebugSnapshot.visibleSectionCount = waterCount;
+    worldWaterDebugSnapshot.drawItemCount = waterCount;
+    worldWaterDebugSnapshot.triangleCount = 0;
+    worldWaterDebugSnapshot.hasNearest = false;
+    float nearestDistanceSquared = INFINITY;
+    for (int index = 0; index < waterCount; index++) {
+        if (!worldWaterDebugSnapshot.hasNearest ||
+            water[index].distanceSquared < nearestDistanceSquared) {
+            worldWaterDebugSnapshot.hasNearest = true;
+            nearestDistanceSquared = water[index].distanceSquared;
+            worldWaterDebugSnapshot.nearestChunkX = water[index].cx;
+            worldWaterDebugSnapshot.nearestChunkZ = water[index].cz;
+            worldWaterDebugSnapshot.nearestSectionY = water[index].sectionY;
+        }
+        int triangles = WaterModelTriangleCount(water[index].model);
+        if (triangles == INT_MAX ||
+            worldWaterDebugSnapshot.triangleCount > INT_MAX - triangles) {
+            worldWaterDebugSnapshot.triangleCount = INT_MAX;
+            continue;
+        }
+        if (worldWaterDebugSnapshot.triangleCount != INT_MAX) {
+            worldWaterDebugSnapshot.triangleCount += triangles;
+        }
+    }
     BeginBlendMode(BLEND_ALPHA);
     WorldRendererBeginWaterPass();
     for (int i = 0; i < waterCount; i++) {
@@ -241,6 +360,7 @@ void DrawWorld(const Camera3D *camera, Color tint, bool drawNetherChunks,
     }
     WorldRendererEndWaterPass();
     EndBlendMode();
+    DrawWaterDebugBounds(water, waterCount);
 
     SortTransparentRenderItems(transparent, transparentCount);
     BeginBlendMode(BLEND_ALPHA);

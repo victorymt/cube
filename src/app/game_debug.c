@@ -6,6 +6,7 @@
 #include "app/game_save.h"
 #include "world/chunks.h"
 #include "core/debug_control.h"
+#include "core/debug_dsl.h"
 #include "core/game_notice.h"
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
@@ -28,10 +29,22 @@
 #include "world/world.h"
 #include "world/world_environment.h"
 
+#include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
+static void GameDebugMarkCommandError(GameRuntime *game, const char *reason)
+{
+    if (!game) return;
+    game->debugCommandFailed = true;
+    snprintf(game->debugCommandFailure, sizeof(game->debugCommandFailure),
+             "%s", reason ? reason : "command_failed");
+}
 
 static int GameDebugCountSurfaceFaceVertices(
     const Chunk *chunk, const ChunkSection *section,
@@ -158,6 +171,7 @@ static void GameDebugReplyStatus(GameRuntime *game)
     uint64_t loadedVolume = FluidLoadedVolume();
     ChunkWaterRenderDebugInfo waterRender = { 0 };
     ChunksGetWaterRenderDebugInfo(game->player.position, &waterRender);
+    WorldWaterRenderDebugInfo waterPass = WorldRenderWaterDebugSnapshot();
     BathymetrySample bathymetry = {
         .seaLevel = -1,
         .seabedY = (int)floorf(game->player.position.y),
@@ -187,6 +201,8 @@ static void GameDebugReplyStatus(GameRuntime *game)
         "surface_ready=%d player_missing_surface_chunks=%d "
         "chunk=%d,%d,%d chunk_loaded=%d neighbors=0x%X "
         "water_triangles=%d section_water_triangles=%d "
+        "water_debug=%d water_debug_through=%d water_visible_sections=%d water_draw_items=%d "
+        "water_draw_triangles=%d water_nearest=%d,%d,%d,%d "
         "ship_driving=%d ship_mode=%s ship_exhaust=%.3f "
         "ship_input_frames=%u third_person=%d "
         "target=%d,%d,%d target_hit=%d target_block=%s "
@@ -212,6 +228,11 @@ static void GameDebugReplyStatus(GameRuntime *game)
         waterRender.cx, waterRender.cz, waterRender.sectionY,
         waterRender.chunkLoaded ? 1 : 0, waterRender.neighborLoadedMask,
         waterRender.triangleCount, waterRender.sectionTriangleCount,
+        waterPass.enabled ? 1 : 0, waterPass.through ? 1 : 0,
+        waterPass.visibleSectionCount,
+        waterPass.drawItemCount, waterPass.triangleCount,
+        waterPass.hasNearest ? 1 : 0, waterPass.nearestChunkX,
+        waterPass.nearestChunkZ, waterPass.nearestSectionY,
         ShipIsDriving() ? 1 : 0, ShipDriveModeName(),
         ShipVisualExhaustIntensity(), game->scriptedShipInputFrames,
         game->thirdPerson ? 1 : 0,
@@ -304,6 +325,7 @@ static void GameDebugMarkerAdd(GameRuntime *game)
     if (!GameDebugMarkerAvailable(game)) return;
     MapMarkerColor color = MAP_MARKER_RED;
     if (!GameDebugMarkerColor(game->debugControl.marker.color, &color)) {
+        GameDebugMarkCommandError(game, "marker_invalid_color");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL marker add error reason=invalid_color\n");
         return;
@@ -313,6 +335,7 @@ static void GameDebugMarkerAdd(GameRuntime *game)
                           game->debugControl.marker.x,
                           game->debugControl.marker.z,
                           game->debugControl.marker.name, color, &id)) {
+        GameDebugMarkCommandError(game, "marker_invalid_or_limit");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL marker add error reason=invalid_or_limit\n");
         return;
@@ -356,6 +379,7 @@ static void GameDebugMarkerTarget(GameRuntime *game)
     if (!GameDebugMarkerAvailable(game)) return;
     uint32_t id = game->debugControl.marker.id;
     if (!MapMarkersSetTarget(id)) {
+        GameDebugMarkCommandError(game, "marker_target_not_found");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL marker target error reason=not_found id=%u\n",
                           id);
@@ -370,6 +394,7 @@ static void GameDebugMarkerRemove(GameRuntime *game)
     if (!GameDebugMarkerAvailable(game)) return;
     uint32_t id = game->debugControl.marker.id;
     if (!MapMarkersRemove(id)) {
+        GameDebugMarkCommandError(game, "marker_remove_not_found");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL marker remove error reason=not_found id=%u\n",
                           id);
@@ -414,6 +439,7 @@ static void GameDebugSetFluid(GameRuntime *game)
                                  game->debugControl.fluidY,
                                  game->debugControl.fluidZ,
                                  (uint8_t)game->debugControl.fluidVolume)) {
+        GameDebugMarkCommandError(game, "fluid_cell_unavailable");
         DebugControlReply(
             &game->debugControl,
             "DEBUG_CONTROL fluid set error reason=cell_unavailable\n");
@@ -522,6 +548,7 @@ static void GameDebugEnterShip(GameRuntime *game)
         return;
     }
     if (ShipIsDriving()) {
+        GameDebugMarkCommandError(game, "ship_already_driving");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship enter ignored reason=already_driving\n");
         return;
@@ -529,17 +556,20 @@ static void GameDebugEnterShip(GameRuntime *game)
 
     ShipLocatorTarget target = { 0 };
     if (!ShipLocatorTargetAt(game->player.position, &target)) {
+        GameDebugMarkCommandError(game, "ship_no_recorded_ship");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship enter error reason=no_recorded_ship\n");
         return;
     }
     if (target.status != SHIP_LOCATOR_TARGET_LOCAL) {
+        GameDebugMarkCommandError(game, "ship_not_local");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship enter error reason=ship_not_local\n");
         return;
     }
     if (!ShipTryEnter(target.blockX, target.blockY, target.blockZ,
                       &game->player)) {
+        GameDebugMarkCommandError(game, "ship_unavailable");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship enter error reason=unavailable\n");
         return;
@@ -560,6 +590,7 @@ static void GameDebugBeginShip(GameRuntime *game)
         return;
     }
     if (!ShipBeginDebugFlight(&game->player)) {
+        GameDebugMarkCommandError(game, "ship_already_driving");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship begin error reason=already_driving\n");
         return;
@@ -576,6 +607,7 @@ static void GameDebugBeginShip(GameRuntime *game)
 static void GameDebugApplyShipInput(GameRuntime *game)
 {
     if (game->screen != SCREEN_PLAYING || !ShipIsDriving()) {
+        GameDebugMarkCommandError(game, "ship_not_driving");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship input error reason=not_driving\n");
         return;
@@ -598,12 +630,14 @@ static void GameDebugApplyShipInput(GameRuntime *game)
 static void GameDebugSetShipExhaust(GameRuntime *game)
 {
     if (game->screen != SCREEN_PLAYING || !ShipIsDriving()) {
+        GameDebugMarkCommandError(game, "ship_not_driving");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship exhaust error reason=not_driving\n");
         return;
     }
     float demand = game->debugControl.shipExhaustDemand;
     if (!ShipSetDebugExhaust(&game->player, demand)) {
+        GameDebugMarkCommandError(game, "ship_exhaust_invalid");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship exhaust error reason=invalid\n");
         return;
@@ -616,6 +650,7 @@ static void GameDebugEmitShipDust(GameRuntime *game)
 {
     if (game->screen != SCREEN_PLAYING || !ShipIsDriving() ||
         !WorldIsSurfaceActive()) {
+        GameDebugMarkCommandError(game, "ship_dust_unavailable");
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ship dust error reason=no_surface_ship\n");
         return;
@@ -750,7 +785,8 @@ static void GameDebugToggleEvolutionAtlas(GameRuntime *game)
 typedef enum GameDebugDispatchResult {
     GAME_DEBUG_DISPATCH_UNHANDLED = 0,
     GAME_DEBUG_DISPATCH_HANDLED,
-    GAME_DEBUG_DISPATCH_START
+    GAME_DEBUG_DISPATCH_START,
+    GAME_DEBUG_DISPATCH_ERROR
 } GameDebugDispatchResult;
 
 static GameDebugDispatchResult GameDebugDispatchSystemCommand(
@@ -776,8 +812,25 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
     case DEBUG_CONTROL_COMMAND_STATUS:
         GameDebugReplyStatus(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WATER_DEBUG:
+        WorldRenderSetWaterDebug(game->debugControl.waterDebugEnabled);
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL water debug enabled=%d\n",
+            game->debugControl.waterDebugEnabled ? 1 : 0);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH:
+        WorldRenderSetWaterDebugThrough(game->debugControl.waterDebugThrough);
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL water debug through=%d\n",
+            game->debugControl.waterDebugThrough ? 1 : 0);
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_STREAM_AUDIT:
         GameStreamAuditStart(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_STREAM_WAIT:
+        GameStreamWaitStart(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_QUIT:
         game->quitRequested = true;
@@ -957,9 +1010,11 @@ static GameDebugDispatchResult GameDebugDispatchEvolutionCommand(
     }
 }
 
-bool GameDispatchDebugCommand(GameRuntime *game)
+static GameDebugDispatchResult GameDispatchDebugCommandValue(
+    GameRuntime *game, DebugControlCommand command)
 {
-    DebugControlCommand command = DebugControlPoll(&game->debugControl);
+    game->debugCommandFailed = false;
+    game->debugCommandFailure[0] = '\0';
     GameDebugDispatchResult result = GameDebugDispatchSystemCommand(
         game, command);
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
@@ -980,5 +1035,580 @@ bool GameDispatchDebugCommand(GameRuntime *game)
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
         result = GameDebugDispatchEvolutionCommand(game, command);
     }
-    return result == GAME_DEBUG_DISPATCH_START;
+    if (result == GAME_DEBUG_DISPATCH_HANDLED && game->debugCommandFailed) {
+        return GAME_DEBUG_DISPATCH_ERROR;
+    }
+    return result;
+}
+
+static bool GameDebugDslBool(DebugDslValue *outValue, bool value)
+{
+    *outValue = (DebugDslValue){
+        .type = DEBUG_DSL_VALUE_BOOL,
+        .as.boolean = value
+    };
+    return true;
+}
+
+static bool GameDebugDslNumber(DebugDslValue *outValue, double value)
+{
+    *outValue = (DebugDslValue){
+        .type = DEBUG_DSL_VALUE_NUMBER,
+        .as.number = value
+    };
+    return true;
+}
+
+static bool GameDebugDslString(DebugDslValue *outValue, const char *value)
+{
+    *outValue = (DebugDslValue){
+        .type = DEBUG_DSL_VALUE_STRING,
+        .as.string = value ? value : ""
+    };
+    return true;
+}
+
+static bool GameDebugDslVec3(DebugDslValue *outValue, Vector3 value)
+{
+    *outValue = (DebugDslValue){
+        .type = DEBUG_DSL_VALUE_VEC3,
+        .as.vec3 = { value.x, value.y, value.z }
+    };
+    return true;
+}
+
+static HitResult GameDebugDslTarget(const GameRuntime *game)
+{
+    Vector3 eye = {
+        game->player.position.x,
+        game->player.position.y + EYE_HEIGHT,
+        game->player.position.z
+    };
+    Vector3 direction = Vector3Normalize(
+        Vector3Subtract(game->camera.target, game->camera.position));
+    return RaycastBlocksFiltered(
+        eye, direction, REACH_DISTANCE, RAYCAST_BLOCK_SOLID);
+}
+
+static bool GameDebugDslResolve(void *userData, const char *name,
+                                DebugDslValue *outValue,
+                                DebugDslError *outError)
+{
+    GameRuntime *game = userData;
+    (void)outError;
+    if (!game || !name || !outValue) return false;
+
+    if (strcmp(name, "game.screen") == 0) {
+        return GameDebugDslString(
+            outValue, game->screen == SCREEN_PLAYING ? "playing" : "start");
+    }
+    if (strcmp(name, "world.seed") == 0) {
+        return GameDebugDslNumber(outValue, WorldGetSeed());
+    }
+    if (strcmp(name, "world.dimension") == 0) {
+        return GameDebugDslString(
+            outValue, WorldDimensionName(WorldCurrentDimension()));
+    }
+    if (strcmp(name, "player.position") == 0) {
+        return GameDebugDslVec3(outValue, game->player.position);
+    }
+    if (strcmp(name, "player.velocity") == 0) {
+        return GameDebugDslVec3(outValue, game->player.velocity);
+    }
+
+    if (strncmp(name, "water.", 6u) == 0) {
+        PlayerWaterState water = PlayerWaterStateAt(game->player.position);
+        if (strcmp(name, "water.feet_submerged") == 0) {
+            return GameDebugDslBool(outValue, water.feetSubmerged);
+        }
+        if (strcmp(name, "water.body_submerged") == 0) {
+            return GameDebugDslBool(outValue, water.bodySubmerged);
+        }
+        if (strcmp(name, "water.eyes_submerged") == 0) {
+            return GameDebugDslBool(outValue, water.eyesSubmerged);
+        }
+        if (strcmp(name, "water.surface_y") == 0) {
+            return GameDebugDslNumber(outValue, water.surfaceY);
+        }
+    }
+
+    if (strcmp(name, "stream.surface_ready") == 0) {
+        bool ready = game->screen == SCREEN_PLAYING &&
+            PlayerMissingSurfaceChunkCount(game->player.position) == 0;
+        return GameDebugDslBool(outValue, ready);
+    }
+    if (strcmp(name, "stream.missing_surface_chunks") == 0) {
+        int missing = game->screen == SCREEN_PLAYING
+            ? PlayerMissingSurfaceChunkCount(game->player.position) : -1;
+        return GameDebugDslNumber(outValue, missing);
+    }
+    if (strcmp(name, "stream.audit_complete") == 0) {
+        return GameDebugDslBool(
+            outValue, !game->streamAudit.active && !game->streamAudit.wait.active);
+    }
+
+    if (strncmp(name, "fluid.", 6u) == 0) {
+        FluidSample sample = FluidSampleAt(game->player.position);
+        FluidStats stats = FluidGetStats();
+        if (strcmp(name, "fluid.volume") == 0) {
+            return GameDebugDslNumber(outValue, sample.volume);
+        }
+        if (strcmp(name, "fluid.surface_y") == 0) {
+            return GameDebugDslNumber(outValue, sample.surfaceY);
+        }
+        if (strcmp(name, "fluid.queue_overflows") == 0) {
+            return GameDebugDslNumber(outValue, stats.queueOverflows);
+        }
+    }
+
+    if (strncmp(name, "target.", 7u) == 0) {
+        HitResult target = GameDebugDslTarget(game);
+        if (strcmp(name, "target.hit") == 0) {
+            return GameDebugDslBool(outValue, target.hit);
+        }
+        if (strcmp(name, "target.position") == 0) {
+            return GameDebugDslVec3(
+                outValue, (Vector3){ target.x, target.y, target.z });
+        }
+        if (strcmp(name, "target.block") == 0) {
+            BlockType block = target.hit
+                ? GetBlockAt(target.x, target.y, target.z) : BLOCK_AIR;
+            return GameDebugDslString(outValue, BlockName(block));
+        }
+    }
+
+    if (strcmp(name, "ship.driving") == 0) {
+        return GameDebugDslBool(outValue, ShipIsDriving());
+    }
+    if (strcmp(name, "ship.mode") == 0) {
+        return GameDebugDslString(outValue, ShipDriveModeName());
+    }
+
+    if (strncmp(name, "render.", 7u) == 0) {
+        WorldWaterRenderDebugInfo water = WorldRenderWaterDebugSnapshot();
+        if (strcmp(name, "render.water_debug") == 0) {
+            return GameDebugDslBool(outValue, water.enabled);
+        }
+        if (strcmp(name, "render.water_debug_through") == 0) {
+            return GameDebugDslBool(outValue, water.through);
+        }
+        if (strcmp(name, "render.water_triangles") == 0) {
+            return GameDebugDslNumber(outValue, water.triangleCount);
+        }
+    }
+
+    if (strcmp(name, "settings.autosave") == 0) {
+        return GameDebugDslBool(outValue, game->autoSaveEnabled);
+    }
+    return false;
+}
+
+static const char *GameDebugDslCommandBlocked(
+    const GameRuntime *game, DebugControlCommand command)
+{
+    switch (command) {
+    case DEBUG_CONTROL_COMMAND_START:
+        return game->screen == SCREEN_START ? NULL : "already_playing";
+    case DEBUG_CONTROL_COMMAND_SCREENSHOT:
+    case DEBUG_CONTROL_COMMAND_SAVE:
+    case DEBUG_CONTROL_COMMAND_LOAD:
+    case DEBUG_CONTROL_COMMAND_TELEPORT:
+    case DEBUG_CONTROL_COMMAND_LOOK:
+    case DEBUG_CONTROL_COMMAND_INPUT:
+    case DEBUG_CONTROL_COMMAND_VIEW:
+    case DEBUG_CONTROL_COMMAND_SHIP_BEGIN:
+    case DEBUG_CONTROL_COMMAND_SHIP_ENTER:
+    case DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE:
+    case DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS:
+        return game->screen == SCREEN_PLAYING ? NULL : "not_playing";
+    case DEBUG_CONTROL_COMMAND_SHIP_INPUT:
+    case DEBUG_CONTROL_COMMAND_SHIP_EXHAUST:
+        return game->screen == SCREEN_PLAYING && ShipIsDriving()
+            ? NULL : "not_driving";
+    case DEBUG_CONTROL_COMMAND_SHIP_DUST:
+        return game->screen == SCREEN_PLAYING && ShipIsDriving() &&
+                       WorldIsSurfaceActive()
+            ? NULL : "no_surface_ship";
+    case DEBUG_CONTROL_COMMAND_MAP:
+    case DEBUG_CONTROL_COMMAND_MARKER_ADD:
+    case DEBUG_CONTROL_COMMAND_MARKER_LIST:
+    case DEBUG_CONTROL_COMMAND_MARKER_TARGET:
+    case DEBUG_CONTROL_COMMAND_MARKER_REMOVE:
+    case DEBUG_CONTROL_COMMAND_FLUID_SET:
+    case DEBUG_CONTROL_COMMAND_FLUID_STEP:
+        return WorldIsSurfaceActive() ? NULL : "no_active_surface";
+    case DEBUG_CONTROL_COMMAND_STREAM_AUDIT:
+    case DEBUG_CONTROL_COMMAND_STREAM_WAIT:
+        if (game->screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
+            return "not_in_surface_world";
+        }
+        if (game->streamAudit.active || game->streamAudit.wait.active) {
+            return "stream_operation_in_progress";
+        }
+        return NULL;
+    default:
+        return NULL;
+    }
+}
+
+static DebugDslCommandResult GameDebugDslCommand(
+    void *userData, const char *commandText, DebugDslError *outError)
+{
+    GameRuntime *game = userData;
+    DebugControlCommand command = DebugControlParseText(
+        &game->debugControl, commandText);
+    if (command == DEBUG_CONTROL_COMMAND_NONE ||
+        command == DEBUG_CONTROL_COMMAND_INVALID ||
+        command == DEBUG_CONTROL_COMMAND_QUIT) {
+        outError->code = DEBUG_DSL_ERROR_CALLBACK;
+        snprintf(outError->message, sizeof(outError->message),
+                 command == DEBUG_CONTROL_COMMAND_QUIT
+                     ? "use the DSL exit statement instead of quit"
+                     : "unknown debug command: %s",
+                 commandText);
+        return DEBUG_DSL_COMMAND_ERROR;
+    }
+    const char *blocked = GameDebugDslCommandBlocked(game, command);
+    if (blocked) {
+        outError->code = DEBUG_DSL_ERROR_CALLBACK;
+        snprintf(outError->message, sizeof(outError->message),
+                 "command rejected: %s", blocked);
+        return DEBUG_DSL_COMMAND_ERROR;
+    }
+    GameDebugDispatchResult result = GameDispatchDebugCommandValue(
+        game, command);
+    if (result == GAME_DEBUG_DISPATCH_ERROR) {
+        outError->code = DEBUG_DSL_ERROR_CALLBACK;
+        snprintf(outError->message, sizeof(outError->message),
+                 "debug command failed: %s", game->debugCommandFailure);
+        return DEBUG_DSL_COMMAND_ERROR;
+    }
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
+        outError->code = DEBUG_DSL_ERROR_CALLBACK;
+        snprintf(outError->message, sizeof(outError->message),
+                 "unhandled debug command: %s", commandText);
+        return DEBUG_DSL_COMMAND_ERROR;
+    }
+    if (result == GAME_DEBUG_DISPATCH_START) {
+        game->debugDslStartRequested = true;
+    }
+    return DEBUG_DSL_COMMAND_COMPLETE;
+}
+
+static void GameDebugDslReportError(GameRuntime *game, const char *source,
+                                    const DebugDslError *error)
+{
+    const char *message = error && error->message[0] != '\0'
+        ? error->message : "unknown error";
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_SCRIPT error source=%s line=%zu column=%zu code=%s message=%s\n",
+        source ? source : "stdin", error ? error->line : 0u,
+        error ? error->column : 0u,
+        DebugDslErrorCodeName(error ? error->code : DEBUG_DSL_ERROR_CALLBACK),
+        message);
+    fprintf(stderr, "Debug script %s:%zu:%zu: %s\n",
+            source ? source : "stdin", error ? error->line : 0u,
+            error ? error->column : 0u, message);
+}
+
+void GameDebugScriptStop(GameRuntime *game)
+{
+    if (!game) return;
+    DebugDslExecutorDestroy(game->debugDslExecutor);
+    DebugDslScriptDestroy(game->debugDslScript);
+    game->debugDslExecutor = NULL;
+    game->debugDslScript = NULL;
+    game->debugDslBatch = false;
+    game->debugDslFromStdin = false;
+}
+
+static bool GameDebugDslBegin(GameRuntime *game, const char *source,
+                              bool fromStdin, DebugDslError *outError)
+{
+    DebugDslScript *script = NULL;
+    if (!DebugDslParse(source, &script, outError)) return false;
+    if (!game->debugDslEnvironment) {
+        game->debugDslEnvironment = DebugDslEnvironmentCreate();
+    }
+    DebugDslExecutor *executor = DebugDslExecutorCreateInEnvironment(
+        script, (DebugDslCallbacks){
+            .userData = game,
+            .resolve = GameDebugDslResolve,
+            .command = GameDebugDslCommand
+        }, game->debugDslEnvironment);
+    if (!executor) {
+        DebugDslScriptDestroy(script);
+        *outError = (DebugDslError){
+            .code = DEBUG_DSL_ERROR_ALLOCATION,
+            .line = 1u,
+            .column = 1u
+        };
+        snprintf(outError->message, sizeof(outError->message),
+                 "could not create DSL executor");
+        return false;
+    }
+    GameDebugScriptStop(game);
+    game->debugDslScript = script;
+    game->debugDslExecutor = executor;
+    game->debugDslBatch = DebugDslScriptIsBatch(script);
+    game->debugDslFromStdin = fromStdin;
+    return true;
+}
+
+static bool GameDebugDslSourceEndsWithExit(const char *source)
+{
+    const char *lastStart = NULL;
+    size_t lastLength = 0u;
+    const char *line = source;
+    while (line && *line != '\0') {
+        const char *end = strchr(line, '\n');
+        if (!end) end = line + strlen(line);
+        const char *start = line;
+        while (start < end && isspace((unsigned char)*start)) start++;
+        const char *trimmedEnd = end;
+        while (trimmedEnd > start &&
+               isspace((unsigned char)trimmedEnd[-1])) trimmedEnd--;
+        if (trimmedEnd > start && trimmedEnd[-1] == ';') {
+            trimmedEnd--;
+            while (trimmedEnd > start &&
+                   isspace((unsigned char)trimmedEnd[-1])) trimmedEnd--;
+        }
+        if (start < trimmedEnd && *start != '#') {
+            lastStart = start;
+            lastLength = (size_t)(trimmedEnd - start);
+        }
+        line = *end == '\0' ? NULL : end + 1;
+    }
+    return lastStart && lastLength >= 4u &&
+           strncmp(lastStart, "exit", 4u) == 0 &&
+           (lastLength == 4u || isspace((unsigned char)lastStart[4]));
+}
+
+static bool GameDebugReadScript(const char *path, char **outSource,
+                                DebugDslError *outError)
+{
+    enum { MAX_SCRIPT_SIZE = 1024 * 1024 };
+    FILE *file = fopen(path, "rb");
+    if (!file) {
+        outError->code = DEBUG_DSL_ERROR_ARGUMENT;
+        snprintf(outError->message, sizeof(outError->message),
+                 "cannot open script: %s", strerror(errno));
+        return false;
+    }
+    bool ok = false;
+    if (fseek(file, 0, SEEK_END) != 0) goto done;
+    long size = ftell(file);
+    if (size < 0 || size > MAX_SCRIPT_SIZE || fseek(file, 0, SEEK_SET) != 0) {
+        outError->code = DEBUG_DSL_ERROR_LIMIT;
+        snprintf(outError->message, sizeof(outError->message),
+                 "script exceeds the %d byte limit", MAX_SCRIPT_SIZE);
+        goto done;
+    }
+    char *source = malloc((size_t)size + 1u);
+    if (!source) {
+        outError->code = DEBUG_DSL_ERROR_ALLOCATION;
+        snprintf(outError->message, sizeof(outError->message),
+                 "could not allocate script buffer");
+        goto done;
+    }
+    if (fread(source, 1u, (size_t)size, file) != (size_t)size) {
+        free(source);
+        outError->code = DEBUG_DSL_ERROR_ARGUMENT;
+        snprintf(outError->message, sizeof(outError->message),
+                 "could not read complete script");
+        goto done;
+    }
+    source[size] = '\0';
+    *outSource = source;
+    ok = true;
+done:
+    fclose(file);
+    return ok;
+}
+
+bool GameDebugScriptLoad(GameRuntime *game)
+{
+    if (!game || !game->debugScriptEnabled) return true;
+    DebugDslError error = { 0 };
+    if (game->debugScriptPathInvalid) {
+        error.code = DEBUG_DSL_ERROR_ARGUMENT;
+        snprintf(error.message, sizeof(error.message),
+                 "invalid or repeated --debug-script option");
+        GameDebugDslReportError(game, "command-line", &error);
+        game->processExitCode = 2;
+        return false;
+    }
+    char *source = NULL;
+    if (!GameDebugReadScript(game->debugScriptPath, &source, &error)) {
+        GameDebugDslReportError(game, game->debugScriptPath, &error);
+        game->processExitCode = 2;
+        return false;
+    }
+    bool batchIntent = GameDebugDslSourceEndsWithExit(source);
+    bool parsed = GameDebugDslBegin(game, source, false, &error);
+    free(source);
+    if (!parsed) {
+        GameDebugDslReportError(game, game->debugScriptPath, &error);
+        if (batchIntent) {
+            game->processExitCode = 3;
+            return false;
+        }
+        return true;
+    }
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_SCRIPT loaded path=%s batch=%d\n",
+        game->debugScriptPath, game->debugDslBatch ? 1 : 0);
+    return true;
+}
+
+static void GameDebugDslResetInput(GameRuntime *game)
+{
+    game->debugDslInputLength = 0u;
+    game->debugDslInput[0] = '\0';
+    game->debugDslBraceDepth = 0;
+}
+
+static void GameDebugDslCountBraces(GameRuntime *game, const char *line)
+{
+    bool string = false;
+    bool escaped = false;
+    for (const char *cursor = line; *cursor != '\0'; cursor++) {
+        if (!string && *cursor == '#') break;
+        if (string && escaped) {
+            escaped = false;
+            continue;
+        }
+        if (string && *cursor == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (*cursor == '"') {
+            string = !string;
+            continue;
+        }
+        if (string) continue;
+        if (*cursor == '{') game->debugDslBraceDepth++;
+        else if (*cursor == '}') game->debugDslBraceDepth--;
+    }
+}
+
+static void GameDebugDslConsumeStdin(GameRuntime *game)
+{
+    char line[DEBUG_CONTROL_BUFFER_SIZE];
+    DebugControlReadResult result = DebugControlReadLine(
+        &game->debugControl, line, sizeof(line));
+    if (result == DEBUG_CONTROL_READ_NONE) {
+        return;
+    }
+    if (result == DEBUG_CONTROL_READ_EOF) {
+        if (game->debugDslInputLength != 0u) {
+            DebugDslError error = {
+                .code = DEBUG_DSL_ERROR_SYNTAX,
+                .line = 1u,
+                .column = 1u
+            };
+            snprintf(error.message, sizeof(error.message),
+                     "unterminated stdin DSL block at EOF");
+            GameDebugDslReportError(game, "stdin", &error);
+            GameDebugDslResetInput(game);
+        }
+        return;
+    }
+    if (result == DEBUG_CONTROL_READ_ERROR) {
+        DebugDslError error = {
+            .code = DEBUG_DSL_ERROR_ARGUMENT,
+            .line = 0u,
+            .column = 0u
+        };
+        snprintf(error.message, sizeof(error.message), "stdin read failed");
+        GameDebugDslReportError(game, "stdin", &error);
+        return;
+    }
+    size_t length = strlen(line);
+    if (length + 2u > sizeof(game->debugDslInput) - game->debugDslInputLength) {
+        DebugDslError error = {
+            .code = DEBUG_DSL_ERROR_LIMIT,
+            .line = 1u,
+            .column = 1u
+        };
+        snprintf(error.message, sizeof(error.message),
+                 "stdin DSL block exceeds %zu bytes",
+                 sizeof(game->debugDslInput) - 1u);
+        GameDebugDslReportError(game, "stdin", &error);
+        GameDebugDslResetInput(game);
+        return;
+    }
+    memcpy(game->debugDslInput + game->debugDslInputLength, line, length);
+    game->debugDslInputLength += length;
+    game->debugDslInput[game->debugDslInputLength++] = '\n';
+    game->debugDslInput[game->debugDslInputLength] = '\0';
+    GameDebugDslCountBraces(game, line);
+    if (game->debugDslBraceDepth > 0) return;
+
+    DebugDslError error = { 0 };
+    if (!GameDebugDslBegin(game, game->debugDslInput, true, &error)) {
+        GameDebugDslReportError(game, "stdin", &error);
+    }
+    GameDebugDslResetInput(game);
+}
+
+static bool GameDebugDslStep(GameRuntime *game)
+{
+    if (!game->debugDslExecutor) return false;
+    game->debugDslStartRequested = false;
+    DebugDslError error = { 0 };
+    DebugDslStepResult result;
+    if (game->debugStreamWaitFailed) {
+        error.code = DEBUG_DSL_ERROR_TIMEOUT;
+        snprintf(error.message, sizeof(error.message), "%s",
+                 game->debugStreamWaitFailure[0]
+                     ? game->debugStreamWaitFailure : "stream wait timed out");
+        game->debugStreamWaitFailed = false;
+        result = DebugDslExecutorAbort(game->debugDslExecutor, &error);
+    } else {
+        result = DebugDslExecutorStep(game->debugDslExecutor, &error);
+    }
+    bool startRequested = game->debugDslStartRequested;
+    if (result == DEBUG_DSL_STEP_RUNNING) return startRequested;
+
+    bool batch = game->debugDslBatch && !game->debugDslFromStdin;
+    bool fromStdin = game->debugDslFromStdin;
+    if (result == DEBUG_DSL_STEP_ERROR) {
+        GameDebugDslReportError(
+            game, fromStdin ? "stdin" : game->debugScriptPath, &error);
+        GameDebugScriptStop(game);
+        if (batch) {
+            game->processExitCode = 3;
+            game->processExitRequested = true;
+            game->quitRequested = true;
+        }
+        return startRequested;
+    }
+    if (result == DEBUG_DSL_STEP_EXIT) {
+        int exitCode = DebugDslExecutorExitCode(game->debugDslExecutor);
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_SCRIPT exit code=%d\n", exitCode);
+        GameDebugScriptStop(game);
+        game->processExitCode = exitCode;
+        game->processExitRequested = true;
+        game->quitRequested = true;
+        return startRequested;
+    }
+    DebugControlReply(
+        &game->debugControl, "DEBUG_SCRIPT complete source=%s\n",
+        fromStdin ? "stdin" : game->debugScriptPath);
+    GameDebugScriptStop(game);
+    return startRequested;
+}
+
+bool GameDispatchDebugCommand(GameRuntime *game)
+{
+    if (!game || !game->debugControlEnabled) return false;
+    if (game->streamAudit.wait.active) return false;
+    if (!game->debugDslExecutor && game->debugStdinEnabled) {
+        GameDebugDslConsumeStdin(game);
+    }
+    return GameDebugDslStep(game);
 }

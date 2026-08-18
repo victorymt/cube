@@ -15,11 +15,13 @@ typedef struct TransparentRenderItem {
     const Model *model;
     Vector3 translation;
     Matrix transform;
+    Vector3 center;
     bool transformed;
     float distanceSquared;
     TransparentRenderDimension dimension;
     int cx;
     int cz;
+    int sectionY;
     int slot;
 } TransparentRenderItem;
 

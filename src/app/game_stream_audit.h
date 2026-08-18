@@ -67,12 +67,22 @@ typedef struct GameStreamAuditState {
     int elapsedFrames;
     int staleSections;
     bool active;
+    struct {
+        int focusCx;
+        int focusCz;
+        int focusSectionY;
+        unsigned timeoutFrames;
+        unsigned elapsedFrames;
+        unsigned settledFrames;
+        bool active;
+    } wait;
 } GameStreamAuditState;
 
 struct GameRuntime;
 
 void GameStreamAuditStart(struct GameRuntime *game);
 void GameStreamAuditFrame(struct GameRuntime *game);
+void GameStreamWaitStart(struct GameRuntime *game);
 
 #ifdef GAME_STREAM_AUDIT_TESTING
 void GameStreamAuditCountExpectedForTest(int cx, int sectionY, int cz,
@@ -82,6 +92,8 @@ bool GameStreamAuditSnapshotsEqualForTest(
     const GameStreamAuditSnapshot *right);
 bool GameStreamAuditLayerMissingForTest(int expected, int vertices);
 void GameStreamAuditAdvanceForTest(GameStreamAuditState *audit);
+bool GameStreamWaitStageSettledForTest(int stage);
+bool GameStreamWaitAdvanceForTest(GameStreamAuditState *audit, bool settled);
 #endif
 
 #endif

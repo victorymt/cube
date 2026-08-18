@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=5\n");
+    REPORT_LINE("format.version=6\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -323,6 +323,23 @@ static bool ScreenshotWriteDebugFields(
                 info->streaming.waterTriangleCount);
     REPORT_LINE("streaming.water_section_triangle_count=%d\n",
                 info->streaming.waterSectionTriangleCount);
+    REPORT_LINE("streaming.water_debug_enabled=%s\n",
+                ScreenshotBool(info->streaming.waterDebugEnabled));
+    REPORT_LINE("streaming.water_debug_through=%s\n",
+                ScreenshotBool(info->streaming.waterDebugThrough));
+    REPORT_LINE("streaming.water_visible_section_count=%d\n",
+                info->streaming.waterVisibleSectionCount);
+    REPORT_LINE("streaming.water_draw_item_count=%d\n",
+                info->streaming.waterDrawItemCount);
+    REPORT_LINE("streaming.water_draw_triangle_count=%d\n",
+                info->streaming.waterDrawTriangleCount);
+    REPORT_LINE("streaming.water_has_nearest=%s\n",
+                ScreenshotBool(info->streaming.waterHasNearest));
+    REPORT_LINE("streaming.water_nearest_chunk=%d,%d\n",
+                info->streaming.waterNearestChunkX,
+                info->streaming.waterNearestChunkZ);
+    REPORT_LINE("streaming.water_nearest_section_y=%d\n",
+                info->streaming.waterNearestSectionY);
     REPORT_LINE("streaming.generation_submitted=%" PRIu64 "\n",
                 info->streaming.generationSubmitted);
     REPORT_LINE("streaming.generation_completed=%" PRIu64 "\n",

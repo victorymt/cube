@@ -2,6 +2,7 @@
 #define VOXELCRAFT_GAME_RUNTIME_H
 
 #include "core/debug_control.h"
+#include "core/debug_dsl.h"
 #include "presentation/environment_runtime.h"
 #include "app/game_settings.h"
 #include "app/game_stream_audit.h"
@@ -55,6 +56,9 @@ typedef struct GameRuntime {
   Camera3D camera;
   EnvironmentPresentationRuntime environment;
   DebugControl debugControl;
+  DebugDslScript *debugDslScript;
+  DebugDslExecutor *debugDslExecutor;
+  DebugDslEnvironment *debugDslEnvironment;
   PlayerInput scriptedPlayerInput;
   PlayerInput appliedPlayerInput;
   ShipControlInput scriptedShipInput;
@@ -77,6 +81,14 @@ typedef struct GameRuntime {
 
   bool perfMode;
   bool debugControlEnabled;
+  bool debugStdinEnabled;
+  bool debugScriptEnabled;
+  bool debugScriptPathInvalid;
+  bool debugDslBatch;
+  bool debugDslFromStdin;
+  bool debugDslStartRequested;
+  bool debugCommandFailed;
+  bool debugStreamWaitFailed;
   bool debugTraceEnabled;
   bool debugTracePathInvalid;
   bool showHelp;
@@ -103,9 +115,17 @@ typedef struct GameRuntime {
 
   float autoSaveTimer;
   float dayTime;
+  int processExitCode;
+  bool processExitRequested;
+  size_t debugDslInputLength;
+  int debugDslBraceDepth;
   char perfReportPath[512];
   char perfBaselinePath[512];
+  char debugScriptPath[512];
+  char debugCommandFailure[128];
+  char debugStreamWaitFailure[128];
   char debugTracePath[512];
+  char debugDslInput[16384];
 } GameRuntime;
 
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv);

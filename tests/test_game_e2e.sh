@@ -25,27 +25,31 @@ persistent_state_fingerprint() {
 
 persistent_state_before=$(persistent_state_fingerprint)
 trace_path=$(mktemp "${TMPDIR:-/tmp}/voxelcraft-e2e-trace.XXXXXX.jsonl")
+startup_script=$(mktemp "${TMPDIR:-/tmp}/voxelcraft-e2e-startup.XXXXXX.dsl")
+printf '%s\n' \
+    'let startup_screen = game.screen' \
+    'assert startup_screen == "start"' \
+    'assert settings.autosave == false' >"$startup_script"
 
-for requirement in python3; do
+for requirement in python3 hyprctl; do
     if ! command -v "$requirement" >/dev/null 2>&1; then
         echo "$requirement is required for the game end-to-end test" >&2
         exit 2
     fi
 done
 
-game_runner=()
-if command -v xvfb-run >/dev/null 2>&1; then
-    game_runner=(xvfb-run -a)
-elif [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
-    echo "xvfb-run not found; using the existing display session"
-else
-    echo "xvfb-run or an existing display session is required" >&2
+if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ||
+      -z "${WAYLAND_DISPLAY:-}" || -z "${XDG_RUNTIME_DIR:-}" ||
+      ! -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]]; then
+    echo "an active Hyprland/Wayland session is required" >&2
     exit 2
 fi
+hyprctl monitors -j >/dev/null
 
 coproc GAME_PROCESS {
-    env LIBGL_ALWAYS_SOFTWARE=1 "${game_runner[@]}" \
-        "$game_binary" --debug-stdin --debug-trace "$trace_path" 2>&1
+    env -u LIBGL_ALWAYS_SOFTWARE \
+        "$game_binary" --debug-script "$startup_script" --debug-stdin \
+        --debug-trace "$trace_path" 2>&1
 }
 game_pid=$GAME_PROCESS_PID
 exec {game_output}<&"${GAME_PROCESS[0]}"
@@ -53,10 +57,10 @@ exec {game_input}>&"${GAME_PROCESS[1]}"
 
 cleanup() {
     if kill -0 "$game_pid" >/dev/null 2>&1; then
-        printf 'quit\n' >&"$game_input" || true
+        printf 'exit 1\n' >&"$game_input" || true
         kill "$game_pid" >/dev/null 2>&1 || true
     fi
-    rm -f "$trace_path"
+    rm -f "$trace_path" "$startup_script"
 }
 trap cleanup EXIT
 
@@ -90,15 +94,40 @@ send_command() {
     printf '%s\n' "$1" >&"$game_input"
 }
 
+wait_for_reply '^DEBUG_SCRIPT loaded .* batch=0$'
 wait_for_reply '^DEBUG_CONTROL ready '
+wait_for_reply '^DEBUG_SCRIPT complete source='
+send_command 'assert startup_screen == "start"'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'start'
 wait_for_reply '^DEBUG_CONTROL start ok seed=1448040515$' 120
+send_command 'assert game.screen == "playing" && world.seed == 1448040515 && world.dimension == "home"'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 send_command 'status'
 wait_for_reply '^DEBUG_CONTROL status '
 [[ "$matched_line" == *'screen=playing seed=1448040515 dimension=home'* ]]
 [[ "$matched_line" == *'water=0,0,0'* ]]
 [[ "$matched_line" == *'autosave=0'* ]]
+
+send_command 'water debug on'
+wait_for_reply '^DEBUG_CONTROL water debug enabled=1$'
+send_command 'assert render.water_debug == true'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'status'
+wait_for_reply '^DEBUG_CONTROL status '
+[[ "$matched_line" == *'water_debug=1'* ]]
+send_command 'water debug off'
+wait_for_reply '^DEBUG_CONTROL water debug enabled=0$'
+send_command 'repeat 2 {'
+send_command 'water debug on'
+send_command 'water debug off'
+send_command '}'
+wait_for_reply '^DEBUG_CONTROL water debug enabled=1$'
+wait_for_reply '^DEBUG_CONTROL water debug enabled=0$'
+wait_for_reply '^DEBUG_CONTROL water debug enabled=1$'
+wait_for_reply '^DEBUG_CONTROL water debug enabled=0$'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 # This chunk-boundary coordinate previously exposed unloaded surface chunks as
 # air. While streaming catches up, walking collision must hold the player in
@@ -112,6 +141,12 @@ wait_for_reply '^DEBUG_CONTROL status '
 if [[ "$matched_line" == *'surface_ready=0'* ]]; then
     [[ "$matched_line" == *'velocity=0.000000,0.000000,0.000000'* ]]
 fi
+
+send_command 'stream wait 300'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=300$'
+wait_for_reply '^DEBUG_CONTROL stream wait result='
+[[ "$matched_line" == *'result=settled'* ]]
+[[ "$matched_line" == *'pending_local_sections=0'* ]]
 
 ravine_ready=false
 settle_deadline=$((SECONDS + settle_timeout))
@@ -137,6 +172,8 @@ wait_for_reply '^DEBUG_CONTROL status '
 [[ "$matched_line" == *'surface_ready=1 player_missing_surface_chunks=0'* ]]
 ravine_y=$(sed -n 's/.*position=[^,]*,\([^,]*\),.*/\1/p' <<<"$matched_line")
 awk -v y="$ravine_y" 'BEGIN { exit !(y > 100.0) }'
+send_command 'assert stream.surface_ready && stream.missing_surface_chunks == 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 send_command 'evolution inspect'
 wait_for_reply '^DEBUG_CONTROL evolution inspect none radius=24.000$'
@@ -175,12 +212,14 @@ if [[ "$water_ready" != true ]]; then
     echo "underwater chunk did not become ready within ${settle_timeout}s" >&2
     exit 1
 fi
+[[ "$matched_line" == *'fluid_overflows=0'* ]]
+send_command 'assert water.feet_submerged && water.body_submerged && water.eyes_submerged'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 # Build a one-cell reservoir directly above the settled ocean surface. The
 # full water below acts as a floor, so the injected unit must spread sideways.
 # Conservation is checked in test_fluid against an isolated loaded world;
 # loaded-volume snapshots here can change as generation jobs finish.
-[[ "$matched_line" == *'fluid_overflows=0'* ]]
 send_command 'fluid set -2894 81 20 0'
 wait_for_reply '^DEBUG_CONTROL fluid set ok position=-2894,81,20 volume=0$'
 send_command 'fluid set -2895 81 20 255'
@@ -203,7 +242,7 @@ report_path=${matched_line##*report=}
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=5' "$report_path"
+grep -Fxq 'format.version=6' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
 grep -Fxq 'environment.seabed_y=-4299' "$report_path"
@@ -216,6 +255,12 @@ grep -Fxq 'environment.body_submerged=true' "$report_path"
 grep -Fxq 'environment.eyes_submerged=true' "$report_path"
 grep -Fxq 'streaming.surface_ready=true' "$report_path"
 grep -Fxq 'streaming.player_missing_surface_chunks=0' "$report_path"
+grep -Fxq 'streaming.water_debug_enabled=false' "$report_path"
+grep -Fxq 'streaming.water_debug_through=false' "$report_path"
+grep -Eq '^streaming.water_visible_section_count=[1-9][0-9]*$' "$report_path"
+grep -Fxq 'streaming.water_has_nearest=true' "$report_path"
+grep -Eq '^streaming.water_nearest_chunk=-?[0-9]+,-?[0-9]+$' "$report_path"
+grep -Eq '^streaming.water_nearest_section_y=-?[0-9]+$' "$report_path"
 grep -Eq '^fluid.local_volume=([1-9][0-9]*)$' "$report_path"
 grep -Eq '^fluid.loaded_volume=([1-9][0-9]*)$' "$report_path"
 grep -Eq '^fluid.edit_count=([1-9][0-9]*)$' "$report_path"
@@ -242,7 +287,7 @@ atlas_png_path=${atlas_png_path%% report=*}
 atlas_report_path=${matched_line##*report=}
 [[ -s "$atlas_png_path" ]]
 [[ -s "$atlas_report_path" ]]
-grep -Fxq 'format.version=5' "$atlas_report_path"
+grep -Fxq 'format.version=6' "$atlas_report_path"
 grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
 grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
 python3 tests/validate_png.py "$atlas_png_path" 1280 720 --allow-dark-ui
@@ -252,10 +297,57 @@ wait_for_reply '^DEBUG_CONTROL evolution atlas closed species=0$'
 send_command 'evolution focus'
 wait_for_reply '^DEBUG_CONTROL evolution focus (none radius=24\.000|ok organism=[0-9]+ species=[0-9]+)$'
 
-send_command 'quit'
-wait_for_reply '^DEBUG_CONTROL quit accepted$'
+send_command 'exit 0'
+wait_for_reply '^DEBUG_SCRIPT exit code=0$'
 exec {game_input}>&-
 wait "$game_pid"
+
+batch_script=$(mktemp "${TMPDIR:-/tmp}/voxelcraft-e2e-batch.XXXXXX.dsl")
+batch_output=$(mktemp "${TMPDIR:-/tmp}/voxelcraft-e2e-batch.XXXXXX.log")
+printf '%s\n' 'exit 7' >"$batch_script"
+set +e
+env -u LIBGL_ALWAYS_SOFTWARE \
+    "$game_binary" --debug-script "$batch_script" >"$batch_output" 2>&1
+batch_status=$?
+set -e
+cat "$batch_output"
+[[ "$batch_status" -eq 7 ]]
+grep -Fxq 'DEBUG_SCRIPT exit code=7' "$batch_output"
+
+printf '%s\n' 'assert false' 'exit' >"$batch_script"
+set +e
+env -u LIBGL_ALWAYS_SOFTWARE \
+    "$game_binary" --debug-script "$batch_script" >"$batch_output" 2>&1
+batch_status=$?
+set -e
+cat "$batch_output"
+[[ "$batch_status" -eq 3 ]]
+grep -Eq '^DEBUG_SCRIPT error .*code=assertion ' "$batch_output"
+
+printf '%s\n' \
+    'start' \
+    'wait until game.screen == "playing" timeout 10' \
+    'marker target 999999' \
+    'exit 0' >"$batch_script"
+set +e
+env -u LIBGL_ALWAYS_SOFTWARE \
+    "$game_binary" --debug-script "$batch_script" >"$batch_output" 2>&1
+batch_status=$?
+set -e
+cat "$batch_output"
+[[ "$batch_status" -eq 3 ]]
+grep -Eq '^DEBUG_SCRIPT error .*code=callback .*marker_target_not_found' "$batch_output"
+
+printf '%s\n' 'assert (' 'exit;' >"$batch_script"
+set +e
+env -u LIBGL_ALWAYS_SOFTWARE \
+    "$game_binary" --debug-script "$batch_script" >"$batch_output" 2>&1
+batch_status=$?
+set -e
+cat "$batch_output"
+[[ "$batch_status" -eq 3 ]]
+grep -Eq '^DEBUG_SCRIPT error .*code=syntax ' "$batch_output"
+rm -f "$batch_script" "$batch_output"
 
 python3 - "$trace_path" <<'PY'
 import json
@@ -275,7 +367,7 @@ with open(sys.argv[1], encoding="utf-8") as trace:
         types.add(record["type"])
 assert {"start", "sample", "event", "stop"} <= types, types
 PY
-rm -f "$trace_path"
+rm -f "$trace_path" "$startup_script"
 trap - EXIT
 
 [[ "$(persistent_state_fingerprint)" == "$persistent_state_before" ]]

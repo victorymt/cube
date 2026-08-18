@@ -144,6 +144,15 @@ typedef struct ScreenshotStreamingDebugInfo {
     unsigned int waterNeighborLoadedMask;
     int waterTriangleCount;
     int waterSectionTriangleCount;
+    bool waterDebugEnabled;
+    bool waterDebugThrough;
+    int waterVisibleSectionCount;
+    int waterDrawItemCount;
+    int waterDrawTriangleCount;
+    bool waterHasNearest;
+    int waterNearestChunkX;
+    int waterNearestChunkZ;
+    int waterNearestSectionY;
     uint64_t generationSubmitted;
     uint64_t generationCompleted;
     uint64_t generationCanceled;

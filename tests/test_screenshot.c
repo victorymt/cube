@@ -178,6 +178,15 @@ static void TestDebugReport(void)
             .waterNeighborLoadedMask = 0xFu,
             .waterTriangleCount = 972,
             .waterSectionTriangleCount = 144,
+            .waterDebugEnabled = true,
+            .waterDebugThrough = true,
+            .waterVisibleSectionCount = 12,
+            .waterDrawItemCount = 12,
+            .waterDrawTriangleCount = 3456,
+            .waterHasNearest = true,
+            .waterNearestChunkX = -181,
+            .waterNearestChunkZ = 1,
+            .waterNearestSectionY = 4,
             .generationSubmitted = 123u,
             .meshCompleted = 456u,
             .meshCpuMs = 78.25
@@ -226,7 +235,7 @@ static void TestDebugReport(void)
 
     char contents[8192];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=5\n"));
+    assert(strstr(contents, "format.version=6\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -253,6 +262,14 @@ static void TestDebugReport(void)
     assert(strstr(contents, "streaming.water_neighbor_loaded_mask=0xF\n"));
     assert(strstr(contents, "streaming.water_triangle_count=972\n"));
     assert(strstr(contents, "streaming.water_section_triangle_count=144\n"));
+    assert(strstr(contents, "streaming.water_debug_enabled=true\n"));
+    assert(strstr(contents, "streaming.water_debug_through=true\n"));
+    assert(strstr(contents, "streaming.water_visible_section_count=12\n"));
+    assert(strstr(contents, "streaming.water_draw_item_count=12\n"));
+    assert(strstr(contents, "streaming.water_draw_triangle_count=3456\n"));
+    assert(strstr(contents, "streaming.water_has_nearest=true\n"));
+    assert(strstr(contents, "streaming.water_nearest_chunk=-181,1\n"));
+    assert(strstr(contents, "streaming.water_nearest_section_y=4\n"));
     assert(strstr(contents, "streaming.mesh_completed=456\n"));
     assert(strstr(contents, "evolution.organism_id=71\n"));
     assert(strstr(contents, "evolution.scan_locked=true\n"));

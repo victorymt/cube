@@ -39,6 +39,20 @@ typedef struct HudFrameState {
     bool autoSaveEnabled;
 } HudFrameState;
 
+typedef struct WaterRenderDebugInfo {
+    bool enabled;
+    bool through;
+    int visibleSectionCount;
+    int drawItemCount;
+    int triangleCount;
+    bool hasNearest;
+    int nearestChunkX;
+    int nearestChunkZ;
+    int nearestSectionY;
+} WaterRenderDebugInfo;
+
+typedef WaterRenderDebugInfo WorldWaterRenderDebugInfo;
+
 typedef struct ShipHudState {
     float speed;
     float targetSpeed;
@@ -150,6 +164,10 @@ void WorldRenderFramePrepare(const Camera3D *camera,
                              int effectiveRenderDistance,
                              bool drawSurfaceChunks);
 void WorldRenderFrameShutdown(void);
+void WorldRenderSetWaterDebug(bool enabled);
+void WorldRenderSetWaterDebugThrough(bool enabled);
+bool WorldRenderWaterDebugEnabled(void);
+WaterRenderDebugInfo WorldRenderWaterDebugSnapshot(void);
 void DrawWorld(const Camera3D *camera, Color tint, bool drawNetherChunks,
                const WorldLightingState *lighting);
 void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,

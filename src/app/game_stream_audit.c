@@ -7,6 +7,7 @@
 #include "world/world_environment.h"
 
 #include <math.h>
+#include <stdio.h>
 
 typedef struct GameStreamAuditExpected {
     int solid;
@@ -239,6 +240,130 @@ static void AdvanceAudit(GameStreamAuditState *audit)
     audit->dz++;
 }
 
+static bool AdvanceStreamWait(GameStreamAuditState *audit, bool settled)
+{
+    audit->wait.elapsedFrames++;
+    if (settled) audit->wait.settledFrames++;
+    else audit->wait.settledFrames = 0;
+    return audit->wait.settledFrames >= 2u ||
+           audit->wait.elapsedFrames >= audit->wait.timeoutFrames;
+}
+
+static bool StreamWaitStageSettled(ChunkPipelineStage stage)
+{
+    return stage == CHUNK_PIPELINE_READY || stage == CHUNK_PIPELINE_IMPLICIT;
+}
+
+static int PendingStreamWaitSections(const GameStreamAuditState *audit)
+{
+    int pending = 0;
+    for (int dz = -1; dz <= 1; dz++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int vertical = -1; vertical <= 1; vertical++) {
+                int sectionY = audit->wait.focusSectionY + vertical;
+                if (!SurfaceSectionInBounds(sectionY)) continue;
+                ChunkSectionPipelineInfo info = { 0 };
+                if (!ChunksGetSectionPipelineInfo(
+                        audit->wait.focusCx + dx, sectionY,
+                        audit->wait.focusCz + dz, &info) ||
+                    !StreamWaitStageSettled(info.stage)) {
+                    pending++;
+                }
+            }
+        }
+    }
+    return pending;
+}
+
+static void GameStreamWaitFrame(GameRuntime *game)
+{
+    if (!game || !game->streamAudit.wait.active) return;
+
+    GameStreamAuditState *audit = &game->streamAudit;
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    int pendingGeneration = GetPendingGenJobCount();
+    int pendingMesh = GetPendingMeshJobCount();
+    int missingSurfaceChunks = PlayerMissingSurfaceChunkCount(
+        game->player.position);
+    int pendingLocalSections = PendingStreamWaitSections(audit);
+    bool settled = pendingLocalSections == 0;
+    if (!AdvanceStreamWait(audit, settled)) return;
+    bool complete = audit->wait.settledFrames >= 2u;
+
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL stream wait result=%s elapsed_frames=%u "
+        "focus=%d,%d,%d pending_local_sections=%d "
+        "pending_gen=%d pending_mesh=%d pending_mesh_snapshot_bytes=%llu "
+        "missing_surface_chunks=%d\n",
+        complete ? "settled" : "timeout", audit->wait.elapsedFrames,
+        audit->wait.focusCx, audit->wait.focusSectionY,
+        audit->wait.focusCz, pendingLocalSections,
+        pendingGeneration, pendingMesh,
+        (unsigned long long)stats.pendingMeshSnapshotBytes,
+        missingSurfaceChunks);
+    audit->wait.active = false;
+    if (!complete) {
+        game->debugStreamWaitFailed = true;
+        snprintf(game->debugStreamWaitFailure,
+                 sizeof(game->debugStreamWaitFailure),
+                 "stream wait timed out after %u frames",
+                 audit->wait.elapsedFrames);
+    }
+}
+
+void GameStreamWaitStart(GameRuntime *game)
+{
+    if (!game || game->screen != SCREEN_PLAYING ||
+        !WorldIsSurfaceActive()) {
+        if (game) {
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL stream wait error "
+                "reason=not_in_surface_world\n");
+        }
+        return;
+    }
+    if (game->streamAudit.wait.active) {
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL stream wait error reason=already_waiting\n");
+        return;
+    }
+    if (game->streamAudit.active) {
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL stream wait error reason=audit_in_progress\n");
+        return;
+    }
+
+    unsigned timeoutFrames = game->debugControl.streamWaitFrames;
+    if (timeoutFrames < 1u ||
+        timeoutFrames > DEBUG_CONTROL_STREAM_WAIT_MAX_FRAMES) {
+        timeoutFrames = DEBUG_CONTROL_STREAM_WAIT_DEFAULT_FRAMES;
+    }
+    int blockX = (int)floorf(game->player.position.x);
+    int blockZ = (int)floorf(game->player.position.z);
+    int localX = 0;
+    int localZ = 0;
+    WorldToChunkLocal(blockX, blockZ,
+                      &game->streamAudit.wait.focusCx,
+                      &game->streamAudit.wait.focusCz,
+                      &localX, &localZ);
+    game->streamAudit.wait.focusSectionY = SurfaceSectionYFromBlockY(
+        (int)floorf(game->player.position.y));
+    game->streamAudit.wait.timeoutFrames = timeoutFrames;
+    game->streamAudit.wait.elapsedFrames = 0u;
+    game->streamAudit.wait.settledFrames = 0u;
+    game->debugStreamWaitFailed = false;
+    game->debugStreamWaitFailure[0] = '\0';
+    game->streamAudit.wait.active = true;
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL stream wait started timeout_frames=%u\n",
+        timeoutFrames);
+}
+
 void GameStreamAuditStart(GameRuntime *game)
 {
     if (!game || game->screen != SCREEN_PLAYING ||
@@ -282,7 +407,9 @@ void GameStreamAuditStart(GameRuntime *game)
 
 void GameStreamAuditFrame(GameRuntime *game)
 {
-    if (!game || !game->streamAudit.active) return;
+    if (!game) return;
+    GameStreamWaitFrame(game);
+    if (!game->streamAudit.active) return;
     GameStreamAuditState *audit = &game->streamAudit;
     audit->elapsedFrames++;
     if (audit->dz > audit->radius) {
@@ -367,5 +494,15 @@ bool GameStreamAuditLayerMissingForTest(int expected, int vertices)
 void GameStreamAuditAdvanceForTest(GameStreamAuditState *audit)
 {
     if (audit) AdvanceAudit(audit);
+}
+
+bool GameStreamWaitStageSettledForTest(int stage)
+{
+    return StreamWaitStageSettled((ChunkPipelineStage)stage);
+}
+
+bool GameStreamWaitAdvanceForTest(GameStreamAuditState *audit, bool settled)
+{
+    return audit && AdvanceStreamWait(audit, settled);
 }
 #endif

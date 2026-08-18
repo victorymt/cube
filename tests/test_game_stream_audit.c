@@ -1,5 +1,6 @@
 #include "app/game_stream_audit.h"
 
+#include "world/chunks.h"
 #include "world/world.h"
 
 #include <assert.h>
@@ -83,11 +84,34 @@ static void TestOneSectionCursor(void)
     assert(audit.vertical == -1 && audit.dx == 0 && audit.dz == -1);
 }
 
+static void TestWaitProgress(void)
+{
+    assert(GameStreamWaitStageSettledForTest(CHUNK_PIPELINE_READY));
+    assert(GameStreamWaitStageSettledForTest(CHUNK_PIPELINE_IMPLICIT));
+    assert(!GameStreamWaitStageSettledForTest(CHUNK_PIPELINE_DIRTY_WAIT));
+    assert(!GameStreamWaitStageSettledForTest(CHUNK_PIPELINE_MESH_RUNNING));
+
+    GameStreamAuditState audit = { 0 };
+    audit.wait.timeoutFrames = 3u;
+    assert(!GameStreamWaitAdvanceForTest(&audit, true));
+    assert(GameStreamWaitAdvanceForTest(&audit, true));
+    assert(audit.wait.elapsedFrames == 2u);
+    assert(audit.wait.settledFrames == 2u);
+
+    audit = (GameStreamAuditState){ 0 };
+    audit.wait.timeoutFrames = 2u;
+    assert(!GameStreamWaitAdvanceForTest(&audit, true));
+    assert(GameStreamWaitAdvanceForTest(&audit, false));
+    assert(audit.wait.elapsedFrames == 2u);
+    assert(audit.wait.settledFrames == 0u);
+}
+
 int main(void)
 {
     TestLayerClassification();
     TestSnapshotStaleness();
     TestOneSectionCursor();
+    TestWaitProgress();
     puts("game stream audit tests passed");
     return 0;
 }

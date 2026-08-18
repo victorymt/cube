@@ -3,6 +3,7 @@
 #include "gameplay/player.h"
 
 #include <stdio.h>
+#include <signal.h>
 #include <string.h>
 
 static bool CommandLineHasFlag(int argc, char **argv, const char *flag) {
@@ -56,6 +57,35 @@ static bool ParseDebugTraceArgs(int argc, char **argv, char *path,
   return enabled;
 }
 
+static bool ParseDebugScriptArgs(int argc, char **argv, char *path,
+                                 size_t pathSize, bool *outInvalid) {
+  bool enabled = false;
+  bool invalid = false;
+  path[0] = '\0';
+  for (int index = 1; index < argc; index++) {
+    const char *value = NULL;
+    if (strcmp(argv[index], "--debug-script") == 0) {
+      if (index + 1 < argc && strncmp(argv[index + 1], "--", 2) != 0)
+        value = argv[++index];
+      else
+        invalid = true;
+    } else if (strncmp(argv[index], "--debug-script=", 15) == 0) {
+      value = argv[index] + 15;
+    } else {
+      continue;
+    }
+    if (enabled || !value || value[0] == '\0' || strlen(value) >= pathSize) {
+      invalid = true;
+      enabled = true;
+      continue;
+    }
+    snprintf(path, pathSize, "%s", value);
+    enabled = true;
+  }
+  if (outInvalid) *outInvalid = invalid;
+  return enabled;
+}
+
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   if (!runtime)
     return;
@@ -83,8 +113,13 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   runtime->perfMode = ParsePerfArgs(
       argc, argv, runtime->perfReportPath, sizeof(runtime->perfReportPath),
       runtime->perfBaselinePath, sizeof(runtime->perfBaselinePath));
+  runtime->debugStdinEnabled = CommandLineHasFlag(argc, argv, "--debug-stdin");
+  runtime->debugScriptEnabled = ParseDebugScriptArgs(
+      argc, argv, runtime->debugScriptPath, sizeof(runtime->debugScriptPath),
+      &runtime->debugScriptPathInvalid);
   runtime->debugControlEnabled =
-      CommandLineHasFlag(argc, argv, "--debug-stdin");
+      runtime->debugStdinEnabled || runtime->debugScriptEnabled;
+  if (runtime->debugControlEnabled) signal(SIGPIPE, SIG_IGN);
   runtime->debugTraceEnabled = ParseDebugTraceArgs(
       argc, argv, runtime->debugTracePath, sizeof(runtime->debugTracePath),
       &runtime->debugTracePathInvalid);
@@ -97,4 +132,5 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       CameraFovForHeight(runtime->player.position.y + EYE_HEIGHT);
   runtime->camera.projection = CAMERA_PERSPECTIVE;
   DebugControlInit(&runtime->debugControl, runtime->debugControlEnabled);
+  if (!runtime->debugStdinEnabled) runtime->debugControl.inputClosed = true;
 }

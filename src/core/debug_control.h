@@ -4,16 +4,21 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define DEBUG_CONTROL_BUFFER_SIZE 512
+#define DEBUG_CONTROL_BUFFER_SIZE 2048
 #define DEBUG_CONTROL_MARKER_COLOR_SIZE 16
 #define DEBUG_CONTROL_MARKER_NAME_SIZE 64
+#define DEBUG_CONTROL_STREAM_WAIT_DEFAULT_FRAMES 300u
+#define DEBUG_CONTROL_STREAM_WAIT_MAX_FRAMES 3600u
 
 typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_NONE = 0,
     DEBUG_CONTROL_COMMAND_START,
     DEBUG_CONTROL_COMMAND_SCREENSHOT,
     DEBUG_CONTROL_COMMAND_STATUS,
+    DEBUG_CONTROL_COMMAND_WATER_DEBUG,
+    DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH,
     DEBUG_CONTROL_COMMAND_STREAM_AUDIT,
+    DEBUG_CONTROL_COMMAND_STREAM_WAIT,
     DEBUG_CONTROL_COMMAND_SAVE,
     DEBUG_CONTROL_COMMAND_LOAD,
     DEBUG_CONTROL_COMMAND_MAP,
@@ -43,6 +48,13 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_QUIT,
     DEBUG_CONTROL_COMMAND_INVALID
 } DebugControlCommand;
+
+typedef enum DebugControlReadResult {
+    DEBUG_CONTROL_READ_NONE = 0,
+    DEBUG_CONTROL_READ_LINE,
+    DEBUG_CONTROL_READ_EOF,
+    DEBUG_CONTROL_READ_ERROR
+} DebugControlReadResult;
 
 typedef struct DebugControlTeleport {
     float x;
@@ -91,17 +103,24 @@ typedef struct DebugControl {
     unsigned fluidVolume;
     unsigned fluidTicks;
     int streamAuditRadius;
+    unsigned streamWaitFrames;
     float lookYaw;
     float lookPitch;
     bool lookRelative;
     bool fluidUsePlayerPosition;
     bool streamAuditUsePlayerPosition;
+    bool waterDebugEnabled;
+    bool waterDebugThrough;
     bool thirdPerson;
 } DebugControl;
 
 void DebugControlInit(DebugControl *control, bool enabled);
 void DebugControlInitFds(DebugControl *control, bool enabled,
                          int inputFd, int outputFd);
+DebugControlCommand DebugControlParseText(DebugControl *control,
+                                           const char *text);
+DebugControlReadResult DebugControlReadLine(DebugControl *control,
+                                             char *line, size_t lineSize);
 DebugControlCommand DebugControlPoll(DebugControl *control);
 bool DebugControlReply(DebugControl *control, const char *format, ...);
 
