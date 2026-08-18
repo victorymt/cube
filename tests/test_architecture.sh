@@ -233,6 +233,10 @@ if grep -nE '#include "gameplay/ship\.h"|\bShip(BlockIsParkedCore|TrackParkedAt|
     src/world/world.c; then
     fail "world block commits must publish a neutral extension event"
 fi
+if grep -R -nE '#include "gameplay/|\bPlanetPoiApplyToChunk\b' \
+    src/world --include='*.c' --include='*.h'; then
+    fail "world terrain must use an app-installed neutral decorator"
+fi
 grep -q '^static void GameOnWorldBlockCommitted(' src/app/game.c ||
     fail "app must coordinate parked ship tracking after world block commits"
 grep -q '\.onBlockCommitted = GameOnWorldBlockCommitted' src/app/game.c ||

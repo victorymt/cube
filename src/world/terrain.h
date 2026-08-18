@@ -52,6 +52,8 @@ typedef struct SurfaceTerrainSample {
     BathymetrySample bathymetry;
 } SurfaceTerrainSample;
 
+typedef void (*PlanetChunkDecorator)(Chunk *chunk, int chunkX, int chunkZ);
+
 unsigned int Hash2D(int x, int z);
 unsigned int WorldHash2D(int x, int z);
 // Accepts already-wrapped coordinate bit patterns for overflow-safe mixing.
@@ -93,6 +95,9 @@ bool GenerateChunkTerrainSectionBase(Chunk *chunk, int cx, int cz,
 bool TerrainSectionHasExposedFaces(const ChunkSection *section, int cx,
                                    int cz, int sectionY, TerrainMode mode);
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode);
+// Installs the application-owned decorator stage used after base planet
+// generation. Passing NULL restores the world-only pipeline.
+void TerrainInstallPlanetChunkDecorator(PlanetChunkDecorator decorator);
 void ApplyEditsToChunkSection(Chunk *chunk, int sectionY);
 void ApplyEditsToChunk(Chunk *chunk);
 

@@ -176,13 +176,6 @@ BlockType GetBlockAt(int x, int y, int z)
     return GetBlock(x, y, z);
 }
 
-void PlanetPoiApplyToChunk(Chunk *chunk, int cx, int cz)
-{
-    (void)chunk;
-    (void)cx;
-    (void)cz;
-}
-
 void UnloadModel(Model model)
 {
     (void)model;

@@ -1182,6 +1182,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
         .prepareChunkSectionUnload = FluidPrepareChunkSectionUnload
     };
     WorldInstallExtensionHooks(&worldExtensionHooks);
+    TerrainInstallPlanetChunkDecorator(PlanetPoiApplyToChunk);
     if (game->debugControlEnabled || game->debugTraceEnabled) {
         SetTraceLogLevel(LOG_WARNING);
     }

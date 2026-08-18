@@ -6,7 +6,6 @@
 #include "world/terrain_home_materials_internal.h"
 #include "world/terrain_structures_internal.h"
 
-#include "gameplay/discovery.h"
 #include "ecology/ecology.h"
 
 #include "raymath.h"
@@ -22,6 +21,14 @@
 
 #include "world/chunks.h"
 #include "world/world.h"
+
+static PlanetChunkDecorator planetChunkDecorator;
+
+void TerrainInstallPlanetChunkDecorator(PlanetChunkDecorator decorator)
+{
+    planetChunkDecorator = decorator;
+}
+
 static unsigned int Hash2DBits(unsigned int xBits, unsigned int zBits)
 {
     unsigned int h = 2166136261u;
@@ -1487,7 +1494,7 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
         }
     }
     PlanetEcologyApplyToChunk(chunk, cx, cz);
-    PlanetPoiApplyToChunk(chunk, cx, cz);
+    if (planetChunkDecorator) planetChunkDecorator(chunk, cx, cz);
 }
 
 BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)

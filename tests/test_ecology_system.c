@@ -189,6 +189,37 @@ static void *RunEcologyConcurrentQuery(void *opaque)
     return NULL;
 }
 
+static int planetDecoratorCalls;
+static int planetDecoratorChunkX;
+static int planetDecoratorChunkZ;
+
+static void TestPlanetChunkDecorator(Chunk *chunk, int chunkX, int chunkZ)
+{
+    assert(chunk);
+    planetDecoratorCalls++;
+    planetDecoratorChunkX = chunkX;
+    planetDecoratorChunkZ = chunkZ;
+}
+
+static void TestPlanetChunkDecoratorPipeline(void)
+{
+    EcologyTestSetSeed(0x6a09e667u);
+    PlanetEcologyResetState();
+    EcologyTestActivatePlanet(0x6a09e667u, 317, -911);
+    planetDecoratorCalls = 0;
+    planetDecoratorChunkX = 0;
+    planetDecoratorChunkZ = 0;
+    TerrainInstallPlanetChunkDecorator(TestPlanetChunkDecorator);
+
+    Chunk chunk = { 0 };
+    GenerateChunkTerrain(&chunk, 3, -4, WorldTerrainMode());
+    assert(planetDecoratorCalls == 1);
+    assert(planetDecoratorChunkX == 3);
+    assert(planetDecoratorChunkZ == -4);
+    ChunkClearBlockStorage(&chunk);
+    TerrainInstallPlanetChunkDecorator(NULL);
+}
+
 static void TestEcologyPopulationConcurrentQueries(void)
 {
     const uint32_t seed = 0x6a09e667u;
@@ -1842,6 +1873,7 @@ static void TestChunkUnloadReloadDeterminism(void)
 
 int main(void)
 {
+    TestPlanetChunkDecoratorPipeline();
     TestEcologyPopulationConcurrentQueries();
     TestEcologyUsesPositionLocalWeather();
     TestEcologyCacheInvalidation();
