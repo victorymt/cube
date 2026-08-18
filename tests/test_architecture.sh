@@ -200,6 +200,8 @@ grep -q '^test: test-headers test-modules ' Makefile ||
     fail "test must enforce public header and module build gates"
 grep -q '^test-modules: \$(MODULE_ARCHIVES)' Makefile ||
     fail "module build gate must compile every module archive"
+grep -q "sh scripts/clean-build.sh '.*BUILD_ROOT.*'" Makefile ||
+    fail "clean must validate BUILD_ROOT before recursive deletion"
 grep -q "BUILD_VARIANT=ci CFLAGS='\$(CI_CFLAGS)' test" Makefile ||
     fail "CI warning checks must use an isolated build variant"
 if grep -R -n '#include ".*_internal\.h"' src \
@@ -227,6 +229,14 @@ fi
 if grep -n 'gameplay/player_types.h' src/world/world.h; then
     fail "world API must not depend on player state"
 fi
+if grep -nE '#include "gameplay/ship\.h"|\bShip(BlockIsParkedCore|TrackParkedAt|ForgetParkedAt)\b' \
+    src/world/world.c; then
+    fail "world block commits must publish a neutral extension event"
+fi
+grep -q '^static void GameOnWorldBlockCommitted(' src/app/game.c ||
+    fail "app must coordinate parked ship tracking after world block commits"
+grep -q '\.onBlockCommitted = GameOnWorldBlockCommitted' src/app/game.c ||
+    fail "app must install the parked ship block-commit handler"
 
 grep -q '^bool GameWorldTransitionBeginDescent(' \
     src/app/game_world_transition.c ||
@@ -295,5 +305,7 @@ done
 render_frame_lines=$(printf '%s\n' "$render_frame_body" | wc -l)
 [ "$render_frame_lines" -le 25 ] ||
     fail "GameRenderFrame must remain a render-stage coordinator"
+
+sh tests/test_clean_build.sh
 
 echo "architecture checks passed"

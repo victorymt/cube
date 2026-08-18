@@ -58,6 +58,12 @@ typedef struct LoadedGameSave {
     MapMarkerState mapMarkers;
 } LoadedGameSave;
 
+typedef struct GameLoadTransaction {
+    Player *player;
+    const char *error;
+    int loadedEditCount;
+} GameLoadTransaction;
+
 static void LoadedGameSaveRelease(LoadedGameSave *data)
 {
     if (!data) return;
@@ -336,27 +342,32 @@ static const char *GameLoadCurrentExtendedPayload(
     return NULL;
 }
 
-void GameLoadMap(Player *player)
+static bool GameLoadFail(GameLoadTransaction *transaction, const char *message)
 {
-    if (!player) {
-        GameNoticePost("Load failed: player state is unavailable.");
-        return;
-    }
-    DrainChunkGen();
-    UnloadAllSpaceChunks();
-    FILE *file = fopen(SAVE_FILE, "rb");
-    if (!file) {
-        GameNoticePost("Load failed: voxelcraft_save.txt was not found.");
-        return;
+    if (transaction && !transaction->error) transaction->error = message;
+    return false;
+}
+
+static bool GameSaveCheckpoint(FILE *file, void *opaque)
+{
+    GameLoadTransaction *transaction = opaque;
+    GameSaveContext context = {
+        .player = transaction ? transaction->player : NULL
+    };
+    return GameSaveWriteFile(file, &context);
+}
+
+static bool GameLoadApplyFile(FILE *file, void *opaque)
+{
+    GameLoadTransaction *transaction = opaque;
+    Player *player = transaction ? transaction->player : NULL;
+    if (!file || !player) {
+        return GameLoadFail(
+            transaction, "Load failed: player state is unavailable.");
     }
 
-    struct stat saveStat;
-    if (fstat(fileno(file), &saveStat) != 0 || saveStat.st_size < 0 ||
-        (uint64_t)saveStat.st_size > SAVE_MAX_FILE_BYTES) {
-        fclose(file);
-        GameNoticePost("Load failed: save file is too large or unreadable.");
-        return;
-    }
+    DrainChunkGen();
+    UnloadAllSpaceChunks();
 
     LoadedGameSave data = {
         .terrain = TERRAIN_VARIED,
@@ -367,30 +378,28 @@ void GameLoadMap(Player *player)
 
     WorldSaveFormat format = WorldSaveFormatRead(file);
     if (format == WORLD_SAVE_FORMAT_UNSUPPORTED) {
-        fclose(file);
-        GameNoticePost(
+        return GameLoadFail(
+            transaction,
             "Load failed: V17 and older flat saves are incompatible with spherical worlds.");
-        return;
     }
     if (!GameLoadCurrentCorePayload(file, &data)) {
-        fclose(file);
         LoadedGameSaveRelease(&data);
-        GameNoticePost("Load failed: save file is corrupted.");
-        return;
+        return GameLoadFail(
+            transaction, "Load failed: save file is corrupted.");
     }
 
     const char *loadError =
         GameLoadCurrentExtendedPayload(file, format, &data);
-    fclose(file);
-    if (loadError) {
+    if (loadError || fgetc(file) != EOF || ferror(file)) {
         LoadedGameSaveRelease(&data);
-        GameNoticePost(loadError);
-        return;
+        return GameLoadFail(
+            transaction, loadError ? loadError
+                                   : "Load failed: save file has trailing data.");
     }
     if (!WorldPersistenceReserveEdits(data.editCount)) {
         LoadedGameSaveRelease(&data);
-        GameNoticePost("Load failed: not enough memory to apply save.");
-        return;
+        return GameLoadFail(
+            transaction, "Load failed: not enough memory to apply save.");
     }
 
     DrainChunkGen();
@@ -422,11 +431,12 @@ void GameLoadMap(Player *player)
         data.edits, data.dimensions, data.editAddresses, data.editCount);
     ShipLocatorRecord shipLocator = data.shipLocator;
     MapMarkerState mapMarkers = data.mapMarkers;
+    int loadedEditCount = data.editCount;
     LoadedGameSaveRelease(&data);
 
     if (!editIndexReady) {
-        GameNoticePost("Load warning: edit index rebuild failed.");
-        return;
+        return GameLoadFail(
+            transaction, "Load failed: edit index rebuild failed.");
     }
     RebuildTorchList();
     SpaceRebuildTorchList();
@@ -439,6 +449,50 @@ void GameLoadMap(Player *player)
                      EffectiveRenderDistanceForHeight(
                          player->position.y + EYE_HEIGHT));
     }
+    transaction->loadedEditCount = loadedEditCount;
+    return true;
+}
+
+void GameLoadMap(Player *player)
+{
+    if (!player) {
+        GameNoticePost("Load failed: player state is unavailable.");
+        return;
+    }
+    FILE *file = fopen(SAVE_FILE, "rb");
+    if (!file) {
+        GameNoticePost("Load failed: voxelcraft_save.txt was not found.");
+        return;
+    }
+
+    struct stat saveStat;
+    if (fstat(fileno(file), &saveStat) != 0 || saveStat.st_size < 0 ||
+        (uint64_t)saveStat.st_size > SAVE_MAX_FILE_BYTES) {
+        fclose(file);
+        GameNoticePost("Load failed: save file is too large or unreadable.");
+        return;
+    }
+
+    GameLoadTransaction transaction = { .player = player };
+    SaveIoTransactionResult result = SaveIoReadTransactional(
+        file, GameSaveCheckpoint, GameLoadApplyFile, &transaction);
+    fclose(file);
+
+    if (result == SAVE_IO_TRANSACTION_CHECKPOINT_FAILED) {
+        GameNoticePost("Load failed: current game state could not be protected.");
+        return;
+    }
+    if (result == SAVE_IO_TRANSACTION_ROLLBACK_FAILED) {
+        GameNoticePost(
+            "Load failed and the previous game state could not be restored.");
+        return;
+    }
+    if (result == SAVE_IO_TRANSACTION_READ_FAILED) {
+        GameNoticePost(transaction.error ? transaction.error
+                                         : "Load failed: save file is corrupted.");
+        return;
+    }
+
     GameNoticePost(TextFormat("Loaded %s (%d edits).", SAVE_FILE,
-                                WorldGetEditCount()));
+                              transaction.loadedEditCount));
 }

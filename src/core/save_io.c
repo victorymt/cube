@@ -114,3 +114,33 @@ bool SaveIoWriteAtomic(const char *path, const char *backupPath,
     (void)SyncParentDirectory(path);
     return true;
 }
+
+SaveIoTransactionResult SaveIoReadTransactional(
+    FILE *source, SaveIoWriter checkpointWriter, SaveIoReader reader,
+    void *context)
+{
+    if (!source || !checkpointWriter || !reader) {
+        return SAVE_IO_TRANSACTION_CHECKPOINT_FAILED;
+    }
+
+    FILE *checkpoint = tmpfile();
+    if (!checkpoint) return SAVE_IO_TRANSACTION_CHECKPOINT_FAILED;
+    bool checkpointReady = checkpointWriter(checkpoint, context) &&
+                           !ferror(checkpoint) && fflush(checkpoint) == 0;
+    if (!checkpointReady) {
+        fclose(checkpoint);
+        return SAVE_IO_TRANSACTION_CHECKPOINT_FAILED;
+    }
+
+    if (reader(source, context)) {
+        fclose(checkpoint);
+        return SAVE_IO_TRANSACTION_OK;
+    }
+
+    clearerr(checkpoint);
+    rewind(checkpoint);
+    bool restored = reader(checkpoint, context);
+    fclose(checkpoint);
+    return restored ? SAVE_IO_TRANSACTION_READ_FAILED
+                    : SAVE_IO_TRANSACTION_ROLLBACK_FAILED;
+}

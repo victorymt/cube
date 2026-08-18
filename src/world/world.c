@@ -6,7 +6,6 @@
 #include "space/space_chunks.h"
 #include "space/space_state.h"
 #include "world/nether.h"
-#include "gameplay/ship.h"
 #include "world/terrain.h"
 #include "world/world_environment.h"
 #include "world/world_extension.h"
@@ -78,6 +77,14 @@ static void WorldExtensionOnBlockChanged(
 {
     if (worldExtensionHooks.onBlockChanged) {
         worldExtensionHooks.onBlockChanged(x, y, z, previous, next);
+    }
+}
+
+static void WorldExtensionOnBlockCommitted(
+    int x, int y, int z, BlockType previous, BlockType next)
+{
+    if (worldExtensionHooks.onBlockCommitted) {
+        worldExtensionHooks.onBlockCommitted(x, y, z, previous, next);
     }
 }
 
@@ -803,12 +810,9 @@ static bool SetBlockNoUndoReplay(
         return false;
     }
     if (!changed) return false;
-    if ((previous == BLOCK_SPACESHIP || ShipBlockIsParkedCore(previous)) &&
-        type != BLOCK_SPACESHIP && !ShipBlockIsParkedCore(type))
-        ShipForgetParkedAt(x, y, z);
-    else if (previous != BLOCK_SPACESHIP && !ShipBlockIsParkedCore(previous) &&
-             (type == BLOCK_SPACESHIP || ShipBlockIsParkedCore(type)))
-        ShipTrackParkedAt(x, y, z);
+    if (previous != type) {
+        WorldExtensionOnBlockCommitted(x, y, z, previous, type);
+    }
     return true;
 }
 
@@ -840,12 +844,9 @@ bool SetBlock(int x, int y, int z, BlockType type)
     } else {
         return false;
     }
-    if ((previous == BLOCK_SPACESHIP || ShipBlockIsParkedCore(previous)) &&
-        type != BLOCK_SPACESHIP && !ShipBlockIsParkedCore(type))
-        ShipForgetParkedAt(x, y, z);
-    else if (previous != BLOCK_SPACESHIP && !ShipBlockIsParkedCore(previous) &&
-             (type == BLOCK_SPACESHIP || ShipBlockIsParkedCore(type)))
-        ShipTrackParkedAt(x, y, z);
+    if (previous != type) {
+        WorldExtensionOnBlockCommitted(x, y, z, previous, type);
+    }
     return true;
 }
 

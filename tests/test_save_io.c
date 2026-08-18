@@ -20,6 +20,41 @@ static bool FailWriter(FILE *file, void *context)
     return false;
 }
 
+typedef struct TransactionFixture {
+    int state;
+    bool failRead;
+    int failedState;
+} TransactionFixture;
+
+static bool WriteTransactionState(FILE *file, void *context)
+{
+    TransactionFixture *fixture = context;
+    return fixture &&
+           fwrite(&fixture->state, sizeof(fixture->state), 1, file) == 1;
+}
+
+static bool ReadTransactionState(FILE *file, void *context)
+{
+    TransactionFixture *fixture = context;
+    int loaded = 0;
+    if (!fixture || fread(&loaded, sizeof(loaded), 1, file) != 1) return false;
+    fixture->state = loaded;
+    if (fixture->failRead && loaded == fixture->failedState) {
+        fixture->failRead = false;
+        return false;
+    }
+    return true;
+}
+
+static bool ReadTransactionStateAndFail(FILE *file, void *context)
+{
+    TransactionFixture *fixture = context;
+    int loaded = 0;
+    if (!fixture || fread(&loaded, sizeof(loaded), 1, file) != 1) return false;
+    fixture->state = loaded;
+    return false;
+}
+
 static char *ReadFile(const char *path)
 {
     FILE *file = fopen(path, "rb");
@@ -80,10 +115,92 @@ static void TestFailedWritePreservesDestination(void)
     rmdir(directory);
 }
 
+static void TestTransactionalReadCommits(void)
+{
+    TransactionFixture fixture = { .state = 7 };
+    FILE *source = tmpfile();
+    assert(source);
+    int loaded = 19;
+    assert(fwrite(&loaded, sizeof(loaded), 1, source) == 1);
+    rewind(source);
+
+    assert(SaveIoReadTransactional(
+               source, WriteTransactionState, ReadTransactionState, &fixture) ==
+           SAVE_IO_TRANSACTION_OK);
+    assert(fixture.state == 19);
+    fclose(source);
+}
+
+static void TestTransactionalReadRollsBackPartialMutation(void)
+{
+    TransactionFixture fixture = {
+        .state = 7,
+        .failRead = true,
+        .failedState = 19
+    };
+    FILE *source = tmpfile();
+    assert(source);
+    int loaded = 19;
+    assert(fwrite(&loaded, sizeof(loaded), 1, source) == 1);
+    rewind(source);
+
+    assert(SaveIoReadTransactional(
+               source, WriteTransactionState, ReadTransactionState, &fixture) ==
+           SAVE_IO_TRANSACTION_READ_FAILED);
+    assert(fixture.state == 7);
+    fclose(source);
+}
+
+static void TestTransactionalReadRejectsMissingCallbacks(void)
+{
+    FILE *source = tmpfile();
+    assert(source);
+    assert(SaveIoReadTransactional(source, NULL, ReadTransactionState, NULL) ==
+           SAVE_IO_TRANSACTION_CHECKPOINT_FAILED);
+    fclose(source);
+}
+
+static void TestTransactionalReadRequiresCheckpoint(void)
+{
+    TransactionFixture fixture = { .state = 7 };
+    FILE *source = tmpfile();
+    assert(source);
+    int loaded = 19;
+    assert(fwrite(&loaded, sizeof(loaded), 1, source) == 1);
+    rewind(source);
+
+    assert(SaveIoReadTransactional(
+               source, FailWriter, ReadTransactionState, &fixture) ==
+           SAVE_IO_TRANSACTION_CHECKPOINT_FAILED);
+    assert(fixture.state == 7);
+    fclose(source);
+}
+
+static void TestTransactionalReadReportsRollbackFailure(void)
+{
+    TransactionFixture fixture = { .state = 7 };
+    FILE *source = tmpfile();
+    assert(source);
+    int loaded = 19;
+    assert(fwrite(&loaded, sizeof(loaded), 1, source) == 1);
+    rewind(source);
+
+    assert(SaveIoReadTransactional(
+               source, WriteTransactionState, ReadTransactionStateAndFail,
+               &fixture) == SAVE_IO_TRANSACTION_ROLLBACK_FAILED);
+    assert(fixture.state == 7);
+    fclose(source);
+}
+
 int main(void)
 {
     TestAtomicReplacement();
     TestFailedWritePreservesDestination();
+    TestTransactionalReadCommits();
+    TestTransactionalReadRollsBackPartialMutation();
+    TestTransactionalReadRejectsMissingCallbacks();
+    TestTransactionalReadRequiresCheckpoint();
+    TestTransactionalReadReportsRollbackFailure();
     puts("save io tests passed");
     return 0;
 }

@@ -9,6 +9,7 @@ RAYLIB_LIBS := $(shell $(PKG_CONFIG) --libs raylib)
 BUILD_ROOT ?= build
 BUILD_VARIANT ?= normal
 BUILD_DIR := $(BUILD_ROOT)/$(BUILD_VARIANT)
+BUILD_ROOT_MARKER := $(BUILD_ROOT)/.voxelcraft-build-root
 TEST_BUILD_DIR := $(BUILD_DIR)/tests
 TARGET := $(BUILD_DIR)/voxelcraft
 TEST_TARGET := $(TEST_BUILD_DIR)/test_world_environment
@@ -126,7 +127,11 @@ all: $(TARGET)
 
 voxelcraft: $(TARGET)
 
-$(BUILD_DIR) $(TEST_BUILD_DIR) $(MODULE_BUILD_DIR):
+$(BUILD_ROOT_MARKER):
+	mkdir -p $(BUILD_ROOT)
+	@: > $@
+
+$(BUILD_DIR) $(TEST_BUILD_DIR) $(MODULE_BUILD_DIR): | $(BUILD_ROOT_MARKER)
 	mkdir -p $@
 
 $(TARGET): $(OBJ) | $(BUILD_DIR)
@@ -461,4 +466,4 @@ release-check:
 	@set -eu; archive=$$(find dist -maxdepth 1 -name 'voxelcraft-linux-*.tar.gz' | sort | tail -n 1); test -n "$${archive}"; tar -tzf "$${archive}" | grep -q '/voxelcraft$$'; tar -tzf "$${archive}" | grep -q '/README.md$$'; tar -tzf "$${archive}" | grep -q '/assets/fonts/FSEX302-alt.ttf$$'; tar -tzf "$${archive}" | grep -q '/assets/LICENSES.md$$'; tar -tzf "$${archive}" | grep -q '/assets/audio/rain.ogg$$'; tar -tzf "$${archive}" | grep -q '/assets/audio/water.ogg$$'; tar -tzf "$${archive}" | grep -q '/assets/audio/cave.ogg$$'; sha256sum -c "$${archive}.sha256"; printf '%s\n' 'release check passed'
 
 clean:
-	rm -rf $(BUILD_ROOT) dist
+	@sh scripts/clean-build.sh '$(BUILD_ROOT)'

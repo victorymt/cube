@@ -69,6 +69,19 @@ bool GameWorldSimulationPaused(const GameRuntime *game)
     return game && (game->paused || HomeWorldMapIsOpen());
 }
 
+static void GameOnWorldBlockCommitted(
+    int x, int y, int z, BlockType previous, BlockType next)
+{
+    bool previousIsShip = previous == BLOCK_SPACESHIP ||
+                          ShipBlockIsParkedCore(previous);
+    bool nextIsShip = next == BLOCK_SPACESHIP || ShipBlockIsParkedCore(next);
+    if (previousIsShip && !nextIsShip) {
+        ShipForgetParkedAt(x, y, z);
+    } else if (!previousIsShip && nextIsShip) {
+        ShipTrackParkedAt(x, y, z);
+    }
+}
+
 static bool NewWorldSpawnCandidate(int x, int z, TerrainMode mode,
                                    Vector3 *outPosition)
 {
@@ -1163,6 +1176,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
         .tryDisplaceBlock = FluidTryDisplaceForBlockTracked,
         .replayBlockDisplacement = FluidReplayBlockDisplacement,
         .onBlockChanged = FluidOnBlockChanged,
+        .onBlockCommitted = GameOnWorldBlockCommitted,
         .onChunkLoaded = FluidOnChunkLoaded,
         .onChunkSectionLoaded = FluidOnChunkSectionLoaded,
         .prepareChunkSectionUnload = FluidPrepareChunkSectionUnload
