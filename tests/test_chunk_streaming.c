@@ -20,7 +20,6 @@ static int sectionLoadedNotifications = 0;
 static int sectionUnloadPreparations = 0;
 static int lastSectionLoaded = 0;
 static int lastSectionPrepared = 0;
-static bool terrainSectionFacesExposed = true;
 
 static int FindPendingMeshJobFor(int slotIndex, int sectionY);
 
@@ -90,16 +89,6 @@ BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
     (void)z;
     (void)mode;
     return y >= 0 && y <= 8 ? BLOCK_STONE : BLOCK_AIR;
-}
-
-bool TerrainSectionHasExposedFaces(const ChunkSection *section, int cx,
-                                   int cz, int sectionY, TerrainMode mode)
-{
-    (void)cx;
-    (void)cz;
-    (void)mode;
-    return section && section->sectionY == sectionY &&
-           terrainSectionFacesExposed;
 }
 
 bool GenerateChunkTerrainSectionBase(
@@ -762,19 +751,17 @@ static void TestNearbySectionSchedulingUsesRenderDistance(void)
         (Vector3){ 0.5f, 20.0f, 0.5f }, 2) == 3);
 }
 
-static void TestSectionExposureControlsMaterialization(void)
+static void TestNonEmptySectionsMaterialize(void)
 {
-    terrainSectionFacesExposed = false;
     ChunksTestResetScheduler();
     ChunksTestConfigureChunk(0, 30, 0, true, false);
     chunks[0].generation = 51u;
     assert(RequestChunkTerrainSection(30, 0, 0));
     ChunksTestRunGenerationJob(0);
     ProcessFinishedChunkJobs();
-    assert(ChunkGetSectionConst(&chunks[0], 0) == NULL);
+    assert(ChunkGetSectionConst(&chunks[0], 0) != NULL);
     assert(ChunkTerrainSectionIsResolved(&chunks[0], 0));
 
-    terrainSectionFacesExposed = true;
     ChunksTestResetScheduler();
     ChunksTestConfigureChunk(0, 31, 0, true, false);
     chunks[0].generation = 52u;
@@ -789,7 +776,6 @@ static void TestSavedEditForcesSectionMaterialization(void)
     const int cx = 40;
     assert(SetBlock(cx * CHUNK_SIZE + 2, 4, 3, BLOCK_GLASS));
 
-    terrainSectionFacesExposed = false;
     ChunksTestResetScheduler();
     ChunksTestConfigureChunk(0, cx, 0, true, false);
     chunks[0].generation = 53u;
@@ -813,7 +799,6 @@ static void TestSavedEditForcesSectionMaterialization(void)
         &chunks[0], 0);
     assert(neighborSection != NULL);
     assert(neighborSection->blocks[0][4][3] == BLOCK_STONE);
-    terrainSectionFacesExposed = true;
 }
 
 static void TestNegativeSectionPruningKeepsVerticalWindow(void)
@@ -975,7 +960,7 @@ int main(void)
     TestSectionGenerationJobsStageAndValidateResults();
     TestNearbySectionSchedulingPrioritizesPlayerSection();
     TestNearbySectionSchedulingUsesRenderDistance();
-    TestSectionExposureControlsMaterialization();
+    TestNonEmptySectionsMaterialize();
     TestSavedEditForcesSectionMaterialization();
     TestNegativeSectionPruningKeepsVerticalWindow();
     TestNegativeSectionPruningPreservesRuntimeState();

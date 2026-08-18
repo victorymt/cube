@@ -46,10 +46,9 @@ void GenerateChunkJobPayload(ChunkGenJob *job)
         &staged, job->cx, job->cz, job->sectionY, job->terrainMode);
     const ChunkSection *section = ChunkGetSectionConst(
         &staged, job->sectionY);
-    if (job->succeeded && section &&
-        (job->forceSectionBlocks || TerrainSectionHasExposedFaces(
-            section, job->cx, job->cz, job->sectionY,
-            job->terrainMode))) {
+    /* Keep every non-empty generated section materialized. An implicit
+       section cannot be reclassified when a neighbor is unloaded or edited. */
+    if (job->succeeded && section) {
         memcpy(job->sectionBlocks, section->blocks,
                sizeof(job->sectionBlocks));
         job->hasSectionBlocks = true;
@@ -245,46 +244,6 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
     return true;
 }
 
-static bool ChunkSectionHasRelevantSavedEdit(const Chunk *chunk,
-                                             int sectionY)
-{
-    if (!chunk) return false;
-    int editCount = WorldGetEditCount();
-    for (int index = 0; index < editCount; index++) {
-        BlockEdit edit;
-        if (!WorldGetEditForCurrentDimension(index, &edit)) continue;
-        int editCx = 0;
-        int editCz = 0;
-        int editLx = 0;
-        int editLz = 0;
-        WorldToChunkLocal(edit.x, edit.z, &editCx, &editCz,
-                          &editLx, &editLz);
-        int editSectionY = SurfaceSectionYFromBlockY(edit.y);
-        if (editSectionY == sectionY) {
-            if (editCx == chunk->cx && editCz == chunk->cz) return true;
-            if (editCz == chunk->cz &&
-                ((editCx == chunk->cx - 1 && editLx == CHUNK_SIZE - 1) ||
-                 (editCx == chunk->cx + 1 && editLx == 0))) {
-                return true;
-            }
-            if (editCx == chunk->cx &&
-                ((editCz == chunk->cz - 1 && editLz == CHUNK_SIZE - 1) ||
-                 (editCz == chunk->cz + 1 && editLz == 0))) {
-                return true;
-            }
-        }
-        if (editCx == chunk->cx && editCz == chunk->cz) {
-            int editLocalY = SurfaceSectionLocalYFromBlockY(edit.y);
-            if ((editSectionY == sectionY - 1 &&
-                 editLocalY == SURFACE_SECTION_HEIGHT - 1) ||
-                (editSectionY == sectionY + 1 && editLocalY == 0)) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 static bool SubmitChunkSectionGenJob(
     Chunk *chunk, int sectionY, TerrainMode mode)
 {
@@ -315,8 +274,6 @@ static bool SubmitChunkSectionGenJob(
 
     *job = (ChunkGenJob){
         .inUse = true,
-        .forceSectionBlocks = ChunkSectionHasRelevantSavedEdit(
-            chunk, sectionY),
         .scope = CHUNK_GEN_SCOPE_SECTION,
         .cx = chunk->cx,
         .cz = chunk->cz,

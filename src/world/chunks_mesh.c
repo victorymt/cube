@@ -41,9 +41,10 @@ static BlockType ChunkFaceNeighbor(
     if (!InHeight(worldY)) return BLOCK_AIR;
     if (boundary) {
         BlockType neighbor = BLOCK_AIR;
-        return SurfaceBoundaryBlockAt(
-            boundary, neighborLx, neighborY, neighborLz, &neighbor)
-            ? neighbor : BLOCK_AIR;
+        unsigned char ignoredVolume = 0u;
+        return SurfaceBoundaryCellAt(
+            boundary, neighborLx, neighborY, neighborLz,
+            &neighbor, &ignoredVolume) ? neighbor : BLOCK_STONE;
     }
 
     int wx = chunkX * CHUNK_SIZE + lx + nx;
@@ -274,8 +275,10 @@ static BlockType SnapshotBlockAt(
     }
     if (boundary) {
         BlockType block = BLOCK_AIR;
-        return SurfaceBoundaryBlockAt(boundary, lx, localY, lz, &block)
-            ? block : BLOCK_AIR;
+        unsigned char ignoredVolume = 0u;
+        return SurfaceBoundaryCellAt(
+            boundary, lx, localY, lz, &block, &ignoredVolume)
+            ? block : BLOCK_STONE;
     }
     return GetBlockAt(worldX, worldY, worldZ);
 }

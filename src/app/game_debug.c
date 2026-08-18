@@ -163,6 +163,30 @@ static void GameDebugReplyStatus(GameRuntime *game)
     int targetFaceVertices = targeted.hit ? GameDebugCountSurfaceFaceVertices(
         targetChunk, targetSection, targeted.x, targeted.y, targeted.z,
         targeted.nx, targeted.ny, targeted.nz) : 0;
+    bool targetBaseGenerated = false;
+    bool targetBaseExposed = false;
+    BlockType targetBaseBlock = BLOCK_AIR;
+    if (targeted.hit && HomeWorldSurfaceIsActive()) {
+        int targetSectionY = SurfaceSectionYFromBlockY(targeted.y);
+        Chunk staged = {
+            .cx = targetCx,
+            .cz = targetCz,
+            .spherical = targetChunk ? targetChunk->spherical : false,
+            .surfaceAddress = targetChunk
+                ? targetChunk->surfaceAddress : (SurfaceAddress){ 0 }
+        };
+        targetBaseGenerated = GenerateChunkTerrainSectionBase(
+            &staged, targetCx, targetCz, targetSectionY,
+            WorldTerrainMode());
+        const ChunkSection *baseSection = ChunkGetSectionConst(
+            &staged, targetSectionY);
+        targetBaseExposed = TerrainSectionHasExposedFaces(
+            baseSection, targetCx, targetCz, targetSectionY,
+            WorldTerrainMode());
+        ChunkTryGetLocalBlock(&staged, targetLx, targeted.y, targetLz,
+                              &targetBaseBlock);
+        ChunkClearBlockStorage(&staged);
+    }
     PlayerWaterState water = PlayerWaterStateAt(game->player.position);
     int missingSurfaceChunks =
         PlayerMissingSurfaceChunkCount(game->player.position);
@@ -209,7 +233,8 @@ static void GameDebugReplyStatus(GameRuntime *game)
         "target_normal=%d,%d,%d target_neighbor=%s "
         "target_stored=%d target_stored_block=%s target_section=%d "
         "target_dirty=%d target_stamp=%u target_solid_vertices=%d "
-        "target_face_vertices=%d "
+        "target_face_vertices=%d target_base_generated=%d "
+        "target_base_exposed=%d target_base_block=%s "
         "camera_inside_solid=%d autosave=%d\n",
         game->screen == SCREEN_PLAYING ? "playing" : "start", WorldGetSeed(),
         WorldDimensionName(WorldCurrentDimension()),
@@ -243,7 +268,8 @@ static void GameDebugReplyStatus(GameRuntime *game)
         targetSection ? 1 : 0,
         targetSection && targetSection->dirty ? 1 : 0,
         targetSection ? targetSection->dirtyStamp : 0u, targetSolidVertices,
-        targetFaceVertices,
+        targetFaceVertices, targetBaseGenerated ? 1 : 0,
+        targetBaseExposed ? 1 : 0, BlockName(targetBaseBlock),
         PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0,
         game->autoSaveEnabled ? 1 : 0);
 }
