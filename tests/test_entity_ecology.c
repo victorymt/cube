@@ -21,6 +21,17 @@ enum {
     ENTITY_ECOLOGY_STABILITY_FRAMES = 180
 };
 
+static WeatherImpactExposure TestWildfireExposure(
+    Vector3 position, float shelter, float immersion)
+{
+    (void)position;
+    return (WeatherImpactExposure){
+        .heat = shelter > 0.0f || immersion > 0.0f ? 0.1f : 0.9f,
+        .smoke = immersion > 0.0f ? 0.0f : 0.7f,
+        .nearestDistance = 1.0f
+    };
+}
+
 bool WorldIsSurfaceActive(void)
 {
     return true;
@@ -682,6 +693,10 @@ static void TestEntityDeathCauseFeedback(void)
     assert(EntitiesView()[0].velocity.x != velocityBeforeTornado.x ||
            EntitiesView()[0].velocity.z != velocityBeforeTornado.z);
     assert(EntitiesView()[0].health < healthBeforeTornado);
+    float healthBeforeFire = EntitiesView()[0].health;
+    EntitiesApplyWildfireHazards(
+        0.25f, daylight, true, TestWildfireExposure);
+    assert(EntitiesView()[0].health < healthBeforeFire);
     float healthBefore = EntitiesView()[0].health;
     WeatherFieldSample heat = {
         .temperatureK = 1200.0f,

@@ -142,6 +142,62 @@ wait_for_reply '^DEBUG_CONTROL water debug enabled=1$'
 wait_for_reply '^DEBUG_CONTROL water debug enabled=0$'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
+# Exercise the complete wildfire debug path at a deterministic flammable
+# Homeworld cell, capture the same-frame renderer inputs, then clear only fire.
+send_command 'stream wait 600'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
+wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'weather force strong-wind 1 36000'
+wait_for_reply '^DEBUG_CONTROL weather force ok phenomenon=Strong wind intensity=1.000000 frames=36000$'
+send_command 'weather fire ignite 9 82 -10 1'
+wait_for_reply '^DEBUG_CONTROL weather fire ignite ok position=9,82,-10 '
+send_command 'weather fire ignite 9 82 -10 1'
+wait_for_reply '^DEBUG_CONTROL weather fire ignite ok position=9,82,-10 phase=(igniting|flaming) intensity=1.000000 '
+send_command 'assert weather.active_fires == 1 && weather.fire_phase != "inactive" && weather.fire_position == vec3(9,82,-10) && weather.fire_distance >= 0 && weather.fire_intensity > 0 && weather.fire_fuel > 0 && weather.fire_moisture < 0.72 && weather.fire_ignitions >= 1'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'weather inspect'
+wait_for_reply '^DEBUG_CONTROL weather inspect ok '
+[[ "$matched_line" == *'fires=1'* ]]
+[[ "$matched_line" == *'fire_position=9,82,-10'* ]]
+[[ "$matched_line" == *'fire_ignitions='* ]]
+send_command 'teleport 9 85 -4 3.141593 -0.25'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=9.000000,85.000000,-4.000000$'
+send_command 'stream wait 300'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=300$'
+wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'weather fire ignite 9 82 -10 1'
+wait_for_reply '^DEBUG_CONTROL weather fire ignite ok position=9,82,-10 '
+send_command 'screenshot'
+wait_for_reply '^DEBUG_CONTROL screenshot scheduled$'
+wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
+
+wildfire_png_path=${matched_line#*png=}
+wildfire_png_path=${wildfire_png_path%% report=*}
+wildfire_report_path=${matched_line##*report=}
+[[ -s "$wildfire_png_path" ]]
+[[ -s "$wildfire_report_path" ]]
+grep -Fxq 'format.version=10' "$wildfire_report_path"
+grep -Fxq 'weather.fire_present=true' "$wildfire_report_path"
+grep -Eq '^weather.fire_phase=(igniting|flaming|smoldering)$' "$wildfire_report_path"
+grep -Fxq 'weather.fire_position=9.000000,82.000000,-10.000000' "$wildfire_report_path"
+grep -Eq '^weather.fire_snapshot_count=[1-9][0-9]*$' "$wildfire_report_path"
+grep -Fxq 'weather.fire_render_max_fires=24' "$wildfire_report_path"
+grep -Fxq 'weather.fire_render_flame_tongues=3' "$wildfire_report_path"
+grep -Fxq 'weather.fire_render_smoke_puffs=5' "$wildfire_report_path"
+grep -Eq '^weather.fire_smoke_output=0\.[0-9]*[1-9][0-9]*$' "$wildfire_report_path"
+grep -Eq '^weather.fire_plume_wind_drift=0\.[0-9]*[1-9][0-9]*$' "$wildfire_report_path"
+python3 tests/validate_png.py "$wildfire_png_path" 1280 720
+send_command 'weather fire suppress 9 82 -10 0 0.5'
+wait_for_reply '^DEBUG_CONTROL weather fire suppress ok position=9,82,-10 radius=0.000 amount=0.500000 affected=1$'
+send_command 'assert weather.fire_suppressions >= 1'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'weather fire clear'
+wait_for_reply '^DEBUG_CONTROL weather fire clear ok cleared=1$'
+send_command 'assert weather.active_fires == 0 && weather.fire_phase == "inactive" && weather.fire_distance == -1 && weather.forced_frames > 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'weather clear'
+wait_for_reply '^DEBUG_CONTROL weather clear ok$'
+
 # This chunk-boundary coordinate previously exposed unloaded surface chunks as
 # air. While streaming catches up, walking collision must hold the player in
 # place; after the audit settles, the same coordinate must be fully usable.
@@ -281,7 +337,7 @@ report_path=${matched_line##*report=}
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=9' "$report_path"
+grep -Fxq 'format.version=10' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
 grep -Fxq 'weather.cloud_genus=Cumulonimbus' "$report_path"
@@ -334,7 +390,7 @@ atlas_png_path=${atlas_png_path%% report=*}
 atlas_report_path=${matched_line##*report=}
 [[ -s "$atlas_png_path" ]]
 [[ -s "$atlas_report_path" ]]
-grep -Fxq 'format.version=9' "$atlas_report_path"
+grep -Fxq 'format.version=10' "$atlas_report_path"
 grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
 grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
 python3 tests/validate_png.py "$atlas_png_path" 1280 720 --allow-dark-ui
@@ -419,5 +475,5 @@ trap - EXIT
 
 [[ "$(persistent_state_fingerprint)" == "$persistent_state_before" ]]
 
-printf 'game end-to-end test passed: world=%s atlas=%s\n' \
-    "$png_path" "$atlas_png_path"
+printf 'game end-to-end test passed: wildfire=%s world=%s atlas=%s\n' \
+    "$wildfire_png_path" "$png_path" "$atlas_png_path"

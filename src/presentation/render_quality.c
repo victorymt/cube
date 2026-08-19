@@ -11,6 +11,9 @@ GraphicsQualityProfile GraphicsQualityProfileFor(GraphicsQuality quality)
             .cloudGridRadius = 1,
             .cloudRaySteps = 8,
             .cloudLightSteps = 1,
+            .wildfireMaxFires = 12,
+            .wildfireFlameTongues = 2,
+            .wildfireSmokePuffs = 3,
             .precipitationScale = 0.45f,
             .postProcessing = false
         };
@@ -22,6 +25,9 @@ GraphicsQualityProfile GraphicsQualityProfileFor(GraphicsQuality quality)
             .cloudGridRadius = 3,
             .cloudRaySteps = 20,
             .cloudLightSteps = 3,
+            .wildfireMaxFires = 48,
+            .wildfireFlameTongues = 5,
+            .wildfireSmokePuffs = 8,
             .precipitationScale = 1.45f,
             .postProcessing = true
         };
@@ -34,6 +40,9 @@ GraphicsQualityProfile GraphicsQualityProfileFor(GraphicsQuality quality)
             .cloudGridRadius = 2,
             .cloudRaySteps = 12,
             .cloudLightSteps = 2,
+            .wildfireMaxFires = 24,
+            .wildfireFlameTongues = 3,
+            .wildfireSmokePuffs = 5,
             .precipitationScale = 1.0f,
             .postProcessing = true
         };

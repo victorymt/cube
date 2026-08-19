@@ -31,7 +31,10 @@ static EnvironmentPresentationInput StormInput(void)
             .influenceRadius = 52.0f
         },
         .tornadoDistance = 24.0f,
-        .tornadoExposure = 0.72f
+        .tornadoExposure = 0.72f,
+        .fireHeatExposure = 0.82f,
+        .fireSmokeExposure = 0.68f,
+        .nearestFireDistance = 3.0f
     };
 }
 
@@ -45,6 +48,8 @@ static void TestSceneContracts(void)
     assert(open.fogDensity > 0.0f);
     assert(open.lightningFlash > 0.0f);
     assert(open.audioTornado > 0.4f);
+    assert(open.audioFire > 0.6f);
+    assert(open.smokeHaze > 0.1f && open.smokeHaze <= 0.18f);
 
     input.sheltered = true;
     EnvironmentPresentationState sheltered = EnvironmentPresentationEvaluate(&input);
@@ -53,6 +58,8 @@ static void TestSceneContracts(void)
     assert(sheltered.lightningFlash == 0.0f);
     assert(sheltered.audioCave > 0.0f);
     assert(sheltered.audioTornado < open.audioTornado * 0.25f);
+    assert(sheltered.audioFire < open.audioFire);
+    assert(sheltered.smokeHaze < open.smokeHaze);
 
     input.scene = ENVIRONMENT_SCENE_SPACE;
     input.shipInterior = false;
@@ -62,6 +69,8 @@ static void TestSceneContracts(void)
     assert(vacuum.audioWind == 0.0f);
     assert(vacuum.audioShip == 0.0f);
     assert(vacuum.audioTornado == 0.0f);
+    assert(vacuum.audioFire == 0.0f);
+    assert(vacuum.smokeHaze == 0.0f);
     input.shipInterior = true;
     assert(EnvironmentPresentationEvaluate(&input).audioShip > 0.0f);
 
@@ -83,6 +92,16 @@ static void TestQualityAndTransitions(void)
     assert(target.precipitation > low);
     assert(target.cloudRaySteps > lowState.cloudRaySteps);
     assert(target.cloudLightSteps > lowState.cloudLightSteps);
+    GraphicsQualityProfile lowProfile =
+        GraphicsQualityProfileFor(GRAPHICS_QUALITY_LOW);
+    GraphicsQualityProfile mediumProfile =
+        GraphicsQualityProfileFor(GRAPHICS_QUALITY_MEDIUM);
+    GraphicsQualityProfile highProfile =
+        GraphicsQualityProfileFor(GRAPHICS_QUALITY_HIGH);
+    assert(lowProfile.wildfireMaxFires < mediumProfile.wildfireMaxFires);
+    assert(mediumProfile.wildfireMaxFires < highProfile.wildfireMaxFires);
+    assert(lowProfile.wildfireFlameTongues < highProfile.wildfireFlameTongues);
+    assert(lowProfile.wildfireSmokePuffs < highProfile.wildfireSmokePuffs);
 
     EnvironmentPresentationState current = target;
     current.wetness = 1.0f;
@@ -104,6 +123,8 @@ static void TestDeepWaterAttenuation(void)
     assert(shallow.lightningFlash == 0.0f);
     assert(shallow.starVisibility == 0.0f);
     assert(shallow.audioTornado == 0.0f);
+    assert(shallow.audioFire == 0.0f);
+    assert(shallow.smokeHaze == 0.0f);
     input.underwaterDepth = 64.0f;
     EnvironmentPresentationState deep = EnvironmentPresentationEvaluate(&input);
     input.underwaterDepth = UNDERWATER_DEEP_REFERENCE_DEPTH;

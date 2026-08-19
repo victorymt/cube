@@ -15,6 +15,7 @@
 static BlockType blocks[TEST_SPAN][TEST_HEIGHT][TEST_SPAN];
 static uint8_t fluids[TEST_SPAN][TEST_HEIGHT][TEST_SPAN];
 static WorldMutationSource mutationSource = WORLD_MUTATION_PLAYER;
+static bool surfaceLoaded = true;
 
 static bool Cell(int x, int y, int z, int *ix, int *iy, int *iz)
 {
@@ -36,6 +37,7 @@ static void ResetGrid(BlockType ground)
         for (int z = 0; z < TEST_SPAN; z++) blocks[x][10][z] = ground;
     }
     mutationSource = WORLD_MUTATION_PLAYER;
+    surfaceLoaded = true;
 }
 
 uint32_t WorldGetSeed(void) { return 0x45a19c7du; }
@@ -47,7 +49,7 @@ int WorldSurfaceHeightAt(int x, int z) { (void)x; (void)z; return 10; }
 
 bool SurfaceBlockReadyAt(int x, int y, int z)
 {
-    return Cell(x, y, z, NULL, NULL, NULL);
+    return surfaceLoaded && Cell(x, y, z, NULL, NULL, NULL);
 }
 
 BlockType GetBlockAt(int x, int y, int z)
@@ -94,6 +96,10 @@ BlockMaterialResponse BlockMaterialResponseFor(BlockType type)
     case BLOCK_WOOD:
     case BLOCK_PLANK:
         return (BlockMaterialResponse){ 0.72f, 0.60f, 0.95f, 0.10f };
+    case BLOCK_LEAVES:
+    case BLOCK_TALL_GRASS:
+    case BLOCK_FERN:
+        return (BlockMaterialResponse){ 0.25f, 0.20f, 0.88f, 0.18f };
     case BLOCK_STONE:
         return (BlockMaterialResponse){ 0.96f, 0.95f, 0.0f, 0.03f };
     default:
@@ -126,6 +132,18 @@ static WeatherFieldSample Rain(void)
         .wind = 0.48f,
         .gust = 0.58f,
         .visibility = 0.70f
+    };
+}
+
+static WeatherFieldSample Dry(void)
+{
+    return (WeatherFieldSample){
+        .temperatureK = 309.0f,
+        .relativeHumidity = 0.16f,
+        .wind = 0.24f,
+        .gust = 0.32f,
+        .windAngle = 0.0f,
+        .visibility = 1.0f
     };
 }
 
@@ -174,10 +192,126 @@ static void TestFireAndRainInteraction(void)
     assert(WeatherImpactGetStats().activeFires == 1u);
     float intensity = 0.0f;
     assert(WeatherImpactFireAt(0, 10, 0, &intensity));
-    assert(intensity == 1.0f);
+    assert(intensity > 0.5f && intensity <= 1.0f);
     WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    assert(WeatherImpactGetStats().activeFires == 1u);
+    WeatherImpactFireSnapshot fire = { 0 };
+    assert(WeatherImpactFireStateAt(0, 10, 0, &fire));
+    assert(fire.state.moisture > 0.1f);
+    assert(WeatherImpactSuppressAt(0, 10, 0, 0.5f, 0.3f) == 1u);
+    assert(WeatherImpactFireStateAt(0, 10, 0, &fire));
+    assert(fire.state.phase == WILDFIRE_PHASE_SMOLDERING);
+    WeatherImpactStepTicks(100u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(WeatherImpactGetStats().activeFires == 0u);
+    assert(WeatherImpactGetStats().extinctions == 1u);
+    assert(WeatherImpactGetStats().suppressions == 1u);
     assert(GetBlockAt(0, 10, 0) == BLOCK_WOOD);
+}
+
+static void TestIgnitionQueriesAndLoadedBounds(void)
+{
+    ResetGrid(BLOCK_STONE);
+    WeatherImpactInit(true);
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_WOOD;
+    surfaceLoaded = false;
+    assert(!WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+    surfaceLoaded = true;
+    assert(FluidSetVolumeAt(1, 10, 0, FLUID_CAPACITY));
+    assert(!WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+    assert(FluidSetVolumeAt(1, 10, 0, 0u));
+
+    blocks[TEST_RADIUS + 1][10][TEST_RADIUS] = BLOCK_WOOD;
+    blocks[TEST_RADIUS + 4][10][TEST_RADIUS] = BLOCK_WOOD;
+    assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+    assert(WeatherImpactIgniteAt(1, 10, 0, 0.8f));
+    assert(WeatherImpactIgniteAt(4, 10, 0, 0.8f));
+    WeatherImpactFireSnapshot fires[2] = { 0 };
+    unsigned count = WeatherImpactCollectFires(
+        (Vector3){ 0.5f, 10.5f, 0.5f }, 20.0f, fires, 2u);
+    assert(count == 2u);
+    assert(fires[0].x == 0);
+    assert(fires[1].x == 1);
+    WeatherImpactFireSnapshot nearest = { 0 };
+    float distance = -1.0f;
+    assert(WeatherImpactNearestFire(
+        (Vector3){ 3.9f, 10.5f, 0.5f }, &nearest, &distance));
+    assert(nearest.x == 4);
+    assert(distance < 1.0f);
+    WeatherImpactExposure exposure = WeatherImpactExposureAt(
+        (Vector3){ 0.5f, 10.5f, 0.5f }, 0.0f, 0.0f);
+    assert(exposure.heat > 0.0f);
+    assert(exposure.smoke > 0.0f);
+    WeatherImpactExposure sheltered = WeatherImpactExposureAt(
+        (Vector3){ 0.5f, 10.5f, 0.5f }, 1.0f, 1.0f);
+    assert(sheltered.heat < exposure.heat);
+    assert(sheltered.smoke < exposure.smoke);
+    assert(WeatherImpactClearFires() == 3u);
+    assert(WeatherImpactGetStats().activeFires == 0u);
+}
+
+static void TestFuelConsumptionAndBurnScar(void)
+{
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_TALL_GRASS;
+    WeatherImpactInit(true);
+    assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+    WeatherImpactStepTicks(500u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
+    assert(GetBlockAt(0, 10, 0) == BLOCK_AIR);
+    assert(WeatherImpactGetStats().blockDamageEvents == 1u);
+    assert(WeatherImpactGetStats().burnedBlocks == 1u);
+    assert(WeatherImpactGetStats().burnSiteCount >= 1u);
+    WeatherBurnSiteState burn = { 0 };
+    assert(WeatherImpactBurnSiteAt(0, 10, 0, &burn));
+    assert(burn.severity > 0.95f);
+    assert(WeatherImpactGetStats().burnedBlocks == 1u);
+    assert(WeatherImpactBurnSeverityAt(0, 10, 0) > 0.9f);
+    FILE *file = tmpfile();
+    assert(file);
+    assert(WeatherImpactSaveState(file));
+    rewind(file);
+    WeatherImpactReset();
+    assert(WeatherImpactLoadState(file));
+    fclose(file);
+    assert(WeatherImpactBurnSiteAt(0, 10, 0, &burn));
+    assert(burn.severity > 0.95f);
+}
+
+static void TestBoundedWorkAndNaturalSources(void)
+{
+    ResetGrid(BLOCK_STONE);
+    WeatherImpactInit(true);
+    for (int x = -20; x < 0; x++) {
+        blocks[x + TEST_RADIUS][10][TEST_RADIUS] = BLOCK_WOOD;
+        assert(WeatherImpactIgniteAt(x, 10, 0, 0.8f));
+    }
+    WeatherImpactStepTicks(1u, (Vector3){ 0.0f, 12.0f, 0.0f }, Dry());
+    WeatherImpactFireSnapshot fires[WEATHER_IMPACT_MAX_FIRES] = { 0 };
+    unsigned count = WeatherImpactCollectFires(
+        (Vector3){ 0.0f, 12.0f, 0.0f }, 100.0f, fires,
+        WEATHER_IMPACT_MAX_FIRES);
+    unsigned advanced = 0u;
+    for (unsigned index = 0u; index < count; index++) {
+        if (fires[index].state.ageSeconds > 0.0f) advanced++;
+    }
+    assert(count == 20u);
+    assert(advanced == 16u);
+
+    ResetGrid(BLOCK_WOOD);
+    WeatherImpactInit(true);
+    WeatherFieldSample lightning = Dry();
+    lightning.lightning = 1.0f;
+    WeatherImpactStepTicks(80u, (Vector3){ 0.0f, 12.0f, 0.0f }, lightning);
+    assert(WeatherImpactGetStats().ignitions > 0u);
+
+    ResetGrid(BLOCK_WOOD);
+    WeatherImpactInit(true);
+    for (int x = 0; x < TEST_SPAN; x++) {
+        for (int z = 0; z < TEST_SPAN; z++) {
+            blocks[x][11][z] = BLOCK_LAVA;
+        }
+    }
+    WeatherImpactStepTicks(20u, (Vector3){ 0.0f, 12.0f, 0.0f }, Dry());
+    assert(WeatherImpactGetStats().ignitions > 0u);
 }
 
 static void TestSnowOwnershipAndPlayerOverride(void)
@@ -210,8 +344,10 @@ static void TestSnowOwnershipAndPlayerOverride(void)
 static void TestSaveLoadAndCorruption(void)
 {
     ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_WOOD;
     WeatherImpactInit(true);
-    WeatherImpactStepTicks(30u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    assert(WeatherImpactIgniteAt(0, 10, 0, 0.9f));
+    WeatherImpactStepTicks(30u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
     WeatherImpactStats before = WeatherImpactGetStats();
     FILE *file = tmpfile();
     assert(file);
@@ -223,6 +359,12 @@ static void TestSaveLoadAndCorruption(void)
     WeatherImpactStats after = WeatherImpactGetStats();
     assert(after.ticks == before.ticks);
     assert(after.surfaceCount == before.surfaceCount);
+    assert(after.activeFires == before.activeFires);
+    assert(after.ignitions == before.ignitions);
+    assert(after.burnedBlocks == before.burnedBlocks);
+    WeatherImpactFireSnapshot fireState = { 0 };
+    assert(WeatherImpactFireStateAt(0, 10, 0, &fireState));
+    assert(fireState.state.phase != WILDFIRE_PHASE_INACTIVE);
 
     file = tmpfile();
     assert(file);
@@ -233,12 +375,94 @@ static void TestSaveLoadAndCorruption(void)
     assert(WeatherImpactGetStats().surfaceCount == after.surfaceCount);
 }
 
+typedef struct LegacyDiskHeader {
+    uint32_t surfaceCount;
+    uint32_t fireCount;
+    uint64_t ticks;
+} LegacyDiskHeader;
+
+typedef struct LegacyFireRecord {
+    uint32_t surfaceId;
+    int x;
+    int y;
+    int z;
+    float intensity;
+    float fuel;
+} LegacyFireRecord;
+
+typedef struct CurrentDiskHeader {
+    uint32_t surfaceCount;
+    uint32_t fireCount;
+    uint32_t burnSiteCount;
+    uint32_t reserved;
+    uint64_t ticks;
+    uint64_t processedSurfaces;
+    uint64_t depositedWater;
+    uint32_t counters[10];
+} CurrentDiskHeader;
+
+static void TestLegacyMigrationAndTransactionalFailure(void)
+{
+    ResetGrid(BLOCK_WOOD);
+    WeatherImpactInit(true);
+    FILE *file = tmpfile();
+    assert(file);
+    const LegacyDiskHeader header = {
+        .fireCount = 1u,
+        .ticks = 9876u
+    };
+    const LegacyFireRecord fire = {
+        .surfaceId = 7u,
+        .x = 2,
+        .y = 10,
+        .z = 3,
+        .intensity = 0.0f,
+        .fuel = 0.75f
+    };
+    const uint32_t sentinel = 0x51a7c0deu;
+    assert(fwrite("WXIMPACT1", 1u, 9u, file) == 9u);
+    assert(fwrite(&header, sizeof(header), 1u, file) == 1u);
+    assert(fwrite(&fire, sizeof(fire), 1u, file) == 1u);
+    assert(fwrite(&sentinel, sizeof(sentinel), 1u, file) == 1u);
+    rewind(file);
+    assert(WeatherImpactLoadState(file));
+    uint32_t trailing = 0u;
+    assert(fread(&trailing, sizeof(trailing), 1u, file) == 1u);
+    assert(trailing == sentinel);
+    fclose(file);
+    WeatherImpactStats migrated = WeatherImpactGetStats();
+    assert(migrated.ticks == 9876u);
+    assert(migrated.activeFires == 1u);
+    WeatherImpactFireSnapshot migratedFire = { 0 };
+    assert(WeatherImpactFireStateAt(2, 10, 3, &migratedFire));
+    assert(migratedFire.state.phase == WILDFIRE_PHASE_SMOLDERING);
+    assert(migratedFire.state.intensity > 0.0f);
+    assert(migratedFire.state.heatOutput > 0.0f);
+
+    file = tmpfile();
+    assert(file);
+    CurrentDiskHeader corrupt = {
+        .fireCount = WEATHER_IMPACT_MAX_FIRES + 1u
+    };
+    assert(fwrite("WXIMPACT2", 1u, 9u, file) == 9u);
+    assert(fwrite(&corrupt, sizeof(corrupt), 1u, file) == 1u);
+    rewind(file);
+    assert(!WeatherImpactLoadState(file));
+    fclose(file);
+    assert(WeatherImpactGetStats().ticks == migrated.ticks);
+    assert(WeatherImpactFireStateAt(2, 10, 3, &migratedFire));
+}
+
 int main(void)
 {
     TestRainBudgetAndDisable();
     TestFireAndRainInteraction();
+    TestIgnitionQueriesAndLoadedBounds();
+    TestFuelConsumptionAndBurnScar();
+    TestBoundedWorkAndNaturalSources();
     TestSnowOwnershipAndPlayerOverride();
     TestSaveLoadAndCorruption();
+    TestLegacyMigrationAndTransactionalFailure();
     puts("weather impact tests passed");
     return 0;
 }

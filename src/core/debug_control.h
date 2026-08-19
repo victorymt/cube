@@ -40,6 +40,9 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_CLEAR,
     DEBUG_CONTROL_COMMAND_WEATHER_TORNADO_FORCE,
     DEBUG_CONTROL_COMMAND_WEATHER_TORNADO_CLEAR,
+    DEBUG_CONTROL_COMMAND_WEATHER_FIRE_IGNITE,
+    DEBUG_CONTROL_COMMAND_WEATHER_FIRE_SUPPRESS,
+    DEBUG_CONTROL_COMMAND_WEATHER_FIRE_CLEAR,
     DEBUG_CONTROL_COMMAND_WEATHER_CLEAR,
     DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE,
     DEBUG_CONTROL_COMMAND_WEATHER_STEP,
@@ -119,6 +122,9 @@ typedef struct DebugControl {
     int fluidX;
     int fluidY;
     int fluidZ;
+    int weatherFireX;
+    int weatherFireY;
+    int weatherFireZ;
     int streamAuditX;
     int streamAuditY;
     int streamAuditZ;
@@ -146,6 +152,9 @@ typedef struct DebugControl {
     float weatherCloudCoverage;
     float weatherTornadoIntensity;
     float weatherTornadoDistance;
+    float weatherFireIntensity;
+    float weatherFireRadius;
+    float weatherFireSuppression;
     char weatherPhenomenon[DEBUG_CONTROL_WEATHER_NAME_SIZE];
     char weatherCloudGenus[DEBUG_CONTROL_WEATHER_NAME_SIZE];
 } DebugControl;

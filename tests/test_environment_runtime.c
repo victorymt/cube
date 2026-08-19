@@ -43,7 +43,10 @@ static EnvironmentRuntimeSample RainSample(void)
         .shipInterior = false,
         .tornado = { .active = true, .intensity = 0.8f },
         .tornadoDistance = 30.0f,
-        .tornadoExposure = 0.5f
+        .tornadoExposure = 0.5f,
+        .fireHeatExposure = 0.7f,
+        .fireSmokeExposure = 0.6f,
+        .nearestFireDistance = 4.0f
     };
 }
 
@@ -66,6 +69,9 @@ static void TestInputAssembly(void)
     assert(input.tornado.active);
     assert(input.tornadoDistance == 30.0f);
     assert(input.tornadoExposure == 0.5f);
+    assert(input.fireHeatExposure == 0.7f);
+    assert(input.fireSmokeExposure == 0.6f);
+    assert(input.nearestFireDistance == 4.0f);
 }
 
 static void TestRuntimeTransitionsAndReset(void)

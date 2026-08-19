@@ -23,6 +23,9 @@ typedef struct EnvironmentRuntimeSample {
     TornadoState tornado;
     float tornadoDistance;
     float tornadoExposure;
+    float fireHeatExposure;
+    float fireSmokeExposure;
+    float nearestFireDistance;
 } EnvironmentRuntimeSample;
 
 typedef struct EnvironmentPresentationRuntime {

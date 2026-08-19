@@ -220,6 +220,9 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
     if (strcmp(line, "weather tornado clear") == 0) {
         return DEBUG_CONTROL_COMMAND_WEATHER_TORNADO_CLEAR;
     }
+    if (strcmp(line, "weather fire clear") == 0) {
+        return DEBUG_CONTROL_COMMAND_WEATHER_FIRE_CLEAR;
+    }
     if (strcmp(line, "weather damage on") == 0 ||
         strcmp(line, "weather damage off") == 0) {
         control->weatherDamageEnabled = strcmp(line, "weather damage on") == 0;
@@ -232,6 +235,42 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
         value >= 1u && value <= 100000u) {
         control->weatherTicks = value;
         return DEBUG_CONTROL_COMMAND_WEATHER_STEP;
+    }
+
+    int fireX = 0;
+    int fireY = 0;
+    int fireZ = 0;
+    float fireIntensity = 0.0f;
+    if (sscanf(line, "weather fire ignite %d %d %d %f %c", &fireX,
+               &fireY, &fireZ, &fireIntensity, &trailing) == 4 &&
+        fireX >= -1000000 && fireX <= 1000000 &&
+        fireY >= -1000000 && fireY <= 1000000 &&
+        fireZ >= -1000000 && fireZ <= 1000000 &&
+        isfinite(fireIntensity) && fireIntensity > 0.0f &&
+        fireIntensity <= 1.0f) {
+        control->weatherFireX = fireX;
+        control->weatherFireY = fireY;
+        control->weatherFireZ = fireZ;
+        control->weatherFireIntensity = fireIntensity;
+        return DEBUG_CONTROL_COMMAND_WEATHER_FIRE_IGNITE;
+    }
+    float fireRadius = 0.0f;
+    float suppression = 1.0f;
+    int fireFields = sscanf(
+        line, "weather fire suppress %d %d %d %f %f %c", &fireX,
+        &fireY, &fireZ, &fireRadius, &suppression, &trailing);
+    if ((fireFields == 4 || fireFields == 5) &&
+        fireX >= -1000000 && fireX <= 1000000 &&
+        fireY >= -1000000 && fireY <= 1000000 &&
+        fireZ >= -1000000 && fireZ <= 1000000 &&
+        isfinite(fireRadius) && fireRadius >= 0.0f && fireRadius <= 64.0f &&
+        isfinite(suppression) && suppression > 0.0f && suppression <= 1.0f) {
+        control->weatherFireX = fireX;
+        control->weatherFireY = fireY;
+        control->weatherFireZ = fireZ;
+        control->weatherFireRadius = fireRadius;
+        control->weatherFireSuppression = suppression;
+        return DEBUG_CONTROL_COMMAND_WEATHER_FIRE_SUPPRESS;
     }
 
     char phenomenon[DEBUG_CONTROL_WEATHER_NAME_SIZE] = { 0 };

@@ -14,6 +14,7 @@ typedef struct AudioEnvironmentState {
     float nether;
     float ship;
     float tornado;
+    float fire;
     float lightning;
 } AudioEnvironmentState;
 

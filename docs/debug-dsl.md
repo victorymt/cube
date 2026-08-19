@@ -206,6 +206,23 @@ Runtime values are sampled when an expression is evaluated:
 | `weather.rainbow`, `weather.aurora` | number | Normalized optical-phenomenon intensities |
 | `weather.surface_count` | number | Tracked weather-affected surface count |
 | `weather.active_fires` | number | Active weather fire count |
+| `weather.fire_phase` | string | Nearest loaded fire phase: `inactive`, `igniting`, `flaming`, or `smoldering` |
+| `weather.fire_position` | vec3 | Nearest loaded fire block position, or `[0,0,0]` when none is active |
+| `weather.fire_distance` | number | Distance to the nearest loaded fire, or `-1` when none is active |
+| `weather.fire_intensity` | number | Nearest fire combustion intensity from 0 to 1 |
+| `weather.fire_fuel` | number | Nearest fire remaining modeled fuel load |
+| `weather.fire_moisture` | number | Nearest fire fuel moisture from 0 to 1 |
+| `weather.fire_local_heat` | number | Sheltered/submerged player heat exposure from all loaded fires |
+| `weather.fire_local_smoke` | number | Sheltered/submerged player smoke exposure from all loaded fires |
+| `weather.fire_ignitions` | number | Cumulative accepted ignitions, including spread |
+| `weather.fire_spread_ignitions` | number | Cumulative ignitions caused by fire spread |
+| `weather.fire_extinctions` | number | Cumulative fires that reached extinction |
+| `weather.fire_suppressions` | number | Cumulative fire records reached by suppression |
+| `weather.fire_burned_blocks` | number | Cumulative blocks consumed by fire, excluding other weather damage |
+| `weather.fire_burn_sites` | number | Active persistent burn-recovery records |
+| `weather.fire_recovered_sites` | number | Cumulative burn records that fully recovered |
+| `weather.fire_dropped_ignitions` | number | Ignitions rejected at the bounded active-fire limit |
+| `weather.fire_dropped_burn_sites` | number | Burn records dropped at the bounded recovery-record limit |
 | `weather.tornado_active` | bool | Whether a local tornado is active |
 | `weather.tornado_forced` | bool | Whether the active tornado came from debug forcing |
 | `weather.tornado_phase` | string | `inactive`, `forming`, `intensifying`, `mature`, or `dissipating` |
@@ -333,6 +350,9 @@ weather cloud GENUS COVERAGE FRAMES
 weather cloud clear
 weather tornado force INTENSITY FRAMES [DISTANCE]
 weather tornado clear
+weather fire ignite X Y Z INTENSITY
+weather fire suppress X Y Z RADIUS [AMOUNT]
+weather fire clear
 weather clear
 weather damage on|off
 weather step TICKS
@@ -369,6 +389,21 @@ paths. `weather tornado clear` removes only the tornado, preserving separately
 forced weather and cloud state. Tornado state is runtime-only and is not saved.
 `weather inspect` reports its phase, center, distance, intensity, radius,
 funnel height, maximum wind, remaining frames, damage, and debris counters.
+
+`weather fire ignite` applies a debug ignition source to a loaded flammable
+block. `INTENSITY` is greater than 0 and at most 1; the normal fuel-moisture,
+flammability, saturation, and active-fire-cap checks still apply. Repeating the
+command at an already burning cell strengthens that fire without creating a
+duplicate record. `weather fire suppress` cools loaded fires within a spherical
+`RADIUS` of 0-64 world units. `AMOUNT` is greater than 0 and at most 1, defaults
+to 1, and uses the same continuous moisture/cooling path as rain and nearby
+water. A valid suppression with no fire in range succeeds with `affected=0`.
+`weather fire clear` removes active fires while retaining burn history and all
+forced weather, cloud, and tornado state. Inspect and typed fields expose the
+nearest fire, local exposure, lifecycle counters, burned blocks, recovery
+records, and bounded-drop counters. Screenshot report schema 10 records those
+values plus the same-frame fire snapshot count, plume wind, haze, and graphics
+quality budgets used for rendering.
 
 `weather damage off` restores reversible weather-owned
 snow/ice and clears active weather fires; it changes the current game setting,

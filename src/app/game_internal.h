@@ -7,6 +7,7 @@
 #include "presentation/environment_presentation.h"
 #include "presentation/environment_runtime.h"
 #include "presentation/weather_visual.h"
+#include "presentation/wildfire_renderer.h"
 #include "space/planet_observation.h"
 #include "space/space_types.h"
 #include "world/terrain.h"
@@ -24,6 +25,8 @@ typedef struct GameFrameView {
     TornadoState tornado;
     EnvironmentPresentationState environmentPresentation;
     EnvironmentRuntimeSample environmentSample;
+    WeatherImpactFireSnapshot wildfires[WILDFIRE_RENDER_MAX_FIRES];
+    WeatherImpactExposure wildfireExposure;
     WorldLightingState worldLighting;
     PlayerWaterState playerWater;
     BathymetrySample bathymetry;
@@ -38,6 +41,7 @@ typedef struct GameFrameView {
     float skyFade;
     float dt;
     int effectiveRenderDistance;
+    unsigned wildfireCount;
     int entityHit;
     int placeX;
     int placeY;

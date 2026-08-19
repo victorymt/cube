@@ -258,6 +258,24 @@ static void TestWeatherCommands(void)
     assert(control.weatherTornadoDistance == 48.0f);
     assert(DebugControlParseText(&control, "weather tornado clear") ==
            DEBUG_CONTROL_COMMAND_WEATHER_TORNADO_CLEAR);
+    assert(DebugControlParseText(
+               &control, "weather fire ignite -12 73 44 0.85") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_FIRE_IGNITE);
+    assert(control.weatherFireX == -12 && control.weatherFireY == 73 &&
+           control.weatherFireZ == 44);
+    assert(control.weatherFireIntensity == 0.85f);
+    assert(DebugControlParseText(
+               &control, "weather fire suppress -12 73 44 9.5 0.6") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_FIRE_SUPPRESS);
+    assert(control.weatherFireRadius == 9.5f);
+    assert(control.weatherFireSuppression == 0.6f);
+    assert(DebugControlParseText(
+               &control, "weather fire suppress -12 73 44 0") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_FIRE_SUPPRESS);
+    assert(control.weatherFireRadius == 0.0f);
+    assert(control.weatherFireSuppression == 1.0f);
+    assert(DebugControlParseText(&control, "weather fire clear") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_FIRE_CLEAR);
     assert(DebugControlParseText(&control, "weather cloud clear") ==
            DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_CLEAR);
     assert(DebugControlParseText(&control, "weather clear") ==
@@ -298,6 +316,18 @@ static void TestWeatherCommands(void)
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(
                &control, "weather tornado force 0.5 10 7") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather fire ignite 0 70 0 0") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather fire ignite 1000001 70 0 0.5") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather fire suppress 0 70 0 65") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather fire suppress 0 70 0 4 1.1") ==
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&control, "weather step 0") ==
            DEBUG_CONTROL_COMMAND_INVALID);

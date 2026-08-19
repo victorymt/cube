@@ -12,6 +12,7 @@
 #include "world/chunks.h"
 #include "world/terrain.h"
 #include "world/weather.h"
+#include "world/weather_impact.h"
 #include "world/tornado.h"
 #include "world/world.h"
 #include "world/world_lighting.h"
@@ -174,6 +175,19 @@ static void GameBuildFrameEnvironmentSample(GameRuntime *game,
                                (int)floorf(game->player.position.z)) ==
                  PLANET_BIOME_FOREST;
     }
+    bool sheltered = GameEnvironmentSheltered(game->camera.position);
+    frame->wildfireCount = 0u;
+    frame->wildfireExposure = (WeatherImpactExposure){
+        .nearestDistance = INFINITY
+    };
+    if (frame->localWorldActive && !frame->inNether) {
+        frame->wildfireCount = WeatherImpactCollectFires(
+            game->camera.position, 190.0f, frame->wildfires,
+            WILDFIRE_RENDER_MAX_FIRES);
+        frame->wildfireExposure = WeatherImpactExposureAt(
+            game->camera.position, sheltered ? 1.0f : 0.0f,
+            frame->underwater ? 1.0f : 0.0f);
+    }
     frame->environmentSample = (EnvironmentRuntimeSample){
         .dimension = frame->cameraDimension,
         .quality = game->settings.graphicsQuality,
@@ -188,14 +202,17 @@ static void GameBuildFrameEnvironmentSample(GameRuntime *game,
                         (int)floorf(game->camera.position.z)),
         .underwaterDepth = underwaterDepth,
         .underwater = frame->underwater,
-        .sheltered = GameEnvironmentSheltered(game->camera.position),
+        .sheltered = sheltered,
         .forest = forest,
         .nearWater = EnvironmentNearWater(game->camera.position),
         .shipInterior = environmentScene == ENVIRONMENT_SCENE_SPACE &&
                         ShipIsDriving(),
         .tornado = frame->tornado,
         .tornadoDistance = TornadoDistanceTo(game->camera.position),
-        .tornadoExposure = TornadoForceAt(game->camera.position).exposure
+        .tornadoExposure = TornadoForceAt(game->camera.position).exposure,
+        .fireHeatExposure = frame->wildfireExposure.heat,
+        .fireSmokeExposure = frame->wildfireExposure.smoke,
+        .nearestFireDistance = frame->wildfireExposure.nearestDistance
     };
     frame->bathymetry = (BathymetrySample){
         .seaLevel = -1,

@@ -436,6 +436,7 @@ static void PerfWriteReport(PerfStreamingStats streaming)
     fprintf(file, "space_draws=%llu\n", (unsigned long long)PerfSumCounter(PERF_DRAW_SPACE));
     fprintf(file, "nether_draws=%llu\n", (unsigned long long)PerfSumCounter(PERF_DRAW_NETHER));
     fprintf(file, "cloud_draws=%llu\n", (unsigned long long)PerfSumCounter(PERF_DRAW_CLOUD));
+    fprintf(file, "fire_draws=%llu\n", (unsigned long long)PerfSumCounter(PERF_DRAW_FIRE));
     fprintf(file, "world_candidates=%llu\n", (unsigned long long)PerfSumCandidates(0));
     fprintf(file, "distance_culled=%llu\n", (unsigned long long)PerfSumCandidates(1));
     fprintf(file, "frustum_culled=%llu\n", (unsigned long long)PerfSumCandidates(2));

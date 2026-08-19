@@ -34,6 +34,9 @@ EnvironmentPresentationInput EnvironmentPresentationInputForSample(
     input.tornado = sample->tornado;
     input.tornadoDistance = sample->tornadoDistance;
     input.tornadoExposure = sample->tornadoExposure;
+    input.fireHeatExposure = sample->fireHeatExposure;
+    input.fireSmokeExposure = sample->fireSmokeExposure;
+    input.nearestFireDistance = sample->nearestFireDistance;
     return input;
 }
 

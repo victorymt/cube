@@ -72,6 +72,11 @@ void GameCaptureScreenshot(GameRuntime *game,
             (int)floorf(game->player.position.z),
             frame->weatherSimulationTime, &screenshotClimate);
         WeatherImpactStats screenshotWeatherImpacts = WeatherImpactGetStats();
+        bool haveScreenshotFire = frame->wildfireCount > 0u;
+        WeatherImpactFireSnapshot screenshotFire = haveScreenshotFire ?
+            frame->wildfires[0] : (WeatherImpactFireSnapshot){ 0 };
+        GraphicsQualityProfile screenshotQuality = GraphicsQualityProfileFor(
+            game->settings.graphicsQuality);
         TornadoState screenshotTornado = frame->tornado;
         TornadoStats screenshotTornadoStats = TornadoGetStats();
         int screenshotMissingSurfaceChunks =
@@ -174,6 +179,45 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .activeFires = screenshotWeatherImpacts.activeFires,
                 .blockDamageEvents =
                     screenshotWeatherImpacts.blockDamageEvents,
+                .firePresent = haveScreenshotFire,
+                .firePhase = haveScreenshotFire ?
+                    WildfirePhaseName(screenshotFire.state.phase) : "inactive",
+                .firePosition = {
+                    screenshotFire.x, screenshotFire.y, screenshotFire.z
+                },
+                .fireDistance = haveScreenshotFire &&
+                                isfinite(frame->wildfireExposure.nearestDistance)
+                    ? frame->wildfireExposure.nearestDistance : -1.0f,
+                .fireIntensity = screenshotFire.state.intensity,
+                .fireFuel = screenshotFire.state.fuel,
+                .fireMoisture = screenshotFire.state.moisture,
+                .fireHeatOutput = screenshotFire.state.heatOutput,
+                .fireSmokeOutput = screenshotFire.state.smokeOutput,
+                .fireLocalHeat = frame->wildfireExposure.heat,
+                .fireLocalSmoke = frame->wildfireExposure.smoke,
+                .firePlumeWindAngle = frame->weatherVisual.windAngle,
+                .firePlumeWindDrift = frame->weatherVisual.windDrift,
+                .fireHaze = frame->environmentPresentation.smokeHaze,
+                .fireSnapshotCount = frame->wildfireCount,
+                .fireRenderMaxFires =
+                    (unsigned)screenshotQuality.wildfireMaxFires,
+                .fireRenderFlameTongues =
+                    (unsigned)screenshotQuality.wildfireFlameTongues,
+                .fireRenderSmokePuffs =
+                    (unsigned)screenshotQuality.wildfireSmokePuffs,
+                .fireIgnitions = screenshotWeatherImpacts.ignitions,
+                .fireSpreadIgnitions =
+                    screenshotWeatherImpacts.spreadIgnitions,
+                .fireExtinctions = screenshotWeatherImpacts.extinctions,
+                .fireSuppressions = screenshotWeatherImpacts.suppressions,
+                .fireBurnedBlocks = screenshotWeatherImpacts.burnedBlocks,
+                .fireBurnSiteCount = screenshotWeatherImpacts.burnSiteCount,
+                .fireRecoveredSites =
+                    screenshotWeatherImpacts.recoveredBurnSites,
+                .fireDroppedIgnitions =
+                    screenshotWeatherImpacts.droppedIgnitions,
+                .fireDroppedBurnSites =
+                    screenshotWeatherImpacts.droppedBurnSites,
                 .damageEnabled = WeatherImpactEnabled(),
                 .tornadoPhase = TornadoPhaseName(screenshotTornado.phase),
                 .tornadoCenter = ScreenshotVector(screenshotTornado.center),

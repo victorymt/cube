@@ -948,6 +948,42 @@ void EntitiesApplyTornadoHazards(float dt, const TornadoState *tornado,
     }
 }
 
+void EntitiesApplyWildfireHazards(float dt, float daylight,
+                                  bool damageEnabled,
+                                  EntityWildfireExposureQuery exposureAt)
+{
+    if (!damageEnabled || !exposureAt || !isfinite(dt) || dt <= 0.0f) {
+        return;
+    }
+    float step = fminf(dt, 0.25f);
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        Entity *entity = &entities[index];
+        if (!entity->active || entity->corpse) continue;
+        Vector3 samplePosition = entity->position;
+        samplePosition.y += fmaxf(entity->organismScale * 0.45f, 0.25f);
+        int x = (int)floorf(samplePosition.x);
+        int y = (int)floorf(samplePosition.y);
+        int z = (int)floorf(samplePosition.z);
+        BlockType roof = GetBlockAt(x, y + 2, z);
+        float shelter = roof != BLOCK_AIR && !IsLiquidBlock(roof) ? 1.0f : 0.0f;
+        FluidSample fluid = FluidSampleAt(samplePosition);
+        float immersion = entity->aquatic ||
+                          (fluid.volume > 0u && samplePosition.y < fluid.surfaceY)
+                              ? 1.0f : 0.0f;
+        WeatherImpactExposure exposure = exposureAt(
+            samplePosition, shelter, immersion);
+        float vulnerability = 1.0f -
+            fminf(fmaxf(entity->bodyArmor, 0.0f), 1.0f) * 0.42f;
+        float damage = step * vulnerability *
+            (exposure.heat * 0.16f + exposure.smoke * 0.045f);
+        if (!isfinite(damage) || damage <= 0.0f) continue;
+        entity->health -= damage;
+        if (entity->health <= 0.0f) {
+            EntityKill(index, ENTITY_DEATH_ENVIRONMENT, daylight);
+        }
+    }
+}
+
 int EntityNearestEvolvable(Vector3 position, float radius)
 {
     if (!isfinite(radius) || radius <= 0.0f) return -1;

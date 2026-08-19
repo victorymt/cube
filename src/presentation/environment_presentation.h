@@ -34,6 +34,9 @@ typedef struct EnvironmentPresentationInput {
     TornadoState tornado;
     float tornadoDistance;
     float tornadoExposure;
+    float fireHeatExposure;
+    float fireSmokeExposure;
+    float nearestFireDistance;
 } EnvironmentPresentationInput;
 
 typedef struct EnvironmentPresentationState {
@@ -72,6 +75,8 @@ typedef struct EnvironmentPresentationState {
     float audioNether;
     float audioShip;
     float audioTornado;
+    float audioFire;
+    float smokeHaze;
 } EnvironmentPresentationState;
 
 EnvironmentPresentationState EnvironmentPresentationEvaluate(

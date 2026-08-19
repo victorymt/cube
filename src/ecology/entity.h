@@ -7,6 +7,7 @@
 #include "ecology/evolution.h"
 #include "ecology/fauna_behavior.h"
 #include "world/weather_model.h"
+#include "world/weather_impact.h"
 #include "world/tornado_model.h"
 
 #include <stdio.h>
@@ -147,6 +148,11 @@ void EntitiesApplyWeatherHazards(float dt, WeatherFieldSample weather,
                                  float daylight);
 void EntitiesApplyTornadoHazards(float dt, const TornadoState *tornado,
                                  bool damageEnabled, float daylight);
+typedef WeatherImpactExposure (*EntityWildfireExposureQuery)(
+    Vector3 position, float shelter, float immersion);
+void EntitiesApplyWildfireHazards(float dt, float daylight,
+                                  bool damageEnabled,
+                                  EntityWildfireExposureQuery exposureAt);
 void EntitiesClear(void);
 const Entity *EntitiesView(void);
 float EntityEvolutionGrowthScale(const Entity *entity);

@@ -15,6 +15,7 @@ static void TestPresentationMapping(void)
         .audioNether = 0.81f,
         .audioShip = 0.58f,
         .audioTornado = 0.76f,
+        .audioFire = 0.67f,
         .lightningFlash = 0.91f
     };
     AudioEnvironmentState audio = AudioEnvironmentFromPresentation(&presentation);
@@ -26,15 +27,18 @@ static void TestPresentationMapping(void)
     assert(audio.nether == presentation.audioNether);
     assert(audio.ship == presentation.audioShip);
     assert(audio.tornado == presentation.audioTornado);
+    assert(audio.fire == presentation.audioFire);
     assert(audio.lightning == presentation.lightningFlash);
 
     presentation.audioRain = NAN;
     presentation.audioWind = 8.0f;
+    presentation.audioFire = 9.0f;
     audio = AudioEnvironmentFromPresentation(&presentation);
     assert(audio.rain == 0.0f);
     assert(audio.wind == 1.0f);
+    assert(audio.fire == 1.0f);
     audio = AudioEnvironmentFromPresentation(NULL);
-    assert(audio.rain == 0.0f && audio.ship == 0.0f);
+    assert(audio.rain == 0.0f && audio.ship == 0.0f && audio.fire == 0.0f);
 }
 
 static void TestVolumeCategoriesWithoutDevice(void)

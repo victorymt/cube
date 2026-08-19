@@ -3,6 +3,7 @@
 
 #include "app/game_debug.h"
 #include "app/game_debug_trace.h"
+#include "app/game_debug_wildfire.h"
 #include "app/game_save.h"
 #include "world/chunks.h"
 #include "core/debug_control.h"
@@ -15,6 +16,7 @@
 #include "ecology/evolution_catalog.h"
 #include "world/fluid.h"
 #include "app/game_interaction.h"
+#include "app/game_internal.h"
 #include "app/game_runtime.h"
 #include "app/game_stream_audit.h"
 #include "app/game_world_transition.h"
@@ -1025,6 +1027,15 @@ static void GameDebugInspectWeather(GameRuntime *game)
         game->player.position,
         SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()), 0.5f);
     WeatherImpactStats impacts = WeatherImpactGetStats();
+    WeatherImpactFireSnapshot nearestFire = { 0 };
+    float nearestFireDistance = -1.0f;
+    bool haveNearestFire = WeatherImpactNearestFire(
+        game->player.position, &nearestFire, &nearestFireDistance);
+    PlayerWaterState water = PlayerWaterStateAt(game->player.position);
+    WeatherImpactExposure fireExposure = WeatherImpactExposureAt(
+        game->player.position,
+        GameEnvironmentSheltered(game->player.position) ? 1.0f : 0.0f,
+        water.bodySubmerged ? 1.0f : 0.0f);
     TornadoState tornado = TornadoCurrent();
     TornadoStats tornadoStats = TornadoGetStats();
     LocalClimateState climate = { 0 };
@@ -1070,6 +1081,12 @@ static void GameDebugInspectWeather(GameRuntime *game)
         "cloud_genus=%s cloud_genera=%s cloud_layers=%u "
         "cloud_layer_data=%s cloud_forced_frames=%u "
         "forced_frames=%u damage=%d surfaces=%u fires=%u "
+        "fire_phase=%s fire_position=%d,%d,%d fire_distance=%.3f "
+        "fire_intensity=%.6f fire_fuel=%.6f fire_moisture=%.6f "
+        "fire_local_heat=%.6f fire_local_smoke=%.6f "
+        "fire_ignitions=%u fire_spread=%u fire_extinctions=%u "
+        "fire_suppressions=%u fire_burned_blocks=%u fire_burn_sites=%u "
+        "fire_recovered_sites=%u fire_dropped=%u burn_dropped=%u "
         "tornado_active=%d tornado_forced=%d tornado_phase=%s "
         "tornado_center=%.3f,%.3f,%.3f tornado_distance=%.3f "
         "tornado_intensity=%.6f tornado_radius=%.3f "
@@ -1088,7 +1105,21 @@ static void GameDebugInspectWeather(GameRuntime *game)
         visual.cloudLayerCount, layers, WeatherForcedCloudFramesRemaining(),
         WeatherForcedFramesRemaining(),
         WeatherImpactEnabled() ? 1 : 0, impacts.surfaceCount,
-        impacts.activeFires, tornado.active ? 1 : 0,
+        impacts.activeFires,
+        haveNearestFire ? WildfirePhaseName(nearestFire.state.phase) :
+                          "inactive",
+        haveNearestFire ? nearestFire.x : 0,
+        haveNearestFire ? nearestFire.y : 0,
+        haveNearestFire ? nearestFire.z : 0,
+        haveNearestFire ? nearestFireDistance : -1.0f,
+        haveNearestFire ? nearestFire.state.intensity : 0.0f,
+        haveNearestFire ? nearestFire.state.fuel : 0.0f,
+        haveNearestFire ? nearestFire.state.moisture : 0.0f,
+        fireExposure.heat, fireExposure.smoke, impacts.ignitions,
+        impacts.spreadIgnitions, impacts.extinctions, impacts.suppressions,
+        impacts.burnedBlocks, impacts.burnSiteCount,
+        impacts.recoveredBurnSites, impacts.droppedIgnitions,
+        impacts.droppedBurnSites, tornado.active ? 1 : 0,
         tornado.forced ? 1 : 0, TornadoPhaseName(tornado.phase),
         tornado.center.x, tornado.center.y, tornado.center.z,
         TornadoDistanceTo(game->player.position), tornado.intensity,
@@ -1100,6 +1131,10 @@ static void GameDebugInspectWeather(GameRuntime *game)
 static GameDebugDispatchResult GameDebugDispatchWeatherCommand(
     GameRuntime *game, DebugControlCommand command)
 {
+    if (GameDebugDispatchWildfireCommand(game, command)) {
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
+
     switch (command) {
     case DEBUG_CONTROL_COMMAND_WEATHER_INSPECT:
         GameDebugInspectWeather(game);
@@ -1438,6 +1473,15 @@ static bool GameDebugDslResolve(void *userData, const char *name,
             game->player.position,
             SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()), 0.5f);
         WeatherImpactStats impacts = WeatherImpactGetStats();
+        WeatherImpactFireSnapshot nearestFire = { 0 };
+        float nearestFireDistance = -1.0f;
+        bool haveNearestFire = WeatherImpactNearestFire(
+            game->player.position, &nearestFire, &nearestFireDistance);
+        PlayerWaterState fireWater = PlayerWaterStateAt(game->player.position);
+        WeatherImpactExposure fireExposure = WeatherImpactExposureAt(
+            game->player.position,
+            GameEnvironmentSheltered(game->player.position) ? 1.0f : 0.0f,
+            fireWater.bodySubmerged ? 1.0f : 0.0f);
         LocalClimateState climate = { 0 };
         bool haveClimate = GameDebugLocalClimate(game, &climate);
         if (strcmp(name, "weather.climate") == 0) {
@@ -1453,6 +1497,17 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         if (strcmp(name, "weather.cloud_genus") == 0) {
             return GameDebugDslString(
                 outValue, WeatherCloudGenusName(weather.dominantCloudGenus));
+        }
+        if (strcmp(name, "weather.fire_phase") == 0) {
+            return GameDebugDslString(
+                outValue, haveNearestFire ?
+                    WildfirePhaseName(nearestFire.state.phase) : "inactive");
+        }
+        if (strcmp(name, "weather.fire_position") == 0) {
+            Vector3 position = haveNearestFire ?
+                (Vector3){ nearestFire.x, nearestFire.y, nearestFire.z } :
+                Vector3Zero();
+            return GameDebugDslVec3(outValue, position);
         }
         TornadoState tornado = TornadoCurrent();
         TornadoStats tornadoStats = TornadoGetStats();
@@ -1497,6 +1552,28 @@ static bool GameDebugDslResolve(void *userData, const char *name,
                        WeatherForcedCloudFramesRemaining())
         WEATHER_NUMBER("weather.surface_count", impacts.surfaceCount)
         WEATHER_NUMBER("weather.active_fires", impacts.activeFires)
+        WEATHER_NUMBER("weather.fire_distance", nearestFireDistance)
+        WEATHER_NUMBER("weather.fire_intensity", haveNearestFire ?
+                       nearestFire.state.intensity : 0.0f)
+        WEATHER_NUMBER("weather.fire_fuel", haveNearestFire ?
+                       nearestFire.state.fuel : 0.0f)
+        WEATHER_NUMBER("weather.fire_moisture", haveNearestFire ?
+                       nearestFire.state.moisture : 0.0f)
+        WEATHER_NUMBER("weather.fire_local_heat", fireExposure.heat)
+        WEATHER_NUMBER("weather.fire_local_smoke", fireExposure.smoke)
+        WEATHER_NUMBER("weather.fire_ignitions", impacts.ignitions)
+        WEATHER_NUMBER("weather.fire_spread_ignitions",
+                       impacts.spreadIgnitions)
+        WEATHER_NUMBER("weather.fire_extinctions", impacts.extinctions)
+        WEATHER_NUMBER("weather.fire_suppressions", impacts.suppressions)
+        WEATHER_NUMBER("weather.fire_burned_blocks", impacts.burnedBlocks)
+        WEATHER_NUMBER("weather.fire_burn_sites", impacts.burnSiteCount)
+        WEATHER_NUMBER("weather.fire_recovered_sites",
+                       impacts.recoveredBurnSites)
+        WEATHER_NUMBER("weather.fire_dropped_ignitions",
+                       impacts.droppedIgnitions)
+        WEATHER_NUMBER("weather.fire_dropped_burn_sites",
+                       impacts.droppedBurnSites)
         WEATHER_NUMBER("weather.forced_frames",
                        WeatherForcedFramesRemaining())
         WEATHER_NUMBER("weather.tornado_distance",
@@ -1635,6 +1712,9 @@ static const char *GameDebugDslCommandBlocked(
     case DEBUG_CONTROL_COMMAND_WEATHER_INSPECT:
     case DEBUG_CONTROL_COMMAND_WEATHER_FORCE:
     case DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE:
+    case DEBUG_CONTROL_COMMAND_WEATHER_FIRE_IGNITE:
+    case DEBUG_CONTROL_COMMAND_WEATHER_FIRE_SUPPRESS:
+    case DEBUG_CONTROL_COMMAND_WEATHER_FIRE_CLEAR:
     case DEBUG_CONTROL_COMMAND_WEATHER_STEP:
         return WorldIsSurfaceActive() ? NULL : "no_active_surface";
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:

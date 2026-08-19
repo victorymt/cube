@@ -17,6 +17,9 @@ typedef struct GraphicsQualityProfile {
     int cloudGridRadius;
     int cloudRaySteps;
     int cloudLightSteps;
+    int wildfireMaxFires;
+    int wildfireFlameTongues;
+    int wildfireSmokePuffs;
     float precipitationScale;
     bool postProcessing;
 } GraphicsQualityProfile;

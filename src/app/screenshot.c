@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=9\n");
+    REPORT_LINE("format.version=10\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -213,6 +213,59 @@ static bool ScreenshotWriteDebugFields(
                 info->weather.activeFires);
     REPORT_LINE("weather.block_damage_events=%" PRIu32 "\n",
                 info->weather.blockDamageEvents);
+    REPORT_LINE("weather.fire_present=%s\n",
+                ScreenshotBool(info->weather.firePresent));
+    REPORT_LINE("weather.fire_phase=%s\n",
+                ScreenshotText(info->weather.firePhase));
+    REPORT_LINE("weather.fire_position=%.6f,%.6f,%.6f\n",
+                info->weather.firePosition.x, info->weather.firePosition.y,
+                info->weather.firePosition.z);
+    REPORT_LINE("weather.fire_distance=%.6f\n",
+                info->weather.fireDistance);
+    REPORT_LINE("weather.fire_intensity=%.6f\n",
+                info->weather.fireIntensity);
+    REPORT_LINE("weather.fire_fuel=%.6f\n", info->weather.fireFuel);
+    REPORT_LINE("weather.fire_moisture=%.6f\n",
+                info->weather.fireMoisture);
+    REPORT_LINE("weather.fire_heat_output=%.6f\n",
+                info->weather.fireHeatOutput);
+    REPORT_LINE("weather.fire_smoke_output=%.6f\n",
+                info->weather.fireSmokeOutput);
+    REPORT_LINE("weather.fire_local_heat=%.6f\n",
+                info->weather.fireLocalHeat);
+    REPORT_LINE("weather.fire_local_smoke=%.6f\n",
+                info->weather.fireLocalSmoke);
+    REPORT_LINE("weather.fire_plume_wind_angle_radians=%.6f\n",
+                info->weather.firePlumeWindAngle);
+    REPORT_LINE("weather.fire_plume_wind_drift=%.6f\n",
+                info->weather.firePlumeWindDrift);
+    REPORT_LINE("weather.fire_haze=%.6f\n", info->weather.fireHaze);
+    REPORT_LINE("weather.fire_snapshot_count=%u\n",
+                info->weather.fireSnapshotCount);
+    REPORT_LINE("weather.fire_render_max_fires=%u\n",
+                info->weather.fireRenderMaxFires);
+    REPORT_LINE("weather.fire_render_flame_tongues=%u\n",
+                info->weather.fireRenderFlameTongues);
+    REPORT_LINE("weather.fire_render_smoke_puffs=%u\n",
+                info->weather.fireRenderSmokePuffs);
+    REPORT_LINE("weather.fire_ignitions=%" PRIu32 "\n",
+                info->weather.fireIgnitions);
+    REPORT_LINE("weather.fire_spread_ignitions=%" PRIu32 "\n",
+                info->weather.fireSpreadIgnitions);
+    REPORT_LINE("weather.fire_extinctions=%" PRIu32 "\n",
+                info->weather.fireExtinctions);
+    REPORT_LINE("weather.fire_suppressions=%" PRIu32 "\n",
+                info->weather.fireSuppressions);
+    REPORT_LINE("weather.fire_burned_blocks=%" PRIu32 "\n",
+                info->weather.fireBurnedBlocks);
+    REPORT_LINE("weather.fire_burn_site_count=%" PRIu32 "\n",
+                info->weather.fireBurnSiteCount);
+    REPORT_LINE("weather.fire_recovered_sites=%" PRIu32 "\n",
+                info->weather.fireRecoveredSites);
+    REPORT_LINE("weather.fire_dropped_ignitions=%" PRIu32 "\n",
+                info->weather.fireDroppedIgnitions);
+    REPORT_LINE("weather.fire_dropped_burn_sites=%" PRIu32 "\n",
+                info->weather.fireDroppedBurnSites);
     REPORT_LINE("weather.tornado_active=%s\n",
                 ScreenshotBool(info->weather.tornadoActive));
     REPORT_LINE("weather.tornado_forced=%s\n",

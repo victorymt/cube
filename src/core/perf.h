@@ -14,6 +14,7 @@ typedef enum PerfDrawKind {
     PERF_DRAW_SPACE,
     PERF_DRAW_NETHER,
     PERF_DRAW_CLOUD,
+    PERF_DRAW_FIRE,
     PERF_DRAW_KIND_COUNT
 } PerfDrawKind;
 

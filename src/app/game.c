@@ -639,6 +639,9 @@ static void GameUpdateTemporalState(GameRuntime *game, float dt)
         EntitiesApplyTornadoHazards(
             dt, &tornado, game->settings.weatherDamageEnabled,
             weatherDaylight);
+        EntitiesApplyWildfireHazards(
+            dt, weatherDaylight, game->settings.weatherDamageEnabled,
+            WeatherImpactExposureAt);
     } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
         WeatherSetSheltered(false);
         WeatherSuspend();
@@ -891,6 +894,10 @@ static void GameRenderWorldPass(GameRuntime *game,
     if (frame->localWorldActive && !frame->inNether && !frame->underwater) {
         DrawTornadoFunnel(&game->camera, &frame->tornado,
                           game->settings.graphicsQuality, frame->daylight);
+        DrawWildfires(&game->camera, frame->wildfires, frame->wildfireCount,
+                      game->settings.graphicsQuality,
+                      &frame->weatherVisual, frame->weatherSimulationTime,
+                      frame->daylight);
     }
     ParticlesDraw();
     GameRenderInteractionGuides(game, frame);
@@ -989,6 +996,9 @@ static void GameRenderEnvironmentOverlays(GameRuntime *game,
             DrawWeatherOverlay(&game->camera, &frame->weatherVisual);
             DrawTornadoOverlay(&game->camera, &frame->tornado);
         }
+    }
+    if (frame->localWorldActive && !frame->inNether && !frame->underwater) {
+        DrawWildfireHaze(frame->environmentPresentation.smokeHaze);
     }
     DrawEnvironmentPostProcess(&frame->environmentPresentation);
     DrawWarpTunnel(&game->camera, ShipDriveTunnelIntensity(),

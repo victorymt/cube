@@ -160,6 +160,33 @@ static void TestDebugReport(void)
             .surfaceCount = 23u,
             .activeFires = 2u,
             .blockDamageEvents = 5u,
+            .firePresent = true,
+            .firePhase = "flaming",
+            .firePosition = { 6.0f, 41.0f, -5.0f },
+            .fireDistance = 7.25f,
+            .fireIntensity = 0.78f,
+            .fireFuel = 1.35f,
+            .fireMoisture = 0.14f,
+            .fireHeatOutput = 0.72f,
+            .fireSmokeOutput = 0.61f,
+            .fireLocalHeat = 0.44f,
+            .fireLocalSmoke = 0.53f,
+            .firePlumeWindAngle = 2.25f,
+            .firePlumeWindDrift = 0.58f,
+            .fireHaze = 0.11f,
+            .fireSnapshotCount = 2u,
+            .fireRenderMaxFires = 24u,
+            .fireRenderFlameTongues = 3u,
+            .fireRenderSmokePuffs = 5u,
+            .fireIgnitions = 9u,
+            .fireSpreadIgnitions = 4u,
+            .fireExtinctions = 3u,
+            .fireSuppressions = 2u,
+            .fireBurnedBlocks = 5u,
+            .fireBurnSiteCount = 5u,
+            .fireRecoveredSites = 1u,
+            .fireDroppedIgnitions = 2u,
+            .fireDroppedBurnSites = 1u,
             .damageEnabled = true,
             .tornadoPhase = "mature",
             .tornadoCenter = { 18.0f, 41.0f, -22.0f },
@@ -277,7 +304,7 @@ static void TestDebugReport(void)
 
     char contents[16384];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=9\n"));
+    assert(strstr(contents, "format.version=10\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -304,6 +331,20 @@ static void TestDebugReport(void)
     assert(strstr(contents, "weather.gust=0.810000\n"));
     assert(strstr(contents, "weather.damage_enabled=true\n"));
     assert(strstr(contents, "weather.surface_count=23\n"));
+    assert(strstr(contents, "weather.fire_present=true\n"));
+    assert(strstr(contents, "weather.fire_phase=flaming\n"));
+    assert(strstr(contents,
+                  "weather.fire_position=6.000000,41.000000,-5.000000\n"));
+    assert(strstr(contents, "weather.fire_distance=7.250000\n"));
+    assert(strstr(contents, "weather.fire_local_smoke=0.530000\n"));
+    assert(strstr(contents,
+                  "weather.fire_plume_wind_angle_radians=2.250000\n"));
+    assert(strstr(contents, "weather.fire_render_max_fires=24\n"));
+    assert(strstr(contents, "weather.fire_render_flame_tongues=3\n"));
+    assert(strstr(contents, "weather.fire_render_smoke_puffs=5\n"));
+    assert(strstr(contents, "weather.fire_spread_ignitions=4\n"));
+    assert(strstr(contents, "weather.fire_burned_blocks=5\n"));
+    assert(strstr(contents, "weather.fire_dropped_burn_sites=1\n"));
     assert(strstr(contents, "weather.tornado_active=true\n"));
     assert(strstr(contents, "weather.tornado_phase=mature\n"));
     assert(strstr(contents, "weather.tornado_intensity=0.880000\n"));
