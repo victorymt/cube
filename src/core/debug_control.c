@@ -214,6 +214,9 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
     if (strcmp(line, "weather clear") == 0) {
         return DEBUG_CONTROL_COMMAND_WEATHER_CLEAR;
     }
+    if (strcmp(line, "weather cloud clear") == 0) {
+        return DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_CLEAR;
+    }
     if (strcmp(line, "weather damage on") == 0 ||
         strcmp(line, "weather damage off") == 0) {
         control->weatherDamageEnabled = strcmp(line, "weather damage on") == 0;
@@ -240,6 +243,18 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
         control->weatherIntensity = intensity;
         control->weatherFrames = frames;
         return DEBUG_CONTROL_COMMAND_WEATHER_FORCE;
+    }
+    char genus[DEBUG_CONTROL_WEATHER_NAME_SIZE] = { 0 };
+    float coverage = 0.0f;
+    if (sscanf(line, "weather cloud %31s %f %u %c", genus,
+               &coverage, &frames, &trailing) == 3 &&
+        isfinite(coverage) && coverage >= 0.0f && coverage <= 1.0f &&
+        frames >= 1u && frames <= 36000u) {
+        snprintf(control->weatherCloudGenus,
+                 sizeof(control->weatherCloudGenus), "%s", genus);
+        control->weatherCloudCoverage = coverage;
+        control->weatherCloudFrames = frames;
+        return DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE;
     }
     return DEBUG_CONTROL_COMMAND_NONE;
 }

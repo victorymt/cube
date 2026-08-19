@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=7\n");
+    REPORT_LINE("format.version=8\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -147,6 +147,8 @@ static bool ScreenshotWriteDebugFields(
                 ScreenshotText(info->weather.climate));
     REPORT_LINE("weather.phenomenon=%s\n",
                 ScreenshotText(info->weather.phenomenon));
+    REPORT_LINE("weather.cloud_genus=%s\n",
+                ScreenshotText(info->weather.cloudGenus));
     REPORT_LINE("weather.simulation_time=%.6f\n", info->weather.simulationTime);
     REPORT_LINE("weather.active=%s\n", ScreenshotBool(info->weather.active));
     REPORT_LINE("weather.atmosphere_density=%.6f\n",
@@ -155,6 +157,21 @@ static bool ScreenshotWriteDebugFields(
     REPORT_LINE("weather.cloud_base_height=%.6f\n", info->weather.cloudBaseHeight);
     REPORT_LINE("weather.cloud_thickness=%.6f\n", info->weather.cloudThickness);
     REPORT_LINE("weather.cloud_opacity=%.6f\n", info->weather.cloudOpacity);
+    REPORT_LINE("weather.cloud_genera=0x%X\n",
+                (unsigned)info->weather.cloudGenera);
+    REPORT_LINE("weather.cloud_layer_count=%u\n",
+                info->weather.cloudLayerCount);
+    for (unsigned index = 0u;
+         index < SCREENSHOT_WEATHER_CLOUD_LAYER_CAPACITY; index++) {
+        REPORT_LINE("weather.cloud_layer_%u_name=%s\n", index,
+                    ScreenshotText(info->weather.cloudLayerNames[index]));
+        REPORT_LINE("weather.cloud_layer_%u_coverage=%.6f\n", index,
+                    info->weather.cloudLayerCoverage[index]);
+        REPORT_LINE("weather.cloud_layer_%u_base_height=%.6f\n", index,
+                    info->weather.cloudLayerBaseHeight[index]);
+        REPORT_LINE("weather.cloud_layer_%u_thickness=%.6f\n", index,
+                    info->weather.cloudLayerThickness[index]);
+    }
     REPORT_LINE("weather.fog_density=%.6f\n", info->weather.fogDensity);
     REPORT_LINE("weather.visibility=%.6f\n", info->weather.visibility);
     REPORT_LINE("weather.precipitation_veil=%.6f\n",
@@ -186,6 +203,8 @@ static bool ScreenshotWriteDebugFields(
     REPORT_LINE("weather.rainbow=%.6f\n", info->weather.rainbow);
     REPORT_LINE("weather.aurora=%.6f\n", info->weather.aurora);
     REPORT_LINE("weather.forced_frames=%u\n", info->weather.forcedFrames);
+    REPORT_LINE("weather.forced_cloud_frames=%u\n",
+                info->weather.forcedCloudFrames);
     REPORT_LINE("weather.damage_enabled=%s\n",
                 ScreenshotBool(info->weather.damageEnabled));
     REPORT_LINE("weather.surface_count=%" PRIu32 "\n",

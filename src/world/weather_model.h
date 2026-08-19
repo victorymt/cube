@@ -33,6 +33,26 @@ typedef uint32_t WeatherPhenomenonFlags;
 #define WEATHER_PHENOMENON_FLAG(phenomenon) \
     ((WeatherPhenomenonFlags)1u << (unsigned)(phenomenon))
 
+typedef enum WeatherCloudGenus {
+    WEATHER_CLOUD_GENUS_NONE = 0,
+    WEATHER_CLOUD_GENUS_CIRRUS,
+    WEATHER_CLOUD_GENUS_CIRROCUMULUS,
+    WEATHER_CLOUD_GENUS_CIRROSTRATUS,
+    WEATHER_CLOUD_GENUS_ALTOCUMULUS,
+    WEATHER_CLOUD_GENUS_ALTOSTRATUS,
+    WEATHER_CLOUD_GENUS_NIMBOSTRATUS,
+    WEATHER_CLOUD_GENUS_STRATOCUMULUS,
+    WEATHER_CLOUD_GENUS_STRATUS,
+    WEATHER_CLOUD_GENUS_CUMULUS,
+    WEATHER_CLOUD_GENUS_CUMULONIMBUS,
+    WEATHER_CLOUD_GENUS_COUNT
+} WeatherCloudGenus;
+
+typedef uint16_t WeatherCloudGenusFlags;
+
+#define WEATHER_CLOUD_GENUS_FLAG(genus) \
+    ((WeatherCloudGenusFlags)1u << (unsigned)(genus))
+
 typedef struct WeatherFieldInput {
     uint32_t seed;
     double simulationTime;
@@ -64,6 +84,11 @@ typedef struct WeatherFieldInput {
 typedef struct WeatherFieldSample {
     WeatherPhenomenonFlags phenomena;
     WeatherPhenomenon dominantPhenomenon;
+    WeatherCloudGenusFlags cloudGenera;
+    WeatherCloudGenus dominantCloudGenus;
+    float cloudGenusCoverage[WEATHER_CLOUD_GENUS_COUNT];
+    float cloudGenusBaseHeight[WEATHER_CLOUD_GENUS_COUNT];
+    float cloudGenusThickness[WEATHER_CLOUD_GENUS_COUNT];
     float temperatureK;
     float temperatureAnomalyK;
     float pressureAtm;
@@ -103,5 +128,12 @@ bool WeatherPhenomenonFromName(const char *name,
                                WeatherPhenomenon *outPhenomenon);
 bool WeatherSampleHasPhenomenon(WeatherFieldSample sample,
                                 WeatherPhenomenon phenomenon);
+const char *WeatherCloudGenusName(WeatherCloudGenus genus);
+bool WeatherCloudGenusFromName(const char *name, WeatherCloudGenus *outGenus);
+bool WeatherSampleHasCloudGenus(WeatherFieldSample sample,
+                                WeatherCloudGenus genus);
+bool WeatherFieldSampleForceCloudGenus(WeatherFieldSample *sample,
+                                       WeatherCloudGenus genus,
+                                       float coverage);
 
 #endif

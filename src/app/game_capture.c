@@ -107,6 +107,8 @@ void GameCaptureScreenshot(GameRuntime *game,
                     : "unavailable",
                 .phenomenon = WeatherPhenomenonName(
                     screenshotWeather.dominantPhenomenon),
+                .cloudGenus = WeatherCloudGenusName(
+                    screenshotWeather.dominantCloudGenus),
                 .simulationTime = frame->weatherSimulationTime,
                 .active = frame->weatherVisual.active,
                 .atmosphereDensity = frame->weatherVisual.atmosphereDensity,
@@ -114,6 +116,28 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .cloudBaseHeight = frame->weatherVisual.cloudBaseHeight,
                 .cloudThickness = frame->weatherVisual.cloudThickness,
                 .cloudOpacity = frame->weatherVisual.cloudOpacity,
+                .cloudGenera = screenshotWeather.cloudGenera,
+                .cloudLayerCount = frame->weatherVisual.cloudLayerCount,
+                .cloudLayerNames = {
+                    WeatherCloudGenusName(frame->weatherVisual.cloudLayers[0].genus),
+                    WeatherCloudGenusName(frame->weatherVisual.cloudLayers[1].genus),
+                    WeatherCloudGenusName(frame->weatherVisual.cloudLayers[2].genus)
+                },
+                .cloudLayerCoverage = {
+                    frame->weatherVisual.cloudLayers[0].coverage,
+                    frame->weatherVisual.cloudLayers[1].coverage,
+                    frame->weatherVisual.cloudLayers[2].coverage
+                },
+                .cloudLayerBaseHeight = {
+                    frame->weatherVisual.cloudLayers[0].baseHeight,
+                    frame->weatherVisual.cloudLayers[1].baseHeight,
+                    frame->weatherVisual.cloudLayers[2].baseHeight
+                },
+                .cloudLayerThickness = {
+                    frame->weatherVisual.cloudLayers[0].thickness,
+                    frame->weatherVisual.cloudLayers[1].thickness,
+                    frame->weatherVisual.cloudLayers[2].thickness
+                },
                 .fogDensity = frame->weatherVisual.fogDensity,
                 .visibility = frame->weatherVisual.visibility,
                 .precipitationVeil = frame->weatherVisual.precipitationVeil,
@@ -142,6 +166,7 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .rainbow = screenshotWeather.rainbow,
                 .aurora = screenshotWeather.aurora,
                 .forcedFrames = WeatherForcedFramesRemaining(),
+                .forcedCloudFrames = WeatherForcedCloudFramesRemaining(),
                 .surfaceCount = screenshotWeatherImpacts.surfaceCount,
                 .activeFires = screenshotWeatherImpacts.activeFires,
                 .blockDamageEvents =

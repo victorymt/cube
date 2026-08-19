@@ -189,6 +189,11 @@ Runtime values are sampled when an expression is evaluated:
 | `fluid.queue_overflows` | number | Fluid solver queue overflow count |
 | `weather.climate` | string | Local named climate regime, or `"unavailable"` outside a surface world |
 | `weather.phenomenon` | string | Dominant current weather phenomenon |
+| `weather.cloud_genus` | string | Dominant WMO cloud genus, or `None` |
+| `weather.cloud_cover` | number | Aggregate cloud cover from 0 to 1 |
+| `weather.cloud_flags` | number | Bit mask of all WMO cloud genera currently present |
+| `weather.cloud_layers` | number | Number of bounded renderer cloud layers (0-3) |
+| `weather.cloud_forced_frames` | number | Remaining forced-cloud update frames |
 | `weather.temperature`, `weather.temperature_k` | number | Local air temperature in kelvin |
 | `weather.pressure`, `weather.pressure_atm` | number | Surface pressure in atmospheres |
 | `weather.humidity`, `weather.relative_humidity` | number | Relative humidity from 0 to 1 |
@@ -311,6 +316,8 @@ surface world.
 ```text
 weather inspect
 weather force PHENOMENON INTENSITY FRAMES
+weather cloud GENUS COVERAGE FRAMES
+weather cloud clear
 weather clear
 weather damage on|off
 weather step TICKS
@@ -328,7 +335,16 @@ rarity for deterministic testing. `INTENSITY` is 0-1 and `FRAMES` is
 `heat-wave`, `cold-snap`, `rainbow`, and `aurora`.
 
 Forced weather is runtime-only and is never saved. `weather clear` returns to
-the natural field. `weather damage off` restores reversible weather-owned
+the natural field and clears a separately forced cloud. `weather cloud` forces
+one WMO cloud genus without replacing a forced weather phenomenon; `COVERAGE`
+is 0-1, `FRAMES` is 1-36,000, and `weather cloud clear` restores natural cloud
+classification. The accepted genera are `cirrus`, `cirrocumulus`,
+`cirrostratus`, `altocumulus`, `altostratus`, `nimbostratus`,
+`stratocumulus`, `stratus`, `cumulus`, and `cumulonimbus`. Cloud forcing is
+also runtime-only. `weather inspect` reports the dominant and present genera,
+the selected renderer layers, and each layer's coverage, base, and thickness.
+
+`weather damage off` restores reversible weather-owned
 snow/ice and clears active weather fires; it changes the current game setting,
 but debug runs do not save settings on exit. `weather step` advances
 environmental effects by 1-100,000 fixed 2 Hz ticks without advancing world

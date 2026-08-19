@@ -19,6 +19,13 @@ typedef struct CloudRenderResources {
     int lightStrengthLoc;
     int rayStepsLoc;
     int lightStepsLoc;
+    int noiseScaleLoc;
+    int stretchLoc;
+    int cellularityLoc;
+    int verticalDevelopmentLoc;
+    int anvilLoc;
+    int layerPhaseLoc;
+    int windDirectionLoc;
     bool ready;
 } CloudRenderResources;
 
@@ -64,6 +71,13 @@ static const char *cloudFragmentShader =
     "uniform float lightStrength;\n"
     "uniform int raySteps;\n"
     "uniform int lightSteps;\n"
+    "uniform float cloudNoiseScale;\n"
+    "uniform float cloudStretch;\n"
+    "uniform float cloudCellularity;\n"
+    "uniform float cloudVerticalDevelopment;\n"
+    "uniform float cloudAnvil;\n"
+    "uniform float cloudLayerPhase;\n"
+    "uniform vec2 windDirection;\n"
     "out vec4 finalColor;\n"
     "vec3 safeDirection(vec3 value) {\n"
     "    return vec3(value.x < 0.0 ? min(value.x, -0.0001) : max(value.x, 0.0001),\n"
@@ -81,22 +95,55 @@ static const char *cloudFragmentShader =
     "}\n"
     "float cloudNoise(vec3 point) {\n"
     "    vec2 warped = vec2(point.x + point.y*0.63, point.z - point.y*0.37);\n"
-    "    vec2 drifted = warped - windOffset;\n"
-    "    float broad = texture(texture0, drifted*0.0046).r;\n"
-    "    float billow = texture(texture0, drifted*0.0127 + vec2(0.17, 0.43)).r;\n"
-    "    float detail = texture(texture0, drifted*0.0340 + vec2(0.61, 0.09)).r;\n"
-    "    return broad*0.58 + billow*0.29 + detail*0.13;\n"
+    "    vec2 direction = normalize(windDirection + vec2(0.0001));\n"
+    "    vec2 perpendicular = vec2(-direction.y, direction.x);\n"
+    "    float along = dot(warped, direction)*mix(1.0, 0.20, cloudStretch);\n"
+    "    float across = dot(warped, perpendicular)*mix(1.0, 2.35, cloudStretch);\n"
+    "    vec2 shaped = direction*along + perpendicular*across;\n"
+    "    vec2 phase = vec2(cloudLayerPhase*17.3, cloudLayerPhase*-11.7);\n"
+    "    vec2 drifted = shaped - windOffset + phase;\n"
+    "    float scale = max(cloudNoiseScale, 0.10);\n"
+    "    float broad = texture(texture0, drifted*(0.0046*scale)).r;\n"
+    "    float billow = texture(texture0, drifted*(0.0127*scale) + vec2(0.17, 0.43)).r;\n"
+    "    float detail = texture(texture0, drifted*(0.0340*scale) + vec2(0.61, 0.09)).r;\n"
+    "    float verticalDetail = texture(texture0,\n"
+    "        drifted*(0.0190*scale) + vec2(point.y*0.013, point.y*-0.009) +\n"
+    "        vec2(0.29, 0.71)).r;\n"
+    "    float base = broad*0.52 + billow*0.27 + detail*0.13 +\n"
+    "                 verticalDetail*0.08;\n"
+    "    float cells = 1.0 - abs(billow*2.0 - 1.0);\n"
+    "    return mix(base, base*0.48 + cells*0.52, cloudCellularity);\n"
     "}\n"
     "float cloudDensity(vec3 point) {\n"
+    "    float layerDepth = max(cloudBoxMax.y - cloudBoxMin.y, 0.001);\n"
     "    float height = clamp((point.y - cloudBoxMin.y)/\n"
-    "                         max(cloudBoxMax.y - cloudBoxMin.y, 0.001), 0.0, 1.0);\n"
+    "                         layerDepth, 0.0, 1.0);\n"
     "    float bottom = smoothstep(0.0, 0.16, height);\n"
     "    float top = 1.0 - smoothstep(0.64, 1.0, height);\n"
-    "    float verticalShape = bottom*top;\n"
+    "    float sheetShape = bottom*top;\n"
+    "    vec3 columnPoint = vec3(point.x, cloudBoxMin.y + layerDepth*0.22,\n"
+    "                            point.z);\n"
+    "    float column = cloudNoise(columnPoint);\n"
+    "    float columnStrength = smoothstep(0.37, 0.70, column);\n"
+    "    float localTop = 0.30 + columnStrength*0.69;\n"
+    "    float towerTop = 1.0 - smoothstep(max(localTop - 0.18, 0.12),\n"
+    "                                      localTop, height);\n"
+    "    float towerShape = smoothstep(0.0, 0.09, height)*towerTop;\n"
+    "    float verticalShape = mix(sheetShape, towerShape,\n"
+    "                              cloudVerticalDevelopment);\n"
+    "    float anvilBand = smoothstep(0.60, 0.75, height)*\n"
+    "                      (1.0 - smoothstep(0.91, 1.0, height));\n"
+    "    vec3 anvilPoint = vec3(point.x*0.62, point.y, point.z*0.62);\n"
+    "    float anvilNoise = cloudNoise(anvilPoint);\n"
+    "    float anvilShape = anvilBand*smoothstep(0.38, 0.59, anvilNoise);\n"
+    "    verticalShape = max(verticalShape, anvilShape*cloudAnvil*0.88);\n"
     "    float noiseValue = cloudNoise(point);\n"
-    "    float threshold = mix(0.73, 0.34, clamp(cloudCoverage, 0.0, 1.0));\n"
+    "    float threshold = mix(0.69, 0.44, clamp(cloudCoverage, 0.0, 1.0));\n"
     "    threshold -= stormAmount*0.06;\n"
-    "    float density = smoothstep(threshold - 0.08, threshold + 0.11, noiseValue);\n"
+    "    threshold += cloudVerticalDevelopment*mix(-0.025, 0.10, height);\n"
+    "    threshold -= cloudAnvil*anvilBand*0.12;\n"
+    "    float density = smoothstep(threshold - 0.055, threshold + 0.075,\n"
+    "                               noiseValue);\n"
     "    float baseWeight = mix(0.72, 1.08, 1.0 - height);\n"
     "    return clamp(density*verticalShape*baseWeight, 0.0, 1.0);\n"
     "}\n"
@@ -135,7 +182,8 @@ static const char *cloudFragmentShader =
     "        float density = cloudDensity(point)*edgeFade;\n"
     "        if (density > 0.015) {\n"
     "            float transmission = cloudLight(point);\n"
-    "            float sampleAlpha = 1.0 - exp(-density*stepLength*0.105);\n"
+    "            float extinction = mix(0.030, 0.090, cloudOpacity);\n"
+    "            float sampleAlpha = 1.0 - exp(-density*stepLength*extinction);\n"
     "            vec3 shadowColor = mix(vec3(0.32, 0.37, 0.45), colDiffuse.rgb, 0.26);\n"
     "            vec3 litColor = colDiffuse.rgb*lightColor*(0.62 + lightStrength*0.34);\n"
     "            vec3 sampleColor = mix(shadowColor, litColor, 0.20 + transmission*0.80);\n"
@@ -147,7 +195,7 @@ static const char *cloudFragmentShader =
     "        travel += stepLength;\n"
     "    }\n"
     "    float rawAlpha = accumulatedAlpha;\n"
-    "    accumulatedAlpha *= cloudOpacity*colDiffuse.a*fragColor.a;\n"
+    "    accumulatedAlpha *= colDiffuse.a*fragColor.a;\n"
     "    if (accumulatedAlpha < 0.008) discard;\n"
     "    vec3 color = accumulatedColor/max(rawAlpha, 0.001);\n"
     "    color = mix(color, color*vec3(0.72, 0.76, 0.84), stormAmount*0.34);\n"
@@ -263,6 +311,13 @@ Model LoadCloudModel(void)
     CLOUD_LOCATION(lightStrengthLoc, "lightStrength");
     CLOUD_LOCATION(rayStepsLoc, "raySteps");
     CLOUD_LOCATION(lightStepsLoc, "lightSteps");
+    CLOUD_LOCATION(noiseScaleLoc, "cloudNoiseScale");
+    CLOUD_LOCATION(stretchLoc, "cloudStretch");
+    CLOUD_LOCATION(cellularityLoc, "cloudCellularity");
+    CLOUD_LOCATION(verticalDevelopmentLoc, "cloudVerticalDevelopment");
+    CLOUD_LOCATION(anvilLoc, "cloudAnvil");
+    CLOUD_LOCATION(layerPhaseLoc, "cloudLayerPhase");
+    CLOUD_LOCATION(windDirectionLoc, "windDirection");
 #undef CLOUD_LOCATION
     if (cloudResources.cameraPositionLoc < 0 || cloudResources.boxMinLoc < 0 ||
         cloudResources.boxMaxLoc < 0 || cloudResources.windOffsetLoc < 0 ||
@@ -270,7 +325,12 @@ Model LoadCloudModel(void)
         cloudResources.stormLoc < 0 || cloudResources.daylightLoc < 0 ||
         cloudResources.drawDistanceLoc < 0 || cloudResources.sunDirectionLoc < 0 ||
         cloudResources.lightColorLoc < 0 || cloudResources.lightStrengthLoc < 0 ||
-        cloudResources.rayStepsLoc < 0 || cloudResources.lightStepsLoc < 0) {
+        cloudResources.rayStepsLoc < 0 || cloudResources.lightStepsLoc < 0 ||
+        cloudResources.noiseScaleLoc < 0 || cloudResources.stretchLoc < 0 ||
+        cloudResources.cellularityLoc < 0 ||
+        cloudResources.verticalDevelopmentLoc < 0 ||
+        cloudResources.anvilLoc < 0 || cloudResources.layerPhaseLoc < 0 ||
+        cloudResources.windDirectionLoc < 0) {
         UnloadCloudRenderResources();
         return (Model){ 0 };
     }
@@ -306,6 +366,21 @@ static Color WeatherCloudColor(const WeatherVisualState *visual, Color tint)
     return ColorLerp(cloud, tint, 0.18f);
 }
 
+static Color WeatherCloudLayerColor(const WeatherVisualState *visual,
+                                    WeatherCloudGenus genus, Color tint)
+{
+    Color color = WeatherCloudColor(visual, tint);
+    if (genus >= WEATHER_CLOUD_GENUS_CIRRUS &&
+        genus <= WEATHER_CLOUD_GENUS_CIRROSTRATUS) {
+        color = ColorLerp(color, (Color){ 244, 247, 250, 255 }, 0.24f);
+    } else if (genus == WEATHER_CLOUD_GENUS_NIMBOSTRATUS ||
+               genus == WEATHER_CLOUD_GENUS_CUMULONIMBUS) {
+        color = ColorLerp(color, (Color){ 76, 84, 101, 255 },
+                          visual ? visual->stormDarkening * 0.34f + 0.10f : 0.10f);
+    }
+    return color;
+}
+
 void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
                 const WeatherVisualState *weatherVisual,
                 const EnvironmentPresentationState *presentation,
@@ -319,11 +394,6 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
 
     double phaseTime = fmod(simulationTime, 1000000.0);
     double driftSpeed = 1.2 + (double)weatherVisual->windDrift * 3.6;
-    double driftDistance = fmod(phaseTime*driftSpeed, 8192.0);
-    Vector2 windOffset = {
-        (float)(cos((double)weatherVisual->windAngle)*driftDistance),
-        (float)(sin((double)weatherVisual->windAngle)*driftDistance)
-    };
     double cameraX = floor((double)camera->position.x);
     double cameraZ = floor((double)camera->position.z);
     if (cameraX < (double)INT_MIN || cameraX > (double)INT_MAX ||
@@ -334,14 +404,14 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     int gridRadius = 2;
     int raySteps = 12;
     int lightSteps = 2;
-    float opacity = weatherVisual->cloudOpacity;
+    float presentationOpacity = weatherVisual->cloudOpacity;
     if (presentation) {
         gridRadius = (int)roundf((presentation->cloudDistanceScale - 0.72f) / 0.14f);
         if (gridRadius < 1) gridRadius = 1;
         if (gridRadius > 3) gridRadius = 3;
         raySteps = presentation->cloudRaySteps;
         lightSteps = presentation->cloudLightSteps;
-        opacity = presentation->cloudOpacity;
+        presentationOpacity = presentation->cloudOpacity;
     }
     raySteps = raySteps < 6 ? 6 : (raySteps > 24 ? 24 : raySteps);
     lightSteps = lightSteps < 1 ? 1 : (lightSteps > 4 ? 4 : lightSteps);
@@ -350,23 +420,9 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     int sampleZ = (int)cameraZ;
     int seaLevel = PlanetWorldIsActive() ? PlanetTerrainSeaLevel() :
                                            TerrainSeaLevel(WorldTerrainMode());
-    float altitudeReference = seaLevel >= 0 ? (float)seaLevel :
-        (PlanetWorldIsActive() ? (float)PlanetTerrainHeight(sampleX, sampleZ) :
-                                 (float)WorldSurfaceHeightAt(sampleX, sampleZ));
-    float cloudBottom = altitudeReference + weatherVisual->cloudBaseHeight;
-    float cloudThickness = fmaxf(weatherVisual->cloudThickness, 4.0f);
-    Vector3 boxMin = {
-        camera->position.x - drawDistance,
-        cloudBottom,
-        camera->position.z - drawDistance
-    };
-    Vector3 boxMax = {
-        camera->position.x + drawDistance,
-        cloudBottom + cloudThickness,
-        camera->position.z + drawDistance
-    };
-    Vector3 center = Vector3Scale(Vector3Add(boxMin, boxMax), 0.5f);
-    Vector3 scale = Vector3Subtract(boxMax, boxMin);
+    float surfaceHeight = (float)WorldSurfaceHeightAt(sampleX, sampleZ);
+    float altitudeReference = seaLevel >= 0 ?
+        fmaxf((float)seaLevel, surfaceHeight) : surfaceHeight;
     Vector3 sunDirection = lighting ? lighting->sunDirection :
                            (Vector3){ 0.32f, 0.88f, 0.18f };
     Color sun = lighting ? lighting->sunColor : WHITE;
@@ -377,42 +433,133 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     };
     float lightStrength = lighting ? Clamp(lighting->directStrength, 0.0f, 2.0f) :
                                      weatherVisual->daylight;
-    float coverage = Clamp(weatherVisual->cloudCover, 0.0f, 1.0f);
-    opacity = Clamp(opacity, 0.0f, 1.0f);
     float storm = Clamp(weatherVisual->stormDarkening, 0.0f, 1.0f);
     float daylight = Clamp(weatherVisual->daylight, 0.0f, 1.0f);
+    WeatherCloudVisualLayer fallback = {
+        .genus = WEATHER_CLOUD_GENUS_STRATOCUMULUS,
+        .coverage = weatherVisual->cloudCover,
+        .baseHeight = weatherVisual->cloudBaseHeight,
+        .thickness = weatherVisual->cloudThickness,
+        .opacity = weatherVisual->cloudOpacity,
+        .noiseScale = 1.0f,
+        .verticalDevelopment = 0.18f,
+        .driftScale = 1.0f
+    };
+    unsigned layerCount = weatherVisual->cloudLayerCount;
+    if (layerCount > WEATHER_VISUAL_CLOUD_LAYER_CAPACITY) {
+        layerCount = WEATHER_VISUAL_CLOUD_LAYER_CAPACITY;
+    }
+    if (layerCount == 0u) layerCount = 1u;
+    float opacityRatio = weatherVisual->cloudOpacity > 0.001f ?
+        presentationOpacity / weatherVisual->cloudOpacity : 1.0f;
+    Vector2 windDirection = {
+        cosf(weatherVisual->windAngle), sinf(weatherVisual->windAngle)
+    };
 
-#define SET_CLOUD_UNIFORM(location, value, type) \
-    SetShaderValue(cloudResources.shader, location, &(value), type)
-    SET_CLOUD_UNIFORM(cloudResources.cameraPositionLoc, camera->position,
-                      SHADER_UNIFORM_VEC3);
-    SET_CLOUD_UNIFORM(cloudResources.boxMinLoc, boxMin, SHADER_UNIFORM_VEC3);
-    SET_CLOUD_UNIFORM(cloudResources.boxMaxLoc, boxMax, SHADER_UNIFORM_VEC3);
-    SET_CLOUD_UNIFORM(cloudResources.windOffsetLoc, windOffset, SHADER_UNIFORM_VEC2);
-    SET_CLOUD_UNIFORM(cloudResources.coverageLoc, coverage, SHADER_UNIFORM_FLOAT);
-    SET_CLOUD_UNIFORM(cloudResources.opacityLoc, opacity, SHADER_UNIFORM_FLOAT);
-    SET_CLOUD_UNIFORM(cloudResources.stormLoc, storm, SHADER_UNIFORM_FLOAT);
-    SET_CLOUD_UNIFORM(cloudResources.daylightLoc, daylight, SHADER_UNIFORM_FLOAT);
-    SET_CLOUD_UNIFORM(cloudResources.drawDistanceLoc, drawDistance,
-                      SHADER_UNIFORM_FLOAT);
-    SET_CLOUD_UNIFORM(cloudResources.sunDirectionLoc, sunDirection,
-                      SHADER_UNIFORM_VEC3);
-    SET_CLOUD_UNIFORM(cloudResources.lightColorLoc, lightColor,
-                      SHADER_UNIFORM_VEC3);
-    SET_CLOUD_UNIFORM(cloudResources.lightStrengthLoc, lightStrength,
-                      SHADER_UNIFORM_FLOAT);
-    SET_CLOUD_UNIFORM(cloudResources.rayStepsLoc, raySteps, SHADER_UNIFORM_INT);
-    SET_CLOUD_UNIFORM(cloudResources.lightStepsLoc, lightSteps, SHADER_UNIFORM_INT);
-#undef SET_CLOUD_UNIFORM
-
-    Color cloudTint = WeatherCloudColor(weatherVisual, tint);
-    cloudTint.a = tint.a;
     BeginBlendMode(BLEND_ALPHA);
     rlDisableBackfaceCulling();
     rlDisableDepthMask();
-    PerfRecordDrawCall(PERF_DRAW_CLOUD);
-    DrawModelEx(cloudModel, center, (Vector3){ 0.0f, 1.0f, 0.0f }, 0.0f,
-                scale, cloudTint);
+    for (unsigned reverse = layerCount; reverse > 0u; reverse--) {
+        unsigned index = reverse - 1u;
+        const WeatherCloudVisualLayer *layer =
+            weatherVisual->cloudLayerCount > 0u ?
+                &weatherVisual->cloudLayers[index] : &fallback;
+        if (!isfinite(layer->coverage) || layer->coverage <= 0.025f ||
+            !isfinite(layer->baseHeight) || !isfinite(layer->thickness) ||
+            !isfinite(layer->opacity)) {
+            continue;
+        }
+        float cloudBottom = altitudeReference + layer->baseHeight;
+        float cloudThickness = fmaxf(layer->thickness, 4.0f);
+        Vector3 boxMin = {
+            camera->position.x - drawDistance,
+            cloudBottom,
+            camera->position.z - drawDistance
+        };
+        Vector3 boxMax = {
+            camera->position.x + drawDistance,
+            cloudBottom + cloudThickness,
+            camera->position.z + drawDistance
+        };
+        Vector3 center = Vector3Scale(Vector3Add(boxMin, boxMax), 0.5f);
+        Vector3 scale = Vector3Subtract(boxMax, boxMin);
+        double layerDrift = fmod(
+            phaseTime * driftSpeed * (double)fmaxf(layer->driftScale, 0.1f),
+            8192.0);
+        Vector2 windOffset = {
+            (float)((double)windDirection.x * layerDrift),
+            (float)((double)windDirection.y * layerDrift)
+        };
+        float coverage = Clamp(layer->coverage, 0.0f, 1.0f);
+        float opacity = Clamp(layer->opacity * opacityRatio, 0.0f, 1.0f);
+        float layerStorm = storm;
+        if (layer->genus >= WEATHER_CLOUD_GENUS_CIRRUS &&
+            layer->genus <= WEATHER_CLOUD_GENUS_CIRROSTRATUS) {
+            layerStorm *= 0.28f;
+        }
+        int layerRaySteps = (int)roundf((float)raySteps *
+            (0.48f + layer->opacity * 0.20f +
+             layer->verticalDevelopment * 0.24f));
+        if (layerRaySteps < 4) layerRaySteps = 4;
+        if (layerRaySteps > raySteps) layerRaySteps = raySteps;
+        int layerLightSteps = layer->opacity < 0.42f ? 1 : lightSteps;
+        float noiseScale = fmaxf(layer->noiseScale, 0.10f);
+        float stretch = Clamp(layer->stretch, 0.0f, 1.0f);
+        float cellularity = Clamp(layer->cellularity, 0.0f, 1.0f);
+        float verticalDevelopment = Clamp(layer->verticalDevelopment, 0.0f, 1.0f);
+        float anvil = Clamp(layer->anvil, 0.0f, 1.0f);
+        float layerPhase = (float)layer->genus * 0.137f + (float)index * 0.271f;
+
+#define SET_CLOUD_UNIFORM(location, value, type) \
+        SetShaderValue(cloudResources.shader, location, &(value), type)
+        SET_CLOUD_UNIFORM(cloudResources.cameraPositionLoc, camera->position,
+                          SHADER_UNIFORM_VEC3);
+        SET_CLOUD_UNIFORM(cloudResources.boxMinLoc, boxMin, SHADER_UNIFORM_VEC3);
+        SET_CLOUD_UNIFORM(cloudResources.boxMaxLoc, boxMax, SHADER_UNIFORM_VEC3);
+        SET_CLOUD_UNIFORM(cloudResources.windOffsetLoc, windOffset,
+                          SHADER_UNIFORM_VEC2);
+        SET_CLOUD_UNIFORM(cloudResources.coverageLoc, coverage,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.opacityLoc, opacity,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.stormLoc, layerStorm,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.daylightLoc, daylight,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.drawDistanceLoc, drawDistance,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.sunDirectionLoc, sunDirection,
+                          SHADER_UNIFORM_VEC3);
+        SET_CLOUD_UNIFORM(cloudResources.lightColorLoc, lightColor,
+                          SHADER_UNIFORM_VEC3);
+        SET_CLOUD_UNIFORM(cloudResources.lightStrengthLoc, lightStrength,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.rayStepsLoc, layerRaySteps,
+                          SHADER_UNIFORM_INT);
+        SET_CLOUD_UNIFORM(cloudResources.lightStepsLoc, layerLightSteps,
+                          SHADER_UNIFORM_INT);
+        SET_CLOUD_UNIFORM(cloudResources.noiseScaleLoc, noiseScale,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.stretchLoc, stretch,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.cellularityLoc, cellularity,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.verticalDevelopmentLoc,
+                          verticalDevelopment, SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.anvilLoc, anvil, SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.layerPhaseLoc, layerPhase,
+                          SHADER_UNIFORM_FLOAT);
+        SET_CLOUD_UNIFORM(cloudResources.windDirectionLoc, windDirection,
+                          SHADER_UNIFORM_VEC2);
+#undef SET_CLOUD_UNIFORM
+
+        Color cloudTint = WeatherCloudLayerColor(
+            weatherVisual, layer->genus, tint);
+        cloudTint.a = tint.a;
+        PerfRecordDrawCall(PERF_DRAW_CLOUD);
+        DrawModelEx(cloudModel, center, (Vector3){ 0.0f, 1.0f, 0.0f }, 0.0f,
+                    scale, cloudTint);
+    }
     rlEnableDepthMask();
     rlEnableBackfaceCulling();
     EndBlendMode();

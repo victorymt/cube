@@ -1043,10 +1043,12 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                             localWeather.relativeHumidity * 100.0f,
                             localWeather.wind, localWeather.gust),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
-        UiDrawText(TextFormat("Cloud %.2f   precip %.2f   storm %.2f   visibility %.2f",
+        UiDrawText(TextFormat("Cloud %s %.2f (%u layers)   precip %.2f   storm %.2f",
+                            WeatherCloudGenusName(
+                                localWeather.dominantCloudGenus),
                             localWeather.cloudCover,
-                            localWeather.precipitation,
-                            localWeather.storm, localWeather.visibility),
+                            weatherVisual ? weatherVisual->cloudLayerCount : 0u,
+                            localWeather.precipitation, localWeather.storm),
                  x, y, fs, Fade(WHITE, 0.85f)); y += line;
         UiDrawText(TextFormat("Weather effects surfaces %u   fires %u   damage %s (%u)",
                             weatherImpacts.surfaceCount,

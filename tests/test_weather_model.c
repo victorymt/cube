@@ -76,14 +76,35 @@ static void AssertValid(WeatherFieldSample sample)
     assert(sample.storm <= sample.precipitation + 0.00001f);
     assert(sample.drizzle <= sample.rain + 0.00001f);
     assert(sample.phenomena != 0u);
+    assert(sample.dominantCloudGenus >= WEATHER_CLOUD_GENUS_NONE);
+    assert(sample.dominantCloudGenus < WEATHER_CLOUD_GENUS_COUNT);
+    for (int genus = WEATHER_CLOUD_GENUS_NONE;
+         genus < WEATHER_CLOUD_GENUS_COUNT; genus++) {
+        AssertUnit(sample.cloudGenusCoverage[genus]);
+        assert(isfinite(sample.cloudGenusBaseHeight[genus]));
+        assert(isfinite(sample.cloudGenusThickness[genus]));
+        assert(sample.cloudGenusBaseHeight[genus] >= 0.0f);
+        assert(sample.cloudGenusThickness[genus] >= 0.0f);
+        if (sample.cloudGenusCoverage[genus] >= 0.07f &&
+            genus != WEATHER_CLOUD_GENUS_NONE) {
+            assert(WeatherSampleHasCloudGenus(
+                sample, (WeatherCloudGenus)genus));
+        }
+    }
 }
 
 static float SampleDistance(WeatherFieldSample left, WeatherFieldSample right)
 {
-    return fabsf(left.cloudCover - right.cloudCover) +
+    float distance = fabsf(left.cloudCover - right.cloudCover) +
            fabsf(left.precipitation - right.precipitation) +
            fabsf(left.rain - right.rain) + fabsf(left.snow - right.snow) +
            fabsf(left.storm - right.storm) + fabsf(left.wind - right.wind);
+    for (int genus = WEATHER_CLOUD_GENUS_CIRRUS;
+         genus < WEATHER_CLOUD_GENUS_COUNT; genus++) {
+        distance += fabsf(left.cloudGenusCoverage[genus] -
+                          right.cloudGenusCoverage[genus]);
+    }
+    return distance;
 }
 
 static void TestDeterministicSampling(void)
@@ -125,12 +146,12 @@ static void TestSpatialAndTemporalContinuity(void)
     input.worldX += 0.10f;
     input.worldZ -= 0.10f;
     WeatherFieldSample nearby = WeatherFieldSampleAt(&input);
-    assert(SampleDistance(baseline, nearby) < 0.02f);
+    assert(SampleDistance(baseline, nearby) < 0.05f);
 
     input = TemperateInput();
     input.simulationTime += 0.01;
     WeatherFieldSample momentLater = WeatherFieldSampleAt(&input);
-    assert(SampleDistance(baseline, momentLater) < 0.02f);
+    assert(SampleDistance(baseline, momentLater) < 0.05f);
 }
 
 static void TestWeatherVariesAcrossSpaceAndTime(void)
@@ -205,6 +226,84 @@ static void TestPhenomenonNames(void)
     assert(!WeatherPhenomenonFromName("not-weather", &phenomenon));
     assert(strcmp(WeatherPhenomenonName(WEATHER_PHENOMENON_AURORA),
                   "Aurora") == 0);
+}
+
+static void TestCloudGenusNamesAndProfiles(void)
+{
+    WeatherFieldSample sample = {
+        .cloudBaseHeight = 1100.0f,
+        .instability = 0.82f,
+        .storm = 0.76f
+    };
+    for (int index = WEATHER_CLOUD_GENUS_CIRRUS;
+         index < WEATHER_CLOUD_GENUS_COUNT; index++) {
+        WeatherCloudGenus genus = (WeatherCloudGenus)index;
+        WeatherCloudGenus parsed = WEATHER_CLOUD_GENUS_NONE;
+        assert(WeatherCloudGenusFromName(WeatherCloudGenusName(genus),
+                                         &parsed));
+        assert(parsed == genus);
+        assert(WeatherFieldSampleForceCloudGenus(&sample, genus, 0.74f));
+        assert(sample.dominantCloudGenus == genus);
+        assert(sample.cloudGenera == WEATHER_CLOUD_GENUS_FLAG(genus));
+        assert(fabsf(sample.cloudGenusCoverage[genus] - 0.74f) < 0.00001f);
+        assert(sample.cloudGenusBaseHeight[genus] > 0.0f);
+        assert(sample.cloudGenusThickness[genus] > 0.0f);
+    }
+    assert(WeatherCloudGenusFromName("cirro_cumulus", &sample.dominantCloudGenus));
+    assert(sample.dominantCloudGenus == WEATHER_CLOUD_GENUS_CIRROCUMULUS);
+    assert(!WeatherCloudGenusFromName("not-a-cloud", &sample.dominantCloudGenus));
+    assert(!WeatherFieldSampleForceCloudGenus(
+        &sample, WEATHER_CLOUD_GENUS_NONE, 0.5f));
+    assert(!WeatherFieldSampleForceCloudGenus(
+        &sample, WEATHER_CLOUD_GENUS_CUMULUS, NAN));
+}
+
+static void TestNaturalCloudTaxonomy(void)
+{
+    WeatherCloudGenusFlags observed = 0u;
+    bool foundLayeredSky = false;
+    for (int index = 0; index < 30000; index++) {
+        WeatherFieldInput input = TemperateInput();
+        uint32_t value = (uint32_t)index * 0x9e3779b9u + 0x7f4a7c15u;
+        input.seed ^= value;
+        int64_t sampleIndex = index;
+        input.worldX = (float)(sampleIndex * 137 - 19000);
+        input.worldZ = (float)(sampleIndex * sampleIndex * 11 - 23000);
+        input.simulationTime = (double)index * 3.17;
+        input.moisture = (float)(value & 255u) / 255.0f;
+        input.cloudPotential = (float)((value >> 8) & 255u) / 255.0f;
+        input.relativeHumidity = (float)((value >> 16) & 255u) / 255.0f;
+        input.instability = (float)((value >> 24) & 255u) / 255.0f;
+        input.windStrength = (float)((value >> 5) & 255u) / 255.0f;
+        input.orographicLift = (float)((value >> 13) & 255u) / 255.0f;
+        input.temperatureK = 258.0f + (float)((value >> 3) & 127u) * 0.42f;
+        WeatherFieldSample sample = WeatherFieldSampleAt(&input);
+        observed |= sample.cloudGenera;
+        WeatherCloudGenusFlags high =
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CIRRUS) |
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CIRROCUMULUS) |
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CIRROSTRATUS);
+        WeatherCloudGenusFlags middle =
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_ALTOCUMULUS) |
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_ALTOSTRATUS);
+        WeatherCloudGenusFlags low =
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_NIMBOSTRATUS) |
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_STRATOCUMULUS) |
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_STRATUS) |
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CUMULUS) |
+            WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CUMULONIMBUS);
+        if ((sample.cloudGenera & high) && (sample.cloudGenera & middle) &&
+            (sample.cloudGenera & low)) {
+            foundLayeredSky = true;
+        }
+    }
+    WeatherCloudGenusFlags expected = 0u;
+    for (int genus = WEATHER_CLOUD_GENUS_CIRRUS;
+         genus < WEATHER_CLOUD_GENUS_COUNT; genus++) {
+        expected |= WEATHER_CLOUD_GENUS_FLAG(genus);
+    }
+    assert((observed & expected) == expected);
+    assert(foundLayeredSky);
 }
 
 static void TestClimateControlsPrecipitationAndStorms(void)
@@ -287,6 +386,8 @@ int main(void)
     TestTemperatureSelectsRainOrSnow();
     TestMixedPrecipitationAndPhysicalGates();
     TestPhenomenonNames();
+    TestCloudGenusNamesAndProfiles();
+    TestNaturalCloudTaxonomy();
     TestClimateControlsPrecipitationAndStorms();
     TestRandomizedBoundsAndReplay();
     TestInvalidInputReturnsClearWeather();

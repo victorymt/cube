@@ -7,6 +7,7 @@
 #include <time.h>
 
 #define SCREENSHOT_DIRECTORY "screenshots"
+#define SCREENSHOT_WEATHER_CLOUD_LAYER_CAPACITY 3
 
 typedef enum ScreenshotResult {
     SCREENSHOT_RESULT_OK = 0,
@@ -54,6 +55,7 @@ typedef struct ScreenshotWeatherDebugInfo {
     const char *name;
     const char *climate;
     const char *phenomenon;
+    const char *cloudGenus;
     double simulationTime;
     bool active;
     float atmosphereDensity;
@@ -61,6 +63,12 @@ typedef struct ScreenshotWeatherDebugInfo {
     float cloudBaseHeight;
     float cloudThickness;
     float cloudOpacity;
+    uint16_t cloudGenera;
+    unsigned cloudLayerCount;
+    const char *cloudLayerNames[SCREENSHOT_WEATHER_CLOUD_LAYER_CAPACITY];
+    float cloudLayerCoverage[SCREENSHOT_WEATHER_CLOUD_LAYER_CAPACITY];
+    float cloudLayerBaseHeight[SCREENSHOT_WEATHER_CLOUD_LAYER_CAPACITY];
+    float cloudLayerThickness[SCREENSHOT_WEATHER_CLOUD_LAYER_CAPACITY];
     float fogDensity;
     float visibility;
     float precipitationVeil;
@@ -89,6 +97,7 @@ typedef struct ScreenshotWeatherDebugInfo {
     float rainbow;
     float aurora;
     unsigned forcedFrames;
+    unsigned forcedCloudFrames;
     uint32_t surfaceCount;
     uint32_t activeFires;
     uint32_t blockDamageEvents;

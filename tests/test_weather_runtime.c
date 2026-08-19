@@ -517,6 +517,55 @@ static void TestForcedPhenomena(void)
     assert(WeatherForcedFramesRemaining() == 0u);
 }
 
+static void TestForcedCloudGenera(void)
+{
+    ResetRuntime();
+    assert(WeatherForcePhenomenon(
+        WEATHER_PHENOMENON_CLOUDY, 0.8f, 1000u));
+    for (int value = WEATHER_CLOUD_GENUS_CIRRUS;
+         value < WEATHER_CLOUD_GENUS_COUNT; value++) {
+        WeatherCloudGenus genus = (WeatherCloudGenus)value;
+        assert(WeatherForceCloudGenus(genus, 0.76f, 2u));
+        assert(WeatherForcedCloudFramesRemaining() == 2u);
+        WeatherFieldSample sample = WeatherCurrentSample();
+        assert(sample.dominantCloudGenus == genus);
+        assert(WeatherSampleHasCloudGenus(sample, genus));
+        assert(fabsf(sample.cloudGenusCoverage[genus] - 0.76f) < 0.00001f);
+        WeatherFieldSample spatial = WeatherFieldSampleAtWorldTime(
+            4, -8, simulationTime);
+        assert(spatial.dominantCloudGenus == genus);
+
+        TestWeatherUpdate(1.0f / 60.0f,
+                          (Vector3){ 4.0f, 20.0f, -8.0f });
+        assert(WeatherForcedCloudFramesRemaining() == 1u);
+        assert(WeatherCurrentSample().dominantCloudGenus == genus);
+        TestWeatherUpdate(1.0f / 60.0f,
+                          (Vector3){ 4.0f, 20.0f, -8.0f });
+        assert(WeatherForcedCloudFramesRemaining() == 0u);
+        assert(WeatherCurrentSample().dominantCloudGenus == genus);
+    }
+    assert(!WeatherForceCloudGenus(
+        WEATHER_CLOUD_GENUS_NONE, 0.5f, 10u));
+    assert(!WeatherForceCloudGenus(
+        WEATHER_CLOUD_GENUS_COUNT, 0.5f, 10u));
+    assert(!WeatherForceCloudGenus(
+        WEATHER_CLOUD_GENUS_CUMULUS, NAN, 10u));
+    assert(!WeatherForceCloudGenus(
+        WEATHER_CLOUD_GENUS_CUMULUS, 1.1f, 10u));
+    assert(!WeatherForceCloudGenus(
+        WEATHER_CLOUD_GENUS_CUMULUS, 0.5f, 0u));
+
+    assert(WeatherForceCloudGenus(
+        WEATHER_CLOUD_GENUS_CUMULUS, 0.8f, 60u));
+    WeatherClearForcedCloud();
+    assert(WeatherForcedCloudFramesRemaining() == 0u);
+    assert(WeatherForceCloudGenus(
+        WEATHER_CLOUD_GENUS_CIRRUS, 0.4f, 60u));
+    WeatherClearForced();
+    assert(WeatherForcedCloudFramesRemaining() == 0u);
+    assert(WeatherForcedFramesRemaining() == 0u);
+}
+
 static void TestInitRestoresCleanState(void)
 {
     ResetRuntime();
@@ -544,6 +593,7 @@ int main(void)
     TestVisualStateSafeFallbacks();
     TestNormalRainAndSnowStillEmit();
     TestForcedPhenomena();
+    TestForcedCloudGenera();
     TestInitRestoresCleanState();
     TestPlanetLightFeedbackChangesWeather();
     puts("weather runtime tests passed");

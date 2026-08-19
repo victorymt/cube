@@ -1020,9 +1020,42 @@ static bool GameDebugLocalClimate(const GameRuntime *game,
 static void GameDebugInspectWeather(GameRuntime *game)
 {
     WeatherFieldSample weather = WeatherCurrentSample();
+    WeatherVisualState visual = WeatherVisualStateAtWorld(
+        game->player.position,
+        SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()), 0.5f);
     WeatherImpactStats impacts = WeatherImpactGetStats();
     LocalClimateState climate = { 0 };
     bool haveClimate = GameDebugLocalClimate(game, &climate);
+    char genera[256] = "none";
+    size_t generaLength = 0u;
+    for (int value = WEATHER_CLOUD_GENUS_CIRRUS;
+         value < WEATHER_CLOUD_GENUS_COUNT; value++) {
+        WeatherCloudGenus genus = (WeatherCloudGenus)value;
+        if (!WeatherSampleHasCloudGenus(weather, genus)) continue;
+        int written = snprintf(
+            genera + generaLength, sizeof(genera) - generaLength,
+            "%s%s", generaLength > 0u ? "," : "", WeatherCloudGenusName(genus));
+        if (written < 0 || (size_t)written >= sizeof(genera) - generaLength) {
+            genera[sizeof(genera) - 1u] = '\0';
+            break;
+        }
+        generaLength += (size_t)written;
+    }
+    char layers[384] = "none";
+    size_t layerLength = 0u;
+    for (unsigned index = 0u; index < visual.cloudLayerCount; index++) {
+        WeatherCloudVisualLayer layer = visual.cloudLayers[index];
+        int written = snprintf(
+            layers + layerLength, sizeof(layers) - layerLength,
+            "%s%s:%.3f:%.2f:%.2f", layerLength > 0u ? "," : "",
+            WeatherCloudGenusName(layer.genus), layer.coverage,
+            layer.baseHeight, layer.thickness);
+        if (written < 0 || (size_t)written >= sizeof(layers) - layerLength) {
+            layers[sizeof(layers) - 1u] = '\0';
+            break;
+        }
+        layerLength += (size_t)written;
+    }
     DebugControlReply(
         &game->debugControl,
         "DEBUG_CONTROL weather inspect ok climate=%s phenomenon=%s "
@@ -1031,6 +1064,8 @@ static void GameDebugInspectWeather(GameRuntime *game)
         "wind=%.6f gust=%.6f visibility=%.6f rain=%.6f snow=%.6f "
         "sleet=%.6f freezing_rain=%.6f hail=%.6f lightning=%.6f "
         "fog=%.6f dust=%.6f rainbow=%.6f aurora=%.6f "
+        "cloud_genus=%s cloud_genera=%s cloud_layers=%u "
+        "cloud_layer_data=%s cloud_forced_frames=%u "
         "forced_frames=%u damage=%d surfaces=%u fires=%u\n",
         haveClimate ? ClimateRegimeName(climate.regime) : "unavailable",
         WeatherPhenomenonName(weather.dominantPhenomenon),
@@ -1039,7 +1074,10 @@ static void GameDebugInspectWeather(GameRuntime *game)
         weather.wetBulbK, weather.wind, weather.gust, weather.visibility,
         weather.rain, weather.snow, weather.sleet, weather.freezingRain,
         weather.hail, weather.lightning, weather.fog, weather.dust,
-        weather.rainbow, weather.aurora, WeatherForcedFramesRemaining(),
+        weather.rainbow, weather.aurora,
+        WeatherCloudGenusName(weather.dominantCloudGenus), genera,
+        visual.cloudLayerCount, layers, WeatherForcedCloudFramesRemaining(),
+        WeatherForcedFramesRemaining(),
         WeatherImpactEnabled() ? 1 : 0, impacts.surfaceCount,
         impacts.activeFires);
 }
@@ -1073,6 +1111,33 @@ static GameDebugDispatchResult GameDebugDispatchWeatherCommand(
             game->debugControl.weatherFrames);
         return GAME_DEBUG_DISPATCH_HANDLED;
     }
+    case DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE: {
+        WeatherCloudGenus genus;
+        if (!WeatherCloudGenusFromName(
+                game->debugControl.weatherCloudGenus, &genus) ||
+            genus == WEATHER_CLOUD_GENUS_NONE ||
+            !WeatherForceCloudGenus(
+                genus, game->debugControl.weatherCloudCoverage,
+                game->debugControl.weatherCloudFrames)) {
+            GameDebugMarkCommandError(game, "invalid_weather_cloud");
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL weather cloud error reason=invalid_arguments\n");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL weather cloud ok genus=%s coverage=%.6f frames=%u\n",
+            WeatherCloudGenusName(genus),
+            game->debugControl.weatherCloudCoverage,
+            game->debugControl.weatherCloudFrames);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
+    case DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_CLEAR:
+        WeatherClearForcedCloud();
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL weather cloud clear ok\n");
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_WEATHER_CLEAR:
         WeatherClearForced();
         DebugControlReply(&game->debugControl,
@@ -1324,6 +1389,9 @@ static bool GameDebugDslResolve(void *userData, const char *name,
 
     if (strncmp(name, "weather.", 8u) == 0) {
         WeatherFieldSample weather = WeatherCurrentSample();
+        WeatherVisualState visual = WeatherVisualStateAtWorld(
+            game->player.position,
+            SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()), 0.5f);
         WeatherImpactStats impacts = WeatherImpactGetStats();
         LocalClimateState climate = { 0 };
         bool haveClimate = GameDebugLocalClimate(game, &climate);
@@ -1336,6 +1404,10 @@ static bool GameDebugDslResolve(void *userData, const char *name,
             return GameDebugDslString(
                 outValue,
                 WeatherPhenomenonName(weather.dominantPhenomenon));
+        }
+        if (strcmp(name, "weather.cloud_genus") == 0) {
+            return GameDebugDslString(
+                outValue, WeatherCloudGenusName(weather.dominantCloudGenus));
         }
 #define WEATHER_NUMBER(fieldName, fieldValue) \
         if (strcmp(name, fieldName) == 0) { \
@@ -1364,6 +1436,11 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         WEATHER_NUMBER("weather.dust", weather.dust)
         WEATHER_NUMBER("weather.rainbow", weather.rainbow)
         WEATHER_NUMBER("weather.aurora", weather.aurora)
+        WEATHER_NUMBER("weather.cloud_cover", weather.cloudCover)
+        WEATHER_NUMBER("weather.cloud_flags", weather.cloudGenera)
+        WEATHER_NUMBER("weather.cloud_layers", visual.cloudLayerCount)
+        WEATHER_NUMBER("weather.cloud_forced_frames",
+                       WeatherForcedCloudFramesRemaining())
         WEATHER_NUMBER("weather.surface_count", impacts.surfaceCount)
         WEATHER_NUMBER("weather.active_fires", impacts.activeFires)
         WEATHER_NUMBER("weather.forced_frames",
@@ -1481,6 +1558,7 @@ static const char *GameDebugDslCommandBlocked(
     case DEBUG_CONTROL_COMMAND_FLUID_STEP:
     case DEBUG_CONTROL_COMMAND_WEATHER_INSPECT:
     case DEBUG_CONTROL_COMMAND_WEATHER_FORCE:
+    case DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE:
     case DEBUG_CONTROL_COMMAND_WEATHER_STEP:
         return WorldIsSurfaceActive() ? NULL : "no_active_surface";
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:

@@ -36,6 +36,8 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_FLUID_STEP,
     DEBUG_CONTROL_COMMAND_WEATHER_INSPECT,
     DEBUG_CONTROL_COMMAND_WEATHER_FORCE,
+    DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE,
+    DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_CLEAR,
     DEBUG_CONTROL_COMMAND_WEATHER_CLEAR,
     DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE,
     DEBUG_CONTROL_COMMAND_WEATHER_STEP,
@@ -122,6 +124,7 @@ typedef struct DebugControl {
     unsigned fluidTicks;
     unsigned weatherFrames;
     unsigned weatherTicks;
+    unsigned weatherCloudFrames;
     int streamAuditRadius;
     unsigned streamWaitFrames;
     float lookYaw;
@@ -137,7 +140,9 @@ typedef struct DebugControl {
     DebugControlSurfaceStyle surfaceDebugStyle;
     uint32_t surfaceDebugSeed;
     float weatherIntensity;
+    float weatherCloudCoverage;
     char weatherPhenomenon[DEBUG_CONTROL_WEATHER_NAME_SIZE];
+    char weatherCloudGenus[DEBUG_CONTROL_WEATHER_NAME_SIZE];
 } DebugControl;
 
 void DebugControlInit(DebugControl *control, bool enabled);

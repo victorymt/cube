@@ -5,6 +5,8 @@
 
 #include <stdbool.h>
 
+#define WEATHER_VISUAL_CLOUD_LAYER_CAPACITY 3
+
 typedef struct WeatherVisualInput {
     WeatherFieldSample weather;
     float atmosphereDensity;
@@ -12,6 +14,20 @@ typedef struct WeatherVisualInput {
     float windAngle;
     bool atmosphereActive;
 } WeatherVisualInput;
+
+typedef struct WeatherCloudVisualLayer {
+    WeatherCloudGenus genus;
+    float coverage;
+    float baseHeight;
+    float thickness;
+    float opacity;
+    float noiseScale;
+    float stretch;
+    float cellularity;
+    float verticalDevelopment;
+    float anvil;
+    float driftScale;
+} WeatherCloudVisualLayer;
 
 typedef struct WeatherVisualState {
     bool active;
@@ -21,6 +37,9 @@ typedef struct WeatherVisualState {
     float cloudBaseHeight;
     float cloudThickness;
     float cloudOpacity;
+    WeatherCloudGenus dominantCloudGenus;
+    unsigned cloudLayerCount;
+    WeatherCloudVisualLayer cloudLayers[WEATHER_VISUAL_CLOUD_LAYER_CAPACITY];
     float fogDensity;
     float dustDensity;
     float visibility;

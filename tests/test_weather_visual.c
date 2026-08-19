@@ -53,6 +53,25 @@ static void AssertValid(WeatherVisualState state)
     AssertUnit(state.lightningIntensity);
     AssertUnit(state.rainbowStrength);
     AssertUnit(state.auroraStrength);
+    assert(state.cloudLayerCount <= WEATHER_VISUAL_CLOUD_LAYER_CAPACITY);
+    for (unsigned index = 0u; index < state.cloudLayerCount; index++) {
+        WeatherCloudVisualLayer layer = state.cloudLayers[index];
+        assert(layer.genus > WEATHER_CLOUD_GENUS_NONE);
+        assert(layer.genus < WEATHER_CLOUD_GENUS_COUNT);
+        AssertUnit(layer.coverage);
+        AssertUnit(layer.opacity);
+        AssertUnit(layer.stretch);
+        AssertUnit(layer.cellularity);
+        AssertUnit(layer.verticalDevelopment);
+        AssertUnit(layer.anvil);
+        assert(isfinite(layer.baseHeight) && layer.baseHeight >= 0.0f);
+        assert(isfinite(layer.thickness) && layer.thickness >= 4.0f);
+        assert(isfinite(layer.noiseScale) && layer.noiseScale > 0.0f);
+        assert(isfinite(layer.driftScale) && layer.driftScale > 0.0f);
+        if (index > 0u) {
+            assert(state.cloudLayers[index - 1u].baseHeight <= layer.baseHeight);
+        }
+    }
 }
 
 static void TestDeterministicAndBounded(void)
@@ -139,12 +158,114 @@ static void TestCloudVerticalDensity(void)
     AssertUnit(body);
 }
 
+static void TestLayerSelectionAndProfiles(void)
+{
+    WeatherVisualInput input = TemperateInput();
+    input.weather.cloudCover = 0.82f;
+    input.weather.dominantCloudGenus = WEATHER_CLOUD_GENUS_CUMULUS;
+    input.weather.cloudGenera =
+        WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CIRRUS) |
+        WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_ALTOCUMULUS) |
+        WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CUMULUS);
+    input.weather.cloudGenusCoverage[WEATHER_CLOUD_GENUS_CIRRUS] = 0.34f;
+    input.weather.cloudGenusBaseHeight[WEATHER_CLOUD_GENUS_CIRRUS] = 7600.0f;
+    input.weather.cloudGenusThickness[WEATHER_CLOUD_GENUS_CIRRUS] = 1350.0f;
+    input.weather.cloudGenusCoverage[WEATHER_CLOUD_GENUS_ALTOCUMULUS] = 0.48f;
+    input.weather.cloudGenusBaseHeight[WEATHER_CLOUD_GENUS_ALTOCUMULUS] = 3200.0f;
+    input.weather.cloudGenusThickness[WEATHER_CLOUD_GENUS_ALTOCUMULUS] = 1500.0f;
+    input.weather.cloudGenusCoverage[WEATHER_CLOUD_GENUS_CUMULUS] = 0.72f;
+    input.weather.cloudGenusBaseHeight[WEATHER_CLOUD_GENUS_CUMULUS] = 1100.0f;
+    input.weather.cloudGenusThickness[WEATHER_CLOUD_GENUS_CUMULUS] = 3200.0f;
+
+    WeatherVisualState state = WeatherVisualStateEvaluate(&input);
+    AssertValid(state);
+    assert(state.cloudLayerCount == 3u);
+    assert(state.cloudLayers[0].genus == WEATHER_CLOUD_GENUS_CUMULUS);
+    assert(state.cloudLayers[1].genus == WEATHER_CLOUD_GENUS_ALTOCUMULUS);
+    assert(state.cloudLayers[2].genus == WEATHER_CLOUD_GENUS_CIRRUS);
+    assert(state.cloudLayers[0].verticalDevelopment >
+           state.cloudLayers[1].verticalDevelopment);
+    assert(state.cloudLayers[1].cellularity >
+           state.cloudLayers[0].cellularity);
+    assert(state.cloudLayers[2].stretch > state.cloudLayers[1].stretch);
+    assert(state.cloudLayers[2].opacity < state.cloudLayers[0].opacity);
+}
+
+static void TestAllCloudGenusProfiles(void)
+{
+    for (int index = WEATHER_CLOUD_GENUS_CIRRUS;
+         index < WEATHER_CLOUD_GENUS_COUNT; index++) {
+        WeatherCloudGenus genus = (WeatherCloudGenus)index;
+        WeatherVisualInput input = TemperateInput();
+        input.weather.cloudCover = 0.74f;
+        input.weather.dominantCloudGenus = genus;
+        input.weather.cloudGenera = WEATHER_CLOUD_GENUS_FLAG(genus);
+        input.weather.cloudGenusCoverage[genus] = 0.74f;
+        input.weather.cloudGenusBaseHeight[genus] =
+            genus <= WEATHER_CLOUD_GENUS_CIRROSTRATUS ? 7000.0f :
+            (genus <= WEATHER_CLOUD_GENUS_ALTOSTRATUS ? 3000.0f : 1000.0f);
+        input.weather.cloudGenusThickness[genus] =
+            genus == WEATHER_CLOUD_GENUS_CUMULONIMBUS ? 10000.0f : 1800.0f;
+        WeatherVisualState state = WeatherVisualStateEvaluate(&input);
+        AssertValid(state);
+        assert(state.cloudLayerCount == 1u);
+        assert(state.cloudLayers[0].genus == genus);
+    }
+
+    WeatherVisualInput storm = TemperateInput();
+    storm.weather.cloudCover = 0.94f;
+    storm.weather.storm = 0.82f;
+    storm.weather.precipitation = 0.84f;
+    storm.weather.rain = 0.84f;
+    WeatherVisualState fallback = WeatherVisualStateEvaluate(&storm);
+    assert(fallback.cloudLayerCount == 1u);
+    assert(fallback.dominantCloudGenus == WEATHER_CLOUD_GENUS_CUMULONIMBUS);
+    assert(fallback.cloudLayers[0].anvil == 1.0f);
+}
+
+static void TestOpaqueCumulonimbusSuppressesOtherLayers(void)
+{
+    WeatherVisualInput input = TemperateInput();
+    input.weather.cloudCover = 0.94f;
+    input.weather.precipitation = 0.84f;
+    input.weather.rain = 0.84f;
+    input.weather.storm = 0.82f;
+    input.weather.dominantCloudGenus = WEATHER_CLOUD_GENUS_CUMULONIMBUS;
+    input.weather.cloudGenera =
+        WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CIRRUS) |
+        WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_ALTOSTRATUS) |
+        WEATHER_CLOUD_GENUS_FLAG(WEATHER_CLOUD_GENUS_CUMULONIMBUS);
+    input.weather.cloudGenusCoverage[WEATHER_CLOUD_GENUS_CIRRUS] = 0.40f;
+    input.weather.cloudGenusBaseHeight[WEATHER_CLOUD_GENUS_CIRRUS] = 7600.0f;
+    input.weather.cloudGenusThickness[WEATHER_CLOUD_GENUS_CIRRUS] = 1350.0f;
+    input.weather.cloudGenusCoverage[WEATHER_CLOUD_GENUS_ALTOSTRATUS] = 0.54f;
+    input.weather.cloudGenusBaseHeight[WEATHER_CLOUD_GENUS_ALTOSTRATUS] =
+        2600.0f;
+    input.weather.cloudGenusThickness[WEATHER_CLOUD_GENUS_ALTOSTRATUS] =
+        2600.0f;
+    input.weather.cloudGenusCoverage[WEATHER_CLOUD_GENUS_CUMULONIMBUS] =
+        0.92f;
+    input.weather.cloudGenusBaseHeight[WEATHER_CLOUD_GENUS_CUMULONIMBUS] =
+        800.0f;
+    input.weather.cloudGenusThickness[WEATHER_CLOUD_GENUS_CUMULONIMBUS] =
+        10000.0f;
+
+    WeatherVisualState state = WeatherVisualStateEvaluate(&input);
+    AssertValid(state);
+    assert(state.cloudLayerCount == 1u);
+    assert(state.cloudLayers[0].genus == WEATHER_CLOUD_GENUS_CUMULONIMBUS);
+    assert(state.cloudLayers[0].opacity >= 0.72f);
+}
+
 int main(void)
 {
     TestDeterministicAndBounded();
     TestStormReducesVisibility();
     TestSnowAndAtmosphereFallbacks();
     TestCloudVerticalDensity();
+    TestLayerSelectionAndProfiles();
+    TestAllCloudGenusProfiles();
+    TestOpaqueCumulonimbusSuppressesOtherLayers();
     puts("weather visual tests passed");
     return 0;
 }

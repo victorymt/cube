@@ -41,6 +41,10 @@ static bool forcedActive = false;
 static WeatherPhenomenon forcedPhenomenon = WEATHER_PHENOMENON_CLEAR;
 static float forcedIntensity = 0.0f;
 static unsigned forcedFramesRemaining = 0u;
+static bool forcedCloudActive = false;
+static WeatherCloudGenus forcedCloudGenus = WEATHER_CLOUD_GENUS_NONE;
+static float forcedCloudCoverage = 0.0f;
+static unsigned forcedCloudFramesRemaining = 0u;
 static float rainEmissionAccumulator = 0.0f;
 static float snowEmissionAccumulator = 0.0f;
 static bool rainAudioActive = false;
@@ -541,6 +545,55 @@ static WeatherFieldSample WeatherPhenomenonSample(
     sample.wind = WeatherClamp(sample.wind);
     sample.gust = WeatherClamp(fmaxf(sample.gust, sample.wind));
     sample.visibility = WeatherClamp(sample.visibility);
+    WeatherCloudGenus genus = WEATHER_CLOUD_GENUS_NONE;
+    switch (phenomenon) {
+    case WEATHER_PHENOMENON_CLOUDY:
+        genus = WEATHER_CLOUD_GENUS_STRATOCUMULUS;
+        break;
+    case WEATHER_PHENOMENON_FOG:
+    case WEATHER_PHENOMENON_DRIZZLE:
+        genus = WEATHER_CLOUD_GENUS_STRATUS;
+        break;
+    case WEATHER_PHENOMENON_SHOWERS:
+    case WEATHER_PHENOMENON_RAINBOW:
+        genus = WEATHER_CLOUD_GENUS_CUMULUS;
+        break;
+    case WEATHER_PHENOMENON_HEAVY_RAIN:
+    case WEATHER_PHENOMENON_SLEET:
+    case WEATHER_PHENOMENON_FREEZING_RAIN:
+    case WEATHER_PHENOMENON_SNOW:
+    case WEATHER_PHENOMENON_BLIZZARD:
+        genus = WEATHER_CLOUD_GENUS_NIMBOSTRATUS;
+        break;
+    case WEATHER_PHENOMENON_THUNDERSTORM:
+    case WEATHER_PHENOMENON_LIGHTNING:
+    case WEATHER_PHENOMENON_HAIL:
+        genus = WEATHER_CLOUD_GENUS_CUMULONIMBUS;
+        break;
+    case WEATHER_PHENOMENON_STRONG_WIND:
+        genus = WEATHER_CLOUD_GENUS_CIRRUS;
+        break;
+    case WEATHER_PHENOMENON_CLEAR:
+    case WEATHER_PHENOMENON_FROST:
+    case WEATHER_PHENOMENON_DUST_STORM:
+    case WEATHER_PHENOMENON_HEAT_WAVE:
+    case WEATHER_PHENOMENON_COLD_SNAP:
+    case WEATHER_PHENOMENON_AURORA:
+    case WEATHER_PHENOMENON_COUNT:
+        break;
+    }
+    if (genus != WEATHER_CLOUD_GENUS_NONE && sample.cloudCover >= 0.07f) {
+        WeatherFieldSampleForceCloudGenus(&sample, genus, sample.cloudCover);
+    }
+    return sample;
+}
+
+static WeatherFieldSample WeatherApplyForcedCloud(WeatherFieldSample sample)
+{
+    if (forcedCloudActive) {
+        WeatherFieldSampleForceCloudGenus(
+            &sample, forcedCloudGenus, forcedCloudCoverage);
+    }
     return sample;
 }
 
@@ -565,9 +618,12 @@ WeatherFieldSample WeatherFieldSampleAtWorldTime(
     int x, int z, double simulationTime)
 {
     if (forcedActive) {
-        return WeatherPhenomenonSample(forcedPhenomenon, forcedIntensity);
+        return WeatherApplyForcedCloud(
+            WeatherPhenomenonSample(forcedPhenomenon, forcedIntensity));
     }
-    if (manualTimer > 0.0f) return WeatherManualSample(manualWeather);
+    if (manualTimer > 0.0f) {
+        return WeatherApplyForcedCloud(WeatherManualSample(manualWeather));
+    }
     if (!isfinite(simulationTime) || simulationTime < 0.0) {
         return (WeatherFieldSample){ 0 };
     }
@@ -581,7 +637,7 @@ WeatherFieldSample WeatherFieldSampleAtWorldTime(
     WeatherSampleCacheEntry *cached =
         &weatherSampleCache[WeatherSampleCacheIndex(&input)];
     if (WeatherSampleCacheMatches(cached, &input)) {
-        return cached->sample;
+        return WeatherApplyForcedCloud(cached->sample);
     }
 
     WeatherFieldSample sample = WeatherFieldSampleAt(&input);
@@ -590,7 +646,7 @@ WeatherFieldSample WeatherFieldSampleAtWorldTime(
         .input = input,
         .sample = sample
     };
-    return sample;
+    return WeatherApplyForcedCloud(sample);
 }
 
 bool WeatherLocalClimateAtWorldTime(int x, int z, double simulationTime,
@@ -698,6 +754,10 @@ void WeatherInit(void)
     forcedPhenomenon = WEATHER_PHENOMENON_CLEAR;
     forcedIntensity = 0.0f;
     forcedFramesRemaining = 0u;
+    forcedCloudActive = false;
+    forcedCloudGenus = WEATHER_CLOUD_GENUS_NONE;
+    forcedCloudCoverage = 0.0f;
+    forcedCloudFramesRemaining = 0u;
     rainEmissionAccumulator = 0.0f;
     snowEmissionAccumulator = 0.0f;
     rainAudioActive = false;
@@ -760,10 +820,35 @@ bool WeatherForcePhenomenon(WeatherPhenomenon phenomenon, float intensity,
     forcedPhenomenon = phenomenon;
     forcedIntensity = intensity;
     forcedFramesRemaining = frames;
-    fieldSample = WeatherPhenomenonSample(phenomenon, intensity);
+    fieldSample = WeatherApplyForcedCloud(
+        WeatherPhenomenonSample(phenomenon, intensity));
     particleWindAngle = fieldSample.windAngle;
     WeatherUpdateTypeAndAudio();
     return true;
+}
+
+bool WeatherForceCloudGenus(WeatherCloudGenus genus, float coverage,
+                            unsigned frames)
+{
+    if (genus <= WEATHER_CLOUD_GENUS_NONE ||
+        genus >= WEATHER_CLOUD_GENUS_COUNT || !isfinite(coverage) ||
+        coverage < 0.0f || coverage > 1.0f || frames == 0u) {
+        return false;
+    }
+    forcedCloudActive = true;
+    forcedCloudGenus = genus;
+    forcedCloudCoverage = coverage;
+    forcedCloudFramesRemaining = frames;
+    fieldSample = WeatherApplyForcedCloud(fieldSample);
+    return true;
+}
+
+void WeatherClearForcedCloud(void)
+{
+    forcedCloudActive = false;
+    forcedCloudGenus = WEATHER_CLOUD_GENUS_NONE;
+    forcedCloudCoverage = 0.0f;
+    forcedCloudFramesRemaining = 0u;
 }
 
 void WeatherClearForced(void)
@@ -772,11 +857,17 @@ void WeatherClearForced(void)
     forcedPhenomenon = WEATHER_PHENOMENON_CLEAR;
     forcedIntensity = 0.0f;
     forcedFramesRemaining = 0u;
+    WeatherClearForcedCloud();
 }
 
 unsigned WeatherForcedFramesRemaining(void)
 {
     return forcedFramesRemaining;
+}
+
+unsigned WeatherForcedCloudFramesRemaining(void)
+{
+    return forcedCloudFramesRemaining;
 }
 
 void WeatherCycle(void)
@@ -864,6 +955,9 @@ void WeatherUpdate(float dt, Vector3 playerPosition)
     if (forcedActive && forcedFramesRemaining == 0u) {
         forcedActive = false;
     }
+    if (forcedCloudActive && forcedCloudFramesRemaining == 0u) {
+        forcedCloudActive = false;
+    }
     if (forcedActive) {
         fieldSample = WeatherPhenomenonSample(
             forcedPhenomenon, forcedIntensity);
@@ -884,6 +978,10 @@ void WeatherUpdate(float dt, Vector3 playerPosition)
             particleWindAngle = 0.0f;
             fieldSample = (WeatherFieldSample){ 0 };
         }
+    }
+    if (forcedCloudActive) {
+        fieldSample = WeatherApplyForcedCloud(fieldSample);
+        forcedCloudFramesRemaining--;
     }
     WeatherUpdateTypeAndAudio();
 

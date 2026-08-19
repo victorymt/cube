@@ -107,6 +107,153 @@ static float WeatherModelNoise3D(uint32_t seed, double x, double z,
     return WeatherModelLerp(layer[0], layer[1], tt);
 }
 
+static float WeatherCloudBaseFor(WeatherCloudGenus genus, float localBase)
+{
+    localBase = fminf(fmaxf(localBase, 20.0f), 2500.0f);
+    switch (genus) {
+    case WEATHER_CLOUD_GENUS_CIRRUS: return 7600.0f;
+    case WEATHER_CLOUD_GENUS_CIRROCUMULUS: return 6800.0f;
+    case WEATHER_CLOUD_GENUS_CIRROSTRATUS: return 6100.0f;
+    case WEATHER_CLOUD_GENUS_ALTOCUMULUS: return 3200.0f;
+    case WEATHER_CLOUD_GENUS_ALTOSTRATUS: return 2600.0f;
+    case WEATHER_CLOUD_GENUS_NIMBOSTRATUS:
+        return fminf(fmaxf(localBase * 0.72f, 650.0f), 1800.0f);
+    case WEATHER_CLOUD_GENUS_STRATOCUMULUS:
+        return fminf(fmaxf(localBase * 0.68f, 350.0f), 1600.0f);
+    case WEATHER_CLOUD_GENUS_STRATUS:
+        return fminf(fmaxf(localBase * 0.34f, 80.0f), 850.0f);
+    case WEATHER_CLOUD_GENUS_CUMULUS:
+        return fminf(fmaxf(localBase, 350.0f), 2200.0f);
+    case WEATHER_CLOUD_GENUS_CUMULONIMBUS:
+        return fminf(fmaxf(localBase * 0.82f, 300.0f), 1800.0f);
+    case WEATHER_CLOUD_GENUS_NONE:
+    case WEATHER_CLOUD_GENUS_COUNT:
+        return 0.0f;
+    }
+    return 0.0f;
+}
+
+static float WeatherCloudThicknessFor(WeatherCloudGenus genus,
+                                      float instability, float storm)
+{
+    switch (genus) {
+    case WEATHER_CLOUD_GENUS_CIRRUS: return 1350.0f;
+    case WEATHER_CLOUD_GENUS_CIRROCUMULUS: return 850.0f;
+    case WEATHER_CLOUD_GENUS_CIRROSTRATUS: return 1900.0f;
+    case WEATHER_CLOUD_GENUS_ALTOCUMULUS: return 1500.0f;
+    case WEATHER_CLOUD_GENUS_ALTOSTRATUS: return 2600.0f;
+    case WEATHER_CLOUD_GENUS_NIMBOSTRATUS: return 4300.0f;
+    case WEATHER_CLOUD_GENUS_STRATOCUMULUS: return 1250.0f;
+    case WEATHER_CLOUD_GENUS_STRATUS: return 720.0f;
+    case WEATHER_CLOUD_GENUS_CUMULUS:
+        return 1300.0f + WeatherModelClamp(instability) * 2700.0f;
+    case WEATHER_CLOUD_GENUS_CUMULONIMBUS:
+        return 7200.0f + WeatherModelClamp(instability) * 2600.0f +
+               WeatherModelClamp(storm) * 2400.0f;
+    case WEATHER_CLOUD_GENUS_NONE:
+    case WEATHER_CLOUD_GENUS_COUNT:
+        return 0.0f;
+    }
+    return 0.0f;
+}
+
+static void WeatherCloudSet(WeatherFieldSample *sample,
+                            WeatherCloudGenus genus, float coverage)
+{
+    if (!sample || genus <= WEATHER_CLOUD_GENUS_NONE ||
+        genus >= WEATHER_CLOUD_GENUS_COUNT) {
+        return;
+    }
+    coverage = WeatherModelClamp(coverage);
+    sample->cloudGenusCoverage[genus] = coverage;
+    sample->cloudGenusBaseHeight[genus] = WeatherCloudBaseFor(
+        genus, sample->cloudBaseHeight);
+    sample->cloudGenusThickness[genus] = WeatherCloudThicknessFor(
+        genus, sample->instability, sample->storm);
+    if (coverage >= 0.07f) {
+        sample->cloudGenera |= WEATHER_CLOUD_GENUS_FLAG(genus);
+    }
+}
+
+static void WeatherCloudFinalize(WeatherFieldSample *sample)
+{
+    sample->dominantCloudGenus = WEATHER_CLOUD_GENUS_NONE;
+    float strongest = 0.069f;
+    for (int index = WEATHER_CLOUD_GENUS_CIRRUS;
+         index < WEATHER_CLOUD_GENUS_COUNT; index++) {
+        float coverage = sample->cloudGenusCoverage[index];
+        if (coverage > strongest) {
+            strongest = coverage;
+            sample->dominantCloudGenus = (WeatherCloudGenus)index;
+        }
+    }
+}
+
+static void WeatherCloudClassify(WeatherFieldSample *sample,
+                                 float pressureGradient, float convection,
+                                 float frontalLift, float saturation,
+                                 float humidityField)
+{
+    float cover = WeatherModelClamp(sample->cloudCover);
+    if (cover < 0.035f) return;
+    float instability = WeatherModelClamp(sample->instability);
+    float stable = 1.0f - instability;
+    float precipitation = WeatherModelClamp(sample->precipitation);
+    float storm = WeatherModelClamp(sample->storm);
+    float wind = WeatherModelClamp(sample->wind);
+    float humidity = WeatherModelClamp(sample->relativeHumidity);
+    float deepConvection = WeatherModelClamp(
+        storm * 0.86f + instability * 0.30f + sample->lightning * 0.42f);
+
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_CIRRUS, cover *
+        WeatherModelClamp(0.08f + wind * 0.46f +
+                          (1.0f - frontalLift) * 0.18f +
+                          (1.0f - saturation) * 0.12f) *
+        (1.0f - storm * 0.72f));
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_CIRROCUMULUS, cover *
+        WeatherModelClamp(0.06f + instability * 0.42f +
+                          humidityField * 0.24f) *
+        (1.0f - precipitation * 0.70f) * (1.0f - storm * 0.76f));
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_CIRROSTRATUS, cover *
+        WeatherModelClamp(frontalLift * 0.62f + pressureGradient * 0.30f +
+                          precipitation * 0.10f) *
+        (1.0f - storm * 0.68f));
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_ALTOCUMULUS, cover *
+        WeatherModelClamp(0.08f + instability * 0.52f + convection * 0.24f) *
+        (1.0f - precipitation * 0.52f) * (1.0f - storm * 0.62f));
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_ALTOSTRATUS, cover *
+        WeatherModelClamp(frontalLift * 0.48f + precipitation * 0.38f +
+                          stable * 0.16f) *
+        (1.0f - deepConvection * 0.72f));
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_NIMBOSTRATUS, cover *
+        precipitation * WeatherModelClamp(stable * 0.72f +
+                                           frontalLift * 0.38f) *
+        (1.0f - deepConvection * 0.88f) * 1.28f);
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_STRATOCUMULUS, cover *
+        WeatherModelClamp(stable * 0.52f + wind * 0.18f + humidity * 0.20f) *
+        (1.0f - precipitation * 0.42f) * (1.0f - saturation * 0.22f));
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_STRATUS, cover *
+        WeatherModelClamp(saturation * 0.72f + sample->fog * 0.52f +
+                          sample->drizzle * 0.36f) * stable *
+        (1.0f - wind * 0.48f));
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_CUMULUS, cover *
+        WeatherModelClamp(instability * 0.64f + convection * 0.34f) *
+        (1.0f - precipitation * 0.52f) * (1.0f - deepConvection * 0.62f));
+    WeatherCloudSet(sample, WEATHER_CLOUD_GENUS_CUMULONIMBUS, cover *
+        WeatherModelClamp(storm * 0.92f + sample->lightning * 0.58f +
+                          sample->hail * 0.44f) *
+        WeatherModelClamp(0.32f + instability * 0.82f));
+
+    WeatherCloudFinalize(sample);
+    if (sample->dominantCloudGenus == WEATHER_CLOUD_GENUS_NONE &&
+        cover >= 0.07f) {
+        WeatherCloudGenus fallback = instability >= 0.46f ?
+            WEATHER_CLOUD_GENUS_CUMULUS : WEATHER_CLOUD_GENUS_STRATOCUMULUS;
+        WeatherCloudSet(sample, fallback, cover * 0.72f);
+        WeatherCloudFinalize(sample);
+    }
+}
+
 WeatherFieldSample WeatherFieldSampleAt(const WeatherFieldInput *input)
 {
     WeatherFieldSample sample = { 0 };
@@ -306,6 +453,8 @@ WeatherFieldSample WeatherFieldSampleAt(const WeatherFieldInput *input)
     sample.visibility = WeatherModelClamp(
         1.0f - sample.fog * 0.78f - sample.precipitation * 0.24f -
         sample.dust * 0.72f - sample.storm * 0.12f);
+    WeatherCloudClassify(&sample, pressureGradient, convection, frontalLift,
+                         saturation, humidityField);
 
     sample.phenomena = sample.cloudCover >= 0.38f
         ? WEATHER_PHENOMENON_FLAG(WEATHER_PHENOMENON_CLOUDY)
@@ -417,4 +566,59 @@ bool WeatherSampleHasPhenomenon(WeatherFieldSample sample,
 {
     return phenomenon >= 0 && phenomenon < WEATHER_PHENOMENON_COUNT &&
            (sample.phenomena & WEATHER_PHENOMENON_FLAG(phenomenon)) != 0u;
+}
+
+const char *WeatherCloudGenusName(WeatherCloudGenus genus)
+{
+    static const char *const names[WEATHER_CLOUD_GENUS_COUNT] = {
+        "None", "Cirrus", "Cirrocumulus", "Cirrostratus",
+        "Altocumulus", "Altostratus", "Nimbostratus",
+        "Stratocumulus", "Stratus", "Cumulus", "Cumulonimbus"
+    };
+    if (genus < 0 || genus >= WEATHER_CLOUD_GENUS_COUNT) return "Unknown";
+    return names[genus];
+}
+
+bool WeatherCloudGenusFromName(const char *name, WeatherCloudGenus *outGenus)
+{
+    if (!name || !outGenus) return false;
+    for (int index = WEATHER_CLOUD_GENUS_NONE;
+         index < WEATHER_CLOUD_GENUS_COUNT; index++) {
+        if (WeatherNameEqual(name,
+                             WeatherCloudGenusName((WeatherCloudGenus)index))) {
+            *outGenus = (WeatherCloudGenus)index;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool WeatherSampleHasCloudGenus(WeatherFieldSample sample,
+                                WeatherCloudGenus genus)
+{
+    return genus > WEATHER_CLOUD_GENUS_NONE &&
+           genus < WEATHER_CLOUD_GENUS_COUNT &&
+           (sample.cloudGenera & WEATHER_CLOUD_GENUS_FLAG(genus)) != 0u;
+}
+
+bool WeatherFieldSampleForceCloudGenus(WeatherFieldSample *sample,
+                                       WeatherCloudGenus genus,
+                                       float coverage)
+{
+    if (!sample || genus <= WEATHER_CLOUD_GENUS_NONE ||
+        genus >= WEATHER_CLOUD_GENUS_COUNT || !isfinite(coverage) ||
+        coverage < 0.0f || coverage > 1.0f) {
+        return false;
+    }
+    sample->cloudGenera = 0u;
+    sample->dominantCloudGenus = WEATHER_CLOUD_GENUS_NONE;
+    memset(sample->cloudGenusCoverage, 0, sizeof(sample->cloudGenusCoverage));
+    memset(sample->cloudGenusBaseHeight, 0,
+           sizeof(sample->cloudGenusBaseHeight));
+    memset(sample->cloudGenusThickness, 0,
+           sizeof(sample->cloudGenusThickness));
+    sample->cloudCover = coverage;
+    WeatherCloudSet(sample, genus, coverage);
+    WeatherCloudFinalize(sample);
+    return true;
 }

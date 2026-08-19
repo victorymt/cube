@@ -1233,7 +1233,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                     game->settings.musicVolume);
     AudioSetMusicEnabled(game->settings.musicEnabled);
     WeatherInit();
-    WeatherImpactInit(game->settings.weatherDamageEnabled);
+    // Performance runs measure a fixed streaming/render route. Persistent
+    // weather edits would keep invalidating meshes after that route ends.
+    WeatherImpactInit(game->settings.weatherDamageEnabled && !game->perfMode);
     WeatherSetParticleScale(
         GraphicsQualityProfileFor(
             game->settings.graphicsQuality).precipitationScale);

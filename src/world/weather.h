@@ -37,8 +37,12 @@ float WeatherWindIntensity(void);
 WeatherFieldSample WeatherCurrentSample(void);
 bool WeatherForcePhenomenon(WeatherPhenomenon phenomenon, float intensity,
                             unsigned frames);
+bool WeatherForceCloudGenus(WeatherCloudGenus genus, float coverage,
+                            unsigned frames);
 void WeatherClearForced(void);
+void WeatherClearForcedCloud(void);
 unsigned WeatherForcedFramesRemaining(void);
+unsigned WeatherForcedCloudFramesRemaining(void);
 const char *WeatherName(void);
 void WeatherCycle(void);
 

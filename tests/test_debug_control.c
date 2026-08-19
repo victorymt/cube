@@ -240,6 +240,14 @@ static void TestWeatherCommands(void)
     assert(strcmp(control.weatherPhenomenon, "freezing-rain") == 0);
     assert(control.weatherIntensity == 0.75f);
     assert(control.weatherFrames == 240u);
+    assert(DebugControlParseText(
+               &control, "weather cloud cumulonimbus 0.85 360") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE);
+    assert(strcmp(control.weatherCloudGenus, "cumulonimbus") == 0);
+    assert(control.weatherCloudCoverage == 0.85f);
+    assert(control.weatherCloudFrames == 360u);
+    assert(DebugControlParseText(&control, "weather cloud clear") ==
+           DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_CLEAR);
     assert(DebugControlParseText(&control, "weather clear") ==
            DEBUG_CONTROL_COMMAND_WEATHER_CLEAR);
     assert(DebugControlParseText(&control, "weather damage off") ==
@@ -260,6 +268,15 @@ static void TestWeatherCommands(void)
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(
                &control, "weather force hail 0.5 0") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather cloud cirrus -0.1 10") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather cloud cirrus 1.1 10") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "weather cloud cirrus 0.5 0") ==
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&control, "weather step 0") ==
            DEBUG_CONTROL_COMMAND_INVALID);

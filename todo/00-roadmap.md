@@ -25,14 +25,16 @@ work progresses, verified, and then committed as one reviewable change.
 | Stage | Scope | Status |
 | --- | --- | --- |
 | 01 | Local climate and weather foundation | Complete |
-| 02 | Cloud taxonomy, tornadoes, and persistent wildfire | Planned |
-| 03 | Geological and biological block expansion | Planned |
-| 04 | Tree and plant diversity with biome ecology | Planned |
-| 05 | Global planetary topology and seamless traversal | Planned |
-| 06 | Cross-system integration, migration, and performance audit | Planned |
+| 02 | WMO cloud taxonomy and layered cloud fields | Complete |
+| 03 | Tornado lifecycle, forces, debris, and presentation | Planned |
+| 04 | Persistent wildfire, smoke, suppression, and recovery hooks | Planned |
+| 05 | Geological and biological block expansion | Planned |
+| 06 | Tree and plant diversity with biome ecology | Planned |
+| 07 | Global planetary topology and seamless traversal | Planned |
+| 08 | Cross-system integration, migration, and performance audit | Planned |
 
 The order deliberately establishes climate inputs before ecology and global
-topology. Stage 05 may require migration of spatial keys and saves, so it is
+topology. Stage 07 may require migration of spatial keys and saves, so it is
 kept separate from content expansion and will include an explicit compatibility
 plan before code changes begin.
 

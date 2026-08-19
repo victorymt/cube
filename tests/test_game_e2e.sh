@@ -188,6 +188,17 @@ awk -v y="$ravine_y" 'BEGIN { exit !(y > 100.0) }'
 send_command 'assert stream.surface_ready && stream.missing_surface_chunks == 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
+send_command 'weather force cloudy 0.8 36000'
+wait_for_reply '^DEBUG_CONTROL weather force ok phenomenon=Cloudy intensity=0.800000 frames=36000$'
+send_command 'weather cloud cumulonimbus 0.85 36000'
+wait_for_reply '^DEBUG_CONTROL weather cloud ok genus=Cumulonimbus coverage=0.850000 frames=36000$'
+send_command 'assert weather.cloud_genus == "Cumulonimbus" && weather.cloud_layers == 1 && weather.cloud_forced_frames > 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'weather inspect'
+wait_for_reply '^DEBUG_CONTROL weather inspect ok '
+[[ "$matched_line" == *'cloud_genus=Cumulonimbus'* ]]
+[[ "$matched_line" == *'cloud_layers=1'* ]]
+
 send_command 'evolution inspect'
 wait_for_reply '^DEBUG_CONTROL evolution inspect none radius=24.000$'
 send_command 'evolution advance 1'
@@ -255,9 +266,13 @@ report_path=${matched_line##*report=}
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=7' "$report_path"
+grep -Fxq 'format.version=8' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
+grep -Fxq 'weather.cloud_genus=Cumulonimbus' "$report_path"
+grep -Fxq 'weather.cloud_layer_count=1' "$report_path"
+grep -Fxq 'weather.cloud_layer_0_name=Cumulonimbus' "$report_path"
+grep -Eq '^weather.forced_cloud_frames=[1-9][0-9]*$' "$report_path"
 grep -Fxq 'environment.seabed_y=-4299' "$report_path"
 grep -Fxq 'environment.water_column_depth=4379' "$report_path"
 grep -Fxq 'environment.bathymetry_zone=abyssal_plain' "$report_path"
@@ -300,7 +315,7 @@ atlas_png_path=${atlas_png_path%% report=*}
 atlas_report_path=${matched_line##*report=}
 [[ -s "$atlas_png_path" ]]
 [[ -s "$atlas_report_path" ]]
-grep -Fxq 'format.version=7' "$atlas_report_path"
+grep -Fxq 'format.version=8' "$atlas_report_path"
 grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
 grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
 python3 tests/validate_png.py "$atlas_png_path" 1280 720 --allow-dark-ui

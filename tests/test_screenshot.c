@@ -123,6 +123,7 @@ static void TestDebugReport(void)
             .name = "Rain",
             .climate = "Oceanic",
             .phenomenon = "Heavy rain",
+            .cloudGenus = "Nimbostratus",
             .simulationTime = 1234.5,
             .active = true,
             .atmosphereDensity = 0.9f,
@@ -130,6 +131,12 @@ static void TestDebugReport(void)
             .cloudBaseHeight = 24.0f,
             .cloudThickness = 18.0f,
             .cloudOpacity = 0.7f,
+            .cloudGenera = 0x60u,
+            .cloudLayerCount = 2u,
+            .cloudLayerNames = { "Nimbostratus", "Cirrostratus", "None" },
+            .cloudLayerCoverage = { 0.78f, 0.32f, 0.0f },
+            .cloudLayerBaseHeight = { 27.5f, 81.0f, 0.0f },
+            .cloudLayerThickness = { 34.0f, 17.0f, 0.0f },
             .fogDensity = 0.1f,
             .visibility = 0.65f,
             .precipitationVeil = 0.5f,
@@ -149,6 +156,7 @@ static void TestDebugReport(void)
             .wind = 0.58f,
             .gust = 0.81f,
             .forcedFrames = 117u,
+            .forcedCloudFrames = 91u,
             .surfaceCount = 23u,
             .activeFires = 2u,
             .blockDamageEvents = 5u,
@@ -253,7 +261,7 @@ static void TestDebugReport(void)
 
     char contents[8192];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=7\n"));
+    assert(strstr(contents, "format.version=8\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -266,6 +274,16 @@ static void TestDebugReport(void)
     assert(strstr(contents, "weather.cloud_thickness=18.000000\n"));
     assert(strstr(contents, "weather.climate=Oceanic\n"));
     assert(strstr(contents, "weather.phenomenon=Heavy rain\n"));
+    assert(strstr(contents, "weather.cloud_genus=Nimbostratus\n"));
+    assert(strstr(contents, "weather.cloud_genera=0x60\n"));
+    assert(strstr(contents, "weather.cloud_layer_count=2\n"));
+    assert(strstr(contents,
+                  "weather.cloud_layer_0_name=Nimbostratus\n"));
+    assert(strstr(contents,
+                  "weather.cloud_layer_0_coverage=0.780000\n"));
+    assert(strstr(contents,
+                  "weather.cloud_layer_1_base_height=81.000000\n"));
+    assert(strstr(contents, "weather.forced_cloud_frames=91\n"));
     assert(strstr(contents, "weather.temperature_k=286.250000\n"));
     assert(strstr(contents, "weather.gust=0.810000\n"));
     assert(strstr(contents, "weather.damage_enabled=true\n"));
