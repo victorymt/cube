@@ -4,7 +4,11 @@
 #include "world/terrain.h"
 #include "world/world.h"
 
+#include <math.h>
+
 static bool netherActive = false;
+static WorldSurfaceRebaseEvent lastSurfaceRebase = { 0 };
+static uint64_t surfaceRebaseSequence = 0u;
 
 bool WorldNetherIsActive(void)
 {
@@ -146,10 +150,60 @@ uint32_t WorldCurrentSurfaceId(void)
 
 int WorldSurfaceMapOriginX(void)
 {
-    return PlanetWorldIsActive() ? PlanetWorldOriginX() : 0;
+    return 0;
 }
 
 int WorldSurfaceMapOriginZ(void)
 {
-    return PlanetWorldIsActive() ? PlanetWorldOriginZ() : 0;
+    return 0;
+}
+
+void WorldResetSurfaceRebaseEvent(void)
+{
+    lastSurfaceRebase = (WorldSurfaceRebaseEvent){ 0 };
+    surfaceRebaseSequence = 0u;
+}
+
+WorldSurfaceRebaseEvent WorldLastSurfaceRebaseEvent(void)
+{
+    return lastSurfaceRebase;
+}
+
+bool WorldCanonicalizeSurfacePose(Vector3 *position, Vector3 *velocity,
+                                  float *yaw)
+{
+    if (!position || !WorldIsSurfaceActive() ||
+        !isfinite(position->x) || !isfinite(position->z)) {
+        return false;
+    }
+    int originX = WorldSurfaceMapOriginX();
+    int originZ = WorldSurfaceMapOriginZ();
+    float northDirection = 1.0f;
+    Vector2 canonical = SurfaceCanonicalMapPosition(
+        (float)originX + position->x,
+        (float)originZ + position->z, &northDirection);
+    Vector3 next = *position;
+    next.x = canonical.x - (float)originX;
+    next.z = canonical.y - (float)originZ;
+    bool changed = fabsf(next.x - position->x) > 0.001f ||
+                   fabsf(next.z - position->z) > 0.001f;
+    if (changed) {
+        lastSurfaceRebase = (WorldSurfaceRebaseEvent){
+            .valid = true,
+            .sequence = ++surfaceRebaseSequence,
+            .bodyId = WorldCurrentSurfaceId(),
+            .previous = { (float)originX + position->x,
+                          (float)originZ + position->z },
+            .canonical = canonical,
+            .northDirection = northDirection
+        };
+    }
+    *position = next;
+    if (northDirection < 0.0f) {
+        if (velocity) velocity->z = -velocity->z;
+        if (yaw && isfinite(*yaw)) {
+            *yaw = atan2f(sinf(*yaw), -cosf(*yaw));
+        }
+    }
+    return changed;
 }

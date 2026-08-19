@@ -64,6 +64,11 @@ bool WorldIsSurfaceActive(void)
     return true;
 }
 
+void WorldSetNetherActive(bool active)
+{
+    (void)active;
+}
+
 bool ShipBlockIsParkedCore(BlockType type)
 {
     (void)type;
@@ -461,6 +466,26 @@ static void TestStaleJobDiscardedAfterChunkReload(void)
     assert(ChunksTestChunkDirty(0));
 }
 
+static void TestStaleMeshJobDiscardedAfterSurfaceKeyChanges(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, true);
+    chunks[0].generation = 3u;
+
+    RebuildDirtyChunkMeshes((Vector3){ 0.0f, 0.0f, 0.0f });
+    int jobIndex = FindPendingMeshJobFor(0, 0);
+    assert(jobIndex >= 0);
+
+    chunks[0].surfaceKey.bodyId++;
+    ChunksTestCompleteMeshJob(jobIndex);
+    ProcessFinishedMeshJobs(0.0);
+
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    assert(ChunksTestMeshJobSlot(jobIndex) == -1);
+    assert(stats.meshCanceled >= 1);
+    assert(ChunksTestChunkDirty(0));
+}
+
 typedef struct WaterMeshBuildProbe {
     int jobIndex;
     bool passed;
@@ -695,6 +720,16 @@ static void TestSectionGenerationJobsStageAndValidateResults(void)
     ChunksTestRunGenerationJob(0);
     chunks[0].surfaceAddress.bodyId++;
     ProcessFinishedChunkJobs();
+    assert(ChunkGetSectionConst(&chunks[0], 0) != NULL);
+    assert(ChunksGetStreamingStats().generationCanceled == 0u);
+
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 10, 0, true, false);
+    chunks[0].generation = 23u;
+    assert(RequestChunkTerrainSection(10, 0, 0));
+    ChunksTestRunGenerationJob(0);
+    chunks[0].surfaceKey.bodyId++;
+    ProcessFinishedChunkJobs();
     assert(ChunkGetSectionConst(&chunks[0], 0) == NULL);
     assert(ChunksGetStreamingStats().generationCanceled == 1u);
 }
@@ -814,14 +849,18 @@ static void TestExpandedBlockEditInstallationIsTransactional(void)
         { 707, 10, 3, BLOCK_SAGUARO }
     };
     const uint32_t dimensions[] = { 1u, 1u, 1u, 1u, 1u, 1u, 1u };
-    const SurfaceAddress addresses[] = {
-        { .bodyId = 1u }, { .bodyId = 1u }, { .bodyId = 1u },
-        { .bodyId = 1u }, { .bodyId = 1u }, { .bodyId = 1u },
-        { .bodyId = 1u }
-    };
+    SurfaceAddress addresses[7];
+    SurfaceMapCell mapCells[7];
+    for (int index = 0; index < 7; index++) {
+        addresses[index] = SurfaceAddressFromMapCoordinates(
+            1u, (float)edits[index].x, (float)edits[index].z,
+            edits[index].y);
+        mapCells[index] = SurfaceCanonicalMapCell(
+            (float)edits[index].x, (float)edits[index].z);
+    }
     assert(WorldPersistenceEditsValid(edits, 7));
     assert(WorldPersistenceInstallEdits(
-        edits, dimensions, addresses, 7));
+        edits, dimensions, addresses, mapCells, 7));
     assert(WorldGetEditCount() == 7);
     for (int index = 0; index < 7; index++) {
         const BlockEdit *loaded = WorldGetEditAt(index);
@@ -834,10 +873,11 @@ static void TestExpandedBlockEditInstallationIsTransactional(void)
 
     BlockEdit invalid = { 708, 4, 3, (BlockType)200 };
     uint32_t invalidDimension = 1u;
-    SurfaceAddress invalidAddress = { .bodyId = 1u };
+    SurfaceAddress invalidAddress = SurfaceAddressFromMapCoordinates(
+        1u, (float)invalid.x, (float)invalid.z, invalid.y);
     assert(!WorldPersistenceEditsValid(&invalid, 1));
     assert(!WorldPersistenceInstallEdits(
-        &invalid, &invalidDimension, &invalidAddress, 1));
+        &invalid, &invalidDimension, &invalidAddress, mapCells, 1));
     assert(WorldGetEditCount() == 7);
     assert(WorldGetEditAt(6)->type == BLOCK_SAGUARO);
 
@@ -846,7 +886,7 @@ static void TestExpandedBlockEditInstallationIsTransactional(void)
     };
     assert(!WorldPersistenceEditsValid(&invalid, 1));
     assert(!WorldPersistenceInstallEdits(
-        &invalid, &invalidDimension, &invalidAddress, 1));
+        &invalid, &invalidDimension, &invalidAddress, mapCells, 1));
     assert(WorldGetEditCount() == 7);
     assert(WorldGetEditAt(0)->type == BLOCK_CHARRED_WOOD);
 }
@@ -987,6 +1027,102 @@ static void TestSectionLifecycleHooksPermitFluidRuntimePruning(void)
     WorldInstallExtensionHooks(NULL);
 }
 
+static void TestWrappedBlockEditUsesCanonicalIdentity(void)
+{
+    WorldReset(DEFAULT_WORLD_SEED);
+    const int x = 73;
+    const int y = 4;
+    const int z = -211;
+    assert(SetBlock(x, y, z, BLOCK_GLASS));
+    assert(WorldGetEditCount() == 1);
+    assert(GetBlockAt(x + SURFACE_EQUATOR_BLOCKS, y, z) == BLOCK_GLASS);
+    assert(SetBlock(x + SURFACE_EQUATOR_BLOCKS, y, z, BLOCK_BRICK));
+    assert(WorldGetEditCount() == 1);
+    assert(GetBlockAt(x, y, z) == BLOCK_BRICK);
+}
+
+static void AssertChunkAliasCanonicalizes(int rawCx, int rawCz)
+{
+    SurfaceChunkKey rawKey = ChunkSurfaceKeyAt(rawCx, rawCz);
+    int canonicalCx = rawCx;
+    int canonicalCz = rawCz;
+    CanonicalizeSurfaceChunkCoordinates(&canonicalCx, &canonicalCz);
+    assert(SurfaceChunkKeyEqual(
+        rawKey, ChunkSurfaceKeyAt(canonicalCx, canonicalCz)));
+
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, canonicalCx, canonicalCz, true, false);
+    assert(FindChunk(rawCx, rawCz) == &chunks[0]);
+    assert(!ChunksTestEnsureChunk(rawCx, rawCz));
+    assert(GetPendingGenJobCount() == 0);
+}
+
+static void TestSurfaceChunkAliasesUseOneCanonicalIdentity(void)
+{
+    const int equatorChunks = SURFACE_EQUATOR_BLOCKS / CHUNK_SIZE;
+    const int poleChunk =
+        SURFACE_POLE_TO_POLE_BLOCKS / (2 * CHUNK_SIZE);
+
+    AssertChunkAliasCanonicalizes(17 + equatorChunks, -23);
+    AssertChunkAliasCanonicalizes(17, poleChunk);
+    AssertChunkAliasCanonicalizes(-19, -poleChunk - 1);
+
+    ChunksTestResetScheduler();
+    assert(ChunksTestEnsureChunk(31, 12));
+    assert(GetPendingGenJobCount() == 1);
+    assert(ChunksTestFindPendingGenerationJob(
+        31 + equatorChunks, 12));
+    assert(!ChunksTestEnsureChunk(31 + equatorChunks, 12));
+    assert(GetPendingGenJobCount() == 1);
+}
+
+static void TestPolarChunkNeighborsBecomeDirty(void)
+{
+    const int pole = SURFACE_POLE_TO_POLE_BLOCKS / 2;
+    const int poleChunk = pole / CHUNK_SIZE;
+    int neighborCx = 0;
+    int neighborCz = poleChunk;
+    CanonicalizeSurfaceChunkCoordinates(&neighborCx, &neighborCz);
+
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, poleChunk - 1, true, false);
+    ChunksTestConfigureChunk(
+        1, neighborCx, neighborCz, true, false);
+    assert(ChunkGetSection(&chunks[0], 0, true));
+    assert(ChunkGetSection(&chunks[1], 0, true));
+    assert(FindHorizontalChunkNeighbor(
+               0, poleChunk - 1, 0, 1) == &chunks[1]);
+
+    MarkChunkAndHorizontalNeighborsDirty(0, poleChunk - 1);
+    assert(ChunksTestChunkDirty(0));
+    assert(ChunksTestChunkDirty(1));
+
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, poleChunk - 1, true, false);
+    ChunksTestConfigureChunk(
+        1, neighborCx, neighborCz, true, false);
+    assert(ChunkGetSection(&chunks[0], 0, true));
+    assert(ChunkGetSection(&chunks[1], 0, true));
+    MarkChunkDirtyAtBlock(3, 4, pole - 1);
+    assert(ChunksTestChunkDirty(0));
+    assert(ChunksTestChunkDirty(1));
+}
+
+static void TestCanonicalChunkIdentityStatsDetectAliases(void)
+{
+    const int equatorChunks = SURFACE_EQUATOR_BLOCKS / CHUNK_SIZE;
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 23, -7, true, false);
+    ChunksTestConfigureChunk(1, 23 + equatorChunks, -7, true, false);
+    ChunksTestConfigureChunk(2, 24, -7, true, false);
+    ChunksTestConfigureChunk(3, 25, -7, false, false);
+
+    ChunkCanonicalIdentityStats stats = ChunksGetCanonicalIdentityStats();
+    assert(stats.loaded == 3);
+    assert(stats.unique == 2);
+    assert(stats.duplicates == 1);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
@@ -1002,6 +1138,7 @@ int main(void)
     TestBudgetAndInvalidSlotCleanup();
     TestEditDuringFlightKeepsSectionDirty();
     TestStaleJobDiscardedAfterChunkReload();
+    TestStaleMeshJobDiscardedAfterSurfaceKeyChanges();
     TestWaterMeshUsesSnapshottedNeighborBoundary();
     TestSparseWaterBoundariesPreserveUnknownSections();
     TestSparseSignedSectionStorage();
@@ -1017,6 +1154,10 @@ int main(void)
     TestNegativeSectionPruningPreservesRuntimeState();
     TestDistantSectionJobsReleaseQueueCapacity();
     TestSectionLifecycleHooksPermitFluidRuntimePruning();
+    TestWrappedBlockEditUsesCanonicalIdentity();
+    TestSurfaceChunkAliasesUseOneCanonicalIdentity();
+    TestPolarChunkNeighborsBecomeDirty();
+    TestCanonicalChunkIdentityStatsDetectAliases();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

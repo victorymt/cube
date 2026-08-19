@@ -3,6 +3,7 @@
 #include "raymath.h"
 
 #include <math.h>
+#include <stdlib.h>
 
 static float SurfaceClamp(float value, float low, float high)
 {
@@ -85,6 +86,13 @@ static int SurfaceCoordinateCell(float coordinate)
     if (cell < 0) return 0;
     if (cell >= SURFACE_FACE_BLOCKS) return SURFACE_FACE_BLOCKS - 1;
     return cell;
+}
+
+static float SurfaceWrappedRadians(float value)
+{
+    value = fmodf(value + PI, 2.0f * PI);
+    if (value < 0.0f) value += 2.0f * PI;
+    return value - PI;
 }
 
 bool SurfaceFaceIsValid(SurfaceFace face)
@@ -189,12 +197,190 @@ SurfaceMapProjection SurfaceProjectMapCoordinates(float mapX, float mapZ)
     };
 }
 
+Vector2 SurfaceCanonicalMapPosition(float mapX, float mapZ,
+                                    float *outNorthDirection)
+{
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+        mapX, mapZ);
+    if (outNorthDirection) {
+        *outNorthDirection = projection.northDirection;
+    }
+    return (Vector2){
+        projection.longitude *
+            ((float)SURFACE_EQUATOR_BLOCKS / (2.0f * PI)),
+        projection.latitude *
+            ((float)SURFACE_POLE_TO_POLE_BLOCKS / PI)
+    };
+}
+
+SurfaceMapCell SurfaceCanonicalMapCell(float mapX, float mapZ)
+{
+    if (!isfinite(mapX)) mapX = 0.0f;
+    if (!isfinite(mapZ)) mapZ = 0.0f;
+    double x = floor((double)mapX);
+    double z = floor((double)mapZ);
+    const double circumference = SURFACE_EQUATOR_BLOCKS;
+    const double poleToPole = SURFACE_POLE_TO_POLE_BLOCKS;
+    const double pole = poleToPole * 0.5;
+    const double latitudePeriod = poleToPole * 2.0;
+    double phase = fmod(z + pole, latitudePeriod);
+    if (phase < 0.0) phase += latitudePeriod;
+    bool reflected = phase >= poleToPole;
+    double canonicalZ = reflected
+        ? latitudePeriod - 1.0 - phase - pole : phase - pole;
+    double canonicalX = fmod(
+        x + (reflected ? circumference * 0.5 : 0.0), circumference);
+    if (canonicalX < 0.0) canonicalX += circumference;
+    if (canonicalX >= circumference * 0.5) canonicalX -= circumference;
+    return (SurfaceMapCell){ (int)canonicalX, (int)canonicalZ };
+}
+
+SurfaceSpatialKey SurfaceSpatialKeyFromMapCoordinates(
+    uint32_t bodyId, float mapX, float mapZ, int radial)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell(mapX, mapZ);
+    return (SurfaceSpatialKey){ bodyId, cell.x, cell.z, radial };
+}
+
+bool SurfaceSpatialKeyEqual(SurfaceSpatialKey a, SurfaceSpatialKey b)
+{
+    return a.bodyId == b.bodyId && a.mapX == b.mapX &&
+           a.mapZ == b.mapZ && a.radial == b.radial;
+}
+
+bool SurfaceChunkKeyEqual(SurfaceChunkKey a, SurfaceChunkKey b)
+{
+    if (a.bodyId != b.bodyId) return false;
+    for (int index = 0; index < 4; index++) {
+        if (a.corners[index].x != b.corners[index].x ||
+            a.corners[index].z != b.corners[index].z) {
+            return false;
+        }
+    }
+    return true;
+}
+
+SurfaceMapOffset SurfaceShortestMapOffset(float fromX, float fromZ,
+                                          float toX, float toZ)
+{
+    SurfaceMapProjection from = SurfaceProjectMapCoordinates(fromX, fromZ);
+    SurfaceMapProjection to = SurfaceProjectMapCoordinates(toX, toZ);
+    float fromCosLatitude = cosf(from.latitude);
+    float toCosLatitude = cosf(to.latitude);
+    Vector3 fromDirection = {
+        fromCosLatitude * cosf(from.longitude), sinf(from.latitude),
+        fromCosLatitude * sinf(from.longitude)
+    };
+    Vector3 toDirection = {
+        toCosLatitude * cosf(to.longitude), sinf(to.latitude),
+        toCosLatitude * sinf(to.longitude)
+    };
+    float dot = SurfaceClamp(
+        Vector3DotProduct(fromDirection, toDirection), -1.0f, 1.0f);
+    Vector3 east = {
+        -sinf(from.longitude), 0.0f, cosf(from.longitude)
+    };
+    Vector3 north = {
+        -sinf(from.latitude) * cosf(from.longitude),
+        cosf(from.latitude),
+        -sinf(from.latitude) * sinf(from.longitude)
+    };
+    Vector3 tangent = Vector3Subtract(
+        toDirection, Vector3Scale(fromDirection, dot));
+    float tangentLength = Vector3Length(tangent);
+    float angle = atan2f(tangentLength, dot);
+    if (tangentLength > 0.000001f) {
+        tangent = Vector3Scale(tangent, 1.0f / tangentLength);
+    } else if (dot < 0.0f) {
+        float longitudeDelta = SurfaceWrappedRadians(
+            to.longitude - from.longitude);
+        tangent = fabsf(longitudeDelta) > 0.000001f ?
+            Vector3Scale(east, longitudeDelta < 0.0f ? -1.0f : 1.0f) :
+            north;
+    } else {
+        tangent = Vector3Zero();
+        angle = 0.0f;
+    }
+    float distance = angle * SURFACE_RADIUS_BLOCKS;
+    return (SurfaceMapOffset){
+        .x = Vector3DotProduct(tangent, east) * distance,
+        .z = Vector3DotProduct(tangent, north) * distance *
+            from.northDirection,
+        .northDirection = to.northDirection
+    };
+}
+
+uint32_t SurfaceCanonicalMapHash(uint32_t bodyId, float mapX, float mapZ,
+                                 int radial)
+{
+    SurfaceSpatialKey key = SurfaceSpatialKeyFromMapCoordinates(
+        bodyId, mapX, mapZ, radial);
+    uint32_t hash = 2166136261u;
+    hash = (hash ^ key.bodyId) * 16777619u;
+    hash = (hash ^ (uint32_t)key.mapX) * 16777619u;
+    hash = (hash ^ (uint32_t)key.mapZ) * 16777619u;
+    hash = (hash ^ (uint32_t)key.radial) * 16777619u;
+    hash ^= hash >> 15;
+    return hash * 2246822519u;
+}
+
+Vector3 SurfaceDirectionFromMapCoordinates(float mapX, float mapZ)
+{
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+        mapX, mapZ);
+    float cosine = cosf(projection.latitude);
+    return (Vector3){
+        cosine * cosf(projection.longitude),
+        sinf(projection.latitude),
+        cosine * sinf(projection.longitude)
+    };
+}
+
 SurfaceAddress SurfaceAddressFromMapCoordinates(uint32_t bodyId, float x,
                                                 float z, int radial)
 {
     SurfaceMapProjection projection = SurfaceProjectMapCoordinates(x, z);
     return SurfaceAddressFromLatLon(
         bodyId, projection.longitude, projection.latitude, radial);
+}
+
+bool SurfaceAddressCanonicalMapCell(SurfaceAddress address,
+                                    SurfaceMapCell *outCell)
+{
+    if (!outCell || !SurfaceAddressIsValid(address)) return false;
+    float longitude = 0.0f;
+    float latitude = 0.0f;
+    SurfaceAddressLatLon(address, &longitude, &latitude);
+    int estimateX = (int)floorf(longitude *
+        ((float)SURFACE_EQUATOR_BLOCKS / (2.0f * PI)));
+    int estimateZ = (int)floorf(latitude *
+        ((float)SURFACE_POLE_TO_POLE_BLOCKS / PI));
+    int bestDistance = INT32_MAX;
+    SurfaceMapCell best = SurfaceCanonicalMapCell(
+        (float)estimateX, (float)estimateZ);
+    bool found = false;
+    for (int dz = -3; dz <= 3; dz++) {
+        for (int dx = -3; dx <= 3; dx++) {
+            SurfaceMapCell candidate = SurfaceCanonicalMapCell(
+                (float)(estimateX + dx), (float)(estimateZ + dz));
+            SurfaceAddress mapped = SurfaceAddressFromMapCoordinates(
+                address.bodyId, (float)candidate.x, (float)candidate.z,
+                address.radial);
+            if (!SurfaceAddressEqual(mapped, address)) continue;
+            int distance = abs(dx) + abs(dz);
+            if (!found || distance < bestDistance ||
+                (distance == bestDistance && candidate.z < best.z) ||
+                (distance == bestDistance && candidate.z == best.z &&
+                 candidate.x < best.x)) {
+                best = candidate;
+                bestDistance = distance;
+                found = true;
+            }
+        }
+    }
+    if (!found) return false;
+    *outCell = best;
+    return true;
 }
 
 void SurfaceAddressLatLon(SurfaceAddress address, float *outLongitude,
@@ -392,21 +578,23 @@ Matrix SurfacePatchTransformAtMap(
     uint32_t bodyId, Vector2 referenceMap, Vector3 referenceLocalOrigin,
     Vector2 patchMap, int radialBase)
 {
-    (void)bodyId;
-    SurfaceFrame patchFrame = SurfaceLocalFrameAtOffset(
-        patchMap.x - referenceMap.x, patchMap.y - referenceMap.y,
-        radialBase);
-    Vector3 origin = Vector3Add(patchFrame.origin, referenceLocalOrigin);
+    SurfaceFrame referenceFrame = SurfaceFrameAtMapCoordinates(
+        bodyId, referenceMap.x, referenceMap.y, 0);
+    SurfaceFrame patchFrame = SurfaceFrameAtMapCoordinates(
+        bodyId, patchMap.x, patchMap.y, radialBase);
+    Vector3 east = SurfaceFrameTransformVector(
+        &patchFrame, &referenceFrame, (Vector3){ 1.0f, 0.0f, 0.0f });
+    Vector3 up = SurfaceFrameTransformVector(
+        &patchFrame, &referenceFrame, (Vector3){ 0.0f, 1.0f, 0.0f });
+    Vector3 north = SurfaceFrameTransformVector(
+        &patchFrame, &referenceFrame, (Vector3){ 0.0f, 0.0f, 1.0f });
+    Vector3 origin = Vector3Add(
+        SurfaceFramePlanetToLocal(&referenceFrame, patchFrame.origin),
+        referenceLocalOrigin);
     return (Matrix){
-        .m0 = patchFrame.east.x,
-        .m1 = patchFrame.east.y,
-        .m2 = patchFrame.east.z,
-        .m4 = patchFrame.up.x,
-        .m5 = patchFrame.up.y,
-        .m6 = patchFrame.up.z,
-        .m8 = patchFrame.north.x,
-        .m9 = patchFrame.north.y,
-        .m10 = patchFrame.north.z,
+        .m0 = east.x, .m1 = east.y, .m2 = east.z,
+        .m4 = up.x, .m5 = up.y, .m6 = up.z,
+        .m8 = north.x, .m9 = north.y, .m10 = north.z,
         .m12 = origin.x, .m13 = origin.y, .m14 = origin.z,
         .m15 = 1.0f
     };

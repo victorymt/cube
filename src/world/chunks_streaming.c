@@ -233,6 +233,7 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
         .chunkGeneration = chunk->generation,
         .spherical = chunk->spherical,
         .surfaceAddress = chunk->surfaceAddress,
+        .surfaceKey = chunk->surfaceKey,
         .terrainMode = mode,
         .queueSequence = ++nextGenerationQueueSequence,
         .submittedAtMs = ChunkNowMs()
@@ -282,6 +283,7 @@ static bool SubmitChunkSectionGenJob(
         .chunkGeneration = chunk->generation,
         .spherical = chunk->spherical,
         .surfaceAddress = chunk->surfaceAddress,
+        .surfaceKey = chunk->surfaceKey,
         .terrainMode = mode,
         .queueSequence = ++nextGenerationQueueSequence,
         .submittedAtMs = ChunkNowMs()
@@ -331,12 +333,12 @@ bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
 bool FindPendingGenJob(int cx, int cz)
 {
     bool spherical = WorldIsSurfaceActive();
-    SurfaceAddress address = spherical
-        ? ChunkSurfaceAddressAt(cx, cz) : (SurfaceAddress){ 0 };
+    SurfaceChunkKey key = spherical
+        ? ChunkSurfaceKeyAt(cx, cz) : (SurfaceChunkKey){ 0 };
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
         ChunkGenJob *job = &chunkGenJobs[i];
         if (!job->inUse || job->spherical != spherical) continue;
-        if (spherical ? SurfaceAddressEqual(job->surfaceAddress, address)
+        if (spherical ? SurfaceChunkKeyEqual(job->surfaceKey, key)
                       : (job->cx == cx && job->cz == cz)) return true;
     }
     return false;
@@ -354,8 +356,8 @@ void MarkGeneratedSectionAndNeighborsDirty(
         { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
     };
     for (int i = 0; i < 4; i++) {
-        Chunk *neighbor = FindChunk(
-            chunk->cx + offsets[i][0], chunk->cz + offsets[i][1]);
+        Chunk *neighbor = FindHorizontalChunkNeighbor(
+            chunk->cx, chunk->cz, offsets[i][0], offsets[i][1]);
         if (neighbor) {
             MarkSectionDirty(ChunkGetSection(neighbor, sectionY, false));
         }
@@ -371,8 +373,8 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
                    chunk->cz != job->cz ||
                    chunk->generation != job->chunkGeneration ||
                    chunk->spherical != job->spherical ||
-                   (job->spherical && !SurfaceAddressEqual(
-                       chunk->surfaceAddress, job->surfaceAddress)) ||
+                   (job->spherical && !SurfaceChunkKeyEqual(
+                       chunk->surfaceKey, job->surfaceKey)) ||
                    ChunkTerrainSectionIsResolved(chunk, job->sectionY) ||
                    ChunkGetSectionConst(chunk, job->sectionY))) {
         stale = true;
@@ -421,8 +423,8 @@ void CompleteChunkGenJob(ChunkGenJob *job)
                    chunk->cx != job->cx || chunk->cz != job->cz ||
                    chunk->generation != job->chunkGeneration ||
                    chunk->spherical != job->spherical ||
-                   (job->spherical && !SurfaceAddressEqual(
-                       chunk->surfaceAddress, job->surfaceAddress)))) {
+                   (job->spherical && !SurfaceChunkKeyEqual(
+                       chunk->surfaceKey, job->surfaceKey)))) {
         stale = true;
     }
     if (stale) {
@@ -499,9 +501,7 @@ Chunk *AllocateChunkSlot(int nearCx, int nearCz)
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         if (!chunks[i].loaded && !chunks[i].generating) return &chunks[i];
 
-        int dx = abs(chunks[i].cx - nearCx);
-        int dz = abs(chunks[i].cz - nearCz);
-        int distance = dx > dz ? dx : dz;
+        int distance = ChunkGridDistanceFrom(&chunks[i], nearCx, nearCz);
         if (!chunks[i].generating && distance > bestDistance) {
             bestDistance = distance;
             bestIndex = i;
@@ -517,9 +517,12 @@ Chunk *AllocateChunkSlot(int nearCx, int nearCz)
 bool EnsureChunk(int cx, int cz)
 {
     bool spherical = WorldIsSurfaceActive();
+    if (spherical) CanonicalizeSurfaceChunkCoordinates(&cx, &cz);
     SurfaceAddress surfaceAddress = spherical
         ? ChunkSurfaceAddressAt(cx, cz) : (SurfaceAddress){ 0 };
-    if ((spherical ? FindSurfaceChunk(surfaceAddress) : FindChunk(cx, cz)) ||
+    SurfaceChunkKey surfaceKey = spherical
+        ? ChunkSurfaceKeyAt(cx, cz) : (SurfaceChunkKey){ 0 };
+    if ((spherical ? FindSurfaceChunk(surfaceKey) : FindChunk(cx, cz)) ||
         FindPendingGenJob(cx, cz)) return false;
 
     if (genThread != 0) {
@@ -542,6 +545,7 @@ bool EnsureChunk(int cx, int cz)
     chunk->cz = cz;
     chunk->spherical = spherical;
     chunk->surfaceAddress = surfaceAddress;
+    chunk->surfaceKey = surfaceKey;
     // New incarnation: invalidates any in-flight mesh jobs captured against
     // the previous occupant of this slot (stale terrain upload guard).
     chunk->generation++;
@@ -635,8 +639,8 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
 
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         if (!chunks[i].loaded) continue;
-        if (abs(chunks[i].cx - playerCx) > effectiveRenderDistance ||
-            abs(chunks[i].cz - playerCz) > effectiveRenderDistance) {
+        if (ChunkGridDistanceFrom(&chunks[i], playerCx, playerCz) >
+            effectiveRenderDistance) {
             MarkChunkAndHorizontalNeighborsDirty(chunks[i].cx, chunks[i].cz);
             ChunkClearBlockStorage(&chunks[i]);
             chunks[i].loaded = false;
@@ -683,6 +687,16 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
 }
 
 #ifdef CHUNKS_TESTING
+bool ChunksTestEnsureChunk(int cx, int cz)
+{
+    return EnsureChunk(cx, cz);
+}
+
+bool ChunksTestFindPendingGenerationJob(int cx, int cz)
+{
+    return FindPendingGenJob(cx, cz);
+}
+
 void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
                                  int sectionY, bool done)
 {

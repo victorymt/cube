@@ -1,6 +1,7 @@
 #include "world/home_tree_shape.h"
 
 #include "world/chunks.h"
+#include "world/surface_topology.h"
 #include "world/world.h"
 
 #include <math.h>
@@ -18,7 +19,8 @@ static uint32_t ShapeSeedMix(uint32_t hash)
 
 static uint32_t ShapeWorldHash3D(int x, int y, int z)
 {
-    return ShapeSeedMix(Hash3D(x, y, z));
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    return ShapeSeedMix(Hash3D(cell.x, y, cell.z));
 }
 
 static void TreeDirection(int direction, int *outX, int *outZ)

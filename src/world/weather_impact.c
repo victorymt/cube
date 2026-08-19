@@ -4,6 +4,7 @@
 
 #include "space/space_state.h"
 #include "world/fluid.h"
+#include "world/surface_topology.h"
 #include "world/terrain.h"
 #include "world/wildfire_model.h"
 #include "world/world.h"
@@ -179,6 +180,14 @@ static bool ImpactCoordinateValid(int value)
     return value >= -1000000 && value <= 1000000;
 }
 
+static void ImpactCanonicalizeXZ(int *x, int *z)
+{
+    if (!x || !z) return;
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)*x, (float)*z);
+    *x = cell.x;
+    *z = cell.z;
+}
+
 static float ImpactFuelLoad(BlockType block, float flammability)
 {
     switch (block) {
@@ -294,6 +303,7 @@ static bool ImpactTopBlock(int x, int z, int centerY, int *outY,
 
 static int ImpactFindSurface(uint32_t surfaceId, int x, int z)
 {
+    ImpactCanonicalizeXZ(&x, &z);
     for (uint32_t index = 0u; index < impactSurfaceCount; index++) {
         WeatherSurfaceState *state = &impactSurfaces[index].state;
         if (state->surfaceId == surfaceId && state->x == x && state->z == z) {
@@ -306,6 +316,7 @@ static int ImpactFindSurface(uint32_t surfaceId, int x, int z)
 static WeatherImpactSurfaceRecord *ImpactSurfaceEnsure(
     uint32_t surfaceId, int x, int y, int z)
 {
+    ImpactCanonicalizeXZ(&x, &z);
     int existing = ImpactFindSurface(surfaceId, x, z);
     if (existing >= 0) {
         impactSurfaces[existing].state.y = y;
@@ -486,6 +497,7 @@ static void ImpactApplyMaterialStress(WeatherImpactSurfaceRecord *record,
 
 static int ImpactFindFire(uint32_t surfaceId, int x, int y, int z)
 {
+    ImpactCanonicalizeXZ(&x, &z);
     for (uint32_t index = 0u; index < impactFireCount; index++) {
         WeatherImpactFireRecord *fire = &impactFires[index];
         if (fire->surfaceId == surfaceId && fire->x == x && fire->y == y &&
@@ -498,6 +510,7 @@ static int ImpactFindFire(uint32_t surfaceId, int x, int y, int z)
 
 static int ImpactFindBurnSite(uint32_t surfaceId, int x, int y, int z)
 {
+    ImpactCanonicalizeXZ(&x, &z);
     for (uint32_t index = 0u; index < impactBurnSiteCount; index++) {
         WeatherBurnSiteState *site = &impactBurnSites[index];
         if (site->surfaceId == surfaceId && site->x == x && site->y == y &&
@@ -602,6 +615,7 @@ static bool ImpactIgnite(uint32_t surfaceId, int x, int y, int z,
                          float intensity, float moisture, bool *outCreated)
 {
     if (outCreated) *outCreated = false;
+    ImpactCanonicalizeXZ(&x, &z);
     int existing = ImpactFindFire(surfaceId, x, y, z);
     if (existing >= 0) {
         WeatherImpactFireRecord *fire = &impactFires[existing];
@@ -1066,16 +1080,18 @@ unsigned WeatherImpactSuppressAt(int x, int y, int z, float radius,
         amount <= 0.0f) {
         return 0u;
     }
+    ImpactCanonicalizeXZ(&x, &z);
     float radiusSquared = radius * radius;
     uint32_t surfaceId = WorldCurrentSurfaceId();
     unsigned affected = 0u;
     for (uint32_t index = 0u; index < impactFireCount;) {
         WeatherImpactFireRecord *fire = &impactFires[index];
-        float dx = (float)(fire->x - x);
+        SurfaceMapOffset offset = SurfaceShortestMapOffset(
+            (float)x, (float)z, (float)fire->x, (float)fire->z);
         float dy = (float)(fire->y - y);
-        float dz = (float)(fire->z - z);
         if (fire->surfaceId != surfaceId ||
-            dx * dx + dy * dy + dz * dz > radiusSquared ||
+            offset.x * offset.x + dy * dy + offset.z * offset.z >
+                radiusSquared ||
             !SurfaceBlockReadyAt(fire->x, fire->y, fire->z)) {
             index++;
             continue;
@@ -1104,10 +1120,11 @@ unsigned WeatherImpactClearFires(void)
 static float ImpactFireDistanceSquared(const WeatherImpactFireRecord *fire,
                                        Vector3 origin)
 {
-    float dx = (float)fire->x + 0.5f - origin.x;
+    SurfaceMapOffset offset = SurfaceShortestMapOffset(
+        origin.x, origin.z, (float)fire->x + 0.5f,
+        (float)fire->z + 0.5f);
     float dy = (float)fire->y + 0.5f - origin.y;
-    float dz = (float)fire->z + 0.5f - origin.z;
-    return dx * dx + dy * dy + dz * dz;
+    return offset.x * offset.x + dy * dy + offset.z * offset.z;
 }
 
 unsigned WeatherImpactCollectFires(Vector3 origin, float radius,
@@ -1238,6 +1255,7 @@ WeatherImpactStats WeatherImpactGetStats(void)
 void WeatherImpactOnBlockChanged(int x, int y, int z)
 {
     if (WorldCurrentMutationSource() == WORLD_MUTATION_ENVIRONMENT) return;
+    ImpactCanonicalizeXZ(&x, &z);
     uint32_t surfaceId = WorldCurrentSurfaceId();
     for (uint32_t index = 0u; index < impactSurfaceCount;) {
         WeatherImpactSurfaceRecord *record = &impactSurfaces[index];
@@ -1297,6 +1315,60 @@ static bool ImpactBurnSiteRecordValid(const WeatherBurnSiteState *site)
         site->severity <= 1.0f && isfinite(site->recovery) &&
         site->recovery >= 0.0f && site->recovery < 1.0f &&
         isfinite(site->ageSeconds) && site->ageSeconds >= 0.0f;
+}
+
+static bool ImpactNormalizeLoadedSurfaces(WeatherImpactSurfaceRecord *records,
+                                          uint32_t count)
+{
+    for (uint32_t index = 0u; index < count; index++) {
+        WeatherImpactSurfaceRecord *record = &records[index];
+        if (!ImpactSurfaceRecordValid(record)) return false;
+        ImpactCanonicalizeXZ(&record->state.x, &record->state.z);
+        for (uint32_t previous = 0u; previous < index; previous++) {
+            const WeatherSurfaceState *other = &records[previous].state;
+            if (other->surfaceId == record->state.surfaceId &&
+                other->x == record->state.x && other->z == record->state.z) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool ImpactNormalizeLoadedFires(WeatherImpactFireRecord *records,
+                                       uint32_t count)
+{
+    for (uint32_t index = 0u; index < count; index++) {
+        WeatherImpactFireRecord *fire = &records[index];
+        if (!ImpactFireRecordValid(fire)) return false;
+        ImpactCanonicalizeXZ(&fire->x, &fire->z);
+        for (uint32_t previous = 0u; previous < index; previous++) {
+            const WeatherImpactFireRecord *other = &records[previous];
+            if (other->surfaceId == fire->surfaceId && other->x == fire->x &&
+                other->y == fire->y && other->z == fire->z) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool ImpactNormalizeLoadedBurnSites(WeatherBurnSiteState *records,
+                                           uint32_t count)
+{
+    for (uint32_t index = 0u; index < count; index++) {
+        WeatherBurnSiteState *site = &records[index];
+        if (!ImpactBurnSiteRecordValid(site)) return false;
+        ImpactCanonicalizeXZ(&site->x, &site->z);
+        for (uint32_t previous = 0u; previous < index; previous++) {
+            const WeatherBurnSiteState *other = &records[previous];
+            if (other->surfaceId == site->surfaceId && other->x == site->x &&
+                other->y == site->y && other->z == site->z) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 static WeatherImpactSurfaceDiskRecord ImpactSurfaceToDisk(
@@ -1496,8 +1568,8 @@ static bool ImpactLoadLegacyState(FILE *file)
             header.fireCount) {
         return false;
     }
-    for (uint32_t index = 0u; index < header.surfaceCount; index++) {
-        if (!ImpactSurfaceRecordValid(&surfaces[index])) return false;
+    if (!ImpactNormalizeLoadedSurfaces(surfaces, header.surfaceCount)) {
+        return false;
     }
     for (uint32_t index = 0u; index < header.fireCount; index++) {
         WeatherImpactLegacyFireRecord legacy = legacyFires[index];
@@ -1524,8 +1596,8 @@ static bool ImpactLoadLegacyState(FILE *file)
                 .moisture = 0.18f
             }
         };
-        if (!ImpactFireRecordValid(&fires[index])) return false;
     }
+    if (!ImpactNormalizeLoadedFires(fires, header.fireCount)) return false;
     ImpactCommitLoadedState(
         surfaces, header.surfaceCount, fires, header.fireCount, burnSites, 0u,
         (WeatherImpactStats){
@@ -1563,15 +1635,17 @@ static bool ImpactLoadCurrentState(FILE *file)
             return false;
         }
         surfaces[index] = ImpactSurfaceFromDisk(&diskSurfaces[index]);
-        if (!ImpactSurfaceRecordValid(&surfaces[index])) return false;
     }
     for (uint32_t index = 0u; index < header.fireCount; index++) {
         fires[index] = ImpactFireFromDisk(&diskFires[index]);
-        if (!ImpactFireRecordValid(&fires[index])) return false;
     }
     for (uint32_t index = 0u; index < header.burnSiteCount; index++) {
         burnSites[index] = ImpactBurnSiteFromDisk(&diskBurnSites[index]);
-        if (!ImpactBurnSiteRecordValid(&burnSites[index])) return false;
+    }
+    if (!ImpactNormalizeLoadedSurfaces(surfaces, header.surfaceCount) ||
+        !ImpactNormalizeLoadedFires(fires, header.fireCount) ||
+        !ImpactNormalizeLoadedBurnSites(burnSites, header.burnSiteCount)) {
+        return false;
     }
     ImpactCommitLoadedState(
         surfaces, header.surfaceCount, fires, header.fireCount, burnSites,

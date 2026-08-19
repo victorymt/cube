@@ -60,6 +60,7 @@ uint64_t WorldGetEditRevision(void);
 const BlockEdit *WorldGetEditAt(int index);
 uint32_t WorldGetEditDimensionAt(int index);
 bool WorldGetEditSurfaceAddressAt(int index, SurfaceAddress *outAddress);
+bool WorldGetEditSurfaceMapCellAt(int index, SurfaceMapCell *outCell);
 bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit);
 bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
                                             BlockType *outType);

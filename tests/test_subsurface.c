@@ -1,5 +1,7 @@
 #include "world/subsurface.h"
 
+#include "world/surface_topology.h"
+
 #include <assert.h>
 #include <stdio.h>
 
@@ -31,6 +33,53 @@ static void TestDeterminismAndSurfaceProtection(void)
     }
 }
 
+static void AssertSameSample(SubsurfaceSample first, SubsurfaceSample second)
+{
+    assert(first.tunnel == second.tunnel);
+    assert(first.chamber == second.chamber);
+    assert(first.shaft == second.shaft);
+    assert(first.aquifer == second.aquifer);
+    assert(first.openness == second.openness);
+    assert(first.cave == second.cave);
+    assert(first.flooded == second.flooded);
+}
+
+static void TestSphericalAliasesShareSubsurface(void)
+{
+    SubsurfaceParams params = {
+        .seed = 0x564f5843u,
+        .activity = 1.0f,
+        .minY = 2,
+        .surfaceClearance = 4,
+        .aquiferLevel = 36,
+        .aquiferChance = 0.68f
+    };
+    const int x = 137;
+    const int z = -293;
+    const int y = 41;
+    const int surfaceHeight = 152;
+    const int circumference = SURFACE_EQUATOR_BLOCKS;
+    const int half = circumference / 2;
+    const int pole = SURFACE_POLE_TO_POLE_BLOCKS / 2;
+    SubsurfaceSample expected = SubsurfaceSampleAt(
+        &params, x, y, z, surfaceHeight);
+    AssertSameSample(expected, SubsurfaceSampleAt(
+        &params, x + circumference, y, z, surfaceHeight));
+
+    const int northOffset = 73;
+    AssertSameSample(
+        SubsurfaceSampleAt(&params, x, y, pole + northOffset,
+                           surfaceHeight),
+        SubsurfaceSampleAt(&params, x + half, y, pole - northOffset - 1,
+                           surfaceHeight));
+    const int southOffset = 91;
+    AssertSameSample(
+        SubsurfaceSampleAt(&params, x, y, -pole - southOffset,
+                           surfaceHeight),
+        SubsurfaceSampleAt(&params, x + half, y, -pole + southOffset - 1,
+                           surfaceHeight));
+}
+
 static void TestEarthScaleUnderground(void)
 {
     SubsurfaceParams params = {
@@ -51,6 +100,7 @@ static void TestEarthScaleUnderground(void)
     int shafts = 0;
     int continuous = 0;
     int maxVerticalRun = 0;
+    float maxChamber = 0.0f;
 
     for (int z = -96; z <= 96; z += 2) {
         for (int x = -96; x <= 96; x += 2) {
@@ -59,6 +109,9 @@ static void TestEarthScaleUnderground(void)
                  y += 2) {
                 SubsurfaceSample sample = SubsurfaceSampleAt(
                     &params, x, y, z, surfaceHeight);
+                if (sample.chamber > maxChamber) {
+                    maxChamber = sample.chamber;
+                }
                 samples++;
                 if (!sample.cave) {
                     verticalRun = 0;
@@ -83,9 +136,9 @@ static void TestEarthScaleUnderground(void)
     }
 
     printf("subsurface samples=%d caves=%d deep=%d high=%d flooded=%d "
-           "chambers=%d shafts=%d max_vertical=%d\n",
+           "chambers=%d shafts=%d max_vertical=%d max_chamber=%.3f\n",
            samples, caves, deepCaves, highCaves, flooded, chambers,
-           shafts, maxVerticalRun * 2);
+           shafts, maxVerticalRun * 2, maxChamber);
     fflush(stdout);
 
     assert(caves > samples / 100);
@@ -138,6 +191,7 @@ static void TestPlanetVariation(void)
 int main(void)
 {
     TestDeterminismAndSurfaceProtection();
+    TestSphericalAliasesShareSubsurface();
     TestEarthScaleUnderground();
     TestPlanetVariation();
     puts("subsurface tests passed");

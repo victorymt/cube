@@ -25,6 +25,7 @@ static void GameWorldTransitionUnloadSurfaceData(void)
 static void GameWorldTransitionFinishSurfaceActivation(void)
 {
     WorldSetNetherActive(false);
+    WorldResetSurfaceRebaseEvent();
     RebuildTorchList();
     ClearUndoHistory();
 }
@@ -48,12 +49,12 @@ static Vector3 GameWorldTransitionHomeLandingPosition(void)
 
 static Vector3 GameWorldTransitionPlanetLandingPosition(void)
 {
-    int shipX = 0;
-    int shipZ = 0;
+    int shipX = PlanetWorldOriginX();
+    int shipZ = PlanetWorldOriginZ();
     if (!FindSafeSurfaceLanding(shipX, shipZ, 128, 3,
                                 &shipX, &shipZ, NULL)) {
-        shipX = 0;
-        shipZ = 0;
+        shipX = PlanetWorldOriginX();
+        shipZ = PlanetWorldOriginZ();
     }
 
     int playerX = shipX + 3;
@@ -146,6 +147,7 @@ bool GameWorldTransitionTryLaunch(Player *player)
     UnloadAllChunks();
     if (fromPlanet) PlanetWorldLeaveSurface();
     else HomeWorldLeaveSurface(surfacePose.position);
+    WorldResetSurfaceRebaseEvent();
     RebuildTorchList();
     ClearUndoHistory();
 

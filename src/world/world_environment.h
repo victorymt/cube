@@ -22,6 +22,15 @@ typedef enum WorldBlockRegion {
     WORLD_BLOCK_REGION_SPACE
 } WorldBlockRegion;
 
+typedef struct WorldSurfaceRebaseEvent {
+    bool valid;
+    uint64_t sequence;
+    uint32_t bodyId;
+    Vector2 previous;
+    Vector2 canonical;
+    float northDirection;
+} WorldSurfaceRebaseEvent;
+
 // Dimension selection is explicit; the position-aware form remains for
 // callers that also use altitude for presentation decisions.
 WorldDimension WorldCurrentDimension(void);
@@ -44,5 +53,9 @@ bool WorldIsProceduralOceanWaterAt(int x, int y, int z);
 uint32_t WorldCurrentSurfaceId(void);
 int WorldSurfaceMapOriginX(void);
 int WorldSurfaceMapOriginZ(void);
+bool WorldCanonicalizeSurfacePose(Vector3 *position, Vector3 *velocity,
+                                  float *yaw);
+void WorldResetSurfaceRebaseEvent(void);
+WorldSurfaceRebaseEvent WorldLastSurfaceRebaseEvent(void);
 
 #endif

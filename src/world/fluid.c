@@ -87,6 +87,24 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
                                    bool remember);
 static void FluidClearLoadedRuntime(void);
 
+static void FluidCanonicalizeXZ(int *x, int *z)
+{
+    if (!x || !z) return;
+    int originX = WorldSurfaceMapOriginX();
+    int originZ = WorldSurfaceMapOriginZ();
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+        (float)originX + (float)*x,
+        (float)originZ + (float)*z);
+    *x = canonical.x - originX;
+    *z = canonical.z - originZ;
+}
+
+static FluidMutation FluidCanonicalMutation(FluidMutation mutation)
+{
+    FluidCanonicalizeXZ(&mutation.x, &mutation.z);
+    return mutation;
+}
+
 static int FluidCellIndex(int lx, int ly, int lz)
 {
     return (lx * SURFACE_SECTION_HEIGHT + ly) * CHUNK_SIZE + lz;
@@ -437,6 +455,7 @@ static int FluidFindEditSlot(uint32_t surfaceId, int x, int y, int z)
 
 static int FluidFindEdit(uint32_t surfaceId, int x, int y, int z)
 {
+    FluidCanonicalizeXZ(&x, &z);
     int slot = FluidFindEditSlot(surfaceId, x, y, z);
     return slot >= 0 ? (int)fluidEditIndex[slot].editIndex : -1;
 }
@@ -568,61 +587,67 @@ static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
     uint32_t surfaceId = WorldCurrentSurfaceId();
     uint32_t newEdits = 0u;
     for (int mutationIndex = 0; mutationIndex < count; mutationIndex++) {
-        const FluidMutation *mutation = &mutations[mutationIndex];
+        FluidMutation mutation = FluidCanonicalMutation(
+            mutations[mutationIndex]);
         Chunk *chunk = NULL;
         ChunkSection *section = NULL;
         BlockType block = BLOCK_AIR;
-        if (!FluidLocateCell(mutation->x, mutation->y, mutation->z, &chunk,
+        if (!FluidLocateCell(mutation.x, mutation.y, mutation.z, &chunk,
                              &section, NULL, &block) ||
-            (mutation->volume > 0u && block != BLOCK_AIR &&
+            (mutation.volume > 0u && block != BLOCK_AIR &&
              block != BLOCK_WATER)) {
             return false;
         }
         if (!section) {
             section = ChunkGetSection(
-                chunk, SurfaceSectionYFromBlockY(mutation->y), true);
+                chunk, SurfaceSectionYFromBlockY(mutation.y), true);
         }
         if (!section || !FluidEnsureVolumes(section)) return false;
 
-        if (FluidFindEdit(surfaceId, mutation->x, mutation->y,
-                          mutation->z) >= 0) {
+        if (FluidFindEdit(surfaceId, mutation.x, mutation.y,
+                          mutation.z) >= 0) {
             continue;
         }
         bool duplicate = false;
         for (int previous = 0; previous < mutationIndex; previous++) {
-            duplicate = mutations[previous].x == mutation->x &&
-                        mutations[previous].y == mutation->y &&
-                        mutations[previous].z == mutation->z;
+            FluidMutation prior = FluidCanonicalMutation(
+                mutations[previous]);
+            duplicate = prior.x == mutation.x && prior.y == mutation.y &&
+                        prior.z == mutation.z;
             if (duplicate) break;
         }
         if (!duplicate) newEdits++;
     }
     if (!FluidEnsureEditCapacity(fluidEditCount + newEdits)) return false;
     for (int mutationIndex = 0; mutationIndex < count; mutationIndex++) {
-        const FluidMutation *mutation = &mutations[mutationIndex];
-        if (FluidFindEdit(surfaceId, mutation->x, mutation->y,
-                          mutation->z) >= 0 ||
-            FluidGetVolumeAt(mutation->x, mutation->y, mutation->z) ==
-                mutation->volume) {
+        FluidMutation mutation = FluidCanonicalMutation(
+            mutations[mutationIndex]);
+        if (FluidFindEdit(surfaceId, mutation.x, mutation.y,
+                          mutation.z) >= 0 ||
+            FluidGetVolumeAt(mutation.x, mutation.y, mutation.z) ==
+                mutation.volume) {
             continue;
         }
         bool duplicate = false;
         for (int previous = 0; previous < mutationIndex; previous++) {
-            if (mutations[previous].x == mutation->x &&
-                mutations[previous].y == mutation->y &&
-                mutations[previous].z == mutation->z) {
+            FluidMutation prior = FluidCanonicalMutation(
+                mutations[previous]);
+            if (prior.x == mutation.x && prior.y == mutation.y &&
+                prior.z == mutation.z) {
                 duplicate = true;
                 break;
             }
         }
         if (duplicate) continue;
 
-        int cx = FloorDivInt(mutation->x, CHUNK_SIZE);
-        int cz = FloorDivInt(mutation->z, CHUNK_SIZE);
+        int cx = FloorDivInt(mutation.x, CHUNK_SIZE);
+        int cz = FloorDivInt(mutation.z, CHUNK_SIZE);
         uint32_t additions = 1u;
         for (int previous = 0; previous < mutationIndex; previous++) {
-            if (FloorDivInt(mutations[previous].x, CHUNK_SIZE) == cx &&
-                FloorDivInt(mutations[previous].z, CHUNK_SIZE) == cz) {
+            FluidMutation prior = FluidCanonicalMutation(
+                mutations[previous]);
+            if (FloorDivInt(prior.x, CHUNK_SIZE) == cx &&
+                FloorDivInt(prior.z, CHUNK_SIZE) == cz) {
                 additions++;
             }
         }
@@ -663,6 +688,7 @@ uint8_t FluidGetVolumeAt(int x, int y, int z)
 static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
                                    bool remember)
 {
+    FluidCanonicalizeXZ(&x, &z);
     Chunk *chunk = NULL;
     ChunkSection *section = NULL;
     int index = 0;
@@ -722,6 +748,7 @@ bool FluidSetVolumeAt(int x, int y, int z, uint8_t volume)
 void FluidWakeCell(int x, int y, int z)
 {
     if (!WorldIsSurfaceActive() || !InHeight(y)) return;
+    FluidCanonicalizeXZ(&x, &z);
     ChunkSection *section = NULL;
     int index = 0;
     if (!FluidLocateCell(x, y, z, NULL, &section, &index, NULL)) return;
@@ -1005,6 +1032,7 @@ static int FluidCollectCandidates(int x, int y, int z,
                                   unsigned *outVolume)
 {
     if (!cells || capacity <= 0 || !outVolume) return 0;
+    FluidCanonicalizeXZ(&x, &z);
     int head = 0;
     int count = 1;
     *outVolume = 0u;
@@ -1025,6 +1053,7 @@ static int FluidCollectCandidates(int x, int y, int z,
                 current.z + offsets[direction][2],
                 current.surfaceId
             };
+            FluidCanonicalizeXZ(&candidate.x, &candidate.z);
             if (FluidGetVolumeAt(candidate.x, candidate.y, candidate.z) == 0u) {
                 continue;
             }
@@ -1398,10 +1427,10 @@ void FluidOnChunkLoaded(Chunk *chunk)
 
     Chunk *sources[5] = {
         chunk,
-        FindChunk(chunk->cx - 1, chunk->cz),
-        FindChunk(chunk->cx + 1, chunk->cz),
-        FindChunk(chunk->cx, chunk->cz - 1),
-        FindChunk(chunk->cx, chunk->cz + 1)
+        FindHorizontalChunkNeighbor(chunk->cx, chunk->cz, -1, 0),
+        FindHorizontalChunkNeighbor(chunk->cx, chunk->cz, 1, 0),
+        FindHorizontalChunkNeighbor(chunk->cx, chunk->cz, 0, -1),
+        FindHorizontalChunkNeighbor(chunk->cx, chunk->cz, 0, 1)
     };
     for (int sourceIndex = 0; sourceIndex < 5; sourceIndex++) {
         Chunk *source = sources[sourceIndex];
@@ -1552,6 +1581,7 @@ bool FluidLoadState(FILE *file)
         }
         edit->baselineKnown = !legacy && flags != 0u;
         if (legacy) edit->baseline = edit->volume;
+        FluidCanonicalizeXZ(&edit->x, &edit->z);
     }
     uint32_t indexCapacity = FLUID_INITIAL_EDIT_CAPACITY;
     while (indexCapacity < count * 2u && indexCapacity < (1u << 30)) {

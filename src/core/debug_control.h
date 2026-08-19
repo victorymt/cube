@@ -19,6 +19,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_START,
     DEBUG_CONTROL_COMMAND_SCREENSHOT,
     DEBUG_CONTROL_COMMAND_STATUS,
+    DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY,
     DEBUG_CONTROL_COMMAND_WATER_DEBUG,
     DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH,
     DEBUG_CONTROL_COMMAND_STREAM_AUDIT,
@@ -37,6 +38,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_FLUID_SET,
     DEBUG_CONTROL_COMMAND_FLUID_STEP,
     DEBUG_CONTROL_COMMAND_BLOCK_INSPECT,
+    DEBUG_CONTROL_COMMAND_BLOCK_SET,
     DEBUG_CONTROL_COMMAND_BLOCK_GALLERY,
     DEBUG_CONTROL_COMMAND_FLORA_INSPECT,
     DEBUG_CONTROL_COMMAND_FLORA_SAMPLE,
@@ -135,6 +137,9 @@ typedef struct DebugControl {
     int blockGalleryX;
     int blockGalleryY;
     int blockGalleryZ;
+    int blockSetX;
+    int blockSetY;
+    int blockSetZ;
     int floraSampleX;
     int floraSampleZ;
     int floraGalleryX;

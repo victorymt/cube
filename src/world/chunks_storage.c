@@ -101,22 +101,51 @@ int SurfaceSectionLocalYFromBlockY(int y)
 
 void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
 {
+    if (WorldIsSurfaceActive()) {
+        int originX = WorldSurfaceMapOriginX();
+        int originZ = WorldSurfaceMapOriginZ();
+        SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+            (float)originX + (float)x,
+            (float)originZ + (float)z);
+        x = canonical.x - originX;
+        z = canonical.z - originZ;
+    }
     *cx = FloorDivInt(x, CHUNK_SIZE);
     *cz = FloorDivInt(z, CHUNK_SIZE);
     *lx = PositiveMod(x, CHUNK_SIZE);
     *lz = PositiveMod(z, CHUNK_SIZE);
 }
 
+void CanonicalizeSurfaceChunkCoordinates(int *cx, int *cz)
+{
+    if (!cx || !cz || !WorldIsSurfaceActive()) return;
+    int centerX = *cx * CHUNK_SIZE + CHUNK_SIZE / 2;
+    int centerZ = *cz * CHUNK_SIZE + CHUNK_SIZE / 2;
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+        (float)WorldSurfaceMapOriginX() + (float)centerX,
+        (float)WorldSurfaceMapOriginZ() + (float)centerZ);
+    *cx = FloorDivInt(canonical.x - WorldSurfaceMapOriginX(), CHUNK_SIZE);
+    *cz = FloorDivInt(canonical.z - WorldSurfaceMapOriginZ(), CHUNK_SIZE);
+}
+
 Chunk *FindChunk(int cx, int cz)
 {
     if (WorldIsSurfaceActive()) {
-        return FindSurfaceChunk(ChunkSurfaceAddressAt(cx, cz));
+        return FindSurfaceChunk(ChunkSurfaceKeyAt(cx, cz));
     }
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         if (chunks[i].loaded && !chunks[i].spherical &&
             chunks[i].cx == cx && chunks[i].cz == cz) return &chunks[i];
     }
     return NULL;
+}
+
+Chunk *FindHorizontalChunkNeighbor(int cx, int cz, int deltaCx, int deltaCz)
+{
+    cx += deltaCx;
+    cz += deltaCz;
+    CanonicalizeSurfaceChunkCoordinates(&cx, &cz);
+    return FindChunk(cx, cz);
 }
 
 SurfaceAddress SurfaceAddressAtWorld(float x, float z, int radial)
@@ -130,20 +159,77 @@ SurfaceAddress SurfaceAddressAtWorld(float x, float z, int radial)
 SurfaceAddress ChunkSurfaceAddressAt(int cx, int cz)
 {
     return SurfaceAddressAtWorld(
-        (float)cx * (float)CHUNK_SIZE,
-        (float)cz * (float)CHUNK_SIZE, 0);
+        ((float)cx + 0.5f) * (float)CHUNK_SIZE,
+        ((float)cz + 0.5f) * (float)CHUNK_SIZE, 0);
 }
 
-Chunk *FindSurfaceChunk(SurfaceAddress address)
+static void SortSurfaceChunkCorners(SurfaceMapCell corners[4])
 {
-    if (!SurfaceAddressIsValid(address)) return NULL;
+    for (int index = 1; index < 4; index++) {
+        SurfaceMapCell value = corners[index];
+        int insert = index;
+        while (insert > 0 &&
+               (corners[insert - 1].z > value.z ||
+                (corners[insert - 1].z == value.z &&
+                 corners[insert - 1].x > value.x))) {
+            corners[insert] = corners[insert - 1];
+            insert--;
+        }
+        corners[insert] = value;
+    }
+}
+
+SurfaceChunkKey ChunkSurfaceKeyAt(int cx, int cz)
+{
+    int originX = WorldSurfaceMapOriginX();
+    int originZ = WorldSurfaceMapOriginZ();
+    int minX = originX + cx * CHUNK_SIZE;
+    int minZ = originZ + cz * CHUNK_SIZE;
+    int maxX = minX + CHUNK_SIZE - 1;
+    int maxZ = minZ + CHUNK_SIZE - 1;
+    SurfaceChunkKey key = {
+        .bodyId = WorldCurrentSurfaceId(),
+        .corners = {
+            SurfaceCanonicalMapCell((float)minX, (float)minZ),
+            SurfaceCanonicalMapCell((float)maxX, (float)minZ),
+            SurfaceCanonicalMapCell((float)minX, (float)maxZ),
+            SurfaceCanonicalMapCell((float)maxX, (float)maxZ)
+        }
+    };
+    SortSurfaceChunkCorners(key.corners);
+    return key;
+}
+
+Chunk *FindSurfaceChunk(SurfaceChunkKey key)
+{
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         if (chunks[i].loaded && chunks[i].spherical &&
-            SurfaceAddressEqual(chunks[i].surfaceAddress, address)) {
+            SurfaceChunkKeyEqual(chunks[i].surfaceKey, key)) {
             return &chunks[i];
         }
     }
     return NULL;
+}
+
+int ChunkGridDistanceFrom(const Chunk *chunk, int cx, int cz)
+{
+    if (!chunk) return INT_MAX;
+    if (!chunk->spherical) {
+        int dx = abs(chunk->cx - cx);
+        int dz = abs(chunk->cz - cz);
+        return dx > dz ? dx : dz;
+    }
+    float originX = (float)WorldSurfaceMapOriginX();
+    float originZ = (float)WorldSurfaceMapOriginZ();
+    float half = (float)CHUNK_SIZE * 0.5f;
+    SurfaceMapOffset offset = SurfaceShortestMapOffset(
+        originX + ((float)cx * (float)CHUNK_SIZE) + half,
+        originZ + ((float)cz * (float)CHUNK_SIZE) + half,
+        originX + ((float)chunk->cx * (float)CHUNK_SIZE) + half,
+        originZ + ((float)chunk->cz * (float)CHUNK_SIZE) + half);
+    int dx = (int)lroundf(fabsf(offset.x) / (float)CHUNK_SIZE);
+    int dz = (int)lroundf(fabsf(offset.z) / (float)CHUNK_SIZE);
+    return dx > dz ? dx : dz;
 }
 
 int ChunkSectionLowerBound(const Chunk *chunk, int sectionY)
@@ -390,6 +476,16 @@ void MarkChunkDirty(int cx, int cz)
     }
 }
 
+static void MarkChunkDirtyAtHorizontalOffset(int cx, int cz,
+                                             int deltaCx, int deltaCz)
+{
+    Chunk *chunk = FindHorizontalChunkNeighbor(cx, cz, deltaCx, deltaCz);
+    if (!chunk) return;
+    for (int index = 0; index < chunk->sectionCount; index++) {
+        MarkSectionDirty(chunk->sections[index]);
+    }
+}
+
 void MarkChunkDirtyAtBlock(int x, int y, int z)
 {
     int cx = 0;
@@ -414,19 +510,23 @@ void MarkChunkDirtyAtBlock(int x, int y, int z)
             MarkSectionDirty(section);
         }
     }
-    if (lx == 0) MarkChunkDirty(cx - 1, cz);
-    if (lx == CHUNK_SIZE - 1) MarkChunkDirty(cx + 1, cz);
-    if (lz == 0) MarkChunkDirty(cx, cz - 1);
-    if (lz == CHUNK_SIZE - 1) MarkChunkDirty(cx, cz + 1);
+    if (lx == 0) MarkChunkDirtyAtHorizontalOffset(cx, cz, -1, 0);
+    if (lx == CHUNK_SIZE - 1) {
+        MarkChunkDirtyAtHorizontalOffset(cx, cz, 1, 0);
+    }
+    if (lz == 0) MarkChunkDirtyAtHorizontalOffset(cx, cz, 0, -1);
+    if (lz == CHUNK_SIZE - 1) {
+        MarkChunkDirtyAtHorizontalOffset(cx, cz, 0, 1);
+    }
 }
 
 void MarkChunkAndHorizontalNeighborsDirty(int cx, int cz)
 {
     MarkChunkDirty(cx, cz);
-    MarkChunkDirty(cx - 1, cz);
-    MarkChunkDirty(cx + 1, cz);
-    MarkChunkDirty(cx, cz - 1);
-    MarkChunkDirty(cx, cz + 1);
+    MarkChunkDirtyAtHorizontalOffset(cx, cz, -1, 0);
+    MarkChunkDirtyAtHorizontalOffset(cx, cz, 1, 0);
+    MarkChunkDirtyAtHorizontalOffset(cx, cz, 0, -1);
+    MarkChunkDirtyAtHorizontalOffset(cx, cz, 0, 1);
 }
 
 unsigned int Hash3D(int x, int y, int z)

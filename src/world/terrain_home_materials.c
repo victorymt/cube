@@ -1,42 +1,14 @@
 #include "world/terrain_home_materials_internal.h"
 
-#include "raymath.h"
 #include "world/chunks.h"
 #include "world/terrain_geology_internal.h"
 
 #include <math.h>
 #include <stdbool.h>
 
-static float HomeNoiseSmooth(float value)
-{
-    return value * value * (3.0f - 2.0f * value);
-}
-
-static float HomeWorldHashUnit2D(int x, int z, unsigned int lane)
-{
-    unsigned int hash = WorldHash2DBits(
-        (unsigned int)(x + (int)(lane * 101u)),
-        (unsigned int)(z - (int)(lane * 173u)));
-    return (float)(hash & 0x00ffffffu) / 16777215.0f;
-}
-
-static float HomeWorldValueNoise2D(float x, float z, unsigned int lane)
-{
-    int x0 = (int)floorf(x);
-    int z0 = (int)floorf(z);
-    float tx = HomeNoiseSmooth(x - (float)x0);
-    float tz = HomeNoiseSmooth(z - (float)z0);
-    float a = Lerp(HomeWorldHashUnit2D(x0, z0, lane),
-                   HomeWorldHashUnit2D(x0 + 1, z0, lane), tx);
-    float b = Lerp(HomeWorldHashUnit2D(x0, z0 + 1, lane),
-                   HomeWorldHashUnit2D(x0 + 1, z0 + 1, lane), tx);
-    return Lerp(a, b, tz);
-}
-
 static bool HomeRedSandAt(int worldX, int worldZ)
 {
-    return WorldHash2D(FloorDivInt(worldX, 10) + 947,
-                       FloorDivInt(worldZ, 10) - 947) % 3u == 0u;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.10f, 947u) > 0.67f;
 }
 
 static bool HomeWetSoilAt(const SurfaceTerrainSample *surface)
@@ -53,97 +25,81 @@ static bool HomeSwampPoolAt(int worldX, int worldZ,
                             const SurfaceTerrainSample *surface)
 {
     if (!surface || surface->biome != BIOME_SWAMP) return false;
-    float pools = HomeWorldValueNoise2D(
-        (float)worldX * 0.075f, (float)worldZ * 0.075f, 1151u);
-    float edges = HomeWorldValueNoise2D(
-        (float)worldX * 0.19f, (float)worldZ * 0.19f, 1171u);
+    float pools = HomeSurfaceNoiseAt(worldX, worldZ, 0.075f, 1151u);
+    float edges = HomeSurfaceNoiseAt(worldX, worldZ, 0.19f, 1171u);
     return pools > 0.59f && edges > 0.34f;
 }
 
 static float HomeGeologyField(int worldX, int y, int worldZ,
                               unsigned int lane)
 {
-    float fx = (float)worldX * 0.0085f + (float)y * 0.0041f;
-    float fz = (float)worldZ * 0.0085f - (float)y * 0.0037f;
-    return HomeWorldValueNoise2D(fx, fz, lane);
+    return HomeVolumeNoiseAt(
+        worldX, y, worldZ, 0.0085f, 0.004f, lane);
 }
 
 static bool HomeSaltDepositAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.010f,
-                                 (float)worldZ * 0.010f, 887u) > 0.74f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.010f, 887u) > 0.74f;
 }
 
 static bool HomePeatDepositAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.014f,
-                                 (float)worldZ * 0.014f, 941u) > 0.48f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.014f, 941u) > 0.48f;
 }
 
 static bool HomePodzolAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.018f,
-                                 (float)worldZ * 0.018f, 997u) > 0.55f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.018f, 997u) > 0.55f;
 }
 
 static bool HomeLoamAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.012f,
-                                 (float)worldZ * 0.012f, 1031u) > 0.43f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.012f, 1031u) > 0.43f;
 }
 
 static bool HomeLateriteAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.009f,
-                                 (float)worldZ * 0.009f, 1063u) > 0.72f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.009f, 1063u) > 0.72f;
 }
 
 static bool HomeChernozemAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.010f,
-                                 (float)worldZ * 0.010f, 1201u) > 0.46f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.010f, 1201u) > 0.46f;
 }
 
 static bool HomeHumusAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.016f,
-                                 (float)worldZ * 0.016f, 1217u) > 0.40f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.016f, 1217u) > 0.40f;
 }
 
 static bool HomeCompostAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.025f,
-                                 (float)worldZ * 0.025f, 1231u) > 0.78f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.025f, 1231u) > 0.78f;
 }
 
 static bool HomeAlluviumAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.013f,
-                                 (float)worldZ * 0.013f, 1249u) > 0.38f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.013f, 1249u) > 0.38f;
 }
 
 static bool HomeTerraRossaAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.011f,
-                                 (float)worldZ * 0.011f, 1277u) > 0.70f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.011f, 1277u) > 0.70f;
 }
 
 static bool HomeBauxiteAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.008f,
-                                 (float)worldZ * 0.008f, 1291u) > 0.78f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.008f, 1291u) > 0.78f;
 }
 
 static bool HomeShellBedAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.018f,
-                                 (float)worldZ * 0.018f, 1303u) > 0.68f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.018f, 1303u) > 0.68f;
 }
 
 static bool HomeCoralLimestoneAt(int worldX, int worldZ)
 {
-    return HomeWorldValueNoise2D((float)worldX * 0.009f,
-                                 (float)worldZ * 0.009f, 1321u) > 0.74f;
+    return HomeSurfaceNoiseAt(worldX, worldZ, 0.009f, 1321u) > 0.74f;
 }
 
 static BlockType HomeRockBlock(int worldX, int y, int worldZ, int height,
@@ -154,8 +110,8 @@ static BlockType HomeRockBlock(int worldX, int y, int worldZ, int height,
     if (type != BLOCK_STONE) return type;
     if (depth >= 2 && CaveAt(worldX, y + 1, worldZ, height) &&
         !CaveWaterAt(worldX, y + 1, worldZ, height) &&
-        WorldHash3D(FloorDivInt(worldX, 3), FloorDivInt(y, 2),
-                    FloorDivInt(worldZ, 3)) % 47u == 0u) {
+        HomeVolumeHashAt(worldX, FloorDivInt(y, 2), worldZ, 1517u) % 47u ==
+            0u) {
         return BLOCK_GUANO;
     }
     return TerrainGeologyHomeStoneBlock(
@@ -241,9 +197,8 @@ BlockType TerrainHomeBaseBlockFromSample(
             } else if ((surface->bathymetry.zone == BATHYMETRY_ZONE_SLOPE ||
                  surface->bathymetry.zone ==
                      BATHYMETRY_ZONE_ABYSSAL_PLAIN) &&
-                HomeWorldValueNoise2D((float)worldX * 0.011f,
-                                      (float)worldZ * 0.011f,
-                                      1097u) > 0.42f) {
+                HomeSurfaceNoiseAt(
+                    worldX, worldZ, 0.011f, 1097u) > 0.42f) {
                 type = BLOCK_SILT;
             }
             if ((surface->bathymetry.zone == BATHYMETRY_ZONE_COAST ||
@@ -254,8 +209,8 @@ BlockType TerrainHomeBaseBlockFromSample(
             } else if ((surface->bathymetry.zone == BATHYMETRY_ZONE_COAST ||
                         surface->bathymetry.zone == BATHYMETRY_ZONE_SHELF) &&
                 surface->bathymetry.material == BATHYMETRY_MATERIAL_SAND &&
-                WorldHash2D(FloorDivInt(worldX, 6) + 313,
-                            FloorDivInt(worldZ, 6) - 197) % 5u == 0u) {
+                HomeSurfaceNoiseAt(
+                    worldX, worldZ, 1.0f / 6.0f, 313u) > 0.80f) {
                 type = BLOCK_CLAY;
             }
         } else {

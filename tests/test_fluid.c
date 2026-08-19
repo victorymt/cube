@@ -55,6 +55,9 @@ int SurfaceSectionLocalYFromBlockY(int y)
 
 void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
 {
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell((float)x, (float)z);
+    x = canonical.x;
+    z = canonical.z;
     *cx = FloorDivInt(x, CHUNK_SIZE);
     *cz = FloorDivInt(z, CHUNK_SIZE);
     *lx = PositiveMod(x, CHUNK_SIZE);
@@ -70,6 +73,16 @@ Chunk *FindChunk(int cx, int cz)
         }
     }
     return NULL;
+}
+
+Chunk *FindHorizontalChunkNeighbor(int cx, int cz, int deltaCx, int deltaCz)
+{
+    int centerX = (cx + deltaCx) * CHUNK_SIZE + CHUNK_SIZE / 2;
+    int centerZ = (cz + deltaCz) * CHUNK_SIZE + CHUNK_SIZE / 2;
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+        (float)centerX, (float)centerZ);
+    return FindChunk(FloorDivInt(canonical.x, CHUNK_SIZE),
+                     FloorDivInt(canonical.z, CHUNK_SIZE));
 }
 
 ChunkSection *ChunkGetSection(Chunk *chunk, int sectionY, bool create)
@@ -148,6 +161,16 @@ bool WorldIsSurfaceActive(void)
 uint32_t WorldCurrentSurfaceId(void)
 {
     return 0u;
+}
+
+int WorldSurfaceMapOriginX(void)
+{
+    return 0;
+}
+
+int WorldSurfaceMapOriginZ(void)
+{
+    return 0;
 }
 
 bool WorldIsProceduralOceanWaterAt(int x, int y, int z)
@@ -294,6 +317,31 @@ static void TestCrossChunkFlow(void)
     assert(FluidSetVolumeAt(15, 1, 8, FLUID_CAPACITY));
     FluidStepTicks(8);
     assert(FluidGetVolumeAt(16, 1, 8) > 0u);
+    assert(FluidLoadedVolume() == FLUID_CAPACITY);
+}
+
+static void TestFlowCrossesNorthPole(void)
+{
+    ResetWorld();
+    const int pole = SURFACE_POLE_TO_POLE_BLOCKS / 2;
+    const int poleChunk = pole / CHUNK_SIZE;
+    const int halfEquatorChunks =
+        SURFACE_EQUATOR_BLOCKS / (2 * CHUNK_SIZE);
+    Chunk *nearPole = CreateChunk(0, 0, poleChunk - 1);
+    Chunk *overPole = CreateChunk(
+        1, -halfEquatorChunks, poleChunk - 1);
+    FillFloor(nearPole);
+    FillFloor(overPole);
+
+    const int x = 3;
+    const int y = 1;
+    const int z = pole - 1;
+    assert(FluidSetVolumeAt(x, y, z, FLUID_CAPACITY));
+    FluidStepTicks(12);
+
+    assert(FluidGetVolumeAt(x, y, z + 1) > 0u);
+    assert(FluidGetVolumeAt(
+        x + SURFACE_EQUATOR_BLOCKS / 2, y, z) > 0u);
     assert(FluidLoadedVolume() == FLUID_CAPACITY);
 }
 
@@ -566,6 +614,23 @@ static void TestSaveLoadReplay(void)
     fclose(file);
 }
 
+static void TestLongitudeAliasUsesOneFluidEdit(void)
+{
+    ResetWorld();
+    CreateChunk(0, 0, 0);
+    const int x = 3;
+    const int y = 6;
+    const int z = 9;
+    assert(FluidSetVolumeAt(
+        x + SURFACE_EQUATOR_BLOCKS, y, z, 77u));
+    assert(FluidGetVolumeAt(x, y, z) == 77u);
+    assert(FluidGetStats().editCount == 1u);
+    assert(FluidSetVolumeAt(x, y, z, 91u));
+    assert(FluidGetVolumeAt(
+        x + SURFACE_EQUATOR_BLOCKS, y, z) == 91u);
+    assert(FluidGetStats().editCount == 1u);
+}
+
 static void WriteFluidEdit(FILE *file, int x, int y, int z,
                            uint32_t surfaceId, uint8_t volume)
 {
@@ -611,6 +676,27 @@ static void TestLoadPrunesOceanReservoirDeficits(void)
     fclose(file);
 }
 
+static void TestLoadCanonicalizesLongitudeAlias(void)
+{
+    ResetWorld();
+    FILE *file = tmpfile();
+    assert(file);
+    uint32_t count = 1u;
+    assert(fwrite("FLD2", 1, 4, file) == 4);
+    assert(fwrite(&count, sizeof(count), 1, file) == 1);
+    WriteFluidEditV2(file, 3 + SURFACE_EQUATOR_BLOCKS, 6, 9,
+                     0u, 77u, 0u);
+    rewind(file);
+
+    assert(FluidLoadState(file));
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    assert(ChunkGetSection(chunk, 0, true));
+    FluidApplyEditsToChunk(chunk);
+    assert(FluidGetVolumeAt(3, 6, 9) == 77u);
+    assert(FluidGetStats().editCount == 1u);
+    fclose(file);
+}
+
 static void TestCorruptLoadPreservesState(void)
 {
     ResetWorld();
@@ -647,6 +733,7 @@ int main(void)
     TestSectionUnloadRehydratesPersistedEdit();
     TestGravityAndConservation();
     TestCrossChunkFlow();
+    TestFlowCrossesNorthPole();
     TestOceanReservoirSettlesAfterSeabedEdit();
     TestCrossChunkOceanReservoirSettles();
     TestChunkLoadBoundaryActivation();
@@ -658,7 +745,9 @@ int main(void)
     TestQueueOverflowRetriesDeferredCell();
     TestSolidBlockChangePreservesBlock();
     TestSaveLoadReplay();
+    TestLongitudeAliasUsesOneFluidEdit();
     TestLoadPrunesOceanReservoirDeficits();
+    TestLoadCanonicalizesLongitudeAlias();
     TestCorruptLoadPreservesState();
     ResetWorld();
     puts("fluid tests passed");

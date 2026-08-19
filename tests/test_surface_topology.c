@@ -123,6 +123,74 @@ static void TestMapCoordinateConversion(void)
     assert(SurfaceAddressEqual(latitudePeriod, sameLatitudePeriod));
 }
 
+static void TestCanonicalMapCells(void)
+{
+    const float circumference = (float)SURFACE_EQUATOR_BLOCKS;
+    const float half = circumference * 0.5f;
+    const float pole = (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f;
+    SurfaceMapCell origin = SurfaceCanonicalMapCell(12.75f, -38.2f);
+    SurfaceMapCell wrapped = SurfaceCanonicalMapCell(
+        12.75f + circumference, -38.2f);
+    assert(origin.x == 12 && origin.z == -39);
+    assert(origin.x == wrapped.x && origin.z == wrapped.z);
+
+    SurfaceMapCell overNorth = SurfaceCanonicalMapCell(
+        917.0f, pole + 73.0f);
+    SurfaceMapCell reflectedNorth = SurfaceCanonicalMapCell(
+        917.0f + half, pole - 74.0f);
+    assert(overNorth.x == reflectedNorth.x);
+    assert(overNorth.z == reflectedNorth.z);
+
+    SurfaceMapCell overSouth = SurfaceCanonicalMapCell(
+        -731.0f, -pole - 91.0f);
+    SurfaceMapCell reflectedSouth = SurfaceCanonicalMapCell(
+        -731.0f + half, -pole + 90.0f);
+    assert(overSouth.x == reflectedSouth.x);
+    assert(overSouth.z == reflectedSouth.z);
+
+    SurfaceMapCell northA = SurfaceCanonicalMapCell(0.0f, pole - 1.0f);
+    SurfaceMapCell northB = SurfaceCanonicalMapCell(half, pole);
+    SurfaceMapCell southA = SurfaceCanonicalMapCell(-4000.0f, -pole);
+    SurfaceMapCell southB = SurfaceCanonicalMapCell(
+        -4000.0f + half, -pole - 1.0f);
+    assert(northA.x == 0 && northA.z == (int)pole - 1);
+    assert(southA.x == -4000 && southA.z == -(int)pole);
+    assert(northA.x == northB.x && northA.z == northB.z);
+    assert(southA.x == southB.x && southA.z == southB.z);
+
+    assert(SurfaceCanonicalMapHash(3u, 12.0f, -38.0f, 7) ==
+           SurfaceCanonicalMapHash(3u, 12.0f + circumference, -38.0f, 7));
+    assert(SurfaceCanonicalMapHash(3u, 12.0f, -38.0f, 7) !=
+           SurfaceCanonicalMapHash(4u, 12.0f, -38.0f, 7));
+}
+
+static void TestShortestMapOffsets(void)
+{
+    float circumference = (float)SURFACE_EQUATOR_BLOCKS;
+    float pole = (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f;
+    SurfaceMapOffset seam = SurfaceShortestMapOffset(
+        circumference * 0.5f - 4.0f, 0.0f,
+        -circumference * 0.5f + 6.0f, 0.0f);
+    assert(Near(seam.x, 10.0f, 0.01f));
+    assert(Near(seam.z, 0.0f, 0.01f));
+
+    SurfaceMapOffset north = SurfaceShortestMapOffset(
+        0.0f, pole - 8.0f, 0.0f, pole + 8.0f);
+    assert(Near(north.x, 0.0f, 0.02f));
+    assert(Near(north.z, 16.0f, 0.02f));
+    assert(north.northDirection == -1.0f);
+
+    SurfaceMapOffset polarAlias = SurfaceShortestMapOffset(
+        0.0f, pole + 8.0f, circumference * 0.5f, pole - 8.0f);
+    assert(Near(polarAlias.x, 0.0f, 0.02f));
+    assert(Near(polarAlias.z, 0.0f, 0.02f));
+
+    Vector3 origin = SurfaceDirectionFromMapCoordinates(123.0f, -77.0f);
+    Vector3 alias = SurfaceDirectionFromMapCoordinates(
+        123.0f + circumference, -77.0f);
+    assert(Vector3Distance(origin, alias) < 0.00001f);
+}
+
 static void TestMapProjectionAcrossPoles(void)
 {
     float pole = 0.5f * (float)SURFACE_POLE_TO_POLE_BLOCKS;
@@ -230,7 +298,8 @@ static void TestLocalSurfaceMetric(void)
         (Vector2){ polarReference.x + 160.0f, polarReference.y }, 0);
     Vector3 left = Vector3Transform(Vector3Zero(), leftTransform);
     Vector3 right = Vector3Transform(Vector3Zero(), rightTransform);
-    assert(Vector3Distance(left, right) > 319.0f);
+    float polarDistance = Vector3Distance(left, right);
+    assert(polarDistance > 10.0f && polarDistance < 20.0f);
 }
 
 static void TestPatchTransform(void)
@@ -272,17 +341,49 @@ static void TestContinuousPatchBoundary(void)
     assert(Vector3Distance(renderedA, renderedB) < 0.1f);
 }
 
+static void TestContinuousPatchAcrossAliases(void)
+{
+    const uint32_t bodyId = 19u;
+    const float circumference = (float)SURFACE_EQUATOR_BLOCKS;
+    const float pole = (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f;
+    Vector2 reference = { circumference * 0.5f - 4.0f, 0.0f };
+    Matrix before = SurfacePatchTransformAtMap(
+        bodyId, reference, Vector3Zero(),
+        (Vector2){ circumference * 0.5f - 8.0f, 0.0f }, 0);
+    Matrix after = SurfacePatchTransformAtMap(
+        bodyId, reference, Vector3Zero(),
+        (Vector2){ -circumference * 0.5f + 8.0f, 0.0f }, 0);
+    Vector3 beforePoint = Vector3Transform(Vector3Zero(), before);
+    Vector3 afterPoint = Vector3Transform(Vector3Zero(), after);
+    assert(beforePoint.x < 0.0f && afterPoint.x > 0.0f);
+    assert(Vector3Distance(beforePoint, afterPoint) < 17.0f);
+
+    Vector2 northReference = { 200.0f, pole - 4.0f };
+    Matrix over = SurfacePatchTransformAtMap(
+        bodyId, northReference, Vector3Zero(),
+        (Vector2){ 200.0f, pole + 8.0f }, 0);
+    Matrix reflected = SurfacePatchTransformAtMap(
+        bodyId, northReference, Vector3Zero(),
+        (Vector2){ 200.0f + circumference * 0.5f, pole - 8.0f }, 0);
+    Vector3 overPoint = Vector3Transform(Vector3Zero(), over);
+    Vector3 reflectedPoint = Vector3Transform(Vector3Zero(), reflected);
+    assert(Vector3Distance(overPoint, reflectedPoint) < 0.001f);
+}
+
 int main(void)
 {
     TestFaceCenters();
     TestEveryEdgeCrossesAndReturns();
     TestLatLonRoundTrip();
     TestMapCoordinateConversion();
+    TestCanonicalMapCells();
+    TestShortestMapOffsets();
     TestMapProjectionAcrossPoles();
     TestFrameRoundTrip();
     TestLocalSurfaceMetric();
     TestPatchTransform();
     TestContinuousPatchBoundary();
+    TestContinuousPatchAcrossAliases();
     puts("surface topology tests passed");
     return 0;
 }

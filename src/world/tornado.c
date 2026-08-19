@@ -1,10 +1,14 @@
 #include "world/tornado.h"
 
 #include "core/game_effects.h"
+#include "world/surface_topology.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 
+#include "raymath.h"
+
 #include <math.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define TORNADO_NATURAL_CELL_SIZE 64.0f
@@ -57,9 +61,53 @@ static bool TornadoPositionFinite(Vector3 position)
            isfinite(position.z);
 }
 
+static float TornadoCanonicalizePosition(Vector3 *position,
+                                         Vector3 *velocity)
+{
+    float northDirection = 1.0f;
+    if (!position || !TornadoPositionFinite(*position)) return northDirection;
+    Vector2 canonical = SurfaceCanonicalMapPosition(
+        position->x, position->z, &northDirection);
+    position->x = canonical.x;
+    position->z = canonical.y;
+    if (velocity && northDirection < 0.0f) velocity->z = -velocity->z;
+    return northDirection;
+}
+
+static Vector3 TornadoLocalPosition(Vector3 position)
+{
+    SurfaceMapOffset offset = SurfaceShortestMapOffset(
+        tornadoState.center.x, tornadoState.center.z,
+        position.x, position.z);
+    position.x = tornadoState.center.x + offset.x;
+    position.z = tornadoState.center.z + offset.z;
+    return position;
+}
+
+static WeatherFieldSample TornadoWeatherAtCenter(
+    Vector3 observerPosition, WeatherFieldSample weather)
+{
+    if (!isfinite(weather.windAngle) || !tornadoState.active) return weather;
+    SurfaceFrame observerFrame = SurfaceFrameAtMapCoordinates(
+        WorldCurrentSurfaceId(), observerPosition.x, observerPosition.z, 0);
+    SurfaceFrame tornadoFrame = SurfaceFrameAtMapCoordinates(
+        WorldCurrentSurfaceId(), tornadoState.center.x,
+        tornadoState.center.z, 0);
+    Vector3 planetWind = Vector3Add(
+        Vector3Scale(observerFrame.east, cosf(weather.windAngle)),
+        Vector3Scale(observerFrame.north, sinf(weather.windAngle)));
+    float east = Vector3DotProduct(planetWind, tornadoFrame.east);
+    float north = Vector3DotProduct(planetWind, tornadoFrame.north);
+    if (east * east + north * north > 0.000001f) {
+        weather.windAngle = atan2f(north, east);
+    }
+    return weather;
+}
+
 static float TornadoGroundY(float x, float z)
 {
-    return (float)WorldSurfaceHeightAt((int)floorf(x), (int)floorf(z)) + 1.0f;
+    SurfaceMapCell cell = SurfaceCanonicalMapCell(x, z);
+    return (float)WorldSurfaceHeightAt(cell.x, cell.z) + 1.0f;
 }
 
 static void TornadoEmitStyled(Vector3 position, Vector3 velocity,
@@ -85,6 +133,9 @@ static void TornadoEmitStyled(Vector3 position, Vector3 velocity,
 
 static bool TornadoTopBlock(int x, int z, int *outY, BlockType *outBlock)
 {
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    x = cell.x;
+    z = cell.z;
     int ground = WorldSurfaceHeightAt(x, z);
     int start = ground + 24;
     int end = ground - 2;
@@ -106,15 +157,18 @@ static void TornadoDamageSample(uint32_t lane)
     float radius = sqrtf(TornadoHashUnit(tornadoStats.ticks,
                                          lane + 0x100u)) *
         tornadoState.radius * 1.35f;
-    int x = (int)floorf(tornadoState.center.x + cosf(angle) * radius);
-    int z = (int)floorf(tornadoState.center.z + sinf(angle) * radius);
+    SurfaceMapCell cell = SurfaceCanonicalMapCell(
+        tornadoState.center.x + cosf(angle) * radius,
+        tornadoState.center.z + sinf(angle) * radius);
+    int x = cell.x;
+    int z = cell.z;
     int y = 0;
     BlockType block = BLOCK_AIR;
     tornadoStats.processedDamageSamples++;
     if (!TornadoTopBlock(x, z, &y, &block) || block == BLOCK_BEDROCK) return;
 
-    TornadoForceSample force = TornadoModelForceAt(
-        &tornadoState, (Vector3){ x + 0.5f, y + 1.0f, z + 0.5f });
+    TornadoForceSample force = TornadoForceAt(
+        (Vector3){ x + 0.5f, y + 1.0f, z + 0.5f });
     BlockMaterialResponse material = BlockMaterialResponseFor(block);
     float normalizedWind = tornadoState.maximumWindMps > 0.0f ?
         force.localWindMps / tornadoState.maximumWindMps *
@@ -146,6 +200,7 @@ static void TornadoDamageSample(uint32_t lane)
 static void TornadoTryNaturalFormation(Vector3 observerPosition,
                                        WeatherFieldSample weather)
 {
+    TornadoCanonicalizePosition(&observerPosition, NULL);
     TornadoFormationInput formation = {
         .weather = weather,
         .atmosphereActive = weather.pressureAtm >= 0.50f,
@@ -173,6 +228,7 @@ static void TornadoTryNaturalFormation(Vector3 observerPosition,
         0.0f,
         observerPosition.z + windZ * distance + windX * lateral
     };
+    TornadoCanonicalizePosition(&center, NULL);
     center.y = TornadoGroundY(center.x, center.z);
     float peak = fminf(0.52f + potential * 0.46f, 0.98f);
     float lifetime = 90.0f + TornadoHashUnit(
@@ -226,7 +282,8 @@ static void TornadoEmitDust(float dt, Vector3 observerPosition)
                 TornadoHashUnit(tornadoStats.ticks, lane + 2u) * 2.4f,
             tornadoState.center.z + sinf(angle) * radius
         };
-        TornadoForceSample force = TornadoModelForceAt(&tornadoState, position);
+        TornadoCanonicalizePosition(&position, NULL);
+        TornadoForceSample force = TornadoForceAt(position);
         Vector3 velocity = {
             force.acceleration.x * 0.34f,
             1.0f + force.acceleration.y * 0.24f,
@@ -298,6 +355,7 @@ bool TornadoForce(Vector3 observerPosition, float intensity,
         distance > 160.0f || !isfinite(weather.windAngle)) {
         return false;
     }
+    TornadoCanonicalizePosition(&observerPosition, NULL);
     float windX = cosf(weather.windAngle);
     float windZ = sinf(weather.windAngle);
     Vector3 center = {
@@ -305,6 +363,7 @@ bool TornadoForce(Vector3 observerPosition, float intensity,
         0.0f,
         observerPosition.z + windZ * distance
     };
+    TornadoCanonicalizePosition(&center, NULL);
     center.y = TornadoGroundY(center.x, center.z);
     float lifetime = fmaxf((float)frames / 60.0f, 1.0f / 60.0f);
     uint32_t seed = TornadoMix(WorldGetSeed() ^ WorldCurrentSurfaceId() ^
@@ -324,6 +383,7 @@ void TornadoStepTicks(unsigned ticks, Vector3 observerPosition,
     if (!WorldIsSurfaceActive() || !TornadoPositionFinite(observerPosition)) {
         return;
     }
+    TornadoCanonicalizePosition(&observerPosition, NULL);
     for (unsigned index = 0u; index < ticks; index++) {
         TornadoFixedTick(observerPosition, weather);
     }
@@ -336,6 +396,7 @@ void TornadoUpdate(float dt, Vector3 observerPosition,
         !TornadoPositionFinite(observerPosition)) {
         return;
     }
+    TornadoCanonicalizePosition(&observerPosition, NULL);
     uint32_t surfaceId = WorldCurrentSurfaceId();
     if (tornadoHasSurfaceId && tornadoSurfaceId != surfaceId) {
         TornadoClear();
@@ -346,14 +407,19 @@ void TornadoUpdate(float dt, Vector3 observerPosition,
     if (tornadoState.active) {
         float groundY = TornadoGroundY(tornadoState.center.x,
                                        tornadoState.center.z);
-        TornadoModelAdvance(&tornadoState, step, weather, groundY);
+        WeatherFieldSample localWeather = TornadoWeatherAtCenter(
+            observerPosition, weather);
+        TornadoModelAdvance(&tornadoState, step, localWeather, groundY);
         if (tornadoState.forced && tornadoForcedFrames > 0u) {
             tornadoForcedFrames--;
             if (tornadoForcedFrames == 0u) {
                 tornadoState.age = tornadoState.lifetime;
-                TornadoModelAdvance(&tornadoState, step, weather, groundY);
+                TornadoModelAdvance(&tornadoState, step, localWeather,
+                                    groundY);
             }
         }
+        TornadoCanonicalizePosition(&tornadoState.center,
+                                    &tornadoState.velocity);
     }
     tornadoTickAccumulator += step * TORNADO_TICK_RATE;
     unsigned ticks = (unsigned)floorf(tornadoTickAccumulator);
@@ -380,13 +446,15 @@ unsigned TornadoForcedFramesRemaining(void)
 
 TornadoForceSample TornadoForceAt(Vector3 position)
 {
-    return TornadoModelForceAt(&tornadoState, position);
+    if (!TornadoPositionFinite(position)) return (TornadoForceSample){ 0 };
+    return TornadoModelForceAt(&tornadoState, TornadoLocalPosition(position));
 }
 
 float TornadoDistanceTo(Vector3 position)
 {
     if (!tornadoState.active || !TornadoPositionFinite(position)) return -1.0f;
-    float dx = position.x - tornadoState.center.x;
-    float dz = position.z - tornadoState.center.z;
-    return sqrtf(dx * dx + dz * dz);
+    SurfaceMapOffset offset = SurfaceShortestMapOffset(
+        tornadoState.center.x, tornadoState.center.z,
+        position.x, position.z);
+    return sqrtf(offset.x * offset.x + offset.z * offset.z);
 }

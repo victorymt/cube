@@ -60,12 +60,12 @@ uint32_t EcologyWorldSeed(void)
 
 int EcologyWorldOriginX(void)
 {
-    return PlanetWorldIsActive() ? PlanetWorldOriginX() : 0;
+    return 0;
 }
 
 int EcologyWorldOriginZ(void)
 {
-    return PlanetWorldIsActive() ? PlanetWorldOriginZ() : 0;
+    return 0;
 }
 
 static uint32_t EcologyFloatBits(float value)

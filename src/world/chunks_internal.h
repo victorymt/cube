@@ -36,6 +36,7 @@ typedef struct MeshJob {
     double completedAtMs;
     bool spherical;
     SurfaceAddress surfaceAddress;
+    SurfaceChunkKey surfaceKey;
     int surfaceMapOriginX;
     int surfaceMapOriginZ;
     unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];

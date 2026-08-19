@@ -55,6 +55,7 @@ typedef struct LoadedGameSave {
     uint32_t *dimensions;
     SurfaceAddress playerAddress;
     SurfaceAddress *editAddresses;
+    SurfaceMapCell *editMapCells;
     ShipLocatorRecord shipLocator;
     MapMarkerState mapMarkers;
 } LoadedGameSave;
@@ -71,9 +72,11 @@ static void LoadedGameSaveRelease(LoadedGameSave *data)
     free(data->edits);
     free(data->dimensions);
     free(data->editAddresses);
+    free(data->editMapCells);
     data->edits = NULL;
     data->dimensions = NULL;
     data->editAddresses = NULL;
+    data->editMapCells = NULL;
 }
 
 static bool GameSaveWriteEdits(FILE *file)
@@ -107,22 +110,30 @@ static bool GameSaveWriteSphericalTrailer(FILE *file, const Player *player)
 
     int editCount = WorldGetEditCount();
     SurfaceAddress *addresses = NULL;
+    SurfaceMapCell *mapCells = NULL;
     if (editCount > 0) {
         addresses = malloc((size_t)editCount * sizeof(*addresses));
-        if (!addresses) return false;
+        mapCells = malloc((size_t)editCount * sizeof(*mapCells));
+        if (!addresses || !mapCells) {
+            free(addresses);
+            free(mapCells);
+            return false;
+        }
     }
     bool ok = editCount >= 0;
     for (int index = 0; ok && index < editCount; index++) {
         const BlockEdit *edit = WorldGetEditAt(index);
         uint32_t editDimension = WorldGetEditDimensionAt(index);
         ok = edit && WorldGetEditSurfaceAddressAt(index, &addresses[index]) &&
+             WorldGetEditSurfaceMapCellAt(index, &mapCells[index]) &&
              addresses[index].bodyId == editDimension &&
              addresses[index].radial == edit->y;
     }
     ok = ok && SurfaceSaveWriteTrailer(
-        file, playerHasSurfaceAddress, playerAddress, addresses,
+        file, playerHasSurfaceAddress, playerAddress, addresses, mapCells,
         (uint32_t)editCount);
     free(addresses);
+    free(mapCells);
     return ok;
 }
 
@@ -263,11 +274,14 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
 {
     if (!file || !data || data->editCount < 0) return false;
     bool playerHasSurfaceAddress = false;
+    uint32_t schemaVersion = 0u;
     SurfaceAddress playerAddress = { 0 };
     SurfaceAddress *addresses = NULL;
+    SurfaceMapCell *mapCells = NULL;
     if (!SurfaceSaveReadTrailer(
-            file, (uint32_t)data->editCount, &playerHasSurfaceAddress,
-            &playerAddress, &addresses)) {
+            file, (uint32_t)data->editCount, &schemaVersion,
+            &playerHasSurfaceAddress,
+            &playerAddress, &addresses, &mapCells)) {
         return false;
     }
 
@@ -277,17 +291,33 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
     if (playerHasSurfaceAddress != surfaceDimension ||
         (surfaceDimension && playerAddress.bodyId != expectedBodyId)) {
         free(addresses);
+        free(mapCells);
         return false;
     }
     if (surfaceDimension) {
+        float mapX = data->player.position.x;
+        float mapZ = data->player.position.z;
+        if (schemaVersion == 1u &&
+            data->dimension == WORLD_DIMENSION_PLANET) {
+            mapX += (float)PlanetWorldOriginX();
+            mapZ += (float)PlanetWorldOriginZ();
+        }
+        float northDirection = 1.0f;
+        Vector2 canonical = SurfaceCanonicalMapPosition(
+            mapX, mapZ, &northDirection);
         SurfaceAddress expected = SurfaceAddressFromMapCoordinates(
-            expectedBodyId,
-            data->player.position.x + (float)WorldSurfaceMapOriginX(),
-            data->player.position.z + (float)WorldSurfaceMapOriginZ(),
+            expectedBodyId, canonical.x, canonical.y,
             (int)floorf(data->player.position.y));
         if (!SurfaceAddressEqual(playerAddress, expected)) {
             free(addresses);
+            free(mapCells);
             return false;
+        }
+        data->player.position.x = canonical.x;
+        data->player.position.z = canonical.y;
+        if (northDirection < 0.0f) {
+            data->player.yaw = atan2f(
+                sinf(data->player.yaw), -cosf(data->player.yaw));
         }
     }
     for (int index = 0; index < data->editCount; index++) {
@@ -295,13 +325,76 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
             addresses[index].bodyId != data->dimensions[index] ||
             addresses[index].radial != data->edits[index].y) {
             free(addresses);
+            free(mapCells);
             return false;
         }
+        uint32_t bodyId = data->dimensions[index];
+        if (schemaVersion == 1u) {
+            bool originKnown = bodyId == 0u || bodyId == PlanetWorldSeed();
+            int originX = bodyId == 0u ? 0 : PlanetWorldOriginX();
+            int originZ = bodyId == 0u ? 0 : PlanetWorldOriginZ();
+            if (!originKnown && !SurfaceAddressCanonicalMapCell(
+                    addresses[index], &mapCells[index])) {
+                free(addresses);
+                free(mapCells);
+                return false;
+            }
+            if (originKnown) {
+                mapCells[index] = SurfaceCanonicalMapCell(
+                    (float)originX + (float)data->edits[index].x,
+                    (float)originZ + (float)data->edits[index].z);
+            }
+        } else {
+            SurfaceMapCell expectedCell = SurfaceCanonicalMapCell(
+                (float)data->edits[index].x,
+                (float)data->edits[index].z);
+            if (mapCells[index].x != expectedCell.x ||
+                mapCells[index].z != expectedCell.z) {
+                free(addresses);
+                free(mapCells);
+                return false;
+            }
+        }
+        SurfaceAddress expectedAddress = SurfaceAddressFromMapCoordinates(
+            bodyId, (float)mapCells[index].x, (float)mapCells[index].z,
+            data->edits[index].y);
+        if (!SurfaceAddressEqual(addresses[index], expectedAddress)) {
+            free(addresses);
+            free(mapCells);
+            return false;
+        }
+        data->edits[index].x = mapCells[index].x;
+        data->edits[index].z = mapCells[index].z;
     }
     data->playerAddress = playerAddress;
     data->editAddresses = addresses;
+    data->editMapCells = mapCells;
     return true;
 }
+
+#ifdef GAME_SAVE_TESTING
+bool GameSaveTestLoadSphericalTrailer(
+    FILE *file, WorldDimension dimension, Player *player,
+    BlockEdit *edits, uint32_t *dimensions, int editCount,
+    SurfaceAddress **outEditAddresses, SurfaceMapCell **outEditMapCells)
+{
+    if (!player || !outEditAddresses || !outEditMapCells) return false;
+    *outEditAddresses = NULL;
+    *outEditMapCells = NULL;
+    LoadedGameSave data = {
+        .dimension = dimension,
+        .player = *player,
+        .editCount = editCount,
+        .edits = edits,
+        .dimensions = dimensions
+    };
+    if (!GameLoadSphericalTrailer(file, &data)) return false;
+    *player = data.player;
+    *outEditAddresses = data.editAddresses;
+    *outEditMapCells = data.editMapCells;
+    return true;
+}
+#endif
 
 static const char *GameLoadCurrentExtendedPayload(
     FILE *file, WorldSaveFormat format, LoadedGameSave *data)
@@ -341,6 +434,11 @@ static const char *GameLoadCurrentExtendedPayload(
     if (WorldSaveFormatHasMapMarkers(format) &&
         !MapMarkersReadState(file, &data->mapMarkers)) {
         return "Load failed: map marker state is corrupted.";
+    }
+    if (!MapMarkersMigrateLegacyState(
+            &data->mapMarkers, PlanetWorldSeed(),
+            PlanetWorldOriginX(), PlanetWorldOriginZ())) {
+        return "Load failed: map marker coordinates are corrupted.";
     }
     if (!GameLoadSphericalTrailer(file, data)) {
         return "Load failed: spherical save state is corrupted.";
@@ -434,7 +532,8 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     WorldSetNetherActive(savedInNether);
     PlayerResetRuntimeState(player);
     bool editIndexReady = WorldPersistenceInstallEdits(
-        data.edits, data.dimensions, data.editAddresses, data.editCount);
+        data.edits, data.dimensions, data.editAddresses, data.editMapCells,
+        data.editCount);
     ShipLocatorRecord shipLocator = data.shipLocator;
     MapMarkerState mapMarkers = data.mapMarkers;
     int loadedEditCount = data.editCount;
@@ -449,6 +548,7 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     ClearUndoHistory();
     ShipLocatorSetRecord(&shipLocator);
     MapMarkersInstallState(&mapMarkers);
+    WorldResetSurfaceRebaseEvent();
 
     if (WorldIsSurfaceActive()) {
         UpdateChunks(player->position,

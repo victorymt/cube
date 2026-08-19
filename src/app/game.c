@@ -151,9 +151,12 @@ static void ApplyPerfRoute(Player *player, int frame)
             z += 58.5f - (float)returning * 0.39f;
         }
     }
-    player->position = (Vector3){ x,
-        (float)TerrainHeight((int)floorf(x), (int)floorf(z),
-                             WorldTerrainMode()) + 3.0f, z };
+    int terrainY = TerrainHeight((int)floorf(x), (int)floorf(z),
+                                 WorldTerrainMode());
+    int seaLevel = TerrainSeaLevel(WorldTerrainMode());
+    // The route must remain in the streamed vertical range over ocean cells.
+    if (seaLevel >= 0 && terrainY < seaLevel) terrainY = seaLevel;
+    player->position = (Vector3){ x, (float)terrainY + 3.0f, z };
     Vector3 delta = Vector3Scale(Vector3Subtract(player->position, previous), 1.0f / dt);
     player->velocity = delta;
     if (Vector3LengthSqr(delta) > 0.001f) player->yaw = atan2f(delta.x, delta.z);
@@ -179,6 +182,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     AlbumReset();
     AlbumUiReset();
     WorldReset(seed);
+    WorldResetSurfaceRebaseEvent();
     MapMarkersReset();
     EvolutionCatalogReset();
     PlanetEcologyResetState();
@@ -745,6 +749,11 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
     if (!game->landingTransition.active && WorldIsSpaceActive() &&
         !StarMapIsOpen() && SpaceRebasePlayer(&game->player)) {
         // Particles are cosmetic local-frame data; discard the old frame.
+        ParticlesClear();
+    }
+    if (WorldCanonicalizeSurfacePose(
+            &game->player.position, &game->player.velocity,
+            &game->player.yaw)) {
         ParticlesClear();
     }
 }
@@ -1325,7 +1334,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,"
+        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,world,stream,save,load,map,surface,marker,teleport,look,input,ship,view,"
         "fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit\n");
     return true;
 }

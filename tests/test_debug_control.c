@@ -44,13 +44,14 @@ static void TestCommandStream(void)
     DebugControl control;
     DebugControlInitFds(&control, true, inputPipe[0], outputPipe[1]);
     const char *commands =
-        "\n START \r\nscreenshot\nstatus\nwater debug on\nwater debug through on\n"
+        "\n START \r\nscreenshot\nstatus\nworld topology\nwater debug on\nwater debug through on\n"
         "water debug\nwater debug through\nwater debug off\nstream audit 3\n"
         "stream audit at 15 110 -252 4\nstream wait\nstream wait 45\n"
         "save\nload\nmap\n"
         "fluid inspect\nfluid inspect 1 72 -4\n"
         "fluid set 1 72 -4 127\nfluid step 25\n"
-        "block inspect Coral Limestone\nblock gallery -8 81 14\n"
+        "block inspect Coral Limestone\nblock set 17 81 -9 Glass\n"
+        "block gallery -8 81 14\n"
         "flora inspect Silver Birch\nflora sample 12 -9\n"
         "flora gallery -20 80 30\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
@@ -66,6 +67,8 @@ static void TestCommandStream(void)
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_START);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SCREENSHOT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STATUS);
+    assert(DebugControlPoll(&control) ==
+           DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_WATER_DEBUG);
     assert(control.waterDebugEnabled);
     assert(DebugControlPoll(&control) ==
@@ -106,6 +109,10 @@ static void TestCommandStream(void)
     assert(control.fluidTicks == 25u);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_BLOCK_INSPECT);
     assert(strcmp(control.blockQuery, "coral limestone") == 0);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_BLOCK_SET);
+    assert(control.blockSetX == 17 && control.blockSetY == 81 &&
+           control.blockSetZ == -9);
+    assert(strcmp(control.blockQuery, "glass") == 0);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_BLOCK_GALLERY);
     assert(control.blockGalleryX == -8 && control.blockGalleryY == 81 &&
            control.blockGalleryZ == 14);
@@ -177,11 +184,21 @@ static void TestBlockCommands(void)
     assert(DebugControlParseText(&control, "block inspect fire_ash") ==
            DEBUG_CONTROL_COMMAND_BLOCK_INSPECT);
     assert(strcmp(control.blockQuery, "fire_ash") == 0);
+    assert(DebugControlParseText(&control, "block set -17 81 9 Coral Limestone") ==
+           DEBUG_CONTROL_COMMAND_BLOCK_SET);
+    assert(control.blockSetX == -17 && control.blockSetY == 81 &&
+           control.blockSetZ == 9);
+    assert(strcmp(control.blockQuery, "coral limestone") == 0);
     assert(DebugControlParseText(&control, "block gallery 1 -32 3") ==
            DEBUG_CONTROL_COMMAND_BLOCK_GALLERY);
     assert(control.blockGalleryX == 1 && control.blockGalleryY == -32 &&
            control.blockGalleryZ == 3);
     assert(DebugControlParseText(&control, "block inspect") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "block set 1 2 3") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "block set 1000001 2 3 glass") ==
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&control, "block gallery 1 2") ==
            DEBUG_CONTROL_COMMAND_INVALID);

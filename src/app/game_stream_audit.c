@@ -261,9 +261,34 @@ static bool StreamWaitStageSettled(ChunkPipelineStage stage)
     return stage == CHUNK_PIPELINE_READY || stage == CHUNK_PIPELINE_IMPLICIT;
 }
 
-static int PendingStreamWaitSections(const GameStreamAuditState *audit)
+static int RequestStreamWaitSections(const GameStreamAuditState *audit)
+{
+    int requests = 0;
+    for (int dz = -1; dz <= 1; dz++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int vertical = -1; vertical <= 1; vertical++) {
+                int sectionY = audit->wait.focusSectionY + vertical;
+                if (!SurfaceSectionInBounds(sectionY)) continue;
+                if (RequestChunkTerrainSection(
+                        audit->wait.focusCx + dx, sectionY,
+                        audit->wait.focusCz + dz)) {
+                    requests++;
+                }
+            }
+        }
+    }
+    return requests;
+}
+
+static int PendingStreamWaitSections(const GameStreamAuditState *audit,
+                                     int *stageCounts,
+                                     int *firstCx, int *firstSectionY,
+                                     int *firstCz)
 {
     int pending = 0;
+    if (firstCx) *firstCx = 0;
+    if (firstSectionY) *firstSectionY = 0;
+    if (firstCz) *firstCz = 0;
     for (int dz = -1; dz <= 1; dz++) {
         for (int dx = -1; dx <= 1; dx++) {
             for (int vertical = -1; vertical <= 1; vertical++) {
@@ -272,8 +297,19 @@ static int PendingStreamWaitSections(const GameStreamAuditState *audit)
                 ChunkSectionPipelineInfo info = { 0 };
                 if (!ChunksGetSectionPipelineInfo(
                         audit->wait.focusCx + dx, sectionY,
-                        audit->wait.focusCz + dz, &info) ||
-                    !StreamWaitStageSettled(info.stage)) {
+                        audit->wait.focusCz + dz, &info)) {
+                    info.stage = CHUNK_PIPELINE_MISSING_CHUNK;
+                }
+                if (stageCounts && info.stage >= CHUNK_PIPELINE_MISSING_CHUNK &&
+                    info.stage <= CHUNK_PIPELINE_READY) {
+                    stageCounts[info.stage]++;
+                }
+                if (!StreamWaitStageSettled(info.stage)) {
+                    if (pending == 0) {
+                        if (firstCx) *firstCx = audit->wait.focusCx + dx;
+                        if (firstSectionY) *firstSectionY = sectionY;
+                        if (firstCz) *firstCz = audit->wait.focusCz + dz;
+                    }
                     pending++;
                 }
             }
@@ -287,12 +323,19 @@ static void GameStreamWaitFrame(GameRuntime *game)
     if (!game || !game->streamAudit.wait.active) return;
 
     GameStreamAuditState *audit = &game->streamAudit;
+    RequestStreamWaitSections(audit);
     ChunkStreamingStats stats = ChunksGetStreamingStats();
     int pendingGeneration = GetPendingGenJobCount();
     int pendingMesh = GetPendingMeshJobCount();
     int missingSurfaceChunks = PlayerMissingSurfaceChunkCount(
         game->player.position);
-    int pendingLocalSections = PendingStreamWaitSections(audit);
+    int stageCounts[CHUNK_PIPELINE_READY + 1] = { 0 };
+    int firstPendingCx = 0;
+    int firstPendingSectionY = 0;
+    int firstPendingCz = 0;
+    int pendingLocalSections = PendingStreamWaitSections(
+        audit, stageCounts, &firstPendingCx, &firstPendingSectionY,
+        &firstPendingCz);
     bool settled = pendingLocalSections == 0;
     if (!AdvanceStreamWait(audit, settled)) return;
     bool complete = audit->wait.settledFrames >= 2u;
@@ -301,11 +344,23 @@ static void GameStreamWaitFrame(GameRuntime *game)
         &game->debugControl,
         "DEBUG_CONTROL stream wait result=%s elapsed_frames=%u "
         "focus=%d,%d,%d pending_local_sections=%d "
+        "first_pending=%d,%d,%d "
+        "pending_stages=missing:%d,gen_wait:%d,gen:%d,dirty:%d,mesh:%d "
         "pending_gen=%d pending_mesh=%d pending_mesh_snapshot_bytes=%llu "
         "missing_surface_chunks=%d\n",
         complete ? "settled" : "timeout", audit->wait.elapsedFrames,
         audit->wait.focusCx, audit->wait.focusSectionY,
         audit->wait.focusCz, pendingLocalSections,
+        firstPendingCx, firstPendingSectionY, firstPendingCz,
+        stageCounts[CHUNK_PIPELINE_MISSING_CHUNK],
+        stageCounts[CHUNK_PIPELINE_GENERATION_WAIT],
+        stageCounts[CHUNK_PIPELINE_GENERATION_QUEUED] +
+            stageCounts[CHUNK_PIPELINE_GENERATION_RUNNING] +
+            stageCounts[CHUNK_PIPELINE_GENERATION_DONE],
+        stageCounts[CHUNK_PIPELINE_DIRTY_WAIT],
+        stageCounts[CHUNK_PIPELINE_MESH_QUEUED] +
+            stageCounts[CHUNK_PIPELINE_MESH_RUNNING] +
+            stageCounts[CHUNK_PIPELINE_MESH_DONE],
         pendingGeneration, pendingMesh,
         (unsigned long long)stats.pendingMeshSnapshotBytes,
         missingSurfaceChunks);
@@ -511,5 +566,10 @@ bool GameStreamWaitStageSettledForTest(int stage)
 bool GameStreamWaitAdvanceForTest(GameStreamAuditState *audit, bool settled)
 {
     return audit && AdvanceStreamWait(audit, settled);
+}
+
+int GameStreamWaitRequestSectionsForTest(const GameStreamAuditState *audit)
+{
+    return audit ? RequestStreamWaitSections(audit) : 0;
 }
 #endif

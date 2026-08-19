@@ -14,6 +14,7 @@ bool WorldPersistenceEditsValid(const BlockEdit *edits, int count);
 bool WorldPersistenceInstallEdits(const BlockEdit *edits,
                                   const uint32_t *dimensions,
                                   const SurfaceAddress *addresses,
+                                  const SurfaceMapCell *mapCells,
                                   int count);
 
 #endif

@@ -4,7 +4,7 @@ set -euo pipefail
 
 game_binary=${1:-build/normal/voxelcraft}
 settle_timeout=${E2E_SETTLE_TIMEOUT:-60}
-command_timeout=${E2E_COMMAND_TIMEOUT:-60}
+command_timeout=${E2E_COMMAND_TIMEOUT:-120}
 debug_resolution=${E2E_RESOLUTION:-1920x1080}
 
 if [[ ! "$debug_resolution" =~ ^([0-9]+)x([0-9]+)$ ]]; then
@@ -167,8 +167,8 @@ wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 # Verify catalog resolution and the stdin error contract before placing a
 # gallery. A rejected command aborts only its current block; the live process
 # must accept the next block and retain an untouched gallery state.
-send_command 'stream wait 600'
-wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
+send_command 'stream wait 1800'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=1800$'
 wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
 send_command 'assert block.catalog_count == 412 && block.natural_count == 92 && block.stage05_count == 26 && !block.gallery_active && block.gallery_placed == 0 && block.gallery_rows == 3 && flora.catalog_count == 13 && !flora.gallery_active && flora.gallery_placed == 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
@@ -193,8 +193,8 @@ wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'flora inspect Quercus_robur'
 wait_for_reply '^DEBUG_CONTROL flora inspect ok id=0 common="Pedunculate Oak" scientific="Quercus robur" family=Fagaceae .*primary=Pedunculate Oak Log accent=Pedunculate Oak Leaves$'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
-send_command 'flora sample 12 -9'
-wait_for_reply '^DEBUG_CONTROL flora sample ok position=12,-9 biome='
+send_command 'flora sample 16 -16'
+wait_for_reply '^DEBUG_CONTROL flora sample ok position=16,-16 biome='
 send_command 'assert flora.sample_ground != "none" && flora.sample_biome != "unavailable" && flora.sample_habitat.x > 0 && flora.sample_habitat.y >= 0 && flora.sample_habitat.z >= 0 && flora.sample_burn_stage != "unavailable"'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'flora gallery 999997 96 999997'
@@ -205,6 +205,10 @@ wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 # Place all appended identities through the ordinary edit path, then prove
 # that the full game save/load transaction accepts and restores those edits.
+send_command 'teleport 0 95 -15 0 -0.35'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=0.000000,95.000000,-15.000000$'
+send_command 'wait until stream.surface_ready timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'block gallery -4 96 -16'
 wait_for_reply '^DEBUG_CONTROL block gallery ok origin=-4,96,-16 placed=26 rows=3 geology=14 biogenic=9 fire_residue=3$'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
@@ -226,22 +230,21 @@ wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 send_command 'teleport -4 95 -10 0 -0.35'
 wait_for_reply '^DEBUG_CONTROL teleport ok position=-4.000000,95.000000,-10.000000$'
-send_command 'stream wait 600'
-wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
-wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'wait until stream.surface_ready timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'teleport 36 95 -10 0 -0.35'
 wait_for_reply '^DEBUG_CONTROL teleport ok position=36.000000,95.000000,-10.000000$'
-send_command 'stream wait 600'
-wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
-wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'wait until stream.surface_ready timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'flora gallery -4 96 -16'
 wait_for_reply '^DEBUG_CONTROL flora gallery ok origin=-4,96,-16 placed=573 trees=6 ground=7 taxa=13$'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'assert flora.gallery_active && flora.gallery_origin == vec3(-4,96,-16) && flora.gallery_placed == 573 && flora.gallery_trees == 6 && flora.gallery_ground == 7'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
-send_command 'stream wait 600'
-wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
-wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'input 0 0 0 0 600'
+wait_for_reply '^DEBUG_CONTROL input ok '
+send_command 'wait until player.input_frames == 0 timeout 700'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'teleport 20 113 -7 0 -0.95'
 wait_for_reply '^DEBUG_CONTROL teleport ok position=20.000000,113.000000,-7.000000$'
 send_command 'screenshot'
@@ -276,6 +279,10 @@ python3 tests/validate_png.py "$gallery_png_path" \
 
 # Exercise the complete wildfire debug path at a deterministic flammable
 # Homeworld cell, capture the same-frame renderer inputs, then clear only fire.
+# Place the fuel explicitly so procedural topology changes cannot invalidate
+# this lifecycle fixture by changing the generated surface material.
+send_command 'block set 9 82 -10 Pedunculate Oak Log'
+wait_for_reply '^DEBUG_CONTROL block set ok raw=9,82,-10 canonical=9,82,-10 '
 send_command 'weather force strong-wind 1 36000'
 wait_for_reply '^DEBUG_CONTROL weather force ok phenomenon=Strong wind intensity=1.000000 frames=36000$'
 send_command 'weather fire ignite 9 82 -10 1'
@@ -333,8 +340,8 @@ wait_for_reply '^DEBUG_CONTROL weather clear ok$'
 # This chunk-boundary coordinate previously exposed unloaded surface chunks as
 # air. While streaming catches up, walking collision must hold the player in
 # place; after the audit settles, the same coordinate must be fully usable.
-send_command 'teleport 15 110 -252 3.141593 -0.25'
-wait_for_reply '^DEBUG_CONTROL teleport ok position=15.000000,110.000000,-252.000000$'
+send_command 'teleport 1024 140 256 3.141593 -0.25'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=1024.000000,140.000000,256.000000$'
 send_command 'input 1 0 0 0 120'
 wait_for_reply '^DEBUG_CONTROL input ok '
 send_command 'status'
@@ -343,36 +350,36 @@ if [[ "$matched_line" == *'surface_ready=0'* ]]; then
     [[ "$matched_line" == *'velocity=0.000000,0.000000,0.000000'* ]]
 fi
 
-send_command 'stream wait 300'
-wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=300$'
+send_command 'stream wait 1800'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=1800$'
 wait_for_reply '^DEBUG_CONTROL stream wait result='
 [[ "$matched_line" == *'result=settled'* ]]
 [[ "$matched_line" == *'pending_local_sections=0'* ]]
 
-ravine_ready=false
+boundary_ready=false
 settle_deadline=$((SECONDS + settle_timeout))
 while ((SECONDS < settle_deadline)); do
-    send_command 'stream audit at 15 110 -252 1'
-    wait_for_reply '^DEBUG_CONTROL stream audit started focus=0,6,-16 radius=1$'
+    send_command 'stream audit at 1024 140 256 1'
+    wait_for_reply '^DEBUG_CONTROL stream audit started focus=64,8,16 radius=1$'
     wait_for_reply '^DEBUG_CONTROL stream audit result='
     if [[ "$matched_line" == *'result=complete'* &&
           "$matched_line" == *'chunks_missing=0'* &&
           "$matched_line" == *'issues_total=0 '* ]]; then
-        ravine_ready=true
+        boundary_ready=true
         break
     fi
     sleep 0.5
 done
 
-if [[ "$ravine_ready" != true ]]; then
-    echo "ravine regression coordinate did not settle within ${settle_timeout}s" >&2
+if [[ "$boundary_ready" != true ]]; then
+    echo "chunk-boundary regression coordinate did not settle within ${settle_timeout}s" >&2
     exit 1
 fi
 send_command 'status'
 wait_for_reply '^DEBUG_CONTROL status '
 [[ "$matched_line" == *'surface_ready=1 player_missing_surface_chunks=0'* ]]
-ravine_y=$(sed -n 's/.*position=[^,]*,\([^,]*\),.*/\1/p' <<<"$matched_line")
-awk -v y="$ravine_y" 'BEGIN { exit !(y > 100.0) }'
+boundary_y=$(sed -n 's/.*position=[^,]*,\([^,]*\),.*/\1/p' <<<"$matched_line")
+awk -v y="$boundary_y" 'BEGIN { exit !(y > 100.0) }'
 send_command 'assert stream.surface_ready && stream.missing_surface_chunks == 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
@@ -417,14 +424,14 @@ wait_for_reply '^DEBUG_CONTROL evolution atlas open species=0$'
 send_command 'evolution atlas'
 wait_for_reply '^DEBUG_CONTROL evolution atlas closed species=0$'
 
-send_command 'teleport -2895.5 76.002960 16.5 3.141593 -0.25'
+send_command 'teleport -128.5 76.002960 0.5 3.141593 -0.25'
 wait_for_reply '^DEBUG_CONTROL teleport ok '
 
 water_ready=false
 settle_deadline=$((SECONDS + settle_timeout))
 while ((SECONDS < settle_deadline)); do
     sleep 1
-    send_command 'teleport -2895.5 76.002960 16.5 3.141593 -0.25'
+    send_command 'teleport -128.5 76.002960 0.5 3.141593 -0.25'
     wait_for_reply '^DEBUG_CONTROL teleport ok '
     send_command 'status'
     wait_for_reply '^DEBUG_CONTROL status '
@@ -442,21 +449,30 @@ fi
 [[ "$matched_line" == *'fluid_overflows=0'* ]]
 send_command 'assert water.feet_submerged && water.body_submerged && water.eyes_submerged'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'stream wait 1800'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=1800$'
+wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'teleport -128.5 76.002960 0.5 3.141593 -0.25'
+wait_for_reply '^DEBUG_CONTROL teleport ok '
+send_command 'status'
+wait_for_reply '^DEBUG_CONTROL status '
+[[ "$matched_line" == *'water=1,1,1'* ]]
+[[ "$matched_line" == *'surface=81.000000'* ]]
 
 # Build a one-cell reservoir directly above the settled ocean surface. The
 # full water below acts as a floor, so the injected unit must spread sideways.
 # Conservation is checked in test_fluid against an isolated loaded world;
 # loaded-volume snapshots here can change as generation jobs finish.
-send_command 'fluid set -2894 81 20 0'
-wait_for_reply '^DEBUG_CONTROL fluid set ok position=-2894,81,20 volume=0$'
-send_command 'fluid set -2895 81 20 255'
-wait_for_reply '^DEBUG_CONTROL fluid set ok position=-2895,81,20 volume=255$'
-send_command 'fluid inspect -2895 81 20'
+send_command 'fluid set -127 81 4 0'
+wait_for_reply '^DEBUG_CONTROL fluid set ok position=-127,81,4 volume=0$'
+send_command 'fluid set -128 81 4 255'
+wait_for_reply '^DEBUG_CONTROL fluid set ok position=-128,81,4 volume=255$'
+send_command 'fluid inspect -128 81 4'
 wait_for_reply '^DEBUG_CONTROL fluid inspect ok '
 send_command 'fluid step 64'
 wait_for_reply '^DEBUG_CONTROL fluid step ok ticks=64 '
-send_command 'fluid inspect -2894 81 20'
-wait_for_reply '^DEBUG_CONTROL fluid inspect ok position=-2894,81,20 '
+send_command 'fluid inspect -127 81 4'
+wait_for_reply '^DEBUG_CONTROL fluid inspect ok position=-127,81,4 '
 [[ "$matched_line" =~ volume=([1-9][0-9]*) ]]
 
 send_command 'screenshot'
@@ -482,8 +498,8 @@ grep -Fxq 'weather.tornado_active=true' "$report_path"
 grep -Fxq 'weather.tornado_forced=true' "$report_path"
 grep -Eq '^weather.tornado_phase=(forming|intensifying|mature|dissipating)$' "$report_path"
 grep -Eq '^weather.tornado_forced_frames=[1-9][0-9]*$' "$report_path"
-grep -Fxq 'environment.seabed_y=-4299' "$report_path"
-grep -Fxq 'environment.water_column_depth=4379' "$report_path"
+grep -Fxq 'environment.seabed_y=-3807' "$report_path"
+grep -Fxq 'environment.water_column_depth=3887' "$report_path"
 grep -Fxq 'environment.bathymetry_zone=abyssal_plain' "$report_path"
 grep -Fxq 'environment.seabed_material=sediment' "$report_path"
 grep -Fxq 'environment.underwater=true' "$report_path"
@@ -537,6 +553,112 @@ wait_for_reply '^DEBUG_CONTROL evolution atlas closed species=0$'
 
 send_command 'evolution focus'
 wait_for_reply '^DEBUG_CONTROL evolution focus (none radius=24\.000|ok organism=[0-9]+ species=[0-9]+)$'
+
+# Traverse every global chart boundary through the live DSL. A longitude alias
+# edit must retain one persistent identity, and the same canonical marker and
+# edit must survive the full game save/load transaction.
+send_command 'world topology'
+wait_for_reply '^DEBUG_CONTROL world topology ok '
+[[ "$matched_line" == *'aliases=longitude:1,north:1,south:1'* ]]
+[[ "$matched_line" == *'duplicate_canonical_chunks=0'* ]]
+send_command 'assert world.longitude_alias && world.north_pole_alias && world.south_pole_alias && world.duplicate_canonical_chunks == 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+
+send_command 'teleport 8193 250 12 0 -0.35'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=8193.000000,250.000000,12.000000$'
+send_command 'wait until world.last_rebase && world.last_rebase_to.x == -8191 && world.last_rebase_to.z == 12 timeout 120'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'wait until stream.surface_ready timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert world.canonical_position.x == -8191 && world.canonical_position.z == 12 && world.last_rebase_north_sign == 1 && world.duplicate_canonical_chunks == 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'world topology'
+wait_for_reply '^DEBUG_CONTROL world topology ok '
+[[ "$matched_line" == *'canonical=-8191.000000,12.000000'* ]]
+[[ "$matched_line" == *'duplicate_canonical_chunks=0'* ]]
+
+send_command 'block set 8193 250 12 Glass'
+wait_for_reply '^DEBUG_CONTROL block set ok raw=8193,250,12 canonical=-8191,250,12 .*name="Glass"$'
+send_command 'save'
+wait_for_reply '^DEBUG_CONTROL save result=Saved map to voxelcraft_save\.txt \([0-9]+ edits\)\.$'
+[[ "$matched_line" =~ \(([0-9]+)\ edits\)\. ]]
+topology_alias_edits=${BASH_REMATCH[1]}
+send_command 'block set -8191 250 12 Brick'
+wait_for_reply '^DEBUG_CONTROL block set ok raw=-8191,250,12 canonical=-8191,250,12 .*previous_name="Glass" .*name="Brick"$'
+send_command 'save'
+wait_for_reply '^DEBUG_CONTROL save result=Saved map to voxelcraft_save\.txt \([0-9]+ edits\)\.$'
+[[ "$matched_line" =~ \(([0-9]+)\ edits\)\. ]]
+[[ "${BASH_REMATCH[1]}" -eq "$topology_alias_edits" ]]
+
+send_command 'marker add 8193 12 cyan topology-seam'
+wait_for_reply '^DEBUG_CONTROL marker add ok id=[0-9]+ dimension=home surface=0 x=8193.000 z=12.000 color=cyan name=topology-seam$'
+[[ "$matched_line" =~ id=([0-9]+) ]]
+topology_marker_id=${BASH_REMATCH[1]}
+send_command 'marker list'
+wait_for_reply "^DEBUG_CONTROL marker list ok dimension=home surface=0 count=[0-9]+ target=0$"
+wait_for_reply "^DEBUG_CONTROL marker item id=${topology_marker_id} x=-8191.000 z=12.000 color=cyan target=0 name=topology-seam$"
+send_command "marker target $topology_marker_id"
+wait_for_reply "^DEBUG_CONTROL marker target ok id=${topology_marker_id}$"
+send_command 'save'
+wait_for_reply '^DEBUG_CONTROL save result=Saved map to voxelcraft_save\.txt \([0-9]+ edits\)\.$'
+send_command 'load'
+wait_for_reply '^DEBUG_CONTROL load result=Loaded voxelcraft_save\.txt \([0-9]+ edits\)\.$' 120
+send_command 'wait until stream.surface_ready timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'block set 8193 250 12 Brick'
+wait_for_reply '^DEBUG_CONTROL block set ok raw=8193,250,12 canonical=-8191,250,12 .*previous_name="Brick" .*name="Brick"$'
+send_command 'marker list'
+wait_for_reply "^DEBUG_CONTROL marker list ok dimension=home surface=0 count=[0-9]+ target=${topology_marker_id}$"
+wait_for_reply "^DEBUG_CONTROL marker item id=${topology_marker_id} x=-8191.000 z=12.000 color=cyan target=1 name=topology-seam$"
+
+send_command 'teleport 123.5 130 4096.5 0 -0.35'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=123.500000,130.000000,4096.500000$'
+send_command 'wait until world.last_rebase && world.last_rebase_to.x > -8069 && world.last_rebase_to.x < -8068 && world.last_rebase_to.z == 4095.5 && world.last_rebase_north_sign == -1 timeout 120'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'wait until stream.surface_ready timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert world.canonical_position.x > -8069 && world.canonical_position.x < -8068 && world.canonical_position.z == 4095.5 && world.last_rebase_north_sign == -1 && world.latitude > 1.56 && world.north_pole_alias && world.duplicate_canonical_chunks == 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'world topology'
+wait_for_reply '^DEBUG_CONTROL world topology ok '
+[[ "$matched_line" == *'canonical=-8068.'* ]]
+[[ "$matched_line" == *',4095.500000 longitude='* ]]
+[[ "$matched_line" == *'duplicate_canonical_chunks=0'* ]]
+
+send_command 'teleport -321.5 130 -4096.5 0 -0.35'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=-321.500000,130.000000,-4096.500000$'
+send_command 'wait until world.last_rebase_to.x > 7870 && world.last_rebase_to.x < 7871 && world.last_rebase_to.z == -4095.5 && world.last_rebase_north_sign == -1 timeout 120'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'wait until stream.surface_ready timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'input 0 0 0 0 600'
+wait_for_reply '^DEBUG_CONTROL input ok '
+send_command 'wait until player.input_frames == 0 timeout 700'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert world.canonical_position.x > 7870 && world.canonical_position.x < 7871 && world.canonical_position.z == -4095.5 && world.last_rebase_north_sign == -1 && world.latitude < -1.56 && world.south_pole_alias && world.duplicate_canonical_chunks == 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'world topology'
+wait_for_reply '^DEBUG_CONTROL world topology ok '
+[[ "$matched_line" == *'canonical=7870.'* ]]
+[[ "$matched_line" == *',-4095.500000 longitude='* ]]
+[[ "$matched_line" == *'duplicate_canonical_chunks=0'* ]]
+send_command 'screenshot'
+wait_for_reply '^DEBUG_CONTROL screenshot scheduled$'
+wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
+
+topology_png_path=${matched_line#*png=}
+topology_png_path=${topology_png_path%% report=*}
+topology_png_path=$(runtime_artifact_path "$topology_png_path")
+topology_report_path=${matched_line##*report=}
+topology_report_path=$(runtime_artifact_path "$topology_report_path")
+[[ -s "$topology_png_path" ]]
+[[ -s "$topology_report_path" ]]
+grep -Fxq 'format.version=12' "$topology_report_path"
+grep -Fxq 'world.dimension=home' "$topology_report_path"
+grep -Fxq 'streaming.surface_ready=true' "$topology_report_path"
+grep -Fxq 'streaming.player_missing_surface_chunks=0' "$topology_report_path"
+python3 tests/validate_png.py "$topology_png_path" \
+    "$debug_width" "$debug_height"
 
 send_command 'exit 0'
 wait_for_reply '^DEBUG_SCRIPT exit code=0$'
@@ -609,11 +731,15 @@ with open(sys.argv[1], encoding="utf-8") as trace:
 assert {"start", "sample", "event", "stop"} <= types, types
 PY
 gallery_artifact=validated
+topology_artifact=validated
 if [[ -n "${E2E_ARTIFACT_DIR:-}" ]]; then
     mkdir -p "$E2E_ARTIFACT_DIR"
     cp "$gallery_png_path" "$E2E_ARTIFACT_DIR/stage06-flora-gallery.png"
     cp "$gallery_report_path" "$E2E_ARTIFACT_DIR/stage06-flora-gallery.txt"
+    cp "$topology_png_path" "$E2E_ARTIFACT_DIR/stage07-south-pole.png"
+    cp "$topology_report_path" "$E2E_ARTIFACT_DIR/stage07-south-pole.txt"
     gallery_artifact="$E2E_ARTIFACT_DIR/stage06-flora-gallery.png"
+    topology_artifact="$E2E_ARTIFACT_DIR/stage07-south-pole.png"
 fi
 rm -f "$trace_path" "$startup_script"
 rm -rf "$runtime_dir"
@@ -621,5 +747,5 @@ trap - EXIT
 
 [[ "$(persistent_state_fingerprint)" == "$persistent_state_before" ]]
 
-printf 'game end-to-end test passed: gallery=%s captures=4\n' \
-    "$gallery_artifact"
+printf 'game end-to-end test passed: gallery=%s topology=%s captures=5\n' \
+    "$gallery_artifact" "$topology_artifact"

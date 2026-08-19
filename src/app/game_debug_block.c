@@ -180,11 +180,62 @@ static void BlockGallery(GameRuntime *game)
         originX, originY, originZ, placed);
 }
 
+static void BlockSet(GameRuntime *game)
+{
+    int x = game->debugControl.blockSetX;
+    int y = game->debugControl.blockSetY;
+    int z = game->debugControl.blockSetZ;
+    BlockType type = BLOCK_AIR;
+    if (!WorldIsSurfaceActive() || !InHeight(y)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL block set error reason=invalid_position\n");
+        BlockCommandError(game, "block_set_invalid_position");
+        return;
+    }
+    if (!BlockResolve(game->debugControl.blockQuery, &type)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL block set error reason=unknown_block query=%s\n",
+                          game->debugControl.blockQuery);
+        BlockCommandError(game, "unknown_block");
+        return;
+    }
+    if (!SurfaceBlockReadyAt(x, y, z)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL block set error reason=region_unloaded "
+                          "position=%d,%d,%d\n", x, y, z);
+        BlockCommandError(game, "block_set_region_unloaded");
+        return;
+    }
+    BlockType previous = GetBlockAt(x, y, z);
+    if (!SetBlock(x, y, z, type)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL block set error reason=mutation_failed "
+                          "position=%d,%d,%d\n", x, y, z);
+        BlockCommandError(game, "block_set_mutation_failed");
+        return;
+    }
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+        (float)WorldSurfaceMapOriginX() + (float)x,
+        (float)WorldSurfaceMapOriginZ() + (float)z);
+    canonical.x -= WorldSurfaceMapOriginX();
+    canonical.z -= WorldSurfaceMapOriginZ();
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL block set ok raw=%d,%d,%d canonical=%d,%d,%d "
+        "previous_id=%d previous_name=\"%s\" id=%d name=\"%s\"\n",
+        x, y, z, canonical.x, y, canonical.z, (int)previous,
+        BlockName(previous), (int)type, BlockName(type));
+}
+
 bool GameDebugBlockDispatch(GameRuntime *game, DebugControlCommand command)
 {
     if (!game) return false;
     if (command == DEBUG_CONTROL_COMMAND_BLOCK_INSPECT) {
         BlockInspect(game);
+        return true;
+    }
+    if (command == DEBUG_CONTROL_COMMAND_BLOCK_SET) {
+        BlockSet(game);
         return true;
     }
     if (command == DEBUG_CONTROL_COMMAND_BLOCK_GALLERY) {

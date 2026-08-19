@@ -1,6 +1,7 @@
 #include "world/weather_impact.h"
 
 #include "world/fluid.h"
+#include "world/surface_topology.h"
 #include "world/world.h"
 
 #include <assert.h>
@@ -467,6 +468,106 @@ typedef struct CurrentBurnRecord {
     float ageSeconds;
 } CurrentBurnRecord;
 
+typedef struct CurrentFireRecord {
+    uint32_t surfaceId;
+    int32_t x;
+    int32_t y;
+    int32_t z;
+    uint32_t fuelBlock;
+    uint32_t phase;
+    float intensity;
+    float fuel;
+    float moisture;
+    float ageSeconds;
+    float initialFuel;
+} CurrentFireRecord;
+
+static FILE *CurrentFireAliasState(bool duplicate)
+{
+    FILE *file = tmpfile();
+    assert(file);
+    CurrentDiskHeader header = {
+        .fireCount = duplicate ? 2u : 1u,
+        .ticks = 4242u
+    };
+    CurrentFireRecord fires[2] = {
+        {
+            .surfaceId = 7u,
+            .x = SURFACE_EQUATOR_BLOCKS,
+            .y = 10,
+            .z = 0,
+            .fuelBlock = BLOCK_WOOD,
+            .phase = WILDFIRE_PHASE_FLAMING,
+            .intensity = 0.85f,
+            .fuel = 0.75f,
+            .moisture = 0.12f,
+            .initialFuel = 0.75f
+        },
+        {
+            .surfaceId = 7u,
+            .x = 0,
+            .y = 10,
+            .z = 0,
+            .fuelBlock = BLOCK_WOOD,
+            .phase = WILDFIRE_PHASE_FLAMING,
+            .intensity = 0.72f,
+            .fuel = 0.70f,
+            .moisture = 0.15f,
+            .initialFuel = 0.70f
+        }
+    };
+    assert(fwrite("WXIMPACT2", 1u, 9u, file) == 9u);
+    assert(fwrite(&header, sizeof(header), 1u, file) == 1u);
+    assert(fwrite(fires, sizeof(fires[0]), header.fireCount, file) ==
+           header.fireCount);
+    rewind(file);
+    return file;
+}
+
+static void TestSphericalFireAliasesAndLoadMigration(void)
+{
+    ResetGrid(BLOCK_WOOD);
+    WeatherImpactInit(true);
+    assert(WeatherImpactIgniteAt(SURFACE_EQUATOR_BLOCKS, 10, 0, 1.0f));
+    assert(WeatherImpactIgniteAt(0, 10, 0, 0.6f));
+    assert(WeatherImpactGetStats().activeFires == 1u);
+    WeatherImpactFireSnapshot fire = { 0 };
+    assert(WeatherImpactFireStateAt(0, 10, 0, &fire));
+    assert(WeatherImpactFireStateAt(SURFACE_EQUATOR_BLOCKS, 10, 0, &fire));
+    WeatherImpactFireSnapshot collected[2] = { 0 };
+    assert(WeatherImpactCollectFires(
+               (Vector3){ SURFACE_EQUATOR_BLOCKS + 0.5f, 10.5f, 0.5f },
+               1.0f, collected, 2u) == 1u);
+    float distance = -1.0f;
+    assert(WeatherImpactNearestFire(
+        (Vector3){ SURFACE_EQUATOR_BLOCKS + 0.5f, 10.5f, 0.5f },
+        &fire, &distance));
+    assert(distance < 0.001f);
+
+    FILE *file = CurrentFireAliasState(false);
+    assert(WeatherImpactLoadState(file));
+    fclose(file);
+    assert(WeatherImpactGetStats().ticks == 4242u);
+    assert(WeatherImpactGetStats().activeFires == 1u);
+    assert(WeatherImpactFireStateAt(0, 10, 0, &fire));
+    assert(fire.x == 0);
+
+    file = tmpfile();
+    assert(file);
+    assert(WeatherImpactSaveState(file));
+    rewind(file);
+    WeatherImpactReset();
+    assert(WeatherImpactLoadState(file));
+    fclose(file);
+    assert(WeatherImpactFireStateAt(0, 10, 0, &fire));
+
+    file = CurrentFireAliasState(true);
+    assert(!WeatherImpactLoadState(file));
+    fclose(file);
+    assert(WeatherImpactGetStats().activeFires == 1u);
+    assert(WeatherImpactFireStateAt(0, 10, 0, &fire));
+}
+
 static FILE *BurnRecoveryState(float recovery)
 {
     FILE *file = tmpfile();
@@ -593,7 +694,7 @@ static void TestLegacyMigrationAndTransactionalFailure(void)
     };
     const LegacyFireRecord fire = {
         .surfaceId = 7u,
-        .x = 2,
+        .x = SURFACE_EQUATOR_BLOCKS + 2,
         .y = 10,
         .z = 3,
         .intensity = 0.0f,
@@ -643,6 +744,7 @@ int main(void)
     TestBoundedWorkAndNaturalSources();
     TestSnowOwnershipAndPlayerOverride();
     TestSaveLoadAndCorruption();
+    TestSphericalFireAliasesAndLoadMigration();
     TestLegacyMigrationAndTransactionalFailure();
     puts("weather impact tests passed");
     return 0;

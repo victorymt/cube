@@ -1,6 +1,7 @@
 #include "world/tornado.h"
 
 #include "core/game_effects.h"
+#include "world/surface_topology.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 
@@ -185,11 +186,58 @@ static void TestExpiryAndSurfaceReset(void)
     assert(!TornadoCurrent().active);
 }
 
+static void TestSphericalAliases(void)
+{
+    const float circumference = (float)SURFACE_EQUATOR_BLOCKS;
+    const float pole = (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f;
+    WeatherFieldSample weather = Storm();
+    Vector3 seamObserver = {
+        circumference * 0.5f - 4.0f, 11.0f, 0.0f
+    };
+    TornadoInit(false);
+    assert(TornadoForce(seamObserver, 0.9f, 600u, 8.0f, weather));
+    TornadoState seam = TornadoCurrent();
+    assert(seam.center.x < -circumference * 0.5f + 8.1f);
+    assert(fabsf(TornadoDistanceTo(seamObserver) - 8.0f) < 0.02f);
+    Vector3 observerAlias = seamObserver;
+    observerAlias.x -= circumference;
+    assert(fabsf(TornadoDistanceTo(observerAlias) - 8.0f) < 0.02f);
+    Vector3 sample = {
+        seam.center.x + seam.radius, seam.center.y + 1.0f, seam.center.z
+    };
+    TornadoForceSample canonicalForce = TornadoForceAt(sample);
+    sample.x += circumference;
+    TornadoForceSample aliasForce = TornadoForceAt(sample);
+    assert(fabsf(canonicalForce.exposure - aliasForce.exposure) < 0.001f);
+    assert(fabsf(canonicalForce.acceleration.x - aliasForce.acceleration.x) <
+           0.001f);
+    assert(fabsf(canonicalForce.acceleration.z - aliasForce.acceleration.z) <
+           0.001f);
+
+    weather.windAngle = PI * 0.5f;
+    Vector3 polarObserver = { 0.0f, 11.0f, pole - 4.0f };
+    TornadoInit(false);
+    assert(TornadoForce(polarObserver, 0.9f, 600u, 8.0f, weather));
+    TornadoState polar = TornadoCurrent();
+    assert(polar.center.z <= pole);
+    assert(fabsf(TornadoDistanceTo(polarObserver) - 8.0f) < 0.02f);
+    Vector3 polarAlias = { 0.0f, polar.center.y, pole + 4.0f };
+    assert(TornadoDistanceTo(polarAlias) < 0.02f);
+    TornadoForceSample polarCanonical = TornadoForceAt((Vector3){
+        polar.center.x, polar.center.y + 1.0f, polar.center.z
+    });
+    polarAlias.y += 1.0f;
+    TornadoForceSample polarAliasForce = TornadoForceAt(polarAlias);
+    assert(fabsf(polarCanonical.exposure - polarAliasForce.exposure) <
+           0.001f);
+}
+
 int main(void)
 {
     TestForcingAndBoundedDamage();
     TestProtectionAndQueueBudget();
     TestExpiryAndSurfaceReset();
+    TestSphericalAliases();
     puts("tornado runtime tests passed");
     return 0;
 }

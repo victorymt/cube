@@ -128,12 +128,99 @@ static void TestGreatCircle(void)
     assert(distance > 0.0f);
 }
 
+static void TestCanonicalMarkerCoordinates(void)
+{
+    MapMarkersReset();
+    uint32_t id = 0u;
+    assert(MapMarkersCreate(
+        Home(), (float)SURFACE_EQUATOR_BLOCKS + 27.5f, 41.25f,
+        "Wrapped", MAP_MARKER_BLUE, &id));
+    MapMarker marker;
+    assert(MapMarkersFind(id, &marker));
+    assert(fabsf(marker.x - 27.5f) < 0.01f);
+    assert(fabsf(marker.z - 41.25f) < 0.01f);
+
+    float pole = (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f;
+    assert(MapMarkersCreate(
+        Planet(7u), 100.0f, pole + 12.0f,
+        "Polar", MAP_MARKER_CYAN, &id));
+    assert(MapMarkersFind(id, &marker));
+    assert(fabsf(marker.x -
+                 (100.0f - (float)SURFACE_EQUATOR_BLOCKS * 0.5f)) < 0.01f);
+    assert(fabsf(marker.z - (pole - 12.0f)) < 0.01f);
+}
+
+static void TestLegacyCoordinateMigration(void)
+{
+    MapMarkerState state;
+    MapMarkersEmptyState(&state);
+    state.coordinateSchema = 1u;
+    state.count = 3u;
+    state.nextId = 40u;
+    state.targetId = 22u;
+    state.markers[0] = (MapMarker){
+        .id = 11u,
+        .surface = { WORLD_DIMENSION_HOME, 0u },
+        .x = (float)SURFACE_EQUATOR_BLOCKS + 19.0f,
+        .z = -27.0f,
+        .color = MAP_MARKER_GREEN
+    };
+    strcpy(state.markers[0].name, "Home legacy");
+    state.markers[1] = (MapMarker){
+        .id = 22u,
+        .surface = { WORLD_DIMENSION_PLANET, 77u },
+        .x = 31.0f,
+        .z = -44.0f,
+        .color = MAP_MARKER_CYAN
+    };
+    strcpy(state.markers[1].name, "Current planet");
+    state.markers[2] = (MapMarker){
+        .id = 33u,
+        .surface = { WORLD_DIMENSION_PLANET, 88u },
+        .x = 51.0f,
+        .z = 63.0f,
+        .color = MAP_MARKER_AMBER
+    };
+    strcpy(state.markers[2].name, "Historic planet");
+
+    assert(MapMarkersMigrateLegacyState(&state, 77u, 1000, -2000));
+    assert(state.coordinateSchema == MAP_MARKER_COORDINATE_SCHEMA);
+    assert(state.nextId == 40u && state.targetId == 22u);
+    assert(state.markers[0].id == 11u);
+    assert(strcmp(state.markers[0].name, "Home legacy") == 0);
+    assert(fabsf(state.markers[0].x - 19.0f) < 0.01f);
+    assert(fabsf(state.markers[0].z + 27.0f) < 0.01f);
+    assert(state.markers[1].id == 22u);
+    assert(strcmp(state.markers[1].name, "Current planet") == 0);
+    assert(fabsf(state.markers[1].x - 1031.0f) < 0.01f);
+    assert(fabsf(state.markers[1].z + 2044.0f) < 0.01f);
+    assert(state.markers[2].id == 33u);
+    assert(fabsf(state.markers[2].x - 51.0f) < 0.01f);
+    assert(fabsf(state.markers[2].z - 63.0f) < 0.01f);
+}
+
+static void TestSaveRejectsLegacyCoordinateSchema(void)
+{
+    MapMarkersReset();
+    assert(MapMarkersCreate(Home(), 1.0f, 2.0f, "Current",
+                            MAP_MARKER_RED, NULL));
+    MapMarkersTestSetCoordinateSchema(1u);
+    FILE *file = tmpfile();
+    assert(file != NULL);
+    assert(!MapMarkersSaveState(file));
+    fclose(file);
+    MapMarkersReset();
+}
+
 int main(void)
 {
     TestCrudAndSurfaceLimits();
     TestUtf8Names();
     TestSaveRoundTripAndCorruption();
     TestGreatCircle();
+    TestCanonicalMarkerCoordinates();
+    TestLegacyCoordinateMigration();
+    TestSaveRejectsLegacyCoordinateSchema();
     puts("map marker tests passed");
     return 0;
 }

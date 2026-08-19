@@ -419,6 +419,29 @@ static void TestBiomeNames(void)
     assert(strcmp(PlanetBiomeName(PLANET_BIOME_COUNT), "Unknown terrain") == 0);
 }
 
+static void TestFractalNoiseSphericalAliases(void)
+{
+    const uint32_t seed = 0x5197a3d1u;
+    float base = PlanetSurfaceFractalNoiseAt(
+        seed, 0.73f, -0.41f, 61.0f, 907u);
+    float wrapped = PlanetSurfaceFractalNoiseAt(
+        seed, 0.73f + 2.0f * PI, -0.41f, 61.0f, 907u);
+    assert(fabsf(base - wrapped) < 0.00001f);
+
+    const float offset = 0.17f;
+    float north = PlanetSurfaceFractalNoiseAt(
+        seed, -0.62f, 0.5f * PI + offset, 61.0f, 911u);
+    float northReflected = PlanetSurfaceFractalNoiseAt(
+        seed, -0.62f + PI, 0.5f * PI - offset, 61.0f, 911u);
+    assert(fabsf(north - northReflected) < 0.00001f);
+
+    float south = PlanetSurfaceFractalNoiseAt(
+        seed, 1.13f, -0.5f * PI - offset, 61.0f, 919u);
+    float southReflected = PlanetSurfaceFractalNoiseAt(
+        seed, 1.13f + PI, -0.5f * PI + offset, 61.0f, 919u);
+    assert(fabsf(south - southReflected) < 0.00001f);
+}
+
 int main(void)
 {
     TestDeterministicSampling();
@@ -431,6 +454,7 @@ int main(void)
     TestStyleBiomeDomains();
     TestWetlandDistribution();
     TestCanonicalSurfaceCharacter();
+    TestFractalNoiseSphericalAliases();
     TestBiomeNames();
     puts("planet_surface tests passed");
     return 0;

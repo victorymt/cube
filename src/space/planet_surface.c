@@ -80,6 +80,18 @@ static float PlanetFractalNoise3D(uint32_t seed, Vector3 point, float frequency,
     return value / total;
 }
 
+float PlanetSurfaceFractalNoiseAt(uint32_t seed, float longitude,
+                                  float latitude, float frequency,
+                                  unsigned int lane)
+{
+    float cosLatitude = cosf(latitude);
+    Vector3 point = {
+        cosLatitude * cosf(longitude), sinf(latitude),
+        cosLatitude * sinf(longitude)
+    };
+    return PlanetFractalNoise3D(seed, point, frequency, lane);
+}
+
 static float PlanetSmoothStep(float edge0, float edge1, float value)
 {
     if (edge1 < edge0) return 1.0f - PlanetSmoothStep(edge1, edge0, value);

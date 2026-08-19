@@ -11,6 +11,7 @@
 #define MAP_MARKER_NAME_SIZE 64
 #define MAP_MARKERS_PER_SURFACE 64
 #define MAP_MARKERS_TOTAL 1024
+#define MAP_MARKER_COORDINATE_SCHEMA 2u
 
 typedef enum MapMarkerColor {
     MAP_MARKER_RED = 0,
@@ -41,11 +42,16 @@ typedef struct MapMarkerState {
     uint32_t count;
     uint32_t nextId;
     uint32_t targetId;
+    uint32_t coordinateSchema;
 } MapMarkerState;
 
 void MapMarkersReset(void);
 void MapMarkersEmptyState(MapMarkerState *state);
 bool MapMarkersReadState(FILE *file, MapMarkerState *out);
+bool MapMarkersMigrateLegacyState(MapMarkerState *state,
+                                  uint32_t currentPlanetId,
+                                  int currentPlanetOriginX,
+                                  int currentPlanetOriginZ);
 bool MapMarkersSaveState(FILE *file);
 bool MapMarkersInstallState(const MapMarkerState *state);
 
@@ -73,5 +79,9 @@ void MapMarkerNameBackspace(char *name);
 bool MapMarkerGreatCircle(float fromLongitude, float fromLatitude,
                           float toLongitude, float toLatitude,
                           float *outBearing, float *outDistance);
+
+#ifdef MAP_MARKERS_TESTING
+void MapMarkersTestSetCoordinateSchema(uint32_t schema);
+#endif
 
 #endif

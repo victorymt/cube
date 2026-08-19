@@ -386,6 +386,7 @@ typedef struct ChunkGenJob {
     uint32_t chunkGeneration;
     bool spherical;
     SurfaceAddress surfaceAddress;
+    SurfaceChunkKey surfaceKey;
     TerrainMode terrainMode;
     uint64_t queueSequence;
     double submittedAtMs;
@@ -471,6 +472,7 @@ typedef struct Chunk {
     int cz;
     bool spherical;
     SurfaceAddress surfaceAddress;
+    SurfaceChunkKey surfaceKey;
     // Incarnation counter bumped on every slot reuse (EnsureChunk).
     // In-flight mesh jobs from a previous incarnation are discarded on
     // upload so stale terrain never overwrites a freshly generated chunk.
@@ -501,10 +503,10 @@ typedef struct BlockEdit {
 } BlockEdit;
 
 typedef struct BlockEditIndex {
-    int x;
-    int y;
-    int z;
-    uint32_t dimension;
+    uint32_t bodyId;
+    int mapX;
+    int mapZ;
+    int radial;
     int editIndex;
     bool used;
 } BlockEditIndex;

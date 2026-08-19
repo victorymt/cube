@@ -5,6 +5,7 @@
 #include "app/game_debug_block.h"
 #include "app/game_debug_flora.h"
 #include "app/game_debug_gate.h"
+#include "app/game_debug_topology.h"
 #include "app/game_debug_trace.h"
 #include "app/game_debug_wildfire.h"
 #include "app/game_save.h"
@@ -846,6 +847,9 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
     case DEBUG_CONTROL_COMMAND_STATUS:
         GameDebugReplyStatus(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY:
+        GameDebugTopologyReply(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_WATER_DEBUG:
         WorldRenderSetWaterDebug(game->debugControl.waterDebugEnabled);
         DebugControlReply(
@@ -1438,11 +1442,15 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         return GameDebugDslString(
             outValue, WorldDimensionName(WorldCurrentDimension()));
     }
+    if (GameDebugTopologyDslResolve(game, name, outValue)) return true;
     if (strcmp(name, "player.position") == 0) {
         return GameDebugDslVec3(outValue, game->player.position);
     }
     if (strcmp(name, "player.velocity") == 0) {
         return GameDebugDslVec3(outValue, game->player.velocity);
+    }
+    if (strcmp(name, "player.input_frames") == 0) {
+        return GameDebugDslNumber(outValue, game->scriptedInputFrames);
     }
 
     if (strcmp(name, "perf.enabled") == 0) {

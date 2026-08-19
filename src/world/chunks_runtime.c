@@ -204,8 +204,8 @@ static Vector3 CurveSurfacePoint(const SurfaceFrame *anchorFrame,
                                  uint32_t bodyId, float mapX, float localY,
                                  float mapZ, int radialBase)
 {
-    (void)bodyId;
-    SurfaceFrame vertexFrame = SurfaceLocalFrameAtOffset(
+    SurfaceFrame vertexFrame = SurfaceFrameAtMapCoordinates(
+        bodyId,
         mapX, mapZ, radialBase);
     Vector3 planet = Vector3Add(
         vertexFrame.origin, Vector3Scale(vertexFrame.up, localY));
@@ -216,27 +216,24 @@ void CurveChunkMeshData(Mesh *mesh, int chunkX, int chunkZ, int sectionY,
                         uint32_t bodyId, int mapOriginX, int mapOriginZ)
 {
     if (!mesh || !mesh->vertices || mesh->vertexCount <= 0) return;
-    (void)bodyId;
-    (void)mapOriginX;
-    (void)mapOriginZ;
     int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
-    float anchorX = (float)(chunkX * CHUNK_SIZE);
-    float anchorZ = (float)(chunkZ * CHUNK_SIZE);
-    SurfaceFrame anchorFrame = SurfaceLocalFrameAtOffset(
-        0.0f, 0.0f, radialBase);
+    float anchorX = (float)(mapOriginX + chunkX * CHUNK_SIZE);
+    float anchorZ = (float)(mapOriginZ + chunkZ * CHUNK_SIZE);
+    SurfaceFrame anchorFrame = SurfaceFrameAtMapCoordinates(
+        bodyId, anchorX, anchorZ, radialBase);
     for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
-        float offsetX = mesh->vertices[vertex * 3 + 0] - anchorX;
+        float mapX = (float)mapOriginX + mesh->vertices[vertex * 3 + 0];
         float localY = mesh->vertices[vertex * 3 + 1];
-        float offsetZ = mesh->vertices[vertex * 3 + 2] - anchorZ;
+        float mapZ = (float)mapOriginZ + mesh->vertices[vertex * 3 + 2];
         Vector3 curved = CurveSurfacePoint(
-            &anchorFrame, bodyId, offsetX, localY, offsetZ, radialBase);
+            &anchorFrame, bodyId, mapX, localY, mapZ, radialBase);
         mesh->vertices[vertex * 3 + 0] = curved.x;
         mesh->vertices[vertex * 3 + 1] = curved.y;
         mesh->vertices[vertex * 3 + 2] = curved.z;
 
         if (mesh->normals) {
-            SurfaceFrame vertexFrame = SurfaceLocalFrameAtOffset(
-                offsetX, offsetZ, radialBase);
+            SurfaceFrame vertexFrame = SurfaceFrameAtMapCoordinates(
+                bodyId, mapX, mapZ, radialBase);
             Vector3 source = {
                 mesh->normals[vertex * 3 + 0],
                 mesh->normals[vertex * 3 + 1],
@@ -265,19 +262,18 @@ void CurveChunkFloraInstances(
     int sectionY, uint32_t bodyId, int mapOriginX, int mapOriginZ)
 {
     if (!instances || count <= 0) return;
-    (void)bodyId;
-    (void)mapOriginX;
-    (void)mapOriginZ;
     int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
-    float anchorX = (float)(chunkX * CHUNK_SIZE);
-    float anchorZ = (float)(chunkZ * CHUNK_SIZE);
-    SurfaceFrame anchorFrame = SurfaceLocalFrameAtOffset(
-        0.0f, 0.0f, radialBase);
+    float localAnchorX = (float)(chunkX * CHUNK_SIZE);
+    float localAnchorZ = (float)(chunkZ * CHUNK_SIZE);
+    float mapAnchorX = (float)mapOriginX + localAnchorX;
+    float mapAnchorZ = (float)mapOriginZ + localAnchorZ;
+    SurfaceFrame anchorFrame = SurfaceFrameAtMapCoordinates(
+        bodyId, mapAnchorX, mapAnchorZ, radialBase);
     for (int index = 0; index < count; index++) {
-        float offsetX = instances[index].anchor.x - anchorX;
-        float offsetZ = instances[index].anchor.z - anchorZ;
+        float mapX = (float)mapOriginX + instances[index].anchor.x;
+        float mapZ = (float)mapOriginZ + instances[index].anchor.z;
         instances[index].anchor = CurveSurfacePoint(
-            &anchorFrame, bodyId, offsetX, instances[index].anchor.y, offsetZ,
+            &anchorFrame, bodyId, mapX, instances[index].anchor.y, mapZ,
             radialBase);
     }
 }
@@ -426,8 +422,8 @@ static bool UploadMeshJob(MeshJob *job)
                       chunk->cz == job->cz &&
                       chunk->generation == job->chunkGeneration &&
                       chunk->spherical == job->spherical &&
-                      (!job->spherical || SurfaceAddressEqual(
-                          chunk->surfaceAddress, job->surfaceAddress)) &&
+                      (!job->spherical || SurfaceChunkKeyEqual(
+                          chunk->surfaceKey, job->surfaceKey)) &&
                       section != NULL;
         snapshotCurrent = targetValid &&
                           section->dirtyStamp == job->sectionStamp;
@@ -515,6 +511,7 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     job->completedAtMs = 0.0;
     job->spherical = chunk->spherical;
     job->surfaceAddress = chunk->surfaceAddress;
+    job->surfaceKey = chunk->surfaceKey;
     job->surfaceMapOriginX = WorldSurfaceMapOriginX();
     job->surfaceMapOriginZ = WorldSurfaceMapOriginZ();
     job->mesh = (Mesh){ 0 };
@@ -702,9 +699,8 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
         int bestVerticalDistance = 0;
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             if (!chunks[i].loaded) continue;
-            int dx = abs(chunks[i].cx - focusCx);
-            int dz = abs(chunks[i].cz - focusCz);
-            int distance = dx > dz ? dx : dz;
+            int distance = ChunkGridDistanceFrom(
+                &chunks[i], focusCx, focusCz);
             for (int sectionIndex = 0;
                  sectionIndex < chunks[i].sectionCount; sectionIndex++) {
                 ChunkSection *section = chunks[i].sections[sectionIndex];
@@ -763,8 +759,8 @@ bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int eff
     int cameraLz = 0;
     WorldToChunkLocal(cameraX, cameraZ, &cameraCx, &cameraCz, &cameraLx, &cameraLz);
 
-    return abs(chunk->cx - cameraCx) <= effectiveRenderDistance &&
-           abs(chunk->cz - cameraCz) <= effectiveRenderDistance;
+    return ChunkGridDistanceFrom(chunk, cameraCx, cameraCz) <=
+           effectiveRenderDistance;
 }
 
 static bool SphereInFrustumWithAspect(const Camera3D *camera, Vector3 center,
@@ -876,6 +872,31 @@ int GetActiveChunkCount(void)
         if (chunks[i].loaded) count++;
     }
     return count;
+}
+
+ChunkCanonicalIdentityStats ChunksGetCanonicalIdentityStats(void)
+{
+    ChunkCanonicalIdentityStats stats = { 0 };
+    uint32_t bodyId = WorldCurrentSurfaceId();
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        const Chunk *chunk = &chunks[index];
+        if (!chunk->loaded || !chunk->spherical ||
+            chunk->surfaceKey.bodyId != bodyId) continue;
+        stats.loaded++;
+        bool duplicate = false;
+        for (int previous = 0; previous < index; previous++) {
+            const Chunk *candidate = &chunks[previous];
+            if (candidate->loaded && candidate->spherical &&
+                SurfaceChunkKeyEqual(candidate->surfaceKey,
+                                     chunk->surfaceKey)) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) stats.duplicates++;
+        else stats.unique++;
+    }
+    return stats;
 }
 
 int GetPendingGenJobCount(void)
@@ -1071,16 +1092,16 @@ bool ChunksGetWaterRenderDebugInfo(Vector3 position,
         .sectionY = sectionY
     };
 
-    if (FindChunk(cx - 1, cz)) {
+    if (FindHorizontalChunkNeighbor(cx, cz, -1, 0)) {
         outInfo->neighborLoadedMask |= CHUNK_WATER_NEIGHBOR_WEST;
     }
-    if (FindChunk(cx + 1, cz)) {
+    if (FindHorizontalChunkNeighbor(cx, cz, 1, 0)) {
         outInfo->neighborLoadedMask |= CHUNK_WATER_NEIGHBOR_EAST;
     }
-    if (FindChunk(cx, cz - 1)) {
+    if (FindHorizontalChunkNeighbor(cx, cz, 0, -1)) {
         outInfo->neighborLoadedMask |= CHUNK_WATER_NEIGHBOR_NORTH;
     }
-    if (FindChunk(cx, cz + 1)) {
+    if (FindHorizontalChunkNeighbor(cx, cz, 0, 1)) {
         outInfo->neighborLoadedMask |= CHUNK_WATER_NEIGHBOR_SOUTH;
     }
 
@@ -1172,6 +1193,7 @@ void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool d
     chunks[slotIndex].spherical = WorldIsSurfaceActive();
     if (chunks[slotIndex].spherical) {
         chunks[slotIndex].surfaceAddress = ChunkSurfaceAddressAt(cx, cz);
+        chunks[slotIndex].surfaceKey = ChunkSurfaceKeyAt(cx, cz);
     }
     chunks[slotIndex].loaded = loaded;
     if (dirty) {

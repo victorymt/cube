@@ -69,6 +69,9 @@ PlanetSurfaceSample PlanetSampleGlobalSurfaceAtTime(uint32_t seed,
 PlanetSurfaceSample PlanetSampleGlobalSurfaceBaseline(uint32_t seed,
                                                       const PlanetProfile *profile,
                                                       float longitude, float latitude);
+float PlanetSurfaceFractalNoiseAt(uint32_t seed, float longitude,
+                                  float latitude, float frequency,
+                                  unsigned int lane);
 const char *PlanetBiomeName(PlanetBiome biome);
 
 #endif

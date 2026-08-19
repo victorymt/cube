@@ -6,6 +6,28 @@
 #include <assert.h>
 #include <stdio.h>
 
+static int requestFocusCx = 0;
+static int requestFocusSectionY = 0;
+static int requestFocusCz = 0;
+static bool requestedSections[3][3][3] = { 0 };
+
+bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
+{
+    int dx = cx - requestFocusCx;
+    int vertical = sectionY - requestFocusSectionY;
+    int dz = cz - requestFocusCz;
+    assert(dx >= -1 && dx <= 1);
+    assert(vertical >= -1 && vertical <= 1);
+    assert(dz >= -1 && dz <= 1);
+    requestedSections[dx + 1][vertical + 1][dz + 1] = true;
+    return true;
+}
+
+bool SurfaceSectionInBounds(int sectionY)
+{
+    return sectionY >= -16 && sectionY <= 16;
+}
+
 BlockType GetBlockAt(int x, int y, int z)
 {
     if (y != 1 || z != 1) return BLOCK_AIR;
@@ -120,12 +142,33 @@ static void TestWaitProgress(void)
     assert(audit.wait.settledFrames == 0u);
 }
 
+static void TestWaitRequestsLockedWindow(void)
+{
+    requestFocusCx = 7;
+    requestFocusSectionY = 3;
+    requestFocusCz = -11;
+    GameStreamAuditState audit = { 0 };
+    audit.wait.focusCx = requestFocusCx;
+    audit.wait.focusSectionY = requestFocusSectionY;
+    audit.wait.focusCz = requestFocusCz;
+
+    assert(GameStreamWaitRequestSectionsForTest(&audit) == 27);
+    for (int dx = 0; dx < 3; dx++) {
+        for (int vertical = 0; vertical < 3; vertical++) {
+            for (int dz = 0; dz < 3; dz++) {
+                assert(requestedSections[dx][vertical][dz]);
+            }
+        }
+    }
+}
+
 int main(void)
 {
     TestLayerClassification();
     TestSnapshotStaleness();
     TestOneSectionCursor();
     TestWaitProgress();
+    TestWaitRequestsLockedWindow();
     puts("game stream audit tests passed");
     return 0;
 }

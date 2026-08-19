@@ -94,6 +94,7 @@ bool GameStreamAuditLayerMissingForTest(int expected, int vertices);
 void GameStreamAuditAdvanceForTest(GameStreamAuditState *audit);
 bool GameStreamWaitStageSettledForTest(int stage);
 bool GameStreamWaitAdvanceForTest(GameStreamAuditState *audit, bool settled);
+int GameStreamWaitRequestSectionsForTest(const GameStreamAuditState *audit);
 #endif
 
 #endif

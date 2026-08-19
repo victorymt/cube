@@ -11,6 +11,36 @@
 
 TerrainMode terrainMode = TERRAIN_VARIED;
 
+bool WorldIsSurfaceActive(void)
+{
+    return false;
+}
+
+bool HomeWorldSurfaceIsActive(void)
+{
+    return false;
+}
+
+uint32_t WorldCurrentSurfaceId(void)
+{
+    return 0u;
+}
+
+int WorldSurfaceMapOriginX(void)
+{
+    return 0;
+}
+
+int WorldSurfaceMapOriginZ(void)
+{
+    return 0;
+}
+
+void WorldSetNetherActive(bool active)
+{
+    (void)active;
+}
+
 WorldBlockRegion WorldBlockRegionAt(int y)
 {
     (void)y;

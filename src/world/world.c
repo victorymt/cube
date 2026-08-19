@@ -21,6 +21,7 @@
 BlockEdit *blockEdits = NULL;
 uint32_t *blockEditDimensions = NULL;
 SurfaceAddress *blockEditSurfaceAddresses = NULL;
+SurfaceMapCell *blockEditSurfaceMapCells = NULL;
 BlockEditIndex *blockEditIndex = NULL;
 int blockEditCount = 0;
 int blockEditCapacity = 0;
@@ -138,6 +139,18 @@ void WorldSetTerrainMode(TerrainMode mode)
 static uint32_t WorldCurrentEditDimension(void)
 {
     return WorldCurrentSurfaceId();
+}
+
+static void WorldCanonicalizeEditCoordinates(int *x, int *z)
+{
+    if (!x || !z || !WorldIsSurfaceActive()) return;
+    int originX = WorldSurfaceMapOriginX();
+    int originZ = WorldSurfaceMapOriginZ();
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+        (float)originX + (float)*x,
+        (float)originZ + (float)*z);
+    *x = canonical.x - originX;
+    *z = canonical.z - originZ;
 }
 int blockEditIndexCapacity = 0;
 const char *BlockName(BlockType type)
@@ -279,13 +292,14 @@ BlockMaterialResponse BlockMaterialResponseFor(BlockType type)
     };
 }
 
-unsigned int HashBlockCoord(uint32_t dimension, int x, int y, int z)
+static unsigned int HashBlockCell(uint32_t bodyId, SurfaceMapCell cell,
+                                  int radial)
 {
     unsigned int h = 2166136261u;
-    h = (h ^ dimension) * 16777619u;
-    h = (h ^ (unsigned int)x) * 16777619u;
-    h = (h ^ (unsigned int)y) * 16777619u;
-    h = (h ^ (unsigned int)z) * 16777619u;
+    h = (h ^ bodyId) * 16777619u;
+    h = (h ^ (unsigned int)cell.x) * 16777619u;
+    h = (h ^ (unsigned int)cell.z) * 16777619u;
+    h = (h ^ (unsigned int)radial) * 16777619u;
     h ^= h >> 16;
     return h;
 }
@@ -308,20 +322,23 @@ void InsertBlockEditIndex(int editIndex)
 {
     if (!blockEditIndex || blockEditIndexCapacity <= 0) return;
 
-    BlockEdit edit = blockEdits[editIndex];
-    uint32_t dimension = blockEditDimensions[editIndex];
-    unsigned int slot = HashBlockCoord(dimension, edit.x, edit.y, edit.z) &
+    uint32_t bodyId = blockEditDimensions[editIndex];
+    SurfaceMapCell cell = blockEditSurfaceMapCells[editIndex];
+    int radial = blockEdits[editIndex].y;
+    unsigned int slot = HashBlockCell(bodyId, cell, radial) &
                         (unsigned int)(blockEditIndexCapacity - 1);
 
     for (;;) {
         BlockEditIndex *entry = &blockEditIndex[slot];
         if (!entry->used) {
-            *entry = (BlockEditIndex){ edit.x, edit.y, edit.z, dimension, editIndex, true };
+            *entry = (BlockEditIndex){
+                bodyId, cell.x, cell.z, radial, editIndex, true
+            };
             return;
         }
 
-        if (entry->dimension == dimension && entry->x == edit.x &&
-            entry->y == edit.y && entry->z == edit.z) {
+        if (entry->bodyId == bodyId && entry->mapX == cell.x &&
+            entry->mapZ == cell.z && entry->radial == radial) {
             entry->editIndex = editIndex;
             return;
         }
@@ -347,17 +364,20 @@ bool RebuildBlockEditIndex(int wantedEditCapacity)
     return true;
 }
 
-int FindBlockEditIndex(uint32_t dimension, int x, int y, int z)
+static int FindBlockEditIndex(uint32_t bodyId, SurfaceMapCell cell,
+                              int radial)
 {
     if (!blockEditIndex || blockEditIndexCapacity <= 0) return -1;
 
-    unsigned int slot = HashBlockCoord(dimension, x, y, z) &
+    unsigned int slot = HashBlockCell(bodyId, cell, radial) &
                         (unsigned int)(blockEditIndexCapacity - 1);
     for (;;) {
         BlockEditIndex *entry = &blockEditIndex[slot];
         if (!entry->used) return -1;
-        if (entry->dimension == dimension && entry->x == x &&
-            entry->y == y && entry->z == z) return entry->editIndex;
+        if (entry->bodyId == bodyId && entry->mapX == cell.x &&
+            entry->mapZ == cell.z && entry->radial == radial) {
+            return entry->editIndex;
+        }
         slot = (slot + 1u) & (unsigned int)(blockEditIndexCapacity - 1);
     }
 }
@@ -373,10 +393,13 @@ bool EnsureBlockEditCapacity(int capacity)
     uint32_t *nextDimensions = malloc((size_t)nextCapacity * sizeof(*nextDimensions));
     SurfaceAddress *nextAddresses = malloc(
         (size_t)nextCapacity * sizeof(*nextAddresses));
-    if (!nextEdits || !nextDimensions || !nextAddresses) {
+    SurfaceMapCell *nextMapCells = malloc(
+        (size_t)nextCapacity * sizeof(*nextMapCells));
+    if (!nextEdits || !nextDimensions || !nextAddresses || !nextMapCells) {
         free(nextEdits);
         free(nextDimensions);
         free(nextAddresses);
+        free(nextMapCells);
         return false;
     }
     if (blockEditCount > 0) {
@@ -385,13 +408,17 @@ bool EnsureBlockEditCapacity(int capacity)
                (size_t)blockEditCount * sizeof(*nextDimensions));
         memcpy(nextAddresses, blockEditSurfaceAddresses,
                (size_t)blockEditCount * sizeof(*nextAddresses));
+        memcpy(nextMapCells, blockEditSurfaceMapCells,
+               (size_t)blockEditCount * sizeof(*nextMapCells));
     }
     free(blockEdits);
     free(blockEditDimensions);
     free(blockEditSurfaceAddresses);
+    free(blockEditSurfaceMapCells);
     blockEdits = nextEdits;
     blockEditDimensions = nextDimensions;
     blockEditSurfaceAddresses = nextAddresses;
+    blockEditSurfaceMapCells = nextMapCells;
     blockEditCapacity = nextCapacity;
     return RebuildBlockEditIndex(blockEditCapacity);
 }
@@ -414,12 +441,25 @@ bool WorldPersistenceEditsValid(const BlockEdit *edits, int count)
 bool WorldPersistenceInstallEdits(const BlockEdit *edits,
                                   const uint32_t *dimensions,
                                   const SurfaceAddress *addresses,
+                                  const SurfaceMapCell *mapCells,
                                   int count)
 {
     if (!WorldPersistenceEditsValid(edits, count) ||
-        (count > 0 && (!edits || !dimensions || !addresses)) ||
+        (count > 0 && (!edits || !dimensions || !addresses || !mapCells)) ||
         !EnsureBlockEditCapacity(count)) {
         return false;
+    }
+    for (int index = 0; index < count; index++) {
+        if (!SurfaceAddressIsValid(addresses[index]) ||
+            addresses[index].bodyId != dimensions[index] ||
+            addresses[index].radial != edits[index].y ||
+            !SurfaceAddressEqual(
+                addresses[index],
+                SurfaceAddressFromMapCoordinates(
+                    dimensions[index], (float)mapCells[index].x,
+                    (float)mapCells[index].z, edits[index].y))) {
+            return false;
+        }
     }
     if (count > 0) {
         memcpy(blockEdits, edits, (size_t)count * sizeof(*edits));
@@ -427,6 +467,8 @@ bool WorldPersistenceInstallEdits(const BlockEdit *edits,
                (size_t)count * sizeof(*dimensions));
         memcpy(blockEditSurfaceAddresses, addresses,
                (size_t)count * sizeof(*addresses));
+        memcpy(blockEditSurfaceMapCells, mapCells,
+               (size_t)count * sizeof(*mapCells));
     }
     blockEditCount = count;
     BumpBlockEditRevision();
@@ -511,7 +553,12 @@ int CollectNearbyTorchLights(int chunkMinX, int chunkMaxX, int chunkMinZ, int ch
 void RememberBlockEdit(int x, int y, int z, BlockType type)
 {
     uint32_t dimension = WorldCurrentEditDimension();
-    int existingIndex = FindBlockEditIndex(dimension, x, y, z);
+    WorldCanonicalizeEditCoordinates(&x, &z);
+    SurfaceAddress address = SurfaceAddressAtWorld((float)x, (float)z, y);
+    SurfaceMapCell cell = SurfaceCanonicalMapCell(
+        (float)WorldSurfaceMapOriginX() + (float)x,
+        (float)WorldSurfaceMapOriginZ() + (float)z);
+    int existingIndex = FindBlockEditIndex(dimension, cell, y);
     if (existingIndex >= 0) {
         if (blockEdits[existingIndex].type == type) return;
         blockEdits[existingIndex].type = type;
@@ -523,8 +570,8 @@ void RememberBlockEdit(int x, int y, int z, BlockType type)
 
     blockEdits[blockEditCount] = (BlockEdit){ x, y, z, type };
     blockEditDimensions[blockEditCount] = dimension;
-    blockEditSurfaceAddresses[blockEditCount] = SurfaceAddressAtWorld(
-        (float)x, (float)z, y);
+    blockEditSurfaceAddresses[blockEditCount] = address;
+    blockEditSurfaceMapCells[blockEditCount] = cell;
     InsertBlockEditIndex(blockEditCount);
     blockEditCount++;
     BumpBlockEditRevision();
@@ -725,6 +772,11 @@ bool RedoBlockEdit(void)
 }
 static BlockType GetSurfaceBlockAt(int x, int y, int z)
 {
+    WorldCanonicalizeEditCoordinates(&x, &z);
+    BlockType block = BLOCK_AIR;
+    if (WorldGetBlockEditForCurrentDimensionAt(x, y, z, &block)) {
+        return block;
+    }
     int cx = 0;
     int cz = 0;
     int lx = 0;
@@ -734,11 +786,7 @@ static BlockType GetSurfaceBlockAt(int x, int y, int z)
     Chunk *chunk = FindChunk(cx, cz);
     if (!chunk) return BLOCK_AIR;
 
-    BlockType block = BLOCK_AIR;
     if (ChunkTryGetLocalBlock(chunk, lx, y, lz, &block)) return block;
-    if (WorldGetBlockEditForCurrentDimensionAt(x, y, z, &block)) {
-        return block;
-    }
     return HomeWorldSurfaceIsActive()
         ? TerrainBaseBlockAt(x, y, z, WorldTerrainMode())
         : BLOCK_AIR;
@@ -783,6 +831,7 @@ static bool SetBlockCore(
     const FluidBlockDisplacement *replay, bool replayAfter)
 {
     if (!InHeight(y)) return false;
+    WorldCanonicalizeEditCoordinates(&x, &z);
 
     BlockType previous = GetSurfaceBlockAt(x, y, z);
     int cx = 0;
@@ -978,6 +1027,16 @@ bool WorldGetEditSurfaceAddressAt(int index, SurfaceAddress *outAddress)
     return SurfaceAddressIsValid(*outAddress);
 }
 
+bool WorldGetEditSurfaceMapCellAt(int index, SurfaceMapCell *outCell)
+{
+    if (!outCell || index < 0 || index >= blockEditCount) return false;
+    *outCell = blockEditSurfaceMapCells[index];
+    return outCell->x >= -SURFACE_EQUATOR_BLOCKS / 2 &&
+           outCell->x < SURFACE_EQUATOR_BLOCKS / 2 &&
+           outCell->z >= -SURFACE_POLE_TO_POLE_BLOCKS / 2 &&
+           outCell->z < SURFACE_POLE_TO_POLE_BLOCKS / 2;
+}
+
 bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
 {
     if (!outEdit || index < 0 || index >= blockEditCount ||
@@ -985,6 +1044,10 @@ bool WorldGetEditForCurrentDimension(int index, BlockEdit *outEdit)
         return false;
     }
     *outEdit = blockEdits[index];
+    outEdit->x = blockEditSurfaceMapCells[index].x -
+                 WorldSurfaceMapOriginX();
+    outEdit->z = blockEditSurfaceMapCells[index].z -
+                 WorldSurfaceMapOriginZ();
     return true;
 }
 
@@ -992,7 +1055,11 @@ bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
                                             BlockType *outType)
 {
     if (!outType) return false;
-    int index = FindBlockEditIndex(WorldCurrentEditDimension(), x, y, z);
+    WorldCanonicalizeEditCoordinates(&x, &z);
+    SurfaceMapCell cell = SurfaceCanonicalMapCell(
+        (float)WorldSurfaceMapOriginX() + (float)x,
+        (float)WorldSurfaceMapOriginZ() + (float)z);
+    int index = FindBlockEditIndex(WorldCurrentEditDimension(), cell, y);
     if (index < 0) return false;
     *outType = blockEdits[index].type;
     return true;
@@ -1003,6 +1070,7 @@ void WorldCleanup(void)
     WorldExtensionCleanup();
     free(blockEditIndex);
     free(blockEditSurfaceAddresses);
+    free(blockEditSurfaceMapCells);
     free(blockEditDimensions);
     free(blockEdits);
 }

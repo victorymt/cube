@@ -142,6 +142,10 @@ static bool BuildTestMesh(
 
 static void AssertMeshWellFormed(const Mesh *mesh, int expectedVertexCount)
 {
+    if (mesh->vertexCount != expectedVertexCount) {
+        fprintf(stderr, "mesh vertex count: expected=%d actual=%d\n",
+                expectedVertexCount, mesh->vertexCount);
+    }
     assert(mesh->vertexCount == expectedVertexCount);
     assert(mesh->vertexCount % 6 == 0);
     assert(mesh->triangleCount == mesh->vertexCount / 3);
@@ -400,6 +404,7 @@ static void AssertUnknownWaterNeighborsAreConservative(void)
     chunks[0].cx = 1;
     chunks[0].cz = 0;
     chunks[0].surfaceAddress = ChunkSurfaceAddressAt(1, 0);
+    chunks[0].surfaceKey = ChunkSurfaceKeyAt(1, 0);
     assert(BuildTestMesh((const unsigned short (*)[CHUNK_SIZE])blocks,
                          TEST_MESH_WATER, &water));
     // A loaded chunk with an unresolved section is still unknown.

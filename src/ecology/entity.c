@@ -5,6 +5,7 @@
 #include "ecology/fauna_motion.h"
 #include "world/fluid.h"
 #include "raymath.h"
+#include "world/surface_topology.h"
 #include "world/world.h"
 #include "world/terrain.h"
 #include "ecology/ecology.h"
@@ -26,6 +27,47 @@ Vector3 EntityFluidCurrent(const Entity *entity)
     FluidSample sample = FluidSampleAt(point);
     if (sample.volume == 0u || point.y >= sample.surfaceY) return Vector3Zero();
     return sample.velocity;
+}
+
+Vector3 EntitySurfaceVector(Vector3 from, Vector3 to)
+{
+    SurfaceMapOffset offset = SurfaceShortestMapOffset(
+        from.x, from.z, to.x, to.z);
+    return (Vector3){ offset.x, to.y - from.y, offset.z };
+}
+
+float EntitySurfaceDistanceSquared(Vector3 first, Vector3 second)
+{
+    Vector3 offset = EntitySurfaceVector(first, second);
+    return offset.x * offset.x + offset.y * offset.y + offset.z * offset.z;
+}
+
+void EntityCanonicalizeSurfaceCell(int *x, int *z)
+{
+    if (!x || !z || !WorldIsSurfaceActive()) return;
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)*x, (float)*z);
+    *x = cell.x;
+    *z = cell.z;
+}
+
+void EntityCanonicalizeSurfacePosition(Entity *entity)
+{
+    if (!entity || !WorldIsSurfaceActive()) return;
+    float northDirection = 1.0f;
+    Vector2 canonical = SurfaceCanonicalMapPosition(
+        entity->position.x, entity->position.z, &northDirection);
+    if (fabsf(canonical.x - entity->position.x) <= 0.001f &&
+        fabsf(canonical.y - entity->position.z) <= 0.001f) {
+        return;
+    }
+    entity->position.x = canonical.x;
+    entity->position.z = canonical.y;
+    if (northDirection >= 0.0f) return;
+    entity->velocity.z = -entity->velocity.z;
+    entity->yaw = atan2f(sinf(entity->yaw), -cosf(entity->yaw));
+    entity->motionTargetYaw = atan2f(
+        sinf(entity->motionTargetYaw), -cosf(entity->motionTargetYaw));
+    entity->ecologyWindAngle = -entity->ecologyWindAngle;
 }
 
 typedef struct EntityDiskStateV1 {
@@ -720,6 +762,11 @@ bool EntitiesLoadState(FILE *file)
                 header[2] ^ (uint32_t)index * 0x9e3779b9u));
         }
     }
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        if (loaded[index].active) {
+            EntityCanonicalizeSurfacePosition(&loaded[index]);
+        }
+    }
 
     memcpy(entities, loaded, sizeof(entities));
     entityRandomState = header[2];
@@ -777,6 +824,12 @@ int EntityRayHit(Vector3 origin, Vector3 direction, float maxDistance)
             (entity->bodyPlan == PLANET_BODY_FLOATING || entity->aquatic)) {
             center.y = entity->position.y;
         }
+        Vector3 localCenter = EntitySurfaceVector(origin, center);
+        center = (Vector3){
+            origin.x + localCenter.x,
+            origin.y + localCenter.y,
+            origin.z + localCenter.z
+        };
 
         Vector3 toCenter = Vector3Subtract(center, origin);
         float proj = Vector3DotProduct(toCenter, direction);
@@ -918,8 +971,15 @@ void EntitiesApplyTornadoHazards(float dt, const TornadoState *tornado,
         if (!entity->active || entity->corpse) continue;
         Vector3 samplePosition = entity->position;
         samplePosition.y += fmaxf(entity->organismScale * 0.45f, 0.25f);
+        Vector3 localOffset = EntitySurfaceVector(
+            tornado->center, samplePosition);
+        Vector3 localPosition = {
+            tornado->center.x + localOffset.x,
+            tornado->center.y + localOffset.y,
+            tornado->center.z + localOffset.z
+        };
         TornadoForceSample force = TornadoModelForceAt(
-            tornado, samplePosition);
+            tornado, localPosition);
         if (force.exposure <= 0.0f) continue;
 
         float mobility = (0.58f + (1.0f - entity->bodyArmor) * 0.62f) *
@@ -992,10 +1052,8 @@ int EntityNearestEvolvable(Vector3 position, float radius)
     for (int index = 0; index < MAX_ENTITIES; index++) {
         const Entity *entity = &entities[index];
         if (!entity->active || !entity->evolvable) continue;
-        float dx = entity->position.x - position.x;
-        float dy = entity->position.y - position.y;
-        float dz = entity->position.z - position.z;
-        float distance = dx * dx + dy * dy + dz * dz;
+        float distance = EntitySurfaceDistanceSquared(
+            position, entity->position);
         if (distance < bestDistance) {
             bestDistance = distance;
             best = index;

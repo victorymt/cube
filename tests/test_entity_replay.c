@@ -1,6 +1,7 @@
 #include "ecology/entity.h"
 #include "world/fluid.h"
 #include "ecology/ecology_model.h"
+#include "world/surface_topology.h"
 #include "world/terrain.h"
 #include "world/weather_model.h"
 #include "world/world.h"
@@ -637,6 +638,51 @@ static void LoadVersion4Entities(const TestEntityDiskStateV4 *first,
     fclose(file);
 }
 
+static void TestSphericalEntityAliasMigration(void)
+{
+    const float pole = (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f;
+    TestEntityDiskStateV4 entity = EvolutionTestEntity(
+        EVOLUTION_ARCHETYPE_GROUND, 0x13579bdfu, CREATURE_SEX_FEMALE);
+    TestEntityDiskStateV1 *base = &entity.entity.entity.entity;
+    base->position[0] = 0.0f;
+    base->position[1] = 11.0f;
+    base->position[2] = pole + 4.0f;
+    base->velocity[2] = 1.25f;
+    base->yaw = 0.0f;
+    base->ecologyWindAngle = PI * 0.5f;
+    entity.entity.entity.motionTargetYaw = 0.0f;
+    LoadVersion4Entities(&entity, NULL);
+
+    float northDirection = 1.0f;
+    Vector2 canonical = SurfaceCanonicalMapPosition(
+        base->position[0], base->position[2], &northDirection);
+    assert(northDirection < 0.0f);
+    EntityEvolutionDebugInfo info = { 0 };
+    assert(EntityEvolutionInspect(0, &info));
+    assert(fabsf(info.positionX - canonical.x) < 0.001f);
+    assert(fabsf(info.positionZ - canonical.y) < 0.001f);
+    assert(EntityNearestEvolvable(
+               (Vector3){ 0.0f, 11.0f, pole + 4.0f }, 0.5f) == 0);
+
+    FILE *file = tmpfile();
+    assert(file);
+    assert(EntitiesSaveState(file));
+    uint32_t header[3];
+    float spawnTimer = 0.0f;
+    TestEntityDiskStateV4 saved[MAX_ENTITIES];
+    rewind(file);
+    assert(fread(header, sizeof(header), 1, file) == 1);
+    assert(fread(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
+    assert(fread(saved, sizeof(saved), 1, file) == 1);
+    fclose(file);
+    assert(header[0] == 4u);
+    const TestEntityDiskStateV1 *migrated = &saved[0].entity.entity.entity;
+    assert(fabsf(migrated->velocity[2] + 1.25f) < 0.001f);
+    assert(cosf(migrated->yaw) < -0.99f);
+    assert(cosf(saved[0].entity.entity.motionTargetYaw) < -0.99f);
+    assert(fabsf(migrated->ecologyWindAngle + PI * 0.5f) < 0.001f);
+}
+
 static void TestEvolutionLifecycleAndPredation(void)
 {
     Player player = { 0 };
@@ -738,6 +784,7 @@ int main(void)
     TestTerrainFollowingFlight();
     TestNeedsDriveEntityBehavior();
     TestEvolutionLifecycleAndPredation();
+    TestSphericalEntityAliasMigration();
     puts("entity replay tests passed");
     return 0;
 }

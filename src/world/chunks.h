@@ -49,6 +49,12 @@ typedef struct ChunkSectionPipelineInfo {
     bool dirty;
 } ChunkSectionPipelineInfo;
 
+typedef struct ChunkCanonicalIdentityStats {
+    int loaded;
+    int unique;
+    int duplicates;
+} ChunkCanonicalIdentityStats;
+
 bool InHeight(int y);
 int FloorDivInt(int value, int divisor);
 int PositiveMod(int value, int divisor);
@@ -56,6 +62,7 @@ bool SurfaceSectionInBounds(int sectionY);
 int SurfaceSectionYFromBlockY(int y);
 int SurfaceSectionLocalYFromBlockY(int y);
 void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz);
+void CanonicalizeSurfaceChunkCoordinates(int *cx, int *cz);
 const Chunk *ChunksView(void);
 Texture2D ChunksBlockAtlas(void);
 void ChunksSetBlockAtlas(Texture2D atlas);
@@ -63,9 +70,12 @@ int ChunksRenderDistance(void);
 void ChunksSetRenderDistance(int distance);
 
 Chunk *FindChunk(int cx, int cz);
+Chunk *FindHorizontalChunkNeighbor(int cx, int cz, int deltaCx, int deltaCz);
 SurfaceAddress SurfaceAddressAtWorld(float x, float z, int radial);
 SurfaceAddress ChunkSurfaceAddressAt(int cx, int cz);
-Chunk *FindSurfaceChunk(SurfaceAddress address);
+SurfaceChunkKey ChunkSurfaceKeyAt(int cx, int cz);
+Chunk *FindSurfaceChunk(SurfaceChunkKey key);
+int ChunkGridDistanceFrom(const Chunk *chunk, int cx, int cz);
 ChunkSection *ChunkGetSection(Chunk *chunk, int sectionY, bool create);
 const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY);
 bool ChunkTerrainSectionIsResolved(const Chunk *chunk, int sectionY);
@@ -122,6 +132,7 @@ void ChunksShutdownGenThread(void);
 void ProcessFinishedChunkJobs(void);
 void ProcessFinishedMeshJobs(double uploadBudgetMs);
 int GetActiveChunkCount(void);
+ChunkCanonicalIdentityStats ChunksGetCanonicalIdentityStats(void);
 int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
@@ -175,6 +186,8 @@ void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
                                  int sectionY, bool done);
 int ChunksTestNextGenerationJobIndex(void);
 int ChunksTestNextMeshJobIndex(void);
+bool ChunksTestEnsureChunk(int cx, int cz);
+bool ChunksTestFindPendingGenerationJob(int cx, int cz);
 
 typedef struct ChunkTestBoundarySnapshot {
     unsigned short blocks[CHUNK_SIZE + 2]

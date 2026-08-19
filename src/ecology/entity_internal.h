@@ -17,6 +17,10 @@ extern uint32_t entityRandomState;
 extern float entitySpawnTimer;
 
 Vector3 EntityFluidCurrent(const Entity *entity);
+Vector3 EntitySurfaceVector(Vector3 from, Vector3 to);
+float EntitySurfaceDistanceSquared(Vector3 first, Vector3 second);
+void EntityCanonicalizeSurfaceCell(int *x, int *z);
+void EntityCanonicalizeSurfacePosition(Entity *entity);
 uint32_t EntityMix(uint32_t value);
 uint32_t EntityRandomNext(void);
 int EntityRandomBounded(unsigned bound);

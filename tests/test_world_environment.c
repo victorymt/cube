@@ -2,6 +2,7 @@
 #include "world/terrain.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -202,12 +203,58 @@ static void TestSpace(void)
     assert(WorldGravityScale() == 0.0f);
 }
 
+static bool Near(float a, float b)
+{
+    return fabsf(a - b) < 0.001f;
+}
+
+static void TestSurfacePoseRebaseEvents(void)
+{
+    SetEnvironment(true, false, 1.0f, 0u);
+    WorldResetSurfaceRebaseEvent();
+    WorldSurfaceRebaseEvent event = WorldLastSurfaceRebaseEvent();
+    assert(!event.valid && event.sequence == 0u);
+
+    Vector3 position = { 8193.25f, 75.0f, 12.0f };
+    Vector3 velocity = { 2.0f, -3.0f, 4.0f };
+    float yaw = 0.4f;
+    assert(WorldCanonicalizeSurfacePose(&position, &velocity, &yaw));
+    assert(Near(position.x, -8190.75f));
+    assert(Near(position.z, 12.0f));
+    assert(Near(velocity.z, 4.0f));
+    assert(Near(yaw, 0.4f));
+    event = WorldLastSurfaceRebaseEvent();
+    assert(event.valid && event.sequence == 1u && event.bodyId == 0u);
+    assert(Near(event.previous.x, 8193.25f));
+    assert(Near(event.canonical.x, -8190.75f));
+    assert(event.northDirection == 1.0f);
+
+    position = (Vector3){ 0.0f, 80.0f, 4097.25f };
+    velocity = (Vector3){ 1.0f, 2.0f, 3.0f };
+    yaw = 0.4f;
+    assert(WorldCanonicalizeSurfacePose(&position, &velocity, &yaw));
+    assert(Near(position.x, -8192.0f));
+    assert(Near(position.z, 4094.75f));
+    assert(Near(velocity.z, -3.0f));
+    assert(Near(yaw, atan2f(sinf(0.4f), -cosf(0.4f))));
+    event = WorldLastSurfaceRebaseEvent();
+    assert(event.valid && event.sequence == 2u);
+    assert(event.northDirection == -1.0f);
+
+    WorldResetSurfaceRebaseEvent();
+    assert(!WorldLastSurfaceRebaseEvent().valid);
+    SetEnvironment(false, false, 1.0f, 0u);
+    assert(!WorldCanonicalizeSurfacePose(&position, &velocity, &yaw));
+    assert(!WorldLastSurfaceRebaseEvent().valid);
+}
+
 int main(void)
 {
     TestBlockRegions();
     TestHomeAndNether();
     TestPlanet();
     TestSpace();
+    TestSurfacePoseRebaseEvents();
     puts("world_environment tests passed");
     return 0;
 }

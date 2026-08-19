@@ -116,6 +116,7 @@ static bool EntitySamplePassiveSpawn(EntityPassiveSpawn *spawn,
         player->position.x + cosf(angle) * distance);
     spawn->z = (int)floorf(
         player->position.z + sinf(angle) * distance);
+    EntityCanonicalizeSurfaceCell(&spawn->x, &spawn->z);
     if (spawn->evolvable) {
         spawn->localEcology = PlanetEcologyLocalAt(
             spawn->x, spawn->z, daylight);
@@ -299,6 +300,7 @@ static void EntityInitializePassiveSpawn(EntityPassiveSpawn *spawn,
         ? spawn->ecology.primaryBlock : BLOCK_GRASS;
     entity->accentBlock = spawn->evolvable
         ? spawn->ecology.accentBlock : BLOCK_DIRT;
+    EntityCanonicalizeSurfacePosition(entity);
 }
 
 void EntitySpawnPassive(const Player *player, float daylight)
@@ -324,6 +326,7 @@ void EntitySpawnHostile(const Player *player, float daylight)
     float distance = 18.0f + (float)EntityRandomBounded(200u) / 10.0f;
     int x = (int)floorf(player->position.x + cosf(angle) * distance);
     int z = (int)floorf(player->position.z + sinf(angle) * distance);
+    EntityCanonicalizeSurfaceCell(&x, &z);
     int groundY = EntitySurfaceHeight(x, z);
     BlockType spawnAt = GetBlockAt(x, groundY + 1, z);
     BlockType spawnAbove = GetBlockAt(x, groundY + 2, z);
@@ -367,4 +370,5 @@ void EntitySpawnHostile(const Player *player, float daylight)
     EntityInitializeBehaviorState(entity);
     entity->primaryBlock = BLOCK_GRASS;
     entity->accentBlock = BLOCK_DIRT;
+    EntityCanonicalizeSurfacePosition(entity);
 }

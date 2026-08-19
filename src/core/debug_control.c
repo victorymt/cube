@@ -212,6 +212,21 @@ static DebugControlCommand DebugControlParseBlock(DebugControl *control,
     int y = 0;
     int z = 0;
     char trailing = '\0';
+    int typeOffset = -1;
+    if (sscanf(line, "block set %d %d %d %n",
+               &x, &y, &z, &typeOffset) == 3 && typeOffset >= 0 &&
+        line[typeOffset] != '\0' &&
+        strlen(line + typeOffset) < sizeof(control->blockQuery) &&
+        x >= -1000000 && x <= 1000000 &&
+        y >= -1000000 && y <= 1000000 &&
+        z >= -1000000 && z <= 1000000) {
+        control->blockSetX = x;
+        control->blockSetY = y;
+        control->blockSetZ = z;
+        snprintf(control->blockQuery, sizeof(control->blockQuery), "%s",
+                 line + typeOffset);
+        return DEBUG_CONTROL_COMMAND_BLOCK_SET;
+    }
     if (sscanf(line, "block gallery %d %d %d %c", &x, &y, &z,
                &trailing) == 3 && x >= -1000000 && x <= 1000000 &&
         y >= -1000000 && y <= 1000000 &&
@@ -505,6 +520,9 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "world topology") == 0) {
+        return DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY;
+    }
     if (strcmp(line, "water debug") == 0) {
         control->waterDebugEnabled = !control->waterDebugEnabled;
         return DEBUG_CONTROL_COMMAND_WATER_DEBUG;

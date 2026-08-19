@@ -14,6 +14,7 @@
 #include "world/chunks.h"
 #include "space/space_state.h"
 #include "world/world.h"
+#include "world/world_environment.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -56,17 +57,6 @@ static unsigned int MixWorldSeed(unsigned int hash)
     return hash ^ (hash >> 13);
 }
 
-static float WorldSeedCoordinateOffset(unsigned int lane)
-{
-    uint32_t seed = WorldGetSeed();
-    if (seed == DEFAULT_WORLD_SEED) return 0.0f;
-    unsigned int hash = seed ^ (lane * 0x9e3779b9u);
-    hash ^= hash >> 16;
-    hash *= 2246822519u;
-    int centered = (int)(hash % 200001u) - 100000;
-    return (float)centered * 0.01f;
-}
-
 unsigned int WorldHash2D(int x, int z)
 {
     return WorldHash2DBits((unsigned int)x, (unsigned int)z);
@@ -82,45 +72,98 @@ unsigned int WorldHash3D(int x, int y, int z)
     return MixWorldSeed(Hash3D(x, y, z));
 }
 
-static float WorldHashUnit2D(int x, int z, unsigned int lane)
-{
-    unsigned int h = WorldHash2DBits((unsigned int)(x + (int)(lane * 101u)),
-                                     (unsigned int)(z - (int)(lane * 173u)));
-    return (float)(h & 0x00ffffffu) / 16777215.0f;
-}
-
 static float NoiseSmooth(float value)
 {
     return value * value * (3.0f - 2.0f * value);
 }
 
-static float WorldValueNoise2D(float x, float z, unsigned int lane)
+static float WorldHashUnit3D(int x, int y, int z, unsigned int lane)
 {
-    int x0 = (int)floorf(x);
-    int z0 = (int)floorf(z);
-    float tx = NoiseSmooth(x - (float)x0);
-    float tz = NoiseSmooth(z - (float)z0);
-    float a = Lerp(WorldHashUnit2D(x0, z0, lane),
-                   WorldHashUnit2D(x0 + 1, z0, lane), tx);
-    float b = Lerp(WorldHashUnit2D(x0, z0 + 1, lane),
-                   WorldHashUnit2D(x0 + 1, z0 + 1, lane), tx);
-    return Lerp(a, b, tz);
+    unsigned int hash = WorldHash3D(
+        x + (int)(lane * 101u), y - (int)(lane * 173u),
+        z + (int)(lane * 211u));
+    return (float)(hash & 0x00ffffffu) / 16777215.0f;
 }
 
-static float WorldFractalNoise2D(float x, float z, unsigned int lane)
+static float WorldValueNoise3D(Vector3 point, unsigned int lane)
+{
+    int x0 = (int)floorf(point.x);
+    int y0 = (int)floorf(point.y);
+    int z0 = (int)floorf(point.z);
+    float tx = NoiseSmooth(point.x - (float)x0);
+    float ty = NoiseSmooth(point.y - (float)y0);
+    float tz = NoiseSmooth(point.z - (float)z0);
+    float x00 = Lerp(WorldHashUnit3D(x0, y0, z0, lane),
+                     WorldHashUnit3D(x0 + 1, y0, z0, lane), tx);
+    float x10 = Lerp(WorldHashUnit3D(x0, y0 + 1, z0, lane),
+                     WorldHashUnit3D(x0 + 1, y0 + 1, z0, lane), tx);
+    float x01 = Lerp(WorldHashUnit3D(x0, y0, z0 + 1, lane),
+                     WorldHashUnit3D(x0 + 1, y0, z0 + 1, lane), tx);
+    float x11 = Lerp(WorldHashUnit3D(x0, y0 + 1, z0 + 1, lane),
+                     WorldHashUnit3D(x0 + 1, y0 + 1, z0 + 1, lane), tx);
+    return Lerp(Lerp(x00, x10, ty), Lerp(x01, x11, ty), tz);
+}
+
+static float WorldFractalPointNoise(Vector3 point, unsigned int lane)
 {
     float value = 0.0f;
     float amplitude = 0.58f;
     float total = 0.0f;
     for (int octave = 0; octave < 5; octave++) {
-        value += WorldValueNoise2D(x, z, lane + (unsigned int)octave * 17u) *
+        value += WorldValueNoise3D(point, lane + (unsigned int)octave * 17u) *
                  amplitude;
         total += amplitude;
-        x = x * 2.03f + 11.3f;
-        z = z * 2.03f - 7.9f;
+        point = Vector3Add(
+            Vector3Scale(point, 2.03f),
+            (Vector3){ 11.3f, -7.9f, 5.7f });
         amplitude *= 0.49f;
     }
     return value / total;
+}
+
+unsigned int HomeSurfaceHashAt(int x, int z, unsigned int lane)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    return WorldHash2DBits(
+        (unsigned int)cell.x ^ (lane * 0x9e3779b9u),
+        (unsigned int)cell.z ^ (lane * 0x85ebca6bu));
+}
+
+unsigned int HomeVolumeHashAt(int x, int y, int z, unsigned int lane)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    return WorldHash3D(
+        cell.x ^ (int)(lane * 101u),
+        y ^ (int)(lane * 173u),
+        cell.z ^ (int)(lane * 211u));
+}
+
+float HomeSurfaceNoiseAt(int x, int z, float blockFrequency,
+                         unsigned int lane)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    Vector3 point = SurfaceDirectionFromMapCoordinates(
+        (float)cell.x + 0.5f, (float)cell.z + 0.5f);
+    point = Vector3Scale(
+        point, SURFACE_RADIUS_BLOCKS * blockFrequency);
+    return WorldFractalPointNoise(point, lane);
+}
+
+float HomeVolumeNoiseAt(int x, int y, int z, float blockFrequency,
+                        float radialFrequency, unsigned int lane)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    Vector3 point = SurfaceDirectionFromMapCoordinates(
+        (float)cell.x + 0.5f, (float)cell.z + 0.5f);
+    float radial = SURFACE_RADIUS_BLOCKS * blockFrequency +
+                   (float)y * radialFrequency;
+    return WorldFractalPointNoise(Vector3Scale(point, radial), lane);
+}
+
+static float WorldFractalSurfaceNoise(int x, int z, float frequency,
+                                      unsigned int lane)
+{
+    return HomeSurfaceNoiseAt(x, z, frequency, lane);
 }
 
 static float SmoothRange(float low, float high, float value)
@@ -202,7 +245,7 @@ static void HomeBathymetryClassify(BathymetrySample *sample,
 {
     if (!sample || sample->waterDepth <= 0) return;
     int depth = sample->waterDepth;
-    if (seamountRelief >= 600.0f && depth >= 200) {
+    if (seamountRelief >= 20.0f && depth >= 200) {
         sample->zone = BATHYMETRY_ZONE_SEAMOUNT;
     } else if (trenchRelief >= 900.0f && depth >= 6000) {
         sample->zone = BATHYMETRY_ZONE_TRENCH;
@@ -242,7 +285,7 @@ static BathymetrySample HomeBathymetryFromSignals(
     float deepOcean = SmoothRange(0.48f, 0.92f, ocean);
     float trenchRelief =
         trench * SmoothRange(0.52f, 0.82f, ocean) * 6500.0f;
-    float seamountRelief = seamount * deepOcean * 2600.0f;
+    float seamountRelief = seamount * deepOcean * 4200.0f;
     float depth = 8.0f;
     depth += SmoothRange(0.00f, 0.16f, ocean) * 42.0f;
     depth += SmoothRange(0.10f, 0.36f, ocean) * 150.0f;
@@ -251,6 +294,7 @@ static BathymetrySample HomeBathymetryFromSignals(
     depth += trenchRelief;
     depth -= seamountRelief;
     depth += Clamp(detail, -0.5f, 0.5f) * 200.0f;
+    depth *= 1.22f;
     depth = Clamp(depth, 1.0f,
                   (float)HOME_BATHYMETRY_MAX_WATER_DEPTH);
 
@@ -315,23 +359,26 @@ BlockType BathymetryMaterialBlock(BathymetryMaterial material)
 static float HomeTerrainElevationCore(int x, int z,
                                       SurfaceTerrainSample *sample)
 {
-    float fx = (float)x + WorldSeedCoordinateOffset(1u);
-    float fz = (float)z + WorldSeedCoordinateOffset(2u);
-    float continentalness = WorldFractalNoise2D(fx * 0.00135f,
-                                                fz * 0.00135f, 21u);
-    float erosion = WorldFractalNoise2D(fx * 0.0038f, fz * 0.0038f, 79u);
-    float ridgeNoise = WorldFractalNoise2D(fx * 0.0026f, fz * 0.0026f, 131u);
+    if (WorldIsSurfaceActive()) {
+        SurfaceMapCell canonical = SurfaceCanonicalMapCell((float)x, (float)z);
+        x = canonical.x;
+        z = canonical.z;
+    }
+    float continentalness = WorldFractalSurfaceNoise(
+        x, z, 0.00135f, 21u);
+    float erosion = WorldFractalSurfaceNoise(x, z, 0.0038f, 79u);
+    float ridgeNoise = WorldFractalSurfaceNoise(x, z, 0.0026f, 131u);
     float ridge = 1.0f - fabsf(ridgeNoise * 2.0f - 1.0f);
     ridge = SmoothRange(0.56f, 0.94f, ridge);
-    float peakNoise = WorldFractalNoise2D(fx * 0.0065f, fz * 0.0065f, 211u);
+    float peakNoise = WorldFractalSurfaceNoise(x, z, 0.0065f, 211u);
     float peak = SmoothRange(0.69f, 0.91f, peakNoise) * ridge;
     float trenchBoundary = 1.0f - fabsf(
-        WorldFractalNoise2D(fx * 0.0019f, fz * 0.0019f, 307u) * 2.0f - 1.0f);
+        WorldFractalSurfaceNoise(x, z, 0.0019f, 307u) * 2.0f - 1.0f);
     float trench = SmoothRange(0.80f, 0.97f, trenchBoundary);
     float seamount = SmoothRange(
         0.62f, 0.90f,
-        WorldFractalNoise2D(fx * 0.00105f, fz * 0.00105f, 353u));
-    float detail = WorldFractalNoise2D(fx * 0.021f, fz * 0.021f, 401u) - 0.5f;
+        WorldFractalSurfaceNoise(x, z, 0.00105f, 353u));
+    float detail = WorldFractalSurfaceNoise(x, z, 0.021f, 401u) - 0.5f;
     const float coast = 0.50f;
     float elevation = 0.0f;
     BathymetrySample bathymetry = BathymetryForHeight(
@@ -347,8 +394,8 @@ static float HomeTerrainElevationCore(int x, int z,
         float mountainMask = SmoothRange(0.08f, 0.64f, land) *
                              (1.0f - erosion * 0.48f);
         elevation = (float)HOME_SEA_LEVEL + 3.0f + land * 34.0f;
-        elevation += ridge * mountainMask * 92.0f;
-        elevation += peak * mountainMask * 48.0f;
+        elevation += ridge * mountainMask * 118.0f;
+        elevation += peak * mountainMask * 64.0f;
         elevation += detail * (5.0f + land * 8.0f);
         elevation = Clamp(elevation, 8.0f, 240.0f);
         bathymetry.seabedY = (int)lroundf(elevation);
@@ -366,6 +413,11 @@ static float HomeTerrainElevationCore(int x, int z,
 
 SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
 {
+    if (WorldIsSurfaceActive()) {
+        SurfaceMapCell canonical = SurfaceCanonicalMapCell((float)x, (float)z);
+        x = canonical.x;
+        z = canonical.z;
+    }
     SurfaceTerrainSample sample = { 0 };
     sample.seaLevel = mode == TERRAIN_FLAT ? -1.0f : (float)HOME_SEA_LEVEL;
     if (mode == TERRAIN_FLAT) {
@@ -387,12 +439,8 @@ SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
     float north = HomeTerrainElevationCore(x, z - 1, NULL);
     float south = HomeTerrainElevationCore(x, z + 1, NULL);
     sample.slope = fmaxf(fabsf(east - west), fabsf(north - south)) * 0.5f;
-    float climate = WorldFractalNoise2D(
-        ((float)x + WorldSeedCoordinateOffset(3u)) * 0.0018f,
-        ((float)z + WorldSeedCoordinateOffset(4u)) * 0.0018f, 503u);
-    float wetness = WorldFractalNoise2D(
-        ((float)x + WorldSeedCoordinateOffset(5u)) * 0.0024f,
-        ((float)z + WorldSeedCoordinateOffset(6u)) * 0.0024f, 607u);
+    float climate = WorldFractalSurfaceNoise(x, z, 0.0018f, 503u);
+    float wetness = WorldFractalSurfaceNoise(x, z, 0.0024f, 607u);
     if (sample.elevation >= 132.0f || sample.ridge > 0.58f) {
         sample.biome = BIOME_MOUNTAIN;
     } else if (climate < 0.25f) {
@@ -465,8 +513,7 @@ static int HomeTreeDensityDivisor(Biome biome)
 
 static unsigned int HomeTreeShapeHash(int treeX, int treeZ)
 {
-    return WorldHash2DBits((unsigned int)treeX ^ 0xa511e9b3u,
-                           (unsigned int)treeZ ^ 0x63d83595u);
+    return HomeSurfaceHashAt(treeX, treeZ, 1301u);
 }
 
 #ifdef TERRAIN_TESTING
@@ -573,9 +620,14 @@ static bool HomeTreeCandidateAt(int x, int z, TerrainMode mode,
 {
     if (mode == TERRAIN_FLAT) return false;
 
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    x = cell.x;
+    z = cell.z;
+
     SurfaceTerrainSample surface = SurfaceTerrainAt(x, z, mode);
     int divisor = HomeTreeDensityDivisor(surface.biome);
-    if (divisor == 0 || WorldHash2D(x, z) % (unsigned int)divisor != 0u) {
+    if (divisor == 0 ||
+        HomeSurfaceHashAt(x, z, 1303u) % (unsigned int)divisor != 0u) {
         return false;
     }
     int height = (int)lroundf(surface.elevation);
@@ -591,12 +643,14 @@ static bool HomeTreeCandidateAt(int x, int z, TerrainMode mode,
 
 static unsigned int HomeTreePlacementPriority(int x, int z)
 {
-    return WorldHash2DBits((unsigned int)x ^ 0x68bc21ebu,
-                           (unsigned int)z ^ 0x02e5be93u);
+    return HomeSurfaceHashAt(x, z, 1307u);
 }
 
 bool ShouldPlaceTree(int x, int z, TerrainMode mode)
 {
+    SurfaceMapCell root = SurfaceCanonicalMapCell((float)x, (float)z);
+    x = root.x;
+    z = root.z;
     FloraTaxonId taxon = FLORA_TAXON_COUNT;
     if (!HomeTreeCandidateAt(x, z, mode, &taxon)) return false;
 
@@ -625,10 +679,12 @@ bool ShouldPlaceTree(int x, int z, TerrainMode mode)
             if (distance > requiredSpacing) continue;
             unsigned int neighborPriority =
                 HomeTreePlacementPriority(neighborX, neighborZ);
+            SurfaceMapCell neighborCell = SurfaceCanonicalMapCell(
+                (float)neighborX, (float)neighborZ);
             if (neighborPriority < priority ||
                 (neighborPriority == priority &&
-                 (neighborX < x ||
-                  (neighborX == x && neighborZ < z)))) {
+                 (neighborCell.x < x ||
+                  (neighborCell.x == x && neighborCell.z < z)))) {
                 return false;
             }
         }
@@ -662,7 +718,7 @@ bool CaveWaterAt(int x, int y, int z, int height)
 
 BlockType OreAt(int x, int y, int z)
 {
-    unsigned int h = WorldHash3D(x, y, z);
+    unsigned int h = HomeVolumeHashAt(x, y, z, 1501u);
     if (y <= 11 && (h % 281u) == 0u) return BLOCK_DIAMOND_ORE;
     if (y <= 16 && (h % 149u) == 0u) return BLOCK_GOLD_ORE;
     if (y <= 24 && (h % 223u) == 0u) return BLOCK_SILVER_ORE;
@@ -673,9 +729,10 @@ BlockType OreAt(int x, int y, int z)
     if (y <= 30 && (h % 43u) == 0u) return BLOCK_COAL_ORE;
     if (y <= 30 && (h % 193u) == 0u) return BLOCK_MAGNETITE_ORE;
     if (y <= 46 && (h % 167u) == 0u) return BLOCK_HEMATITE_ORE;
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
     unsigned int quartz = WorldHash3D(
-        FloorDivInt(x, 3) + 719, FloorDivInt(y, 2) - 431,
-        FloorDivInt(z, 3) + 283);
+        FloorDivInt(cell.x, 3) + 719, FloorDivInt(y, 2) - 431,
+        FloorDivInt(cell.z, 3) + 283);
     if (y <= 96 && quartz % 113u == 0u) return BLOCK_QUARTZ_ORE;
     return BLOCK_STONE;
 }
@@ -694,10 +751,10 @@ bool ShouldPlacePond(int x, int z, int height)
     if (biome == BIOME_DESERT || biome == BIOME_MOUNTAIN) return false;
     if (biome == BIOME_SWAMP) {
         return height <= HOME_SEA_LEVEL + 12 &&
-               WorldHash2D(x, z) % 13u == 0u;
+               HomeSurfaceHashAt(x, z, 1511u) % 13u == 0u;
     }
     return height <= HOME_SEA_LEVEL + 4 &&
-           WorldHash2D(x, z) % 97u == 0u;
+           HomeSurfaceHashAt(x, z, 1513u) % 97u == 0u;
 }
 
 void SetChunkLocalBlock(Chunk *chunk, int worldX, int y, int worldZ, BlockType type)
@@ -844,8 +901,10 @@ void TerrainTestPlaceHomeTreeTaxon(Chunk *chunk, int treeX, int base,
 
 static unsigned int PlanetHash2D(int localX, int localZ, unsigned int lane)
 {
-    int globalX = localX + PlanetWorldOriginX();
-    int globalZ = localZ + PlanetWorldOriginZ();
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+        (float)localX, (float)localZ);
+    int globalX = canonical.x;
+    int globalZ = canonical.z;
     unsigned int h = Hash2D(globalX + (int)(lane * 101u),
                             globalZ - (int)(lane * 173u));
     h ^= PlanetWorldSeed() + 0x9e3779b9u + (h << 6) + (h >> 2);
@@ -854,48 +913,11 @@ static unsigned int PlanetHash2D(int localX, int localZ, unsigned int lane)
     return h ^ (h >> 13);
 }
 
-static float PlanetHashUnit2D(int x, int z, unsigned int lane)
-{
-    return (float)(PlanetHash2D(x, z, lane) & 0x00ffffffu) / 16777215.0f;
-}
-
-static float PlanetNoiseSmooth(float value)
-{
-    return value * value * (3.0f - 2.0f * value);
-}
-
-static float PlanetValueNoise2D(float x, float z, unsigned int lane)
-{
-    int x0 = (int)floorf(x);
-    int z0 = (int)floorf(z);
-    float tx = PlanetNoiseSmooth(x - (float)x0);
-    float tz = PlanetNoiseSmooth(z - (float)z0);
-    float a = Lerp(PlanetHashUnit2D(x0, z0, lane),
-                   PlanetHashUnit2D(x0 + 1, z0, lane), tx);
-    float b = Lerp(PlanetHashUnit2D(x0, z0 + 1, lane),
-                   PlanetHashUnit2D(x0 + 1, z0 + 1, lane), tx);
-    return Lerp(a, b, tz);
-}
-
-static float PlanetFractalNoise2D(float x, float z, unsigned int lane)
-{
-    float value = 0.0f;
-    float amplitude = 0.58f;
-    float total = 0.0f;
-    for (int octave = 0; octave < 4; octave++) {
-        value += PlanetValueNoise2D(x, z, lane + (unsigned int)octave * 17u) * amplitude;
-        total += amplitude;
-        x = x * 2.07f + 11.3f;
-        z = z * 2.07f - 7.9f;
-        amplitude *= 0.48f;
-    }
-    return value / total;
-}
-
 static void PlanetSurfaceCoordinates(int x, int z, float *outX, float *outZ)
 {
-    *outX = (float)PlanetWorldOriginX() + (float)x;
-    *outZ = (float)PlanetWorldOriginZ() + (float)z;
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell((float)x, (float)z);
+    *outX = (float)canonical.x;
+    *outZ = (float)canonical.z;
 }
 
 static void PlanetMapCoordinatesToLatLon(float mapX, float mapZ,
@@ -949,6 +971,17 @@ static PlanetSurfaceSample PlanetSampleLocalSurface(int x, int z, float *outX, f
     return PlanetSurfaceBaselineAt(x, z);
 }
 
+static float PlanetLocalSurfaceNoise(float mapX, float mapZ,
+                                     float blockFrequency,
+                                     unsigned int lane)
+{
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+        mapX, mapZ);
+    return PlanetSurfaceFractalNoiseAt(
+        PlanetWorldSeed(), projection.longitude, projection.latitude,
+        SURFACE_RADIUS_BLOCKS * blockFrequency, lane);
+}
+
 static int PlanetSeaLevelForProfile(SolarBodyStyle style,
                                     const PlanetProfile *profile)
 {
@@ -980,7 +1013,7 @@ int PlanetTerrainHeight(int x, int z)
     PlanetSurfaceSample surface = PlanetSampleLocalSurface(x, z, &fx, &fz);
     float roughness = Clamp(profile->terrainRoughness, 0.35f, 1.55f);
     float continents = surface.continentalness;
-    float localDetail = PlanetFractalNoise2D(fx * 0.024f, fz * 0.024f, 47u);
+    float localDetail = PlanetLocalSurfaceNoise(fx, fz, 0.024f, 47u);
     float hills = surface.regionalness * 0.62f + surface.detail * 0.23f +
                   localDetail * 0.15f;
     float coast = 0.27f + profile->oceanCoverage * 0.36f;
@@ -992,7 +1025,7 @@ int PlanetTerrainHeight(int x, int z)
                             0.0f, 1.0f);
         float seamount = SmoothRange(
             0.62f, 0.90f,
-            PlanetFractalNoise2D(fx * 0.00105f, fz * 0.00105f, 353u));
+            PlanetLocalSurfaceNoise(fx, fz, 0.00105f, 353u));
         BathymetrySample bathymetry = BathymetryFromSignals(
             seaLevel, ocean, surface.trench, seamount, hills - 0.5f);
         height = (float)bathymetry.seabedY;
@@ -1014,7 +1047,8 @@ int PlanetTerrainHeight(int x, int z)
         height += 14.0f + surface.volcanicCone * 32.0f;
         break;
     case PLANET_BIOME_BASALT_PLAINS:
-        height += sinf(fx * 0.15f) * cosf(fz * 0.13f) * 2.5f;
+        height += (PlanetLocalSurfaceNoise(fx, fz, 0.14f, 367u) - 0.5f) *
+                  5.0f;
         break;
     case PLANET_BIOME_GLACIER:
         height = fminf(height, 76.0f + (hills - 0.5f) * 7.0f);
@@ -1027,7 +1061,9 @@ int PlanetTerrainHeight(int x, int z)
         height -= surface.glacierCracks * 1.4f;
         break;
     case PLANET_BIOME_ICE_SHEET:
-        height += 8.0f + sinf((fx + fz) * 0.008f) * 6.0f;
+        height += 8.0f +
+                  (PlanetLocalSurfaceNoise(fx, fz, 0.008f, 373u) - 0.5f) *
+                      12.0f;
         break;
     case PLANET_BIOME_DUNES:
         {
@@ -1049,7 +1085,8 @@ int PlanetTerrainHeight(int x, int z)
         }
         break;
     case PLANET_BIOME_BADLANDS:
-        height += 8.0f + fabsf(sinf(fx * 0.026f) * cosf(fz * 0.022f)) * 16.0f;
+        height += 8.0f +
+                  PlanetLocalSurfaceNoise(fx, fz, 0.024f, 379u) * 16.0f;
         break;
     case PLANET_BIOME_OASIS:
         height = fminf(height, 84.0f + (hills - 0.5f) * 4.0f);
@@ -1073,7 +1110,7 @@ int PlanetTerrainHeight(int x, int z)
         height -= 14.0f + (1.0f - hills) * 10.0f;
         break;
     case PLANET_BIOME_CRATER_HIGHLANDS:
-        height += fabsf(sinf(fx * 0.021f) * cosf(fz * 0.019f)) * 10.0f;
+        height += PlanetLocalSurfaceNoise(fx, fz, 0.020f, 383u) * 10.0f;
         break;
     case PLANET_BIOME_OCEAN:
         if (!oceanColumn) {
@@ -1087,13 +1124,19 @@ int PlanetTerrainHeight(int x, int z)
         height += 18.0f + (hills - 0.35f) * 20.0f * roughness;
         break;
     case PLANET_BIOME_STORM_BANDS:
-        height = 112.0f + sinf(fz * 0.025f) * 14.0f +
-                 sinf(fx * 0.009f) * 10.0f;
+        {
+            SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+                fx, fz);
+            height = 112.0f + sinf(projection.latitude * 64.0f) * 14.0f +
+                     sinf(projection.longitude * 23.0f) *
+                         cosf(projection.latitude) * 10.0f;
+        }
         break;
     case PLANET_BIOME_PLAINS:
     case PLANET_BIOME_FOREST:
     default:
-        height += sinf(fx * 0.024f) * cosf(fz * 0.021f) * 5.0f;
+        height += (PlanetLocalSurfaceNoise(fx, fz, 0.023f, 389u) - 0.5f) *
+                  10.0f;
         break;
     }
 
@@ -1153,7 +1196,7 @@ BathymetrySample PlanetBathymetryAt(int x, int z)
     PlanetSurfaceSample surface = PlanetSampleLocalSurface(x, z, &fx, &fz);
     float seamount = SmoothRange(
         0.62f, 0.90f,
-        PlanetFractalNoise2D(fx * 0.00105f, fz * 0.00105f, 353u));
+        PlanetLocalSurfaceNoise(fx, fz, 0.00105f, 353u));
     BathymetrySample sample = BathymetryForHeight(
         seaLevel, height, surface.trench, seamount);
     return sample;
@@ -1764,9 +1807,9 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 
             if (mode != TERRAIN_FLAT && !submerged &&
                 biome == BIOME_DESERT && height > 6 &&
-                (WorldHash2D(worldX, worldZ) % 29u) == 0u) {
+                (HomeSurfaceHashAt(worldX, worldZ, 1319u) % 29u) == 0u) {
                 PlaceSaguaro(chunk, worldX, height + 1, worldZ,
-                             WorldHash2D(worldX, worldZ + 13));
+                             HomeSurfaceHashAt(worldX, worldZ, 1321u));
             }
         }
     }
@@ -1781,7 +1824,8 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
                 if (height < 4) continue;
                 BlockType ground = ChunkGetLocalBlock(chunk, lx, height, lz);
                 if (!HomeFloraSubstrate(ground)) continue;
-                unsigned int h = WorldHash2D(worldX, worldZ);
+                unsigned int h = HomeSurfaceHashAt(
+                    worldX, worldZ, 1327u);
                 BlockType cover = HomeTaxonGroundCoverBlock(
                     worldX, worldZ, mode, sample, ground, h);
                 if (cover != BLOCK_AIR) {

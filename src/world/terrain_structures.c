@@ -5,8 +5,8 @@
 
 #include <stdlib.h>
 
-#define VILLAGE_SPACING 48
-#define VILLAGE_PROBABILITY 35u
+#define VILLAGE_SPACING 64
+#define VILLAGE_PROBABILITY 62u
 #define VILLAGE_HALF_WIDTH 3
 #define VILLAGE_HALF_DEPTH 2
 
@@ -25,7 +25,7 @@ static void MaterializeHomeTerrainRange(Chunk *chunk, int cx, int cz,
 static void GenerateMineshaft(Chunk *chunk, int cx, int cz,
                               TerrainMode mode)
 {
-    const int spacing = 40;
+    const int spacing = 64;
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
     int minAnchorX = FloorDivInt(startX - 16, spacing);
@@ -35,18 +35,17 @@ static void GenerateMineshaft(Chunk *chunk, int cx, int cz,
 
     for (int anchorX = minAnchorX; anchorX <= maxAnchorX; anchorX++) {
         for (int anchorZ = minAnchorZ; anchorZ <= maxAnchorZ; anchorZ++) {
-            if (WorldHash2D(anchorX + 17, anchorZ + 29) % 100u >= 30u) {
+            int wx = anchorX * spacing;
+            int wz = anchorZ * spacing;
+            if (HomeSurfaceHashAt(wx, wz, 1409u) % 100u >= 75u) {
                 continue;
             }
 
-            int wx = anchorX * spacing;
-            int wz = anchorZ * spacing;
-            int wy = 8 + (int)(WorldHash2D(anchorX + 3, anchorZ + 5) % 5u);
-            int dx = (WorldHash2D(anchorX + 7, anchorZ + 11) % 2u) ? 1 : -1;
-            int dz = (WorldHash2D(anchorX + 13, anchorZ + 19) % 2u) ? 1 : -1;
+            int wy = 8 + (int)(HomeSurfaceHashAt(wx, wz, 1423u) % 5u);
+            int dx = (HomeSurfaceHashAt(wx, wz, 1427u) % 2u) ? 1 : -1;
+            int dz = (HomeSurfaceHashAt(wx, wz, 1429u) % 2u) ? 1 : -1;
             int length = 12 +
-                         (int)(WorldHash2D(anchorX + 23,
-                                          anchorZ + 31) % 9u);
+                         (int)(HomeSurfaceHashAt(wx, wz, 1433u) % 9u);
             MaterializeHomeTerrainRange(chunk, cx, cz, wy, wy + 3, mode);
 
             for (int i = 0; i < length; i++) {
@@ -72,7 +71,7 @@ static void GenerateMineshaft(Chunk *chunk, int cx, int cz,
 
 static void GenerateDungeon(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
-    const int spacing = 80;
+    const int spacing = 128;
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
     int minAnchorX = FloorDivInt(startX - 6, spacing);
@@ -82,14 +81,13 @@ static void GenerateDungeon(Chunk *chunk, int cx, int cz, TerrainMode mode)
 
     for (int anchorX = minAnchorX; anchorX <= maxAnchorX; anchorX++) {
         for (int anchorZ = minAnchorZ; anchorZ <= maxAnchorZ; anchorZ++) {
-            if (WorldHash2D(anchorX + 41, anchorZ + 53) % 100u >= 25u) {
+            int wx = anchorX * spacing;
+            int wz = anchorZ * spacing;
+            if (HomeSurfaceHashAt(wx, wz, 1451u) % 100u >= 64u) {
                 continue;
             }
 
-            int wx = anchorX * spacing;
-            int wz = anchorZ * spacing;
-            int wy = 10 + (int)(WorldHash2D(anchorX + 2,
-                                            anchorZ + 4) % 4u);
+            int wy = 10 + (int)(HomeSurfaceHashAt(wx, wz, 1453u) % 4u);
             MaterializeHomeTerrainRange(chunk, cx, cz, wy, wy + 3, mode);
 
             for (int ox = -3; ox <= 3; ox++) {
@@ -122,7 +120,7 @@ static void GenerateDungeon(Chunk *chunk, int cx, int cz, TerrainMode mode)
 static void GenerateDesertTemple(Chunk *chunk, int cx, int cz,
                                  TerrainMode mode)
 {
-    const int spacing = 90;
+    const int spacing = 128;
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
     int minAnchorX = FloorDivInt(startX - 7, spacing);
@@ -135,7 +133,7 @@ static void GenerateDesertTemple(Chunk *chunk, int cx, int cz,
             int wx = anchorX * spacing;
             int wz = anchorZ * spacing;
             if (BiomeAt(wx, wz) != BIOME_DESERT) continue;
-            if (WorldHash2D(anchorX + 67, anchorZ + 79) % 100u >= 20u) {
+            if (HomeSurfaceHashAt(wx, wz, 1471u) % 100u >= 40u) {
                 continue;
             }
 
@@ -198,7 +196,7 @@ static void GenerateVillage(Chunk *chunk, int cx, int cz, TerrainMode mode)
         for (int anchorZ = minAnchorZ; anchorZ <= maxAnchorZ; anchorZ++) {
             int wx = anchorX * VILLAGE_SPACING;
             int wz = anchorZ * VILLAGE_SPACING;
-            if (WorldHash2D(anchorX, anchorZ) % 100u >=
+            if (HomeSurfaceHashAt(wx, wz, 1481u) % 100u >=
                 VILLAGE_PROBABILITY) {
                 continue;
             }

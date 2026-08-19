@@ -51,7 +51,7 @@ Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,world,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 ## Process and stdin lifetime
@@ -171,8 +171,24 @@ Runtime values are sampled when an expression is evaluated:
 | `game.screen` | string | `"start"` or `"playing"` |
 | `world.seed` | number | Current world seed |
 | `world.dimension` | string | Current dimension name |
+| `world.surface_body` | number | Canonical ID of the active solid body |
+| `world.longitude` | number | Canonical longitude in radians |
+| `world.latitude` | number | Canonical latitude in radians |
+| `world.north_sign` | number | Current map chart's north tangent sign (`1` or `-1`) |
+| `world.canonical_position` | vec3 | Player position with canonical surface X/Z coordinates |
+| `world.loaded_canonical_chunks` | number | Unique loaded chunks on the active surface body |
+| `world.duplicate_canonical_chunks` | number | Loaded chunks that duplicate an earlier canonical identity |
+| `world.longitude_alias` | bool | Whole-longitude aliases resolve to the player's canonical cell |
+| `world.north_pole_alias` | bool | North-pole reflection aliases resolve to the player's canonical cell |
+| `world.south_pole_alias` | bool | South-pole reflection aliases resolve to the player's canonical cell |
+| `world.last_rebase` | bool | A surface rebase has occurred since the current world reset |
+| `world.last_rebase_from` | vec3 | Pre-rebase map X/Z, represented as `[x,0,z]` |
+| `world.last_rebase_to` | vec3 | Canonical post-rebase map X/Z, represented as `[x,0,z]` |
+| `world.last_rebase_north_sign` | number | North tangent sign used by the latest rebase, or `0` before one |
+| `world.rebase_count` | number | Monotonic surface rebase sequence since the current world reset |
 | `player.position` | vec3 | Player world position |
 | `player.velocity` | vec3 | Player velocity |
+| `player.input_frames` | number | Remaining scripted player-input frames |
 | `perf.enabled` | bool | Performance collection is enabled |
 | `perf.route_complete` | bool | Warmup and frame sampling are complete |
 | `perf.report_written` | bool | The performance report has been written |
@@ -281,6 +297,7 @@ also be rejected by the current game state (for example, `teleport` before
 ```text
 start
 status
+world topology
 screenshot
 save
 load
@@ -297,6 +314,10 @@ view first|third
 
 `water debug` and `water debug through` toggle their current setting when the
 `on`/`off` argument is omitted. `start` is valid on the start screen.
+`world topology` is a read-only surface-world inspection. It reports the body,
+canonical X/Z and longitude/latitude, north tangent sign, longitude and pole
+alias checks, unique and duplicate canonical chunk counts, and the most recent
+surface rebase event.
 `screenshot` first reports
 `DEBUG_CONTROL screenshot scheduled`; after the frame capture it reports
 `DEBUG_CONTROL capture ok png=PATH report=PATH`. The report is a key/value text
@@ -325,13 +346,17 @@ The start and result replies look like:
 
 ```text
 DEBUG_CONTROL stream wait started timeout_frames=300
-DEBUG_CONTROL stream wait result=settled elapsed_frames=... focus=... pending_local_sections=0 pending_gen=... pending_mesh=... pending_mesh_snapshot_bytes=... missing_surface_chunks=...
+DEBUG_CONTROL stream wait result=settled elapsed_frames=... focus=... pending_local_sections=0 first_pending=... pending_stages=missing:...,gen_wait:...,gen:...,dirty:...,mesh:... pending_gen=... pending_mesh=... pending_mesh_snapshot_bytes=... missing_surface_chunks=...
 ```
 
 If the local region is not settled by the timeout, the result is
 `result=timeout`, the current DSL executor is aborted with a timeout error, and
-the rest of that block is not executed. The wait can only run while playing in
-a surface world and cannot overlap an audit. `stream audit` scans a radius
+the rest of that block is not executed. `first_pending` identifies the first
+unsettled section, while `pending_stages` splits the count by missing section,
+generation wait, active generation, dirty mesh, and active mesh work. The wait
+actively requests its fixed starting 3-by-3-by-3 section window, can only run
+while playing in a surface world, and cannot overlap an audit.
+`stream audit` scans a radius
 around the player (default 2, range 1-4), or an explicit block coordinate; its
 result includes issue counts and can report `stale_rerun_required` when chunks
 changed during the scan.
@@ -368,13 +393,17 @@ surface world.
 
 ```text
 block inspect NAME_OR_ID
+block set X Y Z NAME_OR_ID
 block gallery X Y Z
 ```
 
 `block inspect` accepts a stable numeric ID or a canonical block name;
 spaces, hyphens, underscores, and letter case are equivalent. It reports the
 resolved ID and name, face textures, render shape, collision, translucency,
-material response, and Stage 05 membership. `block gallery` requires an active
+material response, and Stage 05 membership. `block set` uses the ordinary
+surface edit and persistence path, requires the target section to be loaded,
+and reports both the submitted coordinate and its canonical spherical cell.
+It is intended for deterministic seam/pole and save/load checks. `block gallery` requires an active
 surface world and a fully loaded 14-by-3 region beginning at `X Y Z`. It first
 validates the entire bounded region, then places all 26 Stage 05 blocks in
 geology, biogenic, and fire-residue rows as one undo group. A failed validation

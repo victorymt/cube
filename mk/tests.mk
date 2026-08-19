@@ -32,7 +32,7 @@ TEST_RAYLIB_CFLAGS_$2 := $8
 TEST_RAYLIB_LIBS_$2 := $9
 endef
 
-$(eval $(call define_test,TEST_TARGET,test_world_environment,src/world/world_environment.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,TEST_TARGET,test_world_environment,src/world/world_environment.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_SURFACE_TEST_TARGET,test_planet_surface,src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c src/space/space_illumination.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_MATERIAL_TEST_TARGET,test_planet_material,src/space/planet_material.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_CLIMATE_TEST_TARGET,test_planet_climate,src/space/planet_climate.c,,,, -lm,,))
@@ -47,6 +47,7 @@ $(eval $(call define_test,SPACE_UNITS_TEST_TARGET,test_space_units,src/space/spa
 $(eval $(call define_test,SPACE_COORDINATES_TEST_TARGET,test_space_coordinates,src/space/space_coordinates.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_TOPOLOGY_TEST_TARGET,test_surface_topology,src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_SAVE_TEST_TARGET,test_surface_save,src/world/surface_save.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,GAME_SAVE_SPHERICAL_TEST_TARGET,test_game_save_spherical,src/app/game_save.c src/world/surface_save.c src/world/surface_topology.c,-DGAME_SAVE_TESTING -ffunction-sections -fdata-sections,,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 
 SPACE_PROPERTIES_SOURCES := \
 	$(SPACE_FEATURE_SRC) \
@@ -115,18 +116,18 @@ $(eval $(call define_test,FAUNA_MOTION_TEST_TARGET,test_fauna_motion,src/ecology
 $(eval $(call define_test,FAUNA_BEHAVIOR_TEST_TARGET,test_fauna_behavior,src/ecology/fauna_behavior.c,,,, -lm,,))
 $(eval $(call define_test,EVOLUTION_TEST_TARGET,test_evolution,src/ecology/evolution.c src/ecology/creature_visual.c,,,, -lm,,))
 $(eval $(call define_test,EVOLUTION_CATALOG_TEST_TARGET,test_evolution_catalog,src/ecology/evolution_catalog.c src/ecology/evolution.c,,,, -lm,,))
-$(eval $(call define_test,FLUID_TEST_TARGET,test_fluid,src/world/fluid.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,FLUID_TEST_TARGET,test_fluid,src/world/fluid.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,BLOCK_MATERIAL_TEST_TARGET,test_block_material,,,,,,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,LOCAL_CLIMATE_TEST_TARGET,test_local_climate,src/world/local_climate.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_MODEL_TEST_TARGET,test_weather_model,src/world/weather_model.c,,,, -lm,,))
-$(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c src/ecology/flora_taxa.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c src/ecology/flora_taxa.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/presentation/weather_visual.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_VISUAL_TEST_TARGET,test_weather_visual,src/presentation/weather_visual.c,,,, -lm,,))
 $(eval $(call define_test,WILDFIRE_MODEL_TEST_TARGET,test_wildfire_model,src/world/wildfire_model.c,,,, -lm,,))
 $(eval $(call define_test,TORNADO_MODEL_TEST_TARGET,test_tornado_model,src/world/tornado_model.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,TORNADO_TEST_TARGET,test_tornado,src/world/tornado.c src/world/tornado_model.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,TORNADO_TEST_TARGET,test_tornado,src/world/tornado.c src/world/tornado_model.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,HOMEWORLD_MAP_MODEL_TEST_TARGET,test_homeworld_map_model,src/presentation/homeworld_map_model.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,MAP_MARKERS_TEST_TARGET,test_map_markers,src/gameplay/map_markers.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,MAP_MARKERS_TEST_TARGET,test_map_markers,src/gameplay/map_markers.c src/world/surface_topology.c,-DMAP_MARKERS_TESTING,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLAYER_COLLISION_TEST_TARGET,test_player_collision,src/gameplay/player.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SHIP_STATE_TEST_TARGET,test_ship_state,src/gameplay/ship.c src/gameplay/ship_runtime.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SHIP_FLIGHT_CONTROLLER_TEST_TARGET,test_ship_flight_controller,src/gameplay/ship_flight_controller.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
@@ -138,7 +139,7 @@ $(eval $(call define_test,ALBUM_TEST_TARGET,test_album,src/gameplay/album.c,,,,,
 $(eval $(call define_test,CHUNK_ATLAS_TEST_TARGET,test_chunk_atlas,$(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) src/world/world.c,,-DCHUNKS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,CHUNK_STREAMING_TEST_TARGET,test_chunk_streaming,$(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) src/world/world.c,,-DCHUNKS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,TERRAIN_SCALE_TEST_TARGET,test_terrain_scale,$(TERRAIN_FEATURE_SRC) $(CHUNKS_FEATURE_SRC),,-DTERRAIN_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
-$(eval $(call define_test,SUBSURFACE_TEST_TARGET,test_subsurface,src/world/subsurface.c,,,, -lm,,))
+$(eval $(call define_test,SUBSURFACE_TEST_TARGET,test_subsurface,src/world/subsurface.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_benchmark,CHUNK_BENCHMARK_TARGET,benchmark_chunks,$(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) $(TERRAIN_FEATURE_SRC) src/world/world.c src/ecology/evolution_catalog.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,PERF_TEST_TARGET,test_perf,src/core/perf.c,,-DPERF_TESTING,,-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,RENDER_SORT_TEST_TARGET,test_render_sort,src/presentation/render_sort.c,,,,,$(RAYLIB_CFLAGS),))
@@ -159,7 +160,7 @@ $(eval $(call define_test,GAME_STREAM_AUDIT_TEST_TARGET,test_game_stream_audit,s
 $(eval $(call define_test,ENVIRONMENT_PRESENTATION_TEST_TARGET,test_environment_presentation,src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,,))
 $(eval $(call define_test,ENVIRONMENT_RUNTIME_TEST_TARGET,test_environment_runtime,src/presentation/environment_runtime.c src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,,))
 $(eval $(call define_test,AUDIO_ENVIRONMENT_TEST_TARGET,test_audio_environment,src/presentation/audio.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
-$(eval $(call define_test,ENTITY_REPLAY_TEST_TARGET,test_entity_replay,$(ENTITY_FEATURE_SRC) src/presentation/creature_renderer.c src/ecology/creature_visual.c src/ecology/fauna_motion.c src/ecology/fauna_behavior.c src/ecology/evolution.c src/ecology/ecology_model.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,ENTITY_REPLAY_TEST_TARGET,test_entity_replay,$(ENTITY_FEATURE_SRC) src/world/surface_topology.c src/presentation/creature_renderer.c src/ecology/creature_visual.c src/ecology/fauna_motion.c src/ecology/fauna_behavior.c src/ecology/evolution.c src/ecology/ecology_model.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 
 ENTITY_ECOLOGY_SOURCES := \
 	tests/ecology_test_fixture.c \

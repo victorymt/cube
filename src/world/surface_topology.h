@@ -45,6 +45,29 @@ typedef struct SurfaceMapProjection {
     float northDirection;
 } SurfaceMapProjection;
 
+typedef struct SurfaceMapCell {
+    int x;
+    int z;
+} SurfaceMapCell;
+
+typedef struct SurfaceSpatialKey {
+    uint32_t bodyId;
+    int mapX;
+    int mapZ;
+    int radial;
+} SurfaceSpatialKey;
+
+typedef struct SurfaceChunkKey {
+    uint32_t bodyId;
+    SurfaceMapCell corners[4];
+} SurfaceChunkKey;
+
+typedef struct SurfaceMapOffset {
+    float x;
+    float z;
+    float northDirection;
+} SurfaceMapOffset;
+
 bool SurfaceFaceIsValid(SurfaceFace face);
 bool SurfaceAddressIsValid(SurfaceAddress address);
 bool SurfaceAddressEqual(SurfaceAddress a, SurfaceAddress b);
@@ -54,8 +77,22 @@ SurfaceAddress SurfaceAddressFromDirection(uint32_t bodyId, Vector3 direction,
 SurfaceAddress SurfaceAddressFromLatLon(uint32_t bodyId, float longitude,
                                         float latitude, int radial);
 SurfaceMapProjection SurfaceProjectMapCoordinates(float mapX, float mapZ);
+Vector2 SurfaceCanonicalMapPosition(float mapX, float mapZ,
+                                    float *outNorthDirection);
+SurfaceMapCell SurfaceCanonicalMapCell(float mapX, float mapZ);
+SurfaceSpatialKey SurfaceSpatialKeyFromMapCoordinates(
+    uint32_t bodyId, float mapX, float mapZ, int radial);
+bool SurfaceSpatialKeyEqual(SurfaceSpatialKey a, SurfaceSpatialKey b);
+bool SurfaceChunkKeyEqual(SurfaceChunkKey a, SurfaceChunkKey b);
+SurfaceMapOffset SurfaceShortestMapOffset(float fromX, float fromZ,
+                                          float toX, float toZ);
+uint32_t SurfaceCanonicalMapHash(uint32_t bodyId, float mapX, float mapZ,
+                                 int radial);
+Vector3 SurfaceDirectionFromMapCoordinates(float mapX, float mapZ);
 SurfaceAddress SurfaceAddressFromMapCoordinates(uint32_t bodyId, float x,
                                                 float z, int radial);
+bool SurfaceAddressCanonicalMapCell(SurfaceAddress address,
+                                    SurfaceMapCell *outCell);
 void SurfaceAddressLatLon(SurfaceAddress address, float *outLongitude,
                           float *outLatitude);
 SurfaceAddress SurfaceAddressOffset(SurfaceAddress address, int deltaU,

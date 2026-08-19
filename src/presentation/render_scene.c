@@ -119,11 +119,9 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         const Chunk *chunk = &surfaceChunks[i];
         if (!chunk->loaded) continue;
-        bool distanceVisible =
-            abs(chunk->cx - worldFrameCameraCx) <=
-                worldFrameEffectiveRenderDistance &&
-            abs(chunk->cz - worldFrameCameraCz) <=
-                worldFrameEffectiveRenderDistance;
+        bool distanceVisible = ChunkGridDistanceFrom(
+            chunk, worldFrameCameraCx, worldFrameCameraCz) <=
+            worldFrameEffectiveRenderDistance;
         if (!distanceVisible) continue;
         Vector2 patchMap = {
             (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
@@ -394,9 +392,8 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             const Chunk *chunk = &surfaceChunks[i];
             if (!chunk->loaded ||
-                abs(chunk->cx - worldFrameCameraCx) >
-                    worldFrameShadowChunkRadius ||
-                abs(chunk->cz - worldFrameCameraCz) >
+                ChunkGridDistanceFrom(
+                    chunk, worldFrameCameraCx, worldFrameCameraCz) >
                     worldFrameShadowChunkRadius) {
                 continue;
             }

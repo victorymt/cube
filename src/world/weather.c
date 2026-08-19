@@ -186,8 +186,8 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
         PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
         (void)longitude;
         input.seed = PlanetWorldSeed();
-        input.worldX = (float)PlanetWorldOriginX() + playerPosition.x;
-        input.worldZ = (float)PlanetWorldOriginZ() + playerPosition.z;
+        input.worldX = playerPosition.x;
+        input.worldZ = playerPosition.z;
         float daylight = 0.5f;
         float eclipse = 0.0f;
         if (PlanetWorldLightStateAtTime(

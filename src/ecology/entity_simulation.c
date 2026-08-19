@@ -189,10 +189,8 @@ static void DespawnDistantAlien(const Player *player)
     for (int index = 0; index < MAX_ENTITIES; index++) {
         Entity *entity = &entities[index];
         if (!entity->active || !EntityIsAlien(entity->type)) continue;
-        float dx = entity->position.x - player->position.x;
-        float dy = entity->position.y - player->position.y;
-        float dz = entity->position.z - player->position.z;
-        float distanceSquared = dx * dx + dy * dy + dz * dz;
+        float distanceSquared = EntitySurfaceDistanceSquared(
+            player->position, entity->position);
         if (distanceSquared > farthestDistanceSquared) {
             farthestDistanceSquared = distanceSquared;
             farthest = index;
@@ -267,6 +265,7 @@ static void MoveEntityHorizontal(Entity *entity, Vector3 delta, float dt)
                            (int)floorf(entity->position.y) + 1, (int)floorf(next.z + 0.3f * (delta.z >= 0 ? 1 : -1)))) {
         entity->position.z = next.z;
     }
+    EntityCanonicalizeSurfacePosition(entity);
 }
 
 static FaunaLocomotionArchetype EntityLocomotionArchetype(
@@ -431,6 +430,7 @@ static bool MoveEntityGrounded(Entity *entity,
     if (!FaunaMotionCandidateUsable(profile, &candidate)) return false;
     entity->position.x += deltaX;
     entity->position.z += deltaZ;
+    EntityCanonicalizeSurfacePosition(entity);
     if (standY > entity->position.y) {
         entity->position.y = standY;
         entity->velocity.y = 0.0f;
@@ -452,6 +452,7 @@ static bool MoveEntityAirborne(Entity *entity,
     if (!FaunaMotionCandidateUsable(profile, &candidate)) return false;
     entity->position.x += deltaX;
     entity->position.z += deltaZ;
+    EntityCanonicalizeSurfacePosition(entity);
     return true;
 }
 
@@ -537,10 +538,7 @@ static float EntityBehaviorMovementFloor(FaunaBehaviorAction action)
 
 static float EntityDistanceSquared(const Entity *first, const Entity *second)
 {
-    float dx = first->position.x - second->position.x;
-    float dy = first->position.y - second->position.y;
-    float dz = first->position.z - second->position.z;
-    return dx * dx + dy * dy + dz * dz;
+    return EntitySurfaceDistanceSquared(first->position, second->position);
 }
 
 static bool EntityAdult(const Entity *entity)
@@ -700,6 +698,7 @@ static bool EntityBirthOffspring(Entity *mother, float daylight)
     child->health = 1.0f;
     child->targetEntity = -1;
     EntityApplyEvolutionPhenotype(child);
+    EntityCanonicalizeSurfacePosition(child);
     PlanetEcologyRecordEvolutionEvent(
         (int)floorf(child->position.x), (int)floorf(child->position.z),
         daylight, child->lineageId, PLANET_EVOLUTION_EVENT_BIRTH,
@@ -804,8 +803,8 @@ static void PassiveAdvanceNeeds(PassiveUpdateContext *context)
         else if (entity->aquatic) context->baseSpeed *= 1.10f;
         else context->baseSpeed *= 0.92f;
     }
-    context->toPlayer = Vector3Subtract(
-        context->player->position, entity->position);
+    context->toPlayer = EntitySurfaceVector(
+        entity->position, context->player->position);
     context->threatened = Vector3Length(context->toPlayer) < 5.0f;
     context->movementScale = context->ecological
         ? context->runtime.movementScale : 1.0f;
@@ -903,8 +902,8 @@ static void PassiveChooseBehavior(PassiveUpdateContext *context)
         }
         if (evolutionTarget >= 0) {
             Entity *target = &entities[evolutionTarget];
-            Vector3 toTarget = Vector3Subtract(target->position,
-                                               entity->position);
+            Vector3 toTarget = EntitySurfaceVector(
+                entity->position, target->position);
             decision.action = evolutionAction;
             decision.yaw = atan2f(toTarget.x, toTarget.z);
             decision.moveDuration = 1.25f;
@@ -931,7 +930,8 @@ static void PassiveInteractWithTarget(PassiveUpdateContext *context)
     Entity *entity = context->entity;
     if (entity->evolvable && entity->targetEntity >= 0) {
         Entity *target = &entities[entity->targetEntity];
-        Vector3 toTarget = Vector3Subtract(target->position, entity->position);
+        Vector3 toTarget = EntitySurfaceVector(
+            entity->position, target->position);
         float targetDistance = Vector3Length(toTarget);
         entity->motionTargetYaw = atan2f(toTarget.x, toTarget.z);
         if (targetDistance <= entity->phenotype.bodyRadius +
@@ -1108,7 +1108,8 @@ static void UpdatePassive(Entity *entity, int entityIndex,
 
 static void UpdateHostile(Entity *entity, const Player *player, float dt, float daylight)
 {
-    Vector3 toPlayer = Vector3Subtract(player->position, entity->position);
+    Vector3 toPlayer = EntitySurfaceVector(
+        entity->position, player->position);
     toPlayer.y = 0.0f;
     float playerDist = Vector3Length(toPlayer);
     float speed = (entity->type == ENTITY_ZOMBIE) ? 1.4f : 1.2f;
@@ -1187,11 +1188,10 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
     for (int i = 0; i < MAX_ENTITIES; i++) {
         Entity *entity = &entities[i];
         if (!entity->active) continue;
+        EntityCanonicalizeSurfacePosition(entity);
 
-        float dx = entity->position.x - player->position.x;
-        float dy = entity->position.y - player->position.y;
-        float dz = entity->position.z - player->position.z;
-        if (dx * dx + dy * dy + dz * dz >
+        if (EntitySurfaceDistanceSquared(
+                player->position, entity->position) >
             ENTITY_DESPAWN_DISTANCE * ENTITY_DESPAWN_DISTANCE) {
             entity->active = false;
             continue;

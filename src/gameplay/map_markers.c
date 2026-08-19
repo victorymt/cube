@@ -5,9 +5,12 @@
 #include <math.h>
 #include <string.h>
 
-#define MAP_MARKER_STATE_VERSION 1u
+#define MAP_MARKER_STATE_VERSION MAP_MARKER_COORDINATE_SCHEMA
 
-static MapMarkerState mapMarkers = { .nextId = 1u };
+static MapMarkerState mapMarkers = {
+    .nextId = 1u,
+    .coordinateSchema = MAP_MARKER_COORDINATE_SCHEMA
+};
 
 static size_t BoundedLength(const char *text, size_t capacity)
 {
@@ -185,6 +188,7 @@ void MapMarkersEmptyState(MapMarkerState *state)
     if (!state) return;
     memset(state, 0, sizeof(*state));
     state->nextId = 1u;
+    state->coordinateSchema = MAP_MARKER_COORDINATE_SCHEMA;
 }
 
 void MapMarkersReset(void)
@@ -229,8 +233,15 @@ static bool StateIsValid(const MapMarkerState *state)
 
 bool MapMarkersInstallState(const MapMarkerState *state)
 {
-    if (!StateIsValid(state)) return false;
+    if (!StateIsValid(state) ||
+        state->coordinateSchema != MAP_MARKER_COORDINATE_SCHEMA) return false;
     mapMarkers = *state;
+    for (uint32_t index = 0u; index < mapMarkers.count; index++) {
+        Vector2 canonical = SurfaceCanonicalMapPosition(
+            mapMarkers.markers[index].x, mapMarkers.markers[index].z, NULL);
+        mapMarkers.markers[index].x = canonical.x;
+        mapMarkers.markers[index].z = canonical.y;
+    }
     return true;
 }
 
@@ -254,6 +265,7 @@ bool MapMarkersSaveState(FILE *file)
 {
     uint32_t version = MAP_MARKER_STATE_VERSION;
     if (!file || !StateIsValid(&mapMarkers) ||
+        mapMarkers.coordinateSchema != MAP_MARKER_COORDINATE_SCHEMA ||
         fwrite(&version, sizeof(version), 1, file) != 1 ||
         fwrite(&mapMarkers.count, sizeof(mapMarkers.count), 1, file) != 1 ||
         fwrite(&mapMarkers.nextId, sizeof(mapMarkers.nextId), 1, file) != 1 ||
@@ -297,7 +309,7 @@ bool MapMarkersReadState(FILE *file, MapMarkerState *out)
     MapMarkersEmptyState(&loaded);
     uint32_t version = 0u;
     if (fread(&version, sizeof(version), 1, file) != 1 ||
-        version != MAP_MARKER_STATE_VERSION ||
+        version < 1u || version > MAP_MARKER_STATE_VERSION ||
         fread(&loaded.count, sizeof(loaded.count), 1, file) != 1 ||
         fread(&loaded.nextId, sizeof(loaded.nextId), 1, file) != 1 ||
         fread(&loaded.targetId, sizeof(loaded.targetId), 1, file) != 1 ||
@@ -307,10 +319,45 @@ bool MapMarkersReadState(FILE *file, MapMarkerState *out)
     for (uint32_t i = 0u; i < loaded.count; i++) {
         if (!ReadRecord(file, &loaded.markers[i])) return false;
     }
+    loaded.coordinateSchema = version;
     if (!StateIsValid(&loaded)) return false;
     *out = loaded;
     return true;
 }
+
+bool MapMarkersMigrateLegacyState(MapMarkerState *state,
+                                  uint32_t currentPlanetId,
+                                  int currentPlanetOriginX,
+                                  int currentPlanetOriginZ)
+{
+    if (!StateIsValid(state) || state->coordinateSchema < 1u ||
+        state->coordinateSchema > MAP_MARKER_COORDINATE_SCHEMA) {
+        return false;
+    }
+    for (uint32_t index = 0u; index < state->count; index++) {
+        MapMarker *marker = &state->markers[index];
+        float mapX = marker->x;
+        float mapZ = marker->z;
+        if (state->coordinateSchema == 1u &&
+            marker->surface.dimension == WORLD_DIMENSION_PLANET &&
+            marker->surface.surfaceId == currentPlanetId) {
+            mapX += (float)currentPlanetOriginX;
+            mapZ += (float)currentPlanetOriginZ;
+        }
+        Vector2 canonical = SurfaceCanonicalMapPosition(mapX, mapZ, NULL);
+        marker->x = canonical.x;
+        marker->z = canonical.y;
+    }
+    state->coordinateSchema = MAP_MARKER_COORDINATE_SCHEMA;
+    return StateIsValid(state);
+}
+
+#ifdef MAP_MARKERS_TESTING
+void MapMarkersTestSetCoordinateSchema(uint32_t schema)
+{
+    mapMarkers.coordinateSchema = schema;
+}
+#endif
 
 int MapMarkersCount(MapMarkerSurface surface)
 {
@@ -368,9 +415,11 @@ bool MapMarkersCreate(MapMarkerSurface surface, float x, float z,
     }
     uint32_t id = AllocateId();
     if (id == 0u) return false;
+    Vector2 canonical = SurfaceCanonicalMapPosition(x, z, NULL);
     MapMarker *marker = &mapMarkers.markers[mapMarkers.count++];
     *marker = (MapMarker){
-        .id = id, .surface = surface, .x = x, .z = z, .color = color
+        .id = id, .surface = surface,
+        .x = canonical.x, .z = canonical.y, .color = color
     };
     snprintf(marker->name, sizeof(marker->name), "%s", name);
     if (outId) *outId = id;
