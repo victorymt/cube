@@ -28,7 +28,7 @@ work progresses, verified, and then committed as one reviewable change.
 | 02 | WMO cloud taxonomy and layered cloud fields | Complete |
 | 03 | Tornado lifecycle, forces, debris, and presentation | Complete |
 | 04 | Persistent wildfire, smoke, suppression, and recovery hooks | Complete |
-| 05 | Geological and biological block expansion | Planned |
+| 05 | Geological and biological block expansion | Complete |
 | 06 | Tree and plant diversity with biome ecology | Planned |
 | 07 | Global planetary topology and seamless traversal | Planned |
 | 08 | Cross-system integration, migration, and performance audit | Planned |

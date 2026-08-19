@@ -181,7 +181,31 @@ bool IsPlantBlock(BlockType type)
 
 bool IsEcologyBlock(BlockType type)
 {
-    return type >= BLOCK_TALL_GRASS && type <= BLOCK_CHEMO_MAT;
+    return (type >= BLOCK_TALL_GRASS && type <= BLOCK_CHEMO_MAT) ||
+           IsBiogenicBlock(type);
+}
+
+bool IsStage05Block(BlockType type)
+{
+    return type >= BLOCK_STAGE05_START && type <= BLOCK_STAGE05_END;
+}
+
+bool IsStage05GeologyBlock(BlockType type)
+{
+    return type >= BLOCK_STAGE05_GEOLOGY_START &&
+           type <= BLOCK_STAGE05_GEOLOGY_END;
+}
+
+bool IsBiogenicBlock(BlockType type)
+{
+    return type >= BLOCK_STAGE05_BIOGENIC_START &&
+           type <= BLOCK_STAGE05_BIOGENIC_END;
+}
+
+bool IsFireResidueBlock(BlockType type)
+{
+    return type >= BLOCK_FIRE_RESIDUE_START &&
+           type <= BLOCK_FIRE_RESIDUE_END;
 }
 
 float BlockCollisionHeight(BlockType type)
@@ -372,12 +396,22 @@ bool WorldPersistenceReserveEdits(int capacity)
     return capacity >= 0 && EnsureBlockEditCapacity(capacity);
 }
 
+bool WorldPersistenceEditsValid(const BlockEdit *edits, int count)
+{
+    if (count < 0 || (count > 0 && !edits)) return false;
+    for (int index = 0; index < count; index++) {
+        if (!InHeight(edits[index].y) ||
+            !IsValidBlockType(edits[index].type)) return false;
+    }
+    return true;
+}
+
 bool WorldPersistenceInstallEdits(const BlockEdit *edits,
                                   const uint32_t *dimensions,
                                   const SurfaceAddress *addresses,
                                   int count)
 {
-    if (count < 0 ||
+    if (!WorldPersistenceEditsValid(edits, count) ||
         (count > 0 && (!edits || !dimensions || !addresses)) ||
         !EnsureBlockEditCapacity(count)) {
         return false;

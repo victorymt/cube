@@ -67,12 +67,14 @@ typedef struct GameRuntime {
   LandingTransition landingTransition;
   GameStreamAuditState streamAudit;
   GameDebugTraceState debugTrace;
+  Vector3 blockGalleryOrigin;
 
   GameScreen screen;
   TerrainMode selectedTerrain;
   uint32_t selectedSeed;
   unsigned scriptedInputFrames;
   unsigned scriptedShipInputFrames;
+  unsigned blockGalleryPlaced;
   float scriptedShipInputFrameCarry;
 
   int selectedIndex;
@@ -94,6 +96,7 @@ typedef struct GameRuntime {
   bool debugTraceEnabled;
   bool debugTracePathInvalid;
   bool debugResolutionInvalid;
+  bool blockGalleryActive;
   bool showHelp;
   bool showDebug;
   bool scannerActive;

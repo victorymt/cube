@@ -50,6 +50,7 @@ static void TestCommandStream(void)
         "save\nload\nmap\n"
         "fluid inspect\nfluid inspect 1 72 -4\n"
         "fluid set 1 72 -4 127\nfluid step 25\n"
+        "block inspect Coral Limestone\nblock gallery -8 81 14\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
         "look 1.25 -0.3\nlook delta -0.5 0.1\n"
         "input 1 -0.5 1 1 120\n"
@@ -101,6 +102,11 @@ static void TestCommandStream(void)
     assert(control.fluidVolume == 127u);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLUID_STEP);
     assert(control.fluidTicks == 25u);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_BLOCK_INSPECT);
+    assert(strcmp(control.blockQuery, "coral limestone") == 0);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_BLOCK_GALLERY);
+    assert(control.blockGalleryX == -8 && control.blockGalleryY == 81 &&
+           control.blockGalleryZ == 14);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_TELEPORT);
     assert(control.teleport.x == 1.5f);
     assert(control.teleport.y == 72.0f);
@@ -150,6 +156,29 @@ static void TestCommandStream(void)
     close(inputPipe[0]);
     close(inputPipe[1]);
     close(outputPipe[0]);
+}
+
+static void TestBlockCommands(void)
+{
+    DebugControl control;
+    DebugControlInit(&control, true);
+    assert(DebugControlParseText(&control, "block inspect 136") ==
+           DEBUG_CONTROL_COMMAND_BLOCK_INSPECT);
+    assert(strcmp(control.blockQuery, "136") == 0);
+    assert(DebugControlParseText(&control, "block inspect fire_ash") ==
+           DEBUG_CONTROL_COMMAND_BLOCK_INSPECT);
+    assert(strcmp(control.blockQuery, "fire_ash") == 0);
+    assert(DebugControlParseText(&control, "block gallery 1 -32 3") ==
+           DEBUG_CONTROL_COMMAND_BLOCK_GALLERY);
+    assert(control.blockGalleryX == 1 && control.blockGalleryY == -32 &&
+           control.blockGalleryZ == 3);
+    assert(DebugControlParseText(&control, "block inspect") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "block gallery 1 2") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(
+               &control, "block gallery 1000001 2 3") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
 }
 
 static void TestTerrainMapCommands(void)
@@ -415,6 +444,7 @@ int main(void)
     TestDisabledControl();
     TestLongReply();
     TestCommandStream();
+    TestBlockCommands();
     TestTerrainMapCommands();
     TestFinalCommandWithoutNewline();
     TestInvalidParameterizedCommands();

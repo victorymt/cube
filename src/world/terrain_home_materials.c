@@ -98,12 +98,66 @@ static bool HomeLateriteAt(int worldX, int worldZ)
                                  (float)worldZ * 0.009f, 1063u) > 0.72f;
 }
 
+static bool HomeChernozemAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.010f,
+                                 (float)worldZ * 0.010f, 1201u) > 0.46f;
+}
+
+static bool HomeHumusAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.016f,
+                                 (float)worldZ * 0.016f, 1217u) > 0.40f;
+}
+
+static bool HomeCompostAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.025f,
+                                 (float)worldZ * 0.025f, 1231u) > 0.78f;
+}
+
+static bool HomeAlluviumAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.013f,
+                                 (float)worldZ * 0.013f, 1249u) > 0.38f;
+}
+
+static bool HomeTerraRossaAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.011f,
+                                 (float)worldZ * 0.011f, 1277u) > 0.70f;
+}
+
+static bool HomeBauxiteAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.008f,
+                                 (float)worldZ * 0.008f, 1291u) > 0.78f;
+}
+
+static bool HomeShellBedAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.018f,
+                                 (float)worldZ * 0.018f, 1303u) > 0.68f;
+}
+
+static bool HomeCoralLimestoneAt(int worldX, int worldZ)
+{
+    return HomeWorldValueNoise2D((float)worldX * 0.009f,
+                                 (float)worldZ * 0.009f, 1321u) > 0.74f;
+}
+
 static BlockType HomeRockBlock(int worldX, int y, int worldZ, int height,
                                Biome biome)
 {
     BlockType type = StoneOrCaveBlock(worldX, y, worldZ, height);
     int depth = height - y;
     if (type != BLOCK_STONE) return type;
+    if (depth >= 2 && CaveAt(worldX, y + 1, worldZ, height) &&
+        !CaveWaterAt(worldX, y + 1, worldZ, height) &&
+        WorldHash3D(FloorDivInt(worldX, 3), FloorDivInt(y, 2),
+                    FloorDivInt(worldZ, 3)) % 47u == 0u) {
+        return BLOCK_GUANO;
+    }
     return TerrainGeologyHomeStoneBlock(
         biome, depth, HomeGeologyField(worldX, y, worldZ, 733u),
         HomeGeologyField(worldX, y, worldZ, 811u));
@@ -133,6 +187,24 @@ BlockType TerrainHomeBaseBlockFromSample(
                 HomeLoamAt(worldX, worldZ);
     bool laterite = biome == BIOME_DESERT &&
                     HomeLateriteAt(worldX, worldZ);
+    bool chernozem = biome == BIOME_PLAINS &&
+                     HomeChernozemAt(worldX, worldZ);
+    bool humus = biome == BIOME_FOREST &&
+                 HomeHumusAt(worldX, worldZ);
+    bool compost = (biome == BIOME_FOREST || biome == BIOME_SWAMP) &&
+                   HomeCompostAt(worldX, worldZ);
+    bool alluvium = wetSoil && HomeAlluviumAt(worldX, worldZ);
+    bool terraRossa = biome == BIOME_DESERT &&
+                      HomeTerraRossaAt(worldX, worldZ);
+    bool bauxite = biome == BIOME_DESERT && laterite &&
+                   HomeBauxiteAt(worldX, worldZ);
+    bool shallowMarine = submerged &&
+                         surface->bathymetry.waterDepth > 0 &&
+                         surface->bathymetry.waterDepth <= 14;
+    bool shellBed = shallowMarine &&
+                    HomeShellBedAt(worldX, worldZ);
+    bool coralLimestone = shallowMarine && biome != BIOME_SNOW &&
+                          HomeCoralLimestoneAt(worldX, worldZ);
     bool salt = y <= height && (biome == BIOME_DESERT || submerged) &&
                 y >= height - 6 &&
                 HomeSaltDepositAt(worldX, worldZ);
@@ -160,7 +232,13 @@ BlockType TerrainHomeBaseBlockFromSample(
         }
         if (y > height - sedimentDepth) {
             type = BathymetryMaterialBlock(surface->bathymetry.material);
-            if ((surface->bathymetry.zone == BATHYMETRY_ZONE_SLOPE ||
+            if (coralLimestone && y >= height - 2) {
+                type = BLOCK_CORAL_LIMESTONE;
+            } else if (shellBed && y >= height - 1) {
+                type = BLOCK_SHELL_BED;
+            } else if (alluvium && y >= height - 2) {
+                type = BLOCK_ALLUVIUM;
+            } else if ((surface->bathymetry.zone == BATHYMETRY_ZONE_SLOPE ||
                  surface->bathymetry.zone ==
                      BATHYMETRY_ZONE_ABYSSAL_PLAIN) &&
                 HomeWorldValueNoise2D((float)worldX * 0.011f,
@@ -186,10 +264,12 @@ BlockType TerrainHomeBaseBlockFromSample(
     } else if (y < height) {
         if (biome == BIOME_DESERT) {
             type = y > height - 3
-                ? (salt ? BLOCK_ROCK_SALT
-                        : (laterite ? BLOCK_LATERITE
-                                   : (redSand ? BLOCK_RED_SAND
-                                              : BLOCK_SAND)))
+                ? (bauxite ? BLOCK_BAUXITE
+                           : (terraRossa ? BLOCK_TERRA_ROSSA
+                              : (salt ? BLOCK_ROCK_SALT
+                                 : (laterite ? BLOCK_LATERITE
+                                    : (redSand ? BLOCK_RED_SAND
+                                               : BLOCK_SAND)))))
                 : HomeRockBlock(worldX, y, worldZ, height, biome);
         } else if (biome == BIOME_SNOW) {
             type = y > height - 3
@@ -201,22 +281,31 @@ BlockType TerrainHomeBaseBlockFromSample(
                 : HomeRockBlock(worldX, y, worldZ, height, biome);
         } else if (biome == BIOME_SWAMP) {
             type = y > height - 5
-                ? (peat ? BLOCK_PEAT
-                        : (y >= height - 2 ? BLOCK_MUD : BLOCK_SILT))
+                ? (compost ? BLOCK_COMPOST
+                           : (peat ? BLOCK_PEAT
+                              : (alluvium ? BLOCK_ALLUVIUM
+                                 : (y >= height - 2 ? BLOCK_MUD
+                                                    : BLOCK_SILT))))
                 : HomeRockBlock(worldX, y, worldZ, height, biome);
         } else {
             type = y > height - 4
-                ? (peat ? BLOCK_PEAT
-                        : (podzol ? BLOCK_PODZOL
+                ? (compost ? BLOCK_COMPOST
+                   : (humus ? BLOCK_HUMUS
+                      : (chernozem ? BLOCK_CHERNOZEM
+                         : (alluvium ? BLOCK_ALLUVIUM
+                            : (peat ? BLOCK_PEAT
+                               : (podzol ? BLOCK_PODZOL
                                   : (wetSoil ? BLOCK_MUD
-                                             : (loam ? BLOCK_LOAM
-                                                     : BLOCK_DIRT))))
+                                     : (loam ? BLOCK_LOAM
+                                             : BLOCK_DIRT))))))))
                 : HomeRockBlock(worldX, y, worldZ, height, biome);
         }
     } else if (biome == BIOME_DESERT) {
-        type = salt ? BLOCK_ROCK_SALT
-                    : (laterite ? BLOCK_LATERITE
-                                : (redSand ? BLOCK_RED_SAND : BLOCK_SAND));
+        type = bauxite ? BLOCK_BAUXITE
+                       : (terraRossa ? BLOCK_TERRA_ROSSA
+                          : (salt ? BLOCK_ROCK_SALT
+                             : (laterite ? BLOCK_LATERITE
+                                : (redSand ? BLOCK_RED_SAND : BLOCK_SAND))));
     } else if (biome == BIOME_SNOW) {
         type = BLOCK_SNOW;
     } else if (biome == BIOME_MOUNTAIN) {
@@ -224,11 +313,18 @@ BlockType TerrainHomeBaseBlockFromSample(
                              : (height >= 125 ? BLOCK_STONE : BLOCK_GRASS);
     } else if (biome == BIOME_SWAMP) {
         type = swampPool ? BLOCK_WATER
-                         : (peat ? BLOCK_PEAT : BLOCK_MUD);
+                         : (compost ? BLOCK_COMPOST
+                            : (peat ? BLOCK_PEAT
+                               : (alluvium ? BLOCK_ALLUVIUM : BLOCK_MUD)));
     } else {
-        type = peat ? BLOCK_PEAT
-                    : (podzol ? BLOCK_PODZOL
-                              : (wetSoil ? BLOCK_MUD : BLOCK_GRASS));
+        type = compost ? BLOCK_COMPOST
+                       : (humus ? BLOCK_HUMUS
+                          : (chernozem ? BLOCK_CHERNOZEM
+                             : (alluvium ? BLOCK_ALLUVIUM
+                                : (peat ? BLOCK_PEAT
+                                   : (podzol ? BLOCK_PODZOL
+                                      : (wetSoil ? BLOCK_MUD
+                                                 : BLOCK_GRASS))))));
     }
 
     if (mode != TERRAIN_FLAT && y == height - 2 &&

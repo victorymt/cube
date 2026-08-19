@@ -186,7 +186,20 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x8df048737a6c80d7), UINT64_C(0xf72ba9903c08646c),
     UINT64_C(0xc5b4ee8637bffe1f), UINT64_C(0x264b4169f4ee7b95),
     UINT64_C(0xbd95f376cf081b2d), UINT64_C(0x9e0af6cec12d20cd),
-    UINT64_C(0x82e6c2392d9be6fa)
+    UINT64_C(0x82e6c2392d9be6fa),
+    UINT64_C(0xe7eb633082fb89ec), UINT64_C(0x50d1d31c61af4b00),
+    UINT64_C(0xe86359726216509e), UINT64_C(0x5ffd7ba67b9d8a1c),
+    UINT64_C(0xaf881376348ce020), UINT64_C(0xdae9bb37a7ddcd37),
+    UINT64_C(0x88921bbe7bff37f8), UINT64_C(0x9c1e2696e2712110),
+    UINT64_C(0x941bf2541cba3567), UINT64_C(0x087945cb33a4520a),
+    UINT64_C(0xadddb4dc690ae8b6), UINT64_C(0x026e2bc0a0bedc67),
+    UINT64_C(0x41f6147376d10bec), UINT64_C(0xeec7c04f1a850699),
+    UINT64_C(0x7fd079f4b0fae6d8), UINT64_C(0xcac0c116d011df20),
+    UINT64_C(0xcc5921ca1bff8f48), UINT64_C(0x831f86a0d1332ccc),
+    UINT64_C(0xd717f738fd2f53b1), UINT64_C(0x2970104139ad9594),
+    UINT64_C(0x9576c81179c6ebd3), UINT64_C(0x1b878d0bd6a58940),
+    UINT64_C(0x75cc6460c15bef1f), UINT64_C(0x9b2d08199cef434a),
+    UINT64_C(0xe66301a4e7ead52a), UINT64_C(0x0a2f63a8705a7245)
 };
 
 _Static_assert(sizeof(EXPECTED_TILE_HASHES) /
@@ -281,8 +294,15 @@ static void AssertPixelContract(Image image)
             matched = false;
         }
     }
+    for (int texture = TEX_ANDESITE; texture < TEX_COUNT; texture++) {
+        assert(EXPECTED_TILE_HASHES[texture] != 0u);
+        for (int previous = 0; previous < texture; previous++) {
+            assert(EXPECTED_TILE_HASHES[texture] !=
+                   EXPECTED_TILE_HASHES[previous]);
+        }
+    }
     uint64_t atlas = HashRegion(image, 0, 0, image.width, image.height);
-    if (atlas != UINT64_C(0x93db53eaa526f404)) {
+    if (atlas != UINT64_C(0x785aef9a355d43dc)) {
         fprintf(stderr, "atlas digest: got 0x%016llx\n",
                 (unsigned long long)atlas);
         matched = false;
@@ -317,7 +337,8 @@ static void AssertTransparentArtwork(Image image)
 {
     const BlockTexture textures[] = {
         TEX_FLOWER, TEX_MUSHROOM, TEX_TALL_GRASS, TEX_FERN,
-        TEX_REED, TEX_LICHEN, TEX_CANOPY_FROND, TEX_LUMINOUS_POD
+        TEX_REED, TEX_LICHEN, TEX_CANOPY_FROND, TEX_LUMINOUS_POD,
+        TEX_LEAF_LITTER
     };
     for (size_t index = 0;
          index < sizeof(textures) / sizeof(textures[0]); index++) {
@@ -372,6 +393,12 @@ static void AssertTextureMapping(void)
          index < sizeof(ecologyBlocks) / sizeof(ecologyBlocks[0]); index++) {
         assert(TextureForBlockFace(ecologyBlocks[index], 0) ==
                (BlockTexture)(TEX_TALL_GRASS + index));
+    }
+    for (int index = 0;
+         index <= BLOCK_STAGE05_END - BLOCK_STAGE05_START; index++) {
+        assert(TextureForBlockFace((BlockType)(BLOCK_STAGE05_START + index),
+                                   0) ==
+               (BlockTexture)(TEX_ANDESITE + index));
     }
     for (int index = 0; index < COLOR_BLOCK_COUNT; index++) {
         BlockType block = (BlockType)(BLOCK_COLOR_START + index);
@@ -430,7 +457,7 @@ static void AssertNaturalBlockContract(void)
         { BLOCK_VENT_CHIMNEY, "Vent Chimney", BLOCK_RENDER_CUBE, 1.0f, false },
         { BLOCK_CHEMO_MAT, "Chemosynthetic Mat", BLOCK_RENDER_CARPET, 0.0f, true }
     };
-    assert(BLOCK_NATURAL_END - BLOCK_TALL_GRASS + 1 ==
+    assert(BLOCK_CHEMO_MAT - BLOCK_TALL_GRASS + 1 ==
            (int)(sizeof(ecology) / sizeof(ecology[0])));
     for (size_t index = 0; index < sizeof(ecology) / sizeof(ecology[0]); index++) {
         const EcologyBlockContract *contract = &ecology[index];
@@ -445,6 +472,88 @@ static void AssertNaturalBlockContract(void)
         assert(IsEcologyBlock(contract->type));
         assert(BlockBaseColor(contract->type).a == 255);
     }
+
+    typedef struct Stage05BlockContract {
+        const char *name;
+        BlockRenderShape shape;
+        float collisionHeight;
+        bool translucent;
+    } Stage05BlockContract;
+    static const Stage05BlockContract stage05[] = {
+        { "Andesite", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Diorite", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Rhyolite", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Tuff", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Schist", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Slate", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Serpentinite", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Dolomite", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Gypsum", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Travertine", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Bauxite", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Hematite Ore", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Magnetite Ore", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Phosphate Rock", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Chernozem", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Terra Rossa", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Alluvium", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Leaf Litter", BLOCK_RENDER_CARPET, 0.0f, true },
+        { "Humus", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Compost", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Shell Bed", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Coral Limestone", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Guano", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Charred Wood", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Charcoal", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Fire Ash", BLOCK_RENDER_CUBE, 1.0f, false }
+    };
+    assert(BLOCK_CHEMO_MAT == 110);
+    assert(BLOCK_STAGE05_START == 111);
+    assert(BLOCK_STAGE05_GEOLOGY_END == 124);
+    assert(BLOCK_STAGE05_BIOGENIC_START == 125);
+    assert(BLOCK_STAGE05_BIOGENIC_END == 133);
+    assert(BLOCK_FIRE_RESIDUE_START == 134);
+    assert(BLOCK_STAGE05_END == 136);
+    assert(BLOCK_NATURAL_END == 136);
+    assert(BLOCK_STAGE05_END < BLOCK_COLOR_START);
+    assert((int)(sizeof(stage05) / sizeof(stage05[0])) ==
+           BLOCK_STAGE05_END - BLOCK_STAGE05_START + 1);
+    for (size_t index = 0; index < sizeof(stage05) / sizeof(stage05[0]);
+         index++) {
+        BlockType type = (BlockType)(BLOCK_STAGE05_START + (int)index);
+        const Stage05BlockContract *contract = &stage05[index];
+        assert(IsStage05Block(type));
+        assert(IsStage05GeologyBlock(type) ==
+               (type <= BLOCK_STAGE05_GEOLOGY_END));
+        assert(IsBiogenicBlock(type) ==
+               (type >= BLOCK_STAGE05_BIOGENIC_START &&
+                type <= BLOCK_STAGE05_BIOGENIC_END));
+        assert(IsFireResidueBlock(type) ==
+               (type >= BLOCK_FIRE_RESIDUE_START));
+        assert(strcmp(BlockName(type), contract->name) == 0);
+        assert(BlockRenderShapeFor(type) == contract->shape);
+        assert(BlockCollisionHeight(type) == contract->collisionHeight);
+        assert(IsTranslucentBlock(type) == contract->translucent);
+        assert(IsPlantBlock(type) == (type == BLOCK_LEAF_LITTER));
+        assert(IsEcologyBlock(type) == IsBiogenicBlock(type));
+        BlockMaterialResponse material = BlockMaterialResponseFor(type);
+        assert(material.windResistance >= 0.0f &&
+               material.windResistance <= 1.0f);
+        assert(material.impactResistance >= 0.0f &&
+               material.impactResistance <= 1.0f);
+        assert(material.flammability >= 0.0f &&
+               material.flammability <= 1.0f);
+        assert(material.waterErodibility >= 0.0f &&
+               material.waterErodibility <= 1.0f);
+        if (IsStage05GeologyBlock(type) || IsFireResidueBlock(type)) {
+            assert(material.flammability == 0.0f);
+        }
+    }
+    assert(BlockMaterialResponseFor(BLOCK_ANDESITE).windResistance > 0.9f);
+    assert(BlockMaterialResponseFor(BLOCK_MAGNETITE_ORE).impactResistance >
+           0.9f);
+    assert(BlockMaterialResponseFor(BLOCK_LEAF_LITTER).flammability > 0.9f);
+    assert(BlockMaterialResponseFor(BLOCK_FIRE_ASH).waterErodibility > 0.9f);
 }
 
 static void AssertBlockCatalogCompleteness(void)

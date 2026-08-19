@@ -51,7 +51,7 @@ Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,weather,evolution statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,weather,evolution,block statements=let,assert,wait,repeat,exit
 ```
 
 ## Process and stdin lifetime
@@ -241,6 +241,13 @@ Runtime values are sampled when an expression is evaluated:
 | `target.hit` | bool | Current solid raycast hit exists |
 | `target.position` | vec3 | Current raycast block position; only meaningful when `target.hit` is true |
 | `target.block` | string | Target block name, or `air` when there is no hit |
+| `block.catalog_count` | number | All ordinary/natural and color block identities |
+| `block.natural_count` | number | Block identities in the natural range |
+| `block.stage05_count` | number | Geological, soil, biogenic, and fire-residue identities added in Stage 05 |
+| `block.gallery_active` | bool | Whether a Stage 05 gallery was successfully placed in this process |
+| `block.gallery_origin` | vec3 | Origin of the latest successful block gallery |
+| `block.gallery_placed` | number | Blocks placed by the latest successful gallery command |
+| `block.gallery_rows` | number | Deterministic family rows in the gallery |
 | `ship.driving` | bool | Player is driving a ship |
 | `ship.mode` | string | Current ship drive mode |
 | `render.water_debug` | bool | Water section bounds are enabled |
@@ -279,8 +286,10 @@ view first|third
 `screenshot` first reports
 `DEBUG_CONTROL screenshot scheduled`; after the frame capture it reports
 `DEBUG_CONTROL capture ok png=PATH report=PATH`. The report is a key/value text
-file next to the PNG. `map` toggles the surface map and requires an active
-surface world. `map layer liquids` controls the map's water-cave/lava-cavity
+file next to the PNG. Debug-controlled sessions start with the help overlay
+hidden so visual captures remain unobstructed. `map` toggles the surface map
+and requires an active surface world. `map layer liquids` controls the
+map's water-cave/lava-cavity
 overlay. `surface debug home` switches directly to Homeworld; the planet form
 creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
@@ -340,6 +349,22 @@ fluid step TICKS
 `fluid inspect` without coordinates samples the player cell. `VOLUME` is
 0-255; `TICKS` is 1-1,000,000. `fluid set` and `fluid step` require an active
 surface world.
+
+### Block catalog and gallery
+
+```text
+block inspect NAME_OR_ID
+block gallery X Y Z
+```
+
+`block inspect` accepts a stable numeric ID or a canonical block name;
+spaces, hyphens, underscores, and letter case are equivalent. It reports the
+resolved ID and name, face textures, render shape, collision, translucency,
+material response, and Stage 05 membership. `block gallery` requires an active
+surface world and a fully loaded 14-by-3 region beginning at `X Y Z`. It first
+validates the entire bounded region, then places all 26 Stage 05 blocks in
+geology, biogenic, and fire-residue rows as one undo group. A failed validation
+or mutation leaves no partial gallery.
 
 ### Weather and climate
 
@@ -401,7 +426,7 @@ water. A valid suppression with no fire in range succeeds with `affected=0`.
 `weather fire clear` removes active fires while retaining burn history and all
 forced weather, cloud, and tornado state. Inspect and typed fields expose the
 nearest fire, local exposure, lifecycle counters, burned blocks, recovery
-records, and bounded-drop counters. Screenshot report schema 10 records those
+records, and bounded-drop counters. Screenshot report schema 11 records those
 values plus the same-frame fire snapshot count, plume wind, haze, and graphics
 quality budgets used for rendering.
 

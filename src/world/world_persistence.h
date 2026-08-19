@@ -10,6 +10,7 @@
 bool WorldPersistenceSaveExtension(FILE *file);
 bool WorldPersistenceLoadExtension(FILE *file);
 bool WorldPersistenceReserveEdits(int capacity);
+bool WorldPersistenceEditsValid(const BlockEdit *edits, int count);
 bool WorldPersistenceInstallEdits(const BlockEdit *edits,
                                   const uint32_t *dimensions,
                                   const SurfaceAddress *addresses,

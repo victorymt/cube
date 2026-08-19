@@ -111,6 +111,8 @@ bool WeatherImpactBurnSiteAt(int x, int y, int z,
 float WeatherImpactBurnSeverityAt(int x, int y, int z);
 WeatherImpactStats WeatherImpactGetStats(void);
 void WeatherImpactOnBlockChanged(int x, int y, int z);
+BlockType WeatherImpactResidueForFuel(BlockType fuel, float severity,
+                                      float moisture);
 
 bool WeatherImpactSaveState(FILE *file);
 bool WeatherImpactLoadState(FILE *file);

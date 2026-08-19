@@ -5,11 +5,30 @@ set -euo pipefail
 game_binary=${1:-build/normal/voxelcraft}
 settle_timeout=${E2E_SETTLE_TIMEOUT:-60}
 command_timeout=${E2E_COMMAND_TIMEOUT:-60}
+debug_resolution=${E2E_RESOLUTION:-1920x1080}
+
+if [[ ! "$debug_resolution" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+    echo "E2E_RESOLUTION must use WIDTHxHEIGHT" >&2
+    exit 2
+fi
+debug_width=${BASH_REMATCH[1]}
+debug_height=${BASH_REMATCH[2]}
 
 if [[ ! -x "$game_binary" ]]; then
     echo "game binary is not executable: $game_binary" >&2
     exit 2
 fi
+game_binary=$(realpath "$game_binary")
+project_root=$(pwd)
+runtime_dir=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-e2e-runtime.XXXXXX")
+ln -s "$project_root/assets" "$runtime_dir/assets"
+
+runtime_artifact_path() {
+    case $1 in
+        /*) printf '%s\n' "$1" ;;
+        *) printf '%s/%s\n' "$runtime_dir" "$1" ;;
+    esac
+}
 
 persistent_state_fingerprint() {
     local path
@@ -58,9 +77,11 @@ grep -Fq 'Invalid or repeated --debug-resolution option' \
     <<<"$resolution_error"
 
 coproc GAME_PROCESS {
+    cd "$runtime_dir"
     env -u LIBGL_ALWAYS_SOFTWARE \
         "$game_binary" --debug-script "$startup_script" --debug-stdin \
-        --debug-trace "$trace_path" --debug-resolution=1280x720 2>&1
+        --debug-trace "$trace_path" \
+        --debug-resolution="$debug_resolution" 2>&1
 }
 game_pid=$GAME_PROCESS_PID
 exec {game_output}<&"${GAME_PROCESS[0]}"
@@ -72,6 +93,7 @@ cleanup() {
         kill "$game_pid" >/dev/null 2>&1 || true
     fi
     rm -f "$trace_path" "$startup_script"
+    rm -rf "$runtime_dir"
 }
 trap cleanup EXIT
 
@@ -142,11 +164,80 @@ wait_for_reply '^DEBUG_CONTROL water debug enabled=1$'
 wait_for_reply '^DEBUG_CONTROL water debug enabled=0$'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
-# Exercise the complete wildfire debug path at a deterministic flammable
-# Homeworld cell, capture the same-frame renderer inputs, then clear only fire.
+# Verify catalog resolution and the stdin error contract before placing a
+# gallery. A rejected command aborts only its current block; the live process
+# must accept the next block and retain an untouched gallery state.
 send_command 'stream wait 600'
 wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
 wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'assert block.catalog_count == 393 && block.natural_count == 73 && block.stage05_count == 26 && !block.gallery_active && block.gallery_placed == 0 && block.gallery_rows == 3'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'block inspect Andesite'
+wait_for_reply '^DEBUG_CONTROL block inspect ok id=111 name="Andesite" .*stage05=true$'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'block inspect coral_limestone'
+wait_for_reply '^DEBUG_CONTROL block inspect ok id=132 name="Coral Limestone" .*stage05=true$'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'block inspect 136'
+wait_for_reply '^DEBUG_CONTROL block inspect ok id=136 name="Fire Ash" .*flammability=0\.000 .*stage05=true$'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'block gallery 900000 96 900000'
+wait_for_reply '^DEBUG_CONTROL block gallery error reason=region_unloaded position='
+wait_for_reply '^DEBUG_SCRIPT error source=stdin .*code=callback message=debug command failed: gallery_region_unloaded$'
+send_command 'assert !block.gallery_active && block.gallery_placed == 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+
+# Place all appended identities through the ordinary edit path, then prove
+# that the full game save/load transaction accepts and restores those edits.
+send_command 'block gallery -4 96 -16'
+wait_for_reply '^DEBUG_CONTROL block gallery ok origin=-4,96,-16 placed=26 rows=3 geology=14 biogenic=9 fire_residue=3$'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert block.gallery_active && block.gallery_origin == vec3(-4,96,-16) && block.gallery_placed == 26 && block.gallery_rows == 3'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'save'
+wait_for_reply '^DEBUG_CONTROL save result=Saved map to voxelcraft_save\.txt \([0-9]+ edits\)\.$'
+[[ "$matched_line" =~ \(([0-9]+)\ edits\)\. ]]
+gallery_save_edits=${BASH_REMATCH[1]}
+((gallery_save_edits >= 26))
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'load'
+wait_for_reply '^DEBUG_CONTROL load result=Loaded voxelcraft_save\.txt \([0-9]+ edits\)\.$' 120
+[[ "$matched_line" =~ \(([0-9]+)\ edits\)\. ]]
+[[ "${BASH_REMATCH[1]}" -eq "$gallery_save_edits" ]]
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert game.screen == "playing" && world.seed == 1448040515 && world.dimension == "home" && block.gallery_active && block.gallery_origin == vec3(-4,96,-16) && block.gallery_placed == 26'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'stream wait 600'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
+wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'teleport 2.5 111 -15 0 -1.45'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=2.500000,111.000000,-15.000000$'
+send_command 'screenshot'
+wait_for_reply '^DEBUG_CONTROL screenshot scheduled$'
+wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
+
+gallery_png_path=${matched_line#*png=}
+gallery_png_path=${gallery_png_path%% report=*}
+gallery_png_path=$(runtime_artifact_path "$gallery_png_path")
+gallery_report_path=${matched_line##*report=}
+gallery_report_path=$(runtime_artifact_path "$gallery_report_path")
+[[ -s "$gallery_png_path" ]]
+[[ -s "$gallery_report_path" ]]
+grep -Fxq 'format.version=11' "$gallery_report_path"
+grep -Fxq 'block.catalog_count=393' "$gallery_report_path"
+grep -Fxq 'block.natural_count=73' "$gallery_report_path"
+grep -Fxq 'block.stage05_count=26' "$gallery_report_path"
+grep -Fxq 'block.gallery_active=true' "$gallery_report_path"
+grep -Fxq 'block.gallery_origin=-4.000000,96.000000,-16.000000' "$gallery_report_path"
+grep -Fxq 'block.gallery_placed=26' "$gallery_report_path"
+grep -Fxq 'block.gallery_rows=3' "$gallery_report_path"
+grep -Fxq 'block.gallery_width=14' "$gallery_report_path"
+grep -Fxq 'ui.help_visible=false' "$gallery_report_path"
+python3 tests/validate_png.py "$gallery_png_path" \
+    "$debug_width" "$debug_height"
+
+# Exercise the complete wildfire debug path at a deterministic flammable
+# Homeworld cell, capture the same-frame renderer inputs, then clear only fire.
 send_command 'weather force strong-wind 1 36000'
 wait_for_reply '^DEBUG_CONTROL weather force ok phenomenon=Strong wind intensity=1.000000 frames=36000$'
 send_command 'weather fire ignite 9 82 -10 1'
@@ -173,10 +264,12 @@ wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
 
 wildfire_png_path=${matched_line#*png=}
 wildfire_png_path=${wildfire_png_path%% report=*}
+wildfire_png_path=$(runtime_artifact_path "$wildfire_png_path")
 wildfire_report_path=${matched_line##*report=}
+wildfire_report_path=$(runtime_artifact_path "$wildfire_report_path")
 [[ -s "$wildfire_png_path" ]]
 [[ -s "$wildfire_report_path" ]]
-grep -Fxq 'format.version=10' "$wildfire_report_path"
+grep -Fxq 'format.version=11' "$wildfire_report_path"
 grep -Fxq 'weather.fire_present=true' "$wildfire_report_path"
 grep -Eq '^weather.fire_phase=(igniting|flaming|smoldering)$' "$wildfire_report_path"
 grep -Fxq 'weather.fire_position=9.000000,82.000000,-10.000000' "$wildfire_report_path"
@@ -186,7 +279,8 @@ grep -Fxq 'weather.fire_render_flame_tongues=3' "$wildfire_report_path"
 grep -Fxq 'weather.fire_render_smoke_puffs=5' "$wildfire_report_path"
 grep -Eq '^weather.fire_smoke_output=0\.[0-9]*[1-9][0-9]*$' "$wildfire_report_path"
 grep -Eq '^weather.fire_plume_wind_drift=0\.[0-9]*[1-9][0-9]*$' "$wildfire_report_path"
-python3 tests/validate_png.py "$wildfire_png_path" 1280 720
+python3 tests/validate_png.py "$wildfire_png_path" \
+    "$debug_width" "$debug_height"
 send_command 'weather fire suppress 9 82 -10 0 0.5'
 wait_for_reply '^DEBUG_CONTROL weather fire suppress ok position=9,82,-10 radius=0.000 amount=0.500000 affected=1$'
 send_command 'assert weather.fire_suppressions >= 1'
@@ -333,11 +427,13 @@ wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
 
 png_path=${matched_line#*png=}
 png_path=${png_path%% report=*}
+png_path=$(runtime_artifact_path "$png_path")
 report_path=${matched_line##*report=}
+report_path=$(runtime_artifact_path "$report_path")
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=10' "$report_path"
+grep -Fxq 'format.version=11' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
 grep -Fxq 'weather.cloud_genus=Cumulonimbus' "$report_path"
@@ -377,7 +473,8 @@ underwater_depth=$(awk -F= '$1 == "environment.underwater_depth" { print $2 }' "
 water_surface_y=$(awk -F= '$1 == "environment.water_surface_y" { print $2 }' "$report_path")
 awk -v depth="$underwater_depth" 'BEGIN { exit !(depth >= 3.0 && depth <= 4.5) }'
 awk -v surface="$water_surface_y" 'BEGIN { exit !(surface >= 81.0 && surface <= 82.0) }'
-python3 tests/validate_png.py "$png_path" 1280 720 --underwater-scene
+python3 tests/validate_png.py "$png_path" \
+    "$debug_width" "$debug_height" --underwater-scene
 
 send_command 'evolution atlas'
 wait_for_reply '^DEBUG_CONTROL evolution atlas open species=0$'
@@ -387,13 +484,16 @@ wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
 
 atlas_png_path=${matched_line#*png=}
 atlas_png_path=${atlas_png_path%% report=*}
+atlas_png_path=$(runtime_artifact_path "$atlas_png_path")
 atlas_report_path=${matched_line##*report=}
+atlas_report_path=$(runtime_artifact_path "$atlas_report_path")
 [[ -s "$atlas_png_path" ]]
 [[ -s "$atlas_report_path" ]]
-grep -Fxq 'format.version=10' "$atlas_report_path"
+grep -Fxq 'format.version=11' "$atlas_report_path"
 grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
 grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
-python3 tests/validate_png.py "$atlas_png_path" 1280 720 --allow-dark-ui
+python3 tests/validate_png.py "$atlas_png_path" \
+    "$debug_width" "$debug_height" --allow-dark-ui
 send_command 'evolution atlas'
 wait_for_reply '^DEBUG_CONTROL evolution atlas closed species=0$'
 
@@ -470,10 +570,18 @@ with open(sys.argv[1], encoding="utf-8") as trace:
         types.add(record["type"])
 assert {"start", "sample", "event", "stop"} <= types, types
 PY
+gallery_artifact=validated
+if [[ -n "${E2E_ARTIFACT_DIR:-}" ]]; then
+    mkdir -p "$E2E_ARTIFACT_DIR"
+    cp "$gallery_png_path" "$E2E_ARTIFACT_DIR/stage05-block-gallery.png"
+    cp "$gallery_report_path" "$E2E_ARTIFACT_DIR/stage05-block-gallery.txt"
+    gallery_artifact="$E2E_ARTIFACT_DIR/stage05-block-gallery.png"
+fi
 rm -f "$trace_path" "$startup_script"
+rm -rf "$runtime_dir"
 trap - EXIT
 
 [[ "$(persistent_state_fingerprint)" == "$persistent_state_before" ]]
 
-printf 'game end-to-end test passed: wildfire=%s world=%s atlas=%s\n' \
-    "$wildfire_png_path" "$png_path" "$atlas_png_path"
+printf 'game end-to-end test passed: gallery=%s captures=4\n' \
+    "$gallery_artifact"

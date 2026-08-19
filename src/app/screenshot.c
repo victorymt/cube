@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=10\n");
+    REPORT_LINE("format.version=11\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -345,6 +345,18 @@ static bool ScreenshotWriteDebugFields(
                 info->fluid.lastProcessedCells);
     REPORT_LINE("fluid.edit_count=%u\n", info->fluid.editCount);
     REPORT_LINE("fluid.queue_overflows=%u\n", info->fluid.queueOverflows);
+
+    REPORT_LINE("block.catalog_count=%u\n", info->block.catalogCount);
+    REPORT_LINE("block.natural_count=%u\n", info->block.naturalCount);
+    REPORT_LINE("block.stage05_count=%u\n", info->block.stage05Count);
+    REPORT_LINE("block.gallery_active=%s\n",
+                ScreenshotBool(info->block.galleryActive));
+    REPORT_LINE("block.gallery_origin=%.6f,%.6f,%.6f\n",
+                info->block.galleryOrigin.x, info->block.galleryOrigin.y,
+                info->block.galleryOrigin.z);
+    REPORT_LINE("block.gallery_placed=%u\n", info->block.galleryPlaced);
+    REPORT_LINE("block.gallery_rows=%u\n", info->block.galleryRows);
+    REPORT_LINE("block.gallery_width=%u\n", info->block.galleryWidth);
 
     REPORT_LINE("input.forward=%.6f\n", info->input.forward);
     REPORT_LINE("input.strafe=%.6f\n", info->input.strafe);

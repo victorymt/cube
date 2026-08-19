@@ -15,6 +15,7 @@
 static BlockType blocks[TEST_SPAN][TEST_HEIGHT][TEST_SPAN];
 static uint8_t fluids[TEST_SPAN][TEST_HEIGHT][TEST_SPAN];
 static WorldMutationSource mutationSource = WORLD_MUTATION_PLAYER;
+static WorldMutationSource lastMutationSource = WORLD_MUTATION_PLAYER;
 static bool surfaceLoaded = true;
 
 static bool Cell(int x, int y, int z, int *ix, int *iy, int *iz)
@@ -37,6 +38,7 @@ static void ResetGrid(BlockType ground)
         for (int z = 0; z < TEST_SPAN; z++) blocks[x][10][z] = ground;
     }
     mutationSource = WORLD_MUTATION_PLAYER;
+    lastMutationSource = WORLD_MUTATION_PLAYER;
     surfaceLoaded = true;
 }
 
@@ -71,6 +73,7 @@ bool SetBlockNoUndoFromSource(int x, int y, int z, BlockType type,
     if (!Cell(x, y, z, &ix, &iy, &iz)) return false;
     WorldMutationSource previous = mutationSource;
     mutationSource = source;
+    lastMutationSource = source;
     blocks[ix][iy][iz] = type;
     if (type != BLOCK_WATER) fluids[ix][iy][iz] = 0u;
     WeatherImpactOnBlockChanged(x, y, z);
@@ -102,6 +105,10 @@ BlockMaterialResponse BlockMaterialResponseFor(BlockType type)
         return (BlockMaterialResponse){ 0.25f, 0.20f, 0.88f, 0.18f };
     case BLOCK_STONE:
         return (BlockMaterialResponse){ 0.96f, 0.95f, 0.0f, 0.03f };
+    case BLOCK_CHARRED_WOOD:
+    case BLOCK_CHARCOAL:
+    case BLOCK_FIRE_ASH:
+        return (BlockMaterialResponse){ 0.50f, 0.40f, 0.0f, 0.30f };
     default:
         return (BlockMaterialResponse){ 0.70f, 0.70f, 0.05f, 0.10f };
     }
@@ -251,12 +258,29 @@ static void TestIgnitionQueriesAndLoadedBounds(void)
 
 static void TestFuelConsumptionAndBurnScar(void)
 {
+    assert(WeatherImpactResidueForFuel(
+               BLOCK_TALL_GRASS, 1.0f, 0.02f) == BLOCK_FIRE_ASH);
+    assert(WeatherImpactResidueForFuel(
+               BLOCK_WOOD, 0.70f, 0.02f) == BLOCK_CHARRED_WOOD);
+    assert(WeatherImpactResidueForFuel(
+               BLOCK_WOOD, 1.0f, 0.30f) == BLOCK_CHARRED_WOOD);
+    assert(WeatherImpactResidueForFuel(
+               BLOCK_WOOD, 1.0f, 0.02f) == BLOCK_CHARCOAL);
+    assert(WeatherImpactResidueForFuel(
+               BLOCK_PLANK, 1.0f, 0.02f) == BLOCK_CHARCOAL);
+    assert(WeatherImpactResidueForFuel(
+               BLOCK_HUMUS, 0.90f, 0.02f) == BLOCK_CHARCOAL);
+    assert(WeatherImpactResidueForFuel(
+               BLOCK_HUMUS, 0.90f, 0.50f) == BLOCK_FIRE_ASH);
+
     ResetGrid(BLOCK_STONE);
     blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_TALL_GRASS;
     WeatherImpactInit(true);
     assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
     WeatherImpactStepTicks(500u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
-    assert(GetBlockAt(0, 10, 0) == BLOCK_AIR);
+    assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
+    assert(lastMutationSource == WORLD_MUTATION_ENVIRONMENT);
+    assert(!WeatherImpactIgniteAt(0, 10, 0, 1.0f));
     assert(WeatherImpactGetStats().blockDamageEvents == 1u);
     assert(WeatherImpactGetStats().burnedBlocks == 1u);
     assert(WeatherImpactGetStats().burnSiteCount >= 1u);
@@ -274,6 +298,24 @@ static void TestFuelConsumptionAndBurnScar(void)
     fclose(file);
     assert(WeatherImpactBurnSiteAt(0, 10, 0, &burn));
     assert(burn.severity > 0.95f);
+
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_WOOD;
+    WeatherImpactInit(true);
+    assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+    WeatherImpactStepTicks(
+        2000u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
+    assert(GetBlockAt(0, 10, 0) == BLOCK_CHARRED_WOOD);
+    assert(!WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_PLANK;
+    WeatherImpactInit(true);
+    assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+    WeatherImpactStepTicks(2000u,
+                           (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
+    assert(GetBlockAt(0, 10, 0) == BLOCK_CHARCOAL);
+    assert(!WeatherImpactIgniteAt(0, 10, 0, 1.0f));
 }
 
 static void TestBoundedWorkAndNaturalSources(void)

@@ -178,6 +178,17 @@ typedef struct ScreenshotFluidDebugInfo {
     unsigned queueOverflows;
 } ScreenshotFluidDebugInfo;
 
+typedef struct ScreenshotBlockDebugInfo {
+    unsigned catalogCount;
+    unsigned naturalCount;
+    unsigned stage05Count;
+    bool galleryActive;
+    ScreenshotVector3 galleryOrigin;
+    unsigned galleryPlaced;
+    unsigned galleryRows;
+    unsigned galleryWidth;
+} ScreenshotBlockDebugInfo;
+
 typedef struct ScreenshotInputDebugInfo {
     float forward;
     float strafe;
@@ -296,6 +307,7 @@ typedef struct ScreenshotDebugInfo {
     ScreenshotWeatherDebugInfo weather;
     ScreenshotEnvironmentDebugInfo environment;
     ScreenshotFluidDebugInfo fluid;
+    ScreenshotBlockDebugInfo block;
     ScreenshotInputDebugInfo input;
     ScreenshotRenderDebugInfo render;
     ScreenshotUiDebugInfo ui;

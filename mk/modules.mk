@@ -35,6 +35,7 @@ ENTITY_FEATURE_SRC := \
 
 BLOCK_ATLAS_FEATURE_SRC := \
 	src/world/block_atlas.c \
+	src/world/block_atlas_expansion.c \
 	src/world/block_atlas_ecology.c \
 	src/world/block_atlas_geology.c \
 	src/world/block_atlas_items.c \

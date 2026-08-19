@@ -611,6 +611,8 @@ BlockType OreAt(int x, int y, int z)
     if (y <= 42 && (h % 59u) == 0u) return BLOCK_COPPER_ORE;
     if (y <= 52 && (h % 127u) == 0u) return BLOCK_TIN_ORE;
     if (y <= 30 && (h % 43u) == 0u) return BLOCK_COAL_ORE;
+    if (y <= 30 && (h % 193u) == 0u) return BLOCK_MAGNETITE_ORE;
+    if (y <= 46 && (h % 167u) == 0u) return BLOCK_HEMATITE_ORE;
     unsigned int quartz = WorldHash3D(
         FloorDivInt(x, 3) + 719, FloorDivInt(y, 2) - 431,
         FloorDivInt(z, 3) + 283);
@@ -1550,6 +1552,14 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
                 ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_METEORITE);
             } else if ((biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS ||
                         biome == PLANET_BIOME_OASIS) && height > seaLevel + 1 &&
+                       biome == PLANET_BIOME_FOREST && decor % 3u == 0u &&
+                       ((float)(PlanetHash2D(worldX, worldZ, 417u) & 0x00ffffffu) /
+                        16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
+                            worldX, worldZ).floraCapacity) {
+                ChunkSetLocalBlock(chunk, lx, height + 1, lz,
+                                   BLOCK_LEAF_LITTER);
+            } else if ((biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS ||
+                        biome == PLANET_BIOME_OASIS) && height > seaLevel + 1 &&
                        decor % (biome == PLANET_BIOME_FOREST ? 61u : 97u) == 0u &&
                        ((float)(PlanetHash2D(worldX, worldZ, 419u) & 0x00ffffffu) /
                         16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
@@ -1720,6 +1730,9 @@ static BlockType HomeGroundCoverBlock(Biome biome, int height, int seaLevel,
 {
     if (hash % 173u == 0u) return BLOCK_FLOWER;
     if (hash % 397u == 0u) return BLOCK_MUSHROOM;
+    if (biome == BIOME_FOREST && hash % 3u == 0u) {
+        return BLOCK_LEAF_LITTER;
+    }
     if (biome == BIOME_FOREST && hash % 13u == 0u) return BLOCK_FERN;
     if (biome == BIOME_FOREST && hash % 19u == 0u) return BLOCK_MOSS_CARPET;
     if (biome == BIOME_SWAMP && hash % 3u == 0u) return BLOCK_REED;

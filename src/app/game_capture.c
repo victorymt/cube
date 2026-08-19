@@ -270,6 +270,18 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .editCount = screenshotFluidStats.editCount,
                 .queueOverflows = screenshotFluidStats.queueOverflows
             },
+            .block = {
+                .catalogCount = BLOCK_NATURAL_END + 1 + COLOR_BLOCK_COUNT,
+                .naturalCount =
+                    BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1,
+                .stage05Count =
+                    BLOCK_STAGE05_END - BLOCK_STAGE05_START + 1,
+                .galleryActive = game->blockGalleryActive,
+                .galleryOrigin = ScreenshotVector(game->blockGalleryOrigin),
+                .galleryPlaced = game->blockGalleryPlaced,
+                .galleryRows = 3u,
+                .galleryWidth = 14u
+            },
             .input = {
                 .forward = game->appliedPlayerInput.forward,
                 .strafe = game->appliedPlayerInput.strafe,

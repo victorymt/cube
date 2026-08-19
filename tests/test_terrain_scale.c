@@ -1,5 +1,7 @@
 #include "world/chunks.h"
 #include "world/terrain.h"
+#include "world/terrain_geology_internal.h"
+#include "world/terrain_home_materials_internal.h"
 
 #include <assert.h>
 #include <math.h>
@@ -88,10 +90,10 @@ static void TestTerrainStructureBaselines(void)
         int cz;
         uint64_t expectedHash;
     } baselines[] = {
-        { -200, -200, UINT64_C(720793662725742776) },
-        { -100, -88, UINT64_C(10736014997267761075) },
-        { -120, -105, UINT64_C(2370091399078723620) },
-        { -225, 90, UINT64_C(2351837019884026484) }
+        { -200, -200, UINT64_C(8452164288714417906) },
+        { -100, -88, UINT64_C(1560829849132147165) },
+        { -120, -105, UINT64_C(15945370240875556352) },
+        { -225, 90, UINT64_C(5099965485900159630) }
     };
 
     terrainSeed = DEFAULT_WORLD_SEED;
@@ -522,6 +524,170 @@ static void TestNaturalGeologyDistribution(void)
     }
 }
 
+static void TestStage05GeologyRules(void)
+{
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_MOUNTAIN, 5, 0.30f, 0.50f) == BLOCK_ANDESITE);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_MOUNTAIN, 16, 0.48f, 0.60f) == BLOCK_DIORITE);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_MOUNTAIN, 3, 0.80f, 0.50f) == BLOCK_RHYOLITE);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_DESERT, 3, 0.90f, 0.20f) == BLOCK_TUFF);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_MOUNTAIN, 28, 0.50f, 0.10f) == BLOCK_SCHIST);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_FOREST, 18, 0.20f, 0.10f) == BLOCK_SLATE);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_PLAINS, 70, 0.10f, 0.60f) == BLOCK_SERPENTINITE);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_PLAINS, 5, 0.54f, 0.50f) == BLOCK_DOLOMITE);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_DESERT, 3, 0.60f, 0.90f) == BLOCK_GYPSUM);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_PLAINS, 3, 0.47f, 0.70f) == BLOCK_TRAVERTINE);
+    assert(TerrainGeologyHomeStoneBlock(
+               BIOME_PLAINS, 8, 0.70f, 0.80f) == BLOCK_PHOSPHATE_ROCK);
+
+    bool hematite = false;
+    bool magnetite = false;
+    for (int z = -128; z <= 128 && (!hematite || !magnetite); z++) {
+        for (int x = -128; x <= 128; x++) {
+            for (int y = 1; y <= 30; y++) {
+                BlockType ore = OreAt(x, y, z);
+                hematite |= ore == BLOCK_HEMATITE_ORE;
+                magnetite |= ore == BLOCK_MAGNETITE_ORE;
+            }
+        }
+    }
+    assert(hematite);
+    assert(magnetite);
+
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_VOLCANIC_RIDGE, 0, 23u) ==
+           BLOCK_ANDESITE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_CRATER, PLANET_BIOME_CRATER_HIGHLANDS, 5, 11u) ==
+           BLOCK_DIORITE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_LAVA_SEA, 0, 31u) ==
+           BLOCK_RHYOLITE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_VOLCANIC_RIDGE, 0, 37u) ==
+           BLOCK_TUFF);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_CRATER, PLANET_BIOME_CRATER_HIGHLANDS, 10, 13u) ==
+           BLOCK_SCHIST);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_DUNES, 17, 17u) ==
+           BLOCK_SLATE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_CRATER, PLANET_BIOME_CRATER_HIGHLANDS, 16, 19u) ==
+           BLOCK_SERPENTINITE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_DUNES, 10, 7u) ==
+           BLOCK_DOLOMITE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_DUNES, 8, 13u) ==
+           BLOCK_GYPSUM);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_OASIS, 0, 13u) ==
+           BLOCK_TRAVERTINE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_BADLANDS, 0, 29u) ==
+           BLOCK_BAUXITE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_DESERT, PLANET_BIOME_DUNES, 4, 109u) ==
+           BLOCK_HEMATITE_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_LAVA, PLANET_BIOME_BASALT_PLAINS, 8, 137u) ==
+           BLOCK_MAGNETITE_ORE);
+    assert(TerrainTestPlanetSubsurfaceBlock(
+               SOLAR_STYLE_TEMPERATE, PLANET_BIOME_PLAINS, 3, 149u) ==
+           BLOCK_PHOSPHATE_ROCK);
+}
+
+static SurfaceTerrainSample Stage05HomeSample(Biome biome, float elevation,
+                                               float continentalness)
+{
+    return (SurfaceTerrainSample){
+        .elevation = elevation,
+        .seaLevel = HOME_SEA_LEVEL,
+        .continentalness = continentalness,
+        .biome = biome,
+        .bathymetry = {
+            .seabedY = (int)elevation,
+            .seaLevel = HOME_SEA_LEVEL,
+            .waterDepth = elevation < HOME_SEA_LEVEL
+                ? HOME_SEA_LEVEL - (int)elevation : 0,
+            .zone = elevation < HOME_SEA_LEVEL
+                ? BATHYMETRY_ZONE_SHELF : BATHYMETRY_ZONE_LAND,
+            .material = BATHYMETRY_MATERIAL_SEDIMENT
+        }
+    };
+}
+
+static void TestStage05HomeDeposits(void)
+{
+    bool found[BLOCK_STAGE05_BIOGENIC_END -
+               BLOCK_STAGE05_BIOGENIC_START + 1] = { false };
+    SurfaceTerrainSample plains = Stage05HomeSample(
+        BIOME_PLAINS, 100.0f, 0.80f);
+    SurfaceTerrainSample forest = Stage05HomeSample(
+        BIOME_FOREST, 100.0f, 0.80f);
+    SurfaceTerrainSample desert = Stage05HomeSample(
+        BIOME_DESERT, 100.0f, 0.80f);
+    SurfaceTerrainSample wet = Stage05HomeSample(
+        BIOME_PLAINS, HOME_SEA_LEVEL + 4.0f, 0.40f);
+    SurfaceTerrainSample marine = Stage05HomeSample(
+        BIOME_PLAINS, HOME_SEA_LEVEL - 5.0f, 0.40f);
+
+    for (int z = -512; z <= 512; z++) {
+        for (int x = -512; x <= 512; x++) {
+            const SurfaceTerrainSample *samples[] = {
+                &plains, &forest, &desert, &wet, &marine
+            };
+            for (size_t sampleIndex = 0;
+                 sampleIndex < sizeof(samples) / sizeof(samples[0]);
+                 sampleIndex++) {
+                int y = (int)samples[sampleIndex]->elevation;
+                BlockType type = TerrainHomeBaseBlockFromSample(
+                    x, y, z, TERRAIN_VARIED, samples[sampleIndex],
+                    HOME_SEA_LEVEL);
+                if (type >= BLOCK_STAGE05_BIOGENIC_START &&
+                    type <= BLOCK_STAGE05_BIOGENIC_END) {
+                    found[type - BLOCK_STAGE05_BIOGENIC_START] = true;
+                }
+            }
+        }
+    }
+    found[BLOCK_LEAF_LITTER - BLOCK_STAGE05_BIOGENIC_START] =
+        TerrainTestHomeGroundCoverBlock(
+            BIOME_FOREST, HOME_SEA_LEVEL + 8, HOME_SEA_LEVEL, 3u) ==
+        BLOCK_LEAF_LITTER;
+
+    bool guano = false;
+    SurfaceTerrainSample cave = Stage05HomeSample(
+        BIOME_PLAINS, 100.0f, 0.80f);
+    for (int z = -128; z <= 128 && !guano; z++) {
+        for (int x = -128; x <= 128 && !guano; x++) {
+            for (int y = 5; y < 96; y++) {
+                if (TerrainHomeBaseBlockFromSample(
+                        x, y, z, TERRAIN_VARIED, &cave,
+                        HOME_SEA_LEVEL) == BLOCK_GUANO) {
+                    guano = true;
+                    break;
+                }
+            }
+        }
+    }
+    found[BLOCK_GUANO - BLOCK_STAGE05_BIOGENIC_START] = guano;
+    for (size_t index = 0; index < sizeof(found) / sizeof(found[0]);
+         index++) {
+        assert(found[index]);
+    }
+}
+
 static void TestSwampTerrainGeneration(void)
 {
     terrainSeed = DEFAULT_WORLD_SEED;
@@ -540,7 +706,8 @@ static void TestSwampTerrainGeneration(void)
             BlockType surface = TerrainBaseBlockAt(
                 x, height, z, TERRAIN_VARIED);
             assert(surface == BLOCK_WATER || surface == BLOCK_MUD ||
-                   surface == BLOCK_PEAT);
+                   surface == BLOCK_PEAT || surface == BLOCK_ALLUVIUM ||
+                   surface == BLOCK_COMPOST);
             poolSamples += surface == BLOCK_WATER;
         }
     }
@@ -834,6 +1001,9 @@ static void TestHomeGroundCoverSelection(void)
         BIOME_FOREST, HOME_SEA_LEVEL + 8, HOME_SEA_LEVEL, 19u) ==
         BLOCK_MOSS_CARPET);
     assert(TerrainTestHomeGroundCoverBlock(
+        BIOME_FOREST, HOME_SEA_LEVEL + 8, HOME_SEA_LEVEL, 3u) ==
+        BLOCK_LEAF_LITTER);
+    assert(TerrainTestHomeGroundCoverBlock(
         BIOME_PLAINS, HOME_SEA_LEVEL + 4, HOME_SEA_LEVEL, 23u) ==
         BLOCK_REED);
     assert(TerrainTestHomeGroundCoverBlock(
@@ -952,6 +1122,8 @@ int main(void)
     TestChunkSectionBoundaries();
     TestTerrainBaseBlockQueries();
     TestNaturalGeologyDistribution();
+    TestStage05GeologyRules();
+    TestStage05HomeDeposits();
     TestIndependentSectionBaseGeneration();
     TestSparseChunkBootstrap();
     TestUndergroundFeaturesMaterializeTheirBase();

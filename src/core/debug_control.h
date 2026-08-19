@@ -9,6 +9,7 @@
 #define DEBUG_CONTROL_MARKER_COLOR_SIZE 16
 #define DEBUG_CONTROL_MARKER_NAME_SIZE 64
 #define DEBUG_CONTROL_WEATHER_NAME_SIZE 32
+#define DEBUG_CONTROL_BLOCK_QUERY_SIZE 64
 #define DEBUG_CONTROL_STREAM_WAIT_DEFAULT_FRAMES 300u
 #define DEBUG_CONTROL_STREAM_WAIT_MAX_FRAMES 3600u
 
@@ -34,6 +35,8 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_FLUID_INSPECT,
     DEBUG_CONTROL_COMMAND_FLUID_SET,
     DEBUG_CONTROL_COMMAND_FLUID_STEP,
+    DEBUG_CONTROL_COMMAND_BLOCK_INSPECT,
+    DEBUG_CONTROL_COMMAND_BLOCK_GALLERY,
     DEBUG_CONTROL_COMMAND_WEATHER_INSPECT,
     DEBUG_CONTROL_COMMAND_WEATHER_FORCE,
     DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE,
@@ -125,6 +128,9 @@ typedef struct DebugControl {
     int weatherFireX;
     int weatherFireY;
     int weatherFireZ;
+    int blockGalleryX;
+    int blockGalleryY;
+    int blockGalleryZ;
     int streamAuditX;
     int streamAuditY;
     int streamAuditZ;
@@ -157,6 +163,7 @@ typedef struct DebugControl {
     float weatherFireSuppression;
     char weatherPhenomenon[DEBUG_CONTROL_WEATHER_NAME_SIZE];
     char weatherCloudGenus[DEBUG_CONTROL_WEATHER_NAME_SIZE];
+    char blockQuery[DEBUG_CONTROL_BLOCK_QUERY_SIZE];
 } DebugControl;
 
 void DebugControlInit(DebugControl *control, bool enabled);

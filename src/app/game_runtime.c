@@ -188,8 +188,10 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   ParseDebugResolutionArgs(argc, argv, &runtime->screenWidth,
                            &runtime->screenHeight,
                            &runtime->debugResolutionInvalid);
-  if (runtime->debugControlEnabled)
+  if (runtime->debugControlEnabled) {
     runtime->autoSaveEnabled = false;
+    runtime->showHelp = false;
+  }
   GameSettingsLoad(&runtime->settings);
   PlayerResetRuntimeState(&runtime->player);
   runtime->camera.up = (Vector3){0.0f, 1.0f, 0.0f};

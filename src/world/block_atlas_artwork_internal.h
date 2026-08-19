@@ -8,6 +8,8 @@ Color GeologyAtlasPixel(BlockTexture texture, int x, int y,
                          unsigned int hash);
 Color EcologyAtlasPixel(BlockTexture texture, int x, int y,
                          unsigned int hash);
+Color BlockExpansionAtlasPixel(BlockTexture texture, int x, int y,
+                                unsigned int hash);
 Color ItemAtlasPixel(BlockTexture texture, int x, int y,
                       unsigned int hash);
 Color SpaceAtlasPixel(BlockTexture texture, int x, int y,

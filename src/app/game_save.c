@@ -212,13 +212,10 @@ static bool GameLoadBlockEditPayload(FILE *file, LoadedGameSave *data)
             free(dimensions);
             return false;
         }
-        for (uint32_t index = 0u; index < count; index++) {
-            if (!InHeight(edits[index].y) ||
-                !IsValidBlockType(edits[index].type)) {
-                free(edits);
-                free(dimensions);
-                return false;
-            }
+        if (!WorldPersistenceEditsValid(edits, (int)count)) {
+            free(edits);
+            free(dimensions);
+            return false;
         }
     }
 

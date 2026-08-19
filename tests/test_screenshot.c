@@ -225,6 +225,16 @@ static void TestDebugReport(void)
             .editCount = 9u,
             .queueOverflows = 2u
         },
+        .block = {
+            .catalogCount = 393u,
+            .naturalCount = 73u,
+            .stage05Count = 26u,
+            .galleryActive = true,
+            .galleryOrigin = { -8.0f, 81.0f, 14.0f },
+            .galleryPlaced = 26u,
+            .galleryRows = 3u,
+            .galleryWidth = 14u
+        },
         .render = {
             .graphicsQuality = "high",
             .renderDistanceChunks = 12,
@@ -304,7 +314,7 @@ static void TestDebugReport(void)
 
     char contents[16384];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=10\n"));
+    assert(strstr(contents, "format.version=11\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -345,6 +355,13 @@ static void TestDebugReport(void)
     assert(strstr(contents, "weather.fire_spread_ignitions=4\n"));
     assert(strstr(contents, "weather.fire_burned_blocks=5\n"));
     assert(strstr(contents, "weather.fire_dropped_burn_sites=1\n"));
+    assert(strstr(contents, "block.catalog_count=393\n"));
+    assert(strstr(contents, "block.natural_count=73\n"));
+    assert(strstr(contents, "block.stage05_count=26\n"));
+    assert(strstr(contents, "block.gallery_active=true\n"));
+    assert(strstr(contents,
+                  "block.gallery_origin=-8.000000,81.000000,14.000000\n"));
+    assert(strstr(contents, "block.gallery_placed=26\n"));
     assert(strstr(contents, "weather.tornado_active=true\n"));
     assert(strstr(contents, "weather.tornado_phase=mature\n"));
     assert(strstr(contents, "weather.tornado_intensity=0.880000\n"));

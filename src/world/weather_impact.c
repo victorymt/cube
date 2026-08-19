@@ -214,6 +214,38 @@ static float ImpactFuelLoad(BlockType block, float flammability)
     }
 }
 
+BlockType WeatherImpactResidueForFuel(BlockType fuel, float severity,
+                                      float moisture)
+{
+    severity = ImpactUnit(severity);
+    moisture = ImpactUnit(moisture);
+    switch (fuel) {
+    case BLOCK_WOOD:
+    case BLOCK_LIVING_STEM:
+    case BLOCK_FUNGAL_STEM:
+        return severity < 0.80f || moisture > 0.05f
+            ? BLOCK_CHARRED_WOOD : BLOCK_CHARCOAL;
+    case BLOCK_PLANK:
+    case BLOCK_WOOD_STAIRS:
+    case BLOCK_FENCE:
+    case BLOCK_FENCE_GATE:
+    case BLOCK_FENCE_GATE_OPEN:
+    case BLOCK_DOOR:
+    case BLOCK_DOOR_OPEN:
+    case BLOCK_BOOKSHELF:
+        return severity < 0.60f || moisture > 0.45f
+            ? BLOCK_CHARRED_WOOD : BLOCK_CHARCOAL;
+    case BLOCK_PEAT:
+    case BLOCK_HUMUS:
+    case BLOCK_COMPOST:
+    case BLOCK_MYCELIUM:
+        return severity > 0.85f && moisture < 0.30f
+            ? BLOCK_CHARCOAL : BLOCK_FIRE_ASH;
+    default:
+        return BLOCK_FIRE_ASH;
+    }
+}
+
 static int ImpactGroundHeight(int x, int z)
 {
     return PlanetWorldIsActive() ? PlanetTerrainHeight(x, z) :
@@ -645,9 +677,13 @@ static void ImpactProcessFires(WeatherFieldSample weather)
             &fire->state, 1.0f / WEATHER_IMPACT_TICK_RATE, flammability,
             ImpactFireEnvironment(weather, waterExposure, 0.0f));
         if (previousFuel > 0.0f && fire->state.fuel <= 0.0f) {
+            float severity = fire->initialFuel > 0.0f
+                ? 1.0f - fire->state.fuel / fire->initialFuel : 1.0f;
+            BlockType residue = WeatherImpactResidueForFuel(
+                fire->fuelBlock, severity, fire->state.moisture);
             if (GetBlockAt(fire->x, fire->y, fire->z) == fire->fuelBlock &&
                 SetBlockNoUndoFromSource(fire->x, fire->y, fire->z,
-                                         BLOCK_AIR,
+                                         residue,
                                          WORLD_MUTATION_ENVIRONMENT)) {
                 impactStats.blockDamageEvents++;
                 impactStats.burnedBlocks++;

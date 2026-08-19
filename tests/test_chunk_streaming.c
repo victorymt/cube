@@ -5,6 +5,7 @@
 #include "world/world.h"
 #include "world/world_environment.h"
 #include "world/world_extension.h"
+#include "world/world_persistence.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -801,6 +802,49 @@ static void TestSavedEditForcesSectionMaterialization(void)
     assert(neighborSection->blocks[0][4][3] == BLOCK_STONE);
 }
 
+static void TestStage05EditInstallationIsTransactional(void)
+{
+    const BlockEdit edits[] = {
+        { 701, 4, 3, BLOCK_CHARRED_WOOD },
+        { 702, 5, 3, BLOCK_CHARCOAL },
+        { 703, 6, 3, BLOCK_FIRE_ASH }
+    };
+    const uint32_t dimensions[] = { 1u, 1u, 1u };
+    const SurfaceAddress addresses[] = {
+        { .bodyId = 1u }, { .bodyId = 1u }, { .bodyId = 1u }
+    };
+    assert(WorldPersistenceEditsValid(edits, 3));
+    assert(WorldPersistenceInstallEdits(
+        edits, dimensions, addresses, 3));
+    assert(WorldGetEditCount() == 3);
+    for (int index = 0; index < 3; index++) {
+        const BlockEdit *loaded = WorldGetEditAt(index);
+        assert(loaded != NULL);
+        assert(loaded->x == edits[index].x);
+        assert(loaded->y == edits[index].y);
+        assert(loaded->z == edits[index].z);
+        assert(loaded->type == edits[index].type);
+    }
+
+    BlockEdit invalid = { 704, 4, 3, (BlockType)200 };
+    uint32_t invalidDimension = 1u;
+    SurfaceAddress invalidAddress = { .bodyId = 1u };
+    assert(!WorldPersistenceEditsValid(&invalid, 1));
+    assert(!WorldPersistenceInstallEdits(
+        &invalid, &invalidDimension, &invalidAddress, 1));
+    assert(WorldGetEditCount() == 3);
+    assert(WorldGetEditAt(2)->type == BLOCK_FIRE_ASH);
+
+    invalid = (BlockEdit){
+        704, SURFACE_MAX_Y_EXCLUSIVE, 3, BLOCK_ANDESITE
+    };
+    assert(!WorldPersistenceEditsValid(&invalid, 1));
+    assert(!WorldPersistenceInstallEdits(
+        &invalid, &invalidDimension, &invalidAddress, 1));
+    assert(WorldGetEditCount() == 3);
+    assert(WorldGetEditAt(0)->type == BLOCK_CHARRED_WOOD);
+}
+
 static void TestNegativeSectionPruningKeepsVerticalWindow(void)
 {
     ChunksTestResetScheduler();
@@ -962,6 +1006,7 @@ int main(void)
     TestNearbySectionSchedulingUsesRenderDistance();
     TestNonEmptySectionsMaterialize();
     TestSavedEditForcesSectionMaterialization();
+    TestStage05EditInstallationIsTransactional();
     TestNegativeSectionPruningKeepsVerticalWindow();
     TestNegativeSectionPruningPreservesRuntimeState();
     TestDistantSectionJobsReleaseQueueCapacity();

@@ -2,6 +2,7 @@
 #include "raymath.h"
 
 #include "app/game_debug.h"
+#include "app/game_debug_block.h"
 #include "app/game_debug_trace.h"
 #include "app/game_debug_wildfire.h"
 #include "app/game_save.h"
@@ -35,7 +36,6 @@
 #include "world/tornado.h"
 #include "world/world.h"
 #include "world/world_environment.h"
-
 #include <ctype.h>
 #include <errno.h>
 #include <math.h>
@@ -44,7 +44,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-
 static void GameDebugMarkCommandError(GameRuntime *game, const char *reason)
 {
     if (!game) return;
@@ -1357,6 +1356,8 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
         result = GameDebugDispatchEvolutionCommand(game, command);
     }
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED &&
+        GameDebugBlockDispatch(game, command)) result = GAME_DEBUG_DISPATCH_HANDLED;
     if (result == GAME_DEBUG_DISPATCH_HANDLED && game->debugCommandFailed) {
         return GAME_DEBUG_DISPATCH_ERROR;
     }
@@ -1420,6 +1421,7 @@ static bool GameDebugDslResolve(void *userData, const char *name,
     (void)outError;
     if (!game || !name || !outValue) return false;
 
+    if (GameDebugBlockDslResolve(game, name, outValue)) return true;
     if (strcmp(name, "game.screen") == 0) {
         return GameDebugDslString(
             outValue, game->screen == SCREEN_PLAYING ? "playing" : "start");
@@ -1674,7 +1676,6 @@ static bool GameDebugDslResolve(void *userData, const char *name,
     }
     return false;
 }
-
 static const char *GameDebugDslCommandBlocked(
     const GameRuntime *game, DebugControlCommand command)
 {
@@ -1692,6 +1693,7 @@ static const char *GameDebugDslCommandBlocked(
     case DEBUG_CONTROL_COMMAND_SHIP_ENTER:
     case DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE:
     case DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS:
+    case DEBUG_CONTROL_COMMAND_BLOCK_INSPECT:
         return game->screen == SCREEN_PLAYING ? NULL : "not_playing";
     case DEBUG_CONTROL_COMMAND_SHIP_INPUT:
     case DEBUG_CONTROL_COMMAND_SHIP_EXHAUST:
@@ -1716,6 +1718,7 @@ static const char *GameDebugDslCommandBlocked(
     case DEBUG_CONTROL_COMMAND_WEATHER_FIRE_SUPPRESS:
     case DEBUG_CONTROL_COMMAND_WEATHER_FIRE_CLEAR:
     case DEBUG_CONTROL_COMMAND_WEATHER_STEP:
+    case DEBUG_CONTROL_COMMAND_BLOCK_GALLERY:
         return WorldIsSurfaceActive() ? NULL : "no_active_surface";
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET:

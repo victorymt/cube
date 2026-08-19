@@ -205,6 +205,34 @@ static DebugControlCommand DebugControlParseFluid(DebugControl *control,
     return DEBUG_CONTROL_COMMAND_NONE;
 }
 
+static DebugControlCommand DebugControlParseBlock(DebugControl *control,
+                                                  const char *line)
+{
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    char trailing = '\0';
+    if (sscanf(line, "block gallery %d %d %d %c", &x, &y, &z,
+               &trailing) == 3 && x >= -1000000 && x <= 1000000 &&
+        y >= -1000000 && y <= 1000000 &&
+        z >= -1000000 && z <= 1000000) {
+        control->blockGalleryX = x;
+        control->blockGalleryY = y;
+        control->blockGalleryZ = z;
+        return DEBUG_CONTROL_COMMAND_BLOCK_GALLERY;
+    }
+
+    int queryOffset = -1;
+    if (sscanf(line, "block inspect %n", &queryOffset) == 0 &&
+        queryOffset >= 0 && line[queryOffset] != '\0' &&
+        strlen(line + queryOffset) < sizeof(control->blockQuery)) {
+        snprintf(control->blockQuery, sizeof(control->blockQuery), "%s",
+                 line + queryOffset);
+        return DEBUG_CONTROL_COMMAND_BLOCK_INSPECT;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
 static DebugControlCommand DebugControlParseWeather(DebugControl *control,
                                                     const char *line)
 {
@@ -547,6 +575,8 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     command = DebugControlParseView(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseFluid(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseBlock(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseWeather(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
