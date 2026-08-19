@@ -160,7 +160,23 @@ static void TestDebugReport(void)
             .surfaceCount = 23u,
             .activeFires = 2u,
             .blockDamageEvents = 5u,
-            .damageEnabled = true
+            .damageEnabled = true,
+            .tornadoPhase = "mature",
+            .tornadoCenter = { 18.0f, 41.0f, -22.0f },
+            .tornadoActive = true,
+            .tornadoForced = true,
+            .tornadoDistance = 48.5f,
+            .tornadoIntensity = 0.88f,
+            .tornadoRadius = 11.5f,
+            .tornadoFunnelHeight = 71.0f,
+            .tornadoWindMps = 79.6f,
+            .tornadoCondensation = 0.92f,
+            .tornadoDustLoading = 0.61f,
+            .tornadoForcedFrames = 600u,
+            .tornadoBlockDamageEvents = 7u,
+            .tornadoDebrisEmitted = 6u,
+            .tornadoDustEmitted = 42u,
+            .tornadoDroppedEffects = 1u
         },
         .environment = {
             .altitude = 31.0f,
@@ -259,9 +275,9 @@ static void TestDebugReport(void)
            SCREENSHOT_RESULT_OK);
     assert(strstr(reportPath, "/capture.txt") != NULL);
 
-    char contents[8192];
+    char contents[16384];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=8\n"));
+    assert(strstr(contents, "format.version=9\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -288,6 +304,11 @@ static void TestDebugReport(void)
     assert(strstr(contents, "weather.gust=0.810000\n"));
     assert(strstr(contents, "weather.damage_enabled=true\n"));
     assert(strstr(contents, "weather.surface_count=23\n"));
+    assert(strstr(contents, "weather.tornado_active=true\n"));
+    assert(strstr(contents, "weather.tornado_phase=mature\n"));
+    assert(strstr(contents, "weather.tornado_intensity=0.880000\n"));
+    assert(strstr(contents,
+                  "weather.tornado_block_damage_events=7\n"));
     assert(strstr(contents, "environment.seabed_y=18\n"));
     assert(strstr(contents, "environment.water_column_depth=62\n"));
     assert(strstr(contents, "environment.bathymetry_zone=trench\n"));

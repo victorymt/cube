@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=8\n");
+    REPORT_LINE("format.version=9\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -213,6 +213,40 @@ static bool ScreenshotWriteDebugFields(
                 info->weather.activeFires);
     REPORT_LINE("weather.block_damage_events=%" PRIu32 "\n",
                 info->weather.blockDamageEvents);
+    REPORT_LINE("weather.tornado_active=%s\n",
+                ScreenshotBool(info->weather.tornadoActive));
+    REPORT_LINE("weather.tornado_forced=%s\n",
+                ScreenshotBool(info->weather.tornadoForced));
+    REPORT_LINE("weather.tornado_phase=%s\n",
+                ScreenshotText(info->weather.tornadoPhase));
+    REPORT_LINE("weather.tornado_center=%.6f,%.6f,%.6f\n",
+                info->weather.tornadoCenter.x,
+                info->weather.tornadoCenter.y,
+                info->weather.tornadoCenter.z);
+    REPORT_LINE("weather.tornado_distance=%.6f\n",
+                info->weather.tornadoDistance);
+    REPORT_LINE("weather.tornado_intensity=%.6f\n",
+                info->weather.tornadoIntensity);
+    REPORT_LINE("weather.tornado_radius=%.6f\n",
+                info->weather.tornadoRadius);
+    REPORT_LINE("weather.tornado_funnel_height=%.6f\n",
+                info->weather.tornadoFunnelHeight);
+    REPORT_LINE("weather.tornado_wind_mps=%.6f\n",
+                info->weather.tornadoWindMps);
+    REPORT_LINE("weather.tornado_condensation=%.6f\n",
+                info->weather.tornadoCondensation);
+    REPORT_LINE("weather.tornado_dust_loading=%.6f\n",
+                info->weather.tornadoDustLoading);
+    REPORT_LINE("weather.tornado_forced_frames=%u\n",
+                info->weather.tornadoForcedFrames);
+    REPORT_LINE("weather.tornado_block_damage_events=%" PRIu32 "\n",
+                info->weather.tornadoBlockDamageEvents);
+    REPORT_LINE("weather.tornado_debris_emitted=%" PRIu32 "\n",
+                info->weather.tornadoDebrisEmitted);
+    REPORT_LINE("weather.tornado_dust_emitted=%" PRIu32 "\n",
+                info->weather.tornadoDustEmitted);
+    REPORT_LINE("weather.tornado_dropped_effects=%" PRIu32 "\n",
+                info->weather.tornadoDroppedEffects);
 
     REPORT_LINE("environment.altitude=%.6f\n", info->environment.altitude);
     REPORT_LINE("environment.atmosphere_fade=%.6f\n",

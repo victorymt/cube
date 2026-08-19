@@ -40,7 +40,10 @@ static EnvironmentRuntimeSample RainSample(void)
         .sheltered = false,
         .forest = true,
         .nearWater = true,
-        .shipInterior = false
+        .shipInterior = false,
+        .tornado = { .active = true, .intensity = 0.8f },
+        .tornadoDistance = 30.0f,
+        .tornadoExposure = 0.5f
     };
 }
 
@@ -60,6 +63,9 @@ static void TestInputAssembly(void)
     assert(input.altitude == sample.altitude);
     assert(input.forest && input.nearWater);
     assert(!input.underwater && !input.sheltered && !input.shipInterior);
+    assert(input.tornado.active);
+    assert(input.tornadoDistance == 30.0f);
+    assert(input.tornadoExposure == 0.5f);
 }
 
 static void TestRuntimeTransitionsAndReset(void)

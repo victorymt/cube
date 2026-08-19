@@ -19,6 +19,7 @@
 #include "world/terrain.h"
 #include "world/weather.h"
 #include "world/weather_impact.h"
+#include "world/tornado.h"
 #include "world/world.h"
 
 #include "raylib.h"
@@ -71,6 +72,8 @@ void GameCaptureScreenshot(GameRuntime *game,
             (int)floorf(game->player.position.z),
             frame->weatherSimulationTime, &screenshotClimate);
         WeatherImpactStats screenshotWeatherImpacts = WeatherImpactGetStats();
+        TornadoState screenshotTornado = frame->tornado;
+        TornadoStats screenshotTornadoStats = TornadoGetStats();
         int screenshotMissingSurfaceChunks =
             PlayerMissingSurfaceChunkCount(game->player.position);
         ScreenshotDebugInfo debugInfo = {
@@ -171,7 +174,25 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .activeFires = screenshotWeatherImpacts.activeFires,
                 .blockDamageEvents =
                     screenshotWeatherImpacts.blockDamageEvents,
-                .damageEnabled = WeatherImpactEnabled()
+                .damageEnabled = WeatherImpactEnabled(),
+                .tornadoPhase = TornadoPhaseName(screenshotTornado.phase),
+                .tornadoCenter = ScreenshotVector(screenshotTornado.center),
+                .tornadoActive = screenshotTornado.active,
+                .tornadoForced = screenshotTornado.forced,
+                .tornadoDistance = TornadoDistanceTo(game->camera.position),
+                .tornadoIntensity = screenshotTornado.intensity,
+                .tornadoRadius = screenshotTornado.radius,
+                .tornadoFunnelHeight = screenshotTornado.funnelHeight,
+                .tornadoWindMps = screenshotTornado.maximumWindMps,
+                .tornadoCondensation = screenshotTornado.condensation,
+                .tornadoDustLoading = screenshotTornado.dustLoading,
+                .tornadoForcedFrames = TornadoForcedFramesRemaining(),
+                .tornadoBlockDamageEvents =
+                    screenshotTornadoStats.blockDamageEvents,
+                .tornadoDebrisEmitted =
+                    screenshotTornadoStats.debrisEmitted,
+                .tornadoDustEmitted = screenshotTornadoStats.dustEmitted,
+                .tornadoDroppedEffects = screenshotTornadoStats.droppedEffects
             },
             .environment = {
                 .altitude = frame->environmentSample.altitude,

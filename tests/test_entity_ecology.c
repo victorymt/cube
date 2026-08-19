@@ -659,6 +659,29 @@ static void TestEntityDeathCauseFeedback(void)
         .windAngle = 0.0f
     }, daylight);
     assert(EntitiesView()[0].velocity.x > velocityBefore);
+    const Entity *tornadoEntity = EntitiesView();
+    TornadoState tornado = {
+        .active = true,
+        .phase = TORNADO_PHASE_MATURE,
+        .center = {
+            tornadoEntity[0].position.x - 8.0f,
+            tornadoEntity[0].position.y - 1.0f,
+            tornadoEntity[0].position.z
+        },
+        .intensity = 1.0f,
+        .radius = 12.0f,
+        .influenceRadius = 48.0f,
+        .funnelHeight = 72.0f,
+        .maximumWindMps = 88.0f,
+        .rotationSign = 1.0f
+    };
+    Vector3 velocityBeforeTornado = tornadoEntity[0].velocity;
+    float healthBeforeTornado = tornadoEntity[0].health;
+    EntitiesApplyTornadoHazards(0.25f, &tornado, true, daylight);
+    assert(EntitiesView()[0].velocity.y > velocityBeforeTornado.y);
+    assert(EntitiesView()[0].velocity.x != velocityBeforeTornado.x ||
+           EntitiesView()[0].velocity.z != velocityBeforeTornado.z);
+    assert(EntitiesView()[0].health < healthBeforeTornado);
     float healthBefore = EntitiesView()[0].health;
     WeatherFieldSample heat = {
         .temperatureK = 1200.0f,

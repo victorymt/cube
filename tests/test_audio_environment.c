@@ -14,6 +14,7 @@ static void TestPresentationMapping(void)
         .audioCave = 0.22f,
         .audioNether = 0.81f,
         .audioShip = 0.58f,
+        .audioTornado = 0.76f,
         .lightningFlash = 0.91f
     };
     AudioEnvironmentState audio = AudioEnvironmentFromPresentation(&presentation);
@@ -24,6 +25,7 @@ static void TestPresentationMapping(void)
     assert(audio.cave == presentation.audioCave);
     assert(audio.nether == presentation.audioNether);
     assert(audio.ship == presentation.audioShip);
+    assert(audio.tornado == presentation.audioTornado);
     assert(audio.lightning == presentation.lightningFlash);
 
     presentation.audioRain = NAN;

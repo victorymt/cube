@@ -12,6 +12,7 @@
 #include "world/chunks.h"
 #include "world/terrain.h"
 #include "world/weather.h"
+#include "world/tornado.h"
 #include "world/world.h"
 #include "world/world_lighting.h"
 
@@ -67,6 +68,7 @@ static float GameSampleFrameAstronomy(GameRuntime *game,
     frame->weatherVisual = WeatherVisualStateAtWorld(
         game->camera.position, frame->weatherSimulationTime,
         frame->daylight);
+    frame->tornado = TornadoCurrent();
     frame->planetSeasonProgress = -1.0f;
     if (PlanetWorldIsActive()) {
         const PlanetProfile *profile = PlanetWorldProfile();
@@ -190,7 +192,10 @@ static void GameBuildFrameEnvironmentSample(GameRuntime *game,
         .forest = forest,
         .nearWater = EnvironmentNearWater(game->camera.position),
         .shipInterior = environmentScene == ENVIRONMENT_SCENE_SPACE &&
-                        ShipIsDriving()
+                        ShipIsDriving(),
+        .tornado = frame->tornado,
+        .tornadoDistance = TornadoDistanceTo(game->camera.position),
+        .tornadoExposure = TornadoForceAt(game->camera.position).exposure
     };
     frame->bathymetry = (BathymetrySample){
         .seaLevel = -1,

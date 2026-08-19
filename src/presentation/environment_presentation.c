@@ -115,6 +115,17 @@ EnvironmentPresentationState EnvironmentPresentationEvaluate(
     state.audioWater = input->nearWater ? Unit(0.24f + state.waveStrength * 0.46f) : 0.0f;
     state.audioCave = input->sheltered && !input->underwater ?
                           Unit(0.16f + night * 0.10f) : 0.0f;
+    if (input->tornado.active && isfinite(input->tornadoDistance) &&
+        input->tornadoDistance >= 0.0f) {
+        float distanceAttenuation = Unit(
+            1.0f - input->tornadoDistance / 220.0f);
+        distanceAttenuation *= distanceAttenuation;
+        float tornadoExposure = Unit(input->tornadoExposure);
+        state.audioTornado = Unit(
+            input->tornado.intensity * distanceAttenuation *
+            (0.62f + tornadoExposure * 0.38f) *
+            (input->sheltered ? 0.18f : 1.0f));
+    }
     if (input->underwater) {
         float depth = fmaxf(input->underwaterDepth, 0.0f);
         float deep = Unit(depth / UNDERWATER_DEEP_REFERENCE_DEPTH);
@@ -134,6 +145,7 @@ EnvironmentPresentationState EnvironmentPresentationEvaluate(
         state.audioForest = 0.0f;
         state.audioWater = 0.42f;
         state.audioCave = 0.0f;
+        state.audioTornado = 0.0f;
         state.cloudOpacity = 0.0f;
         state.precipitation = 0.0f;
         state.lightningFlash = 0.0f;
@@ -187,6 +199,7 @@ EnvironmentPresentationState EnvironmentPresentationAdvance(
     ADVANCE(audioCave, 1.0f);
     ADVANCE(audioNether, 1.2f);
     ADVANCE(audioShip, 2.4f);
+    ADVANCE(audioTornado, 2.0f);
 #undef ADVANCE
     current.cloudRaySteps = target.cloudRaySteps;
     current.cloudLightSteps = target.cloudLightSteps;

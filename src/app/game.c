@@ -55,9 +55,11 @@
 #include "presentation/environment_presentation.h"
 #include "presentation/environment_runtime.h"
 #include "presentation/effect_dispatch.h"
+#include "presentation/tornado_renderer.h"
 #include "app/game_settings.h"
 #include "app/screenshot.h"
 #include "core/debug_control.h"
+#include "world/tornado.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -626,16 +628,55 @@ static void GameUpdateTemporalState(GameRuntime *game, float dt)
         WeatherSetDaylight(weatherDaylight);
         WeatherSetSheltered(weatherSheltered);
         WeatherUpdate(dt, game->player.position);
+        TornadoUpdate(dt, game->player.position, WeatherCurrentSample());
         WeatherImpactUpdate(dt, game->player.position,
                             WeatherCurrentSample());
         if (game->settings.weatherDamageEnabled) {
             EntitiesApplyWeatherHazards(dt, WeatherCurrentSample(),
                                         weatherDaylight);
         }
+        TornadoState tornado = TornadoCurrent();
+        EntitiesApplyTornadoHazards(
+            dt, &tornado, game->settings.weatherDamageEnabled,
+            weatherDaylight);
     } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
         WeatherSetSheltered(false);
         WeatherSuspend();
+        TornadoSuspend();
     }
+}
+
+static void GameApplyTornadoPlayerForce(GameRuntime *game, float dt)
+{
+    if (!game || !WorldIsSurfaceActive() || ShipIsDriving() ||
+        GameWorldSimulationPaused(game) || !isfinite(dt) || dt <= 0.0f) {
+        return;
+    }
+    Vector3 samplePosition = game->player.position;
+    samplePosition.y += EYE_HEIGHT * 0.52f;
+    TornadoForceSample force = TornadoForceAt(samplePosition);
+    if (force.exposure <= 0.0f) return;
+    PlayerWaterState water = PlayerWaterStateAt(game->player.position);
+    float resistance = GameEnvironmentSheltered(game->player.position) ?
+        0.16f : 1.0f;
+    if (water.bodySubmerged) resistance *= 0.10f;
+    if (game->player.onGround) {
+        force.acceleration.x *= 0.72f;
+        force.acceleration.z *= 0.72f;
+        force.acceleration.y *= force.exposure > 0.48f ? 0.58f : 0.08f;
+    }
+    float step = fminf(dt, 0.25f) * resistance;
+    game->player.velocity.x += force.acceleration.x * step;
+    game->player.velocity.y += force.acceleration.y * step;
+    game->player.velocity.z += force.acceleration.z * step;
+    float horizontalSpeed = hypotf(game->player.velocity.x,
+                                   game->player.velocity.z);
+    if (horizontalSpeed > 24.0f) {
+        float scale = 24.0f / horizontalSpeed;
+        game->player.velocity.x *= scale;
+        game->player.velocity.z *= scale;
+    }
+    game->player.velocity.y = Clamp(game->player.velocity.y, -35.0f, 18.0f);
 }
 
 static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
@@ -847,6 +888,10 @@ static void GameRenderWorldPass(GameRuntime *game,
                    frame->weatherSimulationTime, &frame->weatherVisual,
                    &frame->environmentPresentation, &frame->worldLighting);
     }
+    if (frame->localWorldActive && !frame->inNether && !frame->underwater) {
+        DrawTornadoFunnel(&game->camera, &frame->tornado,
+                          game->settings.graphicsQuality, frame->daylight);
+    }
     ParticlesDraw();
     GameRenderInteractionGuides(game, frame);
     EndMode3D();
@@ -942,6 +987,7 @@ static void GameRenderEnvironmentOverlays(GameRuntime *game,
         }
         if (!frame->inNether && frame->skyFade < 0.5f) {
             DrawWeatherOverlay(&game->camera, &frame->weatherVisual);
+            DrawTornadoOverlay(&game->camera, &frame->tornado);
         }
     }
     DrawEnvironmentPostProcess(&frame->environmentPresentation);
@@ -1152,6 +1198,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
 
     GameUpdateTemporalState(game, dt);
     GameUpdatePlayerMotion(game, dt, inputBlocked);
+    GameApplyTornadoPlayerForce(game, dt);
     bool localWorldActive = false;
     int effectiveRenderDistance =
         GameUpdateWorldStreaming(game, &localWorldActive);
@@ -1236,7 +1283,11 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     // Performance runs measure a fixed streaming/render route. Persistent
     // weather edits would keep invalidating meshes after that route ends.
     WeatherImpactInit(game->settings.weatherDamageEnabled && !game->perfMode);
+    TornadoInit(game->settings.weatherDamageEnabled && !game->perfMode);
     WeatherSetParticleScale(
+        GraphicsQualityProfileFor(
+            game->settings.graphicsQuality).precipitationScale);
+    TornadoSetParticleScale(
         GraphicsQualityProfileFor(
             game->settings.graphicsQuality).precipitationScale);
     AlbumInit();

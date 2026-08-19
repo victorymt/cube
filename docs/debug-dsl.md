@@ -206,6 +206,19 @@ Runtime values are sampled when an expression is evaluated:
 | `weather.rainbow`, `weather.aurora` | number | Normalized optical-phenomenon intensities |
 | `weather.surface_count` | number | Tracked weather-affected surface count |
 | `weather.active_fires` | number | Active weather fire count |
+| `weather.tornado_active` | bool | Whether a local tornado is active |
+| `weather.tornado_forced` | bool | Whether the active tornado came from debug forcing |
+| `weather.tornado_phase` | string | `inactive`, `forming`, `intensifying`, `mature`, or `dissipating` |
+| `weather.tornado_center` | vec3 | Current moving funnel-base position |
+| `weather.tornado_distance` | number | Horizontal player distance, or `-1` when inactive |
+| `weather.tornado_intensity` | number | Current lifecycle-scaled intensity from 0 to 1 |
+| `weather.tornado_radius` | number | Core vortex radius in world units |
+| `weather.tornado_funnel_height` | number | Condensation-funnel height in world units |
+| `weather.tornado_wind_mps` | number | Maximum modeled tangential wind in meters per second |
+| `weather.tornado_forced_frames` | number | Remaining forced-tornado update frames |
+| `weather.tornado_blocks_damaged` | number | Cumulative tornado block removals this session |
+| `weather.tornado_debris_emitted` | number | Cumulative block-debris particles emitted this session |
+| `weather.tornado_dropped_effects` | number | Tornado effects dropped at the bounded effect-queue limit |
 | `weather.forced_frames` | number | Remaining forced-weather update frames |
 | `weather.damage_enabled` | bool | Environmental weather effects are enabled |
 | `target.hit` | bool | Current solid raycast hit exists |
@@ -318,6 +331,8 @@ weather inspect
 weather force PHENOMENON INTENSITY FRAMES
 weather cloud GENUS COVERAGE FRAMES
 weather cloud clear
+weather tornado force INTENSITY FRAMES [DISTANCE]
+weather tornado clear
 weather clear
 weather damage on|off
 weather step TICKS
@@ -335,7 +350,8 @@ rarity for deterministic testing. `INTENSITY` is 0-1 and `FRAMES` is
 `heat-wave`, `cold-snap`, `rainbow`, and `aurora`.
 
 Forced weather is runtime-only and is never saved. `weather clear` returns to
-the natural field and clears a separately forced cloud. `weather cloud` forces
+the natural field and clears separately forced cloud and tornado state.
+`weather cloud` forces
 one WMO cloud genus without replacing a forced weather phenomenon; `COVERAGE`
 is 0-1, `FRAMES` is 1-36,000, and `weather cloud clear` restores natural cloud
 classification. The accepted genera are `cirrus`, `cirrocumulus`,
@@ -343,6 +359,16 @@ classification. The accepted genera are `cirrus`, `cirrocumulus`,
 `stratocumulus`, `stratus`, `cumulus`, and `cumulonimbus`. Cloud forcing is
 also runtime-only. `weather inspect` reports the dominant and present genera,
 the selected renderer layers, and each layer's coverage, base, and thickness.
+
+`weather tornado force` creates a deterministic tornado downwind of the player
+without weakening natural formation thresholds. `INTENSITY` is 0-1, `FRAMES`
+is 1-36,000, and optional `DISTANCE` is 8-160 world units (default 48). The
+forced event uses the normal forming, intensifying, mature, and dissipating
+lifecycle as well as the normal force, terrain, debris, funnel, and audio
+paths. `weather tornado clear` removes only the tornado, preserving separately
+forced weather and cloud state. Tornado state is runtime-only and is not saved.
+`weather inspect` reports its phase, center, distance, intensity, radius,
+funnel height, maximum wind, remaining frames, damage, and debris counters.
 
 `weather damage off` restores reversible weather-owned
 snow/ice and clears active weather fires; it changes the current game setting,

@@ -3,6 +3,7 @@
 
 #include "presentation/render_quality.h"
 #include "presentation/weather_visual.h"
+#include "world/tornado_model.h"
 
 #include <stdbool.h>
 
@@ -30,6 +31,9 @@ typedef struct EnvironmentPresentationInput {
     bool forest;
     bool nearWater;
     bool shipInterior;
+    TornadoState tornado;
+    float tornadoDistance;
+    float tornadoExposure;
 } EnvironmentPresentationInput;
 
 typedef struct EnvironmentPresentationState {
@@ -67,6 +71,7 @@ typedef struct EnvironmentPresentationState {
     float audioCave;
     float audioNether;
     float audioShip;
+    float audioTornado;
 } EnvironmentPresentationState;
 
 EnvironmentPresentationState EnvironmentPresentationEvaluate(

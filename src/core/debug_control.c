@@ -217,6 +217,9 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
     if (strcmp(line, "weather cloud clear") == 0) {
         return DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_CLEAR;
     }
+    if (strcmp(line, "weather tornado clear") == 0) {
+        return DEBUG_CONTROL_COMMAND_WEATHER_TORNADO_CLEAR;
+    }
     if (strcmp(line, "weather damage on") == 0 ||
         strcmp(line, "weather damage off") == 0) {
         control->weatherDamageEnabled = strcmp(line, "weather damage on") == 0;
@@ -255,6 +258,19 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
         control->weatherCloudCoverage = coverage;
         control->weatherCloudFrames = frames;
         return DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE;
+    }
+    float tornadoDistance = 48.0f;
+    int tornadoFields = sscanf(
+        line, "weather tornado force %f %u %f %c", &intensity, &frames,
+        &tornadoDistance, &trailing);
+    if ((tornadoFields == 2 || tornadoFields == 3) &&
+        isfinite(intensity) && intensity >= 0.0f && intensity <= 1.0f &&
+        frames >= 1u && frames <= 36000u && isfinite(tornadoDistance) &&
+        tornadoDistance >= 8.0f && tornadoDistance <= 160.0f) {
+        control->weatherTornadoIntensity = intensity;
+        control->weatherTornadoFrames = frames;
+        control->weatherTornadoDistance = tornadoDistance;
+        return DEBUG_CONTROL_COMMAND_WEATHER_TORNADO_FORCE;
     }
     return DEBUG_CONTROL_COMMAND_NONE;
 }

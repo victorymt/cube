@@ -24,7 +24,14 @@ static EnvironmentPresentationInput StormInput(void)
         .daylight = 0.55f,
         .sunset = 0.1f,
         .forest = true,
-        .nearWater = true
+        .nearWater = true,
+        .tornado = {
+            .active = true,
+            .intensity = 0.88f,
+            .influenceRadius = 52.0f
+        },
+        .tornadoDistance = 24.0f,
+        .tornadoExposure = 0.72f
     };
 }
 
@@ -37,6 +44,7 @@ static void TestSceneContracts(void)
     assert(open.audioRain > 0.5f);
     assert(open.fogDensity > 0.0f);
     assert(open.lightningFlash > 0.0f);
+    assert(open.audioTornado > 0.4f);
 
     input.sheltered = true;
     EnvironmentPresentationState sheltered = EnvironmentPresentationEvaluate(&input);
@@ -44,6 +52,7 @@ static void TestSceneContracts(void)
     assert(sheltered.audioRain < open.audioRain);
     assert(sheltered.lightningFlash == 0.0f);
     assert(sheltered.audioCave > 0.0f);
+    assert(sheltered.audioTornado < open.audioTornado * 0.25f);
 
     input.scene = ENVIRONMENT_SCENE_SPACE;
     input.shipInterior = false;
@@ -52,6 +61,7 @@ static void TestSceneContracts(void)
     assert(vacuum.audioRain == 0.0f);
     assert(vacuum.audioWind == 0.0f);
     assert(vacuum.audioShip == 0.0f);
+    assert(vacuum.audioTornado == 0.0f);
     input.shipInterior = true;
     assert(EnvironmentPresentationEvaluate(&input).audioShip > 0.0f);
 
@@ -93,6 +103,7 @@ static void TestDeepWaterAttenuation(void)
     assert(shallow.precipitation == 0.0f);
     assert(shallow.lightningFlash == 0.0f);
     assert(shallow.starVisibility == 0.0f);
+    assert(shallow.audioTornado == 0.0f);
     input.underwaterDepth = 64.0f;
     EnvironmentPresentationState deep = EnvironmentPresentationEvaluate(&input);
     input.underwaterDepth = UNDERWATER_DEEP_REFERENCE_DEPTH;

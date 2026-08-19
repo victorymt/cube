@@ -12,6 +12,7 @@
 #include "world/terrain.h"
 #include "world/world_environment.h"
 #include "world/world_lighting.h"
+#include "world/tornado.h"
 
 typedef struct GameFrameView {
     HitResult hit;
@@ -20,6 +21,7 @@ typedef struct GameFrameView {
     PlanetLightState planetLight;
     PlanetObservationState planetObservation;
     WeatherVisualState weatherVisual;
+    TornadoState tornado;
     EnvironmentPresentationState environmentPresentation;
     EnvironmentRuntimeSample environmentSample;
     WorldLightingState worldLighting;

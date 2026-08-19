@@ -3,6 +3,7 @@
 
 #include "presentation/environment_presentation.h"
 #include "world/world_environment.h"
+#include "world/tornado_model.h"
 
 typedef struct EnvironmentRuntimeSample {
     WorldDimension dimension;
@@ -19,6 +20,9 @@ typedef struct EnvironmentRuntimeSample {
     bool forest;
     bool nearWater;
     bool shipInterior;
+    TornadoState tornado;
+    float tornadoDistance;
+    float tornadoExposure;
 } EnvironmentRuntimeSample;
 
 typedef struct EnvironmentPresentationRuntime {

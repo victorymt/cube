@@ -30,7 +30,8 @@ CHUNKS_FEATURE_SRC := \
 ENTITY_FEATURE_SRC := \
 	src/ecology/entity.c \
 	src/ecology/entity_simulation.c \
-	src/ecology/entity_spawn.c
+	src/ecology/entity_spawn.c \
+	src/world/tornado_model.c
 
 BLOCK_ATLAS_FEATURE_SRC := \
 	src/world/block_atlas.c \

@@ -30,6 +30,7 @@
 #include "world/surface_topology.h"
 #include "world/weather.h"
 #include "world/weather_impact.h"
+#include "world/tornado.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 
@@ -1024,6 +1025,8 @@ static void GameDebugInspectWeather(GameRuntime *game)
         game->player.position,
         SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()), 0.5f);
     WeatherImpactStats impacts = WeatherImpactGetStats();
+    TornadoState tornado = TornadoCurrent();
+    TornadoStats tornadoStats = TornadoGetStats();
     LocalClimateState climate = { 0 };
     bool haveClimate = GameDebugLocalClimate(game, &climate);
     char genera[256] = "none";
@@ -1066,7 +1069,13 @@ static void GameDebugInspectWeather(GameRuntime *game)
         "fog=%.6f dust=%.6f rainbow=%.6f aurora=%.6f "
         "cloud_genus=%s cloud_genera=%s cloud_layers=%u "
         "cloud_layer_data=%s cloud_forced_frames=%u "
-        "forced_frames=%u damage=%d surfaces=%u fires=%u\n",
+        "forced_frames=%u damage=%d surfaces=%u fires=%u "
+        "tornado_active=%d tornado_forced=%d tornado_phase=%s "
+        "tornado_center=%.3f,%.3f,%.3f tornado_distance=%.3f "
+        "tornado_intensity=%.6f tornado_radius=%.3f "
+        "tornado_funnel_height=%.3f tornado_wind_mps=%.3f "
+        "tornado_forced_frames=%u tornado_blocks=%u tornado_debris=%u "
+        "tornado_dropped=%u\n",
         haveClimate ? ClimateRegimeName(climate.regime) : "unavailable",
         WeatherPhenomenonName(weather.dominantPhenomenon),
         weather.temperatureK, weather.temperatureK - 273.15f,
@@ -1079,7 +1088,13 @@ static void GameDebugInspectWeather(GameRuntime *game)
         visual.cloudLayerCount, layers, WeatherForcedCloudFramesRemaining(),
         WeatherForcedFramesRemaining(),
         WeatherImpactEnabled() ? 1 : 0, impacts.surfaceCount,
-        impacts.activeFires);
+        impacts.activeFires, tornado.active ? 1 : 0,
+        tornado.forced ? 1 : 0, TornadoPhaseName(tornado.phase),
+        tornado.center.x, tornado.center.y, tornado.center.z,
+        TornadoDistanceTo(game->player.position), tornado.intensity,
+        tornado.radius, tornado.funnelHeight, tornado.maximumWindMps,
+        TornadoForcedFramesRemaining(), tornadoStats.blockDamageEvents,
+        tornadoStats.debrisEmitted, tornadoStats.droppedEffects);
 }
 
 static GameDebugDispatchResult GameDebugDispatchWeatherCommand(
@@ -1138,8 +1153,35 @@ static GameDebugDispatchResult GameDebugDispatchWeatherCommand(
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL weather cloud clear ok\n");
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WEATHER_TORNADO_FORCE:
+        if (!TornadoForce(
+                game->player.position,
+                game->debugControl.weatherTornadoIntensity,
+                game->debugControl.weatherTornadoFrames,
+                game->debugControl.weatherTornadoDistance,
+                WeatherCurrentSample())) {
+            GameDebugMarkCommandError(game, "invalid_weather_tornado");
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL weather tornado error reason=invalid_arguments\n");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        DebugControlReply(
+            &game->debugControl,
+            "DEBUG_CONTROL weather tornado ok intensity=%.6f frames=%u "
+            "distance=%.3f\n",
+            game->debugControl.weatherTornadoIntensity,
+            game->debugControl.weatherTornadoFrames,
+            game->debugControl.weatherTornadoDistance);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WEATHER_TORNADO_CLEAR:
+        TornadoClear();
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL weather tornado clear ok\n");
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_WEATHER_CLEAR:
         WeatherClearForced();
+        TornadoClear();
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL weather clear ok\n");
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -1147,6 +1189,7 @@ static GameDebugDispatchResult GameDebugDispatchWeatherCommand(
         game->settings.weatherDamageEnabled =
             game->debugControl.weatherDamageEnabled;
         WeatherImpactSetEnabled(game->settings.weatherDamageEnabled);
+        TornadoSetDamageEnabled(game->settings.weatherDamageEnabled);
         DebugControlReply(
             &game->debugControl,
             "DEBUG_CONTROL weather damage enabled=%d\n",
@@ -1156,6 +1199,8 @@ static GameDebugDispatchResult GameDebugDispatchWeatherCommand(
         WeatherImpactStepTicks(game->debugControl.weatherTicks,
                                game->player.position,
                                WeatherCurrentSample());
+        TornadoStepTicks(game->debugControl.weatherTicks,
+                         game->player.position, WeatherCurrentSample());
         WeatherImpactStats stats = WeatherImpactGetStats();
         DebugControlReply(
             &game->debugControl,
@@ -1409,6 +1454,15 @@ static bool GameDebugDslResolve(void *userData, const char *name,
             return GameDebugDslString(
                 outValue, WeatherCloudGenusName(weather.dominantCloudGenus));
         }
+        TornadoState tornado = TornadoCurrent();
+        TornadoStats tornadoStats = TornadoGetStats();
+        if (strcmp(name, "weather.tornado_phase") == 0) {
+            return GameDebugDslString(outValue,
+                                      TornadoPhaseName(tornado.phase));
+        }
+        if (strcmp(name, "weather.tornado_center") == 0) {
+            return GameDebugDslVec3(outValue, tornado.center);
+        }
 #define WEATHER_NUMBER(fieldName, fieldValue) \
         if (strcmp(name, fieldName) == 0) { \
             return GameDebugDslNumber(outValue, (fieldValue)); \
@@ -1445,9 +1499,31 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         WEATHER_NUMBER("weather.active_fires", impacts.activeFires)
         WEATHER_NUMBER("weather.forced_frames",
                        WeatherForcedFramesRemaining())
+        WEATHER_NUMBER("weather.tornado_distance",
+                       TornadoDistanceTo(game->player.position))
+        WEATHER_NUMBER("weather.tornado_intensity", tornado.intensity)
+        WEATHER_NUMBER("weather.tornado_radius", tornado.radius)
+        WEATHER_NUMBER("weather.tornado_funnel_height",
+                       tornado.funnelHeight)
+        WEATHER_NUMBER("weather.tornado_wind_mps",
+                       tornado.maximumWindMps)
+        WEATHER_NUMBER("weather.tornado_forced_frames",
+                       TornadoForcedFramesRemaining())
+        WEATHER_NUMBER("weather.tornado_blocks_damaged",
+                       tornadoStats.blockDamageEvents)
+        WEATHER_NUMBER("weather.tornado_debris_emitted",
+                       tornadoStats.debrisEmitted)
+        WEATHER_NUMBER("weather.tornado_dropped_effects",
+                       tornadoStats.droppedEffects)
 #undef WEATHER_NUMBER
         if (strcmp(name, "weather.damage_enabled") == 0) {
             return GameDebugDslBool(outValue, WeatherImpactEnabled());
+        }
+        if (strcmp(name, "weather.tornado_active") == 0) {
+            return GameDebugDslBool(outValue, tornado.active);
+        }
+        if (strcmp(name, "weather.tornado_forced") == 0) {
+            return GameDebugDslBool(outValue, tornado.forced);
         }
     }
 

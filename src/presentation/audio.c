@@ -20,6 +20,7 @@ static Sound soundSplash = { 0 };
 static Sound soundPick = { 0 };
 static Sound soundRain = { 0 };
 static Sound soundWind = { 0 };
+static Sound soundTornado = { 0 };
 static Sound soundForest = { 0 };
 static Sound soundWater = { 0 };
 static Sound soundCave = { 0 };
@@ -163,6 +164,24 @@ static void GenWind(short *samples, int count, int sampleRate)
     }
 }
 
+static void GenTornado(short *samples, int count, int sampleRate)
+{
+    float sub = 0.0f;
+    float roar = 0.0f;
+    for (int i = 0; i < count; i++) {
+        float t = (float)i / (float)sampleRate;
+        float noise = (float)(rand() % 2001) / 1000.0f - 1.0f;
+        sub = sub * 0.9985f + noise * 0.0015f;
+        roar = roar * 0.965f + noise * 0.035f;
+        float rotation = 0.72f + 0.28f *
+            sinf(2.0f * PI * (0.34f + 0.03f * sinf(t * 0.17f)) * t);
+        float rumble = sinf(2.0f * PI * 31.0f * t) * 0.20f +
+                       sinf(2.0f * PI * 47.0f * t) * 0.11f;
+        samples[i] = (short)((sub * 3.2f + roar * 0.62f + rumble) *
+                             rotation * 11800.0f);
+    }
+}
+
 static void GenForest(short *samples, int count, int sampleRate)
 {
     float rustle = 0.0f;
@@ -274,6 +293,8 @@ void AudioInit(void)
     soundRain = LoadAmbient("assets/audio/rain.ogg",
                             (int)(AUDIO_SAMPLE_RATE * 4.0f), GenRain);
     soundWind = LoadSynthesized((int)(AUDIO_SAMPLE_RATE * 8.0f), GenWind);
+    soundTornado = LoadSynthesized((int)(AUDIO_SAMPLE_RATE * 8.0f),
+                                   GenTornado);
     soundForest = LoadSynthesized((int)(AUDIO_SAMPLE_RATE * 8.0f), GenForest);
     soundWater = LoadAmbient("assets/audio/water.ogg",
                              (int)(AUDIO_SAMPLE_RATE * 4.0f), GenRain);
@@ -284,6 +305,7 @@ void AudioInit(void)
     soundThunder = LoadSynthesized((int)(AUDIO_SAMPLE_RATE * 3.2f), GenThunder);
     SetSoundVolume(soundRain, 0.0f);
     SetSoundVolume(soundWind, 0.0f);
+    SetSoundVolume(soundTornado, 0.0f);
     SetSoundVolume(soundForest, 0.0f);
     SetSoundVolume(soundWater, 0.0f);
     SetSoundVolume(soundCave, 0.0f);
@@ -310,6 +332,7 @@ void AudioShutdown(void)
     UnloadSound(soundPick);
     UnloadSound(soundRain);
     UnloadSound(soundWind);
+    UnloadSound(soundTornado);
     UnloadSound(soundForest);
     UnloadSound(soundWater);
     UnloadSound(soundCave);
@@ -376,6 +399,7 @@ AudioEnvironmentState AudioEnvironmentFromPresentation(
         .cave = AudioUnit(presentation->audioCave),
         .nether = AudioUnit(presentation->audioNether),
         .ship = AudioUnit(presentation->audioShip),
+        .tornado = AudioUnit(presentation->audioTornado),
         .lightning = AudioUnit(presentation->lightningFlash)
     };
 }
@@ -394,6 +418,7 @@ void AudioSetEnvironment(const AudioEnvironmentState *state)
         .cave = AudioUnit(state->cave),
         .nether = AudioUnit(state->nether),
         .ship = AudioUnit(state->ship),
+        .tornado = AudioUnit(state->tornado),
         .lightning = AudioUnit(state->lightning)
     };
 }
@@ -447,6 +472,7 @@ void AudioUpdate(float dt)
     APPROACH(cave);
     APPROACH(nether);
     APPROACH(ship);
+    APPROACH(tornado);
 #undef APPROACH
 
     UpdateAmbientSound(soundRain, environmentCurrent.rain,
@@ -463,6 +489,8 @@ void AudioUpdate(float dt)
                        environmentTarget.nether, 0.52f);
     UpdateAmbientSound(soundShip, environmentCurrent.ship,
                        environmentTarget.ship, 0.48f);
+    UpdateAmbientSound(soundTornado, environmentCurrent.tornado,
+                       environmentTarget.tornado, 0.78f);
     if (environmentTarget.lightning > 0.18f && previousLightning <= 0.18f) {
         SetSoundVolume(soundThunder,
                        AudioUnit(environmentTarget.lightning * ambientVolume * 0.9f));

@@ -906,6 +906,48 @@ void EntitiesApplyWeatherHazards(float dt, WeatherFieldSample weather,
     }
 }
 
+void EntitiesApplyTornadoHazards(float dt, const TornadoState *tornado,
+                                 bool damageEnabled, float daylight)
+{
+    if (!tornado || !tornado->active || !isfinite(dt) || dt <= 0.0f) {
+        return;
+    }
+    float step = fminf(dt, 0.25f);
+    for (int index = 0; index < MAX_ENTITIES; index++) {
+        Entity *entity = &entities[index];
+        if (!entity->active || entity->corpse) continue;
+        Vector3 samplePosition = entity->position;
+        samplePosition.y += fmaxf(entity->organismScale * 0.45f, 0.25f);
+        TornadoForceSample force = TornadoModelForceAt(
+            tornado, samplePosition);
+        if (force.exposure <= 0.0f) continue;
+
+        float mobility = (0.58f + (1.0f - entity->bodyArmor) * 0.62f) *
+            (entity->aquatic ? 0.14f : 1.0f);
+        entity->velocity.x += force.acceleration.x * mobility * step;
+        entity->velocity.y += force.acceleration.y * mobility * step;
+        entity->velocity.z += force.acceleration.z * mobility * step;
+        float horizontalSpeed = sqrtf(
+            entity->velocity.x * entity->velocity.x +
+            entity->velocity.z * entity->velocity.z);
+        if (horizontalSpeed > 18.0f) {
+            float scale = 18.0f / horizontalSpeed;
+            entity->velocity.x *= scale;
+            entity->velocity.z *= scale;
+        }
+        entity->velocity.y = fminf(fmaxf(entity->velocity.y, -18.0f), 14.0f);
+
+        if (damageEnabled && force.exposure > 0.64f) {
+            float vulnerability = 1.0f - entity->bodyArmor * 0.72f;
+            entity->health -= step * (force.exposure - 0.64f) *
+                              vulnerability * 0.09f;
+            if (entity->health <= 0.0f) {
+                EntityKill(index, ENTITY_DEATH_ENVIRONMENT, daylight);
+            }
+        }
+    }
+}
+
 int EntityNearestEvolvable(Vector3 position, float radius)
 {
     if (!isfinite(radius) || radius <= 0.0f) return -1;

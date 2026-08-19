@@ -102,6 +102,22 @@ typedef struct ScreenshotWeatherDebugInfo {
     uint32_t activeFires;
     uint32_t blockDamageEvents;
     bool damageEnabled;
+    const char *tornadoPhase;
+    ScreenshotVector3 tornadoCenter;
+    bool tornadoActive;
+    bool tornadoForced;
+    float tornadoDistance;
+    float tornadoIntensity;
+    float tornadoRadius;
+    float tornadoFunnelHeight;
+    float tornadoWindMps;
+    float tornadoCondensation;
+    float tornadoDustLoading;
+    unsigned tornadoForcedFrames;
+    uint32_t tornadoBlockDamageEvents;
+    uint32_t tornadoDebrisEmitted;
+    uint32_t tornadoDustEmitted;
+    uint32_t tornadoDroppedEffects;
 } ScreenshotWeatherDebugInfo;
 
 typedef struct ScreenshotEnvironmentDebugInfo {

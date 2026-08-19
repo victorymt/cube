@@ -31,6 +31,9 @@ EnvironmentPresentationInput EnvironmentPresentationInputForSample(
     input.forest = sample->forest;
     input.nearWater = sample->nearWater;
     input.shipInterior = sample->shipInterior;
+    input.tornado = sample->tornado;
+    input.tornadoDistance = sample->tornadoDistance;
+    input.tornadoExposure = sample->tornadoExposure;
     return input;
 }
 
