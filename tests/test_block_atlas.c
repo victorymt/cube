@@ -199,7 +199,20 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0xd717f738fd2f53b1), UINT64_C(0x2970104139ad9594),
     UINT64_C(0x9576c81179c6ebd3), UINT64_C(0x1b878d0bd6a58940),
     UINT64_C(0x75cc6460c15bef1f), UINT64_C(0x9b2d08199cef434a),
-    UINT64_C(0xe66301a4e7ead52a), UINT64_C(0x0a2f63a8705a7245)
+    UINT64_C(0xe66301a4e7ead52a), UINT64_C(0x0a2f63a8705a7245),
+    UINT64_C(0x4658fd2280e866c4), UINT64_C(0x50ecb21d3963ed3a),
+    UINT64_C(0xbc10ac51180cf2f7), UINT64_C(0x507b9e4fcb1a857c),
+    UINT64_C(0x268c2246a0cc2ce7), UINT64_C(0x27d844f4b5740862),
+    UINT64_C(0x66bca2ad053a17cf), UINT64_C(0x5c3641e7c79a76f0),
+    UINT64_C(0xea3f0df3f03ed13b), UINT64_C(0xb87cec6efbbedf52),
+    UINT64_C(0xd43b43b16cf01d98), UINT64_C(0xb21c71881569ec96),
+    UINT64_C(0x30069d10e6b81dec), UINT64_C(0x23dbb3f9b0eb2448),
+    UINT64_C(0x062c4669b6784de8), UINT64_C(0x7b3798c2545e442b),
+    UINT64_C(0xbaa676290267f72e), UINT64_C(0x8ab979a731c56180),
+    UINT64_C(0x6de0a77edf15fadb), UINT64_C(0x2688c02c46ffffad),
+    UINT64_C(0xe97e9f9f3681df20), UINT64_C(0x2a3e8dff8c28721a),
+    UINT64_C(0x021999a17ead838e), UINT64_C(0x132d4677d28379e8),
+    UINT64_C(0xa40aa6c9e6dd2930)
 };
 
 _Static_assert(sizeof(EXPECTED_TILE_HASHES) /
@@ -302,7 +315,7 @@ static void AssertPixelContract(Image image)
         }
     }
     uint64_t atlas = HashRegion(image, 0, 0, image.width, image.height);
-    if (atlas != UINT64_C(0x785aef9a355d43dc)) {
+    if (atlas != UINT64_C(0x4473a66fe2beea4e)) {
         fprintf(stderr, "atlas digest: got 0x%016llx\n",
                 (unsigned long long)atlas);
         matched = false;
@@ -338,7 +351,10 @@ static void AssertTransparentArtwork(Image image)
     const BlockTexture textures[] = {
         TEX_FLOWER, TEX_MUSHROOM, TEX_TALL_GRASS, TEX_FERN,
         TEX_REED, TEX_LICHEN, TEX_CANOPY_FROND, TEX_LUMINOUS_POD,
-        TEX_LEAF_LITTER
+        TEX_LEAF_LITTER, TEX_OAK_LEAVES, TEX_BIRCH_LEAVES,
+        TEX_ASPEN_LEAVES, TEX_SPRUCE_NEEDLES, TEX_PINE_NEEDLES,
+        TEX_WILLOW_LEAVES, TEX_BIG_BLUESTEM, TEX_BRACKEN,
+        TEX_COMMON_REED, TEX_HEATHER, TEX_FIREWEED
     };
     for (size_t index = 0;
          index < sizeof(textures) / sizeof(textures[0]); index++) {
@@ -399,6 +415,29 @@ static void AssertTextureMapping(void)
         assert(TextureForBlockFace((BlockType)(BLOCK_STAGE05_START + index),
                                    0) ==
                (BlockTexture)(TEX_ANDESITE + index));
+    }
+    static const BlockType treeLogs[] = {
+        BLOCK_OAK_LOG, BLOCK_BIRCH_LOG, BLOCK_ASPEN_LOG,
+        BLOCK_SPRUCE_LOG, BLOCK_PINE_LOG, BLOCK_WILLOW_LOG
+    };
+    for (size_t index = 0; index < sizeof(treeLogs) / sizeof(treeLogs[0]);
+         index++) {
+        BlockTexture bark = (BlockTexture)(TEX_OAK_BARK + (int)index * 3);
+        BlockTexture ring = (BlockTexture)(bark + 1);
+        BlockType foliage = (BlockType)(treeLogs[index] + 1);
+        assert(TextureForBlockFace(treeLogs[index], 0) == bark);
+        assert(TextureForBlockFace(treeLogs[index], 2) == ring);
+        assert(TextureForBlockFace(treeLogs[index], 3) == ring);
+        assert(TextureForBlockFace(foliage, 0) ==
+               (BlockTexture)(bark + 2));
+    }
+    for (int index = 0;
+         index <= BLOCK_STAGE06_UNDERSTORY_END -
+                  BLOCK_STAGE06_UNDERSTORY_START;
+         index++) {
+        assert(TextureForBlockFace(
+                   (BlockType)(BLOCK_STAGE06_UNDERSTORY_START + index), 0) ==
+               (BlockTexture)(TEX_BIG_BLUESTEM + index));
     }
     for (int index = 0; index < COLOR_BLOCK_COUNT; index++) {
         BlockType block = (BlockType)(BLOCK_COLOR_START + index);
@@ -507,6 +546,27 @@ static void AssertNaturalBlockContract(void)
         { "Charcoal", BLOCK_RENDER_CUBE, 1.0f, false },
         { "Fire Ash", BLOCK_RENDER_CUBE, 1.0f, false }
     };
+    static const Stage05BlockContract stage06[] = {
+        { "Pedunculate Oak Log", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Pedunculate Oak Leaves", BLOCK_RENDER_CUBE, 1.0f, true },
+        { "Silver Birch Log", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Silver Birch Leaves", BLOCK_RENDER_CUBE, 1.0f, true },
+        { "European Aspen Log", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "European Aspen Leaves", BLOCK_RENDER_CUBE, 1.0f, true },
+        { "Norway Spruce Log", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Norway Spruce Needles", BLOCK_RENDER_CUBE, 1.0f, true },
+        { "Scots Pine Log", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "Scots Pine Needles", BLOCK_RENDER_CUBE, 1.0f, true },
+        { "White Willow Log", BLOCK_RENDER_CUBE, 1.0f, false },
+        { "White Willow Leaves", BLOCK_RENDER_CUBE, 1.0f, true },
+        { "Big Bluestem", BLOCK_RENDER_CROSS, 0.0f, true },
+        { "Bracken", BLOCK_RENDER_CROSS, 0.0f, true },
+        { "Common Reed", BLOCK_RENDER_CROSS, 0.0f, true },
+        { "Sphagnum Moss", BLOCK_RENDER_CARPET, 0.0f, true },
+        { "Common Heather", BLOCK_RENDER_CROSS, 0.0f, true },
+        { "Fireweed", BLOCK_RENDER_CROSS, 0.0f, true },
+        { "Saguaro", BLOCK_RENDER_CUBE, 1.0f, false }
+    };
     assert(BLOCK_CHEMO_MAT == 110);
     assert(BLOCK_STAGE05_START == 111);
     assert(BLOCK_STAGE05_GEOLOGY_END == 124);
@@ -514,7 +574,11 @@ static void AssertNaturalBlockContract(void)
     assert(BLOCK_STAGE05_BIOGENIC_END == 133);
     assert(BLOCK_FIRE_RESIDUE_START == 134);
     assert(BLOCK_STAGE05_END == 136);
-    assert(BLOCK_NATURAL_END == 136);
+    assert(BLOCK_STAGE06_START == 137);
+    assert(BLOCK_STAGE06_TREE_END == 148);
+    assert(BLOCK_STAGE06_UNDERSTORY_START == 149);
+    assert(BLOCK_STAGE06_END == 155);
+    assert(BLOCK_NATURAL_END == 155);
     assert(BLOCK_STAGE05_END < BLOCK_COLOR_START);
     assert((int)(sizeof(stage05) / sizeof(stage05[0])) ==
            BLOCK_STAGE05_END - BLOCK_STAGE05_START + 1);
@@ -549,11 +613,40 @@ static void AssertNaturalBlockContract(void)
             assert(material.flammability == 0.0f);
         }
     }
+    assert((int)(sizeof(stage06) / sizeof(stage06[0])) ==
+           BLOCK_STAGE06_END - BLOCK_STAGE06_START + 1);
+    for (size_t index = 0; index < sizeof(stage06) / sizeof(stage06[0]);
+         index++) {
+        BlockType type = (BlockType)(BLOCK_STAGE06_START + (int)index);
+        const Stage05BlockContract *contract = &stage06[index];
+        assert(IsStage06Block(type));
+        assert(IsEcologyBlock(type));
+        assert(strcmp(BlockName(type), contract->name) == 0);
+        assert(BlockRenderShapeFor(type) == contract->shape);
+        assert(BlockCollisionHeight(type) == contract->collisionHeight);
+        assert(IsTranslucentBlock(type) == contract->translucent);
+        assert(IsPlantBlock(type) ==
+               (type >= BLOCK_STAGE06_UNDERSTORY_START &&
+                type < BLOCK_SAGUARO));
+        BlockMaterialResponse material = BlockMaterialResponseFor(type);
+        assert(material.windResistance >= 0.0f &&
+               material.windResistance <= 1.0f);
+        assert(material.impactResistance >= 0.0f &&
+               material.impactResistance <= 1.0f);
+        assert(material.flammability >= 0.0f &&
+               material.flammability <= 1.0f);
+        assert(material.waterErodibility >= 0.0f &&
+               material.waterErodibility <= 1.0f);
+    }
     assert(BlockMaterialResponseFor(BLOCK_ANDESITE).windResistance > 0.9f);
     assert(BlockMaterialResponseFor(BLOCK_MAGNETITE_ORE).impactResistance >
            0.9f);
     assert(BlockMaterialResponseFor(BLOCK_LEAF_LITTER).flammability > 0.9f);
     assert(BlockMaterialResponseFor(BLOCK_FIRE_ASH).waterErodibility > 0.9f);
+    assert(BlockMaterialResponseFor(BLOCK_PINE_NEEDLES).flammability > 0.9f);
+    assert(BlockMaterialResponseFor(BLOCK_BIG_BLUESTEM).flammability > 0.9f);
+    assert(BlockMaterialResponseFor(BLOCK_HEATHER).flammability > 0.95f);
+    assert(BlockMaterialResponseFor(BLOCK_SAGUARO).flammability < 0.2f);
 }
 
 static void AssertBlockCatalogCompleteness(void)

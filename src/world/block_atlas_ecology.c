@@ -112,6 +112,131 @@ Color EcologyAtlasPixel(BlockTexture texture, int x, int y,
             color = (Color){ 104, 128, 65, 255 };
         }
         return color;
+    case TEX_OAK_BARK:
+        return AtlasColorWithNoise((x % 4 == 0) ?
+                                   (Color){ 78, 52, 34, 255 } :
+                                   (Color){ 116, 82, 49, 255 }, 12, hash);
+    case TEX_OAK_RING: {
+        int dx = x - center;
+        int dy = y - center;
+        int ring = (dx * dx + dy * dy) / 9;
+        return AtlasColorWithNoise((ring & 1) ?
+                                   (Color){ 145, 102, 57, 255 } :
+                                   (Color){ 188, 142, 82, 255 }, 8, hash);
+    }
+    case TEX_OAK_LEAVES:
+        if ((x + y + (int)(hash % 5u)) % 11 == 0) return transparent;
+        return AtlasColorWithNoise((Color){ 55, 118, 48, 245 }, 20, hash);
+    case TEX_BIRCH_BARK:
+        if ((x + y + (int)(hash % 5u)) % 9 == 0) {
+            return (Color){ 42, 39, 36, 255 };
+        }
+        return AtlasColorWithNoise((Color){ 207, 202, 184, 255 }, 10, hash);
+    case TEX_BIRCH_RING: {
+        int dx = x - center;
+        int dy = y - center;
+        int ring = (dx * dx + dy * dy) / 8;
+        return AtlasColorWithNoise((ring & 1) ?
+                                   (Color){ 171, 157, 125, 255 } :
+                                   (Color){ 225, 212, 174, 255 }, 7, hash);
+    }
+    case TEX_BIRCH_LEAVES:
+        if ((x * 2 + y + (int)(hash % 4u)) % 10 == 0) return transparent;
+        return AtlasColorWithNoise((Color){ 92, 150, 58, 245 }, 18, hash);
+    case TEX_ASPEN_BARK:
+        if ((x * 3 + y + (int)(hash % 7u)) % 11 == 0) {
+            return (Color){ 73, 90, 67, 255 };
+        }
+        return AtlasColorWithNoise((Color){ 166, 174, 145, 255 }, 12, hash);
+    case TEX_ASPEN_RING: {
+        int dx = x - center;
+        int dy = y - center;
+        int ring = (dx * dx + dy * dy) / 10;
+        return AtlasColorWithNoise((ring & 1) ?
+                                   (Color){ 175, 143, 83, 255 } :
+                                   (Color){ 220, 185, 117, 255 }, 8, hash);
+    }
+    case TEX_ASPEN_LEAVES:
+        if ((x + y * 2 + (int)(hash % 5u)) % 12 == 0) return transparent;
+        return AtlasColorWithNoise((Color){ 104, 151, 62, 245 }, 18, hash);
+    case TEX_SPRUCE_BARK:
+        return AtlasColorWithNoise((x % 3 == 0) ?
+                                   (Color){ 61, 43, 31, 255 } :
+                                   (Color){ 91, 65, 42, 255 }, 10, hash);
+    case TEX_SPRUCE_RING: {
+        int dx = x - center;
+        int dy = y - center;
+        int ring = (dx * dx + dy * dy) / 8;
+        return AtlasColorWithNoise((ring & 1) ?
+                                   (Color){ 122, 77, 44, 255 } :
+                                   (Color){ 164, 107, 60, 255 }, 7, hash);
+    }
+    case TEX_SPRUCE_NEEDLES:
+        if ((x + y + (int)(hash % 3u)) % 7 == 0) return transparent;
+        return AtlasColorWithNoise((Color){ 35, 82, 53, 245 }, 14, hash);
+    case TEX_PINE_BARK:
+        return AtlasColorWithNoise((y % 5 == 0) ?
+                                   (Color){ 175, 105, 61, 255 } :
+                                   (Color){ 128, 73, 43, 255 }, 11, hash);
+    case TEX_PINE_RING: {
+        int dx = x - center;
+        int dy = y - center;
+        int ring = (dx * dx + dy * dy) / 10;
+        return AtlasColorWithNoise((ring & 1) ?
+                                   (Color){ 151, 92, 50, 255 } :
+                                   (Color){ 202, 143, 82, 255 }, 8, hash);
+    }
+    case TEX_PINE_NEEDLES:
+        if ((x * 2 + y + (int)(hash % 4u)) % 8 == 0) return transparent;
+        return AtlasColorWithNoise((Color){ 48, 104, 59, 245 }, 14, hash);
+    case TEX_WILLOW_BARK:
+        return AtlasColorWithNoise((x + y) % 6 == 0 ?
+                                   (Color){ 91, 83, 57, 255 } :
+                                   (Color){ 139, 122, 80, 255 }, 12, hash);
+    case TEX_WILLOW_RING: {
+        int dx = x - center;
+        int dy = y - center;
+        int ring = (dx * dx + dy * dy) / 9;
+        return AtlasColorWithNoise((ring & 1) ?
+                                   (Color){ 164, 128, 70, 255 } :
+                                   (Color){ 210, 174, 102, 255 }, 8, hash);
+    }
+    case TEX_WILLOW_LEAVES:
+        if ((x * 3 + y + (int)(hash % 4u)) % 10 == 0) return transparent;
+        return AtlasColorWithNoise((Color){ 86, 139, 67, 245 }, 18, hash);
+    case TEX_BIG_BLUESTEM:
+        if (y < 2 || abs(x - center) > 2 + (ATLAS_TILE_SIZE - y) / 5) {
+            return transparent;
+        }
+        return AtlasColorWithNoise((Color){ 93, 137, 67, 255 }, 16, hash);
+    case TEX_BRACKEN:
+        if (y < 2 || (abs(x - center) > 1 &&
+                      (x + y + (int)(hash % 3u)) % 3 != 0)) {
+            return transparent;
+        }
+        return AtlasColorWithNoise((Color){ 66, 116, 52, 255 }, 15, hash);
+    case TEX_COMMON_REED:
+        if (!((x >= 5 && x <= 6) || (x >= 10 && x <= 11) ||
+              (x == 8 && y > 6))) return transparent;
+        return AtlasColorWithNoise((Color){ 124, 148, 72, 255 }, 12, hash);
+    case TEX_SPHAGNUM:
+        return AtlasColorWithNoise((Color){ 91, 130, 67, 245 }, 16, hash);
+    case TEX_HEATHER:
+        if (y < 3 || (x + y + (int)(hash % 5u)) % 6 == 0) return transparent;
+        return AtlasColorWithNoise((Color){ 103, 111, 61, 255 }, 15, hash);
+    case TEX_FIREWEED:
+        if (y < 2 || (abs(x - center) > 3 && y < center)) return transparent;
+        if ((x + y + (int)(hash % 7u)) % 11 == 0) {
+            return (Color){ 219, 75, 111, 255 };
+        }
+        return AtlasColorWithNoise((Color){ 94, 139, 70, 255 }, 14, hash);
+    case TEX_SAGUARO:
+        color = AtlasColorWithNoise((Color){ 65, 132, 69, 255 }, 13, hash);
+        if (x % 4 == 0) color = (Color){ 43, 105, 53, 255 };
+        if (y % 7 == 0 && (x == 2 || x == 13)) {
+            color = (Color){ 183, 195, 112, 255 };
+        }
+        return color;
     default:
         return MAGENTA;
     }

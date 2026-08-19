@@ -110,6 +110,7 @@ $(eval $(call define_test,ECOLOGY_PROPERTIES_TEST_TARGET,test_ecology_properties
 
 $(eval $(call define_test,STELLAR_TEST_TARGET,test_stellar,src/space/stellar.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,ECOLOGY_MODEL_TEST_TARGET,test_ecology_model,src/ecology/ecology_model.c,,,, -lm,,))
+$(eval $(call define_test,FLORA_TAXA_TEST_TARGET,test_flora_taxa,src/ecology/flora_taxa.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,FAUNA_MOTION_TEST_TARGET,test_fauna_motion,src/ecology/fauna_motion.c,,,, -lm,,))
 $(eval $(call define_test,FAUNA_BEHAVIOR_TEST_TARGET,test_fauna_behavior,src/ecology/fauna_behavior.c,,,, -lm,,))
 $(eval $(call define_test,EVOLUTION_TEST_TARGET,test_evolution,src/ecology/evolution.c src/ecology/creature_visual.c,,,, -lm,,))
@@ -118,7 +119,7 @@ $(eval $(call define_test,FLUID_TEST_TARGET,test_fluid,src/world/fluid.c,,,, -lm
 $(eval $(call define_test,BLOCK_MATERIAL_TEST_TARGET,test_block_material,,,,,,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,LOCAL_CLIMATE_TEST_TARGET,test_local_climate,src/world/local_climate.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_MODEL_TEST_TARGET,test_weather_model,src/world/weather_model.c,,,, -lm,,))
-$(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c src/ecology/flora_taxa.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/presentation/weather_visual.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_VISUAL_TEST_TARGET,test_weather_visual,src/presentation/weather_visual.c,,,, -lm,,))
 $(eval $(call define_test,WILDFIRE_MODEL_TEST_TARGET,test_wildfire_model,src/world/wildfire_model.c,,,, -lm,,))

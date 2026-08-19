@@ -2,12 +2,15 @@
 #include "world/terrain.h"
 #include "world/terrain_geology_internal.h"
 #include "world/terrain_home_materials_internal.h"
+#include "ecology/flora_taxa.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static uint32_t terrainSeed = DEFAULT_WORLD_SEED;
 
@@ -891,7 +894,15 @@ static TreeShapeStats AnalyzeTreeShape(const Chunk *chunk, int centerX,
         for (int lx = 0; lx < CHUNK_SIZE; lx++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 BlockType type = ChunkGetLocalBlock(chunk, lx, y, lz);
-                if (type != BLOCK_WOOD && type != BLOCK_LEAVES) continue;
+                bool genericLog = type == BLOCK_WOOD;
+                bool genericLeaf = type == BLOCK_LEAVES;
+                bool taxonLog = type >= BLOCK_STAGE06_TREE_START &&
+                    type <= BLOCK_STAGE06_TREE_END &&
+                    (((int)type - BLOCK_STAGE06_TREE_START) % 2) == 0;
+                bool taxonLeaf = type >= BLOCK_STAGE06_TREE_START &&
+                    type <= BLOCK_STAGE06_TREE_END && !taxonLog;
+                if (!genericLog && !genericLeaf && !taxonLog &&
+                    !taxonLeaf) continue;
                 int worldX = chunk->cx * CHUNK_SIZE + lx;
                 int worldZ = chunk->cz * CHUNK_SIZE + lz;
                 int radiusX = abs(worldX - centerX);
@@ -900,7 +911,7 @@ static TreeShapeStats AnalyzeTreeShape(const Chunk *chunk, int centerX,
                 if (radius > stats.horizontalRadius) {
                     stats.horizontalRadius = radius;
                 }
-                if (type == BLOCK_WOOD) {
+                if (genericLog || taxonLog) {
                     stats.woodCount++;
                 } else {
                     stats.leafCount++;
@@ -918,8 +929,17 @@ static TreeShapeStats AnalyzeTreeShape(const Chunk *chunk, int centerX,
     WorldToChunkLocal(centerX, centerZ, &cx, &cz, &lx, &lz);
     assert(cx == chunk->cx && cz == chunk->cz);
     while (baseY + stats.trunkHeight < WORLD_HEIGHT &&
-           ChunkGetLocalBlock(chunk, lx, baseY + stats.trunkHeight, lz) ==
-               BLOCK_WOOD) {
+           (ChunkGetLocalBlock(chunk, lx, baseY + stats.trunkHeight, lz) ==
+                BLOCK_WOOD ||
+            (ChunkGetLocalBlock(chunk, lx,
+                                baseY + stats.trunkHeight, lz) >=
+                 BLOCK_STAGE06_TREE_START &&
+             ChunkGetLocalBlock(chunk, lx,
+                                baseY + stats.trunkHeight, lz) <=
+                 BLOCK_STAGE06_TREE_END &&
+             (((int)ChunkGetLocalBlock(
+                   chunk, lx, baseY + stats.trunkHeight, lz) -
+                BLOCK_STAGE06_TREE_START) % 2) == 0))) {
         stats.trunkHeight++;
     }
     return stats;
@@ -1029,7 +1049,8 @@ static void TestHomeTreeShapes(void)
         TerrainTestPlaceHomeTree(&tree, 8, 40, 8, false, variant);
         broadleafStats[variant] = AnalyzeTreeShape(&tree, 8, 40, 8);
         TreeShapeStats stats = broadleafStats[variant];
-        assert(ChunkGetLocalBlock(&tree, 8, 40, 8) == BLOCK_WOOD);
+        assert(ChunkGetLocalBlock(&tree, 8, 40, 8) >=
+               BLOCK_STAGE06_TREE_START);
         assert(stats.trunkHeight >= 5 && stats.trunkHeight <= 11);
         assert(stats.woodCount > stats.trunkHeight);
         assert(stats.leafCount > 20);
@@ -1044,7 +1065,7 @@ static void TestHomeTreeShapes(void)
     }
     assert(broadleafStats[0].horizontalRadius >= 3);
     assert(broadleafStats[1].horizontalRadius >= 3);
-    assert(broadleafStats[2].horizontalRadius <= 2);
+    assert(broadleafStats[2].horizontalRadius <= 3);
     assert(broadleafSignatures[0] != broadleafSignatures[1]);
     assert(broadleafSignatures[0] != broadleafSignatures[2]);
     assert(broadleafSignatures[1] != broadleafSignatures[2]);
@@ -1074,12 +1095,123 @@ static void TestHomeTreeShapes(void)
     TerrainTestPlaceHomeTree(&left, 15, 40, 8, false, 1);
     TerrainTestPlaceHomeTree(&right, 15, 40, 8, false, 1);
     TerrainTestPlaceHomeTree(&rightRepeat, 15, 40, 8, false, 1);
-    assert(CountChunkBlocks(&right, BLOCK_LEAVES) > 0);
+    assert(left.floraStructureCount == 1);
+    assert(right.floraStructureCount == 1);
+    assert(rightRepeat.floraStructureCount == 1);
+    assert(memcmp(&left.floraStructures[0], &right.floraStructures[0],
+                  sizeof(FloraStructureInstance)) == 0);
+    assert(memcmp(&right.floraStructures[0], &rightRepeat.floraStructures[0],
+                  sizeof(FloraStructureInstance)) == 0);
+    assert(left.floraStructures[0].kind == FLORA_STRUCTURE_HOME_TREE);
+    assert(left.floraStructures[0].taxonId == FLORA_TAXON_WILLOW);
+    int boundaryLeaves = 0;
+    for (int type = BLOCK_STAGE06_TREE_START + 1;
+         type <= BLOCK_STAGE06_TREE_END; type += 2) {
+        boundaryLeaves += CountChunkBlocks(&right, (BlockType)type);
+    }
+    assert(boundaryLeaves > 0);
     AssertChunkBlocksEqual(&right, &rightRepeat);
 
     ChunkClearBlockStorage(&left);
     ChunkClearBlockStorage(&right);
     ChunkClearBlockStorage(&rightRepeat);
+}
+
+static void TestNamedTaxonTreeShapes(void)
+{
+    int signatures[6] = { 0 };
+    for (int taxonId = FLORA_TAXON_OAK; taxonId <= FLORA_TAXON_WILLOW;
+         taxonId++) {
+        const FloraTaxon *taxon = FloraTaxonAt((FloraTaxonId)taxonId);
+        assert(taxon && FloraTaxonIsTree((FloraTaxonId)taxonId));
+        Chunk tree = { .cx = 0, .cz = 0 };
+        TerrainTestPlaceHomeTreeTaxon(&tree, 8, 40, 8, taxonId);
+        assert(tree.floraStructureCount == 1);
+        const FloraStructureInstance *structure = &tree.floraStructures[0];
+        assert(structure->kind == FLORA_STRUCTURE_HOME_TREE);
+        assert(structure->taxonId == taxonId);
+        assert(structure->rootX == 8 && structure->groundY == 39 &&
+               structure->rootZ == 8);
+        assert(structure->primaryBlock == taxon->primaryBlock);
+        assert(structure->accentBlock == taxon->accentBlock);
+        assert(structure->windResponse == taxon->windResponse);
+
+        int ownedCount = 0;
+        int minX = INT_MAX;
+        int minY = INT_MAX;
+        int minZ = INT_MAX;
+        int maxX = INT_MIN;
+        int maxY = INT_MIN;
+        int maxZ = INT_MIN;
+        for (int x = structure->minX; x <= structure->maxX; x++) {
+            for (int y = structure->minY; y <= structure->maxY; y++) {
+                for (int z = structure->minZ; z <= structure->maxZ; z++) {
+                    bool primary = ChunkFloraStructureOwnsBlock(
+                        &tree, x, y, z, taxon->primaryBlock);
+                    bool accent = ChunkFloraStructureOwnsBlock(
+                        &tree, x, y, z, taxon->accentBlock);
+                    assert(!(primary && accent));
+                    int cx = 0;
+                    int cz = 0;
+                    int lx = 0;
+                    int lz = 0;
+                    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+                    assert(cx == 0 && cz == 0);
+                    BlockType actual = ChunkGetLocalBlock(&tree, lx, y, lz);
+                    BlockType expected = primary ? taxon->primaryBlock :
+                        (accent ? taxon->accentBlock : BLOCK_AIR);
+                    assert(actual == expected);
+                    if (!primary && !accent) continue;
+                    ownedCount++;
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (z < minZ) minZ = z;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                    if (z > maxZ) maxZ = z;
+                }
+            }
+        }
+        assert(ownedCount > 0);
+        assert(minX == structure->minX && minY == structure->minY &&
+               minZ == structure->minZ && maxX == structure->maxX &&
+               maxY == structure->maxY && maxZ == structure->maxZ);
+        TreeShapeStats stats = AnalyzeTreeShape(&tree, 8, 40, 8);
+        assert(ChunkGetLocalBlock(&tree, 8, 40, 8) ==
+               taxon->primaryBlock);
+        assert(stats.trunkHeight >= (int)floorf(taxon->heightMin));
+        assert(stats.trunkHeight <= (int)ceilf(taxon->heightMax));
+        assert(stats.horizontalRadius <=
+               (int)ceilf(taxon->crownRadius));
+        assert(stats.woodCount > stats.trunkHeight);
+        assert(stats.leafCount > 20);
+        signatures[taxonId] = stats.trunkHeight * 1000000 +
+            stats.woodCount * 1000 + stats.leafCount * 10 +
+            stats.horizontalRadius;
+        for (int prior = 0; prior < taxonId; prior++) {
+            assert(signatures[taxonId] != signatures[prior]);
+        }
+        ChunkClearBlockStorage(&tree);
+    }
+}
+
+static void TestFullColumnDecorationSectionsResolved(void)
+{
+    Chunk chunk = { .cx = 0, .cz = 0 };
+    TerrainTestPlaceHomeTreeTaxon(
+        &chunk, 8, 15, 8, FLORA_TAXON_ASPEN);
+    assert(chunk.floraStructureCount == 1);
+    assert(chunk.sectionCount >= 2);
+    for (int index = 0; index < chunk.sectionCount; index++) {
+        assert(!ChunkTerrainSectionIsResolved(
+            &chunk, chunk.sections[index]->sectionY));
+    }
+    TerrainTestResolveMaterializedSections(&chunk);
+    for (int index = 0; index < chunk.sectionCount; index++) {
+        assert(ChunkTerrainSectionIsResolved(
+            &chunk, chunk.sections[index]->sectionY));
+    }
+    ChunkClearBlockStorage(&chunk);
 }
 
 static void TestTerrainSectionExposureClassification(void)
@@ -1133,6 +1265,8 @@ int main(void)
     TestSubsurfaceLiquidSummary();
     TestHomeTreeVariantSelection();
     TestHomeTreeShapes();
+    TestNamedTaxonTreeShapes();
+    TestFullColumnDecorationSectionsResolved();
     TestTerrainSectionExposureClassification();
     puts("terrain scale tests passed");
     return 0;

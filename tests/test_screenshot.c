@@ -226,14 +226,37 @@ static void TestDebugReport(void)
             .queueOverflows = 2u
         },
         .block = {
-            .catalogCount = 393u,
-            .naturalCount = 73u,
+            .catalogCount = 412u,
+            .naturalCount = 92u,
             .stage05Count = 26u,
             .galleryActive = true,
             .galleryOrigin = { -8.0f, 81.0f, 14.0f },
             .galleryPlaced = 26u,
             .galleryRows = 3u,
             .galleryWidth = 14u
+        },
+        .flora = {
+            .catalogCount = 13u,
+            .sampleActive = true,
+            .sampleX = -12,
+            .sampleZ = 44,
+            .sampleTree = "Silver Birch",
+            .sampleGround = "Fireweed",
+            .sampleBurnStage = "herb_pioneer",
+            .sampleBiome = "forest",
+            .sampleSubstrate = "Fire Ash",
+            .sampleTemperatureK = 282.5f,
+            .sampleMoisture = 0.68f,
+            .sampleUsableLight = 0.74f,
+            .sampleElevation = 145.0f,
+            .sampleSlope = 0.18f,
+            .sampleBurnSeverity = 0.9f,
+            .sampleBurnRecovery = 0.2f,
+            .galleryActive = true,
+            .galleryOrigin = { -20.0f, 96.0f, -30.0f },
+            .galleryPlaced = 241u,
+            .galleryTrees = 6u,
+            .galleryGround = 7u
         },
         .render = {
             .graphicsQuality = "high",
@@ -314,7 +337,7 @@ static void TestDebugReport(void)
 
     char contents[16384];
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
-    assert(strstr(contents, "format.version=11\n"));
+    assert(strstr(contents, "format.version=12\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
@@ -355,13 +378,28 @@ static void TestDebugReport(void)
     assert(strstr(contents, "weather.fire_spread_ignitions=4\n"));
     assert(strstr(contents, "weather.fire_burned_blocks=5\n"));
     assert(strstr(contents, "weather.fire_dropped_burn_sites=1\n"));
-    assert(strstr(contents, "block.catalog_count=393\n"));
-    assert(strstr(contents, "block.natural_count=73\n"));
+    assert(strstr(contents, "block.catalog_count=412\n"));
+    assert(strstr(contents, "block.natural_count=92\n"));
     assert(strstr(contents, "block.stage05_count=26\n"));
     assert(strstr(contents, "block.gallery_active=true\n"));
     assert(strstr(contents,
                   "block.gallery_origin=-8.000000,81.000000,14.000000\n"));
     assert(strstr(contents, "block.gallery_placed=26\n"));
+    assert(strstr(contents, "flora.catalog_count=13\n"));
+    assert(strstr(contents, "flora.sample_active=true\n"));
+    assert(strstr(contents, "flora.sample_position=-12,44\n"));
+    assert(strstr(contents, "flora.sample_tree=Silver Birch\n"));
+    assert(strstr(contents, "flora.sample_ground=Fireweed\n"));
+    assert(strstr(contents, "flora.sample_burn_stage=herb_pioneer\n"));
+    assert(strstr(contents, "flora.sample_substrate=Fire Ash\n"));
+    assert(strstr(contents, "flora.sample_temperature_k=282.500000\n"));
+    assert(strstr(contents, "flora.sample_burn_recovery=0.200000\n"));
+    assert(strstr(contents, "flora.gallery_active=true\n"));
+    assert(strstr(contents,
+                  "flora.gallery_origin=-20.000000,96.000000,-30.000000\n"));
+    assert(strstr(contents, "flora.gallery_placed=241\n"));
+    assert(strstr(contents, "flora.gallery_trees=6\n"));
+    assert(strstr(contents, "flora.gallery_ground=7\n"));
     assert(strstr(contents, "weather.tornado_active=true\n"));
     assert(strstr(contents, "weather.tornado_phase=mature\n"));
     assert(strstr(contents, "weather.tornado_intensity=0.880000\n"));

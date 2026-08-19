@@ -40,12 +40,27 @@ static void TestNaturalBlocks(void)
          index++) {
         assert(stage05[index] == (BlockType)(111 + (int)index));
     }
+    static const BlockType stage06[] = {
+        BLOCK_OAK_LOG, BLOCK_OAK_LEAVES, BLOCK_BIRCH_LOG,
+        BLOCK_BIRCH_LEAVES, BLOCK_ASPEN_LOG, BLOCK_ASPEN_LEAVES,
+        BLOCK_SPRUCE_LOG, BLOCK_SPRUCE_NEEDLES, BLOCK_PINE_LOG,
+        BLOCK_PINE_NEEDLES, BLOCK_WILLOW_LOG, BLOCK_WILLOW_LEAVES,
+        BLOCK_BIG_BLUESTEM, BLOCK_BRACKEN, BLOCK_COMMON_REED,
+        BLOCK_SPHAGNUM, BLOCK_HEATHER, BLOCK_FIREWEED, BLOCK_SAGUARO
+    };
+    for (size_t index = 0; index < sizeof(stage06) / sizeof(stage06[0]);
+         index++) {
+        assert(stage06[index] == (BlockType)(137 + (int)index));
+    }
     assert(BLOCK_STAGE05_START == 111);
     assert(BLOCK_STAGE05_GEOLOGY_END == 124);
     assert(BLOCK_STAGE05_BIOGENIC_START == 125);
     assert(BLOCK_STAGE05_BIOGENIC_END == 133);
     assert(BLOCK_FIRE_RESIDUE_START == 134);
-    assert(BLOCK_NATURAL_END == 136);
+    assert(BLOCK_STAGE05_END == 136);
+    assert(BLOCK_STAGE06_START == 137);
+    assert(BLOCK_STAGE06_END == 155);
+    assert(BLOCK_NATURAL_END == 155);
     assert(BLOCK_COLOR_START == 256);
     assert(BLOCK_COLOR_END == 511);
     assert(INVENTORY_BLOCK_TYPE_COUNT == 512);

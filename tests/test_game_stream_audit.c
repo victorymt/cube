@@ -12,7 +12,21 @@ BlockType GetBlockAt(int x, int y, int z)
     if (x == 1) return BLOCK_STONE;
     if (x == 3) return BLOCK_WATER;
     if (x == 5) return BLOCK_TALL_GRASS;
+    if (x == 7) return BLOCK_OAK_LOG;
     return BLOCK_AIR;
+}
+
+Chunk *FindChunk(int cx, int cz)
+{
+    static Chunk chunk = { .loaded = true };
+    return cx == 0 && cz == 0 ? &chunk : NULL;
+}
+
+bool ChunkFloraStructureOwnsBlock(
+    const Chunk *chunk, int worldX, int y, int worldZ, BlockType block)
+{
+    return chunk && worldX == 7 && y == 1 && worldZ == 1 &&
+           block == BLOCK_OAK_LOG;
 }
 
 bool IsPlantBlock(BlockType type)
@@ -40,7 +54,7 @@ static void TestLayerClassification(void)
                                         &solid, &water, &flora);
     assert(solid == 1);
     assert(water == 1);
-    assert(flora == 1);
+    assert(flora == 2);
     assert(GameStreamAuditLayerMissingForTest(solid, 0));
     assert(!GameStreamAuditLayerMissingForTest(solid, 6));
     assert(!GameStreamAuditLayerMissingForTest(0, 0));

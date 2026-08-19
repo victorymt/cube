@@ -36,6 +36,7 @@ BlockRenderShape BlockRenderShapeFor(BlockType type);
 bool IsPlantBlock(BlockType type);
 bool IsEcologyBlock(BlockType type);
 bool IsStage05Block(BlockType type);
+bool IsStage06Block(BlockType type);
 bool IsStage05GeologyBlock(BlockType type);
 bool IsBiogenicBlock(BlockType type);
 bool IsFireResidueBlock(BlockType type);

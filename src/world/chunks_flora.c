@@ -1,5 +1,8 @@
 #include "world/chunks_internal.h"
 
+#include "ecology/flora_taxa.h"
+#include "world/home_tree_shape.h"
+
 #include <limits.h>
 
 static bool BuildFloraMeshDataWithSnapshot(
@@ -35,15 +38,28 @@ static bool FloraStructureExpectedBlockAt(
     int offsetX = worldX - structure->rootX;
     int offsetZ = worldZ - structure->rootZ;
     switch (structure->kind) {
+    case FLORA_STRUCTURE_HOME_TREE:
+        return HomeTreeShapeBlockAt(
+            &(HomeTreeShapeSpec){
+                .rootX = structure->rootX,
+                .baseY = base,
+                .rootZ = structure->rootZ,
+                .taxonId = structure->taxonId,
+                .shapeHash = structure->shapeHash,
+                .primaryBlock = structure->primaryBlock,
+                .accentBlock = structure->accentBlock
+            },
+            worldX, y, worldZ, outBlock);
     case FLORA_STRUCTURE_ALIEN_CANOPY: {
-        int trunkHeight = 3 + (int)(structure->shapeHash % 3u);
+        int trunkHeight = structure->maxY - base - 1;
+        int radius = structure->maxX - structure->rootX;
         int distance = abs(offsetX) + abs(offsetZ);
         if (offsetX == 0 && offsetZ == 0 &&
             y == base + trunkHeight + 1) {
             *outBlock = BLOCK_LUMINOUS_POD;
             return true;
         }
-        if ((y == base + trunkHeight - 1 && distance <= 3) ||
+        if ((y == base + trunkHeight - 1 && distance <= radius + 1) ||
             (y == base + trunkHeight && distance < 2)) {
             *outBlock = structure->accentBlock;
             return true;
@@ -55,7 +71,7 @@ static bool FloraStructureExpectedBlockAt(
         }
     } break;
     case FLORA_STRUCTURE_CRYSTAL: {
-        int height = 2 + (int)(structure->shapeHash % 4u);
+        int height = structure->maxY - base + 1;
         if (offsetX == 0 && offsetZ == 0 &&
             y >= base && y < base + height) {
             *outBlock = y == base + height - 1 ?
@@ -73,7 +89,7 @@ static bool FloraStructureExpectedBlockAt(
         }
     } break;
     case FLORA_STRUCTURE_SPORE: {
-        int stemHeight = 2 + (int)(structure->shapeHash % 2u);
+        int stemHeight = structure->maxY - base - 1;
         int distance = abs(offsetX) + abs(offsetZ);
         if (offsetX == 0 && offsetZ == 0 &&
             y == base + stemHeight + 1) {
@@ -91,7 +107,7 @@ static bool FloraStructureExpectedBlockAt(
         }
     } break;
     case FLORA_STRUCTURE_THERMAL_VENT: {
-        int height = 2 + (int)(structure->shapeHash % 3u);
+        int height = structure->maxY - base;
         if (offsetX == 0 && offsetZ == 1 && y == base + height) {
             *outBlock = structure->accentBlock;
             return true;
@@ -125,6 +141,14 @@ static int FloraStructureOwnerAt(
             actualBlock == expectedBlock) return index;
     }
     return -1;
+}
+
+bool ChunkFloraStructureOwnsBlock(
+    const Chunk *chunk, int worldX, int y, int worldZ, BlockType block)
+{
+    return chunk && FloraStructureOwnerAt(
+        chunk->floraStructures, chunk->floraStructureCount,
+        worldX, y, worldZ, block) >= 0;
 }
 
 static void CopyBlocksWithoutFloraStructures(
@@ -395,8 +419,9 @@ static bool FloraInstanceBuilderAppendArray(
 }
 
 static bool AppendPlantMeshInstances(
-    FloraInstanceBuilder *builder,
-    const Mesh *mesh, int firstVertexOffset)
+    FloraInstanceBuilder *builder, const Mesh *mesh, int firstVertexOffset,
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int startX, int startZ)
 {
     for (int firstVertex = 0; firstVertex < mesh->vertexCount;
          firstVertex += 12) {
@@ -411,17 +436,31 @@ static bool AppendPlantMeshInstances(
         }
         float firstX = mesh->vertices[firstVertex * 3];
         float firstZ = mesh->vertices[firstVertex * 3 + 2];
+        int lx = (int)floorf(firstX) - startX;
+        int localY = (int)floorf(groundY);
+        int lz = (int)floorf(firstZ) - startZ;
+        FloraTaxonId taxonId = FLORA_TAXON_COUNT;
+        const FloraTaxon *taxon = NULL;
+        if (lx >= 0 && lx < CHUNK_SIZE &&
+            localY >= 0 && localY < SURFACE_SECTION_HEIGHT &&
+            lz >= 0 && lz < CHUNK_SIZE) {
+            taxonId = FloraTaxonIdForBlock(
+                (BlockType)blocks[lx][localY][lz]);
+            taxon = FloraTaxonAt(taxonId);
+        }
         if (!AppendFloraVisualInstance(
                 builder, (FloraVisualInstance){
                     .firstVertex = firstVertexOffset + firstVertex,
                     .vertexCount = vertexCount,
+                    .taxonId = taxonId,
                     .anchor = {
                         floorf(firstX) + 0.5f,
                         groundY,
                         floorf(firstZ) + 0.5f
                     },
                     .height = topY - groundY,
-                    .windResponse = topY - groundY < 0.10f ? 0.05f : 1.0f
+                    .windResponse = taxon ? taxon->windResponse :
+                        (topY - groundY < 0.10f ? 0.05f : 1.0f)
                 })) {
             return false;
         }
@@ -484,12 +523,14 @@ bool BuildChunkFloraMeshDataFromSnapshot(
     FloraMeshBuilder combined = { 0 };
     FloraInstanceBuilder instances = { 0 };
     Mesh plants = { 0 };
+    int startX = chunkX * CHUNK_SIZE;
+    int startZ = chunkZ * CHUNK_SIZE;
     if (BuildFloraMeshDataWithSnapshot(
             (const unsigned short (*)[CHUNK_SIZE])floraBlocks,
             SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ, faces,
             nearbyTorchIndices, nearbyTorchCount, boundary, &plants)) {
         if (!AppendPlantMeshInstances(
-                &instances, &plants, 0) ||
+                &instances, &plants, 0, floraBlocks, startX, startZ) ||
             !FloraMeshBuilderAppend(&combined, &plants)) {
             FreeMeshData(&plants);
             FloraMeshBuilderRelease(&combined);
@@ -498,8 +539,6 @@ bool BuildChunkFloraMeshDataFromSnapshot(
         }
     }
 
-    int startX = chunkX * CHUNK_SIZE;
-    int startZ = chunkZ * CHUNK_SIZE;
     for (int structureIndex = 0; structureIndex < structureCount;
          structureIndex++) {
         unsigned short instanceBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE] = { 0 };
@@ -575,6 +614,7 @@ bool BuildChunkFloraMeshDataFromSnapshot(
                 &instances, (FloraVisualInstance){
                     .firstVertex = firstVertex,
                     .vertexCount = vertexCount,
+                    .taxonId = structure->taxonId,
                     .anchor = {
                         (float)structure->rootX + 0.5f,
                         (float)(structure->groundY - layerY) + 1.0f,

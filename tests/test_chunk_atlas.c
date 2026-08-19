@@ -1,4 +1,6 @@
 #include "world/chunks.h"
+#include "world/chunks_internal.h"
+#include "world/home_tree_shape.h"
 
 #define chunks (ChunksMutableForTesting())
 #include "world/terrain.h"
@@ -11,6 +13,29 @@
 #include <string.h>
 
 static int terrainBaseBlockLookups = 0;
+
+typedef struct HomeTreeTestEmitterContext {
+    Chunk *chunk;
+    BlockType accentBlock;
+    bool includeAccent;
+} HomeTreeTestEmitterContext;
+
+static bool EmitHomeTreeTestBlock(void *opaque, int x, int y, int z,
+                                  BlockType block, bool replace)
+{
+    HomeTreeTestEmitterContext *context = opaque;
+    if (!context->includeAccent && block == context->accentBlock) return true;
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    if (cx != context->chunk->cx || cz != context->chunk->cz) return true;
+    if (replace || ChunkGetLocalBlock(context->chunk, lx, y, lz) == BLOCK_AIR) {
+        ChunkSetLocalBlock(context->chunk, lx, y, lz, block);
+    }
+    return true;
+}
 
 uint32_t WorldCurrentSurfaceId(void)
 {
@@ -167,6 +192,25 @@ static void AssertSpecialBlockMeshContracts(void)
         { BLOCK_MICROBIAL_MAT, TEST_MESH_FLORA, 12 },
         { BLOCK_MYCELIUM, TEST_MESH_FLORA, 12 },
         { BLOCK_CHEMO_MAT, TEST_MESH_FLORA, 12 },
+        { BLOCK_OAK_LOG, TEST_MESH_SOLID, 36 },
+        { BLOCK_OAK_LEAVES, TEST_MESH_WATER, 36 },
+        { BLOCK_BIRCH_LOG, TEST_MESH_SOLID, 36 },
+        { BLOCK_BIRCH_LEAVES, TEST_MESH_WATER, 36 },
+        { BLOCK_ASPEN_LOG, TEST_MESH_SOLID, 36 },
+        { BLOCK_ASPEN_LEAVES, TEST_MESH_WATER, 36 },
+        { BLOCK_SPRUCE_LOG, TEST_MESH_SOLID, 36 },
+        { BLOCK_SPRUCE_NEEDLES, TEST_MESH_WATER, 36 },
+        { BLOCK_PINE_LOG, TEST_MESH_SOLID, 36 },
+        { BLOCK_PINE_NEEDLES, TEST_MESH_WATER, 36 },
+        { BLOCK_WILLOW_LOG, TEST_MESH_SOLID, 36 },
+        { BLOCK_WILLOW_LEAVES, TEST_MESH_WATER, 36 },
+        { BLOCK_BIG_BLUESTEM, TEST_MESH_FLORA, 12 },
+        { BLOCK_BRACKEN, TEST_MESH_FLORA, 12 },
+        { BLOCK_COMMON_REED, TEST_MESH_FLORA, 12 },
+        { BLOCK_SPHAGNUM, TEST_MESH_FLORA, 12 },
+        { BLOCK_HEATHER, TEST_MESH_FLORA, 12 },
+        { BLOCK_FIREWEED, TEST_MESH_FLORA, 12 },
+        { BLOCK_SAGUARO, TEST_MESH_SOLID, 36 },
         { BLOCK_LIVING_STEM, TEST_MESH_SOLID, 36 },
         { BLOCK_CANOPY_FROND, TEST_MESH_WATER, 36 },
         { BLOCK_LUMINOUS_POD, TEST_MESH_WATER, 36 },
@@ -219,6 +263,12 @@ static void AssertEcologyPlantMeshShapes(void)
         { BLOCK_MICROBIAL_MAT, 0.0f, true },
         { BLOCK_MYCELIUM, 0.0f, true },
         { BLOCK_CHEMO_MAT, 0.0f, true }
+        , { BLOCK_BIG_BLUESTEM, 0.92f, false }
+        , { BLOCK_BRACKEN, 0.72f, false }
+        , { BLOCK_COMMON_REED, 0.98f, false }
+        , { BLOCK_SPHAGNUM, 0.0f, true }
+        , { BLOCK_HEATHER, 0.58f, false }
+        , { BLOCK_FIREWEED, 0.86f, false }
     };
     static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
     for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
@@ -675,6 +725,7 @@ static void AssertFloraStructureInstancePartition(void)
     chunk.floraStructureCount = 4;
     chunk.floraStructures[0] = (FloraStructureInstance){
         .kind = FLORA_STRUCTURE_ALIEN_CANOPY,
+        .taxonId = -1,
         .shapeHash = 0u,
         .rootX = 2, .groundY = 3, .rootZ = 2,
         .minX = 0, .minY = 4, .minZ = 0,
@@ -685,6 +736,7 @@ static void AssertFloraStructureInstancePartition(void)
     };
     chunk.floraStructures[1] = (FloraStructureInstance){
         .kind = FLORA_STRUCTURE_CRYSTAL,
+        .taxonId = -1,
         .shapeHash = 1u,
         .rootX = 8, .groundY = 3, .rootZ = 2,
         .minX = 7, .minY = 4, .minZ = 1,
@@ -695,6 +747,7 @@ static void AssertFloraStructureInstancePartition(void)
     };
     chunk.floraStructures[2] = (FloraStructureInstance){
         .kind = FLORA_STRUCTURE_SPORE,
+        .taxonId = -1,
         .shapeHash = 0u,
         .rootX = 2, .groundY = 3, .rootZ = 9,
         .minX = 1, .minY = 4, .minZ = 8,
@@ -705,6 +758,7 @@ static void AssertFloraStructureInstancePartition(void)
     };
     chunk.floraStructures[3] = (FloraStructureInstance){
         .kind = FLORA_STRUCTURE_THERMAL_VENT,
+        .taxonId = -1,
         .shapeHash = 0u,
         .rootX = 8, .groundY = 3, .rootZ = 9,
         .minX = 7, .minY = 4, .minZ = 9,
@@ -721,7 +775,7 @@ static void AssertFloraStructureInstancePartition(void)
     ChunkSetLocalBlock(&chunk, 8, 4, 2, BLOCK_CRYSTAL_BLOOM);
     ChunkSetLocalBlock(&chunk, 8, 5, 2, BLOCK_STONE);
     ChunkSetLocalBlock(&chunk, 9, 5, 3, BLOCK_STONE);
-    ChunkSetLocalBlock(&chunk, 2, 6, 9, BLOCK_SPORE_CAP);
+    ChunkSetLocalBlock(&chunk, 2, 7, 9, BLOCK_SPORE_CAP);
     ChunkSetLocalBlock(&chunk, 2, 5, 9, BLOCK_STONE);
     ChunkSetLocalBlock(&chunk, 3, 4, 10, BLOCK_STONE);
     ChunkSetLocalBlock(&chunk, 8, 4, 9, BLOCK_VENT_CHIMNEY);
@@ -739,6 +793,7 @@ static void AssertFloraStructureInstancePartition(void)
     for (int index = 0; index < instanceCount; index++) {
         assert(instances[index].firstVertex == firstVertex);
         assert(instances[index].vertexCount == expectedVertexCounts[index]);
+        assert(instances[index].taxonId == -1);
         assert(instances[index].anchor.x ==
                (float)chunk.floraStructures[index].rootX + 0.5f);
         assert(instances[index].anchor.y ==
@@ -761,7 +816,7 @@ static void AssertFloraStructureInstancePartition(void)
         (const unsigned short (*)[CHUNK_SIZE])section->blocks, NULL,
         SURFACE_SECTION_HEIGHT, 0, 0, 0, faces, NULL, 0,
         &rawTransparent));
-    AssertMeshWellFormed(&rawTransparent, 96);
+    AssertMeshWellFormed(&rawTransparent, 102);
     FreeTestMesh(&rawTransparent);
     Mesh waterWithoutFlora = { 0 };
     assert(!ChunksTestBuildSurfaceWaterMeshDataWithSnapshot(
@@ -772,6 +827,118 @@ static void AssertFloraStructureInstancePartition(void)
 
     free(instances);
     FreeTestMesh(&flora);
+}
+
+static void AssertHomeTreeFloraMeshPartition(void)
+{
+    static const int faces[6][3] = {
+        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
+        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
+    };
+    const FloraTaxon *taxon = FloraTaxonAt(FLORA_TAXON_OAK);
+    assert(taxon);
+    HomeTreeShapeSpec spec = {
+        .rootX = 8,
+        .baseY = 15,
+        .rootZ = 8,
+        .taxonId = FLORA_TAXON_OAK,
+        .shapeHash = 0x53a19c7du,
+        .primaryBlock = taxon->primaryBlock,
+        .accentBlock = taxon->accentBlock
+    };
+    HomeTreeShapeBounds bounds = { 0 };
+    assert(HomeTreeShapeBoundsAt(&spec, &bounds));
+    assert(SurfaceSectionYFromBlockY(bounds.minY) == 0);
+    assert(SurfaceSectionYFromBlockY(bounds.maxY) >= 1);
+
+    Chunk full = { .cx = 0, .cz = 0, .loaded = true };
+    Chunk logsOnly = { .cx = 0, .cz = 0, .loaded = true };
+    FloraStructureInstance structure = {
+        .kind = FLORA_STRUCTURE_HOME_TREE,
+        .taxonId = FLORA_TAXON_OAK,
+        .shapeHash = spec.shapeHash,
+        .rootX = spec.rootX,
+        .groundY = spec.baseY - 1,
+        .rootZ = spec.rootZ,
+        .minX = bounds.minX,
+        .minY = bounds.minY,
+        .minZ = bounds.minZ,
+        .maxX = bounds.maxX,
+        .maxY = bounds.maxY,
+        .maxZ = bounds.maxZ,
+        .primaryBlock = taxon->primaryBlock,
+        .accentBlock = taxon->accentBlock,
+        .windResponse = taxon->windResponse
+    };
+    full.floraStructures[0] = structure;
+    full.floraStructureCount = 1;
+    logsOnly.floraStructures[0] = structure;
+    logsOnly.floraStructureCount = 1;
+    HomeTreeTestEmitterContext fullContext = {
+        .chunk = &full,
+        .accentBlock = taxon->accentBlock,
+        .includeAccent = true
+    };
+    HomeTreeTestEmitterContext logContext = {
+        .chunk = &logsOnly,
+        .accentBlock = taxon->accentBlock,
+        .includeAccent = false
+    };
+    assert(HomeTreeShapeEmit(&spec, EmitHomeTreeTestBlock, &fullContext));
+    assert(HomeTreeShapeEmit(&spec, EmitHomeTreeTestBlock, &logContext));
+
+    int leafCount = 0;
+    for (int sectionIndex = 0; sectionIndex < full.sectionCount;
+         sectionIndex++) {
+        const ChunkSection *section = full.sections[sectionIndex];
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
+                for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                    if (section->blocks[lx][y][lz] == taxon->accentBlock) {
+                        leafCount++;
+                    }
+                }
+            }
+        }
+        Mesh solid = { 0 };
+        assert(!BuildChunkSurfaceSolidMeshData(
+            section->blocks,
+            section->sectionY * SURFACE_SECTION_HEIGHT,
+            full.cx, full.cz, full.floraStructures,
+            full.floraStructureCount, faces, NULL, 0, NULL, &solid));
+        assert(solid.vertexCount == 0);
+    }
+    assert(leafCount > 20);
+
+    Mesh fullMesh = { 0 };
+    FloraVisualInstance *fullInstances = NULL;
+    int fullInstanceCount = 0;
+    assert(BuildChunkFloraMeshData(
+        &full, faces, NULL, 0, &fullMesh,
+        &fullInstances, &fullInstanceCount));
+    Mesh logMesh = { 0 };
+    FloraVisualInstance *logInstances = NULL;
+    int logInstanceCount = 0;
+    assert(BuildChunkFloraMeshData(
+        &logsOnly, faces, NULL, 0, &logMesh,
+        &logInstances, &logInstanceCount));
+    assert(fullInstanceCount >= 2);
+    assert(logInstanceCount >= 2);
+    assert(fullMesh.vertexCount > logMesh.vertexCount);
+    for (int index = 0; index < fullInstanceCount; index++) {
+        assert(fullInstances[index].taxonId == FLORA_TAXON_OAK);
+        assert(fullInstances[index].windResponse == taxon->windResponse);
+        assert(fullInstances[index].anchor.x == 8.5f);
+        assert(fullInstances[index].anchor.y == 15.0f);
+        assert(fullInstances[index].anchor.z == 8.5f);
+    }
+
+    free(fullInstances);
+    free(logInstances);
+    FreeTestMesh(&fullMesh);
+    FreeTestMesh(&logMesh);
+    ChunkClearBlockStorage(&full);
+    ChunkClearBlockStorage(&logsOnly);
 }
 
 static void AssertSolidSnapshotDoesNotReadLiveChunks(void)
@@ -823,6 +990,7 @@ int main(void)
     AssertDoorMeshCapacityWithOcclusion();
     AssertSpaceshipMeshCapacityAndBounds();
     AssertFloraStructureInstancePartition();
+    AssertHomeTreeFloraMeshPartition();
     AssertSolidSnapshotDoesNotReadLiveChunks();
     puts("chunk atlas tests passed");
     return 0;

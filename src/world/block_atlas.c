@@ -379,6 +379,9 @@ static Color AtlasPixelColor(BlockTexture texture, int x, int y)
     if (texture >= TEX_STAGE05_START && texture <= TEX_STAGE05_END) {
         return BlockExpansionAtlasPixel(texture, x, y, hash);
     }
+    if (texture >= TEX_STAGE06_START && texture <= TEX_STAGE06_END) {
+        return EcologyAtlasPixel(texture, x, y, hash);
+    }
     return ItemAtlasPixel(texture, x, y, hash);
 }
 

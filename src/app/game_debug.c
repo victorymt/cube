@@ -3,6 +3,8 @@
 
 #include "app/game_debug.h"
 #include "app/game_debug_block.h"
+#include "app/game_debug_flora.h"
+#include "app/game_debug_gate.h"
 #include "app/game_debug_trace.h"
 #include "app/game_debug_wildfire.h"
 #include "app/game_save.h"
@@ -1358,6 +1360,8 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
     }
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED &&
         GameDebugBlockDispatch(game, command)) result = GAME_DEBUG_DISPATCH_HANDLED;
+    if (result == GAME_DEBUG_DISPATCH_UNHANDLED &&
+        GameDebugFloraDispatch(game, command)) result = GAME_DEBUG_DISPATCH_HANDLED;
     if (result == GAME_DEBUG_DISPATCH_HANDLED && game->debugCommandFailed) {
         return GAME_DEBUG_DISPATCH_ERROR;
     }
@@ -1422,6 +1426,7 @@ static bool GameDebugDslResolve(void *userData, const char *name,
     if (!game || !name || !outValue) return false;
 
     if (GameDebugBlockDslResolve(game, name, outValue)) return true;
+    if (GameDebugFloraDslResolve(game, name, outValue)) return true;
     if (strcmp(name, "game.screen") == 0) {
         return GameDebugDslString(
             outValue, game->screen == SCREEN_PLAYING ? "playing" : "start");
@@ -1676,67 +1681,6 @@ static bool GameDebugDslResolve(void *userData, const char *name,
     }
     return false;
 }
-static const char *GameDebugDslCommandBlocked(
-    const GameRuntime *game, DebugControlCommand command)
-{
-    switch (command) {
-    case DEBUG_CONTROL_COMMAND_START:
-        return game->screen == SCREEN_START ? NULL : "already_playing";
-    case DEBUG_CONTROL_COMMAND_SCREENSHOT:
-    case DEBUG_CONTROL_COMMAND_SAVE:
-    case DEBUG_CONTROL_COMMAND_LOAD:
-    case DEBUG_CONTROL_COMMAND_TELEPORT:
-    case DEBUG_CONTROL_COMMAND_LOOK:
-    case DEBUG_CONTROL_COMMAND_INPUT:
-    case DEBUG_CONTROL_COMMAND_VIEW:
-    case DEBUG_CONTROL_COMMAND_SHIP_BEGIN:
-    case DEBUG_CONTROL_COMMAND_SHIP_ENTER:
-    case DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE:
-    case DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS:
-    case DEBUG_CONTROL_COMMAND_BLOCK_INSPECT:
-        return game->screen == SCREEN_PLAYING ? NULL : "not_playing";
-    case DEBUG_CONTROL_COMMAND_SHIP_INPUT:
-    case DEBUG_CONTROL_COMMAND_SHIP_EXHAUST:
-        return game->screen == SCREEN_PLAYING && ShipIsDriving()
-            ? NULL : "not_driving";
-    case DEBUG_CONTROL_COMMAND_SHIP_DUST:
-        return game->screen == SCREEN_PLAYING && ShipIsDriving() &&
-                       WorldIsSurfaceActive()
-            ? NULL : "no_surface_ship";
-    case DEBUG_CONTROL_COMMAND_MAP:
-    case DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS:
-    case DEBUG_CONTROL_COMMAND_MARKER_ADD:
-    case DEBUG_CONTROL_COMMAND_MARKER_LIST:
-    case DEBUG_CONTROL_COMMAND_MARKER_TARGET:
-    case DEBUG_CONTROL_COMMAND_MARKER_REMOVE:
-    case DEBUG_CONTROL_COMMAND_FLUID_SET:
-    case DEBUG_CONTROL_COMMAND_FLUID_STEP:
-    case DEBUG_CONTROL_COMMAND_WEATHER_INSPECT:
-    case DEBUG_CONTROL_COMMAND_WEATHER_FORCE:
-    case DEBUG_CONTROL_COMMAND_WEATHER_CLOUD_FORCE:
-    case DEBUG_CONTROL_COMMAND_WEATHER_FIRE_IGNITE:
-    case DEBUG_CONTROL_COMMAND_WEATHER_FIRE_SUPPRESS:
-    case DEBUG_CONTROL_COMMAND_WEATHER_FIRE_CLEAR:
-    case DEBUG_CONTROL_COMMAND_WEATHER_STEP:
-    case DEBUG_CONTROL_COMMAND_BLOCK_GALLERY:
-        return WorldIsSurfaceActive() ? NULL : "no_active_surface";
-    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
-    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET:
-        return game->screen == SCREEN_PLAYING ? NULL : "not_playing";
-    case DEBUG_CONTROL_COMMAND_STREAM_AUDIT:
-    case DEBUG_CONTROL_COMMAND_STREAM_WAIT:
-        if (game->screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
-            return "not_in_surface_world";
-        }
-        if (game->streamAudit.active || game->streamAudit.wait.active) {
-            return "stream_operation_in_progress";
-        }
-        return NULL;
-    default:
-        return NULL;
-    }
-}
-
 static DebugDslCommandResult GameDebugDslCommand(
     void *userData, const char *commandText, DebugDslError *outError)
 {

@@ -1,5 +1,7 @@
 #include "world/weather_impact.h"
 
+#include "ecology/flora_taxa.h"
+
 #include "space/space_state.h"
 #include "world/fluid.h"
 #include "world/terrain.h"
@@ -189,12 +191,24 @@ static float ImpactFuelLoad(BlockType block, float flammability)
     case BLOCK_CANOPY_FROND:
         return 0.28f + flammability * 0.24f;
     case BLOCK_LEAVES:
+    case BLOCK_OAK_LEAVES:
+    case BLOCK_BIRCH_LEAVES:
+    case BLOCK_ASPEN_LEAVES:
+    case BLOCK_SPRUCE_NEEDLES:
+    case BLOCK_PINE_NEEDLES:
+    case BLOCK_WILLOW_LEAVES:
     case BLOCK_HAY_BALE:
     case BLOCK_MUSHROOM:
     case BLOCK_SPORE_CAP:
     case BLOCK_LUMINOUS_POD:
         return 0.62f + flammability * 0.36f;
     case BLOCK_WOOD:
+    case BLOCK_OAK_LOG:
+    case BLOCK_BIRCH_LOG:
+    case BLOCK_ASPEN_LOG:
+    case BLOCK_SPRUCE_LOG:
+    case BLOCK_PINE_LOG:
+    case BLOCK_WILLOW_LOG:
     case BLOCK_LIVING_STEM:
     case BLOCK_FUNGAL_STEM:
         return 2.20f + flammability * 1.30f;
@@ -221,6 +235,12 @@ BlockType WeatherImpactResidueForFuel(BlockType fuel, float severity,
     moisture = ImpactUnit(moisture);
     switch (fuel) {
     case BLOCK_WOOD:
+    case BLOCK_OAK_LOG:
+    case BLOCK_BIRCH_LOG:
+    case BLOCK_ASPEN_LOG:
+    case BLOCK_SPRUCE_LOG:
+    case BLOCK_PINE_LOG:
+    case BLOCK_WILLOW_LOG:
     case BLOCK_LIVING_STEM:
     case BLOCK_FUNGAL_STEM:
         return severity < 0.80f || moisture > 0.05f
@@ -864,6 +884,29 @@ static void ImpactRecoverBurnSites(WeatherFieldSample weather)
         site->ageSeconds += 1.0f / WEATHER_IMPACT_TICK_RATE;
         site->recovery = ImpactUnit(
             site->recovery + rate / WEATHER_IMPACT_TICK_RATE);
+        FloraDisturbanceStage succession = FloraDisturbanceStageForBurn(
+            site->severity, site->recovery);
+        if (succession == FLORA_DISTURBANCE_HERB_PIONEER &&
+            SurfaceBlockReadyAt(site->x, site->y, site->z) &&
+            SurfaceBlockReadyAt(site->x, site->y + 1, site->z)) {
+            BlockType current = GetBlockAt(site->x, site->y, site->z);
+            BlockType below = GetBlockAt(site->x, site->y - 1, site->z);
+            BlockType above = GetBlockAt(site->x, site->y + 1, site->z);
+            bool residue = current == BLOCK_FIRE_ASH ||
+                           current == BLOCK_CHARCOAL;
+            bool soil = below == BLOCK_GRASS || below == BLOCK_DIRT ||
+                        below == BLOCK_MUD || below == BLOCK_LOAM ||
+                        below == BLOCK_PODZOL || below == BLOCK_PEAT ||
+                        below == BLOCK_CHERNOZEM ||
+                        below == BLOCK_TERRA_ROSSA ||
+                        below == BLOCK_ALLUVIUM || below == BLOCK_HUMUS ||
+                        below == BLOCK_COMPOST;
+            if (residue && soil && above == BLOCK_AIR) {
+                SetBlockNoUndoFromSource(site->x, site->y, site->z,
+                                         BLOCK_FIREWEED,
+                                         WORLD_MUTATION_ENVIRONMENT);
+            }
+        }
         if (site->recovery >= 1.0f) {
             ImpactRemoveBurnSite(impactBurnSiteCursor);
             impactStats.recoveredBurnSites++;

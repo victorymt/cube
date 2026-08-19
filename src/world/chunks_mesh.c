@@ -1,5 +1,5 @@
 #include "world/chunks_internal.h"
-
+#include "ecology/flora_taxa.h"
 BlockType GetBlock(int x, int y, int z)
 {
     if (!InHeight(y)) return BLOCK_AIR;
@@ -1236,6 +1236,8 @@ static void AddPlantMesh(ChunkMeshEmitter *emitter, int x, int y, int z,
     } else if (type == BLOCK_LICHEN) {
         plantHeight = 0.30f;
         halfWidth = 0.24f;
+    } else {
+        FloraTaxonVisualDimensions(type, &plantHeight, &halfWidth);
     }
     float y1 = y0 + plantHeight;
 

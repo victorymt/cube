@@ -102,6 +102,8 @@ bool BuildChunkFloraMeshData(
     const Chunk *chunk, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh,
     FloraVisualInstance **outInstances, int *outInstanceCount);
+bool ChunkFloraStructureOwnsBlock(
+    const Chunk *chunk, int worldX, int y, int worldZ, BlockType block);
 bool ApplyFloraMeshPresenceColors(
     unsigned char *colors, const unsigned char *baseColors, int vertexCount,
     const float *targetPresence, int targetCount, float blend);

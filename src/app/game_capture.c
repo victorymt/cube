@@ -34,6 +34,19 @@ static ScreenshotVector3 ScreenshotVector(Vector3 value)
     return (ScreenshotVector3){ value.x, value.y, value.z };
 }
 
+static const char *ScreenshotBiomeName(Biome biome)
+{
+    switch (biome) {
+    case BIOME_PLAINS: return "plains";
+    case BIOME_FOREST: return "forest";
+    case BIOME_DESERT: return "desert";
+    case BIOME_SNOW: return "snow";
+    case BIOME_MOUNTAIN: return "mountain";
+    case BIOME_SWAMP: return "swamp";
+    default: return "unavailable";
+    }
+}
+
 void GameCaptureScreenshot(GameRuntime *game,
                                   const GameFrameView *frame)
 {
@@ -281,6 +294,39 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .galleryPlaced = game->blockGalleryPlaced,
                 .galleryRows = 3u,
                 .galleryWidth = 14u
+            },
+            .flora = {
+                .catalogCount = FLORA_TAXON_COUNT,
+                .sampleActive = game->floraSampleActive,
+                .sampleX = game->floraSampleX,
+                .sampleZ = game->floraSampleZ,
+                .sampleTree = game->floraSampleActive &&
+                              FloraTaxonAt(game->floraSampleTree)
+                    ? FloraTaxonAt(game->floraSampleTree)->commonName : "none",
+                .sampleGround = game->floraSampleActive &&
+                                FloraTaxonAt(game->floraSampleGround)
+                    ? FloraTaxonAt(game->floraSampleGround)->commonName : "none",
+                .sampleBurnStage = game->floraSampleActive
+                    ? FloraDisturbanceStageName(game->floraSampleBurnStage)
+                    : "unavailable",
+                .sampleBiome = game->floraSampleActive
+                    ? ScreenshotBiomeName(game->floraSampleHabitat.biome)
+                    : "unavailable",
+                .sampleSubstrate = game->floraSampleActive
+                    ? BlockName(game->floraSampleHabitat.substrate)
+                    : "unavailable",
+                .sampleTemperatureK = game->floraSampleHabitat.temperatureK,
+                .sampleMoisture = game->floraSampleHabitat.moisture,
+                .sampleUsableLight = game->floraSampleHabitat.usableLight,
+                .sampleElevation = game->floraSampleHabitat.elevation,
+                .sampleSlope = game->floraSampleHabitat.slope,
+                .sampleBurnSeverity = game->floraSampleHabitat.burnSeverity,
+                .sampleBurnRecovery = game->floraSampleHabitat.burnRecovery,
+                .galleryActive = game->floraGalleryActive,
+                .galleryOrigin = ScreenshotVector(game->floraGalleryOrigin),
+                .galleryPlaced = game->floraGalleryPlaced,
+                .galleryTrees = game->floraGalleryTreeCount,
+                .galleryGround = game->floraGalleryGroundCount
             },
             .input = {
                 .forward = game->appliedPlayerInput.forward,

@@ -51,6 +51,8 @@ static void TestCommandStream(void)
         "fluid inspect\nfluid inspect 1 72 -4\n"
         "fluid set 1 72 -4 127\nfluid step 25\n"
         "block inspect Coral Limestone\nblock gallery -8 81 14\n"
+        "flora inspect Silver Birch\nflora sample 12 -9\n"
+        "flora gallery -20 80 30\n"
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
         "look 1.25 -0.3\nlook delta -0.5 0.1\n"
         "input 1 -0.5 1 1 120\n"
@@ -107,6 +109,13 @@ static void TestCommandStream(void)
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_BLOCK_GALLERY);
     assert(control.blockGalleryX == -8 && control.blockGalleryY == 81 &&
            control.blockGalleryZ == 14);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLORA_INSPECT);
+    assert(strcmp(control.floraQuery, "silver birch") == 0);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLORA_SAMPLE);
+    assert(control.floraSampleX == 12 && control.floraSampleZ == -9);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_FLORA_GALLERY);
+    assert(control.floraGalleryX == -20 && control.floraGalleryY == 80 &&
+           control.floraGalleryZ == 30);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_TELEPORT);
     assert(control.teleport.x == 1.5f);
     assert(control.teleport.y == 72.0f);
@@ -178,6 +187,33 @@ static void TestBlockCommands(void)
            DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(
                &control, "block gallery 1000001 2 3") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+}
+
+static void TestFloraCommands(void)
+{
+    DebugControl control;
+    DebugControlInit(&control, true);
+    assert(DebugControlParseText(&control, "flora inspect 12") ==
+           DEBUG_CONTROL_COMMAND_FLORA_INSPECT);
+    assert(strcmp(control.floraQuery, "12") == 0);
+    assert(DebugControlParseText(&control, "flora inspect Quercus_robur") ==
+           DEBUG_CONTROL_COMMAND_FLORA_INSPECT);
+    assert(strcmp(control.floraQuery, "quercus_robur") == 0);
+    assert(DebugControlParseText(&control, "flora sample -44 91") ==
+           DEBUG_CONTROL_COMMAND_FLORA_SAMPLE);
+    assert(control.floraSampleX == -44 && control.floraSampleZ == 91);
+    assert(DebugControlParseText(&control, "flora gallery 1 -32 3") ==
+           DEBUG_CONTROL_COMMAND_FLORA_GALLERY);
+    assert(control.floraGalleryX == 1 && control.floraGalleryY == -32 &&
+           control.floraGalleryZ == 3);
+    assert(DebugControlParseText(&control, "flora inspect") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "flora sample 1") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "flora sample 1000001 0") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "flora gallery 1 2") ==
            DEBUG_CONTROL_COMMAND_INVALID);
 }
 
@@ -445,6 +481,7 @@ int main(void)
     TestLongReply();
     TestCommandStream();
     TestBlockCommands();
+    TestFloraCommands();
     TestTerrainMapCommands();
     TestFinalCommandWithoutNewline();
     TestInvalidParameterizedCommands();

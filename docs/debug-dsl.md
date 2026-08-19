@@ -51,7 +51,7 @@ Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,weather,evolution,block statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 ## Process and stdin lifetime
@@ -242,12 +242,26 @@ Runtime values are sampled when an expression is evaluated:
 | `target.position` | vec3 | Current raycast block position; only meaningful when `target.hit` is true |
 | `target.block` | string | Target block name, or `air` when there is no hit |
 | `block.catalog_count` | number | All ordinary/natural and color block identities |
-| `block.natural_count` | number | Block identities in the natural range |
+| `block.natural_count` | number | Block identities in the natural range, including Stage 06 flora |
 | `block.stage05_count` | number | Geological, soil, biogenic, and fire-residue identities added in Stage 05 |
 | `block.gallery_active` | bool | Whether a Stage 05 gallery was successfully placed in this process |
 | `block.gallery_origin` | vec3 | Origin of the latest successful block gallery |
 | `block.gallery_placed` | number | Blocks placed by the latest successful gallery command |
 | `block.gallery_rows` | number | Deterministic family rows in the gallery |
+| `flora.catalog_count` | number | Real-world Homeworld taxa in the Stage 06 catalog |
+| `flora.sample_tree` | string | Deterministic tree taxon at the latest `flora sample`, or `none` |
+| `flora.sample_ground` | string | Deterministic understory taxon at the latest sample, or `none` |
+| `flora.sample_burn_stage` | string | Fire-recovery succession stage at the latest sample |
+| `flora.sample_biome` | string | Homeworld biome at the latest sample |
+| `flora.sample_substrate` | string | Soil or surface substrate at the latest sample |
+| `flora.sample_habitat` | vec3 | Temperature in K, moisture, and usable light at the latest sample |
+| `flora.sample_temperature` | number | Temperature in K at the latest sample |
+| `flora.sample_moisture` | number | Moisture fraction at the latest sample |
+| `flora.gallery_active` | bool | Whether a Stage 06 flora gallery was successfully placed |
+| `flora.gallery_origin` | vec3 | Origin of the latest successful flora gallery |
+| `flora.gallery_placed` | number | Blocks placed by the latest flora gallery command |
+| `flora.gallery_trees` | number | Tree specimens in the latest flora gallery |
+| `flora.gallery_ground` | number | Ground-plant specimens in the latest flora gallery |
 | `ship.driving` | bool | Player is driving a ship |
 | `ship.mode` | string | Current ship drive mode |
 | `render.water_debug` | bool | Water section bounds are enabled |
@@ -366,6 +380,29 @@ validates the entire bounded region, then places all 26 Stage 05 blocks in
 geology, biogenic, and fire-residue rows as one undo group. A failed validation
 or mutation leaves no partial gallery.
 
+### Flora catalog, sampling, and gallery
+
+```text
+flora inspect NAME_OR_ID
+flora sample X Z
+flora gallery X Y Z
+```
+
+`flora inspect` accepts a numeric taxon ID or a common/scientific name, with
+spaces, hyphens, underscores, and letter case treated equivalently. It reports
+the common name, scientific name, family, growth form, succession stage,
+temperature/moisture/light niche, elevation and slope limits, size, wind and
+fire traits, and the primary/accent blocks. The 13 Earth taxa are used only on
+Homeworld; alien planets retain their exobiological archetypes.
+
+`flora sample X Z` evaluates the deterministic Homeworld habitat at a column,
+including biome, substrate, climate, slope, fire-recovery stage, selected tree,
+and understory taxon. It does not mutate the world. `flora gallery X Y Z`
+requires an active surface world, an accessible Y coordinate, and a fully
+loaded, empty bounded region. It validates every trunk, canopy, and understory
+cell before placing six distinct tree forms and seven ground plants as one
+undo group. A failed validation or mutation leaves no partial flora gallery.
+
 ### Weather and climate
 
 ```text
@@ -426,9 +463,10 @@ water. A valid suppression with no fire in range succeeds with `affected=0`.
 `weather fire clear` removes active fires while retaining burn history and all
 forced weather, cloud, and tornado state. Inspect and typed fields expose the
 nearest fire, local exposure, lifecycle counters, burned blocks, recovery
-records, and bounded-drop counters. Screenshot report schema 11 records those
+records, and bounded-drop counters. Screenshot report schema 12 records those
 values plus the same-frame fire snapshot count, plume wind, haze, and graphics
-quality budgets used for rendering.
+quality budgets used for rendering, as well as the latest flora sample and
+gallery state.
 
 `weather damage off` restores reversible weather-owned
 snow/ice and clears active weather fires; it changes the current game setting,

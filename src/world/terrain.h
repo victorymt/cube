@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_TERRAIN_H
 #define VOXELCRAFT_TERRAIN_H
 
+#include "ecology/flora_taxa.h"
 #include "space/planet_surface.h"
 #include "world/world_types.h"
 
@@ -94,6 +95,10 @@ void HomeSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude);
 PlanetSurfaceSample PlanetSurfaceBaselineAt(int x, int z);
 PlanetSurfaceSample PlanetSurfaceAtTime(int x, int z, double simulationTime);
 bool ShouldPlaceTree(int x, int z, TerrainMode mode);
+FloraHabitat TerrainHomeFloraHabitatAt(int x, int z, TerrainMode mode);
+FloraTaxonId TerrainHomeTreeTaxonAt(int x, int z, TerrainMode mode);
+FloraTaxonId TerrainHomeGroundTaxonAt(int x, int z, TerrainMode mode,
+                                      BlockType substrate, uint32_t hash);
 bool CaveAt(int x, int y, int z, int height);
 bool CaveWaterAt(int x, int y, int z, int height);
 TerrainSubsurfaceLiquidSummary TerrainSubsurfaceLiquidSummaryAt(
@@ -122,6 +127,7 @@ BlockType TerrainTestPlanetSubsurfaceBlock(SolarBodyStyle style,
                                            unsigned int hash);
 void TerrainTestBootstrapHomeChunk(Chunk *chunk, int cx, int cz,
                                    TerrainMode mode);
+void TerrainTestResolveMaterializedSections(Chunk *chunk);
 void TerrainTestGenerateMineshaft(Chunk *chunk, int cx, int cz,
                                   TerrainMode mode);
 void TerrainTestGenerateStructures(Chunk *chunk, int cx, int cz,
@@ -130,6 +136,9 @@ int TerrainTestHomeTreeVariantAt(int treeX, int treeZ, bool conifer);
 int TerrainTestHomeTreeCrownRadiusAt(int treeX, int treeZ);
 void TerrainTestPlaceHomeTree(Chunk *chunk, int treeX, int base, int treeZ,
                               bool conifer, int variant);
+int TerrainTestHomeTreeTaxonAt(int treeX, int treeZ);
+void TerrainTestPlaceHomeTreeTaxon(Chunk *chunk, int treeX, int base,
+                                   int treeZ, int taxonId);
 BlockType TerrainTestHomeGroundCoverBlock(
     Biome biome, int height, int seaLevel, unsigned int hash);
 #endif

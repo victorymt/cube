@@ -1432,6 +1432,10 @@ static void AssertSemanticFloraStructure(
         assert(structure->primaryBlock == BLOCK_VENT_CHIMNEY);
         assert(structure->accentBlock == BLOCK_CHEMO_MAT);
         break;
+    case FLORA_STRUCTURE_HOME_TREE:
+        assert(structure->taxonId >= FLORA_TAXON_OAK &&
+               structure->taxonId <= FLORA_TAXON_WILLOW);
+        break;
     }
 }
 

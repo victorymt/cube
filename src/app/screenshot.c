@@ -102,7 +102,7 @@ static bool ScreenshotWriteDebugFields(
 {
 #define REPORT_LINE(...) do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
     REPORT_LINE("format=voxelcraft-screenshot-debug\n");
-    REPORT_LINE("format.version=11\n");
+    REPORT_LINE("format.version=12\n");
     REPORT_LINE("image.path=%s\n", imagePath);
     REPORT_LINE("capture.unix_time=%lld\n", (long long)timestamp);
     REPORT_LINE("capture.local_time=%04d-%02d-%02dT%02d:%02d:%02d\n",
@@ -357,6 +357,43 @@ static bool ScreenshotWriteDebugFields(
     REPORT_LINE("block.gallery_placed=%u\n", info->block.galleryPlaced);
     REPORT_LINE("block.gallery_rows=%u\n", info->block.galleryRows);
     REPORT_LINE("block.gallery_width=%u\n", info->block.galleryWidth);
+
+    REPORT_LINE("flora.catalog_count=%u\n", info->flora.catalogCount);
+    REPORT_LINE("flora.sample_active=%s\n",
+                ScreenshotBool(info->flora.sampleActive));
+    REPORT_LINE("flora.sample_position=%d,%d\n",
+                info->flora.sampleX, info->flora.sampleZ);
+    REPORT_LINE("flora.sample_tree=%s\n",
+                ScreenshotText(info->flora.sampleTree));
+    REPORT_LINE("flora.sample_ground=%s\n",
+                ScreenshotText(info->flora.sampleGround));
+    REPORT_LINE("flora.sample_burn_stage=%s\n",
+                ScreenshotText(info->flora.sampleBurnStage));
+    REPORT_LINE("flora.sample_biome=%s\n",
+                ScreenshotText(info->flora.sampleBiome));
+    REPORT_LINE("flora.sample_substrate=%s\n",
+                ScreenshotText(info->flora.sampleSubstrate));
+    REPORT_LINE("flora.sample_temperature_k=%.6f\n",
+                info->flora.sampleTemperatureK);
+    REPORT_LINE("flora.sample_moisture=%.6f\n",
+                info->flora.sampleMoisture);
+    REPORT_LINE("flora.sample_usable_light=%.6f\n",
+                info->flora.sampleUsableLight);
+    REPORT_LINE("flora.sample_elevation=%.6f\n",
+                info->flora.sampleElevation);
+    REPORT_LINE("flora.sample_slope=%.6f\n", info->flora.sampleSlope);
+    REPORT_LINE("flora.sample_burn_severity=%.6f\n",
+                info->flora.sampleBurnSeverity);
+    REPORT_LINE("flora.sample_burn_recovery=%.6f\n",
+                info->flora.sampleBurnRecovery);
+    REPORT_LINE("flora.gallery_active=%s\n",
+                ScreenshotBool(info->flora.galleryActive));
+    REPORT_LINE("flora.gallery_origin=%.6f,%.6f,%.6f\n",
+                info->flora.galleryOrigin.x, info->flora.galleryOrigin.y,
+                info->flora.galleryOrigin.z);
+    REPORT_LINE("flora.gallery_placed=%u\n", info->flora.galleryPlaced);
+    REPORT_LINE("flora.gallery_trees=%u\n", info->flora.galleryTrees);
+    REPORT_LINE("flora.gallery_ground=%u\n", info->flora.galleryGround);
 
     REPORT_LINE("input.forward=%.6f\n", info->input.forward);
     REPORT_LINE("input.strafe=%.6f\n", info->input.strafe);

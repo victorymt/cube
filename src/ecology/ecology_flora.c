@@ -7,8 +7,27 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <math.h>
 
 #define PLANET_FLORA_STRUCTURE_RADIUS 3
+
+static float FloraProfileScale(const PlanetEcologyProfile *profile)
+{
+    float scale = profile ? profile->organismScale : 1.0f;
+    if (!isfinite(scale) || scale <= 0.0f) scale = 1.0f;
+    if (scale < 0.65f) scale = 0.65f;
+    if (scale > 1.60f) scale = 1.60f;
+    return scale;
+}
+
+static int FloraScaledHeight(int baseHeight,
+                             const PlanetEcologyProfile *profile)
+{
+    int height = (int)lroundf((float)baseHeight * FloraProfileScale(profile));
+    if (height < 2) height = 2;
+    if (height > 9) height = 9;
+    return height;
+}
 
 static void EcologySet(Chunk *chunk, int x, int y, int z, BlockType type)
 {
@@ -32,7 +51,6 @@ static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
                                    PlanetFloraArchetype archetype,
                                    uint32_t hash)
 {
-    (void)profile;
     FloraStructureKind kind = FLORA_STRUCTURE_SPORE;
     switch (archetype) {
     case PLANET_FLORA_ALIEN_CANOPY:
@@ -52,6 +70,7 @@ static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
     int base = ground + 1;
     FloraStructureInstance structure = {
         .kind = kind,
+        .taxonId = -1,
         .shapeHash = hash,
         .rootX = x,
         .groundY = ground,
@@ -68,16 +87,18 @@ static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
     };
     switch (kind) {
     case FLORA_STRUCTURE_ALIEN_CANOPY: {
-        int trunkHeight = 3 + (int)(hash % 3u);
-        structure.minX = x - 2;
-        structure.maxX = x + 2;
-        structure.minZ = z - 2;
-        structure.maxZ = z + 2;
+        int trunkHeight = FloraScaledHeight(3 + (int)(hash % 3u), profile);
+        int radius = FloraProfileScale(profile) > 1.25f ? 3 : 2;
+        structure.minX = x - radius;
+        structure.maxX = x + radius;
+        structure.minZ = z - radius;
+        structure.maxZ = z + radius;
         structure.maxY = base + trunkHeight + 1;
-        structure.windResponse = 1.0f;
+        structure.windResponse = 0.72f +
+            (profile ? profile->floraDensity : 0.5f) * 0.28f;
     } break;
     case FLORA_STRUCTURE_CRYSTAL: {
-        int height = 2 + (int)(hash % 4u);
+        int height = FloraScaledHeight(2 + (int)(hash % 4u), profile);
         structure.minX = x - 1;
         structure.maxX = x + 1;
         structure.minZ = z - 1;
@@ -86,22 +107,25 @@ static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
         structure.windResponse = 0.12f;
     } break;
     case FLORA_STRUCTURE_SPORE: {
-        int stemHeight = 2 + (int)(hash % 2u);
+        int stemHeight = FloraScaledHeight(2 + (int)(hash % 2u), profile);
         structure.minX = x - 1;
         structure.maxX = x + 1;
         structure.minZ = z - 1;
         structure.maxZ = z + 1;
         structure.maxY = base + stemHeight + 1;
-        structure.windResponse = 0.65f;
+        structure.windResponse = 0.45f +
+            (profile ? profile->floraDensity : 0.5f) * 0.30f;
     } break;
     case FLORA_STRUCTURE_THERMAL_VENT: {
-        int height = 2 + (int)(hash % 3u);
+        int height = FloraScaledHeight(2 + (int)(hash % 3u), profile);
         structure.minX = x - 1;
         structure.maxX = x + 1;
         structure.maxZ = z + 1;
         structure.maxY = base + height;
         structure.windResponse = 0.05f;
     } break;
+    case FLORA_STRUCTURE_HOME_TREE:
+        return;
     }
     switch (kind) {
     case FLORA_STRUCTURE_ALIEN_CANOPY:
@@ -120,6 +144,8 @@ static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
         structure.primaryBlock = BLOCK_VENT_CHIMNEY;
         structure.accentBlock = BLOCK_CHEMO_MAT;
         break;
+    case FLORA_STRUCTURE_HOME_TREE:
+        return;
     }
 
     int chunkMinX = chunk->cx * CHUNK_SIZE;
@@ -144,16 +170,16 @@ static void RegisterFloraStructure(Chunk *chunk, int x, int z, int ground,
 static void PlaceAlienCanopy(Chunk *chunk, int x, int z, int ground,
                              const PlanetEcologyProfile *profile, uint32_t hash)
 {
-    (void)profile;
     int base = ground + 1;
-    int trunkHeight = 3 + (int)(hash % 3u);
+    int trunkHeight = FloraScaledHeight(3 + (int)(hash % 3u), profile);
+    int radius = FloraProfileScale(profile) > 1.25f ? 3 : 2;
     for (int y = base; y < base + trunkHeight; y++) {
         EcologySet(chunk, x, y, z, BLOCK_LIVING_STEM);
     }
-    for (int ox = -2; ox <= 2; ox++) {
-        for (int oz = -2; oz <= 2; oz++) {
+    for (int ox = -radius; ox <= radius; ox++) {
+        for (int oz = -radius; oz <= radius; oz++) {
             int distance = abs(ox) + abs(oz);
-            if (distance > 3) continue;
+            if (distance > radius + 1) continue;
             EcologySet(chunk, x + ox, base + trunkHeight - 1, z + oz,
                        BLOCK_CANOPY_FROND);
             if (distance < 2) {
@@ -168,9 +194,8 @@ static void PlaceAlienCanopy(Chunk *chunk, int x, int z, int ground,
 static void PlaceCrystal(Chunk *chunk, int x, int z, int ground,
                          const PlanetEcologyProfile *profile, uint32_t hash)
 {
-    (void)profile;
     int base = ground + 1;
-    int height = 2 + (int)(hash % 4u);
+    int height = FloraScaledHeight(2 + (int)(hash % 4u), profile);
     for (int y = base; y < base + height; y++) {
         EcologySet(chunk, x, y, z, BLOCK_CRYSTAL_BLOOM);
     }
@@ -185,9 +210,8 @@ static void PlaceCrystal(Chunk *chunk, int x, int z, int ground,
 static void PlaceSpore(Chunk *chunk, int x, int z, int ground,
                        const PlanetEcologyProfile *profile, uint32_t hash)
 {
-    (void)profile;
     int base = ground + 1;
-    int stemHeight = 2 + (int)(hash % 2u);
+    int stemHeight = FloraScaledHeight(2 + (int)(hash % 2u), profile);
     for (int y = base; y < base + stemHeight; y++) {
         EcologySet(chunk, x, y, z, BLOCK_FUNGAL_STEM);
     }
@@ -205,9 +229,8 @@ static void PlaceSpore(Chunk *chunk, int x, int z, int ground,
 static void PlaceThermalVent(Chunk *chunk, int x, int z, int ground,
                              const PlanetEcologyProfile *profile, uint32_t hash)
 {
-    (void)profile;
     int base = ground + 1;
-    int height = 2 + (int)(hash % 3u);
+    int height = FloraScaledHeight(2 + (int)(hash % 3u), profile);
     for (int y = base; y < base + height; y++) {
         EcologySet(chunk, x, y, z, BLOCK_VENT_CHIMNEY);
     }

@@ -16,6 +16,7 @@ SPACE_FEATURE_SRC := \
 	src/space/planet_lighting.c
 
 CHUNKS_FEATURE_SRC := \
+	src/ecology/flora_taxa.c \
 	src/world/chunks.c \
 	src/world/chunks_test_api.c \
 	src/world/chunks_storage.c \
@@ -25,6 +26,7 @@ CHUNKS_FEATURE_SRC := \
 	src/world/chunks_water.c \
 	src/world/chunks_flora.c \
 	src/world/chunks_runtime.c \
+	src/world/home_tree_shape.c \
 	src/world/surface_topology.c
 
 ENTITY_FEATURE_SRC := \

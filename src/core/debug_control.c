@@ -233,6 +233,38 @@ static DebugControlCommand DebugControlParseBlock(DebugControl *control,
     return DEBUG_CONTROL_COMMAND_NONE;
 }
 
+static DebugControlCommand DebugControlParseFlora(DebugControl *control,
+                                                  const char *line)
+{
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    char trailing = '\0';
+    if (sscanf(line, "flora sample %d %d %c", &x, &z, &trailing) == 2 &&
+        x >= -1000000 && x <= 1000000 && z >= -1000000 && z <= 1000000) {
+        control->floraSampleX = x;
+        control->floraSampleZ = z;
+        return DEBUG_CONTROL_COMMAND_FLORA_SAMPLE;
+    }
+    if (sscanf(line, "flora gallery %d %d %d %c", &x, &y, &z,
+               &trailing) == 3 && x >= -1000000 && x <= 1000000 &&
+        y >= -1000000 && y <= 1000000 && z >= -1000000 && z <= 1000000) {
+        control->floraGalleryX = x;
+        control->floraGalleryY = y;
+        control->floraGalleryZ = z;
+        return DEBUG_CONTROL_COMMAND_FLORA_GALLERY;
+    }
+    int queryOffset = -1;
+    if (sscanf(line, "flora inspect %n", &queryOffset) == 0 &&
+        queryOffset >= 0 && line[queryOffset] != '\0' &&
+        strlen(line + queryOffset) < sizeof(control->floraQuery)) {
+        snprintf(control->floraQuery, sizeof(control->floraQuery), "%s",
+                 line + queryOffset);
+        return DEBUG_CONTROL_COMMAND_FLORA_INSPECT;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
 static DebugControlCommand DebugControlParseWeather(DebugControl *control,
                                                     const char *line)
 {
@@ -577,6 +609,8 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     command = DebugControlParseFluid(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseBlock(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseFlora(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseWeather(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;

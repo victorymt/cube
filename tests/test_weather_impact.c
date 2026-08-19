@@ -103,6 +103,20 @@ BlockMaterialResponse BlockMaterialResponseFor(BlockType type)
     case BLOCK_TALL_GRASS:
     case BLOCK_FERN:
         return (BlockMaterialResponse){ 0.25f, 0.20f, 0.88f, 0.18f };
+    case BLOCK_OAK_LOG:
+    case BLOCK_BIRCH_LOG:
+    case BLOCK_ASPEN_LOG:
+    case BLOCK_SPRUCE_LOG:
+    case BLOCK_PINE_LOG:
+    case BLOCK_WILLOW_LOG:
+        return (BlockMaterialResponse){ 0.70f, 0.58f, 0.92f, 0.10f };
+    case BLOCK_OAK_LEAVES:
+    case BLOCK_BIRCH_LEAVES:
+    case BLOCK_ASPEN_LEAVES:
+    case BLOCK_SPRUCE_NEEDLES:
+    case BLOCK_PINE_NEEDLES:
+    case BLOCK_WILLOW_LEAVES:
+        return (BlockMaterialResponse){ 0.24f, 0.18f, 0.94f, 0.20f };
     case BLOCK_STONE:
         return (BlockMaterialResponse){ 0.96f, 0.95f, 0.0f, 0.03f };
     case BLOCK_CHARRED_WOOD:
@@ -443,6 +457,130 @@ typedef struct CurrentDiskHeader {
     uint32_t counters[10];
 } CurrentDiskHeader;
 
+typedef struct CurrentBurnRecord {
+    uint32_t surfaceId;
+    int32_t x;
+    int32_t y;
+    int32_t z;
+    float severity;
+    float recovery;
+    float ageSeconds;
+} CurrentBurnRecord;
+
+static FILE *BurnRecoveryState(float recovery)
+{
+    FILE *file = tmpfile();
+    assert(file);
+    CurrentDiskHeader header = {
+        .burnSiteCount = 1u,
+        .ticks = 1000u
+    };
+    CurrentBurnRecord burn = {
+        .surfaceId = 7u,
+        .x = 0,
+        .y = 10,
+        .z = 0,
+        .severity = 1.0f,
+        .recovery = recovery,
+        .ageSeconds = 32000.0f
+    };
+    assert(fwrite("WXIMPACT2", 1u, 9u, file) == 9u);
+    assert(fwrite(&header, sizeof(header), 1u, file) == 1u);
+    assert(fwrite(&burn, sizeof(burn), 1u, file) == 1u);
+    rewind(file);
+    return file;
+}
+
+static void LoadBurnRecoveryState(float recovery)
+{
+    FILE *file = BurnRecoveryState(recovery);
+    assert(WeatherImpactLoadState(file));
+    fclose(file);
+}
+
+static void TestNamedTreeFuelAndFireweedRecovery(void)
+{
+    static const BlockType logs[] = {
+        BLOCK_OAK_LOG, BLOCK_BIRCH_LOG, BLOCK_ASPEN_LOG,
+        BLOCK_SPRUCE_LOG, BLOCK_PINE_LOG, BLOCK_WILLOW_LOG
+    };
+    static const BlockType foliage[] = {
+        BLOCK_OAK_LEAVES, BLOCK_BIRCH_LEAVES, BLOCK_ASPEN_LEAVES,
+        BLOCK_SPRUCE_NEEDLES, BLOCK_PINE_NEEDLES, BLOCK_WILLOW_LEAVES
+    };
+    for (unsigned index = 0u; index < sizeof(logs) / sizeof(logs[0]); index++) {
+        assert(WeatherImpactResidueForFuel(logs[index], 0.70f, 0.02f) ==
+               BLOCK_CHARRED_WOOD);
+        assert(WeatherImpactResidueForFuel(logs[index], 1.0f, 0.02f) ==
+               BLOCK_CHARCOAL);
+        ResetGrid(BLOCK_STONE);
+        blocks[TEST_RADIUS][10][TEST_RADIUS] = foliage[index];
+        WeatherImpactInit(true);
+        assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+        WeatherImpactStepTicks(1000u,
+                               (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
+        assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
+    }
+
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][9][TEST_RADIUS] = BLOCK_LOAM;
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_FIRE_ASH;
+    WeatherImpactInit(true);
+    LoadBurnRecoveryState(0.20f);
+    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    assert(GetBlockAt(0, 10, 0) == BLOCK_FIREWEED);
+    assert(lastMutationSource == WORLD_MUTATION_ENVIRONMENT);
+
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][9][TEST_RADIUS] = BLOCK_LOAM;
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_FIRE_ASH;
+    WeatherImpactInit(true);
+    LoadBurnRecoveryState(0.20f);
+    surfaceLoaded = false;
+    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    surfaceLoaded = true;
+    assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
+
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_FIRE_ASH;
+    WeatherImpactInit(true);
+    LoadBurnRecoveryState(0.20f);
+    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
+
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][9][TEST_RADIUS] = BLOCK_LOAM;
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_PLANK;
+    WeatherImpactInit(true);
+    LoadBurnRecoveryState(0.20f);
+    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    assert(GetBlockAt(0, 10, 0) == BLOCK_PLANK);
+
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][9][TEST_RADIUS] = BLOCK_LOAM;
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_FIRE_ASH;
+    blocks[TEST_RADIUS][11][TEST_RADIUS] = BLOCK_PLANK;
+    WeatherImpactInit(true);
+    LoadBurnRecoveryState(0.20f);
+    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
+
+    ResetGrid(BLOCK_STONE);
+    blocks[TEST_RADIUS][9][TEST_RADIUS] = BLOCK_LOAM;
+    blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_FIRE_ASH;
+    WeatherImpactInit(true);
+    LoadBurnRecoveryState(0.20f);
+    FILE *file = tmpfile();
+    assert(file);
+    assert(WeatherImpactSaveState(file));
+    rewind(file);
+    WeatherImpactReset();
+    assert(WeatherImpactLoadState(file));
+    fclose(file);
+    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    assert(GetBlockAt(0, 10, 0) == BLOCK_FIREWEED);
+}
+
 static void TestLegacyMigrationAndTransactionalFailure(void)
 {
     ResetGrid(BLOCK_WOOD);
@@ -501,6 +639,7 @@ int main(void)
     TestFireAndRainInteraction();
     TestIgnitionQueriesAndLoadedBounds();
     TestFuelConsumptionAndBurnScar();
+    TestNamedTreeFuelAndFireweedRecovery();
     TestBoundedWorkAndNaturalSources();
     TestSnowOwnershipAndPlayerOverride();
     TestSaveLoadAndCorruption();

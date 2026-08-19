@@ -189,6 +189,30 @@ typedef struct ScreenshotBlockDebugInfo {
     unsigned galleryWidth;
 } ScreenshotBlockDebugInfo;
 
+typedef struct ScreenshotFloraDebugInfo {
+    unsigned catalogCount;
+    bool sampleActive;
+    int sampleX;
+    int sampleZ;
+    const char *sampleTree;
+    const char *sampleGround;
+    const char *sampleBurnStage;
+    const char *sampleBiome;
+    const char *sampleSubstrate;
+    float sampleTemperatureK;
+    float sampleMoisture;
+    float sampleUsableLight;
+    float sampleElevation;
+    float sampleSlope;
+    float sampleBurnSeverity;
+    float sampleBurnRecovery;
+    bool galleryActive;
+    ScreenshotVector3 galleryOrigin;
+    unsigned galleryPlaced;
+    unsigned galleryTrees;
+    unsigned galleryGround;
+} ScreenshotFloraDebugInfo;
+
 typedef struct ScreenshotInputDebugInfo {
     float forward;
     float strafe;
@@ -308,6 +332,7 @@ typedef struct ScreenshotDebugInfo {
     ScreenshotEnvironmentDebugInfo environment;
     ScreenshotFluidDebugInfo fluid;
     ScreenshotBlockDebugInfo block;
+    ScreenshotFloraDebugInfo flora;
     ScreenshotInputDebugInfo input;
     ScreenshotRenderDebugInfo render;
     ScreenshotUiDebugInfo ui;

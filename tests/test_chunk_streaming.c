@@ -802,22 +802,28 @@ static void TestSavedEditForcesSectionMaterialization(void)
     assert(neighborSection->blocks[0][4][3] == BLOCK_STONE);
 }
 
-static void TestStage05EditInstallationIsTransactional(void)
+static void TestExpandedBlockEditInstallationIsTransactional(void)
 {
     const BlockEdit edits[] = {
         { 701, 4, 3, BLOCK_CHARRED_WOOD },
         { 702, 5, 3, BLOCK_CHARCOAL },
-        { 703, 6, 3, BLOCK_FIRE_ASH }
+        { 703, 6, 3, BLOCK_FIRE_ASH },
+        { 704, 7, 3, BLOCK_OAK_LOG },
+        { 705, 8, 3, BLOCK_WILLOW_LEAVES },
+        { 706, 9, 3, BLOCK_FIREWEED },
+        { 707, 10, 3, BLOCK_SAGUARO }
     };
-    const uint32_t dimensions[] = { 1u, 1u, 1u };
+    const uint32_t dimensions[] = { 1u, 1u, 1u, 1u, 1u, 1u, 1u };
     const SurfaceAddress addresses[] = {
-        { .bodyId = 1u }, { .bodyId = 1u }, { .bodyId = 1u }
+        { .bodyId = 1u }, { .bodyId = 1u }, { .bodyId = 1u },
+        { .bodyId = 1u }, { .bodyId = 1u }, { .bodyId = 1u },
+        { .bodyId = 1u }
     };
-    assert(WorldPersistenceEditsValid(edits, 3));
+    assert(WorldPersistenceEditsValid(edits, 7));
     assert(WorldPersistenceInstallEdits(
-        edits, dimensions, addresses, 3));
-    assert(WorldGetEditCount() == 3);
-    for (int index = 0; index < 3; index++) {
+        edits, dimensions, addresses, 7));
+    assert(WorldGetEditCount() == 7);
+    for (int index = 0; index < 7; index++) {
         const BlockEdit *loaded = WorldGetEditAt(index);
         assert(loaded != NULL);
         assert(loaded->x == edits[index].x);
@@ -826,22 +832,22 @@ static void TestStage05EditInstallationIsTransactional(void)
         assert(loaded->type == edits[index].type);
     }
 
-    BlockEdit invalid = { 704, 4, 3, (BlockType)200 };
+    BlockEdit invalid = { 708, 4, 3, (BlockType)200 };
     uint32_t invalidDimension = 1u;
     SurfaceAddress invalidAddress = { .bodyId = 1u };
     assert(!WorldPersistenceEditsValid(&invalid, 1));
     assert(!WorldPersistenceInstallEdits(
         &invalid, &invalidDimension, &invalidAddress, 1));
-    assert(WorldGetEditCount() == 3);
-    assert(WorldGetEditAt(2)->type == BLOCK_FIRE_ASH);
+    assert(WorldGetEditCount() == 7);
+    assert(WorldGetEditAt(6)->type == BLOCK_SAGUARO);
 
     invalid = (BlockEdit){
-        704, SURFACE_MAX_Y_EXCLUSIVE, 3, BLOCK_ANDESITE
+        708, SURFACE_MAX_Y_EXCLUSIVE, 3, BLOCK_ANDESITE
     };
     assert(!WorldPersistenceEditsValid(&invalid, 1));
     assert(!WorldPersistenceInstallEdits(
         &invalid, &invalidDimension, &invalidAddress, 1));
-    assert(WorldGetEditCount() == 3);
+    assert(WorldGetEditCount() == 7);
     assert(WorldGetEditAt(0)->type == BLOCK_CHARRED_WOOD);
 }
 
@@ -1006,7 +1012,7 @@ int main(void)
     TestNearbySectionSchedulingUsesRenderDistance();
     TestNonEmptySectionsMaterialize();
     TestSavedEditForcesSectionMaterialization();
-    TestStage05EditInstallationIsTransactional();
+    TestExpandedBlockEditInstallationIsTransactional();
     TestNegativeSectionPruningKeepsVerticalWindow();
     TestNegativeSectionPruningPreservesRuntimeState();
     TestDistantSectionJobsReleaseQueueCapacity();

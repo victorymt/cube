@@ -170,7 +170,7 @@ wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'stream wait 600'
 wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
 wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
-send_command 'assert block.catalog_count == 393 && block.natural_count == 73 && block.stage05_count == 26 && !block.gallery_active && block.gallery_placed == 0 && block.gallery_rows == 3'
+send_command 'assert block.catalog_count == 412 && block.natural_count == 92 && block.stage05_count == 26 && !block.gallery_active && block.gallery_placed == 0 && block.gallery_rows == 3 && flora.catalog_count == 13 && !flora.gallery_active && flora.gallery_placed == 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'block inspect Andesite'
 wait_for_reply '^DEBUG_CONTROL block inspect ok id=111 name="Andesite" .*stage05=true$'
@@ -185,6 +185,22 @@ send_command 'block gallery 900000 96 900000'
 wait_for_reply '^DEBUG_CONTROL block gallery error reason=region_unloaded position='
 wait_for_reply '^DEBUG_SCRIPT error source=stdin .*code=callback message=debug command failed: gallery_region_unloaded$'
 send_command 'assert !block.gallery_active && block.gallery_placed == 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+
+# Inspect the real-world Homeworld taxa and sample a deterministic habitat
+# before mutating anything. The failed flora gallery must leave both its
+# typed state and the world untouched, just like the Stage 05 gallery.
+send_command 'flora inspect Quercus_robur'
+wait_for_reply '^DEBUG_CONTROL flora inspect ok id=0 common="Pedunculate Oak" scientific="Quercus robur" family=Fagaceae .*primary=Pedunculate Oak Log accent=Pedunculate Oak Leaves$'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'flora sample 12 -9'
+wait_for_reply '^DEBUG_CONTROL flora sample ok position=12,-9 biome='
+send_command 'assert flora.sample_ground != "none" && flora.sample_biome != "unavailable" && flora.sample_habitat.x > 0 && flora.sample_habitat.y >= 0 && flora.sample_habitat.z >= 0 && flora.sample_burn_stage != "unavailable"'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'flora gallery 999997 96 999997'
+wait_for_reply '^DEBUG_CONTROL flora gallery error reason=invalid_region$'
+wait_for_reply '^DEBUG_SCRIPT error source=stdin .*code=callback message=debug command failed: invalid_flora_gallery_region$'
+send_command 'assert !flora.gallery_active && flora.gallery_placed == 0 && flora.gallery_trees == 0 && flora.gallery_ground == 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 # Place all appended identities through the ordinary edit path, then prove
@@ -207,11 +223,27 @@ wait_for_reply '^DEBUG_CONTROL load result=Loaded voxelcraft_save\.txt \([0-9]+ 
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'assert game.screen == "playing" && world.seed == 1448040515 && world.dimension == "home" && block.gallery_active && block.gallery_origin == vec3(-4,96,-16) && block.gallery_placed == 26'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+
+send_command 'teleport -4 95 -10 0 -0.35'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=-4.000000,95.000000,-10.000000$'
 send_command 'stream wait 600'
 wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
 wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
-send_command 'teleport 2.5 111 -15 0 -1.45'
-wait_for_reply '^DEBUG_CONTROL teleport ok position=2.500000,111.000000,-15.000000$'
+send_command 'teleport 36 95 -10 0 -0.35'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=36.000000,95.000000,-10.000000$'
+send_command 'stream wait 600'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
+wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'flora gallery -4 96 -16'
+wait_for_reply '^DEBUG_CONTROL flora gallery ok origin=-4,96,-16 placed=573 trees=6 ground=7 taxa=13$'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert flora.gallery_active && flora.gallery_origin == vec3(-4,96,-16) && flora.gallery_placed == 573 && flora.gallery_trees == 6 && flora.gallery_ground == 7'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'stream wait 600'
+wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=600$'
+wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'teleport 20 113 -7 0 -0.95'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=20.000000,113.000000,-7.000000$'
 send_command 'screenshot'
 wait_for_reply '^DEBUG_CONTROL screenshot scheduled$'
 wait_for_reply '^DEBUG_CONTROL capture ok png=.* report=.*$' 30
@@ -223,15 +255,21 @@ gallery_report_path=${matched_line##*report=}
 gallery_report_path=$(runtime_artifact_path "$gallery_report_path")
 [[ -s "$gallery_png_path" ]]
 [[ -s "$gallery_report_path" ]]
-grep -Fxq 'format.version=11' "$gallery_report_path"
-grep -Fxq 'block.catalog_count=393' "$gallery_report_path"
-grep -Fxq 'block.natural_count=73' "$gallery_report_path"
+grep -Fxq 'format.version=12' "$gallery_report_path"
+grep -Fxq 'block.catalog_count=412' "$gallery_report_path"
+grep -Fxq 'block.natural_count=92' "$gallery_report_path"
 grep -Fxq 'block.stage05_count=26' "$gallery_report_path"
 grep -Fxq 'block.gallery_active=true' "$gallery_report_path"
 grep -Fxq 'block.gallery_origin=-4.000000,96.000000,-16.000000' "$gallery_report_path"
 grep -Fxq 'block.gallery_placed=26' "$gallery_report_path"
 grep -Fxq 'block.gallery_rows=3' "$gallery_report_path"
 grep -Fxq 'block.gallery_width=14' "$gallery_report_path"
+grep -Fxq 'flora.catalog_count=13' "$gallery_report_path"
+grep -Fxq 'flora.gallery_active=true' "$gallery_report_path"
+grep -Fxq 'flora.gallery_origin=-4.000000,96.000000,-16.000000' "$gallery_report_path"
+grep -Fxq 'flora.gallery_placed=573' "$gallery_report_path"
+grep -Fxq 'flora.gallery_trees=6' "$gallery_report_path"
+grep -Fxq 'flora.gallery_ground=7' "$gallery_report_path"
 grep -Fxq 'ui.help_visible=false' "$gallery_report_path"
 python3 tests/validate_png.py "$gallery_png_path" \
     "$debug_width" "$debug_height"
@@ -269,7 +307,7 @@ wildfire_report_path=${matched_line##*report=}
 wildfire_report_path=$(runtime_artifact_path "$wildfire_report_path")
 [[ -s "$wildfire_png_path" ]]
 [[ -s "$wildfire_report_path" ]]
-grep -Fxq 'format.version=11' "$wildfire_report_path"
+grep -Fxq 'format.version=12' "$wildfire_report_path"
 grep -Fxq 'weather.fire_present=true' "$wildfire_report_path"
 grep -Eq '^weather.fire_phase=(igniting|flaming|smoldering)$' "$wildfire_report_path"
 grep -Fxq 'weather.fire_position=9.000000,82.000000,-10.000000' "$wildfire_report_path"
@@ -433,7 +471,7 @@ report_path=$(runtime_artifact_path "$report_path")
 
 [[ -s "$png_path" ]]
 [[ -s "$report_path" ]]
-grep -Fxq 'format.version=11' "$report_path"
+grep -Fxq 'format.version=12' "$report_path"
 grep -Fxq 'world.seed=1448040515' "$report_path"
 grep -Fxq 'world.dimension=home' "$report_path"
 grep -Fxq 'weather.cloud_genus=Cumulonimbus' "$report_path"
@@ -489,7 +527,7 @@ atlas_report_path=${matched_line##*report=}
 atlas_report_path=$(runtime_artifact_path "$atlas_report_path")
 [[ -s "$atlas_png_path" ]]
 [[ -s "$atlas_report_path" ]]
-grep -Fxq 'format.version=11' "$atlas_report_path"
+grep -Fxq 'format.version=12' "$atlas_report_path"
 grep -Fxq 'evolution.atlas_open=true' "$atlas_report_path"
 grep -Fxq 'evolution.catalog_species_count=0' "$atlas_report_path"
 python3 tests/validate_png.py "$atlas_png_path" \
@@ -573,9 +611,9 @@ PY
 gallery_artifact=validated
 if [[ -n "${E2E_ARTIFACT_DIR:-}" ]]; then
     mkdir -p "$E2E_ARTIFACT_DIR"
-    cp "$gallery_png_path" "$E2E_ARTIFACT_DIR/stage05-block-gallery.png"
-    cp "$gallery_report_path" "$E2E_ARTIFACT_DIR/stage05-block-gallery.txt"
-    gallery_artifact="$E2E_ARTIFACT_DIR/stage05-block-gallery.png"
+    cp "$gallery_png_path" "$E2E_ARTIFACT_DIR/stage06-flora-gallery.png"
+    cp "$gallery_report_path" "$E2E_ARTIFACT_DIR/stage06-flora-gallery.txt"
+    gallery_artifact="$E2E_ARTIFACT_DIR/stage06-flora-gallery.png"
 fi
 rm -f "$trace_path" "$startup_script"
 rm -rf "$runtime_dir"

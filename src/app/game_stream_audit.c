@@ -35,6 +35,7 @@ static GameStreamAuditExpected CountExpectedLayers(
         { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
     };
     GameStreamAuditExpected expected = { 0 };
+    const Chunk *chunk = FindChunk(cx, cz);
     int startX = cx * CHUNK_SIZE;
     int startY = sectionY * SURFACE_SECTION_HEIGHT;
     int startZ = cz * CHUNK_SIZE;
@@ -47,7 +48,8 @@ static GameStreamAuditExpected CountExpectedLayers(
                 BlockType block = GetBlockAt(x, y, z);
                 if (block == BLOCK_AIR ||
                     block == BLOCK_SPACESHIP_OCCUPIED) continue;
-                if (IsPlantBlock(block)) {
+                if (IsPlantBlock(block) || ChunkFloraStructureOwnsBlock(
+                        chunk, x, y, z, block)) {
                     expected.flora++;
                     continue;
                 }

@@ -11,6 +11,7 @@
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
 #include "world/world_types.h"
+#include "ecology/flora_taxa.h"
 #include "app/app_types.h"
 #include "gameplay/player_types.h"
 #include "presentation/ui_types.h"
@@ -68,6 +69,7 @@ typedef struct GameRuntime {
   GameStreamAuditState streamAudit;
   GameDebugTraceState debugTrace;
   Vector3 blockGalleryOrigin;
+  Vector3 floraGalleryOrigin;
 
   GameScreen screen;
   TerrainMode selectedTerrain;
@@ -75,6 +77,13 @@ typedef struct GameRuntime {
   unsigned scriptedInputFrames;
   unsigned scriptedShipInputFrames;
   unsigned blockGalleryPlaced;
+  unsigned floraGalleryPlaced;
+  unsigned floraGalleryTreeCount;
+  unsigned floraGalleryGroundCount;
+  FloraTaxonId floraSampleTree;
+  FloraTaxonId floraSampleGround;
+  FloraDisturbanceStage floraSampleBurnStage;
+  FloraHabitat floraSampleHabitat;
   float scriptedShipInputFrameCarry;
 
   int selectedIndex;
@@ -82,6 +91,8 @@ typedef struct GameRuntime {
   uint32_t evolutionLockedOrganismId;
   int screenWidth;
   int screenHeight;
+  int floraSampleX;
+  int floraSampleZ;
 
   bool perfMode;
   bool debugControlEnabled;
@@ -97,6 +108,8 @@ typedef struct GameRuntime {
   bool debugTracePathInvalid;
   bool debugResolutionInvalid;
   bool blockGalleryActive;
+  bool floraGalleryActive;
+  bool floraSampleActive;
   bool showHelp;
   bool showDebug;
   bool scannerActive;

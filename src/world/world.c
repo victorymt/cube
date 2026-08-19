@@ -182,12 +182,17 @@ bool IsPlantBlock(BlockType type)
 bool IsEcologyBlock(BlockType type)
 {
     return (type >= BLOCK_TALL_GRASS && type <= BLOCK_CHEMO_MAT) ||
-           IsBiogenicBlock(type);
+           IsBiogenicBlock(type) || IsStage06Block(type);
 }
 
 bool IsStage05Block(BlockType type)
 {
     return type >= BLOCK_STAGE05_START && type <= BLOCK_STAGE05_END;
+}
+
+bool IsStage06Block(BlockType type)
+{
+    return type >= BLOCK_STAGE06_START && type <= BLOCK_STAGE06_END;
 }
 
 bool IsStage05GeologyBlock(BlockType type)

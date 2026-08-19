@@ -1,4 +1,5 @@
 #include "world/chunks_internal.h"
+#include "ecology/flora_taxa.h"
 
 MeshJob meshJobs[MAX_MESH_JOBS];
 static uint64_t nextMeshQueueSequence = 0u;
@@ -394,6 +395,7 @@ static void InitializeFloraTargets(
             section->floraVisualInstances[index] = (FloraVisualInstance){
                 .firstVertex = firstVertex,
                 .vertexCount = vertexCount,
+                .taxonId = FLORA_TAXON_COUNT,
                 .anchor = {
                     floorf(firstX) + 0.5f,
                     groundY,
