@@ -6,6 +6,7 @@
 #include "space/space.h"
 #include "space/space_system_physics.h"
 #include "world/terrain.h"
+#include "world/surface_topology.h"
 #include "world/weather.h"
 #include "world/weather_model.h"
 
@@ -300,6 +301,41 @@ static void TestEcologyUsesPositionLocalWeather(void)
     PlanetLocalEcology replay = PlanetEcologyLocalAt(localX, localZ, 0.84f);
     assert(memcmp(&localWeather, &replayWeather, sizeof(localWeather)) == 0);
     AssertLocalEcologyEqual(replay, local);
+}
+
+static void AssertEcologyCanonicalAlias(
+    int x, int z, int aliasX, int aliasZ)
+{
+    WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
+        x, z, SpaceElapsedSimulationTime());
+    WeatherFieldSample aliasWeather = WeatherFieldSampleAtWorldTime(
+        aliasX, aliasZ, SpaceElapsedSimulationTime());
+    assert(memcmp(&weather, &aliasWeather, sizeof(weather)) == 0);
+
+    PlanetLocalEcology local = PlanetEcologyLocalAt(x, z, 0.67f);
+    PlanetLocalEcology alias = PlanetEcologyLocalAt(aliasX, aliasZ, 0.67f);
+    AssertLocalEcologyEqual(alias, local);
+
+    PlanetEvolutionRegion evolution = { 0 };
+    PlanetEvolutionRegion aliasEvolution = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(x, z, 0.67f, &evolution));
+    assert(PlanetEcologyEvolutionRegionAt(
+        aliasX, aliasZ, 0.67f, &aliasEvolution));
+    assert(memcmp(&evolution, &aliasEvolution, sizeof(evolution)) == 0);
+}
+
+static void TestEcologyCanonicalAliases(void)
+{
+    const uint32_t seed = 0x7f4a7c15u;
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 317, -911);
+    PlanetEcologyResetState();
+    const int half = SURFACE_EQUATOR_BLOCKS / 2;
+    const int pole = SURFACE_POLE_TO_POLE_BLOCKS / 2;
+    AssertEcologyCanonicalAlias(
+        917, pole + 73, 917 + SURFACE_EQUATOR_BLOCKS, pole + 73);
+    AssertEcologyCanonicalAlias(917, pole + 73, 917 + half, pole - 74);
+    AssertEcologyCanonicalAlias(-731, -pole - 91, -731 + half, -pole + 90);
 }
 
 static void TestEcologyCacheInvalidation(void)
@@ -1887,6 +1923,7 @@ int main(void)
     TestPlanetChunkDecoratorPipeline();
     TestEcologyPopulationConcurrentQueries();
     TestEcologyUsesPositionLocalWeather();
+    TestEcologyCanonicalAliases();
     TestEcologyCacheInvalidation();
     TestEcologyCrossSeedReplay();
     TestEcologySaveLoadReplay();

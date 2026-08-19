@@ -22,6 +22,7 @@
 uint32_t EcologyMix(uint32_t value);
 int EcologyFloorDivide(int value, int divisor);
 uint32_t EcologyHash(int x, int z, uint32_t salt);
+void EcologyCanonicalizeCell(int *x, int *z);
 float EcologyClamp(float value);
 bool EcologyWorldIsActive(void);
 uint32_t EcologyWorldSurfaceId(void);

@@ -4,6 +4,7 @@
 #include "space/space_state.h"
 #include "world/local_climate.h"
 #include "world/terrain.h"
+#include "world/surface_topology.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 
@@ -171,6 +172,17 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
     }
     int x = (int)cellX;
     int z = (int)cellZ;
+    /* Every weather consumer samples the same canonical spherical cell. */
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+        (float)WorldSurfaceMapOriginX() + (float)x,
+        (float)WorldSurfaceMapOriginZ() + (float)z);
+    float weatherWorldX = (float)canonical.x + 0.5f;
+    float weatherWorldZ = (float)canonical.z + 0.5f;
+    x = canonical.x - WorldSurfaceMapOriginX();
+    z = canonical.z - WorldSurfaceMapOriginZ();
+    Vector3 canonicalPosition = playerPosition;
+    canonicalPosition.x = (float)x + 0.5f;
+    canonicalPosition.z = (float)z + 0.5f;
     input.simulationTime = simulationTime;
     LocalClimateInput climateInput = { 0 };
     LocalClimateState climate = { 0 };
@@ -186,12 +198,12 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
         PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
         (void)longitude;
         input.seed = PlanetWorldSeed();
-        input.worldX = playerPosition.x;
-        input.worldZ = playerPosition.z;
+        input.worldX = weatherWorldX;
+        input.worldZ = weatherWorldZ;
         float daylight = 0.5f;
         float eclipse = 0.0f;
         if (PlanetWorldLightStateAtTime(
-                playerPosition, simulationTime, &light)) {
+                canonicalPosition, simulationTime, &light)) {
             daylight = light.daylight;
             eclipse = light.eclipse;
         }
@@ -301,8 +313,8 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
         };
         if (!LocalClimateEvaluate(&climateInput, &climate)) return false;
         input.seed = WorldGetSeed();
-        input.worldX = playerPosition.x;
-        input.worldZ = playerPosition.z;
+        input.worldX = weatherWorldX;
+        input.worldZ = weatherWorldZ;
         input.temperatureK = climate.temperatureK;
         input.moisture = moisture;
         input.cloudPotential = climate.cloudPotential;

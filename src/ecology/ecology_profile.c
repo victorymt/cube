@@ -707,6 +707,7 @@ float PlanetEcologyFaunaDensity(void)
 PlanetEcologySuitability EcologyStaticSuitabilityForProfile(
     int x, int z, const PlanetEcologyProfile *profile)
 {
+    EcologyCanonicalizeCell(&x, &z);
     PlanetLocalEnvironment environment = EcologyEnvironmentAt(
         x, z, 0.0, 1.0f, 0.0f, 0.0f, false, profile);
     PlanetEcologyTraits traits = EcologyTraitsForProfile(profile);
@@ -717,6 +718,7 @@ PlanetEcologySuitability EcologyStaticSuitabilityForProfile(
 
 PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z)
 {
+    EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyStaticSuitabilityForProfile(x, z, &profile);
 }

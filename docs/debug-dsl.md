@@ -186,6 +186,9 @@ Runtime values are sampled when an expression is evaluated:
 | `world.last_rebase_to` | vec3 | Canonical post-rebase map X/Z, represented as `[x,0,z]` |
 | `world.last_rebase_north_sign` | number | North tangent sign used by the latest rebase, or `0` before one |
 | `world.rebase_count` | number | Monotonic surface rebase sequence since the current world reset |
+| `weather.canonical_cell` | vec3 | Canonical spherical weather sample cell (Y is the player Y) |
+| `ecology.canonical_cell` | vec3 | Canonical spherical ecology cell (Y is the player Y) |
+| `ecology.region_x`, `ecology.region_z` | number | Canonical 64-block ecology population region coordinates |
 | `player.position` | vec3 | Player world position |
 | `player.velocity` | vec3 | Player velocity |
 | `player.input_frames` | number | Remaining scripted player-input frames |

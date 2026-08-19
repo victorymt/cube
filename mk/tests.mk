@@ -121,7 +121,7 @@ $(eval $(call define_test,BLOCK_MATERIAL_TEST_TARGET,test_block_material,,,,,,$(
 $(eval $(call define_test,LOCAL_CLIMATE_TEST_TARGET,test_local_climate,src/world/local_climate.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_MODEL_TEST_TARGET,test_weather_model,src/world/weather_model.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c src/ecology/flora_taxa.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/presentation/weather_visual.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/world/surface_topology.c src/presentation/weather_visual.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_VISUAL_TEST_TARGET,test_weather_visual,src/presentation/weather_visual.c,,,, -lm,,))
 $(eval $(call define_test,WILDFIRE_MODEL_TEST_TARGET,test_wildfire_model,src/world/wildfire_model.c,,,, -lm,,))
 $(eval $(call define_test,TORNADO_MODEL_TEST_TARGET,test_tornado_model,src/world/tornado_model.c,,,, -lm,$(RAYLIB_CFLAGS),))

@@ -6,6 +6,7 @@
 #include "world/surface_topology.h"
 #include "world/world.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -13,6 +14,7 @@ typedef struct GameDebugTopologyInfo {
     uint32_t bodyId;
     Vector2 canonical;
     SurfaceMapProjection projection;
+    SurfaceMapCell canonicalCell;
     bool longitudeAlias;
     bool northPoleAlias;
     bool southPoleAlias;
@@ -36,6 +38,7 @@ static GameDebugTopologyInfo TopologyAt(const GameRuntime *game)
     float mapZ = (float)WorldSurfaceMapOriginZ() + game->player.position.z;
     SurfaceMapProjection projection = SurfaceProjectMapCoordinates(mapX, mapZ);
     Vector2 canonical = SurfaceCanonicalMapPosition(mapX, mapZ, NULL);
+    SurfaceMapCell canonicalCell = SurfaceCanonicalMapCell(mapX, mapZ);
     const float halfEquator = (float)SURFACE_EQUATOR_BLOCKS * 0.5f;
     const float poleToPole = (float)SURFACE_POLE_TO_POLE_BLOCKS;
     uint32_t bodyId = WorldCurrentSurfaceId();
@@ -45,6 +48,7 @@ static GameDebugTopologyInfo TopologyAt(const GameRuntime *game)
         .bodyId = bodyId,
         .canonical = canonical,
         .projection = projection,
+        .canonicalCell = canonicalCell,
         .longitudeAlias = SurfaceAliasMatches(
             bodyId, canonical,
             canonical.x + (float)SURFACE_EQUATOR_BLOCKS, canonical.y),
@@ -127,10 +131,28 @@ void GameDebugTopologyReply(GameRuntime *game)
 bool GameDebugTopologyDslResolve(const GameRuntime *game, const char *name,
                                  DebugDslValue *outValue)
 {
-    if (!game || !name || !outValue || strncmp(name, "world.", 6u) != 0) {
+    if (!game || !name || !outValue ||
+        (strncmp(name, "world.", 6u) != 0 &&
+         strncmp(name, "weather.", 8u) != 0 &&
+         strncmp(name, "ecology.", 8u) != 0)) {
         return false;
     }
     GameDebugTopologyInfo topology = TopologyAt(game);
+    if (strcmp(name, "weather.canonical_cell") == 0 ||
+        strcmp(name, "ecology.canonical_cell") == 0) {
+        return DslVec3(outValue, (Vector3){
+            (float)topology.canonicalCell.x, game->player.position.y,
+            (float)topology.canonicalCell.z
+        });
+    }
+    if (strcmp(name, "ecology.region_x") == 0) {
+        return DslNumber(outValue, floorf(
+            (float)topology.canonicalCell.x / 64.0f));
+    }
+    if (strcmp(name, "ecology.region_z") == 0) {
+        return DslNumber(outValue, floorf(
+            (float)topology.canonicalCell.z / 64.0f));
+    }
     if (strcmp(name, "world.surface_body") == 0) {
         return DslNumber(outValue, topology.bodyId);
     }

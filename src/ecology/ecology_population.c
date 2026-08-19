@@ -740,6 +740,7 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
 {
     PlanetRegionalPopulation empty = { 0 };
     if (outMigration) *outMigration = (PlanetPopulationMigrationState){ 0 };
+    EcologyCanonicalizeCell(&x, &z);
     pthread_mutex_lock(&ecologyPopulationMutex);
     int originX = EcologyWorldOriginX();
     int originZ = EcologyWorldOriginZ();
@@ -793,6 +794,7 @@ static EcologyPopulationRecord *EcologyEvolutionRecordAt(
     int x, int z, double simulationTime, float daylight,
     const PlanetEcologyProfile *profile, bool *created)
 {
+    EcologyCanonicalizeCell(&x, &z);
     int originX = EcologyWorldOriginX();
     int originZ = EcologyWorldOriginZ();
     int regionX = EcologyFloorDivide(
@@ -848,6 +850,7 @@ bool EcologyEvolutionSampleGenome(
     uint32_t *outSpeciesId)
 {
     if (!profile || !outGenome || sampleSeed == 0u) return false;
+    EcologyCanonicalizeCell(&x, &z);
     pthread_mutex_lock(&ecologyPopulationMutex);
     EcologyPopulationRecord *record = EcologyEvolutionRecordAt(
         x, z, simulationTime, daylight, profile, NULL);
@@ -909,6 +912,7 @@ bool EcologyEvolutionRecordEvent(
         event > PLANET_EVOLUTION_EVENT_PREDATION_DEATH) {
         return false;
     }
+    EcologyCanonicalizeCell(&x, &z);
     pthread_mutex_lock(&ecologyPopulationMutex);
     EcologyPopulationRecord *record = EcologyEvolutionRecordAt(
         x, z, simulationTime, daylight, profile, NULL);
@@ -955,6 +959,7 @@ bool EcologyPopulationRecordFaunaHarvest(
         simulationTime < 0.0 || !isfinite(daylight)) {
         return false;
     }
+    EcologyCanonicalizeCell(&x, &z);
 
     pthread_mutex_lock(&ecologyPopulationMutex);
     int originX = EcologyWorldOriginX();

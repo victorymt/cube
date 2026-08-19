@@ -1,6 +1,7 @@
 #include "core/game_effects.h"
 #include "space/space.h"
 #include "world/terrain.h"
+#include "world/surface_topology.h"
 #include "world/weather.h"
 #include "world/world.h"
 #include "world/world_environment.h"
@@ -11,6 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 static double simulationTime = 120.0;
 static bool planetWorldActive = false;
@@ -205,6 +207,16 @@ int WorldSurfaceHeightAt(int x, int z)
     return 10;
 }
 
+int WorldSurfaceMapOriginX(void)
+{
+    return 0;
+}
+
+int WorldSurfaceMapOriginZ(void)
+{
+    return 0;
+}
+
 uint32_t WorldGetSeed(void)
 {
     return 0x68b32f19u;
@@ -383,6 +395,26 @@ static void TestExtremeWorldCellsReturnSafeDefaults(void)
            0.0f);
     assert(biomeSamples == 0);
     assert(planetSurfaceSamples == 0);
+}
+
+static void TestWeatherCanonicalAliases(void)
+{
+    ResetRuntime();
+    const int half = SURFACE_EQUATOR_BLOCKS / 2;
+    const int pole = SURFACE_POLE_TO_POLE_BLOCKS / 2;
+    WeatherFieldSample base = WeatherFieldSampleAtWorldTime(
+        917, pole + 73, simulationTime);
+    WeatherFieldSample northAlias = WeatherFieldSampleAtWorldTime(
+        917 + half, pole - 74, simulationTime);
+    WeatherFieldSample southBase = WeatherFieldSampleAtWorldTime(
+        -731, -pole - 91, simulationTime);
+    WeatherFieldSample southAlias = WeatherFieldSampleAtWorldTime(
+        -731 + half, -pole + 90, simulationTime);
+    WeatherFieldSample wrapped = WeatherFieldSampleAtWorldTime(
+        917 + SURFACE_EQUATOR_BLOCKS, pole + 73, simulationTime);
+    assert(memcmp(&base, &northAlias, sizeof(base)) == 0);
+    assert(memcmp(&southBase, &southAlias, sizeof(southBase)) == 0);
+    assert(memcmp(&base, &wrapped, sizeof(base)) == 0);
 }
 
 static void TestVisualStateUsesWeatherFieldWithoutMutation(void)
@@ -589,6 +621,7 @@ int main(void)
     TestInvalidPositionsAvoidSamplingAndEmission();
     TestInvalidSimulationTimeReturnsClearWeather();
     TestExtremeWorldCellsReturnSafeDefaults();
+    TestWeatherCanonicalAliases();
     TestVisualStateUsesWeatherFieldWithoutMutation();
     TestVisualStateSafeFallbacks();
     TestNormalRainAndSnowStillEmit();

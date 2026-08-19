@@ -1,6 +1,7 @@
 #include "ecology/ecology_internal.h"
 
 #include "space/space_state.h"
+#include "world/surface_topology.h"
 #include "world/world.h"
 
 #include <math.h>
@@ -68,6 +69,16 @@ int EcologyWorldOriginZ(void)
     return 0;
 }
 
+void EcologyCanonicalizeCell(int *x, int *z)
+{
+    if (!x || !z) return;
+    SurfaceMapCell cell = SurfaceCanonicalMapCell(
+        (float)EcologyWorldOriginX() + (float)*x,
+        (float)EcologyWorldOriginZ() + (float)*z);
+    *x = cell.x - EcologyWorldOriginX();
+    *z = cell.z - EcologyWorldOriginZ();
+}
+
 static uint32_t EcologyFloatBits(float value)
 {
     uint32_t bits;
@@ -112,6 +123,11 @@ int EcologyFloorDivide(int value, int divisor)
 
 uint32_t EcologyHash(int x, int z, uint32_t salt)
 {
+    SurfaceMapCell cell = SurfaceCanonicalMapCell(
+        (float)EcologyWorldOriginX() + (float)x,
+        (float)EcologyWorldOriginZ() + (float)z);
+    x = cell.x;
+    z = cell.z;
     uint32_t hash = EcologyWorldSeed() ^ salt;
     hash ^= (uint32_t)x * 0x9e3779b9u;
     hash ^= (uint32_t)z * 0x85ebca6bu;
@@ -153,6 +169,7 @@ bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
                                      float ecologyCapacity)
 {
     if (!EcologyWorldIsActive()) return false;
+    EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyPopulationRecordFaunaHarvest(
         x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
@@ -164,6 +181,7 @@ bool PlanetEcologyEvolutionRegionAt(int x, int z, float daylight,
                                     PlanetEvolutionRegion *out)
 {
     if (!EcologyWorldIsActive() || !out) return false;
+    EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRegionAt(
         x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
@@ -176,6 +194,7 @@ bool PlanetEcologySampleGenome(int x, int z, float daylight,
                                uint32_t *outSpeciesId)
 {
     if (!EcologyWorldIsActive()) return false;
+    EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionSampleGenome(
         x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
@@ -188,6 +207,7 @@ bool PlanetEcologyRecordEvolutionEvent(
     PlanetEvolutionEvent event, float biomass)
 {
     if (!EcologyWorldIsActive()) return false;
+    EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRecordEvent(
         x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
@@ -205,6 +225,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
 {
     PlanetLocalEcology local = { 0 };
     if (!EcologyWorldIsActive()) return local;
+    EcologyCanonicalizeCell(&x, &z);
 
     // Invalid daylight is the same as a dark cell; normalize before hashing so
     // it cannot create a distinct cache entry or poison a later replay.
