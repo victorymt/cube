@@ -6,9 +6,12 @@ int renderDistanceChunks = DEFAULT_RENDER_DISTANCE_CHUNKS;
 ChunkGenJob chunkGenJobs[MAX_CHUNK_GEN_JOBS];
 pthread_mutex_t genMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t genCond = PTHREAD_COND_INITIALIZER;
-pthread_t genThread = 0;
+pthread_cond_t genCompletionCond = PTHREAD_COND_INITIALIZER;
+pthread_t genThreads[MAX_CHUNK_WORKER_THREADS];
 bool genShutdown = false;
-bool genWorkerActive = false;
+unsigned int genWorkerThreadsConfigured = 0u;
+unsigned int genWorkerThreadsStarted = 0u;
+unsigned int genWorkerThreadsActive = 0u;
 ChunkStreamingStats streamingStats;
 
 const Chunk *ChunksView(void)

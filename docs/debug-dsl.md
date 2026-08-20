@@ -32,6 +32,7 @@ build/normal/voxelcraft --debug-stdin
 build/normal/voxelcraft --debug-script PATH
 build/normal/voxelcraft --debug-script=PATH
 build/normal/voxelcraft --debug-resolution 1920x1080 --debug-script PATH
+build/normal/voxelcraft --chunk-workers auto --debug-script PATH
 ```
 
 `--debug-script` accepts exactly one readable file. A missing path, an empty
@@ -46,6 +47,11 @@ must be 320-7,680 pixels and height 240-4,320 pixels. A missing, malformed,
 out-of-range, or repeated resolution option is a startup error with exit code
 2. The option only controls window creation and does not enable the DSL by
 itself.
+
+`--chunk-workers auto|1-8` controls the surface terrain and mesh worker pool.
+`auto` is the default and uses half of the online logical CPUs, clamped to
+1-8 workers so rendering, audio, and the compositor retain CPU time. An
+explicit count is useful for low-power systems and repeatable comparisons.
 
 Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
@@ -226,6 +232,9 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.surface_ready` | bool | No missing surface chunks around the player |
 | `stream.missing_surface_chunks` | number | Missing surface chunk count, or `-1` outside play |
 | `stream.audit_complete` | bool | No stream audit or stream wait is active |
+| `stream.workers_configured` | number | Target surface chunk worker count |
+| `stream.workers_started` | number | Successfully started surface chunk workers |
+| `stream.workers_active` | number | Surface chunk workers currently processing jobs |
 | `fluid.volume` | number | Fluid volume at the player |
 | `fluid.surface_y` | number | Fluid surface at the player |
 | `fluid.queue_overflows` | number | Fluid solver queue overflow count |

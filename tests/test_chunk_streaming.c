@@ -21,8 +21,152 @@ static int sectionLoadedNotifications = 0;
 static int sectionUnloadPreparations = 0;
 static int lastSectionLoaded = 0;
 static int lastSectionPrepared = 0;
+static pthread_mutex_t generationProbeMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t generationProbeCond = PTHREAD_COND_INITIALIZER;
+static bool generationProbeEnabled = false;
+static bool generationProbeRelease = false;
+static int generationProbeActive = 0;
+static int generationProbeMaxActive = 0;
+static bool allowColumnGeneration = false;
 
 static int FindPendingMeshJobFor(int slotIndex, int sectionY);
+
+static bool WaitForGenerationProbe(int target)
+{
+    struct timespec deadline;
+    assert(clock_gettime(CLOCK_REALTIME, &deadline) == 0);
+    deadline.tv_sec += 3;
+    pthread_mutex_lock(&generationProbeMutex);
+    while (generationProbeActive < target) {
+        if (pthread_cond_timedwait(&generationProbeCond,
+                                   &generationProbeMutex,
+                                   &deadline) != 0) break;
+    }
+    bool reached = generationProbeActive >= target;
+    pthread_mutex_unlock(&generationProbeMutex);
+    return reached;
+}
+
+static void ReleaseGenerationProbe(void)
+{
+    pthread_mutex_lock(&generationProbeMutex);
+    generationProbeRelease = true;
+    pthread_cond_broadcast(&generationProbeCond);
+    pthread_mutex_unlock(&generationProbeMutex);
+}
+
+static void ResetGenerationProbe(void)
+{
+    pthread_mutex_lock(&generationProbeMutex);
+    generationProbeEnabled = true;
+    generationProbeRelease = false;
+    generationProbeActive = 0;
+    generationProbeMaxActive = 0;
+    pthread_mutex_unlock(&generationProbeMutex);
+}
+
+static void TestAdaptiveWorkerCountPolicy(void)
+{
+    assert(ChunksTestWorkerCountForCpu(1, 0) == 1);
+    assert(ChunksTestWorkerCountForCpu(2, 0) == 1);
+    assert(ChunksTestWorkerCountForCpu(4, 0) == 2);
+    assert(ChunksTestWorkerCountForCpu(24, 0) ==
+           MAX_CHUNK_WORKER_THREADS);
+    assert(ChunksTestWorkerCountForCpu(128, 0) ==
+           MAX_CHUNK_WORKER_THREADS);
+    assert(ChunksTestWorkerCountForCpu(24, 3) == 3);
+}
+
+static void TestFailedColumnGenerationReleasesSlot(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestFailNextColumnAllocation();
+    assert(ChunksTestEnsureChunk(79, 0));
+
+    int slotIndex = -1;
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        if (chunks[index].generating && chunks[index].cx == 79 &&
+            chunks[index].cz == 0) {
+            slotIndex = index;
+            break;
+        }
+    }
+    assert(slotIndex >= 0);
+    assert(ChunksTestNextGenerationJobIndex() == 0);
+    ChunksTestRunGenerationJob(0);
+    ProcessFinishedChunkJobs();
+    assert(!chunks[slotIndex].generating);
+    assert(!chunks[slotIndex].loaded);
+    assert(ChunksGetStreamingStats().generationCanceled == 1);
+
+    assert(ChunksTestEnsureChunk(79, 0));
+    assert(chunks[slotIndex].generating);
+    ChunksTestResetScheduler();
+}
+
+static void TestShutdownWithoutWorkersCancelsQueuedJobs(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestSeedGenerationJob(0, 12, 34, 0, false);
+    ChunksTestReleaseScheduler();
+    ChunksShutdownGenThread();
+    assert(!ChunksTestFindPendingGenerationJob(12, 34));
+    assert(ChunksStartedWorkerCount() == 0);
+    ChunksTestResetScheduler();
+}
+
+static void TestWorkerPoolRunsJobsConcurrently(void)
+{
+    ChunksTestReleaseScheduler();
+    assert(ChunksConfigureWorkerCount(4));
+    assert(ChunksStartGenThread());
+    assert(ChunksConfiguredWorkerCount() == 4);
+    assert(ChunksStartedWorkerCount() == 4);
+
+    for (int index = 0; index < 4; index++) {
+        ChunksTestConfigureChunk(index, 40 + index, 0, true, false);
+        chunks[index].generation = (uint32_t)(100 + index);
+    }
+    ResetGenerationProbe();
+    for (int index = 0; index < 4; index++) {
+        assert(RequestChunkTerrainSection(40 + index, 0, 0));
+    }
+    assert(WaitForGenerationProbe(4));
+    assert(ChunksActiveWorkerCount() == 4);
+    assert(generationProbeMaxActive == 4);
+    ReleaseGenerationProbe();
+    DrainChunkGen();
+    for (int index = 0; index < 4; index++) {
+        assert(ChunkGetSectionConst(&chunks[index], 0) != NULL);
+    }
+
+    ResetGenerationProbe();
+    allowColumnGeneration = true;
+    assert(ChunksTestEnsureChunk(80, 0));
+    assert(WaitForGenerationProbe(1));
+    Chunk *destination = NULL;
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        if (chunks[index].generating && chunks[index].cx == 80 &&
+            chunks[index].cz == 0) {
+            destination = &chunks[index];
+            break;
+        }
+    }
+    assert(destination != NULL);
+    assert(destination->sectionCount == 0);
+    ReleaseGenerationProbe();
+    DrainChunkGen();
+    destination = FindChunk(80, 0);
+    assert(destination != NULL && destination->loaded);
+    assert(ChunkGetSectionConst(destination, 0) != NULL);
+
+    generationProbeEnabled = false;
+    allowColumnGeneration = false;
+    ChunksShutdownGenThread();
+    assert(ChunksStartedWorkerCount() == 0);
+    assert(ChunksActiveWorkerCount() == 0);
+    ChunksTestResetScheduler();
+}
 
 static void TestOnChunkSectionLoaded(Chunk *chunk, int sectionY)
 {
@@ -101,6 +245,19 @@ bool GenerateChunkTerrainSectionBase(
     Chunk *chunk, int cx, int cz, int sectionY, TerrainMode mode)
 {
     if (!chunk || ChunkGetSectionConst(chunk, sectionY)) return false;
+    if (generationProbeEnabled) {
+        pthread_mutex_lock(&generationProbeMutex);
+        generationProbeActive++;
+        if (generationProbeActive > generationProbeMaxActive) {
+            generationProbeMaxActive = generationProbeActive;
+        }
+        pthread_cond_broadcast(&generationProbeCond);
+        while (!generationProbeRelease) {
+            pthread_cond_wait(&generationProbeCond, &generationProbeMutex);
+        }
+        generationProbeActive--;
+        pthread_mutex_unlock(&generationProbeMutex);
+    }
     int firstY = sectionY * SURFACE_SECTION_HEIGHT;
     int lastY = firstY + SURFACE_SECTION_HEIGHT;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -120,10 +277,10 @@ bool GenerateChunkTerrainSectionBase(
 
 void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
-    (void)chunk;
-    (void)cx;
-    (void)cz;
-    (void)mode;
+    if (allowColumnGeneration) {
+        assert(GenerateChunkTerrainSectionBase(chunk, cx, cz, 0, mode));
+        return;
+    }
     assert(!"generation queue overflow fell back to synchronous terrain");
 }
 
@@ -281,9 +438,11 @@ static void TestSingleChunkUsesSingleJobAndNearestFirst(void)
     ChunksTestConfigureChunk(1, 0, 0, true, true);
     ChunksTestConfigureChunk(2, 2, 0, true, true);
 
-    RebuildDirtyChunkMeshes((Vector3){ 0.0f, 0.0f, 0.0f });
-
-    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    ChunkStreamingStats stats = { 0 };
+    for (int frame = 0; frame < 4 && stats.meshSubmitted < 3; frame++) {
+        RebuildDirtyChunkMeshes((Vector3){ 0.0f, 0.0f, 0.0f });
+        stats = ChunksGetStreamingStats();
+    }
     const size_t boundaryBytes =
         (size_t)(CHUNK_SIZE + 2) * (SURFACE_SECTION_HEIGHT + 2) *
         (CHUNK_SIZE + 2) *
@@ -1178,6 +1337,9 @@ static void TestCanonicalChunkIdentityStatsDetectAliases(void)
 int main(void)
 {
     memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
+    TestAdaptiveWorkerCountPolicy();
+    TestFailedColumnGenerationReleasesSlot();
+    TestShutdownWithoutWorkersCancelsQueuedJobs();
     AssertFreshStats();
     TestFrustumSphereEdgesRemainVisible();
     TestFrustumNearPlaneAndRenderAspect();
@@ -1213,6 +1375,7 @@ int main(void)
     TestSurfaceChunkAliasesUseOneCanonicalIdentity();
     TestPolarChunkNeighborsBecomeDirty();
     TestCanonicalChunkIdentityStatsDetectAliases();
+    TestWorkerPoolRunsJobsConcurrently();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");
     return 0;

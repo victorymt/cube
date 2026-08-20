@@ -129,6 +129,10 @@ void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, B
 
 bool ChunksStartGenThread(void);
 void ChunksShutdownGenThread(void);
+bool ChunksConfigureWorkerCount(int requestedWorkers);
+int ChunksConfiguredWorkerCount(void);
+int ChunksStartedWorkerCount(void);
+int ChunksActiveWorkerCount(void);
 void ProcessFinishedChunkJobs(void);
 void ProcessFinishedMeshJobs(double uploadBudgetMs);
 int GetActiveChunkCount(void);
@@ -159,6 +163,9 @@ bool ChunkSectionIntersectsCameraView(const Chunk *chunk,
 bool SphereInFrustum(const Camera3D *camera, Vector3 center, float radius);
 
 #ifdef CHUNKS_TESTING
+int ChunksTestWorkerCountForCpu(int onlineCpus, int requestedWorkers);
+void ChunksTestReleaseScheduler(void);
+void ChunksTestFailNextColumnAllocation(void);
 Chunk *ChunksMutableForTesting(void);
 bool ChunksTestSphereInFrustum(const Camera3D *camera, Vector3 center,
                                float radius, float aspect);

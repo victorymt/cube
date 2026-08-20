@@ -365,9 +365,13 @@ static void PerfWriteReport(PerfStreamingStats streaming)
     bool syncPass = streaming.syncRebuilds == 0;
     bool queuePass = streaming.generationQueuePeak <= MAX_CHUNK_GEN_JOBS &&
                      streaming.meshQueuePeak <= MAX_CHUNK_MESH_JOBS;
-    bool threadPass = collector.resourcePeak.workerThreadsConfigured <= 2 &&
-                      collector.resourcePeak.workerThreadsStarted <= 2 &&
-                      collector.resourcePeak.workerThreadsActive <= 2;
+    bool threadPass =
+        collector.resourcePeak.workerThreadsConfigured <=
+            MAX_BACKGROUND_WORKER_THREADS &&
+        collector.resourcePeak.workerThreadsStarted <=
+            collector.resourcePeak.workerThreadsConfigured &&
+        collector.resourcePeak.workerThreadsActive <=
+            collector.resourcePeak.workerThreadsStarted;
     bool resourceStablePass = collector.resourceFinal.estimatedMeshBytes <=
                               collector.resourcePeak.estimatedMeshBytes;
     if (collector.haveResourceRepeatCheckpoint &&

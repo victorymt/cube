@@ -247,7 +247,7 @@ static void GameDebugReplyStatus(GameRuntime *game)
         "camera_inside_solid=%d autosave=%d debug_frame=%llu "
         "mouse_left_press_frame=%llu mouse_left_handle_frame=%llu "
         "mouse_left_set_block_frame=%llu mouse_left_mesh_frame=%llu "
-        "mouse_left_mesh_pending=%d mouse_left_target=%d,%d,%d\n",
+        "mouse_left_mesh_pending=%d mouse_left_target=%d,%d,%d chunk_workers=%d,%d,%d\n",
         game->screen == SCREEN_PLAYING ? "playing" : "start", WorldGetSeed(),
         WorldDimensionName(WorldCurrentDimension()),
         game->player.position.x, game->player.position.y,
@@ -291,7 +291,8 @@ static void GameDebugReplyStatus(GameRuntime *game)
         (unsigned long long)game->debugLeftMeshFrame,
         game->debugLeftMeshPending ? 1 : 0,
         game->debugLeftTargetX, game->debugLeftTargetY,
-        game->debugLeftTargetZ);
+        game->debugLeftTargetZ, ChunksConfiguredWorkerCount(),
+        ChunksStartedWorkerCount(), ChunksActiveWorkerCount());
 }
 
 static void GameDebugToggleSurfaceMap(GameRuntime *game)
@@ -1668,6 +1669,10 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         return GameDebugDslBool(
             outValue, !game->streamAudit.active && !game->streamAudit.wait.active);
     }
+    if (strcmp(name, "stream.workers_configured") == 0) return GameDebugDslNumber(outValue, ChunksConfiguredWorkerCount());
+    if (strcmp(name, "stream.workers_started") == 0) return GameDebugDslNumber(outValue, ChunksStartedWorkerCount());
+    if (strcmp(name, "stream.workers_active") == 0)
+        return GameDebugDslNumber(outValue, ChunksActiveWorkerCount());
 
     if (strncmp(name, "fluid.", 6u) == 0) {
         FluidSample sample = FluidSampleAt(game->player.position);

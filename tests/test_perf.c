@@ -124,8 +124,12 @@ int main(void)
         .meshQueuePeak = MAX_CHUNK_MESH_JOBS + 1
     };
     RenderResourceSnapshot excessiveThreads = TestResources(9000);
-    excessiveThreads.workerThreadsStarted = 3;
-    excessiveThreads.workerThreadsActive = 3;
+    excessiveThreads.workerThreadsConfigured =
+        MAX_BACKGROUND_WORKER_THREADS + 1;
+    excessiveThreads.workerThreadsStarted =
+        MAX_BACKGROUND_WORKER_THREADS + 1;
+    excessiveThreads.workerThreadsActive =
+        MAX_BACKGROUND_WORKER_THREADS + 1;
     RunFrames(excessiveThreads, streaming);
     assert(PerfReportWritten());
     assert(!PerfReportPassed());

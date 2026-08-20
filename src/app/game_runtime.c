@@ -146,6 +146,47 @@ static bool ParseDebugResolutionArgs(int argc, char **argv, int *outWidth,
   return enabled;
 }
 
+static void ParseChunkWorkerArgs(int argc, char **argv, int *outCount,
+                                 bool *outInvalid) {
+  bool seen = false;
+  bool invalid = false;
+  int count = 0;
+  for (int index = 1; index < argc; index++) {
+    const char *value = NULL;
+    if (strcmp(argv[index], "--chunk-workers") == 0) {
+      if (index + 1 < argc && strncmp(argv[index + 1], "--", 2) != 0)
+        value = argv[++index];
+      else
+        invalid = true;
+    } else if (strncmp(argv[index], "--chunk-workers=", 16) == 0) {
+      value = argv[index] + 16;
+    } else {
+      continue;
+    }
+    if (seen || !value || value[0] == '\0') {
+      invalid = true;
+      seen = true;
+      continue;
+    }
+    if (strcmp(value, "auto") == 0) {
+      count = 0;
+    } else {
+      errno = 0;
+      char *end = NULL;
+      long parsed = strtol(value, &end, 10);
+      if (errno != 0 || end == value || *end != '\0' || parsed < 1 ||
+          parsed > MAX_CHUNK_WORKER_THREADS) {
+        invalid = true;
+      } else {
+        count = (int)parsed;
+      }
+    }
+    seen = true;
+  }
+  if (outCount) *outCount = count;
+  if (outInvalid) *outInvalid = invalid;
+}
+
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   if (!runtime)
     return;
@@ -188,6 +229,8 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   ParseDebugResolutionArgs(argc, argv, &runtime->screenWidth,
                            &runtime->screenHeight,
                            &runtime->debugResolutionInvalid);
+  ParseChunkWorkerArgs(argc, argv, &runtime->chunkWorkerCount,
+                       &runtime->chunkWorkerCountInvalid);
   if (runtime->debugControlEnabled) {
     runtime->autoSaveEnabled = false;
     runtime->showHelp = false;

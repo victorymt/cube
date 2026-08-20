@@ -1,11 +1,17 @@
 #include "world/chunks_internal.h"
 
 static uint64_t nextGenerationQueueSequence = 0u;
+static int requestedChunkWorkerCount = 0;
+
+#ifdef CHUNKS_TESTING
+static bool failNextColumnAllocation = false;
+#endif
 
 bool HasPendingGenJob(void)
 {
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-        if (chunkGenJobs[i].inUse && !chunkGenJobs[i].done) return true;
+        if (chunkGenJobs[i].inUse && !chunkGenJobs[i].running &&
+            !chunkGenJobs[i].done) return true;
     }
     return false;
 }
@@ -26,12 +32,32 @@ ChunkGenJob *NextPendingGenJob(void)
 void GenerateChunkJobPayload(ChunkGenJob *job)
 {
     if (!job) return;
+    FreeChunkGenJobResult(job);
     job->succeeded = false;
     job->hasSectionBlocks = false;
 
     if (job->scope == CHUNK_GEN_SCOPE_COLUMN) {
-        GenerateChunkTerrain(
-            &chunks[job->slotIndex], job->cx, job->cz, job->terrainMode);
+#ifdef CHUNKS_TESTING
+        if (failNextColumnAllocation) {
+            failNextColumnAllocation = false;
+            return;
+        }
+#endif
+        Chunk *staged = calloc(1, sizeof(*staged));
+        if (!staged) return;
+        *staged = (Chunk){
+            .generating = true,
+            .cx = job->cx,
+            .cz = job->cz,
+            .spherical = job->spherical,
+            .surfaceAddress = job->surfaceAddress,
+            .surfaceKey = job->surfaceKey,
+            .generation = job->chunkGeneration,
+            .floraActivity = 1.0f,
+            .floraCapacity = 1.0f
+        };
+        GenerateChunkTerrain(staged, job->cx, job->cz, job->terrainMode);
+        job->columnResult = staged;
         job->succeeded = true;
         return;
     }
@@ -54,6 +80,14 @@ void GenerateChunkJobPayload(ChunkGenJob *job)
         job->hasSectionBlocks = true;
     }
     ChunkClearBlockStorage(&staged);
+}
+
+void FreeChunkGenJobResult(ChunkGenJob *job)
+{
+    if (!job || !job->columnResult) return;
+    ChunkClearBlockStorage(job->columnResult);
+    free(job->columnResult);
+    job->columnResult = NULL;
 }
 
 void *ChunkGenWorker(void *arg)
@@ -87,7 +121,7 @@ void *ChunkGenWorker(void *arg)
         if (job) {
             job->running = true;
             job->startedAtMs = ChunkNowMs();
-            genWorkerActive = true;
+            genWorkerThreadsActive++;
             pthread_mutex_unlock(&genMutex);
 
             double startedMs = ChunkNowMs();
@@ -98,10 +132,10 @@ void *ChunkGenWorker(void *arg)
             job->running = false;
             job->done = true;
             job->completedAtMs = ChunkNowMs();
-            genWorkerActive = false;
+            if (genWorkerThreadsActive > 0u) genWorkerThreadsActive--;
             streamingStats.generationCompleted++;
             streamingStats.generationCpuMs += elapsedMs;
-            pthread_cond_signal(&genCond);
+            pthread_cond_signal(&genCompletionCond);
             pthread_mutex_unlock(&genMutex);
             continue;
         }
@@ -109,7 +143,7 @@ void *ChunkGenWorker(void *arg)
         if (meshJob) {
             meshJob->running = true;
             meshJob->startedAtMs = ChunkNowMs();
-            genWorkerActive = true;
+            genWorkerThreadsActive++;
             pthread_mutex_unlock(&genMutex);
 
             static const int faces[6][3] = {
@@ -194,10 +228,10 @@ void *ChunkGenWorker(void *arg)
             meshJob->running = false;
             meshJob->done = true;
             meshJob->completedAtMs = ChunkNowMs();
-            genWorkerActive = false;
+            if (genWorkerThreadsActive > 0u) genWorkerThreadsActive--;
             streamingStats.meshCompleted++;
             streamingStats.meshCpuMs += elapsedMs;
-            pthread_cond_signal(&genCond);
+            pthread_cond_signal(&genCompletionCond);
             pthread_mutex_unlock(&genMutex);
             continue;
         }
@@ -208,9 +242,133 @@ void *ChunkGenWorker(void *arg)
     return NULL;
 }
 
+static int ChunkWorkerCountForCpu(int onlineCpus, int requestedWorkers)
+{
+    if (requestedWorkers > 0) {
+        return requestedWorkers > MAX_CHUNK_WORKER_THREADS
+            ? MAX_CHUNK_WORKER_THREADS : requestedWorkers;
+    }
+    if (onlineCpus <= 2) return 1;
+    int workers = onlineCpus / 2;
+    if (workers < 2) workers = 2;
+    if (workers > MAX_CHUNK_WORKER_THREADS) {
+        workers = MAX_CHUNK_WORKER_THREADS;
+    }
+    return workers;
+}
+
+bool ChunksConfigureWorkerCount(int requestedWorkers)
+{
+    if (requestedWorkers < 0 ||
+        requestedWorkers > MAX_CHUNK_WORKER_THREADS) return false;
+    pthread_mutex_lock(&genMutex);
+    bool configurable = genWorkerThreadsStarted == 0u;
+    if (configurable) requestedChunkWorkerCount = requestedWorkers;
+    pthread_mutex_unlock(&genMutex);
+    return configurable;
+}
+
+int ChunksConfiguredWorkerCount(void)
+{
+    pthread_mutex_lock(&genMutex);
+    int result = (int)genWorkerThreadsConfigured;
+    pthread_mutex_unlock(&genMutex);
+    return result;
+}
+
+int ChunksStartedWorkerCount(void)
+{
+    pthread_mutex_lock(&genMutex);
+    int result = (int)genWorkerThreadsStarted;
+    pthread_mutex_unlock(&genMutex);
+    return result;
+}
+
+int ChunksActiveWorkerCount(void)
+{
+    pthread_mutex_lock(&genMutex);
+    int result = (int)genWorkerThreadsActive;
+    pthread_mutex_unlock(&genMutex);
+    return result;
+}
+
+bool ChunksStartGenThread(void)
+{
+    pthread_mutex_lock(&genMutex);
+    if (genWorkerThreadsStarted != 0u) {
+        pthread_mutex_unlock(&genMutex);
+        return true;
+    }
+    long detected = sysconf(_SC_NPROCESSORS_ONLN);
+    int onlineCpus = detected > 0 && detected <= INT_MAX ? (int)detected : 1;
+    int target = ChunkWorkerCountForCpu(
+        onlineCpus, requestedChunkWorkerCount);
+    genShutdown = false;
+    genWorkerThreadsConfigured = (unsigned int)target;
+    genWorkerThreadsActive = 0u;
+    pthread_mutex_unlock(&genMutex);
+
+    for (int index = 0; index < target; index++) {
+        if (pthread_create(&genThreads[index], NULL,
+                           ChunkGenWorker, NULL) != 0) break;
+        pthread_mutex_lock(&genMutex);
+        genWorkerThreadsStarted++;
+        pthread_mutex_unlock(&genMutex);
+    }
+    return ChunksStartedWorkerCount() > 0;
+}
+
+void ChunksShutdownGenThread(void)
+{
+    pthread_mutex_lock(&genMutex);
+    unsigned int started = genWorkerThreadsStarted;
+    if (started == 0u) {
+        for (int index = 0; index < MAX_CHUNK_GEN_JOBS; index++) {
+            if (!chunkGenJobs[index].inUse) continue;
+            chunkGenJobs[index].running = false;
+            chunkGenJobs[index].done = true;
+            chunkGenJobs[index].succeeded = false;
+        }
+    }
+    pthread_mutex_unlock(&genMutex);
+    if (started > 0u) DrainChunkGen();
+    else ProcessFinishedChunkJobs();
+
+    pthread_mutex_lock(&genMutex);
+    if (started > 0u) {
+        genShutdown = true;
+        pthread_cond_broadcast(&genCond);
+    }
+    pthread_mutex_unlock(&genMutex);
+    for (unsigned int index = 0u; index < started; index++) {
+        pthread_join(genThreads[index], NULL);
+    }
+    if (started > 0u) {
+        pthread_mutex_lock(&genMutex);
+        memset(genThreads, 0, sizeof(genThreads));
+        genWorkerThreadsStarted = 0u;
+        genWorkerThreadsActive = 0u;
+        pthread_mutex_unlock(&genMutex);
+    }
+    for (int index = 0; index < MAX_CHUNK_GEN_JOBS; index++) {
+        FreeChunkGenJobResult(&chunkGenJobs[index]);
+    }
+    for (int index = 0; index < MAX_MESH_JOBS; index++) {
+        if (meshJobs[index].inUse) {
+            FreeMeshData(&meshJobs[index].mesh);
+            FreeMeshData(&meshJobs[index].waterMesh);
+            FreeMeshData(&meshJobs[index].floraMesh);
+            free(meshJobs[index].floraInstances);
+            meshJobs[index].floraInstances = NULL;
+            meshJobs[index].floraInstanceCount = 0;
+            meshJobs[index].inUse = false;
+        }
+    }
+}
+
 bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
-    if (genThread == 0) return false;
+    if (genWorkerThreadsStarted == 0u) return false;
 
     pthread_mutex_lock(&genMutex);
     ChunkGenJob *job = NULL;
@@ -250,7 +408,7 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
 static bool SubmitChunkSectionGenJob(
     Chunk *chunk, int sectionY, TerrainMode mode)
 {
-    if (genThread == 0 || !chunk || !chunk->loaded ||
+    if (genWorkerThreadsStarted == 0u || !chunk || !chunk->loaded ||
         !HomeWorldSurfaceIsActive() || !SurfaceSectionInBounds(sectionY) ||
         ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
@@ -306,7 +464,7 @@ static bool RequestLoadedChunkTerrainSection(Chunk *chunk, int sectionY)
     if (SubmitChunkSectionGenJob(chunk, sectionY, WorldTerrainMode())) {
         return true;
     }
-    if (genThread != 0) return false;
+    if (genWorkerThreadsStarted != 0u) return false;
 
     double startedMs = ChunkNowMs();
     bool generated = GenerateChunkTerrainSectionBase(
@@ -418,23 +576,34 @@ void CompleteChunkGenJob(ChunkGenJob *job)
         CompleteChunkSectionGenJob(job);
         return;
     }
-    bool stale = !job || !job->succeeded || job->slotIndex < 0 ||
-        job->slotIndex >= MAX_ACTIVE_CHUNKS;
-    Chunk *chunk = stale ? NULL : &chunks[job->slotIndex];
-    if (!stale && (!chunk->generating || chunk->loaded ||
-                   chunk->cx != job->cx || chunk->cz != job->cz ||
-                   chunk->generation != job->chunkGeneration ||
-                   chunk->spherical != job->spherical ||
-                   (job->spherical && !SurfaceChunkKeyEqual(
-                       chunk->surfaceKey, job->surfaceKey)))) {
-        stale = true;
-    }
+    bool validSlot = job && job->slotIndex >= 0 &&
+        job->slotIndex < MAX_ACTIVE_CHUNKS;
+    Chunk *chunk = validSlot ? &chunks[job->slotIndex] : NULL;
+    bool targetMatches = chunk && chunk->generating && !chunk->loaded &&
+        chunk->cx == job->cx && chunk->cz == job->cz &&
+        chunk->generation == job->chunkGeneration &&
+        chunk->spherical == job->spherical &&
+        (!job->spherical || SurfaceChunkKeyEqual(
+            chunk->surfaceKey, job->surfaceKey));
+    bool stale = !job || !job->succeeded || !job->columnResult ||
+        !targetMatches;
     if (stale) {
+        if (targetMatches && (!job->succeeded || !job->columnResult)) {
+            chunk->generating = false;
+        }
+        FreeChunkGenJobResult(job);
         pthread_mutex_lock(&genMutex);
         streamingStats.generationCanceled++;
         pthread_mutex_unlock(&genMutex);
         return;
     }
+    uint32_t generation = chunk->generation;
+    Chunk generated = *job->columnResult;
+    free(job->columnResult);
+    job->columnResult = NULL;
+    ChunkClearBlockStorage(chunk);
+    *chunk = generated;
+    chunk->generation = generation;
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
@@ -446,18 +615,20 @@ void ProcessFinishedChunkJobs(void)
 {
     for (;;) {
         pthread_mutex_lock(&genMutex);
-        ChunkGenJob *job = NULL;
+        ChunkGenJob completed = { 0 };
+        bool haveJob = false;
         for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
             if (chunkGenJobs[i].inUse && chunkGenJobs[i].done) {
-                job = &chunkGenJobs[i];
+                completed = chunkGenJobs[i];
+                chunkGenJobs[i] = (ChunkGenJob){ 0 };
+                haveJob = true;
                 break;
             }
         }
-        if (job) job->inUse = false;
         pthread_mutex_unlock(&genMutex);
 
-        if (!job) return;
-        CompleteChunkGenJob(job);
+        if (!haveJob) return;
+        CompleteChunkGenJob(&completed);
     }
 }
 
@@ -466,17 +637,19 @@ void DrainChunkGen(void)
     for (;;) {
         pthread_mutex_lock(&genMutex);
         for (;;) {
-            ChunkGenJob *job = NULL;
+            ChunkGenJob completed = { 0 };
+            bool haveJob = false;
             for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
                 if (chunkGenJobs[i].inUse && chunkGenJobs[i].done) {
-                    job = &chunkGenJobs[i];
+                    completed = chunkGenJobs[i];
+                    chunkGenJobs[i] = (ChunkGenJob){ 0 };
+                    haveJob = true;
                     break;
                 }
             }
-            if (!job) break;
-            job->inUse = false;
+            if (!haveJob) break;
             pthread_mutex_unlock(&genMutex);
-            CompleteChunkGenJob(job);
+            CompleteChunkGenJob(&completed);
             pthread_mutex_lock(&genMutex);
         }
 
@@ -491,7 +664,7 @@ void DrainChunkGen(void)
             pthread_mutex_unlock(&genMutex);
             return;
         }
-        pthread_cond_wait(&genCond, &genMutex);
+        pthread_cond_wait(&genCompletionCond, &genMutex);
         pthread_mutex_unlock(&genMutex);
     }
 }
@@ -527,7 +700,7 @@ bool EnsureChunk(int cx, int cz)
     if ((spherical ? FindSurfaceChunk(surfaceKey) : FindChunk(cx, cz)) ||
         FindPendingGenJob(cx, cz)) return false;
 
-    if (genThread != 0) {
+    if (genWorkerThreadsStarted != 0u) {
         bool haveQueueSlot = false;
         pthread_mutex_lock(&genMutex);
         for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
@@ -689,6 +862,25 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
 }
 
 #ifdef CHUNKS_TESTING
+int ChunksTestWorkerCountForCpu(int onlineCpus, int requestedWorkers)
+{
+    return ChunkWorkerCountForCpu(onlineCpus, requestedWorkers);
+}
+
+void ChunksTestReleaseScheduler(void)
+{
+    pthread_mutex_lock(&genMutex);
+    genWorkerThreadsConfigured = 0u;
+    genWorkerThreadsStarted = 0u;
+    genWorkerThreadsActive = 0u;
+    pthread_mutex_unlock(&genMutex);
+}
+
+void ChunksTestFailNextColumnAllocation(void)
+{
+    failNextColumnAllocation = true;
+}
+
 bool ChunksTestEnsureChunk(int cx, int cz)
 {
     return EnsureChunk(cx, cz);

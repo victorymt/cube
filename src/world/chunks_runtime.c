@@ -48,7 +48,8 @@ void UpdateQueuePeaksLocked(void)
 bool HasPendingMeshJob(void)
 {
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        if (meshJobs[i].inUse && !meshJobs[i].done) return true;
+        if (meshJobs[i].inUse && !meshJobs[i].running &&
+            !meshJobs[i].done) return true;
     }
     return false;
 }
@@ -565,7 +566,7 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
 
 static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
 {
-    if (!chunk || !section || genThread == 0) return false;
+    if (!chunk || !section || genWorkerThreadsStarted == 0u) return false;
 
     pthread_mutex_lock(&genMutex);
     int slotIndex = (int)(chunk - chunks);
@@ -738,7 +739,7 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
     int focusSectionY = FloorDivInt((int)floorf(focusPosition.y), SURFACE_SECTION_HEIGHT);
     int submissionLimit = MAX_MESH_SUBMITS_PER_FRAME;
     MeshPendingLookup pending = { 0 };
-    if (genThread != 0) {
+    if (genWorkerThreadsStarted != 0u) {
         int availableSlots = 0;
         pthread_mutex_lock(&genMutex);
         for (int index = 0; index < MAX_MESH_JOBS; index++) {
@@ -794,7 +795,7 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
         ChunkSection *section = chunks[chunkIndex].sections[
             candidateSections[submitted]];
 
-        if (genThread == 0) {
+        if (genWorkerThreadsStarted == 0u) {
             double startedMs = ChunkNowMs();
             RebuildChunkSectionMeshSync(&chunks[chunkIndex], section);
             double elapsedMs = ChunkNowMs() - startedMs;
@@ -823,9 +824,9 @@ bool RebuildDirtyChunkMeshAt(int x, int y, int z)
     ChunkSection *section = chunk ? ChunkGetSection(
         chunk, SurfaceSectionYFromBlockY(y), false) : NULL;
     if (!section || !section->dirty) return false;
-    bool queueSaturated = genThread != 0 &&
+    bool queueSaturated = genWorkerThreadsStarted != 0u &&
                           GetPendingMeshJobCount() >= MAX_MESH_JOBS - 1;
-    if (genThread != 0 && !queueSaturated &&
+    if (genWorkerThreadsStarted != 0u && !queueSaturated &&
         SubmitMeshJob(chunk, section, true)) return true;
 
     double startedMs = ChunkNowMs();
@@ -918,41 +919,6 @@ bool ChunkSectionIntersectsCameraView(const Chunk *chunk,
     return SphereInFrustum(camera, center, sqrtf(half * half * 3.0f));
 }
 
-
-bool ChunksStartGenThread(void)
-{
-    if (genThread != 0) return true;
-    pthread_mutex_lock(&genMutex);
-    genShutdown = false;
-    genWorkerActive = false;
-    pthread_mutex_unlock(&genMutex);
-    return pthread_create(&genThread, NULL, ChunkGenWorker, NULL) == 0;
-}
-
-void ChunksShutdownGenThread(void)
-{
-    DrainChunkGen();
-    if (genThread != 0) {
-        pthread_mutex_lock(&genMutex);
-        genShutdown = true;
-        pthread_cond_broadcast(&genCond);
-        pthread_mutex_unlock(&genMutex);
-        pthread_join(genThread, NULL);
-        genThread = 0;
-        genWorkerActive = false;
-    }
-    for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        if (meshJobs[i].inUse) {
-            FreeMeshData(&meshJobs[i].mesh);
-            FreeMeshData(&meshJobs[i].waterMesh);
-            FreeMeshData(&meshJobs[i].floraMesh);
-            free(meshJobs[i].floraInstances);
-            meshJobs[i].floraInstances = NULL;
-            meshJobs[i].floraInstanceCount = 0;
-            meshJobs[i].inUse = false;
-        }
-    }
-}
 
 int GetActiveChunkCount(void)
 {
@@ -1242,9 +1208,9 @@ RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void)
     pthread_mutex_lock(&genMutex);
     UpdateQueuePeaksLocked();
     snapshot.pendingMeshSnapshotBytes = streamingStats.pendingMeshSnapshotBytes;
-    snapshot.workerThreadsConfigured = 1;
-    snapshot.workerThreadsStarted = genThread != 0 ? 1u : 0u;
-    snapshot.workerThreadsActive = genWorkerActive ? 1u : 0u;
+    snapshot.workerThreadsConfigured = genWorkerThreadsConfigured;
+    snapshot.workerThreadsStarted = genWorkerThreadsStarted;
+    snapshot.workerThreadsActive = genWorkerThreadsActive;
     pthread_mutex_unlock(&genMutex);
     return snapshot;
 }
@@ -1263,13 +1229,17 @@ void ChunksTestResetScheduler(void)
         ChunkClearBlockStorage(&chunks[i]);
     }
     memset(chunks, 0, sizeof(chunks));
+    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+        FreeChunkGenJobResult(&chunkGenJobs[i]);
+    }
     memset(chunkGenJobs, 0, sizeof(chunkGenJobs));
     memset(meshJobs, 0, sizeof(meshJobs));
     nextMeshQueueSequence = 0u;
     streamingStats = (ChunkStreamingStats){ 0 };
-    genThread = pthread_self();
+    genWorkerThreadsConfigured = 1u;
+    genWorkerThreadsStarted = 1u;
     genShutdown = false;
-    genWorkerActive = false;
+    genWorkerThreadsActive = 0u;
     pthread_mutex_unlock(&genMutex);
 }
 

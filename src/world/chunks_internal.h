@@ -71,9 +71,12 @@ extern Texture2D blockAtlas;
 extern int renderDistanceChunks;
 extern pthread_mutex_t genMutex;
 extern pthread_cond_t genCond;
-extern pthread_t genThread;
+extern pthread_cond_t genCompletionCond;
+extern pthread_t genThreads[MAX_CHUNK_WORKER_THREADS];
 extern bool genShutdown;
-extern bool genWorkerActive;
+extern unsigned int genWorkerThreadsConfigured;
+extern unsigned int genWorkerThreadsStarted;
+extern unsigned int genWorkerThreadsActive;
 extern ChunkStreamingStats streamingStats;
 extern MeshJob meshJobs[MAX_MESH_JOBS];
 
@@ -87,6 +90,7 @@ void FreeChunkSectionStorage(ChunkSection *section);
 void MarkSectionDirty(ChunkSection *section);
 void *ChunkGenWorker(void *arg);
 void GenerateChunkJobPayload(ChunkGenJob *job);
+void FreeChunkGenJobResult(ChunkGenJob *job);
 int ScheduleNearbyTerrainSections(Vector3 playerPosition,
                                   int effectiveRenderDistance);
 void UpdateQueuePeaksLocked(void);

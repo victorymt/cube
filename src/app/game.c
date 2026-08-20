@@ -1353,8 +1353,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     // 60 Hz frame schedule, while performance runs remain uncapped.
     SetTargetFPS(!game->perfMode && game->debugControlEnabled ? 60 : 0);
     EnableCursor();
+    ChunksConfigureWorkerCount(game->chunkWorkerCount);
     if (!ChunksStartGenThread()) {
-        fprintf(stderr, "Warning: failed to start chunk generation thread; "
+        fprintf(stderr, "Warning: failed to start chunk worker pool; "
                         "generating synchronously.\n");
     }
     ParticlesInit();
@@ -1454,6 +1455,13 @@ int GameRun(int argc, char **argv)
         fprintf(stderr,
                 "Invalid or repeated --debug-resolution option; expected "
                 "WIDTHxHEIGHT within 320x240-7680x4320.\n");
+        return 2;
+    }
+    if (game.chunkWorkerCountInvalid) {
+        fprintf(stderr,
+                "Invalid or repeated --chunk-workers option; expected "
+                "auto or an integer from 1 to %d.\n",
+                MAX_CHUNK_WORKER_THREADS);
         return 2;
     }
     if (!GameDebugScriptLoad(&game)) {

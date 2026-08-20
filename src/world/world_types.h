@@ -392,6 +392,9 @@ typedef struct ChunkGenJob {
     double submittedAtMs;
     double startedAtMs;
     double completedAtMs;
+    // Column generation owns this private result until the main thread
+    // validates the destination chunk incarnation and transfers its storage.
+    struct Chunk *columnResult;
     // Section jobs generate into staging storage because their target chunk
     // is already visible to the main/render thread. Completion copies this
     // snapshot only if the chunk incarnation still matches.

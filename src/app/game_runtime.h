@@ -101,6 +101,7 @@ typedef struct GameRuntime {
   int debugLeftTargetX;
   int debugLeftTargetY;
   int debugLeftTargetZ;
+  int chunkWorkerCount;
 
   bool perfMode;
   bool debugControlEnabled;
@@ -115,6 +116,7 @@ typedef struct GameRuntime {
   bool debugTraceEnabled;
   bool debugTracePathInvalid;
   bool debugResolutionInvalid;
+  bool chunkWorkerCountInvalid;
   bool blockGalleryActive;
   bool floraGalleryActive;
   bool floraSampleActive;
