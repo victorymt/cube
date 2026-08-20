@@ -428,6 +428,11 @@ creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
 
+The map's `GLOBAL SURFACE` globe can be left-dragged to rotate. Clicking a
+visible point focuses the regional map on that spherical location; clicking a
+nearby custom marker also toggles its navigation target. The globe keeps its
+rendered surface cached while only the camera and marker state are unchanged.
+
 ### Streaming
 
 ```text

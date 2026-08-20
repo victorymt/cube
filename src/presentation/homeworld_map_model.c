@@ -38,13 +38,32 @@ float HomeWorldMapSpanForLevel(int level)
     return spans[level];
 }
 
+static Vector2 HomeWorldMapDisplayOffset(HomeWorldMapBounds bounds,
+                                         float worldX, float worldZ)
+{
+    float directX = worldX - bounds.centerX;
+    float directZ = worldZ - bounds.centerZ;
+    SurfaceMapProjection from = SurfaceProjectMapCoordinates(
+        bounds.centerX, bounds.centerZ);
+    SurfaceMapProjection to = SurfaceProjectMapCoordinates(worldX, worldZ);
+    if (from.northDirection == to.northDirection &&
+        fabsf(directX) <= (float)SURFACE_EQUATOR_BLOCKS * 0.5f &&
+        fabsf(directZ) <= (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f) {
+        return (Vector2){ directX, directZ };
+    }
+    SurfaceMapOffset offset = SurfaceShortestMapOffset(
+        bounds.centerX, bounds.centerZ, worldX, worldZ);
+    return (Vector2){ offset.x, offset.z };
+}
+
 Vector2 HomeWorldMapWorldToScreen(HomeWorldMapBounds bounds, Rectangle map,
                                   float worldX, float worldZ)
 {
     float span = bounds.span > 0.0f ? bounds.span : 1.0f;
+    Vector2 offset = HomeWorldMapDisplayOffset(bounds, worldX, worldZ);
     return (Vector2){
-        map.x + map.width * (0.5f + (worldX - bounds.centerX) / span),
-        map.y + map.height * (0.5f + (worldZ - bounds.centerZ) / span)
+        map.x + map.width * (0.5f + offset.x / span),
+        map.y + map.height * (0.5f + offset.y / span)
     };
 }
 
@@ -63,10 +82,8 @@ bool HomeWorldMapWorldVisible(HomeWorldMapBounds bounds, float worldX,
                               float worldZ)
 {
     float half = bounds.span * 0.5f;
-    return worldX >= bounds.centerX - half &&
-           worldX <= bounds.centerX + half &&
-           worldZ >= bounds.centerZ - half &&
-           worldZ <= bounds.centerZ + half;
+    Vector2 offset = HomeWorldMapDisplayOffset(bounds, worldX, worldZ);
+    return fabsf(offset.x) <= half && fabsf(offset.y) <= half;
 }
 
 Color HomeWorldMapTerrainColor(HomeWorldMapTerrainCell cell)

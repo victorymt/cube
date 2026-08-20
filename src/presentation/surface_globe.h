@@ -24,6 +24,10 @@ typedef struct SurfaceGlobeDrawParams {
 } SurfaceGlobeDrawParams;
 
 bool SurfaceGlobeDraw(const SurfaceGlobeDrawParams *params);
+bool SurfaceGlobeHitTest(Rectangle destination, float cameraLongitude,
+                         float cameraLatitude, Vector2 screen,
+                         float *outLongitude, float *outLatitude);
+void SurfaceGlobeInvalidate(void);
 void SurfaceGlobeUnload(void);
 
 #endif

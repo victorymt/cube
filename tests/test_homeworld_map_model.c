@@ -37,6 +37,18 @@ static void TestCoordinateRoundTrip(void)
     assert(!HomeWorldMapWorldVisible(bounds, -576.1f, -112.0f));
 }
 
+static void TestSphericalSeamVisibility(void)
+{
+    HomeWorldMapBounds bounds = {
+        (float)SURFACE_EQUATOR_BLOCKS * 0.5f - 4.0f, 0.0f, 256.0f
+    };
+    float wrappedX = -(float)SURFACE_EQUATOR_BLOCKS * 0.5f + 4.0f;
+    Vector2 screen = HomeWorldMapWorldToScreen(
+        bounds, (Rectangle){ 0.0f, 0.0f, 256.0f, 256.0f }, wrappedX, 0.0f);
+    assert(screen.x > 120.0f && screen.x < 136.0f);
+    assert(HomeWorldMapWorldVisible(bounds, wrappedX, 0.0f));
+}
+
 static void TestTerrainPalette(void)
 {
     Color colors[BIOME_SWAMP + 1];
@@ -212,6 +224,7 @@ int main(void)
 {
     TestZoomLevels();
     TestCoordinateRoundTrip();
+    TestSphericalSeamVisibility();
     TestTerrainPalette();
     TestPlanetTerrainPalette();
     TestHeatInterpolation();

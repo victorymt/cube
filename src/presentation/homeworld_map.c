@@ -57,6 +57,7 @@ typedef struct HomeWorldMapState {
     bool showSubsurfaceLiquids;
     bool planetSurface;
     bool globeDragging;
+    bool globePointerMoved;
     bool mapPressPending;
     bool markerEditorOpen;
     bool markerEditorEditing;
@@ -70,6 +71,7 @@ typedef struct HomeWorldMapState {
     HomeWorldMapBounds bounds;
     Vector2 dragOffset;
     Vector2 mapPressStart;
+    Vector2 globePressStart;
     Vector2 markerEditorWorld;
     Vector3 playerPosition;
     float playerYaw;
@@ -338,6 +340,7 @@ void HomeWorldMapOpen(Vector3 playerPosition, float daylight)
     homeMap.showCreatures = true;
     homeMap.showLandmarks = true;
     homeMap.showSubsurfaceLiquids = true;
+    SurfaceGlobeInvalidate();
     MapRefresh(daylight);
 }
 
@@ -449,6 +452,55 @@ static void MapMarkerLatLon(const MapMarker *marker, float *outLongitude,
         HomeSurfaceLatLonAt((int)floorf(marker->x), (int)floorf(marker->z),
                             outLongitude, outLatitude);
     }
+}
+
+static bool MapWorldFromGlobe(float longitude, float latitude,
+                              Vector2 *outWorld)
+{
+    if (!outWorld) return false;
+    SurfaceAddress address = SurfaceAddressFromLatLon(
+        WorldCurrentSurfaceId(), longitude, latitude, 0);
+    SurfaceMapCell cell = { 0 };
+    if (!SurfaceAddressCanonicalMapCell(address, &cell)) return false;
+    *outWorld = (Vector2){ (float)cell.x, (float)cell.z };
+    return true;
+}
+
+static uint32_t MapGlobeMarkerAt(float longitude, float latitude)
+{
+    MapMarker markers[MAP_MARKERS_PER_SURFACE];
+    int count = MapMarkersCollect(MapCurrentSurface(), markers,
+                                  MAP_MARKERS_PER_SURFACE);
+    uint32_t closestId = 0u;
+    float closestDistance = 0.060f;
+    for (int i = 0; i < count; i++) {
+        float markerLongitude = 0.0f;
+        float markerLatitude = 0.0f;
+        float bearing = 0.0f;
+        float distance = 0.0f;
+        MapMarkerLatLon(&markers[i], &markerLongitude, &markerLatitude);
+        if (!MapMarkerGreatCircle(longitude, latitude,
+                                  markerLongitude, markerLatitude,
+                                  &bearing, &distance)) continue;
+        if (distance < closestDistance) {
+            closestDistance = distance;
+            closestId = markers[i].id;
+        }
+    }
+    return closestId;
+}
+
+static bool MapFocusGlobe(float longitude, float latitude)
+{
+    Vector2 world = { 0 };
+    if (!MapWorldFromGlobe(longitude, latitude, &world)) return false;
+    homeMap.globeLongitude = atan2f(sinf(longitude), cosf(longitude));
+    homeMap.globeLatitude = MapClamp(latitude, -PI * 0.48f, PI * 0.48f);
+    homeMap.bounds.centerX = floorf(world.x);
+    homeMap.bounds.centerZ = floorf(world.y);
+    homeMap.dragOffset = Vector2Zero();
+    MapRefresh(homeMap.daylight);
+    return true;
 }
 
 static uint32_t MapMarkerAt(const HomeWorldMapLayout *layout,
@@ -680,6 +732,8 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
             pointerHandled = true;
         } else if (MapPointInButton(mouse, layout.globe)) {
             homeMap.globeDragging = true;
+            homeMap.globePointerMoved = false;
+            homeMap.globePressStart = mouse;
             pointerHandled = true;
         }
         if (!pointerHandled) {
@@ -699,6 +753,9 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
 
     if (homeMap.globeDragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
         Vector2 delta = GetMouseDelta();
+        if (Vector2Distance(mouse, homeMap.globePressStart) > 3.0f) {
+            homeMap.globePointerMoved = true;
+        }
         homeMap.globeLongitude -= delta.x * 0.012f;
         homeMap.globeLongitude = atan2f(sinf(homeMap.globeLongitude),
                                         cosf(homeMap.globeLongitude));
@@ -708,7 +765,19 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
     }
     if (homeMap.globeDragging &&
         IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+        if (!homeMap.globePointerMoved) {
+            float longitude = 0.0f;
+            float latitude = 0.0f;
+            if (SurfaceGlobeHitTest(layout.globe, homeMap.globeLongitude,
+                                    homeMap.globeLatitude, mouse,
+                                    &longitude, &latitude)) {
+                uint32_t markerId = MapGlobeMarkerAt(longitude, latitude);
+                if (markerId != 0u) MapMarkersToggleTarget(markerId);
+                MapFocusGlobe(longitude, latitude);
+            }
+        }
         homeMap.globeDragging = false;
+        homeMap.globePointerMoved = false;
     }
 
     if (!homeMap.globeDragging && CheckCollisionPointRec(mouse, layout.map)) {
@@ -1145,6 +1214,8 @@ static void MapDrawGlobe(const HomeWorldMapLayout *layout)
         .markers = globeMarkers,
         .markerCount = markerCount
     });
+    UiDrawText("GLOBAL SURFACE", (int)layout->globe.x,
+               (int)layout->globe.y - 16, 12, Fade(WHITE, 0.58f));
     DrawCircleLines((int)(layout->globe.x + layout->globe.width * 0.5f),
                     (int)(layout->globe.y + layout->globe.height * 0.5f),
                     layout->globe.width * 0.49f, Fade(WHITE, 0.42f));
