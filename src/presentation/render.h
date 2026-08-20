@@ -158,7 +158,8 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
                 const EnvironmentPresentationState *presentation,
                 const WorldLightingState *lighting);
 void DrawWeatherOverlay(const Camera3D *camera,
-                        const WeatherVisualState *weatherVisual);
+                        const WeatherVisualState *weatherVisual,
+                        const WorldLightingState *lighting);
 void DrawEnvironmentPostProcess(
     const EnvironmentPresentationState *presentation);
 WorldLightingState WorldLightingForScene(

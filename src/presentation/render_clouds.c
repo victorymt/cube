@@ -1,6 +1,7 @@
 #include "presentation/render.h"
 #include "presentation/render_dependencies.h"
 #include "presentation/render_internal.h"
+#include "presentation/weather_optics.h"
 
 typedef struct CloudRenderResources {
     Shader shader;
@@ -734,8 +735,67 @@ void DrawEnvironmentPostProcess(
     }
 }
 
+static void DrawRainbowArc(const Camera3D *camera, Vector3 sunDirection,
+                           float strength, int screenWidth, int screenHeight)
+{
+    static const Color colors[] = {
+        { 224, 66, 64, 255 }, { 234, 146, 54, 255 },
+        { 232, 214, 76, 255 }, { 76, 190, 108, 255 },
+        { 66, 132, 218, 255 }, { 142, 82, 190, 255 }
+    };
+    const int segmentCount = 240;
+    const float outerRadius = 42.0f * DEG2RAD;
+    const float bandSpacing = 0.36f * DEG2RAD;
+    float screenMargin = (float)((screenWidth > screenHeight)
+                                     ? screenWidth : screenHeight) * 0.08f;
+    float maxSegmentLength = (float)((screenWidth > screenHeight)
+                                         ? screenWidth : screenHeight) * 0.08f;
+    Vector3 forward = Vector3Normalize(
+        Vector3Subtract(camera->target, camera->position));
+
+    for (unsigned band = 0; band < sizeof(colors) / sizeof(colors[0]);
+         band++) {
+        float radius = outerRadius - (float)band * bandSpacing;
+        Vector2 previous = { 0 };
+        bool havePrevious = false;
+        for (int segment = 0; segment <= segmentCount; segment++) {
+            float phase = -PI + 2.0f * PI * (float)segment /
+                                      (float)segmentCount;
+            Vector3 direction = WeatherRainbowDirection(
+                sunDirection, radius, phase);
+            bool visible = direction.y > 0.0f &&
+                           Vector3DotProduct(direction, forward) > 0.01f;
+            Vector2 screen = { 0 };
+            if (visible) {
+                Vector3 point = Vector3Add(
+                    camera->position, Vector3Scale(direction, SUN_DISTANCE));
+                screen = GetWorldToScreen(point, *camera);
+                visible = isfinite(screen.x) && isfinite(screen.y) &&
+                          screen.x >= -screenMargin &&
+                          screen.x <= (float)screenWidth + screenMargin &&
+                          screen.y >= -screenMargin &&
+                          screen.y <= (float)screenHeight + screenMargin;
+            }
+            if (visible && havePrevious &&
+                Vector2DistanceSqr(screen, previous) <=
+                    maxSegmentLength * maxSegmentLength) {
+                DrawLineEx(previous, screen, 3.5f,
+                           Fade(colors[band],
+                                Clamp(strength * 0.34f, 0.0f, 0.36f)));
+            }
+            if (visible) {
+                previous = screen;
+                havePrevious = true;
+            } else {
+                havePrevious = false;
+            }
+        }
+    }
+}
+
 void DrawWeatherOverlay(const Camera3D *camera,
-                        const WeatherVisualState *weatherVisual)
+                        const WeatherVisualState *weatherVisual,
+                        const WorldLightingState *lighting)
 {
     if (!camera || !weatherVisual || !weatherVisual->active) return;
     float fog = weatherVisual->fogDensity;
@@ -801,22 +861,9 @@ void DrawWeatherOverlay(const Camera3D *camera,
                             Clamp(aurora * 0.11f, 0.0f, 0.13f)));
         }
     }
-    if (rainbow > 0.01f) {
-        static const Color colors[] = {
-            { 224, 66, 64, 255 }, { 234, 146, 54, 255 },
-            { 232, 214, 76, 255 }, { 76, 190, 108, 255 },
-            { 66, 132, 218, 255 }, { 142, 82, 190, 255 }
-        };
-        Vector2 center = {
-            (float)screenWidth * 0.5f, (float)screenHeight * 1.04f
-        };
-        float baseRadius = (float)screenHeight * 0.62f;
-        for (unsigned band = 0; band < sizeof(colors) / sizeof(colors[0]);
-             band++) {
-            float inner = baseRadius + (float)band * 4.0f;
-            DrawRing(center, inner, inner + 3.5f, 205.0f, 335.0f, 96,
-                     Fade(colors[band], Clamp(rainbow * 0.34f, 0.0f, 0.36f)));
-        }
+    if (rainbow > 0.01f && lighting) {
+        DrawRainbowArc(camera, lighting->sunDirection, rainbow,
+                       screenWidth, screenHeight);
     }
 }
 

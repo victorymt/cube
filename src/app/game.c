@@ -1018,7 +1018,7 @@ static void GameRenderEnvironmentOverlays(GameRuntime *game,
                           &frame->weatherVisual);
         }
         if (!frame->inNether && frame->skyFade < 0.5f) {
-            DrawWeatherOverlay(&game->camera, &frame->weatherVisual);
+            DrawWeatherOverlay(&game->camera, &frame->weatherVisual, &frame->worldLighting);
             DrawTornadoOverlay(&game->camera, &frame->tornado);
         }
     }
