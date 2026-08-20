@@ -113,6 +113,11 @@ static float MapClamp(float value, float low, float high)
     return value;
 }
 
+static float MapGlobeLatitude(float latitude)
+{
+    return MapClamp(latitude, -PI * 0.48f, PI * 0.48f);
+}
+
 static HomeWorldMapLayout MapLayout(void)
 {
     int sw = GetScreenWidth();
@@ -335,6 +340,7 @@ void HomeWorldMapOpen(Vector3 playerPosition, float daylight)
     };
     homeMap.playerPosition = playerPosition;
     MapPlayerLatLon(&homeMap.globeLongitude, &homeMap.globeLatitude);
+    homeMap.globeLatitude = MapGlobeLatitude(homeMap.globeLatitude);
     homeMap.showTerrain = true;
     homeMap.showEcology = true;
     homeMap.showCreatures = true;
@@ -495,7 +501,7 @@ static bool MapFocusGlobe(float longitude, float latitude)
     Vector2 world = { 0 };
     if (!MapWorldFromGlobe(longitude, latitude, &world)) return false;
     homeMap.globeLongitude = atan2f(sinf(longitude), cosf(longitude));
-    homeMap.globeLatitude = MapClamp(latitude, -PI * 0.48f, PI * 0.48f);
+    homeMap.globeLatitude = MapGlobeLatitude(latitude);
     homeMap.bounds.centerX = floorf(world.x);
     homeMap.bounds.centerZ = floorf(world.y);
     homeMap.dragOffset = Vector2Zero();
@@ -728,7 +734,7 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
             pointerHandled = true;
         } else if (MapPointInButton(mouse, layout.globeResetButton)) {
             homeMap.globeLongitude = playerLongitude;
-            homeMap.globeLatitude = playerLatitude;
+            homeMap.globeLatitude = MapGlobeLatitude(playerLatitude);
             pointerHandled = true;
         } else if (MapPointInButton(mouse, layout.globe)) {
             homeMap.globeDragging = true;
@@ -759,9 +765,8 @@ void HomeWorldMapUpdate(Vector3 playerPosition, float playerYaw,
         homeMap.globeLongitude -= delta.x * 0.012f;
         homeMap.globeLongitude = atan2f(sinf(homeMap.globeLongitude),
                                         cosf(homeMap.globeLongitude));
-        homeMap.globeLatitude = MapClamp(
-            homeMap.globeLatitude + delta.y * 0.010f,
-            -PI * 0.48f, PI * 0.48f);
+        homeMap.globeLatitude = MapGlobeLatitude(
+            homeMap.globeLatitude + delta.y * 0.010f);
     }
     if (homeMap.globeDragging &&
         IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
