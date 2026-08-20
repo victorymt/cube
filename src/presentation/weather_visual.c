@@ -21,10 +21,10 @@ float WeatherCloudVerticalDensity(float normalizedHeight)
         normalizedHeight >= 1.0f) {
         return 0.0f;
     }
-    float bottom = WeatherVisualSmoothStep(0.0f, 0.16f, normalizedHeight);
-    float top = 1.0f - WeatherVisualSmoothStep(0.64f, 1.0f,
+    float bottom = WeatherVisualSmoothStep(0.0f, 0.10f, normalizedHeight);
+    float top = 1.0f - WeatherVisualSmoothStep(0.70f, 0.98f,
                                                normalizedHeight);
-    float baseWeight = 0.72f + (1.0f - normalizedHeight) * 0.36f;
+    float baseWeight = 0.82f + (1.0f - normalizedHeight) * 0.30f;
     return WeatherVisualClamp(bottom * top * baseWeight);
 }
 
@@ -160,7 +160,7 @@ static WeatherCloudVisualLayer WeatherCloudLayerProfile(
         break;
     case WEATHER_CLOUD_GENUS_ALTOCUMULUS:
         layer.noiseScale = 1.38f; layer.stretch = 0.18f;
-        layer.cellularity = 0.68f; layer.verticalDevelopment = 0.20f;
+        layer.cellularity = 0.78f; layer.verticalDevelopment = 0.26f;
         layer.driftScale = 1.16f; opacityScale = 0.66f;
         break;
     case WEATHER_CLOUD_GENUS_ALTOSTRATUS:
@@ -175,7 +175,7 @@ static WeatherCloudVisualLayer WeatherCloudLayerProfile(
         break;
     case WEATHER_CLOUD_GENUS_STRATOCUMULUS:
         layer.noiseScale = 0.92f; layer.stretch = 0.10f;
-        layer.cellularity = 0.42f; layer.verticalDevelopment = 0.20f;
+        layer.cellularity = 0.58f; layer.verticalDevelopment = 0.32f;
         layer.driftScale = 0.86f; opacityScale = 0.78f;
         break;
     case WEATHER_CLOUD_GENUS_STRATUS:
@@ -184,12 +184,12 @@ static WeatherCloudVisualLayer WeatherCloudLayerProfile(
         opacityScale = 0.74f;
         break;
     case WEATHER_CLOUD_GENUS_CUMULUS:
-        layer.noiseScale = 0.84f; layer.cellularity = 0.18f;
-        layer.verticalDevelopment = 0.62f; layer.driftScale = 0.82f;
+        layer.noiseScale = 0.78f; layer.cellularity = 0.40f;
+        layer.verticalDevelopment = 0.74f; layer.driftScale = 0.82f;
         opacityScale = 0.86f;
         break;
     case WEATHER_CLOUD_GENUS_CUMULONIMBUS:
-        layer.noiseScale = 0.62f; layer.cellularity = 0.12f;
+        layer.noiseScale = 0.62f; layer.cellularity = 0.30f;
         layer.verticalDevelopment = 1.0f; layer.anvil = 1.0f;
         layer.driftScale = 0.76f; opacityScale = 1.0f;
         break;

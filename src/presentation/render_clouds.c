@@ -94,39 +94,88 @@ static const char *cloudFragmentShader =
     "    return vec2(max(max(nearValues.x, nearValues.y), nearValues.z),\n"
     "                min(min(farValues.x, farValues.y), farValues.z));\n"
     "}\n"
-    "float cloudNoise(vec3 point) {\n"
-    "    vec2 warped = vec2(point.x + point.y*0.63, point.z - point.y*0.37);\n"
+    "float cloudHash3D(vec3 point) {\n"
+    "    point = fract(point*0.1031);\n"
+    "    point += dot(point, point.yzx + 33.33);\n"
+    "    return fract((point.x + point.y)*point.z);\n"
+    "}\n"
+    "float cloudValueNoise3D(vec3 point) {\n"
+    "    vec3 cell = floor(point);\n"
+    "    vec3 blend = fract(point);\n"
+    "    blend = blend*blend*(3.0 - 2.0*blend);\n"
+    "    float z0 = mix(mix(cloudHash3D(cell + vec3(0.0, 0.0, 0.0)),\n"
+    "                       cloudHash3D(cell + vec3(1.0, 0.0, 0.0)), blend.x),\n"
+    "                   mix(cloudHash3D(cell + vec3(0.0, 1.0, 0.0)),\n"
+    "                       cloudHash3D(cell + vec3(1.0, 1.0, 0.0)), blend.x),\n"
+    "                   blend.y);\n"
+    "    float z1 = mix(mix(cloudHash3D(cell + vec3(0.0, 0.0, 1.0)),\n"
+    "                       cloudHash3D(cell + vec3(1.0, 0.0, 1.0)), blend.x),\n"
+    "                   mix(cloudHash3D(cell + vec3(0.0, 1.0, 1.0)),\n"
+    "                       cloudHash3D(cell + vec3(1.0, 1.0, 1.0)), blend.x),\n"
+    "                   blend.y);\n"
+    "    return mix(z0, z1, blend.z);\n"
+    "}\n"
+    "vec2 cloudCoordinates(vec3 point) {\n"
+    "    vec2 warped = point.xz;\n"
     "    vec2 direction = normalize(windDirection + vec2(0.0001));\n"
     "    vec2 perpendicular = vec2(-direction.y, direction.x);\n"
     "    float along = dot(warped, direction)*mix(1.0, 0.20, cloudStretch);\n"
     "    float across = dot(warped, perpendicular)*mix(1.0, 2.35, cloudStretch);\n"
     "    vec2 shaped = direction*along + perpendicular*across;\n"
     "    vec2 phase = vec2(cloudLayerPhase*17.3, cloudLayerPhase*-11.7);\n"
-    "    vec2 drifted = shaped - windOffset + phase;\n"
-    "    float scale = max(cloudNoiseScale, 0.10);\n"
-    "    float broad = texture(texture0, drifted*(0.0046*scale)).r;\n"
-    "    float billow = texture(texture0, drifted*(0.0127*scale) + vec2(0.17, 0.43)).r;\n"
-    "    float detail = texture(texture0, drifted*(0.0340*scale) + vec2(0.61, 0.09)).r;\n"
-    "    float verticalDetail = texture(texture0,\n"
-    "        drifted*(0.0190*scale) + vec2(point.y*0.013, point.y*-0.009) +\n"
-    "        vec2(0.29, 0.71)).r;\n"
-    "    float base = broad*0.52 + billow*0.27 + detail*0.13 +\n"
-    "                 verticalDetail*0.08;\n"
-    "    float cells = 1.0 - abs(billow*2.0 - 1.0);\n"
-    "    return mix(base, base*0.48 + cells*0.52, cloudCellularity);\n"
+    "    return shaped - windOffset + phase;\n"
     "}\n"
-    "float cloudDensity(vec3 point) {\n"
+    "float cloudColumnShape(vec3 point) {\n"
+    "    vec2 drifted = cloudCoordinates(point);\n"
+    "    float scale = max(cloudNoiseScale, 0.10);\n"
+    "    vec4 broad = texture(texture0, drifted*(0.0038*scale));\n"
+    "    vec4 billow = texture(texture0,\n"
+    "        drifted*(0.0105*scale) + vec2(0.17, 0.43));\n"
+    "    return broad.r*0.50 + billow.g*0.35 + billow.a*0.15;\n"
+    "}\n"
+    "vec4 cloudNoiseLayers(vec3 point) {\n"
+    "    vec2 drifted = cloudCoordinates(point);\n"
+    "    vec2 direction = normalize(windDirection + vec2(0.0001));\n"
+    "    vec2 perpendicular = vec2(-direction.y, direction.x);\n"
+    "    float scale = max(cloudNoiseScale, 0.10);\n"
+    "    vec4 broad = texture(texture0, drifted*(0.0038*scale));\n"
+    "    vec4 billow = texture(texture0,\n"
+    "        drifted*(0.0105*scale) + vec2(0.17, 0.43));\n"
+    "    vec2 finePoint = drifted + vec2(point.y*0.37, point.y*0.21);\n"
+    "    vec4 fine = texture(texture0,\n"
+    "        finePoint*(0.0290*scale) + vec2(0.61, 0.09));\n"
+    "    vec2 worldSide = point.xz - windOffset;\n"
+    "    float sideAlong = dot(worldSide, direction);\n"
+    "    float sideAcross = dot(worldSide, perpendicular);\n"
+    "    vec2 sidePoint = vec2(sideAcross*0.70 + sideAlong*0.20 +\n"
+    "                              point.y*0.41,\n"
+    "                              sideAlong*0.65 - sideAcross*0.18 -\n"
+    "                              point.y*0.33);\n"
+    "    vec4 side = texture(texture0,\n"
+    "        sidePoint*(0.0135*scale) + vec2(0.29, 0.71));\n"
+    "    vec3 volumePoint = vec3(drifted.x*(0.020*scale),\n"
+    "                            point.y*(0.043*scale) +\n"
+    "                            cloudLayerPhase*5.7,\n"
+    "                            drifted.y*(0.020*scale));\n"
+    "    float volumeShape = cloudValueNoise3D(volumePoint);\n"
+    "    float macroShape = broad.r*0.42 + volumeShape*0.58;\n"
+    "    float roundedBillow = billow.g*0.56 + side.g*0.44;\n"
+    "    float edgeDetail = fine.b*0.58 + side.b*0.42;\n"
+    "    float cells = billow.a*0.56 + side.a*0.44;\n"
+    "    return vec4(macroShape, roundedBillow, edgeDetail, cells);\n"
+    "}\n"
+    "float cloudDensitySample(vec3 point, out vec4 noiseLayers) {\n"
     "    float layerDepth = max(cloudBoxMax.y - cloudBoxMin.y, 0.001);\n"
     "    float height = clamp((point.y - cloudBoxMin.y)/\n"
     "                         layerDepth, 0.0, 1.0);\n"
-    "    float bottom = smoothstep(0.0, 0.16, height);\n"
-    "    float top = 1.0 - smoothstep(0.64, 1.0, height);\n"
+    "    float bottom = smoothstep(0.0, 0.10, height);\n"
+    "    float top = 1.0 - smoothstep(0.70, 0.98, height);\n"
     "    float sheetShape = bottom*top;\n"
     "    vec3 columnPoint = vec3(point.x, cloudBoxMin.y + layerDepth*0.22,\n"
     "                            point.z);\n"
-    "    float column = cloudNoise(columnPoint);\n"
-    "    float columnStrength = smoothstep(0.37, 0.70, column);\n"
-    "    float localTop = 0.30 + columnStrength*0.69;\n"
+    "    float column = cloudColumnShape(columnPoint);\n"
+    "    float columnStrength = smoothstep(0.29, 0.72, column);\n"
+    "    float localTop = 0.32 + columnStrength*0.66;\n"
     "    float towerTop = 1.0 - smoothstep(max(localTop - 0.18, 0.12),\n"
     "                                      localTop, height);\n"
     "    float towerShape = smoothstep(0.0, 0.09, height)*towerTop;\n"
@@ -134,29 +183,63 @@ static const char *cloudFragmentShader =
     "                              cloudVerticalDevelopment);\n"
     "    float anvilBand = smoothstep(0.60, 0.75, height)*\n"
     "                      (1.0 - smoothstep(0.91, 1.0, height));\n"
-    "    vec3 anvilPoint = vec3(point.x*0.62, point.y, point.z*0.62);\n"
-    "    float anvilNoise = cloudNoise(anvilPoint);\n"
-    "    float anvilShape = anvilBand*smoothstep(0.38, 0.59, anvilNoise);\n"
+    "    float anvilShape = 0.0;\n"
+    "    if (cloudAnvil > 0.01) {\n"
+    "        vec3 anvilPoint = vec3(point.x*0.62, point.y, point.z*0.62);\n"
+    "        float anvilNoise = cloudColumnShape(anvilPoint);\n"
+    "        anvilShape = anvilBand*smoothstep(0.38, 0.59, anvilNoise);\n"
+    "    }\n"
     "    verticalShape = max(verticalShape, anvilShape*cloudAnvil*0.88);\n"
-    "    float noiseValue = cloudNoise(point);\n"
-    "    float threshold = mix(0.69, 0.44, clamp(cloudCoverage, 0.0, 1.0));\n"
+    "    noiseLayers = cloudNoiseLayers(point);\n"
+    "    float cellular = mix(noiseLayers.y, noiseLayers.w,\n"
+    "                         cloudCellularity);\n"
+    "    float noiseValue = noiseLayers.x*0.55 + noiseLayers.y*0.31 +\n"
+    "                       cellular*0.14;\n"
+    "    float threshold = mix(0.70, 0.43, clamp(cloudCoverage, 0.0, 1.0));\n"
     "    threshold -= stormAmount*0.06;\n"
-    "    threshold += cloudVerticalDevelopment*mix(-0.025, 0.10, height);\n"
+    "    threshold += cloudVerticalDevelopment*mix(-0.025, 0.075, height);\n"
     "    threshold -= cloudAnvil*anvilBand*0.12;\n"
-    "    float density = smoothstep(threshold - 0.055, threshold + 0.075,\n"
-    "                               noiseValue);\n"
-    "    float baseWeight = mix(0.72, 1.08, 1.0 - height);\n"
+    "    float coarse = smoothstep(threshold - 0.080, threshold + 0.105,\n"
+    "                              noiseValue);\n"
+    "    float erosion = mix(noiseLayers.z, noiseLayers.w,\n"
+    "                        0.20 + cloudCellularity*0.42);\n"
+    "    float density = clamp(coarse - (1.0 - erosion)*\n"
+    "                          (1.0 - coarse)*0.58, 0.0, 1.0);\n"
+    "    density = smoothstep(0.035, 0.72, density);\n"
+    "    float upperBillow = mix(1.0, smoothstep(0.20, 0.66,\n"
+    "        noiseLayers.y*0.68 + noiseLayers.w*0.32),\n"
+    "        cloudVerticalDevelopment*height*0.68);\n"
+    "    float baseWeight = mix(0.82, 1.12, 1.0 - height);\n"
+    "    density *= upperBillow;\n"
     "    return clamp(density*verticalShape*baseWeight, 0.0, 1.0);\n"
+    "}\n"
+    "float cloudDensity(vec3 point) {\n"
+    "    vec4 noiseLayers;\n"
+    "    return cloudDensitySample(point, noiseLayers);\n"
     "}\n"
     "float cloudLight(vec3 point) {\n"
     "    float obstruction = 0.0;\n"
     "    vec3 direction = normalize(sunDirection);\n"
     "    for (int index = 0; index < 4; index++) {\n"
     "        if (index >= lightSteps) break;\n"
-    "        float distanceAlongLight = 2.4 + float(index)*3.8;\n"
-    "        obstruction += cloudDensity(point + direction*distanceAlongLight);\n"
+    "        float distanceAlongLight = 2.8 + float(index)*4.6;\n"
+    "        obstruction += cloudDensity(point + direction*distanceAlongLight)*\n"
+    "                       mix(1.0, 0.72, float(index)/3.0);\n"
     "    }\n"
-    "    return exp(-obstruction*0.62);\n"
+    "    return exp(-obstruction*0.74);\n"
+    "}\n"
+    "float cloudPhase(float cosineAngle) {\n"
+    "    float forwardG = 0.56;\n"
+    "    float backG = -0.20;\n"
+    "    float forward = (1.0 - forwardG*forwardG)/\n"
+    "        pow(1.0 + forwardG*forwardG - 2.0*forwardG*cosineAngle, 1.5);\n"
+    "    float backward = (1.0 - backG*backG)/\n"
+    "        pow(1.0 + backG*backG - 2.0*backG*cosineAngle, 1.5);\n"
+    "    return clamp((forward*0.72 + backward*0.28)*0.18, 0.08, 1.35);\n"
+    "}\n"
+    "float cloudRayJitter(vec2 pixel) {\n"
+    "    return fract(52.9829189*fract(dot(pixel,\n"
+    "        vec2(0.06711056, 0.00583715)) + cloudLayerPhase*0.173));\n"
     "}\n"
     "void main() {\n"
     "    vec3 rayDirection = normalize(fragPosition - cameraPosition);\n"
@@ -170,25 +253,54 @@ static const char *cloudFragmentShader =
     "    float segmentLength = farDistance - nearDistance;\n"
     "    float stepLength = segmentLength/float(max(raySteps, 1));\n"
     "    if (!cameraInside && abs(surfaceDistance - nearDistance) > max(2.0, stepLength*1.5)) discard;\n"
-    "    float jitter = texture(texture0, fragPosition.xz*0.021).r;\n"
-    "    float travel = nearDistance + stepLength*(0.18 + jitter*0.64);\n"
+    "    float jitter = cloudRayJitter(floor(gl_FragCoord.xy));\n"
+    "    float travel = nearDistance + stepLength*(jitter - 0.5)*0.35;\n"
     "    float accumulatedAlpha = 0.0;\n"
     "    vec3 accumulatedColor = vec3(0.0);\n"
-    "    float forwardScatter = pow(max(dot(rayDirection, normalize(sunDirection)), 0.0), 8.0);\n"
+    "    float cachedTransmission = -1.0;\n"
+    "    float viewSun = dot(rayDirection, normalize(sunDirection));\n"
+    "    float phase = cloudPhase(viewSun);\n"
     "    for (int index = 0; index < 24; index++) {\n"
     "        if (index >= raySteps || travel >= farDistance || accumulatedAlpha > 0.985) break;\n"
-    "        vec3 point = cameraPosition + rayDirection*travel;\n"
+    "        vec3 point = cameraPosition + rayDirection*\n"
+    "                     (travel + stepLength*0.25);\n"
+    "        vec3 farPoint = cameraPosition + rayDirection*\n"
+    "                        (travel + stepLength*0.75);\n"
     "        float edgeFade = 1.0 - smoothstep(drawDistance*0.72, drawDistance,\n"
     "                                           length(point.xz - cameraPosition.xz));\n"
-    "        float density = cloudDensity(point)*edgeFade;\n"
+    "        vec4 nearNoise;\n"
+    "        vec4 farNoise;\n"
+    "        float nearDensity = cloudDensitySample(point, nearNoise);\n"
+    "        float farDensity = cloudDensitySample(farPoint, farNoise);\n"
+    "        float density = (nearDensity + farDensity)*0.5*edgeFade;\n"
+    "        vec4 localNoise = (nearNoise + farNoise)*0.5;\n"
     "        if (density > 0.015) {\n"
-    "            float transmission = cloudLight(point);\n"
-    "            float extinction = mix(0.030, 0.090, cloudOpacity);\n"
+    "            if (cachedTransmission < 0.0 || index%2 == 0) {\n"
+    "                cachedTransmission = cloudLight(point);\n"
+    "            }\n"
+    "            float transmission = cachedTransmission;\n"
+    "            float extinction = mix(0.032, 0.096, cloudOpacity);\n"
     "            float sampleAlpha = 1.0 - exp(-density*stepLength*extinction);\n"
-    "            vec3 shadowColor = mix(vec3(0.32, 0.37, 0.45), colDiffuse.rgb, 0.26);\n"
-    "            vec3 litColor = colDiffuse.rgb*lightColor*(0.62 + lightStrength*0.34);\n"
-    "            vec3 sampleColor = mix(shadowColor, litColor, 0.20 + transmission*0.80);\n"
-    "            sampleColor += lightColor*forwardScatter*transmission*0.22;\n"
+    "            float layerHeight = clamp((point.y - cloudBoxMin.y)/\n"
+    "                max(cloudBoxMax.y - cloudBoxMin.y, 0.001), 0.0, 1.0);\n"
+    "            float powder = 1.0 - exp(-density*2.8);\n"
+    "            vec3 shadowColor = mix(vec3(0.40, 0.47, 0.58),\n"
+    "                                   colDiffuse.rgb, 0.42);\n"
+    "            float ambient = 0.50 + daylight*0.14 + layerHeight*0.12;\n"
+    "            vec3 sampleColor = shadowColor*ambient;\n"
+    "            float multipleScatter = 0.07 + powder*0.09 +\n"
+    "                                    daylight*0.05;\n"
+    "            sampleColor += colDiffuse.rgb*multipleScatter;\n"
+    "            float lobeExposure = smoothstep(0.24, 0.76,\n"
+    "                localNoise.y*0.68 + localNoise.z*0.32);\n"
+    "            sampleColor *= mix(0.76, 1.12, lobeExposure);\n"
+    "            vec3 directColor = colDiffuse.rgb*lightColor;\n"
+    "            float direct = transmission*(0.32 + powder*0.48)*\n"
+    "                           (0.52 + phase*0.68)*\n"
+    "                           (0.58 + lightStrength*0.30);\n"
+    "            sampleColor += directColor*direct;\n"
+    "            float silverLining = transmission*(1.0 - powder)*phase*0.42;\n"
+    "            sampleColor += lightColor*silverLining;\n"
     "            float remaining = 1.0 - accumulatedAlpha;\n"
     "            accumulatedColor += remaining*sampleColor*sampleAlpha;\n"
     "            accumulatedAlpha += remaining*sampleAlpha;\n"
@@ -200,7 +312,7 @@ static const char *cloudFragmentShader =
     "    if (accumulatedAlpha < 0.008) discard;\n"
     "    vec3 color = accumulatedColor/max(rawAlpha, 0.001);\n"
     "    color = mix(color, color*vec3(0.72, 0.76, 0.84), stormAmount*0.34);\n"
-    "    color *= 0.72 + daylight*0.28;\n"
+    "    color *= 0.78 + daylight*0.22;\n"
     "    finalColor = vec4(color, clamp(accumulatedAlpha, 0.0, 0.96));\n"
     "}\n";
 
@@ -237,28 +349,57 @@ static float CloudValueNoise(float x, float y, int period)
     return Lerp(a, b, ty);
 }
 
+static float CloudCellularNoise(float x, float y, int period)
+{
+    int baseX = (int)floorf(x);
+    int baseY = (int)floorf(y);
+    float nearestSquared = 4.0f;
+    for (int offsetY = -1; offsetY <= 1; offsetY++) {
+        for (int offsetX = -1; offsetX <= 1; offsetX++) {
+            int cellX = baseX + offsetX;
+            int cellY = baseY + offsetY;
+            int wrappedX = cellX % period;
+            int wrappedY = cellY % period;
+            if (wrappedX < 0) wrappedX += period;
+            if (wrappedY < 0) wrappedY += period;
+            float featureX = (float)cellX + 0.14f +
+                CloudNoiseLattice(wrappedX, wrappedY, period)*0.72f;
+            float featureY = (float)cellY + 0.14f +
+                CloudNoiseLattice(wrappedX + 37, wrappedY - 19, period)*0.72f;
+            float dx = x - featureX;
+            float dy = y - featureY;
+            nearestSquared = fminf(nearestSquared, dx*dx + dy*dy);
+        }
+    }
+    return 1.0f - Clamp(sqrtf(nearestSquared)/0.92f, 0.0f, 1.0f);
+}
+
 static Texture2D MakeCloudNoiseTexture(void)
 {
     enum { CLOUD_NOISE_SIZE = 128 };
     Color *pixels = malloc(sizeof(*pixels)*CLOUD_NOISE_SIZE*CLOUD_NOISE_SIZE);
     if (!pixels) return (Texture2D){ 0 };
 
+    /* RGBA stores macro shape, billows, erosion detail, and cellular lobes. */
     for (int y = 0; y < CLOUD_NOISE_SIZE; y++) {
         for (int x = 0; x < CLOUD_NOISE_SIZE; x++) {
             float nx = (float)x/(float)CLOUD_NOISE_SIZE;
             float ny = (float)y/(float)CLOUD_NOISE_SIZE;
-            float value = 0.0f;
-            float weight = 0.0f;
-            for (int octave = 0; octave < 5; octave++) {
-                int period = 4 << octave;
-                float amplitude = powf(0.55f, (float)octave);
-                value += CloudValueNoise(nx*(float)period,
-                                         ny*(float)period, period)*amplitude;
-                weight += amplitude;
-            }
-            unsigned char gray = (unsigned char)Clamp(value/weight*255.0f,
-                                                       0.0f, 255.0f);
-            pixels[y*CLOUD_NOISE_SIZE + x] = (Color){ gray, gray, gray, 255 };
+            float macro = CloudValueNoise(nx*4.0f, ny*4.0f, 4)*0.68f +
+                          CloudValueNoise(nx*8.0f, ny*8.0f, 8)*0.32f;
+            float billow = CloudValueNoise(nx*8.0f, ny*8.0f, 8)*0.56f +
+                           CloudValueNoise(nx*16.0f, ny*16.0f, 16)*0.29f +
+                           CloudValueNoise(nx*32.0f, ny*32.0f, 32)*0.15f;
+            float detail = CloudValueNoise(nx*16.0f, ny*16.0f, 16)*0.50f +
+                           CloudValueNoise(nx*32.0f, ny*32.0f, 32)*0.31f +
+                           CloudValueNoise(nx*64.0f, ny*64.0f, 64)*0.19f;
+            float cellular = CloudCellularNoise(nx*12.0f, ny*12.0f, 12);
+            pixels[y*CLOUD_NOISE_SIZE + x] = (Color){
+                (unsigned char)Clamp(macro*255.0f, 0.0f, 255.0f),
+                (unsigned char)Clamp(billow*255.0f, 0.0f, 255.0f),
+                (unsigned char)Clamp(detail*255.0f, 0.0f, 255.0f),
+                (unsigned char)Clamp(cellular*255.0f, 0.0f, 255.0f)
+            };
         }
     }
 
@@ -360,11 +501,11 @@ static Color WeatherCloudColor(const WeatherVisualState *visual, Color tint)
     float daylight = visual ? visual->daylight : 0.5f;
     float storm = visual ? visual->stormDarkening : 0.0f;
     float snow = visual ? visual->snowFraction : 0.0f;
-    Color cloud = ColorLerp((Color){ 96, 105, 122, 255 },
-                            (Color){ 238, 242, 246, 255 }, daylight);
+    Color cloud = ColorLerp((Color){ 142, 156, 181, 255 },
+                            (Color){ 244, 247, 250, 255 }, daylight);
     cloud = ColorLerp(cloud, (Color){ 72, 80, 96, 255 }, storm * 0.72f);
     cloud = ColorLerp(cloud, (Color){ 224, 232, 240, 255 }, snow * 0.36f);
-    return ColorLerp(cloud, tint, 0.18f);
+    return ColorLerp(cloud, tint, 0.07f);
 }
 
 static Color WeatherCloudLayerColor(const WeatherVisualState *visual,
@@ -501,8 +642,9 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
             layerStorm *= 0.28f;
         }
         int layerRaySteps = (int)roundf((float)raySteps *
-            (0.48f + layer->opacity * 0.20f +
-             layer->verticalDevelopment * 0.24f));
+            (0.54f + layer->opacity * 0.18f +
+             layer->verticalDevelopment * 0.30f));
+        if (layer->verticalDevelopment >= 0.55f) layerRaySteps = raySteps;
         if (layerRaySteps < 4) layerRaySteps = 4;
         if (layerRaySteps > raySteps) layerRaySteps = raySteps;
         int layerLightSteps = layer->opacity < 0.42f ? 1 : lightSteps;

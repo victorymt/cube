@@ -156,6 +156,8 @@ static void TestCloudVerticalDensity(void)
     assert(lowerEdge > 0.0f && lowerEdge < body);
     assert(upperEdge > 0.0f && upperEdge < body);
     AssertUnit(body);
+    assert(WeatherCloudVerticalDensity(0.72f) >
+           WeatherCloudVerticalDensity(0.92f));
 }
 
 static void TestCloudMotionDoesNotReprojectHistory(void)
@@ -224,6 +226,8 @@ static void TestLayerSelectionAndProfiles(void)
     assert(state.cloudLayers[2].genus == WEATHER_CLOUD_GENUS_CIRRUS);
     assert(state.cloudLayers[0].verticalDevelopment >
            state.cloudLayers[1].verticalDevelopment);
+    assert(state.cloudLayers[0].verticalDevelopment >= 0.70f);
+    assert(state.cloudLayers[0].cellularity >= 0.35f);
     assert(state.cloudLayers[1].cellularity >
            state.cloudLayers[0].cellularity);
     assert(state.cloudLayers[2].stretch > state.cloudLayers[1].stretch);
