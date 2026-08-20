@@ -52,12 +52,17 @@ itself.
 `auto` is the default and uses half of the online logical CPUs, clamped to
 1-8 workers so rendering, audio, and the compositor retain CPU time. An
 explicit count is useful for low-power systems and repeatable comparisons.
+Without this option, the saved `Chunk workers` pause-menu setting is used.
+Supplying the option, including `--chunk-workers auto`, locks that menu row
+for the session so deterministic debug and performance runs cannot be changed
+accidentally. Menu changes are coalesced while paused and applied at the next
+safe frame boundary after the pause menu closes.
 
 Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 `--debug-trace [PATH]` can be combined with either debug entry point. Its JSONL
@@ -193,6 +198,7 @@ Runtime values are sampled when an expression is evaluated:
 | Name | Type | Meaning |
 | --- | --- | --- |
 | `game.screen` | string | `"start"` or `"playing"` |
+| `game.paused` | bool | Whether the pause menu is open |
 | `world.seed` | number | Current world seed |
 | `world.dimension` | string | Current dimension name |
 | `world.surface_body` | number | Canonical ID of the active solid body |
@@ -408,6 +414,9 @@ input FORWARD STRAFE VERTICAL SPRINT FRAMES
 mouse left
 mouse right
 ```
+
+`pause on` opens the ordinary pause menu while playing, and `pause off`
+closes it. This is useful for deterministic menu screenshots and assertions.
 
 Movement components are in `[-1,1]`; `SPRINT` is `0` or `1`; scripted input
 lasts 1-600 frames. Teleport coordinates are finite and bounded to +/-1,000,000,

@@ -54,7 +54,6 @@ static void GameDebugMarkCommandError(GameRuntime *game, const char *reason)
     snprintf(game->debugCommandFailure, sizeof(game->debugCommandFailure),
              "%s", reason ? reason : "command_failed");
 }
-
 static int GameDebugCountSurfaceFaceVertices(
     const Chunk *chunk, const ChunkSection *section,
     int worldX, int worldY, int worldZ, int nx, int ny, int nz)
@@ -127,7 +126,6 @@ static int GameDebugCountSurfaceFaceVertices(
     }
     return matches;
 }
-
 static void GameDebugReplyStatus(GameRuntime *game)
 {
     Vector3 aimEye = {
@@ -294,7 +292,6 @@ static void GameDebugReplyStatus(GameRuntime *game)
         game->debugLeftTargetZ, ChunksConfiguredWorkerCount(),
         ChunksStartedWorkerCount(), ChunksActiveWorkerCount());
 }
-
 static void GameDebugToggleSurfaceMap(GameRuntime *game)
 {
     if (game->screen != SCREEN_PLAYING || !WorldIsSurfaceActive()) {
@@ -326,7 +323,6 @@ static void GameDebugToggleSurfaceMap(GameRuntime *game)
     EnableCursor();
     DebugControlReply(&game->debugControl, "DEBUG_CONTROL map open\n");
 }
-
 static MapMarkerSurface GameDebugMarkerSurface(void)
 {
     return (MapMarkerSurface){
@@ -835,7 +831,6 @@ typedef enum GameDebugDispatchResult {
     GAME_DEBUG_DISPATCH_START,
     GAME_DEBUG_DISPATCH_ERROR
 } GameDebugDispatchResult;
-
 static GameDebugDispatchResult GameDebugDispatchSystemCommand(
     GameRuntime *game, DebugControlCommand command)
 {
@@ -858,6 +853,9 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_STATUS:
         GameDebugReplyStatus(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_PAUSE:
+        GameDebugApplyPauseCommand(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY:
         GameDebugTopologyReply(game);
@@ -1446,12 +1444,14 @@ static bool GameDebugDslResolve(void *userData, const char *name,
     GameRuntime *game = userData;
     (void)outError;
     if (!game || !name || !outValue) return false;
-
     if (GameDebugBlockDslResolve(game, name, outValue)) return true;
     if (GameDebugFloraDslResolve(game, name, outValue)) return true;
     if (strcmp(name, "game.screen") == 0) {
         return GameDebugDslString(
             outValue, game->screen == SCREEN_PLAYING ? "playing" : "start");
+    }
+    if (strcmp(name, "game.paused") == 0) {
+        return GameDebugDslBool(outValue, game->paused);
     }
     if (strcmp(name, "world.seed") == 0) {
         return GameDebugDslNumber(outValue, WorldGetSeed());

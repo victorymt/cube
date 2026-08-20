@@ -117,6 +117,8 @@ typedef struct GameRuntime {
   bool debugTracePathInvalid;
   bool debugResolutionInvalid;
   bool chunkWorkerCountInvalid;
+  bool chunkWorkerCountOverridden;
+  bool chunkWorkerReconfigurePending;
   bool blockGalleryActive;
   bool floraGalleryActive;
   bool floraSampleActive;
@@ -161,5 +163,6 @@ typedef struct GameRuntime {
 } GameRuntime;
 
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv);
+void GameRuntimeApplyPendingChunkWorkerReconfigure(GameRuntime *runtime);
 
 #endif

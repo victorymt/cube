@@ -7,5 +7,6 @@ struct GameRuntime;
 
 const char *GameDebugDslCommandBlocked(
     const struct GameRuntime *game, DebugControlCommand command);
+void GameDebugApplyPauseCommand(struct GameRuntime *game);
 
 #endif

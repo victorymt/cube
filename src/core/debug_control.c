@@ -526,6 +526,14 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "pause on") == 0) {
+        control->pauseEnabled = true;
+        return DEBUG_CONTROL_COMMAND_PAUSE;
+    }
+    if (strcmp(line, "pause off") == 0) {
+        control->pauseEnabled = false;
+        return DEBUG_CONTROL_COMMAND_PAUSE;
+    }
     if (strcmp(line, "world topology") == 0) {
         return DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY;
     }

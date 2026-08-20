@@ -10,6 +10,7 @@
 typedef struct GameSettings {
     int version;
     GraphicsQuality graphicsQuality;
+    int chunkWorkerCount;
     float masterVolume;
     float ambientVolume;
     float musicVolume;

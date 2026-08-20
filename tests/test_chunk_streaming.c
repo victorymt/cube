@@ -162,6 +162,19 @@ static void TestWorkerPoolRunsJobsConcurrently(void)
 
     generationProbeEnabled = false;
     allowColumnGeneration = false;
+    for (int index = 0; index < 4; index++) {
+        ChunksTestConfigureChunk(index, 44 + index, 0, true, false);
+        chunks[index].generation = (uint32_t)(200 + index);
+        assert(RequestChunkTerrainSection(44 + index, 0, 0));
+    }
+    ChunksTestSeedMeshJob(0, 0, 44, 0, 0, false);
+    assert(ChunksRestartGenThreads(2));
+    assert(ChunksConfiguredWorkerCount() == 2);
+    assert(ChunksStartedWorkerCount() == 2);
+    for (int index = 0; index < 4; index++) {
+        assert(ChunkGetSectionConst(&chunks[index], 0) != NULL);
+    }
+    assert(ChunksTestMeshJobSlot(0) == -1);
     ChunksShutdownGenThread();
     assert(ChunksStartedWorkerCount() == 0);
     assert(ChunksActiveWorkerCount() == 0);

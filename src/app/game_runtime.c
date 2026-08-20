@@ -1,6 +1,8 @@
 #include "app/game_runtime.h"
 
+#include "core/game_notice.h"
 #include "gameplay/player.h"
+#include "world/chunks.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -147,7 +149,7 @@ static bool ParseDebugResolutionArgs(int argc, char **argv, int *outWidth,
 }
 
 static void ParseChunkWorkerArgs(int argc, char **argv, int *outCount,
-                                 bool *outInvalid) {
+                                 bool *outInvalid, bool *outOverridden) {
   bool seen = false;
   bool invalid = false;
   int count = 0;
@@ -185,6 +187,7 @@ static void ParseChunkWorkerArgs(int argc, char **argv, int *outCount,
   }
   if (outCount) *outCount = count;
   if (outInvalid) *outInvalid = invalid;
+  if (outOverridden) *outOverridden = seen;
 }
 
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
@@ -230,12 +233,16 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
                            &runtime->screenHeight,
                            &runtime->debugResolutionInvalid);
   ParseChunkWorkerArgs(argc, argv, &runtime->chunkWorkerCount,
-                       &runtime->chunkWorkerCountInvalid);
+                       &runtime->chunkWorkerCountInvalid,
+                       &runtime->chunkWorkerCountOverridden);
   if (runtime->debugControlEnabled) {
     runtime->autoSaveEnabled = false;
     runtime->showHelp = false;
   }
   GameSettingsLoad(&runtime->settings);
+  if (!runtime->chunkWorkerCountOverridden) {
+    runtime->chunkWorkerCount = runtime->settings.chunkWorkerCount;
+  }
   PlayerResetRuntimeState(&runtime->player);
   runtime->camera.up = (Vector3){0.0f, 1.0f, 0.0f};
   runtime->camera.fovy =
@@ -243,4 +250,25 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   runtime->camera.projection = CAMERA_PERSPECTIVE;
   DebugControlInit(&runtime->debugControl, runtime->debugControlEnabled);
   if (!runtime->debugStdinEnabled) runtime->debugControl.inputClosed = true;
+}
+
+void GameRuntimeApplyPendingChunkWorkerReconfigure(GameRuntime *runtime) {
+  if (!runtime || !runtime->chunkWorkerReconfigurePending || runtime->paused)
+    return;
+  runtime->chunkWorkerReconfigurePending = false;
+
+  int requested = runtime->settings.chunkWorkerCount;
+  int previous = runtime->chunkWorkerCount;
+  if (ChunksRestartGenThreads(requested)) {
+    runtime->chunkWorkerCount = requested;
+    return;
+  }
+
+  runtime->settings.chunkWorkerCount = previous;
+  runtime->chunkWorkerCount = previous;
+  bool restored = ChunksRestartGenThreads(previous);
+  GameSettingsSave(&runtime->settings);
+  GameNoticePost(restored
+                     ? "Chunk worker change failed; previous count restored."
+                     : "Chunk worker change failed; using synchronous generation.");
 }

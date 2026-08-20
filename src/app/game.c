@@ -1,6 +1,5 @@
 #include "raylib.h"
 #include "raymath.h"
-
 #include "app/game.h"
 #include "app/game_biology.h"
 #include "app/game_debug.h"
@@ -60,13 +59,11 @@
 #include "app/screenshot.h"
 #include "core/debug_control.h"
 #include "world/tornado.h"
-
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 bool GameWorldSimulationPaused(const GameRuntime *game)
 {
     return game && (game->paused || HomeWorldMapIsOpen());
@@ -1120,7 +1117,6 @@ static void GameRenderHud(GameRuntime *game, const GameFrameView *frame,
 static void GameRenderPauseOverlay(GameRuntime *game)
 {
     if (!game->paused) return;
-
     if (IsKeyPressed(KEY_MINUS)) {
         game->settings.masterVolume = fmaxf(
             0.0f, game->settings.masterVolume - 0.1f);
@@ -1140,6 +1136,12 @@ static void GameRenderPauseOverlay(GameRuntime *game)
     PauseMenuActions pauseActions = { 0 };
     PauseMenuSettings pauseSettings = {
         .graphicsQuality = game->settings.graphicsQuality,
+        .chunkWorkerCount = game->chunkWorkerCountOverridden
+            ? game->chunkWorkerCount
+            : game->settings.chunkWorkerCount,
+        .activeChunkWorkerCount = ChunksStartedWorkerCount(),
+        .maxChunkWorkerCount = MAX_CHUNK_WORKER_THREADS,
+        .chunkWorkerCountLocked = game->chunkWorkerCountOverridden,
         .masterVolume = game->settings.masterVolume,
         .ambientVolume = game->settings.ambientVolume,
         .musicVolume = game->settings.musicVolume,
@@ -1161,6 +1163,11 @@ static void GameRenderPauseOverlay(GameRuntime *game)
             game->settings.graphicsQuality = previousQuality;
             GameNoticePost(
                 "Graphics quality change failed; previous quality restored.");
+        }
+        if (pauseActions.workersChanged &&
+            !game->chunkWorkerCountOverridden) {
+            game->settings.chunkWorkerCount = pauseSettings.chunkWorkerCount;
+            game->chunkWorkerReconfigurePending = true;
         }
         WeatherSetParticleScale(
             GraphicsQualityProfileFor(
@@ -1222,6 +1229,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     double debugFrameCpuStarted = game->debugTraceEnabled
         ? GameDebugTraceMainCpuNowMs() : 0.0;
     double debugStageCpuStarted = debugFrameCpuStarted;
+    GameRuntimeApplyPendingChunkWorkerReconfigure(game);
     if (game->perfMode) ApplyPerfRoute(&game->player, PerfFrameIndex());
 
     bool landingSkipPressed = LandingTransitionUpdate(&game->landingTransition, &game->player, dt);
@@ -1401,7 +1409,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
+        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
         "fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit\n");
     return true;
 }

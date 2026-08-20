@@ -19,6 +19,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_START,
     DEBUG_CONTROL_COMMAND_SCREENSHOT,
     DEBUG_CONTROL_COMMAND_STATUS,
+    DEBUG_CONTROL_COMMAND_PAUSE,
     DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY,
     DEBUG_CONTROL_COMMAND_WATER_DEBUG,
     DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH,
@@ -165,6 +166,7 @@ typedef struct DebugControl {
     bool streamAuditUsePlayerPosition;
     bool waterDebugEnabled;
     bool waterDebugThrough;
+    bool pauseEnabled;
     bool weatherDamageEnabled;
     bool thirdPerson;
     bool mapLiquidsVisible;

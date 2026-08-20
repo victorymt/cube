@@ -366,6 +366,21 @@ void ChunksShutdownGenThread(void)
     }
 }
 
+bool ChunksRestartGenThreads(int requestedWorkers)
+{
+    if (requestedWorkers < 0 ||
+        requestedWorkers > MAX_CHUNK_WORKER_THREADS) return false;
+
+    ChunksShutdownGenThread();
+    if (!ChunksConfigureWorkerCount(requestedWorkers)) return false;
+    if (!ChunksStartGenThread()) return false;
+    if (ChunksStartedWorkerCount() == ChunksConfiguredWorkerCount()) {
+        return true;
+    }
+    ChunksShutdownGenThread();
+    return false;
+}
+
 bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
 {
     if (genWorkerThreadsStarted == 0u) return false;

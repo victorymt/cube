@@ -1,5 +1,6 @@
 #include "app/game_settings.h"
 
+#include "core/config.h"
 #include "core/save_io.h"
 
 #include <ctype.h>
@@ -7,7 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define GAME_SETTINGS_VERSION 2
+#define GAME_SETTINGS_VERSION 3
 
 static float SettingsUnit(float value, float fallback)
 {
@@ -22,6 +23,7 @@ GameSettings GameSettingsDefaults(void)
     return (GameSettings){
         .version = GAME_SETTINGS_VERSION,
         .graphicsQuality = GRAPHICS_QUALITY_MEDIUM,
+        .chunkWorkerCount = 0,
         .masterVolume = 1.0f,
         .ambientVolume = 0.70f,
         .musicVolume = 0.22f,
@@ -37,6 +39,10 @@ GameSettings GameSettingsSanitize(GameSettings settings)
     if (settings.graphicsQuality < GRAPHICS_QUALITY_LOW ||
         settings.graphicsQuality >= GRAPHICS_QUALITY_COUNT) {
         settings.graphicsQuality = defaults.graphicsQuality;
+    }
+    if (settings.chunkWorkerCount < 0 ||
+        settings.chunkWorkerCount > MAX_CHUNK_WORKER_THREADS) {
+        settings.chunkWorkerCount = defaults.chunkWorkerCount;
     }
     settings.masterVolume = SettingsUnit(settings.masterVolume,
                                          defaults.masterVolume);
@@ -89,6 +95,9 @@ bool GameSettingsLoadPath(const char *path, GameSettings *settings)
         if (strcmp(key, "graphics_quality") == 0) {
             if (sscanf(value, "%d", &integer) != 1) valid = false;
             else loaded.graphicsQuality = (GraphicsQuality)integer;
+        } else if (strcmp(key, "chunk_worker_count") == 0) {
+            if (sscanf(value, "%d", &integer) != 1) valid = false;
+            else loaded.chunkWorkerCount = integer;
         } else if (strcmp(key, "master_volume") == 0) {
             if (sscanf(value, "%f", &number) != 1) valid = false;
             else loaded.masterVolume = number;
@@ -121,12 +130,14 @@ static bool WriteSettings(FILE *file, void *context)
     return fprintf(file,
                    "VOXELCRAFT_SETTINGS %d\n"
                    "graphics_quality=%d\n"
+                   "chunk_worker_count=%d\n"
                    "master_volume=%.3f\n"
                    "ambient_volume=%.3f\n"
                    "music_volume=%.3f\n"
                    "music_enabled=%d\n"
                    "weather_damage_enabled=%d\n",
                    GAME_SETTINGS_VERSION, (int)settings->graphicsQuality,
+                   settings->chunkWorkerCount,
                    settings->masterVolume, settings->ambientVolume,
                    settings->musicVolume, settings->musicEnabled ? 1 : 0,
                    settings->weatherDamageEnabled ? 1 : 0) > 0;

@@ -44,7 +44,7 @@ static void TestCommandStream(void)
     DebugControl control;
     DebugControlInitFds(&control, true, inputPipe[0], outputPipe[1]);
     const char *commands =
-        "\n START \r\nscreenshot\nstatus\nworld topology\nwater debug on\nwater debug through on\n"
+        "\n START \r\nscreenshot\nstatus\npause on\npause off\nworld topology\nwater debug on\nwater debug through on\n"
         "water debug\nwater debug through\nwater debug off\nstream audit 3\n"
         "stream audit at 15 110 -252 4\nstream wait\nstream wait 45\n"
         "save\nload\nmap\n"
@@ -68,6 +68,10 @@ static void TestCommandStream(void)
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_START);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SCREENSHOT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_STATUS);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_PAUSE);
+    assert(control.pauseEnabled);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_PAUSE);
+    assert(!control.pauseEnabled);
     assert(DebugControlPoll(&control) ==
            DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_WATER_DEBUG);

@@ -21,10 +21,15 @@ typedef struct PauseMenuActions {
     bool returnToMenu;
     bool settingsChanged;
     bool qualityChanged;
+    bool workersChanged;
 } PauseMenuActions;
 
 typedef struct PauseMenuSettings {
     GraphicsQuality graphicsQuality;
+    int chunkWorkerCount;
+    int activeChunkWorkerCount;
+    int maxChunkWorkerCount;
+    bool chunkWorkerCountLocked;
     float masterVolume;
     float ambientVolume;
     float musicVolume;

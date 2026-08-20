@@ -129,6 +129,7 @@ void AddBlockFace(Mesh *mesh, int *vertexIndex, int x, int y, int z, int face, B
 
 bool ChunksStartGenThread(void);
 void ChunksShutdownGenThread(void);
+bool ChunksRestartGenThreads(int requestedWorkers);
 bool ChunksConfigureWorkerCount(int requestedWorkers);
 int ChunksConfiguredWorkerCount(void);
 int ChunksStartedWorkerCount(void);

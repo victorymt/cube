@@ -6,6 +6,18 @@
 
 #include <stddef.h>
 
+void GameDebugApplyPauseCommand(GameRuntime *game)
+{
+    game->paused = game->debugControl.pauseEnabled;
+    game->player.velocity = (Vector3){ 0 };
+    game->cursorReleased = false;
+    if (game->paused) EnableCursor();
+    else DisableCursor();
+    DebugControlReply(&game->debugControl,
+                      "DEBUG_CONTROL pause enabled=%d\n",
+                      game->paused ? 1 : 0);
+}
+
 const char *GameDebugDslCommandBlocked(
     const GameRuntime *game, DebugControlCommand command)
 {
@@ -13,6 +25,7 @@ const char *GameDebugDslCommandBlocked(
     case DEBUG_CONTROL_COMMAND_START:
         return game->screen == SCREEN_START ? NULL : "already_playing";
     case DEBUG_CONTROL_COMMAND_SCREENSHOT:
+    case DEBUG_CONTROL_COMMAND_PAUSE:
     case DEBUG_CONTROL_COMMAND_SAVE:
     case DEBUG_CONTROL_COMMAND_LOAD:
     case DEBUG_CONTROL_COMMAND_TELEPORT:

@@ -1,5 +1,6 @@
 #include "presentation/render.h"
 #include "presentation/render_internal.h"
+#include "presentation/render_pause_menu_internal.h"
 #include "presentation/render_ui.h"
 
 #include "core/game_notice.h"
@@ -1240,7 +1241,6 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
         }
     }
 }
-
 static bool DrawSettingStepper(Rectangle row, const char *label, float *value)
 {
     bool changed = false;
@@ -1262,6 +1262,147 @@ static bool DrawSettingStepper(Rectangle row, const char *label, float *value)
     return changed;
 }
 
+static bool DrawWorkerStepper(Rectangle row, PauseMenuSettings *settings)
+{
+    bool changed = false;
+    UiDrawText(settings->chunkWorkerCountLocked
+                   ? "Chunk workers (CLI)" : "Chunk workers",
+               (int)row.x, (int)row.y + 10, 17,
+               Fade(WHITE, 0.84f));
+    Rectangle minus = { row.x + row.width - 126.0f, row.y, 38.0f, 38.0f };
+    Rectangle plus = { row.x + row.width - 38.0f, row.y, 38.0f, 38.0f };
+    if (!settings->chunkWorkerCountLocked &&
+        DrawMenuButton(minus, "-", false)) {
+        settings->chunkWorkerCount = settings->chunkWorkerCount > 0
+            ? settings->chunkWorkerCount - 1 : settings->maxChunkWorkerCount;
+        changed = true;
+    }
+    if (!settings->chunkWorkerCountLocked &&
+        DrawMenuButton(plus, "+", false)) {
+        settings->chunkWorkerCount = settings->chunkWorkerCount <
+            settings->maxChunkWorkerCount
+            ? settings->chunkWorkerCount + 1 : 0;
+        changed = true;
+    }
+    if (settings->chunkWorkerCountLocked) {
+        DrawRectangleRounded(minus, 0.08f, 8, (Color){ 38, 45, 53, 150 });
+        DrawRectangleRoundedLinesEx(
+            minus, 0.08f, 8, 2.0f, Fade(WHITE, 0.22f));
+        DrawRectangleRounded(plus, 0.08f, 8, (Color){ 38, 45, 53, 150 });
+        DrawRectangleRoundedLinesEx(
+            plus, 0.08f, 8, 2.0f, Fade(WHITE, 0.22f));
+        int minusWidth = UiMeasureText("-", 24);
+        int plusWidth = UiMeasureText("+", 24);
+        UiDrawText("-", (int)(minus.x + minus.width * 0.5f -
+                   minusWidth * 0.5f), (int)minus.y + 7, 24,
+                   Fade(WHITE, 0.35f));
+        UiDrawText("+", (int)(plus.x + plus.width * 0.5f -
+                   plusWidth * 0.5f), (int)plus.y + 7, 24,
+                   Fade(WHITE, 0.35f));
+    }
+    const char *value = settings->chunkWorkerCount == 0
+        ? TextFormat("Auto (%d)", settings->activeChunkWorkerCount)
+        : TextFormat("%d", settings->chunkWorkerCount);
+    int textWidth = UiMeasureText(value, 16);
+    UiDrawText(value, (int)(row.x + row.width - 63.0f - textWidth * 0.5f),
+               (int)row.y + 11, 16,
+               settings->chunkWorkerCountLocked ? Fade(WHITE, 0.72f) : WHITE);
+    return changed;
+}
+
+static void DrawCompactPauseMenu(PauseMenuSettings *settings,
+                                 PauseMenuActions *actions, int sw, int sh)
+{
+    float panelWidth = fminf(720.0f, (float)sw - 28.0f);
+    float panelHeight = (float)sh - 24.0f;
+    Rectangle panel = { ((float)sw - panelWidth) * 0.5f, 12.0f,
+                        panelWidth, panelHeight };
+    DrawRectangleRounded(panel, 0.05f, 8, (Color){ 30, 38, 45, 245 });
+    DrawRectangleRoundedLinesEx(panel, 0.05f, 8, 2.0f,
+                                Fade(WHITE, 0.45f));
+
+    DrawCenteredText("Paused", (int)panel.y + 24, 30, WHITE);
+    float contentX = panel.x + 24.0f;
+    float contentWidth = panel.width - 48.0f;
+    float gap = 20.0f;
+    float settingsWidth = floorf((contentWidth - gap) * 0.63f);
+    float actionsX = contentX + settingsWidth + gap;
+    float actionsWidth = contentWidth - settingsWidth - gap;
+    float y = panel.y + 72.0f;
+
+    UiDrawText("Graphics quality", (int)contentX, (int)y, 16,
+               Fade(WHITE, 0.84f));
+    y += 25.0f;
+    float segmentWidth = (settingsWidth - 10.0f) / 3.0f;
+    for (int quality = 0; quality < GRAPHICS_QUALITY_COUNT; quality++) {
+        Rectangle segment = {
+            contentX + quality * (segmentWidth + 5.0f), y,
+            segmentWidth, 36.0f
+        };
+        bool selected = settings->graphicsQuality == (GraphicsQuality)quality;
+        if (DrawMenuButton(segment,
+                           GraphicsQualityName((GraphicsQuality)quality),
+                           selected) && !selected) {
+            settings->graphicsQuality = (GraphicsQuality)quality;
+            actions->settingsChanged = true;
+            actions->qualityChanged = true;
+        }
+    }
+    y += 48.0f;
+    Rectangle row = { contentX, y, settingsWidth, 38.0f };
+    if (DrawWorkerStepper(row, settings)) {
+        actions->settingsChanged = true;
+        actions->workersChanged = true;
+    }
+    y += 48.0f;
+    row.y = y;
+    if (DrawSettingStepper(row, "Master volume", &settings->masterVolume)) {
+        actions->settingsChanged = true;
+    }
+    y += 44.0f;
+    row.y = y;
+    if (DrawSettingStepper(row, "Environment", &settings->ambientVolume)) {
+        actions->settingsChanged = true;
+    }
+    y += 44.0f;
+    row.y = y;
+    if (DrawSettingStepper(row, "Music volume", &settings->musicVolume)) {
+        actions->settingsChanged = true;
+    }
+    y += 48.0f;
+    Rectangle toggle = { contentX, y, settingsWidth, 36.0f };
+    if (DrawMenuButton(toggle,
+                       TextFormat("Music: %s",
+                                  settings->musicEnabled ? "On" : "Off"),
+                       settings->musicEnabled)) {
+        settings->musicEnabled = !settings->musicEnabled;
+        actions->settingsChanged = true;
+    }
+    y += 46.0f;
+    toggle.y = y;
+    if (DrawMenuButton(
+            toggle,
+            TextFormat("Weather damage: %s",
+                       settings->weatherDamageEnabled ? "On" : "Off"),
+            settings->weatherDamageEnabled)) {
+        settings->weatherDamageEnabled = !settings->weatherDamageEnabled;
+        actions->settingsChanged = true;
+    }
+    float actionY = panel.y + 97.0f;
+    Rectangle action = { actionsX, actionY, actionsWidth, 42.0f };
+    if (DrawMenuButton(action, "Resume", true)) actions->resume = true;
+    action.y += 54.0f;
+    if (DrawMenuButton(action, "Save World", false)) actions->saveWorld = true;
+    action.y += 54.0f;
+    if (DrawMenuButton(action, "Return to Menu", false)) {
+        actions->returnToMenu = true;
+    }
+    action.y += 54.0f;
+    if (DrawMenuButton(action, "Save & Quit", false)) {
+        actions->saveAndQuit = true;
+    }
+}
+
 void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions)
 {
     if (!settings || !actions) return;
@@ -1269,6 +1410,14 @@ void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions)
     int sh = GetScreenHeight();
 
     DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.55f));
+    if (sw < 480 || sh < 480) {
+        DrawTinyPauseMenu(settings, actions, sw, sh);
+        return;
+    }
+    if (sw < 800 || sh < 600) {
+        DrawCompactPauseMenu(settings, actions, sw, sh);
+        return;
+    }
 
     float panelHeight = fminf(660.0f, (float)sh - 36.0f);
     Rectangle panel = { sw / 2 - 270.0f, ((float)sh - panelHeight) * 0.5f,
@@ -1298,6 +1447,13 @@ void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions)
         }
     }
     y += 58;
+    Rectangle workerRow = { (float)left, (float)y,
+                            (float)contentWidth, 38.0f };
+    if (DrawWorkerStepper(workerRow, settings)) {
+        actions->settingsChanged = true;
+        actions->workersChanged = true;
+    }
+    y += 48;
     Rectangle volumeRow = { (float)left, (float)y, (float)contentWidth, 38.0f };
     if (DrawSettingStepper(volumeRow, "Master volume", &settings->masterVolume)) {
         actions->settingsChanged = true;
