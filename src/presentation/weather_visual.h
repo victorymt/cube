@@ -58,10 +58,28 @@ typedef struct WeatherVisualState {
     float temperatureAnomalyK;
 } WeatherVisualState;
 
+typedef struct WeatherCloudMotionState {
+    bool initialized;
+    double lastSimulationTime;
+    double offsetX;
+    double offsetZ;
+    float directionX;
+    float directionZ;
+} WeatherCloudMotionState;
+
 /* Derive renderer-facing weather values without mutating simulation state. */
 WeatherVisualState WeatherVisualStateEvaluate(const WeatherVisualInput *input);
 
 /* Shared vertical envelope for volumetric cloud density, from base 0 to top 1. */
 float WeatherCloudVerticalDensity(float normalizedHeight);
+
+/* Integrate cloud advection without reprojecting its history when wind turns. */
+void WeatherCloudMotionAdvance(WeatherCloudMotionState *state,
+                               double simulationTime, float windAngle,
+                               float driftSpeed);
+
+float WeatherCloudAltitudeReference(float seaLevel, float height00,
+                                    float height10, float height01,
+                                    float height11, float tx, float tz);
 
 #endif

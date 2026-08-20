@@ -30,6 +30,7 @@ typedef struct CloudRenderResources {
 } CloudRenderResources;
 
 static CloudRenderResources cloudResources = { 0 };
+static WeatherCloudMotionState cloudMotion = { 0 };
 
 void SetCloudModel(Model model)
 {
@@ -387,19 +388,15 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
                 const WorldLightingState *lighting)
 {
     if (!camera || !weatherVisual || !weatherVisual->active ||
-        weatherVisual->cloudCover <= 0.03f || !isfinite(simulationTime) ||
+        !isfinite(simulationTime) ||
         !cloudResources.ready || cloudModel.meshCount <= 0) {
         return;
     }
 
-    double phaseTime = fmod(simulationTime, 1000000.0);
-    double driftSpeed = 1.2 + (double)weatherVisual->windDrift * 3.6;
-    double cameraX = floor((double)camera->position.x);
-    double cameraZ = floor((double)camera->position.z);
-    if (cameraX < (double)INT_MIN || cameraX > (double)INT_MAX ||
-        cameraZ < (double)INT_MIN || cameraZ > (double)INT_MAX) {
-        return;
-    }
+    float driftSpeed = 1.2f + weatherVisual->windDrift * 3.6f;
+    WeatherCloudMotionAdvance(&cloudMotion, simulationTime,
+                              weatherVisual->windAngle, driftSpeed);
+    if (weatherVisual->cloudCover <= 0.03f) return;
 
     int gridRadius = 2;
     int raySteps = 12;
@@ -416,13 +413,21 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     raySteps = raySteps < 6 ? 6 : (raySteps > 24 ? 24 : raySteps);
     lightSteps = lightSteps < 1 ? 1 : (lightSteps > 4 ? 4 : lightSteps);
     float drawDistance = 120.0f + (float)gridRadius*60.0f;
-    int sampleX = (int)cameraX;
-    int sampleZ = (int)cameraZ;
+    double baseX = floor((double)camera->position.x - 0.5);
+    double baseZ = floor((double)camera->position.z - 0.5);
+    if (baseX < (double)INT_MIN || baseX >= (double)INT_MAX ||
+        baseZ < (double)INT_MIN || baseZ >= (double)INT_MAX) return;
+    int x = (int)baseX;
+    int z = (int)baseZ;
+    float tx = (float)((double)camera->position.x - (baseX + 0.5));
+    float tz = (float)((double)camera->position.z - (baseZ + 0.5));
     int seaLevel = PlanetWorldIsActive() ? PlanetTerrainSeaLevel() :
                                            TerrainSeaLevel(WorldTerrainMode());
-    float surfaceHeight = (float)WorldSurfaceHeightAt(sampleX, sampleZ);
-    float altitudeReference = seaLevel >= 0 ?
-        fmaxf((float)seaLevel, surfaceHeight) : surfaceHeight;
+    float altitudeReference = WeatherCloudAltitudeReference(
+        (float)seaLevel, (float)WorldSurfaceHeightAt(x, z),
+        (float)WorldSurfaceHeightAt(x + 1, z),
+        (float)WorldSurfaceHeightAt(x, z + 1),
+        (float)WorldSurfaceHeightAt(x + 1, z + 1), tx, tz);
     Vector3 sunDirection = lighting ? lighting->sunDirection :
                            (Vector3){ 0.32f, 0.88f, 0.18f };
     Color sun = lighting ? lighting->sunColor : WHITE;
@@ -453,7 +458,7 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     float opacityRatio = weatherVisual->cloudOpacity > 0.001f ?
         presentationOpacity / weatherVisual->cloudOpacity : 1.0f;
     Vector2 windDirection = {
-        cosf(weatherVisual->windAngle), sinf(weatherVisual->windAngle)
+        cloudMotion.directionX, cloudMotion.directionZ
     };
 
     BeginBlendMode(BLEND_ALPHA);
@@ -483,12 +488,10 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
         };
         Vector3 center = Vector3Scale(Vector3Add(boxMin, boxMax), 0.5f);
         Vector3 scale = Vector3Subtract(boxMax, boxMin);
-        double layerDrift = fmod(
-            phaseTime * driftSpeed * (double)fmaxf(layer->driftScale, 0.1f),
-            8192.0);
+        float layerDrift = fmaxf(layer->driftScale, 0.1f);
         Vector2 windOffset = {
-            (float)((double)windDirection.x * layerDrift),
-            (float)((double)windDirection.y * layerDrift)
+            (float)(cloudMotion.offsetX * (double)layerDrift),
+            (float)(cloudMotion.offsetZ * (double)layerDrift)
         };
         float coverage = Clamp(layer->coverage, 0.0f, 1.0f);
         float opacity = Clamp(layer->opacity * opacityRatio, 0.0f, 1.0f);

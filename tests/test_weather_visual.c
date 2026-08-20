@@ -158,6 +158,45 @@ static void TestCloudVerticalDensity(void)
     AssertUnit(body);
 }
 
+static void TestCloudMotionDoesNotReprojectHistory(void)
+{
+    WeatherCloudMotionState recent = { 0 };
+    WeatherCloudMotionState old = { 0 };
+    WeatherCloudMotionAdvance(&recent, 3.0, 0.4f, 3.0f);
+    WeatherCloudMotionAdvance(&old, 100000.0, 0.4f, 3.0f);
+    WeatherCloudMotionAdvance(&recent, 3.5, 0.4f, 3.0f);
+    WeatherCloudMotionAdvance(&old, 100000.5, 0.4f, 3.0f);
+    assert(fabs(recent.offsetX - old.offsetX) < 0.000001);
+    assert(fabs(recent.offsetZ - old.offsetZ) < 0.000001);
+
+    double beforeX = old.offsetX;
+    double beforeZ = old.offsetZ;
+    WeatherCloudMotionAdvance(&old, 100000.5, 0.4025f, 3.0f);
+    assert(old.offsetX == beforeX);
+    assert(old.offsetZ == beforeZ);
+    WeatherCloudMotionAdvance(&old, 100000.5 + 1.0 / 60.0, 0.4025f, 3.0f);
+    assert(hypot(old.offsetX - beforeX, old.offsetZ - beforeZ) < 0.051);
+
+    beforeX = old.offsetX;
+    beforeZ = old.offsetZ;
+    WeatherCloudMotionAdvance(&old, 2.0, -3.13f, 3.0f);
+    assert(old.offsetX == beforeX);
+    assert(old.offsetZ == beforeZ);
+}
+
+static void TestCloudAltitudeReferenceIsContinuous(void)
+{
+    float left = WeatherCloudAltitudeReference(
+        12.0f, 10.0f, 30.0f, 18.0f, 38.0f, 0.999f, 0.25f);
+    float right = WeatherCloudAltitudeReference(
+        12.0f, 30.0f, 50.0f, 38.0f, 58.0f, 0.001f, 0.25f);
+    assert(fabsf(right - left) < 0.05f);
+    assert(WeatherCloudAltitudeReference(
+        20.0f, 4.0f, 6.0f, 8.0f, 10.0f, 0.5f, 0.5f) == 20.0f);
+    assert(WeatherCloudAltitudeReference(
+        -1.0f, 4.0f, 6.0f, 8.0f, 10.0f, 0.5f, 0.5f) == 7.0f);
+}
+
 static void TestLayerSelectionAndProfiles(void)
 {
     WeatherVisualInput input = TemperateInput();
@@ -263,6 +302,8 @@ int main(void)
     TestStormReducesVisibility();
     TestSnowAndAtmosphereFallbacks();
     TestCloudVerticalDensity();
+    TestCloudMotionDoesNotReprojectHistory();
+    TestCloudAltitudeReferenceIsContinuous();
     TestLayerSelectionAndProfiles();
     TestAllCloudGenusProfiles();
     TestOpaqueCumulonimbusSuppressesOtherLayers();

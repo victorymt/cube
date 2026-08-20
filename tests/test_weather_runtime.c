@@ -458,6 +458,30 @@ static void TestVisualStateUsesWeatherFieldWithoutMutation(void)
     assert(maximumClouds - minimumClouds > 0.12f);
 }
 
+static void TestVisualStateIsContinuousAcrossCellBoundaries(void)
+{
+    ResetRuntime();
+    const float epsilon = 0.001f;
+    WeatherVisualState left = WeatherVisualStateAtWorld(
+        (Vector3){ 18.0f - epsilon, 20.0f, -42.25f },
+        simulationTime, 0.72f);
+    WeatherVisualState right = WeatherVisualStateAtWorld(
+        (Vector3){ 18.0f + epsilon, 20.0f, -42.25f },
+        simulationTime, 0.72f);
+    WeatherVisualState below = WeatherVisualStateAtWorld(
+        (Vector3){ 18.25f, 20.0f, -42.0f - epsilon },
+        simulationTime, 0.72f);
+    WeatherVisualState above = WeatherVisualStateAtWorld(
+        (Vector3){ 18.25f, 20.0f, -42.0f + epsilon },
+        simulationTime, 0.72f);
+    assert(left.active && right.active && below.active && above.active);
+    assert(fabsf(right.cloudCover - left.cloudCover) < 0.0001f);
+    assert(fabsf(right.cloudBaseHeight - left.cloudBaseHeight) < 0.001f);
+    assert(fabsf(sinf(right.windAngle - left.windAngle)) < 0.0001f);
+    assert(fabsf(above.cloudCover - below.cloudCover) < 0.0001f);
+    assert(fabsf(sinf(above.windAngle - below.windAngle)) < 0.0001f);
+}
+
 static void TestVisualStateSafeFallbacks(void)
 {
     ResetRuntime();
@@ -623,6 +647,7 @@ int main(void)
     TestExtremeWorldCellsReturnSafeDefaults();
     TestWeatherCanonicalAliases();
     TestVisualStateUsesWeatherFieldWithoutMutation();
+    TestVisualStateIsContinuousAcrossCellBoundaries();
     TestVisualStateSafeFallbacks();
     TestNormalRainAndSnowStillEmit();
     TestForcedPhenomena();

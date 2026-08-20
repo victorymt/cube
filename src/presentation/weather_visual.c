@@ -28,6 +28,61 @@ float WeatherCloudVerticalDensity(float normalizedHeight)
     return WeatherVisualClamp(bottom * top * baseWeight);
 }
 
+void WeatherCloudMotionAdvance(WeatherCloudMotionState *state,
+                               double simulationTime, float windAngle,
+                               float driftSpeed)
+{
+    if (!state || !isfinite(simulationTime) || !isfinite(windAngle) ||
+        !isfinite(driftSpeed) || driftSpeed < 0.0f) {
+        return;
+    }
+    float targetX = cosf(windAngle);
+    float targetZ = sinf(windAngle);
+    if (!state->initialized) {
+        state->initialized = true;
+        state->lastSimulationTime = simulationTime;
+        state->directionX = targetX;
+        state->directionZ = targetZ;
+        return;
+    }
+
+    double elapsed = simulationTime - state->lastSimulationTime;
+    state->lastSimulationTime = simulationTime;
+    if (!(elapsed > 0.0) || elapsed > 1.0) return;
+
+    float blend = 1.0f - expf(-6.0f * (float)elapsed);
+    float directionX = state->directionX +
+                       (targetX - state->directionX) * blend;
+    float directionZ = state->directionZ +
+                       (targetZ - state->directionZ) * blend;
+    float length = sqrtf(directionX * directionX + directionZ * directionZ);
+    if (length > 0.0001f) {
+        state->directionX = directionX / length;
+        state->directionZ = directionZ / length;
+    }
+    state->offsetX += (double)state->directionX *
+                      (double)driftSpeed * elapsed;
+    state->offsetZ += (double)state->directionZ *
+                      (double)driftSpeed * elapsed;
+}
+
+float WeatherCloudAltitudeReference(float seaLevel, float height00,
+                                    float height10, float height01,
+                                    float height11, float tx, float tz)
+{
+    if (!isfinite(seaLevel) || !isfinite(height00) || !isfinite(height10) ||
+        !isfinite(height01) || !isfinite(height11) || !isfinite(tx) ||
+        !isfinite(tz)) {
+        return 0.0f;
+    }
+    tx = WeatherVisualClamp(tx);
+    tz = WeatherVisualClamp(tz);
+    float nearHeight = height00 + (height10 - height00) * tx;
+    float farHeight = height01 + (height11 - height01) * tx;
+    float terrainHeight = nearHeight + (farHeight - nearHeight) * tz;
+    return seaLevel >= 0.0f ? fmaxf(seaLevel, terrainHeight) : terrainHeight;
+}
+
 static bool WeatherVisualSampleIsFinite(WeatherFieldSample sample)
 {
     if (!isfinite(sample.cloudCover) || !isfinite(sample.precipitation) ||

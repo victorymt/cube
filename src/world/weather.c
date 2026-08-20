@@ -695,6 +695,84 @@ float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
     return WeatherFieldSampleAt(&input).windAngle;
 }
 
+static float WeatherVisualBilerp(float a, float b, float c, float d,
+                                 float tx, float tz)
+{
+    return (a + (b - a) * tx) +
+           ((c + (d - c) * tx) - (a + (b - a) * tx)) * tz;
+}
+
+static WeatherFieldSample WeatherVisualBlendSamples(
+    const WeatherFieldSample samples[4], float tx, float tz)
+{
+    WeatherFieldSample result = { 0 };
+#define BLEND_WEATHER_FIELD(field) \
+    result.field = WeatherVisualBilerp( \
+        samples[0].field, samples[1].field, samples[2].field, \
+        samples[3].field, tx, tz)
+    BLEND_WEATHER_FIELD(cloudCover);
+    BLEND_WEATHER_FIELD(cloudBaseHeight);
+    BLEND_WEATHER_FIELD(precipitation);
+    BLEND_WEATHER_FIELD(rain);
+    BLEND_WEATHER_FIELD(snow);
+    BLEND_WEATHER_FIELD(sleet);
+    BLEND_WEATHER_FIELD(freezingRain);
+    BLEND_WEATHER_FIELD(hail);
+    BLEND_WEATHER_FIELD(storm);
+    BLEND_WEATHER_FIELD(lightning);
+    BLEND_WEATHER_FIELD(fog);
+    BLEND_WEATHER_FIELD(frost);
+    BLEND_WEATHER_FIELD(dust);
+    BLEND_WEATHER_FIELD(wind);
+    BLEND_WEATHER_FIELD(gust);
+    BLEND_WEATHER_FIELD(visibility);
+    BLEND_WEATHER_FIELD(rainbow);
+    BLEND_WEATHER_FIELD(aurora);
+    BLEND_WEATHER_FIELD(temperatureAnomalyK);
+#undef BLEND_WEATHER_FIELD
+
+    float bestCoverage = 0.0f;
+    for (int genus = WEATHER_CLOUD_GENUS_NONE;
+         genus < WEATHER_CLOUD_GENUS_COUNT; genus++) {
+        result.cloudGenusCoverage[genus] = WeatherVisualBilerp(
+            samples[0].cloudGenusCoverage[genus],
+            samples[1].cloudGenusCoverage[genus],
+            samples[2].cloudGenusCoverage[genus],
+            samples[3].cloudGenusCoverage[genus], tx, tz);
+        result.cloudGenusBaseHeight[genus] = WeatherVisualBilerp(
+            samples[0].cloudGenusBaseHeight[genus],
+            samples[1].cloudGenusBaseHeight[genus],
+            samples[2].cloudGenusBaseHeight[genus],
+            samples[3].cloudGenusBaseHeight[genus], tx, tz);
+        result.cloudGenusThickness[genus] = WeatherVisualBilerp(
+            samples[0].cloudGenusThickness[genus],
+            samples[1].cloudGenusThickness[genus],
+            samples[2].cloudGenusThickness[genus],
+            samples[3].cloudGenusThickness[genus], tx, tz);
+        if (genus > WEATHER_CLOUD_GENUS_NONE &&
+            result.cloudGenusCoverage[genus] > 0.0001f) {
+            result.cloudGenera |= WEATHER_CLOUD_GENUS_FLAG(genus);
+            if (result.cloudGenusCoverage[genus] > bestCoverage) {
+                bestCoverage = result.cloudGenusCoverage[genus];
+                result.dominantCloudGenus = (WeatherCloudGenus)genus;
+            }
+        }
+    }
+
+    float weights[4] = {
+        (1.0f - tx) * (1.0f - tz), tx * (1.0f - tz),
+        (1.0f - tx) * tz, tx * tz
+    };
+    float windX = 0.0f;
+    float windZ = 0.0f;
+    for (unsigned index = 0u; index < 4u; index++) {
+        windX += cosf(samples[index].windAngle) * weights[index];
+        windZ += sinf(samples[index].windAngle) * weights[index];
+    }
+    result.windAngle = atan2f(windZ, windX);
+    return result;
+}
+
 WeatherVisualState WeatherVisualStateAtWorld(
     Vector3 position, double simulationTime, float daylight)
 {
@@ -705,10 +783,10 @@ WeatherVisualState WeatherVisualStateAtWorld(
         return clear;
     }
 
-    double cellX = floor((double)position.x);
-    double cellZ = floor((double)position.z);
-    if (cellX < (double)INT_MIN || cellX > (double)INT_MAX ||
-        cellZ < (double)INT_MIN || cellZ > (double)INT_MAX) {
+    double baseX = floor((double)position.x - 0.5);
+    double baseZ = floor((double)position.z - 0.5);
+    if (baseX < (double)INT_MIN || baseX >= (double)INT_MAX ||
+        baseZ < (double)INT_MIN || baseZ >= (double)INT_MAX) {
         return clear;
     }
 
@@ -727,13 +805,23 @@ WeatherVisualState WeatherVisualStateAtWorld(
     }
     if (!atmosphereActive) return clear;
 
-    int x = (int)cellX;
-    int z = (int)cellZ;
+    int x = (int)baseX;
+    int z = (int)baseZ;
+    float tx = (float)((double)position.x - (baseX + 0.5));
+    float tz = (float)((double)position.z - (baseZ + 0.5));
+    WeatherFieldSample samples[4] = {
+        WeatherFieldSampleAtWorldTime(x, z, simulationTime),
+        WeatherFieldSampleAtWorldTime(x + 1, z, simulationTime),
+        WeatherFieldSampleAtWorldTime(x, z + 1, simulationTime),
+        WeatherFieldSampleAtWorldTime(x + 1, z + 1, simulationTime)
+    };
+    WeatherFieldSample visualSample =
+        WeatherVisualBlendSamples(samples, tx, tz);
     WeatherVisualInput input = {
-        .weather = WeatherFieldSampleAtWorldTime(x, z, simulationTime),
+        .weather = visualSample,
         .atmosphereDensity = atmosphereDensity,
         .daylight = daylight,
-        .windAngle = WeatherWindAngleAtWorldTime(x, z, simulationTime),
+        .windAngle = visualSample.windAngle,
         .atmosphereActive = true
     };
     return WeatherVisualStateEvaluate(&input);
