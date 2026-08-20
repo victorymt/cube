@@ -58,6 +58,61 @@ for the session so deterministic debug and performance runs cannot be changed
 accidentally. Menu changes are coalesced while paused and applied at the next
 safe frame boundary after the pause menu closes.
 
+### Multicore tuning recipe
+
+Use the same DSL script for each worker count. This keeps the world seed,
+starting position, stream wait, and frame schedule identical while only the
+worker-pool request changes:
+
+```sh
+cat >/tmp/chunk-workers.dsl <<'DSL'
+assert game.screen == "start"
+start
+wait until game.screen == "playing" timeout 7200
+teleport 0 96 0 3.141593 -0.25
+stream wait 600
+assert stream.surface_ready
+assert stream.audit_complete
+assert stream.workers_started > 0
+status
+screenshot
+exit 0
+DSL
+
+for workers in auto 2 4; do
+  build/normal/voxelcraft \
+    --chunk-workers "$workers" \
+    --debug-trace "/tmp/chunk-workers-$workers.jsonl" \
+    --debug-script /tmp/chunk-workers.dsl
+done
+```
+
+The startup `status` reply ends with `chunk_workers=configured,started,active`.
+For a run with `--chunk-workers 4`, all three values should settle at `4,4,0`
+after the stream wait; `auto` reports the detected worker count instead. A
+nonzero `active` value in a trace sample means generation or meshing was still
+using a worker at that frame, not that the configured pool was resized.
+
+Compare the final trace samples with `jq`:
+
+```sh
+for workers in auto 2 4; do
+  printf '%s ' "$workers"
+  jq -r 'select(.stream != null) |
+    [.stream.pending_gen, .stream.pending_mesh,
+     .stream.generation_cpu_ms, .stream.mesh_cpu_ms,
+     .timing.streaming_main_cpu_ms] | @tsv' \
+    "/tmp/chunk-workers-$workers.jsonl" | tail -1
+done
+```
+
+The columns are pending generation jobs, pending mesh jobs, cumulative
+generation CPU time, cumulative mesh CPU time, and main-thread streaming CPU
+time. Use the same `stream wait` timeout and compare several runs; lower worker
+counts can be preferable when the last column or compositor responsiveness is
+the limiting factor. Do not compare a run that failed `stream.surface_ready` or
+that was started with a different seed/teleport position.
+
 Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
