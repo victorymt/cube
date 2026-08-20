@@ -244,7 +244,10 @@ static void GameDebugReplyStatus(GameRuntime *game)
         "target_dirty=%d target_stamp=%u target_solid_vertices=%d "
         "target_face_vertices=%d target_base_generated=%d "
         "target_base_exposed=%d target_base_block=%s "
-        "camera_inside_solid=%d autosave=%d\n",
+        "camera_inside_solid=%d autosave=%d debug_frame=%llu "
+        "mouse_left_press_frame=%llu mouse_left_handle_frame=%llu "
+        "mouse_left_set_block_frame=%llu mouse_left_mesh_frame=%llu "
+        "mouse_left_mesh_pending=%d mouse_left_target=%d,%d,%d\n",
         game->screen == SCREEN_PLAYING ? "playing" : "start", WorldGetSeed(),
         WorldDimensionName(WorldCurrentDimension()),
         game->player.position.x, game->player.position.y,
@@ -280,7 +283,15 @@ static void GameDebugReplyStatus(GameRuntime *game)
         targetFaceVertices, targetBaseGenerated ? 1 : 0,
         targetBaseExposed ? 1 : 0, BlockName(targetBaseBlock),
         PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0,
-        game->autoSaveEnabled ? 1 : 0);
+        game->autoSaveEnabled ? 1 : 0,
+        (unsigned long long)game->debugFrame,
+        (unsigned long long)game->debugLeftPressFrame,
+        (unsigned long long)game->debugLeftHandleFrame,
+        (unsigned long long)game->debugLeftSetBlockFrame,
+        (unsigned long long)game->debugLeftMeshFrame,
+        game->debugLeftMeshPending ? 1 : 0,
+        game->debugLeftTargetX, game->debugLeftTargetY,
+        game->debugLeftTargetZ);
 }
 
 static void GameDebugToggleSurfaceMap(GameRuntime *game)
@@ -1269,6 +1280,12 @@ static GameDebugDispatchResult GameDebugDispatchMotionCommand(
     case DEBUG_CONTROL_COMMAND_INPUT:
         GameDebugApplyInput(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_MOUSE_LEFT:
+        GameInteractionQueueDebugMouse(game, false);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_MOUSE_RIGHT:
+        GameInteractionQueueDebugMouse(game, true);
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_VIEW:
         GameDebugSetView(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -1451,6 +1468,24 @@ static bool GameDebugDslResolve(void *userData, const char *name,
     }
     if (strcmp(name, "player.input_frames") == 0) {
         return GameDebugDslNumber(outValue, game->scriptedInputFrames);
+    }
+
+    if (strcmp(name, "interaction.mouse_left_mesh_ready") == 0) {
+        return GameDebugDslBool(
+            outValue, game->debugLeftMeshFrame != 0u &&
+                          !game->debugLeftMeshPending);
+    }
+    if (strcmp(name, "interaction.mouse_left_press_frame") == 0) {
+        return GameDebugDslNumber(outValue, game->debugLeftPressFrame);
+    }
+    if (strcmp(name, "interaction.mouse_left_handle_frame") == 0) {
+        return GameDebugDslNumber(outValue, game->debugLeftHandleFrame);
+    }
+    if (strcmp(name, "interaction.mouse_left_set_block_frame") == 0) {
+        return GameDebugDslNumber(outValue, game->debugLeftSetBlockFrame);
+    }
+    if (strcmp(name, "interaction.mouse_left_mesh_frame") == 0) {
+        return GameDebugDslNumber(outValue, game->debugLeftMeshFrame);
     }
 
     if (strcmp(name, "perf.enabled") == 0) {
@@ -1673,6 +1708,14 @@ static bool GameDebugDslResolve(void *userData, const char *name,
 
     if (strncmp(name, "render.", 7u) == 0) {
         WorldWaterRenderDebugInfo water = WorldRenderWaterDebugSnapshot();
+        if (strcmp(name, "render.monitor_refresh_hz") == 0) {
+            return GameDebugDslNumber(
+                outValue, GetMonitorRefreshRate(GetCurrentMonitor()));
+        }
+        if (strcmp(name, "render.vsync") == 0) {
+            return GameDebugDslBool(
+                outValue, IsWindowState(FLAG_VSYNC_HINT));
+        }
         if (strcmp(name, "render.water_debug") == 0) {
             return GameDebugDslBool(outValue, water.enabled);
         }

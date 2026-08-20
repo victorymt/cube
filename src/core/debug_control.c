@@ -505,6 +505,12 @@ static DebugControlCommand DebugControlParsePlayerInput(
 static DebugControlCommand DebugControlParseMotion(DebugControl *control,
                                                    const char *line)
 {
+    if (strcmp(line, "mouse left") == 0) {
+        return DEBUG_CONTROL_COMMAND_MOUSE_LEFT;
+    }
+    if (strcmp(line, "mouse right") == 0) {
+        return DEBUG_CONTROL_COMMAND_MOUSE_RIGHT;
+    }
     DebugControlCommand command = DebugControlParseLook(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseTeleport(control, line);

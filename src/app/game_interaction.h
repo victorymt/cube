@@ -21,11 +21,16 @@ typedef struct GameInteractionContext {
     int placeZ;
     bool canPlace;
     ShipDirection placementDirection;
+    bool meshPriority;
+    int meshPriorityX;
+    int meshPriorityY;
+    int meshPriorityZ;
 } GameInteractionContext;
 
 int GameUpdateInteractions(struct GameRuntime *game, float dt,
                            bool inputBlocked,
                            GameInteractionContext *context);
+void GameInteractionQueueDebugMouse(struct GameRuntime *game, bool right);
 
 bool GameInteractionObserveEvolutionInfo(
     const struct EntityEvolutionDebugInfo *info);

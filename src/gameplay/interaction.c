@@ -691,7 +691,8 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance)
                                  RAYCAST_BLOCK_ALL);
 }
 
-bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition)
+bool BlockWouldOverlapPlayer(int x, int y, int z, BlockType blockType,
+                             Vector3 playerPosition)
 {
     WorldBlockRegion region = WorldBlockRegionAt(y);
     bool inSpace = region == WORLD_BLOCK_REGION_SPACE;
@@ -701,7 +702,7 @@ bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition)
     float minX = (float)x;
     float maxX = (float)x + 1.0f;
     float minY = (float)y;
-    float maxY = (float)y + BlockCollisionHeight(GetBlockAt(x, y, z));
+    float maxY = (float)y + BlockCollisionHeight(blockType);
     float minZ = (float)z;
     float maxZ = (float)z + 1.0f;
 

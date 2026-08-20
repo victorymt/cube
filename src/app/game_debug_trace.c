@@ -33,6 +33,11 @@ static double TraceClockMs(clockid_t clockId)
            (double)value.tv_nsec / 1000000.0;
 }
 
+double GameDebugTraceMainCpuNowMs(void)
+{
+    return TraceClockMs(CLOCK_THREAD_CPUTIME_ID);
+}
+
 static int64_t TraceUnixMs(void)
 {
     return (int64_t)llround(TraceClockMs(CLOCK_REALTIME));
@@ -43,6 +48,22 @@ static double TraceElapsedRealMs(const GameRuntime *game)
     if (!game || game->debugTrace.startedMonotonicMs <= 0.0) return 0.0;
     double elapsed = TraceClockMs(CLOCK_MONOTONIC) -
                      game->debugTrace.startedMonotonicMs;
+    return elapsed > 0.0 ? elapsed : 0.0;
+}
+
+static double TraceElapsedCpuMs(const GameRuntime *game)
+{
+    if (!game || game->debugTrace.startedCpuMs <= 0.0) return 0.0;
+    double elapsed = TraceClockMs(CLOCK_PROCESS_CPUTIME_ID) -
+                     game->debugTrace.startedCpuMs;
+    return elapsed > 0.0 ? elapsed : 0.0;
+}
+
+static double TraceElapsedMainCpuMs(const GameRuntime *game)
+{
+    if (!game || game->debugTrace.startedMainCpuMs <= 0.0) return 0.0;
+    double elapsed = TraceClockMs(CLOCK_THREAD_CPUTIME_ID) -
+                     game->debugTrace.startedMainCpuMs;
     return elapsed > 0.0 ? elapsed : 0.0;
 }
 
@@ -191,7 +212,8 @@ static bool WriteStart(GameRuntime *game)
     TraceAppendFormat(
         &buffer,
         "{\"version\":1,\"type\":\"start\",\"timestamp_unix_ms\":%lld,"
-        "\"elapsed_real_ms\":0.000,\"path\":",
+        "\"elapsed_real_ms\":0.000,\"elapsed_cpu_ms\":0.000,"
+        "\"elapsed_main_cpu_ms\":0.000,\"path\":",
         (long long)game->debugTrace.startedUnixMs);
     TraceAppendJsonString(&buffer, game->debugTracePath);
     TraceAppendFormat(&buffer, "}\n");
@@ -208,9 +230,12 @@ static bool WriteEvent(GameRuntime *game, const char *reason)
     TraceAppendFormat(
         &buffer,
         ",\"time\":%.6f,\"timestamp_unix_ms\":%lld,"
-        "\"elapsed_real_ms\":%.3f,\"frame\":%llu}\n",
+        "\"elapsed_real_ms\":%.3f,\"elapsed_cpu_ms\":%.3f,"
+        "\"elapsed_main_cpu_ms\":%.3f,"
+        "\"frame\":%llu}\n",
         game->debugTrace.elapsed,
         (long long)TraceUnixMs(), TraceElapsedRealMs(game),
+        TraceElapsedCpuMs(game), TraceElapsedMainCpuMs(game),
         (unsigned long long)game->debugTrace.frame);
     return TraceWrite(game, &buffer);
 }
@@ -270,6 +295,8 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
     }
     int64_t timestampUnixMs = TraceUnixMs();
     double elapsedRealMs = TraceElapsedRealMs(game);
+    double elapsedCpuMs = TraceElapsedCpuMs(game);
+    double elapsedMainCpuMs = TraceElapsedMainCpuMs(game);
 
     TraceBuffer buffer = { 0 };
     TraceAppendFormat(&buffer,
@@ -278,16 +305,33 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
     TraceAppendFormat(
         &buffer,
         ",\"time\":%.6f,\"timestamp_unix_ms\":%lld,"
-        "\"elapsed_real_ms\":%.3f,\"frame\":%llu,\"screen\":%d,"
+        "\"elapsed_real_ms\":%.3f,\"elapsed_cpu_ms\":%.3f,"
+        "\"elapsed_main_cpu_ms\":%.3f,"
+        "\"frame\":%llu,\"screen\":%d,"
         "\"seed\":%u,\"dimension\":",
         game->debugTrace.elapsed,
-        (long long)timestampUnixMs, elapsedRealMs,
+        (long long)timestampUnixMs, elapsedRealMs, elapsedCpuMs,
+        elapsedMainCpuMs,
         (unsigned long long)game->debugTrace.frame, (int)game->screen,
         WorldGetSeed());
     TraceAppendJsonString(&buffer, WorldDimensionName(WorldCurrentDimension()));
     TraceAppendFormat(
         &buffer,
-        ",\"player\":{\"position\":[%.6f,%.6f,%.6f],"
+        ",\"timing\":{\"update_main_cpu_ms\":%.3f,"
+        "\"render_main_cpu_ms\":%.3f,"
+        "\"simulation_main_cpu_ms\":%.3f,"
+        "\"streaming_main_cpu_ms\":%.3f,"
+        "\"interaction_main_cpu_ms\":%.3f,"
+        "\"environment_main_cpu_ms\":%.3f,"
+        "\"astronomy_main_cpu_ms\":%.3f,"
+        "\"ecology_main_cpu_ms\":%.3f,"
+        "\"sky_main_cpu_ms\":%.3f,"
+        "\"water_main_cpu_ms\":%.3f,"
+        "\"environment_sample_main_cpu_ms\":%.3f,"
+        "\"environment_present_main_cpu_ms\":%.3f,"
+        "\"flora_visuals_main_cpu_ms\":%.3f,"
+        "\"entities_main_cpu_ms\":%.3f},"
+        "\"player\":{\"position\":[%.6f,%.6f,%.6f],"
         "\"velocity\":[%.6f,%.6f,%.6f],\"yaw\":%.6f,"
         "\"pitch\":%.6f,\"floating\":%d,\"on_ground\":%d},"
         "\"camera\":{\"position\":[%.6f,%.6f,%.6f],"
@@ -302,11 +346,21 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         "\"gen_completed\":%llu,\"gen_canceled\":%llu,"
         "\"mesh_submitted\":%llu,\"mesh_completed\":%llu,"
         "\"mesh_canceled\":%llu,\"mesh_uploaded\":%llu,"
-        "\"upload_deferrals\":%llu},"
+        "\"upload_deferrals\":%llu,"
+        "\"generation_cpu_ms\":%.3f,\"mesh_cpu_ms\":%.3f,"
+        "\"upload_cpu_ms\":%.3f,\"max_upload_cpu_ms\":%.3f},"
         "\"environment\":{\"water\":[%d,%d,%d],"
         "\"water_depth\":%.6f,\"water_surface\":%.6f,"
         "\"fluid_volume\":%u,\"fluid_surface\":%.6f,"
         "\"bathymetry\":",
+        frame->debugUpdateMainCpuMs, frame->debugRenderMainCpuMs,
+        frame->debugSimulationMainCpuMs, frame->debugStreamingMainCpuMs,
+        frame->debugInteractionMainCpuMs, frame->debugEnvironmentMainCpuMs,
+        frame->debugAstronomyMainCpuMs, frame->debugEcologyMainCpuMs,
+        frame->debugSkyMainCpuMs, frame->debugWaterMainCpuMs,
+        frame->debugEnvironmentSampleMainCpuMs,
+        frame->debugEnvironmentPresentMainCpuMs,
+        frame->debugFloraVisualsMainCpuMs, frame->debugEntitiesMainCpuMs,
         game->player.position.x, game->player.position.y,
         game->player.position.z, game->player.velocity.x,
         game->player.velocity.y, game->player.velocity.z,
@@ -331,6 +385,8 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         (unsigned long long)stats.meshCanceled,
         (unsigned long long)stats.uploadedMeshes,
         (unsigned long long)stats.uploadBudgetDeferrals,
+        stats.generationCpuMs, stats.meshCpuMs, stats.uploadCpuMs,
+        stats.maxUploadCpuMs,
         water->feetSubmerged ? 1 : 0, water->bodySubmerged ? 1 : 0,
         water->eyesSubmerged ? 1 : 0, water->eyeDepth, water->surfaceY,
         (unsigned)fluid.volume, fluid.surfaceY);
@@ -392,6 +448,8 @@ bool GameDebugTraceStart(GameRuntime *game)
         .file = file,
         .nextSample = 0.0,
         .startedMonotonicMs = TraceClockMs(CLOCK_MONOTONIC),
+        .startedCpuMs = TraceClockMs(CLOCK_PROCESS_CPUTIME_ID),
+        .startedMainCpuMs = TraceClockMs(CLOCK_THREAD_CPUTIME_ID),
         .startedUnixMs = TraceUnixMs()
     };
     if (setvbuf(file, NULL, _IOLBF, 0) != 0) {
@@ -480,9 +538,11 @@ void GameDebugTraceStop(GameRuntime *game)
         &buffer,
         "{\"version\":1,\"type\":\"stop\",\"time\":%.6f,"
         "\"timestamp_unix_ms\":%lld,\"elapsed_real_ms\":%.3f,"
+        "\"elapsed_cpu_ms\":%.3f,\"elapsed_main_cpu_ms\":%.3f,"
         "\"frame\":%llu}\n",
         game->debugTrace.elapsed,
         (long long)TraceUnixMs(), TraceElapsedRealMs(game),
+        TraceElapsedCpuMs(game), TraceElapsedMainCpuMs(game),
         (unsigned long long)game->debugTrace.frame);
     if (!TraceWrite(game, &buffer)) return;
     FILE *file = game->debugTrace.file;

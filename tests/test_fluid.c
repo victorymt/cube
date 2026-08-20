@@ -580,6 +580,33 @@ static void TestQueueOverflowRetriesDeferredCell(void)
     assert(FluidGetStats().activeCells == 0u);
 }
 
+static void TestRealtimeUpdatesSpreadCellBudgetAcrossFrames(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    CreateAllSections(chunk);
+    for (int y = 0; y < 32; y++) {
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                FluidWakeCell(lx, y, lz);
+            }
+        }
+    }
+
+    uint64_t processedBefore = FluidGetStats().processedCells;
+    for (int frame = 0; frame < 6; frame++) {
+        uint64_t frameBefore = FluidGetStats().processedCells;
+        FluidUpdate(1.0f / 60.0f);
+        uint64_t frameProcessed =
+            FluidGetStats().processedCells - frameBefore;
+        assert(frameProcessed > 0u);
+        assert(frameProcessed <= FLUID_MAX_CELLS_PER_UPDATE);
+    }
+    uint64_t processed = FluidGetStats().processedCells - processedBefore;
+    assert(processed >= FLUID_MAX_CELLS_PER_TICK - 1u);
+    assert(processed <= FLUID_MAX_CELLS_PER_TICK);
+}
+
 static void TestSolidBlockChangePreservesBlock(void)
 {
     ResetWorld();
@@ -743,6 +770,7 @@ int main(void)
     TestAtomicDisplacement();
     TestDisplacementReplay();
     TestQueueOverflowRetriesDeferredCell();
+    TestRealtimeUpdatesSpreadCellBudgetAcrossFrames();
     TestSolidBlockChangePreservesBlock();
     TestSaveLoadReplay();
     TestLongitudeAliasUsesOneFluidEdit();

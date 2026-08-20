@@ -284,6 +284,16 @@ static void TestRaycastCanIgnoreLiquids(void)
     assert(solid.nx == -1 && solid.ny == 0 && solid.nz == 0);
 }
 
+static void TestPlacementOverlapUsesPlacedBlock(void)
+{
+    Vector3 player = { 0.5f, 1.0f, 0.5f };
+    assert(BlockWouldOverlapPlayer(0, 1, 0, BLOCK_STONE, player));
+    assert(!BlockWouldOverlapPlayer(0, 0, 0, BLOCK_STONE, player));
+
+    player.x = 1.0f - PLAYER_RADIUS;
+    assert(!BlockWouldOverlapPlayer(1, 1, 0, BLOCK_STONE, player));
+}
+
 static void TestImageImportLimits(void)
 {
     assert(ClampImportPrecision(INT_MIN) == IMPORT_MIN_BLOCKS);
@@ -371,6 +381,7 @@ int main(void)
     TestRaycastNormalizesDirection();
     TestRaycastHasIterationLimit();
     TestRaycastCanIgnoreLiquids();
+    TestPlacementOverlapUsesPlacedBlock();
     TestImageImportLimits();
     TestImageImportFailureLifecycle();
     TestImageImportClosesUndoGroup();

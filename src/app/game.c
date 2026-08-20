@@ -798,17 +798,36 @@ static int GameUpdateWorldStreaming(GameRuntime *game,
     return effectiveRenderDistance;
 }
 
+static void GameUpdateDebugLeftMeshReady(GameRuntime *game)
+{
+    if (!game->debugLeftMeshPending) return;
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(game->debugLeftTargetX, game->debugLeftTargetZ,
+                      &cx, &cz, &lx, &lz);
+    const Chunk *chunk = FindChunk(cx, cz);
+    const ChunkSection *section = chunk ? ChunkGetSectionConst(
+        chunk, SurfaceSectionYFromBlockY(game->debugLeftTargetY)) : NULL;
+    if (section && !section->dirty) {
+        game->debugLeftMeshPending = false;
+        game->debugLeftMeshFrame = game->debugFrame;
+        GameDebugTraceEvent(game, "mouse_left_mesh_ready");
+    }
+}
+
 static void GameUpdateWorldJobs(GameRuntime *game, float dt,
                                 bool localWorldActive)
 {
     ProcessFinishedMeshJobs(2.0);
+    GameUpdateDebugLeftMeshReady(game);
     ProcessFinishedChunkJobs();
     if (!GameWorldSimulationPaused(game) && !game->albumOpen &&
         !game->importDialog.open && !game->landingTransition.active &&
         !game->biologyAtlasOpen && localWorldActive) {
         FluidUpdate(dt);
     }
-    RebuildDirtyChunkMeshes(game->player.position);
     EffectDispatchPending();
     ParticlesUpdate(dt);
 }
@@ -1200,6 +1219,9 @@ static void GameRenderFrame(GameRuntime *game,
 static bool GameUpdateFrame(GameRuntime *game, float dt,
                             bool debugStartRequested)
 {
+    double debugFrameCpuStarted = game->debugTraceEnabled
+        ? GameDebugTraceMainCpuNowMs() : 0.0;
+    double debugStageCpuStarted = debugFrameCpuStarted;
     if (game->perfMode) ApplyPerfRoute(&game->player, PerfFrameIndex());
 
     bool landingSkipPressed = LandingTransitionUpdate(&game->landingTransition, &game->player, dt);
@@ -1218,14 +1240,39 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     GameUpdateTemporalState(game, dt);
     GameUpdatePlayerMotion(game, dt, inputBlocked);
     GameApplyTornadoPlayerForce(game, dt);
+    double debugSimulationMainCpuMs = 0.0;
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        debugSimulationMainCpuMs = now - debugStageCpuStarted;
+        debugStageCpuStarted = now;
+    }
     bool localWorldActive = false;
     int effectiveRenderDistance =
         GameUpdateWorldStreaming(game, &localWorldActive);
     GameUpdateWorldJobs(game, dt, localWorldActive);
+    double debugStreamingMainCpuMs = 0.0;
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        debugStreamingMainCpuMs = now - debugStageCpuStarted;
+        debugStageCpuStarted = now;
+    }
 
     GameInteractionContext interaction = { 0 };
     effectiveRenderDistance = GameUpdateInteractions(
         game, dt, inputBlocked, &interaction);
+    if (interaction.meshPriority) {
+        RebuildDirtyChunkMeshAt(
+            interaction.meshPriorityX, interaction.meshPriorityY,
+            interaction.meshPriorityZ);
+    }
+    RebuildDirtyChunkMeshes(game->player.position);
+    GameUpdateDebugLeftMeshReady(game);
+    double debugInteractionMainCpuMs = 0.0;
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        debugInteractionMainCpuMs = now - debugStageCpuStarted;
+        debugStageCpuStarted = now;
+    }
 
     GameFrameView frame = {
         .hit = interaction.hit,
@@ -1242,8 +1289,23 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         .haveAimBody = interaction.haveAimBody,
         .canPlace = interaction.canPlace
     };
+    frame.debugSimulationMainCpuMs = debugSimulationMainCpuMs;
+    frame.debugStreamingMainCpuMs = debugStreamingMainCpuMs;
+    frame.debugInteractionMainCpuMs = debugInteractionMainCpuMs;
     GameUpdateFrameEnvironment(game, &frame);
+    double debugRenderCpuStarted = 0.0;
+    if (game->debugTraceEnabled) {
+        debugRenderCpuStarted = GameDebugTraceMainCpuNowMs();
+        frame.debugUpdateMainCpuMs =
+            debugRenderCpuStarted - debugFrameCpuStarted;
+        frame.debugEnvironmentMainCpuMs =
+            debugRenderCpuStarted - debugStageCpuStarted;
+    }
     GameRenderFrame(game, &frame);
+    if (game->debugTraceEnabled) {
+        frame.debugRenderMainCpuMs =
+            GameDebugTraceMainCpuNowMs() - debugRenderCpuStarted;
+    }
     GameCaptureScreenshot(game, &frame);
     GameDebugTraceFrame(game, &frame);
     GameStreamAuditFrame(game);
@@ -1270,7 +1332,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     if (game->debugControlEnabled || game->debugTraceEnabled) {
         SetTraceLogLevel(LOG_WARNING);
     }
-    SetConfigFlags(FLAG_MSAA_4X_HINT);
+    unsigned windowFlags = FLAG_MSAA_4X_HINT;
+    if (!game->perfMode) windowFlags |= FLAG_VSYNC_HINT;
+    SetConfigFlags(windowFlags);
     InitWindow(screenWidth, screenHeight, "Voxelcraft - raylib");
     if (!IsWindowReady()) {
         fprintf(stderr, "Failed to create a raylib window. "
@@ -1285,7 +1349,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     PerfConfigure(game->perfMode, game->perfReportPath,
                   game->perfBaselinePath);
     SetExitKey(KEY_NULL);
-    SetTargetFPS(game->perfMode ? 0 : 60);
+    // Normal play follows the compositor clock. DSL runs retain their fixed
+    // 60 Hz frame schedule, while performance runs remain uncapped.
+    SetTargetFPS(!game->perfMode && game->debugControlEnabled ? 60 : 0);
     EnableCursor();
     if (!ChunksStartGenThread()) {
         fprintf(stderr, "Warning: failed to start chunk generation thread; "
@@ -1334,7 +1400,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,world,stream,save,load,map,surface,marker,teleport,look,input,ship,view,"
+        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
         "fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit\n");
     return true;
 }
@@ -1396,6 +1462,7 @@ int GameRun(int argc, char **argv)
     if (!GameStart(&game, game.screenWidth, game.screenHeight)) return 1;
 
     while (!game.quitRequested && !WindowShouldClose()) {
+        game.debugFrame++;
         PerfBeginFrame();
         float dt = (game.perfMode || game.debugControlEnabled) ?
                        (1.0f / 60.0f) : GetFrameTime();

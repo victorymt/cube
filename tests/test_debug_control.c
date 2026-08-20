@@ -57,6 +57,7 @@ static void TestCommandStream(void)
         "teleport 1.5 72.0 -4.25 3.14 -0.4\n"
         "look 1.25 -0.3\nlook delta -0.5 0.1\n"
         "input 1 -0.5 1 1 120\n"
+        "mouse left\nmouse right\n"
         "ship begin\nship enter\nship input 0.75 -0.25 1 180\n"
         "ship exhaust 0.65\n"
         "ship dust\n"
@@ -140,6 +141,8 @@ static void TestCommandStream(void)
     assert(control.playerInput.vertical == 1.0f);
     assert(control.playerInput.sprint);
     assert(control.playerInput.frames == 120u);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MOUSE_LEFT);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MOUSE_RIGHT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_BEGIN);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_ENTER);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_INPUT);

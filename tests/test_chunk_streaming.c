@@ -335,6 +335,56 @@ static void TestReusedLowSlotsDoNotStarveOlderJobs(void)
     assert(ChunksTestMeshJobSlot(0) == 2);
 }
 
+static void TestPriorityMeshJobsBypassBackgroundWork(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestSeedMeshJob(63, 1, 10, 20, 5, false);
+    ChunksTestSeedMeshJob(0, 2, 11, 20, 5, false);
+    ChunksTestSetMeshJobPriority(0, true);
+    assert(ChunksTestNextMeshJobIndex() == 0);
+
+    ChunksTestResetScheduler();
+    ChunksTestSeedMeshJob(63, 1, 10, 20, 5, true);
+    ChunksTestSeedMeshJob(0, 2, 11, 20, 5, true);
+    ChunksTestSetMeshJobPriority(0, true);
+    ProcessFinishedMeshJobs(0.0);
+    assert(ChunksTestMeshJobSlot(0) == -1);
+    assert(ChunksTestMeshJobSlot(63) == 1);
+}
+
+static void TestPriorityEditSupersedesInFlightSnapshot(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, true);
+    RebuildDirtyChunkMeshes((Vector3){ 0 });
+    assert(ChunksTestMeshJobSlot(0) == 0);
+    assert(!ChunksTestMeshJobPriority(0));
+
+    MarkChunkDirtyAtBlock(0, 0, 0);
+    assert(RebuildDirtyChunkMeshAt(0, 0, 0));
+    assert(GetPendingMeshJobCount() == 2);
+    assert(ChunksTestMeshJobSlot(1) == 0);
+    assert(ChunksTestMeshJobPriority(1));
+    assert(ChunksTestNextMeshJobIndex() == 1);
+}
+
+static void TestPriorityEditFallsBackWhenBackgroundQueueIsSaturated(void)
+{
+    ChunksTestResetScheduler();
+    for (int i = 0; i < MAX_CHUNK_MESH_JOBS - 1; i++) {
+        ChunksTestSeedMeshJob(i, 1, 100 + i, 0, 0, false);
+    }
+    ChunksTestConfigureChunk(0, 0, 0, true, true);
+
+    assert(RebuildDirtyChunkMeshAt(0, 0, 0));
+    assert(GetPendingMeshJobCount() == MAX_CHUNK_MESH_JOBS - 1);
+    assert(ChunksTestMeshJobSlot(MAX_CHUNK_MESH_JOBS - 1) == -1);
+    assert(!ChunksTestChunkDirty(0));
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    assert(stats.meshSubmitted == 0);
+    assert(stats.syncRebuilds == 1);
+}
+
 static void TestSectionPipelineReportsMeshWaitStage(void)
 {
     ChunksTestResetScheduler();
@@ -420,6 +470,8 @@ static void TestEditDuringFlightKeepsSectionDirty(void)
     assert(editedSection != NULL);
     editedSection->dirtyStamp++;
     assert(editedSection->dirty);
+    RebuildDirtyChunkMeshes((Vector3){ 0 });
+    assert(GetPendingMeshJobCount() == 1);
 
     ChunksTestCompleteMeshJob(jobIndex);
     ProcessFinishedMeshJobs(0.0);
@@ -1133,6 +1185,9 @@ int main(void)
     TestSingleChunkUsesSingleJobAndNearestFirst();
     TestFullQueueLeavesDirtyChunkForLater();
     TestReusedLowSlotsDoNotStarveOlderJobs();
+    TestPriorityMeshJobsBypassBackgroundWork();
+    TestPriorityEditSupersedesInFlightSnapshot();
+    TestPriorityEditFallsBackWhenBackgroundQueueIsSaturated();
     TestSectionPipelineReportsMeshWaitStage();
     TestFullGenerationQueueDoesNotFallBackToMainThread();
     TestBudgetAndInvalidSlotCleanup();

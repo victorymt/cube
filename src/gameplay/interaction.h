@@ -29,7 +29,8 @@ HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance);
 HitResult RaycastBlocksFiltered(Vector3 origin, Vector3 direction,
                                 float maxDistance, unsigned mask);
 float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistance);
-bool BlockWouldOverlapPlayer(int x, int y, int z, Vector3 playerPosition);
+bool BlockWouldOverlapPlayer(int x, int y, int z, BlockType blockType,
+                             Vector3 playerPosition);
 
 void OpenImportDialog(ImportDialog *dialog);
 void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursorReleased);

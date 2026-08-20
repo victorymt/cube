@@ -149,6 +149,7 @@ bool RequestChunkTerrainSection(int cx, int sectionY, int cz);
 void ChunksUpdateEcologyVisuals(float dt, float daylight);
 BlockType GetBlock(int x, int y, int z);
 void RebuildDirtyChunkMeshes(Vector3 focusPosition);
+bool RebuildDirtyChunkMeshAt(int x, int y, int z);
 void UnloadAllChunks(void);
 bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int effectiveRenderDistance);
 bool ChunkIntersectsCameraView(const Chunk *chunk, const Camera3D *camera);
@@ -166,6 +167,7 @@ void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool d
 bool ChunksTestChunkDirty(int slotIndex);
 int ChunksTestMeshJobSlot(int jobIndex);
 int ChunksTestMeshJobSectionY(int jobIndex);
+bool ChunksTestMeshJobPriority(int jobIndex);
 int ChunksTestBuildWaterMeshJob(int jobIndex);
 void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,
                            int sectionY, bool done);
@@ -182,6 +184,7 @@ int ChunksTestPruneTerrainSections(Vector3 playerPosition);
 int ChunksTestCancelDistantSectionJobs(Vector3 playerPosition);
 void ChunksTestSetGenerationJobRunning(int jobIndex, bool running);
 void ChunksTestSetMeshJobRunning(int jobIndex, bool running);
+void ChunksTestSetMeshJobPriority(int jobIndex, bool priority);
 void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
                                  int sectionY, bool done);
 int ChunksTestNextGenerationJobIndex(void);

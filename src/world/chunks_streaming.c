@@ -73,9 +73,11 @@ void *ChunkGenWorker(void *arg)
 
         bool haveGeneration = HasPendingGenJob();
         bool haveMesh = HasPendingMeshJob();
+        bool havePriorityMesh = HasPendingPriorityMeshJob();
         ChunkGenJob *job = NULL;
         MeshJob *meshJob = NULL;
-        if (haveMesh && (preferMesh || !haveGeneration)) {
+        if (havePriorityMesh ||
+            (haveMesh && (preferMesh || !haveGeneration))) {
             meshJob = NextPendingMeshJob();
             preferMesh = false;
         } else {

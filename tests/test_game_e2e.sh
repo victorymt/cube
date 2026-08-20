@@ -134,6 +134,8 @@ send_command 'assert startup_screen == "start"'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'assert perf.enabled == false && perf.route_complete == false && perf.report_written == false'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert render.monitor_refresh_hz > 0 && render.vsync'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'start'
 wait_for_reply '^DEBUG_CONTROL start ok seed=1448040515$' 120
 send_command 'assert game.screen == "playing" && world.seed == 1448040515 && world.dimension == "home"'
@@ -729,7 +731,29 @@ with open(sys.argv[1], encoding="utf-8") as trace:
         assert record["version"] == 1, (line_number, record)
         assert record["timestamp_unix_ms"] > 0, (line_number, record)
         assert record["elapsed_real_ms"] >= 0, (line_number, record)
+        assert record["elapsed_cpu_ms"] >= 0, (line_number, record)
+        assert record["elapsed_main_cpu_ms"] >= 0, (line_number, record)
         if record["type"] == "sample":
+            timing = record["timing"]
+            assert timing["update_main_cpu_ms"] >= 0
+            assert timing["render_main_cpu_ms"] >= 0
+            assert timing["simulation_main_cpu_ms"] >= 0
+            assert timing["streaming_main_cpu_ms"] >= 0
+            assert timing["interaction_main_cpu_ms"] >= 0
+            assert timing["environment_main_cpu_ms"] >= 0
+            assert timing["astronomy_main_cpu_ms"] >= 0
+            assert timing["ecology_main_cpu_ms"] >= 0
+            assert timing["sky_main_cpu_ms"] >= 0
+            assert timing["water_main_cpu_ms"] >= 0
+            assert timing["environment_sample_main_cpu_ms"] >= 0
+            assert timing["environment_present_main_cpu_ms"] >= 0
+            assert timing["flora_visuals_main_cpu_ms"] >= 0
+            assert timing["entities_main_cpu_ms"] >= 0
+            stream = record["stream"]
+            assert stream["generation_cpu_ms"] >= 0
+            assert stream["mesh_cpu_ms"] >= 0
+            assert stream["upload_cpu_ms"] >= 0
+            assert stream["max_upload_cpu_ms"] >= 0
             pipeline = record["pipeline"]
             assert pipeline["focus_stage"], (line_number, record)
             assert pipeline["focus_stage_age_ms"] >= 0

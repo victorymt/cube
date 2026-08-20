@@ -11,6 +11,8 @@ typedef struct GameDebugTraceState {
     double elapsed;
     double nextSample;
     double startedMonotonicMs;
+    double startedCpuMs;
+    double startedMainCpuMs;
     int64_t startedUnixMs;
     uint64_t frame;
     int lastCx;
@@ -30,6 +32,7 @@ struct GameRuntime;
 bool GameDebugTraceSetPath(char *destination, size_t destinationSize,
                            const char *source);
 bool GameDebugTraceStart(struct GameRuntime *game);
+double GameDebugTraceMainCpuNowMs(void);
 void GameDebugTraceFrame(struct GameRuntime *game,
                          const struct GameFrameView *frame);
 void GameDebugTraceEvent(struct GameRuntime *game, const char *reason);

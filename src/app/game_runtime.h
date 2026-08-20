@@ -76,6 +76,11 @@ typedef struct GameRuntime {
   uint32_t selectedSeed;
   unsigned scriptedInputFrames;
   unsigned scriptedShipInputFrames;
+  uint64_t debugFrame;
+  uint64_t debugLeftPressFrame;
+  uint64_t debugLeftHandleFrame;
+  uint64_t debugLeftSetBlockFrame;
+  uint64_t debugLeftMeshFrame;
   unsigned blockGalleryPlaced;
   unsigned floraGalleryPlaced;
   unsigned floraGalleryTreeCount;
@@ -93,6 +98,9 @@ typedef struct GameRuntime {
   int screenHeight;
   int floraSampleX;
   int floraSampleZ;
+  int debugLeftTargetX;
+  int debugLeftTargetY;
+  int debugLeftTargetZ;
 
   bool perfMode;
   bool debugControlEnabled;
@@ -126,6 +134,9 @@ typedef struct GameRuntime {
   uint32_t entitiesWorldDimension;
   bool thirdPerson;
   bool scriptedInputFirstFrame;
+  bool debugMouseLeftPressed;
+  bool debugMouseRightPressed;
+  bool debugLeftMeshPending;
   bool autoSaveEnabled;
   bool dayCycleEnabled;
   bool evolutionScanLocked;

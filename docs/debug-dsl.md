@@ -51,8 +51,26 @@ Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,world,stream,save,load,map,surface,marker,teleport,look,input,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
+
+`--debug-trace [PATH]` can be combined with either debug entry point. Its JSONL
+records include monotonic wall time as `elapsed_real_ms` and process CPU time
+as `elapsed_cpu_ms`. `elapsed_main_cpu_ms` isolates the main game/render
+thread from background generation and meshing. Comparing their deltas
+distinguishes game work from display waits and frame limiting. Sample records
+also split the current frame's main-thread work into `timing.update_main_cpu_ms`
+and `timing.render_main_cpu_ms`. The update value is further divided into
+`simulation_main_cpu_ms`, `streaming_main_cpu_ms`,
+`interaction_main_cpu_ms`, and `environment_main_cpu_ms`.
+Environment timing is further split into `astronomy_main_cpu_ms`,
+`ecology_main_cpu_ms`, `sky_main_cpu_ms`, `water_main_cpu_ms`,
+`environment_sample_main_cpu_ms`, and `environment_present_main_cpu_ms`.
+The ecology value is split into `flora_visuals_main_cpu_ms` and
+`entities_main_cpu_ms`. Each sample's `stream` object also exposes cumulative
+`generation_cpu_ms`, `mesh_cpu_ms`, and `upload_cpu_ms`, plus
+`max_upload_cpu_ms`, so a main-thread streaming spike can be separated from
+background terrain and mesh work.
 
 ## Process and stdin lifetime
 
@@ -192,6 +210,11 @@ Runtime values are sampled when an expression is evaluated:
 | `player.position` | vec3 | Player world position |
 | `player.velocity` | vec3 | Player velocity |
 | `player.input_frames` | number | Remaining scripted player-input frames |
+| `interaction.mouse_left_mesh_ready` | bool | The latest scripted left-click block edit has reached the uploaded section mesh |
+| `interaction.mouse_left_press_frame` | number | Debug frame that queued the latest scripted left click |
+| `interaction.mouse_left_handle_frame` | number | Debug frame that consumed the latest scripted left click |
+| `interaction.mouse_left_set_block_frame` | number | Debug frame that committed the latest scripted block removal |
+| `interaction.mouse_left_mesh_frame` | number | Debug frame that observed the rebuilt section mesh uploaded |
 | `perf.enabled` | bool | Performance collection is enabled |
 | `perf.route_complete` | bool | Warmup and frame sampling are complete |
 | `perf.report_written` | bool | The performance report has been written |
@@ -260,6 +283,8 @@ Runtime values are sampled when an expression is evaluated:
 | `target.hit` | bool | Current solid raycast hit exists |
 | `target.position` | vec3 | Current raycast block position; only meaningful when `target.hit` is true |
 | `target.block` | string | Target block name, or `air` when there is no hit |
+| `render.monitor_refresh_hz` | number | Current monitor refresh rate reported by the window backend |
+| `render.vsync` | bool | Whether the window backend accepted the VSync window flag |
 | `block.catalog_count` | number | All ordinary/natural and color block identities |
 | `block.natural_count` | number | Block identities in the natural range, including Stage 06 flora |
 | `block.stage05_count` | number | Geological, soil, biogenic, and fire-residue identities added in Stage 05 |
@@ -371,6 +396,8 @@ teleport X Y Z YAW PITCH
 look YAW PITCH
 look delta YAW_DELTA PITCH_DELTA
 input FORWARD STRAFE VERTICAL SPRINT FRAMES
+mouse left
+mouse right
 ```
 
 Movement components are in `[-1,1]`; `SPRINT` is `0` or `1`; scripted input
@@ -378,6 +405,10 @@ lasts 1-600 frames. Teleport coordinates are finite and bounded to +/-1,000,000,
 yaw to +/-1,000, and pitch to [-1.45, 1.45]. Absolute look uses the same pitch
 range; relative look deltas are bounded to +/-1,000 and the resulting pitch is
 clamped.
+`mouse left` and `mouse right` inject one button-press edge through their normal
+interaction paths. For `mouse left`, the `status` reply includes the debug frame
+at which the edge was queued, handled, committed with `SetBlock`, and observed
+in the uploaded section mesh.
 
 ### Fluids
 

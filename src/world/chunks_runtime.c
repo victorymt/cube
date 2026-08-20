@@ -4,6 +4,19 @@
 MeshJob meshJobs[MAX_MESH_JOBS];
 static uint64_t nextMeshQueueSequence = 0u;
 
+#define MESH_PENDING_LOOKUP_CAPACITY (MAX_MESH_JOBS * 2)
+typedef struct MeshPendingLookup { int slots[MESH_PENDING_LOOKUP_CAPACITY]; int ys[MESH_PENDING_LOOKUP_CAPACITY]; bool used[MESH_PENDING_LOOKUP_CAPACITY]; } MeshPendingLookup;
+
+static bool MeshPendingLookupVisit(MeshPendingLookup *lookup, int slot, int y, bool insert) {
+    uint32_t hash = (uint32_t)slot * 0x9e3779b1u ^ (uint32_t)y;
+    for (int probe = 0; probe < MESH_PENDING_LOOKUP_CAPACITY; probe++) {
+        int at = (int)((hash + (uint32_t)probe) % MESH_PENDING_LOOKUP_CAPACITY);
+        if (!lookup->used[at] && insert) { lookup->used[at] = true; lookup->slots[at] = slot; lookup->ys[at] = y; }
+        if (!lookup->used[at] || (lookup->slots[at] == slot && lookup->ys[at] == y)) return lookup->used[at];
+    }
+    return false;
+}
+
 void UpdateQueuePeaksLocked(void)
 {
     uint64_t generation = 0;
@@ -40,17 +53,41 @@ bool HasPendingMeshJob(void)
     return false;
 }
 
+bool HasPendingPriorityMeshJob(void)
+{
+    for (int i = 0; i < MAX_MESH_JOBS; i++) {
+        MeshJob *job = &meshJobs[i];
+        if (job->inUse && job->priority && !job->running && !job->done) {
+            return true;
+        }
+    }
+    return false;
+}
+
 MeshJob *NextPendingMeshJob(void)
 {
     MeshJob *oldest = NULL;
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
         MeshJob *job = &meshJobs[i];
         if (!job->inUse || job->running || job->done) continue;
-        if (!oldest || job->queueSequence < oldest->queueSequence) {
+        if (!oldest || (job->priority && !oldest->priority) ||
+            (job->priority == oldest->priority &&
+             job->queueSequence < oldest->queueSequence)) {
             oldest = job;
         }
     }
     return oldest;
+}
+
+static MeshJob *FindPendingMeshJobForStamp(int slotIndex, int sectionY,
+                                           uint32_t sectionStamp)
+{
+    for (int i = 0; i < MAX_MESH_JOBS; i++) {
+        if (meshJobs[i].inUse && meshJobs[i].slotIndex == slotIndex &&
+            meshJobs[i].sectionY == sectionY &&
+            meshJobs[i].sectionStamp == sectionStamp) return &meshJobs[i];
+    }
+    return NULL;
 }
 
 static bool FindPendingMeshJob(int slotIndex, int sectionY)
@@ -453,8 +490,8 @@ static bool UploadMeshJob(MeshJob *job)
 
     pthread_mutex_lock(&genMutex);
     if (job) job->inUse = false;
-    bool pending = job && snapshotCurrent && FindPendingMeshJob(
-        job->slotIndex, job->sectionY);
+    bool pending = job && snapshotCurrent && FindPendingMeshJobForStamp(
+        job->slotIndex, job->sectionY, section->dirtyStamp);
     if (job && !snapshotCurrent) streamingStats.meshCanceled++;
     pthread_mutex_unlock(&genMutex);
     if (snapshotCurrent && !pending) {
@@ -465,7 +502,7 @@ static bool UploadMeshJob(MeshJob *job)
 }
 
 static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
-                           const ChunkSection *section)
+                           const ChunkSection *section, bool priority)
 {
     memcpy(job->blocks, section->blocks, sizeof(job->blocks));
     if (section->waterVolumes) {
@@ -499,6 +536,7 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
         job->nearbyIndices);
     job->inUse = true;
     job->done = false;
+    job->priority = priority;
     job->slotIndex = (int)(chunk - chunks);
     job->cx = chunk->cx;
     job->cz = chunk->cz;
@@ -525,11 +563,20 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     job->hasFloraMesh = false;
 }
 
-static bool SubmitMeshJobs(Chunk *chunk, ChunkSection *section)
+static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
 {
     if (!chunk || !section || genThread == 0) return false;
 
     pthread_mutex_lock(&genMutex);
+    int slotIndex = (int)(chunk - chunks);
+    MeshJob *current = FindPendingMeshJobForStamp(
+        slotIndex, section->sectionY, section->dirtyStamp);
+    if (current) {
+        if (priority) current->priority = true;
+        pthread_cond_signal(&genCond);
+        pthread_mutex_unlock(&genMutex);
+        return true;
+    }
     MeshJob *job = NULL;
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
         if (!meshJobs[i].inUse) {
@@ -542,7 +589,7 @@ static bool SubmitMeshJobs(Chunk *chunk, ChunkSection *section)
         return false;
     }
 
-    PrepareMeshJob(job, chunk, section);
+    PrepareMeshJob(job, chunk, section, priority);
     streamingStats.meshSubmitted++;
     streamingStats.meshSnapshotBytes += sizeof(job->blocks) +
                                         sizeof(job->waterVolumes) +
@@ -566,7 +613,9 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
         for (int index = 0; index < MAX_MESH_JOBS; index++) {
             MeshJob *candidate = &meshJobs[index];
             if (!candidate->inUse || !candidate->done) continue;
-            if (!job || candidate->queueSequence < job->queueSequence) {
+            if (!job || (candidate->priority && !job->priority) ||
+                (candidate->priority == job->priority &&
+                 candidate->queueSequence < job->queueSequence)) {
                 job = candidate;
             }
         }
@@ -679,62 +728,75 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
 void RebuildDirtyChunkMeshes(Vector3 focusPosition)
 {
     int submitted = 0;
-    int focusCx = 0;
-    int focusCz = 0;
-    int localX = 0;
-    int localZ = 0;
-    WorldToChunkLocal((int)floorf(focusPosition.x),
-                      (int)floorf(focusPosition.z),
+    int focusCx = 0, focusCz = 0, localX = 0, localZ = 0;
+    WorldToChunkLocal((int)floorf(focusPosition.x), (int)floorf(focusPosition.z),
                       &focusCx, &focusCz, &localX, &localZ);
 
-    int selectedChunks[MAX_MESH_SUBMITS_PER_FRAME] = { 0 };
-    int selectedSectionYs[MAX_MESH_SUBMITS_PER_FRAME] = { 0 };
-    int focusSectionY = FloorDivInt((int)floorf(focusPosition.y),
-                                    SURFACE_SECTION_HEIGHT);
-    while (submitted < MAX_MESH_SUBMITS_PER_FRAME) {
-        int best = -1;
-        int bestSectionIndex = -1;
-        int bestSectionY = -1;
-        int bestHorizontalDistance = 0;
-        int bestVerticalDistance = 0;
-        for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-            if (!chunks[i].loaded) continue;
-            int distance = ChunkGridDistanceFrom(
-                &chunks[i], focusCx, focusCz);
-            for (int sectionIndex = 0;
-                 sectionIndex < chunks[i].sectionCount; sectionIndex++) {
-                ChunkSection *section = chunks[i].sections[sectionIndex];
-                int sectionY = section->sectionY;
-                bool alreadySelected = false;
-                for (int selected = 0; selected < submitted; selected++) {
-                    if (selectedChunks[selected] == i &&
-                        selectedSectionYs[selected] == sectionY) {
-                        alreadySelected = true;
-                        break;
-                    }
-                }
-                if (alreadySelected || !section->dirty ||
-                    FindPendingMeshJob(i, sectionY)) continue;
-                int verticalDistance = abs(sectionY - focusSectionY);
-                if (best < 0 || distance < bestHorizontalDistance ||
-                    (distance == bestHorizontalDistance &&
-                     verticalDistance < bestVerticalDistance)) {
-                    best = i;
-                    bestSectionIndex = sectionIndex;
-                    bestSectionY = sectionY;
-                    bestHorizontalDistance = distance;
-                    bestVerticalDistance = verticalDistance;
+    int candidateChunks[MAX_MESH_SUBMITS_PER_FRAME] = { 0 }, candidateSections[MAX_MESH_SUBMITS_PER_FRAME] = { 0 },
+        candidateHorizontal[MAX_MESH_SUBMITS_PER_FRAME] = { 0 }, candidateVertical[MAX_MESH_SUBMITS_PER_FRAME] = { 0 };
+    int candidateCount = 0;
+    int focusSectionY = FloorDivInt((int)floorf(focusPosition.y), SURFACE_SECTION_HEIGHT);
+    int submissionLimit = MAX_MESH_SUBMITS_PER_FRAME;
+    MeshPendingLookup pending = { 0 };
+    if (genThread != 0) {
+        int availableSlots = 0;
+        pthread_mutex_lock(&genMutex);
+        for (int index = 0; index < MAX_MESH_JOBS; index++) {
+            if (!meshJobs[index].inUse) availableSlots++;
+            else MeshPendingLookupVisit(&pending, meshJobs[index].slotIndex, meshJobs[index].sectionY, true);
+        }
+        pthread_mutex_unlock(&genMutex);
+        if (availableSlots < submissionLimit) submissionLimit = availableSlots;
+    }
+    if (submissionLimit <= 0) return;
+    static int scanCursor = 0; int scanStart = scanCursor, scanned = 0, visitedSections = 0; bool scanBudgetHit = false;
+    double scanStartedMs = ChunkThreadCpuNowMs();
+    for (; scanned < MAX_ACTIVE_CHUNKS; scanned++) {
+        if (scanned > 0 && (scanned & 7) == 0 && ChunkThreadCpuNowMs() - scanStartedMs >= 2.0) break;
+        int i = (scanStart + scanned) % MAX_ACTIVE_CHUNKS;
+        if (!chunks[i].loaded) continue;
+        int distance = ChunkGridDistanceFrom(&chunks[i], focusCx, focusCz);
+        for (int sectionIndex = 0; sectionIndex < chunks[i].sectionCount; sectionIndex++) {
+            if ((visitedSections++ & 7) == 0 && ChunkThreadCpuNowMs() - scanStartedMs >= 1.5) { scanBudgetHit = true; break; }
+            ChunkSection *section = chunks[i].sections[sectionIndex];
+            if (!section->dirty || MeshPendingLookupVisit(
+                    &pending, i, section->sectionY, false)) continue;
+            int verticalDistance = abs(section->sectionY - focusSectionY);
+            int insert = candidateCount;
+            for (int selected = 0; selected < candidateCount; selected++) {
+                if (distance < candidateHorizontal[selected] ||
+                    (distance == candidateHorizontal[selected] &&
+                     verticalDistance < candidateVertical[selected])) {
+                    insert = selected;
+                    break;
                 }
             }
+            if (insert >= submissionLimit) continue;
+            int last = candidateCount < submissionLimit
+                ? candidateCount : submissionLimit - 1;
+            for (int selected = last; selected > insert; selected--) {
+                candidateChunks[selected] = candidateChunks[selected - 1];
+                candidateSections[selected] = candidateSections[selected - 1];
+                candidateHorizontal[selected] = candidateHorizontal[selected - 1];
+                candidateVertical[selected] = candidateVertical[selected - 1];
+            }
+            candidateChunks[insert] = i;
+            candidateSections[insert] = sectionIndex;
+            candidateHorizontal[insert] = distance;
+            candidateVertical[insert] = verticalDistance;
+            if (candidateCount < submissionLimit) candidateCount++;
         }
-        if (best < 0) break;
-        selectedChunks[submitted] = best;
-        selectedSectionYs[submitted] = bestSectionY;
-        ChunkSection *section = chunks[best].sections[bestSectionIndex];
+        if (scanBudgetHit) { scanned++; break; }
+    }
+    scanCursor = (scanStart + scanned) % MAX_ACTIVE_CHUNKS;
+    double submitStartedMs = ChunkThreadCpuNowMs(); while (submitted < candidateCount) {
+        int chunkIndex = candidateChunks[submitted];
+        ChunkSection *section = chunks[chunkIndex].sections[
+            candidateSections[submitted]];
 
         if (genThread == 0) {
             double startedMs = ChunkNowMs();
-            RebuildChunkSectionMeshSync(&chunks[best], section);
+            RebuildChunkSectionMeshSync(&chunks[chunkIndex], section);
             double elapsedMs = ChunkNowMs() - startedMs;
             pthread_mutex_lock(&genMutex);
             streamingStats.syncRebuilds++;
@@ -744,9 +806,36 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
             continue;
         }
 
-        if (!SubmitMeshJobs(&chunks[best], section)) break;
+        if (!SubmitMeshJob(&chunks[chunkIndex], section, false)) break;
         submitted++;
+        if (ChunkThreadCpuNowMs() - submitStartedMs >= 4.0) break;
     }
+}
+
+bool RebuildDirtyChunkMeshAt(int x, int y, int z)
+{
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    Chunk *chunk = FindChunk(cx, cz);
+    ChunkSection *section = chunk ? ChunkGetSection(
+        chunk, SurfaceSectionYFromBlockY(y), false) : NULL;
+    if (!section || !section->dirty) return false;
+    bool queueSaturated = genThread != 0 &&
+                          GetPendingMeshJobCount() >= MAX_MESH_JOBS - 1;
+    if (genThread != 0 && !queueSaturated &&
+        SubmitMeshJob(chunk, section, true)) return true;
+
+    double startedMs = ChunkNowMs();
+    RebuildChunkSectionMeshSync(chunk, section);
+    double elapsedMs = ChunkNowMs() - startedMs;
+    pthread_mutex_lock(&genMutex);
+    streamingStats.syncRebuilds++;
+    streamingStats.meshCpuMs += elapsedMs;
+    pthread_mutex_unlock(&genMutex);
+    return true;
 }
 
 bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int effectiveRenderDistance)
@@ -1224,6 +1313,12 @@ int ChunksTestMeshJobSectionY(int jobIndex)
     return meshJobs[jobIndex].inUse ? meshJobs[jobIndex].sectionY : -1;
 }
 
+bool ChunksTestMeshJobPriority(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    return meshJobs[jobIndex].inUse && meshJobs[jobIndex].priority;
+}
+
 int ChunksTestBuildWaterMeshJob(int jobIndex)
 {
     assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
@@ -1395,5 +1490,11 @@ void ChunksTestSetMeshJobRunning(int jobIndex, bool running)
     assert(meshJobs[jobIndex].inUse);
     meshJobs[jobIndex].running = running;
     pthread_mutex_unlock(&genMutex);
+}
+
+void ChunksTestSetMeshJobPriority(int jobIndex, bool priority)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    meshJobs[jobIndex].priority = priority;
 }
 #endif

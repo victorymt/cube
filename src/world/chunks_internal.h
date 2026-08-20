@@ -24,6 +24,7 @@ typedef struct MeshJob {
     bool inUse;
     bool running;
     bool done;
+    bool priority;
     int slotIndex;
     int cx;
     int cz;
@@ -77,6 +78,7 @@ extern ChunkStreamingStats streamingStats;
 extern MeshJob meshJobs[MAX_MESH_JOBS];
 
 double ChunkNowMs(void);
+double ChunkThreadCpuNowMs(void);
 bool NegativeTerrainSectionOutsideWindow(int sectionY, int playerSectionY);
 int ChunkSectionLowerBound(const Chunk *chunk, int sectionY);
 int ResolvedTerrainSectionLowerBound(const Chunk *chunk, int sectionY);
@@ -93,6 +95,7 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section);
 int CancelDistantNegativeSectionJobs(int playerSectionY);
 int PruneDistantNegativeTerrainSections(int playerSectionY);
 bool HasPendingMeshJob(void);
+bool HasPendingPriorityMeshJob(void);
 MeshJob *NextPendingMeshJob(void);
 void FreeMeshData(Mesh *mesh);
 void LocalizeChunkMeshData(Mesh *mesh, int chunkX, int chunkZ);

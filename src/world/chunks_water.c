@@ -10,8 +10,23 @@ static unsigned char SurfaceWaterSnapshotVolume(
     return waterVolumes[(lx * height + y) * CHUNK_SIZE + lz];
 }
 
-static bool TrySampleSurfaceWaterCell(
-    int worldX, int worldY, int worldZ, BlockType *outBlock,
+typedef struct SurfaceBoundaryColumn {
+    const Chunk *chunk;
+    int worldX;
+    int worldZ;
+    int lx;
+    int lz;
+} SurfaceBoundaryColumn;
+
+typedef struct SurfaceBoundaryChunkCache {
+    int cx[(CHUNK_SIZE + 2) * (CHUNK_SIZE + 2)];
+    int cz[(CHUNK_SIZE + 2) * (CHUNK_SIZE + 2)];
+    const Chunk *chunks[(CHUNK_SIZE + 2) * (CHUNK_SIZE + 2)];
+    int count;
+} SurfaceBoundaryChunkCache;
+
+static bool TrySampleSurfaceWaterColumn(
+    const SurfaceBoundaryColumn *column, int worldY, BlockType *outBlock,
     unsigned char *outVolume)
 {
     if (!outBlock || !outVolume) return false;
@@ -21,17 +36,13 @@ static bool TrySampleSurfaceWaterCell(
         return true;
     }
 
-    int cx = 0;
-    int cz = 0;
-    int lx = 0;
-    int lz = 0;
-    WorldToChunkLocal(worldX, worldZ, &cx, &cz, &lx, &lz);
-    const Chunk *chunk = FindChunk(cx, cz);
+    const Chunk *chunk = column->chunk;
     if (!chunk) return false;
 
     int sectionY = SurfaceSectionYFromBlockY(worldY);
     BlockType block = BLOCK_AIR;
-    if (!ChunkTryGetLocalBlock(chunk, lx, worldY, lz, &block)) {
+    if (!ChunkTryGetLocalBlock(
+            chunk, column->lx, worldY, column->lz, &block)) {
         if (!ChunkTerrainSectionIsResolved(chunk, sectionY)) return false;
     }
 
@@ -40,22 +51,56 @@ static bool TrySampleSurfaceWaterCell(
     if (block != BLOCK_WATER) return true;
 
     const ChunkSection *section = ChunkGetSectionConst(chunk, sectionY);
-    int index = (lx * SURFACE_SECTION_HEIGHT +
-                 SurfaceSectionLocalYFromBlockY(worldY)) * CHUNK_SIZE + lz;
+    int index = (column->lx * SURFACE_SECTION_HEIGHT +
+                 SurfaceSectionLocalYFromBlockY(worldY)) * CHUNK_SIZE +
+                column->lz;
     *outVolume = section && section->waterVolumes
         ? section->waterVolumes[index] : (unsigned char)WATER_VOLUME_CAPACITY;
     return true;
 }
 
+static SurfaceBoundaryColumn SurfaceBoundaryColumnAt(
+    SurfaceBoundaryChunkCache *cache, int worldX, int worldZ)
+{
+    SurfaceBoundaryColumn column = { .worldX = worldX, .worldZ = worldZ };
+    int cx = 0;
+    int cz = 0;
+    WorldToChunkLocal(worldX, worldZ, &cx, &cz, &column.lx, &column.lz);
+    for (int i = 0; cache && i < cache->count; i++) {
+        if (cache->cx[i] == cx && cache->cz[i] == cz) {
+            column.chunk = cache->chunks[i];
+            return column;
+        }
+    }
+    column.chunk = FindChunk(cx, cz);
+    if (cache && cache->count < (CHUNK_SIZE + 2) * (CHUNK_SIZE + 2)) {
+        int index = cache->count++;
+        cache->cx[index] = cx;
+        cache->cz[index] = cz;
+        cache->chunks[index] = column.chunk;
+    }
+    return column;
+}
+
+static bool TrySampleSurfaceWaterCell(
+    int worldX, int worldY, int worldZ, BlockType *outBlock,
+    unsigned char *outVolume)
+{
+    SurfaceBoundaryColumn column = SurfaceBoundaryColumnAt(
+        NULL, worldX, worldZ);
+    return TrySampleSurfaceWaterColumn(
+        &column, worldY, outBlock, outVolume);
+}
+
 static void CaptureSurfaceBoundaryCell(
-    int worldX, int worldY, int worldZ, unsigned short *outBlock,
+    const SurfaceBoundaryColumn *column, int worldY, unsigned short *outBlock,
     unsigned char *outVolume, unsigned char *outKnown)
 {
     BlockType block = BLOCK_AIR;
     unsigned char volume = 0u;
-    if (!TrySampleSurfaceWaterCell(
-            worldX, worldY, worldZ, &block, &volume)) {
-        *outBlock = (unsigned short)GetBlockAt(worldX, worldY, worldZ);
+    if (!TrySampleSurfaceWaterColumn(column, worldY, &block, &volume)) {
+        *outBlock = (unsigned short)GetBlockAt(
+            column->worldX, worldY, column->worldZ);
         *outVolume = 0u;
         *outKnown = 0u;
         return;
@@ -72,6 +117,14 @@ void CaptureSurfaceBoundary(SurfaceBoundarySnapshot *snapshot,
     int baseX = chunkX * CHUNK_SIZE;
     int baseY = sectionY * SURFACE_SECTION_HEIGHT;
     int baseZ = chunkZ * CHUNK_SIZE;
+    SurfaceBoundaryColumn columns[CHUNK_SIZE + 2][CHUNK_SIZE + 2];
+    SurfaceBoundaryChunkCache cache = { 0 };
+    for (int px = 0; px < CHUNK_SIZE + 2; px++) {
+        for (int pz = 0; pz < CHUNK_SIZE + 2; pz++) {
+            columns[px][pz] = SurfaceBoundaryColumnAt(
+                &cache, baseX + px - 1, baseZ + pz - 1);
+        }
+    }
 
     for (int px = 0; px < CHUNK_SIZE + 2; px++) {
         for (int py = 0; py < SURFACE_SECTION_HEIGHT + 2; py++) {
@@ -82,7 +135,7 @@ void CaptureSurfaceBoundary(SurfaceBoundarySnapshot *snapshot,
                                 pz == 0 || pz == CHUNK_SIZE + 1;
                 if (!boundary) continue;
                 CaptureSurfaceBoundaryCell(
-                    baseX + px - 1, baseY + py - 1, baseZ + pz - 1,
+                    &columns[px][pz], baseY + py - 1,
                     &snapshot->blocks[px][py][pz],
                     &snapshot->volumes[px][py][pz],
                     &snapshot->known[px][py][pz]);

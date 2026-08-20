@@ -56,6 +56,13 @@ double ChunkNowMs(void)
     return (double)value.tv_sec * 1000.0 + (double)value.tv_nsec / 1000000.0;
 }
 
+double ChunkThreadCpuNowMs(void)
+{
+    struct timespec value;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) != 0) return 0.0;
+    return (double)value.tv_sec * 1000.0 + (double)value.tv_nsec / 1000000.0;
+}
+
 bool NegativeTerrainSectionOutsideWindow(
     int sectionY, int playerSectionY)
 {

@@ -43,6 +43,36 @@ bool GameInteractionObserveEvolutionInfo(const EntityEvolutionDebugInfo *info)
     return EvolutionCatalogObserve(&observation);
 }
 
+void GameInteractionQueueDebugMouse(GameRuntime *game, bool right)
+{
+    if (!game || game->screen != SCREEN_PLAYING) return;
+    if (right) {
+        game->debugMouseRightPressed = true;
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL mouse right queued\n");
+        GameDebugTraceEvent(game, "mouse_right_queued");
+        return;
+    }
+    game->debugMouseLeftPressed = true;
+    game->debugLeftPressFrame = game->debugFrame;
+    game->debugLeftHandleFrame = game->debugLeftSetBlockFrame = 0u;
+    game->debugLeftMeshFrame = 0u;
+    game->debugLeftMeshPending = false;
+    DebugControlReply(&game->debugControl, "DEBUG_CONTROL mouse left "
+                      "queued frame=%llu\n",
+                      (unsigned long long)game->debugLeftPressFrame);
+    GameDebugTraceEvent(game, "mouse_left_queued");
+}
+
+static void GamePrioritizeInteractionMesh(GameInteractionContext *context,
+                                          int x, int y, int z)
+{
+    context->meshPriority = true;
+    context->meshPriorityX = x;
+    context->meshPriorityY = y;
+    context->meshPriorityZ = z;
+}
+
 static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
                                         bool inputBlocked,
                                         GameInteractionContext *context)
@@ -86,12 +116,14 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
             }
         }
     }
-    if (ShipIsDriving() && WorldIsSpaceActive()) {
-        context->haveAimBody = SpacePlanetNavigationPick(
-            game->player.position, aimDir, &context->aimBody);
-    } else {
-        context->haveAimBody = SpaceBodyPick(
-            aimEye, aimDir, &context->aimBody);
+    if (HomeWorldSpaceFade(game->camera.position) > 0.05f) {
+        if (ShipIsDriving() && WorldIsSpaceActive()) {
+            context->haveAimBody = SpacePlanetNavigationPick(
+                game->player.position, aimDir, &context->aimBody);
+        } else {
+            context->haveAimBody = SpaceBodyPick(
+                aimEye, aimDir, &context->aimBody);
+        }
     }
     context->hitParkedShip =
         context->hit.hit &&
@@ -102,17 +134,28 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
 
 static void GameHandleLeftInteraction(
     GameRuntime *game, bool inputBlocked,
-    const GameInteractionContext *context)
+    GameInteractionContext *context)
 {
+    bool debugLeftPressed = game->debugMouseLeftPressed;
+    bool leftPressed = debugLeftPressed ||
+        IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    if (debugLeftPressed) {
+        game->debugMouseLeftPressed = false;
+        game->debugLeftHandleFrame = game->debugFrame;
+    }
+
     if (!inputBlocked && context->interactionHit.hit &&
         GetBlockAt(context->interactionHit.x, context->interactionHit.y,
                    context->interactionHit.z) == BLOCK_WATER &&
-        IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        leftPressed) {
         if (InventoryCount(BLOCK_WATER) >= INVENTORY_MAX_PER_BLOCK) {
             GameNoticePost("Inventory full: Water");
         } else if (FluidTryCollectUnit(
                        context->interactionHit.x, context->interactionHit.y,
                        context->interactionHit.z)) {
+            GamePrioritizeInteractionMesh(
+                context, context->interactionHit.x,
+                context->interactionHit.y, context->interactionHit.z);
             InventoryAdd(BLOCK_WATER, 1);
             AudioPlayPick();
             GameNoticePost(TextFormat(
@@ -120,8 +163,7 @@ static void GameHandleLeftInteraction(
         } else {
             GameNoticePost("Need 255 connected water volume to collect.");
         }
-    } else if (!inputBlocked && context->entityHit >= 0 &&
-               IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    } else if (!inputBlocked && context->entityHit >= 0 && leftPressed) {
         float harvestDaylight = 0.0f;
         float harvestSunset = 0.0f;
         PlanetLightState harvestLight = { 0 };
@@ -132,8 +174,7 @@ static void GameHandleLeftInteraction(
         }
         EntityKill(context->entityHit, ENTITY_DEATH_PLAYER,
                    harvestDaylight);
-    } else if (!inputBlocked && context->hitParkedShip &&
-               IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    } else if (!inputBlocked && context->hitParkedShip && leftPressed) {
         if (InventoryAdd(BLOCK_SPACESHIP, 1) > 0) {
             Vector3 center = {
                 (float)context->hitShip.coreX +
@@ -142,16 +183,18 @@ static void GameHandleLeftInteraction(
                 (float)context->hitShip.coreZ +
                     (context->hitShip.legacy ? 0.5f : 1.0f)
             };
-            ShipRemoveParkedAt(context->hit.x, context->hit.y,
-                               context->hit.z, true);
+            if (ShipRemoveParkedAt(context->hit.x, context->hit.y,
+                                   context->hit.z, true)) {
+                GamePrioritizeInteractionMesh(
+                    context, context->hit.x, context->hit.y, context->hit.z);
+            }
             ParticlesEmitBurst(center, BlockBaseColor(BLOCK_SPACESHIP),
                                20, 3.0f, 0.7f);
             AudioPlayBreak();
         } else {
             GameNoticePost("Inventory full: Spaceship");
         }
-    } else if (!inputBlocked && context->hit.hit &&
-               IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+    } else if (!inputBlocked && context->hit.hit && leftPressed &&
                WorldCanAccessBlockY(context->hit.y)) {
         BlockType brokenType = GetBlockAt(context->hit.x, context->hit.y,
                                           context->hit.z);
@@ -182,8 +225,21 @@ static void GameHandleLeftInteraction(
                            context->hit.z + 0.5f },
                 BlockBaseColor(brokenType), 16, 3.0f, 0.7f);
             AudioPlayBreak();
-            SetBlock(context->hit.x, context->hit.y, context->hit.z,
-                     BLOCK_AIR);
+            bool removed = SetBlock(
+                context->hit.x, context->hit.y, context->hit.z, BLOCK_AIR);
+            if (removed) {
+                GamePrioritizeInteractionMesh(
+                    context, context->hit.x, context->hit.y, context->hit.z);
+            }
+            if (removed && debugLeftPressed) {
+                game->debugLeftSetBlockFrame = game->debugFrame;
+                game->debugLeftMeshFrame = 0u;
+                game->debugLeftTargetX = context->hit.x;
+                game->debugLeftTargetY = context->hit.y;
+                game->debugLeftTargetZ = context->hit.z;
+                game->debugLeftMeshPending = true;
+                GameDebugTraceEvent(game, "mouse_left_set_block");
+            }
         } else if (!poiCore && brokenType != BLOCK_AIR) {
             GameNoticePost(
                 TextFormat("Inventory full: %s", BlockName(brokenType)));
@@ -223,7 +279,7 @@ static void GamePreparePlacement(GameRuntime *game, bool inputBlocked,
                 (selectedType == BLOCK_WATER ||
                  !BlockWouldOverlapPlayer(
                      context->placeX, context->placeY, context->placeZ,
-                     game->player.position));
+                     selectedType, game->player.position));
             if (selectedType == BLOCK_WATER) {
                 context->canPlace =
                     context->canPlace && WorldIsSurfaceActive() &&
@@ -283,17 +339,17 @@ static void GameUseNetherPortal(GameRuntime *game)
     game->wasInSpace = false;
 }
 
-static void GameToggleAccessBlock(const HitResult *hit,
+static bool GameToggleAccessBlock(const HitResult *hit,
                                   BlockType currentType,
                                   BlockType closedType,
                                   BlockType openType)
 {
     BlockType replacement = currentType == closedType ? openType : closedType;
     AudioPlayPlace();
-    SetBlock(hit->x, hit->y, hit->z, replacement);
+    return SetBlock(hit->x, hit->y, hit->z, replacement);
 }
 
-static void GamePlaceSelectedBlock(GameRuntime *game,
+static bool GamePlaceSelectedBlock(GameRuntime *game,
                                    const GameInteractionContext *context)
 {
     BlockType placedType = game->hotbar[game->selectedIndex];
@@ -311,6 +367,7 @@ static void GamePlaceSelectedBlock(GameRuntime *game,
                                context->placeZ + 1.0f },
                     BlockBaseColor(placedType), 16, 2.5f, 0.6f);
                 AudioPlayPlace();
+                return true;
             }
         }
     } else if (placedType == BLOCK_WATER) {
@@ -327,6 +384,7 @@ static void GamePlaceSelectedBlock(GameRuntime *game,
                                context->placeZ + 0.5f },
                     BlockBaseColor(placedType), 8, 2.0f, 0.5f);
                 AudioPlayPlace();
+                return true;
             }
         }
     } else if (InventoryConsume(placedType, 1)) {
@@ -342,16 +400,21 @@ static void GamePlaceSelectedBlock(GameRuntime *game,
                            context->placeZ + 0.5f },
                 BlockBaseColor(placedType), 8, 2.0f, 0.5f);
             AudioPlayPlace();
+            return true;
         }
     }
+    return false;
 }
 
 static void GameHandleRightInteraction(
     GameRuntime *game, bool inputBlocked,
-    const GameInteractionContext *context)
+    GameInteractionContext *context)
 {
-    if (inputBlocked || !context->hit.hit ||
-        !IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+    bool debugRightPressed = game->debugMouseRightPressed;
+    bool rightPressed = debugRightPressed ||
+        IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+    if (debugRightPressed) game->debugMouseRightPressed = false;
+    if (inputBlocked || !context->hit.hit || !rightPressed) {
         return;
     }
     BlockType targetType = GetBlockAt(context->hit.x, context->hit.y,
@@ -364,14 +427,23 @@ static void GameHandleRightInteraction(
     } else if (targetType == BLOCK_NETHER_PORTAL) {
         GameUseNetherPortal(game);
     } else if (targetType == BLOCK_DOOR || targetType == BLOCK_DOOR_OPEN) {
-        GameToggleAccessBlock(&context->hit, targetType, BLOCK_DOOR,
-                              BLOCK_DOOR_OPEN);
+        if (GameToggleAccessBlock(&context->hit, targetType, BLOCK_DOOR,
+                                  BLOCK_DOOR_OPEN)) {
+            GamePrioritizeInteractionMesh(
+                context, context->hit.x, context->hit.y, context->hit.z);
+        }
     } else if (targetType == BLOCK_FENCE_GATE ||
                targetType == BLOCK_FENCE_GATE_OPEN) {
-        GameToggleAccessBlock(&context->hit, targetType, BLOCK_FENCE_GATE,
-                              BLOCK_FENCE_GATE_OPEN);
+        if (GameToggleAccessBlock(&context->hit, targetType,
+                                  BLOCK_FENCE_GATE, BLOCK_FENCE_GATE_OPEN)) {
+            GamePrioritizeInteractionMesh(
+                context, context->hit.x, context->hit.y, context->hit.z);
+        }
     } else if (context->canPlace) {
-        GamePlaceSelectedBlock(game, context);
+        if (GamePlaceSelectedBlock(game, context)) {
+            GamePrioritizeInteractionMesh(
+                context, context->placeX, context->placeY, context->placeZ);
+        }
     } else if (game->hotbar[game->selectedIndex] == BLOCK_SPACESHIP &&
                InventoryCount(BLOCK_SPACESHIP) > 0) {
         GameNoticePost("Spaceship needs a clear 4x4 area.");

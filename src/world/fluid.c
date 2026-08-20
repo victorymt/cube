@@ -8,6 +8,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define FLUID_SECTION_CELLS \
     (CHUNK_SIZE * SURFACE_SECTION_HEIGHT * CHUNK_SIZE)
@@ -16,6 +17,8 @@
 #define FLUID_MAX_EDIT_COUNT 2000000u
 #define FLUID_HORIZONTAL_FLOW_LIMIT 64u
 #define FLUID_FLOW_COMPONENTS 3
+#define FLUID_UPDATE_CPU_BUDGET_MS 4.0
+#define FLUID_TIME_CHECK_INTERVAL 32u
 
 typedef struct FluidQueueCell {
     int x;
@@ -80,12 +83,21 @@ static FluidChunkEditBucket *fluidChunkEditIndex = NULL;
 static uint32_t fluidChunkEditIndexCapacity = 0u;
 static uint32_t fluidChunkEditCount = 0u;
 static uint32_t fluidChunkEditDeleted = 0u;
-static float fluidAccumulator = 0.0f;
+static float fluidTickAccumulator = 0.0f;
+static double fluidCellBudget = 0.0;
 static FluidStats fluidStats = { 0 };
 
 static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
                                    bool remember);
 static void FluidClearLoadedRuntime(void);
+
+static double FluidThreadCpuNowMs(void)
+{
+    struct timespec value = { 0 };
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) != 0) return 0.0;
+    return (double)value.tv_sec * 1000.0 +
+           (double)value.tv_nsec / 1000000.0;
+}
 
 static void FluidCanonicalizeXZ(int *x, int *z)
 {
@@ -962,14 +974,17 @@ static void FluidProcessCell(const FluidQueueCell *cell)
     }
 }
 
-static void FluidProcessTick(void)
+static uint32_t FluidProcessCells(uint32_t limit, bool countTick,
+                                  double cpuBudgetMs, bool *hitCpuBudget)
 {
+    if (hitCpuBudget) *hitCpuBudget = false;
     FluidRefillDeferredQueue();
     uint32_t available = fluidQueueCount;
-    uint32_t count = available < FLUID_MAX_CELLS_PER_TICK
-        ? available : FLUID_MAX_CELLS_PER_TICK;
+    uint32_t count = available < limit ? available : limit;
     fluidStats.lastProcessedCells = 0u;
-    fluidStats.ticks++;
+    if (countTick) fluidStats.ticks++;
+    double deadlineMs = cpuBudgetMs > 0.0
+        ? FluidThreadCpuNowMs() + cpuBudgetMs : 0.0;
     for (uint32_t processed = 0u; processed < count; processed++) {
         FluidQueueCell cell = fluidQueue[fluidQueueHead];
         fluidQueueHead = (fluidQueueHead + 1u) % FLUID_QUEUE_CAPACITY;
@@ -977,21 +992,49 @@ static void FluidProcessTick(void)
         FluidProcessCell(&cell);
         fluidStats.processedCells++;
         fluidStats.lastProcessedCells++;
+        if (cpuBudgetMs > 0.0 &&
+            fluidStats.lastProcessedCells % FLUID_TIME_CHECK_INTERVAL == 0u &&
+            FluidThreadCpuNowMs() >= deadlineMs) {
+            if (hitCpuBudget) *hitCpuBudget = true;
+            break;
+        }
     }
     FluidRefillDeferredQueue();
     fluidStats.activeCells = fluidQueueCount;
+    return fluidStats.lastProcessedCells;
+}
+
+static void FluidProcessTick(void)
+{
+    FluidProcessCells(FLUID_MAX_CELLS_PER_TICK, true, 0.0, NULL);
 }
 
 void FluidUpdate(float dt)
 {
     if (!WorldIsSurfaceActive() || !isfinite(dt) || dt <= 0.0f) return;
-    fluidAccumulator += dt;
-    if (fluidAccumulator > 0.5f) fluidAccumulator = 0.5f;
+
+    fluidTickAccumulator += dt;
+    if (fluidTickAccumulator > 0.5f) fluidTickAccumulator = 0.5f;
     const float tickSeconds = 1.0f / FLUID_TICK_RATE;
-    while (fluidAccumulator >= tickSeconds) {
-        FluidProcessTick();
-        fluidAccumulator -= tickSeconds;
+    while (fluidTickAccumulator >= tickSeconds) {
+        fluidStats.ticks++;
+        fluidTickAccumulator -= tickSeconds;
     }
+
+    fluidCellBudget += (double)dt * (double)FLUID_TICK_RATE *
+                       (double)FLUID_MAX_CELLS_PER_TICK;
+    if (fluidCellBudget > (double)FLUID_MAX_CELLS_PER_TICK) {
+        fluidCellBudget = (double)FLUID_MAX_CELLS_PER_TICK;
+    }
+    uint32_t cellBudget = (uint32_t)fluidCellBudget;
+    if (cellBudget > FLUID_MAX_CELLS_PER_UPDATE) {
+        cellBudget = FLUID_MAX_CELLS_PER_UPDATE;
+    }
+    fluidCellBudget -= (double)cellBudget;
+    bool hitCpuBudget = false;
+    uint32_t processed = FluidProcessCells(
+        cellBudget, false, FLUID_UPDATE_CPU_BUDGET_MS, &hitCpuBudget);
+    if (hitCpuBudget) fluidCellBudget += (double)(cellBudget - processed);
 }
 
 void FluidStepTicks(unsigned ticks)
@@ -1654,7 +1697,8 @@ bool FluidLoadState(FILE *file)
     fluidQueueHead = 0u;
     fluidQueueCount = 0u;
     fluidDeferredPending = false;
-    fluidAccumulator = 0.0f;
+    fluidTickAccumulator = 0.0f;
+    fluidCellBudget = 0.0;
     fluidStats = (FluidStats){ .editCount = count };
     fluidStats.editCount = fluidEditCount;
     return true;
@@ -1704,7 +1748,8 @@ void FluidReset(void)
     fluidQueueHead = 0u;
     fluidQueueCount = 0u;
     fluidDeferredPending = false;
-    fluidAccumulator = 0.0f;
+    fluidTickAccumulator = 0.0f;
+    fluidCellBudget = 0.0;
     fluidStats = (FluidStats){ 0 };
 }
 

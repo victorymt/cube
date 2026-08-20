@@ -1,4 +1,5 @@
 #include "app/game_internal.h"
+#include "app/game_debug_trace.h"
 
 #include "core/game_effects.h"
 #include "core/perf.h"
@@ -90,12 +91,24 @@ static void GameAdvanceFrameSimulation(GameRuntime *game,
                                        GameFrameView *frame)
 {
     if (!GameWorldSimulationPaused(game)) {
+        double floraStarted = game->debugTraceEnabled
+            ? GameDebugTraceMainCpuNowMs() : 0.0;
         ChunksUpdateEcologyVisuals(frame->dt, frame->daylight);
+        if (game->debugTraceEnabled) {
+            frame->debugFloraVisualsMainCpuMs =
+                GameDebugTraceMainCpuNowMs() - floraStarted;
+        }
     }
     if (!GameWorldSimulationPaused(game) && !game->albumOpen &&
         !game->importDialog.open &&
         !game->landingTransition.active && frame->localWorldActive) {
+        double entitiesStarted = game->debugTraceEnabled
+            ? GameDebugTraceMainCpuNowMs() : 0.0;
         EntitiesUpdate(frame->dt, &game->player, frame->daylight);
+        if (game->debugTraceEnabled) {
+            frame->debugEntitiesMainCpuMs =
+                GameDebugTraceMainCpuNowMs() - entitiesStarted;
+        }
     }
     EffectDispatchPending();
 }
@@ -255,11 +268,42 @@ static void GamePresentFrameEnvironment(GameRuntime *game,
 
 void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame)
 {
+    double stageStarted = game->debugTraceEnabled
+        ? GameDebugTraceMainCpuNowMs() : 0.0;
     float sunset = GameSampleFrameAstronomy(game, frame);
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        frame->debugAstronomyMainCpuMs = now - stageStarted;
+        stageStarted = now;
+    }
     GameAdvanceFrameSimulation(game, frame);
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        frame->debugEcologyMainCpuMs = now - stageStarted;
+        stageStarted = now;
+    }
     GameDeriveFrameSky(game, frame, sunset);
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        frame->debugSkyMainCpuMs = now - stageStarted;
+        stageStarted = now;
+    }
     float underwaterDepth = GameSampleFrameWater(game, frame);
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        frame->debugWaterMainCpuMs = now - stageStarted;
+        stageStarted = now;
+    }
     GameBuildFrameEnvironmentSample(
         game, frame, sunset, underwaterDepth);
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        frame->debugEnvironmentSampleMainCpuMs = now - stageStarted;
+        stageStarted = now;
+    }
     GamePresentFrameEnvironment(game, frame, sunset);
+    if (game->debugTraceEnabled) {
+        frame->debugEnvironmentPresentMainCpuMs =
+            GameDebugTraceMainCpuNowMs() - stageStarted;
+    }
 }
