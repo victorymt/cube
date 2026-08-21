@@ -343,7 +343,7 @@ int CancelDistantNegativeSectionJobs(int playerSectionY)
     return canceled;
 }
 
-static void InitializeFloraTargets(
+void InitializeFloraTargets(
     ChunkSection *section, const FloraVisualInstance *sourceInstances,
     int sourceInstanceCount)
 {
@@ -448,13 +448,19 @@ static bool UploadMeshJob(MeshJob *job)
             section->lodModelStamp = job->sectionStamp;
             section->lodModelLevel = job->lod;
         }
-        ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,
-                          &job->waterMesh, job->hasWaterMesh, false);
-        ReplaceChunkModel(&section->floraModel, &section->hasFloraModel,
-                          &job->floraMesh, job->hasFloraMesh, true);
-        InitializeFloraTargets(section, job->floraInstances,
-                               job->floraInstanceCount);
-        section->floraVisualScale = 1.0f;
+        if (job->lod == CHUNK_LOD_EXACT) {
+            ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,
+                              &job->waterMesh, job->hasWaterMesh, false);
+            ReplaceChunkModel(&section->floraModel, &section->hasFloraModel,
+                              &job->floraMesh, job->hasFloraMesh, true);
+            InitializeFloraTargets(section, job->floraInstances,
+                                   job->floraInstanceCount);
+            section->floraVisualScale = 1.0f;
+        } else {
+            ReplaceChunkModel(
+                &section->lodWaterModel, &section->hasLodWaterModel,
+                &job->waterMesh, job->hasWaterMesh, false);
+        }
     } else if (job) {
         FreeMeshData(&job->mesh);
         FreeMeshData(&job->waterMesh);
@@ -502,19 +508,27 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     }
     CaptureSurfaceBoundary(
         &job->boundary, chunk->cx, chunk->cz, section->sectionY);
-    job->floraStructureCount = chunk->floraStructureCount;
-    if (job->floraStructureCount < 0) job->floraStructureCount = 0;
-    if (job->floraStructureCount > MAX_CHUNK_FLORA_STRUCTURES) {
-        job->floraStructureCount = MAX_CHUNK_FLORA_STRUCTURES;
+    if (lod == CHUNK_LOD_EXACT) {
+        job->floraStructureCount = chunk->floraStructureCount;
+        if (job->floraStructureCount < 0) job->floraStructureCount = 0;
+        if (job->floraStructureCount > MAX_CHUNK_FLORA_STRUCTURES) {
+            job->floraStructureCount = MAX_CHUNK_FLORA_STRUCTURES;
+        }
+        memcpy(job->floraStructures, chunk->floraStructures,
+               (size_t)job->floraStructureCount *
+                   sizeof(FloraStructureInstance));
+        job->nearbyCount = CollectNearbyTorchLights(
+            chunk->cx * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
+            chunk->cx * CHUNK_SIZE + CHUNK_SIZE - 1 +
+                (int)TORCH_LIGHT_RADIUS,
+            chunk->cz * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
+            chunk->cz * CHUNK_SIZE + CHUNK_SIZE - 1 +
+                (int)TORCH_LIGHT_RADIUS,
+            job->nearbyIndices);
+    } else {
+        job->floraStructureCount = 0;
+        job->nearbyCount = 0;
     }
-    memcpy(job->floraStructures, chunk->floraStructures,
-           (size_t)job->floraStructureCount * sizeof(FloraStructureInstance));
-    job->nearbyCount = CollectNearbyTorchLights(
-        chunk->cx * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
-        chunk->cx * CHUNK_SIZE + CHUNK_SIZE - 1 + (int)TORCH_LIGHT_RADIUS,
-        chunk->cz * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
-        chunk->cz * CHUNK_SIZE + CHUNK_SIZE - 1 + (int)TORCH_LIGHT_RADIUS,
-        job->nearbyIndices);
     job->inUse = true;
     job->done = false;
     job->priority = priority;
@@ -626,109 +640,6 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
         pthread_mutex_unlock(&genMutex);
         uploaded++;
     }
-}
-
-void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
-{
-    static const int faces[6][3] = {
-        { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
-        { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
-    };
-
-    int nearbyTorchIndices[MAX_TORCH_LIGHTS];
-    int nearbyTorchCount = CollectNearbyTorchLights(
-        chunk->cx * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
-        chunk->cx * CHUNK_SIZE + CHUNK_SIZE - 1 + (int)TORCH_LIGHT_RADIUS,
-        chunk->cz * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
-        chunk->cz * CHUNK_SIZE + CHUNK_SIZE - 1 + (int)TORCH_LIGHT_RADIUS,
-        nearbyTorchIndices);
-
-    Mesh solidMesh = { 0 };
-    Mesh waterMesh = { 0 };
-    Mesh floraMesh = { 0 };
-    FloraVisualInstance *floraInstances = NULL;
-    int floraInstanceCount = 0;
-    SurfaceBoundarySnapshot boundary = { 0 };
-    CaptureSurfaceBoundary(
-        &boundary, chunk->cx, chunk->cz, section->sectionY);
-    ChunkLodLevel lod = ChunkLodSanitize(chunk->targetLod);
-    bool hasSolid = lod == CHUNK_LOD_EXACT
-        ? BuildChunkSurfaceSolidMeshData(
-              section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
-              chunk->cx, chunk->cz,
-              chunk->floraStructures, chunk->floraStructureCount,
-              faces, nearbyTorchIndices, nearbyTorchCount,
-              chunk->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
-                               : GREEDY_MESH_MAX_SPAN,
-              &boundary, &solidMesh)
-        : BuildChunkLodHeightfieldMeshData(
-              section->blocks, chunk->cx, chunk->cz, lod,
-              &boundary, &solidMesh);
-    bool hasWater = BuildChunkSurfaceWaterMeshDataWithSnapshot(
-        section->blocks, section->waterVolumes,
-        section->sectionY * SURFACE_SECTION_HEIGHT,
-        chunk->cx, chunk->cz,
-        chunk->floraStructures, chunk->floraStructureCount,
-        faces, nearbyTorchIndices, nearbyTorchCount, &boundary, &waterMesh);
-    bool hasFlora = BuildChunkFloraMeshDataFromSnapshot(
-        section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
-        chunk->cx, chunk->cz,
-        chunk->floraStructures, chunk->floraStructureCount,
-        faces, nearbyTorchIndices, nearbyTorchCount, &boundary, &floraMesh,
-        &floraInstances, &floraInstanceCount);
-
-    if (chunk->spherical) {
-        int mapOriginX = WorldSurfaceMapOriginX();
-        int mapOriginZ = WorldSurfaceMapOriginZ();
-        if (hasSolid) {
-            CurveChunkMeshData(
-                &solidMesh, chunk->cx, chunk->cz, section->sectionY,
-                chunk->surfaceAddress.bodyId, mapOriginX, mapOriginZ);
-        }
-        if (hasWater) {
-            CurveChunkMeshData(
-                &waterMesh, chunk->cx, chunk->cz, section->sectionY,
-                chunk->surfaceAddress.bodyId, mapOriginX, mapOriginZ);
-        }
-        if (hasFlora) {
-            CurveChunkMeshData(
-                &floraMesh, chunk->cx, chunk->cz, section->sectionY,
-                chunk->surfaceAddress.bodyId, mapOriginX, mapOriginZ);
-        }
-        CurveChunkFloraInstances(
-            floraInstances, floraInstanceCount, chunk->cx, chunk->cz,
-            section->sectionY, chunk->surfaceAddress.bodyId,
-            mapOriginX, mapOriginZ);
-    } else {
-        if (hasSolid) LocalizeChunkMeshData(&solidMesh, chunk->cx, chunk->cz);
-        if (hasWater) LocalizeChunkMeshData(&waterMesh, chunk->cx, chunk->cz);
-        if (hasFlora) LocalizeChunkMeshData(&floraMesh, chunk->cx, chunk->cz);
-        LocalizeChunkFloraInstances(floraInstances, floraInstanceCount,
-                                    chunk->cx, chunk->cz);
-    }
-
-    if (lod == CHUNK_LOD_EXACT) {
-        ReplaceChunkModel(&section->model, &section->hasModel,
-                          &solidMesh, hasSolid, false);
-        section->exactModelReady = true;
-        section->exactModelStamp = section->dirtyStamp;
-    } else {
-        ReplaceChunkModel(&section->lodModel, &section->hasLodModel,
-                          &solidMesh, hasSolid, false);
-        section->lodModelReady = true;
-        section->lodModelStamp = section->dirtyStamp;
-        section->lodModelLevel = lod;
-    }
-    ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,
-                      &waterMesh, hasWater, false);
-    ReplaceChunkModel(&section->floraModel, &section->hasFloraModel,
-                      &floraMesh, hasFlora, true);
-    InitializeFloraTargets(section, floraInstances, floraInstanceCount);
-    free(floraInstances);
-    section->floraVisualScale = 1.0f;
-    section->dirty = false;
-    section->dirtySinceMs = 0.0;
-    ChunkRefreshActiveLod(chunk);
 }
 
 void RebuildDirtyChunkMeshes(Vector3 focusPosition)
@@ -1176,13 +1087,11 @@ bool ChunksGetWaterRenderDebugInfo(Vector3 position,
     for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
          sectionIndex++) {
         const ChunkSection *section = chunk->sections[sectionIndex];
-        if (!section->hasWaterModel ||
-            !section->waterModel.meshes) {
-            continue;
-        }
-        for (int meshIndex = 0; meshIndex < section->waterModel.meshCount;
+        const Model *waterModel = ChunksSectionWaterModel(chunk, section);
+        if (!waterModel || !waterModel->meshes) continue;
+        for (int meshIndex = 0; meshIndex < waterModel->meshCount;
              meshIndex++) {
-            int triangles = section->waterModel.meshes[meshIndex].triangleCount;
+            int triangles = waterModel->meshes[meshIndex].triangleCount;
             outInfo->triangleCount += triangles;
             if (section->sectionY == sectionY) {
                 outInfo->sectionTriangleCount += triangles;
@@ -1216,6 +1125,11 @@ RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void)
             if (section->hasWaterModel) {
                 RenderResourceSnapshotAddModel(&snapshot, &section->waterModel,
                                                RENDER_RESOURCE_TRANSPARENT);
+            }
+            if (section->hasLodWaterModel) {
+                RenderResourceSnapshotAddModel(
+                    &snapshot, &section->lodWaterModel,
+                    RENDER_RESOURCE_TRANSPARENT);
             }
         }
     }
@@ -1310,6 +1224,33 @@ bool ChunksTestMeshJobPriority(int jobIndex)
 {
     assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
     return meshJobs[jobIndex].inUse && meshJobs[jobIndex].priority;
+}
+
+bool ChunksTestBuildMeshJobPayload(
+    int jobIndex, ChunkTestMeshPayloadInfo *outInfo)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    MeshJob *job = &meshJobs[jobIndex];
+    if (!job->inUse || !outInfo) return false;
+    BuildMeshJobPayload(job);
+    *outInfo = (ChunkTestMeshPayloadInfo){
+        .solidVertices = job->hasMesh ? job->mesh.vertexCount : 0,
+        .waterVertices = job->hasWaterMesh
+            ? job->waterMesh.vertexCount : 0,
+        .floraVertices = job->hasFloraMesh
+            ? job->floraMesh.vertexCount : 0,
+        .floraInstances = job->floraInstanceCount
+    };
+    FreeMeshData(&job->mesh);
+    FreeMeshData(&job->waterMesh);
+    FreeMeshData(&job->floraMesh);
+    free(job->floraInstances);
+    job->floraInstances = NULL;
+    job->floraInstanceCount = 0;
+    job->hasMesh = false;
+    job->hasWaterMesh = false;
+    job->hasFloraMesh = false;
+    return true;
 }
 
 int ChunksTestBuildWaterMeshJob(int jobIndex)

@@ -145,12 +145,13 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
                            (float)CHUNK_SIZE * 0.5f }, transform);
             bool frustumVisible = SphereInFrustum(camera, center, radius);
             PerfRecordWorldCandidate(true, frustumVisible);
-            if (frustumVisible && section->hasWaterModel &&
+            const Model *waterModel = ChunksSectionWaterModel(chunk, section);
+            if (frustumVisible && waterModel &&
                 EnsureSurfaceTransparentCapacity(surfaceTransparentCount + 1)) {
                 if (TransparentRenderItemAppendTransformed(
                     surfaceTransparentItems, surfaceTransparentCapacity,
                     &surfaceTransparentCount,
-                    &section->waterModel, transform, center,
+                    waterModel, transform, center,
                     camera->position, TRANSPARENT_RENDER_SURFACE,
                     chunk->cx, chunk->cz, stableOrder)) {
                     surfaceTransparentItems[surfaceTransparentCount - 1].sectionY =
@@ -165,7 +166,8 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
                 WorldRendererDrawModelTransformed(
                     solidModel, transform, tint, false);
             }
-            if (section->hasFloraModel) {
+            if (chunk->activeLod == CHUNK_LOD_EXACT &&
+                section->hasFloraModel) {
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
                 WorldRendererDrawModelTransformedTwoSided(
                     &section->floraModel, transform, tint);
@@ -424,7 +426,8 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                     WorldRendererDrawShadowModelTransformed(
                         solidModel, transform);
                 }
-                if (section->hasFloraModel) {
+                if (chunk->activeLod == CHUNK_LOD_EXACT &&
+                    section->hasFloraModel) {
                     WorldRendererDrawShadowModelTransformedTwoSided(
                         &section->floraModel, transform);
                 }

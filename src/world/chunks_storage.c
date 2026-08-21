@@ -430,6 +430,11 @@ static void UnloadChunkSectionModels(ChunkSection *section)
         section->waterModel = (Model){ 0 };
         section->hasWaterModel = false;
     }
+    if (section->hasLodWaterModel) {
+        UnloadModel(section->lodWaterModel);
+        section->lodWaterModel = (Model){ 0 };
+        section->hasLodWaterModel = false;
+    }
     if (section->hasFloraModel) {
         UnloadModel(section->floraModel);
         section->floraModel = (Model){ 0 };

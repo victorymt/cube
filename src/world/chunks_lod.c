@@ -114,6 +114,23 @@ const Model *ChunksSectionSolidModel(const Chunk *chunk,
     return section->hasLodModel ? &section->lodModel : NULL;
 }
 
+const Model *ChunksSectionWaterModel(const Chunk *chunk,
+                                     const ChunkSection *section)
+{
+    if (!chunk || !section) return NULL;
+    ChunkLodLevel active = ChunkLodSanitize(chunk->activeLod);
+    if (active == CHUNK_LOD_EXACT) {
+        if (section->hasWaterModel) return &section->waterModel;
+        return section->hasLodWaterModel ? &section->lodWaterModel : NULL;
+    }
+    if (section->hasLodWaterModel &&
+        section->lodModelLevel == active) {
+        return &section->lodWaterModel;
+    }
+    if (section->hasWaterModel) return &section->waterModel;
+    return section->hasLodWaterModel ? &section->lodWaterModel : NULL;
+}
+
 static void QueueChunkLodTarget(Chunk *chunk, ChunkLodLevel target)
 {
     if (!chunk) return;

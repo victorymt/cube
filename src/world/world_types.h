@@ -459,11 +459,13 @@ typedef struct ChunkSection {
     uint32_t lodModelStamp;
     ChunkLodLevel lodModelLevel;
     bool hasWaterModel;
+    bool hasLodWaterModel;
     bool hasFloraModel;
     int sectionY;
     Model model;
     Model lodModel;
     Model waterModel;
+    Model lodWaterModel;
     Model floraModel;
     float floraVisualScale;
     float *floraTargetScales;

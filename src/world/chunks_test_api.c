@@ -48,4 +48,16 @@ bool ChunksTestBuildLodHeightfieldMeshData(
         blocks, chunkX, chunkZ, lod,
         (const SurfaceBoundarySnapshot *)boundary, outMesh);
 }
+
+bool ChunksTestBuildLodWaterHeightfieldMeshData(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char waterVolumes[CHUNK_SIZE]
+                                    [SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ, ChunkLodLevel lod,
+    const ChunkTestBoundarySnapshot *boundary, Mesh *outMesh)
+{
+    return BuildChunkLodWaterHeightfieldMeshData(
+        blocks, waterVolumes, chunkX, chunkZ, lod,
+        (const SurfaceBoundarySnapshot *)boundary, outMesh);
+}
 #endif

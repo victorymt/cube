@@ -95,6 +95,9 @@ bool NegativeTerrainSectionOutsideWindow(int sectionY, int playerSectionY);
 int ChunkSectionLowerBound(const Chunk *chunk, int sectionY);
 int ResolvedTerrainSectionLowerBound(const Chunk *chunk, int sectionY);
 void ClearSectionFloraRuntime(ChunkSection *section);
+void InitializeFloraTargets(
+    ChunkSection *section, const FloraVisualInstance *sourceInstances,
+    int sourceInstanceCount);
 void FreeChunkSectionStorage(ChunkSection *section);
 void ReplaceChunkModel(Model *model, bool *hasModel,
                        Mesh *mesh, bool hasMesh, bool dynamic);
@@ -147,6 +150,13 @@ bool BuildChunkLodHeightfieldMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int chunkX, int chunkZ, ChunkLodLevel lod,
     const SurfaceBoundarySnapshot *boundary, Mesh *outMesh);
+bool BuildChunkLodWaterHeightfieldMeshData(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char waterVolumes[CHUNK_SIZE]
+                                    [SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ, ChunkLodLevel lod,
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh);
+void BuildMeshJobPayload(MeshJob *job);
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,

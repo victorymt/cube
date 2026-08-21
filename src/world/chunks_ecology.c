@@ -230,6 +230,7 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
     for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
         Chunk *chunk = &chunks[index];
         if (!chunk->loaded) continue;
+        if (chunk->activeLod != CHUNK_LOD_EXACT) continue;
 
         chunk->floraSampleTimer -= elapsed;
         bool refreshTargets = chunk->floraSampleTimer <= 0.0f;

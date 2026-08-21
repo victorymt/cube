@@ -25,6 +25,7 @@ CHUNKS_FEATURE_SRC := \
 	src/world/chunks_greedy_mesh.c \
 	src/world/chunks_lod.c \
 	src/world/chunks_lod_mesh.c \
+	src/world/chunks_mesh_job.c \
 	src/world/chunks_mesh.c \
 	src/world/chunks_plant_mesh.c \
 	src/world/chunks_water.c \

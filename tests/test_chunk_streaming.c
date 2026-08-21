@@ -576,6 +576,7 @@ static void TestChunkLodRenderModelUsesActiveLevelAndFallbacks(void)
     Chunk chunk = { .loaded = true, .activeLod = CHUNK_LOD_EXACT };
     ChunkSection section = { 0 };
     assert(ChunksSectionSolidModel(&chunk, &section) == NULL);
+    assert(ChunksSectionWaterModel(&chunk, &section) == NULL);
 
     section.hasLodModel = true;
     section.lodModelLevel = CHUNK_LOD_QUARTER;
@@ -583,9 +584,37 @@ static void TestChunkLodRenderModelUsesActiveLevelAndFallbacks(void)
 
     section.hasModel = true;
     assert(ChunksSectionSolidModel(&chunk, &section) == &section.model);
+
+    section.hasLodWaterModel = true;
+    section.lodWaterModel = (Model){ 0 };
+    assert(ChunksSectionWaterModel(&chunk, &section) ==
+           &section.lodWaterModel);
+    section.hasWaterModel = true;
+    section.waterModel = (Model){ 0 };
+    assert(ChunksSectionWaterModel(&chunk, &section) ==
+           &section.waterModel);
+
     chunk.activeLod = CHUNK_LOD_QUARTER;
     assert(ChunksSectionSolidModel(&chunk, &section) == &section.lodModel);
+    assert(ChunksSectionWaterModel(&chunk, &section) ==
+           &section.lodWaterModel);
 
+    section.hasLodWaterModel = false;
+    assert(ChunksSectionWaterModel(&chunk, &section) ==
+           &section.waterModel);
+    section.hasWaterModel = false;
+    section.hasLodWaterModel = true;
+    section.lodModelLevel = CHUNK_LOD_HALF;
+    assert(ChunksSectionWaterModel(&chunk, &section) ==
+           &section.lodWaterModel);
+
+    chunk.activeLod = CHUNK_LOD_EXACT;
+    section.hasWaterModel = true;
+    assert(ChunksSectionWaterModel(&chunk, &section) ==
+           &section.waterModel);
+
+    chunk.activeLod = CHUNK_LOD_QUARTER;
+    section.lodModelLevel = CHUNK_LOD_QUARTER;
     section.lodModelReady = true;
     section.lodModelStamp = section.dirtyStamp;
     section.hasLodModel = false;
@@ -624,6 +653,44 @@ static void TestMeshJobsIncludeLodIdentityAndPrioritizeExactUpgrades(void)
     assert(ChunksTestMeshJobSlot(0) == -1);
     assert(ChunksTestChunkDirty(0));
     assert(ChunksGetStreamingStats().meshCanceled >= 1u);
+}
+
+static void ConfigureLodAccessoryPayload(int slotIndex, int cx)
+{
+    ChunksTestConfigureChunk(slotIndex, cx, 0, true, true);
+    ChunkSection *section = ChunkGetSection(&chunks[slotIndex], 0, false);
+    assert(section != NULL);
+    section->blocks[1][0][1] = BLOCK_STONE;
+    section->blocks[1][1][1] = BLOCK_TALL_GRASS;
+    section->blocks[2][0][2] = BLOCK_STONE;
+    section->blocks[2][1][2] = BLOCK_WATER;
+}
+
+static void TestMeshJobPayloadUsesLodAccessoryPolicy(void)
+{
+    ChunksTestResetScheduler();
+    ConfigureLodAccessoryPayload(0, 0);
+    ChunksTestUpdateLodTargets((Vector3){ 0.5f, 0.0f, 0.5f }, true);
+    RebuildDirtyChunkMeshes((Vector3){ 0.5f, 0.0f, 0.5f });
+    assert(ChunksTestMeshJobLod(0) == CHUNK_LOD_EXACT);
+    ChunkTestMeshPayloadInfo exact = { 0 };
+    assert(ChunksTestBuildMeshJobPayload(0, &exact));
+    assert(exact.waterVertices > 0);
+    assert(exact.floraVertices > 0);
+    assert(exact.floraInstances > 0);
+
+    ChunksTestResetScheduler();
+    ConfigureLodAccessoryPayload(0, 9);
+    ChunksTestUpdateLodTargets((Vector3){ 0.5f, 0.0f, 0.5f }, true);
+    RebuildDirtyChunkMeshes((Vector3){ 0.5f, 0.0f, 0.5f });
+    assert(ChunksTestMeshJobLod(0) == CHUNK_LOD_QUARTER);
+    ChunkTestMeshPayloadInfo coarse = { 0 };
+    assert(ChunksTestBuildMeshJobPayload(0, &coarse));
+    assert(coarse.waterVertices > 0);
+    assert(coarse.waterVertices < exact.waterVertices);
+    assert(coarse.floraVertices == 0);
+    assert(coarse.floraInstances == 0);
+    ChunksTestResetScheduler();
 }
 
 static void TestSingleChunkUsesSingleJobAndNearestFirst(void)
@@ -1544,6 +1611,7 @@ int main(void)
     TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady();
     TestChunkLodRenderModelUsesActiveLevelAndFallbacks();
     TestMeshJobsIncludeLodIdentityAndPrioritizeExactUpgrades();
+    TestMeshJobPayloadUsesLodAccessoryPolicy();
     TestSingleChunkUsesSingleJobAndNearestFirst();
     TestFullQueueLeavesDirtyChunkForLater();
     TestReusedLowSlotsDoNotStarveOlderJobs();

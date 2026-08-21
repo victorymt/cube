@@ -158,6 +158,8 @@ ChunkLodLevel ChunkLodSelect(ChunkLodLevel current, bool initialized,
                              int distance, bool coarseAllowed);
 const Model *ChunksSectionSolidModel(const Chunk *chunk,
                                      const ChunkSection *section);
+const Model *ChunksSectionWaterModel(const Chunk *chunk,
+                                     const ChunkSection *section);
 int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
@@ -234,6 +236,16 @@ typedef struct ChunkTestBoundarySnapshot {
                        [CHUNK_SIZE + 2];
 } ChunkTestBoundarySnapshot;
 
+typedef struct ChunkTestMeshPayloadInfo {
+    int solidVertices;
+    int waterVertices;
+    int floraVertices;
+    int floraInstances;
+} ChunkTestMeshPayloadInfo;
+
+bool ChunksTestBuildMeshJobPayload(
+    int jobIndex, ChunkTestMeshPayloadInfo *outInfo);
+
 bool ChunksTestBuildSurfaceWaterMeshDataWithSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,
@@ -252,6 +264,12 @@ bool ChunksTestSurfaceBoundaryCellAt(
     BlockType *outBlock, unsigned char *outVolume);
 bool ChunksTestBuildLodHeightfieldMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ, ChunkLodLevel lod,
+    const ChunkTestBoundarySnapshot *boundary, Mesh *outMesh);
+bool ChunksTestBuildLodWaterHeightfieldMeshData(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char waterVolumes[CHUNK_SIZE]
+                                    [SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int chunkX, int chunkZ, ChunkLodLevel lod,
     const ChunkTestBoundarySnapshot *boundary, Mesh *outMesh);
 #endif

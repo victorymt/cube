@@ -1247,6 +1247,82 @@ static void AssertChunkLodHeightfieldContracts(void)
     FreeTestMesh(&quarter);
 }
 
+static void FillLodTestWater(
+    unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    unsigned char volumes[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    ChunkTestBoundarySnapshot *boundary)
+{
+    memset(blocks, 0, sizeof(unsigned short[CHUNK_SIZE]
+                            [SURFACE_SECTION_HEIGHT][CHUNK_SIZE]));
+    memset(volumes, 0, sizeof(unsigned char[CHUNK_SIZE]
+                             [SURFACE_SECTION_HEIGHT][CHUNK_SIZE]));
+    memset(boundary, 0, sizeof(*boundary));
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            blocks[lx][6][lz] = BLOCK_WATER;
+            volumes[lx][6][lz] = WATER_VOLUME_CAPACITY / 2;
+        }
+    }
+    for (int px = 0; px < CHUNK_SIZE + 2; px++) {
+        for (int py = 0; py < SURFACE_SECTION_HEIGHT + 2; py++) {
+            for (int pz = 0; pz < CHUNK_SIZE + 2; pz++) {
+                boundary->known[px][py][pz] = 1u;
+            }
+        }
+    }
+    for (int px = 0; px < CHUNK_SIZE + 2; px++) {
+        for (int pz = 0; pz < CHUNK_SIZE + 2; pz++) {
+            boundary->blocks[px][7][pz] = BLOCK_WATER;
+            boundary->volumes[px][7][pz] = WATER_VOLUME_CAPACITY / 2;
+        }
+    }
+}
+
+static void AssertChunkLodWaterHeightfieldContracts(void)
+{
+    unsigned short blocks[CHUNK_SIZE]
+                         [SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    unsigned char volumes[CHUNK_SIZE]
+                         [SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    ChunkTestBoundarySnapshot boundary;
+    FillLodTestWater(blocks, volumes, &boundary);
+
+    Mesh half = { 0 };
+    Mesh quarter = { 0 };
+    assert(ChunksTestBuildLodWaterHeightfieldMeshData(
+        blocks, volumes, 0, 0, CHUNK_LOD_HALF, &boundary, &half));
+    assert(ChunksTestBuildLodWaterHeightfieldMeshData(
+        blocks, volumes, 1, 0, CHUNK_LOD_QUARTER,
+        &boundary, &quarter));
+    AssertMeshWellFormed(&half, 384);
+    AssertMeshWellFormed(&quarter, 96);
+    float expectedHeight = 6.0f +
+        (float)(WATER_VOLUME_CAPACITY / 2) /
+        (float)WATER_VOLUME_CAPACITY;
+    for (int z = 0; z <= CHUNK_SIZE; z += 4) {
+        float leftY = MeshMaximumYAt(&half, (float)CHUNK_SIZE, (float)z);
+        float rightY = MeshMaximumYAt(
+            &quarter, (float)CHUNK_SIZE, (float)z);
+        assert(isfinite(leftY));
+        assert(isfinite(rightY));
+        assert(fabsf(leftY - expectedHeight) < 0.001f);
+        assert(fabsf(leftY - rightY) < 0.001f);
+    }
+
+    Mesh exact = { 0 };
+    assert(!ChunksTestBuildLodWaterHeightfieldMeshData(
+        blocks, volumes, 0, 0, CHUNK_LOD_EXACT, &boundary, &exact));
+    memset(blocks, 0, sizeof(blocks));
+    memset(volumes, 0, sizeof(volumes));
+    memset(&boundary, 0, sizeof(boundary));
+    Mesh empty = { 0 };
+    assert(!ChunksTestBuildLodWaterHeightfieldMeshData(
+        blocks, volumes, 0, 0, CHUNK_LOD_HALF, &boundary, &empty));
+    assert(empty.vertices == NULL);
+    FreeTestMesh(&half);
+    FreeTestMesh(&quarter);
+}
+
 int main(void)
 {
     AssertSpecialBlockMeshContracts();
@@ -1266,6 +1342,7 @@ int main(void)
     AssertHomeTreeFloraMeshPartition();
     AssertSolidSnapshotDoesNotReadLiveChunks();
     AssertChunkLodHeightfieldContracts();
+    AssertChunkLodWaterHeightfieldContracts();
     puts("chunk atlas tests passed");
     return 0;
 }

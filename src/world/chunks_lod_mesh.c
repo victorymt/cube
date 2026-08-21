@@ -93,6 +93,101 @@ static ChunkLodColumn ChunkLodCellMaterial(
     return result;
 }
 
+static bool ChunkLodWaterAt(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char waterVolumes[CHUNK_SIZE]
+                                    [SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const SurfaceBoundarySnapshot *boundary, int lx, int y, int lz,
+    BlockType *outBlock, unsigned char *outVolume)
+{
+    if (!outBlock || !outVolume) return false;
+    if (lx >= 0 && lx < CHUNK_SIZE && y >= 0 &&
+        y < SURFACE_SECTION_HEIGHT && lz >= 0 && lz < CHUNK_SIZE) {
+        *outBlock = (BlockType)blocks[lx][y][lz];
+        *outVolume = *outBlock == BLOCK_WATER
+            ? (waterVolumes ? waterVolumes[lx][y][lz]
+                            : (unsigned char)WATER_VOLUME_CAPACITY)
+            : 0u;
+        return true;
+    }
+    return boundary && SurfaceBoundaryCellAt(
+        boundary, lx, y, lz, outBlock, outVolume);
+}
+
+static ChunkLodColumn ChunkLodWaterColumnAt(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char waterVolumes[CHUNK_SIZE]
+                                    [SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const SurfaceBoundarySnapshot *boundary, int lx, int lz)
+{
+    BlockType above = BLOCK_AIR;
+    unsigned char aboveVolume = 0u;
+    if (ChunkLodWaterAt(blocks, waterVolumes, boundary, lx,
+                        SURFACE_SECTION_HEIGHT, lz,
+                        &above, &aboveVolume) &&
+        above == BLOCK_WATER && aboveVolume > 0u) {
+        return (ChunkLodColumn){ 0 };
+    }
+    for (int y = SURFACE_SECTION_HEIGHT - 1; y >= 0; y--) {
+        BlockType type = BLOCK_AIR;
+        unsigned char volume = 0u;
+        if (ChunkLodWaterAt(blocks, waterVolumes, boundary, lx, y, lz,
+                            &type, &volume) &&
+            type == BLOCK_WATER && volume > 0u) {
+            return (ChunkLodColumn){
+                .height = (float)y +
+                    (float)volume / (float)WATER_VOLUME_CAPACITY,
+                .type = BLOCK_WATER,
+                .valid = true
+            };
+        }
+    }
+    return (ChunkLodColumn){ 0 };
+}
+
+static ChunkLodColumn ChunkLodWaterVertexAt(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char waterVolumes[CHUNK_SIZE]
+                                    [SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const SurfaceBoundarySnapshot *boundary, int vx, int vz)
+{
+    ChunkLodColumn result = { 0 };
+    float heightSum = 0.0f;
+    int count = 0;
+    for (int dz = -1; dz <= 0; dz++) {
+        for (int dx = -1; dx <= 0; dx++) {
+            ChunkLodColumn sample = ChunkLodWaterColumnAt(
+                blocks, waterVolumes, boundary, vx + dx, vz + dz);
+            if (!sample.valid) continue;
+            heightSum += sample.height;
+            result = sample;
+            count++;
+        }
+    }
+    if (count > 0) result.height = heightSum / (float)count;
+    return result;
+}
+
+static ChunkLodColumn ChunkLodWaterCellAt(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char waterVolumes[CHUNK_SIZE]
+                                    [SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const SurfaceBoundarySnapshot *boundary, int x, int z, int step)
+{
+    ChunkLodColumn result = { 0 };
+    for (int dz = 0; dz < step; dz++) {
+        for (int dx = 0; dx < step; dx++) {
+            ChunkLodColumn sample = ChunkLodWaterColumnAt(
+                blocks, waterVolumes, boundary, x + dx, z + dz);
+            if (sample.valid &&
+                (!result.valid || sample.height > result.height)) {
+                result = sample;
+            }
+        }
+    }
+    return result;
+}
+
 static Vector3 ChunkLodTopNormal(const Vector3 corners[6])
 {
     Vector3 first = Vector3CrossProduct(
@@ -248,6 +343,62 @@ bool BuildChunkLodHeightfieldMeshData(
                                   cellVertices[2].height,
                                   cellVertices[3].height, material.type);
             }
+        }
+    }
+    if (emitter.failed || emitter.vertexIndex == 0) {
+        FreeMeshData(outMesh);
+        return false;
+    }
+    outMesh->vertexCount = emitter.vertexIndex;
+    outMesh->triangleCount = emitter.vertexIndex / 3;
+    return true;
+}
+
+bool BuildChunkLodWaterHeightfieldMeshData(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    const unsigned char waterVolumes[CHUNK_SIZE]
+                                    [SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ, ChunkLodLevel lod,
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
+{
+    if (!blocks || !outMesh) return false;
+    int step = ChunkLodStep(lod);
+    if (step == 0 || CHUNK_SIZE % step != 0) return false;
+
+    int gridSize = CHUNK_SIZE / step;
+    ChunkLodColumn vertices[CHUNK_SIZE / 2 + 1]
+                           [CHUNK_SIZE / 2 + 1] = { 0 };
+    for (int gz = 0; gz <= gridSize; gz++) {
+        for (int gx = 0; gx <= gridSize; gx++) {
+            vertices[gx][gz] = ChunkLodWaterVertexAt(
+                blocks, waterVolumes, boundary, gx * step, gz * step);
+        }
+    }
+
+    ChunkMeshEmitter emitter = {
+        .mesh = outMesh,
+        .dynamicCapacity = true
+    };
+    for (int gz = 0; gz < gridSize && !emitter.failed; gz++) {
+        for (int gx = 0; gx < gridSize && !emitter.failed; gx++) {
+            int x = gx * step;
+            int z = gz * step;
+            ChunkLodColumn surface = ChunkLodWaterCellAt(
+                blocks, waterVolumes, boundary, x, z, step);
+            if (!surface.valid) continue;
+            ChunkLodColumn cellVertices[4] = {
+                vertices[gx][gz], vertices[gx + 1][gz],
+                vertices[gx][gz + 1], vertices[gx + 1][gz + 1]
+            };
+            for (int corner = 0; corner < 4; corner++) {
+                if (!cellVertices[corner].valid) {
+                    cellVertices[corner] = surface;
+                }
+            }
+            ChunkLodEmitTop(
+                &emitter, chunkX * CHUNK_SIZE + x,
+                chunkZ * CHUNK_SIZE + z, step,
+                cellVertices, BLOCK_WATER);
         }
     }
     if (emitter.failed || emitter.vertexIndex == 0) {
