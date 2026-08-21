@@ -1376,6 +1376,193 @@ static bool PlanetWetlandBiome(PlanetBiome biome)
            biome == PLANET_BIOME_CRATER_BOG;
 }
 
+typedef struct PlanetChunkTerrainContext {
+    SolarBodyStyle style;
+    SubsurfaceParams subsurface;
+    int seaLevel;
+} PlanetChunkTerrainContext;
+
+typedef struct PlanetTerrainColumn {
+    int lx;
+    int lz;
+    int worldX;
+    int worldZ;
+    int height;
+    BathymetrySample bathymetry;
+    PlanetSurfaceSample surface;
+} PlanetTerrainColumn;
+
+static PlanetTerrainColumn PlanetTerrainColumnSample(
+    int startX, int startZ, int lx, int lz)
+{
+    int worldX = startX + lx;
+    int worldZ = startZ + lz;
+    BathymetrySample bathymetry = PlanetBathymetryAt(worldX, worldZ);
+    return (PlanetTerrainColumn){
+        .lx = lx,
+        .lz = lz,
+        .worldX = worldX,
+        .worldZ = worldZ,
+        .height = bathymetry.seabedY,
+        .bathymetry = bathymetry,
+        .surface = PlanetSampleLocalSurface(worldX, worldZ, NULL, NULL)
+    };
+}
+
+static BlockType PlanetTerrainColumnBlock(
+    const PlanetChunkTerrainContext *context,
+    const PlanetTerrainColumn *column, int y)
+{
+    unsigned int hash = PlanetHash2D(
+        FloorDivInt(column->worldX, 3) + FloorDivInt(y, 2) * 19,
+        FloorDivInt(column->worldZ, 3) - FloorDivInt(y, 2) * 23, 1u);
+    int depth = column->height - y;
+    PlanetBiome biome = column->surface.biome;
+    BlockType type = y == 0 ? BLOCK_BEDROCK :
+                     TerrainGeologyPlanetSubsurfaceBlock(
+                         context->style, biome, depth, hash);
+    if (context->seaLevel >= 0 && column->height < context->seaLevel &&
+        y == column->height && context->style != SOLAR_STYLE_LAVA &&
+        context->style != SOLAR_STYLE_ICE) {
+        type = BathymetryMaterialBlock(column->bathymetry.material);
+        if ((biome == PLANET_BIOME_COAST ||
+             biome == PLANET_BIOME_OCEAN) &&
+            column->bathymetry.material == BATHYMETRY_MATERIAL_SAND &&
+            PlanetHash2D(FloorDivInt(column->worldX, 6),
+                         FloorDivInt(column->worldZ, 6), 503u) % 5u == 0u) {
+            type = BLOCK_CLAY;
+        }
+    }
+    SubsurfaceSample cave = SubsurfaceSampleAt(
+        &context->subsurface, column->worldX, y, column->worldZ,
+        column->height);
+    if (cave.cave) {
+        type = cave.flooded && context->style == SOLAR_STYLE_LAVA
+                   ? BLOCK_LAVA
+                   : (cave.flooded ? BLOCK_WATER : BLOCK_AIR);
+    }
+    return type;
+}
+
+static void GeneratePlanetTerrainColumnBase(
+    Chunk *chunk, const PlanetChunkTerrainContext *context,
+    const PlanetTerrainColumn *column)
+{
+    for (int y = 0; y <= column->height; y++) {
+        ChunkSetLocalBlock(
+            chunk, column->lx, y, column->lz,
+            PlanetTerrainColumnBlock(context, column, y));
+    }
+}
+
+static void GeneratePlanetTerrainColumnLiquids(
+    Chunk *chunk, const PlanetChunkTerrainContext *context,
+    const PlanetTerrainColumn *column)
+{
+    PlanetBiome biome = column->surface.biome;
+    if (column->height > 1 && PlanetWetlandBiome(biome) &&
+        PlanetHash2D(column->worldX, column->worldZ, 557u) % 11u == 0u) {
+        BlockType liquid = biome == PLANET_BIOME_MAGMA_MIRE
+            ? BLOCK_LAVA
+            : (biome == PLANET_BIOME_FROZEN_MIRE ? BLOCK_ICE : BLOCK_WATER);
+        ChunkSetLocalBlock(
+            chunk, column->lx, column->height, column->lz, liquid);
+    }
+
+    if (context->seaLevel < 0 || column->height >= context->seaLevel) return;
+    BlockType liquid = context->style == SOLAR_STYLE_LAVA
+        ? BLOCK_LAVA : BLOCK_WATER;
+    if (column->surface.iceCoverage > 0.64f) liquid = BLOCK_ICE;
+    for (int y = column->height + 1;
+         y <= context->seaLevel && InHeight(y); y++) {
+        ChunkSetLocalBlock(chunk, column->lx, y, column->lz, liquid);
+    }
+    if (context->style == SOLAR_STYLE_ICE && InHeight(context->seaLevel)) {
+        ChunkSetLocalBlock(
+            chunk, column->lx, context->seaLevel, column->lz, BLOCK_ICE);
+    }
+}
+
+static bool PlanetTerrainColumnFloraAllowed(
+    const PlanetTerrainColumn *column, unsigned int salt)
+{
+    float sample = (float)(PlanetHash2D(
+        column->worldX, column->worldZ, salt) & 0x00ffffffu) / 16777215.0f;
+    return sample <= PlanetEcologyStaticSuitabilityAt(
+        column->worldX, column->worldZ).floraCapacity;
+}
+
+static void PlacePlanetTerrainColumnStack(
+    Chunk *chunk, const PlanetTerrainColumn *column,
+    BlockType type, int count)
+{
+    for (int y = column->height + 1;
+         y <= column->height + count && InHeight(y); y++) {
+        ChunkSetLocalBlock(chunk, column->lx, y, column->lz, type);
+    }
+}
+
+static void DecoratePlanetTerrainColumn(
+    Chunk *chunk, const PlanetChunkTerrainContext *context,
+    const PlanetTerrainColumn *column)
+{
+    if (!InHeight(column->height + 1)) return;
+    PlanetBiome biome = column->surface.biome;
+    unsigned int decor = PlanetHash2D(column->worldX, column->worldZ, 7u);
+    if (column->surface.glacierCracks > 0.84f && decor % 67u == 0u) {
+        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
+                           column->lz, BLOCK_MOON_ROCK);
+    } else if (column->surface.lavaFlow > 0.82f && decor % 53u == 0u) {
+        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
+                           column->lz, BLOCK_GLOWSTONE);
+    } else if (column->surface.ejecta > 0.76f && decor % 83u == 0u) {
+        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
+                           column->lz, BLOCK_METEORITE);
+    } else if ((biome == PLANET_BIOME_DUNES ||
+                biome == PLANET_BIOME_BADLANDS) &&
+               decor % (biome == PLANET_BIOME_DUNES ? 181u : 293u) == 0u &&
+               PlanetTerrainColumnFloraAllowed(column, 401u)) {
+        PlacePlanetTerrainColumnStack(chunk, column, BLOCK_CACTUS, 3);
+    } else if (biome == PLANET_BIOME_GLACIER && decor % 137u == 0u) {
+        PlacePlanetTerrainColumnStack(chunk, column, BLOCK_ICE, 4);
+    } else if (biome == PLANET_BIOME_ICE_SHEET && decor % 211u == 0u) {
+        PlacePlanetTerrainColumnStack(chunk, column, BLOCK_ICE, 2);
+    } else if ((biome == PLANET_BIOME_BASALT_PLAINS ||
+                biome == PLANET_BIOME_VOLCANIC_RIDGE) &&
+               decor % 193u == 0u) {
+        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
+                           column->lz, BLOCK_GLOWSTONE);
+    } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 113u == 0u) {
+        PlacePlanetTerrainColumnStack(
+            chunk, column, BLOCK_CRYSTAL, 2 + (int)(decor % 3u));
+    } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 157u == 0u &&
+               PlanetTerrainColumnFloraAllowed(column, 409u)) {
+        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
+                           column->lz, BLOCK_MUSHROOM);
+    } else if ((biome == PLANET_BIOME_IMPACT_BASIN ||
+                biome == PLANET_BIOME_CRATER_HIGHLANDS) &&
+               decor % 149u == 0u) {
+        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
+                           column->lz, BLOCK_METEORITE);
+    } else if ((biome == PLANET_BIOME_FOREST ||
+                biome == PLANET_BIOME_PLAINS ||
+                biome == PLANET_BIOME_OASIS) &&
+               column->height > context->seaLevel + 1 &&
+               biome == PLANET_BIOME_FOREST && decor % 3u == 0u &&
+               PlanetTerrainColumnFloraAllowed(column, 417u)) {
+        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
+                           column->lz, BLOCK_LEAF_LITTER);
+    } else if ((biome == PLANET_BIOME_FOREST ||
+                biome == PLANET_BIOME_PLAINS ||
+                biome == PLANET_BIOME_OASIS) &&
+               column->height > context->seaLevel + 1 &&
+               decor % (biome == PLANET_BIOME_FOREST ? 61u : 97u) == 0u &&
+               PlanetTerrainColumnFloraAllowed(column, 419u)) {
+        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
+                           column->lz, BLOCK_FLOWER);
+    }
+}
+
 static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
 {
     ChunkClearBlockStorage(chunk);
@@ -1383,127 +1570,19 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
     int startZ = cz * CHUNK_SIZE;
     SolarBodyStyle style = PlanetWorldStyle();
     const PlanetProfile *profile = PlanetWorldProfile();
-    SubsurfaceParams subsurface = PlanetSubsurfaceParamsFor(style, profile);
-    int seaLevel = PlanetSeaLevelForProfile(style, profile);
+    PlanetChunkTerrainContext context = {
+        .style = style,
+        .subsurface = PlanetSubsurfaceParamsFor(style, profile),
+        .seaLevel = PlanetSeaLevelForProfile(style, profile)
+    };
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-            int worldX = startX + lx;
-            int worldZ = startZ + lz;
-            int localX = worldX;
-            int localZ = worldZ;
-            BathymetrySample bathymetry = PlanetBathymetryAt(worldX, worldZ);
-            int height = bathymetry.seabedY;
-            PlanetSurfaceSample surface = PlanetSampleLocalSurface(worldX, worldZ, NULL, NULL);
-            PlanetBiome biome = surface.biome;
-
-            for (int y = 0; y <= height; y++) {
-                unsigned int h = PlanetHash2D(
-                    FloorDivInt(localX, 3) + FloorDivInt(y, 2) * 19,
-                    FloorDivInt(localZ, 3) - FloorDivInt(y, 2) * 23, 1u);
-                int depth = height - y;
-                BlockType type = y == 0 ? BLOCK_BEDROCK :
-                                 TerrainGeologyPlanetSubsurfaceBlock(
-                                     style, biome, depth, h);
-                if (seaLevel >= 0 && height < seaLevel && y == height &&
-                    style != SOLAR_STYLE_LAVA && style != SOLAR_STYLE_ICE) {
-                    type = BathymetryMaterialBlock(bathymetry.material);
-                    if ((biome == PLANET_BIOME_COAST ||
-                         biome == PLANET_BIOME_OCEAN) &&
-                        bathymetry.material == BATHYMETRY_MATERIAL_SAND &&
-                        PlanetHash2D(FloorDivInt(worldX, 6),
-                                     FloorDivInt(worldZ, 6), 503u) % 5u == 0u) {
-                        type = BLOCK_CLAY;
-                    }
-                }
-                SubsurfaceSample cave = SubsurfaceSampleAt(
-                    &subsurface, worldX, y, worldZ, height);
-                if (cave.cave) {
-                    type = cave.flooded && style == SOLAR_STYLE_LAVA
-                               ? BLOCK_LAVA
-                               : (cave.flooded ? BLOCK_WATER : BLOCK_AIR);
-                }
-                ChunkSetLocalBlock(chunk, lx, y, lz, type);
-            }
-
-            if (height > 1 && PlanetWetlandBiome(biome) &&
-                PlanetHash2D(worldX, worldZ, 557u) % 11u == 0u) {
-                BlockType liquid = biome == PLANET_BIOME_MAGMA_MIRE
-                    ? BLOCK_LAVA
-                    : (biome == PLANET_BIOME_FROZEN_MIRE
-                           ? BLOCK_ICE : BLOCK_WATER);
-                ChunkSetLocalBlock(chunk, lx, height, lz, liquid);
-            }
-
-            if (seaLevel >= 0 && height < seaLevel) {
-                BlockType liquid = style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER;
-                if (surface.iceCoverage > 0.64f) liquid = BLOCK_ICE;
-                for (int y = height + 1; y <= seaLevel && InHeight(y); y++) {
-                    ChunkSetLocalBlock(chunk, lx, y, lz, liquid);
-                }
-                if (style == SOLAR_STYLE_ICE && InHeight(seaLevel)) {
-                    ChunkSetLocalBlock(chunk, lx, seaLevel, lz, BLOCK_ICE);
-                }
-            }
-
-            unsigned int decor = PlanetHash2D(localX, localZ, 7u);
-            if (!InHeight(height + 1)) continue;
-            if (surface.glacierCracks > 0.84f && decor % 67u == 0u) {
-                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_MOON_ROCK);
-            } else if (surface.lavaFlow > 0.82f && decor % 53u == 0u) {
-                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_GLOWSTONE);
-            } else if (surface.ejecta > 0.76f && decor % 83u == 0u) {
-                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_METEORITE);
-            } else if ((biome == PLANET_BIOME_DUNES || biome == PLANET_BIOME_BADLANDS) &&
-                decor % (biome == PLANET_BIOME_DUNES ? 181u : 293u) == 0u &&
-                ((float)(PlanetHash2D(worldX, worldZ, 401u) & 0x00ffffffu) /
-                 16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
-                     worldX, worldZ).floraCapacity) {
-                for (int y = height + 1; y <= height + 3 && InHeight(y); y++) {
-                    ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_CACTUS);
-                }
-            } else if (biome == PLANET_BIOME_GLACIER && decor % 137u == 0u) {
-                for (int y = height + 1; y <= height + 4 && InHeight(y); y++) {
-                    ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_ICE);
-                }
-            } else if (biome == PLANET_BIOME_ICE_SHEET && decor % 211u == 0u) {
-                for (int y = height + 1; y <= height + 2 && InHeight(y); y++) {
-                    ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_ICE);
-                }
-            } else if ((biome == PLANET_BIOME_BASALT_PLAINS ||
-                        biome == PLANET_BIOME_VOLCANIC_RIDGE) && decor % 193u == 0u) {
-                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_GLOWSTONE);
-            } else if (biome == PLANET_BIOME_STORM_BANDS &&
-                       decor % 113u == 0u) {
-                int crystalHeight = 2 + (int)(decor % 3u);
-                for (int y = height + 1;
-                     y <= height + crystalHeight && InHeight(y); y++) {
-                    ChunkSetLocalBlock(chunk, lx, y, lz, BLOCK_CRYSTAL);
-                }
-            } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 157u == 0u &&
-                       ((float)(PlanetHash2D(worldX, worldZ, 409u) & 0x00ffffffu) /
-                        16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
-                            worldX, worldZ).floraCapacity) {
-                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_MUSHROOM);
-            } else if ((biome == PLANET_BIOME_IMPACT_BASIN ||
-                        biome == PLANET_BIOME_CRATER_HIGHLANDS) && decor % 149u == 0u) {
-                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_METEORITE);
-            } else if ((biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS ||
-                        biome == PLANET_BIOME_OASIS) && height > seaLevel + 1 &&
-                       biome == PLANET_BIOME_FOREST && decor % 3u == 0u &&
-                       ((float)(PlanetHash2D(worldX, worldZ, 417u) & 0x00ffffffu) /
-                        16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
-                            worldX, worldZ).floraCapacity) {
-                ChunkSetLocalBlock(chunk, lx, height + 1, lz,
-                                   BLOCK_LEAF_LITTER);
-            } else if ((biome == PLANET_BIOME_FOREST || biome == PLANET_BIOME_PLAINS ||
-                        biome == PLANET_BIOME_OASIS) && height > seaLevel + 1 &&
-                       decor % (biome == PLANET_BIOME_FOREST ? 61u : 97u) == 0u &&
-                       ((float)(PlanetHash2D(worldX, worldZ, 419u) & 0x00ffffffu) /
-                        16777215.0f) <= PlanetEcologyStaticSuitabilityAt(
-                            worldX, worldZ).floraCapacity) {
-                ChunkSetLocalBlock(chunk, lx, height + 1, lz, BLOCK_FLOWER);
-            }
+            PlanetTerrainColumn column = PlanetTerrainColumnSample(
+                startX, startZ, lx, lz);
+            GeneratePlanetTerrainColumnBase(chunk, &context, &column);
+            GeneratePlanetTerrainColumnLiquids(chunk, &context, &column);
+            DecoratePlanetTerrainColumn(chunk, &context, &column);
         }
     }
 
