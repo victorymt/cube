@@ -144,11 +144,13 @@ static bool BuildGreedySolidMesh(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int maximumSpan, Mesh *mesh)
 {
-    return BuildMeshDataFilteredWithSnapshotSpan(
-        (const unsigned short (*)[CHUNK_SIZE])blocks,
-        SURFACE_SECTION_HEIGHT, 0, 0, 0,
-        false, false, false, false, TEST_CHUNK_FACES,
-        NULL, 0, maximumSpan, NULL, mesh);
+    ChunkMeshBuildRequest request = {
+        .blocks = (const unsigned short (*)[CHUNK_SIZE])blocks,
+        .height = SURFACE_SECTION_HEIGHT,
+        .faces = TEST_CHUNK_FACES,
+        .greedyMaxSpan = maximumSpan
+    };
+    return BuildChunkMeshData(&request, mesh);
 }
 
 static void AssertMeshWellFormed(const Mesh *mesh, int expectedVertexCount)

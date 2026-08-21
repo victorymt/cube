@@ -159,12 +159,16 @@ static double MeasureRound(const int coordinates[][2], int count,
         Mesh solid = { 0 };
         Mesh water = { 0 };
         Mesh flora = { 0 };
-        bool hasSolid = BuildMeshDataFilteredWithSnapshotSpan(
-            (const unsigned short (*)[CHUNK_SIZE])blocks,
-            SURFACE_SECTION_HEIGHT, layerY,
-            coordinates[i][0], coordinates[i][1],
-            false, false, false, false, faces, NULL, 0, solidSpan, NULL,
-            &solid);
+        ChunkMeshBuildRequest solidRequest = {
+            .blocks = (const unsigned short (*)[CHUNK_SIZE])blocks,
+            .height = SURFACE_SECTION_HEIGHT,
+            .layerY = layerY,
+            .chunkX = coordinates[i][0],
+            .chunkZ = coordinates[i][1],
+            .faces = faces,
+            .greedyMaxSpan = solidSpan
+        };
+        bool hasSolid = BuildChunkMeshData(&solidRequest, &solid);
         bool hasWater = BuildSurfaceWaterMeshData(
             (const unsigned short (*)[CHUNK_SIZE])blocks,
             NULL, SURFACE_SECTION_HEIGHT, layerY,
@@ -181,12 +185,9 @@ static double MeasureRound(const int coordinates[][2], int count,
             totals->meshBytes += MeshCpuBytes(&solid) + MeshCpuBytes(&water) +
                                  MeshCpuBytes(&flora);
             Mesh legacySolid = { 0 };
-            bool hasLegacySolid = BuildMeshDataFilteredWithSnapshotSpan(
-                (const unsigned short (*)[CHUNK_SIZE])blocks,
-                SURFACE_SECTION_HEIGHT, layerY,
-                coordinates[i][0], coordinates[i][1],
-                false, false, false, false, faces, NULL, 0, 0, NULL,
-                &legacySolid);
+            solidRequest.greedyMaxSpan = 0;
+            bool hasLegacySolid = BuildChunkMeshData(
+                &solidRequest, &legacySolid);
             assert(hasLegacySolid == hasSolid);
             totals->legacySolidVertices +=
                 (uint64_t)legacySolid.vertexCount;

@@ -182,6 +182,15 @@ grep -q '^void EntitiesUpdate(' src/ecology/entity_simulation.c ||
     fail "entity simulation must live in entity_simulation.c"
 grep -q '^void UpdateChunks(' src/world/chunks_streaming.c ||
     fail "chunk streaming must live in chunks_streaming.c"
+grep -q '^typedef struct ChunkMeshBuildRequest {' \
+    src/world/chunks_internal.h ||
+    fail "chunk mesh builders must use a named request"
+grep -q '^bool BuildChunkMeshData(' src/world/chunks_mesh.c ||
+    fail "chunk mesh implementation must accept the named request"
+if grep -n '^bool BuildMeshDataFilteredWithSnapshot' \
+    src/world/chunks_internal.h src/world/chunks_mesh.c; then
+    fail "chunk mesh internals must not restore positional filtered builders"
+fi
 grep -q '^bool PlanetWorldLandingTarget(' src/space/planet_world.c ||
     fail "space must own neutral planet landing target selection"
 

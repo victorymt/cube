@@ -11,9 +11,20 @@ static bool BuildFloraMeshDataWithSnapshot(
     const int *nearbyTorchIndices, int nearbyTorchCount,
     const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
 {
-    return BuildMeshDataFilteredWithSnapshot(
-        blocks, height, layerY, chunkX, chunkZ, false, false, true, false,
-        faces, nearbyTorchIndices, nearbyTorchCount, boundary, outMesh);
+    ChunkMeshBuildRequest request = {
+        .blocks = blocks,
+        .height = height,
+        .layerY = layerY,
+        .chunkX = chunkX,
+        .chunkZ = chunkZ,
+        .boundary = boundary,
+        .plantsOnly = true,
+        .faces = faces,
+        .nearbyTorchIndices = nearbyTorchIndices,
+        .nearbyTorchCount = nearbyTorchCount,
+        .greedyMaxSpan = GREEDY_MESH_MAX_SPAN
+    };
+    return BuildChunkMeshData(&request, outMesh);
 }
 
 bool BuildFloraMeshData(
@@ -486,12 +497,19 @@ bool BuildChunkSurfaceSolidMeshData(
     unsigned short solidBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     CopyBlocksWithoutFloraStructures(
         solidBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
-    return BuildMeshDataFilteredWithSnapshotSpan(
-        (const unsigned short (*)[CHUNK_SIZE])solidBlocks,
-        SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
-        false, false, false, false, faces,
-        nearbyTorchIndices, nearbyTorchCount, greedyMaxSpan, boundary,
-        outMesh);
+    ChunkMeshBuildRequest request = {
+        .blocks = (const unsigned short (*)[CHUNK_SIZE])solidBlocks,
+        .height = SURFACE_SECTION_HEIGHT,
+        .layerY = layerY,
+        .chunkX = chunkX,
+        .chunkZ = chunkZ,
+        .boundary = boundary,
+        .faces = faces,
+        .nearbyTorchIndices = nearbyTorchIndices,
+        .nearbyTorchCount = nearbyTorchCount,
+        .greedyMaxSpan = greedyMaxSpan
+    };
+    return BuildChunkMeshData(&request, outMesh);
 }
 
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
@@ -571,11 +589,19 @@ bool BuildChunkFloraMeshDataFromSnapshot(
         Mesh transparent = { 0 };
         Mesh crossed = { 0 };
         FloraMeshBuilder instanceMesh = { 0 };
-        if (BuildMeshDataFilteredWithSnapshot(
-                (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
-                SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
-                false, false, false, false, faces,
-                nearbyTorchIndices, nearbyTorchCount, boundary, &solid) &&
+        ChunkMeshBuildRequest request = {
+            .blocks = (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
+            .height = SURFACE_SECTION_HEIGHT,
+            .layerY = layerY,
+            .chunkX = chunkX,
+            .chunkZ = chunkZ,
+            .boundary = boundary,
+            .faces = faces,
+            .nearbyTorchIndices = nearbyTorchIndices,
+            .nearbyTorchCount = nearbyTorchCount,
+            .greedyMaxSpan = GREEDY_MESH_MAX_SPAN
+        };
+        if (BuildChunkMeshData(&request, &solid) &&
             !FloraMeshBuilderAppend(&instanceMesh, &solid)) {
             FreeMeshData(&solid);
             FloraMeshBuilderRelease(&instanceMesh);
@@ -583,12 +609,9 @@ bool BuildChunkFloraMeshDataFromSnapshot(
             FloraInstanceBuilderRelease(&instances);
             return false;
         }
-        if (BuildMeshDataFilteredWithSnapshot(
-                (const unsigned short (*)[CHUNK_SIZE])instanceBlocks,
-                SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
-                true, false, false, true, faces,
-                nearbyTorchIndices, nearbyTorchCount, boundary,
-                &transparent) &&
+        request.transparent = true;
+        request.excludeWater = true;
+        if (BuildChunkMeshData(&request, &transparent) &&
             !FloraMeshBuilderAppend(&instanceMesh, &transparent)) {
             FreeMeshData(&transparent);
             FloraMeshBuilderRelease(&instanceMesh);

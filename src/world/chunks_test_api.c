@@ -24,10 +24,23 @@ bool ChunksTestBuildMeshDataFilteredWithSnapshot(
     const int *nearbyTorchIndices, int nearbyTorchCount,
     const ChunkTestBoundarySnapshot *boundary, Mesh *outMesh)
 {
-    return BuildMeshDataFilteredWithSnapshot(
-        blocks, height, layerY, chunkX, chunkZ, transparent, includePlants,
-        plantsOnly, excludeWater, faces, nearbyTorchIndices,
-        nearbyTorchCount, (const SurfaceBoundarySnapshot *)boundary, outMesh);
+    ChunkMeshBuildRequest request = {
+        .blocks = blocks,
+        .height = height,
+        .layerY = layerY,
+        .chunkX = chunkX,
+        .chunkZ = chunkZ,
+        .boundary = (const SurfaceBoundarySnapshot *)boundary,
+        .transparent = transparent,
+        .includePlants = includePlants,
+        .plantsOnly = plantsOnly,
+        .excludeWater = excludeWater,
+        .faces = faces,
+        .nearbyTorchIndices = nearbyTorchIndices,
+        .nearbyTorchCount = nearbyTorchCount,
+        .greedyMaxSpan = GREEDY_MESH_MAX_SPAN
+    };
+    return BuildChunkMeshData(&request, outMesh);
 }
 
 bool ChunksTestSurfaceBoundaryCellAt(

@@ -1114,24 +1114,7 @@ bool ChunkBlockHasTransparentMesh(BlockType type)
     return IsTranslucentBlock(type);
 }
 
-typedef struct ChunkMeshBuildContext {
-    const unsigned short (*blocks)[CHUNK_SIZE];
-    int height;
-    int layerY;
-    int chunkX;
-    int chunkZ;
-    const SurfaceBoundarySnapshot *boundary;
-    bool transparent;
-    bool includePlants;
-    bool plantsOnly;
-    bool excludeWater;
-    const int (*faces)[3];
-    const int *nearbyTorchIndices;
-    int nearbyTorchCount;
-    int greedyMaxSpan;
-} ChunkMeshBuildContext;
-
-static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
+static void EmitChunkBlocksFiltered(const ChunkMeshBuildRequest *context,
                                     ChunkMeshEmitter *emitter)
 {
     const unsigned short (*blocks)[CHUNK_SIZE] = context->blocks;
@@ -1266,37 +1249,19 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
     }
 }
 
-bool BuildMeshDataFilteredWithSnapshotSpan(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, bool transparent, bool includePlants,
-    bool plantsOnly, bool excludeWater, const int faces[6][3],
-    const int *nearbyTorchIndices, int nearbyTorchCount,
-    int greedyMaxSpan, const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
+bool BuildChunkMeshData(const ChunkMeshBuildRequest *request, Mesh *outMesh)
 {
-    ChunkMeshBuildContext context = {
-        .blocks = blocks,
-        .height = height,
-        .layerY = layerY,
-        .chunkX = chunkX,
-        .chunkZ = chunkZ,
-        .boundary = boundary,
-        .transparent = transparent,
-        .includePlants = includePlants,
-        .plantsOnly = plantsOnly,
-        .excludeWater = excludeWater,
-        .faces = faces,
-        .nearbyTorchIndices = nearbyTorchIndices,
-        .nearbyTorchCount = nearbyTorchCount,
-        .greedyMaxSpan = greedyMaxSpan
-    };
-    bool singlePass = greedyMaxSpan > 0 && !transparent && !plantsOnly;
+    if (!request || !request->blocks || request->height <= 0 ||
+        !request->faces || !outMesh) return false;
+    bool singlePass = request->greedyMaxSpan > 0 &&
+                      !request->transparent && !request->plantsOnly;
     if (singlePass) {
         Mesh mesh = { 0 };
         ChunkMeshEmitter writer = {
             .mesh = &mesh,
             .dynamicCapacity = true
         };
-        EmitChunkBlocksFiltered(&context, &writer);
+        EmitChunkBlocksFiltered(request, &writer);
         if (writer.failed || writer.vertexIndex == 0) {
             FreeMeshData(&mesh);
             return false;
@@ -1307,7 +1272,7 @@ bool BuildMeshDataFilteredWithSnapshotSpan(
     }
 
     ChunkMeshEmitter counter = { 0 };
-    EmitChunkBlocksFiltered(&context, &counter);
+    EmitChunkBlocksFiltered(request, &counter);
     if (counter.failed || counter.vertexIndex == 0) return false;
 
     Mesh mesh = { 0 };
@@ -1333,7 +1298,7 @@ bool BuildMeshDataFilteredWithSnapshotSpan(
         .mesh = &mesh,
         .vertexCapacity = mesh.vertexCount
     };
-    EmitChunkBlocksFiltered(&context, &writer);
+    EmitChunkBlocksFiltered(request, &writer);
     if (writer.failed || writer.vertexIndex != counter.vertexIndex) {
         FreeMeshData(&mesh);
         return false;
@@ -1342,40 +1307,26 @@ bool BuildMeshDataFilteredWithSnapshotSpan(
     return true;
 }
 
-bool BuildMeshDataFilteredWithSnapshot(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, bool transparent, bool includePlants,
-    bool plantsOnly, bool excludeWater, const int faces[6][3],
-    const int *nearbyTorchIndices, int nearbyTorchCount,
-    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
-{
-    return BuildMeshDataFilteredWithSnapshotSpan(
-        blocks, height, layerY, chunkX, chunkZ, transparent, includePlants,
-        plantsOnly, excludeWater, faces, nearbyTorchIndices, nearbyTorchCount,
-        GREEDY_MESH_MAX_SPAN, boundary, outMesh);
-}
-
-bool BuildMeshDataFiltered(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, bool transparent, bool includePlants,
-    bool plantsOnly, bool excludeWater, const int faces[6][3],
-    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
-{
-    return BuildMeshDataFilteredWithSnapshot(
-        blocks, height, layerY, chunkX, chunkZ, transparent, includePlants,
-        plantsOnly, excludeWater, faces, nearbyTorchIndices, nearbyTorchCount,
-        NULL, outMesh);
-}
-
 bool BuildMeshData(const unsigned short (*blocks)[CHUNK_SIZE],
                    int height, int layerY, int chunkX, int chunkZ,
                    bool transparent, const int faces[6][3],
                    const int *nearbyTorchIndices, int nearbyTorchCount,
                    Mesh *outMesh)
 {
-    return BuildMeshDataFiltered(
-        blocks, height, layerY, chunkX, chunkZ, transparent, true, false, false,
-        faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
+    ChunkMeshBuildRequest request = {
+        .blocks = blocks,
+        .height = height,
+        .layerY = layerY,
+        .chunkX = chunkX,
+        .chunkZ = chunkZ,
+        .transparent = transparent,
+        .includePlants = true,
+        .faces = faces,
+        .nearbyTorchIndices = nearbyTorchIndices,
+        .nearbyTorchCount = nearbyTorchCount,
+        .greedyMaxSpan = GREEDY_MESH_MAX_SPAN
+    };
+    return BuildChunkMeshData(&request, outMesh);
 }
 
 bool BuildSurfaceSolidMeshData(
@@ -1383,7 +1334,16 @@ bool BuildSurfaceSolidMeshData(
     int chunkX, int chunkZ, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh)
 {
-    return BuildMeshDataFiltered(
-        blocks, height, layerY, chunkX, chunkZ, false, false, false, false,
-        faces, nearbyTorchIndices, nearbyTorchCount, outMesh);
+    ChunkMeshBuildRequest request = {
+        .blocks = blocks,
+        .height = height,
+        .layerY = layerY,
+        .chunkX = chunkX,
+        .chunkZ = chunkZ,
+        .faces = faces,
+        .nearbyTorchIndices = nearbyTorchIndices,
+        .nearbyTorchCount = nearbyTorchCount,
+        .greedyMaxSpan = GREEDY_MESH_MAX_SPAN
+    };
+    return BuildChunkMeshData(&request, outMesh);
 }

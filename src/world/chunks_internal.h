@@ -21,6 +21,23 @@ typedef struct SurfaceBoundarySnapshot {
                        [CHUNK_SIZE + 2];
 } SurfaceBoundarySnapshot;
 
+typedef struct ChunkMeshBuildRequest {
+    const unsigned short (*blocks)[CHUNK_SIZE];
+    int height;
+    int layerY;
+    int chunkX;
+    int chunkZ;
+    const SurfaceBoundarySnapshot *boundary;
+    bool transparent;
+    bool includePlants;
+    bool plantsOnly;
+    bool excludeWater;
+    const int (*faces)[3];
+    const int *nearbyTorchIndices;
+    int nearbyTorchCount;
+    int greedyMaxSpan;
+} ChunkMeshBuildRequest;
+
 typedef struct MeshJob {
     bool inUse;
     bool running;
@@ -172,24 +189,7 @@ bool BuildChunkFloraMeshDataFromSnapshot(
     int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh,
     FloraVisualInstance **outInstances, int *outInstanceCount);
-bool BuildMeshDataFilteredWithSnapshot(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, bool transparent, bool includePlants,
-    bool plantsOnly, bool excludeWater, const int faces[6][3],
-    const int *nearbyTorchIndices, int nearbyTorchCount,
-    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh);
-bool BuildMeshDataFilteredWithSnapshotSpan(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, bool transparent, bool includePlants,
-    bool plantsOnly, bool excludeWater, const int faces[6][3],
-    const int *nearbyTorchIndices, int nearbyTorchCount,
-    int greedyMaxSpan, const SurfaceBoundarySnapshot *boundary,
-    Mesh *outMesh);
-bool BuildMeshDataFiltered(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, bool transparent, bool includePlants,
-    bool plantsOnly, bool excludeWater, const int faces[6][3],
-    const int *nearbyTorchIndices, int nearbyTorchCount, Mesh *outMesh);
+bool BuildChunkMeshData(const ChunkMeshBuildRequest *request, Mesh *outMesh);
 void CaptureSurfaceBoundary(SurfaceBoundarySnapshot *snapshot,
                             int chunkX, int chunkZ, int sectionY);
 bool SurfaceBoundaryBlockAt(const SurfaceBoundarySnapshot *snapshot,

@@ -407,9 +407,21 @@ bool BuildSurfaceWaterMeshDataWithSnapshot(
     if (!blocks || height <= 0 || !faces || !outMesh) return false;
     Mesh transparent = { 0 };
     Mesh water = { 0 };
-    bool hasTransparent = BuildMeshDataFilteredWithSnapshot(
-        blocks, height, layerY, chunkX, chunkZ, true, false, false, true,
-        faces, nearbyTorchIndices, nearbyTorchCount, boundary, &transparent);
+    ChunkMeshBuildRequest request = {
+        .blocks = blocks,
+        .height = height,
+        .layerY = layerY,
+        .chunkX = chunkX,
+        .chunkZ = chunkZ,
+        .boundary = boundary,
+        .transparent = true,
+        .excludeWater = true,
+        .faces = faces,
+        .nearbyTorchIndices = nearbyTorchIndices,
+        .nearbyTorchCount = nearbyTorchCount,
+        .greedyMaxSpan = GREEDY_MESH_MAX_SPAN
+    };
+    bool hasTransparent = BuildChunkMeshData(&request, &transparent);
     bool hasWater = BuildSurfaceWaterVolumeMeshData(
         blocks, waterVolumes, boundary, height, layerY, chunkX, chunkZ,
         nearbyTorchIndices, nearbyTorchCount, &water);
