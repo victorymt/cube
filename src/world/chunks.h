@@ -245,6 +245,10 @@ bool ChunksTestBuildMeshDataFilteredWithSnapshot(
 bool ChunksTestSurfaceBoundaryCellAt(
     const ChunkTestBoundarySnapshot *boundary, int lx, int y, int lz,
     BlockType *outBlock, unsigned char *outVolume);
+bool ChunksTestBuildLodHeightfieldMeshData(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ, ChunkLodLevel lod,
+    const ChunkTestBoundarySnapshot *boundary, Mesh *outMesh);
 #endif
 
 #endif

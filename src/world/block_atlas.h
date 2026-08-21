@@ -7,6 +7,8 @@ void DrawAtlasTile(Image *image, BlockTexture texture);
 Texture2D LoadBlockAtlas(void);
 BlockTexture TextureForBlockFace(BlockType type, int face);
 void AtlasUVs(BlockTexture texture, Vector2 uvs[6]);
+void AtlasRepeatedUVs(BlockTexture texture, float width, float height,
+                      Vector2 uvs[6]);
 Rectangle AtlasSourceRect(BlockTexture texture);
 
 #endif

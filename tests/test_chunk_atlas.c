@@ -1109,6 +1109,144 @@ static void AssertSolidSnapshotDoesNotReadLiveChunks(void)
     FreeTestMesh(&mesh);
 }
 
+static int LodTestTerrainHeight(int worldX, int worldZ)
+{
+    (void)worldX;
+    return 3 + PositiveMod(worldZ, 12) / 4;
+}
+
+static void FillLodTestTerrain(
+    int chunkX, int chunkZ,
+    unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    ChunkTestBoundarySnapshot *boundary)
+{
+    memset(blocks, 0, sizeof(unsigned short[CHUNK_SIZE]
+                            [SURFACE_SECTION_HEIGHT][CHUNK_SIZE]));
+    memset(boundary, 0, sizeof(*boundary));
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int height = LodTestTerrainHeight(
+                chunkX * CHUNK_SIZE + lx, chunkZ * CHUNK_SIZE + lz);
+            for (int y = 0; y < height; y++) {
+                blocks[lx][y][lz] = BLOCK_STONE;
+            }
+        }
+    }
+    for (int px = 0; px < CHUNK_SIZE + 2; px++) {
+        for (int py = 0; py < SURFACE_SECTION_HEIGHT + 2; py++) {
+            for (int pz = 0; pz < CHUNK_SIZE + 2; pz++) {
+                int localY = py - 1;
+                int height = LodTestTerrainHeight(
+                    chunkX * CHUNK_SIZE + px - 1,
+                    chunkZ * CHUNK_SIZE + pz - 1);
+                boundary->known[px][py][pz] = 1u;
+                if (localY >= 0 && localY < height) {
+                    boundary->blocks[px][py][pz] = BLOCK_STONE;
+                }
+            }
+        }
+    }
+}
+
+static float MeshMaximumYAt(const Mesh *mesh, float x, float z)
+{
+    float maximum = -INFINITY;
+    for (int vertex = 0; vertex < mesh->vertexCount; vertex++) {
+        float vx = mesh->vertices[vertex * 3];
+        float vy = mesh->vertices[vertex * 3 + 1];
+        float vz = mesh->vertices[vertex * 3 + 2];
+        if (fabsf(vx - x) < 0.001f && fabsf(vz - z) < 0.001f) {
+            maximum = fmaxf(maximum, vy);
+        }
+    }
+    return maximum;
+}
+
+static void AssertChunkLodHeightfieldContracts(void)
+{
+    unsigned short leftBlocks[CHUNK_SIZE]
+                             [SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    unsigned short rightBlocks[CHUNK_SIZE]
+                              [SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    ChunkTestBoundarySnapshot leftBoundary;
+    ChunkTestBoundarySnapshot rightBoundary;
+    FillLodTestTerrain(0, 0, leftBlocks, &leftBoundary);
+    FillLodTestTerrain(1, 0, rightBlocks, &rightBoundary);
+
+    Mesh half = { 0 };
+    Mesh quarter = { 0 };
+    assert(ChunksTestBuildLodHeightfieldMeshData(
+        leftBlocks, 0, 0, CHUNK_LOD_HALF, &leftBoundary, &half));
+    assert(ChunksTestBuildLodHeightfieldMeshData(
+        rightBlocks, 1, 0, CHUNK_LOD_QUARTER,
+        &rightBoundary, &quarter));
+    AssertMeshWellFormed(&half, 576);
+    AssertMeshWellFormed(&quarter, 192);
+
+    float minU = INFINITY;
+    float maxU = -INFINITY;
+    float minV = INFINITY;
+    float maxV = -INFINITY;
+    for (int vertex = 0; vertex < 6; vertex++) {
+        float u = half.texcoords[vertex * 2];
+        float v = half.texcoords[vertex * 2 + 1];
+        assert(u < 0.0f && v < 0.0f);
+        minU = fminf(minU, u);
+        maxU = fmaxf(maxU, u);
+        minV = fminf(minV, v);
+        maxV = fmaxf(maxV, v);
+        assert(half.normals[vertex * 3 + 1] > 0.0f);
+    }
+    assert(fabsf((maxU - minU) - 2.0f) < 0.001f);
+    assert(fabsf((maxV - minV) - 2.0f) < 0.001f);
+
+    for (int z = 0; z <= CHUNK_SIZE; z += 4) {
+        float leftY = MeshMaximumYAt(&half, (float)CHUNK_SIZE, (float)z);
+        float rightY = MeshMaximumYAt(
+            &quarter, (float)CHUNK_SIZE, (float)z);
+        assert(isfinite(leftY));
+        assert(isfinite(rightY));
+        assert(fabsf(leftY - rightY) < 0.001f);
+    }
+    assert(MeshMaximumYAt(&half, (float)CHUNK_SIZE, 0.0f) > 0.0f);
+    bool halfHasSkirtBottom = false;
+    bool quarterHasSkirtBottom = false;
+    for (int vertex = 0; vertex < half.vertexCount; vertex++) {
+        if (fabsf(half.vertices[vertex * 3] - (float)CHUNK_SIZE) < 0.001f &&
+            fabsf(half.vertices[vertex * 3 + 1]) < 0.001f) {
+            halfHasSkirtBottom = true;
+        }
+    }
+    for (int vertex = 0; vertex < quarter.vertexCount; vertex++) {
+        if (fabsf(quarter.vertices[vertex * 3] - (float)CHUNK_SIZE) < 0.001f &&
+            fabsf(quarter.vertices[vertex * 3 + 1]) < 0.001f) {
+            quarterHasSkirtBottom = true;
+        }
+    }
+    assert(halfHasSkirtBottom);
+    assert(quarterHasSkirtBottom);
+
+    Mesh exact = { 0 };
+    assert(!ChunksTestBuildLodHeightfieldMeshData(
+        leftBlocks, 0, 0, CHUNK_LOD_EXACT, &leftBoundary, &exact));
+    unsigned short empty[CHUNK_SIZE]
+                        [SURFACE_SECTION_HEIGHT][CHUNK_SIZE] = { 0 };
+    ChunkTestBoundarySnapshot emptyBoundary = { 0 };
+    for (int px = 0; px < CHUNK_SIZE + 2; px++) {
+        for (int py = 0; py < SURFACE_SECTION_HEIGHT + 2; py++) {
+            for (int pz = 0; pz < CHUNK_SIZE + 2; pz++) {
+                emptyBoundary.known[px][py][pz] = 1u;
+            }
+        }
+    }
+    Mesh emptyMesh = { 0 };
+    assert(!ChunksTestBuildLodHeightfieldMeshData(
+        empty, 0, 0, CHUNK_LOD_HALF, &emptyBoundary, &emptyMesh));
+    assert(emptyMesh.vertices == NULL);
+    FreeTestMesh(&half);
+    FreeTestMesh(&quarter);
+}
+
 int main(void)
 {
     AssertSpecialBlockMeshContracts();
@@ -1127,6 +1265,7 @@ int main(void)
     AssertFloraStructureInstancePartition();
     AssertHomeTreeFloraMeshPartition();
     AssertSolidSnapshotDoesNotReadLiveChunks();
+    AssertChunkLodHeightfieldContracts();
     puts("chunk atlas tests passed");
     return 0;
 }

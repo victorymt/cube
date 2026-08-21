@@ -38,4 +38,14 @@ bool ChunksTestSurfaceBoundaryCellAt(
         (const SurfaceBoundarySnapshot *)boundary, lx, y, lz,
         outBlock, outVolume);
 }
+
+bool ChunksTestBuildLodHeightfieldMeshData(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ, ChunkLodLevel lod,
+    const ChunkTestBoundarySnapshot *boundary, Mesh *outMesh)
+{
+    return BuildChunkLodHeightfieldMeshData(
+        blocks, chunkX, chunkZ, lod,
+        (const SurfaceBoundarySnapshot *)boundary, outMesh);
+}
 #endif

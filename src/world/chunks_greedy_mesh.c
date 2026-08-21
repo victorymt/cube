@@ -247,26 +247,6 @@ static void GreedyFaceGeometry(int face, int x, int y, int z,
     }
 }
 
-static void GreedyAtlasUVs(BlockTexture texture, int width, int height,
-                           Vector2 uvs[6])
-{
-    int tileIndex = (int)texture;
-    int tileX = tileIndex % ATLAS_COLUMNS;
-    int tileY = tileIndex / ATLAS_COLUMNS;
-    float baseU = 1.0f + (float)(tileX * GREEDY_MESH_UV_STRIDE);
-    float baseV = 1.0f + (float)(tileY * GREEDY_MESH_UV_STRIDE);
-    float u0 = -baseU;
-    float u1 = -(baseU + (float)width);
-    float v0 = -baseV;
-    float v1 = -(baseV + (float)height);
-    uvs[0] = (Vector2){ u0, v1 };
-    uvs[1] = (Vector2){ u1, v1 };
-    uvs[2] = (Vector2){ u1, v0 };
-    uvs[3] = uvs[0];
-    uvs[4] = uvs[2];
-    uvs[5] = (Vector2){ u0, v0 };
-}
-
 static void GreedyFaceAmbientOcclusion(
     const GreedyMeshContext *context, int x, int y, int z,
     Vector3 normal, const Vector3 corners[6], float ao[6])
@@ -346,7 +326,7 @@ static void EmitGreedyFaceRectangle(
         AtlasUVs(cell->texture, uvs);
         GreedyFaceAmbientOcclusion(context, x, y, z, normal, corners, ao);
     } else {
-        GreedyAtlasUVs(cell->texture, width, height, uvs);
+        AtlasRepeatedUVs(cell->texture, (float)width, (float)height, uvs);
         for (int index = 0; index < 6; index++) {
             ao[index] = cell->ambientOcclusion;
         }

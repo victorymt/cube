@@ -127,6 +127,10 @@ bool BuildChunkSurfaceSolidMeshData(
     int nearbyTorchCount, int greedyMaxSpan,
     const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh);
+bool BuildChunkLodHeightfieldMeshData(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int chunkX, int chunkZ, ChunkLodLevel lod,
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh);
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     const unsigned char *waterVolumes, int layerY, int chunkX, int chunkZ,

@@ -539,6 +539,26 @@ void AtlasUVs(BlockTexture texture, Vector2 uvs[6])
     uvs[5] = (Vector2){ u0, v0 };
 }
 
+void AtlasRepeatedUVs(BlockTexture texture, float width, float height,
+                      Vector2 uvs[6])
+{
+    int tileIndex = (int)texture;
+    int tileX = tileIndex % ATLAS_COLUMNS;
+    int tileY = tileIndex / ATLAS_COLUMNS;
+    float baseU = 1.0f + (float)(tileX * GREEDY_MESH_UV_STRIDE);
+    float baseV = 1.0f + (float)(tileY * GREEDY_MESH_UV_STRIDE);
+    float u0 = -baseU;
+    float u1 = -(baseU + fmaxf(width, 1.0f));
+    float v0 = -baseV;
+    float v1 = -(baseV + fmaxf(height, 1.0f));
+    uvs[0] = (Vector2){ u0, v1 };
+    uvs[1] = (Vector2){ u1, v1 };
+    uvs[2] = (Vector2){ u1, v0 };
+    uvs[3] = uvs[0];
+    uvs[4] = uvs[2];
+    uvs[5] = (Vector2){ u0, v0 };
+}
+
 Rectangle AtlasSourceRect(BlockTexture texture)
 {
     int tileIndex = (int)texture;
