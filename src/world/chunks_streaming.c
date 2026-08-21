@@ -744,6 +744,9 @@ bool EnsureChunk(int cx, int cz)
     if (chunk->generation == 0u) chunk->generation = 1u;
     chunk->generating = true;
     chunk->loaded = false;
+    chunk->targetLod = CHUNK_LOD_EXACT;
+    chunk->activeLod = CHUNK_LOD_EXACT;
+    chunk->lodInitialized = false;
     chunk->floraActivity = 1.0f;
     chunk->floraCapacity = 1.0f;
     chunk->floraSampleTimer = 0.0f;
@@ -876,6 +879,7 @@ void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
         if (EnsureChunk(missingChunks[i][0], missingChunks[i][1])) submissions++;
     }
     ScheduleNearbyTerrainSections(playerPosition, effectiveRenderDistance);
+    ChunksUpdateLodTargets(playerPosition, WorldIsSurfaceActive());
 }
 
 #ifdef CHUNKS_TESTING

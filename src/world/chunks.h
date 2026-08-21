@@ -55,6 +55,19 @@ typedef struct ChunkCanonicalIdentityStats {
     int duplicates;
 } ChunkCanonicalIdentityStats;
 
+enum {
+    CHUNK_LOD_EXACT_MAX_DISTANCE = 4,
+    CHUNK_LOD_HALF_MAX_DISTANCE = 8,
+    CHUNK_LOD_HYSTERESIS = 1
+};
+
+typedef struct ChunkLodStats {
+    uint64_t targetChunks[CHUNK_LOD_COUNT];
+    uint64_t activeChunks[CHUNK_LOD_COUNT];
+    uint64_t targetChanges;
+    bool coarseAllowed;
+} ChunkLodStats;
+
 bool InHeight(int y);
 int FloorDivInt(int value, int divisor);
 int PositiveMod(int value, int divisor);
@@ -138,6 +151,9 @@ void ProcessFinishedChunkJobs(void);
 void ProcessFinishedMeshJobs(double uploadBudgetMs);
 int GetActiveChunkCount(void);
 ChunkCanonicalIdentityStats ChunksGetCanonicalIdentityStats(void);
+ChunkLodStats ChunksGetLodStats(void);
+ChunkLodLevel ChunkLodSelect(ChunkLodLevel current, bool initialized,
+                             int distance, bool coarseAllowed);
 int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
@@ -199,6 +215,7 @@ int ChunksTestNextGenerationJobIndex(void);
 int ChunksTestNextMeshJobIndex(void);
 bool ChunksTestEnsureChunk(int cx, int cz);
 bool ChunksTestFindPendingGenerationJob(int cx, int cz);
+void ChunksTestUpdateLodTargets(Vector3 focusPosition, bool coarseAllowed);
 
 typedef struct ChunkTestBoundarySnapshot {
     unsigned short blocks[CHUNK_SIZE + 2]

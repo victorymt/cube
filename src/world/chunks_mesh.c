@@ -239,6 +239,7 @@ void UnloadAllChunks(void)
         ChunkClearBlockStorage(&chunks[i]);
         chunks[i].loaded = false;
     }
+    ChunksResetLodState();
 }
 
 static void AddBlockFaceInternal(

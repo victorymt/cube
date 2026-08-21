@@ -444,6 +444,66 @@ static void TestChunkFrustumUsesSparseSectionHeights(void)
     ChunkClearBlockStorage(&chunk);
 }
 
+static void TestChunkLodSelectionUsesRingsAndHysteresis(void)
+{
+    assert(ChunkLodSelect(CHUNK_LOD_EXACT, false, 0, true) ==
+           CHUNK_LOD_EXACT);
+    assert(ChunkLodSelect(CHUNK_LOD_EXACT, false, 5, true) ==
+           CHUNK_LOD_HALF);
+    assert(ChunkLodSelect(CHUNK_LOD_EXACT, false, 9, true) ==
+           CHUNK_LOD_QUARTER);
+
+    assert(ChunkLodSelect(CHUNK_LOD_EXACT, true, 5, true) ==
+           CHUNK_LOD_EXACT);
+    assert(ChunkLodSelect(CHUNK_LOD_EXACT, true, 6, true) ==
+           CHUNK_LOD_HALF);
+    assert(ChunkLodSelect(CHUNK_LOD_HALF, true, 4, true) ==
+           CHUNK_LOD_HALF);
+    assert(ChunkLodSelect(CHUNK_LOD_HALF, true, 3, true) ==
+           CHUNK_LOD_EXACT);
+    assert(ChunkLodSelect(CHUNK_LOD_HALF, true, 9, true) ==
+           CHUNK_LOD_HALF);
+    assert(ChunkLodSelect(CHUNK_LOD_HALF, true, 10, true) ==
+           CHUNK_LOD_QUARTER);
+    assert(ChunkLodSelect(CHUNK_LOD_QUARTER, true, 8, true) ==
+           CHUNK_LOD_QUARTER);
+    assert(ChunkLodSelect(CHUNK_LOD_QUARTER, true, 7, true) ==
+           CHUNK_LOD_HALF);
+    assert(ChunkLodSelect(CHUNK_LOD_QUARTER, true, 12, false) ==
+           CHUNK_LOD_EXACT);
+}
+
+static void TestChunkLodTargetsAndStatsTrackLoadedChunks(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    ChunksTestConfigureChunk(1, 5, 0, true, false);
+    ChunksTestConfigureChunk(2, 9, 0, true, false);
+    ChunksTestConfigureChunk(3, 12, 0, false, false);
+
+    ChunksTestUpdateLodTargets((Vector3){ 0.5f, 80.0f, 0.5f }, true);
+    ChunkLodStats stats = ChunksGetLodStats();
+    assert(stats.coarseAllowed);
+    assert(stats.targetChunks[CHUNK_LOD_EXACT] == 1u);
+    assert(stats.targetChunks[CHUNK_LOD_HALF] == 1u);
+    assert(stats.targetChunks[CHUNK_LOD_QUARTER] == 1u);
+    assert(stats.activeChunks[CHUNK_LOD_EXACT] == 3u);
+    assert(stats.targetChanges == 0u);
+
+    ChunksTestUpdateLodTargets((Vector3){ 16.5f, 80.0f, 0.5f }, true);
+    stats = ChunksGetLodStats();
+    assert(stats.targetChunks[CHUNK_LOD_EXACT] == 1u);
+    assert(stats.targetChunks[CHUNK_LOD_HALF] == 1u);
+    assert(stats.targetChunks[CHUNK_LOD_QUARTER] == 1u);
+    assert(stats.targetChanges == 0u);
+
+    ChunksTestUpdateLodTargets((Vector3){ 0.5f, -80.0f, 0.5f }, false);
+    stats = ChunksGetLodStats();
+    assert(!stats.coarseAllowed);
+    assert(stats.targetChunks[CHUNK_LOD_EXACT] == 3u);
+    assert(stats.targetChanges == 2u);
+}
+
 static void TestSingleChunkUsesSingleJobAndNearestFirst(void)
 {
     ChunksTestResetScheduler();
@@ -1357,6 +1417,8 @@ int main(void)
     TestFrustumSphereEdgesRemainVisible();
     TestFrustumNearPlaneAndRenderAspect();
     TestChunkFrustumUsesSparseSectionHeights();
+    TestChunkLodSelectionUsesRingsAndHysteresis();
+    TestChunkLodTargetsAndStatsTrackLoadedChunks();
     TestSingleChunkUsesSingleJobAndNearestFirst();
     TestFullQueueLeavesDirtyChunkForLater();
     TestReusedLowSlotsDoNotStarveOlderJobs();

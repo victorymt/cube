@@ -437,6 +437,13 @@ typedef struct FloraStructureInstance {
     float windResponse;
 } FloraStructureInstance;
 
+typedef enum ChunkLodLevel {
+    CHUNK_LOD_EXACT = 0,
+    CHUNK_LOD_HALF,
+    CHUNK_LOD_QUARTER,
+    CHUNK_LOD_COUNT
+} ChunkLodLevel;
+
 typedef struct ChunkSection {
     bool dirty;
     // Monotonic content revision bumped by every MarkChunkDirty* call.
@@ -480,6 +487,9 @@ typedef struct Chunk {
     // In-flight mesh jobs from a previous incarnation are discarded on
     // upload so stale terrain never overwrites a freshly generated chunk.
     uint32_t generation;
+    ChunkLodLevel targetLod;
+    ChunkLodLevel activeLod;
+    bool lodInitialized;
     float floraActivity;
     float floraCapacity;
     float floraSampleTimer;

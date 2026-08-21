@@ -95,6 +95,8 @@ int ScheduleNearbyTerrainSections(Vector3 playerPosition,
                                   int effectiveRenderDistance);
 void UpdateQueuePeaksLocked(void);
 void MarkGeneratedSectionAndNeighborsDirty(Chunk *chunk, int sectionY);
+void ChunksUpdateLodTargets(Vector3 focusPosition, bool coarseAllowed);
+void ChunksResetLodState(void);
 void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section);
 int CancelDistantNegativeSectionJobs(int playerSectionY);
 int PruneDistantNegativeTerrainSections(int playerSectionY);

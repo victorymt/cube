@@ -1238,6 +1238,7 @@ void ChunksTestResetScheduler(void)
     memset(chunkGenJobs, 0, sizeof(chunkGenJobs));
     memset(meshJobs, 0, sizeof(meshJobs));
     nextMeshQueueSequence = 0u;
+    ChunksResetLodState();
     streamingStats = (ChunkStreamingStats){ 0 };
     genWorkerThreadsConfigured = 1u;
     genWorkerThreadsStarted = 1u;
