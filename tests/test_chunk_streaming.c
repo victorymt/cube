@@ -1,4 +1,5 @@
 #include "world/chunks.h"
+#include "app/game_debug_lod.h"
 
 #define chunks (ChunksMutableForTesting())
 #include "world/terrain.h"
@@ -30,6 +31,14 @@ static int generationProbeMaxActive = 0;
 static bool allowColumnGeneration = false;
 
 static int FindPendingMeshJobFor(int slotIndex, int sectionY);
+
+static void AssertLodDslNumber(const char *name, double expected)
+{
+    DebugDslValue value = { 0 };
+    assert(GameDebugLodDslResolve(name, &value));
+    assert(value.type == DEBUG_DSL_VALUE_NUMBER);
+    assert(value.as.number == expected);
+}
 
 static bool WaitForGenerationProbe(int target)
 {
@@ -488,7 +497,32 @@ static void TestChunkLodTargetsAndStatsTrackLoadedChunks(void)
     assert(stats.targetChunks[CHUNK_LOD_HALF] == 1u);
     assert(stats.targetChunks[CHUNK_LOD_QUARTER] == 1u);
     assert(stats.activeChunks[CHUNK_LOD_EXACT] == 3u);
+    assert(stats.readySections[CHUNK_LOD_EXACT] == 0u);
+    assert(stats.readySections[CHUNK_LOD_HALF] == 0u);
+    assert(stats.readySections[CHUNK_LOD_QUARTER] == 0u);
+    assert(stats.pendingJobs[CHUNK_LOD_EXACT] == 0u);
+    assert(stats.pendingJobs[CHUNK_LOD_HALF] == 0u);
+    assert(stats.pendingJobs[CHUNK_LOD_QUARTER] == 0u);
     assert(stats.targetChanges == 0u);
+
+    DebugDslValue value = { 0 };
+    assert(GameDebugLodDslResolve("stream.lod_coarse_allowed", &value));
+    assert(value.type == DEBUG_DSL_VALUE_BOOL);
+    assert(value.as.boolean);
+    AssertLodDslNumber("stream.lod_target_changes", 0.0);
+    AssertLodDslNumber("stream.lod_target_exact", 1.0);
+    AssertLodDslNumber("stream.lod_target_half", 1.0);
+    AssertLodDslNumber("stream.lod_target_quarter", 1.0);
+    AssertLodDslNumber("stream.lod_active_exact", 3.0);
+    AssertLodDslNumber("stream.lod_active_half", 0.0);
+    AssertLodDslNumber("stream.lod_active_quarter", 0.0);
+    AssertLodDslNumber("stream.lod_ready_exact_sections", 0.0);
+    AssertLodDslNumber("stream.lod_ready_half_sections", 0.0);
+    AssertLodDslNumber("stream.lod_ready_quarter_sections", 0.0);
+    AssertLodDslNumber("stream.lod_jobs_exact", 0.0);
+    AssertLodDslNumber("stream.lod_jobs_half", 0.0);
+    AssertLodDslNumber("stream.lod_jobs_quarter", 0.0);
+    assert(!GameDebugLodDslResolve("stream.surface_ready", &value));
 
     ChunksTestUpdateLodTargets((Vector3){ 16.5f, 80.0f, 0.5f }, true);
     stats = ChunksGetLodStats();
@@ -518,6 +552,7 @@ static void TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady(void)
     ChunkLodStats stats = ChunksGetLodStats();
     assert(stats.targetChunks[CHUNK_LOD_QUARTER] == 1u);
     assert(stats.activeChunks[CHUNK_LOD_QUARTER] == 1u);
+    assert(stats.readySections[CHUNK_LOD_QUARTER] == 1u);
     assert(!section->dirty);
 
     ChunksTestUpdateLodTargets((Vector3){ 144.5f, 0.0f, 0.5f }, true);
@@ -531,6 +566,8 @@ static void TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady(void)
     ChunksTestUpdateLodTargets((Vector3){ 144.5f, 0.0f, 0.5f }, true);
     stats = ChunksGetLodStats();
     assert(stats.activeChunks[CHUNK_LOD_EXACT] == 1u);
+    assert(stats.readySections[CHUNK_LOD_EXACT] == 1u);
+    assert(stats.readySections[CHUNK_LOD_QUARTER] == 1u);
     assert(!section->dirty);
 }
 
@@ -574,6 +611,13 @@ static void TestMeshJobsIncludeLodIdentityAndPrioritizeExactUpgrades(void)
     assert(ChunksTestMeshJobLod(1) == CHUNK_LOD_EXACT);
     assert(ChunksTestMeshJobPriority(1));
     assert(ChunksTestNextMeshJobIndex() == 1);
+    ChunkLodStats stats = ChunksGetLodStats();
+    assert(stats.pendingJobs[CHUNK_LOD_EXACT] == 1u);
+    assert(stats.pendingJobs[CHUNK_LOD_HALF] == 0u);
+    assert(stats.pendingJobs[CHUNK_LOD_QUARTER] == 1u);
+    AssertLodDslNumber("stream.lod_jobs_exact", 1.0);
+    AssertLodDslNumber("stream.lod_jobs_half", 0.0);
+    AssertLodDslNumber("stream.lod_jobs_quarter", 1.0);
 
     ChunksTestCompleteMeshJob(0);
     ProcessFinishedMeshJobs(0.0);

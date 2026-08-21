@@ -293,6 +293,12 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.surface_ready` | bool | No missing surface chunks around the player |
 | `stream.missing_surface_chunks` | number | Missing surface chunk count, or `-1` outside play |
 | `stream.audit_complete` | bool | No stream audit or stream wait is active |
+| `stream.lod_coarse_allowed` | bool | Coarse chunk LODs are allowed in the current world state |
+| `stream.lod_target_changes` | number | Cumulative chunk target LOD changes since the current world reset |
+| `stream.lod_target_exact`, `stream.lod_target_half`, `stream.lod_target_quarter` | number | Loaded chunks targeting exact, half-resolution, or quarter-resolution meshes |
+| `stream.lod_active_exact`, `stream.lod_active_half`, `stream.lod_active_quarter` | number | Loaded chunks currently rendering exact, half-resolution, or quarter-resolution meshes |
+| `stream.lod_ready_exact_sections`, `stream.lod_ready_half_sections`, `stream.lod_ready_quarter_sections` | number | Section mesh caches ready for the current data version at each LOD |
+| `stream.lod_jobs_exact`, `stream.lod_jobs_half`, `stream.lod_jobs_quarter` | number | Queued, running, or completed mesh jobs awaiting retirement at each LOD |
 | `stream.workers_configured` | number | Target surface chunk worker count |
 | `stream.workers_started` | number | Successfully started surface chunk workers |
 | `stream.workers_active` | number | Surface chunk workers currently processing jobs |

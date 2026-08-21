@@ -172,7 +172,24 @@ ChunkLodStats ChunksGetLodStats(void)
         ChunkLodLevel active = ChunkLodSanitize(chunk->activeLod);
         stats.targetChunks[target]++;
         stats.activeChunks[active]++;
+        for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
+             sectionIndex++) {
+            const ChunkSection *section = chunk->sections[sectionIndex];
+            for (ChunkLodLevel lod = CHUNK_LOD_EXACT;
+                 lod < CHUNK_LOD_COUNT; lod++) {
+                if (ChunkSectionLodReady(section, lod)) {
+                    stats.readySections[lod]++;
+                }
+            }
+        }
     }
+    pthread_mutex_lock(&genMutex);
+    for (int index = 0; index < MAX_MESH_JOBS; index++) {
+        const MeshJob *job = &meshJobs[index];
+        if (!job->inUse) continue;
+        stats.pendingJobs[ChunkLodSanitize(job->lod)]++;
+    }
+    pthread_mutex_unlock(&genMutex);
     return stats;
 }
 

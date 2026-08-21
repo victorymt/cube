@@ -64,6 +64,8 @@ enum {
 typedef struct ChunkLodStats {
     uint64_t targetChunks[CHUNK_LOD_COUNT];
     uint64_t activeChunks[CHUNK_LOD_COUNT];
+    uint64_t readySections[CHUNK_LOD_COUNT];
+    uint64_t pendingJobs[CHUNK_LOD_COUNT];
     uint64_t targetChanges;
     bool coarseAllowed;
 } ChunkLodStats;

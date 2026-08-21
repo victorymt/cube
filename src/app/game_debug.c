@@ -5,6 +5,7 @@
 #include "app/game_debug_block.h"
 #include "app/game_debug_flora.h"
 #include "app/game_debug_gate.h"
+#include "app/game_debug_lod.h"
 #include "app/game_debug_topology.h"
 #include "app/game_debug_trace.h"
 #include "app/game_debug_wildfire.h"
@@ -1654,7 +1655,6 @@ static bool GameDebugDslResolve(void *userData, const char *name,
             return GameDebugDslBool(outValue, tornado.forced);
         }
     }
-
     if (strcmp(name, "stream.surface_ready") == 0) {
         bool ready = game->screen == SCREEN_PLAYING &&
             PlayerMissingSurfaceChunkCount(game->player.position) == 0;
@@ -1669,11 +1669,11 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         return GameDebugDslBool(
             outValue, !game->streamAudit.active && !game->streamAudit.wait.active);
     }
+    if (GameDebugLodDslResolve(name, outValue)) return true;
     if (strcmp(name, "stream.workers_configured") == 0) return GameDebugDslNumber(outValue, ChunksConfiguredWorkerCount());
     if (strcmp(name, "stream.workers_started") == 0) return GameDebugDslNumber(outValue, ChunksStartedWorkerCount());
     if (strcmp(name, "stream.workers_active") == 0)
         return GameDebugDslNumber(outValue, ChunksActiveWorkerCount());
-
     if (strncmp(name, "fluid.", 6u) == 0) {
         FluidSample sample = FluidSampleAt(game->player.position);
         FluidStats stats = FluidGetStats();
