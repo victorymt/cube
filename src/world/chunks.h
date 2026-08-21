@@ -154,6 +154,8 @@ ChunkCanonicalIdentityStats ChunksGetCanonicalIdentityStats(void);
 ChunkLodStats ChunksGetLodStats(void);
 ChunkLodLevel ChunkLodSelect(ChunkLodLevel current, bool initialized,
                              int distance, bool coarseAllowed);
+const Model *ChunksSectionSolidModel(const Chunk *chunk,
+                                     const ChunkSection *section);
 int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
@@ -191,6 +193,7 @@ void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool d
 bool ChunksTestChunkDirty(int slotIndex);
 int ChunksTestMeshJobSlot(int jobIndex);
 int ChunksTestMeshJobSectionY(int jobIndex);
+ChunkLodLevel ChunksTestMeshJobLod(int jobIndex);
 bool ChunksTestMeshJobPriority(int jobIndex);
 int ChunksTestBuildWaterMeshJob(int jobIndex);
 void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,

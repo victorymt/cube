@@ -151,15 +151,22 @@ void *ChunkGenWorker(void *arg)
                 { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
             };
             double startedMs = ChunkNowMs();
-            meshJob->hasMesh = BuildChunkSurfaceSolidMeshData(
-                meshJob->blocks,
-                meshJob->sectionY * SURFACE_SECTION_HEIGHT,
-                meshJob->cx, meshJob->cz,
-                meshJob->floraStructures, meshJob->floraStructureCount,
-                faces, meshJob->nearbyIndices, meshJob->nearbyCount,
-                meshJob->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
-                                   : GREEDY_MESH_MAX_SPAN,
-                &meshJob->boundary, &meshJob->mesh);
+            if (meshJob->lod == CHUNK_LOD_EXACT) {
+                meshJob->hasMesh = BuildChunkSurfaceSolidMeshData(
+                    meshJob->blocks,
+                    meshJob->sectionY * SURFACE_SECTION_HEIGHT,
+                    meshJob->cx, meshJob->cz,
+                    meshJob->floraStructures,
+                    meshJob->floraStructureCount,
+                    faces, meshJob->nearbyIndices, meshJob->nearbyCount,
+                    meshJob->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
+                                       : GREEDY_MESH_MAX_SPAN,
+                    &meshJob->boundary, &meshJob->mesh);
+            } else {
+                meshJob->hasMesh = BuildChunkLodHeightfieldMeshData(
+                    meshJob->blocks, meshJob->cx, meshJob->cz,
+                    meshJob->lod, &meshJob->boundary, &meshJob->mesh);
+            }
             meshJob->hasWaterMesh = BuildChunkSurfaceWaterMeshDataWithSnapshot(
                 meshJob->blocks,
                 (const unsigned char *)meshJob->waterVolumes,

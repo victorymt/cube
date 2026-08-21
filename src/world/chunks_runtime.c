@@ -4,19 +4,6 @@
 MeshJob meshJobs[MAX_MESH_JOBS];
 static uint64_t nextMeshQueueSequence = 0u;
 
-#define MESH_PENDING_LOOKUP_CAPACITY (MAX_MESH_JOBS * 2)
-typedef struct MeshPendingLookup { int slots[MESH_PENDING_LOOKUP_CAPACITY]; int ys[MESH_PENDING_LOOKUP_CAPACITY]; bool used[MESH_PENDING_LOOKUP_CAPACITY]; } MeshPendingLookup;
-
-static bool MeshPendingLookupVisit(MeshPendingLookup *lookup, int slot, int y, bool insert) {
-    uint32_t hash = (uint32_t)slot * 0x9e3779b1u ^ (uint32_t)y;
-    for (int probe = 0; probe < MESH_PENDING_LOOKUP_CAPACITY; probe++) {
-        int at = (int)((hash + (uint32_t)probe) % MESH_PENDING_LOOKUP_CAPACITY);
-        if (!lookup->used[at] && insert) { lookup->used[at] = true; lookup->slots[at] = slot; lookup->ys[at] = y; }
-        if (!lookup->used[at] || (lookup->slots[at] == slot && lookup->ys[at] == y)) return lookup->used[at];
-    }
-    return false;
-}
-
 void UpdateQueuePeaksLocked(void)
 {
     uint64_t generation = 0;
@@ -81,12 +68,14 @@ MeshJob *NextPendingMeshJob(void)
 }
 
 static MeshJob *FindPendingMeshJobForStamp(int slotIndex, int sectionY,
-                                           uint32_t sectionStamp)
+                                           uint32_t sectionStamp,
+                                           ChunkLodLevel lod)
 {
     for (int i = 0; i < MAX_MESH_JOBS; i++) {
         if (meshJobs[i].inUse && meshJobs[i].slotIndex == slotIndex &&
             meshJobs[i].sectionY == sectionY &&
-            meshJobs[i].sectionStamp == sectionStamp) return &meshJobs[i];
+            meshJobs[i].sectionStamp == sectionStamp &&
+            meshJobs[i].lod == lod) return &meshJobs[i];
     }
     return NULL;
 }
@@ -354,30 +343,6 @@ int CancelDistantNegativeSectionJobs(int playerSectionY)
     return canceled;
 }
 
-static void ReplaceChunkModel(Model *model, bool *hasModel,
-                              Mesh *mesh, bool hasMesh, bool dynamic)
-{
-    if (!hasMesh) {
-        if (*hasModel) {
-            UnloadModel(*model);
-            *model = (Model){ 0 };
-            *hasModel = false;
-        }
-        FreeMeshData(mesh);
-        return;
-    }
-
-    UploadMesh(mesh, dynamic);
-    Model replacement = LoadModelFromMesh(*mesh);
-    if (replacement.materialCount > 0 && replacement.materials) {
-        SetMaterialTexture(&replacement.materials[0], MATERIAL_MAP_DIFFUSE,
-                           blockAtlas);
-    }
-    if (*hasModel) UnloadModel(*model);
-    *model = replacement;
-    *hasModel = true;
-}
-
 static void InitializeFloraTargets(
     ChunkSection *section, const FloraVisualInstance *sourceInstances,
     int sourceInstanceCount)
@@ -453,12 +418,15 @@ static bool UploadMeshJob(MeshJob *job)
     ChunkSection *section = NULL;
     bool targetValid = false;
     bool snapshotCurrent = false;
+    bool lodValid = job && job->lod >= CHUNK_LOD_EXACT &&
+                    job->lod < CHUNK_LOD_COUNT;
     if (job && job->slotIndex >= 0 && job->slotIndex < MAX_ACTIVE_CHUNKS) {
         chunk = &chunks[job->slotIndex];
         section = ChunkGetSection(chunk, job->sectionY, false);
-        targetValid = chunk->loaded && chunk->cx == job->cx &&
+        targetValid = lodValid && chunk->loaded && chunk->cx == job->cx &&
                       chunk->cz == job->cz &&
                       chunk->generation == job->chunkGeneration &&
+                      ChunkLodSanitize(chunk->targetLod) == job->lod &&
                       chunk->spherical == job->spherical &&
                       (!job->spherical || SurfaceChunkKeyEqual(
                           chunk->surfaceKey, job->surfaceKey)) &&
@@ -468,8 +436,18 @@ static bool UploadMeshJob(MeshJob *job)
     }
 
     if (job && snapshotCurrent) {
-        ReplaceChunkModel(&section->model, &section->hasModel,
-                          &job->mesh, job->hasMesh, false);
+        if (job->lod == CHUNK_LOD_EXACT) {
+            ReplaceChunkModel(&section->model, &section->hasModel,
+                              &job->mesh, job->hasMesh, false);
+            section->exactModelReady = true;
+            section->exactModelStamp = job->sectionStamp;
+        } else {
+            ReplaceChunkModel(&section->lodModel, &section->hasLodModel,
+                              &job->mesh, job->hasMesh, false);
+            section->lodModelReady = true;
+            section->lodModelStamp = job->sectionStamp;
+            section->lodModelLevel = job->lod;
+        }
         ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,
                           &job->waterMesh, job->hasWaterMesh, false);
         ReplaceChunkModel(&section->floraModel, &section->hasFloraModel,
@@ -492,18 +470,20 @@ static bool UploadMeshJob(MeshJob *job)
     pthread_mutex_lock(&genMutex);
     if (job) job->inUse = false;
     bool pending = job && snapshotCurrent && FindPendingMeshJobForStamp(
-        job->slotIndex, job->sectionY, section->dirtyStamp);
+        job->slotIndex, job->sectionY, section->dirtyStamp, job->lod);
     if (job && !snapshotCurrent) streamingStats.meshCanceled++;
     pthread_mutex_unlock(&genMutex);
     if (snapshotCurrent && !pending) {
         section->dirty = false;
         section->dirtySinceMs = 0.0;
+        ChunkRefreshActiveLod(chunk);
     }
     return snapshotCurrent;
 }
 
 static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
-                           const ChunkSection *section, bool priority)
+                           const ChunkSection *section, ChunkLodLevel lod,
+                           bool priority)
 {
     memcpy(job->blocks, section->blocks, sizeof(job->blocks));
     if (section->waterVolumes) {
@@ -542,6 +522,7 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     job->cx = chunk->cx;
     job->cz = chunk->cz;
     job->sectionY = section->sectionY;
+    job->lod = lod;
     job->sectionStamp = section->dirtyStamp;
     job->chunkGeneration = chunk->generation;
     job->queueSequence = ++nextMeshQueueSequence;
@@ -570,10 +551,14 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
 
     pthread_mutex_lock(&genMutex);
     int slotIndex = (int)(chunk - chunks);
+    ChunkLodLevel lod = ChunkLodSanitize(chunk->targetLod);
+    bool exactUpgrade = lod == CHUNK_LOD_EXACT &&
+                        ChunkLodSanitize(chunk->activeLod) !=
+                            CHUNK_LOD_EXACT;
     MeshJob *current = FindPendingMeshJobForStamp(
-        slotIndex, section->sectionY, section->dirtyStamp);
+        slotIndex, section->sectionY, section->dirtyStamp, lod);
     if (current) {
-        if (priority) current->priority = true;
+        if (priority || exactUpgrade) current->priority = true;
         pthread_cond_signal(&genCond);
         pthread_mutex_unlock(&genMutex);
         return true;
@@ -590,7 +575,8 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
         return false;
     }
 
-    PrepareMeshJob(job, chunk, section, priority);
+    PrepareMeshJob(job, chunk, section, lod,
+                   priority || exactUpgrade);
     streamingStats.meshSubmitted++;
     streamingStats.meshSnapshotBytes += sizeof(job->blocks) +
                                         sizeof(job->waterVolumes) +
@@ -665,14 +651,19 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
     SurfaceBoundarySnapshot boundary = { 0 };
     CaptureSurfaceBoundary(
         &boundary, chunk->cx, chunk->cz, section->sectionY);
-    bool hasSolid = BuildChunkSurfaceSolidMeshData(
-        section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
-        chunk->cx, chunk->cz,
-        chunk->floraStructures, chunk->floraStructureCount,
-        faces, nearbyTorchIndices, nearbyTorchCount,
-        chunk->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
-                         : GREEDY_MESH_MAX_SPAN,
-        &boundary, &solidMesh);
+    ChunkLodLevel lod = ChunkLodSanitize(chunk->targetLod);
+    bool hasSolid = lod == CHUNK_LOD_EXACT
+        ? BuildChunkSurfaceSolidMeshData(
+              section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
+              chunk->cx, chunk->cz,
+              chunk->floraStructures, chunk->floraStructureCount,
+              faces, nearbyTorchIndices, nearbyTorchCount,
+              chunk->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
+                               : GREEDY_MESH_MAX_SPAN,
+              &boundary, &solidMesh)
+        : BuildChunkLodHeightfieldMeshData(
+              section->blocks, chunk->cx, chunk->cz, lod,
+              &boundary, &solidMesh);
     bool hasWater = BuildChunkSurfaceWaterMeshDataWithSnapshot(
         section->blocks, section->waterVolumes,
         section->sectionY * SURFACE_SECTION_HEIGHT,
@@ -716,8 +707,18 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
                                     chunk->cx, chunk->cz);
     }
 
-    ReplaceChunkModel(&section->model, &section->hasModel,
-                      &solidMesh, hasSolid, false);
+    if (lod == CHUNK_LOD_EXACT) {
+        ReplaceChunkModel(&section->model, &section->hasModel,
+                          &solidMesh, hasSolid, false);
+        section->exactModelReady = true;
+        section->exactModelStamp = section->dirtyStamp;
+    } else {
+        ReplaceChunkModel(&section->lodModel, &section->hasLodModel,
+                          &solidMesh, hasSolid, false);
+        section->lodModelReady = true;
+        section->lodModelStamp = section->dirtyStamp;
+        section->lodModelLevel = lod;
+    }
     ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,
                       &waterMesh, hasWater, false);
     ReplaceChunkModel(&section->floraModel, &section->hasFloraModel,
@@ -727,6 +728,7 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
     section->floraVisualScale = 1.0f;
     section->dirty = false;
     section->dirtySinceMs = 0.0;
+    ChunkRefreshActiveLod(chunk);
 }
 
 void RebuildDirtyChunkMeshes(Vector3 focusPosition)
@@ -747,7 +749,9 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
         pthread_mutex_lock(&genMutex);
         for (int index = 0; index < MAX_MESH_JOBS; index++) {
             if (!meshJobs[index].inUse) availableSlots++;
-            else MeshPendingLookupVisit(&pending, meshJobs[index].slotIndex, meshJobs[index].sectionY, true);
+            else MeshPendingLookupVisit(
+                &pending, meshJobs[index].slotIndex,
+                meshJobs[index].sectionY, meshJobs[index].lod, true);
         }
         pthread_mutex_unlock(&genMutex);
         if (availableSlots < submissionLimit) submissionLimit = availableSlots;
@@ -764,7 +768,10 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
             if ((visitedSections++ & 7) == 0 && ChunkThreadCpuNowMs() - scanStartedMs >= 1.5) { scanBudgetHit = true; break; }
             ChunkSection *section = chunks[i].sections[sectionIndex];
             if (!section->dirty || MeshPendingLookupVisit(
-                    &pending, i, section->sectionY, false)) continue;
+                    &pending, i, section->sectionY,
+                    ChunkLodSanitize(chunks[i].targetLod), false)) {
+                continue;
+            }
             int verticalDistance = abs(section->sectionY - focusSectionY);
             int insert = candidateCount;
             for (int selected = 0; selected < candidateCount; selected++) {
@@ -1198,6 +1205,10 @@ RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void)
                 RenderResourceSnapshotAddModel(&snapshot, &section->model,
                                                RENDER_RESOURCE_SOLID);
             }
+            if (section->hasLodModel) {
+                RenderResourceSnapshotAddModel(&snapshot, &section->lodModel,
+                                               RENDER_RESOURCE_SOLID);
+            }
             if (section->hasFloraModel) {
                 RenderResourceSnapshotAddModel(&snapshot, &section->floraModel,
                                                RENDER_RESOURCE_FLORA);
@@ -1250,6 +1261,7 @@ void ChunksTestResetScheduler(void)
 void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool dirty)
 {
     assert(slotIndex >= 0 && slotIndex < MAX_ACTIVE_CHUNKS);
+    ChunkClearBlockStorage(&chunks[slotIndex]);
     chunks[slotIndex] = (Chunk){ 0 };
     chunks[slotIndex].cx = cx;
     chunks[slotIndex].cz = cz;
@@ -1285,6 +1297,13 @@ int ChunksTestMeshJobSectionY(int jobIndex)
 {
     assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
     return meshJobs[jobIndex].inUse ? meshJobs[jobIndex].sectionY : -1;
+}
+
+ChunkLodLevel ChunksTestMeshJobLod(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_MESH_JOBS);
+    return meshJobs[jobIndex].inUse
+        ? meshJobs[jobIndex].lod : CHUNK_LOD_COUNT;
 }
 
 bool ChunksTestMeshJobPriority(int jobIndex)

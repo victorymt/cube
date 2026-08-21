@@ -420,6 +420,11 @@ static void UnloadChunkSectionModels(ChunkSection *section)
         section->model = (Model){ 0 };
         section->hasModel = false;
     }
+    if (section->hasLodModel) {
+        UnloadModel(section->lodModel);
+        section->lodModel = (Model){ 0 };
+        section->hasLodModel = false;
+    }
     if (section->hasWaterModel) {
         UnloadModel(section->waterModel);
         section->waterModel = (Model){ 0 };
@@ -475,6 +480,30 @@ void MarkSectionDirty(ChunkSection *section)
     section->dirty = true;
     section->dirtyStamp++;
     if (section->dirtyStamp == 0u) section->dirtyStamp = 1u;
+}
+
+void ReplaceChunkModel(Model *model, bool *hasModel,
+                       Mesh *mesh, bool hasMesh, bool dynamic)
+{
+    if (!hasMesh) {
+        if (*hasModel) {
+            UnloadModel(*model);
+            *model = (Model){ 0 };
+            *hasModel = false;
+        }
+        FreeMeshData(mesh);
+        return;
+    }
+
+    UploadMesh(mesh, dynamic);
+    Model replacement = LoadModelFromMesh(*mesh);
+    if (replacement.materialCount > 0 && replacement.materials) {
+        SetMaterialTexture(&replacement.materials[0], MATERIAL_MAP_DIFFUSE,
+                           blockAtlas);
+    }
+    if (*hasModel) UnloadModel(*model);
+    *model = replacement;
+    *hasModel = true;
 }
 
 void MarkChunkDirty(int cx, int cz)

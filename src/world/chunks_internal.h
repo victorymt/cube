@@ -7,6 +7,7 @@
 #define NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS 6
 #define MAX_MESH_JOBS MAX_CHUNK_MESH_JOBS
 #define MAX_MESH_SUBMITS_PER_FRAME 4
+#define MESH_PENDING_LOOKUP_CAPACITY (MAX_MESH_JOBS * 2)
 
 typedef struct SurfaceBoundarySnapshot {
     unsigned short blocks[CHUNK_SIZE + 2]
@@ -29,6 +30,7 @@ typedef struct MeshJob {
     int cx;
     int cz;
     int sectionY;
+    ChunkLodLevel lod;
     uint32_t sectionStamp;
     uint32_t chunkGeneration;
     uint64_t queueSequence;
@@ -56,6 +58,13 @@ typedef struct MeshJob {
     bool hasWaterMesh;
     bool hasFloraMesh;
 } MeshJob;
+
+typedef struct MeshPendingLookup {
+    int slots[MESH_PENDING_LOOKUP_CAPACITY];
+    int ys[MESH_PENDING_LOOKUP_CAPACITY];
+    ChunkLodLevel lods[MESH_PENDING_LOOKUP_CAPACITY];
+    bool used[MESH_PENDING_LOOKUP_CAPACITY];
+} MeshPendingLookup;
 
 typedef struct ChunkMeshEmitter {
     Mesh *mesh;
@@ -87,6 +96,8 @@ int ChunkSectionLowerBound(const Chunk *chunk, int sectionY);
 int ResolvedTerrainSectionLowerBound(const Chunk *chunk, int sectionY);
 void ClearSectionFloraRuntime(ChunkSection *section);
 void FreeChunkSectionStorage(ChunkSection *section);
+void ReplaceChunkModel(Model *model, bool *hasModel,
+                       Mesh *mesh, bool hasMesh, bool dynamic);
 void MarkSectionDirty(ChunkSection *section);
 void *ChunkGenWorker(void *arg);
 void GenerateChunkJobPayload(ChunkGenJob *job);
@@ -95,6 +106,11 @@ int ScheduleNearbyTerrainSections(Vector3 playerPosition,
                                   int effectiveRenderDistance);
 void UpdateQueuePeaksLocked(void);
 void MarkGeneratedSectionAndNeighborsDirty(Chunk *chunk, int sectionY);
+ChunkLodLevel ChunkLodSanitize(ChunkLodLevel lod);
+bool ChunkSectionLodReady(const ChunkSection *section, ChunkLodLevel lod);
+void ChunkRefreshActiveLod(Chunk *chunk);
+bool MeshPendingLookupVisit(MeshPendingLookup *lookup, int slot, int y,
+                            ChunkLodLevel lod, bool insert);
 void ChunksUpdateLodTargets(Vector3 focusPosition, bool coarseAllowed);
 void ChunksResetLodState(void);
 void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section);

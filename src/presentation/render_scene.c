@@ -159,10 +159,11 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
             }
             stableOrder++;
             if (!frustumVisible) continue;
-            if (section->hasModel) {
+            const Model *solidModel = ChunksSectionSolidModel(chunk, section);
+            if (solidModel) {
                 PerfRecordDrawCall(PERF_DRAW_SOLID);
                 WorldRendererDrawModelTransformed(
-                    &section->model, transform, tint, false);
+                    solidModel, transform, tint, false);
             }
             if (section->hasFloraModel) {
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
@@ -417,9 +418,11 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                                (float)SURFACE_SECTION_HEIGHT * 0.5f,
                                (float)CHUNK_SIZE * 0.5f }, transform);
                 if (!WorldRendererShadowSphereVisible(center, radius)) continue;
-                if (section->hasModel) {
+                const Model *solidModel = ChunksSectionSolidModel(
+                    chunk, section);
+                if (solidModel) {
                     WorldRendererDrawShadowModelTransformed(
-                        &section->model, transform);
+                        solidModel, transform);
                 }
                 if (section->hasFloraModel) {
                     WorldRendererDrawShadowModelTransformedTwoSided(

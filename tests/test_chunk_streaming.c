@@ -504,6 +504,84 @@ static void TestChunkLodTargetsAndStatsTrackLoadedChunks(void)
     assert(stats.targetChanges == 2u);
 }
 
+static void TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 9, 0, true, true);
+    ChunkSection *section = ChunkGetSection(&chunks[0], 0, false);
+    assert(section != NULL);
+    section->lodModelReady = true;
+    section->lodModelStamp = section->dirtyStamp;
+    section->lodModelLevel = CHUNK_LOD_QUARTER;
+
+    ChunksTestUpdateLodTargets((Vector3){ 0.5f, 0.0f, 0.5f }, true);
+    ChunkLodStats stats = ChunksGetLodStats();
+    assert(stats.targetChunks[CHUNK_LOD_QUARTER] == 1u);
+    assert(stats.activeChunks[CHUNK_LOD_QUARTER] == 1u);
+    assert(!section->dirty);
+
+    ChunksTestUpdateLodTargets((Vector3){ 144.5f, 0.0f, 0.5f }, true);
+    stats = ChunksGetLodStats();
+    assert(stats.targetChunks[CHUNK_LOD_EXACT] == 1u);
+    assert(stats.activeChunks[CHUNK_LOD_QUARTER] == 1u);
+    assert(section->dirty);
+
+    section->exactModelReady = true;
+    section->exactModelStamp = section->dirtyStamp;
+    ChunksTestUpdateLodTargets((Vector3){ 144.5f, 0.0f, 0.5f }, true);
+    stats = ChunksGetLodStats();
+    assert(stats.activeChunks[CHUNK_LOD_EXACT] == 1u);
+    assert(!section->dirty);
+}
+
+static void TestChunkLodRenderModelUsesActiveLevelAndFallbacks(void)
+{
+    Chunk chunk = { .loaded = true, .activeLod = CHUNK_LOD_EXACT };
+    ChunkSection section = { 0 };
+    assert(ChunksSectionSolidModel(&chunk, &section) == NULL);
+
+    section.hasLodModel = true;
+    section.lodModelLevel = CHUNK_LOD_QUARTER;
+    assert(ChunksSectionSolidModel(&chunk, &section) == &section.lodModel);
+
+    section.hasModel = true;
+    assert(ChunksSectionSolidModel(&chunk, &section) == &section.model);
+    chunk.activeLod = CHUNK_LOD_QUARTER;
+    assert(ChunksSectionSolidModel(&chunk, &section) == &section.lodModel);
+
+    section.lodModelReady = true;
+    section.lodModelStamp = section.dirtyStamp;
+    section.hasLodModel = false;
+    assert(ChunksSectionSolidModel(&chunk, &section) == NULL);
+}
+
+static void TestMeshJobsIncludeLodIdentityAndPrioritizeExactUpgrades(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 9, 0, true, true);
+
+    ChunksTestUpdateLodTargets((Vector3){ 0.5f, 0.0f, 0.5f }, true);
+    RebuildDirtyChunkMeshes((Vector3){ 0.5f, 0.0f, 0.5f });
+    assert(ChunksTestMeshJobSlot(0) == 0);
+    assert(ChunksTestMeshJobLod(0) == CHUNK_LOD_QUARTER);
+    assert(!ChunksTestMeshJobPriority(0));
+
+    chunks[0].activeLod = CHUNK_LOD_QUARTER;
+    ChunksTestUpdateLodTargets((Vector3){ 144.5f, 0.0f, 0.5f }, true);
+    RebuildDirtyChunkMeshes((Vector3){ 144.5f, 0.0f, 0.5f });
+    assert(GetPendingMeshJobCount() == 2);
+    assert(ChunksTestMeshJobSlot(1) == 0);
+    assert(ChunksTestMeshJobLod(1) == CHUNK_LOD_EXACT);
+    assert(ChunksTestMeshJobPriority(1));
+    assert(ChunksTestNextMeshJobIndex() == 1);
+
+    ChunksTestCompleteMeshJob(0);
+    ProcessFinishedMeshJobs(0.0);
+    assert(ChunksTestMeshJobSlot(0) == -1);
+    assert(ChunksTestChunkDirty(0));
+    assert(ChunksGetStreamingStats().meshCanceled >= 1u);
+}
+
 static void TestSingleChunkUsesSingleJobAndNearestFirst(void)
 {
     ChunksTestResetScheduler();
@@ -1419,6 +1497,9 @@ int main(void)
     TestChunkFrustumUsesSparseSectionHeights();
     TestChunkLodSelectionUsesRingsAndHysteresis();
     TestChunkLodTargetsAndStatsTrackLoadedChunks();
+    TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady();
+    TestChunkLodRenderModelUsesActiveLevelAndFallbacks();
+    TestMeshJobsIncludeLodIdentityAndPrioritizeExactUpgrades();
     TestSingleChunkUsesSingleJobAndNearestFirst();
     TestFullQueueLeavesDirtyChunkForLater();
     TestReusedLowSlotsDoNotStarveOlderJobs();
