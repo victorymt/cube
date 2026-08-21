@@ -8,6 +8,35 @@
 
 #define WORLD_SHADOW_SPAN 128.0f
 #define WORLD_SHADOW_DISTANCE 300.0f
+#define WORLD_RENDER_STRINGIFY_INNER(value) #value
+#define WORLD_RENDER_STRINGIFY(value) WORLD_RENDER_STRINGIFY_INNER(value)
+#define GREEDY_ATLAS_COORDINATES_GLSL \
+    "void atlasCoordinates(vec2 encodedUv, out vec2 sampleUv, " \
+        "out vec2 surfaceUv, out vec2 gradientX, out vec2 gradientY) {\n" \
+    "    if (encodedUv.x >= 0.0 || encodedUv.y >= 0.0) {\n" \
+    "        sampleUv = encodedUv; surfaceUv = encodedUv;\n" \
+    "        gradientX = dFdx(encodedUv); gradientY = dFdy(encodedUv);\n" \
+    "        return;\n" \
+    "    }\n" \
+    "    float stride = float(" \
+        WORLD_RENDER_STRINGIFY(GREEDY_MESH_UV_STRIDE) ");\n" \
+    "    float cellSize = float(" \
+        WORLD_RENDER_STRINGIFY(ATLAS_CELL_SIZE) ");\n" \
+    "    float tileSize = float(" \
+        WORLD_RENDER_STRINGIFY(ATLAS_TILE_SIZE) ");\n" \
+    "    float padding = float(" \
+        WORLD_RENDER_STRINGIFY(ATLAS_TILE_PADDING) ") + 0.25;\n" \
+    "    vec2 logicalUv = -encodedUv - vec2(1.0);\n" \
+    "    vec2 tile = floor(logicalUv/stride);\n" \
+    "    vec2 localUv = logicalUv - tile*stride;\n" \
+    "    vec2 atlasSize = vec2(textureSize(texture0, 0));\n" \
+    "    vec2 tileScale = vec2(tileSize - 0.5)/atlasSize;\n" \
+    "    sampleUv = (tile*cellSize + vec2(padding) + " \
+        "fract(localUv)*(tileSize - 0.5))/atlasSize;\n" \
+    "    surfaceUv = localUv;\n" \
+    "    gradientX = dFdx(localUv)*tileScale;\n" \
+    "    gradientY = dFdy(localUv)*tileScale;\n" \
+    "}\n"
 
 typedef struct WorldRendererResources {
     Shader surfaceShader;
@@ -94,6 +123,7 @@ static const char *worldFragmentShader =
     "uniform int shadowEnabled;\n"
     "uniform vec2 shadowTexelSize;\n"
     "out vec4 finalColor;\n"
+    GREEDY_ATLAS_COORDINATES_GLSL
     "float unpackDepth(vec3 encodedDepth) {\n"
     "    return dot(encodedDepth, vec3(1.0, 1.0/255.0, 1.0/65025.0));\n"
     "}\n"
@@ -123,12 +153,14 @@ static const char *worldFragmentShader =
     "    return mix(1.0 - shadowStrength, 1.0, visible/9.0);\n"
     "}\n"
     "void main() {\n"
-    "    vec4 texel = texture(texture0, fragTexCoord)*fragColor*colDiffuse;\n"
+    "    vec2 atlasUv, surfaceUv, atlasDx, atlasDy;\n"
+    "    atlasCoordinates(fragTexCoord, atlasUv, surfaceUv, atlasDx, atlasDy);\n"
+    "    vec4 texel = textureGrad(texture0, atlasUv, atlasDx, atlasDy)*fragColor*colDiffuse;\n"
     "    if (texel.a < 0.08) discard;\n"
-    "    vec4 material = texture(materialMap, fragTexCoord);\n"
-    "    vec3 sampledNormal = texture(normalMap, fragTexCoord).xyz*2.0 - 1.0;\n"
+    "    vec4 material = textureGrad(materialMap, atlasUv, atlasDx, atlasDy);\n"
+    "    vec3 sampledNormal = textureGrad(normalMap, atlasUv, atlasDx, atlasDy).xyz*2.0 - 1.0;\n"
     "    vec3 geometricNormal = normalize(fragNormal);\n"
-    "    vec3 normal = normalize(cotangentFrame(geometricNormal, fragPosition, fragTexCoord)*sampledNormal);\n"
+    "    vec3 normal = normalize(cotangentFrame(geometricNormal, fragPosition, surfaceUv)*sampledNormal);\n"
     "    float ao = fragLighting.x > 0.01 ? clamp(fragLighting.x, 0.42, 1.0) : 1.0;\n"
     "    float localLight = clamp(fragLighting.y, 0.0, 1.5);\n"
     "    float roughness = clamp(material.r - wetness*0.18, 0.08, 1.0);\n"
@@ -222,11 +254,14 @@ static const char *shadowFragmentShader =
     "#version 330\n"
     "in vec2 fragTexCoord; uniform sampler2D texture0; uniform vec4 colDiffuse;\n"
     "out vec4 finalColor;\n"
+    GREEDY_ATLAS_COORDINATES_GLSL
     "vec3 packDepth(float depth) {\n"
     "    vec3 encodedDepth = fract(depth*vec3(1.0,255.0,65025.0));\n"
     "    encodedDepth.xy -= encodedDepth.yz/255.0; return encodedDepth;\n"
     "}\n"
-    "void main() { if (texture(texture0,fragTexCoord).a*colDiffuse.a < 0.08) discard;\n"
+    "void main() { vec2 atlasUv, surfaceUv, atlasDx, atlasDy;\n"
+    "    atlasCoordinates(fragTexCoord, atlasUv, surfaceUv, atlasDx, atlasDy);\n"
+    "    if (textureGrad(texture0,atlasUv,atlasDx,atlasDy).a*colDiffuse.a < 0.08) discard;\n"
     "    finalColor = vec4(packDepth(gl_FragCoord.z), 1.0); }\n";
 
 static float ClampFinite(float value, float minimum, float maximum, float fallback)
@@ -703,29 +738,45 @@ void WorldRendererDrawModel(const Model *model, Vector3 translation,
     if (transparent) rlEnableBackfaceCulling();
 }
 
-void WorldRendererDrawModelTransformed(const Model *model, Matrix transform,
-                                       Color fallbackTint, bool transparent)
+static void DrawModelTransformed(const Model *model, Matrix transform,
+                                 Color fallbackTint, bool transparent,
+                                 bool twoSided)
 {
     if (!model || model->materialCount <= 0 || !model->materials) return;
     Shader shader = transparent && resources.waterReady ? resources.waterShader :
                     resources.surfaceShader;
     Model drawModel = *model;
     drawModel.transform = transform;
+    bool disableCulling = transparent || twoSided;
     if (!resources.surfaceReady || shader.id == 0) {
+        if (disableCulling) rlDisableBackfaceCulling();
         DrawModel(drawModel, Vector3Zero(), 1.0f, fallbackTint);
+        if (disableCulling) rlEnableBackfaceCulling();
         return;
     }
     Material material = model->materials[0];
     material.shader = shader;
-    if (transparent) rlDisableBackfaceCulling();
+    if (disableCulling) rlDisableBackfaceCulling();
     if (DrawSingleMesh(model, material, transform)) {
-        if (transparent) rlEnableBackfaceCulling();
+        if (disableCulling) rlEnableBackfaceCulling();
         return;
     }
     drawModel.materials = &material;
     drawModel.materialCount = 1;
     DrawModel(drawModel, Vector3Zero(), 1.0f, WHITE);
-    if (transparent) rlEnableBackfaceCulling();
+    if (disableCulling) rlEnableBackfaceCulling();
+}
+
+void WorldRendererDrawModelTransformed(const Model *model, Matrix transform,
+                                       Color fallbackTint, bool transparent)
+{
+    DrawModelTransformed(model, transform, fallbackTint, transparent, false);
+}
+
+void WorldRendererDrawModelTransformedTwoSided(
+    const Model *model, Matrix transform, Color fallbackTint)
+{
+    DrawModelTransformed(model, transform, fallbackTint, false, true);
 }
 
 void WorldRendererBeginWaterPass(void)
@@ -824,19 +875,36 @@ void WorldRendererDrawShadowModel(const Model *model, Vector3 translation)
     DrawModel(drawModel, translation, 1.0f, WHITE);
 }
 
-void WorldRendererDrawShadowModelTransformed(const Model *model,
-                                             Matrix transform)
+static void DrawShadowModelTransformed(const Model *model, Matrix transform,
+                                       bool twoSided)
 {
     if (!resources.shadowPassActive || !model || model->materialCount <= 0 ||
         !model->materials) return;
     Model drawModel = *model;
     Material material = model->materials[0];
     material.shader = resources.shadowShader;
-    if (DrawSingleMesh(model, material, transform)) return;
+    if (twoSided) rlDisableBackfaceCulling();
+    if (DrawSingleMesh(model, material, transform)) {
+        if (twoSided) rlEnableBackfaceCulling();
+        return;
+    }
     drawModel.materials = &material;
     drawModel.materialCount = 1;
     drawModel.transform = transform;
     DrawModel(drawModel, Vector3Zero(), 1.0f, WHITE);
+    if (twoSided) rlEnableBackfaceCulling();
+}
+
+void WorldRendererDrawShadowModelTransformed(const Model *model,
+                                             Matrix transform)
+{
+    DrawShadowModelTransformed(model, transform, false);
+}
+
+void WorldRendererDrawShadowModelTransformedTwoSided(const Model *model,
+                                                     Matrix transform)
+{
+    DrawShadowModelTransformed(model, transform, true);
 }
 
 void WorldRendererEndShadow(void)

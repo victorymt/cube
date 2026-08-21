@@ -1,4 +1,5 @@
 #include "world/chunks.h"
+#include "world/chunks_internal.h"
 #include "world/terrain.h"
 #include "world/world.h"
 #include "world/world_environment.h"
@@ -10,6 +11,14 @@
 #include <time.h>
 
 TerrainMode terrainMode = TERRAIN_VARIED;
+
+typedef struct MeshBenchmarkTotals {
+    uint64_t solidVertices;
+    uint64_t waterVertices;
+    uint64_t floraVertices;
+    uint64_t legacySolidVertices;
+    uint64_t meshBytes;
+} MeshBenchmarkTotals;
 
 bool WorldIsSurfaceActive(void)
 {
@@ -86,6 +95,15 @@ static void FreeMeshDataForBenchmark(Mesh *mesh)
     *mesh = (Mesh){ 0 };
 }
 
+static uint64_t MeshCpuBytes(const Mesh *mesh)
+{
+    if (!mesh || mesh->vertexCount <= 0) return 0u;
+    uint64_t vertices = (uint64_t)mesh->vertexCount;
+    return vertices * (3u * sizeof(float) + 2u * sizeof(float) +
+                       2u * sizeof(float) + 3u * sizeof(float) +
+                       4u * sizeof(unsigned char));
+}
+
 static void BuildFixture(
     unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int cx, int cz)
@@ -118,29 +136,35 @@ static void BuildFixture(
 }
 
 static double MeasureRound(const int coordinates[][2], int count,
-                           uint64_t *snapshotBytes)
+                           uint64_t *snapshotBytes,
+                           MeshBenchmarkTotals *totals, int solidSpan)
 {
     static const int faces[6][3] = {
         { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 },
         { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 }
     };
+    if (totals) *totals = (MeshBenchmarkTotals){ 0 };
     double startedMs = NowMs();
     for (int i = 0; i < count; i++) {
         unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
         int centerX = coordinates[i][0] * CHUNK_SIZE + CHUNK_SIZE / 2;
         int centerZ = coordinates[i][1] * CHUNK_SIZE + CHUNK_SIZE / 2;
         int representativeY = TerrainHeight(centerX, centerZ, TERRAIN_VARIED);
-        if (representativeY < HOME_SEA_LEVEL) representativeY = HOME_SEA_LEVEL;
-        int layerY = representativeY / SURFACE_SECTION_HEIGHT *
-                     SURFACE_SECTION_HEIGHT;
+        int sectionY = representativeY >= 0
+            ? representativeY / SURFACE_SECTION_HEIGHT
+            : (representativeY - SURFACE_SECTION_HEIGHT + 1) /
+              SURFACE_SECTION_HEIGHT;
+        int layerY = sectionY * SURFACE_SECTION_HEIGHT;
         BuildFixture(blocks, layerY, coordinates[i][0], coordinates[i][1]);
         Mesh solid = { 0 };
         Mesh water = { 0 };
         Mesh flora = { 0 };
-        bool hasSolid = BuildSurfaceSolidMeshData(
+        bool hasSolid = BuildMeshDataFilteredWithSnapshotSpan(
             (const unsigned short (*)[CHUNK_SIZE])blocks,
             SURFACE_SECTION_HEIGHT, layerY,
-            coordinates[i][0], coordinates[i][1], faces, NULL, 0, &solid);
+            coordinates[i][0], coordinates[i][1],
+            false, false, false, false, faces, NULL, 0, solidSpan, NULL,
+            &solid);
         bool hasWater = BuildSurfaceWaterMeshData(
             (const unsigned short (*)[CHUNK_SIZE])blocks,
             NULL, SURFACE_SECTION_HEIGHT, layerY,
@@ -150,6 +174,24 @@ static double MeasureRound(const int coordinates[][2], int count,
             SURFACE_SECTION_HEIGHT, layerY,
             coordinates[i][0], coordinates[i][1], faces, NULL, 0, &flora);
         assert(hasSolid || hasWater || hasFlora);
+        if (totals) {
+            totals->solidVertices += (uint64_t)solid.vertexCount;
+            totals->waterVertices += (uint64_t)water.vertexCount;
+            totals->floraVertices += (uint64_t)flora.vertexCount;
+            totals->meshBytes += MeshCpuBytes(&solid) + MeshCpuBytes(&water) +
+                                 MeshCpuBytes(&flora);
+            Mesh legacySolid = { 0 };
+            bool hasLegacySolid = BuildMeshDataFilteredWithSnapshotSpan(
+                (const unsigned short (*)[CHUNK_SIZE])blocks,
+                SURFACE_SECTION_HEIGHT, layerY,
+                coordinates[i][0], coordinates[i][1],
+                false, false, false, false, faces, NULL, 0, 0, NULL,
+                &legacySolid);
+            assert(hasLegacySolid == hasSolid);
+            totals->legacySolidVertices +=
+                (uint64_t)legacySolid.vertexCount;
+            FreeMeshDataForBenchmark(&legacySolid);
+        }
         FreeMeshDataForBenchmark(&solid);
         FreeMeshDataForBenchmark(&water);
         FreeMeshDataForBenchmark(&flora);
@@ -220,22 +262,44 @@ int main(int argc, char **argv)
         { 0, 0 }, { 1, 0 }, { -1, 0 }, { 0, 1 },
         { 0, -1 }, { 2, 2 }, { -2, 1 }, { 3, -2 }
     };
-    enum { warmupRounds = 4, measureRounds = 20 };
+    enum {
+        warmupRounds = 4,
+        measureRounds = 20,
+        legacyWarmupRounds = 2,
+        legacyMeasureRounds = 10
+    };
     double samples[measureRounds];
+    double legacySamples[legacyMeasureRounds];
     uint64_t snapshotBytes = 0;
+    MeshBenchmarkTotals totals = { 0 };
 
     WorldReset(DEFAULT_WORLD_SEED);
     terrainMode = TERRAIN_VARIED;
     for (int i = 0; i < warmupRounds; i++) {
         MeasureRound(coordinates, (int)(sizeof(coordinates) / sizeof(coordinates[0])),
-                     &snapshotBytes);
+                     &snapshotBytes, NULL, GREEDY_MESH_MAX_SPAN);
     }
     for (int i = 0; i < measureRounds; i++) {
         samples[i] = MeasureRound(coordinates,
                                   (int)(sizeof(coordinates) / sizeof(coordinates[0])),
-                                  &snapshotBytes);
+                                  &snapshotBytes, NULL,
+                                  GREEDY_MESH_MAX_SPAN);
     }
+    int chunkCount = (int)(sizeof(coordinates) / sizeof(coordinates[0]));
+    for (int i = 0; i < legacyWarmupRounds; i++) {
+        (void)MeasureRound(
+            coordinates, chunkCount, &snapshotBytes, NULL, 0);
+    }
+    for (int i = 0; i < legacyMeasureRounds; i++) {
+        legacySamples[i] = MeasureRound(
+            coordinates, chunkCount, &snapshotBytes, NULL, 0);
+    }
+    (void)MeasureRound(
+        coordinates, chunkCount, &snapshotBytes, &totals,
+        GREEDY_MESH_MAX_SPAN);
     qsort(samples, measureRounds, sizeof(samples[0]), CompareDouble);
+    qsort(legacySamples, legacyMeasureRounds, sizeof(legacySamples[0]),
+          CompareDouble);
     printf("seed=%u\n", DEFAULT_WORLD_SEED);
     printf("rounds=%d\n", measureRounds);
     printf("chunks_per_round=%zu\n", sizeof(coordinates) / sizeof(coordinates[0]));
@@ -243,8 +307,30 @@ int main(int argc, char **argv)
     double p95Ms = samples[(measureRounds * 95) / 100];
     printf("median_total_ms=%.3f\n", medianMs);
     printf("p95_total_ms=%.3f\n", p95Ms);
+    double legacyMedianMs = legacySamples[legacyMeasureRounds / 2];
+    printf("legacy_median_total_ms=%.3f\n", legacyMedianMs);
+    printf("greedy_cpu_ratio_percent=%.1f\n",
+           legacyMedianMs > 0.0 ? medianMs / legacyMedianMs * 100.0 : 0.0);
     printf("mesh_snapshot_bytes=%llu\n", (unsigned long long)snapshotBytes);
     printf("legacy_two_snapshot_bytes=%llu\n", (unsigned long long)(snapshotBytes * 2u));
+    double solidVerticesPerChunk =
+        (double)totals.solidVertices / (double)chunkCount;
+    double legacySolidVerticesPerChunk =
+        (double)totals.legacySolidVertices / (double)chunkCount;
+    double totalVerticesPerChunk =
+        (double)(totals.solidVertices + totals.waterVertices +
+                 totals.floraVertices) / (double)chunkCount;
+    double reduction = legacySolidVerticesPerChunk > 0.0
+        ? 100.0 * (1.0 - solidVerticesPerChunk /
+                         legacySolidVerticesPerChunk)
+        : 0.0;
+    printf("solid_vertices_per_chunk=%.1f\n", solidVerticesPerChunk);
+    printf("legacy_solid_vertices_per_chunk=%.1f\n",
+           legacySolidVerticesPerChunk);
+    printf("solid_vertex_reduction_percent=%.1f\n", reduction);
+    printf("total_vertices_per_chunk=%.1f\n", totalVerticesPerChunk);
+    printf("mesh_cpu_bytes_per_chunk=%.1f\n",
+           (double)totals.meshBytes / (double)chunkCount);
     printf("sync_rebuilds=0\n");
     if (argc > 1) return CheckBaseline(argv[1], medianMs, p95Ms,
                                         (double)snapshotBytes) ? 0 : 2;

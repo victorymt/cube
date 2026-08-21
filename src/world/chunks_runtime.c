@@ -669,7 +669,10 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
         section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
         chunk->cx, chunk->cz,
         chunk->floraStructures, chunk->floraStructureCount,
-        faces, nearbyTorchIndices, nearbyTorchCount, &boundary, &solidMesh);
+        faces, nearbyTorchIndices, nearbyTorchCount,
+        chunk->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
+                         : GREEDY_MESH_MAX_SPAN,
+        &boundary, &solidMesh);
     bool hasWater = BuildChunkSurfaceWaterMeshDataWithSnapshot(
         section->blocks, section->waterVolumes,
         section->sectionY * SURFACE_SECTION_HEIGHT,

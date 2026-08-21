@@ -103,31 +103,57 @@ Color ItemAtlasPixel(BlockTexture texture, int x, int y,
         return color;
     case TEX_FLOWER:
         color = (Color){ 0, 0, 0, 0 };
-        if (x >= 7 && x <= 8 && y >= 10 && y <= 14) {
-            color = AtlasColorWithNoise((Color){ 62, 148, 54, 255 }, 10,
+        if ((x == 7 || x == 8) && y >= 7 && y <= 15) {
+            color = AtlasColorWithNoise((Color){ 52, 119, 48, 255 }, 6,
                                         hash);
         }
-        if (x >= 5 && x <= 10 && y >= 6 && y <= 9) {
-            color = AtlasColorWithNoise((Color){ 208, 62, 54, 255 }, 14,
+        if ((y == 10 && x >= 4 && x <= 7) ||
+            (y == 11 && x >= 5 && x <= 7) ||
+            (y == 12 && x >= 8 && x <= 11) ||
+            (y == 13 && x >= 8 && x <= 10)) {
+            color = AtlasColorWithNoise((Color){ 76, 139, 57, 255 }, 7,
                                         hash);
         }
-        if (x >= 7 && x <= 8 && y >= 7 && y <= 8) {
-            color = AtlasColorWithNoise((Color){ 250, 224, 96, 255 }, 10,
+        static const int petals[5][2] = {
+            { 8, 2 }, { 5, 5 }, { 11, 5 }, { 6, 7 }, { 10, 7 }
+        };
+        for (int petal = 0; petal < 5; petal++) {
+            int dx = x - petals[petal][0];
+            int dy = y - petals[petal][1];
+            if (dx * dx + dy * dy <= 3) {
+                color = AtlasColorWithNoise(
+                    petal & 1 ? (Color){ 190, 42, 48, 255 }
+                              : (Color){ 222, 65, 58, 255 },
+                    7, hash);
+            }
+        }
+        if ((x - 8) * (x - 8) + (y - 5) * (y - 5) <= 2) {
+            color = AtlasColorWithNoise((Color){ 242, 198, 65, 255 }, 5,
                                         hash);
         }
         return color;
     case TEX_MUSHROOM:
         color = (Color){ 0, 0, 0, 0 };
-        if (x >= 7 && x <= 8 && y >= 12 && y <= 14) {
-            color = AtlasColorWithNoise((Color){ 226, 224, 216, 255 }, 8,
-                                        hash);
+        if (y >= 8 && y <= 15 && x >= 6 && x <= 9 &&
+            !(y >= 13 && (x == 6 || x == 9))) {
+            color = AtlasColorWithNoise(
+                x <= 7 ? (Color){ 215, 205, 181, 255 }
+                       : (Color){ 175, 161, 141, 255 },
+                5, hash);
         }
-        if (x >= 4 && x <= 11 && y >= 5 && y <= 11) {
-            color = AtlasColorWithNoise((Color){ 196, 52, 46, 255 }, 14,
-                                        hash);
-            if (((x + y) % 5) == 0) {
-                color = AtlasColorWithNoise((Color){ 240, 238, 230, 255 }, 8,
-                                            hash);
+        {
+            int dx = x - 8;
+            int dy = y - 7;
+            bool cap = y >= 3 && y <= 9 && dx * dx * 2 + dy * dy * 3 <= 55;
+            if (cap) {
+                color = AtlasColorWithNoise(
+                    y >= 8 ? (Color){ 116, 45, 36, 255 }
+                           : (Color){ 178, 49, 42, 255 },
+                    8, hash);
+                if ((x == 5 && y == 6) || (x == 8 && y == 4) ||
+                    (x == 10 && y == 6) || (x == 7 && y == 7)) {
+                    color = (Color){ 231, 218, 190, 255 };
+                }
             }
         }
         return color;

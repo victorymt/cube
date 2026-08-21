@@ -95,11 +95,11 @@ static void TestBlockMappingsAndVisualDimensions(void)
         float height;
         float halfWidth;
     } expected[] = {
-        {BLOCK_BIG_BLUESTEM, 0.92f, 0.24f},
-        {BLOCK_BRACKEN, 0.72f, 0.29f},
-        {BLOCK_COMMON_REED, 0.98f, 0.20f},
-        {BLOCK_HEATHER, 0.58f, 0.27f},
-        {BLOCK_FIREWEED, 0.86f, 0.22f}
+        {BLOCK_BIG_BLUESTEM, 0.96f, 0.26f},
+        {BLOCK_BRACKEN, 0.68f, 0.34f},
+        {BLOCK_COMMON_REED, 0.98f, 0.22f},
+        {BLOCK_HEATHER, 0.62f, 0.31f},
+        {BLOCK_FIREWEED, 0.90f, 0.23f}
     };
     for (size_t index = 0; index < sizeof expected / sizeof expected[0];
          index++) {

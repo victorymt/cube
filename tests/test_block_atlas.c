@@ -11,7 +11,7 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x4098031764733f2c), UINT64_C(0xf9e47e1b7a79d992),
     UINT64_C(0x0f6179a413939355), UINT64_C(0x12ee0b6c08104e80),
     UINT64_C(0x45aa05a5e8339248), UINT64_C(0xebdac5c7e392d198),
-    UINT64_C(0xd347a00e1d636ee9), UINT64_C(0xdf55440e8f0dc25d),
+    UINT64_C(0xd347a00e1d636ee9), UINT64_C(0x5144e7cf57d41a4b),
     UINT64_C(0xd8532d4ae43487c2), UINT64_C(0x1216302429b9245e),
     UINT64_C(0x869517218157f419), UINT64_C(0x090d7e34963ad228),
     UINT64_C(0x50ada295f1b5dec0), UINT64_C(0xc61eb468db7e6dab),
@@ -20,7 +20,7 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x2b49f23af67026d2), UINT64_C(0x2a3046ed1d33d7b7),
     UINT64_C(0xe4154c785ac056d2), UINT64_C(0x752419608e425ad6),
     UINT64_C(0xbcf23e7186607aef), UINT64_C(0x64cc968364341540),
-    UINT64_C(0xf41530051a7fcf7d), UINT64_C(0x2eaf2a55a200e5b7),
+    UINT64_C(0xf41530051a7fcf7d), UINT64_C(0x2f4980655162f2f6),
     UINT64_C(0xc80fe5c801ac1afa), UINT64_C(0x7637c3c87bc16459),
     UINT64_C(0x7c5dc0e6cf9f611a), UINT64_C(0x3e9e25b34fa8188a),
     UINT64_C(0x26e17affcadcce3d), UINT64_C(0x19e1ed2b7b46f1a8),
@@ -28,8 +28,8 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x5472b93725eb2048), UINT64_C(0xbda11de7facecbdd),
     UINT64_C(0x8788d6df976a1582), UINT64_C(0x20dfb761f7059050),
     UINT64_C(0x2539f023e105f9e9), UINT64_C(0xf341aeed3457429e),
-    UINT64_C(0x708bab96400b1562), UINT64_C(0x0757e978ccddbb7b),
-    UINT64_C(0x35d169211a5a96ac), UINT64_C(0xaeabbd2268570d93),
+    UINT64_C(0x708bab96400b1562), UINT64_C(0x508e5aa33482b5f3),
+    UINT64_C(0xb68559025ac712e2), UINT64_C(0xaeabbd2268570d93),
     UINT64_C(0x30007a1c60fe5eba), UINT64_C(0x9565cf9038e94aee),
     UINT64_C(0x925552888c862af4), UINT64_C(0x405e55b43a42e5ce),
     UINT64_C(0xa466719cd7398102), UINT64_C(0x70eb7496a76241bd),
@@ -179,14 +179,14 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x46070567ccfd8102), UINT64_C(0x2f78b6c0b423c2bb),
     UINT64_C(0xf3771ab04c72b99d), UINT64_C(0x2abce7f2d321a876),
     UINT64_C(0xed3a54d83b3dbb6b), UINT64_C(0xfe409b4b838c94d7),
-    UINT64_C(0x7545e3d915f51b1b), UINT64_C(0xf4f26fd836b6b4fc),
-    UINT64_C(0xb9f7073b5655bb02), UINT64_C(0x7381eea200bfc190),
-    UINT64_C(0xe6ff15bad812e07c), UINT64_C(0x55239f9e229372e4),
-    UINT64_C(0x35872746e6516180), UINT64_C(0xe366e75477c5402e),
-    UINT64_C(0x8df048737a6c80d7), UINT64_C(0xf72ba9903c08646c),
-    UINT64_C(0xc5b4ee8637bffe1f), UINT64_C(0x264b4169f4ee7b95),
-    UINT64_C(0xbd95f376cf081b2d), UINT64_C(0x9e0af6cec12d20cd),
-    UINT64_C(0x82e6c2392d9be6fa),
+    UINT64_C(0xebb4106683986712), UINT64_C(0x7a4032c91ecf558b),
+    UINT64_C(0x9ccf216eb8b8529d), UINT64_C(0x6547b2f9839ea1b4),
+    UINT64_C(0x5c3399e56c1608b4), UINT64_C(0xbb2a83da7fa884ad),
+    UINT64_C(0x57de0833263c0122), UINT64_C(0x40291fd15409439e),
+    UINT64_C(0x73de970004404103), UINT64_C(0x9bfcbd6577467e5f),
+    UINT64_C(0xa6e150cc4b07b8ee), UINT64_C(0xa9788f1e17b3068b),
+    UINT64_C(0x1642d63dff6f6dda), UINT64_C(0xacf7e69055da6a1f),
+    UINT64_C(0x8a3966d29418261c),
     UINT64_C(0xe7eb633082fb89ec), UINT64_C(0x50d1d31c61af4b00),
     UINT64_C(0xe86359726216509e), UINT64_C(0x5ffd7ba67b9d8a1c),
     UINT64_C(0xaf881376348ce020), UINT64_C(0xdae9bb37a7ddcd37),
@@ -200,19 +200,19 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x9576c81179c6ebd3), UINT64_C(0x1b878d0bd6a58940),
     UINT64_C(0x75cc6460c15bef1f), UINT64_C(0x9b2d08199cef434a),
     UINT64_C(0xe66301a4e7ead52a), UINT64_C(0x0a2f63a8705a7245),
-    UINT64_C(0x4658fd2280e866c4), UINT64_C(0x50ecb21d3963ed3a),
-    UINT64_C(0xbc10ac51180cf2f7), UINT64_C(0x507b9e4fcb1a857c),
-    UINT64_C(0x268c2246a0cc2ce7), UINT64_C(0x27d844f4b5740862),
-    UINT64_C(0x66bca2ad053a17cf), UINT64_C(0x5c3641e7c79a76f0),
-    UINT64_C(0xea3f0df3f03ed13b), UINT64_C(0xb87cec6efbbedf52),
-    UINT64_C(0xd43b43b16cf01d98), UINT64_C(0xb21c71881569ec96),
-    UINT64_C(0x30069d10e6b81dec), UINT64_C(0x23dbb3f9b0eb2448),
-    UINT64_C(0x062c4669b6784de8), UINT64_C(0x7b3798c2545e442b),
-    UINT64_C(0xbaa676290267f72e), UINT64_C(0x8ab979a731c56180),
-    UINT64_C(0x6de0a77edf15fadb), UINT64_C(0x2688c02c46ffffad),
-    UINT64_C(0xe97e9f9f3681df20), UINT64_C(0x2a3e8dff8c28721a),
-    UINT64_C(0x021999a17ead838e), UINT64_C(0x132d4677d28379e8),
-    UINT64_C(0xa40aa6c9e6dd2930)
+    UINT64_C(0x063a504a4aa2e7cd), UINT64_C(0x4349d06fa064bfc8),
+    UINT64_C(0xb8315059ba5dd531), UINT64_C(0x3278788ee7c6d48f),
+    UINT64_C(0xc79faf2b17adb7df), UINT64_C(0xbd5bb48218e0424b),
+    UINT64_C(0xa213749d93d44626), UINT64_C(0xba75c12164483636),
+    UINT64_C(0x1bbe5539f9b3b495), UINT64_C(0x9d536620bf882513),
+    UINT64_C(0x6e77200e4bdcd21f), UINT64_C(0x937683607933ea57),
+    UINT64_C(0x8ba1877314287811), UINT64_C(0x77f9a65141d0bf4a),
+    UINT64_C(0xc69f2eb375ab31fc), UINT64_C(0xd45566d0001e1c69),
+    UINT64_C(0x84af97b6be73425d), UINT64_C(0xda4031e8e54fbf51),
+    UINT64_C(0x9ae198fa3fd2213b), UINT64_C(0x02a0b210708bc0ac),
+    UINT64_C(0x2309ca4287b4db64), UINT64_C(0x28888e636b42c8f4),
+    UINT64_C(0xdd38ef86ad20cf06), UINT64_C(0x33a8d986eebf1e2d),
+    UINT64_C(0x203262ac1b00b8b1)
 };
 
 _Static_assert(sizeof(EXPECTED_TILE_HASHES) /
@@ -315,7 +315,7 @@ static void AssertPixelContract(Image image)
         }
     }
     uint64_t atlas = HashRegion(image, 0, 0, image.width, image.height);
-    if (atlas != UINT64_C(0x4473a66fe2beea4e)) {
+    if (atlas != UINT64_C(0x1143f596f83e2b6f)) {
         fprintf(stderr, "atlas digest: got 0x%016llx\n",
                 (unsigned long long)atlas);
         matched = false;
@@ -372,6 +372,122 @@ static void AssertTransparentArtwork(Image image)
         assert(hasTransparentPixel);
         assert(hasVisiblePixel);
     }
+}
+
+static int CountDistinctVisibleColors(Image image, Rectangle source)
+{
+    Color colors[ATLAS_TILE_SIZE * ATLAS_TILE_SIZE];
+    int count = 0;
+    for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
+        for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
+            Color pixel = GetImageColor(
+                image, (int)source.x + x, (int)source.y + y);
+            if (pixel.a == 0) continue;
+            bool found = false;
+            for (int index = 0; index < count; index++) {
+                if (ColorsEqual(colors[index], pixel)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) colors[count++] = pixel;
+        }
+    }
+    return count;
+}
+
+static void AssertBotanicalSilhouettes(Image image)
+{
+    const BlockTexture uprightPlants[] = {
+        TEX_FLOWER, TEX_MUSHROOM, TEX_TALL_GRASS, TEX_FERN, TEX_REED,
+        TEX_LICHEN, TEX_BIG_BLUESTEM, TEX_BRACKEN, TEX_COMMON_REED,
+        TEX_HEATHER, TEX_FIREWEED
+    };
+    for (size_t index = 0;
+         index < sizeof(uprightPlants) / sizeof(uprightPlants[0]); index++) {
+        Rectangle source = AtlasSourceRect(uprightPlants[index]);
+        int visible = 0;
+        bool rooted = false;
+        for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
+            for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
+                Color pixel = GetImageColor(
+                    image, (int)source.x + x, (int)source.y + y);
+                if (pixel.a > 0) {
+                    visible++;
+                    rooted |= y >= ATLAS_TILE_SIZE - 2;
+                }
+            }
+        }
+        assert(visible >= 12 && visible <= 180);
+        assert(rooted);
+        assert(CountDistinctVisibleColors(image, source) >= 3);
+        assert(GetImageColor(image, (int)source.x, (int)source.y).a == 0);
+        assert(GetImageColor(image,
+                             (int)source.x + ATLAS_TILE_SIZE - 1,
+                             (int)source.y).a == 0);
+    }
+
+    Rectangle heather = AtlasSourceRect(TEX_HEATHER);
+    int heatherFlowers = 0;
+    int heatherFoliage = 0;
+    for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
+        for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
+            Color pixel = GetImageColor(
+                image, (int)heather.x + x, (int)heather.y + y);
+            heatherFlowers += pixel.a > 0 && pixel.r > 140 &&
+                              pixel.b > 100 && pixel.r > pixel.g + 20;
+            heatherFoliage += pixel.a > 0 && pixel.g > pixel.r &&
+                              pixel.g > pixel.b;
+        }
+    }
+    assert(heatherFlowers >= 8);
+    assert(heatherFoliage >= 8);
+
+    const BlockTexture groundCovers[] = {
+        TEX_MOSS_CARPET, TEX_MICROBIAL_MAT, TEX_MYCELIUM,
+        TEX_SPHAGNUM, TEX_CHEMO_MAT
+    };
+    for (size_t index = 0;
+         index < sizeof(groundCovers) / sizeof(groundCovers[0]); index++) {
+        assert(CountDistinctVisibleColors(
+                   image, AtlasSourceRect(groundCovers[index])) >= 3);
+    }
+}
+
+static void AssertBotanicalMaterials(Image image)
+{
+    Rectangle leaves = AtlasSourceRect(TEX_LEAVES);
+    int leafPixels = 0;
+    int twigPixels = 0;
+    for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
+        for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
+            Color pixel = GetImageColor(
+                image, (int)leaves.x + x, (int)leaves.y + y);
+            leafPixels += pixel.g > pixel.r && pixel.g > pixel.b;
+            twigPixels += pixel.r > pixel.g && pixel.g > pixel.b;
+        }
+    }
+    assert(leafPixels >= 220);
+    assert(twigPixels >= 4);
+    assert(CountDistinctVisibleColors(image, leaves) >= 12);
+
+    Rectangle cactus = AtlasSourceRect(TEX_CACTUS);
+    int darkRibPixels = 0;
+    int lightRibPixels = 0;
+    int areolePixels = 0;
+    for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
+        for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
+            Color pixel = GetImageColor(
+                image, (int)cactus.x + x, (int)cactus.y + y);
+            darkRibPixels += pixel.g < 108 && pixel.r < 55;
+            lightRibPixels += pixel.g > 138 && pixel.r < 105;
+            areolePixels += pixel.r > 140 && pixel.g > 150 && pixel.b > 85;
+        }
+    }
+    assert(darkRibPixels >= 30);
+    assert(lightRibPixels >= 30);
+    assert(areolePixels >= 8);
+    assert(CountDistinctVisibleColors(image, cactus) >= 12);
 }
 
 static void AssertTextureMapping(void)
@@ -685,6 +801,8 @@ int main(void)
     AssertPixelContract(second);
     AssertMipSafePadding(first);
     AssertTransparentArtwork(first);
+    AssertBotanicalSilhouettes(first);
+    AssertBotanicalMaterials(first);
     assert(HashRegion(first, 0, 0, first.width, first.height) ==
            HashRegion(second, 0, 0, second.width, second.height));
     UnloadImage(second);

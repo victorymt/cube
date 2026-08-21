@@ -157,6 +157,8 @@ void *ChunkGenWorker(void *arg)
                 meshJob->cx, meshJob->cz,
                 meshJob->floraStructures, meshJob->floraStructureCount,
                 faces, meshJob->nearbyIndices, meshJob->nearbyCount,
+                meshJob->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
+                                   : GREEDY_MESH_MAX_SPAN,
                 &meshJob->boundary, &meshJob->mesh);
             meshJob->hasWaterMesh = BuildChunkSurfaceWaterMeshDataWithSnapshot(
                 meshJob->blocks,

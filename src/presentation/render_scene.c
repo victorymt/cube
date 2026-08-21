@@ -166,8 +166,8 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
             }
             if (section->hasFloraModel) {
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
-                WorldRendererDrawModelTransformed(
-                    &section->floraModel, transform, tint, false);
+                WorldRendererDrawModelTransformedTwoSided(
+                    &section->floraModel, transform, tint);
             }
         }
     }
@@ -422,7 +422,7 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                         &section->model, transform);
                 }
                 if (section->hasFloraModel) {
-                    WorldRendererDrawShadowModelTransformed(
+                    WorldRendererDrawShadowModelTransformedTwoSided(
                         &section->floraModel, transform);
                 }
             }

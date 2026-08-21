@@ -63,6 +63,8 @@ void WorldRendererDrawModel(const Model *model, Vector3 translation, Color fallb
                             bool transparent);
 void WorldRendererDrawModelTransformed(const Model *model, Matrix transform,
                                        Color fallbackTint, bool transparent);
+void WorldRendererDrawModelTransformedTwoSided(
+    const Model *model, Matrix transform, Color fallbackTint);
 
 bool WorldRendererBeginShadow(const Camera3D *camera,
                               const WorldLightingState *state);
@@ -70,6 +72,8 @@ bool WorldRendererShadowSphereVisible(Vector3 center, float radius);
 void WorldRendererDrawShadowModel(const Model *model, Vector3 translation);
 void WorldRendererDrawShadowModelTransformed(const Model *model,
                                              Matrix transform);
+void WorldRendererDrawShadowModelTransformedTwoSided(const Model *model,
+                                                     Matrix transform);
 void WorldRendererEndShadow(void);
 
 #ifdef WORLD_RENDERER_TESTING

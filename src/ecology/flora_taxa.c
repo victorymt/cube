@@ -191,15 +191,15 @@ bool FloraTaxonVisualDimensions(BlockType block, float *outHeight,
     if (!outHeight || !outHalfWidth) return false;
     switch (block) {
     case BLOCK_BIG_BLUESTEM:
-        *outHeight = 0.92f; *outHalfWidth = 0.24f; return true;
+        *outHeight = 0.96f; *outHalfWidth = 0.26f; return true;
     case BLOCK_BRACKEN:
-        *outHeight = 0.72f; *outHalfWidth = 0.29f; return true;
+        *outHeight = 0.68f; *outHalfWidth = 0.34f; return true;
     case BLOCK_COMMON_REED:
-        *outHeight = 0.98f; *outHalfWidth = 0.20f; return true;
+        *outHeight = 0.98f; *outHalfWidth = 0.22f; return true;
     case BLOCK_HEATHER:
-        *outHeight = 0.58f; *outHalfWidth = 0.27f; return true;
+        *outHeight = 0.62f; *outHalfWidth = 0.31f; return true;
     case BLOCK_FIREWEED:
-        *outHeight = 0.86f; *outHalfWidth = 0.22f; return true;
+        *outHeight = 0.90f; *outHalfWidth = 0.23f; return true;
     default:
         return false;
     }

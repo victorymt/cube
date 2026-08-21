@@ -1,5 +1,4 @@
 #include "world/chunks_internal.h"
-#include "ecology/flora_taxa.h"
 BlockType GetBlock(int x, int y, int z)
 {
     if (!InHeight(y)) return BLOCK_AIR;
@@ -21,47 +20,6 @@ bool FaceIsVisible(int x, int y, int z, int nx, int ny, int nz)
     if (!InHeight(neighborY)) return true;
     BlockType neighbor = GetBlock(x + nx, neighborY, z + nz);
     return neighbor == BLOCK_AIR || neighbor == BLOCK_SPACESHIP_OCCUPIED;
-}
-
-static BlockType ChunkFaceNeighbor(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
-    int lx, int y, int lz, int nx, int ny, int nz)
-{
-    int neighborY = y + ny;
-    int neighborLx = lx + nx;
-    int neighborLz = lz + nz;
-    if (neighborY >= 0 && neighborY < height &&
-        neighborLx >= 0 && neighborLx < CHUNK_SIZE &&
-        neighborLz >= 0 && neighborLz < CHUNK_SIZE) {
-        return (BlockType)blocks[neighborLx * height + neighborY][neighborLz];
-    }
-
-    int worldY = layerY + neighborY;
-    if (!InHeight(worldY)) return BLOCK_AIR;
-    if (boundary) {
-        BlockType neighbor = BLOCK_AIR;
-        unsigned char ignoredVolume = 0u;
-        return SurfaceBoundaryCellAt(
-            boundary, neighborLx, neighborY, neighborLz,
-            &neighbor, &ignoredVolume) ? neighbor : BLOCK_STONE;
-    }
-
-    int wx = chunkX * CHUNK_SIZE + lx + nx;
-    int wz = chunkZ * CHUNK_SIZE + lz + nz;
-    return GetBlockAt(wx, worldY, wz);
-}
-
-static bool ChunkFaceIsVisibleWithSnapshot(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
-    int lx, int y, int lz, int nx, int ny, int nz)
-{
-    BlockType neighbor = ChunkFaceNeighbor(
-        blocks, height, layerY, chunkX, chunkZ, boundary,
-        lx, y, lz, nx, ny, nz);
-    return neighbor == BLOCK_AIR || neighbor == BLOCK_SPACESHIP_OCCUPIED ||
-           IsTranslucentBlock(neighbor);
 }
 
 static bool ChunkTransparentNeighbor(
@@ -141,7 +99,11 @@ static bool GrowMeshVertexCapacity(Mesh *mesh, int populatedVertices,
                                    int requiredCapacity)
 {
     int oldCapacity = mesh->vertexCount;
-    int newCapacity = oldCapacity > 0 ? oldCapacity * 2 : 6;
+    int newCapacity = 6;
+    if (oldCapacity > 0) {
+        newCapacity = oldCapacity <= INT_MAX / 2
+            ? oldCapacity * 2 : requiredCapacity;
+    }
     if (newCapacity < requiredCapacity) newCapacity = requiredCapacity;
 
     float *vertices = malloc((size_t)newCapacity * 3 * sizeof(float));
@@ -158,19 +120,25 @@ static bool GrowMeshVertexCapacity(Mesh *mesh, int populatedVertices,
         return false;
     }
 
-    memcpy(vertices, mesh->vertices, (size_t)populatedVertices * 3 * sizeof(float));
-    memcpy(normals, mesh->normals, (size_t)populatedVertices * 3 * sizeof(float));
-    memcpy(texcoords, mesh->texcoords, (size_t)populatedVertices * 2 * sizeof(float));
-    if (mesh->texcoords2) {
-        memcpy(texcoords2, mesh->texcoords2,
+    if (populatedVertices > 0) {
+        memcpy(vertices, mesh->vertices,
+               (size_t)populatedVertices * 3 * sizeof(float));
+        memcpy(normals, mesh->normals,
+               (size_t)populatedVertices * 3 * sizeof(float));
+        memcpy(texcoords, mesh->texcoords,
                (size_t)populatedVertices * 2 * sizeof(float));
-    } else {
-        for (int vertex = 0; vertex < populatedVertices; vertex++) {
-            texcoords2[vertex * 2] = 1.0f;
-            texcoords2[vertex * 2 + 1] = 0.0f;
+        if (mesh->texcoords2) {
+            memcpy(texcoords2, mesh->texcoords2,
+                   (size_t)populatedVertices * 2 * sizeof(float));
+        } else {
+            for (int vertex = 0; vertex < populatedVertices; vertex++) {
+                texcoords2[vertex * 2] = 1.0f;
+                texcoords2[vertex * 2 + 1] = 0.0f;
+            }
         }
+        memcpy(colors, mesh->colors,
+               (size_t)populatedVertices * 4 * sizeof(unsigned char));
     }
-    memcpy(colors, mesh->colors, (size_t)populatedVertices * 4 * sizeof(unsigned char));
     free(mesh->vertices);
     free(mesh->normals);
     free(mesh->texcoords);
@@ -184,6 +152,24 @@ static bool GrowMeshVertexCapacity(Mesh *mesh, int populatedVertices,
     mesh->vertexCount = newCapacity;
     mesh->triangleCount = newCapacity / 3;
     return true;
+}
+
+static void TrimMeshVertexCapacity(Mesh *mesh, int vertexCount)
+{
+    if (!mesh || vertexCount <= 0) return;
+#define TRIM_MESH_BUFFER(member, components, type) do { \
+        type *trimmed = realloc( \
+            mesh->member, (size_t)vertexCount * (components) * sizeof(type)); \
+        if (trimmed) mesh->member = trimmed; \
+    } while (0)
+    TRIM_MESH_BUFFER(vertices, 3u, float);
+    TRIM_MESH_BUFFER(normals, 3u, float);
+    TRIM_MESH_BUFFER(texcoords, 2u, float);
+    TRIM_MESH_BUFFER(texcoords2, 2u, float);
+    TRIM_MESH_BUFFER(colors, 4u, unsigned char);
+#undef TRIM_MESH_BUFFER
+    mesh->vertexCount = vertexCount;
+    mesh->triangleCount = vertexCount / 3;
 }
 
 void AddMeshFaceLighting(ChunkMeshEmitter *emitter,
@@ -253,74 +239,6 @@ void UnloadAllChunks(void)
         ChunkClearBlockStorage(&chunks[i]);
         chunks[i].loaded = false;
     }
-}
-
-static bool BlockOccludesAmbient(BlockType block)
-{
-    return block != BLOCK_AIR && block != BLOCK_SPACESHIP_OCCUPIED &&
-           !IsTranslucentBlock(block);
-}
-
-static BlockType SnapshotBlockAt(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
-    int worldX, int worldY, int worldZ)
-{
-    int lx = worldX - chunkX * CHUNK_SIZE;
-    int lz = worldZ - chunkZ * CHUNK_SIZE;
-    int localY = worldY - layerY;
-    if (blocks && lx >= 0 && lx < CHUNK_SIZE && lz >= 0 &&
-        lz < CHUNK_SIZE && localY >= 0 && localY < height) {
-        return (BlockType)blocks[lx * height + localY][lz];
-    }
-    if (boundary) {
-        BlockType block = BLOCK_AIR;
-        unsigned char ignoredVolume = 0u;
-        return SurfaceBoundaryCellAt(
-            boundary, lx, localY, lz, &block, &ignoredVolume)
-            ? block : BLOCK_STONE;
-    }
-    return GetBlockAt(worldX, worldY, worldZ);
-}
-
-static float BlockCornerAmbientOcclusion(
-    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
-    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
-    int x, int y, int z, Vector3 normal,
-    Vector3 corner)
-{
-    int nx = (int)normal.x;
-    int ny = (int)normal.y;
-    int nz = (int)normal.z;
-    int t1x = 0, t1y = 0, t1z = 0;
-    int t2x = 0, t2y = 0, t2z = 0;
-    if (nx != 0) {
-        t1y = corner.y > (float)y + 0.5f ? 1 : -1;
-        t2z = corner.z > (float)z + 0.5f ? 1 : -1;
-    } else if (ny != 0) {
-        t1x = corner.x > (float)x + 0.5f ? 1 : -1;
-        t2z = corner.z > (float)z + 0.5f ? 1 : -1;
-    } else {
-        t1x = corner.x > (float)x + 0.5f ? 1 : -1;
-        t2y = corner.y > (float)y + 0.5f ? 1 : -1;
-    }
-    int outsideX = x + nx;
-    int outsideY = layerY + y + ny;
-    int outsideZ = z + nz;
-    bool side1 = BlockOccludesAmbient(SnapshotBlockAt(
-        blocks, height, layerY, chunkX, chunkZ, boundary,
-        outsideX + t1x, outsideY + t1y, outsideZ + t1z));
-    bool side2 = BlockOccludesAmbient(SnapshotBlockAt(
-        blocks, height, layerY, chunkX, chunkZ, boundary,
-        outsideX + t2x, outsideY + t2y, outsideZ + t2z));
-    bool diagonal = BlockOccludesAmbient(SnapshotBlockAt(
-        blocks, height, layerY, chunkX, chunkZ, boundary,
-        outsideX + t1x + t2x, outsideY + t1y + t2y,
-        outsideZ + t1z + t2z));
-    int occlusion = side1 && side2 ? 3 :
-                    (int)side1 + (int)side2 + (int)diagonal;
-    static const float factors[4] = { 1.0f, 0.84f, 0.66f, 0.48f };
-    return factors[occlusion];
 }
 
 static void AddBlockFaceInternal(
@@ -1190,81 +1108,6 @@ static void AddPaneMesh(ChunkMeshEmitter *emitter,
     }
 }
 
-static void AddPlantMesh(ChunkMeshEmitter *emitter, int x, int y, int z,
-                         BlockType type, float extraLight)
-{
-    float cx = (float)x + 0.5f;
-    float cz = (float)z + 0.5f;
-    float y0 = (float)y;
-    float brightness = 1.0f + extraLight;
-    Vector2 uvs[6];
-    AtlasUVs(TextureForBlockFace(type, 0), uvs);
-
-    if (BlockRenderShapeFor(type) == BLOCK_RENDER_CARPET) {
-        float inset = 0.035f;
-        float top = y0 + 0.035f;
-        Vector3 topFace[6] = {
-            { (float)x + inset, top, (float)z + inset },
-            { (float)x + 1.0f - inset, top, (float)z + inset },
-            { (float)x + 1.0f - inset, top, (float)z + 1.0f - inset },
-            { (float)x + inset, top, (float)z + inset },
-            { (float)x + 1.0f - inset, top, (float)z + 1.0f - inset },
-            { (float)x + inset, top, (float)z + 1.0f - inset }
-        };
-        Vector3 bottomFace[6] = {
-            topFace[5], topFace[4], topFace[3],
-            topFace[2], topFace[1], topFace[0]
-        };
-        AddMeshFace(emitter, topFace, (Vector3){ 0.0f, 1.0f, 0.0f }, uvs,
-                    ShadeColor(WHITE, brightness));
-        AddMeshFace(emitter, bottomFace, (Vector3){ 0.0f, -1.0f, 0.0f },
-                    uvs, ShadeColor(WHITE, 0.72f * brightness));
-        return;
-    }
-
-    float plantHeight = 0.4f;
-    float halfWidth = 0.16f;
-    if (type == BLOCK_TALL_GRASS) {
-        plantHeight = 0.78f;
-        halfWidth = 0.25f;
-    } else if (type == BLOCK_FERN) {
-        plantHeight = 0.62f;
-        halfWidth = 0.28f;
-    } else if (type == BLOCK_REED) {
-        plantHeight = 0.96f;
-        halfWidth = 0.20f;
-    } else if (type == BLOCK_LICHEN) {
-        plantHeight = 0.30f;
-        halfWidth = 0.24f;
-    } else {
-        FloraTaxonVisualDimensions(type, &plantHeight, &halfWidth);
-    }
-    float y1 = y0 + plantHeight;
-
-    Vector3 quadA[6] = {
-        { cx - halfWidth, y0, cz - halfWidth },
-        { cx + halfWidth, y0, cz + halfWidth },
-        { cx + halfWidth, y1, cz + halfWidth },
-        { cx - halfWidth, y0, cz - halfWidth },
-        { cx + halfWidth, y1, cz + halfWidth },
-        { cx - halfWidth, y1, cz - halfWidth }
-    };
-    Vector3 normalA = Vector3Normalize((Vector3){ 1.0f, 0.0f, 1.0f });
-    AddMeshFace(emitter, quadA, normalA, uvs,
-                ShadeColor(WHITE, 0.95f * brightness));
-
-    Vector3 quadB[6] = {
-        { cx - halfWidth, y0, cz + halfWidth },
-        { cx + halfWidth, y0, cz - halfWidth },
-        { cx + halfWidth, y1, cz - halfWidth },
-        { cx - halfWidth, y0, cz + halfWidth },
-        { cx + halfWidth, y1, cz - halfWidth },
-        { cx - halfWidth, y1, cz + halfWidth }
-    };
-    Vector3 normalB = Vector3Normalize((Vector3){ 1.0f, 0.0f, -1.0f });
-    AddMeshFace(emitter, quadB, normalB, uvs,
-                ShadeColor(WHITE, 0.85f * brightness));
-}
 bool ChunkBlockHasTransparentMesh(BlockType type)
 {
     return IsTranslucentBlock(type);
@@ -1284,6 +1127,7 @@ typedef struct ChunkMeshBuildContext {
     const int (*faces)[3];
     const int *nearbyTorchIndices;
     int nearbyTorchCount;
+    int greedyMaxSpan;
 } ChunkMeshBuildContext;
 
 static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
@@ -1302,6 +1146,16 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
     bool plantsOnly = context->plantsOnly;
     bool excludeWater = context->excludeWater;
     bool counting = emitter->mesh == NULL;
+    bool useGreedy = !transparent && !plantsOnly &&
+                     context->greedyMaxSpan > 0;
+    if (useGreedy) {
+        EmitGreedyCubeFaces(
+            emitter, context->blocks, context->height, context->layerY,
+            context->chunkX, context->chunkZ, context->boundary,
+            context->faces, context->nearbyTorchIndices,
+            context->nearbyTorchCount, context->greedyMaxSpan);
+        if (emitter->failed) return;
+    }
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int y = 0; y < height; y++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -1316,6 +1170,9 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
                             transparent) continue;
                     if (excludeWater && type == BLOCK_WATER) continue;
                     if (plant && !includePlants) continue;
+                }
+                if (useGreedy && BlockUsesGreedyCubeMesh(type)) {
+                    continue;
                 }
 
                 int x = lx;
@@ -1408,12 +1265,12 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildContext *context,
     }
 }
 
-bool BuildMeshDataFilteredWithSnapshot(
+bool BuildMeshDataFilteredWithSnapshotSpan(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, bool transparent, bool includePlants,
     bool plantsOnly, bool excludeWater, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount,
-    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
+    int greedyMaxSpan, const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
 {
     ChunkMeshBuildContext context = {
         .blocks = blocks,
@@ -1428,8 +1285,26 @@ bool BuildMeshDataFilteredWithSnapshot(
         .excludeWater = excludeWater,
         .faces = faces,
         .nearbyTorchIndices = nearbyTorchIndices,
-        .nearbyTorchCount = nearbyTorchCount
+        .nearbyTorchCount = nearbyTorchCount,
+        .greedyMaxSpan = greedyMaxSpan
     };
+    bool singlePass = greedyMaxSpan > 0 && !transparent && !plantsOnly;
+    if (singlePass) {
+        Mesh mesh = { 0 };
+        ChunkMeshEmitter writer = {
+            .mesh = &mesh,
+            .dynamicCapacity = true
+        };
+        EmitChunkBlocksFiltered(&context, &writer);
+        if (writer.failed || writer.vertexIndex == 0) {
+            FreeMeshData(&mesh);
+            return false;
+        }
+        TrimMeshVertexCapacity(&mesh, writer.vertexIndex);
+        *outMesh = mesh;
+        return true;
+    }
+
     ChunkMeshEmitter counter = { 0 };
     EmitChunkBlocksFiltered(&context, &counter);
     if (counter.failed || counter.vertexIndex == 0) return false;
@@ -1464,6 +1339,19 @@ bool BuildMeshDataFilteredWithSnapshot(
     }
     *outMesh = mesh;
     return true;
+}
+
+bool BuildMeshDataFilteredWithSnapshot(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, bool transparent, bool includePlants,
+    bool plantsOnly, bool excludeWater, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount,
+    const SurfaceBoundarySnapshot *boundary, Mesh *outMesh)
+{
+    return BuildMeshDataFilteredWithSnapshotSpan(
+        blocks, height, layerY, chunkX, chunkZ, transparent, includePlants,
+        plantsOnly, excludeWater, faces, nearbyTorchIndices, nearbyTorchCount,
+        GREEDY_MESH_MAX_SPAN, boundary, outMesh);
 }
 
 bool BuildMeshDataFiltered(

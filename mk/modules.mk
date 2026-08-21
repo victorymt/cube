@@ -22,7 +22,9 @@ CHUNKS_FEATURE_SRC := \
 	src/world/chunks_storage.c \
 	src/world/chunks_streaming.c \
 	src/world/chunks_ecology.c \
+	src/world/chunks_greedy_mesh.c \
 	src/world/chunks_mesh.c \
+	src/world/chunks_plant_mesh.c \
 	src/world/chunks_water.c \
 	src/world/chunks_flora.c \
 	src/world/chunks_runtime.c \

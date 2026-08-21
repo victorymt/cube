@@ -140,6 +140,17 @@ static bool BuildTestMesh(
     return false;
 }
 
+static bool BuildGreedySolidMesh(
+    const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int maximumSpan, Mesh *mesh)
+{
+    return BuildMeshDataFilteredWithSnapshotSpan(
+        (const unsigned short (*)[CHUNK_SIZE])blocks,
+        SURFACE_SECTION_HEIGHT, 0, 0, 0,
+        false, false, false, false, TEST_CHUNK_FACES,
+        NULL, 0, maximumSpan, NULL, mesh);
+}
+
 static void AssertMeshWellFormed(const Mesh *mesh, int expectedVertexCount)
 {
     if (mesh->vertexCount != expectedVertexCount) {
@@ -186,13 +197,13 @@ static void AssertSpecialBlockMeshContracts(void)
         { BLOCK_FENCE_GATE, TEST_MESH_SOLID, 18 },
         { BLOCK_FENCE_GATE_OPEN, TEST_MESH_SOLID, 18 },
         { BLOCK_GLASS_PANE, TEST_MESH_WATER, 30 },
-        { BLOCK_FLOWER, TEST_MESH_FLORA, 12 },
-        { BLOCK_MUSHROOM, TEST_MESH_FLORA, 12 },
-        { BLOCK_TALL_GRASS, TEST_MESH_FLORA, 12 },
-        { BLOCK_FERN, TEST_MESH_FLORA, 12 },
-        { BLOCK_REED, TEST_MESH_FLORA, 12 },
+        { BLOCK_FLOWER, TEST_MESH_FLORA, 18 },
+        { BLOCK_MUSHROOM, TEST_MESH_FLORA, 18 },
+        { BLOCK_TALL_GRASS, TEST_MESH_FLORA, 18 },
+        { BLOCK_FERN, TEST_MESH_FLORA, 18 },
+        { BLOCK_REED, TEST_MESH_FLORA, 18 },
         { BLOCK_MOSS_CARPET, TEST_MESH_FLORA, 12 },
-        { BLOCK_LICHEN, TEST_MESH_FLORA, 12 },
+        { BLOCK_LICHEN, TEST_MESH_FLORA, 18 },
         { BLOCK_MICROBIAL_MAT, TEST_MESH_FLORA, 12 },
         { BLOCK_MYCELIUM, TEST_MESH_FLORA, 12 },
         { BLOCK_CHEMO_MAT, TEST_MESH_FLORA, 12 },
@@ -208,12 +219,12 @@ static void AssertSpecialBlockMeshContracts(void)
         { BLOCK_PINE_NEEDLES, TEST_MESH_WATER, 36 },
         { BLOCK_WILLOW_LOG, TEST_MESH_SOLID, 36 },
         { BLOCK_WILLOW_LEAVES, TEST_MESH_WATER, 36 },
-        { BLOCK_BIG_BLUESTEM, TEST_MESH_FLORA, 12 },
-        { BLOCK_BRACKEN, TEST_MESH_FLORA, 12 },
-        { BLOCK_COMMON_REED, TEST_MESH_FLORA, 12 },
+        { BLOCK_BIG_BLUESTEM, TEST_MESH_FLORA, 18 },
+        { BLOCK_BRACKEN, TEST_MESH_FLORA, 18 },
+        { BLOCK_COMMON_REED, TEST_MESH_FLORA, 18 },
         { BLOCK_SPHAGNUM, TEST_MESH_FLORA, 12 },
-        { BLOCK_HEATHER, TEST_MESH_FLORA, 12 },
-        { BLOCK_FIREWEED, TEST_MESH_FLORA, 12 },
+        { BLOCK_HEATHER, TEST_MESH_FLORA, 18 },
+        { BLOCK_FIREWEED, TEST_MESH_FLORA, 18 },
         { BLOCK_SAGUARO, TEST_MESH_SOLID, 36 },
         { BLOCK_LIVING_STEM, TEST_MESH_SOLID, 36 },
         { BLOCK_CANOPY_FROND, TEST_MESH_WATER, 36 },
@@ -259,20 +270,22 @@ static void AssertEcologyPlantMeshShapes(void)
         bool carpet;
     } PlantShapeCase;
     static const PlantShapeCase cases[] = {
+        { BLOCK_FLOWER, 0.62f, false },
+        { BLOCK_MUSHROOM, 0.36f, false },
         { BLOCK_TALL_GRASS, 0.78f, false },
         { BLOCK_FERN, 0.62f, false },
         { BLOCK_REED, 0.96f, false },
         { BLOCK_MOSS_CARPET, 0.0f, true },
-        { BLOCK_LICHEN, 0.30f, false },
+        { BLOCK_LICHEN, 0.34f, false },
         { BLOCK_MICROBIAL_MAT, 0.0f, true },
         { BLOCK_MYCELIUM, 0.0f, true },
         { BLOCK_CHEMO_MAT, 0.0f, true }
-        , { BLOCK_BIG_BLUESTEM, 0.92f, false }
-        , { BLOCK_BRACKEN, 0.72f, false }
+        , { BLOCK_BIG_BLUESTEM, 0.96f, false }
+        , { BLOCK_BRACKEN, 0.68f, false }
         , { BLOCK_COMMON_REED, 0.98f, false }
         , { BLOCK_SPHAGNUM, 0.0f, true }
-        , { BLOCK_HEATHER, 0.58f, false }
-        , { BLOCK_FIREWEED, 0.86f, false }
+        , { BLOCK_HEATHER, 0.62f, false }
+        , { BLOCK_FIREWEED, 0.90f, false }
     };
     static unsigned short blocks[CHUNK_SIZE][WORLD_HEIGHT][CHUNK_SIZE];
     for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
@@ -282,7 +295,7 @@ static void AssertEcologyPlantMeshShapes(void)
         assert(BuildTestMesh(
             (const unsigned short (*)[CHUNK_SIZE])blocks,
             TEST_MESH_FLORA, &mesh));
-        AssertMeshWellFormed(&mesh, 12);
+        AssertMeshWellFormed(&mesh, cases[index].carpet ? 12 : 18);
         float minX = INFINITY;
         float minY = INFINITY;
         float minZ = INFINITY;
@@ -302,8 +315,8 @@ static void AssertEcologyPlantMeshShapes(void)
             assert(maxX - minX > 0.9f);
             assert(maxZ - minZ > 0.9f);
         } else {
-            assert(maxX - minX < 0.6f);
-            assert(maxZ - minZ < 0.6f);
+            assert(maxX - minX < 0.7f);
+            assert(maxZ - minZ < 0.7f);
         }
         FreeTestMesh(&mesh);
     }
@@ -358,12 +371,116 @@ static void AssertStandardBlockCullingAndPartitions(void)
     assert(BuildTestMesh(
         (const unsigned short (*)[CHUNK_SIZE])blocks,
         TEST_MESH_FLORA, &flora));
-    AssertMeshWellFormed(&solid, 60);
+    AssertMeshWellFormed(&solid, 36);
     AssertMeshWellFormed(&water, 36);
-    AssertMeshWellFormed(&flora, 12);
+    AssertMeshWellFormed(&flora, 18);
     FreeTestMesh(&solid);
     FreeTestMesh(&water);
     FreeTestMesh(&flora);
+}
+
+static void AssertGreedyMeshingContracts(void)
+{
+    static unsigned short
+        blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    Mesh mesh = { 0 };
+
+    memset(blocks, 0, sizeof(blocks));
+    blocks[2][4][2] = BLOCK_STONE;
+    blocks[3][4][2] = BLOCK_DIRT;
+    assert(BuildGreedySolidMesh(blocks, GREEDY_MESH_MAX_SPAN, &mesh));
+    AssertMeshWellFormed(&mesh, 60);
+    FreeTestMesh(&mesh);
+
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int y = 0; y < SURFACE_SECTION_HEIGHT; y++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                blocks[lx][y][lz] = BLOCK_STONE;
+            }
+        }
+    }
+    assert(BuildGreedySolidMesh(blocks, GREEDY_MESH_MAX_SPAN, &mesh));
+    AssertMeshWellFormed(&mesh, 36);
+    for (int vertex = 0; vertex < mesh.vertexCount; vertex++) {
+        assert(mesh.texcoords[vertex * 2] < 0.0f);
+        assert(mesh.texcoords[vertex * 2 + 1] < 0.0f);
+    }
+    for (int firstVertex = 0; firstVertex < mesh.vertexCount;
+         firstVertex += 6) {
+        float tileX = -1.0f;
+        float tileY = -1.0f;
+        for (int offset = 0; offset < 6; offset++) {
+            int vertex = firstVertex + offset;
+            float logicalU = -mesh.texcoords[vertex * 2] - 1.0f;
+            float logicalV = -mesh.texcoords[vertex * 2 + 1] - 1.0f;
+            float currentTileX = floorf(
+                logicalU / (float)GREEDY_MESH_UV_STRIDE);
+            float currentTileY = floorf(
+                logicalV / (float)GREEDY_MESH_UV_STRIDE);
+            if (offset == 0) {
+                tileX = currentTileX;
+                tileY = currentTileY;
+            } else {
+                assert(currentTileX == tileX);
+                assert(currentTileY == tileY);
+            }
+            float localU = logicalU -
+                currentTileX * (float)GREEDY_MESH_UV_STRIDE;
+            float localV = logicalV -
+                currentTileY * (float)GREEDY_MESH_UV_STRIDE;
+            assert(localU >= 0.0f && localU <= (float)CHUNK_SIZE);
+            assert(localV >= 0.0f && localV <= (float)CHUNK_SIZE);
+        }
+    }
+    FreeTestMesh(&mesh);
+
+    assert(BuildGreedySolidMesh(
+        blocks, GREEDY_MESH_SPHERICAL_MAX_SPAN, &mesh));
+    int rectanglesPerFace =
+        (CHUNK_SIZE / GREEDY_MESH_SPHERICAL_MAX_SPAN) *
+        (CHUNK_SIZE / GREEDY_MESH_SPHERICAL_MAX_SPAN);
+    AssertMeshWellFormed(&mesh, rectanglesPerFace * 6 * 6);
+    FreeTestMesh(&mesh);
+
+    memset(blocks, 0, sizeof(blocks));
+    blocks[4][4][4] = BLOCK_STONE;
+    blocks[5][4][4] = BLOCK_STONE;
+    blocks[3][5][4] = BLOCK_STONE;
+    assert(BuildGreedySolidMesh(blocks, GREEDY_MESH_MAX_SPAN, &mesh));
+    int lowerTopFaces = 0;
+    bool preservedAoGradient = false;
+    for (int firstVertex = 0; firstVertex < mesh.vertexCount;
+         firstVertex += 6) {
+        float minX = INFINITY;
+        float maxX = -INFINITY;
+        float minY = INFINITY;
+        float maxY = -INFINITY;
+        float minAo = INFINITY;
+        float maxAo = -INFINITY;
+        for (int offset = 0; offset < 6; offset++) {
+            int vertex = firstVertex + offset;
+            minX = fminf(minX, mesh.vertices[vertex * 3]);
+            maxX = fmaxf(maxX, mesh.vertices[vertex * 3]);
+            minY = fminf(minY, mesh.vertices[vertex * 3 + 1]);
+            maxY = fmaxf(maxY, mesh.vertices[vertex * 3 + 1]);
+            minAo = fminf(minAo, mesh.texcoords2[vertex * 2]);
+            maxAo = fmaxf(maxAo, mesh.texcoords2[vertex * 2]);
+        }
+        if (mesh.normals[firstVertex * 3 + 1] < 0.9f ||
+            fabsf(minY - 5.0f) > 0.001f ||
+            fabsf(maxY - 5.0f) > 0.001f || minX < 3.999f ||
+            maxX > 6.001f) {
+            continue;
+        }
+        lowerTopFaces++;
+        assert(fabsf((maxX - minX) - 1.0f) < 0.001f);
+        if (minX < 4.5f && maxAo - minAo > 0.1f) {
+            preservedAoGradient = true;
+        }
+    }
+    assert(lowerTopFaces == 2);
+    assert(preservedAoGradient);
+    FreeTestMesh(&mesh);
 }
 
 static void AssertSolidFacesRemainVisibleUnderwater(void)
@@ -495,22 +612,32 @@ static void AssertSurfaceFloraMeshPartition(void)
     assert(BuildFloraMeshData((const unsigned short (*)[CHUNK_SIZE])blocks,
                               WORLD_HEIGHT, 0, 0, 0, faces,
                               NULL, 0, &flora));
-    assert(flora.vertexCount == 24);
-    unsigned char baseColors[24 * 4];
+    assert(flora.vertexCount == 36);
+    unsigned char baseColors[36 * 4];
     memcpy(baseColors, flora.colors, sizeof(baseColors));
+    const float centers[2][2] = { { 5.5f, 6.5f }, { 9.5f, 9.5f } };
     for (int group = 0; group < 2; group++) {
-        int firstVertex = group * 12;
-        float centerX = flora.vertices[firstVertex * 3] + 0.16f;
-        float centerZ = flora.vertices[firstVertex * 3 + 2] + 0.16f;
-        for (int vertex = firstVertex; vertex < firstVertex + 12; vertex++) {
-            assert(fabsf(flora.vertices[vertex * 3] - centerX) < 0.33f);
-            assert(fabsf(flora.vertices[vertex * 3 + 2] - centerZ) < 0.33f);
+        int firstVertex = group * 18;
+        for (int vertex = firstVertex; vertex < firstVertex + 18; vertex++) {
+            assert(fabsf(flora.vertices[vertex * 3] - centers[group][0]) <
+                   0.33f);
+            assert(fabsf(flora.vertices[vertex * 3 + 2] - centers[group][1]) <
+                   0.33f);
         }
     }
     const float presence[2] = { 0.0f, 1.0f };
-    assert(ApplyFloraMeshPresenceColors(
-        flora.colors, baseColors, flora.vertexCount, presence, 2, 1.0f));
-    for (int vertex = 0; vertex < 12; vertex++) {
+    const FloraVisualInstance plantInstances[2] = {
+        { .firstVertex = 0, .vertexCount = 18,
+          .anchor = { 5.5f, 5.0f, 6.5f }, .height = 0.62f,
+          .windResponse = 1.0f },
+        { .firstVertex = 18, .vertexCount = 18,
+          .anchor = { 9.5f, 6.0f, 9.5f }, .height = 0.36f,
+          .windResponse = 1.0f }
+    };
+    assert(ApplyFloraMeshInstancePresenceColors(
+        flora.colors, baseColors, flora.vertexCount, presence,
+        plantInstances, 2, 1.0f));
+    for (int vertex = 0; vertex < 18; vertex++) {
         int color = vertex * 4;
         assert(flora.colors[color] ==
                (unsigned char)lroundf((float)baseColors[color] * 0.55f));
@@ -520,18 +647,19 @@ static void AssertSurfaceFloraMeshPartition(void)
                (unsigned char)lroundf((float)baseColors[color + 2] * 0.32f));
         assert(flora.colors[color + 3] == baseColors[color + 3]);
     }
-    for (int vertex = 12; vertex < 24; vertex++) {
+    for (int vertex = 18; vertex < 36; vertex++) {
         int color = vertex * 4;
         assert(memcmp(&flora.colors[color], &baseColors[color], 4) == 0);
     }
-    assert(!ApplyFloraMeshPresenceColors(
-        flora.colors, baseColors, flora.vertexCount, presence, 2, 1.0f));
+    assert(!ApplyFloraMeshInstancePresenceColors(
+        flora.colors, baseColors, flora.vertexCount, presence,
+        plantInstances, 2, 1.0f));
 
     memcpy(flora.colors, baseColors, sizeof(baseColors));
     const FloraVisualInstance instances[2] = {
         { .firstVertex = 0, .vertexCount = 6,
           .anchor = { 0 }, .height = 0.4f, .windResponse = 1.0f },
-        { .firstVertex = 6, .vertexCount = 18,
+        { .firstVertex = 6, .vertexCount = 30,
           .anchor = { 0 }, .height = 2.5f, .windResponse = 0.25f }
     };
     assert(ApplyFloraMeshInstancePresenceColors(
@@ -548,7 +676,7 @@ static void AssertSurfaceFloraMeshPartition(void)
         assert(flora.colors[color + 3] == baseColors[color + 3]);
     }
     assert(memcmp(&flora.colors[6 * 4], &baseColors[6 * 4],
-                  (size_t)18 * 4u) == 0);
+                  (size_t)30 * 4u) == 0);
     assert(!ApplyFloraMeshInstancePresenceColors(
         flora.colors, baseColors, flora.vertexCount, presence,
         instances, 2, 1.0f));
@@ -910,7 +1038,8 @@ static void AssertHomeTreeFloraMeshPartition(void)
             section->blocks,
             section->sectionY * SURFACE_SECTION_HEIGHT,
             full.cx, full.cz, full.floraStructures,
-            full.floraStructureCount, faces, NULL, 0, NULL, &solid));
+            full.floraStructureCount, faces, NULL, 0,
+            GREEDY_MESH_MAX_SPAN, NULL, &solid));
         assert(solid.vertexCount == 0);
     }
     assert(leafCount > 20);
@@ -986,6 +1115,7 @@ int main(void)
     AssertEcologyPlantMeshShapes();
     AssertFenceMeshContracts();
     AssertStandardBlockCullingAndPartitions();
+    AssertGreedyMeshingContracts();
     AssertSolidFacesRemainVisibleUnderwater();
     AssertUnknownWaterNeighborsAreConservative();
     AssertSurfaceFloraMeshPartition();

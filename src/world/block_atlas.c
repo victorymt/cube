@@ -30,6 +30,72 @@ Color AtlasColorWithNoise(Color base, int amount, unsigned int hash)
     };
 }
 
+static Color GenericLeavesPixel(int x, int y, unsigned int hash)
+{
+    static const unsigned char centers[][2] = {
+        { 1, 2 }, { 4, 1 }, { 8, 2 }, { 12, 1 }, { 15, 3 },
+        { 2, 6 }, { 6, 5 }, { 10, 6 }, { 14, 7 },
+        { 0, 10 }, { 4, 10 }, { 8, 9 }, { 12, 11 }, { 15, 12 },
+        { 2, 14 }, { 6, 13 }, { 10, 15 }, { 14, 15 }
+    };
+    static const Color foliage[] = {
+        { 35, 89, 42, 255 },
+        { 51, 117, 47, 255 },
+        { 75, 139, 55, 255 },
+        { 104, 155, 66, 255 }
+    };
+    int selectedLeaf = -1;
+    int selectedDx = 0;
+    int selectedDy = 0;
+    for (int index = 0;
+         index < (int)(sizeof(centers) / sizeof(centers[0])); index++) {
+        int dx = x - (int)centers[index][0];
+        int dy = y - (int)centers[index][1];
+        int radiusX = 2 + (index % 3 == 0);
+        int radiusY = 2 + (index % 4 == 0);
+        if (dx * dx * radiusY * radiusY +
+            dy * dy * radiusX * radiusX <=
+            radiusX * radiusX * radiusY * radiusY) {
+            selectedLeaf = index;
+            selectedDx = dx;
+            selectedDy = dy;
+        }
+    }
+    if (selectedLeaf >= 0) {
+        int tone = (selectedLeaf * 3 + x + y + (int)(hash % 3u)) & 3;
+        Color base = foliage[tone];
+        if (selectedDx == 0 || (selectedDx + selectedDy == 0 &&
+                                (selectedLeaf & 1))) {
+            base = (Color){ 128, 169, 78, 255 };
+        }
+        return AtlasColorWithNoise(base, 5, hash);
+    }
+    if (x + y >= 13 && x + y <= 15) {
+        return AtlasColorWithNoise((Color){ 86, 65, 38, 255 }, 5, hash);
+    }
+    return AtlasColorWithNoise((Color){ 27, 70, 37, 255 }, 5, hash);
+}
+
+static Color CactusAtlasPixel(int x, int y, unsigned int hash)
+{
+    int rib = x & 3;
+    Color base = rib == 0 ? (Color){ 38, 96, 49, 255 }
+               : rib == 1 ? (Color){ 55, 126, 58, 255 }
+               : rib == 2 ? (Color){ 82, 151, 69, 255 }
+                          : (Color){ 48, 112, 52, 255 };
+    int areoleY = (y + (x / 4) * 3) % 7;
+    if (rib == 2 && areoleY == 1) {
+        return AtlasColorWithNoise((Color){ 201, 202, 133, 255 }, 4, hash);
+    }
+    if ((rib == 1 || rib == 3) && areoleY == 1) {
+        return AtlasColorWithNoise((Color){ 151, 170, 101, 255 }, 4, hash);
+    }
+    if (y == 5 + (x / 4) * 2) {
+        base = (Color){ 66, 119, 57, 255 };
+    }
+    return AtlasColorWithNoise(base, 6, hash);
+}
+
 static Color NaturalAtlasPixel(BlockTexture texture, int x, int y,
                                unsigned int hash)
 {
@@ -80,15 +146,8 @@ static Color NaturalAtlasPixel(BlockTexture texture, int x, int y,
         if ((hash % 19u) == 0u) color = (Color){ 183, 165, 101, 255 };
         return color;
     }
-    case TEX_LEAVES: {
-        Color color = AtlasColorWithNoise((Color){ 46, 128, 55, 255 }, 24,
-                                          hash);
-        if ((hash % 7u) == 0u) color = (Color){ 31, 95, 43, 255 };
-        if ((x + y + (int)(hash % 4u)) % 9 == 0) {
-            color = (Color){ 82, 158, 68, 255 };
-        }
-        return color;
-    }
+    case TEX_LEAVES:
+        return GenericLeavesPixel(x, y, hash);
     default:
         return MAGENTA;
     }
@@ -194,15 +253,7 @@ static Color SurfaceAtlasPixel(BlockTexture texture, int x, int y,
         if ((hash % 11u) == 0u) color = (Color){ 210, 240, 248, 235 };
         return color;
     case TEX_CACTUS:
-        color = AtlasColorWithNoise(
-            (x % 3 == 0) ? (Color){ 52, 122, 54, 255 }
-                         : (Color){ 78, 152, 62, 255 },
-            14, hash);
-        if ((y % 6) == 0) {
-            color = AtlasColorWithNoise((Color){ 148, 196, 92, 255 }, 10,
-                                        hash);
-        }
-        return color;
+        return CactusAtlasPixel(x, y, hash);
     case TEX_BEDROCK:
         color = AtlasColorWithNoise((Color){ 58, 58, 64, 255 }, 24, hash);
         if ((hash % 7u) == 0u) color = (Color){ 32, 32, 36, 255 };

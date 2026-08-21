@@ -122,7 +122,8 @@ bool BuildChunkSurfaceSolidMeshData(
     int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
-    int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
+    int nearbyTorchCount, int greedyMaxSpan,
+    const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh);
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
@@ -145,6 +146,13 @@ bool BuildMeshDataFilteredWithSnapshot(
     bool plantsOnly, bool excludeWater, const int faces[6][3],
     const int *nearbyTorchIndices, int nearbyTorchCount,
     const SurfaceBoundarySnapshot *boundary, Mesh *outMesh);
+bool BuildMeshDataFilteredWithSnapshotSpan(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, bool transparent, bool includePlants,
+    bool plantsOnly, bool excludeWater, const int faces[6][3],
+    const int *nearbyTorchIndices, int nearbyTorchCount,
+    int greedyMaxSpan, const SurfaceBoundarySnapshot *boundary,
+    Mesh *outMesh);
 bool BuildMeshDataFiltered(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, bool transparent, bool includePlants,
@@ -163,6 +171,23 @@ void AddMeshFaceLighting(ChunkMeshEmitter *emitter,
                          Vector2 uvs[6], Color color,
                          const float ambientOcclusion[6],
                          float localLight);
+void AddPlantMesh(ChunkMeshEmitter *emitter, int x, int y, int z,
+                  BlockType type, float extraLight);
 void CountMeshFace(ChunkMeshEmitter *emitter);
+bool ChunkFaceIsVisibleWithSnapshot(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    int lx, int y, int lz, int nx, int ny, int nz);
+float BlockCornerAmbientOcclusion(
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    int x, int y, int z, Vector3 normal, Vector3 corner);
+bool BlockUsesGreedyCubeMesh(BlockType type);
+void EmitGreedyCubeFaces(
+    ChunkMeshEmitter *emitter,
+    const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
+    int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
+    const int faces[6][3], const int *nearbyTorchIndices,
+    int nearbyTorchCount, int maximumSpan);
 
 #endif

@@ -424,29 +424,34 @@ static bool AppendPlantMeshInstances(
     int startX, int startZ)
 {
     for (int firstVertex = 0; firstVertex < mesh->vertexCount;
-         firstVertex += 12) {
-        int vertexCount = mesh->vertexCount - firstVertex;
-        if (vertexCount > 12) vertexCount = 12;
+         ) {
+        float firstX = mesh->vertices[firstVertex * 3];
+        float firstY = mesh->vertices[firstVertex * 3 + 1];
+        float firstZ = mesh->vertices[firstVertex * 3 + 2];
+        int lx = (int)floorf(firstX) - startX;
+        int localY = (int)floorf(firstY);
+        int lz = (int)floorf(firstZ) - startZ;
+        FloraTaxonId taxonId = FLORA_TAXON_COUNT;
+        const FloraTaxon *taxon = NULL;
+        BlockType block = BLOCK_AIR;
+        if (lx >= 0 && lx < CHUNK_SIZE &&
+            localY >= 0 && localY < SURFACE_SECTION_HEIGHT &&
+            lz >= 0 && lz < CHUNK_SIZE) {
+            block = (BlockType)blocks[lx][localY][lz];
+            taxonId = FloraTaxonIdForBlock(block);
+            taxon = FloraTaxonAt(taxonId);
+        }
+        int vertexCount = BlockRenderShapeFor(block) == BLOCK_RENDER_CROSS
+            ? 18 : 12;
+        if (vertexCount > mesh->vertexCount - firstVertex) {
+            vertexCount = mesh->vertexCount - firstVertex;
+        }
         float groundY = INFINITY;
         float topY = -INFINITY;
         for (int vertex = firstVertex;
              vertex < firstVertex + vertexCount; vertex++) {
             groundY = fminf(groundY, mesh->vertices[vertex * 3 + 1]);
             topY = fmaxf(topY, mesh->vertices[vertex * 3 + 1]);
-        }
-        float firstX = mesh->vertices[firstVertex * 3];
-        float firstZ = mesh->vertices[firstVertex * 3 + 2];
-        int lx = (int)floorf(firstX) - startX;
-        int localY = (int)floorf(groundY);
-        int lz = (int)floorf(firstZ) - startZ;
-        FloraTaxonId taxonId = FLORA_TAXON_COUNT;
-        const FloraTaxon *taxon = NULL;
-        if (lx >= 0 && lx < CHUNK_SIZE &&
-            localY >= 0 && localY < SURFACE_SECTION_HEIGHT &&
-            lz >= 0 && lz < CHUNK_SIZE) {
-            taxonId = FloraTaxonIdForBlock(
-                (BlockType)blocks[lx][localY][lz]);
-            taxon = FloraTaxonAt(taxonId);
         }
         if (!AppendFloraVisualInstance(
                 builder, (FloraVisualInstance){
@@ -464,6 +469,7 @@ static bool AppendPlantMeshInstances(
                 })) {
             return false;
         }
+        firstVertex += vertexCount;
     }
     return true;
 }
@@ -473,17 +479,19 @@ bool BuildChunkSurfaceSolidMeshData(
     int layerY, int chunkX, int chunkZ,
     const FloraStructureInstance *structures, int structureCount,
     const int faces[6][3], const int *nearbyTorchIndices,
-    int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
+    int nearbyTorchCount, int greedyMaxSpan,
+    const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh)
 {
     unsigned short solidBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
     CopyBlocksWithoutFloraStructures(
         solidBlocks, blocks, layerY, chunkX, chunkZ, structures, structureCount);
-    return BuildMeshDataFilteredWithSnapshot(
+    return BuildMeshDataFilteredWithSnapshotSpan(
         (const unsigned short (*)[CHUNK_SIZE])solidBlocks,
         SURFACE_SECTION_HEIGHT, layerY, chunkX, chunkZ,
         false, false, false, false, faces,
-        nearbyTorchIndices, nearbyTorchCount, boundary, outMesh);
+        nearbyTorchIndices, nearbyTorchCount, greedyMaxSpan, boundary,
+        outMesh);
 }
 
 bool BuildChunkSurfaceWaterMeshDataWithSnapshot(
