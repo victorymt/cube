@@ -152,7 +152,8 @@ for split_file in \
     src/app/game_landing.c \
     src/app/game_world_transition.c \
     src/app/game_biology.c \
-    src/app/game_capture.c
+    src/app/game_capture.c \
+    src/app/game_debug_weather.c
 do
     [ -f "$split_file" ] || fail "missing split implementation $split_file"
     lines=$(wc -l < "$split_file")
@@ -316,6 +317,12 @@ grep -q 'GameDispatchDebugCommand(&game)' src/app/game.c ||
 if grep -n 'DebugControlPoll' src/app/game.c; then
     fail "debug command routing must remain in game_debug.c"
 fi
+grep -q 'GameDebugWeatherDslResolve(game, name, outValue)' \
+    src/app/game_debug.c ||
+    fail "game debug DSL must delegate weather values"
+grep -q '^bool GameDebugWeatherDslResolve(' \
+    src/app/game_debug_weather.c ||
+    fail "weather debug module must own weather DSL values"
 
 render_frame_body=$(sed -n '/^static void GameRenderFrame(/,/^}/p' src/app/game.c)
 for render_stage in \

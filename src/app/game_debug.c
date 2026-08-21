@@ -8,6 +8,7 @@
 #include "app/game_debug_lod.h"
 #include "app/game_debug_topology.h"
 #include "app/game_debug_trace.h"
+#include "app/game_debug_weather.h"
 #include "app/game_debug_wildfire.h"
 #include "app/game_save.h"
 #include "world/chunks.h"
@@ -1519,142 +1520,7 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         }
     }
 
-    if (strncmp(name, "weather.", 8u) == 0) {
-        WeatherFieldSample weather = WeatherCurrentSample();
-        WeatherVisualState visual = WeatherVisualStateAtWorld(
-            game->player.position,
-            SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()), 0.5f);
-        WeatherImpactStats impacts = WeatherImpactGetStats();
-        WeatherImpactFireSnapshot nearestFire = { 0 };
-        float nearestFireDistance = -1.0f;
-        bool haveNearestFire = WeatherImpactNearestFire(
-            game->player.position, &nearestFire, &nearestFireDistance);
-        PlayerWaterState fireWater = PlayerWaterStateAt(game->player.position);
-        WeatherImpactExposure fireExposure = WeatherImpactExposureAt(
-            game->player.position,
-            GameEnvironmentSheltered(game->player.position) ? 1.0f : 0.0f,
-            fireWater.bodySubmerged ? 1.0f : 0.0f);
-        LocalClimateState climate = { 0 };
-        bool haveClimate = GameDebugLocalClimate(game, &climate);
-        if (strcmp(name, "weather.climate") == 0) {
-            return GameDebugDslString(
-                outValue, haveClimate ? ClimateRegimeName(climate.regime) :
-                                        "unavailable");
-        }
-        if (strcmp(name, "weather.phenomenon") == 0) {
-            return GameDebugDslString(
-                outValue,
-                WeatherPhenomenonName(weather.dominantPhenomenon));
-        }
-        if (strcmp(name, "weather.cloud_genus") == 0) {
-            return GameDebugDslString(
-                outValue, WeatherCloudGenusName(weather.dominantCloudGenus));
-        }
-        if (strcmp(name, "weather.fire_phase") == 0) {
-            return GameDebugDslString(
-                outValue, haveNearestFire ?
-                    WildfirePhaseName(nearestFire.state.phase) : "inactive");
-        }
-        if (strcmp(name, "weather.fire_position") == 0) {
-            Vector3 position = haveNearestFire ?
-                (Vector3){ nearestFire.x, nearestFire.y, nearestFire.z } :
-                Vector3Zero();
-            return GameDebugDslVec3(outValue, position);
-        }
-        TornadoState tornado = TornadoCurrent();
-        TornadoStats tornadoStats = TornadoGetStats();
-        if (strcmp(name, "weather.tornado_phase") == 0) {
-            return GameDebugDslString(outValue,
-                                      TornadoPhaseName(tornado.phase));
-        }
-        if (strcmp(name, "weather.tornado_center") == 0) {
-            return GameDebugDslVec3(outValue, tornado.center);
-        }
-#define WEATHER_NUMBER(fieldName, fieldValue) \
-        if (strcmp(name, fieldName) == 0) { \
-            return GameDebugDslNumber(outValue, (fieldValue)); \
-        }
-        WEATHER_NUMBER("weather.temperature", weather.temperatureK)
-        WEATHER_NUMBER("weather.temperature_k", weather.temperatureK)
-        WEATHER_NUMBER("weather.pressure", weather.pressureAtm)
-        WEATHER_NUMBER("weather.pressure_atm", weather.pressureAtm)
-        WEATHER_NUMBER("weather.humidity", weather.relativeHumidity)
-        WEATHER_NUMBER("weather.relative_humidity", weather.relativeHumidity)
-        WEATHER_NUMBER("weather.dew_point", weather.dewPointK)
-        WEATHER_NUMBER("weather.dew_point_k", weather.dewPointK)
-        WEATHER_NUMBER("weather.wet_bulb", weather.wetBulbK)
-        WEATHER_NUMBER("weather.wet_bulb_k", weather.wetBulbK)
-        WEATHER_NUMBER("weather.wind", weather.wind)
-        WEATHER_NUMBER("weather.gust", weather.gust)
-        WEATHER_NUMBER("weather.visibility", weather.visibility)
-        WEATHER_NUMBER("weather.rain", weather.rain)
-        WEATHER_NUMBER("weather.snow", weather.snow)
-        WEATHER_NUMBER("weather.sleet", weather.sleet)
-        WEATHER_NUMBER("weather.freezing_rain", weather.freezingRain)
-        WEATHER_NUMBER("weather.hail", weather.hail)
-        WEATHER_NUMBER("weather.lightning", weather.lightning)
-        WEATHER_NUMBER("weather.fog", weather.fog)
-        WEATHER_NUMBER("weather.dust", weather.dust)
-        WEATHER_NUMBER("weather.rainbow", weather.rainbow)
-        WEATHER_NUMBER("weather.aurora", weather.aurora)
-        WEATHER_NUMBER("weather.cloud_cover", weather.cloudCover)
-        WEATHER_NUMBER("weather.cloud_flags", weather.cloudGenera)
-        WEATHER_NUMBER("weather.cloud_layers", visual.cloudLayerCount)
-        WEATHER_NUMBER("weather.cloud_forced_frames",
-                       WeatherForcedCloudFramesRemaining())
-        WEATHER_NUMBER("weather.surface_count", impacts.surfaceCount)
-        WEATHER_NUMBER("weather.active_fires", impacts.activeFires)
-        WEATHER_NUMBER("weather.fire_distance", nearestFireDistance)
-        WEATHER_NUMBER("weather.fire_intensity", haveNearestFire ?
-                       nearestFire.state.intensity : 0.0f)
-        WEATHER_NUMBER("weather.fire_fuel", haveNearestFire ?
-                       nearestFire.state.fuel : 0.0f)
-        WEATHER_NUMBER("weather.fire_moisture", haveNearestFire ?
-                       nearestFire.state.moisture : 0.0f)
-        WEATHER_NUMBER("weather.fire_local_heat", fireExposure.heat)
-        WEATHER_NUMBER("weather.fire_local_smoke", fireExposure.smoke)
-        WEATHER_NUMBER("weather.fire_ignitions", impacts.ignitions)
-        WEATHER_NUMBER("weather.fire_spread_ignitions",
-                       impacts.spreadIgnitions)
-        WEATHER_NUMBER("weather.fire_extinctions", impacts.extinctions)
-        WEATHER_NUMBER("weather.fire_suppressions", impacts.suppressions)
-        WEATHER_NUMBER("weather.fire_burned_blocks", impacts.burnedBlocks)
-        WEATHER_NUMBER("weather.fire_burn_sites", impacts.burnSiteCount)
-        WEATHER_NUMBER("weather.fire_recovered_sites",
-                       impacts.recoveredBurnSites)
-        WEATHER_NUMBER("weather.fire_dropped_ignitions",
-                       impacts.droppedIgnitions)
-        WEATHER_NUMBER("weather.fire_dropped_burn_sites",
-                       impacts.droppedBurnSites)
-        WEATHER_NUMBER("weather.forced_frames",
-                       WeatherForcedFramesRemaining())
-        WEATHER_NUMBER("weather.tornado_distance",
-                       TornadoDistanceTo(game->player.position))
-        WEATHER_NUMBER("weather.tornado_intensity", tornado.intensity)
-        WEATHER_NUMBER("weather.tornado_radius", tornado.radius)
-        WEATHER_NUMBER("weather.tornado_funnel_height",
-                       tornado.funnelHeight)
-        WEATHER_NUMBER("weather.tornado_wind_mps",
-                       tornado.maximumWindMps)
-        WEATHER_NUMBER("weather.tornado_forced_frames",
-                       TornadoForcedFramesRemaining())
-        WEATHER_NUMBER("weather.tornado_blocks_damaged",
-                       tornadoStats.blockDamageEvents)
-        WEATHER_NUMBER("weather.tornado_debris_emitted",
-                       tornadoStats.debrisEmitted)
-        WEATHER_NUMBER("weather.tornado_dropped_effects",
-                       tornadoStats.droppedEffects)
-#undef WEATHER_NUMBER
-        if (strcmp(name, "weather.damage_enabled") == 0) {
-            return GameDebugDslBool(outValue, WeatherImpactEnabled());
-        }
-        if (strcmp(name, "weather.tornado_active") == 0) {
-            return GameDebugDslBool(outValue, tornado.active);
-        }
-        if (strcmp(name, "weather.tornado_forced") == 0) {
-            return GameDebugDslBool(outValue, tornado.forced);
-        }
-    }
+    if (GameDebugWeatherDslResolve(game, name, outValue)) return true;
     if (strcmp(name, "stream.surface_ready") == 0) {
         bool ready = game->screen == SCREEN_PLAYING &&
             PlayerMissingSurfaceChunkCount(game->player.position) == 0;
