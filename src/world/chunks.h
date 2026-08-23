@@ -58,7 +58,9 @@ typedef struct ChunkCanonicalIdentityStats {
 enum {
     CHUNK_LOD_EXACT_MAX_DISTANCE = 4,
     CHUNK_LOD_HALF_MAX_DISTANCE = 8,
-    CHUNK_LOD_HYSTERESIS = 1
+    CHUNK_LOD_HYSTERESIS = 1,
+    CHUNK_PRELOAD_WALK_MAX_DISTANCE = 2,
+    CHUNK_PRELOAD_SHIP_MAX_DISTANCE = 4
 };
 
 typedef struct ChunkLodStats {
@@ -69,6 +71,23 @@ typedef struct ChunkLodStats {
     uint64_t targetChanges;
     bool coarseAllowed;
 } ChunkLodStats;
+
+typedef struct ChunkStreamingRequest {
+    Vector3 position;
+    Vector3 velocity;
+    int effectiveRenderDistance;
+    int maxPreloadChunks;
+} ChunkStreamingRequest;
+
+typedef struct ChunkPreloadInfo {
+    bool active;
+    int offsetX;
+    int offsetZ;
+    int targetChunks;
+    int loadedChunks;
+    int pendingGenerationJobs;
+    int pendingMeshJobs;
+} ChunkPreloadInfo;
 
 bool InHeight(int y);
 int FloorDivInt(int value, int divisor);
@@ -164,6 +183,7 @@ int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
 ChunkStreamingStats ChunksGetStreamingStats(void);
+ChunkPreloadInfo ChunksGetPreloadInfo(void);
 bool ChunksGetWaterRenderDebugInfo(Vector3 position,
                                    ChunkWaterRenderDebugInfo *outInfo);
 bool ChunksGetSectionPipelineInfo(int cx, int sectionY, int cz,
@@ -171,7 +191,7 @@ bool ChunksGetSectionPipelineInfo(int cx, int sectionY, int cz,
 const char *ChunkPipelineStageName(ChunkPipelineStage stage);
 RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void);
 void DrainChunkGen(void);
-void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance);
+void UpdateChunks(const ChunkStreamingRequest *request);
 bool RequestChunkTerrainSection(int cx, int sectionY, int cz);
 void ChunksUpdateEcologyVisuals(float dt, float daylight);
 BlockType GetBlock(int x, int y, int z);
@@ -199,6 +219,7 @@ int ChunksTestMeshJobSlot(int jobIndex);
 int ChunksTestMeshJobSectionY(int jobIndex);
 ChunkLodLevel ChunksTestMeshJobLod(int jobIndex);
 bool ChunksTestMeshJobPriority(int jobIndex);
+bool ChunksTestMeshJobPreload(int jobIndex);
 int ChunksTestBuildWaterMeshJob(int jobIndex);
 void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,
                            int sectionY, bool done);
@@ -206,6 +227,7 @@ void ChunksTestCompleteMeshJob(int jobIndex);
 void ChunksTestFillGenerationQueue(void);
 int ChunksTestGenerationJobSectionY(int jobIndex);
 int ChunksTestGenerationJobSlot(int jobIndex);
+bool ChunksTestGenerationJobPreload(int jobIndex);
 bool ChunksTestGenerationJobSurfaceAddress(
     int jobIndex, SurfaceAddress *outAddress);
 void ChunksTestRunGenerationJob(int jobIndex);
@@ -214,8 +236,10 @@ int ChunksTestScheduleTerrainSections(Vector3 playerPosition,
 int ChunksTestPruneTerrainSections(Vector3 playerPosition);
 int ChunksTestCancelDistantSectionJobs(Vector3 playerPosition);
 void ChunksTestSetGenerationJobRunning(int jobIndex, bool running);
+void ChunksTestSetGenerationJobPreload(int jobIndex, bool preload);
 void ChunksTestSetMeshJobRunning(int jobIndex, bool running);
 void ChunksTestSetMeshJobPriority(int jobIndex, bool priority);
+void ChunksTestSetMeshJobPreload(int jobIndex, bool preload);
 void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
                                  int sectionY, bool done);
 int ChunksTestNextGenerationJobIndex(void);

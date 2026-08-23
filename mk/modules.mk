@@ -31,6 +31,7 @@ CHUNKS_FEATURE_SRC := \
 	src/world/chunks_water.c \
 	src/world/chunks_flora.c \
 	src/world/chunks_runtime.c \
+	src/world/chunks_runtime_diagnostics.c \
 	src/world/home_tree_shape.c \
 	src/world/surface_topology.c
 

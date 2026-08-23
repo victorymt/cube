@@ -70,6 +70,7 @@ typedef struct GameFrameView {
 
 bool GameWorldSimulationPaused(const GameRuntime *game);
 bool GameEnvironmentSheltered(Vector3 position);
+int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive);
 void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame);
 void GameCaptureScreenshot(GameRuntime *game, const GameFrameView *frame);
 

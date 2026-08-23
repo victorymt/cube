@@ -13,6 +13,7 @@ unsigned int genWorkerThreadsConfigured = 0u;
 unsigned int genWorkerThreadsStarted = 0u;
 unsigned int genWorkerThreadsActive = 0u;
 ChunkStreamingStats streamingStats;
+ChunkStreamingFocus chunkStreamingFocus;
 
 const Chunk *ChunksView(void)
 {

@@ -238,7 +238,10 @@ void UnloadAllChunks(void)
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         ChunkClearBlockStorage(&chunks[i]);
         chunks[i].loaded = false;
+        chunks[i].generating = false;
+        chunks[i].preloaded = false;
     }
+    chunkStreamingFocus = (ChunkStreamingFocus){ 0 };
     ChunksResetLodState();
 }
 

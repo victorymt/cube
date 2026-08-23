@@ -205,9 +205,12 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
     game->dayTime = 0.30f;
     game->dayCycleEnabled = true;
-    UpdateChunks(game->player.position,
-                 EffectiveRenderDistanceForHeight(
-                     game->player.position.y + EYE_HEIGHT));
+    ChunkStreamingRequest streamingRequest = {
+        .position = game->player.position,
+        .effectiveRenderDistance = EffectiveRenderDistanceForHeight(
+            game->player.position.y + EYE_HEIGHT)
+    };
+    UpdateChunks(&streamingRequest);
 }
 
 static bool GameUpdateStartScreen(GameRuntime *game, float dt,
@@ -753,46 +756,6 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
             &game->player.yaw)) {
         ParticlesClear();
     }
-}
-
-static int GameUpdateWorldStreaming(GameRuntime *game,
-                                    bool *localWorldActive)
-{
-    int effectiveRenderDistance = EffectiveRenderDistanceForHeight(
-        game->player.position.y + EYE_HEIGHT);
-    *localWorldActive = WorldIsSurfaceActive();
-    uint32_t currentEntityDimension = WorldCurrentSurfaceId();
-    if (*localWorldActive != game->entitiesWorldActive ||
-        (*localWorldActive &&
-         currentEntityDimension != game->entitiesWorldDimension)) {
-        EntitiesClear();
-        game->evolutionScanLocked = false;
-        game->evolutionLockedOrganismId = 0u;
-        game->entitiesWorldActive = *localWorldActive;
-        game->entitiesWorldDimension = currentEntityDimension;
-    }
-    if (*localWorldActive) {
-        UpdateChunks(game->player.position, effectiveRenderDistance);
-    }
-    if (WorldCurrentDimension() != WORLD_DIMENSION_PLANET) {
-        SpaceProcessFinishedGenJobs();
-        int spaceGenPerFrame = 2;
-        if (ShipIsDriving()) {
-            spaceGenPerFrame = ShipIsHighSpeedTransit()
-                                   ? 16
-                                   : (ShipIsCruising() ? 12 : 4);
-        }
-        UpdateSpaceChunks(game->player.position, effectiveRenderDistance,
-                          spaceGenPerFrame);
-        if (HomeWorldSurfaceIsActive() &&
-            WorldCurrentDimensionAt(game->player.position.y + EYE_HEIGHT) ==
-                WORLD_DIMENSION_NETHER) {
-            UpdateNetherChunks(game->player.position,
-                               effectiveRenderDistance, 4);
-        }
-        SpaceUpdateSolarGlow(game->player.position);
-    }
-    return effectiveRenderDistance;
 }
 
 static void GameUpdateDebugLeftMeshReady(GameRuntime *game)

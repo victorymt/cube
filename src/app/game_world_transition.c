@@ -117,7 +117,11 @@ bool GameWorldTransitionBeginDescent(Player *player, bool homeWorldTarget,
     player->onGround = false;
     if (outLandingPosition) *outLandingPosition = landing;
 
-    UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
+    ChunkStreamingRequest streamRequest = {
+        .position = player->position,
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    };
+    UpdateChunks(&streamRequest);
     DrainChunkGen();
     return true;
 }
@@ -218,7 +222,11 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
     player->pitch = -0.25f;
     player->floating = false;
     player->onGround = false;
-    UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
+    ChunkStreamingRequest streamRequest = {
+        .position = player->position,
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    };
+    UpdateChunks(&streamRequest);
     DrainChunkGen();
     return true;
 }

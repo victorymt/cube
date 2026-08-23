@@ -376,6 +376,7 @@ typedef struct ChunkGenJob {
     bool inUse;
     bool running;
     bool done;
+    bool preload;
     bool succeeded;
     bool hasSectionBlocks;
     ChunkGenScope scope;
@@ -487,6 +488,7 @@ typedef struct ChunkSection {
 typedef struct Chunk {
     bool loaded;
     bool generating;
+    bool preloaded;
     int cx;
     int cz;
     bool spherical;

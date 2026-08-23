@@ -4,6 +4,9 @@
 #include "world/chunks_dependencies.h"
 
 #define SECTION_GEN_SUBMISSIONS_PER_FRAME 8
+#define CHUNK_PRELOAD_SUBMISSIONS_PER_FRAME 8
+#define CHUNK_PRELOAD_LOOKAHEAD_SECONDS 2.0f
+#define CHUNK_PRELOAD_MIN_SPEED 0.5f
 #define NEGATIVE_TERRAIN_SECTION_RETAIN_RADIUS 6
 #define MAX_MESH_JOBS MAX_CHUNK_MESH_JOBS
 #define MAX_MESH_SUBMITS_PER_FRAME 4
@@ -43,6 +46,7 @@ typedef struct MeshJob {
     bool running;
     bool done;
     bool priority;
+    bool preload;
     int slotIndex;
     int cx;
     int cz;
@@ -76,6 +80,15 @@ typedef struct MeshJob {
     bool hasFloraMesh;
 } MeshJob;
 
+typedef struct ChunkStreamingFocus {
+    int currentCx;
+    int currentCz;
+    int predictedCx;
+    int predictedCz;
+    int renderDistance;
+    int preloadTargetCount;
+} ChunkStreamingFocus;
+
 typedef struct MeshPendingLookup {
     int slots[MESH_PENDING_LOOKUP_CAPACITY];
     int ys[MESH_PENDING_LOOKUP_CAPACITY];
@@ -105,6 +118,7 @@ extern unsigned int genWorkerThreadsStarted;
 extern unsigned int genWorkerThreadsActive;
 extern ChunkStreamingStats streamingStats;
 extern MeshJob meshJobs[MAX_MESH_JOBS];
+extern ChunkStreamingFocus chunkStreamingFocus;
 
 double ChunkNowMs(void);
 double ChunkThreadCpuNowMs(void);
@@ -122,8 +136,9 @@ void MarkSectionDirty(ChunkSection *section);
 void *ChunkGenWorker(void *arg);
 void GenerateChunkJobPayload(ChunkGenJob *job);
 void FreeChunkGenJobResult(ChunkGenJob *job);
-int ScheduleNearbyTerrainSections(Vector3 playerPosition,
-                                  int effectiveRenderDistance);
+int ScheduleNearbyTerrainSections(
+    const ChunkStreamingRequest *request,
+    const ChunkStreamingFocus *focus);
 void UpdateQueuePeaksLocked(void);
 void MarkGeneratedSectionAndNeighborsDirty(Chunk *chunk, int sectionY);
 ChunkLodLevel ChunkLodSanitize(ChunkLodLevel lod);

@@ -286,7 +286,10 @@ static void PlacePlayerAt(Player *player, int x, int z)
 static void PrepareChunksAt(const Player *player)
 {
     assert(player);
-    UpdateChunks(player->position, MIN_RENDER_DISTANCE_CHUNKS);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = player->position,
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    });
     DrainChunkGen();
 }
 
@@ -800,7 +803,10 @@ static void TestEntityEcologySystemReplay(void)
     assert(expectedCap > 0);
 
     assert(ChunksStartGenThread());
-    UpdateChunks(player.position, MIN_RENDER_DISTANCE_CHUNKS);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = player.position,
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    });
     DrainChunkGen();
     EntitiesInit();
 

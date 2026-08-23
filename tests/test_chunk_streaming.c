@@ -838,8 +838,10 @@ static void TestFullGenerationQueueDoesNotFallBackToMainThread(void)
     ChunksTestResetScheduler();
     ChunksTestFillGenerationQueue();
 
-    UpdateChunks((Vector3){ 0.5f, 80.0f, 0.5f },
-                 MIN_RENDER_DISTANCE_CHUNKS);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 0.5f, 80.0f, 0.5f },
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    });
 
     ChunkStreamingStats stats = ChunksGetStreamingStats();
     assert(stats.generationSubmitted == 0);
@@ -1596,6 +1598,117 @@ static void TestCanonicalChunkIdentityStatsDetectAliases(void)
     assert(stats.duplicates == 1);
 }
 
+static void ConfigureLoadedChunkSquare(int radius)
+{
+    int slot = 0;
+    for (int dz = -radius; dz <= radius; dz++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            assert(slot < MAX_ACTIVE_CHUNKS);
+            ChunksTestConfigureChunk(slot++, dx, dz, true, false);
+        }
+    }
+}
+
+static void TestPredictivePreloadUsesVelocityAndCurrentCapacity(void)
+{
+    ChunksTestResetScheduler();
+    ConfigureLoadedChunkSquare(DEFAULT_RENDER_DISTANCE_CHUNKS);
+
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 0.5f, 80.0f, 0.5f },
+        .velocity = { 40.0f, 0.0f, 0.0f },
+        .effectiveRenderDistance = DEFAULT_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+    });
+
+    ChunkPreloadInfo info = ChunksGetPreloadInfo();
+    assert(info.active);
+    assert(info.offsetX == CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
+    assert(info.offsetZ == 0);
+    assert(info.targetChunks ==
+           CHUNK_PRELOAD_SHIP_MAX_DISTANCE *
+           (DEFAULT_RENDER_DISTANCE_CHUNKS * 2 + 1));
+    assert(info.loadedChunks == 0);
+    assert(info.pendingGenerationJobs == 8);
+    for (int index = 0; index < 8; index++) {
+        assert(ChunksTestGenerationJobPreload(index));
+    }
+
+    int currentJob = ChunksTestNextGenerationJobIndex();
+    assert(currentJob >= 8);
+    assert(!ChunksTestGenerationJobPreload(currentJob));
+
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 64.5f, 80.0f, 0.5f },
+        .effectiveRenderDistance = DEFAULT_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+    });
+    assert(!ChunksTestGenerationJobPreload(0));
+    assert(ChunksTestNextGenerationJobIndex() == 0);
+}
+
+static void TestPredictivePreloadReversesAndStaysWithinCapacity(void)
+{
+    ChunksTestResetScheduler();
+    ConfigureLoadedChunkSquare(DEFAULT_RENDER_DISTANCE_CHUNKS);
+    ChunkStreamingRequest request = {
+        .position = { 0.5f, 80.0f, 0.5f },
+        .velocity = { 40.0f, 0.0f, 40.0f },
+        .effectiveRenderDistance = DEFAULT_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+    };
+    UpdateChunks(&request);
+    ChunkPreloadInfo diagonal = ChunksGetPreloadInfo();
+    assert(diagonal.offsetX == CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
+    assert(diagonal.offsetZ == CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
+    assert(diagonal.targetChunks == 152);
+    assert(diagonal.targetChunks +
+           (DEFAULT_RENDER_DISTANCE_CHUNKS * 2 + 1) *
+           (DEFAULT_RENDER_DISTANCE_CHUNKS * 2 + 1) <=
+           MAX_ACTIVE_CHUNKS);
+
+    request.velocity = (Vector3){ -40.0f, 0.0f, -40.0f };
+    UpdateChunks(&request);
+    ChunkPreloadInfo reversed = ChunksGetPreloadInfo();
+    assert(reversed.offsetX == -CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
+    assert(reversed.offsetZ == -CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
+    assert(ChunksGetStreamingStats().generationCanceled >= 8);
+    assert(reversed.pendingGenerationJobs == 8);
+
+    ChunksTestResetScheduler();
+    ConfigureLoadedChunkSquare(MAX_RENDER_DISTANCE_CHUNKS);
+    request.velocity = (Vector3){ 40.0f, 0.0f, 40.0f };
+    request.effectiveRenderDistance = MAX_RENDER_DISTANCE_CHUNKS;
+    UpdateChunks(&request);
+    ChunkPreloadInfo saturated = ChunksGetPreloadInfo();
+    assert(!saturated.active);
+    assert(saturated.offsetX == 0);
+    assert(saturated.offsetZ == 0);
+    assert(saturated.targetChunks == 0);
+    assert(saturated.pendingGenerationJobs == 0);
+
+    request.velocity = (Vector3){ NAN, 0.0f, 1.0f };
+    request.effectiveRenderDistance = DEFAULT_RENDER_DISTANCE_CHUNKS;
+    UpdateChunks(&request);
+    assert(!ChunksGetPreloadInfo().active);
+}
+
+static void TestPreloadJobsYieldToCurrentWork(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestSeedGenerationJob(0, 1, 0, 0, false);
+    ChunksTestSeedGenerationJob(1, 2, 0, 0, false);
+    ChunksTestSetGenerationJobPreload(0, true);
+    assert(ChunksTestNextGenerationJobIndex() == 1);
+
+    ChunksTestSeedMeshJob(0, 0, 1, 0, 0, false);
+    ChunksTestSeedMeshJob(1, 1, 2, 0, 0, false);
+    ChunksTestSetMeshJobPreload(0, true);
+    assert(ChunksTestNextMeshJobIndex() == 1);
+    ChunksTestSetMeshJobPriority(0, true);
+    assert(ChunksTestNextMeshJobIndex() == 0);
+}
+
 int main(void)
 {
     memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
@@ -1643,6 +1756,9 @@ int main(void)
     TestSurfaceChunkAliasesUseOneCanonicalIdentity();
     TestPolarChunkNeighborsBecomeDirty();
     TestCanonicalChunkIdentityStatsDetectAliases();
+    TestPredictivePreloadUsesVelocityAndCurrentCapacity();
+    TestPredictivePreloadReversesAndStaysWithinCapacity();
+    TestPreloadJobsYieldToCurrentWork();
     TestWorkerPoolRunsJobsConcurrently();
     ChunksTestResetScheduler();
     puts("chunk streaming tests passed");

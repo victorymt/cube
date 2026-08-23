@@ -22,7 +22,9 @@ ChunkGenJob *NextPendingGenJob(void)
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
         ChunkGenJob *job = &chunkGenJobs[i];
         if (!job->inUse || job->running || job->done) continue;
-        if (!oldest || job->queueSequence < oldest->queueSequence) {
+        if (!oldest || (!job->preload && oldest->preload) ||
+            (job->preload == oldest->preload &&
+             job->queueSequence < oldest->queueSequence)) {
             oldest = job;
         }
     }
@@ -47,6 +49,7 @@ void GenerateChunkJobPayload(ChunkGenJob *job)
         if (!staged) return;
         *staged = (Chunk){
             .generating = true,
+            .preloaded = job->preload,
             .cx = job->cx,
             .cz = job->cz,
             .spherical = job->spherical,
@@ -307,7 +310,8 @@ bool ChunksRestartGenThreads(int requestedWorkers)
     return false;
 }
 
-bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
+static bool SubmitChunkGenJob(
+    Chunk *chunk, int cx, int cz, TerrainMode mode, bool preload)
 {
     if (genWorkerThreadsStarted == 0u) return false;
 
@@ -327,6 +331,7 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
     *job = (ChunkGenJob){
         .inUse = true,
         .done = false,
+        .preload = preload,
         .scope = CHUNK_GEN_SCOPE_COLUMN,
         .cx = cx,
         .cz = cz,
@@ -347,7 +352,7 @@ bool SubmitChunkGenJob(Chunk *chunk, int cx, int cz, TerrainMode mode)
 }
 
 static bool SubmitChunkSectionGenJob(
-    Chunk *chunk, int sectionY, TerrainMode mode)
+    Chunk *chunk, int sectionY, TerrainMode mode, bool preload)
 {
     if (genWorkerThreadsStarted == 0u || !chunk || !chunk->loaded ||
         !HomeWorldSurfaceIsActive() || !SurfaceSectionInBounds(sectionY) ||
@@ -364,6 +369,7 @@ static bool SubmitChunkSectionGenJob(
             chunkGenJobs[i].slotIndex == (int)(chunk - chunks) &&
             chunkGenJobs[i].chunkGeneration == chunk->generation &&
             chunkGenJobs[i].sectionY == sectionY) {
+            if (!preload) chunkGenJobs[i].preload = false;
             pthread_mutex_unlock(&genMutex);
             return false;
         }
@@ -376,6 +382,7 @@ static bool SubmitChunkSectionGenJob(
 
     *job = (ChunkGenJob){
         .inUse = true,
+        .preload = preload,
         .scope = CHUNK_GEN_SCOPE_SECTION,
         .cx = chunk->cx,
         .cz = chunk->cz,
@@ -396,13 +403,15 @@ static bool SubmitChunkSectionGenJob(
     return true;
 }
 
-static bool RequestLoadedChunkTerrainSection(Chunk *chunk, int sectionY)
+static bool RequestLoadedChunkTerrainSection(
+    Chunk *chunk, int sectionY, bool preload)
 {
     if (!chunk || ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
     }
-    if (SubmitChunkSectionGenJob(chunk, sectionY, WorldTerrainMode())) {
+    if (SubmitChunkSectionGenJob(
+            chunk, sectionY, WorldTerrainMode(), preload)) {
         return true;
     }
     if (genWorkerThreadsStarted != 0u) return false;
@@ -428,21 +437,32 @@ bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
         !HomeWorldSurfaceIsActive()) {
         return false;
     }
-    return RequestLoadedChunkTerrainSection(FindChunk(cx, cz), sectionY);
+    return RequestLoadedChunkTerrainSection(
+        FindChunk(cx, cz), sectionY, false);
 }
 
-bool FindPendingGenJob(int cx, int cz)
+static bool FindPendingGenJob(int cx, int cz, bool promote)
 {
     bool spherical = WorldIsSurfaceActive();
     SurfaceChunkKey key = spherical
         ? ChunkSurfaceKeyAt(cx, cz) : (SurfaceChunkKey){ 0 };
+    bool found = false;
+    pthread_mutex_lock(&genMutex);
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
         ChunkGenJob *job = &chunkGenJobs[i];
-        if (!job->inUse || job->spherical != spherical) continue;
+        if (!job->inUse || job->scope != CHUNK_GEN_SCOPE_COLUMN ||
+            job->spherical != spherical) {
+            continue;
+        }
         if (spherical ? SurfaceChunkKeyEqual(job->surfaceKey, key)
-                      : (job->cx == cx && job->cz == cz)) return true;
+                      : (job->cx == cx && job->cz == cz)) {
+            if (promote) job->preload = false;
+            found = true;
+            break;
+        }
     }
-    return false;
+    pthread_mutex_unlock(&genMutex);
+    return found;
 }
 
 void MarkGeneratedSectionAndNeighborsDirty(
@@ -614,23 +634,32 @@ Chunk *AllocateChunkSlot(int nearCx, int nearCz)
 {
     int bestIndex = -1;
     int bestDistance = -1;
+    int bestPreloadIndex = -1;
+    int bestPreloadDistance = -1;
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         if (!chunks[i].loaded && !chunks[i].generating) return &chunks[i];
 
         int distance = ChunkGridDistanceFrom(&chunks[i], nearCx, nearCz);
+        if (!chunks[i].generating && chunks[i].preloaded &&
+            distance > bestPreloadDistance) {
+            bestPreloadDistance = distance;
+            bestPreloadIndex = i;
+        }
         if (!chunks[i].generating && distance > bestDistance) {
             bestDistance = distance;
             bestIndex = i;
         }
     }
 
-    if (bestIndex >= 0) {
-        MarkChunkAndHorizontalNeighborsDirty(chunks[bestIndex].cx, chunks[bestIndex].cz);
+    int selected = bestPreloadIndex >= 0 ? bestPreloadIndex : bestIndex;
+    if (selected >= 0) {
+        MarkChunkAndHorizontalNeighborsDirty(
+            chunks[selected].cx, chunks[selected].cz);
     }
-    return bestIndex >= 0 ? &chunks[bestIndex] : NULL;
+    return selected >= 0 ? &chunks[selected] : NULL;
 }
 
-bool EnsureChunk(int cx, int cz)
+static bool EnsureChunk(int cx, int cz, bool preload)
 {
     bool spherical = WorldIsSurfaceActive();
     if (spherical) CanonicalizeSurfaceChunkCoordinates(&cx, &cz);
@@ -638,8 +667,13 @@ bool EnsureChunk(int cx, int cz)
         ? ChunkSurfaceAddressAt(cx, cz) : (SurfaceAddress){ 0 };
     SurfaceChunkKey surfaceKey = spherical
         ? ChunkSurfaceKeyAt(cx, cz) : (SurfaceChunkKey){ 0 };
-    if ((spherical ? FindSurfaceChunk(surfaceKey) : FindChunk(cx, cz)) ||
-        FindPendingGenJob(cx, cz)) return false;
+    Chunk *existing = spherical
+        ? FindSurfaceChunk(surfaceKey) : FindChunk(cx, cz);
+    if (existing) {
+        if (!preload) existing->preloaded = false;
+        return false;
+    }
+    if (FindPendingGenJob(cx, cz, !preload)) return false;
 
     if (genWorkerThreadsStarted != 0u) {
         bool haveQueueSlot = false;
@@ -668,6 +702,7 @@ bool EnsureChunk(int cx, int cz)
     if (chunk->generation == 0u) chunk->generation = 1u;
     chunk->generating = true;
     chunk->loaded = false;
+    chunk->preloaded = preload;
     chunk->targetLod = CHUNK_LOD_EXACT;
     chunk->activeLod = CHUNK_LOD_EXACT;
     chunk->lodInitialized = false;
@@ -675,7 +710,8 @@ bool EnsureChunk(int cx, int cz)
     chunk->floraCapacity = 1.0f;
     chunk->floraSampleTimer = 0.0f;
 
-    if (SubmitChunkGenJob(chunk, cx, cz, WorldTerrainMode())) return true;
+    if (SubmitChunkGenJob(
+            chunk, cx, cz, WorldTerrainMode(), preload)) return true;
 
     double startedMs = ChunkNowMs();
     GenerateChunkTerrain(chunk, cx, cz, WorldTerrainMode());
@@ -692,48 +728,223 @@ bool EnsureChunk(int cx, int cz)
     return true;
 }
 
-int ScheduleNearbyTerrainSections(Vector3 playerPosition,
-                                  int effectiveRenderDistance)
+static int StreamingRegionUnionCount(int radius, int offsetX, int offsetZ)
 {
-    if (!HomeWorldSurfaceIsActive()) return 0;
-    if (effectiveRenderDistance < MIN_RENDER_DISTANCE_CHUNKS) {
-        effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS;
-    }
-    if (effectiveRenderDistance > MAX_RENDER_DISTANCE_CHUNKS) {
-        effectiveRenderDistance = MAX_RENDER_DISTANCE_CHUNKS;
-    }
-    int playerY = (int)floorf(playerPosition.y);
-    if (!InHeight(playerY)) return 0;
+    int side = radius * 2 + 1;
+    int overlapX = side - abs(offsetX);
+    int overlapZ = side - abs(offsetZ);
+    if (overlapX < 0) overlapX = 0;
+    if (overlapZ < 0) overlapZ = 0;
+    return side * side * 2 - overlapX * overlapZ;
+}
 
-    int playerCx = 0;
-    int playerCz = 0;
+static void ReduceStreamingOffsetToCapacity(
+    int radius, int *offsetX, int *offsetZ)
+{
+    while (StreamingRegionUnionCount(radius, *offsetX, *offsetZ) >
+           MAX_ACTIVE_CHUNKS) {
+        int x = abs(*offsetX);
+        int z = abs(*offsetZ);
+        if (x >= z && x > 0) *offsetX += *offsetX > 0 ? -1 : 1;
+        if (z >= x && z > 0) *offsetZ += *offsetZ > 0 ? -1 : 1;
+    }
+}
+
+static ChunkStreamingFocus StreamingFocusForRequest(
+    const ChunkStreamingRequest *request)
+{
+    ChunkStreamingFocus focus = { 0 };
     int localX = 0;
     int localZ = 0;
-    WorldToChunkLocal((int)floorf(playerPosition.x),
-                      (int)floorf(playerPosition.z),
-                      &playerCx, &playerCz, &localX, &localZ);
+    WorldToChunkLocal((int)floorf(request->position.x),
+                      (int)floorf(request->position.z),
+                      &focus.currentCx, &focus.currentCz,
+                      &localX, &localZ);
+    focus.predictedCx = focus.currentCx;
+    focus.predictedCz = focus.currentCz;
+    focus.renderDistance = request->effectiveRenderDistance;
+    if (focus.renderDistance < MIN_RENDER_DISTANCE_CHUNKS) {
+        focus.renderDistance = MIN_RENDER_DISTANCE_CHUNKS;
+    }
+    if (focus.renderDistance > MAX_RENDER_DISTANCE_CHUNKS) {
+        focus.renderDistance = MAX_RENDER_DISTANCE_CHUNKS;
+    }
+
+    int maxPreload = request->maxPreloadChunks;
+    if (maxPreload < 0) maxPreload = 0;
+    if (maxPreload > CHUNK_PRELOAD_SHIP_MAX_DISTANCE) {
+        maxPreload = CHUNK_PRELOAD_SHIP_MAX_DISTANCE;
+    }
+    float velocityX = request->velocity.x;
+    float velocityZ = request->velocity.z;
+    float speed = sqrtf(velocityX * velocityX + velocityZ * velocityZ);
+    if (genWorkerThreadsStarted == 0u || maxPreload == 0 ||
+        !isfinite(velocityX) || !isfinite(velocityZ) || !isfinite(speed) ||
+        speed < CHUNK_PRELOAD_MIN_SPEED) {
+        return focus;
+    }
+
+    float projectedX = request->position.x +
+        velocityX * CHUNK_PRELOAD_LOOKAHEAD_SECONDS;
+    float projectedZ = request->position.z +
+        velocityZ * CHUNK_PRELOAD_LOOKAHEAD_SECONDS;
+    if (!isfinite(projectedX) || !isfinite(projectedZ) ||
+        projectedX < (float)INT_MIN || projectedX > (float)INT_MAX ||
+        projectedZ < (float)INT_MIN || projectedZ > (float)INT_MAX) {
+        return focus;
+    }
+
+    int projectedCx = 0;
+    int projectedCz = 0;
+    WorldToChunkLocal((int)floorf(projectedX), (int)floorf(projectedZ),
+                      &projectedCx, &projectedCz, &localX, &localZ);
+    int offsetX = projectedCx - focus.currentCx;
+    int offsetZ = projectedCz - focus.currentCz;
+    if (offsetX < -maxPreload) offsetX = -maxPreload;
+    if (offsetX > maxPreload) offsetX = maxPreload;
+    if (offsetZ < -maxPreload) offsetZ = -maxPreload;
+    if (offsetZ > maxPreload) offsetZ = maxPreload;
+    ReduceStreamingOffsetToCapacity(
+        focus.renderDistance, &offsetX, &offsetZ);
+    focus.predictedCx += offsetX;
+    focus.predictedCz += offsetZ;
+    int side = focus.renderDistance * 2 + 1;
+    focus.preloadTargetCount = StreamingRegionUnionCount(
+        focus.renderDistance, offsetX, offsetZ) - side * side;
+    return focus;
+}
+
+static bool ChunkInStreamingRegion(
+    const Chunk *chunk, int centerCx, int centerCz, int radius)
+{
+    return chunk &&
+        ChunkGridDistanceFrom(chunk, centerCx, centerCz) <= radius;
+}
+
+static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
+{
+    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+        Chunk *chunk = &chunks[i];
+        if (!chunk->loaded && !chunk->generating) continue;
+        bool current = ChunkInStreamingRegion(
+            chunk, focus->currentCx, focus->currentCz,
+            focus->renderDistance);
+        bool predicted = ChunkInStreamingRegion(
+            chunk, focus->predictedCx, focus->predictedCz,
+            focus->renderDistance);
+        if (chunk->loaded && !current && !predicted) {
+            MarkChunkAndHorizontalNeighborsDirty(chunk->cx, chunk->cz);
+            ChunkClearBlockStorage(chunk);
+            chunk->loaded = false;
+            chunk->preloaded = false;
+        } else if (current || predicted) {
+            chunk->preloaded = !current;
+        } else if (chunk->generating && chunk->preloaded) {
+            chunk->generation++;
+            if (chunk->generation == 0u) chunk->generation = 1u;
+            chunk->generating = false;
+            chunk->preloaded = false;
+        }
+    }
+
+    pthread_mutex_lock(&genMutex);
+    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+        ChunkGenJob *job = &chunkGenJobs[i];
+        if (!job->inUse || job->slotIndex < 0 ||
+            job->slotIndex >= MAX_ACTIVE_CHUNKS) {
+            continue;
+        }
+        Chunk *chunk = &chunks[job->slotIndex];
+        bool current = ChunkInStreamingRegion(
+            chunk, focus->currentCx, focus->currentCz,
+            focus->renderDistance);
+        bool predicted = ChunkInStreamingRegion(
+            chunk, focus->predictedCx, focus->predictedCz,
+            focus->renderDistance);
+        if (job->preload && !current && !predicted && !job->running) {
+            FreeChunkGenJobResult(job);
+            *job = (ChunkGenJob){ 0 };
+            streamingStats.generationCanceled++;
+        } else if (current || predicted) {
+            job->preload = !current;
+        }
+    }
+    for (int i = 0; i < MAX_MESH_JOBS; i++) {
+        MeshJob *job = &meshJobs[i];
+        if (!job->inUse || job->slotIndex < 0 ||
+            job->slotIndex >= MAX_ACTIVE_CHUNKS) {
+            continue;
+        }
+        Chunk *chunk = &chunks[job->slotIndex];
+        bool current = ChunkInStreamingRegion(
+            chunk, focus->currentCx, focus->currentCz,
+            focus->renderDistance);
+        bool predicted = ChunkInStreamingRegion(
+            chunk, focus->predictedCx, focus->predictedCz,
+            focus->renderDistance);
+        if (job->preload && !current && !predicted && !job->running) {
+            FreeMeshData(&job->mesh);
+            FreeMeshData(&job->waterMesh);
+            FreeMeshData(&job->floraMesh);
+            free(job->floraInstances);
+            *job = (MeshJob){ 0 };
+            streamingStats.meshCanceled++;
+        } else if (current || predicted) {
+            job->preload = !current;
+        }
+    }
+    UpdateQueuePeaksLocked();
+    pthread_mutex_unlock(&genMutex);
+}
+
+static bool CoordinatesInCurrentRegion(
+    int cx, int cz, const ChunkStreamingFocus *focus)
+{
+    return abs(cx - focus->currentCx) <= focus->renderDistance &&
+           abs(cz - focus->currentCz) <= focus->renderDistance;
+}
+
+int ScheduleNearbyTerrainSections(
+    const ChunkStreamingRequest *request,
+    const ChunkStreamingFocus *focus)
+{
+    if (!request || !focus || !HomeWorldSurfaceIsActive()) return 0;
+    int playerY = (int)floorf(request->position.y);
+    if (!InHeight(playerY)) return 0;
     int playerSectionY = SurfaceSectionYFromBlockY(playerY);
     static const int verticalOffsets[3] = { 0, -1, 1 };
+    int centers[2][2] = {
+        { focus->currentCx, focus->currentCz },
+        { focus->predictedCx, focus->predictedCz }
+    };
 
     int submissions = 0;
-    for (int distance = 0; distance <= effectiveRenderDistance; distance++) {
-        for (int vertical = 0;
-             vertical < (int)(sizeof(verticalOffsets) /
-                              sizeof(verticalOffsets[0])); vertical++) {
-            int sectionY = playerSectionY + verticalOffsets[vertical];
-            if (!SurfaceSectionInBounds(sectionY)) continue;
-            for (int dz = -distance; dz <= distance; dz++) {
-                for (int dx = -distance; dx <= distance; dx++) {
-                    if (abs(dx) != distance && abs(dz) != distance) {
-                        continue;
-                    }
-                    Chunk *chunk = FindChunk(playerCx + dx,
-                                             playerCz + dz);
-                    if (RequestLoadedChunkTerrainSection(chunk, sectionY)) {
-                        submissions++;
-                        if (submissions >=
-                            SECTION_GEN_SUBMISSIONS_PER_FRAME) {
-                            return submissions;
+    for (int pass = 0; pass < 2; pass++) {
+        bool preload = pass == 1;
+        if (preload && focus->preloadTargetCount == 0) continue;
+        for (int distance = 0; distance <= focus->renderDistance; distance++) {
+            for (int vertical = 0; vertical < 3; vertical++) {
+                int sectionY = playerSectionY + verticalOffsets[vertical];
+                if (!SurfaceSectionInBounds(sectionY)) continue;
+                for (int dz = -distance; dz <= distance; dz++) {
+                    for (int dx = -distance; dx <= distance; dx++) {
+                        if (abs(dx) != distance && abs(dz) != distance) {
+                            continue;
+                        }
+                        int cx = centers[pass][0] + dx;
+                        int cz = centers[pass][1] + dz;
+                        if (preload && CoordinatesInCurrentRegion(
+                                cx, cz, focus)) {
+                            continue;
+                        }
+                        Chunk *chunk = FindChunk(cx, cz);
+                        if (RequestLoadedChunkTerrainSection(
+                                chunk, sectionY, preload)) {
+                            submissions++;
+                            if (submissions >=
+                                SECTION_GEN_SUBMISSIONS_PER_FRAME) {
+                                return submissions;
+                            }
                         }
                     }
                 }
@@ -743,67 +954,80 @@ int ScheduleNearbyTerrainSections(Vector3 playerPosition,
     return submissions;
 }
 
-void UpdateChunks(Vector3 playerPosition, int effectiveRenderDistance)
+typedef struct MissingChunkCandidate {
+    int cx;
+    int cz;
+    bool preload;
+} MissingChunkCandidate;
+
+static void CollectMissingChunkCandidates(
+    MissingChunkCandidate candidates[MAX_ACTIVE_CHUNKS], int *count,
+    const ChunkStreamingFocus *focus, bool preload)
 {
-    if (effectiveRenderDistance < MIN_RENDER_DISTANCE_CHUNKS) effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS;
-    if (effectiveRenderDistance > MAX_RENDER_DISTANCE_CHUNKS) effectiveRenderDistance = MAX_RENDER_DISTANCE_CHUNKS;
-
-    int playerX = (int)floorf(playerPosition.x);
-    int playerZ = (int)floorf(playerPosition.z);
-    int playerCx = 0;
-    int playerCz = 0;
-    int playerLx = 0;
-    int playerLz = 0;
-    WorldToChunkLocal(playerX, playerZ, &playerCx, &playerCz, &playerLx, &playerLz);
-
-    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        if (!chunks[i].loaded) continue;
-        if (ChunkGridDistanceFrom(&chunks[i], playerCx, playerCz) >
-            effectiveRenderDistance) {
-            MarkChunkAndHorizontalNeighborsDirty(chunks[i].cx, chunks[i].cz);
-            ChunkClearBlockStorage(&chunks[i]);
-            chunks[i].loaded = false;
+    int centerCx = preload ? focus->predictedCx : focus->currentCx;
+    int centerCz = preload ? focus->predictedCz : focus->currentCz;
+    for (int distance = 0; distance <= focus->renderDistance; distance++) {
+        for (int dz = -distance; dz <= distance; dz++) {
+            for (int dx = -distance; dx <= distance; dx++) {
+                if (abs(dx) != distance && abs(dz) != distance) continue;
+                int cx = centerCx + dx;
+                int cz = centerCz + dz;
+                if (preload && CoordinatesInCurrentRegion(cx, cz, focus)) {
+                    continue;
+                }
+                Chunk *chunk = FindChunk(cx, cz);
+                if (chunk) {
+                    if (!preload) chunk->preloaded = false;
+                    continue;
+                }
+                if (FindPendingGenJob(cx, cz, !preload)) continue;
+                if (*count >= MAX_ACTIVE_CHUNKS) return;
+                candidates[*count] = (MissingChunkCandidate){
+                    .cx = cx,
+                    .cz = cz,
+                    .preload = preload
+                };
+                (*count)++;
+            }
         }
     }
+}
 
-    int playerY = (int)floorf(playerPosition.y);
+void UpdateChunks(const ChunkStreamingRequest *request)
+{
+    if (!request) return;
+    ChunkStreamingFocus focus = StreamingFocusForRequest(request);
+    chunkStreamingFocus = focus;
+    ReclassifyStreamingWork(&focus);
+
+    int playerY = (int)floorf(request->position.y);
     if (InHeight(playerY)) {
         int playerSectionY = SurfaceSectionYFromBlockY(playerY);
         CancelDistantNegativeSectionJobs(playerSectionY);
         PruneDistantNegativeTerrainSections(playerSectionY);
     }
 
-    int missingChunks[MAX_ACTIVE_CHUNKS][2];
+    MissingChunkCandidate missing[MAX_ACTIVE_CHUNKS];
     int missingCount = 0;
-    for (int dz = -effectiveRenderDistance; dz <= effectiveRenderDistance; dz++) {
-        for (int dx = -effectiveRenderDistance; dx <= effectiveRenderDistance; dx++) {
-            int cx = playerCx + dx;
-            int cz = playerCz + dz;
-            if (FindChunk(cx, cz) || FindPendingGenJob(cx, cz)) continue;
-
-            int insert = missingCount;
-            int distance = abs(dx) > abs(dz) ? abs(dx) : abs(dz);
-            while (insert > 0) {
-                int prevDx = missingChunks[insert - 1][0] - playerCx;
-                int prevDz = missingChunks[insert - 1][1] - playerCz;
-                int prevDistance = abs(prevDx) > abs(prevDz) ? abs(prevDx) : abs(prevDz);
-                if (prevDistance <= distance) break;
-                missingChunks[insert][0] = missingChunks[insert - 1][0];
-                missingChunks[insert][1] = missingChunks[insert - 1][1];
-                insert--;
-            }
-            missingChunks[insert][0] = cx;
-            missingChunks[insert][1] = cz;
-            missingCount++;
-        }
-    }
+    CollectMissingChunkCandidates(missing, &missingCount, &focus, false);
+    CollectMissingChunkCandidates(missing, &missingCount, &focus, true);
 
     int submissions = 0;
-    for (int i = 0; i < missingCount && submissions < CHUNK_GEN_SUBMISSIONS_PER_FRAME; i++) {
-        if (EnsureChunk(missingChunks[i][0], missingChunks[i][1])) submissions++;
+    int preloadSubmissions = 0;
+    for (int i = 0; i < missingCount &&
+         submissions < CHUNK_GEN_SUBMISSIONS_PER_FRAME; i++) {
+        if (missing[i].preload &&
+            preloadSubmissions >= CHUNK_PRELOAD_SUBMISSIONS_PER_FRAME) {
+            continue;
+        }
+        if (EnsureChunk(
+                missing[i].cx, missing[i].cz, missing[i].preload)) {
+            submissions++;
+            if (missing[i].preload) preloadSubmissions++;
+        }
     }
-    ScheduleNearbyTerrainSections(playerPosition, effectiveRenderDistance);
-    ChunksUpdateLodTargets(playerPosition, WorldIsSurfaceActive());
+    ScheduleNearbyTerrainSections(request, &focus);
+    ChunksUpdateLodTargets(request->position, WorldIsSurfaceActive());
 }
 
 #ifdef CHUNKS_TESTING
@@ -828,12 +1052,12 @@ void ChunksTestFailNextColumnAllocation(void)
 
 bool ChunksTestEnsureChunk(int cx, int cz)
 {
-    return EnsureChunk(cx, cz);
+    return EnsureChunk(cx, cz, false);
 }
 
 bool ChunksTestFindPendingGenerationJob(int cx, int cz)
 {
-    return FindPendingGenJob(cx, cz);
+    return FindPendingGenJob(cx, cz, false);
 }
 
 void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
@@ -863,4 +1087,15 @@ int ChunksTestNextGenerationJobIndex(void)
     pthread_mutex_unlock(&genMutex);
     return index;
 }
+
+bool ChunksTestGenerationJobPreload(int jobIndex)
+{
+    assert(jobIndex >= 0 && jobIndex < MAX_CHUNK_GEN_JOBS);
+    pthread_mutex_lock(&genMutex);
+    bool preload = chunkGenJobs[jobIndex].inUse &&
+                   chunkGenJobs[jobIndex].preload;
+    pthread_mutex_unlock(&genMutex);
+    return preload;
+}
+
 #endif

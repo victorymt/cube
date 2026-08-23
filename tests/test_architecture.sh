@@ -144,11 +144,13 @@ for split_file in \
     src/world/chunks_mesh.c \
     src/world/chunks_water.c \
     src/world/chunks_runtime.c \
+    src/world/chunks_runtime_diagnostics.c \
     src/world/terrain_structures.c \
     src/ecology/entity.c \
     src/ecology/entity_simulation.c \
     src/gameplay/ship_runtime.c \
     src/app/game.c \
+    src/app/game_streaming.c \
     src/app/game_landing.c \
     src/app/game_world_transition.c \
     src/app/game_biology.c \

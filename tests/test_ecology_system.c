@@ -1674,7 +1674,10 @@ static void TestChunkUnloadReloadDeterminism(void)
     assert(WorldGetSeed() == seed);
     assert(ChunksStartGenThread());
 
-    UpdateChunks(playerPosition, MIN_RENDER_DISTANCE_CHUNKS);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = playerPosition,
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    });
     DrainChunkGen();
     assert(GetActiveChunkCount() == expectedChunkCount);
 
@@ -1876,7 +1879,10 @@ static void TestChunkUnloadReloadDeterminism(void)
                sizeof(chunks[index].floraStructures));
     }
 
-    UpdateChunks(playerPosition, MIN_RENDER_DISTANCE_CHUNKS);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = playerPosition,
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    });
     DrainChunkGen();
     assert(GetActiveChunkCount() == expectedChunkCount);
     for (int index = 0; index < snapshotCount; index++) {

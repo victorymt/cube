@@ -551,9 +551,12 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     WorldResetSurfaceRebaseEvent();
 
     if (WorldIsSurfaceActive()) {
-        UpdateChunks(player->position,
-                     EffectiveRenderDistanceForHeight(
-                         player->position.y + EYE_HEIGHT));
+        ChunkStreamingRequest request = {
+            .position = player->position,
+            .effectiveRenderDistance = EffectiveRenderDistanceForHeight(
+                player->position.y + EYE_HEIGHT)
+        };
+        UpdateChunks(&request);
     }
     transaction->loadedEditCount = loadedEditCount;
     return true;
