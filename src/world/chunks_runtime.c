@@ -1173,6 +1173,7 @@ void ChunksTestRunGenerationJob(int jobIndex)
 int ChunksTestScheduleTerrainSections(Vector3 playerPosition,
                                       int effectiveRenderDistance)
 {
+    if (!ChunkStreamingPositionIsValid(playerPosition)) return 0;
     ChunkStreamingRequest request = {
         .position = playerPosition,
         .effectiveRenderDistance = effectiveRenderDistance
@@ -1193,6 +1194,7 @@ int ChunksTestScheduleTerrainSections(Vector3 playerPosition,
 
 int ChunksTestPruneTerrainSections(Vector3 playerPosition)
 {
+    if (!ChunkStreamingPositionIsValid(playerPosition)) return 0;
     int playerY = (int)floorf(playerPosition.y);
     return InHeight(playerY)
         ? PruneDistantNegativeTerrainSections(
@@ -1202,6 +1204,7 @@ int ChunksTestPruneTerrainSections(Vector3 playerPosition)
 
 int ChunksTestCancelDistantSectionJobs(Vector3 playerPosition)
 {
+    if (!ChunkStreamingPositionIsValid(playerPosition)) return 0;
     int playerY = (int)floorf(playerPosition.y);
     return InHeight(playerY)
         ? CancelDistantNegativeSectionJobs(

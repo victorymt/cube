@@ -122,6 +122,7 @@ extern ChunkStreamingFocus chunkStreamingFocus;
 
 double ChunkNowMs(void);
 double ChunkThreadCpuNowMs(void);
+bool ChunkStreamingPositionIsValid(Vector3 position);
 bool NegativeTerrainSectionOutsideWindow(int sectionY, int playerSectionY);
 int ChunkSectionLowerBound(const Chunk *chunk, int sectionY);
 int ResolvedTerrainSectionLowerBound(const Chunk *chunk, int sectionY);

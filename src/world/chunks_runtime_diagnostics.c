@@ -160,10 +160,7 @@ bool ChunksGetSectionPipelineInfo(int cx, int sectionY, int cz,
 bool ChunksGetWaterRenderDebugInfo(Vector3 position,
                                    ChunkWaterRenderDebugInfo *outInfo)
 {
-    if (!outInfo || !isfinite(position.x) || !isfinite(position.y) ||
-        !isfinite(position.z) || position.x < (float)INT_MIN ||
-        position.x > (float)INT_MAX || position.z < (float)INT_MIN ||
-        position.z > (float)INT_MAX) {
+    if (!outInfo || !ChunkStreamingPositionIsValid(position)) {
         return false;
     }
 

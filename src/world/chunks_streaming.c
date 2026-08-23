@@ -7,6 +7,19 @@ static int requestedChunkWorkerCount = 0;
 static bool failNextColumnAllocation = false;
 #endif
 
+static bool ChunkStreamingCoordinateIsValid(float value)
+{
+    return isfinite(value) && (double)value >= (double)INT_MIN &&
+           (double)value < (double)INT_MAX;
+}
+
+bool ChunkStreamingPositionIsValid(Vector3 position)
+{
+    return ChunkStreamingCoordinateIsValid(position.x) &&
+           ChunkStreamingCoordinateIsValid(position.y) &&
+           ChunkStreamingCoordinateIsValid(position.z);
+}
+
 bool HasPendingGenJob(void)
 {
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
@@ -456,7 +469,7 @@ static bool FindPendingGenJob(int cx, int cz, bool promote)
         }
         if (spherical ? SurfaceChunkKeyEqual(job->surfaceKey, key)
                       : (job->cx == cx && job->cz == cz)) {
-            if (promote) job->preload = false;
+            if (promote && !job->running) job->preload = false;
             found = true;
             break;
         }
@@ -754,6 +767,9 @@ static ChunkStreamingFocus StreamingFocusForRequest(
     const ChunkStreamingRequest *request)
 {
     ChunkStreamingFocus focus = { 0 };
+    if (!request || !ChunkStreamingPositionIsValid(request->position)) {
+        return focus;
+    }
     int localX = 0;
     int localZ = 0;
     WorldToChunkLocal((int)floorf(request->position.x),
@@ -778,7 +794,10 @@ static ChunkStreamingFocus StreamingFocusForRequest(
     float velocityX = request->velocity.x;
     float velocityZ = request->velocity.z;
     float speed = sqrtf(velocityX * velocityX + velocityZ * velocityZ);
-    if (genWorkerThreadsStarted == 0u || maxPreload == 0 ||
+    pthread_mutex_lock(&genMutex);
+    bool workersStarted = genWorkerThreadsStarted != 0u;
+    pthread_mutex_unlock(&genMutex);
+    if (!workersStarted || maxPreload == 0 ||
         !isfinite(velocityX) || !isfinite(velocityZ) || !isfinite(speed) ||
         speed < CHUNK_PRELOAD_MIN_SPEED) {
         return focus;
@@ -789,8 +808,8 @@ static ChunkStreamingFocus StreamingFocusForRequest(
     float projectedZ = request->position.z +
         velocityZ * CHUNK_PRELOAD_LOOKAHEAD_SECONDS;
     if (!isfinite(projectedX) || !isfinite(projectedZ) ||
-        projectedX < (float)INT_MIN || projectedX > (float)INT_MAX ||
-        projectedZ < (float)INT_MIN || projectedZ > (float)INT_MAX) {
+        !ChunkStreamingCoordinateIsValid(projectedX) ||
+        !ChunkStreamingCoordinateIsValid(projectedZ)) {
         return focus;
     }
 
@@ -800,6 +819,18 @@ static ChunkStreamingFocus StreamingFocusForRequest(
                       &projectedCx, &projectedCz, &localX, &localZ);
     int offsetX = projectedCx - focus.currentCx;
     int offsetZ = projectedCz - focus.currentCz;
+    if (WorldIsSurfaceActive()) {
+        float originX = (float)WorldSurfaceMapOriginX();
+        float originZ = (float)WorldSurfaceMapOriginZ();
+        float half = (float)CHUNK_SIZE * 0.5f;
+        SurfaceMapOffset mapOffset = SurfaceShortestMapOffset(
+            originX + (float)focus.currentCx * (float)CHUNK_SIZE + half,
+            originZ + (float)focus.currentCz * (float)CHUNK_SIZE + half,
+            originX + (float)projectedCx * (float)CHUNK_SIZE + half,
+            originZ + (float)projectedCz * (float)CHUNK_SIZE + half);
+        offsetX = (int)lroundf(mapOffset.x / (float)CHUNK_SIZE);
+        offsetZ = (int)lroundf(mapOffset.z / (float)CHUNK_SIZE);
+    }
     if (offsetX < -maxPreload) offsetX = -maxPreload;
     if (offsetX > maxPreload) offsetX = maxPreload;
     if (offsetZ < -maxPreload) offsetZ = -maxPreload;
@@ -865,7 +896,7 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
             FreeChunkGenJobResult(job);
             *job = (ChunkGenJob){ 0 };
             streamingStats.generationCanceled++;
-        } else if (current || predicted) {
+        } else if ((current || predicted) && !job->running) {
             job->preload = !current;
         }
     }
@@ -900,15 +931,22 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
 static bool CoordinatesInCurrentRegion(
     int cx, int cz, const ChunkStreamingFocus *focus)
 {
-    return abs(cx - focus->currentCx) <= focus->renderDistance &&
-           abs(cz - focus->currentCz) <= focus->renderDistance;
+    Chunk candidate = {
+        .cx = cx,
+        .cz = cz,
+        .spherical = WorldIsSurfaceActive()
+    };
+    return ChunkGridDistanceFrom(
+               &candidate, focus->currentCx, focus->currentCz) <=
+           focus->renderDistance;
 }
 
 int ScheduleNearbyTerrainSections(
     const ChunkStreamingRequest *request,
     const ChunkStreamingFocus *focus)
 {
-    if (!request || !focus || !HomeWorldSurfaceIsActive()) return 0;
+    if (!request || !focus || !ChunkStreamingPositionIsValid(request->position) ||
+        !HomeWorldSurfaceIsActive()) return 0;
     int playerY = (int)floorf(request->position.y);
     if (!InHeight(playerY)) return 0;
     int playerSectionY = SurfaceSectionYFromBlockY(playerY);
@@ -995,7 +1033,7 @@ static void CollectMissingChunkCandidates(
 
 void UpdateChunks(const ChunkStreamingRequest *request)
 {
-    if (!request) return;
+    if (!request || !ChunkStreamingPositionIsValid(request->position)) return;
     ChunkStreamingFocus focus = StreamingFocusForRequest(request);
     chunkStreamingFocus = focus;
     ReclassifyStreamingWork(&focus);

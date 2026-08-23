@@ -184,6 +184,14 @@ grep -q '^void EntitiesUpdate(' src/ecology/entity_simulation.c ||
     fail "entity simulation must live in entity_simulation.c"
 grep -q '^void UpdateChunks(' src/world/chunks_streaming.c ||
     fail "chunk streaming must live in chunks_streaming.c"
+grep -q '^int GameUpdateWorldStreaming(' src/app/game_streaming.c ||
+    fail "world streaming update must live in game_streaming.c"
+grep -q '^ChunkPreloadInfo ChunksGetPreloadInfo(' \
+    src/world/chunks_runtime_diagnostics.c ||
+    fail "chunk preload diagnostics must live in chunks_runtime_diagnostics.c"
+grep -q '^bool ChunksGetSectionPipelineInfo(' \
+    src/world/chunks_runtime_diagnostics.c ||
+    fail "chunk pipeline diagnostics must live in chunks_runtime_diagnostics.c"
 grep -q '^typedef struct ChunkMeshBuildRequest {' \
     src/world/chunks_internal.h ||
     fail "chunk mesh builders must use a named request"

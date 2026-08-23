@@ -29,6 +29,8 @@ static bool generationProbeRelease = false;
 static int generationProbeActive = 0;
 static int generationProbeMaxActive = 0;
 static bool allowColumnGeneration = false;
+static int testSurfaceOriginX = 0;
+static int testSurfaceOriginZ = 0;
 
 static int FindPendingMeshJobFor(int slotIndex, int sectionY);
 
@@ -212,12 +214,12 @@ uint32_t WorldCurrentSurfaceId(void)
 
 int WorldSurfaceMapOriginX(void)
 {
-    return 0;
+    return testSurfaceOriginX;
 }
 
 int WorldSurfaceMapOriginZ(void)
 {
-    return 0;
+    return testSurfaceOriginZ;
 }
 
 bool HomeWorldSurfaceIsActive(void)
@@ -1647,6 +1649,163 @@ static void TestPredictivePreloadUsesVelocityAndCurrentCapacity(void)
     assert(ChunksTestNextGenerationJobIndex() == 0);
 }
 
+static void TestStreamingRejectsInvalidCoordinates(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    ChunkStreamingRequest valid = {
+        .position = { 0.5f, 80.0f, 0.5f },
+        .velocity = { 8.0f, 0.0f, 0.0f },
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = 2
+    };
+    UpdateChunks(&valid);
+    ChunkPreloadInfo before = ChunksGetPreloadInfo();
+    assert(before.active);
+
+    const Vector3 invalidPositions[] = {
+        { NAN, 80.0f, 0.5f },
+        { INFINITY, 80.0f, 0.5f },
+        { (float)INT_MAX, 80.0f, 0.5f },
+        { 0.5f, NAN, 0.5f },
+        { 0.5f, INFINITY, 0.5f },
+        { 0.5f, 80.0f, (float)INT_MAX }
+    };
+    for (size_t index = 0; index < sizeof(invalidPositions) /
+                                  sizeof(invalidPositions[0]); index++) {
+        valid.position = invalidPositions[index];
+        UpdateChunks(&valid);
+        ChunkPreloadInfo after = ChunksGetPreloadInfo();
+        assert(after.active == before.active);
+        assert(after.offsetX == before.offsetX);
+        assert(after.offsetZ == before.offsetZ);
+        assert(after.targetChunks == before.targetChunks);
+    }
+
+    assert(ChunksTestScheduleTerrainSections(
+               (Vector3){ NAN, 80.0f, 0.5f }, 2) == 0);
+    assert(ChunksTestPruneTerrainSections(
+               (Vector3){ 0.5f, INFINITY, 0.5f }) == 0);
+    assert(ChunksTestCancelDistantSectionJobs(
+               (Vector3){ 0.5f, NAN, 0.5f }) == 0);
+}
+
+static void TestPreloadSpeedAndDistanceLimits(void)
+{
+    ChunksTestResetScheduler();
+    ConfigureLoadedChunkSquare(MIN_RENDER_DISTANCE_CHUNKS);
+    ChunkStreamingRequest request = {
+        .position = { 0.5f, 80.0f, 0.5f },
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = -1
+    };
+    request.velocity = (Vector3){ 40.0f, 0.0f, 0.0f };
+    UpdateChunks(&request);
+    assert(!ChunksGetPreloadInfo().active);
+
+    request.maxPreloadChunks = 0;
+    UpdateChunks(&request);
+    assert(!ChunksGetPreloadInfo().active);
+
+    request.maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE + 10;
+    request.velocity = (Vector3){ 0.49f, 0.0f, 0.0f };
+    UpdateChunks(&request);
+    assert(!ChunksGetPreloadInfo().active);
+
+    request.velocity = (Vector3){ 0.5f, 0.0f, 0.0f };
+    UpdateChunks(&request);
+    ChunkPreloadInfo threshold = ChunksGetPreloadInfo();
+    assert(!threshold.active);
+    assert(threshold.offsetX == 0);
+    assert(threshold.offsetZ == 0);
+}
+
+static void TestSphericalSeamUsesShortestStreamingOffset(void)
+{
+    testSurfaceOriginX = 0;
+    testSurfaceOriginZ = 0;
+    ChunksTestResetScheduler();
+    const int seamChunk = SURFACE_EQUATOR_BLOCKS / (2 * CHUNK_SIZE) - 1;
+    ChunksTestConfigureChunk(0, seamChunk, 0, true, false);
+
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = {
+            seamChunk * CHUNK_SIZE + 0.5f, 80.0f, 0.5f
+        },
+        .velocity = { 8.0f, 0.0f, 0.0f },
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = 2
+    });
+    ChunkPreloadInfo info = ChunksGetPreloadInfo();
+    assert(info.active);
+    assert(info.offsetX == 1);
+    assert(info.offsetZ == 0);
+    testSurfaceOriginX = 0;
+    testSurfaceOriginZ = 0;
+}
+
+static void TestRunningPreloadJobKeepsStableClassification(void)
+{
+    ChunksTestResetScheduler();
+    ConfigureLoadedChunkSquare(DEFAULT_RENDER_DISTANCE_CHUNKS);
+    ChunkStreamingRequest request = {
+        .position = { 0.5f, 80.0f, 0.5f },
+        .velocity = { 40.0f, 0.0f, 0.0f },
+        .effectiveRenderDistance = DEFAULT_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+    };
+    UpdateChunks(&request);
+    assert(ChunksTestGenerationJobPreload(0));
+    ChunksTestSetGenerationJobRunning(0, true);
+
+    request.position.x = 64.5f;
+    request.velocity = (Vector3){ 0 };
+    UpdateChunks(&request);
+    assert(ChunksTestGenerationJobPreload(0));
+
+    ChunksTestSetGenerationJobRunning(0, false);
+    UpdateChunks(&request);
+    assert(!ChunksTestGenerationJobPreload(0));
+}
+
+static void TestCompletedPreloadColumnBecomesLoadedPreload(void)
+{
+    ChunksTestResetScheduler();
+    ConfigureLoadedChunkSquare(DEFAULT_RENDER_DISTANCE_CHUNKS);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 0.5f, 80.0f, 0.5f },
+        .velocity = { 40.0f, 0.0f, 0.0f },
+        .effectiveRenderDistance = DEFAULT_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+    });
+    assert(ChunksTestGenerationJobPreload(0));
+    allowColumnGeneration = true;
+    ChunksTestRunGenerationJob(0);
+    allowColumnGeneration = false;
+    ProcessFinishedChunkJobs();
+    ChunkPreloadInfo info = ChunksGetPreloadInfo();
+    assert(info.loadedChunks >= 1);
+    assert(info.pendingGenerationJobs < 8);
+}
+
+static void TestDiagonalPreloadReducesToAvailableCapacity(void)
+{
+    ChunksTestResetScheduler();
+    ConfigureLoadedChunkSquare(MAX_RENDER_DISTANCE_CHUNKS - 1);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 0.5f, 80.0f, 0.5f },
+        .velocity = { 40.0f, 0.0f, 40.0f },
+        .effectiveRenderDistance = MAX_RENDER_DISTANCE_CHUNKS - 1,
+        .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+    });
+    ChunkPreloadInfo info = ChunksGetPreloadInfo();
+    assert(info.active);
+    assert(info.offsetX == 2);
+    assert(info.offsetZ == 2);
+    const int side = (MAX_RENDER_DISTANCE_CHUNKS - 1) * 2 + 1;
+    assert(info.targetChunks + side * side <= MAX_ACTIVE_CHUNKS);
+}
+
 static void TestPredictivePreloadReversesAndStaysWithinCapacity(void)
 {
     ChunksTestResetScheduler();
@@ -1756,6 +1915,12 @@ int main(void)
     TestSurfaceChunkAliasesUseOneCanonicalIdentity();
     TestPolarChunkNeighborsBecomeDirty();
     TestCanonicalChunkIdentityStatsDetectAliases();
+    TestStreamingRejectsInvalidCoordinates();
+    TestPreloadSpeedAndDistanceLimits();
+    TestSphericalSeamUsesShortestStreamingOffset();
+    TestRunningPreloadJobKeepsStableClassification();
+    TestCompletedPreloadColumnBecomesLoadedPreload();
+    TestDiagonalPreloadReducesToAvailableCapacity();
     TestPredictivePreloadUsesVelocityAndCurrentCapacity();
     TestPredictivePreloadReversesAndStaysWithinCapacity();
     TestPreloadJobsYieldToCurrentWork();

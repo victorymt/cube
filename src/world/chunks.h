@@ -183,6 +183,7 @@ int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
 ChunkStreamingStats ChunksGetStreamingStats(void);
+/* Streaming diagnostics are main-thread-only snapshots. */
 ChunkPreloadInfo ChunksGetPreloadInfo(void);
 bool ChunksGetWaterRenderDebugInfo(Vector3 position,
                                    ChunkWaterRenderDebugInfo *outInfo);
