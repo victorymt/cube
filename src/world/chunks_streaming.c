@@ -7,6 +7,9 @@ static int requestedChunkWorkerCount = 0;
 static bool failNextColumnAllocation = false;
 #endif
 
+static bool ChunkInStreamingRegion(
+    const Chunk *chunk, int centerCx, int centerCz, int radius);
+
 static bool ChunkStreamingCoordinateIsValid(float value)
 {
     return isfinite(value) && (double)value >= (double)INT_MIN &&
@@ -44,7 +47,7 @@ ChunkGenJob *NextPendingGenJob(void)
     return oldest;
 }
 
-void GenerateChunkJobPayload(ChunkGenJob *job)
+void GenerateChunkJobPayload(ChunkGenJob *job, bool preload)
 {
     if (!job) return;
     FreeChunkGenJobResult(job);
@@ -62,7 +65,7 @@ void GenerateChunkJobPayload(ChunkGenJob *job)
         if (!staged) return;
         *staged = (Chunk){
             .generating = true,
-            .preloaded = job->preload,
+            .preloaded = preload,
             .cx = job->cx,
             .cz = job->cz,
             .spherical = job->spherical,
@@ -135,13 +138,14 @@ void *ChunkGenWorker(void *arg)
             if (job) preferMesh = true;
         }
         if (job) {
+            bool preload = job->preload;
             job->running = true;
             job->startedAtMs = ChunkNowMs();
             genWorkerThreadsActive++;
             pthread_mutex_unlock(&genMutex);
 
             double startedMs = ChunkNowMs();
-            GenerateChunkJobPayload(job);
+            GenerateChunkJobPayload(job, preload);
             double elapsedMs = ChunkNowMs() - startedMs;
 
             pthread_mutex_lock(&genMutex);
@@ -578,6 +582,9 @@ void CompleteChunkGenJob(ChunkGenJob *job)
     ChunkClearBlockStorage(chunk);
     *chunk = generated;
     chunk->generation = generation;
+    chunk->preloaded = !ChunkInStreamingRegion(
+        chunk, chunkStreamingFocus.currentCx, chunkStreamingFocus.currentCz,
+        chunkStreamingFocus.renderDistance);
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
@@ -852,6 +859,16 @@ static bool ChunkInStreamingRegion(
         ChunkGridDistanceFrom(chunk, centerCx, centerCz) <= radius;
 }
 
+static bool MeshJobTargetMatchesChunk(const MeshJob *job, const Chunk *chunk)
+{
+    return job && chunk && chunk->loaded && chunk->cx == job->cx &&
+           chunk->cz == job->cz &&
+           chunk->generation == job->chunkGeneration &&
+           chunk->spherical == job->spherical &&
+           (!job->spherical ||
+            SurfaceChunkKeyEqual(chunk->surfaceKey, job->surfaceKey));
+}
+
 static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
 {
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
@@ -907,6 +924,17 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
             continue;
         }
         Chunk *chunk = &chunks[job->slotIndex];
+        if (!MeshJobTargetMatchesChunk(job, chunk)) {
+            if (!job->running) {
+                FreeMeshData(&job->mesh);
+                FreeMeshData(&job->waterMesh);
+                FreeMeshData(&job->floraMesh);
+                free(job->floraInstances);
+                *job = (MeshJob){ 0 };
+                streamingStats.meshCanceled++;
+            }
+            continue;
+        }
         bool current = ChunkInStreamingRegion(
             chunk, focus->currentCx, focus->currentCz,
             focus->renderDistance);
@@ -920,7 +948,7 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
             free(job->floraInstances);
             *job = (MeshJob){ 0 };
             streamingStats.meshCanceled++;
-        } else if (current || predicted) {
+        } else if ((current || predicted) && !job->running) {
             job->preload = !current;
         }
     }

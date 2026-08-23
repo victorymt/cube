@@ -477,7 +477,10 @@ static bool UploadMeshJob(MeshJob *job)
     }
 
     pthread_mutex_lock(&genMutex);
-    if (job) job->inUse = false;
+    if (job) {
+        job->running = false;
+        job->inUse = false;
+    }
     bool pending = job && snapshotCurrent && FindPendingMeshJobForStamp(
         job->slotIndex, job->sectionY, section->dirtyStamp, job->lod);
     if (job && !snapshotCurrent) streamingStats.meshCanceled++;
@@ -533,6 +536,7 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
         job->nearbyCount = 0;
     }
     job->inUse = true;
+    job->running = false;
     job->done = false;
     job->priority = priority;
     job->preload = chunk->preloaded;
@@ -629,14 +633,17 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
                 job = candidate;
             }
         }
-        pthread_mutex_unlock(&genMutex);
-        if (!job) break;
+        if (!job) {
+            pthread_mutex_unlock(&genMutex);
+            break;
+        }
         if (uploaded > 0 && ChunkNowMs() - startedMs >= uploadBudgetMs) {
-            pthread_mutex_lock(&genMutex);
             streamingStats.uploadBudgetDeferrals++;
             pthread_mutex_unlock(&genMutex);
             break;
         }
+        job->running = true;
+        pthread_mutex_unlock(&genMutex);
         double uploadStartedMs = ChunkNowMs();
         bool uploadedJob = UploadMeshJob(job);
         double uploadElapsedMs = ChunkNowMs() - uploadStartedMs;
@@ -1158,10 +1165,11 @@ void ChunksTestRunGenerationJob(int jobIndex)
     pthread_mutex_lock(&genMutex);
     ChunkGenJob *job = &chunkGenJobs[jobIndex];
     assert(job->inUse && !job->done);
+    bool preload = job->preload;
     job->running = true;
     pthread_mutex_unlock(&genMutex);
 
-    GenerateChunkJobPayload(job);
+    GenerateChunkJobPayload(job, preload);
 
     pthread_mutex_lock(&genMutex);
     job->running = false;

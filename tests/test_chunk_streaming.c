@@ -1766,6 +1766,54 @@ static void TestRunningPreloadJobKeepsStableClassification(void)
     ChunksTestSetGenerationJobRunning(0, false);
     UpdateChunks(&request);
     assert(!ChunksTestGenerationJobPreload(0));
+
+    allowColumnGeneration = true;
+    ChunksTestRunGenerationJob(0);
+    allowColumnGeneration = false;
+    ProcessFinishedChunkJobs();
+    assert(ChunksGetPreloadInfo().loadedChunks == 0);
+}
+
+static void TestRunningPreloadMeshKeepsStableClassification(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, false);
+    ChunksTestSeedMeshJob(0, 0, 0, 0, 0, false);
+    ChunksTestSetMeshJobPreload(0, true);
+    ChunksTestSetMeshJobRunning(0, true);
+
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 1600.5f, 80.0f, 0.5f },
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    });
+    assert(ChunksTestMeshJobSlot(0) == 0);
+    assert(ChunksTestMeshJobPreload(0));
+
+    ChunksTestSetMeshJobRunning(0, false);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 1600.5f, 80.0f, 0.5f },
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    });
+    assert(ChunksTestMeshJobSlot(0) == -1);
+    assert(ChunksGetStreamingStats().meshCanceled >= 1);
+}
+
+static void TestUploadedMeshSlotCanBeReused(void)
+{
+    ChunksTestResetScheduler();
+    ChunksTestConfigureChunk(0, 0, 0, true, true);
+    RebuildDirtyChunkMeshes((Vector3){ 0.5f, 1.0f, 0.5f });
+    assert(ChunksTestMeshJobSlot(0) == 0);
+    ChunksTestCompleteMeshJob(0);
+    ProcessFinishedMeshJobs(0.0);
+    assert(ChunksTestMeshJobSlot(0) == -1);
+
+    ChunkSection *section = ChunkGetSection(&chunks[0], 0, false);
+    assert(section != NULL);
+    section->dirty = true;
+    RebuildDirtyChunkMeshes((Vector3){ 0.5f, 1.0f, 0.5f });
+    assert(ChunksTestMeshJobSlot(0) == 0);
+    assert(ChunksTestNextMeshJobIndex() == 0);
 }
 
 static void TestCompletedPreloadColumnBecomesLoadedPreload(void)
@@ -1919,6 +1967,8 @@ int main(void)
     TestPreloadSpeedAndDistanceLimits();
     TestSphericalSeamUsesShortestStreamingOffset();
     TestRunningPreloadJobKeepsStableClassification();
+    TestRunningPreloadMeshKeepsStableClassification();
+    TestUploadedMeshSlotCanBeReused();
     TestCompletedPreloadColumnBecomesLoadedPreload();
     TestDiagonalPreloadReducesToAvailableCapacity();
     TestPredictivePreloadUsesVelocityAndCurrentCapacity();

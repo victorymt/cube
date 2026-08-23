@@ -135,7 +135,7 @@ void ReplaceChunkModel(Model *model, bool *hasModel,
                        Mesh *mesh, bool hasMesh, bool dynamic);
 void MarkSectionDirty(ChunkSection *section);
 void *ChunkGenWorker(void *arg);
-void GenerateChunkJobPayload(ChunkGenJob *job);
+void GenerateChunkJobPayload(ChunkGenJob *job, bool preload);
 void FreeChunkGenJobResult(ChunkGenJob *job);
 int ScheduleNearbyTerrainSections(
     const ChunkStreamingRequest *request,
