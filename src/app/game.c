@@ -1435,6 +1435,12 @@ int GameRun(int argc, char **argv)
                 MAX_CHUNK_WORKER_THREADS);
         return 2;
     }
+    if (game.debugTracePathInvalid) {
+        fprintf(stderr,
+                "Invalid --debug-trace option; expected an optional "
+                "non-empty path shorter than 512 bytes.\n");
+        return 2;
+    }
     if (!GameDebugScriptLoad(&game)) {
         GameDebugScriptStop(&game);
         DebugDslEnvironmentDestroy(game.debugDslEnvironment);

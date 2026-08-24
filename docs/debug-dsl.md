@@ -120,7 +120,10 @@ startup the process writes a readiness line similar to:
 DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
 
-`--debug-trace [PATH]` can be combined with either debug entry point. Its JSONL
+`--debug-trace [PATH]` can be combined with either debug entry point. Omitting
+`PATH` selects the default trace location; an explicitly empty path or a path
+of 512 bytes or longer is a startup error (exit code `2`) before a window is
+created. Its JSONL
 records include monotonic wall time as `elapsed_real_ms` and process CPU time
 as `elapsed_cpu_ms`. `elapsed_main_cpu_ms` isolates the main game/render
 thread from background generation and meshing. Comparing their deltas
@@ -402,6 +405,7 @@ also be rejected by the current game state (for example, `teleport` before
 ```text
 start
 status
+pause on|off
 world topology
 screenshot
 save

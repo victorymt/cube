@@ -46,7 +46,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run test test-headers test-modules test-architecture test-ci test-sanitize test-coverage test-e2e test-long-run benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run test test-headers test-modules test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
 
 all: $(TARGET)
 
@@ -127,7 +127,7 @@ $(TEST_BUILD_DIR)/%: tests/%.c $$(TEST_SOURCES_$$*) $(TEST_HEADERS) $(BUILD_CONF
 run: $(TARGET)
 	./$(TARGET)
 
-test: test-headers test-modules $(TEST_TARGETS)
+test: test-headers test-modules $(TEST_TARGETS) test-debug-cli
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
 
@@ -164,6 +164,9 @@ test-coverage:
 
 test-e2e: $(TARGET)
 	bash tests/test_game_e2e.sh $(TARGET)
+
+test-debug-cli: $(TARGET)
+	@bash tests/test_debug_cli.sh $(TARGET)
 
 # The weather runtime test includes a deterministic multi-thousand-frame
 # simulation loop in addition to its focused boundary cases.
