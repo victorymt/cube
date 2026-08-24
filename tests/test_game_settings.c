@@ -104,6 +104,36 @@ static void TestVersionTwoMigration(void)
     unlink(path);
 }
 
+static void TestMalformedRecords(void)
+{
+    const char *path = "/tmp/voxelcraft_settings_malformed_test.cfg";
+    GameSettings loaded;
+    FILE *file = fopen(path, "wb");
+    assert(file);
+    fputs("VOXELCRAFT_SETTINGS 3\nunknown_setting=1\n", file);
+    fclose(file);
+    assert(!GameSettingsLoadPath(path, &loaded));
+    assert(loaded.graphicsQuality == GRAPHICS_QUALITY_MEDIUM);
+
+    file = fopen(path, "wb");
+    assert(file);
+    fputs("VOXELCRAFT_SETTINGS 3\nmusic_enabled=1\nmusic_enabled=0\n",
+          file);
+    fclose(file);
+    assert(!GameSettingsLoadPath(path, &loaded));
+    assert(loaded.musicEnabled);
+
+    file = fopen(path, "wb");
+    assert(file);
+    fputs("VOXELCRAFT_SETTINGS 3\nmaster_volume=", file);
+    for (int index = 0; index < 300; index++) fputc('1', file);
+    fputc('\n', file);
+    fclose(file);
+    assert(!GameSettingsLoadPath(path, &loaded));
+    assert(loaded.masterVolume == 1.0f);
+    unlink(path);
+}
+
 static void TestSanitize(void)
 {
     GameSettings invalid = GameSettingsDefaults();
@@ -131,6 +161,7 @@ int main(void)
     TestRoundTripAndCorruption();
     TestVersionOneMigration();
     TestVersionTwoMigration();
+    TestMalformedRecords();
     TestSanitize();
     puts("game settings tests passed");
     return 0;

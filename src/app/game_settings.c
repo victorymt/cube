@@ -10,6 +10,16 @@
 
 #define GAME_SETTINGS_VERSION 3
 
+enum {
+    SETTINGS_KEY_GRAPHICS_QUALITY = 1u << 0,
+    SETTINGS_KEY_CHUNK_WORKER_COUNT = 1u << 1,
+    SETTINGS_KEY_MASTER_VOLUME = 1u << 2,
+    SETTINGS_KEY_AMBIENT_VOLUME = 1u << 3,
+    SETTINGS_KEY_MUSIC_VOLUME = 1u << 4,
+    SETTINGS_KEY_MUSIC_ENABLED = 1u << 5,
+    SETTINGS_KEY_WEATHER_DAMAGE_ENABLED = 1u << 6
+};
+
 static float SettingsUnit(float value, float fallback)
 {
     if (!isfinite(value)) return fallback;
@@ -62,6 +72,25 @@ static char *Trim(char *text)
     return text;
 }
 
+static unsigned SettingsKeyBit(const char *key)
+{
+    if (strcmp(key, "graphics_quality") == 0)
+        return SETTINGS_KEY_GRAPHICS_QUALITY;
+    if (strcmp(key, "chunk_worker_count") == 0)
+        return SETTINGS_KEY_CHUNK_WORKER_COUNT;
+    if (strcmp(key, "master_volume") == 0)
+        return SETTINGS_KEY_MASTER_VOLUME;
+    if (strcmp(key, "ambient_volume") == 0)
+        return SETTINGS_KEY_AMBIENT_VOLUME;
+    if (strcmp(key, "music_volume") == 0)
+        return SETTINGS_KEY_MUSIC_VOLUME;
+    if (strcmp(key, "music_enabled") == 0)
+        return SETTINGS_KEY_MUSIC_ENABLED;
+    if (strcmp(key, "weather_damage_enabled") == 0)
+        return SETTINGS_KEY_WEATHER_DAMAGE_ENABLED;
+    return 0u;
+}
+
 bool GameSettingsLoadPath(const char *path, GameSettings *settings)
 {
     if (!settings) return false;
@@ -75,6 +104,10 @@ bool GameSettingsLoadPath(const char *path, GameSettings *settings)
         fclose(file);
         return false;
     }
+    if (!strchr(line, '\n') && !feof(file)) {
+        fclose(file);
+        return false;
+    }
     int version = 0;
     if (sscanf(line, "VOXELCRAFT_SETTINGS %d", &version) != 1 ||
         version < 1 || version > GAME_SETTINGS_VERSION) {
@@ -84,34 +117,45 @@ bool GameSettingsLoadPath(const char *path, GameSettings *settings)
 
     GameSettings loaded = GameSettingsDefaults();
     bool valid = true;
+    unsigned seenKeys = 0u;
     while (fgets(line, sizeof(line), file)) {
+        if (!strchr(line, '\n') && !feof(file)) {
+            valid = false;
+            break;
+        }
         char *separator = strchr(line, '=');
         if (!separator) continue;
         *separator = '\0';
         char *key = Trim(line);
         char *value = Trim(separator + 1);
+        unsigned keyBit = SettingsKeyBit(key);
+        if (!keyBit || (seenKeys & keyBit)) {
+            valid = false;
+            continue;
+        }
+        seenKeys |= keyBit;
         int integer = 0;
         float number = 0.0f;
-        if (strcmp(key, "graphics_quality") == 0) {
+        if (keyBit == SETTINGS_KEY_GRAPHICS_QUALITY) {
             if (sscanf(value, "%d", &integer) != 1) valid = false;
             else loaded.graphicsQuality = (GraphicsQuality)integer;
-        } else if (strcmp(key, "chunk_worker_count") == 0) {
+        } else if (keyBit == SETTINGS_KEY_CHUNK_WORKER_COUNT) {
             if (sscanf(value, "%d", &integer) != 1) valid = false;
             else loaded.chunkWorkerCount = integer;
-        } else if (strcmp(key, "master_volume") == 0) {
+        } else if (keyBit == SETTINGS_KEY_MASTER_VOLUME) {
             if (sscanf(value, "%f", &number) != 1) valid = false;
             else loaded.masterVolume = number;
-        } else if (strcmp(key, "ambient_volume") == 0) {
+        } else if (keyBit == SETTINGS_KEY_AMBIENT_VOLUME) {
             if (sscanf(value, "%f", &number) != 1) valid = false;
             else loaded.ambientVolume = number;
-        } else if (strcmp(key, "music_volume") == 0) {
+        } else if (keyBit == SETTINGS_KEY_MUSIC_VOLUME) {
             if (sscanf(value, "%f", &number) != 1) valid = false;
             else loaded.musicVolume = number;
-        } else if (strcmp(key, "music_enabled") == 0) {
+        } else if (keyBit == SETTINGS_KEY_MUSIC_ENABLED) {
             if (sscanf(value, "%d", &integer) != 1 ||
                 (integer != 0 && integer != 1)) valid = false;
             else loaded.musicEnabled = integer != 0;
-        } else if (strcmp(key, "weather_damage_enabled") == 0) {
+        } else if (keyBit == SETTINGS_KEY_WEATHER_DAMAGE_ENABLED) {
             if (sscanf(value, "%d", &integer) != 1 ||
                 (integer != 0 && integer != 1)) valid = false;
             else loaded.weatherDamageEnabled = integer != 0;
