@@ -869,6 +869,23 @@ static bool MeshJobTargetMatchesChunk(const MeshJob *job, const Chunk *chunk)
             SurfaceChunkKeyEqual(chunk->surfaceKey, job->surfaceKey));
 }
 
+static bool ChunkGenJobTargetMatchesChunk(
+    const ChunkGenJob *job, const Chunk *chunk)
+{
+    if (!job || !chunk || job->cx != chunk->cx || job->cz != chunk->cz ||
+        job->chunkGeneration != chunk->generation ||
+        job->spherical != chunk->spherical ||
+        (job->spherical &&
+         !SurfaceChunkKeyEqual(chunk->surfaceKey, job->surfaceKey))) {
+        return false;
+    }
+    if (job->scope == CHUNK_GEN_SCOPE_COLUMN) {
+        return chunk->generating && !chunk->loaded;
+    }
+    if (job->scope == CHUNK_GEN_SCOPE_SECTION) return chunk->loaded;
+    return false;
+}
+
 static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
 {
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
@@ -887,7 +904,7 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
             chunk->preloaded = false;
         } else if (current || predicted) {
             chunk->preloaded = !current;
-        } else if (chunk->generating && chunk->preloaded) {
+        } else if (chunk->generating) {
             chunk->generation++;
             if (chunk->generation == 0u) chunk->generation = 1u;
             chunk->generating = false;
@@ -903,13 +920,19 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
             continue;
         }
         Chunk *chunk = &chunks[job->slotIndex];
+        if (!ChunkGenJobTargetMatchesChunk(job, chunk) && !job->running) {
+            FreeChunkGenJobResult(job);
+            *job = (ChunkGenJob){ 0 };
+            streamingStats.generationCanceled++;
+            continue;
+        }
         bool current = ChunkInStreamingRegion(
             chunk, focus->currentCx, focus->currentCz,
             focus->renderDistance);
         bool predicted = ChunkInStreamingRegion(
             chunk, focus->predictedCx, focus->predictedCz,
             focus->renderDistance);
-        if (job->preload && !current && !predicted && !job->running) {
+        if (!current && !predicted && !job->running) {
             FreeChunkGenJobResult(job);
             *job = (ChunkGenJob){ 0 };
             streamingStats.generationCanceled++;

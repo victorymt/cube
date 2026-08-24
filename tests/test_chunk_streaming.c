@@ -1798,6 +1798,32 @@ static void TestRunningPreloadMeshKeepsStableClassification(void)
     assert(ChunksGetStreamingStats().meshCanceled >= 1);
 }
 
+static void TestEvictedGeneratingColumnCancelsStaleJob(void)
+{
+    ChunksTestResetScheduler();
+    assert(ChunksTestEnsureChunk(0, 0));
+
+    Chunk *generating = NULL;
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        if (chunks[index].generating && chunks[index].cx == 0 &&
+            chunks[index].cz == 0) {
+            generating = &chunks[index];
+            break;
+        }
+    }
+    assert(generating != NULL);
+    assert(ChunksTestFindPendingGenerationJob(0, 0));
+
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 1600.5f, 80.0f, 0.5f },
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
+    });
+
+    assert(!ChunksTestFindPendingGenerationJob(0, 0));
+    assert(!FindChunk(0, 0));
+    assert(ChunksGetStreamingStats().generationCanceled >= 1);
+}
+
 static void TestUploadedMeshSlotCanBeReused(void)
 {
     ChunksTestResetScheduler();
@@ -1968,6 +1994,7 @@ int main(void)
     TestSphericalSeamUsesShortestStreamingOffset();
     TestRunningPreloadJobKeepsStableClassification();
     TestRunningPreloadMeshKeepsStableClassification();
+    TestEvictedGeneratingColumnCancelsStaleJob();
     TestUploadedMeshSlotCanBeReused();
     TestCompletedPreloadColumnBecomesLoadedPreload();
     TestDiagonalPreloadReducesToAvailableCapacity();

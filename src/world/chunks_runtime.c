@@ -948,6 +948,12 @@ void ChunksTestResetScheduler(void)
         FreeChunkGenJobResult(&chunkGenJobs[i]);
     }
     memset(chunkGenJobs, 0, sizeof(chunkGenJobs));
+    for (int i = 0; i < MAX_MESH_JOBS; i++) {
+        FreeMeshData(&meshJobs[i].mesh);
+        FreeMeshData(&meshJobs[i].waterMesh);
+        FreeMeshData(&meshJobs[i].floraMesh);
+        free(meshJobs[i].floraInstances);
+    }
     memset(meshJobs, 0, sizeof(meshJobs));
     chunkStreamingFocus = (ChunkStreamingFocus){ 0 };
     nextMeshQueueSequence = 0u;
@@ -1115,6 +1121,7 @@ void ChunksTestFillGenerationQueue(void)
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
         chunkGenJobs[i] = (ChunkGenJob){
             .inUse = true,
+            .slotIndex = -1,
             .cx = 10000 + i,
             .cz = 10000
         };

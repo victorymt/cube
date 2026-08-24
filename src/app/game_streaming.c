@@ -1,4 +1,4 @@
-#include "app/game_internal.h"
+#include "app/game_runtime.h"
 #include "ecology/entity.h"
 #include "gameplay/ship.h"
 #include "space/space_chunks.h"
