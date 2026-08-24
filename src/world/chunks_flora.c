@@ -162,7 +162,7 @@ bool ChunkFloraStructureOwnsBlock(
         worldX, y, worldZ, block) >= 0;
 }
 
-static void CopyBlocksWithoutFloraStructures(
+void CopyBlocksWithoutFloraStructures(
     unsigned short destination[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     const unsigned short source[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,

@@ -1044,6 +1044,15 @@ static void AssertHomeTreeFloraMeshPartition(void)
             full.floraStructureCount, faces, NULL, 0,
             GREEDY_MESH_MAX_SPAN, NULL, &solid));
         assert(solid.vertexCount == 0);
+
+        unsigned short lodBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT]
+                                [CHUNK_SIZE];
+        CopyBlocksWithoutFloraStructures(
+            lodBlocks, section->blocks,
+            section->sectionY * SURFACE_SECTION_HEIGHT,
+            full.cx, full.cz, full.floraStructures,
+            full.floraStructureCount);
+        assert(lodBlocks[8][15][8] == BLOCK_AIR);
     }
     assert(leafCount > 20);
 

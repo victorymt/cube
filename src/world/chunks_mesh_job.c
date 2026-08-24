@@ -32,11 +32,18 @@ void BuildMeshJobPayload(MeshJob *job)
             &job->boundary, &job->floraMesh,
             &job->floraInstances, &job->floraInstanceCount);
     } else {
+        unsigned short lodBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT]
+                                [CHUNK_SIZE];
+        CopyBlocksWithoutFloraStructures(
+            lodBlocks, job->blocks,
+            job->sectionY * SURFACE_SECTION_HEIGHT,
+            job->cx, job->cz,
+            job->floraStructures, job->floraStructureCount);
         job->hasMesh = BuildChunkLodHeightfieldMeshData(
-            job->blocks, job->cx, job->cz, job->lod,
+            lodBlocks, job->cx, job->cz, job->lod,
             &job->boundary, &job->mesh);
         job->hasWaterMesh = BuildChunkLodWaterHeightfieldMeshData(
-            job->blocks, job->waterVolumes, job->cx, job->cz,
+            lodBlocks, job->waterVolumes, job->cx, job->cz,
             job->lod, &job->boundary, &job->waterMesh);
     }
 

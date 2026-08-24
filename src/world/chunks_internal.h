@@ -179,6 +179,13 @@ bool BuildChunkSurfaceSolidMeshData(
     int nearbyTorchCount, int greedyMaxSpan,
     const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh);
+void CopyBlocksWithoutFloraStructures(
+    unsigned short destination[CHUNK_SIZE][SURFACE_SECTION_HEIGHT]
+                             [CHUNK_SIZE],
+    const unsigned short source[CHUNK_SIZE][SURFACE_SECTION_HEIGHT]
+                         [CHUNK_SIZE],
+    int layerY, int chunkX, int chunkZ,
+    const FloraStructureInstance *structures, int structureCount);
 bool BuildChunkLodHeightfieldMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int chunkX, int chunkZ, ChunkLodLevel lod,
