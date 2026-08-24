@@ -7,6 +7,7 @@ PRESENTATION_SRC := $(sort $(wildcard src/presentation/*.c))
 APP_SRC := $(sort $(wildcard src/app/*.c))
 
 SPACE_FEATURE_SRC := \
+	src/core/simulation_time.c \
 	src/space/space.c \
 	src/space/space_state.c \
 	src/space/space_runtime.c \

@@ -159,6 +159,7 @@ $(eval $(call define_test,DEBUG_DSL_STDIN_TEST_TARGET,test_debug_dsl_stdin,src/c
 $(eval $(call define_test,DEBUG_DSL_TEST_TARGET,test_debug_dsl,src/core/debug_dsl.c src/core/debug_dsl_error.c,,,, -lm,,))
 $(eval $(call define_test,GAME_EFFECTS_TEST_TARGET,test_game_effects,$(GAME_EFFECTS_SRC),,,,, $(RAYLIB_CFLAGS),))
 $(eval $(call define_test,GAME_NOTICE_TEST_TARGET,test_game_notice,src/core/game_notice.c,,,,,,))
+$(eval $(call define_test,SIMULATION_TIME_TEST_TARGET,test_simulation_time,src/core/simulation_time.c,,,, -lm,,))
 $(eval $(call define_test,GAME_DEBUG_TRACE_TEST_TARGET,test_game_debug_trace,src/app/game_debug_trace.c,,-DGAME_DEBUG_TRACE_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,GAME_STREAM_AUDIT_TEST_TARGET,test_game_stream_audit,src/app/game_stream_audit.c,,-DGAME_STREAM_AUDIT_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,ENVIRONMENT_PRESENTATION_TEST_TARGET,test_environment_presentation,src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,,))

@@ -1,5 +1,7 @@
 #include "space/space_internal.h"
 
+#include "core/simulation_time.h"
+
 static const char *const starNamePart1[] = {
     "Al", "Bel", "Cer", "Dra", "Eri", "Fen", "Gar", "Hal", "Ith", "Jun",
     "Kel", "Lor", "Mir", "Neb", "Or", "Pry", "Quel", "Rav", "Tha", "Umb",
@@ -573,9 +575,7 @@ void SpaceAdvanceTime(float gameTimeDelta)
 
 double SpacePeriodicSimulationTime(double elapsedTime)
 {
-    if (!isfinite(elapsedTime) || elapsedTime < 0.0) return 0.0;
-    return elapsedTime > 100000000.0
-        ? fmod(elapsedTime, 1000000.0) : elapsedTime;
+    return SimulationTimePeriodic(elapsedTime);
 }
 
 double SpaceSimulationTime(void)
