@@ -164,6 +164,92 @@ static void TestCanonicalMapCells(void)
            SurfaceCanonicalMapHash(4u, 12.0f, -38.0f, 7));
 }
 
+static SurfaceMapCell CanonicalAddressCell(uint32_t bodyId, float mapX,
+                                           float mapZ, int radial)
+{
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        bodyId, mapX, mapZ, radial);
+    assert(SurfaceAddressIsValid(address));
+    SurfaceMapCell cell;
+    assert(SurfaceAddressCanonicalMapCell(address, &cell));
+    return cell;
+}
+
+static void AssertCanonicalCellInRange(SurfaceMapCell cell)
+{
+    assert(cell.x >= -SURFACE_EQUATOR_BLOCKS / 2);
+    assert(cell.x < SURFACE_EQUATOR_BLOCKS / 2);
+    assert(cell.z >= -SURFACE_POLE_TO_POLE_BLOCKS / 2);
+    assert(cell.z < SURFACE_POLE_TO_POLE_BLOCKS / 2);
+}
+
+static void TestCanonicalAddressCellsAcrossSeamAndPoles(void)
+{
+    const int halfEquator = SURFACE_EQUATOR_BLOCKS / 2;
+    const int pole = SURFACE_POLE_TO_POLE_BLOCKS / 2;
+
+    /* The longitude seam is periodic, including its two boundary cells. */
+    const int seamRows[] = { -pole, 0, pole - 1 };
+    const int seamColumns[] = { -halfEquator, halfEquator - 1 };
+    for (size_t row = 0; row < sizeof(seamRows) / sizeof(seamRows[0]); row++) {
+        for (size_t column = 0;
+             column < sizeof(seamColumns) / sizeof(seamColumns[0]); column++) {
+            int sourceX = seamColumns[column];
+            float sourceMapX = (float)sourceX + 0.5f;
+            float sourceMapZ = (float)seamRows[row] + 0.5f;
+            SurfaceAddress source = SurfaceAddressFromMapCoordinates(
+                23u, sourceMapX, sourceMapZ, 5);
+            SurfaceAddress wrapped = SurfaceAddressFromMapCoordinates(
+                23u, sourceMapX + (float)SURFACE_EQUATOR_BLOCKS,
+                sourceMapZ, 5);
+            assert(SurfaceAddressEqual(source, wrapped));
+            SurfaceMapCell sourceCell = CanonicalAddressCell(
+                23u, sourceMapX, sourceMapZ, 5);
+            SurfaceMapCell wrappedCell = CanonicalAddressCell(
+                23u, sourceMapX + (float)SURFACE_EQUATOR_BLOCKS,
+                sourceMapZ, 5);
+            assert(sourceCell.x == wrappedCell.x);
+            assert(sourceCell.z == wrappedCell.z);
+            AssertCanonicalCellInRange(sourceCell);
+        }
+    }
+
+    /* Crossing either pole rotates longitude by half a turn.  The aliases
+     * must resolve to the same canonical map cell as their source cells. */
+    const int sourceX = 317;
+    const int northSourceZ = pole - 1;
+    const int northAliasX = sourceX + halfEquator;
+    const int northAliasZ = 2 * pole - 1 - northSourceZ;
+    SurfaceAddress northSource = SurfaceAddressFromMapCoordinates(
+        23u, (float)sourceX + 0.5f, (float)northSourceZ + 0.5f, 5);
+    SurfaceAddress northAlias = SurfaceAddressFromMapCoordinates(
+        23u, (float)northAliasX + 0.5f, (float)northAliasZ + 0.5f, 5);
+    assert(SurfaceAddressEqual(northSource, northAlias));
+    SurfaceMapCell northSourceCell = CanonicalAddressCell(
+        23u, (float)sourceX + 0.5f, (float)northSourceZ + 0.5f, 5);
+    SurfaceMapCell northAliasCell = CanonicalAddressCell(
+        23u, (float)northAliasX + 0.5f, (float)northAliasZ + 0.5f, 5);
+    assert(northSourceCell.x == northAliasCell.x);
+    assert(northSourceCell.z == northAliasCell.z);
+    AssertCanonicalCellInRange(northSourceCell);
+
+    const int southSourceZ = -pole;
+    const int southAliasX = sourceX + halfEquator;
+    const int southAliasZ = -2 * pole - 1 - southSourceZ;
+    SurfaceAddress southSource = SurfaceAddressFromMapCoordinates(
+        23u, (float)sourceX + 0.5f, (float)southSourceZ + 0.5f, 5);
+    SurfaceAddress southAlias = SurfaceAddressFromMapCoordinates(
+        23u, (float)southAliasX + 0.5f, (float)southAliasZ + 0.5f, 5);
+    assert(SurfaceAddressEqual(southSource, southAlias));
+    SurfaceMapCell southSourceCell = CanonicalAddressCell(
+        23u, (float)sourceX + 0.5f, (float)southSourceZ + 0.5f, 5);
+    SurfaceMapCell southAliasCell = CanonicalAddressCell(
+        23u, (float)southAliasX + 0.5f, (float)southAliasZ + 0.5f, 5);
+    assert(southSourceCell.x == southAliasCell.x);
+    assert(southSourceCell.z == southAliasCell.z);
+    AssertCanonicalCellInRange(southSourceCell);
+}
+
 static void TestShortestMapOffsets(void)
 {
     float circumference = (float)SURFACE_EQUATOR_BLOCKS;
@@ -377,6 +463,7 @@ int main(void)
     TestLatLonRoundTrip();
     TestMapCoordinateConversion();
     TestCanonicalMapCells();
+    TestCanonicalAddressCellsAcrossSeamAndPoles();
     TestShortestMapOffsets();
     TestMapProjectionAcrossPoles();
     TestFrameRoundTrip();
