@@ -25,6 +25,8 @@ uint32_t EcologyHash(int x, int z, uint32_t salt);
 void EcologyCanonicalizeCell(int *x, int *z);
 float EcologyClamp(float value);
 bool EcologyWorldIsActive(void);
+bool EcologyWorldIsPlanet(void);
+bool EcologyWorldIsHome(void);
 uint32_t EcologyWorldSurfaceId(void);
 uint32_t EcologyWorldSeed(void);
 int EcologyWorldOriginX(void);

@@ -48,6 +48,16 @@ bool EcologyWorldIsActive(void)
     return PlanetWorldIsActive() || HomeWorldSurfaceIsActive();
 }
 
+bool EcologyWorldIsPlanet(void)
+{
+    return PlanetWorldIsActive();
+}
+
+bool EcologyWorldIsHome(void)
+{
+    return HomeWorldSurfaceIsActive();
+}
+
 uint32_t EcologyWorldSurfaceId(void)
 {
     return PlanetWorldIsActive() ? PlanetWorldSeed() :

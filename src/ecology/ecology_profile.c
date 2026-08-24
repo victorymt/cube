@@ -258,7 +258,7 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
     PlanetLocalEnvironment environment = { 0 };
     if (!EcologyWorldIsActive()) return environment;
 
-    if (!PlanetWorldIsActive()) {
+    if (!EcologyWorldIsPlanet()) {
         return EcologyHomeEnvironmentAt(
             x, z, daylight, precipitationRate, currentStorm, dynamic);
     }
@@ -640,11 +640,11 @@ PlanetEcologyProfile PlanetEcologyProfileForPlanet(
 PlanetEcologyProfile PlanetEcologyCurrent(void)
 {
     PlanetEcologyProfile result = { 0 };
-    bool homeWorld = HomeWorldSurfaceIsActive();
-    if (!PlanetWorldIsActive() && !homeWorld) return result;
+    bool homeWorld = EcologyWorldIsHome();
+    if (!EcologyWorldIsPlanet() && !homeWorld) return result;
 
     const PlanetProfile *planet = homeWorld ? NULL : PlanetWorldProfile();
-    uint32_t worldSeed = homeWorld ? WorldGetSeed() : PlanetWorldSeed();
+    uint32_t worldSeed = EcologyWorldSeed();
     bool darkSide = homeWorld ? false : PlanetWorldIsDarkSide();
     if (ecologyProfileCache.valid &&
         ecologyProfileCache.homeWorld == homeWorld &&
