@@ -3,6 +3,7 @@
 #include "world/terrain_geology_internal.h"
 #include "world/terrain_home_materials_internal.h"
 #include "ecology/flora_taxa.h"
+#include "ecology/ecology.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -13,6 +14,8 @@
 #include <string.h>
 
 static uint32_t terrainSeed = DEFAULT_WORLD_SEED;
+static bool planetWorldActive = false;
+static PlanetProfile planetProfile = { 0 };
 
 bool WorldIsSurfaceActive(void)
 {
@@ -39,24 +42,108 @@ uint32_t WorldGetSeed(void)
     return terrainSeed;
 }
 
+TerrainMode WorldTerrainMode(void)
+{
+    return TERRAIN_VARIED;
+}
+
 bool PlanetWorldIsActive(void)
 {
-    return false;
+    return planetWorldActive;
 }
 
 uint32_t PlanetWorldSeed(void)
 {
-    return terrainSeed;
+    return planetWorldActive ? planetProfile.seed : terrainSeed;
 }
 
 SolarBodyStyle PlanetWorldStyle(void)
 {
-    return SOLAR_STYLE_TEMPERATE;
+    return planetWorldActive ? planetProfile.style : SOLAR_STYLE_TEMPERATE;
 }
 
 const PlanetProfile *PlanetWorldProfile(void)
 {
-    return NULL;
+    return planetWorldActive ? &planetProfile : NULL;
+}
+
+// The terrain-scale binary intentionally keeps ecology out of its focused
+// source closure. This no-op preserves the terrain generator's application
+// hook while allowing the base planet chunk pipeline to be exercised here.
+void PlanetEcologyApplyToChunk(Chunk *chunk, int chunkX, int chunkZ)
+{
+    (void)chunk;
+    (void)chunkX;
+    (void)chunkZ;
+}
+
+PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z)
+{
+    (void)x;
+    (void)z;
+    return (PlanetEcologySuitability){
+        .carryingCapacity = 1.0f,
+        .floraCapacity = 1.0f,
+        .faunaCapacity = 1.0f,
+        .floraActivity = 1.0f,
+        .faunaActivity = 1.0f,
+        .waterScore = 1.0f,
+        .temperatureScore = 1.0f,
+        .lightScore = 1.0f,
+        .stormScore = 1.0f,
+        .terrainScore = 1.0f,
+        .seasonScore = 1.0f,
+        .radiationScore = 1.0f,
+        .limitingFactor = PLANET_ECOLOGY_LIMIT_NONE
+    };
+}
+
+static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
+{
+    planetProfile = (PlanetProfile){
+        .seed = seed,
+        .canonicalBodyId = 0u,
+        .style = style,
+        .atmosphereType = PLANET_ATMOSPHERE_BREATHABLE,
+        .physicalRadiusKm = 6371.0,
+        .spaceProxyRadius = 128.0f,
+        .surfaceGravity = 1.0f,
+        .receivedIrradiance = 1.0,
+        .radiativeTempK = 288.0f,
+        .equilibriumTempK = 288.0f,
+        .surfacePressureAtm = 1.0f,
+        .atmosphereDensity = 1.0f,
+        .oceanCoverage = 0.58f,
+        .iceCoverage = 0.08f,
+        .cloudCoverage = 0.50f,
+        .terrainRoughness = 1.0f,
+        .ageGyr = 4.5f,
+        .rotationRate = 0.1f,
+        .tidalLockFactor = 0.0f,
+        .albedo = 0.30f,
+        .greenhouseEffect = 0.15f,
+        .orbitalEccentricity = 0.0167f,
+        .axialTilt = 0.4091f,
+        .yearLength = 365.25f,
+        .seasonalTemperatureAmplitudeK = 15.0f,
+        .orbitalTemperatureAmplitudeK = 0.0f,
+        .polarIceVariability = 0.1f,
+        .seasonalHumidityBias = 0.0f,
+        .prevailingWindAngle = 0.0f,
+        .windStrength = 0.5f,
+        .volcanicActivity = 0.1f,
+        .impactRate = 0.1f,
+        .hasSolidSurface = true,
+        .hasRings = false,
+        .tidallyLocked = false
+    };
+    planetWorldActive = true;
+}
+
+static void DeactivateTestPlanet(void)
+{
+    planetWorldActive = false;
+    planetProfile = (PlanetProfile){ 0 };
 }
 
 bool IsTranslucentBlock(BlockType type)
@@ -121,6 +208,49 @@ static void TestTerrainStructureBaselines(void)
             matched = false;
         }
         ChunkClearBlockStorage(&chunk);
+    }
+    assert(matched);
+}
+
+static void TestPlanetChunkDeterministicBaselines(void)
+{
+    static const struct {
+        int cx;
+        int cz;
+        uint32_t seed;
+        SolarBodyStyle style;
+        uint64_t expectedHash;
+    } baselines[] = {
+        { 3, -4, UINT32_C(0x6a09e667), SOLAR_STYLE_TEMPERATE,
+          UINT64_C(2171660900474101961) },
+        { -7, 5, UINT32_C(0xbb67ae85), SOLAR_STYLE_DESERT,
+          UINT64_C(224314255416465834) },
+        { 11, 2, UINT32_C(0x3c6ef372), SOLAR_STYLE_CRATER,
+          UINT64_C(17764101190830059376) }
+    };
+
+    bool matched = true;
+    for (size_t index = 0;
+         index < sizeof(baselines) / sizeof(baselines[0]); index++) {
+        ActivateTestPlanet(baselines[index].seed, baselines[index].style);
+        Chunk chunk = { 0 };
+        GenerateChunkTerrain(
+            &chunk, baselines[index].cx, baselines[index].cz,
+            TERRAIN_VARIED);
+        uint64_t actual = TerrainChunkHash(&chunk);
+        if (actual != baselines[index].expectedHash) {
+            fprintf(stderr,
+                    "planet terrain baseline mismatch chunk=%d,%d "
+                    "seed=%u style=%d actual=%llu expected=%llu\n",
+                    baselines[index].cx, baselines[index].cz,
+                    baselines[index].seed, baselines[index].style,
+                    (unsigned long long)actual,
+                    (unsigned long long)baselines[index].expectedHash);
+            matched = false;
+        }
+        assert(chunk.sectionCount > 0);
+        ChunkClearBlockStorage(&chunk);
+        DeactivateTestPlanet();
     }
     assert(matched);
 }
@@ -1347,6 +1477,7 @@ int main(void)
     TestFullColumnDecorationSectionsResolved();
     TestTerrainSectionExposureClassification();
     TestTerrainStructureBaselines();
+    TestPlanetChunkDeterministicBaselines();
     puts("terrain scale tests passed");
     return 0;
 }
