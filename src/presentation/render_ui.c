@@ -2,8 +2,8 @@
 #include "presentation/render_internal.h"
 #include "presentation/render_pause_menu_internal.h"
 #include "presentation/render_ui.h"
-
 #include "core/game_notice.h"
+#include "core/simulation_time.h"
 #include "raymath.h"
 #include "rlgl.h"
 #include "world/block_atlas.h"
@@ -1029,7 +1029,7 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
         LocalClimateState localClimate = { 0 };
         bool haveClimate = WeatherLocalClimateAtWorldTime(
             (int)floorf(playerPosition.x), (int)floorf(playerPosition.z),
-            SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+            SimulationTimePeriodic(SpaceElapsedSimulationTime()),
             &localClimate);
         WeatherImpactStats weatherImpacts = WeatherImpactGetStats();
         UiDrawText(TextFormat("Climate %s   phenomenon %s",

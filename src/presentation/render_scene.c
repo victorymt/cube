@@ -2,6 +2,8 @@
 #include "presentation/render_dependencies.h"
 #include "presentation/render_internal.h"
 
+#include "core/simulation_time.h"
+
 #include <limits.h>
 
 static TransparentRenderItem *surfaceTransparentItems;
@@ -580,7 +582,7 @@ void DrawSolarOrbitTrajectories(const Camera3D *camera, float spaceFade)
                            &system, &systemDistance)) return;
 
     const int samples = 64;
-    double now = SpacePeriodicSimulationTime(SpaceElapsedSimulationTime());
+    double now = SimulationTimePeriodic(SpaceElapsedSimulationTime());
     for (int i = 0; i < system.planetCount; i++) {
         PlanetProfile profile = SolarPlanetProfile(&system, i);
         double period = SolarSystemPlanetOrbitPeriodGameTime(&system, i);

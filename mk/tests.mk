@@ -146,7 +146,7 @@ $(eval $(call define_benchmark,CHUNK_BENCHMARK_TARGET,benchmark_chunks,src/core/
 $(eval $(call define_test,PERF_TEST_TARGET,test_perf,src/core/perf.c,,-DPERF_TESTING,,-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,RENDER_SORT_TEST_TARGET,test_render_sort,src/presentation/render_sort.c,,,,,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,RENDER_RESOURCES_TEST_TARGET,test_render_resources,src/presentation/render_resources.c,,,,,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,RENDER_UI_TEST_TARGET,test_render_ui,src/presentation/render_ui.c src/core/game_notice.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
+$(eval $(call define_test,RENDER_UI_TEST_TARGET,test_render_ui,src/core/simulation_time.c src/presentation/render_ui.c src/core/game_notice.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SURFACE_GLOBE_TEST_TARGET,test_surface_globe,src/presentation/surface_globe.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,WORLD_RENDERER_TEST_TARGET,test_world_renderer,src/presentation/world_renderer.c src/presentation/render_quality.c,,-DWORLD_RENDERER_TESTING,,-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,WORLD_LIGHTING_TEST_TARGET,test_world_lighting,src/world/world_lighting.c src/presentation/world_renderer.c src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
@@ -207,4 +207,4 @@ $(eval $(call define_test,ENTITY_ECOLOGY_TEST_TARGET,test_entity_ecology,$(ENTIT
 
 $(eval $(call define_test,INTERACTION_RAYCAST_TEST_TARGET,test_interaction_raycast,src/gameplay/interaction.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_RENDERER_RESOURCES_TEST_TARGET,test_planet_renderer_resources,src/presentation/planet_renderer.c,,-DPLANET_RENDERER_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
-$(eval $(call define_test,PLANET_TEXTURE_RESOURCES_TEST_TARGET,test_planet_texture_resources,src/presentation/render_planets.c src/presentation/render_sky.c src/space/planet_material.c src/space/space_units.c,,-DRENDER_PLANETS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
+$(eval $(call define_test,PLANET_TEXTURE_RESOURCES_TEST_TARGET,test_planet_texture_resources,src/core/simulation_time.c src/presentation/render_planets.c src/presentation/render_sky.c src/space/planet_material.c src/space/space_units.c,,-DRENDER_PLANETS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))

@@ -2,6 +2,8 @@
 #include "presentation/render_dependencies.h"
 #include "presentation/render_internal.h"
 
+#include "core/simulation_time.h"
+
 #ifndef PLANET_TEXTURE_WIDTH
 #define PLANET_TEXTURE_WIDTH 384
 #endif
@@ -663,7 +665,7 @@ static uint32_t PlanetTextureOceanKey(const PlanetProfile *profile)
 static uint32_t PlanetTextureSeasonKey(const PlanetProfile *profile)
 {
     if (!profile || profile->yearLength <= 0.0f) return 0u;
-    double cycle = fmod(SpacePeriodicSimulationTime(
+    double cycle = fmod(SimulationTimePeriodic(
                             SpaceElapsedSimulationTime()) /
                         (double)profile->yearLength, 1.0);
     if (cycle < 0.0) cycle += 1.0;
@@ -792,7 +794,7 @@ static float PlanetCloudRotation(const PlanetProfile *profile, uint32_t seed)
                   (0.82f + PlanetHashUnit(107, 19, 53, seed) * 0.36f);
     float direction = PlanetHashUnit(61, 83, 7, seed) < 0.5f ? -1.0f : 1.0f;
     double angle = (double)phase +
-                   SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()) *
+                   SimulationTimePeriodic(SpaceElapsedSimulationTime()) *
                    (double)speed * (double)direction;
     angle = fmod(angle, 360.0);
     if (angle < 0.0) angle += 360.0;
@@ -1451,7 +1453,7 @@ void DrawHomePlanet(const Camera3D *camera, float spaceFade)
     EnsurePlanetRenderResources();
     PlanetProfile homeAtmosphere = HomePlanetRenderProfile();
     float homeRotation = -18.0f +
-                         (float)SpacePeriodicSimulationTime(
+                         (float)SimulationTimePeriodic(
                              SpaceElapsedSimulationTime()) * 1.2f;
     PlanetSpaceLighting lighting = PlanetSpaceLightingFor(0, 0, physicalCenter);
     CelestialRenderLighting(camera, renderScale, &lighting);
