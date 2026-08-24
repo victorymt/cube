@@ -1,5 +1,6 @@
 #include "ecology/ecology_internal.h"
 
+#include "core/simulation_time.h"
 #include "space/space_state.h"
 #include "world/surface_topology.h"
 #include "world/world.h"
@@ -184,7 +185,7 @@ bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyPopulationRecordFaunaHarvest(
-        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
         daylight, &profile,
         organismScale, ecologyCapacity);
 }
@@ -196,7 +197,7 @@ bool PlanetEcologyEvolutionRegionAt(int x, int z, float daylight,
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRegionAt(
-        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
         EcologyClamp(daylight), &profile, out);
 }
 
@@ -209,7 +210,7 @@ bool PlanetEcologySampleGenome(int x, int z, float daylight,
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionSampleGenome(
-        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
         EcologyClamp(daylight), &profile, sampleSeed, outGenome,
         outLineageId, outSpeciesId);
 }
@@ -222,7 +223,7 @@ bool PlanetEcologyRecordEvolutionEvent(
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRecordEvent(
-        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
         EcologyClamp(daylight), &profile, lineageId, event, biomass);
 }
 
@@ -245,7 +246,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     uint32_t profileGeneration = EcologyProfileGeneration();
     uint32_t populationEpoch = EcologyPopulationEpoch();
-    double simulationTime = SpacePeriodicSimulationTime(
+    double simulationTime = SimulationTimePeriodic(
         SpaceElapsedSimulationTime());
     int originX = EcologyWorldOriginX();
     int originZ = EcologyWorldOriginZ();

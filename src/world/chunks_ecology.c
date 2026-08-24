@@ -1,5 +1,7 @@
 #include "world/chunks_internal.h"
 
+#include "core/simulation_time.h"
+
 bool DeformFloraMeshInstance(
     float *vertices, const float *baseVertices, int vertexCount,
     const FloraVisualInstance *instance, float targetScale, float blend,
@@ -128,7 +130,7 @@ static void UpdateChunkSectionFloraScale(ChunkSection *section,
         }
 
         float phase = (float)(Hash3D(cellX, 0, cellZ) & 4095u) * 0.0015339808f;
-        float sway = sinf((float)SpacePeriodicSimulationTime(
+        float sway = sinf((float)SimulationTimePeriodic(
                               SpaceElapsedSimulationTime()) * 1.7f + phase) *
                          fmaxf(section->floraTargetWind[group], 0.0f) * 0.07f *
                          fmaxf(instance->windResponse, 0.0f);
