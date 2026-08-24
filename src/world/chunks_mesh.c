@@ -1117,6 +1117,20 @@ bool ChunkBlockHasTransparentMesh(BlockType type)
     return IsTranslucentBlock(type);
 }
 
+static inline bool ChunkMeshBlockPassesFilter(
+    BlockType type, bool transparent, bool includePlants, bool plantsOnly,
+    bool excludeWater, bool useGreedy, bool *outPlant)
+{
+    bool plant = IsPlantBlock(type);
+    if (outPlant) *outPlant = plant;
+    if (plantsOnly) return plant;
+    if (type == BLOCK_AIR ||
+        ChunkBlockHasTransparentMesh(type) != transparent) return false;
+    if (excludeWater && type == BLOCK_WATER) return false;
+    if (plant && !includePlants) return false;
+    return !useGreedy || !BlockUsesGreedyCubeMesh(type);
+}
+
 static void EmitChunkBlocksFiltered(const ChunkMeshBuildRequest *context,
                                     ChunkMeshEmitter *emitter)
 {
@@ -1148,19 +1162,10 @@ static void EmitChunkBlocksFiltered(const ChunkMeshBuildRequest *context,
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 if (emitter->failed) return;
                 BlockType type = (BlockType)blocks[lx * height + y][lz];
-                bool plant = IsPlantBlock(type);
-                if (plantsOnly) {
-                    if (!plant) continue;
-                } else {
-                    if (type == BLOCK_AIR ||
-                        ChunkBlockHasTransparentMesh(type) !=
-                            transparent) continue;
-                    if (excludeWater && type == BLOCK_WATER) continue;
-                    if (plant && !includePlants) continue;
-                }
-                if (useGreedy && BlockUsesGreedyCubeMesh(type)) {
-                    continue;
-                }
+                bool plant = false;
+                if (!ChunkMeshBlockPassesFilter(
+                        type, transparent, includePlants, plantsOnly,
+                        excludeWater, useGreedy, &plant)) continue;
 
                 int x = lx;
                 int z = lz;
