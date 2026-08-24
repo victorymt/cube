@@ -1439,72 +1439,153 @@ static HitResult GameDebugDslTarget(const GameRuntime *game)
         eye, direction, REACH_DISTANCE, RAYCAST_BLOCK_SOLID);
 }
 
-static bool GameDebugDslResolve(void *userData, const char *name,
-                                DebugDslValue *outValue,
-                                DebugDslError *outError)
+/* Legacy resolver contains the remaining built-ins in their historical
+ * order.  The small registry below keeps module ownership explicit while
+ * allowing future groups to be split out without changing lookup precedence.
+ */
+typedef bool (*GameDebugDslResolverFn)(GameRuntime *game, const char *name,
+                                       DebugDslValue *outValue);
+
+typedef enum GameDebugDslLegacyPhase {
+    GAME_DEBUG_DSL_CORE,
+    GAME_DEBUG_DSL_PLAYER,
+    GAME_DEBUG_DSL_STREAM,
+    GAME_DEBUG_DSL_TAIL
+} GameDebugDslLegacyPhase;
+
+static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
+                                      DebugDslValue *outValue,
+                                      GameDebugDslLegacyPhase phase);
+
+static bool GameDebugDslResolveBlock(GameRuntime *game, const char *name,
+                                     DebugDslValue *outValue)
 {
-    GameRuntime *game = userData;
-    (void)outError;
+    return GameDebugBlockDslResolve(game, name, outValue);
+}
+
+static bool GameDebugDslResolveFlora(GameRuntime *game, const char *name,
+                                     DebugDslValue *outValue)
+{
+    return GameDebugFloraDslResolve(game, name, outValue);
+}
+
+static bool GameDebugDslResolveTopology(GameRuntime *game, const char *name,
+                                        DebugDslValue *outValue)
+{
+    return GameDebugTopologyDslResolve(game, name, outValue);
+}
+
+static bool GameDebugDslResolveWeather(GameRuntime *game, const char *name,
+                                       DebugDslValue *outValue)
+{
+    return GameDebugWeatherDslResolve(game, name, outValue);
+}
+
+static bool GameDebugDslResolveLod(GameRuntime *game, const char *name,
+                                   DebugDslValue *outValue)
+{
+    (void)game;
+    return GameDebugLodDslResolve(name, outValue);
+}
+
+static bool GameDebugDslResolveCore(GameRuntime *game, const char *name,
+                                    DebugDslValue *outValue)
+{
+    return GameDebugDslResolveLegacy(game, name, outValue,
+                                     GAME_DEBUG_DSL_CORE);
+}
+
+static bool GameDebugDslResolvePlayer(GameRuntime *game, const char *name,
+                                      DebugDslValue *outValue)
+{
+    return GameDebugDslResolveLegacy(game, name, outValue,
+                                     GAME_DEBUG_DSL_PLAYER);
+}
+
+static bool GameDebugDslResolveStream(GameRuntime *game, const char *name,
+                                      DebugDslValue *outValue)
+{
+    return GameDebugDslResolveLegacy(game, name, outValue,
+                                     GAME_DEBUG_DSL_STREAM);
+}
+
+static bool GameDebugDslResolveTail(GameRuntime *game, const char *name,
+                                    DebugDslValue *outValue)
+{
+    return GameDebugDslResolveLegacy(game, name, outValue,
+                                     GAME_DEBUG_DSL_TAIL);
+}
+
+static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
+                                      DebugDslValue *outValue,
+                                      GameDebugDslLegacyPhase phase)
+{
     if (!game || !name || !outValue) return false;
-    if (GameDebugBlockDslResolve(game, name, outValue)) return true;
-    if (GameDebugFloraDslResolve(game, name, outValue)) return true;
-    if (strcmp(name, "game.screen") == 0) {
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "game.screen") == 0) {
         return GameDebugDslString(
             outValue, game->screen == SCREEN_PLAYING ? "playing" : "start");
     }
-    if (strcmp(name, "game.paused") == 0) {
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "game.paused") == 0) {
         return GameDebugDslBool(outValue, game->paused);
     }
-    if (strcmp(name, "world.seed") == 0) {
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "world.seed") == 0) {
         return GameDebugDslNumber(outValue, WorldGetSeed());
     }
-    if (strcmp(name, "world.dimension") == 0) {
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "world.dimension") == 0) {
         return GameDebugDslString(
             outValue, WorldDimensionName(WorldCurrentDimension()));
     }
-    if (GameDebugTopologyDslResolve(game, name, outValue)) return true;
-    if (strcmp(name, "player.position") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER && strcmp(name, "player.position") == 0) {
         return GameDebugDslVec3(outValue, game->player.position);
     }
-    if (strcmp(name, "player.velocity") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER && strcmp(name, "player.velocity") == 0) {
         return GameDebugDslVec3(outValue, game->player.velocity);
     }
-    if (strcmp(name, "player.input_frames") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "player.input_frames") == 0) {
         return GameDebugDslNumber(outValue, game->scriptedInputFrames);
     }
 
-    if (strcmp(name, "interaction.mouse_left_mesh_ready") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "interaction.mouse_left_mesh_ready") == 0) {
         return GameDebugDslBool(
             outValue, game->debugLeftMeshFrame != 0u &&
                           !game->debugLeftMeshPending);
     }
-    if (strcmp(name, "interaction.mouse_left_press_frame") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "interaction.mouse_left_press_frame") == 0) {
         return GameDebugDslNumber(outValue, game->debugLeftPressFrame);
     }
-    if (strcmp(name, "interaction.mouse_left_handle_frame") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "interaction.mouse_left_handle_frame") == 0) {
         return GameDebugDslNumber(outValue, game->debugLeftHandleFrame);
     }
-    if (strcmp(name, "interaction.mouse_left_set_block_frame") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "interaction.mouse_left_set_block_frame") == 0) {
         return GameDebugDslNumber(outValue, game->debugLeftSetBlockFrame);
     }
-    if (strcmp(name, "interaction.mouse_left_mesh_frame") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "interaction.mouse_left_mesh_frame") == 0) {
         return GameDebugDslNumber(outValue, game->debugLeftMeshFrame);
     }
 
-    if (strcmp(name, "perf.enabled") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER && strcmp(name, "perf.enabled") == 0) {
         return GameDebugDslBool(outValue, PerfIsEnabled());
     }
-    if (strcmp(name, "perf.route_complete") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "perf.route_complete") == 0) {
         return GameDebugDslBool(outValue, PerfRouteComplete());
     }
-    if (strcmp(name, "perf.report_written") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "perf.report_written") == 0) {
         return GameDebugDslBool(outValue, PerfReportWritten());
     }
-    if (strcmp(name, "perf.report_passed") == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER &&
+        strcmp(name, "perf.report_passed") == 0) {
         return GameDebugDslBool(outValue, PerfReportPassed());
     }
 
-    if (strncmp(name, "water.", 6u) == 0) {
+    if (phase == GAME_DEBUG_DSL_PLAYER && strncmp(name, "water.", 6u) == 0) {
         PlayerWaterState water = PlayerWaterStateAt(game->player.position);
         if (strcmp(name, "water.feet_submerged") == 0) {
             return GameDebugDslBool(outValue, water.feetSubmerged);
@@ -1520,27 +1601,34 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         }
     }
 
-    if (GameDebugWeatherDslResolve(game, name, outValue)) return true;
-    if (strcmp(name, "stream.surface_ready") == 0) {
+    if (phase == GAME_DEBUG_DSL_STREAM &&
+        strcmp(name, "stream.surface_ready") == 0) {
         bool ready = game->screen == SCREEN_PLAYING &&
             PlayerMissingSurfaceChunkCount(game->player.position) == 0;
         return GameDebugDslBool(outValue, ready);
     }
-    if (strcmp(name, "stream.missing_surface_chunks") == 0) {
+    if (phase == GAME_DEBUG_DSL_STREAM &&
+        strcmp(name, "stream.missing_surface_chunks") == 0) {
         int missing = game->screen == SCREEN_PLAYING
             ? PlayerMissingSurfaceChunkCount(game->player.position) : -1;
         return GameDebugDslNumber(outValue, missing);
     }
-    if (strcmp(name, "stream.audit_complete") == 0) {
+    if (phase == GAME_DEBUG_DSL_STREAM &&
+        strcmp(name, "stream.audit_complete") == 0) {
         return GameDebugDslBool(
             outValue, !game->streamAudit.active && !game->streamAudit.wait.active);
     }
-    if (GameDebugLodDslResolve(name, outValue)) return true;
-    if (strcmp(name, "stream.workers_configured") == 0) return GameDebugDslNumber(outValue, ChunksConfiguredWorkerCount());
-    if (strcmp(name, "stream.workers_started") == 0) return GameDebugDslNumber(outValue, ChunksStartedWorkerCount());
-    if (strcmp(name, "stream.workers_active") == 0)
+    if (phase == GAME_DEBUG_DSL_TAIL &&
+        strcmp(name, "stream.workers_configured") == 0) {
+        return GameDebugDslNumber(outValue, ChunksConfiguredWorkerCount());
+    }
+    if (phase == GAME_DEBUG_DSL_TAIL &&
+        strcmp(name, "stream.workers_started") == 0) {
+        return GameDebugDslNumber(outValue, ChunksStartedWorkerCount());
+    }
+    if (phase == GAME_DEBUG_DSL_TAIL && strcmp(name, "stream.workers_active") == 0)
         return GameDebugDslNumber(outValue, ChunksActiveWorkerCount());
-    if (strncmp(name, "fluid.", 6u) == 0) {
+    if (phase == GAME_DEBUG_DSL_TAIL && strncmp(name, "fluid.", 6u) == 0) {
         FluidSample sample = FluidSampleAt(game->player.position);
         FluidStats stats = FluidGetStats();
         if (strcmp(name, "fluid.volume") == 0) {
@@ -1554,7 +1642,7 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         }
     }
 
-    if (strncmp(name, "target.", 7u) == 0) {
+    if (phase == GAME_DEBUG_DSL_TAIL && strncmp(name, "target.", 7u) == 0) {
         HitResult target = GameDebugDslTarget(game);
         if (strcmp(name, "target.hit") == 0) {
             return GameDebugDslBool(outValue, target.hit);
@@ -1570,14 +1658,14 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         }
     }
 
-    if (strcmp(name, "ship.driving") == 0) {
+    if (phase == GAME_DEBUG_DSL_TAIL && strcmp(name, "ship.driving") == 0) {
         return GameDebugDslBool(outValue, ShipIsDriving());
     }
-    if (strcmp(name, "ship.mode") == 0) {
+    if (phase == GAME_DEBUG_DSL_TAIL && strcmp(name, "ship.mode") == 0) {
         return GameDebugDslString(outValue, ShipDriveModeName());
     }
 
-    if (strncmp(name, "render.", 7u) == 0) {
+    if (phase == GAME_DEBUG_DSL_TAIL && strncmp(name, "render.", 7u) == 0) {
         WorldWaterRenderDebugInfo water = WorldRenderWaterDebugSnapshot();
         if (strcmp(name, "render.monitor_refresh_hz") == 0) {
             return GameDebugDslNumber(
@@ -1598,11 +1686,41 @@ static bool GameDebugDslResolve(void *userData, const char *name,
         }
     }
 
-    if (strcmp(name, "settings.autosave") == 0) {
+    if (phase == GAME_DEBUG_DSL_TAIL && strcmp(name, "settings.autosave") == 0) {
         return GameDebugDslBool(outValue, game->autoSaveEnabled);
     }
     return false;
 }
+
+static const GameDebugDslResolverFn gameDebugDslResolvers[] = {
+    GameDebugDslResolveBlock,
+    GameDebugDslResolveFlora,
+    /* Preserve the historical ordering between each domain group. */
+    GameDebugDslResolveCore,
+    GameDebugDslResolveTopology,
+    GameDebugDslResolvePlayer,
+    GameDebugDslResolveWeather,
+    GameDebugDslResolveStream,
+    GameDebugDslResolveLod,
+    GameDebugDslResolveTail
+};
+
+static bool GameDebugDslResolve(void *userData, const char *name,
+                                DebugDslValue *outValue,
+                                DebugDslError *outError)
+{
+    (void)outError;
+    GameRuntime *game = userData;
+    if (!game || !name || !outValue) return false;
+    for (size_t index = 0u;
+         index < sizeof(gameDebugDslResolvers) /
+                     sizeof(gameDebugDslResolvers[0]);
+         index++) {
+        if (gameDebugDslResolvers[index](game, name, outValue)) return true;
+    }
+    return false;
+}
+
 static DebugDslCommandResult GameDebugDslCommand(
     void *userData, const char *commandText, DebugDslError *outError)
 {
