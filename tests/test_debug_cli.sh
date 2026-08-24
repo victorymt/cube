@@ -65,7 +65,7 @@ run_case 2 "overlong debug trace path" \
     --debug-trace="$(printf '%*s' 512 '' | tr ' ' x)"
 
 bad_script="$runtime_dir/bad.dsl"
-printf '%s\n' 'not-a-command' 'exit 0' >"$bad_script"
+printf '%s\n' 'assert (' 'exit 0' >"$bad_script"
 run_case 3 "batch parse failure" --debug-script "$bad_script"
 
 large_script="$runtime_dir/large.dsl"

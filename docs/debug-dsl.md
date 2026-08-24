@@ -23,6 +23,10 @@ same session:
 make test-e2e
 ```
 
+The command-line and batch-script error contract is covered without a window
+by `make test` (the `test-debug-cli` target). Keep `make test-e2e` for tests
+that exercise actual frame updates and rendering.
+
 ## Starting a debug session
 
 There are two entry points:

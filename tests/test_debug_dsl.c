@@ -62,7 +62,8 @@ static DebugDslExecutor *ParseExecutor(const char *source, DslHarness *harness,
 
 static DebugDslStepResult RunToEnd(DebugDslExecutor *executor,
                                    DebugDslError *error) {
-  for (int step = 0; step < 1000; step++) {
+  for (unsigned step = 0u; step < DEBUG_DSL_MAX_EXECUTION_STEPS + 2u;
+       step++) {
     DebugDslStepResult result = DebugDslExecutorStep(executor, error);
     if (result != DEBUG_DSL_STEP_RUNNING)
       return result;
@@ -119,6 +120,49 @@ static void TestTextualOperatorsVec3AndSemicolons(void) {
   assert(harness.commandCount == 2);
   assert(strcmp(harness.commands[0], "emit 2 10 12") == 0);
   assert(strcmp(harness.commands[1], "nested") == 0);
+  DebugDslExecutorDestroy(executor);
+  DebugDslScriptDestroy(script);
+}
+
+static void TestInterpolationFormattingAndLimits(void) {
+  DslHarness harness = {0};
+  DebugDslScript *script = NULL;
+  DebugDslExecutor *executor = ParseExecutor(
+      "let label = \"ready\"\n"
+      "emit ${label} ${world.ready} ${player.position}\n",
+      &harness, &script);
+  DebugDslError error;
+  assert(RunToEnd(executor, &error) == DEBUG_DSL_STEP_COMPLETE);
+  assert(harness.commandCount == 1);
+  assert(strcmp(harness.commands[0], "emit ready true [8,12,-4]") == 0);
+  DebugDslExecutorDestroy(executor);
+  DebugDslScriptDestroy(script);
+
+  executor = ParseExecutor("emit ${world.ready", &harness, &script);
+  assert(DebugDslExecutorStep(executor, &error) == DEBUG_DSL_STEP_ERROR);
+  assert(error.code == DEBUG_DSL_ERROR_SYNTAX);
+  assert(strstr(error.message, "unterminated command interpolation") != NULL);
+  assert(harness.commandCount == 1);
+  DebugDslExecutorDestroy(executor);
+  DebugDslScriptDestroy(script);
+
+  executor = ParseExecutor("emit ${missing_value}", &harness, &script);
+  assert(DebugDslExecutorStep(executor, &error) == DEBUG_DSL_STEP_ERROR);
+  assert(error.code == DEBUG_DSL_ERROR_UNDEFINED);
+  assert(harness.commandCount == 1);
+  DebugDslExecutorDestroy(executor);
+  DebugDslScriptDestroy(script);
+
+  char longCommand[DEBUG_DSL_MAX_COMMAND_TEXT + 32u];
+  size_t prefixLength = strlen("emit ");
+  memcpy(longCommand, "emit ", prefixLength);
+  memset(longCommand + prefixLength, 'x', DEBUG_DSL_MAX_COMMAND_TEXT);
+  longCommand[prefixLength + DEBUG_DSL_MAX_COMMAND_TEXT] = '\0';
+  executor = ParseExecutor(longCommand, &harness, &script);
+  assert(DebugDslExecutorStep(executor, &error) == DEBUG_DSL_STEP_ERROR);
+  assert(error.code == DEBUG_DSL_ERROR_LIMIT);
+  assert(strstr(error.message, "expanded command exceeds") != NULL);
+  assert(harness.commandCount == 1);
   DebugDslExecutorDestroy(executor);
   DebugDslScriptDestroy(script);
 }
@@ -225,6 +269,14 @@ static void TestParseErrorsAndFullParse(void) {
   }
   AssertParseError(deepExpression, DEBUG_DSL_ERROR_LIMIT, 1u);
 
+  char deepUnary[1024] = "assert ";
+  size_t unaryLength = strlen(deepUnary);
+  for (unsigned index = 0u; index <= DEBUG_DSL_MAX_EXPRESSION_DEPTH; index++) {
+    deepUnary[unaryLength++] = '!';
+  }
+  strcpy(deepUnary + unaryLength, "true");
+  AssertParseError(deepUnary, DEBUG_DSL_ERROR_LIMIT, 1u);
+
   DslHarness harness = {0};
   DebugDslScript *script = NULL;
   DebugDslError error;
@@ -236,7 +288,8 @@ static void TestExecutionLimit(void) {
   DslHarness harness = {0};
   DebugDslScript *script = NULL;
   DebugDslExecutor *executor = ParseExecutor(
-      "repeat 8 {\nrepeat 8 {\nassert true\n}\n}", &harness, &script);
+      "repeat 1000 {\nrepeat 1000 {\nassert true\n}\n}", &harness,
+      &script);
   DebugDslError error;
   assert(RunToEnd(executor, &error) == DEBUG_DSL_STEP_ERROR);
   assert(error.code == DEBUG_DSL_ERROR_LIMIT);
@@ -351,6 +404,7 @@ static void TestSharedEnvironment(void) {
 int main(void) {
   TestValuesExpressionsRepeatAndExit();
   TestTextualOperatorsVec3AndSemicolons();
+  TestInterpolationFormattingAndLimits();
   TestWaitCompletionAndTimeout();
   TestExecutionErrors();
   TestParseErrorsAndFullParse();
