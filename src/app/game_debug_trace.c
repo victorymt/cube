@@ -544,8 +544,9 @@ void GameDebugTraceStop(GameRuntime *game)
         (long long)TraceUnixMs(), TraceElapsedRealMs(game),
         TraceElapsedCpuMs(game), TraceElapsedMainCpuMs(game),
         (unsigned long long)game->debugTrace.frame);
-    if (!TraceWrite(game, &buffer)) return;
+    (void)TraceWrite(game, &buffer);
     FILE *file = game->debugTrace.file;
+    if (!file) return;
     game->debugTrace.file = NULL;
     if (fclose(file) != 0 && !game->debugTrace.ioErrorReported) {
         fprintf(stderr, "Debug trace close failed for %s: %s\n",
@@ -575,5 +576,10 @@ double GameDebugTraceAdvanceDeadlineForTest(double deadline, double elapsed)
 bool GameDebugTraceWriteEventForTest(GameRuntime *game, const char *reason)
 {
     return WriteEvent(game, reason);
+}
+
+void GameDebugTraceStopForTest(GameRuntime *game)
+{
+    GameDebugTraceStop(game);
 }
 #endif

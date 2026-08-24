@@ -44,6 +44,7 @@ bool GameDebugTraceEscapeForTest(const char *value, char *destination,
 double GameDebugTraceAdvanceDeadlineForTest(double deadline, double elapsed);
 bool GameDebugTraceWriteEventForTest(struct GameRuntime *game,
                                      const char *reason);
+void GameDebugTraceStopForTest(struct GameRuntime *game);
 #endif
 
 #endif

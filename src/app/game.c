@@ -1436,9 +1436,18 @@ int GameRun(int argc, char **argv)
         return 2;
     }
     if (!GameDebugScriptLoad(&game)) {
+        GameDebugScriptStop(&game);
+        DebugDslEnvironmentDestroy(game.debugDslEnvironment);
+        game.debugDslEnvironment = NULL;
         return game.processExitCode != 0 ? game.processExitCode : 1;
     }
-    if (!GameStart(&game, game.screenWidth, game.screenHeight)) return 1;
+    if (!GameStart(&game, game.screenWidth, game.screenHeight)) {
+        GameDebugTraceStop(&game);
+        GameDebugScriptStop(&game);
+        DebugDslEnvironmentDestroy(game.debugDslEnvironment);
+        game.debugDslEnvironment = NULL;
+        return game.processExitCode != 0 ? game.processExitCode : 1;
+    }
 
     while (!game.quitRequested && !WindowShouldClose()) {
         game.debugFrame++;

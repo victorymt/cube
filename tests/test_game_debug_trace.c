@@ -65,12 +65,33 @@ static void TestWriteFailureDisablesTrace(void)
     assert(!GameDebugTraceWriteEventForTest(&game, "ignored"));
 }
 
+static void TestStopClosesTraceAfterWriteFailure(void)
+{
+    FILE *file = fopen("/dev/full", "wb");
+    if (!file) return;
+    GameRuntime game = {
+        .screen = SCREEN_PLAYING,
+        .debugTraceEnabled = true,
+        .debugTrace = {
+            .file = file,
+            .frame = 8u,
+            .elapsed = 2.5
+        }
+    };
+    snprintf(game.debugTracePath, sizeof(game.debugTracePath), "/dev/full");
+    GameDebugTraceStopForTest(&game);
+    assert(game.debugTrace.file == NULL);
+    assert(!game.debugTraceEnabled);
+    assert(game.debugTrace.ioErrorReported);
+}
+
 int main(void)
 {
     TestJsonEscaping();
     TestPathValidation();
     TestFixedDeadline();
     TestWriteFailureDisablesTrace();
+    TestStopClosesTraceAfterWriteFailure();
     puts("game debug trace tests passed");
     return 0;
 }
