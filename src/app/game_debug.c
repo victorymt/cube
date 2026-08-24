@@ -1817,33 +1817,7 @@ bool GameDebugScriptLoad(GameRuntime *game)
 
 static void GameDebugDslResetInput(GameRuntime *game)
 {
-    game->debugDslInputLength = 0u;
-    game->debugDslInput[0] = '\0';
-    game->debugDslBraceDepth = 0;
-}
-
-static void GameDebugDslCountBraces(GameRuntime *game, const char *line)
-{
-    bool string = false;
-    bool escaped = false;
-    for (const char *cursor = line; *cursor != '\0'; cursor++) {
-        if (!string && *cursor == '#') break;
-        if (string && escaped) {
-            escaped = false;
-            continue;
-        }
-        if (string && *cursor == '\\') {
-            escaped = true;
-            continue;
-        }
-        if (*cursor == '"') {
-            string = !string;
-            continue;
-        }
-        if (string) continue;
-        if (*cursor == '{') game->debugDslBraceDepth++;
-        else if (*cursor == '}') game->debugDslBraceDepth--;
-    }
+    DebugDslStdinReset(&game->debugDslStdin);
 }
 
 static void GameDebugDslConsumeStdin(GameRuntime *game)
@@ -1855,7 +1829,7 @@ static void GameDebugDslConsumeStdin(GameRuntime *game)
         return;
     }
     if (result == DEBUG_CONTROL_READ_EOF) {
-        if (game->debugDslInputLength != 0u) {
+        if (DebugDslStdinHasPending(&game->debugDslStdin)) {
             DebugDslError error = {
                 .code = DEBUG_DSL_ERROR_SYNTAX,
                 .line = 1u,
@@ -1878,8 +1852,9 @@ static void GameDebugDslConsumeStdin(GameRuntime *game)
         GameDebugDslReportError(game, "stdin", &error);
         return;
     }
-    size_t length = strlen(line);
-    if (length + 2u > sizeof(game->debugDslInput) - game->debugDslInputLength) {
+    DebugDslStdinAppendResult append =
+        DebugDslStdinAppendLine(&game->debugDslStdin, line);
+    if (append == DEBUG_DSL_STDIN_APPEND_LIMIT) {
         DebugDslError error = {
             .code = DEBUG_DSL_ERROR_LIMIT,
             .line = 1u,
@@ -1887,20 +1862,17 @@ static void GameDebugDslConsumeStdin(GameRuntime *game)
         };
         snprintf(error.message, sizeof(error.message),
                  "stdin DSL block exceeds %zu bytes",
-                 sizeof(game->debugDslInput) - 1u);
+                 DEBUG_DSL_STDIN_BUFFER_SIZE - 1u);
         GameDebugDslReportError(game, "stdin", &error);
         GameDebugDslResetInput(game);
         return;
     }
-    memcpy(game->debugDslInput + game->debugDslInputLength, line, length);
-    game->debugDslInputLength += length;
-    game->debugDslInput[game->debugDslInputLength++] = '\n';
-    game->debugDslInput[game->debugDslInputLength] = '\0';
-    GameDebugDslCountBraces(game, line);
-    if (game->debugDslBraceDepth > 0) return;
+    if (append == DEBUG_DSL_STDIN_APPEND_INVALID ||
+        append == DEBUG_DSL_STDIN_APPEND_PENDING) return;
 
     DebugDslError error = { 0 };
-    if (!GameDebugDslBegin(game, game->debugDslInput, true, &error)) {
+    if (!GameDebugDslBegin(game, DebugDslStdinSource(&game->debugDslStdin),
+                           true, &error)) {
         GameDebugDslReportError(game, "stdin", &error);
     }
     GameDebugDslResetInput(game);

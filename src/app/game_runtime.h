@@ -3,6 +3,7 @@
 
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
+#include "core/debug_dsl_stdin.h"
 #include "presentation/environment_runtime.h"
 #include "app/game_settings.h"
 #include "app/game_stream_audit.h"
@@ -151,15 +152,13 @@ typedef struct GameRuntime {
   float dayTime;
   int processExitCode;
   bool processExitRequested;
-  size_t debugDslInputLength;
-  int debugDslBraceDepth;
+  DebugDslStdinState debugDslStdin;
   char perfReportPath[512];
   char perfBaselinePath[512];
   char debugScriptPath[512];
   char debugCommandFailure[128];
   char debugStreamWaitFailure[128];
   char debugTracePath[512];
-  char debugDslInput[16384];
 } GameRuntime;
 
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv);
