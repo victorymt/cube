@@ -77,6 +77,69 @@ void PlanetEcologyApplyToChunk(Chunk *chunk, int chunkX, int chunkZ)
     (void)chunkZ;
 }
 
+BlockType GetBlockAt(int x, int y, int z)
+{
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    Chunk *runtimeChunks = ChunksMutableForTesting();
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        if (!runtimeChunks[index].loaded ||
+            runtimeChunks[index].cx != cx ||
+            runtimeChunks[index].cz != cz) continue;
+        return ChunkGetLocalBlock(&runtimeChunks[index], lx, y, lz);
+    }
+    return BLOCK_AIR;
+}
+
+float TorchLightAtBlockNearby(int x, int y, int z,
+                              const int *indices, int count)
+{
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)indices;
+    (void)count;
+    return 0.0f;
+}
+
+int CollectNearbyTorchLights(int chunkMinX, int chunkMaxX,
+                             int chunkMinZ, int chunkMaxZ, int *indices)
+{
+    (void)chunkMinX;
+    (void)chunkMaxX;
+    (void)chunkMinZ;
+    (void)chunkMaxZ;
+    (void)indices;
+    return 0;
+}
+
+BlockRenderShape BlockRenderShapeFor(BlockType type)
+{
+    (void)type;
+    return BLOCK_RENDER_CUBE;
+}
+
+bool IsPlantBlock(BlockType type)
+{
+    (void)type;
+    return false;
+}
+
+bool IsColorBlock(BlockType type)
+{
+    (void)type;
+    return false;
+}
+
+int ColorBlockIndex(BlockType type)
+{
+    (void)type;
+    return 0;
+}
+
 PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z)
 {
     (void)x;
@@ -253,6 +316,87 @@ static void TestPlanetChunkDeterministicBaselines(void)
         DeactivateTestPlanet();
     }
     assert(matched);
+}
+
+static void TestGeneratedChunkDirtyMeshRebuildFixture(void)
+{
+    DeactivateTestPlanet();
+    terrainSeed = DEFAULT_WORLD_SEED;
+
+    Chunk generated = { 0 };
+    GenerateChunkTerrain(&generated, 0, 0, TERRAIN_VARIED);
+    assert(generated.sectionCount > 0);
+
+    int targetSectionIndex = -1;
+    for (int sectionIndex = 0;
+         sectionIndex < generated.sectionCount; sectionIndex++) {
+        const ChunkSection *section = generated.sections[sectionIndex];
+        bool nonEmpty = false;
+        for (int lx = 0; lx < CHUNK_SIZE && !nonEmpty; lx++) {
+            for (int ly = 0; ly < SURFACE_SECTION_HEIGHT && !nonEmpty; ly++) {
+                for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                    if (section->blocks[lx][ly][lz] != BLOCK_AIR) {
+                        nonEmpty = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (nonEmpty) {
+            targetSectionIndex = sectionIndex;
+            break;
+        }
+    }
+    assert(targetSectionIndex >= 0);
+
+    ChunksTestResetScheduler();
+    Chunk *runtimeChunks = ChunksMutableForTesting();
+    runtimeChunks[0] = generated;
+    runtimeChunks[0].loaded = true;
+    runtimeChunks[0].generation = 1u;
+    runtimeChunks[0].targetLod = CHUNK_LOD_EXACT;
+    runtimeChunks[0].activeLod = CHUNK_LOD_EXACT;
+    runtimeChunks[0].lodInitialized = true;
+
+    // The generated column is the source of truth; this explicit dirty mark
+    // models the edit/invalidation edge that must feed mesh scheduling.
+    for (int index = 0; index < runtimeChunks[0].sectionCount; index++) {
+        runtimeChunks[0].sections[index]->dirty = false;
+    }
+    MarkChunkDirty(runtimeChunks[0].cx, runtimeChunks[0].cz);
+    ChunkSection *target = runtimeChunks[0].sections[targetSectionIndex];
+    for (int index = 0; index < runtimeChunks[0].sectionCount; index++) {
+        if (index != targetSectionIndex) {
+            runtimeChunks[0].sections[index]->dirty = false;
+        }
+    }
+    assert(target->dirty);
+
+    RebuildDirtyChunkMeshes((Vector3){ 0.5f, 80.0f, 0.5f });
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    assert(stats.meshSubmitted == 1u);
+    assert(stats.syncRebuilds == 0u);
+
+    int jobIndex = -1;
+    for (int index = 0; index < MAX_CHUNK_MESH_JOBS; index++) {
+        if (ChunksTestMeshJobSlot(index) == 0 &&
+            ChunksTestMeshJobSectionY(index) == target->sectionY) {
+            jobIndex = index;
+            break;
+        }
+    }
+    assert(jobIndex >= 0);
+
+    ChunkTestMeshPayloadInfo payload = { 0 };
+    assert(ChunksTestBuildMeshJobPayload(jobIndex, &payload));
+    assert(payload.solidVertices > 0);
+    ChunksTestCompleteMeshJob(jobIndex);
+    ProcessFinishedMeshJobs(0.0);
+    assert(!target->dirty);
+    assert(ChunksGetStreamingStats().meshCanceled == 0u);
+
+    ChunksTestResetScheduler();
+    terrainSeed = DEFAULT_WORLD_SEED;
 }
 
 static void TestSurfaceSampleContracts(void)
@@ -1478,6 +1622,7 @@ int main(void)
     TestTerrainSectionExposureClassification();
     TestTerrainStructureBaselines();
     TestPlanetChunkDeterministicBaselines();
+    TestGeneratedChunkDirtyMeshRebuildFixture();
     puts("terrain scale tests passed");
     return 0;
 }
