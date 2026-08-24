@@ -10,6 +10,7 @@ static bool homeSurfaceActive = true;
 static bool planetWorldActive = false;
 static float planetGravityScale = 1.0f;
 static uint32_t planetSeed = 0u;
+static uint32_t worldSeed = DEFAULT_WORLD_SEED;
 
 TerrainMode terrainMode = TERRAIN_VARIED;
 
@@ -41,6 +42,11 @@ float PlanetWorldGravityScale(void)
 uint32_t PlanetWorldSeed(void)
 {
     return planetSeed;
+}
+
+uint32_t WorldGetSeed(void)
+{
+    return worldSeed;
 }
 
 int PlanetWorldOriginX(void)
@@ -132,6 +138,10 @@ static void TestBlockRegions(void)
 static void TestHomeAndNether(void)
 {
     SetEnvironment(true, false, 1.0f, 0u);
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    assert(context.active && context.kind == WORLD_SURFACE_HOME);
+    assert(context.bodyId == 0u && context.seed == DEFAULT_WORLD_SEED);
+    assert(context.originX == 0 && context.originZ == 0);
     assert(WorldCurrentDimension() == WORLD_DIMENSION_HOME);
     assert(WorldCurrentDimensionAt(-40.0f) == WORLD_DIMENSION_HOME);
     assert(WorldIsSurfaceActive());
@@ -140,6 +150,8 @@ static void TestHomeAndNether(void)
     assert(WorldCanAccessBlockY(-40));
     WorldSetNetherActive(true);
     assert(WorldNetherIsActive());
+    context = WorldCurrentSurfaceContext();
+    assert(context.active && context.kind == WORLD_SURFACE_HOME);
     assert(WorldCurrentDimension() == WORLD_DIMENSION_NETHER);
     assert(WorldCurrentDimensionAt(80.0f) == WORLD_DIMENSION_NETHER);
     assert(WorldCanAccessBlockY(-40));
@@ -167,6 +179,9 @@ static void TestHomeAndNether(void)
 static void TestPlanet(void)
 {
     SetEnvironment(false, true, 1.35f, 0x1234u);
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    assert(context.active && context.kind == WORLD_SURFACE_PLANET);
+    assert(context.bodyId == 0x1234u && context.seed == 0x1234u);
     assert(WorldSurfaceMinY() == SURFACE_GENERATION_MIN_Y);
     assert(WorldSurfaceMaxYExclusive() ==
            SURFACE_GENERATION_MAX_Y_EXCLUSIVE);
@@ -192,6 +207,9 @@ static void TestPlanet(void)
 static void TestSpace(void)
 {
     SetEnvironment(false, false, 1.0f, 0u);
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    assert(!context.active && context.kind == WORLD_SURFACE_NONE);
+    assert(context.bodyId == 0u && context.seed == DEFAULT_WORLD_SEED);
     assert(WorldCurrentDimension() == WORLD_DIMENSION_SPACE);
     assert(WorldIsSpaceActive());
     assert(!WorldIsSurfaceActive());

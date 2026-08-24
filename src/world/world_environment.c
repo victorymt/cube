@@ -10,10 +10,29 @@ static bool netherActive = false;
 static WorldSurfaceRebaseEvent lastSurfaceRebase = { 0 };
 static uint64_t surfaceRebaseSequence = 0u;
 
+WorldSurfaceContext WorldCurrentSurfaceContext(void)
+{
+    bool planet = PlanetWorldIsActive();
+    bool home = !planet && HomeWorldSurfaceIsActive();
+    WorldSurfaceKind kind = planet ? WORLD_SURFACE_PLANET :
+        (home ? WORLD_SURFACE_HOME : WORLD_SURFACE_NONE);
+    uint32_t seed = planet ? PlanetWorldSeed() : WorldGetSeed();
+    return (WorldSurfaceContext){
+        .active = kind != WORLD_SURFACE_NONE,
+        .kind = kind,
+        .bodyId = planet ? PlanetWorldSeed() : 0u,
+        .seed = seed,
+        // Map origins are currently canonical zero for both surface kinds.
+        // Keeping them in this context makes a future rebase source explicit.
+        .originX = 0,
+        .originZ = 0
+    };
+}
+
 bool WorldNetherIsActive(void)
 {
-    return netherActive && HomeWorldSurfaceIsActive() &&
-           !PlanetWorldIsActive();
+    return netherActive &&
+           WorldCurrentSurfaceContext().kind == WORLD_SURFACE_HOME;
 }
 
 void WorldSetNetherActive(bool active)
@@ -24,8 +43,9 @@ void WorldSetNetherActive(bool active)
 WorldDimension WorldCurrentDimensionAt(float y)
 {
     (void)y;
-    if (PlanetWorldIsActive()) return WORLD_DIMENSION_PLANET;
-    if (!HomeWorldSurfaceIsActive()) return WORLD_DIMENSION_SPACE;
+    WorldSurfaceKind surface = WorldCurrentSurfaceContext().kind;
+    if (surface == WORLD_SURFACE_PLANET) return WORLD_DIMENSION_PLANET;
+    if (surface != WORLD_SURFACE_HOME) return WORLD_DIMENSION_SPACE;
     if (WorldNetherIsActive()) return WORLD_DIMENSION_NETHER;
     return WORLD_DIMENSION_HOME;
 }
@@ -65,7 +85,7 @@ WorldBlockRegion WorldBlockRegionAt(int y)
 
 bool WorldIsSurfaceActive(void)
 {
-    return HomeWorldSurfaceIsActive() || PlanetWorldIsActive();
+    return WorldCurrentSurfaceContext().active;
 }
 
 bool WorldIsSpaceActive(void)
@@ -80,13 +100,14 @@ bool WorldIsSurfaceDimension(WorldDimension dimension)
 
 int WorldSurfaceMinY(void)
 {
-    return PlanetWorldIsActive() ? SURFACE_GENERATION_MIN_Y : SURFACE_MIN_Y;
+    return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET
+        ? SURFACE_GENERATION_MIN_Y : SURFACE_MIN_Y;
 }
 
 int WorldSurfaceMaxYExclusive(void)
 {
-    return PlanetWorldIsActive() ? SURFACE_GENERATION_MAX_Y_EXCLUSIVE
-                                 : SURFACE_MAX_Y_EXCLUSIVE;
+    return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET
+        ? SURFACE_GENERATION_MAX_Y_EXCLUSIVE : SURFACE_MAX_Y_EXCLUSIVE;
 }
 
 bool WorldCanAccessBlockY(int y)
@@ -99,24 +120,28 @@ bool WorldCanAccessBlockY(int y)
 
 float WorldGravityScale(void)
 {
-    if (PlanetWorldIsActive()) return PlanetWorldGravityScale();
+    if (WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET) {
+        return PlanetWorldGravityScale();
+    }
     if (WorldIsSpaceActive()) return 0.0f;
     return 1.0f;
 }
 
 int WorldSurfaceHeightAt(int x, int z)
 {
-    return PlanetWorldIsActive() ? PlanetTerrainHeight(x, z)
-                                 : TerrainHeight(x, z, WorldTerrainMode());
+    return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET
+        ? PlanetTerrainHeight(x, z)
+        : TerrainHeight(x, z, WorldTerrainMode());
 }
 
 static bool WorldProceduralOceanBathymetryAt(int x, int z,
                                               BathymetrySample *outSample)
 {
-    if (!outSample || !WorldIsSurfaceActive() || WorldNetherIsActive()) {
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!outSample || !context.active || WorldNetherIsActive()) {
         return false;
     }
-    BathymetrySample sample = PlanetWorldIsActive()
+    BathymetrySample sample = context.kind == WORLD_SURFACE_PLANET
         ? PlanetBathymetryAt(x, z)
         : TerrainBathymetryAt(x, z, WorldTerrainMode());
     if (sample.waterDepth <= 0 || sample.seaLevel < 0 ||
@@ -145,17 +170,17 @@ bool WorldIsProceduralOceanWaterAt(int x, int y, int z)
 
 uint32_t WorldCurrentSurfaceId(void)
 {
-    return PlanetWorldIsActive() ? PlanetWorldSeed() : 0u;
+    return WorldCurrentSurfaceContext().bodyId;
 }
 
 int WorldSurfaceMapOriginX(void)
 {
-    return 0;
+    return WorldCurrentSurfaceContext().originX;
 }
 
 int WorldSurfaceMapOriginZ(void)
 {
-    return 0;
+    return WorldCurrentSurfaceContext().originZ;
 }
 
 void WorldResetSurfaceRebaseEvent(void)
@@ -172,12 +197,13 @@ WorldSurfaceRebaseEvent WorldLastSurfaceRebaseEvent(void)
 bool WorldCanonicalizeSurfacePose(Vector3 *position, Vector3 *velocity,
                                   float *yaw)
 {
-    if (!position || !WorldIsSurfaceActive() ||
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!position || !context.active ||
         !isfinite(position->x) || !isfinite(position->z)) {
         return false;
     }
-    int originX = WorldSurfaceMapOriginX();
-    int originZ = WorldSurfaceMapOriginZ();
+    int originX = context.originX;
+    int originZ = context.originZ;
     float northDirection = 1.0f;
     Vector2 canonical = SurfaceCanonicalMapPosition(
         (float)originX + position->x,
@@ -191,7 +217,7 @@ bool WorldCanonicalizeSurfacePose(Vector3 *position, Vector3 *velocity,
         lastSurfaceRebase = (WorldSurfaceRebaseEvent){
             .valid = true,
             .sequence = ++surfaceRebaseSequence,
-            .bodyId = WorldCurrentSurfaceId(),
+            .bodyId = context.bodyId,
             .previous = { (float)originX + position->x,
                           (float)originZ + position->z },
             .canonical = canonical,

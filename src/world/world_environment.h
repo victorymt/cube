@@ -22,6 +22,24 @@ typedef enum WorldBlockRegion {
     WORLD_BLOCK_REGION_SPACE
 } WorldBlockRegion;
 
+// Surface context deliberately excludes Nether: Nether overlays the Home
+// surface and callers that need the active surface must continue to treat it
+// as Home. WorldDimension remains the position/presentation-facing concept.
+typedef enum WorldSurfaceKind {
+    WORLD_SURFACE_NONE = 0,
+    WORLD_SURFACE_HOME,
+    WORLD_SURFACE_PLANET
+} WorldSurfaceKind;
+
+typedef struct WorldSurfaceContext {
+    bool active;
+    WorldSurfaceKind kind;
+    uint32_t bodyId;
+    uint32_t seed;
+    int originX;
+    int originZ;
+} WorldSurfaceContext;
+
 typedef struct WorldSurfaceRebaseEvent {
     bool valid;
     uint64_t sequence;
@@ -41,6 +59,7 @@ const char *WorldDimensionName(WorldDimension dimension);
 WorldBlockRegion WorldBlockRegionAt(int y);
 
 bool WorldIsSurfaceActive(void);
+WorldSurfaceContext WorldCurrentSurfaceContext(void);
 bool WorldIsSpaceActive(void);
 bool WorldIsSurfaceDimension(WorldDimension dimension);
 int WorldSurfaceMinY(void);
