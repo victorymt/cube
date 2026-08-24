@@ -37,6 +37,22 @@ bool WorldIsSurfaceActive(void)
     return true;
 }
 
+WorldSurfaceContext WorldCurrentSurfaceContext(void)
+{
+    bool planet = PlanetWorldIsActive();
+    bool home = !planet && HomeWorldSurfaceIsActive();
+    WorldSurfaceKind kind = planet ? WORLD_SURFACE_PLANET :
+        (home ? WORLD_SURFACE_HOME : WORLD_SURFACE_NONE);
+    return (WorldSurfaceContext){
+        .active = kind != WORLD_SURFACE_NONE,
+        .kind = kind,
+        .bodyId = planet ? PlanetWorldSeed() : 0u,
+        .seed = planet ? PlanetWorldSeed() : WorldGetSeed(),
+        .originX = WorldSurfaceMapOriginX(),
+        .originZ = WorldSurfaceMapOriginZ()
+    };
+}
+
 FluidSample FluidSampleAt(Vector3 position)
 {
     (void)position;

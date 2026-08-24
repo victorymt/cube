@@ -25,12 +25,12 @@ __attribute__((weak)) uint32_t WorldCurrentSurfaceId(void)
     return 0u;
 }
 
-int WorldSurfaceMapOriginX(void)
+__attribute__((weak)) int WorldSurfaceMapOriginX(void)
 {
     return 0;
 }
 
-int WorldSurfaceMapOriginZ(void)
+__attribute__((weak)) int WorldSurfaceMapOriginZ(void)
 {
     return 0;
 }
@@ -68,7 +68,7 @@ uint32_t WorldGetSeed(void)
     return propertyWorldSeed;
 }
 
-int WorldSurfaceHeightAt(int x, int z)
+__attribute__((weak)) int WorldSurfaceHeightAt(int x, int z)
 {
     return PlanetTerrainHeight(x, z);
 }

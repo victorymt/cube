@@ -3,6 +3,7 @@
 #include "space/space_state.h"
 #include "world/surface_topology.h"
 #include "world/world.h"
+#include "world/world_environment.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -45,38 +46,39 @@ uint32_t EcologyMix(uint32_t value)
 
 bool EcologyWorldIsActive(void)
 {
-    return PlanetWorldIsActive() || HomeWorldSurfaceIsActive();
+    return WorldCurrentSurfaceContext().active;
 }
 
 bool EcologyWorldIsPlanet(void)
 {
-    return PlanetWorldIsActive();
+    return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET;
 }
 
 bool EcologyWorldIsHome(void)
 {
-    return HomeWorldSurfaceIsActive();
+    return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_HOME;
 }
 
 uint32_t EcologyWorldSurfaceId(void)
 {
-    return PlanetWorldIsActive() ? PlanetWorldSeed() :
-                                   ECOLOGY_HOMEWORLD_SURFACE_ID;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    return context.kind == WORLD_SURFACE_PLANET
+        ? context.bodyId : ECOLOGY_HOMEWORLD_SURFACE_ID;
 }
 
 uint32_t EcologyWorldSeed(void)
 {
-    return PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed();
+    return WorldCurrentSurfaceContext().seed;
 }
 
 int EcologyWorldOriginX(void)
 {
-    return 0;
+    return WorldCurrentSurfaceContext().originX;
 }
 
 int EcologyWorldOriginZ(void)
 {
-    return 0;
+    return WorldCurrentSurfaceContext().originZ;
 }
 
 void EcologyCanonicalizeCell(int *x, int *z)

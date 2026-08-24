@@ -4,6 +4,7 @@
 #include "world/terrain.h"
 #include "world/weather.h"
 #include "world/world.h"
+#include "world/world_environment.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -256,9 +257,10 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
     const PlanetEcologyProfile *ecology)
 {
     PlanetLocalEnvironment environment = { 0 };
-    if (!EcologyWorldIsActive()) return environment;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!context.active) return environment;
 
-    if (!EcologyWorldIsPlanet()) {
+    if (context.kind != WORLD_SURFACE_PLANET) {
         return EcologyHomeEnvironmentAt(
             x, z, daylight, precipitationRate, currentStorm, dynamic);
     }
@@ -640,11 +642,12 @@ PlanetEcologyProfile PlanetEcologyProfileForPlanet(
 PlanetEcologyProfile PlanetEcologyCurrent(void)
 {
     PlanetEcologyProfile result = { 0 };
-    bool homeWorld = EcologyWorldIsHome();
-    if (!EcologyWorldIsPlanet() && !homeWorld) return result;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    bool homeWorld = context.kind == WORLD_SURFACE_HOME;
+    if (context.kind != WORLD_SURFACE_PLANET && !homeWorld) return result;
 
     const PlanetProfile *planet = homeWorld ? NULL : PlanetWorldProfile();
-    uint32_t worldSeed = EcologyWorldSeed();
+    uint32_t worldSeed = context.seed;
     bool darkSide = homeWorld ? false : PlanetWorldIsDarkSide();
     if (ecologyProfileCache.valid &&
         ecologyProfileCache.homeWorld == homeWorld &&

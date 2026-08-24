@@ -96,6 +96,7 @@ ECOLOGY_SYSTEM_SOURCES := \
 	$(TERRAIN_FEATURE_SRC) \
 	$(BLOCK_ATLAS_FEATURE_SRC) \
 	$(CHUNKS_FEATURE_SRC) \
+	src/world/world_environment.c \
 	src/ecology/ecology.c \
 	src/ecology/ecology_profile.c \
 	src/ecology/ecology_population.c \
