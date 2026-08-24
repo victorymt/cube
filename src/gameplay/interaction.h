@@ -33,6 +33,7 @@ bool BlockWouldOverlapPlayer(int x, int y, int z, BlockType blockType,
                              Vector3 playerPosition);
 
 void OpenImportDialog(ImportDialog *dialog);
+void AppendImportText(ImportDialog *dialog, const char *text);
 void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursorReleased);
 void HandleImageDrop(const Player *player, int maxBlocks, bool relief);
 void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, bool relief);

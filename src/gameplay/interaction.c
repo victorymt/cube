@@ -438,7 +438,7 @@ void HandleImageDrop(const Player *player, int maxBlocks, bool relief)
 
 void AppendImportText(ImportDialog *dialog, const char *text)
 {
-    if (!text || !text[0]) return;
+    if (!dialog || !text || !text[0]) return;
 
     size_t current = strlen(dialog->path);
     size_t room = sizeof(dialog->path) - current - 1;
@@ -448,6 +448,7 @@ void AppendImportText(ImportDialog *dialog, const char *text)
 
 void OpenImportDialog(ImportDialog *dialog)
 {
+    if (!dialog) return;
     if (WorldTerrainMode() != TERRAIN_FLAT) {
         GameNoticePost("Image import is only available in Flat terrain mode.");
         return;
@@ -462,7 +463,7 @@ void OpenImportDialog(ImportDialog *dialog)
 
 void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursorReleased)
 {
-    if (!dialog->open) return;
+    if (!dialog || !dialog->open) return;
 
     int key = GetCharPressed();
     while (key > 0) {
@@ -496,12 +497,12 @@ void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursor
     if (IsKeyPressed(KEY_ENTER)) {
         ImportImageAsBlocks(dialog->path, player, dialog->maxBlocks, dialog->relief);
         dialog->open = false;
-        *cursorReleased = false;
+        if (cursorReleased) *cursorReleased = false;
         DisableCursor();
     } else if (IsKeyPressed(KEY_ESCAPE)) {
         dialog->open = false;
         GameNoticePost("Image import canceled.");
-        *cursorReleased = false;
+        if (cursorReleased) *cursorReleased = false;
         DisableCursor();
     }
 }

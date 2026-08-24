@@ -375,6 +375,15 @@ static void TestImageImportClosesUndoGroup(void)
     assert(dirtyChunkCalls > 0);
 }
 
+static void TestImportDialogNullContracts(void)
+{
+    ImportDialog dialog = { 0 };
+    AppendImportText(NULL, "ignored");
+    OpenImportDialog(NULL);
+    AppendImportText(&dialog, "ok");
+    assert(strcmp(dialog.path, "ok") == 0);
+}
+
 int main(void)
 {
     TestRaycastRejectsInvalidInput();
@@ -385,6 +394,7 @@ int main(void)
     TestImageImportLimits();
     TestImageImportFailureLifecycle();
     TestImageImportClosesUndoGroup();
+    TestImportDialogNullContracts();
     puts("interaction raycast tests passed");
     return 0;
 }
