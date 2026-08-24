@@ -521,6 +521,8 @@ static void TestChunkLodTargetsAndStatsTrackLoadedChunks(void)
     AssertLodDslNumber("stream.lod_ready_exact_sections", 0.0);
     AssertLodDslNumber("stream.lod_ready_half_sections", 0.0);
     AssertLodDslNumber("stream.lod_ready_quarter_sections", 0.0);
+    AssertLodDslNumber("stream.lod_proxy_flora_half", 0.0);
+    AssertLodDslNumber("stream.lod_proxy_flora_quarter", 0.0);
     AssertLodDslNumber("stream.lod_jobs_exact", 0.0);
     AssertLodDslNumber("stream.lod_jobs_half", 0.0);
     AssertLodDslNumber("stream.lod_jobs_quarter", 0.0);
@@ -549,12 +551,18 @@ static void TestChunkLodSwitchKeepsPreviousLevelUntilCacheIsReady(void)
     section->lodModelReady = true;
     section->lodModelStamp = section->dirtyStamp;
     section->lodModelLevel = CHUNK_LOD_QUARTER;
+    section->hasLodFloraModel = true;
+    section->lodFloraModelReady = true;
+    section->lodFloraModelStamp = section->dirtyStamp;
+    section->lodFloraModelLevel = CHUNK_LOD_QUARTER;
 
     ChunksTestUpdateLodTargets((Vector3){ 0.5f, 0.0f, 0.5f }, true);
     ChunkLodStats stats = ChunksGetLodStats();
     assert(stats.targetChunks[CHUNK_LOD_QUARTER] == 1u);
     assert(stats.activeChunks[CHUNK_LOD_QUARTER] == 1u);
     assert(stats.readySections[CHUNK_LOD_QUARTER] == 1u);
+    assert(stats.proxyFloraSections[CHUNK_LOD_QUARTER] == 1u);
+    AssertLodDslNumber("stream.lod_proxy_flora_quarter", 1.0);
     assert(!section->dirty);
 
     ChunksTestUpdateLodTargets((Vector3){ 144.5f, 0.0f, 0.5f }, true);

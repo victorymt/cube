@@ -57,6 +57,10 @@ bool GameDebugLodDslResolve(const char *name, DebugDslValue *outValue)
                    stats.readySections[CHUNK_LOD_HALF])
     LOD_DSL_NUMBER("stream.lod_ready_quarter_sections",
                    stats.readySections[CHUNK_LOD_QUARTER])
+    LOD_DSL_NUMBER("stream.lod_proxy_flora_half",
+                   stats.proxyFloraSections[CHUNK_LOD_HALF])
+    LOD_DSL_NUMBER("stream.lod_proxy_flora_quarter",
+                   stats.proxyFloraSections[CHUNK_LOD_QUARTER])
     LOD_DSL_NUMBER("stream.lod_jobs_exact",
                    stats.pendingJobs[CHUNK_LOD_EXACT])
     LOD_DSL_NUMBER("stream.lod_jobs_half",

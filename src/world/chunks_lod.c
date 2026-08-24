@@ -198,6 +198,13 @@ ChunkLodStats ChunksGetLodStats(void)
                     stats.readySections[lod]++;
                 }
             }
+            if (section->hasLodFloraModel &&
+                section->lodFloraModelReady &&
+                section->lodFloraModelStamp == section->dirtyStamp &&
+                section->lodFloraModelLevel > CHUNK_LOD_EXACT &&
+                section->lodFloraModelLevel < CHUNK_LOD_COUNT) {
+                stats.proxyFloraSections[section->lodFloraModelLevel]++;
+            }
         }
     }
     pthread_mutex_lock(&genMutex);

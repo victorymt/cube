@@ -298,6 +298,7 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.lod_target_exact`, `stream.lod_target_half`, `stream.lod_target_quarter` | number | Loaded chunks targeting exact, half-resolution, or quarter-resolution meshes |
 | `stream.lod_active_exact`, `stream.lod_active_half`, `stream.lod_active_quarter` | number | Loaded chunks currently rendering exact, half-resolution, or quarter-resolution meshes |
 | `stream.lod_ready_exact_sections`, `stream.lod_ready_half_sections`, `stream.lod_ready_quarter_sections` | number | Section mesh caches ready for the current data version at each LOD |
+| `stream.lod_proxy_flora_half`, `stream.lod_proxy_flora_quarter` | number | Ready half- or quarter-resolution section tree proxy meshes |
 | `stream.lod_jobs_exact`, `stream.lod_jobs_half`, `stream.lod_jobs_quarter` | number | Queued, running, or completed mesh jobs awaiting retirement at each LOD |
 | `stream.workers_configured` | number | Target surface chunk worker count |
 | `stream.workers_started` | number | Successfully started surface chunk workers |
