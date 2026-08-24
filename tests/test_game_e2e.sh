@@ -4,7 +4,12 @@ set -euo pipefail
 
 game_binary=${1:-build/normal/voxelcraft}
 settle_timeout=${E2E_SETTLE_TIMEOUT:-60}
-command_timeout=${E2E_COMMAND_TIMEOUT:-120}
+# The full scenario intentionally exercises terrain, fluid, weather, and
+# topology streaming in one process.  On a loaded Hyprland session a single
+# debug command can spend several minutes waiting for those frame-bound jobs;
+# keep the default wide enough to avoid turning ordinary scheduling jitter
+# into a false regression while retaining E2E_COMMAND_TIMEOUT for CI tuning.
+command_timeout=${E2E_COMMAND_TIMEOUT:-300}
 debug_resolution=${E2E_RESOLUTION:-1920x1080}
 
 if [[ ! "$debug_resolution" =~ ^([0-9]+)x([0-9]+)$ ]]; then
