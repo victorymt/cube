@@ -1,5 +1,7 @@
 #include "space/space_internal.h"
 
+#include "core/simulation_time.h"
+
 static uint32_t PlanetBodyTextureHash(const SpaceBodyInfo *body)
 {
     uint32_t hash = body->worldSeed ^ 0x57ec91u;
@@ -16,7 +18,7 @@ float PlanetBodyTextureRotation(const SpaceBodyInfo *body)
 {
     if (!body) return 0.0f;
     return (float)((PlanetBodyTextureHash(body) >> 8) % 360u) +
-           (float)SpacePeriodicSimulationTime(
+           (float)SimulationTimePeriodic(
                SpaceElapsedSimulationTime()) * body->profile.rotationRate;
 }
 
@@ -141,7 +143,7 @@ Vector3 SolarSystemPlanetPositionAtTime(const SolarSystemDef *sys, int index,
 Vector3 SolarSystemPlanetCenter(const SolarSystemDef *sys, int index)
 {
     return SolarSystemPlanetPositionAtTime(
-        sys, index, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()));
+        sys, index, SimulationTimePeriodic(SpaceElapsedSimulationTime()));
 }
 
 static bool SolarSystemPlanetStateForSnapshotAtTime(
@@ -856,7 +858,7 @@ bool SolarSystemEvaluateAtElapsedTime(const SolarSystemDef *sys,
         return false;
     }
     return SolarSystemEvaluateCachedSnapshotAtTime(
-        sys, &evolved, SpacePeriodicSimulationTime(elapsedTime), out);
+        sys, &evolved, SimulationTimePeriodic(elapsedTime), out);
 }
 
 static bool SpaceRemnantQueryPositionIsFinite(Vector3 position)

@@ -1,5 +1,7 @@
 #include "space/space_internal.h"
 
+#include "core/simulation_time.h"
+
 static Vector3 PlanetReturnPosition(Vector3 center, float parkingRadius,
                                     Vector3 outward)
 {
@@ -63,7 +65,7 @@ bool HomeWorldLaunchTarget(const SpaceTravelPose *surfacePose,
         SolarPlanetOrbitalState earthState;
         if (SolarSystemPlanetStateAtTime(
                 &sol, 2,
-                SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+                SimulationTimePeriodic(SpaceElapsedSimulationTime()),
                 &earthState)) {
             homeCenter = earthState.center;
             orbitalVelocity = earthState.velocity;
@@ -189,7 +191,7 @@ bool PlanetWorldLaunchTarget(const SpaceTravelPose *surfacePose,
         orbitIndex >= 0 && orbitIndex < system.planetCount) {
         SolarPlanetOrbitalState orbitalState;
         if (SolarSystemPlanetStateAtTime(&system, orbitIndex,
-                                         SpacePeriodicSimulationTime(
+                                         SimulationTimePeriodic(
                                              SpaceElapsedSimulationTime()),
                                          &orbitalState)) {
             float parkingRadius = SolarSystemPlanetParkingRadiusGame(

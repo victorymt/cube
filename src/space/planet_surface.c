@@ -1,5 +1,6 @@
 #include "space/planet_surface.h"
 
+#include "core/simulation_time.h"
 #include "space/space_state.h"
 
 #include "raymath.h"
@@ -424,7 +425,7 @@ PlanetSurfaceSample PlanetSampleGlobalSurface(uint32_t seed, const PlanetProfile
 {
     return PlanetSampleGlobalSurfaceAtTime(
         seed, profile, longitude, latitude,
-        SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()));
+        SimulationTimePeriodic(SpaceElapsedSimulationTime()));
 }
 
 const char *PlanetBiomeName(PlanetBiome biome)

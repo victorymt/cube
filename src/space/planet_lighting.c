@@ -1,5 +1,7 @@
 #include "space/space_internal.h"
 
+#include "core/simulation_time.h"
+
 static Vector3 PlanetSurfaceNormalAt(Vector3 surfacePosition)
 {
     float radius = fmaxf(planetWorld.spaceProxyRadius, 24.0f);
@@ -284,12 +286,12 @@ static bool PlanetWorldLightStateForFiniteSurface(
     float radius = fmaxf(planetWorld.spaceProxyRadius, 24.0f);
     float latitude = surfacePosition.z / (radius * 0.82f);
     if (!PlanetSeasonEvaluate(&planetWorld.profile, latitude,
-                              SpacePeriodicSimulationTime(simulationTime),
+                              SimulationTimePeriodic(simulationTime),
                               &season)) {
         season = (PlanetSeasonState){ 0 };
     }
     float spinPhase = (float)(planetWorld.seed & 0xffffu) / 65535.0f * 2.0f * PI +
-                      (float)SpacePeriodicSimulationTime(simulationTime) *
+                      (float)SimulationTimePeriodic(simulationTime) *
                           planetWorld.profile.rotationRate * DEG2RAD;
     Vector3 surfaceNormal = PlanetSurfaceNormalAt(surfacePosition);
     Vector3 inertialSurfaceNormal = PlanetWorldSpaceDirection(
