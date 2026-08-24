@@ -233,6 +233,11 @@ RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void)
                 RenderResourceSnapshotAddModel(&snapshot, &section->floraModel,
                                                RENDER_RESOURCE_FLORA);
             }
+            if (section->hasLodFloraModel) {
+                RenderResourceSnapshotAddModel(
+                    &snapshot, &section->lodFloraModel,
+                    RENDER_RESOURCE_FLORA);
+            }
             if (section->hasWaterModel) {
                 RenderResourceSnapshotAddModel(&snapshot, &section->waterModel,
                                                RENDER_RESOURCE_TRANSPARENT);

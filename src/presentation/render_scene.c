@@ -171,6 +171,12 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
                 PerfRecordDrawCall(PERF_DRAW_FLORA);
                 WorldRendererDrawModelTransformedTwoSided(
                     &section->floraModel, transform, tint);
+            } else if (chunk->activeLod != CHUNK_LOD_EXACT &&
+                       section->hasLodFloraModel &&
+                       section->lodFloraModelLevel == chunk->activeLod) {
+                PerfRecordDrawCall(PERF_DRAW_FLORA);
+                WorldRendererDrawModelTransformedTwoSided(
+                    &section->lodFloraModel, transform, tint);
             }
         }
     }
@@ -430,6 +436,11 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                     section->hasFloraModel) {
                     WorldRendererDrawShadowModelTransformedTwoSided(
                         &section->floraModel, transform);
+                } else if (chunk->activeLod != CHUNK_LOD_EXACT &&
+                           section->hasLodFloraModel &&
+                           section->lodFloraModelLevel == chunk->activeLod) {
+                    WorldRendererDrawShadowModelTransformedTwoSided(
+                        &section->lodFloraModel, transform);
                 }
             }
         }

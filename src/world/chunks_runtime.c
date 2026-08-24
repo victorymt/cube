@@ -336,6 +336,7 @@ int CancelDistantNegativeSectionJobs(int playerSectionY)
         FreeMeshData(&job->mesh);
         FreeMeshData(&job->waterMesh);
         FreeMeshData(&job->floraMesh);
+        FreeMeshData(&job->lodFloraMesh);
         free(job->floraInstances);
         *job = (MeshJob){ 0 };
         streamingStats.meshCanceled++;
@@ -463,11 +464,18 @@ static bool UploadMeshJob(MeshJob *job)
             ReplaceChunkModel(
                 &section->lodWaterModel, &section->hasLodWaterModel,
                 &job->waterMesh, job->hasWaterMesh, false);
+            ReplaceChunkModel(
+                &section->lodFloraModel, &section->hasLodFloraModel,
+                &job->lodFloraMesh, job->hasLodFloraMesh, true);
+            section->lodFloraModelReady = true;
+            section->lodFloraModelStamp = job->sectionStamp;
+            section->lodFloraModelLevel = job->lod;
         }
     } else if (job) {
         FreeMeshData(&job->mesh);
         FreeMeshData(&job->waterMesh);
         FreeMeshData(&job->floraMesh);
+        FreeMeshData(&job->lodFloraMesh);
     }
 
     if (job) {
@@ -559,12 +567,14 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     job->mesh = (Mesh){ 0 };
     job->waterMesh = (Mesh){ 0 };
     job->floraMesh = (Mesh){ 0 };
+    job->lodFloraMesh = (Mesh){ 0 };
     free(job->floraInstances);
     job->floraInstances = NULL;
     job->floraInstanceCount = 0;
     job->hasMesh = false;
     job->hasWaterMesh = false;
     job->hasFloraMesh = false;
+    job->hasLodFloraMesh = false;
 }
 
 static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
@@ -952,6 +962,7 @@ void ChunksTestResetScheduler(void)
         FreeMeshData(&meshJobs[i].mesh);
         FreeMeshData(&meshJobs[i].waterMesh);
         FreeMeshData(&meshJobs[i].floraMesh);
+        FreeMeshData(&meshJobs[i].lodFloraMesh);
         free(meshJobs[i].floraInstances);
     }
     memset(meshJobs, 0, sizeof(meshJobs));
@@ -1039,17 +1050,21 @@ bool ChunksTestBuildMeshJobPayload(
             ? job->waterMesh.vertexCount : 0,
         .floraVertices = job->hasFloraMesh
             ? job->floraMesh.vertexCount : 0,
-        .floraInstances = job->floraInstanceCount
+        .floraInstances = job->floraInstanceCount,
+        .lodFloraVertices = job->hasLodFloraMesh
+            ? job->lodFloraMesh.vertexCount : 0
     };
     FreeMeshData(&job->mesh);
     FreeMeshData(&job->waterMesh);
     FreeMeshData(&job->floraMesh);
+    FreeMeshData(&job->lodFloraMesh);
     free(job->floraInstances);
     job->floraInstances = NULL;
     job->floraInstanceCount = 0;
     job->hasMesh = false;
     job->hasWaterMesh = false;
     job->hasFloraMesh = false;
+    job->hasLodFloraMesh = false;
     return true;
 }
 

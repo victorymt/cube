@@ -443,6 +443,11 @@ static void UnloadChunkSectionModels(ChunkSection *section)
         section->floraModel = (Model){ 0 };
         section->hasFloraModel = false;
     }
+    if (section->hasLodFloraModel) {
+        UnloadModel(section->lodFloraModel);
+        section->lodFloraModel = (Model){ 0 };
+        section->hasLodFloraModel = false;
+    }
     ClearSectionFloraRuntime(section);
 }
 

@@ -45,6 +45,11 @@ void BuildMeshJobPayload(MeshJob *job)
         job->hasWaterMesh = BuildChunkLodWaterHeightfieldMeshData(
             lodBlocks, job->waterVolumes, job->cx, job->cz,
             job->lod, &job->boundary, &job->waterMesh);
+        job->hasLodFloraMesh = BuildChunkLodFloraMeshData(
+            job->sectionY * SURFACE_SECTION_HEIGHT,
+            job->cx, job->cz, job->lod,
+            job->floraStructures, job->floraStructureCount,
+            faces, &job->boundary, &job->lodFloraMesh);
     }
 
     if (job->spherical) {
@@ -57,6 +62,12 @@ void BuildMeshJobPayload(MeshJob *job)
         if (job->hasWaterMesh) {
             CurveChunkMeshData(
                 &job->waterMesh, job->cx, job->cz, job->sectionY,
+                job->surfaceAddress.bodyId,
+                job->surfaceMapOriginX, job->surfaceMapOriginZ);
+        }
+        if (job->hasLodFloraMesh) {
+            CurveChunkMeshData(
+                &job->lodFloraMesh, job->cx, job->cz, job->sectionY,
                 job->surfaceAddress.bodyId,
                 job->surfaceMapOriginX, job->surfaceMapOriginZ);
         }
@@ -79,6 +90,9 @@ void BuildMeshJobPayload(MeshJob *job)
         }
         if (job->hasWaterMesh) {
             LocalizeChunkMeshData(&job->waterMesh, job->cx, job->cz);
+        }
+        if (job->hasLodFloraMesh) {
+            LocalizeChunkMeshData(&job->lodFloraMesh, job->cx, job->cz);
         }
         if (job->hasFloraMesh) {
             LocalizeChunkMeshData(&job->floraMesh, job->cx, job->cz);
@@ -112,11 +126,21 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
     Mesh solidMesh = { 0 };
     Mesh waterMesh = { 0 };
     Mesh floraMesh = { 0 };
+    Mesh lodFloraMesh = { 0 };
     FloraVisualInstance *floraInstances = NULL;
     int floraInstanceCount = 0;
     SurfaceBoundarySnapshot boundary = { 0 };
     CaptureSurfaceBoundary(
         &boundary, chunk->cx, chunk->cz, section->sectionY);
+    unsigned short lodBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT]
+                            [CHUNK_SIZE];
+    if (lod != CHUNK_LOD_EXACT) {
+        CopyBlocksWithoutFloraStructures(
+            lodBlocks, section->blocks,
+            section->sectionY * SURFACE_SECTION_HEIGHT,
+            chunk->cx, chunk->cz,
+            chunk->floraStructures, chunk->floraStructureCount);
+    }
     bool hasSolid = lod == CHUNK_LOD_EXACT
         ? BuildChunkSurfaceSolidMeshData(
               section->blocks, section->sectionY * SURFACE_SECTION_HEIGHT,
@@ -127,7 +151,7 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
                                : GREEDY_MESH_MAX_SPAN,
               &boundary, &solidMesh)
         : BuildChunkLodHeightfieldMeshData(
-              section->blocks, chunk->cx, chunk->cz, lod,
+              lodBlocks, chunk->cx, chunk->cz, lod,
               &boundary, &solidMesh);
     bool hasWater = lod == CHUNK_LOD_EXACT
         ? BuildChunkSurfaceWaterMeshDataWithSnapshot(
@@ -138,7 +162,7 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
               faces, nearbyTorchIndices, nearbyTorchCount,
               &boundary, &waterMesh)
         : BuildChunkLodWaterHeightfieldMeshData(
-              section->blocks,
+              lodBlocks,
               (const unsigned char (*)[SURFACE_SECTION_HEIGHT][CHUNK_SIZE])
                   section->waterVolumes,
               chunk->cx, chunk->cz, lod, &boundary, &waterMesh);
@@ -149,6 +173,12 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
             chunk->floraStructures, chunk->floraStructureCount,
             faces, nearbyTorchIndices, nearbyTorchCount, &boundary,
             &floraMesh, &floraInstances, &floraInstanceCount);
+    bool hasLodFlora = lod != CHUNK_LOD_EXACT &&
+        BuildChunkLodFloraMeshData(
+            section->sectionY * SURFACE_SECTION_HEIGHT,
+            chunk->cx, chunk->cz, lod,
+            chunk->floraStructures, chunk->floraStructureCount,
+            faces, &boundary, &lodFloraMesh);
 
     if (chunk->spherical) {
         int mapOriginX = WorldSurfaceMapOriginX();
@@ -168,6 +198,11 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
                 &floraMesh, chunk->cx, chunk->cz, section->sectionY,
                 chunk->surfaceAddress.bodyId, mapOriginX, mapOriginZ);
         }
+        if (hasLodFlora) {
+            CurveChunkMeshData(
+                &lodFloraMesh, chunk->cx, chunk->cz, section->sectionY,
+                chunk->surfaceAddress.bodyId, mapOriginX, mapOriginZ);
+        }
         CurveChunkFloraInstances(
             floraInstances, floraInstanceCount, chunk->cx, chunk->cz,
             section->sectionY, chunk->surfaceAddress.bodyId,
@@ -176,6 +211,9 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
         if (hasSolid) LocalizeChunkMeshData(&solidMesh, chunk->cx, chunk->cz);
         if (hasWater) LocalizeChunkMeshData(&waterMesh, chunk->cx, chunk->cz);
         if (hasFlora) LocalizeChunkMeshData(&floraMesh, chunk->cx, chunk->cz);
+        if (hasLodFlora) {
+            LocalizeChunkMeshData(&lodFloraMesh, chunk->cx, chunk->cz);
+        }
         LocalizeChunkFloraInstances(floraInstances, floraInstanceCount,
                                     chunk->cx, chunk->cz);
     }
@@ -191,6 +229,12 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
         section->lodModelReady = true;
         section->lodModelStamp = section->dirtyStamp;
         section->lodModelLevel = lod;
+        ReplaceChunkModel(&section->lodFloraModel,
+                          &section->hasLodFloraModel,
+                          &lodFloraMesh, hasLodFlora, true);
+        section->lodFloraModelReady = true;
+        section->lodFloraModelStamp = section->dirtyStamp;
+        section->lodFloraModelLevel = lod;
     }
     if (lod == CHUNK_LOD_EXACT) {
         ReplaceChunkModel(&section->waterModel, &section->hasWaterModel,

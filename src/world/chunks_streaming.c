@@ -304,6 +304,7 @@ void ChunksShutdownGenThread(void)
             FreeMeshData(&meshJobs[index].mesh);
             FreeMeshData(&meshJobs[index].waterMesh);
             FreeMeshData(&meshJobs[index].floraMesh);
+            FreeMeshData(&meshJobs[index].lodFloraMesh);
             free(meshJobs[index].floraInstances);
             meshJobs[index].floraInstances = NULL;
             meshJobs[index].floraInstanceCount = 0;
@@ -952,6 +953,7 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
                 FreeMeshData(&job->mesh);
                 FreeMeshData(&job->waterMesh);
                 FreeMeshData(&job->floraMesh);
+                FreeMeshData(&job->lodFloraMesh);
                 free(job->floraInstances);
                 *job = (MeshJob){ 0 };
                 streamingStats.meshCanceled++;
@@ -968,6 +970,7 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
             FreeMeshData(&job->mesh);
             FreeMeshData(&job->waterMesh);
             FreeMeshData(&job->floraMesh);
+            FreeMeshData(&job->lodFloraMesh);
             free(job->floraInstances);
             *job = (MeshJob){ 0 };
             streamingStats.meshCanceled++;

@@ -1079,6 +1079,18 @@ static void AssertHomeTreeFloraMeshPartition(void)
         assert(fullInstances[index].anchor.z == 8.5f);
     }
 
+    Mesh halfProxy = { 0 };
+    Mesh quarterProxy = { 0 };
+    assert(BuildChunkLodFloraMeshData(
+        0, 0, 0, CHUNK_LOD_HALF, &structure, 1, faces, NULL,
+        &halfProxy));
+    assert(BuildChunkLodFloraMeshData(
+        0, 0, 0, CHUNK_LOD_QUARTER, &structure, 1, faces, NULL,
+        &quarterProxy));
+    assert(halfProxy.vertexCount >= quarterProxy.vertexCount);
+    FreeTestMesh(&halfProxy);
+    FreeTestMesh(&quarterProxy);
+
     free(fullInstances);
     free(logInstances);
     FreeTestMesh(&fullMesh);

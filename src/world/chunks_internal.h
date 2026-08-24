@@ -73,11 +73,13 @@ typedef struct MeshJob {
     Mesh mesh;
     Mesh waterMesh;
     Mesh floraMesh;
+    Mesh lodFloraMesh;
     FloraVisualInstance *floraInstances;
     int floraInstanceCount;
     bool hasMesh;
     bool hasWaterMesh;
     bool hasFloraMesh;
+    bool hasLodFloraMesh;
 } MeshJob;
 
 typedef struct ChunkStreamingFocus {
@@ -212,6 +214,11 @@ bool BuildChunkFloraMeshDataFromSnapshot(
     int nearbyTorchCount, const SurfaceBoundarySnapshot *boundary,
     Mesh *outMesh,
     FloraVisualInstance **outInstances, int *outInstanceCount);
+bool BuildChunkLodFloraMeshData(
+    int layerY, int chunkX, int chunkZ, ChunkLodLevel lod,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const SurfaceBoundarySnapshot *boundary,
+    Mesh *outMesh);
 bool BuildChunkMeshData(const ChunkMeshBuildRequest *request, Mesh *outMesh);
 void CaptureSurfaceBoundary(SurfaceBoundarySnapshot *snapshot,
                             int chunkX, int chunkZ, int sectionY);

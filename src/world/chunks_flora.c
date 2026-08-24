@@ -498,6 +498,113 @@ static bool AppendPlantMeshInstances(
     return true;
 }
 
+static void SetLodFloraBlock(
+    unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
+    int lx, int y, int lz, BlockType type)
+{
+    if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
+        y < 0 || y >= SURFACE_SECTION_HEIGHT || type == BLOCK_AIR) {
+        return;
+    }
+    if (blocks[lx][y][lz] == BLOCK_AIR) blocks[lx][y][lz] = type;
+}
+
+bool BuildChunkLodFloraMeshData(
+    int layerY, int chunkX, int chunkZ, ChunkLodLevel lod,
+    const FloraStructureInstance *structures, int structureCount,
+    const int faces[6][3], const SurfaceBoundarySnapshot *boundary,
+    Mesh *outMesh)
+{
+    if (!outMesh || !structures || structureCount <= 0 ||
+        (lod != CHUNK_LOD_HALF && lod != CHUNK_LOD_QUARTER)) {
+        return false;
+    }
+
+    unsigned short proxyBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT]
+                              [CHUNK_SIZE] = { 0 };
+    int startX = chunkX * CHUNK_SIZE;
+    int startZ = chunkZ * CHUNK_SIZE;
+    bool hasTree = false;
+    for (int index = 0; index < structureCount; index++) {
+        const FloraStructureInstance *structure = &structures[index];
+        if (structure->kind != FLORA_STRUCTURE_HOME_TREE ||
+            !FloraTaxonIsTree(structure->taxonId)) continue;
+
+        int base = structure->groundY + 1;
+        int height = structure->maxY - structure->groundY;
+        int trunkHeight = lod == CHUNK_LOD_HALF ? 5 : 3;
+        if (trunkHeight > height) trunkHeight = height;
+        if (trunkHeight <= 0) continue;
+        hasTree = true;
+
+        for (int y = base; y < base + trunkHeight; y++) {
+            SetLodFloraBlock(
+                proxyBlocks, structure->rootX - startX, y - layerY,
+                structure->rootZ - startZ, structure->primaryBlock);
+        }
+
+        int extentX = structure->maxX - structure->minX + 1;
+        int extentZ = structure->maxZ - structure->minZ + 1;
+        int radiusX = lod == CHUNK_LOD_HALF ? extentX / 3 : extentX / 4;
+        int radiusZ = lod == CHUNK_LOD_HALF ? extentZ / 3 : extentZ / 4;
+        if (radiusX < 1) radiusX = 1;
+        if (radiusZ < 1) radiusZ = 1;
+        int canopyBase = base + trunkHeight - 1;
+        int canopyLayers = lod == CHUNK_LOD_HALF ? 2 : 1;
+        bool conifer = structure->taxonId == FLORA_TAXON_SPRUCE ||
+                       structure->taxonId == FLORA_TAXON_PINE;
+        for (int layer = 0; layer < canopyLayers; layer++) {
+            int rx = radiusX;
+            int rz = radiusZ;
+            if (conifer) {
+                rx = radiusX - layer;
+                rz = radiusZ - layer;
+                if (rx < 1) rx = 1;
+                if (rz < 1) rz = 1;
+            }
+            for (int dx = -rx; dx <= rx; dx++) {
+                for (int dz = -rz; dz <= rz; dz++) {
+                    if (dx * dx * rz * rz + dz * dz * rx * rx >
+                        rx * rx * rz * rz) continue;
+                    SetLodFloraBlock(
+                        proxyBlocks,
+                        structure->rootX + dx - startX,
+                        canopyBase + layer - layerY,
+                        structure->rootZ + dz - startZ,
+                        structure->accentBlock);
+                }
+            }
+        }
+    }
+    if (!hasTree) return false;
+
+    Mesh solid = { 0 };
+    Mesh transparent = { 0 };
+    ChunkMeshBuildRequest request = {
+        .blocks = (const unsigned short (*)[CHUNK_SIZE])proxyBlocks,
+        .height = SURFACE_SECTION_HEIGHT,
+        .layerY = layerY,
+        .chunkX = chunkX,
+        .chunkZ = chunkZ,
+        .boundary = boundary,
+        .includePlants = true,
+        .faces = faces,
+        .greedyMaxSpan = GREEDY_MESH_MAX_SPAN
+    };
+    bool hasSolid = BuildChunkMeshData(&request, &solid);
+    request.transparent = true;
+    bool hasTransparent = BuildChunkMeshData(&request, &transparent);
+    if ((!hasSolid && !hasTransparent) ||
+        (hasSolid && !MergeMeshData(outMesh, &solid)) ||
+        (hasTransparent && !MergeMeshData(outMesh, &transparent))) {
+        FreeMeshData(&solid);
+        FreeMeshData(&transparent);
+        FreeMeshData(outMesh);
+        return false;
+    }
+    return outMesh->vertexCount > 0;
+}
+
 bool BuildChunkSurfaceSolidMeshData(
     const unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE],
     int layerY, int chunkX, int chunkZ,

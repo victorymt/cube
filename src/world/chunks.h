@@ -266,6 +266,7 @@ typedef struct ChunkTestMeshPayloadInfo {
     int waterVertices;
     int floraVertices;
     int floraInstances;
+    int lodFloraVertices;
 } ChunkTestMeshPayloadInfo;
 
 bool ChunksTestBuildMeshJobPayload(
