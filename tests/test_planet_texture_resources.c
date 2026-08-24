@@ -76,11 +76,6 @@ double SpaceElapsedSimulationTime(void)
     return 0.0;
 }
 
-double SpacePeriodicSimulationTime(double elapsedTime)
-{
-    return elapsedTime;
-}
-
 uint32_t WorldGetSeed(void)
 {
     return testWorldSeed;

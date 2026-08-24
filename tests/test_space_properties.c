@@ -1,3 +1,4 @@
+#include "core/simulation_time.h"
 #include "space/space.h"
 #include "space/space_barycenter.h"
 #include "space/space_physics.h"
@@ -2180,10 +2181,10 @@ static void TestLongTermTimeClock(void)
     assert(SpaceLoadLegacyState(future));
     assert(SpaceElapsedSimulationTime() == elapsed);
     assert(SpaceSimulationTime() == elapsed);
-    assert(SpacePeriodicSimulationTime(SpaceSimulationTime()) == 123.75);
-    assert(SpacePeriodicSimulationTime(NAN) == 0.0);
-    assert(SpacePeriodicSimulationTime(INFINITY) == 0.0);
-    assert(SpacePeriodicSimulationTime(-1.0) == 0.0);
+    assert(SimulationTimePeriodic(SpaceSimulationTime()) == 123.75);
+    assert(SimulationTimePeriodic(NAN) == 0.0);
+    assert(SimulationTimePeriodic(INFINITY) == 0.0);
+    assert(SimulationTimePeriodic(-1.0) == 0.0);
 
     double unchangedTime = SpaceSimulationTime();
     SpaceAdvanceTime(NAN);
@@ -2224,7 +2225,7 @@ static void TestLongTermTimeClock(void)
     assert(SpaceElapsedSimulationTime() ==
            20.0 * SPACE_UNITS_GAME_TIME_PER_GIGAYEAR + 134.0);
     assert(SpaceSimulationTime() == elapsed + 10.25);
-    assert(SpacePeriodicSimulationTime(SpaceSimulationTime()) == 134.0);
+    assert(SimulationTimePeriodic(SpaceSimulationTime()) == 134.0);
 
     FILE *replay = tmpfile();
     assert(replay);
@@ -2235,7 +2236,7 @@ static void TestLongTermTimeClock(void)
     assert(SpaceElapsedSimulationTime() ==
            20.0 * SPACE_UNITS_GAME_TIME_PER_GIGAYEAR + 134.0);
     assert(SpaceSimulationTime() == elapsed + 10.25);
-    assert(SpacePeriodicSimulationTime(SpaceSimulationTime()) == 134.0);
+    assert(SimulationTimePeriodic(SpaceSimulationTime()) == 134.0);
     assert(SpaceOriginX() == originX);
     assert(SpaceOriginZ() == originZ);
     SolarSystemRuntimeState replayRuntime;

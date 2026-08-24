@@ -1,6 +1,7 @@
 #include "world/weather.h"
 
 #include "core/game_effects.h"
+#include "core/simulation_time.h"
 #include "space/space_state.h"
 #include "world/local_climate.h"
 #include "world/terrain.h"
@@ -21,6 +22,13 @@
 #define WEATHER_MAX_UPDATE_DT 0.25f
 #define WEATHER_MAX_RAIN_EMISSIONS 24u
 #define WEATHER_MAX_SNOW_EMISSIONS 12u
+
+static double WeatherPeriodicSimulationTime(void)
+{
+    double elapsedTime = SpaceElapsedSimulationTime();
+    if (!isfinite(elapsedTime) || elapsedTime < 0.0) return NAN;
+    return SimulationTimePeriodic(elapsedTime);
+}
 
 #if defined(__GNUC__) || defined(__clang__)
 #define WEATHER_THREAD_LOCAL __thread
@@ -623,7 +631,7 @@ static WeatherFieldSample WeatherManualSample(Weather weather)
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
 {
     return WeatherFieldSampleAtWorldTime(
-        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()));
+        x, z, WeatherPeriodicSimulationTime());
 }
 
 WeatherFieldSample WeatherFieldSampleAtWorldTime(
@@ -676,7 +684,7 @@ bool WeatherLocalClimateAtWorldTime(int x, int z, double simulationTime,
 float WeatherWindAngleAtWorld(int x, int z)
 {
     return WeatherWindAngleAtWorldTime(
-        x, z, SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()));
+        x, z, WeatherPeriodicSimulationTime());
 }
 
 float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
@@ -1069,7 +1077,7 @@ void WeatherUpdate(float dt, Vector3 playerPosition)
         WeatherFieldInput input;
         if (WeatherInputAt(
                 playerPosition,
-                SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+                WeatherPeriodicSimulationTime(),
                 &input, NULL)) {
             fieldSample = WeatherFieldSampleAt(&input);
             particleWindAngle = isfinite(fieldSample.windAngle) ?

@@ -4,7 +4,6 @@
 #include "space/space_types.h"
 
 double SpaceSimulationTime(void);
-double SpacePeriodicSimulationTime(double elapsedTime);
 double SpaceElapsedSimulationTime(void);
 int SpaceOriginX(void);
 int SpaceOriginZ(void);
