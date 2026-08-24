@@ -16,6 +16,7 @@
 #include "core/debug_dsl.h"
 #include "core/game_notice.h"
 #include "core/perf.h"
+#include "core/simulation_time.h"
 #include "ecology/ecology.h"
 #include "ecology/entity.h"
 #include "ecology/evolution.h"
@@ -1033,7 +1034,7 @@ static bool GameDebugLocalClimate(const GameRuntime *game,
     return WeatherLocalClimateAtWorldTime(
         (int)floorf(game->player.position.x),
         (int)floorf(game->player.position.z),
-        SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        SimulationTimePeriodic(SpaceElapsedSimulationTime()),
         outClimate);
 }
 
@@ -1042,7 +1043,7 @@ static void GameDebugInspectWeather(GameRuntime *game)
     WeatherFieldSample weather = WeatherCurrentSample();
     WeatherVisualState visual = WeatherVisualStateAtWorld(
         game->player.position,
-        SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()), 0.5f);
+        SimulationTimePeriodic(SpaceElapsedSimulationTime()), 0.5f);
     WeatherImpactStats impacts = WeatherImpactGetStats();
     WeatherImpactFireSnapshot nearestFire = { 0 };
     float nearestFireDistance = -1.0f;

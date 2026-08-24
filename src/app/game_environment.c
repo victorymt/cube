@@ -3,6 +3,7 @@
 
 #include "core/game_effects.h"
 #include "core/perf.h"
+#include "core/simulation_time.h"
 #include "ecology/entity.h"
 #include "gameplay/ship.h"
 #include "presentation/audio.h"
@@ -65,7 +66,7 @@ static float GameSampleFrameAstronomy(GameRuntime *game,
     }
     frame->planetObservation =
         PlanetObservationForCamera(&game->camera, &frame->planetLight);
-    frame->weatherSimulationTime = SpacePeriodicSimulationTime(
+    frame->weatherSimulationTime = SimulationTimePeriodic(
         SpaceElapsedSimulationTime());
     frame->weatherVisual = WeatherVisualStateAtWorld(
         game->camera.position, frame->weatherSimulationTime,
@@ -79,7 +80,7 @@ static float GameSampleFrameAstronomy(GameRuntime *game,
         PlanetSeasonState season = { 0 };
         if (PlanetSeasonEvaluate(
                 profile, latitude,
-                SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+                SimulationTimePeriodic(SpaceElapsedSimulationTime()),
                 &season)) {
             frame->planetSeasonProgress = season.seasonAngle / (2.0f * PI);
         }

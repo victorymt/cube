@@ -5,6 +5,7 @@
 
 #include "app/game_internal.h"
 #include "app/game_runtime.h"
+#include "core/simulation_time.h"
 #include "gameplay/player.h"
 #include "space/space_state.h"
 #include "world/local_climate.h"
@@ -66,7 +67,7 @@ static bool WeatherLocalClimate(const GameRuntime *game,
     return WeatherLocalClimateAtWorldTime(
         (int)floorf(game->player.position.x),
         (int)floorf(game->player.position.z),
-        SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()),
+        SimulationTimePeriodic(SpaceElapsedSimulationTime()),
         outClimate);
 }
 
@@ -260,7 +261,7 @@ bool GameDebugWeatherDslResolve(const GameRuntime *game, const char *name,
     if (strcmp(name, "weather.cloud_layers") == 0) {
         WeatherVisualState visual = WeatherVisualStateAtWorld(
             game->player.position,
-            SpacePeriodicSimulationTime(SpaceElapsedSimulationTime()), 0.5f);
+            SimulationTimePeriodic(SpaceElapsedSimulationTime()), 0.5f);
         return WeatherDslNumber(outValue, visual.cloudLayerCount);
     }
     if (strcmp(name, "weather.cloud_forced_frames") == 0) {
