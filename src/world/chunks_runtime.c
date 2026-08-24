@@ -4,6 +4,44 @@
 MeshJob meshJobs[MAX_MESH_JOBS];
 static uint64_t nextMeshQueueSequence = 0u;
 
+typedef struct MeshCandidate {
+    int chunkIndex;
+    int sectionIndex;
+    int horizontalDistance;
+    int verticalDistance;
+} MeshCandidate;
+
+static bool MeshCandidateBefore(const MeshCandidate *candidate,
+                                const MeshCandidate *selected)
+{
+    return candidate->horizontalDistance < selected->horizontalDistance ||
+           (candidate->horizontalDistance == selected->horizontalDistance &&
+            candidate->verticalDistance < selected->verticalDistance);
+}
+
+static bool MeshCandidateInsert(MeshCandidate *candidates, int *count,
+                                int limit, MeshCandidate candidate)
+{
+    if (!candidates || !count || limit <= 0 || *count < 0 || *count > limit) {
+        return false;
+    }
+    int insert = *count;
+    for (int selected = 0; selected < *count; selected++) {
+        if (MeshCandidateBefore(&candidate, &candidates[selected])) {
+            insert = selected;
+            break;
+        }
+    }
+    if (insert >= limit) return false;
+    int last = *count < limit ? *count : limit - 1;
+    for (int selected = last; selected > insert; selected--) {
+        candidates[selected] = candidates[selected - 1];
+    }
+    candidates[insert] = candidate;
+    if (*count < limit) (*count)++;
+    return true;
+}
+
 void UpdateQueuePeaksLocked(void)
 {
     uint64_t generation = 0;
@@ -675,8 +713,7 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
     WorldToChunkLocal((int)floorf(focusPosition.x), (int)floorf(focusPosition.z),
                       &focusCx, &focusCz, &localX, &localZ);
 
-    int candidateChunks[MAX_MESH_SUBMITS_PER_FRAME] = { 0 }, candidateSections[MAX_MESH_SUBMITS_PER_FRAME] = { 0 },
-        candidateHorizontal[MAX_MESH_SUBMITS_PER_FRAME] = { 0 }, candidateVertical[MAX_MESH_SUBMITS_PER_FRAME] = { 0 };
+    MeshCandidate candidates[MAX_MESH_SUBMITS_PER_FRAME] = { 0 };
     int candidateCount = 0;
     int focusSectionY = FloorDivInt((int)floorf(focusPosition.y), SURFACE_SECTION_HEIGHT);
     int submissionLimit = MAX_MESH_SUBMITS_PER_FRAME;
@@ -710,37 +747,22 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
                 continue;
             }
             int verticalDistance = abs(section->sectionY - focusSectionY);
-            int insert = candidateCount;
-            for (int selected = 0; selected < candidateCount; selected++) {
-                if (distance < candidateHorizontal[selected] ||
-                    (distance == candidateHorizontal[selected] &&
-                     verticalDistance < candidateVertical[selected])) {
-                    insert = selected;
-                    break;
-                }
-            }
-            if (insert >= submissionLimit) continue;
-            int last = candidateCount < submissionLimit
-                ? candidateCount : submissionLimit - 1;
-            for (int selected = last; selected > insert; selected--) {
-                candidateChunks[selected] = candidateChunks[selected - 1];
-                candidateSections[selected] = candidateSections[selected - 1];
-                candidateHorizontal[selected] = candidateHorizontal[selected - 1];
-                candidateVertical[selected] = candidateVertical[selected - 1];
-            }
-            candidateChunks[insert] = i;
-            candidateSections[insert] = sectionIndex;
-            candidateHorizontal[insert] = distance;
-            candidateVertical[insert] = verticalDistance;
-            if (candidateCount < submissionLimit) candidateCount++;
+            MeshCandidate candidate = {
+                .chunkIndex = i,
+                .sectionIndex = sectionIndex,
+                .horizontalDistance = distance,
+                .verticalDistance = verticalDistance
+            };
+            MeshCandidateInsert(candidates, &candidateCount,
+                                submissionLimit, candidate);
         }
         if (scanBudgetHit) { scanned++; break; }
     }
     scanCursor = (scanStart + scanned) % MAX_ACTIVE_CHUNKS;
     double submitStartedMs = ChunkThreadCpuNowMs(); while (submitted < candidateCount) {
-        int chunkIndex = candidateChunks[submitted];
+        int chunkIndex = candidates[submitted].chunkIndex;
         ChunkSection *section = chunks[chunkIndex].sections[
-            candidateSections[submitted]];
+            candidates[submitted].sectionIndex];
 
         if (genWorkerThreadsStarted == 0u) {
             double startedMs = ChunkNowMs();

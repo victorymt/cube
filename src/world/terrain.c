@@ -1392,6 +1392,11 @@ typedef struct PlanetTerrainColumn {
     PlanetSurfaceSample surface;
 } PlanetTerrainColumn;
 
+typedef struct PlanetTerrainDecorationDecision {
+    BlockType type;
+    int stackCount;
+} PlanetTerrainDecorationDecision;
+
 static PlanetTerrainColumn PlanetTerrainColumnSample(
     int startX, int startZ, int lx, int lz)
 {
@@ -1502,64 +1507,83 @@ static void PlacePlanetTerrainColumnStack(
     }
 }
 
-static void DecoratePlanetTerrainColumn(
-    Chunk *chunk, const PlanetChunkTerrainContext *context,
-    const PlanetTerrainColumn *column)
+// Selects the first decoration for a column without mutating the chunk. The
+// ordered branches intentionally remain identical to the generation contract;
+// the caller owns the actual block writes and height boundary check.
+static bool PlanetTerrainDecorationSelect(
+    const PlanetChunkTerrainContext *context,
+    const PlanetTerrainColumn *column, unsigned int decor,
+    PlanetTerrainDecorationDecision *out)
 {
-    if (!InHeight(column->height + 1)) return;
+    if (!context || !column || !out) return false;
     PlanetBiome biome = column->surface.biome;
-    unsigned int decor = PlanetHash2D(column->worldX, column->worldZ, 7u);
+    PlanetTerrainDecorationDecision decision = { 0 };
     if (column->surface.glacierCracks > 0.84f && decor % 67u == 0u) {
-        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
-                           column->lz, BLOCK_MOON_ROCK);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_MOON_ROCK, 1 };
     } else if (column->surface.lavaFlow > 0.82f && decor % 53u == 0u) {
-        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
-                           column->lz, BLOCK_GLOWSTONE);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_GLOWSTONE, 1 };
     } else if (column->surface.ejecta > 0.76f && decor % 83u == 0u) {
-        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
-                           column->lz, BLOCK_METEORITE);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_METEORITE, 1 };
     } else if ((biome == PLANET_BIOME_DUNES ||
                 biome == PLANET_BIOME_BADLANDS) &&
                decor % (biome == PLANET_BIOME_DUNES ? 181u : 293u) == 0u &&
                PlanetTerrainColumnFloraAllowed(column, 401u)) {
-        PlacePlanetTerrainColumnStack(chunk, column, BLOCK_CACTUS, 3);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_CACTUS, 3 };
     } else if (biome == PLANET_BIOME_GLACIER && decor % 137u == 0u) {
-        PlacePlanetTerrainColumnStack(chunk, column, BLOCK_ICE, 4);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_ICE, 4 };
     } else if (biome == PLANET_BIOME_ICE_SHEET && decor % 211u == 0u) {
-        PlacePlanetTerrainColumnStack(chunk, column, BLOCK_ICE, 2);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_ICE, 2 };
     } else if ((biome == PLANET_BIOME_BASALT_PLAINS ||
                 biome == PLANET_BIOME_VOLCANIC_RIDGE) &&
                decor % 193u == 0u) {
-        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
-                           column->lz, BLOCK_GLOWSTONE);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_GLOWSTONE, 1 };
     } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 113u == 0u) {
-        PlacePlanetTerrainColumnStack(
-            chunk, column, BLOCK_CRYSTAL, 2 + (int)(decor % 3u));
+        decision = (PlanetTerrainDecorationDecision){
+            BLOCK_CRYSTAL, 2 + (int)(decor % 3u)
+        };
     } else if (biome == PLANET_BIOME_STORM_BANDS && decor % 157u == 0u &&
                PlanetTerrainColumnFloraAllowed(column, 409u)) {
-        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
-                           column->lz, BLOCK_MUSHROOM);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_MUSHROOM, 1 };
     } else if ((biome == PLANET_BIOME_IMPACT_BASIN ||
                 biome == PLANET_BIOME_CRATER_HIGHLANDS) &&
                decor % 149u == 0u) {
-        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
-                           column->lz, BLOCK_METEORITE);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_METEORITE, 1 };
     } else if ((biome == PLANET_BIOME_FOREST ||
                 biome == PLANET_BIOME_PLAINS ||
                 biome == PLANET_BIOME_OASIS) &&
                column->height > context->seaLevel + 1 &&
                biome == PLANET_BIOME_FOREST && decor % 3u == 0u &&
                PlanetTerrainColumnFloraAllowed(column, 417u)) {
-        ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
-                           column->lz, BLOCK_LEAF_LITTER);
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_LEAF_LITTER, 1 };
     } else if ((biome == PLANET_BIOME_FOREST ||
                 biome == PLANET_BIOME_PLAINS ||
                 biome == PLANET_BIOME_OASIS) &&
                column->height > context->seaLevel + 1 &&
                decor % (biome == PLANET_BIOME_FOREST ? 61u : 97u) == 0u &&
                PlanetTerrainColumnFloraAllowed(column, 419u)) {
+        decision = (PlanetTerrainDecorationDecision){ BLOCK_FLOWER, 1 };
+    }
+    if (decision.stackCount <= 0) return false;
+    *out = decision;
+    return true;
+}
+
+static void DecoratePlanetTerrainColumn(
+    Chunk *chunk, const PlanetChunkTerrainContext *context,
+    const PlanetTerrainColumn *column)
+{
+    if (!InHeight(column->height + 1)) return;
+    unsigned int decor = PlanetHash2D(column->worldX, column->worldZ, 7u);
+    PlanetTerrainDecorationDecision decision = { 0 };
+    if (!PlanetTerrainDecorationSelect(context, column, decor, &decision)) {
+        return;
+    }
+    if (decision.stackCount == 1) {
         ChunkSetLocalBlock(chunk, column->lx, column->height + 1,
-                           column->lz, BLOCK_FLOWER);
+                           column->lz, decision.type);
+    } else {
+        PlacePlanetTerrainColumnStack(
+            chunk, column, decision.type, decision.stackCount);
     }
 }
 
