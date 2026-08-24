@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1327,6 +1328,10 @@ static void AssertChunkLodWaterHeightfieldContracts(void)
 
 int main(void)
 {
+    WorldToChunkLocal(0, 0, NULL, NULL, NULL, NULL);
+    Mesh overflowTarget = { .vertexCount = INT_MAX, .triangleCount = 1 };
+    Mesh overflowSource = { .vertexCount = 1, .triangleCount = 1 };
+    assert(!MergeMeshData(&overflowTarget, &overflowSource));
     AssertSpecialBlockMeshContracts();
     AssertEcologyPlantMeshShapes();
     AssertFenceMeshContracts();

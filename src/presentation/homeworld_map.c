@@ -15,6 +15,7 @@
 #include "world/world_environment.h"
 
 #include <math.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -35,6 +36,15 @@ typedef struct MapSurfaceTerrainSample {
     HomeWorldMapTerrainCell cell;
     BathymetrySample bathymetry;
 } MapSurfaceTerrainSample;
+
+static int MapWorldCoordinate(float value)
+{
+    if (!isfinite(value)) return 0;
+    double coordinate = floor((double)value);
+    if (coordinate <= (double)INT_MIN) return INT_MIN;
+    if (coordinate >= (double)INT_MAX) return INT_MAX;
+    return (int)coordinate;
+}
 
 typedef struct MapMarkerEditorLayout {
     Rectangle panel;
@@ -96,12 +106,12 @@ static void MapCloseMarkerEditor(void);
 static void MapPlayerLatLon(float *outLongitude, float *outLatitude)
 {
     if (homeMap.planetSurface) {
-        PlanetSurfaceLatLonAt((int)floorf(homeMap.playerPosition.x),
-                              (int)floorf(homeMap.playerPosition.z),
+        PlanetSurfaceLatLonAt(MapWorldCoordinate(homeMap.playerPosition.x),
+                              MapWorldCoordinate(homeMap.playerPosition.z),
                               outLongitude, outLatitude);
     } else {
-        HomeSurfaceLatLonAt((int)floorf(homeMap.playerPosition.x),
-                            (int)floorf(homeMap.playerPosition.z),
+        HomeSurfaceLatLonAt(MapWorldCoordinate(homeMap.playerPosition.x),
+                            MapWorldCoordinate(homeMap.playerPosition.z),
                             outLongitude, outLatitude);
     }
 }
@@ -248,10 +258,10 @@ static void MapRefresh(float daylight)
                       (float)HOMEWORLD_MAP_RASTER_SIZE;
             float v = ((float)z + 0.5f) /
                       (float)HOMEWORLD_MAP_RASTER_SIZE;
-            int worldX = (int)floorf(homeMap.bounds.centerX - half +
-                                     u * homeMap.bounds.span);
-            int worldZ = (int)floorf(homeMap.bounds.centerZ - half +
-                                     v * homeMap.bounds.span);
+            int worldX = MapWorldCoordinate(homeMap.bounds.centerX - half +
+                                            u * homeMap.bounds.span);
+            int worldZ = MapWorldCoordinate(homeMap.bounds.centerZ - half +
+                                            v * homeMap.bounds.span);
             MapSurfaceTerrainSample sample =
                 MapTerrainAt(worldX, worldZ, terrainMode);
             HomeWorldMapTerrainCell *cell =
@@ -266,10 +276,10 @@ static void MapRefresh(float daylight)
                       (float)HOMEWORLD_MAP_HEAT_SIZE;
             float v = ((float)z + 0.5f) /
                       (float)HOMEWORLD_MAP_HEAT_SIZE;
-            int worldX = (int)floorf(homeMap.bounds.centerX - half +
-                                     u * homeMap.bounds.span);
-            int worldZ = (int)floorf(homeMap.bounds.centerZ - half +
-                                     v * homeMap.bounds.span);
+            int worldX = MapWorldCoordinate(homeMap.bounds.centerX - half +
+                                            u * homeMap.bounds.span);
+            int worldZ = MapWorldCoordinate(homeMap.bounds.centerZ - half +
+                                            v * homeMap.bounds.span);
             PlanetLocalEcology ecology =
                 PlanetEcologyLocalAt(worldX, worldZ, daylight);
             int index = z * HOMEWORLD_MAP_HEAT_SIZE + x;

@@ -112,6 +112,8 @@ int SurfaceSectionLocalYFromBlockY(int y)
 
 void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
 {
+    if (!cx || !cz || !lx || !lz) return;
+
     if (WorldIsSurfaceActive()) {
         int originX = WorldSurfaceMapOriginX();
         int originZ = WorldSurfaceMapOriginZ();

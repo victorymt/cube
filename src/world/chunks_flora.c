@@ -188,6 +188,11 @@ static void CopyBlocksWithoutFloraStructures(
 
 bool MergeMeshData(Mesh *target, Mesh *source)
 {
+    if (!target || !source || target->vertexCount < 0 ||
+        source->vertexCount < 0 || target->triangleCount < 0 ||
+        source->triangleCount < 0) {
+        return false;
+    }
     if (source->vertexCount <= 0) {
         FreeMeshData(source);
         return true;
@@ -200,6 +205,14 @@ bool MergeMeshData(Mesh *target, Mesh *source)
 
     int targetVertexCount = target->vertexCount;
     int sourceVertexCount = source->vertexCount;
+    if (targetVertexCount > INT_MAX - sourceVertexCount ||
+        target->triangleCount > INT_MAX - source->triangleCount ||
+        !target->vertices || !target->texcoords || !target->texcoords2 ||
+        !target->normals || !target->colors || !source->vertices ||
+        !source->texcoords || !source->texcoords2 || !source->normals ||
+        !source->colors) {
+        return false;
+    }
     int vertexCount = targetVertexCount + sourceVertexCount;
     float *vertices = malloc((size_t)vertexCount * 3u * sizeof(float));
     float *texcoords = malloc((size_t)vertexCount * 2u * sizeof(float));

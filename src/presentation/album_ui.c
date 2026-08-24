@@ -79,15 +79,28 @@ static void UnloadThumbnails(void)
 
 static Texture2D LoadScaledTexture(const char *path, int maxSize)
 {
+    if (!path || maxSize <= 0) return (Texture2D){ 0 };
+
     Image image = LoadImage(path);
-    if (image.data == NULL) return (Texture2D){ 0 };
+    if (image.data == NULL || image.width <= 0 || image.height <= 0) {
+        if (image.data != NULL) UnloadImage(image);
+        return (Texture2D){ 0 };
+    }
 
     if (image.width > maxSize || image.height > maxSize) {
         float scale = (float)maxSize / (float)(image.width > image.height ? image.width : image.height);
-        ImageResize(&image, (int)((float)image.width * scale), (int)((float)image.height * scale));
+        int width = (int)((float)image.width * scale);
+        int height = (int)((float)image.height * scale);
+        if (width < 1) width = 1;
+        if (height < 1) height = 1;
+        ImageResize(&image, width, height);
+        if (image.data == NULL || image.width <= 0 || image.height <= 0) {
+            if (image.data != NULL) UnloadImage(image);
+            return (Texture2D){ 0 };
+        }
     }
     Texture2D texture = LoadTextureFromImage(image);
-    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+    if (texture.id != 0) SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
     UnloadImage(image);
     return texture;
 }
