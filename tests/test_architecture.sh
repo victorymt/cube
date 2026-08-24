@@ -48,6 +48,46 @@ if grep -R -nE '#include "(world|space|ecology|gameplay|presentation)/' \
     fail "core must not depend on higher-level modules"
 fi
 
+# Cross-domain rules intentionally target public/narrow interfaces and direct
+# bypasses only. Terrain/entity implementations may still consume narrow
+# contracts from another domain; a full include ban would reject valid seams.
+for world_header in \
+    src/world/world_types.h \
+    src/world/world_environment.h \
+    src/world/world_extension.h \
+    src/world/world_persistence.h \
+    src/world/chunks.h \
+    src/world/nether.h \
+    src/world/weather_model.h \
+    src/world/weather_impact.h
+do
+    if grep -nE '#include "(space|ecology)/' "$world_header"; then
+        fail "$world_header must expose neutral world contracts"
+    fi
+done
+
+for ecology_header in src/ecology/*.h
+do
+    if grep -n '#include "space/' "$ecology_header"; then
+        fail "$ecology_header must not depend on space headers"
+    fi
+done
+
+space_direct_ecology_imports=$(
+    grep -R -n '#include "ecology/' src/space \
+        --include='*.c' --include='*.h' |
+        grep -v 'src/space/space_dependencies.h:' || true
+)
+[ -z "$space_direct_ecology_imports" ] || {
+    printf '%s\n' "$space_direct_ecology_imports" >&2
+    fail "space must consume ecology only through its dependency aggregator"
+}
+
+if grep -R -nE '#include "(space/space\.h|space/space_dependencies\.h|ecology/ecology_internal\.h)"' \
+    src/world --include='*.c' --include='*.h'; then
+    fail "world must use narrow domain contracts, not aggregate/private facades"
+fi
+
 domain_effect_calls=$(
     grep -R -nE \
         '(AudioPlay(Break|Step|WaterStep|Splash)|AudioSetRain|ParticlesEmit(One|Burst|Styled))[[:space:]]*\(' \
