@@ -46,7 +46,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run test test-headers test-modules test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run test test-headers test-modules test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
 
 all: $(TARGET)
 
@@ -164,6 +164,10 @@ test-coverage:
 
 test-e2e: $(TARGET)
 	bash tests/test_game_e2e.sh $(TARGET)
+	bash tests/test_debug_graphics_e2e.sh $(TARGET)
+
+test-debug-graphics-e2e: $(TARGET)
+	bash tests/test_debug_graphics_e2e.sh $(TARGET)
 
 test-debug-cli: $(TARGET)
 	@bash tests/test_debug_cli.sh $(TARGET)

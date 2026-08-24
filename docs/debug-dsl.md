@@ -21,11 +21,14 @@ same session:
 
 ```sh
 make test-e2e
+# Short pause/map/surface/view/look/mouse/ship smoke test:
+make test-debug-graphics-e2e
 ```
 
 The command-line and batch-script error contract is covered without a window
 by `make test` (the `test-debug-cli` target). Keep `make test-e2e` for tests
-that exercise actual frame updates and rendering.
+that exercise actual frame updates and rendering; it runs both the long
+streaming regression and the short graphics-control smoke test.
 
 ## Starting a debug session
 
@@ -443,6 +446,13 @@ creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
 
+`map`, `map layer liquids`, `view`, and `look` report their resulting state in
+their `DEBUG_CONTROL` reply; they do not currently expose dedicated typed
+resolver fields. Use the reply for a command contract assertion, then use
+`status` when a frame-level snapshot is needed (`third_person` is included
+there). `surface debug` reports the active world and seed and should be
+followed by `wait until stream.surface_ready` before querying the new surface.
+
 The map's `GLOBAL SURFACE` globe can be left-dragged to rotate. Clicking a
 visible point focuses the regional map on that spherical location; clicking a
 nearby custom marker also toggles its navigation target. The globe keeps its
@@ -501,7 +511,11 @@ clamped.
 `mouse left` and `mouse right` inject one button-press edge through their normal
 interaction paths. For `mouse left`, the `status` reply includes the debug frame
 at which the edge was queued, handled, committed with `SetBlock`, and observed
-in the uploaded section mesh.
+in the uploaded section mesh. The typed fields
+`interaction.mouse_left_press_frame`, `interaction.mouse_left_handle_frame`,
+`interaction.mouse_left_set_block_frame`, `interaction.mouse_left_mesh_frame`,
+and `interaction.mouse_left_mesh_ready` expose the same lifecycle for DSL
+assertions; `mouse right` is currently contract-tested by its reply only.
 
 ### Fluids
 
