@@ -656,8 +656,15 @@ ship dust
 
 Ship input components are in `[-1,1]` for 1-600 frames; exhaust demand is
 0-1. `ship begin` starts a debug flight, while `ship enter` enters a local
-recorded ship. Input, exhaust, and dust require the appropriate driving/surface
-state.
+recorded ship. Successful commands reply with `ship begin ok position=...`,
+`ship enter ok block=...`, `ship input ok ... frames=...`,
+`ship exhaust ok demand=...`, or `ship dust ok`. Invalid state replies identify
+`not_playing`, `not_driving`, `no_recorded_ship`, `ship_not_local`,
+`ship_unavailable`, `ship_exhaust_invalid`, or `no_surface_ship` as
+appropriate. Input, exhaust, and dust require the appropriate driving/surface
+state. The typed fields `ship.driving` and `ship.mode` are available for DSL
+assertions; the current exhaust demand and scripted input frame count are
+available in the `status` reply as `ship_exhaust` and `ship_input_frames`.
 
 ### Map markers
 
