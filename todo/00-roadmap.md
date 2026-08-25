@@ -32,6 +32,7 @@ work progresses, verified, and then committed as one reviewable change.
 | 06 | Tree and plant diversity with biome ecology | Complete |
 | 07 | Global planetary topology and seamless traversal | Complete |
 | 08 | Cross-system integration, migration, and performance audit | Complete |
+| 09 | Renderer, mesh, and simulation performance optimization | Planned |
 
 The order deliberately establishes climate inputs before ecology and global
 topology. Stage 07 may require migration of spatial keys and saves, so it is
