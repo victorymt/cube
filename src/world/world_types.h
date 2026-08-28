@@ -376,6 +376,8 @@ typedef struct ChunkGenJob {
     bool inUse;
     bool running;
     bool done;
+    bool queued;
+    bool completionQueued;
     bool preload;
     bool succeeded;
     bool hasSectionBlocks;

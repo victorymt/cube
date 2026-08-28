@@ -14,6 +14,10 @@ unsigned int genWorkerThreadsStarted = 0u;
 unsigned int genWorkerThreadsActive = 0u;
 ChunkStreamingStats streamingStats;
 ChunkStreamingFocus chunkStreamingFocus;
+ChunkTaskQueue generationTaskQueue;
+ChunkTaskQueue generationDoneQueue;
+ChunkTaskQueue meshTaskQueue;
+ChunkTaskQueue meshDoneQueue;
 
 typedef struct ChunkIndexEntry {
     bool occupied;
@@ -181,6 +185,166 @@ Chunk *ChunkIndexFindSurface(SurfaceChunkKey key)
 Chunk *ChunkIndexFindFlat(int cx, int cz)
 {
     return ChunkIndexFind(false, cx, cz, (SurfaceChunkKey){ 0 });
+}
+
+static void ChunkTaskDequeCompact(ChunkTaskDeque *deque)
+{
+    if (!deque || deque->used <= 0) {
+        if (deque) {
+            deque->head = 0;
+            deque->tail = 0;
+            deque->used = 0;
+            deque->validCount = 0;
+        }
+        return;
+    }
+    ChunkTaskQueueEntry compact[CHUNK_TASK_QUEUE_CAPACITY];
+    int count = 0;
+    for (int offset = 0; offset < deque->used; offset++) {
+        int index = (deque->head + offset) % CHUNK_TASK_QUEUE_CAPACITY;
+        if (deque->entries[index].valid) {
+            compact[count++] = deque->entries[index];
+        }
+    }
+    memcpy(deque->entries, compact, (size_t)count * sizeof(*compact));
+    deque->head = 0;
+    deque->tail = count % CHUNK_TASK_QUEUE_CAPACITY;
+    deque->used = count;
+    deque->validCount = count;
+}
+
+void ChunkTaskQueueReset(ChunkTaskQueue *queue)
+{
+    if (!queue) return;
+    memset(queue, 0, sizeof(*queue));
+}
+
+bool ChunkTaskQueuePush(ChunkTaskQueue *queue, int lane,
+                        int slotIndex, uint64_t sequence)
+{
+    if (!queue || lane < 0 || lane >= CHUNK_TASK_QUEUE_LANES ||
+        slotIndex < 0 || sequence == 0u) return false;
+    ChunkTaskDeque *deque = &queue->lanes[lane];
+    if (deque->used >= CHUNK_TASK_QUEUE_CAPACITY) {
+        ChunkTaskDequeCompact(deque);
+    }
+    if (deque->used >= CHUNK_TASK_QUEUE_CAPACITY) return false;
+    deque->entries[deque->tail] = (ChunkTaskQueueEntry){
+        .slotIndex = slotIndex,
+        .sequence = sequence,
+        .valid = true
+    };
+    deque->tail = (deque->tail + 1) % CHUNK_TASK_QUEUE_CAPACITY;
+    deque->used++;
+    deque->validCount++;
+    return true;
+}
+
+bool ChunkTaskQueuePushOrdered(ChunkTaskQueue *queue, int lane,
+                               int slotIndex, uint64_t sequence)
+{
+    if (!queue || lane < 0 || lane >= CHUNK_TASK_QUEUE_LANES ||
+        slotIndex < 0 || sequence == 0u) return false;
+    ChunkTaskDeque *deque = &queue->lanes[lane];
+    ChunkTaskDequeCompact(deque);
+    if (deque->used >= CHUNK_TASK_QUEUE_CAPACITY) return false;
+
+    int insert = 0;
+    while (insert < deque->used &&
+           deque->entries[insert].sequence <= sequence) {
+        insert++;
+    }
+    if (insert < deque->used) {
+        memmove(&deque->entries[insert + 1], &deque->entries[insert],
+                (size_t)(deque->used - insert) * sizeof(*deque->entries));
+    }
+    deque->entries[insert] = (ChunkTaskQueueEntry){
+        .slotIndex = slotIndex,
+        .sequence = sequence,
+        .valid = true
+    };
+    deque->head = 0;
+    deque->used++;
+    deque->validCount++;
+    deque->tail = deque->used % CHUNK_TASK_QUEUE_CAPACITY;
+    return true;
+}
+
+bool ChunkTaskQueuePop(ChunkTaskQueue *queue, int *slotIndex,
+                       uint64_t *sequence)
+{
+    if (!queue || !slotIndex || !sequence) return false;
+    for (int lane = 0; lane < CHUNK_TASK_QUEUE_LANES; lane++) {
+        ChunkTaskDeque *deque = &queue->lanes[lane];
+        while (deque->used > 0) {
+            ChunkTaskQueueEntry entry = deque->entries[deque->head];
+            deque->entries[deque->head].valid = false;
+            deque->head = (deque->head + 1) % CHUNK_TASK_QUEUE_CAPACITY;
+            deque->used--;
+            if (!entry.valid) continue;
+            deque->validCount--;
+            *slotIndex = entry.slotIndex;
+            *sequence = entry.sequence;
+            if (deque->used == 0) {
+                deque->head = 0;
+                deque->tail = 0;
+            }
+            return true;
+        }
+        deque->head = 0;
+        deque->tail = 0;
+        deque->validCount = 0;
+    }
+    return false;
+}
+
+bool ChunkTaskQueuePeek(const ChunkTaskQueue *queue, int *slotIndex,
+                        uint64_t *sequence)
+{
+    if (!queue || !slotIndex || !sequence) return false;
+    for (int lane = 0; lane < CHUNK_TASK_QUEUE_LANES; lane++) {
+        const ChunkTaskDeque *deque = &queue->lanes[lane];
+        for (int offset = 0; offset < deque->used; offset++) {
+            int index = (deque->head + offset) % CHUNK_TASK_QUEUE_CAPACITY;
+            if (!deque->entries[index].valid) continue;
+            *slotIndex = deque->entries[index].slotIndex;
+            *sequence = deque->entries[index].sequence;
+            return true;
+        }
+    }
+    return false;
+}
+
+void ChunkTaskQueueRemove(ChunkTaskQueue *queue, int slotIndex,
+                          uint64_t sequence)
+{
+    if (!queue || slotIndex < 0 || sequence == 0u) return;
+    for (int lane = 0; lane < CHUNK_TASK_QUEUE_LANES; lane++) {
+        ChunkTaskDeque *deque = &queue->lanes[lane];
+        for (int offset = 0; offset < deque->used; offset++) {
+            int index = (deque->head + offset) % CHUNK_TASK_QUEUE_CAPACITY;
+            ChunkTaskQueueEntry *entry = &deque->entries[index];
+            if (!entry->valid || entry->slotIndex != slotIndex ||
+                entry->sequence != sequence) continue;
+            entry->valid = false;
+            deque->validCount--;
+        }
+    }
+}
+
+bool ChunkTaskQueueHasPending(const ChunkTaskQueue *queue)
+{
+    if (!queue) return false;
+    for (int lane = 0; lane < CHUNK_TASK_QUEUE_LANES; lane++) {
+        if (queue->lanes[lane].validCount > 0) return true;
+    }
+    return false;
+}
+
+bool ChunkTaskQueueHasLane(const ChunkTaskQueue *queue, int lane)
+{
+    return queue && lane >= 0 && lane < CHUNK_TASK_QUEUE_LANES &&
+           queue->lanes[lane].validCount > 0;
 }
 
 const Chunk *ChunksView(void)

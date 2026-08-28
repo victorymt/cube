@@ -10,6 +10,35 @@ static bool failNextColumnAllocation = false;
 static bool ChunkInStreamingRegion(
     const Chunk *chunk, int centerCx, int centerCz, int radius);
 
+static void QueueGenerationDoneLocked(ChunkGenJob *job)
+{
+    if (!job || job->completionQueued) return;
+    int slotIndex = (int)(job - chunkGenJobs);
+    if (ChunkTaskQueuePush(&generationDoneQueue, 0, slotIndex,
+                           job->queueSequence)) {
+        job->completionQueued = true;
+    }
+}
+
+static bool TakeCompletedGenerationJob(ChunkGenJob *out)
+{
+    if (!out) return false;
+    int slotIndex = -1;
+    uint64_t sequence = 0u;
+    while (ChunkTaskQueuePop(
+        &generationDoneQueue, &slotIndex, &sequence)) {
+        if (slotIndex < 0 || slotIndex >= MAX_CHUNK_GEN_JOBS) continue;
+        ChunkGenJob *job = &chunkGenJobs[slotIndex];
+        if (!job->inUse || !job->done ||
+            job->queueSequence != sequence) continue;
+        job->completionQueued = false;
+        *out = *job;
+        *job = (ChunkGenJob){ 0 };
+        return true;
+    }
+    return false;
+}
+
 static bool ChunkStreamingCoordinateIsValid(float value)
 {
     return isfinite(value) && (double)value >= (double)INT_MIN &&
@@ -25,26 +54,47 @@ bool ChunkStreamingPositionIsValid(Vector3 position)
 
 bool HasPendingGenJob(void)
 {
-    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-        if (chunkGenJobs[i].inUse && !chunkGenJobs[i].running &&
-            !chunkGenJobs[i].done) return true;
+    return ChunkTaskQueueHasPending(&generationTaskQueue);
+}
+
+static int ChunkGenQueueLane(const ChunkGenJob *job)
+{
+    return job && job->preload ? 3 : 0;
+}
+
+static ChunkGenJob *TakePendingGenJob(void)
+{
+    int slotIndex = -1;
+    uint64_t sequence = 0u;
+    while (ChunkTaskQueuePop(
+        &generationTaskQueue, &slotIndex, &sequence)) {
+        if (slotIndex < 0 || slotIndex >= MAX_CHUNK_GEN_JOBS) continue;
+        ChunkGenJob *job = &chunkGenJobs[slotIndex];
+        if (!job->inUse || job->running || job->done ||
+            job->queueSequence != sequence) continue;
+        job->queued = false;
+        return job;
     }
-    return false;
+    return NULL;
 }
 
 ChunkGenJob *NextPendingGenJob(void)
 {
-    ChunkGenJob *oldest = NULL;
-    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-        ChunkGenJob *job = &chunkGenJobs[i];
-        if (!job->inUse || job->running || job->done) continue;
-        if (!oldest || (!job->preload && oldest->preload) ||
-            (job->preload == oldest->preload &&
-             job->queueSequence < oldest->queueSequence)) {
-            oldest = job;
+    int slotIndex = -1;
+    uint64_t sequence = 0u;
+    while (ChunkTaskQueuePeek(
+        &generationTaskQueue, &slotIndex, &sequence)) {
+        if (slotIndex >= 0 && slotIndex < MAX_CHUNK_GEN_JOBS) {
+            ChunkGenJob *job = &chunkGenJobs[slotIndex];
+            if (job->inUse && !job->running && !job->done &&
+                job->queueSequence == sequence) {
+                return job;
+            }
         }
+        if (!ChunkTaskQueuePop(
+                &generationTaskQueue, &slotIndex, &sequence)) break;
     }
-    return oldest;
+    return NULL;
 }
 
 void GenerateChunkJobPayload(ChunkGenJob *job, bool preload)
@@ -131,10 +181,10 @@ void *ChunkGenWorker(void *arg)
         MeshJob *meshJob = NULL;
         if (havePriorityMesh ||
             (haveMesh && (preferMesh || !haveGeneration))) {
-            meshJob = NextPendingMeshJob();
+            meshJob = TakePendingMeshJob();
             preferMesh = false;
         } else {
-            job = NextPendingGenJob();
+            job = TakePendingGenJob();
             if (job) preferMesh = true;
         }
         if (job) {
@@ -154,6 +204,7 @@ void *ChunkGenWorker(void *arg)
             job->completedAtMs = ChunkNowMs();
             if (genWorkerThreadsActive > 0u) genWorkerThreadsActive--;
             streamingStats.generationCompleted++;
+            QueueGenerationDoneLocked(job);
             streamingStats.generationCpuMs += elapsedMs;
             pthread_cond_signal(&genCompletionCond);
             pthread_mutex_unlock(&genMutex);
@@ -176,6 +227,12 @@ void *ChunkGenWorker(void *arg)
             meshJob->completedAtMs = ChunkNowMs();
             if (genWorkerThreadsActive > 0u) genWorkerThreadsActive--;
             streamingStats.meshCompleted++;
+            if (!meshJob->completionQueued &&
+                ChunkTaskQueuePush(&meshDoneQueue, MeshQueueLane(meshJob),
+                                   (int)(meshJob - meshJobs),
+                                   meshJob->queueSequence)) {
+                meshJob->completionQueued = true;
+            }
             streamingStats.meshCpuMs += elapsedMs;
             pthread_cond_signal(&genCompletionCond);
             pthread_mutex_unlock(&genMutex);
@@ -274,6 +331,7 @@ void ChunksShutdownGenThread(void)
             chunkGenJobs[index].running = false;
             chunkGenJobs[index].done = true;
             chunkGenJobs[index].succeeded = false;
+            QueueGenerationDoneLocked(&chunkGenJobs[index]);
         }
     }
     pthread_mutex_unlock(&genMutex);
@@ -311,6 +369,12 @@ void ChunksShutdownGenThread(void)
             meshJobs[index].inUse = false;
         }
     }
+    pthread_mutex_lock(&genMutex);
+    ChunkTaskQueueReset(&generationTaskQueue);
+    ChunkTaskQueueReset(&generationDoneQueue);
+    ChunkTaskQueueReset(&meshTaskQueue);
+    ChunkTaskQueueReset(&meshDoneQueue);
+    pthread_mutex_unlock(&genMutex);
 }
 
 bool ChunksRestartGenThreads(int requestedWorkers)
@@ -362,6 +426,14 @@ static bool SubmitChunkGenJob(
         .queueSequence = ++nextGenerationQueueSequence,
         .submittedAtMs = ChunkNowMs()
     };
+    job->queued = ChunkTaskQueuePush(
+        &generationTaskQueue, ChunkGenQueueLane(job),
+        (int)(job - chunkGenJobs), job->queueSequence);
+    if (!job->queued) {
+        *job = (ChunkGenJob){ 0 };
+        pthread_mutex_unlock(&genMutex);
+        return false;
+    }
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
     pthread_cond_signal(&genCond);
@@ -414,6 +486,14 @@ static bool SubmitChunkSectionGenJob(
         .queueSequence = ++nextGenerationQueueSequence,
         .submittedAtMs = ChunkNowMs()
     };
+    job->queued = ChunkTaskQueuePush(
+        &generationTaskQueue, ChunkGenQueueLane(job),
+        (int)(job - chunkGenJobs), job->queueSequence);
+    if (!job->queued) {
+        *job = (ChunkGenJob){ 0 };
+        pthread_mutex_unlock(&genMutex);
+        return false;
+    }
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
     pthread_cond_signal(&genCond);
@@ -474,7 +554,17 @@ static bool FindPendingGenJob(int cx, int cz, bool promote)
         }
         if (spherical ? SurfaceChunkKeyEqual(job->surfaceKey, key)
                       : (job->cx == cx && job->cz == cz)) {
-            if (promote && !job->running) job->preload = false;
+            if (promote && !job->running) {
+                if (job->queued) {
+                    ChunkTaskQueueRemove(
+                        &generationTaskQueue, i, job->queueSequence);
+                    job->queued = false;
+                }
+                job->preload = false;
+                job->queued = ChunkTaskQueuePushOrdered(
+                    &generationTaskQueue, ChunkGenQueueLane(job), i,
+                    job->queueSequence);
+            }
             found = true;
             break;
         }
@@ -599,15 +689,7 @@ void ProcessFinishedChunkJobs(void)
     for (;;) {
         pthread_mutex_lock(&genMutex);
         ChunkGenJob completed = { 0 };
-        bool haveJob = false;
-        for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-            if (chunkGenJobs[i].inUse && chunkGenJobs[i].done) {
-                completed = chunkGenJobs[i];
-                chunkGenJobs[i] = (ChunkGenJob){ 0 };
-                haveJob = true;
-                break;
-            }
-        }
+        bool haveJob = TakeCompletedGenerationJob(&completed);
         pthread_mutex_unlock(&genMutex);
 
         if (!haveJob) return;
@@ -621,15 +703,7 @@ void DrainChunkGen(void)
         pthread_mutex_lock(&genMutex);
         for (;;) {
             ChunkGenJob completed = { 0 };
-            bool haveJob = false;
-            for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-                if (chunkGenJobs[i].inUse && chunkGenJobs[i].done) {
-                    completed = chunkGenJobs[i];
-                    chunkGenJobs[i] = (ChunkGenJob){ 0 };
-                    haveJob = true;
-                    break;
-                }
-            }
+            bool haveJob = TakeCompletedGenerationJob(&completed);
             if (!haveJob) break;
             pthread_mutex_unlock(&genMutex);
             CompleteChunkGenJob(&completed);
@@ -1161,6 +1235,12 @@ void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
 {
     assert(jobIndex >= 0 && jobIndex < MAX_CHUNK_GEN_JOBS);
     pthread_mutex_lock(&genMutex);
+    if (chunkGenJobs[jobIndex].inUse) {
+        ChunkTaskQueueRemove(&generationTaskQueue, jobIndex,
+                             chunkGenJobs[jobIndex].queueSequence);
+        ChunkTaskQueueRemove(&generationDoneQueue, jobIndex,
+                             chunkGenJobs[jobIndex].queueSequence);
+    }
     chunkGenJobs[jobIndex] = (ChunkGenJob){
         .inUse = true,
         .done = done,
@@ -1172,6 +1252,13 @@ void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
         .submittedAtMs = ChunkNowMs(),
         .completedAtMs = done ? ChunkNowMs() : 0.0
     };
+    if (done) {
+        QueueGenerationDoneLocked(&chunkGenJobs[jobIndex]);
+    } else {
+        chunkGenJobs[jobIndex].queued = ChunkTaskQueuePush(
+            &generationTaskQueue, ChunkGenQueueLane(&chunkGenJobs[jobIndex]),
+            jobIndex, chunkGenJobs[jobIndex].queueSequence);
+    }
     pthread_mutex_unlock(&genMutex);
 }
 

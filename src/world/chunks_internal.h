@@ -12,6 +12,26 @@
 #define MAX_MESH_SUBMITS_PER_FRAME 4
 #define MESH_PENDING_LOOKUP_CAPACITY (MAX_MESH_JOBS * 2)
 #define CHUNK_INDEX_CAPACITY 2048
+#define CHUNK_TASK_QUEUE_LANES 4
+#define CHUNK_TASK_QUEUE_CAPACITY (MAX_CHUNK_GEN_JOBS + MAX_CHUNK_MESH_JOBS)
+
+typedef struct ChunkTaskQueueEntry {
+    int slotIndex;
+    uint64_t sequence;
+    bool valid;
+} ChunkTaskQueueEntry;
+
+typedef struct ChunkTaskDeque {
+    ChunkTaskQueueEntry entries[CHUNK_TASK_QUEUE_CAPACITY];
+    int head;
+    int tail;
+    int used;
+    int validCount;
+} ChunkTaskDeque;
+
+typedef struct ChunkTaskQueue {
+    ChunkTaskDeque lanes[CHUNK_TASK_QUEUE_LANES];
+} ChunkTaskQueue;
 
 typedef struct SurfaceBoundarySnapshot {
     unsigned short blocks[CHUNK_SIZE + 2]
@@ -46,6 +66,8 @@ typedef struct MeshJob {
     bool inUse;
     bool running;
     bool done;
+    bool queued;
+    bool completionQueued;
     bool priority;
     bool preload;
     int slotIndex;
@@ -122,12 +144,29 @@ extern unsigned int genWorkerThreadsActive;
 extern ChunkStreamingStats streamingStats;
 extern MeshJob meshJobs[MAX_MESH_JOBS];
 extern ChunkStreamingFocus chunkStreamingFocus;
+extern ChunkTaskQueue generationTaskQueue;
+extern ChunkTaskQueue generationDoneQueue;
+extern ChunkTaskQueue meshTaskQueue;
+extern ChunkTaskQueue meshDoneQueue;
 
 void ChunkIndexReset(void);
 void ChunkIndexInsert(const Chunk *chunk);
 void ChunkIndexRemove(const Chunk *chunk);
 Chunk *ChunkIndexFindSurface(SurfaceChunkKey key);
 Chunk *ChunkIndexFindFlat(int cx, int cz);
+void ChunkTaskQueueReset(ChunkTaskQueue *queue);
+bool ChunkTaskQueuePush(ChunkTaskQueue *queue, int lane,
+                        int slotIndex, uint64_t sequence);
+bool ChunkTaskQueuePushOrdered(ChunkTaskQueue *queue, int lane,
+                               int slotIndex, uint64_t sequence);
+bool ChunkTaskQueuePop(ChunkTaskQueue *queue, int *slotIndex,
+                       uint64_t *sequence);
+bool ChunkTaskQueuePeek(const ChunkTaskQueue *queue, int *slotIndex,
+                        uint64_t *sequence);
+void ChunkTaskQueueRemove(ChunkTaskQueue *queue, int slotIndex,
+                          uint64_t sequence);
+bool ChunkTaskQueueHasPending(const ChunkTaskQueue *queue);
+bool ChunkTaskQueueHasLane(const ChunkTaskQueue *queue, int lane);
 
 double ChunkNowMs(void);
 double ChunkThreadCpuNowMs(void);
@@ -164,6 +203,8 @@ int PruneDistantNegativeTerrainSections(int playerSectionY);
 bool HasPendingMeshJob(void);
 bool HasPendingPriorityMeshJob(void);
 MeshJob *NextPendingMeshJob(void);
+MeshJob *TakePendingMeshJob(void);
+int MeshQueueLane(const MeshJob *job);
 void FreeMeshData(Mesh *mesh);
 void LocalizeChunkMeshData(Mesh *mesh, int chunkX, int chunkZ);
 void LocalizeChunkFloraInstances(FloraVisualInstance *instances, int count,
