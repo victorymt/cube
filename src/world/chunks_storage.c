@@ -15,6 +15,174 @@ unsigned int genWorkerThreadsActive = 0u;
 ChunkStreamingStats streamingStats;
 ChunkStreamingFocus chunkStreamingFocus;
 
+typedef struct ChunkIndexEntry {
+    bool occupied;
+    bool tombstone;
+    bool spherical;
+    int slotIndex;
+    int cx;
+    int cz;
+    SurfaceChunkKey surfaceKey;
+} ChunkIndexEntry;
+
+static ChunkIndexEntry chunkIndex[CHUNK_INDEX_CAPACITY];
+
+static uint32_t ChunkIndexMix(uint32_t hash, uint32_t value)
+{
+    hash ^= value + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+    hash *= 0x85ebca6bu;
+    return hash ^ (hash >> 13);
+}
+
+static uint32_t ChunkIndexHashSurface(SurfaceChunkKey key)
+{
+    uint32_t hash = 2166136261u;
+    hash = ChunkIndexMix(hash, key.bodyId);
+    for (int index = 0; index < 4; index++) {
+        hash = ChunkIndexMix(hash, (uint32_t)key.corners[index].x);
+        hash = ChunkIndexMix(hash, (uint32_t)key.corners[index].z);
+    }
+    return hash;
+}
+
+static uint32_t ChunkIndexHashFlat(int cx, int cz)
+{
+    uint32_t hash = 2166136261u;
+    hash = ChunkIndexMix(hash, (uint32_t)cx);
+    hash = ChunkIndexMix(hash, (uint32_t)cz);
+    return hash;
+}
+
+static bool ChunkIndexEntryMatches(
+    const ChunkIndexEntry *entry, bool spherical, int cx, int cz,
+    SurfaceChunkKey surfaceKey)
+{
+    if (!entry || !entry->occupied || entry->spherical != spherical) {
+        return false;
+    }
+    return spherical
+        ? SurfaceChunkKeyEqual(entry->surfaceKey, surfaceKey)
+        : (entry->cx == cx && entry->cz == cz);
+}
+
+static int ChunkIndexFindEntry(
+    bool spherical, int cx, int cz, SurfaceChunkKey surfaceKey,
+    bool forInsert)
+{
+    uint32_t hash = spherical
+        ? ChunkIndexHashSurface(surfaceKey)
+        : ChunkIndexHashFlat(cx, cz);
+    int firstTombstone = -1;
+    for (int probe = 0; probe < CHUNK_INDEX_CAPACITY; probe++) {
+        int index = (int)((hash + (uint32_t)probe) %
+                          (uint32_t)CHUNK_INDEX_CAPACITY);
+        ChunkIndexEntry *entry = &chunkIndex[index];
+        if (entry->occupied) {
+            if (ChunkIndexEntryMatches(
+                    entry, spherical, cx, cz, surfaceKey)) {
+                return index;
+            }
+            continue;
+        }
+        if (entry->tombstone) {
+            if (firstTombstone < 0) firstTombstone = index;
+            continue;
+        }
+        return forInsert && firstTombstone >= 0 ? firstTombstone :
+               (forInsert ? index : -1);
+    }
+    return forInsert ? firstTombstone : -1;
+}
+
+static void ChunkIndexRemoveSlot(int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= MAX_ACTIVE_CHUNKS) return;
+    for (int index = 0; index < CHUNK_INDEX_CAPACITY; index++) {
+        ChunkIndexEntry *entry = &chunkIndex[index];
+        if (!entry->occupied || entry->slotIndex != slotIndex) continue;
+        entry->occupied = false;
+        entry->tombstone = true;
+        entry->slotIndex = -1;
+    }
+}
+
+void ChunkIndexReset(void)
+{
+    memset(chunkIndex, 0, sizeof(chunkIndex));
+}
+
+void ChunkIndexInsert(const Chunk *chunk)
+{
+    if (!chunk || chunk < chunks || chunk >= chunks + MAX_ACTIVE_CHUNKS ||
+        !chunk->loaded) return;
+    int slotIndex = (int)(chunk - chunks);
+    ChunkIndexRemoveSlot(slotIndex);
+    int index = ChunkIndexFindEntry(
+        chunk->spherical, chunk->cx, chunk->cz, chunk->surfaceKey, true);
+    if (index < 0) return;
+    chunkIndex[index] = (ChunkIndexEntry){
+        .occupied = true,
+        .tombstone = false,
+        .spherical = chunk->spherical,
+        .slotIndex = slotIndex,
+        .cx = chunk->cx,
+        .cz = chunk->cz,
+        .surfaceKey = chunk->surfaceKey
+    };
+}
+
+void ChunkIndexRemove(const Chunk *chunk)
+{
+    if (!chunk || chunk < chunks || chunk >= chunks + MAX_ACTIVE_CHUNKS) {
+        return;
+    }
+    ChunkIndexRemoveSlot((int)(chunk - chunks));
+}
+
+static Chunk *ChunkIndexFind(
+    bool spherical, int cx, int cz, SurfaceChunkKey surfaceKey)
+{
+    int index = ChunkIndexFindEntry(
+        spherical, cx, cz, surfaceKey, false);
+    if (index >= 0) {
+        ChunkIndexEntry *entry = &chunkIndex[index];
+        if (entry->slotIndex >= 0 && entry->slotIndex < MAX_ACTIVE_CHUNKS) {
+            Chunk *candidate = &chunks[entry->slotIndex];
+            if (candidate->loaded && candidate->spherical == spherical &&
+                (spherical
+                     ? SurfaceChunkKeyEqual(candidate->surfaceKey, surfaceKey)
+                     : (candidate->cx == cx && candidate->cz == cz))) {
+                return candidate;
+            }
+        }
+        entry->occupied = false;
+        entry->tombstone = true;
+        entry->slotIndex = -1;
+    }
+
+    for (int slotIndex = 0; slotIndex < MAX_ACTIVE_CHUNKS; slotIndex++) {
+        Chunk *candidate = &chunks[slotIndex];
+        if (!candidate->loaded || candidate->spherical != spherical) continue;
+        bool matches = spherical
+            ? SurfaceChunkKeyEqual(candidate->surfaceKey, surfaceKey)
+            : (candidate->cx == cx && candidate->cz == cz);
+        if (!matches) continue;
+        ChunkIndexInsert(candidate);
+        return candidate;
+    }
+    return NULL;
+}
+
+Chunk *ChunkIndexFindSurface(SurfaceChunkKey key)
+{
+    return ChunkIndexFind(true, 0, 0, key);
+}
+
+Chunk *ChunkIndexFindFlat(int cx, int cz)
+{
+    return ChunkIndexFind(false, cx, cz, (SurfaceChunkKey){ 0 });
+}
+
 const Chunk *ChunksView(void)
 {
     return chunks;
@@ -146,11 +314,7 @@ Chunk *FindChunk(int cx, int cz)
     if (WorldIsSurfaceActive()) {
         return FindSurfaceChunk(ChunkSurfaceKeyAt(cx, cz));
     }
-    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        if (chunks[i].loaded && !chunks[i].spherical &&
-            chunks[i].cx == cx && chunks[i].cz == cz) return &chunks[i];
-    }
-    return NULL;
+    return ChunkIndexFindFlat(cx, cz);
 }
 
 Chunk *FindHorizontalChunkNeighbor(int cx, int cz, int deltaCx, int deltaCz)
@@ -215,13 +379,7 @@ SurfaceChunkKey ChunkSurfaceKeyAt(int cx, int cz)
 
 Chunk *FindSurfaceChunk(SurfaceChunkKey key)
 {
-    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        if (chunks[i].loaded && chunks[i].spherical &&
-            SurfaceChunkKeyEqual(chunks[i].surfaceKey, key)) {
-            return &chunks[i];
-        }
-    }
-    return NULL;
+    return ChunkIndexFindSurface(key);
 }
 
 int ChunkGridDistanceFrom(const Chunk *chunk, int cx, int cz)

@@ -11,6 +11,7 @@
 #define MAX_MESH_JOBS MAX_CHUNK_MESH_JOBS
 #define MAX_MESH_SUBMITS_PER_FRAME 4
 #define MESH_PENDING_LOOKUP_CAPACITY (MAX_MESH_JOBS * 2)
+#define CHUNK_INDEX_CAPACITY 2048
 
 typedef struct SurfaceBoundarySnapshot {
     unsigned short blocks[CHUNK_SIZE + 2]
@@ -121,6 +122,12 @@ extern unsigned int genWorkerThreadsActive;
 extern ChunkStreamingStats streamingStats;
 extern MeshJob meshJobs[MAX_MESH_JOBS];
 extern ChunkStreamingFocus chunkStreamingFocus;
+
+void ChunkIndexReset(void);
+void ChunkIndexInsert(const Chunk *chunk);
+void ChunkIndexRemove(const Chunk *chunk);
+Chunk *ChunkIndexFindSurface(SurfaceChunkKey key);
+Chunk *ChunkIndexFindFlat(int cx, int cz);
 
 double ChunkNowMs(void);
 double ChunkThreadCpuNowMs(void);

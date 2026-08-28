@@ -972,6 +972,7 @@ bool ChunksTestSphereInFrustum(const Camera3D *camera, Vector3 center,
 void ChunksTestResetScheduler(void)
 {
     pthread_mutex_lock(&genMutex);
+    ChunkIndexReset();
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         ChunkClearBlockStorage(&chunks[i]);
     }
@@ -1002,6 +1003,7 @@ void ChunksTestResetScheduler(void)
 void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool dirty)
 {
     assert(slotIndex >= 0 && slotIndex < MAX_ACTIVE_CHUNKS);
+    ChunkIndexRemove(&chunks[slotIndex]);
     ChunkClearBlockStorage(&chunks[slotIndex]);
     chunks[slotIndex] = (Chunk){ 0 };
     chunks[slotIndex].cx = cx;
@@ -1012,6 +1014,7 @@ void ChunksTestConfigureChunk(int slotIndex, int cx, int cz, bool loaded, bool d
         chunks[slotIndex].surfaceKey = ChunkSurfaceKeyAt(cx, cz);
     }
     chunks[slotIndex].loaded = loaded;
+    if (loaded) ChunkIndexInsert(&chunks[slotIndex]);
     if (dirty) {
         ChunkSection *section = ChunkGetSection(&chunks[slotIndex], 0, true);
         if (section) section->dirty = true;

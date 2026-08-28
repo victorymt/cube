@@ -589,6 +589,7 @@ void CompleteChunkGenJob(ChunkGenJob *job)
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
+    ChunkIndexInsert(chunk);
     WorldNotifyChunkLoaded(chunk);
     MarkChunkAndHorizontalNeighborsDirty(chunk->cx, chunk->cz);
 }
@@ -711,6 +712,7 @@ static bool EnsureChunk(int cx, int cz, bool preload)
 
     Chunk *chunk = AllocateChunkSlot(cx, cz);
     if (!chunk) return false;
+    ChunkIndexRemove(chunk);
     ChunkClearBlockStorage(chunk);
     chunk->cx = cx;
     chunk->cz = cz;
@@ -740,6 +742,7 @@ static bool EnsureChunk(int cx, int cz, bool preload)
     ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
+    ChunkIndexInsert(chunk);
     WorldNotifyChunkLoaded(chunk);
     pthread_mutex_lock(&genMutex);
     streamingStats.generationCompleted++;
@@ -900,6 +903,7 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
             focus->renderDistance);
         if (chunk->loaded && !current && !predicted) {
             MarkChunkAndHorizontalNeighborsDirty(chunk->cx, chunk->cz);
+            ChunkIndexRemove(chunk);
             ChunkClearBlockStorage(chunk);
             chunk->loaded = false;
             chunk->preloaded = false;

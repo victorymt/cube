@@ -236,6 +236,7 @@ void CountMeshFace(ChunkMeshEmitter *emitter)
 void UnloadAllChunks(void)
 {
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
+        ChunkIndexRemove(&chunks[i]);
         ChunkClearBlockStorage(&chunks[i]);
         chunks[i].loaded = false;
         chunks[i].generating = false;
