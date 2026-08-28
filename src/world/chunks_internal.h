@@ -206,6 +206,14 @@ MeshJob *NextPendingMeshJob(void);
 MeshJob *TakePendingMeshJob(void);
 int MeshQueueLane(const MeshJob *job);
 void FreeMeshData(Mesh *mesh);
+void ChunkMeshWorkerScratchBegin(void);
+void ChunkMeshWorkerScratchEnd(void);
+void ChunkMeshWorkerScratchShutdown(void);
+bool ChunkMeshWorkerScratchIsActive(void);
+bool ChunkMeshWorkerScratchAcquireMesh(Mesh *mesh, int vertexCapacity);
+void ChunkMeshWorkerScratchReleaseMesh(Mesh *mesh, int vertexCapacity);
+void ChunkGreedyMeshWorkerScratchShutdown(void);
+void ChunkFloraWorkerScratchShutdown(void);
 void LocalizeChunkMeshData(Mesh *mesh, int chunkX, int chunkZ);
 void LocalizeChunkFloraInstances(FloraVisualInstance *instances, int count,
                                  int chunkX, int chunkZ);

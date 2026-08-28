@@ -218,7 +218,9 @@ void *ChunkGenWorker(void *arg)
             pthread_mutex_unlock(&genMutex);
 
             double startedMs = ChunkNowMs();
+            ChunkMeshWorkerScratchBegin();
             BuildMeshJobPayload(meshJob);
+            ChunkMeshWorkerScratchEnd();
             double elapsedMs = ChunkNowMs() - startedMs;
 
             pthread_mutex_lock(&genMutex);
@@ -242,6 +244,7 @@ void *ChunkGenWorker(void *arg)
         pthread_mutex_unlock(&genMutex);
     }
 
+    ChunkMeshWorkerScratchShutdown();
     return NULL;
 }
 

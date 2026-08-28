@@ -282,16 +282,6 @@ int PruneDistantNegativeTerrainSections(int playerSectionY)
     return pruned;
 }
 
-void FreeMeshData(Mesh *mesh)
-{
-    free(mesh->vertices);
-    free(mesh->texcoords);
-    free(mesh->texcoords2);
-    free(mesh->normals);
-    free(mesh->colors);
-    *mesh = (Mesh){ 0 };
-}
-
 void LocalizeChunkMeshData(Mesh *mesh, int chunkX, int chunkZ)
 {
     if (!mesh || !mesh->vertices || mesh->vertexCount <= 0) return;

@@ -106,49 +106,32 @@ static bool GrowMeshVertexCapacity(Mesh *mesh, int populatedVertices,
     }
     if (newCapacity < requiredCapacity) newCapacity = requiredCapacity;
 
-    float *vertices = malloc((size_t)newCapacity * 3 * sizeof(float));
-    float *normals = malloc((size_t)newCapacity * 3 * sizeof(float));
-    float *texcoords = malloc((size_t)newCapacity * 2 * sizeof(float));
-    float *texcoords2 = malloc((size_t)newCapacity * 2 * sizeof(float));
-    unsigned char *colors = malloc((size_t)newCapacity * 4 * sizeof(unsigned char));
-    if (!vertices || !normals || !texcoords || !texcoords2 || !colors) {
-        free(vertices);
-        free(normals);
-        free(texcoords);
-        free(texcoords2);
-        free(colors);
+    Mesh resized = { 0 };
+    if (!ChunkMeshWorkerScratchAcquireMesh(&resized, newCapacity)) {
         return false;
     }
 
     if (populatedVertices > 0) {
-        memcpy(vertices, mesh->vertices,
+        memcpy(resized.vertices, mesh->vertices,
                (size_t)populatedVertices * 3 * sizeof(float));
-        memcpy(normals, mesh->normals,
+        memcpy(resized.normals, mesh->normals,
                (size_t)populatedVertices * 3 * sizeof(float));
-        memcpy(texcoords, mesh->texcoords,
+        memcpy(resized.texcoords, mesh->texcoords,
                (size_t)populatedVertices * 2 * sizeof(float));
         if (mesh->texcoords2) {
-            memcpy(texcoords2, mesh->texcoords2,
+            memcpy(resized.texcoords2, mesh->texcoords2,
                    (size_t)populatedVertices * 2 * sizeof(float));
         } else {
             for (int vertex = 0; vertex < populatedVertices; vertex++) {
-                texcoords2[vertex * 2] = 1.0f;
-                texcoords2[vertex * 2 + 1] = 0.0f;
+                resized.texcoords2[vertex * 2] = 1.0f;
+                resized.texcoords2[vertex * 2 + 1] = 0.0f;
             }
         }
-        memcpy(colors, mesh->colors,
+        memcpy(resized.colors, mesh->colors,
                (size_t)populatedVertices * 4 * sizeof(unsigned char));
     }
-    free(mesh->vertices);
-    free(mesh->normals);
-    free(mesh->texcoords);
-    free(mesh->texcoords2);
-    free(mesh->colors);
-    mesh->vertices = vertices;
-    mesh->normals = normals;
-    mesh->texcoords = texcoords;
-    mesh->texcoords2 = texcoords2;
-    mesh->colors = colors;
+    ChunkMeshWorkerScratchReleaseMesh(mesh, oldCapacity);
+    *mesh = resized;
     mesh->vertexCount = newCapacity;
     mesh->triangleCount = newCapacity / 3;
     return true;
@@ -157,6 +140,11 @@ static bool GrowMeshVertexCapacity(Mesh *mesh, int populatedVertices,
 static void TrimMeshVertexCapacity(Mesh *mesh, int vertexCount)
 {
     if (!mesh || vertexCount <= 0) return;
+    if (ChunkMeshWorkerScratchIsActive()) {
+        mesh->vertexCount = vertexCount;
+        mesh->triangleCount = vertexCount / 3;
+        return;
+    }
 #define TRIM_MESH_BUFFER(member, components, type) do { \
         type *trimmed = realloc( \
             mesh->member, (size_t)vertexCount * (components) * sizeof(type)); \
@@ -1287,19 +1275,7 @@ bool BuildChunkMeshData(const ChunkMeshBuildRequest *request, Mesh *outMesh)
     Mesh mesh = { 0 };
     mesh.vertexCount = counter.vertexIndex;
     mesh.triangleCount = counter.vertexIndex / 3;
-    mesh.vertices = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
-    mesh.texcoords = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
-    mesh.texcoords2 = malloc((size_t)mesh.vertexCount * 2 * sizeof(float));
-    mesh.normals = malloc((size_t)mesh.vertexCount * 3 * sizeof(float));
-    mesh.colors = malloc((size_t)mesh.vertexCount * 4 * sizeof(unsigned char));
-
-    if (!mesh.vertices || !mesh.texcoords || !mesh.texcoords2 ||
-        !mesh.normals || !mesh.colors) {
-        free(mesh.vertices);
-        free(mesh.texcoords);
-        free(mesh.texcoords2);
-        free(mesh.normals);
-        free(mesh.colors);
+    if (!ChunkMeshWorkerScratchAcquireMesh(&mesh, mesh.vertexCount)) {
         return false;
     }
 

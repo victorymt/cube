@@ -214,53 +214,38 @@ bool MergeMeshData(Mesh *target, Mesh *source)
         return false;
     }
     int vertexCount = targetVertexCount + sourceVertexCount;
-    float *vertices = malloc((size_t)vertexCount * 3u * sizeof(float));
-    float *texcoords = malloc((size_t)vertexCount * 2u * sizeof(float));
-    float *texcoords2 = malloc((size_t)vertexCount * 2u * sizeof(float));
-    float *normals = malloc((size_t)vertexCount * 3u * sizeof(float));
-    unsigned char *colors = malloc((size_t)vertexCount * 4u);
-    if (!vertices || !texcoords || !texcoords2 || !normals || !colors) {
-        free(vertices);
-        free(texcoords);
-        free(texcoords2);
-        free(normals);
-        free(colors);
+    Mesh merged = { 0 };
+    if (!ChunkMeshWorkerScratchAcquireMesh(&merged, vertexCount)) {
         FreeMeshData(source);
         return false;
     }
 
-    memcpy(vertices, target->vertices,
+    memcpy(merged.vertices, target->vertices,
            (size_t)targetVertexCount * 3u * sizeof(float));
-    memcpy(vertices + targetVertexCount * 3, source->vertices,
+    memcpy(merged.vertices + targetVertexCount * 3, source->vertices,
            (size_t)sourceVertexCount * 3u * sizeof(float));
-    memcpy(texcoords, target->texcoords,
+    memcpy(merged.texcoords, target->texcoords,
            (size_t)targetVertexCount * 2u * sizeof(float));
-    memcpy(texcoords + targetVertexCount * 2, source->texcoords,
+    memcpy(merged.texcoords + targetVertexCount * 2, source->texcoords,
            (size_t)sourceVertexCount * 2u * sizeof(float));
-    memcpy(texcoords2, target->texcoords2,
+    memcpy(merged.texcoords2, target->texcoords2,
            (size_t)targetVertexCount * 2u * sizeof(float));
-    memcpy(texcoords2 + targetVertexCount * 2, source->texcoords2,
+    memcpy(merged.texcoords2 + targetVertexCount * 2, source->texcoords2,
            (size_t)sourceVertexCount * 2u * sizeof(float));
-    memcpy(normals, target->normals,
+    memcpy(merged.normals, target->normals,
            (size_t)targetVertexCount * 3u * sizeof(float));
-    memcpy(normals + targetVertexCount * 3, source->normals,
+    memcpy(merged.normals + targetVertexCount * 3, source->normals,
            (size_t)sourceVertexCount * 3u * sizeof(float));
-    memcpy(colors, target->colors, (size_t)targetVertexCount * 4u);
-    memcpy(colors + targetVertexCount * 4, source->colors,
+    memcpy(merged.colors, target->colors, (size_t)targetVertexCount * 4u);
+    memcpy(merged.colors + targetVertexCount * 4, source->colors,
            (size_t)sourceVertexCount * 4u);
 
     int triangleCount = target->triangleCount + source->triangleCount;
+    merged.vertexCount = vertexCount;
+    merged.triangleCount = triangleCount;
     FreeMeshData(target);
     FreeMeshData(source);
-    *target = (Mesh){
-        .vertexCount = vertexCount,
-        .triangleCount = triangleCount,
-        .vertices = vertices,
-        .texcoords = texcoords,
-        .texcoords2 = texcoords2,
-        .normals = normals,
-        .colors = colors
-    };
+    *target = merged;
     return true;
 }
 
@@ -274,6 +259,16 @@ typedef struct FloraInstanceBuilder {
     int count;
     int capacity;
 } FloraInstanceBuilder;
+
+static _Thread_local FloraVisualInstance *floraInstanceScratch;
+static _Thread_local int floraInstanceScratchCapacity;
+
+void ChunkFloraWorkerScratchShutdown(void)
+{
+    free(floraInstanceScratch);
+    floraInstanceScratch = NULL;
+    floraInstanceScratchCapacity = 0;
+}
 
 static void FloraMeshBuilderRelease(FloraMeshBuilder *builder)
 {
@@ -296,42 +291,28 @@ static bool FloraMeshBuilderReserve(
         capacity *= 2;
     }
 
-    float *vertices = malloc((size_t)capacity * 3u * sizeof(float));
-    float *texcoords = malloc((size_t)capacity * 2u * sizeof(float));
-    float *texcoords2 = malloc((size_t)capacity * 2u * sizeof(float));
-    float *normals = malloc((size_t)capacity * 3u * sizeof(float));
-    unsigned char *colors = malloc((size_t)capacity * 4u);
-    if (!vertices || !texcoords || !texcoords2 || !normals || !colors) {
-        free(vertices);
-        free(texcoords);
-        free(texcoords2);
-        free(normals);
-        free(colors);
+    Mesh resized = { 0 };
+    if (!ChunkMeshWorkerScratchAcquireMesh(&resized, capacity)) {
         return false;
     }
 
     int vertexCount = builder->mesh.vertexCount;
     if (vertexCount > 0) {
-        memcpy(vertices, builder->mesh.vertices,
+        memcpy(resized.vertices, builder->mesh.vertices,
                (size_t)vertexCount * 3u * sizeof(float));
-        memcpy(texcoords, builder->mesh.texcoords,
+        memcpy(resized.texcoords, builder->mesh.texcoords,
                (size_t)vertexCount * 2u * sizeof(float));
-        memcpy(texcoords2, builder->mesh.texcoords2,
+        memcpy(resized.texcoords2, builder->mesh.texcoords2,
                (size_t)vertexCount * 2u * sizeof(float));
-        memcpy(normals, builder->mesh.normals,
+        memcpy(resized.normals, builder->mesh.normals,
                (size_t)vertexCount * 3u * sizeof(float));
-        memcpy(colors, builder->mesh.colors, (size_t)vertexCount * 4u);
+        memcpy(resized.colors, builder->mesh.colors, (size_t)vertexCount * 4u);
     }
-    free(builder->mesh.vertices);
-    free(builder->mesh.texcoords);
-    free(builder->mesh.texcoords2);
-    free(builder->mesh.normals);
-    free(builder->mesh.colors);
-    builder->mesh.vertices = vertices;
-    builder->mesh.texcoords = texcoords;
-    builder->mesh.texcoords2 = texcoords2;
-    builder->mesh.normals = normals;
-    builder->mesh.colors = colors;
+    ChunkMeshWorkerScratchReleaseMesh(&builder->mesh,
+                                      builder->vertexCapacity);
+    builder->mesh = resized;
+    builder->mesh.vertexCount = vertexCount;
+    builder->mesh.triangleCount = vertexCount / 3;
     builder->vertexCapacity = capacity;
     return true;
 }
@@ -388,7 +369,13 @@ static void FloraMeshBuilderTake(FloraMeshBuilder *builder, Mesh *outMesh)
 static void FloraInstanceBuilderRelease(FloraInstanceBuilder *builder)
 {
     if (!builder) return;
-    free(builder->data);
+    if (builder->data && ChunkMeshWorkerScratchIsActive() &&
+        !floraInstanceScratch) {
+        floraInstanceScratch = builder->data;
+        floraInstanceScratchCapacity = builder->capacity;
+    } else {
+        free(builder->data);
+    }
     *builder = (FloraInstanceBuilder){ 0 };
 }
 
@@ -396,6 +383,14 @@ static bool FloraInstanceBuilderReserve(
     FloraInstanceBuilder *builder, int minimumCount)
 {
     if (minimumCount <= builder->capacity) return true;
+    if (!builder->data && ChunkMeshWorkerScratchIsActive() &&
+        floraInstanceScratch) {
+        builder->data = floraInstanceScratch;
+        builder->capacity = floraInstanceScratchCapacity;
+        floraInstanceScratch = NULL;
+        floraInstanceScratchCapacity = 0;
+        if (minimumCount <= builder->capacity) return true;
+    }
     int capacity = builder->capacity > 0 ? builder->capacity : 8;
     while (capacity < minimumCount) {
         if (capacity > INT_MAX - capacity) {

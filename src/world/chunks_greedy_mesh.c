@@ -21,6 +21,29 @@ typedef struct GreedyFaceCell {
     bool mergeable;
 } GreedyFaceCell;
 
+static _Thread_local GreedyFaceCell *greedyMaskScratch;
+static _Thread_local size_t greedyMaskScratchCapacity;
+
+static GreedyFaceCell *AcquireGreedyMask(size_t requiredCells)
+{
+    if (requiredCells == 0) return NULL;
+    if (greedyMaskScratchCapacity < requiredCells) {
+        GreedyFaceCell *resized = realloc(
+            greedyMaskScratch, requiredCells * sizeof(*resized));
+        if (!resized) return NULL;
+        greedyMaskScratch = resized;
+        greedyMaskScratchCapacity = requiredCells;
+    }
+    return greedyMaskScratch;
+}
+
+void ChunkGreedyMeshWorkerScratchShutdown(void)
+{
+    free(greedyMaskScratch);
+    greedyMaskScratch = NULL;
+    greedyMaskScratchCapacity = 0;
+}
+
 static BlockType ChunkFaceNeighbor(
     const unsigned short (*blocks)[CHUNK_SIZE], int height, int layerY,
     int chunkX, int chunkZ, const SurfaceBoundarySnapshot *boundary,
@@ -354,8 +377,8 @@ void EmitGreedyCubeFaces(
         .nearbyTorchCount = nearbyTorchCount
     };
     int maximumDimension = height > CHUNK_SIZE ? height : CHUNK_SIZE;
-    GreedyFaceCell *mask = calloc(
-        (size_t)CHUNK_SIZE * (size_t)maximumDimension, sizeof(*mask));
+    GreedyFaceCell *mask = AcquireGreedyMask(
+        (size_t)CHUNK_SIZE * (size_t)maximumDimension);
     if (!mask) {
         emitter->failed = true;
         return;
@@ -416,5 +439,4 @@ void EmitGreedyCubeFaces(
             }
         }
     }
-    free(mask);
 }

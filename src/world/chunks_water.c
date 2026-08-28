@@ -372,13 +372,7 @@ static bool BuildSurfaceWaterVolumeMeshData(
     Mesh mesh = { 0 };
     mesh.vertexCount = counter.vertexIndex;
     mesh.triangleCount = counter.vertexIndex / 3;
-    mesh.vertices = malloc((size_t)mesh.vertexCount * 3u * sizeof(float));
-    mesh.texcoords = malloc((size_t)mesh.vertexCount * 2u * sizeof(float));
-    mesh.texcoords2 = malloc((size_t)mesh.vertexCount * 2u * sizeof(float));
-    mesh.normals = malloc((size_t)mesh.vertexCount * 3u * sizeof(float));
-    mesh.colors = malloc((size_t)mesh.vertexCount * 4u);
-    if (!mesh.vertices || !mesh.texcoords || !mesh.texcoords2 ||
-        !mesh.normals || !mesh.colors) {
+    if (!ChunkMeshWorkerScratchAcquireMesh(&mesh, mesh.vertexCount)) {
         FreeMeshData(&mesh);
         return false;
     }
