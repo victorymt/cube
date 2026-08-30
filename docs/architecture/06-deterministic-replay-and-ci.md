@@ -28,8 +28,8 @@ On 2026-08-30, `make -s test` completed with 86 passing tests, including the
 replay and all physics stages; clean-build and architecture checks passed. The
 three local `make -s benchmark-chunks` samples reported medians of 36.862 ms,
 38.036 ms, and 45.540 ms, with `mesh_snapshot_bytes=8192` and
-`sync_rebuilds=0` on every run. Sanitized replay, hazard, and character tests
-passed with ASan/UBSan enabled.
+`sync_rebuilds=0` on every run. The complete sanitized manifest also passed
+with 86 tests and 0 failures under ASan/UBSan.
 
 The CI graphics job runs the bounded `make test-debug-graphics-e2e` route,
 which completed successfully in the
