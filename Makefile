@@ -15,7 +15,7 @@ BUILD_ROOT_MARKER := $(BUILD_ROOT)/.voxelcraft-build-root
 TEST_BUILD_DIR := $(BUILD_DIR)/tests
 TARGET := $(BUILD_DIR)/voxelcraft
 BUILD_CONFIG := $(BUILD_DIR)/.build-config
-BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/tests.mk mk/plugins.mk plugins/manifest.mk
+BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk plugins/manifest.mk
 
 include mk/plugins.mk
 
@@ -26,21 +26,7 @@ OBJ_DIR := $(BUILD_DIR)/obj
 OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(MODULE_SRC))
 DEP := $(OBJ:.o=.d)
 MODULE_BUILD_DIR := $(BUILD_DIR)/modules
-CORE_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(CORE_SRC))
-WORLD_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(WORLD_SRC))
-SPACE_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SPACE_SRC))
-ECOLOGY_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(ECOLOGY_SRC))
-GAMEPLAY_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(GAMEPLAY_SRC))
-PRESENTATION_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(PRESENTATION_SRC))
-APP_OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(APP_SRC))
-MODULE_ARCHIVES := \
-	$(MODULE_BUILD_DIR)/core.a \
-	$(MODULE_BUILD_DIR)/world.a \
-	$(MODULE_BUILD_DIR)/space.a \
-	$(MODULE_BUILD_DIR)/ecology.a \
-	$(MODULE_BUILD_DIR)/gameplay.a \
-	$(MODULE_BUILD_DIR)/presentation.a \
-	$(MODULE_BUILD_DIR)/app.a
+include mk/components.mk
 PUBLIC_HEADERS := $(filter-out %_internal.h,$(sort $(wildcard src/*/*.h)))
 
 TEST_HEADERS := $(sort $(wildcard src/*/*.h) $(wildcard tests/*.h))
@@ -96,34 +82,6 @@ $(OBJ_DIR)/%.o: src/%.c $(BUILD_CONFIG)
 
 -include $(DEP)
 
-$(MODULE_BUILD_DIR)/core.a: $(CORE_OBJ) $(BUILD_CONFIG) | $(MODULE_BUILD_DIR)
-	@rm -f $@
-	$(AR) rcs $@ $(filter %.o,$^)
-
-$(MODULE_BUILD_DIR)/world.a: $(WORLD_OBJ) $(BUILD_CONFIG) | $(MODULE_BUILD_DIR)
-	@rm -f $@
-	$(AR) rcs $@ $(filter %.o,$^)
-
-$(MODULE_BUILD_DIR)/space.a: $(SPACE_OBJ) $(BUILD_CONFIG) | $(MODULE_BUILD_DIR)
-	@rm -f $@
-	$(AR) rcs $@ $(filter %.o,$^)
-
-$(MODULE_BUILD_DIR)/ecology.a: $(ECOLOGY_OBJ) $(BUILD_CONFIG) | $(MODULE_BUILD_DIR)
-	@rm -f $@
-	$(AR) rcs $@ $(filter %.o,$^)
-
-$(MODULE_BUILD_DIR)/gameplay.a: $(GAMEPLAY_OBJ) $(BUILD_CONFIG) | $(MODULE_BUILD_DIR)
-	@rm -f $@
-	$(AR) rcs $@ $(filter %.o,$^)
-
-$(MODULE_BUILD_DIR)/presentation.a: $(PRESENTATION_OBJ) $(BUILD_CONFIG) | $(MODULE_BUILD_DIR)
-	@rm -f $@
-	$(AR) rcs $@ $(filter %.o,$^)
-
-$(MODULE_BUILD_DIR)/app.a: $(APP_OBJ) $(BUILD_CONFIG) | $(MODULE_BUILD_DIR)
-	@rm -f $@
-	$(AR) rcs $@ $(filter %.o,$^)
-
 .SECONDEXPANSION:
 $(TEST_BUILD_DIR)/%: tests/%.c $$(TEST_SOURCES_$$*) $(TEST_HEADERS) $(BUILD_CONFIG) mk/tests.mk | $(TEST_BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(TEST_CPPFLAGS_$*) $(CFLAGS) $(TEST_CFLAGS_$*) $(TEST_RAYLIB_CFLAGS_$*) $(LDFLAGS) $(TEST_LDFLAGS_$*) -o $@ $< $(TEST_SOURCES_$*) $(TEST_RAYLIB_LIBS_$*) $(TEST_LDLIBS_$*) $(LDLIBS)
@@ -138,15 +96,8 @@ plugins: $(PLUGIN_TARGETS)
 # parallel seams (`make -j modules plugins`).
 modules: $(MODULE_ARCHIVES)
 
-# Build one ownership domain without touching the other component archives.
+# Build all ownership domains without touching unrelated component archives.
 components: $(MODULE_ARCHIVES)
-component-core: $(MODULE_BUILD_DIR)/core.a
-component-world: $(MODULE_BUILD_DIR)/world.a
-component-space: $(MODULE_BUILD_DIR)/space.a
-component-ecology: $(MODULE_BUILD_DIR)/ecology.a
-component-gameplay: $(MODULE_BUILD_DIR)/gameplay.a
-component-presentation: $(MODULE_BUILD_DIR)/presentation.a
-component-app: $(MODULE_BUILD_DIR)/app.a
 
 test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)

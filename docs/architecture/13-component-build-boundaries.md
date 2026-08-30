@@ -10,17 +10,19 @@ unqualified local includes and direct imports that bypass these contracts.
 
 ## Build seam
 
-`mk/modules.mk` discovers sources within each ownership directory and the
-Makefile compiles each source to its own dependency-tracked object. Those
-objects are collected into one static archive per component under
+`mk/modules.mk` discovers sources within each ownership directory, while
+`mk/components.mk` is the single ownership manifest. The Makefile compiles each
+source to its own dependency-tracked object. Those objects are collected into
+one static archive per component under
 `build/<variant>/modules/`. The executable links the seven archives in a
 `--start-group`/`--end-group`, which handles the existing narrow cross-component
 calls while keeping the artifacts independently rebuildable.
 
 Use `make component-world` (or the corresponding target for another component)
-to rebuild one archive. `make components` builds the complete set, and
-`make -j components plugins` can build built-in components and optional shared
-plugins concurrently.
+to rebuild one archive. The target and archive recipe are generated from the
+manifest, so a new ownership domain has one declaration point. `make components`
+builds the complete set, and `make -j components plugins` can build built-in
+components and optional shared plugins concurrently.
 
 ## Dependency direction
 

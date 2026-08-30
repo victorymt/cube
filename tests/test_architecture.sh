@@ -261,6 +261,11 @@ grep -q '^bool PlanetWorldLandingTarget(' src/space/planet_world.c ||
 
 grep -q '^include mk/modules.mk' Makefile ||
     fail "Makefile must source the module manifest"
+grep -q '^include mk/components.mk' Makefile ||
+    fail "Makefile must source the component manifest"
+grep -q '^COMPONENT_NAMES := core world space ecology gameplay presentation app' \
+    mk/components.mk ||
+    fail "component manifest must enumerate all ownership domains"
 grep -q '^include mk/tests.mk' Makefile ||
     fail "Makefile must source the declarative test manifest"
 grep -q '^define define_test' mk/tests.mk ||
@@ -304,7 +309,7 @@ grep -q -- '-Wl,--start-group \$(MODULE_ARCHIVES) -Wl,--end-group' Makefile ||
     fail "executable link must resolve component dependencies as a group"
 for component in core world space ecology gameplay presentation app
 do
-    grep -q "^component-$component: \$(MODULE_BUILD_DIR)/$component.a" Makefile ||
+    grep -q "define_component,$component," mk/components.mk ||
         fail "missing independent component target: $component"
 done
 grep -q "sh scripts/clean-build.sh '.*BUILD_ROOT.*'" Makefile ||
