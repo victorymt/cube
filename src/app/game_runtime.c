@@ -216,6 +216,16 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       .autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS,
       .dayTime = 0.30f};
 
+  /* Keep the established gameplay time scale while making advancement
+   * deterministic and independent of render frame rate. */
+  SimulationClockConfig clockConfig = SimulationClockDefaultConfig();
+  clockConfig.simulationSecondsPerRealSecond = 1.0;
+  clockConfig.fixedStepSeconds = 1.0 / 60.0;
+  clockConfig.planetaryDaySeconds = (double)DAY_LENGTH_SECONDS;
+  clockConfig.planetaryYearSeconds =
+      (double)DAY_LENGTH_SECONDS * 365.25;
+  SimulationClockInit(&runtime->simulationClock, &clockConfig);
+
   runtime->perfMode = ParsePerfArgs(
       argc, argv, runtime->perfReportPath, sizeof(runtime->perfReportPath),
       runtime->perfBaselinePath, sizeof(runtime->perfBaselinePath));

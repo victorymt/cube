@@ -4,6 +4,7 @@
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
 #include "core/debug_dsl_stdin.h"
+#include "core/simulation_clock.h"
 #include "presentation/environment_runtime.h"
 #include "app/game_settings.h"
 #include "app/game_stream_audit.h"
@@ -53,6 +54,7 @@ typedef struct LandingTransition {
 } LandingTransition;
 
 typedef struct GameRuntime {
+  SimulationClock simulationClock;
   GameSettings settings;
   Player player;
   Camera3D camera;

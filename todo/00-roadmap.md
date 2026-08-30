@@ -33,6 +33,13 @@ work progresses, verified, and then committed as one reviewable change.
 | 07 | Global planetary topology and seamless traversal | Complete |
 | 08 | Cross-system integration, migration, and performance audit | Complete |
 | 09 | Renderer, mesh, and simulation performance optimization | Planned |
+| 10 | Unified simulation clock and fixed-step scheduling | Complete |
+| 11 | Solar geometry, radiation balance, and conserved atmosphere | Planned |
+| 12 | Hydrology, groundwater, rivers, sediment, and erosion | Planned |
+| 13 | Multi-scale ecology, nutrient cycles, and off-screen populations | Planned |
+| 14 | Physics-driven wildfire, smoke, and supercell tornadoes | Planned |
+| 15 | Character, structure, and optional survival/social physics | Planned |
+| 16 | Deterministic replay, graphics E2E, and performance gates | Planned |
 
 The order deliberately establishes climate inputs before ecology and global
 topology. Stage 07 may require migration of spatial keys and saves, so it is

@@ -69,6 +69,14 @@ bool GameWorldSimulationPaused(const GameRuntime *game)
     return game && (game->paused || HomeWorldMapIsOpen());
 }
 
+static void GameAdvanceSimulationStep(double simulationSeconds,
+                                      double stepSeconds, void *context)
+{
+    (void)simulationSeconds;
+    (void)context;
+    SpaceAdvanceTime((float)stepSeconds);
+}
+
 static void GameOnWorldBlockCommitted(
     int x, int y, int z, BlockType previous, BlockType next)
 {
@@ -192,6 +200,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     ParticlesClear();
     GameEffectsReset();
     WeatherInit();
+    SimulationClockReset(&game->simulationClock, 0.0);
 
     WorldSetTerrainMode(mode);
     game->player.position = FindNewWorldSpawn(WorldTerrainMode());
@@ -352,7 +361,19 @@ static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game, float dt,
     if (!game->paused && !game->albumOpen && !game->importDialog.open &&
         !game->landingTransition.active && !game->biologyAtlasOpen &&
         !HomeWorldMapIsOpen()) {
-        SpaceAdvanceTime(dt);
+        unsigned steps = SimulationClockAdvance(
+            &game->simulationClock, (double)dt,
+            GameAdvanceSimulationStep, NULL);
+        if (game->dayCycleEnabled && steps > 0u) {
+            double stepSeconds = game->simulationClock.config.fixedStepSeconds;
+            double phaseAdvance =
+                (double)steps * stepSeconds / (double)DAY_LENGTH_SECONDS;
+            double nextDayTime = (double)game->dayTime + phaseAdvance;
+            if (isfinite(nextDayTime)) {
+                game->dayTime = (float)fmod(nextDayTime, 1.0);
+                if (game->dayTime < 0.0f) game->dayTime += 1.0f;
+            }
+        }
     }
 
     if (game->biologyAtlasOpen && !biologyAtlasClosed &&
@@ -540,6 +561,8 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     if (IsKeyPressed(KEY_RIGHT_BRACKET)) AdjustRenderDistance(1);
     if (IsKeyPressed(KEY_F9)) {
         GameLoadMap(&game->player);
+        SimulationClockReset(&game->simulationClock,
+                             SpaceSimulationTime());
         game->landingTransition = (LandingTransition){ 0 };
         game->wasInSpace = WorldIsSpaceActive();
         game->entitiesWorldActive = WorldIsSurfaceActive();
@@ -613,12 +636,6 @@ static void GameUpdateTemporalState(GameRuntime *game, float dt)
         }
     }
 
-    if (!game->perfMode && game->dayCycleEnabled &&
-        !GameWorldSimulationPaused(game) &&
-        !game->albumOpen && !game->landingTransition.active) {
-        game->dayTime += dt / DAY_LENGTH_SECONDS;
-        if (game->dayTime >= 1.0f) game->dayTime -= 1.0f;
-    }
     if (!GameWorldSimulationPaused(game) && !game->albumOpen &&
         !game->landingTransition.active &&
         (HomeWorldSurfaceIsActive() || PlanetWorldIsActive())) {
