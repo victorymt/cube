@@ -1980,7 +1980,7 @@ static void GameDebugDslConsumeStdin(GameRuntime *game)
             .column = 1u
         };
         snprintf(error.message, sizeof(error.message),
-                 "stdin DSL block exceeds %zu bytes",
+                 "stdin DSL block exceeds %u bytes",
                  DEBUG_DSL_STDIN_BUFFER_SIZE - 1u);
         GameDebugDslReportError(game, "stdin", &error);
         GameDebugDslResetInput(game);

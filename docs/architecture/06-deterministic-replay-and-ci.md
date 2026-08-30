@@ -21,3 +21,20 @@ clock, ecology, fluid, and hazard snapshots at each fixed tick.
 
 Tests cover identical replay hashes, changed-input divergence, monotonic tick
 validation, bounded capacity, and ordered playback.
+
+## Verification evidence
+
+On 2026-08-30, `make -s test` completed with 86 passing tests, including the
+replay and all physics stages; clean-build and architecture checks passed. The
+three local `make -s benchmark-chunks` samples reported medians of 36.862 ms,
+38.036 ms, and 45.540 ms, with `mesh_snapshot_bytes=8192` and
+`sync_rebuilds=0` on every run. Sanitized replay, hazard, and character tests
+passed with ASan/UBSan enabled.
+
+The shorter `make -s test-debug-graphics-e2e` completed successfully in the
+active Hyprland session, including pause/map/camera/look/mouse/ship routes.
+The full `make -s test-e2e` reached and passed its weather, fire, tornado,
+fluid, save/load, topology, and screenshot scenarios, but timed out during the
+final long polar-input scenario under the current loaded session. It exited 2;
+this remains an open performance/reliability issue for the full route and is
+why the CI graphics job is opt-in on a dedicated Hyprland runner.

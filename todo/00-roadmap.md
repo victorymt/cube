@@ -32,10 +32,10 @@ work progresses, verified, and then committed as one reviewable change.
 | 06 | Tree and plant diversity with biome ecology | Complete |
 | 07 | Global planetary topology and seamless traversal | Complete |
 | 08 | Cross-system integration, migration, and performance audit | Complete |
-| 09 | Renderer, mesh, and simulation performance optimization | Planned |
+| 09 | Renderer, mesh, and simulation performance optimization | Complete |
 | 10 | Unified simulation clock and fixed-step scheduling | Complete |
-| 11 | Solar geometry, radiation balance, and conserved atmosphere | Planned |
-| 12 | Hydrology, groundwater, rivers, sediment, and erosion | Planned |
+| 11 | Solar geometry, radiation balance, and conserved atmosphere | Complete |
+| 12 | Hydrology, groundwater, rivers, sediment, and erosion | Complete |
 | 13 | Multi-scale ecology, nutrient cycles, and off-screen populations | Complete |
 | 14 | Physics-driven wildfire, smoke, and supercell tornadoes | Complete |
 | 15 | Character, structure, and optional survival/social physics | Complete |

@@ -219,3 +219,12 @@ and every implementation stage has its own focused commit.
 - Async visibility must fail open (render conservatively) when data is stale,
   unavailable, or a whitelist entry is missing.
 - Queue changes must preserve dirty stamps and job cancellation semantics.
+
+## Completion evidence
+
+The canonical index, priority queue, and worker-local scratch-buffer stages
+were committed independently as `28362db`, `bc71320`, and `813d0e9`. The
+current benchmark preserves the required snapshot and synchronous-rebuild
+invariants; see `docs/architecture/09-performance-optimization.md` for the
+measured samples and residual graphics E2E limitation. The roadmap marks this
+stage complete; future renderer batching remains conditional on new telemetry.
