@@ -102,8 +102,9 @@ typedef enum VoxelcraftPluginWorldSurfaceKind {
 typedef struct VoxelcraftPluginWorldSnapshot {
     uint32_t struct_size;
     bool surface_active;
-    VoxelcraftPluginWorldDimension dimension;
-    VoxelcraftPluginWorldSurfaceKind surface_kind;
+    /* These use fixed-width fields; compare with the enum constants above. */
+    uint32_t dimension;
+    uint32_t surface_kind;
     uint32_t surface_id;
     uint32_t seed;
     int32_t map_origin_x;
