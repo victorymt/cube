@@ -27,6 +27,10 @@ The game publishes `VOXELCRAFT_PLUGIN_GAME_SERVICE_ID` (service ABI version
 `VOXELCRAFT_PLUGIN_GAME_SERVICE_ABI_VERSION`) before plugin activation. Its
 `VoxelcraftPluginGameService` table exposes read-only play/pause, frame-index,
 and world-seed queries plus the bounded `post_notice` notification hook.
+The companion `VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID` publishes a
+`VoxelcraftPluginWorldService` snapshot contract. It reports the current
+dimension, surface kind/id, seed, and canonical map origin without exposing
+`WorldDimension`, `WorldSurfaceContext`, or any mutable world state.
 
 Build the sample plugin with:
 

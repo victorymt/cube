@@ -21,6 +21,8 @@
 #define VOXELCRAFT_PLUGIN_MAX_ERROR 256u
 #define VOXELCRAFT_PLUGIN_GAME_SERVICE_ID "voxelcraft.game"
 #define VOXELCRAFT_PLUGIN_GAME_SERVICE_ABI_VERSION 1u
+#define VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID "voxelcraft.world"
+#define VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION 1u
 
 typedef struct VoxelcraftPluginHost VoxelcraftPluginHost;
 typedef struct VoxelcraftPluginContext VoxelcraftPluginContext;
@@ -82,6 +84,39 @@ typedef struct VoxelcraftPluginGameService {
     uint32_t (*world_seed)(void *user_data);
     void (*post_notice)(void *user_data, const char *message);
 } VoxelcraftPluginGameService;
+
+/* Stable, read-only world coordinates exposed without world-module types. */
+typedef enum VoxelcraftPluginWorldDimension {
+    VOXELCRAFT_PLUGIN_WORLD_DIMENSION_HOME = 0,
+    VOXELCRAFT_PLUGIN_WORLD_DIMENSION_PLANET,
+    VOXELCRAFT_PLUGIN_WORLD_DIMENSION_SPACE,
+    VOXELCRAFT_PLUGIN_WORLD_DIMENSION_NETHER
+} VoxelcraftPluginWorldDimension;
+
+typedef enum VoxelcraftPluginWorldSurfaceKind {
+    VOXELCRAFT_PLUGIN_WORLD_SURFACE_NONE = 0,
+    VOXELCRAFT_PLUGIN_WORLD_SURFACE_HOME,
+    VOXELCRAFT_PLUGIN_WORLD_SURFACE_PLANET
+} VoxelcraftPluginWorldSurfaceKind;
+
+typedef struct VoxelcraftPluginWorldSnapshot {
+    uint32_t struct_size;
+    bool surface_active;
+    VoxelcraftPluginWorldDimension dimension;
+    VoxelcraftPluginWorldSurfaceKind surface_kind;
+    uint32_t surface_id;
+    uint32_t seed;
+    int32_t map_origin_x;
+    int32_t map_origin_z;
+} VoxelcraftPluginWorldSnapshot;
+
+typedef struct VoxelcraftPluginWorldService {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    void *user_data;
+    bool (*snapshot)(void *user_data,
+                     VoxelcraftPluginWorldSnapshot *out_snapshot);
+} VoxelcraftPluginWorldService;
 
 typedef struct VoxelcraftPluginDescriptor {
     uint32_t abi_version;

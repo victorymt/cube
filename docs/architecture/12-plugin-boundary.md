@@ -31,6 +31,12 @@ frame-index, and world-seed queries, plus a bounded notice callback. This gives
 tooling and telemetry extensions useful runtime context without handing them a
 `GameRuntime *` or any domain-global pointer.
 
+The app also publishes `voxelcraft.world` with a versioned
+`VoxelcraftPluginWorldService` snapshot. Consumers can observe the active
+dimension, surface kind/id, seed, and canonical map origin through core-owned
+enums and scalar fields; no `WorldDimension`, `WorldSurfaceContext`, or mutable
+world pointer crosses the plugin boundary.
+
 The host (`src/core/plugin.c`) validates IDs and descriptor sizes, rejects
 duplicates, loads only `.so` files, and visits directory entries in lexical
 order. Activation then sorts by priority and ID, making callback order

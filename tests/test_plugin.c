@@ -27,6 +27,35 @@ static const VoxelcraftPluginService INVALID_SERVICE = {
     .id = "bad service",
     .interface = &TEST_SERVICE_INTERFACE};
 
+static bool TestWorldSnapshot(
+    void *user_data, VoxelcraftPluginWorldSnapshot *out_snapshot)
+{
+    (void)user_data;
+    if (!out_snapshot || out_snapshot->struct_size <
+                            sizeof(VoxelcraftPluginWorldSnapshot)) {
+        return false;
+    }
+    out_snapshot->surface_active = true;
+    out_snapshot->dimension = VOXELCRAFT_PLUGIN_WORLD_DIMENSION_PLANET;
+    out_snapshot->surface_kind = VOXELCRAFT_PLUGIN_WORLD_SURFACE_PLANET;
+    out_snapshot->surface_id = 17u;
+    out_snapshot->seed = 23u;
+    out_snapshot->map_origin_x = -128;
+    out_snapshot->map_origin_z = 256;
+    return true;
+}
+
+static const VoxelcraftPluginWorldService TEST_WORLD_INTERFACE = {
+    .abi_version = VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION,
+    .struct_size = sizeof(VoxelcraftPluginWorldService),
+    .snapshot = TestWorldSnapshot};
+
+static const VoxelcraftPluginService TEST_WORLD_SERVICE = {
+    .abi_version = VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION,
+    .struct_size = sizeof(VoxelcraftPluginService),
+    .id = VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID,
+    .interface = &TEST_WORLD_INTERFACE};
+
 static bool LoadPlugin(const VoxelcraftPluginContext *context, void **state)
 {
     assert(context);
@@ -160,12 +189,30 @@ int main(int argc, char **argv)
     VoxelcraftPluginHostInit(&builtin_host);
     assert(VoxelcraftPluginHostProvideBuiltin(&builtin_host, "host",
                                               &TEST_SERVICE));
+    assert(VoxelcraftPluginHostProvideBuiltin(&builtin_host, "host",
+                                              &TEST_WORLD_SERVICE));
     VoxelcraftPluginContext consumer_context = {
         .abi_version = VOXELCRAFT_PLUGIN_ABI_VERSION,
         .host = &builtin_host,
         .plugin_id = "consumer"};
     assert(VoxelcraftPluginHostLookup(&consumer_context, "test.counter", 1u) ==
            &builtin_host.services[0].service);
+    const VoxelcraftPluginService *world_service =
+        VoxelcraftPluginHostLookup(
+            &consumer_context, VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID,
+            VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION);
+    assert(world_service);
+    const VoxelcraftPluginWorldService *world_interface =
+        world_service->interface;
+    VoxelcraftPluginWorldSnapshot world_snapshot = {
+        .struct_size = sizeof(VoxelcraftPluginWorldSnapshot)};
+    assert(world_interface->snapshot(NULL, &world_snapshot));
+    assert(world_snapshot.surface_active);
+    assert(world_snapshot.dimension == VOXELCRAFT_PLUGIN_WORLD_DIMENSION_PLANET);
+    assert(world_snapshot.surface_id == 17u);
+    assert(world_snapshot.seed == 23u);
+    assert(world_snapshot.map_origin_x == -128);
+    assert(world_snapshot.map_origin_z == 256);
     VoxelcraftPluginHostShutdown(&builtin_host);
 
     if (argc > 1) {

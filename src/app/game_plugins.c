@@ -4,6 +4,7 @@
 #include "core/game_notice.h"
 #include "core/plugin.h"
 #include "world/world.h"
+#include "world/world_environment.h"
 
 #include <stdio.h>
 
@@ -37,6 +38,26 @@ static void GamePluginPostNotice(void *userData, const char *message)
     GameNoticePost(message);
 }
 
+static bool GamePluginWorldSnapshot(
+    void *userData, VoxelcraftPluginWorldSnapshot *outSnapshot)
+{
+    (void)userData;
+    if (!outSnapshot || outSnapshot->struct_size <
+                            sizeof(VoxelcraftPluginWorldSnapshot)) {
+        return false;
+    }
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    outSnapshot->surface_active = context.active;
+    outSnapshot->dimension = (VoxelcraftPluginWorldDimension)
+        WorldCurrentDimension();
+    outSnapshot->surface_kind = (VoxelcraftPluginWorldSurfaceKind)context.kind;
+    outSnapshot->surface_id = context.bodyId;
+    outSnapshot->seed = context.seed;
+    outSnapshot->map_origin_x = context.originX;
+    outSnapshot->map_origin_z = context.originZ;
+    return true;
+}
+
 bool GamePluginsArgumentsValid(const GameRuntime *game)
 {
     if (!game || !game->pluginDirectoryInvalid) return true;
@@ -65,13 +86,25 @@ bool GamePluginsStart(GameRuntime *game)
             .frame_index = GamePluginFrameIndex,
             .world_seed = GamePluginWorldSeed,
             .post_notice = GamePluginPostNotice};
+        game->pluginWorldService = (VoxelcraftPluginWorldService){
+            .abi_version = VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION,
+            .struct_size = sizeof(VoxelcraftPluginWorldService),
+            .user_data = game,
+            .snapshot = GamePluginWorldSnapshot};
         const VoxelcraftPluginService gameService = {
             .abi_version = VOXELCRAFT_PLUGIN_GAME_SERVICE_ABI_VERSION,
             .struct_size = sizeof(VoxelcraftPluginService),
             .id = VOXELCRAFT_PLUGIN_GAME_SERVICE_ID,
             .interface = &game->pluginGameService};
+        const VoxelcraftPluginService worldService = {
+            .abi_version = VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION,
+            .struct_size = sizeof(VoxelcraftPluginService),
+            .id = VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID,
+            .interface = &game->pluginWorldService};
         if (!VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
                                                 &gameService) ||
+            !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
+                                                &worldService) ||
             !VoxelcraftPluginHostActivate(&game->plugins, game)) {
             goto fail;
         }
