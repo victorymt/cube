@@ -155,8 +155,11 @@ test-headers:
 test-modules: $(MODULE_ARCHIVES)
 	@printf 'module archives passed: %s\n' '$(words $(MODULE_ARCHIVES))'
 
-test-plugins: $(PLUGIN_TARGETS)
+test-plugins: $(PLUGIN_TARGETS) $(PLUGIN_TEST_TARGET)
 	@printf 'plugin targets passed: %s\n' '$(words $(PLUGIN_TARGETS))'
+	@if test -n "$(PLUGIN_TARGETS)"; then \
+		$(PLUGIN_TEST_TARGET) "$(PLUGIN_BUILD_DIR)"; \
+	fi
 
 test-architecture:
 	@sh tests/test_architecture.sh
