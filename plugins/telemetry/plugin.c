@@ -8,6 +8,8 @@ typedef struct TelemetryState {
     const VoxelcraftPluginGameService *game_service;
     const VoxelcraftPluginWorldService *world_service;
     VoxelcraftPluginWorldSnapshot world_snapshot;
+    const VoxelcraftPluginStreamService *stream_service;
+    VoxelcraftPluginStreamSnapshot stream_snapshot;
     uint32_t last_world_seed;
 } TelemetryState;
 
@@ -52,6 +54,29 @@ static bool TelemetryLoad(const VoxelcraftPluginContext *context, void **state)
             }
         }
     }
+    const VoxelcraftPluginService *stream_service =
+        context->lookup_service
+            ? context->lookup_service(
+                  context, VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID,
+                  VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION)
+            : NULL;
+    if (stream_service && stream_service->interface) {
+        const VoxelcraftPluginStreamService *interface =
+            stream_service->interface;
+        if (interface->abi_version ==
+                VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION &&
+            interface->struct_size >= sizeof(VoxelcraftPluginStreamService) &&
+            interface->snapshot) {
+            telemetry->stream_service = interface;
+            telemetry->stream_snapshot.struct_size =
+                sizeof(VoxelcraftPluginStreamSnapshot);
+            if (context->log) {
+                context->log(
+                    context->user_data, VOXELCRAFT_PLUGIN_LOG_INFO,
+                    "telemetry connected to voxelcraft.stream service");
+            }
+        }
+    }
     *state = telemetry;
     if (context->log) {
         context->log(context->user_data, VOXELCRAFT_PLUGIN_LOG_INFO,
@@ -87,6 +112,11 @@ static void TelemetryUpdate(void *state, const VoxelcraftPluginFrame *frame)
                 telemetry->world_service->user_data,
                 &telemetry->world_snapshot)) {
             telemetry->last_world_seed = telemetry->world_snapshot.seed;
+        }
+        if (telemetry->stream_service) {
+            telemetry->stream_service->snapshot(
+                telemetry->stream_service->user_data,
+                &telemetry->stream_snapshot);
         }
     }
 }

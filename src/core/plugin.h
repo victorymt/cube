@@ -23,6 +23,8 @@
 #define VOXELCRAFT_PLUGIN_GAME_SERVICE_ABI_VERSION 1u
 #define VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID "voxelcraft.world"
 #define VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION 1u
+#define VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID "voxelcraft.stream"
+#define VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION 1u
 
 typedef struct VoxelcraftPluginHost VoxelcraftPluginHost;
 typedef struct VoxelcraftPluginContext VoxelcraftPluginContext;
@@ -118,6 +120,40 @@ typedef struct VoxelcraftPluginWorldService {
     bool (*snapshot)(void *user_data,
                      VoxelcraftPluginWorldSnapshot *out_snapshot);
 } VoxelcraftPluginWorldService;
+
+/* Bounded streaming/worker diagnostics for tooling and telemetry plugins. */
+typedef struct VoxelcraftPluginStreamSnapshot {
+    uint32_t struct_size;
+    bool surface_active;
+    int32_t render_distance;
+    int32_t loaded_chunks;
+    int32_t pending_generation_jobs;
+    int32_t pending_mesh_jobs;
+    uint32_t worker_threads_configured;
+    uint32_t worker_threads_started;
+    uint32_t worker_threads_active;
+    uint64_t generation_submitted;
+    uint64_t generation_completed;
+    uint64_t mesh_submitted;
+    uint64_t mesh_completed;
+    uint64_t generation_queue_peak;
+    uint64_t mesh_queue_peak;
+    bool preload_active;
+    int32_t preload_offset_x;
+    int32_t preload_offset_z;
+    int32_t preload_target_chunks;
+    int32_t preload_loaded_chunks;
+    int32_t preload_pending_generation_jobs;
+    int32_t preload_pending_mesh_jobs;
+} VoxelcraftPluginStreamSnapshot;
+
+typedef struct VoxelcraftPluginStreamService {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    void *user_data;
+    bool (*snapshot)(void *user_data,
+                     VoxelcraftPluginStreamSnapshot *out_snapshot);
+} VoxelcraftPluginStreamService;
 
 typedef struct VoxelcraftPluginDescriptor {
     uint32_t abi_version;

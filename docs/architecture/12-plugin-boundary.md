@@ -37,6 +37,12 @@ dimension, surface kind/id, seed, and canonical map origin through core-owned
 enums and scalar fields; no `WorldDimension`, `WorldSurfaceContext`, or mutable
 world pointer crosses the plugin boundary.
 
+Streaming diagnostics are exposed separately through `voxelcraft.stream`.
+`VoxelcraftPluginStreamService` reports bounded worker, queue, loaded-chunk, and
+preload counters. It deliberately omits chunk storage and job pointers, so a
+diagnostics plugin cannot mutate the streaming scheduler or depend on its
+internal layout.
+
 The host (`src/core/plugin.c`) validates IDs and descriptor sizes, rejects
 duplicates, loads only `.so` files, and visits directory entries in lexical
 order. Activation then sorts by priority and ID, making callback order

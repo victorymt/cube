@@ -56,6 +56,49 @@ static const VoxelcraftPluginService TEST_WORLD_SERVICE = {
     .id = VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID,
     .interface = &TEST_WORLD_INTERFACE};
 
+static bool TestStreamSnapshot(
+    void *user_data, VoxelcraftPluginStreamSnapshot *out_snapshot)
+{
+    (void)user_data;
+    if (!out_snapshot || out_snapshot->struct_size <
+                            sizeof(VoxelcraftPluginStreamSnapshot)) {
+        return false;
+    }
+    out_snapshot->surface_active = true;
+    out_snapshot->render_distance = 12;
+    out_snapshot->loaded_chunks = 81;
+    out_snapshot->pending_generation_jobs = 2;
+    out_snapshot->pending_mesh_jobs = 3;
+    out_snapshot->worker_threads_configured = 4u;
+    out_snapshot->worker_threads_started = 4u;
+    out_snapshot->worker_threads_active = 1u;
+    out_snapshot->generation_submitted = 100u;
+    out_snapshot->generation_completed = 98u;
+    out_snapshot->mesh_submitted = 90u;
+    out_snapshot->mesh_completed = 87u;
+    out_snapshot->generation_queue_peak = 8u;
+    out_snapshot->mesh_queue_peak = 6u;
+    out_snapshot->preload_active = true;
+    out_snapshot->preload_offset_x = 2;
+    out_snapshot->preload_offset_z = -1;
+    out_snapshot->preload_target_chunks = 16;
+    out_snapshot->preload_loaded_chunks = 11;
+    out_snapshot->preload_pending_generation_jobs = 1;
+    out_snapshot->preload_pending_mesh_jobs = 2;
+    return true;
+}
+
+static const VoxelcraftPluginStreamService TEST_STREAM_INTERFACE = {
+    .abi_version = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION,
+    .struct_size = sizeof(VoxelcraftPluginStreamService),
+    .snapshot = TestStreamSnapshot};
+
+static const VoxelcraftPluginService TEST_STREAM_SERVICE = {
+    .abi_version = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION,
+    .struct_size = sizeof(VoxelcraftPluginService),
+    .id = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID,
+    .interface = &TEST_STREAM_INTERFACE};
+
 static bool LoadPlugin(const VoxelcraftPluginContext *context, void **state)
 {
     assert(context);
@@ -191,6 +234,9 @@ int main(int argc, char **argv)
                                               &TEST_SERVICE));
     assert(VoxelcraftPluginHostProvideBuiltin(&builtin_host, "host",
                                               &TEST_WORLD_SERVICE));
+    assert(VoxelcraftPluginHostProvideBuiltin(&builtin_host, "host",
+                                              &TEST_STREAM_SERVICE));
+    assert(VoxelcraftPluginHostServiceCount(&builtin_host) == 3u);
     VoxelcraftPluginContext consumer_context = {
         .abi_version = VOXELCRAFT_PLUGIN_ABI_VERSION,
         .host = &builtin_host,
@@ -213,6 +259,26 @@ int main(int argc, char **argv)
     assert(world_snapshot.seed == 23u);
     assert(world_snapshot.map_origin_x == -128);
     assert(world_snapshot.map_origin_z == 256);
+    const VoxelcraftPluginService *stream_service =
+        VoxelcraftPluginHostLookup(
+            &consumer_context, VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID,
+            VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION);
+    assert(stream_service);
+    const VoxelcraftPluginStreamService *stream_interface =
+        stream_service->interface;
+    VoxelcraftPluginStreamSnapshot stream_snapshot = {
+        .struct_size = sizeof(VoxelcraftPluginStreamSnapshot)};
+    assert(stream_interface->snapshot(NULL, &stream_snapshot));
+    assert(stream_snapshot.surface_active);
+    assert(stream_snapshot.render_distance == 12);
+    assert(stream_snapshot.loaded_chunks == 81);
+    assert(stream_snapshot.pending_generation_jobs == 2);
+    assert(stream_snapshot.worker_threads_active == 1u);
+    assert(stream_snapshot.generation_submitted == 100u);
+    assert(stream_snapshot.mesh_completed == 87u);
+    assert(stream_snapshot.preload_active);
+    assert(stream_snapshot.preload_offset_z == -1);
+    assert(stream_snapshot.preload_pending_mesh_jobs == 2);
     VoxelcraftPluginHostShutdown(&builtin_host);
 
     if (argc > 1) {

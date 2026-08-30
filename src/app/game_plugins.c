@@ -3,6 +3,7 @@
 #include "app/game_runtime.h"
 #include "core/game_notice.h"
 #include "core/plugin.h"
+#include "world/chunks.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 
@@ -58,6 +59,42 @@ static bool GamePluginWorldSnapshot(
     return true;
 }
 
+static bool GamePluginStreamSnapshot(
+    void *userData, VoxelcraftPluginStreamSnapshot *outSnapshot)
+{
+    (void)userData;
+    if (!outSnapshot || outSnapshot->struct_size <
+                            sizeof(VoxelcraftPluginStreamSnapshot)) {
+        return false;
+    }
+    ChunkStreamingStats stats = ChunksGetStreamingStats();
+    ChunkPreloadInfo preload = ChunksGetPreloadInfo();
+    outSnapshot->surface_active = WorldIsSurfaceActive();
+    outSnapshot->render_distance = ChunksRenderDistance();
+    outSnapshot->loaded_chunks = GetActiveChunkCount();
+    outSnapshot->pending_generation_jobs = GetPendingGenJobCount();
+    outSnapshot->pending_mesh_jobs = GetPendingMeshJobCount();
+    outSnapshot->worker_threads_configured =
+        (uint32_t)ChunksConfiguredWorkerCount();
+    outSnapshot->worker_threads_started = (uint32_t)ChunksStartedWorkerCount();
+    outSnapshot->worker_threads_active = (uint32_t)ChunksActiveWorkerCount();
+    outSnapshot->generation_submitted = stats.generationSubmitted;
+    outSnapshot->generation_completed = stats.generationCompleted;
+    outSnapshot->mesh_submitted = stats.meshSubmitted;
+    outSnapshot->mesh_completed = stats.meshCompleted;
+    outSnapshot->generation_queue_peak = stats.generationQueuePeak;
+    outSnapshot->mesh_queue_peak = stats.meshQueuePeak;
+    outSnapshot->preload_active = preload.active;
+    outSnapshot->preload_offset_x = preload.offsetX;
+    outSnapshot->preload_offset_z = preload.offsetZ;
+    outSnapshot->preload_target_chunks = preload.targetChunks;
+    outSnapshot->preload_loaded_chunks = preload.loadedChunks;
+    outSnapshot->preload_pending_generation_jobs =
+        preload.pendingGenerationJobs;
+    outSnapshot->preload_pending_mesh_jobs = preload.pendingMeshJobs;
+    return true;
+}
+
 bool GamePluginsArgumentsValid(const GameRuntime *game)
 {
     if (!game || !game->pluginDirectoryInvalid) return true;
@@ -91,6 +128,11 @@ bool GamePluginsStart(GameRuntime *game)
             .struct_size = sizeof(VoxelcraftPluginWorldService),
             .user_data = game,
             .snapshot = GamePluginWorldSnapshot};
+        game->pluginStreamService = (VoxelcraftPluginStreamService){
+            .abi_version = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION,
+            .struct_size = sizeof(VoxelcraftPluginStreamService),
+            .user_data = game,
+            .snapshot = GamePluginStreamSnapshot};
         const VoxelcraftPluginService gameService = {
             .abi_version = VOXELCRAFT_PLUGIN_GAME_SERVICE_ABI_VERSION,
             .struct_size = sizeof(VoxelcraftPluginService),
@@ -101,10 +143,17 @@ bool GamePluginsStart(GameRuntime *game)
             .struct_size = sizeof(VoxelcraftPluginService),
             .id = VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID,
             .interface = &game->pluginWorldService};
+        const VoxelcraftPluginService streamService = {
+            .abi_version = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION,
+            .struct_size = sizeof(VoxelcraftPluginService),
+            .id = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID,
+            .interface = &game->pluginStreamService};
         if (!VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
                                                 &gameService) ||
             !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
                                                 &worldService) ||
+            !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
+                                                &streamService) ||
             !VoxelcraftPluginHostActivate(&game->plugins, game)) {
             goto fail;
         }

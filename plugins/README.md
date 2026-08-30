@@ -31,6 +31,11 @@ The companion `VOXELCRAFT_PLUGIN_WORLD_SERVICE_ID` publishes a
 `VoxelcraftPluginWorldService` snapshot contract. It reports the current
 dimension, surface kind/id, seed, and canonical map origin without exposing
 `WorldDimension`, `WorldSurfaceContext`, or any mutable world state.
+`VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID` provides a separate
+`VoxelcraftPluginStreamService` snapshot for worker counts, pending generation
+and mesh jobs, queue peaks, loaded chunks, and preload progress. The stream
+snapshot is intended for diagnostics; it never exposes chunk storage or job
+queue pointers.
 
 Build the sample plugin with:
 
