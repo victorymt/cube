@@ -39,7 +39,7 @@ work progresses, verified, and then committed as one reviewable change.
 | 13 | Multi-scale ecology, nutrient cycles, and off-screen populations | Complete |
 | 14 | Physics-driven wildfire, smoke, and supercell tornadoes | Complete |
 | 15 | Character, structure, and optional survival/social physics | Complete |
-| 16 | Deterministic replay, graphics E2E, and performance gates | Planned |
+| 16 | Deterministic replay, graphics E2E, and performance gates | Complete |
 
 The order deliberately establishes climate inputs before ecology and global
 topology. Stage 07 may require migration of spatial keys and saves, so it is

@@ -61,6 +61,41 @@ jobs:
       - name: Run sanitizer tests
         run: make CC=gcc test-sanitize
 
+  performance:
+    name: Streaming performance gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential curl pkg-config \
+            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
+            libxinerama-dev libwayland-dev libxkbcommon-dev
+      - name: Install raylib
+        run: sh scripts/setup-raylib-ci.sh
+      - name: Run chunk benchmark
+        run: make -s benchmark-chunks
+
+  graphics-e2e:
+    name: Hyprland graphics E2E
+    if: vars.VOXELCRAFT_HYPRLAND_RUNNER == 'true'
+    runs-on: [self-hosted, linux, hyprland]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential curl pkg-config \
+            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
+            libxinerama-dev libwayland-dev libxkbcommon-dev
+      - name: Install raylib
+        run: sh scripts/setup-raylib-ci.sh
+      - name: Run graphics and debug E2E
+        run: make test-e2e
+
   coverage:
     name: Coverage report
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
