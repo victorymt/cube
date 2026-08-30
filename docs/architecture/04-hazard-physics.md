@@ -8,7 +8,7 @@ heat, and cooling couples the cell back to air temperature. Smoke production is
 derived from burned fuel and smoke removal is returned as an explicit flux.
 
 Supercell cells track a convective energy reservoir, radius, angular velocity,
-pressure deficit, position, and steering velocity. Surface/derpoint buoyancy
+pressure deficit, position, and steering velocity. Surface/dew-point buoyancy
 and vertical shear add energy, dissipation removes it, and formation requires
 both a CAPE-like energy threshold and minimum shear. The pressure deficit is
 derived from tangential velocity (`q = 0.5 rho v^2`) and is bounded for stable
