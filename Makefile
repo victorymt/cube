@@ -50,7 +50,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run plugins test test-headers test-modules test-plugins test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules plugins test test-headers test-modules test-plugins test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
 
 all: $(TARGET)
 
@@ -132,6 +132,11 @@ run: $(TARGET)
 	./$(TARGET)
 
 plugins: $(PLUGIN_TARGETS)
+
+# Build each built-in module archive independently.  Together with the
+# optional shared-library `plugins` target this gives contributors explicit
+# parallel seams (`make -j modules plugins`).
+modules: $(MODULE_ARCHIVES)
 
 test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)

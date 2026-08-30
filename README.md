@@ -165,12 +165,18 @@ remains available as an explicit build target and `make run` builds and starts
 that binary. Build and test artifacts stay under `build/` and are never written
 into `src/` or `tests/`.
 
-Build optional plugins independently (and in parallel with `make -j`):
+Build the built-in module archives and optional plugins as independent targets
+(they can run concurrently with `make -j`):
 
 ```sh
-make plugins
+make -j modules plugins
 build/normal/voxelcraft --plugin-dir build/normal/plugins
 ```
+
+`make modules` emits one archive for each ownership domain under
+`build/<variant>/modules/`; the game still links the corresponding objects
+directly for the normal executable. `make plugins` emits shared objects under
+`build/<variant>/plugins/`.
 
 `--plugin-dir` is optional; repeated, empty, or overlong values fail fast.
 Without it, the game starts exactly as a plugin-free build.
