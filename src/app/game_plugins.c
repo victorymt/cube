@@ -4,6 +4,7 @@
 #include "core/game_notice.h"
 #include "core/plugin.h"
 #include "world/chunks.h"
+#include "world/hydrology_runtime.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 
@@ -95,6 +96,52 @@ static bool GamePluginStreamSnapshot(
     return true;
 }
 
+static bool GamePluginHydrologySnapshot(
+    void *userData, VoxelcraftPluginHydrologySnapshot *outSnapshot)
+{
+    (void)userData;
+    if (!outSnapshot || outSnapshot->struct_size <
+                            sizeof(VoxelcraftPluginHydrologySnapshot)) {
+        return false;
+    }
+    HydrologyRuntimeSnapshot snapshot = { 0 };
+    if (!HydrologyRuntimeGlobalSnapshot(&snapshot)) return false;
+    outSnapshot->active = snapshot.active;
+    outSnapshot->surface_id = snapshot.location.surfaceId;
+    outSnapshot->region_x = snapshot.location.regionX;
+    outSnapshot->region_z = snapshot.location.regionZ;
+    outSnapshot->step_count = snapshot.stepCount;
+    outSnapshot->simulation_time_seconds = snapshot.simulationTimeSeconds;
+    outSnapshot->accumulator_seconds = snapshot.accumulatorSeconds;
+    outSnapshot->total_water_volume_m3 = snapshot.totalWaterVolumeM3;
+    outSnapshot->total_sediment_mass_kg = snapshot.totalSedimentMassKg;
+    return true;
+}
+
+static bool GamePluginHydrologyFeedbackAt(
+    void *userData, uint32_t surfaceId, int32_t mapX, int32_t mapZ,
+    VoxelcraftPluginHydrologyFeedback *outFeedback)
+{
+    (void)userData;
+    if (!outFeedback || outFeedback->struct_size <
+                            sizeof(VoxelcraftPluginHydrologyFeedback)) {
+        return false;
+    }
+    HydrologyRuntimeFeedback feedback = { 0 };
+    if (!HydrologyRuntimeGlobalFeedbackAt(
+            surfaceId, mapX, mapZ, &feedback)) {
+        return false;
+    }
+    outFeedback->active = feedback.active;
+    outFeedback->surface_water_m = feedback.surfaceWaterM;
+    outFeedback->soil_moisture = feedback.soilMoisture;
+    outFeedback->groundwater_m = feedback.groundwaterM;
+    outFeedback->runoff_m3_per_s = feedback.runoffM3PerS;
+    outFeedback->evaporation_m_per_s = feedback.evaporationMPerS;
+    outFeedback->sediment_load_kg_m2 = feedback.sedimentLoadKgM2;
+    return true;
+}
+
 bool GamePluginsArgumentsValid(const GameRuntime *game)
 {
     if (!game || !game->pluginDirectoryInvalid) return true;
@@ -133,6 +180,12 @@ bool GamePluginsStart(GameRuntime *game)
             .struct_size = sizeof(VoxelcraftPluginStreamService),
             .user_data = game,
             .snapshot = GamePluginStreamSnapshot};
+        game->pluginHydrologyService = (VoxelcraftPluginHydrologyService){
+            .abi_version = VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION,
+            .struct_size = sizeof(VoxelcraftPluginHydrologyService),
+            .user_data = game,
+            .snapshot = GamePluginHydrologySnapshot,
+            .feedback_at = GamePluginHydrologyFeedbackAt};
         const VoxelcraftPluginService gameService = {
             .abi_version = VOXELCRAFT_PLUGIN_GAME_SERVICE_ABI_VERSION,
             .struct_size = sizeof(VoxelcraftPluginService),
@@ -148,12 +201,19 @@ bool GamePluginsStart(GameRuntime *game)
             .struct_size = sizeof(VoxelcraftPluginService),
             .id = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID,
             .interface = &game->pluginStreamService};
+        const VoxelcraftPluginService hydrologyService = {
+            .abi_version = VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION,
+            .struct_size = sizeof(VoxelcraftPluginService),
+            .id = VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ID,
+            .interface = &game->pluginHydrologyService};
         if (!VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
                                                 &gameService) ||
             !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
                                                 &worldService) ||
             !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
                                                 &streamService) ||
+            !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
+                                                &hydrologyService) ||
             !VoxelcraftPluginHostActivate(&game->plugins, game)) {
             goto fail;
         }

@@ -99,6 +99,58 @@ static const VoxelcraftPluginService TEST_STREAM_SERVICE = {
     .id = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID,
     .interface = &TEST_STREAM_INTERFACE};
 
+static bool TestHydrologySnapshot(
+    void *user_data, VoxelcraftPluginHydrologySnapshot *out_snapshot)
+{
+    (void)user_data;
+    if (!out_snapshot || out_snapshot->struct_size <
+                            sizeof(VoxelcraftPluginHydrologySnapshot)) {
+        return false;
+    }
+    out_snapshot->active = true;
+    out_snapshot->surface_id = 17u;
+    out_snapshot->region_x = 3;
+    out_snapshot->region_z = -2;
+    out_snapshot->step_count = 99u;
+    out_snapshot->simulation_time_seconds = 12.5;
+    out_snapshot->accumulator_seconds = 0.25;
+    out_snapshot->total_water_volume_m3 = 48.0;
+    out_snapshot->total_sediment_mass_kg = 7.5;
+    return true;
+}
+
+static bool TestHydrologyFeedbackAt(
+    void *user_data, uint32_t surface_id, int32_t map_x, int32_t map_z,
+    VoxelcraftPluginHydrologyFeedback *out_feedback)
+{
+    (void)user_data;
+    if (!out_feedback || out_feedback->struct_size <
+                            sizeof(VoxelcraftPluginHydrologyFeedback) ||
+        surface_id != 17u || map_x != 12 || map_z != -8) {
+        return false;
+    }
+    out_feedback->active = true;
+    out_feedback->surface_water_m = 0.75f;
+    out_feedback->soil_moisture = 0.4f;
+    out_feedback->groundwater_m = 1.5f;
+    out_feedback->runoff_m3_per_s = 0.2f;
+    out_feedback->evaporation_m_per_s = 0.01f;
+    out_feedback->sediment_load_kg_m2 = 0.03f;
+    return true;
+}
+
+static const VoxelcraftPluginHydrologyService TEST_HYDROLOGY_INTERFACE = {
+    .abi_version = VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION,
+    .struct_size = sizeof(VoxelcraftPluginHydrologyService),
+    .snapshot = TestHydrologySnapshot,
+    .feedback_at = TestHydrologyFeedbackAt};
+
+static const VoxelcraftPluginService TEST_HYDROLOGY_SERVICE = {
+    .abi_version = VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION,
+    .struct_size = sizeof(VoxelcraftPluginService),
+    .id = VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ID,
+    .interface = &TEST_HYDROLOGY_INTERFACE};
+
 static bool LoadPlugin(const VoxelcraftPluginContext *context, void **state)
 {
     assert(context);
@@ -236,7 +288,9 @@ int main(int argc, char **argv)
                                               &TEST_WORLD_SERVICE));
     assert(VoxelcraftPluginHostProvideBuiltin(&builtin_host, "host",
                                               &TEST_STREAM_SERVICE));
-    assert(VoxelcraftPluginHostServiceCount(&builtin_host) == 3u);
+    assert(VoxelcraftPluginHostProvideBuiltin(&builtin_host, "host",
+                                              &TEST_HYDROLOGY_SERVICE));
+    assert(VoxelcraftPluginHostServiceCount(&builtin_host) == 4u);
     VoxelcraftPluginContext consumer_context = {
         .abi_version = VOXELCRAFT_PLUGIN_ABI_VERSION,
         .host = &builtin_host,
@@ -279,6 +333,29 @@ int main(int argc, char **argv)
     assert(stream_snapshot.preload_active);
     assert(stream_snapshot.preload_offset_z == -1);
     assert(stream_snapshot.preload_pending_mesh_jobs == 2);
+    const VoxelcraftPluginService *hydrology_service =
+        VoxelcraftPluginHostLookup(
+            &consumer_context, VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ID,
+            VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION);
+    assert(hydrology_service);
+    const VoxelcraftPluginHydrologyService *hydrology_interface =
+        hydrology_service->interface;
+    VoxelcraftPluginHydrologySnapshot hydrology_snapshot = {
+        .struct_size = sizeof(VoxelcraftPluginHydrologySnapshot)};
+    assert(hydrology_interface->snapshot(NULL, &hydrology_snapshot));
+    assert(hydrology_snapshot.active);
+    assert(hydrology_snapshot.surface_id == 17u);
+    assert(hydrology_snapshot.region_x == 3);
+    assert(hydrology_snapshot.step_count == 99u);
+    assert(hydrology_snapshot.total_water_volume_m3 == 48.0);
+    VoxelcraftPluginHydrologyFeedback hydrology_feedback = {
+        .struct_size = sizeof(VoxelcraftPluginHydrologyFeedback)};
+    assert(hydrology_interface->feedback_at(
+        NULL, hydrology_snapshot.surface_id, 12, -8, &hydrology_feedback));
+    assert(hydrology_feedback.active);
+    assert(hydrology_feedback.surface_water_m == 0.75f);
+    assert(hydrology_feedback.soil_moisture == 0.4f);
+    assert(hydrology_feedback.sediment_load_kg_m2 == 0.03f);
     VoxelcraftPluginHostShutdown(&builtin_host);
 
     if (argc > 1) {

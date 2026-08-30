@@ -36,6 +36,10 @@ dimension, surface kind/id, seed, and canonical map origin without exposing
 and mesh jobs, queue peaks, loaded chunks, and preload progress. The stream
 snapshot is intended for diagnostics; it never exposes chunk storage or job
 queue pointers.
+`VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ID` exposes a versioned
+`VoxelcraftPluginHydrologyService` with runtime totals/location and explicit
+coarse-cell feedback queries. Callers must initialize each output's
+`struct_size`; no hydrology grid or mutable solver state is returned.
 
 Build the sample plugin with:
 

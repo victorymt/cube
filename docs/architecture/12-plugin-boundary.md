@@ -43,6 +43,13 @@ preload counters. It deliberately omits chunk storage and job pointers, so a
 diagnostics plugin cannot mutate the streaming scheduler or depend on its
 internal layout.
 
+Hydrology runtime state is exposed through `voxelcraft.hydrology`.
+`VoxelcraftPluginHydrologyService` provides a scalar snapshot of the active
+region and conservation totals, plus an explicit coarse-cell feedback query.
+Output structures use caller-provided `struct_size` fields and fixed-width
+coordinates; the solver grid and persistence handles remain private to
+`world/`.
+
 The host (`src/core/plugin.c`) validates IDs and descriptor sizes, rejects
 duplicates, loads only `.so` files, and visits directory entries in lexical
 order. Activation then sorts by priority and ID, making callback order

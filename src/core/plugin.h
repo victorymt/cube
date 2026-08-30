@@ -25,6 +25,8 @@
 #define VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION 1u
 #define VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID "voxelcraft.stream"
 #define VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION 1u
+#define VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ID "voxelcraft.hydrology"
+#define VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION 1u
 
 typedef struct VoxelcraftPluginHost VoxelcraftPluginHost;
 typedef struct VoxelcraftPluginContext VoxelcraftPluginContext;
@@ -154,6 +156,42 @@ typedef struct VoxelcraftPluginStreamService {
     bool (*snapshot)(void *user_data,
                      VoxelcraftPluginStreamSnapshot *out_snapshot);
 } VoxelcraftPluginStreamService;
+
+/* Read-only hydrology runtime state and coarse-cell feedback. */
+typedef struct VoxelcraftPluginHydrologySnapshot {
+    uint32_t struct_size;
+    bool active;
+    uint32_t surface_id;
+    int32_t region_x;
+    int32_t region_z;
+    uint64_t step_count;
+    double simulation_time_seconds;
+    double accumulator_seconds;
+    double total_water_volume_m3;
+    double total_sediment_mass_kg;
+} VoxelcraftPluginHydrologySnapshot;
+
+typedef struct VoxelcraftPluginHydrologyFeedback {
+    uint32_t struct_size;
+    bool active;
+    float surface_water_m;
+    float soil_moisture;
+    float groundwater_m;
+    float runoff_m3_per_s;
+    float evaporation_m_per_s;
+    float sediment_load_kg_m2;
+} VoxelcraftPluginHydrologyFeedback;
+
+typedef struct VoxelcraftPluginHydrologyService {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    void *user_data;
+    bool (*snapshot)(void *user_data,
+                     VoxelcraftPluginHydrologySnapshot *out_snapshot);
+    bool (*feedback_at)(void *user_data, uint32_t surface_id,
+                        int32_t map_x, int32_t map_z,
+                        VoxelcraftPluginHydrologyFeedback *out_feedback);
+} VoxelcraftPluginHydrologyService;
 
 typedef struct VoxelcraftPluginDescriptor {
     uint32_t abi_version;
