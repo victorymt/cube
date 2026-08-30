@@ -113,6 +113,7 @@ bool HydrologyRuntimeFeedbackAt(const HydrologyRuntime *runtime,
                                 HydrologyRuntimeFeedback *out);
 
 bool HydrologyRuntimeGlobalReset(const HydrologyRuntimeConfig *config);
+void HydrologyRuntimeGlobalFree(void);
 bool HydrologyRuntimeGlobalBind(uint32_t surfaceId, int mapX, int mapZ);
 bool HydrologyRuntimeGlobalSetCellInput(int x, int z,
                                         HydrologyRuntimeCellInput input);

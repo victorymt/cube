@@ -61,6 +61,11 @@ wait_for_reply() {
     while ((SECONDS < deadline)); do
         if IFS= read -r -t 1 line <&"$game_output"; then
             printf '%s\n' "$line"
+            if [[ "$line" =~ ^DEBUG_SCRIPT[[:space:]]error[[:space:]] ]] &&
+               [[ ! "$line" =~ $pattern ]]; then
+                echo "unexpected debug script error while waiting for: $pattern" >&2
+                return 1
+            fi
             if [[ "$line" =~ $pattern ]]; then
                 matched_line=$line
                 return 0
@@ -122,6 +127,22 @@ wait_for_reply '^DEBUG_CONTROL map closed$'
 send_command 'surface debug home'
 wait_for_reply '^DEBUG_CONTROL surface debug ok world=home seed=1448040515$' 120
 send_command 'wait until stream.surface_ready timeout 1800'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
+send_command 'wait until hydrology.active timeout 300'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
+send_command 'assert hydrology.step_count > 0 && hydrology.total_water_m3 >= 0 && hydrology.total_sediment_kg >= 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+
+# Hydrology follows the same canonical map partition as radiation and weather.
+# Compare against the region implied by the actual player pose because floating
+# point pose canonicalization may leave a boundary coordinate just below 1024.
+send_command 'teleport 1024 95 256 0 -0.35'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=1024.000000,95.000000,256.000000$'
+send_command 'wait until hydrology.active && hydrology.region_x == hydrology.player_region_x && hydrology.region_z == hydrology.player_region_z timeout 600'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
+send_command 'teleport 0 95 0 0 -0.35'
+wait_for_reply '^DEBUG_CONTROL teleport ok position=0.000000,95.000000,0.000000$'
+send_command 'wait until hydrology.active && hydrology.region_x == hydrology.player_region_x && hydrology.region_z == hydrology.player_region_z timeout 600'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
 
 send_command 'mouse right'

@@ -21,19 +21,26 @@ static void TestSupportedFormats(void)
     const char v19[] = "VOXELCRAFT_SAVE_V19";
     const char v20[] = "VOXELCRAFT_SAVE_V20";
     const char v21[] = "VOXELCRAFT_SAVE_V21";
+    const char v22[] = "VOXELCRAFT_SAVE_V22";
     assert(ReadBytes(v18, sizeof(v18) - 1u) == WORLD_SAVE_FORMAT_V18);
     assert(ReadBytes(v19, sizeof(v19) - 1u) == WORLD_SAVE_FORMAT_V19);
     assert(ReadBytes(v20, sizeof(v20) - 1u) == WORLD_SAVE_FORMAT_V20);
     assert(ReadBytes(v21, sizeof(v21) - 1u) == WORLD_SAVE_FORMAT_V21);
+    assert(ReadBytes(v22, sizeof(v22) - 1u) == WORLD_SAVE_FORMAT_V22);
     assert(!WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V18));
     assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V19));
     assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V20));
     assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V21));
+    assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V22));
     assert(!WorldSaveFormatHasWeatherImpact(WORLD_SAVE_FORMAT_V19));
     assert(WorldSaveFormatHasWeatherImpact(WORLD_SAVE_FORMAT_V20));
     assert(WorldSaveFormatHasWeatherImpact(WORLD_SAVE_FORMAT_V21));
+    assert(WorldSaveFormatHasWeatherImpact(WORLD_SAVE_FORMAT_V22));
     assert(!WorldSaveFormatHasRadiationRuntime(WORLD_SAVE_FORMAT_V20));
     assert(WorldSaveFormatHasRadiationRuntime(WORLD_SAVE_FORMAT_V21));
+    assert(WorldSaveFormatHasRadiationRuntime(WORLD_SAVE_FORMAT_V22));
+    assert(!WorldSaveFormatHasHydrologyRuntime(WORLD_SAVE_FORMAT_V21));
+    assert(WorldSaveFormatHasHydrologyRuntime(WORLD_SAVE_FORMAT_V22));
 }
 
 static void TestUnsupportedFormats(void)
@@ -53,7 +60,7 @@ static void TestCurrentFormatWriter(void)
     assert(file != NULL);
     assert(WorldSaveFormatWriteCurrent(file));
     rewind(file);
-    assert(WorldSaveFormatRead(file) == WORLD_SAVE_FORMAT_V21);
+    assert(WorldSaveFormatRead(file) == WORLD_SAVE_FORMAT_V22);
     fclose(file);
     assert(!WorldSaveFormatWriteCurrent(NULL));
 }

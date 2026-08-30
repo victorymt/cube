@@ -2,6 +2,7 @@
 
 #include "world/surface_save.h"
 #include "world/radiation_runtime.h"
+#include "world/hydrology_runtime.h"
 #include "world/save_format.h"
 
 #include <assert.h>
@@ -10,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 extern bool GameSaveTestWriteRadiationRuntimeState(FILE *file);
 extern const char *GameSaveTestLoadRadiationRuntimeState(
@@ -19,7 +21,13 @@ static int radiationResetCalls;
 
 bool WorldSaveFormatHasRadiationRuntime(WorldSaveFormat format)
 {
-    return format == WORLD_SAVE_FORMAT_V21;
+    return format == WORLD_SAVE_FORMAT_V21 ||
+           format == WORLD_SAVE_FORMAT_V22;
+}
+
+bool WorldSaveFormatHasHydrologyRuntime(WorldSaveFormat format)
+{
+    return format == WORLD_SAVE_FORMAT_V22;
 }
 
 bool RadiationRuntimeGlobalSaveState(FILE *file)
@@ -268,12 +276,91 @@ static void TestRadiationRuntimePayloadRouting(void)
     fclose(file);
 }
 
+static void TestHydrologyRuntimePayloadRouting(void)
+{
+    assert(HydrologyRuntimeGlobalReset(NULL));
+    assert(HydrologyRuntimeGlobalBind(4u, 0, 0));
+    HydrologyRuntimeSnapshot beforeBad = { 0 };
+    assert(HydrologyRuntimeGlobalSnapshot(&beforeBad));
+    HydrologyRuntimeCellInput input = {
+        .elevationM = 3.0f,
+        .soilDepthM = 1.0f,
+        .precipitationMPerS = 0.000001f
+    };
+    assert(HydrologyRuntimeGlobalSetCellInput(0, 0, input));
+    unsigned steps = 0u;
+    assert(HydrologyRuntimeGlobalAdvance(1.0, &steps));
+    assert(steps == HYDROLOGY_RUNTIME_DEFAULT_MAX_CATCH_UP_STEPS);
+    HydrologyRuntimeSnapshot before = { 0 };
+    assert(HydrologyRuntimeGlobalSnapshot(&before));
+
+    FILE *file = tmpfile();
+    assert(file != NULL);
+    assert(GameSaveTestWriteHydrologyRuntimeState(file));
+    const unsigned char trailing = 0x6bu;
+    assert(fwrite(&trailing, sizeof(trailing), 1, file) == 1);
+    rewind(file);
+    assert(GameSaveTestLoadHydrologyRuntimeState(
+               file, WORLD_SAVE_FORMAT_V22) == NULL);
+    HydrologyRuntimeSnapshot after = { 0 };
+    assert(HydrologyRuntimeGlobalSnapshot(&after));
+    assert(after.active && after.stepCount == before.stepCount);
+    assert(after.location.surfaceId == before.location.surfaceId);
+    assert(fgetc(file) == trailing);
+    assert(fgetc(file) == EOF);
+    fclose(file);
+
+    file = tmpfile();
+    assert(file != NULL);
+    const unsigned char legacyByte = 0x3cu;
+    assert(fwrite(&legacyByte, sizeof(legacyByte), 1, file) == 1);
+    rewind(file);
+    assert(GameSaveTestLoadHydrologyRuntimeState(
+               file, WORLD_SAVE_FORMAT_V21) == NULL);
+    assert(fgetc(file) == legacyByte);
+    HydrologyRuntimeSnapshot reset = { 0 };
+    assert(HydrologyRuntimeGlobalSnapshot(&reset));
+    assert(!reset.active && reset.stepCount == 0u);
+    fclose(file);
+
+    assert(HydrologyRuntimeGlobalBind(4u, 0, 0));
+    file = tmpfile();
+    assert(file != NULL);
+    assert(GameSaveTestWriteHydrologyRuntimeState(file));
+    long end = ftell(file);
+    assert(end > 1);
+    assert(fflush(file) == 0);
+    assert(ftruncate(fileno(file), end - 1) == 0);
+    rewind(file);
+    assert(strcmp(GameSaveTestLoadHydrologyRuntimeState(
+                     file, WORLD_SAVE_FORMAT_V22),
+                 "Load failed: hydrology state is corrupted.") == 0);
+    HydrologyRuntimeSnapshot afterBad = { 0 };
+    assert(HydrologyRuntimeGlobalSnapshot(&afterBad));
+    assert(afterBad.active == beforeBad.active &&
+           afterBad.stepCount == beforeBad.stepCount &&
+           afterBad.location.surfaceId == beforeBad.location.surfaceId);
+    fclose(file);
+
+    file = tmpfile();
+    assert(file != NULL);
+    const unsigned char wrongMagic = 0xffu;
+    assert(fwrite(&wrongMagic, sizeof(wrongMagic), 1, file) == 1);
+    rewind(file);
+    assert(strcmp(GameSaveTestLoadHydrologyRuntimeState(
+                     file, WORLD_SAVE_FORMAT_V22),
+                 "Load failed: hydrology state is corrupted.") == 0);
+    fclose(file);
+}
+
 int main(void)
 {
     TestSchemaOnePlanetMigration();
     TestSchemaTwoGlobalCoordinates();
     TestRejectsMismatchedEditBodyTransactionally();
     TestRadiationRuntimePayloadRouting();
+    TestHydrologyRuntimePayloadRouting();
+    HydrologyRuntimeGlobalFree();
     puts("game spherical save tests passed");
     return 0;
 }

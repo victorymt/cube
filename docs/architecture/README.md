@@ -17,6 +17,8 @@ new physical-simulation stages.
 | 07 | [global topology](07-global-topology.md) | `5b6c02b`, `3db802d`; seam/pole/save E2E |
 | 08 | [cross-system identity](08-cross-system-integration.md) | `3db802d`; weather/ecology/save integration |
 | 09 | [performance](09-performance-optimization.md) | `28362db`, `bc71320`, `813d0e9`; benchmark invariants |
+| 10 | [radiation runtime integration](10-radiation-runtime-integration.md) | `7f6c8a7`; fixed-step climate column and V21 persistence |
+| 11 | [hydrology runtime integration](11-hydrology-runtime-integration.md) | `8c127e1`; bounded water runtime, climate feedback, and V22 persistence |
 | 12 | [optional plugin boundary](12-plugin-boundary.md) | pending; stable ABI, deterministic loader, and parallel shared-library targets |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The

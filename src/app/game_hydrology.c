@@ -1,7 +1,9 @@
 #include "app/game_hydrology.h"
 
 #include "app/game_runtime.h"
+#include "app/game_radiation.h"
 #include "core/simulation_time.h"
+#include "space/space_runtime.h"
 #include "space/space_state.h"
 #include "world/hydrology_runtime.h"
 #include "world/surface_topology.h"
@@ -11,6 +13,15 @@
 #include "world/world_environment.h"
 
 #include <math.h>
+
+void GameAdvanceSimulationStep(double simulationSeconds,
+                               double stepSeconds, void *context)
+{
+    GameRuntime *game = context;
+    SpaceAdvanceTime((float)stepSeconds);
+    GameAdvanceRadiationSimulationStep(game, simulationSeconds, stepSeconds);
+    GameAdvanceHydrologySimulationStep(game, simulationSeconds, stepSeconds);
+}
 
 static int FloorDivide(int value, int divisor)
 {

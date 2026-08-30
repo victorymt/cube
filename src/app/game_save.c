@@ -18,6 +18,7 @@
 #include "space/space_state.h"
 #include "world/chunks.h"
 #include "world/nether.h"
+#include "world/hydrology_runtime.h"
 #include "world/radiation_runtime.h"
 #include "world/save_format.h"
 #include "world/surface_save.h"
@@ -156,6 +157,24 @@ static const char *GameLoadRadiationRuntimeState(
         : "Load failed: radiation state could not be reset.";
 }
 
+static bool GameSaveWriteHydrologyRuntimeState(FILE *file)
+{
+    return HydrologyRuntimeGlobalSaveState(file);
+}
+
+static const char *GameLoadHydrologyRuntimeState(
+    FILE *file, WorldSaveFormat format)
+{
+    if (WorldSaveFormatHasHydrologyRuntime(format)) {
+        return HydrologyRuntimeGlobalLoadState(file)
+            ? NULL
+            : "Load failed: hydrology state is corrupted.";
+    }
+    return HydrologyRuntimeGlobalReset(NULL)
+        ? NULL
+        : "Load failed: hydrology state could not be reset.";
+}
+
 static bool GameSaveWriteFile(FILE *file, void *opaque)
 {
     const GameSaveContext *context = opaque;
@@ -188,6 +207,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
          ShipLocatorSaveState(file) &&
          WorldPersistenceSaveExtension(file) && WeatherImpactSaveState(file) &&
          GameSaveWriteRadiationRuntimeState(file) &&
+         GameSaveWriteHydrologyRuntimeState(file) &&
          MapMarkersSaveState(file) &&
          GameSaveWriteSphericalTrailer(file, player) && !ferror(file);
     return ok;
@@ -425,6 +445,17 @@ const char *GameSaveTestLoadRadiationRuntimeState(
 {
     return GameLoadRadiationRuntimeState(file, format);
 }
+
+bool GameSaveTestWriteHydrologyRuntimeState(FILE *file)
+{
+    return GameSaveWriteHydrologyRuntimeState(file);
+}
+
+const char *GameSaveTestLoadHydrologyRuntimeState(
+    FILE *file, WorldSaveFormat format)
+{
+    return GameLoadHydrologyRuntimeState(file, format);
+}
 #endif
 
 static const char *GameLoadCurrentExtendedPayload(
@@ -465,6 +496,9 @@ static const char *GameLoadCurrentExtendedPayload(
     const char *radiationError =
         GameLoadRadiationRuntimeState(file, format);
     if (radiationError) return radiationError;
+    const char *hydrologyError =
+        GameLoadHydrologyRuntimeState(file, format);
+    if (hydrologyError) return hydrologyError;
     if (WorldSaveFormatHasMapMarkers(format) &&
         !MapMarkersReadState(file, &data->mapMarkers)) {
         return "Load failed: map marker state is corrupted.";

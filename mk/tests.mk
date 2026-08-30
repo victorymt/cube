@@ -49,7 +49,7 @@ $(eval $(call define_test,SPACE_UNITS_TEST_TARGET,test_space_units,src/space/spa
 $(eval $(call define_test,SPACE_COORDINATES_TEST_TARGET,test_space_coordinates,src/space/space_coordinates.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_TOPOLOGY_TEST_TARGET,test_surface_topology,src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_SAVE_TEST_TARGET,test_surface_save,src/world/surface_save.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,GAME_SAVE_SPHERICAL_TEST_TARGET,test_game_save_spherical,src/app/game_save.c src/world/surface_save.c src/world/surface_topology.c,-DGAME_SAVE_TESTING -ffunction-sections -fdata-sections,,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,GAME_SAVE_SPHERICAL_TEST_TARGET,test_game_save_spherical,src/app/game_save.c src/world/surface_save.c src/world/surface_topology.c src/world/hydrology_runtime.c src/world/hydrology_model.c,-DGAME_SAVE_TESTING -ffunction-sections -fdata-sections,,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 
 SPACE_PROPERTIES_SOURCES := \
 	$(SPACE_FEATURE_SRC) \

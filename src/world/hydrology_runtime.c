@@ -178,20 +178,31 @@ static bool RuntimeCellsValid(const HydrologyRuntime *runtime)
     return true;
 }
 
+/* Cheap invariant check used while refreshing all 1024 input cells. The
+ * complete cell scan remains at step/snapshot boundaries, but doing it from
+ * every setter turns one frame's O(n) input upload into O(n^2) work. */
+static bool RuntimeReady(const HydrologyRuntime *runtime)
+{
+    return runtime && runtime->initialized &&
+           runtime->version == HYDROLOGY_RUNTIME_STATE_VERSION &&
+           HydrologyRuntimeConfigIsValid(&runtime->config) &&
+           runtime->grid.cells && runtime->grid.scratch &&
+           runtime->grid.flow && runtime->grid.flowSourceWater &&
+           runtime->grid.flowSourceSediment &&
+           runtime->grid.cellCount == HYDROLOGY_RUNTIME_MAX_SERIALIZED_CELLS &&
+           runtime->precipitationRatesMPerS &&
+           isfinite(runtime->accumulatorSeconds) &&
+           runtime->accumulatorSeconds >= 0.0 &&
+           runtime->accumulatorSeconds < runtime->config.fixedStepSeconds *
+               (double)runtime->config.maxCatchUpSteps + 1e-9 &&
+           isfinite(runtime->simulationTimeSeconds) &&
+           runtime->simulationTimeSeconds >= 0.0 &&
+           runtime->stepCount != UINT64_MAX;
+}
+
 bool HydrologyRuntimeStateIsValid(const HydrologyRuntime *runtime)
 {
-    if (!runtime || !runtime->initialized ||
-        runtime->version != HYDROLOGY_RUNTIME_STATE_VERSION ||
-        !HydrologyRuntimeConfigIsValid(&runtime->config) ||
-        !runtime->grid.cells || !runtime->grid.scratch ||
-        !runtime->precipitationRatesMPerS ||
-        !isfinite(runtime->accumulatorSeconds) || runtime->accumulatorSeconds < 0.0 ||
-        runtime->accumulatorSeconds >= runtime->config.fixedStepSeconds *
-            (double)runtime->config.maxCatchUpSteps + 1e-9 ||
-        !isfinite(runtime->simulationTimeSeconds) ||
-        runtime->simulationTimeSeconds < 0.0 ||
-        runtime->stepCount == UINT64_MAX || !RuntimeCellsValid(runtime)) return false;
-    return true;
+    return RuntimeReady(runtime) && RuntimeCellsValid(runtime);
 }
 
 static void InitializeCells(HydrologyRuntime *runtime)
@@ -239,7 +250,7 @@ bool HydrologyRuntimeSetCellInput(HydrologyRuntime *runtime,
                                   int x, int z,
                                   HydrologyRuntimeCellInput input)
 {
-    if (!HydrologyRuntimeStateIsValid(runtime) || !runtime->active ||
+    if (!RuntimeReady(runtime) || !runtime->active ||
         !CellCoordinate(x, z) || !isfinite(input.elevationM) ||
         !NonNegativeFinite(input.soilDepthM) ||
         !NonNegativeFinite(input.precipitationMPerS)) return false;
@@ -254,7 +265,7 @@ bool HydrologyRuntimeSetTerrainCell(HydrologyRuntime *runtime,
                                     int x, int z,
                                     float elevationM, float soilDepthM)
 {
-    if (!HydrologyRuntimeStateIsValid(runtime) || !runtime->active ||
+    if (!RuntimeReady(runtime) || !runtime->active ||
         !CellCoordinate(x, z)) return false;
     return HydrologySetTerrain(&runtime->grid, x, z, elevationM, soilDepthM);
 }
@@ -262,7 +273,7 @@ bool HydrologyRuntimeSetTerrainCell(HydrologyRuntime *runtime,
 bool HydrologyRuntimeSetPrecipitationRateCell(HydrologyRuntime *runtime,
                                               int x, int z, float rateMPerS)
 {
-    if (!HydrologyRuntimeStateIsValid(runtime) || !runtime->active ||
+    if (!RuntimeReady(runtime) || !runtime->active ||
         !CellCoordinate(x, z) || !NonNegativeFinite(rateMPerS)) return false;
     runtime->precipitationRatesMPerS[z * HYDROLOGY_RUNTIME_GRID_SIZE + x] =
         rateMPerS;
@@ -272,7 +283,7 @@ bool HydrologyRuntimeSetPrecipitationRateCell(HydrologyRuntime *runtime,
 bool HydrologyRuntimeAddPrecipitationCell(HydrologyRuntime *runtime,
                                           int x, int z, float depthM)
 {
-    if (!HydrologyRuntimeStateIsValid(runtime) || !runtime->active ||
+    if (!RuntimeReady(runtime) || !runtime->active ||
         !CellCoordinate(x, z) || !NonNegativeFinite(depthM)) return false;
     return HydrologyAddPrecipitation(&runtime->grid, x, z, depthM);
 }
@@ -392,6 +403,11 @@ bool HydrologyRuntimeGlobalReset(const HydrologyRuntimeConfig *config)
 {
     if (globalRuntime.initialized) HydrologyRuntimeFree(&globalRuntime);
     return HydrologyRuntimeInit(&globalRuntime, config);
+}
+
+void HydrologyRuntimeGlobalFree(void)
+{
+    HydrologyRuntimeFree(&globalRuntime);
 }
 
 bool HydrologyRuntimeGlobalBind(uint32_t surfaceId, int mapX, int mapZ)

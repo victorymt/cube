@@ -5,6 +5,11 @@
 
 #include <stdbool.h>
 
+typedef struct GameRuntime GameRuntime;
+
+void GameAdvanceSimulationStep(double simulationSeconds,
+                               double stepSeconds, void *context);
+
 struct GameRuntime;
 
 void GameAdvanceHydrologySimulationStep(struct GameRuntime *game,

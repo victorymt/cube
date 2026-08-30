@@ -118,10 +118,15 @@ bool GameDebugHydrologyDslResolve(const GameRuntime *game,
         if (!WorldIsSurfaceActive() || WorldNetherIsActive()) {
             return Number(outValue, -1.0);
         }
-        int map = (strcmp(name, "hydrology.player_region_x") == 0
-            ? WorldSurfaceMapOriginX() + (int)floorf(game->player.position.x)
-            : WorldSurfaceMapOriginZ() + (int)floorf(game->player.position.z));
-        return Number(outValue, RegionCoordinate(map));
+        int mapX = WorldSurfaceMapOriginX() +
+            (int)floorf(game->player.position.x);
+        int mapZ = WorldSurfaceMapOriginZ() +
+            (int)floorf(game->player.position.z);
+        SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+            (float)mapX, (float)mapZ);
+        return Number(outValue,
+                      RegionCoordinate(strcmp(name, "hydrology.player_region_x") == 0
+                          ? canonical.x : canonical.z));
     }
     return false;
 }

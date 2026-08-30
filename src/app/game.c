@@ -75,15 +75,6 @@ bool GameWorldSimulationPaused(const GameRuntime *game)
     return game && (game->paused || HomeWorldMapIsOpen());
 }
 
-static void GameAdvanceSimulationStep(double simulationSeconds,
-                                      double stepSeconds, void *context)
-{
-    GameRuntime *game = context;
-    SpaceAdvanceTime((float)stepSeconds);
-    GameAdvanceRadiationSimulationStep(game, simulationSeconds, stepSeconds);
-    GameAdvanceHydrologySimulationStep(game, simulationSeconds, stepSeconds);
-}
-
 static void GameOnWorldBlockCommitted(
     int x, int y, int z, BlockType previous, BlockType next)
 {

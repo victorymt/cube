@@ -338,6 +338,18 @@ Runtime values are sampled when an expression is evaluated:
 | `radiation.equilibrium_temperature_k` | number | Instantaneous radiative equilibrium temperature in kelvin, or `0` when inactive |
 | `radiation.step_count` | number | Fixed radiation integration steps completed for the current region, or `0` when inactive |
 | `radiation.region_x`, `radiation.region_z` | number | Canonical 128-block radiation region containing the player; both are `-1` outside an active surface |
+| `hydrology.active` | bool | Whether the bounded 128-block hydrology region is active for the player's surface cell |
+| `hydrology.region_x`, `hydrology.region_z` | number | Canonical 128-block hydrology region containing the player; both are `-1` outside an active surface |
+| `hydrology.player_region_x`, `hydrology.player_region_z` | number | Region implied by the player's canonical position while the surface is active |
+| `hydrology.step_count` | number | Fixed hydrology solver steps completed for the current region |
+| `hydrology.total_water_m3` | number | Total surface, soil, and groundwater volume in the active coarse grid |
+| `hydrology.total_sediment_kg` | number | Total suspended sediment mass in the active coarse grid |
+| `hydrology.surface_water`, `hydrology.surface_water_m` | number | Surface water depth at the player's coarse cell, in metres |
+| `hydrology.soil_moisture` | number | Bounded soil moisture feedback fraction from 0 to 1 |
+| `hydrology.groundwater`, `hydrology.groundwater_m` | number | Groundwater depth at the player's coarse cell, in metres |
+| `hydrology.runoff`, `hydrology.runoff_m3_per_s` | number | Runoff discharge from the player's coarse cell, in cubic metres per second |
+| `hydrology.evaporation`, `hydrology.evaporation_m_per_s` | number | Configured evaporation rate, in metres per second |
+| `hydrology.sediment`, `hydrology.sediment_kg_m2` | number | Sediment load at the player's coarse cell, in kilograms per square metre |
 | `weather.pressure`, `weather.pressure_atm` | number | Surface pressure in atmospheres |
 | `weather.humidity`, `weather.relative_humidity` | number | Relative humidity from 0 to 1 |
 | `weather.dew_point`, `weather.dew_point_k` | number | Dew point in kelvin |
@@ -466,6 +478,13 @@ resolver fields. Use the reply for a command contract assertion, then use
 `status` when a frame-level snapshot is needed (`third_person` is included
 there). `surface debug` reports the active world and seed and should be
 followed by `wait until stream.surface_ready` before querying the new surface.
+
+While a surface is active, the hydrology bridge samples the same canonical
+128-block region as the weather and radiation runtimes. A useful readiness
+check is `wait until hydrology.active timeout 300`; outside a surface (or in
+the Nether) all hydrology fields return inactive defaults. The runtime is a
+32x32 coarse grid (4 metres per cell), so its values describe catchment-scale
+water and sediment rather than individual voxel-fluid blocks.
 
 The map's `GLOBAL SURFACE` globe can be left-dragged to rotate. Clicking a
 visible point focuses the regional map on that spherical location; clicking a

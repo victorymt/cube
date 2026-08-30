@@ -203,7 +203,10 @@ for split_file in \
     src/app/game_world_transition.c \
     src/app/game_biology.c \
     src/app/game_capture.c \
-    src/app/game_debug_weather.c
+    src/app/game_debug_weather.c \
+    src/app/game_hydrology.c \
+    src/app/game_perf_route.c \
+    src/app/game_plugins.c
 do
     [ -f "$split_file" ] || fail "missing split implementation $split_file"
     lines=$(wc -l < "$split_file")
@@ -394,6 +397,12 @@ grep -q 'GameDebugWeatherDslResolve(game, name, outValue)' \
 grep -q '^bool GameDebugWeatherDslResolve(' \
     src/app/game_debug_weather.c ||
     fail "weather debug module must own weather DSL values"
+grep -q 'GameDebugHydrologyDslResolve(game, name, outValue)' \
+    src/app/game_debug.c ||
+    fail "game debug DSL must delegate hydrology values"
+grep -q '^bool GameDebugHydrologyDslResolve(' \
+    src/app/game_debug_hydrology.c ||
+    fail "hydrology debug module must own hydrology DSL values"
 
 render_frame_body=$(sed -n '/^static void GameRenderFrame(/,/^}/p' src/app/game.c)
 for render_stage in \

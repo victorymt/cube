@@ -114,6 +114,11 @@ wait_for_reply() {
     while ((SECONDS < deadline)); do
         if IFS= read -r -t 1 line <&"$game_output"; then
             printf '%s\n' "$line"
+            if [[ "$line" =~ ^DEBUG_SCRIPT[[:space:]]error[[:space:]] ]] &&
+               [[ ! "$line" =~ $pattern ]]; then
+                echo "unexpected debug script error while waiting for: $pattern" >&2
+                return 1
+            fi
             if [[ "$line" =~ $pattern ]]; then
                 matched_line=$line
                 return 0
@@ -148,6 +153,10 @@ wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'wait until radiation.active timeout 300'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'assert radiation.temperature_k > 0 && radiation.baseline_temperature_k > 0 && radiation.step_count > 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'wait until hydrology.active timeout 300'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert hydrology.step_count > 0 && hydrology.region_x != -1 && hydrology.region_z != -1 && hydrology.total_water_m3 >= 0 && hydrology.total_sediment_kg >= 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 send_command 'status'
@@ -227,6 +236,8 @@ wait_for_reply '^DEBUG_CONTROL block gallery ok origin=-4,96,-16 placed=26 rows=
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'assert block.gallery_active && block.gallery_origin == vec3(-4,96,-16) && block.gallery_placed == 26 && block.gallery_rows == 3'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'let saved_hydrology_steps = hydrology.step_count'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'save'
 wait_for_reply '^DEBUG_CONTROL save result=Saved map to voxelcraft_save\.txt \([0-9]+ edits\)\.$'
 [[ "$matched_line" =~ \(([0-9]+)\ edits\)\. ]]
@@ -238,7 +249,7 @@ wait_for_reply '^DEBUG_CONTROL load result=Loaded voxelcraft_save\.txt \([0-9]+ 
 [[ "$matched_line" =~ \(([0-9]+)\ edits\)\. ]]
 [[ "${BASH_REMATCH[1]}" -eq "$gallery_save_edits" ]]
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
-send_command 'assert game.screen == "playing" && world.seed == 1448040515 && world.dimension == "home" && block.gallery_active && block.gallery_origin == vec3(-4,96,-16) && block.gallery_placed == 26'
+send_command 'assert game.screen == "playing" && world.seed == 1448040515 && world.dimension == "home" && block.gallery_active && block.gallery_origin == vec3(-4,96,-16) && block.gallery_placed == 26 && hydrology.active && hydrology.step_count >= saved_hydrology_steps'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 send_command 'teleport -4 95 -10 0 -0.35'
@@ -368,7 +379,7 @@ wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=1800$'
 wait_for_reply '^DEBUG_CONTROL stream wait result='
 [[ "$matched_line" == *'result=settled'* ]]
 [[ "$matched_line" == *'pending_local_sections=0'* ]]
-send_command 'assert radiation.active && radiation.region_x == 8 && radiation.region_z == 2 && radiation.step_count > 0'
+send_command 'assert radiation.active && radiation.region_x == hydrology.player_region_x && radiation.region_z == hydrology.player_region_z && radiation.step_count > 0 && hydrology.active && hydrology.region_x == hydrology.player_region_x && hydrology.region_z == hydrology.player_region_z && hydrology.step_count > 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 boundary_ready=false

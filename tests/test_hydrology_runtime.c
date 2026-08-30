@@ -85,6 +85,7 @@ int main(void)
     TestFixedStepAndBinding();
     TestCatchUpAndFeedback();
     TestRoundTripAndCorruption();
+    HydrologyRuntimeGlobalFree();
     puts("hydrology runtime tests passed");
     return 0;
 }
