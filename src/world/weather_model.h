@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "world/local_climate.h"
+
 typedef enum WeatherPhenomenon {
     WEATHER_PHENOMENON_CLEAR = 0,
     WEATHER_PHENOMENON_CLOUDY,
@@ -79,6 +81,7 @@ typedef struct WeatherFieldInput {
     float solarElevation;
     bool atmosphereActive;
     bool supportsWaterCycle;
+    LocalClimateHydrologyFeedback hydrology;
 } WeatherFieldInput;
 
 typedef struct WeatherFieldSample {

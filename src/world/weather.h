@@ -12,11 +12,18 @@ typedef enum Weather {
     WEATHER_SNOW
 } Weather;
 
+typedef bool (*WeatherHydrologyFeedbackProvider)(
+    int x, int z, double simulationTime,
+    LocalClimateHydrologyFeedback *outFeedback, void *userData);
+
 void WeatherInit(void);
 void WeatherUpdate(float dt, Vector3 playerPosition);
 void WeatherSetParticleScale(float scale);
 void WeatherSetSheltered(bool sheltered);
 void WeatherSetDaylight(float daylight);
+void WeatherSetHydrologyFeedbackProvider(
+    WeatherHydrologyFeedbackProvider provider, void *userData);
+void WeatherClearHydrologyFeedbackProvider(void);
 void WeatherSuspend(void);
 Weather WeatherGetCurrent(void);
 /* Sample the deterministic weather field at a local world cell. */

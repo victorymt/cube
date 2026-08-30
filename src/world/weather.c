@@ -63,6 +63,8 @@ static float particleWindAngle = 0.0f;
 static float particleScale = 1.0f;
 static bool particlesSheltered = false;
 static float weatherDaylight = 0.5f;
+static WeatherHydrologyFeedbackProvider hydrologyFeedbackProvider;
+static void *hydrologyFeedbackUserData;
 static WEATHER_THREAD_LOCAL WeatherSampleCacheEntry
     weatherSampleCache[WEATHER_SAMPLE_CACHE_SIZE] = { 0 };
 
@@ -160,7 +162,18 @@ static bool WeatherSampleCacheMatches(const WeatherSampleCacheEntry *cached,
            cached->input.daylight == input->daylight &&
            cached->input.solarElevation == input->solarElevation &&
            cached->input.atmosphereActive == input->atmosphereActive &&
-           cached->input.supportsWaterCycle == input->supportsWaterCycle;
+           cached->input.supportsWaterCycle == input->supportsWaterCycle &&
+           cached->input.hydrology.active == input->hydrology.active &&
+           cached->input.hydrology.surfaceWaterM ==
+               input->hydrology.surfaceWaterM &&
+           cached->input.hydrology.soilMoisture ==
+               input->hydrology.soilMoisture &&
+           cached->input.hydrology.groundwaterM ==
+               input->hydrology.groundwaterM &&
+           cached->input.hydrology.runoffM3PerS ==
+               input->hydrology.runoffM3PerS &&
+           cached->input.hydrology.evaporationMPerS ==
+               input->hydrology.evaporationMPerS;
 }
 
 static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
@@ -246,6 +259,15 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
             .supportsWaterCycle = planet->oceanCoverage > 0.01f ||
                 planet->atmosphereType == PLANET_ATMOSPHERE_BREATHABLE
         };
+        if (hydrologyFeedbackProvider) {
+            LocalClimateHydrologyFeedback feedback = { 0 };
+            if (hydrologyFeedbackProvider(x, z, simulationTime,
+                                          &feedback,
+                                          hydrologyFeedbackUserData) &&
+                feedback.active) {
+                climateInput.hydrology = feedback;
+            }
+        }
         double radiationOffsetK = 0.0;
         if (!WorldNetherIsActive()) {
             (void)RadiationRuntimeGlobalTemperatureOffsetAt(
@@ -327,6 +349,15 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
             .hasAtmosphere = true,
             .supportsWaterCycle = true
         };
+        if (hydrologyFeedbackProvider) {
+            LocalClimateHydrologyFeedback feedback = { 0 };
+            if (hydrologyFeedbackProvider(x, z, simulationTime,
+                                          &feedback,
+                                          hydrologyFeedbackUserData) &&
+                feedback.active) {
+                climateInput.hydrology = feedback;
+            }
+        }
         double radiationOffsetK = 0.0;
         if (!WorldNetherIsActive()) {
             (void)RadiationRuntimeGlobalTemperatureOffsetAt(
@@ -363,6 +394,7 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
     input.solarElevation = WeatherClamp(weatherDaylight);
     input.atmosphereActive = climate.atmosphereActive;
     input.supportsWaterCycle = climate.waterCycleActive;
+    input.hydrology = climateInput.hydrology;
     *outInput = input;
     if (outClimate) *outClimate = climate;
     return true;
@@ -889,6 +921,19 @@ void WeatherInit(void)
     weatherDaylight = 0.5f;
     memset(weatherSampleCache, 0, sizeof(weatherSampleCache));
     GameEffectsSetRain(false);
+}
+
+void WeatherSetHydrologyFeedbackProvider(
+    WeatherHydrologyFeedbackProvider provider, void *userData)
+{
+    hydrologyFeedbackProvider = provider;
+    hydrologyFeedbackUserData = userData;
+    memset(weatherSampleCache, 0, sizeof(weatherSampleCache));
+}
+
+void WeatherClearHydrologyFeedbackProvider(void)
+{
+    WeatherSetHydrologyFeedbackProvider(NULL, NULL);
 }
 
 const char *WeatherName(void)

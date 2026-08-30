@@ -6,6 +6,7 @@
 #include "app/game_debug_trace.h"
 #include "app/game_interaction.h"
 #include "app/game_radiation.h"
+#include "app/game_hydrology.h"
 #include "app/game_internal.h"
 #include "app/game_landing.h"
 #include "app/game_runtime.h"
@@ -35,6 +36,7 @@
 #include "world/weather.h"
 #include "world/weather_impact.h"
 #include "world/radiation_runtime.h"
+#include "world/hydrology_runtime.h"
 #include "space/space_chunks.h"
 #include "space/space_query.h"
 #include "space/space_runtime.h"
@@ -77,6 +79,7 @@ static void GameAdvanceSimulationStep(double simulationSeconds,
     GameRuntime *game = context;
     SpaceAdvanceTime((float)stepSeconds);
     GameAdvanceRadiationSimulationStep(game, simulationSeconds, stepSeconds);
+    GameAdvanceHydrologySimulationStep(game, simulationSeconds, stepSeconds);
 }
 
 static void GameOnWorldBlockCommitted(
@@ -202,7 +205,9 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     ParticlesClear();
     GameEffectsReset();
     WeatherInit();
+    WeatherSetHydrologyFeedbackProvider(GameHydrologyFeedbackAt, NULL);
     RadiationRuntimeGlobalReset(NULL);
+    HydrologyRuntimeGlobalReset(NULL);
     SimulationClockReset(&game->simulationClock, 0.0);
 
     WorldSetTerrainMode(mode);
@@ -1357,7 +1362,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                     game->settings.musicVolume);
     AudioSetMusicEnabled(game->settings.musicEnabled);
     WeatherInit();
+    WeatherSetHydrologyFeedbackProvider(GameHydrologyFeedbackAt, NULL);
     RadiationRuntimeGlobalReset(NULL);
+    HydrologyRuntimeGlobalReset(NULL);
     // Performance runs measure a fixed streaming/render route. Persistent
     // weather edits would keep invalidating meshes after that route ends.
     WeatherImpactInit(game->settings.weatherDamageEnabled && !game->perfMode);
@@ -1394,7 +1401,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     DebugControlReply(
         &game->debugControl,
         "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
-        "fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit\n");
+        "fluid,water,weather,hydrology,evolution,block,flora statements=let,assert,wait,repeat,exit\n");
     return true;
 }
 

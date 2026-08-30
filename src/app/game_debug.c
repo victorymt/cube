@@ -9,6 +9,7 @@
 #include "app/game_debug_topology.h"
 #include "app/game_debug_trace.h"
 #include "app/game_debug_weather.h"
+#include "app/game_debug_hydrology.h"
 #include "app/game_debug_wildfire.h"
 #include "app/game_save.h"
 #include "world/chunks.h"
@@ -1482,6 +1483,12 @@ static bool GameDebugDslResolveWeather(GameRuntime *game, const char *name,
     return GameDebugWeatherDslResolve(game, name, outValue);
 }
 
+static bool GameDebugDslResolveHydrology(GameRuntime *game, const char *name,
+                                          DebugDslValue *outValue)
+{
+    return GameDebugHydrologyDslResolve(game, name, outValue);
+}
+
 static bool GameDebugDslResolveLod(GameRuntime *game, const char *name,
                                    DebugDslValue *outValue)
 {
@@ -1701,6 +1708,7 @@ static const GameDebugDslResolverFn gameDebugDslResolvers[] = {
     GameDebugDslResolveTopology,
     GameDebugDslResolvePlayer,
     GameDebugDslResolveWeather,
+    GameDebugDslResolveHydrology,
     GameDebugDslResolveStream,
     GameDebugDslResolveLod,
     GameDebugDslResolveTail

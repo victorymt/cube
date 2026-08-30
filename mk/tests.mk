@@ -124,6 +124,7 @@ $(eval $(call define_test,EVOLUTION_TEST_TARGET,test_evolution,src/ecology/evolu
 $(eval $(call define_test,EVOLUTION_CATALOG_TEST_TARGET,test_evolution_catalog,src/ecology/evolution_catalog.c src/ecology/evolution.c,,,, -lm,,))
 $(eval $(call define_test,FLUID_TEST_TARGET,test_fluid,src/world/fluid.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,HYDROLOGY_MODEL_TEST_TARGET,test_hydrology_model,src/world/hydrology_model.c,,,, -lm,,))
+$(eval $(call define_test,HYDROLOGY_RUNTIME_TEST_TARGET,test_hydrology_runtime,src/world/hydrology_runtime.c src/world/hydrology_model.c,,,, -lm,,))
 $(eval $(call define_test,BLOCK_MATERIAL_TEST_TARGET,test_block_material,,,,,,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,LOCAL_CLIMATE_TEST_TARGET,test_local_climate,src/world/local_climate.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_MODEL_TEST_TARGET,test_weather_model,src/world/weather_model.c,,,, -lm,,))

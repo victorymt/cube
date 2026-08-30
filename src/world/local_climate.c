@@ -97,6 +97,44 @@ bool LocalClimateEvaluate(const LocalClimateInput *input,
         input->meanTemperatureK < 0.0f || input->surfacePressureAtm < 0.0f) {
         return false;
     }
+    if (input->hydrology.active &&
+        (!isfinite(input->hydrology.surfaceWaterM) ||
+         !isfinite(input->hydrology.soilMoisture) ||
+         !isfinite(input->hydrology.groundwaterM) ||
+         !isfinite(input->hydrology.runoffM3PerS) ||
+         !isfinite(input->hydrology.evaporationMPerS) ||
+         input->hydrology.surfaceWaterM < 0.0f ||
+         input->hydrology.soilMoisture < 0.0f ||
+         input->hydrology.groundwaterM < 0.0f ||
+         input->hydrology.runoffM3PerS < 0.0f ||
+         input->hydrology.evaporationMPerS < 0.0f)) {
+        return false;
+    }
+
+    float effectiveMoisture = ClimateUnit(input->moisture);
+    float effectiveWaterCoverage = ClimateUnit(input->waterCoverage);
+    if (input->hydrology.active) {
+        /* The coarse water model feeds the atmospheric column through a
+         * bounded reservoir term.  Depths are intentionally normalized at
+         * conservative scales so a transient flood cannot make humidity
+         * exceed saturation. */
+        float soil = ClimateUnit(input->hydrology.soilMoisture);
+        float groundwater = ClimateUnit(input->hydrology.groundwaterM / 8.0f);
+        float surface = ClimateUnit(input->hydrology.surfaceWaterM / 0.50f);
+        float runoff = ClimateUnit(input->hydrology.runoffM3PerS / 0.10f);
+        float reservoir = ClimateUnit(soil * 0.58f + groundwater * 0.22f +
+                                      surface * 0.16f + runoff * 0.04f);
+        float evaporation = ClimateUnit(
+            input->hydrology.evaporationMPerS / 0.00001f);
+        effectiveMoisture = ClimateUnit(
+            effectiveMoisture * 0.64f + reservoir * 0.36f +
+            evaporation * 0.06f - runoff * 0.03f);
+        effectiveWaterCoverage = ClimateUnit(
+            effectiveWaterCoverage * 0.90f + surface * 0.10f);
+    }
+    LocalClimateInput classificationInput = *input;
+    classificationInput.moisture = effectiveMoisture;
+    classificationInput.waterCoverage = effectiveWaterCoverage;
 
     LocalClimateState state = { 0 };
     state.temperatureK = ClimateClamp(
@@ -116,8 +154,8 @@ bool LocalClimateEvaluate(const LocalClimateInput *input,
     float latitudeDrying = ClimateUnit((fabsf(input->latitude) - 0.35f) / 1.0f) *
                           0.08f;
     state.relativeHumidity = state.waterCycleActive ? ClimateUnit(
-        input->moisture * 0.72f + input->cloudPotential * 0.18f +
-        input->waterCoverage * 0.14f - input->iceCoverage * 0.10f -
+        effectiveMoisture * 0.72f + input->cloudPotential * 0.18f +
+        effectiveWaterCoverage * 0.14f - input->iceCoverage * 0.10f -
         latitudeDrying) : 0.0f;
     state.dewPointK = state.waterCycleActive ?
         ClimateDewPoint(state.temperatureK, state.relativeHumidity) :
@@ -126,7 +164,7 @@ bool LocalClimateEvaluate(const LocalClimateInput *input,
         ClimateWetBulb(state.temperatureK, state.relativeHumidity) :
         state.temperatureK;
     state.aridity = ClimateUnit(
-        0.62f - state.relativeHumidity * 0.58f - input->waterCoverage * 0.18f +
+        0.62f - state.relativeHumidity * 0.58f - effectiveWaterCoverage * 0.18f +
         ClimateUnit((state.temperatureK - 288.0f) / 45.0f) * 0.30f +
         ClimateUnit(input->windStrength) * 0.10f);
     state.instability = state.waterCycleActive ? ClimateUnit(
@@ -141,7 +179,7 @@ bool LocalClimateEvaluate(const LocalClimateInput *input,
         state.orographicLift * 0.18f) : 0.0f;
     state.windStrength = state.atmosphereActive ?
         ClimateUnit(input->windStrength) : 0.0f;
-    state.regime = ClimateClassify(input, &state);
+    state.regime = ClimateClassify(&classificationInput, &state);
     *out = state;
     return true;
 }

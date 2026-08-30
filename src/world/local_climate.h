@@ -21,6 +21,24 @@ typedef enum ClimateRegime {
     CLIMATE_REGIME_COUNT
 } ClimateRegime;
 
+/*
+ * Optional local water-cycle feedback supplied by a runtime simulation.
+ *
+ * `soilMoisture` is a normalized 0..1 saturation fraction. Surface and
+ * groundwater depths are metres, runoff and evaporation are metres per
+ * second (runoff is per cell area when supplied by a grid model). The
+ * `active` flag keeps legacy callers, which zero-initialize or omit this
+ * trailing field, exactly equivalent to having no hydrology model.
+ */
+typedef struct LocalClimateHydrologyFeedback {
+    bool active;
+    float surfaceWaterM;
+    float soilMoisture;
+    float groundwaterM;
+    float runoffM3PerS;
+    float evaporationMPerS;
+} LocalClimateHydrologyFeedback;
+
 typedef struct LocalClimateInput {
     float meanTemperatureK;
     float seasonalTemperatureDeltaK;
@@ -37,6 +55,7 @@ typedef struct LocalClimateInput {
     float seasonalAmplitudeK;
     bool hasAtmosphere;
     bool supportsWaterCycle;
+    LocalClimateHydrologyFeedback hydrology;
 } LocalClimateInput;
 
 typedef struct LocalClimateState {
