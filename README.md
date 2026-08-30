@@ -153,6 +153,9 @@ receives lifecycle callbacks and an opaque host context, so work on world,
 ecology, presentation, or tooling extensions can proceed in separate targets
 without adding private cross-module includes to the game. The sample telemetry
 extension is intentionally disabled unless a plugin directory is supplied.
+Plugins may also publish a versioned read-only service through the host
+registry, allowing independent extensions to share narrow contracts without
+introducing mutable cross-module globals.
 
 ## Build
 

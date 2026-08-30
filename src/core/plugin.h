@@ -14,6 +14,8 @@
 #define VOXELCRAFT_PLUGIN_ABI_VERSION 1u
 #define VOXELCRAFT_PLUGIN_MAX_COUNT 64u
 #define VOXELCRAFT_PLUGIN_MAX_ID 64u
+#define VOXELCRAFT_PLUGIN_MAX_SERVICE_COUNT 64u
+#define VOXELCRAFT_PLUGIN_MAX_SERVICE_ID 64u
 #define VOXELCRAFT_PLUGIN_MAX_PATH 512u
 #define VOXELCRAFT_PLUGIN_MAX_ERROR 256u
 
@@ -42,6 +44,18 @@ typedef struct VoxelcraftPluginFrame {
     bool debug_mode;
 } VoxelcraftPluginFrame;
 
+/*
+ * A service is a versioned, read-only interface published by one plugin for
+ * another.  The interface points at plugin-owned data and is valid until the
+ * host shuts down; consumers must not retain it across that boundary.
+ */
+typedef struct VoxelcraftPluginService {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    const char *id;
+    const void *interface;
+} VoxelcraftPluginService;
+
 typedef struct VoxelcraftPluginDescriptor {
     uint32_t abi_version;
     uint32_t struct_size;
@@ -69,9 +83,17 @@ typedef struct VoxelcraftPluginInstance {
     bool active;
 } VoxelcraftPluginInstance;
 
+typedef struct VoxelcraftPluginServiceRegistration {
+    VoxelcraftPluginService service;
+    const char *owner_plugin_id;
+} VoxelcraftPluginServiceRegistration;
+
 struct VoxelcraftPluginHost {
     VoxelcraftPluginInstance instances[VOXELCRAFT_PLUGIN_MAX_COUNT];
     size_t count;
+    VoxelcraftPluginServiceRegistration
+        services[VOXELCRAFT_PLUGIN_MAX_SERVICE_COUNT];
+    size_t service_count;
     bool active;
     void *user_data;
     char last_error[VOXELCRAFT_PLUGIN_MAX_ERROR];
@@ -89,6 +111,14 @@ bool VoxelcraftPluginHostLoadDirectory(
 
 /* Activate registered plugins in priority/id order. */
 bool VoxelcraftPluginHostActivate(VoxelcraftPluginHost *host, void *user_data);
+
+/* Publish or find a versioned service through the current plugin context. */
+bool VoxelcraftPluginHostProvide(const VoxelcraftPluginContext *context,
+                                 const VoxelcraftPluginService *service);
+const VoxelcraftPluginService *VoxelcraftPluginHostLookup(
+    const VoxelcraftPluginContext *context, const char *service_id,
+    uint32_t abi_version);
+size_t VoxelcraftPluginHostServiceCount(const VoxelcraftPluginHost *host);
 
 void VoxelcraftPluginHostReset(VoxelcraftPluginHost *host);
 void VoxelcraftPluginHostUpdate(

@@ -16,6 +16,13 @@ identifier, semantic version, priority, and optional `on_load`, `on_reset`,
 opaque host context and a small frame value; they never need to include an
 `app/` header or access a mutable global from another domain.
 
+The context also supports a versioned service registry. A plugin can publish a
+read-only function table or value with `VoxelcraftPluginHostProvide`, and a
+consumer can resolve it by service ID and ABI version using
+`VoxelcraftPluginHostLookup`. The host rejects duplicate IDs and clears all
+registrations during teardown, so service contracts remain explicit and do not
+turn into cross-domain global state.
+
 The host (`src/core/plugin.c`) validates IDs and descriptor sizes, rejects
 duplicates, loads only `.so` files, and visits directory entries in lexical
 order. Activation then sorts by priority and ID, making callback order
@@ -40,7 +47,7 @@ stable.
 ## Verification
 
 - `tests/test_plugin.c` covers registration validation, deterministic priority
-  ordering, every lifecycle callback, and teardown.
+  ordering, service publication/lookup, every lifecycle callback, and teardown.
 - `make plugins` verifies an independently compiled shared object.
 - Debug `ready` and `status` replies expose the loaded plugin count, allowing
   the existing DSL/E2E harness to assert which extension set is active.

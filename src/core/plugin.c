@@ -31,11 +31,11 @@ static void PluginSetError(VoxelcraftPluginHost *host, const char *format, ...)
     va_end(arguments);
 }
 
-static bool PluginIdIsValid(const char *id)
+static bool PluginIdentifierIsValid(const char *id, size_t maxLength)
 {
     if (!id || id[0] == '\0') return false;
     size_t length = strlen(id);
-    if (length >= VOXELCRAFT_PLUGIN_MAX_ID) return false;
+    if (length >= maxLength) return false;
     for (size_t index = 0; index < length; index++) {
         char character = id[index];
         bool valid = (character >= 'a' && character <= 'z') ||
@@ -43,6 +43,47 @@ static bool PluginIdIsValid(const char *id)
                      (character >= '0' && character <= '9') ||
                      character == '_' || character == '-' || character == '.';
         if (!valid) return false;
+    }
+    return true;
+}
+
+static bool PluginIdIsValid(const char *id)
+{
+    return PluginIdentifierIsValid(id, VOXELCRAFT_PLUGIN_MAX_ID);
+}
+
+static bool PluginServiceIdIsValid(const char *id)
+{
+    return PluginIdentifierIsValid(id, VOXELCRAFT_PLUGIN_MAX_SERVICE_ID);
+}
+
+static bool PluginServiceIsValid(VoxelcraftPluginHost *host,
+                                 const VoxelcraftPluginService *service)
+{
+    if (!service) {
+        PluginSetError(host, "plugin service is null");
+        return false;
+    }
+    if (service->abi_version == 0u) {
+        PluginSetError(host, "plugin service '%s' has no ABI version",
+                       service->id ? service->id : "<unknown>");
+        return false;
+    }
+    if (service->struct_size < sizeof(VoxelcraftPluginService)) {
+        PluginSetError(host, "plugin service '%s' descriptor is too small",
+                       service->id ? service->id : "<unknown>");
+        return false;
+    }
+    if (!PluginServiceIdIsValid(service->id)) {
+        PluginSetError(host,
+                       "plugin service id is missing or contains invalid "
+                       "characters");
+        return false;
+    }
+    if (!service->interface) {
+        PluginSetError(host, "plugin service '%s' interface is null",
+                       service->id);
+        return false;
     }
     return true;
 }
@@ -134,6 +175,8 @@ static void PluginHostClear(VoxelcraftPluginHost *host)
         *instance = (VoxelcraftPluginInstance){ 0 };
     }
     host->count = 0;
+    memset(host->services, 0, sizeof(host->services));
+    host->service_count = 0;
     host->active = false;
     host->user_data = NULL;
 }
@@ -322,6 +365,57 @@ bool VoxelcraftPluginHostActivate(VoxelcraftPluginHost *host, void *userData)
     host->active = true;
     host->last_error[0] = '\0';
     return true;
+}
+
+bool VoxelcraftPluginHostProvide(const VoxelcraftPluginContext *context,
+                                 const VoxelcraftPluginService *service)
+{
+    if (!context || !context->host || !context->plugin_id) return false;
+    VoxelcraftPluginHost *host = (VoxelcraftPluginHost *)context->host;
+    if (!PluginServiceIsValid(host, service)) return false;
+    for (size_t index = 0; index < host->service_count; index++) {
+        const VoxelcraftPluginServiceRegistration *registered =
+            &host->services[index];
+        if (strcmp(registered->service.id, service->id) == 0) {
+            PluginSetError(host, "duplicate plugin service id '%s'",
+                           service->id);
+            return false;
+        }
+    }
+    if (host->service_count >= VOXELCRAFT_PLUGIN_MAX_SERVICE_COUNT) {
+        PluginSetError(host, "plugin service limit (%u) exceeded",
+                       VOXELCRAFT_PLUGIN_MAX_SERVICE_COUNT);
+        return false;
+    }
+    host->services[host->service_count++] =
+        (VoxelcraftPluginServiceRegistration){
+            .service = *service, .owner_plugin_id = context->plugin_id};
+    return true;
+}
+
+const VoxelcraftPluginService *VoxelcraftPluginHostLookup(
+    const VoxelcraftPluginContext *context, const char *serviceId,
+    uint32_t abiVersion)
+{
+    if (!context || !context->host || !PluginServiceIdIsValid(serviceId) ||
+        abiVersion == 0u) {
+        return NULL;
+    }
+    const VoxelcraftPluginHost *host = context->host;
+    for (size_t index = 0; index < host->service_count; index++) {
+        const VoxelcraftPluginService *service =
+            &host->services[index].service;
+        if (service->abi_version == abiVersion &&
+            strcmp(service->id, serviceId) == 0) {
+            return service;
+        }
+    }
+    return NULL;
+}
+
+size_t VoxelcraftPluginHostServiceCount(const VoxelcraftPluginHost *host)
+{
+    return host ? host->service_count : 0u;
 }
 
 void VoxelcraftPluginHostReset(VoxelcraftPluginHost *host)

@@ -14,6 +14,13 @@ contains lifecycle callbacks, an opaque host pointer, and a frame snapshot;
 plugins do not include `app/` or reach into mutable domain globals. This keeps
 world, ecology, presentation, and tooling extensions independently buildable.
 
+Plugins that need to cooperate can publish a versioned read-only service from
+`on_load` with `VoxelcraftPluginHostProvide(context, &service)`. Another plugin
+can resolve it with `VoxelcraftPluginHostLookup(context, id, abi_version)`.
+Service IDs are unique per host, and registrations are cleared automatically
+when the host shuts down. A service interface should therefore be a small
+function table or immutable value type whose lifetime is owned by its provider.
+
 Build the sample plugin with:
 
 ```sh

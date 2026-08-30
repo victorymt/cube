@@ -11,6 +11,22 @@ static int render_count;
 static int load_order[4];
 static int load_order_count;
 
+typedef struct TestPluginServiceInterface {
+    int value;
+} TestPluginServiceInterface;
+
+static const TestPluginServiceInterface TEST_SERVICE_INTERFACE = {.value = 42};
+static const VoxelcraftPluginService TEST_SERVICE = {
+    .abi_version = 1u,
+    .struct_size = sizeof(VoxelcraftPluginService),
+    .id = "test.counter",
+    .interface = &TEST_SERVICE_INTERFACE};
+static const VoxelcraftPluginService INVALID_SERVICE = {
+    .abi_version = 1u,
+    .struct_size = sizeof(VoxelcraftPluginService),
+    .id = "bad service",
+    .interface = &TEST_SERVICE_INTERFACE};
+
 static bool LoadPlugin(const VoxelcraftPluginContext *context, void **state)
 {
     assert(context);
@@ -21,6 +37,16 @@ static bool LoadPlugin(const VoxelcraftPluginContext *context, void **state)
     assert(state);
     load_order[load_order_count++] = context->plugin_id[0] == 'a' ? 1 : 2;
     load_count++;
+    if (context->plugin_id[0] == 'b') {
+        assert(!VoxelcraftPluginHostProvide(context, &INVALID_SERVICE));
+        assert(VoxelcraftPluginHostProvide(context, &TEST_SERVICE));
+        assert(!VoxelcraftPluginHostProvide(context, &TEST_SERVICE));
+    } else {
+        const VoxelcraftPluginService *service =
+            VoxelcraftPluginHostLookup(context, "test.counter", 1u);
+        assert(service);
+        assert(service->interface == &TEST_SERVICE_INTERFACE);
+    }
     *state = (void *)(uintptr_t)load_count;
     return true;
 }
@@ -111,6 +137,7 @@ int main(int argc, char **argv)
     assert(load_order_count == 2);
     assert(load_order[0] == 2);
     assert(load_order[1] == 1);
+    assert(VoxelcraftPluginHostServiceCount(&host) == 1u);
 
     VoxelcraftPluginFrame frame = {
         .frame_index = 42u, .dt = 0.25f, .debug_mode = true};
@@ -124,6 +151,7 @@ int main(int argc, char **argv)
     VoxelcraftPluginHostShutdown(&host);
     assert(unload_count == 2);
     assert(VoxelcraftPluginHostCount(&host) == 0u);
+    assert(VoxelcraftPluginHostServiceCount(&host) == 0u);
     assert(!VoxelcraftPluginHostIsActive(&host));
 
     if (argc > 1) {
