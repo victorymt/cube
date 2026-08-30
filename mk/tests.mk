@@ -135,6 +135,7 @@ $(eval $(call define_test,TORNADO_TEST_TARGET,test_tornado,src/world/tornado.c s
 $(eval $(call define_test,HOMEWORLD_MAP_MODEL_TEST_TARGET,test_homeworld_map_model,src/presentation/homeworld_map_model.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,MAP_MARKERS_TEST_TARGET,test_map_markers,src/gameplay/map_markers.c src/world/surface_topology.c,-DMAP_MARKERS_TESTING,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLAYER_COLLISION_TEST_TARGET,test_player_collision,src/gameplay/player.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,CHARACTER_STRUCTURE_PHYSICS_TEST_TARGET,test_character_structure_physics,src/gameplay/character_structure_physics.c,,,, -lm,,))
 $(eval $(call define_test,SHIP_STATE_TEST_TARGET,test_ship_state,src/gameplay/ship.c src/gameplay/ship_runtime.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SHIP_FLIGHT_CONTROLLER_TEST_TARGET,test_ship_flight_controller,src/gameplay/ship_flight_controller.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SHIP_EXHAUST_TEST_TARGET,test_ship_exhaust,src/gameplay/ship_exhaust.c,,,, -lm,$(RAYLIB_CFLAGS),))
