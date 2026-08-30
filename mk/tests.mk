@@ -113,6 +113,7 @@ $(eval $(call define_test,ECOLOGY_PROPERTIES_TEST_TARGET,test_ecology_properties
 
 $(eval $(call define_test,STELLAR_TEST_TARGET,test_stellar,src/space/stellar.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,ECOLOGY_MODEL_TEST_TARGET,test_ecology_model,src/ecology/ecology_model.c,,,, -lm,,))
+$(eval $(call define_test,ECOLOGY_NUTRIENT_MODEL_TEST_TARGET,test_ecology_nutrient_model,src/ecology/ecology_nutrient_model.c,,,, -lm,,))
 $(eval $(call define_test,FLORA_TAXA_TEST_TARGET,test_flora_taxa,src/ecology/flora_taxa.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,FAUNA_MOTION_TEST_TARGET,test_fauna_motion,src/ecology/fauna_motion.c,,,, -lm,,))
 $(eval $(call define_test,FAUNA_BEHAVIOR_TEST_TARGET,test_fauna_behavior,src/ecology/fauna_behavior.c,,,, -lm,,))
