@@ -5,6 +5,7 @@
 #include "app/game_debug.h"
 #include "app/game_debug_trace.h"
 #include "app/game_interaction.h"
+#include "app/game_radiation.h"
 #include "app/game_internal.h"
 #include "app/game_landing.h"
 #include "app/game_runtime.h"
@@ -33,6 +34,7 @@
 #include "presentation/audio.h"
 #include "world/weather.h"
 #include "world/weather_impact.h"
+#include "world/radiation_runtime.h"
 #include "space/space_chunks.h"
 #include "space/space_query.h"
 #include "space/space_runtime.h"
@@ -72,9 +74,9 @@ bool GameWorldSimulationPaused(const GameRuntime *game)
 static void GameAdvanceSimulationStep(double simulationSeconds,
                                       double stepSeconds, void *context)
 {
-    (void)simulationSeconds;
-    (void)context;
+    GameRuntime *game = context;
     SpaceAdvanceTime((float)stepSeconds);
+    GameAdvanceRadiationSimulationStep(game, simulationSeconds, stepSeconds);
 }
 
 static void GameOnWorldBlockCommitted(
@@ -200,6 +202,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     ParticlesClear();
     GameEffectsReset();
     WeatherInit();
+    RadiationRuntimeGlobalReset(NULL);
     SimulationClockReset(&game->simulationClock, 0.0);
 
     WorldSetTerrainMode(mode);
@@ -363,7 +366,7 @@ static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game, float dt,
         !HomeWorldMapIsOpen()) {
         unsigned steps = SimulationClockAdvance(
             &game->simulationClock, (double)dt,
-            GameAdvanceSimulationStep, NULL);
+            GameAdvanceSimulationStep, game);
         if (game->dayCycleEnabled && steps > 0u) {
             double stepSeconds = game->simulationClock.config.fixedStepSeconds;
             double phaseAdvance =
@@ -1354,6 +1357,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                     game->settings.musicVolume);
     AudioSetMusicEnabled(game->settings.musicEnabled);
     WeatherInit();
+    RadiationRuntimeGlobalReset(NULL);
     // Performance runs measure a fixed streaming/render route. Persistent
     // weather edits would keep invalidating meshes after that route ends.
     WeatherImpactInit(game->settings.weatherDamageEnabled && !game->perfMode);

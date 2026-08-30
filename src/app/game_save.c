@@ -18,6 +18,7 @@
 #include "space/space_state.h"
 #include "world/chunks.h"
 #include "world/nether.h"
+#include "world/radiation_runtime.h"
 #include "world/save_format.h"
 #include "world/surface_save.h"
 #include "world/terrain.h"
@@ -137,6 +138,24 @@ static bool GameSaveWriteSphericalTrailer(FILE *file, const Player *player)
     return ok;
 }
 
+static bool GameSaveWriteRadiationRuntimeState(FILE *file)
+{
+    return RadiationRuntimeGlobalSaveState(file);
+}
+
+static const char *GameLoadRadiationRuntimeState(
+    FILE *file, WorldSaveFormat format)
+{
+    if (WorldSaveFormatHasRadiationRuntime(format)) {
+        return RadiationRuntimeGlobalLoadState(file)
+            ? NULL
+            : "Load failed: radiation state is corrupted.";
+    }
+    return RadiationRuntimeGlobalReset(NULL)
+        ? NULL
+        : "Load failed: radiation state could not be reset.";
+}
+
 static bool GameSaveWriteFile(FILE *file, void *opaque)
 {
     const GameSaveContext *context = opaque;
@@ -168,6 +187,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
          PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
          ShipLocatorSaveState(file) &&
          WorldPersistenceSaveExtension(file) && WeatherImpactSaveState(file) &&
+         GameSaveWriteRadiationRuntimeState(file) &&
          MapMarkersSaveState(file) &&
          GameSaveWriteSphericalTrailer(file, player) && !ferror(file);
     return ok;
@@ -394,6 +414,17 @@ bool GameSaveTestLoadSphericalTrailer(
     *outEditMapCells = data.editMapCells;
     return true;
 }
+
+bool GameSaveTestWriteRadiationRuntimeState(FILE *file)
+{
+    return GameSaveWriteRadiationRuntimeState(file);
+}
+
+const char *GameSaveTestLoadRadiationRuntimeState(
+    FILE *file, WorldSaveFormat format)
+{
+    return GameLoadRadiationRuntimeState(file, format);
+}
 #endif
 
 static const char *GameLoadCurrentExtendedPayload(
@@ -424,13 +455,16 @@ static const char *GameLoadCurrentExtendedPayload(
     if (!WorldPersistenceLoadExtension(file)) {
         return "Load failed: fluid state is corrupted.";
     }
-    if (format == WORLD_SAVE_FORMAT_V20) {
+    if (WorldSaveFormatHasWeatherImpact(format)) {
         if (!WeatherImpactLoadState(file)) {
             return "Load failed: weather impact state is corrupted.";
         }
     } else {
         WeatherImpactReset();
     }
+    const char *radiationError =
+        GameLoadRadiationRuntimeState(file, format);
+    if (radiationError) return radiationError;
     if (WorldSaveFormatHasMapMarkers(format) &&
         !MapMarkersReadState(file, &data->mapMarkers)) {
         return "Load failed: map marker state is corrupted.";

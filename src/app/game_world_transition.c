@@ -6,6 +6,7 @@
 #include "space/space_state.h"
 #include "space/space_world_transition.h"
 #include "world/chunks.h"
+#include "world/radiation_runtime.h"
 #include "world/terrain.h"
 #include "world/world.h"
 #include "world/world_environment.h"
@@ -28,6 +29,7 @@ static void GameWorldTransitionFinishSurfaceActivation(void)
     WorldResetSurfaceRebaseEvent();
     RebuildTorchList();
     ClearUndoHistory();
+    RadiationRuntimeGlobalReset(NULL);
 }
 
 static Vector3 GameWorldTransitionHomeLandingPosition(void)
@@ -154,6 +156,7 @@ bool GameWorldTransitionTryLaunch(Player *player)
     WorldResetSurfaceRebaseEvent();
     RebuildTorchList();
     ClearUndoHistory();
+    RadiationRuntimeGlobalReset(NULL);
 
     player->position = spacePose.position;
     player->velocity = spacePose.velocity;

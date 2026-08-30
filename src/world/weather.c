@@ -4,6 +4,7 @@
 #include "core/simulation_time.h"
 #include "space/space_state.h"
 #include "world/local_climate.h"
+#include "world/radiation_runtime.h"
 #include "world/terrain.h"
 #include "world/surface_topology.h"
 #include "world/world.h"
@@ -245,6 +246,13 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
             .supportsWaterCycle = planet->oceanCoverage > 0.01f ||
                 planet->atmosphereType == PLANET_ATMOSPHERE_BREATHABLE
         };
+        double radiationOffsetK = 0.0;
+        if (!WorldNetherIsActive()) {
+            (void)RadiationRuntimeGlobalTemperatureOffsetAt(
+                WorldCurrentSurfaceId(), canonical.x, canonical.z,
+                &radiationOffsetK);
+        }
+        climateInput.meanTemperatureK += (float)radiationOffsetK;
         if (!LocalClimateEvaluate(&climateInput, &climate)) return false;
         input.temperatureK = climate.temperatureK;
         input.moisture = moisture;
@@ -319,6 +327,13 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
             .hasAtmosphere = true,
             .supportsWaterCycle = true
         };
+        double radiationOffsetK = 0.0;
+        if (!WorldNetherIsActive()) {
+            (void)RadiationRuntimeGlobalTemperatureOffsetAt(
+                WorldCurrentSurfaceId(), canonical.x, canonical.z,
+                &radiationOffsetK);
+        }
+        climateInput.meanTemperatureK += (float)radiationOffsetK;
         if (!LocalClimateEvaluate(&climateInput, &climate)) return false;
         input.seed = WorldGetSeed();
         input.worldX = weatherWorldX;

@@ -83,6 +83,11 @@ bool HomeWorldSurfaceIsActive(void)
     return homeWorldSurfaceActive && !planetWorldActive;
 }
 
+bool WorldNetherIsActive(void)
+{
+    return false;
+}
+
 float HomeWorldSpaceFade(Vector3 position)
 {
     (void)position;
@@ -210,6 +215,11 @@ int WorldSurfaceMapOriginX(void)
 int WorldSurfaceMapOriginZ(void)
 {
     return 0;
+}
+
+uint32_t WorldCurrentSurfaceId(void)
+{
+    return planetWorldActive ? PlanetWorldSeed() : 0u;
 }
 
 uint32_t WorldGetSeed(void)

@@ -145,6 +145,10 @@ send_command 'start'
 wait_for_reply '^DEBUG_CONTROL start ok seed=1448040515$' 120
 send_command 'assert game.screen == "playing" && world.seed == 1448040515 && world.dimension == "home"'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'wait until radiation.active timeout 300'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'assert radiation.temperature_k > 0 && radiation.baseline_temperature_k > 0 && radiation.step_count > 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 send_command 'status'
 wait_for_reply '^DEBUG_CONTROL status '
@@ -177,6 +181,8 @@ wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'stream wait 1800'
 wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=1800$'
 wait_for_reply '^DEBUG_CONTROL stream wait result=settled '
+send_command 'assert radiation.active && radiation.temperature_k > 0 && radiation.baseline_temperature_k > 0 && radiation.equilibrium_temperature_k > 0 && radiation.step_count > 0 && radiation.net_flux_wm2 == radiation.net_flux_wm2 && radiation.region_x != -1 && radiation.region_z != -1'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'assert block.catalog_count == 412 && block.natural_count == 92 && block.stage05_count == 26 && !block.gallery_active && block.gallery_placed == 0 && block.gallery_rows == 3 && flora.catalog_count == 13 && !flora.gallery_active && flora.gallery_placed == 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'block inspect Andesite'
@@ -362,6 +368,8 @@ wait_for_reply '^DEBUG_CONTROL stream wait started timeout_frames=1800$'
 wait_for_reply '^DEBUG_CONTROL stream wait result='
 [[ "$matched_line" == *'result=settled'* ]]
 [[ "$matched_line" == *'pending_local_sections=0'* ]]
+send_command 'assert radiation.active && radiation.region_x == 8 && radiation.region_z == 2 && radiation.step_count > 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
 boundary_ready=false
 settle_deadline=$((SECONDS + settle_timeout))

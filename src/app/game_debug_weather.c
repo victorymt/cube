@@ -9,6 +9,8 @@
 #include "gameplay/player.h"
 #include "space/space_state.h"
 #include "world/local_climate.h"
+#include "world/radiation_runtime.h"
+#include "world/surface_topology.h"
 #include "world/tornado.h"
 #include "world/tornado_model.h"
 #include "world/weather.h"
@@ -18,6 +20,7 @@
 #include "world/world_environment.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
 
 static bool WeatherDslBool(DebugDslValue *outValue, bool value)
@@ -54,6 +57,104 @@ static bool WeatherDslVec3(DebugDslValue *outValue, Vector3 value)
         .as.vec3 = { value.x, value.y, value.z }
     };
     return true;
+}
+
+typedef struct WeatherRadiationDslState {
+    RadiationRuntimeSnapshot snapshot;
+    int regionX;
+    int regionZ;
+    double baselineTemperatureK;
+    bool active;
+} WeatherRadiationDslState;
+
+static int WeatherRadiationRegionCoordinate(int mapCoordinate)
+{
+    int64_t value = mapCoordinate;
+    if (value >= 0) {
+        return (int)(value / RADIATION_RUNTIME_REGION_SIZE);
+    }
+    return (int)(-((-value + RADIATION_RUNTIME_REGION_SIZE - 1) /
+                  RADIATION_RUNTIME_REGION_SIZE));
+}
+
+static WeatherRadiationDslState WeatherRadiationState(
+    const GameRuntime *game)
+{
+    WeatherRadiationDslState state = { .regionX = -1, .regionZ = -1 };
+    if (!game || !WorldIsSurfaceActive() || WorldNetherIsActive() ||
+        !isfinite(game->player.position.x) ||
+        !isfinite(game->player.position.z)) {
+        return state;
+    }
+
+    int originX = WorldSurfaceMapOriginX();
+    int originZ = WorldSurfaceMapOriginZ();
+    SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+        (float)originX + floorf(game->player.position.x),
+        (float)originZ + floorf(game->player.position.z));
+    state.regionX = WeatherRadiationRegionCoordinate(canonical.x);
+    state.regionZ = WeatherRadiationRegionCoordinate(canonical.z);
+
+    RadiationRuntimeSnapshot snapshot = { 0 };
+    double offsetK = 0.0;
+    if (!RadiationRuntimeGlobalSnapshot(&snapshot) ||
+        !RadiationRuntimeGlobalTemperatureOffsetAt(
+            WorldCurrentSurfaceId(), canonical.x, canonical.z, &offsetK) ||
+        !snapshot.valid || !isfinite(snapshot.column.temperatureK) ||
+        !isfinite(offsetK)) {
+        return state;
+    }
+
+    double baseline = snapshot.column.temperatureK - offsetK;
+    if (!isfinite(baseline) || baseline <= 0.0) return state;
+    state.snapshot = snapshot;
+    state.baselineTemperatureK = baseline;
+    state.active = true;
+    return state;
+}
+
+static bool WeatherRadiationDslResolve(const GameRuntime *game,
+                                       const char *name,
+                                       DebugDslValue *outValue)
+{
+    if (!game || !name || !outValue ||
+        strncmp(name, "radiation.", 10u) != 0) {
+        return false;
+    }
+
+    WeatherRadiationDslState state = WeatherRadiationState(game);
+    if (strcmp(name, "radiation.active") == 0) {
+        return WeatherDslBool(outValue, state.active);
+    }
+    if (strcmp(name, "radiation.region_x") == 0) {
+        return WeatherDslNumber(outValue, state.regionX);
+    }
+    if (strcmp(name, "radiation.region_z") == 0) {
+        return WeatherDslNumber(outValue, state.regionZ);
+    }
+    if (strcmp(name, "radiation.temperature_k") == 0) {
+        return WeatherDslNumber(
+            outValue, state.active ? state.snapshot.column.temperatureK : 0.0);
+    }
+    if (strcmp(name, "radiation.baseline_temperature_k") == 0) {
+        return WeatherDslNumber(
+            outValue, state.active ? state.baselineTemperatureK : 0.0);
+    }
+    if (strcmp(name, "radiation.net_flux_wm2") == 0) {
+        return WeatherDslNumber(
+            outValue, state.active ? state.snapshot.balance.netRadiativeFluxWm2
+                                    : 0.0);
+    }
+    if (strcmp(name, "radiation.equilibrium_temperature_k") == 0) {
+        return WeatherDslNumber(
+            outValue, state.active
+                ? state.snapshot.balance.equilibriumTemperatureK : 0.0);
+    }
+    if (strcmp(name, "radiation.step_count") == 0) {
+        return WeatherDslNumber(
+            outValue, state.active ? (double)state.snapshot.stepCount : 0.0);
+    }
+    return false;
 }
 
 static bool WeatherLocalClimate(const GameRuntime *game,
@@ -245,9 +346,12 @@ static bool WeatherTornadoDslResolve(const GameRuntime *game,
 bool GameDebugWeatherDslResolve(const GameRuntime *game, const char *name,
                                 DebugDslValue *outValue)
 {
-    if (!game || !name || !outValue || strncmp(name, "weather.", 8u) != 0) {
+    if (!game || !name || !outValue ||
+        (strncmp(name, "weather.", 8u) != 0 &&
+         strncmp(name, "radiation.", 10u) != 0)) {
         return false;
     }
+    if (WeatherRadiationDslResolve(game, name, outValue)) return true;
     if (strcmp(name, "weather.climate") == 0) {
         LocalClimateState climate = { 0 };
         bool haveClimate = WeatherLocalClimate(game, &climate);

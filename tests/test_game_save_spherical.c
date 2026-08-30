@@ -1,12 +1,47 @@
 #include "app/game_save.h"
 
 #include "world/surface_save.h"
+#include "world/radiation_runtime.h"
+#include "world/save_format.h"
 
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+extern bool GameSaveTestWriteRadiationRuntimeState(FILE *file);
+extern const char *GameSaveTestLoadRadiationRuntimeState(
+    FILE *file, WorldSaveFormat format);
+
+static int radiationResetCalls;
+
+bool WorldSaveFormatHasRadiationRuntime(WorldSaveFormat format)
+{
+    return format == WORLD_SAVE_FORMAT_V21;
+}
+
+bool RadiationRuntimeGlobalSaveState(FILE *file)
+{
+    const uint32_t marker = 0x52545354u; /* "RTST" */
+    return file && fwrite(&marker, sizeof(marker), 1, file) == 1;
+}
+
+bool RadiationRuntimeGlobalLoadState(FILE *file)
+{
+    uint32_t marker = 0u;
+    const uint32_t expected = 0x52545354u;
+    return file && fread(&marker, sizeof(marker), 1, file) == 1 &&
+           marker == expected;
+}
+
+bool RadiationRuntimeGlobalReset(const RadiationRuntimeConfig *config)
+{
+    (void)config;
+    radiationResetCalls++;
+    return true;
+}
 
 static uint32_t currentPlanetId = 77u;
 static int currentPlanetOriginX = 1000;
@@ -196,11 +231,49 @@ static void TestRejectsMismatchedEditBodyTransactionally(void)
     fclose(file);
 }
 
+static void TestRadiationRuntimePayloadRouting(void)
+{
+    radiationResetCalls = 0;
+    FILE *file = tmpfile();
+    assert(file != NULL);
+    assert(GameSaveTestWriteRadiationRuntimeState(file));
+    const unsigned char trailing = 0xa5u;
+    assert(fwrite(&trailing, sizeof(trailing), 1, file) == 1);
+    rewind(file);
+    assert(GameSaveTestLoadRadiationRuntimeState(
+               file, WORLD_SAVE_FORMAT_V21) == NULL);
+    assert(radiationResetCalls == 0);
+    assert(fgetc(file) == trailing);
+    assert(fgetc(file) == EOF);
+    fclose(file);
+
+    file = tmpfile();
+    assert(file != NULL);
+    const unsigned char legacyByte = 0x3cu;
+    assert(fwrite(&legacyByte, sizeof(legacyByte), 1, file) == 1);
+    rewind(file);
+    assert(GameSaveTestLoadRadiationRuntimeState(
+               file, WORLD_SAVE_FORMAT_V20) == NULL);
+    assert(radiationResetCalls == 1);
+    assert(fgetc(file) == legacyByte);
+    fclose(file);
+
+    file = tmpfile();
+    assert(file != NULL);
+    rewind(file);
+    assert(strcmp(GameSaveTestLoadRadiationRuntimeState(
+                     file, WORLD_SAVE_FORMAT_V21),
+                 "Load failed: radiation state is corrupted.") == 0);
+    assert(radiationResetCalls == 1);
+    fclose(file);
+}
+
 int main(void)
 {
     TestSchemaOnePlanetMigration();
     TestSchemaTwoGlobalCoordinates();
     TestRejectsMismatchedEditBodyTransactionally();
+    TestRadiationRuntimePayloadRouting();
     puts("game spherical save tests passed");
     return 0;
 }

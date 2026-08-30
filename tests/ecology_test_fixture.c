@@ -20,6 +20,11 @@ __attribute__((weak)) bool WorldIsSurfaceActive(void)
     return true;
 }
 
+__attribute__((weak)) bool WorldNetherIsActive(void)
+{
+    return false;
+}
+
 __attribute__((weak)) uint32_t WorldCurrentSurfaceId(void)
 {
     return 0u;

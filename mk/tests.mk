@@ -37,6 +37,7 @@ $(eval $(call define_test,PLANET_SURFACE_TEST_TARGET,test_planet_surface,src/cor
 $(eval $(call define_test,PLANET_MATERIAL_TEST_TARGET,test_planet_material,src/space/planet_material.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_CLIMATE_TEST_TARGET,test_planet_climate,src/space/planet_climate.c,,,, -lm,,))
 $(eval $(call define_test,RADIATION_BALANCE_TEST_TARGET,test_radiation_balance,src/world/radiation_balance.c,,,, -lm,,))
+$(eval $(call define_test,RADIATION_RUNTIME_TEST_TARGET,test_radiation_runtime,src/world/radiation_runtime.c src/world/radiation_balance.c,,,, -lm,,))
 $(eval $(call define_test,PLANET_OBSERVATION_TEST_TARGET,test_planet_observation,src/space/planet_observation.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SPACE_PHYSICS_TEST_TARGET,test_space_physics,src/space/space_physics.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SPACE_BARYCENTER_TEST_TARGET,test_space_barycenter,src/space/space_barycenter.c src/space/space_orbit.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
@@ -105,6 +106,8 @@ ECOLOGY_SYSTEM_SOURCES := \
 	src/ecology/ecology_model.c \
 	src/ecology/evolution.c \
 	src/world/weather.c \
+	src/world/radiation_runtime.c \
+	src/world/radiation_balance.c \
 	src/world/weather_model.c \
 	src/world/local_climate.c \
 	$(GAME_EFFECTS_SRC)
@@ -125,7 +128,7 @@ $(eval $(call define_test,BLOCK_MATERIAL_TEST_TARGET,test_block_material,,,,,,$(
 $(eval $(call define_test,LOCAL_CLIMATE_TEST_TARGET,test_local_climate,src/world/local_climate.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_MODEL_TEST_TARGET,test_weather_model,src/world/weather_model.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c src/ecology/flora_taxa.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/core/simulation_time.c src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/world/surface_topology.c src/presentation/weather_visual.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/core/simulation_time.c src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/world/radiation_runtime.c src/world/radiation_balance.c src/world/surface_topology.c src/presentation/weather_visual.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_VISUAL_TEST_TARGET,test_weather_visual,src/presentation/weather_visual.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_OPTICS_TEST_TARGET,test_weather_optics,src/presentation/weather_optics.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WILDFIRE_MODEL_TEST_TARGET,test_wildfire_model,src/world/wildfire_model.c,,,, -lm,,))
@@ -207,6 +210,8 @@ ENTITY_ECOLOGY_SOURCES := \
 	src/ecology/ecology_flora.c \
 	src/ecology/ecology_model.c \
 	src/world/weather.c \
+	src/world/radiation_runtime.c \
+	src/world/radiation_balance.c \
 	src/world/weather_model.c \
 	src/world/local_climate.c \
 	$(GAME_EFFECTS_SRC)

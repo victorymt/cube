@@ -324,6 +324,13 @@ Runtime values are sampled when an expression is evaluated:
 | `weather.cloud_layers` | number | Number of bounded renderer cloud layers (0-3) |
 | `weather.cloud_forced_frames` | number | Remaining forced-cloud update frames |
 | `weather.temperature`, `weather.temperature_k` | number | Local air temperature in kelvin |
+| `radiation.active` | bool | Whether the fixed-step radiation column is valid for the player's active surface region |
+| `radiation.temperature_k` | number | Integrated radiation-column surface temperature in kelvin, or `0` when inactive |
+| `radiation.baseline_temperature_k` | number | Climate temperature used when the current radiation region was bound, or `0` when inactive |
+| `radiation.net_flux_wm2` | number | Latest net radiative flux at the column surface in W/m^2, or `0` when inactive |
+| `radiation.equilibrium_temperature_k` | number | Instantaneous radiative equilibrium temperature in kelvin, or `0` when inactive |
+| `radiation.step_count` | number | Fixed radiation integration steps completed for the current region, or `0` when inactive |
+| `radiation.region_x`, `radiation.region_z` | number | Canonical 128-block radiation region containing the player; both are `-1` outside an active surface |
 | `weather.pressure`, `weather.pressure_atm` | number | Surface pressure in atmospheres |
 | `weather.humidity`, `weather.relative_humidity` | number | Relative humidity from 0 to 1 |
 | `weather.dew_point`, `weather.dew_point_k` | number | Dew point in kelvin |
@@ -600,6 +607,15 @@ rarity for deterministic testing. `INTENSITY` is 0-1 and `FRAMES` is
 `showers`, `heavy-rain`, `thunderstorm`, `lightning`, `sleet`,
 `freezing-rain`, `hail`, `snow`, `blizzard`, `strong-wind`, `dust-storm`,
 `heat-wave`, `cold-snap`, `rainbow`, and `aurora`.
+
+The `radiation.*` values expose the bounded radiation column that feeds the
+local climate sample. It advances on the same fixed simulation clock as the
+rest of the world, and is rebound whenever the active surface or canonical
+128-block region changes. `radiation.active` is false until the first valid
+column step for that binding; while inactive, temperatures, flux, equilibrium,
+and step count resolve to `0`, and `radiation.region_x/z` resolve to `-1` when
+there is no active surface. Space, Nether, and other non-surface contexts do
+not retain or expose the previous surface column.
 
 Forced weather is runtime-only and is never saved. `weather clear` returns to
 the natural field and clears separately forced cloud and tornado state.
