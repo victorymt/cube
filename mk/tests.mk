@@ -129,6 +129,7 @@ $(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/c
 $(eval $(call define_test,WEATHER_VISUAL_TEST_TARGET,test_weather_visual,src/presentation/weather_visual.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_OPTICS_TEST_TARGET,test_weather_optics,src/presentation/weather_optics.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WILDFIRE_MODEL_TEST_TARGET,test_wildfire_model,src/world/wildfire_model.c,,,, -lm,,))
+$(eval $(call define_test,HAZARD_PHYSICS_TEST_TARGET,test_hazard_physics,src/world/hazard_physics.c,,,, -lm,,))
 $(eval $(call define_test,TORNADO_MODEL_TEST_TARGET,test_tornado_model,src/world/tornado_model.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,TORNADO_TEST_TARGET,test_tornado,src/world/tornado.c src/world/tornado_model.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,HOMEWORLD_MAP_MODEL_TEST_TARGET,test_homeworld_map_model,src/presentation/homeworld_map_model.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
