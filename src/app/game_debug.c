@@ -246,7 +246,7 @@ static void GameDebugReplyStatus(GameRuntime *game)
         "target_dirty=%d target_stamp=%u target_solid_vertices=%d "
         "target_face_vertices=%d target_base_generated=%d "
         "target_base_exposed=%d target_base_block=%s "
-        "camera_inside_solid=%d autosave=%d debug_frame=%llu "
+        "camera_inside_solid=%d autosave=%d plugins=%zu debug_frame=%llu "
         "mouse_left_press_frame=%llu mouse_left_handle_frame=%llu "
         "mouse_left_set_block_frame=%llu mouse_left_mesh_frame=%llu "
         "mouse_left_mesh_pending=%d mouse_left_target=%d,%d,%d chunk_workers=%d,%d,%d\n",
@@ -286,6 +286,7 @@ static void GameDebugReplyStatus(GameRuntime *game)
         targetBaseExposed ? 1 : 0, BlockName(targetBaseBlock),
         PlayerCameraPositionInsideSolid(game->camera.position) ? 1 : 0,
         game->autoSaveEnabled ? 1 : 0,
+        GamePluginsCount(game),
         (unsigned long long)game->debugFrame,
         (unsigned long long)game->debugLeftPressFrame,
         (unsigned long long)game->debugLeftHandleFrame,

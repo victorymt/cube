@@ -17,6 +17,7 @@ new physical-simulation stages.
 | 07 | [global topology](07-global-topology.md) | `5b6c02b`, `3db802d`; seam/pole/save E2E |
 | 08 | [cross-system identity](08-cross-system-integration.md) | `3db802d`; weather/ecology/save integration |
 | 09 | [performance](09-performance-optimization.md) | `28362db`, `bc71320`, `813d0e9`; benchmark invariants |
+| 12 | [optional plugin boundary](12-plugin-boundary.md) | pending; stable ABI, deterministic loader, and parallel shared-library targets |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,

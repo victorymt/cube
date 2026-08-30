@@ -164,6 +164,7 @@ $(eval $(call define_test,SAVE_FORMAT_TEST_TARGET,test_save_format,src/world/sav
 $(eval $(call define_test,GAME_SETTINGS_TEST_TARGET,test_game_settings,src/app/game_settings.c src/core/save_io.c src/presentation/render_quality.c,,,, -lm,,))
 $(eval $(call define_test,SCREENSHOT_TEST_TARGET,test_screenshot,src/app/screenshot.c,,,,,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,DEBUG_CONTROL_TEST_TARGET,test_debug_control,src/core/debug_control.c,,,,,,))
+$(eval $(call define_test,PLUGIN_TEST_TARGET,test_plugin,src/core/plugin.c,,,, -ldl,,))
 $(eval $(call define_test,DEBUG_DSL_STDIN_TEST_TARGET,test_debug_dsl_stdin,src/core/debug_dsl_stdin.c,,,,,,))
 $(eval $(call define_test,DEBUG_DSL_TEST_TARGET,test_debug_dsl,src/core/debug_dsl.c src/core/debug_dsl_error.c,,,, -lm,,))
 $(eval $(call define_test,GAME_EFFECTS_TEST_TARGET,test_game_effects,$(GAME_EFFECTS_SRC),,,,, $(RAYLIB_CFLAGS),))

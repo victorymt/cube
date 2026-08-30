@@ -5,10 +5,12 @@
 #include "app/game_debug.h"
 #include "app/game_debug_trace.h"
 #include "app/game_interaction.h"
+#include "app/game_plugins.h"
 #include "app/game_radiation.h"
 #include "app/game_hydrology.h"
 #include "app/game_internal.h"
 #include "app/game_landing.h"
+#include "app/game_perf_route.h"
 #include "app/game_runtime.h"
 #include "app/game_save.h"
 #include "app/game_world_transition.h"
@@ -144,37 +146,6 @@ static Vector3 FindNewWorldSpawn(TerrainMode mode)
     return (Vector3){ 0.5f, (float)platformY + 1.01f, 0.5f };
 }
 
-static void ApplyPerfRoute(Player *player, int frame)
-{
-    const float dt = 1.0f / 60.0f;
-    Vector3 previous = player->position;
-    float x = 0.5f;
-    float z = 0.5f;
-    if (frame >= 120 && !PerfRouteComplete()) {
-        int phase = (frame - 120) % 300;
-        if (phase < 150) {
-            x += (float)phase * 0.78f;
-            z += (float)phase * 0.39f;
-        } else {
-            int returning = phase - 150;
-            x += 117.0f - (float)returning * 0.78f;
-            z += 58.5f - (float)returning * 0.39f;
-        }
-    }
-    int terrainY = TerrainHeight((int)floorf(x), (int)floorf(z),
-                                 WorldTerrainMode());
-    int seaLevel = TerrainSeaLevel(WorldTerrainMode());
-    // The route must remain in the streamed vertical range over ocean cells.
-    if (seaLevel >= 0 && terrainY < seaLevel) terrainY = seaLevel;
-    player->position = (Vector3){ x, (float)terrainY + 3.0f, z };
-    Vector3 delta = Vector3Scale(Vector3Subtract(player->position, previous), 1.0f / dt);
-    player->velocity = delta;
-    if (Vector3LengthSqr(delta) > 0.001f) player->yaw = atan2f(delta.x, delta.z);
-    player->pitch = -0.18f;
-    player->onGround = true;
-    player->floating = false;
-}
-
 static RenderResourceSnapshot CurrentRenderResourceSnapshot(void)
 {
     RenderResourceSnapshot snapshot = ChunksGetRenderResourceSnapshot();
@@ -211,6 +182,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     SimulationClockReset(&game->simulationClock, 0.0);
 
     WorldSetTerrainMode(mode);
+    GamePluginsReset(game);
     game->player.position = FindNewWorldSpawn(WorldTerrainMode());
     game->player.velocity = Vector3Zero();
     game->player.yaw = PI;
@@ -1209,6 +1181,7 @@ static void GameRenderFrame(GameRuntime *game,
     HomeWorldMapDraw();
     DrawLandingTransitionOverlay(&game->landingTransition);
     GameRenderPauseOverlay(game);
+    GamePluginsRender(game, frame ? frame->dt : 0.0f);
     EndDrawing();
 }
 static bool GameUpdateFrame(GameRuntime *game, float dt,
@@ -1218,7 +1191,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         ? GameDebugTraceMainCpuNowMs() : 0.0;
     double debugStageCpuStarted = debugFrameCpuStarted;
     GameRuntimeApplyPendingChunkWorkerReconfigure(game);
-    if (game->perfMode) ApplyPerfRoute(&game->player, PerfFrameIndex());
+    if (game->perfMode) GameApplyPerfRoute(&game->player, PerfFrameIndex());
 
     bool landingSkipPressed = LandingTransitionUpdate(&game->landingTransition, &game->player, dt);
 
@@ -1297,6 +1270,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         frame.debugEnvironmentMainCpuMs =
             debugRenderCpuStarted - debugStageCpuStarted;
     }
+    GamePluginsUpdate(game, dt);
     GameRenderFrame(game, &frame);
     if (game->debugTraceEnabled) {
         frame.debugRenderMainCpuMs =
@@ -1337,7 +1311,12 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                         "Run from a graphical desktop session.\n");
         return false;
     }
+    if (!GamePluginsStart(game)) {
+        CloseWindow();
+        return false;
+    }
     if (!GameDebugTraceStart(game)) {
+        GamePluginsShutdown(game);
         CloseWindow();
         return false;
     }
@@ -1400,8 +1379,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
-        "fluid,water,weather,hydrology,evolution,block,flora statements=let,assert,wait,repeat,exit\n");
+        "DEBUG_CONTROL ready mode=dsl plugins=%zu commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
+        "fluid,water,weather,hydrology,evolution,block,flora statements=let,assert,wait,repeat,exit\n",
+        GamePluginsCount(game));
     return true;
 }
 
@@ -1433,6 +1413,8 @@ static int GameStop(GameRuntime *game)
     AudioShutdown();
     UiFontShutdown();
     AlbumUiCleanup();
+    GamePluginsShutdown(game);
+    HydrologyRuntimeGlobalFree();
     bool perfPassed = PerfReportPassed();
     PerfShutdown();
     CloseWindow();
@@ -1469,6 +1451,7 @@ int GameRun(int argc, char **argv)
                 "non-empty path shorter than 512 bytes.\n");
         return 2;
     }
+    if (!GamePluginsArgumentsValid(&game)) return 2;
     if (!GameDebugScriptLoad(&game)) {
         GameDebugScriptStop(&game);
         DebugDslEnvironmentDestroy(game.debugDslEnvironment);
@@ -1476,6 +1459,7 @@ int GameRun(int argc, char **argv)
         return game.processExitCode != 0 ? game.processExitCode : 1;
     }
     if (!GameStart(&game, game.screenWidth, game.screenHeight)) {
+        GamePluginsShutdown(&game);
         GameDebugTraceStop(&game);
         GameDebugScriptStop(&game);
         DebugDslEnvironmentDestroy(game.debugDslEnvironment);

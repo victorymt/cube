@@ -12,6 +12,14 @@ do
     [ -d "src/$module" ] || fail "missing src/$module module"
 done
 
+[ -f src/core/plugin.h ] || fail "core plugin ABI header is missing"
+[ -f src/core/plugin.c ] || fail "core plugin host implementation is missing"
+[ -f mk/plugins.mk ] || fail "plugin build manifest is missing"
+[ -f plugins/manifest.mk ] || fail "plugin source manifest is missing"
+grep -q '^plugins:' Makefile || fail "Makefile must expose the plugins target"
+grep -q 'VoxelcraftPluginGetDescriptor' src/core/plugin.c ||
+    fail "plugin host must resolve the descriptor entry point"
+
 [ -z "$(find src -maxdepth 1 -type f -print)" ] ||
     fail "production files must live in a named module"
 [ ! -e src/core/types.h ] ||
@@ -226,6 +234,10 @@ grep -q '^void UpdateChunks(' src/world/chunks_streaming.c ||
     fail "chunk streaming must live in chunks_streaming.c"
 grep -q '^int GameUpdateWorldStreaming(' src/app/game_streaming.c ||
     fail "world streaming update must live in game_streaming.c"
+grep -q '^void GameApplyPerfRoute(' src/app/game_perf_route.c ||
+    fail "performance route must live in game_perf_route.c"
+grep -q '^bool GamePluginsStart(' src/app/game_plugins.c ||
+    fail "plugin lifecycle must live in game_plugins.c"
 grep -q '^ChunkPreloadInfo ChunksGetPreloadInfo(' \
     src/world/chunks_runtime_diagnostics.c ||
     fail "chunk preload diagnostics must live in chunks_runtime_diagnostics.c"

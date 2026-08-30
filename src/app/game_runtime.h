@@ -4,6 +4,7 @@
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
 #include "core/debug_dsl_stdin.h"
+#include "core/plugin.h"
 #include "core/simulation_clock.h"
 #include "presentation/environment_runtime.h"
 #include "app/game_settings.h"
@@ -60,6 +61,7 @@ typedef struct GameRuntime {
   Camera3D camera;
   EnvironmentPresentationRuntime environment;
   DebugControl debugControl;
+  VoxelcraftPluginHost plugins;
   DebugDslScript *debugDslScript;
   DebugDslExecutor *debugDslExecutor;
   DebugDslEnvironment *debugDslEnvironment;
@@ -118,6 +120,7 @@ typedef struct GameRuntime {
   bool debugStreamWaitFailed;
   bool debugTraceEnabled;
   bool debugTracePathInvalid;
+  bool pluginDirectoryInvalid;
   bool debugResolutionInvalid;
   bool chunkWorkerCountInvalid;
   bool chunkWorkerCountOverridden;
@@ -157,6 +160,7 @@ typedef struct GameRuntime {
   DebugDslStdinState debugDslStdin;
   char perfReportPath[512];
   char perfBaselinePath[512];
+  char pluginDirectory[VOXELCRAFT_PLUGIN_MAX_PATH];
   char debugScriptPath[512];
   char debugCommandFailure[128];
   char debugStreamWaitFailure[128];

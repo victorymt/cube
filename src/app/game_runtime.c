@@ -23,6 +23,38 @@ static bool CommandLineHasFlag(int argc, char **argv, const char *flag) {
   return false;
 }
 
+static bool ParsePluginDirectoryArgs(int argc, char **argv, char *path,
+                                     size_t pathSize, bool *outInvalid) {
+  bool enabled = false;
+  bool invalid = false;
+  bool seen = false;
+  path[0] = '\0';
+  for (int index = 1; index < argc; index++) {
+    const char *value = NULL;
+    if (strcmp(argv[index], "--plugin-dir") == 0) {
+      if (index + 1 < argc && strncmp(argv[index + 1], "--", 2) != 0)
+        value = argv[++index];
+      else
+        invalid = true;
+    } else if (strncmp(argv[index], "--plugin-dir=", 13) == 0) {
+      value = argv[index] + 13;
+    } else {
+      continue;
+    }
+
+    enabled = true;
+    if (seen || !value || value[0] == '\0' || strlen(value) >= pathSize) {
+      invalid = true;
+      seen = true;
+      continue;
+    }
+    snprintf(path, pathSize, "%s", value);
+    seen = true;
+  }
+  if (outInvalid) *outInvalid = invalid;
+  return enabled;
+}
+
 static bool ParsePerfArgs(int argc, char **argv, char *reportPath,
                           size_t reportPathSize, char *baselinePath,
                           size_t baselinePathSize) {
@@ -215,6 +247,7 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       .dayCycleEnabled = true,
       .autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS,
       .dayTime = 0.30f};
+  VoxelcraftPluginHostInit(&runtime->plugins);
 
   /* Keep the established gameplay time scale while making advancement
    * deterministic and independent of render frame rate. */
@@ -239,6 +272,9 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   runtime->debugTraceEnabled = ParseDebugTraceArgs(
       argc, argv, runtime->debugTracePath, sizeof(runtime->debugTracePath),
       &runtime->debugTracePathInvalid);
+  ParsePluginDirectoryArgs(argc, argv, runtime->pluginDirectory,
+                           sizeof(runtime->pluginDirectory),
+                           &runtime->pluginDirectoryInvalid);
   ParseDebugResolutionArgs(argc, argv, &runtime->screenWidth,
                            &runtime->screenHeight,
                            &runtime->debugResolutionInvalid);

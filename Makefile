@@ -6,6 +6,8 @@ PKG_CONFIG ?= pkg-config
 RAYLIB_CFLAGS := $(shell $(PKG_CONFIG) --cflags raylib)
 RAYLIB_LIBS := $(shell $(PKG_CONFIG) --libs raylib)
 
+.DEFAULT_GOAL := all
+
 BUILD_ROOT ?= build
 BUILD_VARIANT ?= normal
 BUILD_DIR := $(BUILD_ROOT)/$(BUILD_VARIANT)
@@ -13,7 +15,9 @@ BUILD_ROOT_MARKER := $(BUILD_ROOT)/.voxelcraft-build-root
 TEST_BUILD_DIR := $(BUILD_DIR)/tests
 TARGET := $(BUILD_DIR)/voxelcraft
 BUILD_CONFIG := $(BUILD_DIR)/.build-config
-BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/tests.mk
+BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/tests.mk mk/plugins.mk plugins/manifest.mk
+
+include mk/plugins.mk
 
 include mk/modules.mk
 include mk/tests.mk
@@ -46,7 +50,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run test test-headers test-modules test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run plugins test test-headers test-modules test-plugins test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
 
 all: $(TARGET)
 
@@ -56,7 +60,7 @@ $(BUILD_ROOT_MARKER):
 	mkdir -p $(BUILD_ROOT)
 	@: > $@
 
-$(BUILD_DIR) $(TEST_BUILD_DIR) $(MODULE_BUILD_DIR): | $(BUILD_ROOT_MARKER)
+$(BUILD_DIR) $(TEST_BUILD_DIR) $(MODULE_BUILD_DIR) $(PLUGIN_BUILD_DIR): | $(BUILD_ROOT_MARKER)
 	mkdir -p $@
 
 FORCE:
@@ -84,7 +88,7 @@ $(BUILD_CONFIG): FORCE $(BUILD_CONFIG_INPUTS) | $(BUILD_DIR)
 	fi
 
 $(TARGET): $(OBJ) $(BUILD_CONFIG) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJ) $(RAYLIB_LIBS) -lm -pthread $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJ) $(RAYLIB_LIBS) -lm -pthread $(PLUGIN_HOST_LIBS) $(LDLIBS)
 
 $(OBJ_DIR)/%.o: src/%.c $(BUILD_CONFIG)
 	@mkdir -p $(dir $@)
@@ -127,7 +131,9 @@ $(TEST_BUILD_DIR)/%: tests/%.c $$(TEST_SOURCES_$$*) $(TEST_HEADERS) $(BUILD_CONF
 run: $(TARGET)
 	./$(TARGET)
 
-test: test-headers test-modules $(TEST_TARGETS) test-debug-cli
+plugins: $(PLUGIN_TARGETS)
+
+test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
 
@@ -143,6 +149,9 @@ test-headers:
 
 test-modules: $(MODULE_ARCHIVES)
 	@printf 'module archives passed: %s\n' '$(words $(MODULE_ARCHIVES))'
+
+test-plugins: $(PLUGIN_TARGETS)
+	@printf 'plugin targets passed: %s\n' '$(words $(PLUGIN_TARGETS))'
 
 test-architecture:
 	@sh tests/test_architecture.sh
@@ -180,8 +189,8 @@ test-long-run: $(WEATHER_RUNTIME_TEST_TARGET)
 benchmark-chunks: $(CHUNK_BENCHMARK_TARGET)
 	./$(CHUNK_BENCHMARK_TARGET)
 
-release-linux: all
-	@set -eu; version=$$(git describe --tags --always --dirty 2>/dev/null || echo dev); out="dist/voxelcraft-linux-$${version}"; rm -rf "$${out}" "$${out}.tar.gz"; mkdir -p "$${out}"; cp $(TARGET) README.md "$${out}/"; cp -R assets "$${out}/"; printf '%s\n' "Voxelcraft Linux build $${version}" > "$${out}/BUILD.txt"; tar -czf "$${out}.tar.gz" -C dist "$$(basename "$${out}")"; sha256sum "$${out}.tar.gz" > "$${out}.tar.gz.sha256"; printf 'release=%s\narchive=%s.tar.gz\n' "$${version}" "$${out}";
+release-linux: all plugins
+	@set -eu; version=$$(git describe --tags --always --dirty 2>/dev/null || echo dev); out="dist/voxelcraft-linux-$${version}"; rm -rf "$${out}" "$${out}.tar.gz"; mkdir -p "$${out}"; cp $(TARGET) README.md "$${out}/"; cp -R assets "$${out}/"; if test -n "$(PLUGIN_TARGETS)"; then mkdir -p "$${out}/plugins"; cp $(PLUGIN_TARGETS) "$${out}/plugins/"; fi; printf '%s\n' "Voxelcraft Linux build $${version}" > "$${out}/BUILD.txt"; tar -czf "$${out}.tar.gz" -C dist "$$(basename "$${out}")"; sha256sum "$${out}.tar.gz" > "$${out}.tar.gz.sha256"; printf 'release=%s\narchive=%s.tar.gz\n' "$${version}" "$${out}";
 
 release-check:
 	$(MAKE) clean

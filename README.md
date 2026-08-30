@@ -145,6 +145,15 @@ source. `tests/test_architecture.sh` enforces module placement, include
 qualification, public-state boundaries, hotspot size limits, and the expected
 facades.
 
+Optional extensions use the same ownership rules through a small stable plugin
+ABI in `src/core/plugin.h`. Shared objects are declared independently in
+`plugins/manifest.mk`, built under `build/<variant>/plugins/`, and loaded in a
+deterministic priority/id order with `--plugin-dir DIRECTORY`. A plugin only
+receives lifecycle callbacks and an opaque host context, so work on world,
+ecology, presentation, or tooling extensions can proceed in separate targets
+without adding private cross-module includes to the game. The sample telemetry
+extension is intentionally disabled unless a plugin directory is supplied.
+
 ## Build
 
 ```sh
@@ -155,6 +164,16 @@ The executable is written to `build/normal/voxelcraft`; `make voxelcraft`
 remains available as an explicit build target and `make run` builds and starts
 that binary. Build and test artifacts stay under `build/` and are never written
 into `src/` or `tests/`.
+
+Build optional plugins independently (and in parallel with `make -j`):
+
+```sh
+make plugins
+build/normal/voxelcraft --plugin-dir build/normal/plugins
+```
+
+`--plugin-dir` is optional; repeated, empty, or overlong values fail fast.
+Without it, the game starts exactly as a plugin-free build.
 
 ## Test
 

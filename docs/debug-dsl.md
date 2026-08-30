@@ -40,6 +40,7 @@ build/normal/voxelcraft --debug-script PATH
 build/normal/voxelcraft --debug-script=PATH
 build/normal/voxelcraft --debug-resolution 1920x1080 --debug-script PATH
 build/normal/voxelcraft --chunk-workers auto --debug-script PATH
+build/normal/voxelcraft --plugin-dir build/normal/plugins --debug-script PATH
 ```
 
 `--debug-script` accepts exactly one readable file. A missing path, an empty
@@ -100,6 +101,12 @@ after the stream wait; `auto` reports the detected worker count instead. A
 nonzero `active` value in a trace sample means generation or meshing was still
 using a worker at that frame, not that the configured pool was resized.
 
+`--plugin-dir DIRECTORY` loads optional `.so` extensions after the window is
+created. Files are validated and activated in deterministic priority/id order;
+an unreadable directory, duplicate id, ABI mismatch, or callback rejection
+ends startup with exit code `2`. The option is independent of the DSL and can
+be combined with either debug entry point.
+
 Compare the final trace samples with `jq`:
 
 ```sh
@@ -124,7 +131,7 @@ Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 `--debug-trace [PATH]` can be combined with either debug entry point. Omitting

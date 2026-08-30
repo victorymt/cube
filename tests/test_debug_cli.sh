@@ -64,6 +64,13 @@ run_case 2 "empty debug trace path" --debug-trace=
 run_case 2 "overlong debug trace path" \
     --debug-trace="$(printf '%*s' 512 '' | tr ' ' x)"
 
+run_case 2 "missing plugin directory" --plugin-dir
+run_case 2 "empty plugin directory" --plugin-dir=
+run_case 2 "repeated plugin directory" \
+    --plugin-dir first --plugin-dir second
+run_case 2 "overlong plugin directory" \
+    --plugin-dir="$(printf '%*s' 512 '' | tr ' ' x)"
+
 bad_script="$runtime_dir/bad.dsl"
 printf '%s\n' 'assert (' 'exit 0' >"$bad_script"
 run_case 3 "batch parse failure" --debug-script "$bad_script"

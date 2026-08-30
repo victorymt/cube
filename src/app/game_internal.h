@@ -2,6 +2,7 @@
 #define VOXELCRAFT_GAME_INTERNAL_H
 
 #include "app/game_runtime.h"
+#include "app/game_plugins.h"
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
 #include "presentation/environment_presentation.h"
