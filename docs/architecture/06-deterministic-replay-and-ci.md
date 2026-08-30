@@ -31,7 +31,8 @@ three local `make -s benchmark-chunks` samples reported medians of 36.862 ms,
 `sync_rebuilds=0` on every run. Sanitized replay, hazard, and character tests
 passed with ASan/UBSan enabled.
 
-The shorter `make -s test-debug-graphics-e2e` completed successfully in the
+The CI graphics job runs the bounded `make test-debug-graphics-e2e` route,
+which completed successfully in the
 active Hyprland session, including pause/map/camera/look/mouse/ship routes.
 The full `make -s test-e2e` reached and passed its weather, fire, tornado,
 fluid, save/load, topology, and screenshot scenarios, but timed out during the

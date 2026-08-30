@@ -94,7 +94,7 @@ jobs:
       - name: Install raylib
         run: sh scripts/setup-raylib-ci.sh
       - name: Run graphics and debug E2E
-        run: make test-e2e
+        run: make test-debug-graphics-e2e
 
   coverage:
     name: Coverage report
