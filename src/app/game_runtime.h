@@ -62,6 +62,7 @@ typedef struct GameRuntime {
   EnvironmentPresentationRuntime environment;
   DebugControl debugControl;
   VoxelcraftPluginHost plugins;
+  VoxelcraftPluginGameService pluginGameService;
   DebugDslScript *debugDslScript;
   DebugDslExecutor *debugDslExecutor;
   DebugDslEnvironment *debugDslEnvironment;

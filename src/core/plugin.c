@@ -195,6 +195,20 @@ static void PluginHostDefaultLog(void *userData,
             message ? message : "");
 }
 
+static bool PluginContextProvideService(
+    const VoxelcraftPluginContext *context,
+    const VoxelcraftPluginService *service)
+{
+    return VoxelcraftPluginHostProvide(context, service);
+}
+
+static const VoxelcraftPluginService *PluginContextLookupService(
+    const VoxelcraftPluginContext *context, const char *serviceId,
+    uint32_t abiVersion)
+{
+    return VoxelcraftPluginHostLookup(context, serviceId, abiVersion);
+}
+
 static int PluginFileNameCompare(const void *left, const void *right)
 {
     const PluginFileName *a = left;
@@ -351,7 +365,9 @@ bool VoxelcraftPluginHostActivate(VoxelcraftPluginHost *host, void *userData)
                 .host = host,
                 .plugin_id = descriptor->id,
                 .user_data = userData,
-                .log = PluginHostDefaultLog
+                .log = PluginHostDefaultLog,
+                .provide_service = PluginContextProvideService,
+                .lookup_service = PluginContextLookupService
             };
             if (!descriptor->on_load(&context, &instance->state)) {
                 PluginSetError(host, "plugin '%s' rejected activation",
@@ -367,11 +383,14 @@ bool VoxelcraftPluginHostActivate(VoxelcraftPluginHost *host, void *userData)
     return true;
 }
 
-bool VoxelcraftPluginHostProvide(const VoxelcraftPluginContext *context,
-                                 const VoxelcraftPluginService *service)
+static bool PluginHostProvideForOwner(VoxelcraftPluginHost *host,
+                                      const char *ownerId,
+                                      const VoxelcraftPluginService *service)
 {
-    if (!context || !context->host || !context->plugin_id) return false;
-    VoxelcraftPluginHost *host = (VoxelcraftPluginHost *)context->host;
+    if (!host || !PluginIdIsValid(ownerId)) {
+        if (host) PluginSetError(host, "plugin service owner id is invalid");
+        return false;
+    }
     if (!PluginServiceIsValid(host, service)) return false;
     for (size_t index = 0; index < host->service_count; index++) {
         const VoxelcraftPluginServiceRegistration *registered =
@@ -389,8 +408,23 @@ bool VoxelcraftPluginHostProvide(const VoxelcraftPluginContext *context,
     }
     host->services[host->service_count++] =
         (VoxelcraftPluginServiceRegistration){
-            .service = *service, .owner_plugin_id = context->plugin_id};
+            .service = *service, .owner_plugin_id = ownerId};
     return true;
+}
+
+bool VoxelcraftPluginHostProvideBuiltin(
+    VoxelcraftPluginHost *host, const char *ownerId,
+    const VoxelcraftPluginService *service)
+{
+    return PluginHostProvideForOwner(host, ownerId, service);
+}
+
+bool VoxelcraftPluginHostProvide(const VoxelcraftPluginContext *context,
+                                 const VoxelcraftPluginService *service)
+{
+    if (!context || !context->host || !context->plugin_id) return false;
+    return PluginHostProvideForOwner((VoxelcraftPluginHost *)context->host,
+                                     context->plugin_id, service);
 }
 
 const VoxelcraftPluginService *VoxelcraftPluginHostLookup(

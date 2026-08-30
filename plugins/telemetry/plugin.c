@@ -5,6 +5,8 @@
 
 typedef struct TelemetryState {
     uint64_t update_count;
+    const VoxelcraftPluginGameService *game_service;
+    uint32_t last_world_seed;
 } TelemetryState;
 
 static bool TelemetryLoad(const VoxelcraftPluginContext *context, void **state)
@@ -12,6 +14,19 @@ static bool TelemetryLoad(const VoxelcraftPluginContext *context, void **state)
     if (!context || !state) return false;
     TelemetryState *telemetry = calloc(1, sizeof(*telemetry));
     if (!telemetry) return false;
+    const VoxelcraftPluginService *game_service =
+        context->lookup_service
+            ? context->lookup_service(
+                  context, VOXELCRAFT_PLUGIN_GAME_SERVICE_ID,
+                  VOXELCRAFT_PLUGIN_GAME_SERVICE_ABI_VERSION)
+            : NULL;
+    if (game_service && game_service->interface) {
+        telemetry->game_service = game_service->interface;
+        if (context->log) {
+            context->log(context->user_data, VOXELCRAFT_PLUGIN_LOG_INFO,
+                         "telemetry connected to voxelcraft.game service");
+        }
+    }
     *state = telemetry;
     if (context->log) {
         context->log(context->user_data, VOXELCRAFT_PLUGIN_LOG_INFO,
@@ -34,7 +49,15 @@ static void TelemetryReset(void *state)
 static void TelemetryUpdate(void *state, const VoxelcraftPluginFrame *frame)
 {
     TelemetryState *telemetry = state;
-    if (telemetry && frame) telemetry->update_count++;
+    if (telemetry && frame) {
+        telemetry->update_count++;
+        if (telemetry->game_service &&
+            telemetry->game_service->world_seed) {
+            telemetry->last_world_seed =
+                telemetry->game_service->world_seed(
+                    telemetry->game_service->user_data);
+        }
+    }
 }
 
 static const VoxelcraftPluginDescriptor TELEMETRY_DESCRIPTOR = {

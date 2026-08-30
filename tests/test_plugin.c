@@ -34,16 +34,18 @@ static bool LoadPlugin(const VoxelcraftPluginContext *context, void **state)
     assert(context->host);
     assert(context->plugin_id);
     assert(context->log);
+    assert(context->provide_service);
+    assert(context->lookup_service);
     assert(state);
     load_order[load_order_count++] = context->plugin_id[0] == 'a' ? 1 : 2;
     load_count++;
     if (context->plugin_id[0] == 'b') {
-        assert(!VoxelcraftPluginHostProvide(context, &INVALID_SERVICE));
-        assert(VoxelcraftPluginHostProvide(context, &TEST_SERVICE));
-        assert(!VoxelcraftPluginHostProvide(context, &TEST_SERVICE));
+        assert(!context->provide_service(context, &INVALID_SERVICE));
+        assert(context->provide_service(context, &TEST_SERVICE));
+        assert(!context->provide_service(context, &TEST_SERVICE));
     } else {
-        const VoxelcraftPluginService *service =
-            VoxelcraftPluginHostLookup(context, "test.counter", 1u);
+        const VoxelcraftPluginService *service = context->lookup_service(
+            context, "test.counter", 1u);
         assert(service);
         assert(service->interface == &TEST_SERVICE_INTERFACE);
     }
@@ -153,6 +155,18 @@ int main(int argc, char **argv)
     assert(VoxelcraftPluginHostCount(&host) == 0u);
     assert(VoxelcraftPluginHostServiceCount(&host) == 0u);
     assert(!VoxelcraftPluginHostIsActive(&host));
+
+    VoxelcraftPluginHost builtin_host;
+    VoxelcraftPluginHostInit(&builtin_host);
+    assert(VoxelcraftPluginHostProvideBuiltin(&builtin_host, "host",
+                                              &TEST_SERVICE));
+    VoxelcraftPluginContext consumer_context = {
+        .abi_version = VOXELCRAFT_PLUGIN_ABI_VERSION,
+        .host = &builtin_host,
+        .plugin_id = "consumer"};
+    assert(VoxelcraftPluginHostLookup(&consumer_context, "test.counter", 1u) ==
+           &builtin_host.services[0].service);
+    VoxelcraftPluginHostShutdown(&builtin_host);
 
     if (argc > 1) {
         VoxelcraftPluginHost dynamic_host;

@@ -9,7 +9,7 @@ public-state boundaries enforced by `tests/test_architecture.sh`.
 
 ## Contract
 
-`src/core/plugin.h` defines ABI version 1. A shared object exports
+`src/core/plugin.h` defines ABI version 2. A shared object exports
 `VoxelcraftPluginGetDescriptor`, which returns an immutable descriptor with an
 identifier, semantic version, priority, and optional `on_load`, `on_reset`,
 `on_update`, `on_render`, and `on_unload` callbacks. Callbacks receive an
@@ -17,11 +17,19 @@ opaque host context and a small frame value; they never need to include an
 `app/` header or access a mutable global from another domain.
 
 The context also supports a versioned service registry. A plugin can publish a
-read-only function table or value with `VoxelcraftPluginHostProvide`, and a
+read-only function table or value with `context->provide_service`, and a
 consumer can resolve it by service ID and ABI version using
-`VoxelcraftPluginHostLookup`. The host rejects duplicate IDs and clears all
+`context->lookup_service`. The host rejects duplicate IDs and clears all
 registrations during teardown, so service contracts remain explicit and do not
-turn into cross-domain global state.
+turn into cross-domain global state. These callbacks are injected into the
+context, so shared objects do not require unresolved symbols from the game
+executable.
+
+The app publishes a neutral `voxelcraft.game` service before activation. Its
+`VoxelcraftPluginGameService` interface supplies read-only play/pause,
+frame-index, and world-seed queries, plus a bounded notice callback. This gives
+tooling and telemetry extensions useful runtime context without handing them a
+`GameRuntime *` or any domain-global pointer.
 
 The host (`src/core/plugin.c`) validates IDs and descriptor sizes, rejects
 duplicates, loads only `.so` files, and visits directory entries in lexical

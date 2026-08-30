@@ -11,15 +11,20 @@
  * host user-data pointer; new game services can therefore be added without
  * exposing mutable globals from the domain modules.
  */
-#define VOXELCRAFT_PLUGIN_ABI_VERSION 1u
+/* ABI v2 adds injected service hooks to VoxelcraftPluginContext. */
+#define VOXELCRAFT_PLUGIN_ABI_VERSION 2u
 #define VOXELCRAFT_PLUGIN_MAX_COUNT 64u
 #define VOXELCRAFT_PLUGIN_MAX_ID 64u
 #define VOXELCRAFT_PLUGIN_MAX_SERVICE_COUNT 64u
 #define VOXELCRAFT_PLUGIN_MAX_SERVICE_ID 64u
 #define VOXELCRAFT_PLUGIN_MAX_PATH 512u
 #define VOXELCRAFT_PLUGIN_MAX_ERROR 256u
+#define VOXELCRAFT_PLUGIN_GAME_SERVICE_ID "voxelcraft.game"
+#define VOXELCRAFT_PLUGIN_GAME_SERVICE_ABI_VERSION 1u
 
 typedef struct VoxelcraftPluginHost VoxelcraftPluginHost;
+typedef struct VoxelcraftPluginContext VoxelcraftPluginContext;
+typedef struct VoxelcraftPluginService VoxelcraftPluginService;
 
 typedef enum VoxelcraftPluginLogLevel {
     VOXELCRAFT_PLUGIN_LOG_INFO = 0,
@@ -30,13 +35,23 @@ typedef enum VoxelcraftPluginLogLevel {
 typedef void (*VoxelcraftPluginLogFn)(
     void *user_data, VoxelcraftPluginLogLevel level, const char *message);
 
-typedef struct VoxelcraftPluginContext {
+typedef bool (*VoxelcraftPluginProvideServiceFn)(
+    const VoxelcraftPluginContext *context,
+    const VoxelcraftPluginService *service);
+typedef const VoxelcraftPluginService *(*VoxelcraftPluginLookupServiceFn)(
+    const VoxelcraftPluginContext *context, const char *service_id,
+    uint32_t abi_version);
+
+struct VoxelcraftPluginContext {
     uint32_t abi_version;
     const VoxelcraftPluginHost *host;
     const char *plugin_id;
     void *user_data;
     VoxelcraftPluginLogFn log;
-} VoxelcraftPluginContext;
+    /* Service hooks are appended after the original v1 context fields. */
+    VoxelcraftPluginProvideServiceFn provide_service;
+    VoxelcraftPluginLookupServiceFn lookup_service;
+};
 
 typedef struct VoxelcraftPluginFrame {
     uint64_t frame_index;
@@ -49,12 +64,24 @@ typedef struct VoxelcraftPluginFrame {
  * another.  The interface points at plugin-owned data and is valid until the
  * host shuts down; consumers must not retain it across that boundary.
  */
-typedef struct VoxelcraftPluginService {
+struct VoxelcraftPluginService {
     uint32_t abi_version;
     uint32_t struct_size;
     const char *id;
     const void *interface;
-} VoxelcraftPluginService;
+};
+
+/* Neutral read-only game hooks exposed by the app through the service table. */
+typedef struct VoxelcraftPluginGameService {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    void *user_data;
+    bool (*is_playing)(void *user_data);
+    bool (*is_paused)(void *user_data);
+    uint64_t (*frame_index)(void *user_data);
+    uint32_t (*world_seed)(void *user_data);
+    void (*post_notice)(void *user_data, const char *message);
+} VoxelcraftPluginGameService;
 
 typedef struct VoxelcraftPluginDescriptor {
     uint32_t abi_version;
@@ -113,6 +140,9 @@ bool VoxelcraftPluginHostLoadDirectory(
 bool VoxelcraftPluginHostActivate(VoxelcraftPluginHost *host, void *user_data);
 
 /* Publish or find a versioned service through the current plugin context. */
+bool VoxelcraftPluginHostProvideBuiltin(
+    VoxelcraftPluginHost *host, const char *owner_id,
+    const VoxelcraftPluginService *service);
 bool VoxelcraftPluginHostProvide(const VoxelcraftPluginContext *context,
                                  const VoxelcraftPluginService *service);
 const VoxelcraftPluginService *VoxelcraftPluginHostLookup(
