@@ -141,7 +141,9 @@ or explicit setters.
 
 Make remains the only build system. `mk/modules.mk` discovers production source
 files per module, and the main build emits one object and dependency file per C
-source. `tests/test_architecture.sh` enforces module placement, include
+source. Each ownership domain is also linked as its own static archive, so the
+final executable composes seven explicit component artifacts instead of
+linking a flat object list. `tests/test_architecture.sh` enforces module placement, include
 qualification, public-state boundaries, hotspot size limits, and the expected
 facades.
 
@@ -168,18 +170,19 @@ remains available as an explicit build target and `make run` builds and starts
 that binary. Build and test artifacts stay under `build/` and are never written
 into `src/` or `tests/`.
 
-Build the built-in module archives and optional plugins as independent targets
+Build the built-in component archives and optional plugins as independent targets
 (they can run concurrently with `make -j`):
 
 ```sh
-make -j modules plugins
+make -j components plugins
 build/normal/voxelcraft --plugin-dir build/normal/plugins
 ```
 
-`make modules` emits one archive for each ownership domain under
-`build/<variant>/modules/`; the game still links the corresponding objects
-directly for the normal executable. `make plugins` emits shared objects under
-`build/<variant>/plugins/`.
+`make component-world` (or any other `component-*` target) emits only that
+ownership domain's archive under `build/<variant>/modules/`. `make components`
+emits all seven archives, and the executable links them as a linker group so
+cross-domain calls resolve without exposing private headers. `make plugins`
+emits shared objects under `build/<variant>/plugins/`.
 
 `--plugin-dir` is optional; repeated, empty, or overlong values fail fast.
 Without it, the game starts exactly as a plugin-free build.

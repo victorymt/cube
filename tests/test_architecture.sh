@@ -298,6 +298,15 @@ grep -q '^test: test-headers test-modules ' Makefile ||
     fail "test must enforce public header and module build gates"
 grep -q '^test-modules: \$(MODULE_ARCHIVES)' Makefile ||
     fail "module build gate must compile every module archive"
+grep -q '^\$(TARGET): \$(MODULE_ARCHIVES)' Makefile ||
+    fail "executable must be composed from component archives"
+grep -q -- '-Wl,--start-group \$(MODULE_ARCHIVES) -Wl,--end-group' Makefile ||
+    fail "executable link must resolve component dependencies as a group"
+for component in core world space ecology gameplay presentation app
+do
+    grep -q "^component-$component: \$(MODULE_BUILD_DIR)/$component.a" Makefile ||
+        fail "missing independent component target: $component"
+done
 grep -q "sh scripts/clean-build.sh '.*BUILD_ROOT.*'" Makefile ||
     fail "clean must validate BUILD_ROOT before recursive deletion"
 grep -q "BUILD_VARIANT=ci CFLAGS='\$(CI_CFLAGS)' test" Makefile ||

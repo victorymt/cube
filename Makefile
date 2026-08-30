@@ -50,7 +50,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules plugins test test-headers test-modules test-plugins test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
 
 all: $(TARGET)
 
@@ -87,8 +87,8 @@ $(BUILD_CONFIG): FORCE $(BUILD_CONFIG_INPUTS) | $(BUILD_DIR)
 		mv -f "$@.tmp" "$@"; \
 	fi
 
-$(TARGET): $(OBJ) $(BUILD_CONFIG) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJ) $(RAYLIB_LIBS) -lm -pthread $(PLUGIN_HOST_LIBS) $(LDLIBS)
+$(TARGET): $(MODULE_ARCHIVES) $(BUILD_CONFIG) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ -Wl,--start-group $(MODULE_ARCHIVES) -Wl,--end-group $(RAYLIB_LIBS) -lm -pthread $(PLUGIN_HOST_LIBS) $(LDLIBS)
 
 $(OBJ_DIR)/%.o: src/%.c $(BUILD_CONFIG)
 	@mkdir -p $(dir $@)
@@ -137,6 +137,16 @@ plugins: $(PLUGIN_TARGETS)
 # optional shared-library `plugins` target this gives contributors explicit
 # parallel seams (`make -j modules plugins`).
 modules: $(MODULE_ARCHIVES)
+
+# Build one ownership domain without touching the other component archives.
+components: $(MODULE_ARCHIVES)
+component-core: $(MODULE_BUILD_DIR)/core.a
+component-world: $(MODULE_BUILD_DIR)/world.a
+component-space: $(MODULE_BUILD_DIR)/space.a
+component-ecology: $(MODULE_BUILD_DIR)/ecology.a
+component-gameplay: $(MODULE_BUILD_DIR)/gameplay.a
+component-presentation: $(MODULE_BUILD_DIR)/presentation.a
+component-app: $(MODULE_BUILD_DIR)/app.a
 
 test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
