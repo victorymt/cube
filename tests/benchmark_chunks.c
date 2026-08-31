@@ -3,6 +3,7 @@
 #include "world/terrain.h"
 #include "world/world.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -25,9 +26,9 @@ bool WorldIsSurfaceActive(void)
     return false;
 }
 
-bool HomeWorldSurfaceIsActive(void)
+WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
-    return false;
+    return WorldCurrentSurfaceSnapshot()->context;
 }
 
 uint32_t WorldCurrentSurfaceId(void)
@@ -259,6 +260,7 @@ static bool CheckBaseline(const char *path, double medianMs, double p95Ms,
 
 int main(int argc, char **argv)
 {
+    WorldInstallSurfaceSnapshot(NULL);
     static const int coordinates[][2] = {
         { 0, 0 }, { 1, 0 }, { -1, 0 }, { 0, 1 },
         { 0, -1 }, { 2, 2 }, { -2, 1 }, { 3, -2 }

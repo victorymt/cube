@@ -756,6 +756,7 @@ typedef struct PassiveUpdateContext {
     const Player *player;
     float dt;
     float daylight;
+    double simulationTime;
     bool ecological;
     bool threatened;
     PlanetFaunaRuntimeState runtime;
@@ -783,9 +784,11 @@ static void PassiveSampleEnvironment(PassiveUpdateContext *context)
             x, z, context->daylight);
         entity->ecologyActivity = local.suitability.faunaActivity;
         entity->ecologyCapacity = local.suitability.faunaCapacity;
-        WeatherFieldSample weather = WeatherFieldSampleAtWorld(x, z);
+        WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
+            x, z, context->simulationTime);
         entity->ecologyWindStrength = weather.wind;
-        entity->ecologyWindAngle = WeatherWindAngleAtWorld(x, z);
+        entity->ecologyWindAngle = WeatherWindAngleAtWorldTime(
+            x, z, context->simulationTime);
         EntityApplyLocalBehaviorEnvironment(entity, &local, weather);
         entity->ecologySampleTimer = 1.0f;
     }
@@ -1087,7 +1090,7 @@ static void PassiveIntegrateMotion(PassiveUpdateContext *context)
 
 static void UpdatePassive(Entity *entity, int entityIndex,
                           const Player *player, float dt,
-                          float daylight)
+                          float daylight, double simulationTime)
 {
     EntityUpdateEvolutionLifecycle(entity, entityIndex, dt, daylight);
     if (!entity->active || entity->corpse) return;
@@ -1096,7 +1099,8 @@ static void UpdatePassive(Entity *entity, int entityIndex,
         .entityIndex = entityIndex,
         .player = player,
         .dt = dt,
-        .daylight = daylight
+        .daylight = daylight,
+        .simulationTime = simulationTime
     };
     PassiveSampleEnvironment(&context);
     PassiveAdvanceNeeds(&context);
@@ -1156,7 +1160,8 @@ static void UpdateHostile(Entity *entity, const Player *player, float dt, float 
     }
 }
 
-void EntitiesUpdate(float dt, const Player *player, float daylight)
+void EntitiesUpdate(float dt, const Player *player, float daylight,
+                    double simulationTime)
 {
     entitySpawnTimer -= dt;
     if (entitySpawnTimer <= 0.0f) {
@@ -1176,7 +1181,7 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
         int activeCount = GetActiveEntityCount();
         if (activeCount < populationCap) {
             if (PlanetWorldIsActive() || daylight > 0.5f) {
-                EntitySpawnPassive(player, daylight);
+                EntitySpawnPassive(player, daylight, simulationTime);
             } else {
                 EntitySpawnHostile(player, daylight);
             }
@@ -1218,7 +1223,7 @@ void EntitiesUpdate(float dt, const Player *player, float daylight)
         if (entity->type >= ENTITY_ZOMBIE) {
             UpdateHostile(entity, player, dt, daylight);
         } else {
-            UpdatePassive(entity, i, player, dt, daylight);
+            UpdatePassive(entity, i, player, dt, daylight, simulationTime);
         }
     }
 }

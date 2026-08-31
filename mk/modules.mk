@@ -16,8 +16,11 @@ SPACE_FEATURE_SRC := \
 	src/space/planet_world.c \
 	src/space/planet_lighting.c
 
+WORLD_SURFACE_SNAPSHOT_SRC := src/world/world_surface_snapshot.c
+
 CHUNKS_FEATURE_SRC := \
 	src/ecology/flora_taxa.c \
+	$(WORLD_SURFACE_SNAPSHOT_SRC) \
 	src/world/chunks.c \
 	src/world/chunks_test_api.c \
 	src/world/chunks_storage.c \

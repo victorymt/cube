@@ -82,7 +82,8 @@ bool DeformFloraMeshInstance(
 
 static void UpdateChunkSectionFloraScale(ChunkSection *section,
                                   float elapsed,
-                                  float daylight, bool refreshTargets)
+                                  float daylight, double simulationTime,
+                                  bool refreshTargets)
 {
     if (!section || !section->hasFloraModel ||
         section->floraModel.meshCount <= 0) return;
@@ -116,21 +117,21 @@ static void UpdateChunkSectionFloraScale(ChunkSection *section,
                 .growthScale = 1.0f,
                 .visualPresence = 1.0f
             };
-            if (PlanetWorldIsActive()) {
+            if (WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET) {
                 (void)WorldEcologyFloraVisualAt(
                     cellX, cellZ, daylight, &flora);
             }
             section->floraTargetScales[group] = flora.growthScale;
             section->floraTargetPresence[group] = flora.visualPresence;
-            section->floraTargetWind[group] = WeatherFieldSampleAtWorld(
-                cellX, cellZ).wind;
-            section->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
-                cellX, cellZ);
+            section->floraTargetWind[group] = WeatherFieldSampleAtWorldTime(
+                cellX, cellZ, simulationTime).wind;
+            section->floraTargetWindAngle[group] = WeatherWindAngleAtWorldTime(
+                cellX, cellZ, simulationTime);
         }
 
         float phase = (float)(Hash3D(cellX, 0, cellZ) & 4095u) * 0.0015339808f;
-        float sway = sinf((float)SimulationTimePeriodic(
-                              SpaceElapsedSimulationTime()) * 1.7f + phase) *
+        float sway = sinf((float)SimulationTimePeriodic(simulationTime) *
+                              1.7f + phase) *
                          fmaxf(section->floraTargetWind[group], 0.0f) * 0.07f *
                          fmaxf(instance->windResponse, 0.0f);
         float newScale = 1.0f;
@@ -224,9 +225,11 @@ bool ApplyFloraMeshInstancePresenceColors(
                                 blend);
 }
 
-void ChunksUpdateEcologyVisuals(float dt, float daylight)
+void ChunksUpdateEcologyVisuals(float dt, float daylight,
+                                double simulationTime)
 {
-    bool planetWorld = PlanetWorldIsActive();
+    bool planetWorld =
+        WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET;
     float elapsed = fmaxf(dt, 0.0f);
     for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
         Chunk *chunk = &chunks[index];
@@ -238,7 +241,8 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
         if (refreshTargets) {
             int centerX = chunk->cx * CHUNK_SIZE + CHUNK_SIZE / 2;
             int centerZ = chunk->cz * CHUNK_SIZE + CHUNK_SIZE / 2;
-            chunk->floraWindAngle = WeatherWindAngleAtWorld(centerX, centerZ);
+            chunk->floraWindAngle = WeatherWindAngleAtWorldTime(
+                centerX, centerZ, simulationTime);
             if (planetWorld) {
                 WorldFloraVisualSample flora;
                 (void)WorldEcologyFloraVisualAt(
@@ -256,7 +260,8 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
 
         for (int index = 0; index < chunk->sectionCount; index++) {
             UpdateChunkSectionFloraScale(chunk->sections[index], elapsed,
-                                         daylight, refreshTargets);
+                                         daylight, simulationTime,
+                                         refreshTargets);
         }
     }
 }

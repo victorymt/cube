@@ -170,15 +170,17 @@ static void RunFrames(Player *player, int frameCount, float daylight)
     const float dt = 0.1f;
     for (int frame = 0; frame < frameCount; frame++) {
         SpaceAdvanceTime(dt);
-        EntitiesUpdate(dt, player, daylight);
+        EntitiesUpdate(
+            dt, player, daylight, SpaceElapsedSimulationTime());
     }
 }
 
 static void RunEntityFrames(Player *player, int frameCount, float daylight)
 {
     const float dt = 0.1f;
+    double simulationTime = SpaceElapsedSimulationTime();
     for (int frame = 0; frame < frameCount; frame++) {
-        EntitiesUpdate(dt, player, daylight);
+        EntitiesUpdate(dt, player, daylight, simulationTime);
     }
 }
 

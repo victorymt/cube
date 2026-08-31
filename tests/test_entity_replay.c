@@ -213,18 +213,21 @@ bool PlanetEcologyRecordEvolutionEvent(
     return true;
 }
 
-WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
+WeatherFieldSample WeatherFieldSampleAtWorldTime(
+    int x, int z, double simulationTime)
 {
     (void)x;
     (void)z;
+    (void)simulationTime;
     WeatherFieldSample sample = { 0 };
     return sample;
 }
 
-float WeatherWindAngleAtWorld(int x, int z)
+float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
 {
     (void)x;
     (void)z;
+    (void)simulationTime;
     return 0.0f;
 }
 
@@ -303,8 +306,10 @@ static uint64_t EntityStateHash(const unsigned char *data, size_t size)
 
 static void RunFrames(Player *player, int count)
 {
+    double simulationTime = 0.0;
     for (int frame = 0; frame < count; frame++) {
-        EntitiesUpdate(0.1f, player, 1.0f);
+        simulationTime += 0.1;
+        EntitiesUpdate(0.1f, player, 1.0f, simulationTime);
     }
 }
 

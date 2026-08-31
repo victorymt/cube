@@ -448,7 +448,8 @@ static bool SubmitChunkSectionGenJob(
     Chunk *chunk, int sectionY, TerrainMode mode, bool preload)
 {
     if (genWorkerThreadsStarted == 0u || !chunk || !chunk->loaded ||
-        !HomeWorldSurfaceIsActive() || !SurfaceSectionInBounds(sectionY) ||
+        WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME ||
+        !SurfaceSectionInBounds(sectionY) ||
         ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
         return false;
@@ -535,7 +536,7 @@ static bool RequestLoadedChunkTerrainSection(
 bool RequestChunkTerrainSection(int cx, int sectionY, int cz)
 {
     if (!SurfaceSectionInBounds(sectionY) ||
-        !HomeWorldSurfaceIsActive()) {
+        WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME) {
         return false;
     }
     return RequestLoadedChunkTerrainSection(
@@ -1081,7 +1082,7 @@ int ScheduleNearbyTerrainSections(
     const ChunkStreamingFocus *focus)
 {
     if (!request || !focus || !ChunkStreamingPositionIsValid(request->position) ||
-        !HomeWorldSurfaceIsActive()) return 0;
+        WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME) return 0;
     int playerY = (int)floorf(request->position.y);
     if (!InHeight(playerY)) return 0;
     int playerSectionY = SurfaceSectionYFromBlockY(playerY);

@@ -3,6 +3,8 @@
 #include "ecology/ecology.h"
 #include "world/ecology_hooks.h"
 #include "world/terrain.h"
+#include "world/weather.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -51,6 +53,24 @@ static void EcologyFixtureDecorateChunk(
     PlanetEcologyApplyToChunk(chunk, chunkX, chunkZ);
 }
 
+static bool EcologyFixtureSurfaceLightAt(
+    Vector3 surfacePosition, double simulationTime,
+    WeatherSurfaceLightSample *outSample, void *userData)
+{
+    (void)userData;
+    if (!outSample) return false;
+    PlanetLightState light = { 0 };
+    if (!PlanetWorldLightStateAtTime(
+            surfacePosition, simulationTime, &light)) {
+        return false;
+    }
+    *outSample = (WeatherSurfaceLightSample){
+        .daylight = light.daylight,
+        .eclipse = light.eclipse
+    };
+    return true;
+}
+
 static void EcologyFixtureInstallWorldHooks(void)
 {
     const WorldEcologyHooks hooks = {
@@ -59,6 +79,34 @@ static void EcologyFixtureInstallWorldHooks(void)
         .decorateChunk = EcologyFixtureDecorateChunk
     };
     WorldInstallEcologyHooks(&hooks);
+    WeatherSetSurfaceLightProvider(EcologyFixtureSurfaceLightAt, NULL);
+
+    EcologyTestSyncWorldSnapshot();
+}
+
+void EcologyTestSyncWorldSnapshot(void)
+{
+    WorldSurfaceSnapshot snapshot = { 0 };
+    if (PlanetWorldIsActive()) {
+        const PlanetProfile *profile = PlanetWorldProfile();
+        assert(profile);
+        snapshot.context = (WorldSurfaceContext){
+            .active = true,
+            .kind = WORLD_SURFACE_PLANET,
+            .bodyId = PlanetWorldSeed(),
+            .seed = PlanetWorldSeed()
+        };
+        snapshot.planetProfile = *profile;
+    } else if (HomeWorldSurfaceIsActive()) {
+        snapshot.context = (WorldSurfaceContext){
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .seed = propertyWorldSeed
+        };
+    } else {
+        snapshot.context.seed = propertyWorldSeed;
+    }
+    WorldInstallSurfaceSnapshot(&snapshot);
 }
 
 __attribute__((weak)) bool WorldIsSurfaceActive(void)
@@ -435,5 +483,6 @@ void EcologyTestLoadSimulationState(FILE *file)
     rewind(file);
     assert(SpaceLoadState(file));
     assert(PlanetWorldLoadState(file));
+    EcologyTestSyncWorldSnapshot();
     assert(PlanetEcologyLoadState(file));
 }

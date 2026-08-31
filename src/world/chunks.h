@@ -196,7 +196,8 @@ RenderResourceSnapshot ChunksGetRenderResourceSnapshot(void);
 void DrainChunkGen(void);
 void UpdateChunks(const ChunkStreamingRequest *request);
 bool RequestChunkTerrainSection(int cx, int sectionY, int cz);
-void ChunksUpdateEcologyVisuals(float dt, float daylight);
+void ChunksUpdateEcologyVisuals(float dt, float daylight,
+                                double simulationTime);
 BlockType GetBlock(int x, int y, int z);
 void RebuildDirtyChunkMeshes(Vector3 focusPosition);
 bool RebuildDirtyChunkMeshAt(int x, int y, int z);

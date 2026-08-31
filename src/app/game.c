@@ -17,6 +17,7 @@
 #include "core/game_effects.h"
 #include "core/game_notice.h"
 #include "core/render_resources.h"
+#include "core/simulation_time.h"
 #include "world/world_types.h"
 #include "world/terrain.h"
 #include "world/world.h"
@@ -154,6 +155,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     AlbumReset();
     AlbumUiReset();
     WorldReset(seed);
+    GameSyncWorldSurfaceSnapshot(seed);
     WorldResetSurfaceRebaseEvent();
     MapMarkersReset();
     EvolutionCatalogReset();
@@ -167,6 +169,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     ParticlesClear();
     GameEffectsReset();
     WeatherInit();
+    GameInstallWeatherSurfaceLightProvider();
     WeatherSetHydrologyFeedbackProvider(GameHydrologyFeedbackAt, NULL);
     RadiationRuntimeGlobalReset(NULL);
     HydrologyRuntimeGlobalReset(NULL);
@@ -619,7 +622,9 @@ static void GameUpdateTemporalState(GameRuntime *game, float dt)
         (void)weatherSunset;
         WeatherSetDaylight(weatherDaylight);
         WeatherSetSheltered(weatherSheltered);
-        WeatherUpdate(dt, game->player.position);
+        WeatherUpdate(
+            dt, game->player.position,
+            SimulationTimePeriodic(SpaceElapsedSimulationTime()));
         TornadoUpdate(dt, game->player.position, WeatherCurrentSample());
         WeatherImpactUpdate(dt, game->player.position,
                             WeatherCurrentSample());
@@ -1321,6 +1326,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     SetTargetFPS(!game->perfMode && game->debugControlEnabled ? 60 : 0);
     EnableCursor();
     ChunksConfigureWorkerCount(game->chunkWorkerCount);
+    GameSyncWorldSurfaceSnapshot(WorldGetSeed());
     if (!ChunksStartGenThread()) {
         fprintf(stderr, "Warning: failed to start chunk worker pool; "
                         "generating synchronously.\n");
@@ -1333,6 +1339,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                     game->settings.musicVolume);
     AudioSetMusicEnabled(game->settings.musicEnabled);
     WeatherInit();
+    GameInstallWeatherSurfaceLightProvider();
     WeatherSetHydrologyFeedbackProvider(GameHydrologyFeedbackAt, NULL);
     RadiationRuntimeGlobalReset(NULL);
     HydrologyRuntimeGlobalReset(NULL);

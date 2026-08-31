@@ -4,7 +4,6 @@
 #include "world/chunks.h"
 
 #include "core/render_resources.h"
-#include "space/space_state.h"
 #include "world/block_atlas.h"
 #include "world/ecology_hooks.h"
 #include "world/terrain.h"

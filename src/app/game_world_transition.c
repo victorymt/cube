@@ -1,4 +1,5 @@
 #include "app/game_world_transition.h"
+#include "app/game_internal.h"
 
 #include "core/config.h"
 #include "core/game_notice.h"
@@ -26,6 +27,7 @@ static void GameWorldTransitionUnloadSurfaceData(void)
 
 static void GameWorldTransitionFinishSurfaceActivation(void)
 {
+    GameSyncWorldSurfaceSnapshot(WorldGetSeed());
     WorldSetNetherActive(false);
     WorldResetSurfaceRebaseEvent();
     RebuildTorchList();
@@ -155,6 +157,7 @@ bool GameWorldTransitionTryLaunch(Player *player)
     UnloadAllChunks();
     if (fromPlanet) PlanetWorldLeaveSurface();
     else HomeWorldLeaveSurface(surfacePose.position);
+    GameSyncWorldSurfaceSnapshot(WorldGetSeed());
     WorldResetSurfaceRebaseEvent();
     RebuildTorchList();
     ClearUndoHistory();
@@ -187,6 +190,7 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
     GameWorldTransitionUnloadSurfaceData();
     if (PlanetWorldIsActive()) PlanetWorldLeaveSurface();
     if (HomeWorldSurfaceIsActive()) HomeWorldLeaveSurface(player->position);
+    GameSyncWorldSurfaceSnapshot(WorldGetSeed());
 
     if (homeWorld) {
         if (!HomeWorldEnterSurface()) return false;

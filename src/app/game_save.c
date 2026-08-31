@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "app/game_save.h"
+#include "app/game_internal.h"
 
 #include "core/config.h"
 #include "core/game_notice.h"
@@ -559,6 +560,7 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
         return GameLoadFail(
             transaction, "Load failed: save file is corrupted.");
     }
+    GameSyncWorldSurfaceSnapshot(data.seed);
 
     const char *loadError =
         GameLoadCurrentExtendedPayload(file, format, &data);
@@ -580,6 +582,7 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     UnloadAllNetherChunks();
     WorldSetTerrainMode(data.terrain);
     WorldSetSeed(data.seed);
+    GameSyncWorldSurfaceSnapshot(data.seed);
 
     bool savedInNether = data.dimension == WORLD_DIMENSION_NETHER;
     if (data.terrainGenerationVersion != TERRAIN_GENERATION_VERSION &&

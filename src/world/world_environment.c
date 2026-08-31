@@ -1,8 +1,8 @@
 #include "world/world_environment.h"
 
-#include "space/space_state.h"
 #include "world/terrain.h"
 #include "world/world.h"
+#include "world/world_surface_snapshot.h"
 
 #include <math.h>
 
@@ -12,21 +12,7 @@ static uint64_t surfaceRebaseSequence = 0u;
 
 WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
-    bool planet = PlanetWorldIsActive();
-    bool home = !planet && HomeWorldSurfaceIsActive();
-    WorldSurfaceKind kind = planet ? WORLD_SURFACE_PLANET :
-        (home ? WORLD_SURFACE_HOME : WORLD_SURFACE_NONE);
-    uint32_t seed = planet ? PlanetWorldSeed() : WorldGetSeed();
-    return (WorldSurfaceContext){
-        .active = kind != WORLD_SURFACE_NONE,
-        .kind = kind,
-        .bodyId = planet ? PlanetWorldSeed() : 0u,
-        .seed = seed,
-        // Map origins are currently canonical zero for both surface kinds.
-        // Keeping them in this context makes a future rebase source explicit.
-        .originX = 0,
-        .originZ = 0
-    };
+    return WorldCurrentSurfaceSnapshot()->context;
 }
 
 bool WorldNetherIsActive(void)
@@ -120,11 +106,11 @@ bool WorldCanAccessBlockY(int y)
 
 float WorldGravityScale(void)
 {
-    if (WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET) {
-        return PlanetWorldGravityScale();
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    if (snapshot->context.kind == WORLD_SURFACE_PLANET) {
+        return snapshot->planetProfile.surfaceGravity;
     }
-    if (WorldIsSpaceActive()) return 0.0f;
-    return 1.0f;
+    return snapshot->context.kind == WORLD_SURFACE_HOME ? 1.0f : 0.0f;
 }
 
 int WorldSurfaceHeightAt(int x, int z)

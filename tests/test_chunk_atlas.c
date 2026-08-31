@@ -5,6 +5,7 @@
 #define chunks (ChunksMutableForTesting())
 #include "world/terrain.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <math.h>
@@ -58,9 +59,9 @@ bool WorldIsSurfaceActive(void)
     return true;
 }
 
-bool HomeWorldSurfaceIsActive(void)
+WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
-    return true;
+    return WorldCurrentSurfaceSnapshot()->context;
 }
 
 BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
@@ -1349,6 +1350,15 @@ static void AssertChunkLodWaterHeightfieldContracts(void)
 
 int main(void)
 {
+    const WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .bodyId = 1u,
+            .seed = DEFAULT_WORLD_SEED
+        }
+    };
+    WorldInstallSurfaceSnapshot(&snapshot);
     WorldToChunkLocal(0, 0, NULL, NULL, NULL, NULL);
     Mesh overflowTarget = { .vertexCount = INT_MAX, .triangleCount = 1 };
     Mesh overflowSource = { .vertexCount = 1, .triangleCount = 1 };

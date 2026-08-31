@@ -2,13 +2,13 @@
 
 #include "core/game_effects.h"
 #include "core/simulation_time.h"
-#include "space/space_state.h"
 #include "world/local_climate.h"
 #include "world/radiation_runtime.h"
 #include "world/terrain.h"
 #include "world/surface_topology.h"
 #include "world/world.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <limits.h>
 #include <math.h>
@@ -24,9 +24,8 @@
 #define WEATHER_MAX_RAIN_EMISSIONS 24u
 #define WEATHER_MAX_SNOW_EMISSIONS 12u
 
-static double WeatherPeriodicSimulationTime(void)
+static double WeatherPeriodicSimulationTime(double elapsedTime)
 {
-    double elapsedTime = SpaceElapsedSimulationTime();
     if (!isfinite(elapsedTime) || elapsedTime < 0.0) return NAN;
     return SimulationTimePeriodic(elapsedTime);
 }
@@ -63,8 +62,11 @@ static float particleWindAngle = 0.0f;
 static float particleScale = 1.0f;
 static bool particlesSheltered = false;
 static float weatherDaylight = 0.5f;
+static double weatherSimulationTime = 0.0;
 static WeatherHydrologyFeedbackProvider hydrologyFeedbackProvider;
 static void *hydrologyFeedbackUserData;
+static WeatherSurfaceLightProvider surfaceLightProvider;
+static void *surfaceLightUserData;
 static WEATHER_THREAD_LOCAL WeatherSampleCacheEntry
     weatherSampleCache[WEATHER_SAMPLE_CACHE_SIZE] = { 0 };
 
@@ -208,26 +210,28 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
     input.simulationTime = simulationTime;
     LocalClimateInput climateInput = { 0 };
     LocalClimateState climate = { 0 };
-    if (PlanetWorldIsActive()) {
-        const PlanetProfile *planet = PlanetWorldProfile();
-        if (!planet) return false;
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    if (snapshot->context.kind == WORLD_SURFACE_PLANET) {
+        const PlanetProfile *planet = &snapshot->planetProfile;
         PlanetSurfaceSample surface = PlanetSurfaceAtTime(
             x, z, input.simulationTime);
-        PlanetLightState light = { 0 };
+        WeatherSurfaceLightSample light = { 0 };
         int height = PlanetTerrainHeight(x, z);
         float longitude = 0.0f;
         float latitude = 0.0f;
         PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
         (void)longitude;
-        input.seed = PlanetWorldSeed();
+        input.seed = snapshot->context.seed;
         input.worldX = weatherWorldX;
         input.worldZ = weatherWorldZ;
         float daylight = 0.5f;
         float eclipse = 0.0f;
-        if (PlanetWorldLightStateAtTime(
-                canonicalPosition, simulationTime, &light)) {
-            daylight = light.daylight;
-            eclipse = light.eclipse;
+        if (surfaceLightProvider && surfaceLightProvider(
+                canonicalPosition, simulationTime, &light,
+                surfaceLightUserData) &&
+            isfinite(light.daylight) && isfinite(light.eclipse)) {
+            daylight = WeatherClamp(light.daylight);
+            eclipse = WeatherClamp(light.eclipse);
         }
         float daylightDeltaK = (daylight - 0.5f) *
             (2.0f + surface.seasonalAmplitude * 0.08f) *
@@ -677,8 +681,7 @@ static WeatherFieldSample WeatherManualSample(Weather weather)
 
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
 {
-    return WeatherFieldSampleAtWorldTime(
-        x, z, WeatherPeriodicSimulationTime());
+    return WeatherFieldSampleAtWorldTime(x, z, weatherSimulationTime);
 }
 
 WeatherFieldSample WeatherFieldSampleAtWorldTime(
@@ -730,8 +733,7 @@ bool WeatherLocalClimateAtWorldTime(int x, int z, double simulationTime,
 
 float WeatherWindAngleAtWorld(int x, int z)
 {
-    return WeatherWindAngleAtWorldTime(
-        x, z, WeatherPeriodicSimulationTime());
+    return WeatherWindAngleAtWorldTime(x, z, weatherSimulationTime);
 }
 
 float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
@@ -895,6 +897,7 @@ void WeatherInit(void)
     particleRandomState = 0x91e10da5u;
     particleWindAngle = 0.0f;
     weatherDaylight = 0.5f;
+    weatherSimulationTime = 0.0;
     memset(weatherSampleCache, 0, sizeof(weatherSampleCache));
     GameEffectsSetRain(false);
 }
@@ -910,6 +913,14 @@ void WeatherSetHydrologyFeedbackProvider(
 void WeatherClearHydrologyFeedbackProvider(void)
 {
     WeatherSetHydrologyFeedbackProvider(NULL, NULL);
+}
+
+void WeatherSetSurfaceLightProvider(
+    WeatherSurfaceLightProvider provider, void *userData)
+{
+    surfaceLightProvider = provider;
+    surfaceLightUserData = userData;
+    memset(weatherSampleCache, 0, sizeof(weatherSampleCache));
 }
 
 const char *WeatherName(void)
@@ -1091,10 +1102,11 @@ static unsigned WeatherAdvanceEmissionAccumulator(
     return emissions;
 }
 
-void WeatherUpdate(float dt, Vector3 playerPosition)
+void WeatherUpdate(float dt, Vector3 playerPosition, double simulationTime)
 {
     if (!isfinite(dt) || dt <= 0.0f) return;
     float updateDt = fminf(dt, WEATHER_MAX_UPDATE_DT);
+    weatherSimulationTime = WeatherPeriodicSimulationTime(simulationTime);
 
     if (forcedActive && forcedFramesRemaining == 0u) {
         forcedActive = false;
@@ -1113,7 +1125,7 @@ void WeatherUpdate(float dt, Vector3 playerPosition)
         WeatherFieldInput input;
         if (WeatherInputAt(
                 playerPosition,
-                WeatherPeriodicSimulationTime(),
+                weatherSimulationTime,
                 &input, NULL)) {
             fieldSample = WeatherFieldSampleAt(&input);
             particleWindAngle = isfinite(fieldSample.windAngle) ?

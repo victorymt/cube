@@ -26,6 +26,7 @@ void EcologyTestActivateGeneratedPlanetWithFile(
     FILE *file, const SolarSystemDef *system, int planetIndex,
     int originX, int originZ);
 void EcologyTestActivatePlanet(uint32_t seed, int originX, int originZ);
+void EcologyTestSyncWorldSnapshot(void);
 void EcologyTestSaveSimulationState(FILE *file);
 void EcologyTestLoadSimulationState(FILE *file);
 

@@ -214,7 +214,8 @@ static bool EntityValidatePassiveSpawn(EntityPassiveSpawn *spawn,
 }
 
 static void EntityInitializePassiveSpawn(EntityPassiveSpawn *spawn,
-                                         const Player *player)
+                                         const Player *player,
+                                         double simulationTime)
 {
     Entity *entity = &entities[spawn->slot];
     memset(entity, 0, sizeof(*entity));
@@ -286,11 +287,11 @@ static void EntityInitializePassiveSpawn(EntityPassiveSpawn *spawn,
     entity->ecologyWindAngle = 0.0f;
     EntityInitializeBehaviorState(entity);
     if (spawn->evolvable) {
-        WeatherFieldSample weather = WeatherFieldSampleAtWorld(
-            spawn->x, spawn->z);
+        WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
+            spawn->x, spawn->z, simulationTime);
         entity->ecologyWindStrength = weather.wind;
-        entity->ecologyWindAngle = WeatherWindAngleAtWorld(
-            spawn->x, spawn->z);
+        entity->ecologyWindAngle = WeatherWindAngleAtWorldTime(
+            spawn->x, spawn->z, simulationTime);
         EntityApplyLocalBehaviorEnvironment(
             entity, &spawn->localEcology, weather);
     }
@@ -303,13 +304,14 @@ static void EntityInitializePassiveSpawn(EntityPassiveSpawn *spawn,
     EntityCanonicalizeSurfacePosition(entity);
 }
 
-void EntitySpawnPassive(const Player *player, float daylight)
+void EntitySpawnPassive(const Player *player, float daylight,
+                        double simulationTime)
 {
     EntityPassiveSpawn spawn = { 0 };
     if (!EntitySelectPassiveSpawn(&spawn, player)) return;
     if (!EntitySamplePassiveSpawn(&spawn, player, daylight)) return;
     if (!EntityValidatePassiveSpawn(&spawn, player)) return;
-    EntityInitializePassiveSpawn(&spawn, player);
+    EntityInitializePassiveSpawn(&spawn, player, simulationTime);
 }
 
 void EntitySpawnHostile(const Player *player, float daylight)

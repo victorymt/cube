@@ -1,11 +1,11 @@
 #include "core/game_effects.h"
 #include "presentation/weather_presentation.h"
-#include "space/space.h"
 #include "world/terrain.h"
 #include "world/surface_topology.h"
 #include "world/weather.h"
 #include "world/world.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -16,7 +16,6 @@
 #include <string.h>
 
 static double simulationTime = 120.0;
-static bool planetWorldActive = false;
 static int particleEmissions = 0;
 static int biomeSamples = 0;
 static int planetSurfaceSamples = 0;
@@ -24,9 +23,72 @@ static int audioChanges = 0;
 static bool rainAudioEnabled = false;
 static float lightDaylight = 0.5f;
 static float lightEclipse = 0.0f;
-static bool homeWorldSurfaceActive = true;
 static PlanetAtmosphereType planetAtmosphereType = PLANET_ATMOSPHERE_BREATHABLE;
 static float planetAtmosphereDensity = 0.62f;
+
+static PlanetProfile TestPlanetProfile(void)
+{
+    return (PlanetProfile){
+        .seed = 0x2938a4d1u,
+        .style = SOLAR_STYLE_TEMPERATE,
+        .atmosphereType = planetAtmosphereType,
+        .equilibriumTempK = 288.0f,
+        .surfacePressureAtm = 1.0f,
+        .atmosphereDensity = planetAtmosphereDensity,
+        .oceanCoverage = 0.54f,
+        .iceCoverage = 0.08f,
+        .cloudCoverage = 0.52f,
+        .seasonalHumidityBias = 0.24f,
+        .windStrength = 0.44f,
+        .prevailingWindAngle = 0.75f,
+        .hasSolidSurface = true
+    };
+}
+
+static void InstallHomeSurface(void)
+{
+    const WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .seed = 0x68b32f19u
+        }
+    };
+    WorldInstallSurfaceSnapshot(&snapshot);
+}
+
+static void InstallPlanetSurface(void)
+{
+    const WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_PLANET,
+            .bodyId = 7u,
+            .seed = 0x2938a4d1u
+        },
+        .planetProfile = TestPlanetProfile()
+    };
+    WorldInstallSurfaceSnapshot(&snapshot);
+}
+
+// weather_presentation still consumes the narrow space-facing presentation
+// queries; keep its focused-test adapters backed by the installed snapshot.
+bool HomeWorldSurfaceIsActive(void)
+{
+    return WorldCurrentSurfaceSnapshot()->context.kind == WORLD_SURFACE_HOME;
+}
+
+bool PlanetWorldIsActive(void)
+{
+    return WorldCurrentSurfaceSnapshot()->context.kind == WORLD_SURFACE_PLANET;
+}
+
+const PlanetProfile *PlanetWorldProfile(void)
+{
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    return snapshot->context.kind == WORLD_SURFACE_PLANET
+        ? &snapshot->planetProfile : NULL;
+}
 
 static void CaptureGameEffects(void)
 {
@@ -60,28 +122,8 @@ static void TestWeatherCycle(void)
 
 static void TestWeatherUpdate(float dt, Vector3 position)
 {
-    WeatherUpdate(dt, position);
+    WeatherUpdate(dt, position, simulationTime);
     CaptureGameEffects();
-}
-
-double SpaceSimulationTime(void)
-{
-    return simulationTime;
-}
-
-double SpaceElapsedSimulationTime(void)
-{
-    return simulationTime;
-}
-
-bool PlanetWorldIsActive(void)
-{
-    return planetWorldActive;
-}
-
-bool HomeWorldSurfaceIsActive(void)
-{
-    return homeWorldSurfaceActive && !planetWorldActive;
 }
 
 bool WorldNetherIsActive(void)
@@ -101,60 +143,19 @@ float PlanetWorldAtmosphereFade(Vector3 position)
     return 0.0f;
 }
 
-const PlanetProfile *PlanetWorldProfile(void)
+static bool TestSurfaceLightAt(Vector3 position, double sampleTime,
+                               WeatherSurfaceLightSample *out,
+                               void *userData)
 {
-    static PlanetProfile profile = {
-        .style = SOLAR_STYLE_TEMPERATE,
-        .atmosphereType = PLANET_ATMOSPHERE_BREATHABLE,
-        .equilibriumTempK = 288.0f,
-        .surfacePressureAtm = 1.0f,
-        .atmosphereDensity = 0.62f,
-        .oceanCoverage = 0.54f,
-        .iceCoverage = 0.08f,
-        .cloudCoverage = 0.52f,
-        .seasonalHumidityBias = 0.24f,
-        .windStrength = 0.44f,
-        .prevailingWindAngle = 0.75f
-    };
-    profile.atmosphereType = planetAtmosphereType;
-    profile.atmosphereDensity = planetAtmosphereDensity;
-    return &profile;
-}
-
-bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out)
-{
-    (void)surfacePosition;
+    (void)position;
+    (void)sampleTime;
+    (void)userData;
     if (!out) return false;
-    *out = (PlanetLightState){
+    *out = (WeatherSurfaceLightSample){
         .daylight = lightDaylight,
-        .eclipse = lightEclipse,
-        .sourceCount = 1,
-        .totalIntensity = 1.0f
+        .eclipse = lightEclipse
     };
     return true;
-}
-
-bool PlanetWorldLightStateAtTime(Vector3 surfacePosition,
-                                 double sampleTime,
-                                 PlanetLightState *out)
-{
-    (void)sampleTime;
-    return PlanetWorldLightStateAt(surfacePosition, out);
-}
-
-uint32_t PlanetWorldSeed(void)
-{
-    return 0x2938a4d1u;
-}
-
-int PlanetWorldOriginX(void)
-{
-    return 0;
-}
-
-int PlanetWorldOriginZ(void)
-{
-    return 0;
 }
 
 PlanetSurfaceSample PlanetSurfaceAtTime(int x, int z,
@@ -210,28 +211,27 @@ int WorldSurfaceHeightAt(int x, int z)
 
 int WorldSurfaceMapOriginX(void)
 {
-    return 0;
+    return WorldCurrentSurfaceSnapshot()->context.originX;
 }
 
 int WorldSurfaceMapOriginZ(void)
 {
-    return 0;
+    return WorldCurrentSurfaceSnapshot()->context.originZ;
 }
 
 uint32_t WorldCurrentSurfaceId(void)
 {
-    return planetWorldActive ? PlanetWorldSeed() : 0u;
+    return WorldCurrentSurfaceSnapshot()->context.bodyId;
 }
 
 uint32_t WorldGetSeed(void)
 {
-    return 0x68b32f19u;
+    return WorldCurrentSurfaceSnapshot()->context.seed;
 }
 
 static void ResetRuntime(void)
 {
     simulationTime = 120.0;
-    planetWorldActive = false;
     particleEmissions = 0;
     biomeSamples = 0;
     planetSurfaceSamples = 0;
@@ -239,25 +239,26 @@ static void ResetRuntime(void)
     rainAudioEnabled = false;
     lightDaylight = 0.5f;
     lightEclipse = 0.0f;
-    homeWorldSurfaceActive = true;
     planetAtmosphereType = PLANET_ATMOSPHERE_BREATHABLE;
     planetAtmosphereDensity = 0.62f;
+    InstallHomeSurface();
     GameEffectsReset();
     TestWeatherInit();
+    WeatherSetSurfaceLightProvider(TestSurfaceLightAt, NULL);
     audioChanges = 0;
 }
 
 static void TestPlanetLightFeedbackChangesWeather(void)
 {
     ResetRuntime();
-    planetWorldActive = true;
+    InstallPlanetSurface();
     lightDaylight = 1.0f;
     TestWeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
     float sunlitPrecipitation = WeatherPrecipitationRate();
     float sunlitClouds = WeatherCloudCover();
 
     ResetRuntime();
-    planetWorldActive = true;
+    InstallPlanetSurface();
     lightDaylight = 0.0f;
     lightEclipse = 1.0f;
     TestWeatherUpdate(0.25f, (Vector3){ 4.0f, 20.0f, -8.0f });
@@ -388,6 +389,27 @@ static void TestInvalidSimulationTimeReturnsClearWeather(void)
     assert(particleEmissions == 0);
     assert(biomeSamples == 0);
     assert(planetSurfaceSamples == 0);
+}
+
+static void TestImplicitSamplingUsesLastUpdateTime(void)
+{
+    ResetRuntime();
+    simulationTime = 321.25;
+    TestWeatherUpdate(0.25f, (Vector3){ 1.0f, 20.0f, 2.0f });
+
+    WeatherFieldSample implicit = WeatherFieldSampleAtWorld(17, -23);
+    WeatherFieldSample explicit = WeatherFieldSampleAtWorldTime(
+        17, -23, simulationTime);
+    float implicitWind = WeatherWindAngleAtWorld(17, -23);
+    float explicitWind = WeatherWindAngleAtWorldTime(
+        17, -23, simulationTime);
+    assert(memcmp(&implicit, &explicit, sizeof(implicit)) == 0);
+    assert(implicitWind == explicitWind);
+
+    simulationTime += 97.0;
+    WeatherFieldSample unchanged = WeatherFieldSampleAtWorld(17, -23);
+    assert(memcmp(&implicit, &unchanged, sizeof(implicit)) == 0);
+    assert(WeatherWindAngleAtWorld(17, -23) == implicitWind);
 }
 
 static void TestExtremeWorldCellsReturnSafeDefaults(void)
@@ -523,9 +545,9 @@ static void TestVisualStateSafeFallbacks(void)
     assert(!invalid.active);
     assert(invalid.visibility == 1.0f);
 
-    planetWorldActive = true;
     planetAtmosphereType = PLANET_ATMOSPHERE_NONE;
     planetAtmosphereDensity = 0.0f;
+    InstallPlanetSurface();
     WeatherVisualState airless = WeatherVisualStateAtWorld(
         (Vector3){ 4.0f, 20.0f, -8.0f }, simulationTime, 0.5f);
     assert(!airless.active);
@@ -677,6 +699,7 @@ int main(void)
     TestLongRunStaysFiniteAndBounded();
     TestInvalidPositionsAvoidSamplingAndEmission();
     TestInvalidSimulationTimeReturnsClearWeather();
+    TestImplicitSamplingUsesLastUpdateTime();
     TestExtremeWorldCellsReturnSafeDefaults();
     TestWeatherCanonicalAliases();
     TestVisualStateUsesWeatherFieldWithoutMutation();

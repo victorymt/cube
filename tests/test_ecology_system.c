@@ -276,7 +276,8 @@ static void TestEcologyUsesPositionLocalWeather(void)
     for (int index = 0; index < 512; index++) {
         int x = index * 37 - 4096;
         int z = ((index * index * 53) % 8192) - 4096;
-        WeatherFieldSample sample = WeatherFieldSampleAtWorld(x, z);
+        WeatherFieldSample sample = WeatherFieldSampleAtWorldTime(
+            x, z, SpaceElapsedSimulationTime());
         if (sample.cloudCover > localWeather.cloudCover) {
             localX = x;
             localZ = z;
@@ -297,7 +298,8 @@ static void TestEcologyUsesPositionLocalWeather(void)
         usableDaylight * (float)PlanetWorldProfile()->receivedIrradiance));
     assert(fabsf(local.environment.currentUsableLight - expectedLight) < 0.00001f);
 
-    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(localX, localZ);
+    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorldTime(
+        localX, localZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology replay = PlanetEcologyLocalAt(localX, localZ, 0.84f);
     assert(memcmp(&localWeather, &replayWeather, sizeof(localWeather)) == 0);
     AssertLocalEcologyEqual(replay, local);
@@ -354,7 +356,8 @@ static void TestEcologyCacheInvalidation(void)
     for (int index = 0; index < sampleCount; index++) {
         int x = index * 83 - 900;
         int z = index * index * 19 - 700;
-        firstWeather[index] = WeatherFieldSampleAtWorld(x, z);
+        firstWeather[index] = WeatherFieldSampleAtWorldTime(
+            x, z, SpaceElapsedSimulationTime());
         firstOrigin[index] = PlanetEcologyLocalAt(x, z, 0.74f);
         AssertLocalEcologyEqual(
             PlanetEcologyLocalAt(x, z, 0.74f), firstOrigin[index]);
@@ -371,7 +374,8 @@ static void TestEcologyCacheInvalidation(void)
     for (int index = 0; index < sampleCount; index++) {
         int x = index * 83 - 900;
         int z = index * index * 19 - 700;
-        WeatherFieldSample movedWeather = WeatherFieldSampleAtWorld(x, z);
+        WeatherFieldSample movedWeather = WeatherFieldSampleAtWorldTime(
+            x, z, SpaceElapsedSimulationTime());
         PlanetLocalEcology moved = PlanetEcologyLocalAt(x, z, 0.74f);
         movedOrigin[index] = moved;
         if (LocalEcologyDiffers(moved, firstOrigin[index])) {
@@ -415,13 +419,13 @@ static void TestEcologyCrossSeedReplay(void)
         EcologyTestSetSeed(seed);
         EcologyTestActivatePlanet(seed, originX, originZ);
 
-        WeatherFieldSample firstWeather = WeatherFieldSampleAtWorld(
-            sampleX, sampleZ);
+        WeatherFieldSample firstWeather = WeatherFieldSampleAtWorldTime(
+            sampleX, sampleZ, SpaceElapsedSimulationTime());
         PlanetLocalEcology firstEcology = PlanetEcologyLocalAt(
             sampleX, sampleZ, 0.66f);
         EcologyTestActivatePlanet(seed, originX, originZ);
-        WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(
-            sampleX, sampleZ);
+        WeatherFieldSample replayWeather = WeatherFieldSampleAtWorldTime(
+            sampleX, sampleZ, SpaceElapsedSimulationTime());
         PlanetLocalEcology replayEcology = PlanetEcologyLocalAt(
             sampleX, sampleZ, 0.66f);
 
@@ -450,8 +454,10 @@ static void TestEcologySaveLoadReplay(void)
     EcologyTestActivatePlanet(seed, -2048, 1024);
     SpaceAdvanceTime(163.5f);
 
-    WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
-    float beforeWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
+    WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
+    float beforeWindAngle = WeatherWindAngleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology beforeEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
 
     FILE *file = tmpfile();
@@ -470,18 +476,23 @@ static void TestEcologySaveLoadReplay(void)
     EcologyTestSetSeed(loadedSeed);
     assert(SpaceLoadState(file));
     assert(PlanetWorldLoadState(file));
+    EcologyTestSyncWorldSnapshot();
     assert(PlanetEcologyLoadState(file));
 
-    WeatherFieldSample afterWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
-    float afterWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
+    WeatherFieldSample afterWeather = WeatherFieldSampleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
+    float afterWindAngle = WeatherWindAngleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology afterEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
     assert(memcmp(&beforeWeather, &afterWeather, sizeof(beforeWeather)) == 0);
     assert(beforeWindAngle == afterWindAngle);
     AssertLocalEcologyEqual(afterEcology, beforeEcology);
 
     SpaceAdvanceTime(19.75f);
-    WeatherFieldSample continuedWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
-    float continuedWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
+    WeatherFieldSample continuedWeather = WeatherFieldSampleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
+    float continuedWindAngle = WeatherWindAngleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology continuedEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
 
     rewind(file);
@@ -489,10 +500,13 @@ static void TestEcologySaveLoadReplay(void)
     EcologyTestSetSeed(loadedSeed);
     assert(SpaceLoadState(file));
     assert(PlanetWorldLoadState(file));
+    EcologyTestSyncWorldSnapshot();
     assert(PlanetEcologyLoadState(file));
     SpaceAdvanceTime(19.75f);
-    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(sampleX, sampleZ);
-    float replayWindAngle = WeatherWindAngleAtWorld(sampleX, sampleZ);
+    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
+    float replayWindAngle = WeatherWindAngleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology replayEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
     assert(memcmp(&continuedWeather, &replayWeather,
                   sizeof(continuedWeather)) == 0);
@@ -554,8 +568,8 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
         &generated, generated.seed, darkSide);
     assert(memcmp(&beforeProfile, &directlyDerived,
                   sizeof(beforeProfile)) == 0);
-    WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorld(
-        sampleX, sampleZ);
+    WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology beforeLocal = PlanetEcologyLocalAt(
         sampleX, sampleZ, 0.68f);
 
@@ -574,8 +588,8 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
     PlanetEcologyProfile afterProfile = PlanetEcologyCurrent();
     assert(memcmp(&afterProfile, &beforeProfile,
                   sizeof(beforeProfile)) == 0);
-    WeatherFieldSample afterWeather = WeatherFieldSampleAtWorld(
-        sampleX, sampleZ);
+    WeatherFieldSample afterWeather = WeatherFieldSampleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology afterLocal = PlanetEcologyLocalAt(
         sampleX, sampleZ, 0.68f);
     assert(memcmp(&afterWeather, &beforeWeather,
@@ -583,16 +597,16 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
     AssertLocalEcologyEqual(afterLocal, beforeLocal);
 
     SpaceAdvanceTime(23.75f);
-    WeatherFieldSample continuedWeather = WeatherFieldSampleAtWorld(
-        sampleX, sampleZ);
+    WeatherFieldSample continuedWeather = WeatherFieldSampleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology continuedLocal = PlanetEcologyLocalAt(
         sampleX, sampleZ, 0.68f);
 
     EcologyTestSetSeed(galaxySeed);
     EcologyTestLoadSimulationState(stateFile);
     SpaceAdvanceTime(23.75f);
-    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorld(
-        sampleX, sampleZ);
+    WeatherFieldSample replayWeather = WeatherFieldSampleAtWorldTime(
+        sampleX, sampleZ, SpaceElapsedSimulationTime());
     PlanetLocalEcology replayLocal = PlanetEcologyLocalAt(
         sampleX, sampleZ, 0.68f);
     assert(memcmp(&replayWeather, &continuedWeather,
@@ -1271,6 +1285,7 @@ static void TestHomeWorldEcologyAndEvolution(void)
     const float daylight = 0.72f;
     SpaceReset();
     EcologyTestSetSeed(0x13579bdfu);
+    EcologyTestSyncWorldSnapshot();
     PlanetEcologyResetState();
     assert(HomeWorldSurfaceIsActive());
 

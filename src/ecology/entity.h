@@ -143,7 +143,8 @@ typedef struct EntityEvolutionDebugInfo {
 } EntityEvolutionDebugInfo;
 
 void EntitiesInit(void);
-void EntitiesUpdate(float dt, const Player *player, float daylight);
+void EntitiesUpdate(float dt, const Player *player, float daylight,
+                    double simulationTime);
 void EntitiesApplyWeatherHazards(float dt, WeatherFieldSample weather,
                                  float daylight);
 void EntitiesApplyTornadoHazards(float dt, const TornadoState *tornado,

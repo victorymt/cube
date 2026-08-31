@@ -245,7 +245,7 @@ static bool ChunkRemoveTerrainSection(Chunk *chunk, int sectionY)
 
 int PruneDistantNegativeTerrainSections(int playerSectionY)
 {
-    if (!HomeWorldSurfaceIsActive()) return 0;
+    if (WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME) return 0;
 
     int pruned = 0;
     for (int slotIndex = 0; slotIndex < MAX_ACTIVE_CHUNKS; slotIndex++) {
@@ -385,7 +385,7 @@ void CurveChunkFloraInstances(
 
 int CancelDistantNegativeSectionJobs(int playerSectionY)
 {
-    if (!HomeWorldSurfaceIsActive()) return 0;
+    if (WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME) return 0;
 
     int canceled = 0;
     pthread_mutex_lock(&genMutex);

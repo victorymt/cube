@@ -32,7 +32,8 @@ TEST_RAYLIB_CFLAGS_$2 := $8
 TEST_RAYLIB_LIBS_$2 := $9
 endef
 
-$(eval $(call define_test,TEST_TARGET,test_world_environment,src/world/world_environment.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,TEST_TARGET,test_world_environment,src/world/world_environment.c src/world/surface_topology.c $(WORLD_SURFACE_SNAPSHOT_SRC),,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WORLD_SURFACE_SNAPSHOT_TEST_TARGET,test_world_surface_snapshot,$(WORLD_SURFACE_SNAPSHOT_SRC),,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WORLD_ECOLOGY_HOOKS_TEST_TARGET,test_world_ecology_hooks,src/world/ecology_hooks.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_SURFACE_TEST_TARGET,test_planet_surface,src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c src/space/space_illumination.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_MATERIAL_TEST_TARGET,test_planet_material,src/space/planet_material.c,,,, -lm,$(RAYLIB_CFLAGS),))
@@ -129,8 +130,8 @@ $(eval $(call define_test,HYDROLOGY_RUNTIME_TEST_TARGET,test_hydrology_runtime,s
 $(eval $(call define_test,BLOCK_MATERIAL_TEST_TARGET,test_block_material,,,,,,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,LOCAL_CLIMATE_TEST_TARGET,test_local_climate,src/world/local_climate.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_MODEL_TEST_TARGET,test_weather_model,src/world/weather_model.c,,,, -lm,,))
-$(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c src/ecology/flora_taxa.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/core/simulation_time.c src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/world/radiation_runtime.c src/world/radiation_balance.c src/world/surface_topology.c src/presentation/weather_visual.c src/presentation/weather_presentation.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c src/ecology/flora_taxa.c src/world/surface_topology.c $(WORLD_SURFACE_SNAPSHOT_SRC),,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/core/simulation_time.c src/world/weather.c src/world/weather_model.c src/world/local_climate.c src/world/radiation_runtime.c src/world/radiation_balance.c src/world/surface_topology.c src/presentation/weather_visual.c src/presentation/weather_presentation.c $(GAME_EFFECTS_SRC) $(WORLD_SURFACE_SNAPSHOT_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_VISUAL_TEST_TARGET,test_weather_visual,src/presentation/weather_visual.c,,,, -lm,,))
 $(eval $(call define_test,WEATHER_OPTICS_TEST_TARGET,test_weather_optics,src/presentation/weather_optics.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WILDFIRE_MODEL_TEST_TARGET,test_wildfire_model,src/world/wildfire_model.c,,,, -lm,,))
@@ -145,7 +146,7 @@ $(eval $(call define_test,SHIP_STATE_TEST_TARGET,test_ship_state,src/gameplay/sh
 $(eval $(call define_test,SHIP_FLIGHT_CONTROLLER_TEST_TARGET,test_ship_flight_controller,src/gameplay/ship_flight_controller.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SHIP_EXHAUST_TEST_TARGET,test_ship_exhaust,src/gameplay/ship_exhaust.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SHIP_LOCATOR_TEST_TARGET,test_ship_locator,src/gameplay/ship_locator.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,BLOCK_ATLAS_TEST_TARGET,test_block_atlas,$(BLOCK_ATLAS_FEATURE_SRC) src/world/world.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
+$(eval $(call define_test,BLOCK_ATLAS_TEST_TARGET,test_block_atlas,$(BLOCK_ATLAS_FEATURE_SRC) src/world/world.c $(WORLD_SURFACE_SNAPSHOT_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,INVENTORY_TEST_TARGET,test_inventory,src/gameplay/inventory.c,,,,,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,ALBUM_TEST_TARGET,test_album,src/gameplay/album.c,,,,,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,CHUNK_ATLAS_TEST_TARGET,test_chunk_atlas,src/core/simulation_time.c $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) src/world/world.c,,-DCHUNKS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))

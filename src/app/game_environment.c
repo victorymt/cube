@@ -19,10 +19,55 @@
 #include "world/weather_impact.h"
 #include "world/tornado.h"
 #include "world/world.h"
+#include "world/world_surface_snapshot.h"
 
 #include "raymath.h"
 
 #include <math.h>
+
+void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed)
+{
+    WorldSurfaceSnapshot snapshot = { 0 };
+    if (PlanetWorldIsActive()) {
+        snapshot.context.kind = WORLD_SURFACE_PLANET;
+        snapshot.context.bodyId = PlanetWorldSeed();
+        snapshot.context.seed = PlanetWorldSeed();
+        const PlanetProfile *profile = PlanetWorldProfile();
+        if (profile) snapshot.planetProfile = *profile;
+    } else if (HomeWorldSurfaceIsActive()) {
+        snapshot.context.kind = WORLD_SURFACE_HOME;
+        snapshot.context.seed = homeWorldSeed;
+    } else {
+        snapshot.context.kind = WORLD_SURFACE_NONE;
+        snapshot.context.seed = homeWorldSeed;
+    }
+    snapshot.context.active = snapshot.context.kind != WORLD_SURFACE_NONE;
+    snapshot.context.originX = 0;
+    snapshot.context.originZ = 0;
+    WorldInstallSurfaceSnapshot(&snapshot);
+}
+
+static bool GameWeatherSurfaceLightAt(
+    Vector3 surfacePosition, double simulationTime,
+    WeatherSurfaceLightSample *outSample, void *userData)
+{
+    (void)userData;
+    if (!outSample) return false;
+    *outSample = (WeatherSurfaceLightSample){ 0 };
+    PlanetLightState light = { 0 };
+    if (!PlanetWorldLightStateAtTime(
+            surfacePosition, simulationTime, &light)) {
+        return false;
+    }
+    outSample->daylight = light.daylight;
+    outSample->eclipse = light.eclipse;
+    return true;
+}
+
+void GameInstallWeatherSurfaceLightProvider(void)
+{
+    WeatherSetSurfaceLightProvider(GameWeatherSurfaceLightAt, NULL);
+}
 
 bool GameEnvironmentSheltered(Vector3 position)
 {
@@ -95,7 +140,8 @@ static void GameAdvanceFrameSimulation(GameRuntime *game,
     if (!GameWorldSimulationPaused(game)) {
         double floraStarted = game->debugTraceEnabled
             ? GameDebugTraceMainCpuNowMs() : 0.0;
-        ChunksUpdateEcologyVisuals(frame->dt, frame->daylight);
+        ChunksUpdateEcologyVisuals(
+            frame->dt, frame->daylight, frame->weatherSimulationTime);
         if (game->debugTraceEnabled) {
             frame->debugFloraVisualsMainCpuMs =
                 GameDebugTraceMainCpuNowMs() - floraStarted;
@@ -106,7 +152,8 @@ static void GameAdvanceFrameSimulation(GameRuntime *game,
         !game->landingTransition.active && frame->localWorldActive) {
         double entitiesStarted = game->debugTraceEnabled
             ? GameDebugTraceMainCpuNowMs() : 0.0;
-        EntitiesUpdate(frame->dt, &game->player, frame->daylight);
+        EntitiesUpdate(frame->dt, &game->player, frame->daylight,
+                       frame->weatherSimulationTime);
         if (game->debugTraceEnabled) {
             frame->debugEntitiesMainCpuMs =
                 GameDebugTraceMainCpuNowMs() - entitiesStarted;

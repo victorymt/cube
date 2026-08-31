@@ -3,6 +3,7 @@
 #include "world/fluid.h"
 #include "world/surface_topology.h"
 #include "world/world.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <math.h>
@@ -43,10 +44,22 @@ static void ResetGrid(BlockType ground)
     surfaceLoaded = true;
 }
 
-uint32_t WorldGetSeed(void) { return 0x45a19c7du; }
-uint32_t WorldCurrentSurfaceId(void) { return 7u; }
-bool WorldIsSurfaceActive(void) { return true; }
-bool PlanetWorldIsActive(void) { return false; }
+uint32_t WorldGetSeed(void)
+{
+    return WorldCurrentSurfaceSnapshot()->context.seed;
+}
+uint32_t WorldCurrentSurfaceId(void)
+{
+    return WorldCurrentSurfaceSnapshot()->context.bodyId;
+}
+bool WorldIsSurfaceActive(void)
+{
+    return WorldCurrentSurfaceSnapshot()->context.active;
+}
+WorldSurfaceContext WorldCurrentSurfaceContext(void)
+{
+    return WorldCurrentSurfaceSnapshot()->context;
+}
 int PlanetTerrainHeight(int x, int z) { (void)x; (void)z; return 10; }
 int WorldSurfaceHeightAt(int x, int z) { (void)x; (void)z; return 10; }
 
@@ -736,6 +749,15 @@ static void TestLegacyMigrationAndTransactionalFailure(void)
 
 int main(void)
 {
+    const WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .bodyId = 7u,
+            .seed = 0x45a19c7du
+        }
+    };
+    WorldInstallSurfaceSnapshot(&snapshot);
     TestRainBudgetAndDisable();
     TestFireAndRainInteraction();
     TestIgnitionQueriesAndLoadedBounds();

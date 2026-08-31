@@ -57,11 +57,28 @@ callback; `app/game_biology.c` adapts the ecology component to those hooks.
 Terrain generation and chunk visuals therefore no longer include or call the
 high-level ecology runtime API directly.
 
+Active surface state follows a value-snapshot boundary.
+`world/world_surface_snapshot.h` owns the surface identity, canonical map
+origin, generation seed, and copied planet profile consumed by world systems.
+The app composition root derives that snapshot from the space component and
+installs it only while chunk generation is drained, including startup, new
+world, load/rollback, landing, launch, and debug transitions. World code no
+longer imports `space/space_state.h` or calls the high-level home/planet state
+getters while generating terrain, weather, and chunks.
+
+Simulation time and planet lighting remain explicit inputs rather than hidden
+state lookups. The app passes one periodic simulation time through
+`WeatherUpdate`, chunk ecology visuals, and entity ecology sampling; legacy
+weather sampling wrappers use the most recent update time. Planet illumination
+enters weather through the neutral `WeatherSurfaceLightProvider` callback, with
+finite clamped values at the boundary.
+
 ## Verification
 
 - `make test-modules` builds all seven archives.
 - `make component-world` demonstrates an isolated component build.
 - `make test-architecture` checks archive composition, independent targets,
-  include boundaries, and private-state rules.
+  include boundaries, private-state rules, and rejects world regressions to
+  high-level space state access.
 - `make test` and `make test-sanitize` cover the composed executable and the
   component-level unit-test matrix.

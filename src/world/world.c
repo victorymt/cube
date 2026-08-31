@@ -4,7 +4,6 @@
 #include "world/block_catalog.h"
 #include "world/chunks.h"
 #include "space/space_chunks.h"
-#include "space/space_state.h"
 #include "world/nether.h"
 #include "world/terrain.h"
 #include "world/world_environment.h"
@@ -787,7 +786,7 @@ static BlockType GetSurfaceBlockAt(int x, int y, int z)
     if (!chunk) return BLOCK_AIR;
 
     if (ChunkTryGetLocalBlock(chunk, lx, y, lz, &block)) return block;
-    return HomeWorldSurfaceIsActive()
+    return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_HOME
         ? TerrainBaseBlockAt(x, y, z, WorldTerrainMode())
         : BLOCK_AIR;
 }
@@ -812,7 +811,7 @@ static bool MaterializeHomeSurfaceSectionForWrite(
 {
     if (!chunk || ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY) ||
-        !HomeWorldSurfaceIsActive()) {
+        WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME) {
         return chunk != NULL;
     }
     if (!GenerateChunkTerrainSectionBase(

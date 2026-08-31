@@ -3,6 +3,7 @@
 #include "world/terrain_geology_internal.h"
 #include "world/terrain_home_materials_internal.h"
 #include "world/ecology_hooks.h"
+#include "world/world_surface_snapshot.h"
 #include "ecology/flora_taxa.h"
 
 #include <assert.h>
@@ -14,8 +15,6 @@
 #include <string.h>
 
 static uint32_t terrainSeed = DEFAULT_WORLD_SEED;
-static bool planetWorldActive = false;
-static PlanetProfile planetProfile = { 0 };
 
 bool WorldIsSurfaceActive(void)
 {
@@ -45,26 +44,6 @@ uint32_t WorldGetSeed(void)
 TerrainMode WorldTerrainMode(void)
 {
     return TERRAIN_VARIED;
-}
-
-bool PlanetWorldIsActive(void)
-{
-    return planetWorldActive;
-}
-
-uint32_t PlanetWorldSeed(void)
-{
-    return planetWorldActive ? planetProfile.seed : terrainSeed;
-}
-
-SolarBodyStyle PlanetWorldStyle(void)
-{
-    return planetWorldActive ? planetProfile.style : SOLAR_STYLE_TEMPERATE;
-}
-
-const PlanetProfile *PlanetWorldProfile(void)
-{
-    return planetWorldActive ? &planetProfile : NULL;
 }
 
 BlockType GetBlockAt(int x, int y, int z)
@@ -143,7 +122,7 @@ static bool TestFloraCapacityAt(
 
 static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
 {
-    planetProfile = (PlanetProfile){
+    const PlanetProfile planetProfile = {
         .seed = seed,
         .canonicalBodyId = 0u,
         .style = style,
@@ -180,7 +159,16 @@ static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
         .hasRings = false,
         .tidallyLocked = false
     };
-    planetWorldActive = true;
+    const WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_PLANET,
+            .bodyId = 0x91u,
+            .seed = seed
+        },
+        .planetProfile = planetProfile
+    };
+    WorldInstallSurfaceSnapshot(&snapshot);
     const WorldEcologyHooks hooks = {
         .floraCapacityAt = TestFloraCapacityAt
     };
@@ -189,8 +177,14 @@ static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
 
 static void DeactivateTestPlanet(void)
 {
-    planetWorldActive = false;
-    planetProfile = (PlanetProfile){ 0 };
+    const WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .seed = terrainSeed
+        }
+    };
+    WorldInstallSurfaceSnapshot(&snapshot);
     WorldInstallEcologyHooks(NULL);
 }
 
@@ -1578,6 +1572,7 @@ static void TestTerrainSectionExposureClassification(void)
 
 int main(void)
 {
+    DeactivateTestPlanet();
     assert(SURFACE_WORLD_HEIGHT == 256);
     assert(SURFACE_SECTION_HEIGHT == 16);
     assert(SURFACE_MIN_Y == -16384);

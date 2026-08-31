@@ -1,16 +1,11 @@
 #include "world/world_environment.h"
 #include "world/terrain.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-
-static bool homeSurfaceActive = true;
-static bool planetWorldActive = false;
-static float planetGravityScale = 1.0f;
-static uint32_t planetSeed = 0u;
-static uint32_t worldSeed = DEFAULT_WORLD_SEED;
 
 TerrainMode terrainMode = TERRAIN_VARIED;
 
@@ -22,41 +17,6 @@ TerrainMode WorldTerrainMode(void)
 void WorldSetTerrainMode(TerrainMode mode)
 {
     terrainMode = mode;
-}
-
-bool HomeWorldSurfaceIsActive(void)
-{
-    return homeSurfaceActive && !planetWorldActive;
-}
-
-bool PlanetWorldIsActive(void)
-{
-    return planetWorldActive;
-}
-
-float PlanetWorldGravityScale(void)
-{
-    return planetWorldActive ? planetGravityScale : 1.0f;
-}
-
-uint32_t PlanetWorldSeed(void)
-{
-    return planetSeed;
-}
-
-uint32_t WorldGetSeed(void)
-{
-    return worldSeed;
-}
-
-int PlanetWorldOriginX(void)
-{
-    return planetWorldActive ? 1200 : 0;
-}
-
-int PlanetWorldOriginZ(void)
-{
-    return planetWorldActive ? -340 : 0;
 }
 
 int TerrainHeight(int x, int z, TerrainMode mode)
@@ -91,19 +51,33 @@ BathymetrySample PlanetBathymetryAt(int x, int z)
     };
 }
 
-static void SetEnvironment(bool homeActive, bool planetActive,
-                           float gravityScale, uint32_t seed)
+static void SetEnvironment(WorldSurfaceKind kind, float gravityScale,
+                           uint32_t bodyId, uint32_t seed,
+                           int originX, int originZ)
 {
-    homeSurfaceActive = homeActive;
-    planetWorldActive = planetActive;
-    planetGravityScale = gravityScale;
-    planetSeed = seed;
+    const WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = kind != WORLD_SURFACE_NONE,
+            .kind = kind,
+            .bodyId = bodyId,
+            .seed = seed,
+            .originX = originX,
+            .originZ = originZ
+        },
+        .planetProfile = {
+            .seed = seed,
+            .style = SOLAR_STYLE_TEMPERATE,
+            .surfaceGravity = gravityScale,
+            .hasSolidSurface = true
+        }
+    };
+    WorldInstallSurfaceSnapshot(&snapshot);
     WorldSetNetherActive(false);
 }
 
 static void TestBlockRegions(void)
 {
-    SetEnvironment(true, false, 1.0f, 0u);
+    SetEnvironment(WORLD_SURFACE_HOME, 1.0f, 0u, DEFAULT_WORLD_SEED, 0, 0);
     assert(WorldSurfaceMinY() == SURFACE_MIN_Y);
     assert(WorldSurfaceMaxYExclusive() == SURFACE_MAX_Y_EXCLUSIVE);
     assert(strcmp(WorldDimensionName(WORLD_DIMENSION_HOME), "home") == 0);
@@ -129,7 +103,7 @@ static void TestBlockRegions(void)
     assert(WorldBlockRegionAt(WORLD_HEIGHT - 1) == WORLD_BLOCK_REGION_SURFACE);
     assert(WorldBlockRegionAt(WORLD_HEIGHT) == WORLD_BLOCK_REGION_SURFACE);
 
-    SetEnvironment(false, false, 1.0f, 0u);
+    SetEnvironment(WORLD_SURFACE_NONE, 1.0f, 0u, DEFAULT_WORLD_SEED, 0, 0);
     assert(WorldBlockRegionAt(SPACE_LAYER_Y) == WORLD_BLOCK_REGION_SPACE);
     assert(WorldBlockRegionAt(SPACE_LAYER_TOP - 1) == WORLD_BLOCK_REGION_SPACE);
     assert(WorldBlockRegionAt(SPACE_LAYER_TOP) == WORLD_BLOCK_REGION_NONE);
@@ -137,7 +111,7 @@ static void TestBlockRegions(void)
 
 static void TestHomeAndNether(void)
 {
-    SetEnvironment(true, false, 1.0f, 0u);
+    SetEnvironment(WORLD_SURFACE_HOME, 1.0f, 0u, DEFAULT_WORLD_SEED, 0, 0);
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
     assert(context.active && context.kind == WORLD_SURFACE_HOME);
     assert(context.bodyId == 0u && context.seed == DEFAULT_WORLD_SEED);
@@ -178,10 +152,18 @@ static void TestHomeAndNether(void)
 
 static void TestPlanet(void)
 {
-    SetEnvironment(false, true, 1.35f, 0x1234u);
+    SetEnvironment(WORLD_SURFACE_PLANET, 1.35f, 0x91u, 0x1234u,
+                   1200, -340);
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
     assert(context.active && context.kind == WORLD_SURFACE_PLANET);
-    assert(context.bodyId == 0x1234u && context.seed == 0x1234u);
+    assert(context.bodyId == 0x91u && context.seed == 0x1234u);
+    assert(context.bodyId != context.seed);
+    assert(context.originX == 1200 && context.originZ == -340);
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    assert(snapshot->context.bodyId == 0x91u);
+    assert(snapshot->planetProfile.seed == 0x1234u);
+    assert(snapshot->planetProfile.style == SOLAR_STYLE_TEMPERATE);
+    assert(fabsf(snapshot->planetProfile.surfaceGravity - 1.35f) < 0.001f);
     assert(WorldSurfaceMinY() == SURFACE_GENERATION_MIN_Y);
     assert(WorldSurfaceMaxYExclusive() ==
            SURFACE_GENERATION_MAX_Y_EXCLUSIVE);
@@ -189,7 +171,9 @@ static void TestPlanet(void)
     assert(WorldCurrentDimensionAt(-40.0f) == WORLD_DIMENSION_PLANET);
     assert(WorldIsSurfaceDimension(WorldCurrentDimension()));
     assert(WorldGravityScale() == 1.35f);
-    assert(WorldCurrentSurfaceId() == 0x1234u);
+    assert(WorldCurrentSurfaceId() == 0x91u);
+    assert(WorldSurfaceMapOriginX() == 1200);
+    assert(WorldSurfaceMapOriginZ() == -340);
     assert(WorldSurfaceHeightAt(7, 2) == 105);
     assert(!WorldCanAccessBlockY(-40));
     assert(WorldCanAccessBlockY(SURFACE_GENERATION_MIN_Y));
@@ -206,7 +190,7 @@ static void TestPlanet(void)
 
 static void TestSpace(void)
 {
-    SetEnvironment(false, false, 1.0f, 0u);
+    SetEnvironment(WORLD_SURFACE_NONE, 1.0f, 0u, DEFAULT_WORLD_SEED, 0, 0);
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
     assert(!context.active && context.kind == WORLD_SURFACE_NONE);
     assert(context.bodyId == 0u && context.seed == DEFAULT_WORLD_SEED);
@@ -228,7 +212,7 @@ static bool Near(float a, float b)
 
 static void TestSurfacePoseRebaseEvents(void)
 {
-    SetEnvironment(true, false, 1.0f, 0u);
+    SetEnvironment(WORLD_SURFACE_HOME, 1.0f, 0u, DEFAULT_WORLD_SEED, 0, 0);
     WorldResetSurfaceRebaseEvent();
     WorldSurfaceRebaseEvent event = WorldLastSurfaceRebaseEvent();
     assert(!event.valid && event.sequence == 0u);
@@ -261,7 +245,7 @@ static void TestSurfacePoseRebaseEvents(void)
 
     WorldResetSurfaceRebaseEvent();
     assert(!WorldLastSurfaceRebaseEvent().valid);
-    SetEnvironment(false, false, 1.0f, 0u);
+    SetEnvironment(WORLD_SURFACE_NONE, 1.0f, 0u, DEFAULT_WORLD_SEED, 0, 0);
     assert(!WorldCanonicalizeSurfacePose(&position, &velocity, &yaw));
     assert(!WorldLastSurfaceRebaseEvent().valid);
 }

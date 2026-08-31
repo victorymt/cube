@@ -12,9 +12,9 @@
 #include "raymath.h"
 #include "world/chunks.h"
 #include "world/ecology_hooks.h"
-#include "space/space_state.h"
 #include "world/world.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -907,7 +907,8 @@ static unsigned int PlanetHash2D(int localX, int localZ, unsigned int lane)
     int globalZ = canonical.z;
     unsigned int h = Hash2D(globalX + (int)(lane * 101u),
                             globalZ - (int)(lane * 173u));
-    h ^= PlanetWorldSeed() + 0x9e3779b9u + (h << 6) + (h >> 2);
+    h ^= WorldCurrentSurfaceSnapshot()->context.seed +
+         0x9e3779b9u + (h << 6) + (h >> 2);
     h ^= h >> 16;
     h *= 2246822519u;
     return h ^ (h >> 13);
@@ -945,20 +946,24 @@ void HomeSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude)
 
 PlanetSurfaceSample PlanetSurfaceBaselineAt(int x, int z)
 {
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
     float longitude = 0.0f;
     float latitude = 0.0f;
     PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
-    return PlanetSampleGlobalSurfaceBaseline(PlanetWorldSeed(), PlanetWorldProfile(),
-                                             longitude, latitude);
+    return PlanetSampleGlobalSurfaceBaseline(
+        snapshot->context.seed, &snapshot->planetProfile,
+        longitude, latitude);
 }
 
 PlanetSurfaceSample PlanetSurfaceAtTime(int x, int z, double simulationTime)
 {
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
     float longitude = 0.0f;
     float latitude = 0.0f;
     PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
-    return PlanetSampleGlobalSurfaceAtTime(PlanetWorldSeed(), PlanetWorldProfile(),
-                                           longitude, latitude, simulationTime);
+    return PlanetSampleGlobalSurfaceAtTime(
+        snapshot->context.seed, &snapshot->planetProfile,
+        longitude, latitude, simulationTime);
 }
 
 static PlanetSurfaceSample PlanetSampleLocalSurface(int x, int z, float *outX, float *outZ)
@@ -978,7 +983,8 @@ static float PlanetLocalSurfaceNoise(float mapX, float mapZ,
     SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
         mapX, mapZ);
     return PlanetSurfaceFractalNoiseAt(
-        PlanetWorldSeed(), projection.longitude, projection.latitude,
+        WorldCurrentSurfaceSnapshot()->context.seed,
+        projection.longitude, projection.latitude,
         SURFACE_RADIUS_BLOCKS * blockFrequency, lane);
 }
 
@@ -993,21 +999,30 @@ static int PlanetSeaLevelForProfile(SolarBodyStyle style,
 
 int PlanetTerrainSeaLevel(void)
 {
-    if (!PlanetWorldIsActive()) return TerrainSeaLevel(WorldTerrainMode());
-    return PlanetSeaLevelForProfile(PlanetWorldStyle(), PlanetWorldProfile());
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    if (snapshot->context.kind != WORLD_SURFACE_PLANET) {
+        return TerrainSeaLevel(WorldTerrainMode());
+    }
+    return PlanetSeaLevelForProfile(
+        snapshot->planetProfile.style, &snapshot->planetProfile);
 }
 
 PlanetBiome PlanetBiomeAt(int x, int z)
 {
-    if (!PlanetWorldIsActive()) return PLANET_BIOME_PLAINS;
+    if (WorldCurrentSurfaceSnapshot()->context.kind != WORLD_SURFACE_PLANET) {
+        return PLANET_BIOME_PLAINS;
+    }
     return PlanetSampleLocalSurface(x, z, NULL, NULL).biome;
 }
 
 int PlanetTerrainHeight(int x, int z)
 {
-    if (!PlanetWorldIsActive()) return TerrainHeight(x, z, WorldTerrainMode());
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    if (snapshot->context.kind != WORLD_SURFACE_PLANET) {
+        return TerrainHeight(x, z, WorldTerrainMode());
+    }
 
-    const PlanetProfile *profile = PlanetWorldProfile();
+    const PlanetProfile *profile = &snapshot->planetProfile;
     float fx = 0.0f;
     float fz = 0.0f;
     PlanetSurfaceSample surface = PlanetSampleLocalSurface(x, z, &fx, &fz);
@@ -1177,7 +1192,9 @@ int PlanetTerrainHeight(int x, int z)
 
 BathymetrySample PlanetBathymetryAt(int x, int z)
 {
-    if (!PlanetWorldIsActive()) return TerrainBathymetryAt(x, z, WorldTerrainMode());
+    if (WorldCurrentSurfaceSnapshot()->context.kind != WORLD_SURFACE_PLANET) {
+        return TerrainBathymetryAt(x, z, WorldTerrainMode());
+    }
 
     int seaLevel = PlanetTerrainSeaLevel();
     int height = PlanetTerrainHeight(x, z);
@@ -1205,7 +1222,8 @@ BathymetrySample PlanetBathymetryAt(int x, int z)
 static bool SurfaceLandingCandidate(int x, int z, int footprintRadius,
                                     int *outGroundY)
 {
-    bool planetSurface = PlanetWorldIsActive();
+    bool planetSurface =
+        WorldCurrentSurfaceSnapshot()->context.kind == WORLD_SURFACE_PLANET;
     int seaLevel = planetSurface ? PlanetTerrainSeaLevel()
                                  : TerrainSeaLevel(WorldTerrainMode());
     int surfaceMinY = planetSurface ? SURFACE_GENERATION_MIN_Y
@@ -1288,12 +1306,12 @@ BlockType TerrainTestPlanetSubsurfaceBlock(SolarBodyStyle style,
 #endif
 
 static SubsurfaceParams PlanetSubsurfaceParamsFor(
-    SolarBodyStyle style, const PlanetProfile *profile)
+    SolarBodyStyle style, const PlanetProfile *profile, uint32_t seed)
 {
     float roughness = profile ? profile->terrainRoughness : 1.0f;
     float oceanCoverage = profile ? profile->oceanCoverage : 0.0f;
     SubsurfaceParams params = {
-        .seed = PlanetWorldSeed(),
+        .seed = seed,
         .activity = Clamp(0.72f + roughness * 0.38f, 0.55f, 1.35f),
         .minY = 2,
         .surfaceClearance = 4,
@@ -1337,9 +1355,11 @@ TerrainSubsurfaceLiquidSummary TerrainSubsurfaceLiquidSummaryAt(
 {
     SubsurfaceParams params = HomeSubsurfaceParams();
     TerrainSubsurfaceLiquidKind kind = TERRAIN_SUBSURFACE_LIQUID_WATER;
-    if (PlanetWorldIsActive()) {
-        SolarBodyStyle style = PlanetWorldStyle();
-        params = PlanetSubsurfaceParamsFor(style, PlanetWorldProfile());
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    if (snapshot->context.kind == WORLD_SURFACE_PLANET) {
+        SolarBodyStyle style = snapshot->planetProfile.style;
+        params = PlanetSubsurfaceParamsFor(
+            style, &snapshot->planetProfile, snapshot->context.seed);
         if (style == SOLAR_STYLE_LAVA) {
             kind = TERRAIN_SUBSURFACE_LIQUID_LAVA;
         }
@@ -1593,14 +1613,16 @@ static void DecoratePlanetTerrainColumn(
 
 static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
 {
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
     ChunkClearBlockStorage(chunk);
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
-    SolarBodyStyle style = PlanetWorldStyle();
-    const PlanetProfile *profile = PlanetWorldProfile();
+    SolarBodyStyle style = snapshot->planetProfile.style;
+    const PlanetProfile *profile = &snapshot->planetProfile;
     PlanetChunkTerrainContext context = {
         .style = style,
-        .subsurface = PlanetSubsurfaceParamsFor(style, profile),
+        .subsurface = PlanetSubsurfaceParamsFor(
+            style, profile, snapshot->context.seed),
         .seaLevel = PlanetSeaLevelForProfile(style, profile)
     };
 
@@ -1888,7 +1910,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
     chunk->cx = cx;
     chunk->cz = cz;
     chunk->floraStructureCount = 0;
-    if (PlanetWorldIsActive()) {
+    if (WorldCurrentSurfaceSnapshot()->context.kind == WORLD_SURFACE_PLANET) {
         GeneratePlanetChunkTerrain(chunk, cx, cz);
         return;
     }
@@ -2028,7 +2050,8 @@ void ApplyEditsToChunk(Chunk *chunk)
             int sectionY = SurfaceSectionYFromBlockY(edit.y);
             if (!ChunkTerrainSectionIsResolved(chunk, sectionY) &&
                 !ChunkGetSectionConst(chunk, sectionY) &&
-                HomeWorldSurfaceIsActive() &&
+                WorldCurrentSurfaceSnapshot()->context.kind ==
+                    WORLD_SURFACE_HOME &&
                 !GenerateChunkTerrainSectionBase(
                     chunk, chunk->cx, chunk->cz, sectionY,
                     WorldTerrainMode())) {

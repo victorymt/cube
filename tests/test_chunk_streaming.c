@@ -7,6 +7,7 @@
 #include "world/world_environment.h"
 #include "world/world_extension.h"
 #include "world/world_persistence.h"
+#include "world/world_surface_snapshot.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -222,9 +223,9 @@ int WorldSurfaceMapOriginZ(void)
     return testSurfaceOriginZ;
 }
 
-bool HomeWorldSurfaceIsActive(void)
+WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
-    return true;
+    return WorldCurrentSurfaceSnapshot()->context;
 }
 
 bool WorldIsSurfaceActive(void)
@@ -1952,6 +1953,15 @@ static void TestPreloadJobsYieldToCurrentWork(void)
 
 int main(void)
 {
+    const WorldSurfaceSnapshot snapshot = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .bodyId = 1u,
+            .seed = DEFAULT_WORLD_SEED
+        }
+    };
+    WorldInstallSurfaceSnapshot(&snapshot);
     memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
     TestAdaptiveWorkerCountPolicy();
     TestFailedColumnGenerationReleasesSlot();

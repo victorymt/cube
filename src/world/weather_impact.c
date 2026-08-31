@@ -2,7 +2,6 @@
 
 #include "ecology/flora_taxa.h"
 
-#include "space/space_state.h"
 #include "world/fluid.h"
 #include "world/surface_topology.h"
 #include "world/terrain.h"
@@ -277,8 +276,8 @@ BlockType WeatherImpactResidueForFuel(BlockType fuel, float severity,
 
 static int ImpactGroundHeight(int x, int z)
 {
-    return PlanetWorldIsActive() ? PlanetTerrainHeight(x, z) :
-                                   WorldSurfaceHeightAt(x, z);
+    return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET
+        ? PlanetTerrainHeight(x, z) : WorldSurfaceHeightAt(x, z);
 }
 
 static bool ImpactTopBlock(int x, int z, int centerY, int *outY,

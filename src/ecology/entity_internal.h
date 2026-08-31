@@ -41,7 +41,8 @@ bool EntityIsAlien(EntityType type);
 bool EntityUsesEcology(const Entity *entity);
 Color EntityParticleColor(EntityType type);
 void EntityBecomeCorpse(Entity *entity);
-void EntitySpawnPassive(const Player *player, float daylight);
+void EntitySpawnPassive(const Player *player, float daylight,
+                        double simulationTime);
 void EntitySpawnHostile(const Player *player, float daylight);
 
 #endif

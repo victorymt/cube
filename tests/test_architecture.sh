@@ -96,6 +96,21 @@ if grep -R -nE '#include "(space/space\.h|space/space_dependencies\.h|ecology/ec
     fail "world must use narrow domain contracts, not aggregate/private facades"
 fi
 
+if grep -R -n '#include "space/space_state.h"' src/world \
+    --include='*.c' --include='*.h'; then
+    fail "world surface state must enter through WorldSurfaceSnapshot"
+fi
+
+world_space_state_getters=$(
+    grep -R -nE \
+        '\b(SpaceElapsedSimulationTime|HomeWorldSurfaceIsActive|PlanetWorld(IsActive|Seed|Style|Profile|GravityScale|IsDarkSide|OriginX|OriginZ))[[:space:]]*\(' \
+        src/world --include='*.c' --include='*.h' || true
+)
+[ -z "$world_space_state_getters" ] || {
+    printf '%s\n' "$world_space_state_getters" >&2
+    fail "world must use WorldSurfaceSnapshot and receive simulation time explicitly"
+}
+
 domain_effect_calls=$(
     grep -R -nE \
         '(AudioPlay(Break|Step|WaterStep|Splash)|AudioSetRain|ParticlesEmit(One|Burst|Styled))[[:space:]]*\(' \
