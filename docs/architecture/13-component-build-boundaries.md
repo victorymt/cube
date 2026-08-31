@@ -51,6 +51,12 @@ interpolated `WeatherFieldSample` values without importing visual types. The
 with atmosphere state and delegates visual derivation to `weather_visual.c`.
 This removes the previous `world/weather.h` dependency on presentation.
 
+Runtime ecology enters world generation through `world/ecology_hooks.h`.
+The contract carries only flora capacity, visual values, and a chunk decoration
+callback; `app/game_biology.c` adapts the ecology component to those hooks.
+Terrain generation and chunk visuals therefore no longer include or call the
+high-level ecology runtime API directly.
+
 ## Verification
 
 - `make test-modules` builds all seven archives.

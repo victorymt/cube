@@ -2,8 +2,8 @@
 #include "world/terrain.h"
 #include "world/terrain_geology_internal.h"
 #include "world/terrain_home_materials_internal.h"
+#include "world/ecology_hooks.h"
 #include "ecology/flora_taxa.h"
-#include "ecology/ecology.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -65,16 +65,6 @@ SolarBodyStyle PlanetWorldStyle(void)
 const PlanetProfile *PlanetWorldProfile(void)
 {
     return planetWorldActive ? &planetProfile : NULL;
-}
-
-// The terrain-scale binary intentionally keeps ecology out of its focused
-// source closure. This no-op preserves the terrain generator's application
-// hook while allowing the base planet chunk pipeline to be exercised here.
-void PlanetEcologyApplyToChunk(Chunk *chunk, int chunkX, int chunkZ)
-{
-    (void)chunk;
-    (void)chunkX;
-    (void)chunkZ;
 }
 
 BlockType GetBlockAt(int x, int y, int z)
@@ -140,25 +130,15 @@ int ColorBlockIndex(BlockType type)
     return 0;
 }
 
-PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z)
+static bool TestFloraCapacityAt(
+    int x, int z, float *outCapacity, void *userData)
 {
     (void)x;
     (void)z;
-    return (PlanetEcologySuitability){
-        .carryingCapacity = 1.0f,
-        .floraCapacity = 1.0f,
-        .faunaCapacity = 1.0f,
-        .floraActivity = 1.0f,
-        .faunaActivity = 1.0f,
-        .waterScore = 1.0f,
-        .temperatureScore = 1.0f,
-        .lightScore = 1.0f,
-        .stormScore = 1.0f,
-        .terrainScore = 1.0f,
-        .seasonScore = 1.0f,
-        .radiationScore = 1.0f,
-        .limitingFactor = PLANET_ECOLOGY_LIMIT_NONE
-    };
+    (void)userData;
+    if (!outCapacity) return false;
+    *outCapacity = 1.0f;
+    return true;
 }
 
 static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
@@ -201,12 +181,17 @@ static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
         .tidallyLocked = false
     };
     planetWorldActive = true;
+    const WorldEcologyHooks hooks = {
+        .floraCapacityAt = TestFloraCapacityAt
+    };
+    WorldInstallEcologyHooks(&hooks);
 }
 
 static void DeactivateTestPlanet(void)
 {
     planetWorldActive = false;
     planetProfile = (PlanetProfile){ 0 };
+    WorldInstallEcologyHooks(NULL);
 }
 
 bool IsTranslucentBlock(BlockType type)

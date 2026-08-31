@@ -1,6 +1,7 @@
 #include "ecology_test_fixture.h"
 
 #include "ecology/ecology.h"
+#include "world/ecology_hooks.h"
 #include "world/terrain.h"
 
 #include <assert.h>
@@ -14,6 +15,51 @@ static int propertyBlockEditCount = 0;
 static uint64_t propertyBlockEditRevision = 1u;
 static int propertyBlockEditReadCount = 0;
 TerrainMode terrainMode = TERRAIN_VARIED;
+
+static bool EcologyFixtureFloraCapacityAt(
+    int x, int z, float *outCapacity, void *userData)
+{
+    (void)userData;
+    if (!outCapacity) return false;
+    *outCapacity = PlanetEcologyStaticSuitabilityAt(x, z).floraCapacity;
+    return true;
+}
+
+static bool EcologyFixtureFloraVisualAt(
+    int x, int z, float daylight, WorldFloraVisualSample *outSample,
+    void *userData)
+{
+    (void)userData;
+    if (!outSample) return false;
+    PlanetLocalEcology local = PlanetEcologyLocalAt(x, z, daylight);
+    PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
+        local.suitability.floraActivity,
+        local.suitability.floraCapacity);
+    *outSample = (WorldFloraVisualSample){
+        .activity = local.suitability.floraActivity,
+        .capacity = local.suitability.floraCapacity,
+        .growthScale = runtime.growthScale,
+        .visualPresence = runtime.visualPresence
+    };
+    return true;
+}
+
+static void EcologyFixtureDecorateChunk(
+    Chunk *chunk, int chunkX, int chunkZ, void *userData)
+{
+    (void)userData;
+    PlanetEcologyApplyToChunk(chunk, chunkX, chunkZ);
+}
+
+static void EcologyFixtureInstallWorldHooks(void)
+{
+    const WorldEcologyHooks hooks = {
+        .floraCapacityAt = EcologyFixtureFloraCapacityAt,
+        .floraVisualAt = EcologyFixtureFloraVisualAt,
+        .decorateChunk = EcologyFixtureDecorateChunk
+    };
+    WorldInstallEcologyHooks(&hooks);
+}
 
 __attribute__((weak)) bool WorldIsSurfaceActive(void)
 {
@@ -334,6 +380,7 @@ void EcologyTestActivatePlanetStyleWithFile(FILE *file, uint32_t seed,
     WritePlanetWorldFixture(file, seed, originX, originZ, style);
     rewind(file);
     assert(PlanetWorldLoadState(file));
+    EcologyFixtureInstallWorldHooks();
     assert(PlanetWorldIsActive());
     assert(PlanetWorldSeed() == seed);
     assert(PlanetWorldOriginX() == originX);
@@ -350,6 +397,7 @@ void EcologyTestActivateGeneratedPlanetWithFile(
         file, system, planetIndex, originX, originZ);
     rewind(file);
     assert(PlanetWorldLoadState(file));
+    EcologyFixtureInstallWorldHooks();
     assert(PlanetWorldIsActive());
     assert(PlanetWorldSeed() ==
            SolarPlanetProfile(system, planetIndex).seed);

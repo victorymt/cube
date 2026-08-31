@@ -1,15 +1,62 @@
 #include "app/game_biology.h"
 
+#include "ecology/ecology.h"
 #include "ecology/evolution.h"
 #include "ecology/evolution_catalog.h"
 #include "presentation/render.h"
 #include "space/space_state.h"
+#include "world/ecology_hooks.h"
 #include "world/world.h"
 
 #include "raylib.h"
 
 #include <stddef.h>
 #include <stdio.h>
+
+static bool GameWorldFloraCapacityAt(
+    int x, int z, float *outCapacity, void *userData)
+{
+    (void)userData;
+    if (!outCapacity) return false;
+    *outCapacity = PlanetEcologyStaticSuitabilityAt(x, z).floraCapacity;
+    return true;
+}
+
+static bool GameWorldFloraVisualAt(
+    int x, int z, float daylight, WorldFloraVisualSample *outSample,
+    void *userData)
+{
+    (void)userData;
+    if (!outSample) return false;
+    PlanetLocalEcology local = PlanetEcologyLocalAt(x, z, daylight);
+    PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
+        local.suitability.floraActivity,
+        local.suitability.floraCapacity);
+    *outSample = (WorldFloraVisualSample){
+        .activity = local.suitability.floraActivity,
+        .capacity = local.suitability.floraCapacity,
+        .growthScale = runtime.growthScale,
+        .visualPresence = runtime.visualPresence
+    };
+    return true;
+}
+
+static void GameWorldDecorateChunkWithEcology(
+    Chunk *chunk, int chunkX, int chunkZ, void *userData)
+{
+    (void)userData;
+    PlanetEcologyApplyToChunk(chunk, chunkX, chunkZ);
+}
+
+void GameInstallWorldEcologyHooks(void)
+{
+    const WorldEcologyHooks hooks = {
+        .floraCapacityAt = GameWorldFloraCapacityAt,
+        .floraVisualAt = GameWorldFloraVisualAt,
+        .decorateChunk = GameWorldDecorateChunkWithEcology
+    };
+    WorldInstallEcologyHooks(&hooks);
+}
 
 static const char *EvolutionModuleName(CreatureModuleType type)
 {

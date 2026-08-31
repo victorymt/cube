@@ -6,6 +6,7 @@
 
 void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info,
                             bool locked);
+void GameInstallWorldEcologyHooks(void);
 int BiologyAtlasNextSlot(int current, int direction);
 void DrawBiologyAtlas(GameRuntime *game);
 

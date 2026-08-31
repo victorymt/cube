@@ -33,6 +33,7 @@ TEST_RAYLIB_LIBS_$2 := $9
 endef
 
 $(eval $(call define_test,TEST_TARGET,test_world_environment,src/world/world_environment.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WORLD_ECOLOGY_HOOKS_TEST_TARGET,test_world_ecology_hooks,src/world/ecology_hooks.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_SURFACE_TEST_TARGET,test_planet_surface,src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c src/space/space_illumination.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_MATERIAL_TEST_TARGET,test_planet_material,src/space/planet_material.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_CLIMATE_TEST_TARGET,test_planet_climate,src/space/planet_climate.c,,,, -lm,,))

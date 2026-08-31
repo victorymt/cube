@@ -109,20 +109,19 @@ static void UpdateChunkSectionFloraScale(ChunkSection *section,
         int cellX = (int)floorf(instance->anchor.x);
         int cellZ = (int)floorf(instance->anchor.z);
 
-        if (refreshTargets && PlanetWorldIsActive()) {
-            PlanetLocalEcology local = PlanetEcologyLocalAt(cellX, cellZ, daylight);
-            PlanetFloraRuntimeState runtime = PlanetEcologyFloraRuntime(
-                local.suitability.floraActivity,
-                local.suitability.floraCapacity);
-            section->floraTargetScales[group] = runtime.growthScale;
-            section->floraTargetPresence[group] = runtime.visualPresence;
-            section->floraTargetWind[group] = WeatherFieldSampleAtWorld(
-                cellX, cellZ).wind;
-            section->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
-                cellX, cellZ);
-        } else if (refreshTargets) {
-            section->floraTargetScales[group] = 1.0f;
-            section->floraTargetPresence[group] = 1.0f;
+        if (refreshTargets) {
+            WorldFloraVisualSample flora = {
+                .activity = 1.0f,
+                .capacity = 1.0f,
+                .growthScale = 1.0f,
+                .visualPresence = 1.0f
+            };
+            if (PlanetWorldIsActive()) {
+                (void)WorldEcologyFloraVisualAt(
+                    cellX, cellZ, daylight, &flora);
+            }
+            section->floraTargetScales[group] = flora.growthScale;
+            section->floraTargetPresence[group] = flora.visualPresence;
             section->floraTargetWind[group] = WeatherFieldSampleAtWorld(
                 cellX, cellZ).wind;
             section->floraTargetWindAngle[group] = WeatherWindAngleAtWorld(
@@ -241,10 +240,11 @@ void ChunksUpdateEcologyVisuals(float dt, float daylight)
             int centerZ = chunk->cz * CHUNK_SIZE + CHUNK_SIZE / 2;
             chunk->floraWindAngle = WeatherWindAngleAtWorld(centerX, centerZ);
             if (planetWorld) {
-                PlanetLocalEcology local = PlanetEcologyLocalAt(
-                    centerX, centerZ, daylight);
-                chunk->floraActivity = local.suitability.floraActivity;
-                chunk->floraCapacity = local.suitability.floraCapacity;
+                WorldFloraVisualSample flora;
+                (void)WorldEcologyFloraVisualAt(
+                    centerX, centerZ, daylight, &flora);
+                chunk->floraActivity = flora.activity;
+                chunk->floraCapacity = flora.capacity;
             } else {
                 chunk->floraActivity = 1.0f;
                 chunk->floraCapacity = 1.0f;

@@ -301,6 +301,17 @@ grep -q '^bool WeatherFieldSampleInterpolatedAtWorldTime' \
 grep -q '^WeatherVisualState WeatherVisualStateAtWorld' \
     src/presentation/weather_presentation.c ||
     fail "presentation must own world weather visual composition"
+if grep -R -n '#include "ecology/ecology.h"' src/world; then
+    fail "world must consume ecology runtime through neutral hooks"
+fi
+if grep -R -nE 'PlanetEcology(LocalAt|FloraRuntime|StaticSuitabilityAt|ApplyToChunk)' \
+    src/world; then
+    fail "world must not call ecology runtime services directly"
+fi
+grep -q '^typedef struct WorldEcologyHooks' src/world/ecology_hooks.h ||
+    fail "world must expose a neutral ecology hook contract"
+grep -q '^void GameInstallWorldEcologyHooks' src/app/game_biology.c ||
+    fail "app must compose world and ecology runtime services"
 grep -q '^include mk/tests.mk' Makefile ||
     fail "Makefile must source the declarative test manifest"
 grep -q '^define define_test' mk/tests.mk ||

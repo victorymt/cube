@@ -7,11 +7,11 @@
 #include "world/terrain_structures_internal.h"
 #include "world/home_tree_shape.h"
 
-#include "ecology/ecology.h"
 #include "ecology/flora_taxa.h"
 
 #include "raymath.h"
 #include "world/chunks.h"
+#include "world/ecology_hooks.h"
 #include "space/space_state.h"
 #include "world/world.h"
 #include "world/world_environment.h"
@@ -1491,10 +1491,14 @@ static void GeneratePlanetTerrainColumnLiquids(
 static bool PlanetTerrainColumnFloraAllowed(
     const PlanetTerrainColumn *column, unsigned int salt)
 {
+    float floraCapacity = 0.0f;
+    if (!WorldEcologyFloraCapacityAt(
+            column->worldX, column->worldZ, &floraCapacity)) {
+        return false;
+    }
     float sample = (float)(PlanetHash2D(
         column->worldX, column->worldZ, salt) & 0x00ffffffu) / 16777215.0f;
-    return sample <= PlanetEcologyStaticSuitabilityAt(
-        column->worldX, column->worldZ).floraCapacity;
+    return sample <= floraCapacity;
 }
 
 static void PlacePlanetTerrainColumnStack(
@@ -1610,7 +1614,7 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
         }
     }
 
-    PlanetEcologyApplyToChunk(chunk, cx, cz);
+    WorldEcologyDecorateChunk(chunk, cx, cz);
     if (planetChunkDecorator) planetChunkDecorator(chunk, cx, cz);
 }
 
