@@ -33,6 +33,12 @@ consumes those contracts for rendering and audio. `app` is the composition root:
 it owns the game loop, wires callbacks, coordinates persistence, and links the
 components without moving domain policy into another component.
 
+Resource accounting follows the same direction. `core/render_resources.h` owns
+the `RenderResourceSnapshot` contract and its bounded mesh-size aggregation;
+`world` and `space` can publish resource metrics without importing a
+`presentation` header. The presentation component consumes the resulting values
+for diagnostics, but does not own the shared accounting primitive.
+
 ## Verification
 
 - `make test-modules` builds all seven archives.

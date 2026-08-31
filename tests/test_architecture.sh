@@ -266,6 +266,17 @@ grep -q '^include mk/components.mk' Makefile ||
 grep -q '^COMPONENT_NAMES := core world space ecology gameplay presentation app' \
     mk/components.mk ||
     fail "component manifest must enumerate all ownership domains"
+test ! -e src/presentation/render_resources.h ||
+    fail "resource accounting contract must not remain in presentation"
+test ! -e src/presentation/render_resources.c ||
+    fail "resource accounting implementation must not remain in presentation"
+grep -q '^typedef struct RenderResourceSnapshot' src/core/render_resources.h ||
+    fail "core must own the shared resource accounting snapshot"
+grep -q '^uint64_t RenderMeshEstimatedBytes' src/core/render_resources.c ||
+    fail "core must own resource accounting implementation"
+if grep -R -n 'presentation/render_resources.h' src; then
+    fail "simulation components must not include presentation resource headers"
+fi
 grep -q '^include mk/tests.mk' Makefile ||
     fail "Makefile must source the declarative test manifest"
 grep -q '^define define_test' mk/tests.mk ||

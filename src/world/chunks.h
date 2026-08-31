@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_CHUNKS_H
 #define VOXELCRAFT_CHUNKS_H
 
+#include "core/render_resources.h"
 #include "core/perf_metrics.h"
 #include "world/world_types.h"
 

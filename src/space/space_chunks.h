@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_SPACE_CHUNKS_H
 #define VOXELCRAFT_SPACE_CHUNKS_H
 
-#include "core/perf_metrics.h"
+#include "core/render_resources.h"
 #include "world/world_types.h"
 
 #include <stdbool.h>

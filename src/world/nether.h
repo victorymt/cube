@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_NETHER_H
 #define VOXELCRAFT_NETHER_H
 
-#include "core/perf_metrics.h"
+#include "core/render_resources.h"
 #include "world/world_types.h"
 
 #include <stdio.h>

@@ -11,7 +11,7 @@
 
 #include "ecology/ecology.h"
 #include "gameplay/player_types.h"
-#include "presentation/render_resources.h"
+#include "core/render_resources.h"
 #include "space/solar_catalog.h"
 #include "space/space_barycenter.h"
 #include "space/space_illumination.h"

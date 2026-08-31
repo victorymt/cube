@@ -1,11 +1,24 @@
-#ifndef VOXELCRAFT_RENDER_RESOURCES_H
-#define VOXELCRAFT_RENDER_RESOURCES_H
-
-#include "core/perf_metrics.h"
+#ifndef VOXELCRAFT_CORE_RENDER_RESOURCES_H
+#define VOXELCRAFT_CORE_RENDER_RESOURCES_H
 
 #include "raylib.h"
 
 #include <stdint.h>
+
+/* Shared resource accounting contract used by simulation and presentation. */
+typedef struct RenderResourceSnapshot {
+    uint64_t solidModels;
+    uint64_t floraModels;
+    uint64_t transparentModels;
+    uint64_t meshVertices;
+    uint64_t meshIndices;
+    uint64_t estimatedMeshBytes;
+    uint64_t worldLightingTextureBytes;
+    uint64_t pendingMeshSnapshotBytes;
+    uint64_t workerThreadsConfigured;
+    uint64_t workerThreadsStarted;
+    uint64_t workerThreadsActive;
+} RenderResourceSnapshot;
 
 typedef enum RenderResourceModelKind {
     RENDER_RESOURCE_SOLID = 0,

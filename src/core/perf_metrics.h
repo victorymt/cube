@@ -1,6 +1,8 @@
 #ifndef VOXELCRAFT_PERF_METRICS_H
 #define VOXELCRAFT_PERF_METRICS_H
 
+#include "core/render_resources.h"
+
 #include <stdint.h>
 
 typedef struct PerfStreamingStats {
@@ -24,21 +26,7 @@ typedef struct PerfStreamingStats {
     double maxUploadCpuMs;
 } PerfStreamingStats;
 
-typedef struct PerfResourceSnapshot {
-    uint64_t solidModels;
-    uint64_t floraModels;
-    uint64_t transparentModels;
-    uint64_t meshVertices;
-    uint64_t meshIndices;
-    uint64_t estimatedMeshBytes;
-    uint64_t worldLightingTextureBytes;
-    uint64_t pendingMeshSnapshotBytes;
-    uint64_t workerThreadsConfigured;
-    uint64_t workerThreadsStarted;
-    uint64_t workerThreadsActive;
-} PerfResourceSnapshot;
-
+typedef RenderResourceSnapshot PerfResourceSnapshot;
 typedef PerfStreamingStats ChunkStreamingStats;
-typedef PerfResourceSnapshot RenderResourceSnapshot;
 
 #endif
