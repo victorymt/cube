@@ -11,6 +11,7 @@
 #include "presentation/particles.h"
 #include "presentation/planet_renderer.h"
 #include "presentation/render_sort.h"
+#include "presentation/world_lighting.h"
 #include "presentation/world_renderer.h"
 #include "space/planet_material.h"
 #include "space/planet_observation.h"
@@ -27,7 +28,6 @@
 #include "world/weather.h"
 #include "world/world.h"
 #include "world/world_environment.h"
-#include "world/world_lighting.h"
 
 #include "raymath.h"
 #include "rlgl.h"

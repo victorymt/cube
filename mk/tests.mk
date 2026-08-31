@@ -158,7 +158,7 @@ $(eval $(call define_test,RENDER_RESOURCES_TEST_TARGET,test_render_resources,src
 $(eval $(call define_test,RENDER_UI_TEST_TARGET,test_render_ui,src/core/simulation_time.c src/presentation/render_ui.c src/core/game_notice.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SURFACE_GLOBE_TEST_TARGET,test_surface_globe,src/presentation/surface_globe.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,WORLD_RENDERER_TEST_TARGET,test_world_renderer,src/presentation/world_renderer.c src/presentation/render_quality.c,,-DWORLD_RENDERER_TESTING,,-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
-$(eval $(call define_test,WORLD_LIGHTING_TEST_TARGET,test_world_lighting,src/world/world_lighting.c src/presentation/world_renderer.c src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
+$(eval $(call define_test,WORLD_LIGHTING_TEST_TARGET,test_world_lighting,src/presentation/world_lighting.c src/presentation/world_renderer.c src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SAVE_IO_TEST_TARGET,test_save_io,src/core/save_io.c,,,,,,))
 $(eval $(call define_test,SAVE_FORMAT_TEST_TARGET,test_save_format,src/world/save_format.c,,,,,,))
 $(eval $(call define_test,GAME_SETTINGS_TEST_TARGET,test_game_settings,src/app/game_settings.c src/core/save_io.c src/presentation/render_quality.c,,,, -lm,,))

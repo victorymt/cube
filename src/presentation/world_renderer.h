@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_WORLD_RENDERER_H
 #define VOXELCRAFT_WORLD_RENDERER_H
 
+#include "world/world_lighting.h"
 #include "world/world_types.h"
 #include "presentation/render_quality.h"
 
@@ -20,29 +21,6 @@ typedef struct WorldMaterialProfile {
     float emission;
     WorldMaterialKind kind;
 } WorldMaterialProfile;
-
-typedef struct WorldLightingState {
-    Vector3 sunDirection;
-    Color sunColor;
-    Color ambientColor;
-    Color fogColor;
-    Vector3 cameraPosition;
-    float directStrength;
-    float ambientStrength;
-    float shadowStrength;
-    float fogDensity;
-    float fogStart;
-    float underwaterAmount;
-    float underwaterDepth;
-    float causticStrength;
-    float wetness;
-    float exposure;
-    float saturation;
-    float warmth;
-    float waveStrength;
-    float time;
-    bool shadowsEnabled;
-} WorldLightingState;
 
 WorldMaterialProfile WorldMaterialForTexture(BlockTexture texture);
 WorldLightingState WorldLightingStateSanitize(WorldLightingState state);

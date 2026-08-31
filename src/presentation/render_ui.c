@@ -32,7 +32,7 @@
 #include "ecology/ecology.h"
 #include "core/perf.h"
 #include "presentation/render_sort.h"
-#include "world/world_lighting.h"
+#include "presentation/world_lighting.h"
 #include "presentation/world_renderer.h"
 
 #include <math.h>

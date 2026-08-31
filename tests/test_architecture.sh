@@ -277,6 +277,20 @@ grep -q '^uint64_t RenderMeshEstimatedBytes' src/core/render_resources.c ||
 if grep -R -n 'presentation/render_resources.h' src; then
     fail "simulation components must not include presentation resource headers"
 fi
+grep -q '^typedef struct WorldLightingState' src/world/world_lighting.h ||
+    fail "world must own the neutral physical lighting state"
+if grep -nE '#include "presentation/|EnvironmentPresentation|WorldLightingCompose|WorldLightingFallbackPresentation|WorldLightingUnderwaterFogColor' \
+    src/world/world_lighting.h; then
+    fail "world lighting contract must not depend on presentation"
+fi
+test ! -e src/world/world_lighting.c ||
+    fail "world lighting composition must live in presentation"
+grep -q '^WorldLightingState WorldLightingCompose' \
+    src/presentation/world_lighting.c ||
+    fail "presentation must own physical/presentation lighting composition"
+grep -q '^EnvironmentPresentationState WorldLightingFallbackPresentation' \
+    src/presentation/world_lighting.c ||
+    fail "presentation must own fallback environment composition"
 grep -q '^include mk/tests.mk' Makefile ||
     fail "Makefile must source the declarative test manifest"
 grep -q '^define define_test' mk/tests.mk ||

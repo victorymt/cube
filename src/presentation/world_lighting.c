@@ -1,5 +1,6 @@
-#include "world/world_lighting.h"
+#include "presentation/world_lighting.h"
 
+#include "presentation/world_renderer.h"
 #include "raymath.h"
 
 Color WorldLightingUnderwaterFogColor(float underwaterDepth)

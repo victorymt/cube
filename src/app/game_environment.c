@@ -17,7 +17,7 @@
 #include "world/weather_impact.h"
 #include "world/tornado.h"
 #include "world/world.h"
-#include "world/world_lighting.h"
+#include "presentation/world_lighting.h"
 
 #include "raymath.h"
 

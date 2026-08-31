@@ -39,6 +39,12 @@ the `RenderResourceSnapshot` contract and its bounded mesh-size aggregation;
 `presentation` header. The presentation component consumes the resulting values
 for diagnostics, but does not own the shared accounting primitive.
 
+Lighting follows the same value-boundary rule. `world/world_lighting.h` owns only
+the neutral `WorldLightingState` value type. Presentation-only fallback selection,
+underwater fog palette, and composition live in `presentation/world_lighting.c`;
+the world component therefore does not need to include environment presentation
+or renderer headers.
+
 ## Verification
 
 - `make test-modules` builds all seven archives.
