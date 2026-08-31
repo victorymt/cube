@@ -20,7 +20,7 @@ new physical-simulation stages.
 | 10 | [radiation runtime integration](10-radiation-runtime-integration.md) | `7f6c8a7`; fixed-step climate column and V21 persistence |
 | 11 | [hydrology runtime integration](11-hydrology-runtime-integration.md) | `8c127e1`; bounded water runtime, climate feedback, and V22 persistence |
 | 12 | [optional plugin boundary](12-plugin-boundary.md) | pending; stable ABI, deterministic loader, and parallel shared-library targets |
-| 13 | [component build boundaries](13-component-build-boundaries.md) | `f124765`, `f8bc443`, `ff84e3c`, `b575e4b`, `46a59f1`, `5b91c71`; seven independently rebuildable archives, manifest-driven targets, explicit composition root, and neutral resource, lighting, weather, and ecology boundaries |
+| 13 | [component build boundaries](13-component-build-boundaries.md) | `f124765`, `f8bc443`, `ff84e3c`, `b575e4b`, `46a59f1`, `5b91c71`, `997635d`; seven independently rebuildable archives, manifest-driven targets, explicit composition root, and neutral resource, lighting, weather, ecology, and surface-state boundaries |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
