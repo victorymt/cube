@@ -9,6 +9,8 @@
 #include "presentation/audio.h"
 #include "presentation/effect_dispatch.h"
 #include "presentation/render.h"
+#include "presentation/weather_presentation.h"
+#include "presentation/world_lighting.h"
 #include "space/planet_profile.h"
 #include "space/space_state.h"
 #include "world/chunks.h"
@@ -17,7 +19,6 @@
 #include "world/weather_impact.h"
 #include "world/tornado.h"
 #include "world/world.h"
-#include "presentation/world_lighting.h"
 
 #include "raymath.h"
 

@@ -4,7 +4,6 @@
 #include "raylib.h"
 #include "world/local_climate.h"
 #include "world/weather_model.h"
-#include "presentation/weather_visual.h"
 
 typedef enum Weather {
     WEATHER_CLEAR = 0,
@@ -30,12 +29,13 @@ Weather WeatherGetCurrent(void);
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z);
 WeatherFieldSample WeatherFieldSampleAtWorldTime(
     int x, int z, double simulationTime);
+bool WeatherFieldSampleInterpolatedAtWorldTime(
+    float worldX, float worldZ, double simulationTime,
+    WeatherFieldSample *outSample);
 bool WeatherLocalClimateAtWorldTime(int x, int z, double simulationTime,
                                     LocalClimateState *outClimate);
 float WeatherWindAngleAtWorld(int x, int z);
 float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime);
-WeatherVisualState WeatherVisualStateAtWorld(
-    Vector3 position, double simulationTime, float daylight);
 float WeatherSkyFactor(void);
 float WeatherCloudCover(void);
 float WeatherPrecipitationRate(void);

@@ -750,19 +750,19 @@ float WeatherWindAngleAtWorldTime(int x, int z, double simulationTime)
     return WeatherFieldSampleAt(&input).windAngle;
 }
 
-static float WeatherVisualBilerp(float a, float b, float c, float d,
-                                 float tx, float tz)
+static float WeatherFieldBilerp(float a, float b, float c, float d,
+                                float tx, float tz)
 {
     return (a + (b - a) * tx) +
            ((c + (d - c) * tx) - (a + (b - a) * tx)) * tz;
 }
 
-static WeatherFieldSample WeatherVisualBlendSamples(
+static WeatherFieldSample WeatherFieldBlendSamples(
     const WeatherFieldSample samples[4], float tx, float tz)
 {
     WeatherFieldSample result = { 0 };
 #define BLEND_WEATHER_FIELD(field) \
-    result.field = WeatherVisualBilerp( \
+    result.field = WeatherFieldBilerp( \
         samples[0].field, samples[1].field, samples[2].field, \
         samples[3].field, tx, tz)
     BLEND_WEATHER_FIELD(cloudCover);
@@ -789,17 +789,17 @@ static WeatherFieldSample WeatherVisualBlendSamples(
     float bestCoverage = 0.0f;
     for (int genus = WEATHER_CLOUD_GENUS_NONE;
          genus < WEATHER_CLOUD_GENUS_COUNT; genus++) {
-        result.cloudGenusCoverage[genus] = WeatherVisualBilerp(
+        result.cloudGenusCoverage[genus] = WeatherFieldBilerp(
             samples[0].cloudGenusCoverage[genus],
             samples[1].cloudGenusCoverage[genus],
             samples[2].cloudGenusCoverage[genus],
             samples[3].cloudGenusCoverage[genus], tx, tz);
-        result.cloudGenusBaseHeight[genus] = WeatherVisualBilerp(
+        result.cloudGenusBaseHeight[genus] = WeatherFieldBilerp(
             samples[0].cloudGenusBaseHeight[genus],
             samples[1].cloudGenusBaseHeight[genus],
             samples[2].cloudGenusBaseHeight[genus],
             samples[3].cloudGenusBaseHeight[genus], tx, tz);
-        result.cloudGenusThickness[genus] = WeatherVisualBilerp(
+        result.cloudGenusThickness[genus] = WeatherFieldBilerp(
             samples[0].cloudGenusThickness[genus],
             samples[1].cloudGenusThickness[genus],
             samples[2].cloudGenusThickness[genus],
@@ -828,58 +828,34 @@ static WeatherFieldSample WeatherVisualBlendSamples(
     return result;
 }
 
-WeatherVisualState WeatherVisualStateAtWorld(
-    Vector3 position, double simulationTime, float daylight)
+bool WeatherFieldSampleInterpolatedAtWorldTime(
+    float worldX, float worldZ, double simulationTime,
+    WeatherFieldSample *outSample)
 {
-    WeatherVisualState clear = { .visibility = 1.0f };
-    if (!isfinite(position.x) || !isfinite(position.y) ||
-        !isfinite(position.z) || !isfinite(simulationTime) ||
-        simulationTime < 0.0 || !isfinite(daylight)) {
-        return clear;
-    }
+    if (!outSample) return false;
+    *outSample = (WeatherFieldSample){ .visibility = 1.0f };
+    if (!isfinite(worldX) || !isfinite(worldZ) ||
+        !isfinite(simulationTime) || simulationTime < 0.0) return false;
 
-    double baseX = floor((double)position.x - 0.5);
-    double baseZ = floor((double)position.z - 0.5);
+    double baseX = floor((double)worldX - 0.5);
+    double baseZ = floor((double)worldZ - 0.5);
     if (baseX < (double)INT_MIN || baseX >= (double)INT_MAX ||
         baseZ < (double)INT_MIN || baseZ >= (double)INT_MAX) {
-        return clear;
+        return false;
     }
-
-    float atmosphereDensity = 0.0f;
-    bool atmosphereActive = false;
-    if (PlanetWorldIsActive()) {
-        const PlanetProfile *profile = PlanetWorldProfile();
-        if (profile && profile->atmosphereType != PLANET_ATMOSPHERE_NONE) {
-            atmosphereDensity = WeatherClamp(profile->atmosphereDensity) *
-                (1.0f - PlanetWorldAtmosphereFade(position));
-            atmosphereActive = atmosphereDensity > 0.01f;
-        }
-    } else if (HomeWorldSurfaceIsActive()) {
-        atmosphereDensity = 0.62f * (1.0f - HomeWorldSpaceFade(position));
-        atmosphereActive = atmosphereDensity > 0.01f;
-    }
-    if (!atmosphereActive) return clear;
 
     int x = (int)baseX;
     int z = (int)baseZ;
-    float tx = (float)((double)position.x - (baseX + 0.5));
-    float tz = (float)((double)position.z - (baseZ + 0.5));
+    float tx = (float)((double)worldX - (baseX + 0.5));
+    float tz = (float)((double)worldZ - (baseZ + 0.5));
     WeatherFieldSample samples[4] = {
         WeatherFieldSampleAtWorldTime(x, z, simulationTime),
         WeatherFieldSampleAtWorldTime(x + 1, z, simulationTime),
         WeatherFieldSampleAtWorldTime(x, z + 1, simulationTime),
         WeatherFieldSampleAtWorldTime(x + 1, z + 1, simulationTime)
     };
-    WeatherFieldSample visualSample =
-        WeatherVisualBlendSamples(samples, tx, tz);
-    WeatherVisualInput input = {
-        .weather = visualSample,
-        .atmosphereDensity = atmosphereDensity,
-        .daylight = daylight,
-        .windAngle = visualSample.windAngle,
-        .atmosphereActive = true
-    };
-    return WeatherVisualStateEvaluate(&input);
+    *outSample = WeatherFieldBlendSamples(samples, tx, tz);
+    return true;
 }
 
 static void WeatherUpdateTypeAndAudio(void)

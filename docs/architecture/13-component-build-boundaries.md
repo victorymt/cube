@@ -45,6 +45,12 @@ underwater fog palette, and composition live in `presentation/world_lighting.c`;
 the world component therefore does not need to include environment presentation
 or renderer headers.
 
+Weather sampling also crosses the boundary as data. `world/weather.h` exposes
+interpolated `WeatherFieldSample` values without importing visual types. The
+`presentation/weather_presentation.c` adapter combines those physical samples
+with atmosphere state and delegates visual derivation to `weather_visual.c`.
+This removes the previous `world/weather.h` dependency on presentation.
+
 ## Verification
 
 - `make test-modules` builds all seven archives.

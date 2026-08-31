@@ -1,4 +1,5 @@
 #include "core/game_effects.h"
+#include "presentation/weather_presentation.h"
 #include "space/space.h"
 #include "world/terrain.h"
 #include "world/surface_topology.h"
@@ -467,6 +468,25 @@ static void TestVisualStateIsContinuousAcrossCellBoundaries(void)
 {
     ResetRuntime();
     const float epsilon = 0.001f;
+    WeatherFieldSample fieldLeft;
+    WeatherFieldSample fieldRight;
+    WeatherFieldSample fieldBelow;
+    WeatherFieldSample fieldAbove;
+    assert(WeatherFieldSampleInterpolatedAtWorldTime(
+        18.0f - epsilon, -42.25f, simulationTime, &fieldLeft));
+    assert(WeatherFieldSampleInterpolatedAtWorldTime(
+        18.0f + epsilon, -42.25f, simulationTime, &fieldRight));
+    assert(WeatherFieldSampleInterpolatedAtWorldTime(
+        18.25f, -42.0f - epsilon, simulationTime, &fieldBelow));
+    assert(WeatherFieldSampleInterpolatedAtWorldTime(
+        18.25f, -42.0f + epsilon, simulationTime, &fieldAbove));
+    assert(fabsf(fieldRight.cloudCover - fieldLeft.cloudCover) < 0.0001f);
+    assert(fabsf(sinf(fieldRight.windAngle - fieldLeft.windAngle)) <
+           0.0001f);
+    assert(fabsf(fieldAbove.cloudCover - fieldBelow.cloudCover) < 0.0001f);
+    assert(fabsf(sinf(fieldAbove.windAngle - fieldBelow.windAngle)) <
+           0.0001f);
+
     WeatherVisualState left = WeatherVisualStateAtWorld(
         (Vector3){ 18.0f - epsilon, 20.0f, -42.25f },
         simulationTime, 0.72f);
@@ -490,6 +510,14 @@ static void TestVisualStateIsContinuousAcrossCellBoundaries(void)
 static void TestVisualStateSafeFallbacks(void)
 {
     ResetRuntime();
+    WeatherFieldSample invalidField = { .cloudCover = 1.0f };
+    assert(!WeatherFieldSampleInterpolatedAtWorldTime(
+        NAN, 0.0f, simulationTime, &invalidField));
+    assert(invalidField.cloudCover == 0.0f);
+    assert(invalidField.visibility == 1.0f);
+    assert(!WeatherFieldSampleInterpolatedAtWorldTime(
+        0.0f, 0.0f, simulationTime, NULL));
+
     WeatherVisualState invalid = WeatherVisualStateAtWorld(
         (Vector3){ NAN, 20.0f, 0.0f }, simulationTime, 0.5f);
     assert(!invalid.active);

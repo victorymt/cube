@@ -34,6 +34,7 @@
 #include "gameplay/ship.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/render.h"
+#include "presentation/weather_presentation.h"
 #include "space/space_runtime.h"
 #include "space/space_state.h"
 #include "world/terrain.h"

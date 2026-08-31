@@ -7,6 +7,7 @@
 #include "app/game_runtime.h"
 #include "core/simulation_time.h"
 #include "gameplay/player.h"
+#include "presentation/weather_presentation.h"
 #include "space/space_state.h"
 #include "world/local_climate.h"
 #include "world/radiation_runtime.h"

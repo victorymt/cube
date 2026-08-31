@@ -291,6 +291,16 @@ grep -q '^WorldLightingState WorldLightingCompose' \
 grep -q '^EnvironmentPresentationState WorldLightingFallbackPresentation' \
     src/presentation/world_lighting.c ||
     fail "presentation must own fallback environment composition"
+if grep -nE '#include "presentation/|WeatherVisual(State|Input)|WeatherVisualStateEvaluate' \
+    src/world/weather.h src/world/weather.c; then
+    fail "world weather must expose physical samples without presentation types"
+fi
+grep -q '^bool WeatherFieldSampleInterpolatedAtWorldTime' \
+    src/world/weather.c ||
+    fail "world must own interpolated physical weather sampling"
+grep -q '^WeatherVisualState WeatherVisualStateAtWorld' \
+    src/presentation/weather_presentation.c ||
+    fail "presentation must own world weather visual composition"
 grep -q '^include mk/tests.mk' Makefile ||
     fail "Makefile must source the declarative test manifest"
 grep -q '^define define_test' mk/tests.mk ||
