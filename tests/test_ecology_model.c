@@ -758,8 +758,20 @@ static void AssertMigrationFluxValid(PlanetPopulationMigrationFlux flux)
 {
     assert(isfinite(flux.flora));
     assert(isfinite(flux.fauna));
+    assert(isfinite(flux.floraForward));
+    assert(isfinite(flux.floraReverse));
+    assert(isfinite(flux.faunaForward));
+    assert(isfinite(flux.faunaReverse));
     assert(flux.flora >= -1.0f && flux.flora <= 1.0f);
     assert(flux.fauna >= -1.0f && flux.fauna <= 1.0f);
+    assert(flux.floraForward >= 0.0f && flux.floraForward <= 1.0f);
+    assert(flux.floraReverse >= 0.0f && flux.floraReverse <= 1.0f);
+    assert(flux.faunaForward >= 0.0f && flux.faunaForward <= 1.0f);
+    assert(flux.faunaReverse >= 0.0f && flux.faunaReverse <= 1.0f);
+    assert(fabsf(flux.flora -
+                 (flux.floraForward - flux.floraReverse)) < 0.000001f);
+    assert(fabsf(flux.fauna -
+                 (flux.faunaForward - flux.faunaReverse)) < 0.000001f);
 }
 
 static void TestPopulationMigrationDrivers(void)
@@ -795,10 +807,13 @@ static void TestPopulationMigrationDrivers(void)
     PlanetPopulationMigrationFlux upwind = PlanetPopulationMigrationBetween(
         &source, &sourceHabitat, &destination, &destinationHabitat,
         -1.0f, 240.0);
+    AssertMigrationFluxValid(upwind);
     AssertMigrationFluxValid(downwind);
     assert(downwind.flora > 0.0f);
     assert(downwind.fauna > 0.0f);
     assert(downwind.flora > upwind.flora);
+    assert(downwind.floraForward > downwind.floraReverse);
+    assert(downwind.faunaForward > downwind.faunaReverse);
 
     PlanetMigrationHabitat stormDestination = destinationHabitat;
     stormDestination.stormPressure = 1.0f;
@@ -824,16 +839,23 @@ static void TestPopulationMigrationDrivers(void)
     equal.faunaDensity = 0.20f;
     PlanetPopulationMigrationFlux balanced = PlanetPopulationMigrationBetween(
         &equal, &sourceHabitat, &equal, &sourceHabitat, 0.0f, 240.0);
+    AssertMigrationFluxValid(balanced);
     assert(balanced.flora == 0.0f);
     assert(balanced.fauna == 0.0f);
+    assert(balanced.floraForward == balanced.floraReverse);
+    assert(balanced.faunaForward == balanced.faunaReverse);
 
     PlanetPopulationMigrationFlux stopped = PlanetPopulationMigrationBetween(
         &source, &sourceHabitat, &destination, &destinationHabitat,
         1.0f, 0.0);
+    AssertMigrationFluxValid(stopped);
     assert(stopped.flora == 0.0f && stopped.fauna == 0.0f);
+    assert(stopped.floraForward == 0.0f && stopped.floraReverse == 0.0f);
+    assert(stopped.faunaForward == 0.0f && stopped.faunaReverse == 0.0f);
     PlanetPopulationMigrationFlux invalid = PlanetPopulationMigrationBetween(
         &source, &sourceHabitat, &destination, &destinationHabitat,
         NAN, 240.0);
+    AssertMigrationFluxValid(invalid);
     assert(invalid.flora == 0.0f && invalid.fauna == 0.0f);
 }
 
@@ -877,8 +899,17 @@ static void TestRandomizedPopulationMigrationProperties(void)
                     &population[edge + 1], &habitat[edge + 1],
                     &population[0], &habitat[0],
                     -winds[edge], elapsed);
+            AssertMigrationFluxValid(reverse);
             assert(fluxes[edge].flora == -reverse.flora);
             assert(fluxes[edge].fauna == -reverse.fauna);
+            assert(fabsf(fluxes[edge].floraForward -
+                         reverse.floraReverse) < 0.000001f);
+            assert(fabsf(fluxes[edge].floraReverse -
+                         reverse.floraForward) < 0.000001f);
+            assert(fabsf(fluxes[edge].faunaForward -
+                         reverse.faunaReverse) < 0.000001f);
+            assert(fabsf(fluxes[edge].faunaReverse -
+                         reverse.faunaForward) < 0.000001f);
             if (fluxes[edge].flora >= 0.0f) {
                 assert(fluxes[edge].flora <=
                        population[0].floraDensity * 0.14f + 0.000001f);

@@ -760,6 +760,8 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     static const int reverseOrder[4] = { 3, 2, 1, 0 };
     PlanetLocalEcology singleAdvance[4];
     PlanetLocalEcology partitionedAdvance[4];
+    PlanetEvolutionRegion singleEvolution[4];
+    PlanetEvolutionRegion partitionedEvolution[4];
 
     for (uint32_t index = 0; index < 512u; index++) {
         uint32_t candidate = 0x8f3a21d7u + index * 0x9e3779b9u;
@@ -796,6 +798,22 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
             fabsf(singleAdvance[cell].migration.faunaFlowZ);
     }
     assert(migrationSignal > 0.000001f);
+    for (int cell = 0; cell < 4; cell++) {
+        assert(PlanetEcologyEvolutionRegionAt(
+            cells[cell][0], cells[cell][1], 0.72f, &singleEvolution[cell]));
+        assert(singleEvolution[cell].lineageCount == 3u);
+    }
+    float geneFlowSignal = 0.0f;
+    for (int cell = 0; cell < 4; cell++) {
+        for (unsigned lineage = 0;
+             lineage < PLANET_EVOLUTION_MAX_LINEAGES; lineage++) {
+            if (singleEvolution[cell].lineages[lineage].active) {
+                geneFlowSignal +=
+                    singleEvolution[cell].lineages[lineage].geneFlow;
+            }
+        }
+    }
+    assert(geneFlowSignal > 0.000001f);
 
     FILE *migrationReplay = tmpfile();
     assert(migrationReplay);
@@ -803,6 +821,13 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     PlanetEcologyResetState();
     rewind(migrationReplay);
     assert(PlanetEcologyLoadState(migrationReplay));
+    for (int cell = 0; cell < 4; cell++) {
+        PlanetEvolutionRegion replayEvolution = { 0 };
+        assert(PlanetEcologyEvolutionRegionAt(
+            cells[cell][0], cells[cell][1], 0.72f, &replayEvolution));
+        assert(memcmp(&replayEvolution, &singleEvolution[cell],
+                      sizeof(replayEvolution)) == 0);
+    }
     for (int cell = 0; cell < 4; cell++) {
         AssertLocalEcologyEqual(
             PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f),
@@ -828,6 +853,11 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
             cells[cell][0], cells[cell][1], 0.72f);
         AssertLocalEcologyEqual(
             partitionedAdvance[cell], singleAdvance[cell]);
+        assert(PlanetEcologyEvolutionRegionAt(
+            cells[cell][0], cells[cell][1], 0.72f,
+            &partitionedEvolution[cell]));
+        assert(memcmp(&partitionedEvolution[cell], &singleEvolution[cell],
+                      sizeof(partitionedEvolution[cell])) == 0);
     }
     fclose(baseline);
 }

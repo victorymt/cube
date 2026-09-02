@@ -118,8 +118,14 @@ typedef struct PlanetMigrationHabitat {
 } PlanetMigrationHabitat;
 
 typedef struct PlanetPopulationMigrationFlux {
+    /* Net transfer from first to second (legacy population coupling). */
     float flora;
     float fauna;
+    /* Gross directional transfers, retained for dispersal and gene flow. */
+    float floraForward;
+    float floraReverse;
+    float faunaForward;
+    float faunaReverse;
 } PlanetPopulationMigrationFlux;
 
 typedef struct PlanetPopulationMigrationState {

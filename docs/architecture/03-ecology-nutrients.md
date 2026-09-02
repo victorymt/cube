@@ -26,9 +26,16 @@ plant biomass into litter before the nutrient step.
 The additional pools are persisted in population state version 6. Versions 1
 through 5 remain loadable; legacy records lazily initialize their nutrient
 state from the saved flora density on the next population step or evolution
-query. The adapter is still a bounded regional approximation: migration moves
-the normalized flora signal, but does not yet transfer individual nutrient
-pools between neighboring records.
+query. Migration now exposes both net and gross directional flora/fauna fluxes.
+The population adapter uses the gross fauna directions to breed a deterministic
+sample of matching neighboring genomes, raising `geneFlow`, resetting the
+receiver's isolation counter, and feeding the resulting founder seed into the
+next regional generation. Active cache records are ordered by canonical region
+coordinates before edges are applied; each edge also snapshots both parents so
+opposite flows cannot depend on mutation order. This keeps replay independent
+of LRU slot assignment while remaining a bounded regional approximation: it
+does not move individual nutrient pools or persist a complete genome graph.
 
 Tests cover nitrogen/phosphorus conservation, leaching accounting, complete
-competitive suppression, deterministic repeated steps, and invalid durations.
+competitive suppression, deterministic repeated steps, directional migration
+contracts, and invalid durations.

@@ -590,6 +590,8 @@ PlanetPopulationMigrationFlux PlanetPopulationMigrationBetween(
                                secondFloraSpace * 0.25f);
     secondToFirstFlora = fminf(secondToFirstFlora,
                                firstFloraSpace * 0.25f);
+    result.floraForward = firstToSecondFlora;
+    result.floraReverse = secondToFirstFlora;
     result.flora = firstToSecondFlora - secondToFirstFlora;
 
     float faunaRate = EcologyModelResponseAlpha(elapsedTime, 48.0f) * 0.18f;
@@ -601,6 +603,8 @@ PlanetPopulationMigrationFlux PlanetPopulationMigrationBetween(
                                secondFaunaSpace * 0.25f);
     secondToFirstFauna = fminf(secondToFirstFauna,
                                firstFaunaSpace * 0.25f);
+    result.faunaForward = firstToSecondFauna;
+    result.faunaReverse = secondToFirstFauna;
     result.fauna = firstToSecondFauna - secondToFirstFauna;
     return result;
 }

@@ -249,6 +249,122 @@ static void EcologyEvolutionScaleToFauna(
     EcologyEvolutionRefreshTrophic(evolution);
 }
 
+static uint32_t EcologyEvolutionNonzeroId(uint32_t value, uint32_t fallback);
+
+static const PlanetEvolutionLineage *
+EcologyEvolutionConstLineageForArchetype(
+    const PlanetEvolutionRegion *evolution, EvolutionArchetype archetype)
+{
+    if (!evolution) return NULL;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (lineage->active && lineage->archetype == (uint8_t)archetype) {
+            return lineage;
+        }
+    }
+    return NULL;
+}
+
+static PlanetEvolutionLineage *EcologyEvolutionLineageForArchetype(
+    PlanetEvolutionRegion *evolution, EvolutionArchetype archetype)
+{
+    if (!evolution) return NULL;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (lineage->active && lineage->archetype == (uint8_t)archetype) {
+            return lineage;
+        }
+    }
+    return NULL;
+}
+
+/*
+ * A migration edge carries more than biomass: a small, deterministic sample
+ * of the source and receiver genomes is recombined in the receiver lineage.
+ * The lineage slot and identity stay stable, so this is compatible with the
+ * current bounded regional schema while making geneFlow a real genetic
+ * signal instead of a post-hoc scalar annotation.
+ */
+static void EcologyEvolutionMixMigrationDirectional(
+    const PlanetEvolutionRegion *sourceBase,
+    const PlanetEvolutionRegion *receiverBase,
+    PlanetEvolutionRegion *sourceOut, PlanetEvolutionRegion *receiverOut,
+    float faunaFlux, uint32_t salt)
+{
+    if (!sourceBase || !receiverBase || !sourceOut || !receiverOut ||
+        !isfinite(faunaFlux)) return;
+    float magnitude = fmaxf(faunaFlux, 0.0f);
+    if (magnitude <= 0.000001f) return;
+    const PlanetEvolutionRegion *source = sourceBase;
+    const PlanetEvolutionRegion *receiver = receiverBase;
+    float sourceDensity = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (source->lineages[index].active) {
+            sourceDensity += EcologyClamp(source->lineages[index].density);
+        }
+    }
+    float mixing = EcologyClamp(magnitude /
+                                fmaxf(sourceDensity, 0.0001f) * 0.42f);
+    if (mixing <= 0.000001f) return;
+    for (unsigned archetypeIndex = 0; archetypeIndex < 3u;
+         archetypeIndex++) {
+        EvolutionArchetype archetype =
+            (EvolutionArchetype)archetypeIndex;
+        const PlanetEvolutionLineage *sourceLineage =
+            EcologyEvolutionConstLineageForArchetype(source, archetype);
+        const PlanetEvolutionLineage *receiverLineage =
+            EcologyEvolutionConstLineageForArchetype(receiver, archetype);
+        PlanetEvolutionLineage *sourceTarget =
+            EcologyEvolutionLineageForArchetype(sourceOut, archetype);
+        PlanetEvolutionLineage *receiverTarget =
+            EcologyEvolutionLineageForArchetype(receiverOut, archetype);
+        if (!sourceLineage || !receiverLineage || !sourceTarget ||
+            !receiverTarget || sourceLineage->founderSeed == 0u ||
+            receiverLineage->founderSeed == 0u) {
+            continue;
+        }
+        CreatureGenome sourceGenome = EvolutionGenomeSeed(
+            sourceLineage->founderSeed, archetype);
+        CreatureGenome receiverGenome = EvolutionGenomeSeed(
+            receiverLineage->founderSeed, archetype);
+        uint32_t birthSeed = EcologyMix(
+            salt ^ sourceLineage->lineageId ^
+            (receiverLineage->lineageId * 0x9e3779b9u) ^
+            (uint32_t)(archetypeIndex + 1u) * 0x85ebca6bu);
+        CreatureGenome child = EvolutionGenomeBreed(
+            &sourceGenome, &receiverGenome, birthSeed,
+            0.004f + receiverLineage->geneticVariance * 0.025f);
+        if (!EvolutionDevelop(&child).valid) continue;
+        receiverTarget->founderSeed = EcologyEvolutionNonzeroId(
+            child.genomeId, receiverTarget->founderSeed);
+        receiverTarget->dietMean = EcologyClamp(
+            receiverTarget->dietMean * (1.0f - mixing) +
+            ((float)child.diet / 255.0f) * mixing);
+        receiverTarget->geneticVariance = EcologyClamp(
+            receiverTarget->geneticVariance + mixing * 0.045f);
+        receiverTarget->geneFlow = EcologyClamp(
+            receiverTarget->geneFlow + mixing);
+        sourceTarget->geneFlow = EcologyClamp(
+            sourceTarget->geneFlow + mixing * 0.35f);
+        receiverTarget->isolatedGenerations = 0u;
+    }
+}
+
+static void EcologyEvolutionMixMigration(
+    PlanetEvolutionRegion *first, PlanetEvolutionRegion *second,
+    const PlanetPopulationMigrationFlux *flux, uint32_t salt)
+{
+    if (!first || !second || !flux) return;
+    PlanetEvolutionRegion firstBase = *first;
+    PlanetEvolutionRegion secondBase = *second;
+    EcologyEvolutionMixMigrationDirectional(
+        &firstBase, &secondBase, first, second,
+        flux->faunaForward, salt ^ 0x243f6a88u);
+    EcologyEvolutionMixMigrationDirectional(
+        &secondBase, &firstBase, second, first,
+        flux->faunaReverse, salt ^ 0x85a308d3u);
+}
+
 static uint32_t EcologyEvolutionNonzeroId(uint32_t value, uint32_t fallback)
 {
     uint32_t mixed = EcologyMix(value);
@@ -740,8 +856,36 @@ static void EcologyPopulationAccumulateMigration(
     EcologyPopulationStepBuffers *buffers)
 {
     static const int directions[2][2] = { { 1, 0 }, { 0, 1 } };
+    /*
+     * Records live in a four-way hashed/LRU cache.  Iterating raw slots would
+     * make multi-edge gene flow depend on the order in which callers happened
+     * to warm that cache.  Sort active regions by their canonical coordinates
+     * so every replay applies the same edge order.
+     */
+    unsigned order[ECOLOGY_POPULATION_MAX_REGIONS];
+    unsigned orderCount = 0u;
     for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS;
          index++) {
+        if (!buffers->states[index].active) continue;
+        unsigned insertion = orderCount;
+        while (insertion > 0u) {
+            unsigned previous = order[insertion - 1u];
+            EcologyPopulationRecord *previousRecord =
+                &ecologyPopulationRecords[previous];
+            EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
+            if (previousRecord->regionX < record->regionX ||
+                (previousRecord->regionX == record->regionX &&
+                 previousRecord->regionZ <= record->regionZ)) {
+                break;
+            }
+            order[insertion] = previous;
+            insertion--;
+        }
+        order[insertion] = index;
+        orderCount++;
+    }
+    for (unsigned ordered = 0u; ordered < orderCount; ordered++) {
+        unsigned index = order[ordered];
         if (!buffers->states[index].active) continue;
         EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
         for (int direction = 0; direction < 2; direction++) {
@@ -765,6 +909,14 @@ static void EcologyPopulationAccumulateMigration(
                     &buffers->states[neighborIndex].population,
                     &buffers->states[neighborIndex].habitat,
                     windAlignment, context->elapsedTime);
+            uint32_t migrationSalt = context->surfaceId ^
+                (uint32_t)record->regionX * 0x9e3779b9u ^
+                (uint32_t)record->regionZ * 0x85ebca6bu ^
+                (uint32_t)(context->stepEnd / ECOLOGY_POPULATION_STEP_DAYS);
+            EcologyEvolutionMixMigration(
+                &buffers->states[index].evolution,
+                &buffers->states[neighborIndex].evolution,
+                &flux, migrationSalt);
             buffers->floraDelta[index] -= flux.flora;
             buffers->floraDelta[neighborIndex] += flux.flora;
             buffers->faunaDelta[index] -= flux.fauna;
@@ -803,14 +955,6 @@ static bool EcologyPopulationCommitStep(
         record->nutrients = buffers->states[index].nutrients;
         record->nutrientInitialized =
             buffers->states[index].nutrientInitialized;
-        for (unsigned lineageIndex = 0;
-             lineageIndex < PLANET_EVOLUTION_MAX_LINEAGES; lineageIndex++) {
-            PlanetEvolutionLineage *lineage =
-                &record->evolution.lineages[lineageIndex];
-            if (!lineage->active) continue;
-            lineage->geneFlow = EcologyClamp(lineage->geneFlow +
-                fabsf((float)buffers->faunaDelta[index]) * 0.35f);
-        }
         EcologyEvolutionScaleToFauna(
             &record->evolution, record->population.faunaDensity);
         record->migration = (PlanetPopulationMigrationState){
