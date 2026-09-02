@@ -18,8 +18,6 @@
 #define ECOLOGY_POPULATION_EVOLUTION_STATE_VERSION 5u
 #define ECOLOGY_POPULATION_NUTRIENT_STATE_VERSION 6u
 #define ECOLOGY_POPULATION_LEGACY_STATE_VERSION 1u
-#define ECOLOGY_HOMEWORLD_SURFACE_ID 0x484f4d45u
-
 uint32_t EcologyMix(uint32_t value);
 int EcologyFloorDivide(int value, int divisor);
 uint32_t EcologyHash(int x, int z, uint32_t salt);
@@ -28,7 +26,6 @@ float EcologyClamp(float value);
 bool EcologyWorldIsActive(void);
 bool EcologyWorldIsPlanet(void);
 bool EcologyWorldIsHome(void);
-uint32_t EcologyWorldSurfaceId(void);
 uint32_t EcologyWorldSeed(void);
 int EcologyWorldOriginX(void);
 int EcologyWorldOriginZ(void);

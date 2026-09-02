@@ -70,7 +70,7 @@ void GameCaptureScreenshot(GameRuntime *game,
         bool haveScreenshotIndividual = haveScreenshotEntity &&
             EvolutionCatalogGetIndividual(
                 PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
-                WorldCurrentSurfaceId(), screenshotEntity.organismId,
+                EcologyWorldSurfaceId(), screenshotEntity.organismId,
                 &screenshotIndividual);
         PlanetEvolutionRegion screenshotRegion = { 0 };
         bool haveScreenshotRegion = PlanetEcologyEvolutionRegionAt(

@@ -1354,7 +1354,7 @@ static GameDebugDispatchResult GameDebugDispatchEvolutionCommand(
                           "individuals=%d surface=%u\n",
                           EvolutionCatalogSpeciesCount(),
                           EvolutionCatalogIndividualCount(),
-                          WorldCurrentSurfaceId());
+                          EcologyWorldSurfaceId());
         return GAME_DEBUG_DISPATCH_HANDLED;
     default:
         return GAME_DEBUG_DISPATCH_UNHANDLED;

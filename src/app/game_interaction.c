@@ -6,6 +6,7 @@
 #include "presentation/album_ui.h"
 #include "presentation/audio.h"
 #include "gameplay/discovery.h"
+#include "ecology/ecology.h"
 #include "ecology/entity.h"
 #include "ecology/evolution_catalog.h"
 #include "world/fluid.h"
@@ -29,7 +30,7 @@ bool GameInteractionObserveEvolutionInfo(const EntityEvolutionDebugInfo *info)
     if (!info || !info->valid) return false;
     EvolutionCatalogObservation observation = {
         .worldSeed = PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
-        .surfaceId = WorldCurrentSurfaceId(),
+        .surfaceId = EcologyWorldSurfaceId(),
         .x = (int)floorf(info->positionX),
         .z = (int)floorf(info->positionZ),
         .organismId = info->organismId,

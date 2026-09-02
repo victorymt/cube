@@ -1,4 +1,5 @@
 #include "ecology/entity.h"
+#include "ecology/evolution_catalog.h"
 #include "world/fluid.h"
 #include "ecology/ecology_model.h"
 #include "world/surface_topology.h"
@@ -120,6 +121,11 @@ uint32_t WorldGetSeed(void)
 uint32_t WorldCurrentSurfaceId(void)
 {
     return 0u;
+}
+
+uint32_t EcologyWorldSurfaceId(void)
+{
+    return ECOLOGY_HOMEWORLD_SURFACE_ID;
 }
 
 bool PlanetWorldIsActive(void)
@@ -744,6 +750,7 @@ static void TestEvolutionLifecycleAndPredation(void)
     TestEntityDiskStateV4 father = EvolutionTestEntity(
         EVOLUTION_ARCHETYPE_GROUND, 0x22228463u, CREATURE_SEX_MALE);
     father.entity.entity.entity.position[0] = 0.65f;
+    EvolutionCatalogReset();
     LoadVersion4Entities(&mother, &father);
     EntityEvolutionDebugInfo inspected = { 0 };
     assert(EntityEvolutionInspect(0, &inspected));
@@ -761,6 +768,20 @@ static void TestEvolutionLifecycleAndPredation(void)
     assert(child.mutationCount <= 100u);
     assert(child.motherId == mother.organismId);
     assert(child.fatherId == father.organismId);
+    EvolutionCatalogIndividual catalogChild = { 0 };
+    assert(EvolutionCatalogGetIndividual(
+        WorldGetSeed(), ECOLOGY_HOMEWORLD_SURFACE_ID, child.organismId,
+        &catalogChild));
+    assert(catalogChild.lineageId == child.lineageId);
+    assert(catalogChild.speciesId == child.speciesId);
+    assert(catalogChild.generation == child.generation);
+    assert(catalogChild.motherId == child.motherId);
+    assert(catalogChild.fatherId == child.fatherId);
+    EvolutionCatalogSpecies catalogSpecies = { 0 };
+    assert(EvolutionCatalogFindSpecies(
+        WorldGetSeed(), ECOLOGY_HOMEWORLD_SURFACE_ID, child.speciesId,
+        &catalogSpecies));
+    assert(catalogSpecies.observationCount >= 1u);
     FILE *familyState = tmpfile();
     assert(familyState);
     assert(EntitiesSaveState(familyState));

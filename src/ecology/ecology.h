@@ -9,6 +9,12 @@
 
 struct PlanetProfile;
 
+/* Stable surface key used by ecology records for the Homeworld. */
+#define ECOLOGY_HOMEWORLD_SURFACE_ID 0x484f4d45u
+
+/* Returns the surface key shared by ecology state and evolution catalogues. */
+uint32_t EcologyWorldSurfaceId(void);
+
 typedef enum PlanetFloraArchetype {
     PLANET_FLORA_ALIEN_CANOPY = 0,
     PLANET_FLORA_CRYSTAL,

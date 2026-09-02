@@ -137,7 +137,7 @@ void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info,
     EvolutionCatalogIndividual individual = { 0 };
     bool haveIndividual = EvolutionCatalogGetIndividual(
         PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
-        WorldCurrentSurfaceId(), info->organismId, &individual);
+        EcologyWorldSurfaceId(), info->organismId, &individual);
     UiDrawText(TextFormat("PARENTS  M:%08X  F:%08X",
                           info->motherId, info->fatherId),
                x + 14, y + 143, 14, Fade(RAYWHITE, 0.76f));
@@ -296,7 +296,7 @@ void DrawBiologyAtlas(GameRuntime *game)
         lockedInfo.speciesId == species.speciesId &&
         EvolutionCatalogGetIndividual(
             PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
-            WorldCurrentSurfaceId(), lockedInfo.organismId,
+            EcologyWorldSurfaceId(), lockedInfo.organismId,
             &lockedIndividual);
     UiDrawText(haveLockedFamily
                    ? TextFormat("FAMILY M:%08X F:%08X  CHILDREN %u",

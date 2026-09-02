@@ -180,7 +180,7 @@ $(eval $(call define_test,GAME_STREAM_AUDIT_TEST_TARGET,test_game_stream_audit,s
 $(eval $(call define_test,ENVIRONMENT_PRESENTATION_TEST_TARGET,test_environment_presentation,src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,,))
 $(eval $(call define_test,ENVIRONMENT_RUNTIME_TEST_TARGET,test_environment_runtime,src/presentation/environment_runtime.c src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,,))
 $(eval $(call define_test,AUDIO_ENVIRONMENT_TEST_TARGET,test_audio_environment,src/presentation/audio.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
-$(eval $(call define_test,ENTITY_REPLAY_TEST_TARGET,test_entity_replay,$(ENTITY_FEATURE_SRC) src/world/surface_topology.c src/presentation/creature_renderer.c src/ecology/creature_visual.c src/ecology/fauna_motion.c src/ecology/fauna_behavior.c src/ecology/evolution.c src/ecology/ecology_model.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,ENTITY_REPLAY_TEST_TARGET,test_entity_replay,$(ENTITY_FEATURE_SRC) src/world/surface_topology.c src/presentation/creature_renderer.c src/ecology/creature_visual.c src/ecology/fauna_motion.c src/ecology/fauna_behavior.c src/ecology/evolution.c src/ecology/evolution_catalog.c src/ecology/ecology_model.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 
 ENTITY_ECOLOGY_SOURCES := \
 	tests/ecology_test_fixture.c \
@@ -190,6 +190,7 @@ ENTITY_ECOLOGY_SOURCES := \
 	src/ecology/fauna_motion.c \
 	src/ecology/fauna_behavior.c \
 	src/ecology/evolution.c \
+	src/ecology/evolution_catalog.c \
 	$(SPACE_FEATURE_SRC) \
 	src/space/solar_catalog.c \
 	src/space/space_query_cache.c \

@@ -1416,6 +1416,7 @@ static void TestHomeWorldEcologyAndEvolution(void)
     EcologyTestSyncWorldSnapshot();
     PlanetEcologyResetState();
     assert(HomeWorldSurfaceIsActive());
+    assert(EcologyWorldSurfaceId() == ECOLOGY_HOMEWORLD_SURFACE_ID);
 
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     assert(profile.chemistry == PLANET_CHEMISTRY_CARBON);

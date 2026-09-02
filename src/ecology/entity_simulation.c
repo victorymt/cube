@@ -2,6 +2,7 @@
 
 #include "core/game_effects.h"
 #include "ecology/ecology.h"
+#include "ecology/evolution_catalog.h"
 #include "ecology/fauna_motion.h"
 #include "space/space_state.h"
 #include "world/fluid.h"
@@ -560,6 +561,29 @@ static bool EntityCompatibleMate(const Entity *first, const Entity *second)
     return EvolutionGenomeDistance(&first->genome, &second->genome) <= 0.35f;
 }
 
+static void EntityCatalogObserveBirth(const Entity *entity)
+{
+    if (!entity || !entity->evolvable || !entity->phenotype.valid ||
+        entity->organismId == 0u || entity->lineageId == 0u ||
+        entity->speciesId == 0u) {
+        return;
+    }
+    EvolutionCatalogObservation observation = {
+        .worldSeed = PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
+        .surfaceId = EcologyWorldSurfaceId(),
+        .x = (int)floorf(entity->position.x),
+        .z = (int)floorf(entity->position.z),
+        .organismId = entity->organismId,
+        .lineageId = entity->lineageId,
+        .speciesId = entity->speciesId,
+        .motherId = entity->motherId,
+        .fatherId = entity->fatherId,
+        .genome = entity->genome,
+        .phenotype = entity->phenotype
+    };
+    (void)EvolutionCatalogObserve(&observation);
+}
+
 static int EntityFindEvolutionTarget(int selfIndex, FaunaBehaviorAction action)
 {
     if (selfIndex < 0 || selfIndex >= MAX_ENTITIES) return -1;
@@ -709,6 +733,7 @@ static bool EntityBirthOffspring(Entity *mother, float daylight)
         if (resolvedLineageId != 0u) child->lineageId = resolvedLineageId;
         if (resolvedSpeciesId != 0u) child->speciesId = resolvedSpeciesId;
     }
+    EntityCatalogObserveBirth(child);
     mother->pregnant = false;
     mother->gestationProgressDays = 0.0f;
     mother->pendingFatherId = 0u;
