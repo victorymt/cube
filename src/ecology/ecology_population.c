@@ -1358,6 +1358,27 @@ static bool EcologyEvolutionGenomeUsable(
     return true;
 }
 
+static uint8_t EcologyEvolutionArchetypeForPhenotype(
+    const CreaturePhenotype *phenotype)
+{
+    if (!phenotype) return (uint8_t)EVOLUTION_ARCHETYPE_GROUND;
+    return phenotype->locomotion == CREATURE_LOCOMOTION_FLIGHT
+        ? (uint8_t)EVOLUTION_ARCHETYPE_FLIGHT
+        : phenotype->locomotion == CREATURE_LOCOMOTION_AQUATIC
+        ? (uint8_t)EVOLUTION_ARCHETYPE_AQUATIC
+        : (uint8_t)EVOLUTION_ARCHETYPE_GROUND;
+}
+
+static bool EcologyEvolutionLineageMatchesIdentity(
+    const PlanetEvolutionLineage *lineage, uint32_t speciesId,
+    const CreaturePhenotype *phenotype)
+{
+    if (!lineage || !lineage->active) return false;
+    if (speciesId != 0u && lineage->speciesId != speciesId) return false;
+    return !phenotype || lineage->archetype ==
+        EcologyEvolutionArchetypeForPhenotype(phenotype);
+}
+
 static PlanetEvolutionLineage *EcologyEvolutionCreateBirthLineage(
     PlanetEvolutionRegion *evolution, uint32_t lineageId, uint32_t speciesId,
     const CreatureGenome *genome, const CreaturePhenotype *phenotype)
@@ -1381,11 +1402,7 @@ static PlanetEvolutionLineage *EcologyEvolutionCreateBirthLineage(
     for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
         PlanetEvolutionLineage *lineage = &evolution->lineages[index];
         if (lineage->active) continue;
-        uint8_t archetype = phenotype->locomotion == CREATURE_LOCOMOTION_FLIGHT
-            ? (uint8_t)EVOLUTION_ARCHETYPE_FLIGHT
-            : phenotype->locomotion == CREATURE_LOCOMOTION_AQUATIC
-            ? (uint8_t)EVOLUTION_ARCHETYPE_AQUATIC
-            : (uint8_t)EVOLUTION_ARCHETYPE_GROUND;
+        uint8_t archetype = EcologyEvolutionArchetypeForPhenotype(phenotype);
         *lineage = (PlanetEvolutionLineage){
             .lineageId = resolvedLineageId,
             .speciesId = resolvedSpeciesId,
@@ -1458,8 +1475,7 @@ static bool EcologyEvolutionRecordEventInternal(
         event > PLANET_EVOLUTION_EVENT_PREDATION_DEATH) return false;
     CreaturePhenotype phenotype = { 0 };
     if (createBirthLineage &&
-        (event != PLANET_EVOLUTION_EVENT_BIRTH ||
-         !EcologyEvolutionGenomeUsable(genome, &phenotype))) return false;
+        !EcologyEvolutionGenomeUsable(genome, &phenotype)) return false;
     EcologyCanonicalizeCell(&x, &z);
     pthread_mutex_lock(&ecologyPopulationMutex);
     EcologyPopulationRecord *record = EcologyEvolutionRecordAt(
@@ -1470,11 +1486,31 @@ static bool EcologyEvolutionRecordEventInternal(
     }
     PlanetEvolutionLineage *selected = EcologyEvolutionFindLineage(
         &record->evolution, lineageId);
+    if (selected && createBirthLineage &&
+        !EcologyEvolutionLineageMatchesIdentity(
+            selected, speciesId, &phenotype)) {
+        selected = NULL;
+    }
     if (!selected && createBirthLineage) {
         selected = EcologyEvolutionCreateBirthLineage(
             &record->evolution, lineageId, speciesId, genome, &phenotype);
-        if (!selected) selected = EcologyEvolutionFallbackLineage(
-            &record->evolution, &phenotype);
+        if (!selected && event == PLANET_EVOLUTION_EVENT_BIRTH) {
+            selected = EcologyEvolutionFallbackLineage(
+                &record->evolution, &phenotype);
+        }
+    }
+    if (selected && event != PLANET_EVOLUTION_EVENT_BIRTH &&
+        selected->density <= 0.0f) {
+        /* A migrated individual can die before its identity is represented in
+         * this region. Seed a small share from the existing fauna pool so the
+         * death decrement is reflected without inventing extra biomass. */
+        float strength = EcologyClamp(biomass / 120.0f);
+        float seedDensity = fminf(
+            EcologyClamp(record->population.faunaDensity),
+            fmaxf(strength, 0.001f));
+        selected->density = seedDensity;
+        EcologyEvolutionScaleToFauna(
+            &record->evolution, record->population.faunaDensity);
     }
     bool applied = EcologyEvolutionApplyEvent(
         record, selected, event, biomass);
@@ -1494,6 +1530,18 @@ bool EcologyEvolutionRecordEvent(
     return EcologyEvolutionRecordEventInternal(
         x, z, simulationTime, daylight, profile, lineageId, 0u, NULL,
         event, biomass, false, NULL, NULL);
+}
+
+bool EcologyEvolutionRecordEventResolved(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t lineageId,
+    uint32_t speciesId, const CreatureGenome *genome,
+    PlanetEvolutionEvent event, float biomass,
+    uint32_t *outLineageId, uint32_t *outSpeciesId)
+{
+    return EcologyEvolutionRecordEventInternal(
+        x, z, simulationTime, daylight, profile, lineageId, speciesId, genome,
+        event, biomass, true, outLineageId, outSpeciesId);
 }
 
 bool EcologyEvolutionRecordBirth(

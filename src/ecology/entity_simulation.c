@@ -740,11 +740,12 @@ static void EntityUpdateEvolutionLifecycle(Entity *entity, int entityIndex,
     if (entity->ageDays >= entity->lifespanDays ||
         entity->needs.energy <= 0.001f || entity->needs.hydration <= 0.001f ||
         entity->health <= 0.0f) {
-        PlanetEcologyRecordEvolutionEvent(
+        PlanetEcologyRecordEvolutionEventResolved(
             (int)floorf(entity->position.x),
             (int)floorf(entity->position.z), daylight,
-            entity->lineageId, PLANET_EVOLUTION_EVENT_ENVIRONMENT_DEATH,
-            entity->phenotype.totalMass);
+            entity->lineageId, entity->speciesId, &entity->genome,
+            PLANET_EVOLUTION_EVENT_ENVIRONMENT_DEATH,
+            entity->phenotype.totalMass, NULL, NULL);
         EntityBecomeCorpse(entity);
         return;
     }
@@ -962,12 +963,12 @@ static void PassiveInteractWithTarget(PassiveUpdateContext *context)
                     fmaxf(0.5f, target->phenotype.defense * 0.22f);
                 target->health -= damage;
                 if (target->health <= 0.0f) {
-                    PlanetEcologyRecordEvolutionEvent(
+                    PlanetEcologyRecordEvolutionEventResolved(
                         (int)floorf(target->position.x),
                         (int)floorf(target->position.z), context->daylight,
-                        target->lineageId,
+                        target->lineageId, target->speciesId, &target->genome,
                         PLANET_EVOLUTION_EVENT_PREDATION_DEATH,
-                        target->phenotype.totalMass);
+                        target->phenotype.totalMass, NULL, NULL);
                     EntityBecomeCorpse(target);
                     entity->needs.energy = fminf(1.0f,
                         entity->needs.energy + 0.12f);

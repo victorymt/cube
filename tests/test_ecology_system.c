@@ -1713,6 +1713,95 @@ static void TestEvolutionBirthResolvesRegionalIdentity(void)
     SpaceReset();
 }
 
+static bool EvolutionRegionContainsIdentity(
+    const PlanetEvolutionRegion *region, uint32_t lineageId,
+    uint32_t speciesId)
+{
+    if (!region || lineageId == 0u || speciesId == 0u) return false;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &region->lineages[index];
+        if (lineage->active && lineage->lineageId == lineageId &&
+            lineage->speciesId == speciesId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void TestEvolutionDeathResolvesAcrossRegions(void)
+{
+    const float daylight = 0.72f;
+    const int sourceX = 32;
+    const int sourceZ = 32;
+    uint32_t seed = 0u;
+    for (uint32_t index = 0; index < 256u; index++) {
+        uint32_t candidate = 0x7f31a8c5u + index * 0x9e3779b9u;
+        EcologyTestSetSeed(candidate);
+        EcologyTestActivatePlanet(candidate, 0, 0);
+        PlanetEcologyResetState();
+        if (PlanetEcologyLocalAt(sourceX, sourceZ, daylight)
+                .population.faunaDensity > 0.03f) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 0, 0);
+    PlanetEcologyResetState();
+
+    CreatureGenome genome = { 0 };
+    uint32_t lineageId = 0u;
+    uint32_t speciesId = 0u;
+    assert(PlanetEcologySampleGenome(
+        sourceX, sourceZ, daylight, 0x8b7d31a2u, &genome,
+        &lineageId, &speciesId));
+    assert(lineageId != 0u && speciesId != 0u);
+
+    int targetX = 0;
+    int targetZ = sourceZ;
+    PlanetEvolutionRegion targetBefore = { 0 };
+    for (int region = 2; region < 24; region++) {
+        int candidateX = region * 64 + 32;
+        PlanetEvolutionRegion candidate = { 0 };
+        assert(PlanetEcologyEvolutionRegionAt(
+            candidateX, targetZ, daylight, &candidate));
+        PlanetLocalEcology local = PlanetEcologyLocalAt(
+            candidateX, targetZ, daylight);
+        if (local.population.faunaDensity > 0.03f &&
+            !EvolutionRegionContainsIdentity(
+                &candidate, lineageId, speciesId)) {
+            targetX = candidateX;
+            targetBefore = candidate;
+            break;
+        }
+    }
+    assert(targetX != 0);
+    assert(!EvolutionRegionContainsIdentity(
+        &targetBefore, lineageId, speciesId));
+    PlanetLocalEcology localBefore = PlanetEcologyLocalAt(
+        targetX, targetZ, daylight);
+    uint32_t resolvedLineageId = 0u;
+    uint32_t resolvedSpeciesId = 0u;
+    assert(PlanetEcologyRecordEvolutionEventResolved(
+        targetX, targetZ, daylight, lineageId, speciesId, &genome,
+        PLANET_EVOLUTION_EVENT_PREDATION_DEATH, 12.0f,
+        &resolvedLineageId, &resolvedSpeciesId));
+    assert(resolvedLineageId == lineageId);
+    assert(resolvedSpeciesId == speciesId);
+
+    PlanetEvolutionRegion targetAfter = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        targetX, targetZ, daylight, &targetAfter));
+    assert(EvolutionRegionContainsIdentity(
+        &targetAfter, lineageId, speciesId));
+    PlanetLocalEcology localAfter = PlanetEcologyLocalAt(
+        targetX, targetZ, daylight);
+    assert(localAfter.population.faunaDensity <
+           localBefore.population.faunaDensity);
+    SpaceReset();
+}
+
 static void TestEvolutionSpeciationBranches(void)
 {
     const float daylight = 0.72f;
@@ -2426,6 +2515,7 @@ int main(void)
     TestEvolutionRegionAndGenomeReplay();
     TestEvolutionBirthRegistersNovelLineage();
     TestEvolutionBirthResolvesRegionalIdentity();
+    TestEvolutionDeathResolvesAcrossRegions();
     TestEvolutionSpeciationBranches();
     TestHomeWorldEcologyAndEvolution();
     TestPlanetGroundCoverContracts();

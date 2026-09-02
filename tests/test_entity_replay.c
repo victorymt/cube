@@ -213,6 +213,22 @@ bool PlanetEcologyRecordEvolutionEvent(
     return true;
 }
 
+bool PlanetEcologyRecordEvolutionEventResolved(
+    int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
+    const CreatureGenome *genome, PlanetEvolutionEvent event, float biomass,
+    uint32_t *outLineageId, uint32_t *outSpeciesId)
+{
+    (void)x;
+    (void)z;
+    (void)daylight;
+    (void)genome;
+    (void)event;
+    (void)biomass;
+    if (outLineageId) *outLineageId = lineageId;
+    if (outSpeciesId) *outSpeciesId = speciesId;
+    return true;
+}
+
 bool PlanetEcologyRecordEvolutionBirth(
     int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
     const CreatureGenome *genome, float biomass)

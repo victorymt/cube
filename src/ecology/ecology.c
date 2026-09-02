@@ -227,6 +227,22 @@ bool PlanetEcologyRecordEvolutionEvent(
         EcologyClamp(daylight), &profile, lineageId, event, biomass);
 }
 
+bool PlanetEcologyRecordEvolutionEventResolved(
+    int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
+    const CreatureGenome *genome, PlanetEvolutionEvent event, float biomass,
+    uint32_t *outLineageId, uint32_t *outSpeciesId)
+{
+    if (outLineageId) *outLineageId = 0u;
+    if (outSpeciesId) *outSpeciesId = 0u;
+    if (!EcologyWorldIsActive()) return false;
+    EcologyCanonicalizeCell(&x, &z);
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    return EcologyEvolutionRecordEventResolved(
+        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
+        EcologyClamp(daylight), &profile, lineageId, speciesId, genome,
+        event, biomass, outLineageId, outSpeciesId);
+}
+
 bool PlanetEcologyRecordEvolutionBirth(
     int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
     const CreatureGenome *genome, float biomass)

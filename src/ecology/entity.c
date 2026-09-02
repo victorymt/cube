@@ -865,12 +865,21 @@ bool EntityKill(int index, EntityDeathCause cause, float daylight)
         18, 3.0f, 0.7f);
     GameEffectsPlayAudio(GAME_AUDIO_BREAK);
     if (cause == ENTITY_DEATH_PREDATION && entity->evolvable) {
-        PlanetEcologyRecordEvolutionEvent(
+        PlanetEcologyRecordEvolutionEventResolved(
             (int)floorf(entity->position.x),
             (int)floorf(entity->position.z), daylight,
-            entity->lineageId, PLANET_EVOLUTION_EVENT_PREDATION_DEATH,
-            entity->phenotype.totalMass);
+            entity->lineageId, entity->speciesId, &entity->genome,
+            PLANET_EVOLUTION_EVENT_PREDATION_DEATH,
+            entity->phenotype.totalMass, NULL, NULL);
         EntityBecomeCorpse(entity);
+    } else if (cause == ENTITY_DEATH_ENVIRONMENT && entity->evolvable) {
+        PlanetEcologyRecordEvolutionEventResolved(
+            (int)floorf(entity->position.x),
+            (int)floorf(entity->position.z), daylight,
+            entity->lineageId, entity->speciesId, &entity->genome,
+            PLANET_EVOLUTION_EVENT_ENVIRONMENT_DEATH,
+            entity->phenotype.totalMass, NULL, NULL);
+        entity->active = false;
     } else {
         entity->active = false;
     }
