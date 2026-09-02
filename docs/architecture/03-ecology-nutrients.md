@@ -46,7 +46,15 @@ the signal without inventing another species ID. The lineage generation field
 is the regional clock (a same-step branch shares its parent's generation), so
 sampled genomes remain aligned with replay and save/load behavior.
 
+Active-entity births now pass their child genome and species identity into the
+regional population boundary. If a child lineage is not yet present, the first
+free regional slot is initialized from the child's phenotype and generation,
+then the birth biomass is applied to that lineage. A saturated eight-lineage
+region merges the event into the matching locomotion archetype so fauna mass is
+still conserved. The original lineage-only event API remains for deaths and
+harvest feedback; malformed birth genomes are rejected without mutating state.
+
 Tests cover nitrogen/phosphorus conservation, leaching accounting, complete
 competitive suppression, deterministic repeated steps, directional migration
 contracts, speciation branch identity/density conservation, save/load replay,
-and invalid durations.
+entity birth lineage registration, and invalid durations.

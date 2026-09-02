@@ -72,5 +72,9 @@ bool EcologyEvolutionRecordEvent(
     int x, int z, double simulationTime, float daylight,
     const PlanetEcologyProfile *profile, uint32_t lineageId,
     PlanetEvolutionEvent event, float biomass);
+bool EcologyEvolutionRecordBirth(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t lineageId,
+    uint32_t speciesId, const CreatureGenome *genome, float biomass);
 
 #endif

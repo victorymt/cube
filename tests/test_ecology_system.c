@@ -1463,6 +1463,83 @@ static void TestHomeWorldEcologyAndEvolution(void)
     SpaceReset();
 }
 
+static void TestEvolutionBirthRegistersNovelLineage(void)
+{
+    const float daylight = 0.72f;
+    const int sampleX = 32;
+    const int sampleZ = 32;
+    uint32_t seed = 0u;
+    for (uint32_t index = 0; index < 256u; index++) {
+        uint32_t candidate = 0x2d6f4a19u + index * 0x9e3779b9u;
+        EcologyTestSetSeed(candidate);
+        EcologyTestActivatePlanet(candidate, 0, 0);
+        PlanetEcologyResetState();
+        PlanetLocalEcology local = PlanetEcologyLocalAt(
+            sampleX, sampleZ, daylight);
+        if (local.population.faunaDensity > 0.03f) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 0, 0);
+    PlanetEcologyResetState();
+
+    PlanetEvolutionRegion before = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &before));
+    assert(before.lineageCount > 0u && before.lineageCount <
+           PLANET_EVOLUTION_MAX_LINEAGES);
+    float beforeDensity = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (before.lineages[index].active) {
+            beforeDensity += before.lineages[index].density;
+        }
+    }
+
+    CreatureGenome genome = EvolutionGenomeSeed(
+        0x7a31c5e9u, EVOLUTION_ARCHETYPE_GROUND);
+    const uint32_t lineageId = 0xf173a9c1u;
+    const uint32_t speciesId = 0xe24b6d83u;
+    assert(PlanetEcologyRecordEvolutionBirth(
+        sampleX, sampleZ, daylight, lineageId, speciesId, &genome, 12.0f));
+
+    PlanetEvolutionRegion after = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &after));
+    assert(after.lineageCount == before.lineageCount + 1u);
+    bool found = false;
+    float afterDensity = 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &after.lineages[index];
+        if (!lineage->active) continue;
+        afterDensity += lineage->density;
+        if (lineage->lineageId != lineageId) continue;
+        found = true;
+        assert(lineage->speciesId == speciesId);
+        assert(lineage->founderSeed != 0u);
+        assert(lineage->archetype == EVOLUTION_ARCHETYPE_GROUND);
+        assert(lineage->generation == genome.generation);
+        assert(fabsf(lineage->dietMean -
+                     EvolutionDevelop(&genome).diet) < 0.0001f);
+        assert(lineage->density > 0.0f);
+    }
+    assert(found);
+    assert(afterDensity > beforeDensity);
+    PlanetLocalEcology afterLocal = PlanetEcologyLocalAt(
+        sampleX, sampleZ, daylight);
+    assert(fabsf(afterDensity - afterLocal.population.faunaDensity) <
+           0.00001f);
+
+    CreatureGenome invalid = genome;
+    invalid.genomeId ^= 1u;
+    assert(!PlanetEcologyRecordEvolutionBirth(
+        sampleX, sampleZ, daylight, 0xf173a9c2u, 0xe24b6d84u,
+        &invalid, 12.0f));
+    SpaceReset();
+}
+
 static void TestEvolutionSpeciationBranches(void)
 {
     const float daylight = 0.72f;
@@ -2174,6 +2251,7 @@ int main(void)
     TestEcologyLegacyPopulationStateLoad();
     TestEcologyNutrientPopulationPersistence();
     TestEvolutionRegionAndGenomeReplay();
+    TestEvolutionBirthRegistersNovelLineage();
     TestEvolutionSpeciationBranches();
     TestHomeWorldEcologyAndEvolution();
     TestPlanetGroundCoverContracts();

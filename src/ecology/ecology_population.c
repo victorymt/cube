@@ -1334,42 +1334,91 @@ bool EcologyEvolutionSampleGenome(
     return true;
 }
 
-bool EcologyEvolutionRecordEvent(
-    int x, int z, double simulationTime, float daylight,
-    const PlanetEcologyProfile *profile, uint32_t lineageId,
-    PlanetEvolutionEvent event, float biomass)
+static PlanetEvolutionLineage *EcologyEvolutionFindLineage(
+    PlanetEvolutionRegion *evolution, uint32_t lineageId)
 {
-    if (!profile || lineageId == 0u || !isfinite(biomass) || biomass <= 0.0f) {
-        return false;
-    }
-    if (event < PLANET_EVOLUTION_EVENT_BIRTH ||
-        event > PLANET_EVOLUTION_EVENT_PREDATION_DEATH) {
-        return false;
-    }
-    EcologyCanonicalizeCell(&x, &z);
-    pthread_mutex_lock(&ecologyPopulationMutex);
-    EcologyPopulationRecord *record = EcologyEvolutionRecordAt(
-        x, z, simulationTime, daylight, profile, NULL);
-    if (!record) {
-        pthread_mutex_unlock(&ecologyPopulationMutex);
-        return false;
-    }
-    PlanetEvolutionLineage *selected = NULL;
+    if (!evolution || lineageId == 0u) return NULL;
     for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
-        if (record->evolution.lineages[index].active &&
-            record->evolution.lineages[index].lineageId == lineageId) {
-            selected = &record->evolution.lineages[index];
-            break;
+        PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (lineage->active && lineage->lineageId == lineageId) {
+            return lineage;
         }
     }
-    if (!selected) {
-        pthread_mutex_unlock(&ecologyPopulationMutex);
-        return false;
+    return NULL;
+}
+
+static bool EcologyEvolutionGenomeUsable(
+    const CreatureGenome *genome, CreaturePhenotype *outPhenotype)
+{
+    if (!genome || genome->genomeId == 0u ||
+        genome->genomeId != EvolutionGenomeHash(genome)) return false;
+    CreaturePhenotype phenotype = EvolutionDevelop(genome);
+    if (!phenotype.valid) return false;
+    if (outPhenotype) *outPhenotype = phenotype;
+    return true;
+}
+
+static PlanetEvolutionLineage *EcologyEvolutionCreateBirthLineage(
+    PlanetEvolutionRegion *evolution, uint32_t lineageId, uint32_t speciesId,
+    const CreatureGenome *genome, const CreaturePhenotype *phenotype)
+{
+    if (!evolution || lineageId == 0u || !genome || !phenotype) return NULL;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (lineage->active) continue;
+        uint8_t archetype = phenotype->locomotion == CREATURE_LOCOMOTION_FLIGHT
+            ? (uint8_t)EVOLUTION_ARCHETYPE_FLIGHT
+            : phenotype->locomotion == CREATURE_LOCOMOTION_AQUATIC
+            ? (uint8_t)EVOLUTION_ARCHETYPE_AQUATIC
+            : (uint8_t)EVOLUTION_ARCHETYPE_GROUND;
+        *lineage = (PlanetEvolutionLineage){
+            .lineageId = lineageId,
+            .speciesId = speciesId != 0u ? speciesId : EcologyEvolutionNonzeroId(
+                genome->genomeId ^ 0xa511e9b3u, lineageId),
+            .founderSeed = EcologyEvolutionNonzeroId(
+                genome->genomeId, lineageId),
+            .density = 0.0f,
+            .dietMean = EcologyClamp(phenotype->diet),
+            .geneticVariance = EcologyClamp(
+                (float)genome->mutationCount / 100.0f),
+            .fitness = 0.5f,
+            .archetype = archetype,
+            .generation = genome->generation,
+            .active = 1u
+        };
+        return lineage;
     }
+    return NULL;
+}
+
+static PlanetEvolutionLineage *EcologyEvolutionFallbackLineage(
+    PlanetEvolutionRegion *evolution, const CreaturePhenotype *phenotype)
+{
+    if (!evolution || !phenotype) return NULL;
+    uint8_t archetype = phenotype->locomotion == CREATURE_LOCOMOTION_FLIGHT
+        ? (uint8_t)EVOLUTION_ARCHETYPE_FLIGHT
+        : phenotype->locomotion == CREATURE_LOCOMOTION_AQUATIC
+        ? (uint8_t)EVOLUTION_ARCHETYPE_AQUATIC
+        : (uint8_t)EVOLUTION_ARCHETYPE_GROUND;
+    PlanetEvolutionLineage *first = NULL;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (!lineage->active) continue;
+        if (!first) first = lineage;
+        if (lineage->archetype == archetype) return lineage;
+    }
+    return first;
+}
+
+static bool EcologyEvolutionApplyEvent(
+    EcologyPopulationRecord *record, PlanetEvolutionLineage *selected,
+    PlanetEvolutionEvent event, float biomass)
+{
+    if (!record || !selected) return false;
     float strength = EcologyClamp(biomass / 120.0f);
-    float change = event == PLANET_EVOLUTION_EVENT_BIRTH ?
-        strength * 0.12f : -strength *
-        (event == PLANET_EVOLUTION_EVENT_PREDATION_DEATH ? 0.10f : 0.07f);
+    float change = event == PLANET_EVOLUTION_EVENT_BIRTH ? strength * 0.12f
+        : -strength * (event == PLANET_EVOLUTION_EVENT_PREDATION_DEATH
+                       ? 0.10f : 0.07f);
     float previousDensity = selected->density;
     selected->density = EcologyClamp(previousDensity + change);
     float appliedChange = selected->density - previousDensity;
@@ -1378,8 +1427,62 @@ bool EcologyEvolutionRecordEvent(
     EcologyEvolutionRefreshTrophic(&record->evolution);
     ecologyPopulationEpoch++;
     if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
-    pthread_mutex_unlock(&ecologyPopulationMutex);
     return true;
+}
+
+static bool EcologyEvolutionRecordEventInternal(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t lineageId,
+    uint32_t speciesId, const CreatureGenome *genome,
+    PlanetEvolutionEvent event, float biomass, bool createBirthLineage)
+{
+    if (!profile || lineageId == 0u || !isfinite(biomass) || biomass <= 0.0f ||
+        event < PLANET_EVOLUTION_EVENT_BIRTH ||
+        event > PLANET_EVOLUTION_EVENT_PREDATION_DEATH) return false;
+    CreaturePhenotype phenotype = { 0 };
+    if (createBirthLineage &&
+        (event != PLANET_EVOLUTION_EVENT_BIRTH ||
+         !EcologyEvolutionGenomeUsable(genome, &phenotype))) return false;
+    EcologyCanonicalizeCell(&x, &z);
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    EcologyPopulationRecord *record = EcologyEvolutionRecordAt(
+        x, z, simulationTime, daylight, profile, NULL);
+    if (!record) {
+        pthread_mutex_unlock(&ecologyPopulationMutex);
+        return false;
+    }
+    PlanetEvolutionLineage *selected = EcologyEvolutionFindLineage(
+        &record->evolution, lineageId);
+    if (!selected && createBirthLineage) {
+        selected = EcologyEvolutionCreateBirthLineage(
+            &record->evolution, lineageId, speciesId, genome, &phenotype);
+        if (!selected) selected = EcologyEvolutionFallbackLineage(
+            &record->evolution, &phenotype);
+    }
+    bool applied = EcologyEvolutionApplyEvent(
+        record, selected, event, biomass);
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return applied;
+}
+
+bool EcologyEvolutionRecordEvent(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t lineageId,
+    PlanetEvolutionEvent event, float biomass)
+{
+    return EcologyEvolutionRecordEventInternal(
+        x, z, simulationTime, daylight, profile, lineageId, 0u, NULL,
+        event, biomass, false);
+}
+
+bool EcologyEvolutionRecordBirth(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, uint32_t lineageId,
+    uint32_t speciesId, const CreatureGenome *genome, float biomass)
+{
+    return EcologyEvolutionRecordEventInternal(
+        x, z, simulationTime, daylight, profile, lineageId, speciesId, genome,
+        PLANET_EVOLUTION_EVENT_BIRTH, biomass, true);
 }
 
 bool EcologyPopulationRecordFaunaHarvest(

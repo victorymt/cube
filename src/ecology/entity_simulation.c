@@ -699,9 +699,9 @@ static bool EntityBirthOffspring(Entity *mother, float daylight)
     child->targetEntity = -1;
     EntityApplyEvolutionPhenotype(child);
     EntityCanonicalizeSurfacePosition(child);
-    PlanetEcologyRecordEvolutionEvent(
+    PlanetEcologyRecordEvolutionBirth(
         (int)floorf(child->position.x), (int)floorf(child->position.z),
-        daylight, child->lineageId, PLANET_EVOLUTION_EVENT_BIRTH,
+        daylight, child->lineageId, child->speciesId, &child->genome,
         child->phenotype.totalMass);
     mother->pregnant = false;
     mother->gestationProgressDays = 0.0f;
