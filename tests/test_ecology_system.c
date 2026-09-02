@@ -3,6 +3,7 @@
 #define chunks (ChunksMutableForTesting())
 #include "ecology_test_fixture.h"
 #include "ecology/ecology.h"
+#include "ecology/ecology_nutrient_model.h"
 #include "space/space.h"
 #include "space/space_system_physics.h"
 #include "world/terrain.h"
@@ -1068,6 +1069,8 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     float upgradedPressure = -1.0f;
     float upgradedRadiationMemory = -1.0f;
     PlanetEvolutionRegion upgradedEvolution = { 0 };
+    uint8_t upgradedNutrientInitialized = 1u;
+    EcologyNutrientState upgradedNutrients = { 0 };
     assert(fread(upgradedHeader, sizeof(upgradedHeader), 1, upgraded) == 1);
     assert(fread(&upgradedAccessSerial,
                  sizeof(upgradedAccessSerial), 1, upgraded) == 1);
@@ -1089,7 +1092,11 @@ static void TestEcologyLegacyPopulationStateLoad(void)
                  sizeof(upgradedRadiationMemory), 1, upgraded) == 1);
     assert(fread(&upgradedEvolution,
                  sizeof(upgradedEvolution), 1, upgraded) == 1);
-    assert(upgradedHeader[0] == 5u && upgradedHeader[1] == 1u);
+    assert(fread(&upgradedNutrientInitialized,
+                 sizeof(upgradedNutrientInitialized), 1, upgraded) == 1);
+    assert(fread(&upgradedNutrients,
+                 sizeof(upgradedNutrients), 1, upgraded) == 1);
+    assert(upgradedHeader[0] == 6u && upgradedHeader[1] == 1u);
     assert(upgradedAccessSerial == accessSerial);
     assert(upgradedSurfaceId == surfaceId);
     assert(memcmp(upgradedCoordinates, coordinates,
@@ -1103,6 +1110,8 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     assert(upgradedPressure == 0.0f);
     assert(upgradedRadiationMemory == 0.0f);
     assert(upgradedEvolution.lineageCount == 0u);
+    assert(upgradedNutrientInitialized == 0u);
+    assert(EcologyNutrientStateValid(&upgradedNutrients));
 
     FILE *invalid = tmpfile();
     assert(invalid);
@@ -1135,6 +1144,95 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     } while (expectedByte != EOF);
     fclose(afterFailure);
     fclose(upgraded);
+}
+
+static void TestEcologyNutrientPopulationPersistence(void)
+{
+    const int sampleX = 32;
+    const int sampleZ = 32;
+    const float daylight = 0.72f;
+    uint32_t seed = 0u;
+    PlanetLocalEcology baseline = { 0 };
+    for (uint32_t index = 0; index < 1024u; index++) {
+        uint32_t candidate = 0x5a17c0deu + index * 0x9e3779b9u;
+        EcologyTestSetSeed(candidate);
+        PlanetEcologyResetState();
+        EcologyTestActivatePlanet(candidate, 0, 0);
+        PlanetEcologyResetState();
+        baseline = PlanetEcologyLocalAt(sampleX, sampleZ, daylight);
+        if (baseline.population.floraDensity > 0.02f) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
+
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 0, 0);
+    PlanetEcologyResetState();
+    baseline = PlanetEcologyLocalAt(sampleX, sampleZ, daylight);
+    FILE *saved = tmpfile();
+    assert(saved);
+    assert(PlanetEcologySaveState(saved));
+
+    rewind(saved);
+    uint32_t header[2] = { 0 };
+    uint64_t accessSerial = 0u;
+    assert(fread(header, sizeof(header), 1, saved) == 1);
+    assert(fread(&accessSerial, sizeof(accessSerial), 1, saved) == 1);
+    assert(header[0] == 6u && header[1] > 0u);
+    assert(accessSerial > 0u);
+    bool foundInitialized = false;
+    for (uint32_t item = 0; item < header[1]; item++) {
+        uint32_t surfaceId = 0u;
+        int32_t coordinates[2] = { 0 };
+        double lastUpdateTime = 0.0;
+        uint64_t lastAccess = 0u;
+        float population[5] = { 0 };
+        float migration[6] = { 0 };
+        float harvestPressure = 0.0f;
+        float radiationMemory = 0.0f;
+        PlanetEvolutionRegion evolution = { 0 };
+        uint8_t nutrientInitialized = 0u;
+        EcologyNutrientState nutrients = { 0 };
+        assert(fread(&surfaceId, sizeof(surfaceId), 1, saved) == 1);
+        assert(fread(coordinates, sizeof(coordinates), 1, saved) == 1);
+        assert(fread(&lastUpdateTime, sizeof(lastUpdateTime), 1, saved) == 1);
+        assert(fread(&lastAccess, sizeof(lastAccess), 1, saved) == 1);
+        assert(fread(population, sizeof(population), 1, saved) == 1);
+        assert(fread(migration, sizeof(migration), 1, saved) == 1);
+        assert(fread(&harvestPressure, sizeof(harvestPressure), 1, saved) == 1);
+        assert(fread(&radiationMemory, sizeof(radiationMemory), 1, saved) == 1);
+        assert(fread(&evolution, sizeof(evolution), 1, saved) == 1);
+        assert(fread(&nutrientInitialized, sizeof(nutrientInitialized), 1,
+                     saved) == 1);
+        assert(fread(&nutrients, sizeof(nutrients), 1, saved) == 1);
+        (void)surfaceId;
+        (void)coordinates;
+        (void)lastUpdateTime;
+        (void)lastAccess;
+        (void)population;
+        (void)migration;
+        (void)harvestPressure;
+        (void)radiationMemory;
+        (void)evolution;
+        if (nutrientInitialized) {
+            assert(EcologyNutrientStateValid(&nutrients));
+            assert(nutrients.plantBiomass >= 0.0);
+            foundInitialized = true;
+        }
+    }
+    assert(foundInitialized);
+
+    SpaceAdvanceTime(48.0f);
+    PlanetLocalEcology continued = PlanetEcologyLocalAt(
+        sampleX, sampleZ, daylight);
+    rewind(saved);
+    assert(PlanetEcologyLoadState(saved));
+    PlanetLocalEcology replay = PlanetEcologyLocalAt(
+        sampleX, sampleZ, daylight);
+    AssertLocalEcologyEqual(replay, continued);
+    fclose(saved);
 }
 
 static void TestEvolutionRegionAndGenomeReplay(void)
@@ -1955,6 +2053,7 @@ int main(void)
     TestEcologyPlayerEditDisturbance();
     TestEcologyFaunaHarvestFeedback();
     TestEcologyLegacyPopulationStateLoad();
+    TestEcologyNutrientPopulationPersistence();
     TestEvolutionRegionAndGenomeReplay();
     TestHomeWorldEcologyAndEvolution();
     TestPlanetGroundCoverContracts();

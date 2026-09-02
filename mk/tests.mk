@@ -106,6 +106,7 @@ ECOLOGY_SYSTEM_SOURCES := \
 	src/ecology/ecology_population.c \
 	src/ecology/ecology_flora.c \
 	src/ecology/ecology_model.c \
+	src/ecology/ecology_nutrient_model.c \
 	src/ecology/evolution.c \
 	src/world/weather.c \
 	src/world/radiation_runtime.c \
@@ -213,6 +214,7 @@ ENTITY_ECOLOGY_SOURCES := \
 	src/ecology/ecology_population.c \
 	src/ecology/ecology_flora.c \
 	src/ecology/ecology_model.c \
+	src/ecology/ecology_nutrient_model.c \
 	src/world/weather.c \
 	src/world/radiation_runtime.c \
 	src/world/radiation_balance.c \

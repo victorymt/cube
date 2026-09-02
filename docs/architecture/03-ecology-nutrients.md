@@ -14,11 +14,21 @@ same nutrient mass between pools; only explicit leaching exports mass. The
 returned flux record is suitable for coupling to the existing regional
 population model and for deterministic replay diagnostics.
 
-The module is intentionally stateless and independent of rendering. It is not
-yet wired into `ecology_population.c`; the adapter must map each regional
-record's flora density, climate suitability, and rainfall to a cell state and
-persist the additional pools. Age and seed-bank state are included now so that
-future plant succession can be added without changing the conservation API.
+The module is intentionally independent of rendering. Regional population
+records now own one adapter state: normalized flora density is mapped to a
+fixed biomass scale, climate suitability and soil moisture drive growth, and
+the normalized precipitation rate is converted to a bounded millimetre rate
+for leaching. Nutrient-supported plant biomass is blended back into the
+regional flora density with a limited weight so the existing population model
+remains the primary carrying-capacity signal. Disturbance transfers stressed
+plant biomass into litter before the nutrient step.
+
+The additional pools are persisted in population state version 6. Versions 1
+through 5 remain loadable; legacy records lazily initialize their nutrient
+state from the saved flora density on the next population step or evolution
+query. The adapter is still a bounded regional approximation: migration moves
+the normalized flora signal, but does not yet transfer individual nutrient
+pools between neighboring records.
 
 Tests cover nitrogen/phosphorus conservation, leaching accounting, complete
 competitive suppression, deterministic repeated steps, and invalid durations.

@@ -10,7 +10,7 @@ new physical-simulation stages.
 | 00 | [simulation clock](00-simulation-clock.md) | `d88fe09`, `e5612eb`; fixed-step and save reset tests |
 | 01 | [radiation balance](01-radiation-balance.md) | `b595ecd`; Kepler, insolation, energy tests |
 | 02 | [hydrology](02-hydrology-model.md) | `148bcfe`; water/sediment conservation tests |
-| 03 | [nutrient ecology](03-ecology-nutrients.md) | `76f592c`; nutrient/seed/competition tests |
+| 03 | [nutrient ecology](03-ecology-nutrients.md) | `76f592c`, `5fa9044`; conserved nutrient pools wired to regional evolution, V6 migration, and replay tests |
 | 04 | [hazard physics](04-hazard-physics.md) | `ee11e25`; fire/supercell tests |
 | 05 | [character/structure physics](05-character-structure-physics.md) | `9991f92`; force/collapse/survival tests |
 | 06 | [replay and CI](06-deterministic-replay-and-ci.md) | `672a06a`, `89d7c84`; replay, sanitizer, graphics gates |

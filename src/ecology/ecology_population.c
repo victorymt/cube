@@ -1,4 +1,5 @@
 #include "ecology/ecology_internal.h"
+#include "ecology/ecology_nutrient_model.h"
 
 #include "world/terrain.h"
 #include "world/weather.h"
@@ -10,6 +11,8 @@
 #include <string.h>
 
 #define ECOLOGY_DISTURBANCE_CACHE_SIZE 256u
+#define ECOLOGY_NUTRIENT_BIOMASS_SCALE 96.0
+#define ECOLOGY_NUTRIENT_RAINFALL_MM_PER_RATE_DAY 5.0
 
 #if defined(__GNUC__) || defined(__clang__)
 #define ECOLOGY_THREAD_LOCAL __thread
@@ -38,6 +41,8 @@ typedef struct EcologyPopulationRecord {
     PlanetRegionalPopulation population;
     PlanetPopulationMigrationState migration;
     PlanetEvolutionRegion evolution;
+    EcologyNutrientState nutrients;
+    uint8_t nutrientInitialized;
 } EcologyPopulationRecord;
 
 typedef struct EcologyPopulationStepState {
@@ -51,6 +56,9 @@ typedef struct EcologyPopulationStepState {
     float faunaStress;
     float aquaticSuitability;
     PlanetEvolutionRegion evolution;
+    EcologyNutrientState nutrients;
+    EcologyNutrientEnvironment nutrientEnvironment;
+    uint8_t nutrientInitialized;
 } EcologyPopulationStepState;
 
 typedef struct EcologyPopulationStepContext {
@@ -101,6 +109,97 @@ static float EcologyPopulationOccupancy(uint32_t surfaceId, int regionX,
     hash = EcologyMix(hash);
     float unit = (float)(hash & 0x00ffffffu) / 16777215.0f;
     return minimum + unit * range;
+}
+
+static double EcologyNutrientNonNegative(double value)
+{
+    return isfinite(value) && value > 0.0 ? value : 0.0;
+}
+
+/*
+ * Keep the nutrient model in mass units while the public population model
+ * remains a normalized [0, 1] density.  The fixed scale makes the adapter
+ * deterministic and gives old population records a stable upgrade path.
+ */
+static EcologyNutrientState EcologyNutrientInitializeState(
+    const PlanetPopulationInput *input,
+    const PlanetRegionalPopulation *population)
+{
+    EcologyNutrientState state = { 0 };
+    if (!input || !population) return state;
+    double flora = EcologyNutrientNonNegative(
+        (double)EcologyClamp(population->floraDensity));
+    double capacity = EcologyNutrientNonNegative(
+        (double)EcologyClamp(input->floraCapacity));
+    double biomass = flora * ECOLOGY_NUTRIENT_BIOMASS_SCALE;
+    double potential = fmax(flora, capacity) *
+                       ECOLOGY_NUTRIENT_BIOMASS_SCALE;
+    state.mineralNitrogen = 0.80 + potential * 0.020;
+    state.mineralPhosphorus = 0.30 + potential * 0.006;
+    state.soilOrganicNitrogen = potential * 0.035;
+    state.soilOrganicPhosphorus = potential * 0.010;
+    state.plantBiomass = biomass;
+    state.plantNitrogen = biomass * 0.030;
+    state.plantPhosphorus = biomass * 0.004;
+    state.litterBiomass = biomass * 0.12;
+    state.litterNitrogen = state.litterBiomass * 0.030;
+    state.litterPhosphorus = state.litterBiomass * 0.004;
+    state.seedBank = biomass * 0.05;
+    state.meanPlantAgeDays = 0.0;
+    return state;
+}
+
+static float EcologyNutrientDensity(const EcologyNutrientState *state)
+{
+    if (!state || !EcologyNutrientStateValid(state)) return 0.0f;
+    return EcologyClamp((float)(state->plantBiomass /
+                                ECOLOGY_NUTRIENT_BIOMASS_SCALE));
+}
+
+static void EcologyNutrientApplyFloraStress(
+    EcologyNutrientState *state, float floraStress)
+{
+    if (!state || !EcologyNutrientStateValid(state)) return;
+    float stress = EcologyClamp(floraStress);
+    if (stress <= 0.0f) return;
+    double factor = 1.0 - (double)stress * 0.78;
+    double removedBiomass = state->plantBiomass * (1.0 - factor);
+    double removedNitrogen = state->plantNitrogen * (1.0 - factor);
+    double removedPhosphorus = state->plantPhosphorus * (1.0 - factor);
+    state->plantBiomass -= removedBiomass;
+    state->plantNitrogen -= removedNitrogen;
+    state->plantPhosphorus -= removedPhosphorus;
+    state->litterBiomass += removedBiomass;
+    state->litterNitrogen += removedNitrogen;
+    state->litterPhosphorus += removedPhosphorus;
+}
+
+static EcologyNutrientEnvironment EcologyNutrientEnvironmentAt(
+    const PlanetLocalEcology *regional,
+    const PlanetRegionalPopulation *population,
+    float floraStress)
+{
+    EcologyNutrientEnvironment environment =
+        EcologyNutrientDefaultEnvironment();
+    if (!regional || !population) return environment;
+    float floraCapacity = EcologyClamp(regional->suitability.floraCapacity);
+    float floraTemperature = floraCapacity > 0.0001f
+        ? EcologyClamp(regional->suitability.temperatureScore) : 0.0f;
+    float moisture = EcologyClamp(
+        regional->environment.soilMoisture * 0.68f +
+        regional->suitability.waterScore * 0.32f);
+    float competition = EcologyClamp(
+        EcologyClamp(population->faunaDensity) * 0.36f +
+        EcologyClamp(population->floraDensity) * 0.10f +
+        EcologyClamp(floraStress) * 0.24f);
+    environment.temperatureSuitability = floraTemperature;
+    environment.moistureSuitability = moisture;
+    environment.competition = competition;
+    /* precipitationRate is a normalized daily rate; map it to mm/day. */
+    environment.rainfallMm =
+        EcologyClamp(regional->environment.precipitationRate) *
+        ECOLOGY_NUTRIENT_RAINFALL_MM_PER_RATE_DAY;
+    return environment;
 }
 
 static void EcologyEvolutionRefreshTrophic(PlanetEvolutionRegion *evolution)
@@ -495,6 +594,8 @@ static void EcologyPopulationConditionsAt(
         record->population.faunaHarvestPressure) * 0.88f;
     state->faunaStress = EcologyClamp(
         1.0f - (1.0f - habitatStress) * (1.0f - harvestStress));
+    state->nutrientEnvironment = EcologyNutrientEnvironmentAt(
+        &regional, &record->population, state->floraStress);
     WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
         localX, localZ, simulationTime);
     float windAngle = WeatherWindAngleAtWorldTime(
@@ -519,6 +620,9 @@ static void EcologyPopulationInitializeRecord(
     record->population = PlanetPopulationInitialize(
         &state.input, floraOccupancy, faunaOccupancy);
     state.population = record->population;
+    record->nutrients = EcologyNutrientInitializeState(
+        &state.input, &record->population);
+    record->nutrientInitialized = 1u;
     EcologyEvolutionInitialize(record, &state, profile);
     record->lastUpdateTime = simulationTime;
 }
@@ -533,6 +637,11 @@ static void EcologyEvolutionEnsureInitialized(
     EcologyPopulationConditionsAt(
         record, simulationTime, daylight, profile, originX, originZ, &state);
     state.population = record->population;
+    if (!record->nutrientInitialized) {
+        record->nutrients = EcologyNutrientInitializeState(
+            &state.input, &record->population);
+        record->nutrientInitialized = 1u;
+    }
     EcologyEvolutionInitialize(record, &state, profile);
 }
 
@@ -582,9 +691,19 @@ static void EcologyPopulationPrepareStep(
         buffers->states[index].active = true;
         buffers->states[index].population = record->population;
         buffers->states[index].evolution = record->evolution;
+        buffers->states[index].nutrients = record->nutrients;
+        buffers->states[index].nutrientInitialized =
+            record->nutrientInitialized;
         EcologyPopulationConditionsAt(
             record, context->stepEnd, context->daylight, context->profile,
             context->originX, context->originZ, &buffers->states[index]);
+        if (!buffers->states[index].nutrientInitialized ||
+            !EcologyNutrientStateValid(&buffers->states[index].nutrients)) {
+            buffers->states[index].nutrients = EcologyNutrientInitializeState(
+                &buffers->states[index].input,
+                &buffers->states[index].population);
+            buffers->states[index].nutrientInitialized = 1u;
+        }
         PlanetPopulationAdvance(
             &buffers->states[index].population,
             &buffers->states[index].input, context->elapsedTime);
@@ -592,6 +711,23 @@ static void EcologyPopulationPrepareStep(
             &buffers->states[index].population,
             buffers->states[index].floraStress,
             buffers->states[index].faunaStress, context->elapsedTime);
+        EcologyNutrientApplyFloraStress(
+            &buffers->states[index].nutrients,
+            buffers->states[index].floraStress);
+        EcologyNutrientEnvironment nutrientEnvironment =
+            buffers->states[index].nutrientEnvironment;
+        nutrientEnvironment.rainfallMm *= context->elapsedTime;
+        (void)EcologyNutrientStep(
+            &buffers->states[index].nutrients, NULL,
+            &nutrientEnvironment, context->elapsedTime, NULL);
+        float nutrientDensity = EcologyNutrientDensity(
+            &buffers->states[index].nutrients);
+        float floraCapacity = EcologyClamp(
+            buffers->states[index].input.floraCapacity);
+        nutrientDensity = fminf(nutrientDensity, floraCapacity);
+        buffers->states[index].population.floraDensity = EcologyClamp(
+            buffers->states[index].population.floraDensity * 0.84f +
+            nutrientDensity * 0.16f);
         EcologyEvolutionAdvance(
             &buffers->states[index].evolution, &buffers->states[index],
             context->profile, record->surfaceId, record->regionX,
@@ -664,6 +800,9 @@ static bool EcologyPopulationCommitStep(
             (float)buffers->faunaDelta[index]);
         record->population = buffers->states[index].population;
         record->evolution = buffers->states[index].evolution;
+        record->nutrients = buffers->states[index].nutrients;
+        record->nutrientInitialized =
+            buffers->states[index].nutrientInitialized;
         for (unsigned lineageIndex = 0;
              lineageIndex < PLANET_EVOLUTION_MAX_LINEAGES; lineageIndex++) {
             PlanetEvolutionLineage *lineage =
@@ -1121,6 +1260,9 @@ bool EcologyPopulationSaveState(FILE *file)
         if (!EcologyPopulationStateValid(&record->population) ||
             !EcologyPopulationMigrationStateValid(&record->migration) ||
             !EcologyEvolutionStateValid(&record->evolution) ||
+            record->nutrientInitialized > 1u ||
+            (record->nutrientInitialized &&
+             !EcologyNutrientStateValid(&record->nutrients)) ||
             !isfinite(record->lastUpdateTime) ||
             fwrite(&record->surfaceId, sizeof(record->surfaceId), 1, file) != 1 ||
             fwrite(coordinates, sizeof(coordinates), 1, file) != 1 ||
@@ -1135,8 +1277,20 @@ bool EcologyPopulationSaveState(FILE *file)
             fwrite(&record->population.radiationMemory,
                    sizeof(record->population.radiationMemory), 1, file) != 1 ||
             fwrite(&record->evolution,
-                   sizeof(record->evolution), 1, file) != 1) {
+                   sizeof(record->evolution), 1, file) != 1 ||
+            fwrite(&record->nutrientInitialized,
+                   sizeof(record->nutrientInitialized), 1, file) != 1) {
             goto save_done;
+        }
+        if (record->nutrientInitialized &&
+            fwrite(&record->nutrients, sizeof(record->nutrients), 1, file) != 1) {
+            goto save_done;
+        }
+        if (!record->nutrientInitialized) {
+            const EcologyNutrientState emptyNutrients = { 0 };
+            if (fwrite(&emptyNutrients, sizeof(emptyNutrients), 1, file) != 1) {
+                goto save_done;
+            }
         }
     }
     success = true;
@@ -1170,6 +1324,8 @@ bool EcologyPopulationLoadState(FILE *file)
         float faunaHarvestPressure = 0.0f;
         float radiationMemory = 0.0f;
         PlanetEvolutionRegion evolution = { 0 };
+        EcologyNutrientState nutrients = { 0 };
+        uint8_t nutrientInitialized = 0u;
         if (fread(&surfaceId, sizeof(surfaceId), 1, file) != 1 ||
             fread(coordinates, sizeof(coordinates), 1, file) != 1 ||
             fread(&lastUpdateTime, sizeof(lastUpdateTime), 1, file) != 1 ||
@@ -1194,6 +1350,11 @@ bool EcologyPopulationLoadState(FILE *file)
             fread(&evolution, sizeof(evolution), 1, file) != 1) {
             goto load_done;
         }
+        if (header[0] >= ECOLOGY_POPULATION_NUTRIENT_STATE_VERSION &&
+            (fread(&nutrientInitialized, sizeof(nutrientInitialized), 1, file) != 1 ||
+             fread(&nutrients, sizeof(nutrients), 1, file) != 1)) {
+            goto load_done;
+        }
         PlanetRegionalPopulation population = {
             .floraDensity = populationValues[0],
             .faunaDensity = populationValues[1],
@@ -1216,7 +1377,9 @@ bool EcologyPopulationLoadState(FILE *file)
             lastAccess > loadedAccessSerial ||
             !EcologyPopulationStateValid(&population) ||
             !EcologyPopulationMigrationStateValid(&migration) ||
-            !EcologyEvolutionStateValid(&evolution)) {
+            !EcologyEvolutionStateValid(&evolution) ||
+            nutrientInitialized > 1u ||
+            (nutrientInitialized && !EcologyNutrientStateValid(&nutrients))) {
             goto load_done;
         }
 
@@ -1243,7 +1406,9 @@ bool EcologyPopulationLoadState(FILE *file)
             .lastAccess = lastAccess,
             .population = population,
             .migration = migration,
-            .evolution = evolution
+            .evolution = evolution,
+            .nutrients = nutrients,
+            .nutrientInitialized = nutrientInitialized
         };
     }
 
