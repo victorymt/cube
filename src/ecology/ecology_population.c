@@ -251,33 +251,6 @@ static void EcologyEvolutionScaleToFauna(
 
 static uint32_t EcologyEvolutionNonzeroId(uint32_t value, uint32_t fallback);
 
-static const PlanetEvolutionLineage *
-EcologyEvolutionConstLineageForArchetype(
-    const PlanetEvolutionRegion *evolution, EvolutionArchetype archetype)
-{
-    if (!evolution) return NULL;
-    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
-        const PlanetEvolutionLineage *lineage = &evolution->lineages[index];
-        if (lineage->active && lineage->archetype == (uint8_t)archetype) {
-            return lineage;
-        }
-    }
-    return NULL;
-}
-
-static PlanetEvolutionLineage *EcologyEvolutionLineageForArchetype(
-    PlanetEvolutionRegion *evolution, EvolutionArchetype archetype)
-{
-    if (!evolution) return NULL;
-    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
-        PlanetEvolutionLineage *lineage = &evolution->lineages[index];
-        if (lineage->active && lineage->archetype == (uint8_t)archetype) {
-            return lineage;
-        }
-    }
-    return NULL;
-}
-
 /*
  * A migration edge carries more than biomass: a small, deterministic sample
  * of the source and receiver genomes is recombined in the receiver lineage.
@@ -306,47 +279,85 @@ static void EcologyEvolutionMixMigrationDirectional(
     float mixing = EcologyClamp(magnitude /
                                 fmaxf(sourceDensity, 0.0001f) * 0.42f);
     if (mixing <= 0.000001f) return;
+    float sourceArchetypeDensity[3] = { 0.0f, 0.0f, 0.0f };
+    float receiverArchetypeDensity[3] = { 0.0f, 0.0f, 0.0f };
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &source->lineages[index];
+        if (!lineage->active || lineage->archetype >= 3u) continue;
+        sourceArchetypeDensity[lineage->archetype] +=
+            EcologyClamp(lineage->density);
+    }
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &receiver->lineages[index];
+        if (!lineage->active || lineage->archetype >= 3u) continue;
+        receiverArchetypeDensity[lineage->archetype] +=
+            EcologyClamp(lineage->density);
+    }
     for (unsigned archetypeIndex = 0; archetypeIndex < 3u;
          archetypeIndex++) {
         EvolutionArchetype archetype =
             (EvolutionArchetype)archetypeIndex;
-        const PlanetEvolutionLineage *sourceLineage =
-            EcologyEvolutionConstLineageForArchetype(source, archetype);
-        const PlanetEvolutionLineage *receiverLineage =
-            EcologyEvolutionConstLineageForArchetype(receiver, archetype);
-        PlanetEvolutionLineage *sourceTarget =
-            EcologyEvolutionLineageForArchetype(sourceOut, archetype);
-        PlanetEvolutionLineage *receiverTarget =
-            EcologyEvolutionLineageForArchetype(receiverOut, archetype);
-        if (!sourceLineage || !receiverLineage || !sourceTarget ||
-            !receiverTarget || sourceLineage->founderSeed == 0u ||
-            receiverLineage->founderSeed == 0u) {
+        float archetypeDensity = sourceArchetypeDensity[archetypeIndex];
+        float receiverDensity = receiverArchetypeDensity[archetypeIndex];
+        if (archetypeDensity <= 0.0001f || receiverDensity <= 0.0001f) {
             continue;
         }
-        CreatureGenome sourceGenome = EvolutionGenomeSeed(
-            sourceLineage->founderSeed, archetype);
-        CreatureGenome receiverGenome = EvolutionGenomeSeed(
-            receiverLineage->founderSeed, archetype);
-        uint32_t birthSeed = EcologyMix(
-            salt ^ sourceLineage->lineageId ^
-            (receiverLineage->lineageId * 0x9e3779b9u) ^
-            (uint32_t)(archetypeIndex + 1u) * 0x85ebca6bu);
-        CreatureGenome child = EvolutionGenomeBreed(
-            &sourceGenome, &receiverGenome, birthSeed,
-            0.004f + receiverLineage->geneticVariance * 0.025f);
-        if (!EvolutionDevelop(&child).valid) continue;
-        receiverTarget->founderSeed = EcologyEvolutionNonzeroId(
-            child.genomeId, receiverTarget->founderSeed);
-        receiverTarget->dietMean = EcologyClamp(
-            receiverTarget->dietMean * (1.0f - mixing) +
-            ((float)child.diet / 255.0f) * mixing);
-        receiverTarget->geneticVariance = EcologyClamp(
-            receiverTarget->geneticVariance + mixing * 0.045f);
-        receiverTarget->geneFlow = EcologyClamp(
-            receiverTarget->geneFlow + mixing);
-        sourceTarget->geneFlow = EcologyClamp(
-            sourceTarget->geneFlow + mixing * 0.35f);
-        receiverTarget->isolatedGenerations = 0u;
+        for (unsigned sourceIndex = 0;
+             sourceIndex < PLANET_EVOLUTION_MAX_LINEAGES; sourceIndex++) {
+            const PlanetEvolutionLineage *sourceLineage =
+                &source->lineages[sourceIndex];
+            if (!sourceLineage->active ||
+                sourceLineage->archetype != (uint8_t)archetype ||
+                sourceLineage->founderSeed == 0u) {
+                continue;
+            }
+            float sourceWeight = EcologyClamp(sourceLineage->density) /
+                                 archetypeDensity;
+            for (unsigned receiverIndex = 0;
+                 receiverIndex < PLANET_EVOLUTION_MAX_LINEAGES;
+                 receiverIndex++) {
+                const PlanetEvolutionLineage *receiverLineage =
+                    &receiver->lineages[receiverIndex];
+                if (!receiverLineage->active ||
+                    receiverLineage->archetype != (uint8_t)archetype ||
+                    receiverLineage->founderSeed == 0u) {
+                    continue;
+                }
+                PlanetEvolutionLineage *sourceTarget =
+                    &sourceOut->lineages[sourceIndex];
+                PlanetEvolutionLineage *receiverTarget =
+                    &receiverOut->lineages[receiverIndex];
+                float receiverWeight = EcologyClamp(
+                    EcologyClamp(receiverLineage->density) / receiverDensity);
+                float pairMix = EcologyClamp(
+                    mixing * sourceWeight * receiverWeight);
+                if (pairMix <= 0.000001f) continue;
+                CreatureGenome sourceGenome = EvolutionGenomeSeed(
+                    sourceLineage->founderSeed, archetype);
+                CreatureGenome receiverGenome = EvolutionGenomeSeed(
+                    receiverLineage->founderSeed, archetype);
+                uint32_t birthSeed = EcologyMix(
+                    salt ^ sourceLineage->lineageId ^
+                    (receiverLineage->lineageId * 0x9e3779b9u) ^
+                    (uint32_t)(archetypeIndex + 1u) * 0x85ebca6bu);
+                CreatureGenome child = EvolutionGenomeBreed(
+                    &sourceGenome, &receiverGenome, birthSeed,
+                    0.004f + receiverLineage->geneticVariance * 0.025f);
+                if (!EvolutionDevelop(&child).valid) continue;
+                receiverTarget->founderSeed = EcologyEvolutionNonzeroId(
+                    child.genomeId, receiverTarget->founderSeed);
+                receiverTarget->dietMean = EcologyClamp(
+                    receiverTarget->dietMean * (1.0f - pairMix) +
+                    ((float)child.diet / 255.0f) * pairMix);
+                receiverTarget->geneticVariance = EcologyClamp(
+                    receiverTarget->geneticVariance + pairMix * 0.045f);
+                receiverTarget->geneFlow = EcologyClamp(
+                    receiverTarget->geneFlow + pairMix);
+                sourceTarget->geneFlow = EcologyClamp(
+                    sourceTarget->geneFlow + pairMix * 0.35f);
+                receiverTarget->isolatedGenerations = 0u;
+            }
+        }
     }
 }
 
