@@ -36,6 +36,7 @@ void EntityApplyLocalBehaviorEnvironment(
 void EntityApplyEvolutionPhenotype(Entity *entity);
 void EntityInitializeEvolution(Entity *entity, EvolutionArchetype archetype,
                                uint32_t seed, bool juvenile);
+void EntityCatalogObserveBirth(const Entity *entity);
 void EntityInitializeBehaviorState(Entity *entity);
 bool EntityIsAlien(EntityType type);
 bool EntityUsesEcology(const Entity *entity);

@@ -1,5 +1,6 @@
 #include "world/chunks.h"
 #include "ecology/ecology.h"
+#include "ecology/evolution_catalog.h"
 #include "ecology_test_fixture.h"
 #include "ecology/entity.h"
 #include "world/fluid.h"
@@ -992,6 +993,7 @@ static void TestHomeWorldEvolvableEntities(void)
     SpaceReset();
     EcologyTestSetSeed(0x2468ace1u);
     PlanetEcologyResetState();
+    EvolutionCatalogReset();
     assert(HomeWorldSurfaceIsActive());
     assert(PlanetEcologyCurrent().faunaDensity > 0.0f);
 
@@ -1009,7 +1011,23 @@ static void TestHomeWorldEvolvableEntities(void)
         1, deepWaterY + 10, 1, HOME_SEA_LEVEL, &aquaticSpawnY));
     assert(aquaticSpawnY == deepWaterY);
     EntitiesInit();
-    for (int frame = 0; frame < 1800; frame++) {
+    int frame = 0;
+    for (; frame < 1800 && GetActiveEntityCount() == 0; frame++) {
+        RunEntityFrames(&player, 1, daylight);
+    }
+    assert(GetActiveEntityCount() == 1);
+    EntityEvolutionDebugInfo initialInfo = { 0 };
+    assert(EntityEvolutionInspect(0, &initialInfo));
+    assert(initialInfo.valid);
+    assert(initialInfo.motherId == 0u && initialInfo.fatherId == 0u);
+    EvolutionCatalogIndividual initialCatalog = { 0 };
+    assert(EvolutionCatalogGetIndividual(
+        WorldGetSeed(), ECOLOGY_HOMEWORLD_SURFACE_ID,
+        initialInfo.organismId, &initialCatalog));
+    assert(initialCatalog.lineageId == initialInfo.lineageId);
+    assert(initialCatalog.speciesId == initialInfo.speciesId);
+    assert(initialCatalog.generation == initialInfo.generation);
+    for (; frame < 1800; frame++) {
         RunEntityFrames(&player, 1, daylight);
     }
     assert(GetActiveEntityCount() > 0);
@@ -1032,6 +1050,12 @@ static void TestHomeWorldEvolvableEntities(void)
     EntityEvolutionDebugInfo info = { 0 };
     assert(EntityEvolutionInspect(nearest, &info));
     assert(info.valid && info.moduleCount > 0u);
+    EvolutionCatalogIndividual catalogIndividual = { 0 };
+    assert(EvolutionCatalogGetIndividual(
+        WorldGetSeed(), ECOLOGY_HOMEWORLD_SURFACE_ID, info.organismId,
+        &catalogIndividual));
+    assert(catalogIndividual.lineageId == info.lineageId);
+    assert(catalogIndividual.speciesId == info.speciesId);
 
     int removedEvolvable = 0;
     while ((nearest = EntityNearestEvolvable(player.position, 96.0f)) >= 0) {

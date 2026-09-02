@@ -302,6 +302,7 @@ static void EntityInitializePassiveSpawn(EntityPassiveSpawn *spawn,
     entity->accentBlock = spawn->evolvable
         ? spawn->ecology.accentBlock : BLOCK_DIRT;
     EntityCanonicalizeSurfacePosition(entity);
+    EntityCatalogObserveBirth(entity);
 }
 
 void EntitySpawnPassive(const Player *player, float daylight,

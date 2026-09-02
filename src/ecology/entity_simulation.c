@@ -561,7 +561,7 @@ static bool EntityCompatibleMate(const Entity *first, const Entity *second)
     return EvolutionGenomeDistance(&first->genome, &second->genome) <= 0.35f;
 }
 
-static void EntityCatalogObserveBirth(const Entity *entity)
+void EntityCatalogObserveBirth(const Entity *entity)
 {
     if (!entity || !entity->evolvable || !entity->phenotype.valid ||
         entity->organismId == 0u || entity->lineageId == 0u ||

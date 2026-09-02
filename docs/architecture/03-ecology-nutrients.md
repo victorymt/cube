@@ -53,8 +53,14 @@ then the birth biomass is applied to that lineage. A saturated eight-lineage
 region merges the event into the matching locomotion archetype so fauna mass is
 still conserved. The original lineage-only event API remains for deaths and
 harvest feedback; malformed birth genomes are rejected without mutating state.
+The same catalog observation boundary is now used for initial passive spawns,
+after sampled genome identity and canonical surface coordinates are applied.
+This makes the first organisms visible to the biology atlas and gives their
+lineage/species records the same save/load and surface-key behavior as later
+offspring.
 
 Tests cover nitrogen/phosphorus conservation, leaching accounting, complete
 competitive suppression, deterministic repeated steps, directional migration
 contracts, speciation branch identity/density conservation, save/load replay,
-entity birth lineage registration, and invalid durations.
+initial passive-spawn catalog registration, entity birth lineage registration,
+and invalid durations.
