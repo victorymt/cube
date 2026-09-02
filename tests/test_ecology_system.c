@@ -1463,6 +1463,95 @@ static void TestHomeWorldEcologyAndEvolution(void)
     SpaceReset();
 }
 
+static void TestEvolutionSpeciationBranches(void)
+{
+    const float daylight = 0.72f;
+    const int sampleX = 32;
+    const int sampleZ = 32;
+    uint32_t seed = 0u;
+    PlanetEvolutionRegion initial = { 0 };
+    PlanetEvolutionRegion evolved = { 0 };
+    PlanetLocalEcology evolvedLocal = { 0 };
+    for (uint32_t index = 0; index < 256u; index++) {
+        uint32_t candidate = 0x4d7a1c23u + index * 0x9e3779b9u;
+        EcologyTestSetSeed(candidate);
+        EcologyTestActivatePlanet(candidate, 0, 0);
+        PlanetEcologyResetState();
+        assert(PlanetEcologyEvolutionRegionAt(
+            sampleX, sampleZ, daylight, &initial));
+        float initialDensity = 0.0f;
+        for (unsigned lineage = 0; lineage < PLANET_EVOLUTION_MAX_LINEAGES;
+             lineage++) {
+            if (initial.lineages[lineage].active) {
+                initialDensity += initial.lineages[lineage].density;
+            }
+        }
+        if (initial.lineageCount != 3u || initialDensity <= 0.03f) continue;
+        SpaceAdvanceTime(400.0f);
+        assert(PlanetEcologyEvolutionRegionAt(
+            sampleX, sampleZ, daylight, &evolved));
+        evolvedLocal = PlanetEcologyLocalAt(sampleX, sampleZ, daylight);
+        if (evolved.lineageCount > initial.lineageCount) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
+    assert(evolved.lineageCount > initial.lineageCount);
+    assert(evolved.lineageCount <= PLANET_EVOLUTION_MAX_LINEAGES);
+    unsigned activeCount = 0u;
+    float densityTotal = 0.0f;
+    bool foundNewLineage = false;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &evolved.lineages[index];
+        if (!lineage->active) continue;
+        activeCount++;
+        densityTotal += lineage->density;
+        assert(lineage->lineageId != 0u);
+        assert(lineage->speciesId != 0u);
+        assert(lineage->founderSeed != 0u);
+        for (unsigned other = index + 1u;
+             other < PLANET_EVOLUTION_MAX_LINEAGES; other++) {
+            const PlanetEvolutionLineage *peer = &evolved.lineages[other];
+            if (!peer->active) continue;
+            assert(lineage->lineageId != peer->lineageId);
+            assert(lineage->speciesId != peer->speciesId);
+        }
+        bool wasPresent = false;
+        for (unsigned old = 0; old < PLANET_EVOLUTION_MAX_LINEAGES; old++) {
+            if (initial.lineages[old].active &&
+                initial.lineages[old].lineageId == lineage->lineageId) {
+                wasPresent = true;
+                assert(lineage->speciesId == initial.lineages[old].speciesId);
+                break;
+            }
+        }
+        if (!wasPresent) {
+            foundNewLineage = true;
+            assert(lineage->density > 0.0f);
+            assert(lineage->geneFlow <= 0.001f);
+            assert(lineage->isolatedGenerations == 0u);
+        }
+    }
+    assert(activeCount == evolved.lineageCount);
+    assert(foundNewLineage);
+    assert(fabsf(densityTotal - evolvedLocal.population.faunaDensity) <
+           0.00001f);
+
+    FILE *saved = tmpfile();
+    assert(saved);
+    assert(PlanetEcologySaveState(saved));
+    PlanetEcologyResetState();
+    rewind(saved);
+    assert(PlanetEcologyLoadState(saved));
+    PlanetEvolutionRegion loaded = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &loaded));
+    assert(memcmp(&loaded, &evolved, sizeof(loaded)) == 0);
+    fclose(saved);
+    SpaceReset();
+}
+
 typedef struct ChunkBlockSnapshot {
     int cx;
     int cz;
@@ -2085,6 +2174,7 @@ int main(void)
     TestEcologyLegacyPopulationStateLoad();
     TestEcologyNutrientPopulationPersistence();
     TestEvolutionRegionAndGenomeReplay();
+    TestEvolutionSpeciationBranches();
     TestHomeWorldEcologyAndEvolution();
     TestPlanetGroundCoverContracts();
     TestFloraMeshDeformationProperties();

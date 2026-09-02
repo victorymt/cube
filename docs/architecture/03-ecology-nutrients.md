@@ -36,6 +36,17 @@ opposite flows cannot depend on mutation order. This keeps replay independent
 of LRU slot assignment while remaining a bounded regional approximation: it
 does not move individual nutrient pools or persist a complete genome graph.
 
+When genetic variance stays high while gene flow is low, regional evolution now
+creates a real species branch in the first available lineage slot. The parent
+keeps its lineage/species identity and 75% of its density; a deterministic
+self-crossed genome seeds the child with the remaining 25%, fresh IDs, reset
+isolation/gene-flow state, and reduced within-lineage variance. Branches join
+the generation loop on the following step, and a full eight-slot region cools
+the signal without inventing another species ID. The lineage generation field
+is the regional clock (a same-step branch shares its parent's generation), so
+sampled genomes remain aligned with replay and save/load behavior.
+
 Tests cover nitrogen/phosphorus conservation, leaching accounting, complete
 competitive suppression, deterministic repeated steps, directional migration
-contracts, and invalid durations.
+contracts, speciation branch identity/density conservation, save/load replay,
+and invalid durations.

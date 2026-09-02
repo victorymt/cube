@@ -382,6 +382,32 @@ static uint32_t EcologyEvolutionNonzeroId(uint32_t value, uint32_t fallback)
     return mixed != 0u ? mixed : fallback;
 }
 
+static bool EcologyEvolutionIdUsed(const PlanetEvolutionRegion *evolution,
+                                   uint32_t id, bool species)
+{
+    if (!evolution || id == 0u) return false;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage = &evolution->lineages[index];
+        if (!lineage->active) continue;
+        if ((species ? lineage->speciesId : lineage->lineageId) == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint32_t EcologyEvolutionUniqueId(
+    const PlanetEvolutionRegion *evolution, uint32_t candidate, bool species)
+{
+    uint32_t id = EcologyEvolutionNonzeroId(candidate, 1u);
+    for (unsigned probe = 0; probe < 64u; probe++) {
+        if (!EcologyEvolutionIdUsed(evolution, id, species)) return id;
+        id = EcologyEvolutionNonzeroId(
+            id ^ (0x9e3779b9u + probe * 0x85ebca6bu), id + 1u);
+    }
+    return 0u;
+}
+
 static float EcologyEvolutionArchetypeFitness(
     EvolutionArchetype archetype, const CreaturePhenotype *phenotype,
     const EcologyPopulationStepState *state,
@@ -410,6 +436,109 @@ static float EcologyEvolutionArchetypeFitness(
                  animalFood * phenotype->diet;
     return EcologyClamp(habitat * 0.52f + efficiency * 0.20f +
                         mobility * 0.10f + food * 0.18f);
+}
+
+/*
+ * Turn a speciation signal into a bounded lineage branch.  The parent keeps
+ * its identity while a deterministic self-crossed genome seeds a new slot.
+ * New slots are deliberately not advanced until the next generation: this
+ * keeps a branch event independent of slot order and prevents same-step
+ * recursive branching.
+ */
+static bool EcologyEvolutionTrySpeciate(
+    PlanetEvolutionRegion *evolution, unsigned parentIndex,
+    const EcologyPopulationStepState *state,
+    const PlanetEcologyProfile *profile, uint32_t surfaceId,
+    int regionX, int regionZ, float *childFitness)
+{
+    if (!evolution || parentIndex >= PLANET_EVOLUTION_MAX_LINEAGES ||
+        !state || !profile || !childFitness) return false;
+    PlanetEvolutionLineage *parent = &evolution->lineages[parentIndex];
+    if (!parent->active || parent->archetype >= 3u ||
+        parent->founderSeed == 0u || !isfinite(parent->density) ||
+        parent->density <= 0.0001f) return false;
+
+    unsigned childIndex = PLANET_EVOLUTION_MAX_LINEAGES;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (!evolution->lineages[index].active) {
+            childIndex = index;
+            break;
+        }
+    }
+    if (childIndex >= PLANET_EVOLUTION_MAX_LINEAGES) return false;
+
+    EvolutionArchetype archetype =
+        (EvolutionArchetype)parent->archetype;
+    CreatureGenome parentGenome = EvolutionGenomeSeed(
+        parent->founderSeed, archetype);
+    parentGenome.generation = parent->generation;
+    uint32_t branchSalt = surfaceId ^
+        (uint32_t)regionX * 0x27d4eb2fu ^
+        (uint32_t)regionZ * 0x165667b1u ^
+        parent->lineageId ^ (parent->speciesId * 0x9e3779b9u) ^
+        (uint32_t)parent->generation * 0x85ebca6bu;
+    uint32_t birthFallback = EcologyEvolutionNonzeroId(
+        parent->founderSeed ^ 0x6d2b79f5u, 1u);
+    uint32_t birthSeed = EcologyEvolutionNonzeroId(
+        branchSalt ^ 0xd1b54a32u, birthFallback);
+    CreatureGenome childGenome = EvolutionGenomeBreed(
+        &parentGenome, &parentGenome, birthSeed,
+        0.012f + EcologyClamp(parent->geneticVariance) * 0.018f);
+    CreaturePhenotype childPhenotype = EvolutionDevelop(&childGenome);
+    if (!childPhenotype.valid ||
+        childPhenotype.locomotion != (CreatureLocomotion)(archetype + 1)) {
+        /* A rare invalid mutation must not consume a lineage slot. */
+        childGenome = EvolutionGenomeBreed(
+            &parentGenome, &parentGenome, birthSeed ^ 0x9e3779b9u, 0.0f);
+        childPhenotype = EvolutionDevelop(&childGenome);
+    }
+    if (!childPhenotype.valid ||
+        childPhenotype.locomotion != (CreatureLocomotion)(archetype + 1)) {
+        return false;
+    }
+
+    uint32_t founderFallback = EcologyEvolutionNonzeroId(
+        parent->founderSeed ^ 0x51ed270bu, 1u);
+    uint32_t childFounderSeed = EcologyEvolutionNonzeroId(
+        childGenome.genomeId, founderFallback);
+    uint32_t childLineageId = EcologyEvolutionUniqueId(
+        evolution, parent->lineageId ^ childFounderSeed ^ 0x243f6a88u,
+        false);
+    uint32_t childSpeciesId = EcologyEvolutionUniqueId(
+        evolution, parent->speciesId ^ childLineageId ^ 0xa511e9b3u,
+        true);
+    if (childLineageId == 0u || childSpeciesId == 0u) return false;
+    float parentDensity = EcologyClamp(parent->density);
+    float childDensity = EcologyClamp(parentDensity * 0.25f);
+    float genomeDistance = EcologyClamp(EvolutionGenomeDistance(
+        &parentGenome, &childGenome));
+    float parentVariance = EcologyClamp(parent->geneticVariance);
+
+    PlanetEvolutionLineage child = { 0 };
+    child.lineageId = childLineageId;
+    child.speciesId = childSpeciesId;
+    child.founderSeed = childFounderSeed;
+    child.density = childDensity;
+    child.dietMean = EcologyClamp(childPhenotype.diet);
+    child.geneticVariance = EcologyClamp(
+        parentVariance * 0.35f + genomeDistance * 0.08f);
+    child.fitness = EcologyEvolutionArchetypeFitness(
+        archetype, &childPhenotype, state, profile);
+    child.archetype = parent->archetype;
+    /* The regional clock advances once per step; sampled genomes derive the
+     * current generation from this lineage value, so a same-step branch keeps
+     * the parent's clock rather than jumping ahead. */
+    child.generation = parent->generation;
+    child.isolatedGenerations = 0u;
+    child.active = 1u;
+
+    parent->density = EcologyClamp(parentDensity - childDensity);
+    parent->geneticVariance = EcologyClamp(parentVariance * 0.55f);
+    parent->geneFlow = 0.0f;
+    parent->isolatedGenerations = 0u;
+    evolution->lineages[childIndex] = child;
+    *childFitness = child.fitness;
+    return true;
 }
 
 static void EcologyEvolutionInitialize(
@@ -461,10 +590,15 @@ static void EcologyEvolutionAdvance(
         if (evolution->bootstrapGeneration < 24u) {
             evolution->bootstrapGeneration++;
         }
+        uint8_t activeAtStart[PLANET_EVOLUTION_MAX_LINEAGES] = { 0 };
+        for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES;
+             index++) {
+            activeAtStart[index] = evolution->lineages[index].active;
+        }
         float fitnessSum = 0.0f;
         for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
             PlanetEvolutionLineage *lineage = &evolution->lineages[index];
-            if (!lineage->active) continue;
+            if (!activeAtStart[index]) continue;
             EvolutionArchetype archetype =
                 (EvolutionArchetype)lineage->archetype;
             uint32_t bestSeed = lineage->founderSeed;
@@ -509,11 +643,17 @@ static void EcologyEvolutionAdvance(
             if (EvolutionShouldSpeciate(
                     lineage->geneticVariance, lineage->geneFlow,
                     lineage->isolatedGenerations)) {
-                lineage->speciesId = EcologyEvolutionNonzeroId(
-                    lineage->lineageId ^ lineage->founderSeed ^
-                    lineage->generation, lineage->lineageId);
-                lineage->isolatedGenerations = 0u;
-                lineage->geneticVariance *= 0.55f;
+                float childFitness = 0.0f;
+                if (EcologyEvolutionTrySpeciate(
+                        evolution, index, state, profile, surfaceId,
+                        regionX, regionZ, &childFitness)) {
+                    fitnessSum += childFitness;
+                } else {
+                    /* Capacity or an invalid mutant: cool down and retry later. */
+                    lineage->isolatedGenerations = 0u;
+                    lineage->geneticVariance = EcologyClamp(
+                        lineage->geneticVariance * 0.55f);
+                }
             }
             fitnessSum += lineage->fitness;
         }
