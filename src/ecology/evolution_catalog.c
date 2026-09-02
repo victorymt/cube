@@ -77,7 +77,7 @@ static int CatalogFreeIndividualIndex(void)
     for (int index = 0; index < EVOLUTION_CATALOG_MAX_INDIVIDUALS; index++) {
         if (!catalogIndividuals[index].valid) return index;
     }
-    return 0;
+    return -1;
 }
 
 static void CatalogAddChild(uint32_t worldSeed, uint32_t surfaceId,
@@ -120,6 +120,15 @@ bool EvolutionCatalogObserve(const EvolutionCatalogObservation *observation)
 {
     if (!CatalogObservationValid(observation)) return false;
 
+    /* Reserve a new individual slot before mutating species state. */
+    int individualIndex = CatalogFindIndividualIndex(
+        observation->worldSeed, observation->surfaceId,
+        observation->organismId);
+    if (individualIndex < 0) {
+        individualIndex = CatalogFreeIndividualIndex();
+        if (individualIndex < 0) return false;
+    }
+
     int speciesIndex = CatalogFindSpeciesIndex(
         observation->worldSeed, observation->surfaceId,
         observation->speciesId);
@@ -146,11 +155,7 @@ bool EvolutionCatalogObserve(const EvolutionCatalogObservation *observation)
         species->representativeGenome = observation->genome;
     }
 
-    int individualIndex = CatalogFindIndividualIndex(
-        observation->worldSeed, observation->surfaceId,
-        observation->organismId);
-    if (individualIndex < 0) {
-        individualIndex = CatalogFreeIndividualIndex();
+    if (!catalogIndividuals[individualIndex].valid) {
         catalogIndividuals[individualIndex] = (EvolutionCatalogIndividual){
             .valid = true,
             .worldSeed = observation->worldSeed,

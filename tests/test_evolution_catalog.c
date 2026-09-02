@@ -84,6 +84,45 @@ int main(void)
     otherSurface.surfaceId = 0x12345678u;
     assert(EvolutionCatalogObserve(&otherSurface));
     assert(EvolutionCatalogSpeciesCount() == 3);
+
+    EvolutionCatalogReset();
+    for (uint32_t index = 0; index < EVOLUTION_CATALOG_MAX_INDIVIDUALS;
+         index++) {
+        EvolutionCatalogObservation full =
+            Observation(77u, 1000u + index, 200u, 0u, 0u);
+        assert(EvolutionCatalogObserve(&full));
+    }
+    assert(EvolutionCatalogIndividualCount() ==
+           EVOLUTION_CATALOG_MAX_INDIVIDUALS);
+    EvolutionCatalogIndividual first = { 0 };
+    assert(EvolutionCatalogGetIndividual(77u, 0x484f4d45u, 1000u, &first));
+    EvolutionCatalogSpecies fullSpecies = { 0 };
+    assert(EvolutionCatalogFindSpecies(77u, 0x484f4d45u, 200u, &fullSpecies));
+    assert(fullSpecies.observationCount == EVOLUTION_CATALOG_MAX_INDIVIDUALS);
+
+    EvolutionCatalogObservation overflow =
+        Observation(77u, 1000u + EVOLUTION_CATALOG_MAX_INDIVIDUALS, 200u, 0u,
+                    0u);
+    assert(!EvolutionCatalogObserve(&overflow));
+    assert(EvolutionCatalogIndividualCount() ==
+           EVOLUTION_CATALOG_MAX_INDIVIDUALS);
+    EvolutionCatalogIndividual unchanged = { 0 };
+    assert(EvolutionCatalogGetIndividual(77u, 0x484f4d45u, 1000u, &unchanged));
+    assert(unchanged.valid == first.valid && unchanged.worldSeed == first.worldSeed &&
+           unchanged.surfaceId == first.surfaceId &&
+           unchanged.organismId == first.organismId &&
+           unchanged.lineageId == first.lineageId &&
+           unchanged.speciesId == first.speciesId &&
+           unchanged.motherId == first.motherId &&
+           unchanged.fatherId == first.fatherId &&
+           unchanged.generation == first.generation &&
+           unchanged.childCount == first.childCount);
+    for (unsigned child = 0; child < EVOLUTION_CATALOG_MAX_CHILDREN; child++) {
+        assert(unchanged.childIds[child] == first.childIds[child]);
+    }
+    assert(EvolutionCatalogFindSpecies(77u, 0x484f4d45u, 200u, &fullSpecies));
+    assert(fullSpecies.observationCount == EVOLUTION_CATALOG_MAX_INDIVIDUALS);
+
     puts("evolution catalog tests passed");
     return 0;
 }
