@@ -769,17 +769,22 @@ static void GameDebugFocusEvolution(GameRuntime *game)
         info.speciesId);
 }
 
-static void GameDebugReplyEvolutionRegion(GameRuntime *game)
+static float GameDebugEvolutionDaylight(const GameRuntime *game)
 {
-    PlanetEvolutionRegion evolution = { 0 };
     float daylight = 0.0f;
     float sunset = 0.0f;
     PlanetLightState light = { 0 };
-    if (PlanetWorldLightStateAt(game->player.position, &light)) {
-        daylight = light.daylight;
-    } else {
-        DayNightFactors(game->dayTime, &daylight, &sunset);
+    if (game && PlanetWorldLightStateAt(game->player.position, &light)) {
+        return light.daylight;
     }
+    if (game) DayNightFactors(game->dayTime, &daylight, &sunset);
+    return daylight;
+}
+
+static void GameDebugReplyEvolutionRegion(GameRuntime *game)
+{
+    PlanetEvolutionRegion evolution = { 0 };
+    float daylight = GameDebugEvolutionDaylight(game);
     if (!PlanetEcologyEvolutionRegionAt(
             (int)floorf(game->player.position.x),
             (int)floorf(game->player.position.z), daylight, &evolution)) {
@@ -1479,6 +1484,31 @@ static bool GameDebugDslResolveTopology(GameRuntime *game, const char *name,
     return GameDebugTopologyDslResolve(game, name, outValue);
 }
 
+static bool GameDebugDslResolveEvolution(GameRuntime *game, const char *name,
+                                          DebugDslValue *outValue)
+{
+    if (!game || !name || !outValue || strncmp(name, "evolution.", 10u) != 0)
+        return false;
+    const char *field = name + 10u;
+    if (*field != 'r' && *field != 'l' && *field != 'b' && *field != 'h' &&
+        *field != 'o' && *field != 'c')
+        return false;
+    PlanetEvolutionRegion evolution = { 0 };
+    bool available = game->screen == SCREEN_PLAYING && WorldIsSurfaceActive();
+    if (available) available = PlanetEcologyEvolutionRegionAt(
+        (int)floorf(game->player.position.x),
+        (int)floorf(game->player.position.z),
+        GameDebugEvolutionDaylight(game), &evolution);
+    if (!strcmp(field, "region_available")) return GameDebugDslBool(outValue, available);
+    if (!strcmp(field, "lineage_count")) return GameDebugDslNumber(outValue, available ? evolution.lineageCount : 0u);
+    if (!strcmp(field, "bootstrap_generation")) return GameDebugDslNumber(outValue, available ? evolution.bootstrapGeneration : 0u);
+    if (!strcmp(field, "bootstrap_complete")) return GameDebugDslBool(outValue, available && evolution.bootstrapComplete);
+    if (!strcmp(field, "herbivore_density")) return GameDebugDslNumber(outValue, available ? evolution.herbivoreDensity : 0.0f);
+    if (!strcmp(field, "omnivore_density")) return GameDebugDslNumber(outValue, available ? evolution.omnivoreDensity : 0.0f);
+    if (!strcmp(field, "carnivore_density")) return GameDebugDslNumber(outValue, available ? evolution.carnivoreDensity : 0.0f);
+    return false;
+}
+
 static bool GameDebugDslResolveWeather(GameRuntime *game, const char *name,
                                        DebugDslValue *outValue)
 {
@@ -1708,6 +1738,7 @@ static const GameDebugDslResolverFn gameDebugDslResolvers[] = {
     /* Preserve the historical ordering between each domain group. */
     GameDebugDslResolveCore,
     GameDebugDslResolveTopology,
+    GameDebugDslResolveEvolution,
     GameDebugDslResolvePlayer,
     GameDebugDslResolveWeather,
     GameDebugDslResolveHydrology,

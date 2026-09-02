@@ -53,7 +53,8 @@ startup_script=$(mktemp "${TMPDIR:-/tmp}/voxelcraft-e2e-startup.XXXXXX.dsl")
 printf '%s\n' \
     'let startup_screen = game.screen' \
     'assert startup_screen == "start"' \
-    'assert settings.autosave == false' >"$startup_script"
+    'assert settings.autosave == false' \
+    'assert evolution.region_available == false' >"$startup_script"
 
 for requirement in python3 hyprctl; do
     if ! command -v "$requirement" >/dev/null 2>&1; then
@@ -441,6 +442,8 @@ send_command 'evolution advance 1'
 wait_for_reply '^DEBUG_CONTROL evolution advance ok days=1.000$'
 send_command 'evolution region'
 wait_for_reply '^DEBUG_CONTROL evolution region ok lineages=3 '
+send_command 'assert evolution.region_available && evolution.lineage_count >= 1 && evolution.lineage_count <= 8 && evolution.bootstrap_generation <= 24 && evolution.bootstrap_complete == (evolution.bootstrap_generation == 24) && evolution.herbivore_density >= 0 && evolution.omnivore_density >= 0 && evolution.carnivore_density >= 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'evolution bootstrap status'
 wait_for_reply '^DEBUG_CONTROL evolution region ok lineages=3 '
 send_command 'evolution catalog'

@@ -291,6 +291,11 @@ Runtime values are sampled when an expression is evaluated:
 | `weather.canonical_cell` | vec3 | Canonical spherical weather sample cell (Y is the player Y) |
 | `ecology.canonical_cell` | vec3 | Canonical spherical ecology cell (Y is the player Y) |
 | `ecology.region_x`, `ecology.region_z` | number | Canonical 64-block ecology population region coordinates |
+| `evolution.region_available` | bool | Whether the current playing surface has a readable regional evolution snapshot |
+| `evolution.lineage_count` | number | Active bounded lineages in the current ecology region (0 when unavailable) |
+| `evolution.bootstrap_generation` | number | Regional evolution bootstrap generation, bounded to 24 (0 when unavailable) |
+| `evolution.bootstrap_complete` | bool | Whether regional evolution bootstrap has reached generation 24 |
+| `evolution.herbivore_density`, `evolution.omnivore_density`, `evolution.carnivore_density` | number | Current regional fauna density split by trophic class (0 when unavailable) |
 | `player.position` | vec3 | Player world position |
 | `player.velocity` | vec3 | Player velocity |
 | `player.input_frames` | number | Remaining scripted player-input frames |
@@ -736,7 +741,10 @@ evolution catalog
 Inspect/focus radii default to 24 and range from 1 to 256. `advance` accepts
 0.25-4096 days. `region` and `evolution bootstrap status` report the current
 ecology region; `atlas` toggles the biology atlas and `catalog` reports catalog
-counts.
+counts. The typed `evolution.*` fields above expose the same region snapshot for
+assertions: `evolution.region_available` is false before play or outside a
+surface, and the remaining fields return deterministic zero/false defaults
+while it is unavailable.
 
 ## Reply protocol
 
