@@ -227,6 +227,21 @@ bool PlanetEcologyRecordEvolutionBirth(
     return true;
 }
 
+bool PlanetEcologyRecordEvolutionBirthResolved(
+    int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
+    const CreatureGenome *genome, float biomass,
+    uint32_t *outLineageId, uint32_t *outSpeciesId)
+{
+    (void)x;
+    (void)z;
+    (void)daylight;
+    (void)genome;
+    (void)biomass;
+    if (outLineageId) *outLineageId = lineageId;
+    if (outSpeciesId) *outSpeciesId = speciesId;
+    return true;
+}
+
 WeatherFieldSample WeatherFieldSampleAtWorldTime(
     int x, int z, double simulationTime)
 {

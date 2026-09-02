@@ -1540,6 +1540,179 @@ static void TestEvolutionBirthRegistersNovelLineage(void)
     SpaceReset();
 }
 
+static bool EvolutionRegionHasLineageId(
+    const PlanetEvolutionRegion *region, uint32_t lineageId)
+{
+    if (!region || lineageId == 0u) return false;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (region->lineages[index].active &&
+            region->lineages[index].lineageId == lineageId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool EvolutionRegionHasSpeciesId(
+    const PlanetEvolutionRegion *region, uint32_t speciesId)
+{
+    if (!region || speciesId == 0u) return false;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (region->lineages[index].active &&
+            region->lineages[index].speciesId == speciesId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static float EvolutionRegionLineageDensity(
+    const PlanetEvolutionRegion *region, uint32_t lineageId)
+{
+    if (!region || lineageId == 0u) return 0.0f;
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        if (region->lineages[index].active &&
+            region->lineages[index].lineageId == lineageId) {
+            return region->lineages[index].density;
+        }
+    }
+    return 0.0f;
+}
+
+static void TestEvolutionBirthResolvesRegionalIdentity(void)
+{
+    const float daylight = 0.72f;
+    const int sampleX = 32;
+    const int sampleZ = 32;
+    uint32_t seed = 0u;
+    for (uint32_t index = 0; index < 256u; index++) {
+        uint32_t candidate = 0x5e2d91a7u + index * 0x9e3779b9u;
+        EcologyTestSetSeed(candidate);
+        EcologyTestActivatePlanet(candidate, 0, 0);
+        PlanetEcologyResetState();
+        PlanetLocalEcology local = PlanetEcologyLocalAt(
+            sampleX, sampleZ, daylight);
+        if (local.population.faunaDensity > 0.03f) {
+            seed = candidate;
+            break;
+        }
+    }
+    assert(seed != 0u);
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 0, 0);
+    PlanetEcologyResetState();
+
+    PlanetEvolutionRegion before = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &before));
+    assert(before.lineageCount == 3u);
+    const uint32_t collidingSpeciesId = before.lineages[0].speciesId;
+    uint32_t requestedLineageId = 0xf173a9c1u;
+    while (EvolutionRegionHasLineageId(&before, requestedLineageId)) {
+        requestedLineageId++;
+        assert(requestedLineageId != 0u);
+    }
+
+    CreatureGenome genome = EvolutionGenomeSeed(
+        0x6134b8e2u, EVOLUTION_ARCHETYPE_GROUND);
+    uint32_t resolvedLineageId = 0u;
+    uint32_t resolvedSpeciesId = 0u;
+    assert(PlanetEcologyRecordEvolutionBirthResolved(
+        sampleX, sampleZ, daylight, requestedLineageId,
+        collidingSpeciesId, &genome, 12.0f,
+        &resolvedLineageId, &resolvedSpeciesId));
+    assert(resolvedLineageId == requestedLineageId);
+    assert(resolvedSpeciesId != 0u &&
+           resolvedSpeciesId != collidingSpeciesId);
+
+    PlanetEvolutionRegion afterCollision = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &afterCollision));
+    assert(afterCollision.lineageCount == before.lineageCount + 1u);
+    assert(EvolutionRegionHasLineageId(
+        &afterCollision, resolvedLineageId));
+    assert(EvolutionRegionHasSpeciesId(
+        &afterCollision, resolvedSpeciesId));
+    for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
+        const PlanetEvolutionLineage *lineage =
+            &afterCollision.lineages[index];
+        if (!lineage->active) continue;
+        for (unsigned peer = index + 1u;
+             peer < PLANET_EVOLUTION_MAX_LINEAGES; peer++) {
+            const PlanetEvolutionLineage *other =
+                &afterCollision.lineages[peer];
+            if (!other->active) continue;
+            assert(lineage->lineageId != other->lineageId);
+            assert(lineage->speciesId != other->speciesId);
+        }
+    }
+
+    PlanetEvolutionRegion filled = afterCollision;
+    uint32_t nextLineageId = 0x63000001u;
+    uint32_t nextSpeciesId = 0x74000001u;
+    while (filled.lineageCount < PLANET_EVOLUTION_MAX_LINEAGES) {
+        while (EvolutionRegionHasLineageId(&filled, nextLineageId)) {
+            nextLineageId++;
+            assert(nextLineageId != 0u);
+        }
+        while (EvolutionRegionHasSpeciesId(&filled, nextSpeciesId)) {
+            nextSpeciesId++;
+            assert(nextSpeciesId != 0u);
+        }
+        uint32_t childLineageId = 0u;
+        uint32_t childSpeciesId = 0u;
+        assert(PlanetEcologyRecordEvolutionBirthResolved(
+            sampleX, sampleZ, daylight, nextLineageId, nextSpeciesId,
+            &genome, 12.0f, &childLineageId, &childSpeciesId));
+        assert(childLineageId == nextLineageId);
+        assert(childSpeciesId == nextSpeciesId);
+        assert(PlanetEcologyEvolutionRegionAt(
+            sampleX, sampleZ, daylight, &filled));
+        nextLineageId++;
+        nextSpeciesId++;
+    }
+    assert(filled.lineageCount == PLANET_EVOLUTION_MAX_LINEAGES);
+
+    uint32_t fallbackRequestLineageId = 0x7a000001u;
+    uint32_t fallbackRequestSpeciesId = 0x7b000001u;
+    while (EvolutionRegionHasLineageId(&filled, fallbackRequestLineageId)) {
+        fallbackRequestLineageId++;
+        assert(fallbackRequestLineageId != 0u);
+    }
+    while (EvolutionRegionHasSpeciesId(&filled, fallbackRequestSpeciesId)) {
+        fallbackRequestSpeciesId++;
+        assert(fallbackRequestSpeciesId != 0u);
+    }
+    uint32_t fallbackLineageId = 0u;
+    uint32_t fallbackSpeciesId = 0u;
+    assert(PlanetEcologyRecordEvolutionBirthResolved(
+        sampleX, sampleZ, daylight, fallbackRequestLineageId,
+        fallbackRequestSpeciesId, &genome, 12.0f,
+        &fallbackLineageId, &fallbackSpeciesId));
+    assert(fallbackLineageId != 0u && fallbackSpeciesId != 0u);
+    assert(!EvolutionRegionHasLineageId(&filled, fallbackRequestLineageId));
+    assert(EvolutionRegionHasLineageId(&filled, fallbackLineageId));
+    assert(EvolutionRegionHasSpeciesId(&filled, fallbackSpeciesId));
+    assert(fallbackLineageId != fallbackRequestLineageId ||
+           fallbackSpeciesId != fallbackRequestSpeciesId);
+
+    PlanetEvolutionRegion afterFallback = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &afterFallback));
+    float densityAfterBirth = EvolutionRegionLineageDensity(
+        &afterFallback, fallbackLineageId);
+    assert(densityAfterBirth > 0.0f);
+    assert(PlanetEcologyRecordEvolutionEvent(
+        sampleX, sampleZ, daylight, fallbackLineageId,
+        PLANET_EVOLUTION_EVENT_PREDATION_DEATH, 12.0f));
+    PlanetEvolutionRegion afterDeath = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &afterDeath));
+    assert(EvolutionRegionLineageDensity(
+               &afterDeath, fallbackLineageId) < densityAfterBirth);
+    SpaceReset();
+}
+
 static void TestEvolutionSpeciationBranches(void)
 {
     const float daylight = 0.72f;
@@ -2252,6 +2425,7 @@ int main(void)
     TestEcologyNutrientPopulationPersistence();
     TestEvolutionRegionAndGenomeReplay();
     TestEvolutionBirthRegistersNovelLineage();
+    TestEvolutionBirthResolvesRegionalIdentity();
     TestEvolutionSpeciationBranches();
     TestHomeWorldEcologyAndEvolution();
     TestPlanetGroundCoverContracts();

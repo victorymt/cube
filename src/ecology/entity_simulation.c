@@ -699,10 +699,16 @@ static bool EntityBirthOffspring(Entity *mother, float daylight)
     child->targetEntity = -1;
     EntityApplyEvolutionPhenotype(child);
     EntityCanonicalizeSurfacePosition(child);
-    PlanetEcologyRecordEvolutionBirth(
+    uint32_t resolvedLineageId = 0u;
+    uint32_t resolvedSpeciesId = 0u;
+    if (PlanetEcologyRecordEvolutionBirthResolved(
         (int)floorf(child->position.x), (int)floorf(child->position.z),
         daylight, child->lineageId, child->speciesId, &child->genome,
-        child->phenotype.totalMass);
+        child->phenotype.totalMass, &resolvedLineageId,
+        &resolvedSpeciesId)) {
+        if (resolvedLineageId != 0u) child->lineageId = resolvedLineageId;
+        if (resolvedSpeciesId != 0u) child->speciesId = resolvedSpeciesId;
+    }
     mother->pregnant = false;
     mother->gestationProgressDays = 0.0f;
     mother->pendingFatherId = 0u;

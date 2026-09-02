@@ -147,6 +147,10 @@ bool PlanetEcologyRecordEvolutionEvent(
 bool PlanetEcologyRecordEvolutionBirth(
     int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
     const CreatureGenome *genome, float biomass);
+bool PlanetEcologyRecordEvolutionBirthResolved(
+    int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
+    const CreatureGenome *genome, float biomass,
+    uint32_t *outLineageId, uint32_t *outSpeciesId);
 
 #ifdef ECOLOGY_TESTING
 uint32_t PlanetEcologyTestPopulationEpoch(void);

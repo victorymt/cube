@@ -231,13 +231,24 @@ bool PlanetEcologyRecordEvolutionBirth(
     int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
     const CreatureGenome *genome, float biomass)
 {
+    return PlanetEcologyRecordEvolutionBirthResolved(
+        x, z, daylight, lineageId, speciesId, genome, biomass, NULL, NULL);
+}
+
+bool PlanetEcologyRecordEvolutionBirthResolved(
+    int x, int z, float daylight, uint32_t lineageId, uint32_t speciesId,
+    const CreatureGenome *genome, float biomass,
+    uint32_t *outLineageId, uint32_t *outSpeciesId)
+{
+    if (outLineageId) *outLineageId = 0u;
+    if (outSpeciesId) *outSpeciesId = 0u;
     if (!EcologyWorldIsActive()) return false;
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
-    return EcologyEvolutionRecordBirth(
+    return EcologyEvolutionRecordBirthResolved(
         x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
         EcologyClamp(daylight), &profile, lineageId, speciesId, genome,
-        biomass);
+        biomass, outLineageId, outSpeciesId);
 }
 
 #ifdef ECOLOGY_TESTING
