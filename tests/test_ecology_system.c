@@ -1728,6 +1728,122 @@ static bool EvolutionRegionContainsIdentity(
     return false;
 }
 
+static unsigned char *CaptureEcologyPopulationState(size_t *outSize)
+{
+    assert(outSize);
+    FILE *file = tmpfile();
+    assert(file);
+    assert(PlanetEcologySaveState(file));
+    long end = ftell(file);
+    assert(end > 0);
+    *outSize = (size_t)end;
+    unsigned char *bytes = malloc(*outSize);
+    assert(bytes);
+    rewind(file);
+    assert(fread(bytes, 1, *outSize, file) == *outSize);
+    fclose(file);
+    return bytes;
+}
+
+static bool LoadEcologyPopulationBytes(
+    const unsigned char *bytes, size_t size)
+{
+    FILE *file = tmpfile();
+    assert(file);
+    assert(bytes && size > 0u);
+    assert(fwrite(bytes, 1, size, file) == size);
+    rewind(file);
+    bool loaded = PlanetEcologyLoadState(file);
+    fclose(file);
+    return loaded;
+}
+
+static size_t EcologySavedEvolutionOffset(void)
+{
+    return sizeof(uint32_t) * 2u + sizeof(uint64_t) +
+        sizeof(uint32_t) + sizeof(int32_t) * 2u + sizeof(double) +
+        sizeof(uint64_t) + sizeof(float) * 5u + sizeof(float) * 6u +
+        sizeof(float) * 2u;
+}
+
+static void TestEvolutionStateValidation(void)
+{
+    const float daylight = 0.72f;
+    const int sampleX = 32;
+    const int sampleZ = 32;
+    uint32_t seed = 0u;
+    for (uint32_t index = 0; index < 256u; index++) {
+        uint32_t candidate = 0x2ca591d7u + index * 0x9e3779b9u;
+        EcologyTestSetSeed(candidate);
+        EcologyTestActivatePlanet(candidate, 0, 0);
+        PlanetEcologyResetState();
+        PlanetEvolutionRegion region = { 0 };
+        if (!PlanetEcologyEvolutionRegionAt(
+                sampleX, sampleZ, daylight, &region) ||
+            region.lineageCount < 2u) {
+            continue;
+        }
+        seed = candidate;
+        break;
+    }
+    assert(seed != 0u);
+    EcologyTestSetSeed(seed);
+    EcologyTestActivatePlanet(seed, 0, 0);
+    PlanetEcologyResetState();
+    PlanetEvolutionRegion region = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        sampleX, sampleZ, daylight, &region));
+    assert(region.lineageCount >= 2u);
+
+    size_t stateSize = 0u;
+    unsigned char *baseline = CaptureEcologyPopulationState(&stateSize);
+    size_t evolutionOffset = EcologySavedEvolutionOffset();
+    assert(evolutionOffset + sizeof(PlanetEvolutionRegion) <= stateSize);
+    PlanetEvolutionRegion savedEvolution = { 0 };
+    memcpy(&savedEvolution, baseline + evolutionOffset,
+           sizeof(savedEvolution));
+    assert(savedEvolution.lineageCount >= 2u);
+
+    unsigned char *mutated = malloc(stateSize);
+    assert(mutated);
+    memcpy(mutated, baseline, stateSize);
+    PlanetEvolutionRegion mutatedEvolution = savedEvolution;
+    mutatedEvolution.lineages[1].lineageId =
+        mutatedEvolution.lineages[0].lineageId;
+    memcpy(mutated + evolutionOffset, &mutatedEvolution,
+           sizeof(mutatedEvolution));
+    assert(!LoadEcologyPopulationBytes(mutated, stateSize));
+
+    memcpy(mutated, baseline, stateSize);
+    mutatedEvolution = savedEvolution;
+    mutatedEvolution.lineages[1].speciesId =
+        mutatedEvolution.lineages[0].speciesId;
+    memcpy(mutated + evolutionOffset, &mutatedEvolution,
+           sizeof(mutatedEvolution));
+    assert(!LoadEcologyPopulationBytes(mutated, stateSize));
+
+    memcpy(mutated, baseline, stateSize);
+    mutatedEvolution = savedEvolution;
+    mutatedEvolution.bootstrapComplete = !mutatedEvolution.bootstrapComplete;
+    memcpy(mutated + evolutionOffset, &mutatedEvolution,
+           sizeof(mutatedEvolution));
+    assert(!LoadEcologyPopulationBytes(mutated, stateSize));
+
+    memcpy(mutated, baseline, stateSize);
+    mutatedEvolution = savedEvolution;
+    mutatedEvolution.herbivoreDensity =
+        mutatedEvolution.herbivoreDensity < 0.9f
+            ? mutatedEvolution.herbivoreDensity + 0.1f
+            : mutatedEvolution.herbivoreDensity - 0.1f;
+    memcpy(mutated + evolutionOffset, &mutatedEvolution,
+           sizeof(mutatedEvolution));
+    assert(!LoadEcologyPopulationBytes(mutated, stateSize));
+
+    free(mutated);
+    free(baseline);
+    SpaceReset();
+}
+
 static void TestEvolutionDeathResolvesAcrossRegions(void)
 {
     const float daylight = 0.72f;
@@ -2516,6 +2632,7 @@ int main(void)
     TestEvolutionBirthRegistersNovelLineage();
     TestEvolutionBirthResolvesRegionalIdentity();
     TestEvolutionDeathResolvesAcrossRegions();
+    TestEvolutionStateValidation();
     TestEvolutionSpeciationBranches();
     TestHomeWorldEcologyAndEvolution();
     TestPlanetGroundCoverContracts();

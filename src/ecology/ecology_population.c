@@ -1654,6 +1654,8 @@ static bool EcologyEvolutionStateValid(const PlanetEvolutionRegion *evolution)
 {
     if (!evolution || evolution->lineageCount > PLANET_EVOLUTION_MAX_LINEAGES ||
         evolution->bootstrapGeneration > 24u) return false;
+    if ((evolution->bootstrapComplete != 0u) !=
+        (evolution->bootstrapGeneration == 24u)) return false;
     const float trophic[] = {
         evolution->herbivoreDensity, evolution->omnivoreDensity,
         evolution->carnivoreDensity
@@ -1664,25 +1666,47 @@ static bool EcologyEvolutionStateValid(const PlanetEvolutionRegion *evolution)
             trophic[index] > 1.0f) return false;
     }
     unsigned activeCount = 0u;
+    float recomputedTrophic[3] = { 0.0f, 0.0f, 0.0f };
     for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
         const PlanetEvolutionLineage *lineage = &evolution->lineages[index];
         if (lineage->active > 1u || lineage->archetype >
             (uint8_t)EVOLUTION_ARCHETYPE_AQUATIC) return false;
         if (!lineage->active) continue;
         activeCount++;
+        for (unsigned previous = 0; previous < index; previous++) {
+            const PlanetEvolutionLineage *peer = &evolution->lineages[previous];
+            if (peer->active &&
+                (peer->lineageId == lineage->lineageId ||
+                 peer->speciesId == lineage->speciesId)) {
+                return false;
+            }
+        }
         const float values[] = {
             lineage->density, lineage->dietMean, lineage->geneticVariance,
             lineage->geneFlow, lineage->fitness
         };
         if (lineage->lineageId == 0u || lineage->speciesId == 0u ||
-            lineage->founderSeed == 0u) return false;
+            lineage->founderSeed == 0u || lineage->density <= 0.0f) {
+            return false;
+        }
         for (unsigned value = 0; value < sizeof(values) / sizeof(values[0]);
              value++) {
             if (!isfinite(values[value]) || values[value] < 0.0f ||
                 values[value] > 1.0f) return false;
         }
+        unsigned trophicIndex = lineage->dietMean < 0.36f ? 0u :
+            lineage->dietMean < 0.64f ? 1u : 2u;
+        recomputedTrophic[trophicIndex] += lineage->density;
     }
-    return activeCount == evolution->lineageCount;
+    if (activeCount != evolution->lineageCount) return false;
+    for (unsigned index = 0; index < 3u; index++) {
+        float expected = EcologyClamp(recomputedTrophic[index]);
+        float actual = index == 0u ? evolution->herbivoreDensity :
+            index == 1u ? evolution->omnivoreDensity :
+            evolution->carnivoreDensity;
+        if (fabsf(actual - expected) > 0.0001f) return false;
+    }
+    return true;
 }
 
 uint32_t EcologyPopulationEpoch(void)
