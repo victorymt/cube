@@ -1,8 +1,8 @@
 # Voxelcraft
 
-A small Minecraft-style voxel sandbox built with raylib. The map is generated
-from infinite horizontal chunks around the player, with block edits preserved
-while the game is running. Chunks are rendered as cached visible-face meshes and
+A Minecraft-style voxel sandbox built with raylib. Procedural chunks stream
+around the player on globally traversable spherical surfaces, with block edits
+preserved in world saves. Chunks are rendered as cached visible-face meshes and
 rebuilt only when nearby terrain changes. Block textures are generated at
 startup as a small pixel-art atlas.
 
@@ -60,10 +60,13 @@ startup as a small pixel-art atlas.
   chunks use a 16-job worker queue that prioritizes the chunks nearest the
   player. Meshes are uploaded on the main thread so new areas stream in smoothly
   instead of hitching
-- Binary save format V19 persists the world seed, inventory, ship fuel and
+- Binary save format V22 persists the world seed, inventory, ship fuel and
   locator, active dimension, planet-world context, entities, ecology state,
-  player-authored map markers and navigation target, and stable cube-sphere
-  addresses for the player and every surface edit.
+  the evolution catalog, weather impacts, radiation and hydrology runtime
+  state, player-authored map markers and navigation target, and stable
+  cube-sphere addresses for the player and every surface edit.
+  Compatible V18-V21 saves remain readable, with missing subsystem payloads
+  initialized on load. The regional ecology payload has its own version (V6).
   Terrain generation version 6 rebuilds unedited terrain in older compatible
   saves so the expanded geology appears while preserving player-authored edits.
   V17 and older flat-world saves are intentionally rejected because their
@@ -84,7 +87,7 @@ startup as a small pixel-art atlas.
   Preferences are atomically saved in `voxelcraft_settings.cfg`, separately
   from the world save
 - Every generated solid planet is a world: space uses a spherical proxy, while
-  landing streams a deterministic, effectively unbounded chunk surface with
+  landing streams a deterministic, globally traversable chunk surface with
   planet-specific terrain, materials, sky colors, caves, liquids, and landmarks.
   Gas giants have deep atmospheres and gravity but no fake solid landing surface
 - Minecraft-style content: stairs, fences, fence gates, glass panes, lava
@@ -97,6 +100,10 @@ startup as a small pixel-art atlas.
 - Animals (cows, sheep, pigs, chickens) roam the daytime world; zombies and
   skeletons hunt you at night (zombies burn in sunlight). Left-click to
   defeat them
+- Regional ecology tracks conserved nutrient pools, population migration and
+  gene flow, and deterministic species branches. Active births and deaths
+  feed back into regional populations; passive spawns and offspring register
+  in the Biology Atlas with stable surface and lineage identities
 - Meteors streak across space skies
 - Underwater tint when the camera is submerged (plus splash sound and bubbles
   while swimming), a soft procedural ambient music loop, and an `F3` debug HUD
@@ -204,19 +211,33 @@ cannot contaminate a later regular test run. Environments that run every
 process under `ptrace` can use `make SANITIZER_LEAKS=0 test-sanitize`; CI keeps
 leak detection enabled.
 
-The real-game smoke test uses the debug stdin protocol in the active Hyprland
-Wayland session. It uses the session GPU and does not provide an Xvfb/software
+The real-game E2E routes use the debug stdin protocol in the active Hyprland
+Wayland session. They use the session GPU and do not provide an Xvfb/software
 rendering fallback:
 
 ```sh
 make test-e2e
+# Bounded graphics/debug route used by the optional Hyprland CI job:
+make test-debug-graphics-e2e
 ```
 
-It verifies deterministic startup, a known underwater location, the debug
-report, and a nonblank 1280x720 PNG. `make test-coverage` produces XML and HTML
-reports under `build/coverage/` when `gcovr` is installed. GitHub Actions runs
-GCC, Clang, sanitizer, coverage, and release-package jobs; the graphical E2E
-test runs only inside the active Hyprland session.
+The full route covers startup, materials and flora, weather and hazards,
+fluid behavior, save/load, spherical seams and poles, debug reports, and
+nonblank screenshots. It also runs the bounded route, which exercises
+pause/map/camera/look/mouse/ship controls. `make test-coverage` produces XML
+and HTML reports under `build/coverage/` when `gcovr` is installed. GitHub
+Actions defines GCC, Clang, sanitizer, streaming performance, coverage, and
+release-package jobs. Graphics CI requires a self-hosted `hyprland` runner and
+`VOXELCRAFT_HYPRLAND_RUNNER=true`.
+
+Implementation milestones and acceptance evidence are tracked separately in
+the [architecture index](docs/architecture/README.md). Roadmap stages marked
+complete describe their bounded implementation scope: climate and hydrology
+currently integrate one active 128x128 region, without global heat transport,
+river networks, ocean currents, or off-screen catchment integration. The
+[verification record](docs/architecture/06-deterministic-replay-and-ci.md)
+dates test results and records the unresolved full E2E polar-input timeout;
+historical suite passes do not certify later changes.
 
 The Linux release gate is `make release-check`. It builds a versioned archive
 under `dist/` and writes a SHA-256 checksum beside it. Release archives do not

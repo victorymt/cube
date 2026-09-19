@@ -35,9 +35,11 @@ the homeworld terrain model.
 
 ## Save Migration
 
-`WORLD_SAVE_FORMAT_V21` is the current write format. It appends a versioned,
-magic-checked radiation payload after the weather-impact state. V18-V20 saves
-remain readable; they reset the radiation bridge to its default state because
+`WORLD_SAVE_FORMAT_V21` introduced a versioned, magic-checked radiation
+payload after the weather-impact state. The current writer emits V22, which
+retains that payload and adds the
+[hydrology state](11-hydrology-runtime-integration.md). V18-V20 saves remain
+readable; they reset the radiation bridge to its default state because
 they have no compatible payload. A malformed V21 payload is a transactional
 load error, and the existing trailing-data check remains authoritative.
 
