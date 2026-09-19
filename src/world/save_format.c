@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#define SAVE_MAGIC_V23 "VOXELCRAFT_SAVE_V23"
 #define SAVE_MAGIC_V22 "VOXELCRAFT_SAVE_V22"
 #define SAVE_MAGIC_V21 "VOXELCRAFT_SAVE_V21"
 #define SAVE_MAGIC_V20 "VOXELCRAFT_SAVE_V20"
@@ -14,6 +15,9 @@ WorldSaveFormat WorldSaveFormatRead(FILE *file)
     char magic[SAVE_MAGIC_LENGTH];
     if (!file || fread(magic, 1, sizeof(magic), file) != sizeof(magic)) {
         return WORLD_SAVE_FORMAT_UNSUPPORTED;
+    }
+    if (memcmp(magic, SAVE_MAGIC_V23, sizeof(magic)) == 0) {
+        return WORLD_SAVE_FORMAT_V23;
     }
     if (memcmp(magic, SAVE_MAGIC_V22, sizeof(magic)) == 0) {
         return WORLD_SAVE_FORMAT_V22;
@@ -36,7 +40,7 @@ WorldSaveFormat WorldSaveFormatRead(FILE *file)
 bool WorldSaveFormatWriteCurrent(FILE *file)
 {
     return file &&
-           fwrite(SAVE_MAGIC_V22, 1, SAVE_MAGIC_LENGTH, file) ==
+           fwrite(SAVE_MAGIC_V23, 1, SAVE_MAGIC_LENGTH, file) ==
                SAVE_MAGIC_LENGTH;
 }
 
@@ -45,23 +49,32 @@ bool WorldSaveFormatHasMapMarkers(WorldSaveFormat format)
     return format == WORLD_SAVE_FORMAT_V19 ||
            format == WORLD_SAVE_FORMAT_V20 ||
            format == WORLD_SAVE_FORMAT_V21 ||
-           format == WORLD_SAVE_FORMAT_V22;
+           format == WORLD_SAVE_FORMAT_V22 ||
+           format == WORLD_SAVE_FORMAT_V23;
 }
 
 bool WorldSaveFormatHasWeatherImpact(WorldSaveFormat format)
 {
     return format == WORLD_SAVE_FORMAT_V20 ||
            format == WORLD_SAVE_FORMAT_V21 ||
-           format == WORLD_SAVE_FORMAT_V22;
+           format == WORLD_SAVE_FORMAT_V22 ||
+           format == WORLD_SAVE_FORMAT_V23;
 }
 
 bool WorldSaveFormatHasRadiationRuntime(WorldSaveFormat format)
 {
     return format == WORLD_SAVE_FORMAT_V21 ||
-           format == WORLD_SAVE_FORMAT_V22;
+           format == WORLD_SAVE_FORMAT_V22 ||
+           format == WORLD_SAVE_FORMAT_V23;
 }
 
 bool WorldSaveFormatHasHydrologyRuntime(WorldSaveFormat format)
 {
-    return format == WORLD_SAVE_FORMAT_V22;
+    return format == WORLD_SAVE_FORMAT_V22 ||
+           format == WORLD_SAVE_FORMAT_V23;
+}
+
+bool WorldSaveFormatHasEcologyClock(WorldSaveFormat format)
+{
+    return format == WORLD_SAVE_FORMAT_V23;
 }

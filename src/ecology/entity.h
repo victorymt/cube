@@ -113,6 +113,12 @@ typedef struct Entity {
     BlockType accentBlock;
 } Entity;
 
+typedef struct EntityRenderPose {
+    Vector3 position;
+    float yaw;
+    float phase;
+} EntityRenderPose;
+
 typedef struct EntityEvolutionDebugInfo {
     bool valid;
     bool corpse;
@@ -156,6 +162,10 @@ void EntitiesApplyWildfireHazards(float dt, float daylight,
                                   EntityWildfireExposureQuery exposureAt);
 void EntitiesClear(void);
 const Entity *EntitiesView(void);
+/* Render history is transient and never changes the authoritative entities. */
+void EntitiesCaptureRenderPoses(void);
+void EntitiesResetRenderPoses(void);
+bool EntitiesRenderPoseAt(int index, float alpha, EntityRenderPose *outPose);
 float EntityEvolutionGrowthScale(const Entity *entity);
 bool EntitiesSaveState(FILE *file);
 bool EntitiesLoadState(FILE *file);

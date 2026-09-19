@@ -43,6 +43,7 @@ CHUNKS_FEATURE_SRC := \
 
 ENTITY_FEATURE_SRC := \
 	src/ecology/entity.c \
+	src/ecology/entity_interpolation.c \
 	src/ecology/entity_simulation.c \
 	src/ecology/entity_spawn.c \
 	src/world/tornado_model.c

@@ -1,4 +1,5 @@
 #include "ecology/entity.h"
+#include "ecology/entity_internal.h"
 #include "ecology/evolution_catalog.h"
 #include "world/fluid.h"
 #include "ecology/ecology_model.h"
@@ -16,6 +17,9 @@
 #include <string.h>
 
 static uint32_t testSeed = 0x51f15eadu;
+static uint32_t testSurfaceId;
+static int testOriginX;
+static int testOriginZ;
 
 typedef enum TestTerrainMode {
     TEST_TERRAIN_FLAT = 0,
@@ -120,8 +124,11 @@ uint32_t WorldGetSeed(void)
 
 uint32_t WorldCurrentSurfaceId(void)
 {
-    return 0u;
+    return testSurfaceId;
 }
+
+int WorldSurfaceMapOriginX(void) { return testOriginX; }
+int WorldSurfaceMapOriginZ(void) { return testOriginZ; }
 
 uint32_t EcologyWorldSurfaceId(void)
 {
@@ -846,6 +853,104 @@ static void TestNeedsDriveEntityBehavior(void)
     assert(resting.fatigue < tired.fatigue);
 }
 
+static void TestRenderPoseInterpolation(void)
+{
+    TestEntityDiskStateV3 source = BehaviorTestEntity();
+    LoadVersion3Entity(&source);
+    Entity *entity = &entityStore[0];
+    entity->position = (Vector3){ 0.0f, 12.0f, 0.0f };
+    entity->yaw = 3.0f;
+    entity->phase = 2.0f;
+    EntitiesCaptureRenderPoses();
+    entity->position.x = 10.0f;
+    entity->yaw = -3.0f;
+    entity->phase = 4.0f;
+    Entity authoritative = *entity;
+    EntityRenderPose pose;
+    assert(EntitiesRenderPoseAt(0, 0.0f, &pose));
+    assert(fabsf(pose.position.x) < 0.001f);
+    assert(fabsf(sinf(pose.yaw - 3.0f)) < 0.001f && pose.phase == 2.0f);
+    assert(EntitiesRenderPoseAt(0, 0.5f, &pose));
+    assert(fabsf(pose.position.x - 5.0f) < 0.001f);
+    assert(fabsf(fabsf(pose.yaw) - PI) < 0.001f && pose.phase == 3.0f);
+    assert(EntitiesRenderPoseAt(0, 1.0f, &pose));
+    assert(pose.position.x == 10.0f && pose.phase == 4.0f);
+    assert(EntitiesRenderPoseAt(0, NAN, &pose) && pose.position.x == 10.0f);
+    assert(!EntitiesRenderPoseAt(-1, 0.5f, &pose));
+    assert(!EntitiesRenderPoseAt(MAX_ENTITIES, 0.5f, &pose));
+    assert(!EntitiesRenderPoseAt(0, 0.5f, NULL));
+    assert(memcmp(entity, &authoritative, sizeof(authoritative)) == 0);
+
+    /* Checkpoint restores discard interpolation history, without changing
+     * the persisted entity format or authoritative pose. */
+    FILE *saved = tmpfile();
+    assert(saved && EntitiesSaveState(saved));
+    entity->position.x = 20.0f;
+    EntitiesCaptureRenderPoses();
+    entity->position.x = 30.0f;
+    rewind(saved);
+    assert(EntitiesLoadState(saved));
+    fclose(saved);
+    assert(EntitiesRenderPoseAt(0, 0.0f, &pose));
+    assert(pose.position.x == 10.0f);
+
+    /* Even a same-type, same-ID occupant of a recycled slot starts at its
+     * current pose rather than interpolating from the dead occupant. */
+    EntitiesCaptureRenderPoses();
+    entity->active = false;
+    assert(!EntitiesRenderPoseAt(0, 0.5f, &pose));
+    assert(EntityNextFreeSlot() == 0);
+    entity->active = true;
+    entity->position.x = 11.0f;
+    assert(EntitiesRenderPoseAt(0, 0.0f, &pose) && pose.position.x == 11.0f);
+
+    /* Longitude interpolation follows the short path across the seam. */
+    const float halfEquator = (float)SURFACE_EQUATOR_BLOCKS * 0.5f;
+    entity->position.x = halfEquator - 1.0f;
+    EntitiesCaptureRenderPoses();
+    entity->position.x = -halfEquator + 1.0f;
+    assert(EntitiesRenderPoseAt(0, 0.5f, &pose));
+    assert(fabsf(fabsf(pose.position.x) - halfEquator) < 0.01f);
+
+    const float pole = (float)SURFACE_POLE_TO_POLE_BLOCKS * 0.5f;
+    entity->position = (Vector3){ 0.0f, 12.0f, pole - 1.0f };
+    entity->yaw = 0.0f;
+    EntitiesCaptureRenderPoses();
+    Vector2 pastPole = SurfaceCanonicalMapPosition(0.0f, pole + 1.0f, NULL);
+    entity->position.x = pastPole.x;
+    entity->position.z = pastPole.y;
+    entity->yaw = PI;
+    assert(EntitiesRenderPoseAt(0, 0.25f, &pose));
+    assert(fabsf(pose.position.x) < 0.01f);
+    assert(fabsf(pose.position.z - (pole - 0.5f)) < 0.01f);
+    assert(cosf(pose.yaw) > 0.999f);
+    assert(EntitiesRenderPoseAt(0, 0.75f, &pose));
+    assert(fabsf(remainderf(pose.position.x - pastPole.x,
+                             (float)SURFACE_EQUATOR_BLOCKS)) < 0.01f);
+    assert(fabsf(pose.position.z - (pole - 0.5f)) < 0.01f);
+    assert(cosf(pose.yaw) < -0.999f);
+
+    entity->position = (Vector3){ 0.0f, 12.0f, 0.0f };
+    EntitiesCaptureRenderPoses();
+    entity->position.x = 300.0f;
+    assert(EntitiesRenderPoseAt(0, 0.0f, &pose) && pose.position.x == 300.0f);
+    entity->position.x = 0.0f;
+    EntitiesCaptureRenderPoses();
+    entity->position.x = 10.0f;
+    testSurfaceId = 1u;
+    assert(EntitiesRenderPoseAt(0, 0.0f, &pose) && pose.position.x == 10.0f);
+    testSurfaceId = 0u;
+    testOriginX = 16;
+    assert(EntitiesRenderPoseAt(0, 0.0f, &pose) && pose.position.x == 10.0f);
+    testOriginX = 0;
+    testOriginZ = 16;
+    assert(EntitiesRenderPoseAt(0, 0.0f, &pose) && pose.position.x == 10.0f);
+    testOriginZ = 0;
+    EntitiesClear();
+    entityStore[0] = authoritative;
+    assert(EntitiesRenderPoseAt(0, 0.0f, &pose) && pose.position.x == 10.0f);
+}
+
 int main(void)
 {
     TestEntityReplay();
@@ -856,6 +961,7 @@ int main(void)
     TestNeedsDriveEntityBehavior();
     TestEvolutionLifecycleAndPredation();
     TestSphericalEntityAliasMigration();
+    TestRenderPoseInterpolation();
     puts("entity replay tests passed");
     return 0;
 }

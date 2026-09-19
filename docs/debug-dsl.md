@@ -312,6 +312,9 @@ Runtime values are sampled when an expression is evaluated:
 | `weather.canonical_cell` | vec3 | Canonical spherical weather sample cell (Y is the player Y) |
 | `ecology.canonical_cell` | vec3 | Canonical spherical ecology cell (Y is the player Y) |
 | `ecology.region_x`, `ecology.region_z` | number | Canonical 64-block ecology population region coordinates |
+| `ecology.hot_regions`, `ecology.cold_regions`, `ecology.stored_regions` | number | Resident, evicted and total retained regional records; reading these fields does not activate or advance regions |
+| `ecology.storage_bytes`, `ecology.storage_limit`, `ecology.failed_admissions` | number | Allocated regional storage bytes, total record limit and failed admissions (existing history is retained on failure) |
+| `ecology.catchup_pending` | bool | Regional catch-up is pending; local simulation and edits wait for committed regional state |
 | `evolution.region_available` | bool | Whether the current playing surface has a readable regional evolution snapshot |
 | `evolution.lineage_count` | number | Active bounded lineages in the current ecology region (0 when unavailable) |
 | `evolution.bootstrap_generation` | number | Regional evolution bootstrap generation, bounded to 24 (0 when unavailable) |
@@ -758,6 +761,11 @@ evolution advance DAYS
 evolution atlas
 evolution catalog
 ```
+
+`evolution advance` advances the simulation clock and begins bounded regional
+catch-up. For large jumps, use `wait until !ecology.catchup_pending timeout 600`
+before checking updated populations. Region inspection and the typed ecology
+fields are read-only; they no longer advance the simulation implicitly.
 
 Inspect/focus radii default to 24 and range from 1 to 256. `advance` accepts
 0.25-4096 days. `region` and `evolution bootstrap status` report the current

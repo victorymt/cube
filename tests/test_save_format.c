@@ -22,11 +22,19 @@ static void TestSupportedFormats(void)
     const char v20[] = "VOXELCRAFT_SAVE_V20";
     const char v21[] = "VOXELCRAFT_SAVE_V21";
     const char v22[] = "VOXELCRAFT_SAVE_V22";
+    const char v23[] = "VOXELCRAFT_SAVE_V23";
     assert(ReadBytes(v18, sizeof(v18) - 1u) == WORLD_SAVE_FORMAT_V18);
     assert(ReadBytes(v19, sizeof(v19) - 1u) == WORLD_SAVE_FORMAT_V19);
     assert(ReadBytes(v20, sizeof(v20) - 1u) == WORLD_SAVE_FORMAT_V20);
     assert(ReadBytes(v21, sizeof(v21) - 1u) == WORLD_SAVE_FORMAT_V21);
     assert(ReadBytes(v22, sizeof(v22) - 1u) == WORLD_SAVE_FORMAT_V22);
+    assert(ReadBytes(v23, sizeof(v23) - 1u) == WORLD_SAVE_FORMAT_V23);
+    assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V23));
+    assert(WorldSaveFormatHasWeatherImpact(WORLD_SAVE_FORMAT_V23));
+    assert(WorldSaveFormatHasRadiationRuntime(WORLD_SAVE_FORMAT_V23));
+    assert(WorldSaveFormatHasHydrologyRuntime(WORLD_SAVE_FORMAT_V23));
+    assert(WorldSaveFormatHasEcologyClock(WORLD_SAVE_FORMAT_V23));
+    assert(!WorldSaveFormatHasEcologyClock(WORLD_SAVE_FORMAT_V22));
     assert(!WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V18));
     assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V19));
     assert(WorldSaveFormatHasMapMarkers(WORLD_SAVE_FORMAT_V20));
@@ -60,7 +68,7 @@ static void TestCurrentFormatWriter(void)
     assert(file != NULL);
     assert(WorldSaveFormatWriteCurrent(file));
     rewind(file);
-    assert(WorldSaveFormatRead(file) == WORLD_SAVE_FORMAT_V22);
+    assert(WorldSaveFormatRead(file) == WORLD_SAVE_FORMAT_V23);
     fclose(file);
     assert(!WorldSaveFormatWriteCurrent(NULL));
 }

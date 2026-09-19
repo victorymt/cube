@@ -141,6 +141,7 @@ typedef struct GameRuntime {
   bool quitRequested;
   bool cursorReleased;
   bool paused;
+  bool ecologyCatchupPending;
   bool albumOpen;
   bool albumRainSuspended;
   bool wasInSpace;
@@ -159,6 +160,8 @@ typedef struct GameRuntime {
 
   float autoSaveTimer;
   float dayTime;
+  double debugSimulationEcologyMainCpuMs;
+  double debugSimulationEntitiesMainCpuMs;
   int processExitCode;
   bool processExitRequested;
   DebugDslStdinState debugDslStdin;

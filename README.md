@@ -60,13 +60,14 @@ startup as a small pixel-art atlas.
   chunks use a 16-job worker queue that prioritizes the chunks nearest the
   player. Meshes are uploaded on the main thread so new areas stream in smoothly
   instead of hitching
-- Binary save format V22 persists the world seed, inventory, ship fuel and
+- Binary save format V23 persists the world seed, inventory, ship fuel and
   locator, active dimension, planet-world context, entities, ecology state,
   the evolution catalog, weather impacts, radiation and hydrology runtime
-  state, player-authored map markers and navigation target, and stable
+  state, the homeworld daylight clock, player-authored map markers and navigation target, and stable
   cube-sphere addresses for the player and every surface edit.
-  Compatible V18-V21 saves remain readable, with missing subsystem payloads
-  initialized on load. The regional ecology payload has its own version (V6).
+  Compatible V18-V22 saves remain readable, with missing subsystem payloads
+  initialized on load. The regional ecology payload has its own version (V7)
+  and retains evicted regional history as well as cached records.
   Terrain generation version 6 rebuilds unedited terrain in older compatible
   saves so the expanded geology appears while preserving player-authored edits.
   V17 and older flat-world saves are intentionally rejected because their

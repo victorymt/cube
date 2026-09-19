@@ -4,7 +4,6 @@
 #include "core/game_effects.h"
 #include "core/perf.h"
 #include "core/simulation_time.h"
-#include "ecology/entity.h"
 #include "gameplay/ship.h"
 #include "presentation/audio.h"
 #include "presentation/effect_dispatch.h"
@@ -57,7 +56,9 @@ static bool GameWeatherSurfaceLightAt(
     PlanetLightState light = { 0 };
     if (!PlanetWorldLightStateAtTime(
             surfacePosition, simulationTime, &light)) {
-        return false;
+        if (!HomeWorldSurfaceIsActive()) return false;
+        outSample->daylight = GameHomeDaylightAtSimulationTime(simulationTime);
+        return true;
     }
     outSample->daylight = light.daylight;
     outSample->eclipse = light.eclipse;
@@ -134,7 +135,7 @@ static float GameSampleFrameAstronomy(GameRuntime *game,
     return sunset;
 }
 
-static void GameAdvanceFrameSimulation(GameRuntime *game,
+static void GameUpdateFrameEcologyVisuals(GameRuntime *game,
                                        GameFrameView *frame)
 {
     if (!GameWorldSimulationPaused(game)) {
@@ -145,18 +146,6 @@ static void GameAdvanceFrameSimulation(GameRuntime *game,
         if (game->debugTraceEnabled) {
             frame->debugFloraVisualsMainCpuMs =
                 GameDebugTraceMainCpuNowMs() - floraStarted;
-        }
-    }
-    if (!GameWorldSimulationPaused(game) && !game->albumOpen &&
-        !game->importDialog.open &&
-        !game->landingTransition.active && frame->localWorldActive) {
-        double entitiesStarted = game->debugTraceEnabled
-            ? GameDebugTraceMainCpuNowMs() : 0.0;
-        EntitiesUpdate(frame->dt, &game->player, frame->daylight,
-                       frame->weatherSimulationTime);
-        if (game->debugTraceEnabled) {
-            frame->debugEntitiesMainCpuMs =
-                GameDebugTraceMainCpuNowMs() - entitiesStarted;
         }
     }
     EffectDispatchPending();
@@ -325,10 +314,13 @@ void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame)
         frame->debugAstronomyMainCpuMs = now - stageStarted;
         stageStarted = now;
     }
-    GameAdvanceFrameSimulation(game, frame);
+    GameUpdateFrameEcologyVisuals(game, frame);
     if (game->debugTraceEnabled) {
         double now = GameDebugTraceMainCpuNowMs();
-        frame->debugEcologyMainCpuMs = now - stageStarted;
+        frame->debugEntitiesMainCpuMs = game->debugSimulationEntitiesMainCpuMs;
+        frame->debugEcologyMainCpuMs = now - stageStarted +
+            game->debugSimulationEcologyMainCpuMs +
+            game->debugSimulationEntitiesMainCpuMs;
         stageStarted = now;
     }
     GameDeriveFrameSky(game, frame, sunset);

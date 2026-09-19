@@ -25,6 +25,7 @@ uint32_t EntityMix(uint32_t value);
 uint32_t EntityRandomNext(void);
 int EntityRandomBounded(unsigned bound);
 int EntityNextFreeSlot(void);
+void EntityInvalidateRenderPose(int index);
 int EntitySurfaceHeight(int x, int z);
 EntityType EntityEvolutionTypeForArchetype(
     EvolutionArchetype archetype, bool alienWorld);

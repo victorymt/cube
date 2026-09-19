@@ -811,7 +811,15 @@ static void GameDebugAdvanceEvolution(GameRuntime *game)
             "DEBUG_CONTROL evolution advance error reason=not_playing\n");
         return;
     }
+    GameSyncHomeDaylight(game);
     SpaceAdvanceTime(game->debugControl.evolutionAdvanceDays);
+    GameEcologyRestoreClock(game);
+    SimulationClockReset(&game->simulationClock, SpaceElapsedSimulationTime());
+    game->ecologyCatchupPending = WorldIsSurfaceActive() &&
+        !PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+            (int)floorf(game->player.position.x),
+            (int)floorf(game->player.position.z), 128,
+            SpaceElapsedSimulationTime(), GameDebugEvolutionDaylight(game), 8u);
     DebugControlReply(&game->debugControl,
                       "DEBUG_CONTROL evolution advance ok days=%.3f\n",
                       game->debugControl.evolutionAdvanceDays);
@@ -913,6 +921,7 @@ static GameDebugDispatchResult GameDebugDispatchPersistenceCommand(
     switch (command) {
     case DEBUG_CONTROL_COMMAND_SAVE:
         if (game->screen == SCREEN_PLAYING) {
+            GameSyncHomeDaylight(game);
             GameSaveMap(&game->player);
             DebugControlReply(&game->debugControl,
                               "DEBUG_CONTROL save result=%s\n",
@@ -926,6 +935,9 @@ static GameDebugDispatchResult GameDebugDispatchPersistenceCommand(
     case DEBUG_CONTROL_COMMAND_LOAD:
         if (game->screen == SCREEN_PLAYING) {
             GameLoadMap(&game->player);
+            GameEcologyRestoreClock(game);
+            SimulationClockReset(&game->simulationClock,
+                                 SpaceElapsedSimulationTime());
             game->scriptedShipInput = (ShipControlInput){ 0 };
             game->scriptedShipInputFrames = 0u;
             game->scriptedShipInputFrameCarry = 0.0f;
@@ -1509,6 +1521,31 @@ static bool GameDebugDslResolveEvolution(GameRuntime *game, const char *name,
     return false;
 }
 
+static bool GameDebugDslResolveEcologyStorage(GameRuntime *game,
+    const char *name, DebugDslValue *outValue)
+{
+    if (!game || !name || !outValue || strncmp(name, "ecology.", 8u) != 0)
+        return false;
+    const char *field = name + 8u;
+    if (!strcmp(field, "catchup_pending"))
+        return GameDebugDslBool(outValue, game->ecologyCatchupPending);
+    PlanetEcologyStorageStats stats = PlanetEcologyGetStorageStats();
+    if (!strcmp(field, "hot_regions"))
+        return GameDebugDslNumber(outValue, (double)stats.activeRegions);
+    if (!strcmp(field, "cold_regions"))
+        return GameDebugDslNumber(outValue, (double)stats.coldRegions);
+    if (!strcmp(field, "stored_regions"))
+        return GameDebugDslNumber(outValue,
+            (double)(stats.activeRegions + stats.coldRegions));
+    if (!strcmp(field, "storage_bytes"))
+        return GameDebugDslNumber(outValue, (double)stats.allocatedBytes);
+    if (!strcmp(field, "storage_limit"))
+        return GameDebugDslNumber(outValue, (double)stats.maxRegions);
+    if (!strcmp(field, "failed_admissions"))
+        return GameDebugDslNumber(outValue, (double)stats.failedAdmissions);
+    return false;
+}
+
 static bool GameDebugDslResolveWeather(GameRuntime *game, const char *name,
                                        DebugDslValue *outValue)
 {
@@ -1738,6 +1775,7 @@ static const GameDebugDslResolverFn gameDebugDslResolvers[] = {
     /* Preserve the historical ordering between each domain group. */
     GameDebugDslResolveCore,
     GameDebugDslResolveTopology,
+    GameDebugDslResolveEcologyStorage,
     GameDebugDslResolveEvolution,
     GameDebugDslResolvePlayer,
     GameDebugDslResolveWeather,

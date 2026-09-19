@@ -57,12 +57,31 @@ send_command 'start'
 wait_for_reply '^DEBUG_CONTROL start ok seed=1448040515$' 120
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
+# Regional state is prepared by the simulation, and map/atlas reads must not
+# grow it while paused. Keep a checkpoint through the public DSL/save path.
+send_command 'wait until !ecology.catchup_pending && ecology.stored_regions > 0 timeout 600'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+
 # Session and presentation state must be reversible without restarting the
 # window. These commands exercise the same pause, map, camera, and look paths
 # used by interactive play.
 send_command 'pause on'
 wait_for_reply '^DEBUG_CONTROL pause enabled=1$'
 send_command 'assert game.paused'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'let ecology_saved_count = ecology.stored_regions'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'let ecology_saved_fauna = evolution.herbivore_density'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'evolution region'
+wait_for_reply '^DEBUG_CONTROL evolution region ok '
+send_command 'assert ecology.stored_regions == ecology_saved_count && evolution.herbivore_density == ecology_saved_fauna && ecology.failed_admissions == 0'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
+send_command 'save'
+wait_for_reply '^DEBUG_CONTROL save result=Saved map '
+send_command 'load'
+wait_for_reply '^DEBUG_CONTROL load result=Loaded voxelcraft_save' 120
+send_command 'assert ecology.stored_regions == ecology_saved_count && evolution.herbivore_density == ecology_saved_fauna'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'pause off'
 wait_for_reply '^DEBUG_CONTROL pause enabled=0$'

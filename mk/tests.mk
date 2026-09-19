@@ -183,6 +183,7 @@ $(eval $(call define_test,GAME_EFFECTS_TEST_TARGET,test_game_effects,$(GAME_EFFE
 $(eval $(call define_test,GAME_NOTICE_TEST_TARGET,test_game_notice,src/core/game_notice.c,,,,,,))
 $(eval $(call define_test,SIMULATION_TIME_TEST_TARGET,test_simulation_time,src/core/simulation_time.c,,,, -lm,,))
 $(eval $(call define_test,SIMULATION_CLOCK_TEST_TARGET,test_simulation_clock,src/core/simulation_clock.c,,,, -lm,,))
+$(eval $(call define_test,GAME_ECOLOGY_TICK_TEST_TARGET,test_game_ecology_tick,src/app/game_ecology.c src/core/simulation_clock.c src/core/simulation_time.c,,,, -lm -pthread,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SIMULATION_REPLAY_TEST_TARGET,test_simulation_replay,src/core/simulation_replay.c,,,,,,))
 $(eval $(call define_test,GAME_DEBUG_TRACE_TEST_TARGET,test_game_debug_trace,src/app/game_debug_trace.c,,-DGAME_DEBUG_TRACE_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,GAME_STREAM_AUDIT_TEST_TARGET,test_game_stream_audit,src/app/game_stream_audit.c,,-DGAME_STREAM_AUDIT_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))

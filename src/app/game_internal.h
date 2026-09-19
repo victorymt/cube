@@ -2,6 +2,7 @@
 #define VOXELCRAFT_GAME_INTERNAL_H
 
 #include "app/game_runtime.h"
+#include "app/game_ecology.h"
 #include "app/game_plugins.h"
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
@@ -69,7 +70,6 @@ typedef struct GameFrameView {
     bool canPlace;
 } GameFrameView;
 
-bool GameWorldSimulationPaused(const GameRuntime *game);
 bool GameEnvironmentSheltered(Vector3 position);
 void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed);
 void GameInstallWeatherSurfaceLightProvider(void);

@@ -71,11 +71,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-bool GameWorldSimulationPaused(const GameRuntime *game)
-{
-    return game && (game->paused || HomeWorldMapIsOpen());
-}
-
 static void GameOnWorldBlockCommitted(
     int x, int y, int z, BlockType previous, BlockType next)
 {
@@ -188,6 +183,9 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
     game->dayTime = 0.30f;
     game->dayCycleEnabled = true;
+    game->ecologyCatchupPending = false;
+    GameEcologyResetClock();
+    GameEcologyRestoreClock(game);
     ChunkStreamingRequest streamingRequest = {
         .position = game->player.position,
         .effectiveRenderDistance = EffectiveRenderDistanceForHeight(
@@ -245,6 +243,7 @@ static bool GameUpdateStartScreen(GameRuntime *game, float dt,
 static void GameUpdateAlbum(GameRuntime *game)
 {
     if (!game->albumOpen && !game->importDialog.open && !game->paused &&
+        !game->ecologyCatchupPending &&
         !HomeWorldMapIsOpen() && !game->landingTransition.active &&
         IsKeyPressed(KEY_P)) {
         if (WeatherGetCurrent() == WEATHER_RAIN) {
@@ -306,7 +305,7 @@ static void GameUpdateAlbum(GameRuntime *game)
     }
 }
 
-static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game, float dt,
+static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game,
                                            bool landingSkipPressed)
 {
     bool biologyAtlasClosed = false;
@@ -329,24 +328,6 @@ static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game, float dt,
                    (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_ENTER))) {
             game->paused = false;
             DisableCursor();
-        }
-    }
-
-    if (!game->paused && !game->albumOpen && !game->importDialog.open &&
-        !game->landingTransition.active && !game->biologyAtlasOpen &&
-        !HomeWorldMapIsOpen()) {
-        unsigned steps = SimulationClockAdvance(
-            &game->simulationClock, (double)dt,
-            GameAdvanceSimulationStep, game);
-        if (game->dayCycleEnabled && steps > 0u) {
-            double stepSeconds = game->simulationClock.config.fixedStepSeconds;
-            double phaseAdvance =
-                (double)steps * stepSeconds / (double)DAY_LENGTH_SECONDS;
-            double nextDayTime = (double)game->dayTime + phaseAdvance;
-            if (isfinite(nextDayTime)) {
-                game->dayTime = (float)fmod(nextDayTime, 1.0);
-                if (game->dayTime < 0.0f) game->dayTime += 1.0f;
-            }
         }
     }
 
@@ -469,6 +450,7 @@ static void GameUpdateViewModes(GameRuntime *game)
 
     bool openedImportDialog = false;
     if (!game->importDialog.open && !game->paused &&
+        !game->ecologyCatchupPending &&
         !HomeWorldMapIsOpen() &&
         !game->landingTransition.active && IsKeyPressed(KEY_I)) {
         OpenImportDialog(&game->importDialog);
@@ -479,18 +461,23 @@ static void GameUpdateViewModes(GameRuntime *game)
             EnableCursor();
         }
     }
-    if (!openedImportDialog) {
+    if (!openedImportDialog && !game->ecologyCatchupPending) {
         UpdateImportDialog(&game->importDialog, &game->player,
                            &game->cursorReleased);
     }
 }
 
-static bool GameInputBlocked(const GameRuntime *game)
+static bool GameNavigationInputBlocked(const GameRuntime *game)
 {
     return game->perfMode || game->paused || game->cursorReleased ||
            game->importDialog.open || game->albumOpen ||
            game->biologyAtlasOpen || game->landingTransition.active ||
            ShipIsDriving() || StarMapIsOpen() || HomeWorldMapIsOpen();
+}
+
+static bool GameInputBlocked(const GameRuntime *game)
+{
+    return game->ecologyCatchupPending || GameNavigationInputBlocked(game);
 }
 
 static void GameUpdateGameplayShortcuts(GameRuntime *game,
@@ -516,6 +503,7 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
         !game->importDialog.open && !game->albumOpen &&
         !game->landingTransition.active && !StarMapIsOpen() &&
         !HomeWorldMapIsOpen()) {
+        GameSyncHomeDaylight(game);
         GameSaveMap(&game->player);
     }
     if (inputBlocked) return;
@@ -535,6 +523,7 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     if (IsKeyPressed(KEY_RIGHT_BRACKET)) AdjustRenderDistance(1);
     if (IsKeyPressed(KEY_F9)) {
         GameLoadMap(&game->player);
+        GameEcologyRestoreClock(game);
         SimulationClockReset(&game->simulationClock,
                              SpaceSimulationTime());
         game->landingTransition = (LandingTransition){ 0 };
@@ -547,6 +536,7 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     }
     if (IsKeyPressed(KEY_F6)) {
         game->dayCycleEnabled = !game->dayCycleEnabled;
+        GameSyncHomeDaylight(game);
         GameNoticePost(game->dayCycleEnabled ? "Day/night cycle enabled."
                                                : "Day/night cycle paused.");
     }
@@ -598,7 +588,7 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     }
 }
 
-static void GameUpdateTemporalState(GameRuntime *game, float dt)
+static void GameUpdateAutoSave(GameRuntime *game, float dt)
 {
     if (!game->perfMode && game->autoSaveEnabled &&
         game->screen == SCREEN_PLAYING && !GameWorldSimulationPaused(game) &&
@@ -606,43 +596,9 @@ static void GameUpdateTemporalState(GameRuntime *game, float dt)
         game->autoSaveTimer -= dt;
         if (game->autoSaveTimer <= 0.0f) {
             game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
+            GameSyncHomeDaylight(game);
             GameSaveMap(&game->player);
         }
-    }
-
-    if (!GameWorldSimulationPaused(game) && !game->albumOpen &&
-        !game->landingTransition.active &&
-        (HomeWorldSurfaceIsActive() || PlanetWorldIsActive())) {
-        bool weatherSheltered =
-            GameEnvironmentSheltered(game->player.position) ||
-            PlayerWaterStateAt(game->player.position).eyesSubmerged;
-        float weatherDaylight = 0.5f;
-        float weatherSunset = 0.0f;
-        DayNightFactors(game->dayTime, &weatherDaylight, &weatherSunset);
-        (void)weatherSunset;
-        WeatherSetDaylight(weatherDaylight);
-        WeatherSetSheltered(weatherSheltered);
-        WeatherUpdate(
-            dt, game->player.position,
-            SimulationTimePeriodic(SpaceElapsedSimulationTime()));
-        TornadoUpdate(dt, game->player.position, WeatherCurrentSample());
-        WeatherImpactUpdate(dt, game->player.position,
-                            WeatherCurrentSample());
-        if (game->settings.weatherDamageEnabled) {
-            EntitiesApplyWeatherHazards(dt, WeatherCurrentSample(),
-                                        weatherDaylight);
-        }
-        TornadoState tornado = TornadoCurrent();
-        EntitiesApplyTornadoHazards(
-            dt, &tornado, game->settings.weatherDamageEnabled,
-            weatherDaylight);
-        EntitiesApplyWildfireHazards(
-            dt, weatherDaylight, game->settings.weatherDamageEnabled,
-            WeatherImpactExposureAt);
-    } else if (!HomeWorldSurfaceIsActive() && !PlanetWorldIsActive()) {
-        WeatherSetSheltered(false);
-        WeatherSuspend();
-        TornadoSuspend();
     }
 }
 
@@ -682,7 +638,7 @@ static void GameApplyTornadoPlayerForce(GameRuntime *game, float dt)
 static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
                                    bool inputBlocked)
 {
-    if (!game->perfMode && !GameWorldSimulationPaused(game) &&
+    if (!game->perfMode && !GameWorldSimulationUserPaused(game) &&
         !game->landingTransition.active &&
         ShipIsDriving() && !StarMapIsOpen()) {
         if (game->debugControlEnabled) {
@@ -770,17 +726,11 @@ static void GameUpdateDebugLeftMeshReady(GameRuntime *game)
     }
 }
 
-static void GameUpdateWorldJobs(GameRuntime *game, float dt,
-                                bool localWorldActive)
+static void GameUpdateWorldJobs(GameRuntime *game, float dt)
 {
     ProcessFinishedMeshJobs(2.0);
     GameUpdateDebugLeftMeshReady(game);
     ProcessFinishedChunkJobs();
-    if (!GameWorldSimulationPaused(game) && !game->albumOpen &&
-        !game->importDialog.open && !game->landingTransition.active &&
-        !game->biologyAtlasOpen && localWorldActive) {
-        FluidUpdate(dt);
-    }
     EffectDispatchPending();
     ParticlesUpdate(dt);
 }
@@ -854,7 +804,9 @@ static void GameRenderWorldPass(GameRuntime *game,
     DrawWorld(&game->camera, frame->worldTint, frame->inNether,
               &frame->worldLighting);
     if (frame->localWorldActive) {
-        EntityRendererDraw(EntitiesView(), MAX_ENTITIES);
+        float entityAlpha = GameWorldSimulationPaused(game) ? 1.0f :
+            (float)SimulationClockInterpolationAlpha(&game->simulationClock);
+        EntityRendererDrawInterpolated(EntitiesView(), MAX_ENTITIES, entityAlpha);
     }
     // The ship model is only useful as an exterior reference.
     if (ShipIsDriving() && game->thirdPerson) ShipDraw(&game->player);
@@ -1140,6 +1092,7 @@ static void GameRenderPauseOverlay(GameRuntime *game)
     }
     if (pauseActions.saveWorld) {
         // Ship state can be saved even when no parking spot is available.
+        GameSyncHomeDaylight(game);
         GameSaveMap(&game->player);
     }
     if (pauseActions.returnToMenu) {
@@ -1154,6 +1107,7 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         EnableCursor();
     }
     if (pauseActions.saveAndQuit) {
+        GameSyncHomeDaylight(game);
         GameSaveMap(&game->player);
         game->quitSaveDone = true;
         game->quitRequested = true;
@@ -1195,15 +1149,18 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
 
     if (!game->perfMode && IsKeyPressed(KEY_F10)) game->screenshotPending = true;
 
-    GameUpdatePauseAndBiologyAtlas(game, dt, landingSkipPressed);
+    GameUpdatePauseAndBiologyAtlas(game, landingSkipPressed);
     GameUpdateViewModes(game);
     bool inputBlocked = GameInputBlocked(game);
     GameUpdateGameplayShortcuts(game, inputBlocked);
     GameNoticeTick(dt);
-    if (!game->importDialog.open && !game->paused && !game->albumOpen) HandleImageDrop(&game->player, game->importDialog.maxBlocks, game->importDialog.relief);
+    if (!GameWorldSimulationPaused(game)) {
+        HandleImageDrop(&game->player, game->importDialog.maxBlocks,
+                         game->importDialog.relief);
+    }
 
-    GameUpdateTemporalState(game, dt);
-    GameUpdatePlayerMotion(game, dt, inputBlocked);
+    GameUpdateAutoSave(game, dt);
+    GameUpdatePlayerMotion(game, dt, GameNavigationInputBlocked(game));
     GameApplyTornadoPlayerForce(game, dt);
     double debugSimulationMainCpuMs = 0.0;
     if (game->debugTraceEnabled) {
@@ -1214,7 +1171,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     bool localWorldActive = false;
     int effectiveRenderDistance =
         GameUpdateWorldStreaming(game, &localWorldActive);
-    GameUpdateWorldJobs(game, dt, localWorldActive);
+    GameUpdateWorldJobs(game, dt);
     double debugStreamingMainCpuMs = 0.0;
     if (game->debugTraceEnabled) {
         double now = GameDebugTraceMainCpuNowMs();
@@ -1222,9 +1179,22 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         debugStageCpuStarted = now;
     }
 
+    /* World preparation precedes fixed simulation. The player sample is held
+     * constant for this frame's ticks; full player-input replay is separate. */
+    double fixedSimulationStarted = game->debugTraceEnabled
+        ? GameDebugTraceMainCpuNowMs() : 0.0;
+    GameAdvanceSimulationFrame(game, (double)dt);
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        debugSimulationMainCpuMs += now - fixedSimulationStarted;
+        debugStageCpuStarted = now;
+    }
+
     GameInteractionContext interaction = { 0 };
-    effectiveRenderDistance = GameUpdateInteractions(
-        game, dt, inputBlocked, &interaction);
+    if (!game->ecologyCatchupPending) {
+        effectiveRenderDistance = GameUpdateInteractions(
+            game, dt, inputBlocked, &interaction);
+    }
     if (interaction.meshPriority) {
         RebuildDirtyChunkMeshAt(
             interaction.meshPriorityX, interaction.meshPriorityY,
@@ -1340,6 +1310,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     AudioSetMusicEnabled(game->settings.musicEnabled);
     WeatherInit();
     GameInstallWeatherSurfaceLightProvider();
+    GameSyncHomeDaylight(game);
     WeatherSetHydrologyFeedbackProvider(GameHydrologyFeedbackAt, NULL);
     RadiationRuntimeGlobalReset(NULL);
     HydrologyRuntimeGlobalReset(NULL);
@@ -1393,7 +1364,10 @@ static int GameStop(GameRuntime *game)
             LandingTransitionUpdate(&game->landingTransition, &game->player,
                                     0.0f);
         }
-        if (!game->quitSaveDone) GameSaveMap(&game->player);
+        if (!game->quitSaveDone) {
+            GameSyncHomeDaylight(game);
+            GameSaveMap(&game->player);
+        }
     }
     if (!game->debugControlEnabled) GameSettingsSave(&game->settings);
     ChunksShutdownGenThread();

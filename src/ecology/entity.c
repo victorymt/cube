@@ -276,6 +276,7 @@ void EntityInitializeEvolution(Entity *entity,
 void EntitiesInit(void)
 {
     memset(entities, 0, sizeof(entities));
+    EntitiesResetRenderPoses();
     entityRandomState = EntityInitialRandomState();
     entitySpawnTimer = 0.0f;
 }
@@ -771,6 +772,7 @@ bool EntitiesLoadState(FILE *file)
     memcpy(entities, loaded, sizeof(entities));
     entityRandomState = header[2];
     entitySpawnTimer = loadedSpawnTimer;
+    EntitiesResetRenderPoses();
     return true;
 }
 

@@ -310,12 +310,24 @@ static void DrawAlienEntity(const Entity *entity)
                              0.58f * scale }, accent);
 }
 
-void EntityRendererDraw(const Entity *entities, int count)
+void EntityRendererDrawInterpolated(const Entity *entities, int count,
+                                    float interpolationAlpha)
 {
     if (!entities || count <= 0) return;
     for (int i = 0; i < count; i++) {
         const Entity *entity = &entities[i];
         if (!entity->active) continue;
+        Entity interpolated;
+        EntityRenderPose pose;
+        if (interpolationAlpha < 1.0f &&
+            entities == EntitiesView() &&
+            EntitiesRenderPoseAt(i, interpolationAlpha, &pose)) {
+            interpolated = *entity;
+            interpolated.position = pose.position;
+            interpolated.yaw = pose.yaw;
+            interpolated.phase = pose.phase;
+            entity = &interpolated;
+        }
 
         if (EntityRenderUsesEcology(entity)) {
             DrawAlienEntity(entity);
@@ -354,4 +366,9 @@ void EntityRendererDraw(const Entity *entities, int count)
                           (Vector3){ 0.1f, 0.12f, 0.1f }, (Color){ 214, 40, 36, 255 });
         }
     }
+}
+
+void EntityRendererDraw(const Entity *entities, int count)
+{
+    EntityRendererDrawInterpolated(entities, count, 1.0f);
 }

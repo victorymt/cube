@@ -4,5 +4,7 @@
 #include "ecology/entity.h"
 
 void EntityRendererDraw(const Entity *entities, int count);
+void EntityRendererDrawInterpolated(const Entity *entities, int count,
+                                    float interpolationAlpha);
 
 #endif

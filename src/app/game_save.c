@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "app/game_save.h"
+#include "app/game_ecology.h"
 #include "app/game_internal.h"
 
 #include "core/config.h"
@@ -210,6 +211,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
          GameSaveWriteRadiationRuntimeState(file) &&
          GameSaveWriteHydrologyRuntimeState(file) &&
          MapMarkersSaveState(file) &&
+         GameEcologySaveClock(file) &&
          GameSaveWriteSphericalTrailer(file, player) && !ferror(file);
     return ok;
 }
@@ -508,6 +510,13 @@ static const char *GameLoadCurrentExtendedPayload(
             &data->mapMarkers, PlanetWorldSeed(),
             PlanetWorldOriginX(), PlanetWorldOriginZ())) {
         return "Load failed: map marker coordinates are corrupted.";
+    }
+    if (WorldSaveFormatHasEcologyClock(format)) {
+        if (!GameEcologyLoadClock(file)) {
+            return "Load failed: ecology clock is corrupted.";
+        }
+    } else {
+        GameEcologyResetClock();
     }
     if (!GameLoadSphericalTrailer(file, data)) {
         return "Load failed: spherical save state is corrupted.";

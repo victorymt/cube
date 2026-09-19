@@ -22,7 +22,10 @@
 int EntityNextFreeSlot(void)
 {
     for (int i = 0; i < MAX_ENTITIES; i++) {
-        if (!entities[i].active) return i;
+        if (!entities[i].active) {
+            EntityInvalidateRenderPose(i);
+            return i;
+        }
     }
     return -1;
 }
