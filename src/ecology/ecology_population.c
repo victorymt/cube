@@ -1717,6 +1717,40 @@ uint32_t EcologyPopulationEpoch(void)
     return result;
 }
 
+#ifdef ECOLOGY_TESTING
+bool PlanetEcologyTestPopulationSnapshotAt(
+    uint32_t surfaceId, int regionX, int regionZ,
+    PlanetEcologyPopulationSnapshot *out)
+{
+    if (!out) return false;
+    *out = (PlanetEcologyPopulationSnapshot){ 0 };
+    bool found = false;
+    unsigned start = EcologyPopulationSetIndex(surfaceId, regionX, regionZ) *
+        ECOLOGY_POPULATION_SET_WAYS;
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    for (unsigned way = 0; way < ECOLOGY_POPULATION_SET_WAYS; way++) {
+        const EcologyPopulationRecord *record =
+            &ecologyPopulationRecords[start + way];
+        if (!record->valid || record->surfaceId != surfaceId ||
+            record->regionX != regionX || record->regionZ != regionZ) {
+            continue;
+        }
+        *out = (PlanetEcologyPopulationSnapshot){
+            .surfaceId = record->surfaceId,
+            .regionX = record->regionX,
+            .regionZ = record->regionZ,
+            .lastUpdateTime = record->lastUpdateTime,
+            .nutrientInitialized = record->nutrientInitialized,
+            .nutrients = record->nutrients
+        };
+        found = true;
+        break;
+    }
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return found;
+}
+#endif
+
 void EcologyPopulationResetState(void)
 {
     pthread_mutex_lock(&ecologyPopulationMutex);

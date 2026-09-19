@@ -5,6 +5,10 @@
 #include "ecology/evolution.h"
 #include "world/world_types.h"
 
+#ifdef ECOLOGY_TESTING
+#include "ecology/ecology_nutrient_model.h"
+#endif
+
 #include <stdio.h>
 
 struct PlanetProfile;
@@ -164,6 +168,20 @@ bool PlanetEcologyRecordEvolutionBirthResolved(
 
 #ifdef ECOLOGY_TESTING
 uint32_t PlanetEcologyTestPopulationEpoch(void);
+typedef struct PlanetEcologyPopulationSnapshot {
+    uint32_t surfaceId;
+    int regionX;
+    int regionZ;
+    double lastUpdateTime;
+    uint8_t nutrientInitialized;
+    EcologyNutrientState nutrients;
+} PlanetEcologyPopulationSnapshot;
+
+/* Reads an existing region by its canonical key without creating a record,
+ * advancing simulation or changing cache access order. Clears out on a miss. */
+bool PlanetEcologyTestPopulationSnapshotAt(
+    uint32_t surfaceId, int regionX, int regionZ,
+    PlanetEcologyPopulationSnapshot *out);
 #endif
 /*
  * Local queries and population save/load/reset serialize their shared

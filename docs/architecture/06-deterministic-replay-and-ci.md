@@ -16,11 +16,20 @@ as passing on headless GitHub-hosted runners.
 
 The current benchmark route injects a fixed player position and measures chunk
 generation/meshing, so it is a streaming regression gate rather than a full
-walking, swimming, or driving workload. Future replay integration should hash
-clock, ecology, fluid, and hazard snapshots at each fixed tick.
+walking, swimming, or driving workload. The
+[cross-system replay gate](14-cross-system-replay.md) adds per-tick state
+comparisons for clock, weather, ecology, voxel water and fire in a bounded
+headless scene. It documents the save/restore boundary separately from arbitrary
+mid-flow saves and from the production frame-driven gameplay loop.
 
 Tests cover identical replay hashes, changed-input divergence, monotonic tick
 validation, bounded capacity, and ordered playback.
+
+Run the focused input-log and cross-system tests with
+`make test-simulation-replay`. Both are also included in `make test` and the
+sanitized test matrix. Current cross-system results are recorded in
+[record 14](14-cross-system-replay.md); the evidence below remains dated to its
+original run.
 
 ## Verification evidence
 

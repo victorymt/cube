@@ -36,7 +36,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-architecture test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-architecture test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
 
 all: $(TARGET)
 
@@ -124,6 +124,9 @@ test-plugins: $(PLUGIN_TARGETS) $(PLUGIN_TEST_TARGET)
 
 test-architecture:
 	@sh tests/test_architecture.sh
+
+test-simulation-replay: $(SIMULATION_REPLAY_TEST_TARGET) $(SIMULATION_INTEGRATION_TEST_TARGET)
+	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $^
 
 test-ci:
 	$(MAKE) BUILD_VARIANT=ci CFLAGS='$(CI_CFLAGS)' test

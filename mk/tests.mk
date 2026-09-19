@@ -117,6 +117,15 @@ ECOLOGY_SYSTEM_SOURCES := \
 $(eval $(call define_test,ECOLOGY_SYSTEM_TEST_TARGET,test_ecology_system,$(ECOLOGY_SYSTEM_SOURCES),-Itests,-DCHUNKS_TESTING -DECOLOGY_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,ECOLOGY_PROPERTIES_TEST_TARGET,test_ecology_properties,$(ECOLOGY_SYSTEM_SOURCES),-Itests,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
 
+SIMULATION_INTEGRATION_SOURCES := \
+	$(ECOLOGY_SYSTEM_SOURCES) \
+	src/core/simulation_clock.c \
+	src/core/simulation_replay.c \
+	src/world/fluid.c \
+	src/world/weather_impact.c \
+	src/world/wildfire_model.c
+$(eval $(call define_test,SIMULATION_INTEGRATION_TEST_TARGET,test_simulation_integration,$(SIMULATION_INTEGRATION_SOURCES),-Itests,-DCHUNKS_TESTING -DECOLOGY_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
+
 $(eval $(call define_test,STELLAR_TEST_TARGET,test_stellar,src/space/stellar.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,ECOLOGY_MODEL_TEST_TARGET,test_ecology_model,src/ecology/ecology_model.c,,,, -lm,,))
 $(eval $(call define_test,ECOLOGY_NUTRIENT_MODEL_TEST_TARGET,test_ecology_nutrient_model,src/ecology/ecology_nutrient_model.c,,,, -lm,,))

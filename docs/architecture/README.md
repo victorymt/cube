@@ -21,6 +21,7 @@ new physical-simulation stages.
 | 11 | [hydrology runtime integration](11-hydrology-runtime-integration.md) | `8c127e1`; bounded water runtime, climate feedback, and V22 persistence |
 | 12 | [optional plugin boundary](12-plugin-boundary.md) | `f5e3a1d`, `e44970f`, `e89e62f`; ABI v2, deterministic loader, independent shared-library targets, and versioned read-only services including hydrology |
 | 13 | [component build boundaries](13-component-build-boundaries.md) | `f124765`, `f8bc443`, `ff84e3c`, `b575e4b`, `46a59f1`, `5b91c71`, `997635d`; seven independently rebuildable archives, manifest-driven targets, explicit composition root, and neutral resource, lighting, weather, ecology, and surface-state boundaries |
+| 14 | [cross-system replay verification](14-cross-system-replay.md) | `test_simulation_integration`; per-tick clock, weather, ecology, voxel water and fire comparisons, with explicit checkpoint and scene limits |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
@@ -42,6 +43,8 @@ the bounded models implement full global simulation.
   tests passing under regular and ASan/UBSan builds is historical evidence,
   not a current-HEAD certification. The bounded graphics route passed in
   that session; the full route's final polar-input timeout remains open.
+  [Record 14](14-cross-system-replay.md) tracks the later P2 integration gate
+  and its own dated test results.
 - **Simulation limits:** radiation and hydrology integrate one active
   128x128 canonical region. Inter-region heat transport, a global river
   network, ocean transport, snowpack, and off-screen catchment integration

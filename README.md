@@ -202,6 +202,8 @@ Without it, the game starts exactly as a plugin-free build.
 ```sh
 make test
 make test-sanitize
+# Focused input-log and cross-system deterministic replay checks:
+make test-simulation-replay
 ```
 
 `make test` builds and runs every test binary with a per-test timeout and a
