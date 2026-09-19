@@ -151,6 +151,14 @@ typedef struct PlanetEcologyStorageStats {
 
 /* Includes inactive records retained for the next world checkpoint. */
 PlanetEcologyStorageStats PlanetEcologyGetStorageStats(void);
+/* Simulation-thread entry point. Region activation is based on the player's
+ * canonical position; reads and rendering never activate regions. */
+void PlanetEcologyAdvanceActiveRegionsAt(
+    int centerX, int centerZ, int radiusCells,
+    double simulationTime, float daylight);
+bool PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+    int centerX, int centerZ, int radiusCells,
+    double simulationTime, float daylight, unsigned maxStepBatches);
 float PlanetEcologyFaunaDensity(void);
 float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);
 bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
@@ -199,8 +207,9 @@ bool PlanetEcologyTestPopulationSnapshotAt(
 void PlanetEcologyTestFailPopulationStorageAllocation(bool fail);
 #endif
 /*
- * Local queries and population save/load/reset serialize their shared
- * population cache internally. The active PlanetWorld must remain unchanged
+ * Local queries read regional state without advancing, creating records or
+ * touching cache residency. Population updates and save/load/reset serialize
+ * their shared storage internally. The active PlanetWorld must remain unchanged
  * while a query is running; world activation and dimension edits stay on the
  * simulation thread. PlanetEcologyEvaluateLocal and the other ecology-model
  * functions are pure and reentrant.

@@ -166,11 +166,22 @@ static void LoadSimulation(FILE *file)
     assert(EntitiesLoadState(file));
 }
 
+static void PrepareEntityEcology(Player *player, double time, float daylight)
+{
+    unsigned batches = 0u;
+    while (!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+            (int)floorf(player->position.x), (int)floorf(player->position.z),
+            128, time, daylight, 8u)) {
+        assert(++batches < 10000u);
+    }
+}
+
 static void RunFrames(Player *player, int frameCount, float daylight)
 {
     const float dt = 0.1f;
     for (int frame = 0; frame < frameCount; frame++) {
         SpaceAdvanceTime(dt);
+        PrepareEntityEcology(player, SpaceElapsedSimulationTime(), daylight);
         EntitiesUpdate(
             dt, player, daylight, SpaceElapsedSimulationTime());
     }
@@ -180,6 +191,7 @@ static void RunEntityFrames(Player *player, int frameCount, float daylight)
 {
     const float dt = 0.1f;
     double simulationTime = SpaceElapsedSimulationTime();
+    PrepareEntityEcology(player, simulationTime, daylight);
     for (int frame = 0; frame < frameCount; frame++) {
         EntitiesUpdate(dt, player, daylight, simulationTime);
     }

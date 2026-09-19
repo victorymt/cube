@@ -8,6 +8,7 @@
 #include "space/space.h"
 #include "space/space_system_physics.h"
 #include "world/terrain.h"
+#include "world/ecology_hooks.h"
 #include "world/surface_topology.h"
 #include "world/weather.h"
 #include "world/weather_model.h"
@@ -20,6 +21,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Legacy model tests explicitly drive the population engine before observing
+ * it. Scheduling and read-only query contracts are tested separately below. */
+static PlanetLocalEcology AdvanceAndQueryLocal(int x, int z, float daylight)
+{
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    (void)EcologyRegionalPopulationAt(
+        x, z, SpaceElapsedSimulationTime(), EcologyClamp(daylight),
+        &profile, NULL);
+    return PlanetEcologyLocalAt(x, z, daylight);
+}
+
+static bool AdvanceAndQueryEvolution(
+    int x, int z, float daylight, PlanetEvolutionRegion *out)
+{
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    PlanetEvolutionRegion advanced = { 0 };
+    if (!EcologyEvolutionRegionAt(
+            x, z, SpaceElapsedSimulationTime(), EcologyClamp(daylight),
+            &profile, &advanced)) {
+        return false;
+    }
+    return PlanetEcologyEvolutionRegionAt(x, z, daylight, out);
+}
 
 static void AddSurfaceDisturbanceEdits(void)
 {
@@ -229,10 +254,10 @@ static void TestEcologyPopulationConcurrentQueries(void)
     EcologyTestSetSeed(seed);
     EcologyTestActivatePlanet(seed, 120, -340);
     PlanetEcologyResetState();
-    PlanetLocalEcology expected = PlanetEcologyLocalAt(37, -91, 0.73f);
-    PlanetLocalEcology dark = PlanetEcologyLocalAt(37, -91, 0.0f);
+    PlanetLocalEcology expected = AdvanceAndQueryLocal(37, -91, 0.73f);
+    PlanetLocalEcology dark = AdvanceAndQueryLocal(37, -91, 0.0f);
     AssertLocalEcologyEqual(dark,
-                            PlanetEcologyLocalAt(37, -91, NAN));
+                            AdvanceAndQueryLocal(37, -91, NAN));
 
     enum { THREAD_COUNT = 8 };
     for (int round = 0; round < 12; round++) {
@@ -289,7 +314,7 @@ static void TestEcologyUsesPositionLocalWeather(void)
     assert(localWeather.cloudCover > 0.20f);
     assert(WeatherPrecipitationRate() == 0.0f);
 
-    PlanetLocalEcology local = PlanetEcologyLocalAt(localX, localZ, 0.84f);
+    PlanetLocalEcology local = AdvanceAndQueryLocal(localX, localZ, 0.84f);
     assert(local.environment.precipitationRate == localWeather.precipitation);
     assert(local.environment.currentStorm == localWeather.storm);
 
@@ -302,7 +327,7 @@ static void TestEcologyUsesPositionLocalWeather(void)
 
     WeatherFieldSample replayWeather = WeatherFieldSampleAtWorldTime(
         localX, localZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology replay = PlanetEcologyLocalAt(localX, localZ, 0.84f);
+    PlanetLocalEcology replay = AdvanceAndQueryLocal(localX, localZ, 0.84f);
     assert(memcmp(&localWeather, &replayWeather, sizeof(localWeather)) == 0);
     AssertLocalEcologyEqual(replay, local);
 }
@@ -316,14 +341,14 @@ static void AssertEcologyCanonicalAlias(
         aliasX, aliasZ, SpaceElapsedSimulationTime());
     assert(memcmp(&weather, &aliasWeather, sizeof(weather)) == 0);
 
-    PlanetLocalEcology local = PlanetEcologyLocalAt(x, z, 0.67f);
-    PlanetLocalEcology alias = PlanetEcologyLocalAt(aliasX, aliasZ, 0.67f);
+    PlanetLocalEcology local = AdvanceAndQueryLocal(x, z, 0.67f);
+    PlanetLocalEcology alias = AdvanceAndQueryLocal(aliasX, aliasZ, 0.67f);
     AssertLocalEcologyEqual(alias, local);
 
     PlanetEvolutionRegion evolution = { 0 };
     PlanetEvolutionRegion aliasEvolution = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(x, z, 0.67f, &evolution));
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(x, z, 0.67f, &evolution));
+    assert(AdvanceAndQueryEvolution(
         aliasX, aliasZ, 0.67f, &aliasEvolution));
     assert(memcmp(&evolution, &aliasEvolution, sizeof(evolution)) == 0);
 }
@@ -360,9 +385,9 @@ static void TestEcologyCacheInvalidation(void)
         int z = index * index * 19 - 700;
         firstWeather[index] = WeatherFieldSampleAtWorldTime(
             x, z, SpaceElapsedSimulationTime());
-        firstOrigin[index] = PlanetEcologyLocalAt(x, z, 0.74f);
+        firstOrigin[index] = AdvanceAndQueryLocal(x, z, 0.74f);
         AssertLocalEcologyEqual(
-            PlanetEcologyLocalAt(x, z, 0.74f), firstOrigin[index]);
+            AdvanceAndQueryLocal(x, z, 0.74f), firstOrigin[index]);
     }
 
     EcologyTestActivatePlanetStyle(seed, 120, -340, SOLAR_STYLE_ICE);
@@ -378,7 +403,7 @@ static void TestEcologyCacheInvalidation(void)
         int z = index * index * 19 - 700;
         WeatherFieldSample movedWeather = WeatherFieldSampleAtWorldTime(
             x, z, SpaceElapsedSimulationTime());
-        PlanetLocalEcology moved = PlanetEcologyLocalAt(x, z, 0.74f);
+        PlanetLocalEcology moved = AdvanceAndQueryLocal(x, z, 0.74f);
         movedOrigin[index] = moved;
         if (LocalEcologyDiffers(moved, firstOrigin[index])) {
             originChanges++;
@@ -398,8 +423,8 @@ static void TestEcologyCacheInvalidation(void)
     for (int index = 0; index < sampleCount; index++) {
         int x = index * 83 - 900;
         int z = index * index * 19 - 700;
-        PlanetLocalEcology advanced = PlanetEcologyLocalAt(x, z, 0.74f);
-        PlanetLocalEcology replay = PlanetEcologyLocalAt(x, z, 0.74f);
+        PlanetLocalEcology advanced = AdvanceAndQueryLocal(x, z, 0.74f);
+        PlanetLocalEcology replay = AdvanceAndQueryLocal(x, z, 0.74f);
         AssertLocalEcologyEqual(replay, advanced);
         if (LocalEcologyDiffers(advanced, movedOrigin[index])) {
             timeChanges++;
@@ -423,12 +448,12 @@ static void TestEcologyCrossSeedReplay(void)
 
         WeatherFieldSample firstWeather = WeatherFieldSampleAtWorldTime(
             sampleX, sampleZ, SpaceElapsedSimulationTime());
-        PlanetLocalEcology firstEcology = PlanetEcologyLocalAt(
+        PlanetLocalEcology firstEcology = AdvanceAndQueryLocal(
             sampleX, sampleZ, 0.66f);
         EcologyTestActivatePlanet(seed, originX, originZ);
         WeatherFieldSample replayWeather = WeatherFieldSampleAtWorldTime(
             sampleX, sampleZ, SpaceElapsedSimulationTime());
-        PlanetLocalEcology replayEcology = PlanetEcologyLocalAt(
+        PlanetLocalEcology replayEcology = AdvanceAndQueryLocal(
             sampleX, sampleZ, 0.66f);
 
         assert(memcmp(&firstWeather, &replayWeather,
@@ -460,7 +485,7 @@ static void TestEcologySaveLoadReplay(void)
         sampleX, sampleZ, SpaceElapsedSimulationTime());
     float beforeWindAngle = WeatherWindAngleAtWorldTime(
         sampleX, sampleZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology beforeEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+    PlanetLocalEcology beforeEcology = AdvanceAndQueryLocal(sampleX, sampleZ, 0.72f);
 
     FILE *file = tmpfile();
     assert(file);
@@ -485,7 +510,7 @@ static void TestEcologySaveLoadReplay(void)
         sampleX, sampleZ, SpaceElapsedSimulationTime());
     float afterWindAngle = WeatherWindAngleAtWorldTime(
         sampleX, sampleZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology afterEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+    PlanetLocalEcology afterEcology = AdvanceAndQueryLocal(sampleX, sampleZ, 0.72f);
     assert(memcmp(&beforeWeather, &afterWeather, sizeof(beforeWeather)) == 0);
     assert(beforeWindAngle == afterWindAngle);
     AssertLocalEcologyEqual(afterEcology, beforeEcology);
@@ -495,7 +520,7 @@ static void TestEcologySaveLoadReplay(void)
         sampleX, sampleZ, SpaceElapsedSimulationTime());
     float continuedWindAngle = WeatherWindAngleAtWorldTime(
         sampleX, sampleZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology continuedEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+    PlanetLocalEcology continuedEcology = AdvanceAndQueryLocal(sampleX, sampleZ, 0.72f);
 
     rewind(file);
     assert(fread(&loadedSeed, sizeof(loadedSeed), 1, file) == 1);
@@ -509,7 +534,7 @@ static void TestEcologySaveLoadReplay(void)
         sampleX, sampleZ, SpaceElapsedSimulationTime());
     float replayWindAngle = WeatherWindAngleAtWorldTime(
         sampleX, sampleZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology replayEcology = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+    PlanetLocalEcology replayEcology = AdvanceAndQueryLocal(sampleX, sampleZ, 0.72f);
     assert(memcmp(&continuedWeather, &replayWeather,
                   sizeof(continuedWeather)) == 0);
     assert(continuedWindAngle == replayWindAngle);
@@ -572,7 +597,7 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
                   sizeof(beforeProfile)) == 0);
     WeatherFieldSample beforeWeather = WeatherFieldSampleAtWorldTime(
         sampleX, sampleZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology beforeLocal = PlanetEcologyLocalAt(
+    PlanetLocalEcology beforeLocal = AdvanceAndQueryLocal(
         sampleX, sampleZ, 0.68f);
 
     FILE *stateFile = tmpfile();
@@ -592,7 +617,7 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
                   sizeof(beforeProfile)) == 0);
     WeatherFieldSample afterWeather = WeatherFieldSampleAtWorldTime(
         sampleX, sampleZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology afterLocal = PlanetEcologyLocalAt(
+    PlanetLocalEcology afterLocal = AdvanceAndQueryLocal(
         sampleX, sampleZ, 0.68f);
     assert(memcmp(&afterWeather, &beforeWeather,
                   sizeof(beforeWeather)) == 0);
@@ -601,7 +626,7 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
     SpaceAdvanceTime(23.75f);
     WeatherFieldSample continuedWeather = WeatherFieldSampleAtWorldTime(
         sampleX, sampleZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology continuedLocal = PlanetEcologyLocalAt(
+    PlanetLocalEcology continuedLocal = AdvanceAndQueryLocal(
         sampleX, sampleZ, 0.68f);
 
     EcologyTestSetSeed(galaxySeed);
@@ -609,7 +634,7 @@ static void TestGeneratedPlanetProfileSaveLoadReplay(void)
     SpaceAdvanceTime(23.75f);
     WeatherFieldSample replayWeather = WeatherFieldSampleAtWorldTime(
         sampleX, sampleZ, SpaceElapsedSimulationTime());
-    PlanetLocalEcology replayLocal = PlanetEcologyLocalAt(
+    PlanetLocalEcology replayLocal = AdvanceAndQueryLocal(
         sampleX, sampleZ, 0.68f);
     assert(memcmp(&replayWeather, &continuedWeather,
                   sizeof(continuedWeather)) == 0);
@@ -720,14 +745,14 @@ static void TestEcologyRespondsToRemnantExposure(void)
     EcologyTestActivateGeneratedPlanetWithFile(fixture, &system, 0, 0, 0);
     fclose(fixture);
     PlanetEcologyResetState();
-    PlanetLocalEcology local = PlanetEcologyLocalAt(420, 75, 0.72f);
+    PlanetLocalEcology local = AdvanceAndQueryLocal(420, 75, 0.72f);
     SpaceRemnantEnvironment environment = PlanetWorldRemnantEnvironment();
     assert(environment.active && environment.remnantCount == 1);
     assert(local.environment.radiationExposure > 0.0f);
     assert(local.environment.ejectaExposure >= 0.0f);
     assert(local.population.radiationMemory > 0.0f);
     assert(local.suitability.radiationScore < 1.0f);
-    PlanetLocalEcology repeated = PlanetEcologyLocalAt(420, 75, 0.72f);
+    PlanetLocalEcology repeated = AdvanceAndQueryLocal(420, 75, 0.72f);
     assert(memcmp(&local, &repeated, sizeof(local)) == 0);
 
     FILE *ecologySaved = tmpfile();
@@ -736,7 +761,7 @@ static void TestEcologyRespondsToRemnantExposure(void)
     PlanetEcologyResetState();
     rewind(ecologySaved);
     assert(PlanetEcologyLoadState(ecologySaved));
-    PlanetLocalEcology restored = PlanetEcologyLocalAt(420, 75, 0.72f);
+    PlanetLocalEcology restored = AdvanceAndQueryLocal(420, 75, 0.72f);
     assert(memcmp(&local, &restored, sizeof(local)) == 0);
     fclose(ecologySaved);
 
@@ -784,12 +809,12 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     assert(SpaceSaveState(baseline));
     for (int index = 0; index < 4; index++) {
         int cell = forwardOrder[index];
-        PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f);
+        AdvanceAndQueryLocal(cells[cell][0], cells[cell][1], 0.72f);
     }
     SpaceAdvanceTime(96.0f);
     float migrationSignal = 0.0f;
     for (int cell = 0; cell < 4; cell++) {
-        singleAdvance[cell] = PlanetEcologyLocalAt(
+        singleAdvance[cell] = AdvanceAndQueryLocal(
             cells[cell][0], cells[cell][1], 0.72f);
         migrationSignal += fabsf(singleAdvance[cell].migration.floraNet) +
             fabsf(singleAdvance[cell].migration.faunaNet) +
@@ -800,7 +825,7 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     }
     assert(migrationSignal > 0.000001f);
     for (int cell = 0; cell < 4; cell++) {
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             cells[cell][0], cells[cell][1], 0.72f, &singleEvolution[cell]));
         assert(singleEvolution[cell].lineageCount == 3u);
     }
@@ -824,14 +849,14 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     assert(PlanetEcologyLoadState(migrationReplay));
     for (int cell = 0; cell < 4; cell++) {
         PlanetEvolutionRegion replayEvolution = { 0 };
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             cells[cell][0], cells[cell][1], 0.72f, &replayEvolution));
         assert(memcmp(&replayEvolution, &singleEvolution[cell],
                       sizeof(replayEvolution)) == 0);
     }
     for (int cell = 0; cell < 4; cell++) {
         AssertLocalEcologyEqual(
-            PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f),
+            AdvanceAndQueryLocal(cells[cell][0], cells[cell][1], 0.72f),
             singleAdvance[cell]);
     }
     fclose(migrationReplay);
@@ -842,19 +867,19 @@ static void TestEcologyMigrationOrderAndTimePartition(void)
     EcologyTestActivatePlanet(seed, 0, 0);
     for (int index = 0; index < 4; index++) {
         int cell = reverseOrder[index];
-        PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f);
+        AdvanceAndQueryLocal(cells[cell][0], cells[cell][1], 0.72f);
     }
     SpaceAdvanceTime(48.0f);
     for (int cell = 0; cell < 4; cell++) {
-        PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], 0.72f);
+        AdvanceAndQueryLocal(cells[cell][0], cells[cell][1], 0.72f);
     }
     SpaceAdvanceTime(48.0f);
     for (int cell = 0; cell < 4; cell++) {
-        partitionedAdvance[cell] = PlanetEcologyLocalAt(
+        partitionedAdvance[cell] = AdvanceAndQueryLocal(
             cells[cell][0], cells[cell][1], 0.72f);
         AssertLocalEcologyEqual(
             partitionedAdvance[cell], singleAdvance[cell]);
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             cells[cell][0], cells[cell][1], 0.72f,
             &partitionedEvolution[cell]));
         assert(memcmp(&partitionedEvolution[cell], &singleEvolution[cell],
@@ -877,7 +902,7 @@ static void TestEcologyPlayerEditDisturbance(void)
         EcologyTestSetSeed(candidate);
         PlanetEcologyResetState();
         EcologyTestActivatePlanet(candidate, 0, 0);
-        PlanetLocalEcology local = PlanetEcologyLocalAt(
+        PlanetLocalEcology local = AdvanceAndQueryLocal(
             cells[0][0], cells[0][1], daylight);
         if (local.population.floraDensity > 0.05f &&
             local.population.faunaDensity > 0.03f) {
@@ -891,14 +916,14 @@ static void TestEcologyPlayerEditDisturbance(void)
     EcologyTestActivatePlanet(seed, 0, 0);
     PlanetEcologyResetState();
     for (int cell = 0; cell < 4; cell++) {
-        PlanetEcologyLocalAt(cells[cell][0], cells[cell][1], daylight);
+        AdvanceAndQueryLocal(cells[cell][0], cells[cell][1], daylight);
     }
     FILE *baseline = tmpfile();
     assert(baseline);
     EcologyTestSaveSimulationState(baseline);
 
     SpaceAdvanceTime(96.0f);
-    PlanetLocalEcology undisturbed = PlanetEcologyLocalAt(
+    PlanetLocalEcology undisturbed = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     assert(undisturbed.environment.disturbance == 0.0f);
 
@@ -906,18 +931,18 @@ static void TestEcologyPlayerEditDisturbance(void)
     int terrainHeight = PlanetTerrainHeight(cells[0][0], cells[0][1]);
     EcologyTestAddBlockEdit(
         cells[0][0], terrainHeight - 20, cells[0][1], BLOCK_LAVA);
-    PlanetLocalEcology deepEdit = PlanetEcologyLocalAt(
+    PlanetLocalEcology deepEdit = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     assert(deepEdit.environment.disturbance == 0.0f);
 
     AddSurfaceDisturbanceEdits();
     EcologyTestResetBlockEditReadCount();
-    PlanetLocalEcology disturbanceSignal = PlanetEcologyLocalAt(
+    PlanetLocalEcology disturbanceSignal = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     assert(disturbanceSignal.environment.disturbance > 0.5f);
     int initialEditReads = EcologyTestBlockEditReadCount();
     assert(initialEditReads == EcologyTestBlockEditCount());
-    PlanetLocalEcology sameRegionSignal = PlanetEcologyLocalAt(
+    PlanetLocalEcology sameRegionSignal = AdvanceAndQueryLocal(
         cells[0][0] + 8, cells[0][1] + 8, daylight);
     assert(sameRegionSignal.environment.disturbance ==
            disturbanceSignal.environment.disturbance);
@@ -927,13 +952,13 @@ static void TestEcologyPlayerEditDisturbance(void)
     EcologyTestSetBlockEditType(0, BLOCK_FLOWER);
     assert(EcologyTestBlockEditCount() == unchangedEditCount);
     assert(EcologyTestBlockEditRevision() != previousEditRevision);
-    PlanetLocalEcology revisedSignal = PlanetEcologyLocalAt(
+    PlanetLocalEcology revisedSignal = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     assert(revisedSignal.environment.disturbance <
            disturbanceSignal.environment.disturbance);
     assert(EcologyTestBlockEditReadCount() == initialEditReads * 2);
     SpaceAdvanceTime(96.0f);
-    PlanetLocalEcology disturbed = PlanetEcologyLocalAt(
+    PlanetLocalEcology disturbed = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     assert(disturbed.population.floraDensity <
            undisturbed.population.floraDensity);
@@ -944,27 +969,27 @@ static void TestEcologyPlayerEditDisturbance(void)
     assert(disturbedSave);
     EcologyTestSaveSimulationState(disturbedSave);
     SpaceAdvanceTime(48.0f);
-    PlanetLocalEcology continued = PlanetEcologyLocalAt(
+    PlanetLocalEcology continued = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     EcologyTestLoadSimulationState(disturbedSave);
     SpaceAdvanceTime(48.0f);
-    PlanetLocalEcology replay = PlanetEcologyLocalAt(
+    PlanetLocalEcology replay = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     AssertLocalEcologyEqual(replay, continued);
 
     EcologyTestLoadSimulationState(disturbedSave);
     SpaceAdvanceTime(960.0f);
-    PlanetLocalEcology persistentlyDisturbed = PlanetEcologyLocalAt(
+    PlanetLocalEcology persistentlyDisturbed = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     EcologyTestLoadSimulationState(disturbedSave);
     EcologyTestClearBlockEdits();
-    PlanetLocalEcology cleared = PlanetEcologyLocalAt(
+    PlanetLocalEcology cleared = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     assert(cleared.environment.disturbance == 0.0f);
     assert(memcmp(&cleared.population, &disturbed.population,
                   sizeof(cleared.population)) == 0);
     SpaceAdvanceTime(960.0f);
-    PlanetLocalEcology recovered = PlanetEcologyLocalAt(
+    PlanetLocalEcology recovered = AdvanceAndQueryLocal(
         cells[0][0], cells[0][1], daylight);
     assert(recovered.population.floraDensity >
            persistentlyDisturbed.population.floraDensity);
@@ -988,7 +1013,7 @@ static void TestEcologyFaunaHarvestFeedback(void)
         PlanetEcologyResetState();
         EcologyTestActivatePlanet(candidate, 0, 0);
         PlanetEcologyResetState();
-        baseline = PlanetEcologyLocalAt(sampleX, sampleZ, 0.72f);
+        baseline = AdvanceAndQueryLocal(sampleX, sampleZ, 0.72f);
         if (baseline.population.faunaDensity > 0.04f &&
             baseline.suitability.faunaCapacity > 0.04f) {
             seed = candidate;
@@ -998,7 +1023,7 @@ static void TestEcologyFaunaHarvestFeedback(void)
     assert(seed != 0u);
     assert(baseline.population.faunaHarvestPressure == 0.0f);
 
-    PlanetLocalEcology neighbor = PlanetEcologyLocalAt(
+    PlanetLocalEcology neighbor = AdvanceAndQueryLocal(
         sampleX + 64, sampleZ, 0.72f);
     assert(neighbor.population.faunaHarvestPressure == 0.0f);
     uint32_t epoch = PlanetEcologyTestPopulationEpoch();
@@ -1008,7 +1033,7 @@ static void TestEcologyFaunaHarvestFeedback(void)
         baseline.suitability.faunaCapacity));
     assert(PlanetEcologyTestPopulationEpoch() != epoch);
 
-    PlanetLocalEcology harvested = PlanetEcologyLocalAt(
+    PlanetLocalEcology harvested = AdvanceAndQueryLocal(
         sampleX, sampleZ, 0.72f);
     assert(harvested.population.faunaHarvestPressure > 0.0f);
     assert(harvested.population.faunaDensity <
@@ -1022,7 +1047,7 @@ static void TestEcologyFaunaHarvestFeedback(void)
            PlanetFaunaPopulationCap(
                baseline.suitability.faunaActivity, 128));
 
-    PlanetLocalEcology untouchedNeighbor = PlanetEcologyLocalAt(
+    PlanetLocalEcology untouchedNeighbor = AdvanceAndQueryLocal(
         sampleX + 64, sampleZ, 0.72f);
     assert(untouchedNeighbor.population.faunaHarvestPressure ==
            neighbor.population.faunaHarvestPressure);
@@ -1032,17 +1057,17 @@ static void TestEcologyFaunaHarvestFeedback(void)
     EcologyTestSaveSimulationState(harvestSave);
     float pressure = harvested.population.faunaHarvestPressure;
     SpaceAdvanceTime(48.0f);
-    PlanetLocalEcology recovered = PlanetEcologyLocalAt(
+    PlanetLocalEcology recovered = AdvanceAndQueryLocal(
         sampleX, sampleZ, 0.72f);
     assert(recovered.population.faunaHarvestPressure < pressure);
     assert(recovered.population.faunaHarvestPressure >= 0.0f);
 
     EcologyTestLoadSimulationState(harvestSave);
-    PlanetLocalEcology loaded = PlanetEcologyLocalAt(
+    PlanetLocalEcology loaded = AdvanceAndQueryLocal(
         sampleX, sampleZ, 0.72f);
     AssertLocalEcologyEqual(loaded, harvested);
     SpaceAdvanceTime(48.0f);
-    PlanetLocalEcology replay = PlanetEcologyLocalAt(
+    PlanetLocalEcology replay = AdvanceAndQueryLocal(
         sampleX, sampleZ, 0.72f);
     AssertLocalEcologyEqual(replay, recovered);
     fclose(harvestSave);
@@ -1193,7 +1218,7 @@ static void TestEcologyNutrientPopulationPersistence(void)
         PlanetEcologyResetState();
         EcologyTestActivatePlanet(candidate, 0, 0);
         PlanetEcologyResetState();
-        baseline = PlanetEcologyLocalAt(sampleX, sampleZ, daylight);
+        baseline = AdvanceAndQueryLocal(sampleX, sampleZ, daylight);
         if (baseline.population.floraDensity > 0.02f) {
             seed = candidate;
             break;
@@ -1204,7 +1229,7 @@ static void TestEcologyNutrientPopulationPersistence(void)
     EcologyTestSetSeed(seed);
     EcologyTestActivatePlanet(seed, 0, 0);
     PlanetEcologyResetState();
-    baseline = PlanetEcologyLocalAt(sampleX, sampleZ, daylight);
+    baseline = AdvanceAndQueryLocal(sampleX, sampleZ, daylight);
     FILE *saved = tmpfile();
     assert(saved);
     assert(PlanetEcologySaveState(saved));
@@ -1262,11 +1287,11 @@ static void TestEcologyNutrientPopulationPersistence(void)
     assert(foundInitialized);
 
     SpaceAdvanceTime(48.0f);
-    PlanetLocalEcology continued = PlanetEcologyLocalAt(
+    PlanetLocalEcology continued = AdvanceAndQueryLocal(
         sampleX, sampleZ, daylight);
     rewind(saved);
     assert(PlanetEcologyLoadState(saved));
-    PlanetLocalEcology replay = PlanetEcologyLocalAt(
+    PlanetLocalEcology replay = AdvanceAndQueryLocal(
         sampleX, sampleZ, daylight);
     AssertLocalEcologyEqual(replay, continued);
     fclose(saved);
@@ -1283,7 +1308,7 @@ static void TestEvolutionRegionAndGenomeReplay(void)
         EcologyTestSetSeed(candidate);
         PlanetEcologyResetState();
         EcologyTestActivatePlanet(candidate, 0, 0);
-        PlanetLocalEcology local = PlanetEcologyLocalAt(
+        PlanetLocalEcology local = AdvanceAndQueryLocal(
             sampleX, sampleZ, daylight);
         if (local.population.faunaDensity > 0.03f) {
             seed = candidate;
@@ -1295,9 +1320,9 @@ static void TestEvolutionRegionAndGenomeReplay(void)
     EcologyTestSetSeed(seed);
     EcologyTestActivatePlanet(seed, 0, 0);
     PlanetEcologyResetState();
-    PlanetEcologyLocalAt(sampleX, sampleZ, daylight);
+    AdvanceAndQueryLocal(sampleX, sampleZ, daylight);
     PlanetEvolutionRegion initial = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &initial));
     assert(initial.lineageCount == 3u);
     assert(!initial.bootstrapComplete);
@@ -1320,7 +1345,7 @@ static void TestEvolutionRegionAndGenomeReplay(void)
 
     SpaceAdvanceTime(96.0f);
     PlanetEvolutionRegion evolved = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &evolved));
     assert(evolved.bootstrapComplete);
     assert(evolved.bootstrapGeneration == 24u);
@@ -1334,7 +1359,7 @@ static void TestEvolutionRegionAndGenomeReplay(void)
         assert(lineage->speciesId != 0u);
         evolvedDensity += lineage->density;
     }
-    PlanetLocalEcology evolvedLocal = PlanetEcologyLocalAt(
+    PlanetLocalEcology evolvedLocal = AdvanceAndQueryLocal(
         sampleX, sampleZ, daylight);
     assert(fabsf(evolvedDensity - evolvedLocal.population.faunaDensity) <
            0.00001f);
@@ -1364,7 +1389,7 @@ static void TestEvolutionRegionAndGenomeReplay(void)
     rewind(saved);
     assert(PlanetEcologyLoadState(saved));
     PlanetEvolutionRegion loaded = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &loaded));
     assert(memcmp(&loaded, &evolved, sizeof(loaded)) == 0);
     fclose(saved);
@@ -1380,7 +1405,7 @@ static void TestEvolutionRegionAndGenomeReplay(void)
         sampleX, sampleZ, daylight, lineageId,
         PLANET_EVOLUTION_EVENT_BIRTH, 8.0f));
     PlanetEvolutionRegion afterBirth = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &afterBirth));
     float birthDensity = 0.0f;
     for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
@@ -1396,7 +1421,7 @@ static void TestEvolutionRegionAndGenomeReplay(void)
         sampleX, sampleZ, daylight, lineageId,
         (PlanetEvolutionEvent)99, 8.0f));
     PlanetEvolutionRegion afterDeath = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &afterDeath));
     for (unsigned index = 0; index < PLANET_EVOLUTION_MAX_LINEAGES; index++) {
         if (afterDeath.lineages[index].lineageId == lineageId) {
@@ -1409,7 +1434,7 @@ static void TestEvolutionRegionAndGenomeReplay(void)
             afterDeathDensity += afterDeath.lineages[index].density;
         }
     }
-    PlanetLocalEcology afterDeathLocal = PlanetEcologyLocalAt(
+    PlanetLocalEcology afterDeathLocal = AdvanceAndQueryLocal(
         sampleX, sampleZ, daylight);
     assert(fabsf(afterDeathDensity -
                  afterDeathLocal.population.faunaDensity) < 0.00001f);
@@ -1431,11 +1456,11 @@ static void TestHomeWorldEcologyAndEvolution(void)
     assert(profile.supportsFlight);
     assert(profile.faunaDensity > 0.0f);
 
-    PlanetLocalEcology local = PlanetEcologyLocalAt(0, 0, daylight);
+    PlanetLocalEcology local = AdvanceAndQueryLocal(0, 0, daylight);
     assert(local.suitability.faunaActivity >= 0.0f &&
            local.suitability.faunaActivity <= 1.0f);
     PlanetEvolutionRegion initial = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(0, 0, daylight, &initial));
+    assert(AdvanceAndQueryEvolution(0, 0, daylight, &initial));
     assert(initial.lineageCount == 3u);
     assert(initial.herbivoreDensity + initial.omnivoreDensity +
            initial.carnivoreDensity > 0.0f);
@@ -1454,7 +1479,7 @@ static void TestHomeWorldEcologyAndEvolution(void)
 
     SpaceAdvanceTime(96.0f);
     PlanetEvolutionRegion evolved = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(0, 0, daylight, &evolved));
+    assert(AdvanceAndQueryEvolution(0, 0, daylight, &evolved));
     assert(evolved.bootstrapComplete);
     assert(evolved.bootstrapGeneration == 24u);
 
@@ -1465,7 +1490,7 @@ static void TestHomeWorldEcologyAndEvolution(void)
     rewind(saved);
     assert(PlanetEcologyLoadState(saved));
     PlanetEvolutionRegion loaded = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(0, 0, daylight, &loaded));
+    assert(AdvanceAndQueryEvolution(0, 0, daylight, &loaded));
     assert(memcmp(&loaded, &evolved, sizeof(loaded)) == 0);
     fclose(saved);
     SpaceReset();
@@ -1482,7 +1507,7 @@ static void TestEvolutionBirthRegistersNovelLineage(void)
         EcologyTestSetSeed(candidate);
         EcologyTestActivatePlanet(candidate, 0, 0);
         PlanetEcologyResetState();
-        PlanetLocalEcology local = PlanetEcologyLocalAt(
+        PlanetLocalEcology local = AdvanceAndQueryLocal(
             sampleX, sampleZ, daylight);
         if (local.population.faunaDensity > 0.03f) {
             seed = candidate;
@@ -1495,7 +1520,7 @@ static void TestEvolutionBirthRegistersNovelLineage(void)
     PlanetEcologyResetState();
 
     PlanetEvolutionRegion before = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &before));
     assert(before.lineageCount > 0u && before.lineageCount <
            PLANET_EVOLUTION_MAX_LINEAGES);
@@ -1514,7 +1539,7 @@ static void TestEvolutionBirthRegistersNovelLineage(void)
         sampleX, sampleZ, daylight, lineageId, speciesId, &genome, 12.0f));
 
     PlanetEvolutionRegion after = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &after));
     assert(after.lineageCount == before.lineageCount + 1u);
     bool found = false;
@@ -1535,7 +1560,7 @@ static void TestEvolutionBirthRegistersNovelLineage(void)
     }
     assert(found);
     assert(afterDensity > beforeDensity);
-    PlanetLocalEcology afterLocal = PlanetEcologyLocalAt(
+    PlanetLocalEcology afterLocal = AdvanceAndQueryLocal(
         sampleX, sampleZ, daylight);
     assert(fabsf(afterDensity - afterLocal.population.faunaDensity) <
            0.00001f);
@@ -1598,7 +1623,7 @@ static void TestEvolutionBirthResolvesRegionalIdentity(void)
         EcologyTestSetSeed(candidate);
         EcologyTestActivatePlanet(candidate, 0, 0);
         PlanetEcologyResetState();
-        PlanetLocalEcology local = PlanetEcologyLocalAt(
+        PlanetLocalEcology local = AdvanceAndQueryLocal(
             sampleX, sampleZ, daylight);
         if (local.population.faunaDensity > 0.03f) {
             seed = candidate;
@@ -1611,7 +1636,7 @@ static void TestEvolutionBirthResolvesRegionalIdentity(void)
     PlanetEcologyResetState();
 
     PlanetEvolutionRegion before = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &before));
     assert(before.lineageCount == 3u);
     const uint32_t collidingSpeciesId = before.lineages[0].speciesId;
@@ -1634,7 +1659,7 @@ static void TestEvolutionBirthResolvesRegionalIdentity(void)
            resolvedSpeciesId != collidingSpeciesId);
 
     PlanetEvolutionRegion afterCollision = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &afterCollision));
     assert(afterCollision.lineageCount == before.lineageCount + 1u);
     assert(EvolutionRegionHasLineageId(
@@ -1674,7 +1699,7 @@ static void TestEvolutionBirthResolvesRegionalIdentity(void)
             &genome, 12.0f, &childLineageId, &childSpeciesId));
         assert(childLineageId == nextLineageId);
         assert(childSpeciesId == nextSpeciesId);
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             sampleX, sampleZ, daylight, &filled));
         nextLineageId++;
         nextSpeciesId++;
@@ -1705,7 +1730,7 @@ static void TestEvolutionBirthResolvesRegionalIdentity(void)
            fallbackSpeciesId != fallbackRequestSpeciesId);
 
     PlanetEvolutionRegion afterFallback = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &afterFallback));
     float densityAfterBirth = EvolutionRegionLineageDensity(
         &afterFallback, fallbackLineageId);
@@ -1714,7 +1739,7 @@ static void TestEvolutionBirthResolvesRegionalIdentity(void)
         sampleX, sampleZ, daylight, fallbackLineageId,
         PLANET_EVOLUTION_EVENT_PREDATION_DEATH, 12.0f));
     PlanetEvolutionRegion afterDeath = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &afterDeath));
     assert(EvolutionRegionLineageDensity(
                &afterDeath, fallbackLineageId) < densityAfterBirth);
@@ -1786,7 +1811,7 @@ static void TestEvolutionStateValidation(void)
         EcologyTestActivatePlanet(candidate, 0, 0);
         PlanetEcologyResetState();
         PlanetEvolutionRegion region = { 0 };
-        if (!PlanetEcologyEvolutionRegionAt(
+        if (!AdvanceAndQueryEvolution(
                 sampleX, sampleZ, daylight, &region) ||
             region.lineageCount < 2u) {
             continue;
@@ -1799,7 +1824,7 @@ static void TestEvolutionStateValidation(void)
     EcologyTestActivatePlanet(seed, 0, 0);
     PlanetEcologyResetState();
     PlanetEvolutionRegion region = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &region));
     assert(region.lineageCount >= 2u);
 
@@ -1863,7 +1888,7 @@ static void TestEvolutionDeathResolvesAcrossRegions(void)
         EcologyTestSetSeed(candidate);
         EcologyTestActivatePlanet(candidate, 0, 0);
         PlanetEcologyResetState();
-        if (PlanetEcologyLocalAt(sourceX, sourceZ, daylight)
+        if (AdvanceAndQueryLocal(sourceX, sourceZ, daylight)
                 .population.faunaDensity > 0.03f) {
             seed = candidate;
             break;
@@ -1888,9 +1913,9 @@ static void TestEvolutionDeathResolvesAcrossRegions(void)
     for (int region = 2; region < 24; region++) {
         int candidateX = region * 64 + 32;
         PlanetEvolutionRegion candidate = { 0 };
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             candidateX, targetZ, daylight, &candidate));
-        PlanetLocalEcology local = PlanetEcologyLocalAt(
+        PlanetLocalEcology local = AdvanceAndQueryLocal(
             candidateX, targetZ, daylight);
         if (local.population.faunaDensity > 0.03f &&
             !EvolutionRegionContainsIdentity(
@@ -1903,7 +1928,7 @@ static void TestEvolutionDeathResolvesAcrossRegions(void)
     assert(targetX != 0);
     assert(!EvolutionRegionContainsIdentity(
         &targetBefore, lineageId, speciesId));
-    PlanetLocalEcology localBefore = PlanetEcologyLocalAt(
+    PlanetLocalEcology localBefore = AdvanceAndQueryLocal(
         targetX, targetZ, daylight);
     uint32_t resolvedLineageId = 0u;
     uint32_t resolvedSpeciesId = 0u;
@@ -1915,11 +1940,11 @@ static void TestEvolutionDeathResolvesAcrossRegions(void)
     assert(resolvedSpeciesId == speciesId);
 
     PlanetEvolutionRegion targetAfter = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         targetX, targetZ, daylight, &targetAfter));
     assert(EvolutionRegionContainsIdentity(
         &targetAfter, lineageId, speciesId));
-    PlanetLocalEcology localAfter = PlanetEcologyLocalAt(
+    PlanetLocalEcology localAfter = AdvanceAndQueryLocal(
         targetX, targetZ, daylight);
     assert(localAfter.population.faunaDensity <
            localBefore.population.faunaDensity);
@@ -1940,7 +1965,7 @@ static void TestEvolutionSpeciationBranches(void)
         EcologyTestSetSeed(candidate);
         EcologyTestActivatePlanet(candidate, 0, 0);
         PlanetEcologyResetState();
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             sampleX, sampleZ, daylight, &initial));
         float initialDensity = 0.0f;
         for (unsigned lineage = 0; lineage < PLANET_EVOLUTION_MAX_LINEAGES;
@@ -1951,9 +1976,9 @@ static void TestEvolutionSpeciationBranches(void)
         }
         if (initial.lineageCount != 3u || initialDensity <= 0.03f) continue;
         SpaceAdvanceTime(400.0f);
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             sampleX, sampleZ, daylight, &evolved));
-        evolvedLocal = PlanetEcologyLocalAt(sampleX, sampleZ, daylight);
+        evolvedLocal = AdvanceAndQueryLocal(sampleX, sampleZ, daylight);
         if (evolved.lineageCount > initial.lineageCount) {
             seed = candidate;
             break;
@@ -2008,7 +2033,7 @@ static void TestEvolutionSpeciationBranches(void)
     rewind(saved);
     assert(PlanetEcologyLoadState(saved));
     PlanetEvolutionRegion loaded = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         sampleX, sampleZ, daylight, &loaded));
     assert(memcmp(&loaded, &evolved, sizeof(loaded)) == 0);
     fclose(saved);
@@ -2684,7 +2709,7 @@ static void TestEcologyPersistenceBeyondActiveCapacity(void)
         int x = index % SIDE - SIDE / 2;
         int z = index / SIDE - SIDE / 2;
         PlanetEvolutionRegion evolution = { 0 };
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             x * ECOLOGY_POPULATION_REGION_SIZE + 32,
             z * ECOLOGY_POPULATION_REGION_SIZE + 32, 0.72f, &evolution));
         assert(PlanetEcologyTestPopulationSnapshotAt(
@@ -2782,7 +2807,7 @@ static void TestEcologyPersistenceBeyondActiveCapacity(void)
     }
     // A restored cold record must still be usable by normal gameplay queries.
     PlanetEvolutionRegion returned = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         expected[REGION_COUNT - 1].regionX * ECOLOGY_POPULATION_REGION_SIZE + 32,
         expected[REGION_COUNT - 1].regionZ * ECOLOGY_POPULATION_REGION_SIZE + 32,
         0.72f, &returned));
@@ -2802,9 +2827,9 @@ static void TestEcologyVersion6PopulationStateLoad(void)
     EcologyTestSyncWorldSnapshot();
     PlanetEcologyResetState();
     PlanetEvolutionRegion evolution = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &evolution));
+    assert(AdvanceAndQueryEvolution(32, 32, 0.72f, &evolution));
     SpaceAdvanceTime(16.0f);
-    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &evolution));
+    assert(AdvanceAndQueryEvolution(32, 32, 0.72f, &evolution));
     PlanetEcologyPopulationSnapshot expected = { 0 };
     assert(PlanetEcologyTestPopulationSnapshotAt(
         EcologyWorldSurfaceId(), 0, 0, &expected));
@@ -2843,10 +2868,10 @@ static void TestEcologyEvictionRetainsHistory(void)
     PlanetEcologyResetState();
     const uint32_t surfaceId = EcologyWorldSurfaceId();
     PlanetEvolutionRegion initial = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &initial));
+    assert(AdvanceAndQueryEvolution(32, 32, 0.72f, &initial));
     SpaceAdvanceTime(16.0f);
     PlanetEvolutionRegion evolved = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &evolved));
+    assert(AdvanceAndQueryEvolution(32, 32, 0.72f, &evolved));
     assert(evolved.bootstrapGeneration > initial.bootstrapGeneration);
     PlanetEcologyPopulationSnapshot before = { 0 };
     assert(PlanetEcologyTestPopulationSnapshotAt(surfaceId, 0, 0, &before));
@@ -2855,7 +2880,7 @@ static void TestEcologyEvictionRetainsHistory(void)
     EcologyTestSaveSimulationState(checkpoint);
     SpaceAdvanceTime(16.0f);
     PlanetEvolutionRegion expectedAdvanced = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(
+    assert(AdvanceAndQueryEvolution(
         32, 32, 0.72f, &expectedAdvanced));
     EcologyTestLoadSimulationState(checkpoint);
     fclose(checkpoint);
@@ -2872,7 +2897,7 @@ static void TestEcologyEvictionRetainsHistory(void)
             if (abs(x) <= 1 && z <= 1) continue;
             if (PersistenceTestCacheSet(surfaceId, x, z) != targetSet) continue;
             PlanetEvolutionRegion other = { 0 };
-            assert(PlanetEcologyEvolutionRegionAt(
+            assert(AdvanceAndQueryEvolution(
                 x * ECOLOGY_POPULATION_REGION_SIZE + 32,
                 z * ECOLOGY_POPULATION_REGION_SIZE + 32, 0.72f, &other));
             colliderX[collisions] = x;
@@ -2882,7 +2907,7 @@ static void TestEcologyEvictionRetainsHistory(void)
     }
     assert(collisions == ECOLOGY_POPULATION_SET_WAYS);
     PlanetEvolutionRegion returned = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &returned));
+    assert(AdvanceAndQueryEvolution(32, 32, 0.72f, &returned));
     assert(memcmp(&returned, &evolved, sizeof(evolved)) == 0);
     PlanetEcologyPopulationSnapshot after = { 0 };
     assert(PlanetEcologyTestPopulationSnapshotAt(surfaceId, 0, 0, &after));
@@ -2894,14 +2919,14 @@ static void TestEcologyEvictionRetainsHistory(void)
     // Restore before catch-up: the target is cold when the simulation advances.
     for (unsigned index = 0; index < collisions; index++) {
         PlanetEvolutionRegion other = { 0 };
-        assert(PlanetEcologyEvolutionRegionAt(
+        assert(AdvanceAndQueryEvolution(
             colliderX[index] * ECOLOGY_POPULATION_REGION_SIZE + 32,
             colliderZ[index] * ECOLOGY_POPULATION_REGION_SIZE + 32,
             0.72f, &other));
     }
     SpaceAdvanceTime(16.0f);
     PlanetEvolutionRegion advanced = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &advanced));
+    assert(AdvanceAndQueryEvolution(32, 32, 0.72f, &advanced));
     assert(memcmp(&advanced, &expectedAdvanced, sizeof(advanced)) == 0);
     PlanetEcologyResetState();
     SpaceReset();
@@ -2916,7 +2941,7 @@ static void TestEcologyColdAllocationFailurePreservesHistory(void)
     uint32_t surfaceId = EcologyWorldSurfaceId();
     unsigned targetSet = PersistenceTestCacheSet(surfaceId, 0, 0);
     PlanetEvolutionRegion evolution = { 0 };
-    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &evolution));
+    assert(AdvanceAndQueryEvolution(32, 32, 0.72f, &evolution));
     unsigned admitted = 1u;
     bool tested = false;
     const int regionLimit = SURFACE_EQUATOR_BLOCKS /
@@ -2925,7 +2950,7 @@ static void TestEcologyColdAllocationFailurePreservesHistory(void)
         for (int x = -regionLimit; x < regionLimit && !tested; x++) {
             if (PersistenceTestCacheSet(surfaceId, x, z) != targetSet) continue;
             if (admitted < ECOLOGY_POPULATION_SET_WAYS) {
-                assert(PlanetEcologyEvolutionRegionAt(
+                assert(AdvanceAndQueryEvolution(
                     x * ECOLOGY_POPULATION_REGION_SIZE + 32,
                     z * ECOLOGY_POPULATION_REGION_SIZE + 32,
                     0.72f, &evolution));
@@ -2937,7 +2962,7 @@ static void TestEcologyColdAllocationFailurePreservesHistory(void)
             PlanetEcologyStorageStats before = PlanetEcologyGetStorageStats();
             assert(before.coldRegions == 0u);
             PlanetEcologyTestFailPopulationStorageAllocation(true);
-            assert(!PlanetEcologyEvolutionRegionAt(
+            assert(!AdvanceAndQueryEvolution(
                 x * ECOLOGY_POPULATION_REGION_SIZE + 32,
                 z * ECOLOGY_POPULATION_REGION_SIZE + 32, 0.72f, &evolution));
             PlanetEcologyTestFailPopulationStorageAllocation(false);
@@ -2946,7 +2971,7 @@ static void TestEcologyColdAllocationFailurePreservesHistory(void)
             assert(failed.activeRegions == before.activeRegions);
             assert(failed.coldRegions == before.coldRegions);
             assert(failed.failedAdmissions == before.failedAdmissions + 1u);
-            assert(PlanetEcologyEvolutionRegionAt(
+            assert(AdvanceAndQueryEvolution(
                 x * ECOLOGY_POPULATION_REGION_SIZE + 32,
                 z * ECOLOGY_POPULATION_REGION_SIZE + 32, 0.72f, &evolution));
             assert(PlanetEcologyGetStorageStats().coldRegions == 1u);
@@ -2959,8 +2984,284 @@ static void TestEcologyColdAllocationFailurePreservesHistory(void)
     SpaceReset();
 }
 
+static void ResetScheduledEcology(void)
+{
+    SpaceReset();
+    EcologyTestSetSeed(0x13579bdfu);
+    EcologyTestActivatePlanet(0x13579bdfu, 0, 0);
+    PlanetEcologyResetState();
+}
+
+static void AssertStorageStatsEqual(
+    PlanetEcologyStorageStats actual, PlanetEcologyStorageStats expected)
+{
+    assert(actual.activeRegions == expected.activeRegions);
+    assert(actual.coldRegions == expected.coldRegions);
+    assert(actual.capacityRegions == expected.capacityRegions);
+    assert(actual.allocatedBytes == expected.allocatedBytes);
+    assert(actual.maxRegions == expected.maxRegions);
+    assert(actual.failedAdmissions == expected.failedAdmissions);
+}
+
+static void QueryScheduledEcologyInOrder(bool reverse)
+{
+    for (int visit = 0; visit < 24; visit++) {
+        int index = reverse ? 23 - visit : visit;
+        int x = (index % 6 - 3) * ECOLOGY_POPULATION_REGION_SIZE + 32;
+        int z = (index / 6 - 2) * ECOLOGY_POPULATION_REGION_SIZE + 32;
+        PlanetLocalEcology local = PlanetEcologyLocalAt(x, z, 0.72f);
+        assert(isfinite(local.population.floraDensity));
+        PlanetEvolutionRegion evolution = { 0 };
+        assert(PlanetEcologyEvolutionRegionAt(x, z, 0.72f, &evolution));
+        CreatureGenome genome = { 0 };
+        if (PlanetEcologySampleGenome(
+                x, z, 0.72f, 0x2468ace0u, &genome, NULL, NULL)) {
+            assert(EvolutionDevelop(&genome).valid);
+        }
+        WorldFloraVisualSample visual = { 0 };
+        assert(WorldEcologyFloraVisualAt(x, z, 0.72f, &visual));
+        assert(isfinite(visual.growthScale));
+        (void)PlanetEcologyFaunaDensityAt(x, z, 0.72f);
+        (void)PlanetEcologyStaticSuitabilityAt(x, z);
+    }
+}
+
+static void TestEcologyQueriesAreReadOnly(void)
+{
+    ResetScheduledEcology();
+    size_t emptySize = 0u;
+    unsigned char *empty = CaptureEcologyPopulationState(&emptySize);
+    PlanetEcologyStorageStats emptyStats = PlanetEcologyGetStorageStats();
+    uint32_t emptyEpoch = PlanetEcologyTestPopulationEpoch();
+    QueryScheduledEcologyInOrder(false);
+    QueryScheduledEcologyInOrder(true);
+    assert(PlanetEcologyTestPopulationEpoch() == emptyEpoch);
+    AssertStorageStatsEqual(PlanetEcologyGetStorageStats(), emptyStats);
+    AssertPopulationStateBytesEqual(empty, emptySize);
+    free(empty);
+
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, 0, 0.0, 0.72f, 1u));
+    SpaceAdvanceTime(64.0f);
+    assert(!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, 0, 64.0, 0.72f, 1u));
+    size_t beforeSize = 0u;
+    unsigned char *before = CaptureEcologyPopulationState(&beforeSize);
+    PlanetEcologyStorageStats beforeStats = PlanetEcologyGetStorageStats();
+    uint32_t beforeEpoch = PlanetEcologyTestPopulationEpoch();
+    // Mix pending existing regions with unseen ones; queries cannot catch up,
+    // admit new records or warm/reorder the population cache.
+    QueryScheduledEcologyInOrder(false);
+    QueryScheduledEcologyInOrder(true);
+    assert(PlanetEcologyTestPopulationEpoch() == beforeEpoch);
+    AssertStorageStatsEqual(PlanetEcologyGetStorageStats(), beforeStats);
+    AssertPopulationStateBytesEqual(before, beforeSize);
+    free(before);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
+static void FinishScheduledEcology(double targetTime, unsigned budget)
+{
+    for (unsigned call = 0; call < 128u; call++) {
+        if (PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+                32, 32, 0, targetTime, 0.72f, budget)) {
+            return;
+        }
+    }
+    assert(!"ecology scheduler failed to finish within its step budget");
+}
+
+static void CaptureScheduledNeighborhood(
+    PlanetEcologyPopulationSnapshot snapshots[9])
+{
+    unsigned index = 0u;
+    for (int x = -1; x <= 1; x++) {
+        for (int z = -1; z <= 1; z++) {
+            assert(PlanetEcologyTestPopulationSnapshotAt(
+                EcologyWorldSurfaceId(), x, z, &snapshots[index++]));
+        }
+    }
+}
+
+static void AssertScheduledNeighborhood(
+    const PlanetEcologyPopulationSnapshot expected[9])
+{
+    PlanetEcologyPopulationSnapshot actual[9] = { 0 };
+    CaptureScheduledNeighborhood(actual);
+    for (unsigned index = 0u; index < 9u; index++) {
+        AssertPopulationSnapshotEqual(&actual[index], &expected[index]);
+    }
+}
+
+static void TestEcologySchedulingBudgetAndReplay(void)
+{
+    ResetScheduledEcology();
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, 0, 0.0, 0.72f, 1u));
+    size_t initialSize = 0u;
+    unsigned char *initial = CaptureEcologyPopulationState(&initialSize);
+    SpaceAdvanceTime(64.0f);
+
+    for (unsigned step = 0u; step < 5u; step++) {
+        assert(!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+            32, 32, 0, 64.0, 0.72f, 1u));
+        QueryScheduledEcologyInOrder(false);
+    }
+    size_t partialSize = 0u;
+    unsigned char *partial = CaptureEcologyPopulationState(&partialSize);
+    PlanetEcologyPopulationSnapshot partialSnapshots[9] = { 0 };
+    CaptureScheduledNeighborhood(partialSnapshots);
+    for (unsigned index = 0u; index < 9u; index++) {
+        assert(partialSnapshots[index].lastUpdateTime == 20.0);
+    }
+    FinishScheduledEcology(64.0, 1u);
+    PlanetEcologyPopulationSnapshot expected[9] = { 0 };
+    CaptureScheduledNeighborhood(expected);
+    for (unsigned index = 0u; index < 9u; index++) {
+        assert(expected[index].lastUpdateTime == 64.0);
+    }
+    size_t completedSize = 0u;
+    unsigned char *completed = CaptureEcologyPopulationState(&completedSize);
+
+    assert(LoadEcologyPopulationBytes(initial, initialSize));
+    // Equal work and tick sequence with reversed rendering/query order must
+    // serialize identically, including the active/cold residency metadata.
+    for (unsigned step = 0u; step < 5u; step++) {
+        assert(!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+            32, 32, 0, 64.0, 0.72f, 1u));
+        QueryScheduledEcologyInOrder(true);
+    }
+    AssertPopulationStateBytesEqual(partial, partialSize);
+
+    assert(LoadEcologyPopulationBytes(initial, initialSize));
+    FinishScheduledEcology(64.0, 8u);
+    AssertScheduledNeighborhood(expected);
+    AssertPopulationStateBytesEqual(completed, completedSize);
+
+    assert(LoadEcologyPopulationBytes(partial, partialSize));
+    AssertScheduledNeighborhood(partialSnapshots);
+    FinishScheduledEcology(64.0, 8u);
+    AssertScheduledNeighborhood(expected);
+    AssertPopulationStateBytesEqual(completed, completedSize);
+    free(completed);
+    free(partial);
+    free(initial);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
+static void TestEcologyScheduledHashCollisions(void)
+{
+    ResetScheduledEcology();
+    uint32_t surfaceId = EcologyWorldSurfaceId();
+    int selectedRadius = -1;
+    for (int radius = 1; radius <= 12 && selectedRadius < 0; radius++) {
+        unsigned occupancy[ECOLOGY_POPULATION_SET_COUNT] = { 0 };
+        for (int x = -radius - 1; x <= radius + 1; x++) {
+            for (int z = -radius - 1; z <= radius + 1; z++) {
+                unsigned set = PersistenceTestCacheSet(surfaceId, x, z);
+                if (++occupancy[set] > ECOLOGY_POPULATION_SET_WAYS) {
+                    selectedRadius = radius;
+                }
+            }
+        }
+    }
+    assert(selectedRadius > 0);
+    int radiusCells = selectedRadius * ECOLOGY_POPULATION_REGION_SIZE;
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, radiusCells, 0.0, 0.72f, 1u));
+    SpaceAdvanceTime(8.0f);
+    assert(!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, radiusCells, 8.0, 0.72f, 1u));
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, radiusCells, 8.0, 0.72f, 1u));
+    size_t expectedCount = (size_t)(2 * selectedRadius + 3);
+    expectedCount *= expectedCount;
+    PlanetEcologyStorageStats stats = PlanetEcologyGetStorageStats();
+    assert(stats.activeRegions + stats.coldRegions == expectedCount);
+    assert(stats.coldRegions > 0u);
+    for (int x = -selectedRadius - 1; x <= selectedRadius + 1; x++) {
+        for (int z = -selectedRadius - 1; z <= selectedRadius + 1; z++) {
+            PlanetEcologyPopulationSnapshot snapshot = { 0 };
+            assert(PlanetEcologyTestPopulationSnapshotAt(
+                surfaceId, x, z, &snapshot));
+            assert(snapshot.lastUpdateTime == 8.0);
+        }
+    }
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
+static void TestEcologyLongAbsenceUsesBoundedCatchUp(void)
+{
+    ResetScheduledEcology();
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, 0, 0.0, 0.72f, 1u));
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        2048, 2048, 0, 0.0, 0.72f, 1u));
+    SpaceAdvanceTime(4096.0f);
+    assert(!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, 0, 4096.0, 0.72f, 2u));
+    PlanetEcologyPopulationSnapshot snapshots[9] = { 0 };
+    CaptureScheduledNeighborhood(snapshots);
+    for (unsigned index = 0u; index < 9u; index++) {
+        assert(snapshots[index].lastUpdateTime == 8.0);
+    }
+    // Neither pure reads nor a zero-budget call may discard the backlog.
+    QueryScheduledEcologyInOrder(false);
+    assert(!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, 0, 4096.0, 0.72f, 0u));
+    AssertScheduledNeighborhood(snapshots);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
+static void TestEcologyEventsWaitForCatchUp(void)
+{
+    SpaceReset();
+    EcologyTestSetSeed(0x13579bdfu);
+    EcologyTestSyncWorldSnapshot();
+    PlanetEcologyResetState();
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, 0, 0.0, 0.72f, 1u));
+    CreatureGenome genome = { 0 };
+    uint32_t lineageId = 0u;
+    uint32_t speciesId = 0u;
+    assert(PlanetEcologySampleGenome(
+        32, 32, 0.72f, 0x2468ace0u, &genome, &lineageId, &speciesId));
+    assert(lineageId != 0u && speciesId != 0u);
+    SpaceAdvanceTime(64.0f);
+    assert(!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        32, 32, 0, 64.0, 0.72f, 1u));
+    size_t pendingSize = 0u;
+    unsigned char *pending = CaptureEcologyPopulationState(&pendingSize);
+    uint32_t pendingEpoch = PlanetEcologyTestPopulationEpoch();
+    PlanetEcologyStorageStats pendingStats = PlanetEcologyGetStorageStats();
+    assert(!PlanetEcologyRecordFaunaHarvest(32, 32, 0.72f, 1.0f, 0.5f));
+    assert(!PlanetEcologyRecordEvolutionBirth(
+        32, 32, 0.72f, lineageId, speciesId, &genome, 8.0f));
+    assert(!PlanetEcologyRecordEvolutionEvent(
+        32, 32, 0.72f, lineageId,
+        PLANET_EVOLUTION_EVENT_ENVIRONMENT_DEATH, 8.0f));
+    assert(PlanetEcologyTestPopulationEpoch() == pendingEpoch);
+    AssertStorageStatsEqual(PlanetEcologyGetStorageStats(), pendingStats);
+    AssertPopulationStateBytesEqual(pending, pendingSize);
+    FinishScheduledEcology(64.0, 8u);
+    assert(PlanetEcologyRecordEvolutionBirth(
+        32, 32, 0.72f, lineageId, speciesId, &genome, 8.0f));
+    free(pending);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
 int main(void)
 {
+    TestEcologyQueriesAreReadOnly();
+    TestEcologySchedulingBudgetAndReplay();
+    TestEcologyScheduledHashCollisions();
+    TestEcologyLongAbsenceUsesBoundedCatchUp();
+    TestEcologyEventsWaitForCatchUp();
     TestEcologyEvictionRetainsHistory();
     TestEcologyPersistenceBeyondActiveCapacity();
     TestEcologyVersion6PopulationStateLoad();

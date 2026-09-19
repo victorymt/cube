@@ -24,9 +24,9 @@ remains the primary carrying-capacity signal. Disturbance transfers stressed
 plant biomass into litter before the nutrient step.
 
 The additional pools were introduced in population state version 6. Version 7
-now persists both the 1024-slot hot cache and evicted, inactive regional records,
+now persists both the 1024-slot hot cache and evicted regional records,
 ordered by surface and canonical region coordinates. The checkpoint retains hot
-residency so loading does not silently change the simulation's active set.
+residency; the scheduled simulation set is independent of that cache layout.
 Versions 1 through 6 remain loadable; older records lazily initialize their nutrient
 state from the saved flora density on the next population step or evolution
 query. The cold store has a total-record limit of 65536; allocation or admission
@@ -80,3 +80,22 @@ without changing live state, and inject cold-store allocation failure. The
 eviction regression fails against the previous implementation and passes with
 the backing store. Cold records are retained on disk at checkpoints; this is not
 a claim of continuous simulation of every visited region.
+
+Regional updates now have an explicit simulation-thread entry point,
+`PlanetEcologyAdvanceActiveRegionsBudgetedAt`. It prepares a canonical,
+coordinate-sorted neighborhood plus a migration halo, then advances at most the
+requested number of complete step batches. Its working set can reference both
+hot and cold records, including more than four regions in the same hash set.
+Actual per-record update times are the checkpointed catch-up cursors; work is
+never discarded by setting an unfinished record's time to the target.
+
+Local population, evolution and genome queries only read committed records.
+Unvisited cells get deterministic temporary defaults without allocating storage
+or changing cache order. Visual/map/HUD queries therefore cannot activate new
+regions or advance time. Birth, death and harvest reject backlogged records
+without mutation; the application must prepare the relevant region before
+applying those events. Internal legacy adapters remain for focused model tests.
+
+Scheduler tests compare budget 1 and 8, interrupted save/load catch-up, query
+ordering, cold-record hash collisions, and rejected events during backlog. The
+completed checkpoints are byte-identical across those budget/reload variants.

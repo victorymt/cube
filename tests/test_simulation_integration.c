@@ -325,6 +325,8 @@ static void StepReplay(double simulationSeconds, double stepSeconds, void *opaqu
     run->tick++;
     SpaceAdvanceTime((float)stepSeconds);
     assert(SpaceElapsedSimulationTime() == simulationSeconds);
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        run->playerX, 8, 128, simulationSeconds, 0.72f, 8u));
     ApplyInputs(run);
     int alias = run->longitudeAlias ? SURFACE_EQUATOR_BLOCKS : 0;
     WeatherFieldSample sampled = WeatherFieldSampleAtWorldTime(
@@ -467,9 +469,8 @@ static void InitializeRun(ReplayRun *run, FILE *initialSpace, uint32_t seed,
     config.fixedStepSeconds = 0.5;
     assert(SimulationClockInit(&run->clock, &config));
     RecordInput(&run->input, alteredAction);
-    for (unsigned index = 0; index < 4; index++) {
-        PlanetEcologyLocalAt(ecologyCells[index][0], ecologyCells[index][1], 0.72f);
-    }
+    assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        run->playerX, 8, 128, SpaceElapsedSimulationTime(), 0.72f, 8u));
 }
 
 static void SaveCheckpoint(Checkpoint *checkpoint, const ReplayRun *run,

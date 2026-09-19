@@ -44,15 +44,26 @@ PlanetEcologySuitability EcologyStaticSuitabilityForProfile(
 PlanetLocalEcology EcologyDynamicLocalAt(
     int x, int z, double simulationTime, float daylight,
     const PlanetEcologyProfile *profile);
+PlanetLocalEcology EcologyHistoricalLocalAt(
+    int x, int z, double simulationTime, float fallbackDaylight,
+    const PlanetEcologyProfile *profile, float *outWindX, float *outWindZ);
 
 uint32_t EcologyPopulationEpoch(void);
 PlanetEcologyStorageStats EcologyPopulationGetStorageStats(void);
 void EcologyPopulationResetState(void);
 bool EcologyPopulationSaveState(FILE *file);
 bool EcologyPopulationLoadState(FILE *file);
+bool EcologyPopulationAdvanceActiveRegionsAt(
+    int centerX, int centerZ, int radiusCells, double simulationTime,
+    float daylight, const PlanetEcologyProfile *profile,
+    unsigned maxStepBatches);
 float EcologyRegionalDisturbance(
     uint32_t surfaceId, int regionX, int regionZ, int originX, int originZ);
 PlanetRegionalPopulation EcologyRegionalPopulationAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile,
+    PlanetPopulationMigrationState *outMigration);
+PlanetRegionalPopulation EcologyRegionalPopulationReadAt(
     int x, int z, double simulationTime, float daylight,
     const PlanetEcologyProfile *profile,
     PlanetPopulationMigrationState *outMigration);
@@ -61,6 +72,9 @@ bool EcologyPopulationRecordFaunaHarvest(
     const PlanetEcologyProfile *profile, float organismScale,
     float ecologyCapacity);
 bool EcologyEvolutionRegionAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, PlanetEvolutionRegion *out);
+bool EcologyEvolutionReadRegionAt(
     int x, int z, double simulationTime, float daylight,
     const PlanetEcologyProfile *profile, PlanetEvolutionRegion *out);
 bool EcologyEvolutionSampleGenome(

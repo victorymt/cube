@@ -1,6 +1,5 @@
 #include "ecology/ecology_internal.h"
 
-#include "core/simulation_time.h"
 #include "space/space_state.h"
 #include "world/surface_topology.h"
 #include "world/world.h"
@@ -34,6 +33,12 @@ typedef struct EcologyLocalCacheEntry {
 
 static ECOLOGY_THREAD_LOCAL EcologyLocalCacheEntry
     ecologyLocalCache[ECOLOGY_LOCAL_CACHE_SIZE] = { 0 };
+
+static double EcologyElapsedTime(void)
+{
+    double time = SpaceElapsedSimulationTime();
+    return isfinite(time) && time >= 0.0 ? time : 0.0;
+}
 
 uint32_t EcologyMix(uint32_t value)
 {
@@ -166,6 +171,26 @@ PlanetEcologyStorageStats PlanetEcologyGetStorageStats(void)
     return EcologyPopulationGetStorageStats();
 }
 
+bool PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+    int centerX, int centerZ, int radiusCells,
+    double simulationTime, float daylight, unsigned maxStepBatches)
+{
+    if (!EcologyWorldIsActive() || !isfinite(simulationTime) ||
+        simulationTime < 0.0 || radiusCells < 0) return false;
+    PlanetEcologyProfile profile = PlanetEcologyCurrent();
+    return EcologyPopulationAdvanceActiveRegionsAt(
+        centerX, centerZ, radiusCells, simulationTime,
+        EcologyClamp(daylight), &profile, maxStepBatches);
+}
+
+void PlanetEcologyAdvanceActiveRegionsAt(
+    int centerX, int centerZ, int radiusCells,
+    double simulationTime, float daylight)
+{
+    (void)PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+        centerX, centerZ, radiusCells, simulationTime, daylight, 8u);
+}
+
 bool PlanetEcologySaveState(FILE *file)
 {
     if (!EcologyPopulationSaveState(file)) return false;
@@ -190,7 +215,7 @@ bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyPopulationRecordFaunaHarvest(
-        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
+        x, z, EcologyElapsedTime(),
         daylight, &profile,
         organismScale, ecologyCapacity);
 }
@@ -201,8 +226,8 @@ bool PlanetEcologyEvolutionRegionAt(int x, int z, float daylight,
     if (!EcologyWorldIsActive() || !out) return false;
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
-    return EcologyEvolutionRegionAt(
-        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
+    return EcologyEvolutionReadRegionAt(
+        x, z, SpaceElapsedSimulationTime(),
         EcologyClamp(daylight), &profile, out);
 }
 
@@ -215,7 +240,7 @@ bool PlanetEcologySampleGenome(int x, int z, float daylight,
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionSampleGenome(
-        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
+        x, z, EcologyElapsedTime(),
         EcologyClamp(daylight), &profile, sampleSeed, outGenome,
         outLineageId, outSpeciesId);
 }
@@ -228,7 +253,7 @@ bool PlanetEcologyRecordEvolutionEvent(
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRecordEvent(
-        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
+        x, z, EcologyElapsedTime(),
         EcologyClamp(daylight), &profile, lineageId, event, biomass);
 }
 
@@ -243,7 +268,7 @@ bool PlanetEcologyRecordEvolutionEventResolved(
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRecordEventResolved(
-        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
+        x, z, EcologyElapsedTime(),
         EcologyClamp(daylight), &profile, lineageId, speciesId, genome,
         event, biomass, outLineageId, outSpeciesId);
 }
@@ -267,7 +292,7 @@ bool PlanetEcologyRecordEvolutionBirthResolved(
     EcologyCanonicalizeCell(&x, &z);
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     return EcologyEvolutionRecordBirthResolved(
-        x, z, SimulationTimePeriodic(SpaceElapsedSimulationTime()),
+        x, z, EcologyElapsedTime(),
         EcologyClamp(daylight), &profile, lineageId, speciesId, genome,
         biomass, outLineageId, outSpeciesId);
 }
@@ -291,8 +316,8 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
     PlanetEcologyProfile profile = PlanetEcologyCurrent();
     uint32_t profileGeneration = EcologyProfileGeneration();
     uint32_t populationEpoch = EcologyPopulationEpoch();
-    double simulationTime = SimulationTimePeriodic(
-        SpaceElapsedSimulationTime());
+    double simulationTime = SpaceElapsedSimulationTime();
+    if (!isfinite(simulationTime) || simulationTime < 0.0) simulationTime = 0.0;
     int originX = EcologyWorldOriginX();
     int originZ = EcologyWorldOriginZ();
     uint64_t editRevision = WorldGetEditRevision();
@@ -312,7 +337,7 @@ PlanetLocalEcology PlanetEcologyLocalAt(int x, int z, float daylight)
 
     local = EcologyDynamicLocalAt(x, z, simulationTime, daylight, &profile);
     PlanetPopulationMigrationState migration = { 0 };
-    PlanetRegionalPopulation population = EcologyRegionalPopulationAt(
+    PlanetRegionalPopulation population = EcologyRegionalPopulationReadAt(
         x, z, simulationTime, daylight, &profile, &migration);
     local.population = population;
     local.migration = migration;
