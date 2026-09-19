@@ -94,4 +94,5 @@ Validated on 2026-09-19:
   was refreshed after the source changes.
 
 The full graphical E2E route was not rerun for this headless verification stage;
-the previously recorded polar-input timeout remains an open, separate issue.
+its subsequent successful recheck and the historical timeout investigation are
+recorded separately in [record 15](15-polar-e2e-reliability.md).

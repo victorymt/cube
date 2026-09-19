@@ -36,7 +36,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-architecture test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-architecture test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
 
 all: $(TARGET)
 
@@ -99,7 +99,7 @@ modules: $(MODULE_ARCHIVES)
 # Build all ownership domains without touching unrelated component archives.
 components: $(MODULE_ARCHIVES)
 
-test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli
+test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
 
@@ -149,6 +149,12 @@ test-e2e: $(TARGET)
 
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
+
+test-polar-e2e: $(TARGET)
+	bash tests/test_polar_e2e.sh $(TARGET)
+
+test-debug-stdin-protocol:
+	@bash tests/test_debug_stdin_protocol.sh
 
 test-debug-cli: $(TARGET)
 	@bash tests/test_debug_cli.sh $(TARGET)

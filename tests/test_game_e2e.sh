@@ -56,7 +56,7 @@ printf '%s\n' \
     'assert settings.autosave == false' \
     'assert evolution.region_available == false' >"$startup_script"
 
-for requirement in python3 hyprctl; do
+for requirement in python3; do
     if ! command -v "$requirement" >/dev/null 2>&1; then
         echo "$requirement is required for the game end-to-end test" >&2
         exit 2
@@ -69,7 +69,6 @@ if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ||
     echo "an active Hyprland/Wayland session is required" >&2
     exit 2
 fi
-hyprctl monitors -j >/dev/null
 
 set +e
 resolution_error=$(
@@ -94,49 +93,24 @@ exec {game_output}<&"${GAME_PROCESS[0]}"
 exec {game_input}>&"${GAME_PROCESS[1]}"
 
 cleanup() {
+    local status=$?
     if kill -0 "$game_pid" >/dev/null 2>&1; then
         printf 'exit 1\n' >&"$game_input" || true
         kill "$game_pid" >/dev/null 2>&1 || true
     fi
-    rm -f "$trace_path" "$startup_script"
-    rm -rf "$runtime_dir"
+    if ((status == 0)) && [[ "${E2E_KEEP_ARTIFACTS:-0}" != 1 ]]; then
+        rm -f "$trace_path" "$startup_script"
+        rm -rf "$runtime_dir"
+    else
+        printf 'game e2e artifacts (exit=%s): runtime=%s trace=%s script=%s replies=%s\n' \
+            "$status" "$runtime_dir" "$trace_path" "$startup_script" \
+            "$debug_protocol_log" >&2
+    fi
 }
 trap cleanup EXIT
 
-matched_line=""
-
-wait_for_reply() {
-    local pattern=$1
-    local timeout_seconds=${2:-$command_timeout}
-    local deadline=$((SECONDS + timeout_seconds))
-    local line
-
-    matched_line=""
-    while ((SECONDS < deadline)); do
-        if IFS= read -r -t 1 line <&"$game_output"; then
-            printf '%s\n' "$line"
-            if [[ "$line" =~ ^DEBUG_SCRIPT[[:space:]]error[[:space:]] ]] &&
-               [[ ! "$line" =~ $pattern ]]; then
-                echo "unexpected debug script error while waiting for: $pattern" >&2
-                return 1
-            fi
-            if [[ "$line" =~ $pattern ]]; then
-                matched_line=$line
-                return 0
-            fi
-        elif ! kill -0 "$game_pid" >/dev/null 2>&1; then
-            echo "game exited while waiting for: $pattern" >&2
-            return 1
-        fi
-    done
-
-    echo "timed out waiting for: $pattern" >&2
-    return 1
-}
-
-send_command() {
-    printf '%s\n' "$1" >&"$game_input"
-}
+debug_protocol_log="$runtime_dir/replies.log"
+source tests/debug_stdin_protocol.sh
 
 wait_for_reply '^DEBUG_SCRIPT loaded .* batch=0$'
 wait_for_reply '^DEBUG_CONTROL ready '
@@ -175,10 +149,7 @@ wait_for_reply '^DEBUG_CONTROL status '
 [[ "$matched_line" == *'water_debug=1'* ]]
 send_command 'water debug off'
 wait_for_reply '^DEBUG_CONTROL water debug enabled=0$'
-send_command 'repeat 2 {'
-send_command 'water debug on'
-send_command 'water debug off'
-send_command '}'
+send_command $'repeat 2 {\nwater debug on\nwater debug off\n}'
 wait_for_reply '^DEBUG_CONTROL water debug enabled=1$'
 wait_for_reply '^DEBUG_CONTROL water debug enabled=0$'
 wait_for_reply '^DEBUG_CONTROL water debug enabled=1$'
@@ -798,10 +769,6 @@ if [[ -n "${E2E_ARTIFACT_DIR:-}" ]]; then
     gallery_artifact="$E2E_ARTIFACT_DIR/stage06-flora-gallery.png"
     topology_artifact="$E2E_ARTIFACT_DIR/stage07-south-pole.png"
 fi
-rm -f "$trace_path" "$startup_script"
-rm -rf "$runtime_dir"
-trap - EXIT
-
 [[ "$(persistent_state_fingerprint)" == "$persistent_state_before" ]]
 
 printf 'game end-to-end test passed: gallery=%s topology=%s captures=5\n' \

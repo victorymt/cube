@@ -221,6 +221,8 @@ rendering fallback:
 make test-e2e
 # Bounded graphics/debug route used by the optional Hyprland CI job:
 make test-debug-graphics-e2e
+# Independent 600-frame polar route, also included in that CI job:
+make test-polar-e2e
 ```
 
 The full route covers startup, materials and flora, weather and hazards,
@@ -238,8 +240,10 @@ complete describe their bounded implementation scope: climate and hydrology
 currently integrate one active 128x128 region, without global heat transport,
 river networks, ocean currents, or off-screen catchment integration. The
 [verification record](docs/architecture/06-deterministic-replay-and-ci.md)
-dates test results and records the unresolved full E2E polar-input timeout;
-historical suite passes do not certify later changes.
+dates test results. The historical full E2E polar-input timeout was not reproduced
+in the [2026-09-19 recheck](docs/architecture/15-polar-e2e-reliability.md), which
+passed the full route and corrected stdin reply ordering. Historical suite passes
+do not certify later changes.
 
 The Linux release gate is `make release-check`. It builds a versioned archive
 under `dist/` and writes a SHA-256 checksum beside it. Release archives do not

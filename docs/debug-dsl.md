@@ -23,12 +23,33 @@ same session:
 make test-e2e
 # Short pause/map/surface/view/look/mouse/ship smoke test:
 make test-debug-graphics-e2e
+# Independent north/south pole route with 600 input frames:
+make test-polar-e2e
 ```
 
 The command-line and batch-script error contract is covered without a window
 by `make test` (the `test-debug-cli` target). Keep `make test-e2e` for tests
 that exercise actual frame updates and rendering; it runs both the long
 streaming regression and the short graphics-control smoke test.
+
+`make test-polar-e2e` runs `tests/scenes/polar_replay.dsl` at 1920x1080 with a
+90-second wall timeout (`POLAR_E2E_TIMEOUT` overrides it). The route checks pole
+rebases, canonical weather/ecology coordinates and duplicate chunks, then reports
+progress after each of six 100-frame input segments. This preserves the full
+600-frame soak while making slow progress visible.
+
+Failed E2E runs retain their temporary runtime directory, trace, replies and
+screenshots and print their paths. To retain a successful run, use
+`E2E_KEEP_ARTIFACTS=1 make test-e2e` or
+`POLAR_E2E_KEEP_ARTIFACTS=1 make test-polar-e2e`. The tests check the existing
+Wayland socket and use DSL commands; they do not require `hyprctl`.
+
+Synchronous shell clients should consume a block's terminal `DEBUG_SCRIPT complete`,
+`error` or `exit` reply before sending the next block. A `DEBUG_CONTROL` callback reply
+alone does not mean the DSL block has completed. The graphical harnesses share
+`tests/debug_stdin_protocol.sh`; `make test-debug-stdin-protocol` verifies reply
+ordering, expected errors, multiline blocks, deferred captures and timeouts
+without opening a window.
 
 ## Starting a debug session
 

@@ -12,28 +12,22 @@ if [[ ! -x "$game_binary" ]]; then
 fi
 game_binary=$(realpath "$game_binary")
 
-for requirement in hyprctl; do
-    if ! command -v "$requirement" >/dev/null 2>&1; then
-        echo "$requirement is required for the graphics debug e2e test" >&2
-        exit 2
-    fi
-done
-
 if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ||
       -z "${WAYLAND_DISPLAY:-}" || -z "${XDG_RUNTIME_DIR:-}" ||
       ! -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]]; then
     echo "an active Hyprland/Wayland session is required" >&2
     exit 2
 fi
-hyprctl monitors -j >/dev/null
 
 runtime_dir=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-graphics-e2e-runtime.XXXXXX")
 ln -s "$(pwd)/assets" "$runtime_dir/assets"
+trace_path="$runtime_dir/trace.jsonl"
 
 coproc GAME_PROCESS {
     cd "$runtime_dir"
     env -u LIBGL_ALWAYS_SOFTWARE \
         "$game_binary" --debug-stdin \
+        --debug-trace "$trace_path" \
         --debug-resolution="$debug_resolution" 2>&1
 }
 game_pid=$GAME_PROCESS_PID
@@ -41,48 +35,22 @@ exec {game_output}<&"${GAME_PROCESS[0]}"
 exec {game_input}>&"${GAME_PROCESS[1]}"
 
 cleanup() {
+    local status=$?
     if kill -0 "$game_pid" >/dev/null 2>&1; then
         printf 'exit 1\n' >&"$game_input" || true
         kill "$game_pid" >/dev/null 2>&1 || true
     fi
-    rm -rf "$runtime_dir"
+    if ((status == 0)) && [[ "${E2E_KEEP_ARTIFACTS:-0}" != 1 ]]; then
+        rm -rf "$runtime_dir"
+    else
+        printf 'graphics debug e2e artifacts (exit=%s): runtime=%s trace=%s replies=%s\n' \
+            "$status" "$runtime_dir" "$trace_path" "$debug_protocol_log" >&2
+    fi
 }
 trap cleanup EXIT
 
-matched_line=""
-
-wait_for_reply() {
-    local pattern=$1
-    local timeout_seconds=${2:-$command_timeout}
-    local deadline=$((SECONDS + timeout_seconds))
-    local line
-
-    matched_line=""
-    while ((SECONDS < deadline)); do
-        if IFS= read -r -t 1 line <&"$game_output"; then
-            printf '%s\n' "$line"
-            if [[ "$line" =~ ^DEBUG_SCRIPT[[:space:]]error[[:space:]] ]] &&
-               [[ ! "$line" =~ $pattern ]]; then
-                echo "unexpected debug script error while waiting for: $pattern" >&2
-                return 1
-            fi
-            if [[ "$line" =~ $pattern ]]; then
-                matched_line=$line
-                return 0
-            fi
-        elif ! kill -0 "$game_pid" >/dev/null 2>&1; then
-            echo "game exited while waiting for: $pattern" >&2
-            return 1
-        fi
-    done
-
-    echo "timed out waiting for: $pattern" >&2
-    return 1
-}
-
-send_command() {
-    printf '%s\n' "$1" >&"$game_input"
-}
+debug_protocol_log="$runtime_dir/replies.log"
+source tests/debug_stdin_protocol.sh
 
 wait_for_reply '^DEBUG_CONTROL ready '
 send_command 'start'

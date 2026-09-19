@@ -45,6 +45,12 @@ which completed successfully in the
 active Hyprland session, including pause/map/camera/look/mouse/ship routes.
 The full `make -s test-e2e` reached and passed its weather, fire, tornado,
 fluid, save/load, topology, and screenshot scenarios, but timed out during the
-final long polar-input scenario under the current loaded session. It exited 2;
-this remains an open performance/reliability issue for the full route and is
-why the CI graphics job is opt-in on a dedicated Hyprland runner.
+final long polar-input scenario under that loaded session. That run exited 2.
+
+On 2026-09-19 the original full route passed again, so the historical timeout's
+runtime cause could not be reproduced. A confirmed stdin reply-ordering flaw was
+corrected in both graphical harnesses, followed by successful full and short
+graphics routes and a new independent 600-frame polar gate. See
+[record 15](15-polar-e2e-reliability.md) for current evidence and limits. The CI
+graphics job remains opt-in on a dedicated Hyprland runner and now also runs the
+bounded polar gate.

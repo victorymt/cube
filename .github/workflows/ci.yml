@@ -93,8 +93,10 @@ jobs:
             libxinerama-dev libwayland-dev libxkbcommon-dev
       - name: Install raylib
         run: sh scripts/setup-raylib-ci.sh
-      - name: Run graphics and debug E2E
-        run: make test-debug-graphics-e2e
+      - name: Run graphics, debug, and polar E2E
+        run: |
+          make test-debug-graphics-e2e
+          make test-polar-e2e
 
   coverage:
     name: Coverage report

@@ -53,6 +53,7 @@ They do not certify later revisions or imply a full global simulation.
 
 | Priority | Scope | Status and evidence |
 | --- | --- | --- |
+| P1 | Recheck polar graphics timeout and make E2E reply attribution reliable | Complete; [full graphics and independent 600-frame polar routes passed, 2026-09-19](../docs/architecture/15-polar-e2e-reliability.md); historical timeout not reproduced, stdin reply ordering corrected |
 | P2 | Reconcile documentation with implementation and dated validation | Complete; `c7ee153`, current world V22 / population V6, plugin commit evidence, explicit E2E and regional-model limits |
 | P2 | Cross-system per-tick replay verification | Complete within the documented fixture/checkpoint scope; [92 regular and 92 sanitizer tests passed, 2026-09-19](../docs/architecture/14-cross-system-replay.md) |
 
