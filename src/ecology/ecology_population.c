@@ -5,9 +5,11 @@
 #include "world/weather.h"
 #include "world/world.h"
 
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define ECOLOGY_DISTURBANCE_CACHE_SIZE 256u
@@ -86,9 +88,101 @@ static ECOLOGY_THREAD_LOCAL EcologyDisturbanceCacheEntry
     ecologyDisturbanceCache[ECOLOGY_DISTURBANCE_CACHE_SIZE] = { 0 };
 static EcologyPopulationRecord
     ecologyPopulationRecords[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
+/* Inactive records retain their complete state until revisited. The sorted
+ * backing store makes lookups and checkpoint order independent of cache slots. */
+static EcologyPopulationRecord *ecologyPopulationColdRecords = NULL;
+static size_t ecologyPopulationColdCount = 0u;
+static size_t ecologyPopulationColdCapacity = 0u;
+static size_t ecologyPopulationActiveCount = 0u;
+static size_t ecologyPopulationFailedAdmissions = 0u;
+#ifdef ECOLOGY_TESTING
+static bool ecologyPopulationFailStorageAllocation = false;
+#endif
 static uint64_t ecologyPopulationAccessSerial = 0u;
 static uint32_t ecologyPopulationEpoch = 1u;
 static pthread_mutex_t ecologyPopulationMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int EcologyPopulationCompareKeys(
+    const EcologyPopulationRecord *first,
+    const EcologyPopulationRecord *second)
+{
+    if (first->surfaceId != second->surfaceId)
+        return first->surfaceId < second->surfaceId ? -1 : 1;
+    if (first->regionX != second->regionX)
+        return first->regionX < second->regionX ? -1 : 1;
+    if (first->regionZ != second->regionZ)
+        return first->regionZ < second->regionZ ? -1 : 1;
+    return 0;
+}
+
+static size_t EcologyPopulationColdLowerBound(
+    uint32_t surfaceId, int regionX, int regionZ, bool *found)
+{
+    EcologyPopulationRecord key = {
+        .surfaceId = surfaceId, .regionX = regionX, .regionZ = regionZ
+    };
+    size_t low = 0u;
+    size_t high = ecologyPopulationColdCount;
+    while (low < high) {
+        size_t middle = low + (high - low) / 2u;
+        if (EcologyPopulationCompareKeys(
+                &ecologyPopulationColdRecords[middle], &key) < 0) {
+            low = middle + 1u;
+        } else {
+            high = middle;
+        }
+    }
+    if (found) *found = low < ecologyPopulationColdCount &&
+        EcologyPopulationCompareKeys(
+            &ecologyPopulationColdRecords[low], &key) == 0;
+    return low;
+}
+
+static bool EcologyPopulationReserveCold(size_t required)
+{
+    if (required <= ecologyPopulationColdCapacity) return true;
+    if (required > ECOLOGY_POPULATION_MAX_STORED_REGIONS) return false;
+#ifdef ECOLOGY_TESTING
+    if (ecologyPopulationFailStorageAllocation) return false;
+#endif
+    size_t capacity = ecologyPopulationColdCapacity
+        ? ecologyPopulationColdCapacity : 64u;
+    while (capacity < required) {
+        if (capacity >= ECOLOGY_POPULATION_MAX_STORED_REGIONS / 2u) {
+            capacity = ECOLOGY_POPULATION_MAX_STORED_REGIONS;
+            break;
+        }
+        capacity *= 2u;
+    }
+    EcologyPopulationRecord *records = realloc(
+        ecologyPopulationColdRecords, capacity * sizeof(*records));
+    if (!records) return false;
+    ecologyPopulationColdRecords = records;
+    ecologyPopulationColdCapacity = capacity;
+    return true;
+}
+
+/* The caller reserves space before modifying either cache. */
+static void EcologyPopulationInsertCold(const EcologyPopulationRecord *record)
+{
+    size_t insertion = EcologyPopulationColdLowerBound(
+        record->surfaceId, record->regionX, record->regionZ, NULL);
+    memmove(&ecologyPopulationColdRecords[insertion + 1u],
+            &ecologyPopulationColdRecords[insertion],
+            (ecologyPopulationColdCount - insertion) * sizeof(*record));
+    ecologyPopulationColdRecords[insertion] = *record;
+    ecologyPopulationColdCount++;
+}
+
+static void EcologyPopulationAdmissionFailed(void)
+{
+    if (ecologyPopulationFailedAdmissions == 0u) {
+        fprintf(stderr, "ecology: regional storage admission failed; "
+                        "existing region history has been retained\n");
+    }
+    if (ecologyPopulationFailedAdmissions < SIZE_MAX)
+        ecologyPopulationFailedAdmissions++;
+}
 
 static unsigned EcologyPopulationSetIndex(uint32_t surfaceId,
                                           int regionX, int regionZ)
@@ -695,18 +789,45 @@ static EcologyPopulationRecord *EcologyPopulationRecordAt(
     }
     if (!selected) return NULL;
 
-    bool isNew = !selected->valid || selected->surfaceId != surfaceId ||
-                 selected->regionX != regionX || selected->regionZ != regionZ;
-    if (isNew) {
-        *selected = (EcologyPopulationRecord){
-            .valid = true,
-            .surfaceId = surfaceId,
-            .regionX = regionX,
-            .regionZ = regionZ
-        };
+    bool isNew = false;
+    if (!selected->valid || selected->surfaceId != surfaceId ||
+        selected->regionX != regionX || selected->regionZ != regionZ) {
+        bool stored = false;
+        size_t coldIndex = EcologyPopulationColdLowerBound(
+            surfaceId, regionX, regionZ, &stored);
+        isNew = !stored;
+        if ((isNew && ecologyPopulationActiveCount + ecologyPopulationColdCount >=
+                ECOLOGY_POPULATION_MAX_STORED_REGIONS) ||
+            (selected->valid && !stored &&
+             !EcologyPopulationReserveCold(ecologyPopulationColdCount + 1u))) {
+            EcologyPopulationAdmissionFailed();
+            if (created) *created = false;
+            return NULL;
+        }
+        EcologyPopulationRecord replacement = stored
+            ? ecologyPopulationColdRecords[coldIndex]
+            : (EcologyPopulationRecord){
+                .valid = true, .surfaceId = surfaceId,
+                .regionX = regionX, .regionZ = regionZ
+            };
+        if (stored) {
+            memmove(&ecologyPopulationColdRecords[coldIndex],
+                    &ecologyPopulationColdRecords[coldIndex + 1u],
+                    (ecologyPopulationColdCount - coldIndex - 1u) *
+                        sizeof(replacement));
+            ecologyPopulationColdCount--;
+        }
+        if (selected->valid) {
+            EcologyPopulationInsertCold(selected);
+        } else {
+            ecologyPopulationActiveCount++;
+        }
+        *selected = replacement;
     }
-    ecologyPopulationAccessSerial++;
-    if (ecologyPopulationAccessSerial == 0u) ecologyPopulationAccessSerial = 1u;
+    /* Saturation preserves valid persisted access counters even if a loaded
+     * checkpoint is at the uint64 limit. Wrapping would invalidate old records. */
+    if (ecologyPopulationAccessSerial < UINT64_MAX)
+        ecologyPopulationAccessSerial++;
     selected->lastAccess = ecologyPopulationAccessSerial;
     if (created) *created = isNew;
     return selected;
@@ -1184,8 +1305,6 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
     int regionZ = EcologyFloorDivide(globalZ, ECOLOGY_POPULATION_REGION_SIZE);
     uint32_t surfaceId = EcologyWorldSurfaceId();
     double stepTime = EcologyPopulationStepTime(simulationTime);
-    EcologyPopulationAdvanceRecords(
-        surfaceId, stepTime, daylight, profile, originX, originZ);
 
     static const int neighborhood[5][2] = {
         { 0, 0 }, { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 }
@@ -1207,17 +1326,21 @@ PlanetRegionalPopulation EcologyRegionalPopulationAt(
                 neighbor, stepTime, daylight, profile, originX, originZ);
         }
     }
-    int recordIndex = EcologyPopulationFindRecordIndex(
-        surfaceId, regionX, regionZ);
-    if (recordIndex < 0) {
+    /* A neighboring key can share the same four-way set. Re-pin the requested
+     * region after warming neighbors, then catch restored history up before
+     * publishing it. Migration only joins records at the same step time. */
+    EcologyPopulationRecord *record = EcologyPopulationRecordAt(
+        surfaceId, regionX, regionZ, NULL);
+    if (!record) {
         pthread_mutex_unlock(&ecologyPopulationMutex);
         return empty;
     }
+    EcologyPopulationAdvanceRecords(
+        surfaceId, stepTime, daylight, profile, originX, originZ);
     if (createdAny) {
         ecologyPopulationEpoch++;
         if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
     }
-    EcologyPopulationRecord *record = &ecologyPopulationRecords[recordIndex];
     if (outMigration) *outMigration = record->migration;
     PlanetRegionalPopulation result = record->population;
     pthread_mutex_unlock(&ecologyPopulationMutex);
@@ -1237,8 +1360,6 @@ static EcologyPopulationRecord *EcologyEvolutionRecordAt(
         originZ + z, ECOLOGY_POPULATION_REGION_SIZE);
     uint32_t surfaceId = EcologyWorldSurfaceId();
     double stepTime = EcologyPopulationStepTime(simulationTime);
-    EcologyPopulationAdvanceRecords(
-        surfaceId, stepTime, daylight, profile, originX, originZ);
     bool isNew = false;
     EcologyPopulationRecord *record = EcologyPopulationRecordAt(
         surfaceId, regionX, regionZ, &isNew);
@@ -1246,10 +1367,11 @@ static EcologyPopulationRecord *EcologyEvolutionRecordAt(
     if (isNew) {
         EcologyPopulationInitializeRecord(
             record, stepTime, daylight, profile, originX, originZ);
-    } else {
-        EcologyEvolutionEnsureInitialized(
-            record, stepTime, daylight, profile, originX, originZ);
     }
+    EcologyPopulationAdvanceRecords(
+        surfaceId, stepTime, daylight, profile, originX, originZ);
+    EcologyEvolutionEnsureInitialized(
+        record, stepTime, daylight, profile, originX, originZ);
     if (created) *created = isNew;
     return record;
 }
@@ -1588,8 +1710,6 @@ bool EcologyPopulationRecordFaunaHarvest(
         originZ + z, ECOLOGY_POPULATION_REGION_SIZE);
     uint32_t surfaceId = EcologyWorldSurfaceId();
     double stepTime = EcologyPopulationStepTime(simulationTime);
-    EcologyPopulationAdvanceRecords(
-        surfaceId, stepTime, daylight, profile, originX, originZ);
 
     bool created = false;
     EcologyPopulationRecord *record = EcologyPopulationRecordAt(
@@ -1602,6 +1722,8 @@ bool EcologyPopulationRecordFaunaHarvest(
         EcologyPopulationInitializeRecord(
             record, stepTime, daylight, profile, originX, originZ);
     }
+    EcologyPopulationAdvanceRecords(
+        surfaceId, stepTime, daylight, profile, originX, originZ);
     PlanetPopulationApplyFaunaHarvest(&record->population, eventStrength);
     EcologyEvolutionScaleToFauna(
         &record->evolution, record->population.faunaDensity);
@@ -1717,35 +1839,61 @@ uint32_t EcologyPopulationEpoch(void)
     return result;
 }
 
+PlanetEcologyStorageStats EcologyPopulationGetStorageStats(void)
+{
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    PlanetEcologyStorageStats result = {
+        .activeRegions = ecologyPopulationActiveCount,
+        .coldRegions = ecologyPopulationColdCount,
+        .capacityRegions = ECOLOGY_POPULATION_MAX_REGIONS +
+            ecologyPopulationColdCapacity,
+        .allocatedBytes = sizeof(ecologyPopulationRecords) +
+            ecologyPopulationColdCapacity * sizeof(EcologyPopulationRecord),
+        .maxRegions = ECOLOGY_POPULATION_MAX_STORED_REGIONS,
+        .failedAdmissions = ecologyPopulationFailedAdmissions
+    };
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+    return result;
+}
+
 #ifdef ECOLOGY_TESTING
+void PlanetEcologyTestFailPopulationStorageAllocation(bool fail)
+{
+    pthread_mutex_lock(&ecologyPopulationMutex);
+    ecologyPopulationFailStorageAllocation = fail;
+    pthread_mutex_unlock(&ecologyPopulationMutex);
+}
+
 bool PlanetEcologyTestPopulationSnapshotAt(
     uint32_t surfaceId, int regionX, int regionZ,
     PlanetEcologyPopulationSnapshot *out)
 {
     if (!out) return false;
     *out = (PlanetEcologyPopulationSnapshot){ 0 };
-    bool found = false;
-    unsigned start = EcologyPopulationSetIndex(surfaceId, regionX, regionZ) *
-        ECOLOGY_POPULATION_SET_WAYS;
     pthread_mutex_lock(&ecologyPopulationMutex);
-    for (unsigned way = 0; way < ECOLOGY_POPULATION_SET_WAYS; way++) {
-        const EcologyPopulationRecord *record =
-            &ecologyPopulationRecords[start + way];
-        if (!record->valid || record->surfaceId != surfaceId ||
-            record->regionX != regionX || record->regionZ != regionZ) {
-            continue;
-        }
+    int index = EcologyPopulationFindRecordIndex(surfaceId, regionX, regionZ);
+    const EcologyPopulationRecord *record = index >= 0
+        ? &ecologyPopulationRecords[index] : NULL;
+    if (!record) {
+        bool stored = false;
+        size_t coldIndex = EcologyPopulationColdLowerBound(
+            surfaceId, regionX, regionZ, &stored);
+        if (stored) record = &ecologyPopulationColdRecords[coldIndex];
+    }
+    if (record) {
         *out = (PlanetEcologyPopulationSnapshot){
             .surfaceId = record->surfaceId,
             .regionX = record->regionX,
             .regionZ = record->regionZ,
             .lastUpdateTime = record->lastUpdateTime,
+            .population = record->population,
+            .migration = record->migration,
+            .evolution = record->evolution,
             .nutrientInitialized = record->nutrientInitialized,
             .nutrients = record->nutrients
         };
-        found = true;
-        break;
     }
+    bool found = record != NULL;
     pthread_mutex_unlock(&ecologyPopulationMutex);
     return found;
 }
@@ -1755,30 +1903,83 @@ void EcologyPopulationResetState(void)
 {
     pthread_mutex_lock(&ecologyPopulationMutex);
     memset(ecologyPopulationRecords, 0, sizeof(ecologyPopulationRecords));
+    free(ecologyPopulationColdRecords);
+    ecologyPopulationColdRecords = NULL;
+    ecologyPopulationColdCount = 0u;
+    ecologyPopulationColdCapacity = 0u;
+    ecologyPopulationActiveCount = 0u;
+    ecologyPopulationFailedAdmissions = 0u;
+#ifdef ECOLOGY_TESTING
+    ecologyPopulationFailStorageAllocation = false;
+#endif
     ecologyPopulationAccessSerial = 0u;
     ecologyPopulationEpoch++;
     if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
     pthread_mutex_unlock(&ecologyPopulationMutex);
 }
 
+typedef struct EcologyPopulationCheckpointReference {
+    const EcologyPopulationRecord *record;
+    uint8_t active;
+} EcologyPopulationCheckpointReference;
+
+typedef struct EcologyPopulationCheckpointRecord {
+    EcologyPopulationRecord record;
+    uint8_t active;
+} EcologyPopulationCheckpointRecord;
+
+static int EcologyPopulationCompareCheckpointReferences(
+    const void *first, const void *second)
+{
+    const EcologyPopulationCheckpointReference *a = first;
+    const EcologyPopulationCheckpointReference *b = second;
+    return EcologyPopulationCompareKeys(a->record, b->record);
+}
+
+static int EcologyPopulationCompareCheckpointRecords(
+    const void *first, const void *second)
+{
+    const EcologyPopulationCheckpointRecord *a = first;
+    const EcologyPopulationCheckpointRecord *b = second;
+    return EcologyPopulationCompareKeys(&a->record, &b->record);
+}
+
 bool EcologyPopulationSaveState(FILE *file)
 {
     bool success = false;
+    EcologyPopulationCheckpointReference *records = NULL;
     pthread_mutex_lock(&ecologyPopulationMutex);
     if (!file) goto save_done;
-    uint32_t count = 0u;
-    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS; index++) {
-        if (ecologyPopulationRecords[index].valid) count++;
+    uint32_t count = (uint32_t)(ecologyPopulationActiveCount +
+        ecologyPopulationColdCount);
+    if (count > 0u) {
+        records = calloc(count, sizeof(*records));
+        if (!records) goto save_done;
     }
+    uint32_t next = 0u;
+    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS; index++) {
+        if (!ecologyPopulationRecords[index].valid) continue;
+        records[next++] = (EcologyPopulationCheckpointReference){
+            .record = &ecologyPopulationRecords[index], .active = 1u
+        };
+    }
+    for (size_t index = 0; index < ecologyPopulationColdCount; index++) {
+        records[next++] = (EcologyPopulationCheckpointReference){
+            .record = &ecologyPopulationColdRecords[index], .active = 0u
+        };
+    }
+    if (count > 1u) qsort(records, count, sizeof(*records),
+                         EcologyPopulationCompareCheckpointReferences);
     const uint32_t header[2] = { ECOLOGY_POPULATION_STATE_VERSION, count };
     if (fwrite(header, sizeof(header), 1, file) != 1 ||
         fwrite(&ecologyPopulationAccessSerial,
                sizeof(ecologyPopulationAccessSerial), 1, file) != 1) {
         goto save_done;
     }
-    for (unsigned index = 0; index < ECOLOGY_POPULATION_MAX_REGIONS; index++) {
-        const EcologyPopulationRecord *record = &ecologyPopulationRecords[index];
-        if (!record->valid) continue;
+    for (uint32_t index = 0; index < count; index++) {
+        const EcologyPopulationRecord *record = records[index].record;
+        if (index > 0u && EcologyPopulationCompareKeys(
+                records[index - 1u].record, record) == 0) goto save_done;
         int32_t coordinates[2] = {
             (int32_t)record->regionX, (int32_t)record->regionZ
         };
@@ -1801,6 +2002,8 @@ bool EcologyPopulationSaveState(FILE *file)
             (record->nutrientInitialized &&
              !EcologyNutrientStateValid(&record->nutrients)) ||
             !isfinite(record->lastUpdateTime) ||
+            fwrite(&records[index].active,
+                   sizeof(records[index].active), 1, file) != 1 ||
             fwrite(&record->surfaceId, sizeof(record->surfaceId), 1, file) != 1 ||
             fwrite(coordinates, sizeof(coordinates), 1, file) != 1 ||
             fwrite(&record->lastUpdateTime,
@@ -1832,6 +2035,7 @@ bool EcologyPopulationSaveState(FILE *file)
     }
     success = true;
 save_done:
+    free(records);
     pthread_mutex_unlock(&ecologyPopulationMutex);
     return success;
 }
@@ -1839,6 +2043,9 @@ save_done:
 bool EcologyPopulationLoadState(FILE *file)
 {
     bool success = false;
+    EcologyPopulationCheckpointRecord *loaded = NULL;
+    EcologyPopulationRecord *loadedCold = NULL;
+    EcologyPopulationRecord loadedActive[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
     pthread_mutex_lock(&ecologyPopulationMutex);
     uint32_t header[2];
     uint64_t loadedAccessSerial = 0u;
@@ -1846,12 +2053,24 @@ bool EcologyPopulationLoadState(FILE *file)
         fread(&loadedAccessSerial, sizeof(loadedAccessSerial), 1, file) != 1 ||
         (header[0] < ECOLOGY_POPULATION_LEGACY_STATE_VERSION ||
          header[0] > ECOLOGY_POPULATION_STATE_VERSION) ||
-        header[1] > ECOLOGY_POPULATION_MAX_REGIONS) {
+        header[1] > ECOLOGY_POPULATION_MAX_STORED_REGIONS ||
+        (header[0] < ECOLOGY_POPULATION_STORAGE_STATE_VERSION &&
+         header[1] > ECOLOGY_POPULATION_MAX_REGIONS)) {
         goto load_done;
     }
 
-    EcologyPopulationRecord loaded[ECOLOGY_POPULATION_MAX_REGIONS] = { 0 };
+    if (header[1] > 0u) {
+        loaded = calloc(header[1], sizeof(*loaded));
+        if (!loaded) goto load_done;
+    }
+    size_t loadedColdCount = 0u;
+    size_t loadedActiveCount = 0u;
     for (uint32_t item = 0; item < header[1]; item++) {
+        uint8_t active = 1u;
+        if (header[0] >= ECOLOGY_POPULATION_STORAGE_STATE_VERSION &&
+            (fread(&active, sizeof(active), 1, file) != 1 || active > 1u)) {
+            goto load_done;
+        }
         uint32_t surfaceId = 0u;
         int32_t coordinates[2];
         double lastUpdateTime = 0.0;
@@ -1912,6 +2131,10 @@ bool EcologyPopulationLoadState(FILE *file)
         if (surfaceId == 0u || !isfinite(lastUpdateTime) ||
             lastUpdateTime < 0.0 || lastAccess == 0u ||
             lastAccess > loadedAccessSerial ||
+            coordinates[0] < INT_MIN / ECOLOGY_POPULATION_REGION_SIZE ||
+            coordinates[0] > INT_MAX / ECOLOGY_POPULATION_REGION_SIZE ||
+            coordinates[1] < INT_MIN / ECOLOGY_POPULATION_REGION_SIZE ||
+            coordinates[1] > INT_MAX / ECOLOGY_POPULATION_REGION_SIZE ||
             !EcologyPopulationStateValid(&population) ||
             !EcologyPopulationMigrationStateValid(&migration) ||
             !EcologyEvolutionStateValid(&evolution) ||
@@ -1920,21 +2143,8 @@ bool EcologyPopulationLoadState(FILE *file)
             goto load_done;
         }
 
-        unsigned setIndex = EcologyPopulationSetIndex(
-            surfaceId, (int)coordinates[0], (int)coordinates[1]);
-        unsigned start = setIndex * ECOLOGY_POPULATION_SET_WAYS;
-        EcologyPopulationRecord *slot = NULL;
-        for (unsigned way = 0; way < ECOLOGY_POPULATION_SET_WAYS; way++) {
-            EcologyPopulationRecord *candidate = &loaded[start + way];
-            if (candidate->valid && candidate->surfaceId == surfaceId &&
-                candidate->regionX == (int)coordinates[0] &&
-                candidate->regionZ == (int)coordinates[1]) {
-                goto load_done;
-            }
-            if (!candidate->valid && !slot) slot = candidate;
-        }
-        if (!slot) goto load_done;
-        *slot = (EcologyPopulationRecord){
+        loaded[item].active = active;
+        loaded[item].record = (EcologyPopulationRecord){
             .valid = true,
             .surfaceId = surfaceId,
             .regionX = (int)coordinates[0],
@@ -1947,14 +2157,57 @@ bool EcologyPopulationLoadState(FILE *file)
             .nutrients = nutrients,
             .nutrientInitialized = nutrientInitialized
         };
+        if (active) loadedActiveCount++;
+        else loadedColdCount++;
     }
 
-    memcpy(ecologyPopulationRecords, loaded, sizeof(loaded));
+    if (loadedActiveCount > ECOLOGY_POPULATION_MAX_REGIONS) goto load_done;
+    if (header[1] > 1u) qsort(loaded, header[1], sizeof(*loaded),
+                             EcologyPopulationCompareCheckpointRecords);
+    if (loadedColdCount > 0u) {
+        loadedCold = calloc(loadedColdCount, sizeof(*loadedCold));
+        if (!loadedCold) goto load_done;
+    }
+    size_t coldIndex = 0u;
+    for (uint32_t item = 0; item < header[1]; item++) {
+        const EcologyPopulationRecord *record = &loaded[item].record;
+        if (item > 0u && EcologyPopulationCompareKeys(
+                &loaded[item - 1u].record, record) == 0) goto load_done;
+        if (!loaded[item].active) {
+            loadedCold[coldIndex++] = *record;
+            continue;
+        }
+        unsigned start = EcologyPopulationSetIndex(
+            record->surfaceId, record->regionX, record->regionZ) *
+            ECOLOGY_POPULATION_SET_WAYS;
+        EcologyPopulationRecord *slot = NULL;
+        for (unsigned way = 0; way < ECOLOGY_POPULATION_SET_WAYS; way++) {
+            if (!loadedActive[start + way].valid) {
+                slot = &loadedActive[start + way];
+                break;
+            }
+        }
+        if (!slot) goto load_done;
+        *slot = *record;
+    }
+
+    /* No live state is replaced until the entire checkpoint has passed all
+     * validation and every allocation has succeeded. */
+    memcpy(ecologyPopulationRecords, loadedActive, sizeof(loadedActive));
+    free(ecologyPopulationColdRecords);
+    ecologyPopulationColdRecords = loadedCold;
+    loadedCold = NULL;
+    ecologyPopulationColdCount = loadedColdCount;
+    ecologyPopulationColdCapacity = loadedColdCount;
+    ecologyPopulationActiveCount = loadedActiveCount;
+    ecologyPopulationFailedAdmissions = 0u;
     ecologyPopulationAccessSerial = loadedAccessSerial;
     ecologyPopulationEpoch++;
     if (ecologyPopulationEpoch == 0u) ecologyPopulationEpoch = 1u;
     success = true;
 load_done:
+    free(loaded);
+    free(loadedCold);
     pthread_mutex_unlock(&ecologyPopulationMutex);
     return success;
 }

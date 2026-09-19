@@ -161,6 +161,11 @@ void PlanetEcologyResetState(void)
     memset(ecologyLocalCache, 0, sizeof(ecologyLocalCache));
 }
 
+PlanetEcologyStorageStats PlanetEcologyGetStorageStats(void)
+{
+    return EcologyPopulationGetStorageStats();
+}
+
 bool PlanetEcologySaveState(FILE *file)
 {
     if (!EcologyPopulationSaveState(file)) return false;

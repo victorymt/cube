@@ -11,7 +11,9 @@
 #define ECOLOGY_POPULATION_STEP_DAYS 4.0
 #define ECOLOGY_POPULATION_MAX_REGIONS \
     (ECOLOGY_POPULATION_SET_COUNT * ECOLOGY_POPULATION_SET_WAYS)
-#define ECOLOGY_POPULATION_STATE_VERSION 6u
+#define ECOLOGY_POPULATION_STATE_VERSION 7u
+#define ECOLOGY_POPULATION_STORAGE_STATE_VERSION 7u
+#define ECOLOGY_POPULATION_MAX_STORED_REGIONS 65536u
 #define ECOLOGY_POPULATION_MIGRATION_STATE_VERSION 2u
 #define ECOLOGY_POPULATION_HARVEST_STATE_VERSION 3u
 #define ECOLOGY_POPULATION_RADIATION_STATE_VERSION 4u
@@ -44,6 +46,7 @@ PlanetLocalEcology EcologyDynamicLocalAt(
     const PlanetEcologyProfile *profile);
 
 uint32_t EcologyPopulationEpoch(void);
+PlanetEcologyStorageStats EcologyPopulationGetStorageStats(void);
 void EcologyPopulationResetState(void);
 bool EcologyPopulationSaveState(FILE *file);
 bool EcologyPopulationLoadState(FILE *file);

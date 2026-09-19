@@ -23,10 +23,19 @@ regional flora density with a limited weight so the existing population model
 remains the primary carrying-capacity signal. Disturbance transfers stressed
 plant biomass into litter before the nutrient step.
 
-The additional pools are persisted in population state version 6. Versions 1
-through 5 remain loadable; legacy records lazily initialize their nutrient
+The additional pools were introduced in population state version 6. Version 7
+now persists both the 1024-slot hot cache and evicted, inactive regional records,
+ordered by surface and canonical region coordinates. The checkpoint retains hot
+residency so loading does not silently change the simulation's active set.
+Versions 1 through 6 remain loadable; older records lazily initialize their nutrient
 state from the saved flora density on the next population step or evolution
-query. Migration now exposes both net and gross directional flora/fauna fluxes.
+query. The cold store has a total-record limit of 65536; allocation or admission
+failure preserves existing history and reports a failed-admission counter rather
+than replacing a record. `PlanetEcologyGetStorageStats` exposes occupancy and
+allocated memory. Cold records are included in the next atomic world save, not
+written to disk on each eviction. Returning records are restored before catch-up
+and gameplay events; migration only joins records on the same simulation step.
+Migration now exposes both net and gross directional flora/fauna fluxes.
 The population adapter uses the gross fauna directions to breed a deterministic
 sample of matching neighboring genomes, raising `geneFlow`, resetting the
 receiver's isolation counter, and feeding the resulting founder seed into the
@@ -64,3 +73,10 @@ competitive suppression, deterministic repeated steps, directional migration
 contracts, speciation branch identity/density conservation, save/load replay,
 initial passive-spawn catalog registration, entity birth lineage registration,
 and invalid durations.
+
+Persistence regressions force collisions in one four-way cache set, round-trip
+1089 distinct regions, load V6 fixtures, reject malformed/truncated V7 checkpoints
+without changing live state, and inject cold-store allocation failure. The
+eviction regression fails against the previous implementation and passes with
+the backing store. Cold records are retained on disk at checkpoints; this is not
+a claim of continuous simulation of every visited region.

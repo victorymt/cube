@@ -140,6 +140,17 @@ PlanetEcologyProfile PlanetEcologyCurrent(void);
 void PlanetEcologyResetState(void);
 bool PlanetEcologySaveState(FILE *file);
 bool PlanetEcologyLoadState(FILE *file);
+typedef struct PlanetEcologyStorageStats {
+    size_t activeRegions;
+    size_t coldRegions;
+    size_t capacityRegions;
+    size_t allocatedBytes;
+    size_t maxRegions;
+    size_t failedAdmissions;
+} PlanetEcologyStorageStats;
+
+/* Includes inactive records retained for the next world checkpoint. */
+PlanetEcologyStorageStats PlanetEcologyGetStorageStats(void);
 float PlanetEcologyFaunaDensity(void);
 float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);
 bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,
@@ -173,6 +184,9 @@ typedef struct PlanetEcologyPopulationSnapshot {
     int regionX;
     int regionZ;
     double lastUpdateTime;
+    PlanetRegionalPopulation population;
+    PlanetPopulationMigrationState migration;
+    PlanetEvolutionRegion evolution;
     uint8_t nutrientInitialized;
     EcologyNutrientState nutrients;
 } PlanetEcologyPopulationSnapshot;
@@ -182,6 +196,7 @@ typedef struct PlanetEcologyPopulationSnapshot {
 bool PlanetEcologyTestPopulationSnapshotAt(
     uint32_t surfaceId, int regionX, int regionZ,
     PlanetEcologyPopulationSnapshot *out);
+void PlanetEcologyTestFailPopulationStorageAllocation(bool fail);
 #endif
 /*
  * Local queries and population save/load/reset serialize their shared

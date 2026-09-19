@@ -3,6 +3,7 @@
 #define chunks (ChunksMutableForTesting())
 #include "ecology_test_fixture.h"
 #include "ecology/ecology.h"
+#include "ecology/ecology_internal.h"
 #include "ecology/ecology_nutrient_model.h"
 #include "space/space.h"
 #include "space/space_system_physics.h"
@@ -1104,6 +1105,9 @@ static void TestEcologyLegacyPopulationStateLoad(void)
     assert(fread(upgradedHeader, sizeof(upgradedHeader), 1, upgraded) == 1);
     assert(fread(&upgradedAccessSerial,
                  sizeof(upgradedAccessSerial), 1, upgraded) == 1);
+    uint8_t upgradedActive = 0u;
+    assert(fread(&upgradedActive, sizeof(upgradedActive), 1, upgraded) == 1);
+    assert(upgradedActive == 1u);
     assert(fread(&upgradedSurfaceId,
                  sizeof(upgradedSurfaceId), 1, upgraded) == 1);
     assert(fread(upgradedCoordinates,
@@ -1126,7 +1130,7 @@ static void TestEcologyLegacyPopulationStateLoad(void)
                  sizeof(upgradedNutrientInitialized), 1, upgraded) == 1);
     assert(fread(&upgradedNutrients,
                  sizeof(upgradedNutrients), 1, upgraded) == 1);
-    assert(upgradedHeader[0] == 6u && upgradedHeader[1] == 1u);
+    assert(upgradedHeader[0] == 7u && upgradedHeader[1] == 1u);
     assert(upgradedAccessSerial == accessSerial);
     assert(upgradedSurfaceId == surfaceId);
     assert(memcmp(upgradedCoordinates, coordinates,
@@ -1210,10 +1214,11 @@ static void TestEcologyNutrientPopulationPersistence(void)
     uint64_t accessSerial = 0u;
     assert(fread(header, sizeof(header), 1, saved) == 1);
     assert(fread(&accessSerial, sizeof(accessSerial), 1, saved) == 1);
-    assert(header[0] == 6u && header[1] > 0u);
+    assert(header[0] == 7u && header[1] > 0u);
     assert(accessSerial > 0u);
     bool foundInitialized = false;
     for (uint32_t item = 0; item < header[1]; item++) {
+        uint8_t active = 0u;
         uint32_t surfaceId = 0u;
         int32_t coordinates[2] = { 0 };
         double lastUpdateTime = 0.0;
@@ -1225,6 +1230,8 @@ static void TestEcologyNutrientPopulationPersistence(void)
         PlanetEvolutionRegion evolution = { 0 };
         uint8_t nutrientInitialized = 0u;
         EcologyNutrientState nutrients = { 0 };
+        assert(fread(&active, sizeof(active), 1, saved) == 1);
+        assert(active == 1u);
         assert(fread(&surfaceId, sizeof(surfaceId), 1, saved) == 1);
         assert(fread(coordinates, sizeof(coordinates), 1, saved) == 1);
         assert(fread(&lastUpdateTime, sizeof(lastUpdateTime), 1, saved) == 1);
@@ -1761,7 +1768,7 @@ static bool LoadEcologyPopulationBytes(
 
 static size_t EcologySavedEvolutionOffset(void)
 {
-    return sizeof(uint32_t) * 2u + sizeof(uint64_t) +
+    return sizeof(uint32_t) * 2u + sizeof(uint64_t) + sizeof(uint8_t) +
         sizeof(uint32_t) + sizeof(int32_t) * 2u + sizeof(double) +
         sizeof(uint64_t) + sizeof(float) * 5u + sizeof(float) * 6u +
         sizeof(float) * 2u;
@@ -2612,8 +2619,352 @@ static void TestChunkUnloadReloadDeterminism(void)
     ChunksShutdownGenThread();
 }
 
+static unsigned PersistenceTestCacheSet(uint32_t surfaceId, int x, int z)
+{
+    return EcologyMix(surfaceId ^ (uint32_t)x * 0x9e3779b9u ^
+                      (uint32_t)z * 0x85ebca6bu) &
+           (ECOLOGY_POPULATION_SET_COUNT - 1u);
+}
+
+static void AssertPopulationSnapshotEqual(
+    const PlanetEcologyPopulationSnapshot *actual,
+    const PlanetEcologyPopulationSnapshot *expected)
+{
+    assert(actual->surfaceId == expected->surfaceId);
+    assert(actual->regionX == expected->regionX);
+    assert(actual->regionZ == expected->regionZ);
+    assert(actual->lastUpdateTime == expected->lastUpdateTime);
+    assert(memcmp(&actual->population, &expected->population,
+                  sizeof(actual->population)) == 0);
+    assert(memcmp(&actual->migration, &expected->migration,
+                  sizeof(actual->migration)) == 0);
+    assert(memcmp(&actual->evolution, &expected->evolution,
+                  sizeof(actual->evolution)) == 0);
+    assert(actual->nutrientInitialized == expected->nutrientInitialized);
+    assert(memcmp(&actual->nutrients, &expected->nutrients,
+                  sizeof(actual->nutrients)) == 0);
+}
+
+static void AssertPopulationStateBytesEqual(
+    const unsigned char *expected, size_t expectedSize)
+{
+    size_t actualSize = 0;
+    unsigned char *actual = CaptureEcologyPopulationState(&actualSize);
+    assert(actualSize == expectedSize);
+    assert(memcmp(actual, expected, expectedSize) == 0);
+    free(actual);
+}
+
+static size_t PersistenceTestHeaderSize(void)
+{
+    return 2u * sizeof(uint32_t) + sizeof(uint64_t);
+}
+
+static size_t PersistenceTestRecordSize(void)
+{
+    return sizeof(uint8_t) + sizeof(uint32_t) + 2u * sizeof(int32_t) +
+        sizeof(double) + sizeof(uint64_t) + 13u * sizeof(float) +
+        sizeof(PlanetEvolutionRegion) + sizeof(uint8_t) +
+        sizeof(EcologyNutrientState);
+}
+
+static void TestEcologyPersistenceBeyondActiveCapacity(void)
+{
+    enum { SIDE = 33, REGION_COUNT = SIDE * SIDE };
+    SpaceReset();
+    EcologyTestSetSeed(0x13579bdfu);
+    EcologyTestSyncWorldSnapshot();
+    PlanetEcologyResetState();
+    const uint32_t surfaceId = EcologyWorldSurfaceId();
+    PlanetEcologyPopulationSnapshot *expected = calloc(
+        REGION_COUNT, sizeof(*expected));
+    assert(expected);
+    // Reverse visitation prevents the insertion order matching the disk order.
+    for (int index = REGION_COUNT - 1; index >= 0; index--) {
+        int x = index % SIDE - SIDE / 2;
+        int z = index / SIDE - SIDE / 2;
+        PlanetEvolutionRegion evolution = { 0 };
+        assert(PlanetEcologyEvolutionRegionAt(
+            x * ECOLOGY_POPULATION_REGION_SIZE + 32,
+            z * ECOLOGY_POPULATION_REGION_SIZE + 32, 0.72f, &evolution));
+        assert(PlanetEcologyTestPopulationSnapshotAt(
+            surfaceId, x, z, &expected[index]));
+    }
+    PlanetEcologyStorageStats beforeStats = PlanetEcologyGetStorageStats();
+    assert(beforeStats.activeRegions <= ECOLOGY_POPULATION_MAX_REGIONS);
+    assert(beforeStats.coldRegions >= REGION_COUNT -
+           ECOLOGY_POPULATION_MAX_REGIONS);
+    assert(beforeStats.activeRegions + beforeStats.coldRegions == REGION_COUNT);
+    size_t savedSize = 0;
+    unsigned char *saved = CaptureEcologyPopulationState(&savedSize);
+    const size_t headerSize = PersistenceTestHeaderSize();
+    const size_t recordSize = PersistenceTestRecordSize();
+    uint32_t header[2] = { 0 };
+    memcpy(header, saved, sizeof(header));
+    assert(header[0] == 7u && header[1] == REGION_COUNT);
+    assert(savedSize == headerSize + REGION_COUNT * recordSize);
+    uint32_t previousSurface = 0u;
+    int32_t previousCoordinates[2] = { 0 };
+    size_t activeCount = 0u;
+    for (size_t index = 0; index < REGION_COUNT; index++) {
+        const unsigned char *record = saved + headerSize + index * recordSize;
+        assert(record[0] <= 1u);
+        activeCount += record[0];
+        uint32_t recordSurface = 0u;
+        int32_t coordinates[2] = { 0 };
+        memcpy(&recordSurface, record + 1u, sizeof(recordSurface));
+        memcpy(coordinates, record + 1u + sizeof(recordSurface),
+               sizeof(coordinates));
+        if (index > 0) {
+            assert(recordSurface > previousSurface ||
+                   (recordSurface == previousSurface &&
+                    (coordinates[0] > previousCoordinates[0] ||
+                     (coordinates[0] == previousCoordinates[0] &&
+                      coordinates[1] > previousCoordinates[1]))));
+        }
+        previousSurface = recordSurface;
+        memcpy(previousCoordinates, coordinates, sizeof(coordinates));
+    }
+    assert(activeCount == beforeStats.activeRegions);
+    AssertPopulationStateBytesEqual(saved, savedSize);
+
+    PlanetEcologyResetState();
+    assert(LoadEcologyPopulationBytes(saved, savedSize));
+    PlanetEcologyStorageStats loadedStats = PlanetEcologyGetStorageStats();
+    assert(loadedStats.activeRegions == beforeStats.activeRegions);
+    assert(loadedStats.coldRegions == beforeStats.coldRegions);
+    // This also proves read-only inspection does not restore or reorder cold data.
+    for (int index = 0; index < REGION_COUNT; index++) {
+        PlanetEcologyPopulationSnapshot actual = { 0 };
+        assert(PlanetEcologyTestPopulationSnapshotAt(
+            surfaceId, expected[index].regionX, expected[index].regionZ,
+            &actual));
+        AssertPopulationSnapshotEqual(&actual, &expected[index]);
+    }
+    AssertPopulationStateBytesEqual(saved, savedSize);
+
+    // Invalid input at the end must leave both the active and cold stores intact.
+    unsigned char *mutated = malloc(savedSize);
+    assert(mutated);
+    size_t lastRecord = headerSize + (REGION_COUNT - 1u) * recordSize;
+    memcpy(mutated, saved, savedSize);
+    memcpy(mutated + lastRecord + 1u, mutated + headerSize + 1u,
+           sizeof(uint32_t) + 2u * sizeof(int32_t));
+    assert(!LoadEcologyPopulationBytes(mutated, savedSize));
+    AssertPopulationStateBytesEqual(saved, savedSize);
+
+    memcpy(mutated, saved, savedSize);
+    const double invalidTime = NAN;
+    memcpy(mutated + lastRecord + 1u + sizeof(uint32_t) +
+           2u * sizeof(int32_t), &invalidTime, sizeof(invalidTime));
+    assert(!LoadEcologyPopulationBytes(mutated, savedSize));
+    AssertPopulationStateBytesEqual(saved, savedSize);
+
+    memcpy(mutated, saved, savedSize);
+    mutated[lastRecord] = 2u;
+    assert(!LoadEcologyPopulationBytes(mutated, savedSize));
+    AssertPopulationStateBytesEqual(saved, savedSize);
+
+    memcpy(mutated, saved, savedSize);
+    const uint32_t impossibleCount = UINT32_MAX;
+    memcpy(mutated + sizeof(uint32_t), &impossibleCount,
+           sizeof(impossibleCount));
+    assert(!LoadEcologyPopulationBytes(mutated, savedSize));
+    AssertPopulationStateBytesEqual(saved, savedSize);
+
+    const size_t truncations[] = {
+        1u, headerSize - 1u, headerSize + recordSize / 2u, savedSize - 1u
+    };
+    for (unsigned index = 0; index < sizeof(truncations) /
+         sizeof(truncations[0]); index++) {
+        assert(!LoadEcologyPopulationBytes(saved, truncations[index]));
+        AssertPopulationStateBytesEqual(saved, savedSize);
+    }
+    // A restored cold record must still be usable by normal gameplay queries.
+    PlanetEvolutionRegion returned = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        expected[REGION_COUNT - 1].regionX * ECOLOGY_POPULATION_REGION_SIZE + 32,
+        expected[REGION_COUNT - 1].regionZ * ECOLOGY_POPULATION_REGION_SIZE + 32,
+        0.72f, &returned));
+    assert(memcmp(&returned, &expected[REGION_COUNT - 1].evolution,
+                  sizeof(returned)) == 0);
+    free(mutated);
+    free(saved);
+    free(expected);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
+static void TestEcologyVersion6PopulationStateLoad(void)
+{
+    SpaceReset();
+    EcologyTestSetSeed(0x13579bdfu);
+    EcologyTestSyncWorldSnapshot();
+    PlanetEcologyResetState();
+    PlanetEvolutionRegion evolution = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &evolution));
+    SpaceAdvanceTime(16.0f);
+    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &evolution));
+    PlanetEcologyPopulationSnapshot expected = { 0 };
+    assert(PlanetEcologyTestPopulationSnapshotAt(
+        EcologyWorldSurfaceId(), 0, 0, &expected));
+    size_t size = 0;
+    unsigned char *version7 = CaptureEcologyPopulationState(&size);
+    const size_t headerSize = PersistenceTestHeaderSize();
+    assert(size == headerSize + PersistenceTestRecordSize());
+    unsigned char *version6 = malloc(size - 1u);
+    assert(version6);
+    memcpy(version6, version7, headerSize);
+    const uint32_t legacyVersion = 6u;
+    memcpy(version6, &legacyVersion, sizeof(legacyVersion));
+    // V6 carries exactly the same population/evolution/nutrient payload, without
+    // the new residency tag. Keep this compatibility fixture independent of the
+    // current serializer's reported version.
+    memcpy(version6 + headerSize, version7 + headerSize + 1u,
+           size - headerSize - 1u);
+    PlanetEcologyResetState();
+    assert(LoadEcologyPopulationBytes(version6, size - 1u));
+    PlanetEcologyPopulationSnapshot actual = { 0 };
+    assert(PlanetEcologyTestPopulationSnapshotAt(
+        expected.surfaceId, 0, 0, &actual));
+    AssertPopulationSnapshotEqual(&actual, &expected);
+    AssertPopulationStateBytesEqual(version7, size);
+    free(version6);
+    free(version7);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
+static void TestEcologyEvictionRetainsHistory(void)
+{
+    SpaceReset();
+    EcologyTestSetSeed(0x13579bdfu);
+    EcologyTestSyncWorldSnapshot();
+    PlanetEcologyResetState();
+    const uint32_t surfaceId = EcologyWorldSurfaceId();
+    PlanetEvolutionRegion initial = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &initial));
+    SpaceAdvanceTime(16.0f);
+    PlanetEvolutionRegion evolved = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &evolved));
+    assert(evolved.bootstrapGeneration > initial.bootstrapGeneration);
+    PlanetEcologyPopulationSnapshot before = { 0 };
+    assert(PlanetEcologyTestPopulationSnapshotAt(surfaceId, 0, 0, &before));
+    FILE *checkpoint = tmpfile();
+    assert(checkpoint);
+    EcologyTestSaveSimulationState(checkpoint);
+    SpaceAdvanceTime(16.0f);
+    PlanetEvolutionRegion expectedAdvanced = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(
+        32, 32, 0.72f, &expectedAdvanced));
+    EcologyTestLoadSimulationState(checkpoint);
+    fclose(checkpoint);
+
+    unsigned collisions = 0;
+    int colliderX[ECOLOGY_POPULATION_SET_WAYS] = { 0 };
+    int colliderZ[ECOLOGY_POPULATION_SET_WAYS] = { 0 };
+    const unsigned targetSet = PersistenceTestCacheSet(surfaceId, 0, 0);
+    const int regionLimit = SURFACE_EQUATOR_BLOCKS /
+                            ECOLOGY_POPULATION_REGION_SIZE / 2;
+    for (int z = 1; z < 64 && collisions < ECOLOGY_POPULATION_SET_WAYS; z++) {
+        for (int x = -regionLimit; x < regionLimit &&
+             collisions < ECOLOGY_POPULATION_SET_WAYS; x++) {
+            if (abs(x) <= 1 && z <= 1) continue;
+            if (PersistenceTestCacheSet(surfaceId, x, z) != targetSet) continue;
+            PlanetEvolutionRegion other = { 0 };
+            assert(PlanetEcologyEvolutionRegionAt(
+                x * ECOLOGY_POPULATION_REGION_SIZE + 32,
+                z * ECOLOGY_POPULATION_REGION_SIZE + 32, 0.72f, &other));
+            colliderX[collisions] = x;
+            colliderZ[collisions] = z;
+            collisions++;
+        }
+    }
+    assert(collisions == ECOLOGY_POPULATION_SET_WAYS);
+    PlanetEvolutionRegion returned = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &returned));
+    assert(memcmp(&returned, &evolved, sizeof(evolved)) == 0);
+    PlanetEcologyPopulationSnapshot after = { 0 };
+    assert(PlanetEcologyTestPopulationSnapshotAt(surfaceId, 0, 0, &after));
+    assert(after.lastUpdateTime == before.lastUpdateTime);
+    assert(after.nutrientInitialized == before.nutrientInitialized);
+    assert(memcmp(&after.nutrients, &before.nutrients,
+                  sizeof(before.nutrients)) == 0);
+    AssertPopulationSnapshotEqual(&after, &before);
+    // Restore before catch-up: the target is cold when the simulation advances.
+    for (unsigned index = 0; index < collisions; index++) {
+        PlanetEvolutionRegion other = { 0 };
+        assert(PlanetEcologyEvolutionRegionAt(
+            colliderX[index] * ECOLOGY_POPULATION_REGION_SIZE + 32,
+            colliderZ[index] * ECOLOGY_POPULATION_REGION_SIZE + 32,
+            0.72f, &other));
+    }
+    SpaceAdvanceTime(16.0f);
+    PlanetEvolutionRegion advanced = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &advanced));
+    assert(memcmp(&advanced, &expectedAdvanced, sizeof(advanced)) == 0);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
+static void TestEcologyColdAllocationFailurePreservesHistory(void)
+{
+    SpaceReset();
+    EcologyTestSetSeed(0x13579bdfu);
+    EcologyTestSyncWorldSnapshot();
+    PlanetEcologyResetState();
+    uint32_t surfaceId = EcologyWorldSurfaceId();
+    unsigned targetSet = PersistenceTestCacheSet(surfaceId, 0, 0);
+    PlanetEvolutionRegion evolution = { 0 };
+    assert(PlanetEcologyEvolutionRegionAt(32, 32, 0.72f, &evolution));
+    unsigned admitted = 1u;
+    bool tested = false;
+    const int regionLimit = SURFACE_EQUATOR_BLOCKS /
+                            ECOLOGY_POPULATION_REGION_SIZE / 2;
+    for (int z = 1; z < 64 && !tested; z++) {
+        for (int x = -regionLimit; x < regionLimit && !tested; x++) {
+            if (PersistenceTestCacheSet(surfaceId, x, z) != targetSet) continue;
+            if (admitted < ECOLOGY_POPULATION_SET_WAYS) {
+                assert(PlanetEcologyEvolutionRegionAt(
+                    x * ECOLOGY_POPULATION_REGION_SIZE + 32,
+                    z * ECOLOGY_POPULATION_REGION_SIZE + 32,
+                    0.72f, &evolution));
+                admitted++;
+                continue;
+            }
+            size_t savedSize = 0u;
+            unsigned char *saved = CaptureEcologyPopulationState(&savedSize);
+            PlanetEcologyStorageStats before = PlanetEcologyGetStorageStats();
+            assert(before.coldRegions == 0u);
+            PlanetEcologyTestFailPopulationStorageAllocation(true);
+            assert(!PlanetEcologyEvolutionRegionAt(
+                x * ECOLOGY_POPULATION_REGION_SIZE + 32,
+                z * ECOLOGY_POPULATION_REGION_SIZE + 32, 0.72f, &evolution));
+            PlanetEcologyTestFailPopulationStorageAllocation(false);
+            AssertPopulationStateBytesEqual(saved, savedSize);
+            PlanetEcologyStorageStats failed = PlanetEcologyGetStorageStats();
+            assert(failed.activeRegions == before.activeRegions);
+            assert(failed.coldRegions == before.coldRegions);
+            assert(failed.failedAdmissions == before.failedAdmissions + 1u);
+            assert(PlanetEcologyEvolutionRegionAt(
+                x * ECOLOGY_POPULATION_REGION_SIZE + 32,
+                z * ECOLOGY_POPULATION_REGION_SIZE + 32, 0.72f, &evolution));
+            assert(PlanetEcologyGetStorageStats().coldRegions == 1u);
+            free(saved);
+            tested = true;
+        }
+    }
+    assert(tested);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
 int main(void)
 {
+    TestEcologyEvictionRetainsHistory();
+    TestEcologyPersistenceBeyondActiveCapacity();
+    TestEcologyVersion6PopulationStateLoad();
+    TestEcologyColdAllocationFailurePreservesHistory();
     TestPlanetChunkDecoratorPipeline();
     TestEcologyPopulationConcurrentQueries();
     TestEcologyUsesPositionLocalWeather();
