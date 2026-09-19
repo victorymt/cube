@@ -31,6 +31,8 @@ PUBLIC_HEADERS := $(filter-out %_internal.h,$(sort $(wildcard src/*/*.h)))
 
 TEST_HEADERS := $(sort $(wildcard src/*/*.h) $(wildcard tests/*.h))
 TEST_TIMEOUT_SECONDS ?= 120
+# Seasonal entity coverage now explicitly advances the full regional workset.
+TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS ?= 900
 SANITIZER_LEAKS ?= 1
 SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=address,undefined -fno-omit-frame-pointer
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
@@ -100,7 +102,7 @@ modules: $(MODULE_ARCHIVES)
 components: $(MODULE_ARCHIVES)
 
 test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol
-	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
+	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS=$(TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
 
 test-headers:

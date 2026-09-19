@@ -3,10 +3,18 @@
 set -u
 
 timeout_seconds=${TEST_TIMEOUT_SECONDS:-120}
+entity_ecology_timeout_seconds=${TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS:-900}
 
 case "$timeout_seconds" in
     ''|*[!0-9]*|0)
         echo "TEST_TIMEOUT_SECONDS must be a positive integer" >&2
+        exit 2
+        ;;
+esac
+
+case "$entity_ecology_timeout_seconds" in
+    ''|*[!0-9]*|0)
+        echo "TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS must be a positive integer" >&2
         exit 2
         ;;
 esac
@@ -26,10 +34,14 @@ failed=0
 failures=""
 
 for test_binary in "$@"; do
+    case "${test_binary##*/}" in
+        test_entity_ecology) test_timeout=$entity_ecology_timeout_seconds ;;
+        *) test_timeout=$timeout_seconds ;;
+    esac
     start_time=$(date +%s)
     printf '[TEST] %s\n' "$test_binary"
 
-    if timeout "${timeout_seconds}s" "$test_binary"; then
+    if timeout "${test_timeout}s" "$test_binary"; then
         status=0
     else
         status=$?
@@ -44,7 +56,7 @@ for test_binary in "$@"; do
     else
         failed=$((failed + 1))
         if [ "$status" -eq 124 ]; then
-            reason="timeout after ${timeout_seconds}s"
+            reason="timeout after ${test_timeout}s"
         else
             reason="exit ${status}"
         fi
