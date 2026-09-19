@@ -13,6 +13,10 @@ complete regional batches per frame while simulation time stays fixed; no
 unprocessed duration is silently discarded. Navigation remains available so
 the player can return to an existing region if new admission fails. Pauses,
 atlas/map, import/album and landing transitions use the same simulation gate.
+Before editing UI runs, a zero-budget readiness check refreshes that gate for
+the current surface. F9 loading refreshes it again within the same frame, so
+landing or loading cannot reuse the previous surface's ready flag. These
+checks do not spend additional catch-up batches or advance the clock.
 
 Entities render interpolated previous/current poses. Interpolation follows
 spherical directions and transforms headings between local tangent frames;
@@ -53,6 +57,10 @@ simulate the whole planet.
   remains sampled by frame, so these are not whole-game deterministic replays.
 - Entity replay tests exercise interpolated poses at the longitude seam and
   poles, lifecycle resets and unchanged simulation snapshots.
+- Seasonal entity ecology tests explicitly prepare the full regional workset;
+  their default timeout is 900 seconds (`TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS`).
+  Other test binaries retain the 120-second `TEST_TIMEOUT_SECONDS` default.
+  This accommodates the additional simulation coverage, not a performance claim.
 - The graphics DSL regression pauses, reads ecology, saves, reloads and compares
   regional state through the actual executable. Its first run caught ECL1 being
   placed after the EOF-checked spherical trailer; moving it before the trailer

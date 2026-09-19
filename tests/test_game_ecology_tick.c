@@ -49,7 +49,10 @@ static unsigned suspendedWeather;
 static unsigned suspendedTornado;
 static bool ecologyReady;
 static unsigned preparationCount;
+static unsigned readinessCount;
+static unsigned preparationBudget;
 static double preparationTime;
+static float preparationDaylight;
 
 static TickRecord *CurrentTick(void)
 {
@@ -141,10 +144,13 @@ bool PlanetEcologyAdvanceActiveRegionsBudgetedAt(int x, int z, int radius,
                                                   double time, float daylight,
                                                   unsigned maxStepBatches)
 {
-    (void)daylight;
-    assert(x == 4 && z == -3 && radius == 128 && maxStepBatches == 8u);
-    preparationCount++;
+    assert(x == 4 && z == -3 && radius == 128);
+    assert(maxStepBatches == 0u || maxStepBatches == 8u);
+    if (maxStepBatches == 0u) readinessCount++;
+    else preparationCount++;
+    preparationBudget += maxStepBatches;
     preparationTime = time;
+    preparationDaylight = daylight;
     return ecologyReady;
 }
 
@@ -254,7 +260,10 @@ static GameRuntime ResetGame(void)
     suspendedTornado = 0u;
     ecologyReady = true;
     preparationCount = 0u;
+    readinessCount = 0u;
+    preparationBudget = 0u;
     preparationTime = 0.0;
+    preparationDaylight = 0.0f;
     GameRuntime game = { 0 };
     SimulationClockConfig config = SimulationClockDefaultConfig();
     assert(SimulationClockInit(&game.simulationClock, &config));
@@ -332,6 +341,50 @@ static void TestCatchUpKeepsItsTargetAndDoesNotAccumulateRealTime(void)
     assert(GameAdvanceSimulationFrame(&game, step * 0.5) == 1u);
     assert(!game.ecologyCatchupPending && !GameWorldSimulationPaused(&game));
     assert(recordCount == 1u);
+}
+
+static void TestReadinessGatesNewSurfaceWithoutSpendingCatchUpBudget(void)
+{
+    GameRuntime game = ResetGame();
+    double step = game.simulationClock.config.fixedStepSeconds;
+    surfaceActive = false;
+    assert(GameAdvanceSimulationFrame(&game, step * 0.5) == 0u);
+    assert(!game.ecologyCatchupPending);
+
+    /* Landing replaces the previous frame's ready space with an old surface.
+     * Refresh the gate before an album/import action can pause simulation. */
+    surfaceActive = true;
+    planetActive = true;
+    ecologyReady = false;
+    for (unsigned check = 0u; check < 3u; check++) {
+        assert(!GameRefreshEcologyReadiness(&game));
+        assert(game.ecologyCatchupPending && GameWorldSimulationPaused(&game));
+        assert(!GameWorldSimulationUserPaused(&game));
+        assert(recordCount == 0u && spaceTime == 0.0);
+        assert(SimulationClockGetSimulationSeconds(&game.simulationClock) == 0.0);
+        assert(SimulationClockGetAccumulatorSeconds(&game.simulationClock) ==
+               step * 0.5);
+    }
+    assert(readinessCount == 3u && preparationCount == 0u);
+    assert(preparationBudget == 0u);
+
+    assert(GameAdvanceSimulationFrame(&game, step) == 0u);
+    assert(preparationCount == 1u && preparationBudget == 8u);
+    assert(recordCount == 0u && game.ecologyCatchupPending);
+    ecologyReady = true;
+    assert(GameRefreshEcologyReadiness(&game));
+    assert(!game.ecologyCatchupPending && !GameWorldSimulationPaused(&game));
+    assert(preparationBudget == 8u);
+    assert(GameAdvanceSimulationFrame(&game, step * 0.5) == 1u);
+    assert(preparationCount == 2u && preparationBudget == 16u);
+
+    ecologyReady = false;
+    assert(!GameRefreshEcologyReadiness(&game));
+    unsigned previousChecks = readinessCount;
+    surfaceActive = false;
+    assert(GameRefreshEcologyReadiness(&game));
+    assert(!game.ecologyCatchupPending && readinessCount == previousChecks);
+    assert(!GameRefreshEcologyReadiness(NULL));
 }
 
 static void TestPauseStopsEverySimulationConsumer(void)
@@ -436,6 +489,14 @@ static void TestHistoricalDaylightAndClockPersistence(void)
     game.dayTime = 0.9f;
     game.dayCycleEnabled = false;
     game.paused = true;
+    ecologyReady = false;
+    /* The early edit gate must use the newly loaded anchor even while paused,
+     * without consuming catch-up work or letting a stale ready flag survive. */
+    assert(!GameRefreshEcologyReadiness(&game));
+    assert(game.ecologyCatchupPending);
+    assert(preparationTime == 1000.0 && preparationDaylight == 0.25f);
+    assert(preparationCount == 0u && preparationBudget == 0u);
+    assert(readinessCount == 1u && recordCount == 0u);
     /* A load performed by the DSL cannot be overwritten by a stale runtime
      * phase before the first resumed simulation tick. */
     assert(GameAdvanceSimulationFrame(&game, 0.0) == 0u);
@@ -483,6 +544,7 @@ int main(void)
 {
     TestRenderFramePartitioning();
     TestCatchUpKeepsItsTargetAndDoesNotAccumulateRealTime();
+    TestReadinessGatesNewSurfaceWithoutSpendingCatchUpBudget();
     TestPauseStopsEverySimulationConsumer();
     TestTimeScaleAndCatchUp();
     TestWorldAndDamageGates();

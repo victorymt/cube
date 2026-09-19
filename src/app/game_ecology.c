@@ -247,6 +247,36 @@ void GameAdvanceSimulationStep(double simulationSeconds,
     }
 }
 
+static bool GamePrepareEcologyRegions(GameRuntime *game,
+                                      unsigned maxStepBatches)
+{
+    if (WorldIsSurfaceActive()) {
+        double ecologyStarted = game->debugTraceEnabled
+            ? GameDebugTraceMainCpuNowMs() : 0.0;
+        double now = SpaceElapsedSimulationTime();
+        bool ready = PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+            (int)floorf(game->player.position.x),
+            (int)floorf(game->player.position.z), GAME_ECOLOGY_RADIUS_CELLS,
+            now, GameSimulationDaylight(game, now), maxStepBatches);
+        if (game->debugTraceEnabled) {
+            game->debugSimulationEcologyMainCpuMs +=
+                GameDebugTraceMainCpuNowMs() - ecologyStarted;
+        }
+        game->ecologyCatchupPending = !ready;
+    } else {
+        game->ecologyCatchupPending = false;
+    }
+    return !game->ecologyCatchupPending;
+}
+
+bool GameRefreshEcologyReadiness(GameRuntime *game)
+{
+    if (!game) return false;
+    GameApplyPendingHomeClock(game);
+    GameSyncHomeDaylight(game);
+    return GamePrepareEcologyRegions(game, 0u);
+}
+
 unsigned GameAdvanceSimulationFrame(GameRuntime *game, double realDeltaSeconds)
 {
     if (!game) return 0u;
@@ -255,25 +285,9 @@ unsigned GameAdvanceSimulationFrame(GameRuntime *game, double realDeltaSeconds)
     GameApplyPendingHomeClock(game);
     GameSyncHomeDaylight(game);
     if (GameWorldSimulationUserPaused(game)) return 0u;
-    if (WorldIsSurfaceActive()) {
-        double ecologyStarted = game->debugTraceEnabled
-            ? GameDebugTraceMainCpuNowMs() : 0.0;
-        double now = SpaceElapsedSimulationTime();
-        bool ready = PlanetEcologyAdvanceActiveRegionsBudgetedAt(
-            (int)floorf(game->player.position.x),
-            (int)floorf(game->player.position.z), GAME_ECOLOGY_RADIUS_CELLS,
-            now, GameSimulationDaylight(game, now), 8u);
-        if (game->debugTraceEnabled) {
-            game->debugSimulationEcologyMainCpuMs +=
-                GameDebugTraceMainCpuNowMs() - ecologyStarted;
-        }
-        game->ecologyCatchupPending = !ready;
-        /* Keep the catch-up target fixed and discard real time spent loading
-         * regional history. No births, deaths or world edits run ahead of it. */
-        if (!ready) return 0u;
-    } else {
-        game->ecologyCatchupPending = false;
-    }
+    /* Keep the catch-up target fixed and discard real time spent loading
+     * regional history. No births, deaths or world edits run ahead of it. */
+    if (!GamePrepareEcologyRegions(game, 8u)) return 0u;
     return SimulationClockAdvance(&game->simulationClock, realDeltaSeconds,
                                   GameAdvanceSimulationStep, game);
 }

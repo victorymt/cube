@@ -14,6 +14,9 @@ typedef struct GameHomeDaylightSnapshot {
 
 bool GameWorldSimulationPaused(const GameRuntime *game);
 bool GameWorldSimulationUserPaused(const GameRuntime *game);
+/* Refresh the edit gate after a location/load change without advancing time
+ * or spending the frame's regional catch-up budget. May admit new regions. */
+bool GameRefreshEcologyReadiness(GameRuntime *game);
 unsigned GameAdvanceSimulationFrame(GameRuntime *game, double realDeltaSeconds);
 void GameAdvanceSimulationStep(double simulationSeconds,
                                double stepSeconds, void *context);

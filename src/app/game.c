@@ -275,7 +275,7 @@ static void GameUpdateAlbum(GameRuntime *game)
     default:
         break;
     }
-    if (AlbumUiConsumePlaceRequest()) {
+    if (!game->ecologyCatchupPending && AlbumUiConsumePlaceRequest()) {
         const char *placedPath = AlbumUiSelectedPath();
         AlbumUiClose();
         game->albumOpen = false;
@@ -533,6 +533,9 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
         game->cursorReleased = false;
         DisableCursor();
         game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
+        /* Loading can replace a ready surface with one whose regional
+         * history is still pending. Gate this frame's remaining edits. */
+        if (!GameRefreshEcologyReadiness(game)) return;
     }
     if (IsKeyPressed(KEY_F6)) {
         game->dayCycleEnabled = !game->dayCycleEnabled;
@@ -1149,6 +1152,9 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
 
     if (!game->perfMode && IsKeyPressed(KEY_F10)) game->screenshotPending = true;
 
+    /* Landing may have changed surfaces above. Check before opening an edit
+     * UI that pauses simulation, or applying shortcuts and dropped images. */
+    GameRefreshEcologyReadiness(game);
     GameUpdatePauseAndBiologyAtlas(game, landingSkipPressed);
     GameUpdateViewModes(game);
     bool inputBlocked = GameInputBlocked(game);
