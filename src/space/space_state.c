@@ -161,6 +161,10 @@ bool SpaceLoadState(FILE *file)
     solarElapsedSimulationTime = loadedTime;
     spaceOriginX = (int)loadedX;
     spaceOriginZ = (int)loadedZ;
+    if (planetWorld.remnantEnvironmentAwaitingClockLoad) {
+        planetWorld.remnantEnvironmentSimulationTime = loadedTime;
+        planetWorld.remnantEnvironmentAwaitingClockLoad = false;
+    }
     spaceLastLoadError = SPACE_LOAD_ERROR_NONE;
     return true;
 }
@@ -184,6 +188,10 @@ bool SpaceLoadLegacyState(FILE *file)
     solarElapsedSimulationTime = loadedTime;
     spaceOriginX = loadedX;
     spaceOriginZ = loadedZ;
+    if (planetWorld.remnantEnvironmentAwaitingClockLoad) {
+        planetWorld.remnantEnvironmentSimulationTime = loadedTime;
+        planetWorld.remnantEnvironmentAwaitingClockLoad = false;
+    }
     spaceLastLoadError = SPACE_LOAD_ERROR_NONE;
     return true;
 }
@@ -327,14 +335,41 @@ SpaceRemnantEnvironment PlanetWorldCurrentRemnantEnvironment(void)
             planetWorld.profile.receivedIrradiance) {
         planetWorld.remnantEnvironment =
             runtime.planets[orbitIndex].remnantEnvironment;
+        planetWorld.remnantEnvironmentSimulationTime = simulationTime;
     }
-    planetWorld.remnantEnvironmentSimulationTime = simulationTime;
     return planetWorld.remnantEnvironment;
 }
 
 SpaceRemnantEnvironment PlanetWorldRemnantEnvironment(void)
 {
     return PlanetWorldCurrentRemnantEnvironment();
+}
+
+SpaceRemnantEnvironment PlanetWorldRemnantEnvironmentAtTime(double simulationTime)
+{
+    if (!planetWorld.active || !isfinite(simulationTime) || simulationTime < 0.0)
+        return (SpaceRemnantEnvironment){ 0 };
+    /* A loaded/custom planet may carry an observed remnant snapshot whose
+     * source system cannot be regenerated. It is valid at its own timestamp,
+     * but must never be projected backwards across an unobserved interval. */
+    if (planetWorld.remnantEnvironmentSimulationTime == simulationTime)
+        return planetWorld.remnantEnvironment;
+    int systemAx = SpaceAnchorForLocalCoordinate(
+        planetWorld.bodyCenter.x, spaceOriginX);
+    int systemAz = SpaceAnchorForLocalCoordinate(
+        planetWorld.bodyCenter.z, spaceOriginZ);
+    int orbitIndex = planetWorld.planetIndex - 1;
+    SolarSystemDef system;
+    SolarSystemRuntimeState runtime;
+    if (orbitIndex >= 0 && StarSystemAt(systemAx, systemAz, &system) &&
+        SolarSystemEvaluateAtElapsedTime(&system, simulationTime, &runtime) &&
+        orbitIndex < runtime.planetCount && runtime.planets[orbitIndex].valid &&
+        runtime.planets[orbitIndex].profile.seed == planetWorld.profile.seed &&
+        runtime.planets[orbitIndex].profile.receivedIrradiance ==
+            planetWorld.profile.receivedIrradiance) {
+        return runtime.planets[orbitIndex].remnantEnvironment;
+    }
+    return (SpaceRemnantEnvironment){ 0 };
 }
 
 float PlanetWorldGravityScale(void)

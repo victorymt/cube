@@ -45,6 +45,7 @@ typedef struct PlanetWorldContext {
     float spaceProxyRadius;
     SpaceRemnantEnvironment remnantEnvironment;
     double remnantEnvironmentSimulationTime;
+    bool remnantEnvironmentAwaitingClockLoad;
     char name[32];
 } PlanetWorldContext;
 

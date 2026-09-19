@@ -599,7 +599,11 @@ bool PlanetWorldLoadState(FILE *file)
         .ejectaDensity = remnantEjecta,
         .nearestShellDistanceGame = remnantShell
     };
-    loaded.remnantEnvironmentSimulationTime = -1.0;
+    loaded.remnantEnvironmentSimulationTime = SpaceElapsedSimulationTime();
+    /* World saves restore this payload before the Space clock. Standalone
+     * planet loads use the current clock; the next clock load binds a world
+     * checkpoint's observation to its restored time. */
+    loaded.remnantEnvironmentAwaitingClockLoad = hasRemnantEnvironment;
     if (!SpaceRemnantEnvironmentIsValid(&loaded.remnantEnvironment)) {
         return false;
     }

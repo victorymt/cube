@@ -18,6 +18,8 @@ uint32_t PlanetWorldSeed(void);
 SolarBodyStyle PlanetWorldStyle(void);
 const PlanetProfile *PlanetWorldProfile(void);
 SpaceRemnantEnvironment PlanetWorldRemnantEnvironment(void);
+/* Historical sampling does not update the live planet's remnant cache. */
+SpaceRemnantEnvironment PlanetWorldRemnantEnvironmentAtTime(double simulationTime);
 float PlanetWorldGravityScale(void);
 bool PlanetWorldIsDarkSide(void);
 bool PlanetWorldLightStateAt(Vector3 surfacePosition, PlanetLightState *out);

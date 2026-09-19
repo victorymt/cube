@@ -28,11 +28,25 @@ unsaved historical phase. F9 and DSL loads synchronize both the daylight state
 and fixed clock to the restored Space elapsed time. Day-cycle toggle history is
 not a complete event log; the latest anchor describes the active clock segment.
 
+Online regional updates and catch-up share historical environmental sampling:
+procedural weather, regional light and reconstructible stellar remnant exposure
+are evaluated at each step time. Forced weather and current hydrology/radiation
+feedback have no event log and do not enter this regional baseline. Block edits
+contribute observed disturbance only at the current step boundary. Live entity
+hazards retain current inputs. Exact replay therefore covers a fixed world and
+clock segment; it does not reconstruct every past intervention or continuously
+simulate the whole planet.
+
 ## Verification
 
 - Ecology system tests cover eviction, 1089-region checkpoints, V6 compatibility,
   failed allocations, malformed loads, read-only sampling, region-set hash
   collisions and budget/checkpoint partition equivalence.
+- Historical ecology tests compare inhabited regions under spatial/time-varying
+  daylight across online steps, deferred budgets 1/8 and checkpoint/reload. They
+  compare population, migration, nutrients, lineage state and final save bytes.
+  Weather tests verify that historical samples ignore current manual overrides
+  and runtime feedback while still using the time-aware light provider.
 - Application seam tests hold per-tick player inputs constant and compare home
   and planet runs at 30/60/144 FPS and irregular frame partitions. They cover
   pause gates, time scaling, catch-up and clock-load atomicity. Player movement

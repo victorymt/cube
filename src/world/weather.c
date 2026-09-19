@@ -178,7 +178,8 @@ static bool WeatherSampleCacheMatches(const WeatherSampleCacheEntry *cached,
                input->hydrology.evaporationMPerS;
 }
 
-static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
+static bool WeatherInputForTime(Vector3 playerPosition, double simulationTime,
+                           bool historical, float fallbackDaylight,
                            WeatherFieldInput *outInput,
                            LocalClimateState *outClimate)
 {
@@ -211,11 +212,19 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
     LocalClimateInput climateInput = { 0 };
     LocalClimateState climate = { 0 };
     const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    float sampledDaylight = WeatherClamp(fallbackDaylight);
+    float sampledEclipse = 0.0f;
+    WeatherSurfaceLightSample light = { 0 };
+    if (surfaceLightProvider && surfaceLightProvider(
+            canonicalPosition, simulationTime, &light, surfaceLightUserData) &&
+        isfinite(light.daylight) && isfinite(light.eclipse)) {
+        sampledDaylight = WeatherClamp(light.daylight);
+        sampledEclipse = WeatherClamp(light.eclipse);
+    }
     if (snapshot->context.kind == WORLD_SURFACE_PLANET) {
         const PlanetProfile *planet = &snapshot->planetProfile;
         PlanetSurfaceSample surface = PlanetSurfaceAtTime(
             x, z, input.simulationTime);
-        WeatherSurfaceLightSample light = { 0 };
         int height = PlanetTerrainHeight(x, z);
         float longitude = 0.0f;
         float latitude = 0.0f;
@@ -224,15 +233,8 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
         input.seed = snapshot->context.seed;
         input.worldX = weatherWorldX;
         input.worldZ = weatherWorldZ;
-        float daylight = 0.5f;
-        float eclipse = 0.0f;
-        if (surfaceLightProvider && surfaceLightProvider(
-                canonicalPosition, simulationTime, &light,
-                surfaceLightUserData) &&
-            isfinite(light.daylight) && isfinite(light.eclipse)) {
-            daylight = WeatherClamp(light.daylight);
-            eclipse = WeatherClamp(light.eclipse);
-        }
+        float daylight = sampledDaylight;
+        float eclipse = sampledEclipse;
         float daylightDeltaK = (daylight - 0.5f) *
             (2.0f + surface.seasonalAmplitude * 0.08f) *
             (0.28f + (1.0f - planet->atmosphereDensity) * 0.72f);
@@ -263,7 +265,7 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
             .supportsWaterCycle = planet->oceanCoverage > 0.01f ||
                 planet->atmosphereType == PLANET_ATMOSPHERE_BREATHABLE
         };
-        if (hydrologyFeedbackProvider) {
+        if (!historical && hydrologyFeedbackProvider) {
             LocalClimateHydrologyFeedback feedback = { 0 };
             if (hydrologyFeedbackProvider(x, z, simulationTime,
                                           &feedback,
@@ -273,7 +275,7 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
             }
         }
         double radiationOffsetK = 0.0;
-        if (!WorldNetherIsActive()) {
+        if (!historical && !WorldNetherIsActive()) {
             (void)RadiationRuntimeGlobalTemperatureOffsetAt(
                 WorldCurrentSurfaceId(), canonical.x, canonical.z,
                 &radiationOffsetK);
@@ -338,7 +340,7 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
         }
         climateInput = (LocalClimateInput){
             .meanTemperatureK = meanTemperature,
-            .daylightTemperatureDeltaK = (weatherDaylight - 0.5f) * 5.0f,
+            .daylightTemperatureDeltaK = (sampledDaylight - 0.5f) * 5.0f,
             .surfacePressureAtm = 1.0f,
             .atmosphereDensity = 0.72f,
             .moisture = moisture,
@@ -353,7 +355,7 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
             .hasAtmosphere = true,
             .supportsWaterCycle = true
         };
-        if (hydrologyFeedbackProvider) {
+        if (!historical && hydrologyFeedbackProvider) {
             LocalClimateHydrologyFeedback feedback = { 0 };
             if (hydrologyFeedbackProvider(x, z, simulationTime,
                                           &feedback,
@@ -363,7 +365,7 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
             }
         }
         double radiationOffsetK = 0.0;
-        if (!WorldNetherIsActive()) {
+        if (!historical && !WorldNetherIsActive()) {
             (void)RadiationRuntimeGlobalTemperatureOffsetAt(
                 WorldCurrentSurfaceId(), canonical.x, canonical.z,
                 &radiationOffsetK);
@@ -394,14 +396,41 @@ static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
     input.aridity = climate.aridity;
     input.latitude = climateInput.latitude;
     input.magneticLatitude = climateInput.latitude;
-    input.daylight = weatherDaylight;
-    input.solarElevation = WeatherClamp(weatherDaylight);
+    input.daylight = sampledDaylight;
+    input.solarElevation = sampledDaylight;
     input.atmosphereActive = climate.atmosphereActive;
     input.supportsWaterCycle = climate.waterCycleActive;
     input.hydrology = climateInput.hydrology;
     *outInput = input;
     if (outClimate) *outClimate = climate;
     return true;
+}
+
+static bool WeatherInputAt(Vector3 playerPosition, double simulationTime,
+                           WeatherFieldInput *outInput,
+                           LocalClimateState *outClimate)
+{
+    return WeatherInputForTime(playerPosition, simulationTime, false,
+                               weatherDaylight, outInput, outClimate);
+}
+
+WeatherFieldSample WeatherFieldSampleHistoricalAtWorldTime(
+    int x, int z, double simulationTime, float fallbackDaylight,
+    float *outDaylight)
+{
+    if (outDaylight) *outDaylight = 0.0f;
+    WeatherFieldInput input;
+    if (!isfinite(fallbackDaylight) ||
+        !WeatherInputForTime((Vector3){
+            (float)x + 0.5f, 0.0f, (float)z + 0.5f
+        }, simulationTime, true, fallbackDaylight, &input, NULL)) {
+        return (WeatherFieldSample){ 0 };
+    }
+    if (outDaylight) *outDaylight = input.daylight;
+    /* Forced/manual weather and runtime feedback have no historical log.
+     * Use the procedural baseline instead of applying today's state to the
+     * past. This path deliberately does not touch the live weather cache. */
+    return WeatherFieldSampleAt(&input);
 }
 
 static WeatherFieldSample WeatherPhenomenonSample(

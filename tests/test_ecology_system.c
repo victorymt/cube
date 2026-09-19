@@ -727,6 +727,12 @@ static void TestPlanetWorldStateCompatibilityAndAtomicity(void)
 
 static void TestEcologyRespondsToRemnantExposure(void)
 {
+    // This hand-built stellar snapshot represents the current instant only.
+    // Align it with the ecology step, without inventing a past stellar history.
+    double sampleTime = SpaceElapsedSimulationTime();
+    double alignedTime = ceil(sampleTime / ECOLOGY_POPULATION_STEP_DAYS) *
+                         ECOLOGY_POPULATION_STEP_DAYS;
+    SpaceAdvanceTime((float)(alignedTime - sampleTime));
     SolarSystemDef system;
     assert(StarSystemAt(0, 0, &system));
     StellarProfile remnant;
@@ -768,12 +774,38 @@ static void TestEcologyRespondsToRemnantExposure(void)
     FILE *saved = tmpfile();
     assert(saved);
     assert(PlanetWorldSaveState(saved));
+    FILE *savedClock = tmpfile();
+    assert(savedClock);
+    assert(SpaceSaveState(savedClock));
     EcologyTestActivatePlanet(0xdeadbeefu, 17, -29);
+    SpaceAdvanceTime(4.0f);
     rewind(saved);
     assert(PlanetWorldLoadState(saved));
+    // Match the game's load order: the planet snapshot arrives before the
+    // saved clock, which must correct its pending observation timestamp.
+    rewind(savedClock);
+    assert(SpaceLoadState(savedClock));
+    fclose(savedClock);
     SpaceRemnantEnvironment loaded = PlanetWorldRemnantEnvironment();
     assert(memcmp(&loaded, &environment, sizeof(loaded)) == 0);
     fclose(saved);
+
+    // This custom stellar source cannot be regenerated from the catalog. A
+    // display query may reuse its last observation but cannot redate it.
+    double observedTime = SpaceElapsedSimulationTime();
+    SpaceRemnantEnvironment observed = PlanetWorldRemnantEnvironmentAtTime(
+        observedTime);
+    assert(memcmp(&observed, &environment, sizeof(observed)) == 0);
+    SpaceAdvanceTime(4.0f);
+    SpaceRemnantEnvironment displayed = PlanetWorldRemnantEnvironment();
+    assert(memcmp(&displayed, &environment, sizeof(displayed)) == 0);
+    SpaceRemnantEnvironment unobserved = PlanetWorldRemnantEnvironmentAtTime(
+        SpaceElapsedSimulationTime());
+    assert(!unobserved.active);
+    assert(unobserved.radiationHazard == 0.0f);
+    SpaceRemnantEnvironment original = PlanetWorldRemnantEnvironmentAtTime(
+        observedTime);
+    assert(memcmp(&original, &environment, sizeof(original)) == 0);
 }
 
 static void TestEcologyMigrationOrderAndTimePartition(void)
@@ -3255,8 +3287,170 @@ static void TestEcologyEventsWaitForCatchUp(void)
     SpaceReset();
 }
 
+typedef struct EcologyHistoricalLightTrace {
+    uint32_t sampledTimes;
+    unsigned sampledRegions;
+    float minimumDaylight;
+    float maximumDaylight;
+} EcologyHistoricalLightTrace;
+
+static bool EcologyHistoricalTestLightAt(
+    Vector3 position, double simulationTime,
+    WeatherSurfaceLightSample *out, void *userData)
+{
+    EcologyHistoricalLightTrace *trace = userData;
+    assert(out && trace);
+    assert(isfinite(simulationTime) && simulationTime >= 0.0);
+    out->daylight = 0.15f + 0.70f *
+        (0.5f + 0.5f * sinf((float)simulationTime * 0.29f +
+                            position.x * 0.017f - position.z * 0.011f));
+    out->eclipse = 0.10f + 0.10f *
+        sinf((float)simulationTime * 0.0625f + position.x * 0.001f);
+    trace->minimumDaylight = fminf(trace->minimumDaylight, out->daylight);
+    trace->maximumDaylight = fmaxf(trace->maximumDaylight, out->daylight);
+    unsigned step = (unsigned)lround(simulationTime / 4.0);
+    if (step <= 16u && fabs(simulationTime - (double)step * 4.0) < 0.0001) {
+        trace->sampledTimes |= 1u << step;
+    }
+    int regionX = (int)floorf(position.x / ECOLOGY_POPULATION_REGION_SIZE);
+    int regionZ = (int)floorf(position.z / ECOLOGY_POPULATION_REGION_SIZE);
+    if (regionX >= -1 && regionX <= 1 && regionZ >= -1 && regionZ <= 1) {
+        trace->sampledRegions |= 1u << ((regionX + 1) * 3 + regionZ + 1);
+    }
+    return true;
+}
+
+static void InstallHistoricalTestLight(EcologyHistoricalLightTrace *trace)
+{
+    *trace = (EcologyHistoricalLightTrace){ .minimumDaylight = 1.0f };
+    WeatherSetSurfaceLightProvider(EcologyHistoricalTestLightAt, trace);
+}
+
+static void AssertHistoricalLightCoverage(
+    const EcologyHistoricalLightTrace *trace)
+{
+    // All intermediate step endpoints, across all nine regional centers, must
+    // be sampled rather than substituting the current time or player position.
+    assert((trace->sampledTimes & 0x1fffeu) == 0x1fffeu);
+    assert(trace->sampledRegions == 0x1ffu);
+    assert(trace->maximumDaylight - trace->minimumDaylight > 0.5f);
+}
+
+static void FinishHistoricalEcology(unsigned budget, float callerDaylight)
+{
+    for (unsigned call = 0; call < 32u; call++) {
+        assert(SpaceElapsedSimulationTime() == 64.0);
+        if (PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+                32, 32, 0, 64.0, callerDaylight, budget)) {
+            return;
+        }
+    }
+    assert(!"historical ecology catch-up failed to finish");
+}
+
+static void TestEcologyHistoricalEnvironmentReplay(void)
+{
+    ResetScheduledEcology();
+    // This baseline test has no historical player edits, weather overrides or
+    // hydrology events. Those live-state exclusion rules are tested separately.
+    WeatherInit();
+    WeatherClearForced();
+    WeatherClearForcedCloud();
+    WeatherClearHydrologyFeedbackProvider();
+    EcologyTestClearBlockEdits();
+    EcologyHistoricalLightTrace trace = { 0 };
+    PlanetEcologyPopulationSnapshot initialSnapshots[9] = { 0 };
+    bool hasLivingRegion = false;
+    for (uint32_t index = 0u; index < 2048u && !hasLivingRegion; index++) {
+        uint32_t seed = 0x71a5c39du + index * 0x9e3779b9u;
+        EcologyTestSetSeed(seed);
+        EcologyTestActivatePlanet(seed, 0, 0);
+        PlanetEcologyResetState();
+        InstallHistoricalTestLight(&trace);
+        assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+            32, 32, 0, 0.0, 0.01f, 1u));
+        CaptureScheduledNeighborhood(initialSnapshots);
+        hasLivingRegion = initialSnapshots[4].population.floraDensity > 0.02f &&
+            initialSnapshots[4].population.faunaDensity > 0.03f &&
+            initialSnapshots[4].evolution.lineageCount > 0u;
+    }
+    assert(hasLivingRegion);
+    FILE *initial = tmpfile();
+    assert(initial);
+    EcologyTestSaveSimulationState(initial);
+
+    InstallHistoricalTestLight(&trace);
+    for (unsigned step = 1u; step <= 16u; step++) {
+        SpaceAdvanceTime(4.0f);
+        double targetTime = (double)step * 4.0;
+        assert(SpaceElapsedSimulationTime() == targetTime);
+        float wrongCallerDaylight = step % 2u ? 0.01f : 0.99f;
+        WeatherSetDaylight(wrongCallerDaylight);
+        assert(PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+            32, 32, 0, targetTime, wrongCallerDaylight, 1u));
+    }
+    AssertHistoricalLightCoverage(&trace);
+    PlanetEcologyPopulationSnapshot expected[9] = { 0 };
+    CaptureScheduledNeighborhood(expected);
+    unsigned changedRegions = 0u;
+    for (unsigned index = 0u; index < 9u; index++) {
+        assert(expected[index].lastUpdateTime == 64.0);
+        if (memcmp(&expected[index].population,
+                   &initialSnapshots[index].population,
+                   sizeof(expected[index].population)) != 0 ||
+            memcmp(&expected[index].nutrients,
+                   &initialSnapshots[index].nutrients,
+                   sizeof(expected[index].nutrients)) != 0) {
+            changedRegions++;
+        }
+    }
+    assert(changedRegions > 0u);
+    size_t expectedSize = 0u;
+    unsigned char *expectedBytes = CaptureEcologyPopulationState(&expectedSize);
+
+    const unsigned budgets[] = { 1u, 8u };
+    for (unsigned run = 0; run < 2u; run++) {
+        EcologyTestLoadSimulationState(initial);
+        SpaceAdvanceTime(64.0f);
+        InstallHistoricalTestLight(&trace);
+        WeatherSetDaylight(0.97f);
+        FinishHistoricalEcology(budgets[run], 0.97f);
+        AssertHistoricalLightCoverage(&trace);
+        AssertScheduledNeighborhood(expected);
+        AssertPopulationStateBytesEqual(expectedBytes, expectedSize);
+    }
+
+    EcologyTestLoadSimulationState(initial);
+    SpaceAdvanceTime(64.0f);
+    InstallHistoricalTestLight(&trace);
+    WeatherSetDaylight(0.03f);
+    for (unsigned step = 0u; step < 5u; step++) {
+        assert(!PlanetEcologyAdvanceActiveRegionsBudgetedAt(
+            32, 32, 0, 64.0, 0.03f, 1u));
+    }
+    FILE *partial = tmpfile();
+    assert(partial);
+    EcologyTestSaveSimulationState(partial);
+    PlanetEcologyResetState();
+    EcologyTestLoadSimulationState(partial);
+    assert(SpaceElapsedSimulationTime() == 64.0);
+    WeatherSetDaylight(0.98f);
+    FinishHistoricalEcology(8u, 0.98f);
+    AssertHistoricalLightCoverage(&trace);
+    AssertScheduledNeighborhood(expected);
+    AssertPopulationStateBytesEqual(expectedBytes, expectedSize);
+    fclose(partial);
+    fclose(initial);
+    free(expectedBytes);
+    // The callback owns a stack trace and must not escape this test.
+    WeatherSetSurfaceLightProvider(NULL, NULL);
+    PlanetEcologyResetState();
+    SpaceReset();
+}
+
 int main(void)
 {
+    TestEcologyHistoricalEnvironmentReplay();
     TestEcologyQueriesAreReadOnly();
     TestEcologySchedulingBudgetAndReplay();
     TestEcologyScheduledHashCollisions();

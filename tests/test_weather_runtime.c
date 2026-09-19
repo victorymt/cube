@@ -273,6 +273,65 @@ static void TestPlanetLightFeedbackChangesWeather(void)
            fabsf(eclipsedClouds - sunlitClouds) > 0.0001f);
 }
 
+static bool HistoricalLightAt(Vector3 position, double sampleTime,
+                               WeatherSurfaceLightSample *out, void *context)
+{
+    (void)position;
+    (void)context;
+    *out = (WeatherSurfaceLightSample){
+        .daylight = sampleTime < 100.0 ? 0.2f : 0.9f
+    };
+    return true;
+}
+
+static int historicalFeedbackCalls;
+static bool CurrentHydrologyAt(int x, int z, double sampleTime,
+                               LocalClimateHydrologyFeedback *out,
+                               void *context)
+{
+    (void)x; (void)z; (void)sampleTime; (void)out; (void)context;
+    historicalFeedbackCalls++;
+    return false;
+}
+
+static void TestHistoricalWeatherIgnoresCurrentOverrides(void)
+{
+    for (int planet = 0; planet < 2; planet++) {
+        ResetRuntime();
+        if (planet) InstallPlanetSurface();
+        WeatherSetSurfaceLightProvider(HistoricalLightAt, NULL);
+        WeatherSetHydrologyFeedbackProvider(CurrentHydrologyAt, NULL);
+        historicalFeedbackCalls = 0;
+        float daylight;
+        WeatherFieldSample before = WeatherFieldSampleHistoricalAtWorldTime(
+            4, -8, 80.0, 0.5f, &daylight);
+        assert(daylight == 0.2f);
+        WeatherSetDaylight(1.0f);
+        TestWeatherCycle();
+        assert(WeatherForcePhenomenon(
+            WEATHER_PHENOMENON_BLIZZARD, 1.0f, 60u));
+        assert(WeatherForceCloudGenus(WEATHER_CLOUD_GENUS_CIRRUS, 1.0f, 60u));
+        WeatherFieldSample after = WeatherFieldSampleHistoricalAtWorldTime(
+            4, -8, 80.0, 0.0f, &daylight);
+        assert(daylight == 0.2f);
+        assert(before.temperatureK == after.temperatureK);
+        assert(before.cloudCover == after.cloudCover);
+        assert(before.precipitation == after.precipitation);
+        assert(before.windAngle == after.windAngle);
+        assert(before.phenomena == after.phenomena);
+        assert(historicalFeedbackCalls == 0);
+        assert(WeatherForcedFramesRemaining() == 60u);
+        WeatherFieldSample later = WeatherFieldSampleHistoricalAtWorldTime(
+            4, -8, 160.0, 0.0f, &daylight);
+        assert(daylight == 0.9f);
+        assert(later.temperatureK != before.temperatureK);
+        WeatherClearForced();
+        WeatherLocalClimateAtWorldTime(4, -8, 160.0, &(LocalClimateState){0});
+        assert(historicalFeedbackCalls == 1);
+        WeatherClearHydrologyFeedbackProvider();
+    }
+}
+
 static void TestInvalidDeltaTimeIsIgnored(void)
 {
     const float invalidDeltas[] = { NAN, INFINITY, -INFINITY, -1.0f, 0.0f };
@@ -710,6 +769,7 @@ int main(void)
     TestForcedCloudGenera();
     TestInitRestoresCleanState();
     TestPlanetLightFeedbackChangesWeather();
+    TestHistoricalWeatherIgnoresCurrentOverrides();
     puts("weather runtime tests passed");
     return 0;
 }

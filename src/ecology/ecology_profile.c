@@ -251,10 +251,10 @@ PlanetEcologyTraits EcologyTraitsForProfile(
     return traits;
 }
 
-PlanetLocalEnvironment EcologyEnvironmentAt(
+static PlanetLocalEnvironment EcologyEnvironmentSampleAt(
     int x, int z, double simulationTime, float daylight,
     float precipitationRate, float currentStorm, bool dynamic,
-    const PlanetEcologyProfile *ecology)
+    const PlanetEcologyProfile *ecology, bool historical)
 {
     PlanetLocalEnvironment environment = { 0 };
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
@@ -351,7 +351,9 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
     environment.precipitationRate = dynamic
         ? EcologyClamp(precipitationRate) : environment.meanPrecipitation;
     environment.currentStorm = dynamic ? EcologyClamp(currentStorm) : 0.0f;
-    SpaceRemnantEnvironment remnant = PlanetWorldRemnantEnvironment();
+    SpaceRemnantEnvironment remnant = historical
+        ? PlanetWorldRemnantEnvironmentAtTime(simulationTime)
+        : PlanetWorldRemnantEnvironment();
     float atmosphericShield = 0.28f +
         EcologyClamp(planet->atmosphereDensity) * 0.52f +
         environment.elevation * 0.08f;
@@ -363,6 +365,15 @@ PlanetLocalEnvironment EcologyEnvironmentAt(
         (1.0f - environment.shelter * 0.22f));
     environment.biomeSupport = EcologyBiomeSupport(surface.biome, ecology);
     return environment;
+}
+
+PlanetLocalEnvironment EcologyEnvironmentAt(
+    int x, int z, double simulationTime, float daylight,
+    float precipitationRate, float currentStorm, bool dynamic,
+    const PlanetEcologyProfile *ecology)
+{
+    return EcologyEnvironmentSampleAt(x, z, simulationTime, daylight,
+        precipitationRate, currentStorm, dynamic, ecology, false);
 }
 
 static int EcologyPaletteIndex(PlanetChemistry chemistry, uint32_t hash, bool accent)
@@ -726,29 +737,50 @@ PlanetEcologySuitability PlanetEcologyStaticSuitabilityAt(int x, int z)
     return EcologyStaticSuitabilityForProfile(x, z, &profile);
 }
 
-PlanetLocalEcology EcologyDynamicLocalAt(
+static PlanetLocalEcology EcologyDynamicLocalSampleAt(
     int x, int z, double simulationTime, float daylight,
-    const PlanetEcologyProfile *profile)
+    const PlanetEcologyProfile *profile, bool historical,
+    float *outWindX, float *outWindZ)
 {
     PlanetLocalEcology local = { 0 };
     simulationTime = isfinite(simulationTime) && simulationTime >= 0.0
         ? simulationTime : 0.0;
     daylight = EcologyClamp(daylight);
-    WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
-        x, z, simulationTime);
+    WeatherFieldSample weather = historical
+        ? WeatherFieldSampleHistoricalAtWorldTime(
+            x, z, simulationTime, daylight, &daylight)
+        : WeatherFieldSampleAtWorldTime(x, z, simulationTime);
+    if (outWindX) *outWindX = cosf(weather.windAngle) * EcologyClamp(weather.wind);
+    if (outWindZ) *outWindZ = sinf(weather.windAngle) * EcologyClamp(weather.wind);
     float sky = EcologyClamp(WeatherFieldSkyFactor(weather));
     float precipitation = EcologyClamp(weather.precipitation);
     float storm = EcologyClamp(weather.storm);
     float usableDaylight = EcologyClamp(daylight * (1.0f - sky * 0.68f));
-    local.environment = EcologyEnvironmentAt(
+    local.environment = EcologyEnvironmentSampleAt(
         x, z, simulationTime, usableDaylight, precipitation, storm,
-        true, profile);
+        true, profile, historical);
     PlanetEcologyTraits traits = EcologyTraitsForProfile(profile);
     local.suitability = PlanetEcologyEvaluateLocal(
         &local.environment, &traits,
         profile ? profile->floraDensity : 0.0f,
         profile ? profile->faunaDensity : 0.0f);
     return local;
+}
+
+PlanetLocalEcology EcologyDynamicLocalAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile)
+{
+    return EcologyDynamicLocalSampleAt(x, z, simulationTime, daylight,
+        profile, false, NULL, NULL);
+}
+
+PlanetLocalEcology EcologyHistoricalLocalAt(
+    int x, int z, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, float *outWindX, float *outWindZ)
+{
+    return EcologyDynamicLocalSampleAt(x, z, simulationTime, daylight,
+        profile, true, outWindX, outWindZ);
 }
 
 uint32_t EcologyProfileGeneration(void)

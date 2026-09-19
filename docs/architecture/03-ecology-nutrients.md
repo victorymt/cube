@@ -28,8 +28,8 @@ now persists both the 1024-slot hot cache and evicted regional records,
 ordered by surface and canonical region coordinates. The checkpoint retains hot
 residency; the scheduled simulation set is independent of that cache layout.
 Versions 1 through 6 remain loadable; older records lazily initialize their nutrient
-state from the saved flora density on the next population step or evolution
-query. The cold store has a total-record limit of 65536; allocation or admission
+state from the saved flora density on the next scheduled population step.
+The cold store has a total-record limit of 65536; allocation or admission
 failure preserves existing history and reports a failed-admission counter rather
 than replacing a record. `PlanetEcologyGetStorageStats` exposes occupancy and
 allocated memory. Cold records are included in the next atomic world save, not
@@ -99,3 +99,20 @@ applying those events. Internal legacy adapters remain for focused model tests.
 Scheduler tests compare budget 1 and 8, interrupted save/load catch-up, query
 ordering, cold-record hash collisions, and rejected events during backlog. The
 completed checkpoints are byte-identical across those budget/reload variants.
+
+Both ordinary regional steps and deferred catch-up sample the same procedural
+weather baseline at each region's location and historical step time. The light
+provider supplies regional daylight for that time, including the persisted home
+clock anchor. Remnant exposure is reconstructed from the matching stellar
+system at the requested time; custom/loaded snapshots are used only at their
+observation time. Reading current exposure cannot move that observation into
+the future.
+
+There is no complete event history for forced weather, runtime hydrology or
+radiation feedback, or block edits. Regional baseline sampling excludes the
+first three; current edits contribute disturbance only at the current regional
+step boundary. Live weather and entity hazards continue to use runtime inputs.
+This avoids applying today's conditions to an entire absence, but cannot
+reconstruct unrecorded interventions. Historical replay tests use populated
+regions and compare continuous stepping, budgets 1/8, and checkpointed catch-up
+under spatially and temporally varying light, including differing caller light.

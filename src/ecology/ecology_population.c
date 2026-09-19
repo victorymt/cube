@@ -1,5 +1,6 @@
 #include "ecology/ecology_internal.h"
 #include "ecology/ecology_nutrient_model.h"
+#include "space/space_state.h"
 
 #include "world/terrain.h"
 #include "world/weather.h"
@@ -1021,8 +1022,12 @@ static void EcologyPopulationConditionsAt(
                         ECOLOGY_POPULATION_REGION_SIZE / 2;
     int localX = centerGlobalX - originX;
     int localZ = centerGlobalZ - originZ;
-    PlanetLocalEcology regional = EcologyDynamicLocalAt(
-        localX, localZ, simulationTime, daylight, profile);
+    /* Both online stepping and catch-up use the same time/region-dependent
+     * baseline. A caller's current player light or manual weather must not
+     * become a historical input merely because a region is revisited. */
+    PlanetLocalEcology regional = EcologyHistoricalLocalAt(
+        localX, localZ, simulationTime, daylight, profile,
+        &state->windX, &state->windZ);
     state->input = (PlanetPopulationInput){
         .floraCapacity = regional.suitability.floraCapacity,
         .faunaCapacity = regional.suitability.faunaCapacity,
@@ -1039,9 +1044,12 @@ static void EcologyPopulationConditionsAt(
     state->aquaticSuitability = EcologyClamp(
         regional.environment.liquidWaterAccess * 0.72f +
         regional.suitability.waterScore * 0.28f);
-    float disturbance = EcologyRegionalDisturbance(
-        record->surfaceId, record->regionX, record->regionZ,
-        originX, originZ);
+    /* Edits have no timestamped history yet. Apply observed disturbance at
+     * the current regional boundary, never retroactively over an absence. */
+    double observedTime = EcologyPopulationStepTime(SpaceElapsedSimulationTime());
+    float disturbance = simulationTime < observedTime ? 0.0f :
+        EcologyRegionalDisturbance(record->surfaceId, record->regionX,
+                                   record->regionZ, originX, originZ);
     state->floraStress = disturbance * 0.82f;
     float habitatStress = disturbance * 0.94f;
     float harvestStress = EcologyClamp(
@@ -1050,12 +1058,6 @@ static void EcologyPopulationConditionsAt(
         1.0f - (1.0f - habitatStress) * (1.0f - harvestStress));
     state->nutrientEnvironment = EcologyNutrientEnvironmentAt(
         &regional, &record->population, state->floraStress);
-    WeatherFieldSample weather = WeatherFieldSampleAtWorldTime(
-        localX, localZ, simulationTime);
-    float windAngle = WeatherWindAngleAtWorldTime(
-        localX, localZ, simulationTime);
-    state->windX = cosf(windAngle) * EcologyClamp(weather.wind);
-    state->windZ = sinf(windAngle) * EcologyClamp(weather.wind);
 }
 
 static void EcologyPopulationInitializeRecordState(

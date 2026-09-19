@@ -40,6 +40,12 @@ Weather WeatherGetCurrent(void);
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z);
 WeatherFieldSample WeatherFieldSampleAtWorldTime(
     int x, int z, double simulationTime);
+/* Procedural historical baseline with time-sampled light. Current manual
+ * weather, forced clouds and live hydrology/radiation feedback are excluded.
+ * fallbackDaylight is used when no time-aware light provider is installed. */
+WeatherFieldSample WeatherFieldSampleHistoricalAtWorldTime(
+    int x, int z, double simulationTime, float fallbackDaylight,
+    float *outDaylight);
 bool WeatherFieldSampleInterpolatedAtWorldTime(
     float worldX, float worldZ, double simulationTime,
     WeatherFieldSample *outSample);
