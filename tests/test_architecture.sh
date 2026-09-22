@@ -327,6 +327,14 @@ grep -q '^typedef struct WorldEcologyHooks' src/world/ecology_hooks.h ||
     fail "world must expose a neutral ecology hook contract"
 grep -q '^void GameInstallWorldEcologyHooks' src/app/game_biology.c ||
     fail "app must compose world and ecology runtime services"
+if grep -n '#include "presentation/' src/app/game_biology.c \
+    src/app/game_biology.h; then
+    fail "app biology hooks must not own presentation UI"
+fi
+grep -q '^void BiologyAtlasDraw' src/presentation/biology_ui.c ||
+    fail "biology atlas UI must live in presentation"
+grep -q '^void DrawEvolutionScanPanel' src/presentation/biology_ui.c ||
+    fail "evolution scan UI must live in presentation"
 grep -q '^include mk/tests.mk' Makefile ||
     fail "Makefile must source the declarative test manifest"
 grep -q '^define define_test' mk/tests.mk ||

@@ -34,6 +34,7 @@
 #include "presentation/render_ui.h"
 #include "presentation/album_ui.h"
 #include "presentation/scanner_overlay.h"
+#include "presentation/biology_ui.h"
 #include "presentation/particles.h"
 #include "presentation/audio.h"
 #include "world/weather.h"
@@ -1117,6 +1118,25 @@ static void GameRenderPauseOverlay(GameRuntime *game)
     }
 }
 
+static void GameRenderBiologyAtlas(GameRuntime *game)
+{
+    BiologyAtlasUiInput input = {
+        .open = game->biologyAtlasOpen,
+        .selectedSlot = game->biologyAtlasSlot,
+        .evolutionScanLocked = game->evolutionScanLocked,
+        .evolutionLockedOrganismId = game->evolutionLockedOrganismId
+    };
+    BiologyAtlasUiOutput output = { 0 };
+    BiologyAtlasDraw(&input, &output);
+    if (!game->biologyAtlasOpen) return;
+    game->biologyAtlasSlot = output.selectedSlot;
+    if (output.closeRequested) {
+        game->biologyAtlasOpen = false;
+        game->cursorReleased = false;
+        DisableCursor();
+    }
+}
+
 static void GameRenderFrame(GameRuntime *game,
                             const GameFrameView *frame)
 {
@@ -1130,7 +1150,7 @@ static void GameRenderFrame(GameRuntime *game,
         game, &shipHud, shipHudSystem, sizeof(shipHudSystem));
     GameRenderEnvironmentOverlays(game, frame, &shipHud);
     GameRenderHud(game, frame, shipSpeed);
-    DrawBiologyAtlas(game);
+    GameRenderBiologyAtlas(game);
     HomeWorldMapDraw();
     DrawLandingTransitionOverlay(&game->landingTransition);
     GameRenderPauseOverlay(game);
