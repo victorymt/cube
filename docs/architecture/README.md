@@ -23,6 +23,7 @@ new physical-simulation stages.
 | 13 | [component build boundaries](13-component-build-boundaries.md) | `f124765`, `f8bc443`, `ff84e3c`, `b575e4b`, `46a59f1`, `5b91c71`, `997635d`; seven independently rebuildable archives, manifest-driven targets, explicit composition root, and neutral resource, lighting, weather, ecology, and surface-state boundaries |
 | 14 | [cross-system replay verification](14-cross-system-replay.md) | `test_simulation_integration`; per-tick clock, weather, ecology, voxel water and fire comparisons, with explicit checkpoint and scene limits |
 | 15 | [polar E2E reliability](15-polar-e2e-reliability.md) | stdin reply-ordering regression, independent 600-frame polar DSL gate, and retained failure diagnostics |
+| 16 | [regional ecology continuity](16-ecology-continuity.md) | V23 daylight anchor, V7 regional ecology persistence, explicit scheduling, and historical environmental sampling |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
@@ -35,10 +36,10 @@ roadmap status of `Complete` applies to that stage's recorded scope; it does
 not imply that every later revision passed every acceptance route or that
 the bounded models implement full global simulation.
 
-- **Persistence:** the current world writer emits V22 and reads compatible
-  V18-V22 saves. Radiation was introduced in V21 and hydrology in V22;
-  regional ecology independently writes population payload V6. These are
-  separate version sequences.
+- **Persistence:** the current world writer emits V23 and reads compatible
+  V18-V22 saves. Radiation was introduced in V21, hydrology in V22, and the
+  homeworld daylight anchor in V23. Regional ecology independently writes
+  population payload V7. These are separate version sequences.
 - **Verification:** [record 06](06-deterministic-replay-and-ci.md) is the
   dated evidence and replay-coverage record. Its 2026-08-30 result of 86
   tests passing under regular and ASan/UBSan builds is historical evidence,
