@@ -169,15 +169,31 @@ typedef struct EcologyPopulationDiagnostics {
     double keyPreparationCpuMs;
     double admissionCpuMs;
     double workingSetCpuMs;
+    double sampleCpuMs;
     double prepareCpuMs;
     double migrationCpuMs;
     double commitCpuMs;
     double totalCpuMs;
+    double prefetchCpuMs;
+    double validationCpuMs;
+    double workerCpuMs;
+    uint64_t jobsSubmitted;
+    uint64_t jobsCommitted;
+    uint64_t jobsDiscarded;
+    uint64_t synchronousBatches;
+    bool workerEnabled;
+    bool workerBusy;
 } EcologyPopulationDiagnostics;
 
 /* Enable detailed timing only for an active debug trace. */
 void EcologyPopulationSetDiagnosticsEnabled(bool enabled);
 void EcologyPopulationGetDiagnostics(EcologyPopulationDiagnostics *out);
+/* Called by the simulation thread. Shutdown joins before releasing resources;
+ * cancellation invalidates speculative work and waits for an in-flight
+ * snapshot before world storage is reset or loaded. */
+bool EcologyPopulationStartWorker(void);
+void EcologyPopulationStopWorker(void);
+void EcologyPopulationCancelWorker(void);
 
 float PlanetEcologyFaunaDensity(void);
 float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);

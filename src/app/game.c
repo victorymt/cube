@@ -1340,6 +1340,9 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
                   game->perfBaselinePath);
     if (game->debugTraceFrames) PerfEnableDiagnostics();
     EcologyPopulationSetDiagnosticsEnabled(game->debugTraceEnabled);
+    if (!EcologyPopulationStartWorker()) {
+        fprintf(stderr, "Warning: ecology worker unavailable; using synchronous updates.\n");
+    }
     SetExitKey(KEY_NULL);
     // Normal play follows the compositor clock. DSL runs retain their fixed
     // 60 Hz frame schedule, while performance runs remain uncapped.
@@ -1407,6 +1410,8 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
 static int GameStop(GameRuntime *game)
 {
+    EcologyPopulationCancelWorker();
+    EcologyPopulationStopWorker();
     if (!game->perfMode && !game->debugControlEnabled &&
         game->screen == SCREEN_PLAYING) {
         if (game->landingTransition.active) {

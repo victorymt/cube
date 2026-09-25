@@ -162,6 +162,7 @@ float EcologyClamp(float value)
 
 void PlanetEcologyResetState(void)
 {
+    EcologyPopulationCancelWorker();
     EcologyPopulationResetState();
     memset(ecologyLocalCache, 0, sizeof(ecologyLocalCache));
 }
@@ -202,6 +203,7 @@ bool PlanetEcologySaveState(FILE *file)
 
 bool PlanetEcologyLoadState(FILE *file)
 {
+    EcologyPopulationCancelWorker();
     if (!EcologyPopulationLoadState(file)) return false;
     memset(ecologyLocalCache, 0, sizeof(ecologyLocalCache));
     return true;

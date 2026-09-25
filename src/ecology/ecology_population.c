@@ -75,6 +75,7 @@ typedef struct EcologyPopulationStepContext {
     int originX;
     int originZ;
     EcologyPopulationWorkingSet *workingSet;
+    const int (*neighbors)[2];
 } EcologyPopulationStepContext;
 
 typedef struct EcologyPopulationStepBuffers {
@@ -101,8 +102,8 @@ static float EcologyPopulationOccupancy(uint32_t surfaceId, int regionX,
     return minimum + unit * range;
 }
 
-static bool ecologyPopulationDiagnosticsEnabled;
-static EcologyPopulationDiagnostics ecologyPopulationDiagnostics;
+static ECOLOGY_THREAD_LOCAL bool ecologyPopulationDiagnosticsEnabled;
+static ECOLOGY_THREAD_LOCAL EcologyPopulationDiagnostics ecologyPopulationDiagnostics;
 
 static double EcologyPopulationCpuNowMs(void)
 {
@@ -119,10 +120,13 @@ void EcologyPopulationSetDiagnosticsEnabled(bool enabled)
     ecologyPopulationDiagnostics = (EcologyPopulationDiagnostics){ 0 };
 }
 
+static void EcologyPopulationWorkerDiagnostics(EcologyPopulationDiagnostics *out);
+
 void EcologyPopulationGetDiagnostics(EcologyPopulationDiagnostics *out)
 {
     if (!out) return;
     *out = ecologyPopulationDiagnostics;
+    EcologyPopulationWorkerDiagnostics(out);
 }
 
 static double EcologyNutrientNonNegative(double value)
@@ -950,7 +954,7 @@ static double EcologyPopulationEarliestStepStart(
     return stepStart;
 }
 
-static void EcologyPopulationPrepareStep(
+static void EcologyPopulationSampleStep(
     const EcologyPopulationStepContext *context,
     EcologyPopulationStepBuffers *buffers)
 {
@@ -972,6 +976,18 @@ static void EcologyPopulationPrepareStep(
         EcologyPopulationConditionsAt(
             record, context->stepEnd, context->daylight, context->profile,
             context->originX, context->originZ, &buffers->states[index]);
+    }
+}
+
+/* Pure computation: all world, light and terrain inputs were sampled above. */
+static void EcologyPopulationPrepareStep(
+    const EcologyPopulationStepContext *context,
+    EcologyPopulationStepBuffers *buffers)
+{
+    for (unsigned index = 0; index < context->workingSet->count; index++) {
+        if (!buffers->states[index].active) continue;
+        const EcologyPopulationRecord *record =
+            &context->workingSet->records[index];
         if (!buffers->states[index].nutrientInitialized ||
             !EcologyNutrientStateValid(&buffers->states[index].nutrients)) {
             buffers->states[index].nutrients = EcologyNutrientInitializeState(
@@ -1007,6 +1023,28 @@ static void EcologyPopulationPrepareStep(
             &buffers->states[index].evolution, &buffers->states[index],
             context->profile, record->surfaceId, record->regionX,
             record->regionZ, context->elapsedTime);
+    }
+}
+
+/* Resolve topology from the copied working set before migration. */
+static void EcologyPopulationBuildNeighbors(
+    const EcologyPopulationStepContext *context, int (*neighbors)[2])
+{
+    static const int directions[2][2] = { { 1, 0 }, { 0, 1 } };
+    for (unsigned index = 0; index < context->workingSet->count; index++) {
+        const EcologyPopulationRecord *record = &context->workingSet->records[index];
+        for (int direction = 0; direction < 2; direction++) {
+            EcologyPopulationRegionKey key;
+            neighbors[index][direction] = -1;
+            if (EcologyPopulationCanonicalRegionKey(
+                context->surfaceId,
+                record->regionX + directions[direction][0],
+                record->regionZ + directions[direction][1],
+                    context->originX, context->originZ, &key)) {
+                neighbors[index][direction] = EcologyPopulationFindWorkingRecordIndex(
+                    context->workingSet, &key);
+            }
+        }
     }
 }
 
@@ -1049,14 +1087,7 @@ static void EcologyPopulationAccumulateMigration(
         EcologyPopulationRecord *record =
             &context->workingSet->records[index];
         for (int direction = 0; direction < 2; direction++) {
-            EcologyPopulationRegionKey neighborKey;
-            if (!EcologyPopulationCanonicalRegionKey(
-                context->surfaceId,
-                record->regionX + directions[direction][0],
-                record->regionZ + directions[direction][1],
-                context->originX, context->originZ, &neighborKey)) continue;
-            int neighborIndex = EcologyPopulationFindWorkingRecordIndex(
-                context->workingSet, &neighborKey);
+            int neighborIndex = context->neighbors[index][direction];
             if (neighborIndex < 0 || (unsigned)neighborIndex == index ||
                 !buffers->states[neighborIndex].active) continue;
             float windAlignment =
@@ -1141,6 +1172,271 @@ static bool EcologyPopulationCommitStep(
     return changed;
 }
 
+/* One speculative batch. Ownership passes under the control mutex; compute
+ * runs without it against the copied working set and result buffers. */
+typedef enum EcologyJobState {
+    ECOLOGY_JOB_IDLE, ECOLOGY_JOB_QUEUED, ECOLOGY_JOB_RUNNING, ECOLOGY_JOB_READY
+} EcologyJobState;
+
+typedef struct EcologyPopulationJob {
+    EcologyPopulationWorkingSet source;
+    EcologyPopulationWorkingSet result;
+    EcologyPopulationStepBuffers buffers;
+    PlanetEcologyProfile profile;
+    EcologyPopulationStepContext context;
+    int neighbors[ECOLOGY_POPULATION_MAX_REGIONS][2];
+    uint32_t epoch;
+    uint32_t profileGeneration;
+    uint32_t seed;
+    uint64_t editRevision;
+    double cpuMs;
+} EcologyPopulationJob;
+
+static struct {
+    pthread_mutex_t mutex;
+    pthread_cond_t wake;
+    pthread_t thread;
+    bool started;
+    bool stopping;
+    bool canceled;
+    EcologyJobState state;
+    EcologyPopulationJob *job;
+    uint64_t submitted;
+    uint64_t committed;
+    uint64_t discarded;
+    uint64_t synchronous;
+    double lastCpuMs;
+} ecologyWorker = {
+    .mutex = PTHREAD_MUTEX_INITIALIZER,
+    .wake = PTHREAD_COND_INITIALIZER
+};
+
+static void *EcologyPopulationWorkerMain(void *unused)
+{
+    (void)unused;
+    pthread_mutex_lock(&ecologyWorker.mutex);
+    for (;;) {
+        while (!ecologyWorker.stopping && ecologyWorker.state != ECOLOGY_JOB_QUEUED)
+            pthread_cond_wait(&ecologyWorker.wake, &ecologyWorker.mutex);
+        if (ecologyWorker.stopping) break;
+        EcologyPopulationJob *job = ecologyWorker.job;
+        ecologyWorker.state = ECOLOGY_JOB_RUNNING;
+        pthread_mutex_unlock(&ecologyWorker.mutex);
+
+        struct timespec start, finish;
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &start);
+        EcologyPopulationBuildNeighbors(&job->context, job->neighbors);
+        job->context.neighbors = job->neighbors;
+        memset(&job->buffers, 0, sizeof(job->buffers));
+        EcologyPopulationSampleStep(&job->context, &job->buffers);
+        EcologyPopulationPrepareStep(&job->context, &job->buffers);
+        EcologyPopulationAccumulateMigration(&job->context, &job->buffers);
+        EcologyPopulationCommitStep(&job->context, &job->buffers);
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &finish);
+        job->cpuMs = (double)(finish.tv_sec - start.tv_sec) * 1000.0 +
+                     (double)(finish.tv_nsec - start.tv_nsec) / 1000000.0;
+
+        pthread_mutex_lock(&ecologyWorker.mutex);
+        ecologyWorker.lastCpuMs = job->cpuMs;
+        if (ecologyWorker.canceled) {
+            ecologyWorker.discarded++;
+            ecologyWorker.state = ECOLOGY_JOB_IDLE;
+        } else {
+            ecologyWorker.state = ECOLOGY_JOB_READY;
+        }
+        pthread_cond_broadcast(&ecologyWorker.wake);
+    }
+    pthread_mutex_unlock(&ecologyWorker.mutex);
+    return NULL;
+}
+
+bool EcologyPopulationStartWorker(void)
+{
+    if (ecologyWorker.started) return true;
+    ecologyWorker.job = calloc(1, sizeof(*ecologyWorker.job));
+    if (!ecologyWorker.job) return false;
+    ecologyWorker.stopping = false;
+    ecologyWorker.state = ECOLOGY_JOB_IDLE;
+    ecologyWorker.submitted = ecologyWorker.committed = 0u;
+    ecologyWorker.discarded = ecologyWorker.synchronous = 0u;
+    ecologyWorker.lastCpuMs = 0.0;
+    if (pthread_create(&ecologyWorker.thread, NULL,
+                       EcologyPopulationWorkerMain, NULL) != 0) {
+        free(ecologyWorker.job);
+        ecologyWorker.job = NULL;
+        return false;
+    }
+    ecologyWorker.started = true;
+    return true;
+}
+
+/* Caller holds the control mutex. The running job retains its memory. */
+static void EcologyPopulationCancelJob(void)
+{
+    if (ecologyWorker.state == ECOLOGY_JOB_RUNNING) {
+        ecologyWorker.canceled = true;
+    } else if (ecologyWorker.state != ECOLOGY_JOB_IDLE) {
+        ecologyWorker.discarded++;
+        ecologyWorker.state = ECOLOGY_JOB_IDLE;
+    }
+}
+
+void EcologyPopulationCancelWorker(void)
+{
+    pthread_mutex_lock(&ecologyWorker.mutex);
+    EcologyPopulationCancelJob();
+    /* World reset/load replaces the data read by historical sampling. Wait
+     * for an in-flight snapshot job before that storage is changed. */
+    while (ecologyWorker.state == ECOLOGY_JOB_RUNNING)
+        pthread_cond_wait(&ecologyWorker.wake, &ecologyWorker.mutex);
+    pthread_mutex_unlock(&ecologyWorker.mutex);
+}
+
+void EcologyPopulationStopWorker(void)
+{
+    if (!ecologyWorker.started) return;
+    pthread_mutex_lock(&ecologyWorker.mutex);
+    ecologyWorker.stopping = true;
+    pthread_cond_signal(&ecologyWorker.wake);
+    pthread_mutex_unlock(&ecologyWorker.mutex);
+    pthread_join(ecologyWorker.thread, NULL);
+    free(ecologyWorker.job);
+    ecologyWorker.job = NULL;
+    ecologyWorker.started = false;
+    ecologyWorker.state = ECOLOGY_JOB_IDLE;
+}
+
+static void EcologyPopulationWorkerDiagnostics(EcologyPopulationDiagnostics *out)
+{
+    pthread_mutex_lock(&ecologyWorker.mutex);
+    out->jobsSubmitted = ecologyWorker.submitted;
+    out->jobsCommitted = ecologyWorker.committed;
+    out->jobsDiscarded = ecologyWorker.discarded;
+    out->synchronousBatches = ecologyWorker.synchronous;
+    out->workerCpuMs = ecologyWorker.lastCpuMs;
+    out->workerEnabled = ecologyWorker.started;
+    out->workerBusy = ecologyWorker.state == ECOLOGY_JOB_QUEUED ||
+                      ecologyWorker.state == ECOLOGY_JOB_RUNNING;
+    pthread_mutex_unlock(&ecologyWorker.mutex);
+}
+
+/* Simulation thread, with population storage locked. Includes identity as
+ * epochs can restart after load. Full sampled inputs are rechecked at commit. */
+static bool EcologyPopulationJobMatches(const EcologyPopulationJob *job,
+    const EcologyPopulationStepContext *context)
+{
+    if (job->epoch != ecologyPopulationEpoch ||
+        job->profileGeneration != EcologyProfileGeneration() ||
+        job->seed != EcologyWorldSeed() ||
+        job->editRevision != WorldGetEditRevision() ||
+        job->context.surfaceId != context->surfaceId ||
+        job->context.originX != context->originX ||
+        job->context.originZ != context->originZ ||
+        job->context.stepStart != context->stepStart ||
+        job->context.stepEnd != context->stepEnd ||
+        job->context.elapsedTime != context->elapsedTime ||
+        fabsf(job->context.daylight - context->daylight) > 0.02f ||
+        job->result.count != context->workingSet->count) return false;
+    for (unsigned i = 0; i < job->result.count; i++) {
+        const EcologyPopulationRecord *a = &job->source.records[i];
+        const EcologyPopulationRecord *b = &context->workingSet->records[i];
+        if (a->surfaceId != b->surfaceId || a->regionX != b->regionX ||
+            a->regionZ != b->regionZ || b->lastUpdateTime != context->stepStart ||
+            memcmp(&a->population, &b->population, sizeof(a->population)) != 0 ||
+            memcmp(&a->migration, &b->migration, sizeof(a->migration)) != 0 ||
+            memcmp(&a->evolution, &b->evolution, sizeof(a->evolution)) != 0 ||
+            memcmp(&a->nutrients, &b->nutrients, sizeof(a->nutrients)) != 0 ||
+            a->nutrientInitialized != b->nutrientInitialized)
+            return false;
+    }
+    return true;
+}
+
+static bool EcologyPopulationTryJob(EcologyPopulationStepContext *context)
+{
+    if (!ecologyWorker.started) return false;
+    pthread_mutex_lock(&ecologyWorker.mutex);
+    double started = EcologyPopulationCpuNowMs();
+    bool ready = ecologyWorker.state == ECOLOGY_JOB_READY;
+    EcologyPopulationJob *job = ecologyWorker.job;
+    bool valid = ready && EcologyPopulationJobMatches(job, context);
+    if (valid) {
+        if (ecologyPopulationDiagnosticsEnabled)
+            ecologyPopulationDiagnostics.validationCpuMs +=
+                EcologyPopulationCpuNowMs() - started;
+    }
+    if (valid) {
+        memcpy(context->workingSet->records, job->result.records,
+               job->result.count * sizeof(job->result.records[0]));
+        ecologyWorker.committed++;
+        ecologyWorker.state = ECOLOGY_JOB_IDLE;
+    } else {
+        EcologyPopulationCancelJob();
+        ecologyWorker.synchronous++;
+    }
+    pthread_mutex_unlock(&ecologyWorker.mutex);
+    return valid;
+}
+
+/* Speculation is bounded to one job, within 0.25 simulation seconds of the
+ * next boundary. Events remain synchronous; a changed epoch rejects the job. */
+static void EcologyPopulationPrefetch(const EcologyPopulationWorkingSet *source,
+    uint32_t surfaceId, double simulationTime, float daylight,
+    const PlanetEcologyProfile *profile, int originX, int originZ)
+{
+    if (!ecologyWorker.started || !source->count) return;
+    double stepStart = EcologyPopulationStepTime(simulationTime);
+    double stepEnd = stepStart + ECOLOGY_POPULATION_STEP_DAYS;
+    if (stepEnd - simulationTime > 0.25 || !(stepEnd > simulationTime)) return;
+    for (unsigned i = 0; i < source->count; i++)
+        if (source->records[i].lastUpdateTime != stepStart) return;
+
+    EcologyPopulationStepContext context = {
+        .surfaceId = surfaceId, .stepStart = stepStart, .stepEnd = stepEnd,
+        .elapsedTime = stepEnd - stepStart, .daylight = daylight,
+        .profile = profile, .originX = originX, .originZ = originZ,
+        .workingSet = (EcologyPopulationWorkingSet *)source
+    };
+    pthread_mutex_lock(&ecologyWorker.mutex);
+    if (ecologyWorker.state == ECOLOGY_JOB_RUNNING ||
+        ecologyWorker.state == ECOLOGY_JOB_QUEUED) {
+        pthread_mutex_unlock(&ecologyWorker.mutex);
+        return;
+    }
+    EcologyPopulationJob *job = ecologyWorker.job;
+    if (ecologyWorker.state == ECOLOGY_JOB_READY) {
+        if (EcologyPopulationJobMatches(job, &context)) {
+            pthread_mutex_unlock(&ecologyWorker.mutex);
+            return;
+        }
+        EcologyPopulationCancelJob();
+    }
+    double started = EcologyPopulationCpuNowMs();
+    job->source.count = source->count;
+    memcpy(job->source.records, source->records,
+           source->count * sizeof(source->records[0]));
+    job->result.count = source->count;
+    memcpy(job->result.records, source->records,
+           source->count * sizeof(source->records[0]));
+    job->profile = *profile;
+    job->context = context;
+    job->context.profile = &job->profile;
+    job->context.workingSet = &job->result;
+    job->context.neighbors = job->neighbors;
+    job->epoch = ecologyPopulationEpoch;
+    job->profileGeneration = EcologyProfileGeneration();
+    job->seed = EcologyWorldSeed();
+    job->editRevision = WorldGetEditRevision();
+    ecologyWorker.canceled = false;
+    ecologyWorker.state = ECOLOGY_JOB_QUEUED;
+    ecologyWorker.submitted++;
+    if (ecologyPopulationDiagnosticsEnabled)
+        ecologyPopulationDiagnostics.prefetchCpuMs +=
+            EcologyPopulationCpuNowMs() - started;
+    pthread_cond_signal(&ecologyWorker.wake);
+    pthread_mutex_unlock(&ecologyWorker.mutex);
+}
+
 static bool EcologyPopulationAdvanceWorkingSet(
     EcologyPopulationWorkingSet *workingSet,
     uint32_t surfaceId, double targetTime, float daylight,
@@ -1174,8 +1470,23 @@ static bool EcologyPopulationAdvanceWorkingSet(
             .originZ = originZ,
             .workingSet = workingSet
         };
+        if (EcologyPopulationTryJob(&context)) {
+            changed = true;
+            if (ecologyPopulationDiagnosticsEnabled)
+                ecologyPopulationDiagnostics.batchCount++;
+            continue;
+        }
         EcologyPopulationStepBuffers buffers = { 0 };
+        int neighbors[ECOLOGY_POPULATION_MAX_REGIONS][2];
+        context.neighbors = neighbors;
         double stageStarted = EcologyPopulationCpuNowMs();
+        EcologyPopulationBuildNeighbors(&context, neighbors);
+        EcologyPopulationSampleStep(&context, &buffers);
+        if (ecologyPopulationDiagnosticsEnabled) {
+            ecologyPopulationDiagnostics.sampleCpuMs +=
+                EcologyPopulationCpuNowMs() - stageStarted;
+        }
+        stageStarted = EcologyPopulationCpuNowMs();
         EcologyPopulationPrepareStep(&context, &buffers);
         if (ecologyPopulationDiagnosticsEnabled) {
             ecologyPopulationDiagnostics.prepareCpuMs +=
@@ -1373,6 +1684,10 @@ bool EcologyPopulationAdvanceActiveRegionsAt(
             ecologyPopulationDiagnostics.commitCpuMs +=
                 EcologyPopulationCpuNowMs() - stageStarted;
         }
+    }
+    if (complete) {
+        EcologyPopulationPrefetch(&workingSet, surfaceId, simulationTime,
+            daylight, profile, originX, originZ);
     }
     pthread_mutex_unlock(&ecologyPopulationMutex);
     if (ecologyPopulationDiagnosticsEnabled) {

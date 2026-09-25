@@ -188,9 +188,13 @@ the frame that produced `gpu_world_ms`, because GPU results can arrive a few
 frames after submission. `visible_sections` counts instrumented visible
 sections, not all chunks in the distance radius.
 The `ecology_population` object splits the active-region update into key
-preparation, storage admission, working-set construction, population/evolution
-preparation, migration, and commit CPU time. It also reports the number of
-regions, newly created records, and completed ecology step batches.
+preparation, storage admission, working-set construction, environment sampling,
+population/evolution preparation, migration, and commit CPU time. It also
+reports the speculative worker queue (`jobs_submitted`, `jobs_committed`,
+`jobs_discarded`, and `synchronous_batches`) and its worker CPU time. A
+successful prefetch makes the next step's main-thread sample and preparation
+time near zero; validation rejects a job when the live records, world epoch,
+seed, profile, or edit revision changed.
 
 ## Process and stdin lifetime
 

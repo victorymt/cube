@@ -346,19 +346,39 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         "\"key_preparation_cpu_ms\":%.3f,"
         "\"admission_cpu_ms\":%.3f,"
         "\"working_set_cpu_ms\":%.3f,"
+        "\"sample_cpu_ms\":%.3f,"
         "\"prepare_cpu_ms\":%.3f,"
         "\"migration_cpu_ms\":%.3f,"
         "\"commit_cpu_ms\":%.3f,"
-        "\"total_cpu_ms\":%.3f},",
+        "\"total_cpu_ms\":%.3f,"
+        "\"prefetch_cpu_ms\":%.3f,"
+        "\"validation_cpu_ms\":%.3f,"
+        "\"worker_cpu_ms\":%.3f,"
+        "\"jobs_submitted\":%llu,"
+        "\"jobs_committed\":%llu,"
+        "\"jobs_discarded\":%llu,"
+        "\"synchronous_batches\":%llu,"
+        "\"worker_enabled\":%s,"
+        "\"worker_busy\":%s},",
         ecologyPopulation.regionCount, ecologyPopulation.createdRegions,
         ecologyPopulation.batchCount,
         ecologyPopulation.keyPreparationCpuMs,
         ecologyPopulation.admissionCpuMs,
         ecologyPopulation.workingSetCpuMs,
+        ecologyPopulation.sampleCpuMs,
         ecologyPopulation.prepareCpuMs,
         ecologyPopulation.migrationCpuMs,
         ecologyPopulation.commitCpuMs,
-        ecologyPopulation.totalCpuMs);
+        ecologyPopulation.totalCpuMs,
+        ecologyPopulation.prefetchCpuMs,
+        ecologyPopulation.validationCpuMs,
+        ecologyPopulation.workerCpuMs,
+        (unsigned long long)ecologyPopulation.jobsSubmitted,
+        (unsigned long long)ecologyPopulation.jobsCommitted,
+        (unsigned long long)ecologyPopulation.jobsDiscarded,
+        (unsigned long long)ecologyPopulation.synchronousBatches,
+        ecologyPopulation.workerEnabled ? "true" : "false",
+        ecologyPopulation.workerBusy ? "true" : "false");
     TraceAppendFormat(
         &buffer,
         "\"timing\":{\"update_main_cpu_ms\":%.3f,"
