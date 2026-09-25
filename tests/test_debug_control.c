@@ -245,6 +245,10 @@ static void TestTerrainMapCommands(void)
 {
     DebugControl control;
     DebugControlInit(&control, true);
+    assert(DebugControlParseText(&control, "hud debug on") ==
+           DEBUG_CONTROL_COMMAND_HUD_DEBUG_ON);
+    assert(DebugControlParseText(&control, "hud debug off") ==
+           DEBUG_CONTROL_COMMAND_HUD_DEBUG_OFF);
     assert(DebugControlParseText(&control, "map layer liquids on") ==
            DEBUG_CONTROL_COMMAND_MAP_LAYER_LIQUIDS);
     assert(control.mapLiquidsVisible);

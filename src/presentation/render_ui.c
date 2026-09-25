@@ -989,10 +989,20 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                   const HudFrameState *hud)
 {
     if (!hud) return;
+    int screenWidth = GetScreenWidth();
+    int screenHeight = GetScreenHeight();
+    Rectangle panel = {
+        10.0f, 10.0f, (float)fmax(screenWidth - 20, 320),
+        (float)fmax(screenHeight - 20, 220)
+    };
+    DrawRectangleRounded(panel, 0.025f, 8, Fade(BLACK, 0.42f));
+    DrawRectangleRoundedLinesEx(panel, 0.025f, 8, 1.0f,
+                                Fade(WHITE, 0.18f));
+    UiDrawText("F3 DEBUG", 18, 22, 18, Fade(WHITE, 0.95f));
     int x = 18;
     int y = 76;
     int line = 20;
-    int fs = 14;
+    int fs = 15;
 
     UiDrawText(TextFormat("XYZ %.1f %.1f %.1f   yaw %.1f pitch %.1f",
                         playerPosition.x, playerPosition.y, playerPosition.z, yaw * RAD2DEG, pitch * RAD2DEG),

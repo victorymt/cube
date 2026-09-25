@@ -88,6 +88,11 @@ wait_for_reply '^DEBUG_CONTROL pause enabled=0$'
 send_command 'assert !game.paused'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 
+send_command 'hud debug on'
+wait_for_reply '^DEBUG_CONTROL hud debug enabled=1$'
+send_command 'hud debug off'
+wait_for_reply '^DEBUG_CONTROL hud debug enabled=0$'
+
 send_command 'view third'
 wait_for_reply '^DEBUG_CONTROL view ok mode=third$'
 send_command 'view first'

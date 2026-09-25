@@ -526,6 +526,12 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }
     if (strcmp(line, "status") == 0) return DEBUG_CONTROL_COMMAND_STATUS;
+    if (strcmp(line, "hud debug on") == 0) {
+        return DEBUG_CONTROL_COMMAND_HUD_DEBUG_ON;
+    }
+    if (strcmp(line, "hud debug off") == 0) {
+        return DEBUG_CONTROL_COMMAND_HUD_DEBUG_OFF;
+    }
     if (strcmp(line, "pause on") == 0) {
         control->pauseEnabled = true;
         return DEBUG_CONTROL_COMMAND_PAUSE;

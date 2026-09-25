@@ -152,7 +152,7 @@ Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
 startup the process writes a readiness line similar to:
 
 ```text
-DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 `--debug-trace [PATH]` can be combined with either debug entry point. Omitting
@@ -468,6 +468,7 @@ also be rejected by the current game state (for example, `teleport` before
 start
 status
 pause on|off
+hud debug on|off
 world topology
 screenshot
 save
@@ -564,6 +565,11 @@ mouse right
 
 `pause on` opens the ordinary pause menu while playing, and `pause off`
 closes it. This is useful for deterministic menu screenshots and assertions.
+
+`hud debug on` and `hud debug off` toggle the F3 diagnostics overlay while
+playing. Enabling it closes the F1 help panel, matching the keyboard shortcut.
+Use `hud debug on` followed by `screenshot` to capture a readable diagnostic
+frame without synthetic key input.
 
 Movement components are in `[-1,1]`; `SPRINT` is `0` or `1`; scripted input
 lasts 1-600 frames. Teleport coordinates are finite and bounded to +/-1,000,000,

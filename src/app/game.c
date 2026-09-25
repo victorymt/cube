@@ -1377,7 +1377,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     DebugControlReply(
         &game->debugControl,
-        "DEBUG_CONTROL ready mode=dsl plugins=%zu commands=start,screenshot,status,pause,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
+        "DEBUG_CONTROL ready mode=dsl plugins=%zu commands=start,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
         "fluid,water,weather,hydrology,evolution,block,flora statements=let,assert,wait,repeat,exit\n",
         GamePluginsCount(game));
     return true;

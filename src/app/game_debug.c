@@ -635,6 +635,14 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
     case DEBUG_CONTROL_COMMAND_STATUS:
         GameDebugReplyStatus(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_HUD_DEBUG_ON:
+    case DEBUG_CONTROL_COMMAND_HUD_DEBUG_OFF:
+        game->showDebug = command == DEBUG_CONTROL_COMMAND_HUD_DEBUG_ON;
+        if (game->showDebug) game->showHelp = false;
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL hud debug enabled=%d\n",
+                          game->showDebug ? 1 : 0);
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_PAUSE:
         GameDebugApplyPauseCommand(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
