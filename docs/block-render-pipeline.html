@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>方块渲染与显示机制｜VoxelCraft</title>
+  <style>
+    :root {
+      --bg: #f4f1ea; --paper: #fffdf8; --ink: #1e252b; --muted: #667078;
+      --line: #d8d1c4; --accent: #9d3f2c; --accent-2: #1f6a78;
+      --world: #dcebf0; --mesh: #f4e4c2; --render: #eadbf1; --gpu: #d9ecd9;
+      --shadow: 0 16px 45px rgba(35, 33, 28, .10);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: radial-gradient(circle at 10% 0%, #fffaf0, var(--bg) 45%); font-family: ui-serif, Georgia, "Noto Serif SC", serif; line-height: 1.65; }
+    main { max-width: 1320px; margin: 0 auto; padding: 34px 22px 70px; }
+    header { background: var(--paper); border: 1px solid var(--line); box-shadow: var(--shadow); padding: 30px 34px 26px; border-radius: 18px; }
+    h1, h2, h3 { line-height: 1.2; margin: 0 0 14px; letter-spacing: .01em; }
+    h1 { font-size: clamp(2rem, 4vw, 3.4rem); max-width: 880px; }
+    h2 { font-size: 1.65rem; margin-top: 42px; }
+    h3 { font-size: 1.1rem; }
+    p { max-width: 980px; }
+    .eyebrow { color: var(--accent); font: 700 .78rem/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+    .lede { font-size: 1.08rem; color: #414b53; max-width: 940px; }
+    .toc { display: flex; gap: 10px; flex-wrap: wrap; margin: 22px 0 0; font: .88rem ui-sans-serif, system-ui, sans-serif; }
+    .toc a { color: var(--accent-2); border-bottom: 1px solid #9cc5cc; text-decoration: none; }
+    section { scroll-margin-top: 18px; }
+    .back { float: right; font: .75rem ui-sans-serif, system-ui, sans-serif; color: var(--muted); text-decoration: none; }
+    .panel { background: rgba(255,253,248,.9); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 22px; margin-top: 18px; }
+    .diagram-wrap { overflow-x: auto; padding: 6px 0 2px; }
+    svg { display: block; width: 1180px; max-width: none; height: 730px; margin: 0 auto; }
+    .node { cursor: pointer; transition: filter .2s, transform .2s; }
+    .node rect { stroke: #5d6870; stroke-width: 1.4; rx: 14; }
+    .node:hover rect, .node.active rect { filter: drop-shadow(0 6px 7px rgba(0,0,0,.18)); stroke: var(--accent); stroke-width: 2.5; }
+    .node text { pointer-events: none; font-family: ui-sans-serif, system-ui, sans-serif; fill: var(--ink); }
+    .node .title { font-weight: 750; font-size: 15px; }
+    .node .small { font-size: 12px; fill: #4d5961; }
+    .edge { fill: none; stroke: #71808a; stroke-width: 2; marker-end: url(#arrow); }
+    .edge.async { stroke: #b46638; stroke-dasharray: 8 6; }
+    .edge.gpu { stroke: #397c54; }
+    .stage-label { font: 700 12px ui-sans-serif, system-ui, sans-serif; letter-spacing: .12em; fill: #7b7469; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 12px; font: .82rem ui-sans-serif, system-ui, sans-serif; color: var(--muted); }
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .swatch { width: 18px; height: 12px; border: 1px solid #78838a; border-radius: 4px; display: inline-block; }
+    .flow-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .flow-card { border: 1px solid var(--line); border-radius: 12px; padding: 15px 16px; background: #fff; }
+    .flow-card h3 { margin-bottom: 7px; }
+    .flow-card code, td code { font: .83em ui-monospace, SFMono-Regular, Menlo, monospace; color: #743c2d; }
+    table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: 10px 9px; text-align: left; vertical-align: top; }
+    th { color: #4d5961; font: 700 .78rem ui-sans-serif, system-ui, sans-serif; letter-spacing: .05em; }
+    .note { border-left: 4px solid var(--accent); padding: 10px 15px; background: #fff6e9; color: #4a4037; }
+    .formula { font: .92rem ui-monospace, SFMono-Regular, Menlo, monospace; background: #f0eee7; border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+    .foot { color: var(--muted); font-size: .86rem; }
+    @media (max-width: 780px) { main { padding: 16px 12px 46px; } header, .panel { padding: 18px; } .flow-grid { grid-template-columns: 1fr; } h2 { margin-top: 30px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header id="top">
+    <div class="eyebrow">VoxelCraft / Rendering Notes</div>
+    <h1>方块从世界数据到屏幕像素</h1>
+    <p class="lede">这张图按一次游戏帧展开当前项目的方块显示机制：世界与区块保存方块，脏区块被重建为网格模型，渲染阶段筛选可见 section，raylib 将模型交给 world shader；shader 再从方块图集取样并完成材质、光照、阴影、雾和水面效果。</p>
+    <nav class="toc" aria-label="目录">
+      <a href="#diagram">总览图</a><a href="#stages">阶段说明</a><a href="#branches">关键分支</a><a href="#lookup">代码定位</a><a href="#takeaway">记忆要点</a>
+    </nav>
+  </header>
+
+  <section id="diagram">
+    <h2>总览图 <a class="back" href="#top">返回目录 ↑</a></h2>
+    <div class="panel">
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1180 730" role="img" aria-label="方块渲染数据流图">
+          <defs>
+            <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#71808a"/></marker>
+          </defs>
+          <text class="stage-label" x="34" y="30">① 帧更新与流式</text>
+          <text class="stage-label" x="34" y="242">② 区块网格构建</text>
+          <text class="stage-label" x="34" y="472">③ 可见性与提交</text>
+          <text class="stage-label" x="812" y="30">④ GPU 材质与像素</text>
+
+          <g class="node" data-group="update" data-name="GameUpdateFrame" transform="translate(30 50)"><rect width="245" height="116" fill="var(--world)"/><text class="title" x="16" y="29">GameUpdateFrame</text><text class="small" x="16" y="55">输入 / 物理 / 世界流式</text><text class="small" x="16" y="78">GameUpdateWorldStreaming</text><text class="small" x="16" y="98">GameUpdateWorldJobs</text></g>
+          <g class="node" data-group="update" data-name="RebuildDirtyChunkMeshes" transform="translate(315 50)"><rect width="245" height="116" fill="var(--world)"/><text class="title" x="16" y="29">RebuildDirtyChunkMeshes</text><text class="small" x="16" y="55">扫描 loaded + dirty section</text><text class="small" x="16" y="78">按距离 / 垂直距离排序</text><text class="small" x="16" y="98">提交 worker 或同步重建</text></g>
+          <g class="node" data-group="update" data-name="MeshJob" transform="translate(600 50)"><rect width="175" height="116" fill="var(--world)"/><text class="title" x="16" y="29">Mesh job</text><text class="small" x="16" y="55">SubmitMeshJob</text><text class="small" x="16" y="78">队列饱和时回退</text><text class="small" x="16" y="98">Rebuild…Sync</text></g>
+          <path class="edge async" d="M275 108 H315"/><path class="edge async" d="M560 108 H600"/>
+
+          <g class="node" data-group="mesh" data-name="RebuildChunkSectionMeshSync" transform="translate(30 270)"><rect width="265" height="142" fill="var(--mesh)"/><text class="title" x="16" y="29">RebuildChunkSectionMeshSync</text><text class="small" x="16" y="57">选择 targetLod，捕获边界</text><text class="small" x="16" y="80">构建 solid / water / flora</text><text class="small" x="16" y="103">球面地表：CurveChunkMeshData</text><text class="small" x="16" y="124">平面地表：LocalizeChunkMeshData</text></g>
+          <g class="node" data-group="mesh" data-name="BuildChunkMeshData" transform="translate(345 270)"><rect width="265" height="142" fill="var(--mesh)"/><text class="title" x="16" y="29">BuildChunkMeshData</text><text class="small" x="16" y="57">EmitChunkBlocksFiltered</text><text class="small" x="16" y="80">精确 LOD 可启用 greedy mesh</text><text class="small" x="16" y="103">统计顶点 → 分配 → 写入</text><text class="small" x="16" y="124">空网格 / 失败则丢弃</text></g>
+          <g class="node" data-group="mesh" data-name="AddBlockFaceInternal" transform="translate(660 270)"><rect width="205" height="142" fill="var(--mesh)"/><text class="title" x="16" y="29">AddBlockFaceInternal</text><text class="small" x="16" y="57">6 面顶点与法线</text><text class="small" x="16" y="80">TextureForBlockFace</text><text class="small" x="16" y="103">AtlasUVs + 顶点颜色</text><text class="small" x="16" y="124">AO / extraLight / 面朝向</text></g>
+          <path class="edge" d="M687 166 V220 H162 V270"/><path class="edge" d="M295 341 H345"/><path class="edge" d="M610 341 H660"/>
+
+          <g class="node" data-group="render" data-name="CollectSurfaceRenderItems" transform="translate(30 500)"><rect width="265" height="150" fill="var(--render)"/><text class="title" x="16" y="29">CollectSurfaceRenderItems</text><text class="small" x="16" y="57">loaded + render distance</text><text class="small" x="16" y="80">SphereInFrustum</text><text class="small" x="16" y="103">solid：立即提交</text><text class="small" x="16" y="124">water：加入透明排序队列</text><text class="small" x="16" y="145">flora：双面绘制</text></g>
+          <g class="node" data-group="render" data-name="DrawWorld" transform="translate(345 500)"><rect width="220" height="150" fill="var(--render)"/><text class="title" x="16" y="29">DrawWorld</text><text class="small" x="16" y="57">收集 surface / space / nether</text><text class="small" x="16" y="80">水面按距离排序</text><text class="small" x="16" y="103">BeginBlendMode(ALPHA)</text><text class="small" x="16" y="124">WorldRendererDrawModel…</text><text class="small" x="16" y="145">记录 draw / triangle 统计</text></g>
+          <g class="node" data-group="render" data-name="WorldRendererDrawModel" transform="translate(615 500)"><rect width="230" height="150" fill="var(--render)"/><text class="title" x="16" y="29">WorldRendererDrawModel</text><text class="small" x="16" y="57">surfaceShader / waterShader</text><text class="small" x="16" y="80">MatrixMultiply(transform)</text><text class="small" x="16" y="103">DrawSingleMesh → DrawMesh</text><text class="small" x="16" y="124">无 shader 时 legacy DrawModel</text><text class="small" x="16" y="145">透明物关闭背面剔除</text></g>
+          <path class="edge" d="M477 412 V460 H162 V500"/><path class="edge" d="M295 575 H345"/><path class="edge" d="M565 575 H615"/>
+
+          <g class="node" data-group="gpu" data-name="Atlas" transform="translate(900 54)"><rect width="240" height="120" fill="var(--gpu)"/><text class="title" x="16" y="30">Block atlas</text><text class="small" x="16" y="57">LoadBlockAtlas：颜色图集</text><text class="small" x="16" y="79">MakeMaterialAtlas：材质图集</text><text class="small" x="16" y="101">normalAtlas：法线扰动</text></g>
+          <g class="node" data-group="gpu" data-name="Shader" transform="translate(900 246)"><rect width="240" height="170" fill="var(--gpu)"/><text class="title" x="16" y="30">world / water shader</text><text class="small" x="16" y="57">vertex：位置 / UV / 法线</text><text class="small" x="16" y="80">atlasCoordinates 解码 UV</text><text class="small" x="16" y="103">texture + material + normal</text><text class="small" x="16" y="126">sun / ambient / AO / torch</text><text class="small" x="16" y="149">shadow / fog / exposure</text></g>
+          <g class="node" data-group="gpu" data-name="Pixel" transform="translate(900 500)"><rect width="240" height="150" fill="var(--gpu)"/><text class="title" x="16" y="30">屏幕像素</text><text class="small" x="16" y="57">opaque：solid shader</text><text class="small" x="16" y="80">transparent：water shader</text><text class="small" x="16" y="103">alpha discard / 混合</text><text class="small" x="16" y="126">最终写入 framebuffer</text></g>
+          <path class="edge gpu" d="M845 575 H900"/><path class="edge gpu" d="M1020 174 V246"/><path class="edge gpu" d="M1020 416 V500"/>
+          <path class="edge gpu" d="M845 575 C865 575 865 330 900 330"/>
+          <text class="stage-label" x="875" y="700">点击任意节点可高亮同一阶段</text>
+        </svg>
+      </div>
+      <div class="legend"><span><i class="swatch" style="background:var(--world)"></i>帧更新 / 流式</span><span><i class="swatch" style="background:var(--mesh)"></i>网格构建</span><span><i class="swatch" style="background:var(--render)"></i>可见性 / 绘制提交</span><span><i class="swatch" style="background:var(--gpu)"></i>GPU 资源与像素</span><span>橙色虚线：异步 worker 边界</span></div>
+    </div>
+  </section>
+
+  <section id="stages">
+    <h2>阶段说明 <a class="back" href="#top">返回目录 ↑</a></h2>
+    <div class="flow-grid">
+      <article class="flow-card"><h3>1. 帧更新决定“哪些要准备”</h3><p><code>GameUpdateFrame</code> 先更新玩家、世界流式和后台 job，然后调用 <code>RebuildDirtyChunkMeshes</code>。它扫描已加载区块，只挑选 <code>section-&gt;dirty</code> 且没有重复排队的 section；worker 未启动或队列饱和时走同步路径。</p></article>
+      <article class="flow-card"><h3>2. 网格构建决定“画什么几何”</h3><p><code>RebuildChunkSectionMeshSync</code> 根据 <code>targetLod</code> 分别生成 solid、water、flora。精确 LOD 使用完整方块快照和 greedy cube mesh；低 LOD 使用 heightfield，并为植物保留单独模型。</p></article>
+      <article class="flow-card"><h3>3. 面发射决定“每个面带什么数据”</h3><p><code>AddBlockFaceInternal</code> 为可见面写入 6 个顶点、法线、颜色和 UV。UV 来自 <code>TextureForBlockFace(type, face)</code>；AO 和本地点光通过第二组顶点属性传给 shader。</p></article>
+      <article class="flow-card"><h3>4. 可见性决定“这一帧提交哪些模型”</h3><p><code>CollectSurfaceRenderItems</code> 先做加载状态和 render distance，再做球体视锥裁剪。solid / flora 立即画，water 加入透明队列；球面地表会使用 patch transform 把局部网格弯到行星表面。</p></article>
+      <article class="flow-card"><h3>5. 渲染器决定“用哪条材质路径”</h3><p><code>WorldRendererDrawModel</code> 选择 surface 或 water shader，叠加 section transform。单 mesh 走 <code>DrawMesh</code>；资源不可用时退回 raylib 的 legacy <code>DrawModel</code>。</p></article>
+      <article class="flow-card"><h3>6. shader 决定“像素最终长什么样”</h3><p>顶点 shader 传递位置、UV、法线、AO 和颜色。片元 shader 用颜色图集、材质图集、法线图集取样，再计算直射光、环境光、阴影、火把光、发光、雾和色调；水面额外做波动与透明混合。</p></article>
+    </div>
+  </section>
+
+  <section id="branches">
+    <h2>关键分支 <a class="back" href="#top">返回目录 ↑</a></h2>
+    <div class="panel">
+      <table>
+        <thead><tr><th>分支</th><th>触发位置</th><th>显示结果</th></tr></thead>
+        <tbody>
+          <tr><td>精确 LOD / 低 LOD</td><td><code>RebuildChunkSectionMeshSync</code></td><td>精确：完整方块面 + greedy；低 LOD：heightfield + LOD 植物 / 水模型。</td></tr>
+          <tr><td>平面 / 球面地表</td><td><code>CurveChunkMeshData</code>、<code>LocalizeChunkMeshData</code></td><td>球面把局部 section 曲到行星表面；平面把顶点平移到 chunk 世界坐标。</td></tr>
+          <tr><td>实体 / 透明水</td><td><code>CollectSurfaceRenderItems</code>、<code>DrawWorld</code></td><td>solid 和 flora 直接提交；water 按距离排序，在 alpha blend 水通道绘制。</td></tr>
+          <tr><td>实时 shader / legacy</td><td><code>WorldRendererDrawModel</code></td><td>shader、图集、uniform 都就绪时使用实时光照；否则使用 raylib 默认材质路径。</td></tr>
+          <tr><td>后台 / 同步网格任务</td><td><code>RebuildDirtyChunkMeshes</code></td><td>后台 worker 减少主线程阻塞；没有 worker 或队列满时同步构建保证可见性。</td></tr>
+        </tbody>
+      </table>
+      <p class="note"><strong>一个容易忽略的时序：</strong>网格重建发生在本帧绘制之前，但后台任务完成后，section 还要经过模型替换和 active LOD 刷新，下一次收集阶段才会拿到新模型。</p>
+    </div>
+  </section>
+
+  <section id="lookup">
+    <h2>代码定位 <a class="back" href="#top">返回目录 ↑</a></h2>
+    <div class="panel">
+      <table>
+        <thead><tr><th>职责</th><th>文件 / 函数</th><th>要点</th></tr></thead>
+        <tbody>
+          <tr><td>帧更新与网格调度</td><td><code>src/app/game.c</code><br><code>GameUpdateFrame</code></td><td>流式、模拟、交互后刷新脏 chunk mesh。</td></tr>
+          <tr><td>脏 section 扫描</td><td><code>src/world/chunks_runtime.c</code><br><code>RebuildDirtyChunkMeshes</code></td><td>按焦点距离选择候选，提交异步或同步任务。</td></tr>
+          <tr><td>section 模型生成</td><td><code>src/world/chunks_mesh_job.c</code><br><code>RebuildChunkSectionMeshSync</code></td><td>生成 solid / water / flora，并写回 section 模型状态。</td></tr>
+          <tr><td>方块面与 UV</td><td><code>src/world/chunks_mesh.c</code><br><code>AddBlockFaceInternal</code></td><td>决定六面几何、纹理选择、AO 和顶点光照属性。</td></tr>
+          <tr><td>场景收集与裁剪</td><td><code>src/presentation/render_scene.c</code><br><code>CollectSurfaceRenderItems</code></td><td>render distance、视锥、透明队列、LOD 模型选择。</td></tr>
+          <tr><td>模型提交</td><td><code>src/presentation/world_renderer.c</code><br><code>WorldRendererDrawModel</code></td><td>选择 shader，设置 transform，调用 DrawMesh / DrawModel。</td></tr>
+          <tr><td>图集资源</td><td><code>src/world/block_atlas.c</code><br><code>LoadBlockAtlas</code></td><td>生成方块颜色图集并设置过滤、mipmap、clamp。</td></tr>
+          <tr><td>材质与光照图集</td><td><code>src/presentation/world_renderer.c</code><br><code>MakeMaterialAtlas</code></td><td>为每个纹理 tile 写 roughness / specular / emission 和法线数据。</td></tr>
+        </tbody>
+      </table>
+      <p class="foot">图中“方块”指 surface chunk 内的 BlockType。天空、船、生态实体、UI 等是独立的渲染分支，此图只展开方块地表主链。</p>
+    </div>
+  </section>
+
+  <section id="takeaway">
+    <h2>记忆要点 <a class="back" href="#top">返回目录 ↑</a></h2>
+    <div class="panel">
+      <p class="formula">BlockType → section snapshot → mesh (solid / water / flora) → visibility → Model transform → shader atlas sample → lighting / fog → framebuffer</p>
+      <p>因此，方块的“显示”不是每帧逐块调用绘制，而是先把大量方块压缩成 section 级网格模型，再用距离、视锥和 LOD 控制提交数量。纹理外观来自颜色图集，材质属性来自并行材质图集，最终颜色由 world / water shader 合成。</p>
+    </div>
+  </section>
+</main>
+<script>
+  const nodes = [...document.querySelectorAll('.node')];
+  nodes.forEach(node => node.addEventListener('click', () => {
+    const group = node.dataset.group;
+    nodes.forEach(n => n.classList.toggle('active', n.dataset.group === group));
+  }));
+</script>
+</body>
+</html>
