@@ -495,9 +495,11 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     }
     if (!inputBlocked && IsKeyPressed(KEY_F1)) {
         game->showHelp = !game->showHelp;
+        if (game->showHelp) game->showDebug = false;
     }
     if (!inputBlocked && IsKeyPressed(KEY_F3)) {
         game->showDebug = !game->showDebug;
+        if (game->showDebug) game->showHelp = false;
     }
     // Saving while flying is valid; ShipSaveState persists the ship state.
     if (IsKeyPressed(KEY_F5) && !game->paused && !game->cursorReleased &&
