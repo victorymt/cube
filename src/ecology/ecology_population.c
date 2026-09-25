@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define ECOLOGY_DISTURBANCE_CACHE_SIZE 256u
 #define ECOLOGY_NUTRIENT_BIOMASS_SCALE 96.0
@@ -98,6 +99,30 @@ static float EcologyPopulationOccupancy(uint32_t surfaceId, int regionX,
     hash = EcologyMix(hash);
     float unit = (float)(hash & 0x00ffffffu) / 16777215.0f;
     return minimum + unit * range;
+}
+
+static bool ecologyPopulationDiagnosticsEnabled;
+static EcologyPopulationDiagnostics ecologyPopulationDiagnostics;
+
+static double EcologyPopulationCpuNowMs(void)
+{
+    if (!ecologyPopulationDiagnosticsEnabled) return 0.0;
+    struct timespec value = { 0 };
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) != 0) return 0.0;
+    return (double)value.tv_sec * 1000.0 +
+           (double)value.tv_nsec / 1000000.0;
+}
+
+void EcologyPopulationSetDiagnosticsEnabled(bool enabled)
+{
+    ecologyPopulationDiagnosticsEnabled = enabled;
+    ecologyPopulationDiagnostics = (EcologyPopulationDiagnostics){ 0 };
+}
+
+void EcologyPopulationGetDiagnostics(EcologyPopulationDiagnostics *out)
+{
+    if (!out) return;
+    *out = ecologyPopulationDiagnostics;
 }
 
 static double EcologyNutrientNonNegative(double value)
@@ -1147,10 +1172,26 @@ static bool EcologyPopulationAdvanceWorkingSet(
             .workingSet = workingSet
         };
         EcologyPopulationStepBuffers buffers = { 0 };
+        double stageStarted = EcologyPopulationCpuNowMs();
         EcologyPopulationPrepareStep(&context, &buffers);
+        if (ecologyPopulationDiagnosticsEnabled) {
+            ecologyPopulationDiagnostics.prepareCpuMs +=
+                EcologyPopulationCpuNowMs() - stageStarted;
+        }
+        stageStarted = EcologyPopulationCpuNowMs();
         EcologyPopulationAccumulateMigration(&context, &buffers);
+        if (ecologyPopulationDiagnosticsEnabled) {
+            ecologyPopulationDiagnostics.migrationCpuMs +=
+                EcologyPopulationCpuNowMs() - stageStarted;
+        }
+        stageStarted = EcologyPopulationCpuNowMs();
         if (EcologyPopulationCommitStep(&context, &buffers)) {
             changed = true;
+        }
+        if (ecologyPopulationDiagnosticsEnabled) {
+            ecologyPopulationDiagnostics.commitCpuMs +=
+                EcologyPopulationCpuNowMs() - stageStarted;
+            ecologyPopulationDiagnostics.batchCount++;
         }
     }
 
@@ -1199,6 +1240,8 @@ bool EcologyPopulationAdvanceActiveRegionsAt(
     float daylight, const PlanetEcologyProfile *profile,
     unsigned maxStepBatches)
 {
+    ecologyPopulationDiagnostics = (EcologyPopulationDiagnostics){ 0 };
+    double totalStarted = EcologyPopulationCpuNowMs();
     if (!profile || !isfinite(simulationTime) || simulationTime < 0.0 ||
         !isfinite(daylight) || radiusCells < 0 ||
         radiusCells > ECOLOGY_POPULATION_MAX_RADIUS_CELLS) return false;
@@ -1235,9 +1278,14 @@ bool EcologyPopulationAdvanceActiveRegionsAt(
                 &keys[uniqueCount - 1u], &keys[index]) == 0) continue;
         keys[uniqueCount++] = keys[index];
     }
+    if (ecologyPopulationDiagnosticsEnabled) {
+        ecologyPopulationDiagnostics.keyPreparationCpuMs =
+            EcologyPopulationCpuNowMs() - totalStarted;
+    }
 
     double targetTime = EcologyPopulationStepTime(simulationTime);
     pthread_mutex_lock(&ecologyPopulationMutex);
+    double stageStarted = EcologyPopulationCpuNowMs();
     bool available = true;
     bool createdAny = false;
     for (unsigned index = 0u; index < uniqueCount; index++) {
@@ -1255,7 +1303,14 @@ bool EcologyPopulationAdvanceActiveRegionsAt(
             EcologyPopulationInitializeRecord(
                 record, targetTime, daylight, profile, originX, originZ);
             createdAny = true;
+            if (ecologyPopulationDiagnosticsEnabled) {
+                ecologyPopulationDiagnostics.createdRegions++;
+            }
         }
+    }
+    if (ecologyPopulationDiagnosticsEnabled) {
+        ecologyPopulationDiagnostics.admissionCpuMs =
+            EcologyPopulationCpuNowMs() - stageStarted;
     }
     if (createdAny) {
         ecologyPopulationEpoch++;
@@ -1264,6 +1319,7 @@ bool EcologyPopulationAdvanceActiveRegionsAt(
     /* Admission may move the cold vector. Take stable pointers only after all
      * admissions, and never depend on which records fit the hot hash table. */
     EcologyPopulationWorkingSet workingSet = { 0 };
+    stageStarted = EcologyPopulationCpuNowMs();
     if (available) {
         for (unsigned index = 0u; index < uniqueCount; index++) {
             const EcologyPopulationRegionKey *key = &keys[index];
@@ -1276,10 +1332,19 @@ bool EcologyPopulationAdvanceActiveRegionsAt(
             workingSet.records[workingSet.count++] = record;
         }
     }
+    if (ecologyPopulationDiagnosticsEnabled) {
+        ecologyPopulationDiagnostics.workingSetCpuMs =
+            EcologyPopulationCpuNowMs() - stageStarted;
+        ecologyPopulationDiagnostics.regionCount = workingSet.count;
+    }
     bool complete = available && EcologyPopulationAdvanceWorkingSet(
         &workingSet, surfaceId, targetTime, daylight, profile, originX, originZ,
         maxStepBatches);
     pthread_mutex_unlock(&ecologyPopulationMutex);
+    if (ecologyPopulationDiagnosticsEnabled) {
+        ecologyPopulationDiagnostics.totalCpuMs =
+            EcologyPopulationCpuNowMs() - totalStarted;
+    }
     return complete;
 }
 

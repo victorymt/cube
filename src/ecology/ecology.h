@@ -10,6 +10,8 @@
 #endif
 
 #include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 struct PlanetProfile;
 
@@ -159,6 +161,24 @@ void PlanetEcologyAdvanceActiveRegionsAt(
 bool PlanetEcologyAdvanceActiveRegionsBudgetedAt(
     int centerX, int centerZ, int radiusCells,
     double simulationTime, float daylight, unsigned maxStepBatches);
+
+typedef struct EcologyPopulationDiagnostics {
+    unsigned regionCount;
+    unsigned createdRegions;
+    unsigned batchCount;
+    double keyPreparationCpuMs;
+    double admissionCpuMs;
+    double workingSetCpuMs;
+    double prepareCpuMs;
+    double migrationCpuMs;
+    double commitCpuMs;
+    double totalCpuMs;
+} EcologyPopulationDiagnostics;
+
+/* Enable detailed timing only for an active debug trace. */
+void EcologyPopulationSetDiagnosticsEnabled(bool enabled);
+void EcologyPopulationGetDiagnostics(EcologyPopulationDiagnostics *out);
+
 float PlanetEcologyFaunaDensity(void);
 float PlanetEcologyFaunaDensityAt(int x, int z, float daylight);
 bool PlanetEcologyRecordFaunaHarvest(int x, int z, float daylight,

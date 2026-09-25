@@ -187,6 +187,10 @@ draw counters, and a nonblocking GPU world-pass query. `gpu_frame` identifies
 the frame that produced `gpu_world_ms`, because GPU results can arrive a few
 frames after submission. `visible_sections` counts instrumented visible
 sections, not all chunks in the distance radius.
+The `ecology_population` object splits the active-region update into key
+preparation, storage admission, working-set construction, population/evolution
+preparation, migration, and commit CPU time. It also reports the number of
+regions, newly created records, and completed ecology step batches.
 
 ## Process and stdin lifetime
 

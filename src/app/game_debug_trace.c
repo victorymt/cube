@@ -4,6 +4,7 @@
 #include "app/game_hydrology.h"
 #include "app/game_runtime.h"
 #include "core/perf.h"
+#include "ecology/ecology.h"
 #include "gameplay/player.h"
 #include "world/chunks.h"
 #include "world/fluid.h"
@@ -300,6 +301,8 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
     double elapsedCpuMs = TraceElapsedCpuMs(game);
     double elapsedMainCpuMs = TraceElapsedMainCpuMs(game);
     PerfFrameDiagnostics perf = PerfGetFrameDiagnostics();
+    EcologyPopulationDiagnostics ecologyPopulation = { 0 };
+    EcologyPopulationGetDiagnostics(&ecologyPopulation);
 
     TraceBuffer buffer = { 0 };
     TraceAppendFormat(&buffer,
@@ -338,7 +341,27 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         hydrologyInputs.inputsMainCpuMs, hydrologyInputs.solverMainCpuMs);
     TraceAppendFormat(
         &buffer,
-        ",\"timing\":{\"update_main_cpu_ms\":%.3f,"
+        ",\"ecology_population\":{\"region_count\":%u,"
+        "\"created_regions\":%u,\"batch_count\":%u,"
+        "\"key_preparation_cpu_ms\":%.3f,"
+        "\"admission_cpu_ms\":%.3f,"
+        "\"working_set_cpu_ms\":%.3f,"
+        "\"prepare_cpu_ms\":%.3f,"
+        "\"migration_cpu_ms\":%.3f,"
+        "\"commit_cpu_ms\":%.3f,"
+        "\"total_cpu_ms\":%.3f},",
+        ecologyPopulation.regionCount, ecologyPopulation.createdRegions,
+        ecologyPopulation.batchCount,
+        ecologyPopulation.keyPreparationCpuMs,
+        ecologyPopulation.admissionCpuMs,
+        ecologyPopulation.workingSetCpuMs,
+        ecologyPopulation.prepareCpuMs,
+        ecologyPopulation.migrationCpuMs,
+        ecologyPopulation.commitCpuMs,
+        ecologyPopulation.totalCpuMs);
+    TraceAppendFormat(
+        &buffer,
+        "\"timing\":{\"update_main_cpu_ms\":%.3f,"
         "\"render_main_cpu_ms\":%.3f,"
         "\"simulation_main_cpu_ms\":%.3f,"
         "\"streaming_main_cpu_ms\":%.3f,"

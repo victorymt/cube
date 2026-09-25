@@ -1339,6 +1339,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     PerfConfigure(game->perfMode, game->perfReportPath,
                   game->perfBaselinePath);
     if (game->debugTraceFrames) PerfEnableDiagnostics();
+    EcologyPopulationSetDiagnosticsEnabled(game->debugTraceEnabled);
     SetExitKey(KEY_NULL);
     // Normal play follows the compositor clock. DSL runs retain their fixed
     // 60 Hz frame schedule, while performance runs remain uncapped.
