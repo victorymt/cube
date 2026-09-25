@@ -5,6 +5,8 @@
 #include "world/local_climate.h"
 #include "world/weather_model.h"
 
+#include <stdint.h>
+
 typedef enum Weather {
     WEATHER_CLEAR = 0,
     WEATHER_RAIN,
@@ -40,6 +42,12 @@ Weather WeatherGetCurrent(void);
 WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z);
 WeatherFieldSample WeatherFieldSampleAtWorldTime(
     int x, int z, double simulationTime);
+/* Main-thread input caches use this epoch for explicit overrides/provider
+ * changes. Ordinary time evolution and live climate feedback are not epochs. */
+uint64_t WeatherInputRevision(void);
+/* True only when a forced/manual phenomenon supplies the same field everywhere.
+ * A cloud-only override still needs the natural local climate. */
+bool WeatherFieldSampleOverride(WeatherFieldSample *outSample);
 /* Procedural historical baseline with time-sampled light. Current manual
  * weather, forced clouds and live hydrology/radiation feedback are excluded.
  * fallbackDaylight is used when no time-aware light provider is installed. */

@@ -63,12 +63,23 @@ static float particleScale = 1.0f;
 static bool particlesSheltered = false;
 static float weatherDaylight = 0.5f;
 static double weatherSimulationTime = 0.0;
+static uint64_t weatherInputRevision = 1u;
 static WeatherHydrologyFeedbackProvider hydrologyFeedbackProvider;
 static void *hydrologyFeedbackUserData;
 static WeatherSurfaceLightProvider surfaceLightProvider;
 static void *surfaceLightUserData;
 static WEATHER_THREAD_LOCAL WeatherSampleCacheEntry
     weatherSampleCache[WEATHER_SAMPLE_CACHE_SIZE] = { 0 };
+
+static void WeatherInputsChanged(void)
+{
+    if (++weatherInputRevision == 0u) weatherInputRevision = 1u;
+}
+
+uint64_t WeatherInputRevision(void)
+{
+    return weatherInputRevision;
+}
 
 static float WeatherClamp(float value)
 {
@@ -713,16 +724,26 @@ WeatherFieldSample WeatherFieldSampleAtWorld(int x, int z)
     return WeatherFieldSampleAtWorldTime(x, z, weatherSimulationTime);
 }
 
+bool WeatherFieldSampleOverride(WeatherFieldSample *outSample)
+{
+    if (!outSample) return false;
+    if (forcedActive) {
+        *outSample = WeatherApplyForcedCloud(
+            WeatherPhenomenonSample(forcedPhenomenon, forcedIntensity));
+        return true;
+    }
+    if (manualTimer > 0.0f) {
+        *outSample = WeatherApplyForcedCloud(WeatherManualSample(manualWeather));
+        return true;
+    }
+    return false;
+}
+
 WeatherFieldSample WeatherFieldSampleAtWorldTime(
     int x, int z, double simulationTime)
 {
-    if (forcedActive) {
-        return WeatherApplyForcedCloud(
-            WeatherPhenomenonSample(forcedPhenomenon, forcedIntensity));
-    }
-    if (manualTimer > 0.0f) {
-        return WeatherApplyForcedCloud(WeatherManualSample(manualWeather));
-    }
+    WeatherFieldSample override;
+    if (WeatherFieldSampleOverride(&override)) return override;
     if (!isfinite(simulationTime) || simulationTime < 0.0) {
         return (WeatherFieldSample){ 0 };
     }
@@ -908,6 +929,7 @@ static void WeatherUpdateTypeAndAudio(void)
 
 void WeatherInit(void)
 {
+    WeatherInputsChanged();
     current = WEATHER_CLEAR;
     fieldSample = (WeatherFieldSample){ 0 };
     manualTimer = 0.0f;
@@ -936,6 +958,7 @@ void WeatherSetHydrologyFeedbackProvider(
 {
     hydrologyFeedbackProvider = provider;
     hydrologyFeedbackUserData = userData;
+    WeatherInputsChanged();
     memset(weatherSampleCache, 0, sizeof(weatherSampleCache));
 }
 
@@ -949,6 +972,7 @@ void WeatherSetSurfaceLightProvider(
 {
     surfaceLightProvider = provider;
     surfaceLightUserData = userData;
+    WeatherInputsChanged();
     memset(weatherSampleCache, 0, sizeof(weatherSampleCache));
 }
 
@@ -1004,6 +1028,7 @@ bool WeatherForcePhenomenon(WeatherPhenomenon phenomenon, float intensity,
     forcedPhenomenon = phenomenon;
     forcedIntensity = intensity;
     forcedFramesRemaining = frames;
+    WeatherInputsChanged();
     fieldSample = WeatherApplyForcedCloud(
         WeatherPhenomenonSample(phenomenon, intensity));
     particleWindAngle = fieldSample.windAngle;
@@ -1023,12 +1048,14 @@ bool WeatherForceCloudGenus(WeatherCloudGenus genus, float coverage,
     forcedCloudGenus = genus;
     forcedCloudCoverage = coverage;
     forcedCloudFramesRemaining = frames;
+    WeatherInputsChanged();
     fieldSample = WeatherApplyForcedCloud(fieldSample);
     return true;
 }
 
 void WeatherClearForcedCloud(void)
 {
+    WeatherInputsChanged();
     forcedCloudActive = false;
     forcedCloudGenus = WEATHER_CLOUD_GENUS_NONE;
     forcedCloudCoverage = 0.0f;
@@ -1139,9 +1166,11 @@ void WeatherUpdate(float dt, Vector3 playerPosition, double simulationTime)
 
     if (forcedActive && forcedFramesRemaining == 0u) {
         forcedActive = false;
+        WeatherInputsChanged();
     }
     if (forcedCloudActive && forcedCloudFramesRemaining == 0u) {
         forcedCloudActive = false;
+        WeatherInputsChanged();
     }
     if (forcedActive) {
         fieldSample = WeatherPhenomenonSample(
@@ -1149,6 +1178,7 @@ void WeatherUpdate(float dt, Vector3 playerPosition, double simulationTime)
         forcedFramesRemaining--;
     } else if (manualTimer > 0.0f) {
         manualTimer = fmaxf(manualTimer - updateDt, 0.0f);
+        if (manualTimer == 0.0f) WeatherInputsChanged();
         fieldSample = WeatherManualSample(manualWeather);
     } else {
         WeatherFieldInput input;

@@ -164,16 +164,22 @@ void HydrologyRuntimeReset(HydrologyRuntime *runtime)
     runtime->active = false;
 }
 
+static bool RuntimeCellValid(const HydrologyRuntime *runtime, int index)
+{
+    const HydrologyCell *cell = &runtime->grid.cells[index];
+    return isfinite(cell->elevationM) &&
+        NonNegativeFinite(cell->surfaceWaterDepthM) &&
+        NonNegativeFinite(cell->groundwaterDepthM) &&
+        NonNegativeFinite(cell->soilDepthM) &&
+        NonNegativeFinite(cell->sedimentLoadKgM2) &&
+        NonNegativeFinite(cell->runoffM3PerS) &&
+        NonNegativeFinite(runtime->precipitationRatesMPerS[index]);
+}
+
 static bool RuntimeCellsValid(const HydrologyRuntime *runtime)
 {
     for (int i = 0; i < runtime->grid.cellCount; i++) {
-        const HydrologyCell *cell = &runtime->grid.cells[i];
-        if (!isfinite(cell->elevationM) || !NonNegativeFinite(cell->surfaceWaterDepthM) ||
-            !NonNegativeFinite(cell->groundwaterDepthM) ||
-            !NonNegativeFinite(cell->soilDepthM) ||
-            !NonNegativeFinite(cell->sedimentLoadKgM2) ||
-            !NonNegativeFinite(cell->runoffM3PerS) ||
-            !NonNegativeFinite(runtime->precipitationRatesMPerS[i])) return false;
+        if (!RuntimeCellValid(runtime, i)) return false;
     }
     return true;
 }
@@ -227,11 +233,12 @@ static void InitializeCells(HydrologyRuntime *runtime)
 bool HydrologyRuntimeBindRegion(HydrologyRuntime *runtime,
                                 uint32_t surfaceId, int regionX, int regionZ)
 {
-    if (!HydrologyRuntimeStateIsValid(runtime)) return false;
+    if (!RuntimeReady(runtime)) return false;
     if (runtime->active && runtime->location.surfaceId == surfaceId &&
         runtime->location.regionX == regionX && runtime->location.regionZ == regionZ) {
         return true;
     }
+    if (!HydrologyRuntimeStateIsValid(runtime)) return false;
     InitializeCells(runtime);
     runtime->location = (HydrologyRuntimeLocation){ surfaceId, regionX, regionZ };
     runtime->active = true;
@@ -374,46 +381,68 @@ bool HydrologyRuntimeFeedbackAt(const HydrologyRuntime *runtime,
 {
     if (!out) return false;
     *out = (HydrologyRuntimeFeedback){ 0 };
-    if (!HydrologyRuntimeStateIsValid(runtime) || !runtime->active ||
+    if (!RuntimeReady(runtime) || !runtime->active ||
         runtime->location.surfaceId != surfaceId ||
         runtime->location.regionX != RegionCoordinate(mapX) ||
         runtime->location.regionZ != RegionCoordinate(mapZ)) return false;
     int x = GridCoordinate(mapX, runtime->location.regionX);
     int z = GridCoordinate(mapZ, runtime->location.regionZ);
-    HydrologyCell cell = { 0 };
-    if (!HydrologyRuntimeQueryCell(runtime, x, z, &cell)) return false;
+    if (!CellCoordinate(x, z)) return false;
+    int index = z * HYDROLOGY_RUNTIME_GRID_SIZE + x;
+    if (!RuntimeCellValid(runtime, index)) return false;
+    const HydrologyCell *cell = HydrologyCellAt(&runtime->grid, x, z);
+    if (!cell) return false;
     float maxSoil = fmaxf(runtime->config.initialSoilDepthM, 1.0e-4f);
-    float soilMoisture = Clamp01(cell.groundwaterDepthM /
+    float soilMoisture = Clamp01(cell->groundwaterDepthM /
                                  fmaxf(runtime->config.model.maxGroundwaterDepthM, 1.0f));
     soilMoisture = Clamp01(soilMoisture +
-                           cell.surfaceWaterDepthM / maxSoil * 0.25f);
+                           cell->surfaceWaterDepthM / maxSoil * 0.25f);
     out->active = true;
-    out->surfaceWaterM = cell.surfaceWaterDepthM;
+    out->surfaceWaterM = cell->surfaceWaterDepthM;
     out->soilMoisture = soilMoisture;
-    out->groundwaterM = cell.groundwaterDepthM;
-    out->runoffM3PerS = cell.runoffM3PerS;
+    out->groundwaterM = cell->groundwaterDepthM;
+    out->runoffM3PerS = cell->runoffM3PerS;
     out->evaporationMPerS = runtime->config.model.evaporationRateMPerS;
-    out->sedimentLoadKgM2 = cell.sedimentLoadKgM2;
+    out->sedimentLoadKgM2 = cell->sedimentLoadKgM2;
     return true;
 }
 
 static HydrologyRuntime globalRuntime;
+static uint64_t globalGeneration = 1u;
+
+static void GlobalInputsChanged(void)
+{
+    if (++globalGeneration == 0u) globalGeneration = 1u;
+}
+
+uint64_t HydrologyRuntimeGlobalGeneration(void)
+{
+    return globalGeneration;
+}
 
 bool HydrologyRuntimeGlobalReset(const HydrologyRuntimeConfig *config)
 {
+    GlobalInputsChanged();
     if (globalRuntime.initialized) HydrologyRuntimeFree(&globalRuntime);
     return HydrologyRuntimeInit(&globalRuntime, config);
 }
 
 void HydrologyRuntimeGlobalFree(void)
 {
+    GlobalInputsChanged();
     HydrologyRuntimeFree(&globalRuntime);
 }
 
 bool HydrologyRuntimeGlobalBind(uint32_t surfaceId, int mapX, int mapZ)
 {
     if (!globalRuntime.initialized && !HydrologyRuntimeGlobalReset(NULL)) return false;
-    return HydrologyRuntimeBind(&globalRuntime, surfaceId, mapX, mapZ);
+    bool changed = !globalRuntime.active ||
+        globalRuntime.location.surfaceId != surfaceId ||
+        globalRuntime.location.regionX != RegionCoordinate(mapX) ||
+        globalRuntime.location.regionZ != RegionCoordinate(mapZ);
+    if (!HydrologyRuntimeBind(&globalRuntime, surfaceId, mapX, mapZ)) return false;
+    if (changed) GlobalInputsChanged();
+    return true;
 }
 
 bool HydrologyRuntimeGlobalSetCellInput(int x, int z,
@@ -532,5 +561,6 @@ bool HydrologyRuntimeGlobalLoadState(FILE *file)
     }
     if (globalRuntime.initialized) HydrologyRuntimeFree(&globalRuntime);
     globalRuntime = loaded;
+    GlobalInputsChanged();
     return true;
 }

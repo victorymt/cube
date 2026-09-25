@@ -115,6 +115,9 @@ bool HydrologyRuntimeFeedbackAt(const HydrologyRuntime *runtime,
 bool HydrologyRuntimeGlobalReset(const HydrologyRuntimeConfig *config);
 void HydrologyRuntimeGlobalFree(void);
 bool HydrologyRuntimeGlobalBind(uint32_t surfaceId, int mapX, int mapZ);
+/* Process-local epoch, changed by reset/free, region rebinding and successful
+ * load (including loading the same region). Never serialized. */
+uint64_t HydrologyRuntimeGlobalGeneration(void);
 bool HydrologyRuntimeGlobalSetCellInput(int x, int z,
                                         HydrologyRuntimeCellInput input);
 bool HydrologyRuntimeGlobalSetTerrainCell(int x, int z,
