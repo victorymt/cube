@@ -52,15 +52,27 @@ static Font uiFont = { 0 };
 static bool uiFontReady = false;
 static Font uiCjkFont = { 0 };
 static bool uiCjkFontReady = false;
+static Font debugHudFont = { 0 };
+static bool debugHudFontReady = false;
+static bool debugHudTextActive = false;
+static int debugHudScrollY = 0;
+static int debugHudContentBottom = 0;
+static int debugHudVisibleBottom = 0;
 
 void UiFontShutdown(void)
 {
     if (uiFontReady) UnloadFont(uiFont);
     if (uiCjkFontReady) UnloadFont(uiCjkFont);
+    if (debugHudFontReady) UnloadFont(debugHudFont);
     uiFont = (Font){ 0 };
     uiFontReady = false;
     uiCjkFont = (Font){ 0 };
     uiCjkFontReady = false;
+    debugHudFont = (Font){ 0 };
+    debugHudFontReady = false;
+    debugHudTextActive = false;
+    debugHudScrollY = 0;
+    debugHudContentBottom = 0;
 }
 
 static void UiAssetPaths(const char *relative, char *applicationPath,
@@ -143,6 +155,17 @@ void UiFontInit(void)
     if (!uiCjkFontReady) {
         TraceLog(LOG_WARNING, "UI: Noto CJK fallback font was not loaded");
     }
+    if (cjkFontPath) {
+        int ascii[95];
+        for (int i = 0; i < 95; i++) ascii[i] = 32 + i;
+        Font loaded = LoadFontEx(cjkFontPath, 32, ascii, 95);
+        if (IsFontValid(loaded) && loaded.texture.id != 0u &&
+            loaded.texture.id != GetFontDefault().texture.id) {
+            debugHudFont = loaded;
+            debugHudFontReady = true;
+            SetTextureFilter(debugHudFont.texture, TEXTURE_FILTER_BILINEAR);
+        }
+    }
 }
 
 static Font UiCodepointFont(int codepoint)
@@ -205,6 +228,18 @@ static void DrawUiTextLayer(const char *text, int x, int y, int fontSize,
 
 void UiDrawText(const char *text, int x, int y, int fontSize, Color color)
 {
+    if (debugHudTextActive) {
+        if (y + fontSize > debugHudContentBottom) {
+            debugHudContentBottom = y + fontSize;
+        }
+        y -= debugHudScrollY;
+        if (y + fontSize < 70 || y > debugHudVisibleBottom) return;
+        if (debugHudFontReady) {
+            DrawTextEx(debugHudFont, text, (Vector2){ (float)x, (float)y },
+                       (float)fontSize, 0.5f, color);
+            return;
+        }
+    }
     DrawUiTextLayer(text, x + 1, y + 2, fontSize, Fade(BLACK, 0.92f));
     DrawUiTextLayer(text, x, y, fontSize, color);
 }
@@ -992,17 +1027,35 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
     Rectangle panel = {
-        10.0f, 10.0f, (float)fmax(screenWidth - 20, 320),
-        (float)fmax(screenHeight - 20, 220)
+        10.0f, 10.0f, fminf((float)screenWidth - 20.0f, 740.0f),
+        fminf((float)screenHeight - 70.0f, 670.0f)
     };
-    DrawRectangleRounded(panel, 0.025f, 8, Fade(BLACK, 0.42f));
+    DrawRectangleRounded(panel, 0.025f, 8, Fade(BLACK, 0.78f));
     DrawRectangleRoundedLinesEx(panel, 0.025f, 8, 1.0f,
                                 Fade(WHITE, 0.18f));
-    UiDrawText("F3 DEBUG", 18, 22, 18, Fade(WHITE, 0.95f));
+    if (debugHudFontReady) {
+        DrawTextEx(debugHudFont, "F3 DEBUG", (Vector2){ 18.0f, 22.0f },
+                   18.0f, 0.5f, Fade(WHITE, 0.95f));
+    } else {
+        UiDrawText("F3 DEBUG", 18, 22, 18, Fade(WHITE, 0.95f));
+    }
+    int visibleTop = 70;
+    debugHudVisibleBottom = (int)(panel.y + panel.height) - 34;
+    int visibleHeight = debugHudVisibleBottom - visibleTop;
+    int maxScroll = debugHudContentBottom - debugHudVisibleBottom;
+    if (maxScroll < 0) maxScroll = 0;
+    if (IsKeyPressed(KEY_PAGE_DOWN)) debugHudScrollY += visibleHeight - 40;
+    if (IsKeyPressed(KEY_PAGE_UP)) debugHudScrollY -= visibleHeight - 40;
+    if (debugHudScrollY > maxScroll) debugHudScrollY = maxScroll;
+    if (debugHudScrollY < 0) debugHudScrollY = 0;
+    debugHudContentBottom = 0;
+    BeginScissorMode(16, visibleTop, (int)panel.width - 22,
+                     visibleHeight);
+    debugHudTextActive = true;
     int x = 18;
     int y = 76;
     int line = 20;
-    int fs = 15;
+    int fs = 17;
 
     UiDrawText(TextFormat("XYZ %.1f %.1f %.1f   yaw %.1f pitch %.1f",
                         playerPosition.x, playerPosition.y, playerPosition.z, yaw * RAD2DEG, pitch * RAD2DEG),
@@ -1248,6 +1301,19 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
         } else {
             UiDrawText(TextFormat("Ship speed %.1f blocks/s", hud->shipSpeed),
                      x, y, fs, Fade(WHITE, 0.85f)); y += line;
+        }
+    }
+    debugHudTextActive = false;
+    EndScissorMode();
+    if (debugHudContentBottom > debugHudVisibleBottom) {
+        const char *hint = "PgUp / PgDn scroll";
+        if (debugHudFontReady) {
+            DrawTextEx(debugHudFont, hint,
+                       (Vector2){ 18.0f, panel.y + panel.height - 27.0f },
+                       14.0f, 0.5f, Fade(WHITE, 0.8f));
+        } else {
+            UiDrawText(hint, 18, (int)(panel.y + panel.height) - 27, 14,
+                       Fade(WHITE, 0.8f));
         }
     }
 }
