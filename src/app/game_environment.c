@@ -318,6 +318,10 @@ void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame)
     if (game->debugTraceEnabled) {
         double now = GameDebugTraceMainCpuNowMs();
         frame->debugEntitiesMainCpuMs = game->debugSimulationEntitiesMainCpuMs;
+        frame->debugEcologyPrepareMainCpuMs =
+            game->debugEcologyPrepareMainCpuMs;
+        frame->debugEcologyStepMainCpuMs =
+            game->debugEcologyStepMainCpuMs;
         frame->debugEcologyMainCpuMs = now - stageStarted +
             game->debugSimulationEcologyMainCpuMs +
             game->debugSimulationEntitiesMainCpuMs;

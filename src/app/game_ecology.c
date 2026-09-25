@@ -209,8 +209,9 @@ void GameAdvanceSimulationStep(double simulationSeconds,
             (int)floorf(game->player.position.z), GAME_ECOLOGY_RADIUS_CELLS,
             simulationTime, daylight);
         if (game->debugTraceEnabled) {
-            game->debugSimulationEcologyMainCpuMs +=
-                GameDebugTraceMainCpuNowMs() - ecologyStarted;
+            double elapsed = GameDebugTraceMainCpuNowMs() - ecologyStarted;
+            game->debugSimulationEcologyMainCpuMs += elapsed;
+            game->debugEcologyStepMainCpuMs += elapsed;
         }
         FluidUpdate(dt);
     }
@@ -259,8 +260,9 @@ static bool GamePrepareEcologyRegions(GameRuntime *game,
             (int)floorf(game->player.position.z), GAME_ECOLOGY_RADIUS_CELLS,
             now, GameSimulationDaylight(game, now), maxStepBatches);
         if (game->debugTraceEnabled) {
-            game->debugSimulationEcologyMainCpuMs +=
-                GameDebugTraceMainCpuNowMs() - ecologyStarted;
+            double elapsed = GameDebugTraceMainCpuNowMs() - ecologyStarted;
+            game->debugSimulationEcologyMainCpuMs += elapsed;
+            game->debugEcologyPrepareMainCpuMs += elapsed;
         }
         game->ecologyCatchupPending = !ready;
     } else {
@@ -281,13 +283,18 @@ unsigned GameAdvanceSimulationFrame(GameRuntime *game, double realDeltaSeconds)
 {
     if (!game) return 0u;
     game->debugSimulationEcologyMainCpuMs = 0.0;
+    game->debugEcologyPrepareMainCpuMs = 0.0;
+    game->debugEcologyStepMainCpuMs = 0.0;
     game->debugSimulationEntitiesMainCpuMs = 0.0;
+    game->debugSimulationStepCount = 0u;
     GameApplyPendingHomeClock(game);
     GameSyncHomeDaylight(game);
     if (GameWorldSimulationUserPaused(game)) return 0u;
     /* Keep the catch-up target fixed and discard real time spent loading
      * regional history. No births, deaths or world edits run ahead of it. */
     if (!GamePrepareEcologyRegions(game, 8u)) return 0u;
-    return SimulationClockAdvance(&game->simulationClock, realDeltaSeconds,
-                                  GameAdvanceSimulationStep, game);
+    game->debugSimulationStepCount = SimulationClockAdvance(
+        &game->simulationClock, realDeltaSeconds,
+        GameAdvanceSimulationStep, game);
+    return game->debugSimulationStepCount;
 }

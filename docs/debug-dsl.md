@@ -170,8 +170,10 @@ and `timing.render_main_cpu_ms`. The update value is further divided into
 Environment timing is further split into `astronomy_main_cpu_ms`,
 `ecology_main_cpu_ms`, `sky_main_cpu_ms`, `water_main_cpu_ms`,
 `environment_sample_main_cpu_ms`, and `environment_present_main_cpu_ms`.
-The ecology value is split into `flora_visuals_main_cpu_ms` and
-`entities_main_cpu_ms`. Each sample's `stream` object also exposes cumulative
+The ecology value is split into `ecology_prepare_main_cpu_ms`,
+`ecology_step_main_cpu_ms`, `flora_visuals_main_cpu_ms`, and
+`entities_main_cpu_ms`; `simulation_steps` reports the number of fixed
+simulation steps executed for that frame. Each sample's `stream` object also exposes cumulative
 `generation_cpu_ms`, `mesh_cpu_ms`, and `upload_cpu_ms`, plus
 `max_upload_cpu_ms`, so a main-thread streaming spike can be separated from
 background terrain and mesh work.

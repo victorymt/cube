@@ -45,12 +45,15 @@ typedef struct GameFrameView {
     double debugEnvironmentMainCpuMs;
     double debugAstronomyMainCpuMs;
     double debugEcologyMainCpuMs;
+    double debugEcologyPrepareMainCpuMs;
+    double debugEcologyStepMainCpuMs;
     double debugSkyMainCpuMs;
     double debugWaterMainCpuMs;
     double debugEnvironmentSampleMainCpuMs;
     double debugEnvironmentPresentMainCpuMs;
     double debugFloraVisualsMainCpuMs;
     double debugEntitiesMainCpuMs;
+    unsigned debugSimulationStepCount;
     float daylight;
     float planetSeasonProgress;
     float spaceFade;

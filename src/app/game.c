@@ -1253,6 +1253,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
         .canPlace = interaction.canPlace
     };
     frame.debugSimulationMainCpuMs = debugSimulationMainCpuMs;
+    frame.debugSimulationStepCount = game->debugSimulationStepCount;
     frame.debugStreamingMainCpuMs = debugStreamingMainCpuMs;
     frame.debugInteractionMainCpuMs = debugInteractionMainCpuMs;
     GameUpdateFrameEnvironment(game, &frame);

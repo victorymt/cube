@@ -161,7 +161,10 @@ typedef struct GameRuntime {
   float autoSaveTimer;
   float dayTime;
   double debugSimulationEcologyMainCpuMs;
+  double debugEcologyPrepareMainCpuMs;
+  double debugEcologyStepMainCpuMs;
   double debugSimulationEntitiesMainCpuMs;
+  unsigned debugSimulationStepCount;
   int processExitCode;
   bool processExitRequested;
   DebugDslStdinState debugDslStdin;

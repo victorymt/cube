@@ -344,12 +344,15 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         "\"environment_main_cpu_ms\":%.3f,"
         "\"astronomy_main_cpu_ms\":%.3f,"
         "\"ecology_main_cpu_ms\":%.3f,"
+        "\"ecology_prepare_main_cpu_ms\":%.3f,"
+        "\"ecology_step_main_cpu_ms\":%.3f,"
         "\"sky_main_cpu_ms\":%.3f,"
         "\"water_main_cpu_ms\":%.3f,"
         "\"environment_sample_main_cpu_ms\":%.3f,"
         "\"environment_present_main_cpu_ms\":%.3f,"
         "\"flora_visuals_main_cpu_ms\":%.3f,"
-        "\"entities_main_cpu_ms\":%.3f},"
+        "\"entities_main_cpu_ms\":%.3f,"
+        "\"simulation_steps\":%u},"
         "\"player\":{\"position\":[%.6f,%.6f,%.6f],"
         "\"velocity\":[%.6f,%.6f,%.6f],\"yaw\":%.6f,"
         "\"pitch\":%.6f,\"floating\":%d,\"on_ground\":%d},"
@@ -376,10 +379,13 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         frame->debugSimulationMainCpuMs, frame->debugStreamingMainCpuMs,
         frame->debugInteractionMainCpuMs, frame->debugEnvironmentMainCpuMs,
         frame->debugAstronomyMainCpuMs, frame->debugEcologyMainCpuMs,
+        frame->debugEcologyPrepareMainCpuMs,
+        frame->debugEcologyStepMainCpuMs,
         frame->debugSkyMainCpuMs, frame->debugWaterMainCpuMs,
         frame->debugEnvironmentSampleMainCpuMs,
         frame->debugEnvironmentPresentMainCpuMs,
         frame->debugFloraVisualsMainCpuMs, frame->debugEntitiesMainCpuMs,
+        frame->debugSimulationStepCount,
         game->player.position.x, game->player.position.y,
         game->player.position.z, game->player.velocity.x,
         game->player.velocity.y, game->player.velocity.z,
