@@ -3,6 +3,7 @@
 #include "app/game_internal.h"
 #include "app/game_hydrology.h"
 #include "app/game_runtime.h"
+#include "core/perf.h"
 #include "gameplay/player.h"
 #include "world/chunks.h"
 #include "world/fluid.h"
@@ -17,7 +18,7 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#define TRACE_BUFFER_SIZE 8192
+#define TRACE_BUFFER_SIZE 16384
 #define TRACE_INTERVAL_SECONDS 0.1
 
 typedef struct TraceBuffer {
@@ -298,6 +299,7 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
     double elapsedRealMs = TraceElapsedRealMs(game);
     double elapsedCpuMs = TraceElapsedCpuMs(game);
     double elapsedMainCpuMs = TraceElapsedMainCpuMs(game);
+    PerfFrameDiagnostics perf = PerfGetFrameDiagnostics();
 
     TraceBuffer buffer = { 0 };
     TraceAppendFormat(&buffer,
@@ -352,6 +354,10 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         "\"environment_present_main_cpu_ms\":%.3f,"
         "\"flora_visuals_main_cpu_ms\":%.3f,"
         "\"entities_main_cpu_ms\":%.3f,"
+        "\"world_submit_main_cpu_ms\":%.3f,"
+        "\"shadow_main_cpu_ms\":%.3f,"
+        "\"end_drawing_main_cpu_ms\":%.3f,"
+        "\"end_drawing_wall_ms\":%.3f,"
         "\"simulation_steps\":%u},"
         "\"player\":{\"position\":[%.6f,%.6f,%.6f],"
         "\"velocity\":[%.6f,%.6f,%.6f],\"yaw\":%.6f,"
@@ -385,6 +391,8 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         frame->debugEnvironmentSampleMainCpuMs,
         frame->debugEnvironmentPresentMainCpuMs,
         frame->debugFloraVisualsMainCpuMs, frame->debugEntitiesMainCpuMs,
+        frame->debugWorldSubmitMainCpuMs, frame->debugShadowMainCpuMs,
+        frame->debugEndDrawingMainCpuMs, frame->debugEndDrawingWallMs,
         frame->debugSimulationStepCount,
         game->player.position.x, game->player.position.y,
         game->player.position.z, game->player.velocity.x,
@@ -447,10 +455,28 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         &buffer,
         ",\"target_stage_age_ms\":%.3f,"
         "\"target_stamps\":[%u,%u],"
-        "\"target_vertices\":[%d,%d,%d]}}\n",
+        "\"target_vertices\":[%d,%d,%d]},"
+        "\"render\":{\"frame_wall_ms\":%.3f,"
+        "\"perf_frame\":%d,\"gpu_supported\":%s,"
+        "\"gpu_fresh\":%s,\"gpu_frame\":%d,"
+        "\"gpu_world_ms\":%.3f,\"candidates\":%llu,"
+        "\"frustum_culled\":%llu,\"visible_sections\":%llu,"
+        "\"instrumented_draw_calls\":%llu,"
+        "\"effective_render_distance\":%d,"
+        "\"render_width\":%d,\"render_height\":%d,"
+        "\"paused\":%s}}\n",
         targetPipeline.stageAgeMs, targetPipeline.snapshotStamp,
         targetPipeline.currentStamp, targetPipeline.solidVertices,
-        targetPipeline.waterVertices, targetPipeline.floraVertices);
+        targetPipeline.waterVertices, targetPipeline.floraVertices,
+        GetFrameTime() * 1000.0, perf.frame,
+        perf.gpuSupported ? "true" : "false",
+        perf.gpuFresh ? "true" : "false", perf.gpuFrame,
+        perf.gpuWorldMs, (unsigned long long)perf.candidates,
+        (unsigned long long)perf.frustumCulled,
+        (unsigned long long)perf.visibleChunks,
+        (unsigned long long)perf.drawCalls,
+        frame->effectiveRenderDistance, GetRenderWidth(), GetRenderHeight(),
+        GameWorldSimulationPaused(game) ? "true" : "false");
     return TraceWrite(game, &buffer);
 }
 
@@ -527,10 +553,12 @@ void GameDebugTraceFrame(GameRuntime *game, const GameFrameView *frame)
         frame->playerWater.bodySubmerged != trace->lastBodySubmerged ||
         frame->playerWater.eyesSubmerged != trace->lastEyesSubmerged;
     bool periodic = trace->elapsed >= trace->nextSample;
-    if (periodic || focusChanged || invisibleChanged || waterChanged) {
+    if (game->debugTraceFrames || periodic || focusChanged ||
+        invisibleChanged || waterChanged) {
         const char *reason = focusChanged ? "focus_change" :
             (invisibleChanged ? "target_visibility_change" :
-             (waterChanged ? "water_state_change" : "periodic"));
+             (waterChanged ? "water_state_change" :
+              (game->debugTraceFrames ? "frame" : "periodic")));
         WriteSample(game, frame, reason);
         if (periodic && trace->file) {
             trace->nextSample = AdvanceDeadline(

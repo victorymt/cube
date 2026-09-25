@@ -79,6 +79,10 @@ typedef struct PerfBaseline {
 
 typedef struct PerfCollector {
     bool enabled;
+    bool diagnostics;
+    bool gpuFresh;
+    int latestGpuFrame;
+    double latestGpuMs;
     bool reportWritten;
     bool reportPassed;
     bool updateMarked;
@@ -153,7 +157,13 @@ static void PerfPollGpu(void)
         unsigned long long nanoseconds = 0;
         gpu->getQueryObjectui64v(gpu->ids[i], GL_QUERY_RESULT_VALUE, &nanoseconds);
         int frame = gpu->frameNumbers[i];
-        if (frame >= PERF_WARMUP_FRAMES && frame < PERF_WARMUP_FRAMES + PERF_SAMPLE_FRAMES) {
+        if (!collector.gpuFresh || frame > collector.latestGpuFrame) {
+            collector.latestGpuFrame = frame;
+            collector.latestGpuMs = (double)nanoseconds / 1000000.0;
+            collector.gpuFresh = true;
+        }
+        if (collector.enabled && frame >= PERF_WARMUP_FRAMES &&
+            frame < PERF_WARMUP_FRAMES + PERF_SAMPLE_FRAMES) {
             int sample = frame - PERF_WARMUP_FRAMES;
             collector.gpuMs[sample] = (double)nanoseconds / 1000000.0;
             collector.gpuValid[sample] = true;
@@ -542,13 +552,36 @@ void PerfSetMetadata(uint32_t seed, int effectiveRenderDistance)
     collector.effectiveRenderDistance = effectiveRenderDistance;
 }
 
+void PerfEnableDiagnostics(void)
+{
+    if (collector.diagnostics) return;
+    collector.diagnostics = true;
+    if (!collector.enabled) collector.gpu.supported = PerfResolveGpu();
+}
+
+PerfFrameDiagnostics PerfGetFrameDiagnostics(void)
+{
+    return (PerfFrameDiagnostics){
+        .frame = collector.frame,
+        .gpuFrame = collector.latestGpuFrame,
+        .gpuWorldMs = collector.latestGpuMs,
+        .gpuSupported = collector.gpu.supported,
+        .gpuFresh = collector.gpuFresh,
+        .candidates = collector.currentCounters.candidates,
+        .frustumCulled = collector.currentCounters.frustumCulled,
+        .visibleChunks = collector.currentCounters.visibleChunks,
+        .drawCalls = collector.currentCounters.drawCalls
+    };
+}
+
 bool PerfIsEnabled(void) { return collector.enabled; }
 int PerfFrameIndex(void) { return collector.frame; }
 bool PerfRouteComplete(void) { return collector.frame >= PERF_WARMUP_FRAMES + PERF_SAMPLE_FRAMES; }
 
 void PerfBeginFrame(void)
 {
-    if (!collector.enabled) return;
+    if (!collector.enabled && !collector.diagnostics) return;
+    collector.gpuFresh = false;
     PerfPollGpu();
     collector.currentCounters = (PerfCounters){ 0 };
     collector.updateMarked = false;
@@ -565,7 +598,9 @@ void PerfMarkUpdateComplete(void)
 void PerfBeginGpuFrame(void)
 {
     PerfGpuState *gpu = &collector.gpu;
-    if (!collector.enabled || !gpu->supported || gpu->active ||
+    if ((!collector.enabled && !collector.diagnostics) ||
+        !gpu->supported || gpu->active) return;
+    if (!collector.diagnostics &&
         collector.frame >= PERF_WARMUP_FRAMES + PERF_SAMPLE_FRAMES) return;
     int slot = gpu->next;
     if (gpu->pending[slot]) return;
@@ -577,7 +612,7 @@ void PerfBeginGpuFrame(void)
 
 void PerfEndGpuFrame(void)
 {
-    if (!collector.enabled || !collector.gpu.supported || !collector.gpu.active) return;
+    if (!collector.gpu.supported || !collector.gpu.active) return;
     collector.gpu.endQuery(GL_TIME_ELAPSED_VALUE);
     collector.gpu.next = (collector.gpu.next + 1) % PERF_GPU_RING;
     collector.gpu.active = false;
@@ -585,7 +620,7 @@ void PerfEndGpuFrame(void)
 
 void PerfRecordWorldCandidate(bool distanceVisible, bool frustumVisible)
 {
-    if (!collector.enabled) return;
+    if (!collector.enabled && !collector.diagnostics) return;
     collector.currentCounters.candidates++;
     if (!distanceVisible) collector.currentCounters.distanceCulled++;
     else if (!frustumVisible) collector.currentCounters.frustumCulled++;
@@ -594,14 +629,18 @@ void PerfRecordWorldCandidate(bool distanceVisible, bool frustumVisible)
 
 void PerfRecordDrawCall(PerfDrawKind kind)
 {
-    if (!collector.enabled || kind < 0 || kind >= PERF_DRAW_KIND_COUNT) return;
+    if ((!collector.enabled && !collector.diagnostics) ||
+        kind < 0 || kind >= PERF_DRAW_KIND_COUNT) return;
     collector.currentCounters.drawCalls++;
     collector.currentCounters.draws[kind]++;
 }
 
 void PerfEndFrame(PerfStreamingStats streaming, PerfResourceSnapshot resources)
 {
-    if (!collector.enabled) return;
+    if (!collector.enabled) {
+        if (collector.diagnostics) collector.frame++;
+        return;
+    }
     double now = PerfNowMs();
     PerfResourceSnapshotMax(&collector.resourcePeak, resources);
     if (!collector.updateMarked) collector.updateCompletedMs = now;

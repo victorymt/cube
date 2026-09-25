@@ -18,7 +18,22 @@ typedef enum PerfDrawKind {
     PERF_DRAW_KIND_COUNT
 } PerfDrawKind;
 
+typedef struct PerfFrameDiagnostics {
+    int frame;
+    int gpuFrame;
+    double gpuWorldMs;
+    bool gpuSupported;
+    bool gpuFresh;
+    uint64_t candidates;
+    uint64_t frustumCulled;
+    uint64_t visibleChunks;
+    uint64_t drawCalls;
+} PerfFrameDiagnostics;
+
 void PerfConfigure(bool enabled, const char *reportPath, const char *baselinePath);
+/* Counters and nonblocking GPU queries, without enabling the perf route. */
+void PerfEnableDiagnostics(void);
+PerfFrameDiagnostics PerfGetFrameDiagnostics(void);
 void PerfSetMetadata(uint32_t seed, int effectiveRenderDistance);
 bool PerfIsEnabled(void);
 int PerfFrameIndex(void);

@@ -39,6 +39,10 @@ typedef struct GameFrameView {
     double weatherSimulationTime;
     double debugUpdateMainCpuMs;
     double debugRenderMainCpuMs;
+    double debugWorldSubmitMainCpuMs;
+    double debugShadowMainCpuMs;
+    double debugEndDrawingMainCpuMs;
+    double debugEndDrawingWallMs;
     double debugSimulationMainCpuMs;
     double debugStreamingMainCpuMs;
     double debugInteractionMainCpuMs;

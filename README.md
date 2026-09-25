@@ -338,6 +338,11 @@ samples also report the focus/target section pipeline stage, stage age, mesh
 snapshot/current stamps, and solid/water/flora vertex counts. `stream audit`
 runs incrementally, emits at most 16 issue details, and
 marks results stale when chunks change during the scan.
+For frame-by-frame capture, add `--debug-trace-frames`; it implies
+`--debug-trace` and writes one sample after each playing frame. The per-frame
+`render` object includes the measured Raylib frame interval, nonblocking GPU
+world-pass query results (with the query's source frame), world candidate and
+draw counters, effective render distance, and render dimensions.
 `stream wait` keeps the simulation running until the 3x3x3 section region
 around the command's starting position reaches the ready/implicit pipeline
 stages. Global generation and mesh queue counts remain in the reply as

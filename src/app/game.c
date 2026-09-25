@@ -794,9 +794,11 @@ static void GameRenderInteractionGuides(GameRuntime *game,
 }
 
 static void GameRenderWorldPass(GameRuntime *game,
-                                const GameFrameView *frame)
+                                GameFrameView *frame)
 {
     PerfBeginGpuFrame();
+    double stageStarted = game->debugTraceEnabled
+        ? GameDebugTraceMainCpuNowMs() : 0.0;
     bool drawSurfaceChunks = PlanetWorldIsActive() ||
         (HomeWorldSurfaceIsActive() && !frame->inNether &&
          frame->spaceFade <= 0.05f);
@@ -806,9 +808,18 @@ static void GameRenderWorldPass(GameRuntime *game,
                             drawSurfaceChunks);
     DrawWorldShadowMap(&game->camera, frame->inNether,
                        &frame->worldLighting);
+    if (game->debugTraceEnabled) {
+        double now = GameDebugTraceMainCpuNowMs();
+        frame->debugShadowMainCpuMs = now - stageStarted;
+        stageStarted = now;
+    }
     BeginMode3D(game->camera);
     DrawWorld(&game->camera, frame->worldTint, frame->inNether,
               &frame->worldLighting);
+    if (game->debugTraceEnabled) {
+        frame->debugWorldSubmitMainCpuMs =
+            GameDebugTraceMainCpuNowMs() - stageStarted;
+    }
     if (frame->localWorldActive) {
         float entityAlpha = GameWorldSimulationPaused(game) ? 1.0f :
             (float)SimulationClockInterpolationAlpha(&game->simulationClock);
@@ -1140,7 +1151,7 @@ static void GameRenderBiologyAtlas(GameRuntime *game)
 }
 
 static void GameRenderFrame(GameRuntime *game,
-                            const GameFrameView *frame)
+                            GameFrameView *frame)
 {
     BeginDrawing();
     GameRenderBackground(game, frame);
@@ -1157,7 +1168,15 @@ static void GameRenderFrame(GameRuntime *game,
     DrawLandingTransitionOverlay(&game->landingTransition);
     GameRenderPauseOverlay(game);
     GamePluginsRender(game, frame ? frame->dt : 0.0f);
+    double endCpuStarted = game->debugTraceEnabled
+        ? GameDebugTraceMainCpuNowMs() : 0.0;
+    double endWallStarted = game->debugTraceEnabled ? GetTime() : 0.0;
     EndDrawing();
+    if (game->debugTraceEnabled) {
+        frame->debugEndDrawingWallMs = (GetTime() - endWallStarted) * 1000.0;
+        frame->debugEndDrawingMainCpuMs =
+            GameDebugTraceMainCpuNowMs() - endCpuStarted;
+    }
 }
 static bool GameUpdateFrame(GameRuntime *game, float dt,
                             bool debugStartRequested)
@@ -1319,6 +1338,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 
     PerfConfigure(game->perfMode, game->perfReportPath,
                   game->perfBaselinePath);
+    if (game->debugTraceFrames) PerfEnableDiagnostics();
     SetExitKey(KEY_NULL);
     // Normal play follows the compositor clock. DSL runs retain their fixed
     // 60 Hz frame schedule, while performance runs remain uncapped.

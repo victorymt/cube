@@ -123,6 +123,7 @@ typedef struct GameRuntime {
   bool debugCommandFailed;
   bool debugStreamWaitFailed;
   bool debugTraceEnabled;
+  bool debugTraceFrames;
   bool debugTracePathInvalid;
   bool pluginDirectoryInvalid;
   bool debugResolutionInvalid;

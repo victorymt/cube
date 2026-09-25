@@ -272,6 +272,9 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
   runtime->debugTraceEnabled = ParseDebugTraceArgs(
       argc, argv, runtime->debugTracePath, sizeof(runtime->debugTracePath),
       &runtime->debugTracePathInvalid);
+  runtime->debugTraceFrames =
+      CommandLineHasFlag(argc, argv, "--debug-trace-frames");
+  if (runtime->debugTraceFrames) runtime->debugTraceEnabled = true;
   ParsePluginDirectoryArgs(argc, argv, runtime->pluginDirectory,
                            sizeof(runtime->pluginDirectory),
                            &runtime->pluginDirectoryInvalid);

@@ -177,6 +177,16 @@ simulation steps executed for that frame. Each sample's `stream` object also exp
 `generation_cpu_ms`, `mesh_cpu_ms`, and `upload_cpu_ms`, plus
 `max_upload_cpu_ms`, so a main-thread streaming spike can be separated from
 background terrain and mesh work.
+Add `--debug-trace-frames` when a sample is needed for every playing frame;
+the option also enables tracing and uses the default trace path unless
+`--debug-trace PATH` is supplied. Frame records add
+`timing.world_submit_main_cpu_ms`, `timing.shadow_main_cpu_ms`, and the CPU and
+wall portions of `EndDrawing`. The `render` object reports the Raylib frame
+interval, render dimensions, effective render distance, world candidate and
+draw counters, and a nonblocking GPU world-pass query. `gpu_frame` identifies
+the frame that produced `gpu_world_ms`, because GPU results can arrive a few
+frames after submission. `visible_sections` counts instrumented visible
+sections, not all chunks in the distance radius.
 
 ## Process and stdin lifetime
 
