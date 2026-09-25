@@ -466,6 +466,7 @@ also be rejected by the current game state (for example, `teleport` before
 
 ```text
 start
+terrain flat|varied
 status
 pause on|off
 hud debug on|off
@@ -486,6 +487,8 @@ view first|third
 
 `water debug` and `water debug through` toggle their current setting when the
 `on`/`off` argument is omitted. `start` is valid on the start screen.
+`terrain flat` and `terrain varied` select the terrain used by the next
+`start`; both commands are valid only on the start screen.
 `world topology` is a read-only surface-world inspection. It reports the body,
 canonical X/Z and longitude/latitude, north tangent sign, longitude and pole
 alias checks, unique and duplicate canonical chunk counts, and the most recent

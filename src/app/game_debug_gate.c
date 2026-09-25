@@ -24,6 +24,9 @@ const char *GameDebugDslCommandBlocked(
     switch (command) {
     case DEBUG_CONTROL_COMMAND_START:
         return game->screen == SCREEN_START ? NULL : "already_playing";
+    case DEBUG_CONTROL_COMMAND_TERRAIN_FLAT:
+    case DEBUG_CONTROL_COMMAND_TERRAIN_VARIED:
+        return game->screen == SCREEN_START ? NULL : "already_playing";
     case DEBUG_CONTROL_COMMAND_SCREENSHOT:
     case DEBUG_CONTROL_COMMAND_HUD_DEBUG_ON:
     case DEBUG_CONTROL_COMMAND_HUD_DEBUG_OFF:

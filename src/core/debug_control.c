@@ -522,6 +522,12 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
                                                   const char *line)
 {
     if (strcmp(line, "start") == 0) return DEBUG_CONTROL_COMMAND_START;
+    if (strcmp(line, "terrain flat") == 0) {
+        return DEBUG_CONTROL_COMMAND_TERRAIN_FLAT;
+    }
+    if (strcmp(line, "terrain varied") == 0) {
+        return DEBUG_CONTROL_COMMAND_TERRAIN_VARIED;
+    }
     if (strcmp(line, "screenshot") == 0) {
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }

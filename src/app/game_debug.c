@@ -621,6 +621,19 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL start ignored reason=already_playing\n");
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_TERRAIN_FLAT:
+    case DEBUG_CONTROL_COMMAND_TERRAIN_VARIED:
+        if (game->screen != SCREEN_START) {
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL terrain error reason=already_playing\n");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        game->selectedTerrain = command == DEBUG_CONTROL_COMMAND_TERRAIN_FLAT
+            ? TERRAIN_FLAT : TERRAIN_VARIED;
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL terrain selected=%s\n",
+                          game->selectedTerrain == TERRAIN_FLAT ? "flat" : "varied");
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_SCREENSHOT:
         if (game->screen == SCREEN_PLAYING) {
             game->screenshotPending = true;
