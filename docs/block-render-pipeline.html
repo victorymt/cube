@@ -132,6 +132,7 @@
         </tbody>
       </table>
       <p class="note"><strong>范围并非圆形。</strong>平面地表的距离是 <code>max(abs(dx), abs(dz))</code>，所以水平覆盖区是以玩家所在 chunk 为中心的方形。视锥裁剪在此之后执行；LOD 只降低范围内较远区块的网格精度，不负责把无限远地形持续画出来。</p>
+      <p class="note"><strong>平坦地形的视觉误差。</strong>当 render distance 为 1 时，仍会绘制玩家区块及周围 8 个区块，即 3×3 个 16×16 区块。平地高度一致、纹理连续且没有明显接缝，屏幕上会像一整片很远的平面；几何范围仍只有约 48×48 方块，斜向最远约 45 个方块。</p>
     </div>
   </section>
 
