@@ -62,7 +62,7 @@
     <h1>方块从世界数据到屏幕像素</h1>
     <p class="lede">这张图按一次游戏帧展开当前项目的方块显示机制：世界与区块保存方块，脏区块被重建为网格模型，渲染阶段筛选可见 section，raylib 将模型交给 world shader；shader 再从方块图集取样并完成材质、光照、阴影、雾和水面效果。</p>
     <nav class="toc" aria-label="目录">
-      <a href="#diagram">总览图</a><a href="#stages">阶段说明</a><a href="#branches">关键分支</a><a href="#lookup">代码定位</a><a href="#takeaway">记忆要点</a>
+      <a href="#diagram">总览图</a><a href="#stages">阶段说明</a><a href="#range">范围之外</a><a href="#branches">关键分支</a><a href="#lookup">代码定位</a><a href="#takeaway">记忆要点</a>
     </nav>
   </header>
 
@@ -81,11 +81,11 @@
 
           <g class="node" data-group="update" data-name="GameUpdateFrame" transform="translate(30 50)"><rect width="245" height="116" fill="var(--world)"/><text class="title" x="16" y="29">GameUpdateFrame</text><text class="small" x="16" y="55">输入 / 物理 / 世界流式</text><text class="small" x="16" y="78">GameUpdateWorldStreaming</text><text class="small" x="16" y="98">GameUpdateWorldJobs</text></g>
           <g class="node" data-group="update" data-name="RebuildDirtyChunkMeshes" transform="translate(315 50)"><rect width="245" height="116" fill="var(--world)"/><text class="title" x="16" y="29">RebuildDirtyChunkMeshes</text><text class="small" x="16" y="55">扫描 loaded + dirty section</text><text class="small" x="16" y="78">按距离 / 垂直距离排序</text><text class="small" x="16" y="98">提交 worker 或同步重建</text></g>
-          <g class="node" data-group="update" data-name="MeshJob" transform="translate(600 50)"><rect width="175" height="116" fill="var(--world)"/><text class="title" x="16" y="29">Mesh job</text><text class="small" x="16" y="55">SubmitMeshJob</text><text class="small" x="16" y="78">队列饱和时回退</text><text class="small" x="16" y="98">Rebuild…Sync</text></g>
+          <g class="node" data-group="update" data-name="MeshJob" transform="translate(600 50)"><rect width="175" height="116" fill="var(--world)"/><text class="title" x="16" y="29">Mesh job</text><text class="small" x="16" y="55">SubmitMeshJob</text><text class="small" x="16" y="78">worker 构建结果</text><text class="small" x="16" y="98">无 worker 时同步</text></g>
           <path class="edge async" d="M275 108 H315"/><path class="edge async" d="M560 108 H600"/>
 
           <g class="node" data-group="mesh" data-name="RebuildChunkSectionMeshSync" transform="translate(30 270)"><rect width="265" height="142" fill="var(--mesh)"/><text class="title" x="16" y="29">RebuildChunkSectionMeshSync</text><text class="small" x="16" y="57">选择 targetLod，捕获边界</text><text class="small" x="16" y="80">构建 solid / water / flora</text><text class="small" x="16" y="103">球面地表：CurveChunkMeshData</text><text class="small" x="16" y="124">平面地表：LocalizeChunkMeshData</text></g>
-          <g class="node" data-group="mesh" data-name="BuildChunkMeshData" transform="translate(345 270)"><rect width="265" height="142" fill="var(--mesh)"/><text class="title" x="16" y="29">BuildChunkMeshData</text><text class="small" x="16" y="57">EmitChunkBlocksFiltered</text><text class="small" x="16" y="80">精确 LOD 可启用 greedy mesh</text><text class="small" x="16" y="103">统计顶点 → 分配 → 写入</text><text class="small" x="16" y="124">空网格 / 失败则丢弃</text></g>
+          <g class="node" data-group="mesh" data-name="BuildChunkMeshData" transform="translate(345 270)"><rect width="265" height="142" fill="var(--mesh)"/><text class="title" x="16" y="29">BuildChunkMeshData</text><text class="small" x="16" y="57">EmitChunkBlocksFiltered</text><text class="small" x="16" y="80">精确 LOD 可启用 greedy mesh</text><text class="small" x="16" y="103">greedy 动态分配 / 其他两遍写入</text><text class="small" x="16" y="124">空网格 / 失败则丢弃</text></g>
           <g class="node" data-group="mesh" data-name="AddBlockFaceInternal" transform="translate(660 270)"><rect width="205" height="142" fill="var(--mesh)"/><text class="title" x="16" y="29">AddBlockFaceInternal</text><text class="small" x="16" y="57">6 面顶点与法线</text><text class="small" x="16" y="80">TextureForBlockFace</text><text class="small" x="16" y="103">AtlasUVs + 顶点颜色</text><text class="small" x="16" y="124">AO / extraLight / 面朝向</text></g>
           <path class="edge" d="M687 166 V220 H162 V270"/><path class="edge" d="M295 341 H345"/><path class="edge" d="M610 341 H660"/>
 
@@ -109,12 +109,29 @@
   <section id="stages">
     <h2>阶段说明 <a class="back" href="#top">返回目录 ↑</a></h2>
     <div class="flow-grid">
-      <article class="flow-card"><h3>1. 帧更新决定“哪些要准备”</h3><p><code>GameUpdateFrame</code> 先更新玩家、世界流式和后台 job，然后调用 <code>RebuildDirtyChunkMeshes</code>。它扫描已加载区块，只挑选 <code>section-&gt;dirty</code> 且没有重复排队的 section；worker 未启动或队列饱和时走同步路径。</p></article>
+      <article class="flow-card"><h3>1. 帧更新决定“哪些要准备”</h3><p><code>GameUpdateFrame</code> 先更新玩家、世界流式和后台 job，然后调用 <code>RebuildDirtyChunkMeshes</code>。它扫描已加载区块，只挑选 <code>section-&gt;dirty</code> 且没有重复排队的 section；无 worker 时同步构建，有 worker 时受空闲 job 槽和每帧预算限制。交互优先重建路径可在队列接近饱和时同步处理。</p></article>
       <article class="flow-card"><h3>2. 网格构建决定“画什么几何”</h3><p><code>RebuildChunkSectionMeshSync</code> 根据 <code>targetLod</code> 分别生成 solid、water、flora。精确 LOD 使用完整方块快照和 greedy cube mesh；低 LOD 使用 heightfield，并为植物保留单独模型。</p></article>
       <article class="flow-card"><h3>3. 面发射决定“每个面带什么数据”</h3><p><code>AddBlockFaceInternal</code> 为可见面写入 6 个顶点、法线、颜色和 UV。UV 来自 <code>TextureForBlockFace(type, face)</code>；AO 和本地点光通过第二组顶点属性传给 shader。</p></article>
       <article class="flow-card"><h3>4. 可见性决定“这一帧提交哪些模型”</h3><p><code>CollectSurfaceRenderItems</code> 先做加载状态和 render distance，再做球体视锥裁剪。solid / flora 立即画，water 加入透明队列；球面地表会使用 patch transform 把局部网格弯到行星表面。</p></article>
       <article class="flow-card"><h3>5. 渲染器决定“用哪条材质路径”</h3><p><code>WorldRendererDrawModel</code> 选择 surface 或 water shader，叠加 section transform。单 mesh 走 <code>DrawMesh</code>；资源不可用时退回 raylib 的 legacy <code>DrawModel</code>。</p></article>
       <article class="flow-card"><h3>6. shader 决定“像素最终长什么样”</h3><p>顶点 shader 传递位置、UV、法线、AO 和颜色。片元 shader 用颜色图集、材质图集、法线图集取样，再计算直射光、环境光、阴影、火把光、发光、雾和色调；水面额外做波动与透明混合。</p></article>
+    </div>
+  </section>
+
+  <section id="range">
+    <h2>渲染范围之外如何处理 <a class="back" href="#top">返回目录 ↑</a></h2>
+    <div class="panel">
+      <p>先算玩家眼睛高度对应的 <code>effectiveRenderDistance</code>。地表区块距离使用 chunk 网格上的最大轴距离；球面地表在跨接缝时取最短地图偏移。绘制、预加载、释放是三步不同的判断。</p>
+      <table>
+        <thead><tr><th>位置 / 状态</th><th>CPU / 内存处理</th><th>屏幕结果</th></tr></thead>
+        <tbody>
+          <tr><td>在当前半径内，但不在镜头视锥内</td><td>区块仍可加载、更新和持有模型；<code>SphereInFrustum</code> 让该 section 跳过当帧绘制。</td><td>不产生对应的 solid / flora / water 绘制。</td></tr>
+          <tr><td>超出当前半径，但在移动方向的预测半径内</td><td>标为 <code>preloaded</code>，可以提前生成并留在内存；当前相机距离检查仍会跳过它。</td><td>暂时不画，进入当前半径后可更快显示。</td></tr>
+          <tr><td>同时超出当前与预测半径</td><td><code>ReclassifyStreamingWork</code> 移除索引、释放 section 存储与模型，清除 loaded / preloaded；未运行的远处生成任务会取消。后台 mesh 结果用目标匹配保护，避免旧结果进入新 chunk。</td><td>没有地表方块模型可画。</td></tr>
+          <tr><td>再次走近</td><td><code>EnsureChunk</code> 重新生成地形，并通过 <code>ApplyEditsToChunk</code> 重放已记录的方块改动；随后重新建模。</td><td>新区块模型准备好后重新出现。</td></tr>
+        </tbody>
+      </table>
+      <p class="note"><strong>范围并非圆形。</strong>平面地表的距离是 <code>max(abs(dx), abs(dz))</code>，所以水平覆盖区是以玩家所在 chunk 为中心的方形。视锥裁剪在此之后执行；LOD 只降低范围内较远区块的网格精度，不负责把无限远地形持续画出来。</p>
     </div>
   </section>
 
@@ -128,7 +145,7 @@
           <tr><td>平面 / 球面地表</td><td><code>CurveChunkMeshData</code>、<code>LocalizeChunkMeshData</code></td><td>球面把局部 section 曲到行星表面；平面把顶点平移到 chunk 世界坐标。</td></tr>
           <tr><td>实体 / 透明水</td><td><code>CollectSurfaceRenderItems</code>、<code>DrawWorld</code></td><td>solid 和 flora 直接提交；water 按距离排序，在 alpha blend 水通道绘制。</td></tr>
           <tr><td>实时 shader / legacy</td><td><code>WorldRendererDrawModel</code></td><td>shader、图集、uniform 都就绪时使用实时光照；否则使用 raylib 默认材质路径。</td></tr>
-          <tr><td>后台 / 同步网格任务</td><td><code>RebuildDirtyChunkMeshes</code></td><td>后台 worker 减少主线程阻塞；没有 worker 或队列满时同步构建保证可见性。</td></tr>
+          <tr><td>后台 / 同步网格任务</td><td><code>RebuildDirtyChunkMeshes</code>、<code>RebuildDirtyChunkMeshAt</code></td><td>通常由 worker 构建；没有 worker 时同步构建。交互优先路径可在队列接近饱和时同步处理。</td></tr>
         </tbody>
       </table>
       <p class="note"><strong>一个容易忽略的时序：</strong>网格重建发生在本帧绘制之前，但后台任务完成后，section 还要经过模型替换和 active LOD 刷新，下一次收集阶段才会拿到新模型。</p>
@@ -143,6 +160,7 @@
         <tbody>
           <tr><td>帧更新与网格调度</td><td><code>src/app/game.c</code><br><code>GameUpdateFrame</code></td><td>流式、模拟、交互后刷新脏 chunk mesh。</td></tr>
           <tr><td>脏 section 扫描</td><td><code>src/world/chunks_runtime.c</code><br><code>RebuildDirtyChunkMeshes</code></td><td>按焦点距离选择候选，提交异步或同步任务。</td></tr>
+          <tr><td>范围外释放 / 预加载</td><td><code>src/world/chunks_streaming.c</code><br><code>ReclassifyStreamingWork</code></td><td>当前与预测半径决定保留、预加载或释放。</td></tr>
           <tr><td>section 模型生成</td><td><code>src/world/chunks_mesh_job.c</code><br><code>RebuildChunkSectionMeshSync</code></td><td>生成 solid / water / flora，并写回 section 模型状态。</td></tr>
           <tr><td>方块面与 UV</td><td><code>src/world/chunks_mesh.c</code><br><code>AddBlockFaceInternal</code></td><td>决定六面几何、纹理选择、AO 和顶点光照属性。</td></tr>
           <tr><td>场景收集与裁剪</td><td><code>src/presentation/render_scene.c</code><br><code>CollectSurfaceRenderItems</code></td><td>render distance、视锥、透明队列、LOD 模型选择。</td></tr>
