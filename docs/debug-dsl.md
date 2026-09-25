@@ -371,6 +371,17 @@ Runtime values are sampled when an expression is evaluated:
 | `hydrology.region_x`, `hydrology.region_z` | number | Canonical 128-block hydrology region containing the player; both are `-1` outside an active surface |
 | `hydrology.player_region_x`, `hydrology.player_region_z` | number | Region implied by the player's canonical position while the surface is active |
 | `hydrology.step_count` | number | Fixed hydrology solver steps completed for the current region |
+| `hydrology.weather_ready` | bool | Whether the latest full 32x32 precipitation input pass is complete |
+| `hydrology.weather_uniform` | bool | Whether the current precipitation input came from a spatially uniform forced/manual weather override |
+| `hydrology.weather_samples` | number | Weather cells sampled during the latest simulation step |
+| `hydrology.weather_reused_cells` | number | Cells still using the previous precipitation input during the latest step |
+| `hydrology.weather_pending` | number | Cells remaining in the current precipitation refresh pass |
+| `hydrology.weather_cursor` | number | Next coarse-grid cell index in the precipitation refresh pass |
+| `hydrology.weather_passes` | number | Completed precipitation refresh passes for the active region |
+| `hydrology.terrain_samples` | number | Terrain cells refreshed during the latest simulation step |
+| `hydrology.terrain_pending` | number | Terrain cells remaining after an edit-triggered refresh pass |
+| `hydrology.inputs_main_cpu_ms` | number | Main-thread time spent binding and refreshing hydrology inputs in the latest simulation step |
+| `hydrology.solver_main_cpu_ms` | number | Main-thread time spent advancing the hydrology solver in the latest simulation step |
 | `hydrology.total_water_m3` | number | Total surface, soil, and groundwater volume in the active coarse grid |
 | `hydrology.total_sediment_kg` | number | Total suspended sediment mass in the active coarse grid |
 | `hydrology.surface_water`, `hydrology.surface_water_m` | number | Surface water depth at the player's coarse cell, in metres |

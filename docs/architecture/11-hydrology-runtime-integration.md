@@ -26,6 +26,14 @@ provided to `LocalClimateEvaluate`, affecting humidity, wetness, drought and
 regime classification while preserving legacy behaviour when no hydrology
 sample is active.
 
+The runtime keeps terrain coordinates and weather input state in the game
+hydrology bridge. Terrain is refreshed in bounded batches after an edit. Natural
+weather refreshes at most 32 of the 1024 precipitation cells per simulation
+step and finishes a pass before starting the next one; this prevents a moving
+time bucket from starving the final rows. Forced or manual weather is spatially
+uniform, so its precipitation rate is written to the full grid in one pass.
+The fixed-step solver continues to consume the cached rates every step.
+
 ## Persistence
 
 `WORLD_SAVE_FORMAT_V22` appends a magic/version-checked hydrology payload after
@@ -50,3 +58,6 @@ runtime seam needed before connecting nutrient ecology and fire suppression.
   truncation and trailing-byte handling.
 - DSL and graphical E2E checks wait for `hydrology.active` and assert canonical
   region continuity across a teleport and a save/load cycle.
+- The DSL exposes weather-pass cursor, pending-cell, completed-pass and input
+  CPU fields so a performance trace can distinguish sampled cells from reused
+  precipitation inputs.

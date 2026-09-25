@@ -124,6 +124,8 @@ bool HydrologyRuntimeGlobalSetTerrainCell(int x, int z,
                                           float elevationM, float soilDepthM);
 bool HydrologyRuntimeGlobalSetPrecipitationRateCell(int x, int z,
                                                     float rateMPerS);
+/* Apply a spatially uniform weather override with one validation. */
+bool HydrologyRuntimeGlobalSetUniformPrecipitationRate(float rateMPerS);
 bool HydrologyRuntimeGlobalAddPrecipitationCell(int x, int z, float depthM);
 bool HydrologyRuntimeGlobalAdvance(double elapsedSeconds, unsigned *outSteps);
 bool HydrologyRuntimeGlobalSnapshot(HydrologyRuntimeSnapshot *out);

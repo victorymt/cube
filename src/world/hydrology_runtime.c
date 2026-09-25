@@ -465,6 +465,16 @@ bool HydrologyRuntimeGlobalSetPrecipitationRateCell(int x, int z,
                                                     rateMPerS);
 }
 
+bool HydrologyRuntimeGlobalSetUniformPrecipitationRate(float rateMPerS)
+{
+    if (!RuntimeReady(&globalRuntime) || !globalRuntime.active ||
+        !NonNegativeFinite(rateMPerS)) return false;
+    for (int i = 0; i < globalRuntime.grid.cellCount; i++) {
+        globalRuntime.precipitationRatesMPerS[i] = rateMPerS;
+    }
+    return true;
+}
+
 bool HydrologyRuntimeGlobalAddPrecipitationCell(int x, int z, float depthM)
 {
     return HydrologyRuntimeAddPrecipitationCell(&globalRuntime, x, z, depthM);

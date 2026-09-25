@@ -1,6 +1,7 @@
 #include "app/game_debug_trace.h"
 
 #include "app/game_internal.h"
+#include "app/game_hydrology.h"
 #include "app/game_runtime.h"
 #include "gameplay/player.h"
 #include "world/chunks.h"
@@ -315,6 +316,24 @@ static bool WriteSample(GameRuntime *game, const GameFrameView *frame,
         (unsigned long long)game->debugTrace.frame, (int)game->screen,
         WorldGetSeed());
     TraceAppendJsonString(&buffer, WorldDimensionName(WorldCurrentDimension()));
+    GameHydrologyInputStats hydrologyInputs = { 0 };
+    (void)GameHydrologyGetInputStats(game, &hydrologyInputs);
+    TraceAppendFormat(
+        &buffer,
+        ",\"hydrology_inputs\":{\"active\":%s,\"weather_ready\":%s,"
+        "\"weather_uniform\":%s,\"weather_samples\":%u,"
+        "\"weather_reused_cells\":%u,\"weather_pending\":%u,"
+        "\"weather_cursor\":%u,\"weather_passes\":%llu,"
+        "\"terrain_samples\":%u,\"terrain_pending\":%u,"
+        "\"inputs_main_cpu_ms\":%.3f,\"solver_main_cpu_ms\":%.3f}",
+        hydrologyInputs.active ? "true" : "false",
+        hydrologyInputs.weatherReady ? "true" : "false",
+        hydrologyInputs.weatherUniform ? "true" : "false",
+        hydrologyInputs.weatherSamples, hydrologyInputs.weatherReusedCells,
+        hydrologyInputs.weatherPending, hydrologyInputs.weatherCursor,
+        (unsigned long long)hydrologyInputs.weatherPasses,
+        hydrologyInputs.terrainSamples, hydrologyInputs.terrainPending,
+        hydrologyInputs.inputsMainCpuMs, hydrologyInputs.solverMainCpuMs);
     TraceAppendFormat(
         &buffer,
         ",\"timing\":{\"update_main_cpu_ms\":%.3f,"

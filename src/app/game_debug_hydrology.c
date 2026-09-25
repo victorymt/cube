@@ -1,5 +1,6 @@
 #include "app/game_debug_hydrology.h"
 
+#include "app/game_hydrology.h"
 #include "app/game_runtime.h"
 #include "world/hydrology_runtime.h"
 #include "world/surface_topology.h"
@@ -61,6 +62,47 @@ static int RegionCoordinate(int mapCoordinate)
                   HYDROLOGY_RUNTIME_REGION_SIZE));
 }
 
+static bool HydrologyInputField(const GameRuntime *game, const char *name,
+                                DebugDslValue *outValue)
+{
+    GameHydrologyInputStats inputs = { 0 };
+    (void)GameHydrologyGetInputStats(game, &inputs);
+    if (strcmp(name, "hydrology.weather_ready") == 0) {
+        return Boolean(outValue, inputs.weatherReady);
+    }
+    if (strcmp(name, "hydrology.weather_uniform") == 0) {
+        return Boolean(outValue, inputs.weatherUniform);
+    }
+    if (strcmp(name, "hydrology.weather_samples") == 0) {
+        return Number(outValue, inputs.weatherSamples);
+    }
+    if (strcmp(name, "hydrology.weather_reused_cells") == 0) {
+        return Number(outValue, inputs.weatherReusedCells);
+    }
+    if (strcmp(name, "hydrology.weather_pending") == 0) {
+        return Number(outValue, inputs.weatherPending);
+    }
+    if (strcmp(name, "hydrology.weather_cursor") == 0) {
+        return Number(outValue, inputs.weatherCursor);
+    }
+    if (strcmp(name, "hydrology.weather_passes") == 0) {
+        return Number(outValue, (double)inputs.weatherPasses);
+    }
+    if (strcmp(name, "hydrology.terrain_samples") == 0) {
+        return Number(outValue, inputs.terrainSamples);
+    }
+    if (strcmp(name, "hydrology.terrain_pending") == 0) {
+        return Number(outValue, inputs.terrainPending);
+    }
+    if (strcmp(name, "hydrology.inputs_main_cpu_ms") == 0) {
+        return Number(outValue, inputs.inputsMainCpuMs);
+    }
+    if (strcmp(name, "hydrology.solver_main_cpu_ms") == 0) {
+        return Number(outValue, inputs.solverMainCpuMs);
+    }
+    return false;
+}
+
 bool GameDebugHydrologyDslResolve(const GameRuntime *game,
                                   const char *name,
                                   DebugDslValue *outValue)
@@ -68,6 +110,9 @@ bool GameDebugHydrologyDslResolve(const GameRuntime *game,
     if (!game || !name || !outValue || strncmp(name, "hydrology.", 10u) != 0) {
         return false;
     }
+    /* Reading input diagnostics must not run the full-grid water/sediment
+     * snapshot just to report the sampling cursor or a cached counter. */
+    if (HydrologyInputField(game, name, outValue)) return true;
     HydrologyRuntimeSnapshot snapshot = { 0 };
     HydrologyRuntimeFeedback feedback = { 0 };
     bool active = HydrologyState(game, &snapshot, &feedback);

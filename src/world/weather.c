@@ -1086,6 +1086,7 @@ void WeatherCycle(void)
     WeatherClearForced();
     manualWeather = (Weather)(((int)current + 1) % 3);
     manualTimer = WEATHER_MANUAL_SECONDS;
+    WeatherInputsChanged();
     fieldSample = WeatherManualSample(manualWeather);
     WeatherUpdateTypeAndAudio();
 }
