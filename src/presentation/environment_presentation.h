@@ -25,6 +25,7 @@ typedef struct EnvironmentPresentationInput {
     float sunset;
     float atmosphereFade;
     float altitude;
+    int viewDistanceChunks;
     float underwaterDepth;
     bool underwater;
     bool sheltered;

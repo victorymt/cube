@@ -186,7 +186,10 @@ interval, render dimensions, effective render distance, world candidate and
 draw counters, and a nonblocking GPU world-pass query. `gpu_frame` identifies
 the frame that produced `gpu_world_ms`, because GPU results can arrive a few
 frames after submission. `visible_sections` counts instrumented visible
-sections, not all chunks in the distance radius.
+sections, not all chunks in the distance radius. Local surface terrain fades
+into the active fog color at the configured square render-distance boundary.
+Changing `[`/`]` changes both the streamed grid and this visibility limit;
+space scenes keep their long-range visibility.
 The `ecology_population` object splits the active-region update into key
 preparation, storage admission, working-set construction, environment sampling,
 population/evolution preparation, migration, and commit CPU time. It also

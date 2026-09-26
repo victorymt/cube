@@ -25,6 +25,7 @@ EnvironmentPresentationInput EnvironmentPresentationInputForSample(
     input.sunset = sample->sunset;
     input.atmosphereFade = sample->atmosphereFade;
     input.altitude = sample->altitude;
+    input.viewDistanceChunks = sample->viewDistanceChunks;
     input.underwaterDepth = sample->underwaterDepth;
     input.underwater = sample->underwater;
     input.sheltered = sample->sheltered;

@@ -251,6 +251,7 @@ static void GameBuildFrameEnvironmentSample(GameRuntime *game,
                     (float)WorldSurfaceHeightAt(
                         (int)floorf(game->camera.position.x),
                         (int)floorf(game->camera.position.z)),
+        .viewDistanceChunks = frame->effectiveRenderDistance,
         .underwaterDepth = underwaterDepth,
         .underwater = frame->underwater,
         .sheltered = sheltered,

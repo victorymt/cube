@@ -64,6 +64,7 @@ static void TestInputAssembly(void)
     assert(input.sunset == sample.sunset);
     assert(input.atmosphereFade == sample.atmosphereFade);
     assert(input.altitude == sample.altitude);
+    assert(input.viewDistanceChunks == sample.viewDistanceChunks);
     assert(input.forest && input.nearWater);
     assert(!input.underwater && !input.sheltered && !input.shipInterior);
     assert(input.tornado.active);

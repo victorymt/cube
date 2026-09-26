@@ -14,6 +14,7 @@ typedef struct EnvironmentRuntimeSample {
     float sunset;
     float atmosphereFade;
     float altitude;
+    int viewDistanceChunks;
     float underwaterDepth;
     bool underwater;
     bool sheltered;

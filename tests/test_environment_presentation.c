@@ -138,11 +138,34 @@ static void TestDeepWaterAttenuation(void)
     assert(trench.causticStrength <= deep.causticStrength);
 }
 
+static void TestLocalVisibilityFog(void)
+{
+    EnvironmentPresentationInput input = {
+        .scene = ENVIRONMENT_SCENE_HOME,
+        .quality = GRAPHICS_QUALITY_MEDIUM,
+        .daylight = 1.0f,
+        .viewDistanceChunks = 1
+    };
+    EnvironmentPresentationState near =
+        EnvironmentPresentationEvaluate(&input);
+    input.viewDistanceChunks = 4;
+    EnvironmentPresentationState far =
+        EnvironmentPresentationEvaluate(&input);
+    assert(near.fogDensity > 0.0f);
+    assert(near.fogStart < far.fogStart);
+    assert(near.fogDensity > far.fogDensity);
+    input.scene = ENVIRONMENT_SCENE_SPACE;
+    EnvironmentPresentationState space =
+        EnvironmentPresentationEvaluate(&input);
+    assert(space.fogDensity == 0.0f);
+}
+
 int main(void)
 {
     TestSceneContracts();
     TestQualityAndTransitions();
     TestDeepWaterAttenuation();
+    TestLocalVisibilityFog();
     puts("environment presentation tests passed");
     return 0;
 }

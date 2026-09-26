@@ -21,6 +21,28 @@ static float LightningAt(double time, float storm)
     return Unit(flash * storm);
 }
 
+/* Surface chunks are square, so the farthest visible corner is farther away
+ * than an edge. Start the fog before that corner and make the configured
+ * render-distance boundary nearly opaque. */
+static void ApplyLocalVisibilityFog(EnvironmentPresentationState *state,
+                                    const EnvironmentPresentationInput *input)
+{
+    if (!state || !input || input->underwater ||
+        input->viewDistanceChunks <= 0 ||
+        (input->scene != ENVIRONMENT_SCENE_HOME &&
+         input->scene != ENVIRONMENT_SCENE_PLANET &&
+         input->scene != ENVIRONMENT_SCENE_NETHER)) return;
+
+    float chunks = (float)input->viewDistanceChunks;
+    if (chunks > 12.0f) chunks = 12.0f;
+    float fogEnd = chunks * 16.0f * 1.41421356f + 8.0f;
+    float fogStart = fogEnd * 0.52f;
+    float fadeDistance = fmaxf(fogEnd - fogStart, 1.0f);
+    float localDensity = 4.0f / fadeDistance;
+    state->fogStart = fminf(state->fogStart, fogStart);
+    state->fogDensity = fmaxf(state->fogDensity, localDensity);
+}
+
 EnvironmentPresentationState EnvironmentPresentationEvaluate(
     const EnvironmentPresentationInput *input)
 {
@@ -76,6 +98,7 @@ EnvironmentPresentationState EnvironmentPresentationEvaluate(
         state.waveStrength = 0.22f;
         state.starVisibility = 0.0f;
         state.audioNether = 0.82f;
+        ApplyLocalVisibilityFog(&state, input);
         return state;
     }
 
@@ -119,6 +142,7 @@ EnvironmentPresentationState EnvironmentPresentationEvaluate(
     state.smokeHaze = Unit(input->fireSmokeExposure) * fireShelter * 0.18f;
     state.audioFire = Unit(input->fireHeatExposure * 0.82f +
                            input->fireSmokeExposure * 0.18f) * fireShelter;
+    ApplyLocalVisibilityFog(&state, input);
     if (input->tornado.active && isfinite(input->tornadoDistance) &&
         input->tornadoDistance >= 0.0f) {
         float distanceAttenuation = Unit(

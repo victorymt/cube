@@ -375,7 +375,8 @@ make run
 - Hotbar: `1` grass, `2` dirt, `3` stone, `4` wood, `5` plank,
   `6` sand, `7` snow, `8` glass, `9` water, `0` spaceship. Breaking blocks
   collects them and placing blocks consumes them
-- `[` / `]` decrease/increase view distance
+- `[` / `]` decrease/increase view distance; local terrain fades into fog at
+  the configured square chunk boundary, so only the nearby grid remains clear
 - `F6` toggle the day/night cycle
 - `F7` cycle the weather manually
 - `F8` toggle auto-save
