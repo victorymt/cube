@@ -26,8 +26,8 @@
 // WORLD_HEIGHT is the legacy generation height for older call sites. It is
 // not the minimum/maximum coordinate contract for sparse Surface sections.
 #define WORLD_HEIGHT SURFACE_WORLD_HEIGHT
-#define MIN_RENDER_DISTANCE_CHUNKS 2
-#define DEFAULT_RENDER_DISTANCE_CHUNKS 10
+#define MIN_RENDER_DISTANCE_CHUNKS 1
+#define DEFAULT_RENDER_DISTANCE_CHUNKS 1
 #define MAX_RENDER_DISTANCE_CHUNKS 12
 #define MAX_ACTIVE_CHUNKS ((MAX_RENDER_DISTANCE_CHUNKS * 2 + 1) * (MAX_RENDER_DISTANCE_CHUNKS * 2 + 1))
 #define CHUNK_GEN_SUBMISSIONS_PER_FRAME 32
