@@ -544,6 +544,12 @@ PlayerWaterState PlayerWaterStateAt(Vector3 position)
 
 PlayerInput PlayerInputFromKeyboard(void)
 {
+    Vector2 lookDelta = GetMouseDelta();
+    if (IsKeyDown(KEY_RIGHT)) lookDelta.x += KEYBOARD_LOOK_SPEED;
+    if (IsKeyDown(KEY_LEFT)) lookDelta.x -= KEYBOARD_LOOK_SPEED;
+    if (IsKeyDown(KEY_DOWN)) lookDelta.y += KEYBOARD_LOOK_SPEED;
+    if (IsKeyDown(KEY_UP)) lookDelta.y -= KEYBOARD_LOOK_SPEED;
+
     PlayerInput input = {
         .forward = (IsKeyDown(KEY_W) ? 1.0f : 0.0f) -
                    (IsKeyDown(KEY_S) ? 1.0f : 0.0f),
@@ -554,7 +560,7 @@ PlayerInput PlayerInputFromKeyboard(void)
         .sprint = IsKeyDown(KEY_LEFT_SHIFT),
         .jumpPressed = IsKeyPressed(KEY_SPACE),
         .toggleFloating = IsKeyPressed(KEY_F),
-        .lookDelta = GetMouseDelta()
+        .lookDelta = lookDelta
     };
     return input;
 }
