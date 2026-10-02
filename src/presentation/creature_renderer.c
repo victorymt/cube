@@ -6,6 +6,13 @@
 
 #include <math.h>
 
+static bool silhouetteEnabled;
+
+void CreatureRendererSetSilhouette(bool enabled)
+{
+    silhouetteEnabled = enabled;
+}
+
 typedef struct AquaticDrawContext {
     CreatureAquaticVisualProfile profile;
     Vector3 origin;
@@ -31,15 +38,38 @@ static Vector3 CreaturePartPosition(Vector3 origin, Vector3 forward,
     return result;
 }
 
-static void DrawCreatureBox(Vector3 center, Vector3 size, float yaw,
+void CreatureRendererDrawBox(Vector3 center, Vector3 size, float yaw,
                             float pitch, float roll, Color color)
 {
+    if (silhouetteEnabled) color = (Color){176, 238, 208, 255};
     rlPushMatrix();
     rlTranslatef(center.x, center.y, center.z);
     rlRotatef(yaw * RAD2DEG, 0.0f, 1.0f, 0.0f);
     rlRotatef(pitch * RAD2DEG, 1.0f, 0.0f, 0.0f);
     rlRotatef(roll * RAD2DEG, 0.0f, 0.0f, 1.0f);
-    DrawCubeV(Vector3Zero(), size, color);
+    /* Local face values remain legible even without a scene lighting shader. */
+    const float vertices[6][12] = {
+        {-1,-1,1, 1,-1,1, 1,1,1, -1,1,1},
+        {1,-1,-1, -1,-1,-1, -1,1,-1, 1,1,-1},
+        {-1,-1,-1, -1,-1,1, -1,1,1, -1,1,-1},
+        {1,-1,1, 1,-1,-1, 1,1,-1, 1,1,1},
+        {-1,1,1, 1,1,1, 1,1,-1, -1,1,-1},
+        {-1,-1,-1, 1,-1,-1, 1,-1,1, -1,-1,1}
+    };
+    const float light[6] = {0.88f, 0.62f, 0.72f, 0.82f, 1.0f, 0.48f};
+    rlBegin(RL_QUADS);
+    for (int face = 0; face < 6; face++) {
+        float value = silhouetteEnabled ? 1.0f : light[face];
+        rlColor4ub((unsigned char)(color.r * value),
+                   (unsigned char)(color.g * value),
+                   (unsigned char)(color.b * value), color.a);
+        for (int v = 0; v < 4; v++) {
+            rlVertex3f(vertices[face][v * 3] * size.x * 0.5f,
+                       vertices[face][v * 3 + 1] * size.y * 0.5f,
+                       vertices[face][v * 3 + 2] * size.z * 0.5f);
+        }
+    }
+    rlEnd();
     rlPopMatrix();
 }
 
@@ -54,22 +84,22 @@ static void DrawAquaticBody(const AquaticDrawContext *context)
     Color bellyColor = ColorLerp(context->body,
                                  (Color){ 224, 232, 218, 255 }, 0.18f);
 
-    DrawCreatureBox(context->origin,
+    CreatureRendererDrawBox(context->origin,
                     (Vector3){ width, height, length * 0.62f },
                     context->yaw, 0.0f, 0.0f, context->body);
-    DrawCreatureBox(CreaturePartPosition(
+    CreatureRendererDrawBox(CreaturePartPosition(
                         context->origin, context->forward, context->side,
                         length * 0.36f, 0.0f, 0.0f),
                     (Vector3){ width * 0.82f, height * 0.84f,
                                length * 0.44f },
                     context->yaw, 0.0f, 0.0f, frontColor);
-    DrawCreatureBox(CreaturePartPosition(
+    CreatureRendererDrawBox(CreaturePartPosition(
                         context->origin, context->forward, context->side,
                         -length * 0.36f, 0.0f, 0.0f),
                     (Vector3){ width * 0.68f, height * 0.72f,
                                length * 0.42f },
                     context->yaw, 0.0f, 0.0f, context->body);
-    DrawCreatureBox(CreaturePartPosition(
+    CreatureRendererDrawBox(CreaturePartPosition(
                         context->origin, context->forward, context->side,
                         0.02f * length, 0.0f, -height * 0.38f),
                     (Vector3){ width * 0.72f, height * 0.16f,
@@ -84,7 +114,7 @@ static void DrawAquaticBody(const AquaticDrawContext *context)
     Vector3 headCenter = CreaturePartPosition(
         context->origin, context->forward, context->side,
         headAlong, 0.0f, height * 0.04f);
-    DrawCreatureBox(headCenter,
+    CreatureRendererDrawBox(headCenter,
                     (Vector3){ headWidth, headHeight, headLength * 0.72f },
                     context->yaw, 0.0f, 0.0f, frontColor);
 
@@ -95,7 +125,7 @@ static void DrawAquaticBody(const AquaticDrawContext *context)
     float eyeAcross = headWidth * 0.47f;
     float eyeY = headHeight * 0.17f;
     for (int sideSign = -1; sideSign <= 1; sideSign += 2) {
-        DrawCreatureBox(CreaturePartPosition(
+        CreatureRendererDrawBox(CreaturePartPosition(
                             context->origin, context->forward, context->side,
                             eyeAlong, (float)sideSign * eyeAcross, eyeY),
                         (Vector3){ eyeSize, eyeSize, eyeSize },
@@ -120,7 +150,7 @@ static void DrawAquaticFins(const AquaticDrawContext *context)
             context->origin, context->forward, context->side,
             length * 0.12f, sign * (width * 0.43f + span * 0.28f),
             -height * 0.08f);
-        DrawCreatureBox(center, (Vector3){ span, thickness, chord },
+        CreatureRendererDrawBox(center, (Vector3){ span, thickness, chord },
                         context->yaw + sign * 0.24f, 0.0f,
                         sign * (0.08f + context->finWave * 0.16f),
                         context->fin);
@@ -132,7 +162,7 @@ static void DrawAquaticFins(const AquaticDrawContext *context)
                 -length * 0.34f,
                 sign * (width * 0.38f + rearSpan * 0.26f),
                 -height * 0.10f);
-            DrawCreatureBox(
+            CreatureRendererDrawBox(
                 rearCenter,
                 (Vector3){ rearSpan, thickness * 0.86f, chord * 0.68f },
                 context->yaw + sign * 0.17f, 0.0f,
@@ -143,7 +173,7 @@ static void DrawAquaticFins(const AquaticDrawContext *context)
     Vector3 dorsalCenter = CreaturePartPosition(
         context->origin, context->forward, context->side,
         -length * 0.08f, 0.0f, height * 0.50f + span * 0.15f);
-    DrawCreatureBox(
+    CreatureRendererDrawBox(
         dorsalCenter,
         (Vector3){ thickness * 1.10f, span * 0.42f, chord * 0.78f },
         context->yaw, -0.10f, 0.0f, context->fin);
@@ -162,7 +192,7 @@ static void DrawAquaticTail(const AquaticDrawContext *context)
     Vector3 tailCenter = CreaturePartPosition(
         context->origin, context->forward, context->side,
         -length * 0.54f - tailLength * 0.42f, tailAcross, 0.0f);
-    DrawCreatureBox(
+    CreatureRendererDrawBox(
         tailCenter, (Vector3){ tailWidth, tailHeight, tailLength * 0.90f },
         tailYaw, 0.0f, 0.0f,
         ColorLerp(context->body, context->fin, 0.24f));
@@ -177,7 +207,7 @@ static void DrawAquaticTail(const AquaticDrawContext *context)
     for (int lobe = -1; lobe <= 1; lobe += 2) {
         Vector3 lobeCenter = tailTip;
         lobeCenter.y += (float)lobe * tailSpan * 0.24f;
-        DrawCreatureBox(
+        CreatureRendererDrawBox(
             lobeCenter,
             (Vector3){ tailThickness, tailSpan * 0.58f, tailChord },
             tailYaw, (float)lobe * 0.48f, 0.0f, context->fin);

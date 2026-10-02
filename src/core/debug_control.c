@@ -392,6 +392,27 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
 static DebugControlCommand DebugControlParseEvolution(
     DebugControl *control, const char *line)
 {
+    char type[16], extra;
+    unsigned seed;
+    int length, width, appendages, silhouette;
+    if (sscanf(line, "evolution preview %15s %u %d %d %d %d %c", type,
+               &seed, &length, &width, &appendages, &silhouette, &extra) == 6 &&
+        length >= 50 && length <= 180 && width >= 50 && width <= 180 &&
+        appendages >= 50 && appendages <= 180 &&
+        (silhouette == 0 || silhouette == 1)) {
+        int plan = strcmp(type, "ground") == 0 ? 0 :
+                   strcmp(type, "flight") == 0 ? 1 :
+                   strcmp(type, "aquatic") == 0 ? 2 : -1;
+        if (plan >= 0) {
+            control->previewType = plan;
+            control->previewSeed = seed;
+            control->previewLength = length;
+            control->previewWidth = width;
+            control->previewAppendages = appendages;
+            control->previewSilhouette = silhouette;
+            return DEBUG_CONTROL_COMMAND_EVOLUTION_PREVIEW;
+        }
+    }
     if (strcmp(line, "evolution region") == 0) {
         return DEBUG_CONTROL_COMMAND_EVOLUTION_REGION;
     }

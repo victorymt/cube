@@ -802,8 +802,16 @@ evolution region
 evolution bootstrap status
 evolution advance DAYS
 evolution atlas
+evolution preview ground|flight|aquatic SEED LENGTH WIDTH APPENDAGES SILHOUETTE
 evolution catalog
 ```
+
+`evolution preview` opens the specimen lab with a fixed view and decimal seed.
+The three proportions are integer percentages (50–180); `SILHOUETTE` is 0 or 1.
+It changes only the lab specimen. For example, `evolution preview ground 123 100
+100 100 0` followed by `screenshot` captures the crawler. Use `flight` and
+`aquatic` with the same seed to compare plans, or a final `1` for a solid
+silhouette. In the lab, Space toggles rotation and V toggles silhouette mode.
 
 `evolution advance` advances the simulation clock and begins bounded regional
 catch-up. For large jumps, use `wait until !ecology.catchup_pending timeout 600`

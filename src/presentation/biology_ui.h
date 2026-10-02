@@ -18,6 +18,10 @@ typedef struct BiologyAtlasUiOutput {
     bool closeRequested;
 } BiologyAtlasUiOutput;
 
+void BiologyAtlasPreviewConfigure(uint32_t worldSeed, EvolutionArchetype type,
+                                  uint32_t seed, int length, int width,
+                                  int appendages, bool silhouette);
+
 void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info,
                             bool locked);
 void BiologyAtlasDraw(const BiologyAtlasUiInput *input,

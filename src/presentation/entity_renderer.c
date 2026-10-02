@@ -74,11 +74,26 @@ static void DrawEntityBox(Vector3 center, Vector3 size, Color color)
 
 static void DrawOrientedBox(Vector3 center, Vector3 size, float yaw, Color color)
 {
-    rlPushMatrix();
-    rlTranslatef(center.x, center.y, center.z);
-    rlRotatef(yaw * RAD2DEG, 0.0f, 1.0f, 0.0f);
-    DrawCubeV(Vector3Zero(), size, color);
-    rlPopMatrix();
+    CreatureRendererDrawBox(center, size, yaw, 0.0f, 0.0f, color);
+}
+
+/* Draw a short structural beam between two module centers.  Evolution
+ * connections are part of the creature's silhouette, including articulated
+ * joints; omitting them makes every appendage look detached in the atlas. */
+static void DrawModuleConnection(Vector3 first, Vector3 second, float scale,
+                                 Color color)
+{
+    Vector3 delta = Vector3Subtract(second, first);
+    Vector3 center = Vector3Scale(Vector3Add(first, second), 0.5f);
+    float length = Vector3Length(delta);
+    if (length < 0.035f) return;
+    Vector3 axis = Vector3Normalize(delta);
+    float yaw = atan2f(axis.x, axis.z);
+    float vertical = sqrtf(axis.x * axis.x + axis.z * axis.z);
+    float pitch = atan2f(axis.y, fmaxf(vertical, 0.001f));
+    CreatureRendererDrawBox(center,
+        (Vector3){ 0.11f * scale, 0.11f * scale, length + 0.08f * scale },
+        yaw, -pitch, 0.0f, color);
 }
 
 static Vector3 AnimalPart(Vector3 origin, Vector3 forward, Vector3 side,
@@ -105,6 +120,7 @@ static Color AlienActivityColor(Color color, float visualPresence)
     return ColorLerp(color, (Color){ 72, 78, 82, 255 }, stress * 0.72f);
 }
 
+/* Anatomy is drawn in the developed parent hierarchy, shared by world and lab. */
 static void DrawEvolvedAlienEntity(const Entity *entity,
                                    PlanetFaunaRuntimeState runtime,
                                    Color body, Color accent, float scale)
@@ -112,81 +128,161 @@ static void DrawEvolvedAlienEntity(const Entity *entity,
     Vector3 positions[EVOLUTION_MAX_MODULES] = { 0 };
     Vector3 forward = { sinf(entity->yaw), 0.0f, cosf(entity->yaw) };
     Vector3 side = { forward.z, 0.0f, -forward.x };
-    float growth = EntityEvolutionGrowthScale(entity);
-    scale *= growth;
+    scale *= EntityEvolutionGrowthScale(entity);
+    bool flying = entity->phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT;
     if (entity->corpse) {
         body = ColorLerp(body, (Color){ 74, 68, 62, 255 }, 0.68f);
         accent = ColorLerp(accent, body, 0.72f);
     }
     if (entity->phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC &&
-        CreatureRendererDrawAquatic(entity, runtime, body, accent, scale)) {
-        return;
+        CreatureRendererDrawAquatic(entity, runtime, body, accent, scale)) return;
+
+    float lowest = 0.0f;
+    for (unsigned i = 0; i < entity->phenotype.moduleCount; i++) {
+        const CreatureModule *m = &entity->phenotype.modules[i];
+        Vector3 base = {0};
+        if (m->parentIndex >= 0 && m->parentIndex < (int)i)
+            base = positions[(unsigned)m->parentIndex];
+        positions[i] = AlienPartPosition(base, forward, side,
+            m->localX * scale, m->localY * scale, m->localZ * scale);
+        float bottom = positions[i].y - m->height * scale * 0.5f;
+        if (bottom < lowest) lowest = bottom;
     }
-    for (unsigned index = 0; index < entity->phenotype.moduleCount; index++) {
-        const CreatureModule *module = &entity->phenotype.modules[index];
-        Vector3 base = entity->position;
-        if (module->parentIndex >= 0 &&
-            module->parentIndex < (int)index) {
-            base = positions[(unsigned)module->parentIndex];
-        } else if (index == 0u) {
-            base.y += module->height * scale * 0.5f;
+    /* The entity origin denotes the support surface. Lift the entire hierarchy,
+     * not just the torso, so descendants keep their inherited relative poses. */
+    float speed = Vector3Length(entity->velocity);
+    float gait = entity->corpse ? 0.0f : fminf(speed / 1.4f, 1.0f);
+    for (unsigned i = 0; i < entity->phenotype.moduleCount; i++) {
+        const CreatureModule *m = &entity->phenotype.modules[i];
+        positions[i] = Vector3Add(positions[i], entity->position);
+        positions[i].y += -lowest + 0.025f * scale;
+        if (m->type == CREATURE_MODULE_FOOT) {
+            int leg = m->parentIndex;
+            float phase = entity->phase * 3.0f +
+                (leg >= 0 ? (float)(leg % 2) * PI +
+                            (float)(leg / 2) * PI : 0.0f);
+            positions[i] = Vector3Add(positions[i], Vector3Scale(forward,
+                sinf(phase) * 0.13f * scale * gait));
+            positions[i].y += fmaxf(0.0f, cosf(phase)) * 0.14f * scale * gait;
         }
-        Vector3 position = AlienPartPosition(
-            base, forward, side, module->localX * scale,
-            module->localY * scale, module->localZ * scale);
-        float gaitSide = module->localY >= 0.0f ? 0.0f : 3.14159265f;
-        if (!entity->corpse &&
-            (module->type == CREATURE_MODULE_LIMB ||
-             module->type == CREATURE_MODULE_FOOT)) {
-            position.y += sinf(entity->phase * 2.2f + gaitSide +
-                               (float)index * 0.45f) * 0.10f * scale *
-                          runtime.animationScale;
-        } else if (!entity->corpse && module->type == CREATURE_MODULE_WING) {
-            position.y += sinf(entity->phase * 3.4f + gaitSide) *
-                          module->width * 0.34f * scale *
-                          runtime.animationScale;
-        } else if (!entity->corpse && module->type == CREATURE_MODULE_FIN) {
-            position = Vector3Add(position, Vector3Scale(
-                side, sinf(entity->phase * 2.6f + (float)index) *
-                0.09f * scale * runtime.animationScale));
-        }
-        if (entity->corpse) position.y = entity->position.y +
-            fmaxf(0.10f, module->height * scale * 0.18f);
-        positions[index] = position;
+        if (entity->corpse)
+            positions[i].y = entity->position.y + m->height * scale * 0.18f;
     }
-    for (unsigned index = 0; index < entity->phenotype.connectionCount; index++) {
-        const CreatureConnection *connection =
-            &entity->phenotype.connections[index];
-        if (connection->articulated ||
-            connection->first >= entity->phenotype.moduleCount ||
-            connection->second >= entity->phenotype.moduleCount) continue;
-        Vector3 first = positions[connection->first];
-        Vector3 second = positions[connection->second];
-        Vector3 center = Vector3Scale(Vector3Add(first, second), 0.5f);
-        Vector3 delta = Vector3Subtract(first, second);
-        DrawEntityBox(center, (Vector3){
-            fmaxf(fabsf(delta.x), 0.08f * scale),
-            fmaxf(fabsf(delta.y), 0.08f * scale),
-            fmaxf(fabsf(delta.z), 0.08f * scale)
-        }, ColorLerp(body, accent, 0.35f));
-    }
-    for (unsigned index = 0; index < entity->phenotype.moduleCount; index++) {
-        const CreatureModule *module = &entity->phenotype.modules[index];
-        Color color = body;
-        if (module->type == CREATURE_MODULE_HEAD ||
-            module->type == CREATURE_MODULE_SENSOR ||
-            module->type == CREATURE_MODULE_WING ||
-            module->type == CREATURE_MODULE_FIN) {
-            color = accent;
-        } else if (module->type == CREATURE_MODULE_ARMOR) {
-            color = ColorLerp(body, (Color){ 190, 194, 202, 255 }, 0.42f);
+    Color dark = ColorLerp(body, (Color){18, 28, 32, 255}, 0.60f);
+    Color belly = ColorLerp(body, (Color){224, 222, 184, 255}, 0.35f);
+    Color shell = ColorLerp(body, accent, 0.22f);
+    for (unsigned i = 0; i < entity->phenotype.moduleCount; i++) {
+        const CreatureModule *m = &entity->phenotype.modules[i];
+        Vector3 center = positions[i];
+        float w = m->width * scale, h = m->height * scale;
+        float l = m->length * scale;
+        if (entity->corpse) h *= 0.36f;
+        Vector3 size = {w, h, l};
+        int parent = m->parentIndex;
+        bool attached = parent >= 0 && parent < (int)i;
+        if (attached && m->type != CREATURE_MODULE_WING) {
+            Vector3 anchor = positions[parent];
+            if (m->type == CREATURE_MODULE_LIMB) {
+                float sign = m->localY >= 0.0f ? 1.0f : -1.0f;
+                anchor = AlienPartPosition(anchor, forward, side,
+                    m->localX * scale,
+                    sign * entity->phenotype.modules[parent].width * scale * 0.40f,
+                    -entity->phenotype.modules[parent].height * scale * 0.25f);
+            }
+            DrawModuleConnection(anchor, center, scale * 1.4f, dark);
         }
-        Vector3 size = {
-            module->width * scale,
-            module->height * scale * (entity->corpse ? 0.36f : 1.0f),
-            module->length * scale
-        };
-        DrawEntityBox(positions[index], size, color);
+        switch ((CreatureModuleType)m->type) {
+        case CREATURE_MODULE_TORSO:
+            DrawOrientedBox(center, (Vector3){w * 0.82f, h * 0.78f, l},
+                            entity->yaw, belly);
+            for (int segment = 0; segment < 3; segment++) {
+                float taper = segment == 1 ? 1.0f : 0.82f;
+                Vector3 plate = AlienPartPosition(center, forward, side,
+                    (float)(segment - 1) * l * 0.30f, 0, h * 0.19f);
+                DrawOrientedBox(plate,
+                    (Vector3){w * taper, h * 0.72f, l * 0.285f},
+                    entity->yaw, segment == 1 ? shell : body);
+            }
+            break;
+        case CREATURE_MODULE_HEAD:
+            DrawOrientedBox(center, (Vector3){w, h, l * 0.78f}, entity->yaw, body);
+            DrawOrientedBox(AlienPartPosition(center, forward, side,
+                l * 0.48f, 0, -h * 0.12f),
+                (Vector3){w * 0.58f, h * 0.34f, l * 0.46f}, entity->yaw, accent);
+            for (int sign = -1; sign <= 1; sign += 2) {
+                Vector3 eye = AlienPartPosition(center, forward, side,
+                    l * 0.18f, sign * w * 0.50f, h * 0.18f);
+                float e = fminf(w, h) * 0.24f;
+                DrawOrientedBox(eye, (Vector3){e * 0.48f, e, e * 1.3f},
+                                entity->yaw, (Color){8, 17, 23, 255});
+                eye = Vector3Add(eye, Vector3Scale(side, sign * e * 0.25f));
+                eye.y += e * 0.13f;
+                DrawOrientedBox(eye, (Vector3){e * 0.12f, e * 0.32f, e * 0.32f},
+                                entity->yaw, (Color){224, 248, 209, 255});
+            }
+            break;
+        case CREATURE_MODULE_LIMB:
+            /* The limb module marks the knee; its children mark the feet. */
+            DrawOrientedBox(center, (Vector3){w, fminf(h, w * 1.2f), l},
+                            entity->yaw, shell);
+            if (flying) {
+                Vector3 toe = center; toe.y -= h * 0.5f;
+                DrawModuleConnection(center, toe, scale, dark);
+            }
+            break;
+        case CREATURE_MODULE_FOOT:
+            DrawOrientedBox(center, size, entity->yaw, dark);
+            break;
+        case CREATURE_MODULE_WING: {
+            float sign = m->localY >= 0.0f ? 1.0f : -1.0f;
+            Vector3 root = AlienPartPosition(center, forward, side,
+                0, -sign * w * 0.5f, 0);
+            float flap = entity->corpse ? 0.0f :
+                sinf(entity->phase * 2.4f) * 0.18f * runtime.animationScale;
+            if (attached) DrawModuleConnection(positions[parent], root, scale, body);
+            for (int segment = 0; segment < 4; segment++) {
+                float t = ((float)segment + 0.5f) / 4.0f;
+                Vector3 part = AlienPartPosition(root, forward, side,
+                    -l * t * 0.27f, sign * cosf(flap) * w * t,
+                    sinf(flap) * w * t);
+                CreatureRendererDrawBox(part,
+                    (Vector3){w * 0.27f, h * (1.0f - t * 0.50f),
+                               l * (1.0f - t * 0.65f)},
+                    entity->yaw, 0, sign * flap,
+                    segment == 3 ? dark : ColorLerp(body, accent, t * 0.7f));
+            }
+            break;
+        }
+        case CREATURE_MODULE_TAIL:
+            for (int segment = 0; segment < 3; segment++) {
+                float taper = 1.0f - (float)segment * 0.27f;
+                Vector3 part = AlienPartPosition(center, forward, side,
+                    l * (0.32f - (float)segment * 0.32f), 0, 0);
+                DrawOrientedBox(part, (Vector3){w * taper, h * taper, l * 0.36f},
+                                entity->yaw, segment == 2 ? accent : body);
+            }
+            if (flying) for (int sign = -1; sign <= 1; sign += 2) {
+                Vector3 tip = AlienPartPosition(center, forward, side,
+                    -l * 0.50f, sign * w * 0.40f, 0);
+                DrawOrientedBox(tip, (Vector3){w * 0.50f, h * 0.5f, l * 0.48f},
+                                entity->yaw + sign * 0.28f, accent);
+            }
+            break;
+        case CREATURE_MODULE_SENSOR:
+            DrawOrientedBox(center, (Vector3){w * 0.65f, h, l * 0.65f},
+                            entity->yaw, accent);
+            break;
+        default:
+            DrawOrientedBox(center, size, entity->yaw, shell);
+            break;
+        }
+    }
+    /* Preserve non-parent structural links created by mutation. */
+    for (unsigned i = 0; i < entity->phenotype.connectionCount; i++) {
+        const CreatureConnection *c = &entity->phenotype.connections[i];
+        if (!c->articulated && c->first < entity->phenotype.moduleCount &&
+            c->second < entity->phenotype.moduleCount)
+            DrawModuleConnection(positions[c->first], positions[c->second], scale, dark);
     }
 }
 

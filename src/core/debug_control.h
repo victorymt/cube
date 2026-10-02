@@ -77,6 +77,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE,
     DEBUG_CONTROL_COMMAND_EVOLUTION_BOOTSTRAP,
     DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS,
+    DEBUG_CONTROL_COMMAND_EVOLUTION_PREVIEW,
     DEBUG_CONTROL_COMMAND_EVOLUTION_CATALOG,
     DEBUG_CONTROL_COMMAND_QUIT,
     DEBUG_CONTROL_COMMAND_INVALID
@@ -132,6 +133,9 @@ typedef struct DebugControl {
     DebugControlInput playerInput;
     DebugControlInput shipInput;
     DebugControlMarker marker;
+    int previewType;
+    unsigned previewSeed;
+    int previewLength, previewWidth, previewAppendages, previewSilhouette;
     float evolutionRadius;
     float evolutionAdvanceDays;
     float shipExhaustDemand;

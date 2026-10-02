@@ -4,6 +4,8 @@
 #include "ecology/entity.h"
 #include "ecology/evolution.h"
 #include "ecology/evolution_catalog.h"
+#include "presentation/entity_renderer.h"
+#include "presentation/creature_renderer.h"
 #include "presentation/render.h"
 #include "space/space_state.h"
 #include "world/world.h"
@@ -14,57 +16,270 @@
 #include <math.h>
 #include <stdio.h>
 
-static CreatureGenome previewGenome;
-static CreaturePhenotype previewPhenotype;
-static bool previewReady;
+typedef struct BiologyPreviewState {
+    bool initialized;
+    bool labMode;
+    bool rotate;
+    bool silhouette;
+    float yaw;
+    uint32_t worldSeed;
+    uint32_t seed;
+    EvolutionArchetype archetype;
+    int lengthPercent;
+    int widthPercent;
+    int appendagePercent;
+    CreatureGenome genome;
+    CreaturePhenotype phenotype;
+    RenderTexture2D texture;
+} BiologyPreviewState;
 
-static Color PreviewModuleColor(CreatureModuleType type)
+static BiologyPreviewState preview;
+
+static const char *PreviewArchetypeName(EvolutionArchetype archetype)
 {
-    switch (type) {
-    case CREATURE_MODULE_TORSO: return (Color){ 84, 174, 132, 255 };
-    case CREATURE_MODULE_HEAD: return (Color){ 238, 190, 112, 255 };
-    case CREATURE_MODULE_LIMB:
-    case CREATURE_MODULE_FOOT: return (Color){ 196, 142, 92, 255 };
-    case CREATURE_MODULE_WING:
-    case CREATURE_MODULE_FIN: return (Color){ 112, 188, 232, 255 };
-    case CREATURE_MODULE_TAIL: return (Color){ 142, 116, 202, 255 };
-    case CREATURE_MODULE_ARMOR: return (Color){ 190, 198, 208, 255 };
-    default: return (Color){ 150, 150, 150, 255 };
+    switch (archetype) {
+    case EVOLUTION_ARCHETYPE_FLIGHT: return "FLIGHT";
+    case EVOLUTION_ARCHETYPE_AQUATIC: return "AQUATIC";
+    default: return "GROUND";
     }
 }
 
-static void DrawGeneratedPreview(const CreaturePhenotype *phenotype,
-                                 int centerX, int centerY)
+static uint8_t PreviewDimension(uint8_t value, int percent)
 {
-    if (!phenotype || !phenotype->valid) return;
-    DrawRectangleRounded((Rectangle){ (float)centerX - 210.0f,
-                                     (float)centerY - 145.0f,
-                                     420.0f, 290.0f },
-                         0.04f, 6, Fade((Color){ 8, 20, 28, 255 }, 0.94f));
-    UiDrawText("GENERATED PREVIEW", centerX - 190, centerY - 132, 14,
-               (Color){ 142, 216, 244, 255 });
-    float scale = 26.0f;
-    for (unsigned index = 0; index < phenotype->moduleCount; index++) {
-        const CreatureModule *module = &phenotype->modules[index];
-        float x = centerX + module->localX * scale;
-        float y = centerY - module->localY * scale;
-        float width = fmaxf(8.0f, module->width * scale * 0.55f);
-        float height = fmaxf(8.0f, module->height * scale * 0.55f);
-        DrawRectangle((int)(x - width * 0.5f), (int)(y - height * 0.5f),
-                      (int)width, (int)height,
-                      PreviewModuleColor((CreatureModuleType)module->type));
-        if (module->parentIndex >= 0 &&
-            module->parentIndex < (int)index) {
-            const CreatureModule *parent =
-                &phenotype->modules[(unsigned)module->parentIndex];
-            DrawLine((int)x, (int)y,
-                     (int)(centerX + parent->localX * scale),
-                     (int)(centerY - parent->localY * scale),
-                     Fade(RAYWHITE, 0.35f));
+    int scaled = ((int)value * percent + 50) / 100;
+    if (scaled < 1) scaled = 1;
+    if (scaled > 255) scaled = 255;
+    return (uint8_t)scaled;
+}
+
+static void PreviewRebuild(void)
+{
+    preview.genome = EvolutionGenomeSeed(preview.seed, preview.archetype);
+    for (int chromosomeIndex = 0; chromosomeIndex < 2; chromosomeIndex++) {
+        CreatureChromosome *chromosome =
+            &preview.genome.chromosomes[chromosomeIndex];
+        for (unsigned index = 0; index < chromosome->geneCount; index++) {
+            DevelopmentGene *gene = &chromosome->genes[index];
+            bool appendage = gene->moduleType == CREATURE_MODULE_LIMB ||
+                gene->moduleType == CREATURE_MODULE_FOOT ||
+                gene->moduleType == CREATURE_MODULE_WING ||
+                gene->moduleType == CREATURE_MODULE_FIN ||
+                gene->moduleType == CREATURE_MODULE_TAIL;
+            gene->length = PreviewDimension(gene->length,
+                appendage ? preview.appendagePercent : preview.lengthPercent);
+            gene->width = PreviewDimension(gene->width, preview.widthPercent);
         }
     }
-    UiDrawText("module silhouette  •  seeded from the current world",
-               centerX - 190, centerY + 120, 11, Fade(RAYWHITE, 0.58f));
+    preview.genome.genomeId = EvolutionGenomeHash(&preview.genome);
+    preview.phenotype = EvolutionDevelop(&preview.genome);
+}
+
+static void PreviewInitialize(uint32_t worldSeed)
+{
+    if (preview.initialized && preview.worldSeed == worldSeed) return;
+    preview.initialized = true;
+    preview.worldSeed = worldSeed;
+    preview.seed = worldSeed ^ 0x51f15e9du;
+    preview.archetype = EVOLUTION_ARCHETYPE_GROUND;
+    preview.lengthPercent = 100;
+    preview.widthPercent = 100;
+    preview.appendagePercent = 100;
+    preview.yaw = -0.45f;
+    PreviewRebuild();
+}
+
+void BiologyAtlasPreviewConfigure(uint32_t worldSeed, EvolutionArchetype type,
+                                  uint32_t seed, int length, int width,
+                                  int appendages, bool silhouette)
+{
+    PreviewInitialize(worldSeed);
+    preview.labMode = true;
+    preview.archetype = type;
+    preview.seed = seed;
+    preview.lengthPercent = length;
+    preview.widthPercent = width;
+    preview.appendagePercent = appendages;
+    preview.rotate = false;
+    preview.silhouette = silhouette;
+    preview.yaw = -0.45f;
+    PreviewRebuild();
+}
+
+static bool PreviewButton(Rectangle bounds, const char *label, bool selected)
+{
+    bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+    DrawRectangleRounded(bounds, 0.16f, 4,
+        selected ? (Color){ 50, 112, 96, 255 } :
+        hovered ? (Color){ 39, 69, 79, 255 } :
+                  (Color){ 22, 43, 52, 255 });
+    UiDrawText(label, (int)bounds.x + 9, (int)bounds.y + 6, 14,
+               selected ? RAYWHITE : Fade(RAYWHITE, 0.80f));
+    return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+}
+
+static void PreviewAdjust(int *value, int delta)
+{
+    *value += delta;
+    if (*value < 50) *value = 50;
+    if (*value > 180) *value = 180;
+}
+
+static void PreviewRender3D(Rectangle bounds)
+{
+    if (preview.texture.id == 0) {
+        preview.texture = LoadRenderTexture(840, 520);
+    }
+    if (preview.texture.id == 0) return;
+    Entity specimen = { 0 };
+    specimen.active = true;
+    specimen.evolvable = true;
+    specimen.type = ENTITY_ALIEN_GRAZER;
+    specimen.genome = preview.genome;
+    specimen.phenotype = preview.phenotype;
+    specimen.organismScale = 1.0f;
+    specimen.ecologyActivity = 1.0f;
+    specimen.ecologyCapacity = 1.0f;
+    specimen.primaryBlock = BLOCK_GRASS;
+    specimen.accentBlock = BLOCK_DIRT;
+    if (IsKeyPressed(KEY_SPACE)) preview.rotate = !preview.rotate;
+    if (IsKeyPressed(KEY_V)) preview.silhouette = !preview.silhouette;
+    if (preview.rotate) preview.yaw += GetFrameTime() * 0.35f;
+    specimen.yaw = preview.yaw;
+    specimen.phase = (float)GetTime();
+    /* Fit the complete developed hierarchy, including repeated descendants. */
+    Vector3 centers[EVOLUTION_MAX_MODULES] = {0};
+    float extent = 1.0f, bottom = 0.0f, top = 0.0f;
+    for (unsigned i = 0; i < preview.phenotype.moduleCount; i++) {
+        const CreatureModule *m = &preview.phenotype.modules[i];
+        Vector3 c = {m->localY, m->localZ, m->localX};
+        if (m->parentIndex >= 0 && m->parentIndex < (int)i) {
+            Vector3 parent = centers[(unsigned)m->parentIndex];
+            c.x += parent.x; c.y += parent.y; c.z += parent.z;
+        }
+        centers[i] = c;
+        float radial = sqrtf(c.x*c.x + c.z*c.z) +
+            fmaxf(m->width, m->length) * 0.60f;
+        extent = fmaxf(extent, radial);
+        bottom = fminf(bottom, c.y - m->height * 0.5f);
+        top = fmaxf(top, c.y + m->height * 0.5f);
+    }
+    float targetY = (top - bottom) * 0.5f;
+    if (preview.phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC) targetY = 0.4f;
+    float viewHeight = fmaxf((top-bottom) * 1.7f, extent * 1.85f);
+    Camera3D camera = {
+        .position = { 5.0f, targetY + 3.0f, 7.0f },
+        .target = { 0.0f, targetY, 0.0f },
+        .up = { 0.0f, 1.0f, 0.0f },
+        .fovy = viewHeight,
+        .projection = CAMERA_ORTHOGRAPHIC
+    };
+    BeginTextureMode(preview.texture);
+    ClearBackground((Color){ 8, 20, 28, 255 });
+    BeginMode3D(camera);
+    for (int line = -4; line <= 4; line++) {
+        Color grid = {22, 39, 46, 255};
+        DrawLine3D((Vector3){(float)line, 0, -4},
+                   (Vector3){(float)line, 0, 4}, grid);
+        DrawLine3D((Vector3){-4, 0, (float)line},
+                   (Vector3){4, 0, (float)line}, grid);
+    }
+    CreatureRendererSetSilhouette(preview.silhouette);
+    EntityRendererDraw(&specimen, 1);
+    CreatureRendererSetSilhouette(false);
+    EndMode3D();
+    EndTextureMode();
+    DrawTexturePro(preview.texture.texture,
+                   (Rectangle){ 0.0f, 0.0f, 840.0f, -520.0f },
+                   bounds, (Vector2){ 0.0f, 0.0f }, 0.0f, WHITE);
+}
+
+static void PreviewDrawControl(int x, int y, const char *label, int *value,
+                               bool *changed)
+{
+    UiDrawText(label, x, y + 7, 15, Fade(RAYWHITE, 0.85f));
+    if (PreviewButton((Rectangle){ (float)x + 190.0f, (float)y, 32.0f, 29.0f },
+                      "-", false)) {
+        PreviewAdjust(value, -10);
+        *changed = true;
+    }
+    UiDrawText(TextFormat("%d%%", *value), x + 231, y + 7, 14,
+               (Color){ 176, 238, 208, 255 });
+    if (PreviewButton((Rectangle){ (float)x + 289.0f, (float)y, 32.0f, 29.0f },
+                      "+", false)) {
+        PreviewAdjust(value, 10);
+        *changed = true;
+    }
+}
+
+static void PreviewDrawLab(int sw, int sh)
+{
+    int x = 310;
+    int previewWidth = sw - x - 28;
+    if (previewWidth > 600) previewWidth = 600;
+    bool changed = false;
+    UiDrawText("GENERATED SPECIMEN", x, 100, 22, RAYWHITE);
+    UiDrawText("Shape the specimen. SPACE rotates; V shows its silhouette.",
+               x, 130, 14, Fade(RAYWHITE, 0.70f));
+    if (PreviewButton((Rectangle){ (float)x, 166.0f, 92.0f, 30.0f },
+                      "GROUND", preview.archetype == EVOLUTION_ARCHETYPE_GROUND) ||
+        IsKeyPressed(KEY_ONE)) {
+        preview.archetype = EVOLUTION_ARCHETYPE_GROUND;
+        changed = true;
+    }
+    if (PreviewButton((Rectangle){ (float)x + 99.0f, 166.0f, 92.0f, 30.0f },
+                      "FLIGHT", preview.archetype == EVOLUTION_ARCHETYPE_FLIGHT) ||
+        IsKeyPressed(KEY_TWO)) {
+        preview.archetype = EVOLUTION_ARCHETYPE_FLIGHT;
+        changed = true;
+    }
+    if (PreviewButton((Rectangle){ (float)x + 198.0f, 166.0f, 92.0f, 30.0f },
+                      "AQUATIC", preview.archetype == EVOLUTION_ARCHETYPE_AQUATIC) ||
+        IsKeyPressed(KEY_THREE)) {
+        preview.archetype = EVOLUTION_ARCHETYPE_AQUATIC;
+        changed = true;
+    }
+    if (PreviewButton((Rectangle){ (float)x, 207.0f, 32.0f, 29.0f },
+                      "-", false) || IsKeyPressed(KEY_LEFT)) {
+        preview.seed--;
+        changed = true;
+    }
+    UiDrawText(TextFormat("SEED %08X", preview.seed), x + 43, 214, 15,
+               (Color){ 176, 238, 208, 255 });
+    if (PreviewButton((Rectangle){ (float)x + 190.0f, 207.0f, 32.0f, 29.0f },
+                      "+", false) || IsKeyPressed(KEY_RIGHT)) {
+        preview.seed++;
+        changed = true;
+    }
+    if (PreviewButton((Rectangle){ (float)x + 232.0f, 207.0f, 88.0f, 29.0f },
+                      "RANDOM", false) || IsKeyPressed(KEY_R)) {
+        preview.seed = (uint32_t)GetRandomValue(1, 0x7fffffff);
+        changed = true;
+    }
+    PreviewDrawControl(x, 248, "BODY LENGTH", &preview.lengthPercent,
+                       &changed);
+    PreviewDrawControl(x, 285, "BODY WIDTH", &preview.widthPercent,
+                       &changed);
+    PreviewDrawControl(x, 322, "APPENDAGES", &preview.appendagePercent,
+                       &changed);
+    if (changed) PreviewRebuild();
+    UiDrawText(TextFormat("%s  GENOME %08X  %s  MODULES %u",
+                          PreviewArchetypeName(preview.archetype),
+                          preview.genome.genomeId,
+                          EvolutionLocomotionName(preview.phenotype.locomotion),
+                          preview.phenotype.moduleCount),
+               x, 367, 14, Fade(RAYWHITE, 0.82f));
+    int previewY = 394;
+    int previewHeight = sh - previewY - 28;
+    if (previewHeight > previewWidth * 520 / 840)
+        previewHeight = previewWidth * 520 / 840;
+    previewWidth = previewHeight * 840 / 520;
+    if (previewHeight > 100 && previewWidth > 100) {
+        PreviewRender3D((Rectangle){ (float)x, (float)previewY,
+                                     (float)previewWidth,
+                                     (float)previewHeight });
+    }
+    UiDrawText("1/2/3 type   arrows seed   R random   SPACE rotate   V silhouette   TAB catalog",
+               30, sh - 37, 13, Fade(RAYWHITE, 0.65f));
 }
 
 static const char *EvolutionModuleName(CreatureModuleType type)
@@ -200,8 +415,28 @@ void BiologyAtlasDraw(const BiologyAtlasUiInput *input, BiologyAtlasUiOutput *ou
                           EvolutionCatalogSpeciesCount(),
                           EvolutionCatalogIndividualCount()),
                32, 58, 14, Fade(RAYWHITE, 0.68f));
-    UiDrawText("B / ESC close   UP/DOWN select", sw - 270, 30, 13,
+    UiDrawText("B / ESC close   TAB preview", sw - 250, 30, 13,
                Fade(RAYWHITE, 0.62f));
+
+    PreviewInitialize(PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed());
+    int speciesCount = EvolutionCatalogSpeciesCount();
+    if (speciesCount > 0 && IsKeyPressed(KEY_TAB)) {
+        preview.labMode = !preview.labMode;
+    }
+    if (speciesCount == 0 || preview.labMode) {
+        DrawRectangleRounded((Rectangle){ 28.0f, 92.0f, 250.0f,
+                                           (float)sh - 126.0f },
+                             0.03f, 5, Fade((Color){ 12, 27, 34, 255 }, 0.92f));
+        UiDrawText(speciesCount == 0 ? "NO SPECIES DISCOVERED" :
+                   "SPECIMEN LAB", 42, 110, 15,
+                   (Color){ 176, 238, 208, 255 });
+        UiDrawText("Preview changes stay in the lab.", 42, 146, 13,
+                   Fade(RAYWHITE, 0.72f));
+        UiDrawText("They do not change world fauna.", 42, 167, 13,
+                   Fade(RAYWHITE, 0.72f));
+        PreviewDrawLab(sw, sh);
+        return;
+    }
 
     int listX = 28;
     int listY = 92;
@@ -256,21 +491,8 @@ void BiologyAtlasDraw(const BiologyAtlasUiInput *input, BiologyAtlasUiOutput *ou
     }
     EvolutionCatalogSpecies species = { 0 };
     if (!EvolutionCatalogGetSpecies(output->selectedSlot, &species)) {
-        if (!previewReady) {
-            previewGenome = EvolutionGenomeSeed(
-                (PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed()) ^
-                0x51f15e9du, EVOLUTION_ARCHETYPE_GROUND);
-            previewPhenotype = EvolutionDevelop(&previewGenome);
-            previewReady = true;
-        }
-        UiDrawText("No species discovered yet. Showing a generated specimen.",
-                   310, 120, 18, Fade(RAYWHITE, 0.82f));
-        UiDrawText(TextFormat("GROUND PREVIEW  GENOME %08X  %s",
-                              previewGenome.genomeId,
-                              EvolutionLocomotionName(
-                                  previewPhenotype.locomotion)),
-                   310, 150, 14, Fade(RAYWHITE, 0.72f));
-        DrawGeneratedPreview(&previewPhenotype, 560, 330);
+        UiDrawText("Select a discovered species or press TAB for the lab.",
+                   310, 120, 18, Fade(RAYWHITE, 0.78f));
         return;
     }
     CreaturePhenotype phenotype = EvolutionDevelop(&species.representativeGenome);

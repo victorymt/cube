@@ -92,48 +92,50 @@ static void EvolutionSeedController(CreatureChromosome *chromosome,
     }
 }
 
+/* Stable body plans: broad six-legged crawler and narrow, wide-winged flier.
+ * Genome variation changes proportions without discarding these landmarks. */
 static void EvolutionSeedGround(CreatureChromosome *chromosome)
 {
     EvolutionAddGene(chromosome, EvolutionGene(
         1u, 0u, CREATURE_MODULE_TORSO, 0u, 1u, 0, 0, 0,
-        188u, 126u, 108u, 132u, 156u));
+        180u, 155u, 70u, 132u, 156u));
     EvolutionAddGene(chromosome, EvolutionGene(
-        2u, 1u, CREATURE_MODULE_HEAD, 0u, 1u, 108, 0, 30,
-        94u, 84u, 82u, 118u, 164u));
+        2u, 1u, CREATURE_MODULE_HEAD, 0u, 1u, 100, 0, -5,
+        60u, 55u, 50u, 118u, 164u));
     EvolutionAddGene(chromosome, EvolutionGene(
         3u, 1u, CREATURE_MODULE_LIMB, DEVELOPMENT_GENE_MIRRORED,
-        2u, -48, 88, -74, 112u, 43u, 98u, 126u, 182u));
+        3u, 0, 86, -38, 18u, 18u, 65u, 126u, 182u));
     EvolutionAddGene(chromosome, EvolutionGene(
         4u, 3u, CREATURE_MODULE_FOOT, DEVELOPMENT_GENE_MIRRORED,
-        2u, 0, 0, -92, 66u, 48u, 28u, 110u, 174u));
+        3u, 0, 0, -40, 34u, 26u, 12u, 110u, 174u));
     EvolutionAddGene(chromosome, EvolutionGene(
-        5u, 1u, CREATURE_MODULE_TAIL, 0u, 1u, -116, 0, 12,
-        128u, 40u, 36u, 102u, 146u));
+        5u, 1u, CREATURE_MODULE_TAIL, 0u, 1u, -106, 0, -4,
+        90u, 30u, 24u, 102u, 146u));
     EvolutionAddGene(chromosome, EvolutionGene(
         6u, 2u, CREATURE_MODULE_SENSOR, DEVELOPMENT_GENE_MIRRORED,
-        1u, 40, 32, 36, 34u, 22u, 30u, 72u, 202u));
+        1u, 20, 22, 30, 12u, 8u, 30u, 72u, 202u));
 }
 
 static void EvolutionSeedFlight(CreatureChromosome *chromosome)
 {
     EvolutionAddGene(chromosome, EvolutionGene(
         1u, 0u, CREATURE_MODULE_TORSO, 0u, 1u, 0, 0, 0,
-        160u, 92u, 92u, 84u, 192u));
+        145u, 58u, 70u, 84u, 192u));
     EvolutionAddGene(chromosome, EvolutionGene(
-        2u, 1u, CREATURE_MODULE_HEAD, 0u, 1u, 104, 0, 20,
-        76u, 68u, 66u, 78u, 198u));
+        2u, 1u, CREATURE_MODULE_HEAD, 0u, 1u, 90, 0, 8,
+        48u, 38u, 44u, 78u, 198u));
     EvolutionAddGene(chromosome, EvolutionGene(
         3u, 1u, CREATURE_MODULE_WING, DEVELOPMENT_GENE_MIRRORED,
-        2u, 0, 96, 22, 218u, 112u, 24u, 42u, 220u));
+        1u, 0, 124, 8, 135u, 240u, 12u, 42u, 240u));
     EvolutionAddGene(chromosome, EvolutionGene(
         4u, 1u, CREATURE_MODULE_LIMB, DEVELOPMENT_GENE_MIRRORED,
-        1u, -54, 50, -66, 80u, 34u, 74u, 82u, 176u));
+        1u, -38, 30, -32, 18u, 14u, 40u, 82u, 176u));
     EvolutionAddGene(chromosome, EvolutionGene(
-        5u, 1u, CREATURE_MODULE_TAIL, 0u, 1u, -112, 0, 8,
-        116u, 52u, 24u, 48u, 188u));
+        5u, 1u, CREATURE_MODULE_TAIL, 0u, 1u, -100, 0, 0,
+        104u, 38u, 14u, 48u, 188u));
     EvolutionAddGene(chromosome, EvolutionGene(
         6u, 2u, CREATURE_MODULE_SENSOR, DEVELOPMENT_GENE_MIRRORED,
-        1u, 38, 28, 28, 30u, 20u, 26u, 54u, 216u));
+        1u, 10, 16, 14, 10u, 8u, 12u, 54u, 216u));
 }
 
 static void EvolutionSeedAquatic(CreatureChromosome *chromosome)
@@ -168,6 +170,9 @@ CreatureGenome EvolutionGenomeSeed(uint32_t seed,
     EvolutionRandom random = { EvolutionMix(seed ^
         ((uint32_t)archetype + 1u) * 0x9e3779b9u) };
     if (random.state == 0u) random.state = 0x6d2b79f5u;
+    uint32_t shape = EvolutionMix(seed ^ 0x51f15e9du);
+    int bodyVariation = (int)(shape % 31u) - 15;
+    int appendageVariation = (int)((shape >> 8) % 31u) - 15;
     for (int chromosomeIndex = 0; chromosomeIndex < 2; chromosomeIndex++) {
         CreatureChromosome *chromosome = &genome.chromosomes[chromosomeIndex];
         switch (archetype) {
@@ -184,7 +189,10 @@ CreatureGenome EvolutionGenomeSeed(uint32_t seed,
         }
         for (unsigned index = 0; index < chromosome->geneCount; index++) {
             DevelopmentGene *gene = &chromosome->genes[index];
-            int variation = (int)(EvolutionRandomNext(&random) % 11u) - 5;
+            int planVariation = gene->moduleType == CREATURE_MODULE_TORSO ?
+                bodyVariation : appendageVariation;
+            int variation = planVariation +
+                (int)(EvolutionRandomNext(&random) % 7u) - 3;
             gene->length = EvolutionByteAdd(gene->length, variation);
             gene->width = EvolutionByteAdd(gene->width, -variation / 2);
             gene->dominance = (uint8_t)(112u +

@@ -276,6 +276,27 @@ static void TestTerrainMapCommands(void)
            DEBUG_CONTROL_COMMAND_INVALID);
 }
 
+static void TestEvolutionPreviewCommand(void)
+{
+    DebugControl control;
+    DebugControlInit(&control, true);
+    assert(DebugControlParseText(&control,
+           "evolution preview flight 123 110 90 130 1") ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_PREVIEW);
+    assert(control.previewType == 1);
+    assert(control.previewSeed == 123u);
+    assert(control.previewLength == 110);
+    assert(control.previewWidth == 90);
+    assert(control.previewAppendages == 130);
+    assert(control.previewSilhouette == 1);
+    assert(DebugControlParseText(&control,
+           "evolution preview ground 123 49 100 100 0") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control,
+           "evolution preview unknown 123 100 100 100 0") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+}
+
 static void TestEvolutionCommands(void)
 {
     int inputPipe[2];
@@ -511,6 +532,7 @@ int main(void)
     TestBlockCommands();
     TestFloraCommands();
     TestTerrainMapCommands();
+    TestEvolutionPreviewCommand();
     TestFinalCommandWithoutNewline();
     TestInvalidParameterizedCommands();
     TestEvolutionCommands();

@@ -2,6 +2,7 @@
 #include "raymath.h"
 
 #include "app/game_debug.h"
+#include "presentation/biology_ui.h"
 #include "app/game_debug_status.h"
 #include "app/game_debug_block.h"
 #include "app/game_debug_flora.h"
@@ -1139,6 +1140,18 @@ static GameDebugDispatchResult GameDebugDispatchEvolutionCommand(
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_EVOLUTION_ADVANCE:
         GameDebugAdvanceEvolution(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_EVOLUTION_PREVIEW:
+        if (game->screen != SCREEN_PLAYING) return GAME_DEBUG_DISPATCH_UNHANDLED;
+        BiologyAtlasPreviewConfigure(
+            PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed(),
+            (EvolutionArchetype)game->debugControl.previewType,
+            game->debugControl.previewSeed, game->debugControl.previewLength,
+            game->debugControl.previewWidth, game->debugControl.previewAppendages,
+            game->debugControl.previewSilhouette != 0);
+        game->biologyAtlasOpen = true;
+        EnableCursor();
+        DebugControlReply(&game->debugControl, "DEBUG_CONTROL evolution preview ok\n");
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_EVOLUTION_ATLAS:
         GameDebugToggleEvolutionAtlas(game);
