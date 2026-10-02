@@ -383,10 +383,28 @@ void EntityRendererDrawInterpolated(const Entity *entities, int count,
             float lift = fmaxf(0.0f, cosf(phase)) * 0.08f * gait;
             float along = row == 0 ? bodyL * 0.30f : -bodyL * 0.30f;
             float across = pair * legOff;
+            float upperH = legH * 0.56f;
+            float lowerH = legH - upperH;
+            float kneeAlong = along + swing * 0.62f;
+            float footAlong = along + swing;
+            /* Two independently placed segments give the leg a visible knee. */
             DrawOrientedBox(AnimalPart(pos, forward, side,
-                                       along + swing, across,
-                                       legH * 0.5f + lift),
-                            (Vector3){ legW, legH, legW }, entity->yaw,
+                                       kneeAlong, across,
+                                       lowerH + upperH * 0.5f),
+                            (Vector3){ legW, upperH, legW }, entity->yaw,
+                            EntityBodyColor(entity->type));
+            DrawOrientedBox(AnimalPart(pos, forward, side,
+                                       footAlong, across,
+                                       lowerH * 0.5f + lift),
+                            (Vector3){ legW * 0.88f, lowerH, legW * 0.88f },
+                            entity->yaw,
+                            small ? (Color){ 92, 74, 48, 255 } :
+                                EntityBodyColor(entity->type));
+            DrawOrientedBox(AnimalPart(pos, forward, side,
+                                       kneeAlong + swing * 0.10f, across,
+                                       lowerH),
+                            (Vector3){ legW * 1.12f, legW * 1.05f,
+                                       legW * 1.12f }, entity->yaw,
                             EntityBodyColor(entity->type));
         }
 
