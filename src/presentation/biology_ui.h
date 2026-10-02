@@ -22,6 +22,17 @@ void BiologyAtlasPreviewConfigure(uint32_t worldSeed, EvolutionArchetype type,
                                   uint32_t seed, int length, int width,
                                   int appendages, bool silhouette);
 
+typedef struct BiologyPreviewPoseInfo {
+    int action;
+    float speed;
+    float phase;
+    float turn;
+    bool frozen;
+} BiologyPreviewPoseInfo;
+
+bool BiologyAtlasPreviewPoseConfigure(int action, float speed, float phase, float turn);
+BiologyPreviewPoseInfo BiologyAtlasPreviewPoseInfo(void);
+
 void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info,
                             bool locked);
 void BiologyAtlasDraw(const BiologyAtlasUiInput *input,

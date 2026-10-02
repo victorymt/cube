@@ -122,6 +122,8 @@ send_command 'wait until stream.surface_ready timeout 1800'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
 send_command 'wait until hydrology.active timeout 300'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
+send_command 'wait until hydrology.step_count > 0 timeout 600'
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$' 120
 send_command 'assert hydrology.step_count > 0 && hydrology.total_water_m3 >= 0 && hydrology.total_sediment_kg >= 0'
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 

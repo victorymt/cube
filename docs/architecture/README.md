@@ -24,6 +24,7 @@ new physical-simulation stages.
 | 14 | [cross-system replay verification](14-cross-system-replay.md) | `test_simulation_integration`; per-tick clock, weather, ecology, voxel water and fire comparisons, with explicit checkpoint and scene limits |
 | 15 | [polar E2E reliability](15-polar-e2e-reliability.md) | stdin reply-ordering regression, independent 600-frame polar DSL gate, and retained failure diagnostics |
 | 16 | [regional ecology continuity](16-ecology-continuity.md) | V23 daylight anchor, V7 regional ecology persistence, explicit scheduling, and historical environmental sampling |
+| 17 | [animal behavior and poses](17-fauna-poses.md) | V5 entity pose persistence, contact-driven gait/strikes, articulated behavior rendering and deterministic DSL previews |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,

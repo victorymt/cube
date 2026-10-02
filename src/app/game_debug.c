@@ -1128,6 +1128,21 @@ static GameDebugDispatchResult GameDebugDispatchEvolutionCommand(
     GameRuntime *game, DebugControlCommand command)
 {
     switch (command) {
+    case DEBUG_CONTROL_COMMAND_EVOLUTION_POSE: {
+        if (game->screen != SCREEN_PLAYING || !game->biologyAtlasOpen ||
+            !BiologyAtlasPreviewPoseConfigure(game->debugControl.previewAction,
+                game->debugControl.previewSpeed, game->debugControl.previewPhase,
+                game->debugControl.previewTurn)) {
+            GameDebugMarkCommandError(game, "open_evolution_preview_first");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        BiologyPreviewPoseInfo pose = BiologyAtlasPreviewPoseInfo();
+        DebugControlReply(&game->debugControl,
+            "DEBUG_CONTROL evolution pose ok action=%s speed=%.3f phase=%.3f turn=%.3f frozen=%d\n",
+            FaunaBehaviorActionName((FaunaBehaviorAction)pose.action),
+            pose.speed, pose.phase, pose.turn, pose.frozen);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
     case DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT:
         GameDebugInspectEvolution(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -1298,6 +1313,16 @@ static bool GameDebugDslResolveEvolution(GameRuntime *game, const char *name,
     if (!game || !name || !outValue || strncmp(name, "evolution.", 10u) != 0)
         return false;
     const char *field = name + 10u;
+    if (strncmp(field, "preview_", 8) == 0) {
+        BiologyPreviewPoseInfo pose = BiologyAtlasPreviewPoseInfo();
+        if (!strcmp(field, "preview_action")) return GameDebugDslString(outValue,
+            FaunaBehaviorActionName((FaunaBehaviorAction)pose.action));
+        if (!strcmp(field, "preview_speed")) return GameDebugDslNumber(outValue, pose.speed);
+        if (!strcmp(field, "preview_phase")) return GameDebugDslNumber(outValue, pose.phase);
+        if (!strcmp(field, "preview_turn")) return GameDebugDslNumber(outValue, pose.turn);
+        if (!strcmp(field, "preview_frozen")) return GameDebugDslBool(outValue, pose.frozen);
+        return false;
+    }
     if (*field != 'r' && *field != 'l' && *field != 'b' && *field != 'h' &&
         *field != 'o' && *field != 'c')
         return false;

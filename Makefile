@@ -152,6 +152,10 @@ test-e2e: $(TARGET)
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
 
+.PHONY: test-animal-pose-e2e
+test-animal-pose-e2e: $(TARGET)
+	bash tests/test_animal_pose_e2e.sh $(TARGET)
+
 test-polar-e2e: $(TARGET)
 	bash tests/test_polar_e2e.sh $(TARGET)
 

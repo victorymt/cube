@@ -223,18 +223,21 @@ static void DrawEvolvedAlienEntity(const Entity *entity,
             root.position = CreaturePosePoint(pose, 0, -sign * w * 0.5f, 0);
             float effort = 0.30f + entity->pose.movement * 0.22f +
                 entity->pose.weights[FAUNA_ACTION_FLEE] * 0.25f;
+            float fold = fminf(1, entity->pose.weights[FAUNA_ACTION_REST] +
+                                  entity->pose.weights[FAUNA_ACTION_NEST]);
             float flap = entity->corpse ? 0 :
-                sinf(entity->phase * 5.0f) * effort * runtime.animationScale -
-                entity->pose.weights[FAUNA_ACTION_REST] * 0.70f;
+                sinf(entity->phase * 5.0f) * effort * runtime.animationScale *
+                    (1 - fold * 0.85f) + fold * 0.18f;
             flap += action.display * 0.35f;
             if (attached) DrawModuleConnection(poses[parent].position, root.position, scale, body);
             for (int segment = 0; segment < 4; segment++) {
                 float t = ((float)segment + 0.5f) / 4.0f;
+                float span = w * (1 - fold * 0.68f);
                 Vector3 part = CreaturePosePoint(root,
-                    -l * t * 0.27f, sign * cosf(flap) * w * t,
-                    sinf(flap) * w * t);
+                    -l * t * (0.27f + fold * 1.6f), sign * cosf(flap) * span * t,
+                    sinf(flap) * span * t);
                 CreatureRendererDrawBox(part,
-                    (Vector3){w * 0.27f, h * (1.0f - t * 0.50f),
+                    (Vector3){span * 0.27f, h * (1.0f - t * 0.50f),
                                l * (1.0f - t * 0.65f)},
                     pose.yaw, pose.pitch, pose.roll + sign * flap,
                     segment == 3 ? dark : ColorLerp(body, accent, t * 0.7f));

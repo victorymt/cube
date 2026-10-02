@@ -295,6 +295,25 @@ static void TestEvolutionPreviewCommand(void)
     assert(DebugControlParseText(&control,
            "evolution preview unknown 123 100 100 100 0") ==
            DEBUG_CONTROL_COMMAND_INVALID);
+    const char *actions[] = {"idle", "wander", "seek_habitat", "forage", "seek_food",
+        "drink", "seek_water", "rest", "seek_shelter", "flee", "hunt", "scavenge",
+        "mate", "nest", "alert", "dead"};
+    for (int i = 0; i < 16; i++) {
+        char command[100];
+        snprintf(command, sizeof(command), "evolution pose %s 1.5 0.25 -0.5", actions[i]);
+        assert(DebugControlParseText(&control, command) == DEBUG_CONTROL_COMMAND_EVOLUTION_POSE);
+        assert(control.previewAction == i && control.previewSpeed == 1.5f);
+        assert(control.previewPhase == 0.25f && control.previewTurn == -0.5f);
+    }
+    const char *invalid[] = {"evolution pose unknown 0 0 0", "evolution pose rest -1 0 0",
+        "evolution pose rest 0 nan 0", "evolution pose rest 0 1 0",
+        "evolution pose rest 0 0 2", "evolution pose rest 0 0 0 trailing",
+        "evolution pose rest 0 0", "evolution pose live trailing"};
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        assert(DebugControlParseText(&control, invalid[i]) == DEBUG_CONTROL_COMMAND_INVALID);
+    }
+    assert(DebugControlParseText(&control, "evolution pose live") ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_POSE && control.previewAction == -1);
 }
 
 static void TestEvolutionCommands(void)

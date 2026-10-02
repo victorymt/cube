@@ -803,6 +803,8 @@ evolution bootstrap status
 evolution advance DAYS
 evolution atlas
 evolution preview ground|flight|aquatic SEED LENGTH WIDTH APPENDAGES SILHOUETTE
+evolution pose ACTION SPEED PHASE TURN
+evolution pose live
 evolution catalog
 ```
 
@@ -812,6 +814,35 @@ It changes only the lab specimen. For example, `evolution preview ground 123 100
 100 100 0` followed by `screenshot` captures the crawler. Use `flight` and
 `aquatic` with the same seed to compare plans, or a final `1` for a solid
 silhouette. In the lab, Space toggles rotation and V toggles silhouette mode.
+
+After opening `evolution preview`, `evolution pose` selects a reproducible,
+frozen animation snapshot. `ACTION` is `idle`, `wander`, `seek_habitat`,
+`forage`, `seek_food`, `drink`, `seek_water`, `rest`, `seek_shelter`, `flee`,
+`hunt`, `scavenge`, `mate`, `nest`, `alert`, or `dead`. `SPEED` is 0–8 metres
+per second, `PHASE` is a cycle in [0,1), and `TURN` is a normalized turn rate
+in [-1,1]. These values affect only the lab specimen. The preview deliberately
+allows combinations such as a stationary attack, without changing live animal
+needs or AI. `hunt`, `scavenge`, and `mate` preview contact with a target.
+
+```text
+evolution preview ground 123 100 100 100 0
+evolution pose forage 0 0.48 0
+assert evolution.preview_action == "forage" && evolution.preview_frozen
+screenshot
+evolution pose flee 2 0.35 0.7
+screenshot
+evolution pose live
+assert !evolution.preview_frozen
+```
+
+`evolution pose live` resumes the chosen action, speed and turn with smooth
+phase progression. Reopening `evolution preview` resets it to idle. Typed
+fields `evolution.preview_action` (string), `preview_speed`, `preview_phase`,
+`preview_turn` (numbers) and `preview_frozen` (bool), all under `evolution.`,
+describe the lab configuration. Run `make test-animal-pose-e2e` on Hyprland to
+assert the command path and capture 39 ground/flight/aquatic poses, including
+opposite walking phases, rest, feeding, vigilance, courtship, strikes and
+death. The harness always retains its temporary screenshots and reply log.
 
 `evolution advance` advances the simulation clock and begins bounded regional
 catch-up. For large jumps, use `wait until !ecology.catchup_pending timeout 600`

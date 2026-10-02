@@ -89,5 +89,6 @@ FaunaBehaviorDecision FaunaBehaviorEvaluate(
     const FaunaBehaviorInput *input);
 bool FaunaBehaviorActionMoves(FaunaBehaviorAction action);
 bool FaunaBehaviorActionValid(FaunaBehaviorAction action);
+const char *FaunaBehaviorActionName(FaunaBehaviorAction action);
 
 #endif

@@ -228,3 +228,13 @@ bool FaunaBehaviorActionValid(FaunaBehaviorAction action)
 {
     return action >= FAUNA_ACTION_IDLE && action < FAUNA_ACTION_COUNT;
 }
+
+const char *FaunaBehaviorActionName(FaunaBehaviorAction action)
+{
+    static const char *names[FAUNA_ACTION_COUNT] = {
+        "idle", "wander", "seek_habitat", "forage", "seek_food", "drink",
+        "seek_water", "rest", "seek_shelter", "flee", "hunt", "scavenge",
+        "mate", "nest", "alert"
+    };
+    return FaunaBehaviorActionValid(action) ? names[action] : "dead";
+}

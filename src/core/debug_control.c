@@ -392,6 +392,30 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
 static DebugControlCommand DebugControlParseEvolution(
     DebugControl *control, const char *line)
 {
+    if (strcmp(line, "evolution pose live") == 0) {
+        control->previewAction = -1;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_POSE;
+    }
+    char action[24], poseTrailing;
+    float speed, phase, turn;
+    if (sscanf(line, "evolution pose %23s %f %f %f %c", action,
+        &speed, &phase, &turn, &poseTrailing) == 4 &&
+        isfinite(speed) && speed >= 0 && speed <= 8 &&
+        isfinite(phase) && phase >= 0 && phase < 1 &&
+        isfinite(turn) && turn >= -1 && turn <= 1) {
+        /* Stable FaunaBehaviorAction wire values; dead is the preview-only 15. */
+        const char *names[] = {"idle", "wander", "seek_habitat", "forage", "seek_food",
+            "drink", "seek_water", "rest", "seek_shelter", "flee", "hunt",
+            "scavenge", "mate", "nest", "alert", "dead"};
+        for (int i = 0; i < 16; i++) {
+            if (strcmp(action, names[i]) != 0) continue;
+            control->previewAction = i;
+            control->previewSpeed = speed;
+            control->previewPhase = phase;
+            control->previewTurn = turn;
+            return DEBUG_CONTROL_COMMAND_EVOLUTION_POSE;
+        }
+    }
     char type[16], extra;
     unsigned seed;
     int length, width, appendages, silhouette;

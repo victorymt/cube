@@ -31,6 +31,9 @@ typedef struct BiologyPreviewState {
     CreatureGenome genome;
     CreaturePhenotype phenotype;
     RenderTexture2D texture;
+    BiologyPreviewPoseInfo motion;
+    FaunaPoseState pose;
+    float animationTime;
 } BiologyPreviewState;
 
 static BiologyPreviewState preview;
@@ -85,6 +88,8 @@ static void PreviewInitialize(uint32_t worldSeed)
     preview.widthPercent = 100;
     preview.appendagePercent = 100;
     preview.yaw = -0.45f;
+    preview.motion = (BiologyPreviewPoseInfo){0};
+    preview.pose = (FaunaPoseState){0};
     PreviewRebuild();
 }
 
@@ -102,7 +107,32 @@ void BiologyAtlasPreviewConfigure(uint32_t worldSeed, EvolutionArchetype type,
     preview.rotate = false;
     preview.silhouette = silhouette;
     preview.yaw = -0.45f;
+    preview.motion = (BiologyPreviewPoseInfo){0};
+    preview.pose = (FaunaPoseState){0};
     PreviewRebuild();
+}
+
+bool BiologyAtlasPreviewPoseConfigure(int action, float speed, float phase, float turn)
+{
+    if (!preview.initialized || !preview.labMode) return false;
+    if (action == -1) { preview.motion.frozen = false; return true; }
+    if (action < 0 || action > FAUNA_ACTION_COUNT || !isfinite(speed) ||
+        speed < 0 || speed > 8 || !isfinite(phase) || phase < 0 || phase >= 1 ||
+        !isfinite(turn) || fabsf(turn) > 1) return false;
+    preview.motion = (BiologyPreviewPoseInfo){action, speed, phase, turn, true};
+    preview.pose = (FaunaPoseState){
+        .gaitPhase = phase, .actionPhase = phase,
+        .movement = fminf(1, speed / 0.35f), .turn = turn,
+        .engagement = 1
+    };
+    if (action < FAUNA_ACTION_COUNT) preview.pose.weights[action] = 1;
+    preview.animationTime = phase * 2 * PI;
+    return true;
+}
+
+BiologyPreviewPoseInfo BiologyAtlasPreviewPoseInfo(void)
+{
+    return preview.motion;
 }
 
 static bool PreviewButton(Rectangle bounds, const char *label, bool selected)
@@ -145,7 +175,28 @@ static void PreviewRender3D(Rectangle bounds)
     if (IsKeyPressed(KEY_V)) preview.silhouette = !preview.silhouette;
     if (preview.rotate) preview.yaw += GetFrameTime() * 0.35f;
     specimen.yaw = preview.yaw;
-    specimen.phase = (float)GetTime();
+    specimen.airborne = preview.phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT;
+    specimen.aquatic = preview.phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC;
+    specimen.behavior = (FaunaBehaviorAction)preview.motion.action;
+    specimen.corpse = preview.motion.action == FAUNA_ACTION_COUNT;
+    specimen.velocity = (Vector3){sinf(specimen.yaw) * preview.motion.speed, 0,
+                                  cosf(specimen.yaw) * preview.motion.speed};
+    if (!preview.motion.frozen && !specimen.corpse) {
+        float dt = fminf(GetFrameTime(), 0.1f);
+        preview.animationTime += dt;
+        preview.pose = FaunaPoseAdvance(preview.pose, (FaunaPoseInput){
+            .action = specimen.behavior, .speed = preview.motion.speed,
+            .distance = preview.motion.speed * dt, .scale = 1,
+            .turnRate = preview.motion.turn * 2, .engaged = true
+        }, dt);
+        preview.motion.phase = preview.pose.gaitPhase;
+    }
+    specimen.phase = preview.animationTime;
+    specimen.pose = preview.pose;
+    if (specimen.airborne && !specimen.corpse) {
+        specimen.position.y = 0.9f * (1 - fminf(1,
+            specimen.pose.weights[FAUNA_ACTION_REST] + specimen.pose.weights[FAUNA_ACTION_NEST]));
+    }
     /* Fit the complete developed hierarchy, including repeated descendants. */
     Vector3 centers[EVOLUTION_MAX_MODULES] = {0};
     float extent = 1.0f, bottom = 0.0f, top = 0.0f;
@@ -165,6 +216,7 @@ static void PreviewRender3D(Rectangle bounds)
     }
     float targetY = (top - bottom) * 0.5f;
     if (preview.phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC) targetY = 0.4f;
+    targetY += specimen.position.y;
     float viewHeight = fmaxf((top-bottom) * 1.7f, extent * 1.85f);
     Camera3D camera = {
         .position = { 5.0f, targetY + 3.0f, 7.0f },
@@ -191,6 +243,10 @@ static void PreviewRender3D(Rectangle bounds)
     DrawTexturePro(preview.texture.texture,
                    (Rectangle){ 0.0f, 0.0f, 840.0f, -520.0f },
                    bounds, (Vector2){ 0.0f, 0.0f }, 0.0f, WHITE);
+    UiDrawText(TextFormat("%s  %.1f m/s  %s",
+        FaunaBehaviorActionName(specimen.behavior), preview.motion.speed,
+        preview.motion.frozen ? "FROZEN" : "LIVE"),
+        (int)bounds.x + 10, (int)bounds.y + 10, 14, (Color){176, 238, 208, 255});
 }
 
 static void PreviewDrawControl(int x, int y, const char *label, int *value,
