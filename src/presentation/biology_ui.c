@@ -11,7 +11,61 @@
 #include "raylib.h"
 
 #include <stddef.h>
+#include <math.h>
 #include <stdio.h>
+
+static CreatureGenome previewGenome;
+static CreaturePhenotype previewPhenotype;
+static bool previewReady;
+
+static Color PreviewModuleColor(CreatureModuleType type)
+{
+    switch (type) {
+    case CREATURE_MODULE_TORSO: return (Color){ 84, 174, 132, 255 };
+    case CREATURE_MODULE_HEAD: return (Color){ 238, 190, 112, 255 };
+    case CREATURE_MODULE_LIMB:
+    case CREATURE_MODULE_FOOT: return (Color){ 196, 142, 92, 255 };
+    case CREATURE_MODULE_WING:
+    case CREATURE_MODULE_FIN: return (Color){ 112, 188, 232, 255 };
+    case CREATURE_MODULE_TAIL: return (Color){ 142, 116, 202, 255 };
+    case CREATURE_MODULE_ARMOR: return (Color){ 190, 198, 208, 255 };
+    default: return (Color){ 150, 150, 150, 255 };
+    }
+}
+
+static void DrawGeneratedPreview(const CreaturePhenotype *phenotype,
+                                 int centerX, int centerY)
+{
+    if (!phenotype || !phenotype->valid) return;
+    DrawRectangleRounded((Rectangle){ (float)centerX - 210.0f,
+                                     (float)centerY - 145.0f,
+                                     420.0f, 290.0f },
+                         0.04f, 6, Fade((Color){ 8, 20, 28, 255 }, 0.94f));
+    UiDrawText("GENERATED PREVIEW", centerX - 190, centerY - 132, 14,
+               (Color){ 142, 216, 244, 255 });
+    float scale = 26.0f;
+    for (unsigned index = 0; index < phenotype->moduleCount; index++) {
+        const CreatureModule *module = &phenotype->modules[index];
+        float x = centerX + module->localX * scale;
+        float y = centerY - module->localY * scale;
+        float width = fmaxf(8.0f, module->width * scale * 0.55f);
+        float height = fmaxf(8.0f, module->height * scale * 0.55f);
+        DrawRectangle((int)(x - width * 0.5f), (int)(y - height * 0.5f),
+                      (int)width, (int)height,
+                      PreviewModuleColor((CreatureModuleType)module->type));
+        if (module->parentIndex >= 0 &&
+            module->parentIndex < (int)index) {
+            const CreatureModule *parent =
+                &phenotype->modules[(unsigned)module->parentIndex];
+            DrawLine((int)x, (int)y,
+                     (int)(centerX + parent->localX * scale),
+                     (int)(centerY - parent->localY * scale),
+                     Fade(RAYWHITE, 0.35f));
+        }
+    }
+    UiDrawText("module silhouette  •  seeded from the current world",
+               centerX - 190, centerY + 120, 11, Fade(RAYWHITE, 0.58f));
+}
 
 static const char *EvolutionModuleName(CreatureModuleType type)
 {
@@ -202,8 +256,21 @@ void BiologyAtlasDraw(const BiologyAtlasUiInput *input, BiologyAtlasUiOutput *ou
     }
     EvolutionCatalogSpecies species = { 0 };
     if (!EvolutionCatalogGetSpecies(output->selectedSlot, &species)) {
-        UiDrawText("No species discovered. Scan an evolvable organism first.",
-                   310, 120, 18, Fade(RAYWHITE, 0.78f));
+        if (!previewReady) {
+            previewGenome = EvolutionGenomeSeed(
+                (PlanetWorldIsActive() ? PlanetWorldSeed() : WorldGetSeed()) ^
+                0x51f15e9du, EVOLUTION_ARCHETYPE_GROUND);
+            previewPhenotype = EvolutionDevelop(&previewGenome);
+            previewReady = true;
+        }
+        UiDrawText("No species discovered yet. Showing a generated specimen.",
+                   310, 120, 18, Fade(RAYWHITE, 0.82f));
+        UiDrawText(TextFormat("GROUND PREVIEW  GENOME %08X  %s",
+                              previewGenome.genomeId,
+                              EvolutionLocomotionName(
+                                  previewPhenotype.locomotion)),
+                   310, 150, 14, Fade(RAYWHITE, 0.72f));
+        DrawGeneratedPreview(&previewPhenotype, 560, 330);
         return;
     }
     CreaturePhenotype phenotype = EvolutionDevelop(&species.representativeGenome);
