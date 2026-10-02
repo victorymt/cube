@@ -23,6 +23,7 @@ typedef struct AquaticDrawContext {
     float heightScale;
     float tailWave;
     float finWave;
+    FaunaBodyPose pose;
     Color body;
     Color accent;
     Color fin;
@@ -110,7 +111,8 @@ static void DrawAquaticBody(const AquaticDrawContext *context)
     float headWidth = profile->headWidth * context->scale;
     float headHeight = profile->headHeight * context->scale *
                        context->heightScale;
-    float headAlong = length * 0.55f + headLength * 0.28f;
+    float headAlong = length * 0.55f + headLength * 0.28f +
+                      context->pose.strike * 0.18f * context->scale;
     Vector3 headCenter = CreaturePartPosition(
         context->origin, context->forward, context->side,
         headAlong, 0.0f, height * 0.04f);
@@ -140,7 +142,7 @@ static void DrawAquaticFins(const AquaticDrawContext *context)
     float width = profile->torsoWidth * context->scale;
     float height = profile->torsoHeight * context->scale *
                    context->heightScale;
-    float span = profile->finSpan * context->scale;
+    float span = profile->finSpan * context->scale * (1 + context->pose.display * 0.45f);
     float chord = profile->finChord * context->scale;
     float thickness = profile->finThickness * context->scale;
 
@@ -224,25 +226,36 @@ bool CreatureRendererDrawAquatic(const Entity *entity,
         return false;
     }
 
-    context.forward = (Vector3){ sinf(entity->yaw), 0.0f,
-                                 cosf(entity->yaw) };
+    context.pose = FaunaPoseEvaluate(&entity->pose, entity->phase,
+        entity->needs.fatigue, entity->needs.stress, true);
+    if (entity->corpse) context.pose = (FaunaBodyPose){0};
+    context.forward = (Vector3){0, 0, 1};
     context.side = (Vector3){ context.forward.z, 0.0f,
                               -context.forward.x };
     context.scale = scale;
-    context.yaw = entity->yaw;
+    context.yaw = 0;
     context.heightScale = entity->corpse ? 0.36f : 1.0f;
     float animation = entity->corpse ? 0.0f : runtime.animationScale;
-    context.tailWave = sinf(entity->phase * 2.75f) * animation;
+    float effort = 0.18f + entity->pose.movement * 0.55f +
+                   entity->pose.weights[FAUNA_ACTION_FLEE] * 0.27f;
+    context.tailWave = (sinf(entity->phase * 2.75f + entity->pose.gaitPhase * 2 * PI) *
+        effort - entity->pose.turn * 0.55f) * animation;
     context.finWave = sinf(entity->phase * 3.40f + 0.65f) * animation;
     context.body = body;
     context.accent = accent;
     context.fin = ColorLerp(body, accent, 0.52f);
-    context.origin = entity->position;
+    context.origin = (Vector3){0};
     context.origin.y += context.profile.torsoHeight * scale *
                         (entity->corpse ? 0.15f : 0.38f);
 
+    rlPushMatrix();
+    rlTranslatef(entity->position.x, entity->position.y, entity->position.z);
+    rlRotatef(entity->yaw * RAD2DEG, 0, 1, 0);
+    rlRotatef((context.pose.bodyPitch + context.pose.headPitch * 0.25f) * RAD2DEG, 1, 0, 0);
+    rlRotatef(context.pose.bodyRoll * RAD2DEG, 0, 0, 1);
     DrawAquaticBody(&context);
     DrawAquaticFins(&context);
     DrawAquaticTail(&context);
+    rlPopMatrix();
     return true;
 }

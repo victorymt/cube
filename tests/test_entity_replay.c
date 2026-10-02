@@ -832,11 +832,44 @@ static void TestEvolutionLifecycleAndPredation(void)
     predator.entity.energy = 0.45f;
     prey.entity.entity.entity.position[0] = 0.60f;
     LoadVersion4Entities(&predator, &prey);
+    float beforeStrike = entityStore[1].health;
+    RunFrames(&player, 2);
+    assert(entityStore[1].health == beforeStrike);
+    RunFrames(&player, 4);
+    assert(entityStore[1].health < beforeStrike);
     RunFrames(&player, 300);
     EntityEvolutionDebugInfo corpse = { 0 };
     assert(EntityEvolutionInspect(1, &corpse));
     assert(corpse.corpse);
     assert(corpse.health == 0.0f);
+}
+
+static void TestAlertAndPregnancyDanger(void)
+{
+    TestEntityDiskStateV4 mother = EvolutionTestEntity(
+        EVOLUTION_ARCHETYPE_GROUND, 123u, CREATURE_SEX_FEMALE);
+    LoadVersion4Entities(&mother, NULL);
+    Entity *animal = &entityStore[0];
+    animal->pregnant = true;
+    animal->gestationDurationDays = 1000;
+    animal->temperament = 0.3f;
+    Player player = {.position = animal->position};
+    player.position.x += 5;
+    RunFrames(&player, 1);
+    assert(animal->behavior == FAUNA_ACTION_ALERT);
+    assert(!FaunaBehaviorActionMoves(animal->behavior));
+    player.position = animal->position;
+    player.position.x += 1;
+    RunFrames(&player, 1);
+    assert(animal->behavior == FAUNA_ACTION_FLEE);
+    assert(animal->velocity.x < 0 || animal->velocity.z != 0);
+    player.position = animal->position;
+    player.position.x += 7;
+    RunFrames(&player, 1);
+    assert(animal->behavior == FAUNA_ACTION_FLEE);
+    player.position.x += 30;
+    RunFrames(&player, 100);
+    assert(animal->behavior != FAUNA_ACTION_FLEE && animal->pregnant);
 }
 
 static void TestNeedsDriveEntityBehavior(void)
@@ -983,6 +1016,7 @@ int main(void)
     TestTerrainFollowingFlight();
     TestNeedsDriveEntityBehavior();
     TestEvolutionLifecycleAndPredation();
+    TestAlertAndPregnancyDanger();
     TestSphericalEntityAliasMigration();
     TestRenderPoseInterpolation();
     puts("entity replay tests passed");

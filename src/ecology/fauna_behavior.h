@@ -40,6 +40,7 @@ typedef struct FaunaNeedInput {
     float temperatureStress;
     bool moving;
     bool threatened;
+    bool alerted;
     bool feeding;
     bool drinking;
     bool resting;
@@ -62,6 +63,7 @@ typedef struct FaunaBehaviorInput {
     float waterDependence;
     float baseThinkInterval;
     float fleeYaw;
+    float alertYaw;
     float wanderYaw;
     float baseWanderDuration;
     unsigned wanderRoll;

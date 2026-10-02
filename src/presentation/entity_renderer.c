@@ -1,6 +1,7 @@
 #include "presentation/entity_renderer.h"
 
 #include "presentation/creature_renderer.h"
+#include "presentation/creature_pose.h"
 #include "ecology/ecology.h"
 #include "space/space_state.h"
 #include "world/world.h"
@@ -77,6 +78,25 @@ static void DrawOrientedBox(Vector3 center, Vector3 size, float yaw, Color color
     CreatureRendererDrawBox(center, size, yaw, 0.0f, 0.0f, color);
 }
 
+static void DrawPoseBox(CreatureModulePose pose, Vector3 size, Color color)
+{
+    CreatureRendererDrawBox(pose.position, size, pose.yaw, pose.pitch, pose.roll, color);
+}
+
+static float EntityFootGround(Vector3 foot, void *context)
+{
+    const Entity *entity = context;
+    int x = (int)floorf(foot.x), z = (int)floorf(foot.z);
+    int support = (int)floorf(entity->position.y);
+    for (int y = support + 1; y >= support - 2; y--) {
+        float height = BlockCollisionHeight(GetBlockAt(x, y, z));
+        if (height <= 0 || IsLiquidBlock(GetBlockAt(x, y, z))) continue;
+        float surface = y + height;
+        if (fabsf(surface - entity->position.y) <= 1.35f) return surface;
+    }
+    return entity->position.y;
+}
+
 /* Draw a short structural beam between two module centers.  Evolution
  * connections are part of the creature's silhouette, including articulated
  * joints; omitting them makes every appendage look detached in the atlas. */
@@ -94,15 +114,6 @@ static void DrawModuleConnection(Vector3 first, Vector3 second, float scale,
     CreatureRendererDrawBox(center,
         (Vector3){ 0.11f * scale, 0.11f * scale, length + 0.08f * scale },
         yaw, -pitch, 0.0f, color);
-}
-
-static Vector3 AnimalPart(Vector3 origin, Vector3 forward, Vector3 side,
-                          float along, float across, float y)
-{
-    Vector3 result = Vector3Add(origin, Vector3Scale(forward, along));
-    result = Vector3Add(result, Vector3Scale(side, across));
-    result.y += y;
-    return result;
 }
 
 static Vector3 AlienPartPosition(Vector3 origin, Vector3 forward, Vector3 side,
@@ -123,57 +134,30 @@ static Color AlienActivityColor(Color color, float visualPresence)
 /* Anatomy is drawn in the developed parent hierarchy, shared by world and lab. */
 static void DrawEvolvedAlienEntity(const Entity *entity,
                                    PlanetFaunaRuntimeState runtime,
-                                   Color body, Color accent, float scale)
+                                   Color body, Color accent, float scale, bool terrain)
 {
-    Vector3 positions[EVOLUTION_MAX_MODULES] = { 0 };
-    Vector3 forward = { sinf(entity->yaw), 0.0f, cosf(entity->yaw) };
-    Vector3 side = { forward.z, 0.0f, -forward.x };
+    CreatureModulePose poses[EVOLUTION_MAX_MODULES] = {0};
+    FaunaBodyPose action = FaunaPoseEvaluate(&entity->pose, entity->phase,
+        entity->needs.fatigue, entity->needs.stress, entity->airborne);
     scale *= EntityEvolutionGrowthScale(entity);
     bool flying = entity->phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT;
     if (entity->corpse) {
+        action = (FaunaBodyPose){0};
         body = ColorLerp(body, (Color){ 74, 68, 62, 255 }, 0.68f);
         accent = ColorLerp(accent, body, 0.72f);
     }
     if (entity->phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC &&
         CreatureRendererDrawAquatic(entity, runtime, body, accent, scale)) return;
 
-    float lowest = 0.0f;
-    for (unsigned i = 0; i < entity->phenotype.moduleCount; i++) {
-        const CreatureModule *m = &entity->phenotype.modules[i];
-        Vector3 base = {0};
-        if (m->parentIndex >= 0 && m->parentIndex < (int)i)
-            base = positions[(unsigned)m->parentIndex];
-        positions[i] = AlienPartPosition(base, forward, side,
-            m->localX * scale, m->localY * scale, m->localZ * scale);
-        float bottom = positions[i].y - m->height * scale * 0.5f;
-        if (bottom < lowest) lowest = bottom;
-    }
-    /* The entity origin denotes the support surface. Lift the entire hierarchy,
-     * not just the torso, so descendants keep their inherited relative poses. */
-    float speed = Vector3Length(entity->velocity);
-    float gait = entity->corpse ? 0.0f : fminf(speed / 1.4f, 1.0f);
-    for (unsigned i = 0; i < entity->phenotype.moduleCount; i++) {
-        const CreatureModule *m = &entity->phenotype.modules[i];
-        positions[i] = Vector3Add(positions[i], entity->position);
-        positions[i].y += -lowest + 0.025f * scale;
-        if (m->type == CREATURE_MODULE_FOOT) {
-            int leg = m->parentIndex;
-            float phase = entity->phase * 3.0f +
-                (leg >= 0 ? (float)(leg % 2) * PI +
-                            (float)(leg / 2) * PI : 0.0f);
-            positions[i] = Vector3Add(positions[i], Vector3Scale(forward,
-                sinf(phase) * 0.13f * scale * gait));
-            positions[i].y += fmaxf(0.0f, cosf(phase)) * 0.14f * scale * gait;
-        }
-        if (entity->corpse)
-            positions[i].y = entity->position.y + m->height * scale * 0.18f;
-    }
+    CreaturePoseBuild(entity, scale, terrain ? EntityFootGround : NULL,
+                      (void *)entity, poses);
     Color dark = ColorLerp(body, (Color){18, 28, 32, 255}, 0.60f);
     Color belly = ColorLerp(body, (Color){224, 222, 184, 255}, 0.35f);
     Color shell = ColorLerp(body, accent, 0.22f);
     for (unsigned i = 0; i < entity->phenotype.moduleCount; i++) {
         const CreatureModule *m = &entity->phenotype.modules[i];
-        Vector3 center = positions[i];
+        CreatureModulePose pose = poses[i];
+        Vector3 center = pose.position;
         float w = m->width * scale, h = m->height * scale;
         float l = m->length * scale;
         if (entity->corpse) h *= 0.36f;
@@ -181,10 +165,10 @@ static void DrawEvolvedAlienEntity(const Entity *entity,
         int parent = m->parentIndex;
         bool attached = parent >= 0 && parent < (int)i;
         if (attached && m->type != CREATURE_MODULE_WING) {
-            Vector3 anchor = positions[parent];
+            Vector3 anchor = poses[parent].position;
             if (m->type == CREATURE_MODULE_LIMB) {
                 float sign = m->localY >= 0.0f ? 1.0f : -1.0f;
-                anchor = AlienPartPosition(anchor, forward, side,
+                anchor = CreaturePosePoint(poses[parent],
                     m->localX * scale,
                     sign * entity->phenotype.modules[parent].width * scale * 0.40f,
                     -entity->phenotype.modules[parent].height * scale * 0.25f);
@@ -193,32 +177,32 @@ static void DrawEvolvedAlienEntity(const Entity *entity,
         }
         switch ((CreatureModuleType)m->type) {
         case CREATURE_MODULE_TORSO:
-            DrawOrientedBox(center, (Vector3){w * 0.82f, h * 0.78f, l},
-                            entity->yaw, belly);
+            DrawPoseBox(pose, (Vector3){w * 0.82f, h * 0.78f, l}, belly);
             for (int segment = 0; segment < 3; segment++) {
                 float taper = segment == 1 ? 1.0f : 0.82f;
-                Vector3 plate = AlienPartPosition(center, forward, side,
+                Vector3 plate = CreaturePosePoint(pose,
                     (float)(segment - 1) * l * 0.30f, 0, h * 0.19f);
-                DrawOrientedBox(plate,
+                CreatureRendererDrawBox(plate,
                     (Vector3){w * taper, h * 0.72f, l * 0.285f},
-                    entity->yaw, segment == 1 ? shell : body);
+                    pose.yaw, pose.pitch, pose.roll, segment == 1 ? shell : body);
             }
             break;
         case CREATURE_MODULE_HEAD:
-            DrawOrientedBox(center, (Vector3){w, h, l * 0.78f}, entity->yaw, body);
-            DrawOrientedBox(AlienPartPosition(center, forward, side,
+            DrawPoseBox(pose, (Vector3){w, h, l * 0.78f}, body);
+            CreatureRendererDrawBox(CreaturePosePoint(pose,
                 l * 0.48f, 0, -h * 0.12f),
-                (Vector3){w * 0.58f, h * 0.34f, l * 0.46f}, entity->yaw, accent);
+                (Vector3){w * 0.58f, h * 0.34f, l * 0.46f},
+                pose.yaw, pose.pitch, pose.roll, accent);
             for (int sign = -1; sign <= 1; sign += 2) {
-                Vector3 eye = AlienPartPosition(center, forward, side,
+                Vector3 eye = CreaturePosePoint(pose,
                     l * 0.18f, sign * w * 0.50f, h * 0.18f);
                 float e = fminf(w, h) * 0.24f;
-                DrawOrientedBox(eye, (Vector3){e * 0.48f, e, e * 1.3f},
-                                entity->yaw, (Color){8, 17, 23, 255});
-                eye = Vector3Add(eye, Vector3Scale(side, sign * e * 0.25f));
-                eye.y += e * 0.13f;
-                DrawOrientedBox(eye, (Vector3){e * 0.12f, e * 0.32f, e * 0.32f},
-                                entity->yaw, (Color){224, 248, 209, 255});
+                CreatureRendererDrawBox(eye, (Vector3){e * 0.48f, e, e * 1.3f},
+                    pose.yaw, pose.pitch, pose.roll, (Color){8, 17, 23, 255});
+                eye = CreaturePosePoint(pose, l * 0.18f,
+                    sign * (w * 0.50f + e * 0.25f), h * 0.18f + e * 0.13f);
+                CreatureRendererDrawBox(eye, (Vector3){e * 0.12f, e * 0.32f, e * 0.32f},
+                    pose.yaw, pose.pitch, pose.roll, (Color){224, 248, 209, 255});
             }
             break;
         case CREATURE_MODULE_LIMB:
@@ -235,20 +219,24 @@ static void DrawEvolvedAlienEntity(const Entity *entity,
             break;
         case CREATURE_MODULE_WING: {
             float sign = m->localY >= 0.0f ? 1.0f : -1.0f;
-            Vector3 root = AlienPartPosition(center, forward, side,
-                0, -sign * w * 0.5f, 0);
-            float flap = entity->corpse ? 0.0f :
-                sinf(entity->phase * 2.4f) * 0.18f * runtime.animationScale;
-            if (attached) DrawModuleConnection(positions[parent], root, scale, body);
+            CreatureModulePose root = pose;
+            root.position = CreaturePosePoint(pose, 0, -sign * w * 0.5f, 0);
+            float effort = 0.30f + entity->pose.movement * 0.22f +
+                entity->pose.weights[FAUNA_ACTION_FLEE] * 0.25f;
+            float flap = entity->corpse ? 0 :
+                sinf(entity->phase * 5.0f) * effort * runtime.animationScale -
+                entity->pose.weights[FAUNA_ACTION_REST] * 0.70f;
+            flap += action.display * 0.35f;
+            if (attached) DrawModuleConnection(poses[parent].position, root.position, scale, body);
             for (int segment = 0; segment < 4; segment++) {
                 float t = ((float)segment + 0.5f) / 4.0f;
-                Vector3 part = AlienPartPosition(root, forward, side,
+                Vector3 part = CreaturePosePoint(root,
                     -l * t * 0.27f, sign * cosf(flap) * w * t,
                     sinf(flap) * w * t);
                 CreatureRendererDrawBox(part,
                     (Vector3){w * 0.27f, h * (1.0f - t * 0.50f),
                                l * (1.0f - t * 0.65f)},
-                    entity->yaw, 0, sign * flap,
+                    pose.yaw, pose.pitch, pose.roll + sign * flap,
                     segment == 3 ? dark : ColorLerp(body, accent, t * 0.7f));
             }
             break;
@@ -256,24 +244,23 @@ static void DrawEvolvedAlienEntity(const Entity *entity,
         case CREATURE_MODULE_TAIL:
             for (int segment = 0; segment < 3; segment++) {
                 float taper = 1.0f - (float)segment * 0.27f;
-                Vector3 part = AlienPartPosition(center, forward, side,
+                Vector3 part = CreaturePosePoint(pose,
                     l * (0.32f - (float)segment * 0.32f), 0, 0);
-                DrawOrientedBox(part, (Vector3){w * taper, h * taper, l * 0.36f},
-                                entity->yaw, segment == 2 ? accent : body);
+                CreatureRendererDrawBox(part, (Vector3){w * taper, h * taper, l * 0.36f},
+                    pose.yaw, pose.pitch, pose.roll, segment == 2 ? accent : body);
             }
             if (flying) for (int sign = -1; sign <= 1; sign += 2) {
-                Vector3 tip = AlienPartPosition(center, forward, side,
+                Vector3 tip = CreaturePosePoint(pose,
                     -l * 0.50f, sign * w * 0.40f, 0);
                 DrawOrientedBox(tip, (Vector3){w * 0.50f, h * 0.5f, l * 0.48f},
                                 entity->yaw + sign * 0.28f, accent);
             }
             break;
         case CREATURE_MODULE_SENSOR:
-            DrawOrientedBox(center, (Vector3){w * 0.65f, h, l * 0.65f},
-                            entity->yaw, accent);
+            DrawPoseBox(pose, (Vector3){w * 0.65f, h, l * 0.65f}, accent);
             break;
         default:
-            DrawOrientedBox(center, size, entity->yaw, shell);
+            DrawPoseBox(pose, size, shell);
             break;
         }
     }
@@ -282,11 +269,80 @@ static void DrawEvolvedAlienEntity(const Entity *entity,
         const CreatureConnection *c = &entity->phenotype.connections[i];
         if (!c->articulated && c->first < entity->phenotype.moduleCount &&
             c->second < entity->phenotype.moduleCount)
-            DrawModuleConnection(positions[c->first], positions[c->second], scale, dark);
+            DrawModuleConnection(poses[c->first].position, poses[c->second].position, scale, dark);
     }
 }
 
-static void DrawAlienEntity(const Entity *entity)
+static void DrawSimpleAnimal(const Entity *entity, bool terrain, Color body,
+                              Color head, float scale, unsigned rows, bool small)
+{
+    FaunaBodyPose action = FaunaPoseEvaluate(&entity->pose, entity->phase,
+        entity->needs.fatigue, entity->needs.stress, false);
+    float width = (small ? 0.45f : 0.7f) * scale;
+    float height = (small ? 0.4f : 0.6f) * scale;
+    float length = (small ? 0.6f : 1.0f) * scale;
+    float legHeight = (small ? 0.35f : 0.55f) * scale;
+    CreatureModulePose torso = {
+        .position = entity->position, .yaw = entity->yaw,
+        .pitch = action.bodyPitch, .roll = action.bodyRoll
+    };
+    torso.position.y += legHeight + height * 0.5f + action.bodyHeight * scale;
+    torso.position.y = fmaxf(torso.position.y, entity->position.y + height * 0.55f);
+    DrawPoseBox(torso, (Vector3){width, height, length}, body);
+    for (unsigned row = 0; row < rows; row++) {
+        float along = rows == 1 ? 0 : (0.3f - (float)row * 0.6f / (rows - 1)) * length;
+        for (unsigned side = 0; side < 2; side++) {
+            float across = (side == 0 ? -1 : 1) * width * 0.36f;
+            FaunaFootPose step = FaunaPoseFoot(&entity->pose, scale, row, side, rows);
+            Vector3 hip = CreaturePosePoint(torso, along, across, -height * 0.35f);
+            CreatureModulePose base = {.position = entity->position, .yaw = entity->yaw};
+            Vector3 foot = CreaturePosePoint(base, along + step.along, across, 0.045f * scale);
+            if (terrain) foot.y = EntityFootGround(foot, (void *)entity) + 0.045f * scale;
+            foot.y += step.lift;
+            Vector3 knee = Vector3Lerp(hip, foot, 0.52f);
+            knee = Vector3Add(knee, (Vector3){
+                sinf(entity->yaw) * scale * (0.12f + action.crouch * 0.16f), 0,
+                cosf(entity->yaw) * scale * (0.12f + action.crouch * 0.16f)
+            });
+            float thickness = small ? scale * 0.6f : scale;
+            DrawModuleConnection(hip, knee, thickness, body);
+            DrawModuleConnection(knee, foot, thickness * 0.85f, body);
+            DrawOrientedBox(knee, (Vector3){0.13f * scale, 0.13f * scale, 0.13f * scale},
+                entity->yaw, body);
+            DrawOrientedBox(foot, (Vector3){0.14f * scale, 0.08f * scale, 0.20f * scale},
+                entity->yaw, small ? (Color){92, 74, 48, 255} : body);
+        }
+    }
+    float headSize = (small ? 0.34f : 0.5f) * scale;
+    CreatureModulePose face = torso;
+    face.position = CreaturePosePoint(torso, length * 0.52f + action.headForward * scale,
+                                      0, height * 0.28f + action.headHeight * scale);
+    face.position.y = fmaxf(face.position.y, entity->position.y + headSize * 0.7f);
+    face.pitch += action.headPitch;
+    face.yaw += action.headYaw;
+    DrawModuleConnection(CreaturePosePoint(torso, length * 0.35f, 0, height * 0.15f),
+                          face.position, scale * 1.3f, body);
+    DrawPoseBox(face, (Vector3){headSize, headSize, headSize}, head);
+    CreatureModulePose muzzle = face;
+    muzzle.position = CreaturePosePoint(face, headSize * 0.48f, 0, -headSize * 0.13f);
+    DrawPoseBox(muzzle, (Vector3){headSize * (small ? 0.36f : 0.62f),
+        headSize * 0.30f, headSize * 0.34f}, small ? (Color){225, 158, 55, 255} : head);
+    for (int side = -1; side <= 1; side += 2) {
+        CreatureModulePose eye = face;
+        eye.position = CreaturePosePoint(face, headSize * 0.24f, side * headSize * 0.50f,
+                                         headSize * 0.18f);
+        DrawPoseBox(eye, (Vector3){0.02f * scale, 0.07f * scale, 0.08f * scale},
+                     (Color){10, 18, 24, 255});
+    }
+    if (small) {
+        CreatureModulePose comb = face;
+        comb.position = CreaturePosePoint(face, 0, 0, headSize * 0.60f);
+        DrawPoseBox(comb, (Vector3){0.1f * scale, 0.12f * scale, 0.1f * scale},
+                    (Color){214, 40, 36, 255});
+    }
+}
+
+static void DrawAlienEntity(const Entity *entity, bool terrain)
 {
     PlanetFaunaRuntimeState runtime = PlanetEcologyFaunaRuntime(
         entity->ecologyActivity, entity->ecologyCapacity);
@@ -299,13 +355,14 @@ static void DrawAlienEntity(const Entity *entity)
                                       runtime.visualPresence);
     float scale = entity->organismScale > 0.1f ? entity->organismScale : 1.0f;
     scale *= runtime.visualScale;
-    float armor = 1.0f + entity->bodyArmor * 0.38f;
+    FaunaBodyPose action = FaunaPoseEvaluate(&entity->pose, entity->phase,
+        entity->needs.fatigue, entity->needs.stress, entity->airborne);
 
     if (entity->evolvable && entity->phenotype.valid) {
         Color geneticAccent = ColorPalette256(
             20 + (int)(entity->genome.pigmentation % 216u));
         accent = ColorLerp(accent, geneticAccent, 0.32f);
-        DrawEvolvedAlienEntity(entity, runtime, body, accent, scale);
+        DrawEvolvedAlienEntity(entity, runtime, body, accent, scale, terrain);
         return;
     }
 
@@ -333,7 +390,8 @@ static void DrawAlienEntity(const Entity *entity)
                       (Vector3){ 0.54f * scale, 0.72f * scale, 0.54f * scale }, body);
         for (int i = 0; i < 6; i++) {
             float angle = (float)i * 1.0471976f + entity->phase * 0.08f;
-            float radius = 0.58f * scale;
+            float radius = (0.58f - 0.30f * entity->pose.weights[FAUNA_ACTION_FLEE] -
+                0.18f * action.crouch + 0.10f * entity->pose.weights[FAUNA_ACTION_FORAGE]) * scale;
             Vector3 node = { pos.x + cosf(angle) * radius,
                              pos.y + 0.28f * scale + (float)(i & 1) * 0.20f * scale,
                              pos.z + sinf(angle) * radius };
@@ -347,9 +405,10 @@ static void DrawAlienEntity(const Entity *entity)
         for (int segment = 0; segment < 5; segment++) {
             float segmentScale = scale * (1.0f - segment * 0.10f);
             float along = (0.42f - segment * 0.42f) * scale;
-            float across = sinf(entity->phase + segment * 0.75f) * 0.16f * scale;
+            float across = sinf(entity->pose.gaitPhase * 2 * PI - segment * 0.75f) *
+                0.16f * scale * entity->pose.movement - entity->pose.turn * segment * 0.07f * scale;
             DrawEntityBox(AlienPartPosition(pos, forward, side, along, across,
-                                             0.30f * segmentScale),
+                                             0.30f * segmentScale + (segment == 0 ? action.headHeight * 0.20f * scale : 0)),
                           (Vector3){ 0.48f * segmentScale, 0.48f * segmentScale,
                                      0.62f * segmentScale },
                           segment == 0 ? accent : body);
@@ -357,72 +416,9 @@ static void DrawAlienEntity(const Entity *entity)
         return;
     }
 
-    if (entity->bodyPlan == PLANET_BODY_BIPED) {
-        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.0f, 0.0f,
-                                        1.02f * scale),
-                      (Vector3){ 0.78f * scale * armor, 1.10f * scale,
-                                 0.62f * scale }, body);
-        for (int pair = -1; pair <= 1; pair += 2) {
-            DrawEntityBox(AlienPartPosition(pos, forward, side, -0.08f * scale,
-                                            pair * 0.22f * scale, 0.42f * scale),
-                          (Vector3){ 0.20f * scale, 0.84f * scale,
-                                     0.20f * scale }, body);
-        }
-        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.48f * scale,
-                                        0.0f, 1.78f * scale),
-                      (Vector3){ 0.52f * scale, 0.52f * scale,
-                                 0.52f * scale }, accent);
-        DrawEntityBox(AlienPartPosition(pos, forward, side, -0.10f * scale,
-                                        -0.58f * scale, 1.16f * scale),
-                      (Vector3){ 0.14f * scale, 0.70f * scale,
-                                 0.14f * scale }, accent);
-        DrawEntityBox(AlienPartPosition(pos, forward, side, -0.10f * scale,
-                                        0.58f * scale, 1.16f * scale),
-                      (Vector3){ 0.14f * scale, 0.70f * scale,
-                                 0.14f * scale }, accent);
-        return;
-    }
-
-    if (entity->bodyPlan == PLANET_BODY_HEXAPOD) {
-        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.0f, 0.0f,
-                                        0.66f * scale),
-                      (Vector3){ 1.20f * scale * armor, 0.58f * scale,
-                                 1.35f * scale }, body);
-        for (int row = -1; row <= 1; row++) {
-            for (int pair = -1; pair <= 1; pair += 2) {
-                DrawEntityBox(AlienPartPosition(pos, forward, side,
-                                                row * 0.42f * scale,
-                                                pair * 0.48f * scale,
-                                                0.33f * scale),
-                              (Vector3){ 0.14f * scale * armor, 0.66f * scale,
-                                         0.14f * scale * armor }, body);
-            }
-        }
-        DrawEntityBox(AlienPartPosition(pos, forward, side, 0.78f * scale,
-                                        0.0f, 0.88f * scale),
-                      (Vector3){ 0.56f * scale, 0.48f * scale,
-                                 0.56f * scale }, accent);
-        return;
-    }
-
-    DrawEntityBox(AlienPartPosition(pos, forward, side, 0.0f, 0.0f,
-                                    0.58f * scale),
-                  (Vector3){ 1.10f * scale * armor, 0.68f * scale,
-                             1.45f * scale }, body);
-    for (int row = -1; row <= 1; row += 2) {
-        for (int pair = -1; pair <= 1; pair += 2) {
-            DrawEntityBox(AlienPartPosition(pos, forward, side,
-                                            row * 0.42f * scale,
-                                            pair * 0.40f * scale,
-                                            0.28f * scale),
-                          (Vector3){ 0.16f * scale * armor, 0.56f * scale,
-                                     0.16f * scale * armor }, body);
-        }
-    }
-    DrawEntityBox(AlienPartPosition(pos, forward, side, 0.90f * scale,
-                                    0.0f, 0.82f * scale),
-                  (Vector3){ 0.58f * scale, 0.54f * scale,
-                             0.58f * scale }, accent);
+    unsigned rows = entity->bodyPlan == PLANET_BODY_BIPED ? 1 :
+        entity->bodyPlan == PLANET_BODY_HEXAPOD ? 3 : 2;
+    DrawSimpleAnimal(entity, terrain, body, accent, scale, rows, false);
 }
 
 void EntityRendererDrawInterpolated(const Entity *entities, int count,
@@ -446,86 +442,13 @@ void EntityRendererDrawInterpolated(const Entity *entities, int count,
         }
 
         if (EntityRenderUsesEcology(entity)) {
-            DrawAlienEntity(entity);
+            DrawAlienEntity(entity, entities == EntitiesView());
             continue;
         }
 
-        Vector3 pos = entity->position;
-        bool small = entity->type == ENTITY_CHICKEN;
-        float bodyW = small ? 0.45f : 0.7f;
-        float bodyH = small ? 0.4f : 0.6f;
-        float bodyL = small ? 0.6f : 1.0f;
-        float headSize = small ? 0.34f : 0.5f;
-        Vector3 forward = { sinf(entity->yaw), 0.0f, cosf(entity->yaw) };
-        Vector3 side = { forward.z, 0.0f, -forward.x };
-        float bodyY = 0.55f + bodyH * 0.5f;
-        float speed = sqrtf(entity->velocity.x * entity->velocity.x +
-                            entity->velocity.z * entity->velocity.z);
-        float gait = fminf(speed / 1.4f, 1.0f);
-        float bob = gait * 0.025f * sinf(entity->phase * 4.4f);
-        DrawOrientedBox(AnimalPart(pos, forward, side, 0.0f, 0.0f,
-                                   bodyY + bob),
-                        (Vector3){ bodyW, bodyH, bodyL }, entity->yaw,
-                        EntityBodyColor(entity->type));
-
-        float legW = small ? 0.12f : 0.22f;
-        float legH = small ? 0.35f : 0.55f;
-        float legOff = small ? 0.12f : 0.22f;
-        for (int k = 0; k < 4; k++) {
-            int row = k / 2;
-            int pair = k % 2 == 0 ? -1 : 1;
-            float phase = entity->phase * 2.2f +
-                          ((row + (pair > 0)) & 1) * PI;
-            float swing = sinf(phase) * 0.12f * gait;
-            float lift = fmaxf(0.0f, cosf(phase)) * 0.08f * gait;
-            float along = row == 0 ? bodyL * 0.30f : -bodyL * 0.30f;
-            float across = pair * legOff;
-            float upperH = legH * 0.56f;
-            float lowerH = legH - upperH;
-            float kneeAlong = along + swing * 0.62f;
-            float footAlong = along + swing;
-            /* Two independently placed segments give the leg a visible knee. */
-            DrawOrientedBox(AnimalPart(pos, forward, side,
-                                       kneeAlong, across,
-                                       lowerH + upperH * 0.5f),
-                            (Vector3){ legW, upperH, legW }, entity->yaw,
-                            EntityBodyColor(entity->type));
-            DrawOrientedBox(AnimalPart(pos, forward, side,
-                                       footAlong, across,
-                                       lowerH * 0.5f + lift),
-                            (Vector3){ legW * 0.88f, lowerH, legW * 0.88f },
-                            entity->yaw,
-                            small ? (Color){ 92, 74, 48, 255 } :
-                                EntityBodyColor(entity->type));
-            DrawOrientedBox(AnimalPart(pos, forward, side,
-                                       kneeAlong + swing * 0.10f, across,
-                                       lowerH),
-                            (Vector3){ legW * 1.12f, legW * 1.05f,
-                                       legW * 1.12f }, entity->yaw,
-                            EntityBodyColor(entity->type));
-        }
-
-        float headAlong = bodyL * 0.52f;
-        Vector3 headCenter = AnimalPart(pos, forward, side, headAlong, 0.0f,
-                                        bodyY + bodyH * 0.28f);
-        DrawOrientedBox(headCenter, (Vector3){ headSize, headSize, headSize },
-                        entity->yaw, EntityHeadColor(entity->type));
-        DrawOrientedBox(AnimalPart(pos, forward, side,
-                                   headAlong + headSize * 0.42f, 0.0f,
-                                   headCenter.y - pos.y - headSize * 0.13f),
-                        (Vector3){ headSize * (small ? 0.36f : 0.62f),
-                                   headSize * 0.30f, headSize * 0.34f },
-                        entity->yaw,
-                        small ? (Color){ 225, 158, 55, 255 } :
-                            EntityHeadColor(entity->type));
-
-        if (entity->type == ENTITY_CHICKEN) {
-            DrawOrientedBox(AnimalPart(pos, forward, side, headAlong,
-                                       0.0f, bodyY + bodyH * 0.28f +
-                                       headSize * 0.60f),
-                            (Vector3){ 0.1f, 0.12f, 0.1f }, entity->yaw,
-                            (Color){ 214, 40, 36, 255 });
-        }
+        bool chicken = entity->type == ENTITY_CHICKEN;
+        DrawSimpleAnimal(entity, entities == EntitiesView(), EntityBodyColor(entity->type),
+            EntityHeadColor(entity->type), 1.0f, chicken ? 1 : 2, chicken);
     }
 }
 

@@ -760,7 +760,6 @@ static void EntityUpdateEvolutionLifecycle(Entity *entity, int entityIndex,
         0.0f, entity->reproductionCooldownDays - elapsedDays);
     if (entity->pregnant) {
         entity->gestationProgressDays += elapsedDays;
-        entity->behavior = FAUNA_ACTION_NEST;
         if (entity->gestationProgressDays >= entity->gestationDurationDays) {
             EntityBirthOffspring(entity, daylight);
         }
@@ -794,6 +793,7 @@ typedef struct PassiveUpdateContext {
     double simulationTime;
     bool ecological;
     bool threatened;
+    bool alerted;
     PlanetFaunaRuntimeState runtime;
     float baseSpeed;
     float movementScale;
@@ -843,7 +843,17 @@ static void PassiveAdvanceNeeds(PassiveUpdateContext *context)
     }
     context->toPlayer = EntitySurfaceVector(
         entity->position, context->player->position);
-    context->threatened = Vector3Length(context->toPlayer) < 5.0f;
+    float playerDistance = Vector3Length(context->toPlayer);
+    float temperament = EntityUnit(entity->temperament);
+    float alertDistance = 6.0f + temperament * 3.0f;
+    float fleeDistance = 2.0f + temperament * 2.0f;
+    float approach = -Vector3DotProduct(context->player->velocity, context->toPlayer) /
+                     fmaxf(playerDistance, 0.001f);
+    context->alerted = playerDistance < alertDistance +
+        (entity->behavior == FAUNA_ACTION_ALERT ? 1.0f : 0.0f);
+    context->threatened = playerDistance < fleeDistance ||
+        (context->alerted && (approach > 2.5f || entity->needs.stress > 0.65f)) ||
+        (entity->behavior == FAUNA_ACTION_FLEE && playerDistance < alertDistance + 2.0f);
     context->movementScale = context->ecological
         ? context->runtime.movementScale : 1.0f;
     if (context->ecological && context->threatened) {
@@ -873,10 +883,12 @@ static void PassiveAdvanceNeeds(PassiveUpdateContext *context)
         .temperatureStress = entity->ecologyTemperatureStress,
         .moving = actionActive && FaunaBehaviorActionMoves(entity->behavior),
         .threatened = context->threatened,
+        .alerted = context->alerted,
         .feeding = actionActive &&
             (entity->behavior == FAUNA_ACTION_FORAGE || filterFeeding),
         .drinking = actionActive && entity->behavior == FAUNA_ACTION_DRINK,
-        .resting = actionActive && entity->behavior == FAUNA_ACTION_REST
+        .resting = actionActive && (entity->behavior == FAUNA_ACTION_REST ||
+                                   entity->behavior == FAUNA_ACTION_NEST)
     };
     entity->needs = FaunaNeedsAdvance(
         &entity->needs, &context->needInput, context->dt);
@@ -887,6 +899,11 @@ static void PassiveChooseBehavior(PassiveUpdateContext *context)
     Entity *entity = context->entity;
     entity->thinkTimer -= context->dt;
     if (context->threatened && entity->behavior != FAUNA_ACTION_FLEE) {
+        entity->thinkTimer = 0.0f;
+    }
+    if (!context->threatened &&
+        ((context->alerted && entity->behavior != FAUNA_ACTION_ALERT) ||
+         (!context->alerted && entity->behavior == FAUNA_ACTION_ALERT))) {
         entity->thinkTimer = 0.0f;
     }
     if (entity->thinkTimer <= 0.0f) {
@@ -906,6 +923,7 @@ static void PassiveChooseBehavior(PassiveUpdateContext *context)
             .foodDependence = EntityFoodDependence(entity->niche),
             .waterDependence = EntityWaterDependence(entity->chemistry),
             .fleeYaw = atan2f(-context->toPlayer.x, -context->toPlayer.z),
+            .alertYaw = atan2f(context->toPlayer.x, context->toPlayer.z),
             .baseThinkInterval = baseThinkInterval,
             .wanderRoll = (unsigned)EntityRandomBounded(100u),
             .wanderYaw = (float)EntityRandomBounded(628u) / 100.0f,
@@ -919,7 +937,7 @@ static void PassiveChooseBehavior(PassiveUpdateContext *context)
         int evolutionTarget = -1;
         FaunaBehaviorAction evolutionAction = FAUNA_ACTION_IDLE;
         if (entity->evolvable && !entity->pregnant &&
-            !context->threatened) {
+            !context->threatened && !context->alerted) {
             if (entity->phenotype.diet >= 0.36f && entity->needs.energy < 0.78f) {
                 evolutionTarget = EntityFindEvolutionTarget(
                     context->entityIndex, FAUNA_ACTION_SCAVENGE);
@@ -950,14 +968,22 @@ static void PassiveChooseBehavior(PassiveUpdateContext *context)
         } else if (entity->targetEntity >= 0) {
             entity->targetEntity = -1;
         }
-        if (entity->pregnant) {
-            decision.action = FAUNA_ACTION_NEST;
-            decision.moveDuration = 0.6f;
+        if (entity->pregnant && !context->threatened && !context->alerted) {
+            if (entity->ecologyShelterAvailability < 0.35f && directions.shelter.shouldSeek) {
+                decision.action = FAUNA_ACTION_SEEK_SHELTER;
+                decision.yaw = directions.shelter.yaw;
+                decision.moveDuration = 1.2f;
+            } else if (entity->needs.energy > 0.35f && entity->needs.hydration > 0.35f) {
+                decision.action = FAUNA_ACTION_NEST;
+                decision.moveDuration = 1.5f;
+                decision.thinkInterval = 1.0f;
+            }
         }
+        if (entity->behavior != decision.action) entity->pose.actionPhase = 0;
         entity->behavior = decision.action;
         entity->thinkTimer = decision.thinkInterval;
         entity->moveTimer = decision.moveDuration;
-        if (FaunaBehaviorActionMoves(decision.action)) {
+        if (FaunaBehaviorActionMoves(decision.action) || decision.action == FAUNA_ACTION_ALERT) {
             entity->motionTargetYaw = decision.yaw;
         }
     }
@@ -986,7 +1012,8 @@ static void PassiveInteractWithTarget(PassiveUpdateContext *context)
                 }
             } else if (entity->behavior == FAUNA_ACTION_HUNT &&
                        !target->corpse) {
-                float damage = context->dt *
+                float contact = FaunaPoseContactSeconds(entity->pose.actionPhase, context->dt);
+                float damage = contact / 0.16f *
                     (0.08f + entity->phenotype.attack * 0.035f) /
                     fmaxf(0.5f, target->phenotype.defense * 0.22f);
                 target->health -= damage;
@@ -1003,7 +1030,8 @@ static void PassiveInteractWithTarget(PassiveUpdateContext *context)
                     entity->targetEntity = -1;
                 }
             } else if (entity->behavior == FAUNA_ACTION_MATE &&
-                       EntityCompatibleMate(entity, target)) {
+                       EntityCompatibleMate(entity, target) &&
+                       entity->pose.engagement > 0.9f && entity->pose.actionPhase > 0.45f) {
                 EntityConceive(entity, target);
             }
         }
@@ -1033,7 +1061,9 @@ static void PassiveAdvanceController(PassiveUpdateContext *context)
         };
         EvolutionControllerEvaluate(&entity->genome, controllerInputs,
                                     controllerOutputs);
-        entity->motionTargetYaw += controllerOutputs[0] * 0.22f;
+        if (entity->behavior != FAUNA_ACTION_ALERT && entity->targetEntity < 0) {
+            entity->motionTargetYaw += controllerOutputs[0] * 0.22f;
+        }
         context->movementScale *= fminf(fmaxf(
             1.0f + controllerOutputs[1] * 0.16f, 0.82f), 1.18f);
     }
@@ -1048,14 +1078,21 @@ static void PassiveAdvanceController(PassiveUpdateContext *context)
         float flightCeiling = PlanetWorldIsActive()
             ? (float)SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 3.0f
             : (float)SURFACE_MAX_Y_EXCLUSIVE - 3.0f;
+        bool landing = entity->behavior == FAUNA_ACTION_REST ||
+            entity->behavior == FAUNA_ACTION_NEST || entity->behavior == FAUNA_ACTION_FORAGE ||
+            entity->behavior == FAUNA_ACTION_DRINK;
+        BlockType support = GetBlockAt((int)floorf(entity->position.x), groundY,
+                                       (int)floorf(entity->position.z));
+        landing = landing && BlockCollisionHeight(support) > 0 && !IsLiquidBlock(support);
+        float clearance = landing ? 0.025f : context->motionProfile.hoverClearance;
         float terrainHover = fminf(
             flightCeiling,
-            (float)groundY + 1.0f + context->motionProfile.hoverClearance);
+            (float)groundY + 1.0f + clearance);
         entity->hoverHeight += (terrainHover - entity->hoverHeight) *
             fminf(1.0f, context->dt * 0.75f);
         float targetY = entity->hoverHeight + sinf(entity->phase) *
                         (0.45f + entity->organismScale * 0.22f) *
-                        (0.20f + animationScale * 0.80f);
+                        (0.20f + animationScale * 0.80f) * (landing ? 0.0f : 1.0f);
         entity->position.y += (targetY - entity->position.y) *
             fminf(1.0f, context->dt * 2.2f);
     }
@@ -1066,6 +1103,12 @@ static void PassiveIntegrateMotion(PassiveUpdateContext *context)
     Entity *entity = context->entity;
     bool moving = entity->moveTimer > 0.0f && !entity->colony &&
                   FaunaBehaviorActionMoves(entity->behavior);
+    if (entity->evolvable && entity->targetEntity >= 0 &&
+        entity->targetEntity < MAX_ENTITIES && entity->targetEntity != context->entityIndex) {
+        const Entity *target = &entities[entity->targetEntity];
+        float reach = entity->phenotype.bodyRadius + target->phenotype.bodyRadius + 0.45f;
+        if (target->active && EntityDistanceSquared(entity, target) <= reach * reach) moving = false;
+    }
     if (entity->moveTimer > 0.0f) entity->moveTimer -= context->dt;
 
     FaunaMotionInput motionInput = {
@@ -1148,7 +1191,8 @@ static void UpdatePassive(Entity *entity, int entityIndex,
     Vector3 travelled = EntitySurfaceVector(beforeMove, entity->position);
     float distance = hypotf(travelled.x, travelled.z);
     bool engaged = false;
-    if (entity->targetEntity >= 0 && entity->targetEntity < MAX_ENTITIES) {
+    if (entity->evolvable && entity->targetEntity >= 0 &&
+        entity->targetEntity < MAX_ENTITIES && entity->targetEntity != entityIndex) {
         const Entity *target = &entities[entity->targetEntity];
         float reach = entity->phenotype.bodyRadius + target->phenotype.bodyRadius + 0.55f;
         engaged = target->active && EntityDistanceSquared(entity, target) <= reach * reach;

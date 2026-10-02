@@ -122,6 +122,15 @@ static void TestBehaviorUtility(void)
     assert(flee.yaw == input.fleeYaw);
     assert(flee.movementFloor == 0.28f);
 
+    input.environment.threatened = false;
+    input.environment.alerted = true;
+    input.alertYaw = -0.75f;
+    FaunaBehaviorDecision alert = FaunaBehaviorEvaluate(&input);
+    assert(alert.action == FAUNA_ACTION_ALERT && alert.yaw == input.alertYaw);
+    assert(!FaunaBehaviorActionMoves(alert.action));
+    input.environment.threatened = true;
+    assert(FaunaBehaviorEvaluate(&input).action == FAUNA_ACTION_FLEE);
+
     input = BaseBehaviorInput();
     input.dormant = true;
     FaunaBehaviorDecision idle = FaunaBehaviorEvaluate(&input);

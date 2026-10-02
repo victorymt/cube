@@ -66,7 +66,7 @@ FaunaNeeds FaunaNeedsAdvance(const FaunaNeeds *current,
     if (input->resting) result.fatigue -= 0.024f *
         (0.55f + shelter * 0.45f) * dt;
 
-    float stressRate = (input->threatened ? 0.11f : 0.0f) +
+    float stressRate = (input->threatened ? 0.11f : input->alerted ? 0.025f : 0.0f) +
                        storm * 0.026f + temperature * 0.020f;
     float recoveryRate = (input->resting ? 0.020f : 0.0f) +
                          shelter * 0.008f;
@@ -119,6 +119,14 @@ FaunaBehaviorDecision FaunaBehaviorEvaluate(
         result.moveDuration = 0.8f;
         result.movementFloor = 0.28f;
         result.utility = 1.0f;
+        return result;
+    }
+    if (input->environment.alerted) {
+        result.action = FAUNA_ACTION_ALERT;
+        result.yaw = isfinite(input->alertYaw) ? input->alertYaw : 0;
+        result.moveDuration = 0.65f;
+        result.thinkInterval = 0.25f;
+        result.utility = 0.95f;
         return result;
     }
     if (input->colony && input->dormant) {

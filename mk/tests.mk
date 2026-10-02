@@ -134,6 +134,7 @@ $(eval $(call define_test,FLORA_TAXA_TEST_TARGET,test_flora_taxa,src/ecology/flo
 $(eval $(call define_test,FAUNA_MOTION_TEST_TARGET,test_fauna_motion,src/ecology/fauna_motion.c,,,, -lm,,))
 $(eval $(call define_test,FAUNA_BEHAVIOR_TEST_TARGET,test_fauna_behavior,src/ecology/fauna_behavior.c,,,, -lm,,))
 $(eval $(call define_test,FAUNA_POSE_TEST_TARGET,test_fauna_pose,src/ecology/fauna_pose.c,,,, -lm,,))
+$(eval $(call define_test,CREATURE_POSE_TEST_TARGET,test_creature_pose,src/presentation/creature_pose.c src/ecology/fauna_pose.c src/ecology/evolution.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,EVOLUTION_TEST_TARGET,test_evolution,src/ecology/evolution.c src/ecology/creature_visual.c,,,, -lm,,))
 $(eval $(call define_test,EVOLUTION_CATALOG_TEST_TARGET,test_evolution_catalog,src/ecology/evolution_catalog.c src/ecology/evolution.c,,,, -lm,,))
 $(eval $(call define_test,FLUID_TEST_TARGET,test_fluid,src/world/fluid.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
