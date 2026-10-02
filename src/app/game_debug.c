@@ -1128,6 +1128,35 @@ static GameDebugDispatchResult GameDebugDispatchEvolutionCommand(
     GameRuntime *game, DebugControlCommand command)
 {
     switch (command) {
+    case DEBUG_CONTROL_COMMAND_EVOLUTION_SCENARIO: {
+        const float *v = game->debugControl.scenarioValues;
+        int danger = game->debugControl.scenarioDanger;
+        FaunaBehaviorInput input = {
+            .needs = {v[0], v[1], v[2], v[3]},
+            .environment = {.activityRatio = 1, .foodAvailability = v[4],
+                .waterAvailability = v[5], .shelterAvailability = v[6],
+                .stormPressure = v[7], .alerted = danger >= 1, .threatened = danger == 2},
+            /* Fixtures assume a reachable better resource when local supply is low. */
+            .food = {.yaw = 0.5f, .improvement = 1 - v[4], .shouldSeek = v[4] < 0.2f},
+            .water = {.yaw = -0.5f, .improvement = 1 - v[5], .shouldSeek = v[5] < 0.2f},
+            .shelter = {.yaw = 1, .improvement = 1 - v[6], .shouldSeek = v[6] < 0.2f},
+            .foodDependence = 1, .waterDependence = 1,
+            .baseThinkInterval = 1, .baseWanderDuration = 1, .wanderRoll = 99
+        };
+        if (game->screen != SCREEN_PLAYING || !game->biologyAtlasOpen ||
+            !BiologyAtlasPreviewScenarioConfigure(&input)) {
+            GameDebugMarkCommandError(game, "open_evolution_preview_first");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        FaunaBehaviorDecision decision = BiologyAtlasPreviewScenarioInfo().decision;
+        DebugControlReply(&game->debugControl,
+            "DEBUG_CONTROL evolution scenario ok action=%s utility=%.3f "
+            "energy=%.3f hydration=%.3f fatigue=%.3f stress=%.3f "
+            "food=%.3f water=%.3f shelter=%.3f storm=%.3f danger=%d\n",
+            FaunaBehaviorActionName(decision.action), decision.utility,
+            v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], danger);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
     case DEBUG_CONTROL_COMMAND_EVOLUTION_POSE: {
         if (game->screen != SCREEN_PLAYING || !game->biologyAtlasOpen ||
             !BiologyAtlasPreviewPoseConfigure(game->debugControl.previewAction,
@@ -1313,6 +1342,16 @@ static bool GameDebugDslResolveEvolution(GameRuntime *game, const char *name,
     if (!game || !name || !outValue || strncmp(name, "evolution.", 10u) != 0)
         return false;
     const char *field = name + 10u;
+    if (strncmp(field, "scenario_", 9) == 0) {
+        BiologyPreviewScenarioInfo scenario = BiologyAtlasPreviewScenarioInfo();
+        bool valid = game->screen == SCREEN_PLAYING && game->biologyAtlasOpen && scenario.valid;
+        if (!strcmp(field, "scenario_valid")) return GameDebugDslBool(outValue, valid);
+        if (!strcmp(field, "scenario_action")) return GameDebugDslString(outValue,
+            valid ? FaunaBehaviorActionName(scenario.decision.action) : "none");
+        if (!strcmp(field, "scenario_utility")) return GameDebugDslNumber(outValue,
+            valid ? scenario.decision.utility : 0);
+        return false;
+    }
     if (strncmp(field, "preview_", 8) == 0) {
         BiologyPreviewPoseInfo pose = BiologyAtlasPreviewPoseInfo();
         if (!strcmp(field, "preview_action")) return GameDebugDslString(outValue,

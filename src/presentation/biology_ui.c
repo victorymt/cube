@@ -32,6 +32,7 @@ typedef struct BiologyPreviewState {
     CreaturePhenotype phenotype;
     RenderTexture2D texture;
     BiologyPreviewPoseInfo motion;
+    BiologyPreviewScenarioInfo scenario;
     FaunaPoseState pose;
     float animationTime;
 } BiologyPreviewState;
@@ -82,6 +83,7 @@ static void PreviewInitialize(uint32_t worldSeed)
     if (preview.initialized && preview.worldSeed == worldSeed) return;
     preview.initialized = true;
     preview.worldSeed = worldSeed;
+    preview.scenario = (BiologyPreviewScenarioInfo){0};
     preview.seed = worldSeed ^ 0x51f15e9du;
     preview.archetype = EVOLUTION_ARCHETYPE_GROUND;
     preview.lengthPercent = 100;
@@ -99,6 +101,7 @@ void BiologyAtlasPreviewConfigure(uint32_t worldSeed, EvolutionArchetype type,
 {
     PreviewInitialize(worldSeed);
     preview.labMode = true;
+    preview.scenario = (BiologyPreviewScenarioInfo){0};
     preview.archetype = type;
     preview.seed = seed;
     preview.lengthPercent = length;
@@ -116,9 +119,11 @@ bool BiologyAtlasPreviewPoseConfigure(int action, float speed, float phase, floa
 {
     if (!preview.initialized || !preview.labMode) return false;
     if (action == -1) { preview.motion.frozen = false; return true; }
+    if (action == -2) { preview.motion.frozen = true; return true; }
     if (action < 0 || action > FAUNA_ACTION_COUNT || !isfinite(speed) ||
         speed < 0 || speed > 8 || !isfinite(phase) || phase < 0 || phase >= 1 ||
         !isfinite(turn) || fabsf(turn) > 1) return false;
+    if (action != preview.motion.action) preview.scenario.valid = false;
     preview.motion = (BiologyPreviewPoseInfo){action, speed, phase, turn, true};
     preview.pose = (FaunaPoseState){
         .gaitPhase = phase, .actionPhase = phase,
@@ -133,6 +138,22 @@ bool BiologyAtlasPreviewPoseConfigure(int action, float speed, float phase, floa
 BiologyPreviewPoseInfo BiologyAtlasPreviewPoseInfo(void)
 {
     return preview.motion;
+}
+
+bool BiologyAtlasPreviewScenarioConfigure(const FaunaBehaviorInput *input)
+{
+    if (!input || !preview.initialized || !preview.labMode) return false;
+    FaunaBehaviorDecision decision = FaunaBehaviorEvaluate(input);
+    float speed = decision.action == FAUNA_ACTION_FLEE ? 2.0f :
+        FaunaBehaviorActionMoves(decision.action) ? 1.0f : 0.0f;
+    if (!BiologyAtlasPreviewPoseConfigure(decision.action, speed, 0.48f, 0)) return false;
+    preview.scenario = (BiologyPreviewScenarioInfo){true, *input, decision};
+    return true;
+}
+
+BiologyPreviewScenarioInfo BiologyAtlasPreviewScenarioInfo(void)
+{
+    return preview.scenario;
 }
 
 static bool PreviewButton(Rectangle bounds, const char *label, bool selected)
@@ -178,6 +199,7 @@ static void PreviewRender3D(Rectangle bounds)
     specimen.airborne = preview.phenotype.locomotion == CREATURE_LOCOMOTION_FLIGHT;
     specimen.aquatic = preview.phenotype.locomotion == CREATURE_LOCOMOTION_AQUATIC;
     specimen.behavior = (FaunaBehaviorAction)preview.motion.action;
+    specimen.needs = preview.scenario.valid ? preview.scenario.input.needs : FaunaNeedsDefault();
     specimen.corpse = preview.motion.action == FAUNA_ACTION_COUNT;
     specimen.velocity = (Vector3){sinf(specimen.yaw) * preview.motion.speed, 0,
                                   cosf(specimen.yaw) * preview.motion.speed};
@@ -247,6 +269,12 @@ static void PreviewRender3D(Rectangle bounds)
         FaunaBehaviorActionName(specimen.behavior), preview.motion.speed,
         preview.motion.frozen ? "FROZEN" : "LIVE"),
         (int)bounds.x + 10, (int)bounds.y + 10, 14, (Color){176, 238, 208, 255});
+    if (preview.scenario.valid) {
+        UiDrawText(TextFormat("DECISION %.3f  ENERGY %.2f  WATER %.2f",
+            preview.scenario.decision.utility, specimen.needs.energy,
+            specimen.needs.hydration), (int)bounds.x + 10,
+            (int)bounds.y + 30, 14, (Color){176, 238, 208, 255});
+    }
 }
 
 static void PreviewDrawControl(int x, int y, const char *label, int *value,

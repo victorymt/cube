@@ -33,6 +33,15 @@ typedef struct BiologyPreviewPoseInfo {
 bool BiologyAtlasPreviewPoseConfigure(int action, float speed, float phase, float turn);
 BiologyPreviewPoseInfo BiologyAtlasPreviewPoseInfo(void);
 
+typedef struct BiologyPreviewScenarioInfo {
+    bool valid;
+    FaunaBehaviorInput input;
+    FaunaBehaviorDecision decision;
+} BiologyPreviewScenarioInfo;
+
+bool BiologyAtlasPreviewScenarioConfigure(const FaunaBehaviorInput *input);
+BiologyPreviewScenarioInfo BiologyAtlasPreviewScenarioInfo(void);
+
 void DrawEvolutionScanPanel(const EntityEvolutionDebugInfo *info,
                             bool locked);
 void BiologyAtlasDraw(const BiologyAtlasUiInput *input,

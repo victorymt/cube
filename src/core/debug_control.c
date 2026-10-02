@@ -392,6 +392,26 @@ static DebugControlCommand DebugControlParseWeather(DebugControl *control,
 static DebugControlCommand DebugControlParseEvolution(
     DebugControl *control, const char *line)
 {
+    float values[8];
+    int danger;
+    char scenarioTrailing;
+    if (sscanf(line, "evolution scenario %f %f %f %f %f %f %f %f %d %c",
+        &values[0], &values[1], &values[2], &values[3],
+        &values[4], &values[5], &values[6], &values[7],
+        &danger, &scenarioTrailing) == 9 && danger >= 0 && danger <= 2) {
+        bool valid = true;
+        for (int i = 0; i < 8; i++)
+            if (!isfinite(values[i]) || values[i] < 0 || values[i] > 1) valid = false;
+        if (valid) {
+            memcpy(control->scenarioValues, values, sizeof(values));
+            control->scenarioDanger = danger;
+            return DEBUG_CONTROL_COMMAND_EVOLUTION_SCENARIO;
+        }
+    }
+    if (strcmp(line, "evolution pose freeze") == 0) {
+        control->previewAction = -2;
+        return DEBUG_CONTROL_COMMAND_EVOLUTION_POSE;
+    }
     if (strcmp(line, "evolution pose live") == 0) {
         control->previewAction = -1;
         return DEBUG_CONTROL_COMMAND_EVOLUTION_POSE;

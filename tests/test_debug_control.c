@@ -314,6 +314,30 @@ static void TestEvolutionPreviewCommand(void)
     }
     assert(DebugControlParseText(&control, "evolution pose live") ==
            DEBUG_CONTROL_COMMAND_EVOLUTION_POSE && control.previewAction == -1);
+    assert(DebugControlParseText(&control, "evolution pose freeze") ==
+           DEBUG_CONTROL_COMMAND_EVOLUTION_POSE && control.previewAction == -2);
+    assert(DebugControlParseText(&control,
+        "evolution scenario 0.1 1 0 0.5 1 0 1 0 2") ==
+        DEBUG_CONTROL_COMMAND_EVOLUTION_SCENARIO);
+    assert(control.scenarioValues[0] == 0.1f && control.scenarioValues[3] == 0.5f);
+    assert(control.scenarioValues[4] == 1 && control.scenarioValues[5] == 0);
+    assert(control.scenarioDanger == 2);
+    const char *invalidScenarios[] = {
+        "evolution scenario -0.1 1 0 0 1 1 1 0 0",
+        "evolution scenario 1 1 0 0 1.1 1 1 0 0",
+        "evolution scenario 1 1 nan 0 1 1 1 0 0",
+        "evolution scenario 1 1 0 inf 1 1 1 0 0",
+        "evolution scenario 1 1 0 0 1 1 1 0 3",
+        "evolution scenario 1 1 0 0 1 1 1 0 -1",
+        "evolution scenario 1 1 0 0 1 1 1 0 1.5",
+        "evolution scenario 1 1 0 0 1 1 1 0",
+        "evolution scenario 1 1 0 0 1 1 1 0 0 extra",
+        "evolution pose freeze extra"
+    };
+    for (unsigned i = 0; i < sizeof(invalidScenarios) / sizeof(invalidScenarios[0]); i++) {
+        assert(DebugControlParseText(&control, invalidScenarios[i]) == DEBUG_CONTROL_COMMAND_INVALID);
+        assert(control.scenarioValues[0] == 0.1f && control.scenarioDanger == 2);
+    }
 }
 
 static void TestEvolutionCommands(void)

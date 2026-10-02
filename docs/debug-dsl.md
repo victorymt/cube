@@ -805,6 +805,8 @@ evolution atlas
 evolution preview ground|flight|aquatic SEED LENGTH WIDTH APPENDAGES SILHOUETTE
 evolution pose ACTION SPEED PHASE TURN
 evolution pose live
+evolution pose freeze
+evolution scenario ENERGY HYDRATION FATIGUE STRESS FOOD WATER SHELTER STORM DANGER
 evolution catalog
 ```
 
@@ -843,6 +845,37 @@ describe the lab configuration. Run `make test-animal-pose-e2e` on Hyprland to
 assert the command path and capture 39 ground/flight/aquatic poses, including
 opposite walking phases, rest, feeding, vigilance, courtship, strikes and
 death. The harness always retains its temporary screenshots and reply log.
+
+`evolution pose freeze` pauses at the current pose without resetting its phase.
+`evolution scenario` requires an open specimen preview. Its first eight values
+are finite numbers in [0,1]; `DANGER` is an integer: 0 safe, 1 alert, 2 threatened.
+It calls the same `FaunaBehaviorEvaluate` used by world animals, then freezes
+the selected pose at phase 0.48. Use `evolution pose live` to play its animation.
+Replies contain the selected action, utility score and all supplied conditions.
+`evolution.scenario_valid`, `evolution.scenario_action` and
+`evolution.scenario_utility` expose the decision for assertions. Reopening the
+preview or selecting a different action clears the decision; freezing, resuming
+or adjusting the same action's phase preserves it.
+
+This is a single decision under fixed conditions, not a live-world simulation.
+The fixture assumes a reachable better food/water/shelter location when its
+local availability is below 0.2, uses full food/water dependence and activity,
+starts from idle and disables random wandering. Danger is supplied directly;
+the fixture does not test player-distance perception, pregnancy, target selection,
+pathfinding or contact damage. Needs stay fixed during animation playback.
+
+```text
+evolution preview ground 123 100 100 100 0
+# Hungry, with food locally available.
+evolution scenario 0.1 1 0 0 1 1 1 0 0
+assert evolution.scenario_valid && evolution.scenario_action == "forage"
+# The same needs, now threatened: safety interrupts feeding.
+evolution scenario 0.1 1 0 0 1 1 1 0 2
+assert evolution.scenario_action == "flee"
+evolution pose live
+evolution pose freeze
+screenshot
+```
 
 `evolution advance` advances the simulation clock and begins bounded regional
 catch-up. For large jumps, use `wait until !ecology.catchup_pending timeout 600`
