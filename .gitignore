@@ -8,6 +8,8 @@
 /tests/test_*
 !/tests/test_*.c
 !/tests/test_*.sh
+!/tests/test_*.py
+__pycache__/
 
 /voxelcraft_save.txt
 /voxelcraft_save.bak

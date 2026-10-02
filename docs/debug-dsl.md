@@ -877,6 +877,54 @@ evolution pose freeze
 screenshot
 ```
 
+#### Interactive animal scenarios
+
+From the project directory in Hyprland, run `make animal-scenarios`. The terminal
+menu selects 12 fixed situations: calm, hunger with/without local food, thirst
+with/without local water, fatigue, exposed/sheltered storm, alert while hungry,
+danger while hungry, hunger/thirst competition, and danger while exhausted.
+Each preset asserts the game's actual decision before playing it. Presets do
+not inject the expected action. This lab isolates the base need/alert decision;
+world target selection and evolution-specific overrides remain outside its scope.
+
+| Menu input | Effect |
+| --- | --- |
+| `1`–`12` | Select conditions, assert the expected decision, play the result |
+| `g`, `f`, `w` | Repeat the current conditions with ground, flight or aquatic anatomy |
+| `p` | Pause/resume at the current pose |
+| `[`, `]` | Set the phase 0.1 cycles backward/forward and freeze |
+| `v`, `t` | Set display speed or turn; these do not change the decision inputs |
+| `c` | Enter all nine scenario values, and inspect the computed action/score |
+| `o` | Pose-only preview, including hunt/scavenge/mate/nest/dead; no trigger assertions |
+| `r` | Reopen the fixed-seed specimen and repeat current conditions/pose |
+| `s` | Save a PNG and its capture report |
+| `a` | Assert/capture all presets for the current anatomy and check threat recovery |
+| `i`, `h`, `q` | Show current configuration, show help, quit |
+
+All runs use a separate `/tmp/voxelcraft-animal-scenarios-*` working directory
+with an assets symlink. The directory is printed and retained on success or
+failure. `replies.log` holds the complete game output; `replay.dsl` holds the
+submitted commands. To replay a session in the same isolated directory:
+
+```sh
+cd /tmp/voxelcraft-animal-scenarios-REPLACE_ME
+/absolute/path/to/cube/build/normal/voxelcraft --debug-script replay.dsl --debug-stdin
+```
+
+An interactive replay ends with its last submitted command and leaves the game
+open. It reproduces inputs and frozen phases; time spent watching live playback
+between menu commands is not recorded. The game output is continuously drained
+while the terminal waits for input. EOF, Ctrl-C and `q` close the child process.
+
+`make test-animal-scenarios-e2e` checks all 12 presets for all three anatomies,
+threat recovery, playback advancement and exact pause preservation. It retains
+36 fixed screenshots plus one pause screenshot. This checks decisions and the
+rendering command path; screenshots still need visual review. The standalone
+`make test-animal-scenarios-script` checks the subprocess protocol without a GPU.
+Use `uv run --no-project --offline python scripts/animal_scenarios.py --help`
+for options, including `--seed`, `--plan`, `--binary`, `--resolution`, `--list`
+and `--check`.
+
 `evolution advance` advances the simulation clock and begins bounded regional
 catch-up. For large jumps, use `wait until !ecology.catchup_pending timeout 600`
 before checking updated populations. Region inspection and the typed ecology

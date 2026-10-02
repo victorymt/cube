@@ -156,6 +156,16 @@ test-debug-graphics-e2e: $(TARGET)
 test-animal-pose-e2e: $(TARGET)
 	bash tests/test_animal_pose_e2e.sh $(TARGET)
 
+.PHONY: animal-scenarios test-animal-scenarios-e2e test-animal-scenarios-script
+animal-scenarios: $(TARGET)
+	uv run --no-project --offline python scripts/animal_scenarios.py --no-build --binary $(TARGET)
+
+test-animal-scenarios-script:
+	uv run --no-project --offline python -m unittest discover -s tests -p test_animal_scenarios.py
+
+test-animal-scenarios-e2e: $(TARGET) test-animal-scenarios-script
+	uv run --no-project --offline python scripts/animal_scenarios.py --no-build --binary $(TARGET) --check
+
 test-polar-e2e: $(TARGET)
 	bash tests/test_polar_e2e.sh $(TARGET)
 
