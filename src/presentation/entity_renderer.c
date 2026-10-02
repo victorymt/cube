@@ -6,6 +6,7 @@
 #include "world/world.h"
 
 #include "raymath.h"
+#include "rlgl.h"
 
 #include <math.h>
 
@@ -69,6 +70,24 @@ static Color AlienAccentColor(const Entity *entity)
 static void DrawEntityBox(Vector3 center, Vector3 size, Color color)
 {
     DrawCubeV(center, size, color);
+}
+
+static void DrawOrientedBox(Vector3 center, Vector3 size, float yaw, Color color)
+{
+    rlPushMatrix();
+    rlTranslatef(center.x, center.y, center.z);
+    rlRotatef(yaw * RAD2DEG, 0.0f, 1.0f, 0.0f);
+    DrawCubeV(Vector3Zero(), size, color);
+    rlPopMatrix();
+}
+
+static Vector3 AnimalPart(Vector3 origin, Vector3 forward, Vector3 side,
+                          float along, float across, float y)
+{
+    Vector3 result = Vector3Add(origin, Vector3Scale(forward, along));
+    result = Vector3Add(result, Vector3Scale(side, across));
+    result.y += y;
+    return result;
 }
 
 static Vector3 AlienPartPosition(Vector3 origin, Vector3 forward, Vector3 side,
@@ -340,30 +359,57 @@ void EntityRendererDrawInterpolated(const Entity *entities, int count,
         float bodyH = small ? 0.4f : 0.6f;
         float bodyL = small ? 0.6f : 1.0f;
         float headSize = small ? 0.34f : 0.5f;
-
-        Vector3 bodyCenter = { pos.x, pos.y + bodyH * 0.5f + 0.2f, pos.z };
-        DrawEntityBox(bodyCenter, (Vector3){ bodyW, bodyH, bodyL }, EntityBodyColor(entity->type));
-
-        Vector3 headCenter = { pos.x, pos.y + bodyH + 0.2f + headSize * 0.5f, pos.z };
-        DrawEntityBox(headCenter, (Vector3){ headSize, headSize, headSize }, EntityHeadColor(entity->type));
+        Vector3 forward = { sinf(entity->yaw), 0.0f, cosf(entity->yaw) };
+        Vector3 side = { forward.z, 0.0f, -forward.x };
+        float bodyY = 0.55f + bodyH * 0.5f;
+        float speed = sqrtf(entity->velocity.x * entity->velocity.x +
+                            entity->velocity.z * entity->velocity.z);
+        float gait = fminf(speed / 1.4f, 1.0f);
+        float bob = gait * 0.025f * sinf(entity->phase * 4.4f);
+        DrawOrientedBox(AnimalPart(pos, forward, side, 0.0f, 0.0f,
+                                   bodyY + bob),
+                        (Vector3){ bodyW, bodyH, bodyL }, entity->yaw,
+                        EntityBodyColor(entity->type));
 
         float legW = small ? 0.12f : 0.22f;
         float legH = small ? 0.35f : 0.55f;
         float legOff = small ? 0.12f : 0.22f;
-        Vector3 legCenters[4] = {
-            { pos.x - legOff, pos.y + legH * 0.5f, pos.z - legOff },
-            { pos.x + legOff, pos.y + legH * 0.5f, pos.z - legOff },
-            { pos.x - legOff, pos.y + legH * 0.5f, pos.z + legOff },
-            { pos.x + legOff, pos.y + legH * 0.5f, pos.z + legOff }
-        };
-        Color legColor = EntityBodyColor(entity->type);
         for (int k = 0; k < 4; k++) {
-            DrawEntityBox(legCenters[k], (Vector3){ legW, legH, legW }, legColor);
+            int row = k / 2;
+            int pair = k % 2 == 0 ? -1 : 1;
+            float phase = entity->phase * 2.2f +
+                          ((row + (pair > 0)) & 1) * PI;
+            float swing = sinf(phase) * 0.12f * gait;
+            float lift = fmaxf(0.0f, cosf(phase)) * 0.08f * gait;
+            float along = row == 0 ? bodyL * 0.30f : -bodyL * 0.30f;
+            float across = pair * legOff;
+            DrawOrientedBox(AnimalPart(pos, forward, side,
+                                       along + swing, across,
+                                       legH * 0.5f + lift),
+                            (Vector3){ legW, legH, legW }, entity->yaw,
+                            EntityBodyColor(entity->type));
         }
 
+        float headAlong = bodyL * 0.52f;
+        Vector3 headCenter = AnimalPart(pos, forward, side, headAlong, 0.0f,
+                                        bodyY + bodyH * 0.28f);
+        DrawOrientedBox(headCenter, (Vector3){ headSize, headSize, headSize },
+                        entity->yaw, EntityHeadColor(entity->type));
+        DrawOrientedBox(AnimalPart(pos, forward, side,
+                                   headAlong + headSize * 0.42f, 0.0f,
+                                   headCenter.y - pos.y - headSize * 0.13f),
+                        (Vector3){ headSize * (small ? 0.36f : 0.62f),
+                                   headSize * 0.30f, headSize * 0.34f },
+                        entity->yaw,
+                        small ? (Color){ 225, 158, 55, 255 } :
+                            EntityHeadColor(entity->type));
+
         if (entity->type == ENTITY_CHICKEN) {
-            DrawEntityBox((Vector3){ pos.x, pos.y + bodyH + 0.2f + headSize + 0.12f, pos.z },
-                          (Vector3){ 0.1f, 0.12f, 0.1f }, (Color){ 214, 40, 36, 255 });
+            DrawOrientedBox(AnimalPart(pos, forward, side, headAlong,
+                                       0.0f, bodyY + bodyH * 0.28f +
+                                       headSize * 0.60f),
+                            (Vector3){ 0.1f, 0.12f, 0.1f }, entity->yaw,
+                            (Color){ 214, 40, 36, 255 });
         }
     }
 }
