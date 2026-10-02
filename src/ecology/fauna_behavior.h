@@ -17,7 +17,10 @@ typedef enum FaunaBehaviorAction {
     FAUNA_ACTION_HUNT,
     FAUNA_ACTION_SCAVENGE,
     FAUNA_ACTION_MATE,
-    FAUNA_ACTION_NEST
+    FAUNA_ACTION_NEST,
+    /* Append actions to preserve the numeric values in older saves. */
+    FAUNA_ACTION_ALERT,
+    FAUNA_ACTION_COUNT
 } FaunaBehaviorAction;
 
 typedef struct FaunaNeeds {

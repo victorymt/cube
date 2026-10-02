@@ -218,5 +218,5 @@ bool FaunaBehaviorActionMoves(FaunaBehaviorAction action)
 
 bool FaunaBehaviorActionValid(FaunaBehaviorAction action)
 {
-    return action >= FAUNA_ACTION_IDLE && action <= FAUNA_ACTION_NEST;
+    return action >= FAUNA_ACTION_IDLE && action < FAUNA_ACTION_COUNT;
 }

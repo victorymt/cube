@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ENTITY_STATE_VERSION 4u
+#define ENTITY_STATE_VERSION 5u
 
 Vector3 EntityFluidCurrent(const Entity *entity)
 {
@@ -144,6 +144,11 @@ typedef struct EntityDiskStateV4 {
     CreatureGenome genome;
     CreatureGenome pendingOffspring;
 } EntityDiskStateV4;
+
+typedef struct EntityDiskStateV5 {
+    EntityDiskStateV4 entity;
+    FaunaPoseState pose;
+} EntityDiskStateV5;
 
 Entity entityStore[MAX_ENTITIES];
 uint32_t entityRandomState = ENTITY_RANDOM_FALLBACK;
@@ -703,12 +708,13 @@ bool EntitiesSaveState(FILE *file)
         return false;
     }
 
-    EntityDiskStateV4 saved[MAX_ENTITIES] = { 0 };
+    EntityDiskStateV5 saved[MAX_ENTITIES] = { 0 };
     for (int index = 0; index < MAX_ENTITIES; index++) {
         const Entity *entity = &entities[index];
-        EntityDiskStateV4 *disk = &saved[index];
-        EntityWriteDiskStateV4(disk, entity);
-        if (!EntityDiskStateV4Valid(disk)) return false;
+        EntityWriteDiskStateV4(&saved[index].entity, entity);
+        if (entity->active) saved[index].pose = entity->pose;
+        if (!EntityDiskStateV4Valid(&saved[index].entity) ||
+            !FaunaPoseStateValid(&saved[index].pose)) return false;
     }
     return fwrite(saved, sizeof(saved), 1, file) == 1;
 }
@@ -749,12 +755,21 @@ bool EntitiesLoadState(FILE *file)
             if (!EntityDiskStateV3Valid(&saved[index])) return false;
             EntityReadDiskStateV3(&loaded[index], &saved[index]);
         }
-    } else {
+    } else if (header[0] == 4u) {
         EntityDiskStateV4 saved[MAX_ENTITIES];
         if (fread(saved, sizeof(saved), 1, file) != 1) return false;
         for (int index = 0; index < MAX_ENTITIES; index++) {
             if (!EntityDiskStateV4Valid(&saved[index])) return false;
             EntityReadDiskStateV4(&loaded[index], &saved[index]);
+        }
+    } else {
+        EntityDiskStateV5 saved[MAX_ENTITIES];
+        if (fread(saved, sizeof(saved), 1, file) != 1) return false;
+        for (int index = 0; index < MAX_ENTITIES; index++) {
+            if (!EntityDiskStateV4Valid(&saved[index].entity) ||
+                !FaunaPoseStateValid(&saved[index].pose)) return false;
+            EntityReadDiskStateV4(&loaded[index], &saved[index].entity);
+            loaded[index].pose = saved[index].pose;
         }
     }
     if (header[0] < 4u) {

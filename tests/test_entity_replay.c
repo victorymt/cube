@@ -104,6 +104,11 @@ typedef struct TestEntityDiskStateV4 {
     CreatureGenome pendingOffspring;
 } TestEntityDiskStateV4;
 
+typedef struct TestEntityDiskStateV5 {
+    TestEntityDiskStateV4 entity;
+    FaunaPoseState pose;
+} TestEntityDiskStateV5;
+
 static TestTerrainMode testTerrainMode = TEST_TERRAIN_FLAT;
 
 bool WorldIsSurfaceActive(void)
@@ -464,7 +469,7 @@ static TestEntityDiskStateV3 CurrentMovingEntity(void)
 {
     uint32_t header[3];
     float spawnTimer = 0.0f;
-    TestEntityDiskStateV4 saved[MAX_ENTITIES];
+    TestEntityDiskStateV5 saved[MAX_ENTITIES];
     FILE *file = tmpfile();
     assert(file);
     assert(EntitiesSaveState(file));
@@ -473,10 +478,10 @@ static TestEntityDiskStateV3 CurrentMovingEntity(void)
     assert(fread(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
     assert(fread(saved, sizeof(saved), 1, file) == 1);
     fclose(file);
-    assert(header[0] == 4u && header[1] == MAX_ENTITIES);
+    assert(header[0] == 5u && header[1] == MAX_ENTITIES);
     assert(spawnTimer > 0.0f);
-    assert(saved[0].entity.entity.entity.active == 1u);
-    return saved[0].entity;
+    assert(saved[0].entity.entity.entity.entity.active == 1u);
+    return saved[0].entity.entity;
 }
 
 static void TestEntityReplay(void)
@@ -492,7 +497,7 @@ static void TestEntityReplay(void)
     size_t expectedSize = 0;
     unsigned char *expected = CaptureState(&expectedSize);
     assert(EntityStateHash(expected, expectedSize) ==
-           UINT64_C(3340331984177728549));
+           UINT64_C(6480832967628278525));
 
     LoadBytes(checkpoint, checkpointSize);
     RunFrames(&player, 80);
@@ -533,6 +538,18 @@ static void TestEntityLoadIsAtomic(void)
     FILE *file = tmpfile();
     assert(file);
     assert(fwrite(before, 1, beforeSize - 1, file) == beforeSize - 1);
+    rewind(file);
+    assert(!EntitiesLoadState(file));
+    fclose(file);
+
+    /* Invalid animation data must not partially replace live entities. */
+    TestEntityDiskStateV5 invalid;
+    memcpy(&invalid, before + 3 * sizeof(uint32_t) + sizeof(float), sizeof(invalid));
+    invalid.pose.gaitPhase = NAN;
+    file = tmpfile();
+    assert(file && fwrite(before, 1, beforeSize, file) == beforeSize);
+    assert(fseek(file, 3 * sizeof(uint32_t) + sizeof(float), SEEK_SET) == 0);
+    assert(fwrite(&invalid, sizeof(invalid), 1, file) == 1);
     rewind(file);
     assert(!EntitiesLoadState(file));
     fclose(file);
@@ -732,17 +749,17 @@ static void TestSphericalEntityAliasMigration(void)
     assert(EntitiesSaveState(file));
     uint32_t header[3];
     float spawnTimer = 0.0f;
-    TestEntityDiskStateV4 saved[MAX_ENTITIES];
+    TestEntityDiskStateV5 saved[MAX_ENTITIES];
     rewind(file);
     assert(fread(header, sizeof(header), 1, file) == 1);
     assert(fread(&spawnTimer, sizeof(spawnTimer), 1, file) == 1);
     assert(fread(saved, sizeof(saved), 1, file) == 1);
     fclose(file);
-    assert(header[0] == 4u);
-    const TestEntityDiskStateV1 *migrated = &saved[0].entity.entity.entity;
+    assert(header[0] == 5u);
+    const TestEntityDiskStateV1 *migrated = &saved[0].entity.entity.entity.entity;
     assert(fabsf(migrated->velocity[2] + 1.25f) < 0.001f);
     assert(cosf(migrated->yaw) < -0.99f);
-    assert(cosf(saved[0].entity.entity.motionTargetYaw) < -0.99f);
+    assert(cosf(saved[0].entity.entity.entity.motionTargetYaw) < -0.99f);
     assert(fabsf(migrated->ecologyWindAngle + PI * 0.5f) < 0.001f);
 }
 
@@ -794,19 +811,19 @@ static void TestEvolutionLifecycleAndPredation(void)
     assert(EntitiesSaveState(familyState));
     uint32_t familyHeader[3];
     float familySpawnTimer = 0.0f;
-    TestEntityDiskStateV4 family[MAX_ENTITIES];
+    TestEntityDiskStateV5 family[MAX_ENTITIES];
     rewind(familyState);
     assert(fread(familyHeader, sizeof(familyHeader), 1, familyState) == 1);
     assert(fread(&familySpawnTimer, sizeof(familySpawnTimer), 1,
                  familyState) == 1);
     assert(fread(family, sizeof(family), 1, familyState) == 1);
     fclose(familyState);
-    assert(familyHeader[0] == 4u);
-    assert(family[0].motherId == mother.motherId);
-    assert(family[0].fatherId == mother.fatherId);
-    assert(family[0].pendingFatherId == 0u);
-    assert(family[2].motherId == mother.organismId);
-    assert(family[2].fatherId == father.organismId);
+    assert(familyHeader[0] == 5u);
+    assert(family[0].entity.motherId == mother.motherId);
+    assert(family[0].entity.fatherId == mother.fatherId);
+    assert(family[0].entity.pendingFatherId == 0u);
+    assert(family[2].entity.motherId == mother.organismId);
+    assert(family[2].entity.fatherId == father.organismId);
 
     TestEntityDiskStateV4 predator = EvolutionTestEntity(
         EVOLUTION_ARCHETYPE_AQUATIC, 0x33339695u, CREATURE_SEX_MALE);
@@ -861,10 +878,14 @@ static void TestRenderPoseInterpolation(void)
     entity->position = (Vector3){ 0.0f, 12.0f, 0.0f };
     entity->yaw = 3.0f;
     entity->phase = 2.0f;
+    entity->pose.gaitPhase = 0.98f;
+    entity->pose.weights[FAUNA_ACTION_REST] = 1.0f;
     EntitiesCaptureRenderPoses();
     entity->position.x = 10.0f;
     entity->yaw = -3.0f;
     entity->phase = 4.0f;
+    entity->pose.gaitPhase = 0.02f;
+    entity->pose.weights[FAUNA_ACTION_REST] = 0.0f;
     Entity authoritative = *entity;
     EntityRenderPose pose;
     assert(EntitiesRenderPoseAt(0, 0.0f, &pose));
@@ -873,6 +894,8 @@ static void TestRenderPoseInterpolation(void)
     assert(EntitiesRenderPoseAt(0, 0.5f, &pose));
     assert(fabsf(pose.position.x - 5.0f) < 0.001f);
     assert(fabsf(fabsf(pose.yaw) - PI) < 0.001f && pose.phase == 3.0f);
+    assert(pose.pose.gaitPhase < 0.001f || pose.pose.gaitPhase > 0.999f);
+    assert(fabsf(pose.pose.weights[FAUNA_ACTION_REST] - 0.5f) < 0.001f);
     assert(EntitiesRenderPoseAt(0, 1.0f, &pose));
     assert(pose.position.x == 10.0f && pose.phase == 4.0f);
     assert(EntitiesRenderPoseAt(0, NAN, &pose) && pose.position.x == 10.0f);

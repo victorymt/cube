@@ -6,6 +6,7 @@
 #include "ecology/ecology.h"
 #include "ecology/evolution.h"
 #include "ecology/fauna_behavior.h"
+#include "ecology/fauna_pose.h"
 #include "world/weather_model.h"
 #include "world/weather_impact.h"
 #include "world/tornado_model.h"
@@ -86,6 +87,7 @@ typedef struct Entity {
     float ecologyTemperatureStress;
     FaunaNeeds needs;
     FaunaBehaviorAction behavior;
+    FaunaPoseState pose;
     bool evolvable;
     bool aquatic;
     bool corpse;
@@ -117,6 +119,7 @@ typedef struct EntityRenderPose {
     Vector3 position;
     float yaw;
     float phase;
+    FaunaPoseState pose;
 } EntityRenderPose;
 
 typedef struct EntityEvolutionDebugInfo {

@@ -441,6 +441,7 @@ void EntityRendererDrawInterpolated(const Entity *entities, int count,
             interpolated.position = pose.position;
             interpolated.yaw = pose.yaw;
             interpolated.phase = pose.phase;
+            interpolated.pose = pose.pose;
             entity = &interpolated;
         }
 

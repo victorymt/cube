@@ -1142,7 +1142,25 @@ static void UpdatePassive(Entity *entity, int entityIndex,
     PassiveChooseBehavior(&context);
     PassiveInteractWithTarget(&context);
     PassiveAdvanceController(&context);
+    Vector3 beforeMove = entity->position;
+    float beforeYaw = entity->yaw;
     PassiveIntegrateMotion(&context);
+    Vector3 travelled = EntitySurfaceVector(beforeMove, entity->position);
+    float distance = hypotf(travelled.x, travelled.z);
+    bool engaged = false;
+    if (entity->targetEntity >= 0 && entity->targetEntity < MAX_ENTITIES) {
+        const Entity *target = &entities[entity->targetEntity];
+        float reach = entity->phenotype.bodyRadius + target->phenotype.bodyRadius + 0.55f;
+        engaged = target->active && EntityDistanceSquared(entity, target) <= reach * reach;
+    }
+    entity->pose = FaunaPoseAdvance(entity->pose, (FaunaPoseInput){
+        .action = entity->behavior,
+        .distance = distance,
+        .speed = dt > 0 ? distance / dt : 0,
+        .scale = entity->organismScale * EntityEvolutionGrowthScale(entity),
+        .turnRate = dt > 0 ? FaunaMotionAngleDelta(beforeYaw, entity->yaw) / dt : 0,
+        .engaged = engaged
+    }, dt);
 }
 
 static void UpdateHostile(Entity *entity, const Player *player, float dt, float daylight)

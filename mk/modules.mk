@@ -42,6 +42,7 @@ CHUNKS_FEATURE_SRC := \
 	src/world/surface_topology.c
 
 ENTITY_FEATURE_SRC := \
+	src/ecology/fauna_pose.c \
 	src/ecology/entity.c \
 	src/ecology/entity_interpolation.c \
 	src/ecology/entity_simulation.c \

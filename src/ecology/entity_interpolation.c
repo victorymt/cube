@@ -41,7 +41,7 @@ void EntitiesCaptureRenderPoses(void)
     for (int index = 0; index < MAX_ENTITIES; index++) {
         const Entity *entity = &entityStore[index];
         previousPoses[index] = (EntityPreviousPose){
-            .pose = { entity->position, entity->yaw, entity->phase },
+            .pose = { entity->position, entity->yaw, entity->phase, entity->pose },
             .type = entity->type,
             .organismId = entity->organismId,
             .valid = entity->active,
@@ -104,7 +104,8 @@ bool EntitiesRenderPoseAt(int index, float alpha, EntityRenderPose *outPose)
     if (!outPose || index < 0 || index >= MAX_ENTITIES) return false;
     const Entity *current = &entityStore[index];
     if (!current->active) return false;
-    *outPose = (EntityRenderPose){ current->position, current->yaw, current->phase };
+    *outPose = (EntityRenderPose){ current->position, current->yaw, current->phase,
+                                 current->pose };
     const EntityPreviousPose *previous = &previousPoses[index];
     if (!previous->valid || previous->type != current->type ||
         previous->organismId != current->organismId ||
@@ -133,9 +134,10 @@ bool EntitiesRenderPoseAt(int index, float alpha, EntityRenderPose *outPose)
     outPose->yaw = InterpolateYaw(previous->pose.yaw, current->yaw, alpha);
     outPose->phase = previous->pose.phase +
         (current->phase - previous->pose.phase) * alpha;
+    outPose->pose = FaunaPoseInterpolate(previous->pose.pose, current->pose, alpha);
     if (WorldIsSurfaceActive()) {
         EntityRenderPose currentPose = {
-            current->position, current->yaw, current->phase
+            current->position, current->yaw, current->phase, current->pose
         };
         InterpolateSurfacePose(previous->pose, currentPose, alpha, outPose);
     }
