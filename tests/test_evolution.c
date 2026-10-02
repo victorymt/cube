@@ -210,9 +210,36 @@ static void TestStructuralMutation(void)
     assert(sawCrossLink);
 }
 
+static void TestFeetFollowRepeatedLegs(void)
+{
+    for (unsigned repeats = 1u; repeats <= 3u; repeats++) {
+        CreatureGenome genome = EvolutionGenomeSeed(123u, EVOLUTION_ARCHETYPE_GROUND);
+        for (unsigned c = 0; c < 2u; c++) {
+            genome.chromosomes[c].genes[2].repeatCount = repeats;
+            genome.chromosomes[c].genes[3].repeatCount = repeats;
+        }
+        CreaturePhenotype p = EvolutionDevelop(&genome);
+        bool used[EVOLUTION_MAX_MODULES] = { false };
+        unsigned feet = 0u;
+        for (unsigned i = 0; i < p.moduleCount; i++) {
+            const CreatureModule *m = &p.modules[i];
+            if (m->type != CREATURE_MODULE_FOOT) continue;
+            assert(m->parentIndex >= 0 && m->parentIndex < (int)i);
+            assert(p.modules[m->parentIndex].type == CREATURE_MODULE_LIMB);
+            assert(!used[m->parentIndex]);
+            used[m->parentIndex] = true;
+            assert(fabsf(m->localX) < 0.001f);
+            assert(fabsf(m->localY) < 0.001f);
+            feet++;
+        }
+        assert(feet == repeats * 2u);
+    }
+}
+
 int main(void)
 {
     TestSeedArchetypes();
+    TestFeetFollowRepeatedLegs();
     TestAquaticVisualProfiles();
     TestDeterministicInheritance();
     TestCrossSeedProperties();

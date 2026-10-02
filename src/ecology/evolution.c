@@ -520,6 +520,25 @@ static void EvolutionAddModules(CreaturePhenotype *phenotype,
     if (repeats < 1u) repeats = 1u;
     if (repeats > 3u) repeats = 3u;
     unsigned sides = (gene->flags & DEVELOPMENT_GENE_MIRRORED) ? 2u : 1u;
+    /* Match each repeated child to the corresponding parent instance.
+     * Snapshot the group before appending children (including repaired loci). */
+    int parents[EVOLUTION_MAX_MODULES];
+    unsigned parentCount = 0u;
+    if (parent >= 0) {
+        uint16_t locus = phenotype->modules[parent].sourceLocusId;
+        for (unsigned i = 0; i < phenotype->moduleCount; i++) {
+            if (phenotype->modules[i].sourceLocusId == locus)
+                parents[parentCount++] = (int)i;
+        }
+    }
+    unsigned parentSides = 1u;
+    if (parentCount >= 2u) {
+        const CreatureModule *a = &phenotype->modules[parents[0]];
+        const CreatureModule *b = &phenotype->modules[parents[1]];
+        if (fabsf(a->localX - b->localX) < 0.0001f &&
+            fabsf(a->localY + b->localY) < 0.0001f)
+            parentSides = 2u;
+    }
     for (unsigned repeat = 0; repeat < repeats; repeat++) {
         for (unsigned side = 0; side < sides; side++) {
             if (phenotype->moduleCount >= EVOLUTION_MAX_MODULES) {
@@ -529,11 +548,20 @@ static void EvolutionAddModules(CreaturePhenotype *phenotype,
             float sideSign = side == 0u ? 1.0f : -1.0f;
             float repeatOffset = repeats > 1u ?
                 ((float)repeat - (float)(repeats - 1u) * 0.5f) * 0.48f : 0.0f;
+            int instanceParent = parent;
+            if (parentCount > 1u) {
+                unsigned rows = parentCount / parentSides;
+                unsigned row = repeat * rows / repeats;
+                unsigned slot = row * parentSides + side % parentSides;
+                instanceParent = parents[slot];
+                /* Repetition spacing already belongs to the parent group. */
+                repeatOffset = 0.0f;
+            }
             CreatureModule module = {
                 .sourceLocusId = gene->locusId,
                 .type = gene->moduleType < CREATURE_MODULE_TYPE_COUNT ?
                         gene->moduleType : CREATURE_MODULE_LIMB,
-                .parentIndex = (int8_t)parent,
+                .parentIndex = (int8_t)instanceParent,
                 .localX = (float)gene->offsetX / 80.0f + repeatOffset,
                 .localY = (float)gene->offsetY / 80.0f * sideSign,
                 .localZ = (float)gene->offsetZ / 80.0f,
@@ -546,8 +574,8 @@ static void EvolutionAddModules(CreaturePhenotype *phenotype,
             module.mass = module.length * module.width * module.height * density;
             int moduleIndex = (int)phenotype->moduleCount;
             phenotype->modules[phenotype->moduleCount++] = module;
-            if (parent >= 0) {
-                EvolutionAddConnection(phenotype, parent, moduleIndex,
+            if (instanceParent >= 0) {
+                EvolutionAddConnection(phenotype, instanceParent, moduleIndex,
                                        module.efficiency, true);
             }
         }
