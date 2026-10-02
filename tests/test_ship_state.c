@@ -20,6 +20,7 @@ static bool testWarpSolidSurfaces[MAX_SOLAR_PLANETS];
 static bool testWorldSpaceActive;
 static WorldDimension testWorldDimension = WORLD_DIMENSION_HOME;
 static float testLastExhaustDemand;
+static float testLastAtmosphereDensity;
 static int testGroundEffectCalls;
 
 static void ResetTestWorld(void)
@@ -199,7 +200,7 @@ void ShipVisualUpdateMainExhaust(const Player *player, float dt,
     (void)player;
     (void)dt;
     (void)mode;
-    (void)atmosphereDensity;
+    testLastAtmosphereDensity = atmosphereDensity;
     testLastExhaustDemand = demand;
 }
 void ShipGroundEffectsReset(void) {}
@@ -625,10 +626,32 @@ static void TestStateFileValidation(void)
     assert(!ShipLoadState(NULL));
 }
 
+static void TestFlightAtmosphereFollowsAltitude(void)
+{
+    ResetTestWorld();
+    SetBlock(0, 4, 0, BLOCK_SPACESHIP);
+    Player player = { 0 };
+    ShipReset();
+    assert(ShipTryEnter(0, 4, 0, &player));
+    ShipControlInput input = { .forward = 1 };
+    player.position.y = 20;
+    ShipUpdateWithInput(&player, 0.001f, &input);
+    float low = testLastAtmosphereDensity;
+    player.position.y = 295;
+    ShipUpdateWithInput(&player, 0.001f, &input);
+    float high = testLastAtmosphereDensity;
+    assert(low > 0.7f && high < low * 0.1f && high > 0);
+    player.position.y = 345;
+    ShipUpdateWithInput(&player, 0.001f, &input);
+    assert(testLastAtmosphereDensity == 0);
+    ShipReset();
+}
+
 int main(void)
 {
     TestFuelConsumptionContract();
     TestScriptedFlightUpdateContract();
+    TestFlightAtmosphereFollowsAltitude();
     TestLoadIsAtomicAndResetsRuntimeState();
     TestParkedShipLayoutAndInteraction();
     TestShipDirectionQuantization();

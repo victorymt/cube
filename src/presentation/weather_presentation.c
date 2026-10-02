@@ -2,8 +2,10 @@
 
 #include "space/space_state.h"
 #include "world/weather.h"
+#include "space/planet_atmosphere.h"
 
 #include <math.h>
+#include <stddef.h>
 
 static float WeatherPresentationClamp(float value)
 {
@@ -22,21 +24,11 @@ WeatherVisualState WeatherVisualStateAtWorld(
         return clear;
     }
 
-    float atmosphereDensity = 0.0f;
-    bool atmosphereActive = false;
-    if (PlanetWorldIsActive()) {
-        const PlanetProfile *profile = PlanetWorldProfile();
-        if (profile && profile->atmosphereType != PLANET_ATMOSPHERE_NONE) {
-            atmosphereDensity = WeatherPresentationClamp(
-                profile->atmosphereDensity) *
-                (1.0f - PlanetWorldAtmosphereFade(position));
-            atmosphereActive = atmosphereDensity > 0.01f;
-        }
-    } else if (HomeWorldSurfaceIsActive()) {
-        atmosphereDensity = 0.62f * (1.0f - HomeWorldSpaceFade(position));
-        atmosphereActive = atmosphereDensity > 0.01f;
-    }
-    if (!atmosphereActive) return clear;
+    if (!PlanetWorldIsActive() && !HomeWorldSurfaceIsActive()) return clear;
+    const PlanetProfile *planet = PlanetWorldIsActive() ? PlanetWorldProfile() : NULL;
+    AtmosphereSample air = PlanetAtmosphereAtHeight(planet, position.y);
+    if (!air.valid || air.layer == ATMOSPHERE_LAYER_VACUUM) return clear;
+    float atmosphereDensity = planet ? WeatherPresentationClamp(planet->atmosphereDensity) : 0.62f;
 
     WeatherFieldSample weather;
     if (!WeatherFieldSampleInterpolatedAtWorldTime(
@@ -50,5 +42,14 @@ WeatherVisualState WeatherVisualStateAtWorld(
         .windAngle = weather.windAngle,
         .atmosphereActive = true
     };
-    return WeatherVisualStateEvaluate(&input);
+    WeatherVisualState state = WeatherVisualStateEvaluate(&input);
+    float localAir = (float)(fmin(air.densityRatio, 1.0) * air.weatherActivity);
+    state.fogDensity *= localAir;
+    state.dustDensity *= localAir;
+    state.precipitationVeil *= localAir;
+    state.stormDarkening *= localAir;
+    state.rainbowStrength *= localAir;
+    state.lightningIntensity *= localAir;
+    state.visibility = 1.0f - (1.0f - state.visibility) * localAir;
+    return state;
 }

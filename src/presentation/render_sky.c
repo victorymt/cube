@@ -1,5 +1,6 @@
 #include "presentation/render.h"
 #include "presentation/render_internal.h"
+#include "space/planet_atmosphere.h"
 
 #include "raymath.h"
 #include "rlgl.h"
@@ -248,7 +249,8 @@ PlanetObservationState PlanetObservationForCamera(
     if (!camera || !light || !PlanetWorldIsActive()) return state;
 
     PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(PlanetWorldProfile());
-    float atmosphereVisibility = 1.0f - PlanetWorldAtmosphereFade(camera->position);
+    float atmosphereVisibility = PlanetAtmosphereSkyVisibility(PlanetAtmosphereAtHeight(
+        PlanetWorldProfile(), camera->position.y));
     return PlanetObservationEvaluate(light, visual.opticalDepth, visual.mieStrength,
                                      atmosphereVisibility);
 }
@@ -325,7 +327,8 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
 
     const PlanetProfile *profile = PlanetWorldProfile();
     PlanetAtmosphereVisual visual = PlanetAtmosphereVisualFor(profile);
-    float atmosphereVisibility = 1.0f - PlanetWorldAtmosphereFade(camera->position);
+    float atmosphereVisibility = PlanetAtmosphereSkyVisibility(PlanetAtmosphereAtHeight(
+        PlanetWorldProfile(), camera->position.y));
     if (visual.opticalDepth <= 0.01f || atmosphereVisibility <= 0.01f) return;
     PlanetObservationState fallback = PlanetObservationEvaluate(
         light, visual.opticalDepth, visual.mieStrength, atmosphereVisibility);
@@ -449,9 +452,11 @@ static float AtmosphericMeteorVisibility(const Camera3D *camera, float daylight)
             return 0.0f;
         }
         float density = Clamp(profile->atmosphereDensity / 0.35f, 0.0f, 1.0f);
-        atmosphere = (1.0f - PlanetWorldAtmosphereFade(camera->position)) * density;
+        atmosphere = PlanetAtmosphereSkyVisibility(PlanetAtmosphereAtHeight(
+            profile, camera->position.y)) * density;
     } else if (HomeWorldSurfaceIsActive()) {
-        atmosphere = 1.0f - HomeWorldSpaceFade(camera->position);
+        atmosphere = PlanetAtmosphereSkyVisibility(
+            PlanetAtmosphereAtHeight(NULL, camera->position.y));
     }
 
     float nightVisibility = Clamp(1.0f - daylight * 1.15f, 0.0f, 1.0f);
@@ -827,7 +832,8 @@ void DrawStars(const Camera3D *camera, float daylight,
     float atmosphereDensity = 0.0f;
     if (PlanetWorldIsActive()) {
         const PlanetProfile *profile = PlanetWorldProfile();
-        atmosphereVisibility = 1.0f - PlanetWorldAtmosphereFade(camera->position);
+        atmosphereVisibility = PlanetAtmosphereSkyVisibility(PlanetAtmosphereAtHeight(
+            profile, camera->position.y));
         float extinction = 0.0f;
         if (profile->atmosphereType != PLANET_ATMOSPHERE_NONE) {
             atmosphereActive = atmosphereVisibility > 0.01f;
@@ -843,9 +849,11 @@ void DrawStars(const Camera3D *camera, float daylight,
     } else if (HomeWorldSurfaceIsActive()) {
         // The home world has a breathable atmosphere even though it predates
         // the generated PlanetProfile system.
-        atmosphereActive = true;
-        atmosphereVisibility = 1.0f;
+        atmosphereVisibility = PlanetAtmosphereSkyVisibility(
+            PlanetAtmosphereAtHeight(NULL, camera->position.y));
+        atmosphereActive = atmosphereVisibility > 0.01f;
         atmosphereDensity = 0.62f;
+        atmosphericDaylight *= atmosphereVisibility;
     }
     float visibility = observationVisibility;
     if (visibility < 0.0f) {
@@ -1002,7 +1010,8 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight,
     PlanetAtmosphereVisual atmosphere =
         PlanetAtmosphereVisualFor(PlanetWorldProfile());
     atmosphere.opticalDepth *=
-        1.0f - PlanetWorldAtmosphereFade(camera->position);
+        PlanetAtmosphereSkyVisibility(PlanetAtmosphereAtHeight(
+            PlanetWorldProfile(), camera->position.y));
     int sourceCount = state->sourceCount;
     if (sourceCount > MAX_SOLAR_LIGHTS)
       sourceCount = MAX_SOLAR_LIGHTS;

@@ -10,6 +10,7 @@
 #include "presentation/render.h"
 #include "presentation/weather_presentation.h"
 #include "presentation/world_lighting.h"
+#include "space/planet_atmosphere.h"
 #include "space/planet_profile.h"
 #include "space/space_state.h"
 #include "world/chunks.h"
@@ -167,9 +168,13 @@ static void GameDeriveFrameSky(GameRuntime *game, GameFrameView *frame,
     ApplyPlanetWorldPaletteWithObservation(
         &frame->skyTop, &frame->skyHorizon, &frame->worldTint,
         &frame->planetLight, &frame->planetObservation);
-    float planetAtmosphereFade =
-        PlanetWorldAtmosphereFade(game->camera.position);
-    frame->skyFade = fmaxf(frame->spaceFade, planetAtmosphereFade);
+    AtmosphereSample air = { 0 };
+    if (PlanetWorldIsActive() || HomeWorldSurfaceIsActive()) {
+        air = PlanetAtmosphereAtHeight(
+            PlanetWorldIsActive() ? PlanetWorldProfile() : NULL,
+            game->camera.position.y);
+    }
+    frame->skyFade = 1.0f - PlanetAtmosphereSkyVisibility(air);
     UpdatePlanetSceneExposure(&game->camera);
     frame->skyTop = ColorLerp(frame->skyTop, BLACK, frame->skyFade);
     frame->skyHorizon = ColorLerp(

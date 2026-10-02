@@ -42,6 +42,7 @@
 #include "world/radiation_runtime.h"
 #include "world/hydrology_runtime.h"
 #include "space/space_chunks.h"
+#include "space/planet_atmosphere.h"
 #include "space/space_query.h"
 #include "space/space_runtime.h"
 #include "space/space_state.h"
@@ -886,7 +887,8 @@ static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
                 (int)floorf(game->player.position.x),
                 (int)floorf(game->player.position.z));
         shipHud->atmosphere =
-            (1.0f - PlanetWorldAtmosphereFade(game->camera.position)) * 100.0f;
+            (float)PlanetAtmosphereAtHeight(PlanetWorldProfile(),
+                                           game->player.position.y).densityRatio * 100.0f;
     } else if (HomeWorldSurfaceIsActive()) {
         shipHud->nearPlanet = true;
         shipHud->altitude = game->player.position.y -
@@ -894,7 +896,8 @@ static float GameBuildShipHud(GameRuntime *game, ShipHudState *shipHud,
                 (int)floorf(game->player.position.x),
                 (int)floorf(game->player.position.z), WorldTerrainMode());
         shipHud->atmosphere =
-            (1.0f - HomeWorldSpaceFade(game->camera.position)) * 100.0f;
+            (float)PlanetAtmosphereAtHeight(NULL,
+                                           game->player.position.y).densityRatio * 100.0f;
     } else if (PlanetSurfaceAt(game->player.position, &gravityDir,
                                &surfaceDist, NULL)) {
         shipHud->nearPlanet = true;

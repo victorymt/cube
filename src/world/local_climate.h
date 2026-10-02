@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#include "world/atmosphere_model.h"
+
 typedef enum ClimateRegime {
     CLIMATE_REGIME_VACUUM = 0,
     CLIMATE_REGIME_ICE_CAP,
@@ -56,6 +58,10 @@ typedef struct LocalClimateInput {
     bool hasAtmosphere;
     bool supportsWaterCycle;
     LocalClimateHydrologyFeedback hydrology;
+    /* Optional composition/gravity. Temperature and pressure come from the
+     * local climate inputs above; zero-initialized callers use Earth air. */
+    bool useAtmosphereInput;
+    AtmosphereInput atmosphereInput;
 } LocalClimateInput;
 
 typedef struct LocalClimateState {
@@ -72,6 +78,7 @@ typedef struct LocalClimateState {
     float windStrength;
     bool atmosphereActive;
     bool waterCycleActive;
+    AtmosphereSample atmosphere;
 } LocalClimateState;
 
 bool LocalClimateEvaluate(const LocalClimateInput *input,

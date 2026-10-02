@@ -376,6 +376,15 @@ Runtime values are sampled when an expression is evaluated:
 | `fluid.surface_y` | number | Fluid surface at the player |
 | `fluid.queue_overflows` | number | Fluid solver queue overflow count |
 | `weather.climate` | string | Local named climate regime, or `"unavailable"` outside a surface world |
+| `atmosphere.valid`, `atmosphere.active` | bool | Column sample is valid / contains air at the player's height |
+| `atmosphere.layer` | string | `Vacuum`, `Troposphere`, `Stratosphere`, `Mesosphere`, `Thermosphere`, or `Exosphere` |
+| `atmosphere.altitude_m` | number | Physical reference altitude in metres, after game-height conversion |
+| `atmosphere.temperature_k` | number | Local kinetic temperature in kelvin; zero in vacuum |
+| `atmosphere.pressure_atm` | number | Local pressure in atmospheres |
+| `atmosphere.density_kg_m3`, `atmosphere.density_ratio` | number | Local mass density / density relative to this column's reference surface |
+| `atmosphere.column_fraction` | number | Remaining pressure fraction above the observer (0-1) |
+| `atmosphere.molar_mass_kg_mol` | number | Mean molar mass in kg/mol |
+| `atmosphere.ozone`, `atmosphere.ionization` | number | Normalized absorbing-layer / upper-air ionization proxies |
 | `weather.phenomenon` | string | Dominant current weather phenomenon |
 | `weather.cloud_genus` | string | Dominant WMO cloud genus, or `None` |
 | `weather.cloud_cover` | number | Aggregate cloud cover from 0 to 1 |
@@ -677,6 +686,43 @@ requires an active surface world, an accessible Y coordinate, and a fully
 loaded, empty bounded region. It validates every trunk, canopy, and understory
 cell before placing six distinct tree forms and seven ground plants as one
 undo group. A failed validation or mutation leaves no partial flora gallery.
+
+### Atmospheric layers
+
+`atmosphere.*` samples the player's current height. `weather.temperature_k`
+and `weather.pressure_atm` remain the regional **surface** weather sample.
+Outside a surface scene, in the Nether, or above the simulated exosphere,
+atmospheric pressure/density are zero and the layer is `Vacuum`.
+
+The physical column uses metres and hydrostatic pressure. Terrain coordinates
+keep one metre per voxel above reference Y=12. Above Y=274, the upper column
+is compressed into the existing launch corridor; on Homeworld, the five layer
+bases are Y=12, 288, 302, 312.5, and 333.5, with vacuum at Y=344. Planet
+corridors depend on their existing atmosphere depth. These heights are
+presentation coordinates, not physical kilometre values.
+
+A reproducible Hyprland check covering all five layers, ascent/descent and
+screenshots is available with:
+
+```bash
+make
+bash tests/test_atmosphere_e2e.sh build/normal/voxelcraft
+```
+
+For manual inspection, use the project DSL, for example:
+
+```text
+start
+pause on
+teleport 0 295 0 0 0
+assert atmosphere.layer == "Stratosphere"
+assert atmosphere.pressure_atm < 0.25
+assert atmosphere.density_kg_m3 > 0
+```
+
+See [atmosphere-model.md](atmosphere-model.md) for the physical assumptions,
+planet composition rules, and the boundary between column physics and the
+renderer.
 
 ### Weather and climate
 

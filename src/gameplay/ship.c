@@ -15,6 +15,7 @@
 #include "space/space_state.h"
 #include "space/space_units.h"
 #include "space/space_physics.h"
+#include "space/planet_atmosphere.h"
 #include "world/world_environment.h"
 
 #include <math.h>
@@ -1046,16 +1047,11 @@ void ShipToggleCruise(void)
 
 static float ShipAtmosphereDensityAt(Vector3 position)
 {
-    if (PlanetWorldIsActive()) {
-        const PlanetProfile *profile = PlanetWorldProfile();
-        if (!profile || profile->atmosphereType == PLANET_ATMOSPHERE_NONE) return 0.0f;
-        return Clamp(profile->atmosphereDensity *
-                     (1.0f - PlanetWorldAtmosphereFade(position)), 0.0f, 1.0f);
-    }
-    if (HomeWorldSurfaceIsActive()) {
-        return Clamp(0.78f * (1.0f - HomeWorldSpaceFade(position)), 0.0f, 1.0f);
-    }
-    return 0.0f;
+    if (!isfinite(position.x) || !isfinite(position.y) || !isfinite(position.z) ||
+        WorldCurrentDimension() == WORLD_DIMENSION_NETHER) return 0.0f;
+    if (!PlanetWorldIsActive() && !HomeWorldSurfaceIsActive()) return 0.0f;
+    return PlanetAtmosphereFlightDensity(PlanetAtmosphereAtHeight(
+        PlanetWorldIsActive() ? PlanetWorldProfile() : NULL, position.y));
 }
 
 bool ShipSetDebugExhaust(const Player *player, float demand)

@@ -6,7 +6,10 @@ GAMEPLAY_SRC := $(sort $(wildcard src/gameplay/*.c))
 PRESENTATION_SRC := $(sort $(wildcard src/presentation/*.c))
 APP_SRC := $(sort $(wildcard src/app/*.c))
 
+ATMOSPHERE_FEATURE_SRC := src/world/atmosphere_model.c src/space/planet_atmosphere.c
+
 SPACE_FEATURE_SRC := \
+	$(ATMOSPHERE_FEATURE_SRC) \
 	src/core/simulation_time.c \
 	src/space/space.c \
 	src/space/space_state.c \

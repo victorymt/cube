@@ -94,9 +94,35 @@ static void TestInvalidAndNames(void)
     assert(strcmp(ClimateRegimeName(CLIMATE_REGIME_COUNT), "Unknown") == 0);
 }
 
+static void TestUpperLayersAndSharedColumn(void)
+{
+    LocalClimateInput input = Temperate();
+    input.elevation = 40000.0f;
+    LocalClimateState state;
+    assert(LocalClimateEvaluate(&input, &state));
+    assert(state.atmosphere.layer == ATMOSPHERE_LAYER_STRATOSPHERE);
+    assert(!state.waterCycleActive);
+    AtmosphereInput airInput = AtmosphereEarthInput();
+    airInput.surfaceTemperatureK = input.meanTemperatureK;
+    AtmosphereProfile column;
+    assert(AtmosphereProfileBuild(&airInput, &column));
+    AtmosphereSample air = AtmosphereSampleAt(&column, input.elevation);
+    assert(fabs(state.pressureAtm - air.pressureAtm) < 1e-6);
+    assert(fabs(state.temperatureK - air.temperatureK) < 1e-4);
+    input.elevation = 160000;
+    assert(LocalClimateEvaluate(&input, &state));
+    assert(state.atmosphere.layer == ATMOSPHERE_LAYER_THERMOSPHERE);
+    assert(!state.waterCycleActive);
+    input.hasAtmosphere = false;
+    assert(LocalClimateEvaluate(&input, &state));
+    assert(state.atmosphere.layer == ATMOSPHERE_LAYER_VACUUM);
+    assert(state.atmosphere.densityKgM3 == 0 && state.pressureAtm == 0);
+}
+
 int main(void)
 {
     TestClassification();
+    TestUpperLayersAndSharedColumn();
     TestElevationAndHumidity();
     TestInvalidAndNames();
     puts("local_climate tests passed");

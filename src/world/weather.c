@@ -2,6 +2,7 @@
 
 #include "core/game_effects.h"
 #include "core/simulation_time.h"
+#include "space/planet_atmosphere.h"
 #include "world/local_climate.h"
 #include "world/radiation_runtime.h"
 #include "world/terrain.h"
@@ -57,6 +58,7 @@ static unsigned forcedCloudFramesRemaining = 0u;
 static float rainEmissionAccumulator = 0.0f;
 static float snowEmissionAccumulator = 0.0f;
 static bool rainAudioActive = false;
+static float localPrecipitationExposure = 1.0f;
 static uint32_t particleRandomState = 0x91e10da5u;
 static float particleWindAngle = 0.0f;
 static float particleScale = 1.0f;
@@ -272,6 +274,8 @@ static bool WeatherInputForTime(Vector3 playerPosition, double simulationTime,
             .iceCoverage = fmaxf(surface.iceCoverage, planet->iceCoverage),
             .seasonalAmplitudeK = surface.seasonalAmplitude > 0.0f ?
                 surface.seasonalAmplitude : planet->seasonalTemperatureAmplitudeK,
+            .useAtmosphereInput = true,
+            .atmosphereInput = PlanetAtmosphereInput(planet),
             .hasAtmosphere = planet->atmosphereType != PLANET_ATMOSPHERE_NONE,
             .supportsWaterCycle = planet->oceanCoverage > 0.01f ||
                 planet->atmosphereType == PLANET_ATMOSPHERE_BREATHABLE
@@ -919,7 +923,7 @@ static void WeatherUpdateTypeAndAudio(void)
     }
     else current = WEATHER_RAIN;
 
-    bool shouldPlayRain = fieldSample.rain >
+    bool shouldPlayRain = fieldSample.rain * localPrecipitationExposure >
         (rainAudioActive ? 0.035f : 0.075f);
     if (shouldPlayRain != rainAudioActive) {
         rainAudioActive = shouldPlayRain;
@@ -945,6 +949,7 @@ void WeatherInit(void)
     rainEmissionAccumulator = 0.0f;
     snowEmissionAccumulator = 0.0f;
     rainAudioActive = false;
+    localPrecipitationExposure = 1.0f;
     particleRandomState = 0x91e10da5u;
     particleWindAngle = 0.0f;
     weatherDaylight = 0.5f;
@@ -1199,14 +1204,26 @@ void WeatherUpdate(float dt, Vector3 playerPosition, double simulationTime)
         fieldSample = WeatherApplyForcedCloud(fieldSample);
         forcedCloudFramesRemaining--;
     }
+    localPrecipitationExposure = 0.0f;
+    const WorldSurfaceSnapshot *surface = WorldCurrentSurfaceSnapshot();
+    if (surface->context.active && !WorldNetherIsActive() &&
+        WeatherPositionIsFinite(playerPosition)) {
+        AtmosphereSample air = PlanetAtmosphereAtHeight(
+            surface->context.kind == WORLD_SURFACE_PLANET ? &surface->planetProfile : NULL,
+            playerPosition.y);
+        if (air.valid) localPrecipitationExposure = (float)(
+            fmin(air.densityRatio, 1.0) * air.weatherActivity);
+    }
     WeatherUpdateTypeAndAudio();
 
     bool canEmit = WeatherPositionIsFinite(playerPosition) && !particlesSheltered;
     unsigned rainCount = WeatherAdvanceEmissionAccumulator(
-        &rainEmissionAccumulator, fieldSample.rain, 92.0f * particleScale, updateDt,
+        &rainEmissionAccumulator, fieldSample.rain * localPrecipitationExposure,
+        92.0f * particleScale, updateDt,
         canEmit ? WEATHER_MAX_RAIN_EMISSIONS : 0u);
     unsigned snowCount = WeatherAdvanceEmissionAccumulator(
-        &snowEmissionAccumulator, fieldSample.snow, 42.0f * particleScale, updateDt,
+        &snowEmissionAccumulator, fieldSample.snow * localPrecipitationExposure,
+        42.0f * particleScale, updateDt,
         canEmit ? WEATHER_MAX_SNOW_EMISSIONS : 0u);
     for (unsigned index = 0; index < rainCount; index++) {
         EmitRain(playerPosition);

@@ -615,6 +615,28 @@ static void TestVisualStateSafeFallbacks(void)
     assert(planetSurfaceSamples == 0);
 }
 
+static void TestHighAltitudeWeatherExposure(void)
+{
+    ResetRuntime();
+    TestWeatherCycle();
+    WeatherVisualState ground = WeatherVisualStateAtWorld(
+        (Vector3){ 4, 20, -8 }, simulationTime, 0.5f);
+    WeatherVisualState aloft = WeatherVisualStateAtWorld(
+        (Vector3){ 4, 320, -8 }, simulationTime, 0.5f);
+    assert(ground.precipitationVeil > 0);
+    assert(aloft.precipitationVeil == 0 && aloft.fogDensity == 0);
+    assert(aloft.cloudLayerCount == ground.cloudLayerCount);
+    assert(aloft.cloudOpacity == ground.cloudOpacity);
+    particleEmissions = 0;
+    TestWeatherUpdate(0.25f, (Vector3){ 4, 320, -8 });
+    assert(particleEmissions == 0 && !rainAudioEnabled);
+    TestWeatherUpdate(0.25f, (Vector3){ 4, 20, -8 });
+    assert(particleEmissions > 0 && rainAudioEnabled);
+    WeatherVisualState vacuum = WeatherVisualStateAtWorld(
+        (Vector3){ 4, 400, -8 }, simulationTime, 0.5f);
+    assert(!vacuum.active);
+}
+
 static void TestNormalRainAndSnowStillEmit(void)
 {
     ResetRuntime();
@@ -765,6 +787,7 @@ int main(void)
     TestVisualStateIsContinuousAcrossCellBoundaries();
     TestVisualStateSafeFallbacks();
     TestNormalRainAndSnowStillEmit();
+    TestHighAltitudeWeatherExposure();
     TestForcedPhenomena();
     TestForcedCloudGenera();
     TestInitRestoresCleanState();

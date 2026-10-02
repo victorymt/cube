@@ -137,20 +137,25 @@ bool LocalClimateEvaluate(const LocalClimateInput *input,
     classificationInput.waterCoverage = effectiveWaterCoverage;
 
     LocalClimateState state = { 0 };
-    state.temperatureK = ClimateClamp(
+    float surfaceTemperatureK = ClimateClamp(
         input->meanTemperatureK + input->seasonalTemperatureDeltaK +
-        input->daylightTemperatureDeltaK -
-        fmaxf(input->elevation, 0.0f) * 0.0065f,
-        120.0f, 500.0f);
-    state.atmosphereActive = input->hasAtmosphere &&
-        input->surfacePressureAtm >= 0.006f && input->atmosphereDensity > 0.01f;
+        input->daylightTemperatureDeltaK, 120.0f, 500.0f);
+    AtmosphereInput airInput = input->useAtmosphereInput ?
+        input->atmosphereInput : AtmosphereEarthInput();
+    airInput.surfaceTemperatureK = surfaceTemperatureK;
+    airInput.surfacePressureAtm = input->hasAtmosphere ? input->surfacePressureAtm : 0.0;
+    AtmosphereProfile atmosphere;
+    if (!AtmosphereProfileBuild(&airInput, &atmosphere)) return false;
+    state.atmosphere = AtmosphereSampleAt(&atmosphere, input->elevation);
+    state.temperatureK = state.atmosphere.layer == ATMOSPHERE_LAYER_VACUUM ?
+        surfaceTemperatureK : ClimateClamp((float)state.atmosphere.temperatureK, 120.0f, 500.0f);
+    state.atmosphereActive = state.atmosphere.layer != ATMOSPHERE_LAYER_VACUUM &&
+        state.atmosphere.pressureAtm >= 0.006 && input->atmosphereDensity > 0.01f;
     state.waterCycleActive = state.atmosphereActive &&
         input->supportsWaterCycle && state.temperatureK >= 180.0f &&
-        state.temperatureK <= 373.15f;
-    state.pressureAtm = state.atmosphereActive ?
-        ClimateClamp(input->surfacePressureAtm *
-            expf(-fmaxf(input->elevation, 0.0f) / 8400.0f), 0.0f, 100.0f) :
-        0.0f;
+        state.temperatureK <= 373.15f &&
+        state.atmosphere.layer == ATMOSPHERE_LAYER_TROPOSPHERE;
+    state.pressureAtm = (float)state.atmosphere.pressureAtm;
     float latitudeDrying = ClimateUnit((fabsf(input->latitude) - 0.35f) / 1.0f) *
                           0.08f;
     state.relativeHumidity = state.waterCycleActive ? ClimateUnit(

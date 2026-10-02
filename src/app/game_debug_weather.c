@@ -9,6 +9,7 @@
 #include "gameplay/player.h"
 #include "presentation/weather_presentation.h"
 #include "space/space_state.h"
+#include "space/planet_atmosphere.h"
 #include "world/local_climate.h"
 #include "world/radiation_runtime.h"
 #include "world/surface_topology.h"
@@ -344,14 +345,46 @@ static bool WeatherTornadoDslResolve(const GameRuntime *game,
     return false;
 }
 
+static bool WeatherAtmosphereDslResolve(const GameRuntime *game, const char *name,
+                                         DebugDslValue *outValue)
+{
+    if (strncmp(name, "atmosphere.", 11u) != 0) return false;
+    AtmosphereSample air = { .valid = true };
+    if (!WorldNetherIsActive() && (PlanetWorldIsActive() || HomeWorldSurfaceIsActive())) {
+        air = PlanetAtmosphereAtHeight(
+            PlanetWorldIsActive() ? PlanetWorldProfile() : NULL,
+            game->player.position.y);
+    }
+    if (strcmp(name, "atmosphere.valid") == 0) return WeatherDslBool(outValue, air.valid);
+    if (strcmp(name, "atmosphere.active") == 0)
+        return WeatherDslBool(outValue, air.valid && air.layer != ATMOSPHERE_LAYER_VACUUM);
+    if (strcmp(name, "atmosphere.layer") == 0)
+        return WeatherDslString(outValue, AtmosphereLayerName(air.layer));
+#define ATMOSPHERE_NUMBER(fieldName, member) \
+    if (strcmp(name, fieldName) == 0) return WeatherDslNumber(outValue, air.member)
+    ATMOSPHERE_NUMBER("atmosphere.altitude_m", altitudeM);
+    ATMOSPHERE_NUMBER("atmosphere.temperature_k", temperatureK);
+    ATMOSPHERE_NUMBER("atmosphere.pressure_atm", pressureAtm);
+    ATMOSPHERE_NUMBER("atmosphere.density_kg_m3", densityKgM3);
+    ATMOSPHERE_NUMBER("atmosphere.density_ratio", densityRatio);
+    ATMOSPHERE_NUMBER("atmosphere.column_fraction", columnFraction);
+    ATMOSPHERE_NUMBER("atmosphere.molar_mass_kg_mol", molarMassKgMol);
+    ATMOSPHERE_NUMBER("atmosphere.ozone", ozone);
+    ATMOSPHERE_NUMBER("atmosphere.ionization", ionization);
+#undef ATMOSPHERE_NUMBER
+    return false;
+}
+
 bool GameDebugWeatherDslResolve(const GameRuntime *game, const char *name,
                                 DebugDslValue *outValue)
 {
     if (!game || !name || !outValue ||
         (strncmp(name, "weather.", 8u) != 0 &&
-         strncmp(name, "radiation.", 10u) != 0)) {
+         strncmp(name, "radiation.", 10u) != 0 &&
+         strncmp(name, "atmosphere.", 11u) != 0)) {
         return false;
     }
+    if (WeatherAtmosphereDslResolve(game, name, outValue)) return true;
     if (WeatherRadiationDslResolve(game, name, outValue)) return true;
     if (strcmp(name, "weather.climate") == 0) {
         LocalClimateState climate = { 0 };
