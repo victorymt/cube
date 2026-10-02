@@ -320,6 +320,13 @@ static bool FluidBuildAllChunkEditLists(void)
     return true;
 }
 
+static bool FluidImplicitSectionIsKnown(const Chunk *chunk, int sectionY)
+{
+    /* Planet columns are generated in full; Homeworld streams sparse sections. */
+    return WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME ||
+           ChunkTerrainSectionIsResolved(chunk, sectionY);
+}
+
 static bool FluidLocateCell(int x, int y, int z, Chunk **outChunk,
                             ChunkSection **outSection, int *outIndex,
                             BlockType *outBlock)
@@ -334,6 +341,11 @@ static bool FluidLocateCell(int x, int y, int z, Chunk **outChunk,
     if (!chunk) return false;
     int sectionY = SurfaceSectionYFromBlockY(y);
     ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
+    /* Missing storage is air only after terrain generation has resolved it.
+       Creating a fluid section sooner would suppress its pending terrain job. */
+    if (!section && !FluidImplicitSectionIsKnown(chunk, sectionY)) {
+        return false;
+    }
     int ly = SurfaceSectionLocalYFromBlockY(y);
     BlockType block = section
         ? (BlockType)section->blocks[lx][ly][lz] : BLOCK_AIR;
@@ -1335,8 +1347,9 @@ static void FluidPruneReservoirDeficitsInSection(Chunk *chunk, int sectionY)
 void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
 {
     if (!chunk || !WorldIsSurfaceActive()) return;
-    FluidPruneReservoirDeficitsInSection(chunk, sectionY);
     ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
+    if (!section && !FluidImplicitSectionIsKnown(chunk, sectionY)) return;
+    FluidPruneReservoirDeficitsInSection(chunk, sectionY);
     uint32_t surfaceId = WorldCurrentSurfaceId();
     int bucketSlot = FluidFindChunkEditBucket(
         surfaceId, chunk->cx, chunk->cz);
@@ -1378,6 +1391,13 @@ void FluidApplyEditsToChunk(Chunk *chunk)
          sectionIndex++) {
         FluidApplyEditsToChunkSection(
             chunk, chunk->sections[sectionIndex]->sectionY);
+    }
+    /* Generated empty sections have no storage, but can still have saved water. */
+    for (int index = 0; index < chunk->resolvedTerrainSectionCount; index++) {
+        int sectionY = chunk->resolvedTerrainSectionYs[index];
+        if (!ChunkGetSectionConst(chunk, sectionY)) {
+            FluidApplyEditsToChunkSection(chunk, sectionY);
+        }
     }
 }
 
@@ -1456,7 +1476,8 @@ void FluidOnChunkSectionLoaded(Chunk *chunk, int sectionY)
         return;
     }
     FluidApplyEditsToChunkSection(chunk, sectionY);
-    if (!ChunkGetSectionConst(chunk, sectionY)) return;
+    if (!ChunkGetSectionConst(chunk, sectionY) &&
+        !FluidImplicitSectionIsKnown(chunk, sectionY)) return;
     if (fluidEditCount == 0u) return;
     FluidWakeLoadedBoundarySection(chunk, sectionY);
     FluidWakeLoadedVerticalBoundarySection(chunk, sectionY);

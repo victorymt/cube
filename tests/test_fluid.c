@@ -1,6 +1,7 @@
 #include "world/fluid.h"
 
 #include "world/chunks.h"
+#include "world/world.h"
 #include "world/world_environment.h"
 
 #include <assert.h>
@@ -11,6 +12,7 @@
 Chunk chunks[MAX_ACTIVE_CHUNKS];
 
 static bool proceduralOceanEnabled = false;
+static WorldSurfaceKind surfaceKind = WORLD_SURFACE_HOME;
 static int proceduralOceanMinX = 0;
 static int proceduralOceanMaxX = -1;
 static int proceduralOceanMinY = 0;
@@ -127,6 +129,38 @@ const ChunkSection *ChunkGetSectionConst(const Chunk *chunk, int sectionY)
     return NULL;
 }
 
+bool ChunkTerrainSectionIsResolved(const Chunk *chunk, int sectionY)
+{
+    for (int index = 0; chunk && index < chunk->resolvedTerrainSectionCount;
+         index++) {
+        if (chunk->resolvedTerrainSectionYs[index] == sectionY) return true;
+    }
+    return false;
+}
+
+static void ResolveSection(Chunk *chunk, int sectionY)
+{
+    if (ChunkTerrainSectionIsResolved(chunk, sectionY)) return;
+    int count = chunk->resolvedTerrainSectionCount;
+    int *resolved = realloc(chunk->resolvedTerrainSectionYs,
+                            (size_t)(count + 1) * sizeof(*resolved));
+    assert(resolved);
+    chunk->resolvedTerrainSectionYs = resolved;
+    chunk->resolvedTerrainSectionYs[count] = sectionY;
+    chunk->resolvedTerrainSectionCount++;
+}
+
+static void ForgetSectionBaseline(Chunk *chunk, int sectionY)
+{
+    assert(!ChunkGetSectionConst(chunk, sectionY));
+    for (int index = 0; index < chunk->resolvedTerrainSectionCount; index++) {
+        if (chunk->resolvedTerrainSectionYs[index] != sectionY) continue;
+        chunk->resolvedTerrainSectionYs[index] =
+            chunk->resolvedTerrainSectionYs[--chunk->resolvedTerrainSectionCount];
+        return;
+    }
+}
+
 BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
 {
     const ChunkSection *section = ChunkGetSectionConst(
@@ -161,6 +195,11 @@ bool WorldIsSurfaceActive(void)
 uint32_t WorldCurrentSurfaceId(void)
 {
     return 0u;
+}
+
+WorldSurfaceContext WorldCurrentSurfaceContext(void)
+{
+    return (WorldSurfaceContext){ .active = true, .kind = surfaceKind };
 }
 
 int WorldSurfaceMapOriginX(void)
@@ -206,6 +245,7 @@ static void ClearChunks(void)
             free(section);
         }
         free(chunks[chunkIndex].sections);
+        free(chunks[chunkIndex].resolvedTerrainSectionYs);
     }
     memset(chunks, 0, sizeof(chunks));
 }
@@ -214,6 +254,11 @@ static Chunk *CreateChunk(int slot, int cx, int cz)
 {
     Chunk *chunk = &chunks[slot];
     *chunk = (Chunk){ .loaded = true, .cx = cx, .cz = cz };
+    /* Existing scenes use a generated, empty column unless marked pending. */
+    for (int sectionY = 0; sectionY < SURFACE_GENERATION_SECTION_COUNT;
+         sectionY++) {
+        ResolveSection(chunk, sectionY);
+    }
     return chunk;
 }
 
@@ -239,6 +284,7 @@ static void ResetWorld(void)
     FluidReset();
     ClearChunks();
     proceduralOceanEnabled = false;
+    surfaceKind = WORLD_SURFACE_HOME;
 }
 
 static void TestGravityAndConservation(void)
@@ -278,6 +324,7 @@ static void TestNegativeSectionCoordinates(void)
 {
     ResetWorld();
     Chunk *chunk = CreateChunk(0, 0, 0);
+    ResolveSection(chunk, -1);
     assert(FluidSetVolumeAt(4, -1, 4, FLUID_CAPACITY));
     const ChunkSection *section = ChunkGetSectionConst(chunk, -1);
     assert(section != NULL);
@@ -291,6 +338,7 @@ static void TestSectionUnloadRehydratesPersistedEdit(void)
     Chunk *chunk = CreateChunk(0, 0, 0);
     const int y = -17;
     const int sectionY = SurfaceSectionYFromBlockY(y);
+    ResolveSection(chunk, sectionY);
     assert(FluidSetVolumeAt(4, y, 4, 77u));
     assert(FluidGetStats().activeCells == 1u);
     assert(FluidPrepareChunkSectionUnload(chunk, sectionY));
@@ -451,6 +499,102 @@ static void TestContainerTransactions(void)
     assert(FluidLoadedVolume() == 0u);
     assert(FluidGetStats().editCount == 0u);
     assert(!FluidTryCollectUnit(5, 1, 5));
+}
+
+static void TestFlowWaitsForUnknownVerticalSection(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    ForgetSectionBaseline(chunk, 0);
+    const int y = SURFACE_SECTION_HEIGHT;
+    assert(ChunkSetLocalBlock(chunk, 3, y, 4, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(chunk, 5, y, 4, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(chunk, 4, y, 3, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(chunk, 4, y, 5, BLOCK_STONE));
+    assert(FluidSetVolumeAt(4, y, 4, 200u));
+    FluidStepTicks(10);
+    assert(ChunkGetSectionConst(chunk, 0) == NULL);
+    assert(FluidGetVolumeAt(4, y, 4) == 200u);
+    assert(FluidLoadedVolume() == 200u);
+    assert(!FluidSetVolumeAt(4, y - 1, 4, 100u));
+    assert(!FluidTryDepositUnit(4, y - 1, 4));
+    assert(FluidGetStats().editCount == 1u);
+
+    /* Generated air can stay implicit until the first real fluid mutation. */
+    ResolveSection(chunk, 0);
+    FluidOnChunkSectionLoaded(chunk, 0);
+    assert(ChunkGetSectionConst(chunk, 0) == NULL);
+    assert(FluidGetStats().activeCells > 0u);
+    FluidStepTicks(1);
+    assert(ChunkGetSectionConst(chunk, 0) != NULL);
+    assert(FluidGetVolumeAt(4, y - 1, 4) == 200u);
+    assert(FluidLoadedVolume() == 200u);
+}
+
+static void TestPlanetColumnAirRemainsWritable(void)
+{
+    ResetWorld();
+    surfaceKind = WORLD_SURFACE_PLANET;
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    ForgetSectionBaseline(chunk, 1);
+    assert(ChunkGetSectionConst(chunk, 1) == NULL);
+    assert(FluidSetVolumeAt(4, SURFACE_SECTION_HEIGHT, 4, 200u));
+    FluidStepTicks(1);
+    assert(FluidGetVolumeAt(4, SURFACE_SECTION_HEIGHT - 1, 4) == 200u);
+    assert(FluidLoadedVolume() == 200u);
+}
+
+static void TestFlowWaitsForUnknownHorizontalSection(void)
+{
+    ResetWorld();
+    Chunk *west = CreateChunk(0, 0, 0);
+    Chunk *east = CreateChunk(1, 1, 0);
+    ForgetSectionBaseline(east, 0);
+    FillFloor(west);
+    assert(ChunkSetLocalBlock(west, 14, 1, 8, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(west, 15, 1, 7, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(west, 15, 1, 9, BLOCK_STONE));
+    assert(FluidSetVolumeAt(15, 1, 8, 200u));
+    FluidOnChunkLoaded(east);
+    FluidStepTicks(10);
+    assert(ChunkGetSectionConst(east, 0) == NULL);
+    assert(FluidGetVolumeAt(15, 1, 8) == 200u);
+
+    ResolveSection(east, 0);
+    FluidOnChunkSectionLoaded(east, 0);
+    assert(FluidGetStats().activeCells > 0u);
+    FluidStepTicks(1);
+    assert(FluidGetVolumeAt(16, 1, 8) > 0u);
+    assert(FluidLoadedVolume() == 200u);
+}
+
+static void TestSavedWaterWaitsForTerrainBaseline(void)
+{
+    ResetWorld();
+    CreateChunk(0, 0, 0);
+    assert(FluidSetVolumeAt(4, 4, 4, 77u));
+    assert(FluidSetVolumeAt(5, 4, 4, 88u));
+    ClearChunks();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    ForgetSectionBaseline(chunk, 0);
+    FluidApplyEditsToChunkSection(chunk, 0);
+    assert(ChunkGetSectionConst(chunk, 0) == NULL);
+    assert(FluidGetStats().editCount == 2u);
+
+    /* A saved water edit must never replace the regenerated solid baseline. */
+    assert(ChunkSetLocalBlock(chunk, 4, 4, 4, BLOCK_STONE));
+    ResolveSection(chunk, 0);
+    FluidOnChunkSectionLoaded(chunk, 0);
+    assert(ChunkGetLocalBlock(chunk, 4, 4, 4) == BLOCK_STONE);
+    assert(FluidGetVolumeAt(4, 4, 4) == 0u);
+    assert(FluidGetVolumeAt(5, 4, 4) == 88u);
+
+    ClearChunks();
+    chunk = CreateChunk(0, 0, 0);
+    assert(ChunkGetSectionConst(chunk, 0) == NULL);
+    FluidOnChunkLoaded(chunk);
+    assert(FluidGetVolumeAt(4, 4, 4) == 77u);
+    assert(FluidGetVolumeAt(5, 4, 4) == 88u);
 }
 
 static void TestProceduralBaselinePrunesEdit(void)
@@ -756,6 +900,10 @@ static void TestCorruptLoadPreservesState(void)
 
 int main(void)
 {
+    TestFlowWaitsForUnknownVerticalSection();
+    TestPlanetColumnAirRemainsWritable();
+    TestFlowWaitsForUnknownHorizontalSection();
+    TestSavedWaterWaitsForTerrainBaseline();
     TestNegativeSectionCoordinates();
     TestSectionUnloadRehydratesPersistedEdit();
     TestGravityAndConservation();

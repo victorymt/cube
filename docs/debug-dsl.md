@@ -644,6 +644,27 @@ fluid step TICKS
 0-255; `TICKS` is 1-1,000,000. `fluid set` and `fluid step` require an active
 surface world.
 
+Fluid mutations also require a generated terrain section. An absent section
+is treated as unknown until terrain generation confirms its contents; generated
+empty sections can receive water without allocating block storage in advance.
+Edited water at a section boundary resumes flowing when the adjacent section
+finishes loading. Saved water is applied after that section's terrain baseline.
+
+The submerged water-wall regression uses the original position and viewing
+direction, activates water above an ungenerated section, then descends and
+repeats the check after save/load:
+
+```sh
+make
+bash tests/test_water_section_e2e.sh build/normal/voxelcraft
+# Optional single-worker run:
+WATER_SECTION_WORKERS=1 bash tests/test_water_section_e2e.sh
+```
+
+The script keeps its screenshots, reports and trace in the printed temporary
+directory. Both captures must show full local water volume and zero internal
+water triangles in the player's section.
+
 ### Block catalog and gallery
 
 ```text
