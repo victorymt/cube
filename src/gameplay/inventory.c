@@ -6,6 +6,58 @@
 #include <string.h>
 
 static uint16_t inventoryCounts[INVENTORY_BLOCK_TYPE_COUNT];
+/* Stable INVFR001 order; independent of enum adjacency and struct layout. */
+static const BlockType fractionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT,
+    BLOCK_OBSIDIAN, BLOCK_SCORIA, BLOCK_PUMICE, BLOCK_RHYOLITE };
+static uint16_t remainders[6];
+
+static int FractionIndex(BlockType type)
+{
+    for (unsigned i = 0; i < 6; i++) if (fractionTypes[i] == type) return (int)i;
+    return -1;
+}
+unsigned InventoryRemainder(BlockType type)
+{
+    int index = FractionIndex(type);
+    return index < 0 ? 0 : remainders[index];
+}
+void InventoryResetRemainders(void) { memset(remainders, 0, sizeof(remainders)); }
+
+bool InventoryCollectVolume(BlockType type, unsigned units,
+                            bool (*removeSource)(void *user), void *user)
+{
+    int index = FractionIndex(type);
+    if (index < 0 || !units || units > INVENTORY_VOLUME_PER_BLOCK || !removeSource ||
+        InventoryCount(type) >= INVENTORY_MAX_PER_BLOCK) return false;
+    unsigned total = remainders[index] + units;
+    if (!removeSource(user)) return false;
+    /* No fallible operations or world callbacks after the source commits. */
+    inventoryCounts[(int)type] += (uint16_t)(total / INVENTORY_VOLUME_PER_BLOCK);
+    remainders[index] = (uint16_t)(total % INVENTORY_VOLUME_PER_BLOCK);
+    return true;
+}
+bool InventorySaveRemainders(FILE *file)
+{
+    if (!file || fwrite("INVFR001", 1, 8, file) != 8) return false;
+    for (unsigned i = 0; i < 6; i++) {
+        unsigned char bytes[2] = { (unsigned char)remainders[i], (unsigned char)(remainders[i] >> 8) };
+        if (fwrite(bytes, 1, 2, file) != 2) return false;
+    }
+    return !ferror(file);
+}
+bool InventoryLoadRemainders(FILE *file)
+{
+    char magic[8]; uint16_t loaded[6];
+    if (!file || fread(magic, 1, 8, file) != 8 || memcmp(magic, "INVFR001", 8)) return false;
+    for (unsigned i = 0; i < 6; i++) {
+        unsigned char bytes[2];
+        if (fread(bytes, 1, 2, file) != 2) return false;
+        loaded[i] = (uint16_t)((unsigned)bytes[0] | ((unsigned)bytes[1] << 8));
+        if (loaded[i] >= INVENTORY_VOLUME_PER_BLOCK) return false;
+    }
+    memcpy(remainders, loaded, sizeof(loaded));
+    return true;
+}
 
 static bool InventoryTypeIndex(BlockType type, int *outIndex)
 {
@@ -22,6 +74,7 @@ static bool InventoryTypeIndex(BlockType type, int *outIndex)
 void InventoryReset(void)
 {
     memset(inventoryCounts, 0, sizeof(inventoryCounts));
+    InventoryResetRemainders();
 }
 
 void InventoryGrantStarterKit(void)
@@ -78,5 +131,6 @@ bool InventoryLoad(FILE *file)
         if (loaded[i] > INVENTORY_MAX_PER_BLOCK) return false;
     }
     memcpy(inventoryCounts, loaded, sizeof(inventoryCounts));
+    InventoryResetRemainders();
     return true;
 }

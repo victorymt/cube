@@ -207,6 +207,15 @@ static const char *GameLoadAshState(FILE *file, WorldSaveFormat format)
     return NULL;
 }
 
+static const char *GameLoadInventoryRemainders(FILE *file, WorldSaveFormat format)
+{
+    if (WorldSaveFormatHasInventoryRemainders(format)) {
+        return InventoryLoadRemainders(file) ? NULL : "Load failed: collected material fractions are corrupted.";
+    }
+    InventoryResetRemainders();
+    return NULL;
+}
+
 static bool GameSaveWriteFile(FILE *file, void *opaque)
 {
     const GameSaveContext *context = opaque;
@@ -242,6 +251,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
          GameSaveWriteHydrologyRuntimeState(file) &&
          MapMarkersSaveState(file) &&
          GameEcologySaveClock(file) && VolcanoRuntimeSave(file) && LavaRuntimeSave(file) && AshRuntimeSave(file) &&
+         InventorySaveRemainders(file) &&
          GameSaveWriteSphericalTrailer(file, player) && !ferror(file);
     return ok;
 }
@@ -446,6 +456,10 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
 }
 
 #ifdef GAME_SAVE_TESTING
+const char *GameSaveTestLoadInventoryRemainders(FILE *file, WorldSaveFormat format)
+{
+    return GameLoadInventoryRemainders(file, format);
+}
 const char *GameSaveTestLoadAshState(FILE *file, WorldSaveFormat format)
 {
     return GameLoadAshState(file, format);
@@ -567,6 +581,8 @@ static const char *GameLoadCurrentExtendedPayload(
     if (lavaError) return lavaError;
     const char *ashError = GameLoadAshState(file, format);
     if (ashError) return ashError;
+    const char *fractionError = GameLoadInventoryRemainders(file, format);
+    if (fractionError) return fractionError;
     if (!GameLoadSphericalTrailer(file, data)) {
         return "Load failed: spherical save state is corrupted.";
     }

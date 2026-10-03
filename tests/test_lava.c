@@ -439,11 +439,30 @@ static void TestMaterialFlowAndReplay(void)
     char tail[4]; assert(fread(tail, 1, 4, file) == 4 && !memcmp(tail, "TAIL", 4));
     fclose(file); Balance();
 }
+static void TestCollection(void)
+{
+    Reset(); closed = true; LavaContext ctx = Context(); LavaCell cell;
+    assert(LavaRuntimeDepositMaterial(&ctx, 0, 1, 0, 512, 1450, 1, 0) == 512);
+    assert(!LavaRuntimeCollect(7, 0, 1, 0, 512, LAVA_ROCK_RHYOLITE));
+    for (unsigned i = 0; i < 600; i++) LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeCellAt(7, 0, 1, 0, &cell) && cell.cooled);
+    assert(!LavaRuntimeCollect(7, 0, 1, 0, 511, LAVA_ROCK_RHYOLITE));
+    assert(!LavaRuntimeCollect(7, 0, 1, 0, 512, LAVA_ROCK_BASALT));
+    assert(!LavaRuntimeCollect(8, 0, 1, 0, 512, LAVA_ROCK_RHYOLITE));
+    assert(LavaRuntimeCollect(7, SURFACE_EQUATOR_BLOCKS, 1, 0, 512, LAVA_ROCK_RHYOLITE));
+    assert(!LavaRuntimeCollect(7, 0, 1, 0, 512, LAVA_ROCK_RHYOLITE));
+    assert(LavaRuntimeStats().removed == 512 && LavaRuntimeStats().exportedEnergy == cell.thermal.energy);
+    assert(LavaRuntimeStats().volume == 0); Balance();
+    FILE *f = tmpfile(); assert(f && LavaRuntimeSave(f));
+    rewind(f); LavaRuntimeReset(); assert(LavaRuntimeLoad(f)); fclose(f);
+    assert(LavaRuntimeStats().removed == 512); Balance();
+}
 int main(void)
 {
     TestThermal(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
     TestOrderAndPersistence(); TestVolcanoInventory(); TestCoolingIgnoresParkedLava();
     TestWaterContact(); TestWaterReplay(); TestLegacyLavaPayload();
     TestSharedWater(); TestRockProducts(); TestMaterialFlowAndReplay();
+    TestCollection();
     puts("lava conservation, thermal, persistence and coupling tests passed");
 }

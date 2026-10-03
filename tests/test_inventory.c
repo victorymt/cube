@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 bool IsColorBlock(BlockType type)
 {
@@ -127,12 +128,67 @@ static void TestStarterKitDoesNotGrantNaturalBlocks(void)
     }
 }
 
+static unsigned sourceUnits, removalCalls;
+static bool failRemoval;
+static bool RemoveSource(void *user)
+{
+    unsigned requested = *(unsigned *)user;
+    removalCalls++;
+    if (failRemoval || sourceUnits < requested) return false;
+    sourceUnits -= requested; return true;
+}
+static bool Collect(BlockType type, unsigned units)
+{
+    return InventoryCollectVolume(type, units, RemoveSource, &units);
+}
+static void TestVolumeCollection(void)
+{
+    InventoryReset(); sourceUnits = 4096; removalCalls = 0; failRemoval = false;
+    assert(Collect(BLOCK_VOLCANIC_ASH, 513));
+    assert(InventoryCount(BLOCK_VOLCANIC_ASH) == 0 && InventoryRemainder(BLOCK_VOLCANIC_ASH) == 513);
+    assert(Collect(BLOCK_BASALT, 512)); /* different materials never merge */
+    assert(Collect(BLOCK_VOLCANIC_ASH, 768));
+    assert(InventoryCount(BLOCK_VOLCANIC_ASH) == 1 && InventoryRemainder(BLOCK_VOLCANIC_ASH) == 257);
+    assert(sourceUnits + 1024 + 257 + 512 == 4096);
+    failRemoval = true;
+    assert(!Collect(BLOCK_VOLCANIC_ASH, 128));
+    assert(InventoryRemainder(BLOCK_VOLCANIC_ASH) == 257 && InventoryCount(BLOCK_VOLCANIC_ASH) == 1);
+    unsigned before = removalCalls;
+    assert(!Collect(BLOCK_STONE, 128) && !Collect(BLOCK_VOLCANIC_ASH, 0) && !Collect(BLOCK_VOLCANIC_ASH, 1025));
+    assert(removalCalls == before);
+    assert(InventoryAdd(BLOCK_VOLCANIC_ASH, 998) == 998);
+    failRemoval = false;
+    assert(!Collect(BLOCK_VOLCANIC_ASH, 100) && removalCalls == before);
+    assert(InventoryConsume(BLOCK_VOLCANIC_ASH, 1));
+    assert(Collect(BLOCK_VOLCANIC_ASH, 1024));
+    assert(InventoryCount(BLOCK_VOLCANIC_ASH) == 999 && InventoryRemainder(BLOCK_VOLCANIC_ASH) == 257);
+}
+static void TestRemainderPersistence(void)
+{
+    FILE *file = tmpfile(); assert(file && InventorySaveRemainders(file));
+    unsigned char bytes[20]; rewind(file); assert(fread(bytes, 1, 20, file) == 20);
+    assert(fputs("TAIL", file) >= 0);
+    InventoryResetRemainders(); rewind(file); assert(InventoryLoadRemainders(file));
+    assert(InventoryRemainder(BLOCK_VOLCANIC_ASH) == 257 && InventoryRemainder(BLOCK_BASALT) == 512);
+    char tail[4]; assert(fread(tail, 1, 4, file) == 4 && !memcmp(tail, "TAIL", 4)); fclose(file);
+    for (unsigned cut = 0; cut < 20; cut++) {
+        file = tmpfile(); assert(file && fwrite(bytes, 1, cut, file) == cut);
+        rewind(file); assert(!InventoryLoadRemainders(file)); fclose(file);
+        assert(InventoryRemainder(BLOCK_VOLCANIC_ASH) == 257);
+    }
+    bytes[8] = 0; bytes[9] = 4; /* 1024 is a whole block, invalid remainder */
+    file = tmpfile(); assert(file && fwrite(bytes, 1, 20, file) == 20);
+    rewind(file); assert(!InventoryLoadRemainders(file)); fclose(file);
+    assert(InventoryRemainder(BLOCK_VOLCANIC_ASH) == 257);
+    InventoryReset(); assert(!InventoryRemainder(BLOCK_VOLCANIC_ASH));
+}
 int main(void)
 {
     TestNaturalBlocks();
     TestSaveLoadRoundTrip();
     TestLoadIsTransactional();
     TestStarterKitDoesNotGrantNaturalBlocks();
+    TestVolumeCollection(); TestRemainderPersistence();
     puts("inventory tests passed");
     return 0;
 }

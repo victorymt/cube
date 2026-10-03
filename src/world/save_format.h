@@ -15,7 +15,8 @@ typedef enum WorldSaveFormat {
     WORLD_SAVE_FORMAT_V24,
     WORLD_SAVE_FORMAT_V25,
     WORLD_SAVE_FORMAT_V26,
-    WORLD_SAVE_FORMAT_V27
+    WORLD_SAVE_FORMAT_V27,
+    WORLD_SAVE_FORMAT_V28
 } WorldSaveFormat;
 
 WorldSaveFormat WorldSaveFormatRead(FILE *file);
@@ -28,5 +29,6 @@ bool WorldSaveFormatHasEcologyClock(WorldSaveFormat format);
 bool WorldSaveFormatHasVolcanoes(WorldSaveFormat format);
 bool WorldSaveFormatHasLava(WorldSaveFormat format);
 bool WorldSaveFormatHasAsh(WorldSaveFormat format);
+bool WorldSaveFormatHasInventoryRemainders(WorldSaveFormat format);
 
 #endif

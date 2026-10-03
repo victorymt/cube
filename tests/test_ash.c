@@ -23,7 +23,7 @@ static AshContext Context(void)
 }
 static void Balance(void)
 {
-    AshStats s = AshRuntimeStats(); assert(s.supplied == s.volume + s.washed);
+    AshStats s = AshRuntimeStats(); assert(s.supplied == s.volume + s.washed + s.collected);
     assert(s.cells <= ASH_MAX_CELLS);
 }
 static void TestLayersAndParking(void)
@@ -111,8 +111,34 @@ static void TestInventory(void)
     }
     assert(emitted == 1024); Balance();
 }
+static void TestCollection(void)
+{
+    AshRuntimeReset(); rain = 1; parked = false;
+    AshContext ctx = Context(); AshCell cell;
+    assert(AshRuntimeDeposit(&ctx, 0, 1, 0, 512) == 512);
+    FILE *v2 = tmpfile(), *v1 = tmpfile(); assert(v2 && v1 && AshRuntimeSave(v2));
+    unsigned char bytes[104]; rewind(v2); assert(fread(bytes, 1, sizeof(bytes), v2) == sizeof(bytes));
+    bytes[7] = '1';
+    assert(fwrite(bytes, 1, 48, v1) == 48 && fwrite(bytes + 56, 1, 48, v1) == 48);
+    assert(fputs("TAIL", v1) >= 0); rewind(v1); assert(AshRuntimeLoad(v1));
+    char tail[4]; assert(fread(tail, 1, 4, v1) == 4 && !memcmp(tail, "TAIL", 4));
+    fclose(v1); fclose(v2);
+    for (unsigned i = 0; i < 10; i++) AshRuntimeStep(&ctx);
+    assert(!AshRuntimeCollect(7, 0, 1, 0, 512)); /* stale volume after rain */
+    assert(!AshRuntimeCollect(8, 0, 1, 0, 510));
+    assert(AshRuntimeCollect(7, SURFACE_EQUATOR_BLOCKS, 1, 0, 510));
+    assert(!AshRuntimeCellAt(7, 0, 1, 0, &cell) && !AshRuntimeCollect(7, 0, 1, 0, 510));
+    assert(AshRuntimeStats().collected == 510 && AshRuntimeStats().washed == 2); Balance();
+    FILE *file = tmpfile(); assert(file && AshRuntimeSave(file));
+    rewind(file); AshRuntimeReset(); assert(AshRuntimeLoad(file));
+    assert(AshRuntimeStats().collected == 510); Balance();
+    assert(fseek(file, 48, SEEK_SET) == 0); /* bad collection ledger */
+    const unsigned char bad[8] = { 255, 255, 255, 255, 255, 255, 255, 255 };
+    assert(fwrite(bad, 1, 8, file) == 8); rewind(file); assert(!AshRuntimeLoad(file));
+    assert(AshRuntimeStats().collected == 510); fclose(file);
+}
 int main(void)
 {
-    TestLayersAndParking(); TestPersistence(); TestCapacity(); TestInventory();
+    TestLayersAndParking(); TestPersistence(); TestCapacity(); TestInventory(); TestCollection();
     puts("ash layer, erosion, inventory, parking and persistence tests passed");
 }

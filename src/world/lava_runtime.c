@@ -86,6 +86,21 @@ bool LavaRuntimeCellAt(uint32_t body, int x, int y, int z, LavaCell *out)
     if (index < 0 || !cells[index].thermal.volume) return false;
     *out = cells[index]; return true;
 }
+bool LavaRuntimeCollect(uint32_t body, int x, int y, int z,
+                        unsigned expectedUnits, LavaRock expectedRock)
+{
+    LavaCell cell;
+    if (!expectedUnits || !LavaRuntimeCellAt(body, x, y, z, &cell) ||
+        !cell.cooled || LavaLiquidVolume(cell.thermal) || cell.thermal.volume != expectedUnits ||
+        LavaRockForMaterial(cell.material, cell.thermal.volume) != expectedRock ||
+        UINT64_MAX - ledger.removed < cell.thermal.volume) return false;
+    unsigned index = (unsigned)(lookup[Slot(body, cell.x, cell.y, cell.z)] - 1);
+    ledger.removed += cell.thermal.volume;
+    ledger.exportedEnergy += cell.thermal.energy;
+    cells[index] = cells[--count];
+    Reindex();
+    return true;
+}
 static int Ensure(const LavaContext *ctx, int x, int y, int z, unsigned *hot)
 {
     if (!ctx || !ctx->valid || !ctx->boundary || !ValidCoordinate(x, y, z)) return -1;

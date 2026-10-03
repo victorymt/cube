@@ -7,6 +7,7 @@
 #include "world/volcano_runtime.h"
 #include "world/lava_runtime.h"
 #include "world/ash_runtime.h"
+#include "gameplay/inventory.h"
 
 #include <assert.h>
 #include <math.h>
@@ -23,11 +24,35 @@ extern const char *GameSaveTestLoadRadiationRuntimeState(
 static int radiationResetCalls;
 bool WorldSaveFormatHasVolcanoes(WorldSaveFormat format)
 {
-    return format == WORLD_SAVE_FORMAT_V24 || format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27;
+    return format == WORLD_SAVE_FORMAT_V24 || format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28;
 }
 
-bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27; }
-bool WorldSaveFormatHasAsh(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V27; }
+bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28; }
+bool WorldSaveFormatHasAsh(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28; }
+bool WorldSaveFormatHasInventoryRemainders(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V28; }
+bool IsColorBlock(BlockType type) { return type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END; }
+bool IsValidBlockType(BlockType type) { return (type >= BLOCK_AIR && type <= BLOCK_NATURAL_END) || IsColorBlock(type); }
+static bool RemoveFractionSource(void *user) { (void)user; return true; }
+static void TestRemainderPayloadRouting(void)
+{
+    InventoryReset();
+    assert(InventoryCollectVolume(BLOCK_VOLCANIC_ASH, 513, RemoveFractionSource, NULL));
+    FILE *file = tmpfile(); assert(file && InventorySaveRemainders(file));
+    assert(fputs("TAIL", file) >= 0); rewind(file); InventoryResetRemainders();
+    assert(GameSaveTestLoadInventoryRemainders(file, WORLD_SAVE_FORMAT_V28) == NULL);
+    assert(InventoryRemainder(BLOCK_VOLCANIC_ASH) == 513);
+    char tail[4]; assert(fread(tail, 1, 4, file) == 4 && !memcmp(tail, "TAIL", 4)); fclose(file);
+    file = tmpfile(); assert(file); fputs("bad fractions", file); rewind(file);
+    assert(GameSaveTestLoadInventoryRemainders(file, WORLD_SAVE_FORMAT_V28) != NULL);
+    assert(InventoryRemainder(BLOCK_VOLCANIC_ASH) == 513);
+    for (WorldSaveFormat format = WORLD_SAVE_FORMAT_V18; format <= WORLD_SAVE_FORMAT_V27; format++) {
+        rewind(file);
+        assert(GameSaveTestLoadInventoryRemainders(file, format) == NULL && ftell(file) == 0);
+        assert(InventoryRemainder(BLOCK_VOLCANIC_ASH) == 0);
+        assert(InventoryCollectVolume(BLOCK_VOLCANIC_ASH, 513, RemoveFractionSource, NULL));
+    }
+    fclose(file); InventoryReset();
+}
 static AshBoundary AshOpen(int x, int y, int z, void *user)
 {
     (void)x; (void)y; (void)z; (void)user; return ASH_OPEN;
@@ -441,6 +466,7 @@ static void TestHydrologyRuntimePayloadRouting(void)
 
 int main(void)
 {
+    TestRemainderPayloadRouting();
     TestAshPayloadRouting();
     TestLavaPayloadRouting();
     TestVolcanoPayloadRouting();

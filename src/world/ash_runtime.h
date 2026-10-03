@@ -25,13 +25,15 @@ typedef struct AshContext {
 } AshContext;
 typedef struct AshStats {
     unsigned cells;
-    uint64_t supplied, volume, washed, rejected, ticks;
+    uint64_t supplied, volume, washed, rejected, ticks, collected;
 } AshStats;
 
 void AshRuntimeReset(void);
 bool AshRuntimeAt(unsigned index, AshCell *out);
 bool AshRuntimeCellAt(uint32_t body, int x, int y, int z, AshCell *out);
 unsigned AshRuntimeDeposit(const AshContext *context, int x, int y, int z, unsigned units);
+/* Compare and remove one whole overlay cell; caller owns inventory transaction. */
+bool AshRuntimeCollect(uint32_t body, int x, int y, int z, unsigned expectedUnits);
 void AshRuntimeStep(const AshContext *context);
 AshStats AshRuntimeStats(void);
 bool AshRuntimeSave(FILE *file);

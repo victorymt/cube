@@ -46,6 +46,9 @@ typedef struct LavaStats {
 void LavaRuntimeReset(void);
 bool LavaRuntimeAt(unsigned index, LavaCell *out);
 bool LavaRuntimeCellAt(uint32_t body, int x, int y, int z, LavaCell *out);
+/* Only ambient-cooled cells can be collected. Export all remaining heat. */
+bool LavaRuntimeCollect(uint32_t body, int x, int y, int z,
+                        unsigned expectedUnits, LavaRock expectedRock);
 unsigned LavaRuntimeDeposit(const LavaContext *context, int x, int y, int z,
                             unsigned volume, double temperatureK);
 unsigned LavaRuntimeDepositMaterial(const LavaContext *context, int x, int y, int z,

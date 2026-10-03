@@ -14,6 +14,7 @@ void GameLoadMap(Player *player);
 const char *GameSaveTestLoadVolcanoState(FILE *file, WorldSaveFormat format);
 const char *GameSaveTestLoadLavaState(FILE *file, WorldSaveFormat format);
 const char *GameSaveTestLoadAshState(FILE *file, WorldSaveFormat format);
+const char *GameSaveTestLoadInventoryRemainders(FILE *file, WorldSaveFormat format);
 
 bool GameSaveTestLoadSphericalTrailer(
     FILE *file, WorldDimension dimension, Player *player,

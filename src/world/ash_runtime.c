@@ -76,6 +76,17 @@ static int Ensure(uint32_t body, int x, int y, int z)
     lookup[slot] = at + 1u;
     return (int)at;
 }
+bool AshRuntimeCollect(uint32_t body, int x, int y, int z, unsigned expectedUnits)
+{
+    AshCell cell;
+    if (!expectedUnits || !AshRuntimeCellAt(body, x, y, z, &cell) || cell.volume != expectedUnits ||
+        UINT64_MAX - ledger.collected < cell.volume) return false;
+    unsigned index = lookup[Slot(body, cell.x, cell.y, cell.z)] - 1u;
+    ledger.collected += cell.volume;
+    cells[index] = cells[--count];
+    Reindex();
+    return true;
+}
 unsigned AshRuntimeDeposit(const AshContext *ctx, int x, int y, int z, unsigned units)
 {
     if (!ctx || !ctx->valid || !ctx->boundary || !units || units > ASH_CAPACITY ||
@@ -147,9 +158,10 @@ static bool ReadU64(FILE *f, uint64_t *value)
 bool AshRuntimeSave(FILE *f)
 {
     if (!f || sizeof(double) != 8 || DBL_MANT_DIG != 53 || DBL_MAX_EXP != 1024 ||
-        fwrite("ASH00001", 1, 8, f) != 8) return false;
+        fwrite("ASH00002", 1, 8, f) != 8) return false;
     uint64_t fields[] = { count, ledger.supplied, ledger.washed, ledger.rejected, ledger.ticks };
     for (unsigned i = 0; i < 5; i++) if (!WriteU64(f, fields[i])) return false;
+    if (!WriteU64(f, ledger.collected)) return false;
     for (unsigned i = 0; i < count; i++) {
         const AshCell *c = &cells[i]; uint64_t credit;
         memcpy(&credit, &c->washCredit, sizeof(credit));
@@ -162,9 +174,12 @@ bool AshRuntimeLoad(FILE *f)
 {
     char magic[8]; uint64_t fields[5];
     if (!f || sizeof(double) != 8 || DBL_MANT_DIG != 53 || DBL_MAX_EXP != 1024 ||
-        fread(magic, 1, 8, f) != 8 || memcmp(magic, "ASH00001", 8)) return false;
+        fread(magic, 1, 8, f) != 8 ||
+        (memcmp(magic, "ASH00001", 8) && memcmp(magic, "ASH00002", 8))) return false;
     for (unsigned i = 0; i < 5; i++) if (!ReadU64(f, &fields[i])) return false;
     if (fields[0] > ASH_MAX_CELLS || fields[2] > fields[1]) return false;
+    uint64_t collected = 0;
+    if (magic[7] == '2' && (!ReadU64(f, &collected) || collected > fields[1] - fields[2])) return false;
     AshCell *loaded = calloc(fields[0] ? (size_t)fields[0] : 1u, sizeof(*loaded));
     if (!loaded) return false;
     bool ok = true; uint64_t volume = 0;
@@ -187,11 +202,12 @@ bool AshRuntimeLoad(FILE *f)
     if (ok) {
         qsort(loaded, (size_t)fields[0], sizeof(*loaded), Compare);
         for (unsigned i = 1; i < fields[0]; i++) if (!Compare(&loaded[i - 1], &loaded[i])) ok = false;
-        if (volume != fields[1] - fields[2]) ok = false;
+        if (volume != fields[1] - fields[2] - collected) ok = false;
     }
     if (ok) {
         memcpy(cells, loaded, (size_t)fields[0] * sizeof(*loaded)); count = (unsigned)fields[0];
-        ledger = (AshStats){ .supplied = fields[1], .washed = fields[2], .rejected = fields[3], .ticks = fields[4] };
+        ledger = (AshStats){ .supplied = fields[1], .washed = fields[2], .rejected = fields[3],
+            .ticks = fields[4], .collected = collected };
         Reindex();
     }
     free(loaded); return ok;
