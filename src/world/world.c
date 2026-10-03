@@ -790,7 +790,8 @@ static BlockType GetSurfaceBlockAt(int x, int y, int z)
 {
     WorldCanonicalizeEditCoordinates(&x, &z);
     BlockType block = BLOCK_AIR;
-    if (WorldGetBlockEditForCurrentDimensionAt(x, y, z, &block)) {
+    bool edited = WorldGetBlockEditForCurrentDimensionAt(x, y, z, &block);
+    if (edited && block != BLOCK_AIR && block != BLOCK_WATER) {
         return block;
     }
     int cx = 0;
@@ -800,7 +801,17 @@ static BlockType GetSurfaceBlockAt(int x, int y, int z)
     WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
 
     Chunk *chunk = FindChunk(cx, cz);
-    if (!chunk) return BLOCK_AIR;
+    if (!chunk) return edited ? block : BLOCK_AIR;
+
+    /* AIR/WATER edits are the terrain baseline. Once fluid state has been
+       materialized, its volume owns this cell: excavated air can fill, and
+       placed water can flow away or evaporate. Solid edits still win above. */
+    const ChunkSection *section = ChunkGetSectionConst(chunk, SurfaceSectionYFromBlockY(y));
+    if (edited && section && section->waterVolumes) {
+        BlockType current = (BlockType)section->blocks[lx][SurfaceSectionLocalYFromBlockY(y)][lz];
+        if (current == BLOCK_AIR || current == BLOCK_WATER) return current;
+    }
+    if (edited) return block;
 
     if (ChunkTryGetLocalBlock(chunk, lx, y, lz, &block)) return block;
     return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_HOME

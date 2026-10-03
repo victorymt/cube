@@ -6,6 +6,8 @@
 #include "world/terrain.h"
 #include "world/world_environment.h"
 #include "world/world_surface_snapshot.h"
+#include "world/world.h"
+#include "world/world_persistence.h"
 
 #include <assert.h>
 #include <math.h>
@@ -1348,6 +1350,41 @@ static void AssertChunkLodWaterHeightfieldContracts(void)
     FreeTestMesh(&quarter);
 }
 
+static void AssertFluidStateOverridesAirAndWaterEdits(void)
+{
+    memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
+    Chunk *chunk = &chunks[0];
+    chunk->loaded = true;
+    chunk->spherical = true;
+    chunk->surfaceAddress = ChunkSurfaceAddressAt(0, 0);
+    chunk->surfaceKey = ChunkSurfaceKeyAt(0, 0);
+    assert(ChunkMarkTerrainSectionResolved(chunk, 0));
+    ChunkSection *section = ChunkGetSection(chunk, 0, true);
+    assert(section);
+    uint32_t dimension = 1u;
+    SurfaceMapCell cell = { 2, 2 };
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(dimension, 2.0f, 2.0f, 2);
+    BlockEdit edit = { .x = 2, .y = 2, .z = 2, .type = BLOCK_AIR };
+    assert(WorldPersistenceInstallEdits(&edit, &dimension, &address, &cell, 1));
+    assert(GetBlockBaseAt(2, 2, 2) == BLOCK_AIR);
+    section->waterVolumes = calloc(CHUNK_SIZE * SURFACE_SECTION_HEIGHT * CHUNK_SIZE, 1u);
+    assert(section->waterVolumes);
+    section->waterVolumes[(2 * SURFACE_SECTION_HEIGHT + 2) * CHUNK_SIZE + 2] = 255u;
+    section->blocks[2][2][2] = BLOCK_WATER;
+    assert(GetBlockBaseAt(2, 2, 2) == BLOCK_WATER);
+    edit.type = BLOCK_WATER;
+    assert(WorldPersistenceInstallEdits(&edit, &dimension, &address, &cell, 1));
+    section->waterVolumes[(2 * SURFACE_SECTION_HEIGHT + 2) * CHUNK_SIZE + 2] = 0u;
+    section->blocks[2][2][2] = BLOCK_AIR;
+    assert(GetBlockBaseAt(2, 2, 2) == BLOCK_AIR);
+    edit.type = BLOCK_STONE;
+    assert(WorldPersistenceInstallEdits(&edit, &dimension, &address, &cell, 1));
+    assert(GetBlockBaseAt(2, 2, 2) == BLOCK_STONE);
+    assert(WorldPersistenceInstallEdits(NULL, NULL, NULL, NULL, 0));
+    ChunkClearBlockStorage(chunk);
+    memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
+}
+
 int main(void)
 {
     const WorldSurfaceSnapshot snapshot = {
@@ -1381,6 +1418,7 @@ int main(void)
     AssertSolidSnapshotDoesNotReadLiveChunks();
     AssertChunkLodHeightfieldContracts();
     AssertChunkLodWaterHeightfieldContracts();
+    AssertFluidStateOverridesAirAndWaterEdits();
     puts("chunk atlas tests passed");
     return 0;
 }
