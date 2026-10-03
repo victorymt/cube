@@ -871,6 +871,15 @@ but debug runs do not save settings on exit. `weather step` advances
 environmental effects by 1-100,000 fixed 2 Hz ticks without advancing world
 time. Inspect, force, and step require an active surface world.
 
+Each impact tick advances every existing record on the active surface: up to
+1,024 surface records, 256 loaded fires, and 512 burn-recovery records. These
+capacity limits bound the work without slowing the simulation as records fill
+up. New surface discovery remains limited to eight columns per tick. Newly
+spread fires start advancing on the following tick. Unloaded fires and records
+on another surface remain paused; unloaded weather-owned snow/ice retains its
+ownership until its melted block can be restored safely. See
+[weather simulation](weather-simulation.md) for clock and persistence details.
+
 ### Ships
 
 ```text

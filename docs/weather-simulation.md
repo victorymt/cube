@@ -1,0 +1,71 @@
+# Weather simulation clocks and bounds
+
+## Temperature anomalies
+
+Weather adds a pressure-front anomaly and rare warm/cold pulses to the local
+climate temperature. Both pulses use mirrored upper-tail thresholds on the
+same deterministic noise field. The previous cold thresholds applied a full
+7 K cooling pulse throughout most of the field, shifting the weather baseline.
+
+The regression holds the temperate climate input constant across 65,536
+deterministic seed/position/time samples. It requires a near-zero mean anomaly,
+substantial warm and cold populations, and rare excursions in both directions.
+The mixed-precipitation fixture targets an actual sampled temperature near
+freezing rather than depending on a particular noise anomaly.
+
+## Impact time
+
+`WeatherImpactUpdate` feeds a fixed 2 Hz impact clock. Every impact tick ages
+all current-surface records, advances all loaded current-surface fires by
+0.5 seconds, and advances current-surface burn recovery by 0.5 seconds. A
+record's speed therefore does not depend on how many unrelated records exist.
+Wetness evaporation and snow/ice melt keep their existing per-tick rates.
+Melted weather-owned blocks are restored once loaded, preserving the original
+water volume and the existing player-edit ownership checks.
+
+Previously, round-robin limits processed only 64 surfaces, 16 fires and
+32 burn sites per tick without accounting for time between visits. At capacity,
+that reduced their simulation speeds by a factor of sixteen. The fixed-size
+sets are small enough to advance directly, avoiding deferred-time approximation
+when rain or temperature changes and avoiding a new persisted catch-up queue.
+
+Work remains bounded by existing capacities:
+
+| Work per impact tick | Upper bound |
+| --- | --- |
+| Existing surface records | 1,024 |
+| Fires entering the fire pass | 256 |
+| Burn recovery records | 512 |
+| Newly sampled surface columns | 8 |
+
+The passes traverse records backwards so swap-removal cannot skip an
+unprocessed record or update one twice. A fire created by spread is appended
+after the pass's initial bound and receives its first numerical step on the
+following tick. Each existing fire still makes at most one spread attempt per
+tick; the hard active-fire capacity prevents unbounded growth.
+
+Records on other surfaces remain paused. Fire combustion also pauses while
+its block is unloaded. Surface moisture/melt and burn recovery on the current
+surface remain numerical state updates even when their blocks are unloaded;
+terrain changes require loaded blocks. Disabled weather damage stops impact
+ticks. This change does not add historical/off-screen weather sampling or
+change the existing use of the supplied local weather sample.
+
+## Persistence and validation
+
+The `WXIMPACT2` payload is unchanged and `WXIMPACT1` migration remains supported.
+There are no longer unsaved processing cursors. Fractional update time is still
+runtime-only, so exact continuation is tested at complete impact ticks.
+
+`test_weather_impact` compares the same isolated records with populations of
+1/1/1, 65/17/33 and 1,024/256/512. It compares each tick across cold, warm, dry
+and rainy inputs, across save/load, and across frame partitions. Separate cases
+cover inactive surfaces, unloaded fires, disabled impacts, fully occupied
+snow/ice restoration, preserved water volumes, and deferred spread births.
+
+A local CPU probe using the test world's stub terrain callbacks measured 500
+full-capacity single ticks: about 0.29 ms mean and 0.41 ms maximum, compared
+with 0.025 ms mean for the old partial updates. This is a correctness/per-tick
+cost tradeoff, not a speedup or a rendered-game frame-time measurement. Actual
+chunk queries, block mutations and mesh rebuilds can cost more; the DSL and
+debug trace remain the tools for measuring those in the live world.

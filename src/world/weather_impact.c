@@ -15,9 +15,6 @@
 #include <string.h>
 
 #define WEATHER_IMPACT_SAMPLES_PER_TICK 8u
-#define WEATHER_IMPACT_SURFACES_PER_TICK 64u
-#define WEATHER_IMPACT_FIRES_PER_TICK 16u
-#define WEATHER_IMPACT_BURN_SITES_PER_TICK 32u
 #define WEATHER_IMPACT_RADIUS 24
 #define WEATHER_IMPACT_MAGIC "WXIMPACT2"
 #define WEATHER_IMPACT_LEGACY_MAGIC "WXIMPACT1"
@@ -133,9 +130,6 @@ static WeatherBurnSiteState impactBurnSites[WEATHER_IMPACT_MAX_BURN_SITES];
 static uint32_t impactSurfaceCount = 0u;
 static uint32_t impactFireCount = 0u;
 static uint32_t impactBurnSiteCount = 0u;
-static uint32_t impactSurfaceCursor = 0u;
-static uint32_t impactFireCursor = 0u;
-static uint32_t impactBurnSiteCursor = 0u;
 static float impactAccumulator = 0.0f;
 static bool impactEnabled = true;
 static WeatherImpactStats impactStats = { 0 };
@@ -342,7 +336,6 @@ static void ImpactRemoveSurface(uint32_t index)
     if (index != impactSurfaceCount) {
         impactSurfaces[index] = impactSurfaces[impactSurfaceCount];
     }
-    if (impactSurfaceCursor >= impactSurfaceCount) impactSurfaceCursor = 0u;
 }
 
 static void ImpactRestoreOwned(WeatherImpactSurfaceRecord *record)
@@ -527,7 +520,6 @@ static void ImpactRemoveBurnSite(uint32_t index)
     if (index != impactBurnSiteCount) {
         impactBurnSites[index] = impactBurnSites[impactBurnSiteCount];
     }
-    if (impactBurnSiteCursor >= impactBurnSiteCount) impactBurnSiteCursor = 0u;
 }
 
 static void ImpactRecordBurnSite(const WeatherImpactFireRecord *fire,
@@ -653,7 +645,6 @@ static void ImpactRemoveFire(uint32_t index)
     if (index >= impactFireCount) return;
     impactFireCount--;
     if (index != impactFireCount) impactFires[index] = impactFires[impactFireCount];
-    if (impactFireCursor >= impactFireCount) impactFireCursor = 0u;
 }
 
 static void ImpactFinishFire(uint32_t index, bool countExtinction)
@@ -681,15 +672,14 @@ static uint32_t ImpactFireLane(const WeatherImpactFireRecord *fire,
 
 static void ImpactProcessFires(WeatherFieldSample weather)
 {
-    uint32_t count = impactFireCount < WEATHER_IMPACT_FIRES_PER_TICK ?
-        impactFireCount : WEATHER_IMPACT_FIRES_PER_TICK;
-    for (uint32_t processed = 0u; processed < count && impactFireCount > 0u;) {
-        if (impactFireCursor >= impactFireCount) impactFireCursor = 0u;
-        WeatherImpactFireRecord *fire = &impactFires[impactFireCursor];
+    /* Each existing fire receives exactly one fixed step. Reverse traversal
+       makes swap-removal safe and leaves newly spread fires for the next
+       tick, so ignition cannot produce an unbounded same-tick chain. */
+    for (uint32_t remaining = impactFireCount; remaining > 0u; remaining--) {
+        uint32_t index = remaining - 1u;
+        WeatherImpactFireRecord *fire = &impactFires[index];
         if (fire->surfaceId != WorldCurrentSurfaceId() ||
             !SurfaceBlockReadyAt(fire->x, fire->y, fire->z)) {
-            impactFireCursor++;
-            processed++;
             continue;
         }
         BlockType block = GetBlockAt(fire->x, fire->y, fire->z);
@@ -697,8 +687,7 @@ static void ImpactProcessFires(WeatherFieldSample weather)
         bool fuelConsumed = fire->state.fuel <= 0.0f;
         if (!fuelConsumed &&
             (block == BLOCK_AIR || material.flammability <= 0.12f)) {
-            ImpactFinishFire(impactFireCursor, true);
-            processed++;
+            ImpactFinishFire(index, true);
             continue;
         }
         float previousFuel = fire->state.fuel;
@@ -724,8 +713,7 @@ static void ImpactProcessFires(WeatherFieldSample weather)
             ImpactRecordBurnSite(fire, 1.0f);
         }
         if (fire->state.phase == WILDFIRE_PHASE_INACTIVE) {
-            ImpactFinishFire(impactFireCursor, true);
-            processed++;
+            ImpactFinishFire(index, true);
             continue;
         }
 
@@ -768,8 +756,6 @@ static void ImpactProcessFires(WeatherFieldSample weather)
                 impactStats.spreadIgnitions++;
             }
         }
-        impactFireCursor++;
-        processed++;
     }
 }
 
@@ -830,15 +816,10 @@ static void ImpactSampleNewSurfaces(Vector3 playerPosition,
 
 static void ImpactAgeSurfaces(WeatherFieldSample weather)
 {
-    uint32_t count = impactSurfaceCount < WEATHER_IMPACT_SURFACES_PER_TICK ?
-        impactSurfaceCount : WEATHER_IMPACT_SURFACES_PER_TICK;
-    for (uint32_t processed = 0u;
-         processed < count && impactSurfaceCount > 0u;) {
-        if (impactSurfaceCursor >= impactSurfaceCount) impactSurfaceCursor = 0u;
-        WeatherImpactSurfaceRecord *record = &impactSurfaces[impactSurfaceCursor];
+    for (uint32_t remaining = impactSurfaceCount; remaining > 0u; remaining--) {
+        uint32_t index = remaining - 1u;
+        WeatherImpactSurfaceRecord *record = &impactSurfaces[index];
         if (record->state.surfaceId != WorldCurrentSurfaceId()) {
-            impactSurfaceCursor++;
-            processed++;
             continue;
         }
         float evaporation = weather.temperatureK > 273.15f ?
@@ -860,31 +841,31 @@ static void ImpactAgeSurfaces(WeatherFieldSample weather)
         if (record->state.iceAmount <= 0.0f) {
             record->state.flags &= ~WEATHER_SURFACE_ICE;
         }
+        bool melted =
+            (record->ownedEffect == WEATHER_OWNED_SNOW &&
+             record->state.snowDepth <= 0.0f) ||
+            (record->ownedEffect == WEATHER_OWNED_ICE &&
+             record->state.iceAmount <= 0.0f);
+        if (melted && SurfaceBlockReadyAt(
+                record->state.x, record->effectY, record->state.z)) {
+            ImpactRestoreOwned(record);
+        }
         bool empty = record->state.flags == 0u &&
             record->state.erosionExposure <= 0.0f &&
             record->state.windExposure <= 0.0f &&
             record->state.impactExposure <= 0.0f &&
             record->ownedEffect == WEATHER_OWNED_NONE;
-        if (empty) ImpactRemoveSurface(impactSurfaceCursor);
-        else impactSurfaceCursor++;
-        processed++;
+        if (empty) ImpactRemoveSurface(index);
         impactStats.processedSurfaces++;
     }
 }
 
 static void ImpactRecoverBurnSites(WeatherFieldSample weather)
 {
-    uint32_t count = impactBurnSiteCount < WEATHER_IMPACT_BURN_SITES_PER_TICK ?
-        impactBurnSiteCount : WEATHER_IMPACT_BURN_SITES_PER_TICK;
-    for (uint32_t processed = 0u;
-         processed < count && impactBurnSiteCount > 0u;) {
-        if (impactBurnSiteCursor >= impactBurnSiteCount) {
-            impactBurnSiteCursor = 0u;
-        }
-        WeatherBurnSiteState *site = &impactBurnSites[impactBurnSiteCursor];
+    for (uint32_t remaining = impactBurnSiteCount; remaining > 0u; remaining--) {
+        uint32_t index = remaining - 1u;
+        WeatherBurnSiteState *site = &impactBurnSites[index];
         if (site->surfaceId != WorldCurrentSurfaceId()) {
-            impactBurnSiteCursor++;
-            processed++;
             continue;
         }
         float temperate = ImpactUnit(
@@ -921,12 +902,9 @@ static void ImpactRecoverBurnSites(WeatherFieldSample weather)
             }
         }
         if (site->recovery >= 1.0f) {
-            ImpactRemoveBurnSite(impactBurnSiteCursor);
+            ImpactRemoveBurnSite(index);
             impactStats.recoveredBurnSites++;
-        } else {
-            impactBurnSiteCursor++;
         }
-        processed++;
     }
 }
 
@@ -934,6 +912,9 @@ static void ImpactTick(Vector3 playerPosition, WeatherFieldSample weather)
 {
     impactStats.ticks++;
     impactLastWeather = weather;
+    /* The fixed-capacity state sets advance at 2 Hz regardless of occupancy.
+       Only discovery is sampled: skipping existing records silently slowed
+       evaporation, combustion and recovery by up to sixteen times. */
     ImpactAgeSurfaces(weather);
     ImpactSampleNewSurfaces(playerPosition, weather);
     ImpactProcessFires(weather);
@@ -951,9 +932,6 @@ void WeatherImpactInit(bool damageEnabled)
     impactSurfaceCount = 0u;
     impactFireCount = 0u;
     impactBurnSiteCount = 0u;
-    impactSurfaceCursor = 0u;
-    impactFireCursor = 0u;
-    impactBurnSiteCursor = 0u;
     impactAccumulator = 0.0f;
     impactEnabled = damageEnabled;
     impactStats = (WeatherImpactStats){ 0 };
@@ -1541,9 +1519,6 @@ static void ImpactCommitLoadedState(
     impactSurfaceCount = surfaceCount;
     impactFireCount = fireCount;
     impactBurnSiteCount = burnSiteCount;
-    impactSurfaceCursor = 0u;
-    impactFireCursor = 0u;
-    impactBurnSiteCursor = 0u;
     impactAccumulator = 0.0f;
     stats.surfaceCount = surfaceCount;
     stats.activeFires = fireCount;

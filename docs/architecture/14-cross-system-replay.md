@@ -61,9 +61,12 @@ are likewise not persisted, so checkpoints must align with its update cadence.
 The scene has one loaded chunk and a bounded set of ecology queries. The regional
 route validates canonical coordinates and disturbances across ecology regions;
 it does not unload chunks, rebase the world origin, evict the ecology cache or
-verify off-screen catchment simulation. The weather-impact fixture fits within
-one work-budget pass so unsaved processing cursors cannot affect checkpoint
-continuation.
+verify off-screen catchment simulation. Weather impacts now advance their entire
+fixed-capacity state sets on each tick, with no processing cursors. The focused
+weather-impact tests additionally compare single-record and full-capacity runs,
+including continuation after saving during a changing-weather sequence. See
+[weather simulation](../weather-simulation.md) for the active-surface and
+loaded-fire boundaries.
 
 The integration gate does not migrate frame-driven gameplay systems into the
 production fixed-step callback, simulate GPU rendering, or replace the graphical

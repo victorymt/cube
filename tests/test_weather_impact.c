@@ -364,7 +364,10 @@ static void TestBoundedWorkAndNaturalSources(void)
         if (fires[index].state.ageSeconds > 0.0f) advanced++;
     }
     assert(count == 20u);
-    assert(advanced == 16u);
+    assert(advanced == count);
+    for (unsigned index = 0u; index < count; index++) {
+        assert(fires[index].state.ageSeconds == 0.5f);
+    }
 
     ResetGrid(BLOCK_WOOD);
     WeatherImpactInit(true);
@@ -494,6 +497,275 @@ typedef struct CurrentFireRecord {
     float ageSeconds;
     float initialFuel;
 } CurrentFireRecord;
+
+typedef struct CurrentSurfaceRecord {
+    uint32_t surfaceId;
+    int32_t x, y, z;
+    uint32_t flags;
+    float wetness, snowDepth, iceAmount;
+    float erosionExposure, windExposure, impactExposure;
+    uint32_t originalBlock, expectedBlock;
+    int32_t effectY;
+    uint8_t originalFluidVolume, ownedEffect, reserved[2];
+} CurrentSurfaceRecord;
+
+static void LoadTimingFixture(unsigned surfaces, unsigned fires,
+                              unsigned burns)
+{
+    ResetGrid(BLOCK_STONE);
+    WeatherImpactInit(true);
+    FILE *file = tmpfile();
+    assert(file);
+    CurrentDiskHeader header = {
+        .surfaceCount = surfaces, .fireCount = fires, .burnSiteCount = burns
+    };
+    assert(fwrite("WXIMPACT2", 1u, 9u, file) == 9u);
+    assert(fwrite(&header, sizeof(header), 1u, file) == 1u);
+    for (unsigned index = 0u; index < surfaces; index++) {
+        CurrentSurfaceRecord record = {
+            .surfaceId = 7u, .x = 2000 + (int)index, .y = 10, .z = 2000,
+            .flags = WEATHER_SURFACE_WET | WEATHER_SURFACE_SNOW |
+                     WEATHER_SURFACE_ICE,
+            .wetness = 1.0f, .snowDepth = 1.0f, .iceAmount = 1.0f,
+            .erosionExposure = 0.25f, .effectY = 11
+        };
+        assert(fwrite(&record, sizeof(record), 1u, file) == 1u);
+    }
+    for (unsigned index = 0u; index < fires; index++) {
+        /* Isolated fuel keeps spreading and local water out of this clock
+           comparison, even when every fire slot is occupied. */
+        int x = -30 + (int)(index % 16u) * 4;
+        int z = -30 + (int)(index / 16u) * 4;
+        blocks[x + TEST_RADIUS][10][z + TEST_RADIUS] = BLOCK_WOOD;
+        CurrentFireRecord record = {
+            .surfaceId = 7u, .x = x, .y = 10, .z = z,
+            .fuelBlock = BLOCK_WOOD, .phase = WILDFIRE_PHASE_FLAMING,
+            .intensity = 0.8f, .fuel = 3.0f, .initialFuel = 3.0f,
+            .moisture = 0.15f
+        };
+        assert(fwrite(&record, sizeof(record), 1u, file) == 1u);
+    }
+    for (unsigned index = 0u; index < burns; index++) {
+        CurrentBurnRecord record = {
+            .surfaceId = 7u, .x = 4000 + (int)index, .y = 10, .z = 4000,
+            .severity = 1.0f, .recovery = 0.1f, .ageSeconds = 2000.0f
+        };
+        assert(fwrite(&record, sizeof(record), 1u, file) == 1u);
+    }
+    rewind(file);
+    assert(WeatherImpactLoadState(file));
+    fclose(file);
+}
+
+typedef struct TimingSnapshot {
+    WeatherSurfaceState surface;
+    WeatherImpactFireSnapshot fire;
+    WeatherBurnSiteState burn;
+    bool fireActive;
+} TimingSnapshot;
+
+static TimingSnapshot CaptureTimingSnapshot(void)
+{
+    TimingSnapshot result = { 0 };
+    assert(WeatherImpactSurfaceAt(2000, 10, 2000, &result.surface));
+    result.fireActive = WeatherImpactFireStateAt(-30, 10, -30, &result.fire);
+    assert(WeatherImpactBurnSiteAt(4000, 10, 4000, &result.burn));
+    return result;
+}
+
+static void AssertTimingEqual(TimingSnapshot actual, TimingSnapshot expected)
+{
+    assert(actual.surface.flags == expected.surface.flags);
+    assert(actual.surface.wetness == expected.surface.wetness);
+    assert(actual.surface.snowDepth == expected.surface.snowDepth);
+    assert(actual.surface.iceAmount == expected.surface.iceAmount);
+    assert(actual.burn.ageSeconds == expected.burn.ageSeconds);
+    assert(actual.burn.recovery == expected.burn.recovery);
+    assert(actual.fireActive == expected.fireActive);
+    if (actual.fireActive) {
+        assert(actual.fire.state.phase == expected.fire.state.phase);
+        assert(actual.fire.state.ageSeconds == expected.fire.state.ageSeconds);
+        assert(actual.fire.state.fuel == expected.fire.state.fuel);
+        assert(actual.fire.state.intensity == expected.fire.state.intensity);
+        assert(actual.fire.state.moisture == expected.fire.state.moisture);
+        assert(actual.fire.state.heatOutput == expected.fire.state.heatOutput);
+        assert(actual.fire.state.smokeOutput == expected.fire.state.smokeOutput);
+    }
+}
+
+static void TestElapsedTimeIndependentOfRecordCount(void)
+{
+    enum { TICKS = 40 };
+    TimingSnapshot baseline[TICKS];
+    const unsigned populations[][3] = {
+        { 1u, 1u, 1u },
+        { 65u, 17u, 33u },
+        { WEATHER_IMPACT_MAX_SURFACES, WEATHER_IMPACT_MAX_FIRES,
+          WEATHER_IMPACT_MAX_BURN_SITES }
+    };
+    for (unsigned run = 0u; run < 5u; run++) {
+        unsigned population = run < 3u ? run : 2u;
+        LoadTimingFixture(populations[population][0],
+                          populations[population][1],
+                          populations[population][2]);
+        for (unsigned tick = 0u; tick < TICKS; tick++) {
+            /* Crossing wet/dry and freezing boundaries catches attempts to
+               apply today's weather retroactively to missed ticks. */
+            WeatherFieldSample weather = tick < 20u ? Dry() : Rain();
+            if (tick < 4u) weather.temperatureK = 264.0f;
+            Vector3 position = { 10000.0f, 12.0f, 10000.0f };
+            if (run == 4u) {
+                for (unsigned frame = 0u; frame < 4u; frame++) {
+                    WeatherImpactUpdate(0.125f, position, weather);
+                }
+            } else {
+                WeatherImpactStepTicks(1u, position, weather);
+            }
+            TimingSnapshot actual = CaptureTimingSnapshot();
+            if (run == 0u) baseline[tick] = actual;
+            else AssertTimingEqual(actual, baseline[tick]);
+            if (run == 3u && tick == 6u) {
+                FILE *file = tmpfile();
+                assert(file && WeatherImpactSaveState(file));
+                rewind(file);
+                WeatherImpactReset();
+                assert(WeatherImpactLoadState(file));
+                fclose(file);
+                AssertTimingEqual(CaptureTimingSnapshot(), actual);
+            }
+        }
+    }
+    assert(baseline[1].fire.state.ageSeconds == 1.0f);
+    assert(baseline[TICKS - 1].surface.snowDepth == 0.0f);
+    assert(baseline[TICKS - 1].burn.ageSeconds == 2020.0f);
+    assert(baseline[TICKS - 1].burn.recovery > baseline[0].burn.recovery);
+}
+
+static void TestInactiveSurfaceAndUnloadedFireClocks(void)
+{
+    LoadTimingFixture(WEATHER_IMPACT_MAX_SURFACES, WEATHER_IMPACT_MAX_FIRES,
+                      WEATHER_IMPACT_MAX_BURN_SITES);
+    TimingSnapshot before = CaptureTimingSnapshot();
+    WorldSurfaceSnapshot home = *WorldCurrentSurfaceSnapshot();
+    WorldSurfaceSnapshot other = home;
+    other.context.bodyId = home.context.bodyId + 1u;
+    WorldInstallSurfaceSnapshot(&other);
+    WeatherImpactStepTicks(20u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    WorldInstallSurfaceSnapshot(&home);
+    AssertTimingEqual(CaptureTimingSnapshot(), before);
+
+    surfaceLoaded = false;
+    WeatherImpactStepTicks(4u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    TimingSnapshot unloaded = CaptureTimingSnapshot();
+    assert(unloaded.fire.state.ageSeconds == before.fire.state.ageSeconds);
+    assert(unloaded.fire.state.fuel == before.fire.state.fuel);
+    assert(unloaded.burn.ageSeconds == before.burn.ageSeconds + 2.0f);
+    surfaceLoaded = true;
+    WeatherImpactStepTicks(1u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    assert(CaptureTimingSnapshot().fire.state.ageSeconds == 0.5f);
+
+    WeatherBurnSiteState burn;
+    assert(WeatherImpactBurnSiteAt(4000, 10, 4000, &burn));
+    float age = burn.ageSeconds;
+    WeatherImpactSetEnabled(false);
+    WeatherImpactStepTicks(20u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    assert(WeatherImpactBurnSiteAt(4000, 10, 4000, &burn));
+    assert(burn.ageSeconds == age);
+    WeatherImpactSetEnabled(true);
+    WeatherImpactStepTicks(1u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    assert(WeatherImpactBurnSiteAt(4000, 10, 4000, &burn));
+    assert(burn.ageSeconds == age + 0.5f);
+}
+
+static void TestOwnedMeltAtCapacity(void)
+{
+    for (unsigned frozenWater = 0u; frozenWater < 2u; frozenWater++) {
+        for (unsigned run = 0u; run < 4u; run++) {
+            ResetGrid(BLOCK_STONE);
+            WeatherImpactInit(true);
+            unsigned count = run == 0u ? 1u : WEATHER_IMPACT_MAX_SURFACES;
+            FILE *file = tmpfile();
+            assert(file);
+            CurrentDiskHeader header = { .surfaceCount = count };
+            assert(fwrite("WXIMPACT2", 1u, 9u, file) == 9u);
+            assert(fwrite(&header, sizeof(header), 1u, file) == 1u);
+            for (unsigned index = 0u; index < count; index++) {
+                int x = (int)(index % 32u);
+                int z = (int)(index / 32u);
+                CurrentSurfaceRecord record = {
+                    .surfaceId = 7u, .x = x, .y = 10, .z = z,
+                    .flags = frozenWater ? WEATHER_SURFACE_ICE : WEATHER_SURFACE_SNOW,
+                    .snowDepth = frozenWater ? 0.0f : 1.0f,
+                    .iceAmount = frozenWater ? 1.0f : 0.0f,
+                    .originalBlock = frozenWater ? BLOCK_WATER : BLOCK_AIR,
+                    .expectedBlock = frozenWater ? BLOCK_ICE : BLOCK_SNOW,
+                    .effectY = 11,
+                    .originalFluidVolume = frozenWater ? FLUID_CAPACITY / 2u : 0u,
+                    .ownedEffect = frozenWater ? 2u : 1u
+                };
+                blocks[x + TEST_RADIUS][11][z + TEST_RADIUS] =
+                    (BlockType)record.expectedBlock;
+                assert(fwrite(&record, sizeof(record), 1u, file) == 1u);
+            }
+            rewind(file);
+            assert(WeatherImpactLoadState(file));
+            fclose(file);
+            if (run == 3u) {
+                assert(SetBlockNoUndoFromSource(
+                    0, 11, 0, BLOCK_PLANK, WORLD_MUTATION_PLAYER));
+            }
+            surfaceLoaded = run != 2u;
+            WeatherImpactStepTicks(20u,
+                (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+            if (!surfaceLoaded) {
+                assert(GetBlockAt(0, 11, 0) ==
+                       (frozenWater ? BLOCK_ICE : BLOCK_SNOW));
+                assert(WeatherImpactGetStats().surfaceCount == count);
+                surfaceLoaded = true;
+                WeatherImpactStepTicks(1u,
+                    (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+            }
+            for (unsigned index = 0u; index < count; index++) {
+                int x = (int)(index % 32u);
+                int z = (int)(index / 32u);
+                if (run == 3u && index == 0u) {
+                    assert(GetBlockAt(x, 11, z) == BLOCK_PLANK);
+                    continue;
+                }
+                assert(GetBlockAt(x, 11, z) ==
+                       (frozenWater ? BLOCK_WATER : BLOCK_AIR));
+                if (frozenWater) {
+                    assert(FluidGetVolumeAt(x, 11, z) == FLUID_CAPACITY / 2u);
+                }
+            }
+            assert(WeatherImpactGetStats().surfaceCount == 0u);
+        }
+    }
+}
+
+static void TestSpreadStartsOnNextTick(void)
+{
+    ResetGrid(BLOCK_WOOD);
+    WeatherImpactInit(true);
+    assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
+    bool spread = false;
+    for (unsigned tick = 0u; tick < 100u && !spread; tick++) {
+        WeatherImpactStepTicks(1u,
+            (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+        WeatherImpactFireSnapshot fires[WEATHER_IMPACT_MAX_FIRES];
+        unsigned count = WeatherImpactCollectFires(
+            (Vector3){ 0.0f, 10.0f, 0.0f }, 100.0f,
+            fires, WEATHER_IMPACT_MAX_FIRES);
+        for (unsigned index = 0u; index < count; index++) {
+            if (fires[index].x == 0 && fires[index].y == 10 && fires[index].z == 0) {
+                continue;
+            }
+            assert(fires[index].state.ageSeconds == 0.0f);
+            spread = true;
+        }
+    }
+    assert(spread);
+}
 
 static FILE *CurrentFireAliasState(bool duplicate)
 {
@@ -758,6 +1030,10 @@ int main(void)
         }
     };
     WorldInstallSurfaceSnapshot(&snapshot);
+    TestElapsedTimeIndependentOfRecordCount();
+    TestInactiveSurfaceAndUnloadedFireClocks();
+    TestOwnedMeltAtCapacity();
+    TestSpreadStartsOnNextTick();
     TestRainBudgetAndDisable();
     TestFireAndRainInteraction();
     TestIgnitionQueriesAndLoadedBounds();
