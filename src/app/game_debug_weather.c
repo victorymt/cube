@@ -396,10 +396,25 @@ bool GameDebugWeatherDslResolve(const GameRuntime *game, const char *name,
     if (WeatherSampleDslResolve(name, outValue)) return true;
     if (WeatherImpactDslResolve(game, name, outValue)) return true;
     if (WeatherTornadoDslResolve(game, name, outValue)) return true;
-    if (strcmp(name, "weather.cloud_layers") == 0) {
+    if (strcmp(name, "weather.cloud_layers") == 0 ||
+        strcmp(name, "weather.cloud_reference_y") == 0 ||
+        strcmp(name, "weather.cloud_bottom_y") == 0) {
         WeatherVisualState visual = WeatherVisualStateAtWorld(
             game->player.position,
             SimulationTimePeriodic(SpaceElapsedSimulationTime()), 0.5f);
+        if (strcmp(name, "weather.cloud_reference_y") == 0) {
+            return WeatherDslNumber(outValue, visual.cloudAltitudeReference);
+        }
+        if (strcmp(name, "weather.cloud_bottom_y") == 0) {
+            float bottom = visual.cloudBaseHeight;
+            for (unsigned i = 0u; i < visual.cloudLayerCount; i++) {
+                if (i == 0u || visual.cloudLayers[i].baseHeight < bottom) {
+                    bottom = visual.cloudLayers[i].baseHeight;
+                }
+            }
+            return WeatherDslNumber(outValue, visual.active ?
+                visual.cloudAltitudeReference + bottom : 0.0f);
+        }
         return WeatherDslNumber(outValue, visual.cloudLayerCount);
     }
     if (strcmp(name, "weather.cloud_forced_frames") == 0) {

@@ -153,6 +153,10 @@ test-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
 
+.PHONY: test-cloud-altitude-e2e
+test-cloud-altitude-e2e: $(TARGET)
+	bash tests/test_cloud_altitude_e2e.sh $(TARGET)
+
 .PHONY: test-chunk-diagnostics-e2e
 $(BUILD_DIR)/diagnostics-plugins/diagnostics.so: tests/diagnostics_plugin.c src/core/plugin.h $(BUILD_CONFIG)
 	@mkdir -p $(dir $@)

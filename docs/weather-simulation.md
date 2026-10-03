@@ -91,3 +91,29 @@ with 0.025 ms mean for the old partial updates. This is a correctness/per-tick
 cost tradeoff, not a speedup or a rendered-game frame-time measurement. Actual
 chunk queries, block mutations and mesh rebuilds can cost more; the DSL and
 debug trace remain the tools for measuring those in the live world.
+
+## Cloud altitude
+
+Cloud layers use the active surface's sea level as a fixed vertical datum.
+Worlds without a sea level, including flat test worlds, use the atmosphere's
+reference Y=12. `WeatherVisualStateAtWorld` supplies this datum in the same
+snapshot as the cloud layers; the renderer no longer queries the four terrain
+columns under the camera to reposition the cloud volume every frame.
+
+Weather can still change layer bases and thicknesses. Moving the camera uphill
+does not lift the cloud volume with it, and a mountain can intersect a low cloud
+layer. Using one surface datum also avoids discontinuities at artificial region
+boundaries and recomputes immediately on a world/planet transition.
+
+`make test-cloud-altitude-e2e` runs the DSL route in
+`tests/scenes/cloud_altitude_replay.dsl` on Wayland. It fixes weather and cloud
+type, compares world-space cloud bases after horizontal/vertical movement and
+surface transitions, and retains four screenshots plus the trace in a printed
+temporary directory. Unit coverage also checks dry-world fallback and changing
+terrain heights independently of the camera position.
+
+Screenshot reports include `weather.cloud_reference_y` from the rendered
+frame snapshot, alongside each layer's relative base height. The replay checks
+these values as well as the live DSL fields. Planet screenshots use the debug
+surface fixture without waiting for every terrain section to generate; this
+route verifies clouds and surface transitions, not terrain-stream completion.

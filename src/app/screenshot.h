@@ -64,6 +64,7 @@ typedef struct ScreenshotWeatherDebugInfo {
     float atmosphereDensity;
     float cloudCover;
     float cloudBaseHeight;
+    float cloudAltitudeReference;
     float cloudThickness;
     float cloudOpacity;
     uint16_t cloudGenera;

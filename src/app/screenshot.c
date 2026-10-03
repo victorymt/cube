@@ -287,6 +287,7 @@ static bool ScreenshotWriteDebugFields(
                 info->weather.atmosphereDensity);
     REPORT_LINE("weather.cloud_cover=%.6f\n", info->weather.cloudCover);
     REPORT_LINE("weather.cloud_base_height=%.6f\n", info->weather.cloudBaseHeight);
+    REPORT_LINE("weather.cloud_reference_y=%.6f\n", info->weather.cloudAltitudeReference);
     REPORT_LINE("weather.cloud_thickness=%.6f\n", info->weather.cloudThickness);
     REPORT_LINE("weather.cloud_opacity=%.6f\n", info->weather.cloudOpacity);
     REPORT_LINE("weather.cloud_genera=0x%X\n",

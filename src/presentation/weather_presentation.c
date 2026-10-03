@@ -3,6 +3,8 @@
 #include "space/space_state.h"
 #include "world/weather.h"
 #include "space/planet_atmosphere.h"
+#include "world/terrain.h"
+#include "world/world.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -43,6 +45,8 @@ WeatherVisualState WeatherVisualStateAtWorld(
         .atmosphereActive = true
     };
     WeatherVisualState state = WeatherVisualStateEvaluate(&input);
+    state.cloudAltitudeReference = WeatherCloudAltitudeReference(
+        (float)(planet ? PlanetTerrainSeaLevel() : TerrainSeaLevel(WorldTerrainMode())));
     float localAir = (float)(fmin(air.densityRatio, 1.0) * air.weatherActivity);
     state.fogDensity *= localAir;
     state.dustDensity *= localAir;

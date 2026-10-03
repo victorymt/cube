@@ -25,6 +25,9 @@ static float lightDaylight = 0.5f;
 static float lightEclipse = 0.0f;
 static PlanetAtmosphereType planetAtmosphereType = PLANET_ATMOSPHERE_BREATHABLE;
 static float planetAtmosphereDensity = 0.62f;
+static TerrainMode testTerrainMode = TERRAIN_VARIED;
+static int testPlanetSeaLevel = 38;
+static int testTerrainHeight = 10;
 
 static PlanetProfile TestPlanetProfile(void)
 {
@@ -206,8 +209,15 @@ int WorldSurfaceHeightAt(int x, int z)
 {
     (void)x;
     (void)z;
-    return 10;
+    return testTerrainHeight;
 }
+
+TerrainMode WorldTerrainMode(void) { return testTerrainMode; }
+int TerrainSeaLevel(TerrainMode mode)
+{
+    return mode == TERRAIN_FLAT ? -1 : HOME_SEA_LEVEL;
+}
+int PlanetTerrainSeaLevel(void) { return testPlanetSeaLevel; }
 
 int WorldSurfaceMapOriginX(void)
 {
@@ -231,6 +241,9 @@ uint32_t WorldGetSeed(void)
 
 static void ResetRuntime(void)
 {
+    testTerrainMode = TERRAIN_VARIED;
+    testPlanetSeaLevel = 38;
+    testTerrainHeight = 10;
     simulationTime = 120.0;
     particleEmissions = 0;
     biomeSamples = 0;
@@ -773,8 +786,38 @@ static void TestInitRestoresCleanState(void)
     assert(particleEmissions == 0);
 }
 
+static void TestCloudDatumIgnoresCameraAndTerrainHeight(void)
+{
+    ResetRuntime();
+    assert(WeatherForcePhenomenon(WEATHER_PHENOMENON_CLEAR, 1.0f, 60u));
+    assert(WeatherForceCloudGenus(WEATHER_CLOUD_GENUS_CUMULUS, 0.8f, 60u));
+    WeatherVisualState valley = WeatherVisualStateAtWorld(
+        (Vector3){ 0.5f, 90.0f, 0.5f }, simulationTime, 0.5f);
+    assert(valley.cloudLayerCount > 0u);
+    assert(valley.cloudAltitudeReference == HOME_SEA_LEVEL);
+    testTerrainHeight = 200;
+    WeatherVisualState mountain = WeatherVisualStateAtWorld(
+        (Vector3){ 512.5f, 220.0f, -128.5f }, simulationTime, 0.5f);
+    assert(mountain.cloudAltitudeReference == valley.cloudAltitudeReference);
+    assert(mountain.cloudLayers[0].baseHeight == valley.cloudLayers[0].baseHeight);
+
+    testTerrainMode = TERRAIN_FLAT;
+    WeatherVisualState flat = WeatherVisualStateAtWorld(
+        (Vector3){ 0.5f, 90.0f, 0.5f }, simulationTime, 0.5f);
+    assert(flat.cloudAltitudeReference == 12.0f);
+    InstallPlanetSurface();
+    WeatherVisualState planet = WeatherVisualStateAtWorld(
+        (Vector3){ 0.5f, 90.0f, 0.5f }, simulationTime, 0.5f);
+    assert(planet.cloudAltitudeReference == testPlanetSeaLevel);
+    testPlanetSeaLevel = -1;
+    WeatherVisualState dry = WeatherVisualStateAtWorld(
+        (Vector3){ 0.5f, 90.0f, 0.5f }, simulationTime, 0.5f);
+    assert(dry.cloudAltitudeReference == 12.0f);
+}
+
 int main(void)
 {
+    TestCloudDatumIgnoresCameraAndTerrainHeight();
     TestInvalidDeltaTimeIsIgnored();
     TestHugeDeltaTimeHasBoundedEmission();
     TestLongRunStaysFiniteAndBounded();

@@ -66,21 +66,9 @@ void WeatherCloudMotionAdvance(WeatherCloudMotionState *state,
                       (double)driftSpeed * elapsed;
 }
 
-float WeatherCloudAltitudeReference(float seaLevel, float height00,
-                                    float height10, float height01,
-                                    float height11, float tx, float tz)
+float WeatherCloudAltitudeReference(float seaLevel)
 {
-    if (!isfinite(seaLevel) || !isfinite(height00) || !isfinite(height10) ||
-        !isfinite(height01) || !isfinite(height11) || !isfinite(tx) ||
-        !isfinite(tz)) {
-        return 0.0f;
-    }
-    tx = WeatherVisualClamp(tx);
-    tz = WeatherVisualClamp(tz);
-    float nearHeight = height00 + (height10 - height00) * tx;
-    float farHeight = height01 + (height11 - height01) * tx;
-    float terrainHeight = nearHeight + (farHeight - nearHeight) * tz;
-    return seaLevel >= 0.0f ? fmaxf(seaLevel, terrainHeight) : terrainHeight;
+    return isfinite(seaLevel) && seaLevel >= 0.0f ? seaLevel : 12.0f;
 }
 
 static bool WeatherVisualSampleIsFinite(WeatherFieldSample sample)

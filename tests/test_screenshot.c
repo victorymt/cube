@@ -163,6 +163,7 @@ static void TestDebugReport(void)
             .atmosphereDensity = 0.9f,
             .cloudCover = 0.8125f,
             .cloudBaseHeight = 24.0f,
+            .cloudAltitudeReference = 80.0f,
             .cloudThickness = 18.0f,
             .cloudOpacity = 0.7f,
             .cloudGenera = 0x60u,
@@ -402,6 +403,7 @@ static void TestDebugReport(void)
                   "streaming.player_missing_surface_chunks=0\n"));
     assert(strstr(contents, "camera.inside_solid=false\n"));
     assert(strstr(contents, "weather.cloud_cover=0.812500\n"));
+    assert(strstr(contents, "weather.cloud_reference_y=80.000000\n"));
     assert(strstr(contents, "weather.cloud_thickness=18.000000\n"));
     assert(strstr(contents, "weather.climate=Oceanic\n"));
     assert(strstr(contents, "weather.phenomenon=Heavy rain\n"));

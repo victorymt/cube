@@ -555,21 +555,9 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     raySteps = raySteps < 6 ? 6 : (raySteps > 24 ? 24 : raySteps);
     lightSteps = lightSteps < 1 ? 1 : (lightSteps > 4 ? 4 : lightSteps);
     float drawDistance = 120.0f + (float)gridRadius*60.0f;
-    double baseX = floor((double)camera->position.x - 0.5);
-    double baseZ = floor((double)camera->position.z - 0.5);
-    if (baseX < (double)INT_MIN || baseX >= (double)INT_MAX ||
-        baseZ < (double)INT_MIN || baseZ >= (double)INT_MAX) return;
-    int x = (int)baseX;
-    int z = (int)baseZ;
-    float tx = (float)((double)camera->position.x - (baseX + 0.5));
-    float tz = (float)((double)camera->position.z - (baseZ + 0.5));
-    int seaLevel = PlanetWorldIsActive() ? PlanetTerrainSeaLevel() :
-                                           TerrainSeaLevel(WorldTerrainMode());
-    float altitudeReference = WeatherCloudAltitudeReference(
-        (float)seaLevel, (float)WorldSurfaceHeightAt(x, z),
-        (float)WorldSurfaceHeightAt(x + 1, z),
-        (float)WorldSurfaceHeightAt(x, z + 1),
-        (float)WorldSurfaceHeightAt(x + 1, z + 1), tx, tz);
+    float altitudeReference = weatherVisual->cloudAltitudeReference;
+    if (!isfinite(altitudeReference) || !isfinite(camera->position.x) ||
+        !isfinite(camera->position.y) || !isfinite(camera->position.z)) return;
     Vector3 sunDirection = lighting ? lighting->sunDirection :
                            (Vector3){ 0.32f, 0.88f, 0.18f };
     Color sun = lighting ? lighting->sunColor : WHITE;

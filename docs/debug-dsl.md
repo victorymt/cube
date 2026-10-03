@@ -410,6 +410,8 @@ Runtime values are sampled when an expression is evaluated:
 | `weather.cloud_cover` | number | Aggregate cloud cover from 0 to 1 |
 | `weather.cloud_flags` | number | Bit mask of all WMO cloud genera currently present |
 | `weather.cloud_layers` | number | Number of bounded renderer cloud layers (0-3) |
+| `weather.cloud_reference_y` | number | Fixed cloud datum: active surface sea level, or Y=12 on a dry/flat world; 0 outside a valid atmosphere |
+| `weather.cloud_bottom_y` | number | Lowest selected cloud layer's world-space base (datum plus layer base); 0 outside a valid atmosphere |
 | `weather.cloud_forced_frames` | number | Remaining forced-cloud update frames |
 | `weather.temperature`, `weather.temperature_k` | number | Local air temperature in kelvin |
 | `radiation.active` | bool | Whether the fixed-step radiation column is valid for the player's active surface region |
@@ -837,7 +839,12 @@ classification. The accepted genera are `cirrus`, `cirrocumulus`,
 `cirrostratus`, `altocumulus`, `altostratus`, `nimbostratus`,
 `stratocumulus`, `stratus`, `cumulus`, and `cumulonimbus`. Cloud forcing is
 also runtime-only. `weather inspect` reports the dominant and present genera,
-the selected renderer layers, and each layer's coverage, base, and thickness.
+the selected renderer layers, each layer's coverage, base, and thickness, and
+`cloud_reference_y`. Layer bases are offsets above this fixed datum. The datum
+does not follow terrain under the camera, so climbing a mountain can enter or
+rise above clouds. Natural cloud bases can still change with weather.
+`make test-cloud-altitude-e2e` verifies the fixed datum through this DSL on
+Wayland and retains its screenshots, replies, and trace for visual review.
 
 `weather tornado force` creates a deterministic tornado downwind of the player
 without weakening natural formation thresholds. `INTENSITY` is 0-1, `FRAMES`

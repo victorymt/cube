@@ -186,17 +186,12 @@ static void TestCloudMotionDoesNotReprojectHistory(void)
     assert(old.offsetZ == beforeZ);
 }
 
-static void TestCloudAltitudeReferenceIsContinuous(void)
+static void TestCloudAltitudeUsesFixedDatum(void)
 {
-    float left = WeatherCloudAltitudeReference(
-        12.0f, 10.0f, 30.0f, 18.0f, 38.0f, 0.999f, 0.25f);
-    float right = WeatherCloudAltitudeReference(
-        12.0f, 30.0f, 50.0f, 38.0f, 58.0f, 0.001f, 0.25f);
-    assert(fabsf(right - left) < 0.05f);
-    assert(WeatherCloudAltitudeReference(
-        20.0f, 4.0f, 6.0f, 8.0f, 10.0f, 0.5f, 0.5f) == 20.0f);
-    assert(WeatherCloudAltitudeReference(
-        -1.0f, 4.0f, 6.0f, 8.0f, 10.0f, 0.5f, 0.5f) == 7.0f);
+    assert(WeatherCloudAltitudeReference(20.0f) == 20.0f);
+    assert(WeatherCloudAltitudeReference(0.0f) == 0.0f);
+    assert(WeatherCloudAltitudeReference(-1.0f) == 12.0f);
+    assert(WeatherCloudAltitudeReference(NAN) == 12.0f);
 }
 
 static void TestLayerSelectionAndProfiles(void)
@@ -307,7 +302,7 @@ int main(void)
     TestSnowAndAtmosphereFallbacks();
     TestCloudVerticalDensity();
     TestCloudMotionDoesNotReprojectHistory();
-    TestCloudAltitudeReferenceIsContinuous();
+    TestCloudAltitudeUsesFixedDatum();
     TestLayerSelectionAndProfiles();
     TestAllCloudGenusProfiles();
     TestOpaqueCumulonimbusSuppressesOtherLayers();

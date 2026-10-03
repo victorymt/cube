@@ -34,6 +34,7 @@ typedef struct WeatherVisualState {
     float atmosphereDensity;
     float daylight;
     float cloudCover;
+    float cloudAltitudeReference;
     float cloudBaseHeight;
     float cloudThickness;
     float cloudOpacity;
@@ -78,8 +79,7 @@ void WeatherCloudMotionAdvance(WeatherCloudMotionState *state,
                                double simulationTime, float windAngle,
                                float driftSpeed);
 
-float WeatherCloudAltitudeReference(float seaLevel, float height00,
-                                    float height10, float height01,
-                                    float height11, float tx, float tz);
+/* Fixed surface datum; a dry world uses the atmosphere's reference Y=12. */
+float WeatherCloudAltitudeReference(float seaLevel);
 
 #endif

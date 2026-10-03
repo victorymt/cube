@@ -902,7 +902,7 @@ static void GameDebugInspectWeather(GameRuntime *game)
         "sleet=%.6f freezing_rain=%.6f hail=%.6f lightning=%.6f "
         "fog=%.6f dust=%.6f rainbow=%.6f aurora=%.6f "
         "cloud_genus=%s cloud_genera=%s cloud_layers=%u "
-        "cloud_layer_data=%s cloud_forced_frames=%u "
+        "cloud_layer_data=%s cloud_reference_y=%.3f cloud_forced_frames=%u "
         "forced_frames=%u damage=%d surfaces=%u fires=%u "
         "fire_phase=%s fire_position=%d,%d,%d fire_distance=%.3f "
         "fire_intensity=%.6f fire_fuel=%.6f fire_moisture=%.6f "
@@ -925,7 +925,8 @@ static void GameDebugInspectWeather(GameRuntime *game)
         weather.hail, weather.lightning, weather.fog, weather.dust,
         weather.rainbow, weather.aurora,
         WeatherCloudGenusName(weather.dominantCloudGenus), genera,
-        visual.cloudLayerCount, layers, WeatherForcedCloudFramesRemaining(),
+        visual.cloudLayerCount, layers, visual.cloudAltitudeReference,
+        WeatherForcedCloudFramesRemaining(),
         WeatherForcedFramesRemaining(),
         WeatherImpactEnabled() ? 1 : 0, impacts.surfaceCount,
         impacts.activeFires,
