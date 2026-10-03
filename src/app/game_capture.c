@@ -21,6 +21,7 @@
 #include "world/weather_impact.h"
 #include "world/tornado.h"
 #include "world/world.h"
+#include "world/world_surface_snapshot.h"
 
 #include "raylib.h"
 
@@ -54,6 +55,7 @@ void GameCaptureScreenshot(GameRuntime *game,
         char screenshotPath[512];
         char debugReportPath[512];
         time_t screenshotTime = time(NULL);
+        game->screenshotCaptureSequence++;
         ChunkDiagnostics chunkDiagnostics = { 0 };
         ChunksCaptureDiagnostics(&chunkDiagnostics);
         ChunkWaterRenderDebugInfo screenshotWaterRender = { 0 };
@@ -96,6 +98,12 @@ void GameCaptureScreenshot(GameRuntime *game,
         int screenshotMissingSurfaceChunks =
             PlayerMissingSurfaceChunkCount(game->player.position);
         ScreenshotDebugInfo debugInfo = {
+            .identity = {
+                .captureId = game->screenshotCaptureSequence,
+                .frameId = game->debugFrame,
+                .simulationTick = game->simulationTick,
+                .worldGeneration = WorldCurrentGeneration()
+            },
             .chunks = chunkDiagnostics,
             .world = {
                 .seed = PlanetWorldIsActive() ? PlanetWorldSeed() :

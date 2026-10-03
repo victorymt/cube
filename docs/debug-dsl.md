@@ -362,6 +362,15 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.surface_ready` | bool | No missing surface chunks around the player |
 | `stream.missing_surface_chunks` | number | Missing surface chunk count, or `-1` outside play |
 | `stream.audit_complete` | bool | No stream audit or stream wait is active |
+| `stream.chunks.status` | string | `valid` when the copied chunk snapshot is available, otherwise `unavailable` |
+| `stream.chunks.capture_sequence` | number | Monotonic chunk-module snapshot sequence for the current process |
+| `stream.chunks.blocked_reason` | string | Latest scheduler explanation such as `generation_pending`, `mesh_pending`, or `upload_budget_exhausted` |
+| `stream.chunks.active_chunks` | number | Active chunks copied into the current snapshot |
+| `stream.chunks.pending_generation_jobs`, `stream.chunks.pending_mesh_jobs` | number | Generation and mesh jobs observed in the current snapshot |
+| `stream.chunks.focus_chunk_loaded` | bool | Whether the streaming focus chunk was loaded at capture time |
+| `stream.chunks.generation_submitted`, `stream.chunks.generation_completed` | number | Cumulative generation jobs in the current snapshot |
+| `stream.chunks.mesh_submitted`, `stream.chunks.mesh_completed` | number | Cumulative mesh jobs in the current snapshot |
+| `stream.chunks.upload_budget_deferrals` | number | Cumulative mesh uploads deferred by the frame budget |
 | `stream.lod_coarse_allowed` | bool | Coarse chunk LODs are allowed in the current world state |
 | `stream.lod_target_changes` | number | Cumulative chunk target LOD changes since the current world reset |
 | `stream.lod_target_exact`, `stream.lod_target_half`, `stream.lod_target_quarter` | number | Loaded chunks targeting exact, half-resolution, or quarter-resolution meshes |

@@ -95,6 +95,12 @@ static void TestDebugReport(void)
     char imagePath[256];
     snprintf(imagePath, sizeof(imagePath), "%s/capture.png", directory);
     ScreenshotDebugInfo info = {
+        .identity = {
+            .captureId = 11u,
+            .frameId = 77u,
+            .simulationTick = 123u,
+            .worldGeneration = 5u
+        },
         .chunks = {
             .status = CHUNK_DIAGNOSTICS_VALID,
             .captureSequence = 9u,
@@ -354,6 +360,10 @@ static void TestDebugReport(void)
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
     assert(strstr(contents, "format.version=12\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
+    assert(strstr(contents, "capture.id=11\n"));
+    assert(strstr(contents, "capture.frame_id=77\n"));
+    assert(strstr(contents, "capture.simulation_tick=123\n"));
+    assert(strstr(contents, "capture.world_generation=5\n"));
     assert(strstr(contents, "chunks.status=valid\n"));
     assert(strstr(contents, "chunks.capture_sequence=9\n"));
     assert(strstr(contents, "chunks.blocked_reason=mesh_pending\n"));

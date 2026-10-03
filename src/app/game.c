@@ -171,6 +171,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     RadiationRuntimeGlobalReset(NULL);
     HydrologyRuntimeGlobalReset(NULL);
     SimulationClockReset(&game->simulationClock, 0.0);
+    game->simulationTick = 0u;
 
     WorldSetTerrainMode(mode);
     GamePluginsReset(game);

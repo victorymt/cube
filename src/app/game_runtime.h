@@ -87,6 +87,8 @@ typedef struct GameRuntime {
   unsigned scriptedInputFrames;
   unsigned scriptedShipInputFrames;
   uint64_t debugFrame;
+  uint64_t simulationTick;
+  uint64_t screenshotCaptureSequence;
   ChunkDiagnostics debugChunkDiagnostics;
   uint64_t debugChunkDiagnosticsFrame;
   bool debugChunkDiagnosticsValid;

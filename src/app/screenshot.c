@@ -199,6 +199,12 @@ static bool ScreenshotWriteDebugFields(
                 localTime->tm_year + 1900, localTime->tm_mon + 1,
                 localTime->tm_mday, localTime->tm_hour, localTime->tm_min,
                 localTime->tm_sec);
+    REPORT_LINE("capture.id=%" PRIu64 "\n", info->identity.captureId);
+    REPORT_LINE("capture.frame_id=%" PRIu64 "\n", info->identity.frameId);
+    REPORT_LINE("capture.simulation_tick=%" PRIu64 "\n",
+                info->identity.simulationTick);
+    REPORT_LINE("capture.world_generation=%" PRIu64 "\n",
+                info->identity.worldGeneration);
 
     REPORT_LINE("world.seed=%" PRIu32 "\n", info->world.seed);
     REPORT_LINE("world.surface_id=%" PRIu32 "\n", info->world.surfaceId);

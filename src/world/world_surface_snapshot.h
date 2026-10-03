@@ -13,5 +13,6 @@ typedef struct WorldSurfaceSnapshot {
 // chunk generation has drained. Passing NULL clears it to the neutral value.
 void WorldInstallSurfaceSnapshot(const WorldSurfaceSnapshot *snapshot);
 const WorldSurfaceSnapshot *WorldCurrentSurfaceSnapshot(void);
+uint64_t WorldCurrentGeneration(void);
 
 #endif

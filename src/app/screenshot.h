@@ -244,6 +244,13 @@ typedef struct ScreenshotUiDebugInfo {
     bool landingTransitionActive;
 } ScreenshotUiDebugInfo;
 
+typedef struct ScreenshotCaptureIdentity {
+    uint64_t captureId;
+    uint64_t frameId;
+    uint64_t simulationTick;
+    uint64_t worldGeneration;
+} ScreenshotCaptureIdentity;
+
 typedef struct ScreenshotStreamingDebugInfo {
     int activeChunks;
     int activeSpaceChunks;
@@ -327,6 +334,7 @@ typedef struct ScreenshotEvolutionDebugInfo {
 } ScreenshotEvolutionDebugInfo;
 
 typedef struct ScreenshotDebugInfo {
+    ScreenshotCaptureIdentity identity;
     ChunkDiagnostics chunks;
     ScreenshotWorldDebugInfo world;
     ScreenshotPlayerDebugInfo player;

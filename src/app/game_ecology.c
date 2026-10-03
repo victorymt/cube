@@ -296,5 +296,6 @@ unsigned GameAdvanceSimulationFrame(GameRuntime *game, double realDeltaSeconds)
     game->debugSimulationStepCount = SimulationClockAdvance(
         &game->simulationClock, realDeltaSeconds,
         GameAdvanceSimulationStep, game);
+    game->simulationTick += game->debugSimulationStepCount;
     return game->debugSimulationStepCount;
 }
