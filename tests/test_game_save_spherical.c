@@ -22,10 +22,10 @@ extern const char *GameSaveTestLoadRadiationRuntimeState(
 static int radiationResetCalls;
 bool WorldSaveFormatHasVolcanoes(WorldSaveFormat format)
 {
-    return format == WORLD_SAVE_FORMAT_V24;
+    return format == WORLD_SAVE_FORMAT_V24 || format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26;
 }
 
-bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25; }
+bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26; }
 static LavaBoundary LavaOpen(int x, int y, int z, void *user)
 {
     (void)x; (void)y; (void)z; (void)user; return LAVA_OPEN;
@@ -39,11 +39,11 @@ static void TestLavaPayloadRouting(void)
     const uint32_t marker = 0x12345678u;
     assert(fwrite(&marker, sizeof(marker), 1u, file) == 1u);
     rewind(file); LavaRuntimeReset();
-    assert(GameSaveTestLoadLavaState(file, WORLD_SAVE_FORMAT_V25) == NULL);
+    assert(GameSaveTestLoadLavaState(file, WORLD_SAVE_FORMAT_V26) == NULL);
     uint32_t tail = 0; assert(fread(&tail, sizeof(tail), 1u, file) == 1u && tail == marker);
     assert(LavaRuntimeStats().volume == 512u); fclose(file);
     file = tmpfile(); assert(file); fputs("bad lava", file); rewind(file);
-    assert(GameSaveTestLoadLavaState(file, WORLD_SAVE_FORMAT_V25) != NULL);
+    assert(GameSaveTestLoadLavaState(file, WORLD_SAVE_FORMAT_V26) != NULL);
     assert(LavaRuntimeStats().volume == 512u); rewind(file);
     assert(GameSaveTestLoadLavaState(file, WORLD_SAVE_FORMAT_V24) == NULL);
     assert(ftell(file) == 0 && LavaRuntimeStats().records == 0u); fclose(file);

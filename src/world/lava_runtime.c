@@ -133,6 +133,54 @@ static void AddFlux(unsigned from, unsigned to, unsigned volume, unsigned *used)
     fluxes[(*used)++] = (LavaFlux){ from, to, volume, LavaLiquidEnthalpy(cells[from].thermal) };
     incoming[to] += volume;
 }
+
+static void ReactWater(LavaCell *c, const LavaContext *ctx)
+{
+    if (!ctx->water || !ctx->evaporate) return;
+    static const int offsets[6][3] = {
+        { -1, 0, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 0, 1 },
+        { 0, -1, 0 }, { 0, 1, 0 }
+    };
+    for (unsigned face = 0u; face < 6u; face++) {
+        int x = c->x + offsets[face][0], y = c->y + offsets[face][1];
+        int z = c->z + offsets[face][2];
+        Canonical(&x, &z);
+        unsigned water = 0u;
+        if (!ctx->water(x, y, z, &water, ctx->user)) continue;
+        double area = fmin((double)c->thermal.volume / LAVA_CAPACITY,
+                           (double)water / LAVA_WATER_CAPACITY);
+        /* Horizontal faces touch only when the lower cell reaches its top. */
+        if (face == 4u) area = water == LAVA_WATER_CAPACITY ? 1.0 : 0.0;
+        if (face == 5u) area = c->thermal.volume == LAVA_CAPACITY && water ? 1.0 : 0.0;
+        double temperature = LavaTemperature(c->thermal);
+        double available = fmax(0.0, c->thermal.energy -
+            c->thermal.volume * (LAVA_WATER_BOILING_K - LAVA_REFERENCE_K));
+        if (!water || water > LAVA_WATER_CAPACITY || area <= 0.0 ||
+            temperature <= LAVA_WATER_BOILING_K || available < LAVA_WATER_UNIT_ENERGY) {
+            c->contactCredit[face] = 0.0;
+            continue;
+        }
+        double budget = fmin(available, c->contactCredit[face] +
+            128.0 * area * (temperature - LAVA_WATER_BOILING_K) * LAVA_STEP_SECONDS);
+        unsigned units = (unsigned)fmin((double)water, floor(budget / LAVA_WATER_UNIT_ENERGY));
+        if (!units) { c->contactCredit[face] = budget; continue; }
+        bool reservoir = false;
+        if (UINT64_MAX - ledger.evaporatedWater < units ||
+            !ctx->evaporate(x, y, z, water, units, &reservoir, ctx->user)) {
+            c->contactCredit[face] = 0.0;
+            continue;
+        }
+        /* The successful main-thread water commit is the only path that can
+           debit lava enthalpy or emit steam. Credits themselves carry no heat. */
+        double heat = units * LAVA_WATER_UNIT_ENERGY;
+        c->thermal.energy -= heat;
+        ledger.waterEnergy += heat;
+        ledger.evaporatedWater += units;
+        if (reservoir) ledger.reservoirWater += units;
+        c->steam = fmin(64.0, c->steam + units);
+        c->contactCredit[face] = units == water ? 0.0 : fmod(budget, LAVA_WATER_UNIT_ENERGY);
+    }
+}
 void LavaRuntimeStep(const LavaContext *ctx)
 {
     if (!ctx || !ctx->valid || !ctx->boundary) return;
@@ -190,13 +238,16 @@ void LavaRuntimeStep(const LavaContext *ctx)
         LavaCell *c = &cells[i];
         c->thermal.volume = (unsigned)((int)c->thermal.volume + deltaVolume[i]);
         c->thermal.energy = c->thermal.volume ? fmax(0.0, c->thermal.energy + deltaEnergy[i]) : 0.0;
+        c->steam *= 0.8;
         if (!c->thermal.volume || c->cooled || c->bodyId != ctx->bodyId ||
             ctx->boundary(c->x, c->y, c->z, ctx->user) != LAVA_OPEN) continue;
+        ReactWater(c, ctx);
         double ambient = ctx->ambient ? ctx->ambient(c->x, c->z, ctx->user) : 293.0;
         if (!isfinite(ambient)) ambient = 293.0;
         ambient = fmin(330.0, fmax(LAVA_REFERENCE_K, ambient));
         ledger.cooledEnergy += LavaCool(&c->thermal, ambient, LAVA_STEP_SECONDS);
         c->cooled = LavaTemperature(c->thermal) <= ambient + 1e-8;
+        if (c->cooled) memset(c->contactCredit, 0, sizeof(c->contactCredit));
     }
     /* Preserve the hash until all world callbacks finish; they may read cells. */
     for (unsigned i = 0u; i < count; i++) {
@@ -279,18 +330,23 @@ static bool ReadReal(FILE *f, double *v)
 bool LavaRuntimeSave(FILE *f)
 {
     if (!f || sizeof(double) != 8u || DBL_MANT_DIG != 53 || DBL_MAX_EXP != 1024 ||
-        fwrite("LAVA0001", 1u, 8u, f) != 8u) return false;
+        fwrite("LAVA0002", 1u, 8u, f) != 8u) return false;
     uint64_t fields[] = { count, ledger.supplied, ledger.solidified, ledger.removed,
         ledger.blockedTransfers, ledger.rejectedCells, ledger.ticks };
     for (unsigned i = 0u; i < 7u; i++) if (!WriteU64(f, fields[i])) return false;
     if (!WriteReal(f, ledger.suppliedEnergy) || !WriteReal(f, ledger.cooledEnergy) ||
         !WriteReal(f, ledger.exportedEnergy) || !WriteReal(f, ledger.accumulator)) return false;
+    if (!WriteU64(f, ledger.evaporatedWater) || !WriteU64(f, ledger.reservoirWater) ||
+        !WriteReal(f, ledger.waterEnergy)) return false;
     for (unsigned i = 0u; i < count; i++) {
         LavaCell *c = &cells[i];
         uint64_t values[] = { c->bodyId, (uint32_t)c->x, (uint32_t)c->y, (uint32_t)c->z,
             c->thermal.volume, c->cooled };
         for (unsigned n = 0u; n < 6u; n++) if (!WriteU64(f, values[n])) return false;
         if (!WriteReal(f, c->thermal.energy)) return false;
+        for (unsigned face = 0u; face < 6u; face++) {
+            if (!WriteReal(f, c->contactCredit[face])) return false;
+        }
     }
     return !ferror(f);
 }
@@ -298,11 +354,19 @@ bool LavaRuntimeLoad(FILE *f)
 {
     char magic[8]; uint64_t v[7]; double e[4];
     if (!f || sizeof(double) != 8u || DBL_MANT_DIG != 53 || DBL_MAX_EXP != 1024 ||
-        fread(magic, 1u, 8u, f) != 8u || memcmp(magic, "LAVA0001", 8u)) return false;
+        fread(magic, 1u, 8u, f) != 8u) return false;
+    bool reactions = !memcmp(magic, "LAVA0002", 8u);
+    if (!reactions && memcmp(magic, "LAVA0001", 8u)) return false;
     for (unsigned i = 0u; i < 7u; i++) if (!ReadU64(f, &v[i])) return false;
     for (unsigned i = 0u; i < 4u; i++) if (!ReadReal(f, &e[i]) || e[i] < 0.0) return false;
     if (v[0] > LAVA_MAX_RECORDS || e[3] >= LAVA_STEP_SECONDS ||
         v[2] > v[1] || v[3] > v[1] - v[2]) return false;
+    uint64_t evaporated = 0u, reservoir = 0u;
+    double waterEnergy = 0.0;
+    if (reactions && (!ReadU64(f, &evaporated) || !ReadU64(f, &reservoir) ||
+        !ReadReal(f, &waterEnergy) || waterEnergy < 0.0 || reservoir > evaporated ||
+        fabs(waterEnergy - (double)evaporated * LAVA_WATER_UNIT_ENERGY) >
+            fmax(0.01, waterEnergy * 1e-9))) return false;
     LavaCell *loaded = calloc(v[0] ? (size_t)v[0] : 1u, sizeof(*loaded));
     if (!loaded) return false;
     bool ok = true; unsigned hot = 0u; uint64_t volume = 0u; double energy = 0.0;
@@ -312,8 +376,15 @@ bool LavaRuntimeLoad(FILE *f)
             if (!ReadU64(f, &d[n]) || d[n] > UINT32_MAX) { ok = false; break; }
         }
         if (!ok || !ReadReal(f, &heat)) { ok = false; break; }
-        LavaCell c = { (uint32_t)d[0], (int32_t)d[1], (int32_t)d[2], (int32_t)d[3],
-            { (uint32_t)d[4], heat }, d[5] != 0u };
+        LavaCell c = { .bodyId = (uint32_t)d[0], .x = (int32_t)d[1],
+            .y = (int32_t)d[2], .z = (int32_t)d[3],
+            .thermal = { (uint32_t)d[4], heat }, .cooled = d[5] != 0u };
+        for (unsigned face = 0u; reactions && face < 6u; face++) {
+            if (!ReadReal(f, &c.contactCredit[face]) || c.contactCredit[face] < 0.0 ||
+                c.contactCredit[face] >= LAVA_WATER_UNIT_ENERGY ||
+                (c.cooled && c.contactCredit[face] != 0.0)) ok = false;
+        }
+        if (!ok) break;
         if (!ValidCoordinate(c.x, c.y, c.z) || !c.thermal.volume ||
             d[5] > 1u || !LavaThermalValid(c.thermal) ||
             (c.cooled && LavaTemperature(c.thermal) > 330.0 + 1e-8)) { ok = false; break; }
@@ -324,7 +395,7 @@ bool LavaRuntimeLoad(FILE *f)
     if (ok) {
         qsort(loaded, (size_t)v[0], sizeof(*loaded), Compare);
         for (unsigned i = 1u; i < v[0]; i++) if (!Compare(&loaded[i - 1u], &loaded[i])) ok = false;
-        double error = fabs(e[0] - e[1] - e[2] - energy);
+        double error = fabs(e[0] - e[1] - e[2] - waterEnergy - energy);
         if (hot > LAVA_MAX_HOT_CELLS || volume != v[1] - v[2] - v[3] ||
             error > fmax(0.01, e[0] * 1e-9)) ok = false;
     }
@@ -332,7 +403,8 @@ bool LavaRuntimeLoad(FILE *f)
         memcpy(cells, loaded, (size_t)v[0] * sizeof(*loaded)); count = (unsigned)v[0];
         ledger = (LavaStats){ .supplied = v[1], .solidified = v[2], .removed = v[3],
             .blockedTransfers = v[4], .rejectedCells = v[5], .ticks = v[6],
-            .suppliedEnergy = e[0], .cooledEnergy = e[1], .exportedEnergy = e[2], .accumulator = e[3] };
+            .suppliedEnergy = e[0], .cooledEnergy = e[1], .exportedEnergy = e[2], .accumulator = e[3],
+            .evaporatedWater = evaporated, .reservoirWater = reservoir, .waterEnergy = waterEnergy };
         Reindex();
     }
     free(loaded); return ok;

@@ -32,8 +32,10 @@ static void Balance(void)
 {
     LavaStats s = LavaRuntimeStats();
     assert(s.supplied == s.volume + s.solidified + s.removed);
-    assert(fabs(s.suppliedEnergy - s.cooledEnergy - s.exportedEnergy - s.energy) <
+    assert(fabs(s.suppliedEnergy - s.cooledEnergy - s.exportedEnergy - s.waterEnergy - s.energy) <
            fmax(0.01, s.suppliedEnergy * 1e-9));
+    assert(s.waterEnergy == s.evaporatedWater * LAVA_WATER_UNIT_ENERGY);
+    assert(s.reservoirWater <= s.evaporatedWater);
     assert(s.hotCells <= LAVA_MAX_HOT_CELLS && s.records <= LAVA_MAX_RECORDS);
     LavaCell c;
     for (unsigned i = 0u; LavaRuntimeAt(i, &c); i++) assert(LavaThermalValid(c.thermal));
@@ -213,9 +215,157 @@ static void TestVolcanoInventory(void)
     }
     assert(LavaRuntimeStats().supplied > 0u);
 }
+
+static unsigned waterVolume;
+static int waterX, waterY, waterZ;
+static bool waterUnknown, waterFail, waterReservoir;
+static bool WaterAt(int x, int y, int z, unsigned *volume, void *user)
+{
+    (void)user;
+    if (waterUnknown) return false;
+    *volume = x == waterX && y == waterY && z == waterZ ? waterVolume : 0u;
+    return true;
+}
+static bool Evaporate(int x, int y, int z, unsigned expected, unsigned units,
+                      bool *reservoir, void *user)
+{
+    (void)user;
+    assert(x == waterX && y == waterY && z == waterZ);
+    if (waterFail || expected != waterVolume || units > waterVolume) return false;
+    *reservoir = waterReservoir;
+    if (!waterReservoir) waterVolume -= units;
+    return true;
+}
+static LavaContext WaterContext(unsigned lava, unsigned water)
+{
+    Reset(); closed = true;
+    waterX = 1; waterY = 1; waterZ = 0; waterVolume = water;
+    waterUnknown = waterFail = waterReservoir = false;
+    LavaContext ctx = Context(); ctx.water = WaterAt; ctx.evaporate = Evaporate;
+    assert(LavaRuntimeDeposit(&ctx, 0, 1, 0, lava, 1450.0) == lava);
+    return ctx;
+}
+static void TestWaterContact(void)
+{
+    LavaContext ctx = WaterContext(1024u, 4u);
+    for (unsigned i = 0; i < 300u; i++) { LavaRuntimeStep(&ctx); Balance(); }
+    assert(waterVolume == 0u && LavaRuntimeStats().evaporatedWater == 4u);
+
+    ctx = WaterContext(128u, 255u);
+    for (unsigned i = 0; i < 300u; i++) { LavaRuntimeStep(&ctx); Balance(); }
+    assert(waterVolume > 0u && waterVolume < 255u);
+    assert(waterVolume + LavaRuntimeStats().evaporatedWater == 255u);
+    assert(LavaRuntimeStats().solidVolume == 128u && !solidBlocks);
+
+    ctx = WaterContext(1024u, 255u);
+    for (unsigned i = 0; i < 500u; i++) LavaRuntimeStep(&ctx);
+    assert(solidBlocks == 1u && LavaRuntimeStats().solidified == 1024u);
+    Balance();
+
+    ctx = WaterContext(128u, 255u);
+    waterX = 0; waterY = 2;
+    for (unsigned i = 0; i < 30u; i++) LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeStats().evaporatedWater == 0u); /* upper water floats above partial lava */
+    ctx = WaterContext(1024u, 255u); waterX = 0; waterY = 2;
+    LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeStats().evaporatedWater > 0u);
+    ctx = WaterContext(128u, 254u); waterX = 0; waterY = 0;
+    LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeStats().evaporatedWater == 0u); /* lower water has an air gap */
+    waterVolume = 255u;
+    LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeStats().evaporatedWater > 0u);
+    Balance();
+
+    ctx = WaterContext(1024u, 255u); waterFail = true;
+    LavaThermalState ambientOnly = { 1024u, 1024u * LavaSpecificEnthalpy(1450.0) };
+    LavaCool(&ambientOnly, 293.0, LAVA_STEP_SECONDS);
+    LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeStats().energy == ambientOnly.energy);
+    assert(waterVolume == 255u && LavaRuntimeStats().waterEnergy == 0.0);
+    ctx = WaterContext(1024u, 255u); waterReservoir = true;
+    LavaRuntimeStep(&ctx);
+    assert(waterVolume == 255u && LavaRuntimeStats().evaporatedWater > 0u);
+    assert(LavaRuntimeStats().reservoirWater == LavaRuntimeStats().evaporatedWater);
+    Balance();
+}
+static void TestWaterReplay(void)
+{
+    LavaContext ctx = WaterContext(128u, 255u);
+    LavaRuntimeStep(&ctx);
+    LavaCell before, after;
+    assert(LavaRuntimeAt(0u, &before) && before.contactCredit[1] > 0.0);
+    assert(LavaRuntimeStats().evaporatedWater == 0u);
+    FILE *file = tmpfile(); assert(file && LavaRuntimeSave(file));
+    unsigned savedWater = waterVolume;
+    unknown = true;
+    for (unsigned i = 0; i < 20u; i++) LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeAt(0u, &after));
+    assert(after.thermal.energy == before.thermal.energy);
+    assert(after.contactCredit[1] == before.contactCredit[1] && waterVolume == savedWater);
+    unknown = false;
+    LavaRuntimeAdvance(0.5, false, Tick, &ctx);
+    assert(LavaRuntimeAt(0u, &after) && after.thermal.energy == before.thermal.energy);
+    for (unsigned i = 0; i < 4u; i++) LavaRuntimeAdvance(0.5, true, Tick, &ctx);
+    LavaStats expected = LavaRuntimeStats(); unsigned expectedWater = waterVolume;
+    rewind(file); assert(LavaRuntimeLoad(file)); waterVolume = savedWater;
+    assert(LavaRuntimeAt(0u, &after) && after.steam == 0.0);
+    for (unsigned i = 0; i < 120u; i++) LavaRuntimeAdvance(1.0 / 60.0, true, Tick, &ctx);
+    assert(LavaRuntimeStats().energy == expected.energy && waterVolume == expectedWater);
+    assert(LavaRuntimeStats().evaporatedWater == expected.evaporatedWater);
+    Balance();
+    /* Reject corrupt face credit without changing live state. */
+    assert(fseek(file, 176L, SEEK_SET) == 0);
+    unsigned char bad[8] = { 0, 0, 0, 0, 0, 0, 0xf0, 0x7f }; /* +inf */
+    assert(fwrite(bad, 1u, 8u, file) == 8u);
+    rewind(file); assert(!LavaRuntimeLoad(file));
+    assert(LavaRuntimeStats().energy == expected.energy);
+    fclose(file);
+}
+static void TestLegacyLavaPayload(void)
+{
+    Reset(); closed = true; LavaContext ctx = Context();
+    assert(LavaRuntimeDeposit(&ctx, 0, 1, 0, 128u, 1450.0) == 128u);
+    FILE *current = tmpfile(), *legacy = tmpfile();
+    assert(current && legacy && LavaRuntimeSave(current));
+    unsigned char bytes[224]; rewind(current);
+    assert(fread(bytes, 1u, sizeof(bytes), current) == sizeof(bytes));
+    bytes[7] = '1';
+    assert(fwrite(bytes, 1u, 96u, legacy) == 96u);
+    assert(fwrite(bytes + 120u, 1u, 56u, legacy) == 56u);
+    assert(fputs("TAIL", legacy) >= 0);
+    rewind(legacy); LavaRuntimeReset(); assert(LavaRuntimeLoad(legacy));
+    assert(LavaRuntimeStats().volume == 128u && LavaRuntimeStats().waterEnergy == 0.0);
+    char tail[4]; assert(fread(tail, 1u, 4u, legacy) == 4u && !memcmp(tail, "TAIL", 4u));
+    fclose(current); fclose(legacy); Balance();
+}
+static LavaBoundary TwoBasins(int x, int y, int z, void *user)
+{
+    (void)user;
+    return (x == -1 || x == 1) && y == 1 && z == 0 ? LAVA_OPEN : LAVA_BLOCKED;
+}
+static void TestSharedWater(void)
+{
+    double expectedEnergy = 0.0;
+    for (unsigned run = 0u; run < 2u; run++) {
+        LavaContext ctx = WaterContext(128u, 5u);
+        LavaRuntimeReset(); ctx.boundary = TwoBasins;
+        waterX = 0;
+        int first = run ? -1 : 1;
+        assert(LavaRuntimeDeposit(&ctx, first, 1, 0, 1024u, 1450.0) == 1024u);
+        assert(LavaRuntimeDeposit(&ctx, -first, 1, 0, 1024u, 1450.0) == 1024u);
+        for (unsigned i = 0u; i < 250u; i++) LavaRuntimeStep(&ctx);
+        assert(waterVolume == 0u && LavaRuntimeStats().evaporatedWater == 5u);
+        if (!run) expectedEnergy = LavaRuntimeStats().energy;
+        else assert(LavaRuntimeStats().energy == expectedEnergy);
+        Balance();
+    }
+}
 int main(void)
 {
     TestThermal(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
     TestOrderAndPersistence(); TestVolcanoInventory(); TestCoolingIgnoresParkedLava();
+    TestWaterContact(); TestWaterReplay(); TestLegacyLavaPayload();
+    TestSharedWater();
     puts("lava conservation, thermal, persistence and coupling tests passed");
 }

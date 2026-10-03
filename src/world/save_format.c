@@ -4,6 +4,7 @@
 
 #define SAVE_MAGIC_V23 "VOXELCRAFT_SAVE_V23"
 #define SAVE_MAGIC_V24 "VOXELCRAFT_SAVE_V24"
+#define SAVE_MAGIC_V26 "VOXELCRAFT_SAVE_V26"
 #define SAVE_MAGIC_V25 "VOXELCRAFT_SAVE_V25"
 #define SAVE_MAGIC_V22 "VOXELCRAFT_SAVE_V22"
 #define SAVE_MAGIC_V21 "VOXELCRAFT_SAVE_V21"
@@ -17,6 +18,9 @@ WorldSaveFormat WorldSaveFormatRead(FILE *file)
     char magic[SAVE_MAGIC_LENGTH];
     if (!file || fread(magic, 1, sizeof(magic), file) != sizeof(magic)) {
         return WORLD_SAVE_FORMAT_UNSUPPORTED;
+    }
+    if (memcmp(magic, SAVE_MAGIC_V26, sizeof(magic)) == 0) {
+        return WORLD_SAVE_FORMAT_V26;
     }
     if (memcmp(magic, SAVE_MAGIC_V25, sizeof(magic)) == 0) {
         return WORLD_SAVE_FORMAT_V25;
@@ -48,7 +52,7 @@ WorldSaveFormat WorldSaveFormatRead(FILE *file)
 bool WorldSaveFormatWriteCurrent(FILE *file)
 {
     return file &&
-           fwrite(SAVE_MAGIC_V25, 1, SAVE_MAGIC_LENGTH, file) ==
+           fwrite(SAVE_MAGIC_V26, 1, SAVE_MAGIC_LENGTH, file) ==
                SAVE_MAGIC_LENGTH;
 }
 
@@ -60,7 +64,8 @@ bool WorldSaveFormatHasMapMarkers(WorldSaveFormat format)
            format == WORLD_SAVE_FORMAT_V22 ||
            format == WORLD_SAVE_FORMAT_V23 ||
            format == WORLD_SAVE_FORMAT_V24 ||
-           format == WORLD_SAVE_FORMAT_V25;
+           format == WORLD_SAVE_FORMAT_V25 ||
+           format == WORLD_SAVE_FORMAT_V26;
 }
 
 bool WorldSaveFormatHasWeatherImpact(WorldSaveFormat format)
@@ -70,7 +75,8 @@ bool WorldSaveFormatHasWeatherImpact(WorldSaveFormat format)
            format == WORLD_SAVE_FORMAT_V22 ||
            format == WORLD_SAVE_FORMAT_V23 ||
            format == WORLD_SAVE_FORMAT_V24 ||
-           format == WORLD_SAVE_FORMAT_V25;
+           format == WORLD_SAVE_FORMAT_V25 ||
+           format == WORLD_SAVE_FORMAT_V26;
 }
 
 bool WorldSaveFormatHasRadiationRuntime(WorldSaveFormat format)
@@ -79,7 +85,8 @@ bool WorldSaveFormatHasRadiationRuntime(WorldSaveFormat format)
            format == WORLD_SAVE_FORMAT_V22 ||
            format == WORLD_SAVE_FORMAT_V23 ||
            format == WORLD_SAVE_FORMAT_V24 ||
-           format == WORLD_SAVE_FORMAT_V25;
+           format == WORLD_SAVE_FORMAT_V25 ||
+           format == WORLD_SAVE_FORMAT_V26;
 }
 
 bool WorldSaveFormatHasHydrologyRuntime(WorldSaveFormat format)
@@ -87,23 +94,27 @@ bool WorldSaveFormatHasHydrologyRuntime(WorldSaveFormat format)
     return format == WORLD_SAVE_FORMAT_V22 ||
            format == WORLD_SAVE_FORMAT_V23 ||
            format == WORLD_SAVE_FORMAT_V24 ||
-           format == WORLD_SAVE_FORMAT_V25;
+           format == WORLD_SAVE_FORMAT_V25 ||
+           format == WORLD_SAVE_FORMAT_V26;
 }
 
 bool WorldSaveFormatHasEcologyClock(WorldSaveFormat format)
 {
     return format == WORLD_SAVE_FORMAT_V23 ||
            format == WORLD_SAVE_FORMAT_V24 ||
-           format == WORLD_SAVE_FORMAT_V25;
+           format == WORLD_SAVE_FORMAT_V25 ||
+           format == WORLD_SAVE_FORMAT_V26;
 }
 
 bool WorldSaveFormatHasVolcanoes(WorldSaveFormat format)
 {
     return format == WORLD_SAVE_FORMAT_V24 ||
-           format == WORLD_SAVE_FORMAT_V25;
+           format == WORLD_SAVE_FORMAT_V25 ||
+           format == WORLD_SAVE_FORMAT_V26;
 }
 
 bool WorldSaveFormatHasLava(WorldSaveFormat format)
 {
-    return format == WORLD_SAVE_FORMAT_V25;
+    return format == WORLD_SAVE_FORMAT_V25 ||
+           format == WORLD_SAVE_FORMAT_V26;
 }

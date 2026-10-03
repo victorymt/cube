@@ -45,6 +45,10 @@ bool FluidPrepareChunkSectionUnload(Chunk *chunk, int sectionY);
 
 uint8_t FluidGetVolumeAt(int x, int y, int z);
 bool FluidSetVolumeAt(int x, int y, int z, uint8_t volume);
+/* Main-thread compare-and-consume. Natural ocean sources return replenished
+   units through reservoir; finite water edits are persisted before success. */
+bool FluidTryEvaporateAt(int x, int y, int z, uint8_t expected, uint8_t amount,
+                         bool *reservoir);
 FluidSample FluidSampleAt(Vector3 position);
 bool FluidTryDepositUnit(int x, int y, int z);
 bool FluidTryCollectUnit(int x, int y, int z);

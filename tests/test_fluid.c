@@ -907,6 +907,42 @@ static void TestCorruptLoadPreservesState(void)
     fclose(duplicate);
 }
 
+static void TestEvaporationTransactions(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    assert(FluidSetVolumeAt(2, 2, 2, 100u));
+    bool reservoir = true;
+    assert(!FluidTryEvaporateAt(2, 2, 2, 99u, 2u, &reservoir));
+    assert(!reservoir && FluidGetVolumeAt(2, 2, 2) == 100u);
+    assert(!FluidTryEvaporateAt(2, 2, 2, 100u, 101u, &reservoir));
+    lavaOverlay = true;
+    assert(!FluidTryEvaporateAt(2, 2, 2, 100u, 2u, &reservoir));
+    lavaOverlay = false;
+    chunk->loaded = false;
+    assert(!FluidTryEvaporateAt(2, 2, 2, 100u, 2u, &reservoir));
+    chunk->loaded = true;
+    assert(FluidTryEvaporateAt(2, 2, 2, 100u, 17u, &reservoir) && !reservoir);
+    assert(FluidGetVolumeAt(2, 2, 2) == 83u);
+    FILE *file = tmpfile(); assert(file && FluidSaveState(file));
+    assert(FluidPrepareChunkSectionUnload(chunk, 0));
+    ClearChunks(); chunk = CreateChunk(0, 0, 0);
+    assert(ChunkGetSection(chunk, 0, true));
+    FluidOnChunkSectionLoaded(chunk, 0);
+    assert(FluidGetVolumeAt(2, 2, 2) == 83u);
+    ResetWorld(); rewind(file); assert(FluidLoadState(file)); fclose(file);
+    chunk = CreateChunk(0, 0, 0); assert(ChunkGetSection(chunk, 0, true));
+    FluidApplyEditsToChunk(chunk);
+    assert(FluidGetVolumeAt(2, 2, 2) == 83u);
+    assert(FluidTryEvaporateAt(2, 2, 2, 83u, 83u, &reservoir));
+    assert(FluidGetVolumeAt(2, 2, 2) == 0u && GetBlockAt(2, 2, 2) == BLOCK_AIR);
+    assert(FluidSetVolumeAt(2, 2, 2, FLUID_CAPACITY));
+    SetProceduralOceanBounds(2, 2, 2, 2, 2, 2);
+    assert(!FluidTryEvaporateAt(2, 2, 2, FLUID_CAPACITY, 10u, NULL));
+    assert(FluidTryEvaporateAt(2, 2, 2, FLUID_CAPACITY, 10u, &reservoir) && reservoir);
+    assert(FluidGetVolumeAt(2, 2, 2) == FLUID_CAPACITY);
+}
+
 int main(void)
 {
     ResetWorld();
@@ -942,6 +978,7 @@ int main(void)
     TestLoadPrunesOceanReservoirDeficits();
     TestLoadCanonicalizesLongitudeAlias();
     TestCorruptLoadPreservesState();
+    TestEvaporationTransactions();
     ResetWorld();
     puts("fluid tests passed");
     return 0;

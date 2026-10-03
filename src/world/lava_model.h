@@ -9,6 +9,12 @@
 #define LAVA_FREEZING_K 1100.0
 #define LAVA_LATENT_K 400.0
 #define LAVA_SOURCE_K 1450.0
+/* G3 parcel approximation: water enters at 293 K. In lava enthalpy units,
+   1.5 * (373 - 293) sensible + 900 latent per block gives 4096 per 1/255
+   water unit. No water-temperature field is stored or transported. */
+#define LAVA_WATER_CAPACITY 255u
+#define LAVA_WATER_BOILING_K 373.0
+#define LAVA_WATER_UNIT_ENERGY 4096.0
 
 /* Energy is heat-capacity-normalized enthalpy, in volume-unit kelvins.
    Constant density/heat capacity; an isothermal latent interval at 1100 K. */

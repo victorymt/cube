@@ -11,6 +11,10 @@ typedef struct LavaCell {
     int x, y, z;
     LavaThermalState thermal;
     bool cooled;
+    /* Fractional contact-time credits, not stored heat. Energy remains in
+       thermal until an entire water parcel can be atomically evaporated. */
+    double contactCredit[6];
+    double steam; /* transient recent committed evaporation; never saved */
 } LavaCell;
 
 typedef enum LavaBoundary { LAVA_UNKNOWN, LAVA_BLOCKED, LAVA_OPEN } LavaBoundary;
@@ -21,6 +25,12 @@ typedef struct LavaContext {
     double (*ambient)(int x, int z, void *user);
     bool (*solidify)(int x, int y, int z, void *user);
     void *user;
+    /* Unknown/unloaded water returns false and parks the face credit. */
+    bool (*water)(int x, int y, int z, unsigned *volume, void *user);
+    /* Must compare expected volume and commit all units or none. Reservoir
+       units are externally replenished and accounted separately. */
+    bool (*evaporate)(int x, int y, int z, unsigned expected, unsigned units,
+                      bool *reservoir, void *user);
 } LavaContext;
 
 typedef struct LavaStats {
@@ -28,6 +38,8 @@ typedef struct LavaStats {
     uint64_t supplied, solidified, removed, blockedTransfers, rejectedCells, ticks;
     uint64_t volume, liquidVolume, solidVolume;
     double energy, suppliedEnergy, cooledEnergy, exportedEnergy, accumulator;
+    uint64_t evaporatedWater, reservoirWater;
+    double waterEnergy;
 } LavaStats;
 
 void LavaRuntimeReset(void);

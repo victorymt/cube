@@ -13,7 +13,8 @@ typedef enum WorldSaveFormat {
     WORLD_SAVE_FORMAT_V22,
     WORLD_SAVE_FORMAT_V23,
     WORLD_SAVE_FORMAT_V24,
-    WORLD_SAVE_FORMAT_V25
+    WORLD_SAVE_FORMAT_V25,
+    WORLD_SAVE_FORMAT_V26
 } WorldSaveFormat;
 
 WorldSaveFormat WorldSaveFormatRead(FILE *file);

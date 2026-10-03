@@ -777,6 +777,29 @@ bool FluidSetVolumeAt(int x, int y, int z, uint8_t volume)
     return true;
 }
 
+bool FluidTryEvaporateAt(int x, int y, int z, uint8_t expected, uint8_t amount,
+                         bool *reservoir)
+{
+    if (reservoir) *reservoir = false;
+    if (!WorldIsSurfaceActive() || !amount || amount > expected) return false;
+    FluidCanonicalizeXZ(&x, &z);
+    Chunk *chunk = NULL;
+    BlockType block = BLOCK_AIR;
+    if (!FluidLocateCell(x, y, z, &chunk, NULL, NULL, &block) ||
+        !chunk->loaded || !ChunkTerrainSectionIsResolved(chunk, SurfaceSectionYFromBlockY(y)) ||
+        block != BLOCK_WATER || GetBlockAt(x, y, z) != BLOCK_WATER ||
+        FluidGetVolumeAt(x, y, z) != expected) return false;
+    if (WorldIsProceduralOceanWaterAt(x, y, z)) {
+        if (!reservoir) return false; /* Never hide the external mass source. */
+        *reservoir = true;
+        return true;
+    }
+    FluidMutation mutation = { x, y, z, (uint8_t)(expected - amount) };
+    if (!FluidApplyMutations(&mutation, 1)) return false;
+    FluidWakeCell(x, y, z);
+    return true;
+}
+
 void FluidWakeCell(int x, int y, int z)
 {
     if (!WorldIsSurfaceActive() || !InHeight(y)) return;
