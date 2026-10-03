@@ -4,6 +4,7 @@
 #include "ecology/flora_taxa.h"
 #include "space/planet_surface.h"
 #include "world/world_types.h"
+#include "world/landform_model.h"
 
 #define HOME_SEA_LEVEL 80
 // Homeworld uses one block per vertical metre for ocean depth. The deepest
@@ -49,6 +50,7 @@ typedef struct SurfaceTerrainSample {
     float peak;
     float trench;
     float slope;
+    LandformSample landform;
     Biome biome;
     BathymetrySample bathymetry;
 } SurfaceTerrainSample;

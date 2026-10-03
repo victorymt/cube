@@ -15,6 +15,9 @@
 #include "space/space_state.h"
 #include "world/chunks.h"
 #include "world/terrain.h"
+#include "world/landform_runtime.h"
+#include "world/terrain_generation.h"
+#include <stdlib.h>
 #include "world/weather.h"
 #include "world/weather_impact.h"
 #include "world/tornado.h"
@@ -44,6 +47,11 @@ void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed)
     snapshot.context.active = snapshot.context.kind != WORLD_SURFACE_NONE;
     snapshot.context.originX = 0;
     snapshot.context.originZ = 0;
+    if (!LandformRuntimePrepare(homeWorldSeed, TerrainGenerationVersion(),
+            snapshot.context.kind == WORLD_SURFACE_HOME && WorldTerrainMode() != TERRAIN_FLAT)) {
+        TraceLog(LOG_ERROR, "Unable to allocate immutable landform atlas");
+        abort();
+    }
     WorldInstallSurfaceSnapshot(&snapshot);
 }
 

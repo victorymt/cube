@@ -18,7 +18,7 @@ typedef LandformBaseline (*LandformBaselineFn)(Vector3 direction, void *user);
 typedef struct LandformCell {
     Vector3 direction;
     float elevation, spill, area, discharge;
-    float runoff, hardness, slope, width;
+    float runoff, hardness, slope, width, localArea;
     uint32_t downstream, watershed, order;
 } LandformCell;
 
@@ -28,6 +28,23 @@ typedef struct LandformAtlas {
     size_t bytes;
     uint32_t rivers, lakes, closedBasins;
 } LandformAtlas;
+
+typedef enum LandformKind {
+    LANDFORM_UPLAND, LANDFORM_RIVER, LANDFORM_DRY_CHANNEL, LANDFORM_LAKE,
+    LANDFORM_WETLAND, LANDFORM_FLOODPLAIN, LANDFORM_FAN
+} LandformKind;
+
+typedef struct LandformSample {
+    float elevation, waterLevel, area, slope, wetness;
+    float gravel, sand, fines, sedimentDepth, channelDistance;
+    uint32_t watershed, reach;
+    LandformKind kind;
+    bool hasWater;
+} LandformSample;
+
+LandformSample LandformSampleAt(const LandformAtlas *atlas, Vector3 direction,
+                               float baselineElevation);
+const char *LandformKindName(LandformKind kind);
 
 // Pure deterministic build. Caller owns the returned atlas; reads are immutable.
 LandformAtlas *LandformBuild(float seaLevel, LandformBaselineFn baseline, void *user);

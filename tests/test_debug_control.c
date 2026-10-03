@@ -570,6 +570,14 @@ static void TestFinalCommandWithoutNewline(void)
 int main(void)
 {
     DebugControl geology = { 0 };
+    assert(DebugControlParseText(&geology, "landform inspect") == DEBUG_CONTROL_COMMAND_LANDFORM_INSPECT);
+    assert(DebugControlParseText(&geology, "landform find river 16384") == DEBUG_CONTROL_COMMAND_LANDFORM_FIND);
+    assert(geology.landformRadius == 16384 && !strcmp(geology.landformType, "river"));
+    const char *invalidLandform[] = { "landform find river 0", "landform find river -1",
+        "landform find river 16385", "landform find river 1.5", "landform find river 4294967297",
+        "landform find river 2 extra", "landform find nonsense 10", "landform inspect extra" };
+    for (unsigned i = 0; i < sizeof(invalidLandform) / sizeof(*invalidLandform); i++)
+        assert(DebugControlParseText(&geology, invalidLandform[i]) == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "geology inspect") == DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT);
     assert(DebugControlParseText(&geology, "geology vents") == DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS);
     assert(DebugControlParseText(&geology, "geology force eruption 0.8 100") == DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE);

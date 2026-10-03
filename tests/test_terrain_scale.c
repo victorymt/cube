@@ -1,5 +1,7 @@
 #include "world/chunks.h"
 #include "world/terrain.h"
+#include "world/terrain_generation.h"
+#include "world/landform_runtime.h"
 #include "world/terrain_geology_internal.h"
 #include "world/terrain_home_materials_internal.h"
 #include "world/ecology_hooks.h"
@@ -1574,6 +1576,7 @@ static void TestTerrainSectionExposureClassification(void)
 
 int main(void)
 {
+    TerrainGenerationSetVersion(6);
     DeactivateTestPlanet();
     assert(SURFACE_WORLD_HEIGHT == 256);
     assert(SURFACE_SECTION_HEIGHT == 16);

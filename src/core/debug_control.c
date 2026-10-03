@@ -294,6 +294,25 @@ static bool DebugControlGeologyTicks(const char *text, unsigned limit, unsigned 
 
 static DebugControlCommand DebugControlParseGeology(DebugControl *control, const char *line)
 {
+    if (!strcmp(line, "landform inspect")) return DEBUG_CONTROL_COMMAND_LANDFORM_INSPECT;
+    if (!strncmp(line, "landform find ", 14)) {
+        char radiusText[32], trailing;
+        unsigned radius;
+        if (sscanf(line, "landform find %23s %31s %c", control->landformType,
+                radiusText, &trailing) == 2 &&
+            DebugControlGeologyTicks(radiusText, 16384, &radius) &&
+            (!strcmp(control->landformType, "upland") ||
+             !strcmp(control->landformType, "river") ||
+             !strcmp(control->landformType, "dry_channel") ||
+             !strcmp(control->landformType, "lake") ||
+             !strcmp(control->landformType, "wetland") ||
+             !strcmp(control->landformType, "floodplain") ||
+             !strcmp(control->landformType, "fan"))) {
+            control->landformRadius = radius;
+            return DEBUG_CONTROL_COMMAND_LANDFORM_FIND;
+        }
+        return DEBUG_CONTROL_COMMAND_INVALID;
+    }
     if (!strcmp(line, "geology inspect")) return DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT;
     if (!strcmp(line, "geology vents")) return DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS;
     if (strncmp(line, "geology", 7u) != 0) return DEBUG_CONTROL_COMMAND_NONE;

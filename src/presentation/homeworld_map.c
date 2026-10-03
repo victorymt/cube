@@ -223,7 +223,9 @@ static MapSurfaceTerrainSample MapTerrainAt(int x, int z,
                 .elevation = sample.elevation,
                 .seaLevel = sample.seaLevel,
                 .slope = sample.slope,
-                .waterDepth = sample.bathymetry.waterDepth
+                .waterDepth = sample.landform.hasWater
+                    ? (int)fmaxf(1, sample.landform.waterLevel - sample.elevation)
+                    : sample.bathymetry.waterDepth
             },
             .bathymetry = sample.bathymetry
         };

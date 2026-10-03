@@ -5,6 +5,7 @@
 #include "world/terrain_geology_internal.h"
 #include "world/terrain_home_materials_internal.h"
 #include "world/terrain_structures_internal.h"
+#include "world/landform_runtime.h"
 #include "world/home_tree_shape.h"
 
 #include "ecology/flora_taxa.h"
@@ -448,6 +449,7 @@ SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
     float north = TerrainHomeBaselineElevation(WorldGetSeed(), x, z - 1, NULL);
     float south = TerrainHomeBaselineElevation(WorldGetSeed(), x, z + 1, NULL);
     sample.slope = fmaxf(fabsf(east - west), fabsf(north - south)) * 0.5f;
+    LandformApplyTerrainSample(x, z, &sample);
     float climate = WorldFractalSurfaceNoise(x, z, 0.0018f, 503u);
     float wetness = WorldFractalSurfaceNoise(x, z, 0.0024f, 607u);
     if (sample.elevation >= 132.0f || sample.ridge > 0.58f) {
@@ -493,7 +495,10 @@ int TerrainSeaLevel(TerrainMode mode)
 int TerrainHeight(int x, int z, TerrainMode mode)
 {
     if (mode == TERRAIN_FLAT) return 8;
-    return (int)lroundf(TerrainHomeBaselineElevation(WorldGetSeed(), x, z, NULL));
+    SurfaceTerrainSample sample = { 0 };
+    sample.elevation = TerrainHomeBaselineElevation(WorldGetSeed(), x, z, &sample);
+    LandformApplyTerrainSample(x, z, &sample);
+    return (int)lroundf(sample.elevation);
 }
 
 BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode)
@@ -578,6 +583,7 @@ static FloraHabitat HomeFloraHabitatAt(
         break;
     }
     float elevation = fmaxf(surface.elevation - surface.seaLevel, 0.0f);
+    moisture = fmaxf(moisture, surface.landform.wetness);
     temperatureK -= elevation * 0.0065f;
     int groundY = (int)lroundf(surface.elevation);
     BlockType substrate = TerrainHomeBaseBlockFromSample(
@@ -634,6 +640,8 @@ static bool HomeTreeCandidateAt(int x, int z, TerrainMode mode,
     z = cell.z;
 
     SurfaceTerrainSample surface = SurfaceTerrainAt(x, z, mode);
+    if (surface.landform.hasWater || surface.landform.kind == LANDFORM_DRY_CHANNEL)
+        return false;
     int divisor = HomeTreeDensityDivisor(surface.biome);
     if (divisor == 0 ||
         HomeSurfaceHashAt(x, z, 1303u) % (unsigned int)divisor != 0u) {
@@ -1785,6 +1793,8 @@ static void GenerateHomeVisibleTerrainSections(
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
             int height = (int)lroundf(samples[lx][lz].elevation);
             int top = seaLevel >= 0 && height < seaLevel ? seaLevel : height;
+            if (samples[lx][lz].landform.hasWater)
+                top = (int)fmaxf(top, floorf(samples[lx][lz].landform.waterLevel));
             int topSectionY = SurfaceSectionYFromBlockY(top);
             GenerateChunkTerrainSectionBaseFromSamples(
                 chunk, cx, cz, topSectionY, mode, samples);
@@ -1941,7 +1951,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
             const SurfaceTerrainSample *surface = &samples[lx][lz];
             int height = (int)lroundf(surface->elevation);
             Biome biome = surface->biome;
-            bool submerged = seaLevel >= 0 && height < seaLevel;
+            bool submerged = (seaLevel >= 0 && height < seaLevel) || surface->landform.hasWater;
 
             if (mode != TERRAIN_FLAT && !submerged &&
                 biome == BIOME_DESERT && height > 6 &&
@@ -1959,7 +1969,7 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode)
                 int worldZ = startZ + lz;
                 const SurfaceTerrainSample *sample = &samples[lx][lz];
                 int height = (int)lroundf(sample->elevation);
-                if (height < 4) continue;
+                if (height < 4 || sample->landform.hasWater) continue;
                 BlockType ground = ChunkGetLocalBlock(chunk, lx, height, lz);
                 if (!HomeFloraSubstrate(ground)) continue;
                 unsigned int h = HomeSurfaceHashAt(

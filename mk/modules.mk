@@ -64,6 +64,8 @@ GAME_EFFECTS_SRC := src/core/game_effects.c
 
 TERRAIN_FEATURE_SRC := \
 	src/world/terrain.c \
+	src/world/landform_model.c \
+	src/world/landform_runtime.c \
 	src/world/terrain_geology.c \
 	src/world/terrain_home_materials.c \
 	src/world/terrain_structures.c \

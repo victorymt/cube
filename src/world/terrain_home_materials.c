@@ -131,6 +131,18 @@ BlockType TerrainHomeBaseBlockFromSample(
     int height = (int)lroundf(surface->elevation);
     Biome biome = surface->biome;
     bool submerged = seaLevel >= 0 && height < seaLevel;
+    const LandformSample *landform = &surface->landform;
+    if (mode != TERRAIN_FLAT && landform->kind != LANDFORM_UPLAND) {
+        if (y > height && landform->hasWater && y <= (int)floorf(landform->waterLevel))
+            return BLOCK_WATER;
+        // A continuous sediment seal keeps generated lake beds out of caves.
+        if (y <= height && y >= height - (int)ceilf(landform->sedimentDepth)) {
+            float choice = (float)(HomeSurfaceHashAt(worldX, worldZ, 1741u) & 65535u) / 65536.0f;
+            if (choice < landform->gravel) return BLOCK_GRAVEL;
+            if (choice < landform->gravel + landform->sand) return BLOCK_SAND;
+            return landform->hasWater ? BLOCK_MUD : BLOCK_SILT;
+        }
+    }
     bool redSand = biome == BIOME_DESERT &&
                    HomeRedSandAt(worldX, worldZ);
     bool wetSoil = HomeWetSoilAt(surface);

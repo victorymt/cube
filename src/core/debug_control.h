@@ -61,6 +61,8 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE,
     DEBUG_CONTROL_COMMAND_WEATHER_STEP,
     DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT,
+    DEBUG_CONTROL_COMMAND_LANDFORM_INSPECT,
+    DEBUG_CONTROL_COMMAND_LANDFORM_FIND,
     DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS,
     DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE,
     DEBUG_CONTROL_COMMAND_GEOLOGY_STOP,
@@ -182,6 +184,10 @@ typedef struct DebugControl {
     uint64_t geologyId;
     int geologyX, geologyY, geologyZ;
     unsigned geologyUnits, geologyMaterial; /* ash, basalt, silicic, scoria, pumice */
+    char landformType[24];
+    unsigned landformRadius;
+    bool landformFound;
+    int landformFoundX, landformFoundY, landformFoundZ;
     unsigned weatherCloudFrames;
     unsigned weatherTornadoFrames;
     int streamAuditRadius;

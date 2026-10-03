@@ -53,6 +53,34 @@ without opening a window.
 
 ## Starting a debug session
 
+### Landform diagnostics
+
+Version 7 non-flat Homeworld terrain supports `landform inspect` and
+`landform find TYPE RADIUS` (radius 1–16384 surface blocks). Types are `upland`,
+`river`, `dry_channel`, `lake`, `wetland`, `floodplain`, and `fan`.
+Inspection prints elevation, water level, watershed/reach IDs, catchment area,
+slope, wetness, sediment thickness, material fractions and generation version.
+`find` samples a fixed set of atlas vertices, reach centers and banks within
+the requested spherical distance; it returns the closest matching candidate,
+not an exhaustive search of every voxel. No match is a successful query with
+`landform.found == false`. Neither command changes the world or moves the player.
+
+DSL fields: `landform.available`, `landform.found`, `landform.position` (last
+found safe viewing position in local coordinates), `landform.kind`,
+`landform.has_water`, `landform.elevation`, `landform.water_level`,
+`landform.area`, `landform.slope`, `landform.wetness`, `landform.sediment`,
+and `landform.version`. Check availability and found before using the position;
+repeat the query after changing worlds. These describe generated terrain,
+not subsequent player edits or simulated fluid levels.
+
+```text
+landform find river 4096
+assert landform.found
+let river = landform.position
+teleport $river.x $river.y $river.z 0 -0.6
+landform inspect
+```
+
 There are two entry points:
 
 ```sh

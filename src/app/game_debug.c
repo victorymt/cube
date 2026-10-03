@@ -3,6 +3,7 @@
 
 #include "app/game_debug.h"
 #include "app/game_geology.h"
+#include "app/game_debug_landform.h"
 #include "presentation/biology_ui.h"
 #include "app/game_debug_status.h"
 #include "app/game_debug_block.h"
@@ -1224,7 +1225,8 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
 {
     game->debugCommandFailed = false;
     game->debugCommandFailure[0] = '\0';
-    GameDebugDispatchResult result = GameDebugGeologyDispatch(game, command) ?
+    GameDebugDispatchResult result = (GameDebugLandformDispatch(game, command) ||
+        GameDebugGeologyDispatch(game, command)) ?
         GAME_DEBUG_DISPATCH_HANDLED : GameDebugDispatchSystemCommand(game, command);
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
         result = GameDebugDispatchPersistenceCommand(game, command);
@@ -1655,6 +1657,7 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
 }
 
 static const GameDebugDslResolverFn gameDebugDslResolvers[] = {
+    GameDebugLandformResolve,
     GameDebugGeologyResolve,
     GameDebugDslResolveBlock,
     GameDebugDslResolveFlora,
