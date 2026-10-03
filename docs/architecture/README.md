@@ -30,6 +30,9 @@ Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
 which are represented by the records above.
 
+Proposals, not implementation records: [volcanic activity design](../volcanic-activity-design.md)
+defines the proposed local eruption, lava, persistence, and ecology boundaries.
+
 ## Implementation, verification, and limits
 
 The table identifies implemented boundaries and their commit evidence. A
