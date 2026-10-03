@@ -3,7 +3,8 @@
 G1 adds deterministic vent candidates and a saved lifecycle preview. G2 adds
 finite lava inventory, a 10 Hz cell runtime, temperature/enthalpy cooling,
 partial-height collision overlays and full-cell basalt conversion. Water contact is
-now a fixed-step G3 interaction; heat damage, ash deposition and ecological restoration remain later work.
+now a fixed-step G3 interaction. P0 adds finite ash layers and material-aware
+cooling products; heat damage and ecological restoration remain later work.
 
 ## Ownership and identity
 
@@ -37,7 +38,7 @@ retain their heat without preventing another vent from recovering.
 `presentation/render_volcano` reads state copies and draws a small vent, ash
 column and sparks with bounded geometry. It writes no simulation state and
 uses no random generator or particle queue. Lava cells are drawn as liquid and
-solid overlays over air; full cooled cells commit to basalt. The vent's orange color is a
+solid overlays over air; full cooled cells commit to their selected rock. The vent's orange color is a
 visual cue, not a dynamic light source. G2 deposits in air only, preserving
 existing blocks, and does not expose a heat damage model. The independent
 activity/damage policy belongs to G3 before destructive interactions are enabled.
@@ -54,17 +55,18 @@ lateral equalization, and treats unknown or blocked cells as closed. Destination
 capacity is resolved proportionally, making the result independent of iteration
 order. Cooling uses normalized enthalpy and a latent interval at 1100 K; partial
 solid overlays retain their collision height, while a full cold cell becomes
-basalt through an environment mutation.
+its selected rock through an environment mutation.
 
-World save V26 appends `VOLCANO1` and `LAVA0002` after the ecology clock and before the spherical
+World save V27 appends `VOLCANO1`, `LAVA0003` and `ASH00001` after the ecology clock and before the spherical
 trailer. Every scalar uses explicit little-endian encoding (IEEE-754 binary64
 for real values); struct padding and pointers are never written. Records,
 admission state, discovery timer, rejection count and fractional tick remainder
 are saved. Load validates a temporary bounded array, then commits it. The outer
-world transaction includes these payloads in its checkpoint/rollback. V25 reads
+world transaction includes these payloads in its checkpoint/rollback. V26 reads
+`LAVA0002` with zero material markers. V25 reads
 legacy `LAVA0001` with empty reaction counters/credits. V24 keeps
 its volcano records with empty lava state; V18–V23 reset both. A new world resets
-both; switching surfaces does not discard them.
+all three runtimes; switching surfaces does not discard them. Pre-V27 saves reset ash.
 
 The lava runtime has at most 2,048 hot cells and 8,192 total records. Cold partial
 deposits free hot capacity while retaining storage, geometry and collision. New
@@ -76,7 +78,7 @@ outside admitted domains remain parked with their enthalpy unchanged.
 
 World extension hooks expose partial blocks, solid collision heights and liquid
 surface heights, and reject ordinary edits that would delete a partial record
-or turn it into a whole inventory block. Full cooled basalt is a normal editable
+or turn it into a whole inventory block. Full cooled rock is a normal editable
 block. Block collection credits inventory only after a successful world mutation,
 so a rejected partial-deposit edit cannot duplicate items. Fractional excavation/
 displacement is deferred. The existing water solver checks overlays before
@@ -115,7 +117,7 @@ including a solid base under liquid; empty space above a deposit stays clear.
   prevents removal.
 - `test_interaction_raycast`: rays above, inside and into the top of partial
   deposits; solid/liquid masks, mixed layers, reach limits and face normals.
-- `test_save_format` and `test_game_save_spherical`: V26 flags/writer, new
+- `test_save_format` and `test_game_save_spherical`: V27 flags/writer, new
   payload routing, old-version reset without consuming trailer bytes, corrupt
   payload preserving live records.
 - `test_debug_control`: command syntax, parameter limits, hex identity parsing.
@@ -132,7 +134,7 @@ compare-and-consume cannot debit lava enthalpy. Water work, heat debit and steam
 accounting commit on the main thread before ambient cooling and solidification.
 Procedural ocean cells remain reservoirs and report their external replenishment
 separately from finite-water loss. Unknown faces park credits, known dry or separated
-faces clear them. `LAVA0002` saves credits and counters, validates energy and mass
+faces clear them. `LAVA0003` saves credits, counters and material markers, validates energy and mass
 relations, and clears transient steam on load. Rendering caps steam at 96 puffs
 and never changes reactions. Full-runtime water flow still has a work budget;
 cross-system deterministic tests explicitly control water ticks.
@@ -140,3 +142,40 @@ cross-system deterministic tests explicitly control water ticks.
 G3 water contact is a bounded six-face parcel model. It does not provide water
 temperature transport, steam pressure, explosions, heat damage or ecological restoration;
 those require separate models and integration.
+
+## P0 ash and cooling products
+
+`world/ash_runtime` owns at most 2048 cells, with 1024 volume units per voxel.
+`app/game_geology` supplies loaded-air boundaries, deterministic wind-directed
+fallout and rain exposure at the frozen geology sample time. Volcanoes debit
+only accepted ash supply from their finite reservoir after lava supply. The
+10 Hz step sorts by body/Y/Z/X, applies fractional rain erosion and moves ash
+at most one voxel down, preserving `supplied = volume + washed`. Rain exports
+sediment rather than synthesizing mud blocks. Unknown terrain, other bodies and
+cells outside the observer's ±96-block neighborhood park. The canopy probe is
+limited to 12 blocks; it is not a global sky-visibility solver. Full and partial
+ash remain overlay records so both continue eroding. Main-thread drawing uses
+terrain section transforms, and the existing overlay hooks expose exact heights.
+
+Lava cells now carry volume-weighted silica, vesicle and quench-history markers.
+Natural source archetypes hash the complete stable identity and seed; debug-forced
+vents preserve dense mafic supply. Flow conserves composition markers; committed
+water cooling adds the amount newly frozen to a bounded quench marker. This
+homogeneous model retains that history through reheating/flow. It does not model
+bubble expansion, pressure, mineral kinetics or variable density. Gas-rich mafic
+and silicic cells yield scoria and pumice. Dense mafic cells yield basalt; dense
+silicic cells yield obsidian at a quench fraction of at least 0.25, otherwise
+rhyolite. Silica/vesicle archetype cutoffs are 0.5. The same classification drives
+partial solids and the callback that writes full cooled blocks.
+
+`LAVA0003` appends three binary64 marker volumes to each V2 cell record; V1/V2
+load them as zero (legacy basalt). `ASH00001` stores five u64 header values
+(count, supplied, washed, rejected, ticks) and six u64 values per record
+(body, x, y, z, volume, binary64 erosion credit). Both validate bounded finite
+state before committing. The world transaction checkpoints both payloads.
+
+`test_ash` covers rain/gravity, canonical aliases, capacity, inventory debit,
+parking, fractional continuation and every byte truncation. `test_lava` adds
+material transport, all five real cooling outcomes, V1/V2 migration and corrupt
+marker rejection. Two extra DSL scenes cover actual ash selection/collision,
+roof protection, falling, persistence and final rock blocks.

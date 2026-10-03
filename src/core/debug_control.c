@@ -301,6 +301,27 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     char intensityText[32], ticksText[32];
     unsigned ticks;
     char idText[18];
+    char material[16], coordinates[3][32], unitsText[32];
+    if (sscanf(line, "geology deposit %15s %31s %31s %31s %31s %c", material,
+        coordinates[0], coordinates[1], coordinates[2], unitsText, &trailing) == 5) {
+        const char *names[] = { "ash", "basalt", "silicic", "scoria", "pumice" };
+        unsigned kind = 0;
+        while (kind < 5 && strcmp(material, names[kind])) kind++;
+        unsigned units;
+        if (kind == 5 || !DebugControlGeologyTicks(unitsText, 1024, &units))
+            return DEBUG_CONTROL_COMMAND_INVALID;
+        int xyz[3];
+        for (unsigned i = 0; i < 3; i++) {
+            char *end; errno = 0;
+            long n = strtol(coordinates[i], &end, 10);
+            if (errno || end == coordinates[i] || *end || n <= -1000000 || n >= 1000000)
+                return DEBUG_CONTROL_COMMAND_INVALID;
+            xyz[i] = (int)n;
+        }
+        control->geologyX = xyz[0]; control->geologyY = xyz[1]; control->geologyZ = xyz[2];
+        control->geologyUnits = units; control->geologyMaterial = kind;
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT;
+    }
     if (sscanf(line, "geology force eruption %31s %31s %c", intensityText, ticksText, &trailing) == 2 &&
         DebugControlGeologyTicks(ticksText, 36000u, &ticks)) {
         char *end;

@@ -28,7 +28,9 @@ typedef enum LavaRock {
     LAVA_ROCK_PUMICE, LAVA_ROCK_RHYOLITE
 } LavaRock;
 /* Homogenized cell provenance, in volume units. Transport and mixing conserve
-   silica/vesicle markers; quenching adds a bounded rapid-solidification marker. */
+   silica/vesicle markers; quenching adds a bounded rapid-solidification marker.
+   This history survives reheating and moves with homogeneous material; there
+   is no separate glass phase, bubble expansion or recrystallization model. */
 typedef struct LavaMaterial {
     double silica, vesicles, quenched;
 } LavaMaterial;

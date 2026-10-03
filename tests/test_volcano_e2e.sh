@@ -7,7 +7,11 @@ if [[ -z "${WAYLAND_DISPLAY:-}" || -z "${XDG_RUNTIME_DIR:-}" ||
     echo 'an active Wayland session is required' >&2
     exit 2
 fi
-for scene in volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact; do
+scenes=("${@:2}")
+if ((${#scenes[@]} == 0)); then
+    scenes=(volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products)
+fi
+for scene in "${scenes[@]}"; do
 runtime=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-${scene}.XXXXXX")
 ln -s "$repo/assets" "$runtime/assets"
 cp "$repo/tests/scenes/$scene.dsl" "$runtime/check.dsl"

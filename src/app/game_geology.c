@@ -154,7 +154,9 @@ static unsigned EmitLava(const VolcanoDefinition *d, unsigned units, void *user)
 {
     GeologyTickContext *tick = user;
     /* Stable source archetypes; forced legacy vents remain dense/mafic. */
-    uint32_t profile = (uint32_t)(d->id ^ d->seed) * 0x9e3779b9u;
+    uint32_t profile = (uint32_t)d->id ^ (uint32_t)(d->id >> 32) ^ d->seed;
+    profile ^= profile >> 16; profile *= 0x7feb352du;
+    profile ^= profile >> 15; profile *= 0x846ca68bu; profile ^= profile >> 16;
     double silica = !d->forced && (profile & 1u) ? 1.0 : 0.0;
     double vesicles = !d->forced && (profile & 2u) ? 1.0 : 0.0;
     return LavaRuntimeDepositMaterial(&tick->lava, d->mapX, d->address.radial, d->mapZ,
@@ -283,9 +285,8 @@ void GameGeologyUpdate(GameRuntime *game, double seconds)
     LavaRuntimeAdvance(seconds, true, GameGeologyTick, &tick);
 }
 
-static void GameGeologyTick(void *user)
+static void PrepareTick(GeologyTickContext *tick)
 {
-    GeologyTickContext *tick = user;
     /* Update admission without moving time, then use the same admitted set for
        source discharge and all lava cells in this 0.1-second step. */
     VolcanoRuntimeUpdate(0.0, &tick->volcano);
@@ -303,6 +304,11 @@ static void GameGeologyTick(void *user)
     tick->volcano.emitAsh = EmitAsh;
     tick->volcano.hasHotLava = HasHotLava;
     tick->volcano.userData = tick;
+}
+static void GameGeologyTick(void *user)
+{
+    GeologyTickContext *tick = user;
+    PrepareTick(tick);
     VolcanoRuntimeUpdate(LAVA_STEP_SECONDS, &tick->volcano);
     LavaRuntimeStep(&tick->lava);
     AshRuntimeStep(&tick->ash);
@@ -381,7 +387,7 @@ static void ReplyVent(GameRuntime *game, const VolcanoRecord *r)
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
     if (command < DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT ||
-        command > DEBUG_CONTROL_COMMAND_GEOLOGY_STEP) return false;
+        command > DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT) return false;
     VolcanoContext context = ContextFor(game);
     bool ok = context.valid;
     if (ok && command == DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE) {
@@ -404,6 +410,19 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
         for (unsigned i = 0u; i < game->debugControl.geologyTicks; i++) {
             GameGeologyUpdate(game, VOLCANO_STEP_SECONDS);
         }
+    } else if (ok && command == DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT) {
+        GeologyTickContext tick = { .game = game, .volcano = context,
+            .weatherTime = SpaceElapsedSimulationTime() };
+        PrepareTick(&tick);
+        WorldSurfaceContext s = WorldCurrentSurfaceContext();
+        DebugControl *c = &game->debugControl;
+        int x = c->geologyX + s.originX, z = c->geologyZ + s.originZ;
+        unsigned kind = c->geologyMaterial;
+        unsigned accepted = kind == 0 ? AshRuntimeDeposit(&tick.ash, x, c->geologyY, z, c->geologyUnits) :
+            LavaRuntimeDepositMaterial(&tick.lava, x, c->geologyY, z, c->geologyUnits,
+                LAVA_SOURCE_K, kind == 2 || kind == 4, kind == 3 || kind == 4);
+        ok = accepted > 0;
+        DebugControlReply(c, "DEBUG_CONTROL geology deposit accepted=%u requested=%u\n", accepted, c->geologyUnits);
     }
     if (!ok) {
         game->debugCommandFailed = true;
@@ -412,9 +431,14 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
     }
     VolcanoStats stats = VolcanoRuntimeStats();
     LavaStats lava = LavaRuntimeStats();
+    AshStats ash = AshRuntimeStats();
     DebugControlReply(&game->debugControl,
         "DEBUG_CONTROL geology %s records=%u active=%u rejected=%" PRIu64 " lava_physics=1\n",
         ok ? "ok" : "error", stats.count, stats.active, stats.rejectedAdmissions);
+    DebugControlReply(&game->debugControl,
+        "DEBUG_CONTROL geology ash cells=%u volume=%" PRIu64 " supplied=%" PRIu64
+        " washed=%" PRIu64 " volume_error=%.0f\n", ash.cells, ash.volume, ash.supplied,
+        ash.washed, (double)ash.supplied - ash.volume - ash.washed);
     DebugControlReply(&game->debugControl,
         "DEBUG_CONTROL geology water evaporated=%" PRIu64 " reservoir=%" PRIu64
         " heat=%.6f energy_error=%.9f\n", lava.evaporatedWater, lava.reservoirWater,
@@ -469,8 +493,24 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
             record.definition.address.radial, record.definition.mapZ };
         return true;
     }
+    if (!strcmp(field, "cell_rock")) {
+        int x = (int)floorf(game->player.position.x), y = (int)floorf(game->player.position.y);
+        int z = (int)floorf(game->player.position.z);
+        LavaCell cell;
+        out->type = DEBUG_DSL_VALUE_STRING;
+        out->as.string = "none";
+        if (context.valid && LocalLavaAt(x, y, z, &cell)) {
+            out->as.string = LavaRockName(LavaRockForMaterial(cell.material, cell.thermal.volume));
+        } else if (context.valid) {
+            BlockType base = GetBlockAt(x, y, z);
+            for (LavaRock rock = LAVA_ROCK_BASALT; rock <= LAVA_ROCK_RHYOLITE; rock++)
+                if (base == RockBlock(rock)) out->as.string = LavaRockName(rock);
+        }
+        return true;
+    }
     VolcanoStats stats = VolcanoRuntimeStats();
     LavaStats lava = LavaRuntimeStats();
+    AshStats ash = AshRuntimeStats();
     double value;
     if (!strcmp(field, "records")) value = stats.count;
     else if (!strcmp(field, "active_count")) value = stats.active;
@@ -479,6 +519,18 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
     else if (!strcmp(field, "ticks")) value = (double)record.state.activeTicks;
     else if (!strcmp(field, "pressure")) value = record.state.pressure;
     else if (!strcmp(field, "reservoir")) value = record.state.reservoir;
+    else if (!strcmp(field, "ash_cells")) value = ash.cells;
+    else if (!strcmp(field, "ash_volume")) value = (double)ash.volume / ASH_CAPACITY;
+    else if (!strcmp(field, "ash_supplied")) value = (double)ash.supplied / ASH_CAPACITY;
+    else if (!strcmp(field, "ash_washed")) value = (double)ash.washed / ASH_CAPACITY;
+    else if (!strcmp(field, "ash_volume_error")) value = ((double)ash.supplied - ash.volume - ash.washed) / ASH_CAPACITY;
+    else if (!strcmp(field, "ash_ticks")) value = (double)ash.ticks;
+    else if (!strcmp(field, "cell_ash_height")) {
+        AshCell cell;
+        bool exists = context.valid && LocalAshAt((int)floorf(game->player.position.x),
+            (int)floorf(game->player.position.y), (int)floorf(game->player.position.z), &cell);
+        value = exists ? (double)cell.volume / ASH_CAPACITY : 0;
+    }
     else if (!strcmp(field, "lava_cells")) value = lava.records;
     else if (!strcmp(field, "hot_cells")) value = lava.hotCells;
     else if (!strcmp(field, "lava_volume")) value = (double)lava.volume / LAVA_CAPACITY;
@@ -499,7 +551,8 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
     else if (!strcmp(field, "rejected_cells")) value = (double)lava.rejectedCells;
     else if (!strcmp(field, "cell_volume") || !strcmp(field, "cell_liquid") ||
              !strcmp(field, "cell_temperature") || !strcmp(field, "cell_collision_height") ||
-             !strcmp(field, "cell_contact_credit") || !strcmp(field, "cell_steam")) {
+             !strcmp(field, "cell_contact_credit") || !strcmp(field, "cell_steam") ||
+             !strcmp(field, "cell_silica") || !strcmp(field, "cell_vesicles") || !strcmp(field, "cell_quenched")) {
         int x = (int)floorf(game->player.position.x);
         int y = (int)floorf(game->player.position.y);
         int z = (int)floorf(game->player.position.z);
@@ -509,6 +562,9 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
         else if (!strcmp(field, "cell_volume")) value = exists ? (double)cell.thermal.volume / LAVA_CAPACITY : 0.0;
         else if (!strcmp(field, "cell_liquid")) value = exists ? (double)LavaLiquidVolume(cell.thermal) / LAVA_CAPACITY : 0.0;
         else if (!strcmp(field, "cell_steam")) value = exists ? cell.steam : 0.0;
+        else if (!strcmp(field, "cell_silica")) value = exists ? cell.material.silica / cell.thermal.volume : 0;
+        else if (!strcmp(field, "cell_vesicles")) value = exists ? cell.material.vesicles / cell.thermal.volume : 0;
+        else if (!strcmp(field, "cell_quenched")) value = exists ? cell.material.quenched / cell.thermal.volume : 0;
         else if (!strcmp(field, "cell_contact_credit")) {
             value = 0.0;
             if (exists) for (unsigned face = 0u; face < 6u; face++) value += cell.contactCredit[face];

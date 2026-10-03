@@ -577,7 +577,16 @@ int main(void)
     assert(DebugControlParseText(&geology, "geology step 120") == DEBUG_CONTROL_COMMAND_GEOLOGY_STEP);
     assert(DebugControlParseText(&geology, "geology stop 0000000708123456") == DEBUG_CONTROL_COMMAND_GEOLOGY_STOP);
     assert(geology.geologyId == UINT64_C(0x0000000708123456));
+    assert(DebugControlParseText(&geology, "geology deposit ash -1 9 2 512") == DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT);
+    assert(geology.geologyX == -1 && geology.geologyY == 9 && geology.geologyZ == 2 &&
+           geology.geologyUnits == 512 && geology.geologyMaterial == 0);
+    assert(DebugControlParseText(&geology, "geology deposit pumice 1 -2 3 1024") == DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT);
+    assert(geology.geologyMaterial == 4);
     const char *invalidGeology[] = { "geology force eruption nan 1",
+        "geology deposit ash 1 2 3 0", "geology deposit ash 1 2 3 1025",
+        "geology deposit ash 1 2 3 8 extra", "geology deposit glass 1 2 3 8",
+        "geology deposit ash nan 2 3 8", "geology deposit ash 1.5 2 3 8",
+        "geology deposit ash 1000000 2 3 8", "geology deposit ash 184467440737095516160 2 3 8",
         "geology force eruption 1 -1", "geology force eruption 2 10",
         "geology force eruption 1 36001", "geology step 0", "geology step -1",
         "geology step 1 trailing", "geology step 4294967297",

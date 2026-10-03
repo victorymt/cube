@@ -889,7 +889,7 @@ on another surface remain paused; unloaded weather-owned snow/ice retains its
 ownership until its melted block can be restored safely. See
 [weather simulation](weather-simulation.md) for clock and persistence details.
 
-### Geology preview, lava physics and water contact (G1–G3)
+### Geology, ash layers and lava products (G1–G3 / P0)
 
 ```text
 geology inspect
@@ -897,6 +897,7 @@ geology vents
 geology force eruption INTENSITY TICKS
 geology stop ID
 geology step TICKS
+geology deposit ash|basalt|silicic|scoria|pumice X Y Z UNITS
 ```
 
 G2 adds finite lava inventory, 10 Hz lava cells, thermal cooling, partial solid
@@ -925,11 +926,12 @@ inventory while previously emitted lava can still cool. Inspect/vents/typed read
 do not discover or advance anything. Runtime discovery checks eligible dry
 planetary volcanic peaks every two active seconds; Homeworld is debug-only.
 
-The new world save V26 includes versioned `VOLCANO1` and `LAVA0002` payloads with explicit
-little-endian scalar encoding, all event state and fractional step remainder. V25 reads
-legacy `LAVA0001` and initializes reaction counters to zero; V24 keeps volcano records
-with empty lava; V18–V23 reset both.
-New worlds reset them;
+The current world save V27 includes versioned `VOLCANO1`, `LAVA0003` and `ASH00001`
+payloads with explicit little-endian scalar encoding, event state, material markers,
+ash erosion credits and fractional step remainder. V26 reads `LAVA0002` with
+zero material markers; V25 reads `LAVA0001` with zero reaction and material state.
+V24 keeps volcano records with empty lava; V18–V23 reset both. V18–V26 start with
+empty ash layers. New worlds reset all three runtimes;
 surface transitions park records instead of deleting them.
 
 | Field | Type | Meaning |
@@ -951,7 +953,55 @@ surface transitions park records instead of deleting them.
 | `geology.cell_contact_credit`, `geology.cell_steam` | number | Unsatisfied face credit and bounded recent steam visual strength |
 | `geology.lava_ticks`, `geology.blocked_transfers`, `geology.rejected_cells` | number | Fixed-step and bounded-flow diagnostics |
 | `geology.cell_volume`, `geology.cell_liquid`, `geology.cell_temperature` | number | Lava overlay at the player cell |
-| `geology.cell_collision_height` | number | Solid overlay height used by collision |
+| `geology.cell_collision_height` | number | Actual solid height used by collision, including ash |
+| `geology.ash_cells`, `geology.ash_ticks` | number | Retained ash cells and fixed 10 Hz steps |
+| `geology.ash_volume`, `geology.ash_supplied`, `geology.ash_washed` | number | Remaining, supplied and rain-exported ash in block units |
+| `geology.ash_volume_error` | number | Supplied minus remaining minus washed; must be zero |
+| `geology.cell_ash_height` | number | Ash volume / 1024 at the player cell, zero when absent |
+| `geology.cell_silica`, `geology.cell_vesicles`, `geology.cell_quenched` | number | Overlay material marker fractions in [0,1] |
+| `geology.cell_rock` | string | Predicted overlay product, final solid block name (`basalt`, `rhyolite`, `obsidian`, `scoria`, `pumice`), or `none` |
+
+`deposit` supplies explicit debug material through the ordinary bounded deposit path.
+X/Y/Z are integer local world coordinates, UNITS is 1–1024 (1024 = one block).
+It reports requested/accepted units, can partially fill a cell, and fails if nothing
+is accepted. Debug supply is counted in runtime ledgers but is not debited from a
+vent. Lava requires a loaded cell inside an admitted vent domain; create and stop
+a forced vent first when testing recipes. Ash only requires the loaded observer
+neighborhood. Solid blocks, water and the other overlay reject deposition.
+
+Ash fallout debits the vent reservoir after lava emission: at intensity 1 it requests
+32 units per 0.5-second erupting tick (8 while waning). Deterministic targets span a
+7×7 grid with weather wind drift. Fallout checks the 12 cells above the outlet,
+then searches from outlet Y+12 down to Y−24 for known support. A roof or unknown
+column blocks emission/deposition. Deposits stack and fall one voxel per 0.1-second
+step when support disappears; height is volume/1024 for rendering, collision and rays.
+At most 2048 ash records are retained. Beyond ±96 blocks from the observer, unloaded
+cells and other bodies park. Full ash remains erodible overlay, not a base block.
+Rain/drizzle exports up to 2 units per second from exposed top layers. Exposure uses
+a bounded 12-cell canopy probe; roofs farther above are outside this approximation.
+Washed sediment leaves this local model; mudflow, water transport of sediment and
+fractional excavation are not implemented. Ordinary edits cannot erase ash layers.
+
+Lava source composition is a deterministic archetype from the vent identity/seed;
+forced legacy vents supply dense mafic material. The `silicic` debug recipe supplies
+dense silica-rich melt, while `scoria` and `pumice` supply gas-rich mafic/silicic melt.
+Markers mix and move proportionally with volume. Water-committed freezing adds a
+bounded quench-history marker; a failed water commit adds nothing. This is a
+homogeneous, fixed-density gameplay approximation: quench history survives reheating
+and transport, with no bubble expansion, gas pressure or glass recrystallization.
+
+| Composition / cooling | Product |
+| --- | --- |
+| Mafic, vesicle marker < 0.5 | Basalt |
+| Silicic (silica marker ≥ 0.5), vesicles < 0.5, quenched < 0.25 | Rhyolite |
+| Silicic, vesicles < 0.5, quenched ≥ 0.25 | Obsidian |
+| Mafic, vesicles ≥ 0.5 | Scoria |
+| Silicic, vesicles ≥ 0.5 | Pumice |
+
+A full cell commits its selected rock when it reaches ambient temperature; partial
+solid cells retain height and material. Product thresholds are gameplay rules,
+not a mineral crystallization solver. Without debug supply, each vent obeys
+`reservoir + cumulative lava supply + cumulative ash supply = 256` blocks.
 
 Use `make test-volcano-e2e` for a real Wayland route that covers force, pause,
 manual stepping, mid-eruption save/load, parking, resume, stop and a second
@@ -961,15 +1011,19 @@ The water-contact route covers finite and enclosed pools, mid-reaction save/load
 unloading/return, steam output and final basalt. Another route checks `target.hit`
 and `target.position` above and inside a cooled
 partial deposit, including looking down at its actual top surface.
+The ash route checks fallout inventory, thin-layer selection, rain, roof cover,
+support removal, unload parking and save/load continuation. The material route
+checks all five full-block products and water-quench save/load. Run an individual
+route with `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_ash_layers`.
 It retains the
 isolated runtime directories, replies, traces and screenshots. Every geology
-tick executes five lava steps; its weather sample time stays frozen during the
+tick executes five lava and ash steps; its weather sample time stays frozen during the
 command. Water flow does not advance with `geology step`; use explicit `fluid step`
 when testing transport. Unloaded contacts park without offline catch-up.
 After `load`, use `stream wait` before inspecting water or stepping reactions.
 Explicit excavation of partial deposits is deferred; water and ordinary block
 writes cannot overwrite a lava/partial-solid overlay.
-Full cooled basalt becomes a normal block. Storage and domain limits are described
+Full cooled rock becomes a normal block. Storage and domain limits are described
 in [the geology implementation record](architecture/18-volcano-preview.md).
 
 Water contact checks six faces after lava flow. Side faces use their overlapping
