@@ -950,7 +950,9 @@ surface transitions park records instead of deleting them.
 
 Use `make test-volcano-e2e` for a real Wayland route that covers force, pause,
 manual stepping, mid-eruption save/load, parking, resume, stop and a second
-event, followed by a closed-basin cooling/solidification check. It retains the
+event, followed by a closed-basin cooling/solidification check and a separate
+two-vent route that verifies parked lava does not block a loaded vent's recovery.
+It retains the
 isolated runtime directory, replies, trace and three screenshots. Every geology
 tick executes five lava steps; its weather sample time stays frozen during the
 command. Water reaction and explicit excavation of partial deposits are deferred:

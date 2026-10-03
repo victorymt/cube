@@ -165,7 +165,36 @@ static unsigned Emit(const VolcanoDefinition *d, unsigned units, void *user)
 }
 static bool Hot(const VolcanoDefinition *d, void *user)
 {
-    (void)user; return LavaRuntimeHasHotNear(d->address.bodyId, d->mapX, d->address.radial, d->mapZ, 200.0f);
+    return LavaRuntimeHasActiveHotNear(user, d->mapX, d->address.radial, d->mapZ, 200.0f);
+}
+static void TestCoolingIgnoresParkedLava(void)
+{
+    Reset(); VolcanoRuntimeReset(); closed = true;
+    LavaContext lava = Context();
+    assert(LavaRuntimeDeposit(&lava, 0, 1, 0, 128u, 1450.0) == 128u);
+    VolcanoDefinition d = VolcanoDefine(7u, 123u, 161, 1, 0, 1.0f, true);
+    assert(VolcanoRuntimeForce(d, 1.0f, 10u) && VolcanoRuntimeStop(d.id));
+    VolcanoContext volcano = { .valid = true, .bodyId = 7u, .seed = 123u,
+        .observerMap = { 161, 1, 0 }, .ready = Ready, .hasHotLava = Hot, .userData = &lava };
+    for (unsigned i = 0u; i < 120u; i++) VolcanoRuntimeUpdate(0.5, &volcano);
+    VolcanoRecord r;
+    assert(VolcanoRuntimeAt(0u, &r) && r.state.phase == VOLCANO_COOLING);
+    double parkedEnergy = LavaRuntimeStats().energy;
+    unknown = true;
+    for (unsigned i = 0u; i < 120u; i++) {
+        VolcanoRuntimeUpdate(0.5, &volcano);
+        LavaRuntimeStep(&lava);
+    }
+    assert(VolcanoRuntimeAt(0u, &r) && r.state.phase == VOLCANO_RECOVERY);
+    assert(LavaRuntimeStats().energy == parkedEnergy && LavaRuntimeStats().hotCells == 1u);
+    unknown = false;
+    assert(Hot(&d, &lava));
+    lava.bodyId = 8u;
+    assert(!Hot(&d, &lava));
+    lava.bodyId = 7u;
+    for (unsigned i = 0u; i < 600u; i++) LavaRuntimeStep(&lava);
+    assert(!Hot(&d, &lava));
+    Balance();
 }
 static void TestVolcanoInventory(void)
 {
@@ -187,6 +216,6 @@ static void TestVolcanoInventory(void)
 int main(void)
 {
     TestThermal(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
-    TestOrderAndPersistence(); TestVolcanoInventory();
+    TestOrderAndPersistence(); TestVolcanoInventory(); TestCoolingIgnoresParkedLava();
     puts("lava conservation, thermal, persistence and coupling tests passed");
 }

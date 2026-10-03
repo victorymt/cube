@@ -40,7 +40,9 @@ void LavaRuntimeStep(const LavaContext *context);
 void LavaRuntimeAdvance(double seconds, bool active,
                          void (*tick)(void *user), void *user);
 LavaStats LavaRuntimeStats(void);
-bool LavaRuntimeHasHotNear(uint32_t body, int x, int y, int z, float radius);
+/* Only cells that can advance in this context may delay vent recovery. */
+bool LavaRuntimeHasActiveHotNear(const LavaContext *context,
+                                 int x, int y, int z, float radius);
 bool LavaRuntimeSave(FILE *file);
 bool LavaRuntimeLoad(FILE *file);
 #endif

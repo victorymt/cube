@@ -238,14 +238,17 @@ LavaStats LavaRuntimeStats(void)
     stats.solidVolume = stats.volume - stats.liquidVolume;
     return stats;
 }
-bool LavaRuntimeHasHotNear(uint32_t body, int x, int y, int z, float radius)
+bool LavaRuntimeHasActiveHotNear(const LavaContext *ctx,
+                                 int x, int y, int z, float radius)
 {
+    if (!ctx || !ctx->valid || !ctx->boundary || !isfinite(radius) || radius < 0.0f) return false;
     for (unsigned i = 0u; i < count; i++) {
         LavaCell *c = &cells[i];
-        if (c->bodyId != body || c->cooled) continue;
+        if (c->bodyId != ctx->bodyId || c->cooled) continue;
         SurfaceMapOffset offset = SurfaceShortestMapOffset(x, z, c->x, c->z);
         double dy = (double)c->y - y;
-        if ((double)offset.x * offset.x + (double)offset.z * offset.z + dy * dy <= radius * radius) return true;
+        if ((double)offset.x * offset.x + (double)offset.z * offset.z + dy * dy <= radius * radius &&
+            ctx->boundary(c->x, c->y, c->z, ctx->user) == LAVA_OPEN) return true;
     }
     return false;
 }

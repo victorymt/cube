@@ -110,9 +110,9 @@ static unsigned EmitLava(const VolcanoDefinition *d, unsigned units, void *user)
 }
 static bool HasHotLava(const VolcanoDefinition *d, void *user)
 {
-    (void)user;
-    return LavaRuntimeHasHotNear(d->address.bodyId, d->mapX, d->address.radial,
-                                 d->mapZ, 180.0f);
+    GeologyTickContext *tick = user;
+    return LavaRuntimeHasActiveHotNear(&tick->lava, d->mapX, d->address.radial,
+                                       d->mapZ, 180.0f);
 }
 
 static bool SampleSite(SurfaceAddress address, float *potential, int *height, void *opaque)

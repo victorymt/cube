@@ -30,6 +30,9 @@ vent receives all 2 Hz steps, independent of retained-record occupancy. The
 large direct calls do not silently fast-forward. Unloaded vents, distant vents
 and other bodies park without losing fractional time or event history. A
 blocked outlet remains admitted so existing lava can cool; new supply is rejected.
+Recovery waits only for nearby hot cells whose boundary is open in the current
+lava context. Parked cells outside the admitted domains or in unloaded sections
+retain their heat without preventing another vent from recovering.
 
 `presentation/render_volcano` reads state copies and draws a small vent, ash
 column and sparks with bounded geometry. It writes no simulation state and
