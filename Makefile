@@ -154,6 +154,10 @@ test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
 
 .PHONY: test-cloud-altitude-e2e
+.PHONY: test-volcano-e2e
+test-volcano-e2e: $(TARGET)
+	bash tests/test_volcano_e2e.sh $(TARGET)
+
 test-cloud-altitude-e2e: $(TARGET)
 	bash tests/test_cloud_altitude_e2e.sh $(TARGET)
 

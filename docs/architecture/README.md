@@ -25,13 +25,14 @@ new physical-simulation stages.
 | 15 | [polar E2E reliability](15-polar-e2e-reliability.md) | stdin reply-ordering regression, independent 600-frame polar DSL gate, and retained failure diagnostics |
 | 16 | [regional ecology continuity](16-ecology-continuity.md) | V23 daylight anchor, V7 regional ecology persistence, explicit scheduling, and historical environmental sampling |
 | 17 | [animal behavior and poses](17-fauna-poses.md) | V5 entity pose persistence, contact-driven gait/strikes, articulated behavior rendering and deterministic DSL previews |
+| 18 | [volcano lifecycle preview](18-volcano-preview.md) | G1 fixed vent identities, bounded local lifecycle, V24/VOLCANO1 persistence and DSL preview; no lava physics yet |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
 which are represented by the records above.
 
-Proposals, not implementation records: [volcanic activity design](../volcanic-activity-design.md)
-defines the proposed local eruption, lava, persistence, and ecology boundaries.
+[Volcanic activity design](../volcanic-activity-design.md) defines the staged
+eruption, lava and ecology boundaries; only the G1 preview is implemented.
 
 ## Implementation, verification, and limits
 
@@ -40,9 +41,9 @@ roadmap status of `Complete` applies to that stage's recorded scope; it does
 not imply that every later revision passed every acceptance route or that
 the bounded models implement full global simulation.
 
-- **Persistence:** the current world writer emits V23 and reads compatible
-  V18-V22 saves. Radiation was introduced in V21, hydrology in V22, and the
-  homeworld daylight anchor in V23. Regional ecology independently writes
+- **Persistence:** the current world writer emits V24 and reads compatible
+  V18-V23 saves. Radiation was introduced in V21, hydrology in V22, the
+  homeworld daylight anchor in V23, and volcano previews in V24. Regional ecology independently writes
   population payload V7. These are separate version sequences.
 - **Verification:** [record 06](06-deterministic-replay-and-ci.md) is the
   dated evidence and replay-coverage record. Its 2026-08-30 result of 86

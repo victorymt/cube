@@ -4,6 +4,7 @@
 #include "world/radiation_runtime.h"
 #include "world/hydrology_runtime.h"
 #include "world/save_format.h"
+#include "world/volcano_runtime.h"
 
 #include <assert.h>
 #include <math.h>
@@ -18,6 +19,38 @@ extern const char *GameSaveTestLoadRadiationRuntimeState(
     FILE *file, WorldSaveFormat format);
 
 static int radiationResetCalls;
+bool WorldSaveFormatHasVolcanoes(WorldSaveFormat format)
+{
+    return format == WORLD_SAVE_FORMAT_V24;
+}
+
+static void TestVolcanoPayloadRouting(void)
+{
+    VolcanoRuntimeReset();
+    VolcanoDefinition d = VolcanoDefine(7u, 123u, 24, 20, 0, 0.8f, true);
+    assert(VolcanoRuntimeForce(d, 0.8f, 100u));
+    FILE *file = tmpfile();
+    assert(file && VolcanoRuntimeSave(file));
+    const uint32_t sentinel = 0x12345678u;
+    assert(fwrite(&sentinel, sizeof(sentinel), 1u, file) == 1u);
+    rewind(file);
+    VolcanoRuntimeReset();
+    assert(GameSaveTestLoadVolcanoState(file, WORLD_SAVE_FORMAT_V24) == NULL);
+    uint32_t trailing = 0u;
+    assert(fread(&trailing, sizeof(trailing), 1u, file) == 1u && trailing == sentinel);
+    assert(VolcanoRuntimeStats().count == 1u);
+    fclose(file);
+    file = tmpfile();
+    assert(file);
+    fputs("broken volcano payload", file);
+    rewind(file);
+    assert(GameSaveTestLoadVolcanoState(file, WORLD_SAVE_FORMAT_V24) != NULL);
+    assert(VolcanoRuntimeStats().count == 1u);
+    rewind(file);
+    assert(GameSaveTestLoadVolcanoState(file, WORLD_SAVE_FORMAT_V23) == NULL);
+    assert(ftell(file) == 0 && VolcanoRuntimeStats().count == 0u);
+    fclose(file);
+}
 
 bool WorldSaveFormatHasRadiationRuntime(WorldSaveFormat format)
 {
@@ -355,6 +388,7 @@ static void TestHydrologyRuntimePayloadRouting(void)
 
 int main(void)
 {
+    TestVolcanoPayloadRouting();
     TestSchemaOnePlanetMigration();
     TestSchemaTwoGlobalCoordinates();
     TestRejectsMismatchedEditBodyTransactionally();

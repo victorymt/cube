@@ -2,6 +2,7 @@
 #include "raymath.h"
 
 #include "app/game_debug.h"
+#include "app/game_geology.h"
 #include "presentation/biology_ui.h"
 #include "app/game_debug_status.h"
 #include "app/game_debug_block.h"
@@ -1223,6 +1224,7 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
 {
     game->debugCommandFailed = false;
     game->debugCommandFailure[0] = '\0';
+    if (GameDebugGeologyDispatch(game, command)) return GAME_DEBUG_DISPATCH_HANDLED;
     GameDebugDispatchResult result = GameDebugDispatchSystemCommand(
         game, command);
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
@@ -1654,6 +1656,7 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
 }
 
 static const GameDebugDslResolverFn gameDebugDslResolvers[] = {
+    GameDebugGeologyResolve,
     GameDebugDslResolveBlock,
     GameDebugDslResolveFlora,
     /* Preserve the historical ordering between each domain group. */

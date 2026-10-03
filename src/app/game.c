@@ -1,6 +1,8 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "app/game.h"
+#include "app/game_geology.h"
+#include "world/volcano_runtime.h"
 #include "app/game_biology.h"
 #include "app/game_debug.h"
 #include "app/game_debug_trace.h"
@@ -152,6 +154,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     AlbumReset();
     AlbumUiReset();
     WorldReset(seed);
+    VolcanoRuntimeReset();
     GameSyncWorldSurfaceSnapshot(seed);
     WorldResetSurfaceRebaseEvent();
     MapMarkersReset();
@@ -852,6 +855,9 @@ static void GameRenderWorldPass(GameRuntime *game,
                       frame->daylight);
     }
     ParticlesDraw();
+    if (frame->localWorldActive && !frame->inNether && !frame->underwater) {
+        GameGeologyDraw(game, frame);
+    }
     GameRenderInteractionGuides(game, frame);
     EndMode3D();
     PerfEndGpuFrame();
@@ -1308,6 +1314,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     // Performance runs measure a fixed streaming/render route. Persistent
     // weather edits would keep invalidating meshes after that route ends.
     WeatherImpactInit(game->settings.weatherDamageEnabled && !game->perfMode);
+    VolcanoRuntimeReset();
     TornadoInit(game->settings.weatherDamageEnabled && !game->perfMode);
     WeatherSetParticleScale(
         GraphicsQualityProfileFor(
@@ -1341,7 +1348,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     DebugControlReply(
         &game->debugControl,
         "DEBUG_CONTROL ready mode=dsl plugins=%zu commands=start,terrain,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,"
-        "fluid,water,weather,hydrology,evolution,block,flora statements=let,assert,wait,repeat,exit\n",
+        "fluid,water,weather,hydrology,geology,evolution,block,flora statements=let,assert,wait,repeat,exit\n",
         GamePluginsCount(game));
     return true;
 }

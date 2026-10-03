@@ -21,6 +21,10 @@ startup as a small pixel-art atlas.
 - Low/medium/high graphics quality presets control shadow resources, cloud
   range, and precipitation density. Medium is the default 1080p/60 FPS target
 - Water blocks with translucent rendering and simple swimming physics
+- Persistent volcano lifecycle previews with fixed vents, local pause/resume,
+  save/load and a `geology` debug DSL; G1 draws a vent, ash and sparks but does
+  not yet simulate lava flow or terrain damage. See
+  [the implementation boundary](docs/architecture/18-volcano-preview.md).
 - Natural geology includes layered granite, limestone, shale, marble,
   chalk and gneiss; loam, podzol, silt and laterite vary soils and seabeds,
   while scoria, regolith, salt crust and new metal ores distinguish planets;

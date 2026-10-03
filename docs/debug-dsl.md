@@ -889,6 +889,74 @@ on another surface remain paused; unloaded weather-owned snow/ice retains its
 ownership until its melted block can be restored safely. See
 [weather simulation](weather-simulation.md) for clock and persistence details.
 
+### Geology preview (G1)
+
+```text
+geology inspect
+geology vents
+geology force eruption INTENSITY TICKS
+geology stop ID
+geology step TICKS
+```
+
+G1 provides persistent vent identity, lifecycle and a visual preview. It does
+not emit simulated lava, consume magma inventory, damage terrain, or heat
+entities. Replies explicitly include `preview=1`. The red vent, ash column and
+sparks are drawn from the same saved state without consuming physics randomness.
+
+`force` uses the canonical column 24 blocks east of the player, at procedural
+surface height + 1. That column and its supporting block must be loaded and the
+vent cell must be air. It creates or reuses the stable vent at that address and
+starts `unrest`; an already running event is rejected. `INTENSITY` is (0,1] and
+`TICKS` is 1–36,000 eruption-phase ticks, excluding the prelude. An intensity of
+1 has a 60-tick prelude; lower intensities take up to 180 ticks. Each tick is
+0.5 active simulation seconds. `stop` accepts the 16-digit hexadecimal string
+ID and enters cooling, retaining identity and event history. A stopped or
+finished event can be started again after it reaches recovery.
+
+`step` accepts 1–100,000 geology ticks, does not advance world time, and works
+while paused. It only advances admitted, loaded vents within the active radius;
+it never catches up parked vents. There are at most two active and 64 retained
+vent records. Admission uses a 160-block radius and existing activity remains
+until 224 blocks, measured along the surface plus height difference. Unloaded,
+blocked, Nether/space and other-body vents are parked. Inspect/vents/typed reads
+do not discover or advance anything. Runtime discovery checks eligible dry
+planetary volcanic peaks every two active seconds; Homeworld is debug-only.
+
+The new world save V24 includes a versioned `VOLCANO1` payload with explicit
+little-endian scalar encoding, all event state and fractional step remainder.
+Older supported saves reset this preview runtime. New worlds reset it;
+surface transitions park records instead of deleting them.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `geology.present`, `geology.active` | bool | Nearest current-body vent exists / was admitted on the latest geology update |
+| `geology.id` | string | Stable 16-digit hexadecimal vent ID, or all zeroes |
+| `geology.position` | vec3 | Nearest vent's canonical map X/Z and world Y |
+| `geology.phase` | string | `none`, `dormant`, `unrest`, `erupting`, `waning`, `cooling`, or `recovery` |
+| `geology.event`, `geology.ticks` | number | Event sequence and cumulative active ticks for that vent |
+| `geology.pressure`, `geology.reservoir` | number | Normalized preview pressure and retained inventory; no release in G1 |
+| `geology.records`, `geology.active_count` | number | Retained records and admitted vents across runtime |
+| `geology.rejected` | number | Admissions rejected at the storage cap |
+
+Use `make test-volcano-e2e` for a real Wayland route that covers force, pause,
+manual stepping, mid-eruption save/load, parking, resume, stop and a second
+event. It retains the isolated runtime directory, replies, trace and screenshot.
+For example, after starting a flat world and settling its stream:
+
+```text
+pause on
+geology force eruption 1 120
+let vent = geology.id
+geology step 60
+assert geology.phase == "erupting"
+save
+geology step 10
+load
+assert geology.id == vent && geology.ticks == 60
+geology stop ${vent}
+```
+
 ### Ships
 
 ```text

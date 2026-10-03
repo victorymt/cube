@@ -11,6 +11,7 @@ void GameLoadMap(Player *player);
 #include "world/save_format.h"
 
 #include <stdio.h>
+const char *GameSaveTestLoadVolcanoState(FILE *file, WorldSaveFormat format);
 
 bool GameSaveTestLoadSphericalTrailer(
     FILE *file, WorldDimension dimension, Player *player,

@@ -1,4 +1,5 @@
 #include "app/game_ecology.h"
+#include "app/game_geology.h"
 
 #include "app/game_debug_trace.h"
 #include "app/game_hydrology.h"
@@ -200,6 +201,7 @@ void GameAdvanceSimulationStep(double simulationSeconds,
 
     bool localWorldActive = WorldIsSurfaceActive();
     bool weatherActive = HomeWorldSurfaceIsActive() || PlanetWorldIsActive();
+    GameGeologyUpdate(game, stepSeconds);
     if (localWorldActive) {
         EntitiesCaptureRenderPoses();
         double ecologyStarted = game->debugTraceEnabled

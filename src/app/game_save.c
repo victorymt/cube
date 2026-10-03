@@ -29,6 +29,7 @@
 #include "world/world_environment.h"
 #include "world/world_persistence.h"
 #include "world/weather_impact.h"
+#include "world/volcano_runtime.h"
 
 #include "raymath.h"
 
@@ -177,6 +178,15 @@ static const char *GameLoadHydrologyRuntimeState(
         : "Load failed: hydrology state could not be reset.";
 }
 
+static const char *GameLoadVolcanoState(FILE *file, WorldSaveFormat format)
+{
+    if (WorldSaveFormatHasVolcanoes(format)) {
+        return VolcanoRuntimeLoad(file) ? NULL : "Load failed: volcano state is corrupted.";
+    }
+    VolcanoRuntimeReset();
+    return NULL;
+}
+
 static bool GameSaveWriteFile(FILE *file, void *opaque)
 {
     const GameSaveContext *context = opaque;
@@ -211,7 +221,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
          GameSaveWriteRadiationRuntimeState(file) &&
          GameSaveWriteHydrologyRuntimeState(file) &&
          MapMarkersSaveState(file) &&
-         GameEcologySaveClock(file) &&
+         GameEcologySaveClock(file) && VolcanoRuntimeSave(file) &&
          GameSaveWriteSphericalTrailer(file, player) && !ferror(file);
     return ok;
 }
@@ -416,6 +426,11 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
 }
 
 #ifdef GAME_SAVE_TESTING
+const char *GameSaveTestLoadVolcanoState(FILE *file, WorldSaveFormat format)
+{
+    return GameLoadVolcanoState(file, format);
+}
+
 bool GameSaveTestLoadSphericalTrailer(
     FILE *file, WorldDimension dimension, Player *player,
     BlockEdit *edits, uint32_t *dimensions, int editCount,
@@ -518,6 +533,8 @@ static const char *GameLoadCurrentExtendedPayload(
     } else {
         GameEcologyResetClock();
     }
+    const char *volcanoError = GameLoadVolcanoState(file, format);
+    if (volcanoError) return volcanoError;
     if (!GameLoadSphericalTrailer(file, data)) {
         return "Load failed: spherical save state is corrupted.";
     }

@@ -1,4 +1,5 @@
 #include "core/debug_control.h"
+#include <inttypes.h>
 
 #include <ctype.h>
 #include <errno.h>
@@ -278,6 +279,57 @@ static DebugControlCommand DebugControlParseFlora(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_FLORA_INSPECT;
     }
     return DEBUG_CONTROL_COMMAND_NONE;
+}
+
+static bool DebugControlGeologyTicks(const char *text, unsigned limit, unsigned *out)
+{
+    if (!text || !isdigit((unsigned char)text[0])) return false;
+    char *end;
+    errno = 0;
+    unsigned long value = strtoul(text, &end, 10);
+    if (errno || *end || value < 1ul || value > limit) return false;
+    *out = (unsigned)value;
+    return true;
+}
+
+static DebugControlCommand DebugControlParseGeology(DebugControl *control, const char *line)
+{
+    if (!strcmp(line, "geology inspect")) return DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT;
+    if (!strcmp(line, "geology vents")) return DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS;
+    if (strncmp(line, "geology", 7u) != 0) return DEBUG_CONTROL_COMMAND_NONE;
+    char trailing;
+    char intensityText[32], ticksText[32];
+    unsigned ticks;
+    char idText[18];
+    if (sscanf(line, "geology force eruption %31s %31s %c", intensityText, ticksText, &trailing) == 2 &&
+        DebugControlGeologyTicks(ticksText, 36000u, &ticks)) {
+        char *end;
+        errno = 0;
+        float intensity = strtof(intensityText, &end);
+        if (errno || *end || !isfinite(intensity) || intensity <= 0.0f || intensity > 1.0f) {
+            return DEBUG_CONTROL_COMMAND_INVALID;
+        }
+        control->geologyIntensity = intensity;
+        control->geologyTicks = ticks;
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE;
+    }
+    if (sscanf(line, "geology step %31s %c", ticksText, &trailing) == 1 &&
+        DebugControlGeologyTicks(ticksText, 100000u, &ticks)) {
+        control->geologyTicks = ticks;
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_STEP;
+    }
+    if (sscanf(line, "geology stop %17s %c", idText, &trailing) == 1 && strlen(idText) == 16u) {
+        uint64_t id = 0u;
+        for (unsigned i = 0u; i < 16u; i++) {
+            unsigned char c = (unsigned char)idText[i];
+            if (!isxdigit(c)) return DEBUG_CONTROL_COMMAND_INVALID;
+            id = (id << 4) | (uint64_t)(c <= '9' ? c - '0' : c - 'a' + 10);
+        }
+        if (id == 0u) return DEBUG_CONTROL_COMMAND_INVALID;
+        control->geologyId = id;
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_STOP;
+    }
+    return DEBUG_CONTROL_COMMAND_INVALID;
 }
 
 static DebugControlCommand DebugControlParseWeather(DebugControl *control,
@@ -720,6 +772,8 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     command = DebugControlParseBlock(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseFlora(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseGeology(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseWeather(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;

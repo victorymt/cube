@@ -569,6 +569,24 @@ static void TestFinalCommandWithoutNewline(void)
 
 int main(void)
 {
+    DebugControl geology = { 0 };
+    assert(DebugControlParseText(&geology, "geology inspect") == DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT);
+    assert(DebugControlParseText(&geology, "geology vents") == DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS);
+    assert(DebugControlParseText(&geology, "geology force eruption 0.8 100") == DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE);
+    assert(geology.geologyTicks == 100u && geology.geologyIntensity == 0.8f);
+    assert(DebugControlParseText(&geology, "geology step 120") == DEBUG_CONTROL_COMMAND_GEOLOGY_STEP);
+    assert(DebugControlParseText(&geology, "geology stop 0000000708123456") == DEBUG_CONTROL_COMMAND_GEOLOGY_STOP);
+    assert(geology.geologyId == UINT64_C(0x0000000708123456));
+    const char *invalidGeology[] = { "geology force eruption nan 1",
+        "geology force eruption 1 -1", "geology force eruption 2 10",
+        "geology force eruption 1 36001", "geology step 0", "geology step -1",
+        "geology step 1 trailing", "geology step 4294967297",
+        "geology force eruption 0.8 184467440737095516160",
+        "geology force eruption 0.8x 10", "geology stop -000000000000001",
+        "geology stop 0000000000000000", "geology stop 10000000708123456" };
+    for (unsigned i = 0u; i < sizeof(invalidGeology) / sizeof(invalidGeology[0]); i++) {
+        assert(DebugControlParseText(&geology, invalidGeology[i]) == DEBUG_CONTROL_COMMAND_INVALID);
+    }
     TestDisabledControl();
     TestLongReply();
     TestCommandStream();

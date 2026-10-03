@@ -60,6 +60,11 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_WEATHER_CLEAR,
     DEBUG_CONTROL_COMMAND_WEATHER_DAMAGE,
     DEBUG_CONTROL_COMMAND_WEATHER_STEP,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_STOP,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_STEP,
     DEBUG_CONTROL_COMMAND_TELEPORT,
     DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
@@ -170,6 +175,9 @@ typedef struct DebugControl {
     unsigned fluidTicks;
     unsigned weatherFrames;
     unsigned weatherTicks;
+    unsigned geologyTicks;
+    float geologyIntensity;
+    uint64_t geologyId;
     unsigned weatherCloudFrames;
     unsigned weatherTornadoFrames;
     int streamAuditRadius;

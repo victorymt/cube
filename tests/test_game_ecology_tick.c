@@ -39,6 +39,11 @@ typedef struct TickRecord {
 } TickRecord;
 
 static TickRecord records[MAX_RECORDED_TICKS];
+void GameGeologyUpdate(GameRuntime *game, double seconds)
+{
+    (void)game;
+    assert(seconds > 0.0);
+}
 static unsigned recordCount;
 static double spaceTime;
 static float sampledDaylight;
