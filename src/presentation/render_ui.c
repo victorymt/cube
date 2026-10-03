@@ -1061,10 +1061,14 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                         playerPosition.x, playerPosition.y, playerPosition.z, yaw * RAD2DEG, pitch * RAD2DEG),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     UiDrawText(TextFormat("FPS %d   frame %.2f ms", GetFPS(), GetFrameTime() * 1000.0f), x, y, fs, Fade(WHITE, 0.85f)); y += line;
+    ChunkDiagnostics chunkDiagnostics = { 0 };
+    ChunksCaptureDiagnostics(&chunkDiagnostics);
     UiDrawText(TextFormat("Chunks loaded %d   gen queue %d   mesh queue %d",
-                        GetActiveChunkCount(), GetPendingGenJobCount(), GetPendingMeshJobCount()),
+                        chunkDiagnostics.activeChunks,
+                        chunkDiagnostics.pendingGenerationJobs,
+                        chunkDiagnostics.pendingMeshJobs),
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
-    ChunkStreamingStats streaming = ChunksGetStreamingStats();
+    ChunkStreamingStats streaming = chunkDiagnostics.streaming;
     UiDrawText(TextFormat("Stream gen %.1fms  mesh %.1fms  upload %.1fms (max %.2f)  sync %llu",
                         streaming.generationCpuMs, streaming.meshCpuMs,
                         streaming.uploadCpuMs, streaming.maxUploadCpuMs,

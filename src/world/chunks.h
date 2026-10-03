@@ -221,6 +221,7 @@ int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
 ChunkStreamingStats ChunksGetStreamingStats(void);
 void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics);
+void ChunksCaptureDetailedDiagnostics(ChunkDiagnostics *outDiagnostics);
 const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status);
 /* Streaming diagnostics are main-thread-only snapshots. */
 ChunkPreloadInfo ChunksGetPreloadInfo(void);

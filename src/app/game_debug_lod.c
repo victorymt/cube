@@ -77,6 +77,6 @@ bool GameDebugLodDslResolveSnapshot(const ChunkDiagnostics *diagnostics,
 bool GameDebugLodDslResolve(const char *name, DebugDslValue *outValue)
 {
     ChunkDiagnostics diagnostics = { 0 };
-    ChunksCaptureDiagnostics(&diagnostics);
+    ChunksCaptureDetailedDiagnostics(&diagnostics);
     return GameDebugLodDslResolveSnapshot(&diagnostics, name, outValue);
 }

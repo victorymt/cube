@@ -1284,7 +1284,7 @@ static const ChunkDiagnostics *GameDebugDslChunkDiagnostics(
     if (!game) return NULL;
     if (!game->debugChunkDiagnosticsValid ||
         game->debugChunkDiagnosticsFrame != game->debugFrame) {
-        ChunksCaptureDiagnostics(&game->debugChunkDiagnostics);
+        ChunksCaptureDetailedDiagnostics(&game->debugChunkDiagnostics);
         game->debugChunkDiagnosticsFrame = game->debugFrame;
         game->debugChunkDiagnosticsValid = true;
     }

@@ -20,7 +20,8 @@ const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status)
     }
 }
 
-void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics)
+static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
+                                    bool includeLod)
 {
     if (!outDiagnostics) return;
     *outDiagnostics = (ChunkDiagnostics){
@@ -83,8 +84,9 @@ void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics)
     }
     pthread_mutex_unlock(&genMutex);
 
-    /* LOD state is main-thread-owned and has its own short critical section. */
-    outDiagnostics->lod = ChunksGetLodStats();
+    /* LOD state is an optional detailed view; the base snapshot stays cheap
+     * enough for HUD and plugin sampling on every frame. */
+    if (includeLod) outDiagnostics->lod = ChunksGetLodStats();
     if (outDiagnostics->streaming.uploadBudgetDeferrals > 0u &&
         outDiagnostics->pendingMeshJobs > 0) {
         ChunkDiagnosticsSetReason(outDiagnostics, "upload_budget_exhausted");
@@ -102,6 +104,16 @@ void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics)
     } else {
         ChunkDiagnosticsSetReason(outDiagnostics, "none");
     }
+}
+
+void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics)
+{
+    CaptureChunkDiagnostics(outDiagnostics, false);
+}
+
+void ChunksCaptureDetailedDiagnostics(ChunkDiagnostics *outDiagnostics)
+{
+    CaptureChunkDiagnostics(outDiagnostics, true);
 }
 
 ChunkPreloadInfo ChunksGetPreloadInfo(void)

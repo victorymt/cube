@@ -57,7 +57,7 @@ void GameCaptureScreenshot(GameRuntime *game,
         time_t screenshotTime = time(NULL);
         game->screenshotCaptureSequence++;
         ChunkDiagnostics chunkDiagnostics = { 0 };
-        ChunksCaptureDiagnostics(&chunkDiagnostics);
+        ChunksCaptureDetailedDiagnostics(&chunkDiagnostics);
         ChunkWaterRenderDebugInfo screenshotWaterRender = { 0 };
         ChunksGetWaterRenderDebugInfo(game->player.position,
                                       &screenshotWaterRender);

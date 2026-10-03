@@ -68,17 +68,19 @@ static bool GamePluginStreamSnapshot(
                             sizeof(VoxelcraftPluginStreamSnapshot)) {
         return false;
     }
-    ChunkStreamingStats stats = ChunksGetStreamingStats();
-    ChunkPreloadInfo preload = ChunksGetPreloadInfo();
+    ChunkDiagnostics diagnostics = { 0 };
+    ChunksCaptureDiagnostics(&diagnostics);
+    ChunkStreamingStats stats = diagnostics.streaming;
+    ChunkPreloadInfo preload = diagnostics.preload;
     outSnapshot->surface_active = WorldIsSurfaceActive();
     outSnapshot->render_distance = ChunksRenderDistance();
-    outSnapshot->loaded_chunks = GetActiveChunkCount();
-    outSnapshot->pending_generation_jobs = GetPendingGenJobCount();
-    outSnapshot->pending_mesh_jobs = GetPendingMeshJobCount();
+    outSnapshot->loaded_chunks = diagnostics.activeChunks;
+    outSnapshot->pending_generation_jobs = diagnostics.pendingGenerationJobs;
+    outSnapshot->pending_mesh_jobs = diagnostics.pendingMeshJobs;
     outSnapshot->worker_threads_configured =
-        (uint32_t)ChunksConfiguredWorkerCount();
-    outSnapshot->worker_threads_started = (uint32_t)ChunksStartedWorkerCount();
-    outSnapshot->worker_threads_active = (uint32_t)ChunksActiveWorkerCount();
+        diagnostics.workerThreadsConfigured;
+    outSnapshot->worker_threads_started = diagnostics.workerThreadsStarted;
+    outSnapshot->worker_threads_active = diagnostics.workerThreadsActive;
     outSnapshot->generation_submitted = stats.generationSubmitted;
     outSnapshot->generation_completed = stats.generationCompleted;
     outSnapshot->mesh_submitted = stats.meshSubmitted;
