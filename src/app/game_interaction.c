@@ -2,6 +2,7 @@
 #include "raymath.h"
 
 #include "app/game_interaction.h"
+#include "app/game_geology.h"
 #include "core/game_notice.h"
 #include "presentation/album_ui.h"
 #include "presentation/audio.h"
@@ -133,8 +134,14 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
     return effectiveRenderDistance;
 }
 
-static bool GameCollectBlockAt(int x, int y, int z, BlockType type)
+static bool GameCollectBlockAt(int x, int y, int z, BlockType type, bool *overlay)
 {
+    if (overlay) *overlay = false;
+    GameGeologyCollection result = GameGeologyCollectAt(x, y, z, type);
+    if (result != GAME_GEOLOGY_NO_DEPOSIT) {
+        if (overlay) *overlay = true;
+        return result == GAME_GEOLOGY_COLLECTED;
+    }
     if (type == BLOCK_AIR || InventoryCount(type) >= INVENTORY_MAX_PER_BLOCK) return false;
     if (!SetBlock(x, y, z, BLOCK_AIR)) return false;
     return InventoryAdd(type, 1) == 1;
@@ -143,7 +150,7 @@ static bool GameCollectBlockAt(int x, int y, int z, BlockType type)
 #ifdef GAME_INTERACTION_TESTING
 bool GameInteractionTestCollectBlockAt(int x, int y, int z, BlockType type)
 {
-    return GameCollectBlockAt(x, y, z, type);
+    return GameCollectBlockAt(x, y, z, type, NULL);
 }
 #endif
 
@@ -234,8 +241,9 @@ static void GameHandleLeftInteraction(
             GameNoticePost("This discovery has already been catalogued.");
         } else if (!poiCore && brokenType != BLOCK_AIR &&
                    InventoryCount(brokenType) < INVENTORY_MAX_PER_BLOCK) {
+            bool overlay = false;
             bool removed = GameCollectBlockAt(
-                context->hit.x, context->hit.y, context->hit.z, brokenType);
+                context->hit.x, context->hit.y, context->hit.z, brokenType, &overlay);
             if (removed) {
                 ParticlesEmitBurst(
                     (Vector3){ context->hit.x + 0.5f,
@@ -243,18 +251,23 @@ static void GameHandleLeftInteraction(
                                context->hit.z + 0.5f },
                     BlockBaseColor(brokenType), 16, 3.0f, 0.7f);
                 AudioPlayBreak();
-                GamePrioritizeInteractionMesh(
+                if (!overlay) GamePrioritizeInteractionMesh(
                     context, context->hit.x, context->hit.y, context->hit.z);
+                if (overlay) GameNoticePost(TextFormat(
+                    "Collected %s: %d blocks + %.1f%% toward next block",
+                    BlockName(brokenType), InventoryCount(brokenType),
+                    100.0 * InventoryRemainder(brokenType) / INVENTORY_VOLUME_PER_BLOCK));
             } else {
-                GameNoticePost("This material cannot be collected as a full block.");
+                GameNoticePost(overlay ? "This deposit must finish cooling before collection." :
+                    "This material cannot be collected.");
             }
             if (removed && debugLeftPressed) {
                 game->debugLeftSetBlockFrame = game->debugFrame;
-                game->debugLeftMeshFrame = 0u;
+                game->debugLeftMeshFrame = overlay ? game->debugFrame : 0u;
                 game->debugLeftTargetX = context->hit.x;
                 game->debugLeftTargetY = context->hit.y;
                 game->debugLeftTargetZ = context->hit.z;
-                game->debugLeftMeshPending = true;
+                game->debugLeftMeshPending = !overlay;
                 GameDebugTraceEvent(game, "mouse_left_set_block");
             }
         } else if (!poiCore && brokenType != BLOCK_AIR) {

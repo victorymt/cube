@@ -302,6 +302,15 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     unsigned ticks;
     char idText[18];
     char material[16], coordinates[3][32], unitsText[32];
+    if (sscanf(line, "geology inventory %15s %31s %c", material, unitsText, &trailing) == 2) {
+        const char *names[] = { "ash", "basalt", "obsidian", "scoria", "pumice", "rhyolite" };
+        unsigned kind = 0, units = 0;
+        while (kind < 6 && strcmp(material, names[kind])) kind++;
+        if (kind == 6 || (strcmp(unitsText, "0") && !DebugControlGeologyTicks(unitsText, 999, &units)))
+            return DEBUG_CONTROL_COMMAND_INVALID;
+        control->geologyMaterial = kind; control->geologyUnits = units;
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY;
+    }
     if (sscanf(line, "geology deposit %15s %31s %31s %31s %31s %c", material,
         coordinates[0], coordinates[1], coordinates[2], unitsText, &trailing) == 5) {
         const char *names[] = { "ash", "basalt", "silicic", "scoria", "pumice" };

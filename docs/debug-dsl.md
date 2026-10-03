@@ -898,6 +898,7 @@ geology force eruption INTENSITY TICKS
 geology stop ID
 geology step TICKS
 geology deposit ash|basalt|silicic|scoria|pumice X Y Z UNITS
+geology inventory ash|basalt|obsidian|scoria|pumice|rhyolite BLOCKS
 ```
 
 G2 adds finite lava inventory, 10 Hz lava cells, thermal cooling, partial solid
@@ -926,9 +927,11 @@ inventory while previously emitted lava can still cool. Inspect/vents/typed read
 do not discover or advance anything. Runtime discovery checks eligible dry
 planetary volcanic peaks every two active seconds; Homeworld is debug-only.
 
-The current world save V27 includes versioned `VOLCANO1`, `LAVA0003` and `ASH00001`
-payloads with explicit little-endian scalar encoding, event state, material markers,
-ash erosion credits and fractional step remainder. V26 reads `LAVA0002` with
+The current world save V28 includes versioned `VOLCANO1`, `LAVA0003`, `ASH00002`
+and `INVFR001` payloads with explicit little-endian scalar encoding, event state, material markers,
+ash erosion credits, collection counters, six inventory remainders and fractional
+step remainder. V27 reads `ASH00001` with zero collected ash; V18–V27 reset inventory
+remainders without consuming trailing data. V26 reads `LAVA0002` with
 zero material markers; V25 reads `LAVA0001` with zero reaction and material state.
 V24 keeps volcano records with empty lava; V18–V23 reset both. V18–V26 start with
 empty ash layers. New worlds reset all three runtimes;
@@ -956,18 +959,25 @@ surface transitions park records instead of deleting them.
 | `geology.cell_collision_height` | number | Actual solid height used by collision, including ash |
 | `geology.ash_cells`, `geology.ash_ticks` | number | Retained ash cells and fixed 10 Hz steps |
 | `geology.ash_volume`, `geology.ash_supplied`, `geology.ash_washed` | number | Remaining, supplied and rain-exported ash in block units |
-| `geology.ash_volume_error` | number | Supplied minus remaining minus washed; must be zero |
+| `geology.ash_volume_error` | number | Supplied minus remaining minus washed minus collected; must be zero |
+| `geology.ash_collected`, `geology.collected` | number | Ash / cold lava-overlay volume exported through collection, in block units |
+| `geology.inventory_MATERIAL`, `geology.remainder_MATERIAL` | number | Whole blocks and remainder units (0–1023); MATERIAL is `ash`, `basalt`, `obsidian`, `scoria`, `pumice`, or `rhyolite` |
 | `geology.cell_ash_height` | number | Ash volume / 1024 at the player cell, zero when absent |
 | `geology.cell_silica`, `geology.cell_vesicles`, `geology.cell_quenched` | number | Overlay material marker fractions in [0,1] |
 | `geology.cell_rock` | string | Predicted overlay product, final solid block name (`basalt`, `rhyolite`, `obsidian`, `scoria`, `pumice`), or `none` |
 
 `deposit` supplies explicit debug material through the ordinary bounded deposit path.
 X/Y/Z are integer local world coordinates, UNITS is 1–1024 (1024 = one block).
-It reports requested/accepted units, can partially fill a cell, and fails if nothing
-is accepted. Debug supply is counted in runtime ledgers but is not debited from a
+It reports requested/accepted units, can partially fill a cell, and aborts the
+DSL command if nothing is accepted. Debug supply is counted in runtime ledgers but is not debited from a
 vent. Lava requires a loaded cell inside an admitted vent domain; create and stop
 a forced vent first when testing recipes. Ash only requires the loaded observer
 neighborhood. Solid blocks, water and the other overlay reject deposition.
+
+`geology inventory MATERIAL BLOCKS` sets the whole-block inventory count for one
+of the six collection materials (0–999), preserving its remainder. This is explicit
+debug setup, useful for full-inventory tests, and does not change source ledgers.
+Typed inventory fields are read-only and never move a deposit or grant items.
 
 Ash fallout debits the vent reservoir after lava emission: at intensity 1 it requests
 32 units per 0.5-second erupting tick (8 while waning). Deterministic targets span a
@@ -980,7 +990,8 @@ cells and other bodies park. Full ash remains erodible overlay, not a base block
 Rain/drizzle exports up to 2 units per second from exposed top layers. Exposure uses
 a bounded 12-cell canopy probe; roofs farther above are outside this approximation.
 Washed sediment leaves this local model; mudflow, water transport of sediment and
-fractional excavation are not implemented. Ordinary edits cannot erase ash layers.
+fractional placement are not implemented. Ordinary edits cannot erase ash layers;
+left-click collection uses the volume transaction described below.
 
 Lava source composition is a deterministic archetype from the vent identity/seed;
 forced legacy vents supply dense mafic material. The `silicic` debug recipe supplies
@@ -1021,10 +1032,38 @@ tick executes five lava and ash steps; its weather sample time stays frozen duri
 command. Water flow does not advance with `geology step`; use explicit `fluid step`
 when testing transport. Unloaded contacts park without offline catch-up.
 After `load`, use `stream wait` before inspecting water or stepping reactions.
-Explicit excavation of partial deposits is deferred; water and ordinary block
-writes cannot overwrite a lava/partial-solid overlay.
+Water and ordinary block writes cannot overwrite an ash/lava/partial-solid
+overlay. Left-click collection removes an ash layer or an ambient-cooled rock
+cell by its actual volume.
 Full cooled rock becomes a normal block. Storage and domain limits are described
 in [the geology implementation record](architecture/18-volcano-preview.md).
+
+Left-click collection keeps separate remainders for all six materials: 1024
+units become one usable inventory block. For example, collecting a 512-unit ash
+layer gives zero blocks plus 50%; collecting another 512 gives one block and zero
+remainder. One click removes the entire targeted overlay cell, up to 1024 units.
+The selected hotbar label and successful collection notice show fractional progress.
+Hot or partly liquid lava cannot be collected, even if its crust can be targeted.
+At 999 whole blocks, collection fails without changing the source or remainder;
+a remainder already held at that limit survives until inventory space opens.
+Different materials never combine. Normal full base blocks keep the ordinary
+collection/placement behavior, and inventory placement still requires a whole block.
+
+Source removal, heat/volume export and inventory credit commit together on the
+main thread. Removal rechecks the source volume and rock type. Collected ash
+satisfies `supplied = volume + washed + collected`; lava collection uses its
+existing `removed` and `exportedEnergy` counters. Full rock already exported to
+base terrain remains in `solidified`, not counted twice as overlay collection.
+Overlay removal adds no base-block undo record, immediately updates collision/rays,
+and wakes adjacent water; unsupported ash above falls on the next geology step.
+No terrain mesh rebuild is needed. For overlay collection the mouse lifecycle's
+`set_block_frame` and `mesh_frame` both report the successful collection frame,
+and `mesh_ready` is immediately true. These fields are zero on failed clicks.
+
+`volcano_collection.dsl` verifies real left clicks, save/load between two half-block
+collections, full-inventory refusal, falling ash after support mining, rain-reduced
+collection and separate basalt/pumice remainders. `volcano_rejected_deposit.dsl`
+expects exit code 3 and confirms that failed geology setup aborts the script.
 
 Water contact checks six faces after lava flow. Side faces use their overlapping
 height; vertical neighbors require the lower cell to be full. Each successful

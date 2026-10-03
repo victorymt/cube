@@ -582,7 +582,13 @@ int main(void)
            geology.geologyUnits == 512 && geology.geologyMaterial == 0);
     assert(DebugControlParseText(&geology, "geology deposit pumice 1 -2 3 1024") == DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT);
     assert(geology.geologyMaterial == 4);
+    assert(DebugControlParseText(&geology, "geology inventory ash 999") == DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY);
+    assert(geology.geologyMaterial == 0 && geology.geologyUnits == 999);
+    assert(DebugControlParseText(&geology, "geology inventory rhyolite 0") == DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY);
+    assert(geology.geologyMaterial == 5 && geology.geologyUnits == 0);
     const char *invalidGeology[] = { "geology force eruption nan 1",
+        "geology inventory ash -1", "geology inventory ash 1000", "geology inventory ash 1.5",
+        "geology inventory lava 1", "geology inventory ash 1 trailing", "geology inventory ash 4294967296",
         "geology deposit ash 1 2 3 0", "geology deposit ash 1 2 3 1025",
         "geology deposit ash 1 2 3 8 extra", "geology deposit glass 1 2 3 8",
         "geology deposit ash nan 2 3 8", "geology deposit ash 1.5 2 3 8",

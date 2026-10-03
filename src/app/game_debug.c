@@ -1224,9 +1224,8 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
 {
     game->debugCommandFailed = false;
     game->debugCommandFailure[0] = '\0';
-    if (GameDebugGeologyDispatch(game, command)) return GAME_DEBUG_DISPATCH_HANDLED;
-    GameDebugDispatchResult result = GameDebugDispatchSystemCommand(
-        game, command);
+    GameDebugDispatchResult result = GameDebugGeologyDispatch(game, command) ?
+        GAME_DEBUG_DISPATCH_HANDLED : GameDebugDispatchSystemCommand(game, command);
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED) {
         result = GameDebugDispatchPersistenceCommand(game, command);
     }

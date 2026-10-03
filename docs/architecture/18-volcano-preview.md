@@ -57,7 +57,7 @@ order. Cooling uses normalized enthalpy and a latent interval at 1100 K; partial
 solid overlays retain their collision height, while a full cold cell becomes
 its selected rock through an environment mutation.
 
-World save V27 appends `VOLCANO1`, `LAVA0003` and `ASH00001` after the ecology clock and before the spherical
+World save V28 appends `VOLCANO1`, `LAVA0003`, `ASH00002` and `INVFR001` after the ecology clock and before the spherical
 trailer. Every scalar uses explicit little-endian encoding (IEEE-754 binary64
 for real values); struct padding and pointers are never written. Records,
 admission state, discovery timer, rejection count and fractional tick remainder
@@ -80,8 +80,8 @@ World extension hooks expose partial blocks, solid collision heights and liquid
 surface heights, and reject ordinary edits that would delete a partial record
 or turn it into a whole inventory block. Full cooled rock is a normal editable
 block. Block collection credits inventory only after a successful world mutation,
-so a rejected partial-deposit edit cannot duplicate items. Fractional excavation/
-displacement is deferred. The existing water solver checks overlays before
+so a rejected partial-deposit edit cannot duplicate items. Fractional collection
+is now an explicit inventory transaction; arbitrary displacement is deferred. The existing water solver checks overlays before
 transfer/deposition; no volume overlap is allowed. Loaded fluid state overrides
 AIR/WATER terrain edit baselines so excavated cells can fill and placed water
 can evaporate; solid terrain edits retain priority. Legacy static lava fire ignition reads base
@@ -117,7 +117,7 @@ including a solid base under liquid; empty space above a deposit stays clear.
   prevents removal.
 - `test_interaction_raycast`: rays above, inside and into the top of partial
   deposits; solid/liquid masks, mixed layers, reach limits and face normals.
-- `test_save_format` and `test_game_save_spherical`: V27 flags/writer, new
+- `test_save_format` and `test_game_save_spherical`: V28 flags/writer, new
   payload routing, old-version reset without consuming trailer bytes, corrupt
   payload preserving live records.
 - `test_debug_control`: command syntax, parameter limits, hex identity parsing.
@@ -150,7 +150,7 @@ those require separate models and integration.
 fallout and rain exposure at the frozen geology sample time. Volcanoes debit
 only accepted ash supply from their finite reservoir after lava supply. The
 10 Hz step sorts by body/Y/Z/X, applies fractional rain erosion and moves ash
-at most one voxel down, preserving `supplied = volume + washed`. Rain exports
+at most one voxel down, preserving `supplied = volume + washed + collected`. Rain exports
 sediment rather than synthesizing mud blocks. Unknown terrain, other bodies and
 cells outside the observer's ±96-block neighborhood park. The canopy probe is
 limited to 12 blocks; it is not a global sky-visibility solver. Full and partial
@@ -169,8 +169,8 @@ rhyolite. Silica/vesicle archetype cutoffs are 0.5. The same classification driv
 partial solids and the callback that writes full cooled blocks.
 
 `LAVA0003` appends three binary64 marker volumes to each V2 cell record; V1/V2
-load them as zero (legacy basalt). `ASH00001` stores five u64 header values
-(count, supplied, washed, rejected, ticks) and six u64 values per record
+load them as zero (legacy basalt). `ASH00002` stores six u64 header values
+(count, supplied, washed, rejected, ticks, collected) and six u64 values per record
 (body, x, y, z, volume, binary64 erosion credit). Both validate bounded finite
 state before committing. The world transaction checkpoints both payloads.
 
@@ -179,3 +179,29 @@ parking, fractional continuation and every byte truncation. `test_lava` adds
 material transport, all five real cooling outcomes, V1/V2 migration and corrupt
 marker rejection. Two extra DSL scenes cover actual ash selection/collision,
 roof protection, falling, persistence and final rock blocks.
+
+## Fractional collection
+
+`gameplay/inventory` owns six independent 0–1023-unit remainders, in stable order:
+ash, basalt, obsidian, scoria, pumice, rhyolite. `InventoryCollectVolume` checks
+material/amount/capacity, calls a source-removal callback, then credits whole blocks
+and the remainder without further fallible work. Its callback cannot modify
+inventory or reenter collection. A full 999-block stack refuses all new collection,
+but never discards an already-held fraction. Reset and legacy load clear fractions.
+
+`app/game_geology` bridges left-click collection to this transaction. It requires
+a known loaded surface cell with an air base, checks the expected block material,
+and permits lava only after the whole cell reaches ambient temperature. Runtime
+removal compares volume (and rock for lava), removes the hash record, and credits
+ash `collected` or lava `removed` plus exported heat. Failures preserve both source
+and inventory. Collection bypasses base-voxel edits/undo; the existing overlay
+queries immediately reflect removal, and `FluidOnBlockChanged` wakes neighbors.
+
+V28 stores `INVFR001` after ash and before the spherical trailer: eight magic
+bytes plus six little-endian uint16 remainders. No existing inventory byte layout
+changes. Temporary loads validate every value <1024 before committing. The outer
+world checkpoint includes both whole inventory and fractions, as well as runtime
+source ledgers. V27 `ASH00001` initializes `collected=0`; V18–V27 clear fractions.
+`test_inventory`, `test_block_collection`, `test_ash`, `test_lava` and the new DSL
+collection route cover rejection, material separation, alias/rebase handling,
+heat/volume conservation, fractional persistence and visible left-click behavior.

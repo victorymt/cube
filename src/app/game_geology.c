@@ -1,6 +1,7 @@
 #include "app/game_geology.h"
 #include "app/game_internal.h"
 #include "app/game_debug.h"
+#include "gameplay/inventory.h"
 #include "presentation/render_volcano.h"
 #include "presentation/surface_render_transform.h"
 #include "space/planet_surface.h"
@@ -82,11 +83,46 @@ bool GameGeologyCanSetBlock(int x, int y, int z, BlockType next)
 {
     (void)next;
     LavaCell c;
-    /* Partial material cannot yield a whole inventory block or be deleted.
-       Collection/displacement needs an explicit volume transaction.
+    /* Ordinary edits cannot erase deposits. Collection has its own volume
+       transaction, independent of the base-block undo history.
        Solidification may replace an occupied overlay. */
     AshCell ash;
     return solidifying || (!LocalLavaAt(x, y, z, &c) && !LocalAshAt(x, y, z, &ash));
+}
+
+typedef struct CollectDeposit {
+    uint32_t body;
+    int x, y, z;
+    unsigned units;
+    bool ash;
+    LavaRock rock;
+} CollectDeposit;
+static bool RemoveDeposit(void *user)
+{
+    CollectDeposit *c = user;
+    return c->ash ? AshRuntimeCollect(c->body, c->x, c->y, c->z, c->units) :
+        LavaRuntimeCollect(c->body, c->x, c->y, c->z, c->units, c->rock);
+}
+GameGeologyCollection GameGeologyCollectAt(int x, int y, int z, BlockType expectedType)
+{
+    WorldSurfaceContext s = WorldCurrentSurfaceContext();
+    if (!s.active || WorldNetherIsActive() || WorldBlockRegionAt(y) != WORLD_BLOCK_REGION_SURFACE)
+        return GAME_GEOLOGY_NO_DEPOSIT;
+    LavaCell lava; AshCell ash;
+    bool hasLava = LocalLavaAt(x, y, z, &lava), hasAsh = LocalAshAt(x, y, z, &ash);
+    if (!hasLava && !hasAsh) return GAME_GEOLOGY_NO_DEPOSIT;
+    /* Never excavate parked/hidden records, or solid crust beneath liquid. */
+    if (!SurfaceBlockReadyAt(x, y, z) || GetBlockBaseAt(x, y, z) != BLOCK_AIR ||
+        (hasLava && (!lava.cooled || LavaLiquidVolume(lava.thermal)))) return GAME_GEOLOGY_COLLECTION_BLOCKED;
+    LavaRock rock = hasLava ? LavaRockForMaterial(lava.material, lava.thermal.volume) : LAVA_ROCK_BASALT;
+    BlockType type = hasLava ? RockBlock(rock) : BLOCK_VOLCANIC_ASH;
+    if (expectedType != type) return GAME_GEOLOGY_COLLECTION_BLOCKED;
+    CollectDeposit source = { .body = s.bodyId, .x = x + s.originX, .y = y, .z = z + s.originZ,
+        .units = hasLava ? lava.thermal.volume : ash.volume, .ash = !hasLava, .rock = rock };
+    if (!InventoryCollectVolume(type, source.units, RemoveDeposit, &source)) return GAME_GEOLOGY_COLLECTION_BLOCKED;
+    /* Overlays draw directly; only neighboring sleeping water needs waking. */
+    FluidOnBlockChanged(x, y, z, type, BLOCK_AIR);
+    return GAME_GEOLOGY_COLLECTED;
 }
 
 static LavaBoundary LavaBoundaryAt(int x, int y, int z, void *user)
@@ -383,14 +419,28 @@ static void ReplyVent(GameRuntime *game, const VolcanoRecord *r)
         r->definition.address.radial, r->definition.mapZ, VolcanoPhaseName(r->state.phase),
         r->state.event, r->active, r->state.activeTicks, r->state.pressure, r->state.reservoir);
 }
+static const char *collectionNames[] = { "ash", "basalt", "obsidian", "scoria", "pumice", "rhyolite" };
+static const BlockType collectionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT, BLOCK_OBSIDIAN,
+    BLOCK_SCORIA, BLOCK_PUMICE, BLOCK_RHYOLITE };
 
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
     if (command < DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT ||
-        command > DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT) return false;
+        command > DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY) return false;
     VolcanoContext context = ContextFor(game);
     bool ok = context.valid;
-    if (ok && command == DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE) {
+    if (ok && command == DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY) {
+        unsigned kind = game->debugControl.geologyMaterial;
+        if (kind >= 6) ok = false;
+        else {
+            BlockType type = collectionTypes[kind];
+            int desired = (int)game->debugControl.geologyUnits, current = InventoryCount(type);
+            if (desired > current) ok = InventoryAdd(type, desired - current) == desired - current;
+            if (desired < current) ok = InventoryConsume(type, current - desired);
+            DebugControlReply(&game->debugControl, "DEBUG_CONTROL geology inventory %s blocks=%d remainder=%u\n",
+                collectionNames[kind], InventoryCount(type), InventoryRemainder(type));
+        }
+    } else if (ok && command == DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE) {
         SurfaceMapCell cell = SurfaceCanonicalMapCell(
             context.observerMap.x + 24.0f, context.observerMap.z);
         WorldSurfaceContext surface = WorldCurrentSurfaceContext();
@@ -437,8 +487,8 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
         ok ? "ok" : "error", stats.count, stats.active, stats.rejectedAdmissions);
     DebugControlReply(&game->debugControl,
         "DEBUG_CONTROL geology ash cells=%u volume=%" PRIu64 " supplied=%" PRIu64
-        " washed=%" PRIu64 " volume_error=%.0f\n", ash.cells, ash.volume, ash.supplied,
-        ash.washed, (double)ash.supplied - ash.volume - ash.washed);
+        " washed=%" PRIu64 " collected=%" PRIu64 " volume_error=%.0f\n", ash.cells, ash.volume, ash.supplied,
+        ash.washed, ash.collected, (double)ash.supplied - ash.volume - ash.washed - ash.collected);
     DebugControlReply(&game->debugControl,
         "DEBUG_CONTROL geology water evaporated=%" PRIu64 " reservoir=%" PRIu64
         " heat=%.6f energy_error=%.9f\n", lava.evaporatedWater, lava.reservoirWater,
@@ -467,6 +517,16 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
 {
     if (strncmp(name, "geology.", 8u) != 0) return false;
     const char *field = name + 8;
+    if (!strncmp(field, "inventory_", 10) || !strncmp(field, "remainder_", 10)) {
+        for (unsigned i = 0; i < 6; i++) {
+            if (strcmp(field + 10, collectionNames[i])) continue;
+            out->type = DEBUG_DSL_VALUE_NUMBER;
+            out->as.number = !strncmp(field, "inventory_", 10) ?
+                (double)InventoryCount(collectionTypes[i]) : (double)InventoryRemainder(collectionTypes[i]);
+            return true;
+        }
+        return false;
+    }
     VolcanoContext context = ContextFor(game);
     VolcanoRecord record = { 0 };
     bool present = context.valid && VolcanoRuntimeNearest(context.bodyId, context.observerMap, &record);
@@ -523,7 +583,8 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
     else if (!strcmp(field, "ash_volume")) value = (double)ash.volume / ASH_CAPACITY;
     else if (!strcmp(field, "ash_supplied")) value = (double)ash.supplied / ASH_CAPACITY;
     else if (!strcmp(field, "ash_washed")) value = (double)ash.washed / ASH_CAPACITY;
-    else if (!strcmp(field, "ash_volume_error")) value = ((double)ash.supplied - ash.volume - ash.washed) / ASH_CAPACITY;
+    else if (!strcmp(field, "ash_collected")) value = (double)ash.collected / ASH_CAPACITY;
+    else if (!strcmp(field, "ash_volume_error")) value = ((double)ash.supplied - ash.volume - ash.washed - ash.collected) / ASH_CAPACITY;
     else if (!strcmp(field, "ash_ticks")) value = (double)ash.ticks;
     else if (!strcmp(field, "cell_ash_height")) {
         AshCell cell;
@@ -537,6 +598,7 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
     else if (!strcmp(field, "liquid_volume")) value = (double)lava.liquidVolume / LAVA_CAPACITY;
     else if (!strcmp(field, "solid_volume")) value = (double)lava.solidVolume / LAVA_CAPACITY;
     else if (!strcmp(field, "solidified")) value = (double)lava.solidified / LAVA_CAPACITY;
+    else if (!strcmp(field, "collected")) value = (double)lava.removed / LAVA_CAPACITY;
     else if (!strcmp(field, "supplied")) value = (double)lava.supplied / LAVA_CAPACITY;
     else if (!strcmp(field, "volume_error")) value =
         ((double)lava.supplied - lava.volume - lava.solidified - lava.removed) / LAVA_CAPACITY;

@@ -18,7 +18,8 @@ bool InventoryConsume(BlockType type, int amount);
 bool InventorySave(FILE *file);
 bool InventoryLoad(FILE *file);
 /* Main-thread transaction: check capacity, remove the source, then credit
-   whole blocks and the material's remainder. Failed removal changes nothing. */
+   whole blocks and the material's remainder. Failed removal changes nothing.
+   The removal callback must not modify inventory or reenter collection. */
 bool InventoryCollectVolume(BlockType type, unsigned units,
                             bool (*removeSource)(void *user), void *user);
 unsigned InventoryRemainder(BlockType type);

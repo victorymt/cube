@@ -9,7 +9,7 @@ if [[ -z "${WAYLAND_DISPLAY:-}" || -z "${XDG_RUNTIME_DIR:-}" ||
 fi
 scenes=("${@:2}")
 if ((${#scenes[@]} == 0)); then
-    scenes=(volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products)
+    scenes=(volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products volcano_collection volcano_rejected_deposit)
 fi
 for scene in "${scenes[@]}"; do
 runtime=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-${scene}.XXXXXX")
@@ -22,6 +22,11 @@ set +e
 status=$?
 set -e
 printf 'volcano e2e artifacts: %s\n' "$runtime"
+if [[ "$scene" == volcano_rejected_deposit ]]; then
+    [[ "$status" == 3 ]]
+    rg 'code=callback message=debug command failed: geology_unavailable_or_invalid_state' "$runtime/game.log"
+    continue
+fi
 if ((status != 0)); then
     tail -60 "$runtime/game.log"
     exit "$status"

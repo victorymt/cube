@@ -669,8 +669,12 @@ void DrawHotbar(const BlockType *hotbar, int selectedIndex)
                  count > 0 ? WHITE : Fade((Color){ 238, 100, 82, 255 }, 0.9f));
     }
 
-    UiDrawText(TextFormat("%s  x%d", BlockName(hotbar[selectedIndex]), InventoryCount(hotbar[selectedIndex])),
-             x0, y - 24, 18, WHITE);
+    BlockType selected = hotbar[selectedIndex];
+    unsigned fraction = InventoryRemainder(selected);
+    const char *label = fraction ? TextFormat("%s  x%d + %.1f%%", BlockName(selected),
+        InventoryCount(selected), 100.0 * fraction / INVENTORY_VOLUME_PER_BLOCK) :
+        TextFormat("%s  x%d", BlockName(selected), InventoryCount(selected));
+    UiDrawText(label, x0, y - 24, 18, WHITE);
 }
 
 void DrawStatusHUD(Vector3 playerPosition, float yaw, float pitch,
