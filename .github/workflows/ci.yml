@@ -96,6 +96,7 @@ jobs:
       - name: Run graphics, debug, and polar E2E
         run: |
           make test-debug-graphics-e2e
+          make test-chunk-diagnostics-e2e
           make test-polar-e2e
 
   coverage:

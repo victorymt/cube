@@ -93,6 +93,9 @@ typedef struct GameRuntime {
   ChunkDiagnostics debugChunkDiagnostics;
   uint64_t debugChunkDiagnosticsFrame;
   bool debugChunkDiagnosticsValid;
+  ChunkDiagnostics debugLodDiagnostics;
+  uint64_t debugLodDiagnosticsFrame;
+  bool debugLodDiagnosticsValid;
   uint64_t debugLeftPressFrame;
   uint64_t debugLeftHandleFrame;
   uint64_t debugLeftSetBlockFrame;

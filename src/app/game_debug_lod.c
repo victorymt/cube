@@ -42,6 +42,10 @@ bool GameDebugLodDslResolveSnapshot(const ChunkDiagnostics *diagnostics,
     if (strcmp(name, fieldName) == 0) { \
         return LodDslNumber(outValue, (fieldValue)); \
     }
+    LOD_DSL_NUMBER("stream.lod_capture_id", diagnostics->identity.captureId)
+    LOD_DSL_NUMBER("stream.lod_frame_id", diagnostics->identity.frameId)
+    LOD_DSL_NUMBER("stream.lod_simulation_tick", diagnostics->identity.simulationTick)
+    LOD_DSL_NUMBER("stream.lod_world_generation", diagnostics->identity.worldGeneration)
     LOD_DSL_NUMBER("stream.lod_target_exact",
                    stats->targetChunks[CHUNK_LOD_EXACT])
     LOD_DSL_NUMBER("stream.lod_target_half",
@@ -76,6 +80,8 @@ bool GameDebugLodDslResolveSnapshot(const ChunkDiagnostics *diagnostics,
 
 bool GameDebugLodDslResolve(const char *name, DebugDslValue *outValue)
 {
+    if (!name || !outValue || strncmp(name, "stream.lod_", 11u) != 0)
+        return false;
     ChunkDiagnostics diagnostics = { 0 };
     ChunksCaptureDetailedDiagnostics(&diagnostics);
     return GameDebugLodDslResolveSnapshot(&diagnostics, name, outValue);

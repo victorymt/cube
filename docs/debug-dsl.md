@@ -525,11 +525,21 @@ same debug control implementation used by the test harness, so a command can
 also be rejected by the current game state (for example, `teleport` before
 `start`). A rejected or failed command aborts the current DSL block.
 
-Chunk diagnostic fields are captured once for a DSL observation point and
-reused by all assertions in that point. A successful debug command invalidates
-the cached snapshot, so the next diagnostic query observes the post-command
-state. The `stream.chunks.*_id` fields identify the observation's frame,
-simulation tick, and world context.
+Base chunk diagnostic fields are captured once per DSL observation point and
+reused by its assertions. They never scan LOD sections; their
+`stream.chunks.lod_consistency` is `not_captured`. The first `stream.lod_*`
+query takes a separate detailed snapshot, reused by subsequent LOD queries.
+It does not replace the base snapshot. `stream.lod_capture_id`,
+`stream.lod_frame_id`, `stream.lod_simulation_tick`, and
+`stream.lod_world_generation` identify that detailed observation, independently
+of the corresponding `stream.chunks.*` fields. Both groups refresh after a
+frame advance, world-context change, or successful debug command (also after
+a dispatched command reports failure). Unrelated fields do not capture LOD.
+
+`make test-chunk-diagnostics-e2e` exercises these contracts in a real Hyprland
+game process: stable repeated reads, independent lazy LOD capture, command
+and frame invalidation, and Homeworld/planet transitions. It uses an isolated
+temporary save/settings directory and preserves its DSL and log on failure.
 
 `blocked_reason` summarizes current queued work, independently of history.
 Completed meshes and generation results take precedence because the main

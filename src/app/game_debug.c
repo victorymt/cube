@@ -8,6 +8,7 @@
 #include "app/game_debug_flora.h"
 #include "app/game_debug_gate.h"
 #include "app/game_debug_lod.h"
+#include "app/game_debug_diagnostics.h"
 #include "app/game_debug_topology.h"
 #include "app/game_debug_trace.h"
 #include "app/game_debug_weather.h"
@@ -1246,12 +1247,12 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED &&
         GameDebugFloraDispatch(game, command)) result = GAME_DEBUG_DISPATCH_HANDLED;
     if (result == GAME_DEBUG_DISPATCH_HANDLED && game->debugCommandFailed) {
-        game->debugChunkDiagnosticsValid = false;
+        GameDebugInvalidateDiagnostics(game);
         return GAME_DEBUG_DISPATCH_ERROR;
     }
     if (result == GAME_DEBUG_DISPATCH_HANDLED ||
         result == GAME_DEBUG_DISPATCH_START) {
-        game->debugChunkDiagnosticsValid = false;
+        GameDebugInvalidateDiagnostics(game);
     }
     return result;
 }
@@ -1281,22 +1282,6 @@ static bool GameDebugDslString(DebugDslValue *outValue, const char *value)
         .as.string = value ? value : ""
     };
     return true;
-}
-
-static const ChunkDiagnostics *GameDebugDslChunkDiagnostics(
-    GameRuntime *game)
-{
-    if (!game) return NULL;
-    if (!game->debugChunkDiagnosticsValid ||
-        game->debugChunkDiagnosticsFrame != game->debugFrame) {
-        DiagnosticsCaptureIdentity identity =
-            GameRuntimeCaptureDiagnosticsIdentity(game);
-        ChunksCaptureDetailedDiagnosticsAt(
-            &game->debugChunkDiagnostics, &identity);
-        game->debugChunkDiagnosticsFrame = game->debugFrame;
-        game->debugChunkDiagnosticsValid = true;
-    }
-    return &game->debugChunkDiagnostics;
 }
 
 static bool GameDebugDslVec3(DebugDslValue *outValue, Vector3 value)
@@ -1442,8 +1427,9 @@ static bool GameDebugDslResolveHydrology(GameRuntime *game, const char *name,
 static bool GameDebugDslResolveLod(GameRuntime *game, const char *name,
                                    DebugDslValue *outValue)
 {
+    if (strncmp(name, "stream.lod_", 11u) != 0) return false;
     const ChunkDiagnostics *diagnostics =
-        GameDebugDslChunkDiagnostics(game);
+        GameDebugChunkDiagnostics(game, true);
     return GameDebugLodDslResolveSnapshot(diagnostics, name, outValue);
 }
 
@@ -1481,8 +1467,9 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
 {
     const ChunkDiagnostics *chunkDiagnostics = NULL;
     if ((phase == GAME_DEBUG_DSL_STREAM || phase == GAME_DEBUG_DSL_TAIL) &&
-        strncmp(name, "stream.", 7u) == 0) {
-        chunkDiagnostics = GameDebugDslChunkDiagnostics(game);
+        strncmp(name, "stream.", 7u) == 0 &&
+        strncmp(name, "stream.lod_", 11u) != 0) {
+        chunkDiagnostics = GameDebugChunkDiagnostics(game, false);
     }
     if (!game || !name || !outValue) return false;
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "game.screen") == 0) {
