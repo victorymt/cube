@@ -178,6 +178,15 @@ void VolcanoRuntimeUpdate(double seconds, const VolcanoContext *c)
                 unsigned emitted = c->emitLava(&r->definition, requested, c->userData);
                 if (emitted <= requested) r->state.reservoir -= (float)emitted / 1024.0f;
             }
+            if (c->emitAsh && r->state.reservoir > 0.0f &&
+                (r->state.phase == VOLCANO_ERUPTING || r->state.phase == VOLCANO_WANING)) {
+                unsigned requested = (unsigned)(32.0f * r->state.intensity *
+                    (r->state.phase == VOLCANO_WANING ? 0.25f : 1.0f));
+                unsigned inventory = (unsigned)(r->state.reservoir * 1024.0f);
+                if (requested > inventory) requested = inventory;
+                unsigned emitted = c->emitAsh(&r->definition, requested, r->state.activeTicks, c->userData);
+                if (emitted <= requested) r->state.reservoir -= (float)emitted / 1024.0f;
+            }
             bool pending = r->state.phase == VOLCANO_COOLING && c->hasHotLava &&
                 c->hasHotLava(&r->definition, c->userData);
             if (pending) {

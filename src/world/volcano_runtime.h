@@ -27,6 +27,9 @@ typedef struct VolcanoContext {
     unsigned (*emitLava)(const VolcanoDefinition *definition, unsigned units, void *userData);
     bool (*hasHotLava)(const VolcanoDefinition *definition, void *userData);
     void *userData;
+    /* Ash uses the same finite 1/1024-block source inventory as lava. */
+    unsigned (*emitAsh)(const VolcanoDefinition *definition, unsigned units,
+                        uint64_t activeTick, void *userData);
 } VolcanoContext;
 
 typedef struct VolcanoStats {
