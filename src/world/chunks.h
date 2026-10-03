@@ -114,12 +114,24 @@ typedef enum ChunkDiagnosticsLodConsistency {
     CHUNK_DIAGNOSTICS_LOD_INCONSISTENT
 } ChunkDiagnosticsLodConsistency;
 
+typedef struct ChunkDiagnosticsEvent {
+    uint64_t sequence;
+    double timeMs; /* Monotonic process clock, not simulation time. */
+    bool hasLocation;
+    int chunkX;
+    int sectionY; /* Column events use hasSection = false. */
+    int chunkZ;
+    bool hasSection;
+    char reason[CHUNK_DIAGNOSTICS_REASON_CAPACITY];
+} ChunkDiagnosticsEvent;
+
 typedef struct ChunkDiagnostics {
     ChunkDiagnosticsStatus status;
     DiagnosticsCaptureIdentity identity;
     uint64_t captureSequence;
-    /* Identifies the scheduler decision that last updated blockedReason. */
+    /* Compatibility alias of lastEvent.sequence, not a current-state ID. */
     uint64_t blockedReasonSequence;
+    ChunkDiagnosticsEvent lastEvent;
     ChunkStreamingStats streaming;
     ChunkPreloadInfo preload;
     ChunkLodStats lod;
@@ -129,6 +141,8 @@ typedef struct ChunkDiagnostics {
     int activeChunks;
     int pendingGenerationJobs;
     int pendingMeshJobs;
+    int completedGenerationJobs;
+    int completedMeshJobs;
     int renderDistance;
     int focusChunkX;
     int focusChunkZ;
@@ -138,6 +152,8 @@ typedef struct ChunkDiagnostics {
     unsigned int workerThreadsConfigured;
     unsigned int workerThreadsStarted;
     unsigned int workerThreadsActive;
+    /* Current queue state, derived at capture time. "none" means no queued
+     * work; use the local stream audit to establish terrain readiness. */
     char blockedReason[CHUNK_DIAGNOSTICS_REASON_CAPACITY];
 } ChunkDiagnostics;
 

@@ -136,6 +136,18 @@ static bool ScreenshotWriteChunkDiagnostics(
                       ScreenshotText(diagnostics->blockedReason));
     CHUNK_REPORT_LINE("chunks.blocked_reason_sequence=%" PRIu64 "\n",
                       diagnostics->blockedReasonSequence);
+    CHUNK_REPORT_LINE("chunks.last_event_reason=%s\n",
+                      ScreenshotText(diagnostics->lastEvent.reason));
+    CHUNK_REPORT_LINE("chunks.last_event_sequence=%" PRIu64 "\n",
+                      diagnostics->lastEvent.sequence);
+    CHUNK_REPORT_LINE("chunks.last_event_time_ms=%.3f\n", diagnostics->lastEvent.timeMs);
+    CHUNK_REPORT_LINE("chunks.last_event_has_location=%d\n", diagnostics->lastEvent.hasLocation);
+    CHUNK_REPORT_LINE("chunks.last_event_has_section=%d\n", diagnostics->lastEvent.hasSection);
+    CHUNK_REPORT_LINE("chunks.last_event_location=%d,%d,%d\n",
+                      diagnostics->lastEvent.chunkX, diagnostics->lastEvent.sectionY,
+                      diagnostics->lastEvent.chunkZ);
+    CHUNK_REPORT_LINE("chunks.completed_generation_jobs=%d\n", diagnostics->completedGenerationJobs);
+    CHUNK_REPORT_LINE("chunks.completed_mesh_jobs=%d\n", diagnostics->completedMeshJobs);
     CHUNK_REPORT_LINE("chunks.lod_consistency=%s\n",
                       ScreenshotChunkDiagnosticsLodConsistencyName(
                           diagnostics->lodConsistency));

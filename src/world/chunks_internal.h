@@ -193,6 +193,11 @@ void UpdateQueuePeaksLocked(void);
 ChunkLodStats ChunksGetLodStatsLocked(void);
 void ChunkDiagnosticsRecordReason(const char *reason);
 void ChunkDiagnosticsRecordReasonLocked(const char *reason);
+void ChunkDiagnosticsRecordReasonAtLocked(const char *reason, int cx,
+                                          int sectionY, int cz,
+                                          bool hasSection);
+void ChunkDiagnosticsRecordReasonAt(const char *reason, int cx,
+                                    int sectionY, int cz, bool hasSection);
 void ChunkDiagnosticsResetReasonLocked(void);
 void MarkGeneratedSectionAndNeighborsDirty(Chunk *chunk, int sectionY);
 ChunkLodLevel ChunkLodSanitize(ChunkLodLevel lod);

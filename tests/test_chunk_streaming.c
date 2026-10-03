@@ -932,6 +932,32 @@ static void TestBudgetAndInvalidSlotCleanup(void)
     assert(stats.uploadBudgetDeferrals == 1);
     assert(ChunksTestMeshJobSlot(0) == -1);
     assert(ChunksTestMeshJobSlot(1) == 1);
+    ChunkDiagnostics waiting = { 0 };
+    ChunksCaptureDiagnostics(&waiting);
+    assert(strcmp(waiting.blockedReason, "mesh_upload_pending") == 0);
+    assert(waiting.completedMeshJobs == 1);
+    assert(waiting.pendingMeshJobs == 0);
+    assert(strcmp(waiting.lastEvent.reason, "upload_budget_exhausted") == 0);
+    assert(waiting.lastEvent.sequence > 0u);
+    assert(waiting.lastEvent.timeMs > 0.0);
+    assert(waiting.lastEvent.hasLocation && waiting.lastEvent.hasSection);
+    assert(waiting.lastEvent.chunkX == 1 && waiting.lastEvent.chunkZ == 1);
+    assert(waiting.lastEvent.sectionY == 0);
+
+    ProcessFinishedMeshJobs(1000.0);
+    ChunkDiagnostics drained = { 0 };
+    ChunksCaptureDiagnostics(&drained);
+    assert(drained.completedMeshJobs == 0 && drained.pendingMeshJobs == 0);
+    assert(strcmp(drained.blockedReason, "none") == 0);
+    assert(drained.lastEvent.sequence > waiting.lastEvent.sequence);
+    assert(strcmp(drained.lastEvent.reason, "mesh_upload_failed") == 0);
+    assert(strcmp(waiting.lastEvent.reason, "upload_budget_exhausted") == 0);
+    ProcessFinishedMeshJobs(1000.0);
+    ChunkDiagnostics idle = { 0 };
+    ChunksCaptureDiagnostics(&idle);
+    assert(strcmp(idle.blockedReason, "none") == 0);
+    assert(idle.lastEvent.sequence == drained.lastEvent.sequence);
+    assert(strcmp(idle.lastEvent.reason, drained.lastEvent.reason) == 0);
 }
 
 // H-1: an edit made after a mesh job snapshot must keep the section dirty so

@@ -1612,6 +1612,33 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
             return GameDebugDslNumber(
                 outValue, (double)chunkDiagnostics->blockedReasonSequence);
         }
+        if (!strcmp(field, "last_event_reason")) {
+            return GameDebugDslString(outValue, chunkDiagnostics->lastEvent.reason);
+        }
+        if (!strcmp(field, "last_event_sequence")) {
+            return GameDebugDslNumber(outValue, (double)chunkDiagnostics->lastEvent.sequence);
+        }
+        if (!strcmp(field, "last_event_time_ms")) {
+            return GameDebugDslNumber(outValue, chunkDiagnostics->lastEvent.timeMs);
+        }
+        if (!strcmp(field, "last_event_has_location")) {
+            return GameDebugDslBool(outValue, chunkDiagnostics->lastEvent.hasLocation);
+        }
+        if (!strcmp(field, "last_event_has_section")) {
+            return GameDebugDslBool(outValue, chunkDiagnostics->lastEvent.hasSection);
+        }
+        if (!strcmp(field, "last_event_location")) {
+            return GameDebugDslVec3(outValue, (Vector3){
+                chunkDiagnostics->lastEvent.chunkX,
+                chunkDiagnostics->lastEvent.sectionY,
+                chunkDiagnostics->lastEvent.chunkZ });
+        }
+        if (!strcmp(field, "completed_generation_jobs")) {
+            return GameDebugDslNumber(outValue, chunkDiagnostics->completedGenerationJobs);
+        }
+        if (!strcmp(field, "completed_mesh_jobs")) {
+            return GameDebugDslNumber(outValue, chunkDiagnostics->completedMeshJobs);
+        }
         if (!strcmp(field, "lod_consistency")) {
             return GameDebugDslString(
                 outValue, ChunkDiagnosticsLodConsistencyName(

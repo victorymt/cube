@@ -368,8 +368,13 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.chunks.frame_id` | number | Game frame associated with the current snapshot, or `0` when unavailable |
 | `stream.chunks.simulation_tick` | number | Simulation tick associated with the current snapshot, or `0` when unavailable |
 | `stream.chunks.world_generation` | number | World context generation associated with the current snapshot, or `0` when unavailable |
-| `stream.chunks.blocked_reason` | string | Latest scheduler explanation such as `generation_pending`, `generation_queue_full`, `mesh_pending`, `mesh_workers_unavailable`, or `upload_budget_exhausted` |
-| `stream.chunks.blocked_reason_sequence` | number | Sequence of the scheduler decision that produced `blocked_reason`; resets with the chunk scheduler |
+| `stream.chunks.blocked_reason` | string | Current queue state: `none`, `generation_pending`, `mesh_pending`, `generation_queue_full`, `mesh_queue_full`, `generation_workers_unavailable`, `mesh_workers_unavailable`, `generation_apply_pending`, or `mesh_upload_pending` |
+| `stream.chunks.last_event_reason`, `stream.chunks.last_event_sequence` | string, number | Last scheduler event and its sequence, retained after work completes; resets with streaming stats |
+| `stream.chunks.last_event_time_ms` | number | Event's monotonic process-clock time in milliseconds, or zero before any event |
+| `stream.chunks.last_event_has_location`, `stream.chunks.last_event_has_section` | bool | Whether the event identifies a chunk and an individual vertical section |
+| `stream.chunks.last_event_location` | vec3 | Chunk X, section Y, chunk Z; check the location/section flags before interpreting coordinates |
+| `stream.chunks.blocked_reason_sequence` | number | Deprecated alias of `last_event_sequence`; does not identify the current queue state |
+| `stream.chunks.completed_generation_jobs`, `stream.chunks.completed_mesh_jobs` | number | Completed jobs waiting for main-thread application or upload |
 | `stream.chunks.lod_consistency` | string | `not_captured` for base snapshots, or `consistent` when LOD counters were copied under the scheduler lock |
 | `stream.chunks.active_chunks` | number | Active chunks copied into the current snapshot |
 | `stream.chunks.pending_generation_jobs`, `stream.chunks.pending_mesh_jobs` | number | Generation and mesh jobs observed in the current snapshot |
@@ -525,6 +530,14 @@ reused by all assertions in that point. A successful debug command invalidates
 the cached snapshot, so the next diagnostic query observes the post-command
 state. The `stream.chunks.*_id` fields identify the observation's frame,
 simulation tick, and world context.
+
+`blocked_reason` summarizes current queued work, independently of history.
+Completed meshes and generation results take precedence because the main
+thread can drain them, followed by unavailable workers, full queues, and
+pending generation/mesh work. `none` does not certify local terrain readiness;
+use `stream wait` or `stream.surface_ready` for that. `last_event_*` retains
+budget deferrals and failures even after queues drain. Its time is a monotonic
+wall-clock timestamp, and locations use chunk/section indices, not blocks.
 
 ### Session, rendering, and world
 

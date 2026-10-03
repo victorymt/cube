@@ -656,7 +656,8 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
 {
     if (!chunk || !section) return false;
     if (genWorkerThreadsStarted == 0u) {
-        ChunkDiagnosticsRecordReason("mesh_workers_unavailable");
+        ChunkDiagnosticsRecordReasonAt(
+            "mesh_workers_unavailable", chunk->cx, section->sectionY, chunk->cz, true);
         return false;
     }
 
@@ -690,7 +691,8 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
             }
         }
         current->preload = chunk->preloaded;
-        ChunkDiagnosticsRecordReasonLocked("mesh_pending");
+        ChunkDiagnosticsRecordReasonAtLocked(
+            "mesh_pending", chunk->cx, section->sectionY, chunk->cz, true);
         pthread_cond_signal(&genCond);
         pthread_mutex_unlock(&genMutex);
         return true;
@@ -703,7 +705,8 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
         }
     }
     if (!job) {
-        ChunkDiagnosticsRecordReasonLocked("mesh_queue_full");
+        ChunkDiagnosticsRecordReasonAtLocked(
+            "mesh_queue_full", chunk->cx, section->sectionY, chunk->cz, true);
         pthread_mutex_unlock(&genMutex);
         return false;
     }
@@ -715,7 +718,8 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
         job->queueSequence);
     if (!job->queued) {
         *job = (MeshJob){ 0 };
-        ChunkDiagnosticsRecordReasonLocked("mesh_queue_full");
+        ChunkDiagnosticsRecordReasonAtLocked(
+            "mesh_queue_full", chunk->cx, section->sectionY, chunk->cz, true);
         pthread_mutex_unlock(&genMutex);
         return false;
     }
@@ -724,7 +728,8 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
                                         sizeof(job->waterVolumes) +
                                         sizeof(job->boundary);
     UpdateQueuePeaksLocked();
-    ChunkDiagnosticsRecordReasonLocked("mesh_pending");
+    ChunkDiagnosticsRecordReasonAtLocked(
+        "mesh_pending", chunk->cx, section->sectionY, chunk->cz, true);
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -746,7 +751,8 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
         }
         if (uploaded > 0 && ChunkNowMs() - startedMs >= uploadBudgetMs) {
             streamingStats.uploadBudgetDeferrals++;
-            ChunkDiagnosticsRecordReasonLocked("upload_budget_exhausted");
+            ChunkDiagnosticsRecordReasonAtLocked(
+                "upload_budget_exhausted", job->cx, job->sectionY, job->cz, true);
             job->running = false;
             if (ChunkTaskQueuePush(&meshDoneQueue, MeshQueueLane(job),
                                    (int)(job - meshJobs),
@@ -758,11 +764,13 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
         }
         pthread_mutex_unlock(&genMutex);
         double uploadStartedMs = ChunkNowMs();
+        int eventCx = job->cx, eventCz = job->cz, eventSectionY = job->sectionY;
         bool uploadedJob = UploadMeshJob(job);
         double uploadElapsedMs = ChunkNowMs() - uploadStartedMs;
         pthread_mutex_lock(&genMutex);
         if (uploadedJob) streamingStats.uploadedMeshes++;
-        else ChunkDiagnosticsRecordReasonLocked("mesh_upload_failed");
+        else ChunkDiagnosticsRecordReasonAtLocked(
+            "mesh_upload_failed", eventCx, eventSectionY, eventCz, true);
         streamingStats.uploadCpuMs += uploadElapsedMs;
         if (uploadElapsedMs > streamingStats.maxUploadCpuMs) {
             streamingStats.maxUploadCpuMs = uploadElapsedMs;

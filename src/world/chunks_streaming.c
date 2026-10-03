@@ -399,7 +399,8 @@ static bool SubmitChunkGenJob(
     Chunk *chunk, int cx, int cz, TerrainMode mode, bool preload)
 {
     if (genWorkerThreadsStarted == 0u) {
-        ChunkDiagnosticsRecordReason("generation_workers_unavailable");
+        ChunkDiagnosticsRecordReasonAt(
+            "generation_workers_unavailable", cx, 0, cz, false);
         return false;
     }
 
@@ -412,7 +413,8 @@ static bool SubmitChunkGenJob(
         }
     }
     if (!job) {
-        ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
+        ChunkDiagnosticsRecordReasonAtLocked(
+            "generation_queue_full", cx, 0, cz, false);
         pthread_mutex_unlock(&genMutex);
         return false;
     }
@@ -438,13 +440,15 @@ static bool SubmitChunkGenJob(
         (int)(job - chunkGenJobs), job->queueSequence);
     if (!job->queued) {
         *job = (ChunkGenJob){ 0 };
-        ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
+        ChunkDiagnosticsRecordReasonAtLocked(
+            "generation_queue_full", cx, 0, cz, false);
         pthread_mutex_unlock(&genMutex);
         return false;
     }
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
-    ChunkDiagnosticsRecordReasonLocked("generation_pending");
+    ChunkDiagnosticsRecordReasonAtLocked(
+        "generation_pending", cx, 0, cz, false);
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -461,7 +465,8 @@ static bool SubmitChunkSectionGenJob(
         return false;
     }
     if (genWorkerThreadsStarted == 0u) {
-        ChunkDiagnosticsRecordReason("generation_workers_unavailable");
+        ChunkDiagnosticsRecordReasonAt(
+            "generation_workers_unavailable", chunk->cx, sectionY, chunk->cz, true);
         return false;
     }
 
@@ -474,14 +479,16 @@ static bool SubmitChunkSectionGenJob(
             chunkGenJobs[i].chunkGeneration == chunk->generation &&
             chunkGenJobs[i].sectionY == sectionY) {
             if (!preload) chunkGenJobs[i].preload = false;
-            ChunkDiagnosticsRecordReasonLocked("generation_pending");
+            ChunkDiagnosticsRecordReasonAtLocked(
+                "generation_pending", chunk->cx, sectionY, chunk->cz, true);
             pthread_mutex_unlock(&genMutex);
             return false;
         }
         if (!chunkGenJobs[i].inUse && !job) job = &chunkGenJobs[i];
     }
     if (!job) {
-        ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
+        ChunkDiagnosticsRecordReasonAtLocked(
+            "generation_queue_full", chunk->cx, sectionY, chunk->cz, true);
         pthread_mutex_unlock(&genMutex);
         return false;
     }
@@ -507,13 +514,15 @@ static bool SubmitChunkSectionGenJob(
         (int)(job - chunkGenJobs), job->queueSequence);
     if (!job->queued) {
         *job = (ChunkGenJob){ 0 };
-        ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
+        ChunkDiagnosticsRecordReasonAtLocked(
+            "generation_queue_full", chunk->cx, sectionY, chunk->cz, true);
         pthread_mutex_unlock(&genMutex);
         return false;
     }
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
-    ChunkDiagnosticsRecordReasonLocked("generation_pending");
+    ChunkDiagnosticsRecordReasonAtLocked(
+        "generation_pending", chunk->cx, sectionY, chunk->cz, true);
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -584,7 +593,8 @@ static bool FindPendingGenJob(int cx, int cz, bool promote)
                     job->queueSequence);
             }
             found = true;
-            ChunkDiagnosticsRecordReasonLocked("generation_pending");
+            ChunkDiagnosticsRecordReasonAtLocked(
+                "generation_pending", cx, 0, cz, false);
             break;
         }
     }
@@ -800,7 +810,8 @@ static bool EnsureChunk(int cx, int cz, bool preload)
             }
         }
         if (!haveQueueSlot) {
-            ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
+            ChunkDiagnosticsRecordReasonAtLocked(
+                "generation_queue_full", cx, 0, cz, false);
         }
         pthread_mutex_unlock(&genMutex);
         if (!haveQueueSlot) return false;

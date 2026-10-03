@@ -2,18 +2,38 @@
 
 #include <stdio.h>
 
-static char chunkDiagnosticsLastReason[CHUNK_DIAGNOSTICS_REASON_CAPACITY] =
-    "none";
-static uint64_t chunkDiagnosticsReasonSequence;
+static ChunkDiagnosticsEvent chunkDiagnosticsLastEvent = { .reason = "none" };
 
 void ChunkDiagnosticsRecordReasonLocked(const char *reason)
 {
-    snprintf(chunkDiagnosticsLastReason, sizeof(chunkDiagnosticsLastReason),
-             "%s", reason ? reason : "unknown");
-    chunkDiagnosticsReasonSequence++;
-    if (chunkDiagnosticsReasonSequence == 0u) {
-        chunkDiagnosticsReasonSequence = 1u;
-    }
+    uint64_t sequence = chunkDiagnosticsLastEvent.sequence + 1u;
+    chunkDiagnosticsLastEvent = (ChunkDiagnosticsEvent){
+        .sequence = sequence ? sequence : 1u,
+        .timeMs = ChunkNowMs()
+    };
+    snprintf(chunkDiagnosticsLastEvent.reason,
+             sizeof(chunkDiagnosticsLastEvent.reason), "%s",
+             reason ? reason : "unknown");
+}
+
+void ChunkDiagnosticsRecordReasonAtLocked(const char *reason, int cx,
+                                          int sectionY, int cz,
+                                          bool hasSection)
+{
+    ChunkDiagnosticsRecordReasonLocked(reason);
+    chunkDiagnosticsLastEvent.hasLocation = true;
+    chunkDiagnosticsLastEvent.chunkX = cx;
+    chunkDiagnosticsLastEvent.chunkZ = cz;
+    chunkDiagnosticsLastEvent.sectionY = sectionY;
+    chunkDiagnosticsLastEvent.hasSection = hasSection;
+}
+
+void ChunkDiagnosticsRecordReasonAt(const char *reason, int cx,
+                                    int sectionY, int cz, bool hasSection)
+{
+    pthread_mutex_lock(&genMutex);
+    ChunkDiagnosticsRecordReasonAtLocked(reason, cx, sectionY, cz, hasSection);
+    pthread_mutex_unlock(&genMutex);
 }
 
 void ChunkDiagnosticsRecordReason(const char *reason)
@@ -25,9 +45,7 @@ void ChunkDiagnosticsRecordReason(const char *reason)
 
 void ChunkDiagnosticsResetReasonLocked(void)
 {
-    snprintf(chunkDiagnosticsLastReason, sizeof(chunkDiagnosticsLastReason),
-             "none");
-    chunkDiagnosticsReasonSequence = 0u;
+    chunkDiagnosticsLastEvent = (ChunkDiagnosticsEvent){ .reason = "none" };
 }
 
 const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status)
@@ -67,10 +85,8 @@ static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
         : (DiagnosticsCaptureIdentity){
             .captureId = outDiagnostics->captureSequence
         };
-    outDiagnostics->blockedReasonSequence = chunkDiagnosticsReasonSequence;
-    snprintf(outDiagnostics->blockedReason,
-             sizeof(outDiagnostics->blockedReason), "%s",
-             chunkDiagnosticsLastReason);
+    outDiagnostics->lastEvent = chunkDiagnosticsLastEvent;
+    outDiagnostics->blockedReasonSequence = chunkDiagnosticsLastEvent.sequence;
     outDiagnostics->streaming = streamingStats;
     outDiagnostics->renderDistance = renderDistanceChunks;
     outDiagnostics->focusChunkX = chunkStreamingFocus.currentCx;
@@ -85,6 +101,7 @@ static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
     for (int index = 0; index < MAX_CHUNK_GEN_JOBS; index++) {
         const ChunkGenJob *job = &chunkGenJobs[index];
         if (job->inUse && !job->done) outDiagnostics->pendingGenerationJobs++;
+        if (job->inUse && job->done) outDiagnostics->completedGenerationJobs++;
         if (job->inUse && job->preload) {
             outDiagnostics->preload.pendingGenerationJobs++;
         }
@@ -92,6 +109,7 @@ static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
     for (int index = 0; index < MAX_MESH_JOBS; index++) {
         const MeshJob *job = &meshJobs[index];
         if (job->inUse && !job->done) outDiagnostics->pendingMeshJobs++;
+        if (job->inUse && job->done) outDiagnostics->completedMeshJobs++;
         if (job->inUse && job->preload) {
             outDiagnostics->preload.pendingMeshJobs++;
         }
@@ -102,6 +120,27 @@ static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
         }
     }
     outDiagnostics->streaming.pendingMeshSnapshotBytes = pendingSnapshotBytes;
+
+    /* Prefer work that can drain queues immediately. Historical budget or
+     * failure events must never masquerade as a current blockage. */
+    const char *reason = "none";
+    if (outDiagnostics->completedMeshJobs > 0) reason = "mesh_upload_pending";
+    else if (outDiagnostics->completedGenerationJobs > 0)
+        reason = "generation_apply_pending";
+    else if (outDiagnostics->pendingGenerationJobs > 0 &&
+             genWorkerThreadsStarted == 0u)
+        reason = "generation_workers_unavailable";
+    else if (outDiagnostics->pendingMeshJobs > 0 && genWorkerThreadsStarted == 0u)
+        reason = "mesh_workers_unavailable";
+    else if (outDiagnostics->pendingGenerationJobs == MAX_CHUNK_GEN_JOBS)
+        reason = "generation_queue_full";
+    else if (outDiagnostics->pendingMeshJobs == MAX_MESH_JOBS)
+        reason = "mesh_queue_full";
+    else if (outDiagnostics->pendingGenerationJobs > 0)
+        reason = "generation_pending";
+    else if (outDiagnostics->pendingMeshJobs > 0) reason = "mesh_pending";
+    snprintf(outDiagnostics->blockedReason,
+             sizeof(outDiagnostics->blockedReason), "%s", reason);
 
     outDiagnostics->preload.active =
         chunkStreamingFocus.preloadTargetCount > 0;

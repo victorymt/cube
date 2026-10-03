@@ -111,6 +111,11 @@ static void TestDebugReport(void)
             },
             .captureSequence = 9u,
             .blockedReasonSequence = 4u,
+            .lastEvent = {
+                .sequence = 4u, .timeMs = 12.5, .reason = "generation_queue_full",
+                .hasLocation = true, .hasSection = true,
+                .chunkX = -3, .sectionY = -1, .chunkZ = 5
+            },
             .lodConsistency = CHUNK_DIAGNOSTICS_LOD_CONSISTENT,
             .activeChunks = 81,
             .pendingGenerationJobs = 2,
@@ -380,6 +385,12 @@ static void TestDebugReport(void)
     assert(strstr(contents, "chunks.world_generation=5\n"));
     assert(strstr(contents, "chunks.blocked_reason=mesh_pending\n"));
     assert(strstr(contents, "chunks.blocked_reason_sequence=4\n"));
+    assert(strstr(contents, "chunks.last_event_reason=generation_queue_full\n"));
+    assert(strstr(contents, "chunks.last_event_sequence=4\n"));
+    assert(strstr(contents, "chunks.last_event_time_ms=12.500\n"));
+    assert(strstr(contents, "chunks.last_event_has_location=1\n"));
+    assert(strstr(contents, "chunks.last_event_has_section=1\n"));
+    assert(strstr(contents, "chunks.last_event_location=-3,-1,5\n"));
     assert(strstr(contents, "chunks.lod_consistency=consistent\n"));
     assert(strstr(contents, "chunks.pending_mesh_jobs=3\n"));
     assert(strstr(contents, "chunks.mesh_completed=456\n"));
