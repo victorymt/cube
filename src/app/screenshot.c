@@ -96,6 +96,96 @@ static const char *ScreenshotText(const char *value)
     return value && value[0] != '\0' ? value : "unknown";
 }
 
+static const char *ScreenshotChunkDiagnosticsStatusName(
+    ChunkDiagnosticsStatus status)
+{
+    return status == CHUNK_DIAGNOSTICS_VALID ? "valid" : "unavailable";
+}
+
+static bool ScreenshotWriteChunkDiagnostics(
+    FILE *file, const ChunkDiagnostics *diagnostics)
+{
+#define CHUNK_REPORT_LINE(...) \
+    do { if (fprintf(file, __VA_ARGS__) < 0) return false; } while (0)
+    if (!diagnostics) return false;
+    CHUNK_REPORT_LINE("chunks.status=%s\n",
+                      ScreenshotChunkDiagnosticsStatusName(
+                          diagnostics->status));
+    CHUNK_REPORT_LINE("chunks.capture_sequence=%" PRIu64 "\n",
+                      diagnostics->captureSequence);
+    CHUNK_REPORT_LINE("chunks.blocked_reason=%s\n",
+                      ScreenshotText(diagnostics->blockedReason));
+    CHUNK_REPORT_LINE("chunks.active_chunks=%d\n", diagnostics->activeChunks);
+    CHUNK_REPORT_LINE("chunks.pending_generation_jobs=%d\n",
+                      diagnostics->pendingGenerationJobs);
+    CHUNK_REPORT_LINE("chunks.pending_mesh_jobs=%d\n",
+                      diagnostics->pendingMeshJobs);
+    CHUNK_REPORT_LINE("chunks.render_distance=%d\n",
+                      diagnostics->renderDistance);
+    CHUNK_REPORT_LINE("chunks.focus_chunk=%d,%d\n",
+                      diagnostics->focusChunkX, diagnostics->focusChunkZ);
+    CHUNK_REPORT_LINE("chunks.predicted_chunk=%d,%d\n",
+                      diagnostics->predictedChunkX,
+                      diagnostics->predictedChunkZ);
+    CHUNK_REPORT_LINE("chunks.focus_chunk_loaded=%s\n",
+                      ScreenshotBool(diagnostics->focusChunkLoaded));
+    CHUNK_REPORT_LINE("chunks.worker_threads=%u,%u,%u\n",
+                      diagnostics->workerThreadsConfigured,
+                      diagnostics->workerThreadsStarted,
+                      diagnostics->workerThreadsActive);
+    CHUNK_REPORT_LINE("chunks.preload_active=%s\n",
+                      ScreenshotBool(diagnostics->preload.active));
+    CHUNK_REPORT_LINE("chunks.preload_offset=%d,%d\n",
+                      diagnostics->preload.offsetX,
+                      diagnostics->preload.offsetZ);
+    CHUNK_REPORT_LINE("chunks.preload_target=%d\n",
+                      diagnostics->preload.targetChunks);
+    CHUNK_REPORT_LINE("chunks.preload_loaded=%d\n",
+                      diagnostics->preload.loadedChunks);
+    CHUNK_REPORT_LINE("chunks.preload_pending_generation_jobs=%d\n",
+                      diagnostics->preload.pendingGenerationJobs);
+    CHUNK_REPORT_LINE("chunks.preload_pending_mesh_jobs=%d\n",
+                      diagnostics->preload.pendingMeshJobs);
+    CHUNK_REPORT_LINE("chunks.lod_target_changes=%" PRIu64 "\n",
+                      diagnostics->lod.targetChanges);
+    CHUNK_REPORT_LINE("chunks.lod_coarse_allowed=%s\n",
+                      ScreenshotBool(diagnostics->lod.coarseAllowed));
+    CHUNK_REPORT_LINE("chunks.generation_submitted=%" PRIu64 "\n",
+                      diagnostics->streaming.generationSubmitted);
+    CHUNK_REPORT_LINE("chunks.generation_completed=%" PRIu64 "\n",
+                      diagnostics->streaming.generationCompleted);
+    CHUNK_REPORT_LINE("chunks.generation_canceled=%" PRIu64 "\n",
+                      diagnostics->streaming.generationCanceled);
+    CHUNK_REPORT_LINE("chunks.mesh_submitted=%" PRIu64 "\n",
+                      diagnostics->streaming.meshSubmitted);
+    CHUNK_REPORT_LINE("chunks.mesh_completed=%" PRIu64 "\n",
+                      diagnostics->streaming.meshCompleted);
+    CHUNK_REPORT_LINE("chunks.mesh_canceled=%" PRIu64 "\n",
+                      diagnostics->streaming.meshCanceled);
+    CHUNK_REPORT_LINE("chunks.uploaded_meshes=%" PRIu64 "\n",
+                      diagnostics->streaming.uploadedMeshes);
+    CHUNK_REPORT_LINE("chunks.upload_budget_deferrals=%" PRIu64 "\n",
+                      diagnostics->streaming.uploadBudgetDeferrals);
+    CHUNK_REPORT_LINE("chunks.generation_queue_peak=%" PRIu64 "\n",
+                      diagnostics->streaming.generationQueuePeak);
+    CHUNK_REPORT_LINE("chunks.mesh_queue_peak=%" PRIu64 "\n",
+                      diagnostics->streaming.meshQueuePeak);
+    CHUNK_REPORT_LINE("chunks.pending_mesh_snapshot_bytes=%" PRIu64 "\n",
+                      diagnostics->streaming.pendingMeshSnapshotBytes);
+    CHUNK_REPORT_LINE("chunks.pending_mesh_snapshot_bytes_peak=%" PRIu64 "\n",
+                      diagnostics->streaming.pendingMeshSnapshotBytesPeak);
+    CHUNK_REPORT_LINE("chunks.generation_cpu_ms=%.6f\n",
+                      diagnostics->streaming.generationCpuMs);
+    CHUNK_REPORT_LINE("chunks.mesh_cpu_ms=%.6f\n",
+                      diagnostics->streaming.meshCpuMs);
+    CHUNK_REPORT_LINE("chunks.upload_cpu_ms=%.6f\n",
+                      diagnostics->streaming.uploadCpuMs);
+    CHUNK_REPORT_LINE("chunks.max_upload_cpu_ms=%.6f\n",
+                      diagnostics->streaming.maxUploadCpuMs);
+#undef CHUNK_REPORT_LINE
+    return true;
+}
+
 static bool ScreenshotWriteDebugFields(
     FILE *file, const char *imagePath, time_t timestamp,
     const struct tm *localTime, const ScreenshotDebugInfo *info)
@@ -485,6 +575,8 @@ static bool ScreenshotWriteDebugFields(
                 info->evolution.omnivoreDensity);
     REPORT_LINE("evolution.carnivore_density=%.6f\n",
                 info->evolution.carnivoreDensity);
+
+    if (!ScreenshotWriteChunkDiagnostics(file, &info->chunks)) return false;
 
     REPORT_LINE("streaming.active_chunks=%d\n", info->streaming.activeChunks);
     REPORT_LINE("streaming.active_space_chunks=%d\n",

@@ -54,7 +54,8 @@ void GameCaptureScreenshot(GameRuntime *game,
         char screenshotPath[512];
         char debugReportPath[512];
         time_t screenshotTime = time(NULL);
-        ChunkStreamingStats streamingStats = ChunksGetStreamingStats();
+        ChunkDiagnostics chunkDiagnostics = { 0 };
+        ChunksCaptureDiagnostics(&chunkDiagnostics);
         ChunkWaterRenderDebugInfo screenshotWaterRender = { 0 };
         ChunksGetWaterRenderDebugInfo(game->player.position,
                                       &screenshotWaterRender);
@@ -95,6 +96,7 @@ void GameCaptureScreenshot(GameRuntime *game,
         int screenshotMissingSurfaceChunks =
             PlayerMissingSurfaceChunkCount(game->player.position);
         ScreenshotDebugInfo debugInfo = {
+            .chunks = chunkDiagnostics,
             .world = {
                 .seed = PlanetWorldIsActive() ? PlanetWorldSeed() :
                                                 WorldGetSeed(),
@@ -355,12 +357,12 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .landingTransitionActive = game->landingTransition.active
             },
             .streaming = {
-                .activeChunks = GetActiveChunkCount(),
+                .activeChunks = chunkDiagnostics.activeChunks,
                 .activeSpaceChunks = GetActiveSpaceChunkCount(),
                 .activeNetherChunks = GetActiveNetherChunkCount(),
                 .activeEntities = GetActiveEntityCount(),
-                .pendingGenerationJobs = GetPendingGenJobCount(),
-                .pendingMeshJobs = GetPendingMeshJobCount(),
+                .pendingGenerationJobs = chunkDiagnostics.pendingGenerationJobs,
+                .pendingMeshJobs = chunkDiagnostics.pendingMeshJobs,
                 .surfaceChunkX = screenshotWaterRender.cx,
                 .surfaceChunkZ = screenshotWaterRender.cz,
                 .surfaceSectionY = screenshotWaterRender.sectionY,
@@ -383,26 +385,26 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .waterNearestChunkX = screenshotWaterPass.nearestChunkX,
                 .waterNearestChunkZ = screenshotWaterPass.nearestChunkZ,
                 .waterNearestSectionY = screenshotWaterPass.nearestSectionY,
-                .generationSubmitted = streamingStats.generationSubmitted,
-                .generationCompleted = streamingStats.generationCompleted,
-                .generationCanceled = streamingStats.generationCanceled,
-                .meshSubmitted = streamingStats.meshSubmitted,
-                .meshCompleted = streamingStats.meshCompleted,
-                .meshCanceled = streamingStats.meshCanceled,
-                .meshSnapshotBytes = streamingStats.meshSnapshotBytes,
-                .syncRebuilds = streamingStats.syncRebuilds,
-                .uploadedMeshes = streamingStats.uploadedMeshes,
-                .uploadBudgetDeferrals = streamingStats.uploadBudgetDeferrals,
-                .generationQueuePeak = streamingStats.generationQueuePeak,
-                .meshQueuePeak = streamingStats.meshQueuePeak,
+                .generationSubmitted = chunkDiagnostics.streaming.generationSubmitted,
+                .generationCompleted = chunkDiagnostics.streaming.generationCompleted,
+                .generationCanceled = chunkDiagnostics.streaming.generationCanceled,
+                .meshSubmitted = chunkDiagnostics.streaming.meshSubmitted,
+                .meshCompleted = chunkDiagnostics.streaming.meshCompleted,
+                .meshCanceled = chunkDiagnostics.streaming.meshCanceled,
+                .meshSnapshotBytes = chunkDiagnostics.streaming.meshSnapshotBytes,
+                .syncRebuilds = chunkDiagnostics.streaming.syncRebuilds,
+                .uploadedMeshes = chunkDiagnostics.streaming.uploadedMeshes,
+                .uploadBudgetDeferrals = chunkDiagnostics.streaming.uploadBudgetDeferrals,
+                .generationQueuePeak = chunkDiagnostics.streaming.generationQueuePeak,
+                .meshQueuePeak = chunkDiagnostics.streaming.meshQueuePeak,
                 .pendingMeshSnapshotBytes =
-                    streamingStats.pendingMeshSnapshotBytes,
+                    chunkDiagnostics.streaming.pendingMeshSnapshotBytes,
                 .pendingMeshSnapshotBytesPeak =
-                    streamingStats.pendingMeshSnapshotBytesPeak,
-                .generationCpuMs = streamingStats.generationCpuMs,
-                .meshCpuMs = streamingStats.meshCpuMs,
-                .uploadCpuMs = streamingStats.uploadCpuMs,
-                .maxUploadCpuMs = streamingStats.maxUploadCpuMs
+                    chunkDiagnostics.streaming.pendingMeshSnapshotBytesPeak,
+                .generationCpuMs = chunkDiagnostics.streaming.generationCpuMs,
+                .meshCpuMs = chunkDiagnostics.streaming.meshCpuMs,
+                .uploadCpuMs = chunkDiagnostics.streaming.uploadCpuMs,
+                .maxUploadCpuMs = chunkDiagnostics.streaming.maxUploadCpuMs
             },
             .evolution = {
                 .entitySelected = haveScreenshotEntity,

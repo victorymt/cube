@@ -1050,6 +1050,7 @@ void ChunksTestResetScheduler(void)
     }
     memset(meshJobs, 0, sizeof(meshJobs));
     chunkStreamingFocus = (ChunkStreamingFocus){ 0 };
+    chunkDiagnosticsCaptureSequence = 0u;
     nextMeshQueueSequence = 0u;
     ChunksResetLodState();
     streamingStats = (ChunkStreamingStats){ 0 };

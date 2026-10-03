@@ -386,6 +386,28 @@ static void AssertFreshStats(void)
     assert(stats.syncRebuilds == 0);
 }
 
+static void TestChunkDiagnosticsCaptureIsOwnedAndReadOnly(void)
+{
+    ChunksTestResetScheduler();
+    ChunkDiagnostics empty = { 0 };
+    ChunksCaptureDiagnostics(&empty);
+    assert(empty.status == CHUNK_DIAGNOSTICS_VALID);
+    assert(empty.captureSequence == 1u);
+    assert(empty.pendingGenerationJobs == 0);
+    assert(strcmp(empty.blockedReason, "none") == 0);
+
+    ChunksTestSeedGenerationJob(0, 12, 34, 0, false);
+    ChunkDiagnostics pending = { 0 };
+    ChunksCaptureDiagnostics(&pending);
+    assert(pending.captureSequence == 2u);
+    assert(pending.pendingGenerationJobs == 1);
+    assert(strcmp(pending.blockedReason, "generation_pending") == 0);
+
+    ChunksTestResetScheduler();
+    assert(pending.pendingGenerationJobs == 1);
+    assert(strcmp(pending.blockedReason, "generation_pending") == 0);
+}
+
 static Camera3D TestPerspectiveCamera(float fovY)
 {
     return (Camera3D){
@@ -1967,6 +1989,7 @@ int main(void)
     TestFailedColumnGenerationReleasesSlot();
     TestShutdownWithoutWorkersCancelsQueuedJobs();
     AssertFreshStats();
+    TestChunkDiagnosticsCaptureIsOwnedAndReadOnly();
     TestFrustumSphereEdgesRemainVisible();
     TestFrustumNearPlaneAndRenderAspect();
     TestChunkFrustumUsesSparseSectionHeights();

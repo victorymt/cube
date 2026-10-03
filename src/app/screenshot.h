@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <time.h>
 
+#include "world/chunks.h"
+
 #define SCREENSHOT_DIRECTORY "screenshots"
 #define SCREENSHOT_WEATHER_CLOUD_LAYER_CAPACITY 3
 
@@ -325,6 +327,7 @@ typedef struct ScreenshotEvolutionDebugInfo {
 } ScreenshotEvolutionDebugInfo;
 
 typedef struct ScreenshotDebugInfo {
+    ChunkDiagnostics chunks;
     ScreenshotWorldDebugInfo world;
     ScreenshotPlayerDebugInfo player;
     ScreenshotCameraDebugInfo camera;

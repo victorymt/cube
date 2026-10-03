@@ -95,6 +95,21 @@ static void TestDebugReport(void)
     char imagePath[256];
     snprintf(imagePath, sizeof(imagePath), "%s/capture.png", directory);
     ScreenshotDebugInfo info = {
+        .chunks = {
+            .status = CHUNK_DIAGNOSTICS_VALID,
+            .captureSequence = 9u,
+            .activeChunks = 81,
+            .pendingGenerationJobs = 2,
+            .pendingMeshJobs = 3,
+            .renderDistance = 8,
+            .focusChunkX = -181,
+            .focusChunkZ = 1,
+            .focusChunkLoaded = true,
+            .blockedReason = "mesh_pending",
+            .streaming = {
+                .meshCompleted = 456u
+            }
+        },
         .world = {
             .seed = 424242u,
             .surfaceId = 17u,
@@ -339,6 +354,11 @@ static void TestDebugReport(void)
     assert(ReadFile(reportPath, contents, sizeof(contents)) > 0);
     assert(strstr(contents, "format.version=12\n"));
     assert(strstr(contents, "capture.unix_time=1700000000\n"));
+    assert(strstr(contents, "chunks.status=valid\n"));
+    assert(strstr(contents, "chunks.capture_sequence=9\n"));
+    assert(strstr(contents, "chunks.blocked_reason=mesh_pending\n"));
+    assert(strstr(contents, "chunks.pending_mesh_jobs=3\n"));
+    assert(strstr(contents, "chunks.mesh_completed=456\n"));
     assert(strstr(contents, "world.seed=424242\n"));
     assert(strstr(contents, "world.dimension=planet\n"));
     assert(strstr(contents, "player.position=1.250000,42.500000,-8.750000\n"));

@@ -91,6 +91,41 @@ typedef struct ChunkPreloadInfo {
     int pendingMeshJobs;
 } ChunkPreloadInfo;
 
+/*
+ * A copied, read-only view of the chunk scheduler.  The snapshot owns all of
+ * its scalar data; callers may keep it after the scheduler changes or the
+ * current world is unloaded.  `streaming` remains the legacy cumulative
+ * counter set used by performance reporting, while the other fields describe
+ * the state observed at this capture point.
+ */
+#define CHUNK_DIAGNOSTICS_REASON_CAPACITY 64
+
+typedef enum ChunkDiagnosticsStatus {
+    CHUNK_DIAGNOSTICS_UNAVAILABLE = 0,
+    CHUNK_DIAGNOSTICS_VALID
+} ChunkDiagnosticsStatus;
+
+typedef struct ChunkDiagnostics {
+    ChunkDiagnosticsStatus status;
+    uint64_t captureSequence;
+    ChunkStreamingStats streaming;
+    ChunkPreloadInfo preload;
+    ChunkLodStats lod;
+    int activeChunks;
+    int pendingGenerationJobs;
+    int pendingMeshJobs;
+    int renderDistance;
+    int focusChunkX;
+    int focusChunkZ;
+    int predictedChunkX;
+    int predictedChunkZ;
+    bool focusChunkLoaded;
+    unsigned int workerThreadsConfigured;
+    unsigned int workerThreadsStarted;
+    unsigned int workerThreadsActive;
+    char blockedReason[CHUNK_DIAGNOSTICS_REASON_CAPACITY];
+} ChunkDiagnostics;
+
 bool InHeight(int y);
 int FloorDivInt(int value, int divisor);
 int PositiveMod(int value, int divisor);
@@ -185,6 +220,8 @@ int GetPendingGenJobCount(void);
 int GetPendingMeshJobCount(void);
 void ChunksResetStreamingStats(void);
 ChunkStreamingStats ChunksGetStreamingStats(void);
+void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics);
+const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status);
 /* Streaming diagnostics are main-thread-only snapshots. */
 ChunkPreloadInfo ChunksGetPreloadInfo(void);
 bool ChunksGetWaterRenderDebugInfo(Vector3 position,

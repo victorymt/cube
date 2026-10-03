@@ -13,6 +13,7 @@ unsigned int genWorkerThreadsConfigured = 0u;
 unsigned int genWorkerThreadsStarted = 0u;
 unsigned int genWorkerThreadsActive = 0u;
 ChunkStreamingStats streamingStats;
+uint64_t chunkDiagnosticsCaptureSequence;
 ChunkStreamingFocus chunkStreamingFocus;
 ChunkTaskQueue generationTaskQueue;
 ChunkTaskQueue generationDoneQueue;

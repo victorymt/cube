@@ -142,6 +142,7 @@ extern unsigned int genWorkerThreadsConfigured;
 extern unsigned int genWorkerThreadsStarted;
 extern unsigned int genWorkerThreadsActive;
 extern ChunkStreamingStats streamingStats;
+extern uint64_t chunkDiagnosticsCaptureSequence;
 extern MeshJob meshJobs[MAX_MESH_JOBS];
 extern ChunkStreamingFocus chunkStreamingFocus;
 extern ChunkTaskQueue generationTaskQueue;

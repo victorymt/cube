@@ -1,5 +1,109 @@
 #include "world/chunks_internal.h"
 
+#include <stdio.h>
+
+static void ChunkDiagnosticsSetReason(ChunkDiagnostics *diagnostics,
+                                      const char *reason)
+{
+    if (!diagnostics) return;
+    snprintf(diagnostics->blockedReason,
+             sizeof(diagnostics->blockedReason), "%s",
+             reason ? reason : "unknown");
+}
+
+const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status)
+{
+    switch (status) {
+    case CHUNK_DIAGNOSTICS_VALID: return "valid";
+    case CHUNK_DIAGNOSTICS_UNAVAILABLE:
+    default: return "unavailable";
+    }
+}
+
+void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics)
+{
+    if (!outDiagnostics) return;
+    *outDiagnostics = (ChunkDiagnostics){
+        .status = CHUNK_DIAGNOSTICS_UNAVAILABLE
+    };
+
+    pthread_mutex_lock(&genMutex);
+    outDiagnostics->status = CHUNK_DIAGNOSTICS_VALID;
+    outDiagnostics->captureSequence = ++chunkDiagnosticsCaptureSequence;
+    outDiagnostics->streaming = streamingStats;
+    outDiagnostics->renderDistance = renderDistanceChunks;
+    outDiagnostics->focusChunkX = chunkStreamingFocus.currentCx;
+    outDiagnostics->focusChunkZ = chunkStreamingFocus.currentCz;
+    outDiagnostics->predictedChunkX = chunkStreamingFocus.predictedCx;
+    outDiagnostics->predictedChunkZ = chunkStreamingFocus.predictedCz;
+    outDiagnostics->workerThreadsConfigured = genWorkerThreadsConfigured;
+    outDiagnostics->workerThreadsStarted = genWorkerThreadsStarted;
+    outDiagnostics->workerThreadsActive = genWorkerThreadsActive;
+
+    uint64_t pendingSnapshotBytes = 0u;
+    for (int index = 0; index < MAX_CHUNK_GEN_JOBS; index++) {
+        const ChunkGenJob *job = &chunkGenJobs[index];
+        if (job->inUse && !job->done) outDiagnostics->pendingGenerationJobs++;
+        if (job->inUse && job->preload) {
+            outDiagnostics->preload.pendingGenerationJobs++;
+        }
+    }
+    for (int index = 0; index < MAX_MESH_JOBS; index++) {
+        const MeshJob *job = &meshJobs[index];
+        if (job->inUse && !job->done) outDiagnostics->pendingMeshJobs++;
+        if (job->inUse && job->preload) {
+            outDiagnostics->preload.pendingMeshJobs++;
+        }
+        if (job->inUse) {
+            pendingSnapshotBytes += sizeof(job->blocks) +
+                                    sizeof(job->waterVolumes) +
+                                    sizeof(job->boundary);
+        }
+    }
+    outDiagnostics->streaming.pendingMeshSnapshotBytes = pendingSnapshotBytes;
+
+    outDiagnostics->preload.active =
+        chunkStreamingFocus.preloadTargetCount > 0;
+    outDiagnostics->preload.offsetX = chunkStreamingFocus.predictedCx -
+                                      chunkStreamingFocus.currentCx;
+    outDiagnostics->preload.offsetZ = chunkStreamingFocus.predictedCz -
+                                      chunkStreamingFocus.currentCz;
+    outDiagnostics->preload.targetChunks =
+        chunkStreamingFocus.preloadTargetCount;
+
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        const Chunk *chunk = &chunks[index];
+        if (!chunk->loaded) continue;
+        outDiagnostics->activeChunks++;
+        if (chunk->preloaded) outDiagnostics->preload.loadedChunks++;
+        if (chunk->cx == chunkStreamingFocus.currentCx &&
+            chunk->cz == chunkStreamingFocus.currentCz) {
+            outDiagnostics->focusChunkLoaded = true;
+        }
+    }
+    pthread_mutex_unlock(&genMutex);
+
+    /* LOD state is main-thread-owned and has its own short critical section. */
+    outDiagnostics->lod = ChunksGetLodStats();
+    if (outDiagnostics->streaming.uploadBudgetDeferrals > 0u &&
+        outDiagnostics->pendingMeshJobs > 0) {
+        ChunkDiagnosticsSetReason(outDiagnostics, "upload_budget_exhausted");
+    } else if (outDiagnostics->pendingGenerationJobs >= MAX_CHUNK_GEN_JOBS) {
+        ChunkDiagnosticsSetReason(outDiagnostics, "generation_queue_full");
+    } else if (outDiagnostics->pendingMeshJobs >= MAX_MESH_JOBS) {
+        ChunkDiagnosticsSetReason(outDiagnostics, "mesh_queue_full");
+    } else if (outDiagnostics->pendingGenerationJobs > 0) {
+        ChunkDiagnosticsSetReason(outDiagnostics, "generation_pending");
+    } else if (outDiagnostics->pendingMeshJobs > 0) {
+        ChunkDiagnosticsSetReason(outDiagnostics, "mesh_pending");
+    } else if (!outDiagnostics->focusChunkLoaded &&
+               outDiagnostics->activeChunks > 0) {
+        ChunkDiagnosticsSetReason(outDiagnostics, "focus_chunk_missing");
+    } else {
+        ChunkDiagnosticsSetReason(outDiagnostics, "none");
+    }
+}
+
 ChunkPreloadInfo ChunksGetPreloadInfo(void)
 {
     ChunkPreloadInfo info = {
