@@ -364,6 +364,10 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.audit_complete` | bool | No stream audit or stream wait is active |
 | `stream.chunks.status` | string | `valid` when the copied chunk snapshot is available, otherwise `unavailable` |
 | `stream.chunks.capture_sequence` | number | Monotonic chunk-module snapshot sequence for the current process |
+| `stream.chunks.capture_id` | number | Shared diagnostics observation ID for the current snapshot |
+| `stream.chunks.frame_id` | number | Game frame associated with the current snapshot, or `0` when unavailable |
+| `stream.chunks.simulation_tick` | number | Simulation tick associated with the current snapshot, or `0` when unavailable |
+| `stream.chunks.world_generation` | number | World context generation associated with the current snapshot, or `0` when unavailable |
 | `stream.chunks.blocked_reason` | string | Latest scheduler explanation such as `generation_pending`, `mesh_pending`, or `upload_budget_exhausted` |
 | `stream.chunks.active_chunks` | number | Active chunks copied into the current snapshot |
 | `stream.chunks.pending_generation_jobs`, `stream.chunks.pending_mesh_jobs` | number | Generation and mesh jobs observed in the current snapshot |
@@ -513,6 +517,12 @@ These are the commonly used command forms. Commands are dispatched through the
 same debug control implementation used by the test harness, so a command can
 also be rejected by the current game state (for example, `teleport` before
 `start`). A rejected or failed command aborts the current DSL block.
+
+Chunk diagnostic fields are captured once for a DSL observation point and
+reused by all assertions in that point. A successful debug command invalidates
+the cached snapshot, so the next diagnostic query observes the post-command
+state. The `stream.chunks.*_id` fields identify the observation's frame,
+simulation tick, and world context.
 
 ### Session, rendering, and world
 

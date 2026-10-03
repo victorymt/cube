@@ -113,6 +113,14 @@ static bool ScreenshotWriteChunkDiagnostics(
                           diagnostics->status));
     CHUNK_REPORT_LINE("chunks.capture_sequence=%" PRIu64 "\n",
                       diagnostics->captureSequence);
+    CHUNK_REPORT_LINE("chunks.capture_id=%" PRIu64 "\n",
+                      diagnostics->identity.captureId);
+    CHUNK_REPORT_LINE("chunks.frame_id=%" PRIu64 "\n",
+                      diagnostics->identity.frameId);
+    CHUNK_REPORT_LINE("chunks.simulation_tick=%" PRIu64 "\n",
+                      diagnostics->identity.simulationTick);
+    CHUNK_REPORT_LINE("chunks.world_generation=%" PRIu64 "\n",
+                      diagnostics->identity.worldGeneration);
     CHUNK_REPORT_LINE("chunks.blocked_reason=%s\n",
                       ScreenshotText(diagnostics->blockedReason));
     CHUNK_REPORT_LINE("chunks.active_chunks=%d\n", diagnostics->activeChunks);

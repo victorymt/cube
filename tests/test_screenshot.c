@@ -103,6 +103,12 @@ static void TestDebugReport(void)
         },
         .chunks = {
             .status = CHUNK_DIAGNOSTICS_VALID,
+            .identity = {
+                .captureId = 11u,
+                .frameId = 77u,
+                .simulationTick = 123u,
+                .worldGeneration = 5u
+            },
             .captureSequence = 9u,
             .activeChunks = 81,
             .pendingGenerationJobs = 2,
@@ -366,6 +372,10 @@ static void TestDebugReport(void)
     assert(strstr(contents, "capture.world_generation=5\n"));
     assert(strstr(contents, "chunks.status=valid\n"));
     assert(strstr(contents, "chunks.capture_sequence=9\n"));
+    assert(strstr(contents, "chunks.capture_id=11\n"));
+    assert(strstr(contents, "chunks.frame_id=77\n"));
+    assert(strstr(contents, "chunks.simulation_tick=123\n"));
+    assert(strstr(contents, "chunks.world_generation=5\n"));
     assert(strstr(contents, "chunks.blocked_reason=mesh_pending\n"));
     assert(strstr(contents, "chunks.pending_mesh_jobs=3\n"));
     assert(strstr(contents, "chunks.mesh_completed=456\n"));

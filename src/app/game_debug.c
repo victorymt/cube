@@ -1246,7 +1246,12 @@ static GameDebugDispatchResult GameDispatchDebugCommandValue(
     if (result == GAME_DEBUG_DISPATCH_UNHANDLED &&
         GameDebugFloraDispatch(game, command)) result = GAME_DEBUG_DISPATCH_HANDLED;
     if (result == GAME_DEBUG_DISPATCH_HANDLED && game->debugCommandFailed) {
+        game->debugChunkDiagnosticsValid = false;
         return GAME_DEBUG_DISPATCH_ERROR;
+    }
+    if (result == GAME_DEBUG_DISPATCH_HANDLED ||
+        result == GAME_DEBUG_DISPATCH_START) {
+        game->debugChunkDiagnosticsValid = false;
     }
     return result;
 }
@@ -1284,7 +1289,10 @@ static const ChunkDiagnostics *GameDebugDslChunkDiagnostics(
     if (!game) return NULL;
     if (!game->debugChunkDiagnosticsValid ||
         game->debugChunkDiagnosticsFrame != game->debugFrame) {
-        ChunksCaptureDetailedDiagnostics(&game->debugChunkDiagnostics);
+        DiagnosticsCaptureIdentity identity =
+            GameRuntimeCaptureDiagnosticsIdentity(game);
+        ChunksCaptureDetailedDiagnosticsAt(
+            &game->debugChunkDiagnostics, &identity);
         game->debugChunkDiagnosticsFrame = game->debugFrame;
         game->debugChunkDiagnosticsValid = true;
     }
@@ -1579,6 +1587,22 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
         if (!strcmp(field, "capture_sequence")) {
             return GameDebugDslNumber(
                 outValue, (double)chunkDiagnostics->captureSequence);
+        }
+        if (!strcmp(field, "capture_id")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->identity.captureId);
+        }
+        if (!strcmp(field, "frame_id")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->identity.frameId);
+        }
+        if (!strcmp(field, "simulation_tick")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->identity.simulationTick);
+        }
+        if (!strcmp(field, "world_generation")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->identity.worldGeneration);
         }
         if (!strcmp(field, "blocked_reason")) {
             return GameDebugDslString(outValue,

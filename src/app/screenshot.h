@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <time.h>
 
+#include "core/diagnostics.h"
 #include "world/chunks.h"
 
 #define SCREENSHOT_DIRECTORY "screenshots"
@@ -244,12 +245,7 @@ typedef struct ScreenshotUiDebugInfo {
     bool landingTransitionActive;
 } ScreenshotUiDebugInfo;
 
-typedef struct ScreenshotCaptureIdentity {
-    uint64_t captureId;
-    uint64_t frameId;
-    uint64_t simulationTick;
-    uint64_t worldGeneration;
-} ScreenshotCaptureIdentity;
+typedef DiagnosticsCaptureIdentity ScreenshotCaptureIdentity;
 
 typedef struct ScreenshotStreamingDebugInfo {
     int activeChunks;

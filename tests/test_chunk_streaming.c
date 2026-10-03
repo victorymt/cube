@@ -403,6 +403,19 @@ static void TestChunkDiagnosticsCaptureIsOwnedAndReadOnly(void)
     assert(pending.pendingGenerationJobs == 1);
     assert(strcmp(pending.blockedReason, "generation_pending") == 0);
 
+    DiagnosticsCaptureIdentity identity = {
+        .captureId = 77u,
+        .frameId = 12u,
+        .simulationTick = 34u,
+        .worldGeneration = 5u
+    };
+    ChunkDiagnostics tagged = { 0 };
+    ChunksCaptureDiagnosticsAt(&tagged, &identity);
+    assert(tagged.identity.captureId == 77u);
+    assert(tagged.identity.frameId == 12u);
+    assert(tagged.identity.simulationTick == 34u);
+    assert(tagged.identity.worldGeneration == 5u);
+
     ChunksTestResetScheduler();
     assert(pending.pendingGenerationJobs == 1);
     assert(strcmp(pending.blockedReason, "generation_pending") == 0);

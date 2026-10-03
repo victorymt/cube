@@ -3,6 +3,7 @@
 
 #include "core/render_resources.h"
 #include "core/perf_metrics.h"
+#include "core/diagnostics.h"
 #include "world/world_types.h"
 
 enum {
@@ -96,7 +97,9 @@ typedef struct ChunkPreloadInfo {
  * its scalar data; callers may keep it after the scheduler changes or the
  * current world is unloaded.  `streaming` remains the legacy cumulative
  * counter set used by performance reporting, while the other fields describe
- * the state observed at this capture point.
+ * the state observed at this capture point.  `identity` is supplied by the
+ * application observation point; the legacy `captureSequence` remains local
+ * to the chunk scheduler.
  */
 #define CHUNK_DIAGNOSTICS_REASON_CAPACITY 64
 
@@ -107,6 +110,7 @@ typedef enum ChunkDiagnosticsStatus {
 
 typedef struct ChunkDiagnostics {
     ChunkDiagnosticsStatus status;
+    DiagnosticsCaptureIdentity identity;
     uint64_t captureSequence;
     ChunkStreamingStats streaming;
     ChunkPreloadInfo preload;
@@ -222,6 +226,13 @@ void ChunksResetStreamingStats(void);
 ChunkStreamingStats ChunksGetStreamingStats(void);
 void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics);
 void ChunksCaptureDetailedDiagnostics(ChunkDiagnostics *outDiagnostics);
+/* The `At` variants attach a caller-owned observation identity by value. */
+void ChunksCaptureDiagnosticsAt(
+    ChunkDiagnostics *outDiagnostics,
+    const DiagnosticsCaptureIdentity *identity);
+void ChunksCaptureDetailedDiagnosticsAt(
+    ChunkDiagnostics *outDiagnostics,
+    const DiagnosticsCaptureIdentity *identity);
 const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status);
 /* Streaming diagnostics are main-thread-only snapshots. */
 ChunkPreloadInfo ChunksGetPreloadInfo(void);

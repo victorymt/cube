@@ -63,13 +63,15 @@ static bool GamePluginWorldSnapshot(
 static bool GamePluginStreamSnapshot(
     void *userData, VoxelcraftPluginStreamSnapshot *outSnapshot)
 {
-    (void)userData;
+    GameRuntime *game = userData;
     if (!outSnapshot || outSnapshot->struct_size <
                             sizeof(VoxelcraftPluginStreamSnapshot)) {
         return false;
     }
+    DiagnosticsCaptureIdentity identity =
+        GameRuntimeCaptureDiagnosticsIdentity(game);
     ChunkDiagnostics diagnostics = { 0 };
-    ChunksCaptureDiagnostics(&diagnostics);
+    ChunksCaptureDiagnosticsAt(&diagnostics, &identity);
     ChunkStreamingStats stats = diagnostics.streaming;
     ChunkPreloadInfo preload = diagnostics.preload;
     outSnapshot->surface_active = WorldIsSurfaceActive();

@@ -1021,7 +1021,8 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                   float seasonProgress,
                   const WeatherVisualState *weatherVisual,
                   const BathymetrySample *bathymetry,
-                  const HudFrameState *hud)
+                  const HudFrameState *hud,
+                  const DiagnosticsCaptureIdentity *diagnosticsIdentity)
 {
     if (!hud) return;
     int screenWidth = GetScreenWidth();
@@ -1062,7 +1063,7 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
              x, y, fs, Fade(WHITE, 0.85f)); y += line;
     UiDrawText(TextFormat("FPS %d   frame %.2f ms", GetFPS(), GetFrameTime() * 1000.0f), x, y, fs, Fade(WHITE, 0.85f)); y += line;
     ChunkDiagnostics chunkDiagnostics = { 0 };
-    ChunksCaptureDiagnostics(&chunkDiagnostics);
+    ChunksCaptureDiagnosticsAt(&chunkDiagnostics, diagnosticsIdentity);
     UiDrawText(TextFormat("Chunks loaded %d   gen queue %d   mesh queue %d",
                         chunkDiagnostics.activeChunks,
                         chunkDiagnostics.pendingGenerationJobs,

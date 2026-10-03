@@ -2,6 +2,7 @@
 #define VOXELCRAFT_GAME_RUNTIME_H
 
 #include "core/debug_control.h"
+#include "core/diagnostics.h"
 #include "core/debug_dsl.h"
 #include "core/debug_dsl_stdin.h"
 #include "core/plugin.h"
@@ -88,7 +89,7 @@ typedef struct GameRuntime {
   unsigned scriptedShipInputFrames;
   uint64_t debugFrame;
   uint64_t simulationTick;
-  uint64_t screenshotCaptureSequence;
+  uint64_t diagnosticsCaptureSequence;
   ChunkDiagnostics debugChunkDiagnostics;
   uint64_t debugChunkDiagnosticsFrame;
   bool debugChunkDiagnosticsValid;
@@ -186,5 +187,7 @@ typedef struct GameRuntime {
 
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv);
 void GameRuntimeApplyPendingChunkWorkerReconfigure(GameRuntime *runtime);
+DiagnosticsCaptureIdentity GameRuntimeCaptureDiagnosticsIdentity(
+    GameRuntime *runtime);
 
 #endif

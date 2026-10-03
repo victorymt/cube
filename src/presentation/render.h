@@ -11,6 +11,7 @@
 #include "presentation/environment_presentation.h"
 #include "presentation/planet_renderer.h"
 #include "world/terrain.h"
+#include "core/diagnostics.h"
 
 #include <stdint.h>
 
@@ -198,7 +199,8 @@ void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight
                   float seasonProgress,
                   const WeatherVisualState *weatherVisual,
                   const BathymetrySample *bathymetry,
-                  const HudFrameState *hud);
+                  const HudFrameState *hud,
+                  const DiagnosticsCaptureIdentity *diagnosticsIdentity);
 void DrawShipHud(const ShipHudState *hud);
 void DrawShipLocator(const Camera3D *camera, const ShipLocatorTarget *target);
 void DrawMapNavigation(Vector3 playerPosition, float playerYaw);

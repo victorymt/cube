@@ -55,9 +55,10 @@ void GameCaptureScreenshot(GameRuntime *game,
         char screenshotPath[512];
         char debugReportPath[512];
         time_t screenshotTime = time(NULL);
-        game->screenshotCaptureSequence++;
+        DiagnosticsCaptureIdentity identity =
+            GameRuntimeCaptureDiagnosticsIdentity(game);
         ChunkDiagnostics chunkDiagnostics = { 0 };
-        ChunksCaptureDetailedDiagnostics(&chunkDiagnostics);
+        ChunksCaptureDetailedDiagnosticsAt(&chunkDiagnostics, &identity);
         ChunkWaterRenderDebugInfo screenshotWaterRender = { 0 };
         ChunksGetWaterRenderDebugInfo(game->player.position,
                                       &screenshotWaterRender);
@@ -98,12 +99,7 @@ void GameCaptureScreenshot(GameRuntime *game,
         int screenshotMissingSurfaceChunks =
             PlayerMissingSurfaceChunkCount(game->player.position);
         ScreenshotDebugInfo debugInfo = {
-            .identity = {
-                .captureId = game->screenshotCaptureSequence,
-                .frameId = game->debugFrame,
-                .simulationTick = game->simulationTick,
-                .worldGeneration = WorldCurrentGeneration()
-            },
+            .identity = identity,
             .chunks = chunkDiagnostics,
             .world = {
                 .seed = PlanetWorldIsActive() ? PlanetWorldSeed() :

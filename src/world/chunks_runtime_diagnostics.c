@@ -21,7 +21,8 @@ const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status)
 }
 
 static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
-                                    bool includeLod)
+                                    bool includeLod,
+                                    const DiagnosticsCaptureIdentity *identity)
 {
     if (!outDiagnostics) return;
     *outDiagnostics = (ChunkDiagnostics){
@@ -31,6 +32,11 @@ static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
     pthread_mutex_lock(&genMutex);
     outDiagnostics->status = CHUNK_DIAGNOSTICS_VALID;
     outDiagnostics->captureSequence = ++chunkDiagnosticsCaptureSequence;
+    outDiagnostics->identity = identity
+        ? *identity
+        : (DiagnosticsCaptureIdentity){
+            .captureId = outDiagnostics->captureSequence
+        };
     outDiagnostics->streaming = streamingStats;
     outDiagnostics->renderDistance = renderDistanceChunks;
     outDiagnostics->focusChunkX = chunkStreamingFocus.currentCx;
@@ -108,12 +114,26 @@ static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
 
 void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics)
 {
-    CaptureChunkDiagnostics(outDiagnostics, false);
+    ChunksCaptureDiagnosticsAt(outDiagnostics, NULL);
 }
 
 void ChunksCaptureDetailedDiagnostics(ChunkDiagnostics *outDiagnostics)
 {
-    CaptureChunkDiagnostics(outDiagnostics, true);
+    ChunksCaptureDetailedDiagnosticsAt(outDiagnostics, NULL);
+}
+
+void ChunksCaptureDiagnosticsAt(
+    ChunkDiagnostics *outDiagnostics,
+    const DiagnosticsCaptureIdentity *identity)
+{
+    CaptureChunkDiagnostics(outDiagnostics, false, identity);
+}
+
+void ChunksCaptureDetailedDiagnosticsAt(
+    ChunkDiagnostics *outDiagnostics,
+    const DiagnosticsCaptureIdentity *identity)
+{
+    CaptureChunkDiagnostics(outDiagnostics, true, identity);
 }
 
 ChunkPreloadInfo ChunksGetPreloadInfo(void)

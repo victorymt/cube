@@ -3,6 +3,7 @@
 #include "core/game_notice.h"
 #include "gameplay/player.h"
 #include "world/chunks.h"
+#include "world/world_surface_snapshot.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -21,6 +22,22 @@ static bool CommandLineHasFlag(int argc, char **argv, const char *flag) {
       return true;
   }
   return false;
+}
+
+DiagnosticsCaptureIdentity GameRuntimeCaptureDiagnosticsIdentity(
+    GameRuntime *runtime)
+{
+  if (!runtime) return (DiagnosticsCaptureIdentity){ 0 };
+  runtime->diagnosticsCaptureSequence++;
+  if (runtime->diagnosticsCaptureSequence == 0u) {
+    runtime->diagnosticsCaptureSequence = 1u;
+  }
+  return (DiagnosticsCaptureIdentity){
+      .captureId = runtime->diagnosticsCaptureSequence,
+      .frameId = runtime->debugFrame,
+      .simulationTick = runtime->simulationTick,
+      .worldGeneration = WorldCurrentGeneration()
+  };
 }
 
 static bool ParsePluginDirectoryArgs(int argc, char **argv, char *path,

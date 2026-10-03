@@ -1035,11 +1035,13 @@ static void GameRenderHud(GameRuntime *game, const GameFrameView *frame,
             .spaceEditCount = GetSpaceEditCount(),
             .autoSaveEnabled = game->autoSaveEnabled
         };
+        DiagnosticsCaptureIdentity diagnosticsIdentity =
+            GameRuntimeCaptureDiagnosticsIdentity(game);
         DrawDebugHUD(game->player.position, game->player.yaw,
                      game->player.pitch, frame->daylight,
                      &frame->planetLight, &frame->planetObservation,
                      frame->planetSeasonProgress, &frame->weatherVisual,
-                     &frame->bathymetry, &hud);
+                     &frame->bathymetry, &hud, &diagnosticsIdentity);
     }
 }
 
