@@ -1,6 +1,7 @@
 #include "presentation/render.h"
 #include "presentation/render_dependencies.h"
 #include "presentation/render_internal.h"
+#include "presentation/surface_render_transform.h"
 
 #include "core/simulation_time.h"
 
@@ -104,17 +105,8 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
     if (!worldFrameDrawSurfaceChunks) return;
 
     const Chunk *surfaceChunks = ChunksView();
-    float referenceX = camera->position.x;
-    float referenceZ = camera->position.z;
     int mapOriginX = WorldSurfaceMapOriginX();
     int mapOriginZ = WorldSurfaceMapOriginZ();
-    Vector2 referenceMap = {
-        (float)mapOriginX + referenceX,
-        (float)mapOriginZ + referenceZ
-    };
-    Vector3 referenceOrigin = {
-        referenceX, 0.0f, referenceZ
-    };
     float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
     float radius = sqrtf(half * half * 3.0f);
     int stableOrder = 0;
@@ -125,22 +117,12 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
             chunk, worldFrameCameraCx, worldFrameCameraCz) <=
             worldFrameEffectiveRenderDistance;
         if (!distanceVisible) continue;
-        Vector2 patchMap = {
-            (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
-            (float)(mapOriginZ + chunk->cz * CHUNK_SIZE)
-        };
         for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
              sectionIndex++) {
             const ChunkSection *section = chunk->sections[sectionIndex];
             int sectionY = section->sectionY;
-            int radialBase = sectionY * SURFACE_SECTION_HEIGHT;
-            Matrix transform = chunk->spherical
-                ? SurfacePatchTransformAtMap(
-                    chunk->surfaceAddress.bodyId, referenceMap,
-                    referenceOrigin, patchMap, radialBase)
-                : MatrixTranslate((float)(chunk->cx * CHUNK_SIZE),
-                                  (float)radialBase,
-                                  (float)(chunk->cz * CHUNK_SIZE));
+            Matrix transform = SurfaceChunkRenderTransform(
+                chunk, sectionY, camera->position, mapOriginX, mapOriginZ);
             Vector3 center = Vector3Transform(
                 (Vector3){ (float)CHUNK_SIZE * 0.5f,
                            (float)SURFACE_SECTION_HEIGHT * 0.5f,
@@ -389,15 +371,8 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
     if (!WorldRendererBeginShadow(camera, lighting)) return;
     if (worldFrameDrawSurfaceChunks) {
         const Chunk *surfaceChunks = ChunksView();
-        float referenceX = camera->position.x;
-        float referenceZ = camera->position.z;
         int mapOriginX = WorldSurfaceMapOriginX();
         int mapOriginZ = WorldSurfaceMapOriginZ();
-        Vector2 referenceMap = {
-            (float)mapOriginX + referenceX,
-            (float)mapOriginZ + referenceZ
-        };
-        Vector3 referenceOrigin = { referenceX, 0.0f, referenceZ };
         float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
         float radius = sqrtf(half * half * 3.0f);
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
@@ -408,21 +383,11 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                     worldFrameShadowChunkRadius) {
                 continue;
             }
-            Vector2 patchMap = {
-                (float)(mapOriginX + chunk->cx * CHUNK_SIZE),
-                (float)(mapOriginZ + chunk->cz * CHUNK_SIZE)
-            };
             for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
                  sectionIndex++) {
                 const ChunkSection *section = chunk->sections[sectionIndex];
-                int radialBase = section->sectionY * SURFACE_SECTION_HEIGHT;
-                Matrix transform = chunk->spherical
-                    ? SurfacePatchTransformAtMap(
-                          chunk->surfaceAddress.bodyId, referenceMap,
-                          referenceOrigin, patchMap, radialBase)
-                    : MatrixTranslate((float)(chunk->cx * CHUNK_SIZE),
-                                      (float)radialBase,
-                                      (float)(chunk->cz * CHUNK_SIZE));
+                Matrix transform = SurfaceChunkRenderTransform(
+                    chunk, section->sectionY, camera->position, mapOriginX, mapOriginZ);
                 Vector3 center = Vector3Transform(
                     (Vector3){ (float)CHUNK_SIZE * 0.5f,
                                (float)SURFACE_SECTION_HEIGHT * 0.5f,

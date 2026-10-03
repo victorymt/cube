@@ -2,6 +2,7 @@
 #include "app/game_internal.h"
 #include "app/game_debug.h"
 #include "presentation/render_volcano.h"
+#include "presentation/surface_render_transform.h"
 #include "space/planet_surface.h"
 #include "world/volcano_runtime.h"
 #include "world/lava_runtime.h"
@@ -219,8 +220,15 @@ void GameGeologyDraw(const GameRuntime *game, const GameFrameView *frame)
         SurfaceMapOffset offset = SurfaceShortestMapOffset(context.observerMap.x,
             context.observerMap.z, cell.x, cell.z);
         if (hypotf(offset.x, offset.z) > VOLCANO_LEAVE_RADIUS) continue;
-        DrawLavaCell((Vector3){ game->player.position.x + offset.x,
-            (float)cell.y, game->player.position.z + offset.z }, cell.thermal);
+        int cx, cz, lx, lz;
+        WorldToChunkLocal(cell.x - s.originX, cell.z - s.originZ, &cx, &cz, &lx, &lz);
+        const Chunk *chunk = FindChunk(cx, cz);
+        if (!chunk || !chunk->loaded) continue;
+        Matrix transform = SurfaceChunkRenderTransform(chunk, SurfaceSectionYFromBlockY(cell.y),
+            game->camera.position, s.originX, s.originZ);
+        DrawLavaCell(transform,
+            (Vector3){ (float)lx, (float)SurfaceSectionLocalYFromBlockY(cell.y), (float)lz },
+            cell.thermal);
     }
 }
 

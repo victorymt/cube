@@ -1,9 +1,12 @@
 #include "presentation/render_volcano.h"
 #include "raymath.h"
+#include "rlgl.h"
 #include <math.h>
 
-void DrawLavaCell(Vector3 position, LavaThermalState thermal)
+void DrawLavaCell(Matrix sectionTransform, Vector3 position, LavaThermalState thermal)
 {
+    rlPushMatrix();
+    rlMultMatrixf(MatrixToFloat(sectionTransform));
     float solid = (float)(thermal.volume - LavaLiquidVolume(thermal)) / LAVA_CAPACITY;
     float total = (float)thermal.volume / LAVA_CAPACITY;
     if (solid > 0.0f) {
@@ -16,6 +19,7 @@ void DrawLavaCell(Vector3 position, LavaThermalState thermal)
         DrawCube(center, 1.0f, total - solid, 1.0f,
             (Color){ (unsigned char)(190 + hot * 65), (unsigned char)(38 + hot * 85), 12, 255 });
     }
+    rlPopMatrix();
 }
 
 void DrawVolcanoPreviews(const VolcanoVisual *visuals, unsigned count,

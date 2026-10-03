@@ -11,5 +11,6 @@ typedef struct VolcanoVisual {
 /* G1 preview geometry only; no terrain edits, particles or simulation writes. */
 void DrawVolcanoPreviews(const VolcanoVisual *visuals, unsigned count,
                          float windAngle, float windStrength);
-void DrawLavaCell(Vector3 position, LavaThermalState thermal);
+void DrawLavaCell(Matrix sectionTransform, Vector3 sectionPosition,
+                  LavaThermalState thermal);
 #endif

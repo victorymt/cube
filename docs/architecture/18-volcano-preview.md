@@ -85,7 +85,10 @@ voxels so it does not prematurely turn the new overlay into a heat hazard.
 
 Chunk mesh workers and snapshot generation read base voxels only; they never
 read the main-thread lava hash or hide a neighboring full face behind a partial
-overlay. Runtime lava meshes are drawn separately on the main thread. Entity
+overlay. Runtime lava meshes are drawn separately on the main thread. They use
+the same camera-relative section transform as terrain and shadows, including
+spherical rotation and vertical displacement, with cell positions in section
+coordinates. Entity
 path selection still treats an occupied overlay conservatively as lava/rock;
 player/camera collision and immersion use actual partial heights.
 
@@ -98,6 +101,8 @@ player/camera collision and immersion use actual partial heights.
 - `test_lava`: thermal enthalpy, flow order, unknown boundaries, capacity,
   cooling, partial overlays, basalt conversion, inventory debit, conservation,
   checkpoint continuation and corrupt/truncated payload rejection.
+- `test_render_volcano`: solid/liquid layer geometry aligned with terrain at
+  distance, high latitude, longitude wrap, rebased origins and negative sections.
 - `test_block_collection`: failed mutations yield no inventory items; successful
   collection commits the world edit before inventory, and a full inventory
   prevents removal.

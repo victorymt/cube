@@ -174,6 +174,7 @@ $(eval $(call define_test,SUBSURFACE_TEST_TARGET,test_subsurface,src/world/subsu
 $(eval $(call define_benchmark,CHUNK_BENCHMARK_TARGET,benchmark_chunks,src/core/simulation_time.c $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) $(TERRAIN_FEATURE_SRC) src/world/world.c src/ecology/evolution_catalog.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,PERF_TEST_TARGET,test_perf,src/core/perf.c,,-DPERF_TESTING,,-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,RENDER_SORT_TEST_TARGET,test_render_sort,src/presentation/render_sort.c,,,,,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,RENDER_VOLCANO_TEST_TARGET,test_render_volcano,src/presentation/render_volcano.c src/presentation/surface_render_transform.c src/world/surface_topology.c src/world/lava_model.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,RENDER_RESOURCES_TEST_TARGET,test_render_resources,src/core/render_resources.c,,,,,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,RENDER_UI_TEST_TARGET,test_render_ui,src/core/simulation_time.c src/presentation/render_ui.c src/core/game_notice.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SURFACE_GLOBE_TEST_TARGET,test_surface_globe,src/presentation/surface_globe.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
