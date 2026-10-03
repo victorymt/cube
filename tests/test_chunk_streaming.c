@@ -1676,24 +1676,82 @@ static void ConfigureLoadedChunkSquare(int radius)
     }
 }
 
-static void TestPredictivePreloadUsesVelocityAndCurrentCapacity(
-    int radius, int expectedTargetChunks)
+static void TestPredictivePreloadGeometry(void)
+{
+    // These fixtures request a four-chunk shift explicitly. Their expected
+    // counts must not change when the default view distance or ship limit grows.
+    const int preloadDistance = 4;
+    const struct {
+        const char *name;
+        int radius;
+        int offsetX;
+        int offsetZ;
+        int targetChunks;
+    } cases[] = {
+        { "disjoint axial regions", 1, 4, 0, 9 },
+        { "disjoint diagonal regions", 1, 4, 4, 9 },
+        { "first axial overlap", 2, 4, 0, 20 },
+        { "first diagonal overlap", 2, 4, 4, 24 },
+        { "large axial overlap", 10, 4, 0, 84 },
+        { "large diagonal overlap", 10, 4, 4, 152 }
+    };
+    assert(preloadDistance <= CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
+    for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
+        const int radius = cases[index].radius;
+        const int side = radius * 2 + 1;
+        assert(radius >= MIN_RENDER_DISTANCE_CHUNKS);
+        assert(radius <= MAX_RENDER_DISTANCE_CHUNKS);
+        assert(side * side + cases[index].targetChunks <= MAX_ACTIVE_CHUNKS);
+        for (int direction = -1; direction <= 1; direction += 2) {
+            ChunksTestResetScheduler();
+            ConfigureLoadedChunkSquare(radius);
+            const int offsetX = direction * cases[index].offsetX;
+            const int offsetZ = direction * cases[index].offsetZ;
+            UpdateChunks(&(ChunkStreamingRequest){
+                .position = { 0.5f, 80.0f, 0.5f },
+                .velocity = {
+                    offsetX == 0 ? 0.0f : direction * 40.0f,
+                    0.0f,
+                    offsetZ == 0 ? 0.0f : direction * 40.0f
+                },
+                .effectiveRenderDistance = radius,
+                .maxPreloadChunks = preloadDistance
+            });
+
+            ChunkPreloadInfo info = ChunksGetPreloadInfo();
+            if (!info.active || info.offsetX != offsetX ||
+                info.offsetZ != offsetZ ||
+                info.targetChunks != cases[index].targetChunks) {
+                fprintf(stderr, "%s (direction %d): active=%d, "
+                        "offset=(%d,%d), targets=%d; expected (%d,%d), %d\n",
+                        cases[index].name, direction, info.active,
+                        info.offsetX, info.offsetZ, info.targetChunks,
+                        offsetX, offsetZ, cases[index].targetChunks);
+            }
+            assert(info.active);
+            assert(info.offsetX == offsetX);
+            assert(info.offsetZ == offsetZ);
+            assert(info.targetChunks == cases[index].targetChunks);
+        }
+    }
+}
+
+static void TestPredictivePreloadPrioritizesCurrentWork(void)
 {
     ChunksTestResetScheduler();
-    ConfigureLoadedChunkSquare(radius);
+    ConfigureLoadedChunkSquare(MIN_RENDER_DISTANCE_CHUNKS);
 
     UpdateChunks(&(ChunkStreamingRequest){
         .position = { 0.5f, 80.0f, 0.5f },
         .velocity = { 40.0f, 0.0f, 0.0f },
-        .effectiveRenderDistance = radius,
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS,
         .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
     });
 
     ChunkPreloadInfo info = ChunksGetPreloadInfo();
     assert(info.active);
-    assert(info.offsetX == CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
+    assert(info.offsetX > 0);
     assert(info.offsetZ == 0);
-    assert(info.targetChunks == expectedTargetChunks);
     assert(info.loadedChunks == 0);
     assert(info.pendingGenerationJobs == 8);
     for (int index = 0; index < 8; index++) {
@@ -1705,8 +1763,8 @@ static void TestPredictivePreloadUsesVelocityAndCurrentCapacity(
     assert(!ChunksTestGenerationJobPreload(currentJob));
 
     UpdateChunks(&(ChunkStreamingRequest){
-        .position = { 64.5f, 80.0f, 0.5f },
-        .effectiveRenderDistance = radius,
+        .position = { info.offsetX * CHUNK_SIZE + 0.5f, 80.0f, 0.5f },
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS,
         .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
     });
     assert(!ChunksTestGenerationJobPreload(0));
@@ -1782,6 +1840,14 @@ static void TestPreloadSpeedAndDistanceLimits(void)
     assert(!threshold.active);
     assert(threshold.offsetX == 0);
     assert(threshold.offsetZ == 0);
+
+    // A fast request above the public limit must be clamped to that limit.
+    request.velocity = (Vector3){ 1000.0f, 0.0f, 0.0f };
+    UpdateChunks(&request);
+    ChunkPreloadInfo clamped = ChunksGetPreloadInfo();
+    assert(clamped.active);
+    assert(clamped.offsetX == CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
+    assert(clamped.offsetZ == 0);
 }
 
 static void TestSphericalSeamUsesShortestStreamingOffset(void)
@@ -1928,13 +1994,16 @@ static void TestCompletedPreloadColumnBecomesLoadedPreload(void)
 
 static void TestDiagonalPreloadReducesToAvailableCapacity(void)
 {
+    // Fix the requested shift alongside the expected two-chunk result.
+    const int preloadDistance = 4;
+    assert(preloadDistance <= CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
     ChunksTestResetScheduler();
     ConfigureLoadedChunkSquare(MAX_RENDER_DISTANCE_CHUNKS - 1);
     UpdateChunks(&(ChunkStreamingRequest){
         .position = { 0.5f, 80.0f, 0.5f },
         .velocity = { 40.0f, 0.0f, 40.0f },
         .effectiveRenderDistance = MAX_RENDER_DISTANCE_CHUNKS - 1,
-        .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+        .maxPreloadChunks = preloadDistance
     });
     ChunkPreloadInfo info = ChunksGetPreloadInfo();
     assert(info.active);
@@ -1944,50 +2013,84 @@ static void TestDiagonalPreloadReducesToAvailableCapacity(void)
     assert(info.targetChunks + side * side <= MAX_ACTIVE_CHUNKS);
 }
 
-static void TestPredictivePreloadReversesAndStaysWithinCapacity(
-    int radius, int expectedTargetChunks)
+static void TestPredictivePreloadReversesQueuedJobs(void)
 {
     ChunksTestResetScheduler();
-    ConfigureLoadedChunkSquare(radius);
+    ConfigureLoadedChunkSquare(MIN_RENDER_DISTANCE_CHUNKS);
     ChunkStreamingRequest request = {
         .position = { 0.5f, 80.0f, 0.5f },
         .velocity = { 40.0f, 0.0f, 40.0f },
-        .effectiveRenderDistance = radius,
+        .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS,
         .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
     };
     UpdateChunks(&request);
     ChunkPreloadInfo diagonal = ChunksGetPreloadInfo();
-    assert(diagonal.offsetX == CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
-    assert(diagonal.offsetZ == CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
-    assert(diagonal.targetChunks == expectedTargetChunks);
-    const int side = radius * 2 + 1;
-    assert(diagonal.targetChunks + side * side <= MAX_ACTIVE_CHUNKS);
+    assert(diagonal.active);
+    assert(diagonal.offsetX > 0);
+    assert(diagonal.offsetZ == diagonal.offsetX);
+    assert(diagonal.pendingGenerationJobs > 0);
 
+    const uint64_t canceledBefore = ChunksGetStreamingStats().generationCanceled;
     request.velocity = (Vector3){ -40.0f, 0.0f, -40.0f };
     UpdateChunks(&request);
     ChunkPreloadInfo reversed = ChunksGetPreloadInfo();
-    assert(reversed.offsetX == -CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
-    assert(reversed.offsetZ == -CHUNK_PRELOAD_SHIP_MAX_DISTANCE);
-    assert(reversed.targetChunks == expectedTargetChunks);
-    assert(ChunksGetStreamingStats().generationCanceled >= 8);
-    assert(reversed.pendingGenerationJobs == 8);
+    assert(reversed.active);
+    assert(reversed.offsetX == -diagonal.offsetX);
+    assert(reversed.offsetZ == -diagonal.offsetZ);
+    assert(reversed.targetChunks == diagonal.targetChunks);
+    assert(ChunksGetStreamingStats().generationCanceled - canceledBefore >=
+           (uint64_t)diagonal.pendingGenerationJobs);
+    assert(reversed.pendingGenerationJobs == diagonal.pendingGenerationJobs);
+}
 
+static void TestPreloadDisabledAtFullCapacity(void)
+{
     ChunksTestResetScheduler();
     ConfigureLoadedChunkSquare(MAX_RENDER_DISTANCE_CHUNKS);
-    request.velocity = (Vector3){ 40.0f, 0.0f, 40.0f };
-    request.effectiveRenderDistance = MAX_RENDER_DISTANCE_CHUNKS;
-    UpdateChunks(&request);
+    UpdateChunks(&(ChunkStreamingRequest){
+        .position = { 0.5f, 80.0f, 0.5f },
+        .velocity = { 40.0f, 0.0f, 40.0f },
+        .effectiveRenderDistance = MAX_RENDER_DISTANCE_CHUNKS,
+        .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+    });
     ChunkPreloadInfo saturated = ChunksGetPreloadInfo();
     assert(!saturated.active);
     assert(saturated.offsetX == 0);
     assert(saturated.offsetZ == 0);
     assert(saturated.targetChunks == 0);
     assert(saturated.pendingGenerationJobs == 0);
+}
 
-    request.velocity = (Vector3){ NAN, 0.0f, 1.0f };
-    request.effectiveRenderDistance = radius;
-    UpdateChunks(&request);
-    assert(!ChunksGetPreloadInfo().active);
+static void TestPreloadRejectsNonFiniteVelocity(void)
+{
+    const Vector3 invalidVelocities[] = {
+        { NAN, 0.0f, 40.0f },
+        { 40.0f, 0.0f, NAN },
+        { INFINITY, 0.0f, 40.0f },
+        { 40.0f, 0.0f, -INFINITY }
+    };
+    for (size_t index = 0; index < sizeof(invalidVelocities) /
+                                  sizeof(invalidVelocities[0]); index++) {
+        ChunksTestResetScheduler();
+        ConfigureLoadedChunkSquare(MIN_RENDER_DISTANCE_CHUNKS);
+        ChunkStreamingRequest request = {
+            .position = { 0.5f, 80.0f, 0.5f },
+            .velocity = { 40.0f, 0.0f, 40.0f },
+            .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS,
+            .maxPreloadChunks = CHUNK_PRELOAD_SHIP_MAX_DISTANCE
+        };
+        UpdateChunks(&request);
+        assert(ChunksGetPreloadInfo().active);
+
+        request.velocity = invalidVelocities[index];
+        UpdateChunks(&request);
+        ChunkPreloadInfo info = ChunksGetPreloadInfo();
+        assert(!info.active);
+        assert(info.offsetX == 0);
+        assert(info.offsetZ == 0);
+        assert(info.targetChunks == 0);
+        assert(info.pendingGenerationJobs == 0);
+    }
 }
 
 static void TestPreloadJobsYieldToCurrentWork(void)
@@ -2072,15 +2175,11 @@ int main(void)
     TestUploadedMeshSlotCanBeReused();
     TestCompletedPreloadColumnBecomesLoadedPreload();
     TestDiagonalPreloadReducesToAvailableCapacity();
-    // Explicit radii keep the geometry independent of the default setting.
-    // Shifting 3x3 regions by four chunks makes them disjoint; 5x5 and
-    // 21x21 regions still overlap. Check axial and diagonal moves for each.
-    TestPredictivePreloadUsesVelocityAndCurrentCapacity(1, 9);
-    TestPredictivePreloadUsesVelocityAndCurrentCapacity(2, 20);
-    TestPredictivePreloadUsesVelocityAndCurrentCapacity(10, 84);
-    TestPredictivePreloadReversesAndStaysWithinCapacity(1, 9);
-    TestPredictivePreloadReversesAndStaysWithinCapacity(2, 24);
-    TestPredictivePreloadReversesAndStaysWithinCapacity(10, 152);
+    TestPredictivePreloadGeometry();
+    TestPredictivePreloadPrioritizesCurrentWork();
+    TestPredictivePreloadReversesQueuedJobs();
+    TestPreloadDisabledAtFullCapacity();
+    TestPreloadRejectsNonFiniteVelocity();
     TestPreloadJobsYieldToCurrentWork();
     TestWorkerPoolRunsJobsConcurrently();
     ChunksTestResetScheduler();
