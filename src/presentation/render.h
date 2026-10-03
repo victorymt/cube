@@ -155,6 +155,7 @@ bool RenderPlanetsTestGetCloudCacheEntry(int index, Texture2D *texture);
 #endif
 void DrawBodyInfoPanel(const SpaceBodyInfo *body);
 void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
+                float visualDt,
                 const WeatherVisualState *weatherVisual,
                 const EnvironmentPresentationState *presentation,
                 const WorldLightingState *lighting);

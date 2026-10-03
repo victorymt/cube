@@ -33,6 +33,41 @@ typedef struct CloudRenderResources {
 static CloudRenderResources cloudResources = { 0 };
 static WeatherCloudMotionState cloudMotion = { 0 };
 static WeatherCloudTransitionState cloudTransitions = { 0 };
+typedef struct CloudWeatherVisualMotion {
+    bool initialized;
+    float daylight;
+    float storm;
+    float snow;
+    float cloudOpacity;
+} CloudWeatherVisualMotion;
+static CloudWeatherVisualMotion cloudWeatherMotion = { 0 };
+
+static void AdvanceCloudWeatherVisualMotion(
+    CloudWeatherVisualMotion *state, float visualDt,
+    const WeatherVisualState *weather)
+{
+    if (!state || !weather) return;
+    float targetDaylight = Clamp(weather->daylight, 0.0f, 1.0f);
+    float targetStorm = Clamp(weather->stormDarkening, 0.0f, 1.0f);
+    float targetSnow = Clamp(weather->snowFraction, 0.0f, 1.0f);
+    float targetCloudOpacity = Clamp(weather->cloudOpacity, 0.0f, 1.0f);
+    if (!state->initialized) {
+        state->initialized = true;
+        state->daylight = targetDaylight;
+        state->storm = targetStorm;
+        state->snow = targetSnow;
+        state->cloudOpacity = targetCloudOpacity;
+        return;
+    }
+    float elapsed = isfinite(visualDt) && visualDt > 0.0f ?
+        fminf(visualDt, 0.25f) : 1.0f / 60.0f;
+    float blend = 1.0f - expf(-0.35f * elapsed);
+    state->daylight += (targetDaylight - state->daylight) * blend;
+    state->storm += (targetStorm - state->storm) * blend;
+    state->snow += (targetSnow - state->snow) * blend;
+    state->cloudOpacity +=
+        (targetCloudOpacity - state->cloudOpacity) * blend;
+}
 
 void SetCloudModel(Model model)
 {
@@ -432,6 +467,7 @@ void UnloadCloudRenderResources(void)
     cloudResources = (CloudRenderResources){ 0 };
     cloudMotion = (WeatherCloudMotionState){ 0 };
     cloudTransitions = (WeatherCloudTransitionState){ 0 };
+    cloudWeatherMotion = (CloudWeatherVisualMotion){ 0 };
 }
 
 Model LoadCloudModel(void)
@@ -528,6 +564,7 @@ static Color WeatherCloudLayerColor(const WeatherVisualState *visual,
 }
 
 void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
+                float visualDt,
                 const WeatherVisualState *weatherVisual,
                 const EnvironmentPresentationState *presentation,
                 const WorldLightingState *lighting)
@@ -543,8 +580,15 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
                               weatherVisual->windAngle, driftSpeed);
     WeatherCloudRenderLayers renderLayers;
     WeatherCloudTransitionAdvance(&cloudTransitions, weatherVisual,
-                                  simulationTime, &renderLayers);
+                                  simulationTime, visualDt, &renderLayers);
+    AdvanceCloudWeatherVisualMotion(&cloudWeatherMotion, visualDt,
+                                    weatherVisual);
     if (renderLayers.count == 0u) return;
+    WeatherVisualState renderWeather = *weatherVisual;
+    renderWeather.daylight = cloudWeatherMotion.daylight;
+    renderWeather.stormDarkening = cloudWeatherMotion.storm;
+    renderWeather.snowFraction = cloudWeatherMotion.snow;
+    renderWeather.cloudOpacity = cloudWeatherMotion.cloudOpacity;
 
     int gridRadius = 2;
     int raySteps = 12;
@@ -573,11 +617,11 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
         (float)sun.b/255.0f
     };
     float lightStrength = lighting ? Clamp(lighting->directStrength, 0.0f, 2.0f) :
-                                     weatherVisual->daylight;
-    float storm = Clamp(weatherVisual->stormDarkening, 0.0f, 1.0f);
-    float daylight = Clamp(weatherVisual->daylight, 0.0f, 1.0f);
-    float opacityRatio = weatherVisual->cloudOpacity > 0.001f ?
-        presentationOpacity / weatherVisual->cloudOpacity : 1.0f;
+                                     renderWeather.daylight;
+    float storm = Clamp(renderWeather.stormDarkening, 0.0f, 1.0f);
+    float daylight = Clamp(renderWeather.daylight, 0.0f, 1.0f);
+    float opacityRatio = renderWeather.cloudOpacity > 0.001f ?
+        presentationOpacity / renderWeather.cloudOpacity : 1.0f;
     Vector2 windDirection = {
         cloudMotion.directionX, cloudMotion.directionZ
     };
@@ -677,7 +721,7 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
 #undef SET_CLOUD_UNIFORM
 
         Color cloudTint = WeatherCloudLayerColor(
-            weatherVisual, layer->genus, tint);
+            &renderWeather, layer->genus, tint);
         cloudTint.a = tint.a;
         PerfRecordDrawCall(PERF_DRAW_CLOUD);
         DrawModelEx(cloudModel, center, (Vector3){ 0.0f, 1.0f, 0.0f }, 0.0f,

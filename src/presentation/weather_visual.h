@@ -110,7 +110,7 @@ float WeatherCloudVisualDriftSpeed(float windDrift);
 /* Cross-fade cloud genera so classification threshold crossings do not pop. */
 void WeatherCloudTransitionAdvance(WeatherCloudTransitionState *state,
                                    const WeatherVisualState *target,
-                                   double simulationTime,
+                                   double simulationTime, float visualDt,
                                    WeatherCloudRenderLayers *outLayers);
 
 /* Fixed surface datum; a dry world uses the atmosphere's reference Y=12. */

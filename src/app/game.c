@@ -847,7 +847,7 @@ static void GameRenderWorldPass(GameRuntime *game,
         !frame->underwater && frame->weatherVisual.active) {
         DrawClouds(&game->camera,
                    Fade(frame->worldTint, 1.0f - frame->skyFade * 2.0f),
-                   frame->weatherSimulationTime, &frame->weatherVisual,
+                   frame->weatherSimulationTime, frame->dt, &frame->weatherVisual,
                    &frame->environmentPresentation, &frame->worldLighting);
     }
     if (frame->localWorldActive && !frame->inNether && !frame->underwater) {

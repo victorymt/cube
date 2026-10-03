@@ -234,13 +234,15 @@ static void TestCloudGenusTransitionsCrossFade(void)
     WeatherVisualState stratocumulus =
         CloudTransitionTarget(WEATHER_CLOUD_GENUS_STRATOCUMULUS);
 
-    WeatherCloudTransitionAdvance(&transition, &cumulus, 4.0, &layers);
+    WeatherCloudTransitionAdvance(&transition, &cumulus, 4.0, 1.0f / 60.0f,
+                                  &layers);
     assert(layers.count == 1u);
     const WeatherCloudVisualLayer *old = FindRenderedCloudLayer(
         &layers, WEATHER_CLOUD_GENUS_CUMULUS);
     assert(old && fabsf(old->opacity - 0.66f) < 0.000001f);
 
-    WeatherCloudTransitionAdvance(&transition, &stratocumulus, 4.1, &layers);
+    WeatherCloudTransitionAdvance(&transition, &stratocumulus, 4.1,
+                                  1.0f / 60.0f, &layers);
     assert(layers.count == 2u);
     old = FindRenderedCloudLayer(&layers, WEATHER_CLOUD_GENUS_CUMULUS);
     const WeatherCloudVisualLayer *current = FindRenderedCloudLayer(
@@ -249,14 +251,19 @@ static void TestCloudGenusTransitionsCrossFade(void)
     assert(old->opacity < 0.66f && old->opacity > 0.0f);
     assert(current->opacity < 0.66f && current->opacity > 0.0f);
 
-    WeatherCloudTransitionAdvance(&transition, &stratocumulus, 10.0, &layers);
-    assert(layers.count == 1u);
+    for (int frame = 0; frame < 1200; frame++) {
+        WeatherCloudTransitionAdvance(&transition, &stratocumulus,
+                                      4.1 + (double)(frame + 1) / 60.0,
+                                      1.0f / 60.0f,
+                                      &layers);
+    }
     current = FindRenderedCloudLayer(&layers, WEATHER_CLOUD_GENUS_STRATOCUMULUS);
-    assert(current && fabsf(current->opacity - 0.66f) < 0.00001f);
+    assert(current && current->opacity > 0.65f);
 
     WeatherVisualState clear = { .active = true };
-    WeatherCloudTransitionAdvance(&transition, &clear, 10.1, &layers);
-    assert(layers.count == 1u);
+    WeatherCloudTransitionAdvance(&transition, &clear, 24.1 + 1.0 / 60.0,
+                                 1.0f / 60.0f,
+                                 &layers);
     current = FindRenderedCloudLayer(&layers, WEATHER_CLOUD_GENUS_STRATOCUMULUS);
     assert(current && current->opacity < 0.66f);
 }
@@ -272,8 +279,10 @@ static void TestCloudLayerParametersFollowSmoothly(void)
     high.cloudLayers[0].thickness = 42.0f;
     high.cloudLayers[0].noiseScale = 1.8f;
 
-    WeatherCloudTransitionAdvance(&transition, &low, 20.0, &layers);
-    WeatherCloudTransitionAdvance(&transition, &high, 20.1, &layers);
+    WeatherCloudTransitionAdvance(&transition, &low, 20.0, 1.0f / 60.0f,
+                                  &layers);
+    WeatherCloudTransitionAdvance(&transition, &high, 20.1, 1.0f / 60.0f,
+                                  &layers);
     assert(layers.count == 1u);
     const WeatherCloudVisualLayer *layer = FindRenderedCloudLayer(
         &layers, WEATHER_CLOUD_GENUS_CUMULUS);

@@ -2,6 +2,8 @@
 
 #include <math.h>
 
+#define WEATHER_CLOUD_TRANSITION_RATE 0.35f
+
 static float WeatherVisualClamp(float value)
 {
     if (!isfinite(value) || value < 0.0f) return 0.0f;
@@ -89,7 +91,7 @@ static void WeatherCloudTransitionFade(WeatherCloudTransitionSlot *slot,
                                        float elapsed)
 {
     if (!slot || elapsed <= 0.0f) return;
-    float fade = expf(-1.20f * elapsed);
+    float fade = expf(-WEATHER_CLOUD_TRANSITION_RATE * elapsed);
     if (slot->primaryActive) {
         slot->primaryWeight = 1.0f - (1.0f - slot->primaryWeight) * fade;
     }
@@ -200,7 +202,7 @@ static void WeatherCloudRenderLayersAdd(WeatherCloudRenderLayers *layers,
 
 void WeatherCloudTransitionAdvance(WeatherCloudTransitionState *state,
                                    const WeatherVisualState *target,
-                                   double simulationTime,
+                                   double simulationTime, float visualDt,
                                    WeatherCloudRenderLayers *outLayers)
 {
     if (!outLayers) return;
@@ -230,16 +232,10 @@ void WeatherCloudTransitionAdvance(WeatherCloudTransitionState *state,
         }
     }
 
-    bool immediate = !state->initialized;
-    float elapsed = 0.0f;
-    if (!immediate) {
-        double elapsedTime = simulationTime - state->lastSimulationTime;
-        if (!(elapsedTime > 0.0) || elapsedTime > 1.0) {
-            immediate = true;
-        } else {
-            elapsed = (float)elapsedTime;
-        }
-    }
+    bool immediate = !state->initialized ||
+        simulationTime < state->lastSimulationTime;
+    float elapsed = isfinite(visualDt) && visualDt > 0.0f ?
+        fminf(visualDt, 0.25f) : 1.0f / 60.0f;
     if (immediate) {
         *state = (WeatherCloudTransitionState){
             .initialized = true,
@@ -250,7 +246,7 @@ void WeatherCloudTransitionAdvance(WeatherCloudTransitionState *state,
          band++) {
         WeatherCloudTransitionSlot *slot = &state->slots[band];
         float layerBlend = immediate ? 1.0f :
-            1.0f - expf(-1.20f * elapsed);
+            1.0f - expf(-WEATHER_CLOUD_TRANSITION_RATE * elapsed);
         WeatherCloudTransitionSetTarget(slot, targets[band], immediate,
                                         layerBlend);
         WeatherCloudTransitionFade(slot, elapsed);
