@@ -77,7 +77,7 @@ not subsequent player edits or simulated fluid levels.
 landform find river 4096
 assert landform.found
 let river = landform.position
-teleport $river.x $river.y $river.z 0 -0.6
+teleport ${river.x} ${river.y} ${river.z} 0 -0.6
 landform inspect
 ```
 

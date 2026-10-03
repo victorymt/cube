@@ -20,7 +20,7 @@ static LandformBaseline HomeBaseline(Vector3 direction, void *user)
     float elevation = TerrainHomeBaselineElevation(seed, x, z, &sample);
     // A fixed climatology proxy, never the live hydrology/weather feedback.
     float latitude = fabsf(direction.y);
-    float rain = 0.65f - 0.30f * expf(-powf((latitude - .45f) / .19f, 2));
+    float rain = 0.65f - 0.56f * expf(-powf((latitude - .45f) / .19f, 2));
     return (LandformBaseline){ elevation, rain, .25f + .6f * sample.ridge };
 }
 

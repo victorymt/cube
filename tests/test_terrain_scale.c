@@ -1574,6 +1574,65 @@ static void TestTerrainSectionExposureClassification(void)
     terrainSeed = DEFAULT_WORLD_SEED;
 }
 
+static void TestVersion7Landforms(void)
+{
+    terrainSeed = DEFAULT_WORLD_SEED;
+    assert(TerrainGenerationSetVersion(7));
+    assert(LandformRuntimePrepare(terrainSeed, 7, true));
+    const LandformAtlas *atlas = LandformRuntimeAtlas();
+    assert(atlas && atlas->rivers > 0);
+    unsigned dryClimate = 0, rivers = 0, lakes = 0;
+    SurfaceMapCell river = { 0 };
+    for (uint32_t i = 0; i < LANDFORM_CELL_COUNT; i++) {
+        dryClimate += atlas->cells[i].runoff < .18f;
+        if (i % 7) continue;
+        SurfaceMapCell cell;
+        if (!SurfaceAddressCanonicalMapCell(SurfaceAddressFromDirection(
+                0, atlas->cells[i].direction, 0), &cell)) continue;
+        SurfaceTerrainSample sample = SurfaceTerrainAt(cell.x, cell.z, TERRAIN_VARIED);
+        assert(TerrainHeight(cell.x, cell.z, TERRAIN_VARIED) == (int)lroundf(sample.elevation));
+        if (sample.landform.hasWater) {
+            int bottom = (int)lroundf(sample.elevation);
+            int top = (int)floorf(sample.landform.waterLevel);
+            assert(top > bottom);
+            assert(TerrainBaseBlockAt(cell.x, top, cell.z, TERRAIN_VARIED) == BLOCK_WATER);
+            BlockType bed = TerrainBaseBlockAt(cell.x, bottom, cell.z, TERRAIN_VARIED);
+            assert(bed != BLOCK_AIR && bed != BLOCK_WATER);
+        }
+        if (sample.landform.kind == LANDFORM_RIVER) { rivers++; river = cell; }
+        if (sample.landform.kind == LANDFORM_LAKE) lakes++;
+    }
+    assert(dryClimate && rivers && lakes);
+    SurfaceTerrainSample expected = SurfaceTerrainAt(river.x, river.z, TERRAIN_VARIED);
+    SurfaceTerrainSample alias = SurfaceTerrainAt(river.x + SURFACE_EQUATOR_BLOCKS, river.z, TERRAIN_VARIED);
+    assert(fabsf(alias.elevation - expected.elevation) < .001f);
+    assert(alias.landform.kind == expected.landform.kind);
+    int cx, cz, lx, lz;
+    WorldToChunkLocal(river.x, river.z, &cx, &cz, &lx, &lz);
+    Chunk chunk = { 0 };
+    int waterY = (int)floorf(expected.landform.waterLevel);
+    assert(GenerateChunkTerrainSectionBase(&chunk, cx, cz, SurfaceSectionYFromBlockY(waterY), TERRAIN_VARIED));
+    assert(ChunkGetLocalBlock(&chunk, lx, waterY, lz) == BLOCK_WATER);
+    ChunkClearBlockStorage(&chunk);
+    // Evict the atlas, reconstruct, and verify the generated column is unchanged.
+    assert(LandformRuntimePrepare(7123, 7, true));
+    assert(LandformRuntimeAtlas() == NULL); // seed is still DEFAULT_WORLD_SEED
+    assert(LandformRuntimePrepare(991, 7, true));
+    assert(LandformRuntimePrepare(terrainSeed, 7, true));
+    SurfaceTerrainSample rebuilt = SurfaceTerrainAt(river.x, river.z, TERRAIN_VARIED);
+    assert(!memcmp(&expected.landform, &rebuilt.landform, sizeof(LandformSample)));
+    assert(SurfaceTerrainAt(river.x, river.z, TERRAIN_FLAT).elevation == 8);
+    assert(LandformRuntimePrepare(terrainSeed, 7, false));
+    assert(!LandformRuntimeAtlas());
+    assert(TerrainGenerationSetVersion(6));
+    assert(LandformRuntimePrepare(terrainSeed, 6, true));
+    assert(!LandformRuntimeAtlas());
+    assert(TerrainHeight(river.x, river.z, TERRAIN_VARIED) ==
+        (int)lroundf(TerrainHomeBaselineElevation(terrainSeed, river.x, river.z, NULL)));
+    LandformRuntimeReset();
+    printf("v7 landforms: %u dry climate cells, %u river and %u lake samples\n", dryClimate, rivers, lakes);
+}
+
 int main(void)
 {
     TerrainGenerationSetVersion(6);
@@ -1617,6 +1676,7 @@ int main(void)
     TestTerrainStructureBaselines();
     TestPlanetChunkDeterministicBaselines();
     TestGeneratedChunkDirtyMeshRebuildFixture();
+    TestVersion7Landforms();
     puts("terrain scale tests passed");
     return 0;
 }

@@ -209,7 +209,61 @@ const char *LandformKindName(LandformKind kind)
 {
     static const char *names[] = { "upland", "river", "dry_channel", "lake",
         "wetland", "floodplain", "fan" };
-    return kind <= LANDFORM_FAN ? names[kind] : "unknown";
+    return (unsigned)kind <= LANDFORM_FAN ? names[kind] : "unknown";
+}
+
+static float SmoothWeight(float value)
+{
+    value = Clamp(value, 0, 1);
+    return value * value * (3 - 2 * value);
+}
+
+static float ChannelDepth(const LandformCell *cell)
+{
+    return Clamp(1.5f + sqrtf(cell->area) * .003f, 2, 4);
+}
+
+// Static geological deposits. Candidates must have sediment supply, a steep
+// confined approach and a flatter receiving reach in the same drainage basin.
+static void SampleFan(const LandformAtlas *a, uint32_t id, Vector3 p,
+                      float base, uint32_t watershed, LandformSample *deposit)
+{
+    const LandformCell *c = &a->cells[id];
+    if (c->width == 0 || c->downstream == LANDFORM_NONE || c->slope < .06f ||
+        c->discharge < c->localArea * .1f) return;
+    const LandformCell *d = &a->cells[c->downstream];
+    if (d->downstream == LANDFORM_NONE || d->slope > .035f || d->slope > c->slope * .4f ||
+        d->spill - d->elevation > 1.5f || d->elevation <= a->seaLevel ||
+        watershed != d->watershed) return;
+    unsigned banks = 0;
+    for (int e = 0; e < 4; e++)
+        banks += a->cells[LandformNeighbor(id, e)].elevation > c->elevation + 2;
+    if (banks < 2) return;
+    Vector3 axis = Vector3Normalize(Vector3Subtract(d->direction,
+        Vector3Scale(c->direction, Vector3DotProduct(c->direction, d->direction))));
+    // Reproject the incoming direction onto the tangent plane at the outlet.
+    axis = Vector3Normalize(Vector3Subtract(axis,
+        Vector3Scale(d->direction, Vector3DotProduct(axis, d->direction))));
+    Vector3 side = Vector3Normalize(Vector3CrossProduct(d->direction, axis));
+    Vector3 offset = Vector3Scale(Vector3Subtract(p, d->direction), SURFACE_RADIUS_BLOCKS);
+    float along = Vector3DotProduct(offset, axis);
+    float length = fminf(sqrtf(d->localArea) * 1.8f, Clamp(sqrtf(c->area) * .12f, 12, 80));
+    if (along <= 0 || along >= length) return;
+    float t = along / length;
+    float halfWidth = c->width * 1.5f + along * .55f;
+    float across = fabsf(Vector3DotProduct(offset, side)) / halfWidth;
+    if (across >= 1) return;
+    float plane = d->spill - d->slope * along;
+    // Clip against ridges and low basins; never bridge valleys with a fan.
+    if (base > plane + 2 || base < plane - 5) return;
+    float weight = SmoothWeight(t * 5) * SmoothWeight((1 - t) * 2) * SmoothWeight(1 - across);
+    float thickness = (1.0f + (1 - c->hardness) * 3) * weight;
+    if (thickness < .05f || thickness <= deposit->sedimentDepth) return;
+    *deposit = (LandformSample){ .elevation = base + thickness, .kind = LANDFORM_FAN,
+        .watershed = d->watershed, .reach = id, .area = c->area, .slope = d->slope,
+        .channelDistance = 1e6f, .sedimentDepth = thickness, .wetness = .2f,
+        .gravel = Lerp(.7f, .15f, t), .sand = Lerp(.25f, .45f, t),
+        .fines = Lerp(.05f, .4f, t) };
 }
 
 LandformSample LandformSampleAt(const LandformAtlas *a, Vector3 p, float base)
@@ -226,6 +280,7 @@ LandformSample LandformSampleAt(const LandformAtlas *a, Vector3 p, float base)
     SurfaceAddress anchor = CellAddress(center);
     float nearest = 1e6f;
     float channelBed = INFINITY;
+    LandformSample deposit = s;
     float lakeWeight = 0, lakeTotal = 0, lakeLevel = 1e6f;
     for (int v = -3; v <= 3; v++) for (int u = -3; u <= 3; u++) {
         int localU = anchor.u / STEP + u, localV = anchor.v / STEP + v;
@@ -233,6 +288,7 @@ LandformSample LandformSampleAt(const LandformAtlas *a, Vector3 p, float base)
             ? (uint32_t)anchor.face * FACE_CELLS + (uint32_t)localV * N + (uint32_t)localU
             : CellId(SurfaceAddressOffset(anchor, u * STEP, v * STEP, 0));
         const LandformCell *c = &a->cells[id];
+        SampleFan(a, id, p, base, home->watershed, &deposit);
         float pointDistance = Vector3Distance(p, c->direction) * SURFACE_RADIUS_BLOCKS;
         float radius = sqrtf(c->localArea) * 1.5f;
         float w = fmaxf(0, 1.0f - pointDistance / radius);
@@ -254,38 +310,59 @@ LandformSample LandformSampleAt(const LandformAtlas *a, Vector3 p, float base)
         // A shared confluence vertex has one spill height. All incident
         // reaches interpolate that same value, independent of chunk order.
         float level = Lerp(c->spill, d->spill, t);
-        float bed = level - 3.0f;
+        float bed = level - Lerp(ChannelDepth(c), ChannelDepth(d), t);
         if (normalized < 3.0f) {
             float bank = Clamp((normalized - 1.0f) / 2.0f, 0, 1);
             float elevation = Lerp(bed, fmaxf(base, bed), bank * bank * (3 - 2 * bank));
             if (normalized <= 1) channelBed = fminf(channelBed, bed);
             else if (elevation < s.elevation) s.elevation = elevation;
         }
+        if (normalized > 1 && normalized < 5 && c->slope < .025f &&
+            home->watershed == c->watershed && base >= level && base < level + 4) {
+            float weight = SmoothWeight((5 - normalized) / 4) * SmoothWeight((level + 4 - base) / 4);
+            float thickness = 1.5f * weight;
+            if (thickness > deposit.sedimentDepth) {
+                deposit = (LandformSample){ .elevation = base + thickness,
+                    .kind = LANDFORM_FLOODPLAIN, .watershed = c->watershed, .reach = id,
+                    .area = c->area, .slope = c->slope, .channelDistance = distance,
+                    .sedimentDepth = thickness, .wetness = .65f * weight,
+                    .gravel = .1f * (1 - weight), .sand = .3f, .fines = .6f + .1f * weight };
+            }
+        }
         if (normalized < nearest) {
             nearest = normalized;
             s.channelDistance = distance;
             s.reach = id; s.watershed = c->watershed;
             s.area = c->area; s.slope = c->slope;
-            if (normalized <= 1.0f) {
+            if (normalized <= 1) {
                 s.kind = c->discharge / c->area >= .18f ? LANDFORM_RIVER : LANDFORM_DRY_CHANNEL;
                 s.hasWater = s.kind == LANDFORM_RIVER;
-                s.waterLevel = level - 1.0f;
+                s.waterLevel = level;
                 s.wetness = s.hasWater ? 1 : .15f;
                 s.gravel = .7f; s.sand = .25f; s.fines = .05f;
                 s.sedimentDepth = 3;
             }
         }
     }
-    if (isfinite(channelBed)) s.elevation = channelBed;
-    if (lakeTotal > 0 && lakeWeight / lakeTotal > .45f && base < lakeLevel - 1.5f) {
+    if (deposit.kind != LANDFORM_UPLAND && !isfinite(channelBed)) {
+        // Carved banks take precedence over deposition so the outlet stays open.
+        float carved = s.elevation;
+        s = deposit;
+        if (carved < base) s.elevation = carved;
+    }
+    if (isfinite(channelBed)) s.elevation = fminf(base, channelBed);
+    if (lakeTotal > 0 && lakeWeight / lakeTotal > .45f && base < lakeLevel &&
+        (!s.hasWater || lakeLevel <= s.waterLevel)) {
         s.kind = LANDFORM_LAKE;
         s.hasWater = home->runoff > .18f;
-        s.waterLevel = lakeLevel - 1;
+        s.waterLevel = lakeLevel;
         s.wetness = s.hasWater ? 1 : .2f;
         s.gravel = .05f; s.sand = .15f; s.fines = .8f;
         s.sedimentDepth = 4;
     }
-    if (s.hasWater && s.waterLevel - s.elevation < 1) {
+    if (s.hasWater && (int)floorf(s.waterLevel) <= (int)lroundf(s.elevation))
+        s.hasWater = false;
+    if (s.hasWater && s.kind == LANDFORM_LAKE && s.waterLevel - s.elevation < 2.5f) {
         s.kind = LANDFORM_WETLAND;
     }
     return s;
