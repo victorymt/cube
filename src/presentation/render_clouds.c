@@ -535,7 +535,7 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
         return;
     }
 
-    float driftSpeed = 1.2f + weatherVisual->windDrift * 3.6f;
+    float driftSpeed = WeatherCloudVisualDriftSpeed(weatherVisual->windDrift);
     WeatherCloudMotionAdvance(&cloudMotion, simulationTime,
                               weatherVisual->windAngle, driftSpeed);
     if (weatherVisual->cloudCover <= 0.03f) return;

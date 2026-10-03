@@ -186,6 +186,19 @@ static void TestCloudMotionDoesNotReprojectHistory(void)
     assert(old.offsetZ == beforeZ);
 }
 
+static void TestCloudVisualDriftUsesCompressedSkyScale(void)
+{
+    float calm = WeatherCloudVisualDriftSpeed(0.0f);
+    float breezy = WeatherCloudVisualDriftSpeed(0.35f);
+    float strong = WeatherCloudVisualDriftSpeed(1.0f);
+    assert(fabsf(calm - 0.04f) < 0.000001f);
+    assert(breezy > calm);
+    assert(strong > breezy);
+    assert(strong <= 0.22f);
+    assert(WeatherCloudVisualDriftSpeed(-1.0f) == calm);
+    assert(WeatherCloudVisualDriftSpeed(2.0f) == strong);
+}
+
 static void TestCloudAltitudeUsesFixedDatum(void)
 {
     assert(WeatherCloudAltitudeReference(20.0f) == 20.0f);
@@ -302,6 +315,7 @@ int main(void)
     TestSnowAndAtmosphereFallbacks();
     TestCloudVerticalDensity();
     TestCloudMotionDoesNotReprojectHistory();
+    TestCloudVisualDriftUsesCompressedSkyScale();
     TestCloudAltitudeUsesFixedDatum();
     TestLayerSelectionAndProfiles();
     TestAllCloudGenusProfiles();

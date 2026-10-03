@@ -79,6 +79,9 @@ void WeatherCloudMotionAdvance(WeatherCloudMotionState *state,
                                double simulationTime, float windAngle,
                                float driftSpeed);
 
+/* Convert normalized weather wind to the compressed sky's visual drift rate. */
+float WeatherCloudVisualDriftSpeed(float windDrift);
+
 /* Fixed surface datum; a dry world uses the atmosphere's reference Y=12. */
 float WeatherCloudAltitudeReference(float seaLevel);
 

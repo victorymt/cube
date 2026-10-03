@@ -66,6 +66,12 @@ void WeatherCloudMotionAdvance(WeatherCloudMotionState *state,
                       (double)driftSpeed * elapsed;
 }
 
+float WeatherCloudVisualDriftSpeed(float windDrift)
+{
+    /* Horizontal advection follows the compressed render-height scale. */
+    return 0.04f + WeatherVisualClamp(windDrift) * 0.18f;
+}
+
 float WeatherCloudAltitudeReference(float seaLevel)
 {
     return isfinite(seaLevel) && seaLevel >= 0.0f ? seaLevel : 12.0f;
