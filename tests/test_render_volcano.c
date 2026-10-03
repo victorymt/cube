@@ -7,7 +7,7 @@
 
 static Matrix drawTransform;
 static unsigned depth, draws;
-static Vector3 bottoms[2], tops[2];
+static Vector3 bottoms[4], tops[4];
 void rlPushMatrix(void) { assert(depth++ == 0u); }
 void rlPopMatrix(void) { assert(depth-- == 1u); }
 void rlMultMatrixf(const float *m)
@@ -20,9 +20,9 @@ void rlMultMatrixf(const float *m)
 void DrawCube(Vector3 p, float width, float height, float length, Color color)
 {
     (void)color;
-    assert(depth == 1u && draws < 2u && width == 1.0f && length == 1.0f);
-    bottoms[draws] = Vector3Transform((Vector3){ p.x-0.5f, p.y-height/2, p.z-0.5f }, drawTransform);
-    tops[draws] = Vector3Transform((Vector3){ p.x+0.5f, p.y+height/2, p.z+0.5f }, drawTransform);
+    assert(depth == 1u && draws < 4u && width > 0.0f && length > 0.0f);
+    bottoms[draws] = Vector3Transform((Vector3){ p.x-width/2, p.y-height/2, p.z-length/2 }, drawTransform);
+    tops[draws] = Vector3Transform((Vector3){ p.x+width/2, p.y+height/2, p.z+length/2 }, drawTransform);
     draws++;
 }
 static void Near(Vector3 a, Vector3 b) { assert(Vector3Distance(a,b) < 0.002f); }
@@ -49,6 +49,14 @@ static void CheckPatch(Chunk chunk, int section, Vector3 camera, int ox, int oz)
     Near(tops[0], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){16,9.25f,1}));
     Near(bottoms[1], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){15,9.25f,0}));
     Near(tops[1], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){16,9.5f,1}));
+    draws = 0;
+    Matrix transform = SurfaceChunkRenderTransform(&chunk, section, camera, ox, oz);
+    DrawLavaSteam(transform, local, 0.0, 0u, 0.0f, 0.0f);
+    assert(draws == 0u && depth == 0u);
+    DrawLavaSteam(transform, local, 12.0, 0u, 0.0f, 0.0f);
+    assert(draws == LAVA_STEAM_PUFFS_PER_CELL && depth == 0u);
+    Near(bottoms[0], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){14.91f,9.087f,-0.09f}));
+    Near(tops[0], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){15.09f,9.213f,0.09f}));
 }
 int main(void)
 {

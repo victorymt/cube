@@ -8,9 +8,13 @@ typedef struct VolcanoVisual {
     VolcanoState state;
 } VolcanoVisual;
 
-/* G1 preview geometry only; no terrain edits, particles or simulation writes. */
+/* All drawing reads snapshots and never mutates simulation or shared RNG. */
 void DrawVolcanoPreviews(const VolcanoVisual *visuals, unsigned count,
                          float windAngle, float windStrength);
 void DrawLavaCell(Matrix sectionTransform, Vector3 sectionPosition,
                   LavaThermalState thermal);
+#define LAVA_STEAM_MAX_CELLS 24u
+#define LAVA_STEAM_PUFFS_PER_CELL 4u
+void DrawLavaSteam(Matrix sectionTransform, Vector3 sectionPosition,
+                   double recentWater, uint64_t ticks, float windAngle, float windStrength);
 #endif

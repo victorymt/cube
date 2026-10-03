@@ -6,6 +6,7 @@
 #include "space/planet_surface.h"
 #include "world/volcano_runtime.h"
 #include "world/lava_runtime.h"
+#include "world/fluid.h"
 #include "world/weather.h"
 #include "world/chunks.h"
 #include "space/space_state.h"
@@ -59,8 +60,8 @@ bool GameGeologyCanSetBlock(int x, int y, int z, BlockType next)
     (void)next;
     LavaCell c;
     /* Partial material cannot yield a whole inventory block or be deleted.
-       G3 will add explicit collection/displacement. Solidification is the
-       only G2 world mutation that may replace an occupied overlay. */
+       Collection/displacement needs an explicit volume transaction.
+       Solidification may replace an occupied overlay. */
     return solidifying || !LocalLavaAt(x, y, z, &c);
 }
 
@@ -92,6 +93,23 @@ static double LavaAmbientAt(int x, int z, void *user)
     WorldSurfaceContext s = WorldCurrentSurfaceContext();
     return WeatherFieldSampleAtWorldTime(x - s.originX, z - s.originZ,
                                          tick->weatherTime).temperatureK;
+}
+static bool LavaWaterAt(int x, int y, int z, unsigned *volume, void *user)
+{
+    if (LavaBoundaryAt(x, y, z, user) == LAVA_UNKNOWN) return false;
+    WorldSurfaceContext s = WorldCurrentSurfaceContext();
+    *volume = FluidGetVolumeAt(x - s.originX, y, z - s.originZ);
+    return true;
+}
+static bool LavaEvaporateAt(int x, int y, int z, unsigned expected, unsigned units,
+                            bool *reservoir, void *user)
+{
+    unsigned current = 0u;
+    if (FLUID_CAPACITY != LAVA_WATER_CAPACITY || units > FLUID_CAPACITY ||
+        !LavaWaterAt(x, y, z, &current, user) || current != expected) return false;
+    WorldSurfaceContext s = WorldCurrentSurfaceContext();
+    return FluidTryEvaporateAt(x - s.originX, y, z - s.originZ,
+                               (uint8_t)expected, (uint8_t)units, reservoir);
 }
 static bool LavaSolidifyAt(int x, int y, int z, void *user)
 {
@@ -184,7 +202,8 @@ static void GameGeologyTick(void *user)
         if (r.active && tick->activeCount < VOLCANO_MAX_ACTIVE) tick->active[tick->activeCount++] = r.definition;
     }
     tick->lava = (LavaContext){ .valid = tick->volcano.valid, .bodyId = tick->volcano.bodyId,
-        .boundary = LavaBoundaryAt, .ambient = LavaAmbientAt, .solidify = LavaSolidifyAt, .user = tick };
+        .boundary = LavaBoundaryAt, .ambient = LavaAmbientAt, .solidify = LavaSolidifyAt, .user = tick,
+        .water = LavaWaterAt, .evaporate = LavaEvaporateAt };
     tick->volcano.emitLava = EmitLava;
     tick->volcano.hasHotLava = HasHotLava;
     tick->volcano.userData = tick;
@@ -213,6 +232,8 @@ void GameGeologyDraw(const GameRuntime *game, const GameFrameView *frame)
                         frame->weatherVisual.windDrift);
     LavaCell cell;
     WorldSurfaceContext s = WorldCurrentSurfaceContext();
+    unsigned steamCells = 0u;
+    uint64_t lavaTicks = LavaRuntimeStats().ticks;
     for (unsigned i = 0u; LavaRuntimeAt(i, &cell); i++) {
         if (cell.bodyId != context.bodyId ||
             !SurfaceBlockReadyAt(cell.x - s.originX, cell.y, cell.z - s.originZ) ||
@@ -229,6 +250,13 @@ void GameGeologyDraw(const GameRuntime *game, const GameFrameView *frame)
         DrawLavaCell(transform,
             (Vector3){ (float)lx, (float)SurfaceSectionLocalYFromBlockY(cell.y), (float)lz },
             cell.thermal);
+        if (cell.steam >= 0.05 && steamCells < LAVA_STEAM_MAX_CELLS) {
+            DrawLavaSteam(transform,
+                (Vector3){ lx + 0.5f, SurfaceSectionLocalYFromBlockY(cell.y) +
+                    (float)cell.thermal.volume / LAVA_CAPACITY, lz + 0.5f },
+                cell.steam, lavaTicks, frame->weatherVisual.windAngle, frame->weatherVisual.windDrift);
+            steamCells++;
+        }
     }
 }
 
@@ -275,9 +303,25 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
                  "geology_unavailable_or_invalid_state");
     }
     VolcanoStats stats = VolcanoRuntimeStats();
+    LavaStats lava = LavaRuntimeStats();
     DebugControlReply(&game->debugControl,
         "DEBUG_CONTROL geology %s records=%u active=%u rejected=%" PRIu64 " lava_physics=1\n",
         ok ? "ok" : "error", stats.count, stats.active, stats.rejectedAdmissions);
+    DebugControlReply(&game->debugControl,
+        "DEBUG_CONTROL geology water evaporated=%" PRIu64 " reservoir=%" PRIu64
+        " heat=%.6f energy_error=%.9f\n", lava.evaporatedWater, lava.reservoirWater,
+        lava.waterEnergy, lava.suppliedEnergy - lava.energy - lava.cooledEnergy -
+            lava.exportedEnergy - lava.waterEnergy);
+    if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT) {
+        LavaCell cell = { 0 };
+        LocalLavaAt((int)floorf(game->player.position.x), (int)floorf(game->player.position.y),
+                    (int)floorf(game->player.position.z), &cell);
+        double credit = 0.0;
+        for (unsigned face = 0u; face < 6u; face++) credit += cell.contactCredit[face];
+        DebugControlReply(&game->debugControl,
+            "DEBUG_CONTROL geology cell volume=%u temperature=%.6f credit=%.6f steam=%.6f\n",
+            cell.thermal.volume, LavaTemperature(cell.thermal), credit, cell.steam);
+    }
     VolcanoRecord record;
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS) {
         for (unsigned i = 0u; VolcanoRuntimeAt(i, &record); i++) ReplyVent(game, &record);
@@ -337,12 +381,17 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
     else if (!strcmp(field, "volume_error")) value =
         ((double)lava.supplied - lava.volume - lava.solidified - lava.removed) / LAVA_CAPACITY;
     else if (!strcmp(field, "energy_error")) value =
-        lava.suppliedEnergy - lava.energy - lava.cooledEnergy - lava.exportedEnergy;
+        lava.suppliedEnergy - lava.energy - lava.cooledEnergy - lava.exportedEnergy - lava.waterEnergy;
+    else if (!strcmp(field, "evaporated_units")) value = (double)lava.evaporatedWater;
+    else if (!strcmp(field, "evaporated_water")) value = (double)lava.evaporatedWater / FLUID_CAPACITY;
+    else if (!strcmp(field, "reservoir_units")) value = (double)lava.reservoirWater;
+    else if (!strcmp(field, "water_energy")) value = lava.waterEnergy;
     else if (!strcmp(field, "lava_ticks")) value = (double)lava.ticks;
     else if (!strcmp(field, "blocked_transfers")) value = (double)lava.blockedTransfers;
     else if (!strcmp(field, "rejected_cells")) value = (double)lava.rejectedCells;
     else if (!strcmp(field, "cell_volume") || !strcmp(field, "cell_liquid") ||
-             !strcmp(field, "cell_temperature") || !strcmp(field, "cell_collision_height")) {
+             !strcmp(field, "cell_temperature") || !strcmp(field, "cell_collision_height") ||
+             !strcmp(field, "cell_contact_credit") || !strcmp(field, "cell_steam")) {
         int x = (int)floorf(game->player.position.x);
         int y = (int)floorf(game->player.position.y);
         int z = (int)floorf(game->player.position.z);
@@ -351,6 +400,11 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
         if (!strcmp(field, "cell_collision_height")) value = BlockCollisionHeightAt(x, y, z);
         else if (!strcmp(field, "cell_volume")) value = exists ? (double)cell.thermal.volume / LAVA_CAPACITY : 0.0;
         else if (!strcmp(field, "cell_liquid")) value = exists ? (double)LavaLiquidVolume(cell.thermal) / LAVA_CAPACITY : 0.0;
+        else if (!strcmp(field, "cell_steam")) value = exists ? cell.steam : 0.0;
+        else if (!strcmp(field, "cell_contact_credit")) {
+            value = 0.0;
+            if (exists) for (unsigned face = 0u; face < 6u; face++) value += cell.contactCredit[face];
+        }
         else value = exists ? LavaTemperature(cell.thermal) : 0.0;
     }
     else return false;

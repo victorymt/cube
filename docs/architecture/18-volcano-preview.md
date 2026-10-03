@@ -1,9 +1,9 @@
-# G1/G2: Persistent volcano lifecycle and lava physics
+# G1/G2/G3: Persistent volcano lifecycle, lava physics and water contact
 
 G1 adds deterministic vent candidates and a saved lifecycle preview. G2 adds
 finite lava inventory, a 10 Hz cell runtime, temperature/enthalpy cooling,
-partial-height collision overlays and full-cell basalt conversion. Water
-reactions, heat damage, ash deposition and ecological restoration remain G3/G4.
+partial-height collision overlays and full-cell basalt conversion. Water contact is
+now a fixed-step G3 interaction; heat damage, ash deposition and ecological restoration remain later work.
 
 ## Ownership and identity
 
@@ -56,12 +56,13 @@ order. Cooling uses normalized enthalpy and a latent interval at 1100 K; partial
 solid overlays retain their collision height, while a full cold cell becomes
 basalt through an environment mutation.
 
-World save V25 appends `VOLCANO1` and `LAVA0001` after the ecology clock and before the spherical
+World save V26 appends `VOLCANO1` and `LAVA0002` after the ecology clock and before the spherical
 trailer. Every scalar uses explicit little-endian encoding (IEEE-754 binary64
 for real values); struct padding and pointers are never written. Records,
 admission state, discovery timer, rejection count and fractional tick remainder
 are saved. Load validates a temporary bounded array, then commits it. The outer
-world transaction includes these payloads in its checkpoint/rollback. V24 keeps
+world transaction includes these payloads in its checkpoint/rollback. V25 reads
+legacy `LAVA0001` with empty reaction counters/credits. V24 keeps
 its volcano records with empty lava state; V18–V23 reset both. A new world resets
 both; switching surfaces does not discard them.
 
@@ -78,9 +79,10 @@ surface heights, and reject ordinary edits that would delete a partial record
 or turn it into a whole inventory block. Full cooled basalt is a normal editable
 block. Block collection credits inventory only after a successful world mutation,
 so a rejected partial-deposit edit cannot duplicate items. Fractional excavation/
-displacement is deferred to G3. The existing water
-solver checks the overlays before transfer/deposition; no water/lava reaction
-or volume overlap is allowed. Legacy static lava fire ignition reads base
+displacement is deferred. The existing water solver checks overlays before
+transfer/deposition; no volume overlap is allowed. Loaded fluid state overrides
+AIR/WATER terrain edit baselines so excavated cells can fill and placed water
+can evaporate; solid terrain edits retain priority. Legacy static lava fire ignition reads base
 voxels so it does not prematurely turn the new overlay into a heat hazard.
 
 Chunk mesh workers and snapshot generation read base voxels only; they never
@@ -103,21 +105,38 @@ including a solid base under liquid; empty space above a deposit stays clear.
   continuation, every byte truncation and oversized-count rejection.
 - `test_lava`: thermal enthalpy, flow order, unknown boundaries, capacity,
   cooling, partial overlays, basalt conversion, inventory debit, conservation,
-  checkpoint continuation and corrupt/truncated payload rejection.
+  checkpoint continuation and corrupt/truncated payload rejection; finite/shared
+  water, ocean accounting, contact gaps, failed commits and reaction replay.
 - `test_render_volcano`: solid/liquid layer geometry aligned with terrain at
-  distance, high latitude, longitude wrap, rebased origins and negative sections.
+  distance, high latitude, longitude wrap, rebased origins and negative sections;
+  bounded steam uses the same transform and no shared random generator.
 - `test_block_collection`: failed mutations yield no inventory items; successful
   collection commits the world edit before inventory, and a full inventory
   prevents removal.
 - `test_interaction_raycast`: rays above, inside and into the top of partial
   deposits; solid/liquid masks, mixed layers, reach limits and face normals.
-- `test_save_format` and `test_game_save_spherical`: V25 flags/writer, new
+- `test_save_format` and `test_game_save_spherical`: V26 flags/writer, new
   payload routing, old-version reset without consuming trailer bytes, corrupt
   payload preserving live records.
 - `test_debug_control`: command syntax, parameter limits, hex identity parsing.
 - `test-volcano-e2e`: real Wayland force/step/save/load/parking/stop/restart route,
   partial-height collision, closed-basin basalt conversion and another save/load,
-  with three retained screenshots and trace, using the existing project DSL.
+  plus sealed large/small water basins, mid-reaction replay, unloading and steam,
+  with retained screenshots and traces, using the existing project DSL.
 
-This stage is not evidence of water reactions, heat damage or ecological
-restoration. Those require their own staged models, integration and tests.
+Water reaction callbacks are supplied by `app/game_geology`, outside the water
+solver. Six face credits accrue at 128 × contact area × temperature excess per
+second. One 1/255-block water parcel costs 4096 lava enthalpy units (sensible plus
+latent); water is assumed to enter at 293 K. Credits are not heat: failed water
+compare-and-consume cannot debit lava enthalpy. Water work, heat debit and steam
+accounting commit on the main thread before ambient cooling and solidification.
+Procedural ocean cells remain reservoirs and report their external replenishment
+separately from finite-water loss. Unknown faces park credits, known dry or separated
+faces clear them. `LAVA0002` saves credits and counters, validates energy and mass
+relations, and clears transient steam on load. Rendering caps steam at 96 puffs
+and never changes reactions. Full-runtime water flow still has a work budget;
+cross-system deterministic tests explicitly control water ticks.
+
+G3 water contact is a bounded six-face parcel model. It does not provide water
+temperature transport, steam pressure, explosions, heat damage or ecological restoration;
+those require separate models and integration.

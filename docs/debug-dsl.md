@@ -889,7 +889,7 @@ on another surface remain paused; unloaded weather-owned snow/ice retains its
 ownership until its melted block can be restored safely. See
 [weather simulation](weather-simulation.md) for clock and persistence details.
 
-### Geology preview and lava physics (G1/G2)
+### Geology preview, lava physics and water contact (G1–G3)
 
 ```text
 geology inspect
@@ -900,8 +900,9 @@ geology step TICKS
 ```
 
 G2 adds finite lava inventory, 10 Hz lava cells, thermal cooling, partial solid
-overlays and full-cell basalt conversion. Water reactions and heat damage remain
-G3 work. Replies include `lava_physics=1`. The red vent, ash column, sparks and
+overlays and full-cell basalt conversion. G3 adds fixed-step water contact: finite
+water is atomically consumed only after a lava energy parcel commits; procedural
+ocean cells remain full and count external reservoir supply. Replies include `lava_physics=1`. The red vent, ash column, sparks and
 lava cells are drawn from the same saved state without consuming physics randomness.
 
 `force` uses the canonical column 24 blocks east of the player, at procedural
@@ -924,9 +925,10 @@ inventory while previously emitted lava can still cool. Inspect/vents/typed read
 do not discover or advance anything. Runtime discovery checks eligible dry
 planetary volcanic peaks every two active seconds; Homeworld is debug-only.
 
-The new world save V25 includes versioned `VOLCANO1` and `LAVA0001` payloads with explicit
-little-endian scalar encoding, all event state and fractional step remainder.
-V24 keeps its volcano records and starts with empty lava; V18–V23 reset both.
+The new world save V26 includes versioned `VOLCANO1` and `LAVA0002` payloads with explicit
+little-endian scalar encoding, all event state and fractional step remainder. V25 reads
+legacy `LAVA0001` and initializes reaction counters to zero; V24 keeps volcano records
+with empty lava; V18–V23 reset both.
 New worlds reset them;
 surface transitions park records instead of deleting them.
 
@@ -944,6 +946,9 @@ surface transitions park records instead of deleting them.
 | `geology.lava_volume`, `geology.liquid_volume`, `geology.solid_volume` | number | Total, liquid and solid partial/full block volume |
 | `geology.supplied`, `geology.solidified` | number | Emitted and full-cell solidified volume |
 | `geology.volume_error`, `geology.energy_error` | number | Conservation residuals; should remain near zero |
+| `geology.evaporated_units`, `geology.reservoir_units`, `geology.water_energy` | number | Committed water parcels, external reservoir supply and lava heat spent |
+| `geology.evaporated_water` | number | Committed water vaporization in block units (255 parcels per block) |
+| `geology.cell_contact_credit`, `geology.cell_steam` | number | Unsatisfied face credit and bounded recent steam visual strength |
 | `geology.lava_ticks`, `geology.blocked_transfers`, `geology.rejected_cells` | number | Fixed-step and bounded-flow diagnostics |
 | `geology.cell_volume`, `geology.cell_liquid`, `geology.cell_temperature` | number | Lava overlay at the player cell |
 | `geology.cell_collision_height` | number | Solid overlay height used by collision |
@@ -952,15 +957,31 @@ Use `make test-volcano-e2e` for a real Wayland route that covers force, pause,
 manual stepping, mid-eruption save/load, parking, resume, stop and a second
 event, followed by a closed-basin cooling/solidification check and a separate
 two-vent route that verifies parked lava does not block a loaded vent's recovery.
-Another route checks `target.hit` and `target.position` above and inside a cooled
+The water-contact route covers finite and enclosed pools, mid-reaction save/load,
+unloading/return, steam output and final basalt. Another route checks `target.hit`
+and `target.position` above and inside a cooled
 partial deposit, including looking down at its actual top surface.
 It retains the
-isolated runtime directory, replies, trace and three screenshots. Every geology
+isolated runtime directories, replies, traces and screenshots. Every geology
 tick executes five lava steps; its weather sample time stays frozen during the
-command. Water reaction and explicit excavation of partial deposits are deferred:
-water and ordinary block writes cannot overwrite a lava/partial-solid overlay.
+command. Water flow does not advance with `geology step`; use explicit `fluid step`
+when testing transport. Unloaded contacts park without offline catch-up.
+After `load`, use `stream wait` before inspecting water or stepping reactions.
+Explicit excavation of partial deposits is deferred; water and ordinary block
+writes cannot overwrite a lava/partial-solid overlay.
 Full cooled basalt becomes a normal block. Storage and domain limits are described
 in [the geology implementation record](architecture/18-volcano-preview.md).
+
+Water contact checks six faces after lava flow. Side faces use their overlapping
+height; vertical neighbors require the lower cell to be full. Each successful
+1/255-block water parcel consumes 4096 normalized enthalpy units for heating
+from 293 K and vaporization. Fractional face credits are saved but carry no heat:
+energy stays in lava until water commits. There is no transported water temperature,
+steam pressure or condensation. `energy_error` includes `water_energy` in its balance.
+Steam follows committed vaporization, with at most 24 cells × four puffs; the
+visual strength is transient and zero immediately after load. Inspect prints
+water totals and the player's lava cell temperature, credit and steam strength.
+
 For example, after starting a flat world and settling its stream:
 
 ```text

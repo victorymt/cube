@@ -61,3 +61,23 @@ void DrawVolcanoPreviews(const VolcanoVisual *visuals, unsigned count,
         }
     }
 }
+
+void DrawLavaSteam(Matrix sectionTransform, Vector3 position,
+                   double recentWater, uint64_t ticks, float windAngle, float windStrength)
+{
+    if (!isfinite(recentWater) || recentWater < 0.05) return;
+    float strength = (float)sqrt(fmin(1.0, recentWater / 3.0));
+    float phase = (float)(ticks % 20u) / 20.0f;
+    rlPushMatrix();
+    rlMultMatrixf(MatrixToFloat(sectionTransform));
+    for (unsigned puff = 0u; puff < LAVA_STEAM_PUFFS_PER_CELL; puff++) {
+        float age = fmodf(phase + (float)puff / LAVA_STEAM_PUFFS_PER_CELL, 1.0f);
+        float rise = 0.15f + age * 2.4f;
+        Vector3 center = { position.x + cosf(windAngle) * age * windStrength * 0.6f,
+            position.y + rise, position.z + sinf(windAngle) * age * windStrength * 0.6f };
+        float size = (0.18f + age * 0.65f) * (0.5f + strength * 0.5f);
+        DrawCube(center, size, size * 0.7f, size,
+            (Color){ 226, 234, 238, (unsigned char)(strength * (1.0f - age) * 155.0f) });
+    }
+    rlPopMatrix();
+}
