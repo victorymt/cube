@@ -192,14 +192,52 @@ static void TestTemperatureSelectsRainOrSnow(void)
     assert(snow.snow > snow.rain);
 }
 
+static void TestTemperatureAnomaliesStayBalanced(void)
+{
+    WeatherFieldInput input = TemperateInput();
+    double total = 0.0;
+    unsigned warmCount = 0u;
+    unsigned coldCount = 0u;
+    unsigned count = 0u;
+    float minimum = 0.0f;
+    float maximum = 0.0f;
+    /* Hold climate constant while sampling independent seeds, places and
+       times. Weather should fluctuate around it, not add a permanent cold
+       bias; both rare warm and cold excursions must remain possible. */
+    for (unsigned seed = 0u; seed < 16u; seed++) {
+        input.seed = 0x71ac39e5u + seed * 0x9e3779b9u;
+        for (unsigned index = 0u; index < 4096u; index++) {
+            input.worldX = (float)((int)(index % 64u) * 97 - 3104);
+            input.worldZ = (float)((int)(index / 64u) * 97 - 3104);
+            input.simulationTime = (double)index * 3.25;
+            WeatherFieldSample sample = WeatherFieldSampleAt(&input);
+            total += sample.temperatureAnomalyK;
+            minimum = fminf(minimum, sample.temperatureAnomalyK);
+            maximum = fmaxf(maximum, sample.temperatureAnomalyK);
+            warmCount += sample.temperatureAnomalyK > 0.0f;
+            coldCount += sample.temperatureAnomalyK < 0.0f;
+            count++;
+        }
+    }
+    assert(fabs(total / (double)count) < 0.5);
+    assert(warmCount > count * 4u / 10u);
+    assert(coldCount > count * 4u / 10u);
+    assert(minimum < -8.0f);
+    assert(maximum > 8.0f);
+}
+
 static void TestMixedPrecipitationAndPhysicalGates(void)
 {
     WeatherFieldInput input = TemperateInput();
     input.moisture = 1.0f;
     input.cloudPotential = 1.0f;
     input.relativeHumidity = 0.98f;
-    input.temperatureK = 278.0f;
+    /* Test phase partitioning near freezing, independently of this seed's
+       warm/cold weather anomaly. */
+    WeatherFieldSample baseline = WeatherFieldSampleAt(&input);
+    input.temperatureK += 272.5f - baseline.temperatureK;
     WeatherFieldSample mixed = WeatherFieldSampleAt(&input);
+    assert(fabsf(mixed.temperatureK - 272.5f) < 0.001f);
     assert(mixed.precipitation > 0.40f);
     assert(mixed.sleet + mixed.freezingRain > 0.02f);
 
@@ -384,6 +422,7 @@ int main(void)
     TestSpatialAndTemporalContinuity();
     TestWeatherVariesAcrossSpaceAndTime();
     TestTemperatureSelectsRainOrSnow();
+    TestTemperatureAnomaliesStayBalanced();
     TestMixedPrecipitationAndPhysicalGates();
     TestPhenomenonNames();
     TestCloudGenusNamesAndProfiles();

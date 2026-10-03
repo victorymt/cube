@@ -343,7 +343,8 @@ WeatherFieldSample WeatherFieldSampleAt(const WeatherFieldInput *input)
         (1.0f + sample.pressureAnomaly * 0.035f), 0.0f);
     float thermalFront = (pressureField - 0.5f) * 15.0f;
     float heatPulse = WeatherModelSmoothStep(0.82f, 0.98f, rareField) * 7.0f;
-    float coldPulse = WeatherModelSmoothStep(0.02f, 0.16f,
+    /* Mirror the rare warm tail; ordinary weather has no cold pulse. */
+    float coldPulse = WeatherModelSmoothStep(0.82f, 0.98f,
                                              1.0f - rareField) * 7.0f;
     sample.temperatureAnomalyK = thermalFront + heatPulse - coldPulse;
     sample.temperatureK = fminf(fmaxf(input->temperatureK +
