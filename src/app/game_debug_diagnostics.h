@@ -2,6 +2,7 @@
 #define VOXELCRAFT_GAME_DEBUG_DIAGNOSTICS_H
 
 #include "world/chunks.h"
+#include "core/debug_dsl.h"
 
 struct GameRuntime;
 
@@ -9,5 +10,7 @@ struct GameRuntime;
 const ChunkDiagnostics *GameDebugChunkDiagnostics(struct GameRuntime *game,
                                                   bool includeLod);
 void GameDebugInvalidateDiagnostics(struct GameRuntime *game);
+bool GameDebugDiagnosticsDslResolve(struct GameRuntime *game, const char *name,
+                                    DebugDslValue *outValue);
 
 #endif

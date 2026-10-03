@@ -34,4 +34,14 @@ EcologyPopulationRecord *EcologyPopulationRecordAt(
 EcologyPopulationRecord *EcologyPopulationFindStoredRecord(
     uint32_t surfaceId, int regionX, int regionZ);
 
+/* Pure adapters between normalized population values and nutrient mass. */
+EcologyNutrientState EcologyNutrientInitializeState(
+    const PlanetPopulationInput *input,
+    const PlanetRegionalPopulation *population);
+float EcologyNutrientDensity(const EcologyNutrientState *state);
+void EcologyNutrientApplyFloraStress(EcologyNutrientState *state, float floraStress);
+EcologyNutrientEnvironment EcologyNutrientEnvironmentAt(
+    const PlanetLocalEcology *regional,
+    const PlanetRegionalPopulation *population, float floraStress);
+
 #endif

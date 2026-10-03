@@ -83,5 +83,8 @@ void GameInstallWeatherSurfaceLightProvider(void);
 int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive);
 void GameUpdateFrameEnvironment(GameRuntime *game, GameFrameView *frame);
 void GameCaptureScreenshot(GameRuntime *game, const GameFrameView *frame);
+struct ShipHudState;
+float GameBuildShipHud(GameRuntime *game, struct ShipHudState *shipHud,
+                       char *systemName, size_t systemNameSize);
 
 #endif

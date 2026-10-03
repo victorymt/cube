@@ -104,6 +104,7 @@ ECOLOGY_SYSTEM_SOURCES := \
 	src/ecology/ecology.c \
 	src/ecology/ecology_profile.c \
 	src/ecology/ecology_population.c \
+	src/ecology/ecology_population_environment.c \
 	src/ecology/ecology_population_storage.c \
 	src/ecology/ecology_flora.c \
 	src/ecology/ecology_model.c \
@@ -229,6 +230,7 @@ ENTITY_ECOLOGY_SOURCES := \
 	src/ecology/ecology.c \
 	src/ecology/ecology_profile.c \
 	src/ecology/ecology_population.c \
+	src/ecology/ecology_population_environment.c \
 	src/ecology/ecology_population_storage.c \
 	src/ecology/ecology_flora.c \
 	src/ecology/ecology_model.c \

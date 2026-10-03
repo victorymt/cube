@@ -195,6 +195,7 @@ for split_file in \
     src/presentation/render_planets.c \
     src/presentation/render_sky.c \
     src/presentation/render_ui.c \
+    src/presentation/render_debug_hud.c \
     src/presentation/album_ui.c \
     src/presentation/scanner_overlay.c \
     src/space/space_state.c \
@@ -211,14 +212,17 @@ for split_file in \
     src/world/terrain_structures.c \
     src/ecology/entity.c \
     src/ecology/entity_simulation.c \
+    src/ecology/ecology_population_environment.c \
     src/gameplay/ship_runtime.c \
     src/app/game.c \
+    src/app/game_hud.c \
     src/app/game_streaming.c \
     src/app/game_landing.c \
     src/app/game_world_transition.c \
     src/app/game_biology.c \
     src/app/game_capture.c \
     src/app/game_debug_weather.c \
+    src/app/game_debug_diagnostics.c \
     src/app/game_hydrology.c \
     src/app/game_perf_route.c \
     src/app/game_plugins.c

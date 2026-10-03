@@ -974,62 +974,6 @@ bool ChunkSectionIntersectsCameraView(const Chunk *chunk,
 }
 
 
-int GetActiveChunkCount(void)
-{
-    int count = 0;
-    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
-        if (chunks[i].loaded) count++;
-    }
-    return count;
-}
-
-ChunkCanonicalIdentityStats ChunksGetCanonicalIdentityStats(void)
-{
-    ChunkCanonicalIdentityStats stats = { 0 };
-    uint32_t bodyId = WorldCurrentSurfaceId();
-    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
-        const Chunk *chunk = &chunks[index];
-        if (!chunk->loaded || !chunk->spherical ||
-            chunk->surfaceKey.bodyId != bodyId) continue;
-        stats.loaded++;
-        bool duplicate = false;
-        for (int previous = 0; previous < index; previous++) {
-            const Chunk *candidate = &chunks[previous];
-            if (candidate->loaded && candidate->spherical &&
-                SurfaceChunkKeyEqual(candidate->surfaceKey,
-                                     chunk->surfaceKey)) {
-                duplicate = true;
-                break;
-            }
-        }
-        if (duplicate) stats.duplicates++;
-        else stats.unique++;
-    }
-    return stats;
-}
-
-int GetPendingGenJobCount(void)
-{
-    int count = 0;
-    pthread_mutex_lock(&genMutex);
-    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-        if (chunkGenJobs[i].inUse && !chunkGenJobs[i].done) count++;
-    }
-    pthread_mutex_unlock(&genMutex);
-    return count;
-}
-
-int GetPendingMeshJobCount(void)
-{
-    int count = 0;
-    pthread_mutex_lock(&genMutex);
-    for (int i = 0; i < MAX_MESH_JOBS; i++) {
-        if (meshJobs[i].inUse && !meshJobs[i].done) count++;
-    }
-    pthread_mutex_unlock(&genMutex);
-    return count;
-}
-
 void ChunksResetStreamingStats(void)
 {
     pthread_mutex_lock(&genMutex);
