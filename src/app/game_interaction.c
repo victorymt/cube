@@ -133,6 +133,20 @@ static int GameUpdateInteractionTargets(GameRuntime *game, float dt,
     return effectiveRenderDistance;
 }
 
+static bool GameCollectBlockAt(int x, int y, int z, BlockType type)
+{
+    if (type == BLOCK_AIR || InventoryCount(type) >= INVENTORY_MAX_PER_BLOCK) return false;
+    if (!SetBlock(x, y, z, BLOCK_AIR)) return false;
+    return InventoryAdd(type, 1) == 1;
+}
+
+#ifdef GAME_INTERACTION_TESTING
+bool GameInteractionTestCollectBlockAt(int x, int y, int z, BlockType type)
+{
+    return GameCollectBlockAt(x, y, z, type);
+}
+#endif
+
 static void GameHandleLeftInteraction(
     GameRuntime *game, bool inputBlocked,
     GameInteractionContext *context)
@@ -219,18 +233,20 @@ static void GameHandleLeftInteraction(
         } else if (poiClaimed) {
             GameNoticePost("This discovery has already been catalogued.");
         } else if (!poiCore && brokenType != BLOCK_AIR &&
-                   InventoryAdd(brokenType, 1) > 0) {
-            ParticlesEmitBurst(
-                (Vector3){ context->hit.x + 0.5f,
-                           context->hit.y + 0.5f,
-                           context->hit.z + 0.5f },
-                BlockBaseColor(brokenType), 16, 3.0f, 0.7f);
-            AudioPlayBreak();
-            bool removed = SetBlock(
-                context->hit.x, context->hit.y, context->hit.z, BLOCK_AIR);
+                   InventoryCount(brokenType) < INVENTORY_MAX_PER_BLOCK) {
+            bool removed = GameCollectBlockAt(
+                context->hit.x, context->hit.y, context->hit.z, brokenType);
             if (removed) {
+                ParticlesEmitBurst(
+                    (Vector3){ context->hit.x + 0.5f,
+                               context->hit.y + 0.5f,
+                               context->hit.z + 0.5f },
+                    BlockBaseColor(brokenType), 16, 3.0f, 0.7f);
+                AudioPlayBreak();
                 GamePrioritizeInteractionMesh(
                     context, context->hit.x, context->hit.y, context->hit.z);
+            } else {
+                GameNoticePost("This material cannot be collected as a full block.");
             }
             if (removed && debugLeftPressed) {
                 game->debugLeftSetBlockFrame = game->debugFrame;

@@ -944,7 +944,7 @@ static BlockType FenceNeighborBlock(const unsigned short (*blocks)[CHUNK_SIZE],
             boundary, neighborLx, y, neighborLz, &neighbor)
             ? neighbor : BLOCK_AIR;
     }
-    return GetBlockAt(chunkX * CHUNK_SIZE + lx + nx, layerY + y, chunkZ * CHUNK_SIZE + lz + nz);
+    return GetBlockBaseAt(chunkX * CHUNK_SIZE + lx + nx, layerY + y, chunkZ * CHUNK_SIZE + lz + nz);
 }
 
 static bool FenceShouldConnect(BlockType type)

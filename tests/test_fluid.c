@@ -12,6 +12,15 @@
 Chunk chunks[MAX_ACTIVE_CHUNKS];
 
 static bool proceduralOceanEnabled = false;
+static bool lavaOverlay = false;
+
+BlockType GetBlockAt(int x, int y, int z)
+{
+    if (lavaOverlay && x == 2 && y == 2 && z == 2) return BLOCK_LAVA;
+    int cx, cz, lx, lz;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    return ChunkGetLocalBlock(FindChunk(cx, cz), lx, y, lz);
+}
 static WorldSurfaceKind surfaceKind = WORLD_SURFACE_HOME;
 static int proceduralOceanMinX = 0;
 static int proceduralOceanMaxX = -1;
@@ -900,6 +909,14 @@ static void TestCorruptLoadPreservesState(void)
 
 int main(void)
 {
+    ResetWorld();
+    CreateChunk(0, 0, 0);
+    lavaOverlay = true;
+    assert(!FluidSetVolumeAt(2, 2, 2, FLUID_CAPACITY));
+    assert(FluidSetVolumeAt(2, 3, 2, FLUID_CAPACITY));
+    FluidStepTicks(20u);
+    assert(FluidGetVolumeAt(2, 2, 2) == 0u);
+    lavaOverlay = false;
     TestFlowWaitsForUnknownVerticalSection();
     TestPlanetColumnAirRemainsWritable();
     TestFlowWaitsForUnknownHorizontalSection();

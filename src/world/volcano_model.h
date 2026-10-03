@@ -29,7 +29,7 @@ typedef struct VolcanoState {
     uint64_t activeTicks;
     float intensity;
     float pressure;
-    /* G1 retains all inventory: no lava consumer or material release yet. */
+    /* Cubic blocks; runtime debits only accepted 1/1024-block discharge. */
     float reservoir;
 } VolcanoState;
 

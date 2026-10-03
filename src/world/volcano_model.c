@@ -170,7 +170,7 @@ void VolcanoModelStep(VolcanoState *s, const VolcanoDefinition *d)
         s->pressure *= 0.96f;
         break;
     case VOLCANO_COOLING:
-        /* G1 has no active lava. This is a visual cooldown, not heat physics. */
+        /* The runtime holds this phase while nearby hot lava remains. */
         duration = 120u;
         s->pressure *= 0.96f;
         break;

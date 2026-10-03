@@ -42,6 +42,7 @@ bool IsBiogenicBlock(BlockType type);
 bool IsFireResidueBlock(BlockType type);
 float BlockCollisionHeight(BlockType type);
 float BlockCollisionHeightAt(int x, int y, int z);
+float BlockLiquidHeightAt(int x, int y, int z);
 bool IsTranslucentBlock(BlockType type);
 int ColorBlockIndex(BlockType type);
 BlockType ColorBlockFromIndex(int index);
@@ -68,6 +69,7 @@ bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
 void WorldBeginUndoGroup(void);
 void WorldEndUndoGroup(void);
 BlockType GetBlockAt(int x, int y, int z);
+BlockType GetBlockBaseAt(int x, int y, int z);
 bool SurfaceBlockReadyAt(int x, int y, int z);
 bool SetBlock(int x, int y, int z, BlockType type);
 bool SetBlockNoUndo(int x, int y, int z, BlockType type);

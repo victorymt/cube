@@ -51,7 +51,7 @@ $(eval $(call define_test,SPACE_UNITS_TEST_TARGET,test_space_units,src/space/spa
 $(eval $(call define_test,SPACE_COORDINATES_TEST_TARGET,test_space_coordinates,src/space/space_coordinates.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_TOPOLOGY_TEST_TARGET,test_surface_topology,src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_SAVE_TEST_TARGET,test_surface_save,src/world/surface_save.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,GAME_SAVE_SPHERICAL_TEST_TARGET,test_game_save_spherical,src/app/game_save.c src/world/volcano_model.c src/world/volcano_runtime.c src/world/surface_save.c src/world/surface_topology.c src/world/hydrology_runtime.c src/world/hydrology_model.c,-DGAME_SAVE_TESTING -ffunction-sections -fdata-sections,,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,GAME_SAVE_SPHERICAL_TEST_TARGET,test_game_save_spherical,src/app/game_save.c src/world/lava_model.c src/world/lava_runtime.c src/world/volcano_model.c src/world/volcano_runtime.c src/world/surface_save.c src/world/surface_topology.c src/world/hydrology_runtime.c src/world/hydrology_model.c,-DGAME_SAVE_TESTING -ffunction-sections -fdata-sections,,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 
 SPACE_PROPERTIES_SOURCES := \
 	$(SPACE_FEATURE_SRC) \
@@ -146,6 +146,8 @@ $(eval $(call define_test,LOCAL_CLIMATE_TEST_TARGET,test_local_climate,src/world
 $(eval $(call define_test,ATMOSPHERE_MODEL_TEST_TARGET,test_atmosphere_model,$(ATMOSPHERE_FEATURE_SRC),,,, -lm,,))
 $(eval $(call define_test,WEATHER_MODEL_TEST_TARGET,test_weather_model,src/world/weather_model.c,,,, -lm,,))
 $(eval $(call define_test,VOLCANO_TEST_TARGET,test_volcano,src/world/volcano_model.c src/world/volcano_runtime.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,LAVA_TEST_TARGET,test_lava,src/world/lava_model.c src/world/lava_runtime.c src/world/volcano_model.c src/world/volcano_runtime.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,BLOCK_COLLECTION_TEST_TARGET,test_block_collection,src/app/game_interaction.c,,-DGAME_INTERACTION_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_IMPACT_TEST_TARGET,test_weather_impact,src/world/weather_impact.c src/world/wildfire_model.c src/ecology/flora_taxa.c src/world/surface_topology.c $(WORLD_SURFACE_SNAPSHOT_SRC),,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_RUNTIME_TEST_TARGET,test_weather_runtime,src/core/simulation_time.c src/world/weather.c src/world/weather_model.c src/world/local_climate.c $(ATMOSPHERE_FEATURE_SRC) src/world/radiation_runtime.c src/world/radiation_balance.c src/world/surface_topology.c src/presentation/weather_visual.c src/presentation/weather_presentation.c $(GAME_EFFECTS_SRC) $(WORLD_SURFACE_SNAPSHOT_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WEATHER_VISUAL_TEST_TARGET,test_weather_visual,src/presentation/weather_visual.c,,,, -lm,,))

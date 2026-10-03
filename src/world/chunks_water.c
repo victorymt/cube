@@ -99,7 +99,7 @@ static void CaptureSurfaceBoundaryCell(
     BlockType block = BLOCK_AIR;
     unsigned char volume = 0u;
     if (!TrySampleSurfaceWaterColumn(column, worldY, &block, &volume)) {
-        *outBlock = (unsigned short)GetBlockAt(
+        *outBlock = (unsigned short)GetBlockBaseAt(
             column->worldX, worldY, column->worldZ);
         *outVolume = 0u;
         *outKnown = 0u;

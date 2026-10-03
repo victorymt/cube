@@ -169,7 +169,21 @@ void VolcanoRuntimeUpdate(double seconds, const VolcanoContext *c)
         r->accumulator += seconds;
         if (r->accumulator + 1e-9 >= VOLCANO_STEP_SECONDS) {
             r->accumulator = fmax(0.0, r->accumulator - VOLCANO_STEP_SECONDS);
-            VolcanoModelStep(&r->state, &r->definition);
+            if (c->emitLava && r->state.reservoir > 0.0f &&
+                (r->state.phase == VOLCANO_ERUPTING || r->state.phase == VOLCANO_WANING)) {
+                unsigned requested = (unsigned)(128.0f * r->state.intensity *
+                    (r->state.phase == VOLCANO_WANING ? 0.25f : 1.0f));
+                unsigned inventory = (unsigned)(r->state.reservoir * 1024.0f);
+                if (requested > inventory) requested = inventory;
+                unsigned emitted = c->emitLava(&r->definition, requested, c->userData);
+                if (emitted <= requested) r->state.reservoir -= (float)emitted / 1024.0f;
+            }
+            bool pending = r->state.phase == VOLCANO_COOLING && c->hasHotLava &&
+                c->hasHotLava(&r->definition, c->userData);
+            if (pending) {
+                if (r->state.activeTicks != UINT64_MAX) r->state.activeTicks++;
+                r->state.pressure *= 0.96f;
+            } else VolcanoModelStep(&r->state, &r->definition);
         }
     }
 }

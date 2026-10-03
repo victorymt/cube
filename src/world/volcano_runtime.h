@@ -24,6 +24,8 @@ typedef struct VolcanoContext {
     Vector3 observerMap;
     VolcanoSiteSample sample;
     VolcanoSiteReady ready;
+    unsigned (*emitLava)(const VolcanoDefinition *definition, unsigned units, void *userData);
+    bool (*hasHotLava)(const VolcanoDefinition *definition, void *userData);
     void *userData;
 } VolcanoContext;
 

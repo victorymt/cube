@@ -3,6 +3,7 @@
 #include "app/game.h"
 #include "app/game_geology.h"
 #include "world/volcano_runtime.h"
+#include "world/lava_runtime.h"
 #include "app/game_biology.h"
 #include "app/game_debug.h"
 #include "app/game_debug_trace.h"
@@ -155,6 +156,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     AlbumUiReset();
     WorldReset(seed);
     VolcanoRuntimeReset();
+    LavaRuntimeReset();
     GameSyncWorldSurfaceSnapshot(seed);
     WorldResetSurfaceRebaseEvent();
     MapMarkersReset();
@@ -1243,6 +1245,10 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
 static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
 {
     const WorldExtensionHooks worldExtensionHooks = {
+        .overlayBlockAt = GameGeologyBlockAt,
+        .overlayCollisionHeightAt = GameGeologyCollisionHeightAt,
+        .overlayLiquidHeightAt = GameGeologyLiquidHeightAt,
+        .canSetBlock = GameGeologyCanSetBlock,
         .reset = FluidReset,
         .cleanup = FluidCleanup,
         .saveState = FluidSaveState,
@@ -1315,6 +1321,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     // weather edits would keep invalidating meshes after that route ends.
     WeatherImpactInit(game->settings.weatherDamageEnabled && !game->perfMode);
     VolcanoRuntimeReset();
+    LavaRuntimeReset();
     TornadoInit(game->settings.weatherDamageEnabled && !game->perfMode);
     WeatherSetParticleScale(
         GraphicsQualityProfileFor(

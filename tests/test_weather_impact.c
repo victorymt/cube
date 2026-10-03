@@ -94,6 +94,8 @@ WorldMutationSource WorldCurrentMutationSource(void)
     return mutationSource;
 }
 
+BlockType GetBlockBaseAt(int x, int y, int z) { return GetBlockAt(x, y, z); }
+
 bool SetBlockNoUndoFromSource(int x, int y, int z, BlockType type,
                               WorldMutationSource source)
 {

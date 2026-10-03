@@ -46,7 +46,7 @@ TerrainMode WorldTerrainMode(void)
     return TERRAIN_VARIED;
 }
 
-BlockType GetBlockAt(int x, int y, int z)
+BlockType GetBlockBaseAt(int x, int y, int z)
 {
     int cx = 0;
     int cz = 0;
@@ -62,6 +62,8 @@ BlockType GetBlockAt(int x, int y, int z)
     }
     return BLOCK_AIR;
 }
+
+BlockType GetBlockAt(int x, int y, int z) { return GetBlockBaseAt(x, y, z); }
 
 float TorchLightAtBlockNearby(int x, int y, int z,
                               const int *indices, int count)

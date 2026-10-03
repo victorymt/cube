@@ -22,5 +22,5 @@ if ((status != 0)); then
     exit "$status"
 fi
 rg 'DEBUG_CONTROL geology|DEBUG_CONTROL capture ok|DEBUG_SCRIPT exit' "$runtime/game.log"
-[[ $(rg -c '^DEBUG_CONTROL capture ok ' "$runtime/game.log") == 1 ]]
+[[ $(rg -c '^DEBUG_CONTROL capture ok ' "$runtime/game.log") == 3 ]]
 printf '%s\n' 'volcano e2e passed'

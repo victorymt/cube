@@ -12,6 +12,7 @@
 #include <string.h>
 
 static bool wallEnabled = false;
+static float partialSolidHeight;
 static bool ceilingEnabled = false;
 static bool stairsEnabled = false;
 static bool waterEnabled = false;
@@ -26,6 +27,7 @@ static int waterMaxY = 5;
 
 BlockType GetBlockAt(int x, int y, int z)
 {
+    if (partialSolidHeight > 0.0f && x == 0 && y == 1 && z == 0) return BLOCK_BASALT;
     if (waterEnabled && x >= -16 && x <= 16 && z >= -16 && z <= 16 &&
         y >= waterMinY && y <= waterMaxY) {
         return BLOCK_WATER;
@@ -50,6 +52,10 @@ bool IsLiquidBlock(BlockType type)
 {
     return type == BLOCK_WATER || type == BLOCK_LAVA;
 }
+float BlockLiquidHeightAt(int x, int y, int z)
+{
+    return IsLiquidBlock(GetBlockAt(x, y, z)) ? 1.0f : 0.0f;
+}
 
 bool IsWaterBlock(BlockType type)
 {
@@ -69,6 +75,7 @@ bool PlanetSurfaceAt(Vector3 position, Vector3 *gravityDirection,
 }
 float BlockCollisionHeightAt(int x, int y, int z)
 {
+    if (partialSolidHeight > 0.0f && x == 0 && y == 1 && z == 0) return partialSolidHeight;
     BlockType block = GetBlockAt(x, y, z);
     return block == BLOCK_AIR || block == BLOCK_WATER ||
            block == BLOCK_TALL_GRASS || block == BLOCK_MOSS_CARPET
@@ -424,6 +431,16 @@ static void TestSwimmingSpeedAndAscent(void)
 
 int main(void)
 {
+    ResetCollisionWorld();
+    partialSolidHeight = 0.25f;
+    assert(PlayerOverlapsWorld((Vector3){ 0.5f, 1.1f, 0.5f }));
+    assert(!PlayerOverlapsWorld((Vector3){ 0.5f, 1.26f, 0.5f }));
+    assert(PlayerCameraPositionInsideSolid((Vector3){ 0.5f, 1.1f, 0.5f }));
+    assert(!PlayerCameraPositionInsideSolid((Vector3){ 0.5f, 1.5f, 0.5f }));
+    Player partial = { .position = { 0.5f, 2.0f, 0.5f }, .floating = false };
+    MovePlayer(&partial, (Vector3){ 0.0f, -2.0f, 0.0f });
+    assert(partial.position.y >= 1.25f && partial.position.y < 1.26f);
+    partialSolidHeight = 0.0f;
     TestHighSpeedHorizontalMovementStopsAtWall();
     TestHighSpeedVerticalMovementStopsAtCeiling();
     TestSurfaceStreamingFrontierBlocksWalkingPlayer();

@@ -5,6 +5,7 @@
 #include "world/hydrology_runtime.h"
 #include "world/save_format.h"
 #include "world/volcano_runtime.h"
+#include "world/lava_runtime.h"
 
 #include <assert.h>
 #include <math.h>
@@ -22,6 +23,30 @@ static int radiationResetCalls;
 bool WorldSaveFormatHasVolcanoes(WorldSaveFormat format)
 {
     return format == WORLD_SAVE_FORMAT_V24;
+}
+
+bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25; }
+static LavaBoundary LavaOpen(int x, int y, int z, void *user)
+{
+    (void)x; (void)y; (void)z; (void)user; return LAVA_OPEN;
+}
+static void TestLavaPayloadRouting(void)
+{
+    LavaRuntimeReset();
+    LavaContext ctx = { .valid = true, .bodyId = 7u, .boundary = LavaOpen };
+    assert(LavaRuntimeDeposit(&ctx, 1, 20, 1, 512u, 1450.0) == 512u);
+    FILE *file = tmpfile(); assert(file && LavaRuntimeSave(file));
+    const uint32_t marker = 0x12345678u;
+    assert(fwrite(&marker, sizeof(marker), 1u, file) == 1u);
+    rewind(file); LavaRuntimeReset();
+    assert(GameSaveTestLoadLavaState(file, WORLD_SAVE_FORMAT_V25) == NULL);
+    uint32_t tail = 0; assert(fread(&tail, sizeof(tail), 1u, file) == 1u && tail == marker);
+    assert(LavaRuntimeStats().volume == 512u); fclose(file);
+    file = tmpfile(); assert(file); fputs("bad lava", file); rewind(file);
+    assert(GameSaveTestLoadLavaState(file, WORLD_SAVE_FORMAT_V25) != NULL);
+    assert(LavaRuntimeStats().volume == 512u); rewind(file);
+    assert(GameSaveTestLoadLavaState(file, WORLD_SAVE_FORMAT_V24) == NULL);
+    assert(ftell(file) == 0 && LavaRuntimeStats().records == 0u); fclose(file);
 }
 
 static void TestVolcanoPayloadRouting(void)
@@ -388,6 +413,7 @@ static void TestHydrologyRuntimePayloadRouting(void)
 
 int main(void)
 {
+    TestLavaPayloadRouting();
     TestVolcanoPayloadRouting();
     TestSchemaOnePlanetMigration();
     TestSchemaTwoGlobalCoordinates();

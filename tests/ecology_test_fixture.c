@@ -270,10 +270,12 @@ float BlockCollisionHeight(BlockType type)
     return 1.0f;
 }
 
-BlockType GetBlockAt(int x, int y, int z)
+BlockType GetBlockBaseAt(int x, int y, int z)
 {
     return GetBlock(x, y, z);
 }
+
+BlockType GetBlockAt(int x, int y, int z) { return GetBlockBaseAt(x, y, z); }
 
 void UnloadModel(Model model)
 {

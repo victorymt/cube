@@ -30,6 +30,7 @@
 #include "world/world_persistence.h"
 #include "world/weather_impact.h"
 #include "world/volcano_runtime.h"
+#include "world/lava_runtime.h"
 
 #include "raymath.h"
 
@@ -187,6 +188,15 @@ static const char *GameLoadVolcanoState(FILE *file, WorldSaveFormat format)
     return NULL;
 }
 
+static const char *GameLoadLavaState(FILE *file, WorldSaveFormat format)
+{
+    if (WorldSaveFormatHasLava(format)) {
+        return LavaRuntimeLoad(file) ? NULL : "Load failed: lava state is corrupted.";
+    }
+    LavaRuntimeReset();
+    return NULL;
+}
+
 static bool GameSaveWriteFile(FILE *file, void *opaque)
 {
     const GameSaveContext *context = opaque;
@@ -221,7 +231,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
          GameSaveWriteRadiationRuntimeState(file) &&
          GameSaveWriteHydrologyRuntimeState(file) &&
          MapMarkersSaveState(file) &&
-         GameEcologySaveClock(file) && VolcanoRuntimeSave(file) &&
+         GameEcologySaveClock(file) && VolcanoRuntimeSave(file) && LavaRuntimeSave(file) &&
          GameSaveWriteSphericalTrailer(file, player) && !ferror(file);
     return ok;
 }
@@ -426,6 +436,10 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
 }
 
 #ifdef GAME_SAVE_TESTING
+const char *GameSaveTestLoadLavaState(FILE *file, WorldSaveFormat format)
+{
+    return GameLoadLavaState(file, format);
+}
 const char *GameSaveTestLoadVolcanoState(FILE *file, WorldSaveFormat format)
 {
     return GameLoadVolcanoState(file, format);
@@ -535,6 +549,8 @@ static const char *GameLoadCurrentExtendedPayload(
     }
     const char *volcanoError = GameLoadVolcanoState(file, format);
     if (volcanoError) return volcanoError;
+    const char *lavaError = GameLoadLavaState(file, format);
+    if (lavaError) return lavaError;
     if (!GameLoadSphericalTrailer(file, data)) {
         return "Load failed: spherical save state is corrupted.";
     }

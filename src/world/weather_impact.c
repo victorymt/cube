@@ -826,7 +826,7 @@ static void ImpactSampleNewSurfaces(Vector3 playerPosition)
             int ly = topY + lavaOffsets[offset][1];
             int lz = z + lavaOffsets[offset][2];
             if (SurfaceBlockReadyAt(lx, ly, lz) &&
-                GetBlockAt(lx, ly, lz) == BLOCK_LAVA) {
+                GetBlockBaseAt(lx, ly, lz) == BLOCK_LAVA) {
                 adjacentLava = true;
                 break;
             }

@@ -626,6 +626,10 @@ static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
             section = ChunkGetSection(
                 chunk, SurfaceSectionYFromBlockY(mutation.y), true);
         }
+        if (mutation.volume > 0u) {
+            BlockType visible = GetBlockAt(mutation.x, mutation.y, mutation.z);
+            if (visible != BLOCK_AIR && visible != BLOCK_WATER) return false;
+        }
         if (!section || !FluidEnsureVolumes(section)) return false;
 
         if (FluidFindEdit(surfaceId, mutation.x, mutation.y,
@@ -721,6 +725,10 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
         return false;
     }
     if (volume > 0u && block != BLOCK_AIR && block != BLOCK_WATER) return false;
+    if (volume > 0u) {
+        BlockType visible = GetBlockAt(x, y, z);
+        if (visible != BLOCK_AIR && visible != BLOCK_WATER) return false;
+    }
     if (!section && volume > 0u) {
         int cx = 0;
         int cz = 0;
@@ -859,6 +867,8 @@ static bool FluidCellCanHold(int x, int y, int z)
 {
     BlockType block = BLOCK_AIR;
     if (!FluidLocateCell(x, y, z, NULL, NULL, NULL, &block)) return false;
+    BlockType visible = GetBlockAt(x, y, z);
+    if (visible != BLOCK_AIR && visible != BLOCK_WATER) return false;
     return block == BLOCK_AIR || block == BLOCK_WATER;
 }
 

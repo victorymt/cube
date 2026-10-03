@@ -476,9 +476,10 @@ static bool LiquidAt(Vector3 position, float height, float *outSurfaceY,
         return sample.volume > 0u && point.y < sample.surfaceY;
     }
     if (block == BLOCK_LAVA) {
-        if (outSurfaceY) *outSurfaceY = (float)y + 1.0f;
+        float surfaceY = (float)y + BlockLiquidHeightAt(x, y, z);
+        if (outSurfaceY) *outSurfaceY = surfaceY;
         if (outFlow) *outFlow = Vector3Zero();
-        return point.y < (float)y + 1.0f;
+        return point.y < surfaceY;
     }
     if (outFlow) *outFlow = Vector3Zero();
     return false;

@@ -70,7 +70,7 @@ static BlockType ChunkFaceNeighbor(
 
     int wx = chunkX * CHUNK_SIZE + lx + nx;
     int wz = chunkZ * CHUNK_SIZE + lz + nz;
-    return GetBlockAt(wx, worldY, wz);
+    return GetBlockBaseAt(wx, worldY, wz);
 }
 
 bool ChunkFaceIsVisibleWithSnapshot(
@@ -110,7 +110,7 @@ static BlockType SnapshotBlockAt(
             boundary, lx, localY, lz, &block, &ignoredVolume)
             ? block : BLOCK_STONE;
     }
-    return GetBlockAt(worldX, worldY, worldZ);
+    return GetBlockBaseAt(worldX, worldY, worldZ);
 }
 
 float BlockCornerAmbientOcclusion(

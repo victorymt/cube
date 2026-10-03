@@ -2,6 +2,22 @@
 #include "raymath.h"
 #include <math.h>
 
+void DrawLavaCell(Vector3 position, LavaThermalState thermal)
+{
+    float solid = (float)(thermal.volume - LavaLiquidVolume(thermal)) / LAVA_CAPACITY;
+    float total = (float)thermal.volume / LAVA_CAPACITY;
+    if (solid > 0.0f) {
+        Vector3 center = { position.x + 0.5f, position.y + solid * 0.5f, position.z + 0.5f };
+        DrawCube(center, 1.0f, solid, 1.0f, (Color){ 57, 53, 50, 255 });
+    }
+    if (total > solid) {
+        float hot = (float)Clamp((float)(LavaTemperature(thermal) - LAVA_FREEZING_K) / 350.0f, 0, 1);
+        Vector3 center = { position.x + 0.5f, position.y + (total + solid) * 0.5f, position.z + 0.5f };
+        DrawCube(center, 1.0f, total - solid, 1.0f,
+            (Color){ (unsigned char)(190 + hot * 65), (unsigned char)(38 + hot * 85), 12, 255 });
+    }
+}
+
 void DrawVolcanoPreviews(const VolcanoVisual *visuals, unsigned count,
                          float windAngle, float windStrength)
 {

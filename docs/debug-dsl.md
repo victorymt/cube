@@ -889,7 +889,7 @@ on another surface remain paused; unloaded weather-owned snow/ice retains its
 ownership until its melted block can be restored safely. See
 [weather simulation](weather-simulation.md) for clock and persistence details.
 
-### Geology preview (G1)
+### Geology preview and lava physics (G1/G2)
 
 ```text
 geology inspect
@@ -899,14 +899,14 @@ geology stop ID
 geology step TICKS
 ```
 
-G1 provides persistent vent identity, lifecycle and a visual preview. It does
-not emit simulated lava, consume magma inventory, damage terrain, or heat
-entities. Replies explicitly include `preview=1`. The red vent, ash column and
-sparks are drawn from the same saved state without consuming physics randomness.
+G2 adds finite lava inventory, 10 Hz lava cells, thermal cooling, partial solid
+overlays and full-cell basalt conversion. Water reactions and heat damage remain
+G3 work. Replies include `lava_physics=1`. The red vent, ash column, sparks and
+lava cells are drawn from the same saved state without consuming physics randomness.
 
 `force` uses the canonical column 24 blocks east of the player, at procedural
 surface height + 1. That column and its supporting block must be loaded and the
-vent cell must be air. It creates or reuses the stable vent at that address and
+underlying vent cell must be air. It creates or reuses the stable vent at that address and
 starts `unrest`; an already running event is rejected. `INTENSITY` is (0,1] and
 `TICKS` is 1–36,000 eruption-phase ticks, excluding the prelude. An intensity of
 1 has a 60-tick prelude; lower intensities take up to 180 ticks. Each tick is
@@ -919,13 +919,15 @@ while paused. It only advances admitted, loaded vents within the active radius;
 it never catches up parked vents. There are at most two active and 64 retained
 vent records. Admission uses a 160-block radius and existing activity remains
 until 224 blocks, measured along the surface plus height difference. Unloaded,
-blocked, Nether/space and other-body vents are parked. Inspect/vents/typed reads
+Nether/space and other-body vents are parked. A blocked outlet retains its
+inventory while previously emitted lava can still cool. Inspect/vents/typed reads
 do not discover or advance anything. Runtime discovery checks eligible dry
 planetary volcanic peaks every two active seconds; Homeworld is debug-only.
 
-The new world save V24 includes a versioned `VOLCANO1` payload with explicit
+The new world save V25 includes versioned `VOLCANO1` and `LAVA0001` payloads with explicit
 little-endian scalar encoding, all event state and fractional step remainder.
-Older supported saves reset this preview runtime. New worlds reset it;
+V24 keeps its volcano records and starts with empty lava; V18–V23 reset both.
+New worlds reset them;
 surface transitions park records instead of deleting them.
 
 | Field | Type | Meaning |
@@ -935,13 +937,26 @@ surface transitions park records instead of deleting them.
 | `geology.position` | vec3 | Nearest vent's canonical map X/Z and world Y |
 | `geology.phase` | string | `none`, `dormant`, `unrest`, `erupting`, `waning`, `cooling`, or `recovery` |
 | `geology.event`, `geology.ticks` | number | Event sequence and cumulative active ticks for that vent |
-| `geology.pressure`, `geology.reservoir` | number | Normalized preview pressure and retained inventory; no release in G1 |
+| `geology.pressure`, `geology.reservoir` | number | Normalized pressure and remaining magma inventory in block units |
 | `geology.records`, `geology.active_count` | number | Retained records and admitted vents across runtime |
 | `geology.rejected` | number | Admissions rejected at the storage cap |
+| `geology.lava_cells`, `geology.hot_cells` | number | Retained lava records and current hot cells |
+| `geology.lava_volume`, `geology.liquid_volume`, `geology.solid_volume` | number | Total, liquid and solid partial/full block volume |
+| `geology.supplied`, `geology.solidified` | number | Emitted and full-cell solidified volume |
+| `geology.volume_error`, `geology.energy_error` | number | Conservation residuals; should remain near zero |
+| `geology.lava_ticks`, `geology.blocked_transfers`, `geology.rejected_cells` | number | Fixed-step and bounded-flow diagnostics |
+| `geology.cell_volume`, `geology.cell_liquid`, `geology.cell_temperature` | number | Lava overlay at the player cell |
+| `geology.cell_collision_height` | number | Solid overlay height used by collision |
 
 Use `make test-volcano-e2e` for a real Wayland route that covers force, pause,
 manual stepping, mid-eruption save/load, parking, resume, stop and a second
-event. It retains the isolated runtime directory, replies, trace and screenshot.
+event, followed by a closed-basin cooling/solidification check. It retains the
+isolated runtime directory, replies, trace and three screenshots. Every geology
+tick executes five lava steps; its weather sample time stays frozen during the
+command. Water reaction and explicit excavation of partial deposits are deferred:
+water and ordinary block writes cannot overwrite a lava/partial-solid overlay.
+Full cooled basalt becomes a normal block. Storage and domain limits are described
+in [the geology implementation record](architecture/18-volcano-preview.md).
 For example, after starting a flat world and settling its stream:
 
 ```text

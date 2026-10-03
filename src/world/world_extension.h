@@ -24,6 +24,10 @@ typedef struct FluidBlockDisplacement {
 } FluidBlockDisplacement;
 
 typedef struct WorldExtensionHooks {
+  BlockType (*overlayBlockAt)(int x, int y, int z);
+  float (*overlayCollisionHeightAt)(int x, int y, int z);
+  float (*overlayLiquidHeightAt)(int x, int y, int z);
+  bool (*canSetBlock)(int x, int y, int z, BlockType next);
   void (*reset)(void);
   void (*cleanup)(void);
   bool (*saveState)(FILE *file);

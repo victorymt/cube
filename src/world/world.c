@@ -231,9 +231,26 @@ float BlockCollisionHeight(BlockType type)
     return BlockCatalogGet(type)->collisionHeight;
 }
 
+float BlockLiquidHeightAt(int x, int y, int z)
+{
+    if (!WorldCanAccessBlockY(y)) return 0.0f;
+    if (WorldBlockRegionAt(y) == WORLD_BLOCK_REGION_SURFACE &&
+        GetBlockBaseAt(x, y, z) == BLOCK_AIR && worldExtensionHooks.overlayLiquidHeightAt) {
+        return worldExtensionHooks.overlayLiquidHeightAt(x, y, z);
+    }
+    return IsLiquidBlock(GetBlockAt(x, y, z)) ? 1.0f : 0.0f;
+}
+
 float BlockCollisionHeightAt(int x, int y, int z)
 {
     if (!WorldCanAccessBlockY(y)) return 0.0f;
+    if (WorldBlockRegionAt(y) == WORLD_BLOCK_REGION_SURFACE &&
+        GetBlockBaseAt(x, y, z) == BLOCK_AIR && worldExtensionHooks.overlayCollisionHeightAt) {
+        float height = worldExtensionHooks.overlayCollisionHeightAt(x, y, z);
+        if (isfinite(height) && height > 0.0f) return fminf(height, 1.0f);
+        if (worldExtensionHooks.overlayBlockAt &&
+            worldExtensionHooks.overlayBlockAt(x, y, z) != BLOCK_AIR) return 0.0f;
+    }
     return BlockCollisionHeight(GetBlockAt(x, y, z));
 }
 
@@ -831,6 +848,7 @@ static bool SetBlockCore(
 {
     if (!InHeight(y)) return false;
     WorldCanonicalizeEditCoordinates(&x, &z);
+    if (worldExtensionHooks.canSetBlock && !worldExtensionHooks.canSetBlock(x, y, z, type)) return false;
 
     BlockType previous = GetSurfaceBlockAt(x, y, z);
     int cx = 0;
@@ -880,7 +898,7 @@ static bool SetBlockCore(
     return true;
 }
 
-BlockType GetBlockAt(int x, int y, int z)
+BlockType GetBlockBaseAt(int x, int y, int z)
 {
     WorldBlockRegion region = WorldBlockRegionAt(y);
     if (!WorldCanAccessBlockY(y)) return BLOCK_AIR;
@@ -888,6 +906,14 @@ BlockType GetBlockAt(int x, int y, int z)
     if (region == WORLD_BLOCK_REGION_NETHER) return NetherBlockAt(x, y, z);
     if (region == WORLD_BLOCK_REGION_SURFACE) return GetSurfaceBlockAt(x, y, z);
     return BLOCK_AIR;
+}
+
+BlockType GetBlockAt(int x, int y, int z)
+{
+    BlockType base = GetBlockBaseAt(x, y, z);
+    if (base == BLOCK_AIR && WorldBlockRegionAt(y) == WORLD_BLOCK_REGION_SURFACE &&
+        worldExtensionHooks.overlayBlockAt) return worldExtensionHooks.overlayBlockAt(x, y, z);
+    return base;
 }
 
 static bool SetBlockNoUndoReplay(

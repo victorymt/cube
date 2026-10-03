@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_RENDER_VOLCANO_H
 #define VOXELCRAFT_RENDER_VOLCANO_H
 #include "world/volcano_model.h"
+#include "world/lava_model.h"
 
 typedef struct VolcanoVisual {
     Vector3 position;
@@ -10,4 +11,5 @@ typedef struct VolcanoVisual {
 /* G1 preview geometry only; no terrain edits, particles or simulation writes. */
 void DrawVolcanoPreviews(const VolcanoVisual *visuals, unsigned count,
                          float windAngle, float windStrength);
+void DrawLavaCell(Vector3 position, LavaThermalState thermal);
 #endif
