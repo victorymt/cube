@@ -14,6 +14,7 @@
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
 #include "world/world_types.h"
+#include "world/chunks.h"
 #include "ecology/flora_taxa.h"
 #include "app/app_types.h"
 #include "gameplay/player_types.h"
@@ -86,6 +87,9 @@ typedef struct GameRuntime {
   unsigned scriptedInputFrames;
   unsigned scriptedShipInputFrames;
   uint64_t debugFrame;
+  ChunkDiagnostics debugChunkDiagnostics;
+  uint64_t debugChunkDiagnosticsFrame;
+  bool debugChunkDiagnosticsValid;
   uint64_t debugLeftPressFrame;
   uint64_t debugLeftHandleFrame;
   uint64_t debugLeftSetBlockFrame;

@@ -22,51 +22,61 @@ static bool LodDslNumber(DebugDslValue *outValue, double value)
     return true;
 }
 
-bool GameDebugLodDslResolve(const char *name, DebugDslValue *outValue)
+bool GameDebugLodDslResolveSnapshot(const ChunkDiagnostics *diagnostics,
+                                    const char *name,
+                                    DebugDslValue *outValue)
 {
-    if (!name || !outValue || strncmp(name, "stream.lod_", 11u) != 0) {
+    if (!diagnostics || !name || !outValue ||
+        strncmp(name, "stream.lod_", 11u) != 0) {
         return false;
     }
 
-    ChunkLodStats stats = ChunksGetLodStats();
+    const ChunkLodStats *stats = &diagnostics->lod;
     if (strcmp(name, "stream.lod_coarse_allowed") == 0) {
-        return LodDslBool(outValue, stats.coarseAllowed);
+        return LodDslBool(outValue, stats->coarseAllowed);
     }
     if (strcmp(name, "stream.lod_target_changes") == 0) {
-        return LodDslNumber(outValue, stats.targetChanges);
+        return LodDslNumber(outValue, stats->targetChanges);
     }
 #define LOD_DSL_NUMBER(fieldName, fieldValue) \
     if (strcmp(name, fieldName) == 0) { \
         return LodDslNumber(outValue, (fieldValue)); \
     }
     LOD_DSL_NUMBER("stream.lod_target_exact",
-                   stats.targetChunks[CHUNK_LOD_EXACT])
+                   stats->targetChunks[CHUNK_LOD_EXACT])
     LOD_DSL_NUMBER("stream.lod_target_half",
-                   stats.targetChunks[CHUNK_LOD_HALF])
+                   stats->targetChunks[CHUNK_LOD_HALF])
     LOD_DSL_NUMBER("stream.lod_target_quarter",
-                   stats.targetChunks[CHUNK_LOD_QUARTER])
+                   stats->targetChunks[CHUNK_LOD_QUARTER])
     LOD_DSL_NUMBER("stream.lod_active_exact",
-                   stats.activeChunks[CHUNK_LOD_EXACT])
+                   stats->activeChunks[CHUNK_LOD_EXACT])
     LOD_DSL_NUMBER("stream.lod_active_half",
-                   stats.activeChunks[CHUNK_LOD_HALF])
+                   stats->activeChunks[CHUNK_LOD_HALF])
     LOD_DSL_NUMBER("stream.lod_active_quarter",
-                   stats.activeChunks[CHUNK_LOD_QUARTER])
+                   stats->activeChunks[CHUNK_LOD_QUARTER])
     LOD_DSL_NUMBER("stream.lod_ready_exact_sections",
-                   stats.readySections[CHUNK_LOD_EXACT])
+                   stats->readySections[CHUNK_LOD_EXACT])
     LOD_DSL_NUMBER("stream.lod_ready_half_sections",
-                   stats.readySections[CHUNK_LOD_HALF])
+                   stats->readySections[CHUNK_LOD_HALF])
     LOD_DSL_NUMBER("stream.lod_ready_quarter_sections",
-                   stats.readySections[CHUNK_LOD_QUARTER])
+                   stats->readySections[CHUNK_LOD_QUARTER])
     LOD_DSL_NUMBER("stream.lod_proxy_flora_half",
-                   stats.proxyFloraSections[CHUNK_LOD_HALF])
+                   stats->proxyFloraSections[CHUNK_LOD_HALF])
     LOD_DSL_NUMBER("stream.lod_proxy_flora_quarter",
-                   stats.proxyFloraSections[CHUNK_LOD_QUARTER])
+                   stats->proxyFloraSections[CHUNK_LOD_QUARTER])
     LOD_DSL_NUMBER("stream.lod_jobs_exact",
-                   stats.pendingJobs[CHUNK_LOD_EXACT])
+                   stats->pendingJobs[CHUNK_LOD_EXACT])
     LOD_DSL_NUMBER("stream.lod_jobs_half",
-                   stats.pendingJobs[CHUNK_LOD_HALF])
+                   stats->pendingJobs[CHUNK_LOD_HALF])
     LOD_DSL_NUMBER("stream.lod_jobs_quarter",
-                   stats.pendingJobs[CHUNK_LOD_QUARTER])
+                   stats->pendingJobs[CHUNK_LOD_QUARTER])
 #undef LOD_DSL_NUMBER
     return false;
+}
+
+bool GameDebugLodDslResolve(const char *name, DebugDslValue *outValue)
+{
+    ChunkDiagnostics diagnostics = { 0 };
+    ChunksCaptureDiagnostics(&diagnostics);
+    return GameDebugLodDslResolveSnapshot(&diagnostics, name, outValue);
 }

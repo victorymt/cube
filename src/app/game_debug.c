@@ -1278,6 +1278,19 @@ static bool GameDebugDslString(DebugDslValue *outValue, const char *value)
     return true;
 }
 
+static const ChunkDiagnostics *GameDebugDslChunkDiagnostics(
+    GameRuntime *game)
+{
+    if (!game) return NULL;
+    if (!game->debugChunkDiagnosticsValid ||
+        game->debugChunkDiagnosticsFrame != game->debugFrame) {
+        ChunksCaptureDiagnostics(&game->debugChunkDiagnostics);
+        game->debugChunkDiagnosticsFrame = game->debugFrame;
+        game->debugChunkDiagnosticsValid = true;
+    }
+    return &game->debugChunkDiagnostics;
+}
+
 static bool GameDebugDslVec3(DebugDslValue *outValue, Vector3 value)
 {
     *outValue = (DebugDslValue){
@@ -1421,8 +1434,9 @@ static bool GameDebugDslResolveHydrology(GameRuntime *game, const char *name,
 static bool GameDebugDslResolveLod(GameRuntime *game, const char *name,
                                    DebugDslValue *outValue)
 {
-    (void)game;
-    return GameDebugLodDslResolve(name, outValue);
+    const ChunkDiagnostics *diagnostics =
+        GameDebugDslChunkDiagnostics(game);
+    return GameDebugLodDslResolveSnapshot(diagnostics, name, outValue);
 }
 
 static bool GameDebugDslResolveCore(GameRuntime *game, const char *name,
@@ -1457,6 +1471,11 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
                                       DebugDslValue *outValue,
                                       GameDebugDslLegacyPhase phase)
 {
+    const ChunkDiagnostics *chunkDiagnostics = NULL;
+    if ((phase == GAME_DEBUG_DSL_STREAM || phase == GAME_DEBUG_DSL_TAIL) &&
+        strncmp(name, "stream.", 7u) == 0) {
+        chunkDiagnostics = GameDebugDslChunkDiagnostics(game);
+    }
     if (!game || !name || !outValue) return false;
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "game.screen") == 0) {
         return GameDebugDslString(
@@ -1550,6 +1569,59 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
             ? PlayerMissingSurfaceChunkCount(game->player.position) : -1;
         return GameDebugDslNumber(outValue, missing);
     }
+    if (chunkDiagnostics && strncmp(name, "stream.chunks.", 14u) == 0) {
+        const char *field = name + 14u;
+        if (!strcmp(field, "status")) {
+            return GameDebugDslString(
+                outValue, ChunkDiagnosticsStatusName(
+                    chunkDiagnostics->status));
+        }
+        if (!strcmp(field, "capture_sequence")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->captureSequence);
+        }
+        if (!strcmp(field, "blocked_reason")) {
+            return GameDebugDslString(outValue,
+                                      chunkDiagnostics->blockedReason);
+        }
+        if (!strcmp(field, "active_chunks")) {
+            return GameDebugDslNumber(outValue,
+                                      chunkDiagnostics->activeChunks);
+        }
+        if (!strcmp(field, "pending_generation_jobs")) {
+            return GameDebugDslNumber(
+                outValue, chunkDiagnostics->pendingGenerationJobs);
+        }
+        if (!strcmp(field, "pending_mesh_jobs")) {
+            return GameDebugDslNumber(
+                outValue, chunkDiagnostics->pendingMeshJobs);
+        }
+        if (!strcmp(field, "focus_chunk_loaded")) {
+            return GameDebugDslBool(outValue,
+                                    chunkDiagnostics->focusChunkLoaded);
+        }
+        if (!strcmp(field, "generation_submitted")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->streaming.generationSubmitted);
+        }
+        if (!strcmp(field, "generation_completed")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->streaming.generationCompleted);
+        }
+        if (!strcmp(field, "mesh_submitted")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->streaming.meshSubmitted);
+        }
+        if (!strcmp(field, "mesh_completed")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->streaming.meshCompleted);
+        }
+        if (!strcmp(field, "upload_budget_deferrals")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->streaming.uploadBudgetDeferrals);
+        }
+        return false;
+    }
     if (phase == GAME_DEBUG_DSL_STREAM &&
         strcmp(name, "stream.audit_complete") == 0) {
         return GameDebugDslBool(
@@ -1557,14 +1629,17 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
     }
     if (phase == GAME_DEBUG_DSL_TAIL &&
         strcmp(name, "stream.workers_configured") == 0) {
-        return GameDebugDslNumber(outValue, ChunksConfiguredWorkerCount());
+        return GameDebugDslNumber(outValue,
+                                  chunkDiagnostics->workerThreadsConfigured);
     }
     if (phase == GAME_DEBUG_DSL_TAIL &&
         strcmp(name, "stream.workers_started") == 0) {
-        return GameDebugDslNumber(outValue, ChunksStartedWorkerCount());
+        return GameDebugDslNumber(outValue,
+                                  chunkDiagnostics->workerThreadsStarted);
     }
     if (phase == GAME_DEBUG_DSL_TAIL && strcmp(name, "stream.workers_active") == 0)
-        return GameDebugDslNumber(outValue, ChunksActiveWorkerCount());
+        return GameDebugDslNumber(outValue,
+                                  chunkDiagnostics->workerThreadsActive);
     if (phase == GAME_DEBUG_DSL_TAIL && strncmp(name, "fluid.", 6u) == 0) {
         FluidSample sample = FluidSampleAt(game->player.position);
         FluidStats stats = FluidGetStats();
