@@ -1,6 +1,7 @@
 #include "app/game_plugins.h"
 
 #include "app/game_runtime.h"
+#include "app/game_plugin_stream.h"
 #include "core/game_notice.h"
 #include "core/plugin.h"
 #include "world/chunks.h"
@@ -57,46 +58,6 @@ static bool GamePluginWorldSnapshot(
     outSnapshot->seed = context.seed;
     outSnapshot->map_origin_x = context.originX;
     outSnapshot->map_origin_z = context.originZ;
-    return true;
-}
-
-static bool GamePluginStreamSnapshot(
-    void *userData, VoxelcraftPluginStreamSnapshot *outSnapshot)
-{
-    GameRuntime *game = userData;
-    if (!outSnapshot || outSnapshot->struct_size <
-                            sizeof(VoxelcraftPluginStreamSnapshot)) {
-        return false;
-    }
-    DiagnosticsCaptureIdentity identity =
-        GameRuntimeCaptureDiagnosticsIdentity(game);
-    ChunkDiagnostics diagnostics = { 0 };
-    ChunksCaptureDiagnosticsAt(&diagnostics, &identity);
-    ChunkStreamingStats stats = diagnostics.streaming;
-    ChunkPreloadInfo preload = diagnostics.preload;
-    outSnapshot->surface_active = WorldIsSurfaceActive();
-    outSnapshot->render_distance = ChunksRenderDistance();
-    outSnapshot->loaded_chunks = diagnostics.activeChunks;
-    outSnapshot->pending_generation_jobs = diagnostics.pendingGenerationJobs;
-    outSnapshot->pending_mesh_jobs = diagnostics.pendingMeshJobs;
-    outSnapshot->worker_threads_configured =
-        diagnostics.workerThreadsConfigured;
-    outSnapshot->worker_threads_started = diagnostics.workerThreadsStarted;
-    outSnapshot->worker_threads_active = diagnostics.workerThreadsActive;
-    outSnapshot->generation_submitted = stats.generationSubmitted;
-    outSnapshot->generation_completed = stats.generationCompleted;
-    outSnapshot->mesh_submitted = stats.meshSubmitted;
-    outSnapshot->mesh_completed = stats.meshCompleted;
-    outSnapshot->generation_queue_peak = stats.generationQueuePeak;
-    outSnapshot->mesh_queue_peak = stats.meshQueuePeak;
-    outSnapshot->preload_active = preload.active;
-    outSnapshot->preload_offset_x = preload.offsetX;
-    outSnapshot->preload_offset_z = preload.offsetZ;
-    outSnapshot->preload_target_chunks = preload.targetChunks;
-    outSnapshot->preload_loaded_chunks = preload.loadedChunks;
-    outSnapshot->preload_pending_generation_jobs =
-        preload.pendingGenerationJobs;
-    outSnapshot->preload_pending_mesh_jobs = preload.pendingMeshJobs;
     return true;
 }
 
@@ -184,6 +145,11 @@ bool GamePluginsStart(GameRuntime *game)
             .struct_size = sizeof(VoxelcraftPluginStreamService),
             .user_data = game,
             .snapshot = GamePluginStreamSnapshot};
+        game->pluginStreamServiceV2 = (VoxelcraftPluginStreamServiceV2){
+            .abi_version = VOXELCRAFT_PLUGIN_STREAM_V2_SERVICE_ABI_VERSION,
+            .struct_size = sizeof(VoxelcraftPluginStreamServiceV2),
+            .user_data = game,
+            .snapshot = GamePluginStreamSnapshotV2};
         game->pluginHydrologyService = (VoxelcraftPluginHydrologyService){
             .abi_version = VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION,
             .struct_size = sizeof(VoxelcraftPluginHydrologyService),
@@ -205,6 +171,11 @@ bool GamePluginsStart(GameRuntime *game)
             .struct_size = sizeof(VoxelcraftPluginService),
             .id = VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID,
             .interface = &game->pluginStreamService};
+        const VoxelcraftPluginService streamServiceV2 = {
+            .abi_version = VOXELCRAFT_PLUGIN_STREAM_V2_SERVICE_ABI_VERSION,
+            .struct_size = sizeof(VoxelcraftPluginService),
+            .id = VOXELCRAFT_PLUGIN_STREAM_V2_SERVICE_ID,
+            .interface = &game->pluginStreamServiceV2};
         const VoxelcraftPluginService hydrologyService = {
             .abi_version = VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION,
             .struct_size = sizeof(VoxelcraftPluginService),
@@ -216,6 +187,8 @@ bool GamePluginsStart(GameRuntime *game)
                                                 &worldService) ||
             !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
                                                 &streamService) ||
+            !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
+                                                &streamServiceV2) ||
             !VoxelcraftPluginHostProvideBuiltin(&game->plugins, "host",
                                                 &hydrologyService) ||
             !VoxelcraftPluginHostActivate(&game->plugins, game)) {

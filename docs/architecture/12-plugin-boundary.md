@@ -43,6 +43,13 @@ preload counters. It deliberately omits chunk storage and job pointers, so a
 diagnostics plugin cannot mutate the streaming scheduler or depend on its
 internal layout.
 
+`voxelcraft.stream.v2` (service ABI 2) adds the observation's capture ID, frame,
+simulation tick, world generation, and chunk capture sequence alongside the
+same counters. It is published under a separate ID so the original v1 service
+and its binary layout remain available. Both callbacks run on the main thread;
+independent observations correlate by frame/tick/world, not by equal capture
+IDs. The focused diagnostics E2E loads both versions in a real game process.
+
 Hydrology runtime state is exposed through `voxelcraft.hydrology`.
 `VoxelcraftPluginHydrologyService` provides a scalar snapshot of the active
 region and conservation totals, plus an explicit coarse-cell feedback query.

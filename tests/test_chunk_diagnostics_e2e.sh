@@ -2,6 +2,7 @@
 set -euo pipefail
 
 game_binary=$(realpath "${1:-build/normal/voxelcraft}")
+plugin_dir=$(realpath "${2:-build/normal/diagnostics-plugins}")
 if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ||
       -z "${WAYLAND_DISPLAY:-}" || -z "${XDG_RUNTIME_DIR:-}" ||
       ! -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]]; then
@@ -47,6 +48,9 @@ assert world.dimension == "home"
 assert stream.chunks.world_generation > planet_generation && stream.lod_world_generation == stream.chunks.world_generation
 assert stream.chunks.last_event_sequence == stream.chunks.blocked_reason_sequence
 assert stream.chunks.completed_generation_jobs >= 0 && stream.chunks.completed_mesh_jobs >= 0
+screenshot
+let screenshot_frame = stream.chunks.frame_id
+wait until stream.chunks.frame_id > screenshot_frame timeout 120
 exit 0
 DSL
 
@@ -54,7 +58,20 @@ DSL
     cd "$runtime_dir"
     timeout "${E2E_DIAGNOSTICS_TIMEOUT:-180}" env -u LIBGL_ALWAYS_SOFTWARE \
         "$game_binary" --debug-script "$runtime_dir/check.dsl" \
-        --debug-resolution=640x480 > game.log 2>&1
+        --plugin-dir "$plugin_dir" --debug-resolution=640x480 > game.log 2>&1
 )
-rg -q '^DEBUG_SCRIPT exit code=0$' "$runtime_dir/game.log"
-printf '%s\n' 'chunk diagnostics e2e passed: base/lod cache, command/frame invalidation, planet/home identity'
+grep -q '^DEBUG_SCRIPT exit code=0$' "$runtime_dir/game.log"
+grep -q '^DIAGNOSTICS_PLUGIN v1_v2_identity_passed$' "$runtime_dir/game.log"
+uv run --no-project --offline python - "$runtime_dir" <<'PY'
+from pathlib import Path
+import sys
+reports = list((Path(sys.argv[1]) / 'screenshots').glob('*.txt'))
+assert len(reports) == 1, reports
+fields = dict(line.split('=', 1) for line in reports[0].read_text().splitlines() if '=' in line)
+for key in ('frame_id', 'simulation_tick', 'world_generation'):
+    assert fields[f'capture.{key}'] == fields[f'chunks.{key}']
+assert fields['capture.id'] == fields['chunks.capture_id']
+assert int(fields['capture.world_generation']) > 0
+assert fields['chunks.lod_consistency'] == 'consistent'
+PY
+printf '%s\n' 'chunk diagnostics e2e passed: base/lod cache, command/frame invalidation, planet/home identity, plugin v1/v2, screenshot identity'

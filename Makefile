@@ -145,16 +145,21 @@ test-coverage:
 	@command -v gcovr >/dev/null 2>&1 || { echo 'gcovr is required for test-coverage'; exit 1; }
 	gcovr --root . --filter '^src/' --exclude 'tests/' --xml-pretty --xml build/coverage/coverage.xml --html-details build/coverage/coverage.html
 
-test-e2e: $(TARGET)
+test-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
 	bash tests/test_game_e2e.sh $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
+	bash tests/test_chunk_diagnostics_e2e.sh $(TARGET) $(BUILD_DIR)/diagnostics-plugins
 
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
 
 .PHONY: test-chunk-diagnostics-e2e
-test-chunk-diagnostics-e2e: $(TARGET)
-	bash tests/test_chunk_diagnostics_e2e.sh $(TARGET)
+$(BUILD_DIR)/diagnostics-plugins/diagnostics.so: tests/diagnostics_plugin.c src/core/plugin.h $(BUILD_CONFIG)
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -fPIC -shared -o $@ $<
+
+test-chunk-diagnostics-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
+	bash tests/test_chunk_diagnostics_e2e.sh $(TARGET) $(BUILD_DIR)/diagnostics-plugins
 
 .PHONY: test-animal-pose-e2e
 test-animal-pose-e2e: $(TARGET)

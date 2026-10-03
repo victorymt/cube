@@ -67,6 +67,7 @@ typedef struct GameRuntime {
   VoxelcraftPluginGameService pluginGameService;
   VoxelcraftPluginWorldService pluginWorldService;
   VoxelcraftPluginStreamService pluginStreamService;
+  VoxelcraftPluginStreamServiceV2 pluginStreamServiceV2;
   VoxelcraftPluginHydrologyService pluginHydrologyService;
   DebugDslScript *debugDslScript;
   DebugDslExecutor *debugDslExecutor;

@@ -222,6 +222,8 @@ rendering fallback:
 make test-e2e
 # Bounded graphics/debug route used by the optional Hyprland CI job:
 make test-debug-graphics-e2e
+# Focused diagnostics cache, world identity, plugin ABI and report checks:
+make test-chunk-diagnostics-e2e
 # Independent 600-frame polar route, also included in that CI job:
 make test-polar-e2e
 ```

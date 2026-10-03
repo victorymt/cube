@@ -4,7 +4,6 @@
 TEST_TARGETS :=
 TEST_BINARY_NAMES :=
 
-
 comma := ,
 GC_SECTIONS_LDFLAG := -Wl$(comma)--gc-sections
 
@@ -192,6 +191,7 @@ $(eval $(call define_test,GAME_ECOLOGY_TICK_TEST_TARGET,test_game_ecology_tick,s
 $(eval $(call define_test,SIMULATION_REPLAY_TEST_TARGET,test_simulation_replay,src/core/simulation_replay.c,,,,,,))
 $(eval $(call define_test,GAME_DEBUG_TRACE_TEST_TARGET,test_game_debug_trace,src/app/game_debug_trace.c,,-DGAME_DEBUG_TRACE_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,GAME_DEBUG_DIAGNOSTICS_TEST_TARGET,test_game_debug_diagnostics,src/app/game_debug_diagnostics.c src/app/game_runtime.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,GAME_PLUGIN_STREAM_TEST_TARGET,test_game_plugin_stream,src/app/game_plugin_stream.c src/app/game_runtime.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,GAME_STREAM_AUDIT_TEST_TARGET,test_game_stream_audit,src/app/game_stream_audit.c,,-DGAME_STREAM_AUDIT_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,ENVIRONMENT_PRESENTATION_TEST_TARGET,test_environment_presentation,src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,,))
 $(eval $(call define_test,ENVIRONMENT_RUNTIME_TEST_TARGET,test_environment_runtime,src/presentation/environment_runtime.c src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,,))

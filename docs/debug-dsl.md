@@ -540,6 +540,8 @@ a dispatched command reports failure). Unrelated fields do not capture LOD.
 game process: stable repeated reads, independent lazy LOD capture, command
 and frame invalidation, and Homeworld/planet transitions. It uses an isolated
 temporary save/settings directory and preserves its DSL and log on failure.
+The same route loads a test plugin against both stream service versions and
+checks screenshot/report capture identity. It requires `uv` for report checks.
 
 `blocked_reason` summarizes current queued work, independently of history.
 Completed meshes and generation results take precedence because the main

@@ -25,6 +25,8 @@
 #define VOXELCRAFT_PLUGIN_WORLD_SERVICE_ABI_VERSION 1u
 #define VOXELCRAFT_PLUGIN_STREAM_SERVICE_ID "voxelcraft.stream"
 #define VOXELCRAFT_PLUGIN_STREAM_SERVICE_ABI_VERSION 1u
+#define VOXELCRAFT_PLUGIN_STREAM_V2_SERVICE_ID "voxelcraft.stream.v2"
+#define VOXELCRAFT_PLUGIN_STREAM_V2_SERVICE_ABI_VERSION 2u
 #define VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ID "voxelcraft.hydrology"
 #define VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ABI_VERSION 1u
 
@@ -156,6 +158,28 @@ typedef struct VoxelcraftPluginStreamService {
     bool (*snapshot)(void *user_data,
                      VoxelcraftPluginStreamSnapshot *out_snapshot);
 } VoxelcraftPluginStreamService;
+
+/* Separate service ID preserves the v1 registry and binary layout. All
+ * counters and identity fields come from one observation. Main thread only.
+ * IDs are process-local; frame/tick/world generation correlate observations
+ * from different consumers, whose capture IDs will normally differ. */
+typedef struct VoxelcraftPluginStreamSnapshotV2 {
+    uint32_t struct_size;
+    uint64_t capture_id;
+    uint64_t frame_id;
+    uint64_t simulation_tick;
+    uint64_t world_generation;
+    uint64_t capture_sequence;
+    VoxelcraftPluginStreamSnapshot counters;
+} VoxelcraftPluginStreamSnapshotV2;
+
+typedef struct VoxelcraftPluginStreamServiceV2 {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    void *user_data;
+    bool (*snapshot)(void *user_data,
+                     VoxelcraftPluginStreamSnapshotV2 *out_snapshot);
+} VoxelcraftPluginStreamServiceV2;
 
 /* Read-only hydrology runtime state and coarse-cell feedback. */
 typedef struct VoxelcraftPluginHydrologySnapshot {

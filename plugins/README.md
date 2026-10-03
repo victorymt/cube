@@ -36,6 +36,16 @@ dimension, surface kind/id, seed, and canonical map origin without exposing
 and mesh jobs, queue peaks, loaded chunks, and preload progress. The stream
 snapshot is intended for diagnostics; it never exposes chunk storage or job
 queue pointers.
+The original v1 stream service remains available with its unchanged layout.
+New consumers can request `VOXELCRAFT_PLUGIN_STREAM_V2_SERVICE_ID`
+(`voxelcraft.stream.v2`, ABI 2) and use `VoxelcraftPluginStreamServiceV2`.
+Initialize `VoxelcraftPluginStreamSnapshotV2.struct_size` before calling
+`snapshot`; only the outer size is required. Its `counters` contains the v1
+values, captured together with `capture_id`, `frame_id`, `simulation_tick`,
+`world_generation`, and the chunk-local `capture_sequence`. Calls are restricted
+to the game's main-thread plugin callbacks. Capture IDs are process-local and
+identify individual observations; correlate independently captured screenshot,
+DSL, and plugin data by frame/tick/world generation, not capture-ID equality.
 `VOXELCRAFT_PLUGIN_HYDROLOGY_SERVICE_ID` exposes a versioned
 `VoxelcraftPluginHydrologyService` with runtime totals/location and explicit
 coarse-cell feedback queries. Callers must initialize each output's
