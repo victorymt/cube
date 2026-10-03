@@ -110,6 +110,8 @@ static void TestDebugReport(void)
                 .worldGeneration = 5u
             },
             .captureSequence = 9u,
+            .blockedReasonSequence = 4u,
+            .lodConsistency = CHUNK_DIAGNOSTICS_LOD_CONSISTENT,
             .activeChunks = 81,
             .pendingGenerationJobs = 2,
             .pendingMeshJobs = 3,
@@ -377,6 +379,8 @@ static void TestDebugReport(void)
     assert(strstr(contents, "chunks.simulation_tick=123\n"));
     assert(strstr(contents, "chunks.world_generation=5\n"));
     assert(strstr(contents, "chunks.blocked_reason=mesh_pending\n"));
+    assert(strstr(contents, "chunks.blocked_reason_sequence=4\n"));
+    assert(strstr(contents, "chunks.lod_consistency=consistent\n"));
     assert(strstr(contents, "chunks.pending_mesh_jobs=3\n"));
     assert(strstr(contents, "chunks.mesh_completed=456\n"));
     assert(strstr(contents, "world.seed=424242\n"));

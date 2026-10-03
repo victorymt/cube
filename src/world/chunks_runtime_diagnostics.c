@@ -2,13 +2,32 @@
 
 #include <stdio.h>
 
-static void ChunkDiagnosticsSetReason(ChunkDiagnostics *diagnostics,
-                                      const char *reason)
+static char chunkDiagnosticsLastReason[CHUNK_DIAGNOSTICS_REASON_CAPACITY] =
+    "none";
+static uint64_t chunkDiagnosticsReasonSequence;
+
+void ChunkDiagnosticsRecordReasonLocked(const char *reason)
 {
-    if (!diagnostics) return;
-    snprintf(diagnostics->blockedReason,
-             sizeof(diagnostics->blockedReason), "%s",
-             reason ? reason : "unknown");
+    snprintf(chunkDiagnosticsLastReason, sizeof(chunkDiagnosticsLastReason),
+             "%s", reason ? reason : "unknown");
+    chunkDiagnosticsReasonSequence++;
+    if (chunkDiagnosticsReasonSequence == 0u) {
+        chunkDiagnosticsReasonSequence = 1u;
+    }
+}
+
+void ChunkDiagnosticsRecordReason(const char *reason)
+{
+    pthread_mutex_lock(&genMutex);
+    ChunkDiagnosticsRecordReasonLocked(reason);
+    pthread_mutex_unlock(&genMutex);
+}
+
+void ChunkDiagnosticsResetReasonLocked(void)
+{
+    snprintf(chunkDiagnosticsLastReason, sizeof(chunkDiagnosticsLastReason),
+             "none");
+    chunkDiagnosticsReasonSequence = 0u;
 }
 
 const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status)
@@ -17,6 +36,17 @@ const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status)
     case CHUNK_DIAGNOSTICS_VALID: return "valid";
     case CHUNK_DIAGNOSTICS_UNAVAILABLE:
     default: return "unavailable";
+    }
+}
+
+const char *ChunkDiagnosticsLodConsistencyName(
+    ChunkDiagnosticsLodConsistency consistency)
+{
+    switch (consistency) {
+    case CHUNK_DIAGNOSTICS_LOD_CONSISTENT: return "consistent";
+    case CHUNK_DIAGNOSTICS_LOD_INCONSISTENT: return "inconsistent";
+    case CHUNK_DIAGNOSTICS_LOD_NOT_CAPTURED:
+    default: return "not_captured";
     }
 }
 
@@ -37,6 +67,10 @@ static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
         : (DiagnosticsCaptureIdentity){
             .captureId = outDiagnostics->captureSequence
         };
+    outDiagnostics->blockedReasonSequence = chunkDiagnosticsReasonSequence;
+    snprintf(outDiagnostics->blockedReason,
+             sizeof(outDiagnostics->blockedReason), "%s",
+             chunkDiagnosticsLastReason);
     outDiagnostics->streaming = streamingStats;
     outDiagnostics->renderDistance = renderDistanceChunks;
     outDiagnostics->focusChunkX = chunkStreamingFocus.currentCx;
@@ -88,28 +122,14 @@ static void CaptureChunkDiagnostics(ChunkDiagnostics *outDiagnostics,
             outDiagnostics->focusChunkLoaded = true;
         }
     }
-    pthread_mutex_unlock(&genMutex);
-
-    /* LOD state is an optional detailed view; the base snapshot stays cheap
-     * enough for HUD and plugin sampling on every frame. */
-    if (includeLod) outDiagnostics->lod = ChunksGetLodStats();
-    if (outDiagnostics->streaming.uploadBudgetDeferrals > 0u &&
-        outDiagnostics->pendingMeshJobs > 0) {
-        ChunkDiagnosticsSetReason(outDiagnostics, "upload_budget_exhausted");
-    } else if (outDiagnostics->pendingGenerationJobs >= MAX_CHUNK_GEN_JOBS) {
-        ChunkDiagnosticsSetReason(outDiagnostics, "generation_queue_full");
-    } else if (outDiagnostics->pendingMeshJobs >= MAX_MESH_JOBS) {
-        ChunkDiagnosticsSetReason(outDiagnostics, "mesh_queue_full");
-    } else if (outDiagnostics->pendingGenerationJobs > 0) {
-        ChunkDiagnosticsSetReason(outDiagnostics, "generation_pending");
-    } else if (outDiagnostics->pendingMeshJobs > 0) {
-        ChunkDiagnosticsSetReason(outDiagnostics, "mesh_pending");
-    } else if (!outDiagnostics->focusChunkLoaded &&
-               outDiagnostics->activeChunks > 0) {
-        ChunkDiagnosticsSetReason(outDiagnostics, "focus_chunk_missing");
-    } else {
-        ChunkDiagnosticsSetReason(outDiagnostics, "none");
+    /* LOD state is an optional detailed view.  Capture it while the scheduler
+     * lock is held so the base fields and LOD counters share one observation
+     * point. */
+    if (includeLod) {
+        outDiagnostics->lod = ChunksGetLodStatsLocked();
+        outDiagnostics->lodConsistency = CHUNK_DIAGNOSTICS_LOD_CONSISTENT;
     }
+    pthread_mutex_unlock(&genMutex);
 }
 
 void ChunksCaptureDiagnostics(ChunkDiagnostics *outDiagnostics)

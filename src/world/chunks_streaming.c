@@ -398,7 +398,10 @@ bool ChunksRestartGenThreads(int requestedWorkers)
 static bool SubmitChunkGenJob(
     Chunk *chunk, int cx, int cz, TerrainMode mode, bool preload)
 {
-    if (genWorkerThreadsStarted == 0u) return false;
+    if (genWorkerThreadsStarted == 0u) {
+        ChunkDiagnosticsRecordReason("generation_workers_unavailable");
+        return false;
+    }
 
     pthread_mutex_lock(&genMutex);
     ChunkGenJob *job = NULL;
@@ -409,6 +412,7 @@ static bool SubmitChunkGenJob(
         }
     }
     if (!job) {
+        ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
         pthread_mutex_unlock(&genMutex);
         return false;
     }
@@ -434,11 +438,13 @@ static bool SubmitChunkGenJob(
         (int)(job - chunkGenJobs), job->queueSequence);
     if (!job->queued) {
         *job = (ChunkGenJob){ 0 };
+        ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
         pthread_mutex_unlock(&genMutex);
         return false;
     }
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
+    ChunkDiagnosticsRecordReasonLocked("generation_pending");
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -447,11 +453,15 @@ static bool SubmitChunkGenJob(
 static bool SubmitChunkSectionGenJob(
     Chunk *chunk, int sectionY, TerrainMode mode, bool preload)
 {
-    if (genWorkerThreadsStarted == 0u || !chunk || !chunk->loaded ||
+    if (!chunk || !chunk->loaded ||
         WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME ||
         !SurfaceSectionInBounds(sectionY) ||
         ChunkTerrainSectionIsResolved(chunk, sectionY) ||
         ChunkGetSectionConst(chunk, sectionY)) {
+        return false;
+    }
+    if (genWorkerThreadsStarted == 0u) {
+        ChunkDiagnosticsRecordReason("generation_workers_unavailable");
         return false;
     }
 
@@ -464,12 +474,14 @@ static bool SubmitChunkSectionGenJob(
             chunkGenJobs[i].chunkGeneration == chunk->generation &&
             chunkGenJobs[i].sectionY == sectionY) {
             if (!preload) chunkGenJobs[i].preload = false;
+            ChunkDiagnosticsRecordReasonLocked("generation_pending");
             pthread_mutex_unlock(&genMutex);
             return false;
         }
         if (!chunkGenJobs[i].inUse && !job) job = &chunkGenJobs[i];
     }
     if (!job) {
+        ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
         pthread_mutex_unlock(&genMutex);
         return false;
     }
@@ -495,11 +507,13 @@ static bool SubmitChunkSectionGenJob(
         (int)(job - chunkGenJobs), job->queueSequence);
     if (!job->queued) {
         *job = (ChunkGenJob){ 0 };
+        ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
         pthread_mutex_unlock(&genMutex);
         return false;
     }
     streamingStats.generationSubmitted++;
     UpdateQueuePeaksLocked();
+    ChunkDiagnosticsRecordReasonLocked("generation_pending");
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -570,6 +584,7 @@ static bool FindPendingGenJob(int cx, int cz, bool promote)
                     job->queueSequence);
             }
             found = true;
+            ChunkDiagnosticsRecordReasonLocked("generation_pending");
             break;
         }
     }
@@ -783,6 +798,9 @@ static bool EnsureChunk(int cx, int cz, bool preload)
                 haveQueueSlot = true;
                 break;
             }
+        }
+        if (!haveQueueSlot) {
+            ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
         }
         pthread_mutex_unlock(&genMutex);
         if (!haveQueueSlot) return false;
@@ -1262,6 +1280,11 @@ void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
         chunkGenJobs[jobIndex].queued = ChunkTaskQueuePush(
             &generationTaskQueue, ChunkGenQueueLane(&chunkGenJobs[jobIndex]),
             jobIndex, chunkGenJobs[jobIndex].queueSequence);
+        if (chunkGenJobs[jobIndex].queued) {
+            ChunkDiagnosticsRecordReasonLocked("generation_pending");
+        } else {
+            ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
+        }
     }
     pthread_mutex_unlock(&genMutex);
 }

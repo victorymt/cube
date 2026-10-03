@@ -176,7 +176,7 @@ void ChunksUpdateLodTargets(Vector3 focusPosition, bool coarseAllowed)
     }
 }
 
-ChunkLodStats ChunksGetLodStats(void)
+ChunkLodStats ChunksGetLodStatsLocked(void)
 {
     ChunkLodStats stats = {
         .targetChanges = chunkLodTargetChanges,
@@ -207,12 +207,18 @@ ChunkLodStats ChunksGetLodStats(void)
             }
         }
     }
-    pthread_mutex_lock(&genMutex);
     for (int index = 0; index < MAX_MESH_JOBS; index++) {
         const MeshJob *job = &meshJobs[index];
         if (!job->inUse) continue;
         stats.pendingJobs[ChunkLodSanitize(job->lod)]++;
     }
+    return stats;
+}
+
+ChunkLodStats ChunksGetLodStats(void)
+{
+    pthread_mutex_lock(&genMutex);
+    ChunkLodStats stats = ChunksGetLodStatsLocked();
     pthread_mutex_unlock(&genMutex);
     return stats;
 }

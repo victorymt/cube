@@ -190,6 +190,10 @@ int ScheduleNearbyTerrainSections(
     const ChunkStreamingRequest *request,
     const ChunkStreamingFocus *focus);
 void UpdateQueuePeaksLocked(void);
+ChunkLodStats ChunksGetLodStatsLocked(void);
+void ChunkDiagnosticsRecordReason(const char *reason);
+void ChunkDiagnosticsRecordReasonLocked(const char *reason);
+void ChunkDiagnosticsResetReasonLocked(void);
 void MarkGeneratedSectionAndNeighborsDirty(Chunk *chunk, int sectionY);
 ChunkLodLevel ChunkLodSanitize(ChunkLodLevel lod);
 bool ChunkSectionLodReady(const ChunkSection *section, ChunkLodLevel lod);

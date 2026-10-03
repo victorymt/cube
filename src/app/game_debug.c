@@ -1608,6 +1608,15 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
             return GameDebugDslString(outValue,
                                       chunkDiagnostics->blockedReason);
         }
+        if (!strcmp(field, "blocked_reason_sequence")) {
+            return GameDebugDslNumber(
+                outValue, (double)chunkDiagnostics->blockedReasonSequence);
+        }
+        if (!strcmp(field, "lod_consistency")) {
+            return GameDebugDslString(
+                outValue, ChunkDiagnosticsLodConsistencyName(
+                    chunkDiagnostics->lodConsistency));
+        }
         if (!strcmp(field, "active_chunks")) {
             return GameDebugDslNumber(outValue,
                                       chunkDiagnostics->activeChunks);

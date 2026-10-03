@@ -108,13 +108,24 @@ typedef enum ChunkDiagnosticsStatus {
     CHUNK_DIAGNOSTICS_VALID
 } ChunkDiagnosticsStatus;
 
+typedef enum ChunkDiagnosticsLodConsistency {
+    CHUNK_DIAGNOSTICS_LOD_NOT_CAPTURED = 0,
+    CHUNK_DIAGNOSTICS_LOD_CONSISTENT,
+    CHUNK_DIAGNOSTICS_LOD_INCONSISTENT
+} ChunkDiagnosticsLodConsistency;
+
 typedef struct ChunkDiagnostics {
     ChunkDiagnosticsStatus status;
     DiagnosticsCaptureIdentity identity;
     uint64_t captureSequence;
+    /* Identifies the scheduler decision that last updated blockedReason. */
+    uint64_t blockedReasonSequence;
     ChunkStreamingStats streaming;
     ChunkPreloadInfo preload;
     ChunkLodStats lod;
+    /* Base captures leave LOD counters out; detailed captures copy them under
+     * the scheduler lock and mark them consistent. */
+    ChunkDiagnosticsLodConsistency lodConsistency;
     int activeChunks;
     int pendingGenerationJobs;
     int pendingMeshJobs;
@@ -234,6 +245,8 @@ void ChunksCaptureDetailedDiagnosticsAt(
     ChunkDiagnostics *outDiagnostics,
     const DiagnosticsCaptureIdentity *identity);
 const char *ChunkDiagnosticsStatusName(ChunkDiagnosticsStatus status);
+const char *ChunkDiagnosticsLodConsistencyName(
+    ChunkDiagnosticsLodConsistency consistency);
 /* Streaming diagnostics are main-thread-only snapshots. */
 ChunkPreloadInfo ChunksGetPreloadInfo(void);
 bool ChunksGetWaterRenderDebugInfo(Vector3 position,

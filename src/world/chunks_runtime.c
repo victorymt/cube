@@ -654,7 +654,11 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
 
 static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
 {
-    if (!chunk || !section || genWorkerThreadsStarted == 0u) return false;
+    if (!chunk || !section) return false;
+    if (genWorkerThreadsStarted == 0u) {
+        ChunkDiagnosticsRecordReason("mesh_workers_unavailable");
+        return false;
+    }
 
     pthread_mutex_lock(&genMutex);
     int slotIndex = (int)(chunk - chunks);
@@ -686,6 +690,7 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
             }
         }
         current->preload = chunk->preloaded;
+        ChunkDiagnosticsRecordReasonLocked("mesh_pending");
         pthread_cond_signal(&genCond);
         pthread_mutex_unlock(&genMutex);
         return true;
@@ -698,6 +703,7 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
         }
     }
     if (!job) {
+        ChunkDiagnosticsRecordReasonLocked("mesh_queue_full");
         pthread_mutex_unlock(&genMutex);
         return false;
     }
@@ -709,6 +715,7 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
         job->queueSequence);
     if (!job->queued) {
         *job = (MeshJob){ 0 };
+        ChunkDiagnosticsRecordReasonLocked("mesh_queue_full");
         pthread_mutex_unlock(&genMutex);
         return false;
     }
@@ -717,6 +724,7 @@ static bool SubmitMeshJob(Chunk *chunk, ChunkSection *section, bool priority)
                                         sizeof(job->waterVolumes) +
                                         sizeof(job->boundary);
     UpdateQueuePeaksLocked();
+    ChunkDiagnosticsRecordReasonLocked("mesh_pending");
     pthread_cond_signal(&genCond);
     pthread_mutex_unlock(&genMutex);
     return true;
@@ -738,6 +746,7 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
         }
         if (uploaded > 0 && ChunkNowMs() - startedMs >= uploadBudgetMs) {
             streamingStats.uploadBudgetDeferrals++;
+            ChunkDiagnosticsRecordReasonLocked("upload_budget_exhausted");
             job->running = false;
             if (ChunkTaskQueuePush(&meshDoneQueue, MeshQueueLane(job),
                                    (int)(job - meshJobs),
@@ -753,6 +762,7 @@ void ProcessFinishedMeshJobs(double uploadBudgetMs)
         double uploadElapsedMs = ChunkNowMs() - uploadStartedMs;
         pthread_mutex_lock(&genMutex);
         if (uploadedJob) streamingStats.uploadedMeshes++;
+        else ChunkDiagnosticsRecordReasonLocked("mesh_upload_failed");
         streamingStats.uploadCpuMs += uploadElapsedMs;
         if (uploadElapsedMs > streamingStats.maxUploadCpuMs) {
             streamingStats.maxUploadCpuMs = uploadElapsedMs;
@@ -784,7 +794,12 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
                 meshJobs[index].sectionY, meshJobs[index].lod, true);
         }
         pthread_mutex_unlock(&genMutex);
-        if (availableSlots < submissionLimit) submissionLimit = availableSlots;
+        if (availableSlots < submissionLimit) {
+            submissionLimit = availableSlots;
+            if (availableSlots == 0) {
+                ChunkDiagnosticsRecordReason("mesh_queue_full");
+            }
+        }
     }
     if (submissionLimit <= 0) return;
     static int scanCursor = 0; int scanStart = scanCursor, scanned = 0, visitedSections = 0; bool scanBudgetHit = false;
@@ -821,6 +836,7 @@ void RebuildDirtyChunkMeshes(Vector3 focusPosition)
             candidates[submitted].sectionIndex];
 
         if (genWorkerThreadsStarted == 0u) {
+            ChunkDiagnosticsRecordReason("mesh_workers_unavailable");
             double startedMs = ChunkNowMs();
             RebuildChunkSectionMeshSync(&chunks[chunkIndex], section);
             double elapsedMs = ChunkNowMs() - startedMs;
@@ -854,6 +870,11 @@ bool RebuildDirtyChunkMeshAt(int x, int y, int z)
     if (genWorkerThreadsStarted != 0u && !queueSaturated &&
         SubmitMeshJob(chunk, section, true)) return true;
 
+    if (genWorkerThreadsStarted == 0u) {
+        ChunkDiagnosticsRecordReason("mesh_workers_unavailable");
+    } else if (queueSaturated) {
+        ChunkDiagnosticsRecordReason("mesh_queue_full");
+    }
     double startedMs = ChunkNowMs();
     RebuildChunkSectionMeshSync(chunk, section);
     double elapsedMs = ChunkNowMs() - startedMs;
@@ -1005,6 +1026,7 @@ void ChunksResetStreamingStats(void)
 {
     pthread_mutex_lock(&genMutex);
     streamingStats = (ChunkStreamingStats){ 0 };
+    ChunkDiagnosticsResetReasonLocked();
     UpdateQueuePeaksLocked();
     pthread_mutex_unlock(&genMutex);
 }
@@ -1051,6 +1073,7 @@ void ChunksTestResetScheduler(void)
     memset(meshJobs, 0, sizeof(meshJobs));
     chunkStreamingFocus = (ChunkStreamingFocus){ 0 };
     chunkDiagnosticsCaptureSequence = 0u;
+    ChunkDiagnosticsResetReasonLocked();
     nextMeshQueueSequence = 0u;
     ChunksResetLodState();
     streamingStats = (ChunkStreamingStats){ 0 };
@@ -1229,6 +1252,9 @@ void ChunksTestSeedMeshJob(int jobIndex, int slotIndex, int cx, int cz,
             &meshTaskQueue, MeshQueueLane(&meshJobs[jobIndex]), jobIndex,
             meshJobs[jobIndex].queueSequence);
     }
+    if (meshJobs[jobIndex].inUse) {
+        ChunkDiagnosticsRecordReasonLocked("mesh_pending");
+    }
     UpdateQueuePeaksLocked();
     pthread_mutex_unlock(&genMutex);
 }
@@ -1256,6 +1282,7 @@ void ChunksTestFillGenerationQueue(void)
         chunkGenJobs[i].queued = ChunkTaskQueuePush(
             &generationTaskQueue, 0, i, chunkGenJobs[i].queueSequence);
     }
+    ChunkDiagnosticsRecordReasonLocked("generation_queue_full");
     UpdateQueuePeaksLocked();
     pthread_mutex_unlock(&genMutex);
 }

@@ -395,6 +395,8 @@ static void TestChunkDiagnosticsCaptureIsOwnedAndReadOnly(void)
     assert(empty.captureSequence == 1u);
     assert(empty.pendingGenerationJobs == 0);
     assert(strcmp(empty.blockedReason, "none") == 0);
+    assert(empty.blockedReasonSequence == 0u);
+    assert(empty.lodConsistency == CHUNK_DIAGNOSTICS_LOD_NOT_CAPTURED);
 
     ChunksTestSeedGenerationJob(0, 12, 34, 0, false);
     ChunkDiagnostics pending = { 0 };
@@ -402,6 +404,13 @@ static void TestChunkDiagnosticsCaptureIsOwnedAndReadOnly(void)
     assert(pending.captureSequence == 2u);
     assert(pending.pendingGenerationJobs == 1);
     assert(strcmp(pending.blockedReason, "generation_pending") == 0);
+    assert(pending.blockedReasonSequence > 0u);
+    assert(pending.lodConsistency == CHUNK_DIAGNOSTICS_LOD_NOT_CAPTURED);
+
+    ChunkDiagnostics detailed = { 0 };
+    ChunksCaptureDetailedDiagnostics(&detailed);
+    assert(detailed.lodConsistency == CHUNK_DIAGNOSTICS_LOD_CONSISTENT);
+    assert(detailed.blockedReasonSequence == pending.blockedReasonSequence);
 
     DiagnosticsCaptureIdentity identity = {
         .captureId = 77u,
@@ -419,6 +428,7 @@ static void TestChunkDiagnosticsCaptureIsOwnedAndReadOnly(void)
     ChunksTestResetScheduler();
     assert(pending.pendingGenerationJobs == 1);
     assert(strcmp(pending.blockedReason, "generation_pending") == 0);
+    assert(pending.blockedReasonSequence > 0u);
 }
 
 static Camera3D TestPerspectiveCamera(float fovY)
@@ -781,6 +791,9 @@ static void TestFullQueueLeavesDirtyChunkForLater(void)
     assert(stats.meshSubmitted == 0);
     assert(stats.syncRebuilds == 0);
     assert(ChunksTestChunkDirty(0));
+    ChunkDiagnostics diagnostics = { 0 };
+    ChunksCaptureDiagnostics(&diagnostics);
+    assert(strcmp(diagnostics.blockedReason, "mesh_queue_full") == 0);
 }
 
 static void TestReusedLowSlotsDoNotStarveOlderJobs(void)
@@ -863,6 +876,9 @@ static void TestSectionPipelineReportsMeshWaitStage(void)
     RebuildDirtyChunkMeshes((Vector3){ 0.5f, 1.0f, 0.5f });
     int jobIndex = FindPendingMeshJobFor(0, 0);
     assert(jobIndex >= 0);
+    ChunkDiagnostics diagnostics = { 0 };
+    ChunksCaptureDiagnostics(&diagnostics);
+    assert(strcmp(diagnostics.blockedReason, "mesh_pending") == 0);
     ChunkSectionPipelineInfo info = { 0 };
     assert(ChunksGetSectionPipelineInfo(0, 0, 0, &info));
     assert(info.stage == CHUNK_PIPELINE_MESH_QUEUED);
@@ -894,6 +910,11 @@ static void TestFullGenerationQueueDoesNotFallBackToMainThread(void)
     assert(stats.generationCompleted == 0);
     assert(stats.generationQueuePeak == MAX_CHUNK_GEN_JOBS);
     assert(GetActiveChunkCount() == 0);
+
+    ChunkDiagnostics diagnostics = { 0 };
+    ChunksCaptureDiagnostics(&diagnostics);
+    assert(strcmp(diagnostics.blockedReason, "generation_queue_full") == 0);
+    assert(diagnostics.blockedReasonSequence > 0u);
 }
 
 static void TestBudgetAndInvalidSlotCleanup(void)

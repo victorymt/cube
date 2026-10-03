@@ -102,6 +102,17 @@ static const char *ScreenshotChunkDiagnosticsStatusName(
     return status == CHUNK_DIAGNOSTICS_VALID ? "valid" : "unavailable";
 }
 
+static const char *ScreenshotChunkDiagnosticsLodConsistencyName(
+    ChunkDiagnosticsLodConsistency consistency)
+{
+    switch (consistency) {
+    case CHUNK_DIAGNOSTICS_LOD_CONSISTENT: return "consistent";
+    case CHUNK_DIAGNOSTICS_LOD_INCONSISTENT: return "inconsistent";
+    case CHUNK_DIAGNOSTICS_LOD_NOT_CAPTURED:
+    default: return "not_captured";
+    }
+}
+
 static bool ScreenshotWriteChunkDiagnostics(
     FILE *file, const ChunkDiagnostics *diagnostics)
 {
@@ -123,6 +134,11 @@ static bool ScreenshotWriteChunkDiagnostics(
                       diagnostics->identity.worldGeneration);
     CHUNK_REPORT_LINE("chunks.blocked_reason=%s\n",
                       ScreenshotText(diagnostics->blockedReason));
+    CHUNK_REPORT_LINE("chunks.blocked_reason_sequence=%" PRIu64 "\n",
+                      diagnostics->blockedReasonSequence);
+    CHUNK_REPORT_LINE("chunks.lod_consistency=%s\n",
+                      ScreenshotChunkDiagnosticsLodConsistencyName(
+                          diagnostics->lodConsistency));
     CHUNK_REPORT_LINE("chunks.active_chunks=%d\n", diagnostics->activeChunks);
     CHUNK_REPORT_LINE("chunks.pending_generation_jobs=%d\n",
                       diagnostics->pendingGenerationJobs);

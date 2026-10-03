@@ -368,7 +368,9 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.chunks.frame_id` | number | Game frame associated with the current snapshot, or `0` when unavailable |
 | `stream.chunks.simulation_tick` | number | Simulation tick associated with the current snapshot, or `0` when unavailable |
 | `stream.chunks.world_generation` | number | World context generation associated with the current snapshot, or `0` when unavailable |
-| `stream.chunks.blocked_reason` | string | Latest scheduler explanation such as `generation_pending`, `mesh_pending`, or `upload_budget_exhausted` |
+| `stream.chunks.blocked_reason` | string | Latest scheduler explanation such as `generation_pending`, `generation_queue_full`, `mesh_pending`, `mesh_workers_unavailable`, or `upload_budget_exhausted` |
+| `stream.chunks.blocked_reason_sequence` | number | Sequence of the scheduler decision that produced `blocked_reason`; resets with the chunk scheduler |
+| `stream.chunks.lod_consistency` | string | `not_captured` for base snapshots, or `consistent` when LOD counters were copied under the scheduler lock |
 | `stream.chunks.active_chunks` | number | Active chunks copied into the current snapshot |
 | `stream.chunks.pending_generation_jobs`, `stream.chunks.pending_mesh_jobs` | number | Generation and mesh jobs observed in the current snapshot |
 | `stream.chunks.focus_chunk_loaded` | bool | Whether the streaming focus chunk was loaded at capture time |
