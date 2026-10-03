@@ -869,7 +869,9 @@ gallery state.
 snow/ice and clears active weather fires; it changes the current game setting,
 but debug runs do not save settings on exit. `weather step` advances
 environmental effects by 1-100,000 fixed 2 Hz ticks without advancing world
-time. Inspect, force, and step require an active surface world.
+time. Each affected column uses its own weather at that current world time;
+forced/manual weather applies uniformly. Inspect, force, and step require an
+active surface world.
 
 Each impact tick advances every existing record on the active surface: up to
 1,024 surface records, 256 loaded fires, and 512 burn-recovery records. These

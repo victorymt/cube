@@ -80,14 +80,25 @@ typedef struct WeatherImpactExposure {
     float nearestDistance;
 } WeatherImpactExposure;
 
+typedef WeatherFieldSample (*WeatherImpactSampleAt)(
+    int x, int z, double simulationTime);
+
+/* A sampler supplies weather at each affected world column. A NULL sampler
+   selects uniform weather for deterministic fixtures and isolated replay. */
+typedef struct WeatherImpactWeather {
+    WeatherImpactSampleAt sampleAt;
+    double simulationTime;
+    WeatherFieldSample uniform;
+} WeatherImpactWeather;
+
 void WeatherImpactInit(bool damageEnabled);
 void WeatherImpactReset(void);
 void WeatherImpactSetEnabled(bool enabled);
 bool WeatherImpactEnabled(void);
 void WeatherImpactUpdate(float dt, Vector3 playerPosition,
-                         WeatherFieldSample weather);
+                         WeatherImpactWeather weather);
 void WeatherImpactStepTicks(unsigned ticks, Vector3 playerPosition,
-                            WeatherFieldSample weather);
+                            WeatherImpactWeather weather);
 bool WeatherImpactSurfaceAt(int x, int y, int z,
                             WeatherSurfaceState *outState);
 bool WeatherImpactFireAt(int x, int y, int z, float *outIntensity);

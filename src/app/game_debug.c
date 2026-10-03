@@ -1056,7 +1056,10 @@ static GameDebugDispatchResult GameDebugDispatchWeatherCommand(
     case DEBUG_CONTROL_COMMAND_WEATHER_STEP: {
         WeatherImpactStepTicks(game->debugControl.weatherTicks,
                                game->player.position,
-                               WeatherCurrentSample());
+                               (WeatherImpactWeather){
+                                   .sampleAt = WeatherFieldSampleAtWorldTime,
+                                   .simulationTime = SpaceElapsedSimulationTime()
+                               });
         TornadoStepTicks(game->debugControl.weatherTicks,
                          game->player.position, WeatherCurrentSample());
         WeatherImpactStats stats = WeatherImpactGetStats();

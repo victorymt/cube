@@ -15,6 +15,7 @@
 #include <string.h>
 
 #define WEATHER_IMPACT_SAMPLES_PER_TICK 8u
+#define WEATHER_IMPACT_WEATHER_CACHE_SIZE 256u
 #define WEATHER_IMPACT_RADIUS 24
 #define WEATHER_IMPACT_MAGIC "WXIMPACT2"
 #define WEATHER_IMPACT_LEGACY_MAGIC "WXIMPACT1"
@@ -133,11 +134,16 @@ static uint32_t impactBurnSiteCount = 0u;
 static float impactAccumulator = 0.0f;
 static bool impactEnabled = true;
 static WeatherImpactStats impactStats = { 0 };
-static WeatherFieldSample impactLastWeather = {
-    .temperatureK = 293.15f,
-    .relativeHumidity = 0.28f,
-    .visibility = 1.0f
+static WeatherImpactWeather impactWeather = {
+    .uniform = { .temperatureK = 293.15f, .relativeHumidity = 0.28f,
+                 .visibility = 1.0f }
 };
+typedef struct ImpactWeatherCacheEntry {
+    bool valid;
+    int x, z;
+    WeatherFieldSample sample;
+} ImpactWeatherCacheEntry;
+static ImpactWeatherCacheEntry impactWeatherCache[WEATHER_IMPACT_WEATHER_CACHE_SIZE];
 
 static float ImpactUnit(float value)
 {
@@ -179,6 +185,22 @@ static void ImpactCanonicalizeXZ(int *x, int *z)
     SurfaceMapCell cell = SurfaceCanonicalMapCell((float)*x, (float)*z);
     *x = cell.x;
     *z = cell.z;
+}
+
+static WeatherFieldSample ImpactWeatherAt(int x, int z)
+{
+    if (!impactWeather.sampleAt) return impactWeather.uniform;
+    ImpactCanonicalizeXZ(&x, &z);
+    uint32_t slot = ImpactMix((uint32_t)x ^ ImpactMix((uint32_t)z)) %
+                    WEATHER_IMPACT_WEATHER_CACHE_SIZE;
+    ImpactWeatherCacheEntry *entry = &impactWeatherCache[slot];
+    if (!entry->valid || entry->x != x || entry->z != z) {
+        *entry = (ImpactWeatherCacheEntry){
+            .valid = true, .x = x, .z = z,
+            .sample = impactWeather.sampleAt(x, z, impactWeather.simulationTime)
+        };
+    }
+    return entry->sample;
 }
 
 static float ImpactFuelLoad(BlockType block, float flammability)
@@ -670,7 +692,7 @@ static uint32_t ImpactFireLane(const WeatherImpactFireRecord *fire,
     return ImpactMix(value ^ salt);
 }
 
-static void ImpactProcessFires(WeatherFieldSample weather)
+static void ImpactProcessFires(void)
 {
     /* Each existing fire receives exactly one fixed step. Reverse traversal
        makes swap-removal safe and leaves newly spread fires for the next
@@ -691,6 +713,7 @@ static void ImpactProcessFires(WeatherFieldSample weather)
             continue;
         }
         float previousFuel = fire->state.fuel;
+        WeatherFieldSample weather = ImpactWeatherAt(fire->x, fire->z);
         float flammability = fuelConsumed ?
             BlockMaterialResponseFor(fire->fuelBlock).flammability :
             material.flammability;
@@ -734,7 +757,8 @@ static void ImpactProcessFires(WeatherFieldSample weather)
             float dz = (float)offsets[choice][2];
             if (dx == 0.0f && dz == 0.0f) dx = 0.20f;
             float horizontal = fmaxf(hypotf(dx, dz), 0.20f);
-            float targetMoisture = ImpactFuelMoisture(nx, ny, nz, weather);
+            float targetMoisture = ImpactFuelMoisture(
+                nx, ny, nz, ImpactWeatherAt(nx, nz));
             float spreadChance = WildfireSpreadProbability(
                 (WildfireSpreadInput){
                     .sourceIntensity = fire->state.intensity,
@@ -759,8 +783,7 @@ static void ImpactProcessFires(WeatherFieldSample weather)
     }
 }
 
-static void ImpactSampleNewSurfaces(Vector3 playerPosition,
-                                    WeatherFieldSample weather)
+static void ImpactSampleNewSurfaces(Vector3 playerPosition)
 {
     int centerX = (int)floorf(playerPosition.x);
     int centerY = (int)floorf(playerPosition.y);
@@ -780,6 +803,7 @@ static void ImpactSampleNewSurfaces(Vector3 playerPosition,
         WeatherImpactSurfaceRecord *record = ImpactSurfaceEnsure(
             surfaceId, x, topY, z);
         if (!record) continue;
+        WeatherFieldSample weather = ImpactWeatherAt(x, z);
         ImpactApplyPrecipitation(record, weather, topBlock);
         ImpactApplyMaterialStress(record, weather, topBlock);
         float moisture = ImpactFuelMoisture(x, topY, z, weather);
@@ -814,7 +838,7 @@ static void ImpactSampleNewSurfaces(Vector3 playerPosition,
     }
 }
 
-static void ImpactAgeSurfaces(WeatherFieldSample weather)
+static void ImpactAgeSurfaces(void)
 {
     for (uint32_t remaining = impactSurfaceCount; remaining > 0u; remaining--) {
         uint32_t index = remaining - 1u;
@@ -822,6 +846,8 @@ static void ImpactAgeSurfaces(WeatherFieldSample weather)
         if (record->state.surfaceId != WorldCurrentSurfaceId()) {
             continue;
         }
+        WeatherFieldSample weather = ImpactWeatherAt(record->state.x,
+                                                     record->state.z);
         float evaporation = weather.temperatureK > 273.15f ?
             0.006f + ImpactUnit((weather.temperatureK - 273.15f) / 50.0f) *
             0.025f : 0.002f;
@@ -860,7 +886,7 @@ static void ImpactAgeSurfaces(WeatherFieldSample weather)
     }
 }
 
-static void ImpactRecoverBurnSites(WeatherFieldSample weather)
+static void ImpactRecoverBurnSites(void)
 {
     for (uint32_t remaining = impactBurnSiteCount; remaining > 0u; remaining--) {
         uint32_t index = remaining - 1u;
@@ -868,6 +894,7 @@ static void ImpactRecoverBurnSites(WeatherFieldSample weather)
         if (site->surfaceId != WorldCurrentSurfaceId()) {
             continue;
         }
+        WeatherFieldSample weather = ImpactWeatherAt(site->x, site->z);
         float temperate = ImpactUnit(
             1.0f - fabsf(weather.temperatureK - 291.0f) / 42.0f);
         float wet = ImpactUnit(weather.relativeHumidity * 0.55f +
@@ -908,17 +935,17 @@ static void ImpactRecoverBurnSites(WeatherFieldSample weather)
     }
 }
 
-static void ImpactTick(Vector3 playerPosition, WeatherFieldSample weather)
+static void ImpactTick(Vector3 playerPosition)
 {
     impactStats.ticks++;
-    impactLastWeather = weather;
+    memset(impactWeatherCache, 0, sizeof(impactWeatherCache));
     /* The fixed-capacity state sets advance at 2 Hz regardless of occupancy.
        Only discovery is sampled: skipping existing records silently slowed
        evaporation, combustion and recovery by up to sixteen times. */
-    ImpactAgeSurfaces(weather);
-    ImpactSampleNewSurfaces(playerPosition, weather);
-    ImpactProcessFires(weather);
-    ImpactRecoverBurnSites(weather);
+    ImpactAgeSurfaces();
+    ImpactSampleNewSurfaces(playerPosition);
+    ImpactProcessFires();
+    ImpactRecoverBurnSites();
     impactStats.surfaceCount = impactSurfaceCount;
     impactStats.activeFires = impactFireCount;
     impactStats.burnSiteCount = impactBurnSiteCount;
@@ -935,11 +962,11 @@ void WeatherImpactInit(bool damageEnabled)
     impactAccumulator = 0.0f;
     impactEnabled = damageEnabled;
     impactStats = (WeatherImpactStats){ 0 };
-    impactLastWeather = (WeatherFieldSample){
-        .temperatureK = 293.15f,
-        .relativeHumidity = 0.28f,
-        .visibility = 1.0f
+    impactWeather = (WeatherImpactWeather){
+        .uniform = { .temperatureK = 293.15f, .relativeHumidity = 0.28f,
+                     .visibility = 1.0f }
     };
+    memset(impactWeatherCache, 0, sizeof(impactWeatherCache));
 }
 
 void WeatherImpactReset(void)
@@ -970,11 +997,13 @@ bool WeatherImpactEnabled(void)
 }
 
 void WeatherImpactUpdate(float dt, Vector3 playerPosition,
-                         WeatherFieldSample weather)
+                         WeatherImpactWeather weather)
 {
     if (!impactEnabled || !WorldIsSurfaceActive() || !isfinite(dt) ||
         dt <= 0.0f || !isfinite(playerPosition.x) ||
-        !isfinite(playerPosition.y) || !isfinite(playerPosition.z)) {
+        !isfinite(playerPosition.y) || !isfinite(playerPosition.z) ||
+        (weather.sampleAt && (!isfinite(weather.simulationTime) ||
+                              weather.simulationTime < 0.0))) {
         return;
     }
     impactAccumulator += fminf(dt, 0.25f) * WEATHER_IMPACT_TICK_RATE;
@@ -985,15 +1014,19 @@ void WeatherImpactUpdate(float dt, Vector3 playerPosition,
 }
 
 void WeatherImpactStepTicks(unsigned ticks, Vector3 playerPosition,
-                            WeatherFieldSample weather)
+                            WeatherImpactWeather weather)
 {
     if (!impactEnabled || !WorldIsSurfaceActive() ||
         !isfinite(playerPosition.x) || !isfinite(playerPosition.y) ||
-        !isfinite(playerPosition.z)) {
+        !isfinite(playerPosition.z) ||
+        (weather.sampleAt && (!isfinite(weather.simulationTime) ||
+                              weather.simulationTime < 0.0))) {
         return;
     }
+    impactWeather = weather;
+    memset(impactWeatherCache, 0, sizeof(impactWeatherCache));
     for (unsigned tick = 0u; tick < ticks; tick++) {
-        ImpactTick(playerPosition, weather);
+        ImpactTick(playerPosition);
     }
 }
 
@@ -1043,10 +1076,12 @@ bool WeatherImpactFireStateAt(int x, int y, int z,
 
 bool WeatherImpactIgniteAt(int x, int y, int z, float intensity)
 {
+    /* Debug/manual ignition can follow a weather override between ticks. */
+    memset(impactWeatherCache, 0, sizeof(impactWeatherCache));
     return impactEnabled && WorldIsSurfaceActive() && isfinite(intensity) &&
         intensity > 0.0f && ImpactIgnite(
             WorldCurrentSurfaceId(), x, y, z, ImpactUnit(intensity),
-            ImpactFuelMoisture(x, y, z, impactLastWeather), NULL);
+            ImpactFuelMoisture(x, y, z, ImpactWeatherAt(x, z)), NULL);
 }
 
 unsigned WeatherImpactSuppressAt(int x, int y, int z, float radius,

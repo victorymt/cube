@@ -20,6 +20,20 @@ static WorldMutationSource mutationSource = WORLD_MUTATION_PLAYER;
 static WorldMutationSource lastMutationSource = WORLD_MUTATION_PLAYER;
 static bool surfaceLoaded = true;
 
+static void StepUniformTicks(unsigned ticks, Vector3 position,
+                             WeatherFieldSample weather)
+{
+    WeatherImpactStepTicks(ticks, position,
+                          (WeatherImpactWeather){ .uniform = weather });
+}
+
+static void UpdateUniformImpacts(float dt, Vector3 position,
+                                 WeatherFieldSample weather)
+{
+    WeatherImpactUpdate(dt, position,
+                        (WeatherImpactWeather){ .uniform = weather });
+}
+
 static bool Cell(int x, int y, int z, int *ix, int *iy, int *iz)
 {
     if (x < -TEST_RADIUS || x > TEST_RADIUS ||
@@ -204,7 +218,7 @@ static void TestRainBudgetAndDisable(void)
 {
     ResetGrid(BLOCK_STONE);
     WeatherImpactInit(true);
-    WeatherImpactStepTicks(40u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(40u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     WeatherImpactStats stats = WeatherImpactGetStats();
     assert(stats.ticks == 40u);
     assert(stats.surfaceCount > 0u);
@@ -215,7 +229,7 @@ static void TestRainBudgetAndDisable(void)
     WeatherImpactSetEnabled(false);
     assert(!WeatherImpactEnabled());
     assert(WeatherImpactGetStats().surfaceCount == 0u);
-    WeatherImpactStepTicks(20u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(20u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(WeatherImpactGetStats().ticks == 40u);
 }
 
@@ -228,7 +242,7 @@ static void TestFireAndRainInteraction(void)
     float intensity = 0.0f;
     assert(WeatherImpactFireAt(0, 10, 0, &intensity));
     assert(intensity > 0.5f && intensity <= 1.0f);
-    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(WeatherImpactGetStats().activeFires == 1u);
     WeatherImpactFireSnapshot fire = { 0 };
     assert(WeatherImpactFireStateAt(0, 10, 0, &fire));
@@ -236,7 +250,7 @@ static void TestFireAndRainInteraction(void)
     assert(WeatherImpactSuppressAt(0, 10, 0, 0.5f, 0.3f) == 1u);
     assert(WeatherImpactFireStateAt(0, 10, 0, &fire));
     assert(fire.state.phase == WILDFIRE_PHASE_SMOLDERING);
-    WeatherImpactStepTicks(100u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(100u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(WeatherImpactGetStats().activeFires == 0u);
     assert(WeatherImpactGetStats().extinctions == 1u);
     assert(WeatherImpactGetStats().suppressions == 1u);
@@ -305,7 +319,7 @@ static void TestFuelConsumptionAndBurnScar(void)
     blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_TALL_GRASS;
     WeatherImpactInit(true);
     assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
-    WeatherImpactStepTicks(500u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
+    StepUniformTicks(500u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
     assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
     assert(lastMutationSource == WORLD_MUTATION_ENVIRONMENT);
     assert(!WeatherImpactIgniteAt(0, 10, 0, 1.0f));
@@ -331,7 +345,7 @@ static void TestFuelConsumptionAndBurnScar(void)
     blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_WOOD;
     WeatherImpactInit(true);
     assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
-    WeatherImpactStepTicks(
+    StepUniformTicks(
         2000u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
     assert(GetBlockAt(0, 10, 0) == BLOCK_CHARRED_WOOD);
     assert(!WeatherImpactIgniteAt(0, 10, 0, 1.0f));
@@ -340,7 +354,7 @@ static void TestFuelConsumptionAndBurnScar(void)
     blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_PLANK;
     WeatherImpactInit(true);
     assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
-    WeatherImpactStepTicks(2000u,
+    StepUniformTicks(2000u,
                            (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
     assert(GetBlockAt(0, 10, 0) == BLOCK_CHARCOAL);
     assert(!WeatherImpactIgniteAt(0, 10, 0, 1.0f));
@@ -354,7 +368,7 @@ static void TestBoundedWorkAndNaturalSources(void)
         blocks[x + TEST_RADIUS][10][TEST_RADIUS] = BLOCK_WOOD;
         assert(WeatherImpactIgniteAt(x, 10, 0, 0.8f));
     }
-    WeatherImpactStepTicks(1u, (Vector3){ 0.0f, 12.0f, 0.0f }, Dry());
+    StepUniformTicks(1u, (Vector3){ 0.0f, 12.0f, 0.0f }, Dry());
     WeatherImpactFireSnapshot fires[WEATHER_IMPACT_MAX_FIRES] = { 0 };
     unsigned count = WeatherImpactCollectFires(
         (Vector3){ 0.0f, 12.0f, 0.0f }, 100.0f, fires,
@@ -373,7 +387,7 @@ static void TestBoundedWorkAndNaturalSources(void)
     WeatherImpactInit(true);
     WeatherFieldSample lightning = Dry();
     lightning.lightning = 1.0f;
-    WeatherImpactStepTicks(80u, (Vector3){ 0.0f, 12.0f, 0.0f }, lightning);
+    StepUniformTicks(80u, (Vector3){ 0.0f, 12.0f, 0.0f }, lightning);
     assert(WeatherImpactGetStats().ignitions > 0u);
 
     ResetGrid(BLOCK_WOOD);
@@ -383,7 +397,7 @@ static void TestBoundedWorkAndNaturalSources(void)
             blocks[x][11][z] = BLOCK_LAVA;
         }
     }
-    WeatherImpactStepTicks(20u, (Vector3){ 0.0f, 12.0f, 0.0f }, Dry());
+    StepUniformTicks(20u, (Vector3){ 0.0f, 12.0f, 0.0f }, Dry());
     assert(WeatherImpactGetStats().ignitions > 0u);
 }
 
@@ -400,7 +414,7 @@ static void TestSnowOwnershipAndPlayerOverride(void)
         .gust = 0.38f,
         .visibility = 0.62f
     };
-    WeatherImpactStepTicks(2600u, (Vector3){ 0.5f, 12.0f, 0.5f }, snow);
+    StepUniformTicks(2600u, (Vector3){ 0.5f, 12.0f, 0.5f }, snow);
     int x = 0, y = 0, z = 0;
     assert(FindSurfaceWithFlag(WEATHER_SURFACE_SNOW, &x, &y, &z));
     if (GetBlockAt(x, y + 1, z) == BLOCK_SNOW) {
@@ -408,7 +422,7 @@ static void TestSnowOwnershipAndPlayerOverride(void)
                                         WORLD_MUTATION_PLAYER));
         WeatherFieldSample warm = Rain();
         warm.temperatureK = 290.0f;
-        WeatherImpactStepTicks(20u, (Vector3){ (float)x, 12.0f, (float)z },
+        StepUniformTicks(20u, (Vector3){ (float)x, 12.0f, (float)z },
                                warm);
         assert(GetBlockAt(x, y + 1, z) == BLOCK_PLANK);
     }
@@ -420,7 +434,7 @@ static void TestSaveLoadAndCorruption(void)
     blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_WOOD;
     WeatherImpactInit(true);
     assert(WeatherImpactIgniteAt(0, 10, 0, 0.9f));
-    WeatherImpactStepTicks(30u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
+    StepUniformTicks(30u, (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
     WeatherImpactStats before = WeatherImpactGetStats();
     FILE *file = tmpfile();
     assert(file);
@@ -616,10 +630,10 @@ static void TestElapsedTimeIndependentOfRecordCount(void)
             Vector3 position = { 10000.0f, 12.0f, 10000.0f };
             if (run == 4u) {
                 for (unsigned frame = 0u; frame < 4u; frame++) {
-                    WeatherImpactUpdate(0.125f, position, weather);
+                    UpdateUniformImpacts(0.125f, position, weather);
                 }
             } else {
-                WeatherImpactStepTicks(1u, position, weather);
+                StepUniformTicks(1u, position, weather);
             }
             TimingSnapshot actual = CaptureTimingSnapshot();
             if (run == 0u) baseline[tick] = actual;
@@ -650,29 +664,29 @@ static void TestInactiveSurfaceAndUnloadedFireClocks(void)
     WorldSurfaceSnapshot other = home;
     other.context.bodyId = home.context.bodyId + 1u;
     WorldInstallSurfaceSnapshot(&other);
-    WeatherImpactStepTicks(20u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    StepUniformTicks(20u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
     WorldInstallSurfaceSnapshot(&home);
     AssertTimingEqual(CaptureTimingSnapshot(), before);
 
     surfaceLoaded = false;
-    WeatherImpactStepTicks(4u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    StepUniformTicks(4u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
     TimingSnapshot unloaded = CaptureTimingSnapshot();
     assert(unloaded.fire.state.ageSeconds == before.fire.state.ageSeconds);
     assert(unloaded.fire.state.fuel == before.fire.state.fuel);
     assert(unloaded.burn.ageSeconds == before.burn.ageSeconds + 2.0f);
     surfaceLoaded = true;
-    WeatherImpactStepTicks(1u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    StepUniformTicks(1u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
     assert(CaptureTimingSnapshot().fire.state.ageSeconds == 0.5f);
 
     WeatherBurnSiteState burn;
     assert(WeatherImpactBurnSiteAt(4000, 10, 4000, &burn));
     float age = burn.ageSeconds;
     WeatherImpactSetEnabled(false);
-    WeatherImpactStepTicks(20u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    StepUniformTicks(20u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
     assert(WeatherImpactBurnSiteAt(4000, 10, 4000, &burn));
     assert(burn.ageSeconds == age);
     WeatherImpactSetEnabled(true);
-    WeatherImpactStepTicks(1u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
+    StepUniformTicks(1u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
     assert(WeatherImpactBurnSiteAt(4000, 10, 4000, &burn));
     assert(burn.ageSeconds == age + 0.5f);
 }
@@ -715,14 +729,14 @@ static void TestOwnedMeltAtCapacity(void)
                     0, 11, 0, BLOCK_PLANK, WORLD_MUTATION_PLAYER));
             }
             surfaceLoaded = run != 2u;
-            WeatherImpactStepTicks(20u,
+            StepUniformTicks(20u,
                 (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
             if (!surfaceLoaded) {
                 assert(GetBlockAt(0, 11, 0) ==
                        (frozenWater ? BLOCK_ICE : BLOCK_SNOW));
                 assert(WeatherImpactGetStats().surfaceCount == count);
                 surfaceLoaded = true;
-                WeatherImpactStepTicks(1u,
+                StepUniformTicks(1u,
                     (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
             }
             for (unsigned index = 0u; index < count; index++) {
@@ -750,7 +764,7 @@ static void TestSpreadStartsOnNextTick(void)
     assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
     bool spread = false;
     for (unsigned tick = 0u; tick < 100u && !spread; tick++) {
-        WeatherImpactStepTicks(1u,
+        StepUniformTicks(1u,
             (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
         WeatherImpactFireSnapshot fires[WEATHER_IMPACT_MAX_FIRES];
         unsigned count = WeatherImpactCollectFires(
@@ -765,6 +779,107 @@ static void TestSpreadStartsOnNextTick(void)
         }
     }
     assert(spread);
+}
+
+static unsigned localWeatherCalls;
+static double localWeatherTime;
+
+static WeatherFieldSample SpatialWeather(int x, int z, double time)
+{
+    (void)z;
+    assert(time == localWeatherTime);
+    localWeatherCalls++;
+    if (time < 20.0 && (x == -30 || x == 2000 || x == 4000)) {
+        WeatherFieldSample cold = Dry();
+        cold.temperatureK = 264.0f;
+        return cold;
+    }
+    return Rain();
+}
+
+static void TestImpactsUseTheirOwnWeather(void)
+{
+    TimingSnapshot baseline[8];
+    for (unsigned run = 0u; run < 2u; run++) {
+        LoadTimingFixture(2u, 2u, 2u);
+        for (unsigned tick = 0u; tick < 8u; tick++) {
+            localWeatherTime = 10.0 + (double)tick * 0.5;
+            localWeatherCalls = 0u;
+            WeatherImpactStepTicks(1u,
+                (Vector3){ run ? -20000.0f : 10000.0f, 12.0f, 10000.0f },
+                (WeatherImpactWeather){ .sampleAt = SpatialWeather,
+                                        .simulationTime = localWeatherTime });
+            assert(localWeatherCalls >= 5u && localWeatherCalls <= 8u);
+            TimingSnapshot cold = CaptureTimingSnapshot();
+            WeatherSurfaceState warm;
+            WeatherBurnSiteState wetBurn;
+            assert(WeatherImpactSurfaceAt(2001, 10, 2000, &warm));
+            assert(WeatherImpactBurnSiteAt(4001, 10, 4000, &wetBurn));
+            assert(cold.surface.snowDepth == 1.0f);
+            assert(cold.surface.iceAmount == 1.0f);
+            assert(warm.snowDepth < cold.surface.snowDepth);
+            assert(warm.wetness < cold.surface.wetness);
+            assert(wetBurn.recovery > cold.burn.recovery);
+            assert(cold.fireActive);
+            WeatherImpactFireSnapshot rainyFire;
+            if (WeatherImpactFireStateAt(-26, 10, -30, &rainyFire)) {
+                assert(rainyFire.state.moisture > cold.fire.state.moisture);
+                assert(rainyFire.state.intensity < cold.fire.state.intensity);
+            }
+            if (run == 0u) baseline[tick] = cold;
+            else AssertTimingEqual(cold, baseline[tick]);
+        }
+        /* A new time invalidates all cached columns, including when stepping
+           via the DSL with a fixed player position. */
+        localWeatherTime = 20.0;
+        WeatherImpactStepTicks(1u, (Vector3){ 10000.0f, 12.0f, 10000.0f },
+            (WeatherImpactWeather){ .sampleAt = SpatialWeather,
+                                    .simulationTime = localWeatherTime });
+        assert(CaptureTimingSnapshot().surface.snowDepth < 1.0f);
+        uint64_t ticks = WeatherImpactGetStats().ticks;
+        WeatherImpactStepTicks(1u, (Vector3){ 0 },
+            (WeatherImpactWeather){ .sampleAt = SpatialWeather,
+                                    .simulationTime = NAN });
+        assert(WeatherImpactGetStats().ticks == ticks);
+    }
+}
+
+static WeatherFieldSample SplitRain(int x, int z, double time)
+{
+    (void)z;
+    (void)time;
+    return x < 0 ? Dry() : Rain();
+}
+
+static void TestPrecipitationAndIgnitionUseTheirOwnWeather(void)
+{
+    ResetGrid(BLOCK_STONE);
+    WeatherImpactInit(true);
+    WeatherImpactWeather weather = { .sampleAt = SplitRain, .simulationTime = 1.0 };
+    WeatherImpactStepTicks(100u, (Vector3){ 0.5f, 12.0f, 0.5f }, weather);
+    unsigned wetColumns = 0u;
+    for (int x = -24; x <= 24; x++) {
+        for (int z = -24; z <= 24; z++) {
+            uint8_t water = FluidGetVolumeAt(x, 11, z);
+            if (x < 0) assert(water == 0u);
+            else wetColumns += water > 0u;
+        }
+    }
+    assert(wetColumns > 0u);
+    /* Priming the sampler with zero ticks allows ignition to use local
+       moisture without changing the simulation clock. */
+    ResetGrid(BLOCK_STONE);
+    WeatherImpactInit(true);
+    blocks[TEST_RADIUS - 2][10][TEST_RADIUS] = BLOCK_WOOD;
+    blocks[TEST_RADIUS + 2][10][TEST_RADIUS] = BLOCK_WOOD;
+    WeatherImpactStepTicks(0u, (Vector3){ 0 }, weather);
+    assert(WeatherImpactIgniteAt(-2, 10, 0, 1.0f));
+    assert(WeatherImpactIgniteAt(2, 10, 0, 1.0f));
+    WeatherImpactFireSnapshot dry, wet;
+    assert(WeatherImpactFireStateAt(-2, 10, 0, &dry));
+    assert(WeatherImpactFireStateAt(2, 10, 0, &wet));
+    assert(wet.state.moisture > dry.state.moisture);
+    assert(wet.state.intensity < dry.state.intensity);
 }
 
 static FILE *CurrentFireAliasState(bool duplicate)
@@ -903,7 +1018,7 @@ static void TestNamedTreeFuelAndFireweedRecovery(void)
         blocks[TEST_RADIUS][10][TEST_RADIUS] = foliage[index];
         WeatherImpactInit(true);
         assert(WeatherImpactIgniteAt(0, 10, 0, 1.0f));
-        WeatherImpactStepTicks(1000u,
+        StepUniformTicks(1000u,
                                (Vector3){ 0.5f, 12.0f, 0.5f }, Dry());
         assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
     }
@@ -913,7 +1028,7 @@ static void TestNamedTreeFuelAndFireweedRecovery(void)
     blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_FIRE_ASH;
     WeatherImpactInit(true);
     LoadBurnRecoveryState(0.20f);
-    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(GetBlockAt(0, 10, 0) == BLOCK_FIREWEED);
     assert(lastMutationSource == WORLD_MUTATION_ENVIRONMENT);
 
@@ -923,7 +1038,7 @@ static void TestNamedTreeFuelAndFireweedRecovery(void)
     WeatherImpactInit(true);
     LoadBurnRecoveryState(0.20f);
     surfaceLoaded = false;
-    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     surfaceLoaded = true;
     assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
 
@@ -931,7 +1046,7 @@ static void TestNamedTreeFuelAndFireweedRecovery(void)
     blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_FIRE_ASH;
     WeatherImpactInit(true);
     LoadBurnRecoveryState(0.20f);
-    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
 
     ResetGrid(BLOCK_STONE);
@@ -939,7 +1054,7 @@ static void TestNamedTreeFuelAndFireweedRecovery(void)
     blocks[TEST_RADIUS][10][TEST_RADIUS] = BLOCK_PLANK;
     WeatherImpactInit(true);
     LoadBurnRecoveryState(0.20f);
-    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(GetBlockAt(0, 10, 0) == BLOCK_PLANK);
 
     ResetGrid(BLOCK_STONE);
@@ -948,7 +1063,7 @@ static void TestNamedTreeFuelAndFireweedRecovery(void)
     blocks[TEST_RADIUS][11][TEST_RADIUS] = BLOCK_PLANK;
     WeatherImpactInit(true);
     LoadBurnRecoveryState(0.20f);
-    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(GetBlockAt(0, 10, 0) == BLOCK_FIRE_ASH);
 
     ResetGrid(BLOCK_STONE);
@@ -963,7 +1078,7 @@ static void TestNamedTreeFuelAndFireweedRecovery(void)
     WeatherImpactReset();
     assert(WeatherImpactLoadState(file));
     fclose(file);
-    WeatherImpactStepTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
+    StepUniformTicks(1u, (Vector3){ 0.5f, 12.0f, 0.5f }, Rain());
     assert(GetBlockAt(0, 10, 0) == BLOCK_FIREWEED);
 }
 
@@ -1034,6 +1149,8 @@ int main(void)
     TestInactiveSurfaceAndUnloadedFireClocks();
     TestOwnedMeltAtCapacity();
     TestSpreadStartsOnNextTick();
+    TestImpactsUseTheirOwnWeather();
+    TestPrecipitationAndIgnitionUseTheirOwnWeather();
     TestRainBudgetAndDisable();
     TestFireAndRainInteraction();
     TestIgnitionQueriesAndLoadedBounds();

@@ -48,8 +48,30 @@ Records on other surfaces remain paused. Fire combustion also pauses while
 its block is unloaded. Surface moisture/melt and burn recovery on the current
 surface remain numerical state updates even when their blocks are unloaded;
 terrain changes require loaded blocks. Disabled weather damage stops impact
-ticks. This change does not add historical/off-screen weather sampling or
-change the existing use of the supplied local weather sample.
+ticks. This does not simulate unloaded fire combustion or historical catch-up.
+
+## Local weather inputs
+
+The game supplies `WeatherFieldSampleAtWorldTime` and the fixed-step world time
+through `WeatherImpactWeather`. Surface evaporation/melt, new precipitation,
+lightning ignition, each fire's combustion, spread-target fuel moisture, and
+burn recovery sample their own X/Z column. Moving the player therefore no
+longer substitutes their climate for records elsewhere on the same surface.
+Discovery still follows the player and retains its eight-column budget.
+
+A bounded 256-entry cache shares exact-column samples within each tick. It is
+cleared for every new tick and explicit ignition, so time, surface and forced
+weather changes cannot reuse a previous tick's climate. It does not quantize
+biome boundaries. Natural weather sampling still includes the existing live
+hydrology/radiation feedback where available. Forced/manual weather remains
+spatially uniform through the normal weather sampler; cloud-only forcing keeps
+natural local climate. The DSL's `weather step` samples at the current world
+time, which remains frozen during the command.
+
+An explicit uniform input without a sampler is retained for isolated unit
+fixtures and coupled replay. Runtime and DSL callers use the spatial sampler.
+Tests compare cold/dry and warm/rainy columns at the same time, player movement,
+new rain deposition, ignition moisture and time-based cache invalidation.
 
 ## Persistence and validation
 

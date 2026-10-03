@@ -222,7 +222,10 @@ void GameAdvanceSimulationStep(double simulationSeconds,
         WeatherUpdate(dt, game->player.position, simulationTime);
         WeatherFieldSample weather = WeatherCurrentSample();
         TornadoUpdate(dt, game->player.position, weather);
-        WeatherImpactUpdate(dt, game->player.position, weather);
+        WeatherImpactUpdate(dt, game->player.position, (WeatherImpactWeather){
+            .sampleAt = WeatherFieldSampleAtWorldTime,
+            .simulationTime = simulationTime
+        });
         if (game->settings.weatherDamageEnabled) {
             EntitiesApplyWeatherHazards(dt, weather, daylight);
         }

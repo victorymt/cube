@@ -189,12 +189,21 @@ void TornadoUpdate(float dt, Vector3 position, WeatherFieldSample weather)
     assert(weather.precipitation == sampledDaylight);
 }
 
-void WeatherImpactUpdate(float dt, Vector3 position, WeatherFieldSample weather)
+WeatherFieldSample WeatherFieldSampleAtWorldTime(int x, int z, double time)
+{
+    (void)x;
+    (void)z;
+    assert(time == spaceTime);
+    return (WeatherFieldSample){ .precipitation = sampledDaylight };
+}
+
+void WeatherImpactUpdate(float dt, Vector3 position, WeatherImpactWeather weather)
 {
     (void)position;
     ExpectSequence(7u);
     assert(dt == CurrentTick()->dt);
-    assert(weather.precipitation == sampledDaylight);
+    assert(weather.sampleAt == WeatherFieldSampleAtWorldTime);
+    assert(weather.simulationTime == spaceTime);
 }
 
 void EntitiesApplyWeatherHazards(float dt, WeatherFieldSample weather,

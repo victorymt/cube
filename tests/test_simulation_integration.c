@@ -341,7 +341,8 @@ static void StepReplay(double simulationSeconds, double stepSeconds, void *opaqu
     forcing.drizzle = forcing.snow = forcing.sleet = forcing.freezingRain = 0.0f;
     forcing.hail = forcing.lightning = forcing.frost = 0.0f;
     WeatherImpactStepTicks(1, (Vector3){ (float)(run->playerX + alias),
-                                      (float)sceneGround + 3.0f, 8.0f }, forcing);
+                                      (float)sceneGround + 3.0f, 8.0f },
+                          (WeatherImpactWeather){ .uniform = forcing });
     /* Tick stepping intentionally bypasses FluidUpdate's wall-clock CPU budget. */
     FluidStepTicks(5);
     TickState *state = &run->states[run->tick - 1];
