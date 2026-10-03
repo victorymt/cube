@@ -952,6 +952,8 @@ Use `make test-volcano-e2e` for a real Wayland route that covers force, pause,
 manual stepping, mid-eruption save/load, parking, resume, stop and a second
 event, followed by a closed-basin cooling/solidification check and a separate
 two-vent route that verifies parked lava does not block a loaded vent's recovery.
+Another route checks `target.hit` and `target.position` above and inside a cooled
+partial deposit, including looking down at its actual top surface.
 It retains the
 isolated runtime directory, replies, trace and three screenshots. Every geology
 tick executes five lava steps; its weather sample time stays frozen during the

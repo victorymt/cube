@@ -91,6 +91,9 @@ spherical rotation and vertical displacement, with cell positions in section
 coordinates. Entity
 path selection still treats an occupied overlay conservatively as lava/rock;
 player/camera collision and immersion use actual partial heights.
+Selection rays intersect the selected solid/liquid interval of an overlay and
+return that surface's face normal. Camera occlusion uses only its solid height,
+including a solid base under liquid; empty space above a deposit stays clear.
 
 ## Verification
 
@@ -106,6 +109,8 @@ player/camera collision and immersion use actual partial heights.
 - `test_block_collection`: failed mutations yield no inventory items; successful
   collection commits the world edit before inventory, and a full inventory
   prevents removal.
+- `test_interaction_raycast`: rays above, inside and into the top of partial
+  deposits; solid/liquid masks, mixed layers, reach limits and face normals.
 - `test_save_format` and `test_game_save_spherical`: V25 flags/writer, new
   payload routing, old-version reset without consuming trailer bytes, corrupt
   payload preserving live records.

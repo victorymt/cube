@@ -507,10 +507,12 @@ void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursor
     }
 }
 
-static float RayAABBEnter(Vector3 origin, Vector3 direction, Vector3 min, Vector3 max)
+static float RayAABBEnter(Vector3 origin, Vector3 direction, Vector3 min, Vector3 max,
+                          Vector3 *outNormal)
 {
     float t0 = 0.0f;
     float t1 = INFINITY;
+    Vector3 normal = { 0 };
 
     if (fabsf(direction.x) < 0.0001f) {
         if (origin.x < min.x || origin.x > max.x) return -1.0f;
@@ -519,7 +521,10 @@ static float RayAABBEnter(Vector3 origin, Vector3 direction, Vector3 min, Vector
         float ta = (min.x - origin.x) * inv;
         float tb = (max.x - origin.x) * inv;
         if (ta > tb) { float tmp = ta; ta = tb; tb = tmp; }
-        t0 = fmaxf(t0, ta);
+        if (ta > t0) {
+            t0 = ta;
+            normal = (Vector3){ direction.x > 0.0f ? -1.0f : 1.0f, 0, 0 };
+        }
         t1 = fminf(t1, tb);
     }
     if (fabsf(direction.y) < 0.0001f) {
@@ -529,7 +534,10 @@ static float RayAABBEnter(Vector3 origin, Vector3 direction, Vector3 min, Vector
         float ta = (min.y - origin.y) * inv;
         float tb = (max.y - origin.y) * inv;
         if (ta > tb) { float tmp = ta; ta = tb; tb = tmp; }
-        t0 = fmaxf(t0, ta);
+        if (ta > t0) {
+            t0 = ta;
+            normal = (Vector3){ 0, direction.y > 0.0f ? -1.0f : 1.0f, 0 };
+        }
         t1 = fminf(t1, tb);
     }
     if (fabsf(direction.z) < 0.0001f) {
@@ -539,11 +547,15 @@ static float RayAABBEnter(Vector3 origin, Vector3 direction, Vector3 min, Vector
         float ta = (min.z - origin.z) * inv;
         float tb = (max.z - origin.z) * inv;
         if (ta > tb) { float tmp = ta; ta = tb; tb = tmp; }
-        t0 = fmaxf(t0, ta);
+        if (ta > t0) {
+            t0 = ta;
+            normal = (Vector3){ 0, 0, direction.z > 0.0f ? -1.0f : 1.0f };
+        }
         t1 = fminf(t1, tb);
     }
 
     if (t0 > t1 || t1 < 0.0f) return -1.0f;
+    if (outNormal) *outNormal = normal;
     return t0;
 }
 
@@ -574,12 +586,13 @@ float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistanc
     float travelled = 0.0f;
     for (unsigned step = 0; step < RAYCAST_MAX_STEPS; step++) {
         BlockType type = GetBlockAt(x, y, z);
-        if (type != BLOCK_AIR && !IsTranslucentBlock(type)) {
-            float height = BlockCollisionHeight(type);
+        if (type != BLOCK_AIR &&
+            (!IsTranslucentBlock(type) || GetBlockBaseAt(x, y, z) == BLOCK_AIR)) {
+            float height = BlockCollisionHeightAt(x, y, z);
             if (height > 0.0f) {
                 float hitT = RayAABBEnter(origin, direction,
                                           (Vector3){ (float)x, (float)y, (float)z },
-                                          (Vector3){ (float)x + 1.0f, (float)y + height, (float)z + 1.0f });
+                                          (Vector3){ (float)x + 1.0f, (float)y + height, (float)z + 1.0f }, NULL);
                 if (hitT >= 0.0f) {
                     if (hitT > maxDistance) return -1.0f;
                     return hitT;
@@ -648,14 +661,32 @@ HitResult RaycastBlocksFiltered(Vector3 origin, Vector3 direction,
         bool accepted = block != BLOCK_AIR &&
                         ((liquid && (mask & RAYCAST_BLOCK_LIQUID) != 0u) ||
                          (!liquid && (mask & RAYCAST_BLOCK_SOLID) != 0u));
+        Vector3 normal = { (float)lastNx, (float)lastNy, (float)lastNz };
+        if (block != BLOCK_AIR && GetBlockBaseAt(x, y, z) == BLOCK_AIR) {
+            /* Overlays can have a solid base and liquid above it. Test the
+               selected material's actual interval inside this voxel. */
+            float solid = BlockCollisionHeightAt(x, y, z);
+            float liquidTop = BlockLiquidHeightAt(x, y, z);
+            bool wantSolid = (mask & RAYCAST_BLOCK_SOLID) && solid > 0.0f;
+            bool wantLiquid = (mask & RAYCAST_BLOCK_LIQUID) && liquidTop > solid;
+            accepted = wantSolid || wantLiquid;
+            if (accepted) {
+                float bottom = wantSolid ? 0.0f : solid;
+                float top = wantLiquid ? liquidTop : solid;
+                float hitT = RayAABBEnter(origin, direction,
+                    (Vector3){ (float)x, (float)y + bottom, (float)z },
+                    (Vector3){ (float)x + 1.0f, (float)y + top, (float)z + 1.0f }, &normal);
+                accepted = hitT >= 0.0f && hitT <= maxDistance;
+            }
+        }
         if (accepted) {
             result.hit = true;
             result.x = x;
             result.y = y;
             result.z = z;
-            result.nx = lastNx;
-            result.ny = lastNy;
-            result.nz = lastNz;
+            result.nx = (int)normal.x;
+            result.ny = (int)normal.y;
+            result.nz = (int)normal.z;
             return result;
         }
 

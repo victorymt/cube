@@ -13,6 +13,8 @@
 
 static int solidX = -1;
 static int waterX = -1;
+static int overlayX = -1;
+static float overlaySolid, overlayLiquid;
 static int blockQueries = 0;
 static int testFileBytes = 1024;
 static int loadImageCalls = 0;
@@ -156,8 +158,27 @@ void MarkChunkDirty(int cx, int cz)
 BlockType GetBlockAt(int x, int y, int z)
 {
     blockQueries++;
+    if (x == overlayX && y == 0 && z == 0) {
+        return overlayLiquid > overlaySolid ? BLOCK_LAVA : BLOCK_BASALT;
+    }
     if (x == waterX && y == 0 && z == 0) return BLOCK_WATER;
     return x == solidX && y == 0 && z == 0 ? BLOCK_STONE : BLOCK_AIR;
+}
+
+BlockType GetBlockBaseAt(int x, int y, int z)
+{
+    if (x == overlayX && y == 0 && z == 0) return BLOCK_AIR;
+    return GetBlockAt(x, y, z);
+}
+float BlockCollisionHeightAt(int x, int y, int z)
+{
+    if (x == overlayX && y == 0 && z == 0) return overlaySolid;
+    return BlockCollisionHeight(GetBlockAt(x, y, z));
+}
+float BlockLiquidHeightAt(int x, int y, int z)
+{
+    if (x == overlayX && y == 0 && z == 0) return overlayLiquid;
+    return IsLiquidBlock(GetBlockAt(x, y, z)) ? 1.0f : 0.0f;
 }
 
 bool IsLiquidBlock(BlockType type)
@@ -172,8 +193,7 @@ float BlockCollisionHeight(BlockType type)
 
 bool IsTranslucentBlock(BlockType type)
 {
-    (void)type;
-    return false;
+    return type == BLOCK_WATER || type == BLOCK_LAVA;
 }
 
 WorldBlockRegion WorldBlockRegionAt(int y)
@@ -194,6 +214,8 @@ static void ResetRayWorld(void)
 {
     solidX = -1;
     waterX = -1;
+    overlayX = -1;
+    overlaySolid = overlayLiquid = 0.0f;
     blockQueries = 0;
 }
 
@@ -294,6 +316,51 @@ static void TestPlacementOverlapUsesPlacedBlock(void)
     assert(!BlockWouldOverlapPlayer(1, 1, 0, BLOCK_STONE, player));
 }
 
+static void TestPartialOverlayRaycasts(void)
+{
+    ResetRayWorld();
+    overlayX = 1; overlaySolid = 0.125f;
+    Vector3 right = { 1, 0, 0 }, down = { 0, -1, 0 };
+    Vector3 above = { 0.5f, 0.75f, 0.5f };
+    assert(!RaycastBlocks(above, right, 4).hit);
+    assert(RaycastCameraOcclusion(above, right, 4) < 0);
+    solidX = 2;
+    HitResult hit = RaycastBlocks(above, right, 4);
+    assert(hit.hit && hit.x == 2 && hit.nx == -1);
+    assert(fabsf(RaycastCameraOcclusion(above, right, 4) - 1.5f) < 1e-5f);
+
+    Vector3 side = { 0.5f, 0.0625f, 0.5f };
+    hit = RaycastBlocks(side, right, 4);
+    assert(hit.hit && hit.x == 1 && hit.nx == -1 && hit.ny == 0);
+    assert(fabsf(RaycastCameraOcclusion(side, right, 4) - 0.5f) < 1e-5f);
+    Vector3 top = { 1.5f, 0.75f, 0.5f };
+    assert(!RaycastBlocks(top, down, 0.5f).hit);
+    hit = RaycastBlocks(top, down, 0.7f);
+    assert(hit.hit && hit.x == 1 && hit.nx == 0 && hit.ny == 1 && hit.nz == 0);
+    assert(fabsf(RaycastCameraOcclusion(top, down, 1) - 0.625f) < 1e-5f);
+    // Enter the voxel through its side, then intersect the thin top face.
+    hit = RaycastBlocks((Vector3){0.5f,0.5f,0.5f}, (Vector3){1,-0.5f,0}, 4);
+    assert(hit.hit && hit.x == 1 && hit.ny == 1 && hit.nx == 0);
+
+    solidX = -1;
+    overlayLiquid = 0.5f;
+    Vector3 inLiquid = { 0.5f, 0.375f, 0.5f };
+    assert(!RaycastBlocksFiltered(inLiquid, right, 4, RAYCAST_BLOCK_SOLID).hit);
+    hit = RaycastBlocksFiltered(inLiquid, right, 4, RAYCAST_BLOCK_LIQUID);
+    assert(hit.hit && hit.x == 1 && hit.nx == -1);
+    assert(!RaycastBlocksFiltered(side, right, 4, RAYCAST_BLOCK_LIQUID).hit);
+    assert(RaycastBlocksFiltered(side, right, 4, RAYCAST_BLOCK_SOLID).hit);
+    assert(RaycastCameraOcclusion(inLiquid, right, 4) < 0);
+    assert(RaycastCameraOcclusion(side, right, 4) >= 0);
+    assert(!RaycastBlocks(above, right, 4).hit);
+    hit = RaycastBlocksFiltered(top, down, 1, RAYCAST_BLOCK_LIQUID);
+    assert(hit.hit && hit.ny == 1);
+    assert(!RaycastBlocksFiltered(top, down, 0.2f, RAYCAST_BLOCK_LIQUID).hit);
+    overlaySolid = 0;
+    assert(!RaycastBlocksFiltered(side, right, 4, RAYCAST_BLOCK_SOLID).hit);
+    assert(RaycastCameraOcclusion(side, right, 4) < 0);
+}
+
 static void TestImageImportLimits(void)
 {
     assert(ClampImportPrecision(INT_MIN) == IMPORT_MIN_BLOCKS);
@@ -390,6 +457,7 @@ int main(void)
     TestRaycastNormalizesDirection();
     TestRaycastHasIterationLimit();
     TestRaycastCanIgnoreLiquids();
+    TestPartialOverlayRaycasts();
     TestPlacementOverlapUsesPlacedBlock();
     TestImageImportLimits();
     TestImageImportFailureLifecycle();
