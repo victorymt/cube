@@ -6,6 +6,7 @@
 #include "space/space_chunks.h"
 #include "world/nether.h"
 #include "world/terrain.h"
+#include "world/terrain_generation.h"
 #include "world/world_environment.h"
 #include "world/world_extension.h"
 #include "world/world_persistence.h"
@@ -683,6 +684,7 @@ void ClearUndoHistory(void)
 
 void WorldReset(uint32_t seed)
 {
+    TerrainGenerationSetVersion(TERRAIN_GENERATION_CURRENT);
     WorldExtensionReset();
     WorldSetNetherActive(false);
     blockEditCount = 0;

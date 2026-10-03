@@ -1581,6 +1581,15 @@ int main(void)
     assert(SURFACE_MAX_Y_EXCLUSIVE == 16384);
     assert(SURFACE_SECTION_COUNT == 2048);
     assert(SURFACE_GENERATION_SECTION_COUNT == 16);
+    for (int i = 0; i < 40; i++) {
+        int x = i * 431 - 8192, z = i * 197 - 4096;
+        float base = TerrainHomeBaselineElevation(DEFAULT_WORLD_SEED, x, z, NULL);
+        assert(TerrainHeight(x, z, TERRAIN_VARIED) == (int)lroundf(base));
+        terrainSeed = 7123;
+        assert(TerrainHomeBaselineElevation(DEFAULT_WORLD_SEED, x, z, NULL) == base);
+        assert(TerrainHeight(x, z, TERRAIN_FLAT) == 8);
+        terrainSeed = DEFAULT_WORLD_SEED;
+    }
     TestSurfaceSampleContracts();
     TestSurfaceMaterialAndFloraAliases();
     TestEarthScaleRelief();

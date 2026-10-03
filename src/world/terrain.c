@@ -47,9 +47,8 @@ unsigned int Hash2D(int x, int z)
     return Hash2DBits((unsigned int)x, (unsigned int)z);
 }
 
-static unsigned int MixWorldSeed(unsigned int hash)
+static unsigned int MixSeed(unsigned int hash, uint32_t seed)
 {
-    uint32_t seed = WorldGetSeed();
     if (seed == DEFAULT_WORLD_SEED) return hash;
     hash ^= seed + 0x9e3779b9u + (hash << 6) + (hash >> 2);
     hash ^= hash >> 16;
@@ -64,12 +63,12 @@ unsigned int WorldHash2D(int x, int z)
 
 unsigned int WorldHash2DBits(unsigned int xBits, unsigned int zBits)
 {
-    return MixWorldSeed(Hash2DBits(xBits, zBits));
+    return MixSeed(Hash2DBits(xBits, zBits), WorldGetSeed());
 }
 
 unsigned int WorldHash3D(int x, int y, int z)
 {
-    return MixWorldSeed(Hash3D(x, y, z));
+    return MixSeed(Hash3D(x, y, z), WorldGetSeed());
 }
 
 static float NoiseSmooth(float value)
@@ -77,15 +76,15 @@ static float NoiseSmooth(float value)
     return value * value * (3.0f - 2.0f * value);
 }
 
-static float WorldHashUnit3D(int x, int y, int z, unsigned int lane)
+static float WorldHashUnit3D(int x, int y, int z, unsigned int lane, uint32_t seed)
 {
-    unsigned int hash = WorldHash3D(
+    unsigned int hash = MixSeed(Hash3D(
         x + (int)(lane * 101u), y - (int)(lane * 173u),
-        z + (int)(lane * 211u));
+        z + (int)(lane * 211u)), seed);
     return (float)(hash & 0x00ffffffu) / 16777215.0f;
 }
 
-static float WorldValueNoise3D(Vector3 point, unsigned int lane)
+static float WorldValueNoise3D(Vector3 point, unsigned int lane, uint32_t seed)
 {
     int x0 = (int)floorf(point.x);
     int y0 = (int)floorf(point.y);
@@ -93,24 +92,24 @@ static float WorldValueNoise3D(Vector3 point, unsigned int lane)
     float tx = NoiseSmooth(point.x - (float)x0);
     float ty = NoiseSmooth(point.y - (float)y0);
     float tz = NoiseSmooth(point.z - (float)z0);
-    float x00 = Lerp(WorldHashUnit3D(x0, y0, z0, lane),
-                     WorldHashUnit3D(x0 + 1, y0, z0, lane), tx);
-    float x10 = Lerp(WorldHashUnit3D(x0, y0 + 1, z0, lane),
-                     WorldHashUnit3D(x0 + 1, y0 + 1, z0, lane), tx);
-    float x01 = Lerp(WorldHashUnit3D(x0, y0, z0 + 1, lane),
-                     WorldHashUnit3D(x0 + 1, y0, z0 + 1, lane), tx);
-    float x11 = Lerp(WorldHashUnit3D(x0, y0 + 1, z0 + 1, lane),
-                     WorldHashUnit3D(x0 + 1, y0 + 1, z0 + 1, lane), tx);
+    float x00 = Lerp(WorldHashUnit3D(x0, y0, z0, lane, seed),
+                     WorldHashUnit3D(x0 + 1, y0, z0, lane, seed), tx);
+    float x10 = Lerp(WorldHashUnit3D(x0, y0 + 1, z0, lane, seed),
+                     WorldHashUnit3D(x0 + 1, y0 + 1, z0, lane, seed), tx);
+    float x01 = Lerp(WorldHashUnit3D(x0, y0, z0 + 1, lane, seed),
+                     WorldHashUnit3D(x0 + 1, y0, z0 + 1, lane, seed), tx);
+    float x11 = Lerp(WorldHashUnit3D(x0, y0 + 1, z0 + 1, lane, seed),
+                     WorldHashUnit3D(x0 + 1, y0 + 1, z0 + 1, lane, seed), tx);
     return Lerp(Lerp(x00, x10, ty), Lerp(x01, x11, ty), tz);
 }
 
-static float WorldFractalPointNoise(Vector3 point, unsigned int lane)
+static float WorldFractalPointNoise(Vector3 point, unsigned int lane, uint32_t seed)
 {
     float value = 0.0f;
     float amplitude = 0.58f;
     float total = 0.0f;
     for (int octave = 0; octave < 5; octave++) {
-        value += WorldValueNoise3D(point, lane + (unsigned int)octave * 17u) *
+        value += WorldValueNoise3D(point, lane + (unsigned int)octave * 17u, seed) *
                  amplitude;
         total += amplitude;
         point = Vector3Add(
@@ -146,7 +145,7 @@ float HomeSurfaceNoiseAt(int x, int z, float blockFrequency,
         (float)cell.x + 0.5f, (float)cell.z + 0.5f);
     point = Vector3Scale(
         point, SURFACE_RADIUS_BLOCKS * blockFrequency);
-    return WorldFractalPointNoise(point, lane);
+    return WorldFractalPointNoise(point, lane, WorldGetSeed());
 }
 
 float HomeVolumeNoiseAt(int x, int y, int z, float blockFrequency,
@@ -157,7 +156,7 @@ float HomeVolumeNoiseAt(int x, int y, int z, float blockFrequency,
         (float)cell.x + 0.5f, (float)cell.z + 0.5f);
     float radial = SURFACE_RADIUS_BLOCKS * blockFrequency +
                    (float)y * radialFrequency;
-    return WorldFractalPointNoise(Vector3Scale(point, radial), lane);
+    return WorldFractalPointNoise(Vector3Scale(point, radial), lane, WorldGetSeed());
 }
 
 static float WorldFractalSurfaceNoise(int x, int z, float frequency,
@@ -356,29 +355,39 @@ BlockType BathymetryMaterialBlock(BathymetryMaterial material)
     }
 }
 
-static float HomeTerrainElevationCore(int x, int z,
+static float HomeBaselineNoise(uint32_t seed, int x, int z, float frequency,
+                               unsigned int lane)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    Vector3 direction = SurfaceDirectionFromMapCoordinates(
+        (float)cell.x + 0.5f, (float)cell.z + 0.5f);
+    return WorldFractalPointNoise(Vector3Scale(direction,
+        SURFACE_RADIUS_BLOCKS * frequency), lane, seed);
+}
+
+float TerrainHomeBaselineElevation(uint32_t seed, int x, int z,
                                       SurfaceTerrainSample *sample)
 {
-    if (WorldIsSurfaceActive()) {
+    {
         SurfaceMapCell canonical = SurfaceCanonicalMapCell((float)x, (float)z);
         x = canonical.x;
         z = canonical.z;
     }
-    float continentalness = WorldFractalSurfaceNoise(
+    float continentalness = HomeBaselineNoise(seed,
         x, z, 0.00135f, 21u);
-    float erosion = WorldFractalSurfaceNoise(x, z, 0.0038f, 79u);
-    float ridgeNoise = WorldFractalSurfaceNoise(x, z, 0.0026f, 131u);
+    float erosion = HomeBaselineNoise(seed, x, z, 0.0038f, 79u);
+    float ridgeNoise = HomeBaselineNoise(seed, x, z, 0.0026f, 131u);
     float ridge = 1.0f - fabsf(ridgeNoise * 2.0f - 1.0f);
     ridge = SmoothRange(0.56f, 0.94f, ridge);
-    float peakNoise = WorldFractalSurfaceNoise(x, z, 0.0065f, 211u);
+    float peakNoise = HomeBaselineNoise(seed, x, z, 0.0065f, 211u);
     float peak = SmoothRange(0.69f, 0.91f, peakNoise) * ridge;
     float trenchBoundary = 1.0f - fabsf(
-        WorldFractalSurfaceNoise(x, z, 0.0019f, 307u) * 2.0f - 1.0f);
+        HomeBaselineNoise(seed, x, z, 0.0019f, 307u) * 2.0f - 1.0f);
     float trench = SmoothRange(0.80f, 0.97f, trenchBoundary);
     float seamount = SmoothRange(
         0.62f, 0.90f,
-        WorldFractalSurfaceNoise(x, z, 0.00105f, 353u));
-    float detail = WorldFractalSurfaceNoise(x, z, 0.021f, 401u) - 0.5f;
+        HomeBaselineNoise(seed, x, z, 0.00105f, 353u));
+    float detail = HomeBaselineNoise(seed, x, z, 0.021f, 401u) - 0.5f;
     const float coast = 0.50f;
     float elevation = 0.0f;
     BathymetrySample bathymetry = BathymetryForHeight(
@@ -433,11 +442,11 @@ SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
         };
         return sample;
     }
-    sample.elevation = HomeTerrainElevationCore(x, z, &sample);
-    float east = HomeTerrainElevationCore(x + 1, z, NULL);
-    float west = HomeTerrainElevationCore(x - 1, z, NULL);
-    float north = HomeTerrainElevationCore(x, z - 1, NULL);
-    float south = HomeTerrainElevationCore(x, z + 1, NULL);
+    sample.elevation = TerrainHomeBaselineElevation(WorldGetSeed(), x, z, &sample);
+    float east = TerrainHomeBaselineElevation(WorldGetSeed(), x + 1, z, NULL);
+    float west = TerrainHomeBaselineElevation(WorldGetSeed(), x - 1, z, NULL);
+    float north = TerrainHomeBaselineElevation(WorldGetSeed(), x, z - 1, NULL);
+    float south = TerrainHomeBaselineElevation(WorldGetSeed(), x, z + 1, NULL);
     sample.slope = fmaxf(fabsf(east - west), fabsf(north - south)) * 0.5f;
     float climate = WorldFractalSurfaceNoise(x, z, 0.0018f, 503u);
     float wetness = WorldFractalSurfaceNoise(x, z, 0.0024f, 607u);
@@ -461,7 +470,7 @@ SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
 
 float TerrainNoise(float x, float z)
 {
-    return HomeTerrainElevationCore((int)floorf(x), (int)floorf(z), NULL) -
+    return TerrainHomeBaselineElevation(WorldGetSeed(), (int)floorf(x), (int)floorf(z), NULL) -
            (float)HOME_SEA_LEVEL;
 }
 
@@ -484,7 +493,7 @@ int TerrainSeaLevel(TerrainMode mode)
 int TerrainHeight(int x, int z, TerrainMode mode)
 {
     if (mode == TERRAIN_FLAT) return 8;
-    return (int)lroundf(HomeTerrainElevationCore(x, z, NULL));
+    return (int)lroundf(TerrainHomeBaselineElevation(WorldGetSeed(), x, z, NULL));
 }
 
 BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode)

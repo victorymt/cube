@@ -82,6 +82,9 @@ float HomeVolumeNoiseAt(int x, int y, int z, float blockFrequency,
 float TerrainNoise(float x, float z);
 float BiomeNoise(int x, int z);
 Biome BiomeAt(int x, int z);
+// Immutable v6 baseline: no weather, hydrology or world seed reads.
+float TerrainHomeBaselineElevation(uint32_t seed, int x, int z,
+                                   SurfaceTerrainSample *sample);
 int TerrainHeight(int x, int z, TerrainMode mode);
 SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode);
 BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode);

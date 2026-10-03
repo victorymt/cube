@@ -25,6 +25,7 @@
 #include "world/save_format.h"
 #include "world/surface_save.h"
 #include "world/terrain.h"
+#include "world/terrain_generation.h"
 #include "world/world.h"
 #include "world/world_environment.h"
 #include "world/world_persistence.h"
@@ -42,8 +43,6 @@
 #include <sys/stat.h>
 
 #define SAVE_FILE_BAK "voxelcraft_save.bak"
-#define TERRAIN_GENERATION_VERSION 6u
-#define MIN_SUPPORTED_TERRAIN_GENERATION_VERSION 2u
 #define SAVE_MAX_FILE_BYTES (256u * 1024u * 1024u)
 #define MAX_LOAD_EDIT_COUNT 1000000u
 
@@ -222,7 +221,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
     const Player *player = context ? context->player : NULL;
     if (!file || !player) return false;
 
-    uint32_t terrainGenerationVersion = TERRAIN_GENERATION_VERSION;
+    uint32_t terrainGenerationVersion = TerrainGenerationVersion();
     uint32_t activeDimension = (uint32_t)WorldCurrentDimension();
     uint32_t seed = WorldGetSeed();
     uint32_t terrain = (uint32_t)WorldTerrainMode();
@@ -336,8 +335,8 @@ static bool GameLoadCurrentCorePayload(FILE *file, LoadedGameSave *data)
     if (!file || !data ||
         fread(&terrainGenerationVersion, sizeof(terrainGenerationVersion),
               1, file) != 1 ||
-        terrainGenerationVersion < MIN_SUPPORTED_TERRAIN_GENERATION_VERSION ||
-        terrainGenerationVersion > TERRAIN_GENERATION_VERSION ||
+        terrainGenerationVersion < TERRAIN_GENERATION_MIN ||
+        terrainGenerationVersion > TERRAIN_GENERATION_CURRENT ||
         fread(&activeDimension, sizeof(activeDimension), 1, file) != 1 ||
         activeDimension > (uint32_t)WORLD_DIMENSION_NETHER ||
         !GameLoadBlockEditPayload(file, data)) {
@@ -634,6 +633,7 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
         return GameLoadFail(
             transaction, "Load failed: save file is corrupted.");
     }
+    TerrainGenerationSetVersion(data.terrainGenerationVersion);
     GameSyncWorldSurfaceSnapshot(data.seed);
 
     const char *loadError =
@@ -659,7 +659,7 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     GameSyncWorldSurfaceSnapshot(data.seed);
 
     bool savedInNether = data.dimension == WORLD_DIMENSION_NETHER;
-    if (data.terrainGenerationVersion != TERRAIN_GENERATION_VERSION &&
+    if (data.terrainGenerationVersion < TERRAIN_GENERATION_LEGACY &&
         WorldIsSurfaceActive() && !savedInNether) {
         int landingX = (int)floorf(data.player.position.x);
         int landingZ = (int)floorf(data.player.position.z);

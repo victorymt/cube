@@ -1,4 +1,5 @@
 #include "world/world_surface_snapshot.h"
+#include "world/terrain_generation.h"
 
 #include <assert.h>
 #include <math.h>
@@ -108,6 +109,13 @@ int main(void)
     TestHomeSnapshotIsCopiedByValue();
     TestPlanetIdentityDoesNotAliasSeed();
     TestNullResetsSnapshot();
+    assert(TerrainGenerationSetVersion(6));
+    WorldInstallSurfaceSnapshot(NULL);
+    assert(TerrainGenerationVersion() == 6);
+    assert(!TerrainGenerationSetVersion(0));
+    assert(!TerrainGenerationSetVersion(8));
+    assert(TerrainGenerationVersion() == 6);
+    assert(TerrainGenerationSetVersion(TERRAIN_GENERATION_CURRENT));
     puts("world surface snapshot tests passed");
     return 0;
 }
