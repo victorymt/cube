@@ -199,6 +199,93 @@ static void TestCloudVisualDriftUsesCompressedSkyScale(void)
     assert(WeatherCloudVisualDriftSpeed(2.0f) == strong);
 }
 
+static const WeatherCloudVisualLayer *FindRenderedCloudLayer(
+    const WeatherCloudRenderLayers *layers, WeatherCloudGenus genus)
+{
+    for (unsigned index = 0u; layers && index < layers->count; index++) {
+        if (layers->layers[index].genus == genus) return &layers->layers[index];
+    }
+    return NULL;
+}
+
+static WeatherVisualState CloudTransitionTarget(WeatherCloudGenus genus)
+{
+    return (WeatherVisualState){
+        .active = true,
+        .cloudLayerCount = 1u,
+        .cloudLayers = {{
+            .genus = genus,
+            .coverage = 0.72f,
+            .baseHeight = 28.0f,
+            .thickness = 16.0f,
+            .opacity = 0.66f,
+            .noiseScale = 1.0f,
+            .driftScale = 1.0f
+        }}
+    };
+}
+
+static void TestCloudGenusTransitionsCrossFade(void)
+{
+    WeatherCloudTransitionState transition = { 0 };
+    WeatherCloudRenderLayers layers;
+    WeatherVisualState cumulus =
+        CloudTransitionTarget(WEATHER_CLOUD_GENUS_CUMULUS);
+    WeatherVisualState stratocumulus =
+        CloudTransitionTarget(WEATHER_CLOUD_GENUS_STRATOCUMULUS);
+
+    WeatherCloudTransitionAdvance(&transition, &cumulus, 4.0, &layers);
+    assert(layers.count == 1u);
+    const WeatherCloudVisualLayer *old = FindRenderedCloudLayer(
+        &layers, WEATHER_CLOUD_GENUS_CUMULUS);
+    assert(old && fabsf(old->opacity - 0.66f) < 0.000001f);
+
+    WeatherCloudTransitionAdvance(&transition, &stratocumulus, 4.1, &layers);
+    assert(layers.count == 2u);
+    old = FindRenderedCloudLayer(&layers, WEATHER_CLOUD_GENUS_CUMULUS);
+    const WeatherCloudVisualLayer *current = FindRenderedCloudLayer(
+        &layers, WEATHER_CLOUD_GENUS_STRATOCUMULUS);
+    assert(old && current);
+    assert(old->opacity < 0.66f && old->opacity > 0.0f);
+    assert(current->opacity < 0.66f && current->opacity > 0.0f);
+
+    WeatherCloudTransitionAdvance(&transition, &stratocumulus, 10.0, &layers);
+    assert(layers.count == 1u);
+    current = FindRenderedCloudLayer(&layers, WEATHER_CLOUD_GENUS_STRATOCUMULUS);
+    assert(current && fabsf(current->opacity - 0.66f) < 0.00001f);
+
+    WeatherVisualState clear = { .active = true };
+    WeatherCloudTransitionAdvance(&transition, &clear, 10.1, &layers);
+    assert(layers.count == 1u);
+    current = FindRenderedCloudLayer(&layers, WEATHER_CLOUD_GENUS_STRATOCUMULUS);
+    assert(current && current->opacity < 0.66f);
+}
+
+static void TestCloudLayerParametersFollowSmoothly(void)
+{
+    WeatherCloudTransitionState transition = { 0 };
+    WeatherCloudRenderLayers layers;
+    WeatherVisualState low =
+        CloudTransitionTarget(WEATHER_CLOUD_GENUS_CUMULUS);
+    WeatherVisualState high = low;
+    high.cloudLayers[0].baseHeight = 92.0f;
+    high.cloudLayers[0].thickness = 42.0f;
+    high.cloudLayers[0].noiseScale = 1.8f;
+
+    WeatherCloudTransitionAdvance(&transition, &low, 20.0, &layers);
+    WeatherCloudTransitionAdvance(&transition, &high, 20.1, &layers);
+    assert(layers.count == 1u);
+    const WeatherCloudVisualLayer *layer = FindRenderedCloudLayer(
+        &layers, WEATHER_CLOUD_GENUS_CUMULUS);
+    assert(layer);
+    assert(layer->baseHeight > low.cloudLayers[0].baseHeight &&
+           layer->baseHeight < high.cloudLayers[0].baseHeight);
+    assert(layer->thickness > low.cloudLayers[0].thickness &&
+           layer->thickness < high.cloudLayers[0].thickness);
+    assert(layer->noiseScale > low.cloudLayers[0].noiseScale &&
+           layer->noiseScale < high.cloudLayers[0].noiseScale);
+}
+
 static void TestCloudAltitudeUsesFixedDatum(void)
 {
     assert(WeatherCloudAltitudeReference(20.0f) == 20.0f);
@@ -316,6 +403,8 @@ int main(void)
     TestCloudVerticalDensity();
     TestCloudMotionDoesNotReprojectHistory();
     TestCloudVisualDriftUsesCompressedSkyScale();
+    TestCloudGenusTransitionsCrossFade();
+    TestCloudLayerParametersFollowSmoothly();
     TestCloudAltitudeUsesFixedDatum();
     TestLayerSelectionAndProfiles();
     TestAllCloudGenusProfiles();

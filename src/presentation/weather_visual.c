@@ -72,6 +72,205 @@ float WeatherCloudVisualDriftSpeed(float windDrift)
     return 0.04f + WeatherVisualClamp(windDrift) * 0.18f;
 }
 
+static int WeatherCloudTransitionBand(WeatherCloudGenus genus)
+{
+    if (genus >= WEATHER_CLOUD_GENUS_CIRRUS &&
+        genus <= WEATHER_CLOUD_GENUS_CIRROSTRATUS) {
+        return 0;
+    }
+    if (genus >= WEATHER_CLOUD_GENUS_ALTOCUMULUS &&
+        genus <= WEATHER_CLOUD_GENUS_ALTOSTRATUS) {
+        return 1;
+    }
+    return 2;
+}
+
+static void WeatherCloudTransitionFade(WeatherCloudTransitionSlot *slot,
+                                       float elapsed)
+{
+    if (!slot || elapsed <= 0.0f) return;
+    float fade = expf(-1.20f * elapsed);
+    if (slot->primaryActive) {
+        slot->primaryWeight = 1.0f - (1.0f - slot->primaryWeight) * fade;
+    }
+    if (slot->fadingActive) {
+        slot->fadingWeight *= fade;
+        if (slot->fadingWeight < 0.003f) {
+            slot->fadingActive = false;
+            slot->fadingWeight = 0.0f;
+        }
+    }
+}
+
+static void WeatherCloudTransitionFadePrimary(
+    WeatherCloudTransitionSlot *slot)
+{
+    if (!slot || !slot->primaryActive) return;
+    if (!slot->fadingActive || slot->primaryWeight >= slot->fadingWeight) {
+        slot->fadingActive = true;
+        slot->fading = slot->primary;
+        slot->fadingWeight = slot->primaryWeight;
+    }
+    slot->primaryActive = false;
+    slot->primaryWeight = 0.0f;
+}
+
+static float WeatherCloudLayerApproach(float current, float target,
+                                       float blend)
+{
+    return current + (target - current) * blend;
+}
+
+static WeatherCloudVisualLayer WeatherCloudLayerBlend(
+    WeatherCloudVisualLayer current, WeatherCloudVisualLayer target,
+    float blend)
+{
+    target.coverage = WeatherCloudLayerApproach(
+        current.coverage, target.coverage, blend);
+    target.baseHeight = WeatherCloudLayerApproach(
+        current.baseHeight, target.baseHeight, blend);
+    target.thickness = WeatherCloudLayerApproach(
+        current.thickness, target.thickness, blend);
+    target.opacity = WeatherCloudLayerApproach(
+        current.opacity, target.opacity, blend);
+    target.noiseScale = WeatherCloudLayerApproach(
+        current.noiseScale, target.noiseScale, blend);
+    target.stretch = WeatherCloudLayerApproach(
+        current.stretch, target.stretch, blend);
+    target.cellularity = WeatherCloudLayerApproach(
+        current.cellularity, target.cellularity, blend);
+    target.verticalDevelopment = WeatherCloudLayerApproach(
+        current.verticalDevelopment, target.verticalDevelopment, blend);
+    target.anvil = WeatherCloudLayerApproach(
+        current.anvil, target.anvil, blend);
+    target.driftScale = WeatherCloudLayerApproach(
+        current.driftScale, target.driftScale, blend);
+    return target;
+}
+
+static void WeatherCloudTransitionSetTarget(
+    WeatherCloudTransitionSlot *slot, const WeatherCloudVisualLayer *target,
+    bool immediate, float blend)
+{
+    if (!slot) return;
+    if (!target) {
+        WeatherCloudTransitionFadePrimary(slot);
+        return;
+    }
+    if (slot->primaryActive && slot->primary.genus == target->genus) {
+        slot->primary = immediate ? *target :
+            WeatherCloudLayerBlend(slot->primary, *target, blend);
+        return;
+    }
+    if (slot->fadingActive && slot->fading.genus == target->genus) {
+        WeatherCloudTransitionSlot previous = *slot;
+        slot->primaryActive = true;
+        slot->primary = *target;
+        slot->primaryWeight = previous.fadingWeight;
+        slot->fadingActive = previous.primaryActive;
+        slot->fading = previous.primary;
+        slot->fadingWeight = previous.primaryWeight;
+        return;
+    }
+    WeatherCloudTransitionFadePrimary(slot);
+    slot->primaryActive = true;
+    slot->primary = *target;
+    slot->primaryWeight = immediate ? 1.0f : 0.0f;
+}
+
+static void WeatherCloudRenderLayersAdd(WeatherCloudRenderLayers *layers,
+                                        WeatherCloudVisualLayer layer,
+                                        float weight)
+{
+    if (!layers || layers->count >= WEATHER_VISUAL_CLOUD_RENDER_LAYER_CAPACITY ||
+        weight < 0.003f) {
+        return;
+    }
+    layer.opacity *= WeatherVisualClamp(weight);
+    if (layer.opacity <= 0.001f) return;
+    unsigned insert = layers->count;
+    while (insert > 0u &&
+           layers->layers[insert - 1u].baseHeight > layer.baseHeight) {
+        layers->layers[insert] = layers->layers[insert - 1u];
+        insert--;
+    }
+    layers->layers[insert] = layer;
+    layers->count++;
+}
+
+void WeatherCloudTransitionAdvance(WeatherCloudTransitionState *state,
+                                   const WeatherVisualState *target,
+                                   double simulationTime,
+                                   WeatherCloudRenderLayers *outLayers)
+{
+    if (!outLayers) return;
+    *outLayers = (WeatherCloudRenderLayers){ 0 };
+    if (!state || !target || !target->active ||
+        !isfinite(simulationTime)) {
+        return;
+    }
+
+    const WeatherCloudVisualLayer *targets[
+        WEATHER_VISUAL_CLOUD_TRANSITION_SLOT_COUNT] = { 0 };
+    unsigned count = target->cloudLayerCount;
+    if (count > WEATHER_VISUAL_CLOUD_LAYER_CAPACITY) {
+        count = WEATHER_VISUAL_CLOUD_LAYER_CAPACITY;
+    }
+    for (unsigned index = 0u; index < count; index++) {
+        const WeatherCloudVisualLayer *layer = &target->cloudLayers[index];
+        if (layer->genus <= WEATHER_CLOUD_GENUS_NONE ||
+            layer->genus >= WEATHER_CLOUD_GENUS_COUNT ||
+            !isfinite(layer->coverage) || layer->coverage < 0.025f ||
+            !isfinite(layer->opacity) || layer->opacity <= 0.001f) {
+            continue;
+        }
+        int band = WeatherCloudTransitionBand(layer->genus);
+        if (!targets[band] || layer->coverage > targets[band]->coverage) {
+            targets[band] = layer;
+        }
+    }
+
+    bool immediate = !state->initialized;
+    float elapsed = 0.0f;
+    if (!immediate) {
+        double elapsedTime = simulationTime - state->lastSimulationTime;
+        if (!(elapsedTime > 0.0) || elapsedTime > 1.0) {
+            immediate = true;
+        } else {
+            elapsed = (float)elapsedTime;
+        }
+    }
+    if (immediate) {
+        *state = (WeatherCloudTransitionState){
+            .initialized = true,
+            .lastSimulationTime = simulationTime
+        };
+    }
+    for (int band = 0; band < WEATHER_VISUAL_CLOUD_TRANSITION_SLOT_COUNT;
+         band++) {
+        WeatherCloudTransitionSlot *slot = &state->slots[band];
+        float layerBlend = immediate ? 1.0f :
+            1.0f - expf(-1.20f * elapsed);
+        WeatherCloudTransitionSetTarget(slot, targets[band], immediate,
+                                        layerBlend);
+        WeatherCloudTransitionFade(slot, elapsed);
+    }
+    state->lastSimulationTime = simulationTime;
+
+    for (int band = 0; band < WEATHER_VISUAL_CLOUD_TRANSITION_SLOT_COUNT;
+         band++) {
+        const WeatherCloudTransitionSlot *slot = &state->slots[band];
+        if (slot->primaryActive) {
+            WeatherCloudRenderLayersAdd(outLayers, slot->primary,
+                                        slot->primaryWeight);
+        }
+        if (slot->fadingActive) {
+            WeatherCloudRenderLayersAdd(outLayers, slot->fading,
+                                        slot->fadingWeight);
+        }
+    }
+}
+
 float WeatherCloudAltitudeReference(float seaLevel)
 {
     return isfinite(seaLevel) && seaLevel >= 0.0f ? seaLevel : 12.0f;

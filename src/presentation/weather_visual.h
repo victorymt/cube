@@ -6,6 +6,9 @@
 #include <stdbool.h>
 
 #define WEATHER_VISUAL_CLOUD_LAYER_CAPACITY 3
+#define WEATHER_VISUAL_CLOUD_TRANSITION_SLOT_COUNT 3
+#define WEATHER_VISUAL_CLOUD_RENDER_LAYER_CAPACITY \
+    (WEATHER_VISUAL_CLOUD_TRANSITION_SLOT_COUNT * 2)
 
 typedef struct WeatherVisualInput {
     WeatherFieldSample weather;
@@ -68,6 +71,28 @@ typedef struct WeatherCloudMotionState {
     float directionZ;
 } WeatherCloudMotionState;
 
+typedef struct WeatherCloudTransitionSlot {
+    bool primaryActive;
+    WeatherCloudVisualLayer primary;
+    float primaryWeight;
+    bool fadingActive;
+    WeatherCloudVisualLayer fading;
+    float fadingWeight;
+} WeatherCloudTransitionSlot;
+
+typedef struct WeatherCloudTransitionState {
+    bool initialized;
+    double lastSimulationTime;
+    WeatherCloudTransitionSlot slots[
+        WEATHER_VISUAL_CLOUD_TRANSITION_SLOT_COUNT];
+} WeatherCloudTransitionState;
+
+typedef struct WeatherCloudRenderLayers {
+    unsigned count;
+    WeatherCloudVisualLayer layers[
+        WEATHER_VISUAL_CLOUD_RENDER_LAYER_CAPACITY];
+} WeatherCloudRenderLayers;
+
 /* Derive renderer-facing weather values without mutating simulation state. */
 WeatherVisualState WeatherVisualStateEvaluate(const WeatherVisualInput *input);
 
@@ -81,6 +106,12 @@ void WeatherCloudMotionAdvance(WeatherCloudMotionState *state,
 
 /* Convert normalized weather wind to the compressed sky's visual drift rate. */
 float WeatherCloudVisualDriftSpeed(float windDrift);
+
+/* Cross-fade cloud genera so classification threshold crossings do not pop. */
+void WeatherCloudTransitionAdvance(WeatherCloudTransitionState *state,
+                                   const WeatherVisualState *target,
+                                   double simulationTime,
+                                   WeatherCloudRenderLayers *outLayers);
 
 /* Fixed surface datum; a dry world uses the atmosphere's reference Y=12. */
 float WeatherCloudAltitudeReference(float seaLevel);

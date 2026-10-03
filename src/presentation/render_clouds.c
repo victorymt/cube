@@ -32,6 +32,7 @@ typedef struct CloudRenderResources {
 
 static CloudRenderResources cloudResources = { 0 };
 static WeatherCloudMotionState cloudMotion = { 0 };
+static WeatherCloudTransitionState cloudTransitions = { 0 };
 
 void SetCloudModel(Model model)
 {
@@ -429,6 +430,8 @@ void UnloadCloudRenderResources(void)
     if (cloudResources.shader.id != 0) UnloadShader(cloudResources.shader);
     cloudModel = (Model){ 0 };
     cloudResources = (CloudRenderResources){ 0 };
+    cloudMotion = (WeatherCloudMotionState){ 0 };
+    cloudTransitions = (WeatherCloudTransitionState){ 0 };
 }
 
 Model LoadCloudModel(void)
@@ -538,7 +541,10 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     float driftSpeed = WeatherCloudVisualDriftSpeed(weatherVisual->windDrift);
     WeatherCloudMotionAdvance(&cloudMotion, simulationTime,
                               weatherVisual->windAngle, driftSpeed);
-    if (weatherVisual->cloudCover <= 0.03f) return;
+    WeatherCloudRenderLayers renderLayers;
+    WeatherCloudTransitionAdvance(&cloudTransitions, weatherVisual,
+                                  simulationTime, &renderLayers);
+    if (renderLayers.count == 0u) return;
 
     int gridRadius = 2;
     int raySteps = 12;
@@ -570,21 +576,6 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
                                      weatherVisual->daylight;
     float storm = Clamp(weatherVisual->stormDarkening, 0.0f, 1.0f);
     float daylight = Clamp(weatherVisual->daylight, 0.0f, 1.0f);
-    WeatherCloudVisualLayer fallback = {
-        .genus = WEATHER_CLOUD_GENUS_STRATOCUMULUS,
-        .coverage = weatherVisual->cloudCover,
-        .baseHeight = weatherVisual->cloudBaseHeight,
-        .thickness = weatherVisual->cloudThickness,
-        .opacity = weatherVisual->cloudOpacity,
-        .noiseScale = 1.0f,
-        .verticalDevelopment = 0.18f,
-        .driftScale = 1.0f
-    };
-    unsigned layerCount = weatherVisual->cloudLayerCount;
-    if (layerCount > WEATHER_VISUAL_CLOUD_LAYER_CAPACITY) {
-        layerCount = WEATHER_VISUAL_CLOUD_LAYER_CAPACITY;
-    }
-    if (layerCount == 0u) layerCount = 1u;
     float opacityRatio = weatherVisual->cloudOpacity > 0.001f ?
         presentationOpacity / weatherVisual->cloudOpacity : 1.0f;
     Vector2 windDirection = {
@@ -594,11 +585,9 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
     BeginBlendMode(BLEND_ALPHA);
     rlDisableBackfaceCulling();
     rlDisableDepthMask();
-    for (unsigned reverse = layerCount; reverse > 0u; reverse--) {
+    for (unsigned reverse = renderLayers.count; reverse > 0u; reverse--) {
         unsigned index = reverse - 1u;
-        const WeatherCloudVisualLayer *layer =
-            weatherVisual->cloudLayerCount > 0u ?
-                &weatherVisual->cloudLayers[index] : &fallback;
+        const WeatherCloudVisualLayer *layer = &renderLayers.layers[index];
         if (!isfinite(layer->coverage) || layer->coverage <= 0.025f ||
             !isfinite(layer->baseHeight) || !isfinite(layer->thickness) ||
             !isfinite(layer->opacity)) {
@@ -642,7 +631,7 @@ void DrawClouds(const Camera3D *camera, Color tint, double simulationTime,
         float cellularity = Clamp(layer->cellularity, 0.0f, 1.0f);
         float verticalDevelopment = Clamp(layer->verticalDevelopment, 0.0f, 1.0f);
         float anvil = Clamp(layer->anvil, 0.0f, 1.0f);
-        float layerPhase = (float)layer->genus * 0.137f + (float)index * 0.271f;
+        float layerPhase = (float)layer->genus * 0.137f;
 
 #define SET_CLOUD_UNIFORM(location, value, type) \
         SetShaderValue(cloudResources.shader, location, &(value), type)
