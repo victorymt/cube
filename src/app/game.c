@@ -4,6 +4,7 @@
 #include "app/game_geology.h"
 #include "world/volcano_runtime.h"
 #include "world/lava_runtime.h"
+#include "world/ash_runtime.h"
 #include "app/game_biology.h"
 #include "app/game_debug.h"
 #include "app/game_debug_trace.h"
@@ -157,6 +158,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     WorldReset(seed);
     VolcanoRuntimeReset();
     LavaRuntimeReset();
+    AshRuntimeReset();
     GameSyncWorldSurfaceSnapshot(seed);
     WorldResetSurfaceRebaseEvent();
     MapMarkersReset();
@@ -1322,6 +1324,7 @@ static bool GameStart(GameRuntime *game, int screenWidth, int screenHeight)
     WeatherImpactInit(game->settings.weatherDamageEnabled && !game->perfMode);
     VolcanoRuntimeReset();
     LavaRuntimeReset();
+    AshRuntimeReset();
     TornadoInit(game->settings.weatherDamageEnabled && !game->perfMode);
     WeatherSetParticleScale(
         GraphicsQualityProfileFor(

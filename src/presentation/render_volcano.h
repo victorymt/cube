@@ -12,7 +12,8 @@ typedef struct VolcanoVisual {
 void DrawVolcanoPreviews(const VolcanoVisual *visuals, unsigned count,
                          float windAngle, float windStrength);
 void DrawLavaCell(Matrix sectionTransform, Vector3 sectionPosition,
-                  LavaThermalState thermal);
+                  LavaThermalState thermal, LavaRock rock);
+void DrawAshCell(Matrix sectionTransform, Vector3 sectionPosition, unsigned volume);
 #define LAVA_STEAM_MAX_CELLS 24u
 #define LAVA_STEAM_PUFFS_PER_CELL 4u
 void DrawLavaSteam(Matrix sectionTransform, Vector3 sectionPosition,

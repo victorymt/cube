@@ -23,6 +23,19 @@ typedef struct LavaThermalState {
     double energy;
 } LavaThermalState;
 
+typedef enum LavaRock {
+    LAVA_ROCK_BASALT, LAVA_ROCK_OBSIDIAN, LAVA_ROCK_SCORIA,
+    LAVA_ROCK_PUMICE, LAVA_ROCK_RHYOLITE
+} LavaRock;
+/* Homogenized cell provenance, in volume units. Transport and mixing conserve
+   silica/vesicle markers; quenching adds a bounded rapid-solidification marker. */
+typedef struct LavaMaterial {
+    double silica, vesicles, quenched;
+} LavaMaterial;
+bool LavaMaterialValid(LavaMaterial material, unsigned volume);
+LavaRock LavaRockForMaterial(LavaMaterial material, unsigned volume);
+const char *LavaRockName(LavaRock rock);
+
 double LavaSpecificEnthalpy(double temperatureK);
 double LavaTemperature(LavaThermalState state);
 unsigned LavaLiquidVolume(LavaThermalState state);

@@ -1,6 +1,26 @@
 #include "world/lava_model.h"
 #include <math.h>
 
+bool LavaMaterialValid(LavaMaterial m, unsigned volume)
+{
+    return isfinite(m.silica) && isfinite(m.vesicles) && isfinite(m.quenched) &&
+        m.silica >= 0 && m.silica <= volume && m.vesicles >= 0 &&
+        m.vesicles <= volume && m.quenched >= 0 && m.quenched <= volume;
+}
+LavaRock LavaRockForMaterial(LavaMaterial m, unsigned volume)
+{
+    if (!volume || !LavaMaterialValid(m, volume)) return LAVA_ROCK_BASALT;
+    bool silicic = m.silica >= volume * 0.5;
+    if (m.vesicles >= volume * 0.5) return silicic ? LAVA_ROCK_PUMICE : LAVA_ROCK_SCORIA;
+    if (silicic && m.quenched >= volume * 0.25) return LAVA_ROCK_OBSIDIAN;
+    return silicic ? LAVA_ROCK_RHYOLITE : LAVA_ROCK_BASALT;
+}
+const char *LavaRockName(LavaRock rock)
+{
+    static const char *names[] = { "basalt", "obsidian", "scoria", "pumice", "rhyolite" };
+    return rock >= LAVA_ROCK_BASALT && rock <= LAVA_ROCK_RHYOLITE ? names[rock] : "unknown";
+}
+
 double LavaSpecificEnthalpy(double temperatureK)
 {
     if (!isfinite(temperatureK)) return 0.0;

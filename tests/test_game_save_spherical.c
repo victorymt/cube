@@ -6,6 +6,7 @@
 #include "world/save_format.h"
 #include "world/volcano_runtime.h"
 #include "world/lava_runtime.h"
+#include "world/ash_runtime.h"
 
 #include <assert.h>
 #include <math.h>
@@ -22,10 +23,37 @@ extern const char *GameSaveTestLoadRadiationRuntimeState(
 static int radiationResetCalls;
 bool WorldSaveFormatHasVolcanoes(WorldSaveFormat format)
 {
-    return format == WORLD_SAVE_FORMAT_V24 || format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26;
+    return format == WORLD_SAVE_FORMAT_V24 || format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27;
 }
 
-bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26; }
+bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27; }
+bool WorldSaveFormatHasAsh(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V27; }
+static AshBoundary AshOpen(int x, int y, int z, void *user)
+{
+    (void)x; (void)y; (void)z; (void)user; return ASH_OPEN;
+}
+static void TestAshPayloadRouting(void)
+{
+    AshRuntimeReset();
+    AshContext ctx = { .valid = true, .bodyId = 7u, .boundary = AshOpen };
+    assert(AshRuntimeDeposit(&ctx, 1, 20, 1, 512u) == 512u);
+    FILE *file = tmpfile(); assert(file && AshRuntimeSave(file));
+    assert(fputs("TAIL", file) >= 0);
+    rewind(file); AshRuntimeReset();
+    assert(GameSaveTestLoadAshState(file, WORLD_SAVE_FORMAT_V27) == NULL);
+    char tail[4]; assert(fread(tail, 1, 4, file) == 4 && !memcmp(tail, "TAIL", 4));
+    assert(AshRuntimeStats().volume == 512u); fclose(file);
+    file = tmpfile(); assert(file); fputs("bad ash!", file); rewind(file);
+    assert(GameSaveTestLoadAshState(file, WORLD_SAVE_FORMAT_V27) != NULL);
+    assert(AshRuntimeStats().volume == 512u);
+    for (WorldSaveFormat format = WORLD_SAVE_FORMAT_V18; format <= WORLD_SAVE_FORMAT_V26; format++) {
+        rewind(file);
+        assert(GameSaveTestLoadAshState(file, format) == NULL);
+        assert(ftell(file) == 0 && AshRuntimeStats().cells == 0u);
+        assert(AshRuntimeDeposit(&ctx, 1, 20, 1, 512u) == 512u);
+    }
+    fclose(file); AshRuntimeReset();
+}
 static LavaBoundary LavaOpen(int x, int y, int z, void *user)
 {
     (void)x; (void)y; (void)z; (void)user; return LAVA_OPEN;
@@ -413,6 +441,7 @@ static void TestHydrologyRuntimePayloadRouting(void)
 
 int main(void)
 {
+    TestAshPayloadRouting();
     TestLavaPayloadRouting();
     TestVolcanoPayloadRouting();
     TestSchemaOnePlanetMigration();

@@ -1,9 +1,10 @@
 #include "presentation/render_volcano.h"
+#include "world/ash_runtime.h"
 #include "raymath.h"
 #include "rlgl.h"
 #include <math.h>
 
-void DrawLavaCell(Matrix sectionTransform, Vector3 position, LavaThermalState thermal)
+void DrawLavaCell(Matrix sectionTransform, Vector3 position, LavaThermalState thermal, LavaRock rock)
 {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloat(sectionTransform));
@@ -11,7 +12,12 @@ void DrawLavaCell(Matrix sectionTransform, Vector3 position, LavaThermalState th
     float total = (float)thermal.volume / LAVA_CAPACITY;
     if (solid > 0.0f) {
         Vector3 center = { position.x + 0.5f, position.y + solid * 0.5f, position.z + 0.5f };
-        DrawCube(center, 1.0f, solid, 1.0f, (Color){ 57, 53, 50, 255 });
+        Color color = { 57, 53, 50, 255 };
+        if (rock == LAVA_ROCK_OBSIDIAN) color = (Color){ 22, 16, 30, 255 };
+        if (rock == LAVA_ROCK_SCORIA) color = (Color){ 73, 48, 45, 255 };
+        if (rock == LAVA_ROCK_PUMICE) color = (Color){ 167, 157, 143, 255 };
+        if (rock == LAVA_ROCK_RHYOLITE) color = (Color){ 172, 128, 119, 255 };
+        DrawCube(center, 1.0f, solid, 1.0f, color);
     }
     if (total > solid) {
         float hot = (float)Clamp((float)(LavaTemperature(thermal) - LAVA_FREEZING_K) / 350.0f, 0, 1);
@@ -19,6 +25,16 @@ void DrawLavaCell(Matrix sectionTransform, Vector3 position, LavaThermalState th
         DrawCube(center, 1.0f, total - solid, 1.0f,
             (Color){ (unsigned char)(190 + hot * 65), (unsigned char)(38 + hot * 85), 12, 255 });
     }
+    rlPopMatrix();
+}
+
+void DrawAshCell(Matrix transform, Vector3 position, unsigned volume)
+{
+    if (!volume || volume > ASH_CAPACITY) return;
+    float height = (float)volume / ASH_CAPACITY;
+    rlPushMatrix(); rlMultMatrixf(MatrixToFloat(transform));
+    DrawCube((Vector3){ position.x + 0.5f, position.y + height * 0.5f, position.z + 0.5f },
+        1.0f, height, 1.0f, (Color){ 96, 89, 85, 255 });
     rlPopMatrix();
 }
 

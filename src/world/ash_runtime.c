@@ -177,6 +177,7 @@ bool AshRuntimeLoad(FILE *f)
         AshCell c = { .bodyId = (uint32_t)v[0], .x = (int32_t)v[1], .y = (int32_t)v[2],
             .z = (int32_t)v[3], .volume = (unsigned)v[4] };
         memcpy(&c.washCredit, &v[5], sizeof(c.washCredit));
+        if (!Coordinate(c.x, c.y, c.z)) { ok = false; break; }
         int x = c.x, z = c.z; Canonical(&x, &z);
         if (!Coordinate(c.x, c.y, c.z) || x != c.x || z != c.z || !c.volume ||
             c.volume > ASH_CAPACITY || !isfinite(c.washCredit) ||

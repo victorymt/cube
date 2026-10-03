@@ -7,6 +7,7 @@
 
 static bool closed, unknown, slope;
 static unsigned solidBlocks;
+static LavaRock lastRock;
 static LavaBoundary Boundary(int x, int y, int z, void *user)
 {
     (void)user;
@@ -17,7 +18,10 @@ static LavaBoundary Boundary(int x, int y, int z, void *user)
 }
 static bool Solidify(int x, int y, int z, void *user)
 {
-    (void)x; (void)y; (void)z; (void)user;
+    (void)user;
+    LavaCell cell;
+    assert(LavaRuntimeCellAt(7u, x, y, z, &cell));
+    lastRock = LavaRockForMaterial(cell.material, cell.thermal.volume);
     solidBlocks++; return true;
 }
 static LavaContext Context(void)
@@ -38,7 +42,10 @@ static void Balance(void)
     assert(s.reservoirWater <= s.evaporatedWater);
     assert(s.hotCells <= LAVA_MAX_HOT_CELLS && s.records <= LAVA_MAX_RECORDS);
     LavaCell c;
-    for (unsigned i = 0u; LavaRuntimeAt(i, &c); i++) assert(LavaThermalValid(c.thermal));
+    for (unsigned i = 0u; LavaRuntimeAt(i, &c); i++) {
+        assert(LavaThermalValid(c.thermal));
+        assert(LavaMaterialValid(c.material, c.thermal.volume));
+    }
 }
 static void TestThermal(void)
 {
@@ -361,11 +368,82 @@ static void TestSharedWater(void)
         Balance();
     }
 }
+static void TestRockProducts(void)
+{
+    assert(!LavaMaterialValid((LavaMaterial){ NAN, 0, 0 }, 1024));
+    assert(!LavaMaterialValid((LavaMaterial){ 0, 1025, 0 }, 1024));
+    assert(LavaRockForMaterial((LavaMaterial){ 512, 0, 255 }, 1024) == LAVA_ROCK_RHYOLITE);
+    assert(LavaRockForMaterial((LavaMaterial){ 512, 0, 256 }, 1024) == LAVA_ROCK_OBSIDIAN);
+    assert(LavaRockForMaterial((LavaMaterial){ 511, 512, 256 }, 1024) == LAVA_ROCK_SCORIA);
+    assert(LavaRockForMaterial((LavaMaterial){ 512, 512, 256 }, 1024) == LAVA_ROCK_PUMICE);
+    const unsigned waters[] = { 0, 255, 1, 255, 0, 0 };
+    const double silica[] = { 1, 1, 1, 0, 0, 1 }, gas[] = { 0, 0, 0, 0, 1, 1 };
+    const LavaRock expected[] = { LAVA_ROCK_RHYOLITE, LAVA_ROCK_OBSIDIAN,
+        LAVA_ROCK_RHYOLITE, LAVA_ROCK_BASALT, LAVA_ROCK_SCORIA, LAVA_ROCK_PUMICE };
+    for (unsigned run = 0; run < 6; run++) {
+        LavaContext ctx = WaterContext(1024, waters[run]);
+        LavaRuntimeReset();
+        assert(LavaRuntimeDepositMaterial(&ctx, 0, 1, 0, 1024, 1450, silica[run], gas[run]) == 1024);
+        for (unsigned i = 0; i < 500; i++) LavaRuntimeStep(&ctx);
+        assert(solidBlocks == 1 && lastRock == expected[run]);
+        Balance();
+    }
+}
+static void TestMaterialFlowAndReplay(void)
+{
+    Reset(); LavaContext ctx = Context(); ctx.solidify = NULL;
+    assert(LavaRuntimeDepositMaterial(&ctx, 0, 2, 0, 1024, 1450, 1, 0.75) == 1024);
+    assert(LavaRuntimeDepositMaterial(&ctx, 0, 2, 0, 128, 1450, 0, 0) == 0);
+    assert(LavaRuntimeDepositMaterial(&ctx, 0, 1, 0, 1024, 1450, NAN, 0) == 0);
+    for (unsigned step = 0; step < 50; step++) {
+        LavaRuntimeStep(&ctx);
+        double silica = 0, gas = 0; LavaCell cell;
+        for (unsigned i = 0; LavaRuntimeAt(i, &cell); i++) {
+            silica += cell.material.silica; gas += cell.material.vesicles;
+        }
+        assert(fabs(silica - 1024) < 1e-8 && fabs(gas - 768) < 1e-8);
+        Balance();
+    }
+    ctx = WaterContext(1024, 255); ctx.solidify = NULL;
+    LavaRuntimeReset();
+    assert(LavaRuntimeDepositMaterial(&ctx, 0, 1, 0, 1024, 1450, 1, 0) == 1024);
+    for (unsigned i = 0; i < 30; i++) LavaRuntimeStep(&ctx);
+    LavaCell before, expected, actual;
+    assert(LavaRuntimeAt(0, &before) && before.material.quenched > 0);
+    FILE *file = tmpfile(); assert(file && LavaRuntimeSave(file));
+    unsigned savedWater = waterVolume;
+    for (unsigned i = 0; i < 400; i++) LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeAt(0, &expected));
+    rewind(file); assert(LavaRuntimeLoad(file)); waterVolume = savedWater;
+    assert(LavaRuntimeAt(0, &actual) && actual.material.quenched == before.material.quenched);
+    for (unsigned i = 0; i < 400; i++) LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeAt(0, &actual));
+    assert(actual.material.quenched == expected.material.quenched &&
+           actual.thermal.energy == expected.thermal.energy);
+    /* Three new marker fields must all reject non-finite payloads atomically. */
+    unsigned char bytes[248]; rewind(file); assert(fread(bytes, 1, sizeof(bytes), file) == sizeof(bytes));
+    for (unsigned offset = 224; offset < 248; offset += 8) {
+        FILE *bad = tmpfile(); assert(bad && fwrite(bytes, 1, sizeof(bytes), bad) == sizeof(bytes));
+        assert(fseek(bad, offset, SEEK_SET) == 0);
+        const unsigned char inf[] = { 0, 0, 0, 0, 0, 0, 0xf0, 0x7f };
+        assert(fwrite(inf, 1, 8, bad) == 8); rewind(bad);
+        assert(!LavaRuntimeLoad(bad)); fclose(bad);
+        assert(LavaRuntimeAt(0, &actual) && actual.material.quenched == expected.material.quenched);
+    }
+    fclose(file);
+    /* V2 carries the reaction ledger/credits, and defaults material to basalt. */
+    file = tmpfile(); assert(file); bytes[7] = '2';
+    assert(fwrite(bytes, 1, 224, file) == 224 && fputs("TAIL", file) >= 0);
+    rewind(file); assert(LavaRuntimeLoad(file));
+    assert(LavaRuntimeAt(0, &actual) && actual.material.silica == 0 && actual.material.quenched == 0);
+    char tail[4]; assert(fread(tail, 1, 4, file) == 4 && !memcmp(tail, "TAIL", 4));
+    fclose(file); Balance();
+}
 int main(void)
 {
     TestThermal(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
     TestOrderAndPersistence(); TestVolcanoInventory(); TestCoolingIgnoresParkedLava();
     TestWaterContact(); TestWaterReplay(); TestLegacyLavaPayload();
-    TestSharedWater();
+    TestSharedWater(); TestRockProducts(); TestMaterialFlowAndReplay();
     puts("lava conservation, thermal, persistence and coupling tests passed");
 }

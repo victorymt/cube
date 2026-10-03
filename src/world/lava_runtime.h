@@ -15,6 +15,7 @@ typedef struct LavaCell {
        thermal until an entire water parcel can be atomically evaporated. */
     double contactCredit[6];
     double steam; /* transient recent committed evaporation; never saved */
+    LavaMaterial material;
 } LavaCell;
 
 typedef enum LavaBoundary { LAVA_UNKNOWN, LAVA_BLOCKED, LAVA_OPEN } LavaBoundary;
@@ -47,6 +48,9 @@ bool LavaRuntimeAt(unsigned index, LavaCell *out);
 bool LavaRuntimeCellAt(uint32_t body, int x, int y, int z, LavaCell *out);
 unsigned LavaRuntimeDeposit(const LavaContext *context, int x, int y, int z,
                             unsigned volume, double temperatureK);
+unsigned LavaRuntimeDepositMaterial(const LavaContext *context, int x, int y, int z,
+                                     unsigned volume, double temperatureK,
+                                     double silicaFraction, double vesicleFraction);
 void LavaRuntimeStep(const LavaContext *context);
 /* Partition-independent 10 Hz driver; callback supplies and steps the world. */
 void LavaRuntimeAdvance(double seconds, bool active,

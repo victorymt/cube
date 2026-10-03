@@ -43,12 +43,17 @@ static void CheckPatch(Chunk chunk, int section, Vector3 camera, int ox, int oz)
     Vector3 local = { 15, 9, 0 };
     LavaThermalState state = { 512u, 512u * (LAVA_FREEZING_K-LAVA_REFERENCE_K+LAVA_LATENT_K/2) };
     draws = 0;
-    DrawLavaCell(SurfaceChunkRenderTransform(&chunk, section, camera, ox, oz), local, state);
+    DrawLavaCell(SurfaceChunkRenderTransform(&chunk, section, camera, ox, oz), local, state, LAVA_ROCK_BASALT);
     assert(draws == 2u && depth == 0u);
     Near(bottoms[0], TerrainPoint(chunk, section, camera, ox, oz, local));
     Near(tops[0], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){16,9.25f,1}));
     Near(bottoms[1], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){15,9.25f,0}));
     Near(tops[1], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){16,9.5f,1}));
+    draws = 0;
+    DrawAshCell(SurfaceChunkRenderTransform(&chunk, section, camera, ox, oz), local, 128u);
+    assert(draws == 1u && depth == 0u);
+    Near(bottoms[0], TerrainPoint(chunk, section, camera, ox, oz, local));
+    Near(tops[0], TerrainPoint(chunk, section, camera, ox, oz, (Vector3){16,9.125f,1}));
     draws = 0;
     Matrix transform = SurfaceChunkRenderTransform(&chunk, section, camera, ox, oz);
     DrawLavaSteam(transform, local, 0.0, 0u, 0.0f, 0.0f);

@@ -16,6 +16,7 @@ static LavaFlux fluxes[LAVA_MAX_FLUX];
 static unsigned incoming[LAVA_MAX_RECORDS];
 static int deltaVolume[LAVA_MAX_RECORDS];
 static double deltaEnergy[LAVA_MAX_RECORDS];
+static LavaMaterial deltaMaterial[LAVA_MAX_RECORDS];
 
 static void Canonical(int *x, int *z)
 {
@@ -111,8 +112,16 @@ static int Ensure(const LavaContext *ctx, int x, int y, int z, unsigned *hot)
 unsigned LavaRuntimeDeposit(const LavaContext *ctx, int x, int y, int z,
                             unsigned volume, double temperatureK)
 {
+    return LavaRuntimeDepositMaterial(ctx, x, y, z, volume, temperatureK, 0, 0);
+}
+unsigned LavaRuntimeDepositMaterial(const LavaContext *ctx, int x, int y, int z,
+                                     unsigned volume, double temperatureK,
+                                     double silica, double vesicles)
+{
     if (!volume || volume > LAVA_CAPACITY || !isfinite(temperatureK) ||
         temperatureK <= LAVA_FREEZING_K || temperatureK > 2000.0 ||
+        !isfinite(silica) || silica < 0 || silica > 1 ||
+        !isfinite(vesicles) || vesicles < 0 || vesicles > 1 ||
         UINT64_MAX - ledger.supplied < volume) return 0u;
     unsigned hot = HotCount();
     int index = Ensure(ctx, x, y, z, &hot);
@@ -123,6 +132,8 @@ unsigned LavaRuntimeDeposit(const LavaContext *ctx, int x, int y, int z,
     double energy = accepted * LavaSpecificEnthalpy(temperatureK);
     c->thermal.volume += accepted;
     c->thermal.energy += energy;
+    c->material.silica += accepted * silica;
+    c->material.vesicles += accepted * vesicles;
     ledger.supplied += accepted;
     ledger.suppliedEnergy += energy;
     return accepted;
@@ -173,7 +184,10 @@ static void ReactWater(LavaCell *c, const LavaContext *ctx)
         /* The successful main-thread water commit is the only path that can
            debit lava enthalpy or emit steam. Credits themselves carry no heat. */
         double heat = units * LAVA_WATER_UNIT_ENERGY;
+        unsigned liquidBefore = LavaLiquidVolume(c->thermal);
         c->thermal.energy -= heat;
+        unsigned frozen = liquidBefore - LavaLiquidVolume(c->thermal);
+        c->material.quenched = fmin(c->thermal.volume, c->material.quenched + frozen);
         ledger.waterEnergy += heat;
         ledger.evaporatedWater += units;
         if (reservoir) ledger.reservoirWater += units;
@@ -190,6 +204,7 @@ void LavaRuntimeStep(const LavaContext *ctx)
     memset(incoming, 0, sizeof(incoming));
     memset(deltaVolume, 0, sizeof(deltaVolume));
     memset(deltaEnergy, 0, sizeof(deltaEnergy));
+    memset(deltaMaterial, 0, sizeof(deltaMaterial));
     unsigned original = count, hot = HotCount(), used = 0u;
     static const int offsets[4][2] = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
     for (unsigned i = 0u; i < original; i++) {
@@ -233,11 +248,22 @@ void LavaRuntimeStep(const LavaContext *ctx)
         deltaVolume[f.to] += (int)accepted;
         deltaEnergy[f.from] -= accepted * f.enthalpy;
         deltaEnergy[f.to] += accepted * f.enthalpy;
+        double fraction = (double)accepted / cells[f.from].thermal.volume;
+#define MOVE_MARKER(field) do { \
+        double amount = fraction * cells[f.from].material.field; \
+        deltaMaterial[f.from].field -= amount; deltaMaterial[f.to].field += amount; \
+    } while (0)
+        MOVE_MARKER(silica); MOVE_MARKER(vesicles); MOVE_MARKER(quenched);
+#undef MOVE_MARKER
     }
     for (unsigned i = 0u; i < count; i++) {
         LavaCell *c = &cells[i];
         c->thermal.volume = (unsigned)((int)c->thermal.volume + deltaVolume[i]);
         c->thermal.energy = c->thermal.volume ? fmax(0.0, c->thermal.energy + deltaEnergy[i]) : 0.0;
+#define APPLY_MARKER(field) c->material.field = fmin(c->thermal.volume, \
+        fmax(0.0, c->material.field + deltaMaterial[i].field))
+        APPLY_MARKER(silica); APPLY_MARKER(vesicles); APPLY_MARKER(quenched);
+#undef APPLY_MARKER
         c->steam *= 0.8;
         if (!c->thermal.volume || c->cooled || c->bodyId != ctx->bodyId ||
             ctx->boundary(c->x, c->y, c->z, ctx->user) != LAVA_OPEN) continue;
@@ -330,7 +356,7 @@ static bool ReadReal(FILE *f, double *v)
 bool LavaRuntimeSave(FILE *f)
 {
     if (!f || sizeof(double) != 8u || DBL_MANT_DIG != 53 || DBL_MAX_EXP != 1024 ||
-        fwrite("LAVA0002", 1u, 8u, f) != 8u) return false;
+        fwrite("LAVA0003", 1u, 8u, f) != 8u) return false;
     uint64_t fields[] = { count, ledger.supplied, ledger.solidified, ledger.removed,
         ledger.blockedTransfers, ledger.rejectedCells, ledger.ticks };
     for (unsigned i = 0u; i < 7u; i++) if (!WriteU64(f, fields[i])) return false;
@@ -347,6 +373,8 @@ bool LavaRuntimeSave(FILE *f)
         for (unsigned face = 0u; face < 6u; face++) {
             if (!WriteReal(f, c->contactCredit[face])) return false;
         }
+        if (!WriteReal(f, c->material.silica) || !WriteReal(f, c->material.vesicles) ||
+            !WriteReal(f, c->material.quenched)) return false;
     }
     return !ferror(f);
 }
@@ -355,7 +383,8 @@ bool LavaRuntimeLoad(FILE *f)
     char magic[8]; uint64_t v[7]; double e[4];
     if (!f || sizeof(double) != 8u || DBL_MANT_DIG != 53 || DBL_MAX_EXP != 1024 ||
         fread(magic, 1u, 8u, f) != 8u) return false;
-    bool reactions = !memcmp(magic, "LAVA0002", 8u);
+    bool materials = !memcmp(magic, "LAVA0003", 8u);
+    bool reactions = materials || !memcmp(magic, "LAVA0002", 8u);
     if (!reactions && memcmp(magic, "LAVA0001", 8u)) return false;
     for (unsigned i = 0u; i < 7u; i++) if (!ReadU64(f, &v[i])) return false;
     for (unsigned i = 0u; i < 4u; i++) if (!ReadReal(f, &e[i]) || e[i] < 0.0) return false;
@@ -385,6 +414,10 @@ bool LavaRuntimeLoad(FILE *f)
                 (c.cooled && c.contactCredit[face] != 0.0)) ok = false;
         }
         if (!ok) break;
+        if (materials && (!ReadReal(f, &c.material.silica) || !ReadReal(f, &c.material.vesicles) ||
+            !ReadReal(f, &c.material.quenched) || !LavaMaterialValid(c.material, c.thermal.volume))) {
+            ok = false; break;
+        }
         if (!ValidCoordinate(c.x, c.y, c.z) || !c.thermal.volume ||
             d[5] > 1u || !LavaThermalValid(c.thermal) ||
             (c.cooled && LavaTemperature(c.thermal) > 330.0 + 1e-8)) { ok = false; break; }
