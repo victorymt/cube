@@ -280,6 +280,8 @@ LandformSample LandformSampleAt(const LandformAtlas *a, Vector3 p, float base)
     SurfaceAddress anchor = CellAddress(center);
     float nearest = 1e6f;
     float channelBed = INFINITY;
+    const LandformCell *channel = NULL;
+    float channelLevel = 0;
     LandformSample deposit = s;
     float lakeWeight = 0, lakeTotal = 0, lakeLevel = 1e6f;
     for (int v = -3; v <= 3; v++) for (int u = -3; u <= 3; u++) {
@@ -331,26 +333,34 @@ LandformSample LandformSampleAt(const LandformAtlas *a, Vector3 p, float base)
         }
         if (normalized < nearest) {
             nearest = normalized;
+            channel = c;
+            channelLevel = level;
             s.channelDistance = distance;
             s.reach = id; s.watershed = c->watershed;
             s.area = c->area; s.slope = c->slope;
-            if (normalized <= 1) {
-                s.kind = c->discharge / c->area >= .18f ? LANDFORM_RIVER : LANDFORM_DRY_CHANNEL;
-                s.hasWater = s.kind == LANDFORM_RIVER;
-                s.waterLevel = level;
-                s.wetness = s.hasWater ? 1 : .15f;
-                s.gravel = .7f; s.sand = .25f; s.fines = .05f;
-                s.sedimentDepth = 3;
-            }
         }
     }
-    if (deposit.kind != LANDFORM_UPLAND && !isfinite(channelBed)) {
+    if (isfinite(channelBed)) s.elevation = fminf(base, channelBed);
+    bool perennial = channel && channel->discharge / channel->area >= .18f;
+    // The bank is carved out to three channel widths. Fill its submerged
+    // columns to the same level as the core, using the voxel height rules
+    // from terrain generation so water ends against solid ground, not air.
+    bool wetBank = perennial && nearest < 3 &&
+        (int)floorf(channelLevel) > (int)lroundf(s.elevation);
+    if (nearest <= 1 || wetBank) {
+        s.kind = perennial ? LANDFORM_RIVER : LANDFORM_DRY_CHANNEL;
+        s.hasWater = perennial;
+        s.waterLevel = channelLevel;
+        s.wetness = s.hasWater ? 1 : .15f;
+        s.gravel = .7f; s.sand = .25f; s.fines = .05f;
+        s.sedimentDepth = 3;
+    }
+    if (deposit.kind != LANDFORM_UPLAND && !isfinite(channelBed) && !wetBank) {
         // Carved banks take precedence over deposition so the outlet stays open.
         float carved = s.elevation;
         s = deposit;
         if (carved < base) s.elevation = carved;
     }
-    if (isfinite(channelBed)) s.elevation = fminf(base, channelBed);
     if (lakeTotal > 0 && lakeWeight / lakeTotal > .45f && base < lakeLevel &&
         (!s.hasWater || lakeLevel <= s.waterLevel)) {
         s.kind = LANDFORM_LAKE;

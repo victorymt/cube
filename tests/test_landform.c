@@ -69,9 +69,54 @@ static LandformBaseline Baseline(Vector3 d, void *user)
     float sea = *(float *)user;
     return (LandformBaseline){ sea + d.y * 80 + 15 * sinf(d.x * 22) * cosf(d.z * 17), .6f, .5f };
 }
+
+static void TestRiverBanks(void)
+{
+    LandformAtlas *a = LandformBuild(80, FlatBaseline, NULL);
+    assert(a);
+    for (uint32_t i = 0; i < LANDFORM_CELL_COUNT; i++) a->cells[i].width = 0;
+    uint32_t id = LANDFORM_RESOLUTION * 64 + 64;
+    LandformCell *c = &a->cells[id];
+    c->downstream = LandformNeighbor(id, 1);
+    LandformCell *d = &a->cells[c->downstream];
+    c->width = 4;
+    c->area = d->area = 100000;
+    c->discharge = 60000;
+    c->elevation = c->spill = d->elevation = d->spill = 140;
+    Vector3 middle = Vector3Normalize(Vector3Lerp(c->direction, d->direction, .5f));
+    Vector3 side = Vector3Normalize(Vector3CrossProduct(c->direction, d->direction));
+    unsigned wetBanks = 0, dryBanks = 0;
+    for (int offset = -16; offset <= 16; offset++) {
+        Vector3 p = Vector3Normalize(Vector3Add(middle,
+            Vector3Scale(side, (float)offset / SURFACE_RADIUS_BLOCKS)));
+        LandformSample s = LandformSampleAt(a, p, 144);
+        if ((int)lroundf(s.elevation) < 140) {
+            // Every carved column below this level must be connected water,
+            // including the sloping banks outside the flat channel bed.
+            assert(s.kind == LANDFORM_RIVER && s.hasWater);
+            assert(fabsf(s.waterLevel - 140) < .001f);
+            assert(s.sedimentDepth > 0);
+            wetBanks += offset < -4 || offset > 4;
+        } else {
+            assert(!s.hasWater);
+            dryBanks++;
+        }
+    }
+    assert(wetBanks > 0 && dryBanks > 0);
+    // Broadening the wet shore must not introduce water in arid channels.
+    c->discharge = c->area * .1f;
+    for (int offset = -16; offset <= 16; offset++) {
+        Vector3 p = Vector3Normalize(Vector3Add(middle,
+            Vector3Scale(side, (float)offset / SURFACE_RADIUS_BLOCKS)));
+        assert(!LandformSampleAt(a, p, 144).hasWater);
+    }
+    LandformDestroy(a);
+}
+
 int main(void)
 {
     TestDeposits();
+    TestRiverBanks();
     double total = 0;
     for (uint32_t i = 0; i < LANDFORM_CELL_COUNT; i++) {
         assert(LandformCellAtDirection(LandformCellDirection(i)) == i);
