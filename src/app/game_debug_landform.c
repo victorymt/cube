@@ -49,9 +49,11 @@ static void Find(GameRuntime *game, SurfaceMapCell observer)
         float margin = Vector3Distance(c->direction, d->direction) * SURFACE_RADIUS_BLOCKS + 64;
         if (Vector3Distance(origin, c->direction) * SURFACE_RADIUS_BLOCKS > best + margin) continue;
         Vector3 side = Vector3Normalize(Vector3CrossProduct(c->direction, d->direction));
-        for (int k = 0; k < 9; k++) {
+        int candidates = !strcmp(control->landformType, "terrace") ? 15 : 9;
+        for (int k = 0; k < candidates; k++) {
             float t = (k % 3) * .5f;
             float bank = k / 3 == 0 ? 0 : (k / 3 == 1 ? 2.0f : -2.0f);
+            if (k >= 9) bank = k / 3 == 3 ? 5.0f : -5.0f;
             Vector3 p = Vector3Normalize(Vector3Add(Vector3Lerp(c->direction, d->direction, t),
                 Vector3Scale(side, bank * c->width / SURFACE_RADIUS_BLOCKS)));
             SurfaceMapCell cell;

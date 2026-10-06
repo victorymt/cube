@@ -1633,6 +1633,31 @@ static void TestVersion7Landforms(void)
     printf("v7 landforms: %u dry climate cells, %u river and %u lake samples\n", dryClimate, rivers, lakes);
 }
 
+static void TestVersion8Terraces(void)
+{
+    terrainSeed = DEFAULT_WORLD_SEED;
+    assert(TerrainGenerationSetVersion(7));
+    assert(LandformRuntimePrepare(terrainSeed, 7, true));
+    SurfaceTerrainSample old = SurfaceTerrainAt(555, 510, TERRAIN_VARIED);
+    assert(old.landform.kind != LANDFORM_TERRACE);
+    assert(TerrainGenerationSetVersion(8));
+    assert(!LandformRuntimeAtlas()); // An atlas from another version is never reused.
+    assert(LandformRuntimePrepare(terrainSeed, 8, true));
+    SurfaceTerrainSample s = SurfaceTerrainAt(555, 510, TERRAIN_VARIED);
+    assert(s.landform.kind == LANDFORM_TERRACE && !s.landform.hasWater);
+    assert(s.elevation < old.elevation && s.landform.sedimentDepth > 0);
+    int y = (int)lroundf(s.elevation);
+    BlockType material = TerrainBaseBlockAt(555, y, 510, TERRAIN_VARIED);
+    assert(material == BLOCK_GRAVEL || material == BLOCK_SAND || material == BLOCK_SILT);
+    SurfaceTerrainSample alias = SurfaceTerrainAt(555 + SURFACE_EQUATOR_BLOCKS, 510, TERRAIN_VARIED);
+    assert(alias.landform.kind == s.landform.kind && alias.elevation == s.elevation);
+    assert(TerrainGenerationSetVersion(7));
+    assert(LandformRuntimePrepare(terrainSeed, 7, true));
+    SurfaceTerrainSample restored = SurfaceTerrainAt(555, 510, TERRAIN_VARIED);
+    assert(!memcmp(&restored.landform, &old.landform, sizeof(LandformSample)));
+    LandformRuntimeReset();
+}
+
 int main(void)
 {
     TerrainGenerationSetVersion(6);
@@ -1677,6 +1702,7 @@ int main(void)
     TestPlanetChunkDeterministicBaselines();
     TestGeneratedChunkDirtyMeshRebuildFixture();
     TestVersion7Landforms();
+    TestVersion8Terraces();
     puts("terrain scale tests passed");
     return 0;
 }

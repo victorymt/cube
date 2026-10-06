@@ -27,11 +27,12 @@ typedef struct LandformAtlas {
     float seaLevel;
     size_t bytes;
     uint32_t rivers, lakes, closedBasins;
+    bool terraces; // Version 8 static river history; disabled for version 7.
 } LandformAtlas;
 
 typedef enum LandformKind {
     LANDFORM_UPLAND, LANDFORM_RIVER, LANDFORM_DRY_CHANNEL, LANDFORM_LAKE,
-    LANDFORM_WETLAND, LANDFORM_FLOODPLAIN, LANDFORM_FAN
+    LANDFORM_WETLAND, LANDFORM_FLOODPLAIN, LANDFORM_FAN, LANDFORM_TERRACE
 } LandformKind;
 
 typedef struct LandformSample {

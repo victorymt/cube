@@ -307,6 +307,7 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
              !strcmp(control->landformType, "lake") ||
              !strcmp(control->landformType, "wetland") ||
              !strcmp(control->landformType, "floodplain") ||
+             !strcmp(control->landformType, "terrace") ||
              !strcmp(control->landformType, "fan"))) {
             control->landformRadius = radius;
             return DEBUG_CONTROL_COMMAND_LANDFORM_FIND;

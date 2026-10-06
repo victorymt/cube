@@ -2,7 +2,7 @@ terrain varied
 start
 pause on
 assert landform.available
-assert landform.version == 7
+assert landform.version == 8
 landform find river 4096
 assert landform.found
 let river = landform.position

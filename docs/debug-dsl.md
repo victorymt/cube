@@ -55,9 +55,13 @@ without opening a window.
 
 ### Landform diagnostics
 
-Version 7 non-flat Homeworld terrain supports `landform inspect` and
+Version 7 and later non-flat Homeworld terrain supports `landform inspect` and
 `landform find TYPE RADIUS` (radius 1–16384 surface blocks). Types are `upland`,
-`river`, `dry_channel`, `lake`, `wetland`, `floodplain`, and `fan`.
+`river`, `dry_channel`, `lake`, `wetland`, `floodplain`, `fan`, and `terrace`.
+Terraces occur only in version 8 and later worlds. Their search also samples
+both valley shoulders at five channel widths. They represent static abandoned
+valley floors, not live river migration. `tests/scenes/landform_terrace.dsl`
+checks discovery, dry sediment, save/load and captures the default seed.
 Inspection prints elevation, water level, watershed/reach IDs, catchment area,
 slope, wetness, sediment thickness, material fractions and generation version.
 `find` samples a fixed set of atlas vertices, reach centers and banks within

@@ -208,8 +208,8 @@ LandformAtlas *LandformBuild(float seaLevel, LandformBaselineFn baseline, void *
 const char *LandformKindName(LandformKind kind)
 {
     static const char *names[] = { "upland", "river", "dry_channel", "lake",
-        "wetland", "floodplain", "fan" };
-    return (unsigned)kind <= LANDFORM_FAN ? names[kind] : "unknown";
+        "wetland", "floodplain", "fan", "terrace" };
+    return (unsigned)kind <= LANDFORM_TERRACE ? names[kind] : "unknown";
 }
 
 static float SmoothWeight(float value)
@@ -221,6 +221,30 @@ static float SmoothWeight(float value)
 static float ChannelDepth(const LandformCell *cell)
 {
     return Clamp(1.5f + sqrtf(cell->area) * .003f, 2, 4);
+}
+
+// A bounded remnant of an older valley floor above the modern floodplain.
+// Only cut existing valley shoulders; never fill a basin or cut a mountain.
+static void SampleTerrace(const LandformAtlas *a, const LandformCell *c,
+                          uint32_t id, float base, float level, float distance,
+                          float normalized, uint32_t watershed, LandformSample *deposit)
+{
+    if (!a->terraces || c->slope > .025f || c->slope < .001f ||
+        c->discharge < c->area * .18f || c->watershed != watershed ||
+        c->spill - c->elevation > 1.5f || level < a->seaLevel + 6 ||
+        normalized <= 3 || normalized >= 7) return;
+    float bench = level + 4;
+    if (base <= bench || base >= bench + 6) return;
+    float weight = SmoothWeight(normalized - 3) * SmoothWeight(7 - normalized) *
+                   SmoothWeight((bench + 6 - base) / 2);
+    float cut = (base - bench) * weight;
+    if (cut < .25f || deposit->kind == LANDFORM_FAN) return;
+    float elevation = base - cut;
+    if (deposit->kind == LANDFORM_TERRACE && deposit->elevation <= elevation) return;
+    *deposit = (LandformSample){ .elevation = elevation, .kind = LANDFORM_TERRACE,
+        .watershed = watershed, .reach = id, .area = c->area, .slope = c->slope,
+        .channelDistance = distance, .sedimentDepth = 2 * weight, .wetness = .25f,
+        .gravel = .45f, .sand = .35f, .fines = .2f };
 }
 
 // Static geological deposits. Candidates must have sediment supply, a steep
@@ -312,6 +336,7 @@ LandformSample LandformSampleAt(const LandformAtlas *a, Vector3 p, float base)
         // A shared confluence vertex has one spill height. All incident
         // reaches interpolate that same value, independent of chunk order.
         float level = Lerp(c->spill, d->spill, t);
+        SampleTerrace(a, c, id, base, level, distance, normalized, home->watershed, &deposit);
         float bed = level - Lerp(ChannelDepth(c), ChannelDepth(d), t);
         if (normalized < 3.0f) {
             float bank = Clamp((normalized - 1.0f) / 2.0f, 0, 1);

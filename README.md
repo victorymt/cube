@@ -72,8 +72,10 @@ startup as a small pixel-art atlas.
   Compatible V18-V22 saves remain readable, with missing subsystem payloads
   initialized on load. The regional ecology payload has its own version (V7)
   and retains evicted regional history as well as cached records.
-  Terrain generation version 6 rebuilds unedited terrain in older compatible
-  saves so the expanded geology appears while preserving player-authored edits.
+  New worlds use terrain generation version 8, including river terraces on
+  suitable Homeworld valley shoulders. Version 7 retains its original drainage,
+  lakes and deposits; version 6 retains its earlier generation path. Versions
+  2–5 use the existing version 6 compatibility path. Player edits remain intact.
   V17 and older flat-world saves are intentionally rejected because their
   coordinates cannot identify positions on the spherical worlds safely
 - Image imports use a 256-color block palette for better color matching. Block

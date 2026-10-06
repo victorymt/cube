@@ -70,6 +70,42 @@ static LandformBaseline Baseline(Vector3 d, void *user)
     return (LandformBaseline){ sea + d.y * 80 + 15 * sinf(d.x * 22) * cosf(d.z * 17), .6f, .5f };
 }
 
+static void TestTerraces(void)
+{
+    LandformAtlas *a = LandformBuild(80, FlatBaseline, NULL);
+    assert(a);
+    for (uint32_t i = 0; i < LANDFORM_CELL_COUNT; i++) a->cells[i].width = 0;
+    uint32_t id = LANDFORM_RESOLUTION * 64 + 64;
+    LandformCell *c = &a->cells[id];
+    c->downstream = LandformNeighbor(id, 1);
+    LandformCell *d = &a->cells[c->downstream];
+    c->width = 4; c->area = 100000; c->discharge = 60000;
+    c->elevation = c->spill = 140; c->slope = .01f;
+    d->elevation = d->spill = 139;
+    Vector3 middle = Vector3Normalize(Vector3Lerp(c->direction, d->direction, .5f));
+    Vector3 side = Vector3Normalize(Vector3CrossProduct(c->direction, d->direction));
+    Vector3 p = Vector3Normalize(Vector3Add(middle, Vector3Scale(side, 20.0f / SURFACE_RADIUS_BLOCKS)));
+    LandformSample legacy = LandformSampleAt(a, p, 147);
+    assert(legacy.kind != LANDFORM_TERRACE);
+    a->terraces = true;
+    LandformSample s = LandformSampleAt(a, p, 147);
+    assert(s.kind == LANDFORM_TERRACE && !s.hasWater);
+    assert(s.elevation > 143 && s.elevation < 145 && s.sedimentDepth > 1);
+    assert(fabsf(s.gravel + s.sand + s.fines - 1) < 1e-5f);
+    assert(LandformSampleAt(a, middle, 140).kind == LANDFORM_RIVER);
+    assert(LandformSampleAt(a, p, 155).kind != LANDFORM_TERRACE);
+    assert(LandformSampleAt(a, p, 140).kind != LANDFORM_TERRACE);
+    c->slope = .1f;
+    assert(LandformSampleAt(a, p, 147).kind != LANDFORM_TERRACE);
+    c->slope = .01f; c->discharge = 10000;
+    assert(LandformSampleAt(a, p, 147).kind != LANDFORM_TERRACE);
+    c->discharge = 60000;
+    a->terraces = false;
+    s = LandformSampleAt(a, p, 147);
+    assert(!memcmp(&s, &legacy, sizeof(s)));
+    LandformDestroy(a);
+}
+
 static void TestRiverBanks(void)
 {
     LandformAtlas *a = LandformBuild(80, FlatBaseline, NULL);
@@ -116,6 +152,7 @@ static void TestRiverBanks(void)
 int main(void)
 {
     TestDeposits();
+    TestTerraces();
     TestRiverBanks();
     double total = 0;
     for (uint32_t i = 0; i < LANDFORM_CELL_COUNT; i++) {

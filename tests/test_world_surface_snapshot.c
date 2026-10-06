@@ -113,7 +113,7 @@ int main(void)
     WorldInstallSurfaceSnapshot(NULL);
     assert(TerrainGenerationVersion() == 6);
     assert(!TerrainGenerationSetVersion(0));
-    assert(!TerrainGenerationSetVersion(8));
+    assert(!TerrainGenerationSetVersion(TERRAIN_GENERATION_CURRENT + 1));
     assert(TerrainGenerationVersion() == 6);
     assert(TerrainGenerationSetVersion(TERRAIN_GENERATION_CURRENT));
     puts("world surface snapshot tests passed");
