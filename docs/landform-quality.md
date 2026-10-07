@@ -80,7 +80,12 @@ The relevant coverage path is `CollectMissingChunkCandidates` in
 `src/world/chunks_streaming.c`: it requests a fixed square in map chunk
 coordinates. `CurveSurfacePoint` in `src/world/chunks_runtime.c` projects
 those vertices onto the sphere. Near a pole, many adjacent longitude columns
-cover only a very small physical width. This is a surface coverage/rendering
+cover only a very small physical width. `ChunkGridDistanceFrom` already uses
+`SurfaceShortestMapOffset`, a spherical shortest displacement; it is not a raw
+longitude/latitude subtraction. The fixed candidate enumeration fails to
+request the other physically nearby columns. Increasing the distance alone
+does not change that enumeration or solve the resident-chunk budget.
+This is a surface coverage/rendering
 problem to resolve before adding river-shape physics; changing drainage
 parameters or clamping latitude would conceal it and change unrelated terrain.
 
@@ -89,3 +94,8 @@ projection, then repeat the two polar views and their dry controls. Keep
 Homeworld v7/v8 sample fingerprints unchanged. After visual acceptance,
 calibrate flow diagnostics before designing a separately versioned Coriolis
 bias. The present fixed-runoff diagnostic is not a calibrated migration model.
+
+The first implementation step is documented in [surface-cube.md](surface-cube.md).
+Its pure cube-grid tests pass, but it does not yet switch the running game's
+chunk storage, collision coordinates or saves. The polar visual blocker above
+remains open until runtime integration and replay verification are complete.
