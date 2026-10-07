@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#define SPACE_PHYSICAL_SECONDS_PER_GAME_TIME 86400.0
+
 // Canonical physical constants use kilometers, seconds, and kilograms.
 // Orbital scene coordinates use a linear system projection: 20 game distance
 // units are 1 AU. One unpaused gameplay second advances one game time unit, while one

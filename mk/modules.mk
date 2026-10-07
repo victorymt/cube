@@ -66,6 +66,7 @@ TERRAIN_FEATURE_SRC := \
 	src/world/terrain.c \
 	src/world/landform_model.c \
 	src/world/landform_physics.c \
+	src/world/planet_landform_strategy.c \
 	src/world/landform_runtime.c \
 	src/world/terrain_geology.c \
 	src/world/terrain_home_materials.c \

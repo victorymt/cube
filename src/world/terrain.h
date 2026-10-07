@@ -91,6 +91,10 @@ int TerrainHeight(int x, int z, TerrainMode mode);
 SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode);
 BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode);
 int TerrainSeaLevel(TerrainMode mode);
+// Pure long-term planetary baseline; no snapshot, weather or runtime reads.
+int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
+                                   int x, int z, PlanetSurfaceSample *sample);
+int PlanetSeaLevelForProfile(SolarBodyStyle style, const PlanetProfile *profile);
 int PlanetTerrainHeight(int x, int z);
 int PlanetTerrainSeaLevel(void);
 BathymetrySample PlanetBathymetryAt(int x, int z);
