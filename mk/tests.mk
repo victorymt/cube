@@ -252,4 +252,6 @@ $(eval $(call define_test,INTERACTION_RAYCAST_TEST_TARGET,test_interaction_rayca
 $(eval $(call define_test,PLANET_RENDERER_RESOURCES_TEST_TARGET,test_planet_renderer_resources,src/presentation/planet_renderer.c,,-DPLANET_RENDERER_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,PLANET_TEXTURE_RESOURCES_TEST_TARGET,test_planet_texture_resources,src/core/simulation_time.c src/presentation/render_planets.c src/presentation/render_sky.c src/space/planet_material.c src/space/space_units.c,,-DRENDER_PLANETS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 
-$(eval $(call define_test,LANDFORM_TEST_TARGET,test_landform,src/world/landform_model.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,LANDFORM_TEST_TARGET,test_landform,src/world/landform_model.c src/world/landform_physics.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+
+$(eval $(call define_test,LANDFORM_PHYSICS_TEST_TARGET,test_landform_physics,src/world/landform_physics.c,,,, -lm,,))

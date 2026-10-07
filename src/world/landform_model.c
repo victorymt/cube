@@ -98,8 +98,26 @@ void LandformDestroy(LandformAtlas *atlas)
     free(atlas);
 }
 
+LandformBuildInput LandformLegacyBuildInput(float seaLevel, LandformBaselineFn baseline, void *user)
+{
+    return (LandformBuildInput){ .seaLevel = seaLevel, .baseline = baseline, .user = user,
+        .physics = { .radiusMeters = SURFACE_RADIUS_BLOCKS, .metersPerBlock = 1,
+                     .gravity = 9.80665, .liquidWater = true } };
+}
+
 LandformAtlas *LandformBuild(float seaLevel, LandformBaselineFn baseline, void *user)
 {
+    LandformBuildInput input = LandformLegacyBuildInput(seaLevel, baseline, user);
+    return LandformBuildWithInput(&input);
+}
+
+LandformAtlas *LandformBuildWithInput(const LandformBuildInput *input)
+{
+    if (!input || !LandformPhysicsValid(input->physics) || !input->physics.liquidWater)
+        return NULL;
+    float seaLevel = input->seaLevel;
+    LandformBaselineFn baseline = input->baseline;
+    void *user = input->user;
     if (!baseline || !isfinite(seaLevel)) return NULL;
     LandformAtlas *a = calloc(1, sizeof(*a));
     if (!a) return NULL;
@@ -110,6 +128,8 @@ LandformAtlas *LandformBuild(float seaLevel, LandformBaselineFn baseline, void *
         free(heap); free(order); LandformDestroy(a); return NULL;
     }
     a->seaLevel = seaLevel;
+    a->physics = input->physics;
+    a->strategyId = input->strategyId;
     a->bytes = sizeof(*a) + LANDFORM_CELL_COUNT * sizeof(*a->cells);
     uint32_t count = 0, lowest = 0;
     for (uint32_t i = 0; i < LANDFORM_CELL_COUNT; i++) {

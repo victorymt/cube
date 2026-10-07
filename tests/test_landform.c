@@ -1,5 +1,6 @@
 #include "world/landform_model.h"
 #include <assert.h>
+#include "landform_assert.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -102,7 +103,7 @@ static void TestTerraces(void)
     c->discharge = 60000;
     a->terraces = false;
     s = LandformSampleAt(a, p, 147);
-    assert(!memcmp(&s, &legacy, sizeof(s)));
+    AssertLandformEqual(s, legacy);
     LandformDestroy(a);
 }
 
@@ -171,9 +172,26 @@ int main(void)
     float sea = 80;
     clock_t start = clock();
     LandformAtlas *a = LandformBuild(sea, Baseline, &sea);
-    LandformAtlas *b = LandformBuild(sea, Baseline, &sea);
+    LandformBuildInput input = LandformLegacyBuildInput(sea, Baseline, &sea);
+    LandformAtlas *b = LandformBuildWithInput(&input);
     assert(a && b && a->rivers && a->lakes);
     assert(!memcmp(a->cells, b->cells, sizeof(*a->cells) * LANDFORM_CELL_COUNT));
+    assert(a->rivers == b->rivers && a->lakes == b->lakes && a->closedBasins == b->closedBasins);
+    for (int terraces = 0; terraces <= 1; terraces++) {
+        a->terraces = b->terraces = terraces;
+        for (uint32_t i = 0; i < LANDFORM_CELL_COUNT; i += 31) {
+            LandformSample old = LandformSampleAt(a, a->cells[i].direction, a->cells[i].elevation);
+            LandformSample next = LandformSampleAt(b, a->cells[i].direction, a->cells[i].elevation);
+            AssertLandformEqual(old, next);
+        }
+    }
+    a->terraces = b->terraces = false;
+    input.physics.liquidWater = false;
+    assert(!LandformBuildWithInput(&input));
+    input.physics.liquidWater = true;
+    input.physics.gravity = NAN;
+    assert(!LandformBuildWithInput(&input));
+    assert(!LandformBuildWithInput(NULL));
     double outlets = 0;
     for (uint32_t i=0;i<LANDFORM_CELL_COUNT;i++) {
         LandformCell *c=&a->cells[i];

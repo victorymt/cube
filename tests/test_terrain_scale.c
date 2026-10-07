@@ -9,6 +9,7 @@
 #include "ecology/flora_taxa.h"
 
 #include <assert.h>
+#include "landform_assert.h"
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
@@ -1574,6 +1575,41 @@ static void TestTerrainSectionExposureClassification(void)
     terrainSeed = DEFAULT_WORLD_SEED;
 }
 
+static uint64_t HashBytes(uint64_t h, const void *data, size_t size)
+{
+    const unsigned char *p = data;
+    for (size_t i = 0; i < size; i++) h = (h ^ p[i]) * UINT64_C(1099511628211);
+    return h;
+}
+
+static void TestLandformCompatibilityFingerprint(void)
+{
+    terrainSeed = DEFAULT_WORLD_SEED;
+    for (uint32_t version = 7; version <= 8; version++) {
+        assert(TerrainGenerationSetVersion(version));
+        assert(LandformRuntimePrepare(terrainSeed, version, true));
+        const LandformAtlas *a = LandformRuntimeAtlas();
+        assert(a);
+        uint64_t cells = HashBytes(UINT64_C(14695981039346656037), a->cells,
+                                  sizeof(*a->cells) * LANDFORM_CELL_COUNT);
+        uint64_t samples = UINT64_C(14695981039346656037);
+        for (int i = 0; i < 2049; i++) {
+            SurfaceTerrainSample s = SurfaceTerrainAt(i == 2048 ? 555 : i * 431 - 8192, i == 2048 ? 510 : i * 197 - 4096, TERRAIN_VARIED);
+            #define HASH(field) samples = HashBytes(samples, &s.landform.field, sizeof(s.landform.field))
+            HASH(elevation); HASH(waterLevel); HASH(area); HASH(slope); HASH(wetness);
+            HASH(gravel); HASH(sand); HASH(fines); HASH(sedimentDepth); HASH(channelDistance);
+            HASH(watershed); HASH(reach); HASH(kind); HASH(hasWater);
+#undef HASH
+            samples = HashBytes(samples, &s.elevation, sizeof(s.elevation));
+        }
+        // Captured from 4308ea8 before introducing LandformBuildInput.
+        assert(cells == UINT64_C(12584315156654051908));
+        assert(samples == (version == 7 ? UINT64_C(9312446125987466812)
+                                        : UINT64_C(7724933463497439235)));
+    }
+    LandformRuntimeReset();
+}
+
 static void TestVersion7Landforms(void)
 {
     terrainSeed = DEFAULT_WORLD_SEED;
@@ -1620,7 +1656,7 @@ static void TestVersion7Landforms(void)
     assert(LandformRuntimePrepare(991, 7, true));
     assert(LandformRuntimePrepare(terrainSeed, 7, true));
     SurfaceTerrainSample rebuilt = SurfaceTerrainAt(river.x, river.z, TERRAIN_VARIED);
-    assert(!memcmp(&expected.landform, &rebuilt.landform, sizeof(LandformSample)));
+    AssertLandformEqual(expected.landform, rebuilt.landform);
     assert(SurfaceTerrainAt(river.x, river.z, TERRAIN_FLAT).elevation == 8);
     assert(LandformRuntimePrepare(terrainSeed, 7, false));
     assert(!LandformRuntimeAtlas());
@@ -1654,7 +1690,7 @@ static void TestVersion8Terraces(void)
     assert(TerrainGenerationSetVersion(7));
     assert(LandformRuntimePrepare(terrainSeed, 7, true));
     SurfaceTerrainSample restored = SurfaceTerrainAt(555, 510, TERRAIN_VARIED);
-    assert(!memcmp(&restored.landform, &old.landform, sizeof(LandformSample)));
+    AssertLandformEqual(restored.landform, old.landform);
     LandformRuntimeReset();
 }
 
@@ -1701,6 +1737,7 @@ int main(void)
     TestTerrainStructureBaselines();
     TestPlanetChunkDeterministicBaselines();
     TestGeneratedChunkDirtyMeshRebuildFixture();
+    TestLandformCompatibilityFingerprint();
     TestVersion7Landforms();
     TestVersion8Terraces();
     puts("terrain scale tests passed");
