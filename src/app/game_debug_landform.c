@@ -40,6 +40,15 @@ static SurfaceTerrainSample SampleAt(SurfaceMapCell cell)
     return PlanetTerrainSampleAt(cell.x, cell.z);
 }
 
+static bool IsMouth(const LandformAtlas *atlas, const LandformSample *sample)
+{
+    if (!atlas || !sample->hasWater || sample->kind != LANDFORM_RIVER ||
+        sample->reach >= LANDFORM_CELL_COUNT) return false;
+    uint32_t downstream = atlas->cells[sample->reach].downstream;
+    return downstream < LANDFORM_CELL_COUNT &&
+        atlas->cells[downstream].elevation <= atlas->seaLevel;
+}
+
 static void ReplySample(GameRuntime *game, SurfaceMapCell cell)
 {
     SurfaceTerrainSample terrain = SampleAt(cell);
@@ -93,7 +102,9 @@ static void Find(GameRuntime *game, SurfaceMapCell observer)
             float distance = 2 * SURFACE_RADIUS_BLOCKS * asinf(fminf(1, Vector3Distance(origin, actual) * .5f));
             if (distance >= best || distance > control->landformRadius) continue;
             SurfaceTerrainSample terrain = SampleAt(cell);
-            if (strcmp(LandformKindName(terrain.landform.kind), control->landformType)) continue;
+            if (!strcmp(control->landformType, "mouth")) {
+                if (!IsMouth(atlas, &terrain.landform)) continue;
+            } else if (strcmp(LandformKindName(terrain.landform.kind), control->landformType)) continue;
             best = distance;
             control->landformFound = true;
             control->landformFoundX = cell.x;
@@ -178,9 +189,10 @@ bool GameDebugLandformResolve(GameRuntime *game, const char *name, DebugDslValue
         out->as.string = LandformKindName(s.kind);
         return true;
     }
-    if (!strcmp(field, "has_water")) {
+    if (!strcmp(field, "has_water") || !strcmp(field, "is_mouth")) {
         out->type = DEBUG_DSL_VALUE_BOOL;
-        out->as.boolean = s.hasWater;
+        out->as.boolean = !strcmp(field, "has_water") ? s.hasWater :
+            IsMouth(LandformRuntimeAtlas(), &s);
         return true;
     }
     out->type = DEBUG_DSL_VALUE_NUMBER;

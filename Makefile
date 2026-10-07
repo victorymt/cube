@@ -215,3 +215,10 @@ release-check:
 
 clean:
 	@sh scripts/clean-build.sh '$(BUILD_ROOT)'
+
+.PHONY: test-landform-quality test-landform-quality-e2e
+test-landform-quality: $(PLANET_LANDFORM_QUALITY_TEST_TARGET)
+	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $^
+
+test-landform-quality-e2e: $(TARGET)
+	bash tests/test_landform_quality_e2e.sh $(TARGET)

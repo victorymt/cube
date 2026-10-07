@@ -574,6 +574,8 @@ int main(void)
     assert(DebugControlParseText(&geology, "landform find river 16384") == DEBUG_CONTROL_COMMAND_LANDFORM_FIND);
     assert(geology.landformRadius == 16384 && !strcmp(geology.landformType, "river"));
     assert(DebugControlParseText(&geology, "landform find terrace 4096") == DEBUG_CONTROL_COMMAND_LANDFORM_FIND);
+    assert(DebugControlParseText(&geology, "landform find mouth 8192") == DEBUG_CONTROL_COMMAND_LANDFORM_FIND);
+    assert(!strcmp(geology.landformType, "mouth") && geology.landformRadius == 8192);
     const char *invalidLandform[] = { "landform find river 0", "landform find river -1",
         "landform find river 16385", "landform find river 1.5", "landform find river 4294967297",
         "landform find river 2 extra", "landform find nonsense 10", "landform inspect extra" };

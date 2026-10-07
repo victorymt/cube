@@ -257,3 +257,5 @@ $(eval $(call define_test,LANDFORM_TEST_TARGET,test_landform,src/world/landform_
 $(eval $(call define_test,LANDFORM_PHYSICS_TEST_TARGET,test_landform_physics,src/world/landform_physics.c,,,, -lm,,))
 
 $(eval $(call define_test,PLANET_LANDFORM_STRATEGY_TEST_TARGET,test_planet_landform_strategy,$(TERRAIN_FEATURE_SRC) src/world/chunks_storage.c src/world/surface_topology.c src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+
+$(eval $(call define_test,PLANET_LANDFORM_QUALITY_TEST_TARGET,test_planet_landform_quality,$(TERRAIN_FEATURE_SRC) src/world/chunks_storage.c src/world/surface_topology.c src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))

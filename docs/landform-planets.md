@@ -72,3 +72,10 @@ sediment blocks, cache eviction/reconstruction, parameter and body isolation,
 longitude aliases, and old-version/unsupported fallbacks.
 `bash tests/test_landform_planets_e2e.sh` runs the DSL replay under Hyprland in
 an isolated temporary save directory and checks save/load and body switching.
+
+## Quality gate
+
+The parameter matrix and visual replay are documented in
+[landform-quality.md](landform-quality.md). Numerical drainage and seam checks
+pass, but polar ground coverage remains a visual acceptance blocker. A passing
+DSL/capture run must not be interpreted as approval to enable Coriolis bias.

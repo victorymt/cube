@@ -57,7 +57,7 @@ without opening a window.
 
 Version 7 and later non-flat Homeworld terrain and supported temperate water
 planets support `landform inspect` and
-`landform find TYPE RADIUS` (radius 1–16384 surface blocks). Types are `upland`,
+`landform find TYPE RADIUS` (radius 1–16384 surface blocks). Types are `mouth`, `upland`,
 `river`, `dry_channel`, `lake`, `wetland`, `floodplain`, `fan`, and `terrace`.
 Terraces occur only in version 8 and later worlds. Their search also samples
 both valley shoulders at five channel widths. They represent static abandoned
@@ -71,6 +71,9 @@ Coriolis parameter and diagnostic deflection in blocks.
 the requested spherical distance; it returns the closest matching candidate,
 not an exhaustive search of every voxel. No match is a successful query with
 `landform.found == false`. Neither command changes the world or moves the player.
+`mouth` selects a wet river sample whose low-resolution downstream cell is at
+or below the strategy sea level; `landform.is_mouth` exposes that predicate.
+It identifies the last river reach, not necessarily the exact coastline voxel.
 
 DSL fields: `landform.available`, `landform.found`, `landform.position` (last
 found safe viewing position in local coordinates), `landform.kind`,
@@ -85,6 +88,14 @@ liquid water=2, sediment=4). Physics fields are `landform.latitude` (radians),
 resolvable deflection is diagnostic only. Unsupported dry, lava, ice and gas
 worlds report `landform.available == false`. Run
 `bash tests/test_landform_planets_e2e.sh` for the planetary save/load replay.
+`make test-landform-quality` checks a fixed physical-profile matrix and numeric
+seams. `make test-landform-quality-e2e` captures river mouths/lakes for three
+seeds, the date line, a cube-face edge, both poles, and dry-planet pole controls.
+The replay warms normal streaming for 180 input frames and explicitly waits
+for `player.input_frames == 0` before restoring each camera. It retains twelve
+screenshots, capture reports, trace and a Markdown review index in `/tmp`.
+Successful DSL/capture checks do not imply visual acceptance; see
+[the current quality review](landform-quality.md).
 Check availability and found before using the position;
 repeat the query after changing worlds. These describe generated terrain,
 not subsequent player edits or simulated fluid levels.

@@ -303,6 +303,7 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
             DebugControlGeologyTicks(radiusText, 16384, &radius) &&
             (!strcmp(control->landformType, "upland") ||
              !strcmp(control->landformType, "river") ||
+             !strcmp(control->landformType, "mouth") ||
              !strcmp(control->landformType, "dry_channel") ||
              !strcmp(control->landformType, "lake") ||
              !strcmp(control->landformType, "wetland") ||
