@@ -47,8 +47,20 @@ void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed)
     snapshot.context.active = snapshot.context.kind != WORLD_SURFACE_NONE;
     snapshot.context.originX = 0;
     snapshot.context.originZ = 0;
-    if (!LandformRuntimePrepare(homeWorldSeed, TerrainGenerationVersion(),
-            snapshot.context.kind == WORLD_SURFACE_HOME && WorldTerrainMode() != TERRAIN_FLAT)) {
+    PlanetLandformStrategy strategy = PlanetLandformStrategyForSurface(
+        snapshot.context.kind, snapshot.context.seed,
+        snapshot.context.kind == WORLD_SURFACE_PLANET
+            ? &snapshot.planetProfile : NULL);
+    bool landformEnabled = snapshot.context.kind != WORLD_SURFACE_NONE &&
+        (snapshot.context.kind != WORLD_SURFACE_HOME || WorldTerrainMode() != TERRAIN_FLAT) &&
+        (strategy.capabilities & LANDFORM_HAS_DRAINAGE) != 0;
+    if (!LandformRuntimePrepareSurface(&(LandformRuntimeInput){
+            .surfaceKind = snapshot.context.kind,
+            .bodyId = snapshot.context.bodyId,
+            .seed = snapshot.context.seed,
+            .terrainVersion = TerrainGenerationVersion(),
+            .enabled = landformEnabled,
+            .strategy = strategy })) {
         TraceLog(LOG_ERROR, "Unable to allocate immutable landform atlas");
         abort();
     }

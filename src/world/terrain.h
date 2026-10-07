@@ -96,6 +96,8 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
                                    int x, int z, PlanetSurfaceSample *sample);
 int PlanetSeaLevelForProfile(SolarBodyStyle style, const PlanetProfile *profile);
 int PlanetTerrainHeight(int x, int z);
+// Persistent baseline plus optional immutable landforms; never live weather.
+SurfaceTerrainSample PlanetTerrainSampleAt(int x, int z);
 int PlanetTerrainSeaLevel(void);
 BathymetrySample PlanetBathymetryAt(int x, int z);
 const char *BathymetryZoneName(BathymetryZone zone);

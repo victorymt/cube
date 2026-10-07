@@ -69,9 +69,11 @@ uint64_t LandformFingerprintValue(uint64_t hash, double value)
 {
     uint64_t bits = 0;
     if (isfinite(value) && value != 0) memcpy(&bits, &value, sizeof(bits));
+    // Serialize the integer representation explicitly so the hash does not
+    // depend on the host CPU's byte order.
     for (unsigned i = 0; i < 8; i++) {
-        hash = (hash ^ (bits & 255)) * UINT64_C(1099511628211);
-        bits >>= 8;
+        hash = (hash ^ ((bits >> (i * 8)) & 255u)) *
+               UINT64_C(1099511628211);
     }
     return hash;
 }

@@ -7,6 +7,7 @@
 #include "world/ecology_hooks.h"
 #include "world/world_surface_snapshot.h"
 #include "ecology/flora_taxa.h"
+#include "raymath.h"
 
 #include <assert.h>
 #include "landform_assert.h"
@@ -1610,6 +1611,210 @@ static void TestLandformCompatibilityFingerprint(void)
     LandformRuntimeReset();
 }
 
+static void TestLandformRuntimeSurfaceIsolation(void)
+{
+    terrainSeed = DEFAULT_WORLD_SEED;
+    assert(TerrainGenerationSetVersion(8));
+    ActivateTestPlanet(1234u, SOLAR_STYLE_TEMPERATE);
+    PlanetLandformStrategy waterStrategy = PlanetLandformStrategyForSurface(
+        WORLD_SURFACE_PLANET, 1234u,
+        &WorldCurrentSurfaceSnapshot()->planetProfile);
+    assert(waterStrategy.id == LANDFORM_STRATEGY_WATER_WORLD);
+    assert(LandformRuntimePrepareSurface(&(LandformRuntimeInput){
+        .surfaceKind = WORLD_SURFACE_PLANET, .bodyId = 0x91u,
+        .seed = 1234u, .terrainVersion = 8, .enabled = true,
+        .strategy = waterStrategy
+    }));
+    const LandformAtlas *water = LandformRuntimeAtlas();
+    assert(water && water->strategyId == LANDFORM_STRATEGY_WATER_WORLD);
+    assert(LandformRuntimeCapabilities() & LANDFORM_HAS_DRAINAGE);
+    SurfaceTerrainSample planetSample = SurfaceTerrainAt(32, -41, TERRAIN_VARIED);
+    assert(isfinite(planetSample.landform.elevation));
+
+    ActivateTestPlanet(4321u, SOLAR_STYLE_DESERT);
+    PlanetLandformStrategy desertStrategy = PlanetLandformStrategyForSurface(
+        WORLD_SURFACE_PLANET, 4321u,
+        &WorldCurrentSurfaceSnapshot()->planetProfile);
+    assert(desertStrategy.id == LANDFORM_STRATEGY_NONE);
+    assert(LandformRuntimePrepareSurface(&(LandformRuntimeInput){
+        .surfaceKind = WORLD_SURFACE_PLANET, .bodyId = 0x92u,
+        .seed = 4321u, .terrainVersion = 8, .enabled = false,
+        .strategy = desertStrategy
+    }));
+    assert(!LandformRuntimeAtlas());
+    assert(LandformRuntimeCapabilities() == LANDFORM_CAPABILITY_NONE);
+
+    ActivateTestPlanet(1234u, SOLAR_STYLE_TEMPERATE);
+    waterStrategy = PlanetLandformStrategyForSurface(
+        WORLD_SURFACE_PLANET, 1234u,
+        &WorldCurrentSurfaceSnapshot()->planetProfile);
+    assert(LandformRuntimePrepareSurface(&(LandformRuntimeInput){
+        .surfaceKind = WORLD_SURFACE_PLANET, .bodyId = 0x91u,
+        .seed = 1234u, .terrainVersion = 8, .enabled = true,
+        .strategy = waterStrategy
+    }));
+    assert(LandformRuntimeAtlas() == water);
+
+    DeactivateTestPlanet();
+    PlanetLandformStrategy homeStrategy = PlanetLandformStrategyForSurface(
+        WORLD_SURFACE_HOME, terrainSeed, NULL);
+    assert(LandformRuntimePrepareSurface(&(LandformRuntimeInput){
+        .surfaceKind = WORLD_SURFACE_HOME, .bodyId = 0,
+        .seed = terrainSeed, .terrainVersion = 8, .enabled = true,
+        .strategy = homeStrategy
+    }));
+    assert(LandformRuntimeAtlas() &&
+           LandformRuntimeAtlas()->strategyId == LANDFORM_STRATEGY_HOMEWORLD);
+    LandformRuntimeReset();
+}
+
+static LandformRuntimeInput CurrentPlanetLandformInput(void)
+{
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    return (LandformRuntimeInput){
+        .surfaceKind = snapshot->context.kind, .bodyId = snapshot->context.bodyId,
+        .seed = snapshot->context.seed, .terrainVersion = TerrainGenerationVersion(),
+        .enabled = true, .strategy = PlanetLandformStrategyForSurface(
+            snapshot->context.kind, snapshot->context.seed, &snapshot->planetProfile)
+    };
+}
+
+static void TestPlanetLandformGeneration(void)
+{
+    assert(TerrainGenerationSetVersion(8));
+    ActivateTestPlanet(1234u, SOLAR_STYLE_TEMPERATE);
+    WorldSurfaceSnapshot original = *WorldCurrentSurfaceSnapshot();
+    LandformRuntimeInput input = CurrentPlanetLandformInput();
+    assert(LandformRuntimePrepareSurface(&input));
+    const LandformAtlas *atlas = LandformRuntimeAtlas();
+    assert(atlas);
+    SurfaceMapCell sites[3] = {0};
+    bool found[3] = {0};
+    // This fixed planet supplies rivers, lakes and dry deposits; Homeworld
+    // has a separate locked v8 terrace fixture.
+    const LandformKind kinds[] = { LANDFORM_RIVER, LANDFORM_LAKE };
+    for (uint32_t i = 0; i < LANDFORM_CELL_COUNT && !(found[0] && found[1] && found[2]); i++) {
+        const LandformCell *c = &atlas->cells[i];
+        const LandformCell *d = c->downstream == LANDFORM_NONE ? c : &atlas->cells[c->downstream];
+        Vector3 side = Vector3Normalize(Vector3CrossProduct(c->direction, d->direction));
+        for (int candidate = 0; candidate < 15; candidate++) {
+            float bank = candidate / 3 == 0 ? 0 : candidate / 3 == 1 ? 2 :
+                candidate / 3 == 2 ? -2 : candidate / 3 == 3 ? 5 : -5;
+            Vector3 direction = Vector3Normalize(Vector3Add(
+                Vector3Lerp(c->direction, d->direction, (candidate % 3) * .5f),
+                Vector3Scale(side, bank * c->width / SURFACE_RADIUS_BLOCKS)));
+            SurfaceMapCell cell;
+            if (!SurfaceAddressCanonicalMapCell(SurfaceAddressFromDirection(
+                0, direction, 0), &cell)) continue;
+            SurfaceTerrainSample sample = PlanetTerrainSampleAt(cell.x, cell.z);
+            for (int k = 0; k < 3; k++) {
+                if (!found[k] && (k == 2 ? (!sample.landform.hasWater && sample.landform.sedimentDepth > 0) : sample.landform.kind == kinds[k]) &&
+                    sample.elevation > sample.seaLevel + 1) {
+                    found[k] = true;
+                    sites[k] = cell;
+                }
+            }
+        }
+    }
+    fprintf(stderr, "planet landform fixtures: river=%d lake=%d dry_deposit=%d\n", found[0], found[1], found[2]);
+    assert(found[0] && found[1] && found[2]);
+    for (int k = 0; k < 3; k++) {
+        SurfaceMapCell cell = sites[k];
+        SurfaceTerrainSample expected = PlanetTerrainSampleAt(cell.x, cell.z);
+        int height = (int)lroundf(expected.elevation);
+        assert(height == PlanetTerrainHeight(cell.x, cell.z));
+        assert(height == TerrainHeight(cell.x, cell.z, TERRAIN_VARIED));
+        AssertLandformEqual(expected.landform, SurfaceTerrainAt(cell.x, cell.z, TERRAIN_VARIED).landform);
+        AssertLandformEqual(expected.landform,
+            PlanetTerrainSampleAt(cell.x + SURFACE_EQUATOR_BLOCKS, cell.z).landform);
+        LandformPhysicsDiagnostic physics, repeat;
+        assert(LandformRuntimePhysicsDiagnosticAt(cell.x, cell.z, &physics));
+        assert(isfinite(physics.deflectionBlocks));
+        int cx, cz, lx, lz;
+        WorldToChunkLocal(cell.x, cell.z, &cx, &cz, &lx, &lz);
+        Chunk chunk = {0};
+        GenerateChunkTerrain(&chunk, cx, cz, TERRAIN_VARIED);
+        for (int sectionY = 0; sectionY < SURFACE_WORLD_HEIGHT / SURFACE_SECTION_HEIGHT; sectionY++)
+            assert(ChunkTerrainSectionIsResolved(&chunk, sectionY));
+        BlockType bed = ChunkGetLocalBlock(&chunk, lx, height, lz);
+        assert(bed == BLOCK_GRAVEL || bed == BLOCK_SAND || bed == BLOCK_MUD || bed == BLOCK_SILT);
+        assert(bed == TerrainBaseBlockAt(cell.x, height, cell.z, TERRAIN_VARIED));
+        if (expected.landform.hasWater) {
+            int water = (int)floorf(expected.landform.waterLevel);
+            assert(water > height);
+            assert(ChunkGetLocalBlock(&chunk, lx, water, lz) == BLOCK_WATER);
+            assert(TerrainBaseBlockAt(cell.x, water, cell.z, TERRAIN_VARIED) == BLOCK_WATER);
+        }
+        uint64_t hash = TerrainChunkHash(&chunk);
+        ChunkClearBlockStorage(&chunk);
+        // More bodies than cache slots, with generation in a different order.
+        for (unsigned other = 0; other < 5; other++) {
+            ActivateTestPlanet(8000u + other, SOLAR_STYLE_TEMPERATE);
+            LandformRuntimeInput next = CurrentPlanetLandformInput();
+            assert(LandformRuntimePrepareSurface(&next));
+            assert(LandformRuntimeAtlas());
+        }
+        WorldInstallSurfaceSnapshot(&original);
+        assert(!LandformRuntimeAtlas());
+        assert(LandformRuntimePrepareSurface(&input));
+        AssertLandformEqual(expected.landform, PlanetTerrainSampleAt(cell.x, cell.z).landform);
+        assert(LandformRuntimePhysicsDiagnosticAt(cell.x, cell.z, &repeat));
+        assert(physics.deflectionBlocks == repeat.deflectionBlocks);
+        assert(physics.angularVelocity == repeat.angularVelocity);
+        GenerateChunkTerrain(&chunk, cx, cz, TERRAIN_VARIED);
+        assert(hash == TerrainChunkHash(&chunk));
+        ChunkClearBlockStorage(&chunk);
+    }
+    // Every key dimension can change independently of seed.
+    const LandformAtlas *base = LandformRuntimeAtlas();
+    LandformRuntimeInput changed = input;
+    changed.strategy.seaLevel += 3;
+    assert(LandformRuntimePrepareSurface(&changed));
+    assert(LandformRuntimeAtlas() != base);
+    assert(LandformRuntimeAtlas()->seaLevel == changed.strategy.seaLevel);
+    assert(PlanetTerrainSeaLevel() == (int)changed.strategy.seaLevel);
+    assert(LandformRuntimePrepareSurface(&input));
+    assert(LandformRuntimeAtlas() == base);
+    WorldSurfaceSnapshot changedSurface = original;
+    changedSurface.context.bodyId++;
+    WorldInstallSurfaceSnapshot(&changedSurface);
+    assert(!LandformRuntimeAtlas());
+    changed = CurrentPlanetLandformInput();
+    assert(LandformRuntimePrepareSurface(&changed));
+    assert(LandformRuntimeAtlas() && LandformRuntimeAtlas() != base);
+    changedSurface.planetProfile.rotationRate = 0;
+    WorldInstallSurfaceSnapshot(&changedSurface);
+    assert(!LandformRuntimeAtlas());
+    changed = CurrentPlanetLandformInput();
+    assert(LandformRuntimePrepareSurface(&changed));
+    LandformPhysicsDiagnostic zero;
+    assert(LandformRuntimePhysicsDiagnosticAt(sites[0].x, sites[0].z, &zero));
+    assert(zero.angularVelocity == 0 && zero.deflectionBlocks == 0);
+    assert(TerrainGenerationSetVersion(7));
+    assert(!LandformRuntimeAtlas());
+    changed = CurrentPlanetLandformInput();
+    assert(LandformRuntimePrepareSurface(&changed));
+    assert(!LandformRuntimeAtlas()->terraces);
+    assert(TerrainGenerationSetVersion(6));
+    changed = CurrentPlanetLandformInput();
+    assert(LandformRuntimePrepareSurface(&changed));
+    assert(!LandformRuntimeAtlas());
+    assert(PlanetTerrainHeight(32, 41) == TerrainPlanetBaselineElevation(
+        changed.seed, &changed.strategy.profile, 32, 41, NULL));
+    assert(TerrainGenerationSetVersion(8));
+    const SolarBodyStyle unsupported[] = {SOLAR_STYLE_DESERT, SOLAR_STYLE_LAVA, SOLAR_STYLE_ICE, SOLAR_STYLE_GAS};
+    for (unsigned i = 0; i < sizeof(unsupported)/sizeof(*unsupported); i++) {
+        ActivateTestPlanet(1234u, unsupported[i]);
+        changed = CurrentPlanetLandformInput();
+        assert(LandformRuntimePrepareSurface(&changed));
+        assert(!LandformRuntimeAtlas() && !LandformRuntimeCapabilities());
+        assert(PlanetTerrainHeight(32, 41) == TerrainPlanetBaselineElevation(
+            changed.seed, &changed.strategy.profile, 32, 41, NULL));
+    }
+    LandformRuntimeReset();
+    DeactivateTestPlanet();
+}
+
 static void TestVersion7Landforms(void)
 {
     terrainSeed = DEFAULT_WORLD_SEED;
@@ -1738,6 +1943,8 @@ int main(void)
     TestPlanetChunkDeterministicBaselines();
     TestGeneratedChunkDirtyMeshRebuildFixture();
     TestLandformCompatibilityFingerprint();
+    TestLandformRuntimeSurfaceIsolation();
+    TestPlanetLandformGeneration();
     TestVersion7Landforms();
     TestVersion8Terraces();
     puts("terrain scale tests passed");

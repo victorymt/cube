@@ -55,7 +55,8 @@ without opening a window.
 
 ### Landform diagnostics
 
-Version 7 and later non-flat Homeworld terrain supports `landform inspect` and
+Version 7 and later non-flat Homeworld terrain and supported temperate water
+planets support `landform inspect` and
 `landform find TYPE RADIUS` (radius 1–16384 surface blocks). Types are `upland`,
 `river`, `dry_channel`, `lake`, `wetland`, `floodplain`, `fan`, and `terrace`.
 Terraces occur only in version 8 and later worlds. Their search also samples
@@ -63,7 +64,9 @@ both valley shoulders at five channel widths. They represent static abandoned
 valley floors, not live river migration. `tests/scenes/landform_terrace.dsl`
 checks discovery, dry sediment, save/load and captures the default seed.
 Inspection prints elevation, water level, watershed/reach IDs, catchment area,
-slope, wetness, sediment thickness, material fractions and generation version.
+slope, wetness, sediment thickness, material fractions, generation version,
+strategy, surface type, body ID, capability bits, latitude, angular velocity,
+Coriolis parameter and diagnostic deflection in blocks.
 `find` samples a fixed set of atlas vertices, reach centers and banks within
 the requested spherical distance; it returns the closest matching candidate,
 not an exhaustive search of every voxel. No match is a successful query with
@@ -73,7 +76,16 @@ DSL fields: `landform.available`, `landform.found`, `landform.position` (last
 found safe viewing position in local coordinates), `landform.kind`,
 `landform.has_water`, `landform.elevation`, `landform.water_level`,
 `landform.area`, `landform.slope`, `landform.wetness`, `landform.sediment`,
-and `landform.version`. Check availability and found before using the position;
+and `landform.version`. Surface identity fields are `landform.strategy`,
+`landform.surface`, `landform.body`, and `landform.capabilities` (drainage=1,
+liquid water=2, sediment=4). Physics fields are `landform.latitude` (radians),
+`landform.angular_velocity` (radians/second), `landform.coriolis` (1/second),
+`landform.deflection_blocks`, `landform.resolvable_deflection`, and
+`landform.coriolis_enabled`. The latter is always false in current versions:
+resolvable deflection is diagnostic only. Unsupported dry, lava, ice and gas
+worlds report `landform.available == false`. Run
+`bash tests/test_landform_planets_e2e.sh` for the planetary save/load replay.
+Check availability and found before using the position;
 repeat the query after changing worlds. These describe generated terrain,
 not subsequent player edits or simulated fluid levels.
 

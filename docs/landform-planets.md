@@ -43,3 +43,32 @@ those captured from the pre-contract model (commit 4308ea8), including a known
 v8 terrace. Its existing tests also cover voxel water, sediment, atlas eviction
 and reconstruction. Sample equality deliberately excludes unspecified C
 padding bytes.
+
+## Surface runtime and generated blocks
+
+`LandformRuntimePrepareSurface` receives the complete surface identity and its
+selected strategy. Its four-slot cache includes kind, body, seed, terrain
+version, profile, physics and the full strategy fingerprint (including sea
+level and capabilities). Preparation/reset require drained chunk workers;
+queries never build an atlas or consume RNG. Unsupported surfaces return no
+atlas. Snapshot/profile and generation-version checks reject stale selections.
+
+`PlanetTerrainSampleAt` combines the planet's persistent baseline with its
+optional atlas. Planet height queries, chunk columns and debug inspection use
+this path. River/lake water is filled to the sampled level, deposits seal beds
+before cave carving, and decorations do not replace river/lake water. Without
+an atlas the previous planetary height, biome and liquid rules remain active.
+Homeworld v7/v8 continue to use the original sampling and material path.
+
+Coriolis remains diagnostic-only in every currently supported terrain version;
+`landform.coriolis_enabled` is false even when `resolvable_deflection` is true.
+A future version must explicitly opt into a separately validated geometry rule;
+the one-block threshold alone never changes existing terrain. SI discharge in
+runtime diagnostics is an estimate using normalized runoff times 1e-5 m/s,
+not a calibrated climate transport simulation.
+
+`test_terrain_scale` checks actual planetary river/lake water and dry
+sediment blocks, cache eviction/reconstruction, parameter and body isolation,
+longitude aliases, and old-version/unsupported fallbacks.
+`bash tests/test_landform_planets_e2e.sh` runs the DSL replay under Hyprland in
+an isolated temporary save directory and checks save/load and body switching.

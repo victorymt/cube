@@ -423,6 +423,8 @@ float TerrainHomeBaselineElevation(uint32_t seed, int x, int z,
 
 SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
 {
+    if (WorldCurrentSurfaceSnapshot()->context.kind == WORLD_SURFACE_PLANET)
+        return PlanetTerrainSampleAt(x, z);
     if (WorldIsSurfaceActive()) {
         SurfaceMapCell canonical = SurfaceCanonicalMapCell((float)x, (float)z);
         x = canonical.x;
@@ -494,6 +496,8 @@ int TerrainSeaLevel(TerrainMode mode)
 
 int TerrainHeight(int x, int z, TerrainMode mode)
 {
+    if (WorldCurrentSurfaceSnapshot()->context.kind == WORLD_SURFACE_PLANET)
+        return PlanetTerrainHeight(x, z);
     if (mode == TERRAIN_FLAT) return 8;
     SurfaceTerrainSample sample = { 0 };
     sample.elevation = TerrainHomeBaselineElevation(WorldGetSeed(), x, z, &sample);
@@ -961,28 +965,6 @@ void HomeSurfaceLatLonAt(int x, int z, float *outLongitude, float *outLatitude)
                                  outLongitude, outLatitude);
 }
 
-PlanetSurfaceSample PlanetSurfaceBaselineAt(int x, int z)
-{
-    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
-    float longitude = 0.0f;
-    float latitude = 0.0f;
-    PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
-    return PlanetSampleGlobalSurfaceBaseline(
-        snapshot->context.seed, &snapshot->planetProfile,
-        longitude, latitude);
-}
-
-PlanetSurfaceSample PlanetSurfaceAtTime(int x, int z, double simulationTime)
-{
-    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
-    float longitude = 0.0f;
-    float latitude = 0.0f;
-    PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
-    return PlanetSampleGlobalSurfaceAtTime(
-        snapshot->context.seed, &snapshot->planetProfile,
-        longitude, latitude, simulationTime);
-}
-
 static PlanetSurfaceSample PlanetSampleLocalSurface(int x, int z, float *outX, float *outZ)
 {
     float mapX = 0.0f;
@@ -1008,25 +990,6 @@ static float PlanetBaselineNoise(uint32_t seed, float mapX, float mapZ,
 static float PlanetLocalSurfaceNoise(float mapX, float mapZ, float frequency, unsigned int lane)
 {
     return PlanetBaselineNoise(WorldCurrentSurfaceSnapshot()->context.seed, mapX, mapZ, frequency, lane);
-}
-
-int PlanetSeaLevelForProfile(SolarBodyStyle style,
-                                    const PlanetProfile *profile)
-{
-    if (profile->oceanCoverage <= 0.05f) return -1;
-    if (style == SOLAR_STYLE_LAVA || style == SOLAR_STYLE_ICE ||
-        style == SOLAR_STYLE_TEMPERATE) return 80;
-    return -1;
-}
-
-int PlanetTerrainSeaLevel(void)
-{
-    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
-    if (snapshot->context.kind != WORLD_SURFACE_PLANET) {
-        return TerrainSeaLevel(WorldTerrainMode());
-    }
-    return PlanetSeaLevelForProfile(
-        snapshot->planetProfile.style, &snapshot->planetProfile);
 }
 
 PlanetBiome PlanetBiomeAt(int x, int z)
@@ -1209,22 +1172,9 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
     return (int)height;
 }
 
-int PlanetTerrainHeight(int x, int z)
+static BathymetrySample PlanetBathymetryForHeight(int x, int z, int height)
 {
-    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
-    if (snapshot->context.kind != WORLD_SURFACE_PLANET)
-        return TerrainHeight(x, z, WorldTerrainMode());
-    return TerrainPlanetBaselineElevation(snapshot->context.seed, &snapshot->planetProfile, x, z, NULL);
-}
-
-BathymetrySample PlanetBathymetryAt(int x, int z)
-{
-    if (WorldCurrentSurfaceSnapshot()->context.kind != WORLD_SURFACE_PLANET) {
-        return TerrainBathymetryAt(x, z, WorldTerrainMode());
-    }
-
     int seaLevel = PlanetTerrainSeaLevel();
-    int height = PlanetTerrainHeight(x, z);
     if (seaLevel < 0 || height >= seaLevel) {
         return (BathymetrySample){
             .seaLevel = seaLevel,
@@ -1244,6 +1194,13 @@ BathymetrySample PlanetBathymetryAt(int x, int z)
     BathymetrySample sample = BathymetryForHeight(
         seaLevel, height, surface.trench, seamount);
     return sample;
+}
+
+BathymetrySample PlanetBathymetryAt(int x, int z)
+{
+    if (WorldCurrentSurfaceSnapshot()->context.kind != WORLD_SURFACE_PLANET)
+        return TerrainBathymetryAt(x, z, WorldTerrainMode());
+    return PlanetBathymetryForHeight(x, z, PlanetTerrainHeight(x, z));
 }
 
 static bool SurfaceLandingCandidate(int x, int z, int footprintRadius,
@@ -1437,6 +1394,7 @@ typedef struct PlanetTerrainColumn {
     int height;
     BathymetrySample bathymetry;
     PlanetSurfaceSample surface;
+    LandformSample landform;
 } PlanetTerrainColumn;
 
 typedef struct PlanetTerrainDecorationDecision {
@@ -1449,7 +1407,9 @@ static PlanetTerrainColumn PlanetTerrainColumnSample(
 {
     int worldX = startX + lx;
     int worldZ = startZ + lz;
-    BathymetrySample bathymetry = PlanetBathymetryAt(worldX, worldZ);
+    SurfaceTerrainSample terrain = PlanetTerrainSampleAt(worldX, worldZ);
+    BathymetrySample bathymetry = PlanetBathymetryForHeight(
+        worldX, worldZ, (int)lroundf(terrain.elevation));
     return (PlanetTerrainColumn){
         .lx = lx,
         .lz = lz,
@@ -1457,6 +1417,7 @@ static PlanetTerrainColumn PlanetTerrainColumnSample(
         .worldZ = worldZ,
         .height = bathymetry.seabedY,
         .bathymetry = bathymetry,
+        .landform = terrain.landform,
         .surface = PlanetSampleLocalSurface(worldX, worldZ, NULL, NULL)
     };
 }
@@ -1465,6 +1426,16 @@ static BlockType PlanetTerrainColumnBlock(
     const PlanetChunkTerrainContext *context,
     const PlanetTerrainColumn *column, int y)
 {
+    const LandformSample *landform = &column->landform;
+    // Seal beds before cave carving, using this planet's material hash.
+    if (y > 0 && landform->kind != LANDFORM_UPLAND && landform->sedimentDepth > 0 &&
+        y <= column->height &&
+        y >= column->height - (int)ceilf(landform->sedimentDepth)) {
+        float choice = (float)(PlanetHash2D(column->worldX, column->worldZ, 1741u) & 65535u) / 65536.0f;
+        if (choice < landform->gravel) return BLOCK_GRAVEL;
+        if (choice < landform->gravel + landform->sand) return BLOCK_SAND;
+        return landform->hasWater ? BLOCK_MUD : BLOCK_SILT;
+    }
     unsigned int hash = PlanetHash2D(
         FloorDivInt(column->worldX, 3) + FloorDivInt(y, 2) * 19,
         FloorDivInt(column->worldZ, 3) - FloorDivInt(y, 2) * 23, 1u);
@@ -1507,31 +1478,41 @@ static void GeneratePlanetTerrainColumnBase(
     }
 }
 
+static BlockType PlanetTerrainColumnLiquidBlock(
+    const PlanetChunkTerrainContext *context,
+    const PlanetTerrainColumn *column, int y)
+{
+    PlanetBiome biome = column->surface.biome;
+    if (y == column->height && !column->landform.hasWater &&
+        column->height > 1 && PlanetWetlandBiome(biome) &&
+        PlanetHash2D(column->worldX, column->worldZ, 557u) % 11u == 0u) {
+        return biome == PLANET_BIOME_MAGMA_MIRE ? BLOCK_LAVA :
+            (biome == PLANET_BIOME_FROZEN_MIRE ? BLOCK_ICE : BLOCK_WATER);
+    }
+    if (y <= column->height) return BLOCK_AIR;
+    if (context->seaLevel >= 0 && y <= context->seaLevel) {
+        if (column->surface.iceCoverage > 0.64f ||
+            (context->style == SOLAR_STYLE_ICE && y == context->seaLevel))
+            return BLOCK_ICE;
+        return context->style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER;
+    }
+    if (column->landform.hasWater && y <= (int)floorf(column->landform.waterLevel))
+        return BLOCK_WATER;
+    return BLOCK_AIR;
+}
+
 static void GeneratePlanetTerrainColumnLiquids(
     Chunk *chunk, const PlanetChunkTerrainContext *context,
     const PlanetTerrainColumn *column)
 {
-    PlanetBiome biome = column->surface.biome;
-    if (column->height > 1 && PlanetWetlandBiome(biome) &&
-        PlanetHash2D(column->worldX, column->worldZ, 557u) % 11u == 0u) {
-        BlockType liquid = biome == PLANET_BIOME_MAGMA_MIRE
-            ? BLOCK_LAVA
-            : (biome == PLANET_BIOME_FROZEN_MIRE ? BLOCK_ICE : BLOCK_WATER);
-        ChunkSetLocalBlock(
-            chunk, column->lx, column->height, column->lz, liquid);
-    }
-
-    if (context->seaLevel < 0 || column->height >= context->seaLevel) return;
-    BlockType liquid = context->style == SOLAR_STYLE_LAVA
-        ? BLOCK_LAVA : BLOCK_WATER;
-    if (column->surface.iceCoverage > 0.64f) liquid = BLOCK_ICE;
-    for (int y = column->height + 1;
-         y <= context->seaLevel && InHeight(y); y++) {
-        ChunkSetLocalBlock(chunk, column->lx, y, column->lz, liquid);
-    }
-    if (context->style == SOLAR_STYLE_ICE && InHeight(context->seaLevel)) {
-        ChunkSetLocalBlock(
-            chunk, column->lx, context->seaLevel, column->lz, BLOCK_ICE);
+    int top = context->seaLevel;
+    if (column->landform.hasWater)
+        top = (int)fmaxf(top, floorf(column->landform.waterLevel));
+    if (top < column->height) top = column->height;
+    for (int y = column->height; y <= top && InHeight(y); y++) {
+        BlockType liquid = PlanetTerrainColumnLiquidBlock(context, column, y);
+        if (liquid != BLOCK_AIR)
+            ChunkSetLocalBlock(chunk, column->lx, y, column->lz, liquid);
     }
 }
 
@@ -1623,6 +1604,7 @@ static void DecoratePlanetTerrainColumn(
     Chunk *chunk, const PlanetChunkTerrainContext *context,
     const PlanetTerrainColumn *column)
 {
+    if (column->landform.hasWater) return;
     if (!InHeight(column->height + 1)) return;
     unsigned int decor = PlanetHash2D(column->worldX, column->worldZ, 7u);
     PlanetTerrainDecorationDecision decision = { 0 };
@@ -1650,7 +1632,7 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
         .style = style,
         .subsurface = PlanetSubsurfaceParamsFor(
             style, profile, snapshot->context.seed),
-        .seaLevel = PlanetSeaLevelForProfile(style, profile)
+        .seaLevel = PlanetTerrainSeaLevel()
     };
 
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -1665,6 +1647,10 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
 
     WorldEcologyDecorateChunk(chunk, cx, cz);
     if (planetChunkDecorator) planetChunkDecorator(chunk, cx, cz);
+    // Planet generation evaluates the full bounded column, including air.
+    // Record empty sections too so stream waits do not request nonexistent work.
+    for (int sectionY = 0; sectionY < SURFACE_WORLD_HEIGHT / SURFACE_SECTION_HEIGHT; sectionY++)
+        ChunkMarkTerrainSectionResolved(chunk, sectionY);
 }
 
 BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
@@ -1672,6 +1658,20 @@ BlockType TerrainBaseBlockAt(int x, int y, int z, TerrainMode mode)
     if (!InHeight(y) || y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE ||
         (mode == TERRAIN_FLAT && y < SURFACE_GENERATION_MIN_Y)) {
         return BLOCK_AIR;
+    }
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    if (snapshot->context.kind == WORLD_SURFACE_PLANET) {
+        if (y < 0) return BLOCK_AIR;
+        PlanetTerrainColumn column = PlanetTerrainColumnSample(x, z, 0, 0);
+        PlanetChunkTerrainContext context = {
+            .style = snapshot->planetProfile.style,
+            .subsurface = PlanetSubsurfaceParamsFor(snapshot->planetProfile.style,
+                &snapshot->planetProfile, snapshot->context.seed),
+            .seaLevel = PlanetTerrainSeaLevel()
+        };
+        BlockType liquid = PlanetTerrainColumnLiquidBlock(&context, &column, y);
+        if (liquid != BLOCK_AIR) return liquid;
+        return y <= column.height ? PlanetTerrainColumnBlock(&context, &column, y) : BLOCK_AIR;
     }
     SurfaceTerrainSample surface = SurfaceTerrainAt(x, z, mode);
     return TerrainHomeBaseBlockFromSample(
