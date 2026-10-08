@@ -19,7 +19,7 @@ SPACE_FEATURE_SRC := \
 	src/space/planet_world.c \
 	src/space/planet_lighting.c
 
-WORLD_SURFACE_SNAPSHOT_SRC := src/world/world_surface_snapshot.c
+WORLD_SURFACE_SNAPSHOT_SRC := src/world/world_surface_snapshot.c src/world/surface_topology_version.c
 
 CHUNKS_FEATURE_SRC := \
 	src/ecology/flora_taxa.c \

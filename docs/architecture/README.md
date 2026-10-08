@@ -25,7 +25,7 @@ new physical-simulation stages.
 | 15 | [polar E2E reliability](15-polar-e2e-reliability.md) | stdin reply-ordering regression, independent 600-frame polar DSL gate, and retained failure diagnostics |
 | 16 | [regional ecology continuity](16-ecology-continuity.md) | V23 daylight anchor, V7 regional ecology persistence, explicit scheduling, and historical environmental sampling |
 | 17 | [animal behavior and poses](17-fauna-poses.md) | V5 entity pose persistence, contact-driven gait/strikes, articulated behavior rendering and deterministic DSL previews |
-| 18 | [volcano, lava and ash](18-volcano-preview.md) | G1/G2 lifecycle and lava, G3 water contact, P0 ash/material products, fractional collection and V28 persistence |
+| 18 | [volcano, lava and ash](18-volcano-preview.md) | G1/G2 lifecycle and lava, G3 water contact, P0 ash/material products, fractional collection; retained payloads in V29 |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
@@ -46,8 +46,10 @@ roadmap status of `Complete` applies to that stage's recorded scope; it does
 not imply that every later revision passed every acceptance route or that
 the bounded models implement full global simulation.
 
-- **Persistence:** the current world writer emits V28 and reads compatible
-  V18-V27 saves. Radiation was introduced in V21, hydrology in V22, the
+- **Persistence:** the current world reader/writer accepts V29 only, with
+  explicit Homeworld/planetary topology descriptors. V28 and older are rejected
+  without migration. See the [V29 contract](../surface-cube.md#topology-and-save-contract-v29).
+  Historical payload introductions: Radiation was introduced in V21, hydrology in V22, the
   homeworld daylight anchor in V23, volcano previews in V24, and lava physics
   in V25; later versions add water reactions, ash/material products and
   fractional collection. Regional ecology independently writes

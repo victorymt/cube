@@ -721,19 +721,20 @@ static GameDebugDispatchResult GameDebugDispatchPersistenceCommand(
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_LOAD:
         if (game->screen == SCREEN_PLAYING) {
-            GameLoadMap(&game->player);
-            GameEcologyRestoreClock(game);
-            SimulationClockReset(&game->simulationClock,
-                                 SpaceElapsedSimulationTime());
-            game->scriptedShipInput = (ShipControlInput){ 0 };
-            game->scriptedShipInputFrames = 0u;
-            game->scriptedShipInputFrameCarry = 0.0f;
-            game->landingTransition = (LandingTransition){ 0 };
-            game->wasInSpace = WorldIsSpaceActive();
-            game->entitiesWorldActive = WorldIsSurfaceActive();
-            game->entitiesWorldDimension = WorldCurrentSurfaceId();
-            game->cursorReleased = false;
-            DisableCursor();
+            if (GameLoadMap(&game->player)) {
+                GameEcologyRestoreClock(game);
+                SimulationClockReset(&game->simulationClock,
+                                     SpaceElapsedSimulationTime());
+                game->scriptedShipInput = (ShipControlInput){ 0 };
+                game->scriptedShipInputFrames = 0u;
+                game->scriptedShipInputFrameCarry = 0.0f;
+                game->landingTransition = (LandingTransition){ 0 };
+                game->wasInSpace = WorldIsSpaceActive();
+                game->entitiesWorldActive = WorldIsSurfaceActive();
+                game->entitiesWorldDimension = WorldCurrentSurfaceId();
+                game->cursorReleased = false;
+                DisableCursor();
+            }
             DebugControlReply(&game->debugControl,
                               "DEBUG_CONTROL load result=%s\n",
                               GameNoticeCurrent());

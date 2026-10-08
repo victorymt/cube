@@ -533,8 +533,7 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     }
     if (IsKeyPressed(KEY_LEFT_BRACKET)) AdjustRenderDistance(-1);
     if (IsKeyPressed(KEY_RIGHT_BRACKET)) AdjustRenderDistance(1);
-    if (IsKeyPressed(KEY_F9)) {
-        GameLoadMap(&game->player);
+    if (IsKeyPressed(KEY_F9) && GameLoadMap(&game->player)) {
         GameEcologyRestoreClock(game);
         SimulationClockReset(&game->simulationClock,
                              SpaceSimulationTime());

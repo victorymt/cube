@@ -4,7 +4,8 @@
 #include "gameplay/player_types.h"
 
 void GameSaveMap(const Player *player);
-void GameLoadMap(Player *player);
+// False leaves the caller's clocks/input state intact; see the posted notice.
+bool GameLoadMap(Player *player);
 
 #ifdef GAME_SAVE_TESTING
 #include "world/world_environment.h"

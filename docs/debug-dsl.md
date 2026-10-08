@@ -372,6 +372,8 @@ Runtime values are sampled when an expression is evaluated:
 | `game.paused` | bool | Whether the pause menu is open |
 | `world.seed` | number | Current world seed |
 | `world.dimension` | string | Current dimension name |
+| `world.surface_topology` | string | `legacy-map` on supported surfaces; `none` outside surface dimensions. `cube-grid` is reserved and cannot be activated yet |
+| `world.surface_topology_version` | number | `1` for the current map grid; `0` for no active surface |
 | `world.surface_body` | number | Canonical ID of the active solid body |
 | `world.longitude` | number | Canonical longitude in radians |
 | `world.latitude` | number | Canonical latitude in radians |
@@ -650,6 +652,16 @@ overlay. `surface debug home` switches directly to Homeworld; the planet form
 creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
+
+Only V29 world saves are supported. The `TOPOL001` header records separate
+Homeworld and planetary topology descriptors; both currently use legacy-map/1.
+V28 and older, missing/invalid topology metadata, and cube-grid descriptors are
+rejected before applying state. Failures report through `DEBUG_CONTROL load
+result=Load failed: ...`; this reply is not a successful load. Follow it with
+state assertions when testing rejection. Late payload errors restore the full
+V29 checkpoint. Neither failed path deletes the file or resets caller clocks/input.
+`make test-surface-topology-e2e` runs these checks in a temporary directory.
+The topology fields are read-only; there is no command to enable cube-grid.
 
 `map`, `map layer liquids`, `view`, and `look` report their resulting state in
 their `DEBUG_CONTROL` reply; they do not currently expose dedicated typed
@@ -982,15 +994,11 @@ inventory while previously emitted lava can still cool. Inspect/vents/typed read
 do not discover or advance anything. Runtime discovery checks eligible dry
 planetary volcanic peaks every two active seconds; Homeworld is debug-only.
 
-The current world save V28 includes versioned `VOLCANO1`, `LAVA0003`, `ASH00002`
-and `INVFR001` payloads with explicit little-endian scalar encoding, event state, material markers,
-ash erosion credits, collection counters, six inventory remainders and fractional
-step remainder. V27 reads `ASH00001` with zero collected ash; V18–V27 reset inventory
-remainders without consuming trailing data. V26 reads `LAVA0002` with
-zero material markers; V25 reads `LAVA0001` with zero reaction and material state.
-V24 keeps volcano records with empty lava; V18–V23 reset both. V18–V26 start with
-empty ash layers. New worlds reset all three runtimes;
-surface transitions park records instead of deleting them.
+The current world save V29 retains versioned `VOLCANO1`, `LAVA0003`, `ASH00002`
+and `INVFR001` payloads with explicit little-endian scalar encoding, event state,
+material markers, ash erosion credits, collection counters, six inventory
+remainders and fractional step remainder. Old subsystem decoders remain covered
+by unit fixtures, but V28 and older world files are not accepted by the game.
 
 | Field | Type | Meaning |
 | --- | --- | --- |

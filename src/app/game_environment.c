@@ -45,6 +45,7 @@ void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed)
         snapshot.context.seed = homeWorldSeed;
     }
     snapshot.context.active = snapshot.context.kind != WORLD_SURFACE_NONE;
+    snapshot.context.topology = WorldTopologyForSurface(snapshot.context.kind);
     snapshot.context.originX = 0;
     snapshot.context.originZ = 0;
     PlanetLandformStrategy strategy = PlanetLandformStrategyForSurface(
@@ -64,7 +65,10 @@ void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed)
         TraceLog(LOG_ERROR, "Unable to allocate immutable landform atlas");
         abort();
     }
-    WorldInstallSurfaceSnapshot(&snapshot);
+    if (!WorldInstallSurfaceSnapshot(&snapshot)) {
+        TraceLog(LOG_ERROR, "Unable to install unsupported surface topology");
+        abort();
+    }
 }
 
 static bool GameWeatherSurfaceLightAt(

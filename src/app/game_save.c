@@ -28,6 +28,7 @@
 #include "world/terrain_generation.h"
 #include "world/world.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
 #include "world/world_persistence.h"
 #include "world/weather_impact.h"
 #include "world/volcano_runtime.h"
@@ -54,6 +55,7 @@ typedef struct LoadedGameSave {
     TerrainMode terrain;
     uint32_t seed;
     uint32_t terrainGenerationVersion;
+    WorldSurfaceTopologyPolicy topologyPolicy;
     WorldDimension dimension;
     Player player;
     int editCount;
@@ -230,7 +232,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
         player->yaw, player->pitch, player->floating ? 1.0f : 0.0f
     };
 
-    bool ok = WorldSaveFormatWriteCurrent(file);
+    bool ok = WorldSaveWriteHeader(file, WorldCurrentTopologyPolicy());
     ok = ok && fwrite(&terrainGenerationVersion,
                       sizeof(terrainGenerationVersion), 1, file) == 1;
     ok = ok && fwrite(&activeDimension, sizeof(activeDimension), 1, file) == 1;
@@ -367,6 +369,12 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
         return false;
     }
 
+    if (schemaVersion != SURFACE_SAVE_SCHEMA_VERSION) {
+        free(addresses);
+        free(mapCells);
+        return false;
+    }
+
     bool surfaceDimension = WorldIsSurfaceDimension(data->dimension);
     uint32_t expectedBodyId = data->dimension == WORLD_DIMENSION_PLANET
         ? PlanetWorldSeed() : 0u;
@@ -379,11 +387,6 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
     if (surfaceDimension) {
         float mapX = data->player.position.x;
         float mapZ = data->player.position.z;
-        if (schemaVersion == 1u &&
-            data->dimension == WORLD_DIMENSION_PLANET) {
-            mapX += (float)PlanetWorldOriginX();
-            mapZ += (float)PlanetWorldOriginZ();
-        }
         float northDirection = 1.0f;
         Vector2 canonical = SurfaceCanonicalMapPosition(
             mapX, mapZ, &northDirection);
@@ -411,31 +414,12 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
             return false;
         }
         uint32_t bodyId = data->dimensions[index];
-        if (schemaVersion == 1u) {
-            bool originKnown = bodyId == 0u || bodyId == PlanetWorldSeed();
-            int originX = bodyId == 0u ? 0 : PlanetWorldOriginX();
-            int originZ = bodyId == 0u ? 0 : PlanetWorldOriginZ();
-            if (!originKnown && !SurfaceAddressCanonicalMapCell(
-                    addresses[index], &mapCells[index])) {
-                free(addresses);
-                free(mapCells);
-                return false;
-            }
-            if (originKnown) {
-                mapCells[index] = SurfaceCanonicalMapCell(
-                    (float)originX + (float)data->edits[index].x,
-                    (float)originZ + (float)data->edits[index].z);
-            }
-        } else {
-            SurfaceMapCell expectedCell = SurfaceCanonicalMapCell(
-                (float)data->edits[index].x,
-                (float)data->edits[index].z);
-            if (mapCells[index].x != expectedCell.x ||
-                mapCells[index].z != expectedCell.z) {
-                free(addresses);
-                free(mapCells);
-                return false;
-            }
+        SurfaceMapCell expectedCell = SurfaceCanonicalMapCell(
+            (float)data->edits[index].x, (float)data->edits[index].z);
+        if (mapCells[index].x != expectedCell.x || mapCells[index].z != expectedCell.z) {
+            free(addresses);
+            free(mapCells);
+            return false;
         }
         SurfaceAddress expectedAddress = SurfaceAddressFromMapCoordinates(
             bodyId, (float)mapCells[index].x, (float)mapCells[index].z,
@@ -612,9 +596,6 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
             transaction, "Load failed: player state is unavailable.");
     }
 
-    DrainChunkGen();
-    UnloadAllSpaceChunks();
-
     LoadedGameSave data = {
         .terrain = TERRAIN_VARIED,
         .seed = DEFAULT_WORLD_SEED,
@@ -622,11 +603,13 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     };
     MapMarkersEmptyState(&data.mapMarkers);
 
-    WorldSaveFormat format = WorldSaveFormatRead(file);
-    if (format == WORLD_SAVE_FORMAT_UNSUPPORTED) {
-        return GameLoadFail(
-            transaction,
-            "Load failed: V17 and older flat saves are incompatible with spherical worlds.");
+    const char *headerError = WorldSaveReadHeader(file, &data.topologyPolicy);
+    if (headerError) return GameLoadFail(transaction, headerError);
+    const WorldSaveFormat format = WORLD_SAVE_FORMAT_V29;
+    DrainChunkGen();
+    UnloadAllSpaceChunks();
+    if (!WorldInstallTopologyPolicy(data.topologyPolicy)) {
+        return GameLoadFail(transaction, "Load failed: unsupported surface topology policy.");
     }
     if (!GameLoadCurrentCorePayload(file, &data)) {
         LoadedGameSaveRelease(&data);
@@ -707,16 +690,16 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     return true;
 }
 
-void GameLoadMap(Player *player)
+bool GameLoadMap(Player *player)
 {
     if (!player) {
         GameNoticePost("Load failed: player state is unavailable.");
-        return;
+        return false;
     }
     FILE *file = fopen(SAVE_FILE, "rb");
     if (!file) {
         GameNoticePost("Load failed: voxelcraft_save.txt was not found.");
-        return;
+        return false;
     }
 
     struct stat saveStat;
@@ -724,7 +707,17 @@ void GameLoadMap(Player *player)
         (uint64_t)saveStat.st_size > SAVE_MAX_FILE_BYTES) {
         fclose(file);
         GameNoticePost("Load failed: save file is too large or unreadable.");
-        return;
+        return false;
+    }
+
+    // Reject retired files and unsupported topologies before even taking a
+    // checkpoint: rejected loads must not reset the live world's transients.
+    WorldSurfaceTopologyPolicy policy;
+    const char *headerError = WorldSaveReadHeader(file, &policy);
+    if (headerError || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        GameNoticePost(headerError ? headerError : "Load failed: save file is unreadable.");
+        return false;
     }
 
     GameLoadTransaction transaction = { .player = player };
@@ -734,19 +727,20 @@ void GameLoadMap(Player *player)
 
     if (result == SAVE_IO_TRANSACTION_CHECKPOINT_FAILED) {
         GameNoticePost("Load failed: current game state could not be protected.");
-        return;
+        return false;
     }
     if (result == SAVE_IO_TRANSACTION_ROLLBACK_FAILED) {
         GameNoticePost(
             "Load failed and the previous game state could not be restored.");
-        return;
+        return false;
     }
     if (result == SAVE_IO_TRANSACTION_READ_FAILED) {
         GameNoticePost(transaction.error ? transaction.error
                                          : "Load failed: save file is corrupted.");
-        return;
+        return false;
     }
 
     GameNoticePost(TextFormat("Loaded %s (%d edits).", SAVE_FILE,
                               transaction.loadedEditCount));
+    return true;
 }

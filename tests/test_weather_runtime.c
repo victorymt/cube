@@ -54,10 +54,11 @@ static void InstallHomeSurface(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .seed = 0x68b32f19u
         }
     };
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
 }
 
 static void InstallPlanetSurface(void)
@@ -66,12 +67,13 @@ static void InstallPlanetSurface(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_PLANET,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = 7u,
             .seed = 0x2938a4d1u
         },
         .planetProfile = TestPlanetProfile()
     };
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
 }
 
 // weather_presentation still consumes the narrow space-facing presentation

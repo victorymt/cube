@@ -2141,11 +2141,12 @@ int main(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = 1u,
             .seed = DEFAULT_WORLD_SEED
         }
     };
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
     memset(chunks, 0, sizeof(Chunk) * MAX_ACTIVE_CHUNKS);
     TestAdaptiveWorkerCountPolicy();
     TestFailedColumnGenerationReleasesSlot();

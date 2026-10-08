@@ -23,15 +23,16 @@ static void TestNullResetsSnapshot(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .seed = 0x134679acu,
             .originX = 27,
             .originZ = -41
         }
     };
-    WorldInstallSurfaceSnapshot(&home);
+    assert(WorldInstallSurfaceSnapshot(&home));
     assert(WorldCurrentSurfaceSnapshot()->context.active);
 
-    WorldInstallSurfaceSnapshot(NULL);
+    assert(WorldInstallSurfaceSnapshot(NULL));
     AssertNoneSnapshot(WorldCurrentSurfaceSnapshot());
 }
 
@@ -41,6 +42,7 @@ static void TestHomeSnapshotIsCopiedByValue(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = 0u,
             .seed = 0x2468ace0u,
             .originX = 123,
@@ -52,7 +54,7 @@ static void TestHomeSnapshotIsCopiedByValue(void)
             .surfaceGravity = 1.0f
         }
     };
-    WorldInstallSurfaceSnapshot(&source);
+    assert(WorldInstallSurfaceSnapshot(&source));
     memset(&source, 0, sizeof(source));
 
     const WorldSurfaceSnapshot *current = WorldCurrentSurfaceSnapshot();
@@ -73,6 +75,7 @@ static void TestPlanetIdentityDoesNotAliasSeed(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_PLANET,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = 0x10203040u,
             .seed = 0x55667788u,
             .originX = -8192,
@@ -87,7 +90,7 @@ static void TestPlanetIdentityDoesNotAliasSeed(void)
         }
     };
     assert(planet.context.bodyId != planet.context.seed);
-    WorldInstallSurfaceSnapshot(&planet);
+    assert(WorldInstallSurfaceSnapshot(&planet));
 
     const WorldSurfaceSnapshot *current = WorldCurrentSurfaceSnapshot();
     assert(current->context.active);
@@ -102,15 +105,68 @@ static void TestPlanetIdentityDoesNotAliasSeed(void)
     assert(fabsf(current->planetProfile.surfaceGravity - 0.37f) < 0.0001f);
 }
 
+static void TestTopologyValidation(void)
+{
+    const SurfaceTopologyVersion none = { SURFACE_TOPOLOGY_NONE, 0u };
+    const SurfaceTopologyVersion map = SURFACE_TOPOLOGY_MAP_V1;
+    const SurfaceTopologyVersion cube = { SURFACE_TOPOLOGY_CUBE_GRID, 1u };
+    assert(SurfaceTopologyIsKnown(none) && SurfaceTopologyIsRuntimeSupported(none));
+    assert(SurfaceTopologyIsKnown(map) && SurfaceTopologyIsRuntimeSupported(map));
+    assert(SurfaceTopologyIsKnown(cube) && !SurfaceTopologyIsRuntimeSupported(cube));
+    assert(strcmp(SurfaceTopologyName(cube), "cube-grid") == 0);
+    assert(!SurfaceTopologyIsKnown((SurfaceTopologyVersion){ SURFACE_TOPOLOGY_NONE, 1u }));
+    assert(!SurfaceTopologyIsKnown((SurfaceTopologyVersion){ SURFACE_TOPOLOGY_LEGACY_MAP, 0u }));
+    assert(!SurfaceTopologyIsKnown((SurfaceTopologyVersion){ SURFACE_TOPOLOGY_CUBE_GRID, 2u }));
+    assert(!SurfaceTopologyIsKnown((SurfaceTopologyVersion){ (SurfaceTopologyKind)99, 1u }));
+
+    WorldResetTopologyPolicy();
+    WorldSurfaceTopologyPolicy policy = WorldCurrentTopologyPolicy();
+    assert(policy.home.kind == map.kind && policy.home.version == 1u);
+    assert(policy.planets.kind == map.kind && policy.planets.version == 1u);
+    assert(WorldInstallTopologyPolicy(policy));
+    policy.planets = cube;
+    assert(!WorldInstallTopologyPolicy(policy));
+    policy = WorldCurrentTopologyPolicy();
+    policy.home = none;
+    assert(!WorldInstallTopologyPolicy(policy));
+    assert(WorldTopologyForSurface(WORLD_SURFACE_PLANET).kind == map.kind);
+
+    WorldSurfaceSnapshot home = { .context = {
+        .active = true, .kind = WORLD_SURFACE_HOME, .topology = map, .seed = 123u
+    } };
+    assert(WorldInstallSurfaceSnapshot(&home));
+    uint64_t generation = WorldCurrentGeneration();
+    const SurfaceTopologyVersion invalid[] = {
+        none, cube, { SURFACE_TOPOLOGY_LEGACY_MAP, 2u }, { (SurfaceTopologyKind)99, 1u }
+    };
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+        WorldSurfaceSnapshot bad = home;
+        bad.context.topology = invalid[i];
+        assert(!WorldInstallSurfaceSnapshot(&bad));
+        assert(WorldCurrentGeneration() == generation);
+        assert(memcmp(WorldCurrentSurfaceSnapshot(), &home, sizeof(home)) == 0);
+    }
+    home.context.active = false;
+    assert(!WorldInstallSurfaceSnapshot(&home));
+    assert(WorldCurrentGeneration() == generation);
+    home.context.kind = WORLD_SURFACE_NONE;
+    assert(!WorldInstallSurfaceSnapshot(&home));
+    home.context.topology = none;
+    assert(WorldInstallSurfaceSnapshot(&home));
+    assert(WorldCurrentGeneration() != generation);
+    assert(WorldCurrentSurfaceSnapshot()->context.topology.kind == SURFACE_TOPOLOGY_NONE);
+}
+
 int main(void)
 {
-    WorldInstallSurfaceSnapshot(NULL);
+    assert(WorldInstallSurfaceSnapshot(NULL));
     AssertNoneSnapshot(WorldCurrentSurfaceSnapshot());
     TestHomeSnapshotIsCopiedByValue();
     TestPlanetIdentityDoesNotAliasSeed();
     TestNullResetsSnapshot();
+    TestTopologyValidation();
     assert(TerrainGenerationSetVersion(6));
-    WorldInstallSurfaceSnapshot(NULL);
+    assert(WorldInstallSurfaceSnapshot(NULL));
     assert(TerrainGenerationVersion() == 6);
     assert(!TerrainGenerationSetVersion(0));
     assert(!TerrainGenerationSetVersion(TERRAIN_GENERATION_CURRENT + 1));

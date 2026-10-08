@@ -13,13 +13,14 @@ work progresses, verified, and then committed as one reviewable change.
 | Numerical landform quality gates | Passed in the 2026-10-07 fixtures; not a global visual guarantee | [Quality review](../docs/landform-quality.md) |
 | Polar ground coverage | Open: both wet and dry polar scenes show a narrow strip | [Reproduction and diagnosis](../docs/landform-quality.md#visual-observations-and-acceptance-limits) |
 | Cube-grid coordinates, exact cross-face neighbors and coverage tests | Foundation complete (`ef25929`); runtime integration pending | [Cube-grid contract and next steps](../docs/surface-cube.md) |
+| Topology descriptors and V29 save boundary | Implemented: explicit legacy-map/1 policy, cube-grid runtime rejection, no old-format loading | [Topology contract](../docs/surface-cube.md#topology-and-save-contract-v29) |
 | Coriolis terrain bias | Disabled; requires polar visual acceptance and calibrated diagnostics first | [Physics boundary](../docs/landform-planets.md) |
 
-Next: define topology/save compatibility, integrate cube-cell identity across
+Next: integrate cube-cell identity across
 terrain and gameplay, unify scheduling/render coverage, then replay polar,
 face-crossing, editing and save/load routes. Preserve Homeworld v7/v8 samples.
 
-World saves currently write V28 and read compatible V18-V27 files. Regional
+World saves now write and read V29 only; V28 and older require a new world. Regional
 ecology payload V7 and terrain generator v8 have independent version sequences.
 See [persistence boundaries](../docs/architecture/18-volcano-preview.md#state-and-persistence).
 

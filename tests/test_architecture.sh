@@ -405,7 +405,7 @@ fi
 
 grep -q '^void GameSaveMap(' src/app/game_save.c ||
     fail "app must coordinate cross-module persistence"
-grep -q '^void GameLoadMap(' src/app/game_save.c ||
+grep -q '^bool GameLoadMap(' src/app/game_save.c ||
     fail "app must coordinate cross-module restore"
 if grep -nE '\b(Inventory|Ship|PlanetWorld|HomeWorld|Album|Space|Entities|PlanetEcology|EvolutionCatalog|ShipLocator|MapMarkers)(Save|Load|ReadState|SaveState)' \
     src/world/world.c; then

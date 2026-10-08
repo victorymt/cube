@@ -137,6 +137,20 @@ bool GameDebugTopologyDslResolve(const GameRuntime *game, const char *name,
          strncmp(name, "ecology.", 8u) != 0)) {
         return false;
     }
+    if (strcmp(name, "world.surface_topology") == 0 ||
+        strcmp(name, "world.surface_topology_version") == 0) {
+        SurfaceTopologyVersion topology = WorldCurrentSurfaceContext().topology;
+        // Nether is backed by Home terrain but is not a surface dimension.
+        if (!WorldIsSurfaceDimension(WorldCurrentDimension())) {
+            topology = (SurfaceTopologyVersion){ SURFACE_TOPOLOGY_NONE, 0u };
+        }
+        if (strcmp(name, "world.surface_topology_version") == 0) {
+            return DslNumber(outValue, topology.version);
+        }
+        *outValue = (DebugDslValue){ .type = DEBUG_DSL_VALUE_STRING };
+        outValue->as.string = SurfaceTopologyName(topology);
+        return true;
+    }
     GameDebugTopologyInfo topology = TopologyAt(game);
     if (strcmp(name, "weather.canonical_cell") == 0 ||
         strcmp(name, "ecology.canonical_cell") == 0) {

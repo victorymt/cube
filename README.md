@@ -11,8 +11,8 @@ startup as a small pixel-art atlas.
 The original expansion and simulation stages are implemented within their
 recorded scope. Current work is planetary landforms and polar ground coverage:
 river/lake generation is integrated, but polar visual acceptance remains blocked.
-The cube-grid foundation is tested; runtime chunk storage, collision and saves
-still use the legacy map grid. See the [current roadmap](todo/00-roadmap.md),
+The cube-grid foundation and V29 topology metadata are implemented; runtime
+chunk storage, collision and edit coordinates still use the legacy map grid. See the [current roadmap](todo/00-roadmap.md),
 [quality review](docs/landform-quality.md) and
 [remaining cube-grid integration](docs/surface-cube.md#remaining-integration-in-dependency-order).
 
@@ -75,21 +75,23 @@ still use the legacy map grid. See the [current roadmap](todo/00-roadmap.md),
   chunks use a 16-job worker queue that prioritizes the chunks nearest the
   player. Meshes are uploaded on the main thread so new areas stream in smoothly
   instead of hitching
-- Binary save format V28 persists the world seed, inventory, ship fuel and
+- Binary save format V29 persists the world seed, inventory, ship fuel and
   locator, active dimension, planet-world context, entities, ecology state,
   the evolution catalog, weather impacts, radiation and hydrology runtime
   state, the homeworld daylight clock, volcano/lava/ash state, fractional material
   inventory, player-authored map markers and navigation target, and stable
   cube-sphere addresses for the player and every surface edit.
-  Compatible V18-V27 saves remain readable, with missing subsystem payloads
-  initialized on load. The regional ecology payload has its own version (V7)
+  Only V29 world saves are accepted; V28 and older require a new world.
+  The header records independent Homeworld and planetary topology versions.
+  Both currently use legacy-map/1; cube-grid is defined but not enabled.
+  The regional ecology payload has its own version (V7)
   and retains evicted regional history as well as cached records.
   New worlds use terrain generation version 8, including river terraces on
   suitable Homeworld valley shoulders. Version 7 retains its original drainage,
   lakes and deposits; version 6 retains its earlier generation path. Versions
-  2–5 use the existing version 6 compatibility path. Player edits remain intact.
-  V17 and older flat-world saves are intentionally rejected because their
-  coordinates cannot identify positions on the spherical worlds safely
+  2–5 use the existing version 6 generation path. These generator versions
+  are independent of save compatibility: old-format files are never migrated.
+  Rejected loads leave the file and live game intact; no files are deleted
 - Image imports use a 256-color block palette for better color matching. Block
   edits are indexed for fast repeated imports and large builds
 - Automatic save on quit (plus manual `F5` save / `F9` load); every successful
@@ -372,6 +374,10 @@ after two ready frames or a timeout (300 frames by default, up to 3600).
 `water debug` draws visible surface-water section bounds and reports their
 triangle counts; `water debug through on` draws those bounds through terrain
 for diagnosing hidden or overlapping water geometry.
+
+V29 topology/save regression under Hyprland: `make test-surface-topology-e2e`.
+It checks Homeworld, planetary and space round trips, rejected headers, and
+transactional rollback in an isolated temporary directory.
 
 ## Run
 

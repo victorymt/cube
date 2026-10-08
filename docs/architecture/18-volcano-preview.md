@@ -57,16 +57,16 @@ order. Cooling uses normalized enthalpy and a latent interval at 1100 K; partial
 solid overlays retain their collision height, while a full cold cell becomes
 its selected rock through an environment mutation.
 
-World save V28 appends `VOLCANO1`, `LAVA0003`, `ASH00002` and `INVFR001` after the ecology clock and before the spherical
-trailer. Every scalar uses explicit little-endian encoding (IEEE-754 binary64
-for real values); struct padding and pointers are never written. Records,
-admission state, discovery timer, rejection count and fractional tick remainder
-are saved. Load validates a temporary bounded array, then commits it. The outer
-world transaction includes these payloads in its checkpoint/rollback. V26 reads
-`LAVA0002` with zero material markers. V25 reads
-legacy `LAVA0001` with empty reaction counters/credits. V24 keeps
-its volcano records with empty lava state; V18–V23 reset both. A new world resets
-all three runtimes; switching surfaces does not discard them. Pre-V27 saves reset ash.
+World save V29 retains `VOLCANO1`, `LAVA0003`, `ASH00002` and `INVFR001` after
+the ecology clock and before the spherical trailer; explicit topology metadata
+precedes the core payload. Every scalar in these subsystem payloads uses explicit
+little-endian encoding (IEEE-754 binary64 for real values); struct padding and
+pointers are never written. Records, admission state, discovery timer, rejection
+count and fractional tick remainder are saved. Load validates temporary bounded
+arrays before committing; the world transaction checkpoints/restores them.
+V28 and older world files are now rejected without migration. Historical
+subsystem decoders remain unit-tested, but are not a whole-save compatibility
+promise. A new world resets all three runtimes; switching surfaces retains them.
 
 The lava runtime has at most 2,048 hot cells and 8,192 total records. Cold partial
 deposits free hot capacity while retaining storage, geometry and collision. New
@@ -117,7 +117,7 @@ including a solid base under liquid; empty space above a deposit stays clear.
   prevents removal.
 - `test_interaction_raycast`: rays above, inside and into the top of partial
   deposits; solid/liquid masks, mixed layers, reach limits and face normals.
-- `test_save_format` and `test_game_save_spherical`: V28 flags/writer, new
+- `test_save_format` and `test_game_save_spherical`: V29 flags/writer and rejection boundary, new
   payload routing, old-version reset without consuming trailer bytes, corrupt
   payload preserving live records.
 - `test_debug_control`: command syntax, parameter limits, hex identity parsing.
@@ -197,11 +197,12 @@ ash `collected` or lava `removed` plus exported heat. Failures preserve both sou
 and inventory. Collection bypasses base-voxel edits/undo; the existing overlay
 queries immediately reflect removal, and `FluidOnBlockChanged` wakes neighbors.
 
-V28 stores `INVFR001` after ash and before the spherical trailer: eight magic
+V29 retains `INVFR001` after ash and before the spherical trailer: eight magic
 bytes plus six little-endian uint16 remainders. No existing inventory byte layout
 changes. Temporary loads validate every value <1024 before committing. The outer
 world checkpoint includes both whole inventory and fractions, as well as runtime
-source ledgers. V27 `ASH00001` initializes `collected=0`; V18–V27 clear fractions.
+source ledgers. Historical decoder fixtures cover `ASH00001` defaults and missing fractions;
+the game no longer accepts the corresponding old world formats.
 `test_inventory`, `test_block_collection`, `test_ash`, `test_lava` and the new DSL
 collection route cover rejection, material separation, alias/rebase handling,
 heat/volume conservation, fractional persistence and visible left-click behavior.

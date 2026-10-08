@@ -183,7 +183,7 @@ $(eval $(call define_test,SURFACE_GLOBE_TEST_TARGET,test_surface_globe,src/prese
 $(eval $(call define_test,WORLD_RENDERER_TEST_TARGET,test_world_renderer,src/presentation/world_renderer.c src/presentation/render_quality.c,,-DWORLD_RENDERER_TESTING,,-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,WORLD_LIGHTING_TEST_TARGET,test_world_lighting,src/presentation/world_lighting.c src/presentation/world_renderer.c src/presentation/environment_presentation.c src/presentation/render_quality.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SAVE_IO_TEST_TARGET,test_save_io,src/core/save_io.c,,,,,,))
-$(eval $(call define_test,SAVE_FORMAT_TEST_TARGET,test_save_format,src/world/save_format.c,,,,,,))
+$(eval $(call define_test,SAVE_FORMAT_TEST_TARGET,test_save_format,src/world/save_format.c src/world/surface_topology_version.c,,,,,,))
 $(eval $(call define_test,GAME_SETTINGS_TEST_TARGET,test_game_settings,src/app/game_settings.c src/core/save_io.c src/presentation/render_quality.c,,,, -lm,,))
 $(eval $(call define_test,SCREENSHOT_TEST_TARGET,test_screenshot,src/app/screenshot.c,,,,,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,DEBUG_CONTROL_TEST_TARGET,test_debug_control,src/core/debug_control.c,,,,,,))

@@ -5,7 +5,8 @@
 The new `surface_cube` module provides pure cube-grid coordinates and exact
 cross-face neighbors. **The runtime still uses the legacy map grid; the polar
 visual defect is not yet fixed.** This is the first independently testable
-implementation step, not a terrain-version change or a save migration.
+implementation step. The topology/save foundation below is now implemented;
+terrain generation remains unchanged and no old save migration is provided.
 
 ## Root cause and scope
 
@@ -66,24 +67,79 @@ The regression first measures the collapsed legacy edge. It then checks:
 - Invalid coordinates, nonfinite projection inputs, capacity rejection and a
   pinned hash vector.
 
+## Topology and save contract (V29)
+
+`SurfaceTopologyVersion` carries independent `kind` and `version` fields:
+NONE=0/version 0, LEGACY_MAP=1/version 1, CUBE_GRID=2/version 1. These are
+independent of terrain generator v7/v8 and the cube-key hash domain version.
+Known descriptors are distinguished from runtime support: cube-grid/1 is known
+but cannot be installed or loaded yet. Existing map/cube key hashes are unchanged.
+
+Every `WorldSurfaceContext` carries its topology. The world policy contains
+Homeworld and planetary defaults; both are legacy-map/1 in this stage, and every
+planet inherits the planetary policy. There are no per-body overrides. New-world
+reset restores these defaults. Snapshot installation rejects unknown, unsupported,
+or active/inactive-inconsistent descriptors without changing state or generation.
+Valid snapshots remain value copies and use the existing stale-job generation.
+
+Only V29 world files load. After the 19-byte `VOXELCRAFT_SAVE_V29` magic comes
+8-byte `TOPOL001`, followed by four little-endian uint32 values: home kind,
+home version, planet kind, planet version. The existing core payload follows.
+The current schema-2 spherical trailer keeps canonical map cells authoritative;
+a stored face address is not reinterpreted as a cube voxel.
+
+V28 and older require a new world. Loading never migrates or deletes these
+files. Format/topology preflight runs before transactional loading or live-state
+changes. Later failures restore the complete V29 checkpoint, including policy.
+F9/DSL callers reset clocks/input only on successful loads. Unknown topology
+versions and known-but-unimplemented cube-grid receive explicit rejection.
+
+Homeworld v7/v8 generation and fingerprints are preserved; that is an algorithm
+contract, not old-file compatibility. This stage does not promise a future
+coordinate migration for its own legacy-grid saves.
+
+### Validation commands
+
+```sh
+make test
+make test-sanitize
+make test-surface-topology-e2e
+```
+
+Focused tests cover descriptor validation, rejected-install atomicity, pinned LE
+header bytes, truncation/unknown/cube rejection and schema-1 trailer rejection.
+The DSL replay covers Homeworld/planet/space round trips, all V18–V28 headers,
+unsupported topology, late corrupt-trailer rollback and retained block edits.
+Read-only `world.surface_topology`/`world.surface_topology_version` report the
+active dimension's descriptor (none/0 in space and Nether).
+
+### Verification evidence (2026-10-08)
+
+- Normal suite: 108 passing binaries; Homeworld v7/v8 terrain fingerprints and
+  existing cube-grid/hash regressions remain unchanged.
+- ASan/UBSan suite: 108 passing binaries, with no sanitizer errors.
+- Public headers (175), architecture checks and debug CLI contract checks pass.
+- Hyprland replay passed in `/tmp/voxelcraft-topology-v29.pZZKYB`; `replies.log`
+  records V29 Homeworld/planet/space round trips, V18–V28 rejection, invalid and
+  unsupported topology rejection, and late trailer failure after loading another
+  body's state. Whole-save bytes match before and after both rejection and rollback;
+  the two bodies' edits are also checked through the DSL. Rejected input files
+  remain byte-identical. This replay does not establish polar visual coverage.
+
 ## Remaining integration, in dependency order
 
-1. Add an explicit per-surface topology version to runtime snapshots and
-   persistent metadata. Keep Homeworld v7/v8 on its current path. Define the
-   old planetary-save policy before changing any address interpretation;
-   legacy map cells cannot simply be relabeled as cube cells.
-2. Make cube cell identity authoritative for generation, indexing, block
+1. Make cube cell identity authoritative for generation, indexing, block
    edits and neighbor lookup. Sample climate/landform using direction or
    latitude/longitude derived from that identity; retain immutable worker
    inputs and stale-job rejection across surface changes.
-3. Move player/collision/raycast/fluid coordinates together. Face transitions
+2. Move player/collision/raycast/fluid coordinates together. Face transitions
    must transport heading and velocity, not just positions. Round-trip edit
    lookup and save/reload must refer to the same cells at every face edge.
-4. Use the same neighborhood/coverage policy for scheduling, eviction, LOD
+3. Use the same neighborhood/coverage policy for scheduling, eviction, LOD
    and drawing. Derive conservative bounds from curved mesh geometry. Keep
    `surface_ready`'s existing local readiness meaning and expose separate
    requested/ready coverage diagnostics instead of claiming visual readiness.
-5. Replay the existing temperate and dry polar scenes using geographic
+4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
    and save/reload. Preserve old Homeworld samples and enforce memory budgets.
 

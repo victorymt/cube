@@ -24,12 +24,12 @@ extern const char *GameSaveTestLoadRadiationRuntimeState(
 static int radiationResetCalls;
 bool WorldSaveFormatHasVolcanoes(WorldSaveFormat format)
 {
-    return format == WORLD_SAVE_FORMAT_V24 || format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28;
+    return format == WORLD_SAVE_FORMAT_V24 || format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28 || format == WORLD_SAVE_FORMAT_V29;
 }
 
-bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28; }
-bool WorldSaveFormatHasAsh(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28; }
-bool WorldSaveFormatHasInventoryRemainders(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V28; }
+bool WorldSaveFormatHasLava(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V25 || format == WORLD_SAVE_FORMAT_V26 || format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28 || format == WORLD_SAVE_FORMAT_V29; }
+bool WorldSaveFormatHasAsh(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V27 || format == WORLD_SAVE_FORMAT_V28 || format == WORLD_SAVE_FORMAT_V29; }
+bool WorldSaveFormatHasInventoryRemainders(WorldSaveFormat format) { return format == WORLD_SAVE_FORMAT_V28 || format == WORLD_SAVE_FORMAT_V29; }
 bool IsColorBlock(BlockType type) { return type >= BLOCK_COLOR_START && type <= BLOCK_COLOR_END; }
 bool IsValidBlockType(BlockType type) { return (type >= BLOCK_AIR && type <= BLOCK_NATURAL_END) || IsColorBlock(type); }
 static bool RemoveFractionSource(void *user) { (void)user; return true; }
@@ -224,7 +224,7 @@ static FILE *WriteSchemaOneTrailer(
     return file;
 }
 
-static void TestSchemaOnePlanetMigration(void)
+static void TestSchemaOneRejected(void)
 {
     currentPlanetId = 77u;
     currentPlanetOriginX = 1000;
@@ -254,21 +254,15 @@ static void TestSchemaOnePlanetMigration(void)
 
     SurfaceAddress *loadedAddresses = NULL;
     SurfaceMapCell *loadedCells = NULL;
-    assert(GameSaveTestLoadSphericalTrailer(
+    assert(!GameSaveTestLoadSphericalTrailer(
         file, WORLD_DIMENSION_PLANET, &player, edits, dimensions, 2,
         &loadedAddresses, &loadedCells));
-    Vector2 expectedPlayer = SurfaceCanonicalMapPosition(
-        1032.25f, 4110.75f, NULL);
-    assert(Near(player.position.x, expectedPlayer.x));
-    assert(Near(player.position.z, expectedPlayer.y));
-    assert(Near(player.yaw, atan2f(sinf(0.4f), -cosf(0.4f))));
-    assert(edits[0].x == 1005 && edits[0].z == 4081);
-    assert(edits[1].x == 3 && edits[1].z == -2);
-    assert(loadedCells[0].x == edits[0].x &&
-           loadedCells[0].z == edits[0].z);
-    assert(SurfaceAddressEqual(loadedAddresses[0], editAddresses[0]));
-    free(loadedAddresses);
-    free(loadedCells);
+    assert(Near(player.position.x, 32.25f));
+    assert(Near(player.position.z, 20.75f));
+    assert(Near(player.yaw, 0.4f));
+    assert(edits[0].x == 5 && edits[0].z == -9);
+    assert(edits[1].x == SURFACE_EQUATOR_BLOCKS + 3 && edits[1].z == -2);
+    assert(!loadedAddresses && !loadedCells);
     fclose(file);
 }
 
@@ -470,7 +464,7 @@ int main(void)
     TestAshPayloadRouting();
     TestLavaPayloadRouting();
     TestVolcanoPayloadRouting();
-    TestSchemaOnePlanetMigration();
+    TestSchemaOneRejected();
     TestSchemaTwoGlobalCoordinates();
     TestRejectsMismatchedEditBodyTransactionally();
     TestRadiationRuntimePayloadRouting();

@@ -665,9 +665,9 @@ static void TestInactiveSurfaceAndUnloadedFireClocks(void)
     WorldSurfaceSnapshot home = *WorldCurrentSurfaceSnapshot();
     WorldSurfaceSnapshot other = home;
     other.context.bodyId = home.context.bodyId + 1u;
-    WorldInstallSurfaceSnapshot(&other);
+    assert(WorldInstallSurfaceSnapshot(&other));
     StepUniformTicks(20u, (Vector3){ 10000.0f, 12.0f, 10000.0f }, Dry());
-    WorldInstallSurfaceSnapshot(&home);
+    assert(WorldInstallSurfaceSnapshot(&home));
     AssertTimingEqual(CaptureTimingSnapshot(), before);
 
     surfaceLoaded = false;
@@ -1142,11 +1142,12 @@ int main(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = 7u,
             .seed = 0x45a19c7du
         }
     };
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
     TestElapsedTimeIndependentOfRecordCount();
     TestInactiveSurfaceAndUnloadedFireClocks();
     TestOwnedMeltAtCapacity();

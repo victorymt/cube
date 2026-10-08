@@ -1391,11 +1391,12 @@ int main(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = 1u,
             .seed = DEFAULT_WORLD_SEED
         }
     };
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
     WorldToChunkLocal(0, 0, NULL, NULL, NULL, NULL);
     Mesh overflowTarget = { .vertexCount = INT_MAX, .triangleCount = 1 };
     Mesh overflowSource = { .vertexCount = 1, .triangleCount = 1 };

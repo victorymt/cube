@@ -24,11 +24,12 @@ slot reuse, save/load, surface/origin changes and teleports reset it. These pose
 are presentation history, do not enter the ENT4 payload, and do not modify
 simulation state or consume randomness.
 
-World format V23 adds an ECL1 homeworld daylight anchor before the spherical
+World format V23 introduced an ECL1 homeworld daylight anchor before the spherical
 trailer (which must remain at EOF). The double anchor is stable between explicit
 clock changes, so sampling an earlier time does not drift as frames advance.
-V18–V22 saves initialize this missing clock; legacy saves cannot recover an
-unsaved historical phase. F9 and DSL loads synchronize both the daylight state
+V29 retains this anchor and is the only accepted world format; the historical
+missing-clock reset applies only to subsystem fixtures. Successful F9 and DSL
+loads synchronize both the daylight state
 and fixed clock to the restored Space elapsed time. Day-cycle toggle history is
 not a complete event log; the latest anchor describes the active clock segment.
 

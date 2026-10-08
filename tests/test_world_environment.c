@@ -59,6 +59,7 @@ static void SetEnvironment(WorldSurfaceKind kind, float gravityScale,
         .context = {
             .active = kind != WORLD_SURFACE_NONE,
             .kind = kind,
+            .topology = WorldTopologyForSurface(kind),
             .bodyId = bodyId,
             .seed = seed,
             .originX = originX,
@@ -71,7 +72,7 @@ static void SetEnvironment(WorldSurfaceKind kind, float gravityScale,
             .hasSolidSurface = true
         }
     };
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
     WorldSetNetherActive(false);
 }
 

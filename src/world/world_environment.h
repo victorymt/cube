@@ -2,6 +2,7 @@
 #define VOXELCRAFT_WORLD_ENVIRONMENT_H
 
 #include "world/world_types.h"
+#include "world/surface_topology_version.h"
 
 #include <stdint.h>
 
@@ -34,6 +35,7 @@ typedef enum WorldSurfaceKind {
 typedef struct WorldSurfaceContext {
     bool active;
     WorldSurfaceKind kind;
+    SurfaceTopologyVersion topology;
     uint32_t bodyId;
     uint32_t seed;
     int originX;

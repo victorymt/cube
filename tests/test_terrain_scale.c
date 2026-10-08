@@ -169,12 +169,13 @@ static void ActivateTestPlanet(uint32_t seed, SolarBodyStyle style)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_PLANET,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = 0x91u,
             .seed = seed
         },
         .planetProfile = planetProfile
     };
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
     const WorldEcologyHooks hooks = {
         .floraCapacityAt = TestFloraCapacityAt
     };
@@ -187,10 +188,11 @@ static void DeactivateTestPlanet(void)
         .context = {
             .active = true,
             .kind = WORLD_SURFACE_HOME,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .seed = terrainSeed
         }
     };
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
     WorldInstallEcologyHooks(NULL);
 }
 
@@ -1754,7 +1756,7 @@ static void TestPlanetLandformGeneration(void)
             assert(LandformRuntimePrepareSurface(&next));
             assert(LandformRuntimeAtlas());
         }
-        WorldInstallSurfaceSnapshot(&original);
+        assert(WorldInstallSurfaceSnapshot(&original));
         assert(!LandformRuntimeAtlas());
         assert(LandformRuntimePrepareSurface(&input));
         AssertLandformEqual(expected.landform, PlanetTerrainSampleAt(cell.x, cell.z).landform);
@@ -1777,13 +1779,13 @@ static void TestPlanetLandformGeneration(void)
     assert(LandformRuntimeAtlas() == base);
     WorldSurfaceSnapshot changedSurface = original;
     changedSurface.context.bodyId++;
-    WorldInstallSurfaceSnapshot(&changedSurface);
+    assert(WorldInstallSurfaceSnapshot(&changedSurface));
     assert(!LandformRuntimeAtlas());
     changed = CurrentPlanetLandformInput();
     assert(LandformRuntimePrepareSurface(&changed));
     assert(LandformRuntimeAtlas() && LandformRuntimeAtlas() != base);
     changedSurface.planetProfile.rotationRate = 0;
-    WorldInstallSurfaceSnapshot(&changedSurface);
+    assert(WorldInstallSurfaceSnapshot(&changedSurface));
     assert(!LandformRuntimeAtlas());
     changed = CurrentPlanetLandformInput();
     assert(LandformRuntimePrepareSurface(&changed));

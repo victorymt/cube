@@ -93,6 +93,7 @@ void EcologyTestSyncWorldSnapshot(void)
         snapshot.context = (WorldSurfaceContext){
             .active = true,
             .kind = WORLD_SURFACE_PLANET,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .bodyId = PlanetWorldSeed(),
             .seed = PlanetWorldSeed()
         };
@@ -101,12 +102,13 @@ void EcologyTestSyncWorldSnapshot(void)
         snapshot.context = (WorldSurfaceContext){
             .active = true,
             .kind = WORLD_SURFACE_HOME,
+            .topology = SURFACE_TOPOLOGY_MAP_V1,
             .seed = propertyWorldSeed
         };
     } else {
         snapshot.context.seed = propertyWorldSeed;
     }
-    WorldInstallSurfaceSnapshot(&snapshot);
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
 }
 
 __attribute__((weak)) bool WorldIsSurfaceActive(void)
