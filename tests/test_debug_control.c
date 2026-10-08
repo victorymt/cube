@@ -570,6 +570,12 @@ static void TestFinalCommandWithoutNewline(void)
 int main(void)
 {
     DebugControl geology = { 0 };
+    assert(DebugControlParseText(&geology, "input manual") == DEBUG_CONTROL_COMMAND_INPUT_MODE);
+    assert(geology.manualInput);
+    assert(DebugControlParseText(&geology, "input scripted") == DEBUG_CONTROL_COMMAND_INPUT_MODE);
+    assert(!geology.manualInput);
+    assert(DebugControlParseText(&geology, "input manual extra") == DEBUG_CONTROL_COMMAND_INVALID);
+
     assert(DebugControlParseText(&geology, "view distance 12") == DEBUG_CONTROL_COMMAND_VIEW_DISTANCE);
     assert(geology.viewDistance == 12);
     assert(DebugControlParseText(&geology, "view distance 1") == DEBUG_CONTROL_COMMAND_VIEW_DISTANCE);

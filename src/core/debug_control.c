@@ -669,6 +669,11 @@ static DebugControlCommand DebugControlParseTeleport(DebugControl *control,
 static DebugControlCommand DebugControlParsePlayerInput(
     DebugControl *control, const char *line)
 {
+    if (!strcmp(line, "input manual") || !strcmp(line, "input scripted")) {
+        control->manualInput = !strcmp(line, "input manual");
+        return DEBUG_CONTROL_COMMAND_INPUT_MODE;
+    }
+
     DebugControlInput input = { 0 };
     int sprint = 0;
     unsigned frames = 0u;

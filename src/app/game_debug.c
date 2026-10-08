@@ -1095,6 +1095,14 @@ static GameDebugDispatchResult GameDebugDispatchMotionCommand(
     case DEBUG_CONTROL_COMMAND_LOOK:
         GameDebugLook(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_INPUT_MODE:
+        game->manualInputEnabled = game->debugControl.manualInput;
+        game->scriptedInputFrames = game->scriptedShipInputFrames = 0;
+        game->scriptedInputFirstFrame = false;
+        game->scriptedShipInputFrameCarry = 0;
+        DebugControlReply(&game->debugControl, "DEBUG_CONTROL input mode=%s\n",
+                          game->manualInputEnabled ? "manual" : "scripted");
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_INPUT:
         GameDebugApplyInput(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -1455,6 +1463,12 @@ static bool GameDebugDslResolveCore(GameRuntime *game, const char *name,
 static bool GameDebugDslResolvePlayer(GameRuntime *game, const char *name,
                                       DebugDslValue *outValue)
 {
+    if (!strcmp(name, "player.manual_input")) {
+        outValue->type = DEBUG_DSL_VALUE_BOOL;
+        outValue->as.boolean = !game->debugControlEnabled || game->manualInputEnabled;
+        return true;
+    }
+
     return GameDebugDslResolveLegacy(game, name, outValue,
                                      GAME_DEBUG_DSL_PLAYER);
 }

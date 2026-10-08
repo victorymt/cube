@@ -727,6 +727,7 @@ teleport X Y Z YAW PITCH
 look YAW PITCH
 look delta YAW_DELTA PITCH_DELTA
 input FORWARD STRAFE VERTICAL SPRINT FRAMES
+input manual|scripted
 mouse left
 mouse right
 ```
@@ -740,7 +741,16 @@ Use `hud debug on` followed by `screenshot` to capture a readable diagnostic
 frame without synthetic key input.
 
 Movement components are in `[-1,1]`; `SPRINT` is `0` or `1`; scripted input
-lasts 1-600 frames. Teleport coordinates are finite and bounded to +/-1,000,000,
+lasts 1-600 frames. Debug sessions default to `input scripted`: when a scripted
+window expires, physical keyboard/mouse movement remains blocked, even after
+script EOF. Use `input manual` to hand movement and mouse-look back to the
+player, including F floating mode and ship controls. Either mode command clears
+pending player/ship input windows. Later explicit input windows still take
+precedence, then return to the selected mode. `input scripted` restores test
+isolation. `player.manual_input` reports whether physical navigation is enabled;
+ordinary pause menus and cursor-release state still apply.
+
+Teleport coordinates are finite and bounded to +/-1,000,000,
 yaw to +/-1,000, and pitch to [-1.45, 1.45]. Absolute look uses the same pitch
 range; relative look deltas are bounded to +/-1,000 and the resulting pitch is
 clamped.
@@ -1009,7 +1019,8 @@ bash scripts/run_volcano_mountain.sh
 The launcher builds the game and uses a new `/tmp/voxelcraft-volcano-play.*`
 directory for its world, settings, log and screenshots. It runs
 `tests/scenes/volcano_mountain.dsl` and leaves the window open for normal movement
-and interaction. The E2E harness appends `exit 0` only to its temporary copy when
+and interaction. Its final `input manual` explicitly releases the debug input
+lock; EOF alone does not do that. The E2E harness appends `exit 0` only to its temporary copy when
 running `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_mountain`.
 
 `geology deposition mountain` requires an unedited planet, no lava/ash records,

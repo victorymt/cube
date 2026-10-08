@@ -36,3 +36,7 @@ teleport ${center.x-105} ${center.y+25} ${center.z-65} 1.01649 -0.22
 stream wait 1200
 pause off
 screenshot
+
+# Explicit handoff: script EOF alone keeps automated sessions input-isolated.
+input manual
+assert player.manual_input

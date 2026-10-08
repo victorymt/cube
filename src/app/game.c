@@ -1,3 +1,4 @@
+#include "app/game_player_input.h"
 #include "raylib.h"
 #include "raymath.h"
 #include "app/game.h"
@@ -655,7 +656,8 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
     if (!game->perfMode && !GameWorldSimulationUserPaused(game) &&
         !game->landingTransition.active &&
         ShipIsDriving() && !StarMapIsOpen()) {
-        if (game->debugControlEnabled) {
+        if (game->debugControlEnabled &&
+            (!game->manualInputEnabled || game->scriptedShipInputFrames > 0u)) {
             ShipControlInput input = { 0 };
             if (game->scriptedShipInputFrames > 0u) {
                 input = game->scriptedShipInput;
@@ -676,21 +678,7 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
             game->wasInSpace = true;
         }
     } else if (!game->perfMode && !inputBlocked) {
-        if (game->scriptedInputFrames > 0u) {
-            game->appliedPlayerInput = game->scriptedPlayerInput;
-            game->appliedPlayerInput.jumpPressed =
-                game->scriptedInputFirstFrame &&
-                game->scriptedPlayerInput.vertical > 0.0f;
-            game->scriptedInputFirstFrame = false;
-            game->scriptedInputFrames--;
-        } else if (game->debugControlEnabled) {
-            // Debug sessions are driven exclusively by stdin so a
-            // desktop key held by the test runner cannot leak into the
-            // simulation after a scripted input window expires.
-            game->appliedPlayerInput = (PlayerInput){ 0 };
-        } else {
-            game->appliedPlayerInput = PlayerInputFromKeyboard();
-        }
+        game->appliedPlayerInput = GameReadPlayerInput(game);
         UpdatePlayerWithInput(&game->player, dt, &game->appliedPlayerInput);
         if (PlanetWorldIsActive()) {
             game->wasInSpace = false;

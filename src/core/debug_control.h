@@ -76,6 +76,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_TELEPORT,
     DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
+    DEBUG_CONTROL_COMMAND_INPUT_MODE,
     DEBUG_CONTROL_COMMAND_MOUSE_LEFT,
     DEBUG_CONTROL_COMMAND_MOUSE_RIGHT,
     DEBUG_CONTROL_COMMAND_SHIP_BEGIN,
@@ -209,6 +210,7 @@ typedef struct DebugControl {
     bool geologyEnabled;
     unsigned depositionCase;
     bool depositionReady;
+    bool manualInput;
     double depositionSupplied, depositionRetained, depositionLiquid, depositionSolid;
     double depositionVolumeError, depositionEnergyError, depositionOutlet, depositionPool;
     bool geologyTerrainFound;

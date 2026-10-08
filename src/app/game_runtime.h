@@ -125,6 +125,7 @@ typedef struct GameRuntime {
 
   bool perfMode;
   bool debugControlEnabled;
+  bool manualInputEnabled;
   bool debugStdinEnabled;
   bool debugScriptEnabled;
   bool debugScriptPathInvalid;
