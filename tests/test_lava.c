@@ -47,6 +47,13 @@ static void Balance(void)
         assert(LavaMaterialValid(c.material, c.thermal.volume));
     }
 }
+static void CoolToAmbient(const LavaContext *ctx)
+{
+    /* Natural-scale cooling takes minutes; stop when cold, with a bounded
+       deadline instead of depending on the previous fast demo coefficient. */
+    for (unsigned i = 0; i < 32000 && LavaRuntimeStats().hotCells; i++) LavaRuntimeStep(ctx);
+    assert(LavaRuntimeStats().hotCells == 0);
+}
 static void TestThermal(void)
 {
     LavaThermalState full = { 1024u, 1024u * LavaSpecificEnthalpy(1450.0) };
@@ -58,6 +65,29 @@ static void TestThermal(void)
     assert(LavaCool(&full, 293.0, 0.1) > 0.0 && full.energy < energy);
     for (unsigned i = 0u; i < 10000u; i++) LavaCool(&full, 293.0, 0.1);
     assert(LavaTemperature(full) == 293.0 && LavaLiquidVolume(full) == 0u);
+}
+static LavaBoundary PoolBoundary(int x, int y, int z, void *user)
+{
+    (void)user;
+    return x >= -1 && x <= 1 && z >= -1 && z <= 1 && y >= 1 && y <= 2 ?
+        LAVA_OPEN : LAVA_BLOCKED;
+}
+static void TestBuriedHeat(void)
+{
+    Reset();
+    LavaContext ctx = Context();
+    ctx.boundary = PoolBoundary;
+    for (int y = 1; y <= 2; y++) for (int x = -1; x <= 1; x++) for (int z = -1; z <= 1; z++)
+        assert(LavaRuntimeDeposit(&ctx, x, y, z, LAVA_CAPACITY, LAVA_SOURCE_K) == LAVA_CAPACITY);
+    LavaRuntimeStep(&ctx);
+    LavaCell buried, surface, edge;
+    assert(LavaRuntimeCellAt(7, 0, 1, 0, &buried));
+    assert(LavaRuntimeCellAt(7, 0, 2, 0, &surface));
+    assert(LavaRuntimeCellAt(7, 1, 2, 1, &edge));
+    assert(buried.thermal.energy > surface.thermal.energy);
+    assert(surface.thermal.energy > edge.thermal.energy);
+    assert(buried.thermal.energy < LAVA_CAPACITY * LavaSpecificEnthalpy(LAVA_SOURCE_K));
+    Balance();
 }
 static void TestFlowAndCooling(void)
 {
@@ -72,7 +102,7 @@ static void TestFlowAndCooling(void)
     LavaCell cell;
     for (unsigned i = 0u; LavaRuntimeAt(i, &cell); i++) downslope |= cell.y == 0 && cell.x > 0;
     assert(downslope);
-    for (unsigned i = 0u; i < 500u; i++) LavaRuntimeStep(&c);
+    CoolToAmbient(&c);
     assert(LavaRuntimeStats().hotCells == 0u);
     assert(LavaRuntimeStats().liquidVolume == 0u);
     assert(LavaRuntimeStats().solidVolume > 0u); /* partials are never promoted to full blocks */
@@ -80,7 +110,7 @@ static void TestFlowAndCooling(void)
     Reset(); closed = true;
     c = Context();
     assert(LavaRuntimeDeposit(&c, 0, 1, 0, 1024u, 1450.0) == 1024u);
-    for (unsigned i = 0u; i < 500u; i++) LavaRuntimeStep(&c);
+    CoolToAmbient(&c);
     assert(solidBlocks == 1u && LavaRuntimeStats().solidified == 1024u);
     assert(LavaRuntimeStats().records == 0u);
     Balance();
@@ -201,7 +231,7 @@ static void TestCoolingIgnoresParkedLava(void)
     lava.bodyId = 8u;
     assert(!Hot(&d, &lava));
     lava.bodyId = 7u;
-    for (unsigned i = 0u; i < 600u; i++) LavaRuntimeStep(&lava);
+    CoolToAmbient(&lava);
     assert(!Hot(&d, &lava));
     Balance();
 }
@@ -265,7 +295,7 @@ static void TestWaterContact(void)
     assert(LavaRuntimeStats().solidVolume == 128u && !solidBlocks);
 
     ctx = WaterContext(1024u, 255u);
-    for (unsigned i = 0; i < 500u; i++) LavaRuntimeStep(&ctx);
+    CoolToAmbient(&ctx);
     assert(solidBlocks == 1u && LavaRuntimeStats().solidified == 1024u);
     Balance();
 
@@ -384,7 +414,7 @@ static void TestRockProducts(void)
         LavaContext ctx = WaterContext(1024, waters[run]);
         LavaRuntimeReset();
         assert(LavaRuntimeDepositMaterial(&ctx, 0, 1, 0, 1024, 1450, silica[run], gas[run]) == 1024);
-        for (unsigned i = 0; i < 500; i++) LavaRuntimeStep(&ctx);
+        CoolToAmbient(&ctx);
         assert(solidBlocks == 1 && lastRock == expected[run]);
         Balance();
     }
@@ -407,7 +437,7 @@ static void TestMaterialFlowAndReplay(void)
     ctx = WaterContext(1024, 255); ctx.solidify = NULL;
     LavaRuntimeReset();
     assert(LavaRuntimeDepositMaterial(&ctx, 0, 1, 0, 1024, 1450, 1, 0) == 1024);
-    for (unsigned i = 0; i < 30; i++) LavaRuntimeStep(&ctx);
+    for (unsigned i = 0; i < 200; i++) LavaRuntimeStep(&ctx);
     LavaCell before, expected, actual;
     assert(LavaRuntimeAt(0, &before) && before.material.quenched > 0);
     FILE *file = tmpfile(); assert(file && LavaRuntimeSave(file));
@@ -444,7 +474,7 @@ static void TestCollection(void)
     Reset(); closed = true; LavaContext ctx = Context(); LavaCell cell;
     assert(LavaRuntimeDepositMaterial(&ctx, 0, 1, 0, 512, 1450, 1, 0) == 512);
     assert(!LavaRuntimeCollect(7, 0, 1, 0, 512, LAVA_ROCK_RHYOLITE));
-    for (unsigned i = 0; i < 600; i++) LavaRuntimeStep(&ctx);
+    CoolToAmbient(&ctx);
     assert(LavaRuntimeCellAt(7, 0, 1, 0, &cell) && cell.cooled);
     assert(!LavaRuntimeCollect(7, 0, 1, 0, 511, LAVA_ROCK_RHYOLITE));
     assert(!LavaRuntimeCollect(7, 0, 1, 0, 512, LAVA_ROCK_BASALT));
@@ -479,6 +509,7 @@ static void TestThermalImport(void)
 
 int main(void)
 {
+    TestBuriedHeat();
     TestThermalImport();
     TestThermal(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
     TestOrderAndPersistence(); TestVolcanoInventory(); TestCoolingIgnoresParkedLava();

@@ -171,7 +171,7 @@ void VolcanoRuntimeUpdate(double seconds, const VolcanoContext *c)
             r->accumulator = fmax(0.0, r->accumulator - VOLCANO_STEP_SECONDS);
             if (c->emitLava && r->state.reservoir > 0.0f &&
                 (r->state.phase == VOLCANO_ERUPTING || r->state.phase == VOLCANO_WANING)) {
-                unsigned requested = (unsigned)(128.0f * r->state.intensity *
+                unsigned requested = (unsigned)((r->definition.forced ? 128.0f : 2048.0f) * r->state.intensity *
                     (r->state.phase == VOLCANO_WANING ? 0.25f : 1.0f));
                 unsigned inventory = (unsigned)(r->state.reservoir * 1024.0f);
                 if (requested > inventory) requested = inventory;
@@ -194,6 +194,16 @@ void VolcanoRuntimeUpdate(double seconds, const VolcanoContext *c)
                 r->state.pressure *= 0.96f;
             } else VolcanoModelStep(&r->state, &r->definition);
         }
+    }
+}
+
+void VolcanoRuntimeSolidifiedSource(uint32_t body, int x, int y, int z)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell(x, z);
+    for (unsigned i = 0; i < recordCount; i++) {
+        VolcanoDefinition *d = &records[i].definition;
+        if (d->address.bodyId == body && d->mapX == cell.x && d->mapZ == cell.z &&
+            d->address.radial == y && y < 1000000) d->address.radial++;
     }
 }
 

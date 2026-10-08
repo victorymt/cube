@@ -85,6 +85,19 @@ VolcanoTerrainSample VolcanoTerrainShape(const VolcanoTerrainDefinition *d, Vect
     float detailMask = Smooth(craterRadius, craterRadius * 1.6f, r) * foot;
     float ridges = .5f + .5f * sinf(13 * angle + 1.6f * Fbm(d->seed + 11, x / 38, y / 38));
     height += detailMask * (3 * Fbm(d->seed + 19, x / 15, y / 15) - 6 * ridges * ridges);
+    /* A breached-crater subtype: a real low saddle connects the central
+       basin to the flank. Lava must fill the basin to this sill; no source
+       is placed at the rim or moved onto the slope. */
+    float outletAngle = Unit(d->seed + 97) * 2 * PI;
+    float along = x * cosf(outletAngle) + y * sinf(outletAngle);
+    float across = fabsf(-x * sinf(outletAngle) + y * cosf(outletAngle));
+    float channel = Smooth(0, d->craterRadius * .24f, along) *
+        (1 - Smooth(2.5f, 5.5f, across));
+    /* Beyond the inner sill, grade the breached channel downhill. A flat
+       cut across the whole flank traps a cooling film instead of draining. */
+    float sill = fmaxf(0, d->height - d->craterDepth + 1.0f -
+        .6f * fmaxf(0, along - d->craterRadius * .24f));
+    height = Lerp(height, fminf(height, sill), channel);
     result = (VolcanoTerrainSample){ .definition = *d, .height = fmaxf(0, height * foot),
         .foundation = 1 - Smooth(.55f * d->radius, d->radius, r), .crater = interior };
     return result;

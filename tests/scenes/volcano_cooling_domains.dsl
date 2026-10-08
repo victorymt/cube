@@ -17,7 +17,7 @@ assert second_id != first_id && geology.position.x == 185
 geology stop ${second_id}
 let parked_heat = geology.energy_error
 let parked_volume = geology.lava_volume
-geology step 1500
+geology step 24000
 geology vents
 assert geology.active_count == 1 && geology.active && geology.id == second_id
 assert geology.phase == "recovery"
@@ -26,7 +26,7 @@ assert geology.volume_error == 0 && geology.energy_error == parked_heat
 # Returning to the first vent resumes its cooling and permits recovery too.
 teleport 0 14 0 1.570796 -0.15
 stream wait 600
-geology step 1500
+geology step 24000
 assert geology.id == first_id && geology.phase == "recovery"
 assert geology.hot_cells == 0 && geology.volume_error == 0
 exit 0

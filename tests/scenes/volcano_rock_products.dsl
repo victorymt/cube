@@ -39,26 +39,22 @@ geology deposit silicic 182 9 0 1024
 geology deposit silicic 190 9 0 1024
 geology deposit scoria 194 9 0 1024
 geology deposit pumice 198 9 0 1024
-block set 192 9 0 Stone
-block set 191 9 -1 Stone
-block set 191 9 1 Stone
-block set 191 10 0 Stone
-block set 191 9 0 Air
-fluid set 191 9 0 255
-fluid step 5
-geology step 6
+# Top contact preserves the sealed basin while the lava remains mobile.
+block set 190 10 0 Air
+fluid set 190 10 0 255
+geology step 40
 teleport 190.1 9.01 0.1 0 0
 assert geology.cell_silica == 1 && geology.cell_vesicles == 0
 assert geology.cell_quenched > 0
 let saved_quenched = geology.cell_quenched
 save
-geology step 120
+geology step 2000
 assert geology.cell_rock == "obsidian" && geology.cell_collision_height == 1
 let expected_evaporated = geology.evaporated_units
 load
 stream wait 600
 assert geology.cell_quenched == saved_quenched
-geology step 120
+geology step 2000
 assert geology.evaporated_units == expected_evaporated
 teleport 178.1 9.01 0.1 0 0
 assert geology.cell_rock == "basalt" && geology.cell_collision_height == 1

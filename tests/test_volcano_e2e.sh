@@ -10,17 +10,19 @@ if [[ -z "${WAYLAND_DISPLAY:-}" || -z "${XDG_RUNTIME_DIR:-}" ||
 fi
 scenes=("${@:2}")
 if ((${#scenes[@]} == 0)); then
-    scenes=(volcano_deposition volcano_terrain volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products volcano_collection volcano_rejected_deposit volcano_enabled volcano_disabled_force)
+    scenes=(volcano_deposition volcano_terrain volcano_live volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products volcano_collection volcano_rejected_deposit volcano_enabled volcano_disabled_force)
 fi
 for scene in "${scenes[@]}"; do
 runtime=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-${scene}.XXXXXX")
 ln -s "$repo/assets" "$runtime/assets"
 cp "$repo/tests/scenes/$scene.dsl" "$runtime/check.dsl"
-if [[ "$scene" == volcano_mountain ]]; then
+if [[ "$scene" == volcano_mountain || "$scene" == volcano_live ]]; then
     printf '\nexit 0\n' >> "$runtime/check.dsl"
 fi
 set +e
-(cd "$runtime" && timeout 120 "$binary" --debug-resolution "$resolution" \
+scene_timeout=120
+[[ "$scene" == volcano_live ]] && scene_timeout=300
+(cd "$runtime" && timeout "$scene_timeout" "$binary" --debug-resolution "$resolution" \
     --debug-script "$runtime/check.dsl" --debug-trace "$runtime/trace.jsonl") \
     > "$runtime/game.log" 2>&1
 status=$?

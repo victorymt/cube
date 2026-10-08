@@ -298,6 +298,12 @@ void LavaRuntimeStep(const LavaContext *ctx)
         fmax(0.0, c->material.field + deltaMaterial[i].field))
         APPLY_MARKER(silica); APPLY_MARKER(vesicles); APPLY_MARKER(quenched);
 #undef APPLY_MARKER
+    }
+    /* Cool only exposed surface. Previously every buried cell lost heat
+       through all four sides and its top, freezing a fed pool into a tower.
+       Snapshot volumes are fully committed before sampling neighbors. */
+    for (unsigned i = 0u; i < count; i++) {
+        LavaCell *c = &cells[i];
         c->steam *= 0.8;
         if (!c->thermal.volume || c->cooled || c->bodyId != ctx->bodyId ||
             ctx->boundary(c->x, c->y, c->z, ctx->user) != LAVA_OPEN) continue;
@@ -305,7 +311,22 @@ void LavaRuntimeStep(const LavaContext *ctx)
         double ambient = ctx->ambient ? ctx->ambient(c->x, c->z, ctx->user) : 293.0;
         if (!isfinite(ambient)) ambient = 293.0;
         ambient = fmin(330.0, fmax(LAVA_REFERENCE_K, ambient));
-        ledger.cooledEnergy += LavaCool(&c->thermal, ambient, LAVA_STEP_SECONDS);
+        double height = (double)c->thermal.volume / LAVA_CAPACITY;
+        LavaCell neighbor;
+        double area = height < 1.0 ||
+            !LavaRuntimeCellAt(c->bodyId, c->x, c->y + 1, c->z, &neighbor) ? 1.0 : 0.0;
+        for (unsigned side = 0; side < 4; side++) {
+            int x = c->x + offsets[side][0], z = c->z + offsets[side][1];
+            /* Loaded rock is a heat sink; unknown faces remain parked. */
+            if (ctx->boundary(x, c->y, z, ctx->user) == LAVA_UNKNOWN) continue;
+            double adjacent = LavaRuntimeCellAt(c->bodyId, x, c->y, z, &neighbor) ?
+                (double)neighbor.thermal.volume / LAVA_CAPACITY : 0.0;
+            area += fmax(0.0, height - adjacent);
+        }
+        /* Small effective conduction loss also cools completely buried lava. */
+        area = fmax(area, 0.1 * height);
+        ledger.cooledEnergy += LavaCool(&c->thermal, ambient,
+            LAVA_STEP_SECONDS * area / (1.0 + 4.0 * height));
         c->cooled = LavaTemperature(c->thermal) <= ambient + 1e-8;
         if (c->cooled) memset(c->contactCredit, 0, sizeof(c->contactCredit));
     }

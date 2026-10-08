@@ -7,7 +7,7 @@ geology force eruption 1 120
 let vent = geology.id
 geology step 120
 geology stop ${vent}
-geology step 1500
+geology step 24000
 teleport 24.5 9.01 0.5 1.570796 0
 assert geology.cell_volume > 0 && geology.cell_volume < 0.75
 assert geology.cell_collision_height == geology.cell_volume

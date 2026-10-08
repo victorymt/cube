@@ -8,7 +8,7 @@ cooling products; heat damage and ecological restoration remain later work.
 
 ## Procedural terrain
 
-Terrain generation V9 uses `world/volcano_terrain` for deterministic mountain
+Terrain generation V10 uses `world/volcano_terrain` for deterministic mountain
 centers on a 512-cell cube-face lattice. A radial flank and crater bowl are
 shaped by center-anchored domain warping, four-octave FBM and radial gullies.
 `space/planet_surface` shares these samples with orbital terrain signals;
@@ -100,7 +100,8 @@ promise. A new world resets all three runtimes; switching surfaces retains them.
 The lava runtime has at most 2,048 hot cells and 8,192 total records. Cold partial
 deposits free hot capacity while retaining storage, geometry and collision. New
 cells are rejected at capacity and rejected source volume remains in the vent.
-The G2 reservoir is finite (256 blocks per vent); there is no automatic refill.
+The reservoir is finite (4096 blocks per natural vent, 256 per diagnostic forced
+vent); there is no automatic refill.
 World callbacks confine each active domain to +/-96 map blocks and +/-96 Y from
 its vent. Unknown terrain sections and domain borders are impermeable. Cells
 outside admitted domains remain parked with their enthalpy unchanged.

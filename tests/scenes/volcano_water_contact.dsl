@@ -65,7 +65,7 @@ teleport 185.1 9.01 0.1 0 0
 stream wait 600
 assert geology.cell_temperature == parked_heat
 assert geology.cell_contact_credit == parked_credit
-geology step 1500
+geology step 24000
 assert geology.volume_error == 0
 assert geology.energy_error > -0.01 && geology.energy_error < 0.01
 assert geology.cell_liquid == 0 && geology.cell_volume == 0.125
@@ -76,7 +76,8 @@ save
 load
 stream wait 600
 assert fluid.volume + geology.evaporated_units == 255
-# A second sealed basin contains a full lava block and only four water units.
+# A sealed lava basin receives four water units on its full top face.
+# Keep the side wall: hot lava now stays mobile long enough to escape through it.
 teleport 193 14 0 1.570796 -0.25
 stream wait 600
 block set 216 9 0 Stone
@@ -96,9 +97,7 @@ geology stop ${full_vent}
 teleport 217.1 9.01 0.1 0 0
 assert geology.cell_volume == 1
 block set 217 10 0 Air
-block set 218 9 0 Air
-fluid set 218 9 0 4
-fluid step 5
+fluid set 217 10 0 4
 let evaporated_before = geology.evaporated_units
 geology step 5
 assert geology.cell_steam > 0
@@ -106,8 +105,8 @@ teleport 214 12 5 2.5 -0.45
 pause off
 screenshot
 pause on
-geology step 1500
-teleport 218.1 9.01 0.1 0 0
+geology step 24000
+teleport 217.1 10.01 0.1 0 0
 assert fluid.volume == 0
 assert geology.evaporated_units == evaporated_before + 4
 assert geology.solidified >= 1 && geology.volume_error == 0

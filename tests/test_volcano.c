@@ -123,6 +123,7 @@ static void TestNaturalCandidate(void)
     assert(!VolcanoCandidateAt(neighbor, 123u, PeakSample, &peak, &definition));
     assert(VolcanoCandidateAt(peak, 123u, PeakSample, &peak, &definition));
     VolcanoState state = VolcanoModelCreate(&definition);
+    assert(state.reservoir == 4096.0f);
     for (unsigned i = 0u; i < 8000u && state.phase == VOLCANO_DORMANT; i++) {
         VolcanoModelStep(&state, &definition);
     }
@@ -171,6 +172,12 @@ static void TestPersistence(void)
     VolcanoContext context = Context();
     assert(VolcanoRuntimeForce(Definition(24), 1.0f, 100u));
     Step(62u, context);
+    VolcanoRuntimeSolidifiedSource(8u, 24, 20, 0);
+    VolcanoRuntimeSolidifiedSource(7u, 25, 20, 0);
+    assert(First().definition.address.radial == 20);
+    VolcanoRuntimeSolidifiedSource(7u, 24, 20, 0);
+    VolcanoRuntimeSolidifiedSource(7u, 24, 20, 0);
+    assert(First().definition.address.radial == 21);
     VolcanoRuntimeUpdate(0.125, &context);
     VolcanoRecord before = First();
     FILE *file = tmpfile();
@@ -185,6 +192,7 @@ static void TestPersistence(void)
     assert(VolcanoRuntimeLoad(file));
     fclose(file);
     AssertSame(First(), before);
+    assert(First().definition.address.radial == 21);
     Step(20u, context);
     VolcanoRecord expected = First();
     file = tmpfile();

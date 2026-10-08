@@ -114,7 +114,7 @@ VolcanoState VolcanoModelCreate(const VolcanoDefinition *definition)
 {
     return (VolcanoState){ .eruptionTicks = 240u,
         .intensity = definition ? definition->potential : 0.5f,
-        .reservoir = 256.0f };
+        .reservoir = definition && !definition->forced ? 4096.0f : 256.0f };
 }
 
 bool VolcanoModelForce(VolcanoState *s, float intensity, unsigned ticks)
@@ -154,7 +154,7 @@ void VolcanoModelStep(VolcanoState *s, const VolcanoDefinition *d)
             return;
         }
         if (s->phaseTicks >= duration && s->reservoir > 0.0f && s->pressure >= 0.5f) {
-            (void)VolcanoModelForce(s, d->potential, 120u + (unsigned)(d->id % 240u));
+            (void)VolcanoModelForce(s, d->potential, 1800u + (unsigned)(d->id % 600u));
         }
         return;
     case VOLCANO_UNREST:

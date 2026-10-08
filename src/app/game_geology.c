@@ -186,6 +186,7 @@ static bool LavaSolidifyAt(int x, int y, int z, void *user)
                                       RockBlock(LavaRockForMaterial(cell.material, cell.thermal.volume)),
                                       WORLD_MUTATION_ENVIRONMENT);
     solidifying = false;
+    if (ok) VolcanoRuntimeSolidifiedSource(s.bodyId, x, y, z);
     return ok;
 }
 static unsigned EmitLava(const VolcanoDefinition *d, unsigned units, void *user)
@@ -197,8 +198,21 @@ static unsigned EmitLava(const VolcanoDefinition *d, unsigned units, void *user)
     profile ^= profile >> 15; profile *= 0x846ca68bu; profile ^= profile >> 16;
     double silica = !d->forced && (profile & 1u) ? 1.0 : 0.0;
     double vesicles = !d->forced && (profile & 2u) ? 1.0 : 0.0;
-    return LavaRuntimeDepositMaterial(&tick->lava, d->mapX, d->address.radial, d->mapZ,
-                                       units, LAVA_SOURCE_K, silica, vesicles);
+    unsigned accepted = 0;
+    /* The conduit stays at the crater center. Stack only above FULL lava
+       cells; unknown terrain and player/ordinary solid caps stop injection. */
+    for (int dy = 0; dy < 64 && accepted < units; dy++) {
+        int y = d->address.radial + dy;
+        if (LavaBoundaryAt(d->mapX, y, d->mapZ, user) != LAVA_OPEN) break;
+        unsigned remaining = units - accepted;
+        if (remaining > LAVA_CAPACITY) remaining = LAVA_CAPACITY;
+        accepted += LavaRuntimeDepositMaterial(&tick->lava, d->mapX, y, d->mapZ,
+                                               remaining, LAVA_SOURCE_K, silica, vesicles);
+        LavaCell cell;
+        if (!LavaRuntimeCellAt(d->address.bodyId, d->mapX, y, d->mapZ, &cell) ||
+            cell.thermal.volume != LAVA_CAPACITY) break;
+    }
+    return accepted;
 }
 
 static AshBoundary AshBoundaryAt(int x, int y, int z, void *user)
@@ -553,6 +567,14 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
     VolcanoStats stats = VolcanoRuntimeStats();
     LavaStats lava = LavaRuntimeStats();
     AshStats ash = AshRuntimeStats();
+    if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT) {
+        DebugDslValue radius;
+        GameDebugGeologyResolve(game, "geology.flow_radius", &radius);
+        DebugControlReply(&game->debugControl,
+            "DEBUG_CONTROL geology flow radius=%.3f supplied=%.3f solidified=%.3f hot=%u records=%u\n",
+            radius.as.number, (double)lava.supplied / LAVA_CAPACITY,
+            (double)lava.solidified / LAVA_CAPACITY, lava.hotCells, lava.records);
+    }
     DebugControlReply(&game->debugControl,
         "DEBUG_CONTROL geology %s records=%u active=%u rejected=%" PRIu64 " lava_physics=1 enabled=%d\n",
         ok ? "ok" : "error", stats.count, stats.active, stats.rejectedAdmissions,
@@ -672,7 +694,17 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
     LavaStats lava = LavaRuntimeStats();
     AshStats ash = AshRuntimeStats();
     double value;
-    if (!strcmp(field, "records")) value = stats.count;
+    if (!strcmp(field, "flow_radius")) {
+        value = 0;
+        LavaCell cell;
+        for (unsigned i = 0; present && LavaRuntimeAt(i, &cell); i++) {
+            if (cell.bodyId != context.bodyId || !LavaLiquidVolume(cell.thermal)) continue;
+            SurfaceMapOffset delta = SurfaceShortestMapOffset(record.definition.mapX,
+                record.definition.mapZ, cell.x, cell.z);
+            value = fmax(value, hypot(delta.x, delta.z));
+        }
+    }
+    else if (!strcmp(field, "records")) value = stats.count;
     else if (!strcmp(field, "active_count")) value = stats.active;
     else if (!strcmp(field, "rejected")) value = (double)stats.rejectedAdmissions;
     else if (!strcmp(field, "event")) value = record.state.event;

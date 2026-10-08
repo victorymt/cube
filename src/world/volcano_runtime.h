@@ -41,6 +41,9 @@ void VolcanoRuntimeReset(void);
 void VolcanoRuntimeUpdate(double seconds, const VolcanoContext *context);
 bool VolcanoRuntimeForce(VolcanoDefinition definition, float intensity, unsigned ticks);
 bool VolcanoRuntimeStop(uint64_t id);
+/* Called only after the runtime commits a full source-cell rock. Persist
+   the raised outlet in the existing definition; player-built caps never lift it. */
+void VolcanoRuntimeSolidifiedSource(uint32_t bodyId, int mapX, int y, int mapZ);
 bool VolcanoRuntimeAt(unsigned index, VolcanoRecord *out);
 bool VolcanoRuntimeNearest(uint32_t bodyId, Vector3 observerMap, VolcanoRecord *out);
 VolcanoStats VolcanoRuntimeStats(void);

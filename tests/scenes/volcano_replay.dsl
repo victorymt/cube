@@ -49,7 +49,7 @@ assert geology.active && geology.ticks == ticks_before_parking + 1
 geology stop ${vent_id}
 assert geology.phase == "cooling"
 assert geology.volume_error == 0
-geology step 1500
+geology step 24000
 assert geology.phase == "recovery"
 assert geology.hot_cells == 0 && geology.liquid_volume == 0
 assert geology.solid_volume > 0 || geology.solidified > 0
@@ -78,7 +78,7 @@ let basin_id = geology.id
 assert geology.position.x == 56
 geology step 72
 geology stop ${basin_id}
-geology step 1500
+geology step 24000
 assert geology.solidified >= 1 && geology.volume_error == 0
 teleport 56 9.01 0 1.570796 -0.25
 assert geology.cell_volume == 0 && geology.cell_collision_height == 1

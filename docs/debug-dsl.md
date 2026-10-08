@@ -1018,10 +1018,30 @@ bash scripts/run_volcano_mountain.sh
 
 The launcher builds the game and uses a new `/tmp/voxelcraft-volcano-play.*`
 directory for its world, settings, log and screenshots. It runs
-`tests/scenes/volcano_mountain.dsl` and leaves the window open for normal movement
+`tests/scenes/volcano_live.dsl` and leaves the window open for normal movement
 and interaction. Its final `input manual` explicitly releases the debug input
 lock; EOF alone does not do that. The E2E harness appends `exit 0` only to its temporary copy when
-running `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_mountain`.
+running `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_live`.
+
+The live scene loads a natural mountain, discovers its central vent, advances
+one eruption through the ordinary runtime, checks outward flow, solidification,
+volume conservation and save/load continuation, then hands control to the player
+with activity enabled. It does not import an H0 snapshot or place lava on the
+slope. `force` only starts the event early; ordinary play uses the dormant/unrest
+clock. Generated V10 mountains have a seeded breach: an inner sill followed by
+a descending channel. This stage supports breached craters, not large sealed
+lava lakes. Natural vents start with 4096 blocks of finite inventory, supply up
+to four blocks/second, and erupt for 900–1200 active seconds; diagnostic forced
+vents retain their smaller inventory/rate. Buried lava loses less heat than
+exposed lava. A source can supply above its filled lava column; a cold rock
+committed at the outlet raises that outlet. Player caps still block supply.
+
+`geology.flow_radius` reports the farthest current-body liquid cell's horizontal
+distance from the nearest vent, in map blocks (zero if absent). It is a spatial
+diagnostic, not source provenance when several flows coexist. `geology inspect`
+prints this distance, supplied/solidified block volumes and runtime cell counts.
+
+The older `volcano_mountain.dsl` remains a separate frozen-snapshot diagnostic:
 
 `geology deposition mountain` requires an unedited planet, no lava/ash records,
 and a current `geology find` result. The fixed showcase uses `desert 1234` and

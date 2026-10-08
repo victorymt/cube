@@ -65,7 +65,10 @@ unsigned LavaFlowBudget(LavaThermalState s)
     if (!liquid) return 0u;
     double mobility = fmin(1.0, fmax(0.05, (LavaTemperature(s) - LAVA_FREEZING_K) / 350.0));
     mobility *= (double)liquid / s.volume;
-    unsigned budget = (unsigned)fmax(1.0, floor(256.0 * mobility));
+    /* A hot cell can drain within one fixed step; temperature and liquid
+       fraction still slow partially frozen flow. This avoids baking a
+       four-step cell-crossing delay into natural-scale lava channels. */
+    unsigned budget = (unsigned)fmax(1.0, floor(LAVA_CAPACITY * mobility));
     return budget < liquid ? budget : liquid;
 }
 
@@ -79,7 +82,7 @@ double LavaCool(LavaThermalState *s, double ambientK, double seconds)
        surface cooling coefficient, not a full radiation/conduction solver. */
     double area = 1.0 + 4.0 * (double)s->volume / LAVA_CAPACITY;
     double loss = fmin(fmax(s->energy - floorEnergy, 0.0),
-                       8.0 * LAVA_CAPACITY * area * seconds);
+                       0.5 * LAVA_CAPACITY * area * seconds);
     s->energy -= loss;
     return loss;
 }

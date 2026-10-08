@@ -90,7 +90,7 @@ block set 160 9 0 Stone
 block set 159 9 -1 Stone
 block set 159 9 1 Stone
 geology deposit basalt 159 9 0 512
-geology step 120
+geology step 2000
 teleport 155.5 9.6 0.5 0 -1.4
 assert target.block == "Pumice"
 pause off

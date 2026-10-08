@@ -88,7 +88,8 @@ static void TestRockCollection(void)
     assert(LavaRuntimeDepositMaterial(&ctx, 1, 2, 3, 512, 1450, 1, 1) == 512);
     assert(!GameInteractionTestCollectBlockAt(1, 2, 3, BLOCK_LAVA));
     assert(!InventoryCount(BLOCK_LAVA) && LavaRuntimeStats().removed == 0);
-    for (unsigned i = 0; i < 600; i++) LavaRuntimeStep(&ctx);
+    for (unsigned i = 0; i < 32000 && LavaRuntimeStats().hotCells; i++) LavaRuntimeStep(&ctx);
+    assert(LavaRuntimeStats().hotCells == 0);
     assert(GameInteractionTestCollectBlockAt(1, 2, 3, BLOCK_PUMICE));
     assert(InventoryRemainder(BLOCK_PUMICE) == 512 && !InventoryRemainder(BLOCK_BASALT));
     LavaStats s = LavaRuntimeStats();
