@@ -457,8 +457,29 @@ static void TestCollection(void)
     rewind(f); LavaRuntimeReset(); assert(LavaRuntimeLoad(f)); fclose(f);
     assert(LavaRuntimeStats().removed == 512); Balance();
 }
+static void TestThermalImport(void)
+{
+    Reset(); LavaContext ctx = Context();
+    LavaThermalState cold = {512, 512 * 20.0};
+    assert(LavaRuntimeImportThermal(&ctx, 0, 1, 0, cold));
+    assert(!LavaRuntimeImportThermal(&ctx, 0, 1, 0, cold));
+    assert(!LavaRuntimeImportThermal(&ctx, 0, 0, 0, cold));
+    assert(!LavaRuntimeImportThermal(&ctx, 1, 1, 0, (LavaThermalState){1025, 0}));
+    LavaThermalState mixed = {1024, 1024 * (LAVA_FREEZING_K - LAVA_REFERENCE_K + LAVA_LATENT_K * .5)};
+    assert(LavaRuntimeImportThermal(&ctx, 1, 1, 0, mixed));
+    LavaCell cell; assert(LavaRuntimeCellAt(7, 0, 1, 0, &cell));
+    assert(cell.cooled && cell.thermal.volume == 512);
+    assert(LavaRuntimeCellAt(7, 1, 1, 0, &cell));
+    assert(!cell.cooled && LavaLiquidVolume(cell.thermal) == 512);
+    LavaStats s = LavaRuntimeStats();
+    assert(s.supplied == 1536 && s.volume == s.supplied);
+    assert(s.energy == s.suppliedEnergy && s.energy == cold.energy + mixed.energy);
+    Reset();
+}
+
 int main(void)
 {
+    TestThermalImport();
     TestThermal(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
     TestOrderAndPersistence(); TestVolcanoInventory(); TestCoolingIgnoresParkedLava();
     TestWaterContact(); TestWaterReplay(); TestLegacyLavaPayload();

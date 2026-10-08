@@ -316,6 +316,7 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
         }
         return DEBUG_CONTROL_COMMAND_INVALID;
     }
+    if (!strcmp(line, "geology deposition mountain")) return DEBUG_CONTROL_COMMAND_GEOLOGY_MOUNTAIN;
     if (!strncmp(line, "geology deposition", 18)) {
         static const char *commands[] = {
             "geology deposition test slope", "geology deposition test basin",

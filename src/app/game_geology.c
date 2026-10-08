@@ -1,3 +1,4 @@
+#include "app/game_debug_volcano_mountain.h"
 #include "app/game_debug_deposition.h"
 #include "app/game_geology.h"
 #include "app/game_internal.h"
@@ -428,6 +429,10 @@ static const BlockType collectionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT, B
 
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
+    if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_MOUNTAIN) {
+        GameDebugVolcanoMountain(game);
+        return true;
+    }
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSITION_TEST) {
         if (!GameDebugDepositionRun(&game->debugControl)) {
             game->debugCommandFailed = true;

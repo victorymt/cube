@@ -54,6 +54,11 @@ unsigned LavaRuntimeDeposit(const LavaContext *context, int x, int y, int z,
 unsigned LavaRuntimeDepositMaterial(const LavaContext *context, int x, int y, int z,
                                      unsigned volume, double temperatureK,
                                      double silicaFraction, double vesicleFraction);
+/* Import an already simulated, homogeneous thermal snapshot into an EMPTY
+   cell. Count it as explicit supply; preserve partial phase and cold volume.
+   No replacement/merge. Uses the same boundary and capacity checks. */
+bool LavaRuntimeImportThermal(const LavaContext *context, int x, int y, int z,
+                              LavaThermalState state);
 void LavaRuntimeStep(const LavaContext *context);
 /* Partition-independent 10 Hz driver; callback supplies and steps the world. */
 void LavaRuntimeAdvance(double seconds, bool active,

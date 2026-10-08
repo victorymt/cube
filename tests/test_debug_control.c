@@ -589,6 +589,8 @@ int main(void)
         "landform find river 2 extra", "landform find nonsense 10", "landform inspect extra" };
     for (unsigned i = 0; i < sizeof(invalidLandform) / sizeof(*invalidLandform); i++)
         assert(DebugControlParseText(&geology, invalidLandform[i]) == DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&geology, "geology deposition mountain") == DEBUG_CONTROL_COMMAND_GEOLOGY_MOUNTAIN);
+    assert(DebugControlParseText(&geology, "geology deposition mountain extra") == DEBUG_CONTROL_COMMAND_INVALID);
     const char *deposition[] = { "geology deposition test slope", "geology deposition test basin",
         "geology deposition test overflow", "geology deposition test cooling" };
     for (unsigned i = 0; i < 4; i++) {

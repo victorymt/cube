@@ -970,6 +970,7 @@ geology inspect
 geology vents
 geology find
 geology deposition test slope|basin|overflow|cooling
+geology deposition mountain
 geology enabled on|off
 geology force eruption INTENSITY TICKS
 geology stop ID
@@ -998,6 +999,39 @@ mountain in place.
 `tests/scenes/volcano_terrain.dsl` verifies the crater/rim height difference,
 natural vent alignment, eruption and save/load, and captures two actual game
 views using `view distance 12`.
+
+To open a **playable volcano mountain**, run from the repository:
+
+```bash
+bash scripts/run_volcano_mountain.sh
+```
+
+The launcher builds the game and uses a new `/tmp/voxelcraft-volcano-play.*`
+directory for its world, settings, log and screenshots. It runs
+`tests/scenes/volcano_mountain.dsl` and leaves the window open for normal movement
+and interaction. The E2E harness appends `exit 0` only to its temporary copy when
+running `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_mountain`.
+
+`geology deposition mountain` requires a fresh, unedited flat Homeworld at map
+origin zero, with no lava or ash records. Warm streaming before calling it as
+shown in the scene. It generates a radius-27, height-22 basalt edifice with a
+crater, evaluates a bounded 81×81 H0 model for 4,200 steps, then imports the
+result as actual blocks and fractional thermal lava/rock overlays. It models
+an older east-side vent, a recent west-side vent and a central pool, with
+1,160 blocks of requested supply. The source locations are explicit; the flow
+paths come from the model. Rendering, collision, collection and save/load use
+the existing world and lava systems.
+
+This command imports a **fixed demonstration snapshot**: it does not activate
+ongoing vents, and its hot cells remain parked without an admitted vent. It
+does not replace natural planetary generation. Thin deposits are quantized
+down to 1/1024 block, with `quantization_loss` reported separately from model
+conservation errors. Fully ambient-cooled whole deposits become basalt blocks;
+other deposits retain their energy and partial liquid/solid state. The reply
+reports block/overlay counts, liquid/solid totals, boundary volume and errors.
+The existing `geology.deposition_*` supply, retained, phase and error queries
+describe the model before quantization. A failed placement reports
+`mountain_import_failed_partial_world`; restart the isolated demo in that case.
 
 `geology deposition test slope|basin|overflow|cooling` runs an isolated H0
 four-column fixture in the game process. It works on the start screen, needs no

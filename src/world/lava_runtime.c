@@ -129,6 +129,25 @@ unsigned LavaRuntimeDeposit(const LavaContext *ctx, int x, int y, int z,
 {
     return LavaRuntimeDepositMaterial(ctx, x, y, z, volume, temperatureK, 0, 0);
 }
+bool LavaRuntimeImportThermal(const LavaContext *ctx, int x, int y, int z,
+                              LavaThermalState state)
+{
+    if (!ctx || !ctx->valid || !state.volume || !LavaThermalValid(state) ||
+        UINT64_MAX - ledger.supplied < state.volume || !ValidCoordinate(x, y, z)) return false;
+    Canonical(&x, &z);
+    if (lookup[Slot(ctx->bodyId, x, y, z)]) return false;
+    unsigned hot = HotCount();
+    int index = Ensure(ctx, x, y, z, &hot);
+    if (index < 0) return false;
+    cells[index].thermal = state;
+    double ambient = ctx->ambient ? ctx->ambient(x, z, ctx->user) : 293.0;
+    if (!isfinite(ambient)) ambient = 293.0;
+    ambient = fmin(330.0, fmax(LAVA_REFERENCE_K, ambient));
+    cells[index].cooled = LavaTemperature(state) <= ambient + 1e-8;
+    ledger.supplied += state.volume;
+    ledger.suppliedEnergy += state.energy;
+    return true;
+}
 unsigned LavaRuntimeDepositMaterial(const LavaContext *ctx, int x, int y, int z,
                                      unsigned volume, double temperatureK,
                                      double silica, double vesicles)
