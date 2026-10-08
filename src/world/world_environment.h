@@ -3,19 +3,13 @@
 
 #include "world/world_types.h"
 #include "world/surface_topology_version.h"
+#include "world/world_location.h"
 
 #include <stdint.h>
 
 // The active environment describes where the player currently lives. The
 // block region is kept separate because the space layer overlaps the ascent
 // corridor in the local coordinate system.
-typedef enum WorldDimension {
-    WORLD_DIMENSION_HOME = 0,
-    WORLD_DIMENSION_PLANET,
-    WORLD_DIMENSION_SPACE,
-    WORLD_DIMENSION_NETHER
-} WorldDimension;
-
 typedef enum WorldBlockRegion {
     WORLD_BLOCK_REGION_NONE = 0,
     WORLD_BLOCK_REGION_SURFACE,

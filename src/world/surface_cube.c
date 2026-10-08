@@ -17,6 +17,54 @@ static const CubeAxes axes[SURFACE_FACE_COUNT] = {
     {{ 0, 0,-1}, {-1, 0, 0}, { 0,-1, 0}}
 };
 
+bool SurfaceCubeFaceAxes(SurfaceFace face, Vector3 *normal, Vector3 *u,
+                         Vector3 *v)
+{
+    if (!SurfaceFaceIsValid(face) || !normal || !u || !v) return false;
+    *normal = axes[face].normal;
+    *u = axes[face].u;
+    *v = axes[face].v;
+    return true;
+}
+
+uint32_t SurfaceCubeCellHash(SurfaceAddress cell)
+{
+    uint32_t hash = 2166136261u;
+    const uint32_t fields[] = {SURFACE_CUBE_TOPOLOGY_VERSION, cell.bodyId,
+        (uint32_t)cell.face, (uint32_t)cell.u, (uint32_t)cell.v,
+        (uint32_t)cell.radial};
+    for (unsigned int i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
+        for (unsigned int shift = 0; shift < 32; shift += 8)
+            hash = (hash ^ ((fields[i] >> shift) & 255u)) * 16777619u;
+    return hash;
+}
+
+bool SurfaceCubeTransportEdge(SurfaceAddress source, SurfaceCubeEdge crossing,
+                              SurfaceCubeEdge direction,
+                              SurfaceCubeEdge *outDirection)
+{
+    if (!outDirection || (unsigned)direction >= 4) return false;
+    SurfaceAddress next;
+    SurfaceCubeEdge back;
+    if (!SurfaceCubeCellNeighbor(source, crossing, &next, &back)) return false;
+    if (source.face == next.face) {
+        *outDirection = direction;
+    } else if (direction == crossing) {
+        *outDirection = (SurfaceCubeEdge)(back ^ 1);
+    } else if (direction == (SurfaceCubeEdge)(crossing ^ 1)) {
+        *outDirection = back;
+    } else {
+        Vector3 tangent = direction < 2 ? axes[source.face].u : axes[source.face].v;
+        if (!(direction & 1)) tangent = Vector3Negate(tangent);
+        float u = Vector3DotProduct(tangent, axes[next.face].u);
+        float v = Vector3DotProduct(tangent, axes[next.face].v);
+        *outDirection = fabsf(u) > .5f
+            ? (u > 0 ? SURFACE_CUBE_U_PLUS : SURFACE_CUBE_U_MINUS)
+            : (v > 0 ? SURFACE_CUBE_V_PLUS : SURFACE_CUBE_V_MINUS);
+    }
+    return true;
+}
+
 bool SurfaceCubeChunkKeyIsValid(SurfaceCubeChunkKey key)
 {
     return SurfaceFaceIsValid(key.face) && key.u >= 0 && key.v >= 0 &&

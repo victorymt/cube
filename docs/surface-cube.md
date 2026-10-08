@@ -128,6 +128,34 @@ active dimension's descriptor (none/0 in space and Nether).
 
 ## Remaining integration, in dependency order
 
+### Full activation work in progress
+
+The activation target is now cube-grid/1 on both Homeworld and planets,
+terrain generation v9, and V30 saves without migration from V29 or earlier.
+The previous v7/v8 fingerprint preservation requirement does not apply to
+that target. These defaults are **not activated** until the runtime consumers
+below have been converted together.
+
+Implemented coordinate primitives:
+
+- `SurfacePose` stores double-precision body-centered position, velocity and
+  tangent heading. Geographic initialization and great-circle displacement
+  carry heading and velocity continuously across poles and face edges.
+- Continuous cube projection and inverse projection agree on X/Y/Z dominant
+  axis tie-breaking; cells use center sampling and explicit radial height.
+- `WorldBlockAddress` tags surface addresses separately from Space/Nether
+  Cartesian coordinates. Hashing excludes padding and inactive union bytes.
+  Six-sided neighbors preserve body identity and reject integer overflow.
+- Cardinal orientation transport is invertible across every directed face
+  boundary, including corner cells. Multi-step corner paths remain ordered.
+
+`make test-surface-cube` now also exercises these primitives. The normal and
+ASan/UBSan focused suites pass, including 20,000 movement steps around a full
+meridian. Full game compilation, public-header checks and architecture checks
+pass. This validates the coordinate layer, not runtime activation or visuals.
+
+### Runtime consumers still to convert
+
 1. Make cube cell identity authoritative for generation, indexing, block
    edits and neighbor lookup. Sample climate/landform using direction or
    latitude/longitude derived from that identity; retain immutable worker

@@ -30,6 +30,16 @@ typedef struct SurfaceCubeCandidate {
     unsigned int steps;
 } SurfaceCubeCandidate;
 
+// Oriented face basis shared by geometry, motion and integer edge transport.
+bool SurfaceCubeFaceAxes(SurfaceFace face, Vector3 *normal, Vector3 *u,
+                         Vector3 *v);
+uint32_t SurfaceCubeCellHash(SurfaceAddress cell);
+// Carry a source-face cardinal direction into the destination face. The
+// transition must be a single edge step; corner paths remain ordered.
+bool SurfaceCubeTransportEdge(SurfaceAddress source, SurfaceCubeEdge crossing,
+                              SurfaceCubeEdge direction,
+                              SurfaceCubeEdge *outDirection);
+
 bool SurfaceCubeChunkKeyIsValid(SurfaceCubeChunkKey key);
 bool SurfaceCubeChunkKeyEqual(SurfaceCubeChunkKey a, SurfaceCubeChunkKey b);
 uint32_t SurfaceCubeChunkKeyHash(SurfaceCubeChunkKey key);
