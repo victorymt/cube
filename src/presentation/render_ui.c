@@ -1124,6 +1124,12 @@ static void DrawCompactPauseMenu(PauseMenuSettings *settings,
         settings->weatherDamageEnabled = !settings->weatherDamageEnabled;
         actions->settingsChanged = true;
     }
+    toggle.y += 46.0f;
+    if (DrawMenuButton(toggle, settings->geologyEnabled ? "Volcanoes: On" : "Volcanoes: Off",
+                       settings->geologyEnabled)) {
+        settings->geologyEnabled = !settings->geologyEnabled;
+        actions->settingsChanged = true;
+    }
     float actionY = panel.y + 97.0f;
     Rectangle action = { actionsX, actionY, actionsWidth, 42.0f };
     if (DrawMenuButton(action, "Resume", true)) actions->resume = true;
@@ -1147,11 +1153,11 @@ void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions)
     int sh = GetScreenHeight();
 
     DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.55f));
-    if (sw < 480 || sh < 480) {
+    if (sw < 640 || sh < 512) {
         DrawTinyPauseMenu(settings, actions, sw, sh);
         return;
     }
-    if (sw < 800 || sh < 600) {
+    if (sw < 800 || sh < 696) {
         DrawCompactPauseMenu(settings, actions, sw, sh);
         return;
     }
@@ -1204,11 +1210,20 @@ void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions)
         actions->settingsChanged = true;
     }
     y += 160;
-    Rectangle musicRect = { (float)left, (float)y, (float)contentWidth, 40.0f };
+    Rectangle musicRect = { (float)left, (float)y,
+                            ((float)contentWidth - 12.0f) * 0.5f, 40.0f };
     if (DrawMenuButton(musicRect,
                        TextFormat("Music: %s", settings->musicEnabled ? "On" : "Off"),
                        settings->musicEnabled)) {
         settings->musicEnabled = !settings->musicEnabled;
+        actions->settingsChanged = true;
+    }
+    Rectangle geologyRect = musicRect;
+    geologyRect.x += geologyRect.width + 12.0f;
+    if (DrawMenuButton(geologyRect,
+                       settings->geologyEnabled ? "Volcanoes: On" : "Volcanoes: Off",
+                       settings->geologyEnabled)) {
+        settings->geologyEnabled = !settings->geologyEnabled;
         actions->settingsChanged = true;
     }
     y += 58;

@@ -1013,7 +1013,8 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         .ambientVolume = game->settings.ambientVolume,
         .musicVolume = game->settings.musicVolume,
         .musicEnabled = game->settings.musicEnabled,
-        .weatherDamageEnabled = game->settings.weatherDamageEnabled
+        .weatherDamageEnabled = game->settings.weatherDamageEnabled,
+        .geologyEnabled = game->settings.geologyEnabled
     };
     GraphicsQuality previousQuality = game->settings.graphicsQuality;
     DrawPauseMenu(&pauseSettings, &pauseActions);
@@ -1024,6 +1025,7 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         game->settings.musicVolume = pauseSettings.musicVolume;
         game->settings.musicEnabled = pauseSettings.musicEnabled;
         game->settings.weatherDamageEnabled = pauseSettings.weatherDamageEnabled;
+        game->settings.geologyEnabled = pauseSettings.geologyEnabled;
         WeatherImpactSetEnabled(game->settings.weatherDamageEnabled);
         if (pauseActions.qualityChanged &&
             !WorldRendererSetQuality(game->settings.graphicsQuality)) {

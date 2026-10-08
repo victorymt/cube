@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define GAME_SETTINGS_VERSION 3
+#define GAME_SETTINGS_VERSION 4
 
 enum {
     SETTINGS_KEY_GRAPHICS_QUALITY = 1u << 0,
@@ -17,7 +17,8 @@ enum {
     SETTINGS_KEY_AMBIENT_VOLUME = 1u << 3,
     SETTINGS_KEY_MUSIC_VOLUME = 1u << 4,
     SETTINGS_KEY_MUSIC_ENABLED = 1u << 5,
-    SETTINGS_KEY_WEATHER_DAMAGE_ENABLED = 1u << 6
+    SETTINGS_KEY_WEATHER_DAMAGE_ENABLED = 1u << 6,
+    SETTINGS_KEY_GEOLOGY_ENABLED = 1u << 7
 };
 
 static float SettingsUnit(float value, float fallback)
@@ -38,7 +39,8 @@ GameSettings GameSettingsDefaults(void)
         .ambientVolume = 0.70f,
         .musicVolume = 0.22f,
         .musicEnabled = true,
-        .weatherDamageEnabled = true
+        .weatherDamageEnabled = true,
+        .geologyEnabled = true
     };
 }
 
@@ -88,6 +90,8 @@ static unsigned SettingsKeyBit(const char *key)
         return SETTINGS_KEY_MUSIC_ENABLED;
     if (strcmp(key, "weather_damage_enabled") == 0)
         return SETTINGS_KEY_WEATHER_DAMAGE_ENABLED;
+    if (strcmp(key, "geology_enabled") == 0)
+        return SETTINGS_KEY_GEOLOGY_ENABLED;
     return 0u;
 }
 
@@ -159,6 +163,9 @@ bool GameSettingsLoadPath(const char *path, GameSettings *settings)
             if (sscanf(value, "%d", &integer) != 1 ||
                 (integer != 0 && integer != 1)) valid = false;
             else loaded.weatherDamageEnabled = integer != 0;
+        } else if (keyBit == SETTINGS_KEY_GEOLOGY_ENABLED) {
+            if (strcmp(value, "0") && strcmp(value, "1")) valid = false;
+            else loaded.geologyEnabled = !strcmp(value, "1");
         }
     }
     if (ferror(file)) valid = false;
@@ -179,12 +186,14 @@ static bool WriteSettings(FILE *file, void *context)
                    "ambient_volume=%.3f\n"
                    "music_volume=%.3f\n"
                    "music_enabled=%d\n"
-                   "weather_damage_enabled=%d\n",
+                   "weather_damage_enabled=%d\n"
+                   "geology_enabled=%d\n",
                    GAME_SETTINGS_VERSION, (int)settings->graphicsQuality,
                    settings->chunkWorkerCount,
                    settings->masterVolume, settings->ambientVolume,
                    settings->musicVolume, settings->musicEnabled ? 1 : 0,
-                   settings->weatherDamageEnabled ? 1 : 0) > 0;
+                   settings->weatherDamageEnabled ? 1 : 0,
+                   settings->geologyEnabled ? 1 : 0) > 0;
 }
 
 bool GameSettingsSavePath(const char *path, const GameSettings *settings)

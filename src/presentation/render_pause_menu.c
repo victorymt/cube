@@ -131,6 +131,13 @@ void DrawTinyPauseMenu(PauseMenuSettings *settings,
             actions->settingsChanged = true;
             actions->workersChanged = true;
         }
+        Rectangle geology = { contentX, worker.y + 36.0f, contentWidth, 28.0f };
+        if (DrawTinyButton(geology,
+                           settings->geologyEnabled ? "Volcanoes: On" : "Volcanoes: Off",
+                           settings->geologyEnabled, true)) {
+            settings->geologyEnabled = !settings->geologyEnabled;
+            actions->settingsChanged = true;
+        }
         return;
     }
 

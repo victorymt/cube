@@ -69,6 +69,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_GEOLOGY_STEP,
     DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT,
     DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED,
     DEBUG_CONTROL_COMMAND_TELEPORT,
     DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
@@ -201,6 +202,7 @@ typedef struct DebugControl {
     bool waterDebugThrough;
     bool pauseEnabled;
     bool weatherDamageEnabled;
+    bool geologyEnabled;
     bool thirdPerson;
     bool mapLiquidsVisible;
     DebugControlSurfaceStyle surfaceDebugStyle;

@@ -582,6 +582,10 @@ int main(void)
     for (unsigned i = 0; i < sizeof(invalidLandform) / sizeof(*invalidLandform); i++)
         assert(DebugControlParseText(&geology, invalidLandform[i]) == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "geology inspect") == DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT);
+    assert(DebugControlParseText(&geology, "geology enabled on") == DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED);
+    assert(geology.geologyEnabled);
+    assert(DebugControlParseText(&geology, "geology enabled off") == DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED);
+    assert(!geology.geologyEnabled);
     assert(DebugControlParseText(&geology, "geology vents") == DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS);
     assert(DebugControlParseText(&geology, "geology force eruption 0.8 100") == DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE);
     assert(geology.geologyTicks == 100u && geology.geologyIntensity == 0.8f);
@@ -598,6 +602,8 @@ int main(void)
     assert(DebugControlParseText(&geology, "geology inventory rhyolite 0") == DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY);
     assert(geology.geologyMaterial == 5 && geology.geologyUnits == 0);
     const char *invalidGeology[] = { "geology force eruption nan 1",
+        "geology enabled", "geology enabled true", "geology enabled on trailing",
+        "geology enabled off trailing", "geology enabled 0",
         "geology inventory ash -1", "geology inventory ash 1000", "geology inventory ash 1.5",
         "geology inventory lava 1", "geology inventory ash 1 trailing", "geology inventory ash 4294967296",
         "geology deposit ash 1 2 3 0", "geology deposit ash 1 2 3 1025",

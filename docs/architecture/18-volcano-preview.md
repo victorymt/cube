@@ -45,6 +45,17 @@ activity/damage policy belongs to G3 before destructive interactions are enabled
 
 ## State and persistence
 
+Application settings V4 own `geology_enabled` (default true), independently of
+weather damage. The pause menu and `geology enabled on|off` change the same flag.
+`GameGeologyUpdate` gates before admission or clock mutation: disabled runtime
+state retains admission flags, fractional clocks, inventories and heat. Reads,
+rendering, collision and collection remain available; resuming recomputes
+admission normally without accumulating disabled time. World load preserves the
+application flag. Explicit DSL stepping also honors it; forced events, stops and
+debug deposits are rejected while disabled. Existing ordinary fires continue
+under their own policy. This supplies the activity gate for future thermal hazards,
+but does not yet implement thermal damage or ignition.
+
 Phases are dormant, unrest, erupting, waning, cooling and recovery. Natural
 events require pressure and inventory; forced vents can be restarted from
 dormant/recovery but cannot reset an already running event. Each restart
@@ -100,6 +111,13 @@ return that surface's face normal. Camera occlusion uses only its solid height,
 including a solid base under liquid; empty space above a deposit stays clear.
 
 ## Verification
+
+- `test_game_settings` and `test_debug_control`: independent setting defaults,
+  round trips, malformed/duplicate values and strict DSL toggle parsing.
+- `volcano_enabled.dsl`: ordinary and explicit stepping freeze while disabled,
+  preserving lava heat/volume, ash, both clocks, collision and save/load state;
+  re-enabling advances only requested steps. A second process verifies the
+  persisted disabled setting. `volcano_disabled_force.dsl` rejects bypass attempts.
 
 - `test_volcano`: lifecycle, forced restart/stop, canonical aliases, face-edge
   candidates, pressure-gated natural events, parked/unloaded/body transitions,

@@ -15,6 +15,7 @@ static void TestDefaultsAndQualityProfiles(void)
     assert(settings.musicVolume == 0.22f);
     assert(settings.musicEnabled);
     assert(settings.weatherDamageEnabled);
+    assert(settings.geologyEnabled);
     assert(GraphicsQualityProfileFor(GRAPHICS_QUALITY_LOW).shadowMapSize == 0);
     assert(GraphicsQualityProfileFor(GRAPHICS_QUALITY_MEDIUM).shadowUpdateInterval == 2);
     assert(GraphicsQualityProfileFor(GRAPHICS_QUALITY_HIGH).shadowMapSize >
@@ -41,6 +42,7 @@ static void TestRoundTripAndCorruption(void)
     written.musicVolume = 0.17f;
     written.musicEnabled = false;
     written.weatherDamageEnabled = false;
+    written.geologyEnabled = false;
     assert(GameSettingsSavePath(path, &written));
     GameSettings loaded;
     assert(GameSettingsLoadPath(path, &loaded));
@@ -51,6 +53,7 @@ static void TestRoundTripAndCorruption(void)
     assert(fabsf(loaded.musicVolume - 0.17f) < 0.001f);
     assert(!loaded.musicEnabled);
     assert(!loaded.weatherDamageEnabled);
+    assert(!loaded.geologyEnabled);
 
     FILE *file = fopen(path, "wb");
     assert(file);
@@ -155,6 +158,49 @@ static void TestSanitize(void)
     assert(clean.chunkWorkerCount == 0);
 }
 
+static void TestGeologySetting(void)
+{
+    const char *path = "/tmp/voxelcraft_settings_geology_test.cfg";
+    const char *invalid[] = { "2", "-1", "true", "1 trailing", "", "0.5",
+                             "99999999999999999999999999999999999" };
+    GameSettings loaded;
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        FILE *file = fopen(path, "wb");
+        assert(file);
+        fprintf(file, "VOXELCRAFT_SETTINGS 4\ngeology_enabled=%s\n", invalid[i]);
+        fclose(file);
+        assert(!GameSettingsLoadPath(path, &loaded));
+        assert(loaded.geologyEnabled);
+    }
+    FILE *file = fopen(path, "wb");
+    assert(file);
+    fputs("VOXELCRAFT_SETTINGS 4\ngeology_enabled=0\ngeology_enabled=1\n", file);
+    fclose(file);
+    assert(!GameSettingsLoadPath(path, &loaded));
+    assert(loaded.geologyEnabled);
+
+    /* Missing keys use the enabled default; weather damage is independent. */
+    file = fopen(path, "wb");
+    assert(file);
+    fputs("VOXELCRAFT_SETTINGS 3\nweather_damage_enabled=0\n", file);
+    fclose(file);
+    assert(GameSettingsLoadPath(path, &loaded));
+    assert(loaded.geologyEnabled && !loaded.weatherDamageEnabled);
+    for (unsigned geology = 0; geology < 2; geology++) {
+        for (unsigned weather = 0; weather < 2; weather++) {
+            GameSettings written = GameSettingsDefaults();
+            written.geologyEnabled = geology;
+            written.weatherDamageEnabled = weather;
+            assert(GameSettingsSavePath(path, &written));
+            assert(GameSettingsLoadPath(path, &loaded));
+            assert(loaded.geologyEnabled == written.geologyEnabled);
+            assert(loaded.weatherDamageEnabled == written.weatherDamageEnabled);
+        }
+    }
+    unlink(path);
+    unlink("/tmp/voxelcraft_settings_geology_test.cfg.bak");
+}
+
 int main(void)
 {
     TestDefaultsAndQualityProfiles();
@@ -163,6 +209,7 @@ int main(void)
     TestVersionTwoMigration();
     TestMalformedRecords();
     TestSanitize();
+    TestGeologySetting();
     puts("game settings tests passed");
     return 0;
 }

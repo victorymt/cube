@@ -961,6 +961,7 @@ ownership until its melted block can be restored safely. See
 ```text
 geology inspect
 geology vents
+geology enabled on|off
 geology force eruption INTENSITY TICKS
 geology stop ID
 geology step TICKS
@@ -973,6 +974,29 @@ overlays and full-cell basalt conversion. G3 adds fixed-step water contact: fini
 water is atomically consumed only after a lava energy parcel commits; procedural
 ocean cells remain full and count external reservoir supply. Replies include `lava_physics=1`. The red vent, ash column, sparks and
 lava cells are drawn from the same saved state without consuming physics randomness.
+
+`geology enabled on|off` persists the independent activity setting (default on)
+in settings format V4 as `geology_enabled=1|0`. It also works before `start`.
+The pause menu exposes the same setting as **Volcanoes** (System tab in tiny
+windows). A failed DSL settings write fails the command without changing the
+live setting. World save/load does not override this application setting.
+
+When off, natural discovery, vent events, lava flow/cooling/water reactions and
+ash falling/erosion stop. Inventories, heat and fractional simulation clocks are
+retained; overlays remain visible, collidable and collectible. Re-enabling resumes
+without catching up elapsed time. This does not pause ordinary water, weather,
+fire or ecology. `weather damage` has no control over geology.
+`geology step` explicitly becomes a no-op while disabled; its reply includes
+`enabled=0`. `force`, `stop` and `deposit` fail while disabled, while inspect,
+vents, inventory and typed queries remain available. `geology.active` continues
+to describe the last admission, not whether simulation is enabled.
+
+`tests/scenes/volcano_enabled.dsl` covers freeze/resume, saved fractional time,
+heat, ash collision and world reload. Its harness also starts a second process
+to check persisted settings. `volcano_disabled_force.dsl` expects a rejected
+forced eruption. To capture both toggle states across menu layouts, run
+`VOLCANO_TEST_RESOLUTION=480x320 bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_menu`
+(also checked at 960x640 and 960x720).
 
 `force` uses the canonical column 24 blocks east of the player, at procedural
 surface height + 1. That column and its supporting block must be loaded and the
@@ -1002,6 +1026,8 @@ by unit fixtures, but V28 and older world files are not accepted by the game.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
+| `geology.enabled` | bool | Persisted activity setting; available before starting a world |
+| `geology.lava_accumulator`, `geology.vent_accumulator` | number | Saved fractional seconds for the 10 Hz driver / nearest vent's 2 Hz step |
 | `geology.present`, `geology.active` | bool | Nearest current-body vent exists / was admitted on the latest geology update |
 | `geology.id` | string | Stable 16-digit hexadecimal vent ID, or all zeroes |
 | `geology.position` | vec3 | Nearest vent's canonical map X/Z and world Y |

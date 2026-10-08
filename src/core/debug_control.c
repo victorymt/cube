@@ -317,6 +317,10 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     }
     if (!strcmp(line, "geology inspect")) return DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT;
     if (!strcmp(line, "geology vents")) return DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS;
+    if (!strcmp(line, "geology enabled on") || !strcmp(line, "geology enabled off")) {
+        control->geologyEnabled = !strcmp(line, "geology enabled on");
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED;
+    }
     if (strncmp(line, "geology", 7u) != 0) return DEBUG_CONTROL_COMMAND_NONE;
     char trailing;
     char intensityText[32], ticksText[32];

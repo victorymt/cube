@@ -312,6 +312,9 @@ static VolcanoContext ContextFor(const GameRuntime *game)
 
 void GameGeologyUpdate(GameRuntime *game, double seconds)
 {
+    /* Keep saved admission, inventories and fractional clocks unchanged. The
+       setting gates simulation only; rendering/queries keep their own context. */
+    if (!game || !game->settings.geologyEnabled) return;
     GeologyTickContext tick = { .game = game, .volcano = ContextFor(game),
                                .weatherTime = SpaceElapsedSimulationTime() };
     if (!tick.volcano.valid) {
@@ -425,10 +428,29 @@ static const BlockType collectionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT, B
 
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
+    if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED) {
+        GameSettings settings = game->settings;
+        settings.geologyEnabled = game->debugControl.geologyEnabled;
+        bool saved = GameSettingsSave(&settings);
+        if (saved) game->settings = settings;
+        else {
+            game->debugCommandFailed = true;
+            snprintf(game->debugCommandFailure, sizeof(game->debugCommandFailure),
+                     "geology_settings_save_failed");
+        }
+        DebugControlReply(&game->debugControl,
+            "DEBUG_CONTROL geology enabled=%d saved=%d\n",
+            game->settings.geologyEnabled, saved);
+        return true;
+    }
     if (command < DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT ||
         command > DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY) return false;
     VolcanoContext context = ContextFor(game);
     bool ok = context.valid;
+    if (!game->settings.geologyEnabled &&
+        (command == DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE ||
+         command == DEBUG_CONTROL_COMMAND_GEOLOGY_STOP ||
+         command == DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT)) ok = false;
     if (ok && command == DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY) {
         unsigned kind = game->debugControl.geologyMaterial;
         if (kind >= 6) ok = false;
@@ -483,8 +505,9 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
     LavaStats lava = LavaRuntimeStats();
     AshStats ash = AshRuntimeStats();
     DebugControlReply(&game->debugControl,
-        "DEBUG_CONTROL geology %s records=%u active=%u rejected=%" PRIu64 " lava_physics=1\n",
-        ok ? "ok" : "error", stats.count, stats.active, stats.rejectedAdmissions);
+        "DEBUG_CONTROL geology %s records=%u active=%u rejected=%" PRIu64 " lava_physics=1 enabled=%d\n",
+        ok ? "ok" : "error", stats.count, stats.active, stats.rejectedAdmissions,
+        game->settings.geologyEnabled);
     DebugControlReply(&game->debugControl,
         "DEBUG_CONTROL geology ash cells=%u volume=%" PRIu64 " supplied=%" PRIu64
         " washed=%" PRIu64 " collected=%" PRIu64 " volume_error=%.0f\n", ash.cells, ash.volume, ash.supplied,
@@ -517,6 +540,11 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
 {
     if (strncmp(name, "geology.", 8u) != 0) return false;
     const char *field = name + 8;
+    if (!strcmp(field, "enabled")) {
+        out->type = DEBUG_DSL_VALUE_BOOL;
+        out->as.boolean = game->settings.geologyEnabled;
+        return true;
+    }
     if (!strncmp(field, "inventory_", 10) || !strncmp(field, "remainder_", 10)) {
         for (unsigned i = 0; i < 6; i++) {
             if (strcmp(field + 10, collectionNames[i])) continue;
@@ -609,6 +637,8 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
     else if (!strcmp(field, "reservoir_units")) value = (double)lava.reservoirWater;
     else if (!strcmp(field, "water_energy")) value = lava.waterEnergy;
     else if (!strcmp(field, "lava_ticks")) value = (double)lava.ticks;
+    else if (!strcmp(field, "lava_accumulator")) value = lava.accumulator;
+    else if (!strcmp(field, "vent_accumulator")) value = record.accumulator;
     else if (!strcmp(field, "blocked_transfers")) value = (double)lava.blockedTransfers;
     else if (!strcmp(field, "rejected_cells")) value = (double)lava.rejectedCells;
     else if (!strcmp(field, "cell_volume") || !strcmp(field, "cell_liquid") ||
