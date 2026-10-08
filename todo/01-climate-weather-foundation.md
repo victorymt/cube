@@ -97,16 +97,11 @@ topology stages.
 These artifacts prove the foundation set only. They do not cover the next-stage
 cloud taxonomy, tornado, or extended wildfire behavior.
 
-## Deferred to Stage 02
+## Follow-on implementation
 
-- Low, middle, high, and vertically developed cloud families with distinct
-  bases, thickness, precipitation relationships, and recognizable silhouettes.
-- Tornado genesis from severe convective storms, lifecycle and track, debris,
-  localized block/entity forces, visibility, audio/visual presentation, debug
-  forcing, and performance limits.
-- Wildfire spread driven by fuel, dryness, temperature, wind, slope/exposure,
-  rain suppression, firebreaks, persistent burn state, smoke, and regeneration
-  hooks. Stage 01 lightning fires are only the ignition foundation.
+Layered cloud families were delivered in [Stage 02](02-cloud-taxonomy.md),
+tornadoes in [Stage 03](03-tornadoes.md), and persistent wildfire in
+[Stage 04](04-wildfire.md). Their boundaries and dated evidence are recorded there.
 
 ## Verification commands
 

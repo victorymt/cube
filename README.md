@@ -1,10 +1,20 @@
 # Voxelcraft
 
 A Minecraft-style voxel sandbox built with raylib. Procedural chunks stream
-around the player on globally traversable spherical surfaces, with block edits
+around the player on spherical surfaces, with block edits
 preserved in world saves. Chunks are rendered as cached visible-face meshes and
 rebuilt only when nearby terrain changes. Block textures are generated at
 startup as a small pixel-art atlas.
+
+## Current status (2026-10-08)
+
+The original expansion and simulation stages are implemented within their
+recorded scope. Current work is planetary landforms and polar ground coverage:
+river/lake generation is integrated, but polar visual acceptance remains blocked.
+The cube-grid foundation is tested; runtime chunk storage, collision and saves
+still use the legacy map grid. See the [current roadmap](todo/00-roadmap.md),
+[quality review](docs/landform-quality.md) and
+[remaining cube-grid integration](docs/surface-cube.md#remaining-integration-in-dependency-order).
 
 ## Features
 
@@ -22,8 +32,9 @@ startup as a small pixel-art atlas.
   range, and precipitation density. Medium is the default 1080p/60 FPS target
 - Water blocks with translucent rendering and simple swimming physics
 - Persistent volcanoes with fixed vents, finite lava inventory, local flow,
-  cooling, partial-height deposits, basalt solidification, save/load and a
-  `geology` debug DSL. Water reactions and heat hazards are future work. See
+  cooling, water-contact reactions, ash layers, material-dependent cooling
+  products, fractional collection, save/load and a `geology` debug DSL.
+  Heat damage and ecological restoration remain future work. See
   [the implementation boundary](docs/architecture/18-volcano-preview.md).
 - Natural geology includes layered granite, limestone, shale, marble,
   chalk and gneiss; loam, podzol, silt and laterite vary soils and seabeds,
@@ -64,12 +75,13 @@ startup as a small pixel-art atlas.
   chunks use a 16-job worker queue that prioritizes the chunks nearest the
   player. Meshes are uploaded on the main thread so new areas stream in smoothly
   instead of hitching
-- Binary save format V23 persists the world seed, inventory, ship fuel and
+- Binary save format V28 persists the world seed, inventory, ship fuel and
   locator, active dimension, planet-world context, entities, ecology state,
   the evolution catalog, weather impacts, radiation and hydrology runtime
-  state, the homeworld daylight clock, player-authored map markers and navigation target, and stable
+  state, the homeworld daylight clock, volcano/lava/ash state, fractional material
+  inventory, player-authored map markers and navigation target, and stable
   cube-sphere addresses for the player and every surface edit.
-  Compatible V18-V22 saves remain readable, with missing subsystem payloads
+  Compatible V18-V27 saves remain readable, with missing subsystem payloads
   initialized on load. The regional ecology payload has its own version (V7)
   and retains evicted regional history as well as cached records.
   New worlds use terrain generation version 8, including river terraces on
@@ -94,7 +106,7 @@ startup as a small pixel-art atlas.
   Preferences are atomically saved in `voxelcraft_settings.cfg`, separately
   from the world save
 - Every generated solid planet is a world: space uses a spherical proxy, while
-  landing streams a deterministic, globally traversable chunk surface with
+  landing streams a deterministic spherical chunk surface with
   planet-specific terrain, materials, sky colors, caves, liquids, and landmarks.
   Gas giants have deep atmospheres and gravity but no fake solid landing surface
 - Minecraft-style content: stairs, fences, fence gates, glass panes, lava
@@ -247,7 +259,8 @@ Implementation milestones and acceptance evidence are tracked separately in
 the [architecture index](docs/architecture/README.md). Roadmap stages marked
 complete describe their bounded implementation scope: climate and hydrology
 currently integrate one active 128x128 region, without global heat transport,
-river networks, ocean currents, or off-screen catchment integration. The
+dynamic global river transport, ocean currents, or off-screen catchment
+integration. Static terrain generation has a separate spherical drainage atlas. The
 [verification record](docs/architecture/06-deterministic-replay-and-ci.md)
 dates test results. The historical full E2E polar-input timeout was not reproduced
 in the [2026-09-19 recheck](docs/architecture/15-polar-e2e-reliability.md), which

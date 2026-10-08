@@ -1,5 +1,11 @@
 # Polar E2E reply ordering and diagnostics
 
+Current coverage limit (2026-10-08): the recorded identity/protocol checks do not
+establish polar ground coverage. The [landform replay](../landform-quality.md)
+reproduces a narrow polar strip on wet and dry planets. The
+[cube-grid foundation](../surface-cube.md) is tested but not integrated into
+the runtime; polar visual acceptance remains open.
+
 ## Reproduction
 
 The 2026-08-30 full graphics route timed out near its final south-pole input

@@ -37,8 +37,9 @@ the homeworld terrain model.
 
 `WORLD_SAVE_FORMAT_V21` introduced a versioned, magic-checked radiation
 payload after the weather-impact state. V22 retained that payload and added the
-[hydrology state](11-hydrology-runtime-integration.md). The current V23 writer
-retains both payloads and adds a homeworld daylight anchor. V18-V20 saves remain
+[hydrology state](11-hydrology-runtime-integration.md). V23 added a homeworld daylight anchor. The current writer retains these
+payloads; see the [persistence index](README.md#implementation-verification-and-limits)
+for the current format and later additions. V18-V20 saves remain
 readable; they reset the radiation bridge to its default state because
 they have no compatible payload. A malformed V21 payload is a transactional
 load error, and the existing trailing-data check remains authoritative.

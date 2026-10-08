@@ -1,5 +1,11 @@
 # Stage 07: Global planetary topology and seamless traversal
 
+Current coverage limit (2026-10-08): the recorded identity/protocol checks do not
+establish polar ground coverage. The [landform replay](../docs/landform-quality.md)
+reproduces a narrow polar strip on wet and dry planets. The
+[cube-grid foundation](../docs/surface-cube.md) is tested but not integrated into
+the runtime; polar visual acceptance remains open.
+
 ## Purpose
 
 Make every solid-surface world a finite, globally traversable sphere. Homeworld

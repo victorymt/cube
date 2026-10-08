@@ -1,5 +1,11 @@
 # Architecture: Global Planetary Topology
 
+Current coverage limit (2026-10-08): the recorded identity/protocol checks do not
+establish polar ground coverage. The [landform replay](../landform-quality.md)
+reproduces a narrow polar strip on wet and dry planets. The
+[cube-grid foundation](../surface-cube.md) is tested but not integrated into
+the runtime; polar visual acceptance remains open.
+
 The spherical surface work canonicalizes longitude with wraparound and
 reflects latitude at the poles while carrying a north-direction sign. Terrain,
 weather, ecology, fluid edits, markers, and saves use the canonical surface

@@ -25,14 +25,19 @@ new physical-simulation stages.
 | 15 | [polar E2E reliability](15-polar-e2e-reliability.md) | stdin reply-ordering regression, independent 600-frame polar DSL gate, and retained failure diagnostics |
 | 16 | [regional ecology continuity](16-ecology-continuity.md) | V23 daylight anchor, V7 regional ecology persistence, explicit scheduling, and historical environmental sampling |
 | 17 | [animal behavior and poses](17-fauna-poses.md) | V5 entity pose persistence, contact-driven gait/strikes, articulated behavior rendering and deterministic DSL previews |
-| 18 | [volcano lifecycle preview](18-volcano-preview.md) | G1 fixed vent identities plus G2 finite lava flow, thermal cooling, partial collision overlays and V25 persistence |
+| 18 | [volcano, lava and ash](18-volcano-preview.md) | G1/G2 lifecycle and lava, G3 water contact, P0 ash/material products, fractional collection and V28 persistence |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
 which are represented by the records above.
 
 [Volcanic activity design](../volcanic-activity-design.md) defines the staged
-eruption, lava and ecology boundaries; G1 and the G2 lava stage are implemented.
+eruption, lava and ecology boundaries; G1/G2, G3 water contact and P0 ash/material
+products are implemented. Heat damage and ecological restoration remain deferred.
+
+Current terrain work is tracked in [surface-neutral landforms](../landform-planets.md),
+[landform quality](../landform-quality.md), and the [cube-grid foundation](../surface-cube.md).
+Polar visual coverage remains blocked; the foundation has not replaced the runtime grid.
 
 ## Implementation, verification, and limits
 
@@ -41,10 +46,11 @@ roadmap status of `Complete` applies to that stage's recorded scope; it does
 not imply that every later revision passed every acceptance route or that
 the bounded models implement full global simulation.
 
-- **Persistence:** the current world writer emits V25 and reads compatible
-  V18-V24 saves. Radiation was introduced in V21, hydrology in V22, the
+- **Persistence:** the current world writer emits V28 and reads compatible
+  V18-V27 saves. Radiation was introduced in V21, hydrology in V22, the
   homeworld daylight anchor in V23, volcano previews in V24, and lava physics
-  in V25. Regional ecology independently writes
+  in V25; later versions add water reactions, ash/material products and
+  fractional collection. Regional ecology independently writes
   population payload V7. These are separate version sequences.
 - **Verification:** [record 06](06-deterministic-replay-and-ci.md) is the
   dated evidence and replay-coverage record. Its 2026-08-30 result of 86
@@ -56,7 +62,8 @@ the bounded models implement full global simulation.
   records the successful 2026-09-19 full graphics recheck, reply-ordering fix
   and independent polar gate; the historical timeout was not reproduced.
 - **Simulation limits:** radiation and hydrology integrate one active
-  128x128 canonical region. Inter-region heat transport, a global river
-  network, ocean transport, snowpack, and off-screen catchment integration
-  remain outside those runtime boundaries. Regional evolution keeps at
+  128x128 canonical region. Inter-region heat transport, dynamic global river
+  transport, ocean transport, snowpack, and off-screen catchment integration
+  remain outside those runtime boundaries. Static landform generation uses a
+  separate global drainage atlas. Regional evolution keeps at
   most eight lineage slots per region and bounded population caches.

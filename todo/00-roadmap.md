@@ -4,23 +4,30 @@ This directory is the implementation and acceptance record for the long-term
 world-expansion work. A stage is planned here before implementation, updated as
 work progresses, verified, and then committed as one reviewable change.
 
-## Final goals
+## Current work (2026-10-08)
 
-1. Expand block content across biological, geological, soil, plant, and useful
-   material families. New blocks must participate in generation, rendering,
-   inventory/building, persistence, and relevant simulation systems.
-2. Make Homeworld and other suitable planets globally traversable. Longitude
-   must wrap without a terrain, climate, lighting, physics, or persistence seam;
-   latitude must have explicit pole behavior rather than an artificial edge.
-3. Build a realistic weather and natural-phenomena system. It must include
-   physically related local climate, multiple cloud layers and types, severe
-   storms including tornadoes, wildfire, environmental effects, debug control,
-   persistence where appropriate, and bounded runtime cost.
-4. Expand trees and plants using real-world ecological families. Distribution,
-   growth form, climate tolerance, succession, and weather response should be
-   data driven rather than cosmetic-only variants.
+| Scope | Status | Record |
+| --- | --- | --- |
+| Versioned Homeworld drainage, lakes, deposits and river terraces | Implemented; new worlds use terrain v8, v7/v6 retain their generation paths | [Landform design and boundaries](../docs/geographic-landforms-design.md) |
+| Per-planet generation strategies and surface-isolated landform runtime | Implemented; rivers, lakes, water and sediment feed planet terrain | [Surface-neutral landforms](../docs/landform-planets.md) |
+| Numerical landform quality gates | Passed in the 2026-10-07 fixtures; not a global visual guarantee | [Quality review](../docs/landform-quality.md) |
+| Polar ground coverage | Open: both wet and dry polar scenes show a narrow strip | [Reproduction and diagnosis](../docs/landform-quality.md#visual-observations-and-acceptance-limits) |
+| Cube-grid coordinates, exact cross-face neighbors and coverage tests | Foundation complete (`ef25929`); runtime integration pending | [Cube-grid contract and next steps](../docs/surface-cube.md) |
+| Coriolis terrain bias | Disabled; requires polar visual acceptance and calibrated diagnostics first | [Physics boundary](../docs/landform-planets.md) |
 
-## Stage order
+Next: define topology/save compatibility, integrate cube-cell identity across
+terrain and gameplay, unify scheduling/render coverage, then replay polar,
+face-crossing, editing and save/load routes. Preserve Homeworld v7/v8 samples.
+
+World saves currently write V28 and read compatible V18-V27 files. Regional
+ecology payload V7 and terrain generator v8 have independent version sequences.
+See [persistence boundaries](../docs/architecture/18-volcano-preview.md#state-and-persistence).
+
+## Completed stage records
+
+These statuses describe dated, bounded implementation work, not current visual
+acceptance. In particular, the original topology and polar protocol tests do not
+close the polar coverage defect above.
 
 | Stage | Scope | Status |
 | --- | --- | --- |
@@ -41,11 +48,6 @@ work progresses, verified, and then committed as one reviewable change.
 | 15 | Character, structure, and optional survival/social physics | Complete |
 | 16 | Deterministic replay, graphics E2E, and performance gates | Complete |
 
-The order deliberately establishes climate inputs before ecology and global
-topology. Stage 07 may require migration of spatial keys and saves, so it is
-kept separate from content expansion and will include an explicit compatibility
-plan before code changes begin.
-
 ## Follow-on verification
 
 Completed stages apply to the bounded scope and dated evidence in their records.
@@ -54,7 +56,6 @@ They do not certify later revisions or imply a full global simulation.
 | Priority | Scope | Status and evidence |
 | --- | --- | --- |
 | P1 | Recheck polar graphics timeout and make E2E reply attribution reliable | Complete; [full graphics and independent 600-frame polar routes passed, 2026-09-19](../docs/architecture/15-polar-e2e-reliability.md); historical timeout not reproduced, stdin reply ordering corrected |
-| P2 | Reconcile documentation with implementation and dated validation | Complete; `c7ee153` recorded world V22 / population V6 at that stage; current world V23 / population V7 are documented in [regional ecology continuity](../docs/architecture/16-ecology-continuity.md). Plugin commit evidence and E2E/regional-model limits are also recorded. |
 | P2 | Cross-system per-tick replay verification | Complete within the documented fixture/checkpoint scope; [92 regular and 92 sanitizer tests passed, 2026-09-19](../docs/architecture/14-cross-system-replay.md) |
 
 ## Shared acceptance rules
