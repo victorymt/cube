@@ -50,6 +50,7 @@ $(eval $(call define_test,SPACE_SATELLITE_TEST_TARGET,test_space_satellite,src/s
 $(eval $(call define_test,SPACE_UNITS_TEST_TARGET,test_space_units,src/space/space_units.c,,,, -lm,,))
 $(eval $(call define_test,SPACE_COORDINATES_TEST_TARGET,test_space_coordinates,src/space/space_coordinates.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_TOPOLOGY_TEST_TARGET,test_surface_topology,src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,VOLCANO_TERRAIN_TEST_TARGET,test_volcano_terrain,src/world/volcano_terrain.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_CUBE_TEST_TARGET,test_surface_cube,src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_POSE_TEST_TARGET,test_surface_pose,src/world/surface_pose.c src/world/world_location.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_GEOMETRY_TEST_TARGET,test_surface_geometry,src/world/surface_geometry.c src/world/surface_pose.c src/world/world_location.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
