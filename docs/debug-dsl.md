@@ -1012,19 +1012,25 @@ directory for its world, settings, log and screenshots. It runs
 and interaction. The E2E harness appends `exit 0` only to its temporary copy when
 running `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_mountain`.
 
-`geology deposition mountain` requires a fresh, unedited flat Homeworld at map
-origin zero, with no lava or ash records. Warm streaming before calling it as
-shown in the scene. It generates a radius-27, height-22 basalt edifice with a
-crater, evaluates a bounded 81×81 H0 model for 4,200 steps, then imports the
-result as actual blocks and fractional thermal lava/rock overlays. It models
-an older east-side vent, a recent west-side vent and a central pool, with
-1,160 blocks of requested supply. The source locations are explicit; the flow
-paths come from the model. Rendering, collision, collection and save/load use
-the existing world and lava systems.
+`geology deposition mountain` requires an unedited planet, no lava/ash records,
+and a current `geology find` result. The fixed showcase uses `desert 1234` and
+selects a naturally generated mountain of radius about 112 and relief about 70
+blocks (the command accepts radius 110–115 for this particular source/domain
+layout). The mountain comes from ordinary terrain generation, not block edits.
+The scene disables geological activity in its isolated settings so spontaneous
+events cannot change the snapshot during inspection.
 
-This command imports a **fixed demonstration snapshot**: it does not activate
-ongoing vents, and its hot cells remain parked without an admitted vent. It
-does not replace natural planetary generation. Thin deposits are quantized
+A bounded 128×128, one-block-resolution H0 grid samples the real western slope
+and runs 5,000 steps. Two explicit upper-flank sources, 30 blocks west and 12
+blocks north/south of the center, supply older and recent flows (2,160 blocks
+total). Only the resulting deposits are imported as blocks and fractional
+thermal overlays. The command rejects touched model boundaries or excess
+runtime capacity before importing. The existing lava budgets are unchanged.
+Rendering, collision, collection and save/load use the ordinary world systems.
+
+This is a **fixed historical snapshot on a natural-size mountain**. The scene
+keeps ongoing activity disabled; it is not planet-wide historical generation.
+Thin deposits are quantized
 down to 1/1024 block, with `quantization_loss` reported separately from model
 conservation errors. Fully ambient-cooled whole deposits become basalt blocks;
 other deposits retain their energy and partial liquid/solid state. The reply
