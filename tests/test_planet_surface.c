@@ -75,6 +75,9 @@ static void AssertSamplesNear(PlanetSurfaceSample left, PlanetSurfaceSample righ
     ASSERT_SAMPLE_FIELD(volcanicCone);
     ASSERT_SAMPLE_FIELD(caldera);
     ASSERT_SAMPLE_FIELD(lavaFlow);
+    ASSERT_SAMPLE_FIELD(volcano.height);
+    ASSERT_SAMPLE_FIELD(volcano.foundation);
+    ASSERT_SAMPLE_FIELD(volcano.crater);
     ASSERT_SAMPLE_FIELD(duneBand);
     ASSERT_SAMPLE_FIELD(glacierFlow);
     ASSERT_SAMPLE_FIELD(glacierCracks);

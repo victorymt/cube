@@ -6,12 +6,30 @@ partial-height collision overlays and full-cell basalt conversion. Water contact
 now a fixed-step G3 interaction. P0 adds finite ash layers and material-aware
 cooling products; heat damage and ecological restoration remain later work.
 
+## Procedural terrain
+
+Terrain generation V9 uses `world/volcano_terrain` for deterministic mountain
+centers on a 512-cell cube-face lattice. A radial flank and crater bowl are
+shaped by center-anchored domain warping, four-octave FBM and radial gullies.
+`space/planet_surface` shares these samples with orbital terrain signals;
+`world/terrain_planet_height` blends the inherited relief into a shared
+foundation and adds the mountain height. The foundation cap preserves the rim
+inside the existing 240-block elevation budget. This generates mountain
+geometry; it does not simulate geological lava accumulation.
+
+Natural vent callbacks accept only centers from the same definition and use
+actual surface height for the outlet. Generated mountains remain visible when
+activity is disabled. Homeworld natural generation remains unchanged.
+`geology find` locates a mountain without admitting a vent;
+`tests/scenes/volcano_terrain.dsl` verifies terrain/outlet alignment and captures
+the mountain and crater in the game.
+
 ## Ownership and identity
 
 `world/volcano_model` defines a stable 64-bit ID from body, generator version,
 cube face and face coordinates. Natural candidates use a fixed 128-cell face
 grid and compare potential against eight adjacent candidates, including face
-crossings. A face cell with no exact integer map representative retains its
+crossings. The planetary callback filters that lattice to shared mountain centers. A face cell with no exact integer map representative retains its
 face identity and uses a nearby canonical map column for placement. Forced
 vents use the exact canonical map location and share longitude/pole aliases.
 Potential and terrain height come through callbacks; the pure model does not

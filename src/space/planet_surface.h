@@ -2,6 +2,7 @@
 #define VOXELCRAFT_PLANET_SURFACE_H
 
 #include "space/planet_profile.h"
+#include "world/volcano_terrain.h"
 
 #include <stdint.h>
 
@@ -54,6 +55,7 @@ typedef struct PlanetSurfaceSample {
     float volcanicCone;
     float caldera;
     float lavaFlow;
+    VolcanoTerrainSample volcano;
     float duneBand;
     float glacierFlow;
     float glacierCracks;

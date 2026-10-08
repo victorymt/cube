@@ -686,6 +686,10 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
     case DEBUG_CONTROL_COMMAND_STREAM_WAIT:
         GameStreamWaitStart(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_VIEW_DISTANCE:
+        ChunksSetRenderDistance((int)game->debugControl.viewDistance);
+        DebugControlReply(&game->debugControl, "DEBUG_CONTROL view distance chunks=%d\n", ChunksRenderDistance());
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_QUIT:
         game->quitRequested = true;
         DebugControlReply(&game->debugControl,

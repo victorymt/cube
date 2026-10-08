@@ -1901,6 +1901,39 @@ static void TestVersion8Terraces(void)
     LandformRuntimeReset();
 }
 
+static void TestVolcanoTerrainIntegration(void)
+{
+    PlanetProfile profile = PlanetProfileGenerateLegacy(1234, SOLAR_STYLE_DESERT, 600);
+    profile.volcanicActivity = 1;
+    profile.oceanCoverage = 0;
+    unsigned checked = 0;
+    for (SurfaceFace face = 0; face < SURFACE_FACE_COUNT; face++) {
+        VolcanoTerrainDefinition d;
+        SurfaceAddress center = {1234,face,320,320,0};
+        if (!VolcanoTerrainDefine(1234, 1, center, &d)) continue;
+        float longitude, latitude;
+        SurfaceAddressLatLon(center, &longitude, &latitude);
+        PlanetSurfaceSample sample;
+        int floor = TerrainPlanetBaselineAtGeographic(1234, &profile, longitude, latitude, &sample);
+        assert(sample.volcano.definition.seed == d.seed);
+        assert(sample.volcano.crater > .999f);
+        SurfaceFrame frame = SurfaceFrameAt(center);
+        for (unsigned angle = 0; angle < 8; angle++) {
+            float a = angle * PI / 4;
+            Vector3 direction = Vector3Normalize(Vector3Add(frame.up,
+                Vector3Add(Vector3Scale(frame.east, cosf(a)*d.craterRadius/SURFACE_RADIUS_BLOCKS),
+                           Vector3Scale(frame.north, sinf(a)*d.craterRadius/SURFACE_RADIUS_BLOCKS))));
+            int rim = TerrainPlanetBaselineAtGeographic(1234, &profile,
+                atan2f(direction.z, direction.x), asinf(direction.y), NULL);
+            assert(rim > floor + 12);
+            assert(rim <= 240);
+        }
+        assert(TerrainPlanetBaselineAtGeographic(1234, &profile, longitude, latitude, NULL) == floor);
+        checked++;
+    }
+    assert(checked >= 1);
+}
+
 int main(void)
 {
     TerrainGenerationSetVersion(6);
@@ -1949,6 +1982,7 @@ int main(void)
     TestPlanetLandformGeneration();
     TestVersion7Landforms();
     TestVersion8Terraces();
+    TestVolcanoTerrainIntegration();
     puts("terrain scale tests passed");
     return 0;
 }

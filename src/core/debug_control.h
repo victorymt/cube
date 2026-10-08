@@ -70,6 +70,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSIT,
     DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY,
     DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_FIND,
     DEBUG_CONTROL_COMMAND_TELEPORT,
     DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
@@ -81,6 +82,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_SHIP_EXHAUST,
     DEBUG_CONTROL_COMMAND_SHIP_DUST,
     DEBUG_CONTROL_COMMAND_VIEW,
+    DEBUG_CONTROL_COMMAND_VIEW_DISTANCE,
     DEBUG_CONTROL_COMMAND_EVOLUTION_INSPECT,
     DEBUG_CONTROL_COMMAND_EVOLUTION_FOCUS,
     DEBUG_CONTROL_COMMAND_EVOLUTION_REGION,
@@ -203,7 +205,12 @@ typedef struct DebugControl {
     bool pauseEnabled;
     bool weatherDamageEnabled;
     bool geologyEnabled;
+    bool geologyTerrainFound;
+    uint32_t geologyTerrainBody, geologyTerrainSeed;
+    int geologyTerrainX, geologyTerrainY, geologyTerrainZ;
+    float geologyTerrainRadius, geologyTerrainHeight, geologyCraterRadius;
     bool thirdPerson;
+    unsigned viewDistance;
     bool mapLiquidsVisible;
     DebugControlSurfaceStyle surfaceDebugStyle;
     uint32_t surfaceDebugSeed;

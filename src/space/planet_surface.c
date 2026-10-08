@@ -256,12 +256,11 @@ static PlanetSurfaceSample PlanetSampleGlobalSurfaceInternal(
 
     float volcanic = profile ? Clamp(profile->volcanicActivity, 0.0f, 1.0f) : 0.0f;
     float volcanicNoise = PlanetFractalNoise3D(seed, point, 3.15f, 251u);
-    float volcanoPotential = PlanetSmoothStep(0.68f, 0.90f, volcanicNoise) * volcanic;
-    sample.volcanicActivity = Clamp(volcanoPotential + volcanic * 0.12f, 0.0f, 1.0f);
-    sample.volcanicCone = volcanoPotential * (0.55f + sample.regionalness * 0.45f);
-    sample.caldera = sample.volcanicCone *
-                     PlanetSmoothStep(0.73f, 0.91f,
-                                      PlanetFractalNoise3D(seed, point, 7.2f, 269u));
+    sample.volcano = VolcanoTerrainAt(seed, volcanic, point);
+    sample.volcanicActivity = sample.volcano.height > 0 ? sample.volcano.definition.potential : volcanic * .12f;
+    sample.volcanicCone = sample.volcano.height > 0 ?
+        Clamp(sample.volcano.height / sample.volcano.definition.height, 0, 1) : 0;
+    sample.caldera = sample.volcano.crater;
     Vector3 lavaAxis = PlanetSeedDirection(seed, 281u);
     Vector3 lavaSide = Vector3Normalize((Vector3){ -lavaAxis.z, 0.25f, lavaAxis.x });
     float flowAlong = Vector3DotProduct(point, lavaAxis);

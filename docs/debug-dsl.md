@@ -631,7 +631,14 @@ water debug on|off
 water debug through
 water debug through on|off
 view first|third
+view distance CHUNKS
 ```
+
+`view distance CHUNKS` sets the session render distance (integer 1–12).
+It does not persist settings. For distant terrain screenshots, warm normal
+streaming with `input 0 0 0 0 180` and
+`wait until player.input_frames == 0 timeout 1200`; `stream wait` settles
+only the nearby surface, not every distant mesh.
 
 `water debug` and `water debug through` toggle their current setting when the
 `on`/`off` argument is omitted. `start` is valid on the start screen.
@@ -961,6 +968,7 @@ ownership until its melted block can be restored safely. See
 ```text
 geology inspect
 geology vents
+geology find
 geology enabled on|off
 geology force eruption INTENSITY TICKS
 geology stop ID
@@ -974,6 +982,21 @@ overlays and full-cell basalt conversion. G3 adds fixed-step water contact: fini
 water is atomically consumed only after a lava energy parcel commits; procedural
 ocean cells remain full and count external reservoir supply. Replies include `lava_physics=1`. The red vent, ash column, sparks and
 lava cells are drawn from the same saved state without consuming physics randomness.
+
+`geology find` searches deterministic mountain definitions on the current planet,
+selects the nearest center above sea level, and creates no runtime record.
+Check `geology.terrain_found` (bool) before using `geology.terrain_position`
+(vec3, local X/Z and outlet Y), `geology.terrain_radius`,
+`geology.terrain_height` (model relief), and `geology.terrain_crater_radius`
+(numbers in blocks). Results are scoped to the current body and seed;
+repeat the command after changing surfaces. `geology.terrain_ground` returns
+the procedural surface height under the current player column, independently
+of discovery. Homeworld is unsupported. Disabling activity leaves the generated
+mountain in place.
+
+`tests/scenes/volcano_terrain.dsl` verifies the crater/rim height difference,
+natural vent alignment, eruption and save/load, and captures two actual game
+views using `view distance 12`.
 
 `geology enabled on|off` persists the independent activity setting (default on)
 in settings format V4 as `geology_enabled=1|0`. It also works before `start`.

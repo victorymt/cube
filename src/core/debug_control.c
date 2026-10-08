@@ -1,4 +1,5 @@
 #include "core/debug_control.h"
+#include "core/config.h"
 #include <inttypes.h>
 
 #include <ctype.h>
@@ -317,6 +318,7 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     }
     if (!strcmp(line, "geology inspect")) return DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT;
     if (!strcmp(line, "geology vents")) return DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS;
+    if (!strcmp(line, "geology find")) return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
     if (!strcmp(line, "geology enabled on") || !strcmp(line, "geology enabled off")) {
         control->geologyEnabled = !strcmp(line, "geology enabled on");
         return DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED;
@@ -787,6 +789,15 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
 static DebugControlCommand DebugControlParseView(DebugControl *control,
                                                  const char *line)
 {
+    if (!strncmp(line, "view distance", 13)) {
+        char number[32], trailing;
+        unsigned distance;
+        if (sscanf(line, "view distance %31s %c", number, &trailing) != 1 ||
+            !DebugControlGeologyTicks(number, MAX_RENDER_DISTANCE_CHUNKS, &distance))
+            return DEBUG_CONTROL_COMMAND_INVALID;
+        control->viewDistance = distance;
+        return DEBUG_CONTROL_COMMAND_VIEW_DISTANCE;
+    }
     if (strcmp(line, "view first") != 0 &&
         strcmp(line, "view third") != 0) {
         return DEBUG_CONTROL_COMMAND_NONE;

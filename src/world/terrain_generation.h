@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TERRAIN_GENERATION_CURRENT 8u
+#define TERRAIN_GENERATION_CURRENT 9u
 #define TERRAIN_GENERATION_LANDFORMS 7u
 #define TERRAIN_GENERATION_LEGACY 6u
 #define TERRAIN_GENERATION_MIN 2u

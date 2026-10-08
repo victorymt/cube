@@ -7,6 +7,7 @@ PRESENTATION_SRC := $(sort $(wildcard src/presentation/*.c))
 APP_SRC := $(sort $(wildcard src/app/*.c))
 
 ATMOSPHERE_FEATURE_SRC := src/world/atmosphere_model.c src/space/planet_atmosphere.c
+PLANET_SURFACE_SRC := src/space/planet_surface.c src/world/volcano_terrain.c src/world/surface_topology.c
 
 SPACE_FEATURE_SRC := \
 	$(ATMOSPHERE_FEATURE_SRC) \
@@ -66,6 +67,7 @@ GAME_EFFECTS_SRC := src/core/game_effects.c
 TERRAIN_FEATURE_SRC := \
 	src/world/terrain.c \
 	src/world/terrain_planet_sample.c \
+	src/world/terrain_planet_height.c \
 	src/world/landform_model.c \
 	src/world/landform_physics.c \
 	src/world/planet_landform_strategy.c \

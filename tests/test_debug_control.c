@@ -570,6 +570,14 @@ static void TestFinalCommandWithoutNewline(void)
 int main(void)
 {
     DebugControl geology = { 0 };
+    assert(DebugControlParseText(&geology, "view distance 12") == DEBUG_CONTROL_COMMAND_VIEW_DISTANCE);
+    assert(geology.viewDistance == 12);
+    assert(DebugControlParseText(&geology, "view distance 1") == DEBUG_CONTROL_COMMAND_VIEW_DISTANCE);
+    assert(geology.viewDistance == 1);
+    const char *invalidDistance[] = { "view distance 0", "view distance 13", "view distance -1",
+        "view distance 1.5", "view distance nan", "view distance 12 extra", "view distance" };
+    for (unsigned i = 0; i < sizeof(invalidDistance)/sizeof(invalidDistance[0]); i++)
+        assert(DebugControlParseText(&geology, invalidDistance[i]) == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "landform inspect") == DEBUG_CONTROL_COMMAND_LANDFORM_INSPECT);
     assert(DebugControlParseText(&geology, "landform find river 16384") == DEBUG_CONTROL_COMMAND_LANDFORM_FIND);
     assert(geology.landformRadius == 16384 && !strcmp(geology.landformType, "river"));
@@ -587,6 +595,7 @@ int main(void)
     assert(DebugControlParseText(&geology, "geology enabled off") == DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED);
     assert(!geology.geologyEnabled);
     assert(DebugControlParseText(&geology, "geology vents") == DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS);
+    assert(DebugControlParseText(&geology, "geology find") == DEBUG_CONTROL_COMMAND_GEOLOGY_FIND);
     assert(DebugControlParseText(&geology, "geology force eruption 0.8 100") == DEBUG_CONTROL_COMMAND_GEOLOGY_FORCE);
     assert(geology.geologyTicks == 100u && geology.geologyIntensity == 0.8f);
     assert(DebugControlParseText(&geology, "geology step 120") == DEBUG_CONTROL_COMMAND_GEOLOGY_STEP);
@@ -604,6 +613,7 @@ int main(void)
     const char *invalidGeology[] = { "geology force eruption nan 1",
         "geology enabled", "geology enabled true", "geology enabled on trailing",
         "geology enabled off trailing", "geology enabled 0",
+        "geology find extra",
         "geology inventory ash -1", "geology inventory ash 1000", "geology inventory ash 1.5",
         "geology inventory lava 1", "geology inventory ash 1 trailing", "geology inventory ash 4294967296",
         "geology deposit ash 1 2 3 0", "geology deposit ash 1 2 3 1025",

@@ -11,7 +11,7 @@ define define_test
 $1 := $$(TEST_BUILD_DIR)/$2
 TEST_TARGETS += $$($1)
 TEST_BINARY_NAMES += $2
-TEST_SOURCES_$2 := $3
+TEST_SOURCES_$2 := $(sort $3)
 TEST_CPPFLAGS_$2 := $4
 TEST_CFLAGS_$2 := $5
 TEST_LDFLAGS_$2 := $6
@@ -35,7 +35,7 @@ endef
 $(eval $(call define_test,TEST_TARGET,test_world_environment,src/world/world_environment.c src/world/surface_topology.c $(WORLD_SURFACE_SNAPSHOT_SRC),,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WORLD_SURFACE_SNAPSHOT_TEST_TARGET,test_world_surface_snapshot,$(WORLD_SURFACE_SNAPSHOT_SRC),,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WORLD_ECOLOGY_HOOKS_TEST_TARGET,test_world_ecology_hooks,src/world/ecology_hooks.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,PLANET_SURFACE_TEST_TARGET,test_planet_surface,src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c src/space/space_illumination.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,PLANET_SURFACE_TEST_TARGET,test_planet_surface,src/core/simulation_time.c $(PLANET_SURFACE_SRC) src/space/planet_profile.c src/space/planet_climate.c src/space/space_illumination.c src/space/space_units.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_MATERIAL_TEST_TARGET,test_planet_material,src/space/planet_material.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_CLIMATE_TEST_TARGET,test_planet_climate,src/space/planet_climate.c,,,, -lm,,))
 $(eval $(call define_test,RADIATION_BALANCE_TEST_TARGET,test_radiation_balance,src/world/radiation_balance.c,,,, -lm,,))
@@ -55,7 +55,7 @@ $(eval $(call define_test,SURFACE_CUBE_TEST_TARGET,test_surface_cube,src/world/s
 $(eval $(call define_test,SURFACE_POSE_TEST_TARGET,test_surface_pose,src/world/surface_pose.c src/world/world_location.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_GEOMETRY_TEST_TARGET,test_surface_geometry,src/world/surface_geometry.c src/world/surface_pose.c src/world/world_location.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_COVERAGE_TEST_TARGET,test_surface_coverage,src/world/surface_coverage.c src/world/surface_pose.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_test,TERRAIN_CUBE_TEST_TARGET,test_terrain_cube,src/world/terrain_cube.c src/world/chunks_storage.c $(TERRAIN_FEATURE_SRC) src/world/surface_cube.c src/world/surface_topology.c src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,TERRAIN_CUBE_TEST_TARGET,test_terrain_cube,src/world/terrain_cube.c src/world/chunks_storage.c $(TERRAIN_FEATURE_SRC) src/world/surface_cube.c src/world/surface_topology.c src/core/simulation_time.c $(PLANET_SURFACE_SRC) src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,CUBE_STORAGE_TEST_TARGET,test_cube_storage,src/world/terrain_cube_chunk.c $(TEST_SOURCES_test_terrain_cube),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SURFACE_SAVE_TEST_TARGET,test_surface_save,src/world/surface_save.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,GAME_SAVE_SPHERICAL_TEST_TARGET,test_game_save_spherical,src/app/game_save.c src/gameplay/inventory.c src/world/ash_runtime.c src/world/lava_model.c src/world/lava_runtime.c src/world/volcano_model.c src/world/volcano_runtime.c src/world/surface_save.c src/world/surface_topology.c src/world/hydrology_runtime.c src/world/hydrology_model.c,-DGAME_SAVE_TESTING -ffunction-sections -fdata-sections,,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
@@ -72,7 +72,7 @@ SPACE_PROPERTIES_SOURCES := \
 	src/space/space_remnant.c \
 	src/space/space_illumination.c \
 	src/space/planet_climate.c \
-	src/space/planet_surface.c \
+	$(PLANET_SURFACE_SRC) \
 	src/space/space_physics.c \
 	src/space/space_satellite.c \
 	src/space/space_units.c \
@@ -99,7 +99,7 @@ ECOLOGY_SYSTEM_SOURCES := \
 	src/space/space_remnant.c \
 	src/space/space_illumination.c \
 	src/space/planet_climate.c \
-	src/space/planet_surface.c \
+	$(PLANET_SURFACE_SRC) \
 	src/space/space_physics.c \
 	src/space/space_satellite.c \
 	src/space/space_units.c \
@@ -177,7 +177,7 @@ $(eval $(call define_test,INVENTORY_TEST_TARGET,test_inventory,src/gameplay/inve
 $(eval $(call define_test,ALBUM_TEST_TARGET,test_album,src/gameplay/album.c,,,,,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,CHUNK_ATLAS_TEST_TARGET,test_chunk_atlas,src/core/simulation_time.c $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) src/world/world.c,,-DCHUNKS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,CHUNK_STREAMING_TEST_TARGET,test_chunk_streaming,src/core/simulation_time.c $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) src/world/world.c src/app/game_debug_lod.c,,-DCHUNKS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
-$(eval $(call define_test,TERRAIN_SCALE_TEST_TARGET,test_terrain_scale,src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c $(TERRAIN_FEATURE_SRC) $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC),,-DTERRAIN_TESTING -DCHUNKS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
+$(eval $(call define_test,TERRAIN_SCALE_TEST_TARGET,test_terrain_scale,src/space/space_units.c src/core/simulation_time.c $(PLANET_SURFACE_SRC) src/space/planet_profile.c src/space/planet_climate.c $(TERRAIN_FEATURE_SRC) $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC),,-DTERRAIN_TESTING -DCHUNKS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SUBSURFACE_TEST_TARGET,test_subsurface,src/world/subsurface.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_benchmark,CHUNK_BENCHMARK_TARGET,benchmark_chunks,src/core/simulation_time.c $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) $(TERRAIN_FEATURE_SRC) src/world/world.c src/ecology/evolution_catalog.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,PERF_TEST_TARGET,test_perf,src/core/perf.c,,-DPERF_TESTING,,-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
@@ -231,7 +231,7 @@ ENTITY_ECOLOGY_SOURCES := \
 	src/space/space_remnant.c \
 	src/space/space_illumination.c \
 	src/space/planet_climate.c \
-	src/space/planet_surface.c \
+	$(PLANET_SURFACE_SRC) \
 	src/space/space_physics.c \
 	src/space/space_satellite.c \
 	src/space/space_units.c \
@@ -263,6 +263,6 @@ $(eval $(call define_test,LANDFORM_TEST_TARGET,test_landform,src/world/landform_
 
 $(eval $(call define_test,LANDFORM_PHYSICS_TEST_TARGET,test_landform_physics,src/world/landform_physics.c,,,, -lm,,))
 
-$(eval $(call define_test,PLANET_LANDFORM_STRATEGY_TEST_TARGET,test_planet_landform_strategy,$(TERRAIN_FEATURE_SRC) src/world/chunks_storage.c src/world/surface_topology.c src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,PLANET_LANDFORM_STRATEGY_TEST_TARGET,test_planet_landform_strategy,$(TERRAIN_FEATURE_SRC) src/world/chunks_storage.c src/world/surface_topology.c src/core/simulation_time.c $(PLANET_SURFACE_SRC) src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 
-$(eval $(call define_test,PLANET_LANDFORM_QUALITY_TEST_TARGET,test_planet_landform_quality,$(TERRAIN_FEATURE_SRC) src/world/chunks_storage.c src/world/surface_topology.c src/core/simulation_time.c src/space/planet_surface.c src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,PLANET_LANDFORM_QUALITY_TEST_TARGET,test_planet_landform_quality,$(TERRAIN_FEATURE_SRC) src/world/chunks_storage.c src/world/surface_topology.c src/core/simulation_time.c $(PLANET_SURFACE_SRC) src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
