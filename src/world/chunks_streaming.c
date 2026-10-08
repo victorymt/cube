@@ -824,6 +824,8 @@ static bool EnsureChunk(int cx, int cz, bool preload)
     chunk->cx = cx;
     chunk->cz = cz;
     chunk->spherical = spherical;
+    chunk->cubeGrid = false;
+    chunk->cubeKey = (SurfaceCubeChunkKey){0};
     chunk->surfaceAddress = surfaceAddress;
     chunk->surfaceKey = surfaceKey;
     // New incarnation: invalidates any in-flight mesh jobs captured against

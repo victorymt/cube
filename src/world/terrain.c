@@ -356,39 +356,30 @@ BlockType BathymetryMaterialBlock(BathymetryMaterial material)
     }
 }
 
-static float HomeBaselineNoise(uint32_t seed, int x, int z, float frequency,
-                               unsigned int lane)
+float TerrainDirectionalNoise(uint32_t seed, Vector3 direction, float frequency,
+                              unsigned int lane)
 {
-    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
-    Vector3 direction = SurfaceDirectionFromMapCoordinates(
-        (float)cell.x + 0.5f, (float)cell.z + 0.5f);
     return WorldFractalPointNoise(Vector3Scale(direction,
         SURFACE_RADIUS_BLOCKS * frequency), lane, seed);
 }
 
-float TerrainHomeBaselineElevation(uint32_t seed, int x, int z,
+float TerrainHomeBaselineAtDirection(uint32_t seed, Vector3 direction,
                                       SurfaceTerrainSample *sample)
 {
-    {
-        SurfaceMapCell canonical = SurfaceCanonicalMapCell((float)x, (float)z);
-        x = canonical.x;
-        z = canonical.z;
-    }
-    float continentalness = HomeBaselineNoise(seed,
-        x, z, 0.00135f, 21u);
-    float erosion = HomeBaselineNoise(seed, x, z, 0.0038f, 79u);
-    float ridgeNoise = HomeBaselineNoise(seed, x, z, 0.0026f, 131u);
+    float continentalness = TerrainDirectionalNoise(seed, direction, 0.00135f, 21u);
+    float erosion = TerrainDirectionalNoise(seed, direction, 0.0038f, 79u);
+    float ridgeNoise = TerrainDirectionalNoise(seed, direction, 0.0026f, 131u);
     float ridge = 1.0f - fabsf(ridgeNoise * 2.0f - 1.0f);
     ridge = SmoothRange(0.56f, 0.94f, ridge);
-    float peakNoise = HomeBaselineNoise(seed, x, z, 0.0065f, 211u);
+    float peakNoise = TerrainDirectionalNoise(seed, direction, 0.0065f, 211u);
     float peak = SmoothRange(0.69f, 0.91f, peakNoise) * ridge;
     float trenchBoundary = 1.0f - fabsf(
-        HomeBaselineNoise(seed, x, z, 0.0019f, 307u) * 2.0f - 1.0f);
+        TerrainDirectionalNoise(seed, direction, 0.0019f, 307u) * 2.0f - 1.0f);
     float trench = SmoothRange(0.80f, 0.97f, trenchBoundary);
     float seamount = SmoothRange(
         0.62f, 0.90f,
-        HomeBaselineNoise(seed, x, z, 0.00105f, 353u));
-    float detail = HomeBaselineNoise(seed, x, z, 0.021f, 401u) - 0.5f;
+        TerrainDirectionalNoise(seed, direction, 0.00105f, 353u));
+    float detail = TerrainDirectionalNoise(seed, direction, 0.021f, 401u) - 0.5f;
     const float coast = 0.50f;
     float elevation = 0.0f;
     BathymetrySample bathymetry = BathymetryForHeight(
@@ -419,6 +410,15 @@ float TerrainHomeBaselineElevation(uint32_t seed, int x, int z,
         sample->bathymetry = bathymetry;
     }
     return elevation;
+}
+
+float TerrainHomeBaselineElevation(uint32_t seed, int x, int z,
+                                      SurfaceTerrainSample *sample)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    Vector3 direction = SurfaceDirectionFromMapCoordinates(
+        (float)cell.x + .5f, (float)cell.z + .5f);
+    return TerrainHomeBaselineAtDirection(seed, direction, sample);
 }
 
 SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode)
@@ -1000,17 +1000,14 @@ PlanetBiome PlanetBiomeAt(int x, int z)
     return PlanetSampleLocalSurface(x, z, NULL, NULL).biome;
 }
 
-int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
-                                   int x, int z, PlanetSurfaceSample *out)
+int TerrainPlanetBaselineAtGeographic(uint32_t seed, const PlanetProfile *profile,
+                                      float longitude, float latitude, PlanetSurfaceSample *out)
 {
-    float fx = 0, fz = 0, longitude = 0, latitude = 0;
-    PlanetSurfaceCoordinates(x, z, &fx, &fz);
-    PlanetMapCoordinatesToLatLon(fx, fz, &longitude, &latitude);
     PlanetSurfaceSample surface = PlanetSampleGlobalSurfaceBaseline(seed, profile, longitude, latitude);
     if (out) *out = surface;
     float roughness = Clamp(profile->terrainRoughness, 0.35f, 1.55f);
     float continents = surface.continentalness;
-    float localDetail = PlanetBaselineNoise(seed, fx, fz, 0.024f, 47u);
+    float localDetail = PlanetSurfaceFractalNoiseAt(seed, longitude, latitude, SURFACE_RADIUS_BLOCKS * 0.024f, 47u);
     float hills = surface.regionalness * 0.62f + surface.detail * 0.23f +
                   localDetail * 0.15f;
     float coast = 0.27f + profile->oceanCoverage * 0.36f;
@@ -1022,7 +1019,7 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
                             0.0f, 1.0f);
         float seamount = SmoothRange(
             0.62f, 0.90f,
-            PlanetBaselineNoise(seed, fx, fz, 0.00105f, 353u));
+            PlanetSurfaceFractalNoiseAt(seed, longitude, latitude, SURFACE_RADIUS_BLOCKS * 0.00105f, 353u));
         BathymetrySample bathymetry = BathymetryFromSignals(
             seaLevel, ocean, surface.trench, seamount, hills - 0.5f);
         height = (float)bathymetry.seabedY;
@@ -1044,13 +1041,12 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
         height += 14.0f + surface.volcanicCone * 32.0f;
         break;
     case PLANET_BIOME_BASALT_PLAINS:
-        height += (PlanetBaselineNoise(seed, fx, fz, 0.14f, 367u) - 0.5f) *
+        height += (PlanetSurfaceFractalNoiseAt(seed, longitude, latitude, SURFACE_RADIUS_BLOCKS * 0.14f, 367u) - 0.5f) *
                   5.0f;
         break;
     case PLANET_BIOME_GLACIER:
         height = fminf(height, 76.0f + (hills - 0.5f) * 7.0f);
         {
-            float latitude = SurfaceProjectMapCoordinates(fx, fz).latitude;
             // Ice flows downhill from each pole toward the equator. The
             // latitude gradient gives the cut plane a consistent flow axis.
             height += surface.glacierFlow * (fabsf(latitude) - 0.70f) * 18.0f;
@@ -1059,16 +1055,12 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
         break;
     case PLANET_BIOME_ICE_SHEET:
         height += 8.0f +
-                  (PlanetBaselineNoise(seed, fx, fz, 0.008f, 373u) - 0.5f) *
+                  (PlanetSurfaceFractalNoiseAt(seed, longitude, latitude, SURFACE_RADIUS_BLOCKS * 0.008f, 373u) - 0.5f) *
                       12.0f;
         break;
     case PLANET_BIOME_DUNES:
         {
             float wind = profile->prevailingWindAngle;
-            SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
-                fx, fz);
-            float longitude = projection.longitude;
-            float latitude = projection.latitude;
             float latitudeCos = cosf(latitude);
             Vector3 point = { latitudeCos * cosf(longitude), sinf(latitude),
                               latitudeCos * sinf(longitude) };
@@ -1083,7 +1075,7 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
         break;
     case PLANET_BIOME_BADLANDS:
         height += 8.0f +
-                  PlanetBaselineNoise(seed, fx, fz, 0.024f, 379u) * 16.0f;
+                  PlanetSurfaceFractalNoiseAt(seed, longitude, latitude, SURFACE_RADIUS_BLOCKS * 0.024f, 379u) * 16.0f;
         break;
     case PLANET_BIOME_OASIS:
         height = fminf(height, 84.0f + (hills - 0.5f) * 4.0f);
@@ -1107,7 +1099,7 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
         height -= 14.0f + (1.0f - hills) * 10.0f;
         break;
     case PLANET_BIOME_CRATER_HIGHLANDS:
-        height += PlanetBaselineNoise(seed, fx, fz, 0.020f, 383u) * 10.0f;
+        height += PlanetSurfaceFractalNoiseAt(seed, longitude, latitude, SURFACE_RADIUS_BLOCKS * 0.020f, 383u) * 10.0f;
         break;
     case PLANET_BIOME_OCEAN:
         if (!oceanColumn) {
@@ -1122,17 +1114,15 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
         break;
     case PLANET_BIOME_STORM_BANDS:
         {
-            SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
-                fx, fz);
-            height = 112.0f + sinf(projection.latitude * 64.0f) * 14.0f +
-                     sinf(projection.longitude * 23.0f) *
-                         cosf(projection.latitude) * 10.0f;
+            height = 112.0f + sinf(latitude * 64.0f) * 14.0f +
+                     sinf(longitude * 23.0f) *
+                         cosf(latitude) * 10.0f;
         }
         break;
     case PLANET_BIOME_PLAINS:
     case PLANET_BIOME_FOREST:
     default:
-        height += (PlanetBaselineNoise(seed, fx, fz, 0.023f, 389u) - 0.5f) *
+        height += (PlanetSurfaceFractalNoiseAt(seed, longitude, latitude, SURFACE_RADIUS_BLOCKS * 0.023f, 389u) - 0.5f) *
                   10.0f;
         break;
     }
@@ -1170,6 +1160,15 @@ int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
     }
     if (height > 240.0f) height = 240.0f;
     return (int)height;
+}
+
+int TerrainPlanetBaselineElevation(uint32_t seed, const PlanetProfile *profile,
+                                   int x, int z, PlanetSurfaceSample *out)
+{
+    float fx, fz, longitude, latitude;
+    PlanetSurfaceCoordinates(x, z, &fx, &fz);
+    PlanetMapCoordinatesToLatLon(fx, fz, &longitude, &latitude);
+    return TerrainPlanetBaselineAtGeographic(seed, profile, longitude, latitude, out);
 }
 
 static BathymetrySample PlanetBathymetryForHeight(int x, int z, int height)

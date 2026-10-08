@@ -87,6 +87,15 @@ Biome BiomeAt(int x, int z);
 // Immutable v6 baseline: no weather, hydrology or world seed reads.
 float TerrainHomeBaselineElevation(uint32_t seed, int x, int z,
                                    SurfaceTerrainSample *sample);
+// Pure direction-based field evaluation, shared by cube cell generation.
+// direction must be a unit vector; no global seed, origin or current body.
+float TerrainDirectionalNoise(uint32_t seed, Vector3 direction, float frequency,
+                               unsigned int lane);
+float TerrainHomeBaselineAtDirection(uint32_t seed, Vector3 direction,
+                                      SurfaceTerrainSample *sample);
+int TerrainPlanetBaselineAtGeographic(uint32_t seed, const PlanetProfile *profile,
+                                      float longitude, float latitude,
+                                      PlanetSurfaceSample *sample);
 int TerrainHeight(int x, int z, TerrainMode mode);
 SurfaceTerrainSample SurfaceTerrainAt(int x, int z, TerrainMode mode);
 BathymetrySample TerrainBathymetryAt(int x, int z, TerrainMode mode);

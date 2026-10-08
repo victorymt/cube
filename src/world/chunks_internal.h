@@ -155,6 +155,7 @@ void ChunkIndexInsert(const Chunk *chunk);
 void ChunkIndexRemove(const Chunk *chunk);
 Chunk *ChunkIndexFindSurface(SurfaceChunkKey key);
 Chunk *ChunkIndexFindFlat(int cx, int cz);
+Chunk *ChunkIndexFindCube(SurfaceCubeChunkKey key);
 void ChunkTaskQueueReset(ChunkTaskQueue *queue);
 bool ChunkTaskQueuePush(ChunkTaskQueue *queue, int lane,
                         int slotIndex, uint64_t sequence);

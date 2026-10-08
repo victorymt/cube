@@ -24,6 +24,8 @@ typedef struct ChunkIndexEntry {
     bool occupied;
     bool tombstone;
     bool spherical;
+    bool cubeGrid;
+    SurfaceCubeChunkKey cubeKey;
     int slotIndex;
     int cx;
     int cz;
@@ -60,11 +62,13 @@ static uint32_t ChunkIndexHashFlat(int cx, int cz)
 
 static bool ChunkIndexEntryMatches(
     const ChunkIndexEntry *entry, bool spherical, int cx, int cz,
-    SurfaceChunkKey surfaceKey)
+    SurfaceChunkKey surfaceKey, const SurfaceCubeChunkKey *cubeKey)
 {
-    if (!entry || !entry->occupied || entry->spherical != spherical) {
+    if (!entry || !entry->occupied || entry->spherical != spherical ||
+        entry->cubeGrid != (cubeKey != NULL)) {
         return false;
     }
+    if (cubeKey) return SurfaceCubeChunkKeyEqual(entry->cubeKey, *cubeKey);
     return spherical
         ? SurfaceChunkKeyEqual(entry->surfaceKey, surfaceKey)
         : (entry->cx == cx && entry->cz == cz);
@@ -72,9 +76,9 @@ static bool ChunkIndexEntryMatches(
 
 static int ChunkIndexFindEntry(
     bool spherical, int cx, int cz, SurfaceChunkKey surfaceKey,
-    bool forInsert)
+    const SurfaceCubeChunkKey *cubeKey, bool forInsert)
 {
-    uint32_t hash = spherical
+    uint32_t hash = cubeKey ? SurfaceCubeChunkKeyHash(*cubeKey) : spherical
         ? ChunkIndexHashSurface(surfaceKey)
         : ChunkIndexHashFlat(cx, cz);
     int firstTombstone = -1;
@@ -84,7 +88,7 @@ static int ChunkIndexFindEntry(
         ChunkIndexEntry *entry = &chunkIndex[index];
         if (entry->occupied) {
             if (ChunkIndexEntryMatches(
-                    entry, spherical, cx, cz, surfaceKey)) {
+                    entry, spherical, cx, cz, surfaceKey, cubeKey)) {
                 return index;
             }
             continue;
@@ -122,13 +126,17 @@ void ChunkIndexInsert(const Chunk *chunk)
         !chunk->loaded) return;
     int slotIndex = (int)(chunk - chunks);
     ChunkIndexRemoveSlot(slotIndex);
+    if (chunk->cubeGrid && (!chunk->spherical || !SurfaceCubeChunkKeyIsValid(chunk->cubeKey))) return;
     int index = ChunkIndexFindEntry(
-        chunk->spherical, chunk->cx, chunk->cz, chunk->surfaceKey, true);
+        chunk->spherical, chunk->cx, chunk->cz, chunk->surfaceKey,
+        chunk->cubeGrid ? &chunk->cubeKey : NULL, true);
     if (index < 0) return;
     chunkIndex[index] = (ChunkIndexEntry){
         .occupied = true,
         .tombstone = false,
         .spherical = chunk->spherical,
+        .cubeGrid = chunk->cubeGrid,
+        .cubeKey = chunk->cubeKey,
         .slotIndex = slotIndex,
         .cx = chunk->cx,
         .cz = chunk->cz,
@@ -145,16 +153,18 @@ void ChunkIndexRemove(const Chunk *chunk)
 }
 
 static Chunk *ChunkIndexFind(
-    bool spherical, int cx, int cz, SurfaceChunkKey surfaceKey)
+    bool spherical, int cx, int cz, SurfaceChunkKey surfaceKey,
+    const SurfaceCubeChunkKey *cubeKey)
 {
     int index = ChunkIndexFindEntry(
-        spherical, cx, cz, surfaceKey, false);
+        spherical, cx, cz, surfaceKey, cubeKey, false);
     if (index >= 0) {
         ChunkIndexEntry *entry = &chunkIndex[index];
         if (entry->slotIndex >= 0 && entry->slotIndex < MAX_ACTIVE_CHUNKS) {
             Chunk *candidate = &chunks[entry->slotIndex];
             if (candidate->loaded && candidate->spherical == spherical &&
-                (spherical
+                candidate->cubeGrid == (cubeKey != NULL) &&
+                (cubeKey ? SurfaceCubeChunkKeyEqual(candidate->cubeKey, *cubeKey) : spherical
                      ? SurfaceChunkKeyEqual(candidate->surfaceKey, surfaceKey)
                      : (candidate->cx == cx && candidate->cz == cz))) {
                 return candidate;
@@ -167,8 +177,9 @@ static Chunk *ChunkIndexFind(
 
     for (int slotIndex = 0; slotIndex < MAX_ACTIVE_CHUNKS; slotIndex++) {
         Chunk *candidate = &chunks[slotIndex];
-        if (!candidate->loaded || candidate->spherical != spherical) continue;
-        bool matches = spherical
+        if (!candidate->loaded || candidate->spherical != spherical ||
+            candidate->cubeGrid != (cubeKey != NULL)) continue;
+        bool matches = cubeKey ? SurfaceCubeChunkKeyEqual(candidate->cubeKey, *cubeKey) : spherical
             ? SurfaceChunkKeyEqual(candidate->surfaceKey, surfaceKey)
             : (candidate->cx == cx && candidate->cz == cz);
         if (!matches) continue;
@@ -180,12 +191,23 @@ static Chunk *ChunkIndexFind(
 
 Chunk *ChunkIndexFindSurface(SurfaceChunkKey key)
 {
-    return ChunkIndexFind(true, 0, 0, key);
+    return ChunkIndexFind(true, 0, 0, key, NULL);
 }
 
 Chunk *ChunkIndexFindFlat(int cx, int cz)
 {
-    return ChunkIndexFind(false, cx, cz, (SurfaceChunkKey){ 0 });
+    return ChunkIndexFind(false, cx, cz, (SurfaceChunkKey){ 0 }, NULL);
+}
+
+Chunk *ChunkIndexFindCube(SurfaceCubeChunkKey key)
+{
+    if (!SurfaceCubeChunkKeyIsValid(key)) return NULL;
+    return ChunkIndexFind(true, 0, 0, (SurfaceChunkKey){0}, &key);
+}
+
+Chunk *FindCubeChunk(SurfaceCubeChunkKey key)
+{
+    return ChunkIndexFindCube(key);
 }
 
 static void ChunkTaskDequeCompact(ChunkTaskDeque *deque)

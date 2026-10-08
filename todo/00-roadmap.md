@@ -12,13 +12,16 @@ work progresses, verified, and then committed as one reviewable change.
 | Per-planet generation strategies and surface-isolated landform runtime | Implemented; rivers, lakes, water and sediment feed planet terrain | [Surface-neutral landforms](../docs/landform-planets.md) |
 | Numerical landform quality gates | Passed in the 2026-10-07 fixtures; not a global visual guarantee | [Quality review](../docs/landform-quality.md) |
 | Polar ground coverage | Open: both wet and dry polar scenes show a narrow strip | [Reproduction and diagnosis](../docs/landform-quality.md#visual-observations-and-acceptance-limits) |
-| Cube-grid coordinates, exact cross-face neighbors and coverage tests | Foundation complete (`ef25929`); runtime integration pending | [Cube-grid contract and next steps](../docs/surface-cube.md) |
+| Cube-grid coordinates, immutable v9 base generation, chunk keys, shared geometry and physical coverage | Independently implemented and tested; production queues, gameplay, simulation and saves still pending | [Cube-grid contract and next steps](../docs/surface-cube.md) |
 | Topology descriptors and V29 save boundary | Implemented: explicit legacy-map/1 policy, cube-grid runtime rejection, no old-format loading | [Topology contract](../docs/surface-cube.md#topology-and-save-contract-v29) |
 | Coriolis terrain bias | Disabled; requires polar visual acceptance and calibrated diagnostics first | [Physics boundary](../docs/landform-planets.md) |
 
 Next: integrate cube-cell identity across
 terrain and gameplay, unify scheduling/render coverage, then replay polar,
-face-crossing, editing and save/load routes. Preserve Homeworld v7/v8 samples.
+face-crossing, editing and save/load routes. Both Homeworld and planets will
+switch to cube-grid/1 and terrain v9; preserving v7/v8 fingerprints is no longer
+a requirement. V30 will reject V29 and older files without migrating or deleting
+them. These are activation targets, not the current runtime defaults.
 
 World saves now write and read V29 only; V28 and older require a new world. Regional
 ecology payload V7 and terrain generator v8 have independent version sequences.

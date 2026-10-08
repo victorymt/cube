@@ -3,6 +3,7 @@
 
 #include "core/config.h"
 #include "world/surface_topology.h"
+#include "world/surface_cube.h"
 
 #include "raylib.h"
 
@@ -499,6 +500,8 @@ typedef struct Chunk {
     int cx;
     int cz;
     bool spherical;
+    bool cubeGrid;
+    SurfaceCubeChunkKey cubeKey;
     SurfaceAddress surfaceAddress;
     SurfaceChunkKey surfaceKey;
     // Incarnation counter bumped on every slot reuse (EnsureChunk).

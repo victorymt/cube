@@ -36,17 +36,6 @@ static float SubsurfaceMax(float a, float b)
     return a > b ? a : b;
 }
 
-static Vector3 SubsurfacePlanetPosition(int x, int z)
-{
-    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
-    Vector3 direction = SurfaceDirectionFromMapCoordinates(
-        (float)cell.x + 0.5f, (float)cell.z + 0.5f);
-    return (Vector3){
-        direction.x * SURFACE_RADIUS_BLOCKS,
-        direction.y * SURFACE_RADIUS_BLOCKS,
-        direction.z * SURFACE_RADIUS_BLOCKS
-    };
-}
 
 static float SubsurfaceProjectedCoordinate(Vector3 position, Vector3 axis)
 {
@@ -56,8 +45,7 @@ static float SubsurfaceProjectedCoordinate(Vector3 position, Vector3 axis)
 
 typedef struct SubsurfaceColumnCache {
     bool valid;
-    int x;
-    int z;
+    Vector3 direction;
     uint32_t seed;
     float fx;
     float fz;
@@ -77,15 +65,17 @@ typedef struct SubsurfaceColumnCache {
 static _Thread_local SubsurfaceColumnCache subsurfaceColumnCache;
 
 static const SubsurfaceColumnCache *SubsurfaceColumnAt(
-    const SubsurfaceParams *params, int x, int z)
+    const SubsurfaceParams *params, Vector3 direction)
 {
     SubsurfaceColumnCache *column = &subsurfaceColumnCache;
-    if (column->valid && column->x == x && column->z == z &&
+    if (column->valid && column->direction.x == direction.x &&
+        column->direction.y == direction.y && column->direction.z == direction.z &&
         column->seed == params->seed) {
         return column;
     }
 
-    Vector3 planet = SubsurfacePlanetPosition(x, z);
+    Vector3 planet = {direction.x * SURFACE_RADIUS_BLOCKS,
+        direction.y * SURFACE_RADIUS_BLOCKS, direction.z * SURFACE_RADIUS_BLOCKS};
     float fx = SubsurfaceProjectedCoordinate(
         planet, (Vector3){ 0.816497f, 0.408248f, 0.408248f });
     float fz = SubsurfaceProjectedCoordinate(
@@ -98,8 +88,7 @@ static const SubsurfaceColumnCache *SubsurfaceColumnAt(
     float phase3 = SubsurfacePhase(params->seed, 53u);
     *column = (SubsurfaceColumnCache){
         .valid = true,
-        .x = x,
-        .z = z,
+        .direction = direction,
         .seed = params->seed,
         .fx = fx,
         .fz = fz,
@@ -125,12 +114,13 @@ static const SubsurfaceColumnCache *SubsurfaceColumnAt(
     return column;
 }
 
-SubsurfaceSample SubsurfaceSampleAt(const SubsurfaceParams *params,
-                                    int x, int y, int z,
-                                    int surfaceHeight)
+SubsurfaceSample SubsurfaceSampleAtDirection(const SubsurfaceParams *params,
+                                             Vector3 direction, int y,
+                                             int surfaceHeight)
 {
     SubsurfaceSample sample = { 0 };
-    if (!params || y < params->minY ||
+    if (!params || !isfinite(direction.x) || !isfinite(direction.y) ||
+        !isfinite(direction.z) || y < params->minY ||
         y >= surfaceHeight - params->surfaceClearance) {
         return sample;
     }
@@ -138,7 +128,7 @@ SubsurfaceSample SubsurfaceSampleAt(const SubsurfaceParams *params,
     float activity = params->activity;
     if (activity < 0.25f) activity = 0.25f;
     if (activity > 1.75f) activity = 1.75f;
-    const SubsurfaceColumnCache *column = SubsurfaceColumnAt(params, x, z);
+    const SubsurfaceColumnCache *column = SubsurfaceColumnAt(params, direction);
     float fx = column->fx;
     float fz = column->fz;
     float fw = column->fw;
@@ -201,4 +191,13 @@ SubsurfaceSample SubsurfaceSampleAt(const SubsurfaceParams *params,
     sample.flooded = sample.cave && y <= localAquiferLevel &&
                      sample.aquifer >= wetThreshold;
     return sample;
+}
+
+SubsurfaceSample SubsurfaceSampleAt(const SubsurfaceParams *params,
+                                    int x, int y, int z, int surfaceHeight)
+{
+    SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
+    Vector3 direction = SurfaceDirectionFromMapCoordinates(
+        (float)cell.x + .5f, (float)cell.z + .5f);
+    return SubsurfaceSampleAtDirection(params, direction, y, surfaceHeight);
 }

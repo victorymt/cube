@@ -1,12 +1,13 @@
-# Polar coverage repair: cube-grid foundation
+# Cube-grid activation: foundation and pending runtime integration
 
 ## Status
 
-The new `surface_cube` module provides pure cube-grid coordinates and exact
-cross-face neighbors. **The runtime still uses the legacy map grid; the polar
-visual defect is not yet fixed.** This is the first independently testable
-implementation step. The topology/save foundation below is now implemented;
-terrain generation remains unchanged and no old save migration is provided.
+Cube-grid now has continuous poses, explicit cell/chunk identity, an immutable
+v9 base generator, shared projected geometry and physical coverage enumeration.
+**The game runtime still uses the legacy map grid; cube-grid is not enabled
+and the polar visual defect is not yet fixed.** The current save format remains
+V29. The new primitives are exercised independently; their presence must not
+be mistaken for completion of the gameplay/rendering conversion.
 
 ## Root cause and scope
 
@@ -94,9 +95,9 @@ changes. Later failures restore the complete V29 checkpoint, including policy.
 F9/DSL callers reset clocks/input only on successful loads. Unknown topology
 versions and known-but-unimplemented cube-grid receive explicit rejection.
 
-Homeworld v7/v8 generation and fingerprints are preserved; that is an algorithm
-contract, not old-file compatibility. This stage does not promise a future
-coordinate migration for its own legacy-grid saves.
+The current legacy runtime still uses Homeworld v7/v8. The approved activation
+target below supersedes preservation of those fingerprints; V29 legacy-grid
+saves will not be migrated to that target.
 
 ### Validation commands
 
@@ -136,7 +137,7 @@ The previous v7/v8 fingerprint preservation requirement does not apply to
 that target. These defaults are **not activated** until the runtime consumers
 below have been converted together.
 
-Implemented coordinate primitives:
+Implemented coordinate and generation primitives:
 
 - `SurfacePose` stores double-precision body-centered position, velocity and
   tangent heading. Geographic initialization and great-circle displacement
@@ -148,18 +149,48 @@ Implemented coordinate primitives:
   Six-sided neighbors preserve body identity and reject integer overflow.
 - Cardinal orientation transport is invertible across every directed face
   boundary, including corner cells. Multi-step corner paths remain ordered.
+- `TerrainCubeContext` owns a copied surface snapshot and an immutable atlas;
+  retained worker references keep them alive after the owning world releases
+  its reference. Sampling reads explicit direction/seed/profile, including
+  caves, and does not use mutable world state. Column samples are tied to
+  their context and world generation. New v9 base-material fingerprints are
+  pinned for Homeworld and a dry planet; decoration/ecology is still pending.
+- The v9 shell starts at radial -2048. The old Homeworld's maximum water depth
+  (10,900) exceeds the globe radius (~2,607): depths below the first 200 blocks
+  are compressed, keeping the deepest baseline 32 blocks above the shell floor.
+  The atlas and voxel sampler use the same adjusted baseline.
+- Cube staging columns use existing sparse `ChunkSection` storage, resolving
+  air without allocating it and generating deep sections on demand. The real
+  chunk index distinguishes cube keys, legacy map keys and Cartesian keys;
+  lookup also checks the current slot occupant after reuse.
+- `SurfaceCellTriangles` provides the same outward-facing projected geometry
+  to ray and continuous box-sweep queries, including fractional block shapes.
+  At a box/triangle edge contact the separating normal determines support;
+  the triangle's side ID alone does not.
+- `SurfaceCoverageCollect` enumerates a physical spherical cap across faces,
+  sorts deterministically and reports requested/admitted counts and saturation.
+  At the maximum 208-block request the tested corner cases require up to
+  1,560 candidates, exceeding the runtime's 625 slots. Saturation is explicit.
+  Conservative curved-patch bounds include the full radial interval. This is
+  ground coverage, not a high-altitude camera-frustum coverage certificate.
 
-`make test-surface-cube` now also exercises these primitives. The normal and
-ASan/UBSan focused suites pass, including 20,000 movement steps around a full
-meridian. Full game compilation, public-header checks and architecture checks
-pass. This validates the coordinate layer, not runtime activation or visuals.
+`make test-surface-cube` exercises these primitives, including 20,000 movement
+steps around a full meridian, cross-body chunk index separation, generated
+sections, worker input lifetime, ray/sweep geometry and independently sampled
+coverage. These tests do not establish runtime activation or visual coverage.
+
+Verification of this foundation (2026-10-08): all 113 normal test binaries and
+all 113 ASan/UBSan test binaries passed, along with 180 public headers, complete
+module/game builds, debug CLI/protocol contracts and architecture checks.
+LeakSanitizer required execution outside the ptrace-based sandbox. No polar
+visual acceptance is claimed for these changes.
 
 ### Runtime consumers still to convert
 
-1. Make cube cell identity authoritative for generation, indexing, block
-   edits and neighbor lookup. Sample climate/landform using direction or
-   latitude/longitude derived from that identity; retain immutable worker
-   inputs and stale-job rejection across surface changes.
+1. Connect the new generator and retained inputs to the production generation
+   queues and completion checks. Make cube identity authoritative for block
+   edits, decorations, ecology and neighbor lookup; the default runtime still
+   submits legacy chunk coordinates.
 2. Move player/collision/raycast/fluid coordinates together. Face transitions
    must transport heading and velocity, not just positions. Round-trip edit
    lookup and save/reload must refer to the same cells at every face edge.
@@ -169,6 +200,7 @@ pass. This validates the coordinate layer, not runtime activation or visuals.
    requested/ready coverage diagnostics instead of claiming visual readiness.
 4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
-   and save/reload. Preserve old Homeworld samples and enforce memory budgets.
+   and save/reload. Pin the v9 output and enforce memory budgets. Complete V30
+   serialization/rejection and documentation before enabling the defaults.
 
 No Coriolis terrain bias is enabled by this repair.

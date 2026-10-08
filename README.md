@@ -11,8 +11,11 @@ startup as a small pixel-art atlas.
 The original expansion and simulation stages are implemented within their
 recorded scope. Current work is planetary landforms and polar ground coverage:
 river/lake generation is integrated, but polar visual acceptance remains blocked.
-The cube-grid foundation and V29 topology metadata are implemented; runtime
-chunk storage, collision and edit coordinates still use the legacy map grid. See the [current roadmap](todo/00-roadmap.md),
+Cube-grid now has continuous poses, v9 base generation, separate chunk keys,
+shared shape queries and physical coverage enumeration. Production streaming,
+gameplay and saves still use the legacy map grid and V29; cube-grid is not enabled.
+The activation target is both Homeworld and planets, with terrain v9 and V30
+saves requiring a new world. See the [current roadmap](todo/00-roadmap.md),
 [quality review](docs/landform-quality.md) and
 [remaining cube-grid integration](docs/surface-cube.md#remaining-integration-in-dependency-order).
 

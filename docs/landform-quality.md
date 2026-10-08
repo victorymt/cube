@@ -91,11 +91,13 @@ parameters or clamping latitude would conceal it and change unrelated terrain.
 
 Next work: make polar streaming/visible coverage consistent with the spherical
 projection, then repeat the two polar views and their dry controls. Keep
-Homeworld v7/v8 sample fingerprints unchanged. After visual acceptance,
+the new v9 cube samples deterministic; the activation target supersedes the
+earlier requirement to preserve Homeworld v7/v8 fingerprints. After visual acceptance,
 calibrate flow diagnostics before designing a separately versioned Coriolis
 bias. The present fixed-runoff diagnostic is not a calibrated migration model.
 
-The first implementation step is documented in [surface-cube.md](surface-cube.md).
-Its pure cube-grid tests pass, but it does not yet switch the running game's
-chunk storage, collision coordinates or saves. The polar visual blocker above
+The foundation is documented in [surface-cube.md](surface-cube.md).
+Continuous poses, v9 base generation, cube chunk keys, shape queries and physical
+coverage have independent tests, but the running game's streaming, collision
+coordinates and saves have not switched. The polar visual blocker above
 remains open until runtime integration and replay verification are complete.

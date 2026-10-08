@@ -172,6 +172,8 @@ int ChunksRenderDistance(void);
 void ChunksSetRenderDistance(int distance);
 
 Chunk *FindChunk(int cx, int cz);
+// Explicit face/body lookup. Does not reinterpret legacy map chunk numbers.
+Chunk *FindCubeChunk(SurfaceCubeChunkKey key);
 Chunk *FindHorizontalChunkNeighbor(int cx, int cz, int deltaCx, int deltaCz);
 SurfaceAddress SurfaceAddressAtWorld(float x, float z, int radial);
 SurfaceAddress ChunkSurfaceAddressAt(int cx, int cz);
