@@ -71,6 +71,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_GEOLOGY_INVENTORY,
     DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED,
     DEBUG_CONTROL_COMMAND_GEOLOGY_FIND,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSITION_TEST,
     DEBUG_CONTROL_COMMAND_TELEPORT,
     DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
@@ -205,6 +206,10 @@ typedef struct DebugControl {
     bool pauseEnabled;
     bool weatherDamageEnabled;
     bool geologyEnabled;
+    unsigned depositionCase;
+    bool depositionReady;
+    double depositionSupplied, depositionRetained, depositionLiquid, depositionSolid;
+    double depositionVolumeError, depositionEnergyError, depositionOutlet, depositionPool;
     bool geologyTerrainFound;
     uint32_t geologyTerrainBody, geologyTerrainSeed;
     int geologyTerrainX, geologyTerrainY, geologyTerrainZ;

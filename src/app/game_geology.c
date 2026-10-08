@@ -1,3 +1,4 @@
+#include "app/game_debug_deposition.h"
 #include "app/game_geology.h"
 #include "app/game_internal.h"
 #include "app/game_debug.h"
@@ -427,6 +428,13 @@ static const BlockType collectionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT, B
 
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
+    if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSITION_TEST) {
+        if (!GameDebugDepositionRun(&game->debugControl)) {
+            game->debugCommandFailed = true;
+            snprintf(game->debugCommandFailure, sizeof(game->debugCommandFailure), "deposition_fixture_failed");
+        }
+        return true;
+    }
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_FIND) {
         DebugControl *c = &game->debugControl;
         const WorldSurfaceSnapshot *s = WorldCurrentSurfaceSnapshot();
@@ -576,6 +584,7 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
 {
     if (strncmp(name, "geology.", 8u) != 0) return false;
     const char *field = name + 8;
+    if (!strncmp(field, "deposition_", 11)) return GameDebugDepositionResolve(&game->debugControl, field, out);
     if (!strncmp(field, "terrain_", 8)) {
         const DebugControl *c = &game->debugControl;
         WorldSurfaceContext s = WorldCurrentSurfaceContext();

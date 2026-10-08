@@ -316,6 +316,18 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
         }
         return DEBUG_CONTROL_COMMAND_INVALID;
     }
+    if (!strncmp(line, "geology deposition", 18)) {
+        static const char *commands[] = {
+            "geology deposition test slope", "geology deposition test basin",
+            "geology deposition test overflow", "geology deposition test cooling"
+        };
+        for (unsigned i = 0; i < 4; i++) {
+            if (strcmp(line, commands[i])) continue;
+            control->depositionCase = i;
+            return DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSITION_TEST;
+        }
+        return DEBUG_CONTROL_COMMAND_INVALID;
+    }
     if (!strcmp(line, "geology inspect")) return DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT;
     if (!strcmp(line, "geology vents")) return DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS;
     if (!strcmp(line, "geology find")) return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;

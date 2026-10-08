@@ -969,6 +969,7 @@ ownership until its melted block can be restored safely. See
 geology inspect
 geology vents
 geology find
+geology deposition test slope|basin|overflow|cooling
 geology enabled on|off
 geology force eruption INTENSITY TICKS
 geology stop ID
@@ -997,6 +998,27 @@ mountain in place.
 `tests/scenes/volcano_terrain.dsl` verifies the crater/rim height difference,
 natural vent alignment, eruption and save/load, and captures two actual game
 views using `view distance 12`.
+
+`geology deposition test slope|basin|overflow|cooling` runs an isolated H0
+four-column fixture in the game process. It works on the start screen, needs no
+loaded world, and changes neither terrain nor runtime geology. It runs at most
+1,100 fixed model steps synchronously and destroys the model after collecting
+results. `slope` supplies one block at the top; `basin` supplies 0.5 below a
+one-block saddle; `overflow` adds four blocks after 100 steps; `cooling` cools
+one block on the slope. The first three fixtures disable cooling to isolate flow.
+These are synthetic model tests, not mountain generation or game screenshots.
+
+Each checkpoint prints `DEBUG_CONTROL deposition` ledger fields and four
+`DEBUG_CONTROL deposition_cell` rows (ground, volume, liquid, solid depth,
+surface and temperature). Query the most recent result with
+`geology.deposition_ready` (bool), and numeric `geology.deposition_supplied`,
+`deposition_retained`, `deposition_liquid`, `deposition_solid`,
+`deposition_volume_error`, `deposition_energy_error`, `deposition_outlet`
+(last-column volume), and `deposition_pool` (column 1 volume), all under
+`geology.`. Before a successful fixture, numeric results are zero. These
+session-only diagnostics are not saved and remain independent of world switches.
+Run `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_deposition`
+to execute `tests/scenes/volcano_deposition.dsl` and retain its log and trace.
 
 `geology enabled on|off` persists the independent activity setting (default on)
 in settings format V4 as `geology_enabled=1|0`. It also works before `start`.
