@@ -19,6 +19,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_START,
     DEBUG_CONTROL_COMMAND_TERRAIN_FLAT,
     DEBUG_CONTROL_COMMAND_TERRAIN_VARIED,
+    DEBUG_CONTROL_COMMAND_TERRAIN_HISTORY,
     DEBUG_CONTROL_COMMAND_SCREENSHOT,
     DEBUG_CONTROL_COMMAND_STATUS,
     DEBUG_CONTROL_COMMAND_PAUSE,
@@ -233,6 +234,7 @@ typedef struct DebugControl {
     bool mapLiquidsVisible;
     DebugControlSurfaceStyle surfaceDebugStyle;
     uint32_t surfaceDebugSeed;
+    bool terrainHistoryDisabled;
     float weatherIntensity;
     float weatherCloudCoverage;
     float weatherTornadoIntensity;

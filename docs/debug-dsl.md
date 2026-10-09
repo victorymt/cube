@@ -615,6 +615,7 @@ wall-clock timestamp, and locations use chunk/section indices, not blocks.
 ```text
 start
 terrain flat|varied
+terrain history on|off
 status
 pause on|off
 hud debug on|off
@@ -644,6 +645,12 @@ only the nearby surface, not every distant mesh.
 `on`/`off` argument is omitted. `start` is valid on the start screen.
 `terrain flat` and `terrain varied` select the terrain used by the next
 `start`; both commands are valid only on the start screen.
+`terrain history on|off` is also start-screen-only. It selects V11 historical
+deposits (default `on`) or the V10 initial terrain (`off`) for the next new world,
+including debug planet surfaces. Use separate runs with identical planet seed,
+location and camera for before/after comparisons. The selection is applied after
+world reset and before surface contexts or chunks are created. Loading a save
+uses the generation version in that save instead of this new-world preference.
 `world topology` is a read-only surface-world inspection. It reports the body,
 canonical X/Z and longitude/latitude, north tangent sign, longitude and pole
 alias checks, unique and duplicate canonical chunk counts, and the most recent

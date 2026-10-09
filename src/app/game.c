@@ -4,6 +4,7 @@
 #include "app/game.h"
 #include "app/game_geology.h"
 #include "world/volcano_runtime.h"
+#include "world/volcano_history_cache.h"
 #include "world/lava_runtime.h"
 #include "world/ash_runtime.h"
 #include "app/game_biology.h"
@@ -25,6 +26,7 @@
 #include "core/simulation_time.h"
 #include "world/world_types.h"
 #include "world/terrain.h"
+#include "world/terrain_generation.h"
 #include "world/world.h"
 #include "world/world_extension.h"
 #include "world/block_atlas.h"
@@ -157,6 +159,9 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     AlbumReset();
     AlbumUiReset();
     WorldReset(seed);
+    if (game->debugControl.terrainHistoryDisabled) {
+        TerrainGenerationSetVersion(TERRAIN_GENERATION_VOLCANO_HISTORY - 1u);
+    }
     VolcanoRuntimeReset();
     LavaRuntimeReset();
     AshRuntimeReset();

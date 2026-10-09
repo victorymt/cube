@@ -731,6 +731,11 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
     if (strcmp(line, "terrain varied") == 0) {
         return DEBUG_CONTROL_COMMAND_TERRAIN_VARIED;
     }
+    if (strcmp(line, "terrain history on") == 0 ||
+        strcmp(line, "terrain history off") == 0) {
+        control->terrainHistoryDisabled = strcmp(line, "terrain history off") == 0;
+        return DEBUG_CONTROL_COMMAND_TERRAIN_HISTORY;
+    }
     if (strcmp(line, "screenshot") == 0) {
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }

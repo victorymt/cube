@@ -638,6 +638,12 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
                           "DEBUG_CONTROL terrain selected=%s\n",
                           game->selectedTerrain == TERRAIN_FLAT ? "flat" : "varied");
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_TERRAIN_HISTORY:
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL terrain history %s=%s\n",
+                          game->screen == SCREEN_START ? "selected" : "ignored",
+                          game->debugControl.terrainHistoryDisabled ? "off" : "on");
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_SCREENSHOT:
         if (game->screen == SCREEN_PLAYING) {
             game->screenshotPending = true;

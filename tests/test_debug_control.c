@@ -245,6 +245,15 @@ static void TestTerrainMapCommands(void)
 {
     DebugControl control;
     DebugControlInit(&control, true);
+    assert(!control.terrainHistoryDisabled);
+    assert(DebugControlParseText(&control, "terrain history off") ==
+           DEBUG_CONTROL_COMMAND_TERRAIN_HISTORY);
+    assert(control.terrainHistoryDisabled);
+    assert(DebugControlParseText(&control, "terrain history on") ==
+           DEBUG_CONTROL_COMMAND_TERRAIN_HISTORY);
+    assert(!control.terrainHistoryDisabled);
+    assert(DebugControlParseText(&control, "terrain history off extra") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&control, "hud debug on") ==
            DEBUG_CONTROL_COMMAND_HUD_DEBUG_ON);
     assert(DebugControlParseText(&control, "hud debug off") ==
