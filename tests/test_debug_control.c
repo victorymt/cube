@@ -617,6 +617,12 @@ int main(void)
     assert(geology.geologyFindHistorical);
     assert(DebugControlParseText(&geology, "geology find") == DEBUG_CONTROL_COMMAND_GEOLOGY_FIND);
     assert(!geology.geologyFindHistorical);
+    assert(DebugControlParseText(&geology, "geology locate 3 4093 98") ==
+           DEBUG_CONTROL_COMMAND_GEOLOGY_LOCATE);
+    assert(geology.geologyTerrainFace == 3 && geology.geologyTerrainU == 4093 &&
+           geology.geologyTerrainV == 98);
+    assert(DebugControlParseText(&geology, "geology locate 6 0 0 extra") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "geology history world") == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY_WORLD);
     assert(DebugControlParseText(&geology, "geology history world extra") == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "geology deposition mountain extra") == DEBUG_CONTROL_COMMAND_INVALID);

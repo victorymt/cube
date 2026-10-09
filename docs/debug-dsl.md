@@ -986,6 +986,7 @@ ownership until its melted block can be restored safely. See
 geology inspect
 geology vents
 geology find
+geology locate FACE U V
 geology deposition test slope|basin|overflow|cooling
 geology deposition mountain
 geology enabled on|off

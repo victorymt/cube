@@ -445,6 +445,29 @@ static const BlockType collectionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT, B
 
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
+    if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_LOCATE) {
+        DebugControl *c = &game->debugControl;
+        const WorldSurfaceSnapshot *s = WorldCurrentSurfaceSnapshot();
+        VolcanoTerrainDefinition d;
+        c->geologyTerrainFound = false;
+        if (s->context.kind == WORLD_SURFACE_PLANET && ContextFor(game).valid &&
+            VolcanoTerrainDefine(s->context.seed, s->planetProfile.volcanicActivity,
+                (SurfaceAddress){s->context.bodyId, c->geologyTerrainFace,
+                    c->geologyTerrainU, c->geologyTerrainV, 0}, &d)) {
+            SurfaceMapCell cell = VolcanoMapCell(d.center);
+            c->geologyTerrainFound = true;
+            c->geologyTerrainBody = s->context.bodyId; c->geologyTerrainSeed = s->context.seed;
+            c->geologyTerrainX = cell.x; c->geologyTerrainY =
+                WorldSurfaceHeightAt(cell.x - s->context.originX, cell.z - s->context.originZ) + 1;
+            c->geologyTerrainZ = cell.z; c->geologyTerrainRadius = d.radius;
+            c->geologyTerrainHeight = d.height; c->geologyCraterRadius = d.craterRadius;
+        }
+        DebugControlReply(c, "DEBUG_CONTROL geology locate found=%d face=%u u=%u v=%u position=%d,%d,%d\n",
+            c->geologyTerrainFound, c->geologyTerrainFace, c->geologyTerrainU,
+            c->geologyTerrainV, c->geologyTerrainX, c->geologyTerrainY, c->geologyTerrainZ);
+        if (!c->geologyTerrainFound) game->debugCommandFailed = true;
+        return true;
+    }
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY_WORLD) {
         if (!GameDebugVolcanoHistoryWorld(&game->debugControl)) {
             game->debugCommandFailed = true;

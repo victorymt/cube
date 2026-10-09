@@ -1,5 +1,6 @@
 #include "core/debug_control.h"
 #include "core/config.h"
+#include "world/surface_topology.h"
 #include <inttypes.h>
 
 #include <ctype.h>
@@ -342,6 +343,14 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     if (!strcmp(line, "geology find") || !strcmp(line, "geology find history")) {
         control->geologyFindHistorical = !strcmp(line, "geology find history");
         return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
+    }
+    unsigned face = 0, u = 0, v = 0; char trailingLocate = '\0';
+    if (sscanf(line, "geology locate %u %u %u %c", &face, &u, &v, &trailingLocate) == 3 &&
+        face < SURFACE_FACE_COUNT && u < SURFACE_FACE_BLOCKS && v < SURFACE_FACE_BLOCKS) {
+        control->geologyTerrainFace = (SurfaceFace)face;
+        control->geologyTerrainU = u;
+        control->geologyTerrainV = v;
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_LOCATE;
     }
     if (!strcmp(line, "geology enabled on") || !strcmp(line, "geology enabled off")) {
         control->geologyEnabled = !strcmp(line, "geology enabled on");
