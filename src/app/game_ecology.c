@@ -243,6 +243,17 @@ void GameAdvanceSimulationStep(double simulationSeconds,
         TornadoSuspend();
     }
     if (localWorldActive) {
+        bool shelteredForHeat = GameEnvironmentSheltered(game->player.position);
+        LavaHeatExposure heat = GameGeologyHeatExposureAt(
+            game, game->player.position, 6.0f, shelteredForHeat ? 1.0f : 0.0f);
+        game->playerHeatExposure = heat.heat;
+        game->playerHeatContact = heat.contact;
+        game->playerHeatSources = heat.hotSources;
+        game->playerHeatBlockedSources = heat.blockedSources;
+        if (game->settings.weatherDamageEnabled && isfinite(heat.heat)) {
+            game->playerHeatDamage = fminf(1.0f,
+                fmaxf(0.0f, game->playerHeatDamage + heat.heat * dt * 0.12f));
+        }
         double entitiesStarted = game->debugTraceEnabled
             ? GameDebugTraceMainCpuNowMs() : 0.0;
         EntitiesUpdate(dt, &game->player, daylight, simulationTime);

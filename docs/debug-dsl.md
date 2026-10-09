@@ -1134,6 +1134,10 @@ reaches a cube-face seam; `geology find history polar` selects one near a pole.
 The resulting `geology.terrain_edge_distance` and
 `geology.terrain_abs_latitude` fields expose the measured geometric margins for
 assertions and screenshot reports.
+During active simulation, `geology.heat_exposure`, `geology.heat_contact`,
+`geology.heat_sources`, `geology.heat_blocked_sources`, and `geology.heat_damage`
+expose the player's fixed-step lava hazard state. Damage is
+gated by the weather-damage setting; the query itself remains read-only.
 ordinary `geology find` still searches all natural mountains. After finding,
 `geology history world` inspects the actual cached world result, without exporting
 or importing a diagnostic snapshot. It prints `generation`, `depth`, `material`,

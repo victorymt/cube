@@ -110,6 +110,11 @@ typedef struct GameRuntime {
   FloraDisturbanceStage floraSampleBurnStage;
   FloraHabitat floraSampleHabitat;
   float scriptedShipInputFrameCarry;
+  float playerHeatExposure;
+  float playerHeatDamage;
+  bool playerHeatContact;
+  unsigned playerHeatSources;
+  unsigned playerHeatBlockedSources;
 
   int selectedIndex;
   int biologyAtlasSlot;

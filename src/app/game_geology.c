@@ -37,6 +37,7 @@ typedef struct GeologyTickContext {
     VolcanoDefinition active[VOLCANO_MAX_ACTIVE];
 } GeologyTickContext;
 static void GameGeologyTick(void *user);
+static void PrepareTick(GeologyTickContext *tick);
 
 static bool LocalLavaAt(int x, int y, int z, LavaCell *out)
 {
@@ -325,6 +326,22 @@ static VolcanoContext ContextFor(const GameRuntime *game)
             game->player.position.y, game->player.position.z + surface.originZ } : (Vector3){ 0 },
         .sample = SampleSite, .ready = SiteReady
     };
+}
+
+LavaHeatExposure GameGeologyHeatExposureAt(const GameRuntime *game,
+                                           Vector3 position, float radius,
+                                           float shelter)
+{
+    LavaHeatExposure empty = { .nearestDistance = INFINITY };
+    if (!game) return empty;
+    WorldSurfaceContext surface = WorldCurrentSurfaceContext();
+    GeologyTickContext tick = { .game = (GameRuntime *)game,
+        .volcano = ContextFor(game), .weatherTime = SpaceElapsedSimulationTime() };
+    if (!tick.volcano.valid || !surface.active) return empty;
+    PrepareTick(&tick);
+    position.x += (float)surface.originX;
+    position.z += (float)surface.originZ;
+    return LavaRuntimeHeatExposureAt(&tick.lava, position, radius, shelter);
 }
 
 void GameGeologyUpdate(GameRuntime *game, double seconds)
@@ -642,6 +659,10 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
             "DEBUG_CONTROL geology flow radius=%.3f supplied=%.3f solidified=%.3f hot=%u records=%u\n",
             radius.as.number, (double)lava.supplied / LAVA_CAPACITY,
             (double)lava.solidified / LAVA_CAPACITY, lava.hotCells, lava.records);
+        DebugControlReply(&game->debugControl,
+            "DEBUG_CONTROL geology heat exposure=%.6f damage=%.6f contact=%d sources=%u blocked=%u\n",
+            game->playerHeatExposure, game->playerHeatDamage, game->playerHeatContact,
+            game->playerHeatSources, game->playerHeatBlockedSources);
     }
     DebugControlReply(&game->debugControl,
         "DEBUG_CONTROL geology %s records=%u active=%u rejected=%" PRIu64 " lava_physics=1 enabled=%d\n",
@@ -679,6 +700,21 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
 {
     if (strncmp(name, "geology.", 8u) != 0) return false;
     const char *field = name + 8;
+    if (!strcmp(field, "heat_exposure")) {
+        out->type = DEBUG_DSL_VALUE_NUMBER; out->as.number = game->playerHeatExposure; return true;
+    }
+    if (!strcmp(field, "heat_damage")) {
+        out->type = DEBUG_DSL_VALUE_NUMBER; out->as.number = game->playerHeatDamage; return true;
+    }
+    if (!strcmp(field, "heat_contact")) {
+        out->type = DEBUG_DSL_VALUE_BOOL; out->as.boolean = game->playerHeatContact; return true;
+    }
+    if (!strcmp(field, "heat_sources")) {
+        out->type = DEBUG_DSL_VALUE_NUMBER; out->as.number = game->playerHeatSources; return true;
+    }
+    if (!strcmp(field, "heat_blocked_sources")) {
+        out->type = DEBUG_DSL_VALUE_NUMBER; out->as.number = game->playerHeatBlockedSources; return true;
+    }
     if (!strncmp(field, "deposition_", 11)) return GameDebugDepositionResolve(&game->debugControl, field, out);
     if (!strncmp(field, "history_", 8)) return GameDebugVolcanoHistoryResolve(&game->debugControl, field, out);
     if (!strncmp(field, "terrain_", 8)) {

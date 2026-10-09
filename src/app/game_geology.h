@@ -3,6 +3,7 @@
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
 #include "world/world_types.h"
+#include "world/lava_runtime.h"
 struct GameRuntime;
 struct GameFrameView;
 void GameGeologyUpdate(struct GameRuntime *game, double seconds);
@@ -10,6 +11,9 @@ void GameGeologyDraw(const struct GameRuntime *game, const struct GameFrameView 
 BlockType GameGeologyBlockAt(int x, int y, int z);
 float GameGeologyCollisionHeightAt(int x, int y, int z);
 float GameGeologyLiquidHeightAt(int x, int y, int z);
+LavaHeatExposure GameGeologyHeatExposureAt(const struct GameRuntime *game,
+                                           Vector3 position, float radius,
+                                           float shelter);
 bool GameGeologyCanSetBlock(int x, int y, int z, BlockType next);
 typedef enum GameGeologyCollection {
     GAME_GEOLOGY_NO_DEPOSIT, GAME_GEOLOGY_COLLECTION_BLOCKED, GAME_GEOLOGY_COLLECTED
