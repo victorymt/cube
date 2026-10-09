@@ -44,7 +44,7 @@ bool GameWorldSimulationUserPaused(const GameRuntime *game)
 {
     return game && (game->paused || game->albumOpen ||
         game->importDialog.open || game->landingTransition.active ||
-        game->biologyAtlasOpen || HomeWorldMapIsOpen());
+        game->biologyAtlasOpen || game->inventoryOpen || HomeWorldMapIsOpen());
 }
 
 bool GameWorldSimulationPaused(const GameRuntime *game)

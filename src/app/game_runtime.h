@@ -13,6 +13,7 @@
 #include "app/game_debug_trace.h"
 #include "space/planet_profile.h"
 #include "gameplay/player.h"
+#include "gameplay/inventory.h"
 #include "gameplay/ship.h"
 #include "world/world_types.h"
 #include "world/chunks.h"
@@ -76,6 +77,7 @@ typedef struct GameRuntime {
   PlayerInput appliedPlayerInput;
   ShipControlInput scriptedShipInput;
   BlockType hotbar[HOTBAR_SIZE];
+  InventoryBrowser inventory;
   ImportDialog importDialog;
   LandingTransition landingTransition;
   GameStreamAuditState streamAudit;
@@ -174,6 +176,7 @@ typedef struct GameRuntime {
   bool dayCycleEnabled;
   bool evolutionScanLocked;
   bool biologyAtlasOpen;
+  bool inventoryOpen;
   bool quitSaveDone;
 
   float autoSaveTimer;

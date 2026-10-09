@@ -401,6 +401,10 @@ make run
 - Left click: break the targeted block
 - Right click: place the selected block (ghost preview shows the target cell)
 - Middle click: select the targeted block type into the selected hotbar slot
+- `E`: open the full inventory browser. Use the `All items`/`Owned` tabs,
+  mouse wheel or page buttons to browse, drag a material onto another slot to
+  reorder it, and drag it onto the hotbar to bind it. `Sort by count` groups
+  stocked materials first; `E` or `Esc` closes the window.
 - `K`: cycle the selected slot through Blue Brick, Blue Roof Tile, Red Lacquer
   Wood, White Plaster, Dressed Stone, and Wood Lattice. New worlds start with
   64 of each. These are full-block building materials; lattice has transparent

@@ -264,6 +264,7 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       .dayCycleEnabled = true,
       .autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS,
       .dayTime = 0.30f};
+  InventoryBrowserInit(&runtime->inventory);
   VoxelcraftPluginHostInit(&runtime->plugins);
 
   /* Keep the established gameplay time scale while making advancement

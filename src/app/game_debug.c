@@ -1,3 +1,4 @@
+#include "app/game_inventory.h"
 #include "raylib.h"
 #include "raymath.h"
 
@@ -1706,6 +1707,7 @@ static bool GameDebugDslResolve(void *userData, const char *name,
     (void)outError;
     GameRuntime *game = userData;
     if (!game || !name || !outValue) return false;
+    if (GameInventoryResolve(game, name, outValue)) return true;
     for (size_t index = 0u;
          index < sizeof(gameDebugDslResolvers) /
                      sizeof(gameDebugDslResolvers[0]);
@@ -1719,6 +1721,13 @@ static DebugDslCommandResult GameDebugDslCommand(
     void *userData, const char *commandText, DebugDslError *outError)
 {
     GameRuntime *game = userData;
+    if (strncmp(commandText, "inventory ", 10) == 0) {
+        if (GameInventoryDebug(game, commandText)) return DEBUG_DSL_COMMAND_COMPLETE;
+        outError->code = DEBUG_DSL_ERROR_CALLBACK;
+        snprintf(outError->message, sizeof(outError->message),
+                 "invalid inventory command or unavailable UI: %s", commandText);
+        return DEBUG_DSL_COMMAND_ERROR;
+    }
     DebugControlCommand command = DebugControlParseText(
         &game->debugControl, commandText);
     if (command == DEBUG_CONTROL_COMMAND_NONE ||

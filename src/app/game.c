@@ -1,3 +1,5 @@
+#include "app/game_inventory.h"
+#include "presentation/inventory_ui.h"
 #include "app/game_player_input.h"
 #include "raylib.h"
 #include "raymath.h"
@@ -324,6 +326,12 @@ static void GameUpdateAlbum(GameRuntime *game)
 static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game,
                                            bool landingSkipPressed)
 {
+    if (game->inventoryOpen) {
+        if (IsKeyPressed(KEY_E) || IsKeyPressed(KEY_ESCAPE)) {
+            GameInventorySetOpen(game, false);
+        }
+        return;
+    }
     bool biologyAtlasClosed = false;
     if (game->biologyAtlasOpen && IsKeyPressed(KEY_ESCAPE)) {
         game->biologyAtlasOpen = false;
@@ -362,6 +370,9 @@ static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game,
         game->cursorReleased = true;
         EnableCursor();
     }
+    if (!game->cursorReleased && IsKeyPressed(KEY_E)) {
+        GameInventorySetOpen(game, true);
+    }
     if (game->biologyAtlasOpen) {
         if (IsKeyPressed(KEY_UP)) {
             game->biologyAtlasSlot =
@@ -386,6 +397,7 @@ static float GameSurfaceMapDaylight(const GameRuntime *game)
 
 static void GameUpdateViewModes(GameRuntime *game)
 {
+    if (game->inventoryOpen) return;
     GameUpdateAlbum(game);
 
     if (!game->importDialog.open && !game->paused && !game->albumOpen &&
@@ -487,7 +499,7 @@ static bool GameNavigationInputBlocked(const GameRuntime *game)
 {
     return game->perfMode || game->paused || game->cursorReleased ||
            game->importDialog.open || game->albumOpen ||
-           game->biologyAtlasOpen || game->landingTransition.active ||
+           game->biologyAtlasOpen || game->inventoryOpen || game->landingTransition.active ||
            ShipIsDriving() || StarMapIsOpen() || HomeWorldMapIsOpen();
 }
 
@@ -499,7 +511,7 @@ static bool GameInputBlocked(const GameRuntime *game)
 static void GameUpdateGameplayShortcuts(GameRuntime *game,
                                         bool inputBlocked)
 {
-    if (!game->paused && !game->albumOpen && !game->importDialog.open &&
+    if (!game->inventoryOpen && !game->paused && !game->albumOpen && !game->importDialog.open &&
         !StarMapIsOpen() && !HomeWorldMapIsOpen() &&
         !game->landingTransition.active &&
         IsKeyPressed(KEY_O)) {
@@ -945,14 +957,14 @@ static void GameRenderStatusHud(GameRuntime *game)
 static void GameRenderHud(GameRuntime *game, const GameFrameView *frame,
                           float shipSpeed)
 {
-    if (!game->biologyAtlasOpen && !HomeWorldMapIsOpen()) {
+    if (!game->biologyAtlasOpen && !game->inventoryOpen && !HomeWorldMapIsOpen()) {
         DrawCrosshair(GetScreenWidth(), GetScreenHeight());
     }
-    if (!HomeWorldMapIsOpen()) GameRenderEvolutionPanel(game, frame);
-    if (!game->biologyAtlasOpen && !HomeWorldMapIsOpen()) {
+    if (!game->inventoryOpen && !HomeWorldMapIsOpen()) GameRenderEvolutionPanel(game, frame);
+    if (!game->biologyAtlasOpen && !game->inventoryOpen && !HomeWorldMapIsOpen()) {
         GameRenderStatusHud(game);
     }
-    if (game->showHelp && !game->biologyAtlasOpen &&
+    if (game->showHelp && !game->inventoryOpen && !game->biologyAtlasOpen &&
         !HomeWorldMapIsOpen()) {
         DrawHelpPanel(game->player.floating, game->cursorReleased,
                       ChunksRenderDistance());
@@ -960,7 +972,7 @@ static void GameRenderHud(GameRuntime *game, const GameFrameView *frame,
     DrawImportDialog(&game->importDialog);
     AlbumUiDraw();
     StarMapDraw();
-    if (game->showDebug && !game->biologyAtlasOpen &&
+    if (game->showDebug && !game->inventoryOpen && !game->biologyAtlasOpen &&
         !HomeWorldMapIsOpen()) {
         const HudFrameState hud = {
             .dayTime = game->dayTime,
@@ -1122,6 +1134,7 @@ static void GameRenderFrame(GameRuntime *game,
     GameRenderHud(game, frame, shipSpeed);
     GameRenderBiologyAtlas(game);
     HomeWorldMapDraw();
+    if (game->inventoryOpen) InventoryUiDraw(&game->inventory, game->hotbar);
     DrawLandingTransitionOverlay(&game->landingTransition);
     GameRenderPauseOverlay(game);
     GamePluginsRender(game, frame ? frame->dt : 0.0f);
@@ -1146,6 +1159,15 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
      * UI that pauses simulation, or applying shortcuts and dropped images. */
     GameRefreshEcologyReadiness(game);
     GameUpdatePauseAndBiologyAtlas(game, landingSkipPressed);
+    if (game->inventoryOpen) {
+        InventoryUiUpdate(&game->inventory, game->hotbar, (InventoryUiInput){
+            .pointer = GetMousePosition(),
+            .pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT),
+            .released = IsMouseButtonReleased(MOUSE_BUTTON_LEFT),
+            .wheel = GetMouseWheelMove(),
+            .hotbarKey = HotbarKeyToIndex()
+        });
+    }
     GameUpdateViewModes(game);
     bool inputBlocked = GameInputBlocked(game);
     GameUpdateGameplayShortcuts(game, inputBlocked);

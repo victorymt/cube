@@ -1400,6 +1400,33 @@ Colors are `red`, `amber`, `green`, `cyan`, `blue`, and `magenta`. Coordinates
 are bounded to +/-1,000,000 and marker names are limited to 63 bytes. Marker
 commands require an active surface world.
 
+### Inventory browser
+
+The inventory browser is opened with `E` during normal play. It pauses player
+motion, releases the cursor, and keeps the inventory ledger unchanged while
+you reorder the browser or hotbar bindings. The UI has an all-items tab, an
+owned-items tab (including fractional materials), paging, count sorting, and
+drag-and-drop between the catalog and the ten hotbar slots. `E` or `Esc` closes
+it. The debug command path is deterministic and can exercise the same state:
+
+```text
+inventory open
+assert inventory.open
+inventory owned
+inventory sort
+inventory page 0
+inventory press grid 0
+inventory release hotbar 0
+assert inventory.hotbar.0 > 0
+inventory close
+```
+
+Available typed fields are `inventory.open`, `inventory.page`,
+`inventory.drag`, `inventory.types`, `inventory.item.N`, `inventory.hotbar.N`,
+and `inventory.count.N`. `inventory open`, `inventory close`, `inventory all`,
+`inventory owned`, `inventory sort`, and `inventory page N` are state commands;
+`inventory press|release grid|hotbar N` sends a pointer edge to the UI.
+
 ### Evolution
 
 ```text

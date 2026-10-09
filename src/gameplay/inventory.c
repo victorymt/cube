@@ -137,3 +137,66 @@ bool InventoryLoad(FILE *file)
     InventoryResetRemainders();
     return true;
 }
+
+void InventoryBrowserInit(InventoryBrowser *browser)
+{
+    *browser = (InventoryBrowser){ .drag = -1 };
+    for (int value = 1; value < INVENTORY_BLOCK_TYPE_COUNT; value++) {
+        int index;
+        if (InventoryTypeIndex((BlockType)value, &index))
+            browser->order[browser->count++] = (BlockType)value;
+    }
+}
+
+int InventoryBrowserList(const InventoryBrowser *browser, int *indices)
+{
+    int count = 0;
+    for (int i = 0; i < browser->count; i++) {
+        BlockType type = browser->order[i];
+        if (!browser->ownedOnly || InventoryCount(type) || InventoryRemainder(type))
+            indices[count++] = i;
+    }
+    return count;
+}
+
+void InventoryBrowserSort(InventoryBrowser *browser)
+{
+    /* Stable insertion sort: owned items first, then type order on ties. */
+    for (int i = 1; i < browser->count; i++) {
+        BlockType type = browser->order[i];
+        int j = i;
+        while (j > 0) {
+            BlockType previous = browser->order[j - 1];
+            int delta = InventoryCount(type) - InventoryCount(previous);
+            if (delta < 0 || (delta == 0 && type >= previous)) break;
+            browser->order[j] = previous;
+            j--;
+        }
+        browser->order[j] = type;
+    }
+    browser->page = 0;
+    browser->drag = -1;
+}
+
+bool InventoryBrowserDrop(InventoryBrowser *browser, BlockType *hotbar,
+                          int source, int target)
+{
+    int count = browser->count;
+    if (source < 0 || target < 0 || source >= count + HOTBAR_SIZE ||
+        target >= count + HOTBAR_SIZE) return false;
+    if (source < count && target < count) {
+        BlockType tmp = browser->order[source];
+        browser->order[source] = browser->order[target];
+        browser->order[target] = tmp;
+    } else if (source < count) {
+        hotbar[target - count] = browser->order[source];
+    } else if (target >= count) {
+        BlockType tmp = hotbar[source - count];
+        hotbar[source - count] = hotbar[target - count];
+        hotbar[target - count] = tmp;
+    } else {
+        /* Returning a shortcut to the catalog clears only that binding. */
+        hotbar[source - count] = BLOCK_AIR;
+    }
+    return true;
+}

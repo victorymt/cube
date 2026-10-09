@@ -83,6 +83,30 @@ static void TestNaturalBlocks(void)
     assert(InventoryAdd(BLOCK_SPACESHIP_OCCUPIED, 1) == 0);
 }
 
+static void TestInventoryBrowser(void)
+{
+    InventoryBrowser browser;
+    BlockType hotbar[HOTBAR_SIZE] = { BLOCK_GRASS };
+    InventoryReset();
+    InventoryAdd(BLOCK_STONE, 7);
+    InventoryBrowserInit(&browser);
+    assert(browser.count > 0);
+    int stone = -1;
+    for (int i = 0; i < browser.count; i++) {
+        if (browser.order[i] == BLOCK_STONE) stone = i;
+    }
+    assert(stone >= 0);
+    assert(InventoryBrowserList(&browser, (int[INVENTORY_BROWSER_CAPACITY]){0}) ==
+           browser.count);
+    InventoryBrowserSort(&browser);
+    assert(browser.order[0] == BLOCK_STONE);
+    assert(InventoryBrowserDrop(&browser, hotbar, 0, browser.count));
+    assert(hotbar[0] == BLOCK_STONE);
+    assert(InventoryBrowserDrop(&browser, hotbar, browser.count,
+                                browser.count + 1));
+    assert(hotbar[0] == BLOCK_AIR && hotbar[1] == BLOCK_STONE);
+}
+
 static void TestSaveLoadRoundTrip(void)
 {
     FILE *file = tmpfile();
@@ -199,6 +223,7 @@ int main(void)
     TestLoadIsTransactional();
     TestStarterKitDoesNotGrantNaturalBlocks();
     TestVolumeCollection(); TestRemainderPersistence();
+    TestInventoryBrowser();
     puts("inventory tests passed");
     return 0;
 }

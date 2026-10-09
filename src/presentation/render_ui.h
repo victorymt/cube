@@ -6,6 +6,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+int UiMeasureText(const char *text, int fontSize);
+void UiDrawText(const char *text, int x, int y, int fontSize, Color color);
+
 float HudHeadingFromYaw(float yawRadians);
 const char *HudHeadingDirection(float headingDegrees);
 void HudFormatStatusLine(char *buffer, size_t bufferSize,
