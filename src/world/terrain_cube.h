@@ -22,7 +22,8 @@ typedef struct TerrainCubeColumn {
 
 // Creates an independent immutable snapshot and atlas. Retain before handing
 // to a worker; release its reference on every completion/cancellation path.
-// No sampling operation consults the currently installed world or its caches.
+// Sampling never consults the currently installed world. Historical memoization
+// depends only on the copied immutable inputs and cannot change sample results.
 TerrainCubeContext *TerrainCubeContextCreate(const WorldSurfaceSnapshot *snapshot,
                                              TerrainMode mode, uint64_t generation);
 TerrainCubeContext *TerrainCubeContextRetain(TerrainCubeContext *context);

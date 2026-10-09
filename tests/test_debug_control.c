@@ -604,6 +604,12 @@ int main(void)
     assert(geology.historyCellSize == 8);
     assert(DebugControlParseText(&geology, "geology history 3") == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "geology history 4 extra") == DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&geology, "geology find history") == DEBUG_CONTROL_COMMAND_GEOLOGY_FIND);
+    assert(geology.geologyFindHistorical);
+    assert(DebugControlParseText(&geology, "geology find") == DEBUG_CONTROL_COMMAND_GEOLOGY_FIND);
+    assert(!geology.geologyFindHistorical);
+    assert(DebugControlParseText(&geology, "geology history world") == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY_WORLD);
+    assert(DebugControlParseText(&geology, "geology history world extra") == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "geology deposition mountain extra") == DEBUG_CONTROL_COMMAND_INVALID);
     const char *deposition[] = { "geology deposition test slope", "geology deposition test basin",
         "geology deposition test overflow", "geology deposition test cooling" };

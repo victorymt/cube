@@ -41,11 +41,15 @@ VolcanoHistory *VolcanoHistoryBuild(const VolcanoTerrainDefinition *definition,
     VolcanoHistoryConfig config, VolcanoHistoryGround ground, void *user);
 void VolcanoHistoryDestroy(VolcanoHistory *history);
 VolcanoHistoryStats VolcanoHistoryInspect(const VolcanoHistory *history);
+size_t VolcanoHistoryBytes(const VolcanoHistory *history);
 bool VolcanoHistoryRead(const VolcanoHistory *history, unsigned event,
     unsigned x, unsigned y, VolcanoHistoryCell *out);
 bool VolcanoHistoryEventAt(const VolcanoHistory *history, unsigned event,
     VolcanoHistoryEvent *out);
 /* Tangent basis is anchored at the stable center, including near poles/faces. */
 Vector3 VolcanoHistoryDirection(const VolcanoHistory *history, unsigned x, unsigned y);
+/* Inverse of Direction, nearest constant-height finite-volume column. */
+bool VolcanoHistorySample(const VolcanoHistory *history, Vector3 direction,
+    VolcanoHistoryCell *out);
 
 #endif

@@ -3,5 +3,6 @@
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
 bool GameDebugVolcanoHistory(DebugControl *control);
+bool GameDebugVolcanoHistoryWorld(DebugControl *control);
 bool GameDebugVolcanoHistoryResolve(const DebugControl *control, const char *field, DebugDslValue *out);
 #endif

@@ -152,6 +152,11 @@ VolcanoHistoryStats VolcanoHistoryInspect(const VolcanoHistory *h)
 {
     return h ? h->stats : (VolcanoHistoryStats){0};
 }
+size_t VolcanoHistoryBytes(const VolcanoHistory *h)
+{
+    return h ? sizeof(*h) + (size_t)h->stats.side * h->stats.side *
+        (sizeof(double) + h->config.events * sizeof(VolcanoHistoryCell)) : 0;
+}
 bool VolcanoHistoryRead(const VolcanoHistory *h, unsigned event, unsigned x, unsigned y,
     VolcanoHistoryCell *out)
 {
@@ -162,4 +167,16 @@ bool VolcanoHistoryEventAt(const VolcanoHistory *h, unsigned event, VolcanoHisto
 {
     if (!h || !out || event >= h->config.events) return false;
     *out = h->events[event]; return true;
+}
+bool VolcanoHistorySample(const VolcanoHistory *h, Vector3 direction, VolcanoHistoryCell *out)
+{
+    if (!h || !out || !isfinite(direction.x) || !isfinite(direction.y) || !isfinite(direction.z)) return false;
+    double up = Vector3DotProduct(direction, h->up);
+    if (up <= .5) return false;
+    double x = Vector3DotProduct(direction, h->east) / up * SURFACE_RADIUS_BLOCKS / h->config.cellSize;
+    double y = Vector3DotProduct(direction, h->north) / up * SURFACE_RADIUS_BLOCKS / h->config.cellSize;
+    double half = h->stats.side / 2;
+    if (x < -half-.5 || x >= half+.5 || y < -half-.5 || y >= half+.5) return false;
+    return VolcanoHistoryRead(h, h->config.events - 1, (unsigned)floor(x + half + .5),
+        (unsigned)floor(y + half + .5), out);
 }

@@ -65,6 +65,10 @@ BLOCK_ATLAS_FEATURE_SRC := \
 GAME_EFFECTS_SRC := src/core/game_effects.c
 
 TERRAIN_FEATURE_SRC := \
+	src/world/volcano_history_cache.c \
+	src/world/volcano_history.c \
+	src/world/volcano_deposition_model.c \
+	src/world/lava_model.c \
 	src/world/terrain.c \
 	src/world/terrain_planet_sample.c \
 	src/world/terrain_planet_height.c \

@@ -1194,6 +1194,8 @@ typedef struct PlanetTerrainColumn {
     BathymetrySample bathymetry;
     PlanetSurfaceSample surface;
     LandformSample landform;
+    unsigned historicalDepth;
+    BlockType historicalRock;
 } PlanetTerrainColumn;
 
 typedef struct PlanetTerrainDecorationDecision {
@@ -1217,6 +1219,8 @@ static PlanetTerrainColumn PlanetTerrainColumnSample(
         .height = bathymetry.seabedY,
         .bathymetry = bathymetry,
         .landform = terrain.landform,
+        .historicalDepth = terrain.historicalDepth,
+        .historicalRock = terrain.historicalRock,
         .surface = PlanetSampleLocalSurface(worldX, worldZ, NULL, NULL)
     };
 }
@@ -1226,6 +1230,8 @@ static BlockType PlanetTerrainColumnBlock(
     const PlanetTerrainColumn *column, int y)
 {
     const LandformSample *landform = &column->landform;
+    if (y <= column->height && y > column->height - (int)column->historicalDepth)
+        return column->historicalRock;
     // Seal beds before cave carving, using this planet's material hash.
     if (y > 0 && landform->kind != LANDFORM_UPLAND && landform->sedimentDepth > 0 &&
         y <= column->height &&
@@ -1238,7 +1244,7 @@ static BlockType PlanetTerrainColumnBlock(
     unsigned int hash = PlanetHash2D(
         FloorDivInt(column->worldX, 3) + FloorDivInt(y, 2) * 19,
         FloorDivInt(column->worldZ, 3) - FloorDivInt(y, 2) * 23, 1u);
-    int depth = column->height - y;
+    int depth = column->height - (int)column->historicalDepth - y;
     PlanetBiome biome = column->surface.biome;
     BlockType type = y == 0 ? BLOCK_BEDROCK :
                      TerrainGeologyPlanetSubsurfaceBlock(
@@ -1257,7 +1263,7 @@ static BlockType PlanetTerrainColumnBlock(
     }
     SubsurfaceSample cave = SubsurfaceSampleAt(
         &context->subsurface, column->worldX, y, column->worldZ,
-        column->height);
+        column->height - (int)column->historicalDepth);
     if (cave.cave) {
         type = cave.flooded && context->style == SOLAR_STYLE_LAVA
                    ? BLOCK_LAVA
@@ -1346,7 +1352,7 @@ static bool PlanetTerrainDecorationSelect(
     const PlanetTerrainColumn *column, unsigned int decor,
     PlanetTerrainDecorationDecision *out)
 {
-    if (!context || !column || !out) return false;
+    if (!context || !column || !out || column->historicalDepth) return false;
     PlanetBiome biome = column->surface.biome;
     PlanetTerrainDecorationDecision decision = { 0 };
     if (column->surface.glacierCracks > 0.84f && decor % 67u == 0u) {
@@ -1448,7 +1454,7 @@ static void GeneratePlanetChunkTerrain(Chunk *chunk, int cx, int cz)
     if (planetChunkDecorator) planetChunkDecorator(chunk, cx, cz);
     // Planet generation evaluates the full bounded column, including air.
     // Record empty sections too so stream waits do not request nonexistent work.
-    for (int sectionY = 0; sectionY < SURFACE_WORLD_HEIGHT / SURFACE_SECTION_HEIGHT; sectionY++)
+    for (int sectionY = 0; sectionY < SURFACE_GENERATION_SECTION_COUNT; sectionY++)
         ChunkMarkTerrainSectionResolved(chunk, sectionY);
 }
 

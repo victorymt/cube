@@ -317,6 +317,7 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
         return DEBUG_CONTROL_COMMAND_INVALID;
     }
     if (!strcmp(line, "geology deposition mountain")) return DEBUG_CONTROL_COMMAND_GEOLOGY_MOUNTAIN;
+    if (!strcmp(line, "geology history world")) return DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY_WORLD;
     if (!strcmp(line, "geology history") || !strcmp(line, "geology history 4")) {
         control->historyCellSize = 4; return DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY;
     }
@@ -338,7 +339,10 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     }
     if (!strcmp(line, "geology inspect")) return DEBUG_CONTROL_COMMAND_GEOLOGY_INSPECT;
     if (!strcmp(line, "geology vents")) return DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS;
-    if (!strcmp(line, "geology find")) return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
+    if (!strcmp(line, "geology find") || !strcmp(line, "geology find history")) {
+        control->geologyFindHistorical = !strcmp(line, "geology find history");
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
+    }
     if (!strcmp(line, "geology enabled on") || !strcmp(line, "geology enabled off")) {
         control->geologyEnabled = !strcmp(line, "geology enabled on");
         return DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED;

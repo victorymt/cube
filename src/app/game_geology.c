@@ -9,6 +9,7 @@
 #include "presentation/surface_render_transform.h"
 #include "space/planet_surface.h"
 #include "world/volcano_runtime.h"
+#include "world/volcano_history_cache.h"
 #include "world/lava_runtime.h"
 #include "world/ash_runtime.h"
 #include "world/fluid.h"
@@ -444,6 +445,13 @@ static const BlockType collectionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT, B
 
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
+    if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY_WORLD) {
+        if (!GameDebugVolcanoHistoryWorld(&game->debugControl)) {
+            game->debugCommandFailed = true;
+            snprintf(game->debugCommandFailure, sizeof(game->debugCommandFailure), "history_world_requires_historical_find");
+        }
+        return true;
+    }
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY) {
         if (!GameDebugVolcanoHistory(&game->debugControl)) {
             game->debugCommandFailed = true;
@@ -479,6 +487,8 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
                     VolcanoTerrainDefinition d;
                     if (!VolcanoTerrainDefine(s->context.seed, s->planetProfile.volcanicActivity,
                             (SurfaceAddress){s->context.bodyId,face,u,v,0}, &d)) continue;
+                    if (c->geologyFindHistorical && !VolcanoHistoricalTerrainEligible(
+                        s->context.seed, &s->planetProfile, d.center)) continue;
                     SurfaceMapCell cell = VolcanoMapCell(d.center);
                     SurfaceMapOffset delta = SurfaceShortestMapOffset(observer.x, observer.z, cell.x, cell.z);
                     float distance = hypotf(delta.x, delta.z);

@@ -8,14 +8,23 @@ cooling products; heat damage and ecological restoration remain later work.
 
 ## Procedural terrain
 
-Terrain generation V10 uses `world/volcano_terrain` for deterministic mountain
+Terrain generation V11 uses `world/volcano_terrain` for deterministic initial mountain
 centers on a 512-cell cube-face lattice. A radial flank and crater bowl are
 shaped by center-anchored domain warping, four-octave FBM and radial gullies.
 `space/planet_surface` shares these samples with orbital terrain signals;
 `world/terrain_planet_height` blends the inherited relief into a shared
 foundation and adds the mountain height. The foundation cap preserves the rim
 inside the existing 240-block elevation budget. This generates mountain
-geometry; it does not simulate geological lava accumulation.
+geometry. V11 then adds conservative historical lava deposits on selected dry
+planet domains through `world/volcano_history_cache`. The original baseline stays
+separate to prevent recursive generation. Stable non-overlapping domains, full
+profile cache identity, bounded synchronous publication and downward thickness
+quantization give ordinary and cube chunks the same added height and rock. The
+same generated blocks feed collision, picking and chunk LOD; edits override them.
+Historical volume never enters live lava inventories. Generation now spans 384
+vertical blocks while the initial relief and atmospheric reference remain at
+their previous scales. Detailed budgets, quantization ledgers, cold/warm timing
+and the H2 verification route are recorded in the volcanic design document.
 
 Natural vent callbacks accept only centers from the same definition and use
 actual surface height for the outlet. Generated mountains remain visible when

@@ -3,6 +3,8 @@
 #include "world/planet_landform_strategy.h"
 #include "world/terrain_geology_internal.h"
 #include "world/subsurface.h"
+#include "world/volcano_history_cache.h"
+#include "world/terrain_generation.h"
 #include "raymath.h"
 
 #include <limits.h>
@@ -19,6 +21,7 @@ struct TerrainCubeContext {
     SubsurfaceParams subsurface;
     pthread_mutex_t referencesMutex;
     unsigned int references;
+    bool historyEnabled;
 };
 
 static float HomeShellElevation(float elevation)
@@ -65,6 +68,7 @@ TerrainCubeContext *TerrainCubeContextCreate(const WorldSurfaceSnapshot *snapsho
     context->mode = mode;
     context->generation = generation;
     context->references = 1;
+    context->historyEnabled = TerrainGenerationVersion() >= TERRAIN_GENERATION_VOLCANO_HISTORY;
     if (pthread_mutex_init(&context->referencesMutex, NULL) != 0) { free(context); return NULL; }
     context->strategy = PlanetLandformStrategyForSurface(snapshot->context.kind,
         snapshot->context.seed, &snapshot->planetProfile);
@@ -169,6 +173,13 @@ bool TerrainCubeSampleColumn(const TerrainCubeContext *context,
         s->elevation = s->landform.elevation;
         s->slope = s->landform.slope;
     }
+    if (!home && context->mode != TERRAIN_FLAT && context->historyEnabled) {
+        VolcanoHistoricalTerrain history = VolcanoHistoricalTerrainAt(seed,
+            &context->snapshot.planetProfile, column.direction);
+        s->historicalDepth = history.depth;
+        s->historicalRock = VolcanoHistoricalRockBlock(history.rock);
+        s->elevation += history.depth;
+    }
     s->elevation = Clamp(s->elevation, TERRAIN_CUBE_MIN_RADIAL + 2, SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 2);
     s->bathymetry.seaLevel = (int)s->seaLevel;
     s->bathymetry.seabedY = (int)lroundf(s->elevation);
@@ -205,13 +216,15 @@ bool TerrainCubeBlock(const TerrainCubeContext *context, const TerrainCubeColumn
             if (radial == (int)s->seaLevel && ((home && s->biome == BIOME_SNOW) ||
                 (!home && (style == SOLAR_STYLE_ICE || column->planet.iceCoverage > .64f)))) type = BLOCK_ICE;
         } else if (s->landform.hasWater && radial <= (int)floorf(s->landform.waterLevel)) type = BLOCK_WATER;
-    } else if (context->mode == TERRAIN_FLAT) type = depth == 0 ? BLOCK_GRASS : BLOCK_DIRT;
+    } else if ((unsigned)depth < s->historicalDepth) type = s->historicalRock;
+    else if (context->mode == TERRAIN_FLAT) type = depth == 0 ? BLOCK_GRASS : BLOCK_DIRT;
     else if (s->landform.sedimentDepth > 0 && depth <= (int)ceilf(s->landform.sedimentDepth)) {
         float choice = (float)(hash & 65535u)/65536;
         type = choice < s->landform.gravel ? BLOCK_GRAVEL
             : choice < s->landform.gravel + s->landform.sand ? BLOCK_SAND
             : s->landform.hasWater ? BLOCK_MUD : BLOCK_SILT;
     } else {
+        depth -= (int)s->historicalDepth;
         if (!home) type = TerrainGeologyPlanetSubsurfaceBlock(style, column->planet.biome, depth, hash);
         else if (depth < 4) type = s->biome == BIOME_DESERT ? BLOCK_SAND
             : s->biome == BIOME_SNOW ? (depth ? BLOCK_PERMAFROST : BLOCK_SNOW)
@@ -222,7 +235,8 @@ bool TerrainCubeBlock(const TerrainCubeContext *context, const TerrainCubeColumn
             (float)(hash & 65535u)/65536);
         if (s->bathymetry.waterDepth > 0 && depth < 4 && (home || (style != SOLAR_STYLE_LAVA && style != SOLAR_STYLE_ICE)))
             type = BathymetryMaterialBlock(s->bathymetry.material);
-        SubsurfaceSample cave = SubsurfaceSampleAtDirection(&context->subsurface, column->direction, radial, height);
+        SubsurfaceSample cave = SubsurfaceSampleAtDirection(&context->subsurface, column->direction, radial,
+            height - (int)s->historicalDepth);
         if (cave.cave) type = cave.flooded ? (!home && style == SOLAR_STYLE_LAVA ? BLOCK_LAVA : BLOCK_WATER) : BLOCK_AIR;
     }
     *out = type;

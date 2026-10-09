@@ -74,6 +74,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_GEOLOGY_DEPOSITION_TEST,
     DEBUG_CONTROL_COMMAND_GEOLOGY_MOUNTAIN,
     DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY,
+    DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY_WORLD,
     DEBUG_CONTROL_COMMAND_TELEPORT,
     DEBUG_CONTROL_COMMAND_LOOK,
     DEBUG_CONTROL_COMMAND_INPUT,
@@ -215,6 +216,7 @@ typedef struct DebugControl {
     double depositionSupplied, depositionRetained, depositionLiquid, depositionSolid;
     double depositionVolumeError, depositionEnergyError, depositionOutlet, depositionPool;
     bool geologyTerrainFound;
+    bool geologyFindHistorical;
     uint32_t geologyTerrainBody, geologyTerrainSeed;
     int geologyTerrainX, geologyTerrainY, geologyTerrainZ;
     float geologyTerrainRadius, geologyTerrainHeight, geologyCraterRadius;
@@ -223,6 +225,9 @@ typedef struct DebugControl {
     bool historyReady;
     double historySupplied, historyRemaining, historyFlank, historyFoot, historyBoundary;
     double historyVolumeError, historyEnergyError, historyRadius, historyCooling;
+    bool historyWorldReady;
+    unsigned historyWorldDepth;
+    double historyRepresented, historyQuantizationLoss, historyRejected;
     bool thirdPerson;
     unsigned viewDistance;
     bool mapLiquidsVisible;

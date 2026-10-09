@@ -1941,11 +1941,12 @@ int main(void)
     TerrainGenerationSetVersion(6);
     DeactivateTestPlanet();
     assert(SURFACE_WORLD_HEIGHT == 256);
+    assert(SURFACE_GENERATION_MAX_Y_EXCLUSIVE == 384);
     assert(SURFACE_SECTION_HEIGHT == 16);
     assert(SURFACE_MIN_Y == -16384);
     assert(SURFACE_MAX_Y_EXCLUSIVE == 16384);
     assert(SURFACE_SECTION_COUNT == 2048);
-    assert(SURFACE_GENERATION_SECTION_COUNT == 16);
+    assert(SURFACE_GENERATION_SECTION_COUNT == 24);
     for (int i = 0; i < 40; i++) {
         int x = i * 431 - 8192, z = i * 197 - 4096;
         float base = TerrainHomeBaselineElevation(DEFAULT_WORLD_SEED, x, z, NULL);

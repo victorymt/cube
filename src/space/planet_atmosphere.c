@@ -5,7 +5,7 @@
 #include <math.h>
 
 #define ATMOSPHERE_REFERENCE_Y 12.0f
-#define ATMOSPHERE_COMPRESSION_START ((float)SURFACE_GENERATION_MAX_Y_EXCLUSIVE + 18.0f)
+#define ATMOSPHERE_COMPRESSION_START ((float)SURFACE_WORLD_HEIGHT + 18.0f)
 
 AtmosphereInput PlanetAtmosphereInput(const PlanetProfile *planet)
 {

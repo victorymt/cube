@@ -2,6 +2,8 @@
 #include "world/landform_runtime.h"
 #include "world/world.h"
 #include "world/world_surface_snapshot.h"
+#include "world/volcano_history_cache.h"
+#include "world/terrain_generation.h"
 #include <math.h>
 
 int PlanetSeaLevelForProfile(SolarBodyStyle style,
@@ -42,6 +44,16 @@ SurfaceTerrainSample PlanetTerrainSampleAt(int x, int z)
     sample.peak = planet.peak;
     sample.trench = planet.trench;
     LandformApplyTerrainSample(x, z, &sample);
+    if (TerrainGenerationVersion() >= TERRAIN_GENERATION_VOLCANO_HISTORY) {
+        float longitude, latitude;
+        PlanetSurfaceLatLonAt(x, z, &longitude, &latitude);
+        Vector3 direction = {cosf(latitude)*cosf(longitude), sinf(latitude), cosf(latitude)*sinf(longitude)};
+        VolcanoHistoricalTerrain history = VolcanoHistoricalTerrainAt(snapshot->context.seed,
+            &snapshot->planetProfile, direction);
+        sample.historicalDepth = history.depth;
+        sample.historicalRock = VolcanoHistoricalRockBlock(history.rock);
+        sample.elevation += history.depth;
+    }
     return sample;
 }
 

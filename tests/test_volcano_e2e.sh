@@ -10,7 +10,7 @@ if [[ -z "${WAYLAND_DISPLAY:-}" || -z "${XDG_RUNTIME_DIR:-}" ||
 fi
 scenes=("${@:2}")
 if ((${#scenes[@]} == 0)); then
-    scenes=(volcano_deposition volcano_history volcano_terrain volcano_live volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products volcano_collection volcano_rejected_deposit volcano_enabled volcano_disabled_force)
+    scenes=(volcano_deposition volcano_history volcano_history_world volcano_terrain volcano_live volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products volcano_collection volcano_rejected_deposit volcano_enabled volcano_disabled_force)
 fi
 for scene in "${scenes[@]}"; do
 runtime=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-${scene}.XXXXXX")
@@ -47,6 +47,11 @@ elif [[ "$scene" == volcano_enabled ]]; then
         --debug-script "$repo/tests/scenes/volcano_enabled_restart.dsl") \
         > "$runtime/restart.log" 2>&1
     rg 'DEBUG_CONTROL geology enabled=1 saved=1|DEBUG_SCRIPT exit' "$runtime/restart.log"
+elif [[ "$scene" == volcano_history_world ]]; then
+    (cd "$runtime" && timeout 120 "$binary" --debug-resolution "$resolution" \
+        --debug-script "$repo/tests/scenes/volcano_history_world_restart.dsl") \
+        > "$runtime/restart.log" 2>&1
+    rg 'DEBUG_CONTROL geology history_world|DEBUG_SCRIPT exit' "$runtime/restart.log"
 fi
 done
 printf '%s\n' 'volcano e2e passed'

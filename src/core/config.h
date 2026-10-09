@@ -20,9 +20,12 @@
 // support is rolled out independently of the terrain scale model.
 #define SURFACE_WORLD_HEIGHT 256
 #define SURFACE_GENERATION_MIN_Y 0
-#define SURFACE_GENERATION_MAX_Y_EXCLUSIVE SURFACE_WORLD_HEIGHT
+// V11 leaves room for the 240-block initial relief plus at most three
+// 32-block historical deposits. This is separate from the legacy reference
+// height used by atmospheric compression and other subsystem budgets.
+#define SURFACE_GENERATION_MAX_Y_EXCLUSIVE 384
 #define SURFACE_GENERATION_SECTION_COUNT \
-    (SURFACE_WORLD_HEIGHT / SURFACE_SECTION_HEIGHT)
+    (SURFACE_GENERATION_MAX_Y_EXCLUSIVE / SURFACE_SECTION_HEIGHT)
 // WORLD_HEIGHT is the legacy generation height for older call sites. It is
 // not the minimum/maximum coordinate contract for sparse Surface sections.
 #define WORLD_HEIGHT SURFACE_WORLD_HEIGHT

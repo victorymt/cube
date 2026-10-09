@@ -1,5 +1,7 @@
 #include "app/game_debug_volcano_history.h"
 #include "world/volcano_history.h"
+#include "world/volcano_history_cache.h"
+#include "world/terrain_generation.h"
 #include "world/world_surface_snapshot.h"
 #include "world/terrain.h"
 #include <math.h>
@@ -58,8 +60,38 @@ bool GameDebugVolcanoHistory(DebugControl *c)
         c->historyRadius, c->historyBoundary, c->historyVolumeError, c->historyEnergyError, seconds, stats.peakBytes);
     VolcanoHistoryDestroy(h); return ok;
 }
+bool GameDebugVolcanoHistoryWorld(DebugControl *c)
+{
+    c->historyWorldReady = false;
+    const WorldSurfaceSnapshot *s = WorldCurrentSurfaceSnapshot();
+    if (!c->geologyTerrainFound || s->context.kind != WORLD_SURFACE_PLANET ||
+        s->context.seed != c->geologyTerrainSeed || s->context.bodyId != c->geologyTerrainBody ||
+        TerrainGenerationVersion() < TERRAIN_GENERATION_VOLCANO_HISTORY) return false;
+    SurfaceAddress center = {0, c->geologyTerrainFace, c->geologyTerrainU, c->geologyTerrainV, 0};
+    VolcanoHistoricalTerrain h = VolcanoHistoricalTerrainAt(s->context.seed, &s->planetProfile,
+        SurfaceAddressDirection(center));
+    if (!h.domain) return false;
+    c->historyWorldReady = !h.boundaryRejected;
+    c->historyWorldDepth = h.depth; c->historyRepresented = h.representedVolume;
+    c->historyQuantizationLoss = h.quantizationLoss; c->historyRejected = h.rejectedVolume;
+    VolcanoHistoryCacheStats cache = VolcanoHistoryCacheInspect();
+    DebugControlReply(c, "DEBUG_CONTROL geology history_world ready=%d generation=%u depth=%u material=%s fit_attempts=%u represented=%.9g quantization_loss=%.9g rejected=%.9g retained=%.9g remaining=%.9g hits=%llu builds=%llu evictions=%llu residents=%u resident_bytes=%zu peak_bytes=%zu build_seconds=%.6f\n",
+        c->historyWorldReady, TerrainGenerationVersion(), h.depth, LavaRockName(h.rock), h.fitAttempts,
+        h.representedVolume, h.quantizationLoss, h.rejectedVolume, h.model.ledger.retainedVolume,
+        h.model.remainingVolume, (unsigned long long)cache.hits, (unsigned long long)cache.builds,
+        (unsigned long long)cache.evictions, cache.residents, cache.residentBytes, cache.peakBytes, cache.buildSeconds);
+    return true;
+}
 bool GameDebugVolcanoHistoryResolve(const DebugControl *c, const char *field, DebugDslValue *out)
 {
+    if (!strcmp(field, "history_world_ready")) {
+        out->type = DEBUG_DSL_VALUE_BOOL; out->as.boolean = c->historyWorldReady; return true;
+    }
+    out->type = DEBUG_DSL_VALUE_NUMBER;
+    if (!strcmp(field, "history_world_depth")) { out->as.number = c->historyWorldDepth; return true; }
+    if (!strcmp(field, "history_represented")) { out->as.number = c->historyRepresented; return true; }
+    if (!strcmp(field, "history_quantization_loss")) { out->as.number = c->historyQuantizationLoss; return true; }
+    if (!strcmp(field, "history_rejected")) { out->as.number = c->historyRejected; return true; }
     if (!strcmp(field, "history_ready")) {
         out->type = DEBUG_DSL_VALUE_BOOL; out->as.boolean = c->historyReady; return true;
     }

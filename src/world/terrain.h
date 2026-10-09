@@ -53,6 +53,8 @@ typedef struct SurfaceTerrainSample {
     LandformSample landform;
     Biome biome;
     BathymetrySample bathymetry;
+    unsigned historicalDepth;
+    BlockType historicalRock;
 } SurfaceTerrainSample;
 
 typedef enum TerrainSubsurfaceLiquidKind {

@@ -1116,6 +1116,31 @@ the actual-terrain ledger route, then
 to plot the measured eruption stages. This is a data diagnostic; it does not
 claim that historical deposits have already been integrated into world generation.
 
+V11 world generation uses a separate immutable history cache on dry planets.
+`geology find history` chooses the nearest non-overlapping selected history domain;
+ordinary `geology find` still searches all natural mountains. After finding,
+`geology history world` inspects the actual cached world result, without exporting
+or importing a diagnostic snapshot. It prints `generation`, `depth`, `material`,
+`fit_attempts` (up to four bounded cooling fits), `represented`, `quantization_loss`,
+`rejected`, `retained`, `remaining`, and cache hits/builds/evictions/memory/CPU time.
+Typed fields are `geology.history_world_ready`, `history_world_depth`,
+`history_represented`, `history_quantization_loss`, and `history_rejected`, each
+with the `geology.` prefix. Re-run the command after loading or changing bodies.
+
+Fractional depths are rounded down in the stable tangent-plane grid, with the
+lost representation reported separately from the conservative simulation ledger.
+A domain still touching its closed border after fitting is rejected as a whole,
+with a separate rejected volume; it never creates an artificial rim in the world.
+The generator leaves existing terrain beneath added rock intact. The generation
+band now reaches Y=383; the initial relief limit remains 240 and three historical
+layers are bounded to 96 additional blocks. Atmospheric reference height is unchanged.
+Neither the cache nor these diagnostics consume current eruption inventories.
+
+`bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_history_world`
+checks real rock/collision while activity is disabled, save/load, and a second
+process that reconstructs the same deposits. Screenshots and both process logs
+remain in the reported temporary directory.
+
 `geology enabled on|off` persists the independent activity setting (default on)
 in settings format V4 as `geology_enabled=1|0`. It also works before `start`.
 The pause menu exposes the same setting as **Volcanoes** (System tab in tiny
