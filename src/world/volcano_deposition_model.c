@@ -3,14 +3,24 @@
 #include <math.h>
 #include <stdlib.h>
 
-struct Column { double ground, volume, energy; };
+struct Column { double ground, volume, energy, transported; };
 struct VolcanoDepositionModel {
     VolcanoDepositionConfig config;
     unsigned count, steps;
+    unsigned minX, minY, maxX, maxY;
+    bool occupied;
     double area, capacity, suppliedVolume, suppliedEnergy, cooledEnergy;
     struct Column *columns;
     double *flux, *incoming;
 };
+static void Include(VolcanoDepositionModel *m, unsigned x, unsigned y)
+{
+    if (!m->occupied) { m->minX = m->maxX = x; m->minY = m->maxY = y; m->occupied = true; }
+    if (x < m->minX) m->minX = x;
+    if (x > m->maxX) m->maxX = x;
+    if (y < m->minY) m->minY = y;
+    if (y > m->maxY) m->maxY = y;
+}
 
 static double Liquid(const struct Column *c)
 {
@@ -79,14 +89,27 @@ double VolcanoDepositionSupply(VolcanoDepositionModel *m, unsigned x, unsigned y
     double energy = accepted * LavaSpecificEnthalpy(temperatureK);
     c->volume += accepted; c->energy += energy;
     m->suppliedVolume += accepted; m->suppliedEnergy += energy;
+    if (accepted > 0) Include(m, x, y);
     return accepted;
 }
-static bool Step(VolcanoDepositionModel *m, bool reverse)
+static bool Step(VolcanoDepositionModel *m, bool reverse, bool fullGrid)
 {
     if (!m || m->steps >= m->config.maxSteps) return false;
+    if (!m->occupied) { m->steps++; return true; }
+    /* All previously occupied columns plus a one-cell halo. A synchronous
+       step moves at most one cell, so untouched terrain cannot participate.
+       Bounds only expand: even cold columns retain their height/heat ledger. */
+    unsigned x0 = m->minX ? m->minX - 1 : 0;
+    unsigned y0 = m->minY ? m->minY - 1 : 0;
+    unsigned x1 = m->maxX + 1 < m->config.width ? m->maxX + 1 : m->maxX;
+    unsigned y1 = m->maxY + 1 < m->config.height ? m->maxY + 1 : m->maxY;
+    if (fullGrid) { x0 = y0 = 0; x1 = m->config.width - 1; y1 = m->config.height - 1; }
+    unsigned width = x1 - x0 + 1, count = width * (y1 - y0 + 1);
+#define INDEX(n) ((y0 + (n) / width) * m->config.width + x0 + (n) % width)
     /* Each donor writes its own slots. No neighbor changes during this pass. */
-    for (unsigned n = 0; n < m->count; n++) {
-        unsigned i = reverse ? m->count - 1 - n : n;
+    for (unsigned n = 0; n < count; n++) {
+        unsigned k = reverse ? count - 1 - n : n;
+        unsigned i = INDEX(k);
         struct Column c = m->columns[i];
         double liquid = Liquid(&c), sum = 0;
         double mobility = c.volume > 0 ? liquid / c.volume : 0;
@@ -109,7 +132,8 @@ static bool Step(VolcanoDepositionModel *m, bool reverse)
     }
     /* Canonical gathers make floating-point summation independent of the
        donor evaluation order. Reject capacity excess back to its source. */
-    for (unsigned i = 0; i < m->count; i++) {
+    for (unsigned n = 0; n < count; n++) {
+        unsigned i = INDEX(n);
         double incoming = 0;
         for (unsigned side = 0; side < 4; side++) {
             int j = Neighbor(m, i, side);
@@ -117,7 +141,8 @@ static bool Step(VolcanoDepositionModel *m, bool reverse)
         }
         m->incoming[i] = incoming;
     }
-    for (unsigned i = 0; i < m->count; i++) for (unsigned side = 0; side < 4; side++) {
+    for (unsigned n = 0; n < count; n++) for (unsigned side = 0; side < 4; side++) {
+        unsigned i = INDEX(n);
         int j = Neighbor(m, i, side);
         if (j < 0) continue;
         double space = fmax(0, m->capacity - m->columns[j].volume);
@@ -125,8 +150,11 @@ static bool Step(VolcanoDepositionModel *m, bool reverse)
             m->flux[i * 4 + side] *= space / m->incoming[j];
     }
     /* Store transported energy in scratch before any column is modified. */
-    for (unsigned i = 0; i < m->count; i++) m->incoming[i] = LiquidEnthalpy(&m->columns[i]);
-    for (unsigned i = 0; i < m->count; i++) {
+    for (unsigned n = 0; n < count; n++) {
+        unsigned i = INDEX(n); m->incoming[i] = LiquidEnthalpy(&m->columns[i]);
+    }
+    for (unsigned n = 0; n < count; n++) {
+        unsigned i = INDEX(n);
         struct Column *c = &m->columns[i];
         double dv = 0, de = 0;
         for (unsigned side = 0; side < 4; side++) {
@@ -136,6 +164,7 @@ static bool Step(VolcanoDepositionModel *m, bool reverse)
             if (j >= 0) {
                 double incoming = m->flux[(unsigned)j * 4 + (side ^ 1u)];
                 dv += incoming; de += incoming * m->incoming[j];
+                c->transported += incoming;
             }
         }
         c->volume += dv; c->energy += de;
@@ -148,13 +177,30 @@ static bool Step(VolcanoDepositionModel *m, bool reverse)
         double loss = fmin(fmax(0, c->energy - floorEnergy),
             m->config.cooling * m->area * VOLCANO_DEPOSITION_STEP_SECONDS);
         c->energy -= loss; m->cooledEnergy += loss;
+        if (c->volume > 0) Include(m, i % m->config.width, i / m->config.width);
     }
+#undef INDEX
     m->steps++;
     return true;
 }
-bool VolcanoDepositionStep(VolcanoDepositionModel *m) { return Step(m, false); }
+bool VolcanoDepositionStep(VolcanoDepositionModel *m) { return Step(m, false, false); }
+double VolcanoDepositionCoolToAmbient(VolcanoDepositionModel *m)
+{
+    if (!m) return 0;
+    double loss = 0;
+    for (unsigned i = 0; i < m->count; i++) {
+        struct Column *c = &m->columns[i];
+        double floorEnergy = c->volume * (m->config.ambientK - LAVA_REFERENCE_K);
+        double removed = fmax(0, c->energy - floorEnergy);
+        c->energy -= removed;
+        loss += removed;
+    }
+    m->cooledEnergy += loss;
+    return loss;
+}
 #ifdef VOLCANO_DEPOSITION_TESTING
-bool VolcanoDepositionStepReverse(VolcanoDepositionModel *m) { return Step(m, true); }
+bool VolcanoDepositionStepReverse(VolcanoDepositionModel *m) { return Step(m, true, false); }
+bool VolcanoDepositionStepFullGrid(VolcanoDepositionModel *m) { return Step(m, false, true); }
 #endif
 bool VolcanoDepositionRead(const VolcanoDepositionModel *m, unsigned x, unsigned y,
                             VolcanoDepositionCell *out)
@@ -163,7 +209,7 @@ bool VolcanoDepositionRead(const VolcanoDepositionModel *m, unsigned x, unsigned
     struct Column c = m->columns[y * m->config.width + x];
     double liquid = Liquid(&c);
     *out = (VolcanoDepositionCell){ c.ground, c.volume, c.energy, liquid,
-        (c.volume - liquid) / m->area, c.ground + c.volume / m->area, Temperature(&c) };
+        (c.volume - liquid) / m->area, c.ground + c.volume / m->area, Temperature(&c), c.transported };
     return true;
 }
 VolcanoDepositionLedger VolcanoDepositionInspect(const VolcanoDepositionModel *m)

@@ -317,6 +317,13 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
         return DEBUG_CONTROL_COMMAND_INVALID;
     }
     if (!strcmp(line, "geology deposition mountain")) return DEBUG_CONTROL_COMMAND_GEOLOGY_MOUNTAIN;
+    if (!strcmp(line, "geology history") || !strcmp(line, "geology history 4")) {
+        control->historyCellSize = 4; return DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY;
+    }
+    if (!strcmp(line, "geology history 2") || !strcmp(line, "geology history 8")) {
+        control->historyCellSize = (unsigned)(line[16] - '0');
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY;
+    }
     if (!strncmp(line, "geology deposition", 18)) {
         static const char *commands[] = {
             "geology deposition test slope", "geology deposition test basin",

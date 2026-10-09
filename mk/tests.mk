@@ -270,3 +270,4 @@ $(eval $(call define_test,PLANET_LANDFORM_QUALITY_TEST_TARGET,test_planet_landfo
 $(eval $(call define_test,VOLCANO_DEPOSITION_TEST_TARGET,test_volcano_deposition,src/world/volcano_deposition_model.c src/world/lava_model.c,-DVOLCANO_DEPOSITION_TESTING,,, -lm,,))
 
 $(eval $(call define_test,GAME_PLAYER_INPUT_TEST_TARGET,test_game_player_input,src/app/game_player_input.c,,,,,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,VOLCANO_HISTORY_TEST_TARGET,test_volcano_history,src/world/volcano_history.c src/world/volcano_deposition_model.c src/world/lava_model.c src/world/volcano_terrain.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))

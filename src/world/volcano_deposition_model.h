@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define VOLCANO_DEPOSITION_MAX_SIDE 128u
+#define VOLCANO_DEPOSITION_MAX_SIDE 256u
 #define VOLCANO_DEPOSITION_MAX_STEPS 100000u
 #define VOLCANO_DEPOSITION_STEP_SECONDS 0.1
 
@@ -20,6 +20,7 @@ typedef struct VolcanoDepositionConfig {
 typedef struct VolcanoDepositionCell {
     double ground, volume, energy;
     double liquidVolume, solidDepth, surface, temperatureK;
+    double transportedVolume; /* Cumulative accepted incoming liquid, excluding supply. */
 } VolcanoDepositionCell;
 typedef struct VolcanoDepositionLedger {
     unsigned steps;
@@ -41,10 +42,14 @@ double VolcanoDepositionSupply(VolcanoDepositionModel *model, unsigned x, unsign
 /* One fixed step: old-state fluxes, simultaneous transport, then surface cooling.
    At the limit returns false with all remaining mass/heat intact. */
 bool VolcanoDepositionStep(VolcanoDepositionModel *model);
+/* Explicit historical end-of-era cooling. Removes only heat, records it in
+   cooledEnergy, and works after the step budget is exhausted. Returns loss. */
+double VolcanoDepositionCoolToAmbient(VolcanoDepositionModel *model);
 bool VolcanoDepositionRead(const VolcanoDepositionModel *model, unsigned x, unsigned y,
                             VolcanoDepositionCell *out);
 VolcanoDepositionLedger VolcanoDepositionInspect(const VolcanoDepositionModel *model);
 #ifdef VOLCANO_DEPOSITION_TESTING
 bool VolcanoDepositionStepReverse(VolcanoDepositionModel *model);
+bool VolcanoDepositionStepFullGrid(VolcanoDepositionModel *model);
 #endif
 #endif

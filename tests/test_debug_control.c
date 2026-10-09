@@ -596,6 +596,14 @@ int main(void)
     for (unsigned i = 0; i < sizeof(invalidLandform) / sizeof(*invalidLandform); i++)
         assert(DebugControlParseText(&geology, invalidLandform[i]) == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "geology deposition mountain") == DEBUG_CONTROL_COMMAND_GEOLOGY_MOUNTAIN);
+    assert(DebugControlParseText(&geology, "geology history") == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY);
+    assert(geology.historyCellSize == 4);
+    assert(DebugControlParseText(&geology, "geology history 2") == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY);
+    assert(geology.historyCellSize == 2);
+    assert(DebugControlParseText(&geology, "geology history 8") == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY);
+    assert(geology.historyCellSize == 8);
+    assert(DebugControlParseText(&geology, "geology history 3") == DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&geology, "geology history 4 extra") == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "geology deposition mountain extra") == DEBUG_CONTROL_COMMAND_INVALID);
     const char *deposition[] = { "geology deposition test slope", "geology deposition test basin",
         "geology deposition test overflow", "geology deposition test cooling" };

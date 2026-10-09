@@ -1,5 +1,6 @@
 #include "app/game_debug_volcano_mountain.h"
 #include "app/game_debug_deposition.h"
+#include "app/game_debug_volcano_history.h"
 #include "app/game_geology.h"
 #include "app/game_internal.h"
 #include "app/game_debug.h"
@@ -443,6 +444,13 @@ static const BlockType collectionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT, B
 
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
+    if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY) {
+        if (!GameDebugVolcanoHistory(&game->debugControl)) {
+            game->debugCommandFailed = true;
+            snprintf(game->debugCommandFailure, sizeof(game->debugCommandFailure), "history_requires_geology_find_or_build_failed");
+        }
+        return true;
+    }
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_MOUNTAIN) {
         GameDebugVolcanoMountain(game);
         return true;
@@ -483,6 +491,7 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
                     c->geologyTerrainX = cell.x; c->geologyTerrainY = height; c->geologyTerrainZ = cell.z;
                     c->geologyTerrainRadius = d.radius; c->geologyTerrainHeight = d.height;
                     c->geologyCraterRadius = d.craterRadius;
+                    c->geologyTerrainFace = face; c->geologyTerrainU = u; c->geologyTerrainV = v;
                 }
             }
         }
@@ -612,6 +621,7 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
     if (strncmp(name, "geology.", 8u) != 0) return false;
     const char *field = name + 8;
     if (!strncmp(field, "deposition_", 11)) return GameDebugDepositionResolve(&game->debugControl, field, out);
+    if (!strncmp(field, "history_", 8)) return GameDebugVolcanoHistoryResolve(&game->debugControl, field, out);
     if (!strncmp(field, "terrain_", 8)) {
         const DebugControl *c = &game->debugControl;
         WorldSurfaceContext s = WorldCurrentSurfaceContext();

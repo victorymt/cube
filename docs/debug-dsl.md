@@ -1091,6 +1091,31 @@ session-only diagnostics are not saved and remain independent of world switches.
 Run `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_deposition`
 to execute `tests/scenes/volcano_deposition.dsl` and retain its log and trace.
 
+Historical sequences (H1) can be inspected with `geology find`, followed by
+`geology history` (default 4-block cells) or `geology history 2|4|8`. The command
+requires the same current planet/seed as the preceding find. It samples initial
+terrain, runs three finite central eruptions with cold deposits retained as the
+next eruption's substrate, and writes `volcano-history.csv` in the run directory.
+The CSV contains event, tangent-plane x/y, initial ground, cumulative depth,
+flow-event bitmask and rock. No world edits or runtime lava are created, and the
+diagnostic works while geological activity is disabled.
+
+Queryable fields are `geology.history_ready`, `history_supplied`,
+`history_remaining`, `history_flank`, `history_foot`, `history_boundary`,
+`history_radius`, `history_volume_error`, `history_energy_error`, and
+`history_terminal_cooling` (all under the `geology.` prefix). Flank means radius
+greater than 1.5 crater radii; foot means greater than 0.75 mountain radii. They
+overlap and must not be summed. Radius ignores deposits thinner than 0.01 block.
+Remaining volume is rejected source inventory, not discarded material. Terminal
+cooling is explicit historical quiet-time heat removal, included in the ledger.
+Results describe the last successful command, not live updates after moving.
+
+Run `bash tests/test_volcano_e2e.sh build/normal/voxelcraft volcano_history` for
+the actual-terrain ledger route, then
+`uv run scripts/plot_volcano_history.py <run-dir>/volcano-history.csv --output /tmp/history.png`
+to plot the measured eruption stages. This is a data diagnostic; it does not
+claim that historical deposits have already been integrated into world generation.
+
 `geology enabled on|off` persists the independent activity setting (default on)
 in settings format V4 as `geology_enabled=1|0`. It also works before `start`.
 The pause menu exposes the same setting as **Volcanoes** (System tab in tiny

@@ -129,27 +129,33 @@ static void TestDeterminism(void)
     for (unsigned i = 0; i < W * H; i++) ground[i] = sin(i * .37) * 2 + (i / W) * .1;
     VolcanoDepositionConfig c = Config(W, H); c.cellSize = 4; c.cooling = 7; c.maxDepth = 3;
     VolcanoDepositionModel *a = VolcanoDepositionCreate(c, ground), *b = VolcanoDepositionCreate(c, ground);
-    assert(a && b);
+    VolcanoDepositionModel *reference = VolcanoDepositionCreate(c, ground);
+    assert(a && b && reference);
     for (unsigned tick = 0; tick < 2000; tick++) {
         if (tick % 31 == 0) {
             unsigned x = (tick * 17) % W, y = (tick * 13) % H;
-            assert(VolcanoDepositionSupply(a, x, y, 10, 1450) == VolcanoDepositionSupply(b, x, y, 10, 1450));
+            double accepted = VolcanoDepositionSupply(a, x, y, 10, 1450);
+            assert(accepted == VolcanoDepositionSupply(b, x, y, 10, 1450));
+            assert(accepted == VolcanoDepositionSupply(reference, x, y, 10, 1450));
         }
         assert(VolcanoDepositionStep(a)); assert(VolcanoDepositionStepReverse(b));
+        assert(VolcanoDepositionStepFullGrid(reference));
         for (unsigned y = 0; y < H; y++) for (unsigned x = 0; x < W; x++) {
             VolcanoDepositionCell ca = Read(a, x, y), cb = Read(b, x, y);
             assert(ca.volume == cb.volume && ca.energy == cb.energy);
+            VolcanoDepositionCell full = Read(reference, x, y);
+            assert(ca.volume == full.volume && ca.energy == full.energy && ca.transportedVolume == full.transportedVolume);
             assert(ca.volume <= c.maxDepth * c.cellSize * c.cellSize + 1e-10);
         }
         Conserved(a); Conserved(b);
     }
-    VolcanoDepositionDestroy(a); VolcanoDepositionDestroy(b);
+    VolcanoDepositionDestroy(a); VolcanoDepositionDestroy(b); VolcanoDepositionDestroy(reference);
 }
 static void TestInvalid(void)
 {
     double ground[] = {0}; VolcanoDepositionConfig c = Config(1, 1);
     assert(!VolcanoDepositionCreate(c, NULL));
-    c.width = 129; assert(!VolcanoDepositionCreate(c, ground)); c.width = 1;
+    c.width = VOLCANO_DEPOSITION_MAX_SIDE + 1; assert(!VolcanoDepositionCreate(c, ground)); c.width = 1;
     c.cellSize = NAN; assert(!VolcanoDepositionCreate(c, ground)); c.cellSize = 1;
     ground[0] = INFINITY; assert(!VolcanoDepositionCreate(c, ground)); ground[0] = 0;
     VolcanoDepositionModel *m = VolcanoDepositionCreate(c, ground); assert(m);
@@ -185,9 +191,42 @@ static void TestSymmetryAndMaximumGrid(void)
     assert(VolcanoDepositionInspect(m).boundaryVolume > 0);
     VolcanoDepositionDestroy(m);
 }
+static void TestHistoricalCoolingAndFeedback(void)
+{
+    double ground[] = {1, 2, 0};
+    VolcanoDepositionConfig c = Config(3, 1); c.maxSteps = 1000;
+    VolcanoDepositionModel *old = VolcanoDepositionCreate(c, ground);
+    VolcanoDepositionModel *fresh = VolcanoDepositionCreate(c, ground);
+    assert(old && fresh);
+    /* A former side outlet fills the lower right branch, below the central
+       sill, then solidifies. A later central flow must favor the left branch. */
+    assert(VolcanoDepositionSupply(old, 2, 0, 1.9, 1450) == 1.9);
+    Steps(old, 500);
+    double right = Read(old, 2, 0).volume, left = Read(old, 0, 0).volume;
+    double before = VolcanoDepositionInspect(old).retainedEnergy;
+    double loss = VolcanoDepositionCoolToAmbient(old);
+    assert(loss > 0 && fabs(before - loss - VolcanoDepositionInspect(old).retainedEnergy) < 1e-9);
+    assert(Read(old, 2, 0).volume == right && Read(old, 0, 0).volume == left);
+    assert(VolcanoDepositionInspect(old).liquidVolume == 0);
+    assert(VolcanoDepositionCoolToAmbient(old) < 1e-9);
+    assert(VolcanoDepositionSupply(old, 1, 0, 1, 1450) == 1);
+    assert(VolcanoDepositionSupply(fresh, 1, 0, 1, 1450) == 1);
+    Steps(old, 500); Steps(fresh, 500);
+    /* The old branch has become a barrier, redirecting actual transported
+       material into the alternative path (not just quenching the source). */
+    assert(Read(old, 0, 0).volume - left > Read(fresh, 0, 0).volume + .1);
+    VolcanoDepositionLedger l = VolcanoDepositionInspect(old);
+    assert(!VolcanoDepositionStep(old));
+    assert(VolcanoDepositionCoolToAmbient(old) >= 0);
+    assert(VolcanoDepositionInspect(old).retainedVolume == l.retainedVolume);
+    assert(VolcanoDepositionInspect(old).liquidVolume == 0);
+    Conserved(old); Conserved(fresh);
+    VolcanoDepositionDestroy(old); VolcanoDepositionDestroy(fresh);
+}
 int main(void)
 {
     TestSlopeAndBasin(); TestCoolingAndArea(); TestLatentTransport();
     TestCapacityAndLimit(); TestDeterminism(); TestInvalid(); TestSymmetryAndMaximumGrid();
+    TestHistoricalCoolingAndFeedback();
     puts("volcano deposition: flow, overflow, phase, conservation, bounds and determinism passed");
 }
