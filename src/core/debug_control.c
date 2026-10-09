@@ -341,6 +341,14 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     if (!strcmp(line, "geology vents")) return DEBUG_CONTROL_COMMAND_GEOLOGY_VENTS;
     if (!strcmp(line, "geology find") || !strcmp(line, "geology find history")) {
         control->geologyFindHistorical = !strcmp(line, "geology find history");
+        control->geologyFindFace = -1;
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
+    }
+    unsigned findFace = 0; char findTrailing = '\0';
+    if (sscanf(line, "geology find history face %u %c", &findFace, &findTrailing) == 1 &&
+        findFace < 6u) {
+        control->geologyFindHistorical = true;
+        control->geologyFindFace = (int)findFace;
         return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
     }
     unsigned face = 0, u = 0, v = 0; char trailingLocate = '\0';

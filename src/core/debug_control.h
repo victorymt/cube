@@ -219,6 +219,7 @@ typedef struct DebugControl {
     double depositionVolumeError, depositionEnergyError, depositionOutlet, depositionPool;
     bool geologyTerrainFound;
     bool geologyFindHistorical;
+    int geologyFindFace;
     uint32_t geologyTerrainBody, geologyTerrainSeed;
     int geologyTerrainX, geologyTerrainY, geologyTerrainZ;
     float geologyTerrainRadius, geologyTerrainHeight, geologyCraterRadius;

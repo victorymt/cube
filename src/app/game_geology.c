@@ -504,7 +504,9 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
         }
         float best = INFINITY;
         Vector3 observer = ContextFor(game).observerMap;
-        for (SurfaceFace face = 0; face < SURFACE_FACE_COUNT; face++) {
+        SurfaceFace firstFace = c->geologyFindFace >= 0 ? (SurfaceFace)c->geologyFindFace : 0;
+        SurfaceFace lastFace = c->geologyFindFace >= 0 ? firstFace + 1 : SURFACE_FACE_COUNT;
+        for (SurfaceFace face = firstFace; face < lastFace; face++) {
             for (int v = VOLCANO_TERRAIN_OFFSET; v < SURFACE_FACE_BLOCKS; v += VOLCANO_TERRAIN_SPACING) {
                 for (int u = VOLCANO_TERRAIN_OFFSET; u < SURFACE_FACE_BLOCKS; u += VOLCANO_TERRAIN_SPACING) {
                     VolcanoTerrainDefinition d;

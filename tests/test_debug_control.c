@@ -617,6 +617,9 @@ int main(void)
     assert(geology.geologyFindHistorical);
     assert(DebugControlParseText(&geology, "geology find") == DEBUG_CONTROL_COMMAND_GEOLOGY_FIND);
     assert(!geology.geologyFindHistorical);
+    assert(DebugControlParseText(&geology, "geology find history face 2") ==
+           DEBUG_CONTROL_COMMAND_GEOLOGY_FIND);
+    assert(geology.geologyFindHistorical && geology.geologyFindFace == 2);
     assert(DebugControlParseText(&geology, "geology locate 3 4093 98") ==
            DEBUG_CONTROL_COMMAND_GEOLOGY_LOCATE);
     assert(geology.geologyTerrainFace == 3 && geology.geologyTerrainU == 4093 &&

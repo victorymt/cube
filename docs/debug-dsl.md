@@ -1126,6 +1126,9 @@ claim that historical deposits have already been integrated into world generatio
 
 V11 world generation uses a separate immutable history cache on dry planets.
 `geology find history` chooses the nearest non-overlapping selected history domain;
+`geology find history face N` restricts that search to one cube face for boundary
+and polar camera checks. `geology locate FACE U V` addresses an exact fixture and
+reports an error when that address has no natural volcanic definition.
 ordinary `geology find` still searches all natural mountains. After finding,
 `geology history world` inspects the actual cached world result, without exporting
 or importing a diagnostic snapshot. It prints `generation`, `depth`, `material`,

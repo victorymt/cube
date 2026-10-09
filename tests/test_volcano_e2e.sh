@@ -10,7 +10,7 @@ if [[ -z "${WAYLAND_DISPLAY:-}" || -z "${XDG_RUNTIME_DIR:-}" ||
 fi
 scenes=("${@:2}")
 if ((${#scenes[@]} == 0)); then
-    scenes=(volcano_deposition volcano_history volcano_history_world volcano_history_initial volcano_history_final volcano_history_edit volcano_history_seed1235 volcano_history_seed1236 volcano_terrain volcano_live volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products volcano_collection volcano_rejected_deposit volcano_enabled volcano_disabled_force)
+    scenes=(volcano_deposition volcano_history volcano_history_world volcano_history_initial volcano_history_final volcano_history_edit volcano_history_seed1235 volcano_history_seed1236 volcano_history_face_boundary volcano_history_polar volcano_terrain volcano_live volcano_replay volcano_cooling_domains volcano_overlay_raycast volcano_water_contact volcano_ash_layers volcano_rock_products volcano_collection volcano_rejected_deposit volcano_enabled volcano_disabled_force)
 fi
 for scene in "${scenes[@]}"; do
 runtime=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-${scene}.XXXXXX")
