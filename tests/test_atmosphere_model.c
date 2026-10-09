@@ -125,7 +125,8 @@ static void TestVacuumAndInvalidInputs(void)
 
 static void TestGameAltitudeMapping(void)
 {
-    const float start = SURFACE_GENERATION_MAX_Y_EXCLUSIVE + 18.0f;
+    // Atmosphere keeps its 256-block reference when generation grows for deposits.
+    const float start = SURFACE_WORLD_HEIGHT + 18.0f;
     const float top = PlanetAtmosphereTopHeight(NULL);
     Near(PlanetAtmosphereAltitudeM(NULL, 112), 100, 1e-9);
     const float fractions[] = { 0.10f, 0.30f, 0.48f, 0.70f, 0.92f };

@@ -438,7 +438,8 @@ static void TestImageImportClosesUndoGroup(void)
     ImportImageAsBlocks("test.png", &player, 64, true);
     assert(loadImageCalls == 1 && unloadImageCalls == 1);
     assert(undoBeginCalls == 1 && undoEndCalls == 1);
-    assert(importedBlockWrites == WORLD_HEIGHT - 1);
+    // Relief clears the entire generated column, including historical terrain.
+    assert(importedBlockWrites == SURFACE_GENERATION_MAX_Y_EXCLUSIVE - 1);
     assert(dirtyChunkCalls > 0);
 }
 
