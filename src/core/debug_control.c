@@ -1,6 +1,5 @@
 #include "core/debug_control.h"
 #include "core/config.h"
-#include "world/surface_topology.h"
 #include <inttypes.h>
 
 #include <ctype.h>
@@ -346,8 +345,9 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     }
     unsigned face = 0, u = 0, v = 0; char trailingLocate = '\0';
     if (sscanf(line, "geology locate %u %u %u %c", &face, &u, &v, &trailingLocate) == 3 &&
-        face < SURFACE_FACE_COUNT && u < SURFACE_FACE_BLOCKS && v < SURFACE_FACE_BLOCKS) {
-        control->geologyTerrainFace = (SurfaceFace)face;
+        // Keep the parser in the core layer; the surface module validates again.
+        face < 6u && u < 4096u && v < 4096u) {
+        control->geologyTerrainFace = face;
         control->geologyTerrainU = u;
         control->geologyTerrainV = v;
         return DEBUG_CONTROL_COMMAND_GEOLOGY_LOCATE;
