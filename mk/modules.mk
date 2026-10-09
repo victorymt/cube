@@ -65,6 +65,7 @@ BLOCK_ATLAS_FEATURE_SRC := \
 GAME_EFFECTS_SRC := src/core/game_effects.c
 
 TERRAIN_FEATURE_SRC := \
+    src/world/cga_voxel.c \
 	src/world/volcano_history_cache.c \
 	src/world/volcano_history.c \
 	src/world/volcano_deposition_model.c \

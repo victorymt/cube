@@ -1,7 +1,29 @@
 #include "world/cga_voxel.h"
+#include "world/chunks.h"
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
+
+static unsigned short observed[2][CHUNK_SIZE][SURFACE_GENERATION_MAX_Y_EXCLUSIVE][CHUNK_SIZE];
+static Chunk testChunks[2];
+
+void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
+{
+    *cx = x >= 0 ? x / CHUNK_SIZE : -((-x + CHUNK_SIZE - 1) / CHUNK_SIZE);
+    *cz = z >= 0 ? z / CHUNK_SIZE : -((-z + CHUNK_SIZE - 1) / CHUNK_SIZE);
+    *lx = x - *cx * CHUNK_SIZE;
+    *lz = z - *cz * CHUNK_SIZE;
+}
+
+bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type)
+{
+    int index = chunk == &testChunks[1] ? 1 : 0;
+    if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
+        y < 0 || y >= SURFACE_GENERATION_MAX_Y_EXCLUSIVE) return false;
+    observed[index][lx][y][lz] = (unsigned short)type;
+    return true;
+}
 
 static void TestSplitAndRepeat(void)
 {
@@ -41,10 +63,36 @@ static void TestFeatureIdAndHouseExpansion(void)
     assert(CgaFeatureId(1, 1, 2, 3) != CgaFeatureId(1, 1, 3, 2));
 }
 
+static void TestChunkOrderInvariant(void)
+{
+    CgaFeature feature = {
+        CgaFeatureId(7, CGA_HOUSE_GRAMMAR_VERSION, 0, 0),
+        CGA_HOUSE_GRAMMAR_VERSION, 7, 0, 0,
+        {14, 32, 1, 17, 12, 13, CGA_ORIENTATION_0}
+    };
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    assert(CgaTestExpandHouse(&workspace, feature));
+
+    memset(observed, 0, sizeof(observed));
+    assert(CgaTestEvaluateWorkspace(&testChunks[0], 0, 0, &workspace));
+    assert(CgaTestEvaluateWorkspace(&testChunks[1], 1, 0, &workspace));
+    unsigned short forward[2][CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    memcpy(forward, observed, sizeof(forward));
+
+    memset(observed, 0, sizeof(observed));
+    assert(CgaTestEvaluateWorkspace(&testChunks[1], 1, 0, &workspace));
+    assert(CgaTestEvaluateWorkspace(&testChunks[0], 0, 0, &workspace));
+    assert(memcmp(forward, observed, sizeof(forward)) == 0);
+    assert(observed[0][14][33][1] == BLOCK_PLANK);
+    assert(observed[1][0][33][1] == BLOCK_PLANK);
+}
+
 int main(void)
 {
     TestSplitAndRepeat();
     TestFeatureIdAndHouseExpansion();
+    TestChunkOrderInvariant();
     puts("cga voxel tests passed");
     return 0;
 }
