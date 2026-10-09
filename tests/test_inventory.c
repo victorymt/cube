@@ -12,7 +12,7 @@ bool IsColorBlock(BlockType type)
 
 bool IsValidBlockType(BlockType type)
 {
-    return (type >= BLOCK_AIR && type <= BLOCK_NATURAL_END) ||
+    return (type >= BLOCK_AIR && type <= BLOCK_BUILTIN_END) ||
            IsColorBlock(type);
 }
 
@@ -75,6 +75,10 @@ static void TestNaturalBlocks(void)
         assert(InventoryConsume(type, 1));
         assert(InventoryCount(type) == index + 1);
     }
+    for (int type = BLOCK_BUILDING_START; type <= BLOCK_BUILDING_END; type++) {
+        assert(InventoryAdd((BlockType)type, 64) == 64);
+        assert(InventoryConsume((BlockType)type, 1));
+    }
     assert(InventoryAdd(BLOCK_SPACESHIP_CORE_NORTH, 1) == 0);
     assert(InventoryAdd(BLOCK_SPACESHIP_OCCUPIED, 1) == 0);
 }
@@ -95,6 +99,9 @@ static void TestSaveLoadRoundTrip(void)
     for (int index = 0; index < naturalCount; index++) {
         BlockType type = (BlockType)(BLOCK_NATURAL_START + index);
         assert(InventoryCount(type) == index + 1);
+    }
+    for (int type = BLOCK_BUILDING_START; type <= BLOCK_BUILDING_END; type++) {
+        assert(InventoryCount((BlockType)type) == 63);
     }
     fclose(file);
 }
@@ -121,6 +128,9 @@ static void TestStarterKitDoesNotGrantNaturalBlocks(void)
 {
     InventoryReset();
     InventoryGrantStarterKit();
+    for (int type = BLOCK_BUILDING_START; type <= BLOCK_BUILDING_END; type++) {
+        assert(InventoryCount((BlockType)type) == 64);
+    }
     int naturalCount = BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1;
     for (int index = 0; index < naturalCount; index++) {
         assert(InventoryCount(

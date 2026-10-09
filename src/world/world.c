@@ -167,7 +167,7 @@ bool IsColorBlock(BlockType type)
 
 bool IsValidBlockType(BlockType type)
 {
-    return (type >= BLOCK_AIR && type <= BLOCK_NATURAL_END) ||
+    return (type >= BLOCK_AIR && type <= BLOCK_BUILTIN_END) ||
            IsColorBlock(type);
 }
 

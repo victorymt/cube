@@ -212,7 +212,10 @@ static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x9ae198fa3fd2213b), UINT64_C(0x02a0b210708bc0ac),
     UINT64_C(0x2309ca4287b4db64), UINT64_C(0x28888e636b42c8f4),
     UINT64_C(0xdd38ef86ad20cf06), UINT64_C(0x33a8d986eebf1e2d),
-    UINT64_C(0x203262ac1b00b8b1)
+    UINT64_C(0x203262ac1b00b8b1),
+    UINT64_C(0xc386ff0df3361aef), UINT64_C(0x99ae0159528d275b),
+    UINT64_C(0x79b3b2a1682cfd59), UINT64_C(0xca347b0a605ca9cb),
+    UINT64_C(0x1cf9579047b59836), UINT64_C(0x2cb2ad8e31c5e9c2)
 };
 
 _Static_assert(sizeof(EXPECTED_TILE_HASHES) /
@@ -315,7 +318,7 @@ static void AssertPixelContract(Image image)
         }
     }
     uint64_t atlas = HashRegion(image, 0, 0, image.width, image.height);
-    if (atlas != UINT64_C(0x1143f596f83e2b6f)) {
+    if (atlas != UINT64_C(0x39593aa9222f5d69)) {
         fprintf(stderr, "atlas digest: got 0x%016llx\n",
                 (unsigned long long)atlas);
         matched = false;
@@ -767,7 +770,7 @@ static void AssertNaturalBlockContract(void)
 
 static void AssertBlockCatalogCompleteness(void)
 {
-    for (int value = BLOCK_AIR; value <= BLOCK_NATURAL_END; value++) {
+    for (int value = BLOCK_AIR; value <= BLOCK_BUILTIN_END; value++) {
         BlockType type = (BlockType)value;
         const char *name = BlockName(type);
         assert(IsValidBlockType(type));
@@ -780,12 +783,39 @@ static void AssertBlockCatalogCompleteness(void)
         }
     }
 
-    BlockType invalid = (BlockType)(BLOCK_NATURAL_END + 1);
+    BlockType invalid = (BlockType)(BLOCK_BUILTIN_END + 1);
     Color fallback = BlockBaseColor(invalid);
     assert(strcmp(BlockName(invalid), "Air") == 0);
     assert(fallback.r == 118 && fallback.g == 122 &&
            fallback.b == 124 && fallback.a == 255);
     assert(TextureForBlockFace(invalid, 0) == TEX_DIRT);
+}
+
+static void AssertBuildingBlocks(Image image)
+{
+    for (int value = BLOCK_BUILDING_START; value <= BLOCK_BUILDING_END; value++) {
+        BlockType type = (BlockType)value;
+        assert(IsValidBlockType(type));
+        assert(!IsEcologyBlock(type));
+        assert(BlockCollisionHeight(type) == 1.0f);
+        BlockTexture texture = TextureForBlockFace(type, 0);
+        assert(texture >= TEX_BLUE_BRICK && texture <= TEX_WOOD_LATTICE);
+        int holes = 0;
+        Rectangle rect = AtlasSourceRect(texture);
+        for (int y = 0; y < ATLAS_TILE_SIZE; y++) {
+            for (int x = 0; x < ATLAS_TILE_SIZE; x++) {
+                Color pixel = GetImageColor(image, (int)rect.x + x, (int)rect.y + y);
+                assert(!(pixel.r == 255 && pixel.g == 0 && pixel.b == 255));
+                holes += pixel.a == 0;
+            }
+        }
+        assert(IsTranslucentBlock(type) == (type == BLOCK_WOOD_LATTICE));
+        if (type == BLOCK_WOOD_LATTICE) assert(holes > 0 && holes < 128);
+        else assert(holes == 0);
+        bool wood = type == BLOCK_RED_LACQUER_WOOD || type == BLOCK_WOOD_LATTICE;
+        assert(wood ? BlockMaterialResponseFor(type).flammability > 0.8f
+                    : BlockMaterialResponseFor(type).flammability == 0.0f);
+    }
 }
 
 int main(void)
@@ -797,6 +827,7 @@ int main(void)
 
     Image first = GenerateAtlas();
     Image second = GenerateAtlas();
+    AssertBuildingBlocks(first);
     AssertPixelContract(first);
     AssertPixelContract(second);
     AssertMipSafePadding(first);

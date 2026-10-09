@@ -39,7 +39,7 @@ typedef struct BlockCatalogEntry {
     [TYPE] = { NAME, { R, G, B, 255 }, TEXTURE, TEXTURE, TEXTURE, \
                SHAPE, HEIGHT, TRANS, WIND, IMPACT, FUEL, ERODE }
 
-static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
+static const BlockCatalogEntry blockCatalog[BLOCK_BUILTIN_END + 1] = {
     BLOCK_PHYS_META_ENTRY(BLOCK_AIR, "Air", 118, 122, 124, TEX_DIRT,
                           BLOCK_RENDER_CUBE, 0.0f, false,
                           0.0f, 0.0f, 0.0f, 0.0f),
@@ -347,7 +347,20 @@ static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
                           TEX_FIREWEED, BLOCK_RENDER_CROSS, 0.0f, true,
                           0.14f, 0.05f, 0.92f, 0.52f),
     BLOCK_PHYS_ENTRY(BLOCK_SAGUARO, "Saguaro", 65, 132, 69,
-                     TEX_SAGUARO, 0.58f, 0.34f, 0.18f, 0.12f)
+                     TEX_SAGUARO, 0.58f, 0.34f, 0.18f, 0.12f),
+    BLOCK_PHYS_ENTRY(BLOCK_BLUE_BRICK, "Blue Brick", 91, 103, 108,
+                     TEX_BLUE_BRICK, 0.95f, 0.92f, 0.0f, 0.04f),
+    BLOCK_PHYS_ENTRY(BLOCK_BLUE_ROOF_TILE, "Blue Roof Tile", 60, 75, 81,
+                     TEX_BLUE_ROOF_TILE, 0.86f, 0.65f, 0.0f, 0.04f),
+    BLOCK_PHYS_ENTRY(BLOCK_RED_LACQUER_WOOD, "Red Lacquer Wood", 143, 42, 32,
+                     TEX_RED_LACQUER_WOOD, 0.78f, 0.62f, 0.85f, 0.06f),
+    BLOCK_PHYS_ENTRY(BLOCK_WHITE_PLASTER, "White Plaster", 230, 225, 208,
+                     TEX_WHITE_PLASTER, 0.80f, 0.65f, 0.0f, 0.22f),
+    BLOCK_PHYS_ENTRY(BLOCK_DRESSED_STONE, "Dressed Stone", 174, 178, 170,
+                     TEX_DRESSED_STONE, 0.97f, 0.96f, 0.0f, 0.02f),
+    BLOCK_PHYS_META_ENTRY(BLOCK_WOOD_LATTICE, "Wood Lattice", 91, 58, 35,
+                          TEX_WOOD_LATTICE, BLOCK_RENDER_CUBE, 1.0f, true,
+                          0.50f, 0.38f, 0.92f, 0.12f)
 };
 
 #undef BLOCK_META_ENTRY
@@ -360,7 +373,7 @@ static const BlockCatalogEntry blockCatalog[BLOCK_NATURAL_END + 1] = {
 static inline const BlockCatalogEntry *BlockCatalogGet(BlockType type)
 {
     int index = (int)type;
-    if (index < BLOCK_AIR || index > BLOCK_NATURAL_END ||
+    if (index < BLOCK_AIR || index > BLOCK_BUILTIN_END ||
         !blockCatalog[index].name) {
         index = BLOCK_AIR;
     }

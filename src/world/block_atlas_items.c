@@ -5,6 +5,42 @@ Color ItemAtlasPixel(BlockTexture texture, int x, int y,
 {
     Color color = WHITE;
     switch (texture) {
+    /* Seamless 16-pixel architectural motifs; lattice holes use cutout alpha. */
+    case TEX_BLUE_BRICK: {
+        int joint = (x + ((y / 4) % 2) * 4) % 8;
+        Color base = y % 4 == 0 || joint == 0
+            ? (Color){ 57, 65, 67, 255 } : (Color){ 91, 103, 108, 255 };
+        if (y % 4 == 1 && joint != 0) base = (Color){ 108, 119, 122, 255 };
+        return AtlasColorWithNoise(base, 5, hash);
+    }
+    case TEX_BLUE_ROOF_TILE: {
+        static const unsigned char ribs[8] = { 35, 49, 67, 81, 86, 76, 60, 43 };
+        int shade = ribs[x % 8] - (y % 8 == 0 ? 17 : 0);
+        return AtlasColorWithNoise((Color){ shade, shade + 12, shade + 18, 255 },
+                                   3, hash);
+    }
+    case TEX_RED_LACQUER_WOOD: {
+        Color base = (x == 3 || x == 11) && y % 7 != 0
+            ? (Color){ 123, 33, 26, 255 } : (Color){ 143, 42, 32, 255 };
+        return AtlasColorWithNoise(base, 3, hash);
+    }
+    case TEX_WHITE_PLASTER:
+        return AtlasColorWithNoise((Color){ 230, 225, 208, 255 }, 4, hash);
+    case TEX_DRESSED_STONE: {
+        bool seam = y % 8 == 0 || (x + ((y / 8) % 2) * 8) % 16 == 0;
+        Color base = seam ? (Color){ 122, 129, 125, 255 }
+                          : (Color){ 174, 178, 170, 255 };
+        if (!seam && y % 8 == 1) base = (Color){ 195, 198, 187, 255 };
+        return AtlasColorWithNoise(base, 5, hash);
+    }
+    case TEX_WOOD_LATTICE: {
+        bool frame = x < 2 || x >= 14 || y < 2 || y >= 14;
+        bool bars = x % 6 < 2 || y % 6 < 2;
+        if (!frame && !bars) return (Color){ 0, 0, 0, 0 };
+        Color base = x % 6 == 0 || y % 6 == 0
+            ? (Color){ 120, 80, 45, 255 } : (Color){ 79, 48, 29, 255 };
+        return AtlasColorWithNoise(base, 3, hash);
+    }
     case TEX_TORCH:
         if (y < 3) {
             color = AtlasColorWithNoise((Color){ 255, 186, 62, 255 }, 22,

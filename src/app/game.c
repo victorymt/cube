@@ -537,6 +537,13 @@ static void GameUpdateGameplayShortcuts(GameRuntime *game,
     } else if (wheel < 0.0f) {
         game->selectedIndex = (game->selectedIndex + 1) % HOTBAR_SIZE;
     }
+    if (IsKeyPressed(KEY_K)) {
+        BlockType current = game->hotbar[game->selectedIndex];
+        BlockType next = current >= BLOCK_BUILDING_START && current < BLOCK_BUILDING_END
+            ? (BlockType)(current + 1) : BLOCK_BUILDING_START;
+        game->hotbar[game->selectedIndex] = next;
+        GameNoticePost(TextFormat("%s (%d)", BlockName(next), InventoryCount(next)));
+    }
     if (IsKeyPressed(KEY_LEFT_BRACKET)) AdjustRenderDistance(-1);
     if (IsKeyPressed(KEY_RIGHT_BRACKET)) AdjustRenderDistance(1);
     if (IsKeyPressed(KEY_F9) && GameLoadMap(&game->player)) {

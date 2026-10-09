@@ -401,6 +401,10 @@ make run
 - Left click: break the targeted block
 - Right click: place the selected block (ghost preview shows the target cell)
 - Middle click: select the targeted block type into the selected hotbar slot
+- `K`: cycle the selected slot through Blue Brick, Blue Roof Tile, Red Lacquer
+  Wood, White Plaster, Dressed Stone, and Wood Lattice. New worlds start with
+  64 of each. These are full-block building materials; lattice has transparent
+  openings but a full-block collision box. Roof tiles do not change stair shapes.
 - Mouse wheel: cycle the hotbar selection
 - Hotbar: `1` grass, `2` dirt, `3` stone, `4` wood, `5` plank,
   `6` sand, `7` snow, `8` glass, `9` water, `0` spaceship. Breaking blocks

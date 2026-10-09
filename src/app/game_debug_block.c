@@ -49,7 +49,7 @@ static bool BlockResolve(const char *query, BlockType *outType)
         *outType = (BlockType)numeric;
         return true;
     }
-    for (int value = BLOCK_AIR; value <= BLOCK_NATURAL_END; value++) {
+    for (int value = BLOCK_AIR; value <= BLOCK_BUILTIN_END; value++) {
         BlockType type = (BlockType)value;
         if (BlockNamesEqual(query, BlockName(type))) {
             *outType = type;
@@ -269,7 +269,7 @@ bool GameDebugBlockDslResolve(const GameRuntime *game, const char *name,
     if (!game || !name || !outValue) return false;
     if (strcmp(name, "block.catalog_count") == 0) {
         return BlockDslNumber(
-            outValue, BLOCK_NATURAL_END + 1 + COLOR_BLOCK_COUNT);
+            outValue, BLOCK_BUILTIN_END + 1 + COLOR_BLOCK_COUNT);
     }
     if (strcmp(name, "block.natural_count") == 0) {
         return BlockDslNumber(

@@ -291,7 +291,7 @@ void GameCaptureScreenshot(GameRuntime *game,
                 .queueOverflows = screenshotFluidStats.queueOverflows
             },
             .block = {
-                .catalogCount = BLOCK_NATURAL_END + 1 + COLOR_BLOCK_COUNT,
+                .catalogCount = BLOCK_BUILTIN_END + 1 + COLOR_BLOCK_COUNT,
                 .naturalCount =
                     BLOCK_NATURAL_END - BLOCK_NATURAL_START + 1,
                 .stage05Count =

@@ -64,7 +64,7 @@ static bool InventoryTypeIndex(BlockType type, int *outIndex)
     int index = (int)type;
     if (index < 0 || index >= INVENTORY_BLOCK_TYPE_COUNT ||
         (type > BLOCK_NETHER_PORTAL &&
-         !(type >= BLOCK_NATURAL_START && type <= BLOCK_NATURAL_END) &&
+         !(type >= BLOCK_NATURAL_START && type <= BLOCK_BUILTIN_END) &&
          !IsColorBlock(type)) ||
         !IsValidBlockType(type)) return false;
     *outIndex = index;
@@ -86,6 +86,9 @@ void InventoryGrantStarterKit(void)
 
     for (int i = 0; i < (int)(sizeof(starterBlocks) / sizeof(starterBlocks[0])); i++) {
         InventoryAdd(starterBlocks[i], 32);
+    }
+    for (int type = BLOCK_BUILDING_START; type <= BLOCK_BUILDING_END; type++) {
+        InventoryAdd((BlockType)type, 64);
     }
     InventoryAdd(BLOCK_SPACESHIP, 1);
     InventoryAdd(BLOCK_COAL_ORE, 3);
