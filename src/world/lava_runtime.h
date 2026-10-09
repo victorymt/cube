@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_LAVA_RUNTIME_H
 #define VOXELCRAFT_LAVA_RUNTIME_H
 #include "world/lava_model.h"
+#include "raylib.h"
 #include <stdio.h>
 
 #define LAVA_MAX_HOT_CELLS 2048u
@@ -43,6 +44,14 @@ typedef struct LavaStats {
     double waterEnergy;
 } LavaStats;
 
+typedef struct LavaHeatExposure {
+    float heat;
+    float nearestDistance;
+    unsigned hotSources;
+    unsigned blockedSources;
+    bool contact;
+} LavaHeatExposure;
+
 void LavaRuntimeReset(void);
 bool LavaRuntimeAt(unsigned index, LavaCell *out);
 bool LavaRuntimeCellAt(uint32_t body, int x, int y, int z, LavaCell *out);
@@ -67,6 +76,9 @@ LavaStats LavaRuntimeStats(void);
 /* Only cells that can advance in this context may delay vent recovery. */
 bool LavaRuntimeHasActiveHotNear(const LavaContext *context,
                                  int x, int y, int z, float radius);
+LavaHeatExposure LavaRuntimeHeatExposureAt(const LavaContext *context,
+                                           Vector3 position, float radius,
+                                           float shelter);
 bool LavaRuntimeSave(FILE *file);
 bool LavaRuntimeLoad(FILE *file);
 #endif

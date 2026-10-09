@@ -385,6 +385,62 @@ bool LavaRuntimeHasActiveHotNear(const LavaContext *ctx,
     return false;
 }
 
+static bool ExposureLineOpen(const LavaContext *ctx, Vector3 from,
+                             const LavaCell *cell)
+{
+    if (!ctx || !ctx->boundary || !cell) return false;
+    float dx = (float)cell->x + 0.5f - from.x;
+    float dy = (float)cell->y + 0.5f - from.y;
+    float dz = (float)cell->z + 0.5f - from.z;
+    float distance = sqrtf(dx * dx + dy * dy + dz * dz);
+    unsigned steps = (unsigned)ceilf(distance * 2.0f);
+    for (unsigned step = 1u; step < steps; step++) {
+        float t = (float)step / (float)steps;
+        int x = (int)floorf(from.x + dx * t);
+        int y = (int)floorf(from.y + dy * t);
+        int z = (int)floorf(from.z + dz * t);
+        if (ctx->boundary(x, y, z, ctx->user) != LAVA_OPEN) return false;
+    }
+    return true;
+}
+
+LavaHeatExposure LavaRuntimeHeatExposureAt(const LavaContext *ctx,
+                                           Vector3 position, float radius,
+                                           float shelter)
+{
+    LavaHeatExposure result = { .nearestDistance = INFINITY };
+    if (!ctx || !ctx->valid || !isfinite(radius) || radius < 0.0f ||
+        !isfinite(position.x) || !isfinite(position.y) || !isfinite(position.z)) return result;
+    shelter = fminf(fmaxf(shelter, 0.0f), 1.0f);
+    for (unsigned i = 0u; i < count; i++) {
+        LavaCell *cell = &cells[i];
+        if (cell->bodyId != ctx->bodyId || cell->cooled || !cell->thermal.volume) continue;
+        SurfaceMapOffset offset = SurfaceShortestMapOffset((int)floorf(position.x),
+            (int)floorf(position.z), cell->x, cell->z);
+        float dx = (float)offset.x + 0.5f - (position.x - floorf(position.x));
+        float dy = (float)cell->y + 0.5f - position.y;
+        float dz = (float)offset.z + 0.5f - (position.z - floorf(position.z));
+        float distance = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (distance > radius) continue;
+        result.nearestDistance = fminf(result.nearestDistance, distance);
+        if (!ctx->boundary || ctx->boundary(cell->x, cell->y, cell->z, ctx->user) != LAVA_OPEN ||
+            !ExposureLineOpen(ctx, position, cell)) {
+            result.blockedSources++;
+            continue;
+        }
+        float temperature = (float)LavaTemperature(cell->thermal);
+        float intensity = fminf(fmaxf((temperature - LAVA_FREEZING_K) / 900.0f, 0.0f), 1.0f);
+        intensity *= fminf(fmaxf((float)cell->thermal.volume / (float)LAVA_CAPACITY, 0.0f), 1.0f);
+        intensity *= 1.0f - shelter * 0.85f;
+        intensity *= 1.0f / fmaxf(1.0f, distance * distance);
+        result.heat += intensity;
+        result.hotSources++;
+        if (distance <= 0.75f) result.contact = true;
+    }
+    if (result.hotSources > 0u) result.heat = fminf(result.heat, 1.0f);
+    return result;
+}
+
 static bool WriteU64(FILE *f, uint64_t value)
 {
     unsigned char b[8];

@@ -66,6 +66,29 @@ static void TestThermal(void)
     for (unsigned i = 0u; i < 10000u; i++) LavaCool(&full, 293.0, 0.1);
     assert(LavaTemperature(full) == 293.0 && LavaLiquidVolume(full) == 0u);
 }
+static LavaBoundary ExposureBoundary(int x, int y, int z, void *user)
+{
+    (void)user;
+    if (x == 2 && y == 1 && z == 0) return LAVA_BLOCKED;
+    return y >= 1 && y <= 2 ? LAVA_OPEN : LAVA_BLOCKED;
+}
+static void TestHeatExposure(void)
+{
+    Reset();
+    LavaContext c = Context(); c.boundary = ExposureBoundary;
+    assert(LavaRuntimeDeposit(&c, 0, 1, 0, LAVA_CAPACITY, 1450.0) == LAVA_CAPACITY);
+    LavaHeatExposure near = LavaRuntimeHeatExposureAt(&c,
+        (Vector3){0.5f, 1.5f, 0.5f}, 8.0f, 0.0f);
+    assert(near.contact && near.heat > 0.0f && near.hotSources == 1u);
+    LavaHeatExposure sheltered = LavaRuntimeHeatExposureAt(&c,
+        (Vector3){0.5f, 1.5f, 0.5f}, 8.0f, 1.0f);
+    assert(sheltered.heat < near.heat);
+    assert(LavaRuntimeHeatExposureAt(&c,
+        (Vector3){2.5f, 1.5f, 0.5f}, 8.0f, 0.0f).hotSources == 0u);
+    CoolToAmbient(&c);
+    assert(LavaRuntimeHeatExposureAt(&c,
+        (Vector3){0.5f, 1.5f, 0.5f}, 8.0f, 0.0f).heat == 0.0f);
+}
 static LavaBoundary PoolBoundary(int x, int y, int z, void *user)
 {
     (void)user;
@@ -511,7 +534,7 @@ int main(void)
 {
     TestBuriedHeat();
     TestThermalImport();
-    TestThermal(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
+    TestThermal(); TestHeatExposure(); TestFlowAndCooling(); TestUnknownAndMixing(); TestCapacity();
     TestOrderAndPersistence(); TestVolcanoInventory(); TestCoolingIgnoresParkedLava();
     TestWaterContact(); TestWaterReplay(); TestLegacyLavaPayload();
     TestSharedWater(); TestRockProducts(); TestMaterialFlowAndReplay();
