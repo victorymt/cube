@@ -24,6 +24,15 @@
  * stays independent of render distance and asynchronous chunk completion. */
 #define GAME_ECOLOGY_RADIUS_CELLS 128
 
+/* Isolated ecology unit tests link this scheduler without the geology module;
+   the game link provides the strong world-aware implementation. */
+__attribute__((weak)) LavaHeatExposure GameGeologyHeatExposureAt(
+    const struct GameRuntime *game, Vector3 position, float radius, float shelter)
+{
+    (void)game; (void)position; (void)radius; (void)shelter;
+    return (LavaHeatExposure){ .nearestDistance = INFINITY };
+}
+
 static pthread_mutex_t homeDaylightMutex = PTHREAD_MUTEX_INITIALIZER;
 static GameHomeDaylightSnapshot homeDaylight = {
     .dayPhase = 0.30,
