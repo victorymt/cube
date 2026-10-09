@@ -1,14 +1,10 @@
 #include "world/terrain_structures_internal.h"
 
+#include "world/cga_voxel.h"
 #include "world/chunks.h"
 #include "world/terrain.h"
 
 #include <stdlib.h>
-
-#define VILLAGE_SPACING 64
-#define VILLAGE_PROBABILITY 62u
-#define VILLAGE_HALF_WIDTH 3
-#define VILLAGE_HALF_DEPTH 2
 
 static void MaterializeHomeTerrainRange(Chunk *chunk, int cx, int cz,
                                         int minY, int maxY,
@@ -173,98 +169,10 @@ static void GenerateDesertTemple(Chunk *chunk, int cx, int cz,
     }
 }
 
-static void SetVillageBlock(Chunk *chunk, int x, int y, int z,
-                            BlockType type)
-{
-    SetChunkLocalBlock(chunk, x, y, z, type);
-}
-
-static void GenerateVillage(Chunk *chunk, int cx, int cz, TerrainMode mode)
-{
-    int startX = cx * CHUNK_SIZE;
-    int startZ = cz * CHUNK_SIZE;
-    int minAnchorX = FloorDivInt(
-        startX - VILLAGE_HALF_WIDTH - 1, VILLAGE_SPACING);
-    int maxAnchorX = FloorDivInt(
-        startX + CHUNK_SIZE + VILLAGE_HALF_WIDTH, VILLAGE_SPACING);
-    int minAnchorZ = FloorDivInt(
-        startZ - VILLAGE_HALF_DEPTH - 1, VILLAGE_SPACING);
-    int maxAnchorZ = FloorDivInt(
-        startZ + CHUNK_SIZE + VILLAGE_HALF_DEPTH, VILLAGE_SPACING);
-
-    for (int anchorX = minAnchorX; anchorX <= maxAnchorX; anchorX++) {
-        for (int anchorZ = minAnchorZ; anchorZ <= maxAnchorZ; anchorZ++) {
-            int wx = anchorX * VILLAGE_SPACING;
-            int wz = anchorZ * VILLAGE_SPACING;
-            if (HomeSurfaceHashAt(wx, wz, 1481u) % 100u >=
-                VILLAGE_PROBABILITY) {
-                continue;
-            }
-            if (BiomeAt(wx, wz) == BIOME_DESERT) continue;
-            if (TerrainHeight(wx, wz, mode) < 4) continue;
-
-            int minX = wx - VILLAGE_HALF_WIDTH;
-            int maxX = wx + VILLAGE_HALF_WIDTH;
-            int minZ = wz - VILLAGE_HALF_DEPTH;
-            int maxZ = wz + VILLAGE_HALF_DEPTH;
-            int base = TerrainHeight(wx, wz, mode);
-
-            for (int x = minX; x <= maxX; x++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    if (x < startX || x >= startX + CHUNK_SIZE ||
-                        z < startZ || z >= startZ + CHUNK_SIZE) {
-                        continue;
-                    }
-
-                    for (int y = 0; y <= 5; y++) {
-                        BlockType type = BLOCK_AIR;
-                        bool edge = x == minX || x == maxX ||
-                                    z == minZ || z == maxZ;
-                        bool corner = (x == minX || x == maxX) &&
-                                      (z == minZ || z == maxZ);
-                        bool front = z == maxZ;
-
-                        if (y == 0) {
-                            type = BLOCK_PLANK;
-                        } else if (y >= 1 && y <= 2 && edge) {
-                            if (front && (x == wx - 1 || x == wx)) {
-                                type = BLOCK_AIR;
-                            } else if (y == 2 && edge &&
-                                       (x == wx || z == wz) &&
-                                       !(z == minZ || z == maxZ) &&
-                                       x != minX && x != maxX) {
-                                type = BLOCK_GLASS;
-                            } else {
-                                type = corner ? BLOCK_WOOD : BLOCK_PLANK;
-                            }
-                        } else if (y == 3) {
-                            type = edge ? BLOCK_PLANK : BLOCK_AIR;
-                        } else if (y == 4) {
-                            type = BLOCK_AIR;
-                            if (x > minX && x < maxX &&
-                                z > minZ && z < maxZ) {
-                                type = BLOCK_PLANK;
-                            }
-                        } else if (y == 5) {
-                            type = BLOCK_AIR;
-                            if (x >= minX + 2 && x <= maxX - 2 && z == wz) {
-                                type = BLOCK_PLANK;
-                            }
-                        }
-                        if (type != BLOCK_AIR) {
-                            SetVillageBlock(chunk, x, base + y, z, type);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 void TerrainStructuresGenerate(Chunk *chunk, int cx, int cz,
                                TerrainMode mode)
 {
-    GenerateVillage(chunk, cx, cz, mode);
+    CgaGenerateHouseFeatures(chunk, cx, cz, mode);
     GenerateMineshaft(chunk, cx, cz, mode);
     GenerateDungeon(chunk, cx, cz, mode);
     GenerateDesertTemple(chunk, cx, cz, mode);
