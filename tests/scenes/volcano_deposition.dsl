@@ -18,4 +18,5 @@ assert geology.deposition_ready && geology.deposition_liquid == 0
 assert geology.deposition_solid > 0.999999999 && geology.deposition_solid < 1.000000001
 assert geology.deposition_volume_error > -1e-9 && geology.deposition_volume_error < 1e-9
 assert geology.deposition_energy_error > -1e-7 && geology.deposition_energy_error < 1e-7
+
 exit 0
