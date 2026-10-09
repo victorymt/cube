@@ -342,6 +342,14 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
     if (!strcmp(line, "geology find") || !strcmp(line, "geology find history")) {
         control->geologyFindHistorical = !strcmp(line, "geology find history");
         control->geologyFindFace = -1;
+        control->geologyFindRegion = 0;
+        return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
+    }
+    if (!strcmp(line, "geology find history edge") ||
+        !strcmp(line, "geology find history polar")) {
+        control->geologyFindHistorical = true;
+        control->geologyFindFace = -1;
+        control->geologyFindRegion = !strcmp(line, "geology find history edge") ? 1u : 2u;
         return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
     }
     unsigned findFace = 0; char findTrailing = '\0';
@@ -349,6 +357,7 @@ static DebugControlCommand DebugControlParseGeology(DebugControl *control, const
         findFace < 6u) {
         control->geologyFindHistorical = true;
         control->geologyFindFace = (int)findFace;
+        control->geologyFindRegion = 0;
         return DEBUG_CONTROL_COMMAND_GEOLOGY_FIND;
     }
     unsigned face = 0, u = 0, v = 0; char trailingLocate = '\0';

@@ -1129,6 +1129,11 @@ V11 world generation uses a separate immutable history cache on dry planets.
 `geology find history face N` restricts that search to one cube face for boundary
 and polar camera checks. `geology locate FACE U V` addresses an exact fixture and
 reports an error when that address has no natural volcanic definition.
+`geology find history edge` selects a selected historical domain whose radius
+reaches a cube-face seam; `geology find history polar` selects one near a pole.
+The resulting `geology.terrain_edge_distance` and
+`geology.terrain_abs_latitude` fields expose the measured geometric margins for
+assertions and screenshot reports.
 ordinary `geology find` still searches all natural mountains. After finding,
 `geology history world` inspects the actual cached world result, without exporting
 or importing a diagnostic snapshot. It prints `generation`, `depth`, `material`,

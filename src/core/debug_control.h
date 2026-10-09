@@ -220,6 +220,8 @@ typedef struct DebugControl {
     bool geologyTerrainFound;
     bool geologyFindHistorical;
     int geologyFindFace;
+    unsigned geologyFindRegion; // 0: unrestricted, 1: mountain crosses face edge, 2: polar cap
+    float geologyTerrainEdgeDistance, geologyTerrainAbsLatitude;
     uint32_t geologyTerrainBody, geologyTerrainSeed;
     int geologyTerrainX, geologyTerrainY, geologyTerrainZ;
     float geologyTerrainRadius, geologyTerrainHeight, geologyCraterRadius;

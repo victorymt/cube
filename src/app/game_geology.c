@@ -443,6 +443,14 @@ static const char *collectionNames[] = { "ash", "basalt", "obsidian", "scoria", 
 static const BlockType collectionTypes[] = { BLOCK_VOLCANIC_ASH, BLOCK_BASALT, BLOCK_OBSIDIAN,
     BLOCK_SCORIA, BLOCK_PUMICE, BLOCK_RHYOLITE };
 
+static float GeologyFaceEdgeDistance(Vector3 direction)
+{
+    float ax = fabsf(direction.x), ay = fabsf(direction.y), az = fabsf(direction.z);
+    float largest = fmaxf(ax, fmaxf(ay, az));
+    float second = fmaxf(fminf(ax, ay), fmaxf(fminf(ax, az), fminf(ay, az)));
+    return SURFACE_RADIUS_BLOCKS * asinf((largest - second) * 0.70710678118f);
+}
+
 bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
 {
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_LOCATE) {
@@ -461,11 +469,18 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
                 WorldSurfaceHeightAt(cell.x - s->context.originX, cell.z - s->context.originZ) + 1;
             c->geologyTerrainZ = cell.z; c->geologyTerrainRadius = d.radius;
             c->geologyTerrainHeight = d.height; c->geologyCraterRadius = d.craterRadius;
+            Vector3 direction = SurfaceAddressDirection(d.center);
+            c->geologyTerrainEdgeDistance = GeologyFaceEdgeDistance(direction);
+            c->geologyTerrainAbsLatitude = asinf(fabsf(direction.y)) * 180.0f / PI;
         }
         DebugControlReply(c, "DEBUG_CONTROL geology locate found=%d face=%u u=%u v=%u position=%d,%d,%d\n",
             c->geologyTerrainFound, c->geologyTerrainFace, c->geologyTerrainU,
             c->geologyTerrainV, c->geologyTerrainX, c->geologyTerrainY, c->geologyTerrainZ);
-        if (!c->geologyTerrainFound) game->debugCommandFailed = true;
+        if (!c->geologyTerrainFound) {
+            game->debugCommandFailed = true;
+            snprintf(game->debugCommandFailure, sizeof(game->debugCommandFailure),
+                     "geology_address_has_no_natural_volcano");
+        }
         return true;
     }
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_HISTORY_WORLD) {
@@ -514,6 +529,11 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
                             (SurfaceAddress){s->context.bodyId,face,u,v,0}, &d)) continue;
                     if (c->geologyFindHistorical && !VolcanoHistoricalTerrainEligible(
                         s->context.seed, &s->planetProfile, d.center)) continue;
+                    Vector3 direction = SurfaceAddressDirection(d.center);
+                    float ay = fabsf(direction.y);
+                    float edgeDistance = GeologyFaceEdgeDistance(direction);
+                    if (c->geologyFindRegion == 1 && edgeDistance >= d.radius) continue;
+                    if (c->geologyFindRegion == 2 && ay < 0.95f) continue;
                     SurfaceMapCell cell = VolcanoMapCell(d.center);
                     SurfaceMapOffset delta = SurfaceShortestMapOffset(observer.x, observer.z, cell.x, cell.z);
                     float distance = hypotf(delta.x, delta.z);
@@ -525,14 +545,18 @@ bool GameDebugGeologyDispatch(GameRuntime *game, DebugControlCommand command)
                     c->geologyTerrainBody = s->context.bodyId; c->geologyTerrainSeed = s->context.seed;
                     c->geologyTerrainX = cell.x; c->geologyTerrainY = height; c->geologyTerrainZ = cell.z;
                     c->geologyTerrainRadius = d.radius; c->geologyTerrainHeight = d.height;
+                    c->geologyTerrainEdgeDistance = edgeDistance;
+                    c->geologyTerrainAbsLatitude = asinf(ay) * 180.0f / PI;
                     c->geologyCraterRadius = d.craterRadius;
                     c->geologyTerrainFace = face; c->geologyTerrainU = u; c->geologyTerrainV = v;
                 }
             }
         }
-        DebugControlReply(c, "DEBUG_CONTROL geology find found=%d position=%d,%d,%d radius=%.3f height=%.3f crater_radius=%.3f\n",
+        DebugControlReply(c, "DEBUG_CONTROL geology find found=%d position=%d,%d,%d radius=%.3f height=%.3f crater_radius=%.3f face=%d u=%d v=%d region=%u edge_distance=%.3f abs_latitude=%.3f\n",
             c->geologyTerrainFound, c->geologyTerrainX, c->geologyTerrainY, c->geologyTerrainZ,
-            c->geologyTerrainRadius, c->geologyTerrainHeight, c->geologyCraterRadius);
+            c->geologyTerrainRadius, c->geologyTerrainHeight, c->geologyCraterRadius,
+            c->geologyTerrainFace, c->geologyTerrainU, c->geologyTerrainV, c->geologyFindRegion,
+            c->geologyTerrainEdgeDistance, c->geologyTerrainAbsLatitude);
         return true;
     }
     if (command == DEBUG_CONTROL_COMMAND_GEOLOGY_ENABLED) {
@@ -673,6 +697,8 @@ bool GameDebugGeologyResolve(GameRuntime *game, const char *name, DebugDslValue 
             if (!strcmp(field, "terrain_radius")) out->as.number = found ? c->geologyTerrainRadius : 0;
             else if (!strcmp(field, "terrain_height")) out->as.number = found ? c->geologyTerrainHeight : 0;
             else if (!strcmp(field, "terrain_crater_radius")) out->as.number = found ? c->geologyCraterRadius : 0;
+            else if (!strcmp(field, "terrain_edge_distance")) out->as.number = found ? c->geologyTerrainEdgeDistance : 0;
+            else if (!strcmp(field, "terrain_abs_latitude")) out->as.number = found ? c->geologyTerrainAbsLatitude : 0;
             else if (!strcmp(field, "terrain_ground")) out->as.number = WorldSurfaceHeightAt(
                 (int)floorf(game->player.position.x), (int)floorf(game->player.position.z));
             else return false;
