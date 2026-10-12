@@ -275,10 +275,10 @@ static void TestTerrainStructureBaselines(void)
         int cz;
         uint64_t expectedHash;
     } baselines[] = {
-        { -200, -200, UINT64_C(17879154592460765520) },
+        { -200, -200, UINT64_C(12624451213749195166) },
         { -100, -88, UINT64_C(9410852878687540787) },
         { -120, -105, UINT64_C(12190054402970948103) },
-        { -225, 90, UINT64_C(15174892566651065886) }
+        { -225, 90, UINT64_C(12658877415696347744) }
     };
 
     terrainSeed = DEFAULT_WORLD_SEED;

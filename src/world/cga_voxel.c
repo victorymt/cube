@@ -2,6 +2,7 @@
 
 #include "world/chunks.h"
 #include "world/terrain.h"
+#include "world/terrain_generation.h"
 #include "world/world.h"
 
 #include <limits.h>
@@ -241,6 +242,116 @@ bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature)
     return true;
 }
 
+static bool AppendWorldBox(CgaWorkspace *workspace, CgaOpKind kind,
+                           CgaStage stage, int priority, CgaFeature feature,
+                           int minX, int minY, int minZ,
+                           int sizeX, int sizeY, int sizeZ, BlockType material)
+{
+    return CgaAppendOp(workspace, kind, stage, priority, feature,
+                       (CgaScope){minX, minY, minZ, sizeX, sizeY, sizeZ,
+                                  CGA_ORIENTATION_0}, material);
+}
+
+static bool ExpandMineshaft(CgaWorkspace *workspace, CgaFeature feature)
+{
+    if (!workspace || feature.grammarVersion != CGA_MINESHAFT_GRAMMAR_VERSION ||
+        !CgaScopeValid(feature.scope)) return false;
+    int dx = feature.scope.orientation == CGA_ORIENTATION_0 ||
+             feature.scope.orientation == CGA_ORIENTATION_270 ? 1 : -1;
+    int dz = feature.scope.orientation == CGA_ORIENTATION_0 ||
+             feature.scope.orientation == CGA_ORIENTATION_90 ? 1 : -1;
+    int startX = feature.anchorX * 64;
+    int startZ = feature.anchorZ * 64;
+    int length = feature.scope.sizeX > feature.scope.sizeZ
+        ? feature.scope.sizeX : feature.scope.sizeZ;
+    int y = feature.scope.minY;
+    if (workspace->overflow || workspace->opCount > CGA_MAX_CHUNK_OPS -
+        (size_t)(length + length / 4 + 1)) {
+        workspace->overflow = true;
+        return false;
+    }
+    for (int i = 0; i < length; i++) {
+        int bx = startX + dx * i;
+        int bz = startZ + dz * i;
+        if (!AppendWorldBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 0,
+                            feature, bx, y, bz, 1, 3, 1, BLOCK_AIR)) return false;
+        if (i % 4 == 0 && !AppendWorldBox(
+                workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 0, feature,
+                bx, y, bz, 1, 4, 1, BLOCK_WOOD)) return false;
+    }
+    return true;
+}
+
+static bool ExpandDungeon(CgaWorkspace *workspace, CgaFeature feature)
+{
+    if (!workspace || feature.grammarVersion != CGA_DUNGEON_GRAMMAR_VERSION ||
+        !CgaScopeValid(feature.scope)) return false;
+    CgaScope s = feature.scope;
+    int left = s.minX;
+    int right = s.minX + s.sizeX - 1;
+    int front = s.minZ;
+    int back = s.minZ + s.sizeZ - 1;
+    if (!AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        left, s.minY, front, 1, 4, s.sizeZ, BLOCK_STONE_BRICKS) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        right, s.minY, front, 1, 4, s.sizeZ, BLOCK_STONE_BRICKS) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        left + 1, s.minY, back, s.sizeX - 2, 4, 1,
+                        BLOCK_STONE_BRICKS) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        left, s.minY, front, 2, 4, 1, BLOCK_STONE_BRICKS) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        right - 2, s.minY, front, 3, 4, 1,
+                        BLOCK_STONE_BRICKS) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        left, s.minY, s.minZ + 3, 1, 4, 1,
+                        BLOCK_STONE_BRICKS) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        right, s.minY, s.minZ + 3, 1, 4, 1,
+                        BLOCK_STONE_BRICKS) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        s.minX + 3, s.minY, back, 1, 4, 1,
+                        BLOCK_STONE_BRICKS)) return false;
+    return true;
+}
+
+static bool ExpandDesertTemple(CgaWorkspace *workspace, CgaFeature feature)
+{
+    if (!workspace || feature.grammarVersion != CGA_DESERT_TEMPLE_GRAMMAR_VERSION ||
+        !CgaScopeValid(feature.scope)) return false;
+    CgaScope s = feature.scope;
+    int x = feature.anchorX * 128;
+    int z = feature.anchorZ * 128;
+    int base = s.minY + 4;
+    if (!AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        x - 2, base + 1, z - 2, 5, 3, 5,
+                        BLOCK_SANDSTONE) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        x, base + 4, z, 1, 1, 1, BLOCK_SANDSTONE) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        x - 4, base + 1, z, 1, 4, 1, BLOCK_SANDSTONE) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        x + 4, base + 1, z, 1, 4, 1, BLOCK_SANDSTONE) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        x, base + 1, z - 4, 1, 4, 1, BLOCK_SANDSTONE) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        x, base + 1, z + 4, 1, 4, 1, BLOCK_SANDSTONE) ||
+        !AppendWorldBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        x - 1, base - 4, z - 1, 3, 4, 3, BLOCK_SANDSTONE)) return false;
+    return true;
+}
+
+bool CgaExpandFeature(CgaWorkspace *workspace, CgaFeature feature)
+{
+    switch (feature.grammarVersion) {
+        case CGA_HOUSE_GRAMMAR_VERSION: return CgaExpandHouse(workspace, feature);
+        case CGA_MINESHAFT_GRAMMAR_VERSION: return ExpandMineshaft(workspace, feature);
+        case CGA_DUNGEON_GRAMMAR_VERSION: return ExpandDungeon(workspace, feature);
+        case CGA_DESERT_TEMPLE_GRAMMAR_VERSION: return ExpandDesertTemple(workspace, feature);
+        default: return false;
+    }
+}
+
 static int CompareOps(const void *a, const void *b)
 {
     const CgaVoxelOp *left = a;
@@ -281,24 +392,80 @@ bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace)
     return true;
 }
 
-bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
-                          TerrainMode mode, const CgaContext *context)
+static bool AddFeature(CgaWorkspace *workspace, uint32_t grammarVersion,
+                       uint32_t seed, int anchorX, int anchorZ,
+                       CgaScope scope)
 {
-    if (!workspace || workspace->overflow) return false;
+    if (workspace->featureCount >= CGA_MAX_FEATURES_PER_CHUNK) {
+        workspace->overflow = true;
+        return false;
+    }
+    workspace->features[workspace->featureCount++] = (CgaFeature){
+        CgaFeatureId(seed, grammarVersion, anchorX, anchorZ),
+        grammarVersion, seed, anchorX, anchorZ, scope};
+    return true;
+}
+
+#ifdef TERRAIN_TESTING
+static bool PlanMineshaftOnly(CgaWorkspace *workspace, int cx, int cz,
+                              const CgaContext *context)
+{
     const int spacing = 64;
-    const int halfWidth = 8;
-    const int halfDepth = 8; /* Maximum extent across all four orientations. */
+    const int extent = 20;
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
-    int minAnchorX = FloorDivInt(startX - halfWidth - 1, spacing);
-    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + halfWidth, spacing);
-    int minAnchorZ = FloorDivInt(startZ - halfDepth - 1, spacing);
-    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + halfDepth, spacing);
+    int minAnchorX = FloorDivInt(startX - extent, spacing);
+    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + extent, spacing);
+    int minAnchorZ = FloorDivInt(startZ - extent, spacing);
+    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + extent, spacing);
     uint32_t seed = WorldGetSeed();
     for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
         for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
             int x = ax * spacing;
             int z = az * spacing;
+            if (HomeSurfaceHashAt(x, z, 1409u) % 100u >= 75u) continue;
+            int y = 8 + (int)(HomeSurfaceHashAt(x, z, 1423u) % 5u);
+            int length = 12 + (int)(HomeSurfaceHashAt(x, z, 1433u) % 9u);
+            int dx = (HomeSurfaceHashAt(x, z, 1427u) % 2u) ? 1 : -1;
+            int dz = (HomeSurfaceHashAt(x, z, 1429u) % 2u) ? 1 : -1;
+            int endX = x + dx * (length - 1);
+            int endZ = z + dz * (length - 1);
+            CgaScope scope = {
+                endX < x ? endX : x, y, endZ < z ? endZ : z,
+                abs(endX - x) + 1, 4, abs(endZ - z) + 1,
+                (dx > 0 && dz > 0) ? CGA_ORIENTATION_0 :
+                (dx < 0 && dz > 0) ? CGA_ORIENTATION_90 :
+                (dx < 0 && dz < 0) ? CGA_ORIENTATION_180 :
+                CGA_ORIENTATION_270};
+            if (!AddFeature(workspace, CGA_MINESHAFT_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+    workspace->featureCount = ResolveFeatureConflicts(workspace->features,
+                                                      workspace->featureCount,
+                                                      context);
+    return true;
+}
+#endif
+
+bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
+                              TerrainMode mode, const CgaContext *context)
+{
+    if (!workspace || workspace->overflow) return false;
+    int startX = cx * CHUNK_SIZE;
+    int startZ = cz * CHUNK_SIZE;
+    uint32_t seed = WorldGetSeed();
+
+    const int houseSpacing = 64;
+    const int houseHalfExtent = 9;
+    int minAnchorX = FloorDivInt(startX - houseHalfExtent, houseSpacing);
+    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + houseHalfExtent, houseSpacing);
+    int minAnchorZ = FloorDivInt(startZ - houseHalfExtent, houseSpacing);
+    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + houseHalfExtent, houseSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * houseSpacing;
+            int z = az * houseSpacing;
             if (HomeSurfaceHashAt(x, z, 1481u) % 100u >= 62u ||
                 BiomeAt(x, z) == BIOME_DESERT || TerrainHeight(x, z, mode) < 4) continue;
             int base = TerrainHeight(x, z, mode);
@@ -310,18 +477,109 @@ bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
             if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
                 scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
             if (!HouseTerrainSuitable(scope, base, mode)) continue;
-            if (workspace->featureCount >= CGA_MAX_FEATURES_PER_CHUNK) {
-                workspace->overflow = true;
-                return false;
-            }
-            workspace->features[workspace->featureCount++] = (CgaFeature){
-                CgaFeatureId(seed, CGA_HOUSE_GRAMMAR_VERSION, ax, az),
-                CGA_HOUSE_GRAMMAR_VERSION, seed, ax, az, scope};
+            if (!AddFeature(workspace, CGA_HOUSE_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+
+    const int shaftSpacing = 64;
+    const int shaftExtent = 20;
+    minAnchorX = FloorDivInt(startX - shaftExtent, shaftSpacing);
+    maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + shaftExtent, shaftSpacing);
+    minAnchorZ = FloorDivInt(startZ - shaftExtent, shaftSpacing);
+    maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + shaftExtent, shaftSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * shaftSpacing;
+            int z = az * shaftSpacing;
+            if (HomeSurfaceHashAt(x, z, 1409u) % 100u >= 75u) continue;
+            int y = 8 + (int)(HomeSurfaceHashAt(x, z, 1423u) % 5u);
+            int length = 12 + (int)(HomeSurfaceHashAt(x, z, 1433u) % 9u);
+            int dx = (HomeSurfaceHashAt(x, z, 1427u) % 2u) ? 1 : -1;
+            int dz = (HomeSurfaceHashAt(x, z, 1429u) % 2u) ? 1 : -1;
+            int endX = x + dx * (length - 1);
+            int endZ = z + dz * (length - 1);
+            CgaScope scope = {
+                endX < x ? endX : x, y, endZ < z ? endZ : z,
+                abs(endX - x) + 1, 4, abs(endZ - z) + 1,
+                (dx > 0 && dz > 0) ? CGA_ORIENTATION_0 :
+                (dx < 0 && dz > 0) ? CGA_ORIENTATION_90 :
+                (dx < 0 && dz < 0) ? CGA_ORIENTATION_180 :
+                CGA_ORIENTATION_270};
+            if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!AddFeature(workspace, CGA_MINESHAFT_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+
+    const int dungeonSpacing = 128;
+    const int dungeonExtent = 6;
+    minAnchorX = FloorDivInt(startX - dungeonExtent, dungeonSpacing);
+    maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + dungeonExtent, dungeonSpacing);
+    minAnchorZ = FloorDivInt(startZ - dungeonExtent, dungeonSpacing);
+    maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + dungeonExtent, dungeonSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * dungeonSpacing;
+            int z = az * dungeonSpacing;
+            if (HomeSurfaceHashAt(x, z, 1451u) % 100u >= 64u) continue;
+            CgaScope scope = {x - 3, 10 + (int)(HomeSurfaceHashAt(x, z, 1453u) % 4u),
+                              z - 3, 7, 4, 7, CGA_ORIENTATION_0};
+            if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!AddFeature(workspace, CGA_DUNGEON_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+
+    const int templeSpacing = 128;
+    const int templeExtent = 7;
+    minAnchorX = FloorDivInt(startX - templeExtent, templeSpacing);
+    maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + templeExtent, templeSpacing);
+    minAnchorZ = FloorDivInt(startZ - templeExtent, templeSpacing);
+    maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + templeExtent, templeSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * templeSpacing;
+            int z = az * templeSpacing;
+            if (BiomeAt(x, z) != BIOME_DESERT ||
+                HomeSurfaceHashAt(x, z, 1471u) % 100u >= 40u) continue;
+            int base = TerrainHeight(x, z, mode);
+            CgaScope scope = {x - 4, base - 4, z - 4, 9, 9, 9,
+                              CGA_ORIENTATION_0};
+            if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!AddFeature(workspace, CGA_DESERT_TEMPLE_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
         }
     }
     workspace->featureCount = ResolveFeatureConflicts(workspace->features,
                                                       workspace->featureCount,
                                                       context);
+    return true;
+}
+
+bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
+                          TerrainMode mode, const CgaContext *context)
+{
+    if (!workspace) return false;
+    CgaWorkspace all;
+    CgaWorkspaceReset(&all);
+    if (!CgaPlanStructureFeatures(&all, cx, cz, mode, context)) {
+        *workspace = all;
+        return false;
+    }
+    CgaWorkspaceReset(workspace);
+    for (size_t i = 0; i < all.featureCount; i++) {
+        if (all.features[i].grammarVersion == CGA_HOUSE_GRAMMAR_VERSION) {
+            if (workspace->featureCount >= CGA_MAX_FEATURES_PER_CHUNK) {
+                workspace->overflow = true;
+                return false;
+            }
+            workspace->features[workspace->featureCount++] = all.features[i];
+        }
+    }
     return true;
 }
 
@@ -338,7 +596,51 @@ bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode,
     return CgaEvaluateChunk(chunk, cx, cz, &workspace);
 }
 
+static void MaterializeMineshaftTerrain(const CgaWorkspace *workspace,
+                                        Chunk *chunk, int cx, int cz,
+                                        TerrainMode mode)
+{
+    for (size_t i = 0; i < workspace->featureCount; i++) {
+        const CgaFeature *feature = &workspace->features[i];
+        if (feature->grammarVersion != CGA_MINESHAFT_GRAMMAR_VERSION) continue;
+        int first = SurfaceSectionYFromBlockY(feature->scope.minY);
+        int last = SurfaceSectionYFromBlockY(feature->scope.minY + 3);
+        for (int sectionY = first; sectionY <= last; sectionY++) {
+            GenerateChunkTerrainSectionBase(chunk, cx, cz, sectionY, mode);
+        }
+    }
+}
+
+bool CgaGenerateStructureFeatures(Chunk *chunk, int cx, int cz,
+                                  TerrainMode mode, const CgaContext *context)
+{
+    if (!chunk) return false;
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    if (!CgaPlanStructureFeatures(&workspace, cx, cz, mode, context)) return false;
+    MaterializeMineshaftTerrain(&workspace, chunk, cx, cz, mode);
+    for (size_t i = 0; i < workspace.featureCount; i++) {
+        if (!CgaExpandFeature(&workspace, workspace.features[i])) return false;
+    }
+    return CgaEvaluateChunk(chunk, cx, cz, &workspace);
+}
+
 #ifdef TERRAIN_TESTING
+bool CgaGenerateMineshaftFeatures(Chunk *chunk, int cx, int cz,
+                                  TerrainMode mode,
+                                  const CgaContext *context)
+{
+    if (!chunk) return false;
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    if (!PlanMineshaftOnly(&workspace, cx, cz, context)) return false;
+    MaterializeMineshaftTerrain(&workspace, chunk, cx, cz, mode);
+    for (size_t i = 0; i < workspace.featureCount; i++) {
+        if (!CgaExpandFeature(&workspace, workspace.features[i])) return false;
+    }
+    return CgaEvaluateChunk(chunk, cx, cz, &workspace);
+}
+
 size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
                                 int cx, int cz, TerrainMode mode)
 {

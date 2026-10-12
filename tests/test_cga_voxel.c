@@ -144,12 +144,41 @@ static void TestFeatureConflictResolution(void)
     assert(CgaTestResolveFeatureConflicts(features, count, &blocked) == 0);
 }
 
+static void TestAllStructureGrammarsExpand(void)
+{
+    CgaFeature features[] = {
+        TestFeature(40, 0, 0, 13, 13),
+        TestFeature(41, 0, 0, 7, 7),
+        TestFeature(42, 0, 0, 9, 9)
+    };
+    features[0].grammarVersion = CGA_MINESHAFT_GRAMMAR_VERSION;
+    features[0].scope.minY = 8;
+    features[0].scope.sizeY = 4;
+    features[1].grammarVersion = CGA_DUNGEON_GRAMMAR_VERSION;
+    features[1].scope.minY = 10;
+    features[1].scope.sizeY = 4;
+    features[2].grammarVersion = CGA_DESERT_TEMPLE_GRAMMAR_VERSION;
+    features[2].anchorX = 0;
+    features[2].anchorZ = 0;
+    features[2].scope.minY = 4;
+    features[2].scope.sizeY = 9;
+
+    CgaWorkspace workspace;
+    for (size_t i = 0; i < sizeof(features) / sizeof(features[0]); i++) {
+        CgaWorkspaceReset(&workspace);
+        assert(CgaExpandFeature(&workspace, features[i]));
+        assert(workspace.opCount > 0);
+        assert(!workspace.overflow);
+    }
+}
+
 int main(void)
 {
     TestSplitAndRepeat();
     TestFeatureIdAndHouseExpansion();
     TestChunkOrderInvariant();
     TestFeatureConflictResolution();
+    TestAllStructureGrammarsExpand();
     puts("cga voxel tests passed");
     return 0;
 }

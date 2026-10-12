@@ -8,6 +8,9 @@
 #define CGA_MAX_FEATURES_PER_CHUNK 16
 #define CGA_MAX_CHUNK_OPS 2048
 #define CGA_HOUSE_GRAMMAR_VERSION 1u
+#define CGA_MINESHAFT_GRAMMAR_VERSION 2u
+#define CGA_DUNGEON_GRAMMAR_VERSION 3u
+#define CGA_DESERT_TEMPLE_GRAMMAR_VERSION 4u
 
 typedef enum CgaAxis {
     CGA_AXIS_X = 0,
@@ -94,7 +97,10 @@ uint64_t CgaFeatureId(uint32_t worldSeed, uint32_t grammarVersion,
  * Paint applies its material after the carve stage. The caller owns the target chunk. */
 bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
                           TerrainMode mode, const CgaContext *context);
+bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
+                              TerrainMode mode, const CgaContext *context);
 bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature);
+bool CgaExpandFeature(CgaWorkspace *workspace, CgaFeature feature);
 bool CgaAppendOp(CgaWorkspace *workspace, CgaOpKind kind, CgaStage stage,
                  int priority, CgaFeature feature, CgaScope scope, BlockType material);
 bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace);
@@ -102,6 +108,14 @@ bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace);
 /* Generates the first CGA-backed structure set for a Homeworld chunk. */
 bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode,
                               const CgaContext *context);
+bool CgaGenerateStructureFeatures(Chunk *chunk, int cx, int cz,
+                                  TerrainMode mode, const CgaContext *context);
+
+#ifdef TERRAIN_TESTING
+bool CgaGenerateMineshaftFeatures(Chunk *chunk, int cx, int cz,
+                                  TerrainMode mode,
+                                  const CgaContext *context);
+#endif
 
 #ifdef TERRAIN_TESTING
 size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
