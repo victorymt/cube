@@ -172,7 +172,7 @@ static void GenerateDesertTemple(Chunk *chunk, int cx, int cz,
 void TerrainStructuresGenerate(Chunk *chunk, int cx, int cz,
                                TerrainMode mode)
 {
-    CgaGenerateHouseFeatures(chunk, cx, cz, mode);
+    CgaGenerateHouseFeatures(chunk, cx, cz, mode, NULL);
     GenerateMineshaft(chunk, cx, cz, mode);
     GenerateDungeon(chunk, cx, cz, mode);
     GenerateDesertTemple(chunk, cx, cz, mode);

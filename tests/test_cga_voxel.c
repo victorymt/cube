@@ -8,6 +8,23 @@
 static unsigned short observed[2][CHUNK_SIZE][SURFACE_GENERATION_MAX_Y_EXCLUSIVE][CHUNK_SIZE];
 static Chunk testChunks[2];
 
+static CgaFeature TestFeature(uint64_t id, int minX, int minZ,
+                              int sizeX, int sizeZ)
+{
+    return (CgaFeature){id, CGA_HOUSE_GRAMMAR_VERSION, 1u, minX, minZ,
+                        {minX, 32, minZ, sizeX, 12, sizeZ,
+                         CGA_ORIENTATION_0}};
+}
+
+static bool RejectEveryRegion(void *userData, CgaScope region,
+                              uint64_t excludedFeature)
+{
+    (void)userData;
+    (void)region;
+    (void)excludedFeature;
+    return false;
+}
+
 void WorldToChunkLocal(int x, int z, int *cx, int *cz, int *lx, int *lz)
 {
     *cx = x >= 0 ? x / CHUNK_SIZE : -((-x + CHUNK_SIZE - 1) / CHUNK_SIZE);
@@ -101,11 +118,28 @@ static void TestChunkOrderInvariant(void)
     }
 }
 
+static void TestFeatureConflictResolution(void)
+{
+    CgaFeature features[] = {
+        TestFeature(20, 0, 0, 10, 10),
+        TestFeature(10, 5, 5, 10, 10),
+        TestFeature(30, 40, 40, 10, 10)
+    };
+    size_t count = CgaTestResolveFeatureConflicts(features, 3, NULL);
+    assert(count == 2);
+    assert(features[0].id == 10);
+    assert(features[1].id == 30);
+
+    CgaContext blocked = {NULL, RejectEveryRegion};
+    assert(CgaTestResolveFeatureConflicts(features, count, &blocked) == 0);
+}
+
 int main(void)
 {
     TestSplitAndRepeat();
     TestFeatureIdAndHouseExpansion();
     TestChunkOrderInvariant();
+    TestFeatureConflictResolution();
     puts("cga voxel tests passed");
     return 0;
 }

@@ -73,6 +73,13 @@ typedef struct CgaWorkspace {
     bool overflow;
 } CgaWorkspace;
 
+/* The callback reads an immutable planning or base-terrain snapshot.  A NULL
+ * context or callback means that no external occupancy snapshot is available. */
+typedef struct CgaContext {
+    void *userData;
+    bool (*regionClear)(void *userData, CgaScope region, uint64_t excludedFeature);
+} CgaContext;
+
 void CgaWorkspaceReset(CgaWorkspace *workspace);
 bool CgaScopeValid(CgaScope scope);
 bool CgaScopeSplit(CgaScope parent, CgaAxis axis, const int *sizes,
@@ -85,25 +92,22 @@ uint64_t CgaFeatureId(uint32_t worldSeed, uint32_t grammarVersion,
 /* Fixed-capacity stages; reset the workspace before planning. Expansion only emits IR.
  * Evaluation sorts by (stage, priority, feature ID, sequence), later writes win.
  * Paint changes existing non-air blocks. The caller owns the target chunk. */
-bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz, TerrainMode mode);
+bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
+                          TerrainMode mode, const CgaContext *context);
 bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature);
 bool CgaAppendOp(CgaWorkspace *workspace, CgaOpKind kind, CgaStage stage,
                  int priority, CgaFeature feature, CgaScope scope, BlockType material);
 bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace);
 
-/* Reserved for later conditional rules. Callbacks must query immutable planning
- * or base-terrain snapshots, independently of loaded chunks. NULL means unknown. */
-typedef struct CgaContext {
-    void *userData;
-    bool (*regionClear)(void *userData, CgaScope region, uint64_t excludedFeature);
-} CgaContext;
-
 /* Generates the first CGA-backed structure set for a Homeworld chunk. */
-bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode);
+bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode,
+                              const CgaContext *context);
 
 #ifdef TERRAIN_TESTING
 size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
                                 int cx, int cz, TerrainMode mode);
+size_t CgaTestResolveFeatureConflicts(CgaFeature *features, size_t count,
+                                      const CgaContext *context);
 bool CgaTestExpandHouse(CgaWorkspace *workspace, CgaFeature feature);
 bool CgaTestEvaluateWorkspace(Chunk *chunk, int cx, int cz,
                               CgaWorkspace *workspace);

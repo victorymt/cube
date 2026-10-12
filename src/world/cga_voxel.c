@@ -86,6 +86,63 @@ static uint64_t Mix64(uint64_t x)
     return x ^ (x >> 31);
 }
 
+static bool ScopeOverlapsXZ(CgaScope left, CgaScope right)
+{
+    return left.minX < right.minX + right.sizeX &&
+           right.minX < left.minX + left.sizeX &&
+           left.minZ < right.minZ + right.sizeZ &&
+           right.minZ < left.minZ + left.sizeZ;
+}
+
+static int CompareFeatures(const void *a, const void *b)
+{
+    const CgaFeature *left = a;
+    const CgaFeature *right = b;
+    if (left->id != right->id) return left->id < right->id ? -1 : 1;
+    if (left->anchorX != right->anchorX) return left->anchorX < right->anchorX ? -1 : 1;
+    if (left->anchorZ != right->anchorZ) return left->anchorZ < right->anchorZ ? -1 : 1;
+    return 0;
+}
+
+static size_t ResolveFeatureConflicts(CgaFeature *features, size_t count,
+                                      const CgaContext *context)
+{
+    if (!features) return 0;
+    qsort(features, count, sizeof(*features), CompareFeatures);
+    size_t accepted = 0;
+    for (size_t i = 0; i < count; i++) {
+        CgaFeature candidate = features[i];
+        if (context && context->regionClear &&
+            !context->regionClear(context->userData, candidate.scope, candidate.id)) {
+            continue;
+        }
+        bool conflict = false;
+        for (size_t j = 0; j < accepted; j++) {
+            if (ScopeOverlapsXZ(candidate.scope, features[j].scope)) {
+                conflict = true;
+                break;
+            }
+        }
+        if (!conflict) features[accepted++] = candidate;
+    }
+    return accepted;
+}
+
+static bool HouseTerrainSuitable(CgaScope scope, int base, TerrainMode mode)
+{
+    int minHeight = INT_MAX;
+    int maxHeight = INT_MIN;
+    for (int x = scope.minX; x < scope.minX + scope.sizeX; x++) {
+        for (int z = scope.minZ; z < scope.minZ + scope.sizeZ; z++) {
+            int height = TerrainHeight(x, z, mode);
+            if (height < minHeight) minHeight = height;
+            if (height > maxHeight) maxHeight = height;
+            if (height < base - 1 || height > base + 1) return false;
+        }
+    }
+    return maxHeight - minHeight <= 1;
+}
+
 uint64_t CgaFeatureId(uint32_t worldSeed, uint32_t grammarVersion,
                       int anchorX, int anchorZ)
 {
@@ -225,7 +282,7 @@ bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace)
 }
 
 bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
-                              TerrainMode mode)
+                          TerrainMode mode, const CgaContext *context)
 {
     if (!workspace || workspace->overflow) return false;
     const int spacing = 64;
@@ -252,6 +309,7 @@ bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
                               width, 12, depth, orientation};
             if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
                 scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!HouseTerrainSuitable(scope, base, mode)) continue;
             if (workspace->featureCount >= CGA_MAX_FEATURES_PER_CHUNK) {
                 workspace->overflow = true;
                 return false;
@@ -261,15 +319,19 @@ bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
                 CGA_HOUSE_GRAMMAR_VERSION, seed, ax, az, scope};
         }
     }
+    workspace->featureCount = ResolveFeatureConflicts(workspace->features,
+                                                      workspace->featureCount,
+                                                      context);
     return true;
 }
 
-bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode)
+bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode,
+                              const CgaContext *context)
 {
     if (!chunk) return false;
     CgaWorkspace workspace;
     CgaWorkspaceReset(&workspace);
-    if (!CgaPlanHouseFeatures(&workspace, cx, cz, mode)) return false;
+    if (!CgaPlanHouseFeatures(&workspace, cx, cz, mode, context)) return false;
     for (size_t i = 0; i < workspace.featureCount; i++) {
         if (!CgaExpandHouse(&workspace, workspace.features[i])) return false;
     }
@@ -282,10 +344,16 @@ size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
 {
     CgaWorkspace workspace;
     CgaWorkspaceReset(&workspace);
-    if (!CgaPlanHouseFeatures(&workspace, cx, cz, mode) || !out) return 0;
+    if (!CgaPlanHouseFeatures(&workspace, cx, cz, mode, NULL) || !out) return 0;
     size_t count = workspace.featureCount < capacity ? workspace.featureCount : capacity;
     memcpy(out, workspace.features, count * sizeof(*out));
     return count;
+}
+
+size_t CgaTestResolveFeatureConflicts(CgaFeature *features, size_t count,
+                                      const CgaContext *context)
+{
+    return ResolveFeatureConflicts(features, count, context);
 }
 
 bool CgaTestExpandHouse(CgaWorkspace *workspace, CgaFeature feature)
