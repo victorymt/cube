@@ -342,9 +342,17 @@ bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode,
 size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
                                 int cx, int cz, TerrainMode mode)
 {
+    return CgaTestPlanHouseFeaturesWithContext(out, capacity, cx, cz, mode,
+                                               NULL);
+}
+
+size_t CgaTestPlanHouseFeaturesWithContext(CgaFeature *out, size_t capacity,
+                                           int cx, int cz, TerrainMode mode,
+                                           const CgaContext *context)
+{
     CgaWorkspace workspace;
     CgaWorkspaceReset(&workspace);
-    if (!CgaPlanHouseFeatures(&workspace, cx, cz, mode, NULL) || !out) return 0;
+    if (!CgaPlanHouseFeatures(&workspace, cx, cz, mode, context) || !out) return 0;
     size_t count = workspace.featureCount < capacity ? workspace.featureCount : capacity;
     memcpy(out, workspace.features, count * sizeof(*out));
     return count;

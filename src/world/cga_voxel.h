@@ -91,7 +91,7 @@ uint64_t CgaFeatureId(uint32_t worldSeed, uint32_t grammarVersion,
 
 /* Fixed-capacity stages; reset the workspace before planning. Expansion only emits IR.
  * Evaluation sorts by (stage, priority, feature ID, sequence), later writes win.
- * Paint changes existing non-air blocks. The caller owns the target chunk. */
+ * Paint applies its material after the carve stage. The caller owns the target chunk. */
 bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
                           TerrainMode mode, const CgaContext *context);
 bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature);
@@ -106,6 +106,9 @@ bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode,
 #ifdef TERRAIN_TESTING
 size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
                                 int cx, int cz, TerrainMode mode);
+size_t CgaTestPlanHouseFeaturesWithContext(CgaFeature *out, size_t capacity,
+                                           int cx, int cz, TerrainMode mode,
+                                           const CgaContext *context);
 size_t CgaTestResolveFeatureConflicts(CgaFeature *features, size_t count,
                                       const CgaContext *context);
 bool CgaTestExpandHouse(CgaWorkspace *workspace, CgaFeature feature);

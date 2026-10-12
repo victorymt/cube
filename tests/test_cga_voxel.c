@@ -130,6 +130,16 @@ static void TestFeatureConflictResolution(void)
     assert(features[0].id == 10);
     assert(features[1].id == 30);
 
+    CgaFeature reversed[] = {
+        TestFeature(30, 40, 40, 10, 10),
+        TestFeature(20, 0, 0, 10, 10),
+        TestFeature(10, 5, 5, 10, 10)
+    };
+    count = CgaTestResolveFeatureConflicts(reversed, 3, NULL);
+    assert(count == 2);
+    assert(reversed[0].id == 10);
+    assert(reversed[1].id == 30);
+
     CgaContext blocked = {NULL, RejectEveryRegion};
     assert(CgaTestResolveFeatureConflicts(features, count, &blocked) == 0);
 }

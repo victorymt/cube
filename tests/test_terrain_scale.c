@@ -21,10 +21,21 @@
 
 static uint32_t terrainSeed = DEFAULT_WORLD_SEED;
 
+static bool RejectCgaRegion(void *userData, CgaScope region,
+                            uint64_t excludedFeature)
+{
+    (void)userData;
+    (void)region;
+    (void)excludedFeature;
+    return false;
+}
+
 static void TestCgaHousePlannerFindsLandAnchor(void)
 {
     CgaFeature features[CGA_MAX_FEATURES_PER_CHUNK];
     bool found = false;
+    int foundCx = 0;
+    int foundCz = 0;
     for (int cz = -512; cz <= 512 && !found; cz += 16) {
         for (int cx = -512; cx <= 512; cx += 16) {
             size_t count = CgaTestPlanHouseFeatures(features,
@@ -33,12 +44,25 @@ static void TestCgaHousePlannerFindsLandAnchor(void)
             if (count > 0) {
                 assert(CgaScopeValid(features[0].scope));
                 assert(features[0].scope.sizeY == 12);
+                if (features[0].scope.orientation & 1) {
+                    assert(features[0].scope.sizeX == 13);
+                    assert(features[0].scope.sizeZ == 17);
+                } else {
+                    assert(features[0].scope.sizeX == 17);
+                    assert(features[0].scope.sizeZ == 13);
+                }
+                foundCx = cx;
+                foundCz = cz;
                 found = true;
                 break;
             }
         }
     }
     assert(found);
+    CgaContext blocked = {NULL, RejectCgaRegion};
+    assert(CgaTestPlanHouseFeaturesWithContext(
+               features, CGA_MAX_FEATURES_PER_CHUNK, foundCx, foundCz,
+               TERRAIN_VARIED, &blocked) == 0);
 }
 
 bool WorldIsSurfaceActive(void)
