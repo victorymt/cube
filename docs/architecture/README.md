@@ -26,6 +26,7 @@ new physical-simulation stages.
 | 16 | [regional ecology continuity](16-ecology-continuity.md) | V23 daylight anchor, V7 regional ecology persistence, explicit scheduling, and historical environmental sampling |
 | 17 | [animal behavior and poses](17-fauna-poses.md) | V5 entity pose persistence, contact-driven gait/strikes, articulated behavior rendering and deterministic DSL previews |
 | 18 | [volcano, lava and ash](18-volcano-preview.md) | G1/G2 lifecycle and lava, G3 water contact, P0 ash/material products, fractional collection; retained payloads in V29 |
+| 19 | [CGA voxel grammars](19-cga-voxel-grammar.md) | deterministic planning, four structure grammars, conflict resolution, cross-chunk IR evaluation, and CGA E2E coverage |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
