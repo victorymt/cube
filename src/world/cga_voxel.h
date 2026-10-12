@@ -118,6 +118,9 @@ bool CgaGenerateMineshaftFeatures(Chunk *chunk, int cx, int cz,
 #endif
 
 #ifdef TERRAIN_TESTING
+size_t CgaTestPlanStructureFeatures(CgaFeature *out, size_t capacity,
+                                    int cx, int cz, TerrainMode mode,
+                                    const CgaContext *context);
 size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
                                 int cx, int cz, TerrainMode mode);
 size_t CgaTestPlanHouseFeaturesWithContext(CgaFeature *out, size_t capacity,

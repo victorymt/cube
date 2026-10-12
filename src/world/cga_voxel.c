@@ -252,6 +252,16 @@ static bool AppendWorldBox(CgaWorkspace *workspace, CgaOpKind kind,
                                   CGA_ORIENTATION_0}, material);
 }
 
+static bool ReserveOps(CgaWorkspace *workspace, size_t count)
+{
+    if (!workspace || workspace->overflow || count > CGA_MAX_CHUNK_OPS ||
+        workspace->opCount > CGA_MAX_CHUNK_OPS - count) {
+        if (workspace) workspace->overflow = true;
+        return false;
+    }
+    return true;
+}
+
 static bool ExpandMineshaft(CgaWorkspace *workspace, CgaFeature feature)
 {
     if (!workspace || feature.grammarVersion != CGA_MINESHAFT_GRAMMAR_VERSION ||
@@ -265,11 +275,7 @@ static bool ExpandMineshaft(CgaWorkspace *workspace, CgaFeature feature)
     int length = feature.scope.sizeX > feature.scope.sizeZ
         ? feature.scope.sizeX : feature.scope.sizeZ;
     int y = feature.scope.minY;
-    if (workspace->overflow || workspace->opCount > CGA_MAX_CHUNK_OPS -
-        (size_t)(length + length / 4 + 1)) {
-        workspace->overflow = true;
-        return false;
-    }
+    if (!ReserveOps(workspace, (size_t)(length + length / 4 + 1))) return false;
     for (int i = 0; i < length; i++) {
         int bx = startX + dx * i;
         int bz = startZ + dz * i;
@@ -286,6 +292,7 @@ static bool ExpandDungeon(CgaWorkspace *workspace, CgaFeature feature)
 {
     if (!workspace || feature.grammarVersion != CGA_DUNGEON_GRAMMAR_VERSION ||
         !CgaScopeValid(feature.scope)) return false;
+    if (!ReserveOps(workspace, 8)) return false;
     CgaScope s = feature.scope;
     int left = s.minX;
     int right = s.minX + s.sizeX - 1;
@@ -319,6 +326,7 @@ static bool ExpandDesertTemple(CgaWorkspace *workspace, CgaFeature feature)
 {
     if (!workspace || feature.grammarVersion != CGA_DESERT_TEMPLE_GRAMMAR_VERSION ||
         !CgaScopeValid(feature.scope)) return false;
+    if (!ReserveOps(workspace, 7)) return false;
     CgaScope s = feature.scope;
     int x = feature.anchorX * 128;
     int z = feature.anchorZ * 128;
@@ -646,6 +654,18 @@ size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
 {
     return CgaTestPlanHouseFeaturesWithContext(out, capacity, cx, cz, mode,
                                                NULL);
+}
+
+size_t CgaTestPlanStructureFeatures(CgaFeature *out, size_t capacity,
+                                    int cx, int cz, TerrainMode mode,
+                                    const CgaContext *context)
+{
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    if (!CgaPlanStructureFeatures(&workspace, cx, cz, mode, context) || !out) return 0;
+    size_t count = workspace.featureCount < capacity ? workspace.featureCount : capacity;
+    memcpy(out, workspace.features, count * sizeof(*out));
+    return count;
 }
 
 size_t CgaTestPlanHouseFeaturesWithContext(CgaFeature *out, size_t capacity,
