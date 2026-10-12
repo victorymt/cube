@@ -4,6 +4,7 @@
 #include "world/terrain.h"
 #include "world/world.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -27,13 +28,18 @@ void CgaWorkspaceReset(CgaWorkspace *workspace)
 
 bool CgaScopeValid(CgaScope scope)
 {
-    return scope.sizeX > 0 && scope.sizeY > 0 && scope.sizeZ > 0;
+    return scope.sizeX > 0 && scope.sizeY > 0 && scope.sizeZ > 0 &&
+           scope.minX <= INT_MAX - scope.sizeX &&
+           scope.minY <= INT_MAX - scope.sizeY &&
+           scope.minZ <= INT_MAX - scope.sizeZ &&
+           scope.orientation >= CGA_ORIENTATION_0 &&
+           scope.orientation <= CGA_ORIENTATION_270;
 }
 
 bool CgaScopeSplit(CgaScope parent, CgaAxis axis, const int *sizes,
                    size_t count, CgaScope *out)
 {
-    if (!CgaScopeValid(parent) || !sizes || !out || count == 0) return false;
+    if (!CgaScopeValid(parent) || axis < CGA_AXIS_X || axis > CGA_AXIS_Z || !sizes || !out || count == 0) return false;
     int total = 0;
     int length = ScopeLength(parent, axis);
     for (size_t i = 0; i < count; i++) {
@@ -54,9 +60,9 @@ bool CgaScopeSplit(CgaScope parent, CgaAxis axis, const int *sizes,
 size_t CgaScopeRepeat(CgaScope parent, CgaAxis axis, int requestedSize,
                       CgaScope *out, size_t capacity)
 {
-    if (!CgaScopeValid(parent) || requestedSize <= 0 || !out || capacity == 0) return 0;
+    if (!CgaScopeValid(parent) || axis < CGA_AXIS_X || axis > CGA_AXIS_Z || requestedSize <= 0 || !out || capacity == 0) return 0;
     int length = ScopeLength(parent, axis);
-    size_t count = (size_t)((length + requestedSize / 2) / requestedSize);
+    size_t count = (size_t)(((int64_t)length + requestedSize / 2) / requestedSize);
     if (count < 1) count = 1;
     if (count > capacity) return 0;
     int base = length / (int)count;
@@ -89,20 +95,42 @@ uint64_t CgaFeatureId(uint32_t worldSeed, uint32_t grammarVersion,
     return Mix64(x);
 }
 
-static CgaScope RotateScope(CgaScope scope, CgaOrientation orientation)
+/* Convert a local half-open box to the rotated world AABB. */
+static CgaScope LocalBox(CgaScope parent, int x, int y, int z,
+                         int width, int height, int depth)
 {
-    if (orientation == CGA_ORIENTATION_0 || orientation == CGA_ORIENTATION_180) return scope;
-    int size = scope.sizeX;
-    scope.sizeX = scope.sizeZ;
-    scope.sizeZ = size;
-    return scope;
+    CgaScope box = {parent.minX, parent.minY + y, parent.minZ,
+                    width, height, depth, CGA_ORIENTATION_0};
+    int localWidth = (parent.orientation & 1) ? parent.sizeZ : parent.sizeX;
+    int localDepth = (parent.orientation & 1) ? parent.sizeX : parent.sizeZ;
+    switch (parent.orientation) {
+        case CGA_ORIENTATION_0:
+            box.minX += x; box.minZ += z;
+            break;
+        case CGA_ORIENTATION_90:
+            box.minX += localDepth - z - depth; box.minZ += x;
+            box.sizeX = depth; box.sizeZ = width;
+            break;
+        case CGA_ORIENTATION_180:
+            box.minX += parent.sizeX - x - width;
+            box.minZ += parent.sizeZ - z - depth;
+            break;
+        case CGA_ORIENTATION_270:
+            box.minX += z; box.minZ += localWidth - x - width;
+            box.sizeX = depth; box.sizeZ = width;
+            break;
+    }
+    return box;
 }
 
-static bool AppendOp(CgaWorkspace *workspace, CgaOpKind kind, CgaStage stage,
+bool CgaAppendOp(CgaWorkspace *workspace, CgaOpKind kind, CgaStage stage,
                      int priority, CgaFeature feature, CgaScope scope,
                      BlockType material)
 {
-    if (!workspace || !CgaScopeValid(scope) || workspace->opCount >= CGA_MAX_CHUNK_OPS) {
+    if (!workspace || workspace->overflow || !CgaScopeValid(scope) ||
+        kind < CGA_OP_FILL || kind > CGA_OP_PAINT ||
+        stage < CGA_STAGE_BASE || stage > CGA_STAGE_PAINT ||
+        workspace->opCount >= CGA_MAX_CHUNK_OPS) {
         if (workspace) workspace->overflow = true;
         return false;
     }
@@ -113,45 +141,45 @@ static bool AppendOp(CgaWorkspace *workspace, CgaOpKind kind, CgaStage stage,
     return true;
 }
 
-static bool ExpandHouse(CgaWorkspace *workspace, CgaFeature feature)
+bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature)
 {
     CgaScope s = feature.scope;
-    if (!CgaScopeValid(s)) return false;
-    CgaScope interior = s;
-    interior.minX++; interior.minY++; interior.minZ++;
-    interior.sizeX -= 2; interior.sizeY -= 2; interior.sizeZ -= 2;
-    CgaScope floor = interior;
-    floor.sizeY = 1;
-    CgaScope door = s;
-    door.minX = s.minX + s.sizeX / 2 - 1;
-    door.minY = s.minY + 1;
-    door.minZ = s.minZ + s.sizeZ - 1;
-    door.sizeX = 2; door.sizeY = 3; door.sizeZ = 1;
-    CgaScope roof = s;
-    roof.minY = s.minY + s.sizeY - 1;
-    roof.sizeY = 1;
+    int width = (s.orientation & 1) ? s.sizeZ : s.sizeX;
+    int depth = (s.orientation & 1) ? s.sizeX : s.sizeZ;
+    if (!workspace || !CgaScopeValid(s) || width < 9 || depth < 5 || s.sizeY < 8 ||
+        feature.grammarVersion != CGA_HOUSE_GRAMMAR_VERSION) return false;
+    CgaScope world = LocalBox(s, 0, 0, 0, width, s.sizeY, depth);
+    /* Reserve the entire rule expansion, so capacity failure cannot emit half a house. */
+    if (workspace->overflow || workspace->opCount > CGA_MAX_CHUNK_OPS - 9) {
+        workspace->overflow = true;
+        return false;
+    }
+    CgaScope interior = LocalBox(s, 1, 1, 1, width - 2, s.sizeY - 2, depth - 2);
+    CgaScope floor = LocalBox(s, 0, 0, 0, width, 1, depth);
+    CgaScope door = LocalBox(s, width / 2 - 1, 1, depth - 1, 2, 3, 1);
+    CgaScope roof = LocalBox(s, 0, s.sizeY - 1, 0, width, 1, depth);
 
-    if (!AppendOp(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0,
-                  feature, s, BLOCK_PLANK)) return false;
-    if (!AppendOp(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 0,
-                  feature, interior, BLOCK_AIR)) return false;
-    if (!AppendOp(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1,
-                  feature, door, BLOCK_AIR)) return false;
-    if (!AppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 0,
-                  feature, floor, BLOCK_WOOD)) return false;
-    if (!AppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1,
-                  feature, roof, BLOCK_WOOD)) return false;
+    if (!CgaAppendOp(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0,
+                     feature, world, BLOCK_PLANK) ||
+        !CgaAppendOp(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 0,
+                     feature, interior, BLOCK_AIR) ||
+        !CgaAppendOp(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1,
+                     feature, door, BLOCK_AIR) ||
+        !CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 0,
+                     feature, floor, BLOCK_WOOD) ||
+        !CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1,
+                     feature, roof, BLOCK_WOOD)) return false;
 
-    CgaScope windows[4];
-    windows[0] = (CgaScope){s.minX, s.minY + 4, s.minZ + s.sizeZ - 1, 3, 2, 1, s.orientation};
-    windows[1] = (CgaScope){s.minX + s.sizeX - 3, s.minY + 4, s.minZ + s.sizeZ - 1, 3, 2, 1, s.orientation};
-    windows[2] = (CgaScope){s.minX, s.minY + 4, s.minZ, 3, 2, 1, s.orientation};
-    windows[3] = (CgaScope){s.minX + s.sizeX - 3, s.minY + 4, s.minZ, 3, 2, 1, s.orientation};
-    for (size_t i = 0; i < 4; i++) {
-        if (!AppendOp(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1,
-                      feature, windows[i], BLOCK_AIR) ||
-            !AppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 2,
-                      feature, windows[i], BLOCK_GLASS)) return false;
+    /* Paint existing wall voxels; painting never fills a carved opening. */
+    for (int side = 0; side < 2; side++) {
+        for (int slot = 0; slot < 2; slot++) {
+            CgaScope window = LocalBox(s, slot ? width - 4 : 1, 4,
+                                        side ? depth - 1 : 0, 3, 2, 1);
+            if (!CgaAppendOp(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1,
+                             feature, window, BLOCK_AIR) ||
+                !CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 2,
+                             feature, window, BLOCK_GLASS)) return false;
+        }
     }
     return true;
 }
@@ -168,23 +196,27 @@ static int CompareOps(const void *a, const void *b)
     return 0;
 }
 
-static bool ApplyWorkspace(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace)
+bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace)
 {
     if (!chunk || !workspace || workspace->overflow) return false;
     qsort(workspace->ops, workspace->opCount, sizeof(workspace->ops[0]), CompareOps);
     for (size_t i = 0; i < workspace->opCount; i++) {
         const CgaVoxelOp *op = &workspace->ops[i];
+        int minX = op->scope.minX > cx * CHUNK_SIZE ? op->scope.minX : cx * CHUNK_SIZE;
+        int minZ = op->scope.minZ > cz * CHUNK_SIZE ? op->scope.minZ : cz * CHUNK_SIZE;
         int maxX = op->scope.minX + op->scope.sizeX;
         int maxZ = op->scope.minZ + op->scope.sizeZ;
-        for (int x = op->scope.minX; x < maxX; x++) {
-            for (int z = op->scope.minZ; z < maxZ; z++) {
-                int localCx, localCz, lx, lz;
-                WorldToChunkLocal(x, z, &localCx, &localCz, &lx, &lz);
-                if (localCx != cx || localCz != cz) continue;
-                for (int y = op->scope.minY; y < op->scope.minY + op->scope.sizeY; y++) {
-                    if (y < SURFACE_MIN_Y || y >= SURFACE_MAX_Y_EXCLUSIVE) continue;
-                    ChunkSetLocalBlock(chunk, lx, y, lz,
-                                       op->kind == CGA_OP_CARVE ? BLOCK_AIR : op->material);
+        if (maxX > cx * CHUNK_SIZE + CHUNK_SIZE) maxX = cx * CHUNK_SIZE + CHUNK_SIZE;
+        if (maxZ > cz * CHUNK_SIZE + CHUNK_SIZE) maxZ = cz * CHUNK_SIZE + CHUNK_SIZE;
+        int minY = op->scope.minY > SURFACE_MIN_Y ? op->scope.minY : SURFACE_MIN_Y;
+        int maxY = op->scope.minY + op->scope.sizeY;
+        if (maxY > SURFACE_MAX_Y_EXCLUSIVE) maxY = SURFACE_MAX_Y_EXCLUSIVE;
+        for (int x = minX; x < maxX; x++) {
+            for (int z = minZ; z < maxZ; z++) {
+                int lx = x - cx * CHUNK_SIZE, lz = z - cz * CHUNK_SIZE;
+                for (int y = minY; y < maxY; y++) {
+                    if (!ChunkSetLocalBlock(chunk, lx, y, lz,
+                            op->kind == CGA_OP_CARVE ? BLOCK_AIR : op->material)) return false;
                 }
             }
         }
@@ -192,12 +224,13 @@ static bool ApplyWorkspace(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace
     return true;
 }
 
-static bool PlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
+bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
                               TerrainMode mode)
 {
+    if (!workspace || workspace->overflow) return false;
     const int spacing = 64;
     const int halfWidth = 8;
-    const int halfDepth = 6;
+    const int halfDepth = 8; /* Maximum extent across all four orientations. */
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
     int minAnchorX = FloorDivInt(startX - halfWidth - 1, spacing);
@@ -211,15 +244,18 @@ static bool PlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
             int z = az * spacing;
             if (HomeSurfaceHashAt(x, z, 1481u) % 100u >= 62u ||
                 BiomeAt(x, z) == BIOME_DESERT || TerrainHeight(x, z, mode) < 4) continue;
+            int base = TerrainHeight(x, z, mode);
+            CgaOrientation orientation = (CgaOrientation)(HomeSurfaceHashAt(x, z, 1493u) % 4u);
+            int width = (orientation & 1) ? 13 : 17;
+            int depth = (orientation & 1) ? 17 : 13;
+            CgaScope scope = {x - width / 2, base, z - depth / 2,
+                              width, 12, depth, orientation};
+            if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
             if (workspace->featureCount >= CGA_MAX_FEATURES_PER_CHUNK) {
                 workspace->overflow = true;
                 return false;
             }
-            int base = TerrainHeight(x, z, mode);
-            CgaOrientation orientation = (CgaOrientation)(HomeSurfaceHashAt(x, z, 1493u) % 4u);
-            CgaScope scope = {x - halfWidth, base, z - halfDepth,
-                              17, 12, 13, orientation};
-            scope = RotateScope(scope, orientation);
             workspace->features[workspace->featureCount++] = (CgaFeature){
                 CgaFeatureId(seed, CGA_HOUSE_GRAMMAR_VERSION, ax, az),
                 CGA_HOUSE_GRAMMAR_VERSION, seed, ax, az, scope};
@@ -233,22 +269,33 @@ bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode)
     if (!chunk) return false;
     CgaWorkspace workspace;
     CgaWorkspaceReset(&workspace);
-    if (!PlanHouseFeatures(&workspace, cx, cz, mode)) return false;
+    if (!CgaPlanHouseFeatures(&workspace, cx, cz, mode)) return false;
     for (size_t i = 0; i < workspace.featureCount; i++) {
-        if (!ExpandHouse(&workspace, workspace.features[i])) return false;
+        if (!CgaExpandHouse(&workspace, workspace.features[i])) return false;
     }
-    return ApplyWorkspace(chunk, cx, cz, &workspace);
+    return CgaEvaluateChunk(chunk, cx, cz, &workspace);
 }
 
 #ifdef TERRAIN_TESTING
+size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
+                                int cx, int cz, TerrainMode mode)
+{
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    if (!CgaPlanHouseFeatures(&workspace, cx, cz, mode) || !out) return 0;
+    size_t count = workspace.featureCount < capacity ? workspace.featureCount : capacity;
+    memcpy(out, workspace.features, count * sizeof(*out));
+    return count;
+}
+
 bool CgaTestExpandHouse(CgaWorkspace *workspace, CgaFeature feature)
 {
-    return ExpandHouse(workspace, feature);
+    return CgaExpandHouse(workspace, feature);
 }
 
 bool CgaTestEvaluateWorkspace(Chunk *chunk, int cx, int cz,
                               CgaWorkspace *workspace)
 {
-    return ApplyWorkspace(chunk, cx, cz, workspace);
+    return CgaEvaluateChunk(chunk, cx, cz, workspace);
 }
 #endif

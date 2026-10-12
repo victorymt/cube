@@ -1,4 +1,5 @@
 #include "world/chunks.h"
+#include "world/cga_voxel.h"
 #include "world/terrain.h"
 #include "world/terrain_generation.h"
 #include "world/landform_runtime.h"
@@ -19,6 +20,26 @@
 #include <string.h>
 
 static uint32_t terrainSeed = DEFAULT_WORLD_SEED;
+
+static void TestCgaHousePlannerFindsLandAnchor(void)
+{
+    CgaFeature features[CGA_MAX_FEATURES_PER_CHUNK];
+    bool found = false;
+    for (int cz = -512; cz <= 512 && !found; cz += 16) {
+        for (int cx = -512; cx <= 512; cx += 16) {
+            size_t count = CgaTestPlanHouseFeatures(features,
+                                                     CGA_MAX_FEATURES_PER_CHUNK,
+                                                     cx, cz, TERRAIN_VARIED);
+            if (count > 0) {
+                assert(CgaScopeValid(features[0].scope));
+                assert(features[0].scope.sizeY == 12);
+                found = true;
+                break;
+            }
+        }
+    }
+    assert(found);
+}
 
 bool WorldIsSurfaceActive(void)
 {
@@ -230,9 +251,9 @@ static void TestTerrainStructureBaselines(void)
         int cz;
         uint64_t expectedHash;
     } baselines[] = {
-        { -200, -200, UINT64_C(15322626348780373393) },
+        { -200, -200, UINT64_C(17879154592460765520) },
         { -100, -88, UINT64_C(9410852878687540787) },
-        { -120, -105, UINT64_C(6754292168476225104) },
+        { -120, -105, UINT64_C(7196177563421176852) },
         { -225, 90, UINT64_C(15174892566651065886) }
     };
 
@@ -1978,6 +1999,7 @@ int main(void)
     TestFullColumnDecorationSectionsResolved();
     TestTerrainSectionExposureClassification();
     TestTerrainStructureBaselines();
+    TestCgaHousePlannerFindsLandAnchor();
     TestPlanetChunkDeterministicBaselines();
     TestGeneratedChunkDirtyMeshRebuildFixture();
     TestLandformCompatibilityFingerprint();

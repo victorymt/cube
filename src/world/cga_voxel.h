@@ -22,6 +22,8 @@ typedef enum CgaOrientation {
     CGA_ORIENTATION_270
 } CgaOrientation;
 
+/* World AABB in half-open integer coordinates; orientation defines the local frame.
+ * Split/repeat axes refer to the world axes. */
 typedef struct CgaScope {
     int minX;
     int minY;
@@ -80,10 +82,28 @@ size_t CgaScopeRepeat(CgaScope parent, CgaAxis axis, int requestedSize,
 uint64_t CgaFeatureId(uint32_t worldSeed, uint32_t grammarVersion,
                       int anchorX, int anchorZ);
 
+/* Fixed-capacity stages; reset the workspace before planning. Expansion only emits IR.
+ * Evaluation sorts by (stage, priority, feature ID, sequence), later writes win.
+ * Paint changes existing non-air blocks. The caller owns the target chunk. */
+bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz, TerrainMode mode);
+bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature);
+bool CgaAppendOp(CgaWorkspace *workspace, CgaOpKind kind, CgaStage stage,
+                 int priority, CgaFeature feature, CgaScope scope, BlockType material);
+bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace);
+
+/* Reserved for later conditional rules. Callbacks must query immutable planning
+ * or base-terrain snapshots, independently of loaded chunks. NULL means unknown. */
+typedef struct CgaContext {
+    void *userData;
+    bool (*regionClear)(void *userData, CgaScope region, uint64_t excludedFeature);
+} CgaContext;
+
 /* Generates the first CGA-backed structure set for a Homeworld chunk. */
 bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode);
 
 #ifdef TERRAIN_TESTING
+size_t CgaTestPlanHouseFeatures(CgaFeature *out, size_t capacity,
+                                int cx, int cz, TerrainMode mode);
 bool CgaTestExpandHouse(CgaWorkspace *workspace, CgaFeature feature);
 bool CgaTestEvaluateWorkspace(Chunk *chunk, int cx, int cz,
                               CgaWorkspace *workspace);

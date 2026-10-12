@@ -77,7 +77,7 @@ static void TestChunkOrderInvariant(void)
     memset(observed, 0, sizeof(observed));
     assert(CgaTestEvaluateWorkspace(&testChunks[0], 0, 0, &workspace));
     assert(CgaTestEvaluateWorkspace(&testChunks[1], 1, 0, &workspace));
-    unsigned short forward[2][CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE];
+    unsigned short forward[2][CHUNK_SIZE][SURFACE_GENERATION_MAX_Y_EXCLUSIVE][CHUNK_SIZE];
     memcpy(forward, observed, sizeof(forward));
 
     memset(observed, 0, sizeof(observed));
@@ -86,6 +86,19 @@ static void TestChunkOrderInvariant(void)
     assert(memcmp(forward, observed, sizeof(forward)) == 0);
     assert(observed[0][14][33][1] == BLOCK_PLANK);
     assert(observed[1][0][33][1] == BLOCK_PLANK);
+    for (int orientation = 0; orientation < 4; orientation++) {
+        CgaWorkspace rotated;
+        CgaWorkspaceReset(&rotated);
+        feature.scope.orientation = (CgaOrientation)orientation;
+        feature.scope.sizeX = (orientation & 1) ? 13 : 17;
+        feature.scope.sizeZ = (orientation & 1) ? 17 : 13;
+        assert(CgaTestExpandHouse(&rotated, feature));
+        assert(rotated.opCount == 13);
+        assert(rotated.ops[0].scope.minX == 14);
+        assert(rotated.ops[0].scope.minZ == 1);
+        assert(rotated.ops[0].scope.sizeX == (orientation & 1 ? 13 : 17));
+        assert(rotated.ops[0].scope.sizeZ == (orientation & 1 ? 17 : 13));
+    }
 }
 
 int main(void)
