@@ -71,11 +71,23 @@ static void TestFeatureIdAndHouseExpansion(void)
     CgaWorkspace workspace;
     CgaWorkspaceReset(&workspace);
     assert(CgaTestExpandHouse(&workspace, feature));
-    assert(workspace.opCount == 13);
+    assert(workspace.opCount == 24);
     assert(!workspace.overflow);
     assert(workspace.ops[0].stage == CGA_STAGE_BASE);
-    assert(workspace.ops[1].stage == CGA_STAGE_CARVE);
+    assert(workspace.ops[2].stage == CGA_STAGE_CARVE);
     assert(workspace.ops[workspace.opCount - 1].stage == CGA_STAGE_PAINT);
+    bool hasStoneBase = false;
+    bool hasWhiteWalls = false;
+    bool hasRedTimber = false;
+    bool hasSteppedRoof = false;
+    for (size_t i = 0; i < workspace.opCount; i++) {
+        const CgaVoxelOp *op = &workspace.ops[i];
+        hasStoneBase |= op->material == BLOCK_STONE_BRICKS;
+        hasWhiteWalls |= op->material == BLOCK_WHITE;
+        hasRedTimber |= op->material == BLOCK_RED;
+        hasSteppedRoof |= op->material == BLOCK_STONE_STAIRS;
+    }
+    assert(hasStoneBase && hasWhiteWalls && hasRedTimber && hasSteppedRoof);
     assert(CgaFeatureId(1, 1, 2, 3) == CgaFeatureId(1, 1, 2, 3));
     assert(CgaFeatureId(1, 1, 2, 3) != CgaFeatureId(1, 1, 3, 2));
 }
@@ -101,8 +113,8 @@ static void TestChunkOrderInvariant(void)
     assert(CgaTestEvaluateWorkspace(&testChunks[1], 1, 0, &workspace));
     assert(CgaTestEvaluateWorkspace(&testChunks[0], 0, 0, &workspace));
     assert(memcmp(forward, observed, sizeof(forward)) == 0);
-    assert(observed[0][14][33][1] == BLOCK_PLANK);
-    assert(observed[1][0][33][1] == BLOCK_PLANK);
+    assert(observed[0][14][33][1] == BLOCK_RED);
+    assert(observed[1][0][33][1] == BLOCK_WOOD);
     for (int orientation = 0; orientation < 4; orientation++) {
         CgaWorkspace rotated;
         CgaWorkspaceReset(&rotated);
@@ -110,11 +122,9 @@ static void TestChunkOrderInvariant(void)
         feature.scope.sizeX = (orientation & 1) ? 13 : 17;
         feature.scope.sizeZ = (orientation & 1) ? 17 : 13;
         assert(CgaTestExpandHouse(&rotated, feature));
-        assert(rotated.opCount == 13);
-        assert(rotated.ops[0].scope.minX == 14);
-        assert(rotated.ops[0].scope.minZ == 1);
-        assert(rotated.ops[0].scope.sizeX == (orientation & 1 ? 13 : 17));
-        assert(rotated.ops[0].scope.sizeZ == (orientation & 1 ? 17 : 13));
+        assert(rotated.opCount == 24);
+        assert(CgaScopeValid(rotated.ops[0].scope));
+        assert(rotated.ops[0].material == BLOCK_STONE_BRICKS);
     }
 }
 

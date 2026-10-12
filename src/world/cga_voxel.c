@@ -206,27 +206,59 @@ bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature)
     int depth = (s.orientation & 1) ? s.sizeX : s.sizeZ;
     if (!workspace || !CgaScopeValid(s) || width < 9 || depth < 5 || s.sizeY < 8 ||
         feature.grammarVersion != CGA_HOUSE_GRAMMAR_VERSION) return false;
-    CgaScope world = LocalBox(s, 0, 0, 0, width, s.sizeY, depth);
     /* Reserve the entire rule expansion, so capacity failure cannot emit half a house. */
-    if (workspace->overflow || workspace->opCount > CGA_MAX_CHUNK_OPS - 9) {
+    /* The house grammar expands into a raised stone base, plastered timber
+     * frame, doors/windows and three stepped roof courses. */
+    if (workspace->overflow || workspace->opCount > CGA_MAX_CHUNK_OPS - 40) {
         workspace->overflow = true;
         return false;
     }
-    CgaScope interior = LocalBox(s, 1, 1, 1, width - 2, s.sizeY - 2, depth - 2);
-    CgaScope floor = LocalBox(s, 0, 0, 0, width, 1, depth);
-    CgaScope door = LocalBox(s, width / 2 - 1, 1, depth - 1, 2, 3, 1);
-    CgaScope roof = LocalBox(s, 0, s.sizeY - 1, 0, width, 1, depth);
+    int wallHeight = s.sizeY - 4;
+    CgaScope foundation = LocalBox(s, -1, 0, -1, width + 2, 1, depth + 2);
+    CgaScope walls = LocalBox(s, 0, 1, 0, width, wallHeight, depth);
+    CgaScope interior = LocalBox(s, 1, 2, 1, width - 2, wallHeight - 1, depth - 2);
+    CgaScope floor = LocalBox(s, 0, 1, 0, width, 1, depth);
+    CgaScope door = LocalBox(s, width / 2 - 1, 2, depth - 1, 2, 3, 1);
+    CgaScope eave = LocalBox(s, -2, s.sizeY - 3, -2, width + 4, 1, depth + 4);
+    CgaScope upperRoof = LocalBox(s, -1, s.sizeY - 2, -1, width + 2, 1, depth + 2);
+    CgaScope ridge = LocalBox(s, 1, s.sizeY - 1, 1, width - 2, 1, depth - 2);
 
     if (!CgaAppendOp(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0,
-                     feature, world, BLOCK_PLANK) ||
+                     feature, foundation, BLOCK_STONE_BRICKS) ||
+        !CgaAppendOp(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 1,
+                     feature, walls, BLOCK_WHITE) ||
         !CgaAppendOp(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 0,
                      feature, interior, BLOCK_AIR) ||
         !CgaAppendOp(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1,
                      feature, door, BLOCK_AIR) ||
         !CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 0,
                      feature, floor, BLOCK_WOOD) ||
-        !CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1,
-                     feature, roof, BLOCK_WOOD)) return false;
+        !CgaAppendOp(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 2,
+                     feature, eave, BLOCK_STONE_STAIRS) ||
+        !CgaAppendOp(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 3,
+                     feature, upperRoof, BLOCK_STONE_STAIRS) ||
+        !CgaAppendOp(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 4,
+                     feature, ridge, BLOCK_STONE_STAIRS)) return false;
+
+    /* The regular red posts and beams expose the timber frame through the
+     * white infill walls, while the wide eaves give the roof its Chinese form. */
+    for (int side = 0; side < 2; side++) {
+        for (int end = 0; end < 2; end++) {
+            int x = end ? width - 1 : 0;
+            int z = side ? depth - 1 : 0;
+            if (!CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1,
+                             feature, LocalBox(s, x, 1, z, 1, wallHeight, 1),
+                             BLOCK_RED)) return false;
+        }
+    }
+    if (!CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1, feature,
+                     LocalBox(s, 0, wallHeight - 1, 0, width, 1, 1), BLOCK_RED) ||
+        !CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1, feature,
+                     LocalBox(s, 0, wallHeight - 1, depth - 1, width, 1, 1), BLOCK_RED) ||
+        !CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1, feature,
+                     LocalBox(s, 0, 1, 0, 1, 1, depth), BLOCK_RED) ||
+        !CgaAppendOp(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1, feature,
+                     LocalBox(s, width - 1, 1, 0, 1, 1, depth), BLOCK_RED)) return false;
 
     /* Paint existing wall voxels; painting never fills a carved opening. */
     for (int side = 0; side < 2; side++) {

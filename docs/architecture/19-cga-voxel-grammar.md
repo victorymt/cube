@@ -29,7 +29,7 @@ contract is `src/world/cga_voxel.h`.
 
 | Version | Structure | Rule output |
 | --- | --- | --- |
-| 1 | Home house | plank shell, carved interior, door, windows, wood floor and roof |
+| 5 | Home house | raised stone platform, white infill walls, red timber frame, carved doorway/windows, and stepped dark-tile roof |
 | 2 | Mineshaft | diagonal air corridor with periodic timber supports |
 | 3 | Dungeon | stone-brick perimeter, doorway, and internal supports |
 | 4 | Desert temple | sandstone pedestal, pillars, capstone, and underground base |
