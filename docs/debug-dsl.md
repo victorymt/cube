@@ -7,6 +7,40 @@ designed for the active Hyprland session.
 
 ## Prerequisites
 
+### CGA structure previews
+
+From the repository root, build with `make`, then open one of these scenes:
+
+```sh
+build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_house.dsl
+build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_mineshaft.dsl
+build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_dungeon.dsl
+build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_desert_temple.dsl
+```
+
+These scenes use the default new-world seed `1448040515`, select varied terrain,
+wait for streaming, restore the camera after the wait (gravity can move it),
+and capture one screenshot. They finish with `input manual`, leaving the window
+open for exploration; press F to toggle floating mode. Screenshots and reports
+are written under `screenshots/` in the working directory.
+
+| Scene | View |
+| --- | --- |
+| `cga_house` | House front, two windows and doorway near (-1280, 95, -2048) |
+| `cga_mineshaft` | Timber supports in an underwater ravine near (-2048, 11, -2048) |
+| `cga_dungeon` | Stone-brick perimeter and entrance near (-1536, 10, -2048) |
+| `cga_desert_temple` | Partly submerged sandstone structure near (0, 79, -2048) |
+
+These are natural generation views, including sparse underground terrain and
+water occlusion; they do not clear terrain or insert display structures.
+The automated route `make test-cga-previews-e2e` copies each scene into its own
+temporary runtime directory, appends `exit 0`, and checks one capture and a clean
+exit per scene. All screenshots, reports, traces and logs are retained in the
+printed directories. This checks the capture path; visual inspection is still
+needed to judge the resulting geometry.
+
+### Build and session
+
 Build the normal binary first:
 
 ```sh

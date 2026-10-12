@@ -153,9 +153,12 @@ test-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
 
-.PHONY: test-cga-house-e2e test-cloud-altitude-e2e
+.PHONY: test-cga-house-e2e test-cga-previews-e2e test-cloud-altitude-e2e
 test-cga-house-e2e: $(TARGET)
 	bash tests/test_cga_house_e2e.sh $(TARGET)
+
+test-cga-previews-e2e: $(TARGET)
+	bash tests/test_cga_previews_e2e.sh $(TARGET)
 
 .PHONY: test-volcano-e2e
 test-volcano-e2e: $(TARGET)
