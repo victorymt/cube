@@ -187,8 +187,8 @@ visual acceptance is claimed for these changes.
 
 ### Runtime consumers still to convert
 
-1. Connect the new generator and retained inputs to the production generation
-   queues and completion checks. Make cube identity authoritative for block
+1. Connect runtime coverage/allocation to the cube generation queue adapter
+   described below. Make cube identity authoritative for block
    edits, decorations, ecology and neighbor lookup; the default runtime still
    submits legacy chunk coordinates.
 2. Move player/collision/raycast/fluid coordinates together. Face transitions
@@ -204,3 +204,51 @@ visual acceptance is claimed for these changes.
    serialization/rejection and documentation before enabling the defaults.
 
 No Coriolis terrain bias is enabled by this repair.
+
+### Runtime stage 1: generation queue adapter (2026-10-14)
+
+The production worker queue can now execute v9 cube columns and sections using
+`TerrainCubePrepareJob` and `QueueCubeChunkGenJob`. This is an internal adapter;
+normal `UpdateChunks` still schedules legacy columns. It does not enable
+cube-grid, change save defaults, or close polar visual acceptance.
+
+- A prepared cube job owns one reference to its immutable terrain context.
+  Successful submission moves that ownership into the queue; failed submission
+  leaves it with the caller. The worker uses the retained input rather than
+  reading the live world to generate terrain.
+- Completion checks body, face, U/V, chunk incarnation, grid namespace and
+  world generation. Columns and sections share this check. Stale results never
+  replace a different face, body, or reused slot.
+- Completion, rejected results, queued cancellation, shutdown and scheduler
+  reset release the input. Failed column generation releases its destination
+  reservation. Air-only sections retain a resolved marker without allocating
+  block storage.
+- Generated cube sections dirty their actual cube neighbors, including face
+  boundaries. Cube completion deliberately excludes legacy map-coordinate edit
+  application and ecology notifications; those consumers must be converted
+  before activation. Legacy scheduling, meshing and coverage remain in use.
+
+`tests/test_cube_generation.c` exercises the real terrain generator, storage,
+worker queue and completion path with two pthread workers. It covers all six
+faces, deep bedrock, implicit air, owner release before worker completion,
+duplicate submission, queue capacity, queued cancellation, missing workers,
+allocation failure and stale result rejection. Its game environment is a
+neutral fixture; it is not an in-game cube-grid acceptance test.
+
+Validation: `make -j12 test all` passed 120 test binaries, public-header checks,
+module/game builds, debug CLI/protocol checks and architecture/clean-build
+guards. The final focused rerun passed all eight `make test-surface-cube`
+binaries and the legacy chunk-streaming test. The cube generation queue test
+also passed ASan/UBSan with leak detection enabled.
+
+Polar baseline: the first `test-polar-e2e` run timed out at 90 seconds while
+the full suite was running (`/tmp/voxelcraft-polar-e2e.ocPGrS`). After the suite
+finished, the independent rerun completed all 600 input frames in 15 seconds
+(180-second budget), with artifacts in `/tmp/voxelcraft-polar-e2e.6NHoI5`.
+Visual inspection of `screenshots/voxelcraft_20261014_101108_000.png` still shows
+the narrow vertical terrain strip. The protocol passes, but polar ground
+coverage remains visibly broken. This capture is a pre-activation baseline,
+not a successful visual acceptance result.
+
+The next dependency is authoritative cube-addressed edits and runtime allocation,
+followed by player/geometry/fluid conversion and shared physical coverage.

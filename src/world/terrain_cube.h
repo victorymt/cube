@@ -44,5 +44,10 @@ bool TerrainCubeGenerateChunk(const TerrainCubeContext *context,
                               SurfaceCubeChunkKey key, Chunk *staging);
 bool TerrainCubeGenerateChunkSection(const TerrainCubeContext *context,
                                      Chunk *staging, int sectionY);
+// Attaches one retained immutable input to an unqueued job. On failure the
+// job is unchanged. The scheduler releases this reference after completion,
+// rejection, cancellation, or submission failure.
+bool TerrainCubePrepareJob(TerrainCubeContext *context,
+                           SurfaceCubeChunkKey key, ChunkGenJob *job);
 
 #endif

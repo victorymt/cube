@@ -388,6 +388,9 @@ typedef enum Biome {
     BIOME_SWAMP
 } Biome;
 
+struct Chunk;
+struct TerrainCubeContext;
+
 typedef struct ChunkGenJob {
     bool inUse;
     bool running;
@@ -404,6 +407,15 @@ typedef struct ChunkGenJob {
     int slotIndex;
     uint32_t chunkGeneration;
     bool spherical;
+    bool cubeGrid;
+    SurfaceCubeChunkKey cubeKey;
+    uint64_t worldGeneration;
+    // Owned immutable input for a cube job. The backend callbacks keep the
+    // scheduler independent of terrain construction and its atlas ownership.
+    struct TerrainCubeContext *cubeContext;
+    bool (*generateCube)(const struct TerrainCubeContext *,
+                         SurfaceCubeChunkKey, struct Chunk *, ChunkGenScope, int);
+    void (*releaseCube)(struct TerrainCubeContext *);
     SurfaceAddress surfaceAddress;
     SurfaceChunkKey surfaceKey;
     TerrainMode terrainMode;

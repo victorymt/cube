@@ -397,6 +397,7 @@ int CancelDistantNegativeSectionJobs(int playerSectionY)
                 job->sectionY, playerSectionY)) {
             continue;
         }
+        ReleaseChunkGenJob(job);
         *job = (ChunkGenJob){ 0 };
         streamingStats.generationCanceled++;
         canceled++;
@@ -1012,7 +1013,7 @@ void ChunksTestResetScheduler(void)
     }
     memset(chunks, 0, sizeof(chunks));
     for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
-        FreeChunkGenJobResult(&chunkGenJobs[i]);
+        ReleaseChunkGenJob(&chunkGenJobs[i]);
     }
     memset(chunkGenJobs, 0, sizeof(chunkGenJobs));
     for (int i = 0; i < MAX_MESH_JOBS; i++) {

@@ -187,6 +187,11 @@ void MarkSectionDirty(ChunkSection *section);
 void *ChunkGenWorker(void *arg);
 void GenerateChunkJobPayload(ChunkGenJob *job, bool preload);
 void FreeChunkGenJobResult(ChunkGenJob *job);
+void ReleaseChunkGenJob(ChunkGenJob *job);
+void CompleteChunkGenJob(ChunkGenJob *job);
+bool ChunkGenJobTargetMatchesChunk(const ChunkGenJob *job, const Chunk *chunk);
+// Consumes a prepared cube job only on success; caller owns it on failure.
+bool QueueCubeChunkGenJob(ChunkGenJob *prepared, Chunk *destination);
 int ScheduleNearbyTerrainSections(
     const ChunkStreamingRequest *request,
     const ChunkStreamingFocus *focus);

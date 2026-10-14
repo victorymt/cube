@@ -4,6 +4,43 @@
 #include <math.h>
 #include <string.h>
 
+static bool GenerateCubeJob(const TerrainCubeContext *context,
+                            SurfaceCubeChunkKey key, Chunk *staging,
+                            ChunkGenScope scope, int sectionY)
+{
+    if (scope == CHUNK_GEN_SCOPE_COLUMN)
+        return TerrainCubeGenerateChunk(context, key, staging);
+    return scope == CHUNK_GEN_SCOPE_SECTION &&
+        TerrainCubeGenerateChunkSection(context, staging, sectionY);
+}
+
+bool TerrainCubePrepareJob(TerrainCubeContext *context,
+                           SurfaceCubeChunkKey key, ChunkGenJob *job)
+{
+    const WorldSurfaceSnapshot *snapshot = TerrainCubeContextSnapshot(context);
+    if (!job || job->inUse || job->running || job->done || job->queued ||
+        job->completionQueued || job->columnResult || job->cubeContext || !snapshot ||
+        !SurfaceCubeChunkKeyIsValid(key) || key.bodyId != snapshot->context.bodyId ||
+        (job->scope != CHUNK_GEN_SCOPE_COLUMN && job->scope != CHUNK_GEN_SCOPE_SECTION) ||
+        (job->scope == CHUNK_GEN_SCOPE_SECTION &&
+         (job->sectionY < TERRAIN_CUBE_MIN_RADIAL / SURFACE_SECTION_HEIGHT ||
+          job->sectionY >= SURFACE_MAX_Y_EXCLUSIVE / SURFACE_SECTION_HEIGHT))) return false;
+    TerrainCubeContext *retained = TerrainCubeContextRetain(context);
+    if (!retained) return false;
+    job->cubeContext = retained;
+    job->generateCube = GenerateCubeJob;
+    job->releaseCube = TerrainCubeContextRelease;
+    job->cubeGrid = true;
+    job->spherical = true;
+    job->cubeKey = key;
+    job->worldGeneration = TerrainCubeContextGeneration(context);
+    job->surfaceAddress = (SurfaceAddress){key.bodyId, key.face,
+        key.u * CHUNK_SIZE, key.v * CHUNK_SIZE, 0};
+    job->cx = key.u;
+    job->cz = key.v;
+    return true;
+}
+
 bool TerrainCubeGenerateChunkSection(const TerrainCubeContext *context,
                                      Chunk *staging, int sectionY)
 {

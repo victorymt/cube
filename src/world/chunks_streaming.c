@@ -1,4 +1,5 @@
 #include "world/chunks_internal.h"
+#include "world/world_surface_snapshot.h"
 
 static uint64_t nextGenerationQueueSequence = 0u;
 static int requestedChunkWorkerCount = 0;
@@ -103,6 +104,8 @@ void GenerateChunkJobPayload(ChunkGenJob *job, bool preload)
     FreeChunkGenJobResult(job);
     job->succeeded = false;
     job->hasSectionBlocks = false;
+    if (job->cubeGrid && (!job->cubeContext || !job->generateCube ||
+                         !job->releaseCube)) return;
 
     if (job->scope == CHUNK_GEN_SCOPE_COLUMN) {
 #ifdef CHUNKS_TESTING
@@ -119,15 +122,22 @@ void GenerateChunkJobPayload(ChunkGenJob *job, bool preload)
             .cx = job->cx,
             .cz = job->cz,
             .spherical = job->spherical,
+            .cubeGrid = job->cubeGrid,
+            .cubeKey = job->cubeKey,
             .surfaceAddress = job->surfaceAddress,
             .surfaceKey = job->surfaceKey,
             .generation = job->chunkGeneration,
             .floraActivity = 1.0f,
             .floraCapacity = 1.0f
         };
-        GenerateChunkTerrain(staged, job->cx, job->cz, job->terrainMode);
         job->columnResult = staged;
-        job->succeeded = true;
+        if (job->cubeGrid) {
+            job->succeeded = job->generateCube(job->cubeContext, job->cubeKey,
+                staged, job->scope, job->sectionY);
+        } else {
+            GenerateChunkTerrain(staged, job->cx, job->cz, job->terrainMode);
+            job->succeeded = true;
+        }
         return;
     }
 
@@ -135,10 +145,15 @@ void GenerateChunkJobPayload(ChunkGenJob *job, bool preload)
         .cx = job->cx,
         .cz = job->cz,
         .spherical = job->spherical,
+        .cubeGrid = job->cubeGrid,
+        .cubeKey = job->cubeKey,
         .surfaceAddress = job->surfaceAddress
     };
-    job->succeeded = GenerateChunkTerrainSectionBase(
-        &staged, job->cx, job->cz, job->sectionY, job->terrainMode);
+    job->succeeded = job->cubeGrid
+        ? job->generateCube(job->cubeContext, job->cubeKey,
+                            &staged, job->scope, job->sectionY)
+        : GenerateChunkTerrainSectionBase(
+            &staged, job->cx, job->cz, job->sectionY, job->terrainMode);
     const ChunkSection *section = ChunkGetSectionConst(
         &staged, job->sectionY);
     /* Keep every non-empty generated section materialized. An implicit
@@ -157,6 +172,69 @@ void FreeChunkGenJobResult(ChunkGenJob *job)
     ChunkClearBlockStorage(job->columnResult);
     free(job->columnResult);
     job->columnResult = NULL;
+}
+
+void ReleaseChunkGenJob(ChunkGenJob *job)
+{
+    if (!job) return;
+    FreeChunkGenJobResult(job);
+    if (job->cubeContext && job->releaseCube) job->releaseCube(job->cubeContext);
+    job->cubeContext = NULL;
+    job->generateCube = NULL;
+    job->releaseCube = NULL;
+}
+
+bool QueueCubeChunkGenJob(ChunkGenJob *prepared, Chunk *destination)
+{
+    if (!prepared || prepared->inUse || prepared->running || prepared->done ||
+        prepared->queued || prepared->completionQueued || !prepared->cubeGrid ||
+        !prepared->cubeContext || !prepared->generateCube || !prepared->releaseCube ||
+        prepared->columnResult || !destination) return false;
+    int slot = -1;
+    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++)
+        if (destination == &chunks[i]) { slot = i; break; }
+    if (slot < 0) return false;
+    if (prepared->scope == CHUNK_GEN_SCOPE_SECTION &&
+        (ChunkTerrainSectionIsResolved(destination, prepared->sectionY) ||
+         ChunkGetSectionConst(destination, prepared->sectionY))) return false;
+    prepared->chunkGeneration = destination->generation;
+    if (!ChunkGenJobTargetMatchesChunk(prepared, destination)) return false;
+    pthread_mutex_lock(&genMutex);
+    ChunkGenJob *available = NULL;
+    for (int i = 0; i < MAX_CHUNK_GEN_JOBS; i++) {
+        ChunkGenJob *job = &chunkGenJobs[i];
+        if (!job->inUse) { if (!available) available = job; continue; }
+        if (job->cubeGrid && job->slotIndex == slot &&
+            job->chunkGeneration == prepared->chunkGeneration &&
+            job->worldGeneration == prepared->worldGeneration &&
+            SurfaceCubeChunkKeyEqual(job->cubeKey, prepared->cubeKey) &&
+            job->scope == prepared->scope &&
+            (job->scope == CHUNK_GEN_SCOPE_COLUMN || job->sectionY == prepared->sectionY)) {
+            pthread_mutex_unlock(&genMutex);
+            return false;
+        }
+    }
+    if (!available || genWorkerThreadsStarted == 0u || genShutdown) {
+        pthread_mutex_unlock(&genMutex);
+        return false;
+    }
+    uint64_t sequence = ++nextGenerationQueueSequence;
+    if (!ChunkTaskQueuePush(&generationTaskQueue, ChunkGenQueueLane(prepared),
+                            (int)(available - chunkGenJobs), sequence)) {
+        pthread_mutex_unlock(&genMutex);
+        return false;
+    }
+    *available = *prepared;
+    available->slotIndex = slot;
+    available->inUse = available->queued = true;
+    available->queueSequence = sequence;
+    available->submittedAtMs = ChunkNowMs();
+    *prepared = (ChunkGenJob){0};
+    streamingStats.generationSubmitted++;
+    UpdateQueuePeaksLocked();
+    pthread_cond_signal(&genCond);
+    pthread_mutex_unlock(&genMutex);
+    return true;
 }
 
 void *ChunkGenWorker(void *arg)
@@ -358,7 +436,7 @@ void ChunksShutdownGenThread(void)
         pthread_mutex_unlock(&genMutex);
     }
     for (int index = 0; index < MAX_CHUNK_GEN_JOBS; index++) {
-        FreeChunkGenJobResult(&chunkGenJobs[index]);
+        ReleaseChunkGenJob(&chunkGenJobs[index]);
     }
     for (int index = 0; index < MAX_MESH_JOBS; index++) {
         if (meshJobs[index].inUse) {
@@ -614,8 +692,19 @@ void MarkGeneratedSectionAndNeighborsDirty(
         { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
     };
     for (int i = 0; i < 4; i++) {
-        Chunk *neighbor = FindHorizontalChunkNeighbor(
-            chunk->cx, chunk->cz, offsets[i][0], offsets[i][1]);
+        Chunk *neighbor = NULL;
+        if (chunk->cubeGrid) {
+            static const SurfaceCubeEdge edges[4] = {
+                SURFACE_CUBE_U_MINUS, SURFACE_CUBE_U_PLUS,
+                SURFACE_CUBE_V_MINUS, SURFACE_CUBE_V_PLUS
+            };
+            SurfaceCubeChunkKey key;
+            if (SurfaceCubeChunkNeighbor(chunk->cubeKey, edges[i], &key, NULL))
+                neighbor = FindCubeChunk(key);
+        } else {
+            neighbor = FindHorizontalChunkNeighbor(
+                chunk->cx, chunk->cz, offsets[i][0], offsets[i][1]);
+        }
         if (neighbor) {
             MarkSectionDirty(ChunkGetSection(neighbor, sectionY, false));
         }
@@ -627,12 +716,7 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
     bool stale = !job || !job->succeeded || job->slotIndex < 0 ||
         job->slotIndex >= MAX_ACTIVE_CHUNKS;
     Chunk *chunk = stale ? NULL : &chunks[job->slotIndex];
-    if (!stale && (!chunk->loaded || chunk->cx != job->cx ||
-                   chunk->cz != job->cz ||
-                   chunk->generation != job->chunkGeneration ||
-                   chunk->spherical != job->spherical ||
-                   (job->spherical && !SurfaceChunkKeyEqual(
-                       chunk->surfaceKey, job->surfaceKey)) ||
+    if (!stale && (!ChunkGenJobTargetMatchesChunk(job, chunk) ||
                    ChunkTerrainSectionIsResolved(chunk, job->sectionY) ||
                    ChunkGetSectionConst(chunk, job->sectionY))) {
         stale = true;
@@ -663,8 +747,10 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
         pthread_mutex_unlock(&genMutex);
         return;
     }
-    ApplyEditsToChunkSection(chunk, job->sectionY);
-    WorldNotifyChunkSectionLoaded(chunk, job->sectionY);
+    if (!chunk->cubeGrid) {
+        ApplyEditsToChunkSection(chunk, job->sectionY);
+        WorldNotifyChunkSectionLoaded(chunk, job->sectionY);
+    }
     MarkGeneratedSectionAndNeighborsDirty(chunk, job->sectionY);
 }
 
@@ -672,24 +758,20 @@ void CompleteChunkGenJob(ChunkGenJob *job)
 {
     if (job && job->scope == CHUNK_GEN_SCOPE_SECTION) {
         CompleteChunkSectionGenJob(job);
+        ReleaseChunkGenJob(job);
         return;
     }
     bool validSlot = job && job->slotIndex >= 0 &&
         job->slotIndex < MAX_ACTIVE_CHUNKS;
     Chunk *chunk = validSlot ? &chunks[job->slotIndex] : NULL;
-    bool targetMatches = chunk && chunk->generating && !chunk->loaded &&
-        chunk->cx == job->cx && chunk->cz == job->cz &&
-        chunk->generation == job->chunkGeneration &&
-        chunk->spherical == job->spherical &&
-        (!job->spherical || SurfaceChunkKeyEqual(
-            chunk->surfaceKey, job->surfaceKey));
+    bool targetMatches = ChunkGenJobTargetMatchesChunk(job, chunk);
     bool stale = !job || !job->succeeded || !job->columnResult ||
         !targetMatches;
     if (stale) {
         if (targetMatches && (!job->succeeded || !job->columnResult)) {
             chunk->generating = false;
         }
-        FreeChunkGenJobResult(job);
+        ReleaseChunkGenJob(job);
         pthread_mutex_lock(&genMutex);
         streamingStats.generationCanceled++;
         pthread_mutex_unlock(&genMutex);
@@ -702,15 +784,21 @@ void CompleteChunkGenJob(ChunkGenJob *job)
     ChunkClearBlockStorage(chunk);
     *chunk = generated;
     chunk->generation = generation;
-    chunk->preloaded = !ChunkInStreamingRegion(
+    chunk->preloaded = job->cubeGrid ? job->preload : !ChunkInStreamingRegion(
         chunk, chunkStreamingFocus.currentCx, chunkStreamingFocus.currentCz,
         chunkStreamingFocus.renderDistance);
-    ApplyEditsToChunk(chunk);
+    if (!chunk->cubeGrid) ApplyEditsToChunk(chunk);
     chunk->generating = false;
     chunk->loaded = true;
     ChunkIndexInsert(chunk);
-    WorldNotifyChunkLoaded(chunk);
-    MarkChunkAndHorizontalNeighborsDirty(chunk->cx, chunk->cz);
+    if (!chunk->cubeGrid) {
+        WorldNotifyChunkLoaded(chunk);
+        MarkChunkAndHorizontalNeighborsDirty(chunk->cx, chunk->cz);
+    } else {
+        for (int i = 0; i < chunk->sectionCount; i++)
+            MarkGeneratedSectionAndNeighborsDirty(chunk, chunk->sections[i]->sectionY);
+    }
+    ReleaseChunkGenJob(job);
 }
 
 void ProcessFinishedChunkJobs(void)
@@ -982,14 +1070,18 @@ static bool MeshJobTargetMatchesChunk(const MeshJob *job, const Chunk *chunk)
             SurfaceChunkKeyEqual(chunk->surfaceKey, job->surfaceKey));
 }
 
-static bool ChunkGenJobTargetMatchesChunk(
+bool ChunkGenJobTargetMatchesChunk(
     const ChunkGenJob *job, const Chunk *chunk)
 {
-    if (!job || !chunk || job->cx != chunk->cx || job->cz != chunk->cz ||
-        job->chunkGeneration != chunk->generation ||
-        job->spherical != chunk->spherical ||
-        (job->spherical &&
-         !SurfaceChunkKeyEqual(chunk->surfaceKey, job->surfaceKey))) {
+    if (!job || !chunk || job->chunkGeneration != chunk->generation ||
+        job->spherical != chunk->spherical || job->cubeGrid != chunk->cubeGrid)
+        return false;
+    if (job->cubeGrid) {
+        if (!job->spherical || job->worldGeneration != WorldCurrentGeneration() ||
+            !SurfaceCubeChunkKeyIsValid(job->cubeKey) ||
+            !SurfaceCubeChunkKeyEqual(job->cubeKey, chunk->cubeKey)) return false;
+    } else if (job->cx != chunk->cx || job->cz != chunk->cz ||
+        (job->spherical && !SurfaceChunkKeyEqual(chunk->surfaceKey, job->surfaceKey))) {
         return false;
     }
     if (job->scope == CHUNK_GEN_SCOPE_COLUMN) {
@@ -1035,7 +1127,7 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
         }
         Chunk *chunk = &chunks[job->slotIndex];
         if (!ChunkGenJobTargetMatchesChunk(job, chunk) && !job->running) {
-            FreeChunkGenJobResult(job);
+            ReleaseChunkGenJob(job);
             *job = (ChunkGenJob){ 0 };
             streamingStats.generationCanceled++;
             continue;
@@ -1047,7 +1139,7 @@ static void ReclassifyStreamingWork(const ChunkStreamingFocus *focus)
             chunk, focus->predictedCx, focus->predictedCz,
             focus->renderDistance);
         if (!current && !predicted && !job->running) {
-            FreeChunkGenJobResult(job);
+            ReleaseChunkGenJob(job);
             *job = (ChunkGenJob){ 0 };
             streamingStats.generationCanceled++;
         } else if ((current || predicted) && !job->running) {
@@ -1275,6 +1367,7 @@ void ChunksTestSeedGenerationJob(int jobIndex, int cx, int cz,
                              chunkGenJobs[jobIndex].queueSequence);
         ChunkTaskQueueRemove(&generationDoneQueue, jobIndex,
                              chunkGenJobs[jobIndex].queueSequence);
+        ReleaseChunkGenJob(&chunkGenJobs[jobIndex]);
     }
     chunkGenJobs[jobIndex] = (ChunkGenJob){
         .inUse = true,
