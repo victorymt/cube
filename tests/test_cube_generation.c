@@ -1,5 +1,7 @@
 #include "world/chunks_internal.h"
 #include "world/terrain_cube.h"
+#include "world/chunks_cube.h"
+#include "world/world_cube.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -23,6 +25,7 @@ BlockType NetherBlockAt(int x, int y, int z)
 static void Reset(void)
 {
     ChunksTestResetScheduler();
+    WorldCubeClearEdits();
     // The general scheduler fixture fakes one worker; this fixture starts
     // actual pthread workers and must not inherit that simulated state.
     genWorkerThreadsStarted = 0;
@@ -220,6 +223,159 @@ static void TestCrossFaceDirtyPropagation(void)
     Reset();
 }
 
+static WorldBlockAddress Address(uint32_t body, SurfaceFace face, int u, int v, int y)
+{
+    return (WorldBlockAddress){.dimension = body ? WORLD_DIMENSION_PLANET : WORLD_DIMENSION_HOME,
+        .at.surface = {body, face, u, v, y}};
+}
+
+static void TestCubeEditIndex(void)
+{
+    Reset();
+    BlockType type = BLOCK_GOLD_ORE;
+    for (int i = 0; i < 2048; i++) {
+        WorldBlockAddress a = Address((unsigned)i % 3, (SurfaceFace)(i % 6),
+                                      i, 4095 - i, -i);
+        assert(WorldCubeSetBlock(a, BLOCK_BRICK));
+    }
+    assert(WorldCubeEditCount() == 2048);
+    for (int i = 0; i < 2048; i++) {
+        WorldBlockAddress a = Address((unsigned)i % 3, (SurfaceFace)(i % 6),
+                                      i, 4095 - i, -i);
+        assert(WorldCubeGetEdit(a, &type) && type == BLOCK_BRICK);
+        assert(WorldCubeSetBlock(a, BLOCK_AIR));
+        assert(WorldCubeGetEdit(a, &type) && type == BLOCK_AIR);
+    }
+    assert(WorldCubeEditCount() == 2048);
+    WorldBlockAddress invalid = Address(0, SURFACE_FACE_POS_Y, 0, 0, -2049);
+    assert(!WorldCubeSetBlock(invalid, BLOCK_BRICK));
+    invalid = Address(0, SURFACE_FACE_POS_Y, 0, 0, 5);
+    assert(!WorldCubeSetBlock(invalid, (BlockType)-1));
+    invalid.dimension = WORLD_DIMENSION_SPACE;
+    assert(!WorldCubeSetBlock(invalid, BLOCK_BRICK));
+    invalid = Address(1, SURFACE_FACE_POS_Y, 0, 0, 5);
+    invalid.dimension = WORLD_DIMENSION_HOME;
+    assert(!WorldCubeSetBlock(invalid, BLOCK_BRICK));
+    assert(WorldCubeEditCount() == 2048);
+    WorldCubeClearEdits();
+    assert(!WorldCubeEditCount());
+    assert(!WorldCubeGetEdit(Address(0, SURFACE_FACE_POS_Y, 0, 0, 0), &type));
+}
+
+static void TestCubeRuntimeReload(void)
+{
+    Reset();
+    TerrainCubeContext *context = Context();
+    SurfaceCubeChunkKey key = {0, SURFACE_FACE_POS_Y, 255, 0};
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_READY);
+    WorldBlockAddress ground = Address(0, key.face, 4095, 0, 8);
+    WorldBlockAddress deep = ground; deep.at.surface.radial = -1000;
+    WorldBlockAddress air = ground; air.at.surface.radial = 50;
+    BlockType type = BLOCK_GOLD_ORE;
+    assert(WorldCubeBlockAt(ground, &type) && type == BLOCK_GRASS);
+    WorldCubeTestFailNextReserve();
+    assert(!WorldCubeSetBlock(ground, BLOCK_AIR));
+    assert(!WorldCubeEditCount());
+    assert(WorldCubeBlockAt(ground, &type) && type == BLOCK_GRASS);
+    assert(!WorldCubeBlockAt(deep, &type) && type == BLOCK_GRASS);
+    assert(WorldCubeSetBlock(ground, BLOCK_AIR));
+    assert(WorldCubeSetBlock(deep, BLOCK_DIAMOND_ORE));
+    assert(!ChunkGetSectionConst(FindCubeChunk(key), SurfaceSectionYFromBlockY(-1000)));
+    assert(ChunksRequestCubeSection(context, key, SurfaceSectionYFromBlockY(-1000)) == CUBE_CHUNK_READY);
+    assert(ChunkGetLocalBlock(FindCubeChunk(key), 15, -1000, 0) == BLOCK_DIAMOND_ORE);
+    assert(ChunkGetLocalBlock(FindCubeChunk(key), 14, -1000, 0) == BLOCK_DIRT);
+    assert(WorldCubeSetBlock(air, BLOCK_BRICK));
+    assert(ChunksRequestCubeSection(context, key, 3) == CUBE_CHUNK_READY);
+    assert(ChunkGetLocalBlock(FindCubeChunk(key), 15, 50, 0) == BLOCK_BRICK);
+    assert(ChunksReleaseCubeColumn(key));
+    assert(!FindCubeChunk(key));
+    assert(WorldCubeEditCount() == 3);
+    assert(WorldCubeBlockAt(ground, &type) && type == BLOCK_AIR);
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_READY);
+    assert(ChunkGetLocalBlock(FindCubeChunk(key), 15, 8, 0) == BLOCK_AIR);
+    assert(ChunksRequestCubeSection(context, key, 3) == CUBE_CHUNK_READY);
+    assert(ChunkGetLocalBlock(FindCubeChunk(key), 15, 50, 0) == BLOCK_BRICK);
+    assert(ChunksRequestCubeSection(context, key, SurfaceSectionYFromBlockY(-1000)) == CUBE_CHUNK_READY);
+    assert(ChunkGetLocalBlock(FindCubeChunk(key), 15, -1000, 0) == BLOCK_DIAMOND_ORE);
+
+    WorldBlockAddress across;
+    assert(WorldBlockNeighbor(ground, WORLD_BLOCK_U_PLUS, &across, NULL));
+    assert(across.at.surface.face != ground.at.surface.face);
+    SurfaceCubeChunkKey neighbor;
+    assert(SurfaceCubeChunkAt(across.at.surface, &neighbor));
+    assert(WorldCubeSetBlock(across, BLOCK_GOLD_ORE));
+    assert(ChunksRequestCubeColumn(context, neighbor, false) == CUBE_CHUNK_READY);
+    assert(WorldCubeBlockAt(across, &type) && type == BLOCK_GOLD_ORE);
+    assert(WorldCubeBlockAt(ground, &type) && type == BLOCK_AIR);
+    WorldBlockAddress otherBody = across;
+    otherBody.dimension = WORLD_DIMENSION_PLANET; otherBody.at.surface.bodyId = 77;
+    assert(WorldCubeSetBlock(otherBody, BLOCK_RED));
+    assert(WorldCubeBlockAt(across, &type) && type == BLOCK_GOLD_ORE);
+    assert(WorldCubeBlockAt(otherBody, &type) && type == BLOCK_RED);
+
+    assert(WorldInstallSurfaceSnapshot(NULL));
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_UNAVAILABLE);
+    TerrainCubeContextRelease(context);
+    context = Context();
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_READY);
+    assert(WorldCubeBlockAt(ground, &type) && type == BLOCK_AIR);
+    TerrainCubeContextRelease(context);
+    Reset();
+}
+
+static void TestCubeRuntimeAsyncEdits(void)
+{
+    Reset();
+    assert(ChunksConfigureWorkerCount(2) && ChunksStartGenThread());
+    TerrainCubeContext *context = Context();
+    SurfaceCubeChunkKey key = {0, SURFACE_FACE_NEG_Y, 0, 255};
+    WorldBlockAddress cell = Address(0, key.face, 0, 4095, 8);
+    assert(ChunksRequestCubeColumn(context, key, true) == CUBE_CHUNK_PENDING);
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_PENDING);
+    assert(WorldCubeSetBlock(cell, BLOCK_BRICK));
+    assert(WorldCubeSetBlock(cell, BLOCK_GOLD_ORE));
+    DrainChunkGen();
+    assert(ChunkGetLocalBlock(FindCubeChunk(key), 0, 8, 15) == BLOCK_GOLD_ORE);
+    assert(!FindCubeChunk(key)->preloaded);
+    cell.at.surface.radial = 50;
+    assert(ChunksRequestCubeSection(context, key, 3) == CUBE_CHUNK_PENDING);
+    assert(WorldCubeSetBlock(cell, BLOCK_BLUE));
+    DrainChunkGen();
+    assert(ChunkGetLocalBlock(FindCubeChunk(key), 0, 50, 15) == BLOCK_BLUE);
+    assert(ChunksReleaseCubeColumn(key));
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_PENDING);
+    // Slot can be released and reused while its old job is in flight.
+    assert(ChunksReleaseCubeColumn(key));
+    SurfaceCubeChunkKey replacement = key; replacement.face = SURFACE_FACE_POS_Y;
+    assert(ChunksRequestCubeColumn(context, replacement, false) == CUBE_CHUNK_PENDING);
+    DrainChunkGen();
+    assert(!FindCubeChunk(key));
+    assert(FindCubeChunk(replacement));
+    assert(ChunkGetLocalBlock(FindCubeChunk(replacement), 0, 8, 15) == BLOCK_GRASS);
+    TerrainCubeContextRelease(context);
+    ChunksShutdownGenThread();
+    Reset();
+}
+
+static void TestCubePoolAdmission(void)
+{
+    Reset();
+    TerrainCubeContext *context = Context();
+    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++)
+        chunks[i] = (Chunk){.loaded = true, .generation = 17};
+    SurfaceCubeChunkKey key = {0, SURFACE_FACE_POS_Y, 0, 0};
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_UNAVAILABLE);
+    for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++)
+        assert(chunks[i].loaded && !chunks[i].cubeGrid && chunks[i].generation == 17);
+    chunks[0].loaded = false;
+    ChunksTestFailNextColumnAllocation();
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_UNAVAILABLE);
+    assert(!chunks[0].generating && !chunks[0].loaded);
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_READY);
+    TerrainCubeContextRelease(context);
+    Reset();
+}
+
 int main(void)
 {
     TestIdentityAndLifetime();
@@ -228,6 +384,10 @@ int main(void)
     TestQueuedCancellationAndCapacity();
     TestCrossFaceDirtyPropagation();
     TestWorkerQueue();
+    TestCubeEditIndex();
+    TestCubeRuntimeReload();
+    TestCubeRuntimeAsyncEdits();
+    TestCubePoolAdmission();
     puts("cube generation queue tests passed");
     return 0;
 }

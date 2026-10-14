@@ -21,6 +21,8 @@ bool TerrainCubePrepareJob(TerrainCubeContext *context,
     if (!job || job->inUse || job->running || job->done || job->queued ||
         job->completionQueued || job->columnResult || job->cubeContext || !snapshot ||
         !SurfaceCubeChunkKeyIsValid(key) || key.bodyId != snapshot->context.bodyId ||
+        (snapshot->context.kind == WORLD_SURFACE_HOME && key.bodyId != 0) ||
+        (snapshot->context.kind == WORLD_SURFACE_PLANET && key.bodyId == 0) ||
         (job->scope != CHUNK_GEN_SCOPE_COLUMN && job->scope != CHUNK_GEN_SCOPE_SECTION) ||
         (job->scope == CHUNK_GEN_SCOPE_SECTION &&
          (job->sectionY < TERRAIN_CUBE_MIN_RADIAL / SURFACE_SECTION_HEIGHT ||
@@ -74,6 +76,7 @@ bool TerrainCubeGenerateChunk(const TerrainCubeContext *context,
     staging->spherical = true;
     staging->cubeGrid = true;
     staging->cubeKey = key;
+    staging->cubeWorldGeneration = TerrainCubeContextGeneration(context);
     staging->surfaceAddress = (SurfaceAddress){key.bodyId, key.face,
         key.u*CHUNK_SIZE, key.v*CHUNK_SIZE, 0};
     enum {FIRST = TERRAIN_CUBE_MIN_RADIAL / SURFACE_SECTION_HEIGHT,

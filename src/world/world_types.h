@@ -529,6 +529,7 @@ typedef struct Chunk {
     bool spherical;
     bool cubeGrid;
     SurfaceCubeChunkKey cubeKey;
+    uint64_t cubeWorldGeneration;
     SurfaceAddress surfaceAddress;
     SurfaceChunkKey surfaceKey;
     // Incarnation counter bumped on every slot reuse (EnsureChunk).

@@ -1,5 +1,6 @@
 #include "world/chunks_internal.h"
 #include "world/world_surface_snapshot.h"
+#include "world/world_cube.h"
 
 static uint64_t nextGenerationQueueSequence = 0u;
 static int requestedChunkWorkerCount = 0;
@@ -728,6 +729,17 @@ static void CompleteChunkSectionGenJob(ChunkGenJob *job)
         return;
     }
 
+    if (job->cubeGrid) {
+        if (!job->hasSectionBlocks) memset(job->sectionBlocks, 0, sizeof(job->sectionBlocks));
+        WorldCubeApplySectionEdits(job->cubeKey, job->sectionY, job->sectionBlocks);
+        for (int u = 0; u < CHUNK_SIZE && !job->hasSectionBlocks; u++)
+            for (int y = 0; y < SURFACE_SECTION_HEIGHT && !job->hasSectionBlocks; y++)
+                for (int v = 0; v < CHUNK_SIZE; v++)
+                    if (job->sectionBlocks[u][y][v] != BLOCK_AIR) {
+                        job->hasSectionBlocks = true;
+                        break;
+                    }
+    }
     if (job->hasSectionBlocks) {
         ChunkSection *section = ChunkGetSection(
             chunk, job->sectionY, true);
@@ -765,6 +777,8 @@ void CompleteChunkGenJob(ChunkGenJob *job)
         job->slotIndex < MAX_ACTIVE_CHUNKS;
     Chunk *chunk = validSlot ? &chunks[job->slotIndex] : NULL;
     bool targetMatches = ChunkGenJobTargetMatchesChunk(job, chunk);
+    if (targetMatches && job->cubeGrid && job->succeeded && job->columnResult &&
+        !WorldCubeApplyEdits(job->columnResult)) job->succeeded = false;
     bool stale = !job || !job->succeeded || !job->columnResult ||
         !targetMatches;
     if (stale) {

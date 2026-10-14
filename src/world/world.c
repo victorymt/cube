@@ -1,4 +1,5 @@
 #include "world/world.h"
+#include "world/world_cube.h"
 
 #include "raymath.h"
 #include "world/block_catalog.h"
@@ -685,6 +686,7 @@ void ClearUndoHistory(void)
 
 void WorldReset(uint32_t seed)
 {
+    WorldCubeClearEdits();
     WorldResetTopologyPolicy();
     TerrainGenerationSetVersion(TERRAIN_GENERATION_CURRENT);
     WorldExtensionReset();
@@ -1107,6 +1109,7 @@ bool WorldGetBlockEditForCurrentDimensionAt(int x, int y, int z,
 
 void WorldCleanup(void)
 {
+    WorldCubeClearEdits();
     WorldExtensionCleanup();
     free(blockEditIndex);
     free(blockEditSurfaceAddresses);

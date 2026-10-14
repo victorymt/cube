@@ -187,10 +187,10 @@ visual acceptance is claimed for these changes.
 
 ### Runtime consumers still to convert
 
-1. Connect runtime coverage/allocation to the cube generation queue adapter
-   described below. Make cube identity authoritative for block
-   edits, decorations, ecology and neighbor lookup; the default runtime still
-   submits legacy chunk coordinates.
+1. Connect runtime coverage to the cube column/section request API described
+   below. Cube edit storage and generation replay are implemented, but player
+   mutations, decorations, ecology and fluid consumers still require conversion;
+   the default runtime still submits legacy chunk coordinates.
 2. Move player/collision/raycast/fluid coordinates together. Face transitions
    must transport heading and velocity, not just positions. Round-trip edit
    lookup and save/reload must refer to the same cells at every face edge.
@@ -250,5 +250,57 @@ the narrow vertical terrain strip. The protocol passes, but polar ground
 coverage remains visibly broken. This capture is a pre-activation baseline,
 not a successful visual acceptance result.
 
-The next dependency is authoritative cube-addressed edits and runtime allocation,
-followed by player/geometry/fluid conversion and shared physical coverage.
+Stage 2 below implements cube-addressed edits and runtime allocation. The
+remaining activation work includes player/geometry/fluid conversion and shared
+physical coverage.
+
+### Runtime stage 2: cube edits and column admission (2026-10-14)
+
+`world_cube.h` now exposes main-thread edits keyed by `WorldBlockAddress`.
+Homeworld uses body 0 and planetary surfaces use nonzero body identities.
+Space/Nether Cartesian addresses, invalid cells/heights and invalid materials
+are rejected. The cell hash index supports replacement without duplicate edits;
+a second chunk index limits generation replay to that column's edits. Growth
+allocates replacement storage before publishing it, with an explicit limit of
+1,048,576 edits. World reset and cleanup clear the store.
+
+`WorldCubeBlockAt` returns false for unknown, unresolved terrain, rather than
+assuming air. Explicit edits are readable even when the column is unloaded.
+Resident resolved sections update immediately, with cross-face dirty propagation.
+Edits to ungenerated deep sections stay in the edit store without materializing
+an incomplete terrain section. Column and section completion apply the latest
+main-thread edits before publication, including edits made during worker execution.
+
+`chunks_cube.h` provides column requests, section requests and explicit release:
+
+- Requests use the production chunk pool and worker queue, with an equivalent
+  synchronous path when workers are unavailable. Results distinguish ready,
+  pending and unavailable; duplicate requests do not reserve extra slots.
+- Allocation uses only free slots. Saturation does not silently evict existing
+  columns; the upcoming physical-coverage scheduler owns eviction policy.
+- Context generation and body identity are checked before admission. Resident
+  cube columns retain their world generation, so old snapshot data cannot be
+  mistaken for current terrain. Preload promotion survives worker completion.
+- Release invalidates the chunk incarnation and cancels queued tasks. Running
+  jobs retain their input until completion and fail the stale-result guard if
+  their slot has been reused. Edits survive release and subsequent regeneration.
+
+The expanded `test_cube_generation` fixture covers hash-index growth/replacement,
+invalid-address rejection, reserve failure without changing resident terrain,
+cross-face/body isolation, deep edits and air-only sections, unload/regenerate,
+edits during real asynchronous work, stale context rejection, slot reuse,
+preload promotion and pool saturation without eviction.
+
+Validation: `make -j12 test all` passed all 120 binaries, public-header and
+module/game builds, debug CLI/protocol contracts and architecture/clean-build
+checks. The final preload-promotion revision passed the focused queue/runtime
+test and all eight `make test-surface-cube` binaries. The expanded queue/runtime
+test also passed ASan/UBSan with leak detection enabled; the final game rebuild
+and architecture check passed without compiler warnings. No graphics replay
+was used to claim coverage for these data/queue changes.
+
+This stage does **not** activate cube-grid in normal gameplay. The new edit store
+is in-memory only: V30 serialization, undo/redo, player interaction, fluid/ecology
+notifications, decorations and mesh/rendering conversion remain pending. V29
+still persists the legacy store; no disk persistence of cube edits is claimed.
+The stage does not change or re-certify polar visual coverage.

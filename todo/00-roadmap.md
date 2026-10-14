@@ -14,6 +14,7 @@ work progresses, verified, and then committed as one reviewable change.
 | Polar ground coverage | Open: both wet and dry polar scenes show a narrow strip | [Reproduction and diagnosis](../docs/landform-quality.md#visual-observations-and-acceptance-limits) |
 | Cube-grid coordinates, immutable v9 base generation, chunk keys, shared geometry and physical coverage | Independently implemented and tested; production queues, gameplay, simulation and saves still pending | [Cube-grid contract and next steps](../docs/surface-cube.md) |
 | Cube-grid worker queue adapter (2026-10-14) | Implemented: retained immutable inputs, cube column/section jobs, stale-result rejection and cleanup; normal runtime scheduling is still legacy | [Runtime stage 1](../docs/surface-cube.md#runtime-stage-1-generation-queue-adapter-2026-10-14) |
+| Cube-grid edits and column admission (2026-10-14) | Implemented: face/body-addressed in-memory edits, completion replay, column/section requests and explicit release; player consumers, coverage policy and V30 remain pending | [Runtime stage 2](../docs/surface-cube.md#runtime-stage-2-cube-edits-and-column-admission-2026-10-14) |
 | Topology descriptors and V29 save boundary | Implemented: explicit legacy-map/1 policy, cube-grid runtime rejection, no old-format loading | [Topology contract](../docs/surface-cube.md#topology-and-save-contract-v29) |
 | Coriolis terrain bias | Disabled; requires polar visual acceptance and calibrated diagnostics first | [Physics boundary](../docs/landform-planets.md) |
 
