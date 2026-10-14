@@ -107,15 +107,12 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
     const Chunk *surfaceChunks = ChunksView();
     int mapOriginX = WorldSurfaceMapOriginX();
     int mapOriginZ = WorldSurfaceMapOriginZ();
-    float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
-    float radius = sqrtf(half * half * 3.0f);
     int stableOrder = 0;
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         const Chunk *chunk = &surfaceChunks[i];
         if (!chunk->loaded) continue;
-        bool distanceVisible = ChunkGridDistanceFrom(
-            chunk, worldFrameCameraCx, worldFrameCameraCz) <=
-            worldFrameEffectiveRenderDistance;
+        bool distanceVisible = ChunkWithinDrawDistance(
+            chunk, camera->position, worldFrameEffectiveRenderDistance);
         if (!distanceVisible) continue;
         for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
              sectionIndex++) {
@@ -123,10 +120,10 @@ static void CollectSurfaceRenderItems(const Camera3D *camera, Color tint)
             int sectionY = section->sectionY;
             Matrix transform = SurfaceChunkRenderTransform(
                 chunk, sectionY, camera->position, mapOriginX, mapOriginZ);
-            Vector3 center = Vector3Transform(
-                (Vector3){ (float)CHUNK_SIZE * 0.5f,
-                           (float)SURFACE_SECTION_HEIGHT * 0.5f,
-                           (float)CHUNK_SIZE * 0.5f }, transform);
+            Vector3 center;
+            float radius;
+            if (!SurfaceChunkRenderBounds(chunk, sectionY, &center, &radius)) continue;
+            center = Vector3Transform(center, transform);
             bool frustumVisible = SphereInFrustum(camera, center, radius);
             PerfRecordWorldCandidate(true, frustumVisible);
             const Model *waterModel = ChunksSectionWaterModel(chunk, section);
@@ -373,14 +370,11 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
         const Chunk *surfaceChunks = ChunksView();
         int mapOriginX = WorldSurfaceMapOriginX();
         int mapOriginZ = WorldSurfaceMapOriginZ();
-        float half = (float)SURFACE_SECTION_HEIGHT * 0.5f;
-        float radius = sqrtf(half * half * 3.0f);
         for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
             const Chunk *chunk = &surfaceChunks[i];
             if (!chunk->loaded ||
-                ChunkGridDistanceFrom(
-                    chunk, worldFrameCameraCx, worldFrameCameraCz) >
-                    worldFrameShadowChunkRadius) {
+                !ChunkWithinDrawDistance(
+                    chunk, camera->position, worldFrameShadowChunkRadius)) {
                 continue;
             }
             for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
@@ -388,10 +382,10 @@ void DrawWorldShadowMap(const Camera3D *camera, bool drawNetherChunks,
                 const ChunkSection *section = chunk->sections[sectionIndex];
                 Matrix transform = SurfaceChunkRenderTransform(
                     chunk, section->sectionY, camera->position, mapOriginX, mapOriginZ);
-                Vector3 center = Vector3Transform(
-                    (Vector3){ (float)CHUNK_SIZE * 0.5f,
-                               (float)SURFACE_SECTION_HEIGHT * 0.5f,
-                               (float)CHUNK_SIZE * 0.5f }, transform);
+                Vector3 center;
+                float radius;
+                if (!SurfaceChunkRenderBounds(chunk, section->sectionY, &center, &radius)) continue;
+                center = Vector3Transform(center, transform);
                 if (!WorldRendererShadowSphereVisible(center, radius)) continue;
                 const Model *solidModel = ChunksSectionSolidModel(
                     chunk, section);

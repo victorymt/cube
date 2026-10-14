@@ -2,6 +2,8 @@
 #include "world/terrain_cube.h"
 #include "world/chunks_cube.h"
 #include "world/world_cube.h"
+#include "presentation/surface_render_transform.h"
+#include "world/surface_geometry.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -376,8 +378,203 @@ static void TestCubePoolAdmission(void)
     Reset();
 }
 
+static void TestPhysicalCoverage(void)
+{
+    Reset();
+    TerrainCubeContext *context = Context();
+    SurfaceVector north = {0, SURFACE_RADIUS_BLOCKS + 10, 0};
+    CubeCoverageStatus status;
+    assert(ChunksUpdateCubeCoverage(context, north, 24, 2, &status));
+    assert(status.submitted == 2 && status.ready == 2 && status.missing > 0);
+    unsigned expected = status.admitted;
+    assert(status.requested == expected && !status.saturated);
+    for (int i = 0; i < 30 && status.ready < expected; i++)
+        assert(ChunksUpdateCubeCoverage(context, north, 24, 3, &status));
+    assert(status.ready == expected && status.pending == 0 && status.missing == 0);
+    assert(ChunksUpdateCubeCoverage(context, north, 24, 0, &status));
+    assert(status.submitted == 0 && status.released == 0 && status.ready == expected);
+    SurfaceVector south = {0, -SURFACE_RADIUS_BLOCKS - 10, 0};
+    assert(ChunksUpdateCubeCoverage(context, south, 24, 1, &status));
+    assert(status.released == expected && status.ready == 1 && status.submitted == 1);
+    CubeCoverageStatus before = status;
+    assert(!ChunksUpdateCubeCoverage(context, south, NAN, 100, &status));
+    assert(memcmp(&before, &status, sizeof(status)) == 0 && GetActiveChunkCount() == 1);
+    SurfaceVector corner = {1, 1, 1};
+    corner = SurfaceVectorScale(SurfaceVectorNormalize(corner), SURFACE_RADIUS_BLOCKS + 10);
+    assert(ChunksUpdateCubeCoverage(context, corner, 208, 0, &status));
+    assert(status.saturated && status.requested > MAX_ACTIVE_CHUNKS);
+    assert(status.admitted == MAX_ACTIVE_CHUNKS && status.missing == status.admitted);
+    assert(status.ready == 0 && status.submitted == 0);
+    // A stale immutable input may not evict or submit any columns.
+    assert(WorldInstallSurfaceSnapshot(NULL));
+    before = status;
+    assert(!ChunksUpdateCubeCoverage(context, north, 24, 10, &status));
+    assert(memcmp(&before, &status, sizeof(status)) == 0);
+    TerrainCubeContextRelease(context);
+    Reset();
+}
+
+static void TestCubeMeshHalo(void)
+{
+    Reset();
+    TerrainCubeContext *context = Context();
+    for (int face = 0; face < 6; face++) for (int edge = 0; edge < 4; edge++) {
+        SurfaceAddress cell = {0, (SurfaceFace)face,
+            edge == 0 ? 0 : edge == 1 ? SURFACE_FACE_BLOCKS-1 : 2048,
+            edge == 2 ? 0 : edge == 3 ? SURFACE_FACE_BLOCKS-1 : 2048, 8};
+        SurfaceAddress across;
+        SurfaceCubeChunkKey key, neighbor;
+        assert(SurfaceCubeCellNeighbor(cell, (SurfaceCubeEdge)edge, &across, NULL));
+        assert(SurfaceCubeChunkAt(cell, &key) && SurfaceCubeChunkAt(across, &neighbor));
+        assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_READY);
+        assert(ChunksRequestCubeColumn(context, neighbor, false) == CUBE_CHUNK_READY);
+        WorldBlockAddress edit = {.dimension = WORLD_DIMENSION_HOME, .at.surface = across};
+        assert(WorldCubeSetBlock(edit, BLOCK_GLASS));
+        SurfaceBoundarySnapshot halo;
+        CaptureCubeBoundary(&halo, key, 0);
+        int x = cell.u % CHUNK_SIZE + (edge == 0 ? -1 : edge == 1 ? 1 : 0);
+        int z = cell.v % CHUNK_SIZE + (edge == 2 ? -1 : edge == 3 ? 1 : 0);
+        assert(halo.known[x+1][9][z+1] && halo.blocks[x+1][9][z+1] == BLOCK_GLASS);
+        assert(ChunksReleaseCubeColumn(neighbor));
+        CaptureCubeBoundary(&halo, key, 0);
+        assert(!halo.known[x+1][9][z+1]);
+        assert(ChunksReleaseCubeColumn(key));
+    }
+    TerrainCubeContextRelease(context);
+    Reset();
+}
+
+static void TestCubeMeshIdentity(void)
+{
+    Reset();
+    TerrainCubeContext *context = Context();
+    SurfaceCubeChunkKey key = {0, SURFACE_FACE_POS_Y, 128, 128};
+    assert(ChunksRequestCubeColumn(context, key, false) == CUBE_CHUNK_READY);
+    Chunk *chunk = FindCubeChunk(key);
+    ChunkSection *section = ChunkGetSection(chunk, 0, false);
+    assert(section);
+    for (int fault = 0; fault < 4; fault++) {
+        section->dirty = true;
+        section->exactModelReady = false;
+        ChunksTestSeedMeshJob(0, (int)(chunk - chunks), key.u, key.v, 0, true);
+        MeshJob *job = &meshJobs[0];
+        job->cubeGrid = job->spherical = true;
+        job->cubeKey = key;
+        job->cubeWorldGeneration = WorldCurrentGeneration();
+        job->chunkGeneration = chunk->generation;
+        job->sectionStamp = section->dirtyStamp;
+        if (fault == 0) job->cubeKey.face = SURFACE_FACE_NEG_Y;
+        if (fault == 1) job->cubeWorldGeneration++;
+        if (fault == 2) job->cubeGrid = false;
+        ProcessFinishedMeshJobs(100);
+        assert(section->exactModelReady == (fault == 3));
+        assert(section->dirty == (fault != 3));
+    }
+    TerrainCubeContextRelease(context);
+    Reset();
+}
+
+static void TestCubeRenderTransform(void)
+{
+    for (int face = 0; face < 6; face++) {
+        Chunk chunk = {.cubeGrid = true, .spherical = true,
+            .cubeKey = {0, (SurfaceFace)face, 128, 128}};
+        SurfaceVector anchor;
+        assert(SurfacePointFromCoordinates((SurfaceCoordinates){(SurfaceFace)face, 2048, 2048, 0}, &anchor));
+        Vector3 direction = {(float)anchor.x, (float)anchor.y, (float)anchor.z};
+        direction = Vector3Normalize(direction);
+        Vector3 camera = {atan2f(direction.z, direction.x) * SURFACE_RADIUS_BLOCKS,
+            18, asinf(direction.y) * SURFACE_RADIUS_BLOCKS};
+        Matrix transform = SurfaceChunkRenderTransform(&chunk, 0, camera, 0, 0);
+        SurfaceFrame frame = SurfaceFrameAtMapCoordinates(0, camera.x, camera.z, 0);
+        Vector3 center;
+        float radius;
+        assert(SurfaceChunkRenderBounds(&chunk, 0, &center, &radius));
+        for (int u = 0; u <= 16; u += 4) for (int v = 0; v <= 16; v += 4)
+            for (int y = 0; y <= SURFACE_SECTION_HEIGHT; y += 4) {
+                SurfaceVector point;
+                assert(SurfacePointFromCoordinates((SurfaceCoordinates){(SurfaceFace)face, 2048+u, 2048+v, y}, &point));
+                SurfaceVector delta = SurfaceVectorSubtract(point, anchor);
+                Vector3 local = {(float)delta.x, (float)delta.y, (float)delta.z};
+                assert(Vector3Distance(local, center) <= radius);
+                Vector3 actual = Vector3Transform(local, transform);
+                Vector3 expected = SurfaceFramePlanetToLocal(&frame,
+                    (Vector3){(float)point.x, (float)point.y, (float)point.z});
+                expected.x += camera.x; expected.z += camera.z;
+                assert(Vector3Distance(actual, expected) < .002f);
+            }
+    }
+}
+
+static void TestCubeMeshProjection(void)
+{
+    for (int face = 0; face < 6; face++) {
+        SurfaceCubeChunkKey key = {0, (SurfaceFace)face, 0, 255};
+        MeshJob *job = calloc(1, sizeof(*job));
+        assert(job);
+        job->cubeGrid = job->spherical = true;
+        job->cubeKey = key;
+        job->cx = key.u; job->cz = key.v; job->sectionY = 0;
+        job->blocks[0][8][15] = BLOCK_STONE;
+        memset(job->boundary.known, 1, sizeof(job->boundary.known));
+        BuildMeshJobPayload(job);
+        assert(job->hasMesh && job->mesh.vertexCount == 36);
+        SurfaceVector anchor;
+        assert(SurfacePointFromCoordinates((SurfaceCoordinates){key.face, 0, 4080, 0}, &anchor));
+        for (int i = 0; i < job->mesh.vertexCount; i++) {
+            float *v = job->mesh.vertices + i*3;
+            SurfaceVector point = SurfaceVectorAdd(anchor, (SurfaceVector){v[0], v[1], v[2]});
+            // Every rendered vertex belongs to the exact projected cell,
+            // including the last row of each face. No map-coordinate warp.
+            bool matched = false;
+            for (int corner = 0; corner < 8; corner++) {
+                SurfaceVector expected;
+                assert(SurfacePointFromCoordinates((SurfaceCoordinates){key.face,
+                    corner & 1 ? 1 : 0, corner & 2 ? 4096 : 4095,
+                    corner & 4 ? 9 : 8}, &expected));
+                if (SurfaceVectorLength(SurfaceVectorSubtract(point, expected)) < .0001) matched = true;
+            }
+            assert(matched);
+            float *n = job->mesh.normals + i*3;
+            assert(fabsf(n[0]*n[0] + n[1]*n[1] + n[2]*n[2] - 1) < .0001);
+        }
+        SurfaceTriangle triangles[12];
+        assert(SurfaceCellTriangles((SurfaceAddress){0, key.face, 0, 4095, 8},
+            SURFACE_CELL_BOX_FULL, triangles));
+        for (int i = 0; i < job->mesh.vertexCount; i += 3) {
+            const float *v = job->mesh.vertices + i*3;
+            SurfaceVector a = SurfaceVectorAdd(anchor, (SurfaceVector){v[0], v[1], v[2]});
+            SurfaceVector b = SurfaceVectorAdd(anchor, (SurfaceVector){v[3], v[4], v[5]});
+            SurfaceVector c = SurfaceVectorAdd(anchor, (SurfaceVector){v[6], v[7], v[8]});
+            SurfaceVector centroid = SurfaceVectorScale(SurfaceVectorAdd(a, SurfaceVectorAdd(b, c)), 1.0/3);
+            if (fabs(SurfaceVectorLength(a) - (SURFACE_RADIUS_BLOCKS + 9)) > .0001 ||
+                fabs(SurfaceVectorLength(b) - (SURFACE_RADIUS_BLOCKS + 9)) > .0001 ||
+                fabs(SurfaceVectorLength(c) - (SURFACE_RADIUS_BLOCKS + 9)) > .0001) continue;
+            bool found = false;
+            for (int j = 10; j < 12; j++) {
+                SurfaceVector expected = SurfaceVectorScale(SurfaceVectorAdd(triangles[j].a,
+                    SurfaceVectorAdd(triangles[j].b, triangles[j].c)), 1.0/3);
+                if (SurfaceVectorLength(SurfaceVectorSubtract(centroid, expected)) < .0001) found = true;
+            }
+            assert(found);
+        }
+        FreeMeshData(&job->mesh);
+        FreeMeshData(&job->waterMesh);
+        FreeMeshData(&job->floraMesh);
+        free(job->floraInstances);
+        free(job);
+    }
+    ChunkGreedyMeshWorkerScratchShutdown();
+    ChunkMeshWorkerScratchShutdown();
+}
+
 int main(void)
 {
+    TestCubeMeshIdentity();
+    TestCubeRenderTransform();
+    TestPhysicalCoverage();
+    TestCubeMeshHalo();
+    TestCubeMeshProjection();
     TestIdentityAndLifetime();
     TestSubmissionFailure();
     TestFailedAndStaleResults();

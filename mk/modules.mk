@@ -23,6 +23,9 @@ SPACE_FEATURE_SRC := \
 WORLD_SURFACE_SNAPSHOT_SRC := src/world/world_surface_snapshot.c src/world/surface_topology_version.c
 
 CHUNKS_FEATURE_SRC := \
+	src/world/chunks_cube_mesh.c \
+	src/world/surface_pose.c \
+	src/world/surface_coverage.c \
 	src/world/world_cube.c \
 	src/world/world_location.c \
 	src/ecology/flora_taxa.c \

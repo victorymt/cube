@@ -6,4 +6,6 @@
 Matrix SurfaceChunkRenderTransform(const Chunk *chunk, int sectionY,
                                     Vector3 cameraPosition,
                                     int mapOriginX, int mapOriginZ);
+bool SurfaceChunkRenderBounds(const Chunk *chunk, int sectionY,
+                               Vector3 *outCenter, float *outRadius);
 #endif

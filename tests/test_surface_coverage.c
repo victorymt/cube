@@ -21,6 +21,10 @@ static void TestCoverage(void)
         for (unsigned i = 0; i < full.admitted; i++) {
             assert(all[i].key.bodyId == 9 && SurfaceCubeChunkKeyIsValid(all[i].key));
             assert(all[i].minimumDistance <= 208.000001);
+            SurfaceCoverageCandidate distance;
+            assert(SurfaceCubeChunkDistance(all[i].key, focus, &distance));
+            assert(fabs(distance.minimumDistance - all[i].minimumDistance) < 1e-8);
+            assert(fabs(distance.centerDistance - all[i].centerDistance) < 1e-8);
             if (i) assert(all[i].centerDistance >= all[i - 1].centerDistance);
             if (i < small.admitted) assert(SurfaceCubeChunkKeyEqual(all[i].key, bounded[i].key));
             for (unsigned j = 0; j < i; j++) assert(!SurfaceCubeChunkKeyEqual(all[i].key, all[j].key));

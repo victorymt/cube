@@ -82,6 +82,9 @@ typedef struct MeshJob {
     double startedAtMs;
     double completedAtMs;
     bool spherical;
+    bool cubeGrid;
+    SurfaceCubeChunkKey cubeKey;
+    uint64_t cubeWorldGeneration;
     SurfaceAddress surfaceAddress;
     SurfaceChunkKey surfaceKey;
     int surfaceMapOriginX;
@@ -294,6 +297,9 @@ bool BuildChunkLodFloraMeshData(
 bool BuildChunkMeshData(const ChunkMeshBuildRequest *request, Mesh *outMesh);
 void CaptureSurfaceBoundary(SurfaceBoundarySnapshot *snapshot,
                             int chunkX, int chunkZ, int sectionY);
+void CaptureCubeBoundary(SurfaceBoundarySnapshot *snapshot,
+                          SurfaceCubeChunkKey key, int sectionY);
+void CurveCubeMeshData(Mesh *mesh, SurfaceCubeChunkKey key, int sectionY);
 bool SurfaceBoundaryBlockAt(const SurfaceBoundarySnapshot *snapshot,
                             int lx, int y, int lz, BlockType *outBlock);
 bool SurfaceBoundaryCellAt(const SurfaceBoundarySnapshot *snapshot,

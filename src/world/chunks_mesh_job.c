@@ -14,7 +14,7 @@ void BuildMeshJobPayload(MeshJob *job)
             job->cx, job->cz, job->floraStructures,
             job->floraStructureCount, faces,
             job->nearbyIndices, job->nearbyCount,
-            job->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
+            job->cubeGrid ? 1 : job->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
                            : GREEDY_MESH_MAX_SPAN,
             &job->boundary, &job->mesh);
         job->hasWaterMesh = BuildChunkSurfaceWaterMeshDataWithSnapshot(
@@ -52,7 +52,12 @@ void BuildMeshJobPayload(MeshJob *job)
             faces, &job->boundary, &job->lodFloraMesh);
     }
 
-    if (job->spherical) {
+    if (job->cubeGrid) {
+        if (job->hasMesh) CurveCubeMeshData(&job->mesh, job->cubeKey, job->sectionY);
+        if (job->hasWaterMesh) CurveCubeMeshData(&job->waterMesh, job->cubeKey, job->sectionY);
+        if (job->hasFloraMesh) CurveCubeMeshData(&job->floraMesh, job->cubeKey, job->sectionY);
+        if (job->hasLodFloraMesh) CurveCubeMeshData(&job->lodFloraMesh, job->cubeKey, job->sectionY);
+    } else if (job->spherical) {
         if (job->hasMesh) {
             CurveChunkMeshData(
                 &job->mesh, job->cx, job->cz, job->sectionY,
@@ -113,7 +118,7 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
     };
     ChunkLodLevel lod = ChunkLodSanitize(chunk->targetLod);
     int nearbyTorchIndices[MAX_TORCH_LIGHTS] = { 0 };
-    int nearbyTorchCount = lod == CHUNK_LOD_EXACT
+    int nearbyTorchCount = lod == CHUNK_LOD_EXACT && !chunk->cubeGrid
         ? CollectNearbyTorchLights(
               chunk->cx * CHUNK_SIZE - (int)TORCH_LIGHT_RADIUS,
               chunk->cx * CHUNK_SIZE + CHUNK_SIZE - 1 +
@@ -130,7 +135,8 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
     FloraVisualInstance *floraInstances = NULL;
     int floraInstanceCount = 0;
     SurfaceBoundarySnapshot boundary = { 0 };
-    CaptureSurfaceBoundary(
+    if (chunk->cubeGrid) CaptureCubeBoundary(&boundary, chunk->cubeKey, section->sectionY);
+    else CaptureSurfaceBoundary(
         &boundary, chunk->cx, chunk->cz, section->sectionY);
     unsigned short lodBlocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT]
                             [CHUNK_SIZE];
@@ -147,7 +153,7 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
               chunk->cx, chunk->cz,
               chunk->floraStructures, chunk->floraStructureCount,
               faces, nearbyTorchIndices, nearbyTorchCount,
-              chunk->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
+              chunk->cubeGrid ? 1 : chunk->spherical ? GREEDY_MESH_SPHERICAL_MAX_SPAN
                                : GREEDY_MESH_MAX_SPAN,
               &boundary, &solidMesh)
         : BuildChunkLodHeightfieldMeshData(
@@ -180,7 +186,12 @@ void RebuildChunkSectionMeshSync(Chunk *chunk, ChunkSection *section)
             chunk->floraStructures, chunk->floraStructureCount,
             faces, &boundary, &lodFloraMesh);
 
-    if (chunk->spherical) {
+    if (chunk->cubeGrid) {
+        if (hasSolid) CurveCubeMeshData(&solidMesh, chunk->cubeKey, section->sectionY);
+        if (hasWater) CurveCubeMeshData(&waterMesh, chunk->cubeKey, section->sectionY);
+        if (hasFlora) CurveCubeMeshData(&floraMesh, chunk->cubeKey, section->sectionY);
+        if (hasLodFlora) CurveCubeMeshData(&lodFloraMesh, chunk->cubeKey, section->sectionY);
+    } else if (chunk->spherical) {
         int mapOriginX = WorldSurfaceMapOriginX();
         int mapOriginZ = WorldSurfaceMapOriginZ();
         if (hasSolid) {

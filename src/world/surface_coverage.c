@@ -84,6 +84,17 @@ static int CompareCandidates(const void *left, const void *right)
     return (a->key.v > b->key.v) - (a->key.v < b->key.v);
 }
 
+bool SurfaceCubeChunkDistance(SurfaceCubeChunkKey key, SurfaceVector focus,
+                               SurfaceCoverageCandidate *out)
+{
+    if (!out || !SurfaceCubeChunkKeyIsValid(key) || !SurfaceVectorIsFinite(focus) ||
+        SurfaceVectorLength(focus) == 0) return false;
+    SurfaceCoverageCandidate candidate = Candidate(key, SurfaceVectorNormalize(focus));
+    if (!isfinite(candidate.minimumDistance)) return false;
+    *out = candidate;
+    return true;
+}
+
 bool SurfaceCoverageCollect(uint32_t bodyId, SurfaceVector focus, double radius,
                              SurfaceCoverageCandidate *out, unsigned capacity,
                              SurfaceCoverageResult *outResult)

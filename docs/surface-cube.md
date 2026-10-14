@@ -4,10 +4,12 @@
 
 Cube-grid now has continuous poses, explicit cell/chunk identity, an immutable
 v9 base generator, shared projected geometry and physical coverage enumeration.
+Runtime adapters now cover generation, in-memory edits, budgeted cube admission,
+mesh projection and render bounds.
 **The game runtime still uses the legacy map grid; cube-grid is not enabled
 and the polar visual defect is not yet fixed.** The current save format remains
 V29. The new primitives are exercised independently; their presence must not
-be mistaken for completion of the gameplay/rendering conversion.
+be mistaken for completion of the normal-game conversion.
 
 ## Root cause and scope
 
@@ -304,3 +306,57 @@ is in-memory only: V30 serialization, undo/redo, player interaction, fluid/ecolo
 notifications, decorations and mesh/rendering conversion remain pending. V29
 still persists the legacy store; no disk persistence of cube edits is claimed.
 The stage does not change or re-certify polar visual coverage.
+
+### Runtime stage 3: physical admission and mesh projection (2026-10-14)
+
+Full normal-game integration was selected as the activation gate: the default
+must remain legacy until movement, collision, interactions, simulation and V30
+persistence are converted and polar gameplay is accepted. No preview mode or
+partial default activation was introduced.
+
+`ChunksUpdateCubeCoverage` now owns nearest-first admission and eviction for an
+explicit body-centered focus and physical radius. It shares
+`SurfaceCoverageCollect`'s cap and capacity policy, rejects stale/invalid input
+before mutation, releases stale or out-of-cap cube residents, and preserves
+other grid namespaces. Its per-call submission budget includes local radial
+section requests. Diagnostics distinguish requested/admitted/ready/pending/missing
+columns, submissions, releases and saturation. Column readiness does not assert
+collision-layer or visual readiness. The caller still needs to supply the active
+cube terrain context; normal `UpdateChunks` remains on the legacy path.
+
+The production synchronous and worker mesh paths now accept cube chunks:
+
+- Main-thread boundary snapshots sample exact cube neighbors, including axis
+  transport at corners. Missing terrain remains unknown. Workers consume copied
+  blocks/volumes and never dereference resident neighbor columns.
+- Vertices project face U/V plus radial height into body axes relative to a
+  double-precision section anchor. Triangle normals are recomputed after
+  projection. Exact solid faces use one-cell spans. The shared collision/ray
+  geometry now uses the renderer's top-face diagonal, since a projected radial
+  quad is not planar.
+- Mesh completion validates cube namespace, body/face/U/V, world generation,
+  slot incarnation and content stamp. Results for stale or different faces
+  cannot overwrite the current section.
+- Terrain/water and shadow rendering have a cube section transform and
+  conservative curved-patch bounds. Draw-distance checks share admission's
+  conservative physical footprint metric. Chunk distance uses physical angular
+  separation for cube residents rather than treating face indices as map
+  coordinates. General coarse LOD selection remains available, but its visual
+  behavior and scheduling policy are not yet accepted in cube gameplay.
+
+The generation fixture now tests budgeted polar coverage, opposite-pole eviction,
+capacity saturation, invalid/stale input atomicity, all 24 directed face-edge
+halo transitions, six-face mesh projection, renderer/collision top diagonals,
+render transforms and conservative bounds, and stale mesh rejection. These are
+CPU tests of the production pipeline, not an in-game polar visual acceptance.
+
+Player coordinates/collision/raycast, fluid and ecology/decoration consumers,
+V30 save/undo, live-context lifecycle, coverage diagnostics in the DSL and the
+normal streaming switch remain required before enabling cube-grid defaults.
+
+Validation: the full `make -j10 test all` run passed all 120 binaries, 193
+public headers, module/game builds, CLI/protocol checks and architecture guards.
+Final projection/geometry/distance revisions passed the eight cube-grid suites
+and the chunk-streaming regression. The expanded cube pipeline test passed
+ASan/UBSan with leak detection. No cube-grid gameplay or polar screenshot
+acceptance is claimed by this stage.

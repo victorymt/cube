@@ -2,6 +2,7 @@
 #define VOXELCRAFT_CHUNKS_CUBE_H
 
 #include "world/terrain_cube.h"
+#include "world/surface_coverage.h"
 
 typedef enum CubeChunkRequestResult {
     CUBE_CHUNK_UNAVAILABLE = 0,
@@ -17,5 +18,18 @@ CubeChunkRequestResult ChunksRequestCubeColumn(TerrainCubeContext *context,
 CubeChunkRequestResult ChunksRequestCubeSection(TerrainCubeContext *context,
                                                 SurfaceCubeChunkKey key, int sectionY);
 bool ChunksReleaseCubeColumn(SurfaceCubeChunkKey key);
+
+typedef struct CubeCoverageStatus {
+    unsigned requested, admitted, ready, pending, missing;
+    unsigned submitted, released;
+    bool saturated;
+} CubeCoverageStatus;
+
+// Main-thread physical coverage owner. Invalid input leaves the pool untouched.
+// Evicts only cube columns outside the admitted cap (or from stale worlds).
+// The caller supplies the per-update work budget; zero performs no generation.
+bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
+                              double radius, unsigned submissionBudget,
+                              CubeCoverageStatus *outStatus);
 
 #endif

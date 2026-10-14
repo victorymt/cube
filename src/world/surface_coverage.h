@@ -18,6 +18,10 @@ typedef struct SurfaceCoverageResult {
     bool saturated;
 } SurfaceCoverageResult;
 
+// The same physical metric used for admission and draw-distance checks.
+bool SurfaceCubeChunkDistance(SurfaceCubeChunkKey key, SurfaceVector focus,
+                               SurfaceCoverageCandidate *outCandidate);
+
 // Conservative sphere enclosing the ENTIRE curved patch and radial interval.
 bool SurfaceCubeChunkBounds(SurfaceCubeChunkKey key, double minRadial, double maxRadial,
                              SurfaceVector *outCenter, double *outRadius);

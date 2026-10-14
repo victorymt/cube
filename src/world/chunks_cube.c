@@ -147,3 +147,65 @@ CubeChunkRequestResult ChunksRequestCubeSection(TerrainCubeContext *context,
     if (SectionPending(chunk, sectionY)) return CUBE_CHUNK_PENDING;
     return Submit(context, chunk, CHUNK_GEN_SCOPE_SECTION, sectionY, false);
 }
+
+bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
+                              double radius, unsigned budget,
+                              CubeCoverageStatus *out)
+{
+    const WorldSurfaceSnapshot *snapshot = TerrainCubeContextSnapshot(context);
+    SurfaceAddress cell;
+    SurfaceCubeChunkKey focusKey;
+    SurfaceCoverageCandidate candidates[MAX_ACTIVE_CHUNKS];
+    SurfaceCoverageResult coverage;
+    if (!out || !snapshot || !SurfaceCellFromPoint(snapshot->context.bodyId, focus, &cell) ||
+        !SurfaceCubeChunkAt(cell, &focusKey) || !ContextMatches(context, focusKey) ||
+        cell.radial < TERRAIN_CUBE_MIN_RADIAL || cell.radial >= SURFACE_MAX_Y_EXCLUSIVE ||
+        !SurfaceCoverageCollect(focusKey.bodyId, focus, radius, candidates,
+                                 MAX_ACTIVE_CHUNKS, &coverage)) return false;
+    CubeCoverageStatus status = {.requested = coverage.requested,
+        .admitted = coverage.admitted, .saturated = coverage.saturated};
+    for (int slot = 0; slot < MAX_ACTIVE_CHUNKS; slot++) {
+        Chunk *chunk = &chunks[slot];
+        if (!chunk->cubeGrid || (!chunk->loaded && !chunk->generating)) continue;
+        bool keep = false;
+        if (chunk->cubeWorldGeneration == WorldCurrentGeneration())
+            for (unsigned i = 0; i < coverage.admitted; i++)
+                if (SurfaceCubeChunkKeyEqual(chunk->cubeKey, candidates[i].key)) {
+                    keep = true;
+                    break;
+                }
+        if (!keep && ChunksReleaseCubeColumn(chunk->cubeKey)) status.released++;
+    }
+    // Nearest-first admission uses the same physical cap as retention. Already
+    // pending columns do not consume this frame's submission budget.
+    for (unsigned i = 0; i < coverage.admitted; i++) {
+        Chunk *chunk = Resident(candidates[i].key);
+        if (!chunk && status.submitted < budget) {
+            CubeChunkRequestResult result = ChunksRequestCubeColumn(context, candidates[i].key, false);
+            if (result != CUBE_CHUNK_UNAVAILABLE) status.submitted++;
+            chunk = Resident(candidates[i].key);
+        }
+        if (chunk && chunk->loaded) status.ready++;
+        else if (chunk && chunk->generating) status.pending++;
+        else status.missing++;
+    }
+    // Collision needs the player's radial layer even when it lies far below
+    // the initially generated ground shell. Keep this request in the same budget.
+    int sectionY = SurfaceSectionYFromBlockY(cell.radial);
+    for (unsigned i = 0; i < coverage.admitted && status.submitted < budget; i++) {
+        if (candidates[i].minimumDistance > 2.0 * CHUNK_SIZE) continue;
+        Chunk *chunk = Resident(candidates[i].key);
+        if (!chunk || !chunk->loaded) continue;
+        for (int offset = -1; offset <= 1 && status.submitted < budget; offset++) {
+            int y = sectionY + offset;
+            if (y < TERRAIN_CUBE_MIN_RADIAL / SURFACE_SECTION_HEIGHT ||
+                y >= SURFACE_MAX_Y_EXCLUSIVE / SURFACE_SECTION_HEIGHT ||
+                ChunkTerrainSectionIsResolved(chunk, y) || ChunkGetSectionConst(chunk, y) ||
+                SectionPending(chunk, y)) continue;
+            if (ChunksRequestCubeSection(context, chunk->cubeKey, y) != CUBE_CHUNK_UNAVAILABLE)
+                status.submitted++;
+        }
+    }
+    *out = status;
+    return true;
+}

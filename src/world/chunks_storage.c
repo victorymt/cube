@@ -577,6 +577,18 @@ int ChunkGridDistanceFrom(const Chunk *chunk, int cx, int cz)
         int dz = abs(chunk->cz - cz);
         return dx > dz ? dx : dz;
     }
+    if (chunk->cubeGrid) {
+        Vector3 focus = SurfaceDirectionFromMapCoordinates(
+            WorldSurfaceMapOriginX() + (cx + .5f) * CHUNK_SIZE,
+            WorldSurfaceMapOriginZ() + (cz + .5f) * CHUNK_SIZE);
+        Vector3 center;
+        if (!SurfaceCubeVertex(chunk->cubeKey.face, (chunk->cubeKey.u + .5f) * CHUNK_SIZE,
+            (chunk->cubeKey.v + .5f) * CHUNK_SIZE, 0, &center)) return INT_MAX;
+        center = Vector3Normalize(center);
+        double angle = atan2(Vector3Length(Vector3CrossProduct(focus, center)),
+                              Vector3DotProduct(focus, center));
+        return (int)floor(angle * SURFACE_RADIUS_BLOCKS / CHUNK_SIZE);
+    }
     float originX = (float)WorldSurfaceMapOriginX();
     float originZ = (float)WorldSurfaceMapOriginZ();
     float half = (float)CHUNK_SIZE * 0.5f;

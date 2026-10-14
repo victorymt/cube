@@ -30,8 +30,11 @@ bool SurfaceCellTriangles(SurfaceAddress cell, SurfaceCellBox box,
     }
     static const unsigned char faces[6][4] = {
         {0, 2, 6, 4}, {1, 5, 7, 3}, {0, 4, 5, 1},
-        {2, 3, 7, 6}, {0, 1, 3, 2}, {4, 6, 7, 5}
+        {2, 3, 7, 6}, {0, 1, 3, 2}, {6, 7, 5, 4}
     };
+    // Match the exact mesh's top diagonal (min-U/max-V to max-U/min-V).
+    // Projected radial quads are not planar: a different diagonal would make
+    // collision and ray heights disagree with the visible terrain.
     for (unsigned side = 0; side < 6; side++) for (unsigned half = 0; half < 2; half++) {
         SurfaceTriangle t = {vertices[faces[side][0]], vertices[faces[side][half + 1]],
             vertices[faces[side][half + 2]], (WorldBlockSide)side};

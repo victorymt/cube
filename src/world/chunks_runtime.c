@@ -1,3 +1,5 @@
+#include "world/world_surface_snapshot.h"
+#include "world/surface_coverage.h"
 #include "world/chunks_internal.h"
 #include "ecology/flora_taxa.h"
 
@@ -508,8 +510,13 @@ static bool UploadMeshJob(MeshJob *job)
                       chunk->generation == job->chunkGeneration &&
                       ChunkLodSanitize(chunk->targetLod) == job->lod &&
                       chunk->spherical == job->spherical &&
-                      (!job->spherical || SurfaceChunkKeyEqual(
-                          chunk->surfaceKey, job->surfaceKey)) &&
+                      chunk->cubeGrid == job->cubeGrid &&
+                      (job->cubeGrid ?
+                          (SurfaceCubeChunkKeyEqual(chunk->cubeKey, job->cubeKey) &&
+                           chunk->cubeWorldGeneration == job->cubeWorldGeneration &&
+                           job->cubeWorldGeneration == WorldCurrentGeneration()) :
+                          (!job->spherical || SurfaceChunkKeyEqual(
+                              chunk->surfaceKey, job->surfaceKey))) &&
                       section != NULL;
         snapshotCurrent = targetValid &&
                           section->dirtyStamp == job->sectionStamp;
@@ -596,9 +603,10 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
             }
         }
     }
-    CaptureSurfaceBoundary(
+    if (chunk->cubeGrid) CaptureCubeBoundary(&job->boundary, chunk->cubeKey, section->sectionY);
+    else CaptureSurfaceBoundary(
         &job->boundary, chunk->cx, chunk->cz, section->sectionY);
-    if (lod == CHUNK_LOD_EXACT) {
+    if (lod == CHUNK_LOD_EXACT && !chunk->cubeGrid) {
         job->floraStructureCount = chunk->floraStructureCount;
         if (job->floraStructureCount < 0) job->floraStructureCount = 0;
         if (job->floraStructureCount > MAX_CHUNK_FLORA_STRUCTURES) {
@@ -635,6 +643,9 @@ static void PrepareMeshJob(MeshJob *job, const Chunk *chunk,
     job->submittedAtMs = ChunkNowMs();
     job->startedAtMs = 0.0;
     job->completedAtMs = 0.0;
+    job->cubeGrid = chunk->cubeGrid;
+    job->cubeKey = chunk->cubeKey;
+    job->cubeWorldGeneration = chunk->cubeWorldGeneration;
     job->spherical = chunk->spherical;
     job->surfaceAddress = chunk->surfaceAddress;
     job->surfaceKey = chunk->surfaceKey;
@@ -896,6 +907,16 @@ bool RebuildDirtyChunkMeshAt(int x, int y, int z)
 
 bool ChunkWithinDrawDistance(const Chunk *chunk, Vector3 cameraPosition, int effectiveRenderDistance)
 {
+    if (!chunk) return false;
+    if (chunk->cubeGrid) {
+        Vector3 direction = SurfaceDirectionFromMapCoordinates(
+            WorldSurfaceMapOriginX() + cameraPosition.x,
+            WorldSurfaceMapOriginZ() + cameraPosition.z);
+        SurfaceCoverageCandidate distance;
+        return SurfaceCubeChunkDistance(chunk->cubeKey,
+            (SurfaceVector){direction.x, direction.y, direction.z}, &distance) &&
+            distance.minimumDistance <= effectiveRenderDistance * (double)CHUNK_SIZE + 1e-7;
+    }
     int cameraX = (int)floorf(cameraPosition.x);
     int cameraZ = (int)floorf(cameraPosition.z);
     int cameraCx = 0;
