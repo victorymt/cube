@@ -872,6 +872,18 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     CF(36, 4, 43, 1, 2, 1, BLOCK_BLUE_BRICK, 61);
     CF(36, 6, 43, 1, 1, 1, BLOCK_YELLOW, 62);
 
+    /* Low screen wall (yingbi) just inside the gate.  It stops the direct
+     * axis at eye level while leaving the raised main hall visible above. */
+    CF(27, 2, 46, 19, 1, 2, BLOCK_DRESSED_STONE, 60);
+    CF(27, 3, 46, 19, 3, 2, BLOCK_RED_LACQUER_WOOD, 61);
+    CF(26, 6, 45, 21, 1, 4, BLOCK_BLUE_ROOF_TILE, 62);
+    CF(26, 7, 45, 21, 1, 4, BLOCK_BLUE_BRICK, 63);
+    CF(31, 3, 47, 11, 3, 1, BLOCK_DRESSED_STONE, 64);
+    CF(31, 5, 47, 11, 1, 1, BLOCK_BLUE_BRICK, 65);
+    CP(33, 4, 47, 1, 1, 1, BLOCK_YELLOW, 6);
+    CP(36, 4, 47, 1, 1, 1, BLOCK_YELLOW, 6);
+    CP(39, 4, 47, 1, 1, 1, BLOCK_YELLOW, 6);
+
     /* Forecourt outside the gate: clear, paved, shallow stone rail, pines. */
     CF(2, 2, CGA_COMPLEX_YARD_DEPTH - 2, 1, 1, CGA_COMPLEX_APRON - 2,
        BLOCK_DRESSED_STONE, 55);

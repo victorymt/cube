@@ -35,7 +35,7 @@ contract is `src/world/cga_voxel.h`.
 | 3 | Dungeon | stone-brick perimeter, doorway, and internal supports |
 | 4 | Desert temple | sandstone pedestal, pillars, capstone, and underground base |
 | 6 | Chinese classical hall (retired intermediate stage) | five-bay hall with stone terrace, red columns, white plaster, lattice openings, painted bracket band, stepped hip roof, and ridge ornaments |
-| 7 | Chinese classical courtyard complex | south-facing axial walled compound: three-bay gatehouse, forecourt with a paifang, ceremonial path, two side halls, five-bay main hall on a raised terrace, concave hip and gable roofs with upturned corners, painted bracket bands, gold-framed plaque, couplets, lattice openings, stone rails, pines, lions, and an incense burner |
+| 7 | Chinese classical courtyard complex | south-facing axial walled compound: three-bay gatehouse, forecourt with a paifang, ceremonial path, two side halls, covered front corridors, a low screen wall, five-bay main hall on a raised terrace, concave hip and gable roofs with upturned corners and exposed rafter/tile ends, two-tier painted bracket bands, gold-framed plaque, couplets, lattice openings, stone rails, pines, lions, and an incense burner |
 
 The complex is generated on a 73×81 local footprint plus a ten-block cleared
 margin. The planner samples a twelve-block apron around the site and uses its
