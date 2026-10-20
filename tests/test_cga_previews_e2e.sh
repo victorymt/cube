@@ -56,7 +56,7 @@ rg 'DEBUG_CONTROL cga inspect|DEBUG_CONTROL cga visible|DEBUG_CONTROL capture ok
     "$runtime/game.log"
 
 [[ $(rg -c '^DEBUG_CONTROL capture ok ' "$runtime/game.log") == 4 ]]
-[[ $(rg -c '^DEBUG_CONTROL cga visible .*on_screen=1 .*samples=27 ' "$runtime/game.log") == 4 ]]
+[[ $(rg -c '^DEBUG_CONTROL cga visible .*on_screen=1 .*grid=64x36 visible_cells=[1-9]' "$runtime/game.log") == 4 ]]
 rg -q '^DEBUG_CONTROL cga inspect count=' "$runtime/game.log"
 rg -q '^DEBUG_CGA feature id=.* grammar=7 .* over_budget=0' "$runtime/game.log"
 rg -q '^DEBUG_SCRIPT exit code=0$' "$runtime/game.log"

@@ -14,8 +14,12 @@
 
 #include <inttypes.h>
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define DEBUG_CGA_MAX_FEATURES 64
+#define DEBUG_CGA_GRID_W 64
+#define DEBUG_CGA_GRID_H 36
 
 static bool GameDebugCgaContains(CgaScope scope, float x, float z)
 {
@@ -68,13 +72,37 @@ typedef struct GameDebugCgaBounds {
     int maxZ;
 } GameDebugCgaBounds;
 
-static bool GameDebugCgaFillBounds(CgaFeature feature, GameDebugCgaBounds *out)
+typedef struct GameDebugCgaOccupancy {
+    GameDebugCgaBounds bounds;
+    int sizeX;
+    int sizeY;
+    int sizeZ;
+    unsigned char *voxels;
+} GameDebugCgaOccupancy;
+
+static bool GameDebugCgaOccupied(const GameDebugCgaOccupancy *occ,
+                                 int x, int y, int z)
+{
+    if (x < occ->bounds.minX || x > occ->bounds.maxX ||
+        y < occ->bounds.minY || y > occ->bounds.maxY ||
+        z < occ->bounds.minZ || z > occ->bounds.maxZ) return false;
+    size_t index = (size_t)(x - occ->bounds.minX) +
+        (size_t)(z - occ->bounds.minZ) * (size_t)occ->sizeX +
+        (size_t)(y - occ->bounds.minY) * (size_t)occ->sizeX *
+            (size_t)occ->sizeZ;
+    return occ->voxels[index] != 0;
+}
+
+static bool GameDebugCgaBuildOccupancy(CgaFeature feature,
+                                       GameDebugCgaOccupancy *out)
 {
     if (!out) return false;
+    *out = (GameDebugCgaOccupancy){ 0 };
     static CgaWorkspace expand;
     CgaWorkspaceReset(&expand);
     if (!CgaExpandFeature(&expand, feature)) return false;
     bool any = false;
+    GameDebugCgaBounds bounds = { 0 };
     for (size_t i = 0; i < expand.opCount; i++) {
         const CgaVoxelOp *op = &expand.ops[i];
         if (op->kind != CGA_OP_FILL) continue;
@@ -85,57 +113,108 @@ static bool GameDebugCgaFillBounds(CgaFeature feature, GameDebugCgaBounds *out)
         int maxY = op->scope.minY + op->scope.sizeY - 1;
         int maxZ = op->scope.minZ + op->scope.sizeZ - 1;
         if (!any) {
-            *out = (GameDebugCgaBounds){ minX, minY, minZ, maxX, maxY, maxZ };
+            bounds = (GameDebugCgaBounds){ minX, minY, minZ, maxX, maxY, maxZ };
             any = true;
         } else {
-            if (minX < out->minX) out->minX = minX;
-            if (minY < out->minY) out->minY = minY;
-            if (minZ < out->minZ) out->minZ = minZ;
-            if (maxX > out->maxX) out->maxX = maxX;
-            if (maxY > out->maxY) out->maxY = maxY;
-            if (maxZ > out->maxZ) out->maxZ = maxZ;
+            if (minX < bounds.minX) bounds.minX = minX;
+            if (minY < bounds.minY) bounds.minY = minY;
+            if (minZ < bounds.minZ) bounds.minZ = minZ;
+            if (maxX > bounds.maxX) bounds.maxX = maxX;
+            if (maxY > bounds.maxY) bounds.maxY = maxY;
+            if (maxZ > bounds.maxZ) bounds.maxZ = maxZ;
         }
     }
-    return any;
-}
-
-static void GameDebugCgaSampleOcclusion(GameDebugCgaBounds bounds,
-                                        Vector3 eye,
-                                        int *samples, int *visible,
-                                        int *occluded)
-{
-    *samples = 0;
-    *visible = 0;
-    *occluded = 0;
-    for (int iy = 0; iy < 3; iy++) {
-        for (int iz = 0; iz < 3; iz++) {
-            for (int ix = 0; ix < 3; ix++) {
-                float tx = (float)bounds.minX +
-                    (float)(bounds.maxX - bounds.minX) * (0.25f + 0.25f * (float)ix);
-                float ty = (float)bounds.minY +
-                    (float)(bounds.maxY - bounds.minY) * (0.25f + 0.25f * (float)iy);
-                float tz = (float)bounds.minZ +
-                    (float)(bounds.maxZ - bounds.minZ) * (0.25f + 0.25f * (float)iz);
-                Vector3 delta = { tx - eye.x, ty - eye.y, tz - eye.z };
-                float distance = sqrtf(delta.x * delta.x + delta.y * delta.y +
-                                       delta.z * delta.z);
-                if (distance < 0.001f) continue;
-                Vector3 direction = { delta.x / distance, delta.y / distance,
-                                      delta.z / distance };
-                HitResult hit = RaycastBlocksFiltered(
-                    eye, direction, distance + 4.0f, RAYCAST_BLOCK_SOLID);
-                (*samples)++;
-                if (!hit.hit) {
-                    (*visible)++;
-                    continue;
+    if (!any) return false;
+    int sx = bounds.maxX - bounds.minX + 1;
+    int sy = bounds.maxY - bounds.minY + 1;
+    int sz = bounds.maxZ - bounds.minZ + 1;
+    if (sx <= 0 || sy <= 0 || sz <= 0) return false;
+    size_t volume = (size_t)sx * (size_t)sy * (size_t)sz;
+    unsigned char *voxels = calloc(volume, 1);
+    if (!voxels) return false;
+    for (size_t i = 0; i < expand.opCount; i++) {
+        const CgaVoxelOp *op = &expand.ops[i];
+        if (op->kind != CGA_OP_FILL && op->kind != CGA_OP_CARVE) continue;
+        int x0 = op->scope.minX > bounds.minX ? op->scope.minX : bounds.minX;
+        int y0 = op->scope.minY > bounds.minY ? op->scope.minY : bounds.minY;
+        int z0 = op->scope.minZ > bounds.minZ ? op->scope.minZ : bounds.minZ;
+        int x1 = op->scope.minX + op->scope.sizeX - 1;
+        int y1 = op->scope.minY + op->scope.sizeY - 1;
+        int z1 = op->scope.minZ + op->scope.sizeZ - 1;
+        if (x1 > bounds.maxX) x1 = bounds.maxX;
+        if (y1 > bounds.maxY) y1 = bounds.maxY;
+        if (z1 > bounds.maxZ) z1 = bounds.maxZ;
+        unsigned char value = op->kind == CGA_OP_FILL ? 1u : 0u;
+        for (int y = y0; y <= y1; y++) {
+            for (int z = z0; z <= z1; z++) {
+                size_t row = (size_t)(z - bounds.minZ) * (size_t)sx +
+                    (size_t)(y - bounds.minY) * (size_t)sx * (size_t)sz;
+                for (int x = x0; x <= x1; x++) {
+                    voxels[row + (size_t)(x - bounds.minX)] = value;
                 }
-                bool inside = hit.x >= bounds.minX && hit.x <= bounds.maxX &&
-                    hit.y >= bounds.minY && hit.y <= bounds.maxY &&
-                    hit.z >= bounds.minZ && hit.z <= bounds.maxZ;
-                if (inside) (*visible)++;
-                else (*occluded)++;
             }
         }
+    }
+    *out = (GameDebugCgaOccupancy){
+        .bounds = bounds,
+        .sizeX = sx,
+        .sizeY = sy,
+        .sizeZ = sz,
+        .voxels = voxels
+    };
+    return true;
+}
+
+static void GameDebugCgaGridVisibility(const GameDebugCgaOccupancy *occ,
+                                       Camera3D camera, int screenW,
+                                       int screenH, float clipMinX,
+                                       float clipMinY, float clipMaxX,
+                                       float clipMaxY, int *visibleCells,
+                                       int *occludedCells, int *emptyCells,
+                                       float *coverage,
+                                       float *visibleFraction)
+{
+    const int gw = DEBUG_CGA_GRID_W;
+    const int gh = DEBUG_CGA_GRID_H;
+    *visibleCells = 0;
+    *occludedCells = 0;
+    *emptyCells = 0;
+    *coverage = 0.0f;
+    *visibleFraction = 0.0f;
+    float width = clipMaxX - clipMinX;
+    float height = clipMaxY - clipMinY;
+    if (width <= 0.0f || height <= 0.0f || screenW <= 0 || screenH <= 0)
+        return;
+    float cellW = width / (float)gw;
+    float cellH = height / (float)gh;
+    Vector3 eye = camera.position;
+    float farX = (float)occ->bounds.maxX - eye.x;
+    float farY = (float)occ->bounds.maxY - eye.y;
+    float farZ = (float)occ->bounds.maxZ - eye.z;
+    float farDistance = sqrtf(farX * farX + farY * farY + farZ * farZ) + 8.0f;
+    for (int gy = 0; gy < gh; gy++) {
+        for (int gx = 0; gx < gw; gx++) {
+            Vector2 screen = {
+                clipMinX + (gx + 0.5f) * cellW,
+                clipMinY + (gy + 0.5f) * cellH
+            };
+            Ray ray = GetScreenToWorldRay(screen, camera);
+            HitResult hit = RaycastBlocksFiltered(
+                ray.position, ray.direction, farDistance, RAYCAST_BLOCK_SOLID);
+            if (!hit.hit) {
+                (*emptyCells)++;
+            } else if (GameDebugCgaOccupied(occ, hit.x, hit.y, hit.z)) {
+                (*visibleCells)++;
+            } else {
+                (*occludedCells)++;
+            }
+        }
+    }
+    *coverage = (float)(*visibleCells) * cellW * cellH /
+        ((float)screenW * (float)screenH);
+    int structureCells = *visibleCells + *occludedCells;
+    if (structureCells > 0) {
+        *visibleFraction = (float)(*visibleCells) / (float)structureCells;
     }
 }
 
@@ -232,31 +311,29 @@ void GameDebugCgaVisible(GameRuntime *game)
                           "DEBUG_CONTROL cga visible count=0 on_screen=0\n");
         return;
     }
-    CgaScope scope = features[index].scope;
-    GameDebugCgaBounds fill;
-    bool hasFill = GameDebugCgaFillBounds(features[index], &fill);
-    int bxMin = hasFill ? fill.minX : scope.minX;
-    int byMin = hasFill ? fill.minY : scope.minY;
-    int bzMin = hasFill ? fill.minZ : scope.minZ;
-    int bxMax = hasFill ? fill.maxX : scope.minX + scope.sizeX - 1;
-    int byMax = hasFill ? fill.maxY : scope.minY + scope.sizeY - 1;
-    int bzMax = hasFill ? fill.maxZ : scope.minZ + scope.sizeZ - 1;
+    GameDebugCgaOccupancy occupancy;
+    if (!GameDebugCgaBuildOccupancy(features[index], &occupancy)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL cga visible error reason=no_fill\n");
+        return;
+    }
+    GameDebugCgaBounds fill = occupancy.bounds;
     float eyeX = game->player.position.x;
     float eyeY = game->player.position.y + EYE_HEIGHT;
     float eyeZ = game->player.position.z;
-    Vector3 eye = { eyeX, eyeY, eyeZ };
     float cp = cosf(game->player.pitch);
     Vector3 forward = { sinf(game->player.yaw) * cp,
                         sinf(game->player.pitch),
                         cosf(game->player.yaw) * cp };
     Camera3D camera = game->camera;
-    camera.position = eye;
+    camera.position = (Vector3){ eyeX, eyeY, eyeZ };
     camera.target = (Vector3){ eyeX + forward.x, eyeY + forward.y,
                                eyeZ + forward.z };
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
     int screenW = game->screenWidth;
     int screenH = game->screenHeight;
     if (screenW <= 0 || screenH <= 0) {
+        free(occupancy.voxels);
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL cga visible error reason=no_screen\n");
         return;
@@ -265,9 +342,9 @@ void GameDebugCgaVisible(GameRuntime *game)
     float minX = (float)screenW, minY = (float)screenH;
     float maxX = 0.0f, maxY = 0.0f;
     for (int c = 0; c < 8; c++) {
-        float x = (float)(bxMin + ((c & 1) ? (bxMax - bxMin) : 0));
-        float y = (float)(byMin + ((c & 2) ? (byMax - byMin) : 0));
-        float z = (float)(bzMin + ((c & 4) ? (bzMax - bzMin) : 0));
+        float x = (float)((c & 1) ? fill.maxX : fill.minX);
+        float y = (float)((c & 2) ? fill.maxY : fill.minY);
+        float z = (float)((c & 4) ? fill.maxZ : fill.minZ);
         Vector3 rel = { x - eyeX, y - eyeY, z - eyeZ };
         if (Vector3DotProduct(rel, forward) <= 0.05f) continue;
         Vector2 p = GetWorldToScreen((Vector3){ x, y, z }, camera);
@@ -278,36 +355,39 @@ void GameDebugCgaVisible(GameRuntime *game)
         if (p.x > maxX) maxX = p.x;
         if (p.y > maxY) maxY = p.y;
     }
-    bool onScreen = false;
+    int visibleCells = 0;
+    int occludedCells = 0;
+    int emptyCells = 0;
     float coverage = 0.0f;
+    float visibleFraction = 0.0f;
+    bool onScreen = false;
     if (front > 0) {
         float clipMinX = Clamp(minX, 0.0f, (float)screenW);
         float clipMinY = Clamp(minY, 0.0f, (float)screenH);
         float clipMaxX = Clamp(maxX, 0.0f, (float)screenW);
         float clipMaxY = Clamp(maxY, 0.0f, (float)screenH);
         if (clipMaxX > clipMinX && clipMaxY > clipMinY) {
-            coverage = (clipMaxX - clipMinX) * (clipMaxY - clipMinY) /
-                ((float)screenW * (float)screenH);
-            onScreen = coverage > 0.0001f;
+            GameDebugCgaGridVisibility(&occupancy, camera, screenW, screenH,
+                                       clipMinX, clipMinY, clipMaxX, clipMaxY,
+                                       &visibleCells, &occludedCells,
+                                       &emptyCells, &coverage,
+                                       &visibleFraction);
+            onScreen = visibleCells > 0;
         }
-    }
-    int samples = 0;
-    int visibleSamples = 0;
-    int occludedSamples = 0;
-    if (hasFill) {
-        GameDebugCgaSampleOcclusion(fill, eye, &samples,
-                                    &visibleSamples, &occludedSamples);
     }
     DebugControlReply(&game->debugControl,
                       "DEBUG_CONTROL cga visible feature=%" PRIu64
                       " grammar=%" PRIu32 " on_screen=%d coverage=%.6f "
                       "bounds=%.1f,%.1f,%.1f,%.1f screen=%d,%d "
-                      "fill=%d,%d,%d,%d,%d,%d samples=%d visible=%d "
-                      "occluded=%d\n",
+                      "fill=%d,%d,%d,%d,%d,%d grid=%dx%d "
+                      "visible_cells=%d occluded_cells=%d empty_cells=%d "
+                      "visible_fraction=%.3f\n",
                       features[index].id, features[index].grammarVersion,
                       onScreen ? 1 : 0, coverage, minX, minY, maxX, maxY,
-                      screenW, screenH, bxMin, byMin, bzMin, bxMax, byMax,
-                      bzMax, samples, visibleSamples, occludedSamples);
+                      screenW, screenH, fill.minX, fill.minY, fill.minZ,
+                      fill.maxX, fill.maxY, fill.maxZ, DEBUG_CGA_GRID_W,
+                      DEBUG_CGA_GRID_H, visibleCells, occludedCells,
+                      emptyCells, visibleFraction);
+    free(occupancy.voxels);
     GameDebugTraceEvent(game, "cga-visible");
 }
-

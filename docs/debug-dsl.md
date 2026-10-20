@@ -53,14 +53,17 @@ count and grammar budget. The classical complex has a 1500-op budget
 (`CGA_CLASSICAL_COMPLEX_OP_BUDGET`); its feature line reports
 `over_budget=0` while it remains inside that limit. `cga visible [RADIUS]`
 selects the feature whose scope contains the player (preferring the complex,
-otherwise the nearest). It expands the feature's fill operations into a tight
-structure AABB, projects that AABB to the camera, and casts a 3×3×3 sample grid
-from the eye through the structure. A first solid hit inside the structure AABB
-counts as a visible sample; a first hit outside it counts as occluded. The
-reply includes the screen coverage, screen bounds, world fill bounds,
-`fill=...`, `samples=27`, `visible` and `occluded`. Coverage is still an AABB
-check rather than a pixel mask, and an occluder inside the feature bounds (for
-example a courtyard tree) is classified as visible.
+otherwise the nearest). It expands the feature's fill/carve operations into a
+voxel occupancy grid, projects the structure bounds, and casts a 64×36
+screen-space grid of rays through the projected bounds. A first solid hit on an
+occupied structure voxel is a visible cell; a first hit outside the occupancy
+grid is an occluded cell; a miss is an empty cell. The reply includes the
+visible screen coverage, fill bounds, `grid=64x36`, `visible_cells`,
+`occluded_cells`, `empty_cells` and `visible_fraction`. Coverage is the
+sampled visible structure area divided by the whole screen, not an AABB area.
+The occupancy applies the feature's fill/carve ops in emission order rather than
+the full chunk priority sort, and an occluder that is also an occupied feature
+voxel (for example a courtyard tree) is classified as visible.
 
 For a preflighted single-scene run use:
 
