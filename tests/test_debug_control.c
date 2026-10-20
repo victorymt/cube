@@ -593,6 +593,18 @@ int main(void)
         "view distance 1.5", "view distance nan", "view distance 12 extra", "view distance" };
     for (unsigned i = 0; i < sizeof(invalidDistance)/sizeof(invalidDistance[0]); i++)
         assert(DebugControlParseText(&geology, invalidDistance[i]) == DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&geology, "world time 0.5") == DEBUG_CONTROL_COMMAND_WORLD_TIME);
+    assert(geology.worldTime == 0.5f);
+    assert(DebugControlParseText(&geology, "world time 0") == DEBUG_CONTROL_COMMAND_WORLD_TIME);
+    assert(geology.worldTime == 0.0f);
+    assert(DebugControlParseText(&geology, "world time 1") == DEBUG_CONTROL_COMMAND_WORLD_TIME);
+    assert(geology.worldTime == 1.0f);
+    assert(DebugControlParseText(&geology, "world time auto") == DEBUG_CONTROL_COMMAND_WORLD_TIME);
+    assert(geology.worldTime < 0.0f);
+    const char *invalidWorldTime[] = { "world time -0.1", "world time 1.1",
+        "world time nan", "world time 0.5 extra", "world time" };
+    for (unsigned i = 0; i < sizeof(invalidWorldTime)/sizeof(invalidWorldTime[0]); i++)
+        assert(DebugControlParseText(&geology, invalidWorldTime[i]) == DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "landform inspect") == DEBUG_CONTROL_COMMAND_LANDFORM_INSPECT);
     assert(DebugControlParseText(&geology, "landform find river 16384") == DEBUG_CONTROL_COMMAND_LANDFORM_FIND);
     assert(geology.landformRadius == 16384 && !strcmp(geology.landformType, "river"));

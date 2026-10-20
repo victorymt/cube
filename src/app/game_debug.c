@@ -693,6 +693,23 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
     case DEBUG_CONTROL_COMMAND_STREAM_WAIT:
         GameStreamWaitStart(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_WORLD_TIME: {
+        float time = game->debugControl.worldTime;
+        game->debugDayTimeOverride = time;
+        float daylight = 0.0f;
+        float sunset = 0.0f;
+        DayNightFactors(game->dayTime, &daylight, &sunset);
+        if (time >= 0.0f) {
+            DayNightFactors(time, &daylight, &sunset);
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL world time ok time=%.6f daylight=%.6f\n",
+                              time, daylight);
+        } else {
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL world time ok mode=auto\n");
+        }
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
     case DEBUG_CONTROL_COMMAND_VIEW_DISTANCE:
         ChunksSetRenderDistance((int)game->debugControl.viewDistance);
         DebugControlReply(&game->debugControl, "DEBUG_CONTROL view distance chunks=%d\n", ChunksRenderDistance());

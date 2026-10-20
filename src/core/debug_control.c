@@ -783,6 +783,20 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
     if (strcmp(line, "world topology") == 0) {
         return DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY;
     }
+    if (strcmp(line, "world time auto") == 0) {
+        control->worldTime = -1.0f;
+        return DEBUG_CONTROL_COMMAND_WORLD_TIME;
+    }
+    float worldTime = 0.0f;
+    char worldTimeTrailing = '\0';
+    if (sscanf(line, "world time %f %c", &worldTime, &worldTimeTrailing) == 1 &&
+        isfinite(worldTime) && worldTime >= 0.0f && worldTime <= 1.0f) {
+        control->worldTime = worldTime;
+        return DEBUG_CONTROL_COMMAND_WORLD_TIME;
+    }
+    if (strncmp(line, "world time", 10) == 0) {
+        return DEBUG_CONTROL_COMMAND_INVALID;
+    }
     if (strcmp(line, "water debug") == 0) {
         control->waterDebugEnabled = !control->waterDebugEnabled;
         return DEBUG_CONTROL_COMMAND_WATER_DEBUG;

@@ -487,16 +487,23 @@ static bool AppendComplexWall(CgaWorkspace *workspace, CgaFeature feature,
                        BLOCK_BLUE_BRICK, priority + 3);
 }
 
+static int ComplexRoofInset(int maxInset, int level, int levels)
+{
+    if (levels <= 1) return 0;
+    int denom = levels - 1;
+    return (maxInset * level * level) / (denom * denom);
+}
+
 static bool AppendComplexHipRoof(CgaWorkspace *workspace, CgaFeature feature,
                                  CgaScope s, int x, int z, int width,
                                  int depth, int eaveY, int levels,
                                  int priority, int cornerReach)
 {
     if (width <= depth || depth < 3 || levels < 2 ||
-        cornerReach < 0 || cornerReach > 2) return false;
+        cornerReach < 0 || cornerReach > 3) return false;
     int maxInset = (depth - 1) / 2;
     for (int i = 0; i < levels; i++) {
-        int inset = (maxInset * i) / (levels - 1);
+        int inset = ComplexRoofInset(maxInset, i, levels);
         int w = width - 2 * inset;
         int d = depth - 2 * inset;
         if (d < 1) d = 1;
@@ -505,7 +512,7 @@ static bool AppendComplexHipRoof(CgaWorkspace *workspace, CgaFeature feature,
                          priority + i)) return false;
     }
     for (int i = 0; i < levels; i++) {
-        int inset = (maxInset * i) / (levels - 1);
+        int inset = ComplexRoofInset(maxInset, i, levels);
         int w = width - 2 * inset;
         int d = depth - 2 * inset;
         if (d < 1) d = 1;
@@ -575,7 +582,7 @@ static bool AppendComplexGableRoof(CgaWorkspace *workspace, CgaFeature feature,
     if (width < 3 || depth < 3 || levels < 2) return false;
     int maxInset = (width - 1) / 2;
     for (int i = 0; i < levels; i++) {
-        int inset = (maxInset * i) / (levels - 1);
+        int inset = ComplexRoofInset(maxInset, i, levels);
         int w = width - 2 * inset;
         if (!ComplexFill(workspace, feature, s, x + inset, eaveY + i, z,
                          w, 1, depth, BLOCK_BLUE_ROOF_TILE, priority + i))
@@ -590,7 +597,7 @@ static bool AppendComplexGableRoof(CgaWorkspace *workspace, CgaFeature feature,
                      1, 1, depth - 2, BLOCK_YELLOW, priority + 21))
         return false;
     for (int i = 0; i < levels - 1; i++) {
-        int inset = (maxInset * i) / (levels - 1);
+        int inset = ComplexRoofInset(maxInset, i, levels);
         int w = width - 2 * inset;
         if (!ComplexPaint(workspace, feature, s, x + inset, eaveY + i, z,
                           w, 1, 1, BLOCK_WHITE_PLASTER, priority + 30 + i) ||
@@ -784,14 +791,33 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
         CF(px, 6, 30, 1, 2, 1, BLOCK_DRESSED_STONE, 12);
     }
 
-    /* Plaque above the central door, set on the porch beam. */
+    /* Plaque above the central door, set on the porch beam, with a gold
+     * frame, vertical couplets on the central columns, and a hanging frieze. */
     CF(30, 10, 23, 9, 2, 1, BLOCK_BLACK, 28);
     CP(32, 11, 23, 1, 1, 1, BLOCK_YELLOW, 2);
     CP(34, 11, 23, 1, 1, 1, BLOCK_YELLOW, 2);
     CP(36, 11, 23, 1, 1, 1, BLOCK_YELLOW, 2);
+    CF(30, 9, 23, 9, 1, 1, BLOCK_YELLOW, 28);
+    CF(30, 12, 23, 9, 1, 1, BLOCK_YELLOW, 28);
+    CF(29, 10, 23, 1, 3, 1, BLOCK_YELLOW, 28);
+    CF(39, 10, 23, 1, 3, 1, BLOCK_YELLOW, 28);
+    CF(32, 6, 25, 1, 5, 1, BLOCK_BLACK, 29);
+    CF(39, 6, 25, 1, 5, 1, BLOCK_BLACK, 29);
+    CP(32, 7, 25, 1, 1, 1, BLOCK_YELLOW, 3);
+    CP(32, 9, 25, 1, 1, 1, BLOCK_YELLOW, 3);
+    CP(39, 7, 25, 1, 1, 1, BLOCK_YELLOW, 3);
+    CP(39, 9, 25, 1, 1, 1, BLOCK_YELLOW, 3);
+    CF(20, 11, 25, 9, 1, 1, BLOCK_WOOD_LATTICE, 29);
+    CF(40, 11, 25, 12, 1, 1, BLOCK_WOOD_LATTICE, 29);
+    const int bracketColumns[] = { 18, 25, 32, 39, 46, 53 };
+    for (size_t i = 0; i < sizeof(bracketColumns) / sizeof(bracketColumns[0]); i++) {
+        CF(bracketColumns[i] - 1, 10, 24, 3, 1, 1,
+           BLOCK_RED_LACQUER_WOOD, 29);
+        CF(bracketColumns[i], 10, 24, 1, 1, 1, BLOCK_YELLOW, 30);
+    }
 
     if (!AppendComplexHipRoof(workspace, feature, s, 14, 3, 45, 29,
-                              15, 6, 40, 2)) return false;
+                              15, 6, 40, 3)) return false;
 
     /* East and west side halls, both facing the courtyard.  Build the west
      * hall and mirror every x coordinate for the east hall. */
@@ -842,6 +868,24 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     if (!AppendComplexPine(workspace, feature, s, 10, 70, 8) ||
         !AppendComplexPine(workspace, feature, s,
                            CGA_COMPLEX_INNER_WIDTH - 11, 70, 8)) return false;
+
+    /* Three-bay paifang at the forecourt entrance.  It frames the gate and
+     * the main hall from the south approach without closing the axis. */
+    const int paifangColumns[] = { 19, 30, 41, 52 };
+    for (size_t i = 0; i < sizeof(paifangColumns) / sizeof(paifangColumns[0]); i++) {
+        CF(paifangColumns[i], 3, 74, 1, 8, 1,
+           BLOCK_RED_LACQUER_WOOD, 65);
+        CF(paifangColumns[i] - 1, 2, 73, 3, 1, 3,
+           BLOCK_DRESSED_STONE, 64);
+    }
+    CF(18, 9, 74, 37, 1, 1, BLOCK_RED_LACQUER_WOOD, 66);
+    CF(17, 10, 74, 39, 1, 1, BLOCK_GREEN, 67);
+    CF(31, 9, 73, 9, 2, 1, BLOCK_BLACK, 68);
+    CP(33, 10, 73, 1, 1, 1, BLOCK_YELLOW, 4);
+    CP(36, 10, 73, 1, 1, 1, BLOCK_YELLOW, 4);
+    CP(39, 10, 73, 1, 1, 1, BLOCK_YELLOW, 4);
+    if (!AppendComplexHipRoof(workspace, feature, s, 16, 70, 39, 9,
+                              11, 3, 69, 1)) return false;
 
 #undef CP
 #undef CC

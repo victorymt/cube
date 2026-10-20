@@ -26,6 +26,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_HUD_DEBUG_ON,
     DEBUG_CONTROL_COMMAND_HUD_DEBUG_OFF,
     DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY,
+    DEBUG_CONTROL_COMMAND_WORLD_TIME,
     DEBUG_CONTROL_COMMAND_WATER_DEBUG,
     DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH,
     DEBUG_CONTROL_COMMAND_STREAM_AUDIT,
@@ -235,6 +236,7 @@ typedef struct DebugControl {
     double historyRepresented, historyQuantizationLoss, historyRejected;
     bool thirdPerson;
     unsigned viewDistance;
+    float worldTime;
     bool mapLiquidsVisible;
     DebugControlSurfaceStyle surfaceDebugStyle;
     uint32_t surfaceDebugSeed;

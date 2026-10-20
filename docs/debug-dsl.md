@@ -31,7 +31,7 @@ are written under `screenshots/` in the working directory.
 | `cga_mineshaft` | Timber supports in an underwater ravine near (-2048, 11, -2048) |
 | `cga_dungeon` | Stone-brick perimeter and entrance near (-1536, 10, -2048) |
 | `cga_desert_temple` | Partly submerged sandstone structure near (0, 79, -2048) |
-| `cga_classical_complex` | South-facing walled Chinese courtyard complex near (7680, 88, 3840), viewed from the forecourt through the gatehouse toward the main hall |
+| `cga_classical_complex` | South-facing walled Chinese courtyard complex near (7680, 88, 3840); midday view from the inner courtyard toward the raised main hall |
 
 These are natural generation views, including sparse underground terrain and
 water occlusion; they do not clear terrain or insert display structures.
@@ -669,8 +669,14 @@ water debug through
 water debug through on|off
 view first|third
 view distance CHUNKS
+world time PHASE
+world time auto
 ```
 
+`world time PHASE` pins the Homeworld day phase for visual previews; `PHASE`
+is a fraction of a day in `[0,1]` (0.5 is local noon, 0.25 is sunrise).
+`world time auto` removes the override and resumes the simulated clock.
+The screenshot report still records the effective `world.day_time`.
 `view distance CHUNKS` sets the session render distance (integer 1–12).
 It does not persist settings. For distant terrain screenshots, warm normal
 streaming with `input 0 0 0 0 180` and

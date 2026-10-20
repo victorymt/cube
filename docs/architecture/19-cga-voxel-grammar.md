@@ -35,7 +35,7 @@ contract is `src/world/cga_voxel.h`.
 | 3 | Dungeon | stone-brick perimeter, doorway, and internal supports |
 | 4 | Desert temple | sandstone pedestal, pillars, capstone, and underground base |
 | 6 | Chinese classical hall (retired intermediate stage) | five-bay hall with stone terrace, red columns, white plaster, lattice openings, painted bracket band, stepped hip roof, and ridge ornaments |
-| 7 | Chinese classical courtyard complex | axial walled compound: gatehouse, front forecourt, ceremonial path, two side halls, five-bay main hall on a raised terrace, hip and gable roofs, painted bracket bands, lattice openings, stone rails, pines, lions, and an incense burner |
+| 7 | Chinese classical courtyard complex | south-facing axial walled compound: three-bay gatehouse, forecourt with a paifang, ceremonial path, two side halls, five-bay main hall on a raised terrace, concave hip and gable roofs with upturned corners, painted bracket bands, gold-framed plaque, couplets, lattice openings, stone rails, pines, lions, and an incense burner |
 
 The complex is generated on a 73×81 local footprint plus a ten-block cleared
 margin. The planner samples a twelve-block apron around the site and uses its
@@ -62,9 +62,10 @@ partial structure.
   streams the target region, captures a screenshot, and verifies a clean script
   exit. `cga_classical_complex.dsl` targets the default-seed complex near
   `(7680, 88, 3840)` (a south-facing axis; the gate opens toward +Z) and
-  views the courtyard from the forecourt. The scene uses `view distance 12`, a 240-frame
-  streaming warm-up, and cleared weather so the full compound is present in the
-  capture.
+  views the raised main hall from the inner courtyard. The scene uses
+  `view distance 12`, a 240-frame streaming warm-up, cleared weather, and
+  `world time 0.5` so the compound is captured at local noon.
+  `world time auto` restores the simulated day cycle.
 
 ## Boundaries
 
