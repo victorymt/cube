@@ -101,6 +101,8 @@ static bool GameDebugCgaBuildOccupancy(CgaFeature feature,
     static CgaWorkspace expand;
     CgaWorkspaceReset(&expand);
     if (!CgaExpandFeature(&expand, feature)) return false;
+    /* Match CgaEvaluateChunk: last write wins in evaluation order. */
+    CgaSortOps(&expand);
     bool any = false;
     GameDebugCgaBounds bounds = { 0 };
     for (size_t i = 0; i < expand.opCount; i++) {

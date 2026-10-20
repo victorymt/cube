@@ -1158,10 +1158,17 @@ static int CompareOps(const void *a, const void *b)
     return 0;
 }
 
+void CgaSortOps(CgaWorkspace *workspace)
+{
+    if (!workspace || workspace->overflow || workspace->opCount < 2) return;
+    qsort(workspace->ops, workspace->opCount, sizeof(workspace->ops[0]),
+          CompareOps);
+}
+
 bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace)
 {
     if (!chunk || !workspace || workspace->overflow) return false;
-    qsort(workspace->ops, workspace->opCount, sizeof(workspace->ops[0]), CompareOps);
+    CgaSortOps(workspace);
     for (size_t i = 0; i < workspace->opCount; i++) {
         const CgaVoxelOp *op = &workspace->ops[i];
         int minX = op->scope.minX > cx * CHUNK_SIZE ? op->scope.minX : cx * CHUNK_SIZE;

@@ -61,9 +61,10 @@ grid is an occluded cell; a miss is an empty cell. The reply includes the
 visible screen coverage, fill bounds, `grid=64x36`, `visible_cells`,
 `occluded_cells`, `empty_cells` and `visible_fraction`. Coverage is the
 sampled visible structure area divided by the whole screen, not an AABB area.
-The occupancy applies the feature's fill/carve ops in emission order rather than
-the full chunk priority sort, and an occluder that is also an occupied feature
-voxel (for example a courtyard tree) is classified as visible.
+The occupancy applies fill/carve ops with `CgaSortOps`, the same
+stage/priority/feature/sequence order used by `CgaEvaluateChunk`, so overwritten
+blocks match the final feature state. An occluder that is also an occupied
+feature voxel (for example a courtyard tree) is still classified as visible.
 
 For a preflighted single-scene run use:
 

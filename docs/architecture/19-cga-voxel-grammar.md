@@ -65,6 +65,8 @@ partial structure. The classical complex additionally enforces
 `CGA_CLASSICAL_COMPLEX_OP_BUDGET` (1500 ops); the unit test asserts both the
 identity rotation and all rotated expansions stay within that budget, and
 `cga inspect` reports `budget=1500 over_budget=0` for the default-seed complex.
+The debug voxel-occupancy check reuses `CgaSortOps`, so it applies fill/carve
+ops in the same stage/priority/feature/sequence order as `CgaEvaluateChunk`.
 
 ## Verification
 

@@ -105,6 +105,7 @@ bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature);
 bool CgaExpandFeature(CgaWorkspace *workspace, CgaFeature feature);
 bool CgaAppendOp(CgaWorkspace *workspace, CgaOpKind kind, CgaStage stage,
                  int priority, CgaFeature feature, CgaScope scope, BlockType material);
+void CgaSortOps(CgaWorkspace *workspace);
 bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace);
 
 /* Generates the first CGA-backed structure set for a Homeworld chunk. */

@@ -154,6 +154,37 @@ static void TestFeatureConflictResolution(void)
     assert(CgaTestResolveFeatureConflicts(features, count, &blocked) == 0);
 }
 
+
+static void TestOpsEvaluationOrder(void)
+{
+    CgaFeature featureA = {
+        5u, CGA_HOUSE_GRAMMAR_VERSION, 1u, 0, 0,
+        {0, 32, 0, 1, 1, 1, CGA_ORIENTATION_0}
+    };
+    CgaFeature featureB = featureA;
+    featureB.id = 3u;
+    CgaScope scope = {0, 32, 0, 1, 1, 1, CGA_ORIENTATION_0};
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    assert(CgaAppendOp(&workspace, CGA_OP_FILL, CGA_STAGE_BASE, 10,
+                       featureA, scope, BLOCK_STONE));
+    assert(CgaAppendOp(&workspace, CGA_OP_FILL, CGA_STAGE_BASE, 10,
+                       featureB, scope, BLOCK_DIRT));
+    assert(CgaAppendOp(&workspace, CGA_OP_FILL, CGA_STAGE_BASE, 20,
+                       featureB, scope, BLOCK_WOOD));
+    assert(CgaAppendOp(&workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 5,
+                       featureA, scope, BLOCK_AIR));
+    assert(CgaAppendOp(&workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1,
+                       featureA, scope, BLOCK_SNOW));
+    assert(workspace.opCount == 5);
+    CgaSortOps(&workspace);
+    assert(workspace.ops[0].sequence == 1);
+    assert(workspace.ops[1].sequence == 0);
+    assert(workspace.ops[2].sequence == 2);
+    assert(workspace.ops[3].sequence == 3);
+    assert(workspace.ops[4].sequence == 4);
+}
+
 static void TestClassicalComplexExpansion(void)
 {
     CgaFeature complex = {
@@ -243,6 +274,7 @@ int main(void)
     TestFeatureIdAndHouseExpansion();
     TestChunkOrderInvariant();
     TestFeatureConflictResolution();
+    TestOpsEvaluationOrder();
     TestClassicalComplexExpansion();
     TestAllStructureGrammarsExpand();
     puts("cga voxel tests passed");
