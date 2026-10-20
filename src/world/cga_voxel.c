@@ -547,6 +547,22 @@ static bool AppendComplexHipRoof(CgaWorkspace *workspace, CgaFeature feature,
                          cz + cornerZ[c] * cornerReach, 1, 1, 1,
                          BLOCK_YELLOW, priority + 45 + c)) return false;
     }
+    /* A descending group of ridge beasts along each hip.  The base sits on
+     * the corner ridge line and the gold head reads as one small figure. */
+    for (int c = 0; c < 4; c++) {
+        for (int i = levels - 2; i >= 1; i -= 2) {
+            int inset = ComplexRoofInset(maxInset, i, levels);
+            int bx = cornerX[c] < 0 ? x + inset : x + width - 1 - inset;
+            int bz = cornerZ[c] < 0 ? z + inset : z + depth - 1 - inset;
+            int by = eaveY + i + 2;
+            if (!ComplexFill(workspace, feature, s, bx, by, bz,
+                             1, 1, 1, BLOCK_BLUE_BRICK, priority + 100 + i) ||
+                !ComplexFill(workspace, feature, s, bx, by + 1, bz,
+                             1, 1, 1, BLOCK_YELLOW, priority + 100 + i))
+                return false;
+        }
+    }
+
     /* Tile ribs: paint alternating columns down the four slope faces so the
      * stepped roof reads as parallel tile courses rather than flat boxes. */
     for (int i = 0; i < levels; i++) {
@@ -618,7 +634,11 @@ static bool AppendComplexHipRoof(CgaWorkspace *workspace, CgaFeature feature,
         !ComplexFill(workspace, feature, s, x + inset, topY + 2, z + inset,
                      1, 1, 1, BLOCK_YELLOW, priority + 63) ||
         !ComplexFill(workspace, feature, s, x + inset + w - 1, topY + 2,
-                     z + inset, 1, 1, 1, BLOCK_YELLOW, priority + 64))
+                     z + inset, 1, 1, 1, BLOCK_YELLOW, priority + 64) ||
+        !ComplexFill(workspace, feature, s, x + inset, topY + 3, z + inset,
+                     1, 1, 1, BLOCK_YELLOW, priority + 65) ||
+        !ComplexFill(workspace, feature, s, x + inset + w - 1, topY + 3,
+                     z + inset, 1, 1, 1, BLOCK_YELLOW, priority + 66))
         return false;
     if (!ComplexFill(workspace, feature, s, x, eaveY - 1, z,
                      width, 1, 1, BLOCK_GREEN, priority + 70) ||
@@ -674,10 +694,32 @@ static bool AppendComplexGableRoof(CgaWorkspace *workspace, CgaFeature feature,
                          tz, 1, 1, 1, BLOCK_WOOD, priority + 62))
             return false;
     }
+    /* Gable-end ridge line (bargeboard) along both slopes. */
+    for (int i = 0; i < levels; i++) {
+        int inset = ComplexRoofInset(maxInset, i, levels);
+        int w = width - 2 * inset;
+        int y = eaveY + i + 1;
+        if (!ComplexFill(workspace, feature, s, x + inset, y, z,
+                         1, 1, 1, BLOCK_BLUE_BRICK, priority + 70 + i) ||
+            !ComplexFill(workspace, feature, s, x + inset + w - 1, y, z,
+                         1, 1, 1, BLOCK_BLUE_BRICK, priority + 70 + i) ||
+            !ComplexFill(workspace, feature, s, x + inset, y, z + depth - 1,
+                         1, 1, 1, BLOCK_BLUE_BRICK, priority + 70 + i) ||
+            !ComplexFill(workspace, feature, s, x + inset + w - 1, y,
+                         z + depth - 1, 1, 1, 1, BLOCK_BLUE_BRICK,
+                         priority + 70 + i)) return false;
+    }
     int topY = eaveY + levels;
     if (!ComplexFill(workspace, feature, s, x + maxInset, topY, z,
                      1, 1, depth, BLOCK_BLUE_BRICK, priority + 20))
         return false;
+    for (int bz = z + 2; bz <= z + depth - 3; bz += 4) {
+        if (!ComplexFill(workspace, feature, s, x + maxInset, topY + 1, bz,
+                         1, 1, 1, BLOCK_BLUE_BRICK, priority + 80) ||
+            !ComplexFill(workspace, feature, s, x + maxInset, topY + 2, bz,
+                         1, 1, 1, BLOCK_YELLOW, priority + 81))
+            return false;
+    }
     if (depth > 4 &&
         (!ComplexFill(workspace, feature, s, x + maxInset, topY + 1,
                       z + 1, 1, 1, 2, BLOCK_YELLOW, priority + 21) ||

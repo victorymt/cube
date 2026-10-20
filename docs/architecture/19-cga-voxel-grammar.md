@@ -35,7 +35,7 @@ contract is `src/world/cga_voxel.h`.
 | 3 | Dungeon | stone-brick perimeter, doorway, and internal supports |
 | 4 | Desert temple | sandstone pedestal, pillars, capstone, and underground base |
 | 6 | Chinese classical hall (retired intermediate stage) | five-bay hall with stone terrace, red columns, white plaster, lattice openings, painted bracket band, stepped hip roof, and ridge ornaments |
-| 7 | Chinese classical courtyard complex | south-facing axial walled compound: three-bay gatehouse, forecourt with a paifang, ceremonial path, two side halls, covered front corridors, a low screen wall, a two-storey five-bay main hall on a raised terrace with a front porch lower eave, upper-storey windows/plaque, concave hip and gable roofs with upturned corners and exposed rafter/tile ends, two-tier painted bracket bands, gold-framed plaques, couplets, lattice openings, stone rails, pines, lions, and an incense burner |
+| 7 | Chinese classical courtyard complex | south-facing axial walled compound: three-bay gatehouse, forecourt with a paifang, ceremonial path, two side halls, covered front corridors, a low screen wall, a two-storey five-bay main hall on a raised terrace with a front porch lower eave, upper-storey windows/plaque, concave hip and gable roofs with upturned corners, exposed rafter/tile ends, hip ridge lines with descending beast groups, taller ridge-end chiwen, gable bargeboards with ridge beasts, two-tier painted bracket bands, gold-framed plaques, couplets, lattice openings, stone rails, pines, lions, and an incense burner |
 
 The complex is generated on a 73×81 local footprint plus a ten-block cleared
 margin. The planner samples a twelve-block apron around the site and uses its
@@ -52,7 +52,11 @@ two-step connected upturn instead of a thin detached stack. The main hall is
 carried to two storeys: a front porch lower eave at 13–14, an upper wall,
 upper windows and plaque, and a second bracket band under the main hip roof at
 eave level 18. This keeps the lower plaque/door in shadow under the porch while
-the upper storey remains legible from the courtyard.
+the upper storey remains legible from the courtyard. Each hip carries a
+descending group of one-block ridge beasts (blue base and gold head) between the
+eave corner and the top ridge, whose ends now rise to a taller gold chiwen.
+Gable roofs get a blue bargeboard ridge line at both ends and a short row of
+ridge beasts along the top ridge.
 
 All grammars use world half-open AABBs and remain bounded by
 `CGA_MAX_FEATURES_PER_CHUNK` and `CGA_MAX_CHUNK_OPS`. Expansion reserves its
