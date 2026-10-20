@@ -35,4 +35,30 @@ for scene in "${scenes[@]}"; do
     rg -q '^DEBUG_SCRIPT exit code=0$' "$runtime/game.log"
 done
 
+review_scene=cga_classical_complex_review.dsl
+runtime=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-${review_scene%.dsl}.XXXXXX")
+ln -s "$repo/assets" "$runtime/assets"
+cp "$repo/tests/scenes/$review_scene" "$runtime/preview.dsl"
+printf '\nexit 0\n' >> "$runtime/preview.dsl"
+set +e
+(cd "$runtime" && timeout 180 "$binary" --debug-resolution 1280x720 \
+    --debug-script "$runtime/preview.dsl" \
+    --debug-trace "$runtime/trace.jsonl") \
+    > "$runtime/game.log" 2>&1
+status=$?
+set -e
+printf 'cga review %s artifacts: %s\n' "$review_scene" "$runtime"
+if ((status != 0)); then
+    tail -50 "$runtime/game.log"
+    exit "$status"
+fi
+rg 'DEBUG_CONTROL cga inspect|DEBUG_CONTROL cga visible|DEBUG_CONTROL capture ok|DEBUG_SCRIPT exit' \
+    "$runtime/game.log"
+
+[[ $(rg -c '^DEBUG_CONTROL capture ok ' "$runtime/game.log") == 4 ]]
+[[ $(rg -c '^DEBUG_CONTROL cga visible .*on_screen=1 ' "$runtime/game.log") == 4 ]]
+rg -q '^DEBUG_CONTROL cga inspect count=' "$runtime/game.log"
+rg -q '^DEBUG_CGA feature id=.* grammar=7 ' "$runtime/game.log"
+rg -q '^DEBUG_SCRIPT exit code=0$' "$runtime/game.log"
+
 printf '%s\n' 'cga structure previews passed'

@@ -17,11 +17,13 @@ build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/
 build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_dungeon.dsl
 build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_desert_temple.dsl
 build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_classical_complex.dsl
+build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_classical_complex_review.dsl
 ```
 
 These scenes use the default new-world seed `1448040515`, select varied terrain,
 wait for streaming, restore the camera after the wait (gravity can move it),
-and capture one screenshot. They finish with `input manual`, leaving the window
+and capture screenshots. The single-view scenes capture one frame; the review
+scene captures four views. They finish with `input manual`, leaving the window
 open for exploration; press F to toggle floating mode. Screenshots and reports
 are written under `screenshots/` in the working directory.
 
@@ -32,14 +34,27 @@ are written under `screenshots/` in the working directory.
 | `cga_dungeon` | Stone-brick perimeter and entrance near (-1536, 10, -2048) |
 | `cga_desert_temple` | Partly submerged sandstone structure near (0, 79, -2048) |
 | `cga_classical_complex` | South-facing walled Chinese courtyard complex near (7680, 88, 3840); midday view from the inner courtyard toward the two-storey main hall |
+| `cga_classical_complex_review` | Four-view complex review: forecourt/paifang, inner-courtyard main hall, south-facing gate and corridors, upper-roof close-up |
 
 These are natural generation views, including sparse underground terrain and
 water occlusion; they do not clear terrain or insert display structures.
 The automated route `make test-cga-previews-e2e` copies each scene into its own
-temporary runtime directory, appends `exit 0`, and checks one capture and a clean
-exit per scene. All screenshots, reports, traces and logs are retained in the
-printed directories. This checks the capture path; visual inspection is still
-needed to judge the resulting geometry.
+temporary runtime directory, appends `exit 0`, and checks one capture per
+single-view scene and four captures for the review scene. The review also runs
+`cga inspect` and `cga visible` before each capture and asserts that the complex
+is found and projected on screen. All screenshots, reports, traces and logs are
+retained in the printed directories. This checks the capture path; visual
+inspection is still needed to judge the resulting geometry.
+
+`cga inspect [RADIUS]` searches the CGA planner in a chunk radius around the
+player (default 2, range 1-4), deduplicates planned features, and prints every
+feature's ID, grammar version, anchor, base level, scope, size and expanded op
+count. `cga visible [RADIUS]` selects the feature whose scope contains the
+player (preferring the complex, otherwise the nearest) and projects its world
+scope to the current camera. It reports `on_screen`, the clipped screen
+coverage and the projected bounds. Coverage is based on the scope AABB, not on
+a pixel mask, so it is a framing check rather than proof that no tree is in
+front of the structure.
 
 ### Build and session
 
@@ -775,6 +790,7 @@ changed during the scan.
 teleport X Y Z YAW PITCH
 look YAW PITCH
 look delta YAW_DELTA PITCH_DELTA
+look at X Y Z
 input FORWARD STRAFE VERTICAL SPRINT FRAMES
 input manual|scripted
 mouse left
@@ -802,7 +818,9 @@ ordinary pause menus and cursor-release state still apply.
 Teleport coordinates are finite and bounded to +/-1,000,000,
 yaw to +/-1,000, and pitch to [-1.45, 1.45]. Absolute look uses the same pitch
 range; relative look deltas are bounded to +/-1,000 and the resulting pitch is
-clamped.
+clamped. `look at X Y Z` computes yaw and pitch from the player's eye height,
+which makes `teleport X Y Z 0 0` followed by `look at ...` a reliable way to
+frame a structure without hand-calculating angles.
 `mouse left` and `mouse right` inject one button-press edge through their normal
 interaction paths. For `mouse left`, the `status` reply includes the debug frame
 at which the edge was queued, handled, committed with `SetBlock`, and observed

@@ -605,6 +605,38 @@ int main(void)
         "world time nan", "world time 0.5 extra", "world time" };
     for (unsigned i = 0; i < sizeof(invalidWorldTime)/sizeof(invalidWorldTime[0]); i++)
         assert(DebugControlParseText(&geology, invalidWorldTime[i]) == DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&geology, "look at 12 34 56") ==
+           DEBUG_CONTROL_COMMAND_LOOK);
+    assert(geology.lookAt);
+    assert(geology.lookAtX == 12.0f && geology.lookAtY == 34.0f &&
+           geology.lookAtZ == 56.0f);
+    assert(!geology.lookRelative);
+    const char *invalidLookAt[] = { "look at", "look at 1 2",
+        "look at 1 2 3 extra", "look at nan 0 0" };
+    for (unsigned i = 0; i < sizeof(invalidLookAt)/sizeof(invalidLookAt[0]); i++)
+        assert(DebugControlParseText(&geology, invalidLookAt[i]) ==
+               DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&geology, "look 0 0") ==
+           DEBUG_CONTROL_COMMAND_LOOK);
+    assert(!geology.lookAt);
+    assert(DebugControlParseText(&geology, "cga inspect") ==
+           DEBUG_CONTROL_COMMAND_CGA_INSPECT);
+    assert(geology.cgaRadius == 2);
+    assert(DebugControlParseText(&geology, "cga inspect 4") ==
+           DEBUG_CONTROL_COMMAND_CGA_INSPECT);
+    assert(geology.cgaRadius == 4);
+    assert(DebugControlParseText(&geology, "cga visible") ==
+           DEBUG_CONTROL_COMMAND_CGA_VISIBLE);
+    assert(geology.cgaRadius == 2);
+    assert(DebugControlParseText(&geology, "cga visible 1") ==
+           DEBUG_CONTROL_COMMAND_CGA_VISIBLE);
+    assert(geology.cgaRadius == 1);
+    const char *invalidCga[] = { "cga inspect 0", "cga inspect 5",
+        "cga visible 0", "cga visible 5", "cga inspect 2 extra",
+        "cga visible 2 extra", "cga inspect nope", "cga nope" };
+    for (unsigned i = 0; i < sizeof(invalidCga)/sizeof(invalidCga[0]); i++)
+        assert(DebugControlParseText(&geology, invalidCga[i]) ==
+               DEBUG_CONTROL_COMMAND_INVALID);
     assert(DebugControlParseText(&geology, "landform inspect") == DEBUG_CONTROL_COMMAND_LANDFORM_INSPECT);
     assert(DebugControlParseText(&geology, "landform find river 16384") == DEBUG_CONTROL_COMMAND_LANDFORM_FIND);
     assert(geology.landformRadius == 16384 && !strcmp(geology.landformType, "river"));

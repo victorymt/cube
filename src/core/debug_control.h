@@ -27,6 +27,8 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_HUD_DEBUG_OFF,
     DEBUG_CONTROL_COMMAND_WORLD_TOPOLOGY,
     DEBUG_CONTROL_COMMAND_WORLD_TIME,
+    DEBUG_CONTROL_COMMAND_CGA_INSPECT,
+    DEBUG_CONTROL_COMMAND_CGA_VISIBLE,
     DEBUG_CONTROL_COMMAND_WATER_DEBUG,
     DEBUG_CONTROL_COMMAND_WATER_DEBUG_THROUGH,
     DEBUG_CONTROL_COMMAND_STREAM_AUDIT,
@@ -205,6 +207,10 @@ typedef struct DebugControl {
     unsigned streamWaitFrames;
     float lookYaw;
     float lookPitch;
+    float lookAtX;
+    float lookAtY;
+    float lookAtZ;
+    bool lookAt;
     bool lookRelative;
     bool fluidUsePlayerPosition;
     bool streamAuditUsePlayerPosition;
@@ -237,6 +243,7 @@ typedef struct DebugControl {
     bool thirdPerson;
     unsigned viewDistance;
     float worldTime;
+    unsigned cgaRadius;
     bool mapLiquidsVisible;
     DebugControlSurfaceStyle surfaceDebugStyle;
     uint32_t surfaceDebugSeed;

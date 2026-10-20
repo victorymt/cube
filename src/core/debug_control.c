@@ -663,11 +663,26 @@ static DebugControlCommand DebugControlParseLook(DebugControl *control,
     float yaw = 0.0f;
     float pitch = 0.0f;
     char trailing = '\0';
+    float atX = 0.0f;
+    float atY = 0.0f;
+    float atZ = 0.0f;
+    if (sscanf(line, "look at %f %f %f %c", &atX, &atY, &atZ, &trailing) == 3 &&
+        isfinite(atX) && isfinite(atY) && isfinite(atZ) &&
+        fabsf(atX) <= 1000000.0f && fabsf(atY) <= 1000000.0f &&
+        fabsf(atZ) <= 1000000.0f) {
+        control->lookAtX = atX;
+        control->lookAtY = atY;
+        control->lookAtZ = atZ;
+        control->lookAt = true;
+        control->lookRelative = false;
+        return DEBUG_CONTROL_COMMAND_LOOK;
+    }
     if (sscanf(line, "look delta %f %f %c", &yaw, &pitch, &trailing) == 2 &&
         isfinite(yaw) && isfinite(pitch) && fabsf(yaw) <= 1000.0f &&
         fabsf(pitch) <= 1000.0f) {
         control->lookYaw = yaw;
         control->lookPitch = pitch;
+        control->lookAt = false;
         control->lookRelative = true;
         return DEBUG_CONTROL_COMMAND_LOOK;
     }
@@ -676,8 +691,12 @@ static DebugControlCommand DebugControlParseLook(DebugControl *control,
         pitch >= -1.45f && pitch <= 1.45f) {
         control->lookYaw = yaw;
         control->lookPitch = pitch;
+        control->lookAt = false;
         control->lookRelative = false;
         return DEBUG_CONTROL_COMMAND_LOOK;
+    }
+    if (strncmp(line, "look at", 7) == 0) {
+        return DEBUG_CONTROL_COMMAND_INVALID;
     }
     return DEBUG_CONTROL_COMMAND_NONE;
 }
@@ -795,6 +814,29 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_WORLD_TIME;
     }
     if (strncmp(line, "world time", 10) == 0) {
+        return DEBUG_CONTROL_COMMAND_INVALID;
+    }
+    if (strcmp(line, "cga inspect") == 0) {
+        control->cgaRadius = 2;
+        return DEBUG_CONTROL_COMMAND_CGA_INSPECT;
+    }
+    if (strcmp(line, "cga visible") == 0) {
+        control->cgaRadius = 2;
+        return DEBUG_CONTROL_COMMAND_CGA_VISIBLE;
+    }
+    int cgaRadius = 0;
+    char cgaTrailing = '\0';
+    if (sscanf(line, "cga inspect %d %c", &cgaRadius, &cgaTrailing) == 1 &&
+        cgaRadius >= 1 && cgaRadius <= 4) {
+        control->cgaRadius = (unsigned)cgaRadius;
+        return DEBUG_CONTROL_COMMAND_CGA_INSPECT;
+    }
+    if (sscanf(line, "cga visible %d %c", &cgaRadius, &cgaTrailing) == 1 &&
+        cgaRadius >= 1 && cgaRadius <= 4) {
+        control->cgaRadius = (unsigned)cgaRadius;
+        return DEBUG_CONTROL_COMMAND_CGA_VISIBLE;
+    }
+    if (strncmp(line, "cga ", 4) == 0) {
         return DEBUG_CONTROL_COMMAND_INVALID;
     }
     if (strcmp(line, "water debug") == 0) {

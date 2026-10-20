@@ -3,6 +3,8 @@
 #include "raymath.h"
 
 #include "app/game_debug.h"
+#include "app/game_debug_player.h"
+#include "app/game_debug_cga.h"
 #include "app/game_geology.h"
 #include "app/game_debug_landform.h"
 #include "presentation/biology_ui.h"
@@ -284,52 +286,6 @@ static void GameDebugStepFluid(GameRuntime *game)
                       game->debugControl.fluidTicks, stats.activeCells,
                       stats.lastProcessedCells,
                       (unsigned long long)FluidLoadedVolume());
-}
-
-static void GameDebugTeleport(GameRuntime *game)
-{
-    if (game->screen != SCREEN_PLAYING) {
-        DebugControlReply(&game->debugControl,
-                          "DEBUG_CONTROL teleport error reason=not_playing\n");
-        return;
-    }
-    game->player.position = (Vector3){ game->debugControl.teleport.x,
-                                       game->debugControl.teleport.y,
-                                       game->debugControl.teleport.z };
-    game->player.velocity = Vector3Zero();
-    game->player.yaw = game->debugControl.teleport.yaw;
-    game->player.pitch = game->debugControl.teleport.pitch;
-    game->player.onGround = false;
-    PlayerResetRuntimeState(&game->player);
-    game->scriptedInputFrames = 0u;
-    game->scriptedInputFirstFrame = false;
-    DebugControlReply(&game->debugControl,
-                      "DEBUG_CONTROL teleport ok position=%.6f,%.6f,%.6f\n",
-                      game->player.position.x, game->player.position.y,
-                      game->player.position.z);
-    GameDebugTraceEvent(game, "teleport");
-}
-
-static void GameDebugLook(GameRuntime *game)
-{
-    if (game->screen != SCREEN_PLAYING) {
-        DebugControlReply(&game->debugControl,
-                          "DEBUG_CONTROL look error reason=not_playing\n");
-        return;
-    }
-    if (game->debugControl.lookRelative) {
-        game->player.yaw += game->debugControl.lookYaw;
-        game->player.pitch = Clamp(
-            game->player.pitch + game->debugControl.lookPitch,
-            -1.45f, 1.45f);
-    } else {
-        game->player.yaw = game->debugControl.lookYaw;
-        game->player.pitch = game->debugControl.lookPitch;
-    }
-    DebugControlReply(&game->debugControl,
-                      "DEBUG_CONTROL look ok yaw=%.6f pitch=%.6f\n",
-                      game->player.yaw, game->player.pitch);
-    GameDebugTraceEvent(game, "look");
 }
 
 static void GameDebugApplyInput(GameRuntime *game)
@@ -710,6 +666,12 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
         }
         return GAME_DEBUG_DISPATCH_HANDLED;
     }
+    case DEBUG_CONTROL_COMMAND_CGA_INSPECT:
+        GameDebugCgaInspect(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_CGA_VISIBLE:
+        GameDebugCgaVisible(game);
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_VIEW_DISTANCE:
         ChunksSetRenderDistance((int)game->debugControl.viewDistance);
         DebugControlReply(&game->debugControl, "DEBUG_CONTROL view distance chunks=%d\n", ChunksRenderDistance());
