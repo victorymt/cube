@@ -3,7 +3,8 @@
 ## Scope
 
 The world structure generator uses a deterministic integer voxel grammar (CGA)
-for houses, mineshafts, dungeons, and desert temples. Structure discovery,
+for houses, mineshafts, dungeons, desert temples, and Chinese classical
+halls. Structure discovery,
 rule expansion, conflict resolution, and chunk materialization are separate
 steps. The implementation lives in `src/world/cga_voxel.c` and its public
 contract is `src/world/cga_voxel.h`.
@@ -33,8 +34,9 @@ contract is `src/world/cga_voxel.h`.
 | 2 | Mineshaft | diagonal air corridor with periodic timber supports |
 | 3 | Dungeon | stone-brick perimeter, doorway, and internal supports |
 | 4 | Desert temple | sandstone pedestal, pillars, capstone, and underground base |
+| 6 | Chinese classical hall | rare five-bay hall with stone terrace, red columns, white plaster, lattice openings, painted bracket band, stepped hip roof, and ridge ornaments |
 
-All four grammars use world half-open AABBs and remain bounded by
+All grammars use world half-open AABBs and remain bounded by
 `CGA_MAX_FEATURES_PER_CHUNK` and `CGA_MAX_CHUNK_OPS`. Expansion reserves its
 operation budget before emitting records, so capacity failure cannot produce a
 partial structure.
@@ -46,10 +48,12 @@ partial structure.
 - `build/normal/tests/test_cga_voxel` covers scope operations, all grammar
   expanders, rotations, operation ordering, and conflict order invariance.
 - `build/normal/tests/test_terrain_scale` covers terrain suitability,
-  underground section materialization, all four planned grammar kinds, and
+  underground section materialization, all planned grammar kinds, and
   deterministic structure baselines.
-- `make test-cga-house-e2e` starts the game with the debug DSL, streams the
-  target region, captures a screenshot, and verifies a clean script exit.
+- `make test-cga-previews-e2e` starts the game with each debug DSL scene,
+  streams the target region, captures a screenshot, and verifies a clean script
+  exit. `cga_classical_hall.dsl` targets the default-seed plains hall near
+  `(7680, 85, 1120)`, whose terrace is 85 blocks above the world floor.
 
 ## Boundaries
 

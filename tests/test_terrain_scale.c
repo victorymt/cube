@@ -69,11 +69,13 @@ static void TestCgaPlannerFindsAllStructureKinds(void)
 {
     CgaFeature features[CGA_MAX_FEATURES_PER_CHUNK];
     bool seenHouse = false;
+    bool seenClassicalHall = false;
     bool seenMineshaft = false;
     bool seenDungeon = false;
     bool seenTemple = false;
     for (int cz = -512; cz <= 512 &&
-         !(seenHouse && seenMineshaft && seenDungeon && seenTemple); cz += 16) {
+         !(seenHouse && seenClassicalHall && seenMineshaft &&
+           seenDungeon && seenTemple); cz += 16) {
         for (int cx = -512; cx <= 512; cx += 16) {
             size_t count = CgaTestPlanStructureFeatures(
                 features, CGA_MAX_FEATURES_PER_CHUNK, cx, cz,
@@ -81,16 +83,20 @@ static void TestCgaPlannerFindsAllStructureKinds(void)
             for (size_t i = 0; i < count; i++) {
                 switch (features[i].grammarVersion) {
                     case CGA_HOUSE_GRAMMAR_VERSION: seenHouse = true; break;
+                    case CGA_CLASSICAL_HALL_GRAMMAR_VERSION:
+                        seenClassicalHall = true; break;
                     case CGA_MINESHAFT_GRAMMAR_VERSION: seenMineshaft = true; break;
                     case CGA_DUNGEON_GRAMMAR_VERSION: seenDungeon = true; break;
                     case CGA_DESERT_TEMPLE_GRAMMAR_VERSION: seenTemple = true; break;
                     default: assert(false); break;
                 }
             }
-            if (seenHouse && seenMineshaft && seenDungeon && seenTemple) break;
+            if (seenHouse && seenClassicalHall && seenMineshaft &&
+                seenDungeon && seenTemple) break;
         }
     }
-    assert(seenHouse && seenMineshaft && seenDungeon && seenTemple);
+    assert(seenHouse && seenClassicalHall && seenMineshaft &&
+           seenDungeon && seenTemple);
 }
 
 bool WorldIsSurfaceActive(void)

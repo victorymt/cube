@@ -129,7 +129,8 @@ static size_t ResolveFeatureConflicts(CgaFeature *features, size_t count,
     return accepted;
 }
 
-static bool HouseTerrainSuitable(CgaScope scope, int base, TerrainMode mode)
+static bool StructureTerrainSuitable(CgaScope scope, int base, TerrainMode mode,
+                                     int tolerance)
 {
     int minHeight = INT_MAX;
     int maxHeight = INT_MIN;
@@ -138,10 +139,15 @@ static bool HouseTerrainSuitable(CgaScope scope, int base, TerrainMode mode)
             int height = TerrainHeight(x, z, mode);
             if (height < minHeight) minHeight = height;
             if (height > maxHeight) maxHeight = height;
-            if (height < base - 1 || height > base + 1) return false;
+            if (height < base - tolerance || height > base + tolerance) return false;
         }
     }
-    return maxHeight - minHeight <= 1;
+    return maxHeight - minHeight <= tolerance;
+}
+
+static bool HouseTerrainSuitable(CgaScope scope, int base, TerrainMode mode)
+{
+    return StructureTerrainSuitable(scope, base, mode, 1);
 }
 
 uint64_t CgaFeatureId(uint32_t worldSeed, uint32_t grammarVersion,
@@ -381,6 +387,221 @@ static bool ExpandDesertTemple(CgaWorkspace *workspace, CgaFeature feature)
     return true;
 }
 
+static bool AppendLocalBox(CgaWorkspace *workspace, CgaOpKind kind,
+                           CgaStage stage, int priority, CgaFeature feature,
+                           CgaScope parent, int x, int y, int z,
+                           int width, int height, int depth,
+                           BlockType material)
+{
+    return CgaAppendOp(workspace, kind, stage, priority, feature,
+                       LocalBox(parent, x, y, z, width, height, depth),
+                       material);
+}
+
+/*
+ * A rare five-bay hall assembled from the same voxel vocabulary as the
+ * smaller house grammar.  The composition follows a Chinese timber hall:
+ * stone terrace, open front colonnade, plaster infill, repeated red columns,
+ * a green/gold bracket band, lattice openings, and a stepped hip roof whose
+ * corners visibly turn upward.
+ */
+static bool ExpandClassicalHall(CgaWorkspace *workspace, CgaFeature feature)
+{
+    CgaScope s = feature.scope;
+    int width = (s.orientation & 1) ? s.sizeZ : s.sizeX;
+    int depth = (s.orientation & 1) ? s.sizeX : s.sizeZ;
+    if (!workspace || feature.grammarVersion != CGA_CLASSICAL_HALL_GRAMMAR_VERSION ||
+        !CgaScopeValid(s) || width < 29 || depth < 27 || s.sizeY < 19) return false;
+    if (!ReserveOps(workspace, 220)) return false;
+
+    /* Two buried foundation courses settle the hall into gentle terrain. */
+    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
+                        s, 1, -2, 1, 27, 3, 25, BLOCK_STONE_BRICKS) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 1, feature,
+                        s, 2, 1, 2, 25, 1, 23, BLOCK_DRESSED_STONE)) return false;
+
+    /* Broad front steps, with the centre kept visually quiet like a stone ramp. */
+    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 2, feature,
+                        s, 11, 0, 0, 7, 1, 1, BLOCK_DRESSED_STONE) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 3, feature,
+                        s, 11, 0, 1, 7, 2, 1, BLOCK_DRESSED_STONE)) return false;
+
+    /* Main enclosed volume: white plaster between a red timber frame. */
+    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 10, feature,
+                        s, 6, 2, 7, 17, 6, 13, BLOCK_WHITE_PLASTER) ||
+        !AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 0, feature,
+                        s, 7, 3, 8, 15, 5, 11, BLOCK_AIR)) return false;
+
+    /* Central double-door opening and four regularly spaced lattice windows. */
+    const int windowX[] = { 7, 10, 17, 20 };
+    if (!AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1, feature,
+                        s, 12, 2, 7, 4, 5, 1, BLOCK_AIR)) return false;
+    for (size_t i = 0; i < sizeof(windowX) / sizeof(windowX[0]); i++) {
+        if (!AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1, feature,
+                            s, windowX[i], 4, 7, 2, 3, 1, BLOCK_AIR)) return false;
+    }
+    for (int side = 0; side < 2; side++) {
+        for (int slot = 0; slot < 2; slot++) {
+            int x = side ? 22 : 6;
+            int z = slot ? 15 : 9;
+            if (!AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1,
+                                feature, s, x, 4, z, 1, 3, 3, BLOCK_AIR) ||
+                !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 2,
+                                feature, s, x, 4, z, 1, 3, 3,
+                                BLOCK_WOOD_LATTICE)) return false;
+        }
+    }
+
+    /* Six front and six rear columns create five bays; side columns complete
+     * the peristyle and the wide overhanging eaves. */
+    const int bayColumns[] = { 6, 9, 12, 16, 19, 22 };
+    const int sideColumns[] = { 10, 13, 16 };
+    for (size_t i = 0; i < sizeof(bayColumns) / sizeof(bayColumns[0]); i++) {
+        for (int side = 0; side < 2; side++) {
+            if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 20,
+                                feature, s, bayColumns[i], 2,
+                                side ? 20 : 6, 1, 6, 1,
+                                BLOCK_RED_LACQUER_WOOD)) return false;
+        }
+    }
+    for (int side = 0; side < 2; side++) {
+        for (size_t i = 0; i < sizeof(sideColumns) / sizeof(sideColumns[0]); i++) {
+            if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 20,
+                                feature, s, side ? 23 : 5, 2, sideColumns[i],
+                                1, 6, 1, BLOCK_RED_LACQUER_WOOD)) return false;
+        }
+    }
+
+    /* Red architraves and a green painted plate form the transition from the
+     * timber frame to the roof. Gold bracket tips repeat along each facade. */
+    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 24, feature,
+                        s, 5, 8, 6, 19, 1, 1, BLOCK_RED_LACQUER_WOOD) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 24, feature,
+                        s, 5, 8, 20, 19, 1, 1, BLOCK_RED_LACQUER_WOOD) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 24, feature,
+                        s, 5, 8, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 24, feature,
+                        s, 23, 8, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 25, feature,
+                        s, 4, 9, 6, 21, 1, 1, BLOCK_GREEN) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 25, feature,
+                        s, 4, 9, 20, 21, 1, 1, BLOCK_GREEN)) return false;
+
+    const int bracketX[] = { 6, 9, 12, 14, 16, 19, 22 };
+    for (size_t i = 0; i < sizeof(bracketX) / sizeof(bracketX[0]); i++) {
+        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 26,
+                            feature, s, bracketX[i], 9, 5, 1, 1, 1,
+                            BLOCK_YELLOW) ||
+            !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 26,
+                            feature, s, bracketX[i], 9, 21, 1, 1, 1,
+                            BLOCK_YELLOW)) return false;
+    }
+    for (int side = 0; side < 2; side++) {
+        for (size_t i = 0; i < sizeof(sideColumns) / sizeof(sideColumns[0]); i++) {
+            if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 26,
+                                feature, s, side ? 24 : 4, 9,
+                                sideColumns[i] - 1, 1, 1, 3,
+                                BLOCK_YELLOW)) return false;
+        }
+    }
+
+    /* Stone balustrade leaves the central stair opening clear. */
+    const int railPosts[] = { 2, 5, 8, 20, 23, 26 };
+    for (size_t i = 0; i < sizeof(railPosts) / sizeof(railPosts[0]); i++) {
+        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28,
+                            feature, s, railPosts[i], 2, 2, 1, 2, 1,
+                            BLOCK_DRESSED_STONE)) return false;
+    }
+    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
+                        s, 2, 3, 2, 9, 1, 1, BLOCK_DRESSED_STONE) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
+                        s, 18, 3, 2, 9, 1, 1, BLOCK_DRESSED_STONE) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
+                        s, 2, 3, 2, 1, 1, 23, BLOCK_DRESSED_STONE) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
+                        s, 26, 3, 2, 1, 1, 23, BLOCK_DRESSED_STONE) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
+                        s, 2, 3, 24, 25, 1, 1, BLOCK_DRESSED_STONE)) return false;
+
+    /* Two red lanterns hang from the front bracket line. */
+    for (int side = 0; side < 2; side++) {
+        int x = side ? 20 : 8;
+        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 29,
+                            feature, s, x, 6, 4, 1, 2, 1, BLOCK_RED) ||
+            !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 29,
+                            feature, s, x, 5, 4, 1, 1, 1,
+                            BLOCK_YELLOW)) return false;
+    }
+
+    /* A seven-course stepped hip roof. Each course is shallower near the eaves
+     * and steeper toward the ridge, producing the rhythmic concave silhouette
+     * of a Chinese roof in voxel resolution. */
+    const int roofX[] = { 2, 3, 5, 7, 9, 11 };
+    const int roofZ[] = { 2, 3, 4, 6, 8, 10 };
+    const int roofW[] = { 25, 23, 19, 15, 11, 7 };
+    const int roofD[] = { 23, 21, 19, 15, 11, 7 };
+    for (int level = 0; level < 6; level++) {
+        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE,
+                            40 + level, feature, s, roofX[level],
+                            10 + level, roofZ[level], roofW[level], 1,
+                            roofD[level], BLOCK_BLUE_ROOF_TILE)) return false;
+    }
+
+    /* Upturned corner horns: one outward step at the eave and two more rising
+     * diagonally, capped with the darker blue-brick ridge material. */
+    const int cornersX[] = { 2, 26, 2, 26 };
+    const int cornersZ[] = { 2, 24, 24, 2 };
+    const int cornerDX[] = { -1, 1, -1, 1 };
+    const int cornerDZ[] = { -1, 1, 1, -1 };
+    for (int i = 0; i < 4; i++) {
+        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 50,
+                            feature, s, cornersX[i] + cornerDX[i], 10,
+                            cornersZ[i] + cornerDZ[i], 1, 1, 1,
+                            BLOCK_BLUE_ROOF_TILE) ||
+            !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 51,
+                            feature, s, cornersX[i] + 2 * cornerDX[i], 11,
+                            cornersZ[i] + 2 * cornerDZ[i], 1, 1, 1,
+                            BLOCK_BLUE_ROOF_TILE) ||
+            !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 52,
+                            feature, s, cornersX[i] + 2 * cornerDX[i], 12,
+                            cornersZ[i] + 2 * cornerDZ[i], 1, 1, 1,
+                            BLOCK_BLUE_BRICK)) return false;
+    }
+
+    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 60, feature,
+                        s, 10, 16, 13, 9, 1, 1, BLOCK_BLUE_BRICK) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 61, feature,
+                        s, 9, 16, 13, 1, 2, 1, BLOCK_BLUE_BRICK) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 61, feature,
+                        s, 19, 16, 13, 1, 2, 1, BLOCK_BLUE_BRICK) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 62, feature,
+                        s, 9, 18, 13, 1, 1, 1, BLOCK_YELLOW) ||
+        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 62, feature,
+                        s, 19, 18, 13, 1, 1, 1, BLOCK_YELLOW)) return false;
+
+    /* Closed lower door leaves, open lattice transoms, and a green lintel. */
+    if (!AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 0, feature,
+                        s, 7, 2, 8, 15, 1, 11, BLOCK_WOOD) ||
+        !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1, feature,
+                        s, 12, 2, 7, 4, 2, 1, BLOCK_RED_LACQUER_WOOD) ||
+        !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1, feature,
+                        s, 12, 4, 7, 4, 3, 1, BLOCK_WOOD_LATTICE) ||
+        !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 2, feature,
+                        s, 11, 7, 7, 6, 1, 1, BLOCK_GREEN)) return false;
+    for (size_t i = 0; i < sizeof(windowX) / sizeof(windowX[0]); i++) {
+        if (!AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 2,
+                            feature, s, windowX[i], 4, 7, 2, 3, 1,
+                            BLOCK_WOOD_LATTICE)) return false;
+    }
+    /* A few oversized pixels imply the gold door studs at this scale. */
+    if (!AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 3, feature,
+                        s, 13, 3, 7, 1, 1, 1, BLOCK_YELLOW) ||
+        !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 3, feature,
+                        s, 14, 3, 7, 1, 1, 1, BLOCK_YELLOW)) return false;
+
+    return true;
+}
+
 bool CgaExpandFeature(CgaWorkspace *workspace, CgaFeature feature)
 {
     switch (feature.grammarVersion) {
@@ -388,6 +609,7 @@ bool CgaExpandFeature(CgaWorkspace *workspace, CgaFeature feature)
         case CGA_MINESHAFT_GRAMMAR_VERSION: return ExpandMineshaft(workspace, feature);
         case CGA_DUNGEON_GRAMMAR_VERSION: return ExpandDungeon(workspace, feature);
         case CGA_DESERT_TEMPLE_GRAMMAR_VERSION: return ExpandDesertTemple(workspace, feature);
+        case CGA_CLASSICAL_HALL_GRAMMAR_VERSION: return ExpandClassicalHall(workspace, feature);
         default: return false;
     }
 }
@@ -496,12 +718,43 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
     int startZ = cz * CHUNK_SIZE;
     uint32_t seed = WorldGetSeed();
 
+    const int hallSpacing = 160;
+    const int hallHalfExtent = 16;
+    int minAnchorX = FloorDivInt(startX - hallHalfExtent, hallSpacing);
+    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + hallHalfExtent, hallSpacing);
+    int minAnchorZ = FloorDivInt(startZ - hallHalfExtent, hallSpacing);
+    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + hallHalfExtent, hallSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * hallSpacing;
+            int z = az * hallSpacing;
+            Biome biome = BiomeAt(x, z);
+            if ((biome != BIOME_PLAINS && biome != BIOME_FOREST) ||
+                HomeSurfaceHashAt(x, z, 1543u) % 100u >= 42u ||
+                TerrainHeight(x, z, mode) < 4) continue;
+            int base = TerrainHeight(x, z, mode);
+            CgaOrientation orientation =
+                (CgaOrientation)(HomeSurfaceHashAt(x, z, 1549u) % 4u);
+            int width = (orientation & 1) ? 27 : 29;
+            int depth = (orientation & 1) ? 29 : 27;
+            CgaScope scope = { x - width / 2, base, z - depth / 2,
+                               width, 19, depth, orientation };
+            if (scope.minX >= startX + CHUNK_SIZE ||
+                scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE ||
+                scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!StructureTerrainSuitable(scope, base, mode, 2)) continue;
+            if (!AddFeature(workspace, CGA_CLASSICAL_HALL_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+
     const int houseSpacing = 64;
     const int houseHalfExtent = 9;
-    int minAnchorX = FloorDivInt(startX - houseHalfExtent, houseSpacing);
-    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + houseHalfExtent, houseSpacing);
-    int minAnchorZ = FloorDivInt(startZ - houseHalfExtent, houseSpacing);
-    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + houseHalfExtent, houseSpacing);
+    minAnchorX = FloorDivInt(startX - houseHalfExtent, houseSpacing);
+    maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + houseHalfExtent, houseSpacing);
+    minAnchorZ = FloorDivInt(startZ - houseHalfExtent, houseSpacing);
+    maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + houseHalfExtent, houseSpacing);
     for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
         for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
             int x = ax * houseSpacing;
@@ -517,6 +770,16 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
             if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
                 scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
             if (!HouseTerrainSuitable(scope, base, mode)) continue;
+            bool hallReserved = false;
+            for (size_t i = 0; i < workspace->featureCount; i++) {
+                if (workspace->features[i].grammarVersion ==
+                        CGA_CLASSICAL_HALL_GRAMMAR_VERSION &&
+                    ScopeOverlapsXZ(scope, workspace->features[i].scope)) {
+                    hallReserved = true;
+                    break;
+                }
+            }
+            if (hallReserved) continue;
             if (!AddFeature(workspace, CGA_HOUSE_GRAMMAR_VERSION, seed,
                             ax, az, scope)) return false;
         }

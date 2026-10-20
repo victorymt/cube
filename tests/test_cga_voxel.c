@@ -154,6 +154,55 @@ static void TestFeatureConflictResolution(void)
     assert(CgaTestResolveFeatureConflicts(features, count, &blocked) == 0);
 }
 
+static void TestClassicalHallExpansion(void)
+{
+    CgaFeature hall = {
+        CgaFeatureId(0x564f5843u, CGA_CLASSICAL_HALL_GRAMMAR_VERSION, 4, -2),
+        CGA_CLASSICAL_HALL_GRAMMAR_VERSION, 0x564f5843u, 4, -2,
+        {120, 48, -90, 29, 19, 27, CGA_ORIENTATION_0}
+    };
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    assert(CgaExpandFeature(&workspace, hall));
+    assert(!workspace.overflow);
+    assert(workspace.opCount >= 90);
+
+    bool hasTerrace = false;
+    bool hasPlaster = false;
+    bool hasRedColumns = false;
+    bool hasLattice = false;
+    bool hasRoofTile = false;
+    bool hasPaintedBracketBand = false;
+    for (size_t i = 0; i < workspace.opCount; i++) {
+        const CgaVoxelOp *op = &workspace.ops[i];
+        assert(CgaScopeValid(op->scope));
+        hasTerrace |= op->material == BLOCK_DRESSED_STONE;
+        hasPlaster |= op->material == BLOCK_WHITE_PLASTER;
+        hasRedColumns |= op->material == BLOCK_RED_LACQUER_WOOD;
+        hasLattice |= op->material == BLOCK_WOOD_LATTICE;
+        hasRoofTile |= op->material == BLOCK_BLUE_ROOF_TILE;
+        hasPaintedBracketBand |= op->material == BLOCK_GREEN ||
+                                 op->material == BLOCK_YELLOW;
+    }
+    assert(hasTerrace && hasPlaster && hasRedColumns && hasLattice);
+    assert(hasRoofTile && hasPaintedBracketBand);
+
+    size_t baseOpCount = workspace.opCount;
+    for (int orientation = 0; orientation < 4; orientation++) {
+        CgaWorkspace rotated;
+        CgaWorkspaceReset(&rotated);
+        hall.scope.orientation = (CgaOrientation)orientation;
+        hall.scope.sizeX = (orientation & 1) ? 27 : 29;
+        hall.scope.sizeZ = (orientation & 1) ? 29 : 27;
+        assert(CgaExpandFeature(&rotated, hall));
+        assert(!rotated.overflow);
+        assert(rotated.opCount == baseOpCount);
+        for (size_t i = 0; i < rotated.opCount; i++) {
+            assert(CgaScopeValid(rotated.ops[i].scope));
+        }
+    }
+}
+
 static void TestAllStructureGrammarsExpand(void)
 {
     CgaFeature features[] = {
@@ -188,6 +237,7 @@ int main(void)
     TestFeatureIdAndHouseExpansion();
     TestChunkOrderInvariant();
     TestFeatureConflictResolution();
+    TestClassicalHallExpansion();
     TestAllStructureGrammarsExpand();
     puts("cga voxel tests passed");
     return 0;
