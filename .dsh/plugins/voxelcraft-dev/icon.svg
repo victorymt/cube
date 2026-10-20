@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Voxelcraft scene runner">
+  <rect width="64" height="64" rx="14" fill="#1b2430"/>
+  <path d="M32 10 52 21v22L32 54 12 43V21z" fill="none" stroke="#8fd3ff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M32 10v22m0 0 20-11M32 32 12 21" fill="none" stroke="#8fd3ff" stroke-width="2"/>
+  <circle cx="43" cy="42" r="8" fill="none" stroke="#ffd166" stroke-width="3"/>
+  <circle cx="43" cy="42" r="2.5" fill="#ffd166"/>
+</svg>

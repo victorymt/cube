@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Voxelcraft Dev",
+    "description": "Run Voxelcraft debug-DSL scenes in an isolated runtime and return screenshots with parsed reports."
+  }
+}

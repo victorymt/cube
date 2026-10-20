@@ -43,6 +43,8 @@ make -j"$(nproc)"          # 构建 build/normal/voxelcraft
 make test-headers          # 每个公共头单独 -Werror 编译
 ```
 
+- 视觉场景优先 `scripts/run-scene.sh <scene>`（或 DSH 的 `voxelcraft_run` 工具），不要手工在仓库根启动游戏。
+
 - 先跑最接近改动的聚焦目标，例如 `make test-surface-cube`、`make test-cga-house-e2e`。
 - 没有别名的 C 单测可以直接构建并运行：`make build/normal/tests/test_cga_voxel && ./build/normal/tests/test_cga_voxel`。
 - 提交前至少 `make test-architecture` + `git diff --check`；时间允许再跑 `make test`。
@@ -77,6 +79,13 @@ make test-headers          # 每个公共头单独 -Werror 编译
 ## 视觉调试循环（核心）
 
 前置：真实 Hyprland/Wayland 会话、可用 GPU；`WAYLAND_DISPLAY` 必须指向 `XDG_RUNTIME_DIR` 下的 socket。没有 Xvfb/软件渲染回退。
+
+工具入口（优先）：
+
+- `scripts/run-scene.sh <scene>`：人类/CI 入口，隔离运行、写 `manifest.txt` 并打印截图报告。
+- `voxelcraft_run`（DSH 工具）：调用同一个脚本，返回 `ok`、`runDir`、`captures[]`、`logTail`；用 `read_image` 看 `captures[].png`。
+
+下面的手工命令用于理解脚本、排查参数或临时修改。
 
 **永远在临时运行目录跑**，不要在仓库根跑：游戏会把 `voxelcraft_save.txt`、`voxelcraft_settings.cfg`、`screenshots/` 写到 cwd，覆盖用户存档。
 
@@ -193,4 +202,5 @@ exit 0
 - `todo/00-roadmap.md`：当前工作与验收。
 - `Makefile` / `mk/tests.mk`：目标与测试清单。
 - `tests/test_cga_previews_e2e.sh`：临时目录 + assets symlink 的标准写法。
+- `scripts/run-scene.sh`：隔离运行场景、写 manifest、定位截图报告。
 - `tests/scenes/*.dsl`：现有 47 个场景。

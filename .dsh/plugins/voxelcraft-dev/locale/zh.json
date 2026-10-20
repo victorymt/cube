@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Voxelcraft 开发工具",
+    "description": "在隔离目录中运行 Voxelcraft 的 debug DSL 场景，返回截图和解析后的报告。"
+  }
+}

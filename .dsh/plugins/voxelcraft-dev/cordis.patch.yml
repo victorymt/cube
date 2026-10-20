@@ -1,0 +1,3 @@
+- insert:
+    - id: voxelcraft-dev
+      name: '@local/voxelcraft-dev'
