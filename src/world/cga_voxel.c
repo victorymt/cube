@@ -545,7 +545,7 @@ static bool AppendComplexHipRoof(CgaWorkspace *workspace, CgaFeature feature,
                          cx + cornerX[c] * cornerReach,
                          eaveY + cornerReach + 1,
                          cz + cornerZ[c] * cornerReach, 1, 1, 1,
-                         BLOCK_BLUE_BRICK, priority + 45 + c)) return false;
+                         BLOCK_YELLOW, priority + 45 + c)) return false;
     }
     /* Tile ribs: paint alternating columns down the four slope faces so the
      * stepped roof reads as parallel tile courses rather than flat boxes. */
@@ -818,7 +818,7 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     CF(31, 3, 30, 11, 1, 2, BLOCK_DRESSED_STONE, 9);
     CF(32, 4, 30, 9, 1, 2, BLOCK_DRESSED_STONE, 9);
     CF(33, 5, 30, 7, 1, 2, BLOCK_DRESSED_STONE, 9);
-    CF(18, 6, 6, 37, 6, 16, BLOCK_WHITE_PLASTER, 12);
+    CF(18, 6, 6, 37, 12, 16, BLOCK_WHITE_PLASTER, 12);
     CC(19, 7, 7, 35, 4, 14, BLOCK_AIR, 0);
 
     /* Door and four lattice windows on the south facade. */
@@ -847,19 +847,38 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     CP(24, 8, 6, 4, 3, 1, BLOCK_WOOD_LATTICE, 0);
     CP(45, 8, 6, 4, 3, 1, BLOCK_WOOD_LATTICE, 0);
 
+    /* Upper-storey windows, side lights and rear lights. */
+    const int upperWindowX[] = { 20, 27, 41, 47 };
+    for (size_t i = 0; i < sizeof(upperWindowX) / sizeof(upperWindowX[0]); i++) {
+        CC(upperWindowX[i], 14, 21, 4, 3, 1, BLOCK_AIR, 1);
+        CP(upperWindowX[i], 14, 21, 4, 3, 1, BLOCK_WOOD_LATTICE, 0);
+    }
+    CC(18, 14, 9, 1, 3, 4, BLOCK_AIR, 1);
+    CC(18, 14, 15, 1, 3, 4, BLOCK_AIR, 1);
+    CC(54, 14, 9, 1, 3, 4, BLOCK_AIR, 1);
+    CC(54, 14, 15, 1, 3, 4, BLOCK_AIR, 1);
+    CP(18, 14, 9, 1, 3, 4, BLOCK_WOOD_LATTICE, 0);
+    CP(18, 14, 15, 1, 3, 4, BLOCK_WOOD_LATTICE, 0);
+    CP(54, 14, 9, 1, 3, 4, BLOCK_WOOD_LATTICE, 0);
+    CP(54, 14, 15, 1, 3, 4, BLOCK_WOOD_LATTICE, 0);
+    CC(24, 14, 6, 4, 3, 1, BLOCK_AIR, 1);
+    CC(45, 14, 6, 4, 3, 1, BLOCK_AIR, 1);
+    CP(24, 14, 6, 4, 3, 1, BLOCK_WOOD_LATTICE, 0);
+    CP(45, 14, 6, 4, 3, 1, BLOCK_WOOD_LATTICE, 0);
+
     /* Six front columns, side columns, and rear columns. */
     const int frontColumns[] = { 18, 25, 32, 39, 46, 53 };
     for (size_t i = 0; i < sizeof(frontColumns) / sizeof(frontColumns[0]); i++) {
-        CF(frontColumns[i], 6, 24, 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 15);
+        CF(frontColumns[i], 6, 24, 1, 12, 1, BLOCK_RED_LACQUER_WOOD, 15);
     }
     const int sideZ[] = { 8, 12, 16, 20 };
     for (size_t i = 0; i < sizeof(sideZ) / sizeof(sideZ[0]); i++) {
-        CF(18, 6, sideZ[i], 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 15);
-        CF(54, 6, sideZ[i], 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 15);
+        CF(18, 6, sideZ[i], 1, 12, 1, BLOCK_RED_LACQUER_WOOD, 15);
+        CF(54, 6, sideZ[i], 1, 12, 1, BLOCK_RED_LACQUER_WOOD, 15);
     }
     const int rearColumns[] = { 25, 32, 39, 46 };
     for (size_t i = 0; i < sizeof(rearColumns) / sizeof(rearColumns[0]); i++) {
-        CF(rearColumns[i], 6, 6, 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 15);
+        CF(rearColumns[i], 6, 6, 1, 12, 1, BLOCK_RED_LACQUER_WOOD, 15);
     }
 
     /* Painted architrave, bracket arms, and gold caps. */
@@ -875,6 +894,16 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     CF(18, 13, 6, 37, 1, 1, BLOCK_GREEN, 25);
     CF(18, 12, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD, 24);
     CF(54, 12, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD, 24);
+    CF(16, 16, 24, 41, 1, 1, BLOCK_RED_LACQUER_WOOD, 24);
+    CF(15, 17, 24, 43, 1, 1, BLOCK_GREEN, 25);
+    for (int bx = 18; bx <= 53; bx += 3) {
+        CF(bx - 1, 17, 24, 3, 1, 1, BLOCK_RED_LACQUER_WOOD, 26);
+        CF(bx, 17, 24, 1, 1, 1, BLOCK_YELLOW, 27);
+    }
+    CF(18, 16, 6, 37, 1, 1, BLOCK_RED_LACQUER_WOOD, 24);
+    CF(18, 17, 6, 37, 1, 1, BLOCK_GREEN, 25);
+    CF(18, 16, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD, 24);
+    CF(54, 16, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD, 24);
 
     /* Stone balustrade on the main terrace, open at the central stair. */
     CF(14, 6, 3, 1, 1, 28, BLOCK_DRESSED_STONE, 11);
@@ -911,9 +940,48 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
            BLOCK_RED_LACQUER_WOOD, 29);
         CF(bracketColumns[i], 10, 24, 1, 1, 1, BLOCK_YELLOW, 30);
     }
+    /* Upper storey: plaque, couplets and a hanging frieze. */
+    CF(30, 14, 23, 9, 2, 1, BLOCK_BLACK, 28);
+    CP(32, 15, 23, 1, 1, 1, BLOCK_YELLOW, 2);
+    CP(34, 15, 23, 1, 1, 1, BLOCK_YELLOW, 2);
+    CP(36, 15, 23, 1, 1, 1, BLOCK_YELLOW, 2);
+    CF(30, 13, 23, 9, 1, 1, BLOCK_YELLOW, 28);
+    CF(30, 16, 23, 9, 1, 1, BLOCK_YELLOW, 28);
+    CF(29, 14, 23, 1, 3, 1, BLOCK_YELLOW, 28);
+    CF(39, 14, 23, 1, 3, 1, BLOCK_YELLOW, 28);
+    CF(32, 13, 25, 1, 4, 1, BLOCK_BLACK, 29);
+    CF(39, 13, 25, 1, 4, 1, BLOCK_BLACK, 29);
+    CP(32, 14, 25, 1, 1, 1, BLOCK_YELLOW, 3);
+    CP(32, 16, 25, 1, 1, 1, BLOCK_YELLOW, 3);
+    CP(39, 14, 25, 1, 1, 1, BLOCK_YELLOW, 3);
+    CP(39, 16, 25, 1, 1, 1, BLOCK_YELLOW, 3);
+    CF(20, 13, 25, 9, 1, 1, BLOCK_WOOD_LATTICE, 29);
+    CF(40, 13, 25, 12, 1, 1, BLOCK_WOOD_LATTICE, 29);
 
     if (!AppendComplexHipRoof(workspace, feature, s, 14, 3, 45, 29,
-                              15, 6, 40, 2)) return false;
+                              18, 6, 40, 2)) return false;
+
+    /* Lower eave (yaoyan) over the front porch only.  Raising it one level
+     * keeps the plaque below the eave and leaves the upper roof dominant. */
+    CF(12, 13, 27, 49, 1, 5, BLOCK_BLUE_ROOF_TILE, 56);
+    CF(12, 13, 25, 5, 1, 6, BLOCK_BLUE_ROOF_TILE, 56);
+    CF(56, 13, 25, 5, 1, 6, BLOCK_BLUE_ROOF_TILE, 56);
+    CF(14, 14, 25, 45, 1, 5, BLOCK_BLUE_ROOF_TILE, 57);
+    CF(14, 14, 27, 3, 1, 4, BLOCK_BLUE_ROOF_TILE, 57);
+    CF(56, 14, 27, 3, 1, 4, BLOCK_BLUE_ROOF_TILE, 57);
+    CF(12, 12, 31, 49, 1, 1, BLOCK_GREEN, 58);
+    CF(12, 12, 25, 1, 1, 6, BLOCK_GREEN, 58);
+    CF(60, 12, 25, 1, 1, 6, BLOCK_GREEN, 58);
+    CF(12, 13, 32, 49, 1, 1, BLOCK_BLUE_BRICK, 59);
+    CF(11, 13, 25, 1, 1, 7, BLOCK_BLUE_BRICK, 59);
+    CF(61, 13, 25, 1, 1, 7, BLOCK_BLUE_BRICK, 59);
+    CF(12, 14, 31, 49, 1, 1, BLOCK_BLUE_BRICK, 60);
+    for (int lx = 18; lx <= 54; lx += 12) {
+        CF(lx, 6, 28, 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 60);
+    }
+    for (int rx = 17; rx <= 55; rx += 2) {
+        CF(rx, 11, 31, 1, 1, 1, BLOCK_WOOD, 62);
+    }
 
     /* East and west side halls, both facing the courtyard.  Build the west
      * hall and mirror every x coordinate for the east hall. */

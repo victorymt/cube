@@ -31,7 +31,7 @@ are written under `screenshots/` in the working directory.
 | `cga_mineshaft` | Timber supports in an underwater ravine near (-2048, 11, -2048) |
 | `cga_dungeon` | Stone-brick perimeter and entrance near (-1536, 10, -2048) |
 | `cga_desert_temple` | Partly submerged sandstone structure near (0, 79, -2048) |
-| `cga_classical_complex` | South-facing walled Chinese courtyard complex near (7680, 88, 3840); midday view from the inner courtyard toward the raised main hall |
+| `cga_classical_complex` | South-facing walled Chinese courtyard complex near (7680, 88, 3840); midday view from the inner courtyard toward the two-storey main hall |
 
 These are natural generation views, including sparse underground terrain and
 water occlusion; they do not clear terrain or insert display structures.
