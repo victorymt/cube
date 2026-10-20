@@ -652,6 +652,7 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
     case DEBUG_CONTROL_COMMAND_WORLD_TIME: {
         float time = game->debugControl.worldTime;
         game->debugDayTimeOverride = time;
+        game->debugDayTimeOverrideEnabled = time >= 0.0f;
         float daylight = 0.0f;
         float sunset = 0.0f;
         DayNightFactors(game->dayTime, &daylight, &sunset);

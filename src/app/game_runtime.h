@@ -182,6 +182,7 @@ typedef struct GameRuntime {
   float autoSaveTimer;
   float dayTime;
   float debugDayTimeOverride;
+  bool debugDayTimeOverrideEnabled;
   double debugSimulationEcologyMainCpuMs;
   double debugEcologyPrepareMainCpuMs;
   double debugEcologyStepMainCpuMs;

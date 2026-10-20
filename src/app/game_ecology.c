@@ -203,7 +203,7 @@ void GameAdvanceSimulationStep(double simulationSeconds,
     float dt = (float)stepSeconds;
     game->dayTime = (float)GameHomeDayPhaseAt(
         GameCaptureHomeDaylight(), simulationTime);
-    if (game->debugDayTimeOverride >= 0.0f) {
+    if (game->debugDayTimeOverrideEnabled) {
         game->dayTime = game->debugDayTimeOverride;
     }
     float daylight = GameSimulationDaylight(game, simulationTime);

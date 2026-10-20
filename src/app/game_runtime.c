@@ -264,7 +264,8 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       .dayCycleEnabled = true,
       .autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS,
       .dayTime = 0.30f,
-      .debugDayTimeOverride = -1.0f};
+      .debugDayTimeOverride = -1.0f,
+      .debugDayTimeOverrideEnabled = false};
   InventoryBrowserInit(&runtime->inventory);
   VoxelcraftPluginHostInit(&runtime->plugins);
 
