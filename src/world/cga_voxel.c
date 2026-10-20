@@ -592,10 +592,12 @@ static bool AppendComplexGableRoof(CgaWorkspace *workspace, CgaFeature feature,
     if (!ComplexFill(workspace, feature, s, x + maxInset, topY, z,
                      1, 1, depth, BLOCK_BLUE_BRICK, priority + 20))
         return false;
-    if (depth > 2 &&
-        !ComplexFill(workspace, feature, s, x + maxInset, topY + 1, z + 1,
-                     1, 1, depth - 2, BLOCK_YELLOW, priority + 21))
-        return false;
+    if (depth > 4 &&
+        (!ComplexFill(workspace, feature, s, x + maxInset, topY + 1,
+                      z + 1, 1, 1, 2, BLOCK_YELLOW, priority + 21) ||
+         !ComplexFill(workspace, feature, s, x + maxInset, topY + 1,
+                      z + depth - 3, 1, 1, 2, BLOCK_YELLOW,
+                      priority + 21))) return false;
     for (int i = 0; i < levels - 1; i++) {
         int inset = ComplexRoofInset(maxInset, i, levels);
         int w = width - 2 * inset;
@@ -714,6 +716,12 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     CP(32, 9, 59, 1, 1, 1, BLOCK_YELLOW, 1);
     CP(34, 9, 59, 1, 1, 1, BLOCK_YELLOW, 1);
     CP(36, 9, 59, 1, 1, 1, BLOCK_YELLOW, 1);
+    CF(32, 3, 57, 1, 5, 1, BLOCK_RED_LACQUER_WOOD, 22);
+    CF(40, 3, 57, 1, 5, 1, BLOCK_RED_LACQUER_WOOD, 22);
+    CP(32, 4, 57, 1, 1, 1, BLOCK_YELLOW, 5);
+    CP(32, 6, 57, 1, 1, 1, BLOCK_YELLOW, 5);
+    CP(40, 4, 57, 1, 1, 1, BLOCK_YELLOW, 5);
+    CP(40, 6, 57, 1, 1, 1, BLOCK_YELLOW, 5);
     CF(33, 2, 58, 7, 1, 1, BLOCK_DRESSED_STONE, 23);
     if (!AppendComplexHipRoof(workspace, feature, s, 25, 46, 23, 14,
                               10, 4, 30, 1)) return false;
@@ -837,6 +845,10 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
         }
         CF(MX(19, 1), 8, 34, 1, 1, 16, BLOCK_RED_LACQUER_WOOD, 20);
         CF(MX(19, 1), 9, 34, 1, 1, 16, BLOCK_GREEN, 21);
+        CF(MX(18, 1), 7, 38, 1, 2, 5, BLOCK_BLACK, 30);
+        CP(MX(18, 1), 8, 39, 1, 1, 1, BLOCK_YELLOW, 5);
+        CP(MX(18, 1), 8, 40, 1, 1, 1, BLOCK_YELLOW, 5);
+        CP(MX(18, 1), 8, 41, 1, 1, 1, BLOCK_YELLOW, 5);
         if (!AppendComplexGableRoof(workspace, feature, s, MX(3, 19), 32,
                                     19, 20, 9, 5, 30)) return false;
 #undef MX
