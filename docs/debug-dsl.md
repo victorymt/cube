@@ -48,13 +48,34 @@ inspection is still needed to judge the resulting geometry.
 
 `cga inspect [RADIUS]` searches the CGA planner in a chunk radius around the
 player (default 2, range 1-4), deduplicates planned features, and prints every
-feature's ID, grammar version, anchor, base level, scope, size and expanded op
-count. `cga visible [RADIUS]` selects the feature whose scope contains the
-player (preferring the complex, otherwise the nearest) and projects its world
-scope to the current camera. It reports `on_screen`, the clipped screen
-coverage and the projected bounds. Coverage is based on the scope AABB, not on
-a pixel mask, so it is a framing check rather than proof that no tree is in
-front of the structure.
+feature's ID, grammar version, anchor, base level, scope, size, expanded op
+count and grammar budget. The classical complex has a 1500-op budget
+(`CGA_CLASSICAL_COMPLEX_OP_BUDGET`); its feature line reports
+`over_budget=0` while it remains inside that limit. `cga visible [RADIUS]`
+selects the feature whose scope contains the player (preferring the complex,
+otherwise the nearest). It expands the feature's fill operations into a tight
+structure AABB, projects that AABB to the camera, and casts a 3×3×3 sample grid
+from the eye through the structure. A first solid hit inside the structure AABB
+counts as a visible sample; a first hit outside it counts as occluded. The
+reply includes the screen coverage, screen bounds, world fill bounds,
+`fill=...`, `samples=27`, `visible` and `occluded`. Coverage is still an AABB
+check rather than a pixel mask, and an occluder inside the feature bounds (for
+example a courtyard tree) is classified as visible.
+
+For a preflighted single-scene run use:
+
+```sh
+tests/run_scene.sh cga_classical_complex_review.dsl
+```
+
+It checks the binary, scene, assets, `XDG_RUNTIME_DIR`, display variables and
+`/dev/dri`, then runs in an isolated runtime directory and prints the artifact
+path and capture count. After the four-view review, build the labeled contact
+sheet with:
+
+```sh
+tests/cga_review_contact_sheet.py ARTIFACTS/screenshots -o build/cga_review.png
+```
 
 ### Build and session
 

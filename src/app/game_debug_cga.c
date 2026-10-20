@@ -7,6 +7,7 @@
 #include "world/chunks.h"
 #include "world/cga_voxel.h"
 #include "world/world.h"
+#include "gameplay/interaction.h"
 
 #include "raylib.h"
 #include "raymath.h"
@@ -56,6 +57,86 @@ static size_t GameDebugCgaOpCount(CgaFeature feature)
     static CgaWorkspace expand;
     CgaWorkspaceReset(&expand);
     return CgaExpandFeature(&expand, feature) ? expand.opCount : 0;
+}
+
+typedef struct GameDebugCgaBounds {
+    int minX;
+    int minY;
+    int minZ;
+    int maxX;
+    int maxY;
+    int maxZ;
+} GameDebugCgaBounds;
+
+static bool GameDebugCgaFillBounds(CgaFeature feature, GameDebugCgaBounds *out)
+{
+    if (!out) return false;
+    static CgaWorkspace expand;
+    CgaWorkspaceReset(&expand);
+    if (!CgaExpandFeature(&expand, feature)) return false;
+    bool any = false;
+    for (size_t i = 0; i < expand.opCount; i++) {
+        const CgaVoxelOp *op = &expand.ops[i];
+        if (op->kind != CGA_OP_FILL) continue;
+        int minX = op->scope.minX;
+        int minY = op->scope.minY;
+        int minZ = op->scope.minZ;
+        int maxX = op->scope.minX + op->scope.sizeX - 1;
+        int maxY = op->scope.minY + op->scope.sizeY - 1;
+        int maxZ = op->scope.minZ + op->scope.sizeZ - 1;
+        if (!any) {
+            *out = (GameDebugCgaBounds){ minX, minY, minZ, maxX, maxY, maxZ };
+            any = true;
+        } else {
+            if (minX < out->minX) out->minX = minX;
+            if (minY < out->minY) out->minY = minY;
+            if (minZ < out->minZ) out->minZ = minZ;
+            if (maxX > out->maxX) out->maxX = maxX;
+            if (maxY > out->maxY) out->maxY = maxY;
+            if (maxZ > out->maxZ) out->maxZ = maxZ;
+        }
+    }
+    return any;
+}
+
+static void GameDebugCgaSampleOcclusion(GameDebugCgaBounds bounds,
+                                        Vector3 eye,
+                                        int *samples, int *visible,
+                                        int *occluded)
+{
+    *samples = 0;
+    *visible = 0;
+    *occluded = 0;
+    for (int iy = 0; iy < 3; iy++) {
+        for (int iz = 0; iz < 3; iz++) {
+            for (int ix = 0; ix < 3; ix++) {
+                float tx = (float)bounds.minX +
+                    (float)(bounds.maxX - bounds.minX) * (0.25f + 0.25f * (float)ix);
+                float ty = (float)bounds.minY +
+                    (float)(bounds.maxY - bounds.minY) * (0.25f + 0.25f * (float)iy);
+                float tz = (float)bounds.minZ +
+                    (float)(bounds.maxZ - bounds.minZ) * (0.25f + 0.25f * (float)iz);
+                Vector3 delta = { tx - eye.x, ty - eye.y, tz - eye.z };
+                float distance = sqrtf(delta.x * delta.x + delta.y * delta.y +
+                                       delta.z * delta.z);
+                if (distance < 0.001f) continue;
+                Vector3 direction = { delta.x / distance, delta.y / distance,
+                                      delta.z / distance };
+                HitResult hit = RaycastBlocksFiltered(
+                    eye, direction, distance + 4.0f, RAYCAST_BLOCK_SOLID);
+                (*samples)++;
+                if (!hit.hit) {
+                    (*visible)++;
+                    continue;
+                }
+                bool inside = hit.x >= bounds.minX && hit.x <= bounds.maxX &&
+                    hit.y >= bounds.minY && hit.y <= bounds.maxY &&
+                    hit.z >= bounds.minZ && hit.z <= bounds.maxZ;
+                if (inside) (*visible)++;
+                else (*occluded)++;
+            }
+        }
+    }
 }
 
 static int GameDebugCgaPick(const CgaFeature *features, size_t count,
@@ -114,14 +195,18 @@ void GameDebugCgaInspect(GameRuntime *game)
     for (size_t i = 0; i < count; i++) {
         const CgaFeature *f = &features[i];
         size_t ops = GameDebugCgaOpCount(*f);
+        unsigned budget =
+            f->grammarVersion == CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION
+            ? CGA_CLASSICAL_COMPLEX_OP_BUDGET : 0u;
+        bool overBudget = budget != 0u && ops > budget;
         DebugControlReply(&game->debugControl,
                           "DEBUG_CGA feature id=%" PRIu64 " grammar=%" PRIu32
                           " anchor=%d,%d base=%d scope=%d,%d,%d "
-                          "size=%d,%d,%d ops=%zu\n",
+                          "size=%d,%d,%d ops=%zu budget=%u over_budget=%d\n",
                           f->id, f->grammarVersion, f->anchorX, f->anchorZ,
                           f->scope.minY, f->scope.minX, f->scope.minY,
                           f->scope.minZ, f->scope.sizeX, f->scope.sizeY,
-                          f->scope.sizeZ, ops);
+                          f->scope.sizeZ, ops, budget, overBudget ? 1 : 0);
     }
     GameDebugTraceEvent(game, "cga-inspect");
 }
@@ -148,15 +233,24 @@ void GameDebugCgaVisible(GameRuntime *game)
         return;
     }
     CgaScope scope = features[index].scope;
+    GameDebugCgaBounds fill;
+    bool hasFill = GameDebugCgaFillBounds(features[index], &fill);
+    int bxMin = hasFill ? fill.minX : scope.minX;
+    int byMin = hasFill ? fill.minY : scope.minY;
+    int bzMin = hasFill ? fill.minZ : scope.minZ;
+    int bxMax = hasFill ? fill.maxX : scope.minX + scope.sizeX - 1;
+    int byMax = hasFill ? fill.maxY : scope.minY + scope.sizeY - 1;
+    int bzMax = hasFill ? fill.maxZ : scope.minZ + scope.sizeZ - 1;
     float eyeX = game->player.position.x;
     float eyeY = game->player.position.y + EYE_HEIGHT;
     float eyeZ = game->player.position.z;
+    Vector3 eye = { eyeX, eyeY, eyeZ };
     float cp = cosf(game->player.pitch);
     Vector3 forward = { sinf(game->player.yaw) * cp,
                         sinf(game->player.pitch),
                         cosf(game->player.yaw) * cp };
     Camera3D camera = game->camera;
-    camera.position = (Vector3){ eyeX, eyeY, eyeZ };
+    camera.position = eye;
     camera.target = (Vector3){ eyeX + forward.x, eyeY + forward.y,
                                eyeZ + forward.z };
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
@@ -171,9 +265,9 @@ void GameDebugCgaVisible(GameRuntime *game)
     float minX = (float)screenW, minY = (float)screenH;
     float maxX = 0.0f, maxY = 0.0f;
     for (int c = 0; c < 8; c++) {
-        float x = (float)(scope.minX + ((c & 1) ? scope.sizeX : 0));
-        float y = (float)(scope.minY + ((c & 2) ? scope.sizeY : 0));
-        float z = (float)(scope.minZ + ((c & 4) ? scope.sizeZ : 0));
+        float x = (float)(bxMin + ((c & 1) ? (bxMax - bxMin) : 0));
+        float y = (float)(byMin + ((c & 2) ? (byMax - byMin) : 0));
+        float z = (float)(bzMin + ((c & 4) ? (bzMax - bzMin) : 0));
         Vector3 rel = { x - eyeX, y - eyeY, z - eyeZ };
         if (Vector3DotProduct(rel, forward) <= 0.05f) continue;
         Vector2 p = GetWorldToScreen((Vector3){ x, y, z }, camera);
@@ -197,13 +291,23 @@ void GameDebugCgaVisible(GameRuntime *game)
             onScreen = coverage > 0.0001f;
         }
     }
+    int samples = 0;
+    int visibleSamples = 0;
+    int occludedSamples = 0;
+    if (hasFill) {
+        GameDebugCgaSampleOcclusion(fill, eye, &samples,
+                                    &visibleSamples, &occludedSamples);
+    }
     DebugControlReply(&game->debugControl,
                       "DEBUG_CONTROL cga visible feature=%" PRIu64
                       " grammar=%" PRIu32 " on_screen=%d coverage=%.6f "
-                      "bounds=%.1f,%.1f,%.1f,%.1f screen=%d,%d\n",
+                      "bounds=%.1f,%.1f,%.1f,%.1f screen=%d,%d "
+                      "fill=%d,%d,%d,%d,%d,%d samples=%d visible=%d "
+                      "occluded=%d\n",
                       features[index].id, features[index].grammarVersion,
                       onScreen ? 1 : 0, coverage, minX, minY, maxX, maxY,
-                      screenW, screenH);
+                      screenW, screenH, bxMin, byMin, bzMin, bxMax, byMax,
+                      bzMax, samples, visibleSamples, occludedSamples);
     GameDebugTraceEvent(game, "cga-visible");
 }
 

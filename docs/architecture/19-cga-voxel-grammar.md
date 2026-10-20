@@ -61,7 +61,10 @@ ridge beasts along the top ridge.
 All grammars use world half-open AABBs and remain bounded by
 `CGA_MAX_FEATURES_PER_CHUNK` and `CGA_MAX_CHUNK_OPS`. Expansion reserves its
 operation budget before emitting records, so capacity failure cannot produce a
-partial structure.
+partial structure. The classical complex additionally enforces
+`CGA_CLASSICAL_COMPLEX_OP_BUDGET` (1500 ops); the unit test asserts both the
+identity rotation and all rotated expansions stay within that budget, and
+`cga inspect` reports `budget=1500 over_budget=0` for the default-seed complex.
 
 ## Verification
 

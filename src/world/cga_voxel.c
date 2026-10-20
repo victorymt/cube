@@ -784,7 +784,8 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
         !CgaScopeValid(s) || width < CGA_COMPLEX_WIDTH ||
         depth < CGA_COMPLEX_DEPTH || s.sizeY < CGA_COMPLEX_HEIGHT)
         return false;
-    if (!ReserveOps(workspace, 1200)) return false;
+    if (!ReserveOps(workspace, CGA_CLASSICAL_COMPLEX_OP_BUDGET)) return false;
+    size_t startOpCount = workspace->opCount;
 
 #define CF(x, y, z, w, h, d, m, p) do { \
     if (!ComplexFill(workspace, feature, s, (x), (y), (z), (w), (h), (d), \
@@ -1127,6 +1128,9 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
 #undef CP
 #undef CC
 #undef CF
+    if (workspace->opCount - startOpCount > CGA_CLASSICAL_COMPLEX_OP_BUDGET) {
+        return false;
+    }
     return true;
 }
 

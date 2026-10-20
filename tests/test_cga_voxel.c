@@ -166,6 +166,7 @@ static void TestClassicalComplexExpansion(void)
     assert(CgaExpandFeature(&workspace, complex));
     assert(!workspace.overflow);
     assert(workspace.opCount >= 300);
+    assert(workspace.opCount <= CGA_CLASSICAL_COMPLEX_OP_BUDGET);
 
     bool hasTerrace = false;
     bool hasPlaster = false;
@@ -200,6 +201,7 @@ static void TestClassicalComplexExpansion(void)
         complex.scope.sizeZ = (orientation & 1) ? 93 : 101;
         assert(CgaExpandFeature(&rotated, complex));
         assert(!rotated.overflow);
+        assert(rotated.opCount <= CGA_CLASSICAL_COMPLEX_OP_BUDGET);
         assert(rotated.opCount == baseOpCount);
         for (size_t i = 0; i < rotated.opCount; i++) {
             assert(CgaScopeValid(rotated.ops[i].scope));
