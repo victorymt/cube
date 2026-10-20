@@ -17,6 +17,7 @@ work progresses, verified, and then committed as one reviewable change.
 | Cube-grid edits and column admission (2026-10-14) | Implemented: face/body-addressed in-memory edits, completion replay, column/section requests and explicit release; player consumers, coverage policy and V30 remain pending | [Runtime stage 2](../docs/surface-cube.md#runtime-stage-2-cube-edits-and-column-admission-2026-10-14) |
 | Cube-grid physical admission and mesh projection (2026-10-14) | Implemented: budgeted spherical-cap admission, exact cross-face mesh halos, projected meshes and render bounds; normal-game activation still gated on gameplay/simulation/save conversion | [Runtime stage 3](../docs/surface-cube.md#runtime-stage-3-physical-admission-and-mesh-projection-2026-10-14) |
 | Topology descriptors and V29 save boundary | Implemented: explicit legacy-map/1 policy, cube-grid runtime rejection, no old-format loading | [Topology contract](../docs/surface-cube.md#topology-and-save-contract-v29) |
+| Chinese classical courtyard complex (2026-10-20) | Implemented: grammar v7, 73x81 south-facing walled compound with gatehouse, forecourt, side halls, raised main hall, roofs, bracket bands and courtyard details; preview E2E passes | [CGA voxel grammars](../docs/architecture/19-cga-voxel-grammar.md) |
 | Coriolis terrain bias | Disabled; requires polar visual acceptance and calibrated diagnostics first | [Physics boundary](../docs/landform-planets.md) |
 
 Next: integrate cube-cell identity across

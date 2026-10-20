@@ -4,7 +4,7 @@
 
 The world structure generator uses a deterministic integer voxel grammar (CGA)
 for houses, mineshafts, dungeons, desert temples, and Chinese classical
-halls. Structure discovery,
+courtyard complexes. Structure discovery,
 rule expansion, conflict resolution, and chunk materialization are separate
 steps. The implementation lives in `src/world/cga_voxel.c` and its public
 contract is `src/world/cga_voxel.h`.
@@ -34,7 +34,15 @@ contract is `src/world/cga_voxel.h`.
 | 2 | Mineshaft | diagonal air corridor with periodic timber supports |
 | 3 | Dungeon | stone-brick perimeter, doorway, and internal supports |
 | 4 | Desert temple | sandstone pedestal, pillars, capstone, and underground base |
-| 6 | Chinese classical hall | rare five-bay hall with stone terrace, red columns, white plaster, lattice openings, painted bracket band, stepped hip roof, and ridge ornaments |
+| 6 | Chinese classical hall (retired intermediate stage) | five-bay hall with stone terrace, red columns, white plaster, lattice openings, painted bracket band, stepped hip roof, and ridge ornaments |
+| 7 | Chinese classical courtyard complex | axial walled compound: gatehouse, front forecourt, ceremonial path, two side halls, five-bay main hall on a raised terrace, hip and gable roofs, painted bracket bands, lattice openings, stone rails, pines, lions, and an incense burner |
+
+The complex is generated on a 73×81 local footprint plus a ten-block cleared
+margin. The planner samples a twelve-block apron around the site and uses its
+highest terrain point as the terrace level, with a fourteen-block-deep stone
+foundation covering the low corners. This keeps the courtyard visible on gently
+sloping ground instead of sinking it into a hollow. Complexes use a 320-block
+anchor spacing and reserve the site against house placement.
 
 All grammars use world half-open AABBs and remain bounded by
 `CGA_MAX_FEATURES_PER_CHUNK` and `CGA_MAX_CHUNK_OPS`. Expansion reserves its
@@ -52,8 +60,11 @@ partial structure.
   deterministic structure baselines.
 - `make test-cga-previews-e2e` starts the game with each debug DSL scene,
   streams the target region, captures a screenshot, and verifies a clean script
-  exit. `cga_classical_hall.dsl` targets the default-seed plains hall near
-  `(7680, 85, 1120)`, whose terrace is 85 blocks above the world floor.
+  exit. `cga_classical_complex.dsl` targets the default-seed complex near
+  `(7680, 88, 3840)` (a south-facing axis; the gate opens toward +Z) and
+  views the courtyard from the forecourt. The scene uses `view distance 12`, a 240-frame
+  streaming warm-up, and cleared weather so the full compound is present in the
+  capture.
 
 ## Boundaries
 

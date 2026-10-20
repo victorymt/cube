@@ -150,6 +150,28 @@ static bool HouseTerrainSuitable(CgaScope scope, int base, TerrainMode mode)
     return StructureTerrainSuitable(scope, base, mode, 1);
 }
 
+/* A courtyard complex sits on a terrace.  Use the highest point of the
+ * footprint plus a surrounding apron as the terrace level so the complex is
+ * not sunk into a hollow whose rim hides everything but the main roof.  A
+ * site may fall by up to ten blocks across that area; the deep foundation
+ * covers the low corners. */
+static bool ComplexTerrainBase(CgaScope scope, TerrainMode mode, int *outBase)
+{
+    const int margin = 12;
+    int minHeight = INT_MAX;
+    int maxHeight = INT_MIN;
+    for (int x = scope.minX - margin; x < scope.minX + scope.sizeX + margin; x++) {
+        for (int z = scope.minZ - margin; z < scope.minZ + scope.sizeZ + margin; z++) {
+            int height = TerrainHeight(x, z, mode);
+            if (height < minHeight) minHeight = height;
+            if (height > maxHeight) maxHeight = height;
+        }
+    }
+    if (maxHeight < 4 || maxHeight - minHeight > 10) return false;
+    if (outBase) *outBase = maxHeight;
+    return true;
+}
+
 uint64_t CgaFeatureId(uint32_t worldSeed, uint32_t grammarVersion,
                       int anchorX, int anchorZ)
 {
@@ -399,206 +421,431 @@ static bool AppendLocalBox(CgaWorkspace *workspace, CgaOpKind kind,
 }
 
 /*
- * A rare five-bay hall assembled from the same voxel vocabulary as the
- * smaller house grammar.  The composition follows a Chinese timber hall:
- * stone terrace, open front colonnade, plaster infill, repeated red columns,
- * a green/gold bracket band, lattice openings, and a stepped hip roof whose
- * corners visibly turn upward.
+ * A Chinese classical courtyard complex.  The layout is axial: a gatehouse
+ * on the south wall, a paved forecourt with a ceremonial path, two side
+ * halls facing the court, and a raised five-bay main hall at the north end.
+ * The whole compound sits on a stone terrace so it can occupy gently
+ * sloping ground without floating walls.
+ *
+ * Local coordinates are x from west to east, z from north to south, and y
+ * upwards from the feature scope base.  The gate is at the south (high z).
  */
-static bool ExpandClassicalHall(CgaWorkspace *workspace, CgaFeature feature)
+#define CGA_COMPLEX_INNER_WIDTH 73
+#define CGA_COMPLEX_YARD_DEPTH 61
+#define CGA_COMPLEX_APRON 20
+#define CGA_COMPLEX_INNER_DEPTH (CGA_COMPLEX_YARD_DEPTH + CGA_COMPLEX_APRON)
+#define CGA_COMPLEX_MARGIN 10
+#define CGA_COMPLEX_WIDTH (CGA_COMPLEX_INNER_WIDTH + 2 * CGA_COMPLEX_MARGIN)
+#define CGA_COMPLEX_DEPTH (CGA_COMPLEX_INNER_DEPTH + 2 * CGA_COMPLEX_MARGIN)
+#define CGA_COMPLEX_HEIGHT 28
+
+static bool ComplexFill(CgaWorkspace *workspace, CgaFeature feature,
+                        CgaScope s, int x, int y, int z,
+                        int width, int height, int depth,
+                        BlockType material, int priority)
+{
+    return AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, priority,
+                          feature, s, x + CGA_COMPLEX_MARGIN, y,
+                          z + CGA_COMPLEX_MARGIN, width, height, depth,
+                          material);
+}
+
+static bool ComplexCarve(CgaWorkspace *workspace, CgaFeature feature,
+                         CgaScope s, int x, int y, int z,
+                         int width, int height, int depth,
+                         BlockType material, int priority)
+{
+    return AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, priority,
+                          feature, s, x + CGA_COMPLEX_MARGIN, y,
+                          z + CGA_COMPLEX_MARGIN, width, height, depth,
+                          material);
+}
+
+static bool ComplexPaint(CgaWorkspace *workspace, CgaFeature feature,
+                         CgaScope s, int x, int y, int z,
+                         int width, int height, int depth,
+                         BlockType material, int priority)
+{
+    return AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, priority,
+                          feature, s, x + CGA_COMPLEX_MARGIN, y,
+                          z + CGA_COMPLEX_MARGIN, width, height, depth,
+                          material);
+}
+
+static bool AppendComplexWall(CgaWorkspace *workspace, CgaFeature feature,
+                              CgaScope s, int x, int z, int width, int depth,
+                              int priority)
+{
+    return ComplexFill(workspace, feature, s, x, 2, z, width, 1, depth,
+                       BLOCK_DRESSED_STONE, priority) &&
+           ComplexFill(workspace, feature, s, x, 3, z, width, 3, depth,
+                       BLOCK_RED_LACQUER_WOOD, priority + 1) &&
+           ComplexFill(workspace, feature, s, x - 1, 6, z - 1,
+                       width + 2, 1, depth + 2, BLOCK_BLUE_ROOF_TILE,
+                       priority + 2) &&
+           ComplexFill(workspace, feature, s, x, 7, z, width, 1, depth,
+                       BLOCK_BLUE_BRICK, priority + 3);
+}
+
+static bool AppendComplexHipRoof(CgaWorkspace *workspace, CgaFeature feature,
+                                 CgaScope s, int x, int z, int width,
+                                 int depth, int eaveY, int levels,
+                                 int priority, int cornerReach)
+{
+    if (width <= depth || depth < 3 || levels < 2 ||
+        cornerReach < 0 || cornerReach > 2) return false;
+    int maxInset = (depth - 1) / 2;
+    for (int i = 0; i < levels; i++) {
+        int inset = (maxInset * i) / (levels - 1);
+        int w = width - 2 * inset;
+        int d = depth - 2 * inset;
+        if (d < 1) d = 1;
+        if (!ComplexFill(workspace, feature, s, x + inset, eaveY + i,
+                         z + inset, w, 1, d, BLOCK_BLUE_ROOF_TILE,
+                         priority + i)) return false;
+    }
+    for (int i = 0; i < levels; i++) {
+        int inset = (maxInset * i) / (levels - 1);
+        int w = width - 2 * inset;
+        int d = depth - 2 * inset;
+        if (d < 1) d = 1;
+        int y = eaveY + i + 1;
+        if (!ComplexFill(workspace, feature, s, x + inset, y, z + inset,
+                         1, 1, 1, BLOCK_BLUE_BRICK, priority + 20 + i) ||
+            !ComplexFill(workspace, feature, s, x + inset + w - 1, y,
+                         z + inset, 1, 1, 1, BLOCK_BLUE_BRICK,
+                         priority + 20 + i) ||
+            !ComplexFill(workspace, feature, s, x + inset, y,
+                         z + inset + d - 1, 1, 1, 1, BLOCK_BLUE_BRICK,
+                         priority + 20 + i) ||
+            !ComplexFill(workspace, feature, s, x + inset + w - 1, y,
+                         z + inset + d - 1, 1, 1, 1, BLOCK_BLUE_BRICK,
+                         priority + 20 + i)) return false;
+    }
+    const int cornerX[4] = { -1, 1, -1, 1 };
+    const int cornerZ[4] = { -1, -1, 1, 1 };
+    for (int c = 0; c < 4; c++) {
+        int cx = cornerX[c] < 0 ? x : x + width - 1;
+        int cz = cornerZ[c] < 0 ? z : z + depth - 1;
+        for (int step = 1; step <= cornerReach; step++) {
+            if (!ComplexFill(workspace, feature, s,
+                             cx + cornerX[c] * step, eaveY + step,
+                             cz + cornerZ[c] * step, 1, 1, 1,
+                             BLOCK_BLUE_ROOF_TILE, priority + 40 + step))
+                return false;
+        }
+        if (!ComplexFill(workspace, feature, s,
+                         cx + cornerX[c] * cornerReach,
+                         eaveY + cornerReach + 1,
+                         cz + cornerZ[c] * cornerReach, 1, 1, 1,
+                         BLOCK_BLUE_BRICK, priority + 45 + c)) return false;
+    }
+    int inset = maxInset;
+    int w = width - 2 * inset;
+    int d = depth - 2 * inset;
+    if (d < 1) d = 1;
+    int topY = eaveY + levels;
+    if (!ComplexFill(workspace, feature, s, x + inset, topY, z + inset,
+                     w, 1, 1, BLOCK_BLUE_BRICK, priority + 60) ||
+        !ComplexFill(workspace, feature, s, x + inset, topY + 1, z + inset,
+                     1, 2, 1, BLOCK_BLUE_BRICK, priority + 61) ||
+        !ComplexFill(workspace, feature, s, x + inset + w - 1, topY + 1,
+                     z + inset, 1, 2, 1, BLOCK_BLUE_BRICK, priority + 62) ||
+        !ComplexFill(workspace, feature, s, x + inset, topY + 2, z + inset,
+                     1, 1, 1, BLOCK_YELLOW, priority + 63) ||
+        !ComplexFill(workspace, feature, s, x + inset + w - 1, topY + 2,
+                     z + inset, 1, 1, 1, BLOCK_YELLOW, priority + 64))
+        return false;
+    if (!ComplexFill(workspace, feature, s, x, eaveY - 1, z,
+                     width, 1, 1, BLOCK_GREEN, priority + 70) ||
+        !ComplexFill(workspace, feature, s, x, eaveY - 1, z + depth - 1,
+                     width, 1, 1, BLOCK_GREEN, priority + 71) ||
+        !ComplexFill(workspace, feature, s, x, eaveY - 1, z,
+                     1, 1, depth, BLOCK_GREEN, priority + 72) ||
+        !ComplexFill(workspace, feature, s, x + width - 1, eaveY - 1, z,
+                     1, 1, depth, BLOCK_GREEN, priority + 73)) return false;
+    return true;
+}
+
+static bool AppendComplexGableRoof(CgaWorkspace *workspace, CgaFeature feature,
+                                   CgaScope s, int x, int z, int width,
+                                   int depth, int eaveY, int levels,
+                                   int priority)
+{
+    if (width < 3 || depth < 3 || levels < 2) return false;
+    int maxInset = (width - 1) / 2;
+    for (int i = 0; i < levels; i++) {
+        int inset = (maxInset * i) / (levels - 1);
+        int w = width - 2 * inset;
+        if (!ComplexFill(workspace, feature, s, x + inset, eaveY + i, z,
+                         w, 1, depth, BLOCK_BLUE_ROOF_TILE, priority + i))
+            return false;
+    }
+    int topY = eaveY + levels;
+    if (!ComplexFill(workspace, feature, s, x + maxInset, topY, z,
+                     1, 1, depth, BLOCK_BLUE_BRICK, priority + 20))
+        return false;
+    if (depth > 2 &&
+        !ComplexFill(workspace, feature, s, x + maxInset, topY + 1, z + 1,
+                     1, 1, depth - 2, BLOCK_YELLOW, priority + 21))
+        return false;
+    for (int i = 0; i < levels - 1; i++) {
+        int inset = (maxInset * i) / (levels - 1);
+        int w = width - 2 * inset;
+        if (!ComplexPaint(workspace, feature, s, x + inset, eaveY + i, z,
+                          w, 1, 1, BLOCK_WHITE_PLASTER, priority + 30 + i) ||
+            !ComplexPaint(workspace, feature, s, x + inset, eaveY + i,
+                          z + depth - 1, w, 1, 1, BLOCK_WHITE_PLASTER,
+                          priority + 30 + i)) return false;
+    }
+    if (!ComplexFill(workspace, feature, s, x, eaveY - 1, z,
+                     1, 1, depth, BLOCK_GREEN, priority + 40) ||
+        !ComplexFill(workspace, feature, s, x + width - 1, eaveY - 1, z,
+                     1, 1, depth, BLOCK_GREEN, priority + 41) ||
+        !ComplexFill(workspace, feature, s, x, eaveY - 1, z,
+                     width, 1, 1, BLOCK_GREEN, priority + 42) ||
+        !ComplexFill(workspace, feature, s, x, eaveY - 1, z + depth - 1,
+                     width, 1, 1, BLOCK_GREEN, priority + 43)) return false;
+    return true;
+}
+
+static bool AppendComplexPine(CgaWorkspace *workspace, CgaFeature feature,
+                              CgaScope s, int x, int z, int height)
+{
+    if (height < 4) return false;
+    if (!ComplexFill(workspace, feature, s, x, 2, z, 1, height, 1,
+                     BLOCK_WOOD, 70) ||
+        !ComplexFill(workspace, feature, s, x - 2, 2 + height - 3, z - 1,
+                     5, 2, 3, BLOCK_LEAVES, 71) ||
+        !ComplexFill(workspace, feature, s, x - 1, 2 + height - 1, z,
+                     3, 1, 3, BLOCK_LEAVES, 72) ||
+        !ComplexFill(workspace, feature, s, x, 2 + height, z,
+                     1, 1, 1, BLOCK_LEAVES, 73)) return false;
+    return true;
+}
+
+static bool AppendComplexLion(CgaWorkspace *workspace, CgaFeature feature,
+                              CgaScope s, int x, int z)
+{
+    return ComplexFill(workspace, feature, s, x, 2, z, 2, 1, 2,
+                       BLOCK_DRESSED_STONE, 60) &&
+           ComplexFill(workspace, feature, s, x, 3, z, 2, 2, 2,
+                       BLOCK_DRESSED_STONE, 61) &&
+           ComplexFill(workspace, feature, s, x, 5, z, 1, 2, 1,
+                       BLOCK_DRESSED_STONE, 62) &&
+           ComplexPaint(workspace, feature, s, x, 5, z + 1, 1, 1, 1,
+                        BLOCK_BLUE_BRICK, 0);
+}
+
+static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
 {
     CgaScope s = feature.scope;
     int width = (s.orientation & 1) ? s.sizeZ : s.sizeX;
     int depth = (s.orientation & 1) ? s.sizeX : s.sizeZ;
-    if (!workspace || feature.grammarVersion != CGA_CLASSICAL_HALL_GRAMMAR_VERSION ||
-        !CgaScopeValid(s) || width < 29 || depth < 27 || s.sizeY < 19) return false;
-    if (!ReserveOps(workspace, 220)) return false;
+    if (!workspace ||
+        feature.grammarVersion != CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION ||
+        !CgaScopeValid(s) || width < CGA_COMPLEX_WIDTH ||
+        depth < CGA_COMPLEX_DEPTH || s.sizeY < CGA_COMPLEX_HEIGHT)
+        return false;
+    if (!ReserveOps(workspace, 1200)) return false;
 
-    /* Two buried foundation courses settle the hall into gentle terrain. */
-    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0, feature,
-                        s, 1, -2, 1, 27, 3, 25, BLOCK_STONE_BRICKS) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 1, feature,
-                        s, 2, 1, 2, 25, 1, 23, BLOCK_DRESSED_STONE)) return false;
+#define CF(x, y, z, w, h, d, m, p) do { \
+    if (!ComplexFill(workspace, feature, s, (x), (y), (z), (w), (h), (d), \
+                     (m), (p))) return false; \
+} while (0)
+#define CC(x, y, z, w, h, d, m, p) do { \
+    if (!ComplexCarve(workspace, feature, s, (x), (y), (z), (w), (h), (d), \
+                      (m), (p))) return false; \
+} while (0)
+#define CP(x, y, z, w, h, d, m, p) do { \
+    if (!ComplexPaint(workspace, feature, s, (x), (y), (z), (w), (h), (d), \
+                      (m), (p))) return false; \
+} while (0)
 
-    /* Broad front steps, with the centre kept visually quiet like a stone ramp. */
-    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 2, feature,
-                        s, 11, 0, 0, 7, 1, 1, BLOCK_DRESSED_STONE) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 3, feature,
-                        s, 11, 0, 1, 7, 2, 1, BLOCK_DRESSED_STONE)) return false;
+    /* Remove trees and loose terrain above the courtyard, then fill the
+     * terrace down to the lowest corner of the site. */
+    if (!AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_BASE, 0, feature,
+                        s, 0, 2, 0, CGA_COMPLEX_WIDTH, CGA_COMPLEX_HEIGHT,
+                        CGA_COMPLEX_DEPTH, BLOCK_AIR)) return false;
+    CF(0, -12, 0, CGA_COMPLEX_INNER_WIDTH, 14, CGA_COMPLEX_INNER_DEPTH,
+       BLOCK_STONE_BRICKS, 1);
+    CF(2, 2, 2, CGA_COMPLEX_INNER_WIDTH - 4, 1, CGA_COMPLEX_INNER_DEPTH - 4,
+       BLOCK_STONE_BRICKS, 2);
 
-    /* Main enclosed volume: white plaster between a red timber frame. */
-    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 10, feature,
-                        s, 6, 2, 7, 17, 6, 13, BLOCK_WHITE_PLASTER) ||
-        !AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 0, feature,
-                        s, 7, 3, 8, 15, 5, 11, BLOCK_AIR)) return false;
+    /* Ceremonial path and the cross path between the side halls. */
+    CP(34, 2, 31, 5, 1, 49, BLOCK_DRESSED_STONE, 0);
+    CP(21, 2, 40, 30, 1, 3, BLOCK_DRESSED_STONE, 0);
 
-    /* Central double-door opening and four regularly spaced lattice windows. */
-    const int windowX[] = { 7, 10, 17, 20 };
-    if (!AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1, feature,
-                        s, 12, 2, 7, 4, 5, 1, BLOCK_AIR)) return false;
+    /* Outer wall: one gate opening in the south wall. */
+    if (!AppendComplexWall(workspace, feature, s, 2, 2,
+                           CGA_COMPLEX_INNER_WIDTH - 4, 1, 4) ||
+        !AppendComplexWall(workspace, feature, s, 2, 2, 1,
+                           CGA_COMPLEX_YARD_DEPTH - 4, 4) ||
+        !AppendComplexWall(workspace, feature, s, CGA_COMPLEX_INNER_WIDTH - 3, 2, 1,
+                           CGA_COMPLEX_YARD_DEPTH - 4, 4) ||
+        !AppendComplexWall(workspace, feature, s, 2, CGA_COMPLEX_YARD_DEPTH - 3,
+                           25, 1, 4) ||
+        !AppendComplexWall(workspace, feature, s, 46, CGA_COMPLEX_YARD_DEPTH - 3,
+                           25, 1, 4)) return false;
+
+    /* Gatehouse: a three-bay gate with an open central passage. */
+    CF(27, 3, 49, 19, 6, 10, BLOCK_RED_LACQUER_WOOD, 10);
+    CC(33, 3, 49, 7, 6, 10, BLOCK_AIR, 0);
+    CC(28, 4, 58, 4, 2, 1, BLOCK_AIR, 1);
+    CC(41, 4, 58, 4, 2, 1, BLOCK_AIR, 1);
+    CP(28, 4, 58, 4, 2, 1, BLOCK_WOOD_LATTICE, 0);
+    CP(41, 4, 58, 4, 2, 1, BLOCK_WOOD_LATTICE, 0);
+    CF(27, 3, 59, 1, 6, 1, BLOCK_RED_LACQUER_WOOD, 11);
+    CF(33, 3, 59, 1, 6, 1, BLOCK_RED_LACQUER_WOOD, 11);
+    CF(39, 3, 59, 1, 6, 1, BLOCK_RED_LACQUER_WOOD, 11);
+    CF(45, 3, 59, 1, 6, 1, BLOCK_RED_LACQUER_WOOD, 11);
+    CF(27, 3, 51, 1, 6, 1, BLOCK_RED_LACQUER_WOOD, 11);
+    CF(45, 3, 51, 1, 6, 1, BLOCK_RED_LACQUER_WOOD, 11);
+    CF(26, 8, 59, 21, 1, 1, BLOCK_RED_LACQUER_WOOD, 20);
+    CF(25, 9, 59, 23, 1, 1, BLOCK_GREEN, 21);
+    CF(31, 8, 59, 9, 2, 1, BLOCK_BLACK, 22);
+    CP(32, 9, 59, 1, 1, 1, BLOCK_YELLOW, 1);
+    CP(34, 9, 59, 1, 1, 1, BLOCK_YELLOW, 1);
+    CP(36, 9, 59, 1, 1, 1, BLOCK_YELLOW, 1);
+    CF(33, 2, 58, 7, 1, 1, BLOCK_DRESSED_STONE, 23);
+    if (!AppendComplexHipRoof(workspace, feature, s, 25, 46, 23, 14,
+                              10, 4, 30, 1)) return false;
+
+    /* Main hall: raised terrace, five-bay timber frame, deep hip roof. */
+    CF(14, 3, 3, 45, 3, 28, BLOCK_DRESSED_STONE, 10);
+    CF(30, 2, 30, 13, 1, 2, BLOCK_DRESSED_STONE, 9);
+    CF(31, 3, 30, 11, 1, 2, BLOCK_DRESSED_STONE, 9);
+    CF(32, 4, 30, 9, 1, 2, BLOCK_DRESSED_STONE, 9);
+    CF(33, 5, 30, 7, 1, 2, BLOCK_DRESSED_STONE, 9);
+    CF(18, 6, 6, 37, 6, 16, BLOCK_WHITE_PLASTER, 12);
+    CC(19, 7, 7, 35, 4, 14, BLOCK_AIR, 0);
+
+    /* Door and four lattice windows on the south facade. */
+    CC(33, 6, 21, 5, 5, 1, BLOCK_AIR, 1);
+    CP(33, 6, 21, 2, 4, 1, BLOCK_RED_LACQUER_WOOD, 0);
+    CP(36, 6, 21, 2, 4, 1, BLOCK_RED_LACQUER_WOOD, 0);
+    CP(33, 7, 21, 1, 1, 1, BLOCK_YELLOW, 1);
+    CP(36, 9, 21, 1, 1, 1, BLOCK_YELLOW, 1);
+    CP(33, 10, 21, 5, 1, 1, BLOCK_WOOD_LATTICE, 2);
+    const int windowX[] = { 20, 27, 41, 47 };
     for (size_t i = 0; i < sizeof(windowX) / sizeof(windowX[0]); i++) {
-        if (!AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1, feature,
-                            s, windowX[i], 4, 7, 2, 3, 1, BLOCK_AIR)) return false;
+        CC(windowX[i], 7, 21, 4, 3, 1, BLOCK_AIR, 1);
+        CP(windowX[i], 7, 21, 4, 3, 1, BLOCK_WOOD_LATTICE, 0);
     }
+    /* Side windows and rear windows make the hall readable from the court. */
+    CC(18, 8, 9, 1, 3, 4, BLOCK_AIR, 1);
+    CC(18, 8, 15, 1, 3, 4, BLOCK_AIR, 1);
+    CC(54, 8, 9, 1, 3, 4, BLOCK_AIR, 1);
+    CC(54, 8, 15, 1, 3, 4, BLOCK_AIR, 1);
+    CP(18, 8, 9, 1, 3, 4, BLOCK_WOOD_LATTICE, 0);
+    CP(18, 8, 15, 1, 3, 4, BLOCK_WOOD_LATTICE, 0);
+    CP(54, 8, 9, 1, 3, 4, BLOCK_WOOD_LATTICE, 0);
+    CP(54, 8, 15, 1, 3, 4, BLOCK_WOOD_LATTICE, 0);
+    CC(24, 8, 6, 4, 3, 1, BLOCK_AIR, 1);
+    CC(45, 8, 6, 4, 3, 1, BLOCK_AIR, 1);
+    CP(24, 8, 6, 4, 3, 1, BLOCK_WOOD_LATTICE, 0);
+    CP(45, 8, 6, 4, 3, 1, BLOCK_WOOD_LATTICE, 0);
+
+    /* Six front columns, side columns, and rear columns. */
+    const int frontColumns[] = { 18, 25, 32, 39, 46, 53 };
+    for (size_t i = 0; i < sizeof(frontColumns) / sizeof(frontColumns[0]); i++) {
+        CF(frontColumns[i], 6, 24, 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 15);
+    }
+    const int sideZ[] = { 8, 12, 16, 20 };
+    for (size_t i = 0; i < sizeof(sideZ) / sizeof(sideZ[0]); i++) {
+        CF(18, 6, sideZ[i], 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 15);
+        CF(54, 6, sideZ[i], 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 15);
+    }
+    const int rearColumns[] = { 25, 32, 39, 46 };
+    for (size_t i = 0; i < sizeof(rearColumns) / sizeof(rearColumns[0]); i++) {
+        CF(rearColumns[i], 6, 6, 1, 7, 1, BLOCK_RED_LACQUER_WOOD, 15);
+    }
+
+    /* Painted architrave, bracket arms, and gold caps. */
+    CF(16, 12, 24, 41, 1, 1, BLOCK_RED_LACQUER_WOOD, 24);
+    CF(15, 13, 24, 43, 1, 1, BLOCK_GREEN, 25);
+    for (int bx = 18; bx <= 53; bx += 3) {
+        CF(bx - 1, 14, 24, 3, 1, 1, BLOCK_RED_LACQUER_WOOD, 26);
+        CF(bx, 14, 24, 1, 1, 1, BLOCK_YELLOW, 27);
+    }
+    CF(18, 12, 6, 37, 1, 1, BLOCK_RED_LACQUER_WOOD, 24);
+    CF(18, 13, 6, 37, 1, 1, BLOCK_GREEN, 25);
+    CF(18, 12, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD, 24);
+    CF(54, 12, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD, 24);
+
+    /* Stone balustrade on the main terrace, open at the central stair. */
+    CF(14, 6, 3, 1, 1, 28, BLOCK_DRESSED_STONE, 11);
+    CF(58, 6, 3, 1, 1, 28, BLOCK_DRESSED_STONE, 11);
+    CF(14, 6, 3, 45, 1, 1, BLOCK_DRESSED_STONE, 11);
+    CF(14, 6, 30, 16, 1, 1, BLOCK_DRESSED_STONE, 11);
+    CF(43, 6, 30, 16, 1, 1, BLOCK_DRESSED_STONE, 11);
+    for (int px = 16; px <= 56; px += 8) {
+        CF(px, 6, 3, 1, 2, 1, BLOCK_DRESSED_STONE, 12);
+        CF(px, 6, 30, 1, 2, 1, BLOCK_DRESSED_STONE, 12);
+    }
+
+    /* Plaque above the central door, set on the porch beam. */
+    CF(30, 10, 23, 9, 2, 1, BLOCK_BLACK, 28);
+    CP(32, 11, 23, 1, 1, 1, BLOCK_YELLOW, 2);
+    CP(34, 11, 23, 1, 1, 1, BLOCK_YELLOW, 2);
+    CP(36, 11, 23, 1, 1, 1, BLOCK_YELLOW, 2);
+
+    if (!AppendComplexHipRoof(workspace, feature, s, 14, 3, 45, 29,
+                              15, 6, 40, 2)) return false;
+
+    /* East and west side halls, both facing the courtyard.  Build the west
+     * hall and mirror every x coordinate for the east hall. */
     for (int side = 0; side < 2; side++) {
-        for (int slot = 0; slot < 2; slot++) {
-            int x = side ? 22 : 6;
-            int z = slot ? 15 : 9;
-            if (!AppendLocalBox(workspace, CGA_OP_CARVE, CGA_STAGE_CARVE, 1,
-                                feature, s, x, 4, z, 1, 3, 3, BLOCK_AIR) ||
-                !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 2,
-                                feature, s, x, 4, z, 1, 3, 3,
-                                BLOCK_WOOD_LATTICE)) return false;
+#define MX(x, w) (side ? (CGA_COMPLEX_INNER_WIDTH - (x) - (w)) : (x))
+        CF(MX(4, 17), 2, 32, 17, 1, 19, BLOCK_DRESSED_STONE, 10);
+        CF(MX(5, 14), 3, 34, 14, 6, 16, BLOCK_WHITE_PLASTER, 12);
+        CC(MX(6, 12), 4, 35, 12, 4, 14, BLOCK_AIR, 0);
+        CC(MX(18, 1), 3, 40, 1, 4, 3, BLOCK_AIR, 1);
+        CC(MX(18, 1), 4, 35, 1, 3, 3, BLOCK_AIR, 1);
+        CC(MX(18, 1), 4, 45, 1, 3, 3, BLOCK_AIR, 1);
+        CP(MX(18, 1), 3, 40, 1, 3, 2, BLOCK_RED_LACQUER_WOOD, 0);
+        CP(MX(18, 1), 4, 35, 1, 3, 3, BLOCK_WOOD_LATTICE, 0);
+        CP(MX(18, 1), 4, 45, 1, 3, 3, BLOCK_WOOD_LATTICE, 0);
+        for (int z = 34; z <= 46; z += 4) {
+            CF(MX(19, 1), 3, z, 1, 6, 1, BLOCK_RED_LACQUER_WOOD, 15);
         }
+        CF(MX(19, 1), 8, 34, 1, 1, 16, BLOCK_RED_LACQUER_WOOD, 20);
+        CF(MX(19, 1), 9, 34, 1, 1, 16, BLOCK_GREEN, 21);
+        if (!AppendComplexGableRoof(workspace, feature, s, MX(3, 19), 32,
+                                    19, 20, 9, 5, 30)) return false;
+#undef MX
     }
 
-    /* Six front and six rear columns create five bays; side columns complete
-     * the peristyle and the wide overhanging eaves. */
-    const int bayColumns[] = { 6, 9, 12, 16, 19, 22 };
-    const int sideColumns[] = { 10, 13, 16 };
-    for (size_t i = 0; i < sizeof(bayColumns) / sizeof(bayColumns[0]); i++) {
-        for (int side = 0; side < 2; side++) {
-            if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 20,
-                                feature, s, bayColumns[i], 2,
-                                side ? 20 : 6, 1, 6, 1,
-                                BLOCK_RED_LACQUER_WOOD)) return false;
-        }
-    }
-    for (int side = 0; side < 2; side++) {
-        for (size_t i = 0; i < sizeof(sideColumns) / sizeof(sideColumns[0]); i++) {
-            if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 20,
-                                feature, s, side ? 23 : 5, 2, sideColumns[i],
-                                1, 6, 1, BLOCK_RED_LACQUER_WOOD)) return false;
-        }
-    }
+    /* Courtyard: two pines, a pair of lions at the gate, and a low incense
+     * burner on the axis. */
+    if (!AppendComplexPine(workspace, feature, s, 24, 39, 7) ||
+        !AppendComplexPine(workspace, feature, s, 48, 39, 7) ||
+        !AppendComplexLion(workspace, feature, s, 30, 59) ||
+        !AppendComplexLion(workspace, feature, s, 42, 59)) return false;
+    CF(35, 3, 42, 3, 1, 3, BLOCK_DRESSED_STONE, 60);
+    CF(36, 4, 43, 1, 2, 1, BLOCK_BLUE_BRICK, 61);
+    CF(36, 6, 43, 1, 1, 1, BLOCK_YELLOW, 62);
 
-    /* Red architraves and a green painted plate form the transition from the
-     * timber frame to the roof. Gold bracket tips repeat along each facade. */
-    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 24, feature,
-                        s, 5, 8, 6, 19, 1, 1, BLOCK_RED_LACQUER_WOOD) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 24, feature,
-                        s, 5, 8, 20, 19, 1, 1, BLOCK_RED_LACQUER_WOOD) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 24, feature,
-                        s, 5, 8, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 24, feature,
-                        s, 23, 8, 6, 1, 1, 15, BLOCK_RED_LACQUER_WOOD) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 25, feature,
-                        s, 4, 9, 6, 21, 1, 1, BLOCK_GREEN) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 25, feature,
-                        s, 4, 9, 20, 21, 1, 1, BLOCK_GREEN)) return false;
-
-    const int bracketX[] = { 6, 9, 12, 14, 16, 19, 22 };
-    for (size_t i = 0; i < sizeof(bracketX) / sizeof(bracketX[0]); i++) {
-        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 26,
-                            feature, s, bracketX[i], 9, 5, 1, 1, 1,
-                            BLOCK_YELLOW) ||
-            !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 26,
-                            feature, s, bracketX[i], 9, 21, 1, 1, 1,
-                            BLOCK_YELLOW)) return false;
+    /* Forecourt outside the gate: clear, paved, shallow stone rail, pines. */
+    CF(2, 2, CGA_COMPLEX_YARD_DEPTH - 2, 1, 1, CGA_COMPLEX_APRON - 2,
+       BLOCK_DRESSED_STONE, 55);
+    CF(CGA_COMPLEX_INNER_WIDTH - 3, 2, CGA_COMPLEX_YARD_DEPTH - 2, 1, 1,
+       CGA_COMPLEX_APRON - 2, BLOCK_DRESSED_STONE, 55);
+    CF(2, 2, CGA_COMPLEX_INNER_DEPTH - 2, 32, 1, 1, BLOCK_DRESSED_STONE, 55);
+    CF(39, 2, CGA_COMPLEX_INNER_DEPTH - 2, CGA_COMPLEX_INNER_WIDTH - 41, 1, 1,
+       BLOCK_DRESSED_STONE, 55);
+    for (int px = 8; px <= 64; px += 8) {
+        CF(px, 2, CGA_COMPLEX_YARD_DEPTH - 2, 1, 2, 1,
+           BLOCK_DRESSED_STONE, 56);
     }
-    for (int side = 0; side < 2; side++) {
-        for (size_t i = 0; i < sizeof(sideColumns) / sizeof(sideColumns[0]); i++) {
-            if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 26,
-                                feature, s, side ? 24 : 4, 9,
-                                sideColumns[i] - 1, 1, 1, 3,
-                                BLOCK_YELLOW)) return false;
-        }
-    }
+    CF(34, 1, CGA_COMPLEX_INNER_DEPTH - 4, 5, 1, 3, BLOCK_DRESSED_STONE, 56);
+    if (!AppendComplexPine(workspace, feature, s, 10, 70, 8) ||
+        !AppendComplexPine(workspace, feature, s,
+                           CGA_COMPLEX_INNER_WIDTH - 11, 70, 8)) return false;
 
-    /* Stone balustrade leaves the central stair opening clear. */
-    const int railPosts[] = { 2, 5, 8, 20, 23, 26 };
-    for (size_t i = 0; i < sizeof(railPosts) / sizeof(railPosts[0]); i++) {
-        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28,
-                            feature, s, railPosts[i], 2, 2, 1, 2, 1,
-                            BLOCK_DRESSED_STONE)) return false;
-    }
-    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
-                        s, 2, 3, 2, 9, 1, 1, BLOCK_DRESSED_STONE) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
-                        s, 18, 3, 2, 9, 1, 1, BLOCK_DRESSED_STONE) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
-                        s, 2, 3, 2, 1, 1, 23, BLOCK_DRESSED_STONE) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
-                        s, 26, 3, 2, 1, 1, 23, BLOCK_DRESSED_STONE) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 28, feature,
-                        s, 2, 3, 24, 25, 1, 1, BLOCK_DRESSED_STONE)) return false;
-
-    /* Two red lanterns hang from the front bracket line. */
-    for (int side = 0; side < 2; side++) {
-        int x = side ? 20 : 8;
-        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 29,
-                            feature, s, x, 6, 4, 1, 2, 1, BLOCK_RED) ||
-            !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 29,
-                            feature, s, x, 5, 4, 1, 1, 1,
-                            BLOCK_YELLOW)) return false;
-    }
-
-    /* A seven-course stepped hip roof. Each course is shallower near the eaves
-     * and steeper toward the ridge, producing the rhythmic concave silhouette
-     * of a Chinese roof in voxel resolution. */
-    const int roofX[] = { 2, 3, 5, 7, 9, 11 };
-    const int roofZ[] = { 2, 3, 4, 6, 8, 10 };
-    const int roofW[] = { 25, 23, 19, 15, 11, 7 };
-    const int roofD[] = { 23, 21, 19, 15, 11, 7 };
-    for (int level = 0; level < 6; level++) {
-        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE,
-                            40 + level, feature, s, roofX[level],
-                            10 + level, roofZ[level], roofW[level], 1,
-                            roofD[level], BLOCK_BLUE_ROOF_TILE)) return false;
-    }
-
-    /* Upturned corner horns: one outward step at the eave and two more rising
-     * diagonally, capped with the darker blue-brick ridge material. */
-    const int cornersX[] = { 2, 26, 2, 26 };
-    const int cornersZ[] = { 2, 24, 24, 2 };
-    const int cornerDX[] = { -1, 1, -1, 1 };
-    const int cornerDZ[] = { -1, 1, 1, -1 };
-    for (int i = 0; i < 4; i++) {
-        if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 50,
-                            feature, s, cornersX[i] + cornerDX[i], 10,
-                            cornersZ[i] + cornerDZ[i], 1, 1, 1,
-                            BLOCK_BLUE_ROOF_TILE) ||
-            !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 51,
-                            feature, s, cornersX[i] + 2 * cornerDX[i], 11,
-                            cornersZ[i] + 2 * cornerDZ[i], 1, 1, 1,
-                            BLOCK_BLUE_ROOF_TILE) ||
-            !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 52,
-                            feature, s, cornersX[i] + 2 * cornerDX[i], 12,
-                            cornersZ[i] + 2 * cornerDZ[i], 1, 1, 1,
-                            BLOCK_BLUE_BRICK)) return false;
-    }
-
-    if (!AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 60, feature,
-                        s, 10, 16, 13, 9, 1, 1, BLOCK_BLUE_BRICK) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 61, feature,
-                        s, 9, 16, 13, 1, 2, 1, BLOCK_BLUE_BRICK) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 61, feature,
-                        s, 19, 16, 13, 1, 2, 1, BLOCK_BLUE_BRICK) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 62, feature,
-                        s, 9, 18, 13, 1, 1, 1, BLOCK_YELLOW) ||
-        !AppendLocalBox(workspace, CGA_OP_FILL, CGA_STAGE_BASE, 62, feature,
-                        s, 19, 18, 13, 1, 1, 1, BLOCK_YELLOW)) return false;
-
-    /* Closed lower door leaves, open lattice transoms, and a green lintel. */
-    if (!AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 0, feature,
-                        s, 7, 2, 8, 15, 1, 11, BLOCK_WOOD) ||
-        !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1, feature,
-                        s, 12, 2, 7, 4, 2, 1, BLOCK_RED_LACQUER_WOOD) ||
-        !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 1, feature,
-                        s, 12, 4, 7, 4, 3, 1, BLOCK_WOOD_LATTICE) ||
-        !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 2, feature,
-                        s, 11, 7, 7, 6, 1, 1, BLOCK_GREEN)) return false;
-    for (size_t i = 0; i < sizeof(windowX) / sizeof(windowX[0]); i++) {
-        if (!AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 2,
-                            feature, s, windowX[i], 4, 7, 2, 3, 1,
-                            BLOCK_WOOD_LATTICE)) return false;
-    }
-    /* A few oversized pixels imply the gold door studs at this scale. */
-    if (!AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 3, feature,
-                        s, 13, 3, 7, 1, 1, 1, BLOCK_YELLOW) ||
-        !AppendLocalBox(workspace, CGA_OP_PAINT, CGA_STAGE_PAINT, 3, feature,
-                        s, 14, 3, 7, 1, 1, 1, BLOCK_YELLOW)) return false;
-
+#undef CP
+#undef CC
+#undef CF
     return true;
 }
 
@@ -609,7 +856,7 @@ bool CgaExpandFeature(CgaWorkspace *workspace, CgaFeature feature)
         case CGA_MINESHAFT_GRAMMAR_VERSION: return ExpandMineshaft(workspace, feature);
         case CGA_DUNGEON_GRAMMAR_VERSION: return ExpandDungeon(workspace, feature);
         case CGA_DESERT_TEMPLE_GRAMMAR_VERSION: return ExpandDesertTemple(workspace, feature);
-        case CGA_CLASSICAL_HALL_GRAMMAR_VERSION: return ExpandClassicalHall(workspace, feature);
+        case CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION: return ExpandClassicalComplex(workspace, feature);
         default: return false;
     }
 }
@@ -718,34 +965,36 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
     int startZ = cz * CHUNK_SIZE;
     uint32_t seed = WorldGetSeed();
 
-    const int hallSpacing = 160;
-    const int hallHalfExtent = 16;
-    int minAnchorX = FloorDivInt(startX - hallHalfExtent, hallSpacing);
-    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + hallHalfExtent, hallSpacing);
-    int minAnchorZ = FloorDivInt(startZ - hallHalfExtent, hallSpacing);
-    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + hallHalfExtent, hallSpacing);
+    const int complexSpacing = 320;
+    const int complexHalfExtent = 54;
+    int minAnchorX = FloorDivInt(startX - complexHalfExtent, complexSpacing);
+    int maxAnchorX = FloorDivInt(startX + CHUNK_SIZE + complexHalfExtent, complexSpacing);
+    int minAnchorZ = FloorDivInt(startZ - complexHalfExtent, complexSpacing);
+    int maxAnchorZ = FloorDivInt(startZ + CHUNK_SIZE + complexHalfExtent, complexSpacing);
     for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
         for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
-            int x = ax * hallSpacing;
-            int z = az * hallSpacing;
+            int x = ax * complexSpacing;
+            int z = az * complexSpacing;
             Biome biome = BiomeAt(x, z);
             if ((biome != BIOME_PLAINS && biome != BIOME_FOREST) ||
-                HomeSurfaceHashAt(x, z, 1543u) % 100u >= 42u ||
+                HomeSurfaceHashAt(x, z, 1543u) % 100u >= 50u ||
                 TerrainHeight(x, z, mode) < 4) continue;
-            int base = TerrainHeight(x, z, mode);
-            CgaOrientation orientation =
-                (CgaOrientation)(HomeSurfaceHashAt(x, z, 1549u) % 4u);
-            int width = (orientation & 1) ? 27 : 29;
-            int depth = (orientation & 1) ? 29 : 27;
-            CgaScope scope = { x - width / 2, base, z - depth / 2,
-                               width, 19, depth, orientation };
+            /* A classical Chinese courtyard faces south.  Keep the gate
+             * and the main hall on the same south-facing axis. */
+            CgaOrientation orientation = CGA_ORIENTATION_0;
+            int width = CGA_COMPLEX_WIDTH;
+            int depth = CGA_COMPLEX_DEPTH;
+            CgaScope scope = { x - width / 2, 0, z - depth / 2,
+                               width, CGA_COMPLEX_HEIGHT, depth, orientation };
             if (scope.minX >= startX + CHUNK_SIZE ||
                 scope.minX + scope.sizeX <= startX ||
                 scope.minZ >= startZ + CHUNK_SIZE ||
                 scope.minZ + scope.sizeZ <= startZ) continue;
-            if (!StructureTerrainSuitable(scope, base, mode, 2)) continue;
-            if (!AddFeature(workspace, CGA_CLASSICAL_HALL_GRAMMAR_VERSION, seed,
-                            ax, az, scope)) return false;
+            int base = 0;
+            if (!ComplexTerrainBase(scope, mode, &base)) continue;
+            scope.minY = base;
+            if (!AddFeature(workspace, CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION,
+                            seed, ax, az, scope)) return false;
         }
     }
 
@@ -770,16 +1019,16 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
             if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
                 scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
             if (!HouseTerrainSuitable(scope, base, mode)) continue;
-            bool hallReserved = false;
+            bool complexReserved = false;
             for (size_t i = 0; i < workspace->featureCount; i++) {
                 if (workspace->features[i].grammarVersion ==
-                        CGA_CLASSICAL_HALL_GRAMMAR_VERSION &&
+                        CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION &&
                     ScopeOverlapsXZ(scope, workspace->features[i].scope)) {
-                    hallReserved = true;
+                    complexReserved = true;
                     break;
                 }
             }
-            if (hallReserved) continue;
+            if (complexReserved) continue;
             if (!AddFeature(workspace, CGA_HOUSE_GRAMMAR_VERSION, seed,
                             ax, az, scope)) return false;
         }

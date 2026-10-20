@@ -16,7 +16,7 @@ build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/
 build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_mineshaft.dsl
 build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_dungeon.dsl
 build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_desert_temple.dsl
-build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_classical_hall.dsl
+build/normal/voxelcraft --debug-resolution 1280x720 --debug-script tests/scenes/cga_classical_complex.dsl
 ```
 
 These scenes use the default new-world seed `1448040515`, select varied terrain,
@@ -31,7 +31,7 @@ are written under `screenshots/` in the working directory.
 | `cga_mineshaft` | Timber supports in an underwater ravine near (-2048, 11, -2048) |
 | `cga_dungeon` | Stone-brick perimeter and entrance near (-1536, 10, -2048) |
 | `cga_desert_temple` | Partly submerged sandstone structure near (0, 79, -2048) |
-| `cga_classical_hall` | Five-bay Chinese hall on the plains near (7680, 85, 1120); camera on the front courtyard axis |
+| `cga_classical_complex` | South-facing walled Chinese courtyard complex near (7680, 88, 3840), viewed from the forecourt through the gatehouse toward the main hall |
 
 These are natural generation views, including sparse underground terrain and
 water occlusion; they do not clear terrain or insert display structures.

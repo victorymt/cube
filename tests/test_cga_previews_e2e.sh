@@ -7,7 +7,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 
 scenes=(
     cga_house.dsl
-    cga_classical_hall.dsl
+    cga_classical_complex.dsl
     cga_mineshaft.dsl
     cga_dungeon.dsl
     cga_desert_temple.dsl

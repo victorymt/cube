@@ -154,18 +154,18 @@ static void TestFeatureConflictResolution(void)
     assert(CgaTestResolveFeatureConflicts(features, count, &blocked) == 0);
 }
 
-static void TestClassicalHallExpansion(void)
+static void TestClassicalComplexExpansion(void)
 {
-    CgaFeature hall = {
-        CgaFeatureId(0x564f5843u, CGA_CLASSICAL_HALL_GRAMMAR_VERSION, 4, -2),
-        CGA_CLASSICAL_HALL_GRAMMAR_VERSION, 0x564f5843u, 4, -2,
-        {120, 48, -90, 29, 19, 27, CGA_ORIENTATION_0}
+    CgaFeature complex = {
+        CgaFeatureId(0x564f5843u, CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION, 4, -2),
+        CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION, 0x564f5843u, 4, -2,
+        {120, 48, -90, 93, 28, 101, CGA_ORIENTATION_0}
     };
     CgaWorkspace workspace;
     CgaWorkspaceReset(&workspace);
-    assert(CgaExpandFeature(&workspace, hall));
+    assert(CgaExpandFeature(&workspace, complex));
     assert(!workspace.overflow);
-    assert(workspace.opCount >= 90);
+    assert(workspace.opCount >= 300);
 
     bool hasTerrace = false;
     bool hasPlaster = false;
@@ -173,6 +173,8 @@ static void TestClassicalHallExpansion(void)
     bool hasLattice = false;
     bool hasRoofTile = false;
     bool hasPaintedBracketBand = false;
+    bool hasRidge = false;
+    bool hasPlaque = false;
     for (size_t i = 0; i < workspace.opCount; i++) {
         const CgaVoxelOp *op = &workspace.ops[i];
         assert(CgaScopeValid(op->scope));
@@ -182,19 +184,21 @@ static void TestClassicalHallExpansion(void)
         hasLattice |= op->material == BLOCK_WOOD_LATTICE;
         hasRoofTile |= op->material == BLOCK_BLUE_ROOF_TILE;
         hasPaintedBracketBand |= op->material == BLOCK_GREEN ||
-                                 op->material == BLOCK_YELLOW;
+                                  op->material == BLOCK_YELLOW;
+        hasRidge |= op->material == BLOCK_BLUE_BRICK;
+        hasPlaque |= op->material == BLOCK_BLACK;
     }
     assert(hasTerrace && hasPlaster && hasRedColumns && hasLattice);
-    assert(hasRoofTile && hasPaintedBracketBand);
+    assert(hasRoofTile && hasPaintedBracketBand && hasRidge && hasPlaque);
 
     size_t baseOpCount = workspace.opCount;
     for (int orientation = 0; orientation < 4; orientation++) {
         CgaWorkspace rotated;
         CgaWorkspaceReset(&rotated);
-        hall.scope.orientation = (CgaOrientation)orientation;
-        hall.scope.sizeX = (orientation & 1) ? 27 : 29;
-        hall.scope.sizeZ = (orientation & 1) ? 29 : 27;
-        assert(CgaExpandFeature(&rotated, hall));
+        complex.scope.orientation = (CgaOrientation)orientation;
+        complex.scope.sizeX = (orientation & 1) ? 101 : 93;
+        complex.scope.sizeZ = (orientation & 1) ? 93 : 101;
+        assert(CgaExpandFeature(&rotated, complex));
         assert(!rotated.overflow);
         assert(rotated.opCount == baseOpCount);
         for (size_t i = 0; i < rotated.opCount; i++) {
@@ -237,7 +241,7 @@ int main(void)
     TestFeatureIdAndHouseExpansion();
     TestChunkOrderInvariant();
     TestFeatureConflictResolution();
-    TestClassicalHallExpansion();
+    TestClassicalComplexExpansion();
     TestAllStructureGrammarsExpand();
     puts("cga voxel tests passed");
     return 0;
