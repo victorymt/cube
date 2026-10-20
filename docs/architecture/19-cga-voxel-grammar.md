@@ -42,7 +42,10 @@ margin. The planner samples a twelve-block apron around the site and uses its
 highest terrain point as the terrace level, with a fourteen-block-deep stone
 foundation covering the low corners. This keeps the courtyard visible on gently
 sloping ground instead of sinking it into a hollow. Complexes use a 320-block
-anchor spacing and reserve the site against house placement.
+anchor spacing and reserve the site against house placement. Covered corridors
+with lean-to tile roofs link the gate to the side halls; the main front eave
+carries exposed rafter ends and a raised tile lip, and the front bracket band
+has a second, lower tier of painted arms.
 
 All grammars use world half-open AABBs and remain bounded by
 `CGA_MAX_FEATURES_PER_CHUNK` and `CGA_MAX_CHUNK_OPS`. Expansion reserves its

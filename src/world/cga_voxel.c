@@ -782,6 +782,8 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     for (int bx = 18; bx <= 53; bx += 3) {
         CF(bx - 1, 14, 24, 3, 1, 1, BLOCK_RED_LACQUER_WOOD, 26);
         CF(bx, 14, 24, 1, 1, 1, BLOCK_YELLOW, 27);
+        CF(bx - 1, 13, 25, 3, 1, 1, BLOCK_GREEN, 28);
+        CF(bx, 14, 25, 1, 1, 1, BLOCK_YELLOW, 28);
     }
     CF(18, 12, 6, 37, 1, 1, BLOCK_RED_LACQUER_WOOD, 24);
     CF(18, 13, 6, 37, 1, 1, BLOCK_GREEN, 25);
@@ -826,6 +828,12 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
 
     if (!AppendComplexHipRoof(workspace, feature, s, 14, 3, 45, 29,
                               15, 6, 40, 3)) return false;
+
+    /* Exposed rafter ends and a raised tile lip along the main front eave. */
+    for (int ex = 15; ex <= 57; ex += 2) {
+        CF(ex, 14, 31, 1, 1, 1, BLOCK_WOOD, 58);
+        CF(ex, 16, 31, 1, 1, 1, BLOCK_BLUE_BRICK, 59);
+    }
 
     /* East and west side halls, both facing the courtyard.  Build the west
      * hall and mirror every x coordinate for the east hall. */
@@ -880,6 +888,21 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     if (!AppendComplexPine(workspace, feature, s, 10, 70, 8) ||
         !AppendComplexPine(workspace, feature, s,
                            CGA_COMPLEX_INNER_WIDTH - 11, 70, 8)) return false;
+
+    /* Covered corridors (langwu) along the front wall, linking the gate to
+     * the side halls under a low lean-to tile roof. */
+    for (int side = 0; side < 2; side++) {
+        int x0 = side ? 46 : 2;
+        for (int cx = x0 + 2; cx <= x0 + 20; cx += 6) {
+            CF(cx, 3, 55, 1, 5, 1, BLOCK_RED_LACQUER_WOOD, 60);
+        }
+        CF(x0 + 1, 7, 55, 23, 1, 1, BLOCK_RED_LACQUER_WOOD, 61);
+        CF(x0 + 1, 8, 55, 23, 1, 1, BLOCK_GREEN, 62);
+        CF(x0, 7, 53, 25, 1, 1, BLOCK_GREEN, 63);
+        CF(x0, 8, 53, 25, 1, 2, BLOCK_BLUE_ROOF_TILE, 64);
+        CF(x0, 9, 55, 25, 1, 2, BLOCK_BLUE_ROOF_TILE, 65);
+        CF(x0, 10, 57, 25, 1, 1, BLOCK_BLUE_ROOF_TILE, 66);
+    }
 
     /* Three-bay paifang at the forecourt entrance.  It frames the gate and
      * the main hall from the south approach without closing the axis. */
