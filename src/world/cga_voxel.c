@@ -500,7 +500,7 @@ static bool AppendComplexHipRoof(CgaWorkspace *workspace, CgaFeature feature,
                                  int priority, int cornerReach)
 {
     if (width <= depth || depth < 3 || levels < 2 ||
-        cornerReach < 0 || cornerReach > 3) return false;
+        cornerReach < 0 || cornerReach > 4) return false;
     int maxInset = (depth - 1) / 2;
     for (int i = 0; i < levels; i++) {
         int inset = ComplexRoofInset(maxInset, i, levels);
@@ -547,6 +547,63 @@ static bool AppendComplexHipRoof(CgaWorkspace *workspace, CgaFeature feature,
                          cz + cornerZ[c] * cornerReach, 1, 1, 1,
                          BLOCK_BLUE_BRICK, priority + 45 + c)) return false;
     }
+    /* Tile ribs: paint alternating columns down the four slope faces so the
+     * stepped roof reads as parallel tile courses rather than flat boxes. */
+    for (int i = 0; i < levels; i++) {
+        int inset = ComplexRoofInset(maxInset, i, levels);
+        int w = width - 2 * inset;
+        int d = depth - 2 * inset;
+        if (d < 1) d = 1;
+        int fz = z + inset + d - 1;
+        int bz = z + inset;
+        for (int tx = x + inset + 2; tx < x + inset + w - 2; tx += 3) {
+            if (!ComplexPaint(workspace, feature, s, tx, eaveY + i, fz,
+                              1, 1, 1, BLOCK_BLUE_BRICK, priority + 80 + i) ||
+                !ComplexPaint(workspace, feature, s, tx, eaveY + i, bz,
+                              1, 1, 1, BLOCK_BLUE_BRICK, priority + 80 + i))
+                return false;
+        }
+        for (int tz = z + inset + 2; tz < z + inset + d - 2; tz += 3) {
+            if (!ComplexPaint(workspace, feature, s, x + inset, eaveY + i,
+                              tz, 1, 1, 1, BLOCK_BLUE_BRICK,
+                              priority + 80 + i) ||
+                !ComplexPaint(workspace, feature, s, x + inset + w - 1,
+                              eaveY + i, tz, 1, 1, 1, BLOCK_BLUE_BRICK,
+                              priority + 80 + i)) return false;
+        }
+    }
+
+    /* Eave layers: an outward drip tile, exposed rafter ends one block under
+     * the fascia, and a raised tile lip on the eave course. */
+    if (!ComplexFill(workspace, feature, s, x, eaveY, z + depth,
+                     width, 1, 1, BLOCK_BLUE_BRICK, priority + 90) ||
+        !ComplexFill(workspace, feature, s, x, eaveY, z - 1,
+                     width, 1, 1, BLOCK_BLUE_BRICK, priority + 90) ||
+        !ComplexFill(workspace, feature, s, x - 1, eaveY, z,
+                     1, 1, depth, BLOCK_BLUE_BRICK, priority + 90) ||
+        !ComplexFill(workspace, feature, s, x + width, eaveY, z,
+                     1, 1, depth, BLOCK_BLUE_BRICK, priority + 90) ||
+        !ComplexFill(workspace, feature, s, x, eaveY + 1, z + depth - 1,
+                     width, 1, 1, BLOCK_BLUE_BRICK, priority + 92) ||
+        !ComplexFill(workspace, feature, s, x, eaveY + 1, z,
+                     width, 1, 1, BLOCK_BLUE_BRICK, priority + 92))
+        return false;
+    for (int e = 0; e < width; e += 2) {
+        if (!ComplexFill(workspace, feature, s, x + e, eaveY - 2,
+                         z + depth - 1, 1, 1, 1, BLOCK_WOOD,
+                         priority + 91) ||
+            !ComplexFill(workspace, feature, s, x + e, eaveY - 2, z,
+                         1, 1, 1, BLOCK_WOOD, priority + 91))
+            return false;
+    }
+    for (int e = 0; e < depth; e += 2) {
+        if (!ComplexFill(workspace, feature, s, x, eaveY - 2, z + e,
+                         1, 1, 1, BLOCK_WOOD, priority + 91) ||
+            !ComplexFill(workspace, feature, s, x + width - 1, eaveY - 2,
+                         z + e, 1, 1, 1, BLOCK_WOOD, priority + 91))
+            return false;
+    }
+
     int inset = maxInset;
     int w = width - 2 * inset;
     int d = depth - 2 * inset;
@@ -586,6 +643,35 @@ static bool AppendComplexGableRoof(CgaWorkspace *workspace, CgaFeature feature,
         int w = width - 2 * inset;
         if (!ComplexFill(workspace, feature, s, x + inset, eaveY + i, z,
                          w, 1, depth, BLOCK_BLUE_ROOF_TILE, priority + i))
+            return false;
+    }
+    /* Tile ribs and layered eaves on the courtyard-facing slopes. */
+    for (int i = 0; i < levels; i++) {
+        int inset = ComplexRoofInset(maxInset, i, levels);
+        int w = width - 2 * inset;
+        for (int tz = z + 2; tz < z + depth - 2; tz += 3) {
+            if (!ComplexPaint(workspace, feature, s, x + inset,
+                              eaveY + i, tz, 1, 1, 1, BLOCK_BLUE_BRICK,
+                              priority + 50 + i) ||
+                !ComplexPaint(workspace, feature, s, x + inset + w - 1,
+                              eaveY + i, tz, 1, 1, 1, BLOCK_BLUE_BRICK,
+                              priority + 50 + i)) return false;
+        }
+    }
+    if (!ComplexFill(workspace, feature, s, x - 1, eaveY, z,
+                     1, 1, depth, BLOCK_BLUE_BRICK, priority + 60) ||
+        !ComplexFill(workspace, feature, s, x + width, eaveY, z,
+                     1, 1, depth, BLOCK_BLUE_BRICK, priority + 60) ||
+        !ComplexFill(workspace, feature, s, x - 1, eaveY + 1, z,
+                     1, 1, depth, BLOCK_BLUE_BRICK, priority + 61) ||
+        !ComplexFill(workspace, feature, s, x + width, eaveY + 1, z,
+                     1, 1, depth, BLOCK_BLUE_BRICK, priority + 61))
+        return false;
+    for (int tz = z; tz < z + depth; tz += 2) {
+        if (!ComplexFill(workspace, feature, s, x, eaveY - 2, tz,
+                         1, 1, 1, BLOCK_WOOD, priority + 62) ||
+            !ComplexFill(workspace, feature, s, x + width - 1, eaveY - 2,
+                         tz, 1, 1, 1, BLOCK_WOOD, priority + 62))
             return false;
     }
     int topY = eaveY + levels;
@@ -827,13 +913,7 @@ static bool ExpandClassicalComplex(CgaWorkspace *workspace, CgaFeature feature)
     }
 
     if (!AppendComplexHipRoof(workspace, feature, s, 14, 3, 45, 29,
-                              15, 6, 40, 3)) return false;
-
-    /* Exposed rafter ends and a raised tile lip along the main front eave. */
-    for (int ex = 15; ex <= 57; ex += 2) {
-        CF(ex, 14, 31, 1, 1, 1, BLOCK_WOOD, 58);
-        CF(ex, 16, 31, 1, 1, 1, BLOCK_BLUE_BRICK, 59);
-    }
+                              15, 6, 40, 2)) return false;
 
     /* East and west side halls, both facing the courtyard.  Build the west
      * hall and mirror every x coordinate for the east hall. */

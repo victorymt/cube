@@ -45,7 +45,10 @@ sloping ground instead of sinking it into a hollow. Complexes use a 320-block
 anchor spacing and reserve the site against house placement. Covered corridors
 with lean-to tile roofs link the gate to the side halls; the main front eave
 carries exposed rafter ends and a raised tile lip, and the front bracket band
-has a second, lower tier of painted arms.
+has a second, lower tier of painted arms. Both hip and gable roofs paint
+alternating tile ribs over the stepped courses and add a continuous outward
+drip tile, a raised eave lip and spaced wood rafter ends; the hip corners use a
+two-step connected upturn instead of a thin detached stack.
 
 All grammars use world half-open AABBs and remain bounded by
 `CGA_MAX_FEATURES_PER_CHUNK` and `CGA_MAX_CHUNK_OPS`. Expansion reserves its
