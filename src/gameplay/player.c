@@ -323,6 +323,58 @@ static bool PlayerVectorIsFinite(Vector3 value)
     return isfinite(value.x) && isfinite(value.y) && isfinite(value.z);
 }
 
+/* Local <-> pose conversion. The legacy local position uses absolute world Y,
+ * while a cube pose stores a radial offset above the mean radius, so the two
+ * differ by a constant. Both horizontal axes are map cells. */
+static bool PlayerCubePoseFromLocal(Vector3 position, SurfacePose *outPose)
+{
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!context.active || !outPose) return false;
+    float mapX = (float)context.originX + position.x;
+    float mapZ = (float)context.originZ + position.z;
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(mapX, mapZ);
+    double radial = (double)position.y - (double)SURFACE_RADIUS_BLOCKS;
+    return SurfacePoseFromGeographic(context.bodyId,
+        (double)projection.longitude, (double)projection.latitude,
+        radial, 0.0, 0.0, outPose);
+}
+
+static bool PlayerCubeLocalFromPose(const SurfacePose *pose, Vector3 *outPosition)
+{
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!context.active || !pose || !outPosition) return false;
+    Vector2 map;
+    if (!SurfaceMapCoordinatesFromDirection(
+            (Vector3){ (float)pose->position.x, (float)pose->position.y,
+                       (float)pose->position.z }, &map)) return false;
+    outPosition->x = map.x - (float)context.originX;
+    outPosition->z = map.y - (float)context.originZ;
+    /* Radial is the distance from the centre minus the mean radius. */
+    double length = sqrt((double)pose->position.x * (double)pose->position.x +
+                         (double)pose->position.y * (double)pose->position.y +
+                         (double)pose->position.z * (double)pose->position.z);
+    outPosition->y = (float)(length);
+    return true;
+}
+
+/* Physical displacement on a cube surface: the delta is in blocks along the
+ * local right/forward/up axes, so it is applied as a great-circle move rather
+ * than as a map-cell step. A map cell near a pole is a fraction of a block, so
+ * stepping in cells would make movement latitude-dependent. */
+static bool PlayerCubeDisplace(Player *player, Vector3 delta)
+{
+    SurfacePose pose;
+    if (!PlayerCubePoseFromLocal(player->position, &pose)) return false;
+    SurfacePose next;
+    if (!SurfacePoseDisplace(&pose, (double)delta.x, (double)delta.z,
+                             (double)delta.y, &next)) return false;
+    Vector3 candidate;
+    if (!PlayerCubeLocalFromPose(&next, &candidate)) return false;
+    if (PlayerOverlapsWorld(candidate)) return false;
+    player->position = candidate;
+    return true;
+}
+
 static void MovePlayerStep(Player *player, Vector3 delta, bool canStepUp)
 {
     Vector3 next = player->position;
@@ -358,6 +410,14 @@ void MovePlayer(Player *player, Vector3 delta)
 {
     if (!player || !PlayerVectorIsFinite(player->position) ||
         !PlayerVectorIsFinite(delta)) {
+        return;
+    }
+
+    /* A cube surface moves by physical displacement; the per-axis cell stepper
+     * below assumes map cells have stable width, which a cube grid does not. */
+    if (WorldIsSurfaceActive() &&
+        WorldCurrentSurfaceContext().topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        PlayerCubeDisplace(player, delta);
         return;
     }
 

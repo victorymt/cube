@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include "raymath.h"
 
 static bool wallEnabled = false;
 static float partialSolidHeight;
@@ -492,6 +493,51 @@ static void TestCubeOverlapBranch(void)
     cubeSurface = false;
 }
 
+/* Cube movement must be physical: the same input travels the same distance in
+ * blocks regardless of latitude. Stepping in map cells would make it shrink
+ * with latitude, which is exactly the defect this path replaces. */
+static double CubeTravel(Vector3 from, Vector3 to)
+{
+    Vector3 a = SurfaceDirectionFromMapCoordinates(from.x, from.z);
+    Vector3 b = SurfaceDirectionFromMapCoordinates(to.x, to.z);
+    double dot = fmax(-1.0, fmin(1.0, (double)Vector3DotProduct(a, b)));
+    return acos(dot) * (double)SURFACE_RADIUS_BLOCKS;
+}
+
+static void TestCubeMoveIsPhysical(void)
+{
+    cubeSurface = true;
+    cubeTerrainKnown = true;
+    cubeGroundRadial = -100000; /* no ground: nothing collides */
+
+    const float step = 0.5f;
+    const int steps = 4;
+    double travelled[3] = {0};
+    /* Three latitudes, all at the same physical height. */
+    const float mapZ[3] = {0.5f, 1600.5f, 2600.5f};
+    for (int pass = 0; pass < 3; pass++) {
+        Player player = {0};
+        player.position = (Vector3){0.5f,
+            (float)SURFACE_RADIUS_BLOCKS + 40.0f, mapZ[pass]};
+        Vector3 before = player.position;
+        for (int i = 0; i < steps; i++)
+            MovePlayer(&player, (Vector3){step, 0.0f, 0.0f});
+        travelled[pass] = CubeTravel(before, player.position);
+    }
+    /* Each pass should travel steps*step blocks. Allow a small tolerance for
+     * the float32 projection, but reject latitude-dependent shrinking. */
+    for (int pass = 0; pass < 3; pass++) {
+        double expected = steps * step;
+        if (!(travelled[pass] > expected * 0.5 &&
+              travelled[pass] < expected * 1.5)) {
+            fprintf(stderr, "pass=%d travelled=%.4f expected~%.1f\n",
+                    pass, travelled[pass], expected);
+            assert(0 && "cube movement is not physical");
+        }
+    }
+    cubeSurface = false;
+}
+
 int main(void)
 {
     ResetCollisionWorld();
@@ -518,6 +564,7 @@ int main(void)
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();
     TestCubeOverlapBranch();
+    TestCubeMoveIsPhysical();
     TestSwimmingSpeedAndAscent();
     puts("player collision tests passed");
     return 0;
