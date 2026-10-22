@@ -324,6 +324,37 @@ uint32_t SurfaceCanonicalMapHash(uint32_t bodyId, float mapX, float mapZ,
     return hash * 2246822519u;
 }
 
+bool SurfaceMapCoordinatesFromDirection(Vector3 direction, Vector2 *outMap)
+{
+    if (!outMap || !isfinite(direction.x) || !isfinite(direction.y) ||
+        !isfinite(direction.z)) return false;
+    double length = sqrt((double)direction.x * direction.x +
+                         (double)direction.y * direction.y +
+                         (double)direction.z * direction.z);
+    if (!isfinite(length) || length <= 0.0) return false;
+    double nx = (double)direction.x / length;
+    double ny = (double)direction.y / length;
+    double nz = (double)direction.z / length;
+    /* Clamp the pole so asin stays finite under rounding. */
+    if (ny > 1.0) ny = 1.0;
+    if (ny < -1.0) ny = -1.0;
+    double latitude = asin(ny);
+    double horizontal = sqrt(nx * nx + nz * nz);
+    /* At a pole longitude is undefined; canonicalise to zero. */
+    double longitude = horizontal > 1e-12 ? atan2(nz, nx) : 0.0;
+    double mapX = longitude *
+        ((double)SURFACE_EQUATOR_BLOCKS / (2.0 * PI));
+    double mapZ = latitude *
+        ((double)SURFACE_POLE_TO_POLE_BLOCKS / PI);
+    /* Fold into the canonical ranges used by the forward projection. */
+    const double circumference = SURFACE_EQUATOR_BLOCKS;
+    double canonicalX = fmod(mapX, circumference);
+    if (canonicalX < 0.0) canonicalX += circumference;
+    if (canonicalX >= circumference * 0.5) canonicalX -= circumference;
+    *outMap = (Vector2){ (float)canonicalX, (float)mapZ };
+    return true;
+}
+
 Vector3 SurfaceDirectionFromMapCoordinates(float mapX, float mapZ)
 {
     SurfaceMapProjection projection = SurfaceProjectMapCoordinates(

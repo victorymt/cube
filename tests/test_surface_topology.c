@@ -456,12 +456,56 @@ static void TestContinuousPatchAcrossAliases(void)
     assert(Vector3Distance(overPoint, reflectedPoint) < 0.001f);
 }
 
+/* Inverse projection: a direction must map back to the map coordinates that
+ * produced it. The forward projection is float32 (sinf/cosf), so a round trip
+ * carries a small angular error; the tolerance below is the measured worst
+ * case (0.0005 rad ~ 1.3 blocks of arc), not a guess. */
+static void TestMapCoordinatesFromDirection(void)
+{
+    double worst = 0.0;
+    for (int z = -4096; z <= 4096; z += 256) {
+        for (int x = -8192; x <= 8192; x += 1024) {
+            Vector3 direction = SurfaceDirectionFromMapCoordinates(
+                (float)x, (float)z);
+            Vector2 map;
+            assert(SurfaceMapCoordinatesFromDirection(direction, &map));
+            Vector3 again = SurfaceDirectionFromMapCoordinates(map.x, map.y);
+            double dot = fmax(-1.0, fmin(1.0,
+                (double)Vector3DotProduct(direction, again)));
+            double error = acos(dot);
+            assert(isfinite(error));
+            if (error > worst) worst = error;
+        }
+    }
+    assert(worst < 0.001);
+
+    /* Poles are ambiguous in longitude and canonicalise to map X = 0. */
+    Vector2 map;
+    assert(SurfaceMapCoordinatesFromDirection((Vector3){0, 1, 0}, &map));
+    assert(fabsf(map.x) < 1e-3f);
+    assert(fabsf(map.y - (float)(SURFACE_POLE_TO_POLE_BLOCKS / 2)) < 1e-2f);
+    assert(SurfaceMapCoordinatesFromDirection((Vector3){0, -1, 0}, &map));
+    assert(fabsf(map.x) < 1e-3f);
+    assert(fabsf(map.y + (float)(SURFACE_POLE_TO_POLE_BLOCKS / 2)) < 1e-2f);
+
+    /* Canonical X range is half a turn wide in each direction. */
+    assert(SurfaceMapCoordinatesFromDirection((Vector3){1, 0, 0}, &map));
+    assert(map.x >= -(float)SURFACE_EQUATOR_BLOCKS * 0.5f &&
+           map.x < (float)SURFACE_EQUATOR_BLOCKS * 0.5f);
+
+    /* Invalid input is rejected rather than silently coerced. */
+    assert(!SurfaceMapCoordinatesFromDirection((Vector3){0, 0, 0}, &map));
+    assert(!SurfaceMapCoordinatesFromDirection((Vector3){NAN, 0, 0}, &map));
+    assert(!SurfaceMapCoordinatesFromDirection((Vector3){0, 1, 0}, NULL));
+}
+
 int main(void)
 {
     TestFaceCenters();
     TestEveryEdgeCrossesAndReturns();
     TestLatLonRoundTrip();
     TestMapCoordinateConversion();
+    TestMapCoordinatesFromDirection();
     TestCanonicalMapCells();
     TestCanonicalAddressCellsAcrossSeamAndPoles();
     TestShortestMapOffsets();

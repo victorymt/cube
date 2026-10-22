@@ -89,6 +89,11 @@ SurfaceMapOffset SurfaceShortestMapOffset(float fromX, float fromZ,
 uint32_t SurfaceCanonicalMapHash(uint32_t bodyId, float mapX, float mapZ,
                                  int radial);
 Vector3 SurfaceDirectionFromMapCoordinates(float mapX, float mapZ);
+/* Inverse of SurfaceDirectionFromMapCoordinates, returned in canonical map
+ * coordinates: X in [-equator/2, equator/2), Z in [-poleToPole/2, poleToPole/2).
+ * A direction on a pole is ambiguous in longitude; X is then 0. Returns false
+ * for a non-finite or zero-length direction. */
+bool SurfaceMapCoordinatesFromDirection(Vector3 direction, Vector2 *outMap);
 SurfaceAddress SurfaceAddressFromMapCoordinates(uint32_t bodyId, float x,
                                                 float z, int radial);
 bool SurfaceAddressCanonicalMapCell(SurfaceAddress address,
