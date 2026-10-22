@@ -307,7 +307,9 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 | 2026-10-22 | 玩家坐标往返验证 | **完成**。25 个采样点验证 local↔pose 恒等；确认 `SurfaceCellCenter` 用 `radial+0.5`，故 `|position| = R + radial + 0.5` 是格中心的正确值 |
 | 2026-10-22 | **修复**：玩家高度换算 | **完成**。`PlayerCubePoseFromLocal` 曾把 `radial` 写成 `y - R`，`PlayerCubeLocalFromPose` 又漏减 R，会把玩家整体位移一个球半径；已统一为 `radial = y` / `y = |pose| - R`，并加高度守恒测试（变异可捕获）|
 | 2026-10-22 | W3 根基：`GetBlockAt` 支持 cube | **完成**。`GetSurfaceBlockAt` 在 cube 拓扑下先按 map 坐标解析成 cube 单元，绕开全部 legacy 区块查找；400 个采样点验证映射是单射 |
-| 待续 | W1-3 流体 | 依赖已具备，尚未改造 |
+| 2026-10-22 | W1-3 流体：**阻塞点定位** | 实测发现流体的编辑索引以 `(surfaceId, chunkX, chunkZ)` 为键，而 cube 区块只有 `cx=u, cz=v`：**不同 face 的相同 (u,v) 会共用同一个桶**，把一面编辑应用到另一面。改造需让队列携带 cube 区块身份，涉及 16 处调用点与 4 个结构体 |
+| 2026-10-22 | W1-3 流体：cube 下停用 | **完成**。`FluidUpdate` / `FluidStepTicks` / `FluidWakeCell` / `FluidApplyEditsToChunkSection` 在 cube 拓扑下直接返回，避免串桶写坏方块；测试钉住 cube 下 `activeCells==0 && ticks==0`，legacy 不受影响（变异可捕获）|
+| 待续 | W1-3 流体：真正改造 | 队列需承载 `SurfaceCubeChunkKey` |
 | 2026-10-22 | W3 其余 | 生态、CGA、地形高度查询尚未切换 |
 | 待续 | W2 其余 | V30 版本号与界面文案尚未切换 |
 

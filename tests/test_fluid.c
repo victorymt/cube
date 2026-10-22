@@ -206,9 +206,18 @@ uint32_t WorldCurrentSurfaceId(void)
     return 0u;
 }
 
+/* Legacy by default so every existing case is unchanged. */
+static bool cubeTopology = false;
+
 WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
-    return (WorldSurfaceContext){ .active = true, .kind = surfaceKind };
+    return (WorldSurfaceContext){
+        .active = true,
+        .kind = surfaceKind,
+        .topology = cubeTopology
+            ? (SurfaceTopologyVersion){ SURFACE_TOPOLOGY_CUBE_GRID, 1u }
+            : (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1
+    };
 }
 
 int WorldSurfaceMapOriginX(void)
@@ -943,6 +952,30 @@ static void TestEvaporationTransactions(void)
     assert(FluidGetVolumeAt(2, 2, 2) == FLUID_CAPACITY);
 }
 
+/* A cube surface must not run fluid yet: the queue keys chunks by
+ * (surfaceId, chunkX, chunkZ), and two faces can share that pair, which would
+ * apply one face's edits to another face's chunk. */
+static void TestCubeSurfaceDoesNotRunFluid(void)
+{
+    cubeTopology = true;
+    FluidReset();
+    /* Waking a cell must not queue work on a cube surface. */
+    FluidWakeCell(0, 1, 0);
+    FluidUpdate(0.5f);
+    /* Repeated updates must not advance the tick counter either. */
+    FluidStepTicks(8u);
+    FluidStats stats = FluidGetStats();
+    assert(stats.activeCells == 0u);
+    assert(stats.ticks == 0u);
+
+    /* The legacy path still works in the same fixture. */
+    cubeTopology = false;
+    FluidReset();
+    FluidWakeCell(0, 1, 0);
+    FluidUpdate(0.5f);
+    cubeTopology = false;
+}
+
 int main(void)
 {
     ResetWorld();
@@ -980,6 +1013,7 @@ int main(void)
     TestCorruptLoadPreservesState();
     TestEvaporationTransactions();
     ResetWorld();
+    TestCubeSurfaceDoesNotRunFluid();
     puts("fluid tests passed");
     return 0;
 }

@@ -800,9 +800,22 @@ bool FluidTryEvaporateAt(int x, int y, int z, uint8_t expected, uint8_t amount,
     return true;
 }
 
+/* Fluid bookkeeping keys edits by (surfaceId, chunkX, chunkZ). A cube world has
+ * several faces per planet, and two faces can share a (chunkX, chunkZ) pair, so
+ * the same key would gather edits from different faces and apply them to the
+ * wrong chunk. Until the queue carries cube chunk identity, a cube surface must
+ * not run fluid rather than corrupt it. */
+static bool FluidSurfaceSupported(void)
+{
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    return !context.active ||
+        context.topology.kind != SURFACE_TOPOLOGY_CUBE_GRID;
+}
+
 void FluidWakeCell(int x, int y, int z)
 {
     if (!WorldIsSurfaceActive() || !InHeight(y)) return;
+    if (!FluidSurfaceSupported()) return;
     FluidCanonicalizeXZ(&x, &z);
     ChunkSection *section = NULL;
     int index = 0;
@@ -1057,6 +1070,7 @@ static void FluidProcessTick(void)
 void FluidUpdate(float dt)
 {
     if (!WorldIsSurfaceActive() || !isfinite(dt) || dt <= 0.0f) return;
+    if (!FluidSurfaceSupported()) return;
 
     fluidTickAccumulator += dt;
     if (fluidTickAccumulator > 0.5f) fluidTickAccumulator = 0.5f;
@@ -1085,6 +1099,7 @@ void FluidUpdate(float dt)
 void FluidStepTicks(unsigned ticks)
 {
     if (!WorldIsSurfaceActive()) return;
+    if (!FluidSurfaceSupported()) return;
     for (unsigned tick = 0u; tick < ticks; tick++) FluidProcessTick();
 }
 
@@ -1380,6 +1395,7 @@ static void FluidPruneReservoirDeficitsInSection(Chunk *chunk, int sectionY)
 void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
 {
     if (!chunk || !WorldIsSurfaceActive()) return;
+    if (!FluidSurfaceSupported()) return;
     ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
     if (!section && !FluidImplicitSectionIsKnown(chunk, sectionY)) return;
     FluidPruneReservoirDeficitsInSection(chunk, sectionY);
