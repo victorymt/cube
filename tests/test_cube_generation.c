@@ -1,11 +1,14 @@
+#define _POSIX_C_SOURCE 200809L
 #include "world/chunks_internal.h"
 #include "world/terrain_cube.h"
 #include "world/chunks_cube.h"
 #include "world/world_cube.h"
+#include "world/cube_address_save.h"
 #include "presentation/surface_render_transform.h"
 #include "world/surface_geometry.h"
 
 #include <assert.h>
+#include <unistd.h>
 #include <stdio.h>
 
 // The worker/terrain/storage implementation is real. The surrounding game
@@ -229,6 +232,54 @@ static WorldBlockAddress Address(uint32_t body, SurfaceFace face, int u, int v, 
 {
     return (WorldBlockAddress){.dimension = body ? WORLD_DIMENSION_PLANET : WORLD_DIMENSION_HOME,
         .at.surface = {body, face, u, v, y}};
+}
+
+/* W2: the live cube edit store must survive a codec round trip exactly, and a
+ * damaged payload must not leave a half-restored store. */
+static void TestCubeEditPersistence(void)
+{
+    Reset();
+    for (int i = 0; i < 64; i++) {
+        WorldBlockAddress a = Address((unsigned)(i % 3), (SurfaceFace)(i % 6),
+                                      100 + i, 200 + i, 10 - i);
+        assert(WorldCubeSetBlock(a, (BlockType)(BLOCK_STONE + (i % 7))));
+    }
+    assert(WorldCubeEditCount() == 64);
+    WorldBlockAddress saved[64];
+    BlockType savedTypes[64];
+    for (unsigned i = 0; i < 64; i++)
+        assert(WorldCubeEditAt(i, &saved[i], &savedTypes[i]));
+
+    FILE *file = tmpfile();
+    assert(file);
+    assert(CubeAddressSaveWriteEdits(file));
+    WorldCubeClearEdits();
+    assert(WorldCubeEditCount() == 0);
+    rewind(file);
+    uint32_t restored = 0;
+    assert(CubeAddressSaveReadEdits(file, &restored));
+    assert(restored == 64 && WorldCubeEditCount() == 64);
+    for (unsigned i = 0; i < 64; i++) {
+        BlockType type = BLOCK_AIR;
+        assert(WorldCubeGetEdit(saved[i], &type) && type == savedTypes[i]);
+    }
+    fclose(file);
+
+    /* A truncated payload clears the store instead of leaving a mix. */
+    file = tmpfile();
+    assert(file);
+    assert(CubeAddressSaveWriteEdits(file));
+    /* Flush before truncating: stdio buffering means the bytes may not be in
+     * the file yet, and a stale size would truncate the wrong offset. */
+    assert(fflush(file) == 0);
+    long size = ftell(file);
+    assert(size > 3);
+    assert(ftruncate(fileno(file), size - 3) == 0);
+    rewind(file);
+    assert(!CubeAddressSaveReadEdits(file, &restored));
+    assert(restored == 0 && WorldCubeEditCount() == 0);
+    fclose(file);
+    Reset();
 }
 
 static void TestCubeEditIndex(void)
@@ -591,6 +642,7 @@ int main(void)
     TestQueuedCancellationAndCapacity();
     TestCrossFaceDirtyPropagation();
     TestWorkerQueue();
+    TestCubeEditPersistence();
     TestCubeEditIndex();
     TestCubeRuntimeReload();
     TestCubeRuntimeAsyncEdits();

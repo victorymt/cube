@@ -33,4 +33,12 @@ bool CubeAddressSaveRead(FILE *file, CubeAddressBlock *outBlock);
 bool CubeAddressSavePeekVersion(FILE *file, uint32_t *outVersion);
 void CubeAddressBlockRelease(CubeAddressBlock *block);
 
+/* Snapshot and restore the live main-thread cube edit store through the codec.
+ * Saving copies the store; restoring clears it first, so a partially invalid
+ * payload cannot leave a mixed state behind. */
+bool CubeAddressSaveWriteEdits(FILE *file);
+/* Replaces the live edit store. Returns false and leaves the store cleared if
+ * any record is rejected. */
+bool CubeAddressSaveReadEdits(FILE *file, uint32_t *outCount);
+
 #endif

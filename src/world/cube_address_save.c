@@ -1,4 +1,7 @@
 #include "world/cube_address_save.h"
+#ifndef CUBE_ADDRESS_SAVE_NO_EDIT_STORE
+#include "world/world_cube.h"
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -148,3 +151,51 @@ fail:
     free(types);
     return false;
 }
+
+#ifndef CUBE_ADDRESS_SAVE_NO_EDIT_STORE
+
+bool CubeAddressSaveWriteEdits(FILE *file)
+{
+    unsigned count = WorldCubeEditCount();
+    if (!file || count > CUBE_ADDRESS_SAVE_MAX_RECORDS) return false;
+    CubeAddressBlock block = {0};
+    block.count = count;
+    if (count > 0) {
+        block.addresses = calloc(count, sizeof(*block.addresses));
+        block.types = calloc(count, sizeof(*block.types));
+        if (!block.addresses || !block.types) {
+            CubeAddressBlockRelease(&block);
+            return false;
+        }
+        for (unsigned i = 0; i < count; i++) {
+            if (!WorldCubeEditAt(i, &block.addresses[i], &block.types[i])) {
+                CubeAddressBlockRelease(&block);
+                return false;
+            }
+        }
+    }
+    bool ok = CubeAddressSaveWrite(file, &block);
+    CubeAddressBlockRelease(&block);
+    return ok;
+}
+
+bool CubeAddressSaveReadEdits(FILE *file, uint32_t *outCount)
+{
+    if (outCount) *outCount = 0;
+    WorldCubeClearEdits();
+    CubeAddressBlock block;
+    if (!CubeAddressSaveRead(file, &block)) return false;
+    /* Apply in order; a rejected record undoes the whole restore. */
+    for (uint32_t i = 0; i < block.count; i++) {
+        if (!WorldCubeSetBlock(block.addresses[i], block.types[i])) {
+            CubeAddressBlockRelease(&block);
+            WorldCubeClearEdits();
+            return false;
+        }
+    }
+    if (outCount) *outCount = block.count;
+    CubeAddressBlockRelease(&block);
+    return true;
+}
+
+#endif /* CUBE_ADDRESS_SAVE_NO_EDIT_STORE */
