@@ -504,6 +504,26 @@ static double CubeTravel(Vector3 from, Vector3 to)
     return acos(dot) * (double)SURFACE_RADIUS_BLOCKS;
 }
 
+/* The two conversions must agree with PlayerOverlapsCubeWorld's own convention:
+ * legacy Y is height above the mean sphere, so a standing player's Y survives a
+ * move unchanged when the move is purely horizontal. A radial offset of one
+ * sphere radius would move the body by thousands of blocks. */
+static void TestCubeHeightSurvivesMovement(void)
+{
+    cubeSurface = true;
+    cubeTerrainKnown = true;
+    cubeGroundRadial = -100000;
+
+    Player player = {0};
+    const float startY = 70.0f;
+    player.position = (Vector3){0.5f, startY, 0.5f};
+    for (int i = 0; i < 4; i++)
+        MovePlayer(&player, (Vector3){0.5f, 0.0f, 0.0f});
+    /* Height must be preserved to within float noise, not shifted by R. */
+    assert(fabsf(player.position.y - startY) < 1.0f);
+    cubeSurface = false;
+}
+
 static void TestCubeMoveIsPhysical(void)
 {
     cubeSurface = true;
@@ -517,8 +537,8 @@ static void TestCubeMoveIsPhysical(void)
     const float mapZ[3] = {0.5f, 1600.5f, 2600.5f};
     for (int pass = 0; pass < 3; pass++) {
         Player player = {0};
-        player.position = (Vector3){0.5f,
-            (float)SURFACE_RADIUS_BLOCKS + 40.0f, mapZ[pass]};
+        /* Legacy Y is height above the mean sphere, so 40 is 40 blocks up. */
+        player.position = (Vector3){0.5f, 40.0f, mapZ[pass]};
         Vector3 before = player.position;
         for (int i = 0; i < steps; i++)
             MovePlayer(&player, (Vector3){step, 0.0f, 0.0f});
@@ -564,6 +584,7 @@ int main(void)
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();
     TestCubeOverlapBranch();
+    TestCubeHeightSurvivesMovement();
     TestCubeMoveIsPhysical();
     TestSwimmingSpeedAndAscent();
     puts("player collision tests passed");

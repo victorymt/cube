@@ -333,7 +333,9 @@ static bool PlayerCubePoseFromLocal(Vector3 position, SurfacePose *outPose)
     float mapX = (float)context.originX + position.x;
     float mapZ = (float)context.originZ + position.z;
     SurfaceMapProjection projection = SurfaceProjectMapCoordinates(mapX, mapZ);
-    double radial = (double)position.y - (double)SURFACE_RADIUS_BLOCKS;
+    /* Legacy Y and cube radial are both heights above the mean sphere; only
+     * the cell-centre offset differs, and that is added by SurfaceCellCenter. */
+    double radial = (double)position.y;
     return SurfacePoseFromGeographic(context.bodyId,
         (double)projection.longitude, (double)projection.latitude,
         radial, 0.0, 0.0, outPose);
@@ -349,11 +351,12 @@ static bool PlayerCubeLocalFromPose(const SurfacePose *pose, Vector3 *outPositio
                        (float)pose->position.z }, &map)) return false;
     outPosition->x = map.x - (float)context.originX;
     outPosition->z = map.y - (float)context.originZ;
-    /* Radial is the distance from the centre minus the mean radius. */
+    /* |position| is measured from the planet centre, so the legacy height is
+     * that distance minus the mean sphere radius. */
     double length = sqrt((double)pose->position.x * (double)pose->position.x +
                          (double)pose->position.y * (double)pose->position.y +
                          (double)pose->position.z * (double)pose->position.z);
-    outPosition->y = (float)(length);
+    outPosition->y = (float)(length - (double)SURFACE_RADIUS_BLOCKS);
     return true;
 }
 

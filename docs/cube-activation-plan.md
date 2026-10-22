@@ -305,7 +305,10 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 | 2026-10-22 | W5 sanitizer | **完成**。`make test-sanitize`（ASan+UBSan）126 项全通过，cube 代码首次通过内存检查 |
 | 2026-10-22 | 附带修复：网格前沿越界 | **完成**。`WorldBlockBoxCollect` 的候选前沿上限写成 256 而缓冲容量为 192，越界即静默丢格、漏判碰撞；已改为容量约束 + 截断即停，变异测试触发 stack smashing 确认覆盖 |
 | 2026-10-22 | 玩家坐标往返验证 | **完成**。25 个采样点验证 local↔pose 恒等；确认 `SurfaceCellCenter` 用 `radial+0.5`，故 `|position| = R + radial + 0.5` 是格中心的正确值 |
-| 待续 | W1-3 其余 | 流体仍未切换 |
+| 2026-10-22 | **修复**：玩家高度换算 | **完成**。`PlayerCubePoseFromLocal` 曾把 `radial` 写成 `y - R`，`PlayerCubeLocalFromPose` 又漏减 R，会把玩家整体位移一个球半径；已统一为 `radial = y` / `y = |pose| - R`，并加高度守恒测试（变异可捕获）|
+| 2026-10-22 | W3 根基：`GetBlockAt` 支持 cube | **完成**。`GetSurfaceBlockAt` 在 cube 拓扑下先按 map 坐标解析成 cube 单元，绕开全部 legacy 区块查找；400 个采样点验证映射是单射 |
+| 待续 | W1-3 流体 | 依赖已具备，尚未改造 |
+| 2026-10-22 | W3 其余 | 生态、CGA、地形高度查询尚未切换 |
 | 待续 | W2 其余 | V30 版本号与界面文案尚未切换 |
 
 ### W1 的关键发现：两种网格的方块身份不能一一对应
