@@ -1,6 +1,7 @@
 #include "world/world_environment.h"
 
 #include "world/terrain.h"
+#include "world/terrain_cube.h"
 #include "world/world.h"
 #include "world/world_surface_snapshot.h"
 
@@ -113,8 +114,50 @@ float WorldGravityScale(void)
     return snapshot->context.kind == WORLD_SURFACE_HOME ? 1.0f : 0.0f;
 }
 
+/* Cube terrain height. Sampling needs an immutable generation context, which
+ * is expensive to build (atlas + mutex), so one is cached and rebuilt whenever
+ * the installed world generation changes. */
+static TerrainCubeContext *heightCubeContext;
+static uint64_t heightCubeGeneration;
+
+static const TerrainCubeContext *WorldHeightCubeContext(void)
+{
+    const WorldSurfaceSnapshot *snapshot = WorldCurrentSurfaceSnapshot();
+    if (!snapshot || !snapshot->context.active ||
+        snapshot->context.topology.kind != SURFACE_TOPOLOGY_CUBE_GRID)
+        return NULL;
+    uint64_t generation = WorldCurrentGeneration();
+    if (heightCubeContext && heightCubeGeneration == generation)
+        return heightCubeContext;
+    if (heightCubeContext) TerrainCubeContextRelease(heightCubeContext);
+    heightCubeContext = TerrainCubeContextCreate(snapshot, WorldTerrainMode(),
+                                                 generation);
+    heightCubeGeneration = heightCubeContext ? generation : 0u;
+    return heightCubeContext;
+}
+
+/* Drops the cached height context. Called when a surface is torn down so a
+ * replaced world does not keep its atlas alive. */
+void WorldReleaseHeightCubeContext(void)
+{
+    if (heightCubeContext) TerrainCubeContextRelease(heightCubeContext);
+    heightCubeContext = NULL;
+    heightCubeGeneration = 0u;
+}
+
 int WorldSurfaceHeightAt(int x, int z)
 {
+    if (WorldCurrentSurfaceContext().topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        const TerrainCubeContext *context = WorldHeightCubeContext();
+        if (!context) return 0;
+        /* Map coordinates name one column; the top of the terrain column is the
+         * ground height the caller expects. */
+        SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+            WorldCurrentSurfaceId(), (float)x, (float)z, 0);
+        TerrainCubeColumn column;
+        if (!TerrainCubeSampleColumn(context, address, &column)) return 0;
+        return (int)lroundf(column.terrain.elevation);
+    }
     return WorldCurrentSurfaceContext().kind == WORLD_SURFACE_PLANET
         ? PlanetTerrainHeight(x, z)
         : TerrainHeight(x, z, WorldTerrainMode());

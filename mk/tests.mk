@@ -120,6 +120,8 @@ ECOLOGY_SYSTEM_SOURCES := \
 	$(BLOCK_ATLAS_FEATURE_SRC) \
 	$(CHUNKS_FEATURE_SRC) \
 	src/world/world_environment.c \
+	src/world/terrain_cube.c \
+	src/world/terrain_cube_chunk.c \
 	src/ecology/ecology.c \
 	src/ecology/ecology_profile.c \
 	src/ecology/ecology_population.c \

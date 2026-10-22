@@ -311,6 +311,8 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 | 2026-10-22 | W1-3 流体：cube 下停用 | **完成**。`FluidUpdate` / `FluidStepTicks` / `FluidWakeCell` / `FluidApplyEditsToChunkSection` 在 cube 拓扑下直接返回，避免串桶写坏方块；测试钉住 cube 下 `activeCells==0 && ticks==0`，legacy 不受影响（变异可捕获）|
 | 2026-10-22 | **关键缺口**：cube 不可达 | 复查发现 `WorldSetCubeRuntimeEnabled`、`ChunksUpdateCubeCoverage`、`TerrainCubeContextCreate` 在生产代码中**全部零调用**——此前所有交付都是不可运行的库代码 |
 | 2026-10-22 | 打通立方体入口 | **完成**。新增 `surface debug cube`：开闸→装 cube 策略→重建表面→创建 `TerrainCubeContext`→每帧 `ChunksUpdateCubeCoverage`；失败回滚闸门与策略；世界切换时释放 context |
+| 2026-10-22 | 图形环境复核 | 实测 `WAYLAND_DISPLAY=wayland-1` 存在，但 raylib 只链 X11（二进制无 `wl_display` 符号），`X11: Failed to open display :0`。**结论不变：本机无法跑图形 E2E** |
+| 2026-10-22 | W3 地形高度 | **完成**。`WorldSurfaceHeightAt` 在 cube 拓扑下改走 `TerrainCubeSampleColumn`；采样上下文按世界 generation 缓存、卸载时释放；路由经变异测试确认 |
 | 待续 | W1-3 流体：真正改造 | 队列需承载 `SurfaceCubeChunkKey` |
 | 2026-10-22 | W3 其余 | 生态、CGA、地形高度查询尚未切换 |
 | 待续 | W2 其余 | V30 版本号与界面文案尚未切换 |

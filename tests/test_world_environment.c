@@ -1,4 +1,5 @@
 #include "world/world_environment.h"
+#include "world/terrain_cube.h"
 #include "world/terrain.h"
 #include "world/world_surface_snapshot.h"
 
@@ -251,6 +252,66 @@ static void TestSurfacePoseRebaseEvents(void)
     assert(!WorldLastSurfaceRebaseEvent().valid);
 }
 
+/* Cube terrain stubs. This fixture replaces the terrain layer wholesale, so the
+ * height routing is what is under test here, not cube sampling itself. */
+static int cubeSampleHeight = 42;
+static bool cubeSampleOk = true;
+
+TerrainCubeContext *TerrainCubeContextCreate(const WorldSurfaceSnapshot *s,
+                                             TerrainMode mode, uint64_t generation)
+{
+    (void)s; (void)mode; (void)generation;
+    return (TerrainCubeContext *)&cubeSampleHeight;
+}
+
+void TerrainCubeContextRelease(TerrainCubeContext *context)
+{
+    (void)context;
+}
+
+bool TerrainCubeSampleColumn(const TerrainCubeContext *context,
+                             SurfaceAddress address, TerrainCubeColumn *out)
+{
+    (void)context; (void)address;
+    if (!cubeSampleOk || !out) return false;
+    *out = (TerrainCubeColumn){0};
+    out->terrain.elevation = (float)cubeSampleHeight;
+    return true;
+}
+
+/* On a cube surface the height must come from cube sampling, not the legacy
+ * analytic terrain function, otherwise every terrain query disagrees with the
+ * blocks that are actually generated. */
+static void TestCubeHeightRoutesToCubeSampling(void)
+{
+    cubeSampleHeight = 321;
+    cubeSampleOk = true;
+    /* Installation of a cube snapshot requires the runtime gate. */
+    WorldSetCubeRuntimeEnabled(true);
+    WorldSurfaceTopologyPolicy cubePolicy = {
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION }
+    };
+    assert(WorldInstallTopologyPolicy(cubePolicy));
+    WorldSurfaceSnapshot snapshot = {0};
+    snapshot.context.active = true;
+    snapshot.context.kind = WORLD_SURFACE_HOME;
+    snapshot.context.topology = cubePolicy.home;
+    snapshot.context.seed = 7u;
+    assert(WorldInstallSurfaceSnapshot(&snapshot));
+
+    assert(WorldSurfaceHeightAt(3, 4) == 321);
+
+    /* Sampling failure must not fabricate a height. */
+    cubeSampleOk = false;
+    assert(WorldSurfaceHeightAt(3, 4) == 0);
+
+    WorldReleaseHeightCubeContext();
+    assert(WorldInstallSurfaceSnapshot(NULL));
+    WorldSetCubeRuntimeEnabled(false);
+    WorldResetTopologyPolicy();
+}
+
 int main(void)
 {
     TestBlockRegions();
@@ -258,6 +319,7 @@ int main(void)
     TestPlanet();
     TestSpace();
     TestSurfacePoseRebaseEvents();
+    TestCubeHeightRoutesToCubeSampling();
     puts("world_environment tests passed");
     return 0;
 }

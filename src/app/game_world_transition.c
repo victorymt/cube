@@ -21,6 +21,8 @@
 
 static void GameWorldTransitionUnloadSurfaceData(void)
 {
+    /* Drop cached per-surface sampling inputs before the world is replaced. */
+    WorldReleaseHeightCubeContext();
     DrainChunkGen();
     UnloadAllChunks();
     UnloadAllSpaceChunks();
