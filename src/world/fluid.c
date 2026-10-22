@@ -1436,6 +1436,7 @@ void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
 void FluidApplyEditsToChunk(Chunk *chunk)
 {
     if (!chunk || !WorldIsSurfaceActive()) return;
+    if (!FluidSurfaceSupported()) return;
     for (int sectionIndex = 0; sectionIndex < chunk->sectionCount;
          sectionIndex++) {
         FluidApplyEditsToChunkSection(
