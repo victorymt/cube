@@ -148,6 +148,25 @@ CubeChunkRequestResult ChunksRequestCubeSection(TerrainCubeContext *context,
     return Submit(context, chunk, CHUNK_GEN_SCOPE_SECTION, sectionY, false);
 }
 
+/* Last coverage observation, retained for read-only diagnostics. The counters
+ * describe the most recent ChunksUpdateCubeCoverage call; they never claim
+ * full visual coverage and a saturated observation stays saturated. */
+static CubeCoverageStatus lastCubeCoverage;
+static bool lastCubeCoverageValid;
+static bool cubeCoverageActive;
+
+bool ChunksLastCubeCoverage(CubeCoverageStatus *out)
+{
+    if (!out || !lastCubeCoverageValid) return false;
+    *out = lastCubeCoverage;
+    return true;
+}
+
+bool ChunksCubeCoverageIsActive(void)
+{
+    return cubeCoverageActive;
+}
+
 bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
                               double radius, unsigned budget,
                               CubeCoverageStatus *out)
@@ -206,6 +225,26 @@ bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
                 status.submitted++;
         }
     }
+    lastCubeCoverage = status;
+    lastCubeCoverageValid = true;
+    cubeCoverageActive = true;
     *out = status;
     return true;
+}
+
+unsigned ChunksCubeMeshReadyCount(void)
+{
+    unsigned ready = 0;
+    for (int slot = 0; slot < MAX_ACTIVE_CHUNKS; slot++) {
+        const Chunk *chunk = &chunks[slot];
+        if (!chunk->cubeGrid || !chunk->loaded) continue;
+        if (chunk->cubeWorldGeneration != WorldCurrentGeneration()) continue;
+        for (int i = 0; i < chunk->sectionCount; i++) {
+            if (chunk->sections[i] && chunk->sections[i]->hasModel) {
+                ready++;
+                break;
+            }
+        }
+    }
+    return ready;
 }

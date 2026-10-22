@@ -4,7 +4,10 @@ G1 adds deterministic vent candidates and a saved lifecycle preview. G2 adds
 finite lava inventory, a 10 Hz cell runtime, temperature/enthalpy cooling,
 partial-height collision overlays and full-cell basalt conversion. Water contact is
 now a fixed-step G3 interaction. P0 adds finite ash layers and material-aware
-cooling products; heat damage and ecological restoration remain later work.
+cooling products. Player heat exposure and an accumulating damage metric are
+wired into the production fixed step (see the P1 note in
+../volcanic-activity-design.md); full player health/death, animal heat hazards
+and cross-process persistence of the damage metric remain later work.
 
 ## Procedural terrain
 
@@ -67,7 +70,7 @@ column and sparks with bounded geometry. It writes no simulation state and
 uses no random generator or particle queue. Lava cells are drawn as liquid and
 solid overlays over air; full cooled cells commit to their selected rock. The vent's orange color is a
 visual cue, not a dynamic light source. G2 deposits in air only, preserving
-existing blocks, and does not expose a heat damage model. The independent
+existing blocks. The independent
 activity/damage policy belongs to G3 before destructive interactions are enabled.
 
 ## State and persistence

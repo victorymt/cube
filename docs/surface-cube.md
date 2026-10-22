@@ -2,6 +2,10 @@
 
 ## Status
 
+> Version, identity, ownership and capacity facts are frozen in the
+> [cube activation contract](cube-contract.md). This document keeps the
+> narrative and stage history; where the two disagree, the contract wins.
+
 Cube-grid now has continuous poses, explicit cell/chunk identity, an immutable
 v9 base generator, shared projected geometry and physical coverage enumeration.
 Runtime adapters now cover generation, in-memory edits, budgeted cube admission,
@@ -74,7 +78,9 @@ The regression first measures the collapsed legacy edge. It then checks:
 
 `SurfaceTopologyVersion` carries independent `kind` and `version` fields:
 NONE=0/version 0, LEGACY_MAP=1/version 1, CUBE_GRID=2/version 1. These are
-independent of terrain generator v7/v8 and the cube-key hash domain version.
+independent of the terrain generator version (currently 11) and the cube-key
+hash domain version. See the [activation contract](cube-contract.md) for the
+full version matrix.
 Known descriptors are distinguished from runtime support: cube-grid/1 is known
 but cannot be installed or loaded yet. Existing map/cube key hashes are unchanged.
 
@@ -97,9 +103,11 @@ changes. Later failures restore the complete V29 checkpoint, including policy.
 F9/DSL callers reset clocks/input only on successful loads. Unknown topology
 versions and known-but-unimplemented cube-grid receive explicit rejection.
 
-The current legacy runtime still uses Homeworld v7/v8. The approved activation
-target below supersedes preservation of those fingerprints; V29 legacy-grid
-saves will not be migrated to that target.
+The current legacy runtime still uses the legacy map grid with terrain
+generation version 11 (which includes the v7 drainage base, v8 river terraces
+and v11 historical volcanic layers). The approved activation target below
+supersedes preservation of those fingerprints; V29 legacy-grid saves will not
+be migrated to that target.
 
 ### Validation commands
 
@@ -118,7 +126,8 @@ active dimension's descriptor (none/0 in space and Nether).
 
 ### Verification evidence (2026-10-08)
 
-- Normal suite: 108 passing binaries; Homeworld v7/v8 terrain fingerprints and
+- Historical record: 108 passing binaries in that session; Homeworld v7/v8
+  terrain fingerprints and
   existing cube-grid/hash regressions remain unchanged.
 - ASan/UBSan suite: 108 passing binaries, with no sanitizer errors.
 - Public headers (175), architecture checks and debug CLI contract checks pass.

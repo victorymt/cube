@@ -34,7 +34,10 @@ which are represented by the records above.
 
 [Volcanic activity design](../volcanic-activity-design.md) defines the staged
 eruption, lava and ecology boundaries; G1/G2, G3 water contact and P0 ash/material
-products are implemented. Heat damage and ecological restoration remain deferred.
+products are implemented. Player heat exposure and an accumulating damage metric are
+wired into the production fixed step; full player health/death, animal heat hazards,
+dynamic lava ignition and cross-process persistence remain deferred. Ecological
+restoration remains deferred.
 
 Current terrain work is tracked in [surface-neutral landforms](../landform-planets.md),
 [landform quality](../landform-quality.md), and the [cube-grid foundation](../surface-cube.md).

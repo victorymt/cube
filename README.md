@@ -89,11 +89,14 @@ saves requiring a new world. See the [current roadmap](todo/00-roadmap.md),
   Both currently use legacy-map/1; cube-grid is defined but not enabled.
   The regional ecology payload has its own version (V7)
   and retains evicted regional history as well as cached records.
-  New worlds use terrain generation version 8, including river terraces on
-  suitable Homeworld valley shoulders. Version 7 retains its original drainage,
-  lakes and deposits; version 6 retains its earlier generation path. Versions
-  2–5 use the existing version 6 generation path. These generator versions
-  are independent of save compatibility: old-format files are never migrated.
+  New worlds use terrain generation version 11, which layers historical
+  volcanic terrain over the version 7 drainage/lake/deposit base and version 8
+  river terraces. Version 7 retains its original drainage, lakes and deposits;
+  version 6 retains its earlier generation path. Versions 2–5 use the existing
+  version 6 generation path. These generator versions are independent of save
+  compatibility: old-format files are never migrated. Cube-grid keeps its own
+  nominal generation version 9 and is still not the runtime default; see the
+  [activation contract](docs/cube-contract.md).
   Rejected loads leave the file and live game intact; no files are deleted
 - Image imports use a 256-color block palette for better color matching. Block
   edits are indexed for fast repeated imports and large builds

@@ -493,7 +493,24 @@ Runtime values are sampled when an expression is evaluated:
 | `water.eyes_submerged` | bool | Eyes are in water |
 | `water.surface_y` | number | Local water surface height |
 | `stream.surface_ready` | bool | No missing surface chunks around the player |
+
+`stream.cube.*` is a separate namespace. It reports the **last successful**
+coverage observation and keeps the last values when a later call is rejected.
+`stream.surface_ready` remains a local legacy readiness flag; it is not a
+cube coverage certificate. When `stream.cube.saturated` is true, a route must
+not assert `requested == admitted == ready`. See the
+[activation contract](cube-contract.md).
 | `stream.missing_surface_chunks` | number | Missing surface chunk count, or `-1` outside play |
+| `stream.cube.active` | bool | Whether cube coverage currently drives streaming; false under the legacy grid |
+| `stream.cube.requested` | number | Columns requested by the latest cube coverage update |
+| `stream.cube.admitted` | number | Columns admitted under the 625-slot physical cap |
+| `stream.cube.ready` | number | Admitted columns already generated |
+| `stream.cube.pending` | number | Admitted columns still generating |
+| `stream.cube.missing` | number | Admitted columns not submitted or unavailable |
+| `stream.cube.saturated` | bool | Latest request exceeded the admission cap; never treat this as full coverage |
+| `stream.cube.submitted` | number | Columns submitted by the latest update |
+| `stream.cube.released` | number | Columns evicted by the latest update |
+| `stream.cube.mesh_ready` | number | Resident cube columns whose current-generation section already owns a mesh |
 | `stream.audit_complete` | bool | No stream audit or stream wait is active |
 | `stream.chunks.status` | string | `valid` when the copied chunk snapshot is available, otherwise `unavailable` |
 | `stream.chunks.capture_sequence` | number | Monotonic chunk-module snapshot sequence for the current process |

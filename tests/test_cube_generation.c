@@ -410,8 +410,18 @@ static void TestPhysicalCoverage(void)
     before = status;
     assert(!ChunksUpdateCubeCoverage(context, north, 24, 10, &status));
     assert(memcmp(&before, &status, sizeof(status)) == 0);
+    // Diagnostics retain the last successful observation and never invent one.
+    CubeCoverageStatus observed;
+    assert(ChunksCubeCoverageIsActive());
+    assert(ChunksLastCubeCoverage(&observed));
+    assert(memcmp(&observed, &before, sizeof(observed)) == 0);
+    assert(observed.ready == before.ready);
+    assert(ChunksCubeMeshReadyCount() >= observed.ready);
     TerrainCubeContextRelease(context);
     Reset();
+    // A saturated observation must stay saturated for diagnostics; it never
+    // reports itself as complete coverage.
+    assert(observed.saturated == false || observed.requested > observed.admitted);
 }
 
 static void TestCubeMeshHalo(void)

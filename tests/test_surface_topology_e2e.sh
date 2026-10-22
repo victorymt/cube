@@ -53,6 +53,9 @@ reject_load() {
 run_command 'start'
 run_command 'pause on'
 run_command 'assert world.surface_topology == "legacy-map" && world.surface_topology_version == 1'
+# The cube diagnostics namespace exists but must stay inactive under the default grid.
+run_command 'assert stream.cube.active == false && stream.cube.saturated == false'
+run_command 'assert stream.cube.requested == 0 && stream.cube.admitted == 0'
 run_command 'teleport 4 200 8 0 0'
 run_command 'stream wait 1200'
 run_command 'block set 4 200 8 Glass'

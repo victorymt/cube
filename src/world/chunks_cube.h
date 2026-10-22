@@ -32,4 +32,12 @@ bool ChunksUpdateCubeCoverage(TerrainCubeContext *context, SurfaceVector focus,
                               double radius, unsigned submissionBudget,
                               CubeCoverageStatus *outStatus);
 
+// Read-only diagnostics for the most recent coverage update. Returns false
+// before the first update. A saturated observation stays saturated: callers
+// must not re-derive "complete coverage" from these counters.
+bool ChunksLastCubeCoverage(CubeCoverageStatus *outStatus);
+bool ChunksCubeCoverageIsActive(void);
+// Resident cube columns whose current-generation sections already own a mesh.
+unsigned ChunksCubeMeshReadyCount(void);
+
 #endif
