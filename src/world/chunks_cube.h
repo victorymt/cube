@@ -18,6 +18,10 @@ CubeChunkRequestResult ChunksRequestCubeColumn(TerrainCubeContext *context,
 CubeChunkRequestResult ChunksRequestCubeSection(TerrainCubeContext *context,
                                                 SurfaceCubeChunkKey key, int sectionY);
 bool ChunksReleaseCubeColumn(SurfaceCubeChunkKey key);
+/* True when the cube column is resident and its blocks are readable. Readiness
+ * queries use this instead of the legacy map-indexed chunk lookup, which cannot
+ * find a cube column at all. */
+bool ChunksCubeColumnIsLoaded(SurfaceCubeChunkKey key);
 
 typedef struct CubeCoverageStatus {
     unsigned requested, admitted, ready, pending, missing;

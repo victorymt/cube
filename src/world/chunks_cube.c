@@ -9,6 +9,12 @@ static Chunk *Resident(SurfaceCubeChunkKey key)
     return NULL;
 }
 
+bool ChunksCubeColumnIsLoaded(SurfaceCubeChunkKey key)
+{
+    Chunk *chunk = Resident(key);
+    return chunk && chunk->loaded;
+}
+
 static bool ContextMatches(TerrainCubeContext *context, SurfaceCubeChunkKey key)
 {
     const WorldSurfaceSnapshot *snapshot = TerrainCubeContextSnapshot(context);

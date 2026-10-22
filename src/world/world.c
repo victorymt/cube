@@ -1,5 +1,7 @@
 #include "world/world.h"
 #include "world/world_cube.h"
+#include "world/chunks_cube.h"
+#include "world/surface_cube.h"
 
 #include "raymath.h"
 #include "world/block_catalog.h"
@@ -854,6 +856,19 @@ static BlockType GetSurfaceBlockAt(int x, int y, int z)
 bool SurfaceBlockReadyAt(int x, int y, int z)
 {
     if (WorldBlockRegionAt(y) != WORLD_BLOCK_REGION_SURFACE) return true;
+
+    /* A cube world has no map-indexed chunk to look up: readiness is whether
+     * the cube column owning this cell is loaded. Without this branch every
+     * cube cell would look unready forever and the surface could never settle. */
+    WorldSurfaceContext cubeContext = WorldCurrentSurfaceContext();
+    if (cubeContext.active &&
+        cubeContext.topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        SurfaceAddress cell = SurfaceAddressFromMapCoordinates(
+            cubeContext.bodyId, (float)x, (float)z, y);
+        SurfaceCubeChunkKey key;
+        if (!SurfaceCubeChunkAt(cell, &key)) return false;
+        return ChunksCubeColumnIsLoaded(key);
+    }
 
     int cx = 0;
     int cz = 0;

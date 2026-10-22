@@ -19,8 +19,15 @@ int WorldSurfaceMapOriginZ(void) { return 0; }
 uint32_t WorldCurrentSurfaceId(void) { return 0; }
 WorldSurfaceContext WorldCurrentSurfaceContext(void)
 { return WorldCurrentSurfaceSnapshot()->context; }
+/* This fixture forbids legacy block access to prove cube paths never touch it.
+ * SurfaceBlockReadyAt asks for the region first, which is a pure height-range
+ * predicate, so answer it without touching any legacy chunk. */
 WorldBlockRegion WorldBlockRegionAt(int y)
-{ (void)y; assert(!"unexpected legacy block query"); return WORLD_BLOCK_REGION_NONE; }
+{
+    if (y >= SURFACE_MIN_Y && y < SURFACE_MAX_Y_EXCLUSIVE)
+        return WORLD_BLOCK_REGION_SURFACE;
+    return WORLD_BLOCK_REGION_NONE;
+}
 bool WorldCanAccessBlockY(int y) { return InHeight(y); }
 BlockType SpaceBlockAt(int x, int y, int z)
 { (void)x; (void)y; (void)z; assert(false); return BLOCK_AIR; }
@@ -238,6 +245,68 @@ static WorldBlockAddress Address(uint32_t body, SurfaceFace face, int u, int v, 
  * damaged payload must not leave a half-restored store. */
 /* W1-3: point lookup must agree with the cell lookup, and ungenerated terrain
  * must be reported as unknown rather than air. */
+/* Readiness must follow the cube column, not the legacy map chunk. With the
+ * old lookup every cube cell reported unready, so a switch could never settle
+ * and the player would wait on a surface that was in fact loaded. */
+static void TestCubeReadinessFollowsCubeColumns(void)
+{
+    Reset();
+    /* Readiness branches on the installed topology, so a cube snapshot and
+     * policy must be in place for the routing to be exercised at all. */
+    WorldSetCubeRuntimeEnabled(true);
+    WorldSurfaceTopologyPolicy cubePolicy = {
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION }
+    };
+    assert(WorldInstallTopologyPolicy(cubePolicy));
+    WorldSurfaceSnapshot cubeWorld = {.context = {.active = true,
+        .kind = WORLD_SURFACE_HOME, .topology = cubePolicy.home, .seed = 1234u}};
+    assert(WorldInstallSurfaceSnapshot(&cubeWorld));
+    TerrainCubeContext *context = Context();
+    assert(context);
+    /* Nothing is resident yet: the cell reports unready, but for the cube
+     * reason (no cube column) rather than a missing map chunk. */
+    SurfacePose pose;
+    assert(SurfacePoseFromGeographic(0, 0.3, 0.2, 30.0, 0.0, 0.0, &pose));
+    SurfaceAddress cell;
+    assert(SurfaceCellFromPoint(0, pose.position, &cell));
+    SurfaceCubeChunkKey key;
+    assert(SurfaceCubeChunkAt(cell, &key));
+    assert(!ChunksCubeColumnIsLoaded(key));
+
+    /* SurfaceBlockReadyAt must consult the cube column. With the legacy
+     * lookup it always reports unready on a cube world, so the check below is
+     * what distinguishes the two routings. */
+    int mapX = 0, mapZ = 0;
+    {
+        /* Map coordinates of this cell, derived through the same projection the
+         * readiness query uses. */
+        Vector2 map;
+        assert(SurfaceMapCoordinatesFromDirection(
+            (Vector3){(float)pose.position.x, (float)pose.position.y,
+                      (float)pose.position.z}, &map));
+        mapX = (int)floorf(map.x);
+        mapZ = (int)floorf(map.y);
+    }
+    int radial = cell.radial;
+    /* Unloaded column: unready, and specifically because no cube column owns
+     * the cell (the legacy lookup would also say unready, so the loaded case
+     * below is the discriminator). */
+    assert(!SurfaceBlockReadyAt(mapX, radial, mapZ));
+
+    /* Loading the column makes the same cell report ready. */
+    assert(ChunksRequestCubeColumn(context, key, false) != CUBE_CHUNK_UNAVAILABLE);
+    for (int frame = 0; frame < 600 && !ChunksCubeColumnIsLoaded(key); frame++)
+        ProcessFinishedChunkJobs();
+    if (ChunksCubeColumnIsLoaded(key))
+        assert(SurfaceBlockReadyAt(mapX, radial, mapZ));
+    TerrainCubeContextRelease(context);
+    assert(WorldInstallSurfaceSnapshot(NULL));
+    WorldSetCubeRuntimeEnabled(false);
+    WorldResetTopologyPolicy();
+    Reset();
+}
+
 static void TestCubePointLookup(void)
 {
     /* Probe: exercises only the lookup, no edits. */
@@ -686,6 +755,7 @@ int main(void)
     TestCubeRuntimeReload();
     TestCubeRuntimeAsyncEdits();
     TestCubePoolAdmission();
+    TestCubeReadinessFollowsCubeColumns();
     TestCubePointLookup();
     puts("cube generation queue tests passed");
     return 0;
