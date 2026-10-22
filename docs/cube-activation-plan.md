@@ -302,6 +302,9 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 | 2026-10-22 | W1-3 逆投影 | **完成**。`SurfaceMapCoordinatesFromDirection` 补上方向→map 坐标的逆映射，117 个采样点往返成立；变异测试确认断言有效 |
 | 2026-10-22 | W1-3 物理移动 | **完成**。cube 下移动改走 `SurfacePoseDisplace` 物理位移，不再按 map 格缩放；变异测试显示回退旧路径时高纬位移归零 |
 | 2026-10-22 | W1-3 交互接线 | **完成**。`InteractionCubeRaycast` 走可注入 hook，默认 NULL；`GameSyncWorldSurfaceSnapshot` 按拓扑安装，legacy 路径完全不变（变异测试确认分发生效）|
+| 2026-10-22 | W5 sanitizer | **完成**。`make test-sanitize`（ASan+UBSan）126 项全通过，cube 代码首次通过内存检查 |
+| 2026-10-22 | 附带修复：网格前沿越界 | **完成**。`WorldBlockBoxCollect` 的候选前沿上限写成 256 而缓冲容量为 192，越界即静默丢格、漏判碰撞；已改为容量约束 + 截断即停，变异测试触发 stack smashing 确认覆盖 |
+| 2026-10-22 | 玩家坐标往返验证 | **完成**。25 个采样点验证 local↔pose 恒等；确认 `SurfaceCellCenter` 用 `radial+0.5`，故 `|position| = R + radial + 0.5` 是格中心的正确值 |
 | 待续 | W1-3 其余 | 流体仍未切换 |
 | 待续 | W2 其余 | V30 版本号与界面文案尚未切换 |
 
