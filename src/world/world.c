@@ -792,8 +792,34 @@ bool RedoBlockEdit(void)
     if (redoCount <= 0) redoHead = 0;
     return true;
 }
+/* Resolve map coordinates to a cube cell on the currently installed surface.
+ * The map projection is a bijection on the sphere, so a (x, z) pair plus the
+ * surface context identifies exactly one cell; radial is the legacy height. */
+static bool SurfaceCubeBlockAtMapCell(uint32_t bodyId, int x, int y, int z,
+                                      BlockType *outType)
+{
+    Vector3 direction = SurfaceDirectionFromMapCoordinates((float)x, (float)z);
+    SurfaceAddress cell = SurfaceAddressFromDirection(bodyId, direction, y);
+    if (!SurfaceAddressIsValid(cell)) return false;
+    WorldBlockAddress address;
+    address.dimension = bodyId == 0 ? WORLD_DIMENSION_HOME
+                                    : WORLD_DIMENSION_PLANET;
+    address.at.surface = cell;
+    return WorldCubeBlockAt(address, outType);
+}
+
 static BlockType GetSurfaceBlockAt(int x, int y, int z)
 {
+    /* A cube world keeps its blocks in cube cells, not in map-indexed chunks.
+     * Route before any edit or chunk lookup touches the legacy grid. */
+    WorldSurfaceContext cubeContext = WorldCurrentSurfaceContext();
+    if (cubeContext.active &&
+        cubeContext.topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        BlockType cubeBlock = BLOCK_AIR;
+        if (SurfaceCubeBlockAtMapCell(cubeContext.bodyId, x, y, z, &cubeBlock))
+            return cubeBlock;
+        return BLOCK_AIR;
+    }
     WorldCanonicalizeEditCoordinates(&x, &z);
     BlockType block = BLOCK_AIR;
     bool edited = WorldGetBlockEditForCurrentDimensionAt(x, y, z, &block);

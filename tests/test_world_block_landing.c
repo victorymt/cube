@@ -110,6 +110,29 @@ static void TestPolarLandingIsClear(void)
     assert(WorldBlockLocationClear(&pose, half, BoxSolid, BoxKnown, &world));
 }
 
+/* Legacy map cells must resolve to distinct cube cells. This is what lets
+ * map-indexed consumers (fluid, ecology, terrain queries) read a cube world
+ * without changing their own coordinate convention. */
+static void TestMapCellsMapToDistinctCubeCells(void)
+{
+    SurfaceAddress seen[400];
+    unsigned count = 0;
+    for (int x = 0; x < 20; x++) {
+        for (int z = 0; z < 20; z++) {
+            Vector3 direction = SurfaceDirectionFromMapCoordinates(
+                (float)(x * 97), (float)(z * 97));
+            SurfaceAddress cell = SurfaceAddressFromDirection(0, direction, 64);
+            assert(SurfaceAddressIsValid(cell));
+            /* No two distinct map cells may land on the same cube cell. */
+            for (unsigned i = 0; i < count; i++)
+                assert(!(seen[i].face == cell.face && seen[i].u == cell.u &&
+                         seen[i].v == cell.v));
+            seen[count++] = cell;
+        }
+    }
+    assert(count == 400u);
+}
+
 int main(void)
 {
     TestStandingOnGroundIsClear();
@@ -119,6 +142,7 @@ int main(void)
     TestNoSolidGroundRejected();
     TestInvalidArgumentsRejected();
     TestPolarLandingIsClear();
+    TestMapCellsMapToDistinctCubeCells();
     puts("cube landing clearance tests passed");
     return 0;
 }
