@@ -192,6 +192,9 @@ test-animal-scenarios-e2e: $(TARGET) test-animal-scenarios-script
 test-polar-e2e: $(TARGET)
 	bash tests/test_polar_e2e.sh $(TARGET)
 
+test-cube-save-reload: $(CUBE_SAVE_RELOAD_TEST_TARGET)
+	@bash tests/test_cube_save_reload.sh $(CUBE_SAVE_RELOAD_TEST_TARGET)
+
 test-debug-stdin-protocol:
 	@bash tests/test_debug_stdin_protocol.sh
 
