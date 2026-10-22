@@ -92,9 +92,11 @@ bool WorldBlockBoxCollect(const SurfacePose *pose, Vector3 halfSize,
     candidates.count = 0;
     candidates.truncated = false;
     BoxPush(&candidates, dimension, start);
-    for (unsigned head = 0; head < candidates.count && head < 256u; head++) {
+    /* The frontier lives in the same fixed buffer as the result, so its bound
+     * is that capacity, not a larger magic number. An overflow here would
+     * silently drop candidates and under-report collisions. */
+    for (unsigned head = 0; head < candidates.count; head++) {
         SurfaceAddress current = candidates.cells[head].at.surface;
-        if (head > 512u) break;
         for (int edge = 0; edge < 4; edge++) {
             SurfaceAddress next;
             SurfaceCubeEdge back;
@@ -106,6 +108,7 @@ bool WorldBlockBoxCollect(const SurfacePose *pose, Vector3 halfSize,
         if (down.radial > INT_MIN) down.radial--;
         if (SurfaceAddressIsValid(up)) BoxPush(&candidates, dimension, up);
         if (SurfaceAddressIsValid(down)) BoxPush(&candidates, dimension, down);
+        if (candidates.truncated) break;
     }
 
     /* Exact overlap: convert the cell's eight corners into the body frame and

@@ -71,6 +71,34 @@ static void TestExactVolume(void)
     assert(minRadial == 103 && maxRadial == 104);
 }
 
+/* The enumeration frontier shares one fixed buffer with the result. It must
+ * never claim more entries than that buffer holds, and it must either return a
+ * complete set or refuse; a silently short set would under-report collisions. */
+static void TestCapacityIsRespected(void)
+{
+    const double lons[] = {0.0, 0.7, 1.4, 2.1, 3.0};
+    const double lats[] = {-1.0, -0.4, 0.2, 0.8, 1.3};
+    for (unsigned li = 0; li < 5; li++) {
+        for (unsigned ai = 0; ai < 5; ai++) {
+            SurfacePose pose;
+            if (!SurfacePoseFromGeographic(0, lons[li], lats[ai], 100.0,
+                                           0.0, 0.0, &pose)) continue;
+            /* Largest accepted half-size stresses the frontier hardest. */
+            WorldBlockBoxQuery query;
+            bool ok = WorldBlockBoxCollect(&pose, (Vector3){2.0f, 2.0f, 2.0f},
+                                           &query);
+            /* Either a complete, in-capacity result, or a clean refusal. */
+            if (ok) {
+                assert(!query.truncated);
+                assert(query.count > 0u);
+                assert(query.count <= WORLD_BLOCK_BOX_MAX_CELLS);
+            } else {
+                assert(query.count == 0u);
+            }
+        }
+    }
+}
+
 static void TestNoDuplicates(void)
 {
     SurfacePose pose;
@@ -125,6 +153,7 @@ int main(void)
 {
     TestCoverage();
     TestExactVolume();
+    TestCapacityIsRespected();
     TestNoDuplicates();
     TestRadialExtent();
     TestInvalidInputRejected();
