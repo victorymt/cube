@@ -3,6 +3,8 @@
 #include "core/game_effects.h"
 #include "raymath.h"
 #include "world/chunks.h"
+#include "world/world_cube.h"
+#include "world/world_location.h"
 #include "world/fluid.h"
 #include "world/world.h"
 #include "gameplay/interaction.h"
@@ -186,8 +188,68 @@ static bool TryStepUp(Player *player, Vector3 next)
     return true;
 }
 
+/* Cube-world overlap test. On a cube surface the body is a physical box around
+ * a body-centred pose, so it cannot share the legacy map-cell bounds. The
+ * player's feet are `position`; the box is centred half a body above that. */
+static bool PlayerCubeSolid(const WorldBlockBoxQuery *box, void *user)
+{
+    (void)user;
+    for (unsigned i = 0; i < box->count; i++) {
+        BlockType type = BLOCK_AIR;
+        if (!WorldCubeBlockAt(box->cells[i], &type)) continue;
+        if (type != BLOCK_AIR && type != BLOCK_WATER) return true;
+    }
+    return false;
+}
+
+static bool PlayerCubeKnown(const WorldBlockBoxQuery *box, void *user)
+{
+    (void)user;
+    for (unsigned i = 0; i < box->count; i++) {
+        BlockType type = BLOCK_AIR;
+        if (!WorldCubeBlockAt(box->cells[i], &type)) return false;
+    }
+    return true;
+}
+
+static bool PlayerOverlapsCubeWorld(Vector3 position)
+{
+    if (position.y < (float)SURFACE_MIN_Y ||
+        position.y + PLAYER_HEIGHT > (float)SURFACE_MAX_Y_EXCLUSIVE)
+        return true;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!context.active) return true;
+    SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+        (float)context.originX + position.x,
+        (float)context.originZ + position.z);
+    SurfacePose centre;
+    if (!SurfacePoseFromGeographic(context.bodyId,
+            (double)projection.longitude, (double)projection.latitude,
+            (double)position.y + (double)PLAYER_HEIGHT * 0.5, 0.0, 0.0,
+            &centre)) return true;
+    const Vector3 half = {
+        PLAYER_RADIUS, PLAYER_HEIGHT * 0.5f, PLAYER_RADIUS
+    };
+    WorldBlockBoxQuery body;
+    if (!WorldBlockBoxCollect(&centre, half, &body)) {
+        /* An unenumerable body box means the cells could not be resolved. Keep
+         * the legacy rule: blocked on foot, passable while driving a ship. */
+        return !ShipIsDriving();
+    }
+    /* Unknown terrain is a temporary wall, exactly as the legacy path treats a
+     * streamed frontier; a ship may keep moving while chunks catch up. */
+    if (!PlayerCubeKnown(&body, NULL)) return !ShipIsDriving();
+    return PlayerCubeSolid(&body, NULL);
+}
+
 bool PlayerOverlapsWorld(Vector3 position)
 {
+    /* On a cube surface the body is not a map-cell box; route to the cube test
+     * so collision, picking and rendering agree on the same cells. */
+    if (WorldIsSurfaceActive() &&
+        WorldCurrentSurfaceContext().topology.kind == SURFACE_TOPOLOGY_CUBE_GRID)
+        return PlayerOverlapsCubeWorld(position);
+
     PlayerCollisionBounds bounds;
     if (!PlayerCollisionBoundsAt(position, &bounds)) return true;
 

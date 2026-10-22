@@ -95,17 +95,34 @@ bool WorldIsSurfaceActive(void)
 
 /* Minimal surface context so geometry-driven code can run: a Home world whose
  * map origin is the legacy local origin and whose body id is 0. */
+static bool cubeSurface = false;
+static int cubeGroundRadial = 0;
+static bool cubeTerrainKnown = true;
+
 WorldSurfaceContext WorldCurrentSurfaceContext(void)
 {
     return (WorldSurfaceContext){
         .active = true,
         .kind = WORLD_SURFACE_HOME,
-        .topology = SURFACE_TOPOLOGY_MAP_V1,
+        .topology = cubeSurface
+            ? (SurfaceTopologyVersion){SURFACE_TOPOLOGY_CUBE_GRID, 1u}
+            : (SurfaceTopologyVersion)SURFACE_TOPOLOGY_MAP_V1,
         .bodyId = 0u,
         .seed = 1234u,
         .originX = 0,
         .originZ = 0
     };
+}
+
+/* Cube stub: everything unknown when the fixture says so, otherwise solid at
+ * or below the configured ground radial. */
+bool WorldCubeBlockAt(WorldBlockAddress address, BlockType *outType)
+{
+    if (!outType) return false;
+    if (!cubeTerrainKnown) return false;
+    *outType = address.at.surface.radial <= cubeGroundRadial
+        ? BLOCK_STONE : BLOCK_AIR;
+    return true;
 }
 int WorldSurfaceMapOriginX(void) { return 0; }
 int WorldSurfaceMapOriginZ(void) { return 0; }
@@ -447,6 +464,34 @@ static void TestSwimmingSpeedAndAscent(void)
     assert(player.position.y > 3.01f);
 }
 
+/* Cube branch: the body box must collide with solid terrain and must treat
+ * ungenerated terrain as a wall for a walking player. */
+static void TestCubeOverlapBranch(void)
+{
+    /* Find the ground cell under the origin once, then stand two cells up. */
+    SurfacePose probe;
+    assert(SurfacePoseFromGeographic(0, 0.0, 0.0, 0.0, 0.0, 0.0, &probe));
+    SurfaceAddress cell;
+    assert(SurfaceCellFromPoint(0, probe.position, &cell));
+
+    cubeSurface = true;
+    cubeTerrainKnown = true;
+    cubeGroundRadial = cell.radial;
+
+    /* Feet on the ground top: the body sits above the solid cell. */
+    assert(!PlayerOverlapsWorld((Vector3){0.5f, (float)cell.radial + 1.0f, 0.5f}));
+
+    /* Body sunk into the ground cell collides. */
+    assert(PlayerOverlapsWorld((Vector3){0.5f, (float)cell.radial - 0.5f, 0.5f}));
+
+    /* Ungenerated terrain blocks a walking player. */
+    cubeTerrainKnown = false;
+    assert(PlayerOverlapsWorld((Vector3){0.5f, (float)cell.radial + 1.0f, 0.5f}));
+
+    cubeTerrainKnown = true;
+    cubeSurface = false;
+}
+
 int main(void)
 {
     ResetCollisionWorld();
@@ -472,6 +517,7 @@ int main(void)
     TestRuntimeStateIsPerPlayer();
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();
+    TestCubeOverlapBranch();
     TestSwimmingSpeedAndAscent();
     puts("player collision tests passed");
     return 0;
