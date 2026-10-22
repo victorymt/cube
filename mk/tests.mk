@@ -57,6 +57,7 @@ $(eval $(call define_test,CUBE_POSE_ROUNDTRIP_TEST_TARGET,test_cube_pose_roundtr
 $(eval $(call define_test,SURFACE_GEOMETRY_TEST_TARGET,test_surface_geometry,src/world/surface_geometry.c src/world/surface_pose.c src/world/world_location.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SURFACE_COVERAGE_TEST_TARGET,test_surface_coverage,src/world/surface_coverage.c src/world/surface_pose.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,TERRAIN_CUBE_TEST_TARGET,test_terrain_cube,src/world/terrain_cube.c src/world/chunks_storage.c $(TERRAIN_FEATURE_SRC) $(WORLD_SURFACE_SNAPSHOT_SRC) src/world/surface_cube.c src/world/surface_topology.c src/core/simulation_time.c $(PLANET_SURFACE_SRC) src/space/planet_profile.c src/space/planet_climate.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,WORLD_BLOCK_LANDING_TEST_TARGET,test_world_block_landing,src/world/world_location.c src/world/surface_pose.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,WORLD_BLOCK_BOX_TEST_TARGET,test_world_block_box,src/world/world_location.c src/world/surface_pose.c src/world/surface_cube.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 # The codec's edit-store helpers link the real store in test_cube_generation;
 # this focused target covers only the pure address encoding.

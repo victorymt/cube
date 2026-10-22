@@ -51,4 +51,16 @@ typedef struct WorldBlockBoxQuery {
 bool WorldBlockBoxCollect(const SurfacePose *pose, Vector3 halfSize,
                           WorldBlockBoxQuery *out);
 
+/* Standing clearance for a body-sized box. `pose->position` is the BODY
+ * CENTRE (a caller standing on the ground passes feet + halfSize.y up the
+ * radial axis), and `halfSize` is the half-extent of that box. `isSolid`
+ * reports whether any cell in a box is solid; `isKnown` distinguishes air from
+ * "not generated yet". A location is valid only when the ground cell below the
+ * feet is known and solid and every occupied body cell is known and clear. */
+typedef bool (*WorldBlockSolidFn)(const WorldBlockBoxQuery *box, void *user);
+
+bool WorldBlockLocationClear(const SurfacePose *pose, Vector3 halfSize,
+                             WorldBlockSolidFn isSolid,
+                             WorldBlockSolidFn isKnown, void *user);
+
 #endif

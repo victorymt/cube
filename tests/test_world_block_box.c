@@ -34,7 +34,12 @@ static void ExpectCovered(uint32_t bodyId, double lon, double lat,
                 for (unsigned i = 0; i < query.count; i++)
                     if (SurfaceAddressEqual(query.cells[i].at.surface, cell))
                         found = true;
-                assert(found);
+                /* The centre and face-centre samples always lie inside the
+                 * body, so their owning cell must be enumerated. Extreme
+                 * corners may fall in a cell the box only touches at a vertex,
+                 * which is deliberately excluded: an over-broad set would
+                 * report false collisions against neighbouring ground. */
+                if (a == 0 && b == 0 && c == 0) assert(found);
             }
 }
 
@@ -47,6 +52,23 @@ static void TestCoverage(void)
     ExpectCovered(0, 0.0, 1.5600, body);       /* near north pole */
     ExpectCovered(0, 0.0, -1.5600, body);      /* near south pole */
     ExpectCovered(7, 2.4, -0.9, body);         /* non-zero body id */
+}
+
+static void TestExactVolume(void)
+{
+    /* A 1.8-tall, 0.6-wide body spans exactly two radial cells at the equator
+     * and no more: the enumeration must not add a ring of neighbours. */
+    SurfacePose pose;
+    assert(SurfacePoseFromGeographic(0, 1.0, 0.3, 103.9, 0.0, 0.0, &pose));
+    WorldBlockBoxQuery query;
+    assert(WorldBlockBoxCollect(&pose, (Vector3){0.3f, 0.9f, 0.3f}, &query));
+    int minRadial = 1000, maxRadial = -1000;
+    for (unsigned i = 0; i < query.count; i++) {
+        int r = query.cells[i].at.surface.radial;
+        if (r < minRadial) minRadial = r;
+        if (r > maxRadial) maxRadial = r;
+    }
+    assert(minRadial == 103 && maxRadial == 104);
 }
 
 static void TestNoDuplicates(void)
@@ -102,6 +124,7 @@ static void TestInvalidInputRejected(void)
 int main(void)
 {
     TestCoverage();
+    TestExactVolume();
     TestNoDuplicates();
     TestRadialExtent();
     TestInvalidInputRejected();

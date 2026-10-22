@@ -82,46 +82,110 @@ bool WorldBlockBoxCollect(const SurfacePose *pose, Vector3 halfSize,
     if (!SurfacePoseBasis(pose, &basis)) return false;
     WorldDimension dimension = pose->bodyId == 0
         ? WORLD_DIMENSION_HOME : WORLD_DIMENSION_PLANET;
-
-    /* Reach covers the box's physical corner distance plus one cell of slack,
-     * so a cell centre just outside the box still joins the flood. */
-    double reach = sqrt((double)halfSize.x * (double)halfSize.x +
-                        (double)halfSize.y * (double)halfSize.y +
-                        (double)halfSize.z * (double)halfSize.z) + 0.87;
-    if (!isfinite(reach)) return false;
-
     SurfaceAddress start;
     if (!SurfaceCellFromPoint(pose->bodyId, pose->position, &start)) return false;
-    BoxPush(out, dimension, start);
-    /* Breadth-first over exact neighbours; the frontier stops once a cell's
-     * centre is farther than the reach. A fixed visit cap keeps the cost
-     * bounded even if the reach is generous. */
-    unsigned visited = 0;
-    for (unsigned head = 0; head < out->count && visited < 512u; head++) {
-        SurfaceAddress current = out->cells[head].at.surface;
-        visited++;
-        SurfaceVector centre;
-        if (!SurfaceCellCenter(current, &centre)) continue;
-        if (SurfaceVectorLength(SurfaceVectorSubtract(centre, pose->position)) > reach)
-            continue;
+
+    /* Collect candidates through the exact neighbour graph, then keep only the
+     * cells whose own volume the body box truly overlaps. Graph distance alone
+     * is not a volume test: it would add a ring of neighbouring cells. */
+    WorldBlockBoxQuery candidates;
+    candidates.count = 0;
+    candidates.truncated = false;
+    BoxPush(&candidates, dimension, start);
+    for (unsigned head = 0; head < candidates.count && head < 256u; head++) {
+        SurfaceAddress current = candidates.cells[head].at.surface;
+        if (head > 512u) break;
         for (int edge = 0; edge < 4; edge++) {
             SurfaceAddress next;
             SurfaceCubeEdge back;
             if (SurfaceCubeCellNeighbor(current, (SurfaceCubeEdge)edge, &next, &back))
-                BoxPush(out, dimension, next);
+                BoxPush(&candidates, dimension, next);
         }
         SurfaceAddress up = current, down = current;
         if (up.radial < INT_MAX) up.radial++;
         if (down.radial > INT_MIN) down.radial--;
-        if (SurfaceAddressIsValid(up)) BoxPush(out, dimension, up);
-        if (SurfaceAddressIsValid(down)) BoxPush(out, dimension, down);
+        if (SurfaceAddressIsValid(up)) BoxPush(&candidates, dimension, up);
+        if (SurfaceAddressIsValid(down)) BoxPush(&candidates, dimension, down);
     }
-    if (out->truncated) {
-        /* An incomplete set must never be mistaken for a full collision answer. */
-        *out = (WorldBlockBoxQuery){0};
+
+    /* Exact overlap: convert the cell's eight corners into the body frame and
+     * keep the cell when any corner lies inside the half-extent box, or when
+     * the body centre lies inside the cell. */
+    for (unsigned i = 0; i < candidates.count; i++) {
+        const SurfaceAddress cell = candidates.cells[i].at.surface;
+        SurfaceVector corner;
+        bool overlaps = false;
+        for (int du = 0; du <= 1 && !overlaps; du++)
+            for (int dv = 0; dv <= 1 && !overlaps; dv++)
+                for (int dr = 0; dr <= 1 && !overlaps; dr++) {
+                    if (!SurfacePointFromCoordinates((SurfaceCoordinates){
+                            cell.face, cell.u + du, cell.v + dv,
+                            cell.radial + dr}, &corner)) continue;
+                    Vector3 local = SurfacePointToLocal(&basis, corner);
+                    if (fabsf(local.x) <= halfSize.x + 1e-6f &&
+                        fabsf(local.y) <= halfSize.y + 1e-6f &&
+                        fabsf(local.z) <= halfSize.z + 1e-6f)
+                        overlaps = true;
+                }
+        if (!overlaps) {
+            /* The body centre may sit inside the cell even when no corner is
+             * inside the body (a body smaller than one cell). */
+            if (cell.face == start.face && cell.u == start.u && cell.v == start.v &&
+                cell.radial == start.radial) overlaps = true;
+        }
+        if (!overlaps) continue;
+        if (out->count >= WORLD_BLOCK_BOX_MAX_CELLS) {
+            *out = (WorldBlockBoxQuery){0};
+            return false;
+        }
+        out->cells[out->count++] = candidates.cells[i];
+    }
+    return out->count > 0u;
+}
+
+/* A landing spot needs the cell under the feet to be solid and the cells the
+ * body occupies to be clear. Unknown terrain is never treated as air: a
+ * location is only clear when every occupied cell is known and not solid. */
+bool WorldBlockLocationClear(const SurfacePose *pose, Vector3 halfSize,
+                             WorldBlockSolidFn isSolid,
+                             WorldBlockSolidFn isKnown, void *user)
+{
+    if (!pose || !SurfacePoseIsValid(pose) || !isKnown || !isSolid)
         return false;
+    /* Body cells: `pose->position` is the body centre, so the box is exactly
+     * the physical volume the body occupies. A standing body's box must not
+     * reach into the ground cell: the caller places the centre at
+     * ground top + halfSize.y. */
+    WorldBlockBoxQuery body;
+    if (!WorldBlockBoxCollect(pose, halfSize, &body)) return false;
+    if (!isKnown(&body, user)) return false;
+    if (isSolid(&body, user)) return false;
+
+    /* Ground cell: the cell immediately below the body's lowest occupied cell,
+     * not merely one below the centre. Using the lowest enumerated cell keeps
+     * this correct for tall and short bodies alike. */
+    SurfaceAddress feet;
+    if (!SurfaceCellFromPoint(pose->bodyId, pose->position, &feet)) return false;
+    for (unsigned i = 0; i < body.count; i++) {
+        const SurfaceAddress cell = body.cells[i].at.surface;
+        if (cell.face == feet.face && cell.u == feet.u && cell.v == feet.v &&
+            cell.radial < feet.radial) {
+            feet.radial = cell.radial;
+        }
     }
-    return true;
+    if (feet.radial <= INT_MIN) return false;
+    SurfaceAddress below = feet;
+    below.radial--;
+    if (!SurfaceAddressIsValid(below)) return false;
+    WorldBlockAddress ground;
+    ground.dimension = feet.bodyId == 0 ? WORLD_DIMENSION_HOME
+                                        : WORLD_DIMENSION_PLANET;
+    ground.at.surface = below;
+    WorldBlockBoxQuery groundBox;
+    groundBox.count = 1;
+    groundBox.truncated = false;
+    groundBox.cells[0] = ground;
+    return isKnown(&groundBox, user) && isSolid(&groundBox, user);
 }
 
 bool WorldBlockNeighbor(WorldBlockAddress address, WorldBlockSide side,
