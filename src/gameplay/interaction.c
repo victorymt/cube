@@ -8,6 +8,9 @@
 #include "gameplay/player.h"
 #include "space/space_chunks.h"
 #include "world/world_environment.h"
+#include "world/cube_raycast.h"
+#include "world/surface_pose.h"
+#include "world/surface_topology.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -618,11 +621,23 @@ float RaycastCameraOcclusion(Vector3 origin, Vector3 direction, float maxDistanc
     return -1.0f;
 }
 
+static InteractionCubeRaycastHook interactionCubeRaycastHook;
+
+void InteractionSetCubeRaycastHook(InteractionCubeRaycastHook hook)
+{
+    interactionCubeRaycastHook = hook;
+}
+
 HitResult RaycastBlocksFiltered(Vector3 origin, Vector3 direction,
                                 float maxDistance, unsigned mask)
 {
     HitResult result = { 0 };
     if ((mask & RAYCAST_BLOCK_ALL) == 0u) return result;
+    /* A cube surface has no Cartesian cell grid to walk. The hook is installed
+     * by the composition root so this module keeps no link-time dependency on
+     * the world runtime. */
+    if (interactionCubeRaycastHook)
+        return interactionCubeRaycastHook(origin, direction, maxDistance, mask);
     if (!RaycastPrepare(origin, &direction, maxDistance)) return result;
     Vector3 pos = origin;
     int x = (int)floorf(pos.x);

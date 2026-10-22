@@ -25,6 +25,15 @@ int AdjustImportPrecision(int value, int delta);
 bool BuildImageImportPlan(int imageWidth, int imageHeight, int maxBlocks,
                           bool relief, ImageImportPlan *outPlan);
 bool IsSupportedImageFile(const char *path);
+/* Cube selection hook. A cube surface has no Cartesian cell grid, so the
+ * composition root installs a handler that traces the ray against cube cells
+ * and reports the hit in the same local cells HitResult always uses. NULL (the
+ * default) means the legacy Cartesian walk runs unchanged. */
+typedef HitResult (*InteractionCubeRaycastHook)(Vector3 origin, Vector3 direction,
+                                                float maxDistance,
+                                                unsigned mask);
+void InteractionSetCubeRaycastHook(InteractionCubeRaycastHook hook);
+
 HitResult RaycastBlocks(Vector3 origin, Vector3 direction, float maxDistance);
 HitResult RaycastBlocksFiltered(Vector3 origin, Vector3 direction,
                                 float maxDistance, unsigned mask);

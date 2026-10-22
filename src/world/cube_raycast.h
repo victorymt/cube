@@ -16,6 +16,9 @@
 typedef struct CubeRaycastHit {
     WorldBlockAddress address;
     SurfaceGeometryHit geometry;
+    /* Centre of the hit cell in planet-centred coordinates, so callers can
+     * project it into whatever local space they render or edit in. */
+    SurfaceVector cellCenter;
     /* Face the ray entered through, for placement. */
     WorldBlockSide enteringSide;
     bool valid;

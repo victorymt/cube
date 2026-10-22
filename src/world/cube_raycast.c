@@ -69,6 +69,8 @@ bool CubeRaycast(uint32_t bodyId, SurfaceVector origin, SurfaceVector direction,
                                          : WORLD_DIMENSION_PLANET,
                 .at.surface = cell };
             outHit->geometry.point = point;
+            SurfaceVector center;
+            if (SurfaceCellCenter(cell, &center)) outHit->cellCenter = center;
             outHit->geometry.distance = travelled;
             outHit->enteringSide = haveEntering ? entering : WORLD_BLOCK_DOWN;
             outHit->valid = true;

@@ -452,6 +452,46 @@ static void TestImportDialogNullContracts(void)
     assert(strcmp(dialog.path, "ok") == 0);
 }
 
+/* The cube hook must be opt-in: with no hook installed the Cartesian walker
+ * runs, and installing one diverts selection without changing anything else. */
+static HitResult CubeHookResult;
+static unsigned cubeHookCalls;
+
+static HitResult StubCubeHook(Vector3 origin, Vector3 direction,
+                              float maxDistance, unsigned mask)
+{
+    (void)origin; (void)direction; (void)maxDistance; (void)mask;
+    cubeHookCalls++;
+    return CubeHookResult;
+}
+
+static void TestCubeHookInjection(void)
+{
+    ResetRayWorld();
+    solidX = 3;
+    /* Default: no hook, the Cartesian walk finds the block. */
+    InteractionSetCubeRaycastHook(NULL);
+    HitResult plain = RaycastBlocks((Vector3){0.5f, 0.5f, 0.5f},
+                                    (Vector3){1.0f, 0.0f, 0.0f}, 10.0f);
+    assert(plain.hit && plain.x == 3);
+
+    /* With a hook installed, selection comes from the hook. */
+    CubeHookResult = (HitResult){ .hit = true, .x = 42, .y = 7, .z = -3,
+                                  .nx = -1 };
+    cubeHookCalls = 0;
+    InteractionSetCubeRaycastHook(StubCubeHook);
+    HitResult hooked = RaycastBlocks((Vector3){0.5f, 0.5f, 0.5f},
+                                     (Vector3){1.0f, 0.0f, 0.0f}, 10.0f);
+    assert(cubeHookCalls == 1u);
+    assert(hooked.hit && hooked.x == 42 && hooked.z == -3 && hooked.nx == -1);
+
+    /* Clearing the hook restores the walker. */
+    InteractionSetCubeRaycastHook(NULL);
+    plain = RaycastBlocks((Vector3){0.5f, 0.5f, 0.5f},
+                          (Vector3){1.0f, 0.0f, 0.0f}, 10.0f);
+    assert(plain.hit && plain.x == 3);
+}
+
 int main(void)
 {
     TestRaycastRejectsInvalidInput();
@@ -464,6 +504,7 @@ int main(void)
     TestImageImportFailureLifecycle();
     TestImageImportClosesUndoGroup();
     TestImportDialogNullContracts();
+    TestCubeHookInjection();
     puts("interaction raycast tests passed");
     return 0;
 }

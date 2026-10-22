@@ -4,6 +4,7 @@
 #include "core/game_effects.h"
 #include "core/perf.h"
 #include "core/simulation_time.h"
+#include "gameplay/interaction_cube.h"
 #include "gameplay/ship.h"
 #include "presentation/audio.h"
 #include "presentation/effect_dispatch.h"
@@ -69,6 +70,12 @@ void GameSyncWorldSurfaceSnapshot(uint32_t homeWorldSeed)
         TraceLog(LOG_ERROR, "Unable to install unsupported surface topology");
         abort();
     }
+    /* Selection follows the installed grid: a cube surface has no Cartesian
+     * cell grid to walk, so the hook takes over; every other topology keeps
+     * the legacy walker untouched. */
+    InteractionSetCubeRaycastHook(
+        snapshot.context.topology.kind == SURFACE_TOPOLOGY_CUBE_GRID
+            ? InteractionCubeRaycast : NULL);
 }
 
 static bool GameWeatherSurfaceLightAt(
