@@ -20,6 +20,18 @@ bool TerrainGenerationSetVersion(uint32_t version)
 static WorldSurfaceSnapshot currentSurfaceSnapshot = { 0 };
 static uint64_t currentWorldGeneration;
 static WorldSurfaceTopologyPolicy currentTopologyPolicy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
+/* Off by default; see the header contract. */
+static bool cubeRuntimeEnabled;
+
+bool WorldCubeRuntimeEnabled(void)
+{
+    return cubeRuntimeEnabled;
+}
+
+void WorldSetCubeRuntimeEnabled(bool enabled)
+{
+    cubeRuntimeEnabled = enabled;
+}
 
 bool WorldInstallSurfaceSnapshot(const WorldSurfaceSnapshot *snapshot)
 {
@@ -27,7 +39,9 @@ bool WorldInstallSurfaceSnapshot(const WorldSurfaceSnapshot *snapshot)
         const WorldSurfaceContext *context = &snapshot->context;
         if (context->kind < WORLD_SURFACE_NONE || context->kind > WORLD_SURFACE_PLANET ||
             context->active != (context->kind != WORLD_SURFACE_NONE) ||
-            !SurfaceTopologyIsRuntimeSupported(context->topology) ||
+            !(SurfaceTopologyIsRuntimeSupported(context->topology) ||
+              (cubeRuntimeEnabled &&
+               SurfaceTopologyIsKnown(context->topology))) ||
             (context->active && context->topology.kind == SURFACE_TOPOLOGY_NONE) ||
             (!context->active && context->topology.kind != SURFACE_TOPOLOGY_NONE)) return false;
         SurfaceTopologyVersion expected = WorldTopologyForSurface(context->kind);
@@ -48,9 +62,21 @@ WorldSurfaceTopologyPolicy WorldCurrentTopologyPolicy(void)
 
 bool WorldInstallTopologyPolicy(WorldSurfaceTopologyPolicy policy)
 {
-    if (!WorldSurfaceTopologyPolicyIsSupported(policy)) return false;
-    currentTopologyPolicy = policy;
-    return true;
+    if (WorldSurfaceTopologyPolicyIsSupported(policy)) {
+        currentTopologyPolicy = policy;
+        return true;
+    }
+    /* The pure policy check only accepts the legacy grid. An explicitly
+     * enabled cube runtime additionally admits a fully-known cube policy. */
+    if (cubeRuntimeEnabled &&
+        SurfaceTopologyIsKnown(policy.home) &&
+        SurfaceTopologyIsKnown(policy.planets) &&
+        policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID &&
+        policy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        currentTopologyPolicy = policy;
+        return true;
+    }
+    return false;
 }
 
 void WorldResetTopologyPolicy(void)

@@ -26,8 +26,16 @@ const char *SurfaceTopologyName(SurfaceTopologyVersion topology)
 
 bool WorldSurfaceTopologyPolicyIsSupported(WorldSurfaceTopologyPolicy policy)
 {
-    return policy.home.kind == SURFACE_TOPOLOGY_LEGACY_MAP &&
-           policy.planets.kind == SURFACE_TOPOLOGY_LEGACY_MAP &&
-           SurfaceTopologyIsRuntimeSupported(policy.home) &&
-           SurfaceTopologyIsRuntimeSupported(policy.planets);
+    /* Without the cube runtime gate the policy must be legacy on both
+     * surfaces; this keeps the historical contract byte-for-byte. */
+    bool legacyOnly = policy.home.kind == SURFACE_TOPOLOGY_LEGACY_MAP &&
+                      policy.planets.kind == SURFACE_TOPOLOGY_LEGACY_MAP;
+    if (!SurfaceTopologyIsKnown(policy.home) ||
+        !SurfaceTopologyIsKnown(policy.planets)) return false;
+    if (legacyOnly)
+        return SurfaceTopologyIsRuntimeSupported(policy.home) &&
+               SurfaceTopologyIsRuntimeSupported(policy.planets);
+    /* Non-legacy policies are refused here. The runtime gate that admits the
+     * cube grid lives in the snapshot module, which owns installation. */
+    return false;
 }

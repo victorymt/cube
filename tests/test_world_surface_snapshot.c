@@ -157,6 +157,54 @@ static void TestTopologyValidation(void)
     assert(WorldCurrentSurfaceSnapshot()->context.topology.kind == SURFACE_TOPOLOGY_NONE);
 }
 
+/* The cube runtime gate: closed must reproduce the historical rejection, and
+ * open must accept a cube snapshot without changing the default policy. */
+static void TestCubeRuntimeGate(void)
+{
+    WorldSurfaceSnapshot cube = {
+        .context = {
+            .active = true,
+            .kind = WORLD_SURFACE_HOME,
+            .topology = { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
+            .seed = 0x55u,
+            .originX = 0,
+            .originZ = 0
+        }
+    };
+    /* Gate closed (default): a cube snapshot is rejected and state is intact. */
+    assert(!WorldCubeRuntimeEnabled());
+    assert(!WorldInstallSurfaceSnapshot(&cube));
+    assert(WorldCurrentSurfaceSnapshot()->context.kind == WORLD_SURFACE_NONE);
+
+    /* Gate open: the same snapshot installs, and the default policy is still
+     * legacy until a caller explicitly installs a cube policy. */
+    WorldSetCubeRuntimeEnabled(true);
+    assert(WorldCubeRuntimeEnabled());
+    /* The default policy stays legacy: opening the gate does not switch it. */
+    assert(WorldCurrentTopologyPolicy().home.kind == SURFACE_TOPOLOGY_LEGACY_MAP);
+    /* A snapshot must still agree with the installed policy, so a cube
+     * snapshot is rejected until the caller installs a cube policy. */
+    assert(!WorldInstallSurfaceSnapshot(&cube));
+    WorldSurfaceTopologyPolicy cubePolicy = {
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION }
+    };
+    assert(WorldInstallTopologyPolicy(cubePolicy));
+    assert(WorldCurrentTopologyPolicy().home.kind == SURFACE_TOPOLOGY_CUBE_GRID);
+    assert(WorldInstallSurfaceSnapshot(&cube));
+    assert(WorldCurrentSurfaceSnapshot()->context.topology.kind ==
+           SURFACE_TOPOLOGY_CUBE_GRID);
+
+    /* Closing the gate restores the historical rejection. */
+    WorldSetCubeRuntimeEnabled(false);
+    assert(!WorldInstallTopologyPolicy((WorldSurfaceTopologyPolicy){
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION } }));
+    WorldResetTopologyPolicy();
+    assert(WorldCurrentTopologyPolicy().home.kind == SURFACE_TOPOLOGY_LEGACY_MAP);
+    assert(WorldInstallSurfaceSnapshot(NULL));
+}
+
 int main(void)
 {
     assert(WorldInstallSurfaceSnapshot(NULL));
@@ -165,6 +213,7 @@ int main(void)
     TestPlanetIdentityDoesNotAliasSeed();
     TestNullResetsSnapshot();
     TestTopologyValidation();
+    TestCubeRuntimeGate();
     assert(TerrainGenerationSetVersion(6));
     assert(WorldInstallSurfaceSnapshot(NULL));
     assert(TerrainGenerationVersion() == 6);

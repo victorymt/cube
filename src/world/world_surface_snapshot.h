@@ -23,4 +23,13 @@ bool WorldInstallTopologyPolicy(WorldSurfaceTopologyPolicy policy);
 void WorldResetTopologyPolicy(void);
 SurfaceTopologyVersion WorldTopologyForSurface(WorldSurfaceKind kind);
 
+/* Runtime gate for the cube grid. Off by default: with the gate closed the
+ * runtime accepts only the legacy map grid, exactly as before this API
+ * existed. Opening it permits a cube-grid policy and snapshot to install, so
+ * callers must drain chunk workers and rebuild all dependent state first.
+ * This gate does not switch the default policy; it only stops the hard
+ * rejection of an explicitly requested cube world. */
+bool WorldCubeRuntimeEnabled(void);
+void WorldSetCubeRuntimeEnabled(bool enabled);
+
 #endif
