@@ -756,7 +756,6 @@ static GameDebugDispatchResult GameDebugDispatchMapCommand(
             "DEBUG_CONTROL map layer liquids enabled=%d\n",
             HomeWorldMapSubsurfaceLiquidsVisible() ? 1 : 0);
         return GAME_DEBUG_DISPATCH_HANDLED;
-    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_CUBE: {
         if (!GameDebugEnterCubeWorld(game)) {
             GameDebugMarkCommandError(game, "cube_activation_failed");
@@ -769,6 +768,7 @@ static GameDebugDispatchResult GameDebugDispatchMapCommand(
             game->debugControl.surfaceDebugSeed);
         return GAME_DEBUG_DISPATCH_HANDLED;
     }
+    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET: {
         bool homeWorld = command == DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME;
         SolarBodyStyle styles[] = {
