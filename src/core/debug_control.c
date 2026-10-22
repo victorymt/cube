@@ -877,6 +877,11 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
     if (strcmp(line, "surface debug home") == 0) {
         return DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME;
     }
+    /* Enters the cube-grid home world. This is the only runtime path that
+     * opens the cube gate, so the migration stays opt-in. */
+    if (strcmp(line, "surface debug cube") == 0) {
+        return DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_CUBE;
+    }
     char style[16] = { 0 };
     unsigned seed = 0u;
     char trailing = '\0';

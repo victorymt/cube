@@ -88,6 +88,7 @@ const char *GameDebugDslCommandBlocked(
         return WorldIsSurfaceActive() ? NULL : "no_active_surface";
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET:
+    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_CUBE:
         return game->screen == SCREEN_PLAYING ? NULL : "not_playing";
     case DEBUG_CONTROL_COMMAND_STREAM_AUDIT:
     case DEBUG_CONTROL_COMMAND_STREAM_WAIT:

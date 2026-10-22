@@ -757,6 +757,18 @@ static GameDebugDispatchResult GameDebugDispatchMapCommand(
             HomeWorldMapSubsurfaceLiquidsVisible() ? 1 : 0);
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME:
+    case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_CUBE: {
+        if (!GameDebugEnterCubeWorld(game)) {
+            GameDebugMarkCommandError(game, "cube_activation_failed");
+            DebugControlReply(&game->debugControl,
+                "DEBUG_CONTROL surface debug error reason=cube_activation_failed\n");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        DebugControlReply(&game->debugControl,
+            "DEBUG_CONTROL surface debug ok world=cube seed=%u\n",
+            game->debugControl.surfaceDebugSeed);
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
     case DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET: {
         bool homeWorld = command == DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME;
         SolarBodyStyle styles[] = {

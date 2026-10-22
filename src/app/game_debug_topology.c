@@ -4,7 +4,12 @@
 #include "core/debug_control.h"
 #include "world/chunks.h"
 #include "world/surface_topology.h"
+#include "presentation/homeworld_map.h"
 #include "world/world.h"
+#include "app/game_world_transition.h"
+#include "app/game_internal.h"
+#include "world/world_surface_snapshot.h"
+#include "world/surface_cube.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -219,4 +224,36 @@ bool GameDebugTopologyDslResolve(const GameRuntime *game, const char *name,
             ? topology.lastRebase.sequence : 0u);
     }
     return false;
+}
+
+bool GameDebugEnterCubeWorld(struct GameRuntime *game)
+{
+    if (!game) return false;
+    WorldSetCubeRuntimeEnabled(true);
+    WorldSurfaceTopologyPolicy cubePolicy = {
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION }
+    };
+    if (!WorldInstallTopologyPolicy(cubePolicy)) {
+        WorldSetCubeRuntimeEnabled(false);
+        return false;
+    }
+    GameReleaseCubeContext(game);
+    HomeWorldMapClose();
+    if (!GameWorldTransitionDebugSurface(
+            &game->player, true, SOLAR_STYLE_TEMPERATE,
+            game->debugControl.surfaceDebugSeed)) {
+        /* Roll back so a failed activation cannot strand the runtime on a grid
+         * it is not serving. */
+        WorldSetCubeRuntimeEnabled(false);
+        WorldResetTopologyPolicy();
+        return false;
+    }
+    game->landingTransition = (LandingTransition){ 0 };
+    game->wasInSpace = false;
+    game->entitiesWorldActive = true;
+    game->entitiesWorldDimension = WorldCurrentSurfaceId();
+    game->cursorReleased = false;
+    DisableCursor();
+    return true;
 }

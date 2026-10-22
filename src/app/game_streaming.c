@@ -5,9 +5,22 @@
 #include "space/space_runtime.h"
 #include "space/space_state.h"
 #include "world/chunks.h"
+#include "world/terrain_cube.h"
+#include "world/chunks_cube.h"
+#include <math.h>
+#include "world/surface_pose.h"
 #include "world/nether.h"
 #include "world/world.h"
 #include "world/world_environment.h"
+
+/* Releases the cube generation input. Called whenever the surface is torn down
+ * or replaced so a stale world cannot keep generating into the shared pool. */
+void GameReleaseCubeContext(GameRuntime *game)
+{
+    if (!game || !game->cubeContext) return;
+    TerrainCubeContextRelease(game->cubeContext);
+    game->cubeContext = NULL;
+}
 
 int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive)
 {
@@ -23,6 +36,33 @@ int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive)
         game->evolutionLockedOrganismId = 0u;
         game->entitiesWorldActive = *localWorldActive;
         game->entitiesWorldDimension = currentEntityDimension;
+    }
+    /* Coverage focuses on the player's physical position: the world-to-surface
+     * helper applies the map origin and projection, so the focus is the cell
+     * the player actually stands on. */
+    SurfaceVector cubeFocus = { 0, 0, 0 };
+    if (*localWorldActive) {
+        SurfaceAddress playerCell = SurfaceAddressAtWorld(
+            game->player.position.x, game->player.position.z,
+            (int)floorf(game->player.position.y));
+        SurfaceVector centre;
+        if (SurfaceCellCenter(playerCell, &centre)) cubeFocus = centre;
+    }
+    if (*localWorldActive &&
+        WorldCurrentSurfaceContext().topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        /* Cube surfaces stream through physical coverage, not the legacy map
+         * square. The context is created once per installed world. */
+        if (!game->cubeContext) {
+            game->cubeContext = TerrainCubeContextCreate(
+                WorldCurrentSurfaceSnapshot(), WorldTerrainMode(),
+                WorldCurrentGeneration());
+        }
+        if (game->cubeContext) {
+            CubeCoverageStatus status;
+            (void)ChunksUpdateCubeCoverage(game->cubeContext, cubeFocus,
+                (double)effectiveRenderDistance * CHUNK_SIZE, 8u, &status);
+        }
+        return 0;
     }
     if (*localWorldActive) {
         ChunkStreamingRequest request = {

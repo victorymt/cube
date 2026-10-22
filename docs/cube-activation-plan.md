@@ -309,6 +309,8 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 | 2026-10-22 | W3 根基：`GetBlockAt` 支持 cube | **完成**。`GetSurfaceBlockAt` 在 cube 拓扑下先按 map 坐标解析成 cube 单元，绕开全部 legacy 区块查找；400 个采样点验证映射是单射 |
 | 2026-10-22 | W1-3 流体：**阻塞点定位** | 实测发现流体的编辑索引以 `(surfaceId, chunkX, chunkZ)` 为键，而 cube 区块只有 `cx=u, cz=v`：**不同 face 的相同 (u,v) 会共用同一个桶**，把一面编辑应用到另一面。改造需让队列携带 cube 区块身份，涉及 16 处调用点与 4 个结构体 |
 | 2026-10-22 | W1-3 流体：cube 下停用 | **完成**。`FluidUpdate` / `FluidStepTicks` / `FluidWakeCell` / `FluidApplyEditsToChunkSection` 在 cube 拓扑下直接返回，避免串桶写坏方块；测试钉住 cube 下 `activeCells==0 && ticks==0`，legacy 不受影响（变异可捕获）|
+| 2026-10-22 | **关键缺口**：cube 不可达 | 复查发现 `WorldSetCubeRuntimeEnabled`、`ChunksUpdateCubeCoverage`、`TerrainCubeContextCreate` 在生产代码中**全部零调用**——此前所有交付都是不可运行的库代码 |
+| 2026-10-22 | 打通立方体入口 | **完成**。新增 `surface debug cube`：开闸→装 cube 策略→重建表面→创建 `TerrainCubeContext`→每帧 `ChunksUpdateCubeCoverage`；失败回滚闸门与策略；世界切换时释放 context |
 | 待续 | W1-3 流体：真正改造 | 队列需承载 `SurfaceCubeChunkKey` |
 | 2026-10-22 | W3 其余 | 生态、CGA、地形高度查询尚未切换 |
 | 待续 | W2 其余 | V30 版本号与界面文案尚未切换 |

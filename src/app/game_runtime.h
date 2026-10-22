@@ -167,6 +167,9 @@ typedef struct GameRuntime {
   bool wasInSpace;
   bool entitiesWorldActive;
   uint32_t entitiesWorldDimension;
+  /* Owned cube generation input; non-NULL only while a cube surface is
+   * installed. Drives coverage updates from the main thread. */
+  struct TerrainCubeContext *cubeContext;
   bool thirdPerson;
   bool scriptedInputFirstFrame;
   bool debugMouseLeftPressed;

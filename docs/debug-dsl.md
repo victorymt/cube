@@ -719,6 +719,7 @@ load
 map
 map layer liquids on|off
 surface debug home
+surface debug cube
 surface debug planet temperate|desert|ice|lava|crater SEED
 water debug
 water debug on|off
@@ -761,7 +762,10 @@ file next to the PNG. Debug-controlled sessions start with the help overlay
 hidden so visual captures remain unobstructed. `map` toggles the surface map
 and requires an active surface world. `map layer liquids` controls the
 map's water-cave/lava-cavity
-overlay. `surface debug home` switches directly to Homeworld; the planet form
+overlay. `surface debug home` switches directly to Homeworld; `surface debug
+cube` is the only runtime entry into the cube-grid Homeworld (it opens the
+cube runtime gate and installs a cube topology policy, rolling both back if
+activation fails). The planet form
 creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
