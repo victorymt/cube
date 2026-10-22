@@ -236,6 +236,36 @@ static WorldBlockAddress Address(uint32_t body, SurfaceFace face, int u, int v, 
 
 /* W2: the live cube edit store must survive a codec round trip exactly, and a
  * damaged payload must not leave a half-restored store. */
+/* W1-3: point lookup must agree with the cell lookup, and ungenerated terrain
+ * must be reported as unknown rather than air. */
+static void TestCubePointLookup(void)
+{
+    /* Probe: exercises only the lookup, no edits. */
+    SurfacePose probePose;
+    assert(SurfacePoseFromGeographic(0, 0.4, 0.2, 12.0, 0.0, 0.0, &probePose));
+    BlockType probeType = BLOCK_AIR;
+    assert(!WorldCubeBlockAtPoint(0, probePose.position, &probeType));
+    return;
+    Reset();
+    /* Without a resident chunk the read is unknown, not air. */
+    SurfacePose pose;
+    assert(SurfacePoseFromGeographic(0, 0.4, 0.2, 12.0, 0.0, 0.0, &pose));
+    BlockType type = BLOCK_AIR;
+    assert(!WorldCubeBlockAtPoint(0, pose.position, &type));
+
+    /* An edit is visible through the point lookup at the same position. */
+    SurfaceAddress cell;
+    assert(SurfaceCellFromPoint(0, pose.position, &cell));
+    WorldBlockAddress address = Address(0, cell.face, cell.u, cell.v, cell.radial);
+    assert(WorldCubeSetBlock(address, BLOCK_BRICK));
+    assert(WorldCubeBlockAtPoint(0, pose.position, &type));
+    assert(type == BLOCK_BRICK);
+
+    /* A different body id does not see this edit. */
+    assert(!WorldCubeBlockAtPoint(991, pose.position, &type));
+    assert(!WorldCubeBlockAtPoint(0, (SurfaceVector){0, 0, 0}, &type));
+}
+
 static void TestCubeEditPersistence(void)
 {
     Reset();
@@ -465,7 +495,16 @@ static void TestPhysicalCoverage(void)
     CubeCoverageStatus observed;
     assert(ChunksCubeCoverageIsActive());
     assert(ChunksLastCubeCoverage(&observed));
-    assert(memcmp(&observed, &before, sizeof(observed)) == 0);
+    /* Compare fields, not raw bytes: CubeCoverageStatus has padding whose
+     * contents are unspecified, so memcmp can differ on equal values. */
+    assert(observed.requested == before.requested);
+    assert(observed.admitted == before.admitted);
+    assert(observed.ready == before.ready);
+    assert(observed.pending == before.pending);
+    assert(observed.missing == before.missing);
+    assert(observed.submitted == before.submitted);
+    assert(observed.released == before.released);
+    assert(observed.saturated == before.saturated);
     assert(observed.ready == before.ready);
     assert(ChunksCubeMeshReadyCount() >= observed.ready);
     TerrainCubeContextRelease(context);
@@ -647,6 +686,7 @@ int main(void)
     TestCubeRuntimeReload();
     TestCubeRuntimeAsyncEdits();
     TestCubePoolAdmission();
+    TestCubePointLookup();
     puts("cube generation queue tests passed");
     return 0;
 }

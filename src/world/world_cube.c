@@ -143,6 +143,19 @@ void WorldCubeApplySectionEdits(SurfaceCubeChunkKey key, int sectionY,
     }
 }
 
+bool WorldCubeBlockAtPoint(uint32_t bodyId, SurfaceVector point,
+                            BlockType *outType)
+{
+    if (!outType || !SurfaceVectorIsFinite(point)) return false;
+    SurfaceAddress cell;
+    if (!SurfaceCellFromPoint(bodyId, point, &cell)) return false;
+    WorldBlockAddress address;
+    address.dimension = bodyId == 0 ? WORLD_DIMENSION_HOME
+                                    : WORLD_DIMENSION_PLANET;
+    address.at.surface = cell;
+    return WorldCubeBlockAt(address, outType);
+}
+
 bool WorldCubeApplyEdits(Chunk *staging)
 {
     if (!staging || !staging->cubeGrid || staging->loaded) return false;

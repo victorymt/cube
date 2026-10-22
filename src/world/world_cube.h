@@ -3,6 +3,7 @@
 
 #include "world/world_types.h"
 #include "world/world_location.h"
+#include "world/surface_pose.h"
 
 #define WORLD_CUBE_MAX_EDITS (1u << 20)
 
@@ -23,6 +24,11 @@ void WorldCubeTestFailNextReserve(void);
 // Main-thread generation completion, before publishing results. Column replay
 // touches only resolved sections; edits to deep/unresolved sections remain in
 // the store until those sections are generated.
+/* Block at a continuous body-centred position. Returns false when the owning
+ * section is not generated, so callers never read ungenerated terrain as air. */
+bool WorldCubeBlockAtPoint(uint32_t bodyId, SurfaceVector point,
+                            BlockType *outType);
+
 bool WorldCubeApplyEdits(Chunk *staging);
 void WorldCubeApplySectionEdits(SurfaceCubeChunkKey key, int sectionY,
     unsigned short blocks[CHUNK_SIZE][SURFACE_SECTION_HEIGHT][CHUNK_SIZE]);
