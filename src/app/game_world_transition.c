@@ -7,6 +7,7 @@
 #include "space/space_state.h"
 #include "space/space_world_transition.h"
 #include "world/chunks.h"
+#include "world/cube_switch.h"
 #include "world/radiation_runtime.h"
 #include "world/hydrology_runtime.h"
 #include "world/terrain.h"
@@ -187,7 +188,15 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
         return false;
     }
 
+    /* When the cube runtime gate is open the switch runs through the staged
+     * machine so ordering and rollback are observable. With the gate closed
+     * (the default) the path below is byte-for-byte unchanged. */
+    CubeSwitchProgress cubeSwitch = { .stage = CUBE_SWITCH_IDLE };
+    bool staged = CubeSwitchPermitted();
+    if (staged && !CubeSwitchBegin(&cubeSwitch)) return false;
+
     GameWorldTransitionUnloadSurfaceData();
+    if (staged) CubeSwitchAdvance(&cubeSwitch); /* DRAINED */
     if (PlanetWorldIsActive()) PlanetWorldLeaveSurface();
     if (HomeWorldSurfaceIsActive()) HomeWorldLeaveSurface(player->position);
     GameSyncWorldSurfaceSnapshot(WorldGetSeed());
@@ -215,6 +224,7 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
     }
 
     GameWorldTransitionFinishSurfaceActivation();
+    if (staged) CubeSwitchAdvance(&cubeSwitch); /* CONTEXT_READY */
     int landingX = 0;
     int landingZ = 0;
     int groundY = 0;
@@ -222,6 +232,7 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
                                 &landingX, &landingZ, &groundY)) {
         groundY = WorldSurfaceHeightAt(landingX, landingZ);
     }
+    if (staged) CubeSwitchAdvance(&cubeSwitch); /* RESET */
     player->position = (Vector3){
         (float)landingX + 0.5f,
         (float)groundY + 3.0f,
@@ -232,11 +243,22 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
     player->pitch = -0.25f;
     player->floating = false;
     player->onGround = false;
+    if (staged) CubeSwitchAdvance(&cubeSwitch); /* LANDED */
     ChunkStreamingRequest streamRequest = {
         .position = player->position,
         .effectiveRenderDistance = MIN_RENDER_DISTANCE_CHUNKS
     };
     UpdateChunks(&streamRequest);
     DrainChunkGen();
+    if (staged) {
+        /* Enter the coverage wait, then report what the local stream actually
+         * reached. A world that never settles rolls back instead of exposing
+         * an empty surface to the player. */
+        CubeSwitchAdvance(&cubeSwitch); /* READY (waiting) */
+        bool settled = PlayerMissingSurfaceChunkCount(player->position) == 0 &&
+                       WorldIsSurfaceActive();
+        if (!CubeSwitchReportCoverage(&cubeSwitch, settled))
+            return false;
+    }
     return true;
 }
