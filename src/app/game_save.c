@@ -19,6 +19,8 @@
 #include "space/space_persistence.h"
 #include "space/space_state.h"
 #include "world/chunks.h"
+#include "world/cube_address_save.h"
+#include "world/world_cube.h"
 #include "world/nether.h"
 #include "world/hydrology_runtime.h"
 #include "world/radiation_runtime.h"
@@ -104,6 +106,25 @@ static bool GameSaveWriteEdits(FILE *file)
         if (fwrite(&dimension, sizeof(dimension), 1, file) != 1) return false;
     }
     return true;
+}
+
+/* Cube edit payloads are written only when the whole active policy is cube
+ * grid. Under the current legacy policy the section is skipped entirely, so a
+ * V29 file never carries cube data that the runtime would reject. */
+static bool GameSavePolicyUsesCubeGrid(void)
+{
+    WorldSurfaceTopologyPolicy policy = WorldCurrentTopologyPolicy();
+    return policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID &&
+           policy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID;
+}
+
+static bool GameSaveWriteCubeEdits(FILE *file)
+{
+    /* Never reached under the legacy policy, keep symmetric with the reader. */
+    if (!file || !GameSavePolicyUsesCubeGrid()) return true;
+    /* The codec writes its own magic, version and count; the live store must
+     * simply match what the codec reports. */
+    return CubeAddressSaveWriteEdits(file);
 }
 
 static bool GameSaveWriteSphericalTrailer(FILE *file, const Player *player)
@@ -240,6 +261,7 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
     ok = ok && fwrite(&terrain, sizeof(terrain), 1, file) == 1;
     ok = ok && fwrite(playerData, sizeof(playerData), 1, file) == 1;
     ok = ok && GameSaveWriteEdits(file);
+    ok = ok && GameSaveWriteCubeEdits(file);
     ok = ok && InventorySave(file) && ShipSaveState(file) &&
          PlanetWorldSaveState(file) && HomeWorldSaveState(file);
     ok = ok && AlbumSave(file) && SpaceSaveEdits(file) &&
@@ -439,6 +461,14 @@ static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
 }
 
 #ifdef GAME_SAVE_TESTING
+bool GameSaveTestPolicyUsesCubeGrid(void)
+{
+    return GameSavePolicyUsesCubeGrid();
+}
+bool GameSaveTestWriteCubeEdits(FILE *file)
+{
+    return GameSaveWriteCubeEdits(file);
+}
 const char *GameSaveTestLoadInventoryRemainders(FILE *file, WorldSaveFormat format)
 {
     return GameLoadInventoryRemainders(file, format);
@@ -566,6 +596,15 @@ static const char *GameLoadCurrentExtendedPayload(
     if (ashError) return ashError;
     const char *fractionError = GameLoadInventoryRemainders(file, format);
     if (fractionError) return fractionError;
+    /* Cube edits precede the spherical trailer, matching the write order.
+     * The gate reads the policy installed from THIS file's header, so read and
+     * write stay symmetric. Today every accepted save is legacy-map and this
+     * branch is skipped: a cube-grid header is rejected by
+     * WorldInstallTopologyPolicy before any payload is parsed. The branch is
+     * kept so enabling cube-grid needs no further save-order change. */
+    if (GameSavePolicyUsesCubeGrid() && !CubeAddressSaveReadEdits(file, NULL)) {
+        return "Load failed: cube edit state is corrupted.";
+    }
     if (!GameLoadSphericalTrailer(file, data)) {
         return "Load failed: spherical save state is corrupted.";
     }

@@ -1,4 +1,13 @@
 #include "app/game_save.h"
+#include "world/surface_topology_version.h"
+
+/* Focused stub. The production accessor returns the policy installed from the
+ * save header; this test exercises only the default legacy policy, which is
+ * exactly what an accepted V29 file carries today. */
+WorldSurfaceTopologyPolicy WorldCurrentTopologyPolicy(void)
+{
+    return (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_DEFAULT;
+}
 
 #include "world/surface_save.h"
 #include "world/radiation_runtime.h"
@@ -458,6 +467,18 @@ static void TestHydrologyRuntimePayloadRouting(void)
     fclose(file);
 }
 
+/* Under the default legacy-map policy the cube section must be absent, so a
+ * V29 file stays byte-compatible with what the current runtime accepts. */
+static void TestCubeSectionAbsentUnderLegacyPolicy(void)
+{
+    assert(!GameSaveTestPolicyUsesCubeGrid());
+    FILE *file = tmpfile();
+    assert(file);
+    assert(GameSaveTestWriteCubeEdits(file));
+    assert(ftell(file) == 0);
+    fclose(file);
+}
+
 int main(void)
 {
     TestRemainderPayloadRouting();
@@ -469,6 +490,7 @@ int main(void)
     TestRejectsMismatchedEditBodyTransactionally();
     TestRadiationRuntimePayloadRouting();
     TestHydrologyRuntimePayloadRouting();
+    TestCubeSectionAbsentUnderLegacyPolicy();
     HydrologyRuntimeGlobalFree();
     puts("game spherical save tests passed");
     return 0;

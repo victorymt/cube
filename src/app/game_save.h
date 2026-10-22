@@ -3,11 +3,17 @@
 
 #include "gameplay/player_types.h"
 
+#include <stdbool.h>
+#include <stdio.h>
+
 void GameSaveMap(const Player *player);
 // False leaves the caller's clocks/input state intact; see the posted notice.
 bool GameLoadMap(Player *player);
 
 #ifdef GAME_SAVE_TESTING
+/* Returns true when the active policy writes the cube edit section. */
+bool GameSaveTestPolicyUsesCubeGrid(void);
+bool GameSaveTestWriteCubeEdits(FILE *file);
 #include "world/world_environment.h"
 #include "world/save_format.h"
 
