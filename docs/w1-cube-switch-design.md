@@ -134,3 +134,33 @@ mapZ ≥ 3584 时东向弧长为 0，意味着该处所有 longitude 映射到�
 ### 对 W1-3 的结论
 
 移动改造不能建立在“每格有稳定宽度”的假设上。正确做法是让移动**完全使用 `SurfacePoseDisplace` 的物理位移**，只把结果写回时走一次投影，而不是在 map 格空间里做缩放。这需要先把玩家的权威位置改为 `SurfacePose`（原 §5 已列出），属于同一批改动，不能拆开。
+
+## 10. 流体不能在 cube 上运行的准确原因（2026-10-22 修正）
+
+第 13 轮曾把原因写成"不同 face 的相同 `(u,v)` 共用桶"。这个说法**不准确**，
+下面重新推导了真实原因。
+
+### 写路径与读路径不在同一坐标空间
+
+| 路径 | 键的来源 |
+|---|---|
+| 写入 bucket | `cx = FloorDivInt(edit->x, CHUNK_SIZE)`，`edit->x` 是**世界坐标** |
+| 应用 edits | `cx = chunk->cx`，legacy 区块是 map 区块索引 |
+
+在 legacy 网格上两者一致，因为 `WorldToChunkLocal(worldX)` 就等于
+`floor(worldX / 16)`。
+
+在 cube 网格上不一致：cube 区块的 `cx = key.u`（面内 0..255 的局部格），
+而 edits 仍按世界坐标分桶。两者是**不同的量，没有理由相等**。
+
+### 还有一处更根本的失败
+
+`FluidLocateCell` 通过 `WorldToChunkLocal(x, z) -> FindChunk(cx, cz)` 找区块。
+`FindChunk` 只搜索 legacy 索引；cube 区块按 `cubeKey` 存放，**永远找不到**。
+
+因此流体在 cube 世界的失败不是偶发的桶冲突，而是**必然无法定位任何区块**。
+
+### 结论
+
+第 13 轮"在 cube 下停用流体"的处置是对的，但理由是上述两点，不是 face 撞桶。
+真正启用需要把 fluid 的定位与分桶都改成 cube 键，工作量远大于"加一个 face 字段"。
