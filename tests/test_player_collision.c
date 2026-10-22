@@ -93,6 +93,24 @@ bool WorldIsSurfaceActive(void)
     return true;
 }
 
+/* Minimal surface context so geometry-driven code can run: a Home world whose
+ * map origin is the legacy local origin and whose body id is 0. */
+WorldSurfaceContext WorldCurrentSurfaceContext(void)
+{
+    return (WorldSurfaceContext){
+        .active = true,
+        .kind = WORLD_SURFACE_HOME,
+        .topology = SURFACE_TOPOLOGY_MAP_V1,
+        .bodyId = 0u,
+        .seed = 1234u,
+        .originX = 0,
+        .originZ = 0
+    };
+}
+int WorldSurfaceMapOriginX(void) { return 0; }
+int WorldSurfaceMapOriginZ(void) { return 0; }
+uint32_t WorldCurrentSurfaceId(void) { return 0u; }
+
 bool WorldProceduralWaterSurfaceAt(int x, int z, float *outSurfaceY)
 {
     (void)x;
