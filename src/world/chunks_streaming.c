@@ -865,6 +865,9 @@ Chunk *AllocateChunkSlot(int nearCx, int nearCz)
     int bestPreloadDistance = -1;
     for (int i = 0; i < MAX_ACTIVE_CHUNKS; i++) {
         if (!chunks[i].loaded && !chunks[i].generating) return &chunks[i];
+        /* A live cube column belongs to cube coverage; this map-square walker
+         * must never evict one, or it would clear cubeGrid and steal the slot. */
+        if (chunks[i].cubeGrid) continue;
 
         int distance = ChunkGridDistanceFrom(&chunks[i], nearCx, nearCz);
         if (!chunks[i].generating && chunks[i].preloaded &&
