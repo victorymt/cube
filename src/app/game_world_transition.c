@@ -239,12 +239,12 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
                                 &landingX, &landingZ, &groundY)) {
         groundY = WorldSurfaceHeightAt(landingX, landingZ);
     }
-    TraceLog(LOG_WARNING, "landing: cube=%d radius=%d -> (%d,%d) y=%d",
-             (int)cubeWorld, searchRadius, landingX, landingZ, groundY);
     if (staged) CubeSwitchAdvance(&cubeSwitch); /* RESET */
+    /* Spawn just above the sampled ground. A large drop wastes the settle time
+     * and, on a cube surface, leaves the player falling while coverage fills. */
     player->position = (Vector3){
         (float)landingX + 0.5f,
-        (float)groundY + 3.0f,
+        (float)groundY + (cubeWorld ? 1.0f : 3.0f),
         (float)landingZ + 0.5f
     };
     player->velocity = Vector3Zero();

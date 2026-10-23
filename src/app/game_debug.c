@@ -1450,7 +1450,8 @@ static bool GameDebugDslResolveHydrology(GameRuntime *game, const char *name,
 static bool GameDebugDslResolveLod(GameRuntime *game, const char *name,
                                    DebugDslValue *outValue)
 {
-    if (strncmp(name, "stream.lod_", 11u) != 0) return false;
+    if (strncmp(name, "stream.lod_", 11u) != 0 &&
+        strncmp(name, "stream.cube.", 12u) != 0) return false;
     const ChunkDiagnostics *diagnostics =
         GameDebugChunkDiagnostics(game, true);
     return GameDebugLodDslResolveSnapshot(diagnostics, name, outValue);

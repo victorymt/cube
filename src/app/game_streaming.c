@@ -62,7 +62,9 @@ int GameUpdateWorldStreaming(GameRuntime *game, bool *localWorldActive)
             (void)ChunksUpdateCubeCoverage(game->cubeContext, cubeFocus,
                 (double)effectiveRenderDistance * CHUNK_SIZE, 8u, &status);
         }
-        return 0;
+        /* Report the real render distance: returning 0 made every caller that
+         * reads it before the next overwrite see no world at all. */
+        return effectiveRenderDistance;
     }
     if (*localWorldActive) {
         ChunkStreamingRequest request = {
