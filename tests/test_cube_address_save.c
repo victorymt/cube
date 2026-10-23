@@ -54,6 +54,9 @@ static void TestRoundTrip(void)
     assert(CubeAddressSavePeekVersion(file, &version));
     assert(version == CUBE_ADDRESS_SAVE_VERSION);
 
+    /* PeekVersion consumes the header, so the stream must be rewound before a
+     * full read starts at the magic. */
+    rewind(file);
     CubeAddressBlock loaded;
     assert(CubeAddressSaveRead(file, &loaded));
     assert(loaded.count == 5);

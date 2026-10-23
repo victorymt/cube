@@ -103,6 +103,23 @@ bool CubeAddressSaveRead(FILE *file, CubeAddressBlock *outBlock)
         !ReadU32(file, &count) || count > CUBE_ADDRESS_SAVE_MAX_RECORDS)
         return false;
     if (count == 0) return true;
+    /* A header may declare far more records than the file holds. Check the
+     * remaining length before allocating so a 16-byte file cannot trigger a
+     * multi-megabyte allocation. A non-seekable stream skips this check and
+     * relies on the per-record read failing later. */
+    long payload = ftell(file);
+    if (payload >= 0 && fseek(file, 0, SEEK_END) == 0) {
+        long end = ftell(file);
+        if (end >= 0 && fseek(file, payload, SEEK_SET) == 0) {
+            long remaining = end - payload;
+            /* 20 bytes is the smallest record (cartesian); a surface record is
+             * 28. Using the minimum keeps this a conservative lower bound so a
+             * legitimate file with cartesian records is never rejected. */
+            if (remaining < 0 ||
+                (unsigned long)remaining < (unsigned long)count * 20ul)
+                return false;
+        }
+    }
     WorldBlockAddress *addresses = calloc(count, sizeof(*addresses));
     BlockType *types = calloc(count, sizeof(*types));
     if (!addresses || !types) {
