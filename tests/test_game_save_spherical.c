@@ -1,11 +1,22 @@
 #include "app/game_save.h"
 #include "world/surface_topology_version.h"
+#include "world/surface_cube.h"
+#include "world/cube_address_save.h"
+#include "world/chunks.h"
 
-/* Focused stub. The production accessor returns the policy installed from the
- * save header; this test exercises only the default legacy policy, which is
- * exactly what an accepted V29 file carries today. */
+/* The production accessor returns the policy installed from the save header.
+ * This fixture can switch to a cube policy so the cube section is actually
+ * exercised; a permanently-legacy stub hid a write/read ordering bug. */
+static bool testCubePolicy = false;
+
 WorldSurfaceTopologyPolicy WorldCurrentTopologyPolicy(void)
 {
+    if (testCubePolicy) {
+        return (WorldSurfaceTopologyPolicy){
+            { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
+            { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION }
+        };
+    }
     return (WorldSurfaceTopologyPolicy)WORLD_SURFACE_TOPOLOGY_DEFAULT;
 }
 
@@ -479,6 +490,35 @@ static void TestCubeSectionAbsentUnderLegacyPolicy(void)
     fclose(file);
 }
 
+/* The writer emits edits -> cube -> inventory, so the cube section opens with
+ * its own magic immediately at the current stream position. This pins the
+ * position without needing the chunk runtime: if the writer order changed, the
+ * magic would no longer be the first thing after the edit payload. */
+static void TestCubeSectionStartsWithItsMagic(void)
+{
+    testCubePolicy = true;
+    assert(GameSaveTestPolicyUsesCubeGrid());
+
+    FILE *file = tmpfile();
+    assert(file);
+    assert(GameSaveTestWriteCubeEdits(file));
+    long written = ftell(file);
+    assert(written > 0);
+
+    rewind(file);
+    char magic[8] = { 0 };
+    assert(fread(magic, 1, sizeof(magic), file) == sizeof(magic));
+    assert(memcmp(magic, "CUBADDR1", sizeof(magic)) == 0);
+
+    /* Peeking the version must accept the same stream. */
+    rewind(file);
+    uint32_t version = 0;
+    assert(CubeAddressSavePeekVersion(file, &version));
+    assert(version == 1u);
+    fclose(file);
+    testCubePolicy = false;
+}
+
 int main(void)
 {
     TestRemainderPayloadRouting();
@@ -491,6 +531,7 @@ int main(void)
     TestRadiationRuntimePayloadRouting();
     TestHydrologyRuntimePayloadRouting();
     TestCubeSectionAbsentUnderLegacyPolicy();
+    TestCubeSectionStartsWithItsMagic();
     HydrologyRuntimeGlobalFree();
     puts("game spherical save tests passed");
     return 0;

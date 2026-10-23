@@ -366,6 +366,12 @@ static bool GameLoadCurrentCorePayload(FILE *file, LoadedGameSave *data)
         !GameLoadBlockEditPayload(file, data)) {
         return false;
     }
+    /* Writer order is edits -> cube -> inventory, so the cube section must be
+     * consumed here, before inventory, or every field after it is misread. */
+    if (GameSavePolicyUsesCubeGrid() && !CubeAddressSaveReadEdits(file, NULL)) {
+        LoadedGameSaveRelease(data);
+        return false;
+    }
     if (!InventoryLoad(file) || !ShipLoadState(file) ||
         !PlanetWorldLoadState(file) || !HomeWorldLoadState(file)) {
         LoadedGameSaveRelease(data);
@@ -596,15 +602,6 @@ static const char *GameLoadCurrentExtendedPayload(
     if (ashError) return ashError;
     const char *fractionError = GameLoadInventoryRemainders(file, format);
     if (fractionError) return fractionError;
-    /* Cube edits precede the spherical trailer, matching the write order.
-     * The gate reads the policy installed from THIS file's header, so read and
-     * write stay symmetric. Today every accepted save is legacy-map and this
-     * branch is skipped: a cube-grid header is rejected by
-     * WorldInstallTopologyPolicy before any payload is parsed. The branch is
-     * kept so enabling cube-grid needs no further save-order change. */
-    if (GameSavePolicyUsesCubeGrid() && !CubeAddressSaveReadEdits(file, NULL)) {
-        return "Load failed: cube edit state is corrupted.";
-    }
     if (!GameLoadSphericalTrailer(file, data)) {
         return "Load failed: spherical save state is corrupted.";
     }
