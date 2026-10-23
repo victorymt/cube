@@ -133,9 +133,33 @@ static void TestEmptyBlock(void)
     fclose(file);
 }
 
+/* Colour blocks sit above BLOCK_BUILTIN_END. The codec must accept exactly
+ * what the store accepts, otherwise a save it wrote cannot be read back. */
+static void TestColourBlockRoundTrip(void)
+{
+    WorldBlockAddress address = { .dimension = WORLD_DIMENSION_HOME };
+    address.at.surface = (SurfaceAddress){ 0, SURFACE_FACE_POS_X, 10, 20, 5 };
+    BlockType colour = (BlockType)BLOCK_COLOR_START;
+    CubeAddressBlock block = { .count = 1u, .addresses = &address,
+                               .types = &colour };
+
+    FILE *file = tmpfile();
+    assert(file);
+    assert(CubeAddressSaveWrite(file, &block));
+    rewind(file);
+
+    CubeAddressBlock read = { 0 };
+    assert(CubeAddressSaveRead(file, &read));
+    assert(read.count == 1u);
+    assert(read.types[0] == colour);
+    CubeAddressBlockRelease(&read);
+    fclose(file);
+}
+
 int main(void)
 {
     TestRoundTrip();
+    TestColourBlockRoundTrip();
     TestWrongMagicRejected();
     TestWrongVersionRejected();
     TestTruncatedRejected();

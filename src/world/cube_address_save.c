@@ -137,7 +137,10 @@ bool CubeAddressSaveRead(FILE *file, CubeAddressBlock *outBlock)
         }
         /* Bounds-check the enum here; full block validity belongs to the
          * world layer, which this codec deliberately does not import. */
-        if (!ReadU32(file, &type) || type > (uint32_t)BLOCK_BUILTIN_END ||
+        /* Accept exactly what the world layer stores. Colour blocks live above
+         * BLOCK_BUILTIN_END, so a narrower check here would reject saves that
+         * the game itself wrote. */
+        if (!ReadU32(file, &type) || type > (uint32_t)BLOCK_COLOR_END ||
             !WorldBlockAddressIsValid(address)) goto fail;
         addresses[i] = address;
         types[i] = (BlockType)type;
