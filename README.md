@@ -227,6 +227,36 @@ objects under `build/<variant>/plugins/`.
 `--plugin-dir` is optional; repeated, empty, or overlong values fail fast.
 Without it, the game starts exactly as a plugin-free build.
 
+### Wayland sessions
+
+```sh
+make wayland
+```
+
+The distro raylib is usually built for X11 only, so on a Wayland-only session
+(Hyprland without a reachable X11 display) the normal build exits with
+`X11: Failed to open display` and no graphical route — screenshots included —
+can run. `make wayland` fetches raylib, rebuilds it with the GLFW Wayland
+backend, and links that copy into a separate variant:
+
+- raylib itself lands in `build/wayland-raylib/`, the game in
+  `build/wayland/voxelcraft`.
+- Objects, module archives and the build-config stamp live under the variant
+  directory, so switching backends never reuses a stale link result, and the
+  normal `build/normal/` output is left untouched.
+- The first run downloads the raylib tarball. To build offline, drop it at
+  `build/wayland-raylib/raylib-$(WAYLAND_RAYLIB_VERSION).tar.gz`.
+- Missing Wayland development packages are reported by name before compilation
+  instead of surfacing later as linker errors. Override the version with
+  `make wayland WAYLAND_RAYLIB_VERSION=6.2`.
+- `make clean` removes the whole `build/` tree, so a later `make wayland` will
+  download raylib again.
+
+The two backends differ slightly in their APIs (for example the circle-gradient
+helper and the skinning fields). Those differences are bridged in
+`src/presentation/raylib_compat.h` and `src/core/render_resources.c`, so the
+same sources build against either version.
+
 ## Test
 
 ```sh

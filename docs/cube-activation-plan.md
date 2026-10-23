@@ -312,7 +312,7 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 | 2026-10-22 | **关键缺口**：cube 不可达 | 复查发现 `WorldSetCubeRuntimeEnabled`、`ChunksUpdateCubeCoverage`、`TerrainCubeContextCreate` 在生产代码中**全部零调用**——此前所有交付都是不可运行的库代码 |
 | 2026-10-22 | 打通立方体入口 | **完成**。新增 `surface debug cube`：开闸→装 cube 策略→重建表面→创建 `TerrainCubeContext`→每帧 `ChunksUpdateCubeCoverage`；失败回滚闸门与策略；世界切换时释放 context |
 | 2026-10-22 | 图形环境复核 | 当时实测 `WAYLAND_DISPLAY=wayland-1` 存在，但二进制只链 X11（无 `wl_display` 符号），`X11: Failed to open display :0`，据此结论"本机无法跑图形 E2E" |
-| 2026-10-23 | **更正**：图形能力 | 上述结论是**构建选择问题，不是环境限制**。用 `.build-wayland.sh` 链接 `.raylib-wayland` 的 raylib 后可正常出窗口与截图，已用它完成本轮全部 cube 截图。默认 `make` 仍只链 X11，所以图形路线必须显式走该脚本 |
+| 2026-10-23 | **更正**：图形能力 | 上述结论是**构建选择问题，不是环境限制**。用 Wayland 后端的 raylib 重建后可正常出窗口与截图，本轮 cube 截图均由此产出。该做法已固化为 `make wayland`（见 README「Wayland sessions」），不再依赖仓库根的临时脚本。默认 `make` 仍只链 X11，所以图形路线必须显式走该目标 |
 | 2026-10-22 | W3 地形高度 | **完成**。`WorldSurfaceHeightAt` 在 cube 拓扑下改走 `TerrainCubeSampleColumn`；采样上下文按世界 generation 缓存、卸载时释放；路由经变异测试确认 |
 | 2026-10-23 | **修复**：cube 就绪判定 | `SurfaceBlockReadyAt` 仍走 legacy `FindChunk`，在 cube 世界**恒返回 false**，切换状态机的 `PlayerMissingSurfaceChunkCount()==0` 永不满足。已加 cube 分支查 `ChunksCubeColumnIsLoaded`；变异测试确认覆盖 |
 | 2026-10-23 | W4 饱和实测 | 面中心半径 208 请求 376 不饱和；**角点同半径请求 1560 则饱和**；生产渲染距离 192 下角点仍饱和（1341 vs 625）。降级按距离排序保留最近区块，顺序经实测确认 |

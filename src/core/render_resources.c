@@ -3,6 +3,25 @@
 #include <limits.h>
 #include <stddef.h>
 
+/* raylib 6.x splits skinning data: Mesh.boneIds became Mesh.boneIndices and
+ * Mesh.boneMatrices moved to Model.boneMatrices. The build is not pinned to one
+ * raylib, so name the fields through compat aliases instead of hard-coding
+ * either layout. RenderMeshEstimatedBytes only sees a Mesh, so the 6.x bone
+ * matrices are accounted for by the caller, which has the Model. */
+#if defined(RAYLIB_VERSION_MAJOR) && RAYLIB_VERSION_MAJOR >= 6
+#define VOXELCRAFT_MESH_BONE_IDS(mesh) ((mesh)->boneIndices)
+#define VOXELCRAFT_MESH_BONE_MATRICES(mesh) ((const Matrix *)NULL)
+#define VOXELCRAFT_MODEL_BONE_MATRICES(model) ((model)->boneMatrices)
+#define VOXELCRAFT_MODEL_BONE_COUNT(model) ((model)->skeleton.boneCount)
+#define VOXELCRAFT_MESH_HAS_BONE_MATRICES 0
+#else
+#define VOXELCRAFT_MESH_BONE_IDS(mesh) ((mesh)->boneIds)
+#define VOXELCRAFT_MESH_BONE_MATRICES(mesh) ((mesh)->boneMatrices)
+#define VOXELCRAFT_MODEL_BONE_MATRICES(model) ((const Matrix *)NULL)
+#define VOXELCRAFT_MODEL_BONE_COUNT(model) 0u
+#define VOXELCRAFT_MESH_HAS_BONE_MATRICES 1
+#endif
+
 static uint64_t SaturatingAdd(uint64_t left, uint64_t right)
 {
     return UINT64_MAX - left < right ? UINT64_MAX : left + right;
@@ -39,11 +58,12 @@ uint64_t RenderMeshEstimatedBytes(const Mesh *mesh)
     }
     AddBufferBytes(&bytes, mesh->animVertices, vertices * 3u, sizeof(float));
     AddBufferBytes(&bytes, mesh->animNormals, vertices * 3u, sizeof(float));
-    AddBufferBytes(&bytes, mesh->boneIds, vertices * 4u, sizeof(unsigned char));
+    AddBufferBytes(&bytes, VOXELCRAFT_MESH_BONE_IDS(mesh), vertices * 4u,
+                   sizeof(unsigned char));
     AddBufferBytes(&bytes, mesh->boneWeights, vertices * 4u, sizeof(float));
     if (mesh->boneCount > 0) {
-        AddBufferBytes(&bytes, mesh->boneMatrices, (uint64_t)mesh->boneCount,
-                       sizeof(Matrix));
+        AddBufferBytes(&bytes, VOXELCRAFT_MESH_BONE_MATRICES(mesh),
+                       (uint64_t)mesh->boneCount, sizeof(Matrix));
     }
     return bytes;
 }
@@ -71,6 +91,16 @@ void RenderResourceSnapshotAddModel(RenderResourceSnapshot *snapshot,
         snapshot->estimatedMeshBytes = SaturatingAdd(
             snapshot->estimatedMeshBytes, RenderMeshEstimatedBytes(mesh));
     }
+#if !VOXELCRAFT_MESH_HAS_BONE_MATRICES
+    /* raylib 6.x keeps the bone matrices on the Model, not on each Mesh, so
+     * account for them once here to keep the estimate comparable to 5.x. */
+    if (VOXELCRAFT_MODEL_BONE_COUNT(model) > 0) {
+        AddBufferBytes(&snapshot->estimatedMeshBytes,
+                       VOXELCRAFT_MODEL_BONE_MATRICES(model),
+                       (uint64_t)VOXELCRAFT_MODEL_BONE_COUNT(model),
+                       sizeof(Matrix));
+    }
+#endif
 }
 
 void RenderResourceSnapshotMerge(RenderResourceSnapshot *target,

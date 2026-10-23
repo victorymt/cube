@@ -5,6 +5,15 @@ CFLAGS ?= -std=c99 -Wall -Wextra -O2 -pthread
 PKG_CONFIG ?= pkg-config
 RAYLIB_CFLAGS := $(shell $(PKG_CONFIG) --cflags raylib)
 RAYLIB_LIBS := $(shell $(PKG_CONFIG) --libs raylib)
+# The system raylib is usually built for X11 only. On a Wayland-only session
+# the game cannot open a window with it, so `make wayland` rebuilds raylib with
+# the GLFW Wayland backend and links that instead. See mk/wayland.mk.
+# raylib tags are plain `5.5`, `6.0`, `6.2` — there is no `5.5.0` tag, so the
+# version must not be padded to three components.
+WAYLAND_RAYLIB_VERSION ?= 6.2
+# Recursive assignment: BUILD_ROOT is declared further down and this must not
+# capture an empty value at parse time.
+WAYLAND_RAYLIB_DIR = $(BUILD_ROOT)/wayland-raylib/raylib-$(WAYLAND_RAYLIB_VERSION)
 
 .DEFAULT_GOAL := all
 
@@ -15,7 +24,7 @@ BUILD_ROOT_MARKER := $(BUILD_ROOT)/.voxelcraft-build-root
 TEST_BUILD_DIR := $(BUILD_DIR)/tests
 TARGET := $(BUILD_DIR)/voxelcraft
 BUILD_CONFIG := $(BUILD_DIR)/.build-config
-BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk plugins/manifest.mk
+BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk mk/wayland.mk plugins/manifest.mk
 
 include mk/plugins.mk
 
@@ -27,6 +36,9 @@ OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(MODULE_SRC))
 DEP := $(OBJ:.o=.d)
 MODULE_BUILD_DIR := $(BUILD_DIR)/modules
 include mk/components.mk
+# Defines WAYLAND_RAYLIB_DIR-dependent targets and `make wayland`. Included
+# after BUILD_ROOT/BUILD_DIR so its recursive variables resolve correctly.
+include mk/wayland.mk
 PUBLIC_HEADERS := $(filter-out %_internal.h,$(sort $(wildcard src/*/*.h)))
 
 TEST_HEADERS := $(sort $(wildcard src/*/*.h) $(wildcard tests/*.h))

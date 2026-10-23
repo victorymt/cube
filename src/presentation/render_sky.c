@@ -1,5 +1,6 @@
 #include "presentation/render.h"
 #include "presentation/render_internal.h"
+#include "presentation/raylib_compat.h"
 #include "space/planet_atmosphere.h"
 
 #include "raymath.h"
@@ -405,9 +406,9 @@ void DrawPlanetAtmosphereSky(const Camera3D *camera, const PlanetLightState *lig
                              (1.0f - Clamp(direction.y * 2.5f, 0.0f, 1.0f));
         scatter = ColorLerp(scatter, (Color){ 255, 82, 34, 255 },
                             lowSunWarmth * 0.70f);
-        DrawCircleGradient((int)screen.x, (int)screen.y, radius,
+        VoxelcraftDrawCircleGradient((int)screen.x, (int)screen.y, radius,
                            Fade(scatter, scatterAlpha), BLANK);
-        DrawCircleGradient((int)screen.x, (int)screen.y, radius * 0.38f,
+        VoxelcraftDrawCircleGradient((int)screen.x, (int)screen.y, radius * 0.38f,
                            Fade(scatter, scatterAlpha * 0.72f), BLANK);
     }
 }
@@ -711,7 +712,7 @@ void DrawWarpTunnel(const Camera3D *camera, float intensity,
     float corePulse = 0.88f + 0.12f * sinf(time * 8.0f);
     float coreRadius = fminf((float)sw, (float)sh) *
                        (0.055f + intensity * 0.035f) * corePulse;
-    DrawCircleGradient((int)center.x, (int)center.y, coreRadius,
+    VoxelcraftDrawCircleGradient((int)center.x, (int)center.y, coreRadius,
                        supercruise
                            ? (Color){ 255, 235, 183,
                                       (unsigned char)(22.0f + intensity * 42.0f) }
@@ -791,7 +792,7 @@ void DrawWarpTunnel(const Camera3D *camera, float intensity,
         }
     }
 
-    DrawCircleGradient((int)center.x, (int)center.y,
+    VoxelcraftDrawCircleGradient((int)center.x, (int)center.y,
                        coreRadius * (0.32f + intensity * 0.12f),
                        supercruise
                            ? (Color){ 255, 249, 222,
@@ -1055,7 +1056,7 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight,
                                   atmosphere.opticalDepth * airMass * 0.025f,
                               0.0f, 0.34f);
       glowAlpha *= weatherVisibility;
-      DrawCircleGradient((int)sourceScreen.x, (int)sourceScreen.y, glowRadius,
+      VoxelcraftDrawCircleGradient((int)sourceScreen.x, (int)sourceScreen.y, glowRadius,
                          Fade(sourceColor, glowAlpha), BLANK);
       Color sourceCore = ColorLerp((Color){12, 16, 28, 255},
                                    ColorLerp(sourceColor, WHITE, 0.48f),
@@ -1091,7 +1092,7 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight,
                                ? observation->moonHaloStrength
                                : 0.0f;
       if (haloStrength > 0.005f) {
-        DrawCircleGradient((int)moonScreen.x, (int)moonScreen.y,
+        VoxelcraftDrawCircleGradient((int)moonScreen.x, (int)moonScreen.y,
                            moonRadius * (2.7f + atmosphere.opticalDepth),
                            Fade(moonLight, haloStrength), BLANK);
       }
@@ -1113,7 +1114,7 @@ void DrawCelestial(const Camera3D *camera, float currentDayTime, float daylight,
         Vector3 sunPos = Vector3Add(camera->position, Vector3Scale(sunDir, SUN_DISTANCE));
         Vector2 sunScreen = GetWorldToScreen(sunPos, *camera);
         float glowRadius = 28.0f + daylight * 24.0f;
-        DrawCircleGradient((int)sunScreen.x, (int)sunScreen.y, glowRadius,
+        VoxelcraftDrawCircleGradient((int)sunScreen.x, (int)sunScreen.y, glowRadius,
                            Fade(sunColor, 0.28f * weatherVisibility), BLANK);
         DrawCircle((int)sunScreen.x, (int)sunScreen.y, 15.0f,
                    Fade(ColorLerp(sunColor, WHITE, 0.48f), weatherVisibility));

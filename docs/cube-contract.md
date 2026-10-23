@@ -129,7 +129,7 @@ legacy map 网格每一圈纬度固定 **1024 个区块**，与纬度无关。�
 
 **G0 状态：关闭（2026-10-22）。** 当时记录的遗留项——新 DSL 断言的真实图形验证
 无法运行——其前提已被推翻：本环境的 raylib 只是默认构建链到了 GLX，
-用 `.build-wayland.sh` 重建后图形路线可以正常运行（见
+用 `make wayland` 重建后图形路线可以正常运行（见
 [激活计划执行记录](cube-activation-plan.md)）。该断言已在
 `tests/test_surface_topology_e2e.sh` 中，待下次跑该 e2e 时确认。
 
