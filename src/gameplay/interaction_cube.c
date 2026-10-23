@@ -35,10 +35,12 @@ HitResult InteractionCubeRaycast(Vector3 origin, Vector3 direction,
     SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
         (float)context.originX + origin.x, (float)context.originZ + origin.z);
     SurfacePose pose;
+    /* Local Y is a radial height, matching PlayerCubePoseFromLocal. Subtracting
+     * the sphere radius here put the ray thousands of blocks below the surface,
+     * so every cube pick missed. */
     if (!SurfacePoseFromGeographic(context.bodyId,
             (double)projection.longitude, (double)projection.latitude,
-            (double)origin.y - (double)SURFACE_RADIUS_BLOCKS, 0.0, 0.0,
-            &pose)) return result;
+            (double)origin.y, 0.0, 0.0, &pose)) return result;
 
     /* The direction is a local vector; rotate it into the surface frame. */
     SurfaceBasis basis;
@@ -67,7 +69,9 @@ HitResult InteractionCubeRaycast(Vector3 origin, Vector3 direction,
     result.hit = true;
     result.x = (int)floorf(map.x) - context.originX;
     result.z = (int)floorf(map.y) - context.originZ;
-    result.y = (int)floorf((float)SurfaceVectorLength(hit.cellCenter));
+    /* Report a radial height, not a distance from the planet centre. */
+    result.y = (int)floorf((float)SurfaceVectorLength(hit.cellCenter) -
+                           SURFACE_RADIUS_BLOCKS);
     /* Entry face as a local axis normal, matching the legacy convention. The
      * frame is orthonormal, so projecting the world normal onto each basis
      * axis gives its local components. */
