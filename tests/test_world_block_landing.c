@@ -100,14 +100,18 @@ static void TestInvalidArgumentsRejected(void)
 
 static void TestPolarLandingIsClear(void)
 {
-    /* Measured near the pole: a 1.8-tall body spans only cell 103, so the
-     * ground cell is 102. Cells are tiny here, which is exactly why the rule
-     * must be geometric rather than a fixed cell count. */
+    /* Measured near the pole: a 1.8-tall body occupies only cell 103. Meridians
+     * converge there, so a cell is a tiny fraction of a block and the flood
+     * cannot reach the neighbours a mid-latitude body spans. The ground rule
+     * must therefore be geometric rather than a fixed cell count, and it must
+     * hold for the cells that are actually reported. */
     FakeWorld world = {.groundRadial = 102, .knownBelow = 0, .solid = true};
     SurfacePose pose;
     assert(SurfacePoseFromGeographic(0, 0.0, 1.5690, 103.5, 0.0, 0.0, &pose));
-    /* Near a pole the cells are tiny, but the ground rule must still hold. */
     assert(WorldBlockLocationClear(&pose, half, BoxSolid, BoxKnown, &world));
+    /* And a solid cell inside the reported span must block it. */
+    world.groundRadial = 103;
+    assert(!WorldBlockLocationClear(&pose, half, BoxSolid, BoxKnown, &world));
 }
 
 /* Legacy map cells must resolve to distinct cube cells. This is what lets
