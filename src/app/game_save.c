@@ -120,8 +120,10 @@ static bool GameSavePolicyUsesCubeGrid(void)
 
 static bool GameSaveWriteCubeEdits(FILE *file)
 {
-    /* Never reached under the legacy policy, keep symmetric with the reader. */
-    if (!file || !GameSavePolicyUsesCubeGrid()) return true;
+    /* Only the legacy policy skips the section; a NULL stream is an error, not
+     * a silent success. */
+    if (!file) return false;
+    if (!GameSavePolicyUsesCubeGrid()) return true;
     /* The codec writes its own magic, version and count; the live store must
      * simply match what the codec reports. */
     return CubeAddressSaveWriteEdits(file);
