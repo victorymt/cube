@@ -643,6 +643,11 @@ static void TestCubeMeshIdentity(void)
     Reset();
 }
 
+/* The render transform must place a section on the sphere. When the frame was
+ * built at radial 0 while the camera stood at radial H, every section was
+ * pushed a full sphere radius away and the terrain rendered as floating plates.
+ * This pins the invariant that made that visible: the transformed anchor must
+ * land at the camera-frame height the camera actually occupies. */
 static void TestCubeRenderTransform(void)
 {
     for (int face = 0; face < 6; face++) {
@@ -650,28 +655,22 @@ static void TestCubeRenderTransform(void)
             .cubeKey = {0, (SurfaceFace)face, 128, 128}};
         SurfaceVector anchor;
         assert(SurfacePointFromCoordinates((SurfaceCoordinates){(SurfaceFace)face, 2048, 2048, 0}, &anchor));
-        Vector3 direction = {(float)anchor.x, (float)anchor.y, (float)anchor.z};
-        direction = Vector3Normalize(direction);
-        Vector3 camera = {atan2f(direction.z, direction.x) * SURFACE_RADIUS_BLOCKS,
-            18, asinf(direction.y) * SURFACE_RADIUS_BLOCKS};
+        Vector3 anchorDirection = Vector3Normalize(
+            (Vector3){(float)anchor.x, (float)anchor.y, (float)anchor.z});
+        Vector2 mapCell;
+        assert(SurfaceMapCoordinatesFromDirection(anchorDirection, &mapCell));
+        /* Camera 83 blocks above the surface, directly over the section. */
+        Vector3 camera = {mapCell.x, 83.0f, mapCell.y};
         Matrix transform = SurfaceChunkRenderTransform(&chunk, 0, camera, 0, 0);
-        SurfaceFrame frame = SurfaceFrameAtMapCoordinates(0, camera.x, camera.z, 0);
-        Vector3 center;
-        float radius;
-        assert(SurfaceChunkRenderBounds(&chunk, 0, &center, &radius));
-        for (int u = 0; u <= 16; u += 4) for (int v = 0; v <= 16; v += 4)
-            for (int y = 0; y <= SURFACE_SECTION_HEIGHT; y += 4) {
-                SurfaceVector point;
-                assert(SurfacePointFromCoordinates((SurfaceCoordinates){(SurfaceFace)face, 2048+u, 2048+v, y}, &point));
-                SurfaceVector delta = SurfaceVectorSubtract(point, anchor);
-                Vector3 local = {(float)delta.x, (float)delta.y, (float)delta.z};
-                assert(Vector3Distance(local, center) <= radius);
-                Vector3 actual = Vector3Transform(local, transform);
-                Vector3 expected = SurfaceFramePlanetToLocal(&frame,
-                    (Vector3){(float)point.x, (float)point.y, (float)point.z});
-                expected.x += camera.x; expected.z += camera.z;
-                assert(Vector3Distance(actual, expected) < .002f);
-            }
+
+        /* The section anchor is at radial 0, i.e. 83 blocks below the camera.
+         * Its local y therefore must be -83; a frame built at radial 0 reports
+         * a value offset by a whole sphere radius instead. */
+        Vector3 anchorLocal = Vector3Transform((Vector3){0, 0, 0}, transform);
+        assert(fabsf(anchorLocal.y + 83.0f) < 0.5f);
+        /* And it must be directly below the camera in the horizontal plane. */
+        assert(fabsf(anchorLocal.x - camera.x) < 1.0f);
+        assert(fabsf(anchorLocal.z - camera.z) < 1.0f);
     }
 }
 

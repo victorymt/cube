@@ -16,8 +16,12 @@ Matrix SurfaceChunkRenderTransform(const Chunk *chunk, int sectionY,
         if (!SurfacePointFromCoordinates((SurfaceCoordinates){chunk->cubeKey.face,
             chunk->cubeKey.u * CHUNK_SIZE, chunk->cubeKey.v * CHUNK_SIZE,
             radialBase}, &anchor)) return MatrixIdentity();
+        /* The frame must sit at the camera's own radius. Building it at radial 0
+         * put its origin at the planet centre, so every section was offset by a
+         * whole sphere radius and the terrain rendered as floating plates. */
         SurfaceFrame frame = SurfaceFrameAtMapCoordinates(chunk->cubeKey.bodyId,
-            mapOriginX + cameraPosition.x, mapOriginZ + cameraPosition.z, 0);
+            mapOriginX + cameraPosition.x, mapOriginZ + cameraPosition.z,
+            (int)lroundf(cameraPosition.y));
         Vector3 relative = {(float)(anchor.x - frame.origin.x),
             (float)(anchor.y - frame.origin.y), (float)(anchor.z - frame.origin.z)};
         return (Matrix){
