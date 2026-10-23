@@ -16,7 +16,6 @@
 #include "world/world_environment.h"
 
 #include "raylib.h"
-#include "presentation/raylib_compat.h"
 #include "raymath.h"
 
 #include <math.h>
@@ -387,7 +386,8 @@ void DrawLandingTransitionOverlay(const LandingTransition *transition)
             DrawRectangle(0, sh - 34, sw, 34, heatColor);
             DrawRectangle(0, 0, 34, sh, heatColor);
             DrawRectangle(sw - 34, 0, 34, sh, heatColor);
-            VoxelcraftDrawCircleGradient(sw / 2, sh / 2, 110.0f + heat * 90.0f,
+            DrawCircleGradient((Vector2){ (float)(sw / 2), (float)(sh / 2) },
+                               110.0f + heat * 90.0f,
                                (Color){ 255, 222, 176, (unsigned char)(35.0f + heat * 55.0f) },
                                (Color){ 255, 110, 32, 0 });
         }

@@ -247,15 +247,32 @@ backend, and links that copy into a separate variant:
 - The first run downloads the raylib tarball. To build offline, drop it at
   `build/wayland-raylib/raylib-$(WAYLAND_RAYLIB_VERSION).tar.gz`.
 - Missing Wayland development packages are reported by name before compilation
-  instead of surfacing later as linker errors. Override the version with
-  `make wayland WAYLAND_RAYLIB_VERSION=6.2`.
+  instead of surfacing later as linker errors.
 - `make clean` removes the whole `build/` tree, so a later `make wayland` will
   download raylib again.
 
-The two backends differ slightly in their APIs (for example the circle-gradient
-helper and the skinning fields). Those differences are bridged in
-`src/presentation/raylib_compat.h` and `src/core/render_resources.c`, so the
-same sources build against either version.
+### The raylib version is pinned
+
+`RAYLIB_VERSION_REQUIRED` in the `Makefile` is the single source of truth: the
+system package, `make wayland` and CI all use it, and `make` refuses to build
+against anything else.
+
+The check is a compile probe, not just a version string. A hand-built raylib
+under `/usr/local` shadows the package-manager one through gcc's default
+include path, and gcc silently ignores `-I/usr/include` because it is a system
+directory — so pkg-config can report the right version while the compiler reads
+different headers. The probe compiles against the headers the build will
+actually use and fails with both paths printed:
+
+```text
+raylib 6.0 is required, but the headers this build would use are not it.
+pkg-config reports 5.5.0 from /usr/local/lib/pkgconfig
+Headers actually resolved: "5.6-dev"
+```
+
+Fix that by removing the shadowing install (`/usr/local/include/raylib.h`,
+`/usr/local/include/rlgl.h`, `/usr/local/lib/libraylib.so*` and
+`/usr/local/lib/pkgconfig/raylib.pc`) so the package-manager copy wins.
 
 ## Test
 

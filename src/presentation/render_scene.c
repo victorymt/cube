@@ -2,7 +2,6 @@
 #include "presentation/render_dependencies.h"
 #include "presentation/render_internal.h"
 #include "presentation/surface_render_transform.h"
-#include "presentation/raylib_compat.h"
 
 #include "core/simulation_time.h"
 
@@ -590,7 +589,8 @@ void DrawSolarGuide(const Camera3D *camera, float spaceFade)
             Color color = SpectrumColor(bodies[i].spectrum);
             if (onScreen) {
                 float scale = Clamp(1400.0f / bodies[i].dist, 5.0f, 28.0f);
-                VoxelcraftDrawCircleGradient((int)px, (int)py, (int)(scale * 1.7f),
+                DrawCircleGradient((Vector2){ (float)(int)px, (float)(int)py },
+                                   (int)(scale * 1.7f),
                                    Fade(color, 0.30f * spaceFade), BLANK);
                 DrawCircle((int)px, (int)py, (int)scale,
                            Fade((Color){ 255, 244, 200, 255 }, spaceFade));
