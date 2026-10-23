@@ -277,10 +277,13 @@ Polar baseline: the first `test-polar-e2e` run timed out at 90 seconds while
 the full suite was running (`/tmp/voxelcraft-polar-e2e.ocPGrS`). After the suite
 finished, the independent rerun completed all 600 input frames in 15 seconds
 (180-second budget), with artifacts in `/tmp/voxelcraft-polar-e2e.6NHoI5`.
-Visual inspection of `screenshots/voxelcraft_20261014_101108_000.png` still shows
-the narrow vertical terrain strip. The protocol passes, but polar ground
-coverage remains visibly broken. This capture is a pre-activation baseline,
-not a successful visual acceptance result.
+Visual inspection at the time still showed the narrow vertical terrain strip.
+The protocol passes, but polar ground coverage remains visibly broken. This
+capture was a pre-activation baseline, not a successful visual acceptance
+result. (The original PNG lived in the untracked `screenshots/` directory and
+was discarded during a 2026-10-23 workspace cleanup; the finding above is kept
+because the defect it describes is still open and reproduced by
+`test-polar-e2e`.)
 
 Stage 2 below implements cube-addressed edits and runtime allocation. The
 remaining activation work includes player/geometry/fluid conversion and shared

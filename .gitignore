@@ -1,9 +1,46 @@
+# Build output. Everything here is reproducible from source; `make clean` drops
+# it, and build/raylib/ holds the vendored raylib fetched on first build.
 /build/
 /dist/
-/screenshots/
+
+# Debug-run artifacts: screenshots and reports are written relative to the
+# working directory, so runs must happen in a scratch directory, never the
+# repository root.
+#
+# Exception: a handful of captures are cited as acceptance evidence by docs/
+# and todo/. Those specific files ARE tracked, because evidence that exists
+# only on the author's disk cannot be checked by anyone else. New captures are
+# ignored by default; add a narrow !-rule when a document starts citing one.
+/screenshots/*
+!/screenshots/voxelcraft_20260819_011320_000.png
+!/screenshots/voxelcraft_20260819_011320_000.txt
+!/screenshots/voxelcraft_20260819_011348_000.png
+!/screenshots/voxelcraft_20260819_011348_000.txt
+!/screenshots/voxelcraft_20260819_073646_000.png
+!/screenshots/voxelcraft_20260819_073646_000.txt
+!/screenshots/voxelcraft_20260819_073654_000.png
+!/screenshots/voxelcraft_20260819_073654_000.txt
+!/screenshots/voxelcraft_20260819_073952_000.png
+!/screenshots/voxelcraft_20260819_073952_000.txt
+!/screenshots/voxelcraft_20260819_085223_000.png
+!/screenshots/voxelcraft_20260819_085223_000.txt
+!/screenshots/voxelcraft_20260819_094954_000.png
+!/screenshots/voxelcraft_20260819_094954_000.txt
 /debug-traces/
+/.cubetest/
+
+# Stray binaries from manual experiments at the repository root.
 /voxelcraft
 /rlgl_test
+
+# Session state written when the game runs from the repository root. These are
+# local player data and must never be committed.
+/voxelcraft_save.txt
+/voxelcraft_save.bak
+/voxelcraft_settings.cfg
+/voxelcraft_settings.cfg.bak
+
+# Test binaries are generated from tests/*.c and share the source prefix.
 /tests/benchmark_chunks
 /tests/test_*
 !/tests/test_*.c
@@ -11,13 +48,12 @@
 !/tests/test_*.py
 __pycache__/
 
-/voxelcraft_save.txt
-/voxelcraft_save.bak
-/voxelcraft_settings.cfg
-/voxelcraft_settings.cfg.bak
 *.o
 *.a
 
-# Local Wayland-enabled raylib build and ad-hoc graphical runs
-.raylib-wayland/
-.cubetest/
+# Local tooling configuration and scratch copies.
+/.claude/
+/.agents/
+/.codex/
+/.review-head/
+node_modules/
