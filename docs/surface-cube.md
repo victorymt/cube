@@ -10,10 +10,16 @@ Cube-grid now has continuous poses, explicit cell/chunk identity, an immutable
 v9 base generator, shared projected geometry and physical coverage enumeration.
 Runtime adapters now cover generation, in-memory edits, budgeted cube admission,
 mesh projection and render bounds.
-**The game runtime still uses the legacy map grid; cube-grid is not enabled
-and the polar visual defect is not yet fixed.** The current save format remains
-V29. The new primitives are exercised independently; their presence must not
-be mistaken for completion of the normal-game conversion.
+**The default runtime still uses the legacy map grid.** Since 2026-10-22 a cube
+world is reachable through `surface debug cube`, which opens a runtime gate,
+installs a cube policy and drives streaming from cube coverage; on that path the
+player lands, walks and picks blocks by cube identity, and cube edits round-trip
+through their own save section. It is a debug entry point, not a shipping mode:
+the polar defect is not yet fixed, terrain above the player still renders
+vertically stretched, and fluid is suspended on cube surfaces. The current save
+format remains V29.
+Primitives exercised in isolation must not be mistaken for completion of the
+normal-game conversion.
 
 ## Root cause and scope
 
@@ -81,11 +87,14 @@ NONE=0/version 0, LEGACY_MAP=1/version 1, CUBE_GRID=2/version 1. These are
 independent of the terrain generator version (currently 11) and the cube-key
 hash domain version. See the [activation contract](cube-contract.md) for the
 full version matrix.
-Known descriptors are distinguished from runtime support: cube-grid/1 is known
-but cannot be installed or loaded yet. Existing map/cube key hashes are unchanged.
+Known descriptors are distinguished from runtime support: cube-grid/1 is known,
+and is admitted only while the cube runtime gate is open. With the gate closed
+(the default) it cannot be installed or loaded. Existing map/cube key hashes are
+unchanged.
 
 Every `WorldSurfaceContext` carries its topology. The world policy contains
-Homeworld and planetary defaults; both are legacy-map/1 in this stage, and every
+Homeworld and planetary defaults; both are legacy-map/1 unless
+`surface debug cube` installs a cube policy, and every
 planet inherits the planetary policy. There are no per-body overrides. New-world
 reset restores these defaults. Snapshot installation rejects unknown, unsupported,
 or active/inactive-inconsistent descriptors without changing state or generation.
@@ -101,7 +110,8 @@ V28 and older require a new world. Loading never migrates or deletes these
 files. Format/topology preflight runs before transactional loading or live-state
 changes. Later failures restore the complete V29 checkpoint, including policy.
 F9/DSL callers reset clocks/input only on successful loads. Unknown topology
-versions and known-but-unimplemented cube-grid receive explicit rejection.
+versions and a cube-grid descriptor whose dedicated runtime gate is closed
+receive explicit rejection.
 
 The current legacy runtime still uses the legacy map grid with terrain
 generation version 11 (which includes the v7 drainage base, v8 river terraces
@@ -198,21 +208,32 @@ visual acceptance is claimed for these changes.
 
 ### Runtime consumers still to convert
 
+Progress as of 2026-10-23 is marked per item; unmarked text is the original
+2026-10-08 assessment.
+
 1. Connect runtime coverage to the cube column/section request API described
-   below. Cube edit storage and generation replay are implemented, but player
-   mutations, decorations, ecology and fluid consumers still require conversion;
-   the default runtime still submits legacy chunk coordinates.
+   below. Cube edit storage and generation replay are implemented, but
+   **partially done**: `ChunksUpdateCubeCoverage` now drives streaming on the
+   cube path and player edits write cube storage. Decorations, ecology and fluid
+   still require conversion, and fluid is suspended rather than converted.
 2. Move player/collision/raycast/fluid coordinates together. Face transitions
    must transport heading and velocity, not just positions. Round-trip edit
    lookup and save/reload must refer to the same cells at every face edge.
+   **Done for landing, walking, collision, raycast and edit storage**; fluid is
+   not converted, and a newly written cube save cannot be loaded by a fresh
+   process because the cube runtime gate starts closed.
 3. Use the same neighborhood/coverage policy for scheduling, eviction, LOD
    and drawing. Derive conservative bounds from curved mesh geometry. Keep
    `surface_ready`'s existing local readiness meaning and expose separate
    requested/ready coverage diagnostics instead of claiming visual readiness.
+   **Diagnostics are exposed** (`stream.cube.*`); LOD and drawing policy are
+   still not unified, and a vertical-stretch defect in the terrain mesh remains
+   open.
 4. Replay the existing temperate and dry polar scenes using geographic
    targets, then cross poles/face edges on foot, edit blocks, unload/reload,
    and save/reload. Pin the v9 output and enforce memory budgets. Complete V30
    serialization/rejection and documentation before enabling the defaults.
+   **Not started.**
 
 No Coriolis terrain bias is enabled by this repair.
 

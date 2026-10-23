@@ -127,9 +127,11 @@ legacy map 网格每一圈纬度固定 **1024 个区块**，与纬度无关。�
 - [x] DSL 诊断字段已定义并实现（W0.5，见下）
 - [x] 冲突文档已实际修改
 
-**G0 状态：关闭（2026-10-22）。** 唯一未完成的是新 DSL 断言的真实图形验证——
-本环境的 raylib 只链接 GLX、没有 Wayland 后端，`:0` 也不可达，图形路线无法运行。
-该断言已写入 `tests/test_surface_topology_e2e.sh`，需在可用 Hyprland 环境中补跑。
+**G0 状态：关闭（2026-10-22）。** 当时记录的遗留项——新 DSL 断言的真实图形验证
+无法运行——其前提已被推翻：本环境的 raylib 只是默认构建链到了 GLX，
+用 `.build-wayland.sh` 重建后图形路线可以正常运行（见
+[激活计划执行记录](cube-activation-plan.md)）。该断言已在
+`tests/test_surface_topology_e2e.sh` 中，待下次跑该 e2e 时确认。
 
 ## 7. W0.5：DSL 诊断字段定义
 

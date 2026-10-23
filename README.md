@@ -6,18 +6,21 @@ preserved in world saves. Chunks are rendered as cached visible-face meshes and
 rebuilt only when nearby terrain changes. Block textures are generated at
 startup as a small pixel-art atlas.
 
-## Current status (2026-10-08)
+## Current status (2026-10-23)
 
 The original expansion and simulation stages are implemented within their
-recorded scope. Current work is planetary landforms and polar ground coverage:
-river/lake generation is integrated, but polar visual acceptance remains blocked.
-Cube-grid now has continuous poses, v9 base generation, separate chunk keys,
-shared shape queries and physical coverage enumeration. Production streaming,
-gameplay and saves still use the legacy map grid and V29; cube-grid is not enabled.
-The activation target is both Homeworld and planets, with terrain v9 and V30
-saves requiring a new world. See the [current roadmap](todo/00-roadmap.md),
-[quality review](docs/landform-quality.md) and
-[remaining cube-grid integration](docs/surface-cube.md#remaining-integration-in-dependency-order).
+recorded scope. Current work is the cube-grid activation: the cube world is
+reachable at runtime through `surface debug cube`, the player lands and walks on
+it, block picking is cube-based, and cube edit storage round-trips through a
+save section. The default runtime is still the legacy map grid with V29 saves;
+cube-grid is reachable only through that debug entry point and is not a shipping
+mode. Two blockers remain open: terrain above the player still renders
+vertically stretched, and fluid is suspended on cube surfaces because the edit
+queue cannot carry cube chunk identity.
+The activation target is both Homeworld and planets, using cube base 9 plus the
+historical layer 11 and V30 saves requiring a new world. See the
+[current roadmap](todo/00-roadmap.md), [cube activation plan](docs/cube-activation-plan.md)
+and [cube-grid contract](docs/cube-contract.md).
 
 ## Features
 

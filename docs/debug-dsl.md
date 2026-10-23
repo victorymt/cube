@@ -448,8 +448,8 @@ Runtime values are sampled when an expression is evaluated:
 | `game.paused` | bool | Whether the pause menu is open |
 | `world.seed` | number | Current world seed |
 | `world.dimension` | string | Current dimension name |
-| `world.surface_topology` | string | `legacy-map` on supported surfaces; `none` outside surface dimensions. `cube-grid` is reserved and cannot be activated yet |
-| `world.surface_topology_version` | number | `1` for the current map grid; `0` for no active surface |
+| `world.surface_topology` | string | `legacy-map` by default; `cube-grid` after `surface debug cube`; `none` outside surface dimensions |
+| `world.surface_topology_version` | number | `1` for both `legacy-map` and `cube-grid`; `0` for no active surface |
 | `world.surface_body` | number | Canonical ID of the active solid body |
 | `world.longitude` | number | Canonical longitude in radians |
 | `world.latitude` | number | Canonical latitude in radians |
@@ -772,13 +772,16 @@ the playing screen. `save` and `load` require the playing screen.
 
 Only V29 world saves are supported. The `TOPOL001` header records separate
 Homeworld and planetary topology descriptors; both currently use legacy-map/1.
-V28 and older, missing/invalid topology metadata, and cube-grid descriptors are
-rejected before applying state. Failures report through `DEBUG_CONTROL load
+V28 and older, missing/invalid topology metadata are rejected before applying
+state. A cube-grid descriptor is rejected unless the cube runtime gate is open,
+which only `surface debug cube` does; a cube save is therefore not loadable in a
+fresh process yet. Failures report through `DEBUG_CONTROL load
 result=Load failed: ...`; this reply is not a successful load. Follow it with
 state assertions when testing rejection. Late payload errors restore the full
 V29 checkpoint. Neither failed path deletes the file or resets caller clocks/input.
 `make test-surface-topology-e2e` runs these checks in a temporary directory.
-The topology fields are read-only; there is no command to enable cube-grid.
+The topology fields are read-only, but `surface debug cube` installs a
+cube-grid policy as a side effect.
 
 `map`, `map layer liquids`, `view`, and `look` report their resulting state in
 their `DEBUG_CONTROL` reply; they do not currently expose dedicated typed

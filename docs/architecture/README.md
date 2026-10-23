@@ -40,8 +40,10 @@ dynamic lava ignition and cross-process persistence remain deferred. Ecological
 restoration remains deferred.
 
 Current terrain work is tracked in [surface-neutral landforms](../landform-planets.md),
-[landform quality](../landform-quality.md), and the [cube-grid foundation](../surface-cube.md).
-Polar visual coverage remains blocked; the foundation has not replaced the runtime grid.
+[landform quality](../landform-quality.md), and the [cube-grid activation plan](../cube-activation-plan.md).
+A cube world is reachable through `surface debug cube` and the player loop works,
+but the default runtime grid is still legacy and polar visual coverage remains
+blocked by the grid itself.
 
 ## Implementation, verification, and limits
 

@@ -311,10 +311,15 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 | 2026-10-22 | W1-3 流体：cube 下停用 | **完成**。`FluidUpdate` / `FluidStepTicks` / `FluidWakeCell` / `FluidApplyEditsToChunkSection` 在 cube 拓扑下直接返回，避免串桶写坏方块；测试钉住 cube 下 `activeCells==0 && ticks==0`，legacy 不受影响（变异可捕获）|
 | 2026-10-22 | **关键缺口**：cube 不可达 | 复查发现 `WorldSetCubeRuntimeEnabled`、`ChunksUpdateCubeCoverage`、`TerrainCubeContextCreate` 在生产代码中**全部零调用**——此前所有交付都是不可运行的库代码 |
 | 2026-10-22 | 打通立方体入口 | **完成**。新增 `surface debug cube`：开闸→装 cube 策略→重建表面→创建 `TerrainCubeContext`→每帧 `ChunksUpdateCubeCoverage`；失败回滚闸门与策略；世界切换时释放 context |
-| 2026-10-22 | 图形环境复核 | 实测 `WAYLAND_DISPLAY=wayland-1` 存在，但 raylib 只链 X11（二进制无 `wl_display` 符号），`X11: Failed to open display :0`。**结论不变：本机无法跑图形 E2E** |
+| 2026-10-22 | 图形环境复核 | 当时实测 `WAYLAND_DISPLAY=wayland-1` 存在，但二进制只链 X11（无 `wl_display` 符号），`X11: Failed to open display :0`，据此结论"本机无法跑图形 E2E" |
+| 2026-10-23 | **更正**：图形能力 | 上述结论是**构建选择问题，不是环境限制**。用 `.build-wayland.sh` 链接 `.raylib-wayland` 的 raylib 后可正常出窗口与截图，已用它完成本轮全部 cube 截图。默认 `make` 仍只链 X11，所以图形路线必须显式走该脚本 |
 | 2026-10-22 | W3 地形高度 | **完成**。`WorldSurfaceHeightAt` 在 cube 拓扑下改走 `TerrainCubeSampleColumn`；采样上下文按世界 generation 缓存、卸载时释放；路由经变异测试确认 |
 | 2026-10-23 | **修复**：cube 就绪判定 | `SurfaceBlockReadyAt` 仍走 legacy `FindChunk`，在 cube 世界**恒返回 false**，切换状态机的 `PlayerMissingSurfaceChunkCount()==0` 永不满足。已加 cube 分支查 `ChunksCubeColumnIsLoaded`；变异测试确认覆盖 |
 | 2026-10-23 | W4 饱和实测 | 面中心半径 208 请求 376 不饱和；**角点同半径请求 1560 则饱和**；生产渲染距离 192 下角点仍饱和（1341 vs 625）。降级按距离排序保留最近区块，顺序经实测确认 |
+| 2026-10-23 | **修复**：网格坐标系不匹配 | cube 网格顶点按笛卡尔偏移存储，渲染却按锚点切平面基解释，导致纯径向 10 块的偏移被压成 y=1.16。改为投影到锚点切平面基，A/B 对比确认条纹形态改变 |
+| 2026-10-23 | **修复**：渲染帧原点 | `SurfaceChunkRenderTransform` 在 radial 0 构建帧，导致每个 section 整体偏移一个球半径、地形呈"漂浮板块"。改为按相机半径构建帧 |
+| 2026-10-23 | 玩家闭环实测 | 用 `input 0 0 0 0 240` 真实推进帧后：`player.on_ground=true`，稳定在 `y=83.13`，`input_frames` 归零。落地与行走成立 |
+| 2026-10-23 | **未解决**：画面纵向拉伸 | 上述两处几何修复后，画面上方**仍**是被拉成长条的绿色地形面。已排除：地形数据、顶点 Y、section 径向定位、flora。第四环节未定位 |
 | 待续 | W1-3 流体：真正改造 | 队列需承载 `SurfaceCubeChunkKey` |
 | 2026-10-22 | W3 其余 | 生态、CGA、地形高度查询尚未切换 |
 | 待续 | W2 其余 | V30 版本号与界面文案尚未切换 |
@@ -345,16 +350,23 @@ G1 和 G2 是**不可跳过的硬门槛**，也是估算校准点：跨过 G2 �
 
 这解释了为什么 W1 是整条计划里最重的一步，也说明原计划把它排在 W2 之前是对的。
 
-### 为什么 W1 仍未动手
+### W1 进度（更新于 2026-10-23）
 
-上一轮撤回的 `SurfacePose` 互转尝试，本质是在假设“两种网格可以转换”。现在测量证明这个假设不成立，因此该方向被放弃，W1 需要按“生成器切换 + 消费者同时切换”重新设计，而不是坐标适配。
+上一轮撤回的 `SurfacePose` 互转尝试，本质是在假设“两种网格可以转换”。测量证明该假设不成立，因此方向改为“生成器切换 + 消费者同时切换”，而不是坐标适配。
 
-本轮补齐了它的前置条件（测试支架带表面上下文），但 W1 主体需要独立的完整设计，不能在一轮内仓促拼接。
+**该判断之后 W1 已经落地**（2026-10-22 至 10-23）：`surface debug cube` 打通入口，玩家在 cube 表面落地、行走，选块走 cube 射线，编辑走 cube 存储并接入存档段，渲染变换与网格坐标系修了两处根因。当前 W1 只剩两项未收口：
+
+| 未收口项 | 状态 |
+|---|---|
+| 画面上方纵向拉伸（唯一剩余视觉问题） | 未定位第四环节 |
+| 流体在 cube 下暂停 | 队列需先承载 `SurfaceCubeChunkKey` |
+
+G1 因此**尚未关闭**。
 
 ## 8. 下一步建议
 
-**顺序建议：W0（已完成）→ W1 → W2 → W3 → W4 → W5。**
+**顺序建议：W0（已完成）→ W1（进行中）→ W2 → W3 → W4 → W5。**
 
-W0 已完成。下一步直接进入 W1；极区缺陷不再有独立修复路径，它由 cube 迁移本身解决。
+W0 已完成。W1 主体已可运行，下一步先在两项未收口上做选择；极区缺陷不再有独立修复路径，它由 cube 迁移本身解决。
 
 G1 通过之前，不建议对外承诺完成日期或完成度数字。

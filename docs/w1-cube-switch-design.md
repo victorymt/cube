@@ -22,14 +22,17 @@
 
 cube 路径今天完全没有入口，三处硬拒绝：
 
-| 位置 | 行为 | 后果 |
+| 位置 | 当时的阻塞 | 现状 |
 |---|---|---|
-| `WorldSurfaceTopologyPolicyIsSupported` | 只接受双 legacy-map | cube 策略装不进去 |
-| `WorldInstallSurfaceSnapshot` | `SurfaceTopologyIsRuntimeSupported` 拒绝 cube-grid | cube 快照装不进去 |
-| `UpdateChunks` | 只枚举 map 正方形 | 从不调用 `ChunksUpdateCubeCoverage` |
-| `TerrainCubeContextCreate` | **生产代码零调用** | cube 生成器从未启动 |
+| `WorldSurfaceTopologyPolicyIsSupported` | 只接受双 legacy-map | 已解除：闸门开启时 `WorldInstallTopologyPolicy` 接受双 cube 策略 |
+| `WorldInstallSurfaceSnapshot` | `SurfaceTopologyIsRuntimeSupported` 拒绝 cube-grid | 已解除：闸门开启时接受已知 cube 描述符 |
+| `UpdateChunks` | 只枚举 map 正方形 | 已解除：`GameUpdateStreaming` 在 cube 拓扑下改调 `ChunksUpdateCubeCoverage` |
+| `TerrainCubeContextCreate` | **生产代码零调用** | 已解除：`game_streaming.c` 每世界创建并持有 |
 
-注意：这些拒绝本身是正确的保护，不是缺陷。它们保证 legacy 世界不会误入 cube 路径。切换要做的是**在受控条件下解除**，而不是删掉。
+注意：这些拒绝本身是正确的保护，不是缺陷。它们保证 legacy 世界不会误入 cube 路径。切换要做的是**在受控条件下解除**，而不是删掉——这一点已按设计执行，解除全部挂在 `WorldSetCubeRuntimeEnabled` 闸门之后，闸门默认关闭。
+
+**本文第 2 节的表格是设计时快照，不是当前状态**；当前状态见
+[激活计划执行记录](cube-activation-plan.md)。
 
 ## 3. 切换的原子性边界
 
