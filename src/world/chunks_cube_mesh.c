@@ -57,12 +57,25 @@ void CurveCubeMeshData(Mesh *mesh, SurfaceCubeChunkKey key, int sectionY)
     double radial = sectionY * SURFACE_SECTION_HEIGHT;
     if (!SurfacePointFromCoordinates((SurfaceCoordinates){key.face,
         key.u * CHUNK_SIZE, key.v * CHUNK_SIZE, radial}, &anchor)) return;
+    /* Frame at the anchor. Its axes are the ones the render transform uses. */
+    SurfaceFrame base = SurfaceFrameAt((SurfaceAddress){key.bodyId, key.face,
+        key.u * CHUNK_SIZE, key.v * CHUNK_SIZE, (int)radial});
+    SurfaceVector baseEast = {(double)base.east.x, (double)base.east.y, (double)base.east.z};
+    SurfaceVector baseUp = {(double)base.up.x, (double)base.up.y, (double)base.up.z};
+    SurfaceVector baseNorth = {(double)base.north.x, (double)base.north.y, (double)base.north.z};
     for (int i = 0; i < mesh->vertexCount; i++) {
         float *v = mesh->vertices + i * 3;
         SurfaceVector point;
         if (!SurfacePointFromCoordinates((SurfaceCoordinates){key.face, v[0], v[2], radial + v[1]}, &point)) continue;
-        SurfaceVector local = SurfaceVectorSubtract(point, anchor);
-        v[0] = (float)local.x; v[1] = (float)local.y; v[2] = (float)local.z;
+        /* The renderer treats a vertex as a vector in the anchor's tangent
+         * frame (x=east, y=up, z=north), so the Cartesian offset must be
+         * projected onto that frame. Storing the raw offset instead squashed a
+         * purely radial 10-block step to y=1.16, which stretched every vertical
+         * face into a streak. */
+        SurfaceVector offset = SurfaceVectorSubtract(point, anchor);
+        v[0] = (float)SurfaceVectorDot(offset, baseEast);
+        v[1] = (float)SurfaceVectorDot(offset, baseUp);
+        v[2] = (float)SurfaceVectorDot(offset, baseNorth);
     }
     // Projection shears side faces; transforming the old Cartesian normal
     // as a direction would give incorrect lighting. Use each actual triangle.

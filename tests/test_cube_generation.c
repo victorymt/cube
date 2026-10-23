@@ -690,9 +690,21 @@ static void TestCubeMeshProjection(void)
         assert(job->hasMesh && job->mesh.vertexCount == 36);
         SurfaceVector anchor;
         assert(SurfacePointFromCoordinates((SurfaceCoordinates){key.face, 0, 4080, 0}, &anchor));
+        /* Vertices are stored in the anchor's tangent frame, so a vertex must be
+         * lifted back through that frame to recover its point on the sphere.
+         * Assuming a plain Cartesian offset is what hid the vertical stretch. */
+        SurfaceFrame meshFrame = SurfaceFrameAt((SurfaceAddress){0, key.face,
+            0, 4080, 0});
         for (int i = 0; i < job->mesh.vertexCount; i++) {
             float *v = job->mesh.vertices + i*3;
-            SurfaceVector point = SurfaceVectorAdd(anchor, (SurfaceVector){v[0], v[1], v[2]});
+            SurfaceVector point = SurfaceVectorAdd(anchor, SurfaceVectorAdd(
+                SurfaceVectorScale((SurfaceVector){(double)meshFrame.east.x,
+                    (double)meshFrame.east.y, (double)meshFrame.east.z}, (double)v[0]),
+                SurfaceVectorAdd(
+                    SurfaceVectorScale((SurfaceVector){(double)meshFrame.up.x,
+                        (double)meshFrame.up.y, (double)meshFrame.up.z}, (double)v[1]),
+                    SurfaceVectorScale((SurfaceVector){(double)meshFrame.north.x,
+                        (double)meshFrame.north.y, (double)meshFrame.north.z}, (double)v[2]))));
             // Every rendered vertex belongs to the exact projected cell,
             // including the last row of each face. No map-coordinate warp.
             bool matched = false;
