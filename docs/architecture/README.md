@@ -27,6 +27,7 @@ new physical-simulation stages.
 | 17 | [animal behavior and poses](17-fauna-poses.md) | V5 entity pose persistence, contact-driven gait/strikes, articulated behavior rendering and deterministic DSL previews |
 | 18 | [volcano, lava and ash](18-volcano-preview.md) | G1/G2 lifecycle and lava, G3 water contact, P0 ash/material products, fractional collection; retained payloads in V29 |
 | 19 | [CGA voxel grammars](19-cga-voxel-grammar.md) | deterministic planning, four structure grammars, conflict resolution, cross-chunk IR evaluation, and CGA E2E coverage |
+| 20 | [architecture health review (2026-10-23)](20-health-review-2026-10-23.md) | measured dependency matrix, coupling hotspots and header-width metrics; four findings, none blocking, with a suggested order |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
