@@ -776,6 +776,9 @@ static GameDebugDispatchResult GameDebugDispatchMapCommand(
             SOLAR_STYLE_LAVA, SOLAR_STYLE_CRATER
         };
         SolarBodyStyle style = styles[game->debugControl.surfaceDebugStyle];
+        /* Leaving a cube world must drop its generation input; the legacy
+         * transition does not own it. */
+        GameReleaseCubeContext(game);
         HomeWorldMapClose();
         bool activated = GameWorldTransitionDebugSurface(
             &game->player, homeWorld, style,

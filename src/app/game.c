@@ -699,6 +699,7 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
             ShipUpdate(&game->player, dt);
         }
         if (GameWorldTransitionTryLaunch(&game->player)) {
+            GameReleaseCubeContext(game);
             game->wasInSpace = true;
         }
     } else if (!game->perfMode && !inputBlocked) {
@@ -708,6 +709,7 @@ static void GameUpdatePlayerMotion(GameRuntime *game, float dt,
             game->wasInSpace = false;
         } else {
             bool launchedHome = GameWorldTransitionTryLaunch(&game->player);
+            if (launchedHome || WorldIsSpaceActive()) GameReleaseCubeContext(game);
             bool inSpaceNow = WorldIsSpaceActive();
             if (inSpaceNow && !game->wasInSpace) {
                 if (!launchedHome) {

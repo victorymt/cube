@@ -230,10 +230,17 @@ bool GameWorldTransitionDebugSurface(Player *player, bool homeWorld,
     int landingX = 0;
     int landingZ = 0;
     int groundY = 0;
-    if (!FindSafeSurfaceLanding(landingX, landingZ, 128, 2,
+    /* A cube world's origin can sit in deep ocean, so the search must reach
+     * far enough to find a coast. */
+    bool cubeWorld = WorldCurrentSurfaceContext().topology.kind ==
+                     SURFACE_TOPOLOGY_CUBE_GRID;
+    int searchRadius = cubeWorld ? 512 : 128;
+    if (!FindSafeSurfaceLanding(landingX, landingZ, searchRadius, 2,
                                 &landingX, &landingZ, &groundY)) {
         groundY = WorldSurfaceHeightAt(landingX, landingZ);
     }
+    TraceLog(LOG_WARNING, "landing: cube=%d radius=%d -> (%d,%d) y=%d",
+             (int)cubeWorld, searchRadius, landingX, landingZ, groundY);
     if (staged) CubeSwitchAdvance(&cubeSwitch); /* RESET */
     player->position = (Vector3){
         (float)landingX + 0.5f,
