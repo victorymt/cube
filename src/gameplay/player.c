@@ -230,6 +230,7 @@ static bool PlayerOverlapsCubeWorld(Vector3 position)
     const Vector3 half = {
         PLAYER_RADIUS, PLAYER_HEIGHT * 0.5f, PLAYER_RADIUS
     };
+
     WorldBlockBoxQuery body;
     if (!WorldBlockBoxCollect(&centre, half, &body)) {
         /* An unenumerable body box means the cells could not be resolved. Keep
@@ -364,7 +365,11 @@ static bool PlayerCubeLocalFromPose(const SurfacePose *pose, Vector3 *outPositio
  * local right/forward/up axes, so it is applied as a great-circle move rather
  * than as a map-cell step. A map cell near a pole is a fraction of a block, so
  * stepping in cells would make movement latitude-dependent. */
-static bool PlayerCubeDisplace(Player *player, Vector3 delta)
+/* Applies one displacement component and reports whether it was accepted.
+ * Each axis is tried on its own so a blocked vertical move cannot veto the
+ * horizontal one: with the whole delta tested at once, the per-frame gravity
+ * term would push the endpoint into the floor and freeze walking entirely. */
+static bool PlayerCubeTryAxis(Player *player, Vector3 delta)
 {
     SurfacePose pose;
     if (!PlayerCubePoseFromLocal(player->position, &pose)) return false;
@@ -376,6 +381,48 @@ static bool PlayerCubeDisplace(Player *player, Vector3 delta)
     if (PlayerOverlapsWorld(candidate)) return false;
     player->position = candidate;
     return true;
+}
+
+static bool PlayerCubeDisplace(Player *player, Vector3 delta)
+{
+    /* Long steps are split so a fast fall cannot tunnel through a floor. The
+     * cube path has no per-axis stepper to fall back on, so the subdivision
+     * lives here. */
+    float span = fmaxf(fabsf(delta.x), fmaxf(fabsf(delta.y), fabsf(delta.z)));
+    unsigned steps = 1u;
+    if (span > PLAYER_COLLISION_STEP)
+        steps = (unsigned)ceilf(span / PLAYER_COLLISION_STEP);
+    if (steps > PLAYER_MAX_MOVE_SUBSTEPS) steps = PLAYER_MAX_MOVE_SUBSTEPS;
+    Vector3 step = Vector3Scale(delta, 1.0f / (float)steps);
+
+    bool moved = false;
+    for (unsigned i = 0; i < steps; i++) {
+        /* Vertical first: landing must be detected before the horizontal trial
+         * uses the new height, and it is also the axis that sets onGround. */
+        bool verticalOk = PlayerCubeTryAxis(player, (Vector3){0.0f, step.y, 0.0f});
+        if (!verticalOk) {
+            if (step.y <= 0.0f) {
+                player->onGround = true;
+                player->velocity.y = 0.0f;
+            } else {
+                player->velocity.y = 0.0f;
+            }
+        } else if (step.y > 0.0f) {
+            player->onGround = false;
+            moved = true;
+        }
+        if (!PlayerCubeTryAxis(player, (Vector3){step.x, 0.0f, 0.0f})) {
+            player->velocity.x = 0.0f;
+        } else if (step.x != 0.0f) {
+            moved = true;
+        }
+        if (!PlayerCubeTryAxis(player, (Vector3){0.0f, 0.0f, step.z})) {
+            player->velocity.z = 0.0f;
+        } else if (step.z != 0.0f) {
+            moved = true;
+        }
+    }
+    return moved;
 }
 
 static void MovePlayerStep(Player *player, Vector3 delta, bool canStepUp)
@@ -420,6 +467,9 @@ void MovePlayer(Player *player, Vector3 delta)
      * below assumes map cells have stable width, which a cube grid does not. */
     if (WorldIsSurfaceActive() &&
         WorldCurrentSurfaceContext().topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        /* Clear the flag first: PlayerCubeDisplace sets it only on a blocked
+         * downward move, so a player walking off a ledge correctly falls. */
+        if (delta.y < 0.0f) player->onGround = false;
         PlayerCubeDisplace(player, delta);
         return;
     }

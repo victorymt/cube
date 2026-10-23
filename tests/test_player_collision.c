@@ -524,6 +524,36 @@ static void TestCubeHeightSurvivesMovement(void)
     cubeSurface = false;
 }
 
+/* A grounded player must still be able to walk. Gravity contributes a small
+ * negative delta.y every frame; if the whole displacement is tested at once,
+ * that term pushes the endpoint into the floor and vetoes horizontal motion. */
+static void TestCubeGroundedPlayerWalks(void)
+{
+    cubeSurface = true;
+    cubeTerrainKnown = true;
+    /* Solid at or below radial 40, air above. */
+    cubeGroundRadial = 40;
+
+    Player player = {0};
+    /* Feet rest on top of the solid cell: solid covers radial <= 40, so the
+     * body starts at 41 and the first small fall reaches the contact height. */
+    player.position = (Vector3){0.5f, 41.0f, 0.5f};
+    player.onGround = false;
+
+    /* Fall until the ground stops the player; the blocked downward move is
+     * what marks it grounded. */
+    for (int i = 0; i < 40 && !player.onGround; i++)
+        MovePlayer(&player, (Vector3){0.0f, -0.05f, 0.0f});
+    assert(player.onGround);
+
+    /* Now walk. The horizontal component must survive the blocked gravity. */
+    float startZ = player.position.z;
+    for (int i = 0; i < 20; i++)
+        MovePlayer(&player, (Vector3){0.0f, -0.01f, 0.15f});
+    assert(fabsf(player.position.z - startZ) > 0.5f);
+    cubeSurface = false;
+}
+
 static void TestCubeMoveIsPhysical(void)
 {
     cubeSurface = true;
@@ -584,6 +614,7 @@ int main(void)
     TestRuntimeStateReset();
     TestWaterStateUsesActualColumnSurface();
     TestCubeOverlapBranch();
+    TestCubeGroundedPlayerWalks();
     TestCubeHeightSurvivesMovement();
     TestCubeMoveIsPhysical();
     TestSwimmingSpeedAndAscent();
