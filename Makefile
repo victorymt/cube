@@ -4,21 +4,14 @@ CPPFLAGS ?= -Isrc
 CFLAGS ?= -std=c99 -Wall -Wextra -O2 -pthread
 PKG_CONFIG ?= pkg-config
 
-# One raylib version, everywhere: the system package, the Wayland rebuild and
-# CI all use this value. Two different raylib majors in one tree produced real
-# drift (skinning layout, DrawCircleGradient signature, rlGetProcAddress), so
-# the version is pinned rather than detected and adapted to.
-RAYLIB_VERSION_REQUIRED := 6.0
-# raylib tags are plain `6.0`, `6.2` — never padded to three components.
-WAYLAND_RAYLIB_VERSION ?= $(RAYLIB_VERSION_REQUIRED)
+# raylib is vendored, not detected. The project builds its own pinned copy and
+# links that, so a raylib installed elsewhere on the machine -- a different
+# major version, a hand-built copy under /usr/local, or none at all -- cannot
+# change what the game compiles and links against. See mk/raylib.mk.
+RAYLIB_VERSION := 6.0
+# raylib's tags are plain `6.0`, `6.2`, never padded to three components.
 
-RAYLIB_CFLAGS := $(shell $(PKG_CONFIG) --cflags raylib)
-RAYLIB_LIBS := $(shell $(PKG_CONFIG) --libs raylib)
-RAYLIB_VERSION_FOUND := $(shell $(PKG_CONFIG) --modversion raylib 2>/dev/null)
-
-# Recursive assignment: BUILD_ROOT is declared further down and this must not
-# capture an empty value at parse time.
-WAYLAND_RAYLIB_DIR = $(BUILD_ROOT)/wayland-raylib/raylib-$(WAYLAND_RAYLIB_VERSION)
+.PHONY: raylib
 
 .DEFAULT_GOAL := all
 
@@ -29,9 +22,15 @@ BUILD_ROOT_MARKER := $(BUILD_ROOT)/.voxelcraft-build-root
 TEST_BUILD_DIR := $(BUILD_DIR)/tests
 TARGET := $(BUILD_DIR)/voxelcraft
 BUILD_CONFIG := $(BUILD_DIR)/.build-config
-BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk mk/wayland.mk plugins/manifest.mk
+BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk mk/raylib.mk plugins/manifest.mk
 
 include mk/plugins.mk
+
+# Defines RAYLIB_CFLAGS/RAYLIB_LIBS and the vendored raylib build. It must be
+# included before mk/tests.mk, which expands both variables into per-test link
+# lines at include time -- expanding them earlier would capture empty values and
+# leave tests linking no raylib at all.
+include mk/raylib.mk
 
 include mk/modules.mk
 include mk/tests.mk
@@ -41,9 +40,6 @@ OBJ := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(MODULE_SRC))
 DEP := $(OBJ:.o=.d)
 MODULE_BUILD_DIR := $(BUILD_DIR)/modules
 include mk/components.mk
-# Defines WAYLAND_RAYLIB_DIR-dependent targets and `make wayland`. Included
-# after BUILD_ROOT/BUILD_DIR so its recursive variables resolve correctly.
-include mk/wayland.mk
 PUBLIC_HEADERS := $(filter-out %_internal.h,$(sort $(wildcard src/*/*.h)))
 
 TEST_HEADERS := $(sort $(wildcard src/*/*.h) $(wildcard tests/*.h))
@@ -55,41 +51,14 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-architecture test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-long-run benchmark-chunks release-linux release-check clean raylib-version-check FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-architecture test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-long-run benchmark-chunks release-linux release-check clean FORCE
 
-# A second raylib under /usr/local (hand-built, owned by no package) silently
-# shadows the distro one and links a different major version into the game.
-# That produced builds that compiled here and failed elsewhere, so fail loudly
-# and name the culprit instead of adapting to whatever pkg-config returns.
-#
-# A version string alone is not enough: a hand-built raylib under /usr/local
-# shadows the package-manager one through gcc's default include path, and gcc
-# silently ignores `-I/usr/include` because it is a system directory, so
-# pkg-config can report the right version while the compiler reads different
-# headers. The probe therefore compiles against the headers the build will
-# actually use and checks the field layout the sources depend on.
-raylib-version-check:
-	@printf '%s\n' \
-		'#include "raylib.h"' \
-		'#if !defined(RAYLIB_VERSION_MAJOR) || RAYLIB_VERSION_MAJOR != 6' \
-		'#error RAYLIB_VERSION_MAJOR must be 6' \
-		'#endif' \
-		'/* The sources use the 6.x skinning layout. */' \
-		'int main(void) { Mesh m = { 0 }; Model d = { 0 };' \
-		'  (void)m.boneIndices; (void)d.boneMatrices;' \
-		'  (void)d.skeleton.boneCount; return 0; }' \
-		| $(CC) $(CPPFLAGS) $(CFLAGS) $(RAYLIB_CFLAGS) -Werror -x c -fsyntax-only - >/dev/null 2>&1 \
-		|| { \
-			printf 'raylib %s is required, but the headers this build would use are not it.\n' '$(RAYLIB_VERSION_REQUIRED)' >&2; \
-			printf 'pkg-config reports %s from %s\n' '$(RAYLIB_VERSION_FOUND)' "$$($(PKG_CONFIG) --variable=pcfiledir raylib 2>/dev/null || echo unknown)" >&2; \
-			printf 'Headers actually resolved: %s\n' "$$(printf '#include \"raylib.h\"\nRAYLIB_VERSION\n' | $(CC) $(RAYLIB_CFLAGS) -E - 2>/dev/null | tail -1)" >&2; \
-			printf 'If those disagree, a hand-built raylib under /usr/local is shadowing the package one; remove /usr/local/include/raylib.h and /usr/local/lib/libraylib.so* or install raylib %s there instead.\n' '$(RAYLIB_VERSION_REQUIRED)' >&2; \
-			exit 1; \
-		}
+# The vendored raylib is a prerequisite rather than a checked precondition: the
+# build either produces it or fails while producing it. There is no state in
+# which the game compiles against an unverified raylib.
+all: $(RAYLIB_LIB) $(TARGET)
 
-all: raylib-version-check $(TARGET)
-
-voxelcraft: raylib-version-check $(TARGET)
+voxelcraft: $(RAYLIB_LIB) $(TARGET)
 
 $(BUILD_ROOT_MARKER):
 	mkdir -p $(BUILD_ROOT)
@@ -125,14 +94,17 @@ $(BUILD_CONFIG): FORCE $(BUILD_CONFIG_INPUTS) | $(BUILD_DIR)
 $(TARGET): $(MODULE_ARCHIVES) $(BUILD_CONFIG) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ -Wl,--start-group $(MODULE_ARCHIVES) -Wl,--end-group $(RAYLIB_LIBS) -lm -pthread $(PLUGIN_HOST_LIBS) $(LDLIBS)
 
-$(OBJ_DIR)/%.o: src/%.c $(BUILD_CONFIG)
+# Object compilation needs raylib's headers, so the vendored library is an
+# order-only-ish prerequisite: without it the compiler would silently fall back
+# to a raylib header found elsewhere on the machine.
+$(OBJ_DIR)/%.o: src/%.c $(BUILD_CONFIG) $(RAYLIB_HEADER_STAMP)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(RAYLIB_CFLAGS) -MMD -MP -c -o $@ $<
 
 -include $(DEP)
 
 .SECONDEXPANSION:
-$(TEST_BUILD_DIR)/%: tests/%.c $$(TEST_SOURCES_$$*) $(TEST_HEADERS) $(BUILD_CONFIG) mk/tests.mk | $(TEST_BUILD_DIR)
+$(TEST_BUILD_DIR)/%: tests/%.c $$(TEST_SOURCES_$$*) $(TEST_HEADERS) $(BUILD_CONFIG) mk/tests.mk $(RAYLIB_HEADER_STAMP) | $(TEST_BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(TEST_CPPFLAGS_$*) $(CFLAGS) $(TEST_CFLAGS_$*) $(TEST_RAYLIB_CFLAGS_$*) $(LDFLAGS) $(TEST_LDFLAGS_$*) -o $@ $< $(TEST_SOURCES_$*) $(TEST_RAYLIB_LIBS_$*) $(TEST_LDLIBS_$*) $(LDLIBS)
 
 run: $(TARGET)

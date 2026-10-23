@@ -227,52 +227,39 @@ objects under `build/<variant>/plugins/`.
 `--plugin-dir` is optional; repeated, empty, or overlong values fail fast.
 Without it, the game starts exactly as a plugin-free build.
 
-### Wayland sessions
+### raylib is vendored
 
-```sh
-make wayland
-```
+The project builds its own raylib and links it statically. Nothing about the
+host decides which raylib the game uses:
 
-The distro raylib is usually built for X11 only, so on a Wayland-only session
-(Hyprland without a reachable X11 display) the normal build exits with
-`X11: Failed to open display` and no graphical route — screenshots included —
-can run. `make wayland` fetches raylib, rebuilds it with the GLFW Wayland
-backend, and links that copy into a separate variant:
+- The pinned version lives in one place, `RAYLIB_VERSION` in the `Makefile`.
+- The first build downloads that release, unpacks it under `build/raylib/`, and
+  compiles it with **both** the X11 and Wayland GLFW backends. One library, one
+  binary: GLFW picks the session type at startup, so X11 desktops and a
+  Wayland-only Hyprland use the same `build/normal/voxelcraft`.
+- A raylib installed elsewhere — a different major, a stale hand-built copy
+  under `/usr/local`, or none at all — is irrelevant. It is not consulted and
+  cannot be linked by accident.
 
-- raylib itself lands in `build/wayland-raylib/`, the game in
-  `build/wayland/voxelcraft`.
-- Objects, module archives and the build-config stamp live under the variant
-  directory, so switching backends never reuses a stale link result, and the
-  normal `build/normal/` output is left untouched.
-- The first run downloads the raylib tarball. To build offline, drop it at
-  `build/wayland-raylib/raylib-$(WAYLAND_RAYLIB_VERSION).tar.gz`.
-- Missing Wayland development packages are reported by name before compilation
-  instead of surfacing later as linker errors.
-- `make clean` removes the whole `build/` tree, so a later `make wayland` will
-  download raylib again.
+This replaced a chain of increasingly fragile alternatives: reading the system
+package through `pkg-config`, then a second "wayland" build variant, then a
+compile-time version probe. Each one still left a way for the build to
+disagree with itself, because the version genuinely in play was decided by the
+machine. Vendoring removes the question instead of answering it at runtime.
 
-### The raylib version is pinned
+Practical notes:
 
-`RAYLIB_VERSION_REQUIRED` in the `Makefile` is the single source of truth: the
-system package, `make wayland` and CI all use it, and `make` refuses to build
-against anything else.
-
-The check is a compile probe, not just a version string. A hand-built raylib
-under `/usr/local` shadows the package-manager one through gcc's default
-include path, and gcc silently ignores `-I/usr/include` because it is a system
-directory — so pkg-config can report the right version while the compiler reads
-different headers. The probe compiles against the headers the build will
-actually use and fails with both paths printed:
-
-```text
-raylib 6.0 is required, but the headers this build would use are not it.
-pkg-config reports 5.5.0 from /usr/local/lib/pkgconfig
-Headers actually resolved: "5.6-dev"
-```
-
-Fix that by removing the shadowing install (`/usr/local/include/raylib.h`,
-`/usr/local/include/rlgl.h`, `/usr/local/lib/libraylib.so*` and
-`/usr/local/lib/pkgconfig/raylib.pc`) so the package-manager copy wins.
+- To build offline, place the release tarball at
+  `build/raylib/raylib-$(RAYLIB_VERSION).tar.gz`; the download is skipped.
+- Building raylib needs the Wayland/X11/GL development packages. Missing ones
+  are named before compilation rather than surfacing as linker errors. On Arch:
+  `pacman -S wayland libxkbcommon libx11 mesa`. On Debian:
+  `apt install libwayland-dev libxkbcommon-dev libx11-dev libgl1-mesa-dev`.
+- `make clean` removes `build/` including the vendored raylib, so the next
+  build re-downloads and recompiles it (about 30 seconds).
+- Override the version only deliberately: `make RAYLIB_VERSION=6.2`. The
+  sources target the 6.x API, so this is a real choice, not a compatibility
+  switch.
 
 ## Test
 

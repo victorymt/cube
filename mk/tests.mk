@@ -6,6 +6,11 @@ TEST_BINARY_NAMES :=
 
 comma := ,
 GC_SECTIONS_LDFLAG := -Wl$(comma)--gc-sections
+# A test that stubs some raylib functions while still linking the library needs
+# the program's definitions to win, which is what a shared raylib gave it for
+# free. With a static archive both definitions are present, so ask the linker
+# the same question explicitly.
+ALLOW_DUP_LDFLAG := -Wl$(comma)--allow-multiple-definition
 
 define define_test
 $1 := $$(TEST_BUILD_DIR)/$2
@@ -182,7 +187,10 @@ $(eval $(call define_test,HOMEWORLD_MAP_MODEL_TEST_TARGET,test_homeworld_map_mod
 $(eval $(call define_test,MAP_MARKERS_TEST_TARGET,test_map_markers,src/gameplay/map_markers.c src/world/surface_topology.c,-DMAP_MARKERS_TESTING,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLAYER_COLLISION_TEST_TARGET,test_player_collision,src/gameplay/player.c src/world/world_location.c src/world/surface_pose.c src/world/surface_cube.c src/world/surface_topology.c $(GAME_EFFECTS_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,CHARACTER_STRUCTURE_PHYSICS_TEST_TARGET,test_character_structure_physics,src/gameplay/character_structure_physics.c,,,, -lm,,))
-$(eval $(call define_test,SHIP_STATE_TEST_TARGET,test_ship_state,src/gameplay/ship.c src/gameplay/ship_runtime.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c $(ATMOSPHERE_FEATURE_SRC),,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
+# This test replaces the raylib calls it makes (IsKeyDown, GetMouseDelta,
+# TextFormat) with its own stubs and supplies raymath inline, so it must not
+# link raylib: a static archive's definitions would collide with the stubs.
+$(eval $(call define_test,SHIP_STATE_TEST_TARGET,test_ship_state,src/gameplay/ship.c src/gameplay/ship_runtime.c src/gameplay/ship_navigation.c src/gameplay/ship_flight_controller.c src/gameplay/ship_locator.c $(ATMOSPHERE_FEATURE_SRC),,-DRAYMATH_STATIC_INLINE -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SHIP_FLIGHT_CONTROLLER_TEST_TARGET,test_ship_flight_controller,src/gameplay/ship_flight_controller.c,,,, -lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SHIP_EXHAUST_TEST_TARGET,test_ship_exhaust,src/gameplay/ship_exhaust.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,SHIP_LOCATOR_TEST_TARGET,test_ship_locator,src/gameplay/ship_locator.c,,,, -lm,$(RAYLIB_CFLAGS),))
@@ -272,7 +280,7 @@ $(eval $(call define_test,ENTITY_ECOLOGY_TEST_TARGET,test_entity_ecology,$(ENTIT
 
 $(eval $(call define_test,INTERACTION_RAYCAST_TEST_TARGET,test_interaction_raycast,src/gameplay/interaction.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLANET_RENDERER_RESOURCES_TEST_TARGET,test_planet_renderer_resources,src/presentation/planet_renderer.c,,-DPLANET_RENDERER_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
-$(eval $(call define_test,PLANET_TEXTURE_RESOURCES_TEST_TARGET,test_planet_texture_resources,src/core/simulation_time.c src/presentation/render_planets.c src/presentation/render_sky.c src/space/planet_material.c src/space/space_units.c,,-DRENDER_PLANETS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
+$(eval $(call define_test,PLANET_TEXTURE_RESOURCES_TEST_TARGET,test_planet_texture_resources,src/core/simulation_time.c src/presentation/render_planets.c src/presentation/render_sky.c src/space/planet_material.c src/space/space_units.c,,-DRENDER_PLANETS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG) $(ALLOW_DUP_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 
 $(eval $(call define_test,LANDFORM_TEST_TARGET,test_landform,src/world/landform_model.c src/world/landform_physics.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
 

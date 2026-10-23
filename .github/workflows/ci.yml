@@ -11,9 +11,6 @@ on:
 permissions:
   contents: read
 
-env:
-  RAYLIB_VERSION: "6.0"
-
 jobs:
   unit-tests:
     name: Unit tests (${{ matrix.compiler }})
@@ -33,8 +30,6 @@ jobs:
             libasound2-dev libx11-dev libxrandr-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
             libxinerama-dev libwayland-dev libxkbcommon-dev
-      - name: Install raylib
-        run: sh scripts/setup-raylib-ci.sh
       - name: Run tests
         run: |
           make CC=${{ matrix.compiler }} \
@@ -56,8 +51,6 @@ jobs:
             libasound2-dev libx11-dev libxrandr-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
             libxinerama-dev libwayland-dev libxkbcommon-dev
-      - name: Install raylib
-        run: sh scripts/setup-raylib-ci.sh
       - name: Run sanitizer tests
         run: make CC=gcc test-sanitize
 
@@ -73,8 +66,6 @@ jobs:
             libasound2-dev libx11-dev libxrandr-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
             libxinerama-dev libwayland-dev libxkbcommon-dev
-      - name: Install raylib
-        run: sh scripts/setup-raylib-ci.sh
       - name: Run chunk benchmark
         run: make -s benchmark-chunks
 
@@ -91,10 +82,6 @@ jobs:
             libasound2-dev libx11-dev libxrandr-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
             libxinerama-dev libwayland-dev libxkbcommon-dev
-      - name: Install raylib (Wayland backend)
-        run: sh scripts/setup-raylib-ci.sh
-        env:
-          RAYLIB_WAYLAND: "1"
       - name: Run graphics, debug, and polar E2E
         run: |
           make test-debug-graphics-e2e
@@ -114,8 +101,6 @@ jobs:
             libasound2-dev libx11-dev libxrandr-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
             libxinerama-dev libwayland-dev libxkbcommon-dev
-      - name: Install raylib
-        run: sh scripts/setup-raylib-ci.sh
       - name: Generate coverage
         run: make CC=gcc test-coverage
       - name: Upload coverage report
@@ -141,8 +126,6 @@ jobs:
             libasound2-dev libx11-dev libxrandr-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
             libxinerama-dev libwayland-dev libxkbcommon-dev
-      - name: Install raylib
-        run: sh scripts/setup-raylib-ci.sh
       - name: Run release gate
         run: make release-check
       - name: Upload release package

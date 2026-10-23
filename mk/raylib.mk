@@ -1,0 +1,92 @@
+# Build the one raylib this tree uses.
+#
+# raylib is vendored rather than taken from the system. Everything else was
+# tried and failed: pkg-config reported versions that did not match the headers
+# actually compiled, a hand-built copy under /usr/local silently shadowed the
+# package manager's, and gcc ignores -I/usr/include because it is a system
+# directory, so none of it could be corrected from the build. Vendoring makes
+# the answer to "which raylib" structural instead of a runtime check that can
+# only tell you it is wrong after the fact.
+#
+# One library serves both display backends. GLFW on Linux can be compiled with
+# X11 and Wayland support together and picks one at startup, so there is a
+# single build for X11 sessions and Hyprland alike -- no second variant to keep
+# in sync.
+
+RAYLIB_SRC_DIR := $(BUILD_ROOT)/raylib/raylib-$(RAYLIB_VERSION)
+RAYLIB_LIB := $(RAYLIB_SRC_DIR)/src/libraylib.a
+RAYLIB_TARBALL := $(BUILD_ROOT)/raylib/raylib-$(RAYLIB_VERSION).tar.gz
+# codeload is the host the github.com archive URL redirects to; going there
+# directly avoids a slow redirect hop that has timed out on this machine.
+RAYLIB_URL := https://codeload.github.com/raysan5/raylib/tar.gz/refs/tags/$(RAYLIB_VERSION)
+
+# Link-time dependencies of a raylib built with both backends. These are
+# ordinary distribution packages; the header/version problem above was the
+# reason for vendoring, not these.
+RAYLIB_SYSTEM_LIBS := \
+	$(shell $(PKG_CONFIG) --libs wayland-client wayland-cursor wayland-egl xkbcommon 2>/dev/null) \
+	$(shell $(PKG_CONFIG) --libs x11 2>/dev/null || echo -lX11) \
+	-lGL -lm -lpthread -ldl -lrt
+
+# A stamp that exists only once the raylib headers are on disk. Object rules
+# depend on it so that no translation unit can compile before the include path
+# it points at has anything in it.
+RAYLIB_HEADER_STAMP := $(RAYLIB_SRC_DIR)/.headers-ready
+
+RAYLIB_CFLAGS := -I$(RAYLIB_SRC_DIR)/src
+RAYLIB_LIBS := $(RAYLIB_LIB) $(RAYLIB_SYSTEM_LIBS)
+
+.PHONY: raylib raylib-check
+
+raylib: $(RAYLIB_LIB) raylib-check
+	@:
+
+# Report missing *system* packages by name. The vendored raylib itself needs no
+# version check: its path is fixed by RAYLIB_VERSION.
+raylib-check:
+	@set -eu; \
+	missing=''; \
+	for package in wayland-client wayland-cursor wayland-egl xkbcommon x11; do \
+		$(PKG_CONFIG) --exists "$$package" || missing="$$missing $$package"; \
+	done; \
+	command -v wayland-scanner >/dev/null 2>&1 || missing="$$missing wayland-scanner"; \
+	if test -n "$$missing"; then \
+		printf 'missing system packages needed to build raylib:%s\n' "$$missing" >&2; \
+		printf 'On Arch: pacman -S wayland libxkbcommon libx11 mesa\n' >&2; \
+		printf 'On Debian: apt install libwayland-dev libxkbcommon-dev libx11-dev libgl1-mesa-dev\n' >&2; \
+		exit 1; \
+	fi
+
+$(RAYLIB_TARBALL): | $(BUILD_ROOT_MARKER)
+	@mkdir -p $(dir $@)
+	@if test -f '$@'; then :; else \
+		printf 'raylib: fetching %s\n' '$(RAYLIB_VERSION)'; \
+		curl -fsSL --retry 3 --connect-timeout 30 -o '$@.tmp' '$(RAYLIB_URL)' || { \
+			rm -f '$@.tmp'; \
+			printf 'raylib: could not download %s\n' '$(RAYLIB_URL)' >&2; \
+			printf 'raylib: place the tarball at %s and re-run to build offline.\n' '$@' >&2; \
+			exit 1; \
+		}; \
+		mv -f '$@.tmp' '$@'; \
+	fi
+
+$(RAYLIB_LIB): $(RAYLIB_TARBALL)
+	@if test -f '$@'; then :; else \
+		if test -d '$(RAYLIB_SRC_DIR)'; then :; else \
+			printf 'raylib: unpacking into %s\n' '$(RAYLIB_SRC_DIR)'; \
+			mkdir -p $(dir $(RAYLIB_SRC_DIR)); \
+			tar -xzf '$<' -C $(dir $(RAYLIB_SRC_DIR)); \
+		fi; \
+		printf 'raylib: compiling %s with X11 and Wayland backends\n' '$(RAYLIB_VERSION)'; \
+		$(MAKE) --no-print-directory -C '$(RAYLIB_SRC_DIR)/src' \
+			PLATFORM=PLATFORM_DESKTOP \
+			GLFW_LINUX_ENABLE_X11=TRUE \
+			GLFW_LINUX_ENABLE_WAYLAND=TRUE \
+			RAYLIB_LIBTYPE=STATIC \
+			RAYLIB_BUILD_MODE=RELEASE \
+			raylib; \
+	fi
+
+$(RAYLIB_HEADER_STAMP): $(RAYLIB_LIB)
+	@mkdir -p $(dir $@)
+	@: > $@
