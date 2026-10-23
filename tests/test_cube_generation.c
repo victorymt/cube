@@ -648,6 +648,35 @@ static void TestCubeMeshIdentity(void)
  * pushed a full sphere radius away and the terrain rendered as floating plates.
  * This pins the invariant that made that visible: the transformed anchor must
  * land at the camera-frame height the camera actually occupies. */
+/* The mesh for a section must stay within that section's slab once the render
+ * transform is applied. A taller result means the geometry does not match the
+ * block data and the terrain renders as vertical smears. */
+static void TestCubeSectionStaysInItsSlab(void)
+{
+    MeshJob *job = calloc(1, sizeof(*job));
+    assert(job);
+    job->cubeGrid = job->spherical = true;
+    job->cubeKey = (SurfaceCubeChunkKey){0, SURFACE_FACE_POS_X, 119, 111};
+    job->cx = 119; job->cz = 111; job->sectionY = 5;
+    memset(job->boundary.known, 1, sizeof(job->boundary.known));
+    for (int z = 0; z < CHUNK_SIZE; z++)
+        for (int x = 0; x < CHUNK_SIZE; x++)
+            job->blocks[x][0][z] = BLOCK_STONE;
+    BuildMeshJobPayload(job);
+    assert(job->hasMesh && job->mesh.vertexCount > 0);
+
+    float lo = 1e9f, hi = -1e9f;
+    for (int i = 0; i < job->mesh.vertexCount; i++) {
+        float y = job->mesh.vertices[i * 3 + 1];
+        if (y < lo) lo = y;
+        if (y > hi) hi = y;
+    }
+    /* One block tall, encoded in the anchor frame: y must be about 0..1. */
+    fprintf(stderr, "SLAB y=[%.2f,%.2f]\n", (double)lo, (double)hi);
+    assert(lo > -0.5f && hi < 1.5f);
+    free(job);
+}
+
 static void TestCubeRenderTransform(void)
 {
     for (int face = 0; face < 6; face++) {
@@ -751,6 +780,7 @@ static void TestCubeMeshProjection(void)
 int main(void)
 {
     TestCubeMeshIdentity();
+    TestCubeSectionStaysInItsSlab();
     TestCubeRenderTransform();
     TestPhysicalCoverage();
     TestCubeMeshHalo();
