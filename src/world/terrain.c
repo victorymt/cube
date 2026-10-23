@@ -1019,9 +1019,10 @@ static bool SurfaceLandingCandidate(int x, int z, int footprintRadius,
     bool haveHeight = false;
     for (int dz = -footprintRadius; dz <= footprintRadius; dz++) {
         for (int dx = -footprintRadius; dx <= footprintRadius; dx++) {
-            int height = planetSurface
-                             ? PlanetTerrainHeight(x + dx, z + dz)
-                             : TerrainHeight(x + dx, z + dz, WorldTerrainMode());
+            /* Use the installed surface's own height function: on a cube world
+             * the legacy analytic height describes a different terrain, so a
+             * candidate chosen with it lands in the ocean or in the void. */
+            int height = WorldSurfaceHeightAt(x + dx, z + dz);
             if (seaLevel >= 0 && height <= seaLevel + 1) return false;
             if (!haveHeight) {
                 minHeight = height;

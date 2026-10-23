@@ -110,9 +110,55 @@ static void TestSectionsAndInvalid(void)
     assert(!TerrainCubeContextCreate(&snapshot, TERRAIN_VARIED, 100));
 }
 
+/* Cube and legacy home terrain must agree at the same direction. If they do
+ * not, a landing spot chosen with one height function is ocean in the other,
+ * which is exactly how a spawn can end up under the sea. */
+static void TestCubeAndLegacyHeightsAgree(void)
+{
+    WorldSetCubeRuntimeEnabled(true);
+    WorldSurfaceTopologyPolicy cubePolicy = {
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION },
+        { SURFACE_TOPOLOGY_CUBE_GRID, SURFACE_CUBE_TOPOLOGY_VERSION }
+    };
+    assert(WorldInstallTopologyPolicy(cubePolicy));
+    WorldSurfaceSnapshot world = {.context = {.active = true,
+        .kind = WORLD_SURFACE_HOME, .topology = cubePolicy.home, .seed = 1448040515u}};
+    assert(WorldInstallSurfaceSnapshot(&world));
+    TerrainCubeContext *ctx = TerrainCubeContextCreate(&world, TERRAIN_VARIED, 1u);
+    assert(ctx);
+
+    int agreements = 0, disagreements = 0;
+    for (int i = 0; i < 64; i++) {
+        float mapX = (float)(i * 137 - 4000);
+        float mapZ = (float)(i * 61 - 2000);
+        Vector3 direction = SurfaceDirectionFromMapCoordinates(mapX, mapZ);
+        SurfaceAddress address = SurfaceAddressFromDirection(0, direction, 0);
+        TerrainCubeColumn column;
+        if (!TerrainCubeSampleColumn(ctx, address, &column)) continue;
+        double cubeElevation = (double)column.terrain.elevation;
+        double legacyElevation = (double)TerrainHomeBaselineElevation(
+            1448040515u, (int)mapX, (int)mapZ, NULL);
+        if (fabs(cubeElevation - legacyElevation) <= 1.0) agreements++;
+        else {
+            disagreements++;
+            if (disagreements <= 3)
+                fprintf(stderr, "map(%.0f,%.0f) cube=%.1f legacy=%.1f\n",
+                        mapX, mapZ, cubeElevation, legacyElevation);
+        }
+    }
+    fprintf(stderr, "agreements=%d disagreements=%d\n", agreements, disagreements);
+    assert(agreements > disagreements);
+
+    TerrainCubeContextRelease(ctx);
+    assert(WorldInstallSurfaceSnapshot(NULL));
+    WorldSetCubeRuntimeEnabled(false);
+    WorldResetTopologyPolicy();
+}
+
 int main(void)
 {
     TestSectionsAndInvalid(); TestImmutableContext();
+    TestCubeAndLegacyHeightsAgree();
     puts("cube terrain tests passed");
     return 0;
 }

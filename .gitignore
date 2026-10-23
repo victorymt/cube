@@ -17,3 +17,7 @@ __pycache__/
 /voxelcraft_settings.cfg.bak
 *.o
 *.a
+
+# Local Wayland-enabled raylib build and ad-hoc graphical runs
+.raylib-wayland/
+.cubetest/
