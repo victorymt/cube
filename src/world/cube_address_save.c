@@ -188,15 +188,16 @@ bool CubeAddressSaveReadEdits(FILE *file, uint32_t *outCount)
     WorldCubeClearEdits();
     CubeAddressBlock block;
     if (!CubeAddressSaveRead(file, &block)) return false;
-    /* Apply in order; a rejected record undoes the whole restore. */
+    /* Apply in order. A record the store rejects is dropped on its own: the
+     * codec's address check is intentionally looser than the store's, so a
+     * single foreign record must not discard the whole edit set. The count
+     * reported is what was actually applied, so callers can see the loss. */
+    uint32_t applied = 0;
     for (uint32_t i = 0; i < block.count; i++) {
-        if (!WorldCubeSetBlock(block.addresses[i], block.types[i])) {
-            CubeAddressBlockRelease(&block);
-            WorldCubeClearEdits();
-            return false;
-        }
+        if (!WorldCubeSetBlock(block.addresses[i], block.types[i])) continue;
+        applied++;
     }
-    if (outCount) *outCount = block.count;
+    if (outCount) *outCount = applied;
     CubeAddressBlockRelease(&block);
     return true;
 }
