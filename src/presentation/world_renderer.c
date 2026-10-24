@@ -450,7 +450,7 @@ static unsigned char ByteFromUnit(float value)
 static Texture2D MakeMaterialAtlas(bool normalMap)
 {
     int width = ATLAS_CELL_SIZE*ATLAS_COLUMNS;
-    int height = ATLAS_CELL_SIZE*ATLAS_ROWS;
+    int height = ATLAS_CELL_SIZE*ATLAS_ROWS_FOR(TEX_COUNT);
     Image image = GenImageColor(width, height,
                                 normalMap ? (Color){128,128,255,255} : BLANK);
     if (!image.data) return (Texture2D){ 0 };
@@ -611,7 +611,7 @@ bool WorldRendererShadowsReady(void) { return resources.shadowReady; }
 uint64_t WorldRendererTextureBytes(void)
 {
     uint64_t atlasBytes = (uint64_t)(ATLAS_CELL_SIZE*ATLAS_COLUMNS) *
-                          (uint64_t)(ATLAS_CELL_SIZE*ATLAS_ROWS) * 4u;
+                          (uint64_t)(ATLAS_CELL_SIZE*ATLAS_ROWS_FOR(TEX_COUNT)) * 4u;
     uint64_t total = 0;
     if (resources.materialAtlas.id != 0) total += atlasBytes;
     if (resources.normalAtlas.id != 0) total += atlasBytes;

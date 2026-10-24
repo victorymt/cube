@@ -56,6 +56,28 @@ if grep -R -nE '#include "(world|space|ecology|gameplay|presentation)/' \
     fail "core must not depend on higher-level modules"
 fi
 
+# The include rule above is not enough: a macro can reference a domain symbol
+# without an include, and then the header compiles only because some other file
+# happened to include the domain header first. `ATLAS_ROWS` did exactly that
+# with `TEX_COUNT`. Core headers must not name domain symbols at all.
+#
+# Comments are stripped first so prose may name a symbol, and `BLOCK_SIZE` is
+# exempt because it is a neutral length constant, not a block taxonomy symbol.
+core_domain_symbols=$(
+    for core_header in $(find src/core -name '*.h'); do
+        # Drop whole-line comments (`/*`, `*`, `//`), which is how this repo
+        # writes every block comment, then scan what is left.
+        grep -vE '^[[:space:]]*(/\*|\*|//)' "$core_header" |
+            grep -nE '\b(TEX_[A-Z0-9_]+|TEX_COUNT|BLOCK_[A-Z0-9_]+|BlockType|BlockTexture|BlockRenderShape|Chunk|ChunkSection|ChunkLodLevel|Surface[A-Z][A-Za-z0-9]*|BIOME_[A-Z]+|Biome)\b' |
+            grep -v 'BLOCK_SIZE' |
+            sed "s|^|$core_header:|" || true
+    done
+)
+[ -z "$core_domain_symbols" ] || {
+    printf '%s\n' "$core_domain_symbols" >&2
+    fail "core headers must not reference domain symbols; take them as parameters"
+}
+
 # Cross-domain rules intentionally target public/narrow interfaces and direct
 # bypasses only. Terrain/entity implementations may still consume narrow
 # contracts from another domain; a full include ban would reject valid seams.

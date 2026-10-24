@@ -484,7 +484,7 @@ void DrawAtlasTile(Image *image, BlockTexture texture)
 Texture2D LoadBlockAtlas(void)
 {
     Image image = GenImageColor(ATLAS_CELL_SIZE * ATLAS_COLUMNS,
-                                ATLAS_CELL_SIZE * ATLAS_ROWS, BLANK);
+                                ATLAS_CELL_SIZE * ATLAS_ROWS_FOR(TEX_COUNT), BLANK);
     for (int i = 0; i < TEX_COUNT; i++) {
         DrawAtlasTile(&image, (BlockTexture)i);
     }
@@ -519,7 +519,7 @@ void AtlasUVs(BlockTexture texture, Vector2 uvs[6])
     int tileX = tileIndex % ATLAS_COLUMNS;
     int tileY = tileIndex / ATLAS_COLUMNS;
     float atlasWidth = (float)(ATLAS_CELL_SIZE * ATLAS_COLUMNS);
-    float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS);
+    float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS_FOR(TEX_COUNT));
     float tileSize = (float)ATLAS_TILE_SIZE;
     float cellSize = (float)ATLAS_CELL_SIZE;
     float padding = (float)ATLAS_TILE_PADDING;

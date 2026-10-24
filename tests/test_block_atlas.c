@@ -253,7 +253,7 @@ static uint64_t HashRegion(Image image, int left, int top, int width,
 static Image GenerateAtlas(void)
 {
     Image image = GenImageColor(ATLAS_CELL_SIZE * ATLAS_COLUMNS,
-                                ATLAS_CELL_SIZE * ATLAS_ROWS, BLANK);
+                                ATLAS_CELL_SIZE * ATLAS_ROWS_FOR(TEX_COUNT), BLANK);
     assert(IsImageValid(image));
     for (int texture = 0; texture < TEX_COUNT; texture++) {
         DrawAtlasTile(&image, (BlockTexture)texture);
@@ -264,7 +264,7 @@ static Image GenerateAtlas(void)
 static void AssertAtlasCoordinates(void)
 {
     const float atlasWidth = (float)(ATLAS_CELL_SIZE * ATLAS_COLUMNS);
-    const float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS);
+    const float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS_FOR(TEX_COUNT));
     assert(ATLAS_CELL_SIZE == 32);
     assert(ATLAS_TILE_PADDING >= ATLAS_TILE_SIZE / 2);
 

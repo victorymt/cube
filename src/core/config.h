@@ -47,7 +47,12 @@
 #define ATLAS_TILE_PADDING 8
 #define ATLAS_CELL_SIZE (ATLAS_TILE_SIZE + ATLAS_TILE_PADDING * 2)
 #define ATLAS_COLUMNS 32
-#define ATLAS_ROWS ((TEX_COUNT + ATLAS_COLUMNS - 1) / ATLAS_COLUMNS)
+/* The atlas row count depends on how many texture slots a domain defines, and
+ * that count is not core's business: `TEX_COUNT` lives in `world/block_texture.h`.
+ * Taking the count as a parameter keeps core free of domain symbols, which
+ * `tests/test_architecture.sh` now enforces. */
+#define ATLAS_ROWS_FOR(textureCount) \
+    (((textureCount) + ATLAS_COLUMNS - 1) / ATLAS_COLUMNS)
 #define COLOR_BLOCK_COUNT 256
 #define IMPORT_MIN_BLOCKS 16
 #define IMPORT_DEFAULT_BLOCKS 64

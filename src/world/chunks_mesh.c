@@ -374,7 +374,7 @@ static void AddTorchMesh(ChunkMeshEmitter *emitter, int x, int y, int z,
     Vector2 stickUvs[6];
     Rectangle stickRect = AtlasSourceRect(TEX_TORCH);
     float atlasWidth = (float)(ATLAS_CELL_SIZE * ATLAS_COLUMNS);
-    float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS);
+    float atlasHeight = (float)(ATLAS_CELL_SIZE * ATLAS_ROWS_FOR(TEX_COUNT));
     float u0 = (stickRect.x + 0.25f) / atlasWidth;
     float u1 = (stickRect.x + stickRect.width - 0.25f) / atlasWidth;
     float vTop = (stickRect.y + stickRect.height * 0.375f) / atlasHeight;
