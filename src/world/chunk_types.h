@@ -4,7 +4,7 @@
 #include "core/config.h"
 #include "world/flora_types.h"
 #include "world/terrain_types.h"
-#include "world/surface_topology.h"
+#include "world/surface_types.h"
 #include "world/surface_cube.h"
 
 #include "raylib.h"

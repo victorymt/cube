@@ -3,6 +3,7 @@
 
 #include "world/surface_cube.h"
 #include "world/surface_pose.h"
+#include "world/surface_topology.h"
 
 typedef enum WorldDimension {
     WORLD_DIMENSION_HOME = 0,

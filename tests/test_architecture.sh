@@ -157,6 +157,13 @@ do
     fi
 done
 
+# Surface identity is stored and hashed in modules that never draw. Keeping
+# `surface_types.h` free of raylib is what lets them rebuild without the 187
+# objects that `raylib.h` costs.
+if grep -nE '#include "(raylib|raymath|rlgl)\.h"' src/world/surface_types.h; then
+    fail "surface_types.h must stay raylib-free; the vector type belongs in surface_topology.h"
+fi
+
 if grep -R -n '#include "space/space_state.h"' src/world \
     --include='*.c' --include='*.h'; then
     fail "world surface state must enter through WorldSurfaceSnapshot"

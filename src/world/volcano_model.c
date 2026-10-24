@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <string.h>
+#include "world/surface_topology.h"
 
 uint64_t VolcanoId(SurfaceAddress address)
 {

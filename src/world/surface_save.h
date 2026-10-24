@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_SURFACE_SAVE_H
 #define VOXELCRAFT_SURFACE_SAVE_H
 
-#include "world/surface_topology.h"
+#include "world/surface_types.h"
 
 #include <stdbool.h>
 #include <stdint.h>

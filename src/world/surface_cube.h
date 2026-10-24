@@ -1,7 +1,9 @@
 #ifndef VOXELCRAFT_SURFACE_CUBE_H
 #define VOXELCRAFT_SURFACE_CUBE_H
 
-#include "world/surface_topology.h"
+#include "world/surface_types.h"
+
+#include "raylib.h"
 
 // A separate namespace from legacy latitude/longitude SurfaceChunkKey. Never
 // reinterpret an old save's map cells as face cells.

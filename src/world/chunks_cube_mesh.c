@@ -1,6 +1,7 @@
 #include "world/world_surface_snapshot.h"
 #include "world/chunks_internal.h"
 #include "world/surface_pose.h"
+#include "world/surface_topology.h"
 
 // The halo is sampled once on the main thread. Workers never follow pointers
 // into resident columns, so eviction cannot invalidate a mesh job's input.

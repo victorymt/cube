@@ -2,6 +2,7 @@
 #include "world/surface_coverage.h"
 #include "world/chunks_internal.h"
 #include "world/flora_taxa.h"
+#include "world/surface_topology.h"
 
 MeshJob meshJobs[MAX_MESH_JOBS];
 static uint64_t nextMeshQueueSequence = 0u;

@@ -1,6 +1,7 @@
 #include "world/chunks_internal.h"
 #include "world/world_surface_snapshot.h"
 #include "world/world_cube.h"
+#include "world/surface_topology.h"
 
 static uint64_t nextGenerationQueueSequence = 0u;
 static int requestedChunkWorkerCount = 0;

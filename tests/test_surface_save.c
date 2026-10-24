@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "world/surface_topology.h"
 
 static SurfaceAddress Address(uint32_t bodyId, float longitude, float latitude,
                               int radial)

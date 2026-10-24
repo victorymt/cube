@@ -4,6 +4,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include "world/surface_topology.h"
 
 // Same face orientation as SurfaceAddressDirection. Integer axes keep edge
 // transport exact; float projection cannot provide bijective block neighbors.

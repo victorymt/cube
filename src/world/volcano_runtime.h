@@ -3,6 +3,7 @@
 
 #include "world/volcano_model.h"
 #include <stdio.h>
+#include "world/surface_topology.h"
 
 #define VOLCANO_MAX_RECORDS 64u
 #define VOLCANO_MAX_ACTIVE 2u

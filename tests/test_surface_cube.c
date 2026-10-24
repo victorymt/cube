@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include "world/surface_topology.h"
 
 static SurfaceAddress EdgeCell(int face, int edge, int along, int size)
 {

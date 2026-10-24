@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_VOLCANO_MODEL_H
 #define VOXELCRAFT_VOLCANO_MODEL_H
 
-#include "world/surface_topology.h"
+#include "world/surface_types.h"
 
 #define VOLCANO_GENERATOR_VERSION 1u
 #define VOLCANO_STEP_SECONDS 0.5

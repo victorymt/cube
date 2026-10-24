@@ -1,9 +1,9 @@
 #ifndef VOXELCRAFT_LANDFORM_MODEL_H
 #define VOXELCRAFT_LANDFORM_MODEL_H
 
-#include "world/surface_topology.h"
 #include "world/landform_physics.h"
 #include <stddef.h>
+#include "world/surface_topology.h"
 
 #define LANDFORM_RESOLUTION 128
 #define LANDFORM_CELL_COUNT (6 * LANDFORM_RESOLUTION * LANDFORM_RESOLUTION)

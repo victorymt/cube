@@ -2,6 +2,7 @@
 #define VOXELCRAFT_SURFACE_POSE_H
 
 #include "world/surface_cube.h"
+#include "world/surface_topology.h"
 
 typedef struct SurfaceVector { double x, y, z; } SurfaceVector;
 

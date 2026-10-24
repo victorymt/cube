@@ -1,0 +1,25 @@
+#define SURFACE_FACE_BLOCKS 4096
+#define SURFACE_FACE_CHUNKS (SURFACE_FACE_BLOCKS / 16)
+#define SURFACE_EQUATOR_BLOCKS (SURFACE_FACE_BLOCKS * 4)
+#define SURFACE_POLE_TO_POLE_BLOCKS (SURFACE_EQUATOR_BLOCKS / 2)
+#define SURFACE_RADIUS_BLOCKS \
+    ((float)SURFACE_EQUATOR_BLOCKS / (2.0f * PI))
+
+typedef enum SurfaceFace {
+    SURFACE_FACE_POS_X = 0,
+    SURFACE_FACE_NEG_X,
+    SURFACE_FACE_POS_Y,
+    SURFACE_FACE_NEG_Y,
+    SURFACE_FACE_POS_Z,
+    SURFACE_FACE_NEG_Z,
+    SURFACE_FACE_COUNT
+} SurfaceFace;
+
+typedef struct SurfaceAddress {
+    uint32_t bodyId;
+    SurfaceFace face;
+    int u;
+    int v;
+    int radial;
+} SurfaceAddress;
+

@@ -5,6 +5,7 @@
 #include "world/world_location.h"
 
 #include <stdint.h>
+#include "world/surface_topology.h"
 
 // The active environment describes where the player currently lives. The
 // block region is kept separate because the space layer overlaps the ascent

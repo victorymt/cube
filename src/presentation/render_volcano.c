@@ -3,6 +3,7 @@
 #include "raymath.h"
 #include "rlgl.h"
 #include <math.h>
+#include "world/surface_topology.h"
 
 void DrawLavaCell(Matrix sectionTransform, Vector3 position, LavaThermalState thermal, LavaRock rock)
 {

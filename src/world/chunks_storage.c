@@ -1,4 +1,5 @@
 #include "world/chunks_internal.h"
+#include "world/surface_topology.h"
 
 Chunk chunks[MAX_ACTIVE_CHUNKS];
 Texture2D blockAtlas = { 0 };

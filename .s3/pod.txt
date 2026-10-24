@@ -1,0 +1,29 @@
+typedef struct SurfaceMapProjection {
+    float longitude;
+    float latitude;
+    float northDirection;
+} SurfaceMapProjection;
+
+typedef struct SurfaceMapCell {
+    int x;
+    int z;
+} SurfaceMapCell;
+
+typedef struct SurfaceSpatialKey {
+    uint32_t bodyId;
+    int mapX;
+    int mapZ;
+    int radial;
+} SurfaceSpatialKey;
+
+typedef struct SurfaceChunkKey {
+    uint32_t bodyId;
+    SurfaceMapCell corners[4];
+} SurfaceChunkKey;
+
+typedef struct SurfaceMapOffset {
+    float x;
+    float z;
+    float northDirection;
+} SurfaceMapOffset;
+

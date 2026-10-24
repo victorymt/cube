@@ -2,6 +2,7 @@
 #define VOXELCRAFT_RENDER_VOLCANO_H
 #include "world/volcano_model.h"
 #include "world/lava_model.h"
+#include "world/surface_topology.h"
 
 typedef struct VolcanoVisual {
     Vector3 position;

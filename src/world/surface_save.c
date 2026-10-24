@@ -1,6 +1,7 @@
 #include "world/surface_save.h"
 
 #include <stdlib.h>
+#include "world/surface_topology.h"
 
 static bool SurfaceSaveWriteAddress(FILE *file, SurfaceAddress address)
 {

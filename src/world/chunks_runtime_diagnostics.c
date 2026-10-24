@@ -1,6 +1,7 @@
 #include "world/chunks_internal.h"
 
 #include <stdio.h>
+#include "world/surface_topology.h"
 
 static ChunkDiagnosticsEvent chunkDiagnosticsLastEvent = { .reason = "none" };
 

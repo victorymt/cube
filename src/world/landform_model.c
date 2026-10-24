@@ -2,6 +2,7 @@
 #include "raymath.h"
 #include <math.h>
 #include <stdlib.h>
+#include "world/surface_topology.h"
 
 #define N LANDFORM_RESOLUTION
 #define FACE_CELLS (N * N)

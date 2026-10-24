@@ -3,6 +3,7 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
+#include "world/surface_topology.h"
 
 static VolcanoRecord records[VOLCANO_MAX_RECORDS];
 static unsigned recordCount;

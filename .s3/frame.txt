@@ -1,0 +1,8 @@
+typedef struct SurfaceFrame {
+    SurfaceAddress anchor;
+    Vector3 origin;
+    Vector3 east;
+    Vector3 north;
+    Vector3 up;
+} SurfaceFrame;
+
