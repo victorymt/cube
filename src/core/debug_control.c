@@ -1150,3 +1150,84 @@ bool DebugControlReply(DebugControl *control, const char *format, ...)
     if (message != stackMessage) free(message);
     return true;
 }
+
+/* Advertised command groups, in the order the ready line prints them. Each
+ * probe is a real command that the parser accepts, so a stale entry fails
+ * tests/test_debug_control.c instead of silently misadvertising a feature. */
+typedef struct DebugControlCommandGroup {
+    const char *name;
+    const char *probe;
+} DebugControlCommandGroup;
+
+static const DebugControlCommandGroup debugControlCommandGroups[] = {
+    { "start", "start" },
+    { "terrain", "terrain flat" },
+    { "screenshot", "screenshot" },
+    { "status", "status" },
+    { "pause", "pause on" },
+    { "hud", "hud debug on" },
+    { "world", "world topology" },
+    { "stream", "stream audit" },
+    { "save", "save" },
+    { "load", "load" },
+    { "map", "map" },
+    { "surface", "surface debug home" },
+    { "marker", "marker list" },
+    { "teleport", "teleport 0 80 0 0 0" },
+    { "look", "look 0 0" },
+    { "input", "input 0 0 0 0 1" },
+    { "mouse", "mouse left" },
+    { "ship", "ship begin" },
+    { "view", "view first" },
+    { "fluid", "fluid inspect" },
+    { "water", "water debug" },
+    { "weather", "weather inspect" },
+    { "geology", "geology inspect" },
+    { "landform", "landform inspect" },
+    { "cga", "cga inspect" },
+    { "evolution", "evolution region" },
+    { "block", "block inspect stone" },
+    { "flora", "flora sample 0 0" }
+};
+
+size_t DebugControlCommandGroupCount(void)
+{
+    return sizeof(debugControlCommandGroups) /
+        sizeof(debugControlCommandGroups[0]);
+}
+
+const char *DebugControlCommandGroupName(size_t index)
+{
+    if (index >= DebugControlCommandGroupCount()) return NULL;
+    return debugControlCommandGroups[index].name;
+}
+
+const char *DebugControlCommandGroupProbe(size_t index)
+{
+    if (index >= DebugControlCommandGroupCount()) return NULL;
+    return debugControlCommandGroups[index].probe;
+}
+
+const char *DebugControlCommandGroups(void)
+{
+    /* Built once. The buffer holds every group name plus separators; the table
+     * is a compile-time constant, so a build-time overflow is caught by
+     * tests/test_debug_control.c. */
+    static char joined[768];
+    static bool built = false;
+    if (built) return joined;
+
+    size_t offset = 0u;
+    joined[0] = '\0';
+    for (size_t index = 0; index < DebugControlCommandGroupCount(); index++) {
+        const char *name = debugControlCommandGroups[index].name;
+        size_t length = strlen(name);
+        if (offset + length + 2u >= sizeof(joined)) break;
+        if (offset > 0u) joined[offset++] = ',';
+        memcpy(joined + offset, name, length);
+        offset += length;
+        joined[offset] = '\0';
+    }
+    built = true;
+    return joined;
+}

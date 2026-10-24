@@ -596,6 +596,37 @@ static void TestFinalCommandWithoutNewline(void)
     close(inputPipe[0]);
 }
 
+/* The ready line advertises command groups. Every advertised probe must parse
+ * to a real command, every advertised name must appear in the joined list, and
+ * `quit` must stay out of it because the DSL rejects it in favour of `exit`. */
+static void TestCommandGroups(void)
+{
+    DebugControl control = { 0 };
+    DebugControlInitFds(&control, true, -1, -1);
+
+    size_t count = DebugControlCommandGroupCount();
+    assert(count > 0u);
+
+    const char *joined = DebugControlCommandGroups();
+    assert(joined && joined[0] != '\0');
+    assert(strstr(joined, "quit") == NULL);
+
+    for (size_t index = 0; index < count; index++) {
+        const char *name = DebugControlCommandGroupName(index);
+        const char *probe = DebugControlCommandGroupProbe(index);
+        assert(name && name[0] != '\0');
+        assert(probe && probe[0] != '\0');
+        assert(strstr(joined, name) != NULL);
+
+        DebugControlCommand command = DebugControlParseText(&control, probe);
+        assert(command != DEBUG_CONTROL_COMMAND_NONE);
+        assert(command != DEBUG_CONTROL_COMMAND_INVALID);
+        assert(command != DEBUG_CONTROL_COMMAND_QUIT);
+    }
+    assert(DebugControlCommandGroupName(count) == NULL);
+    assert(DebugControlCommandGroupProbe(count) == NULL);
+}
+
 int main(void)
 {
     DebugControl geology = { 0 };
@@ -761,6 +792,7 @@ int main(void)
     TestEvolutionCommands();
     TestWeatherCommands();
     TestMarkerCommandsPreserveUtf8Names();
+    TestCommandGroups();
     puts("debug control tests passed");
     return 0;
 }

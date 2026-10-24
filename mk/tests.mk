@@ -28,7 +28,7 @@ endef
 define define_benchmark
 $1 := $$(TEST_BUILD_DIR)/$2
 TEST_BINARY_NAMES += $2
-TEST_SOURCES_$2 := $3
+TEST_SOURCES_$2 := $(sort $3)
 TEST_CPPFLAGS_$2 := $4
 TEST_CFLAGS_$2 := $5
 TEST_LDFLAGS_$2 := $6
@@ -202,7 +202,12 @@ $(eval $(call define_test,CHUNK_STREAMING_TEST_TARGET,test_chunk_streaming,src/c
 $(eval $(call define_test,TERRAIN_SCALE_TEST_TARGET,test_terrain_scale,src/space/space_units.c src/core/simulation_time.c $(PLANET_SURFACE_SRC) src/space/planet_profile.c src/space/planet_climate.c $(TERRAIN_FEATURE_SRC) $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC),,-DTERRAIN_TESTING -DCHUNKS_TESTING -ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,CGA_VOXEL_TEST_TARGET,test_cga_voxel,src/world/cga_voxel.c,-DTERRAIN_TESTING,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,SUBSURFACE_TEST_TARGET,test_subsurface,src/world/subsurface.c src/world/surface_topology.c,,,, -lm,$(RAYLIB_CFLAGS),))
-$(eval $(call define_benchmark,CHUNK_BENCHMARK_TARGET,benchmark_chunks,src/core/simulation_time.c $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) $(TERRAIN_FEATURE_SRC) src/world/world.c src/ecology/evolution_catalog.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
+# The benchmark build closure is not the test closure: `TERRAIN_FEATURE_SRC`
+# samples planet surfaces, so `PLANET_SURFACE_SRC` and the two space samplers
+# must be linked as well. `$(sort ...)` in `define_benchmark` removes the
+# duplicate `surface_topology.c` that `CHUNKS_FEATURE_SRC` and
+# `PLANET_SURFACE_SRC` both list.
+$(eval $(call define_benchmark,CHUNK_BENCHMARK_TARGET,benchmark_chunks,src/core/simulation_time.c $(BLOCK_ATLAS_FEATURE_SRC) $(CHUNKS_FEATURE_SRC) $(TERRAIN_FEATURE_SRC) $(PLANET_SURFACE_SRC) src/space/planet_profile.c src/space/planet_climate.c src/world/world.c src/ecology/evolution_catalog.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm -pthread,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,PERF_TEST_TARGET,test_perf,src/core/perf.c,,-DPERF_TESTING,,-lm,$(RAYLIB_CFLAGS),$(RAYLIB_LIBS)))
 $(eval $(call define_test,RENDER_SORT_TEST_TARGET,test_render_sort,src/presentation/render_sort.c,,,,,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,RENDER_VOLCANO_TEST_TARGET,test_render_volcano,src/presentation/render_volcano.c src/presentation/surface_render_transform.c src/world/surface_pose.c src/world/surface_cube.c src/world/surface_coverage.c src/world/surface_topology.c src/world/lava_model.c,,-ffunction-sections -fdata-sections,$(GC_SECTIONS_LDFLAG),-lm,$(RAYLIB_CFLAGS),))

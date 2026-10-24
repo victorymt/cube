@@ -19,6 +19,7 @@ append_dsl=""
 trace=1
 interactive=0
 force=0
+scene_file=""
 
 usage() {
     cat <<'EOF'
@@ -34,6 +35,9 @@ Options:
   --resolution WxH        Window size (default: 1280x720, ranges 320-7680 x 240-4320).
   --timeout SECONDS       Wall-clock timeout (default: 180, range 1-3600).
   --run-dir DIR           Artifact directory (default: mktemp -d under $TMPDIR).
+  --scene-file PATH       Run a .dsl file from anywhere instead of tests/scenes.
+                          Use this for throwaway reproductions and generated
+                          probe scenes; the file is copied, not modified.
   --append-dsl TEXT       Extra DSL lines appended after the scene.
   --no-trace              Do not write trace.jsonl.
   --interactive           Do not append `exit 0`; leave the window open.
@@ -80,6 +84,11 @@ while (($#)); do
             append_dsl=$2
             shift 2
             ;;
+        --scene-file)
+            [[ $# -ge 2 ]] || die "--scene-file requires a value"
+            scene_file=$2
+            shift 2
+            ;;
         --no-trace)
             trace=0
             shift
@@ -109,8 +118,14 @@ while (($#)); do
     esac
 done
 
-[[ $# -eq 1 ]] || die "expected exactly one scene argument (use --help)"
-scene_arg=$1
+if [[ -n "$scene_file" ]]; then
+    [[ $# -le 1 ]] || die "expected at most one scene argument with --scene-file"
+    [[ -f "$scene_file" ]] || die "scene file not found: $scene_file"
+    scene_path=$(realpath "$scene_file")
+else
+    [[ $# -eq 1 ]] || die "expected exactly one scene argument (use --help)"
+    scene_arg=$1
+fi
 
 command -v timeout >/dev/null 2>&1 || die "the timeout command is required"
 
@@ -145,22 +160,30 @@ fi
 [[ -S "$wayland_socket" ]] ||
     die "Wayland socket not found: $wayland_socket"
 
-if [[ -f "$repo/tests/scenes/$scene_arg" ]]; then
-    scene_path=$(realpath "$repo/tests/scenes/$scene_arg")
-elif [[ -f "$repo/tests/scenes/$scene_arg.dsl" ]]; then
-    scene_path=$(realpath "$repo/tests/scenes/$scene_arg.dsl")
-elif [[ "$scene_arg" == */* ]]; then
-    scene_path=$(realpath "$scene_arg" 2>/dev/null) ||
-        die "scene not found: $scene_arg"
+if [[ -n "$scene_file" ]]; then
+    scenes_dir=$(realpath "$repo/tests/scenes")
+    case "$scene_path" in
+        *.dsl) ;;
+        *) die "scene file must end in .dsl: $scene_file" ;;
+    esac
 else
-    die "scene not found under $repo/tests/scenes: $scene_arg"
-fi
+    if [[ -f "$repo/tests/scenes/$scene_arg" ]]; then
+        scene_path=$(realpath "$repo/tests/scenes/$scene_arg")
+    elif [[ -f "$repo/tests/scenes/$scene_arg.dsl" ]]; then
+        scene_path=$(realpath "$repo/tests/scenes/$scene_arg.dsl")
+    elif [[ "$scene_arg" == */* ]]; then
+        scene_path=$(realpath "$scene_arg" 2>/dev/null) ||
+            die "scene not found: $scene_arg"
+    else
+        die "scene not found under $repo/tests/scenes: $scene_arg"
+    fi
 
-scenes_dir=$(realpath "$repo/tests/scenes")
-case "$scene_path" in
-    "$scenes_dir"/*.dsl) ;;
-    *) die "scene must be a .dsl file under $scenes_dir: $scene_arg" ;;
-esac
+    scenes_dir=$(realpath "$repo/tests/scenes")
+    case "$scene_path" in
+        "$scenes_dir"/*.dsl) ;;
+        *) die "scene must be a .dsl file under $scenes_dir: $scene_arg" ;;
+    esac
+fi
 
 if [[ -z "$run_dir" ]]; then
     run_dir=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-scene.XXXXXX")

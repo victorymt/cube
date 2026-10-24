@@ -275,4 +275,18 @@ DebugControlReadResult DebugControlReadLine(DebugControl *control,
 DebugControlCommand DebugControlPoll(DebugControl *control);
 bool DebugControlReply(DebugControl *control, const char *format, ...);
 
+/* The one source of the `commands=` list in the DEBUG_CONTROL ready line. It
+ * is derived from the parser itself: a group is advertised only when
+ * DebugControlParseText accepts at least one verb with that prefix. Adding a
+ * command therefore updates the ready line, and `make docs-probe` compares the
+ * line against the fenced example in docs/debug-dsl.md. */
+const char *DebugControlCommandGroups(void);
+/* The group table behind the ready line. Each entry carries a representative
+ * command that must parse to a real command; tests/test_debug_control.c
+ * asserts that, and scripts/check-docs-truth.mjs cross-checks the table
+ * against the verbs the parser actually accepts. */
+size_t DebugControlCommandGroupCount(void);
+const char *DebugControlCommandGroupName(size_t index);
+const char *DebugControlCommandGroupProbe(size_t index);
+
 #endif

@@ -297,10 +297,12 @@ the limiting factor. Do not compare a run that failed `stream.surface_ready` or
 that was started with a different seed/teleport position.
 
 Every enabled run disables autosave and uses the fixed 60 FPS debug clock. On
-startup the process writes a readiness line similar to:
+startup the process writes a readiness line. The `commands=` list is generated
+by `DebugControlCommandGroups()`, so it always describes what the binary in
+front of you accepts; `make docs-probe` fails when this example drifts from it.
 
 ```text
-DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,evolution,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,terrain,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,geology,landform,cga,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 `--debug-trace [PATH]` can be combined with either debug entry point. Omitting
