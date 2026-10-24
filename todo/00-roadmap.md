@@ -8,6 +8,8 @@ work progresses, verified, and then committed as one reviewable change.
 
 Current state: see [STATUS.md](../STATUS.md).
 
+Dated snapshots and plans, kept for their planning evidence, not for current state: [progress report 2026-10-20](../docs/project-progress-2026-10-20.md), [cube activation plan](../docs/cube-activation-plan.md), [coupling review](../docs/architecture/21-coupling-review-2026-10-24.md).
+
 ## Scope inventory
 
 Which areas have implementation behind them, and where each is recorded. This is an index into the records, not current state; what is open today lives in [STATUS.md](../STATUS.md).
@@ -41,24 +43,24 @@ These statuses describe dated, bounded implementation work, not current visual
 acceptance. In particular, the original topology and polar protocol tests do not
 close the polar coverage defect above.
 
-| Stage | Scope | Status |
-| --- | --- | --- |
-| 01 | Local climate and weather foundation | Complete |
-| 02 | WMO cloud taxonomy and layered cloud fields | Complete |
-| 03 | Tornado lifecycle, forces, debris, and presentation | Complete |
-| 04 | Persistent wildfire, smoke, suppression, and recovery hooks | Complete |
-| 05 | Geological and biological block expansion | Complete |
-| 06 | Tree and plant diversity with biome ecology | Complete |
-| 07 | Global planetary topology and seamless traversal | Complete |
-| 08 | Cross-system integration, migration, and performance audit | Complete |
-| 09 | Renderer, mesh, and simulation performance optimization | Complete |
-| 10 | Unified simulation clock and fixed-step scheduling | Complete |
-| 11 | Solar geometry, radiation balance, and conserved atmosphere | Complete |
-| 12 | Hydrology, groundwater, rivers, sediment, and erosion | Complete |
-| 13 | Multi-scale ecology, nutrient cycles, and off-screen populations | Complete |
-| 14 | Physics-driven wildfire, smoke, and supercell tornadoes | Complete |
-| 15 | Character, structure, and optional survival/social physics | Complete |
-| 16 | Deterministic replay, graphics E2E, and performance gates | Complete |
+| Stage | Scope | Acceptance record | Status |
+| --- | --- | --- | --- |
+| 01 | Local climate and weather foundation | [01](01-climate-weather-foundation.md) | Complete |
+| 02 | WMO cloud taxonomy and layered cloud fields | [02](02-cloud-taxonomy.md) | Complete |
+| 03 | Tornado lifecycle, forces, debris, and presentation | [03](03-tornadoes.md) | Complete |
+| 04 | Persistent wildfire, smoke, suppression, and recovery hooks | [04](04-wildfire.md) | Complete |
+| 05 | Geological and biological block expansion | [05](05-block-expansion.md) | Complete |
+| 06 | Tree and plant diversity with biome ecology | [06](06-tree-plant-diversity.md) | Complete |
+| 07 | Global planetary topology and seamless traversal | [07](07-global-planetary-topology.md) | Complete |
+| 08 | Cross-system integration, migration, and performance audit | [08](08-cross-system-integration.md) | Complete |
+| 09 | Renderer, mesh, and simulation performance optimization | [09](09-performance-optimization.md) | Complete |
+| 10 | Unified simulation clock and fixed-step scheduling | [architecture 00](../docs/architecture/00-simulation-clock.md) | Complete |
+| 11 | Solar geometry, radiation balance, and conserved atmosphere | [architecture 01](../docs/architecture/01-radiation-balance.md) | Complete |
+| 12 | Hydrology, groundwater, rivers, sediment, and erosion | [architecture 02](../docs/architecture/02-hydrology-model.md) | Complete |
+| 13 | Multi-scale ecology, nutrient cycles, and off-screen populations | [architecture 03](../docs/architecture/03-ecology-nutrients.md) | Complete |
+| 14 | Physics-driven wildfire, smoke, and supercell tornadoes | [architecture 04](../docs/architecture/04-hazard-physics.md) | Complete |
+| 15 | Character, structure, and optional survival/social physics | [architecture 05](../docs/architecture/05-character-structure-physics.md) | Complete |
+| 16 | Deterministic replay, graphics E2E, and performance gates | [architecture 06](../docs/architecture/06-deterministic-replay-and-ci.md) | Complete |
 
 ## Follow-on verification
 
