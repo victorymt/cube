@@ -33,7 +33,10 @@ Next, in dependency order: close the cube mesh vertical stretch, convert the flu
 - 2026-10-24: `scripts/run-scene.sh` returned `ok=true` for a screenshot scene, an `exit`-terminated scene, and a benchmark scene without captures, and reported `ok=false` with the DSL error for a scene whose command is rejected.
 - 2026-10-24: injected layering violations in `gameplay` and `space` were both rejected by `make test-architecture`; `core`, `presentation` and non-`app` upward includes measured zero.
 - 2026-10-24: after splitting `world/world.h`, `make test` passed 126 binaries with 0 failures, `make test-headers` compiled 204 public headers standalone, and injected violations of both new include rules were rejected.
+- 2026-10-24: `make -s benchmark-chunks` links and runs again after the manifest fix, with `mesh_snapshot_bytes=8192`, `solid_vertices_per_chunk=2187.8`, `solid_vertex_reduction_percent=68.5`, `sync_rebuilds=0` and a 53.4 ms median.
+- 2026-10-24: `make docs-probe` resolved all 264 documented DSL runtime fields against a live binary and matched the printed ready line; injecting an unknown field and a one-word ready-line change both failed the probe.
+- 2026-10-24: `make check-docs` runs both the prose and truth gates and passes; the truth gate reports a stale document when a document's anchors move without it, confirmed by injecting the condition.
 
 ## Not verified
 
-Primitives exercised in isolation, and historical test passes on earlier commits, do not establish completion of the normal-game conversion or current visual acceptance. No GPU, occlusion, coverage, or visual acceptance has been re-run since the statements above were written. `benchmark_chunks` does not link (`undefined reference to PlanetSurfaceFractalNoiseAt`); it does that on the pre-split tree too, and `make test` does not cover it.
+Primitives exercised in isolation, and historical test passes on earlier commits, do not establish completion of the normal-game conversion or current visual acceptance. No GPU, occlusion, coverage, or visual acceptance has been re-run since the statements above were written. `make test` still does not cover `benchmark_chunks`, so the benchmark is only gated by its own CI job.

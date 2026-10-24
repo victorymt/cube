@@ -174,6 +174,35 @@ function gitAvailable(root) {
 }
 
 /**
+ * Repository-relative paths with uncommitted changes.
+ *
+ * A document being edited right now has a commit timestamp older than the code
+ * it is catching up with, so treating it as current is what keeps the gate
+ * usable from a pre-commit hook: you are editing the document, so it is current.
+ * @param {string} root
+ * @returns {Set<string>}
+ */
+function dirtyPaths(root) {
+  try {
+    const out = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+    const dirty = new Set()
+    for (const line of out.split('\n')) {
+      if (line.length < 4) continue
+      const path = line.slice(3).trim()
+      // Renames read as `old -> new`; the destination is what matters.
+      dirty.add(path.includes(' -> ') ? path.split(' -> ')[1] : path)
+    }
+    return dirty
+  } catch {
+    return new Set()
+  }
+}
+
+/**
  * Last commit time for a path, in seconds since the epoch.
  * @param {string} root
  * @param {string} path
@@ -268,6 +297,7 @@ function run(root) {
   const targets = makeTargets(root)
   const commits = commitIds(root)
   const haveGit = gitAvailable(root)
+  const dirty = haveGit ? dirtyPaths(root) : new Set()
 
   if (!haveGit) {
     warnings.push(`${DEFAULT_REGISTRY}  git history unavailable; freshness checks fall back to file mtimes`)
@@ -369,11 +399,24 @@ function run(root) {
     }
     const docTime = haveGit ? lastCommitTime(root, file) : statSync(absolute).mtimeMs / 1000
     const verifiedTime = haveGit ? revisionTime(root, claim.verifiedAt?.commit) : 0
+    // An anchor edited but not yet committed counts as changed *now*, which is
+    // what makes the pre-commit hook catch the case it exists for: a staged code
+    // change whose document was left alone.
+    const now = Date.now() / 1000
     const newest = (claim.anchors ?? [])
-      .map((anchor) => ({ anchor, time: haveGit ? lastCommitTime(root, anchor) : statSync(join(root, anchor) || '.').mtimeMs / 1000 }))
+      .map((anchor) => ({
+        anchor,
+        time: haveGit ? lastCommitTime(root, anchor) : statSync(join(root, anchor) || '.').mtimeMs / 1000
+      }))
+      .map((entry) => (dirty.has(entry.anchor) ? { anchor: entry.anchor, time: now } : entry))
       .reduce((best, current) => (current.time > best.time ? current : best), { anchor: '', time: 0 })
 
-    const reference = verifiedTime || docTime
+    // A document is current when it was touched at or after its anchors. The
+    // later of its own commit and `verifiedAt` covers a document committed with
+    // the code it describes; an uncommitted edit counts as current so the gate
+    // works before the commit exists. A document that stayed put while its
+    // anchors moved is what this reports.
+    const reference = dirty.has(file) ? Number.POSITIVE_INFINITY : Math.max(docTime, verifiedTime)
     if (newest.time > reference) {
       const recipes = (claim.recipes ?? []).join('; ') || '(none declared)'
       errors.push(
