@@ -402,8 +402,12 @@ function run(root) {
     // An anchor edited but not yet committed counts as changed *now*, which is
     // what makes the pre-commit hook catch the case it exists for: a staged code
     // change whose document was left alone.
+    // The registry is its own anchor for some documents. `--record` writes
+    // verifiedAt into that same file, so counting it would make every record run
+    // invalidate the documents it just stamped. It is metadata, not content.
+    const anchorsToWatch = (claim.anchors ?? []).filter((anchor) => anchor !== DEFAULT_REGISTRY)
     const now = Date.now() / 1000
-    const newest = (claim.anchors ?? [])
+    const newest = anchorsToWatch
       .map((anchor) => ({
         anchor,
         time: haveGit ? lastCommitTime(root, anchor) : statSync(join(root, anchor) || '.').mtimeMs / 1000
