@@ -8,7 +8,7 @@
 #include "world/landform_runtime.h"
 #include "world/home_tree_shape.h"
 
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 
 #include "raymath.h"
 #include "world/chunks.h"

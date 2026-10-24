@@ -3,7 +3,7 @@
 
 #include "world/world_types.h"
 #include "gameplay/player_types.h"
-#include "presentation/ui_types.h"
+#include "gameplay/ui_types.h"
 
 typedef struct ImageImportPlan {
     int targetWidth;

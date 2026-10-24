@@ -171,7 +171,7 @@ Production code lives entirely in the seven directories under `src/`. Public
 headers use module-qualified includes, while shared implementation details stay
 in module-private `*_internal.h` and `*_dependencies.h` headers. Common data is
 owned by `core/config.h`, `world/world_types.h`,
-`gameplay/player_types.h`, and `presentation/ui_types.h` instead of a global
+`gameplay/player_types.h`, and `gameplay/ui_types.h` instead of a global
 catch-all types header. Mutable chunk, space, Nether, renderer, and entity state
 is not exported from public headers; consumers use read-only views, snapshots,
 or explicit setters.

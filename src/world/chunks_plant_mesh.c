@@ -1,6 +1,6 @@
 #include "world/chunks_internal.h"
 
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 
 static void AddPlantFace(ChunkMeshEmitter *emitter, Vector3 corners[6],
                          Vector3 normal, Vector2 uvs[6], Color color)

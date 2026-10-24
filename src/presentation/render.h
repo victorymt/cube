@@ -2,7 +2,7 @@
 #define VOXELCRAFT_RENDER_H
 
 #include "world/world_types.h"
-#include "presentation/ui_types.h"
+#include "gameplay/ui_types.h"
 #include "space/space_types.h"
 #include "space/planet_observation.h"
 #include "gameplay/ship_locator.h"

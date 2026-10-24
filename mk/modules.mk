@@ -29,7 +29,7 @@ CHUNKS_FEATURE_SRC := \
 	src/world/surface_coverage.c \
 	src/world/world_cube.c \
 	src/world/world_location.c \
-	src/ecology/flora_taxa.c \
+	src/world/flora_taxa.c \
 	$(WORLD_SURFACE_SNAPSHOT_SRC) \
 	src/world/chunks.c \
 	src/world/chunks_test_api.c \

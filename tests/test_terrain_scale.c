@@ -7,7 +7,7 @@
 #include "world/terrain_home_materials_internal.h"
 #include "world/ecology_hooks.h"
 #include "world/world_surface_snapshot.h"
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 #include "raymath.h"
 
 #include <assert.h>

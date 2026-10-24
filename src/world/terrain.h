@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_TERRAIN_H
 #define VOXELCRAFT_TERRAIN_H
 
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 #include "space/planet_surface.h"
 #include "world/world_types.h"
 #include "world/landform_model.h"

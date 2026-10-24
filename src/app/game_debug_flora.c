@@ -1,7 +1,7 @@
 #include "app/game_debug_flora.h"
 
 #include "app/game_runtime.h"
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 #include "world/terrain.h"
 #include "world/weather_impact.h"
 #include "world/world.h"

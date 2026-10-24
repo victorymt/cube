@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_HOME_TREE_SHAPE_H
 #define VOXELCRAFT_HOME_TREE_SHAPE_H
 
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 
 #include <stdbool.h>
 #include <stdint.h>

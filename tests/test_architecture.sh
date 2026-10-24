@@ -447,10 +447,12 @@ if grep -nE '\b(Draw|Texture2D|LoadTexture|UnloadTexture|GetScreen|GetMouse|IsMo
     src/gameplay/discovery.c src/gameplay/discovery.h; then
     fail "gameplay album and discovery must expose data, not presentation"
 fi
-if grep -n '#include "presentation/' \
-    src/gameplay/album.c src/gameplay/album.h \
-    src/gameplay/discovery.c src/gameplay/discovery.h; then
-    fail "gameplay album and discovery must not depend on presentation"
+# gameplay is a domain layer: it owns state and rules, never drawing. This
+# covers the whole component rather than naming individual files, because
+# naming files let interaction.h drift into presentation/ui_types.h unnoticed.
+if grep -R -n '#include "presentation/' src/gameplay \
+    --include='*.c' --include='*.h'; then
+    fail "gameplay must not depend on presentation"
 fi
 grep -q '^void AlbumUiDraw(' src/presentation/album_ui.c ||
     fail "presentation must own album drawing"

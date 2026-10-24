@@ -17,10 +17,10 @@
 #include "gameplay/ship.h"
 #include "world/world_types.h"
 #include "world/chunks.h"
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 #include "app/app_types.h"
 #include "gameplay/player_types.h"
-#include "presentation/ui_types.h"
+#include "gameplay/ui_types.h"
 
 #include <stdbool.h>
 #include <stdint.h>

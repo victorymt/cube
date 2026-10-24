@@ -1,6 +1,6 @@
 #include "world/weather_impact.h"
 
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 
 #include "world/fluid.h"
 #include "world/surface_topology.h"

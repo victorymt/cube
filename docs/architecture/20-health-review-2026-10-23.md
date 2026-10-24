@@ -10,12 +10,12 @@
 
 但有 **4 个具体问题**值得处理，按严重度排列：
 
-| # | 问题 | 严重度 | 性质 |
+| # | 问题 | 严重度 | 状态 |
 |---|---|---|---|
-| 1 | `FloraTaxonId` 归属错位，形成 world↔ecology 概念循环 | **中** | 真实的模型缺陷 |
-| 2 | `presentation/ui_types.h` 被 gameplay 反向依赖 | **中** | 明确的分层违规 |
-| 3 | `GameRuntime` 137 字段，app 内部耦合中心 | 低 | 可维护性负担，未外泄 |
-| 4 | `world` 59 个公共头，接口面过宽 | 低 | 渐进劣化风险 |
+| 1 | `flora_taxa` 整个模块放错组件，造成 world→ecology 反向边 | **中** | **已修复**（见 §9） |
+| 2 | `presentation/ui_types.h` 被 gameplay 反向依赖，且规则有漏洞 | **中** | **已修复**（见 §9） |
+| 3 | `GameRuntime` 137 字段，app 内部耦合中心 | 低 | 未处理 |
+| 4 | `world` 59 个公共头，接口面过宽 | 低 | 未处理 |
 
 ---
 
@@ -45,59 +45,58 @@ app:      69   204    47   26   48   51    -
 
 ---
 
-## 2. 问题 1：`FloraTaxonId` 归属错位（中等）
+## 2. 问题 1：`flora_taxa` 整个模块放错了组件（中等）
+
+> 本节在开始修复时被修正过一次。初版诊断说"只有一个枚举归属错位"，实测后
+> 发现范围大得多：world 依赖的是整个物种目录，不是单个枚举。
 
 ### 现象
 
-`FloraTaxonId` 枚举定义在 `src/ecology/flora_taxa.h`，但 `world` 组件有 7 处依赖它：
+`src/ecology/flora_taxa.{c,h}` 在 ecology 组件下，但实测：
 
-```
-src/world/terrain.c
-src/world/weather_impact.c
-src/world/chunks_flora.c
-src/world/terrain.h          ← 公共头
-src/world/home_tree_shape.h
-src/world/chunks_runtime.c
-src/world/chunks_plant_mesh.c
-```
+| 检查项 | 结果 |
+|---|---|
+| ecology 内部有谁使用它 | **只有它自己**（`flora_taxa.c` 和 `.h`） |
+| world 使用 | 7 处，含公共头 `world/terrain.h`、`home_tree_shape.h` |
+| app 使用 | 2 处（`game_debug_flora.c`、`game_runtime.h`） |
+| `flora_taxa.c` 的外部依赖 | 只有 `world/world_types.h` 和 `math.h` |
 
-同时 `ecology/flora_taxa.h` 第 4 行又 `#include "world/world_types.h"`。
+`flora_taxa.h` 依赖 world 的类型：
+
+```c
+typedef struct FloraTaxon {
+    BlockType primaryBlock;   // world 的类型
+    BlockType accentBlock;
+} FloraTaxon;
+typedef struct FloraHabitat {
+    Biome biome;              // world 的类型
+    BlockType substrate;
+    ...
+} FloraHabitat;
+FloraTaxonId FloraTaxonIdForBlock(BlockType block);
+```
 
 ### 为什么这是问题
 
-这不是编译环（`world_types.h` 不反向 include ecology，已核实），所以构建不会失败。问题是**概念归属混乱**：
+这不是"一个枚举放错位置"，而是**模块归属错误**：
 
-- 地形生成需要知道“这里长什么树”，所以 world 要认识 `FloraTaxonId`
-- 但“有哪些树种”是生态学概念，定义在 ecology
-- 结果是 world 无法独立于 ecology 理解和测试地形逻辑
+- 它的全部输入类型来自 world（`BlockType`、`Biome`）
+- 它的全部消费者是 world 和 app
+- ecology 内部零使用
 
-`src/world/terrain.h` 是公共头，把 ecology 的类型写进 world 的公共契约，等于把耦合固化到接口层：
+也就是说 ecology 在为别人保管一个模块，并且因此制造了 `world → ecology` 的反向边。这才是矩阵里那 7 条边的真正来源。
 
-```c
-FloraTaxonId TerrainHomeTreeTaxonAt(int x, int z, TerrainMode mode);
-FloraTaxonId TerrainHomeGroundTaxonAt(int x, int z, TerrainMode mode, ...);
-```
+初版建议（只把 `FloraTaxonId` 提到 core）是**错的**：world 同时要 `FloraTaxon`、`FloraHabitat`、`FloraTaxonAt`、`FloraSelectTaxon`、`FloraTaxonSuitability` 等，只搬枚举并不能消除依赖，反而会把一个内聚的数据模块拆散。
 
 ### 建议
 
-`FloraTaxonId` 是纯标识符，按现有架构惯例应下沉到 `core` 或 `world/world_types.h`：
+把 `flora_taxa.{c,h}` 整体迁移到 `world/`：
 
-- **下沉到 core**：符合“中性值类型归 core”的既有规则（对照 `core/render_resources.h`、`core/game_notice.h` 的处理方式）
-- 这样 world 依赖 core（合法方向），ecology 也依赖 core，反向边消失
+- 依赖方向变成 `world → world`（自身），反向边消失
+- ecology 不再为别的组件保管数据，`ecology → world` 的 39 条边保持不变（那部分是合法的：生态确实要读世界状态）
+- 影响面：2 个文件移动 + 15 处引用改路径 + `mk/modules.mk`、`mk/tests.mk` 各一处
 
-**关键限制**：`flora_taxa.h` 是一个混合头，只有枚举适合下沉。同一个文件里还有：
-
-```c
-typedef struct FloraTaxon {        // 气温/湿度/光照范围、生物群系掩码……
-    FloraTaxonId id;
-    float temperatureMinK; ...
-} FloraTaxon;
-const FloraTaxon *FloraTaxonAt(FloraTaxonId id);   // 查询函数
-```
-
-这部分是**生态学数据与查询逻辑**，必须留在 ecology。所以动作是把 `FloraTaxonId` 枚举（约 25 行）单独提到 core 的一个头里，`flora_taxa.h` 反过来 include 它。不是整文件搬迁。
-
-**影响面**：1 处枚举提取 + 7 处 include 调整，测试基本不用改。`home_tree_shape.h` 里可能有纯几何逻辑，也值得一并审视是否同样错位。
+**待确认的设计判断**：迁到 world 后，`world` 就拥有了"有哪些树、各自适宜什么气候"的知识。另一种选择是把它留在 ecology、改由 `app` 在启动时把目录注入给 world（沿用 `WorldEcologyHooks` 的既有模式）。两种都能消除反向边；前者简单，后者概念更纯但要加一层注入接口。**本次按前者执行**，理由是 `flora_taxa` 已经在用 world 的类型，且 world 的地形生成必须同步地知道树种才能生成地形，注入式接口反而会引入生命周期问题。
 
 ---
 
@@ -255,3 +254,62 @@ done | sort -rn | head -20
 # 边界检查
 sh tests/test_architecture.sh
 ```
+
+---
+
+## 9. 修复记录（2026-10-24）
+
+问题 1、2 已修复并提交。矩阵前后对比：
+
+```
+修复前                                   修复后
+world:    11  -  9  7  0  0  0     →   world:    11  -  9  0  0  0  0
+gameplay:  7 40 11  0  -  1  0     →   gameplay:  7 40 11  0  -  0  0
+```
+
+剩余两条反向边未经改动，它们是**受控例外**，不是缺陷：
+
+- `space → ecology`（1）和 `space → gameplay`（1）都位于 `space/space_dependencies.h`。
+  该文件是声明式聚合头，`tests/test_architecture.sh` 对它做了显式白名单：
+  `grep -v 'src/space/space_dependencies.h:'`。其余 `space` 代码不得直接依赖。
+
+### 9.1 问题 1：`flora_taxa` 迁移到 world
+
+`src/ecology/flora_taxa.{c,h}` → `src/world/flora_taxa.{c,h}`。
+
+依据（修复前一节已列出，此处复述结论）：该模块只依赖 `world/world_types.h` 和
+`math.h`，ecology 内部零使用，消费者全部在 world 和 app。它不是"借放"在
+ecology 的公共数据，而是放错了位置的 world 模块。
+
+改动范围：2 个文件移动 + 12 处 include 路径 + `mk/modules.mk` 1 处 +
+`mk/tests.mk` 2 处。
+
+结果：`world → ecology` 从 7 降至 **0**。
+
+### 9.2 问题 2：`ui_types.h` 迁移到 gameplay，并补上规则漏洞
+
+`src/presentation/ui_types.h` → `src/gameplay/ui_types.h`。
+
+依据：`ImportDialog` 由 gameplay 的 `interaction.c` 定义和修改
+（`OpenImportDialog` / `AppendImportText` / `UpdateImportDialog`），presentation
+只负责把它画出来（`DrawImportDialog`）。数据的所有者不是绘制方。
+
+规则漏洞：原检查只点名 `album.{c,h}` 和 `discovery.{c,h}`，因此
+`interaction.h` 的违规一直没被发现。已改为覆盖整个 `gameplay` 组件：
+`grep -R '#include "presentation/' src/gameplay`。
+
+**变异验证**：临时把 `interaction.h` 改回 `presentation/ui_types.h` 后，
+检查输出 `architecture check failed: gameplay must not depend on presentation`，
+确认新规则会真正拦截，而不是形同虚设。
+
+### 9.3 验证
+
+- `make -j8`：无 error、无 warning
+- `make test`：**126 passed, 0 failed**，architecture checks passed
+- `grep -rn '#include "ecology/' src/world`：无输出
+
+### 9.4 本次未做
+
+问题 3（`GameRuntime` 137 字段）与问题 4（world 59 个公共头）保持未处理。
+前者是 app 内部重构、风险低但收益也低；后者应在 W3 大规模改造之前再做，
+否则做完立刻又被新代码覆盖。

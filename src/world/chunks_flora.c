@@ -1,6 +1,6 @@
 #include "world/chunks_internal.h"
 
-#include "ecology/flora_taxa.h"
+#include "world/flora_taxa.h"
 #include "world/home_tree_shape.h"
 
 #include <limits.h>
