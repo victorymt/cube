@@ -7,7 +7,7 @@
 #include "world/radiation_runtime.h"
 #include "world/terrain.h"
 #include "world/surface_topology.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "world/world_environment.h"
 #include "world/world_surface_snapshot.h"
 

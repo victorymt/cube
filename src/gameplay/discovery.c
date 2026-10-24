@@ -5,7 +5,7 @@
 #include "gameplay/inventory.h"
 #include "space/space_state.h"
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 
 #include <math.h>
 #include <stdio.h>

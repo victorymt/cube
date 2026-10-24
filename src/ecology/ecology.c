@@ -2,7 +2,7 @@
 
 #include "space/space_state.h"
 #include "world/surface_topology.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include <math.h>

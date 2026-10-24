@@ -8,6 +8,7 @@
 #include "space/space.h"
 #include "space/space_system_physics.h"
 #include "world/terrain.h"
+#include "world/world_state.h"
 #include "world/ecology_hooks.h"
 #include "world/surface_topology.h"
 #include "world/weather.h"

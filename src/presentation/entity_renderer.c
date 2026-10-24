@@ -4,7 +4,8 @@
 #include "presentation/creature_pose.h"
 #include "ecology/ecology.h"
 #include "space/space_state.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 
 #include "raymath.h"
 #include "rlgl.h"

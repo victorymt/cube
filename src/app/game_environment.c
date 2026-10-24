@@ -22,7 +22,9 @@
 #include "world/weather.h"
 #include "world/weather_impact.h"
 #include "world/tornado.h"
-#include "world/world.h"
+#include "world/world_state.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/world_surface_snapshot.h"
 
 #include "raymath.h"

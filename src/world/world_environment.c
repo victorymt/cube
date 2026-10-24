@@ -2,7 +2,7 @@
 
 #include "world/terrain.h"
 #include "world/terrain_cube.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "world/world_surface_snapshot.h"
 
 #include <math.h>

@@ -3,7 +3,7 @@
 #include "world/volcano_deposition_model.h"
 #include "world/lava_runtime.h"
 #include "world/ash_runtime.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 #include <math.h>
 

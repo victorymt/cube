@@ -5,7 +5,7 @@
 #include "space/space_query.h"
 #include "space/space_state.h"
 #include "space/space_units.h"
-#include "world/world.h"
+#include "world/world_state.h"
 
 #include "raymath.h"
 

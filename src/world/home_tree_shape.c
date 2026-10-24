@@ -2,7 +2,7 @@
 
 #include "world/chunks.h"
 #include "world/surface_topology.h"
-#include "world/world.h"
+#include "world/world_state.h"
 
 #include <math.h>
 #include <stddef.h>

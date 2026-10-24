@@ -1,6 +1,6 @@
 #include "ecology/ecology_population_internal.h"
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 
 #include <math.h>
 

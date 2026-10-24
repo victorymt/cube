@@ -3,7 +3,8 @@
 #include "app/game_runtime.h"
 #include "world/block_atlas.h"
 #include "world/chunks.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include <ctype.h>

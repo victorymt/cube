@@ -2,7 +2,8 @@
 
 #include "world/fluid.h"
 #include "gameplay/ship.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include <assert.h>

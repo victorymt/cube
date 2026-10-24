@@ -4,7 +4,8 @@
 #include "world/flora_taxa.h"
 #include "world/terrain.h"
 #include "world/weather_impact.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 
 #include <ctype.h>
 #include <errno.h>

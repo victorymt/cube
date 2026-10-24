@@ -1,6 +1,6 @@
 #include "gameplay/inventory.h"
 
-#include "world/world.h"
+#include "world/block_types.h"
 
 #include <stdint.h>
 #include <string.h>

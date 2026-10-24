@@ -17,7 +17,8 @@
 #include "world/terrain.h"
 #include "world/weather.h"
 #include "world/weather_impact.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include "raymath.h"

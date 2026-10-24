@@ -1,3 +1,5 @@
+#include "world/block_types.h"
+#include "world/world_state.h"
 #include "world/chunks.h"
 #include "ecology/ecology.h"
 #include "ecology/evolution_catalog.h"

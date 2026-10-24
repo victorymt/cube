@@ -13,7 +13,9 @@
 #include "raymath.h"
 #include "world/chunks.h"
 #include "world/ecology_hooks.h"
-#include "world/world.h"
+#include "world/block_edits.h"
+#include "world/block_types.h"
+#include "world/world_state.h"
 #include "world/world_environment.h"
 #include "world/world_surface_snapshot.h"
 
@@ -24,7 +26,6 @@
 #include <string.h>
 
 #include "world/chunks.h"
-#include "world/world.h"
 
 static PlanetChunkDecorator planetChunkDecorator;
 

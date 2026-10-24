@@ -6,7 +6,7 @@
 #include "core/debug_control.h"
 #include "world/chunks.h"
 #include "world/cga_voxel.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "gameplay/interaction.h"
 
 #include "raylib.h"

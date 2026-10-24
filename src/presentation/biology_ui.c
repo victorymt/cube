@@ -8,7 +8,7 @@
 #include "presentation/creature_renderer.h"
 #include "presentation/render.h"
 #include "space/space_state.h"
-#include "world/world.h"
+#include "world/world_state.h"
 
 #include "raylib.h"
 

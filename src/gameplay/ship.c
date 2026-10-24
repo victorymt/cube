@@ -8,7 +8,7 @@
 #include "gameplay/ship_visual_internal.h"
 
 #include "raymath.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 #include "gameplay/player.h"
 #include "space/space_chunks.h"
 #include "space/space_query.h"

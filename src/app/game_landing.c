@@ -12,7 +12,6 @@
 #include "space/space_world_transition.h"
 #include "space/space_units.h"
 #include "world/terrain.h"
-#include "world/world.h"
 #include "world/world_environment.h"
 
 #include "raylib.h"

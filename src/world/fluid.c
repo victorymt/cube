@@ -1,7 +1,7 @@
 #include "world/fluid.h"
 
 #include "world/chunks_internal.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include <limits.h>

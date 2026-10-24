@@ -1,7 +1,8 @@
 #include "app/game_stream_audit.h"
 
 #include "world/chunks.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 
 #include <assert.h>
 #include <stdio.h>

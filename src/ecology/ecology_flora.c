@@ -3,7 +3,6 @@
 #include "space/space_state.h"
 #include "world/chunks.h"
 #include "world/terrain.h"
-#include "world/world.h"
 
 #include <stdint.h>
 #include <stdlib.h>

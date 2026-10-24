@@ -21,7 +21,9 @@
 #include "space/space_state.h"
 #include "world/terrain.h"
 #include "world/weather.h"
-#include "world/world.h"
+#include "world/world_state.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include <math.h>

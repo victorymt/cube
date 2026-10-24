@@ -1,7 +1,7 @@
 #include "world/chunks.h"
 #include "world/chunks_internal.h"
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "world/world_environment.h"
 #include "world/world_surface_snapshot.h"
 

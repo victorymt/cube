@@ -1,6 +1,6 @@
 #include "world/terrain.h"
 #include "world/landform_runtime.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "world/world_surface_snapshot.h"
 #include "world/volcano_history_cache.h"
 #include "world/terrain_generation.h"

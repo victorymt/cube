@@ -4,7 +4,8 @@
 #include "raymath.h"
 #include "world/chunks.h"
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_lighting.h"
 
 #include <math.h>
 #include <stdbool.h>

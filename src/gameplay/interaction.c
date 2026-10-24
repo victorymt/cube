@@ -3,7 +3,9 @@
 #include "core/game_notice.h"
 #include "raymath.h"
 #include "world/chunks.h"
-#include "world/world.h"
+#include "world/block_edits.h"
+#include "world/block_types.h"
+#include "world/world_state.h"
 #include "world/terrain.h"
 #include "gameplay/player.h"
 #include "space/space_chunks.h"
@@ -21,7 +23,6 @@
 #include <string.h>
 
 #include "world/chunks.h"
-#include "world/world.h"
 #include "world/terrain.h"
 #include "gameplay/player.h"
 

@@ -4,7 +4,7 @@
 #include "world/weather.h"
 #include "space/planet_atmosphere.h"
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/world_state.h"
 
 #include <math.h>
 #include <stddef.h>

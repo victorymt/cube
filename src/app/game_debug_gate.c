@@ -2,7 +2,6 @@
 
 #include "app/game_runtime.h"
 #include "gameplay/ship.h"
-#include "world/world.h"
 
 #include <stddef.h>
 

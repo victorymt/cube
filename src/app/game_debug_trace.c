@@ -8,7 +8,8 @@
 #include "gameplay/player.h"
 #include "world/chunks.h"
 #include "world/fluid.h"
-#include "world/world.h"
+#include "world/world_state.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include <errno.h>

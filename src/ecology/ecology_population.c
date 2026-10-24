@@ -4,7 +4,7 @@
 
 #include "world/terrain.h"
 #include "world/weather.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 
 #include <limits.h>
 #include <math.h>

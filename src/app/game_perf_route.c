@@ -3,7 +3,7 @@
 #include "core/perf.h"
 #include "raymath.h"
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/world_state.h"
 
 #include <math.h>
 

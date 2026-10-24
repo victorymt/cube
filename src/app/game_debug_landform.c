@@ -2,7 +2,7 @@
 #include "app/game_internal.h"
 #include "world/landform_runtime.h"
 #include "world/terrain_generation.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "world/world_surface_snapshot.h"
 #include "raymath.h"
 #include <math.h>

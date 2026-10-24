@@ -11,7 +11,9 @@
 #include "world/radiation_runtime.h"
 #include "world/hydrology_runtime.h"
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/world_state.h"
+#include "world/block_lighting.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include "raymath.h"

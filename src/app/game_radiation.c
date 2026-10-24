@@ -9,7 +9,7 @@
 #include "world/surface_topology.h"
 #include "world/terrain.h"
 #include "world/weather.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "world/world_environment.h"
 
 #include <math.h>

@@ -1,5 +1,5 @@
 #include "world/block_atlas.h"
-#include "world/world.h"
+#include "world/block_types.h"
 
 #include <assert.h>
 #include <math.h>

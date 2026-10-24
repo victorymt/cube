@@ -1,4 +1,6 @@
 #include "space/space_internal.h"
+#include "world/block_lighting.h"
+#include "world/block_types.h"
 
 #include "core/game_effects.h"
 

@@ -6,7 +6,7 @@
 #include "world/terrain.h"
 #include "world/world_environment.h"
 #include "world/world_surface_snapshot.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 #include "world/world_persistence.h"
 
 #include <assert.h>

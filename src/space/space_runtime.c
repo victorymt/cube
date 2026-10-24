@@ -1,4 +1,5 @@
 #include "space/space_internal.h"
+#include "world/world_state.h"
 
 #include "core/simulation_time.h"
 

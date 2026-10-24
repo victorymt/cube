@@ -5,7 +5,7 @@
 #include "world/chunks.h"
 #include "world/surface_topology.h"
 #include "presentation/homeworld_map.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "app/game_world_transition.h"
 #include "app/game_internal.h"
 #include "world/world_surface_snapshot.h"

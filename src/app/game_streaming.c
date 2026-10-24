@@ -10,7 +10,7 @@
 #include <math.h>
 #include "world/surface_pose.h"
 #include "world/nether.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "world/world_environment.h"
 
 /* Releases the cube generation input. Called whenever the surface is torn down

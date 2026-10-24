@@ -9,7 +9,7 @@
 #include "world/chunks.h"
 #include "gameplay/inventory.h"
 #include "gameplay/map_markers.h"
-#include "world/world.h"
+#include "world/block_types.h"
 #include "gameplay/interaction.h"
 #include "space/planet_material.h"
 #include "presentation/planet_renderer.h"

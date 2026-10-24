@@ -3,7 +3,7 @@
 #include "world/chunks.h"
 #include "world/terrain.h"
 #include "world/terrain_generation.h"
-#include "world/world.h"
+#include "world/world_state.h"
 
 #include <limits.h>
 #include <stdlib.h>

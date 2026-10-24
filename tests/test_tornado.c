@@ -2,7 +2,9 @@
 
 #include "core/game_effects.h"
 #include "world/surface_topology.h"
-#include "world/world.h"
+#include "world/world_state.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include <assert.h>

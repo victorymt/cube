@@ -3,7 +3,7 @@
 #include "presentation/render_ui.h"
 #include "world/block_atlas.h"
 #include "world/chunks.h"
-#include "world/world.h"
+#include "world/block_types.h"
 #include <math.h>
 
 #define COLS 10

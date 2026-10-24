@@ -3,7 +3,8 @@
 
 #define chunks (ChunksMutableForTesting())
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/world_state.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 #include "world/world_extension.h"
 #include "world/world_persistence.h"

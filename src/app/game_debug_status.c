@@ -11,7 +11,9 @@
 #include "world/fluid.h"
 #include "world/surface_topology.h"
 #include "world/terrain.h"
-#include "world/world.h"
+#include "world/world_state.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "raymath.h"
 
 #include <math.h>

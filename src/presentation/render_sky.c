@@ -7,7 +7,7 @@
 #include "world/block_atlas.h"
 #include "world/chunks.h"
 #include "gameplay/inventory.h"
-#include "world/world.h"
+#include "world/world_state.h"
 #include "gameplay/interaction.h"
 #include "space/planet_material.h"
 #include "space/planet_observation.h"
@@ -99,7 +99,6 @@ void UpdatePlanetSceneExposure(const Camera3D *camera)
 }
 
 #include "world/chunks.h"
-#include "world/world.h"
 #include "gameplay/interaction.h"
 #include "world/terrain.h"
 #include "presentation/particles.h"

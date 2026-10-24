@@ -4,7 +4,7 @@
 #include "raymath.h"
 #include "rlgl.h"
 #include "world/block_catalog.h"
-#include "world/world.h"
+#include "world/block_types.h"
 
 #include <stdbool.h>
 

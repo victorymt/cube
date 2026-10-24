@@ -96,6 +96,36 @@ if grep -R -nE '#include "(space/space\.h|space/space_dependencies\.h|ecology/ec
     fail "world must use narrow domain contracts, not aggregate/private facades"
 fi
 
+# world/world.h is an aggregate kept only so existing callers compile: it now
+# owns chunk notifications and re-exports the four focused headers. Anything
+# new must include the focused header, otherwise the aggregate grows back into
+# the god header it was split out of. Three callers legitimately need the chunk
+# notifications, and the internal chunk facade needs all four groups.
+aggregate_world_includes=$(
+    grep -R -l '#include "world/world.h"' src/ tests/ \
+        --include='*.c' --include='*.h' |
+        grep -vE '^src/world/(world\.c|chunks_dependencies\.h)$' || true
+)
+[ -z "$aggregate_world_includes" ] || {
+    printf '%s\n' "$aggregate_world_includes" >&2
+    fail "include a focused world header, not the world/world.h aggregate"
+}
+
+# The focused headers must stay independent: none may include a sibling, which
+# would recreate the entanglement the split removed. block_types.h is a leaf on
+# purpose, so every consumer can include it without pulling in edit storage.
+for focused_header in \
+    src/world/world_state.h \
+    src/world/block_types.h \
+    src/world/block_lighting.h \
+    src/world/block_edits.h
+do
+    if grep -nE '#include "world/(world|world_state|block_types|block_lighting|block_edits)\.h"' \
+        "$focused_header"; then
+        fail "$focused_header must not include a sibling world header"
+    fi
+done
+
 if grep -R -n '#include "space/space_state.h"' src/world \
     --include='*.c' --include='*.h'; then
     fail "world surface state must enter through WorldSurfaceSnapshot"

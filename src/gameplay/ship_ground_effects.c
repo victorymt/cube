@@ -4,7 +4,8 @@
 #include "gameplay/ship_exhaust.h"
 #include "raymath.h"
 #include "world/block_atlas.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 
 #include <math.h>

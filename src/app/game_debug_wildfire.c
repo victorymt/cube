@@ -3,7 +3,7 @@
 #include "app/game_runtime.h"
 #include "world/weather_impact.h"
 #include "world/wildfire_model.h"
-#include "world/world.h"
+#include "world/block_edits.h"
 
 #include <stdio.h>
 

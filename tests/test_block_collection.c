@@ -1,5 +1,6 @@
 #include "gameplay/inventory.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/world_environment.h"
 #include "world/ash_runtime.h"
 #include "world/lava_runtime.h"

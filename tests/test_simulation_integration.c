@@ -5,6 +5,8 @@
 #include "core/simulation_replay.h"
 #include "ecology/ecology.h"
 #include "world/block_catalog.h"
+#include "world/block_edits.h"
+#include "world/block_types.h"
 #include "world/fluid.h"
 #include "world/surface_topology.h"
 #include "world/terrain.h"

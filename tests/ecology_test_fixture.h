@@ -3,7 +3,6 @@
 
 #include "world/chunks.h"
 #include "space/space.h"
-#include "world/world.h"
 
 #include <stdint.h>
 #include <stdio.h>

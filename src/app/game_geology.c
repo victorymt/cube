@@ -18,7 +18,8 @@
 #include "space/space_state.h"
 #include "space/space_runtime.h"
 #include "world/world_surface_snapshot.h"
-#include "world/world.h"
+#include "world/block_types.h"
+#include "world/block_edits.h"
 #include "world/terrain.h"
 #include <inttypes.h>
 #include <math.h>

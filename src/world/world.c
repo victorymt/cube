@@ -1,3 +1,7 @@
+#include "world/world_state.h"
+#include "world/block_types.h"
+#include "world/block_lighting.h"
+#include "world/block_edits.h"
 #include "world/world.h"
 #include "world/world_cube.h"
 #include "world/chunks_cube.h"
