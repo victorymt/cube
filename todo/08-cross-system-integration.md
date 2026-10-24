@@ -42,7 +42,7 @@ second climate field, ecology cache entry, population region, or impact key.
   sample, while ecology compares local ecology, population/cache results, and
   evolution-region state. Existing wildfire and fluid suites retained their
   canonical identity and load-migration coverage.
-- The normal and ASan/UBSan gates each passed 75 tests with 0 failures. The
+- The normal and ASan/UBSan gates each passed 75 tests with 0 failures. The <!-- volatile-counts:allow -->
   long-run weather gate passed, and the chunk benchmark passed with median
   `8.844 ms`, P95 `9.416 ms`, `mesh_snapshot_bytes=8192`, and
   `sync_rebuilds=0`.

@@ -40,11 +40,9 @@ wired into the production fixed step; full player health/death, animal heat haza
 dynamic lava ignition and cross-process persistence remain deferred. Ecological
 restoration remains deferred.
 
-Current terrain work is tracked in [surface-neutral landforms](../landform-planets.md),
+Terrain work is recorded in [surface-neutral landforms](../landform-planets.md),
 [landform quality](../landform-quality.md), and the [cube-grid activation plan](../cube-activation-plan.md).
-A cube world is reachable through `surface debug cube` and the player loop works,
-but the default runtime grid is still legacy and polar visual coverage remains
-blocked by the grid itself.
+What is open today is recorded once, in [STATUS.md](../../STATUS.md).
 
 ## Implementation, verification, and limits
 

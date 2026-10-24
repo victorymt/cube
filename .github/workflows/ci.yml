@@ -34,6 +34,8 @@ jobs:
         run: |
           make CC=${{ matrix.compiler }} \
             CFLAGS='-std=c99 -Wall -Wextra -Werror -O2 -pthread' test
+      - name: Check documentation
+        run: make check-docs
       - name: Check generated files
         run: |
           git diff --check

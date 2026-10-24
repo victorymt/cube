@@ -64,7 +64,7 @@ speed, phase and turn previews and `make test-animal-pose-e2e`.
 Validation on 2026-10-03: the normal suite passed 94 binaries and failed the
 pre-existing `test_chunk_streaming` predictive-preload capacity assertion; the
 same assertion failed in an isolated checkout of baseline `e7a221f`. The existing
-architecture gate also rejects unchanged `render_ui.c` (1576 lines against its
+architecture gate also rejects unchanged `render_ui.c` (1576 lines against its <!-- volatile-counts:allow -->
 1500-line limit). The five pose/behavior/anatomy/replay/DSL binaries passed with
 ASan, UBSan and `-Werror`. The animal DSL route captured 39 poses and the revised
 flight route captured 13 more. The existing graphics regression passed after

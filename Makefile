@@ -258,3 +258,7 @@ test-surface-cube: $(SURFACE_CUBE_TEST_TARGET) $(SURFACE_TOPOLOGY_TEST_TARGET) $
 .PHONY: test-surface-topology-e2e
 test-surface-topology-e2e: $(TARGET)
 	bash tests/test_surface_topology_e2e.sh $(TARGET)
+
+.PHONY: check-docs
+check-docs:
+	node scripts/check-docs.mjs --root .

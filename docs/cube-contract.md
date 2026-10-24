@@ -72,7 +72,7 @@
 | 实测最大请求 | **1560** | `test_surface_coverage` | **超过 625，真实路径会饱和** |
 | cube 编辑上限 | 1,048,576 | `WORLD_CUBE_MAX_EDITS` | 超限拒绝，不静默丢弃 |
 
-**饱和是合法状态，不是错误**：`SurfaceCoverageCollect` 会返回 `saturated=true` 并保留最近的 625 项。契约要求：
+**饱和是合法状态，不是错误**：`SurfaceCoverageCollect` 会返回 `saturated=true` 并保留最近的 625 项。契约要求： <!-- volatile-counts:allow -->
 
 1. 任何报告**不得**把饱和结果标成“完整覆盖”；
 2. 降级策略必须显式（当前为“最近优先保留”），不能靠加大距离掩盖；

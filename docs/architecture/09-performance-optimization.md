@@ -20,7 +20,7 @@ do not establish them as the dominant cost.
 
 Three local benchmark samples on 2026-08-30 reported medians of 36.862 ms,
 38.036 ms, and 45.540 ms; each retained `mesh_snapshot_bytes=8192` and
-`sync_rebuilds=0`. The full C manifest passed 86 tests after the later
+`sync_rebuilds=0`. The full C manifest passed 86 tests after the later <!-- volatile-counts:allow -->
 simulation stages. The dedicated CI performance job runs the same benchmark;
 the graphics job uses a real Hyprland runner and the project's DSL E2E route.
 

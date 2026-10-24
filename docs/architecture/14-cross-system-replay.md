@@ -88,7 +88,7 @@ Validated on 2026-09-19:
   and changed-input assertions passed.
 - `make -s -j4 test`: 92 passed, 0 failed, including 149 public headers,
   seven component archives, plugin/debug CLI checks and the architecture gate.
-- `make -s -j4 TEST_TIMEOUT_SECONDS=300 test-sanitize`: 92 passed, 0 failed
+- `make -s -j4 TEST_TIMEOUT_SECONDS=300 test-sanitize`: 92 passed, 0 failed <!-- volatile-counts:allow -->
   with ASan/UBSan and leak detection enabled. The integration route took
   approximately 2 seconds. The existing entity/ecology test took 86 seconds
   normally and 178 seconds with instrumentation, hence the sanitizer run's

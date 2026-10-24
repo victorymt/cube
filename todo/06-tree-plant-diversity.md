@@ -170,12 +170,12 @@ builds but Homeworld natural generation uses named taxa.
   narrow/columnar, drooping, dense-conical, and sparse-conifer silhouettes,
   different bark/foliage palettes, and the seven ground specimens; its report
   records all 13 taxa and the exact 6/7 gallery split.
-- `make test` passed all 74 tests plus public-header, module-archive,
+- `make test` passed all 74 tests plus public-header, module-archive, <!-- volatile-counts:allow -->
   clean-build, and architecture gates. `make test-sanitize` passed the same 74
   tests with ASan/UBSan and `-Werror`; `make test-long-run` passed;
   `make test-e2e` passed with a zero-issue ravine stream audit; and
   `git diff --check` passed. The production hotspots remain within limits:
-  `src/world/chunks_mesh.c` is 1,500 lines and `src/app/game_debug.c` is 2,044.
+  `src/world/chunks_mesh.c` is 1,500 lines and `src/app/game_debug.c` is 2,044. <!-- volatile-counts:allow -->
 - The standard Medium performance route passed schema 3 with 720 route frames,
   120 warmup frames, and 600 samples. CPU frame p95 was 10.489 ms, GPU frame
   p95 was 0.551 ms, generation and mesh jobs completed `847/847` and

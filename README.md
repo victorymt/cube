@@ -6,21 +6,9 @@ preserved in world saves. Chunks are rendered as cached visible-face meshes and
 rebuilt only when nearby terrain changes. Block textures are generated at
 startup as a small pixel-art atlas.
 
-## Current status (2026-10-23)
+## Current status
 
-The original expansion and simulation stages are implemented within their
-recorded scope. Current work is the cube-grid activation: the cube world is
-reachable at runtime through `surface debug cube`, the player lands and walks on
-it, block picking is cube-based, and cube edit storage round-trips through a
-save section. The default runtime is still the legacy map grid with V29 saves;
-cube-grid is reachable only through that debug entry point and is not a shipping
-mode. Two blockers remain open: terrain above the player still renders
-vertically stretched, and fluid is suspended on cube surfaces because the edit
-queue cannot carry cube chunk identity.
-The activation target is both Homeworld and planets, using cube base 9 plus the
-historical layer 11 and V30 saves requiring a new world. See the
-[current roadmap](todo/00-roadmap.md), [cube activation plan](docs/cube-activation-plan.md)
-and [cube-grid contract](docs/cube-contract.md).
+Current work, open blockers, and the activation target: see [STATUS.md](STATUS.md).
 
 ## Features
 
@@ -266,6 +254,7 @@ Practical notes:
 ```sh
 make test
 make test-sanitize
+make check-docs
 # Focused input-log and cross-system deterministic replay checks:
 make test-simulation-replay
 ```
@@ -301,7 +290,8 @@ release-package jobs. Graphics CI requires a self-hosted `hyprland` runner and
 `VOXELCRAFT_HYPRLAND_RUNNER=true`.
 
 Implementation milestones and acceptance evidence are tracked separately in
-the [architecture index](docs/architecture/README.md). Roadmap stages marked
+the [architecture index](docs/architecture/README.md), and the rules those
+documents follow are in [documentation rules](docs/documentation-rules.md). Roadmap stages marked
 complete describe their bounded implementation scope: climate and hydrology
 currently integrate one active 128x128 region, without global heat transport,
 dynamic global river transport, ocean currents, or off-screen catchment

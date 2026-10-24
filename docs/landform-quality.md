@@ -96,8 +96,6 @@ earlier requirement to preserve Homeworld v7/v8 fingerprints. After visual accep
 calibrate flow diagnostics before designing a separately versioned Coriolis
 bias. The present fixed-runoff diagnostic is not a calibrated migration model.
 
-The foundation is documented in [surface-cube.md](surface-cube.md).
-Continuous poses, v9 base generation, cube chunk keys, shape queries and physical
-coverage have independent tests, but the running game's streaming, collision
-coordinates and saves have not switched. The polar visual blocker above
-remains open until runtime integration and replay verification are complete.
+The cube grid's coordinates, generation, chunk keys, shape queries and physical
+coverage are documented in [surface-cube.md](surface-cube.md). What is open in
+the running game, including polar coverage, is recorded in [STATUS.md](../STATUS.md).

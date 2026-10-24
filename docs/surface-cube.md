@@ -6,18 +6,8 @@
 > [cube activation contract](cube-contract.md). This document keeps the
 > narrative and stage history; where the two disagree, the contract wins.
 
-Cube-grid now has continuous poses, explicit cell/chunk identity, an immutable
-v9 base generator, shared projected geometry and physical coverage enumeration.
-Runtime adapters now cover generation, in-memory edits, budgeted cube admission,
-mesh projection and render bounds.
-**The default runtime still uses the legacy map grid.** Since 2026-10-22 a cube
-world is reachable through `surface debug cube`, which opens a runtime gate,
-installs a cube policy and drives streaming from cube coverage; on that path the
-player lands, walks and picks blocks by cube identity, and cube edits round-trip
-through their own save section. It is a debug entry point, not a shipping mode:
-the polar defect is not yet fixed, terrain above the player still renders
-vertically stretched, and fluid is suspended on cube surfaces. The current save
-format remains V29.
+Current state: see [STATUS.md](../STATUS.md).
+
 Primitives exercised in isolation must not be mistaken for completion of the
 normal-game conversion.
 
@@ -113,11 +103,11 @@ F9/DSL callers reset clocks/input only on successful loads. Unknown topology
 versions and a cube-grid descriptor whose dedicated runtime gate is closed
 receive explicit rejection.
 
-The current legacy runtime still uses the legacy map grid with terrain
-generation version 11 (which includes the v7 drainage base, v8 river terraces
-and v11 historical volcanic layers). The approved activation target below
-supersedes preservation of those fingerprints; V29 legacy-grid saves will not
-be migrated to that target.
+The legacy map grid uses terrain generation version 11 (which includes the v7
+drainage base, v8 river terraces and v11 historical volcanic layers). The
+approved activation target below supersedes preservation of those fingerprints;
+V29 legacy-grid saves will not be migrated to that target. Which grid the
+running game uses is recorded in [STATUS.md](../STATUS.md).
 
 ### Validation commands
 
@@ -267,7 +257,7 @@ duplicate submission, queue capacity, queued cancellation, missing workers,
 allocation failure and stale result rejection. Its game environment is a
 neutral fixture; it is not an in-game cube-grid acceptance test.
 
-Validation: `make -j12 test all` passed 120 test binaries, public-header checks,
+Validation: `make -j12 test all` passed 120 test binaries, public-header checks, <!-- volatile-counts:allow -->
 module/game builds, debug CLI/protocol checks and architecture/clean-build
 guards. The final focused rerun passed all eight `make test-surface-cube`
 binaries and the legacy chunk-streaming test. The cube generation queue test

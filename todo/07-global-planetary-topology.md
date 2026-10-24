@@ -1,10 +1,6 @@
 # Stage 07: Global planetary topology and seamless traversal
 
-Current coverage limit (2026-10-08): the recorded identity/protocol checks do not
-establish polar ground coverage. The [landform replay](../docs/landform-quality.md)
-reproduces a narrow polar strip on wet and dry planets. The
-[cube-grid foundation](../docs/surface-cube.md) is tested but not integrated into
-the runtime; polar visual acceptance remains open.
+What the recorded identity and protocol checks do not establish, and why polar ground coverage stays open: see [Global Planetary Topology](../docs/architecture/07-global-topology.md#current-coverage-limit).
 
 ## Purpose
 
@@ -94,9 +90,9 @@ useful to the renderer, but they are never the persistence identity.
   arbitrary inputs, and canonical spherical noise. Save tests cover schema 1
   migration, schema 2 canonical addresses, transactional rejection, marker
   migration, and spherical player/entity state.
-- The full normal test gate passed 75 tests with 0 failures, including public
+- The full normal test gate passed 75 tests with 0 failures, including public <!-- volatile-counts:allow -->
   headers, module archives, clean-build guards, and architecture checks. The
-  sanitizer gate passed the same 75 tests with ASan/UBSan; the long-run weather
+  sanitizer gate passed the same 75 tests with ASan/UBSan; the long-run weather <!-- volatile-counts:allow -->
   test and chunk benchmark also passed. The benchmark reported median `8.889
   ms`, P95 `9.119 ms`, `mesh_snapshot_bytes=8192`, and `sync_rebuilds=0`.
 - The retained graphical E2E route passed with
