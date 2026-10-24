@@ -24,6 +24,14 @@ Three local benchmark samples on 2026-08-30 reported medians of 36.862 ms,
 simulation stages. The dedicated CI performance job runs the same benchmark;
 the graphics job uses a real Hyprland runner and the project's DSL E2E route.
 
+That CI job was broken between the volcano-mountain integration and 2026-10-24:
+`mk/tests.mk` linked the benchmark without `PLANET_SURFACE_SRC`, so the target
+failed to link instead of producing a number. The manifest now carries the full
+closure and de-duplicates shared sources; the four semantic invariants
+(`mesh_snapshot_bytes=8192`, `solid_vertices_per_chunk=2187.8`,
+`solid_vertex_reduction_percent=68.5`, `sync_rebuilds=0`) were re-confirmed after
+the fix.
+
 Known limits: benchmark variance is visible on a loaded desktop, and the full
 graphics E2E route timed out in its final long polar-input scenario in the
 current session even though the shorter graphics/debug route passed. This is a

@@ -1,7 +1,11 @@
 # Terrain and mesh performance baseline
 
-The repository benchmark is a repeatable mesh-pipeline baseline, not a
-machine-independent frame-time gate. Run it three times on the same host:
+This is a **dated baseline record**, not a portable frame-time gate. The recipe
+below is the only part of this page that stays current; every number is a
+snapshot of the host it ran on, and elapsed times are only comparable within one
+host and one session.
+
+## Recipe
 
 ```sh
 for run in 1 2 3; do
@@ -10,23 +14,50 @@ for run in 1 2 3; do
 done
 ```
 
-The reference run recorded on 2026-08-24 used seed `1448040515`, 20 measured
-rounds, and 8 chunks per round. The three samples were:
+The benchmark prints its own `seed`, `rounds`, and `chunks_per_round`, so read
+those instead of trusting the numbers below. As of 2026-10-24 it reports
+`seed=1448040515`, `rounds=20`, `chunks_per_round=8`.
 
-| sample | median ms | p95 ms | snapshot bytes | solid vertices/chunk | reduction | sync rebuilds |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 37.376 | 38.437 | 8192 | 2187.8 | 68.5% | 0 |
-| 2 | 37.460 | 39.116 | 8192 | 2187.8 | 68.5% | 0 |
-| 3 | 37.928 | 40.837 | 8192 | 2187.8 | 68.5% | 0 |
+## Semantic invariants
 
-For a hot-path change, preserve these semantic invariants exactly:
+These are behaviour, not performance, and must hold after any hot-path change:
 
 - `mesh_snapshot_bytes = 8192`;
-- `solid_vertices_per_chunk = 2187.8` and `solid_vertex_reduction_percent = 68.5`;
+- `solid_vertices_per_chunk = 2187.8`, `solid_vertex_reduction_percent = 68.5`;
 - `sync_rebuilds = 0`.
 
-Compare elapsed time only against a same-host three-sample run; a change over
-roughly five percent should be investigated rather than treated as a portable
-failure. This benchmark exercises `BuildChunkMeshData` and related mesh
-emitters. It does not replace the planet generation, chunk streaming, or
-runtime scheduler tests, which must be run separately.
+`tests/benchmark_chunks.c` also prints `legacy_solid_vertices_per_chunk` (6952.5
+at the same baseline) so the reduction is derivable rather than asserted.
+
+## Samples
+
+Two sample sets exist. They are not comparable to each other: different hosts,
+different months, and the second ran after several terrain and volcano changes.
+
+| Recorded | sample medians (ms) | snapshot bytes | solid vertices/chunk | reduction | sync rebuilds |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 2026-08-24 | 37.376 / 37.460 / 37.928 | 8192 | 2187.8 | 68.5% | 0 |
+| 2026-10-24 | 53.406 / 53.659 / 53.445 | 8192 | 2187.8 | 68.5% | 0 |
+
+The 2026-08-24 p95 samples were 38.437, 39.116, and 40.837 ms; the 2026-10-24
+p95 sample measured 57.414 ms. The median moved by about 42% between the two
+sets. That is not evidence of a regression: the mesh emitter still produces the
+same bytes and vertices, and the intervening commits changed terrain sampling
+and volcano layering, so the comparison is a different workload.
+
+Compare elapsed time only against a same-host three-sample run taken now; a
+change over roughly five percent is worth investigating rather than treating as
+a portable failure.
+
+## Scope
+
+The benchmark exercises `BuildChunkMeshData` and the related mesh emitters. It
+does not replace the planet generation, chunk streaming, or runtime scheduler
+tests, which run separately. `make benchmark-chunks` is the CI performance job.
+
+It could not run at all from the volcano-mountain integration until 2026-10-24:
+`mk/tests.mk` linked the benchmark without `PLANET_SURFACE_SRC`, so the target
+failed to link. Anyone who "verified" performance in that window was measuring
+nothing. See
+[record 09](architecture/09-performance-optimization.md#architecture-chunk-performance-and-runtime-verification)
+for the boundary that owns that gate.

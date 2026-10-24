@@ -28,7 +28,8 @@ Current work, open blockers, and the activation target: see [STATUS.md](STATUS.m
 - Persistent volcanoes with fixed vents, finite lava inventory, local flow,
   cooling, water-contact reactions, ash layers, material-dependent cooling
   products, fractional collection, save/load and a `geology` debug DSL.
-  Heat damage and ecological restoration remain future work. See
+  Player heat exposure and a damage metric accumulate but do not yet reduce
+  health; animal heat hazards and ecological restoration remain future work. See
   [the implementation boundary](docs/architecture/18-volcano-preview.md).
 - Natural geology includes layered granite, limestone, shale, marble,
   chalk and gneiss; loam, podzol, silt and laterite vary soils and seabeds,

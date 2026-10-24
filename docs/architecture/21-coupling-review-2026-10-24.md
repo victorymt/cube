@@ -62,7 +62,7 @@ Header fan-in confirms it: `world/world.h` (67 includes, 6 components), `world/t
 
 `world/world.h` compounds this. It exposes 58 functions spanning five unrelated responsibilities: world lifecycle (`WorldGetSeed`, `WorldReset`), block taxonomy predicates (`IsWaterBlock`, `IsEcologyBlock`, …), torch lighting (`TorchLightAdd`, `CollectNearbyTorchLights`), edit bookkeeping (`WorldGetEditRevision`, undo groups), and block read/write (`GetBlockAt`, `SetBlock`). Any of the six consumers that wants one predicate drags in all five groups.
 
-Twelve headers under `src/world/` are included by no other component, but eleven of those twelve are used by tests, so most are legitimate test seams rather than leaks. `world/chunks_dependencies.h` is used by neither and is dead surface.
+Twelve headers under `src/world/` are included by no other component, but eleven of those twelve are used by tests, so most are legitimate test seams rather than leaks. `world/chunks_dependencies.h` is consumed by exactly one file, `world/chunks_internal.h`, and by nothing else — an intra-component aggregator with a single consumer, not a cross-component leak. (This paragraph was corrected on 2026-10-24: the original text called that header dead surface, which the include graph contradicts.)
 
 ## 4. `app` internal coupling
 
@@ -85,7 +85,7 @@ Independently verified invariants at this commit: zero `core → higher` include
 
 1. **Split `world/world.h` by responsibility.** The five groups above are separable without touching behaviour, and every split shrinks the include set for the other five components. Highest value per risk.
 2. **Break the `world ↔ space` value cycle** by moving `PlanetSurfaceSample`/`VolcanoTerrainSample` into a neutral value header. Real work; do it when the cube-grid conversion touches those types anyway, so the churn is paid once.
-3. **Delete `world/chunks_dependencies.h`** or mark it `_internal.h` — nothing consumes it.
+3. **Rename `world/chunks_dependencies.h` to `_internal.h`** — its only consumer is `world/chunks_internal.h`, so it should not read like a public header. (This item originally said nothing consumes it; that was wrong.)
 4. **Leave `GameRuntime` alone** until `app` grows a second concern. 137 flat fields are ugly, not harmful.
 
 Not worth doing: chasing the `space ↔ ecology` / `space ↔ gameplay` cycles through the aggregator. They are one checked edge each and removing them would scatter the dependency instead of concentrating it.
