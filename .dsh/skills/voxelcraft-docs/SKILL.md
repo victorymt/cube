@@ -2,11 +2,13 @@
 name: voxelcraft-docs
 description: >-
   写或改 Voxelcraft 的文档：STATUS.md 单一真相源、README/architecture/todo 各写什么、
-  make check-docs 的六类检查、怎么修 check-docs 报的错。当要更新现状、记录一个阶段、
-  发现文档之间互相矛盾、或提交前被文档门禁挡住时使用。Use when writing or fixing
-  Voxelcraft docs, updating current state, or resolving a check-docs failure.
+  make check-docs 的静态与真值两类检查、docs/doc-claims.json 登记表、文档陈旧怎么发现和修、
+  make docs-probe 跑运行时字段。当要更新现状、记录一个阶段、发现文档之间互相矛盾、
+  提交前被文档门禁挡住、或被报 stale document 时使用。Use when writing or fixing
+  Voxelcraft docs, updating current state, registering a document, resolving a
+  check-docs or check-docs-truth failure, or handling a stale-document report.
 metadata:
-  version: "2"
+  version: "3"
 ---
 
 # 写文档
@@ -52,10 +54,13 @@ ls tests/scenes/*.dsl | wc -l
 ## 写完必跑
 
 ```sh
-make check-docs
+make check-docs     # 静态：散文 + 真值
+make docs-probe     # 运行时：DSL 字段真的能解析
 ```
 
-六类检查，按报错文案对照修：
+`make check-docs` 现在是两个检查器串起来跑。
+
+### 第一层：散文检查（`check-docs.mjs`）
 
 | 报错 | 原因 | 怎么修 |
 | --- | --- | --- |
@@ -64,23 +69,51 @@ make check-docs
 | `second home for current state` | 非 STATUS.md 的文档里有个 status 标题，正文超过 40 词 | 删掉正文，改成一句链接 |
 | `duplicated paragraph` | 25 词以上的段落逐字出现在两个文件 | 删掉一份，改成交叉引用 |
 | `volatile count` | 写死了会变的数字 | 改成"怎么查"，或按上面的方式豁免 |
-| `commit identifier in prose` | 正文里写了本仓库存在的 commit id | 改写它证明了什么；历史归 git |
 | `over budget` | 文件超过 `budgets` 里的词数上限 | 拆文档 |
 
+`commit identifier in prose` 这一条已经移到真值检查里按 tier 判定，不再由散文检查报。
+
 `wrap` 在本仓库是 `off`：段落仍建议一个物理行（diff 更可读），但不要为了这个去重排你没有在改的段落。
+
+### 第二层：真值检查（`check-docs-truth.mjs`）
+
+对 `docs/doc-claims.json` 里的每条登记做七类判定：
+
+| 报错 | 原因 | 怎么修 |
+| --- | --- | --- |
+| `unregistered` | 门禁范围内有 md 没登记 | 在 `documents` 里加一条 |
+| `stale registration` | 登记了但文件没了 | 删掉那条 |
+| `orphan document` | 没有索引链过来，也没声明 `entryPoint` | 从索引链过去；或被 skill/工具读取时加 `entryPoint` 说明谁读 |
+| `missing anchor` | `anchors` 里的路径不存在 | 改锚点，或确认文档描述的模块是否改名 |
+| `unknown recipe target` | `recipes` 里的 make 目标不存在 | 改成真目标 |
+| `stale pin` | `pins` 的正则不再命中 | 常量变了：改文档里的数字，或改 pin |
+| `commit identifier in a <tier> document` | 非 record/plan 的文档写了 hash | 改写它证明了什么 |
+| `stale document` | 锚点的最后一次提交晚于 `verifiedAt` | **跑它给你的 recipes，然后 `make docs-record`** |
+
+`stale document` 是这一层存在的理由：它说明"代码动了，文档没跟上"，并且在报错里直接给出重跑命令。
+
+### 修一份 stale document
+
+```sh
+make docs-probe        # 或者报错里打印的其他 recipe
+make docs-record       # 用 HEAD 重新盖 verifiedAt
+```
+
+`docs-record` 只写 `verifiedAt`，不改正文。它记录的是"有人跑过 recipes"。不跑就直接 record，等于把门禁关掉。
 
 ## 加一份新文档
 
 1. 照上表确定归属。
-2. 从索引链过去：阶段记录 → `docs/architecture/README.md`，计划 → `todo/00-roadmap.md`，用户向 → `README.md`。
-3. `make check-docs`。
+2. 从索引链过去：阶段记录 → `docs/architecture/README.md`，计划 → `todo/00-roadmap.md`，用户向 → `README.md`。如果它是被工具按名字加载的（skill、`AGENTS.md`），在登记表里写 `entryPoint`。
+3. 在 `docs/doc-claims.json` 里登记：`tier`、`anchors`、`recipes`、以及它引用的常量对应的 `pins`。
+4. `make check-docs`；文档写了运行时字段就再跑 `make docs-probe`。
 
-没人链的文档没人读。
+没人链、也没人读的文档活不过一个月。
 
 ## 提交前
 
 ```sh
-make check-docs && git diff --check
+make check-docs && make docs-probe && git diff --check
 ```
 
 文档改动和代码改动**分开提交**：`docs: give current state one home and gate the rules` 这样的信息，而不是塞进一个 feature commit。

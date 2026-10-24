@@ -40,7 +40,9 @@ const DEFAULT_CONFIG = {
   /** Minimum word count for a paragraph to count as duplicated. */
   duplicateMinWords: 25,
   /** Set false to allow commit identifiers in prose (not recommended). */
-  banCommitIds: true,
+  // `tiered` delegates the decision to the truth gate (docs/doc-claims.json).
+  // `true` restores the old blanket ban; `false` disables the check here.
+  banCommitIds: 'tiered',
   /** `off`, `warn`, or `error` for claims about how many X currently exist. */
   volatileCounts: 'warn',
   /**
@@ -230,7 +232,7 @@ function run(root, config) {
   const errors = []
   const warnings = []
   const files = collect(root, config)
-  const commits = config.banCommitIds ? commitIds(root) : new Set()
+  const commits = config.banCommitIds === true ? commitIds(root) : new Set()
   /** @type {Map<string, { file: string, line: number }[]>} */
   const paragraphs = new Map()
 
@@ -267,8 +269,11 @@ function run(root, config) {
       }
     }
 
-    // 2. No commit identifiers in prose: history belongs to git.
-    if (config.banCommitIds) {
+    // 2. Commit identifiers are judged by tier in scripts/check-docs-truth.mjs:
+    // a dated record may cite a hash as an evidence pointer, everything else may
+    // not. This checker only enforces the blanket policy when it is configured
+    // explicitly, so there is one owner for the rule instead of two that disagree.
+    if (config.banCommitIds === true) {
       for (const [index, line] of source.split('\n').entries()) {
         for (const match of line.matchAll(/(?<![a-z0-9])[0-9a-f]{7,40}(?![a-z0-9])/gi)) {
           if (commits.has(match[0].toLowerCase())) {

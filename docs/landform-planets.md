@@ -39,8 +39,8 @@ build.
 `test_landform` compares full drainage cells and every sample field between the
 legacy wrapper and the explicit contract, with terraces both off and on.
 `test_terrain_scale` locks Homeworld v7/v8 drainage and sample fingerprints to
-those captured from the pre-contract model (commit 4308ea8), including a known
-v8 terrace. Its existing tests also cover voxel water, sediment, atlas eviction
+those captured from the pre-contract model, including a known v8 terrace. Its
+existing tests also cover voxel water, sediment, atlas eviction
 and reconstruction. Sample equality deliberately excludes unspecified C
 padding bytes.
 

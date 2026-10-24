@@ -71,8 +71,25 @@ make test-architecture         # 边界与归属
 | DSL 语法/语句 | `tests/test_debug_dsl.c` |
 | stdin 协议 | `tests/test_debug_stdin_protocol.sh` |
 | 截图报告 | 对应 e2e（如 `make test-cga-previews-e2e`） |
+| 新增/删除命令组，或改 ready 行 | `make docs-probe` + 更新 `docs/debug-dsl.md` 的 ready 行 |
+| 新增运行时字段 | `make docs-probe`（文档里的字段名就是探针输入） |
 
 解析器的负例要覆盖：缺参数、多参数、越界、错误大小写、只差一个后缀。`%u` 的负数回绕是真实踩过的坑。
+
+## ready 行只有一个来源
+
+`DEBUG_CONTROL ready ... commands=...` 的清单由 `DebugControlCommandGroups()` 从 `src/core/debug_control.c` 的 `debugControlCommandGroups[]` 生成，`src/app/game.c` 不再自带字符串。
+
+- 加命令 = 在表里加一行 `{ "组名", "一条真能被解析的探针命令" }`。
+- `tests/test_debug_control.c` 的 `TestCommandGroups` 断言每个探针都解析成真命令，所以组名写错的代价是测试失败，不是线上骗人。
+- `quit` 故意不在表里：DSL 拒绝它，要求用 `exit`。
+- `make docs-probe` 把文档里那段 ready 行和二进制实际打印的逐字比较，漂了立刻报。
+
+## 运行时字段也由探针验证
+
+`docs/debug-dsl.md` 的 `## Runtime namespaces` 表格是探针的输入：`make docs-probe` 把每个字段当成 `let probe_x = <字段>` 喂给真实进程，解析不到就报 `docs/debug-dsl.md:<行> <name> does not resolve at runtime`。
+
+所以新增运行时字段时不必额外写测试，但**必须在文档里出现**，且名字要和 dispatch 真正接受的名字完全一致。前缀写错（文档写 `weather.x`、代码只认 `atmos.x`）探针会抓到。
 
 ## 别做的事
 

@@ -23,6 +23,8 @@ jobs:
           - clang
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -34,18 +36,36 @@ jobs:
         run: |
           make CC=${{ matrix.compiler }} \
             CFLAGS='-std=c99 -Wall -Wextra -Werror -O2 -pthread' test
-      - name: Check documentation
-        run: make check-docs
       - name: Check generated files
         run: |
           git diff --check
           test -z "$(git status --porcelain --untracked-files=normal)"
+
+  docs:
+    name: Documentation gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The truth gate compares each document against the last commit that
+          # touched its anchors, so it needs real history, not a shallow clone.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Prose and truth gates
+        run: make check-docs
+      - name: Truth gate detail
+        if: failure()
+        run: node scripts/check-docs-truth.mjs --root .
 
   sanitizers:
     name: ASan and UBSan
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -61,6 +81,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -77,6 +99,8 @@ jobs:
     runs-on: [self-hosted, linux, hyprland]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -89,6 +113,8 @@ jobs:
           make test-debug-graphics-e2e
           make test-chunk-diagnostics-e2e
           make test-polar-e2e
+      - name: Probe documented runtime names
+        run: make docs-probe
 
   coverage:
     name: Coverage report

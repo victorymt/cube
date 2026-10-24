@@ -1,0 +1,805 @@
+{
+  "$comment": "Truth registry. Every document under the gate roots needs one entry. The checker scripts/check-docs-truth.mjs reads this file; see docs/documentation-rules.md for the semantics of each field.",
+  "version": 1,
+  "roots": [
+    "README.md",
+    "STATUS.md",
+    "AGENTS.md",
+    "docs",
+    "todo",
+    "plugins",
+    "assets",
+    ".dsh/skills"
+  ],
+  "indexes": [
+    "README.md",
+    "STATUS.md",
+    "docs/architecture/README.md",
+    "todo/00-roadmap.md",
+    "docs/documentation-rules.md"
+  ],
+  "documents": {
+    "AGENTS.md": {
+      "tier": "meta",
+      "trackCode": false,
+      "anchors": [
+        "docs/debug-dsl.md"
+      ],
+      "recipes": [
+        "make check-docs"
+      ],
+      "entryPoint": "read by the agent harness at session start"
+    },
+    "README.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "Makefile",
+        "mk/components.mk",
+        "src/core/plugin.h",
+        "plugins/manifest.mk"
+      ],
+      "recipes": [
+        "make",
+        "make components",
+        "make plugins"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "STATUS.md": {
+      "tier": "truth",
+      "trackCode": true,
+      "anchors": [
+        "Makefile",
+        "tests",
+        "src/world/save_format.h"
+      ],
+      "recipes": [
+        "make test",
+        "make test-architecture",
+        "make docs-probe"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "assets/LICENSES.md": {
+      "tier": "contract",
+      "trackCode": false,
+      "anchors": [
+        "assets"
+      ],
+      "recipes": []
+    },
+    "assets/models/chinese_hall/README.md": {
+      "tier": "contract",
+      "trackCode": false,
+      "anchors": [
+        "assets/models/chinese_hall"
+      ],
+      "recipes": [],
+      "entryPoint": "directory README for the Blender source of the model; the game does not load this asset"
+    },
+    "plugins/README.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/core/plugin.h",
+        "plugins/manifest.mk",
+        "mk/plugins.mk"
+      ],
+      "recipes": [
+        "make plugins",
+        "make test-plugins"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/architecture/README.md": {
+      "tier": "index",
+      "trackCode": false,
+      "anchors": [
+        "docs/architecture"
+      ],
+      "recipes": [
+        "make check-docs"
+      ],
+      "allowCommits": true
+    },
+    "docs/documentation-rules.md": {
+      "tier": "meta",
+      "trackCode": false,
+      "anchors": [
+        "scripts/check-docs.mjs",
+        "scripts/check-docs-truth.mjs",
+        "docs/doc-claims.json"
+      ],
+      "recipes": [
+        "make check-docs"
+      ]
+    },
+    "todo/00-roadmap.md": {
+      "tier": "index",
+      "trackCode": false,
+      "anchors": [
+        "docs/architecture",
+        "todo"
+      ],
+      "recipes": [
+        "make check-docs"
+      ]
+    },
+    ".dsh/skills/voxelcraft/SKILL.md": {
+      "tier": "skill",
+      "trackCode": false,
+      "anchors": [
+        "Makefile",
+        "STATUS.md",
+        "docs/documentation-rules.md"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make test-architecture"
+      ],
+      "entryPoint": "loaded from the DSH skill catalog by name"
+    },
+    ".dsh/skills/voxelcraft-debug/SKILL.md": {
+      "tier": "skill",
+      "trackCode": true,
+      "anchors": [
+        "scripts/run-scene.sh",
+        "src/app/screenshot.c",
+        "tests/scenes"
+      ],
+      "recipes": [
+        "scripts/run-scene.sh volcano_menu",
+        "make docs-probe"
+      ],
+      "entryPoint": "loaded from the DSH skill catalog by name",
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    ".dsh/skills/voxelcraft-docs/SKILL.md": {
+      "tier": "skill",
+      "trackCode": true,
+      "anchors": [
+        "scripts/check-docs.mjs",
+        "docs/doc-claims.json"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make docs-probe"
+      ],
+      "entryPoint": "loaded from the DSH skill catalog by name",
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    ".dsh/skills/voxelcraft-dsl/SKILL.md": {
+      "tier": "skill",
+      "trackCode": true,
+      "anchors": [
+        "src/core/debug_control.h",
+        "src/core/debug_control.c",
+        "src/app/game_debug.c",
+        "src/app/screenshot.c"
+      ],
+      "recipes": [
+        "make docs-probe",
+        "make test-debug-cli",
+        "make test-architecture"
+      ],
+      "entryPoint": "loaded from the DSH skill catalog by name",
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/debug-dsl.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/core/debug_control.h",
+        "src/core/debug_control.c",
+        "src/app/game_debug.c",
+        "scripts/run-scene.sh"
+      ],
+      "recipes": [
+        "make docs-probe"
+      ],
+      "probe": {
+        "runtimeNamespaces": true,
+        "readyLine": "DEBUG_CONTROL ready",
+        "commands": [
+          {
+            "command": "surface debug home",
+            "expect": "DEBUG_CONTROL surface debug ok"
+          },
+          {
+            "command": "view distance 8",
+            "expect": "DEBUG_CONTROL view distance"
+          },
+          {
+            "command": "world topology",
+            "expect": "DEBUG_CONTROL world topology"
+          },
+          {
+            "command": "stream audit 2",
+            "expect": "DEBUG_CONTROL stream audit"
+          }
+        ]
+      },
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/cube-contract.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/surface_topology_version.h",
+        "src/world/save_format.h",
+        "src/world/terrain_generation.h",
+        "src/world/terrain_cube.h",
+        "src/world/cga_voxel.h"
+      ],
+      "recipes": [
+        "make test-surface-cube",
+        "make build/normal/tests/test_save_format && ./build/normal/tests/test_save_format"
+      ],
+      "pins": [
+        {
+          "file": "src/world/terrain_generation.h",
+          "pattern": "TERRAIN_GENERATION_CURRENT\\s+11u"
+        },
+        {
+          "file": "src/world/terrain_cube.h",
+          "pattern": "TERRAIN_GENERATION_CUBE\\s+9u"
+        },
+        {
+          "file": "src/world/save_format.h",
+          "pattern": "WORLD_SAVE_FORMAT_V29"
+        },
+        {
+          "file": "src/world/surface_topology_version.h",
+          "pattern": "SURFACE_TOPOLOGY_LEGACY_MAP, 1u"
+        },
+        {
+          "file": "src/world/cga_voxel.h",
+          "pattern": "CGA_HOUSE_GRAMMAR_VERSION\\s+5u"
+        },
+        {
+          "file": "src/world/cga_voxel.h",
+          "pattern": "CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION\\s+7u"
+        }
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/surface-cube.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/surface_cube.h",
+        "src/world/cube_address_save.h",
+        "src/world/surface_coverage.h",
+        "src/world/chunks_cube.h"
+      ],
+      "recipes": [
+        "make test-surface-cube",
+        "make test-cube-save-reload"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/atmosphere-model.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/atmosphere_model.h",
+        "src/world/atmosphere_model.c"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_atmosphere_model && ./build/normal/tests/test_atmosphere_model"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/weather-simulation.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/weather_model.h",
+        "src/world/weather_model.c"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_weather_model && ./build/normal/tests/test_weather_model"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/geographic-landforms-design.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/terrain_generation.h",
+        "src/world/landform_model.h"
+      ],
+      "recipes": [
+        "make test-landform-quality"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/landform-planets.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/planet_landform_strategy.h",
+        "src/world/landform_runtime.h"
+      ],
+      "recipes": [
+        "make test-landform-quality"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/landform-quality.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/scenes/landform_quality.dsl"
+      ],
+      "recipes": [
+        "scripts/run-scene.sh landform_quality"
+      ]
+    },
+    "docs/volcanic-activity-design.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/lava_model.h",
+        "src/world/volcano_model.h",
+        "src/world/ash_runtime.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_volcano && ./build/normal/tests/test_volcano"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/terrain-performance.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "tests/benchmark_chunks.c",
+        "mk/tests.mk"
+      ],
+      "recipes": [
+        "make -s benchmark-chunks"
+      ],
+      "verifiedAt": {
+        "commit": "7e4f2cf5587d8fc56643d4c27a185d9cebe6333a",
+        "date": "2026-10-24"
+      }
+    },
+    "docs/performance/flat-rotation-baseline.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/scenes/flat_static_benchmark.dsl",
+        "tests/scenes/flat_rotation_benchmark.dsl"
+      ],
+      "recipes": [
+        "scripts/run-scene.sh flat_static_benchmark",
+        "scripts/run-scene.sh flat_rotation_benchmark"
+      ]
+    },
+    "docs/cube-activation-plan.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/cube_switch.h",
+        "src/world/fluid.c",
+        "docs/cube-contract.md"
+      ],
+      "recipes": [
+        "make test-surface-cube"
+      ]
+    },
+    "docs/cube-audit-2026-10-22.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/chunks_cube_mesh.c",
+        "src/app/game_streaming.c"
+      ],
+      "recipes": [
+        "scripts/run-scene.sh --scene-file <cube scene>"
+      ]
+    },
+    "docs/project-progress-2026-10-20.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src",
+        "tests"
+      ],
+      "recipes": []
+    },
+    "docs/block-render-pipeline.html": {
+      "tier": "snapshot",
+      "trackCode": false,
+      "anchors": [
+        "src/world/block_atlas.h"
+      ],
+      "recipes": []
+    },
+    "docs/architecture/00-simulation-clock.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/core/simulation_clock.h",
+        "src/core/simulation_time.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_simulation_clock && ./build/normal/tests/test_simulation_clock"
+      ]
+    },
+    "docs/architecture/01-radiation-balance.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/radiation_runtime.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_radiation_balance && ./build/normal/tests/test_radiation_balance"
+      ]
+    },
+    "docs/architecture/02-hydrology-model.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/hydrology_model.h",
+        "src/world/hydrology_runtime.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_hydrology_model && ./build/normal/tests/test_hydrology_model"
+      ]
+    },
+    "docs/architecture/03-ecology-nutrients.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/ecology/ecology.h",
+        "src/ecology/ecology_internal.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_ecology_nutrient_model && ./build/normal/tests/test_ecology_nutrient_model"
+      ]
+    },
+    "docs/architecture/04-hazard-physics.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/wildfire_model.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_wildfire_model && ./build/normal/tests/test_wildfire_model"
+      ]
+    },
+    "docs/architecture/05-character-structure-physics.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/gameplay/player_types.h"
+      ],
+      "recipes": []
+    },
+    "docs/architecture/06-deterministic-replay-and-ci.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/test_simulation_replay.c",
+        "Makefile"
+      ],
+      "recipes": [
+        "make test-simulation-replay",
+        "make test-ci"
+      ]
+    },
+    "docs/architecture/07-global-topology.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/surface_topology.h",
+        "src/world/surface_topology_version.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_surface_topology && ./build/normal/tests/test_surface_topology"
+      ]
+    },
+    "docs/architecture/08-cross-system-integration.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/test_simulation_integration.c"
+      ],
+      "recipes": [
+        "make test-simulation-replay"
+      ]
+    },
+    "docs/architecture/09-performance-optimization.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/benchmark_chunks.c",
+        "mk/tests.mk"
+      ],
+      "recipes": [
+        "make -s benchmark-chunks"
+      ]
+    },
+    "docs/architecture/10-radiation-runtime-integration.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/radiation_runtime.h",
+        "src/app/game_radiation.c"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_radiation_runtime && ./build/normal/tests/test_radiation_runtime"
+      ]
+    },
+    "docs/architecture/11-hydrology-runtime-integration.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/hydrology_runtime.h",
+        "src/app/game_hydrology.c"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_hydrology_runtime && ./build/normal/tests/test_hydrology_runtime"
+      ]
+    },
+    "docs/architecture/12-plugin-boundary.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/core/plugin.h",
+        "src/core/plugin.c",
+        "plugins/manifest.mk"
+      ],
+      "recipes": [
+        "make test-plugins"
+      ]
+    },
+    "docs/architecture/13-component-build-boundaries.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "mk/components.mk",
+        "mk/modules.mk"
+      ],
+      "recipes": [
+        "make test-modules",
+        "make test-architecture"
+      ]
+    },
+    "docs/architecture/14-cross-system-replay.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/test_simulation_integration.c",
+        "tests/replay_state_hash.h"
+      ],
+      "recipes": [
+        "make test-simulation-replay"
+      ]
+    },
+    "docs/architecture/15-polar-e2e-reliability.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/scenes/polar_replay.dsl",
+        "tests/test_debug_stdin_protocol.sh"
+      ],
+      "recipes": [
+        "make test-polar-e2e"
+      ]
+    },
+    "docs/architecture/16-ecology-continuity.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/ecology/ecology_internal.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_ecology_system && ./build/normal/tests/test_ecology_system"
+      ]
+    },
+    "docs/architecture/17-fauna-poses.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/ecology/fauna_pose.h",
+        "tests/test_animal_pose_e2e.sh"
+      ],
+      "recipes": [
+        "make test-animal-pose-e2e"
+      ]
+    },
+    "docs/architecture/18-volcano-preview.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/lava_model.h",
+        "src/world/volcano_model.h",
+        "src/world/ash_runtime.h"
+      ],
+      "recipes": [
+        "make build/normal/tests/test_volcano_history && ./build/normal/tests/test_volcano_history"
+      ]
+    },
+    "docs/architecture/19-cga-voxel-grammar.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/cga_voxel.h",
+        "src/world/cga_voxel.c"
+      ],
+      "recipes": [
+        "make test-cga-house-e2e"
+      ]
+    },
+    "docs/architecture/20-health-review-2026-10-23.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/test_architecture.sh"
+      ],
+      "recipes": [
+        "make test-architecture"
+      ]
+    },
+    "docs/architecture/21-coupling-review-2026-10-24.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "scripts/coupling-report.py"
+      ],
+      "recipes": [
+        "python3 scripts/coupling-report.py"
+      ]
+    },
+    "docs/architecture/22-world-header-split-2026-10-24.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/world.h",
+        "src/world/world_state.h",
+        "src/world/block_types.h",
+        "src/world/block_edits.h",
+        "src/world/block_lighting.h"
+      ],
+      "recipes": [
+        "make test-architecture",
+        "make test-headers"
+      ]
+    },
+    "todo/01-climate-weather-foundation.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/local_climate.h",
+        "src/world/weather_model.h"
+      ],
+      "recipes": []
+    },
+    "todo/02-cloud-taxonomy.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/weather_model.h",
+        "src/presentation/render_clouds.c"
+      ],
+      "recipes": []
+    },
+    "todo/03-tornadoes.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/tornado.h",
+        "src/world/tornado_model.h"
+      ],
+      "recipes": []
+    },
+    "todo/04-wildfire.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/wildfire_model.h"
+      ],
+      "recipes": []
+    },
+    "todo/05-block-expansion.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/block_atlas.h"
+      ],
+      "recipes": []
+    },
+    "todo/06-tree-plant-diversity.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/flora_taxa.c",
+        "src/world/chunks_flora.c"
+      ],
+      "recipes": []
+    },
+    "todo/07-global-planetary-topology.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/surface_topology.h",
+        "src/space/planet_surface.h"
+      ],
+      "recipes": []
+    },
+    "todo/08-cross-system-integration.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "tests/test_simulation_integration.c"
+      ],
+      "recipes": []
+    },
+    "todo/09-performance-optimization.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "tests/benchmark_chunks.c"
+      ],
+      "recipes": []
+    },
+    "docs/architecture/23-doc-truth-gate-2026-10-24.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "scripts/check-docs-truth.mjs",
+        "scripts/docs-probe.mjs",
+        "docs/doc-claims.json"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make docs-probe"
+      ]
+    }
+  }
+}

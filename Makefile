@@ -259,6 +259,30 @@ test-surface-cube: $(SURFACE_CUBE_TEST_TARGET) $(SURFACE_TOPOLOGY_TEST_TARGET) $
 test-surface-topology-e2e: $(TARGET)
 	bash tests/test_surface_topology_e2e.sh $(TARGET)
 
-.PHONY: check-docs
+.PHONY: check-docs check-docs-truth docs-probe docs-record
 check-docs:
 	node scripts/check-docs.mjs --root .
+	node scripts/check-docs-truth.mjs --root .
+
+check-docs-truth:
+	node scripts/check-docs-truth.mjs --root .
+
+# Runtime half of the documentation gate: it starts the real binary and proves
+# that the names docs/debug-dsl.md advertises still resolve.
+docs-probe: $(TARGET)
+	node scripts/docs-probe.mjs --root . --binary $(TARGET)
+
+# Maintenance: re-stamp verifiedAt after running a document's recipes.
+docs-record:
+	node scripts/check-docs-truth.mjs --root . --record
+
+# Install the repository hooks (pre-commit runs the gate).
+.PHONY: hooks
+hooks:
+	sh scripts/install-hooks.sh
+
+# Watch a working tree and re-run the static gate on each save. For editing
+# sessions only; CI has no working tree to watch.
+.PHONY: docs-watch
+docs-watch:
+	sh scripts/docs-watch.sh

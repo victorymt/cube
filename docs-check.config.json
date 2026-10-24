@@ -1,16 +1,29 @@
 {
-  "include": ["README.md", "AGENTS.md", "docs", "todo", ".dsh/skills"],
-  "ignore": ["build"],
-  "statusOwners": ["STATUS.md"],
+  "include": [
+    "README.md",
+    "STATUS.md",
+    "AGENTS.md",
+    "docs",
+    "todo",
+    "plugins",
+    "assets",
+    ".dsh/skills"
+  ],
+  "ignore": [
+    "build"
+  ],
+  "statusOwners": [
+    "STATUS.md"
+  ],
   "budgets": {},
   "wrap": "off",
   "duplicateMinWords": 25,
-  "banCommitIds": false,
   "volatileCounts": "warn",
   "volatileCountIgnore": [
     "docs/cube-activation-plan.md",
     "docs/cube-audit-2026-10-22.md",
     "docs/architecture/20-health-review-2026-10-23.md",
     "docs/project-progress-2026-10-20.md"
-  ]
+  ],
+  "commitIds": "tiered"
 }

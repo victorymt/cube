@@ -184,7 +184,8 @@ without adding private cross-module includes to the game. The sample telemetry
 extension is intentionally disabled unless a plugin directory is supplied.
 Plugins may also publish a versioned read-only service through the host
 registry, allowing independent extensions to share narrow contracts without
-introducing mutable cross-module globals.
+introducing mutable cross-module globals. See [plugins/README.md](plugins/README.md)
+for the ABI surface and the layout a new plugin has to match.
 
 ## Build
 
@@ -314,6 +315,11 @@ Performance reports use schema v3; older baselines are rejected and must be
 recaptured. Resource stability is measured after chunk generation, meshing, and
 uploads settle. Mesh byte fields estimate public raylib `Mesh` buffers and are
 not driver-reported VRAM.
+
+`make -s benchmark-chunks` measures the mesh pipeline on its own; its dated
+samples and the invariants that must not move live in
+[terrain performance](docs/terrain-performance.md). The two routes answer
+different questions and neither replaces the other.
 
 Visual debugging uses a small scene DSL. Start the binary with one of these
 debug entry points:

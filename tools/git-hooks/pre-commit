@@ -1,0 +1,51 @@
+#!/bin/sh
+# Voxelcraft documentation gate.
+#
+# Two costs are separated on purpose:
+#
+#   always            make check-docs          (~0.3 s, pure file inspection)
+#   staged code only  make docs-probe          (~90 s, starts the game)
+#
+# The probe needs a running frame loop, so it cannot live in a hook that must
+# work in a plain terminal session. It is skipped when no Wayland session is
+# present, and `SKIP_DOCS_PROBE=1` skips it explicitly. Both cases print the
+# reason; the hook never reports a pass it did not earn.
+#
+# Install with `make hooks`.
+set -eu
+
+repo=$(git rev-parse --show-toplevel)
+cd "$repo"
+
+if ! make -s check-docs; then
+    echo "" >&2
+    echo "pre-commit: documentation gate failed." >&2
+    echo "  Rules: docs/documentation-rules.md" >&2
+    echo "  A 'stale document' report lists the recipes to re-run; after running them," >&2
+    echo "  'make docs-record' re-stamps verifiedAt." >&2
+    exit 1
+fi
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+code=$(printf '%s\n' "$staged" | grep -E '^(src|mk)/|^Makefile$' || true)
+if [ -z "$code" ]; then
+    exit 0
+fi
+
+if [ "${SKIP_DOCS_PROBE:-0}" = "1" ]; then
+    echo "pre-commit: docs-probe skipped (SKIP_DOCS_PROBE=1); runtime names are unverified"
+    exit 0
+fi
+
+if [ -z "${WAYLAND_DISPLAY:-}" ] || [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    echo "pre-commit: docs-probe skipped (no Wayland session); runtime names are unverified"
+    echo "pre-commit: commit anyway, or run 'make docs-probe' from a Hyprland terminal"
+    exit 0
+fi
+
+if ! make -s docs-probe; then
+    echo "" >&2
+    echo "pre-commit: the debug DSL and docs/debug-dsl.md disagree." >&2
+    echo "  Fix the document (or the parser) before committing, then 'make docs-record'." >&2
+    exit 1
+fi

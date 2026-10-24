@@ -512,13 +512,6 @@ Runtime values are sampled when an expression is evaluated:
 | `water.eyes_submerged` | bool | Eyes are in water |
 | `water.surface_y` | number | Local water surface height |
 | `stream.surface_ready` | bool | No missing surface chunks around the player |
-
-`stream.cube.*` is a separate namespace. It reports the **last successful**
-coverage observation and keeps the last values when a later call is rejected.
-`stream.surface_ready` remains a local legacy readiness flag; it is not a
-cube coverage certificate. When `stream.cube.saturated` is true, a route must
-not assert `requested == admitted == ready`. See the
-[activation contract](cube-contract.md).
 | `stream.missing_surface_chunks` | number | Missing surface chunk count, or `-1` outside play |
 | `stream.cube.active` | bool | Whether cube coverage currently drives streaming; false under the legacy grid |
 | `stream.cube.requested` | number | Columns requested by the latest cube coverage update |
@@ -688,6 +681,16 @@ not assert `requested == admitted == ready`. See the
 | `render.water_debug_through` | bool | Water bounds draw through terrain |
 | `render.water_triangles` | number | Water debug pass triangle count |
 | `settings.autosave` | bool | Autosave state (false in debug mode) |
+
+### Note on the `stream.cube.*` rows above
+
+Those fields report the **last successful** coverage observation and keep the
+last values when a later call is rejected. `stream.surface_ready` remains a
+local legacy readiness flag; it is not a cube coverage certificate. When
+`stream.cube.saturated` is true, a route must not assert
+`requested == admitted == ready`. See the
+[activation contract](cube-contract.md).
+
 
 ## Command catalog
 

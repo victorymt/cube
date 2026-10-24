@@ -25,7 +25,10 @@ scripts/run-scene.sh cga_house                    # 单个场景
 scripts/run-scene.sh --run-dir .cubetest/run1 cga_house
 scripts/run-scene.sh --timeout 300 volcano_live
 scripts/run-scene.sh --interactive cga_house      # 不追加 exit，留着窗口接手
+scripts/run-scene.sh --scene-file /tmp/repro.dsl  # 跑 tests/scenes 之外的临时场景
 ```
+
+`--scene-file` 是复现用户 bug 和跑生成场景用的：文件从任何位置读取，拷进隔离目录后执行，目录本身不被修改。不用为了跑一次性场景往 `tests/scenes/` 里塞文件——那里放的是长期回归场景。
 
 **永远在临时运行目录跑。** 游戏把 `voxelcraft_save.txt`、`voxelcraft_settings.cfg`、`screenshots/` 写到 cwd，在仓库根直接跑会覆盖用户存档。`run-scene.sh` 已经替你做了隔离：它只软链 `assets/`。
 
