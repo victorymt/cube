@@ -3,7 +3,8 @@
 
 #include "ecology/ecology_model.h"
 #include "ecology/evolution.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/chunk_types.h"
 
 #ifdef ECOLOGY_TESTING
 #include "ecology/ecology_nutrient_model.h"

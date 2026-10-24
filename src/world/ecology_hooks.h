@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_WORLD_ECOLOGY_HOOKS_H
 #define VOXELCRAFT_WORLD_ECOLOGY_HOOKS_H
 
-#include "world/world_types.h"
+#include "world/chunk_types.h"
 
 #include <stdbool.h>
 

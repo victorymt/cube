@@ -6,6 +6,7 @@
 #include "world/terrain.h"
 #include "world/block_types.h"
 #include "world/block_lighting.h"
+#include "world/block_edit_types.h"
 
 #include <math.h>
 #include <stdbool.h>

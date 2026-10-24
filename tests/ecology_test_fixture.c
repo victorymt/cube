@@ -2,6 +2,8 @@
 
 #include "ecology/ecology.h"
 #include "world/ecology_hooks.h"
+#include "world/block_texture.h"
+#include "world/block_edit_types.h"
 #include "world/terrain.h"
 #include "world/weather.h"
 #include "world/world_surface_snapshot.h"

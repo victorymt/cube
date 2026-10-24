@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_ENTITY_H
 #define VOXELCRAFT_ENTITY_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
 #include "gameplay/player_types.h"
 #include "ecology/ecology.h"
 #include "ecology/evolution.h"

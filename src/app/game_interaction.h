@@ -3,7 +3,6 @@
 
 #include "gameplay/ship.h"
 #include "space/space_types.h"
-#include "world/world_types.h"
 
 struct EntityEvolutionDebugInfo;
 struct GameRuntime;

@@ -3,6 +3,7 @@
 #include "world/block_types.h"
 
 #include "core/game_effects.h"
+#include "world/block_edit_types.h"
 
 static SpaceChunk spaceChunks[MAX_SPACE_CHUNKS];
 static BlockEdit spaceEdits[MAX_SPACE_EDITS];

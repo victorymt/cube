@@ -45,8 +45,8 @@
         "make plugins"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "STATUS.md": {
@@ -63,8 +63,8 @@
         "make docs-probe"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "assets/LICENSES.md": {
@@ -97,8 +97,8 @@
         "make test-plugins"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/architecture/README.md": {
@@ -163,8 +163,8 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     ".dsh/skills/voxelcraft-docs/SKILL.md": {
@@ -180,8 +180,8 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     ".dsh/skills/voxelcraft-dsl/SKILL.md": {
@@ -200,8 +200,8 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/debug-dsl.md": {
@@ -239,8 +239,8 @@
         ]
       },
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/cube-contract.md": {
@@ -284,8 +284,8 @@
         }
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/surface-cube.md": {
@@ -302,8 +302,8 @@
         "make test-cube-save-reload"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/atmosphere-model.md": {
@@ -317,8 +317,8 @@
         "make build/normal/tests/test_atmosphere_model && ./build/normal/tests/test_atmosphere_model"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/weather-simulation.md": {
@@ -332,8 +332,8 @@
         "make build/normal/tests/test_weather_model && ./build/normal/tests/test_weather_model"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/geographic-landforms-design.md": {
@@ -347,8 +347,8 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/landform-planets.md": {
@@ -362,8 +362,8 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/landform-quality.md": {
@@ -388,8 +388,8 @@
         "make build/normal/tests/test_volcano && ./build/normal/tests/test_volcano"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/terrain-performance.md": {
@@ -403,8 +403,8 @@
         "make -s benchmark-chunks"
       ],
       "verifiedAt": {
-        "commit": "618f7fdb68b90d54b82427e07eacfd5a25fe1582",
-        "date": "2026-10-24"
+        "commit": "21362dd4c6c37f1413c4d36db8c38bc5446b0fec",
+        "date": "2026-10-25"
       }
     },
     "docs/performance/flat-rotation-baseline.md": {

@@ -26,7 +26,7 @@
 #include "core/game_notice.h"
 #include "core/render_resources.h"
 #include "core/simulation_time.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
 #include "world/terrain.h"
 #include "world/terrain_generation.h"
 #include "world/world_state.h"

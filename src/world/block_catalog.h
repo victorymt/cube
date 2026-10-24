@@ -1,7 +1,10 @@
 #ifndef VOXELCRAFT_BLOCK_CATALOG_H
 #define VOXELCRAFT_BLOCK_CATALOG_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/block_texture.h"
+
+#include "raylib.h"
 
 typedef struct BlockCatalogEntry {
     const char *name;

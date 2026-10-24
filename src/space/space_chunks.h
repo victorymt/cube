@@ -2,9 +2,10 @@
 #define VOXELCRAFT_SPACE_CHUNKS_H
 
 #include "core/render_resources.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
 
 #include <stdbool.h>
+#include "core/config.h"
 
 #define MAX_SPACE_CHUNKS \
     ((SPACE_RENDER_DISTANCE_CHUNKS * 2 + 1) * \

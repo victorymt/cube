@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_FLUID_H
 #define VOXELCRAFT_FLUID_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/chunk_types.h"
 #include "world/world_extension.h"
 
 #include <stdio.h>

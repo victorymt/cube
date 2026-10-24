@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "core/config.h"
 
 static const uint64_t EXPECTED_TILE_HASHES[] = {
     UINT64_C(0x4098031764733f2c), UINT64_C(0xf9e47e1b7a79d992),

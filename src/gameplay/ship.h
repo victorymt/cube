@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_SHIP_H
 #define VOXELCRAFT_SHIP_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
 #include "gameplay/player_types.h"
 #include "gameplay/ship_locator.h"
 

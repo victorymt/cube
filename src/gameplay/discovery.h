@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_DISCOVERY_H
 #define VOXELCRAFT_DISCOVERY_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/chunk_types.h"
 
 typedef enum PlanetPoiType {
     PLANET_POI_RELIC = 0,

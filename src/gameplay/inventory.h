@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_INVENTORY_H
 #define VOXELCRAFT_INVENTORY_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
 
 #include <stdbool.h>
 #include <stdio.h>

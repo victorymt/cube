@@ -18,7 +18,7 @@
 #include "world/block_types.h"
 #include "world/world_state.h"
 
-#include "world/world_types.h"
+#include "world/chunk_types.h"
 
 #include <stdbool.h>
 

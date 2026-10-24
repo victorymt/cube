@@ -1,7 +1,6 @@
 #ifndef VOXELCRAFT_PLAYER_H
 #define VOXELCRAFT_PLAYER_H
 
-#include "world/world_types.h"
 #include "gameplay/player_types.h"
 
 typedef struct PlayerInput {

@@ -2,7 +2,7 @@
 #define VOXELCRAFT_CUBE_ADDRESS_SAVE_H
 
 #include "world/world_location.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
 
 #include <stdbool.h>
 #include <stdint.h>

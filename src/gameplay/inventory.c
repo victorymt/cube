@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "core/config.h"
 
 static uint16_t inventoryCounts[INVENTORY_BLOCK_TYPE_COUNT];
 /* Stable INVFR001 order; independent of enum adjacency and struct layout. */

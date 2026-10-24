@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_FLORA_TAXA_H
 #define VOXELCRAFT_FLORA_TAXA_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/terrain_types.h"
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -1,7 +1,9 @@
 #ifndef VOXELCRAFT_BLOCK_EDITS_H
 #define VOXELCRAFT_BLOCK_EDITS_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/block_edit_types.h"
+#include "world/surface_topology.h"
 
 #include <stdbool.h>
 #include <stdint.h>

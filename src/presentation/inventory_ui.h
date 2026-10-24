@@ -1,6 +1,7 @@
 #ifndef VOXELCRAFT_INVENTORY_UI_H
 #define VOXELCRAFT_INVENTORY_UI_H
 #include "gameplay/inventory.h"
+#include "raylib.h"
 
 typedef struct InventoryUiInput {
     Vector2 pointer;

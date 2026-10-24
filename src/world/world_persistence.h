@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_WORLD_PERSISTENCE_H
 #define VOXELCRAFT_WORLD_PERSISTENCE_H
 
-#include "world/world_types.h"
+#include "world/block_edit_types.h"
+#include "world/surface_topology.h"
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_WORLD_STATE_H
 #define VOXELCRAFT_WORLD_STATE_H
 
-#include "world/world_types.h"
+#include "world/terrain_types.h"
 
 #include <stdbool.h>
 #include <stdint.h>

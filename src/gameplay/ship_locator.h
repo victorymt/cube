@@ -1,7 +1,6 @@
 #ifndef VOXELCRAFT_SHIP_LOCATOR_H
 #define VOXELCRAFT_SHIP_LOCATOR_H
 
-#include "world/world_types.h"
 #include "world/world_environment.h"
 
 #include <stdio.h>

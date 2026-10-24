@@ -1,7 +1,9 @@
 #ifndef VOXELCRAFT_CGA_VOXEL_H
 #define VOXELCRAFT_CGA_VOXEL_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/chunk_types.h"
+#include "world/terrain_types.h"
 
 #include <stddef.h>
 

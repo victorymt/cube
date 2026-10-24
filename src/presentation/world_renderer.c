@@ -5,6 +5,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include "core/config.h"
 
 #define WORLD_SHADOW_SPAN 128.0f
 #define WORLD_SHADOW_DISTANCE 300.0f

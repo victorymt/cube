@@ -82,7 +82,7 @@ core_domain_symbols=$(
 # bypasses only. Terrain/entity implementations may still consume narrow
 # contracts from another domain; a full include ban would reject valid seams.
 for world_header in \
-    src/world/world_types.h \
+    src/world/chunk_types.h \
     src/world/world_environment.h \
     src/world/world_extension.h \
     src/world/world_persistence.h \
@@ -116,6 +116,15 @@ space_direct_ecology_imports=$(
 if grep -R -nE '#include "(space/space\.h|space/space_dependencies\.h|ecology/ecology_internal\.h)"' \
     src/world --include='*.c' --include='*.h'; then
     fail "world must use narrow domain contracts, not aggregate/private facades"
+fi
+
+# world_types.h used to be the single world type header. It was split into
+# block_type / block_texture / flora_types / chunk_types / block_edit_types /
+# terrain_types so a consumer rebuilds only for the group it uses; touching it
+# used to rebuild 150 of 235 objects. Including the aggregate again would restore
+# that, so it must not come back.
+if [ -e src/world/world_types.h ]; then
+    fail "world_types.h was split; include the focused header you need"
 fi
 
 # world/world.h is an aggregate kept only so existing callers compile: it now

@@ -1,6 +1,7 @@
 #include "gameplay/ship_locator.h"
 
 #include "raymath.h"
+#include "core/config.h"
 
 #include <limits.h>
 #include <math.h>

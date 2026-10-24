@@ -18,6 +18,7 @@ bool GameSaveTestWriteCubeEdits(FILE *file);
 #include "world/save_format.h"
 
 #include <stdio.h>
+#include "world/block_edit_types.h"
 const char *GameSaveTestLoadVolcanoState(FILE *file, WorldSaveFormat format);
 const char *GameSaveTestLoadLavaState(FILE *file, WorldSaveFormat format);
 const char *GameSaveTestLoadAshState(FILE *file, WorldSaveFormat format);

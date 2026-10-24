@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "world/block_texture.h"
 
 static uint32_t terrainSeed = DEFAULT_WORLD_SEED;
 

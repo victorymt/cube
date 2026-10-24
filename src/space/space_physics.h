@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_SPACE_PHYSICS_H
 #define VOXELCRAFT_SPACE_PHYSICS_H
 
-#include "world/world_types.h"
+#include "raylib.h"
+
 
 typedef struct SpacePhysicsGravityBody {
     Vector3 center; // Scene position in game distance units.

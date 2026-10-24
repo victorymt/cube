@@ -36,6 +36,7 @@ WorldSurfaceTopologyPolicy WorldCurrentTopologyPolicy(void)
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "world/block_edit_types.h"
 
 extern bool GameSaveTestWriteRadiationRuntimeState(FILE *file);
 extern const char *GameSaveTestLoadRadiationRuntimeState(

@@ -4,7 +4,9 @@
 #include "core/render_resources.h"
 #include "core/perf_metrics.h"
 #include "core/diagnostics.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/flora_types.h"
+#include "world/chunk_types.h"
 
 enum {
     CHUNK_WATER_NEIGHBOR_WEST = 1u << 0,

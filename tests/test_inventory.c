@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "core/config.h"
 
 bool IsColorBlock(BlockType type)
 {

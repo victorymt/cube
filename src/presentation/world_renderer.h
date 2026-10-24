@@ -2,7 +2,7 @@
 #define VOXELCRAFT_WORLD_RENDERER_H
 
 #include "world/world_lighting.h"
-#include "world/world_types.h"
+#include "world/block_texture.h"
 #include "presentation/render_quality.h"
 
 #include <stdbool.h>

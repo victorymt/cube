@@ -53,7 +53,6 @@
  * `tests/test_architecture.sh` now enforces. */
 #define ATLAS_ROWS_FOR(textureCount) \
     (((textureCount) + ATLAS_COLUMNS - 1) / ATLAS_COLUMNS)
-#define COLOR_BLOCK_COUNT 256
 #define IMPORT_MIN_BLOCKS 16
 #define IMPORT_DEFAULT_BLOCKS 64
 #define IMPORT_MAX_BLOCKS 256

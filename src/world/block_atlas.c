@@ -7,6 +7,7 @@
 #include "world/block_types.h"
 
 #include <stdbool.h>
+#include "core/config.h"
 
 static unsigned int AtlasHash3D(int x, int y, int z)
 {

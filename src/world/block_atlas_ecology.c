@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include "core/config.h"
 
 static Color TransparentPixel(void)
 {

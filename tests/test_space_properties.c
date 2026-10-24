@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "world/block_edit_types.h"
 
 #define TEST_PI 3.14159265358979323846
 

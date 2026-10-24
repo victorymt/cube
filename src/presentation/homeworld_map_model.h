@@ -2,7 +2,7 @@
 #define VOXELCRAFT_HOMEWORLD_MAP_MODEL_H
 
 #include "space/planet_surface.h"
-#include "world/world_types.h"
+#include "world/terrain_types.h"
 
 #define HOMEWORLD_MAP_RASTER_SIZE 64
 #define HOMEWORLD_MAP_HEAT_SIZE 16

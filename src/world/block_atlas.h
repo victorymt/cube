@@ -1,7 +1,10 @@
 #ifndef VOXELCRAFT_BLOCK_ATLAS_H
 #define VOXELCRAFT_BLOCK_ATLAS_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/block_texture.h"
+
+#include "raylib.h"
 
 void DrawAtlasTile(Image *image, BlockTexture texture);
 Texture2D LoadBlockAtlas(void);

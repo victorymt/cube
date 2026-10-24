@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_WORLD_EXTENSION_H
 #define VOXELCRAFT_WORLD_EXTENSION_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/chunk_types.h"
 
 #include <stdint.h>
 #include <stdio.h>

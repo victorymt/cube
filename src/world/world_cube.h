@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_WORLD_CUBE_H
 #define VOXELCRAFT_WORLD_CUBE_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/chunk_types.h"
 #include "world/world_location.h"
 #include "world/surface_pose.h"
 

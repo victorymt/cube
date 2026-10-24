@@ -2,9 +2,10 @@
 #define VOXELCRAFT_NETHER_H
 
 #include "core/render_resources.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
 
 #include <stdio.h>
+#include "core/config.h"
 
 #define MAX_NETHER_CHUNKS ((NETHER_RENDER_DISTANCE_CHUNKS * 2 + 1) * (NETHER_RENDER_DISTANCE_CHUNKS * 2 + 1))
 #define MAX_NETHER_EDITS 65536

@@ -3,7 +3,9 @@
 
 #include "world/weather_model.h"
 #include "world/wildfire_model.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
+
+#include "raylib.h"
 
 #include <stdbool.h>
 #include <stdint.h>

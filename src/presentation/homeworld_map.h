@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_HOMEWORLD_MAP_H
 #define VOXELCRAFT_HOMEWORLD_MAP_H
 
-#include "world/world_types.h"
+#include "raylib.h"
+
 
 void HomeWorldMapOpen(Vector3 playerPosition, float daylight);
 void HomeWorldMapClose(void);

@@ -2,7 +2,7 @@
 #define VOXELCRAFT_VOLCANO_HISTORY_CACHE_H
 #include "world/volcano_history.h"
 #include "space/planet_profile.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
 
 #define VOLCANO_HISTORY_CACHE_CAPACITY 8u
 #define TERRAIN_GENERATION_VOLCANO_HISTORY 11u

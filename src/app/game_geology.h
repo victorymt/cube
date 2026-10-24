@@ -2,7 +2,7 @@
 #define VOXELCRAFT_GAME_GEOLOGY_H
 #include "core/debug_control.h"
 #include "core/debug_dsl.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
 #include "world/lava_runtime.h"
 struct GameRuntime;
 struct GameFrameView;

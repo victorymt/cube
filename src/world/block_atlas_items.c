@@ -1,4 +1,5 @@
 #include "world/block_atlas_artwork_internal.h"
+#include "core/config.h"
 
 Color ItemAtlasPixel(BlockTexture texture, int x, int y,
                      unsigned int hash)

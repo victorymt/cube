@@ -3,7 +3,9 @@
 
 #include "world/flora_taxa.h"
 #include "space/planet_surface.h"
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/chunk_types.h"
+#include "world/terrain_types.h"
 #include "world/landform_model.h"
 
 #define HOME_SEA_LEVEL 80

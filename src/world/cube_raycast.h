@@ -4,7 +4,6 @@
 #include "world/surface_geometry.h"
 #include "world/world_location.h"
 #include "world/world_cube.h"
-#include "world/world_types.h"
 
 /*
  * Selection ray on a cube surface. The legacy DDA walks Cartesian cells, which

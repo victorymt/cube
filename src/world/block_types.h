@@ -1,7 +1,8 @@
 #ifndef VOXELCRAFT_BLOCK_TYPES_H
 #define VOXELCRAFT_BLOCK_TYPES_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
+#include "world/block_texture.h"
 
 #include "raylib.h"
 

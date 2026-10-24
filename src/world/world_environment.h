@@ -1,7 +1,6 @@
 #ifndef VOXELCRAFT_WORLD_ENVIRONMENT_H
 #define VOXELCRAFT_WORLD_ENVIRONMENT_H
 
-#include "world/world_types.h"
 #include "world/surface_topology_version.h"
 #include "world/world_location.h"
 

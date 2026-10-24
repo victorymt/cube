@@ -1,6 +1,7 @@
 #include "world/block_atlas_artwork_internal.h"
 
 #include <stdbool.h>
+#include "core/config.h"
 
 Color SpaceAtlasPixel(BlockTexture texture, int x, int y,
                        unsigned int hash)

@@ -1,7 +1,7 @@
 #ifndef VOXELCRAFT_INTERACTION_H
 #define VOXELCRAFT_INTERACTION_H
 
-#include "world/world_types.h"
+#include "world/block_type.h"
 #include "gameplay/player_types.h"
 #include "gameplay/ui_types.h"
 
