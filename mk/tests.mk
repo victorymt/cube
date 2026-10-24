@@ -223,7 +223,7 @@ $(eval $(call define_test,SCREENSHOT_TEST_TARGET,test_screenshot,src/app/screens
 $(eval $(call define_test,DEBUG_CONTROL_TEST_TARGET,test_debug_control,src/core/debug_control.c,,,,,,))
 $(eval $(call define_test,PLUGIN_TEST_TARGET,test_plugin,src/core/plugin.c,,,, -ldl,,))
 $(eval $(call define_test,DEBUG_DSL_STDIN_TEST_TARGET,test_debug_dsl_stdin,src/core/debug_dsl_stdin.c,,,,,,))
-$(eval $(call define_test,DEBUG_DSL_TEST_TARGET,test_debug_dsl,src/core/debug_dsl.c src/core/debug_dsl_error.c,,,, -lm,,))
+$(eval $(call define_test,DEBUG_DSL_TEST_TARGET,test_debug_dsl,src/core/debug_dsl.c src/core/debug_dsl_execute.c src/core/debug_dsl_error.c,,,, -lm,,))
 $(eval $(call define_test,GAME_EFFECTS_TEST_TARGET,test_game_effects,$(GAME_EFFECTS_SRC),,,,, $(RAYLIB_CFLAGS),))
 $(eval $(call define_test,GAME_NOTICE_TEST_TARGET,test_game_notice,src/core/game_notice.c,,,,,,))
 $(eval $(call define_test,SIMULATION_TIME_TEST_TARGET,test_simulation_time,src/core/simulation_time.c,,,, -lm,,))
