@@ -781,6 +781,32 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
         control->terrainHistoryDisabled = strcmp(line, "terrain history off") == 0;
         return DEBUG_CONTROL_COMMAND_TERRAIN_HISTORY;
     }
+    if (strcmp(line, "world seed auto") == 0) {
+        control->newWorldSeedSelected = false;
+        return DEBUG_CONTROL_COMMAND_WORLD_SEED;
+    }
+    char newWorldSeedText[32] = { 0 };
+    char newWorldSeedTrailing = '\0';
+    if (sscanf(line, "world seed %31s %c", newWorldSeedText,
+               &newWorldSeedTrailing) == 1) {
+        /* A seed is an unsigned 32-bit decimal. Reject a sign and stray
+         * characters instead of letting sscanf wrap -1 to 4294967295. */
+        bool digitsOnly = newWorldSeedText[0] != '\0';
+        for (const char *c = newWorldSeedText; *c; c++) {
+            if (*c < '0' || *c > '9') { digitsOnly = false; break; }
+        }
+        unsigned long long parsed = 0ull;
+        if (digitsOnly) parsed = strtoull(newWorldSeedText, NULL, 10);
+        if (!digitsOnly || parsed > UINT32_MAX) {
+            return DEBUG_CONTROL_COMMAND_INVALID;
+        }
+        control->newWorldSeedSelected = true;
+        control->newWorldSeed = (uint32_t)parsed;
+        return DEBUG_CONTROL_COMMAND_WORLD_SEED;
+    }
+    if (strncmp(line, "world seed", 10) == 0) {
+        return DEBUG_CONTROL_COMMAND_INVALID;
+    }
     if (strcmp(line, "screenshot") == 0) {
         return DEBUG_CONTROL_COMMAND_SCREENSHOT;
     }

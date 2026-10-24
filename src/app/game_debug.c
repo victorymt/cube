@@ -19,6 +19,7 @@
 #include "app/game_debug_weather.h"
 #include "app/game_debug_hydrology.h"
 #include "app/game_debug_wildfire.h"
+#include "app/game_debug_world.h"
 #include "app/game_save.h"
 #include "world/chunks.h"
 #include "world/chunks_cube.h"
@@ -585,22 +586,11 @@ static GameDebugDispatchResult GameDebugDispatchSystemCommand(
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_TERRAIN_FLAT:
     case DEBUG_CONTROL_COMMAND_TERRAIN_VARIED:
-        if (game->screen != SCREEN_START) {
-            DebugControlReply(&game->debugControl,
-                              "DEBUG_CONTROL terrain error reason=already_playing\n");
-            return GAME_DEBUG_DISPATCH_HANDLED;
-        }
-        game->selectedTerrain = command == DEBUG_CONTROL_COMMAND_TERRAIN_FLAT
-            ? TERRAIN_FLAT : TERRAIN_VARIED;
-        DebugControlReply(&game->debugControl,
-                          "DEBUG_CONTROL terrain selected=%s\n",
-                          game->selectedTerrain == TERRAIN_FLAT ? "flat" : "varied");
-        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_TERRAIN_HISTORY:
-        DebugControlReply(&game->debugControl,
-                          "DEBUG_CONTROL terrain history %s=%s\n",
-                          game->screen == SCREEN_START ? "selected" : "ignored",
-                          game->debugControl.terrainHistoryDisabled ? "off" : "on");
+    case DEBUG_CONTROL_COMMAND_WORLD_SEED:
+        /* New-world selection lives in game_debug_world.c so this dispatcher
+         * stays inside its size limit. */
+        GameDebugWorldDispatch(game, command);
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_SCREENSHOT:
         if (game->screen == SCREEN_PLAYING) {

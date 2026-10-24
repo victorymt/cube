@@ -231,12 +231,51 @@ async function gitInfo(repo, signal) {
     }
 }
 
-function failureReason({ timedOut, code, captures, dslErrorLines }) {
+// The runner owns the pass/fail decision: it knows whether the scene declares a
+// screenshot statement, so a benchmark or history replay without a capture is a
+// pass. Prefer its manifest and only fall back to local inference when the
+// manifest is unreadable (for example a startup failure before the run began).
+function failureReason({ timedOut, code, captures, dslErrorLines, manifest }) {
     if (timedOut) return "voxelcraft_run watchdog expired";
+    if (manifest && manifest.ok === false) {
+        return manifest.failure
+            ? `run-scene: ${manifest.failure}`
+            : "run-scene reported failure";
+    }
+    if (manifest && manifest.ok === true) return undefined;
     if (dslErrorLines.length > 0) return `DSL error: ${dslErrorLines[0]}`;
     if (code !== 0) return `game exited with status ${code ?? "unknown"}`;
     if (captures.length === 0) return "no screenshot report produced";
     return undefined;
+}
+
+function parseManifest(text) {
+    const fields = new Map();
+    for (const line of text.split(/\r?\n/)) {
+        const separator = line.indexOf("=");
+        if (separator > 0) fields.set(line.slice(0, separator), line.slice(separator + 1));
+    }
+    const number = (key) => {
+        const raw = fields.get(key);
+        if (raw === undefined || raw === "") return undefined;
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : undefined;
+    };
+    const boolean = (key) => {
+        const raw = fields.get(key);
+        if (raw === "true") return true;
+        if (raw === "false") return false;
+        return undefined;
+    };
+    if (!fields.has("format") || fields.get("format") !== "voxelcraft-run") return undefined;
+    return {
+        ok: boolean("ok"),
+        failure: fields.get("failure") || undefined,
+        status: number("status"),
+        captureCount: number("capture_count"),
+        reportCount: number("report_count"),
+        expectsCapture: boolean("expects_capture"),
+    };
 }
 
 function resolveScene(repo, scene) {
@@ -363,6 +402,7 @@ export function createVoxelcraftRunTool(ctx) {
                     tracePath: { type: "string" },
                     gitHead: { type: "string" },
                     gitDirty: { type: "boolean" },
+                    expectsCapture: { type: "boolean" },
                     durationMs: { type: "integer" },
                     logTail: { type: "string" },
                     stderrTail: { type: "string" },
@@ -467,12 +507,14 @@ export function createVoxelcraftRunTool(ctx) {
                 .filter((line) => line.startsWith("DEBUG_SCRIPT error"));
             const tracePath = path.join(runDir, "trace.jsonl");
             const manifestPath = path.join(runDir, "manifest.txt");
+            const manifest = parseManifest(await readTextIfExists(manifestPath));
             const git = await gitInfo(repo, exec.signal);
             const failure = failureReason({
                 timedOut: scriptResult.timedOut,
                 code: scriptResult.code,
                 captures,
                 dslErrorLines,
+                manifest,
             });
             const ok = failure === undefined;
 
@@ -491,6 +533,7 @@ export function createVoxelcraftRunTool(ctx) {
             if (await pathExists(tracePath)) result.tracePath = tracePath;
             if (git.head !== undefined) result.gitHead = git.head;
             if (git.dirty !== undefined) result.gitDirty = git.dirty;
+            if (manifest) result.expectsCapture = manifest.expectsCapture;
             if (gameLog) result.logTail = tail(gameLog);
             if (scriptResult.stderr.trim()) result.stderrTail = tail(scriptResult.stderr, MAX_STDERR_TAIL);
             return result;

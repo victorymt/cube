@@ -254,6 +254,26 @@ static void TestTerrainMapCommands(void)
     assert(!control.terrainHistoryDisabled);
     assert(DebugControlParseText(&control, "terrain history off extra") ==
            DEBUG_CONTROL_COMMAND_INVALID);
+    assert(!control.newWorldSeedSelected);
+    assert(DebugControlParseText(&control, "world seed 1235") ==
+           DEBUG_CONTROL_COMMAND_WORLD_SEED);
+    assert(control.newWorldSeedSelected);
+    assert(control.newWorldSeed == 1235u);
+    assert(DebugControlParseText(&control, "world seed 0") ==
+           DEBUG_CONTROL_COMMAND_WORLD_SEED);
+    assert(control.newWorldSeedSelected);
+    assert(control.newWorldSeed == 0u);
+    assert(DebugControlParseText(&control, "world seed auto") ==
+           DEBUG_CONTROL_COMMAND_WORLD_SEED);
+    assert(!control.newWorldSeedSelected);
+    const char *invalidWorldSeed[] = {
+        "world seed", "world seed -1", "world seed 12x",
+        "world seed 1235 extra", "world seedx"
+    };
+    for (size_t i = 0; i < sizeof(invalidWorldSeed) / sizeof(invalidWorldSeed[0]); i++) {
+        assert(DebugControlParseText(&control, invalidWorldSeed[i]) ==
+               DEBUG_CONTROL_COMMAND_INVALID);
+    }
     assert(DebugControlParseText(&control, "hud debug on") ==
            DEBUG_CONTROL_COMMAND_HUD_DEBUG_ON);
     assert(DebugControlParseText(&control, "hud debug off") ==

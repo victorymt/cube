@@ -66,15 +66,14 @@ stage/priority/feature/sequence order used by `CgaEvaluateChunk`, so overwritten
 blocks match the final feature state. An occluder that is also an occupied
 feature voxel (for example a courtyard tree) is still classified as visible.
 
-For a preflighted single-scene run use:
+For a single-scene run use `scripts/run-scene.sh`, documented under
+[build and session](#build-and-session):
 
 ```sh
-tests/run_scene.sh cga_classical_complex_review.dsl
+scripts/run-scene.sh cga_classical_complex_review
 ```
 
-It checks the binary, scene, assets, `XDG_RUNTIME_DIR`, display variables and
-`/dev/dri`, then runs in an isolated runtime directory and prints the artifact
-path and capture count. After the four-view review, build the labeled contact
+After the four-view review, build the labeled contact
 sheet with:
 
 ```sh
@@ -88,6 +87,24 @@ Build the normal binary first:
 ```sh
 make
 ```
+
+Run one scene from `tests/scenes` in an isolated runtime directory with:
+
+```sh
+scripts/run-scene.sh <scene>            # scene name, .dsl suffix optional
+scripts/run-scene.sh --interactive <scene>
+```
+
+The runner symlinks `assets/` and runs the game in a scratch directory, so it
+never overwrites the repository's save, settings or screenshots. It appends
+`exit 0` only when the scene does not already end in `exit`; `--interactive`
+suppresses the append entirely. On success it prints the run directory, the log
+and trace paths, and every capture report. On failure it prints the failure
+reason, the first DSL errors and the last log lines, and it always writes
+`manifest.txt` first: the manifest records `ok`, `failure`, `status`,
+`capture_count`, `report_count` and `expects_capture`. `expects_capture` is
+true only when the scene contains a `screenshot` statement, so a benchmark or
+history replay that captures nothing is not a failure.
 
 Run it from an active Hyprland/Wayland session. `WAYLAND_DISPLAY` must name a
 socket below `XDG_RUNTIME_DIR`, and the session must provide a usable GPU. The
@@ -446,7 +463,7 @@ Runtime values are sampled when an expression is evaluated:
 | --- | --- | --- |
 | `game.screen` | string | `"start"` or `"playing"` |
 | `game.paused` | bool | Whether the pause menu is open |
-| `world.seed` | number | Current world seed |
+| `world.seed` | number | Current world seed (default `1448040515`; override with `world seed SEED` before `start`) |
 | `world.dimension` | string | Current dimension name |
 | `world.surface_topology` | string | `legacy-map` by default; `cube-grid` after `surface debug cube`; `none` outside surface dimensions |
 | `world.surface_topology_version` | number | `1` for both `legacy-map` and `cube-grid`; `0` for no active surface |
@@ -709,6 +726,8 @@ wall-clock timestamp, and locations use chunk/section indices, not blocks.
 start
 terrain flat|varied
 terrain history on|off
+world seed SEED
+world seed auto
 status
 pause on|off
 hud debug on|off
@@ -745,6 +764,13 @@ only the nearby surface, not every distant mesh.
 `on`/`off` argument is omitted. `start` is valid on the start screen.
 `terrain flat` and `terrain varied` select the terrain used by the next
 `start`; both commands are valid only on the start screen.
+`world seed SEED` is start-screen-only and sets the Homeworld seed the next
+`start` uses, which is how a bug report's `world.seed` is reproduced from a
+script; `SEED` is an unsigned decimal in `[0, 4294967295]`, where `0` and
+`world seed auto` both select the default seed
+(`DEFAULT_WORLD_SEED`, `1448040515`). The reply reports the effective selection,
+and `world.seed` reflects it only after `start`. Planet surfaces keep their own
+seed: use `surface debug planet STYLE SEED` for those.
 `terrain history on|off` is also start-screen-only. It selects V11 historical
 deposits (default `on`) or the V10 initial terrain (`off`) for the next new world,
 including debug planet surfaces. Use separate runs with identical planet seed,

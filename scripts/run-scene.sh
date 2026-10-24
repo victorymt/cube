@@ -188,7 +188,15 @@ cp "$scene_path" "$run_dir/scene.dsl"
 if [[ -n "$append_dsl" ]]; then
     printf '%s\n' "$append_dsl" >>"$run_dir/scene.dsl"
 fi
-if ((interactive == 0)); then
+# A scene may already own its exit statement, and `exit` is only valid as the
+# final top-level statement. Appending a second one turns a passing scene into
+# a syntax error, so only add an exit when the scene does not end with one.
+scene_ends_with_exit=0
+last_statement=$(grep -v '^[[:space:]]*$' "$run_dir/scene.dsl" | grep -v '^[[:space:]]*#' | tail -1 || true)
+case "$last_statement" in
+    exit|exit[[:space:]]*) scene_ends_with_exit=1 ;;
+esac
+if ((interactive == 0 && scene_ends_with_exit == 0)); then
     printf '\nexit 0\n' >>"$run_dir/scene.dsl"
 fi
 
@@ -217,14 +225,39 @@ set -e
 
 capture_count=$(grep -c '^DEBUG_CONTROL capture ok ' "$run_dir/game.log" 2>/dev/null || true)
 capture_count=${capture_count:-0}
-report_count=$(find "$run_dir/screenshots" -maxdepth 1 -type f -name '*.txt' 2>/dev/null | wc -l | tr -d ' ')
+# `find` fails when the scene never captured anything and therefore never
+# created screenshots/. Under `pipefail` that would abort the script before the
+# manifest and diagnostics are written, which is exactly the failing run an
+# operator needs to inspect.
+report_count=$(find "$run_dir/screenshots" -maxdepth 1 -type f -name '*.txt' 2>/dev/null | wc -l | tr -d ' ' || true)
 report_count=${report_count:-0}
 dsl_errors=$(grep '^DEBUG_SCRIPT error' "$run_dir/game.log" 2>/dev/null | head -3 || true)
 finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# A scene that never asks for a screenshot (benchmarks, history replays,
+# diagnostics) legitimately produces no report. Only demand a capture when the
+# scene contains a screenshot statement.
+expects_capture=0
+if grep -qE '^[[:space:]]*screenshot([[:space:]]|$)' "$run_dir/scene.dsl"; then
+    expects_capture=1
+fi
+
+failure=""
+if ((status != 0)); then
+    if ((status == 124)); then
+        failure="timeout after ${timeout_seconds}s"
+    else
+        failure="game exited with status $status"
+    fi
+elif [[ -n "$dsl_errors" ]]; then
+    failure="DSL error"
+elif ((expects_capture == 1 && capture_count == 0)); then
+    failure="scene issues screenshot but produced no capture"
+fi
+
 cat >"$run_dir/manifest.txt" <<EOF
 format=voxelcraft-run
-format.version=1
+format.version=2
 scene=$(basename "$scene_path")
 scene_path=$scene_path
 binary=$binary
@@ -234,6 +267,9 @@ run_dir=$run_dir
 status=$status
 capture_count=$capture_count
 report_count=$report_count
+expects_capture=$expects_capture
+ok=$([[ -z "$failure" ]] && printf 'true' || printf 'false')
+failure=$failure
 trace_path=$([[ $trace -eq 1 ]] && printf '%s' "$run_dir/trace.jsonl" || true)
 started_at=$started_at
 finished_at=$finished_at
@@ -254,16 +290,13 @@ if [[ "$report_count" -gt 0 ]]; then
         sort | sed 's/^/  /'
 fi
 
-if ((status != 0)); then
-    printf 'run-scene: game exited with status %s (124 means timeout)\n' "$status" >&2
-    exit "$status"
-fi
-if ((capture_count == 0)); then
-    printf 'run-scene: no screenshot capture found; see %s\n' "$run_dir/game.log" >&2
-    exit 1
-fi
-if [[ -n "$dsl_errors" ]]; then
-    printf 'run-scene: DSL error(s):\n%s\n' "$dsl_errors" >&2
+if [[ -n "$failure" ]]; then
+    printf 'run-scene: failed: %s\n' "$failure" >&2
+    if [[ -n "$dsl_errors" ]]; then
+        printf 'run-scene: DSL error(s):\n%s\n' "$dsl_errors" >&2
+    fi
+    printf 'run-scene: last log lines:\n' >&2
+    tail -20 "$run_dir/game.log" 2>/dev/null | sed 's/^/  /' >&2 || true
     exit 1
 fi
 

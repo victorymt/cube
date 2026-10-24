@@ -492,6 +492,13 @@ grep -q 'GameDebugHydrologyDslResolve(game, name, outValue)' \
 grep -q '^bool GameDebugHydrologyDslResolve(' \
     src/app/game_debug_hydrology.c ||
     fail "hydrology debug module must own hydrology DSL values"
+grep -q 'GameDebugWorldDispatch(game, command)' src/app/game_debug.c ||
+    fail "game debug must delegate start-screen world selection"
+grep -q '^bool GameDebugWorldDispatch(' src/app/game_debug_world.c ||
+    fail "world debug module must own new-world selection commands"
+if grep -q 'selectedSeed = ' src/app/game_debug.c; then
+    fail "new-world seed selection must remain in game_debug_world.c"
+fi
 
 render_frame_body=$(sed -n '/^static void GameRenderFrame(/,/^}/p' src/app/game.c)
 for render_stage in \
