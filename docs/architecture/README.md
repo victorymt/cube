@@ -28,6 +28,7 @@ new physical-simulation stages.
 | 18 | [volcano, lava and ash](18-volcano-preview.md) | G1/G2 lifecycle and lava, G3 water contact, P0 ash/material products, fractional collection; retained payloads in V29 |
 | 19 | [CGA voxel grammars](19-cga-voxel-grammar.md) | deterministic planning, four structure grammars, conflict resolution, cross-chunk IR evaluation, and CGA E2E coverage |
 | 20 | [architecture health review (2026-10-23)](20-health-review-2026-10-23.md) | measured dependency matrix, coupling hotspots and header-width metrics; four findings, none blocking, with a suggested order |
+| 21 | [coupling review (2026-10-24)](21-coupling-review-2026-10-24.md) | re-measured matrix after the module moves, surviving value-type cycles, and the measured rebuild radius of the four `world` headers six components read |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,

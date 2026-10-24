@@ -31,6 +31,7 @@ Next, in dependency order: close the cube mesh vertical stretch, convert the flu
 - 2026-10-24: `make test` passed 126 binaries with 0 failures, and the trailing architecture and clean-build guards passed.
 - 2026-10-24: `make test-headers` compiled every public header standalone; `make test-debug-cli` and `make test-debug-stdin-protocol` passed.
 - 2026-10-24: `scripts/run-scene.sh` returned `ok=true` for a screenshot scene, an `exit`-terminated scene, and a benchmark scene without captures, and reported `ok=false` with the DSL error for a scene whose command is rejected.
+- 2026-10-24: injected layering violations in `gameplay` and `space` were both rejected by `make test-architecture`; `core`, `presentation` and non-`app` upward includes measured zero.
 
 ## Not verified
 
