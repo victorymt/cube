@@ -824,23 +824,6 @@ static GameDebugDispatchResult GameDebugDispatchFluidCommand(
     }
 }
 
-static bool GameDebugLocalClimate(const GameRuntime *game,
-                                  LocalClimateState *outClimate)
-{
-    if (!game || !outClimate || !WorldIsSurfaceActive() ||
-        !isfinite(game->player.position.x) ||
-        !isfinite(game->player.position.z)) {
-        return false;
-    }
-    return WeatherLocalClimateAtWorldTime(
-        (int)floorf(game->player.position.x),
-        (int)floorf(game->player.position.z),
-        SimulationTimePeriodic(SpaceElapsedSimulationTime()),
-        outClimate);
-}
-
-
-
 static GameDebugDispatchResult GameDebugDispatchMotionCommand(
     GameRuntime *game, DebugControlCommand command)
 {
