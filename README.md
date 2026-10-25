@@ -189,6 +189,10 @@ for the ABI surface and the layout a new plugin has to match.
 
 ## Build
 
+`make prerequisites` prints the install command for this machine, what it is
+missing, and the optional tools each target needs. The dependency list itself
+lives in `mk/deps.mk`; CI and this document are tested against it.
+
 ```sh
 make
 ```
@@ -197,6 +201,39 @@ The executable is written to `build/normal/voxelcraft`; `make voxelcraft`
 remains available as an explicit build target and `make run` builds and starts
 that binary. Build and test artifacts stay under `build/` and are never written
 into `src/` or `tests/`.
+
+The first build downloads and compiles the vendored raylib (about 30 seconds).
+That archive is the build's only external input and is checksummed; a build
+root that already has it is not rebuilt.
+
+### Variables that change the build
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `BUILD_ROOT` | `build` | Where all artifacts go. A second root is the only way to build without reusing the first one's objects. |
+| `BUILD_VARIANT` | `normal` | Subdirectory for a flag set: `normal`, `sanitize`, `coverage`, `ci`. Variants do not share objects. |
+| `RAYLIB_VERSION` | `6.0` | The vendored raylib tag. The sources target the 6.x API, so changing it is a real choice. |
+| `RAYLIB_SHA256` | pinned digest | Verification of the raylib tarball. Empty skips the check for one build and says so. |
+| `CC`, `CFLAGS`, `LDFLAGS` | see the `Makefile` | Standard overrides. These reach the game, never the vendored raylib, which builds with its own flags. |
+| `TEST_TIMEOUT_SECONDS` | `120` | Per-binary timeout in `scripts/run-tests.sh`. |
+| `TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS` | `900` | The one test with its own, longer budget. |
+| `SANITIZER_LEAKS` | `1` | `0` disables leak detection under `test-sanitize`, for environments that run every process under `ptrace`. |
+| `CLEAN_ROOT` | `build/clean-root` | Scratch build root used by `test-clean-root`, which builds and tests from empty. |
+| `SKIP_DOCS_PROBE` | unset | `1` makes the pre-commit hook skip the runtime documentation probe. |
+| `UV_CACHE_DIR` | uv's default | Must be writable for the `uv run --offline` targets; a read-only cache is a hard failure, not a fallback. |
+
+`make test-clean-root` builds and runs the suite against an empty `BUILD_ROOT`.
+It is slow by design: a warm build directory hides problems in the flags the
+vendored raylib actually receives and in anything that only works because a
+previous build left a file behind.
+
+### Git hooks
+
+`make hooks` links `tools/git-hooks/pre-commit` into `.git/hooks/`. The hook
+runs `make check-docs` on every commit and, when the staged change touches
+`src/`, `mk/` or the `Makefile`, `make docs-probe` as well (skipped outside a
+Wayland session, or with `SKIP_DOCS_PROBE=1`). Nothing enforces that the hook
+is installed; install it once per clone.
 
 Build the built-in component archives and optional plugins as independent targets
 (they can run concurrently with `make -j`):

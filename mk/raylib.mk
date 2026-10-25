@@ -153,12 +153,16 @@ $(RAYLIB_TARBALL): | $(BUILD_ROOT_MARKER)
 		mv -f '$@.tmp' '$@'; \
 	fi
 
+# The unpack step tests for a file the archive provides, not for the directory.
+# Tarball verification is a stamp living inside RAYLIB_SRC_DIR, so the directory
+# exists before anything is unpacked, and `test -d` would skip the extraction and
+# hand make a -C path with nothing in it.
 $(RAYLIB_LIB): $(RAYLIB_TARBALL_STAMP)
 	@if test -f '$@'; then :; else \
-		if test -d '$(RAYLIB_SRC_DIR)'; then :; else \
+		if test -f '$(RAYLIB_SRC_DIR)/src/raylib.h'; then :; else \
 			printf 'raylib: unpacking into %s\n' '$(RAYLIB_SRC_DIR)'; \
 			mkdir -p $(dir $(RAYLIB_SRC_DIR)); \
-			tar -xzf '$<' -C $(dir $(RAYLIB_SRC_DIR)); \
+			tar -xzf '$(RAYLIB_TARBALL)' -C $(dir $(RAYLIB_SRC_DIR)); \
 		fi; \
 		printf 'raylib: compiling %s with X11 and Wayland backends\n' '$(RAYLIB_VERSION)'; \
 		env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL \

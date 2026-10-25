@@ -63,7 +63,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-test-manifest test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-test-manifest test-simulation-replay test-ci test-clean-root test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
 
 # The vendored raylib is a prerequisite rather than a checked precondition: the
 # build either produces it or fails while producing it. There is no state in
@@ -210,10 +210,39 @@ test-architecture:
 test-simulation-replay: $(SIMULATION_REPLAY_TEST_TARGET) $(SIMULATION_INTEGRATION_TEST_TARGET)
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) sh scripts/run-tests.sh $^
 
+# Reproduce what CI does, in one command. CI itself runs these as separate jobs
+# (a matrix over gcc and clang, sanitizers, coverage, release) because the
+# per-job isolation is worth more than one sequential run; this target exists
+# for a contributor checking the same three things by hand before pushing.
+#
+# The clean build root is the part that matters most. Both P0 defects this tree
+# shipped -- a vendored raylib whose flags a project CFLAGS override destroyed,
+# and a build that only ever ran against an already-populated build/raylib --
+# were invisible on a warm tree and immediate on a cold one.
 test-ci:
 	$(MAKE) BUILD_VARIANT=ci CFLAGS='$(CI_CFLAGS)' test
 	$(MAKE) test-sanitize
+	$(MAKE) test-clean-root
 	@test -z "$$(git status --porcelain --untracked-files=normal)" || { git status --short; exit 1; }
+
+# Build and test against an empty build root, so nothing can be served from a
+# warm build directory. The vendored raylib is rebuilt here (about 30s serial),
+# which is the only way to exercise the compile flags it actually gets.
+#
+# Narrower than test-ci on purpose: `make test` under the CI CFLAGS is enough to
+# catch a flag problem, without paying for the full sanitizer matrix twice.
+CLEAN_ROOT ?= build/clean-root
+test-clean-root:
+	@rm -rf '$(CLEAN_ROOT)'
+	@mkdir -p '$(CLEAN_ROOT)/raylib'
+	@if test -f '$(BUILD_ROOT)/raylib/raylib-$(RAYLIB_VERSION).tar.gz'; then \
+		cp '$(BUILD_ROOT)/raylib/raylib-$(RAYLIB_VERSION).tar.gz' '$(CLEAN_ROOT)/raylib/'; \
+	else \
+		printf 'test-clean-root: no local tarball, the build will download raylib\n'; \
+	fi
+	@$(MAKE) BUILD_ROOT='$(CLEAN_ROOT)' CFLAGS='$(CI_CFLAGS)' all
+	@$(MAKE) BUILD_ROOT='$(CLEAN_ROOT)' CFLAGS='$(CI_CFLAGS)' test
+	@rm -rf '$(CLEAN_ROOT)'
 
 test-sanitize:
 	ASAN_OPTIONS='detect_leaks=$(SANITIZER_LEAKS):halt_on_error=1:strict_string_checks=1' \

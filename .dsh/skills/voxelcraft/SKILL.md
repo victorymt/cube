@@ -65,7 +65,8 @@ make check-docs        # 文档门禁
 | `test-<name>` | 聚焦 C 单测 | 例如 `test-surface-cube` |
 | `test` | 全量单测 + debug CLI/stdin + architecture | 提交前主门禁 |
 | `test-sanitize` | ASan+UBSan（`SANITIZER_LEAKS=1`） | 内存敏感改动 |
-| `test-ci` | CI 的 `-Werror` 配置 | 合并前 |
+| `test-ci` | CI 的 `-Werror` 配置 + sanitize + 冷构建根，一条命令对齐 CI | 合并前 |
+| `test-clean-root` | 空 `BUILD_ROOT` 上重编 raylib 并跑 `make test`（≈30s 串行 raylib） | 改了 raylib/CFLAGS/构建规则 |
 | `test-debug-cli` / `test-debug-stdin-protocol` | DSL 参数与 stdin 协议，无窗口 | 改 debug 参数/执行器 |
 | `test-e2e` | 完整图形路线 + debug 图形 + chunk diagnostics | 需要 Hyprland |
 | `test-cga-previews-e2e` / `test-cga-house-e2e` | CGA 预览 | 改 CGA 首选 |
