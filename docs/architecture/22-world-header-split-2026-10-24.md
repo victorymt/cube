@@ -24,6 +24,8 @@ The cost was not correctness. It was that a consumer wanting one predicate — `
 
 `world.h` dropped from **87 to 19** translation units. It stays as an aggregate so existing callers compile, and `tests/test_architecture.sh` now rejects any new include of it.
 
+**Scope correction (2026-10-25):** this split moved *declarations*, not types. The four new headers still included `world/world_types.h`, so the 150-object type aggregate underneath was untouched and consumers kept rebuilding for it. [Record 24](24-world-type-decoupling-2026-10-25.md) closes that layer; the 19 above is real but it is not the number a consumer felt.
+
 `block_types.h` is deliberately a leaf: it includes only `world_types.h` and `raylib.h`, so a renderer can classify and colour block types without reaching edit storage.
 
 ## Two type moves

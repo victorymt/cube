@@ -800,6 +800,32 @@
         "make check-docs",
         "make docs-probe"
       ]
+    },
+    "docs/architecture/24-world-type-decoupling-2026-10-25.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "src/world/block_type.h",
+        "src/world/block_texture.h",
+        "src/world/chunk_types.h",
+        "src/world/terrain_types.h",
+        "src/world/flora_types.h",
+        "src/world/block_edit_types.h",
+        "src/world/surface_types.h",
+        "src/world/surface_topology.h",
+        "src/world/terrain.h",
+        "src/world/terrain_test.h",
+        "src/core/debug_dsl.c",
+        "src/core/debug_dsl_execute.c",
+        "src/app/game_debug.c",
+        "src/app/game_debug_weather.c",
+        "mk/tests.mk"
+      ],
+      "recipes": [
+        "make test",
+        "make test-headers",
+        "make test-architecture"
+      ]
     }
   }
 }

@@ -2,7 +2,7 @@
 
 The single home for what is true right now. Every other document links here instead of restating it. One physical line per entry; a stale line is a bug.
 
-Updated 2026-10-24. Source of the statements below: the status sections previously duplicated in `README.md`, `todo/00-roadmap.md`, and `docs/surface-cube.md`.
+Updated 2026-10-25. Source of the statements below: the status sections previously duplicated in `README.md`, `todo/00-roadmap.md`, and `docs/surface-cube.md`.
 
 ## Current work
 
@@ -36,6 +36,9 @@ Next, in dependency order: close the cube mesh vertical stretch, convert the flu
 - 2026-10-24: `make -s benchmark-chunks` links and runs again after the manifest fix, with `mesh_snapshot_bytes=8192`, `solid_vertices_per_chunk=2187.8`, `solid_vertex_reduction_percent=68.5`, `sync_rebuilds=0` and a 53.4 ms median.
 - 2026-10-24: `make docs-probe` resolved all 264 documented DSL runtime fields against a live binary and matched the printed ready line; injecting an unknown field and a one-word ready-line change both failed the probe.
 - 2026-10-24: `make check-docs` runs both the prose and truth gates and passes; the truth gate reports a stale document when a document's anchors move without it, confirmed by injecting the condition.
+- 2026-10-25: `world/world_types.h` no longer exists; `block_type.h`, `block_texture.h`, `flora_types.h`, `chunk_types.h`, `block_edit_types.h` and `terrain_types.h` replace it, with a rule that fails the build if the aggregate returns.
+- 2026-10-25: `world/surface_topology.h` rebuilt 169 → 145 objects after `surface_types.h` was split out and made raylib-free; `make test` still passes 126 binaries and `make test-headers` compiles 211 public headers.
+- 2026-10-25: `src/core/debug_dsl.c` was split into a parser and a statement executor, and `src/app/game_debug.c` lost its weather dispatch; both are now clear of the architecture file-size limit. `make docs-probe` still resolves all 264 DSL fields afterwards.
 
 ## Not verified
 
