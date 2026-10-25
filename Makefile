@@ -63,7 +63,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-test-manifest test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
 
 # The vendored raylib is a prerequisite rather than a checked precondition: the
 # build either produces it or fails while producing it. There is no state in
@@ -139,7 +139,7 @@ modules: $(MODULE_ARCHIVES)
 # Build all ownership domains without touching unrelated component archives.
 components: $(MODULE_ARCHIVES)
 
-test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-build-prerequisites
+test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-test-manifest test-build-prerequisites
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS=$(TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
 
@@ -153,7 +153,7 @@ test-werror:
 # runs the benchmark and checks them; it also rejects a return to a literal sync
 # counter, which is how the invariant became a constant in the first place.
 test-benchmark-invariants: $(CHUNK_BENCHMARK_TARGET)
-	@sh tests/test_benchmark_invariants.sh
+	@sh tests/test_benchmark_invariants.sh '$(CHUNK_BENCHMARK_TARGET)'
 
 # A `#ifdef *_TESTING` block in a public header widens the contract. Fifteen
 # exist; this test pins them so a sixteenth is a decision, not a side effect.
@@ -176,6 +176,11 @@ test-declarations:
 # drift apart again.
 test-build-prerequisites:
 	@sh tests/test_build_prerequisites.sh
+
+# A manifest entry with a missing field shifts every later field left, which
+# compiles until it does not. This checks the arity, not the placement.
+test-test-manifest:
+	@sh tests/test_test_manifest.sh
 
 test-declarations-backlog:
 	@sh tests/test_declarations.sh --strict || true
@@ -253,7 +258,6 @@ test-flat-baseline-e2e: $(TARGET)
 # of `make docs-probe` that needs no GPU: it checks names, not values.
 test-debug-fields-e2e: $(TARGET)
 	bash tests/test_debug_fields_e2e.sh $(TARGET)
-	bash tests/test_debug_fields_e2e.sh $(TARGET)
 
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
@@ -297,9 +301,11 @@ test-animal-scenarios-e2e: $(TARGET) test-animal-scenarios-script
 test-polar-e2e: $(TARGET)
 	bash tests/test_polar_e2e.sh $(TARGET)
 
+.PHONY: test-cube-save-reload
 test-cube-save-reload: $(CUBE_SAVE_RELOAD_TEST_TARGET)
 	@bash tests/test_cube_save_reload.sh $(CUBE_SAVE_RELOAD_TEST_TARGET)
 
+.PHONY: test-debug-stdin-protocol test-debug-cli
 test-debug-stdin-protocol:
 	@bash tests/test_debug_stdin_protocol.sh
 

@@ -52,6 +52,8 @@ const TIERS = {
 }
 
 const DEFAULT_REGISTRY = 'docs/doc-claims.json'
+/** The prose gate's configuration file, which carries the scan roots too. */
+const DOCS_CONFIG = 'docs-check.config.json'
 
 /**
  * Repository-relative POSIX path.
@@ -301,6 +303,29 @@ function run(root) {
 
   if (!haveGit) {
     warnings.push(`${DEFAULT_REGISTRY}  git history unavailable; freshness checks fall back to file mtimes`)
+  }
+
+  // The prose gate (check-docs.mjs) scans `include` from docs-check.config.json;
+  // this gate scans `roots` from the registry. They describe the same set of
+  // documents, so a document added to one list and not the other is silently
+  // prose-checked but not truth-checked (or the reverse), which reads as a pass.
+  // Comparing them turns that drift into an error instead of a gap.
+  const docsConfigPath = join(root, DOCS_CONFIG)
+  if (existsSync(docsConfigPath)) {
+    try {
+      const docsConfig = JSON.parse(readFileSync(docsConfigPath, 'utf8'))
+      const scan = [...new Set(docsConfig.include ?? [])].sort()
+      const roots = [...new Set(registry.roots ?? [])].sort()
+      if (scan.join('\n') !== roots.join('\n')) {
+        errors.push(
+          `${DOCS_CONFIG}  include and ${DEFAULT_REGISTRY} roots disagree  ` +
+            `only in config: ${scan.filter((entry) => !roots.includes(entry)).join(', ') || '(none)'}; ` +
+            `only in registry: ${roots.filter((entry) => !scan.includes(entry)).join(', ') || '(none)'}`
+        )
+      }
+    } catch (error) {
+      errors.push(`${DOCS_CONFIG}  unreadable  ${error.message}`)
+    }
   }
 
   /** Documents the gate is responsible for. */

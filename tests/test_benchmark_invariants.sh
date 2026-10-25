@@ -22,9 +22,14 @@ set -eu
 repository=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repository"
 
-benchmark=build/normal/tests/benchmark_chunks
+# The benchmark lives under the selected build variant. Hardcoding
+# `build/normal` made this gate unpassable from any other variant:
+# `make BUILD_VARIANT=sanitize test-benchmark-invariants` built the binary at
+# build/sanitize and then reported it missing. The Makefile passes the path it
+# actually built; the default keeps the script runnable by hand.
+benchmark=${1:-build/normal/tests/benchmark_chunks}
 [ -x "$benchmark" ] || {
-    echo "benchmark binary is missing; run 'make benchmark-chunks' first" >&2
+    echo "benchmark binary is missing at $benchmark; run 'make benchmark-chunks' first" >&2
     exit 2
 }
 
