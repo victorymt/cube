@@ -10,6 +10,13 @@ PKG_CONFIG ?= pkg-config
 # change what the game compiles and links against. See mk/raylib.mk.
 RAYLIB_VERSION := 6.0
 # raylib's tags are plain `6.0`, `6.2`, never padded to three components.
+#
+# The tarball is the only external input in the build, and a tag is not a
+# pin: it can be moved. This digest is. It is the SHA-256 of the archive
+# codeload serves for the tag above. A mismatch is reported with the measured
+# value so it can be re-pinned deliberately; `make RAYLIB_SHA256= ...` skips
+# the check for a one-off local build. See mk/raylib.mk.
+RAYLIB_SHA256 := 2b3ee1e2120c7a0796b33062c7e9a694dd8a8caa56a96319ac8c8ecf54a90d0b
 
 .PHONY: raylib
 

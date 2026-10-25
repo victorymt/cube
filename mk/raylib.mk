@@ -73,6 +73,38 @@ raylib-check:
 		exit 1; \
 	fi
 
+# The tarball is the only external input in this build, so it gets verified
+# before anything unpacks it. A tag is not a pin -- it can be moved upstream --
+# and a tarball placed by hand is not evidence either, so both paths go through
+# the same check.
+#
+# This is a stamp rather than a line inside the download recipe so that a
+# hand-placed archive is checked too, and so the check re-runs when
+# RAYLIB_SHA256 changes (BUILD_CONFIG fingerprints Makefile and mk/raylib.mk).
+#
+# `make RAYLIB_SHA256= ...` skips the check for one deliberate local build and
+# prints that it did. The message on a mismatch gives the measured value, so
+# re-pinning is possible without guessing which side is wrong.
+RAYLIB_TARBALL_STAMP := $(RAYLIB_SRC_DIR)/.tarball-verified
+
+$(RAYLIB_TARBALL_STAMP): $(RAYLIB_TARBALL) $(BUILD_CONFIG)
+	@if test -z '$(RAYLIB_SHA256)'; then \
+		printf 'raylib: RAYLIB_SHA256 is empty, tarball checksum NOT verified\n' >&2; \
+	else \
+		if actual=$$(sha256sum '$(RAYLIB_TARBALL)' | cut -d' ' -f1) && \
+			test "$$actual" = '$(RAYLIB_SHA256)'; then :; else \
+			printf 'raylib: checksum mismatch for %s\n' '$(RAYLIB_TARBALL)' >&2; \
+			printf 'raylib:   expected %s\n' '$(RAYLIB_SHA256)' >&2; \
+			printf 'raylib:   measured %s\n' "$${actual:-<unreadable>}" >&2; \
+			printf 'raylib: the tag may have been repacked upstream. Check the archive\n' >&2; \
+			printf 'raylib: yourself, then update RAYLIB_SHA256 in the Makefile. To build\n' >&2; \
+			printf 'raylib: once without the check: make RAYLIB_SHA256= ...\n' >&2; \
+			exit 1; \
+		fi; \
+	fi
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(RAYLIB_SHA256)' > $@
+
 $(RAYLIB_TARBALL): | $(BUILD_ROOT_MARKER)
 	@mkdir -p $(dir $@)
 	@if test -f '$@'; then :; else \
@@ -86,7 +118,7 @@ $(RAYLIB_TARBALL): | $(BUILD_ROOT_MARKER)
 		mv -f '$@.tmp' '$@'; \
 	fi
 
-$(RAYLIB_LIB): $(RAYLIB_TARBALL)
+$(RAYLIB_LIB): $(RAYLIB_TARBALL_STAMP)
 	@if test -f '$@'; then :; else \
 		if test -d '$(RAYLIB_SRC_DIR)'; then :; else \
 			printf 'raylib: unpacking into %s\n' '$(RAYLIB_SRC_DIR)'; \
