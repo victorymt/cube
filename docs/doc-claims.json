@@ -826,6 +826,27 @@
         "make test-headers",
         "make test-architecture"
       ]
+    },
+    "docs/architecture/25-test-honesty-2026-10-25.md": {
+      "tier": "record",
+      "trackCode": false,
+      "anchors": [
+        "tests/test_werror.sh",
+        "tests/test_benchmark_invariants.sh",
+        "tests/test_public_header_seams.sh",
+        "tests/test_scene_reachability.sh",
+        "tests/test_debug_fields_e2e.sh",
+        "tests/test_flat_baseline_e2e.sh",
+        "tests/benchmark_chunks.c",
+        "tests/test_architecture.sh",
+        "src/app/game_runtime.c",
+        "Makefile"
+      ],
+      "recipes": [
+        "make test",
+        "make test-scene-reachability",
+        "make test-public-header-seams"
+      ]
     }
   }
 }

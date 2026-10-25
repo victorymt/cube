@@ -39,6 +39,10 @@ Next, in dependency order: close the cube mesh vertical stretch, convert the flu
 - 2026-10-25: `world/world_types.h` no longer exists; `block_type.h`, `block_texture.h`, `flora_types.h`, `chunk_types.h`, `block_edit_types.h` and `terrain_types.h` replace it, with a rule that fails the build if the aggregate returns.
 - 2026-10-25: `world/surface_topology.h` rebuilt 169 → 145 objects after `surface_types.h` was split out and made raylib-free; `make test` still passes 126 binaries and `make test-headers` compiles 211 public headers.
 - 2026-10-25: `src/core/debug_dsl.c` was split into a parser and a statement executor, and `src/app/game_debug.c` lost its weather dispatch; both are now clear of the architecture file-size limit. `make docs-probe` still resolves all 264 DSL fields afterwards.
+- 2026-10-25: CI's `-Werror` build is green again after deleting the dead `GameDebugLocalClimate`; `make test` now runs the same sweep locally (`tests/test_werror.sh`), which a reintroduced unused static fails.
+- 2026-10-25: `make test` gained three checks that fail on the states they exist for: the world type layer's leaf/cycle rules, the four benchmark invariants read from `ChunksGetStreamingStats()` rather than a literal, and the public-header test-seam list.
+- 2026-10-25: every scene under `tests/scenes/` is now executed by a driver or a make target, enforced by `tests/test_scene_reachability.sh`; three e2e scripts and two flat-baseline routes that previously ran nowhere are wired into `test-e2e` and the Hyprland CI job.
+- 2026-10-25: unrecognised command-line options now exit 2 instead of being ignored, and `--perf-report` / `--perf-baseline` reject a missing, empty or repeated value.
 
 ## Not verified
 

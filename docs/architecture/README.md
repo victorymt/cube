@@ -32,6 +32,7 @@ new physical-simulation stages.
 | 22 | [world.h responsibility split (2026-10-24)](22-world-header-split-2026-10-24.md) | `world.h` narrowed to chunk notifications; block types, block edits, lighting and world state are separate headers with measured rebuild radius, plus two mutation-verified include rules |
 | 23 | [documentation truth gate (2026-10-24)](23-doc-truth-gate-2026-10-24.md) | why a green prose gate coexisted with three false documents, the `docs/doc-claims.json` registry, stale detection by commit comparison, and what the runtime probe costs |
 | 24 | [world type decoupling (2026-10-25)](24-world-type-decoupling-2026-10-25.md) | `world_types.h` and `surface_topology.h` split into focused type headers with measured rebuild radius; two targets missed and one phase abandoned after measurement, all recorded |
+| 25 | [test honesty pass (2026-10-25)](25-test-honesty-2026-10-25.md) | CI was red while local runs were green, one gate guarded the previous split, a documented invariant was a literal, and six tests existed that nothing invoked |
 
 Original acceptance narratives remain in `todo/01` through `todo/09`. The
 roadmap in `todo/00-roadmap.md` also lists the physical follow-on stages 10-16,
