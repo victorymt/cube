@@ -164,6 +164,74 @@ if grep -nE '#include "(raylib|raymath|rlgl)\.h"' src/world/surface_types.h; the
     fail "surface_types.h must stay raylib-free; the vector type belongs in surface_topology.h"
 fi
 
+# The type layer split out of world_types.h is a DAG, not a bag of headers that
+# happen to compile. Two invariants keep it that way, and both are checked here
+# because the previous "focused headers" rule only covered the four headers from
+# the world.h split, leaving these seven unguarded: injecting
+# `#include "world/chunk_types.h"` into block_type.h passed the whole gate.
+#
+#   1. The leaf headers include no sibling at all. They carry plain data and are
+#      the reason a consumer can name a block type without pulling in chunk
+#      storage, so an edge out of a leaf re-creates the coupling they removed.
+#   2. No header in the layer reaches itself. A cycle would make their rebuild
+#      sets identical, which is the entanglement the split was for.
+world_type_headers=" \
+    src/world/block_type.h \
+    src/world/block_texture.h \
+    src/world/block_edit_types.h \
+    src/world/flora_types.h \
+    src/world/terrain_types.h \
+    src/world/surface_types.h \
+    src/world/chunk_types.h \
+    src/world/world_state.h \
+    src/world/block_types.h \
+    src/world/block_lighting.h \
+    src/world/block_edits.h \
+"
+
+for leaf_header in \
+    src/world/block_type.h \
+    src/world/terrain_types.h \
+    src/world/surface_types.h
+do
+    for sibling in $world_type_headers; do
+        [ "$sibling" = "$leaf_header" ] && continue
+        sibling_name=${sibling#src/world/}
+        if grep -qE "#include \"world/${sibling_name}\"" "$leaf_header"; then
+            fail "$leaf_header is a leaf and must not include $sibling_name"
+        fi
+    done
+done
+
+# Transitive closure per header, stopping the moment the starting header shows
+# up again. A depth cap keeps a broken graph from looping forever.
+type_layer_names=$(for header in $world_type_headers; do printf '%s ' "${header#src/world/}"; done)
+for start_header in $world_type_headers; do
+    start_name=${start_header#src/world/}
+    frontier=$start_name
+    depth=0
+    while [ -n "$frontier" ] && [ "$depth" -lt 16 ]; do
+        next_frontier=
+        for name in $frontier; do
+            [ -f "src/world/$name" ] || continue
+            included=$(grep -oE '#include "world/[a-z_]+\.h"' "src/world/$name" |
+                sed 's|#include "world/||;s|"$||' || true)
+            for candidate in $included; do
+                case " $type_layer_names " in
+                    *" $candidate "*) ;;
+                    *) continue ;;
+                esac
+                if [ "$candidate" = "$start_name" ]; then
+                    fail "the world type layer contains a cycle through $start_name"
+                fi
+                next_frontier="$next_frontier $candidate"
+            done
+        done
+        frontier=$next_frontier
+        depth=$((depth + 1))
+    done
+done
+
 if grep -R -n '#include "space/space_state.h"' src/world \
     --include='*.c' --include='*.h'; then
     fail "world surface state must enter through WorldSurfaceSnapshot"
