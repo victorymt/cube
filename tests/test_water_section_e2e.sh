@@ -21,7 +21,7 @@ if ((status != 0)); then
 fi
 
 # The lower section must stay untouched both before and after the 30 fluid ticks.
-[[ $(rg -c '^DEBUG_CONTROL fluid inspect ok position=226,63,276 volume=0 .* edits=0 ' \
+[[ $(grep -cE '^DEBUG_CONTROL fluid inspect ok position=226,63,276 volume=0 .* edits=0 ' \
     "$runtime/game.log") == 2 ]]
 
 shopt -s nullglob
@@ -34,11 +34,11 @@ for report in "${reports[@]}"; do
         'fluid.local_volume=255' \
         'streaming.surface_ready=true' \
         'streaming.water_section_triangle_count=0'; do
-        if ! rg -Fxq "$expected" "$report"; then
+        if ! grep -Fxq "$expected" "$report"; then
             printf 'missing %s in %s\n' "$expected" "$report" >&2
             exit 1
         fi
     done
 done
-rg 'DEBUG_CONTROL capture ok|DEBUG_SCRIPT exit' "$runtime/game.log"
+grep -E 'DEBUG_CONTROL capture ok|DEBUG_SCRIPT exit' "$runtime/game.log"
 printf '%s\n' 'water section e2e passed (descent and save/load)'

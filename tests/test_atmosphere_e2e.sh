@@ -65,6 +65,6 @@ if ((status != 0)); then
     tail -50 "$runtime/game.log"
     exit "$status"
 fi
-rg 'DEBUG_CONTROL capture ok|DEBUG_SCRIPT complete|DEBUG_SCRIPT exit' "$runtime/game.log"
-[[ $(rg -c '^DEBUG_CONTROL capture ok ' "$runtime/game.log") == 3 ]]
+grep -E 'DEBUG_CONTROL capture ok|DEBUG_SCRIPT complete|DEBUG_SCRIPT exit' "$runtime/game.log"
+[[ $(grep -cE '^DEBUG_CONTROL capture ok ' "$runtime/game.log") == 3 ]]
 printf '%s\n' 'atmosphere e2e passed'

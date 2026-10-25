@@ -113,6 +113,11 @@ jobs:
           make test-debug-graphics-e2e
           make test-chunk-diagnostics-e2e
           make test-polar-e2e
+      - name: Run atmosphere, landform, and water-section E2E
+        run: |
+          make test-atmosphere-e2e
+          make test-landform-planets-e2e
+          make test-water-section-e2e
       - name: Probe documented runtime names
         run: make docs-probe
 
