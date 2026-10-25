@@ -1442,25 +1442,7 @@ int GameRun(int argc, char **argv)
 {
     GameRuntime game;
     GameRuntimeInit(&game, argc, argv);
-    if (game.debugResolutionInvalid) {
-        fprintf(stderr,
-                "Invalid or repeated --debug-resolution option; expected "
-                "WIDTHxHEIGHT within 320x240-7680x4320.\n");
-        return 2;
-    }
-    if (game.chunkWorkerCountInvalid) {
-        fprintf(stderr,
-                "Invalid or repeated --chunk-workers option; expected "
-                "auto or an integer from 1 to %d.\n",
-                MAX_CHUNK_WORKER_THREADS);
-        return 2;
-    }
-    if (game.debugTracePathInvalid) {
-        fprintf(stderr,
-                "Invalid --debug-trace option; expected an optional "
-                "non-empty path shorter than 512 bytes.\n");
-        return 2;
-    }
+    if (!GameRuntimeOptionsValid(&game, argc, argv)) return 2;
     if (!GamePluginsArgumentsValid(&game)) return 2;
     if (!GameDebugScriptLoad(&game)) {
         GameDebugScriptStop(&game);

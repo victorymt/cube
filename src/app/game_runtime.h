@@ -145,6 +145,7 @@ typedef struct GameRuntime {
   bool debugTraceEnabled;
   bool debugTraceFrames;
   bool debugTracePathInvalid;
+  bool perfPathInvalid;
   bool pluginDirectoryInvalid;
   bool debugResolutionInvalid;
   bool chunkWorkerCountInvalid;
@@ -205,6 +206,15 @@ typedef struct GameRuntime {
 } GameRuntime;
 
 void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv);
+
+/* Rejects any `--option` this build does not recognise, reporting the offending
+ * argument. Unknown options used to be ignored silently, so a typo or a flag
+ * from a newer build changed nothing and said nothing. */
+bool CommandLineOptionsValid(int argc, char **argv, const char **outUnknown);
+
+/* Prints the reason and returns false when any parsed option was invalid.
+ * `GameRun` uses this to exit 2 before touching the window. */
+bool GameRuntimeOptionsValid(const GameRuntime *runtime, int argc, char **argv);
 void GameRuntimeApplyPendingChunkWorkerReconfigure(GameRuntime *runtime);
 DiagnosticsCaptureIdentity GameRuntimeCaptureDiagnosticsIdentity(
     GameRuntime *runtime);

@@ -72,23 +72,137 @@ static bool ParsePluginDirectoryArgs(int argc, char **argv, char *path,
   return enabled;
 }
 
+/* One path-valued perf option. Both --perf-report and --perf-baseline take a
+ * non-empty path under 512 bytes, may appear once, and accept either the
+ * separate (`--opt PATH`) or joined (`--opt=PATH`) form. This mirrors how
+ * --debug-trace and --plugin-dir already validate, which these two did not:
+ * they silently accepted a repeated flag, an empty value, or a missing one. */
+static bool ParsePerfPathOption(char **argv, int argc, int *index,
+                                const char *name, char *path,
+                                size_t pathSize, bool *seen, bool *invalid) {
+  size_t nameLength = strlen(name);
+  const char *value = NULL;
+  if (strcmp(argv[*index], name) == 0) {
+    if (*index + 1 < argc && strncmp(argv[*index + 1], "--", 2) != 0) {
+      value = argv[++(*index)];
+    }
+  } else if (strncmp(argv[*index], name, nameLength) == 0 &&
+             argv[*index][nameLength] == '=') {
+    value = argv[*index] + nameLength + 1;
+  } else {
+    return false;
+  }
+  if (*seen || !value || value[0] == '\0' || strlen(value) >= pathSize) {
+    *invalid = true;
+  } else {
+    snprintf(path, pathSize, "%s", value);
+  }
+  *seen = true;
+  return true;
+}
+
 static bool ParsePerfArgs(int argc, char **argv, char *reportPath,
                           size_t reportPathSize, char *baselinePath,
-                          size_t baselinePathSize) {
+                          size_t baselinePathSize, bool *outInvalid) {
   bool enabled = false;
+  bool invalid = false;
+  bool reportSeen = false;
+  bool baselineSeen = false;
   reportPath[0] = '\0';
   baselinePath[0] = '\0';
   for (int index = 1; index < argc; index++) {
     if (strcmp(argv[index], "--perf") == 0) {
       enabled = true;
-    } else if (strcmp(argv[index], "--perf-report") == 0 && index + 1 < argc) {
-      snprintf(reportPath, reportPathSize, "%s", argv[++index]);
-    } else if (strcmp(argv[index], "--perf-baseline") == 0 &&
-               index + 1 < argc) {
-      snprintf(baselinePath, baselinePathSize, "%s", argv[++index]);
+    } else if (ParsePerfPathOption(argv, argc, &index, "--perf-report",
+                                   reportPath, reportPathSize, &reportSeen,
+                                   &invalid)) {
+      enabled = true;
+    } else if (ParsePerfPathOption(argv, argc, &index, "--perf-baseline",
+                                   baselinePath, baselinePathSize,
+                                   &baselineSeen, &invalid)) {
+      enabled = true;
     }
   }
+  if (outInvalid) *outInvalid = invalid;
   return enabled;
+}
+
+/* Reports the first invalid command-line option and returns false. Kept next to
+ * the parsers rather than in game.c: the messages describe those parsers, and
+ * game.c is under a 1500-line hotspot limit. */
+bool GameRuntimeOptionsValid(const GameRuntime *runtime, int argc, char **argv) {
+  if (!runtime) return false;
+  if (runtime->debugResolutionInvalid) {
+    fprintf(stderr,
+            "Invalid or repeated --debug-resolution option; expected "
+            "WIDTHxHEIGHT within 320x240-7680x4320.\n");
+    return false;
+  }
+  if (runtime->chunkWorkerCountInvalid) {
+    fprintf(stderr,
+            "Invalid or repeated --chunk-workers option; expected "
+            "auto or an integer from 1 to %d.\n",
+            MAX_CHUNK_WORKER_THREADS);
+    return false;
+  }
+  if (runtime->debugTracePathInvalid) {
+    fprintf(stderr,
+            "Invalid --debug-trace option; expected an optional "
+            "non-empty path shorter than 512 bytes.\n");
+    return false;
+  }
+  if (runtime->perfPathInvalid) {
+    fprintf(stderr,
+            "Invalid or repeated --perf-report or --perf-baseline option; "
+            "expected a non-empty path shorter than 512 bytes.\n");
+    return false;
+  }
+  const char *unknownOption = NULL;
+  if (!CommandLineOptionsValid(argc, argv, &unknownOption)) {
+    fprintf(stderr,
+            "Unrecognized option '%s'; run with --help for the "
+            "accepted options.\n",
+            unknownOption ? unknownOption : "");
+    return false;
+  }
+  return true;
+}
+
+/* Options the game recognises. Anything else beginning with `--` is a typo or a
+ * launcher passing a flag from a newer build; either way the run would silently
+ * ignore it, so it is rejected instead. */
+static const char *const kKnownOptions[] = {
+    "--perf", "--perf-report", "--perf-baseline",
+    "--debug-stdin", "--debug-script", "--debug-trace",
+    "--debug-trace-frames", "--debug-resolution", "--plugin-dir",
+    "--chunk-workers"
+};
+
+static bool IsKnownOption(const char *argument) {
+  size_t count = sizeof(kKnownOptions) / sizeof(kKnownOptions[0]);
+  for (size_t index = 0; index < count; index++) {
+    const char *name = kKnownOptions[index];
+    size_t length = strlen(name);
+    /* Match the flag itself, or the flag followed by `=VALUE`. */
+    if (strncmp(argument, name, length) == 0 &&
+        (argument[length] == '\0' || argument[length] == '=')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Returns false when an unrecognised `--option` was supplied, storing it in
+ * outUnknown so the caller can name it in the error message. */
+bool CommandLineOptionsValid(int argc, char **argv, const char **outUnknown) {
+  if (outUnknown) *outUnknown = NULL;
+  for (int index = 1; index < argc; index++) {
+    if (strncmp(argv[index], "--", 2) != 0) continue;
+    if (IsKnownOption(argv[index])) continue;
+    if (outUnknown) *outUnknown = argv[index];
+    return false;
+  }
+  return true;
 }
 
 static bool ParseDebugTraceArgs(int argc, char **argv, char *path,
@@ -281,7 +395,8 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
 
   runtime->perfMode = ParsePerfArgs(
       argc, argv, runtime->perfReportPath, sizeof(runtime->perfReportPath),
-      runtime->perfBaselinePath, sizeof(runtime->perfBaselinePath));
+      runtime->perfBaselinePath, sizeof(runtime->perfBaselinePath),
+      &runtime->perfPathInvalid);
   runtime->debugStdinEnabled = CommandLineHasFlag(argc, argv, "--debug-stdin");
   runtime->debugScriptEnabled = ParseDebugScriptArgs(
       argc, argv, runtime->debugScriptPath, sizeof(runtime->debugScriptPath),

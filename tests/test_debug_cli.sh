@@ -64,6 +64,29 @@ run_case 2 "empty debug trace path" --debug-trace=
 run_case 2 "overlong debug trace path" \
     --debug-trace="$(printf '%*s' 512 '' | tr ' ' x)"
 
+# Unknown options used to be ignored, so a typo or a stale launcher flag changed
+# nothing and said nothing. They must now fail loudly and name the argument.
+run_case 2 "unrecognized option" --not-a-real-option
+assert_output_contains "unrecognized option message" \
+    "Unrecognized option '--not-a-real-option'" \
+    --not-a-real-option
+run_case 2 "unrecognized option keeps known ones working" \
+    --debug-resolution 640x480 --still-not-real
+
+# --perf-report and --perf-baseline take a path; every other path option rejects
+# a missing, empty or repeated value, and these two now do as well.
+run_case 2 "missing perf report path" --perf --perf-report
+run_case 2 "empty perf report path" --perf --perf-report=
+run_case 2 "repeated perf report path" \
+    --perf --perf-report a.keyvalue --perf-report b.keyvalue
+run_case 2 "missing perf baseline path" --perf --perf-baseline
+run_case 2 "empty perf baseline path" --perf --perf-baseline=
+run_case 2 "repeated perf baseline path" \
+    --perf --perf-baseline a.keyvalue --perf-baseline b.keyvalue
+assert_output_contains "perf path error message" \
+    "Invalid or repeated --perf-report or --perf-baseline option" \
+    --perf --perf-report=
+
 run_case 2 "missing plugin directory" --plugin-dir
 run_case 2 "empty plugin directory" --plugin-dir=
 run_case 2 "repeated plugin directory" \
