@@ -29,7 +29,12 @@ BUILD_ROOT_MARKER := $(BUILD_ROOT)/.voxelcraft-build-root
 TEST_BUILD_DIR := $(BUILD_DIR)/tests
 TARGET := $(BUILD_DIR)/voxelcraft
 BUILD_CONFIG := $(BUILD_DIR)/.build-config
-BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk mk/raylib.mk plugins/manifest.mk
+BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk mk/raylib.mk mk/deps.mk plugins/manifest.mk
+
+# System dependency lists. Included first so mk/raylib.mk can derive its probe
+# and install advice from them, and so a change to the dependency set
+# invalidates BUILD_CONFIG.
+include mk/deps.mk
 
 include mk/plugins.mk
 
@@ -58,14 +63,21 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-architecture test-build-prerequisites test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-debug-fields-e2e test-long-run test-declarations-backlog benchmark-chunks release-linux release-check clean FORCE
 
 # The vendored raylib is a prerequisite rather than a checked precondition: the
 # build either produces it or fails while producing it. There is no state in
 # which the game compiles against an unverified raylib.
-all: $(RAYLIB_LIB) $(TARGET)
+#
+# raylib-check is an order-only prerequisite here, not just on the `raylib`
+# target it used to live on. Without it the default build path never ran the
+# check, so a machine missing an X11 extension header compiled raylib until it
+# hit a #include error inside third-party code, long after the friendly
+# "install these packages" message would have helped. Order-only because the
+# check reads machine state and produces nothing.
+all: $(RAYLIB_LIB) $(TARGET) | raylib-check
 
-voxelcraft: $(RAYLIB_LIB) $(TARGET)
+voxelcraft: $(RAYLIB_LIB) $(TARGET) | raylib-check
 
 $(BUILD_ROOT_MARKER):
 	mkdir -p $(BUILD_ROOT)
@@ -127,7 +139,7 @@ modules: $(MODULE_ARCHIVES)
 # Build all ownership domains without touching unrelated component archives.
 components: $(MODULE_ARCHIVES)
 
-test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations
+test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-declarations test-build-prerequisites
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS=$(TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
 
@@ -158,6 +170,12 @@ test-scene-reachability:
 # removable debt. `make test-declarations-backlog` prints what is left.
 test-declarations:
 	@sh tests/test_declarations.sh
+
+# System dependencies must have one home. README used to print a different list
+# from the one `raylib-check` probed and CI installed; this fails when they
+# drift apart again.
+test-build-prerequisites:
+	@sh tests/test_build_prerequisites.sh
 
 test-declarations-backlog:
 	@sh tests/test_declarations.sh --strict || true
@@ -327,21 +345,35 @@ test-surface-cube: $(SURFACE_CUBE_TEST_TARGET) $(SURFACE_TOPOLOGY_TEST_TARGET) $
 test-surface-topology-e2e: $(TARGET)
 	bash tests/test_surface_topology_e2e.sh $(TARGET)
 
+# The documentation gate is Node-only. Without this guard a missing node
+# surfaced as a bare "node: command not found" from inside a make recipe, which
+# says nothing about what to install; `make prerequisites` lists the tools.
+define require_node
+	@command -v node >/dev/null 2>&1 || { \
+		printf 'node is required by %s (see "make prerequisites")\n' '$1' >&2; \
+		exit 1; \
+	}
+endef
+
 .PHONY: check-docs check-docs-truth docs-probe docs-record
 check-docs:
+	$(call require_node,check-docs)
 	node scripts/check-docs.mjs --root .
 	node scripts/check-docs-truth.mjs --root .
 
 check-docs-truth:
+	$(call require_node,check-docs-truth)
 	node scripts/check-docs-truth.mjs --root .
 
 # Runtime half of the documentation gate: it starts the real binary and proves
 # that the names docs/debug-dsl.md advertises still resolve.
 docs-probe: $(TARGET)
+	$(call require_node,docs-probe)
 	node scripts/docs-probe.mjs --root . --binary $(TARGET)
 
 # Maintenance: re-stamp verifiedAt after running a document's recipes.
 docs-record:
+	$(call require_node,docs-record)
 	node scripts/check-docs-truth.mjs --root . --record
 
 # Install the repository hooks (pre-commit runs the gate).

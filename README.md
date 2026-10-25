@@ -240,11 +240,18 @@ machine. Vendoring removes the question instead of answering it at runtime.
 Practical notes:
 
 - To build offline, place the release tarball at
-  `build/raylib/raylib-$(RAYLIB_VERSION).tar.gz`; the download is skipped.
-- Building raylib needs the Wayland/X11/GL development packages. Missing ones
-  are named before compilation rather than surfacing as linker errors. On Arch:
-  `pacman -S wayland libxkbcommon libx11 mesa`. On Debian:
-  `apt install libwayland-dev libxkbcommon-dev libx11-dev libgl1-mesa-dev`.
+  `build/raylib/raylib-$(RAYLIB_VERSION).tar.gz`; the download is skipped. A
+  hand-placed tarball is checksummed exactly like a downloaded one.
+- The tarball is verified against `RAYLIB_SHA256` in the `Makefile`, because a
+  tag can be moved and this archive is the build's only external input. A
+  mismatch prints the measured digest; `make RAYLIB_SHA256= ...` builds once
+  without the check.
+- Building raylib needs the Wayland/X11/GL development packages, including the
+  X11 extension headers GLFW's X11 backend includes. `make prerequisites`
+  prints the install command for this machine and what it is missing; the list
+  itself lives in `mk/deps.mk`, and both CI and this section are tested against
+  it. Missing packages are named before compilation rather than surfacing as
+  errors inside third-party code.
 - `make clean` removes `build/` including the vendored raylib, so the next
   build re-downloads and recompiles it (about 30 seconds).
 - Override the version only deliberately: `make RAYLIB_VERSION=6.2`. The

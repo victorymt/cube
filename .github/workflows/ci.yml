@@ -29,9 +29,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential clang curl pkg-config \
-            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
-            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
-            libxinerama-dev libwayland-dev libxkbcommon-dev
+            libx11-dev libxrandr-dev libxi-dev libxext-dev \
+            libgl1-mesa-dev libxcursor-dev libxinerama-dev \
+            libwayland-dev libxkbcommon-dev
       - name: Run tests
         run: |
           make CC=${{ matrix.compiler }} \
@@ -70,9 +70,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential curl pkg-config \
-            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
-            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
-            libxinerama-dev libwayland-dev libxkbcommon-dev
+            libx11-dev libxrandr-dev libxi-dev libxext-dev \
+            libgl1-mesa-dev libxcursor-dev libxinerama-dev \
+            libwayland-dev libxkbcommon-dev
       - name: Run sanitizer tests
         run: make CC=gcc test-sanitize
 
@@ -87,9 +87,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential curl pkg-config \
-            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
-            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
-            libxinerama-dev libwayland-dev libxkbcommon-dev
+            libx11-dev libxrandr-dev libxi-dev libxext-dev \
+            libgl1-mesa-dev libxcursor-dev libxinerama-dev \
+            libwayland-dev libxkbcommon-dev
       - name: Run chunk benchmark
         run: make -s benchmark-chunks
 
@@ -105,9 +105,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential curl pkg-config \
-            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
-            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
-            libxinerama-dev libwayland-dev libxkbcommon-dev
+            libx11-dev libxrandr-dev libxi-dev libxext-dev \
+            libgl1-mesa-dev libxcursor-dev libxinerama-dev \
+            libwayland-dev libxkbcommon-dev
       - name: Run graphics, debug, and polar E2E
         run: |
           make test-debug-graphics-e2e
@@ -133,9 +133,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential curl gcovr pkg-config \
-            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
-            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
-            libxinerama-dev libwayland-dev libxkbcommon-dev
+            libx11-dev libxrandr-dev libxi-dev libxext-dev \
+            libgl1-mesa-dev libxcursor-dev libxinerama-dev \
+            libwayland-dev libxkbcommon-dev
       - name: Generate coverage
         run: make CC=gcc test-coverage
       - name: Upload coverage report
@@ -158,9 +158,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential curl pkg-config \
-            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
-            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
-            libxinerama-dev libwayland-dev libxkbcommon-dev
+            libx11-dev libxrandr-dev libxi-dev libxext-dev \
+            libgl1-mesa-dev libxcursor-dev libxinerama-dev \
+            libwayland-dev libxkbcommon-dev
       - name: Run release gate
         run: make release-check
       - name: Upload release package

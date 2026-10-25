@@ -38,7 +38,8 @@ RAYLIB_URL := https://codeload.github.com/raysan5/raylib/tar.gz/refs/tags/$(RAYL
 
 # Link-time dependencies of a raylib built with both backends. These are
 # ordinary distribution packages; the header/version problem above was the
-# reason for vendoring, not these.
+# reason for vendoring, not these. The module list comes from mk/deps.mk, which
+# is the one place system dependencies are declared.
 RAYLIB_SYSTEM_LIBS := \
 	$(shell $(PKG_CONFIG) --libs wayland-client wayland-cursor wayland-egl xkbcommon 2>/dev/null) \
 	$(shell $(PKG_CONFIG) --libs x11 2>/dev/null || echo -lX11) \
@@ -52,26 +53,60 @@ RAYLIB_HEADER_STAMP := $(RAYLIB_SRC_DIR)/.headers-ready
 RAYLIB_CFLAGS := -I$(RAYLIB_SRC_DIR)/src
 RAYLIB_LIBS := $(RAYLIB_LIB) $(RAYLIB_SYSTEM_LIBS)
 
-.PHONY: raylib raylib-check
+.PHONY: raylib raylib-check prerequisites
 
 raylib: $(RAYLIB_LIB) raylib-check
 	@:
 
 # Report missing *system* packages by name. The vendored raylib itself needs no
 # version check: its path is fixed by RAYLIB_VERSION.
+#
+# Packages are derived from RAYLIB_PKG_CONFIG_DEPS / RAYLIB_REQUIRED_PROGRAMS in
+# mk/deps.mk and the install lines from that file's package lists, so the probe,
+# the advice it prints, README and CI cannot drift apart again.
 raylib-check:
 	@set -eu; \
 	missing=''; \
-	for package in wayland-client wayland-cursor wayland-egl xkbcommon x11; do \
+	for package in $(RAYLIB_PKG_CONFIG_DEPS); do \
 		$(PKG_CONFIG) --exists "$$package" || missing="$$missing $$package"; \
 	done; \
-	command -v wayland-scanner >/dev/null 2>&1 || missing="$$missing wayland-scanner"; \
+	for program in $(RAYLIB_REQUIRED_PROGRAMS); do \
+		command -v "$$program" >/dev/null 2>&1 || missing="$$missing $$program"; \
+	done; \
 	if test -n "$$missing"; then \
 		printf 'missing system packages needed to build raylib:%s\n' "$$missing" >&2; \
-		printf 'On Arch: pacman -S wayland libxkbcommon libx11 mesa\n' >&2; \
-		printf 'On Debian: apt install libwayland-dev libxkbcommon-dev libx11-dev libgl1-mesa-dev\n' >&2; \
+		printf 'On Arch:   pacman -S $(RAYLIB_ARCH_PACKAGES)\n' >&2; \
+		printf 'On Debian: apt install $(RAYLIB_DEBIAN_PACKAGES)\n' >&2; \
+		printf 'Run "make prerequisites" for the full list, including dev tools.\n' >&2; \
 		exit 1; \
 	fi
+
+# The single place a new contributor is told what to install. prints what this
+# machine is missing rather than only what is needed, because "which of these do
+# I already have" is the actual question when a build fails.
+prerequisites:
+	@printf 'Build dependencies (needed by every target):\n'
+	@printf '  Arch:   pacman -S $(RAYLIB_ARCH_PACKAGES)\n'
+	@printf '  Debian: apt install $(RAYLIB_DEBIAN_PACKAGES)\n'
+	@printf '\nDevelopment tools (needed by some targets only):\n'
+	@printf '  node >= 20    check-docs, check-docs-truth, docs-probe, docs-record\n'
+	@printf '  uv            test-animal-scenarios-*, two e2e post-processing scripts\n'
+	@printf '                (uv run --offline also needs a writable UV_CACHE_DIR)\n'
+	@printf '  gcovr         test-coverage\n'
+	@printf '  inotify-tools docs-watch\n'
+	@printf '\nAlso required: make, a C compiler, and a Wayland session for e2e targets\n'
+	@printf '(WAYLAND_DISPLAY must name a socket under XDG_RUNTIME_DIR).\n'
+	@printf '\nCurrently missing on this machine:\n'
+	@set -eu; \
+	absent=''; \
+	for package in $(RAYLIB_PKG_CONFIG_DEPS); do \
+		$(PKG_CONFIG) --exists "$$package" || absent="$$absent $$package"; \
+	done; \
+	for program in $(RAYLIB_REQUIRED_PROGRAMS) $(DEV_TOOL_DEPS); do \
+		command -v "$$program" >/dev/null 2>&1 || absent="$$absent $$program"; \
+	done; \
+	if test -n "$$absent"; then printf '  missing:%s\n' "$$absent"; \
+	else printf '  nothing\n'; fi
 
 # The tarball is the only external input in this build, so it gets verified
 # before anything unpacks it. A tag is not a pin -- it can be moved upstream --
