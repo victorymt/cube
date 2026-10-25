@@ -334,7 +334,15 @@ int main(int argc, char **argv)
     printf("total_vertices_per_chunk=%.1f\n", totalVerticesPerChunk);
     printf("mesh_cpu_bytes_per_chunk=%.1f\n",
            (double)totals.meshBytes / (double)chunkCount);
-    printf("sync_rebuilds=0\n");
+    // Read the counter instead of asserting a literal. This line used to print
+    // `sync_rebuilds=0` unconditionally, so the invariant every document quotes
+    // was a constant rather than a measurement. The benchmark never touches the
+    // streaming scheduler, which is why the honest value is zero -- but the
+    // number now comes from the stats object, so an edit that lets the benchmark
+    // path rebuild synchronously shows up here.
+    // test_benchmark_invariants.sh rejects a return to the literal form.
+    printf("sync_rebuilds=%llu\n",
+           (unsigned long long)ChunksGetStreamingStats().syncRebuilds);
     if (argc > 1) return CheckBaseline(argv[1], medianMs, p95Ms,
                                         (double)snapshotBytes) ? 0 : 2;
     return 0;
