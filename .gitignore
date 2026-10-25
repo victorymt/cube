@@ -29,7 +29,10 @@
 /debug-traces/
 /.cubetest/
 
-# Stray binaries from manual experiments at the repository root.
+# Stray binaries from manual experiments at the repository root. The source
+# file that produced /rlgl_test was removed; the ignore rule stays because the
+# experiment is the kind of thing that reappears, and the binary must not land
+# in a commit when it does.
 /voxelcraft
 /rlgl_test
 

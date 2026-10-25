@@ -1,0 +1,32 @@
+# Line-ending and diff rules for a tree that carries binaries.
+#
+# Text is normalised to LF in the working tree on every platform. Without this
+# a Windows checkout would rewrite every file, and `git diff` on a PNG would
+# emit a textual patch.
+#
+# The binary rules matter here specifically: assets/ carries a 16MB CJK font,
+# three .ogg recordings and PNG renders, and screenshots/ carries tracked
+# captures. Left unclassified, git tries to diff them as text, and a merge
+# conflict in a binary is unrecoverable -- the archive is unusable, not merely
+# conflicted.
+
+* text=auto eol=lf
+
+*.c       text
+*.h       text
+*.mk      text
+*.sh      text
+*.py      text
+*.mjs     text
+*.md      text
+*.json    text
+*.yml     text
+*.dsl     text
+Makefile  text
+
+*.png     binary
+*.jpg     binary
+*.ogg     binary
+*.otf     binary
+*.ttf     binary
+*.a       binary

@@ -321,7 +321,7 @@ benchmark-chunks: $(CHUNK_BENCHMARK_TARGET)
 	./$(CHUNK_BENCHMARK_TARGET)
 
 release-linux: all plugins
-	@set -eu; version=$$(git describe --tags --always --dirty 2>/dev/null || echo dev); out="dist/voxelcraft-linux-$${version}"; rm -rf "$${out}" "$${out}.tar.gz"; mkdir -p "$${out}"; cp $(TARGET) README.md "$${out}/"; cp -R assets "$${out}/"; if test -n "$(PLUGIN_TARGETS)"; then mkdir -p "$${out}/plugins"; cp $(PLUGIN_TARGETS) "$${out}/plugins/"; fi; printf '%s\n' "Voxelcraft Linux build $${version}" > "$${out}/BUILD.txt"; tar -czf "$${out}.tar.gz" -C dist "$$(basename "$${out}")"; sha256sum "$${out}.tar.gz" > "$${out}.tar.gz.sha256"; printf 'release=%s\narchive=%s.tar.gz\n' "$${version}" "$${out}";
+	@set -eu; version=$$(git describe --tags --always --dirty 2>/dev/null || echo dev); out="dist/voxelcraft-linux-$${version}"; rm -rf "$${out}" "$${out}.tar.gz"; mkdir -p "$${out}"; cp $(TARGET) README.md "$${out}/"; mkdir -p "$${out}/assets"; cp -R assets/fonts assets/audio assets/LICENSES.md "$${out}/assets/"; if test -n "$(PLUGIN_TARGETS)"; then mkdir -p "$${out}/plugins"; cp $(PLUGIN_TARGETS) "$${out}/plugins/"; fi; printf '%s\n' "Voxelcraft Linux build $${version}" > "$${out}/BUILD.txt"; tar -czf "$${out}.tar.gz" -C dist "$$(basename "$${out}")"; sha256sum "$${out}.tar.gz" > "$${out}.tar.gz.sha256"; printf 'release=%s\narchive=%s.tar.gz\n' "$${version}" "$${out}";
 
 release-check:
 	$(MAKE) clean

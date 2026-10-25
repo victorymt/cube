@@ -1,0 +1,37 @@
+# Editor defaults for the whitespace rules the tree already follows.
+#
+# Nothing enforced these before, and the drift is visible: mk/modules.mk has a
+# block whose first lines are indented with spaces where every other line uses
+# a tab, in a file where a leading tab versus spaces changes nothing about how
+# make works but everything about how a diff reads.
+#
+# C uses four spaces. Makefiles and shell scripts use tabs, because a Make
+# recipe requires a tab and mixing the two in one file is the failure this
+# exists to prevent.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{c,h}]
+indent_style = space
+indent_size = 4
+
+[{Makefile,*.mk}]
+indent_style = tab
+
+[*.sh]
+indent_style = tab
+
+[*.{md,json,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Generated or vendored content is not ours to reformat.
+[build/**]
+insert_final_newline = false
+trim_trailing_whitespace = false
