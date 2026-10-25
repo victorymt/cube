@@ -40,12 +40,19 @@
 /voxelcraft_settings.cfg
 /voxelcraft_settings.cfg.bak
 
-# Test binaries are generated from tests/*.c and share the source prefix.
+# Test binaries are generated from tests/*.c and share the source prefix. The
+# negations re-admit every non-binary file that shares it: sources and scripts,
+# plus the input lists a check reads (the declaration allowlist is a `.txt`, and
+# leaving it out made `make test-declarations` fail in a fresh clone).
 /tests/benchmark_chunks
 /tests/test_*
 !/tests/test_*.c
+!/tests/test_*.h
 !/tests/test_*.sh
 !/tests/test_*.py
+!/tests/test_*.txt
+!/tests/test_*.json
+!/tests/test_*.dsl
 __pycache__/
 
 *.o
