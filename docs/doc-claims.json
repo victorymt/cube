@@ -45,7 +45,7 @@
         "make plugins"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -63,7 +63,7 @@
         "make docs-probe"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -97,7 +97,7 @@
         "make test-plugins"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -163,7 +163,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -180,7 +180,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -200,7 +200,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -239,7 +239,7 @@
         ]
       },
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -284,7 +284,7 @@
         }
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -302,7 +302,7 @@
         "make test-cube-save-reload"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -317,7 +317,7 @@
         "make build/normal/tests/test_atmosphere_model && ./build/normal/tests/test_atmosphere_model"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -332,7 +332,7 @@
         "make build/normal/tests/test_weather_model && ./build/normal/tests/test_weather_model"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -347,7 +347,7 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -362,7 +362,7 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -388,7 +388,7 @@
         "make build/normal/tests/test_volcano && ./build/normal/tests/test_volcano"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
@@ -403,7 +403,7 @@
         "make -s benchmark-chunks"
       ],
       "verifiedAt": {
-        "commit": "ea87547d329fd7d5437ebe1ddef1b881e35a5bba",
+        "commit": "50c25b3f8c38a1a041dc1cea29110299d0153f98",
         "date": "2026-10-25"
       }
     },
