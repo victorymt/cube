@@ -43,6 +43,7 @@ Next, in dependency order: close the cube mesh vertical stretch, convert the flu
 - 2026-10-25: `make test` gained three checks that fail on the states they exist for: the world type layer's leaf/cycle rules, the four benchmark invariants read from `ChunksGetStreamingStats()` rather than a literal, and the public-header test-seam list.
 - 2026-10-25: every scene under `tests/scenes/` is now executed by a driver or a make target, enforced by `tests/test_scene_reachability.sh`; three e2e scripts and two flat-baseline routes that previously ran nowhere are wired into `test-e2e` and the Hyprland CI job.
 - 2026-10-25: unrecognised command-line options now exit 2 instead of being ignored, and `--perf-report` / `--perf-baseline` reject a missing, empty or repeated value.
+- 2026-10-25: `make test` gained `test-declarations`, which requires every `tests/test_*.c` to state what it verifies before its first include; tests predating the rule are listed as removable debt in `tests/test_declarations_allowlist.txt`, and `make test-declarations-backlog` counts what is left.
 
 ## Not verified
 

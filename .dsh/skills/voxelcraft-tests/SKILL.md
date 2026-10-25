@@ -12,7 +12,11 @@ metadata:
 
 **核心规则：没有声明的测试不许进入 `make test`。** 测试的价值不在于它通过，而在于别人读得懂它守的是什么。
 
+这条规则有一部分已经是机械检查：`tests/test_declarations.sh`（挂在 `make test` 的 `test-declarations`）要求每个 `tests/test_*.c` 在第一个 `#include` 之前有实质说明（≥ 8 词），并检查登记清单是否与实际欠账一致。它**不能**判断说明是否属实——那仍是评审问题，见 §4。
+
 审计结果（2026-10-25）：126 个 C 测试中只有 6 个写了说明；979 个 `Test*` 函数只有 17 个带注释；`docs/documentation-rules.md` 从未提到测试注释。这个 skill 就是从"没有约定"到"有约定"的那一步。
+
+**存量债务怎么处理**：规则只向前收紧，不追溯全罚。规则生效前就存在的无说明测试登记在 `tests/test_declarations_allowlist.txt` 里，每行是可偿还的债；给某个文件补了说明就把那行删掉，否则 `test_declarations.sh` 会报 stale 并失败。`make test-declarations-backlog` 打印剩余清单和字段缺失情况，用来数欠账，不阻断开发。
 
 ## 1. 适用背景：这个项目的测试怎么组织
 
@@ -182,7 +186,8 @@ puts("volcano history: deterministic eruptions, cooled deposits, foot, ledgers a
 
 ## 6. 提交前
 
-- [ ] 新增/修改的测试满足 §3 的四字段声明。
+- [ ] 新增/修改的测试满足 §3 的四字段声明（`make test-declarations` 会检查声明是否存在且非空话）。
+- [ ] 若给某个存量测试补了说明，同步删掉 `tests/test_declarations_allowlist.txt` 里对应的行。
 - [ ] 逐条走过 §4 清单。
 - [ ] `make test` 通过，且新增检查在故意破坏时确实会失败（变异验证一次）。
 - [ ] 若改的是门禁脚本，失败信息里包含"怎么修"。
