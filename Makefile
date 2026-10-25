@@ -51,7 +51,7 @@ SANITIZE_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -pthread -fsanitize=add
 COVERAGE_CFLAGS ?= -std=c99 -Wall -Wextra -O0 -g -pthread --coverage
 CI_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -pthread
 
-.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-architecture test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-long-run benchmark-chunks release-linux release-check clean FORCE
+.PHONY: all voxelcraft run modules components component-core component-world component-space component-ecology component-gameplay component-presentation component-app plugins test test-headers test-modules test-plugins test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability test-architecture test-simulation-replay test-ci test-sanitize test-coverage test-e2e test-debug-graphics-e2e test-polar-e2e test-debug-stdin-protocol test-debug-cli test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e test-long-run benchmark-chunks release-linux release-check clean FORCE
 
 # The vendored raylib is a prerequisite rather than a checked precondition: the
 # build either produces it or fails while producing it. There is no state in
@@ -120,7 +120,7 @@ modules: $(MODULE_ARCHIVES)
 # Build all ownership domains without touching unrelated component archives.
 components: $(MODULE_ARCHIVES)
 
-test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol test-werror test-benchmark-invariants test-public-header-seams
+test: test-headers test-modules test-plugins $(TEST_TARGETS) test-debug-cli test-debug-stdin-protocol test-werror test-benchmark-invariants test-public-header-seams test-scene-reachability
 	@TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS=$(TEST_ENTITY_ECOLOGY_TIMEOUT_SECONDS) sh scripts/run-tests.sh $(TEST_TARGETS)
 	@sh tests/test_architecture.sh
 
@@ -140,6 +140,11 @@ test-benchmark-invariants: $(CHUNK_BENCHMARK_TARGET)
 # exist; this test pins them so a sixteenth is a decision, not a side effect.
 test-public-header-seams:
 	@sh tests/test_public_header_seams.sh
+
+# A `.dsl` scene is not a test until a driver runs it. This fails when a scene in
+# tests/scenes is executed by nothing.
+test-scene-reachability:
+	@sh tests/test_scene_reachability.sh
 
 test-headers:
 	@set -eu; \
@@ -188,13 +193,15 @@ test-e2e: $(TARGET) $(BUILD_DIR)/diagnostics-plugins/diagnostics.so
 	bash tests/test_atmosphere_e2e.sh $(TARGET)
 	bash tests/test_landform_planets_e2e.sh $(TARGET)
 	bash tests/test_water_section_e2e.sh $(TARGET)
+	bash tests/test_flat_baseline_e2e.sh $(TARGET)
 
-# These three scripts existed and passed but nothing invoked them: no make
-# target, no CI entry, nobody sourcing them. They are the only coverage of
-# stratified atmosphere assertions, planet landform replay across body
-# switches, and water section geometry, so they run here rather than being
+# These scripts existed and passed but nothing invoked them: no make target, no
+# CI entry, nobody sourcing them. They are the only coverage of stratified
+# atmosphere assertions, planet landform replay across body switches, water
+# section geometry, and the flat rotation baseline behind
+# docs/performance/flat-rotation-baseline.md, so they run here rather than being
 # deleted. They need a Wayland session like the rest of the e2e layer.
-.PHONY: test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e
+.PHONY: test-atmosphere-e2e test-landform-planets-e2e test-water-section-e2e test-flat-baseline-e2e
 test-atmosphere-e2e: $(TARGET)
 	bash tests/test_atmosphere_e2e.sh $(TARGET)
 
@@ -203,6 +210,9 @@ test-landform-planets-e2e: $(TARGET)
 
 test-water-section-e2e: $(TARGET)
 	bash tests/test_water_section_e2e.sh $(TARGET)
+
+test-flat-baseline-e2e: $(TARGET)
+	bash tests/test_flat_baseline_e2e.sh $(TARGET)
 
 test-debug-graphics-e2e: $(TARGET)
 	bash tests/test_debug_graphics_e2e.sh $(TARGET)
