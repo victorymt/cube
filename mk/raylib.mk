@@ -12,6 +12,22 @@
 # X11 and Wayland support together and picks one at startup, so there is a
 # single build for X11 sessions and Hyprland alike -- no second variant to keep
 # in sync.
+#
+# It is also one library for every BUILD_VARIANT. The archive lives under
+# $(BUILD_ROOT)/raylib rather than $(BUILD_DIR), because raylib's flags come
+# from its own Makefile and have nothing to do with the sanitizer or coverage
+# flags the outer variant sets. `make clean` removes it, which is the only way
+# to recompile it.
+#
+# That separation only holds if the outer make stops *passing its variables
+# down*. A command-line `CFLAGS=...` reaches a recursive make through both the
+# environment and MAKEFLAGS, and raylib assigns `CFLAGS =` without `override`,
+# so it loses its own `-D_GLFW_X11 -D_GLFW_WAYLAND -DPLATFORM_DESKTOP_GLFW`
+# and the build fails on -Werror or on "Cannot disable Wayland and X11 at the
+# same time". The recipe below unsets the three variables that carry that
+# state (`MAKEOVERRIDES=` and `MAKEFLAGS=` do not work: CFLAGS is exported as
+# a plain environment variable too). Consequence: the raylib build does not
+# use the outer jobserver, so it is serial. That is ~30s, once, per build root.
 
 RAYLIB_SRC_DIR := $(BUILD_ROOT)/raylib/raylib-$(RAYLIB_VERSION)
 RAYLIB_LIB := $(RAYLIB_SRC_DIR)/src/libraylib.a
@@ -78,7 +94,8 @@ $(RAYLIB_LIB): $(RAYLIB_TARBALL)
 			tar -xzf '$<' -C $(dir $(RAYLIB_SRC_DIR)); \
 		fi; \
 		printf 'raylib: compiling %s with X11 and Wayland backends\n' '$(RAYLIB_VERSION)'; \
-		$(MAKE) --no-print-directory -C '$(RAYLIB_SRC_DIR)/src' \
+		env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL \
+			$(MAKE) --no-print-directory -C '$(RAYLIB_SRC_DIR)/src' \
 			PLATFORM=PLATFORM_DESKTOP \
 			GLFW_LINUX_ENABLE_X11=TRUE \
 			GLFW_LINUX_ENABLE_WAYLAND=TRUE \
