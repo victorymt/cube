@@ -847,6 +847,23 @@
         "make test-scene-reachability",
         "make test-public-header-seams"
       ]
+    },
+    ".dsh/skills/voxelcraft-tests/SKILL.md": {
+      "tier": "skill",
+      "trackCode": true,
+      "anchors": [
+        "mk/tests.mk",
+        "tests/test_werror.sh",
+        "tests/test_scene_reachability.sh",
+        "tests/test_benchmark_invariants.sh",
+        "Makefile"
+      ],
+      "recipes": [
+        "make test",
+        "make test-scene-reachability",
+        "make test-public-header-seams"
+      ],
+      "entryPoint": "loaded from the DSH skill catalog by name"
     }
   }
 }

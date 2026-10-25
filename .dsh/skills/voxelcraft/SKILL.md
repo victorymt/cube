@@ -12,14 +12,15 @@ metadata:
 
 # Voxelcraft：先判断这是哪类任务
 
-这个仓库的每个任务都属于下面四类之一。先分类，再加载对应 skill，不要凭印象直接改代码。
+这个仓库的每个任务都属于下面五类之一。先分类，再加载对应 skill，不要凭印象直接改代码。
 
 | 任务 | 加载 |
 | --- | --- |
 | 跑一个场景、看截图、复现用户报的画面/bug、判断画面是否回归 | `voxelcraft-debug` |
 | 给 debug DSL 加命令或字段、改 debug 执行器、改截图报告字段 | `voxelcraft-dsl` |
 | 写/改文档、更新现状、清理重复陈述、提交前检查 | `voxelcraft-docs` |
-| 改玩法/地形/渲染/性能/测试矩阵本身 | 本文件 → `voxelcraft-debug`（验证方式） |
+| 新增/修改/评审测试，或测试名与断言不符 | `voxelcraft-tests` |
+| 改玩法/地形/渲染/性能/测试矩阵本身 | 本文件 → `voxelcraft-debug`（验证方式）+ `voxelcraft-tests`（测试声明） |
 
 ## 任何任务都先确认的三件事
 
