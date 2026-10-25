@@ -119,6 +119,7 @@ jobs:
           make test-landform-planets-e2e
           make test-water-section-e2e
           make test-flat-baseline-e2e
+          make test-debug-fields-e2e
       - name: Probe documented runtime names
         run: make docs-probe
 
