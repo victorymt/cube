@@ -8,6 +8,8 @@
 #include "world/terrain_types.h"
 #include "world/landform_model.h"
 
+/* Test-only generation seams are declared in `terrain_test.h`. */
+
 #define HOME_SEA_LEVEL 80
 // Homeworld uses one block per vertical metre for ocean depth. The deepest
 // generated trenches fit inside the signed Surface coordinate contract.
@@ -150,27 +152,5 @@ void GenerateChunkTerrain(Chunk *chunk, int cx, int cz, TerrainMode mode);
 void TerrainInstallPlanetChunkDecorator(PlanetChunkDecorator decorator);
 void ApplyEditsToChunkSection(Chunk *chunk, int sectionY);
 void ApplyEditsToChunk(Chunk *chunk);
-
-#ifdef TERRAIN_TESTING
-BlockType TerrainTestPlanetSubsurfaceBlock(SolarBodyStyle style,
-                                           PlanetBiome biome, int depth,
-                                           unsigned int hash);
-void TerrainTestBootstrapHomeChunk(Chunk *chunk, int cx, int cz,
-                                   TerrainMode mode);
-void TerrainTestResolveMaterializedSections(Chunk *chunk);
-void TerrainTestGenerateMineshaft(Chunk *chunk, int cx, int cz,
-                                  TerrainMode mode);
-void TerrainTestGenerateStructures(Chunk *chunk, int cx, int cz,
-                                   TerrainMode mode);
-int TerrainTestHomeTreeVariantAt(int treeX, int treeZ, bool conifer);
-int TerrainTestHomeTreeCrownRadiusAt(int treeX, int treeZ);
-void TerrainTestPlaceHomeTree(Chunk *chunk, int treeX, int base, int treeZ,
-                              bool conifer, int variant);
-int TerrainTestHomeTreeTaxonAt(int treeX, int treeZ);
-void TerrainTestPlaceHomeTreeTaxon(Chunk *chunk, int treeX, int base,
-                                   int treeZ, int taxonId);
-BlockType TerrainTestHomeGroundCoverBlock(
-    Biome biome, int height, int seaLevel, unsigned int hash);
-#endif
 
 #endif
