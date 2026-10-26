@@ -22,6 +22,21 @@ metadata:
 | 新增/修改/评审测试，或测试名与断言不符 | `voxelcraft-tests` |
 | 改玩法/地形/渲染/性能/测试矩阵本身 | 本文件 → `voxelcraft-debug`（验证方式）+ `voxelcraft-tests`（测试声明） |
 
+## 任务入口与能力边界
+
+按任务进入对应技能，不要先把所有 DSL 文档通读一遍：
+
+| 任务 | 首要入口 | 关键边界/下一步 |
+| --- | --- | --- |
+| 复现游戏截图或视觉 bug | `voxelcraft-debug` | 先取截图同名 TXT 报告；使用 `scripts/run-scene.sh` 在隔离目录复现。需要 Wayland/Hyprland 与 GPU；复现不了时说明可能差异。 |
+| 增加/修改 DSL 命令、运行时字段或截图报告字段 | `voxelcraft-dsl` | 按命令/字段/报告分类，分别同步实现、`docs/debug-dsl.md` 和对应验证；不要把 DSL 名称与报告字段名称混用。 |
+| 增加/修改测试或场景 | `voxelcraft-tests` | 先声明测试意图、覆盖边界与风险；场景必须有实际 driver 或 make 目标。 |
+| 修改说明、状态或文档门禁 | `voxelcraft-docs` | 先确认文档归属和锚点；状态只写 `STATUS.md`；按文档规则登记并执行适用门禁。 |
+| 构建/模块边界/常规代码变更 | 本技能 + `voxelcraft-tests` | 依改动模块选择聚焦测试；公共头、架构边界和文档均按下方检查。 |
+| 构建或加载插件 | [插件说明](../../../plugins/README.md) 与 [插件边界记录](../../../docs/architecture/12-plugin-boundary.md) | `--plugin-dir` 加载 `.so` 扩展；插件生命周期和已发布服务不等同于通用代理 Tool/MCP 接口。构建/边界变更按需运行 `make plugins`、`make test-plugins`。 |
+
+DSL 命令/字段的权威语法、命名空间与 ready 行见 [`docs/debug-dsl.md`](../../../docs/debug-dsl.md)；插件契约见 `src/core/plugin.h`。运行状态以 [`STATUS.md`](../../../STATUS.md) 为准，不从历史架构记录推断当前通过情况。
+
 ## 任何任务都先确认的三件事
 
 1. **项目规则在 `AGENTS.md`**：DSL 优先，不要用 hyprctl 调试；缺功能就扩展 DSL 并更新 `docs/debug-dsl.md`；每完成一个阶段要 commit；用户提交游戏画面/bug 时先复现，复现不了就直说可能原因；尝试失败要直说；开发期不考虑旧兼容。
