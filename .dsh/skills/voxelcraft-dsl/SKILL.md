@@ -22,6 +22,19 @@ metadata:
 | 截图报告新字段 | `src/app/screenshot.c` 的 `REPORT_LINE` → 升 `format.version` |
 | 新语句/表达式语义 | `src/core/debug_dsl*.c`（很少需要，改动面最大） |
 
+## 改动类型与最小验证路径
+
+| 改动 | 最低验证 | 需要图形会话的情形 |
+| --- | --- | --- |
+| 命令语法、参数校验或 CLI 参数 | `make test-debug-cli`；解析命令时运行 `make build/normal/tests/test_debug_control && ./build/normal/tests/test_debug_control` | 不要求，仅验证解析/启动错误路径 |
+| stdin 协议或语句/表达式语义 | `make test-debug-stdin-protocol` 或对应 DSL 测试 | 若改动影响运行时执行结果，再跑真实场景 |
+| 命令执行/dispatch 或 DSL runtime resolver | 对应单测/架构检查；字段改动再跑 `make docs-probe` | 实际命令行为须由场景或 stdin 连到运行进程验证；图形效果须跑相应 E2E |
+| 截图报告字段或报告 schema | 按报告格式测试并更新版本/文档 | 使用产生该报告的对应场景或 E2E；检查实际报告字段和值 |
+| 命令组 / `ready` 清单 | `make docs-probe`，并同步文档中的 ready 行 | 若 probe 需要运行中的游戏，则使用项目提供的运行时环境；不得把 probe 未运行说成通过 |
+| 插件边界或服务契约 | `make test-plugins`，涉及头文件时加 `make test-headers`，并执行架构检查 | 实际加载及服务观测须构建插件并运行相应插件 E2E；接口本身不等于代理 Tool/MCP 能力 |
+
+“最低验证”只覆盖对应层，不替代集成验证。区分检查结果：被环境条件跳过、没有执行与通过是不同状态；图形路线需要活动 Hyprland/Wayland 会话和 GPU。不能执行时记录具体原因，不以无窗口测试代替图形验收。
+
 ## 加一个命令：五步
 
 1. **解析**：在 `src/core/debug_control.c` 找到对应域的函数（`DebugControlParseBasic`、`ParseMotion`、`ParseStreamAudit`、`ParseBlock`、`ParseFlora`、`ParseGeology`、`ParseWeather`、`ParseFluid`、`ParseView`、`ParseShip`、`ParseEvolution`、`ParseMarker`）。在 enum `src/core/debug_control.h` 里加 `DEBUG_CONTROL_COMMAND_*`，把参数存到 `DebugControl` 结构体的字段。
