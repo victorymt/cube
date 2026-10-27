@@ -54,10 +54,10 @@ Make 是唯一的构建系统。`mk/modules.mk` 按目录通配出源文件列�
 
 ## 一个帧的执行顺序
 
-`GameRun` 的主循环在 `src/app/game.c`，每帧调用 `GameUpdateFrame`。顺序本身就是契约：模拟不能看到本帧还没准备好的区块，渲染不能看到半上传的网格。
+`GameRun` 的主循环在 `src/app/game.c`。每次迭代先取帧时长与调试命令（`GameDispatchDebugCommand`），再调用 `GameUpdateFrame`。顺序本身就是契约：模拟不能看到本帧还没准备好的区块，渲染不能看到半上传的网格。
 
-1. 收集输入与调试命令（`GameDispatchDebugCommand`）。
-2. 更新世界流式：按焦点提交生成与网格任务，消费已完成的生成结果。
+1. 应用待生效的 worker 重配置，性能路线按帧号驱动玩家。
+2. 更新世界流式：提交生成与网格任务，消费已完成的生成结果，在预算内上传网格。
 3. 推进固定步模拟：`GameAdvanceSimulationFrame` 经 `SimulationClock` 消费固定步；暂停、相册、地图、着陆过渡、生物图鉴都不消费模拟步。
 4. 处理交互与方块编辑，重建脏网格。
 5. 合成环境表现、采样天文与光照、更新生态视觉。
