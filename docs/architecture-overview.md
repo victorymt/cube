@@ -58,7 +58,7 @@ Make 是唯一的构建系统。`mk/modules.mk` 按目录通配出源文件列�
 
 1. 应用待生效的 worker 重配置，性能路线按帧号驱动玩家。
 2. 更新世界流式：提交生成与网格任务，消费已完成的生成结果，在预算内上传网格。
-3. 推进固定步模拟：`GameAdvanceSimulationFrame` 经 `SimulationClock` 消费固定步；暂停、相册、地图、着陆过渡、生物图鉴都不消费模拟步。
+3. 推进固定步模拟：`GameAdvanceSimulationFrame` 经 `SimulationClock` 消费固定步；`GameWorldSimulationUserPaused` 覆盖的暂停、相册、图片导入、背包、地图、着陆过渡与生物图鉴都不消费模拟步。
 4. 处理交互与方块编辑，重建脏网格。
 5. 合成环境表现、采样天文与光照、更新生态视觉。
 6. 插件 `on_update`，随后渲染整帧，插件 `on_render`，最后截图与调试追踪落盘。
