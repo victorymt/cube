@@ -159,11 +159,17 @@ Current work, open blockers, and the activation target: see [STATUS.md](STATUS.m
 Production code lives entirely in the seven directories under `src/`. Public
 headers use module-qualified includes, while shared implementation details stay
 in module-private `*_internal.h` and `*_dependencies.h` headers. Common data is
-owned by `core/config.h`, `world/world_types.h`,
-`gameplay/player_types.h`, and `gameplay/ui_types.h` instead of a global
-catch-all types header. Mutable chunk, space, Nether, renderer, and entity state
-is not exported from public headers; consumers use read-only views, snapshots,
-or explicit setters.
+owned by `core/config.h`, the focused `world/` type headers (`block_type.h`,
+`chunk_types.h`, `terrain_types.h`, …), `gameplay/player_types.h`, and
+`gameplay/ui_types.h` instead of a global catch-all types header. Mutable chunk,
+space, Nether, renderer, and entity state is not exported from public headers;
+consumers use read-only views, snapshots, or explicit setters.
+
+The component responsibilities, the dependency direction the architecture test
+enforces, the per-frame execution order, and the thread ownership model are
+described once in the [architecture overview](docs/architecture-overview.md).
+The reasoning behind decisions that are expensive to reverse is recorded in the
+[ADR set](docs/decisions/README.md).
 
 Make remains the only build system. `mk/modules.mk` discovers production source
 files per module, and `mk/components.mk` maps those sources to ownership

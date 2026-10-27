@@ -112,6 +112,157 @@
       ],
       "allowCommits": true
     },
+    "docs/architecture-overview.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "Makefile",
+        "mk/components.mk",
+        "mk/modules.mk",
+        "mk/tests.mk",
+        "tests/test_architecture.sh",
+        "src/app/game.c",
+        "src/core/simulation_clock.h",
+        "src/core/plugin.h",
+        "src/core/save_io.h",
+        "src/world/world_surface_snapshot.h",
+        "src/space/space_dependencies.h"
+      ],
+      "recipes": [
+        "make test-architecture",
+        "make test-headers",
+        "python3 scripts/coupling-report.py"
+      ],
+      "verifiedAt": {
+        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
+        "date": "2026-10-27"
+      }
+    },
+    "docs/decisions/README.md": {
+      "tier": "index",
+      "trackCode": false,
+      "anchors": [
+        "docs/decisions"
+      ],
+      "recipes": [
+        "make check-docs"
+      ]
+    },
+    "docs/decisions/ADR-001-vendored-raylib.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "Makefile",
+        "mk/raylib.mk",
+        "mk/deps.mk"
+      ],
+      "recipes": [
+        "make test-build-prerequisites",
+        "make test-clean-root"
+      ],
+      "verifiedAt": {
+        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
+        "date": "2026-10-27"
+      }
+    },
+    "docs/decisions/ADR-002-plugin-abi-and-services.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/core/plugin.h",
+        "src/core/plugin.c",
+        "mk/plugins.mk",
+        "plugins/manifest.mk",
+        "src/app/game_plugins.c"
+      ],
+      "recipes": [
+        "make test-plugins",
+        "make test-architecture"
+      ],
+      "verifiedAt": {
+        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
+        "date": "2026-10-27"
+      }
+    },
+    "docs/decisions/ADR-003-save-format-and-transactions.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/save_format.h",
+        "src/world/save_format.c",
+        "src/core/save_io.h",
+        "src/core/save_io.c",
+        "src/app/game_save.c"
+      ],
+      "recipes": [
+        "make test-cube-save-reload",
+        "make build/normal/tests/test_save_io && ./build/normal/tests/test_save_io"
+      ],
+      "verifiedAt": {
+        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
+        "date": "2026-10-27"
+      }
+    },
+    "docs/decisions/ADR-004-documentation-truth-gate.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "scripts/check-docs.mjs",
+        "scripts/check-docs-truth.mjs",
+        "scripts/docs-probe.mjs",
+        "docs/doc-claims.json",
+        "docs-check.config.json",
+        "tools/git-hooks/pre-commit"
+      ],
+      "recipes": [
+        "make check-docs",
+        "make docs-probe"
+      ],
+      "verifiedAt": {
+        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
+        "date": "2026-10-27"
+      }
+    },
+    "docs/decisions/ADR-005-cube-grid-gated-topology.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/world/surface_topology_version.h",
+        "src/world/surface_topology_version.c",
+        "src/world/world_surface_snapshot.h",
+        "src/world/world_surface_snapshot.c",
+        "src/world/surface_cube.h",
+        "src/world/cube_switch.h"
+      ],
+      "recipes": [
+        "make test-surface-cube",
+        "make test-surface-topology-e2e"
+      ],
+      "verifiedAt": {
+        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
+        "date": "2026-10-27"
+      }
+    },
+    "docs/decisions/ADR-006-chunk-streaming-and-mesh-pipeline.md": {
+      "tier": "contract",
+      "trackCode": true,
+      "anchors": [
+        "src/core/config.h",
+        "src/world/chunks_streaming.c",
+        "src/world/chunks_runtime.c",
+        "src/world/chunks_mesh_job.c",
+        "src/world/chunks_greedy_mesh.c",
+        "src/core/perf.c"
+      ],
+      "recipes": [
+        "make test-benchmark-invariants",
+        "make -s benchmark-chunks"
+      ],
+      "verifiedAt": {
+        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
+        "date": "2026-10-27"
+      }
+    },
     "docs/documentation-rules.md": {
       "tier": "meta",
       "trackCode": false,

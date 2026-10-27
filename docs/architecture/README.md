@@ -49,6 +49,12 @@ Terrain work is recorded in [surface-neutral landforms](../landform-planets.md),
 [landform quality](../landform-quality.md), and the [cube-grid activation plan](../cube-activation-plan.md).
 What is open today is recorded once, in [STATUS.md](../../STATUS.md).
 
+The records below are dated evidence: each one describes what a stage changed
+and what it measured. The boundaries that must not silently change are stated
+once in the [architecture overview](../architecture-overview.md), and the
+reasoning behind the choices that are expensive to reverse is in the
+[ADR set](../decisions/README.md).
+
 ## Implementation, verification, and limits
 
 The table identifies implemented boundaries and their commit evidence. A
