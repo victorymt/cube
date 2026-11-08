@@ -104,10 +104,10 @@ static bool ChunkLodWaterAt(
     if (lx >= 0 && lx < CHUNK_SIZE && y >= 0 &&
         y < SURFACE_SECTION_HEIGHT && lz >= 0 && lz < CHUNK_SIZE) {
         *outBlock = (BlockType)blocks[lx][y][lz];
-        *outVolume = *outBlock == BLOCK_WATER
-            ? (waterVolumes ? waterVolumes[lx][y][lz]
-                            : (unsigned char)WATER_VOLUME_CAPACITY)
-            : 0u;
+        *outVolume = waterVolumes
+            ? waterVolumes[lx][y][lz]
+            : (*outBlock == BLOCK_WATER
+                   ? (unsigned char)WATER_VOLUME_CAPACITY : 0u);
         return true;
     }
     return boundary && SurfaceBoundaryCellAt(
@@ -125,7 +125,7 @@ static ChunkLodColumn ChunkLodWaterColumnAt(
     if (ChunkLodWaterAt(blocks, waterVolumes, boundary, lx,
                         SURFACE_SECTION_HEIGHT, lz,
                         &above, &aboveVolume) &&
-        above == BLOCK_WATER && aboveVolume > 0u) {
+        aboveVolume > 0u) {
         return (ChunkLodColumn){ 0 };
     }
     for (int y = SURFACE_SECTION_HEIGHT - 1; y >= 0; y--) {
@@ -133,7 +133,7 @@ static ChunkLodColumn ChunkLodWaterColumnAt(
         unsigned char volume = 0u;
         if (ChunkLodWaterAt(blocks, waterVolumes, boundary, lx, y, lz,
                             &type, &volume) &&
-            type == BLOCK_WATER && volume > 0u) {
+            volume > 0u) {
             return (ChunkLodColumn){
                 .height = (float)y +
                     (float)volume / (float)WATER_VOLUME_CAPACITY,

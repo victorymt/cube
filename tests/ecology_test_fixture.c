@@ -281,6 +281,20 @@ BlockType GetBlockBaseAt(int x, int y, int z)
 
 BlockType GetBlockAt(int x, int y, int z) { return GetBlockBaseAt(x, y, z); }
 
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+uint8_t FluidGetVolumeAt(int x, int y, int z)
+{
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    Chunk *chunk = FindChunk(cx, cz);
+    return chunk ? ChunkGetLocalWaterVolume(chunk, lx, y, lz) : 0u;
+}
+
 void UnloadModel(Model model)
 {
     (void)model;

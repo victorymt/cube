@@ -180,12 +180,70 @@ BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
         : BLOCK_AIR;
 }
 
+static int FixtureWaterCellIndex(int lx, int ly, int lz)
+{
+    return (lx * SURFACE_SECTION_HEIGHT + ly) * CHUNK_SIZE + lz;
+}
+
+static uint8_t FixtureWaterVolume(const Chunk *chunk, int lx, int y, int lz)
+{
+    const ChunkSection *section = ChunkGetSectionConst(
+        chunk, SurfaceSectionYFromBlockY(y));
+    if (!section) return 0u;
+    int ly = SurfaceSectionLocalYFromBlockY(y);
+    BlockType block = (BlockType)section->blocks[lx][ly][lz];
+    if (block == BLOCK_WATER) return (uint8_t)FLUID_CAPACITY;
+    return section->waterVolumes
+        ? section->waterVolumes[FixtureWaterCellIndex(lx, ly, lz)] : 0u;
+}
+
+static bool FixtureEnsureWaterVolumes(ChunkSection *section)
+{
+    if (!section) return false;
+    if (section->waterVolumes) return true;
+    section->waterVolumes = malloc(
+        CHUNK_SIZE * SURFACE_SECTION_HEIGHT * CHUNK_SIZE);
+    if (!section->waterVolumes) return false;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                section->waterVolumes[FixtureWaterCellIndex(lx, ly, lz)] =
+                    section->blocks[lx][ly][lz] == BLOCK_WATER
+                        ? (unsigned char)FLUID_CAPACITY : 0u;
+            }
+        }
+    }
+    return true;
+}
+
 bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type)
 {
+    if (!chunk) return false;
+    int sectionY = SurfaceSectionYFromBlockY(y);
+    ChunkSection *current = ChunkGetSection(chunk, sectionY, false);
+    int ly = SurfaceSectionLocalYFromBlockY(y);
+    BlockType previousBlock = current
+        ? (BlockType)current->blocks[lx][ly][lz] : BLOCK_AIR;
+    uint8_t previousVolume = previousBlock == BLOCK_WATER
+        ? (uint8_t)FLUID_CAPACITY
+        : (current && current->waterVolumes
+               ? current->waterVolumes[FixtureWaterCellIndex(lx, ly, lz)]
+               : 0u);
+    if (previousBlock == BLOCK_WATER) previousBlock = BLOCK_AIR;
+    WorldCell cell = WorldCellWithBlock(
+        (WorldCell){ .block = previousBlock, .waterVolume = previousVolume },
+        type);
     ChunkSection *section = ChunkGetSection(
-        chunk, SurfaceSectionYFromBlockY(y), type != BLOCK_AIR);
-    if (!section) return type == BLOCK_AIR;
-    section->blocks[lx][SurfaceSectionLocalYFromBlockY(y)][lz] = type;
+        chunk, sectionY, cell.block != BLOCK_AIR || cell.waterVolume > 0u);
+    if (!section) return cell.block == BLOCK_AIR && cell.waterVolume == 0u;
+    if (cell.waterVolume > 0u && !FixtureEnsureWaterVolumes(section)) {
+        return false;
+    }
+    section->blocks[lx][ly][lz] = (unsigned short)cell.block;
+    if (section->waterVolumes) {
+        section->waterVolumes[FixtureWaterCellIndex(lx, ly, lz)] =
+            cell.waterVolume;
+    }
     return true;
 }
 
@@ -346,7 +404,11 @@ static void TestNegativeSectionCoordinates(void)
     assert(FluidSetVolumeAt(4, -1, 4, FLUID_CAPACITY));
     const ChunkSection *section = ChunkGetSectionConst(chunk, -1);
     assert(section != NULL);
-    assert(section->blocks[4][SURFACE_SECTION_HEIGHT - 1][4] == BLOCK_WATER);
+    assert(section->blocks[4][SURFACE_SECTION_HEIGHT - 1][4] == BLOCK_AIR);
+    assert(section->waterVolumes != NULL);
+    assert(section->waterVolumes[
+        FixtureWaterCellIndex(4, SURFACE_SECTION_HEIGHT - 1, 4)] ==
+        FLUID_CAPACITY);
     assert(FluidGetVolumeAt(4, -1, 4) == FLUID_CAPACITY);
 }
 
@@ -776,9 +838,72 @@ static void TestSolidBlockChangePreservesBlock(void)
     FillFloor(chunk);
     assert(FluidSetVolumeAt(6, 1, 6, 120u));
     assert(ChunkSetLocalBlock(chunk, 6, 1, 6, BLOCK_STONE));
-    FluidOnBlockChanged(6, 1, 6, BLOCK_WATER, BLOCK_STONE);
+    FluidOnBlockChanged(6, 1, 6, BLOCK_AIR, BLOCK_STONE);
     assert(ChunkGetLocalBlock(chunk, 6, 1, 6) == BLOCK_STONE);
     assert(FluidGetVolumeAt(6, 1, 6) == 0u);
+}
+
+static void TestWaterSharesPlantCell(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    FillFloor(chunk);
+    assert(ChunkSetLocalBlock(chunk, 4, 1, 4, BLOCK_COMMON_REED));
+
+    assert(FluidSetVolumeAt(4, 1, 4, FLUID_CAPACITY));
+    assert(ChunkGetLocalBlock(chunk, 4, 1, 4) == BLOCK_COMMON_REED);
+    assert(FixtureWaterVolume(chunk, 4, 1, 4) == FLUID_CAPACITY);
+    assert(FluidLoadedVolume() == FLUID_CAPACITY);
+}
+
+static void TestWaterFlowsThroughPlantWithoutReplacingIt(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    FillFloor(chunk);
+    assert(ChunkSetLocalBlock(chunk, 5, 1, 4, BLOCK_COMMON_REED));
+    assert(FluidSetVolumeAt(4, 1, 4, FLUID_CAPACITY));
+
+    FluidStepTicks(8);
+    assert(ChunkGetLocalBlock(chunk, 5, 1, 4) == BLOCK_COMMON_REED);
+    assert(FluidGetVolumeAt(5, 1, 4) > 0u);
+    assert(FluidLoadedVolume() == FLUID_CAPACITY);
+}
+
+static void TestSubmergedReedKeepsItsBlock(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    FillFloor(chunk);
+    assert(ChunkSetLocalBlock(chunk, 3, 1, 4, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(chunk, 5, 1, 4, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(chunk, 4, 1, 3, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(chunk, 4, 1, 5, BLOCK_STONE));
+    assert(ChunkSetLocalBlock(chunk, 4, 1, 4, BLOCK_COMMON_REED));
+    assert(FluidSetVolumeAt(4, 1, 4, FLUID_CAPACITY));
+
+    FluidStepTicks(32);
+    assert(ChunkGetLocalBlock(chunk, 4, 1, 4) == BLOCK_COMMON_REED);
+    assert(FluidGetVolumeAt(4, 1, 4) == FLUID_CAPACITY);
+    assert(FluidLoadedVolume() == FLUID_CAPACITY);
+}
+
+static void TestLegacyWaterNormalizationKeepsPlant(void)
+{
+    ResetWorld();
+    Chunk *chunk = CreateChunk(0, 0, 0);
+    FillFloor(chunk);
+    assert(ChunkSetLocalBlock(chunk, 4, 1, 4, BLOCK_WATER));
+    assert(ChunkGetLocalBlock(chunk, 4, 1, 4) == BLOCK_AIR);
+    assert(FixtureWaterVolume(chunk, 4, 1, 4) == FLUID_CAPACITY);
+
+    assert(ChunkSetLocalBlock(chunk, 4, 1, 4, BLOCK_COMMON_REED));
+    assert(ChunkGetLocalBlock(chunk, 4, 1, 4) == BLOCK_COMMON_REED);
+    assert(FixtureWaterVolume(chunk, 4, 1, 4) == FLUID_CAPACITY);
+
+    assert(ChunkSetLocalBlock(chunk, 4, 1, 4, BLOCK_STONE));
+    assert(ChunkGetLocalBlock(chunk, 4, 1, 4) == BLOCK_STONE);
+    assert(FixtureWaterVolume(chunk, 4, 1, 4) == 0u);
 }
 
 static void TestSaveLoadReplay(void)
@@ -1006,6 +1131,10 @@ int main(void)
     TestQueueOverflowRetriesDeferredCell();
     TestRealtimeUpdatesSpreadCellBudgetAcrossFrames();
     TestSolidBlockChangePreservesBlock();
+    TestWaterSharesPlantCell();
+    TestWaterFlowsThroughPlantWithoutReplacingIt();
+    TestSubmergedReedKeepsItsBlock();
+    TestLegacyWaterNormalizationKeepsPlant();
     TestSaveLoadReplay();
     TestLongitudeAliasUsesOneFluidEdit();
     TestLoadPrunesOceanReservoirDeficits();

@@ -337,6 +337,11 @@ bool IsLiquidBlock(BlockType type)
     return type == BLOCK_WATER || type == BLOCK_LAVA;
 }
 
+uint8_t FluidGetVolumeAt(int x, int y, int z)
+{
+    return GetBlockAt(x, y, z) == BLOCK_WATER ? 255u : 0u;
+}
+
 float BlockCollisionHeight(BlockType type)
 {
     return type == BLOCK_AIR || type == BLOCK_WATER || type == BLOCK_LAVA

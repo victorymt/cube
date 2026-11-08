@@ -2,7 +2,7 @@
 
 The single home for what is true right now. Every other document links here instead of restating it. One physical line per entry; a stale line is a bug.
 
-Updated 2026-10-25. Source of the statements below: the status sections previously duplicated in `README.md`, `todo/00-roadmap.md`, and `docs/surface-cube.md`.
+Updated 2026-11-08. Source of the statements below: the status sections previously duplicated in `README.md`, `todo/00-roadmap.md`, and `docs/surface-cube.md`.
 
 ## Current work
 
@@ -28,6 +28,7 @@ Next, in dependency order: close the cube mesh vertical stretch, convert the flu
 
 ## Verified
 
+- 2026-11-08: water volume is now authoritative per `WorldCell`; air and plant cells can carry water without a legacy `BLOCK_WATER` block, rendering and exposure tests use volume, and `make test` passed 132 binaries with `make docs-probe` resolving 287 fields.
 - 2026-10-24: `make test` passed 126 binaries with 0 failures, and the trailing architecture and clean-build guards passed.
 - 2026-10-24: `make test-headers` compiled every public header standalone; `make test-debug-cli` and `make test-debug-stdin-protocol` passed.
 - 2026-10-24: `scripts/run-scene.sh` returned `ok=true` for a screenshot scene, an `exit`-terminated scene, and a benchmark scene without captures, and reported `ok=false` with the DSL error for a scene whose command is rejected.

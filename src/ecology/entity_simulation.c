@@ -212,14 +212,14 @@ static bool EntityFindWaterNearY(int x, int z, int centerY, int radius,
     for (int offset = 0; offset <= radius; offset++) {
         int above = centerY + offset;
         if (above >= SURFACE_MIN_Y && above < SURFACE_MAX_Y_EXCLUSIVE &&
-            GetBlockAt(x, above, z) == BLOCK_WATER) {
+            FluidGetVolumeAt(x, above, z) > 0u) {
             *outY = above;
             return true;
         }
         int below = centerY - offset;
         if (offset > 0 && below >= SURFACE_MIN_Y &&
             below < SURFACE_MAX_Y_EXCLUSIVE &&
-            GetBlockAt(x, below, z) == BLOCK_WATER) {
+            FluidGetVolumeAt(x, below, z) > 0u) {
             *outY = below;
             return true;
         }

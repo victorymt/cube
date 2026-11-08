@@ -39,12 +39,12 @@ void CaptureCubeBoundary(SurfaceBoundarySnapshot *snapshot,
                 !ChunkTerrainSectionIsResolved(neighbor, sy)) continue;
             snapshot->blocks[x+1][y+1][z+1] = (unsigned short)block;
             snapshot->known[x+1][y+1][z+1] = 1;
-            if (block == BLOCK_WATER) {
-                const ChunkSection *section = ChunkGetSectionConst(neighbor, sy);
-                int index = (lx * SURFACE_SECTION_HEIGHT + SurfaceSectionLocalYFromBlockY(radial)) * CHUNK_SIZE + lz;
-                snapshot->volumes[x+1][y+1][z+1] = section && section->waterVolumes
-                    ? section->waterVolumes[index] : WATER_VOLUME_CAPACITY;
-            }
+            const ChunkSection *section = ChunkGetSectionConst(neighbor, sy);
+            int index = (lx * SURFACE_SECTION_HEIGHT + SurfaceSectionLocalYFromBlockY(radial)) * CHUNK_SIZE + lz;
+            snapshot->volumes[x+1][y+1][z+1] =
+                section && section->waterVolumes
+                    ? section->waterVolumes[index]
+                    : (block == BLOCK_WATER ? WATER_VOLUME_CAPACITY : 0u);
         }
     }
 }

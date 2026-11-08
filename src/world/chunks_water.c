@@ -5,8 +5,10 @@ static unsigned char SurfaceWaterSnapshotVolume(
     const unsigned char *waterVolumes, int height, int lx, int y, int lz)
 {
     BlockType block = (BlockType)blocks[lx * height + y][lz];
-    if (block != BLOCK_WATER) return 0u;
-    if (!waterVolumes) return (unsigned char)WATER_VOLUME_CAPACITY;
+    if (!waterVolumes) {
+        return block == BLOCK_WATER
+            ? (unsigned char)WATER_VOLUME_CAPACITY : 0u;
+    }
     return waterVolumes[(lx * height + y) * CHUNK_SIZE + lz];
 }
 
@@ -47,15 +49,16 @@ static bool TrySampleSurfaceWaterColumn(
     }
 
     *outBlock = block;
-    *outVolume = 0u;
-    if (block != BLOCK_WATER) return true;
-
     const ChunkSection *section = ChunkGetSectionConst(chunk, sectionY);
     int index = (column->lx * SURFACE_SECTION_HEIGHT +
                  SurfaceSectionLocalYFromBlockY(worldY)) * CHUNK_SIZE +
                 column->lz;
-    *outVolume = section && section->waterVolumes
-        ? section->waterVolumes[index] : (unsigned char)WATER_VOLUME_CAPACITY;
+    if (section && section->waterVolumes) {
+        *outVolume = section->waterVolumes[index];
+    } else {
+        *outVolume = block == BLOCK_WATER
+            ? (unsigned char)WATER_VOLUME_CAPACITY : 0u;
+    }
     return true;
 }
 

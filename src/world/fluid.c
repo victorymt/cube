@@ -117,6 +117,11 @@ static FluidMutation FluidCanonicalMutation(FluidMutation mutation)
     return mutation;
 }
 
+static bool FluidBlockCanHoldWater(BlockType block)
+{
+    return block == BLOCK_WATER || WorldCellCanContainWater(block);
+}
+
 static int FluidCellIndex(int lx, int ly, int lz)
 {
     return (lx * SURFACE_SECTION_HEIGHT + ly) * CHUNK_SIZE + lz;
@@ -618,17 +623,15 @@ static bool FluidPrepareMutations(const FluidMutation *mutations, int count)
         BlockType block = BLOCK_AIR;
         if (!FluidLocateCell(mutation.x, mutation.y, mutation.z, &chunk,
                              &section, NULL, &block) ||
-            (mutation.volume > 0u && block != BLOCK_AIR &&
-             block != BLOCK_WATER)) {
+            (mutation.volume > 0u &&
+             (!FluidBlockCanHoldWater(block) ||
+              !FluidBlockCanHoldWater(
+                  GetBlockAt(mutation.x, mutation.y, mutation.z))))) {
             return false;
         }
         if (!section) {
             section = ChunkGetSection(
                 chunk, SurfaceSectionYFromBlockY(mutation.y), true);
-        }
-        if (mutation.volume > 0u) {
-            BlockType visible = GetBlockAt(mutation.x, mutation.y, mutation.z);
-            if (visible != BLOCK_AIR && visible != BLOCK_WATER) return false;
         }
         if (!section || !FluidEnsureVolumes(section)) return false;
 
@@ -709,8 +712,12 @@ uint8_t FluidGetVolumeAt(int x, int y, int z)
     int index = 0;
     BlockType block = BLOCK_AIR;
     if (!FluidLocateCell(x, y, z, NULL, &section, &index, &block)) return 0u;
-    if (section && section->waterVolumes) return section->waterVolumes[index];
-    return block == BLOCK_WATER ? (uint8_t)FLUID_CAPACITY : 0u;
+    if (block == BLOCK_WATER) {
+        return section && section->waterVolumes
+            ? section->waterVolumes[index] : (uint8_t)FLUID_CAPACITY;
+    }
+    if (!WorldCellCanContainWater(block)) return 0u;
+    return section && section->waterVolumes ? section->waterVolumes[index] : 0u;
 }
 
 static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
@@ -724,11 +731,9 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
     if (!FluidLocateCell(x, y, z, &chunk, &section, &index, &block)) {
         return false;
     }
-    if (volume > 0u && block != BLOCK_AIR && block != BLOCK_WATER) return false;
-    if (volume > 0u) {
-        BlockType visible = GetBlockAt(x, y, z);
-        if (visible != BLOCK_AIR && visible != BLOCK_WATER) return false;
-    }
+    if (volume > 0u &&
+        (!FluidBlockCanHoldWater(block) ||
+         !FluidBlockCanHoldWater(GetBlockAt(x, y, z)))) return false;
     if (!section && volume > 0u) {
         int cx = 0;
         int cz = 0;
@@ -744,7 +749,7 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
     uint8_t previous = section && section->waterVolumes
         ? section->waterVolumes[index]
         : (block == BLOCK_WATER ? (uint8_t)FLUID_CAPACITY : 0u);
-    if (volume < FLUID_CAPACITY && block == BLOCK_WATER &&
+    if (volume < FLUID_CAPACITY && previous > 0u &&
         WorldIsProceduralOceanWaterAt(x, y, z)) {
         volume = FLUID_CAPACITY;
     }
@@ -762,7 +767,7 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
     WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
     if (block == BLOCK_AIR || block == BLOCK_WATER) {
         section->blocks[lx][SurfaceSectionLocalYFromBlockY(y)][lz] =
-            volume > 0u ? BLOCK_WATER : BLOCK_AIR;
+            BLOCK_AIR;
     }
     section->fluidDirty = true;
     MarkChunkDirtyAtBlock(x, y, z);
@@ -784,10 +789,8 @@ bool FluidTryEvaporateAt(int x, int y, int z, uint8_t expected, uint8_t amount,
     if (!WorldIsSurfaceActive() || !amount || amount > expected) return false;
     FluidCanonicalizeXZ(&x, &z);
     Chunk *chunk = NULL;
-    BlockType block = BLOCK_AIR;
-    if (!FluidLocateCell(x, y, z, &chunk, NULL, NULL, &block) ||
+    if (!FluidLocateCell(x, y, z, &chunk, NULL, NULL, NULL) ||
         !chunk->loaded || !ChunkTerrainSectionIsResolved(chunk, SurfaceSectionYFromBlockY(y)) ||
-        block != BLOCK_WATER || GetBlockAt(x, y, z) != BLOCK_WATER ||
         FluidGetVolumeAt(x, y, z) != expected) return false;
     if (WorldIsProceduralOceanWaterAt(x, y, z)) {
         if (!reservoir) return false; /* Never hide the external mass source. */
@@ -903,9 +906,8 @@ static bool FluidCellCanHold(int x, int y, int z)
 {
     BlockType block = BLOCK_AIR;
     if (!FluidLocateCell(x, y, z, NULL, NULL, NULL, &block)) return false;
-    BlockType visible = GetBlockAt(x, y, z);
-    if (visible != BLOCK_AIR && visible != BLOCK_WATER) return false;
-    return block == BLOCK_AIR || block == BLOCK_WATER;
+    return FluidBlockCanHoldWater(block) &&
+           FluidBlockCanHoldWater(GetBlockAt(x, y, z));
 }
 
 static signed char FluidClampFlow(int value)
@@ -1424,7 +1426,10 @@ void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
         }
         int ly = SurfaceSectionLocalYFromBlockY(edit->y);
         BlockType block = (BlockType)section->blocks[lx][ly][lz];
-        if (edit->volume > 0u && block != BLOCK_AIR && block != BLOCK_WATER) {
+        if (edit->volume > 0u &&
+            (!FluidBlockCanHoldWater(block) ||
+             !FluidBlockCanHoldWater(
+                 GetBlockAt(edit->x, edit->y, edit->z)))) {
             continue;
         }
         FluidSetVolumeInternal(edit->x, edit->y, edit->z,
@@ -1468,11 +1473,9 @@ static void FluidWakeLoadedBoundaryPair(int ax, int ay, int az,
 
     unsigned aVolume = FluidGetVolumeAt(ax, ay, az);
     unsigned bVolume = FluidGetVolumeAt(bx, by, bz);
-    if (aVolume > bVolume + 1u &&
-        (bBlock == BLOCK_AIR || bBlock == BLOCK_WATER)) {
+    if (aVolume > bVolume + 1u && WorldCellCanContainWater(bBlock)) {
         FluidWakeCell(ax, ay, az);
-    } else if (bVolume > aVolume + 1u &&
-               (aBlock == BLOCK_AIR || aBlock == BLOCK_WATER)) {
+    } else if (bVolume > aVolume + 1u && WorldCellCanContainWater(aBlock)) {
         FluidWakeCell(bx, by, bz);
     }
 }

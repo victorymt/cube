@@ -295,7 +295,21 @@ static uint64_t TerrainChunkHash(const Chunk *chunk)
         for (int lx = 0; lx < CHUNK_SIZE; lx++) {
             for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
                 for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                    hash ^= section->blocks[lx][ly][lz];
+                    BlockType block =
+                        (BlockType)section->blocks[lx][ly][lz];
+                    uint8_t volume = section->waterVolumes
+                        ? section->waterVolumes[
+                              (lx * SURFACE_SECTION_HEIGHT + ly) *
+                                  CHUNK_SIZE +
+                              lz]
+                        : 0u;
+                    /* Keep the terrain fingerprint comparable with the legacy
+                     * block encoding while volume coverage lives in the
+                     * dedicated cell tests. */
+                    if (block == BLOCK_AIR && volume > 0u) {
+                        block = BLOCK_WATER;
+                    }
+                    hash ^= (uint64_t)block;
                     hash *= UINT64_C(1099511628211);
                 }
             }
@@ -1173,9 +1187,11 @@ static void TestIndependentSectionBaseGeneration(void)
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
                 int worldX = 2 * CHUNK_SIZE + lx;
                 int worldZ = -3 * CHUNK_SIZE + lz;
-                assert(ChunkGetLocalBlock(&flat, lx, y, lz) ==
-                       TerrainBaseBlockAt(
-                           worldX, y, worldZ, TERRAIN_FLAT));
+                WorldCell expected = WorldCellFromLegacyBlock(
+                    TerrainBaseBlockAt(
+                        worldX, y, worldZ, TERRAIN_FLAT));
+                assert(WorldCellEqual(
+                    ChunkGetLocalCell(&flat, lx, y, lz), expected));
             }
         }
     }
@@ -1207,8 +1223,10 @@ static void TestIndependentSectionBaseGeneration(void)
     assert(deep.sections[0]->sectionY == seabedSectionY);
     for (int y = seabedSectionY * SURFACE_SECTION_HEIGHT;
          y < (seabedSectionY + 1) * SURFACE_SECTION_HEIGHT; y++) {
-        assert(ChunkGetLocalBlock(&deep, 0, y, 0) ==
-               TerrainBaseBlockAt(-2896, y, 16, TERRAIN_VARIED));
+        WorldCell expected = WorldCellFromLegacyBlock(
+            TerrainBaseBlockAt(-2896, y, 16, TERRAIN_VARIED));
+        assert(WorldCellEqual(
+            ChunkGetLocalCell(&deep, 0, y, 0), expected));
     }
     ChunkClearBlockStorage(&deep);
     terrainSeed = DEFAULT_WORLD_SEED;
@@ -1228,9 +1246,11 @@ static void TestSparseChunkBootstrap(void)
     assert(ChunkGetSectionConst(&chunk, 4));
     assert(!ChunkGetSectionConst(&chunk, seabedSectionY));
     assert(chunk.sectionCount >= 2 && chunk.sectionCount <= 4);
-    assert(ChunkGetLocalBlock(&chunk, 0, HOME_SEA_LEVEL, 0) ==
-           TerrainBaseBlockAt(-2896, HOME_SEA_LEVEL, 16,
-                              TERRAIN_VARIED));
+    WorldCell expected = WorldCellFromLegacyBlock(
+        TerrainBaseBlockAt(
+            -2896, HOME_SEA_LEVEL, 16, TERRAIN_VARIED));
+    assert(WorldCellEqual(
+        ChunkGetLocalCell(&chunk, 0, HOME_SEA_LEVEL, 0), expected));
     ChunkClearBlockStorage(&chunk);
     terrainSeed = DEFAULT_WORLD_SEED;
 }
@@ -1262,12 +1282,14 @@ static void TestUndergroundFeaturesMaterializeTheirBase(void)
             const ChunkSection *featureSection = ChunkGetSectionConst(
                 &chunk, SurfaceSectionYFromBlockY(8));
             assert(featureSection);
-            BlockType expected = TerrainBaseBlockAt(
-                sampleX, 1, sampleZ, TERRAIN_VARIED);
-            assert(expected != BLOCK_AIR);
-            assert(ChunkGetLocalBlock(
-                       &chunk, CHUNK_SIZE - 1, 1, CHUNK_SIZE - 1) ==
-                   expected);
+            WorldCell expected = WorldCellFromLegacyBlock(
+                TerrainBaseBlockAt(
+                    sampleX, 1, sampleZ, TERRAIN_VARIED));
+            assert(expected.block != BLOCK_AIR || expected.waterVolume > 0u);
+            assert(WorldCellEqual(
+                ChunkGetLocalCell(
+                    &chunk, CHUNK_SIZE - 1, 1, CHUNK_SIZE - 1),
+                expected));
             ChunkClearBlockStorage(&chunk);
             found = true;
         }
@@ -1825,7 +1847,9 @@ static void TestPlanetLandformGeneration(void)
         if (expected.landform.hasWater) {
             int water = (int)floorf(expected.landform.waterLevel);
             assert(water > height);
-            assert(ChunkGetLocalBlock(&chunk, lx, water, lz) == BLOCK_WATER);
+            WorldCell actual = ChunkGetLocalCell(&chunk, lx, water, lz);
+            WorldCell expectedWater = WorldCellFromLegacyBlock(BLOCK_WATER);
+            assert(WorldCellEqual(actual, expectedWater));
             assert(TerrainBaseBlockAt(cell.x, water, cell.z, TERRAIN_VARIED) == BLOCK_WATER);
         }
         uint64_t hash = TerrainChunkHash(&chunk);
@@ -1936,7 +1960,9 @@ static void TestVersion7Landforms(void)
     Chunk chunk = { 0 };
     int waterY = (int)floorf(expected.landform.waterLevel);
     assert(GenerateChunkTerrainSectionBase(&chunk, cx, cz, SurfaceSectionYFromBlockY(waterY), TERRAIN_VARIED));
-    assert(ChunkGetLocalBlock(&chunk, lx, waterY, lz) == BLOCK_WATER);
+    assert(WorldCellEqual(
+        ChunkGetLocalCell(&chunk, lx, waterY, lz),
+        WorldCellFromLegacyBlock(BLOCK_WATER)));
     ChunkClearBlockStorage(&chunk);
     // Evict the atlas, reconstruct, and verify the generated column is unchanged.
     assert(LandformRuntimePrepare(7123, 7, true));

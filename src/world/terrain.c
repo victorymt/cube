@@ -1509,6 +1509,28 @@ static bool TerrainSectionFaceIsVisible(BlockType current,
     return IsTranslucentBlock(neighbor) && neighbor != current;
 }
 
+static WorldCell TerrainSectionLocalCell(const ChunkSection *section,
+                                         int lx, int ly, int lz)
+{
+    BlockType block = (BlockType)section->blocks[lx][ly][lz];
+    WorldCell cell = WorldCellFromLegacyBlock(block);
+    if (section->waterVolumes) {
+        int index = (lx * SURFACE_SECTION_HEIGHT + ly) * CHUNK_SIZE + lz;
+        cell.waterVolume = section->waterVolumes[index];
+    }
+    return cell;
+}
+
+static bool TerrainSectionCellHasExposedFace(WorldCell current,
+                                             WorldCell neighbor)
+{
+    bool waterVisible = current.waterVolume > 0u &&
+        neighbor.waterVolume < current.waterVolume;
+    bool blockVisible = current.block != BLOCK_AIR &&
+        TerrainSectionFaceIsVisible(current.block, neighbor.block);
+    return waterVisible || blockVisible;
+}
+
 bool TerrainSectionHasExposedFaces(const ChunkSection *section, int cx,
                                    int cz, int sectionY, TerrainMode mode)
 {
@@ -1524,25 +1546,29 @@ bool TerrainSectionHasExposedFaces(const ChunkSection *section, int cx,
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
             for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                BlockType current = (BlockType)section->blocks[lx][ly][lz];
-                if (current == BLOCK_AIR) continue;
+                WorldCell current = TerrainSectionLocalCell(
+                    section, lx, ly, lz);
+                if (current.block == BLOCK_AIR && current.waterVolume == 0u) {
+                    continue;
+                }
                 for (int face = 0; face < 6; face++) {
                     int neighborX = lx + faces[face][0];
                     int neighborY = ly + faces[face][1];
                     int neighborZ = lz + faces[face][2];
-                    BlockType neighbor = BLOCK_AIR;
+                    WorldCell neighbor;
                     if (neighborX >= 0 && neighborX < CHUNK_SIZE &&
                         neighborY >= 0 &&
                         neighborY < SURFACE_SECTION_HEIGHT &&
                         neighborZ >= 0 && neighborZ < CHUNK_SIZE) {
-                        neighbor = (BlockType)section->blocks
-                            [neighborX][neighborY][neighborZ];
+                        neighbor = TerrainSectionLocalCell(
+                            section, neighborX, neighborY, neighborZ);
                     } else {
-                        neighbor = TerrainBaseBlockAt(
-                            startX + neighborX, startY + neighborY,
-                            startZ + neighborZ, mode);
+                        neighbor = WorldCellFromLegacyBlock(
+                            TerrainBaseBlockAt(
+                                startX + neighborX, startY + neighborY,
+                                startZ + neighborZ, mode));
                     }
-                    if (TerrainSectionFaceIsVisible(current, neighbor)) {
+                    if (TerrainSectionCellHasExposedFace(current, neighbor)) {
                         return true;
                     }
                 }
