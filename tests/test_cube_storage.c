@@ -62,9 +62,69 @@ static void TestRealChunkGeneration(void)
     TerrainCubeContextRelease(context);
 }
 
+static void TestCanonicalCellStorage(void)
+{
+    Chunk chunk = { 0 };
+    const int x = 3;
+    const int y = 5;
+    const int z = 7;
+
+    assert(ChunkSetLocalCell(
+        &chunk, x, y, z,
+        (WorldCell){ .block = BLOCK_COMMON_REED, .waterVolume = 77u }));
+    WorldCell cell = ChunkGetLocalCell(&chunk, x, y, z);
+    assert(cell.block == BLOCK_COMMON_REED);
+    assert(cell.waterVolume == 77u);
+    assert(ChunkGetLocalBlock(&chunk, x, y, z) == BLOCK_COMMON_REED);
+    assert(ChunkGetLocalWaterVolume(&chunk, x, y, z) == 77u);
+
+    assert(ChunkSetLocalBlock(&chunk, x, y, z, BLOCK_STONE));
+    cell = ChunkGetLocalCell(&chunk, x, y, z);
+    assert(cell.block == BLOCK_STONE);
+    assert(cell.waterVolume == 0u);
+    assert(!ChunkSetLocalWaterVolume(&chunk, x, y, z, 10u));
+
+    assert(ChunkSetLocalBlock(&chunk, x, y, z, BLOCK_COMMON_REED));
+    assert(ChunkSetLocalWaterVolume(&chunk, x, y, z, 42u));
+    assert(ChunkGetLocalWaterVolume(&chunk, x, y, z) == 42u);
+
+    assert(ChunkSetLocalCell(
+        &chunk, x, y, z,
+        (WorldCell){ .block = BLOCK_STONE, .waterVolume = 1u }) == false);
+    assert(ChunkGetLocalWaterVolume(&chunk, x, y, z) == 42u);
+    ChunkClearBlockStorage(&chunk);
+}
+
+static void TestLegacyWaterNormalization(void)
+{
+    Chunk chunk = { 0 };
+    ChunkSection *section = ChunkGetSection(&chunk, 0, true);
+    assert(section);
+    section->blocks[2][2][2] = BLOCK_WATER;
+
+    WorldCell cell = ChunkGetLocalCell(&chunk, 2, 2, 2);
+    assert(cell.block == BLOCK_AIR);
+    assert(cell.waterVolume == WORLD_CELL_WATER_FULL);
+
+    assert(ChunkSetLocalWaterVolume(&chunk, 2, 2, 2, 33u));
+    assert(section->blocks[2][2][2] == BLOCK_AIR);
+    cell = ChunkGetLocalCell(&chunk, 2, 2, 2);
+    assert(cell.block == BLOCK_AIR);
+    assert(cell.waterVolume == 33u);
+
+    section->blocks[4][2][2] = BLOCK_WATER;
+    assert(ChunkSetLocalWaterVolume(&chunk, 4, 2, 2, 0u));
+    assert(section->blocks[4][2][2] == BLOCK_AIR);
+    assert(ChunkGetLocalWaterVolume(&chunk, 4, 2, 2) == 0u);
+    ChunkClearBlockStorage(&chunk);
+}
+
 int main(void)
 {
-    TestIndexNamespaces(); TestRealChunkGeneration();
+    TestIndexNamespaces();
+    TestRealChunkGeneration();
+    TestCanonicalCellStorage();
+    TestLegacyWaterNormalization();
     puts("cube chunk storage tests passed");
     return 0;
 }

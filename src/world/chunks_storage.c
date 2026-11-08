@@ -741,15 +741,112 @@ BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz)
         ? block : BLOCK_AIR;
 }
 
+static int ChunkSectionCellIndex(int lx, int ly, int lz)
+{
+    return (lx * SURFACE_SECTION_HEIGHT + ly) * CHUNK_SIZE + lz;
+}
+
+static bool ChunkEnsureWaterVolumes(ChunkSection *section)
+{
+    if (!section) return false;
+    if (section->waterVolumes) return true;
+    section->waterVolumes = malloc(CHUNK_SIZE * SURFACE_SECTION_HEIGHT *
+                                    CHUNK_SIZE);
+    if (!section->waterVolumes) return false;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int ly = 0; ly < SURFACE_SECTION_HEIGHT; ly++) {
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                int index = ChunkSectionCellIndex(lx, ly, lz);
+                section->waterVolumes[index] =
+                    section->blocks[lx][ly][lz] == BLOCK_WATER
+                        ? (uint8_t)WORLD_CELL_WATER_FULL : 0u;
+            }
+        }
+    }
+    return true;
+}
+
+bool ChunkTryGetLocalCell(const Chunk *chunk, int lx, int y, int lz,
+                          WorldCell *outCell)
+{
+    if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 ||
+        lz >= CHUNK_SIZE || !InHeight(y) || !outCell) return false;
+    const ChunkSection *section = ChunkGetSectionConst(
+        chunk, SurfaceSectionYFromBlockY(y));
+    if (!section) return false;
+    int ly = SurfaceSectionLocalYFromBlockY(y);
+    BlockType block = (BlockType)section->blocks[lx][ly][lz];
+    uint8_t volume = section->waterVolumes
+        ? section->waterVolumes[ChunkSectionCellIndex(lx, ly, lz)]
+        : (block == BLOCK_WATER ? (uint8_t)WORLD_CELL_WATER_FULL : 0u);
+    if (block == BLOCK_WATER) {
+        *outCell = (WorldCell){ BLOCK_AIR, (uint8_t)WORLD_CELL_WATER_FULL };
+    } else {
+        if (!WorldCellCanContainWater(block)) volume = 0u;
+        *outCell = (WorldCell){ block, volume };
+    }
+    return WorldCellIsValid(*outCell);
+}
+
+WorldCell ChunkGetLocalCell(const Chunk *chunk, int lx, int y, int lz)
+{
+    WorldCell cell = { BLOCK_AIR, 0u };
+    return ChunkTryGetLocalCell(chunk, lx, y, lz, &cell)
+        ? cell : (WorldCell){ BLOCK_AIR, 0u };
+}
+
+uint8_t ChunkGetLocalWaterVolume(const Chunk *chunk, int lx, int y, int lz)
+{
+    return ChunkGetLocalCell(chunk, lx, y, lz).waterVolume;
+}
+
+bool ChunkSetLocalCell(Chunk *chunk, int lx, int y, int lz, WorldCell cell)
+{
+    if (cell.block == BLOCK_WATER) cell = WorldCellFromLegacyBlock(BLOCK_WATER);
+    if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 ||
+        lz >= CHUNK_SIZE || !InHeight(y) || !WorldCellIsValid(cell)) {
+        return false;
+    }
+    int sectionY = SurfaceSectionYFromBlockY(y);
+    bool needsSection = cell.block != BLOCK_AIR || cell.waterVolume > 0u;
+    ChunkSection *section = ChunkGetSection(chunk, sectionY, needsSection);
+    if (!section) return !needsSection;
+    if (cell.waterVolume > 0u && !ChunkEnsureWaterVolumes(section)) {
+        return false;
+    }
+    int ly = SurfaceSectionLocalYFromBlockY(y);
+    section->blocks[lx][ly][lz] = (unsigned short)cell.block;
+    if (section->waterVolumes) {
+        section->waterVolumes[ChunkSectionCellIndex(lx, ly, lz)] =
+            cell.waterVolume;
+    }
+    return true;
+}
+
 bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type)
 {
-    if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE ||
-        !InHeight(y)) return false;
+    WorldCell previous = ChunkGetLocalCell(chunk, lx, y, lz);
+    return ChunkSetLocalCell(chunk, lx, y, lz,
+                             WorldCellWithBlock(previous, type));
+}
+
+bool ChunkSetLocalWaterVolume(Chunk *chunk, int lx, int y, int lz,
+                              uint8_t volume)
+{
+    if (!chunk || lx < 0 || lx >= CHUNK_SIZE || lz < 0 ||
+        lz >= CHUNK_SIZE || !InHeight(y)) return false;
     int sectionY = SurfaceSectionYFromBlockY(y);
-    ChunkSection *section = ChunkGetSection(chunk, sectionY, type != BLOCK_AIR);
-    if (!section) return type == BLOCK_AIR;
-    section->blocks[lx][SurfaceSectionLocalYFromBlockY(y)][lz] =
-        (unsigned short)type;
+    ChunkSection *section = ChunkGetSection(chunk, sectionY, volume > 0u);
+    if (!section) return volume == 0u;
+    int ly = SurfaceSectionLocalYFromBlockY(y);
+    BlockType block = (BlockType)section->blocks[lx][ly][lz];
+    if (block == BLOCK_WATER) block = BLOCK_AIR;
+    if (volume > 0u && !WorldCellCanContainWater(block)) return false;
+    if (volume > 0u && !ChunkEnsureWaterVolumes(section)) return false;
+    section->blocks[lx][ly][lz] = (unsigned short)block;
+    if (section->waterVolumes) {
+        section->waterVolumes[ChunkSectionCellIndex(lx, ly, lz)] = volume;
+    }
     return true;
 }
 

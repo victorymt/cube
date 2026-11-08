@@ -7,6 +7,7 @@
 #include "world/block_type.h"
 #include "world/flora_types.h"
 #include "world/chunk_types.h"
+#include "world/world_cell.h"
 
 enum {
     CHUNK_WATER_NEIGHBOR_WEST = 1u << 0,
@@ -190,6 +191,13 @@ bool ChunkTryGetLocalBlock(const Chunk *chunk, int lx, int y, int lz,
                            BlockType *outBlock);
 BlockType ChunkGetLocalBlock(const Chunk *chunk, int lx, int y, int lz);
 bool ChunkSetLocalBlock(Chunk *chunk, int lx, int y, int lz, BlockType type);
+bool ChunkTryGetLocalCell(const Chunk *chunk, int lx, int y, int lz,
+                          WorldCell *outCell);
+WorldCell ChunkGetLocalCell(const Chunk *chunk, int lx, int y, int lz);
+bool ChunkSetLocalCell(Chunk *chunk, int lx, int y, int lz, WorldCell cell);
+uint8_t ChunkGetLocalWaterVolume(const Chunk *chunk, int lx, int y, int lz);
+bool ChunkSetLocalWaterVolume(Chunk *chunk, int lx, int y, int lz,
+                              uint8_t volume);
 void ChunkClearBlockStorage(Chunk *chunk);
 void MarkChunkDirty(int cx, int cz);
 void MarkChunkDirtyAtBlock(int x, int y, int z);
