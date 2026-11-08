@@ -2,6 +2,7 @@
 
 #include "app/game_runtime.h"
 
+#include "gameplay/interaction.h"
 #include "presentation/homeworld_map.h"
 #include "presentation/starmap.h"
 #include "raylib.h"
@@ -41,6 +42,15 @@ static bool GameCanOpenPauseMenu(const GameRuntime *game,
            !suppressPauseOpen;
 }
 
+static bool GameCanOpenImportDialog(const GameRuntime *game)
+{
+    return !game->paused && !game->inventoryOpen &&
+           !game->importDialog.open && !game->albumOpen &&
+           !StarMapIsOpen() && !HomeWorldMapIsOpen() &&
+           !game->biologyAtlasOpen && !game->landingTransition.active &&
+           !game->ecologyCatchupPending;
+}
+
 static UiEventResult GameUiRouteStartPage(void *context,
                                           const InputFrame *frame,
                                           const InputEvent *event)
@@ -66,6 +76,14 @@ static UiEventResult GameUiRoutePlaying(void *context,
     if (!route || !route->game || !route->result) return UI_EVENT_IGNORED;
     GameRuntime *game = route->game;
 
+    if (game->importDialog.open) {
+        ImportDialogUiLayout layout = ImportDialogUiLayoutFor(
+            GetScreenWidth(), GetScreenHeight());
+        return ImportDialogUiHandleEvent(
+            &game->importDialog, &route->result->importDialogActions,
+            &layout, frame, event, GetClipboardText());
+    }
+
     if (game->paused) {
         PauseMenuUiLayout layout = PauseMenuUiLayoutFor(
             GetScreenWidth(), GetScreenHeight(), game->pauseMenuUi.page);
@@ -84,6 +102,25 @@ static UiEventResult GameUiRoutePlaying(void *context,
         EnableCursor();
         route->result->pauseMenuSettings = PauseMenuSettingsSnapshot(game);
         route->result->pauseMenuSettingsValid = true;
+        return UI_EVENT_HANDLED;
+    }
+
+    if (event->type == INPUT_EVENT_FILE_DROP) {
+        if (GameCanOpenImportDialog(game)) {
+            ImportDialogUiRequestFileImport(
+                &route->result->importDialogActions, event->filePath);
+        }
+        return UI_EVENT_CONSUMED;
+    }
+
+    if (event->type == INPUT_EVENT_KEY_DOWN &&
+        event->key == INPUT_KEY_I && GameCanOpenImportDialog(game)) {
+        OpenImportDialog(&game->importDialog);
+        if (game->importDialog.open) {
+            game->cursorReleased = true;
+            game->player.velocity = Vector3Zero();
+            EnableCursor();
+        }
         return UI_EVENT_HANDLED;
     }
 

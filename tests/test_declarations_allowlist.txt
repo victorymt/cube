@@ -48,7 +48,6 @@ tests/test_hazard_physics.c
 tests/test_homeworld_map_model.c
 tests/test_hydrology_model.c
 tests/test_hydrology_runtime.c
-tests/test_interaction_raycast.c
 tests/test_inventory.c
 tests/test_landform.c
 tests/test_landform_physics.c

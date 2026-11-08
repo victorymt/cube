@@ -467,23 +467,6 @@ static void GameUpdateViewModes(GameRuntime *game)
                                            : "First person view.");
     }
 
-    bool openedImportDialog = false;
-    if (!game->importDialog.open && !game->paused &&
-        !game->ecologyCatchupPending &&
-        !HomeWorldMapIsOpen() &&
-        !game->landingTransition.active && IsKeyPressed(KEY_I)) {
-        OpenImportDialog(&game->importDialog);
-        if (game->importDialog.open) {
-            openedImportDialog = true;
-            game->cursorReleased = true;
-            game->player.velocity = Vector3Zero();
-            EnableCursor();
-        }
-    }
-    if (!openedImportDialog && !game->ecologyCatchupPending) {
-        UpdateImportDialog(&game->importDialog, &game->player,
-                           &game->cursorReleased);
-    }
 }
 
 static bool GameNavigationInputBlocked(const GameRuntime *game)
@@ -962,7 +945,11 @@ static void GameRenderHud(GameRuntime *game, const GameFrameView *frame,
         DrawHelpPanel(game->player.floating, game->cursorReleased,
                       ChunksRenderDistance());
     }
-    DrawImportDialog(&game->importDialog);
+    ImportDialogUiLayout importLayout = ImportDialogUiLayoutFor(
+        GetScreenWidth(), GetScreenHeight());
+    UiPointerSnapshot pointer = UiPointerSnapshotFromFrame(
+        InputSourceFrame(&game->inputSource));
+    DrawImportDialog(&game->importDialog, &importLayout, &pointer);
     AlbumUiDraw();
     StarMapDraw();
     if (game->showDebug && !game->inventoryOpen && !game->biologyAtlasOpen &&
@@ -1047,6 +1034,40 @@ static void GameApplyPauseMenuResult(GameRuntime *game,
         GameSaveMap(&game->player);
         game->quitSaveDone = true;
         game->quitRequested = true;
+    }
+}
+
+static void GameApplyImportDialogResult(GameRuntime *game,
+                                        const GameUiInputResult *result)
+{
+    if (!result) return;
+    const ImportDialogActions *actions = &result->importDialogActions;
+    if (actions->action == IMPORT_DIALOG_ACTION_NONE) return;
+
+    bool dialogWasOpen = game->importDialog.open;
+    switch (actions->action) {
+    case IMPORT_DIALOG_ACTION_IMPORT:
+        ImportImageAsBlocks(actions->path, &game->player,
+                            game->importDialog.maxBlocks,
+                            game->importDialog.relief);
+        break;
+    case IMPORT_DIALOG_ACTION_CANCEL:
+        GameNoticePost("Image import canceled.");
+        break;
+    case IMPORT_DIALOG_ACTION_FILE_IMPORT:
+        ImportImageAsBlocks(actions->path, &game->player,
+                            game->importDialog.maxBlocks,
+                            game->importDialog.relief);
+        break;
+    case IMPORT_DIALOG_ACTION_NONE:
+    default:
+        return;
+    }
+
+    if (dialogWasOpen) {
+        game->importDialog.open = false;
+        game->cursorReleased = false;
+        DisableCursor();
     }
 }
 
@@ -1153,6 +1174,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     /* Landing may have changed surfaces above. Check before opening an edit
      * UI that pauses simulation, or applying shortcuts and dropped images. */
     GameRefreshEcologyReadiness(game);
+    GameApplyImportDialogResult(game, &uiInput);
     GameUpdatePauseAndBiologyAtlas(game);
     if (game->inventoryOpen) {
         InventoryUiUpdate(&game->inventory, game->hotbar, (InventoryUiInput){
@@ -1167,10 +1189,6 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     bool inputBlocked = GameInputBlocked(game);
     GameUpdateGameplayShortcuts(game, inputBlocked);
     GameNoticeTick(dt);
-    if (!GameWorldSimulationPaused(game)) {
-        HandleImageDrop(&game->player, game->importDialog.maxBlocks,
-                         game->importDialog.relief);
-    }
 
     GameUpdateAutoSave(game, dt);
     GameUpdatePlayerMotion(game, dt, GameNavigationInputBlocked(game));

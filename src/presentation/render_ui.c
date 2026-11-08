@@ -1067,14 +1067,16 @@ const char *VisiblePathTail(const char *path, int maxWidth, int fontSize)
     return tail;
 }
 
-void DrawImportDialog(ImportDialog *dialog)
+void DrawImportDialog(const ImportDialog *dialog,
+                      const ImportDialogUiLayout *layout,
+                      const UiPointerSnapshot *pointer)
 {
-    if (!dialog->open) return;
+    if (!dialog || !dialog->open || !layout) return;
 
-    int sw = GetScreenWidth();
-    int sh = GetScreenHeight();
-    Rectangle panel = { sw / 2 - 360.0f, sh / 2 - 128.0f, 720.0f, 256.0f };
-    Rectangle input = { panel.x + 30.0f, panel.y + 100.0f, panel.width - 60.0f, 46.0f };
+    int sw = layout->screenWidth;
+    int sh = layout->screenHeight;
+    Rectangle panel = layout->panel;
+    Rectangle input = layout->input;
 
     DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.42f));
     DrawRectangleRounded(panel, 0.04f, 8, (Color){ 30, 38, 45, 245 });
@@ -1105,14 +1107,8 @@ void DrawImportDialog(ImportDialog *dialog)
     int modeWidth = UiMeasureText(modeText, 18);
     UiDrawText(modeText, sw / 2 - modeWidth / 2, (int)panel.y + 140, 18, WHITE);
 
-    Rectangle minusRect = { panel.x + 30.0f, panel.y + 166.0f, 44.0f, 36.0f };
-    Rectangle plusRect = { panel.x + panel.width - 74.0f, panel.y + 166.0f, 44.0f, 36.0f };
-    if (DrawMenuButton(minusRect, "-", false)) {
-        dialog->maxBlocks = AdjustImportPrecision(dialog->maxBlocks, -IMPORT_PRECISION_STEP);
-    }
-    if (DrawMenuButton(plusRect, "+", false)) {
-        dialog->maxBlocks = AdjustImportPrecision(dialog->maxBlocks, IMPORT_PRECISION_STEP);
-    }
+    DrawMenuButtonWithInput(layout->minus, "-", false, pointer);
+    DrawMenuButtonWithInput(layout->plus, "+", false, pointer);
 
     const char *precisionText = TextFormat("Precision: max %d blocks per side (min 16)", dialog->maxBlocks);
     int precisionWidth = UiMeasureText(precisionText, 18);

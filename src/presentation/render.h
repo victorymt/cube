@@ -15,6 +15,7 @@
 #include "core/diagnostics.h"
 #include "presentation/ui_event.h"
 #include "presentation/pause_menu_ui.h"
+#include "presentation/import_dialog_ui.h"
 
 #include <stdint.h>
 
@@ -202,7 +203,9 @@ void DrawStartPage(const StartPageUiState *state,
 void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance);
 void DrawCursorReleasedOverlay(void);
 void DrawImportStatus(void);
-void DrawImportDialog(ImportDialog *dialog);
+void DrawImportDialog(const ImportDialog *dialog,
+                      const ImportDialogUiLayout *layout,
+                      const UiPointerSnapshot *pointer);
 void DrawPauseMenu(const PauseMenuSettings *settings,
                    const PauseMenuUiLayout *layout,
                    const UiPointerSnapshot *pointer);

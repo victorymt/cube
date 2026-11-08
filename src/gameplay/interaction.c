@@ -431,25 +431,6 @@ void ImportImageAsBlocks(const char *path, const Player *player, int maxBlocks, 
                                 targetWidth, targetHeight, relief ? "relief" : "flat", placed, maxBlocks));
 }
 
-void HandleImageDrop(const Player *player, int maxBlocks, bool relief)
-{
-    if (!IsFileDropped()) return;
-
-    FilePathList dropped = LoadDroppedFiles();
-    if (dropped.count > 0) ImportImageAsBlocks(dropped.paths[0], player, maxBlocks, relief);
-    UnloadDroppedFiles(dropped);
-}
-
-void AppendImportText(ImportDialog *dialog, const char *text)
-{
-    if (!dialog || !text || !text[0]) return;
-
-    size_t current = strlen(dialog->path);
-    size_t room = sizeof(dialog->path) - current - 1;
-    if (room == 0) return;
-    strncat(dialog->path, text, room);
-}
-
 void OpenImportDialog(ImportDialog *dialog)
 {
     if (!dialog) return;
@@ -463,52 +444,6 @@ void OpenImportDialog(ImportDialog *dialog)
     dialog->maxBlocks = ClampImportPrecision(dialog->maxBlocks);
     dialog->path[0] = '\0';
     GameNoticePost("Type or paste an image path. Tab toggles relief mode.");
-}
-
-void UpdateImportDialog(ImportDialog *dialog, const Player *player, bool *cursorReleased)
-{
-    if (!dialog || !dialog->open) return;
-
-    int key = GetCharPressed();
-    while (key > 0) {
-        if (key >= 32 && key <= 126 && key != '[' && key != ']') {
-            char text[2] = { (char)key, '\0' };
-            AppendImportText(dialog, text);
-        }
-        key = GetCharPressed();
-    }
-
-    bool ctrlDown = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-    if (ctrlDown && IsKeyPressed(KEY_V)) {
-        AppendImportText(dialog, GetClipboardText());
-    }
-
-    if (IsKeyPressed(KEY_BACKSPACE)) {
-        size_t length = strlen(dialog->path);
-        if (length > 0) dialog->path[length - 1] = '\0';
-    }
-
-    int precisionStep = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ?
-                        IMPORT_PRECISION_BIG_STEP : IMPORT_PRECISION_STEP;
-    if (IsKeyPressed(KEY_LEFT_BRACKET) || IsKeyPressed(KEY_KP_SUBTRACT)) {
-        dialog->maxBlocks = AdjustImportPrecision(dialog->maxBlocks, -precisionStep);
-    }
-    if (IsKeyPressed(KEY_RIGHT_BRACKET) || IsKeyPressed(KEY_KP_ADD)) {
-        dialog->maxBlocks = AdjustImportPrecision(dialog->maxBlocks, precisionStep);
-    }
-    if (IsKeyPressed(KEY_TAB)) dialog->relief = !dialog->relief;
-
-    if (IsKeyPressed(KEY_ENTER)) {
-        ImportImageAsBlocks(dialog->path, player, dialog->maxBlocks, dialog->relief);
-        dialog->open = false;
-        if (cursorReleased) *cursorReleased = false;
-        DisableCursor();
-    } else if (IsKeyPressed(KEY_ESCAPE)) {
-        dialog->open = false;
-        GameNoticePost("Image import canceled.");
-        if (cursorReleased) *cursorReleased = false;
-        DisableCursor();
-    }
 }
 
 static float RayAABBEnter(Vector3 origin, Vector3 direction, Vector3 min, Vector3 max,

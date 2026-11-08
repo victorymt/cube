@@ -1,3 +1,8 @@
+/* Interaction and image-import integration: selection must honor filters,
+ * overlays, iteration limits, and cube hooks, while import must enforce its
+ * budgets without leaving image or undo state behind on failure. Scope covers
+ * production raycasting and import helpers. It does not cover rendering, input
+ * routing, or real image decoding. Source: interaction regression coverage. */
 #include "gameplay/interaction.h"
 #include "space/space.h"
 #include "world/world_state.h"
@@ -445,13 +450,15 @@ static void TestImageImportClosesUndoGroup(void)
     assert(dirtyChunkCalls > 0);
 }
 
-static void TestImportDialogNullContracts(void)
+static void TestImportDialogOpenContract(void)
 {
-    ImportDialog dialog = { 0 };
-    AppendImportText(NULL, "ignored");
+    ImportDialog dialog = { .path = "stale" };
     OpenImportDialog(NULL);
-    AppendImportText(&dialog, "ok");
-    assert(strcmp(dialog.path, "ok") == 0);
+    assert(!dialog.open);
+    OpenImportDialog(&dialog);
+    assert(dialog.open);
+    assert(dialog.maxBlocks == IMPORT_DEFAULT_BLOCKS);
+    assert(dialog.path[0] == '\0');
 }
 
 /* The cube hook must be opt-in: with no hook installed the Cartesian walker
@@ -505,7 +512,7 @@ int main(void)
     TestImageImportLimits();
     TestImageImportFailureLifecycle();
     TestImageImportClosesUndoGroup();
-    TestImportDialogNullContracts();
+    TestImportDialogOpenContract();
     TestCubeHookInjection();
     puts("interaction raycast tests passed");
     return 0;
