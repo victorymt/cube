@@ -223,6 +223,7 @@ $(eval $(call define_test,SCREENSHOT_TEST_TARGET,test_screenshot,src/app/screens
 $(eval $(call define_test,DEBUG_CONTROL_TEST_TARGET,test_debug_control,src/core/debug_control.c,,,,,,))
 $(eval $(call define_test,INPUT_EVENT_TEST_TARGET,test_input_event,src/core/input_event.c,,,,,,))
 $(eval $(call define_test,UI_EVENT_TEST_TARGET,test_ui_event,src/presentation/ui_event.c src/core/input_event.c,,,,,$(RAYLIB_CFLAGS),))
+$(eval $(call define_test,PAUSE_MENU_UI_TEST_TARGET,test_pause_menu_ui,src/presentation/pause_menu_ui.c src/presentation/ui_event.c src/core/input_event.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,INPUT_SOURCE_TEST_TARGET,test_input_source,src/app/input_source.c src/core/input_event.c,,,, -lm,$(RAYLIB_CFLAGS),))
 $(eval $(call define_test,PLUGIN_TEST_TARGET,test_plugin,src/core/plugin.c,,,, -ldl,,))
 $(eval $(call define_test,DEBUG_DSL_STDIN_TEST_TARGET,test_debug_dsl_stdin,src/core/debug_dsl_stdin.c,,,,,,))

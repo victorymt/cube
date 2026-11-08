@@ -3,7 +3,8 @@
 
 #include "presentation/render.h"
 
-void DrawTinyPauseMenu(PauseMenuSettings *settings,
-                       PauseMenuActions *actions, int sw, int sh);
+void DrawPauseMenu(const PauseMenuSettings *settings,
+                   const PauseMenuUiLayout *layout,
+                   const UiPointerSnapshot *pointer);
 
 #endif

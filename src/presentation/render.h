@@ -14,32 +14,9 @@
 #include "world/terrain.h"
 #include "core/diagnostics.h"
 #include "presentation/ui_event.h"
+#include "presentation/pause_menu_ui.h"
 
 #include <stdint.h>
-
-typedef struct PauseMenuActions {
-    bool resume;
-    bool saveWorld;
-    bool saveAndQuit;
-    bool returnToMenu;
-    bool settingsChanged;
-    bool qualityChanged;
-    bool workersChanged;
-} PauseMenuActions;
-
-typedef struct PauseMenuSettings {
-    GraphicsQuality graphicsQuality;
-    int chunkWorkerCount;
-    int activeChunkWorkerCount;
-    int maxChunkWorkerCount;
-    bool chunkWorkerCountLocked;
-    float masterVolume;
-    float ambientVolume;
-    float musicVolume;
-    bool musicEnabled;
-    bool weatherDamageEnabled;
-    bool geologyEnabled;
-} PauseMenuSettings;
 
 typedef struct HudFrameState {
     float dayTime;
@@ -226,7 +203,9 @@ void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance);
 void DrawCursorReleasedOverlay(void);
 void DrawImportStatus(void);
 void DrawImportDialog(ImportDialog *dialog);
-void DrawPauseMenu(PauseMenuSettings *settings, PauseMenuActions *actions);
+void DrawPauseMenu(const PauseMenuSettings *settings,
+                   const PauseMenuUiLayout *layout,
+                   const UiPointerSnapshot *pointer);
 void DrawDebugHUD(Vector3 playerPosition, float yaw, float pitch, float daylight,
                   const PlanetLightState *light,
                   const PlanetObservationState *observation,

@@ -1,13 +1,20 @@
 #include "presentation/render_pause_menu_internal.h"
 
+#include "presentation/render_ui.h"
+
 #include <math.h>
 #include <stdio.h>
 
-static bool DrawTinyButton(Rectangle rect, const char *label, bool primary,
-                           bool enabled)
+static bool PointerInRect(const UiPointerSnapshot *pointer, Rectangle rect)
 {
-    Vector2 mouse = GetMousePosition();
-    bool hovered = enabled && CheckCollisionPointRec(mouse, rect);
+    return pointer && UiPointInRect(pointer->position, rect);
+}
+
+static void DrawPauseButton(Rectangle rect, const char *label, bool primary,
+                            bool enabled, const UiPointerSnapshot *pointer,
+                            int fontSize)
+{
+    bool hovered = enabled && PointerInRect(pointer, rect);
     Color fill = primary ? (Color){ 68, 142, 90, 255 }
                          : (Color){ 38, 45, 53, 255 };
     Color hoverFill = primary ? (Color){ 83, 164, 104, 255 }
@@ -18,166 +25,213 @@ static bool DrawTinyButton(Rectangle rect, const char *label, bool primary,
         rect, 0.08f, 6, 1.5f,
         enabled ? (hovered ? WHITE : Fade(WHITE, 0.55f))
                 : Fade(WHITE, 0.22f));
-    int fontSize = 15;
     int textWidth = UiMeasureText(label, fontSize);
     UiDrawText(label, (int)(rect.x + rect.width * 0.5f - textWidth * 0.5f),
                (int)(rect.y + rect.height * 0.5f - fontSize * 0.5f),
                fontSize, enabled ? WHITE : Fade(WHITE, 0.35f));
-    return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 
-static bool DrawTinyValueStepper(Rectangle row, const char *label,
-                                 const char *shown, bool enabled,
-                                 bool *minusPressed, bool *plusPressed)
+static void DrawPausePanel(const PauseMenuUiLayout *layout)
 {
-    UiDrawText(label, (int)row.x, (int)row.y + 7, 14,
+    float roundness = layout->mode == PAUSE_MENU_LAYOUT_TINY ? 0.04f : 0.05f;
+    int segments = layout->mode == PAUSE_MENU_LAYOUT_TINY ? 6 : 8;
+    float lineWidth = layout->mode == PAUSE_MENU_LAYOUT_TINY ? 1.5f : 2.0f;
+    DrawRectangleRounded(layout->panel, roundness, segments,
+                         (Color){ 30, 38, 45, 245 });
+    DrawRectangleRoundedLinesEx(layout->panel, roundness, segments, lineWidth,
+                                Fade(WHITE, 0.45f));
+}
+
+static void DrawValueStepper(Rectangle row, Rectangle minus, Rectangle plus,
+                             const char *label, const char *shown, bool enabled,
+                             int fontSize, const UiPointerSnapshot *pointer)
+{
+    UiDrawText(label, (int)row.x, (int)row.y + 7, fontSize,
                enabled ? Fade(WHITE, 0.84f) : Fade(WHITE, 0.55f));
-    Rectangle minus = { row.x + row.width - 104.0f, row.y, 28.0f, 28.0f };
-    Rectangle plus = { row.x + row.width - 28.0f, row.y, 28.0f, 28.0f };
-    *minusPressed = DrawTinyButton(minus, "-", false, enabled);
-    *plusPressed = DrawTinyButton(plus, "+", false, enabled);
-    int textWidth = UiMeasureText(shown, 13);
+    DrawPauseButton(minus, "-", false, enabled, pointer, fontSize + 2);
+    DrawPauseButton(plus, "+", false, enabled, pointer, fontSize + 2);
+    int textWidth = UiMeasureText(shown, fontSize - 1);
     UiDrawText(shown,
-               (int)(row.x + row.width - 52.0f - textWidth * 0.5f),
-               (int)row.y + 8, 13,
+               (int)(row.x + row.width - 83.0f - textWidth * 0.5f),
+               (int)row.y + 8, fontSize - 1,
                enabled ? WHITE : Fade(WHITE, 0.60f));
-    return *minusPressed || *plusPressed;
 }
 
-static bool DrawTinyVolumeStepper(Rectangle row, const char *label,
-                                  float *value)
+static void DrawWorkerStepper(const PauseMenuSettings *settings,
+                              const PauseMenuUiLayout *layout,
+                              const UiPointerSnapshot *pointer)
 {
-    bool minusPressed = false;
-    bool plusPressed = false;
-    char shown[8];
-    snprintf(shown, sizeof(shown), "%d%%", (int)roundf(*value * 100.0f));
-    if (!DrawTinyValueStepper(row, label, shown, true,
-                              &minusPressed, &plusPressed)) return false;
-    if (minusPressed) *value = fmaxf(0.0f, *value - 0.10f);
-    if (plusPressed) *value = fminf(1.0f, *value + 0.10f);
-    return true;
-}
-
-static bool DrawTinyWorkerStepper(Rectangle row, PauseMenuSettings *settings)
-{
-    bool minusPressed = false;
-    bool plusPressed = false;
     char shown[16];
     if (settings->chunkWorkerCount == 0) {
-        snprintf(shown, sizeof(shown), "Auto(%d)",
+        snprintf(shown, sizeof(shown), "Auto (%d)",
                  settings->activeChunkWorkerCount);
     } else {
         snprintf(shown, sizeof(shown), "%d", settings->chunkWorkerCount);
     }
-    bool changed = DrawTinyValueStepper(
-        row, settings->chunkWorkerCountLocked ? "Workers (CLI)" : "Workers",
-        shown, !settings->chunkWorkerCountLocked,
-        &minusPressed, &plusPressed);
-    if (minusPressed) {
-        settings->chunkWorkerCount = settings->chunkWorkerCount > 0
-            ? settings->chunkWorkerCount - 1 : settings->maxChunkWorkerCount;
+    bool enabled = !settings->chunkWorkerCountLocked;
+    const char *label = enabled ? "Chunk workers" : "Chunk workers (CLI)";
+    int fontSize = layout->mode == PAUSE_MENU_LAYOUT_TINY ? 14 : 17;
+    if (layout->mode == PAUSE_MENU_LAYOUT_TINY) {
+        label = enabled ? "Workers" : "Workers (CLI)";
     }
-    if (plusPressed) {
-        settings->chunkWorkerCount = settings->chunkWorkerCount <
-            settings->maxChunkWorkerCount
-            ? settings->chunkWorkerCount + 1 : 0;
-    }
-    return changed;
+    DrawValueStepper(layout->workerRow, layout->workerMinus,
+                     layout->workerPlus, label, shown, enabled, fontSize,
+                     pointer);
 }
 
-void DrawTinyPauseMenu(PauseMenuSettings *settings,
-                              PauseMenuActions *actions, int sw, int sh)
+static void DrawVolumeStepper(const PauseMenuSettings *settings,
+                              const PauseMenuUiLayout *layout, int index,
+                              const char *label,
+                              const UiPointerSnapshot *pointer)
 {
-    static int page = 0;
-    float panelWidth = fminf(420.0f, (float)sw - 16.0f);
-    Rectangle panel = { ((float)sw - panelWidth) * 0.5f, 6.0f,
-                        panelWidth, (float)sh - 12.0f };
-    DrawRectangleRounded(panel, 0.04f, 6, (Color){ 30, 38, 45, 248 });
-    DrawRectangleRoundedLinesEx(panel, 0.04f, 6, 1.5f,
-                                Fade(WHITE, 0.45f));
-    DrawCenteredText("Paused", (int)panel.y + 8, 22, WHITE);
+    const float *values[3] = {
+        &settings->masterVolume,
+        &settings->ambientVolume,
+        &settings->musicVolume
+    };
+    char shown[8];
+    snprintf(shown, sizeof(shown), "%d%%", (int)roundf(*values[index] * 100.0f));
+    int fontSize = layout->mode == PAUSE_MENU_LAYOUT_TINY ? 14 : 17;
+    DrawValueStepper(layout->volumeRows[index], layout->volumeMinus[index],
+                     layout->volumePlus[index], label, shown, true, fontSize,
+                     pointer);
+}
 
-    float contentX = panel.x + 12.0f;
-    float contentWidth = panel.width - 24.0f;
-    float tabWidth = (contentWidth - 12.0f) / 3.0f;
-    const char *tabs[3] = { "System", "Audio", "Game" };
-    for (int index = 0; index < 3; index++) {
-        Rectangle tab = { contentX + index * (tabWidth + 6.0f),
-                          panel.y + 36.0f, tabWidth, 26.0f };
-        if (DrawTinyButton(tab, tabs[index], page == index, true)) page = index;
+static void DrawTinyPauseMenu(const PauseMenuSettings *settings,
+                              const PauseMenuUiLayout *layout,
+                              const UiPointerSnapshot *pointer)
+{
+    DrawCenteredText("Paused", (int)layout->panel.y + 8, 22, WHITE);
+    const char *tabs[PAUSE_MENU_PAGE_COUNT] = { "System", "Audio", "Game" };
+    for (int index = 0; index < PAUSE_MENU_PAGE_COUNT; index++) {
+        DrawPauseButton(layout->tabs[index], tabs[index],
+                        layout->page == (PauseMenuPage)index, true, pointer, 15);
     }
 
-    float y = panel.y + 70.0f;
-    if (page == 0) {
-        UiDrawText("Graphics quality", (int)contentX, (int)y, 14,
-                   Fade(WHITE, 0.84f));
-        y += 19.0f;
-        float width = (contentWidth - 8.0f) / 3.0f;
+    if (layout->page == PAUSE_MENU_PAGE_SYSTEM) {
+        UiDrawText("Graphics quality", (int)layout->workerRow.x,
+                   (int)layout->quality[0].y - 19, 14, Fade(WHITE, 0.84f));
         for (int quality = 0; quality < GRAPHICS_QUALITY_COUNT; quality++) {
-            Rectangle button = { contentX + quality * (width + 4.0f), y,
-                                 width, 28.0f };
-            bool selected = settings->graphicsQuality ==
-                            (GraphicsQuality)quality;
-            if (DrawTinyButton(button,
-                               GraphicsQualityName((GraphicsQuality)quality),
-                               selected, true) && !selected) {
-                settings->graphicsQuality = (GraphicsQuality)quality;
-                actions->settingsChanged = true;
-                actions->qualityChanged = true;
-            }
+            DrawPauseButton(layout->quality[quality],
+                            GraphicsQualityName((GraphicsQuality)quality),
+                            settings->graphicsQuality == (GraphicsQuality)quality,
+                            true, pointer, 15);
         }
-        Rectangle worker = { contentX, y + 39.0f, contentWidth, 28.0f };
-        if (DrawTinyWorkerStepper(worker, settings)) {
-            actions->settingsChanged = true;
-            actions->workersChanged = true;
-        }
-        Rectangle geology = { contentX, worker.y + 36.0f, contentWidth, 28.0f };
-        if (DrawTinyButton(geology,
-                           settings->geologyEnabled ? "Volcanoes: On" : "Volcanoes: Off",
-                           settings->geologyEnabled, true)) {
-            settings->geologyEnabled = !settings->geologyEnabled;
-            actions->settingsChanged = true;
-        }
+        DrawWorkerStepper(settings, layout, pointer);
+        DrawPauseButton(layout->geology,
+                        settings->geologyEnabled ? "Volcanoes: On" : "Volcanoes: Off",
+                        settings->geologyEnabled, true, pointer, 15);
         return;
     }
 
-    if (page == 1) {
-        Rectangle row = { contentX, y, contentWidth, 28.0f };
-        if (DrawTinyVolumeStepper(row, "Master", &settings->masterVolume))
-            actions->settingsChanged = true;
-        row.y += 30.0f;
-        if (DrawTinyVolumeStepper(row, "Environment", &settings->ambientVolume))
-            actions->settingsChanged = true;
-        row.y += 30.0f;
-        if (DrawTinyVolumeStepper(row, "Music volume", &settings->musicVolume))
-            actions->settingsChanged = true;
-        row.y += 34.0f;
-        if (DrawTinyButton(row,
-                           settings->musicEnabled ? "Music: On" : "Music: Off",
-                           settings->musicEnabled, true)) {
-            settings->musicEnabled = !settings->musicEnabled;
-            actions->settingsChanged = true;
-        }
-        row.y += 32.0f;
-        if (DrawTinyButton(
-                row, settings->weatherDamageEnabled ?
-                    "Weather damage: On" : "Weather damage: Off",
-                settings->weatherDamageEnabled, true)) {
-            settings->weatherDamageEnabled = !settings->weatherDamageEnabled;
-            actions->settingsChanged = true;
-        }
+    if (layout->page == PAUSE_MENU_PAGE_AUDIO) {
+        DrawVolumeStepper(settings, layout, 0, "Master", pointer);
+        DrawVolumeStepper(settings, layout, 1, "Environment", pointer);
+        DrawVolumeStepper(settings, layout, 2, "Music volume", pointer);
+        DrawPauseButton(layout->music,
+                        settings->musicEnabled ? "Music: On" : "Music: Off",
+                        settings->musicEnabled, true, pointer, 15);
+        DrawPauseButton(
+            layout->weatherDamage,
+            settings->weatherDamageEnabled ?
+                "Weather damage: On" : "Weather damage: Off",
+            settings->weatherDamageEnabled, true, pointer, 15);
         return;
     }
 
-    Rectangle action = { contentX, y, contentWidth, 28.0f };
-    if (DrawTinyButton(action, "Resume", true, true)) actions->resume = true;
-    action.y += 36.0f;
-    if (DrawTinyButton(action, "Save World", false, true))
-        actions->saveWorld = true;
-    action.y += 36.0f;
-    if (DrawTinyButton(action, "Return to Menu", false, true))
-        actions->returnToMenu = true;
-    action.y += 36.0f;
-    if (DrawTinyButton(action, "Save & Quit", false, true))
-        actions->saveAndQuit = true;
+    DrawPauseButton(layout->resume, "Resume", true, true, pointer, 15);
+    DrawPauseButton(layout->saveWorld, "Save World", false, true, pointer, 15);
+    DrawPauseButton(layout->returnToMenu, "Return to Menu", false, true,
+                    pointer, 15);
+    DrawPauseButton(layout->saveAndQuit, "Save & Quit", false, true, pointer,
+                    15);
+}
+
+static void DrawCompactPauseMenu(const PauseMenuSettings *settings,
+                                 const PauseMenuUiLayout *layout,
+                                 const UiPointerSnapshot *pointer)
+{
+    DrawCenteredText("Paused", (int)layout->panel.y + 24, 30, WHITE);
+    UiDrawText("Graphics quality", (int)layout->workerRow.x,
+               (int)layout->quality[0].y - 25, 16, Fade(WHITE, 0.84f));
+    for (int quality = 0; quality < GRAPHICS_QUALITY_COUNT; quality++) {
+        DrawPauseButton(layout->quality[quality],
+                        GraphicsQualityName((GraphicsQuality)quality),
+                        settings->graphicsQuality == (GraphicsQuality)quality,
+                        true, pointer, 16);
+    }
+    DrawWorkerStepper(settings, layout, pointer);
+    DrawVolumeStepper(settings, layout, 0, "Master volume", pointer);
+    DrawVolumeStepper(settings, layout, 1, "Environment", pointer);
+    DrawVolumeStepper(settings, layout, 2, "Music volume", pointer);
+    DrawPauseButton(layout->music,
+                    settings->musicEnabled ? "Music: On" : "Music: Off",
+                    settings->musicEnabled, true, pointer, 16);
+    DrawPauseButton(
+        layout->weatherDamage,
+        settings->weatherDamageEnabled ?
+            "Weather damage: On" : "Weather damage: Off",
+        settings->weatherDamageEnabled, true, pointer, 16);
+    DrawPauseButton(layout->geology,
+                    settings->geologyEnabled ? "Volcanoes: On" : "Volcanoes: Off",
+                    settings->geologyEnabled, true, pointer, 16);
+    DrawPauseButton(layout->resume, "Resume", true, true, pointer, 16);
+    DrawPauseButton(layout->saveWorld, "Save World", false, true, pointer, 16);
+    DrawPauseButton(layout->returnToMenu, "Return to Menu", false, true,
+                    pointer, 16);
+    DrawPauseButton(layout->saveAndQuit, "Save & Quit", false, true, pointer,
+                    16);
+}
+
+static void DrawFullPauseMenu(const PauseMenuSettings *settings,
+                              const PauseMenuUiLayout *layout,
+                              const UiPointerSnapshot *pointer)
+{
+    DrawCenteredText("Paused", (int)layout->panel.y + 26, 34, WHITE);
+    UiDrawText("Graphics quality", (int)layout->workerRow.x,
+               (int)layout->quality[0].y - 30, 17, Fade(WHITE, 0.84f));
+    for (int quality = 0; quality < GRAPHICS_QUALITY_COUNT; quality++) {
+        DrawPauseButton(layout->quality[quality],
+                        GraphicsQualityName((GraphicsQuality)quality),
+                        settings->graphicsQuality == (GraphicsQuality)quality,
+                        true, pointer, 17);
+    }
+    DrawWorkerStepper(settings, layout, pointer);
+    DrawVolumeStepper(settings, layout, 0, "Master volume", pointer);
+    DrawVolumeStepper(settings, layout, 1, "Environment", pointer);
+    DrawVolumeStepper(settings, layout, 2, "Music volume", pointer);
+    DrawPauseButton(layout->music,
+                    settings->musicEnabled ? "Music: On" : "Music: Off",
+                    settings->musicEnabled, true, pointer, 17);
+    DrawPauseButton(layout->geology,
+                    settings->geologyEnabled ? "Volcanoes: On" : "Volcanoes: Off",
+                    settings->geologyEnabled, true, pointer, 17);
+    DrawPauseButton(
+        layout->weatherDamage,
+        settings->weatherDamageEnabled ?
+            "Weather damage: On" : "Weather damage: Off",
+        settings->weatherDamageEnabled, true, pointer, 17);
+    DrawPauseButton(layout->resume, "Resume", true, true, pointer, 17);
+    DrawPauseButton(layout->saveWorld, "Save World", false, true, pointer, 17);
+    DrawPauseButton(layout->returnToMenu, "Return to Menu", false, true,
+                    pointer, 17);
+    DrawPauseButton(layout->saveAndQuit, "Save & Quit", false, true, pointer,
+                    17);
+}
+
+void DrawPauseMenu(const PauseMenuSettings *settings,
+                   const PauseMenuUiLayout *layout,
+                   const UiPointerSnapshot *pointer)
+{
+    if (!settings || !layout) return;
+    DrawRectangle(0, 0, layout->screenWidth, layout->screenHeight,
+                  Fade(BLACK, 0.55f));
+    DrawPausePanel(layout);
+    if (layout->mode == PAUSE_MENU_LAYOUT_TINY) {
+        DrawTinyPauseMenu(settings, layout, pointer);
+    } else if (layout->mode == PAUSE_MENU_LAYOUT_COMPACT) {
+        DrawCompactPauseMenu(settings, layout, pointer);
+    } else {
+        DrawFullPauseMenu(settings, layout, pointer);
+    }
 }

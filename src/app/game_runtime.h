@@ -80,6 +80,7 @@ typedef struct GameRuntime {
   InputSource inputSource;
   InputEventState inputEvents;
   StartPageUiState startPageUi;
+  PauseMenuUiState pauseMenuUi;
   PlayerInput scriptedPlayerInput;
   PlayerInput appliedPlayerInput;
   ShipControlInput scriptedShipInput;

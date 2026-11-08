@@ -204,6 +204,7 @@ static void BeginNewWorld(GameRuntime *game, TerrainMode mode, uint32_t seed)
     game->autoSaveTimer = AUTO_SAVE_INTERVAL_SECONDS;
     game->dayTime = 0.30f;
     game->dayCycleEnabled = true;
+    PauseMenuUiReset(&game->pauseMenuUi);
     game->ecologyCatchupPending = false;
     GameEcologyResetClock();
     GameEcologyRestoreClock(game);
@@ -222,7 +223,8 @@ static bool GameUpdateStartScreen(GameRuntime *game, float dt,
 
     AudioSetEnvironment(NULL);
     AudioUpdate(dt);
-    bool startGame = GameUiInputDispatch(game);
+    GameUiInputResult uiInput = { 0 };
+    bool startGame = GameUiInputDispatch(game, false, &uiInput);
     if (debugStartRequested) startGame = true;
     const InputFrame *input = InputSourceFrame(&game->inputSource);
     StartPageUiLayout layout = StartPageUiLayoutFor(GetScreenWidth(),
@@ -329,8 +331,7 @@ static void GameUpdateAlbum(GameRuntime *game)
     }
 }
 
-static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game,
-                                           bool landingSkipPressed)
+static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game)
 {
     if (game->inventoryOpen) {
         if (IsKeyPressed(KEY_E) || IsKeyPressed(KEY_ESCAPE)) {
@@ -345,22 +346,6 @@ static void GameUpdatePauseAndBiologyAtlas(GameRuntime *game,
         game->cursorReleased = false;
         DisableCursor();
     }
-    if (!game->importDialog.open && !game->albumOpen && !StarMapIsOpen() &&
-        !HomeWorldMapIsOpen() &&
-        !game->biologyAtlasOpen && !biologyAtlasClosed) {
-        if (!game->paused && !game->landingTransition.active &&
-            !landingSkipPressed && IsKeyPressed(KEY_ESCAPE)) {
-            game->paused = true;
-            game->player.velocity = Vector3Zero();
-            game->cursorReleased = false;
-            EnableCursor();
-        } else if (game->paused &&
-                   (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_ENTER))) {
-            game->paused = false;
-            DisableCursor();
-        }
-    }
-
     if (game->biologyAtlasOpen && !biologyAtlasClosed &&
         IsKeyPressed(KEY_B)) {
         game->biologyAtlasOpen = false;
@@ -1001,27 +986,74 @@ static void GameRenderHud(GameRuntime *game, const GameFrameView *frame,
     }
 }
 
+static void GameApplyPauseMenuResult(GameRuntime *game,
+                                     const GameUiInputResult *result)
+{
+    if (!result || !result->pauseMenuSettingsValid) return;
+    const PauseMenuActions *actions = &result->pauseMenuActions;
+    const PauseMenuSettings *settings = &result->pauseMenuSettings;
+    GraphicsQuality previousQuality = game->settings.graphicsQuality;
+    if (actions->settingsChanged) {
+        game->settings.graphicsQuality = settings->graphicsQuality;
+        game->settings.masterVolume = settings->masterVolume;
+        game->settings.ambientVolume = settings->ambientVolume;
+        game->settings.musicVolume = settings->musicVolume;
+        game->settings.musicEnabled = settings->musicEnabled;
+        game->settings.weatherDamageEnabled = settings->weatherDamageEnabled;
+        game->settings.geologyEnabled = settings->geologyEnabled;
+        WeatherImpactSetEnabled(game->settings.weatherDamageEnabled);
+        if (actions->qualityChanged &&
+            !WorldRendererSetQuality(game->settings.graphicsQuality)) {
+            game->settings.graphicsQuality = previousQuality;
+            GameNoticePost(
+                "Graphics quality change failed; previous quality restored.");
+        }
+        if (actions->workersChanged &&
+            !game->chunkWorkerCountOverridden) {
+            game->settings.chunkWorkerCount = settings->chunkWorkerCount;
+            game->chunkWorkerReconfigurePending = true;
+        }
+        WeatherSetParticleScale(
+            GraphicsQualityProfileFor(
+                game->settings.graphicsQuality).precipitationScale);
+        AudioSetVolumes(game->settings.masterVolume,
+                        game->settings.ambientVolume,
+                        game->settings.musicVolume);
+        AudioSetMusicEnabled(game->settings.musicEnabled);
+        GameSettingsSave(&game->settings);
+    }
+    if (actions->resume) {
+        game->paused = false;
+        DisableCursor();
+    }
+    if (actions->saveWorld) {
+        // Ship state can be saved even when no parking spot is available.
+        GameSyncHomeDaylight(game);
+        GameSaveMap(&game->player);
+    }
+    if (actions->returnToMenu) {
+        game->paused = false;
+        game->cursorReleased = false;
+        if (game->albumOpen) {
+            game->albumOpen = false;
+            AlbumUiClose();
+        }
+        game->screen = SCREEN_START;
+        AudioSetEnvironment(NULL);
+        EnableCursor();
+    }
+    if (actions->saveAndQuit) {
+        GameSyncHomeDaylight(game);
+        GameSaveMap(&game->player);
+        game->quitSaveDone = true;
+        game->quitRequested = true;
+    }
+}
+
 static void GameRenderPauseOverlay(GameRuntime *game)
 {
     if (!game->paused) return;
-    if (IsKeyPressed(KEY_MINUS)) {
-        game->settings.masterVolume = fmaxf(
-            0.0f, game->settings.masterVolume - 0.1f);
-        AudioSetVolumes(game->settings.masterVolume,
-                        game->settings.ambientVolume,
-                        game->settings.musicVolume);
-        GameSettingsSave(&game->settings);
-    }
-    if (IsKeyPressed(KEY_EQUAL)) {
-        game->settings.masterVolume = fminf(
-            1.0f, game->settings.masterVolume + 0.1f);
-        AudioSetVolumes(game->settings.masterVolume,
-                        game->settings.ambientVolume,
-                        game->settings.musicVolume);
-        GameSettingsSave(&game->settings);
-    }
-    PauseMenuActions pauseActions = { 0 };
-    PauseMenuSettings pauseSettings = {
+    PauseMenuSettings settings = {
         .graphicsQuality = game->settings.graphicsQuality,
         .chunkWorkerCount = game->chunkWorkerCountOverridden
             ? game->chunkWorkerCount
@@ -1036,63 +1068,11 @@ static void GameRenderPauseOverlay(GameRuntime *game)
         .weatherDamageEnabled = game->settings.weatherDamageEnabled,
         .geologyEnabled = game->settings.geologyEnabled
     };
-    GraphicsQuality previousQuality = game->settings.graphicsQuality;
-    DrawPauseMenu(&pauseSettings, &pauseActions);
-    if (pauseActions.settingsChanged) {
-        game->settings.graphicsQuality = pauseSettings.graphicsQuality;
-        game->settings.masterVolume = pauseSettings.masterVolume;
-        game->settings.ambientVolume = pauseSettings.ambientVolume;
-        game->settings.musicVolume = pauseSettings.musicVolume;
-        game->settings.musicEnabled = pauseSettings.musicEnabled;
-        game->settings.weatherDamageEnabled = pauseSettings.weatherDamageEnabled;
-        game->settings.geologyEnabled = pauseSettings.geologyEnabled;
-        WeatherImpactSetEnabled(game->settings.weatherDamageEnabled);
-        if (pauseActions.qualityChanged &&
-            !WorldRendererSetQuality(game->settings.graphicsQuality)) {
-            game->settings.graphicsQuality = previousQuality;
-            GameNoticePost(
-                "Graphics quality change failed; previous quality restored.");
-        }
-        if (pauseActions.workersChanged &&
-            !game->chunkWorkerCountOverridden) {
-            game->settings.chunkWorkerCount = pauseSettings.chunkWorkerCount;
-            game->chunkWorkerReconfigurePending = true;
-        }
-        WeatherSetParticleScale(
-            GraphicsQualityProfileFor(
-                game->settings.graphicsQuality).precipitationScale);
-        AudioSetVolumes(game->settings.masterVolume,
-                        game->settings.ambientVolume,
-                        game->settings.musicVolume);
-        AudioSetMusicEnabled(game->settings.musicEnabled);
-        GameSettingsSave(&game->settings);
-    }
-    if (pauseActions.resume) {
-        game->paused = false;
-        DisableCursor();
-    }
-    if (pauseActions.saveWorld) {
-        // Ship state can be saved even when no parking spot is available.
-        GameSyncHomeDaylight(game);
-        GameSaveMap(&game->player);
-    }
-    if (pauseActions.returnToMenu) {
-        game->paused = false;
-        game->cursorReleased = false;
-        if (game->albumOpen) {
-            game->albumOpen = false;
-            AlbumUiClose();
-        }
-        game->screen = SCREEN_START;
-        AudioSetEnvironment(NULL);
-        EnableCursor();
-    }
-    if (pauseActions.saveAndQuit) {
-        GameSyncHomeDaylight(game);
-        GameSaveMap(&game->player);
-        game->quitSaveDone = true;
-        game->quitRequested = true;
-    }
+    PauseMenuUiLayout layout = PauseMenuUiLayoutFor(
+        GetScreenWidth(), GetScreenHeight(), game->pauseMenuUi.page);
+    UiPointerSnapshot pointer = UiPointerSnapshotFromFrame(
+        InputSourceFrame(&game->inputSource));
+    DrawPauseMenu(&settings, &layout, &pointer);
 }
 
 static void GameRenderBiologyAtlas(GameRuntime *game)
@@ -1162,12 +1142,18 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
 
     if (GameUpdateStartScreen(game, dt, debugStartRequested)) return false;
 
+    GameUiInputResult uiInput = { 0 };
+    if (!game->perfMode) {
+        GameUiInputDispatch(game, landingSkipPressed, &uiInput);
+        GameApplyPauseMenuResult(game, &uiInput);
+    }
+
     if (!game->perfMode && IsKeyPressed(KEY_F10)) game->screenshotPending = true;
 
     /* Landing may have changed surfaces above. Check before opening an edit
      * UI that pauses simulation, or applying shortcuts and dropped images. */
     GameRefreshEcologyReadiness(game);
-    GameUpdatePauseAndBiologyAtlas(game, landingSkipPressed);
+    GameUpdatePauseAndBiologyAtlas(game);
     if (game->inventoryOpen) {
         InventoryUiUpdate(&game->inventory, game->hotbar, (InventoryUiInput){
             .pointer = GetMousePosition(),
