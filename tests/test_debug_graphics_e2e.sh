@@ -5,6 +5,8 @@ set -euo pipefail
 game_binary=${1:-build/normal/voxelcraft}
 command_timeout=${E2E_GRAPHICS_COMMAND_TIMEOUT:-120}
 debug_resolution=${E2E_GRAPHICS_RESOLUTION:-1280x720}
+resolution_width=${debug_resolution%x*}
+resolution_height=${debug_resolution#*x}
 
 if [[ ! -x "$game_binary" ]]; then
     echo "game binary is not executable: $game_binary" >&2
@@ -53,6 +55,8 @@ debug_protocol_log="$runtime_dir/replies.log"
 source tests/debug_stdin_protocol.sh
 
 wait_for_reply '^DEBUG_CONTROL ready '
+send_command "assert ui.screen_width == $resolution_width && ui.screen_height == $resolution_height && ui.render_width == $resolution_width && ui.render_height == $resolution_height"
+wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'
 send_command 'start'
 wait_for_reply '^DEBUG_CONTROL start ok seed=1448040515$' 120
 wait_for_reply '^DEBUG_SCRIPT complete source=stdin$'

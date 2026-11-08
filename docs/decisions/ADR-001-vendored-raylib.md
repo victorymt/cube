@@ -18,6 +18,8 @@
 
 `mk/raylib.mk` 从 codeload 取 tarball，解包到 `$(BUILD_ROOT)/raylib/raylib-$(RAYLIB_VERSION)`，用 `GLFW_LINUX_ENABLE_X11=TRUE` 与 `GLFW_LINUX_ENABLE_WAYLAND=TRUE` 同时打开两个后端，并以 `RAYLIB_LIBTYPE=STATIC`、`RAYLIB_BUILD_MODE=RELEASE` 编译。GLFW 在启动时自选后端，所以一份库服务两种会话。
 
+解包后会应用 `third_party/raylib-wayland-framebuffer-scale.patch`。Raylib 6.0 只在“Wayland 已启用且 X11 未启用”时关闭 `GLFW_SCALE_FRAMEBUFFER`；本项目同时编译双后端，因此原条件在 Hyprland 的缩放显示器上不会成立。补丁把条件改为只检查 `_GLFW_WAYLAND`，使 Raylib 的窗口、framebuffer 与 Wayland 指针坐标保持同一尺度，避免 UI 绘制矩形和真实鼠标命中区域按不同比例计算。补丁摘要保存在 raylib 源码目录的 stamp 中；补丁变化会强制重建静态库。
+
 库落在 `$(BUILD_ROOT)/raylib` 而不是 `$(BUILD_DIR)`：raylib 的编译选项与外层变体的 sanitizer、coverage 选项无关，一个 build root 只编一次库，各变体分别链接。
 
 编译 raylib 的 recipe 用 `env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL` 剥掉外层的构建变量。命令行传入的 `CFLAGS` 会同时经环境变量和 `MAKEFLAGS` 到达递归 make，而 raylib 的 Makefile 用不带 `override` 的 `CFLAGS =` 赋值，会丢掉自己的 `-D_GLFW_X11` 等定义，最终在 `-Werror` 或 “Cannot disable Wayland and X11 at the same time” 处失败。
@@ -43,6 +45,7 @@
 
 - 游戏链接的 raylib 由 `RAYLIB_VERSION` 唯一决定。换版本是一次显式选择，要同时改 `RAYLIB_VERSION` 和 `RAYLIB_SHA256`，否则新 tarball 会卡在校验上；源码面向 6.x API。
 - 一份 `libraylib.a` 同时含 X11 与 Wayland 后端，X11 桌面和 Hyprland 共用 `build/normal/voxelcraft`。
+- Wayland framebuffer 缩放由 tracked patch 修复；补丁内容变更会让 raylib 静态库失效并重新编译，热构建不会继续链接旧坐标行为。
 - tarball 是构建唯一的网络输入，用 `RAYLIB_SHA256` 校验。tag 会移动，摘要不会；不匹配时打印实测值，`make RAYLIB_SHA256=` 可跳过校验一次并明确打印 “NOT verified”。
 - 代价是首次构建需要网络，或者手工把 tarball 放到 `build/raylib/raylib-$(RAYLIB_VERSION).tar.gz`。
 - 代价是 raylib 的编译不走外层 jobserver，串行约 30 秒，每个 build root 一次；`make clean` 会连它一起删掉，下次重新下载并编译。
@@ -52,7 +55,8 @@
 
 ## 证据
 - `Makefile`：`RAYLIB_VERSION`、`RAYLIB_SHA256`、`BUILD_CONFIG_INPUTS`、`all: $(RAYLIB_LIB) $(TARGET) | raylib-check`、`test-clean-root`
-- `mk/raylib.mk`：文件头注释（pkg-config 版本不符、`/usr/local` 遮蔽、`-I/usr/include` 被忽略三处失败）、`RAYLIB_URL`、`RAYLIB_TARBALL_STAMP`、`RAYLIB_HEADER_STAMP`、`$(RAYLIB_LIB)` 规则里的 `env -u MAKEFLAGS`
+- `mk/raylib.mk`：文件头注释（pkg-config 版本不符、`/usr/local` 遮蔽、`-I/usr/include` 被忽略三处失败）、`RAYLIB_URL`、`RAYLIB_TARBALL_STAMP`、`RAYLIB_PATCHES`、`RAYLIB_PATCH_STAMP`、`RAYLIB_HEADER_STAMP`、`$(RAYLIB_LIB)` 规则里的 `env -u MAKEFLAGS`
+- `third_party/raylib-wayland-framebuffer-scale.patch`：双后端构建在 Wayland 下关闭 `GLFW_SCALE_FRAMEBUFFER`
 - `mk/deps.mk`：`RAYLIB_PKG_CONFIG_DEPS`、`RAYLIB_REQUIRED_PROGRAMS`、`RAYLIB_ARCH_PACKAGES`、`RAYLIB_DEBIAN_PACKAGES`
 - `mk/raylib.mk`：`raylib-check`、`prerequisites`
 - `mk/tests.mk`：`ALLOW_DUP_LDFLAG`（`test_planet_texture_resources` 与静态库的同名符号）

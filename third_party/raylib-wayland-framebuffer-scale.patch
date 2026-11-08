@@ -1,0 +1,12 @@
+diff --git a/src/platforms/rcore_desktop_glfw.c b/src/platforms/rcore_desktop_glfw.c
+--- a/src/platforms/rcore_desktop_glfw.c
++++ b/src/platforms/rcore_desktop_glfw.c
+@@ -1522,7 +1522,7 @@
+ #if defined(__APPLE__)
+         glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);
+ #endif
+-#if defined(_GLFW_WAYLAND) && !defined(_GLFW_X11)
++#if defined(_GLFW_WAYLAND)
+         // GLFW 3.4+ defaults GLFW_SCALE_FRAMEBUFFER to TRUE,
+         // causing framebuffer/window size mismatch on Wayland with display scaling
+         glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);

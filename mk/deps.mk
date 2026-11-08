@@ -24,15 +24,16 @@ RAYLIB_PKG_CONFIG_DEPS := \
 
 # Non-pkg-config programs the raylib build invokes. wayland-scanner turns the
 # protocol XML into C and is packaged separately from the libraries on some
-# distributions.
-RAYLIB_REQUIRED_PROGRAMS := wayland-scanner
+# distributions. patch applies the tracked compatibility fixes after unpacking
+# the upstream archive.
+RAYLIB_REQUIRED_PROGRAMS := wayland-scanner patch
 
 # Install commands, one line each, printed by `make prerequisites`.
 RAYLIB_ARCH_PACKAGES := \
-	wayland wayland-protocols libxkbcommon libx11 libxrandr libxinerama \
+	patch wayland wayland-protocols libxkbcommon libx11 libxrandr libxinerama \
 	libxi libxcursor libxext mesa
 RAYLIB_DEBIAN_PACKAGES := \
-	build-essential curl pkg-config \
+	build-essential curl patch pkg-config \
 	libwayland-dev libxkbcommon-dev libx11-dev libxrandr-dev \
 	libxinerama-dev libxi-dev libxcursor-dev libxext-dev libgl1-mesa-dev
 

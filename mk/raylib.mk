@@ -13,6 +13,10 @@
 # single build for X11 sessions and Hyprland alike -- no second variant to keep
 # in sync.
 #
+# The upstream tree is patched after unpacking. The tracked patch is part of the
+# library's dependency graph and has a digest stamp, so changing it rebuilds the
+# archive instead of silently leaving a warm build linked to old behavior.
+#
 # It is also one library for every BUILD_VARIANT. The archive lives under
 # $(BUILD_ROOT)/raylib rather than $(BUILD_DIR), because raylib's flags come
 # from its own Makefile and have nothing to do with the sanitizer or coverage
@@ -32,6 +36,8 @@
 RAYLIB_SRC_DIR := $(BUILD_ROOT)/raylib/raylib-$(RAYLIB_VERSION)
 RAYLIB_LIB := $(RAYLIB_SRC_DIR)/src/libraylib.a
 RAYLIB_TARBALL := $(BUILD_ROOT)/raylib/raylib-$(RAYLIB_VERSION).tar.gz
+RAYLIB_PATCHES := third_party/raylib-wayland-framebuffer-scale.patch
+RAYLIB_PATCH_STAMP := $(RAYLIB_SRC_DIR)/.patches-applied
 # codeload is the host the github.com archive URL redirects to; going there
 # directly avoids a slow redirect hop that has timed out on this machine.
 RAYLIB_URL := https://codeload.github.com/raysan5/raylib/tar.gz/refs/tags/$(RAYLIB_VERSION)
@@ -157,13 +163,24 @@ $(RAYLIB_TARBALL): | $(BUILD_ROOT_MARKER)
 # Tarball verification is a stamp living inside RAYLIB_SRC_DIR, so the directory
 # exists before anything is unpacked, and `test -d` would skip the extraction and
 # hand make a -C path with nothing in it.
-$(RAYLIB_LIB): $(RAYLIB_TARBALL_STAMP)
-	@if test -f '$@'; then :; else \
-		if test -f '$(RAYLIB_SRC_DIR)/src/raylib.h'; then :; else \
-			printf 'raylib: unpacking into %s\n' '$(RAYLIB_SRC_DIR)'; \
+$(RAYLIB_LIB): $(RAYLIB_TARBALL_STAMP) $(RAYLIB_PATCHES)
+	@set -eu; \
+	patch_digest=$$(cksum -- $(RAYLIB_PATCHES)); \
+	applied_digest=$$(cat '$(RAYLIB_PATCH_STAMP)' 2>/dev/null || :); \
+	if test -f '$@' && test "$$applied_digest" = "$$patch_digest"; then :; else \
+		if test ! -f '$(RAYLIB_SRC_DIR)/src/raylib.h' || \
+			test "$$applied_digest" != "$$patch_digest"; then \
+			printf 'raylib: unpacking and patching into %s\n' '$(RAYLIB_SRC_DIR)'; \
+			rm -rf '$(RAYLIB_SRC_DIR)'; \
 			mkdir -p $(dir $(RAYLIB_SRC_DIR)); \
 			tar -xzf '$(RAYLIB_TARBALL)' -C $(dir $(RAYLIB_SRC_DIR)); \
+			printf '%s\n' '$(RAYLIB_SHA256)' > '$(RAYLIB_TARBALL_STAMP)'; \
+			for patch_file in $(RAYLIB_PATCHES); do \
+				patch --batch --forward -d '$(RAYLIB_SRC_DIR)' -p1 < "$$patch_file"; \
+			done; \
+			printf '%s\n' "$$patch_digest" > '$(RAYLIB_PATCH_STAMP)'; \
 		fi; \
+		rm -f '$@'; \
 		printf 'raylib: compiling %s with X11 and Wayland backends\n' '$(RAYLIB_VERSION)'; \
 		env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL \
 			$(MAKE) --no-print-directory -C '$(RAYLIB_SRC_DIR)/src' \

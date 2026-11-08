@@ -29,7 +29,7 @@ BUILD_ROOT_MARKER := $(BUILD_ROOT)/.voxelcraft-build-root
 TEST_BUILD_DIR := $(BUILD_DIR)/tests
 TARGET := $(BUILD_DIR)/voxelcraft
 BUILD_CONFIG := $(BUILD_DIR)/.build-config
-BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk mk/raylib.mk mk/deps.mk plugins/manifest.mk
+BUILD_CONFIG_INPUTS := Makefile mk/modules.mk mk/components.mk mk/tests.mk mk/plugins.mk mk/raylib.mk mk/deps.mk plugins/manifest.mk third_party/raylib-wayland-framebuffer-scale.patch
 
 # System dependency lists. Included first so mk/raylib.mk can derive its probe
 # and install advice from them, and so a change to the dependency set

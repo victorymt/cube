@@ -28,7 +28,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential clang curl pkg-config \
+          sudo apt-get install --yes build-essential clang curl patch pkg-config \
             libx11-dev libxrandr-dev libxi-dev libxext-dev \
             libgl1-mesa-dev libxcursor-dev libxinerama-dev \
             libwayland-dev libxkbcommon-dev
@@ -69,7 +69,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential curl pkg-config \
+          sudo apt-get install --yes build-essential curl patch pkg-config \
             libx11-dev libxrandr-dev libxi-dev libxext-dev \
             libgl1-mesa-dev libxcursor-dev libxinerama-dev \
             libwayland-dev libxkbcommon-dev
@@ -86,7 +86,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential curl pkg-config \
+          sudo apt-get install --yes build-essential curl patch pkg-config \
             libx11-dev libxrandr-dev libxi-dev libxext-dev \
             libgl1-mesa-dev libxcursor-dev libxinerama-dev \
             libwayland-dev libxkbcommon-dev
@@ -104,7 +104,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential curl pkg-config \
+          sudo apt-get install --yes build-essential curl patch pkg-config \
             libx11-dev libxrandr-dev libxi-dev libxext-dev \
             libgl1-mesa-dev libxcursor-dev libxinerama-dev \
             libwayland-dev libxkbcommon-dev
@@ -132,7 +132,7 @@ jobs:
       - name: Install coverage dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential curl gcovr pkg-config \
+          sudo apt-get install --yes build-essential curl gcovr patch pkg-config \
             libx11-dev libxrandr-dev libxi-dev libxext-dev \
             libgl1-mesa-dev libxcursor-dev libxinerama-dev \
             libwayland-dev libxkbcommon-dev
@@ -157,7 +157,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential curl pkg-config \
+          sudo apt-get install --yes build-essential curl patch pkg-config \
             libx11-dev libxrandr-dev libxi-dev libxext-dev \
             libgl1-mesa-dev libxcursor-dev libxinerama-dev \
             libwayland-dev libxkbcommon-dev
