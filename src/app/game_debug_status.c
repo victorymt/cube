@@ -160,6 +160,14 @@ void GameDebugReplyStatus(GameRuntime *game)
                               &targetBaseBlock);
         ChunkClearBlockStorage(&staged);
     }
+    const InputFrame *inputFrame = InputSourceFrame(&game->inputSource);
+    StartPageUiLayout startLayout = StartPageUiLayoutFor(
+        GetScreenWidth(), GetScreenHeight());
+    bool uiStartHovered = UiPointInRect(inputFrame->pointer,
+                                       startLayout.start);
+    bool uiStartPressed = uiStartHovered &&
+        InputFrameButtonPressed(inputFrame, &game->inputEvents,
+                                INPUT_BUTTON_LEFT, false);
     PlayerWaterState water = PlayerWaterStateAt(game->player.position);
     int missingSurfaceChunks =
         PlayerMissingSurfaceChunkCount(game->player.position);
@@ -261,14 +269,14 @@ void GameDebugReplyStatus(GameRuntime *game)
         (unsigned long long)game->debugLeftMeshFrame,
         game->debugLeftMeshPending ? 1 : 0,
         game->debugLeftTargetX, game->debugLeftTargetY,
-        game->debugLeftTargetZ, game->debugUiPointer.x, game->debugUiPointer.y,
-        game->debugUiPointerInjected ? 1 : 0,
-        game->debugUiStartHovered ? 1 : 0,
-        game->debugUiStartPressed ? 1 : 0,
+        game->debugLeftTargetZ, inputFrame->pointer.x, inputFrame->pointer.y,
+        inputFrame->injected ? 1 : 0,
+        uiStartHovered ? 1 : 0, uiStartPressed ? 1 : 0,
         GetScreenWidth(), GetScreenHeight(), GetRenderWidth(), GetRenderHeight(),
         uiScale.x, uiScale.y, IsWindowFocused() ? 1 : 0,
-        IsMouseButtonDown(MOUSE_BUTTON_LEFT) ? 1 : 0,
-        IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ? 1 : 0,
+        inputFrame->buttonsDown[INPUT_BUTTON_LEFT] ? 1 : 0,
+        InputFrameButtonPressed(inputFrame, &game->inputEvents,
+                                INPUT_BUTTON_LEFT, false) ? 1 : 0,
         ChunksConfiguredWorkerCount(),
         ChunksStartedWorkerCount(), ChunksActiveWorkerCount());
 }

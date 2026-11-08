@@ -10,6 +10,7 @@
 #include "presentation/environment_runtime.h"
 #include "app/game_settings.h"
 #include "app/game_stream_audit.h"
+#include "app/input_source.h"
 #include "app/game_debug_trace.h"
 #include "space/planet_profile.h"
 #include "gameplay/player.h"
@@ -22,6 +23,8 @@
 #include "app/app_types.h"
 #include "gameplay/player_types.h"
 #include "gameplay/ui_types.h"
+#include "presentation/ui_event.h"
+#include "presentation/render.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -74,6 +77,9 @@ typedef struct GameRuntime {
   DebugDslScript *debugDslScript;
   DebugDslExecutor *debugDslExecutor;
   DebugDslEnvironment *debugDslEnvironment;
+  InputSource inputSource;
+  InputEventState inputEvents;
+  StartPageUiState startPageUi;
   PlayerInput scriptedPlayerInput;
   PlayerInput appliedPlayerInput;
   ShipControlInput scriptedShipInput;
@@ -85,7 +91,6 @@ typedef struct GameRuntime {
   GameDebugTraceState debugTrace;
   Vector3 blockGalleryOrigin;
   Vector3 floraGalleryOrigin;
-  Vector2 debugUiPointer;
 
   GameScreen screen;
   TerrainMode selectedTerrain;
@@ -177,10 +182,6 @@ typedef struct GameRuntime {
   bool scriptedInputFirstFrame;
   bool debugMouseLeftPressed;
   bool debugMouseRightPressed;
-  bool debugUiClickPending;
-  bool debugUiPointerInjected;
-  bool debugUiStartHovered;
-  bool debugUiStartPressed;
   bool debugLeftMeshPending;
   bool autoSaveEnabled;
   bool dayCycleEnabled;

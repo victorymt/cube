@@ -381,6 +381,8 @@ void GameRuntimeInit(GameRuntime *runtime, int argc, char **argv) {
       .debugDayTimeOverride = -1.0f,
       .debugDayTimeOverrideEnabled = false};
   InventoryBrowserInit(&runtime->inventory);
+  InputSourceInit(&runtime->inputSource);
+  StartPageUiReset(&runtime->startPageUi, runtime->selectedSeed);
   VoxelcraftPluginHostInit(&runtime->plugins);
 
   /* Keep the established gameplay time scale while making advancement

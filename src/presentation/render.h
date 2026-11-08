@@ -13,6 +13,7 @@
 #include "presentation/planet_renderer.h"
 #include "world/terrain.h"
 #include "core/diagnostics.h"
+#include "presentation/ui_event.h"
 
 #include <stdint.h>
 
@@ -48,15 +49,23 @@ typedef struct HudFrameState {
     bool autoSaveEnabled;
 } HudFrameState;
 
-typedef struct UiPointerInput {
-    Vector2 position;
-    bool primaryPressed;
-} UiPointerInput;
+typedef struct StartPageUiState {
+    char seedText[11];
+    uint32_t displayedSeed;
+    bool seedFocused;
+} StartPageUiState;
 
-typedef struct StartPageUiDiagnostics {
-    bool startHovered;
-    bool startPressed;
-} StartPageUiDiagnostics;
+typedef struct StartPageUiLayout {
+    int screenWidth;
+    int screenHeight;
+    Rectangle previewTiles[HOTBAR_SIZE];
+    Rectangle varied;
+    Rectangle flat;
+    Rectangle seed;
+    Rectangle random;
+    Rectangle start;
+    Rectangle quit;
+} StartPageUiLayout;
 
 typedef struct WaterRenderDebugInfo {
     bool enabled;
@@ -199,9 +208,20 @@ void DrawCenteredText(const char *text, int y, int fontSize, Color color);
 bool DrawMenuButton(Rectangle rect, const char *label, bool primary);
 void DrawHotbar(const BlockType *hotbar, int selectedIndex);
 int HotbarKeyToIndex(void);
-void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain,
-                   uint32_t *selectedSeed, const UiPointerInput *input,
-                   StartPageUiDiagnostics *diagnostics);
+void StartPageUiReset(StartPageUiState *state, uint32_t selectedSeed);
+void StartPageUiSync(StartPageUiState *state, uint32_t selectedSeed);
+StartPageUiLayout StartPageUiLayoutFor(int screenWidth, int screenHeight);
+UiEventResult StartPageUiHandleEvent(StartPageUiState *state,
+                                     bool *startGame, bool *quitGame,
+                                     TerrainMode *selectedTerrain,
+                                     uint32_t *selectedSeed,
+                                     const StartPageUiLayout *layout,
+                                     const InputFrame *frame,
+                                     const InputEvent *event);
+void DrawStartPage(const StartPageUiState *state,
+                   const StartPageUiLayout *layout,
+                   const UiPointerSnapshot *pointer,
+                   TerrainMode selectedTerrain, uint32_t selectedSeed);
 void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance);
 void DrawCursorReleasedOverlay(void);
 void DrawImportStatus(void);

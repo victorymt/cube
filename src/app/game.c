@@ -20,6 +20,7 @@
 #include "app/game_landing.h"
 #include "app/game_perf_route.h"
 #include "app/game_runtime.h"
+#include "app/game_ui_input.h"
 #include "app/game_save.h"
 #include "app/game_world_transition.h"
 #include "core/game_effects.h"
@@ -221,23 +222,15 @@ static bool GameUpdateStartScreen(GameRuntime *game, float dt,
 
     AudioSetEnvironment(NULL);
     AudioUpdate(dt);
-    bool startGame = false;
-    if (IsKeyPressed(KEY_ESCAPE)) game->quitRequested = true;
-    bool injectedPointer = game->debugUiClickPending;
-    UiPointerInput uiInput = {
-        .position = injectedPointer ? game->debugUiPointer : GetMousePosition(),
-        .primaryPressed = injectedPointer || IsMouseButtonPressed(MOUSE_BUTTON_LEFT)
-    };
-    StartPageUiDiagnostics uiDiagnostics = { 0 };
-    BeginDrawing();
-    DrawStartPage(&startGame, &game->quitRequested, &game->selectedTerrain,
-                  &game->selectedSeed, &uiInput, &uiDiagnostics);
-    game->debugUiPointer = uiInput.position;
-    game->debugUiPointerInjected = injectedPointer;
-    game->debugUiStartHovered = uiDiagnostics.startHovered;
-    game->debugUiStartPressed = uiDiagnostics.startPressed;
-    game->debugUiClickPending = false;
+    bool startGame = GameUiInputDispatch(game);
     if (debugStartRequested) startGame = true;
+    const InputFrame *input = InputSourceFrame(&game->inputSource);
+    StartPageUiLayout layout = StartPageUiLayoutFor(GetScreenWidth(),
+                                                    GetScreenHeight());
+    UiPointerSnapshot pointer = UiPointerSnapshotFromFrame(input);
+    BeginDrawing();
+    DrawStartPage(&game->startPageUi, &layout, &pointer,
+                  game->selectedTerrain, game->selectedSeed);
     EndDrawing();
 
     if (startGame) {
@@ -1161,6 +1154,7 @@ static bool GameUpdateFrame(GameRuntime *game, float dt,
     double debugFrameCpuStarted = game->debugTraceEnabled
         ? GameDebugTraceMainCpuNowMs() : 0.0;
     double debugStageCpuStarted = debugFrameCpuStarted;
+    InputSourceCaptureFrame(&game->inputSource, game->debugFrame);
     GameRuntimeApplyPendingChunkWorkerReconfigure(game);
     if (game->perfMode) GameApplyPerfRoute(&game->player, PerfFrameIndex());
 

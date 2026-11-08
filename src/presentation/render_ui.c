@@ -710,9 +710,9 @@ void DrawCenteredText(const char *text, int y, int fontSize, Color color)
 
 static bool DrawMenuButtonWithInput(Rectangle rect, const char *label,
                                     bool primary,
-                                    const UiPointerInput *input)
+                                    const UiPointerSnapshot *input)
 {
-    bool hovered = input && CheckCollisionPointRec(input->position, rect);
+    bool hovered = input && UiPointInRect(input->position, rect);
     Color fill = primary ? (Color){ 68, 142, 90, 255 } : (Color){ 38, 45, 53, 255 };
     Color hoverFill = primary ? (Color){ 83, 164, 104, 255 } : (Color){ 52, 61, 70, 255 };
 
@@ -724,23 +724,24 @@ static bool DrawMenuButtonWithInput(Rectangle rect, const char *label,
     UiDrawText(label, (int)(rect.x + rect.width * 0.5f - textWidth * 0.5f),
              (int)(rect.y + rect.height * 0.5f - fontSize * 0.5f), fontSize, WHITE);
 
-    return hovered && input->primaryPressed;
+    return hovered && UiPointerPressed(input, INPUT_BUTTON_LEFT);
 }
 
 bool DrawMenuButton(Rectangle rect, const char *label, bool primary)
 {
-    UiPointerInput input = {
-        .position = GetMousePosition(),
-        .primaryPressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT)
+    Vector2 mouse = GetMousePosition();
+    UiPointerSnapshot input = {
+        .position = { mouse.x, mouse.y },
+        .pressed = { IsMouseButtonPressed(MOUSE_BUTTON_LEFT) }
     };
     return DrawMenuButtonWithInput(rect, label, primary, &input);
 }
 
 static bool DrawTerrainOptionWithInput(Rectangle rect, const char *title,
                                        const char *subtitle, bool selected,
-                                       const UiPointerInput *input)
+                                       const UiPointerSnapshot *input)
 {
-    bool hovered = input && CheckCollisionPointRec(input->position, rect);
+    bool hovered = input && UiPointInRect(input->position, rect);
     Color fill = selected ? (Color){ 45, 105, 78, 255 } : (Color){ 35, 44, 52, 255 };
     if (hovered && !selected) fill = (Color){ 45, 56, 66, 255 };
 
@@ -750,139 +751,252 @@ static bool DrawTerrainOptionWithInput(Rectangle rect, const char *title,
 
     UiDrawText(title, (int)rect.x + 18, (int)rect.y + 13, 22, WHITE);
     UiDrawText(subtitle, (int)rect.x + 18, (int)rect.y + 43, 15, Fade(WHITE, 0.72f));
-    return hovered && input->primaryPressed;
+    return hovered && UiPointerPressed(input, INPUT_BUTTON_LEFT);
 }
 
 bool DrawTerrainOption(Rectangle rect, const char *title, const char *subtitle,
                        bool selected)
 {
-    UiPointerInput input = {
-        .position = GetMousePosition(),
-        .primaryPressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT)
+    Vector2 mouse = GetMousePosition();
+    UiPointerSnapshot input = {
+        .position = { mouse.x, mouse.y },
+        .pressed = { IsMouseButtonPressed(MOUSE_BUTTON_LEFT) }
     };
     return DrawTerrainOptionWithInput(rect, title, subtitle, selected, &input);
 }
 
-void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain,
-                   uint32_t *selectedSeed, const UiPointerInput *input,
-                   StartPageUiDiagnostics *diagnostics)
+void StartPageUiReset(StartPageUiState *state, uint32_t selectedSeed)
 {
-    static char seedText[11] = { 0 };
-    static uint32_t displayedSeed = 0;
-    static bool seedFocused = false;
-    int sw = GetScreenWidth();
-    int sh = GetScreenHeight();
-    UiPointerInput fallbackInput = { 0 };
-    if (!input) {
-        fallbackInput.position = GetMousePosition();
-        fallbackInput.primaryPressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-        input = &fallbackInput;
-    }
-    if (diagnostics) *diagnostics = (StartPageUiDiagnostics){ 0 };
+    if (!state) return;
+    *state = (StartPageUiState){ .displayedSeed = selectedSeed };
+    snprintf(state->seedText, sizeof(state->seedText), "%u", selectedSeed);
+}
 
-    if (seedText[0] == '\0' || (!seedFocused && displayedSeed != *selectedSeed)) {
-        snprintf(seedText, sizeof(seedText), "%u", *selectedSeed);
-        displayedSeed = *selectedSeed;
+void StartPageUiSync(StartPageUiState *state, uint32_t selectedSeed)
+{
+    if (!state) return;
+    if (state->seedText[0] == '\0') {
+        StartPageUiReset(state, selectedSeed);
+        return;
     }
+    if (!state->seedFocused && state->displayedSeed != selectedSeed) {
+        snprintf(state->seedText, sizeof(state->seedText), "%u", selectedSeed);
+        state->displayedSeed = selectedSeed;
+    }
+}
+
+StartPageUiLayout StartPageUiLayoutFor(int screenWidth, int screenHeight)
+{
+    StartPageUiLayout layout = {
+        .screenWidth = screenWidth,
+        .screenHeight = screenHeight
+    };
+    const int tileSize = 54;
+    const int gap = 10;
+    int total = HOTBAR_SIZE * tileSize + (HOTBAR_SIZE - 1) * gap;
+    int x0 = screenWidth / 2 - total / 2;
+    int previewY = screenHeight / 2 - 82;
+    for (int index = 0; index < HOTBAR_SIZE; index++) {
+        layout.previewTiles[index] = (Rectangle){
+            (float)(x0 + index * (tileSize + gap)), (float)previewY,
+            (float)tileSize, (float)tileSize
+        };
+    }
+    layout.varied = (Rectangle){ screenWidth / 2 - 252.0f,
+                                 screenHeight / 2 + 6.0f, 240.0f, 72.0f };
+    layout.flat = (Rectangle){ screenWidth / 2 + 12.0f,
+                               screenHeight / 2 + 6.0f, 240.0f, 72.0f };
+    layout.seed = (Rectangle){ screenWidth / 2 - 252.0f,
+                               screenHeight / 2 + 106.0f, 356.0f, 48.0f };
+    layout.random = (Rectangle){ screenWidth / 2 + 116.0f,
+                                 screenHeight / 2 + 106.0f, 136.0f, 48.0f };
+    layout.start = (Rectangle){ screenWidth / 2 - 130.0f,
+                                screenHeight / 2 + 170.0f, 260.0f, 54.0f };
+    layout.quit = (Rectangle){ screenWidth / 2 - 130.0f,
+                               screenHeight / 2 + 236.0f, 260.0f, 48.0f };
+    return layout;
+}
+
+static bool StartPageSeedValid(const StartPageUiState *state,
+                               uint32_t *outSeed)
+{
+    if (!state || state->seedText[0] == '\0') return false;
+    char *end = NULL;
+    unsigned long long parsed = strtoull(state->seedText, &end, 10);
+    if (!end || *end != '\0' || parsed == 0 || parsed > UINT32_MAX) {
+        return false;
+    }
+    if (outSeed) *outSeed = (uint32_t)parsed;
+    return true;
+}
+
+UiEventResult StartPageUiHandleEvent(StartPageUiState *state,
+                                     bool *startGame, bool *quitGame,
+                                     TerrainMode *selectedTerrain,
+                                     uint32_t *selectedSeed,
+                                     const StartPageUiLayout *layout,
+                                     const InputFrame *frame,
+                                     const InputEvent *event)
+{
+    if (!state || !layout || !frame || !event || !selectedTerrain ||
+        !selectedSeed) {
+        return UI_EVENT_IGNORED;
+    }
+    if (event->type == INPUT_EVENT_NONE) return UI_EVENT_IGNORED;
+    StartPageUiSync(state, *selectedSeed);
+
+    if (event->type == INPUT_EVENT_BUTTON_DOWN &&
+        event->button == INPUT_BUTTON_LEFT) {
+        bool onSeed = UiPointInRect(event->point, layout->seed);
+        state->seedFocused = onSeed;
+        if (onSeed) return UI_EVENT_HANDLED;
+        if (UiPointInRect(event->point, layout->varied)) {
+            *selectedTerrain = TERRAIN_VARIED;
+            return UI_EVENT_HANDLED;
+        }
+        if (UiPointInRect(event->point, layout->flat)) {
+            *selectedTerrain = TERRAIN_FLAT;
+            return UI_EVENT_HANDLED;
+        }
+        if (UiPointInRect(event->point, layout->random)) {
+            uint32_t randomSeed =
+                ((uint32_t)GetRandomValue(0, 0xffff) << 16) |
+                (uint32_t)GetRandomValue(0, 0xffff);
+            if (randomSeed == 0) randomSeed = DEFAULT_WORLD_SEED;
+            *selectedSeed = randomSeed;
+            state->displayedSeed = randomSeed;
+            snprintf(state->seedText, sizeof(state->seedText), "%u",
+                     randomSeed);
+            state->seedFocused = false;
+            return UI_EVENT_HANDLED;
+        }
+        if (UiPointInRect(event->point, layout->start) &&
+            StartPageSeedValid(state, selectedSeed) && startGame) {
+            *startGame = true;
+            return UI_EVENT_HANDLED;
+        }
+        if (UiPointInRect(event->point, layout->quit) && quitGame) {
+            *quitGame = true;
+            return UI_EVENT_HANDLED;
+        }
+        return UI_EVENT_CONSUMED;
+    }
+
+    if (event->type == INPUT_EVENT_TEXT_INPUT) {
+        if (state->seedFocused && event->codepoint >= '0' &&
+            event->codepoint <= '9') {
+            size_t length = strlen(state->seedText);
+            if (length + 1u < sizeof(state->seedText)) {
+                state->seedText[length] = (char)event->codepoint;
+                state->seedText[length + 1u] = '\0';
+                StartPageSeedValid(state, selectedSeed);
+            }
+            return UI_EVENT_HANDLED;
+        }
+        return UI_EVENT_CONSUMED;
+    }
+
+    if (event->type == INPUT_EVENT_KEY_DOWN) {
+        if (state->seedFocused && event->key == INPUT_KEY_BACKSPACE) {
+            size_t length = strlen(state->seedText);
+            if (length > 0u) state->seedText[length - 1u] = '\0';
+            StartPageSeedValid(state, selectedSeed);
+            return UI_EVENT_HANDLED;
+        }
+        if (event->key == INPUT_KEY_ENTER &&
+            StartPageSeedValid(state, selectedSeed) && startGame) {
+            *startGame = true;
+            return UI_EVENT_HANDLED;
+        }
+        if (event->key == INPUT_KEY_ESCAPE && quitGame) {
+            *quitGame = true;
+            return UI_EVENT_HANDLED;
+        }
+        if (event->key == INPUT_KEY_TAB) {
+            state->seedFocused = !state->seedFocused;
+            return UI_EVENT_HANDLED;
+        }
+        return UI_EVENT_CONSUMED;
+    }
+
+    if (event->type == INPUT_EVENT_POINTER_MOVE ||
+        event->type == INPUT_EVENT_BUTTON_UP ||
+        event->type == INPUT_EVENT_WHEEL ||
+        event->type == INPUT_EVENT_KEY_UP ||
+        event->type == INPUT_EVENT_FILE_DROP) {
+        return UI_EVENT_CONSUMED;
+    }
+    return UI_EVENT_CONSUMED;
+}
+
+void DrawStartPage(const StartPageUiState *state,
+                   const StartPageUiLayout *layout,
+                   const UiPointerSnapshot *pointer,
+                   TerrainMode selectedTerrain, uint32_t selectedSeed)
+{
+    if (!state || !layout) return;
+    int sw = layout->screenWidth;
+    int sh = layout->screenHeight;
+    InputPoint mouse = pointer ? pointer->position : (InputPoint){ 0 };
 
     ClearBackground((Color){ 96, 157, 213, 255 });
-    DrawRectangleGradientV(0, 0, sw, sh, (Color){ 99, 166, 221, 255 }, (Color){ 58, 91, 78, 255 });
+    DrawRectangleGradientV(0, 0, sw, sh, (Color){ 99, 166, 221, 255 },
+                           (Color){ 58, 91, 78, 255 });
 
-    int tileSize = 54;
-    int gap = 10;
     BlockType previewBlocks[HOTBAR_SIZE] = {
         BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_WOOD, BLOCK_PLANK,
         BLOCK_BRICK, BLOCK_SAND, BLOCK_SNOW, BLOCK_GLASS, BLOCK_WATER
     };
-    int total = HOTBAR_SIZE * tileSize + (HOTBAR_SIZE - 1) * gap;
-    int x0 = sw / 2 - total / 2;
-    int previewY = sh / 2 - 82;
-
     DrawCenteredText("Voxelcraft", sh / 2 - 190, 64, WHITE);
-    DrawCenteredText("Infinite block world", sh / 2 - 116, 24, Fade(WHITE, 0.86f));
-
-    for (int i = 0; i < HOTBAR_SIZE; i++) {
-        Rectangle tile = { (float)(x0 + i * (tileSize + gap)), (float)previewY, (float)tileSize, (float)tileSize };
-        BlockTexture texture = TextureForBlockFace(previewBlocks[i], 2);
-        Rectangle source = AtlasSourceRect(texture);
-        DrawRectangleRounded((Rectangle){ tile.x - 4.0f, tile.y - 4.0f, tile.width + 8.0f, tile.height + 8.0f },
+    DrawCenteredText("Infinite block world", sh / 2 - 116, 24,
+                     Fade(WHITE, 0.86f));
+    for (int index = 0; index < HOTBAR_SIZE; index++) {
+        Rectangle tile = layout->previewTiles[index];
+        BlockTexture texture = TextureForBlockFace(previewBlocks[index], 2);
+        DrawRectangleRounded((Rectangle){ tile.x - 4.0f, tile.y - 4.0f,
+                                          tile.width + 8.0f,
+                                          tile.height + 8.0f },
                              0.08f, 6, Fade(BLACK, 0.22f));
-        DrawTexturePro(ChunksBlockAtlas(), source, tile, Vector2Zero(), 0.0f,
-                       WHITE);
+        DrawTexturePro(ChunksBlockAtlas(), AtlasSourceRect(texture), tile,
+                       Vector2Zero(), 0.0f, WHITE);
         DrawRectangleLinesEx(tile, 2.0f, Fade(WHITE, 0.48f));
     }
 
-    Rectangle variedRect = { sw / 2 - 252.0f, sh / 2 + 6.0f, 240.0f, 72.0f };
-    Rectangle flatRect = { sw / 2 + 12.0f, sh / 2 + 6.0f, 240.0f, 72.0f };
-    if (DrawTerrainOptionWithInput(variedRect, "Varied", "Rolling hills and trees", *selectedTerrain == TERRAIN_VARIED, input)) {
-        *selectedTerrain = TERRAIN_VARIED;
-    }
-    if (DrawTerrainOptionWithInput(flatRect, "Flat", "Plain with image import", *selectedTerrain == TERRAIN_FLAT, input)) {
-        *selectedTerrain = TERRAIN_FLAT;
-    }
+    UiPointerSnapshot drawPointer = { .position = { mouse.x, mouse.y } };
+    DrawTerrainOptionWithInput(layout->varied, "Varied",
+                               "Rolling hills and trees",
+                               selectedTerrain == TERRAIN_VARIED,
+                               &drawPointer);
+    DrawTerrainOptionWithInput(layout->flat, "Flat",
+                               "Plain with image import",
+                               selectedTerrain == TERRAIN_FLAT,
+                               &drawPointer);
 
-    Rectangle seedRect = { sw / 2 - 252.0f, sh / 2 + 106.0f, 356.0f, 48.0f };
-    Rectangle randomRect = { sw / 2 + 116.0f, sh / 2 + 106.0f, 136.0f, 48.0f };
-    if (input->primaryPressed) {
-        seedFocused = CheckCollisionPointRec(input->position, seedRect);
-    }
+    uint32_t parsedSeed = 0;
+    bool validSeed = StartPageSeedValid(state, &parsedSeed);
+    DrawMenuButtonWithInput(layout->random, "Random", false, &drawPointer);
+    DrawMenuButtonWithInput(layout->start, validSeed ? "Start" :
+                            "Enter a valid seed", validSeed, &drawPointer);
+    DrawMenuButtonWithInput(layout->quit, "Quit", false, &drawPointer);
 
-    if (seedFocused) {
-        int codepoint = GetCharPressed();
-        while (codepoint > 0) {
-            size_t length = strlen(seedText);
-            if (codepoint >= '0' && codepoint <= '9' && length < sizeof(seedText) - 1) {
-                seedText[length] = (char)codepoint;
-                seedText[length + 1] = '\0';
-            }
-            codepoint = GetCharPressed();
-        }
-        if (IsKeyPressed(KEY_BACKSPACE)) {
-            size_t length = strlen(seedText);
-            if (length > 0) seedText[length - 1] = '\0';
-        }
+    UiDrawText("World seed", (int)layout->seed.x, (int)layout->seed.y - 22,
+               16, Fade(WHITE, 0.78f));
+    DrawRectangleRounded(layout->seed, 0.07f, 8,
+                         (Color){ 28, 35, 42, 255 });
+    DrawRectangleRoundedLinesEx(
+        layout->seed, 0.07f, 8, 2.0f,
+        validSeed ? (state->seedFocused ? WHITE : Fade(WHITE, 0.48f))
+                  : (Color){ 230, 92, 82, 255 });
+    UiDrawText(state->seedText, (int)layout->seed.x + 15,
+               (int)layout->seed.y + 12, 22, WHITE);
+    if (state->seedFocused) {
+        int caretX = (int)layout->seed.x + 15 +
+                     UiMeasureText(state->seedText, 22);
+        DrawRectangle(caretX + 2, (int)layout->seed.y + 11, 2, 25,
+                      Fade(WHITE, 0.9f));
     }
-
-    char *seedEnd = NULL;
-    unsigned long long parsedSeed = strtoull(seedText, &seedEnd, 10);
-    bool validSeed = seedText[0] != '\0' && seedEnd && *seedEnd == '\0' &&
-                     parsedSeed > 0 && parsedSeed <= UINT32_MAX;
-    if (validSeed) {
-        *selectedSeed = (uint32_t)parsedSeed;
-        displayedSeed = *selectedSeed;
-    }
-
-    UiDrawText("World seed", (int)seedRect.x, (int)seedRect.y - 22, 16, Fade(WHITE, 0.78f));
-    DrawRectangleRounded(seedRect, 0.07f, 8, (Color){ 28, 35, 42, 255 });
-    DrawRectangleRoundedLinesEx(seedRect, 0.07f, 8, 2.0f,
-                                validSeed ? (seedFocused ? WHITE : Fade(WHITE, 0.48f)) : (Color){ 230, 92, 82, 255 });
-    UiDrawText(seedText, (int)seedRect.x + 15, (int)seedRect.y + 12, 22, WHITE);
-    if (seedFocused) {
-        int caretX = (int)seedRect.x + 15 + UiMeasureText(seedText, 22);
-        DrawRectangle(caretX + 2, (int)seedRect.y + 11, 2, 25, Fade(WHITE, 0.9f));
-    }
-    if (DrawMenuButtonWithInput(randomRect, "Random", false, input)) {
-        uint32_t randomSeed = ((uint32_t)GetRandomValue(0, 0xffff) << 16) |
-                              (uint32_t)GetRandomValue(0, 0xffff);
-        if (randomSeed == 0) randomSeed = DEFAULT_WORLD_SEED;
-        *selectedSeed = randomSeed;
-        displayedSeed = randomSeed;
-        snprintf(seedText, sizeof(seedText), "%u", randomSeed);
-        validSeed = true;
-        seedFocused = false;
-    }
-
-    Rectangle startRect = { sw / 2 - 130.0f, sh / 2 + 170.0f, 260.0f, 54.0f };
-    Rectangle quitRect = { sw / 2 - 130.0f, sh / 2 + 236.0f, 260.0f, 48.0f };
-    if (diagnostics) {
-        diagnostics->startHovered = CheckCollisionPointRec(input->position, startRect);
-        diagnostics->startPressed = diagnostics->startHovered && input->primaryPressed;
-    }
-    if (validSeed && (DrawMenuButtonWithInput(startRect, "Start", true, input) || IsKeyPressed(KEY_ENTER))) *startGame = true;
-    else if (!validSeed) DrawMenuButtonWithInput(startRect, "Enter a valid seed", false, input);
-    if (DrawMenuButtonWithInput(quitRect, "Quit", false, input)) *quitGame = true;
-
-    DrawCenteredText(TextFormat("Seed %u", *selectedSeed), sh - 32, 16, Fade(WHITE, 0.68f));
+    DrawCenteredText(TextFormat("Seed %u", selectedSeed), sh - 32, 16,
+                     Fade(WHITE, 0.68f));
 }
 
 void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance)

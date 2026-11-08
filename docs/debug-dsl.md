@@ -465,9 +465,11 @@ Runtime values are sampled when an expression is evaluated:
 | --- | --- | --- |
 | `game.screen` | string | `"start"` or `"playing"` |
 | `game.paused` | bool | Whether the pause menu is open |
+| `debug.frame` | number | Monotonic debug-frame index; useful for waiting out compositor window-size settling |
 | `ui.pointer_x`, `ui.pointer_y` | number | Pointer position used by the latest start-screen UI frame |
 | `ui.pointer_injected` | bool | Whether that pointer came from `ui click` instead of the physical mouse |
 | `ui.start_hovered`, `ui.start_pressed` | bool | Whether the latest start-screen frame hit the Start button and injected or received a primary press there |
+| `ui.start_center_x`, `ui.start_center_y` | number | Center of the Start button from the same layout used by hit testing and drawing |
 | `ui.screen_width`, `ui.screen_height` | number | Raylib screen dimensions used by UI layout |
 | `ui.render_width`, `ui.render_height` | number | Raylib render-target dimensions |
 | `ui.scale_x`, `ui.scale_y` | number | Raylib window DPI scale |
@@ -924,6 +926,16 @@ with `ui.pointer_*`, `ui.start_*`, `ui.screen_*`, `ui.render_*`, and `ui.scale_*
 when diagnosing compositor scale or coordinate mismatches. The `status` reply
 also includes the latest pointer, hit state, window dimensions, DPI scale,
 focus, and physical primary-button state.
+
+Wayland may finish sizing or DPI-scaling the window after the first debug
+frames. For a layout-relative click, wait for `debug.frame`, then interpolate
+the shared Start-button center instead of hard-coding pixels:
+
+```text
+wait until debug.frame > 3 timeout 10
+ui click ${ui.start_center_x} ${ui.start_center_y}
+wait until game.screen == "playing" timeout 120
+```
 
 ### Fluids
 

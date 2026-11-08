@@ -856,13 +856,17 @@ static GameDebugDispatchResult GameDebugDispatchMotionCommand(
             GameDebugMarkCommandError(game, "not_start");
             return GAME_DEBUG_DISPATCH_HANDLED;
         }
-        game->debugUiPointer = (Vector2){
-            game->debugControl.uiX, game->debugControl.uiY
-        };
-        game->debugUiClickPending = true;
+        if (!InputSourceInjectClick(
+                &game->inputSource,
+                (InputPoint){ game->debugControl.uiX,
+                              game->debugControl.uiY },
+                INPUT_BUTTON_LEFT)) {
+            GameDebugMarkCommandError(game, "input_rejected");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
         DebugControlReply(&game->debugControl,
                           "DEBUG_CONTROL ui click scheduled x=%.3f y=%.3f\n",
-                          game->debugUiPointer.x, game->debugUiPointer.y);
+                          game->debugControl.uiX, game->debugControl.uiY);
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_VIEW:
         GameDebugSetView(game);
@@ -1258,20 +1262,47 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "game.paused") == 0) {
         return GameDebugDslBool(outValue, game->paused);
     }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "debug.frame") == 0) {
+        return GameDebugDslNumber(outValue, (double)game->debugFrame);
+    }
+    const InputFrame *uiFrame = InputSourceFrame(&game->inputSource);
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.pointer_x") == 0) {
-        return GameDebugDslNumber(outValue, game->debugUiPointer.x);
+        return GameDebugDslNumber(outValue, uiFrame->pointer.x);
     }
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.pointer_y") == 0) {
-        return GameDebugDslNumber(outValue, game->debugUiPointer.y);
+        return GameDebugDslNumber(outValue, uiFrame->pointer.y);
     }
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.pointer_injected") == 0) {
-        return GameDebugDslBool(outValue, game->debugUiPointerInjected);
+        return GameDebugDslBool(outValue, uiFrame->injected);
     }
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.start_hovered") == 0) {
-        return GameDebugDslBool(outValue, game->debugUiStartHovered);
+        StartPageUiLayout layout = StartPageUiLayoutFor(GetScreenWidth(),
+                                                        GetScreenHeight());
+        return GameDebugDslBool(
+            outValue, UiPointInRect(uiFrame->pointer, layout.start));
     }
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.start_pressed") == 0) {
-        return GameDebugDslBool(outValue, game->debugUiStartPressed);
+        StartPageUiLayout layout = StartPageUiLayoutFor(GetScreenWidth(),
+                                                        GetScreenHeight());
+        return GameDebugDslBool(
+            outValue,
+            UiPointInRect(uiFrame->pointer, layout.start) &&
+                InputFrameButtonPressed(uiFrame, &game->inputEvents,
+                                        INPUT_BUTTON_LEFT, false));
+    }
+    if (phase == GAME_DEBUG_DSL_CORE &&
+        strcmp(name, "ui.start_center_x") == 0) {
+        StartPageUiLayout layout = StartPageUiLayoutFor(GetScreenWidth(),
+                                                        GetScreenHeight());
+        return GameDebugDslNumber(outValue,
+                                  layout.start.x + layout.start.width / 2.0f);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE &&
+        strcmp(name, "ui.start_center_y") == 0) {
+        StartPageUiLayout layout = StartPageUiLayoutFor(GetScreenWidth(),
+                                                        GetScreenHeight());
+        return GameDebugDslNumber(outValue,
+                                  layout.start.y + layout.start.height / 2.0f);
     }
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.screen_width") == 0) {
         return GameDebugDslNumber(outValue, GetScreenWidth());
