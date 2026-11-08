@@ -44,6 +44,35 @@ static AlbumUiState album = { 0 };
 static bool placeRequest = false;
 
 #define ALBUM_FILE_VISIBLE 11
+#define ALBUM_FILE_ITEM_HEIGHT 24.0f
+
+typedef struct AlbumAddLayout {
+    Rectangle panel;
+    Rectangle list;
+    Rectangle preview;
+} AlbumAddLayout;
+
+static AlbumAddLayout AlbumAddLayoutForScreen(void)
+{
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    Rectangle panel = { sw / 2 - 440.0f, sh / 2 - 260.0f, 880.0f, 520.0f };
+    return (AlbumAddLayout){
+        .panel = panel,
+        .list = { panel.x + 30.0f, panel.y + 168.0f, 440.0f, 300.0f },
+        .preview = { panel.x + 500.0f, panel.y + 168.0f, 350.0f, 300.0f }
+    };
+}
+
+static Rectangle AlbumFileItemRect(Rectangle listRect, int visibleIndex)
+{
+    return (Rectangle){
+        listRect.x + 4.0f,
+        listRect.y + 6.0f + visibleIndex * ALBUM_FILE_ITEM_HEIGHT,
+        listRect.width - 8.0f,
+        ALBUM_FILE_ITEM_HEIGHT - 2.0f
+    };
+}
 
 static const char *const ART_GRID = "Album - [ ] / Wheel page   Enter add   Space place in world   Delete remove   Esc close";
 
@@ -380,9 +409,7 @@ static AlbumUiEvent UpdateAdd(void)
         return ALBUM_UI_EVENT_NONE;
     }
 
-    int sw = GetScreenWidth();
-    int sh = GetScreenHeight();
-    Rectangle listRect = { sw / 2 - 330.0f, sh / 2 - 40.0f, 440.0f, 380.0f };
+    Rectangle listRect = AlbumAddLayoutForScreen().list;
     if (CheckCollisionPointRec(GetMousePosition(), listRect)) {
         int wheel = (int)GetMouseWheelMove();
         if (wheel != 0) {
@@ -393,10 +420,9 @@ static AlbumUiEvent UpdateAdd(void)
             if (album.browser.fileScroll > maxScroll) album.browser.fileScroll = maxScroll;
         }
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && album.browser.fileCount > 0) {
-            float itemH = 24.0f;
             for (int i = album.browser.fileScroll; i < album.browser.fileCount; i++) {
-                Rectangle item = { listRect.x + 4.0f, listRect.y + 6.0f + (float)(i - album.browser.fileScroll) * itemH,
-                                   listRect.width - 8.0f, itemH - 2.0f };
+                Rectangle item = AlbumFileItemRect(
+                    listRect, i - album.browser.fileScroll);
                 if (CheckCollisionPointRec(GetMousePosition(), item)) {
                     album.browser.selected = i;
                     LoadBrowserPreview();
@@ -525,9 +551,10 @@ static void DrawAdd(void)
 {
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
+    AlbumAddLayout layout = AlbumAddLayoutForScreen();
 
     DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.60f));
-    Rectangle panel = { sw / 2 - 440.0f, sh / 2 - 260.0f, 880.0f, 520.0f };
+    Rectangle panel = layout.panel;
     DrawRectangleRounded(panel, 0.04f, 8, (Color){ 30, 38, 45, 245 });
     DrawRectangleRoundedLinesEx(panel, 0.04f, 8, 2.0f, Fade(WHITE, 0.45f));
 
@@ -551,7 +578,7 @@ static void DrawAdd(void)
         UiDrawText("Folder not found. Try an absolute path.", (int)input.x, (int)input.y + 54, 16, (Color){ 240, 130, 110, 255 });
     }
 
-    Rectangle listRect = { panel.x + 30.0f, panel.y + 168.0f, 440.0f, 300.0f };
+    Rectangle listRect = layout.list;
     DrawRectangleRounded(listRect, 0.05f, 8, (Color){ 15, 20, 25, 255 });
     DrawRectangleRoundedLinesEx(listRect, 0.05f, 8, 1.5f, Fade(WHITE, 0.25f));
 
@@ -559,18 +586,19 @@ static void DrawAdd(void)
         UiDrawText("No image files listed yet.", (int)listRect.x + 14, (int)listRect.y + 12, 16, Fade(WHITE, 0.45f));
     }
 
-    float itemH = 24.0f;
-    int visible = (int)(listRect.height / itemH) - 1;
-    for (int i = album.browser.fileScroll; i < album.browser.fileCount && i < album.browser.fileScroll + visible; i++) {
-        Rectangle item = { listRect.x + 4.0f, listRect.y + 6.0f + (float)(i - album.browser.fileScroll) * itemH,
-                           listRect.width - 8.0f, itemH - 2.0f };
+    for (int i = album.browser.fileScroll;
+         i < album.browser.fileCount &&
+         i < album.browser.fileScroll + ALBUM_FILE_VISIBLE;
+         i++) {
+        Rectangle item = AlbumFileItemRect(
+            listRect, i - album.browser.fileScroll);
         bool selected = i == album.browser.selected;
         if (selected) DrawRectangleRounded(item, 0.05f, 4, (Color){ 98, 160, 115, 80 });
         UiDrawText(TextFormat("%s", GetFileName(album.browser.files[i])),
                  (int)item.x + 8, (int)item.y + 4, 15, selected ? WHITE : Fade(WHITE, 0.82f));
     }
 
-    Rectangle previewRect = { panel.x + 500.0f, panel.y + 168.0f, 350.0f, 300.0f };
+    Rectangle previewRect = layout.preview;
     DrawRectangleRounded(previewRect, 0.05f, 8, (Color){ 15, 20, 25, 255 });
     DrawRectangleRoundedLinesEx(previewRect, 0.05f, 8, 1.5f, Fade(WHITE, 0.25f));
 
