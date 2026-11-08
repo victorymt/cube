@@ -779,6 +779,12 @@ static DebugControlCommand DebugControlParseUi(DebugControl *control,
         control->uiY = y;
         return DEBUG_CONTROL_COMMAND_UI_CLICK;
     }
+    char key[sizeof(control->uiKey)];
+    char keyTrailing = '\0';
+    if (sscanf(line, "ui key %23s %c", key, &keyTrailing) == 1) {
+        snprintf(control->uiKey, sizeof(control->uiKey), "%s", key);
+        return DEBUG_CONTROL_COMMAND_UI_KEY;
+    }
     return DEBUG_CONTROL_COMMAND_NONE;
 }
 

@@ -470,6 +470,11 @@ Runtime values are sampled when an expression is evaluated:
 | `ui.pointer_injected` | bool | Whether that pointer came from `ui click` instead of the physical mouse |
 | `ui.start_hovered`, `ui.start_pressed` | bool | Whether the latest start-screen frame hit the Start button and injected or received a primary press there |
 | `ui.start_center_x`, `ui.start_center_y` | number | Center of the Start button from the same layout used by hit testing and drawing |
+| `ui.import_open` | bool | Whether the image-import dialog is open |
+| `ui.import_max_blocks`, `ui.import_relief` | number, bool | Current import precision limit and relief-mode toggle |
+| `ui.import_plus_center_x`, `ui.import_plus_center_y` | number | Center of the import dialog's precision `+` button |
+| `ui.import_minus_center_x`, `ui.import_minus_center_y` | number | Center of the import dialog's precision `-` button |
+| `ui.import_input_center_x`, `ui.import_input_center_y` | number | Center of the import dialog's path input |
 | `ui.screen_width`, `ui.screen_height` | number | Raylib screen dimensions used by UI layout |
 | `ui.render_width`, `ui.render_height` | number | Raylib render-target dimensions |
 | `ui.scale_x`, `ui.scale_y` | number | Raylib window DPI scale |
@@ -884,6 +889,7 @@ input manual|scripted
 mouse left
 mouse right
 ui click X Y
+ui key KEY
 ```
 
 `pause on` opens the ordinary pause menu while playing, and `pause off`
@@ -919,12 +925,24 @@ in the uploaded section mesh. The typed fields
 and `interaction.mouse_left_mesh_ready` expose the same lifecycle for DSL
 assertions; `mouse right` is currently contract-tested by its reply only.
 
-`ui click X Y` injects a one-frame primary-button press at UI coordinates while
-the start screen is active. It runs through the same start-page hit testing as a
-physical pointer without calling the platform mouse APIs. Compare its result
-with `ui.pointer_*`, `ui.start_*`, `ui.screen_*`, `ui.render_*`, and `ui.scale_*`
-when diagnosing compositor scale or coordinate mismatches. The `status` reply
-also includes the latest pointer, hit state, window dimensions, DPI scale,
+`ui click X Y` injects a one-frame primary-button press at UI coordinates on
+either the start screen or while playing. It runs through the same unified UI
+event route as a physical pointer without calling the platform mouse APIs.
+While playing, the route checks the import dialog, pause menu, Escape-to-pause,
+the file-drop and `I` import shortcuts, then gameplay, in that order. A click
+outside the import dialog is consumed by the modal and does not leak into
+gameplay.
+
+`ui key KEY` injects one key-down/key-up pair through that same route. `KEY` uses
+the stable names exposed by the input layer, such as `i`, `escape`, `enter`,
+`tab`, `left_bracket`, `right_bracket`, and `kp_add`. An unknown key reports
+`invalid_ui_key`; accepting the token in the parser is not enough to dispatch
+it.
+
+Compare click results with `ui.pointer_*`, `ui.start_*`, `ui.import_*`,
+`ui.screen_*`, `ui.render_*`, and `ui.scale_*` when diagnosing compositor scale
+or coordinate mismatches. The `status` reply also includes the latest pointer,
+hit state, import-dialog state and button centers, window dimensions, DPI scale,
 focus, and physical primary-button state.
 
 Wayland may finish sizing or DPI-scaling the window after the first debug
@@ -935,6 +953,18 @@ the shared Start-button center instead of hard-coding pixels:
 wait until debug.frame > 3 timeout 10
 ui click ${ui.start_center_x} ${ui.start_center_y}
 wait until game.screen == "playing" timeout 120
+```
+
+Import-dialog controls use the same current-window layout as drawing and hit
+testing. This avoids hard-coded pixel offsets after Wayland resizes the window:
+
+```text
+ui key i
+wait until ui.import_open timeout 60
+ui click ${ui.import_plus_center_x} ${ui.import_plus_center_y}
+wait until ui.import_max_blocks == 80 timeout 60
+ui click 0 0
+assert ui.import_open && ui.import_max_blocks == 80
 ```
 
 ### Fluids

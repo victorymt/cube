@@ -47,6 +47,10 @@ const char *GameDebugDslCommandBlocked(
     case DEBUG_CONTROL_COMMAND_BLOCK_SET:
     case DEBUG_CONTROL_COMMAND_FLORA_INSPECT:
         return game->screen == SCREEN_PLAYING ? NULL : "not_playing";
+    case DEBUG_CONTROL_COMMAND_UI_CLICK:
+    case DEBUG_CONTROL_COMMAND_UI_KEY:
+        return game->screen == SCREEN_START || game->screen == SCREEN_PLAYING
+            ? NULL : "invalid_ui_screen";
     case DEBUG_CONTROL_COMMAND_SHIP_INPUT:
     case DEBUG_CONTROL_COMMAND_SHIP_EXHAUST:
         return game->screen == SCREEN_PLAYING && ShipIsDriving()

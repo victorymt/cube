@@ -89,6 +89,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_MOUSE_LEFT,
     DEBUG_CONTROL_COMMAND_MOUSE_RIGHT,
     DEBUG_CONTROL_COMMAND_UI_CLICK,
+    DEBUG_CONTROL_COMMAND_UI_KEY,
     DEBUG_CONTROL_COMMAND_SHIP_BEGIN,
     DEBUG_CONTROL_COMMAND_SHIP_ENTER,
     DEBUG_CONTROL_COMMAND_SHIP_INPUT,
@@ -215,6 +216,7 @@ typedef struct DebugControl {
     float lookAtZ;
     float uiX;
     float uiY;
+    char uiKey[24];
     bool lookAt;
     bool lookRelative;
     bool fluidUsePlayerPosition;

@@ -5,6 +5,7 @@
 #include "gameplay/interaction.h"
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
+#include "presentation/import_dialog_ui.h"
 #include "presentation/render.h"
 #include "space/space_state.h"
 #include "world/chunks.h"
@@ -163,6 +164,8 @@ void GameDebugReplyStatus(GameRuntime *game)
     const InputFrame *inputFrame = InputSourceFrame(&game->inputSource);
     StartPageUiLayout startLayout = StartPageUiLayoutFor(
         GetScreenWidth(), GetScreenHeight());
+    ImportDialogUiLayout importLayout = ImportDialogUiLayoutFor(
+        GetScreenWidth(), GetScreenHeight());
     bool uiStartHovered = UiPointInRect(inputFrame->pointer,
                                        startLayout.start);
     bool uiStartPressed = uiStartHovered &&
@@ -222,6 +225,10 @@ void GameDebugReplyStatus(GameRuntime *game)
         "mouse_left_mesh_pending=%d mouse_left_target=%d,%d,%d "
         "ui_pointer=%.3f,%.3f ui_pointer_injected=%d "
         "ui_start_hovered=%d ui_start_pressed=%d "
+        "ui_import_open=%d ui_import_max_blocks=%d ui_import_relief=%d "
+        "ui_import_plus_center=%.3f,%.3f "
+        "ui_import_minus_center=%.3f,%.3f "
+        "ui_import_input_center=%.3f,%.3f "
         "ui_screen=%d,%d ui_render=%d,%d ui_scale=%.3f,%.3f "
         "window_focused=%d mouse_down=%d mouse_pressed=%d "
         "chunk_workers=%d,%d,%d\n",
@@ -272,6 +279,14 @@ void GameDebugReplyStatus(GameRuntime *game)
         game->debugLeftTargetZ, inputFrame->pointer.x, inputFrame->pointer.y,
         inputFrame->injected ? 1 : 0,
         uiStartHovered ? 1 : 0, uiStartPressed ? 1 : 0,
+        game->importDialog.open ? 1 : 0, game->importDialog.maxBlocks,
+        game->importDialog.relief ? 1 : 0,
+        importLayout.plus.x + importLayout.plus.width / 2.0f,
+        importLayout.plus.y + importLayout.plus.height / 2.0f,
+        importLayout.minus.x + importLayout.minus.width / 2.0f,
+        importLayout.minus.y + importLayout.minus.height / 2.0f,
+        importLayout.input.x + importLayout.input.width / 2.0f,
+        importLayout.input.y + importLayout.input.height / 2.0f,
         GetScreenWidth(), GetScreenHeight(), GetRenderWidth(), GetRenderHeight(),
         uiScale.x, uiScale.y, IsWindowFocused() ? 1 : 0,
         inputFrame->buttonsDown[INPUT_BUTTON_LEFT] ? 1 : 0,

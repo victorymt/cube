@@ -43,6 +43,7 @@
 #include "gameplay/player.h"
 #include "gameplay/ship.h"
 #include "presentation/homeworld_map.h"
+#include "presentation/import_dialog_ui.h"
 #include "presentation/render.h"
 #include "presentation/weather_presentation.h"
 #include "space/space_runtime.h"
@@ -852,8 +853,8 @@ static GameDebugDispatchResult GameDebugDispatchMotionCommand(
         GameInteractionQueueDebugMouse(game, true);
         return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_UI_CLICK:
-        if (game->screen != SCREEN_START) {
-            GameDebugMarkCommandError(game, "not_start");
+        if (game->screen != SCREEN_START && game->screen != SCREEN_PLAYING) {
+            GameDebugMarkCommandError(game, "invalid_ui_screen");
             return GAME_DEBUG_DISPATCH_HANDLED;
         }
         if (!InputSourceInjectClick(
@@ -868,6 +869,26 @@ static GameDebugDispatchResult GameDebugDispatchMotionCommand(
                           "DEBUG_CONTROL ui click scheduled x=%.3f y=%.3f\n",
                           game->debugControl.uiX, game->debugControl.uiY);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_UI_KEY: {
+        InputKey key = INPUT_KEY_UNKNOWN;
+        if (!InputKeyFromName(game->debugControl.uiKey, &key)) {
+            GameDebugMarkCommandError(game, "invalid_ui_key");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        if (game->screen != SCREEN_START && game->screen != SCREEN_PLAYING) {
+            GameDebugMarkCommandError(game, "invalid_ui_screen");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        if (!InputSourceInjectKey(&game->inputSource, key, true) ||
+            !InputSourceInjectKey(&game->inputSource, key, false)) {
+            GameDebugMarkCommandError(game, "input_rejected");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ui key scheduled key=%s\n",
+                          InputKeyName(key));
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    }
     case DEBUG_CONTROL_COMMAND_VIEW:
         GameDebugSetView(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -1303,6 +1324,45 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
                                                         GetScreenHeight());
         return GameDebugDslNumber(outValue,
                                   layout.start.y + layout.start.height / 2.0f);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE &&
+        strncmp(name, "ui.import_", 10u) == 0) {
+        ImportDialogUiLayout layout = ImportDialogUiLayoutFor(
+            GetScreenWidth(), GetScreenHeight());
+        if (strcmp(name, "ui.import_open") == 0) {
+            return GameDebugDslBool(outValue, game->importDialog.open);
+        }
+        if (strcmp(name, "ui.import_max_blocks") == 0) {
+            return GameDebugDslNumber(outValue, game->importDialog.maxBlocks);
+        }
+        if (strcmp(name, "ui.import_relief") == 0) {
+            return GameDebugDslBool(outValue, game->importDialog.relief);
+        }
+        if (strcmp(name, "ui.import_plus_center_x") == 0) {
+            return GameDebugDslNumber(
+                outValue, layout.plus.x + layout.plus.width / 2.0f);
+        }
+        if (strcmp(name, "ui.import_plus_center_y") == 0) {
+            return GameDebugDslNumber(
+                outValue, layout.plus.y + layout.plus.height / 2.0f);
+        }
+        if (strcmp(name, "ui.import_minus_center_x") == 0) {
+            return GameDebugDslNumber(
+                outValue, layout.minus.x + layout.minus.width / 2.0f);
+        }
+        if (strcmp(name, "ui.import_minus_center_y") == 0) {
+            return GameDebugDslNumber(
+                outValue, layout.minus.y + layout.minus.height / 2.0f);
+        }
+        if (strcmp(name, "ui.import_input_center_x") == 0) {
+            return GameDebugDslNumber(
+                outValue, layout.input.x + layout.input.width / 2.0f);
+        }
+        if (strcmp(name, "ui.import_input_center_y") == 0) {
+            return GameDebugDslNumber(
+                outValue, layout.input.y + layout.input.height / 2.0f);
+        }
+        return false;
     }
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.screen_width") == 0) {
         return GameDebugDslNumber(outValue, GetScreenWidth());
