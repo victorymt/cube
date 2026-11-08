@@ -37,7 +37,7 @@ metadata:
 
 ## 加一个命令：五步
 
-1. **解析**：在 `src/core/debug_control.c` 找到对应域的函数（`DebugControlParseBasic`、`ParseMotion`、`ParseStreamAudit`、`ParseBlock`、`ParseFlora`、`ParseGeology`、`ParseWeather`、`ParseFluid`、`ParseView`、`ParseShip`、`ParseEvolution`、`ParseMarker`）。在 enum `src/core/debug_control.h` 里加 `DEBUG_CONTROL_COMMAND_*`，把参数存到 `DebugControl` 结构体的字段。
+1. **解析**：在 `src/core/debug_control.c` 找到对应域的函数（`DebugControlParseBasic`、`ParseMotion`、`ParseUi`、`ParseStreamAudit`、`ParseBlock`、`ParseFlora`、`ParseGeology`、`ParseWeather`、`ParseFluid`、`ParseView`、`ParseShip`、`ParseEvolution`、`ParseMarker`）。在 enum `src/core/debug_control.h` 里加 `DEBUG_CONTROL_COMMAND_*`，把参数存到 `DebugControl` 结构体的字段。
 2. **校验要严**：`sscanf` 只数返回值不够。`%u` 会把 `-1` 包成 `4294967295`，`%c` 用来抓尾随字符。数字范围、枚举拼写、多余参数都要显式拒绝并返回 `DEBUG_CONTROL_COMMAND_INVALID`。
 3. **执行**：在 `src/app/game_debug.c` 的 `GameDispatchDebugCommandValue` 分发链里接上。按域放进对应的 `GameDebug*Dispatch`。**注意 `game_debug.c` 有 2100 行上限**（`make test-architecture` 强制），接近上限时把新域拆成独立 `game_debug_<domain>.{h,c}`，像 `game_debug_world.c` 那样——由 `game_debug.c` 调一个 `bool GameDebug<Domain>Dispatch(game, command)`。 <!-- volatile-counts:allow -->
 4. **回复**：用 `DebugControlReply`，格式 `DEBUG_CONTROL <域> <ok|error> key=value...`。命令失败时调用 `GameDebugMarkCommandError` 让 DSL 块中止，不要只打日志。

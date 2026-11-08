@@ -58,6 +58,7 @@ static void TestCommandStream(void)
         "look 1.25 -0.3\nlook delta -0.5 0.1\n"
         "input 1 -0.5 1 1 120\n"
         "mouse left\nmouse right\n"
+        "ui click 640.5 557\n"
         "ship begin\nship enter\nship input 0.75 -0.25 1 180\n"
         "ship exhaust 0.65\n"
         "ship dust\n"
@@ -147,6 +148,8 @@ static void TestCommandStream(void)
     assert(control.playerInput.frames == 120u);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MOUSE_LEFT);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_MOUSE_RIGHT);
+    assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_UI_CLICK);
+    assert(control.uiX == 640.5f && control.uiY == 557.0f);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_BEGIN);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_ENTER);
     assert(DebugControlPoll(&control) == DEBUG_CONTROL_COMMAND_SHIP_INPUT);
@@ -635,6 +638,15 @@ int main(void)
     assert(DebugControlParseText(&geology, "input scripted") == DEBUG_CONTROL_COMMAND_INPUT_MODE);
     assert(!geology.manualInput);
     assert(DebugControlParseText(&geology, "input manual extra") == DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&geology, "ui click 640 557") ==
+           DEBUG_CONTROL_COMMAND_UI_CLICK);
+    assert(geology.uiX == 640.0f && geology.uiY == 557.0f);
+    const char *invalidUi[] = { "ui click", "ui click 1",
+        "ui click -1 2", "ui click 1 -2", "ui click nan 2",
+        "ui click inf 2", "ui click 1 2 extra", "ui move 1 2" };
+    for (unsigned i = 0; i < sizeof(invalidUi) / sizeof(invalidUi[0]); i++)
+        assert(DebugControlParseText(&geology, invalidUi[i]) ==
+               DEBUG_CONTROL_COMMAND_INVALID);
 
     assert(DebugControlParseText(&geology, "view distance 12") == DEBUG_CONTROL_COMMAND_VIEW_DISTANCE);
     assert(geology.viewDistance == 12);

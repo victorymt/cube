@@ -48,6 +48,16 @@ typedef struct HudFrameState {
     bool autoSaveEnabled;
 } HudFrameState;
 
+typedef struct UiPointerInput {
+    Vector2 position;
+    bool primaryPressed;
+} UiPointerInput;
+
+typedef struct StartPageUiDiagnostics {
+    bool startHovered;
+    bool startPressed;
+} StartPageUiDiagnostics;
+
 typedef struct WaterRenderDebugInfo {
     bool enabled;
     bool through;
@@ -190,7 +200,8 @@ bool DrawMenuButton(Rectangle rect, const char *label, bool primary);
 void DrawHotbar(const BlockType *hotbar, int selectedIndex);
 int HotbarKeyToIndex(void);
 void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain,
-                   uint32_t *selectedSeed);
+                   uint32_t *selectedSeed, const UiPointerInput *input,
+                   StartPageUiDiagnostics *diagnostics);
 void DrawHelpPanel(bool floating, bool cursorReleased, int viewDistance);
 void DrawCursorReleasedOverlay(void);
 void DrawImportStatus(void);

@@ -93,6 +93,7 @@ static int GameDebugCountSurfaceFaceVertices(
 }
 void GameDebugReplyStatus(GameRuntime *game)
 {
+    Vector2 uiScale = GetWindowScaleDPI();
     Vector3 aimEye = {
         game->player.position.x,
         game->player.position.y + EYE_HEIGHT,
@@ -210,7 +211,12 @@ void GameDebugReplyStatus(GameRuntime *game)
         "camera_inside_solid=%d autosave=%d plugins=%zu debug_frame=%llu "
         "mouse_left_press_frame=%llu mouse_left_handle_frame=%llu "
         "mouse_left_set_block_frame=%llu mouse_left_mesh_frame=%llu "
-        "mouse_left_mesh_pending=%d mouse_left_target=%d,%d,%d chunk_workers=%d,%d,%d\n",
+        "mouse_left_mesh_pending=%d mouse_left_target=%d,%d,%d "
+        "ui_pointer=%.3f,%.3f ui_pointer_injected=%d "
+        "ui_start_hovered=%d ui_start_pressed=%d "
+        "ui_screen=%d,%d ui_render=%d,%d ui_scale=%.3f,%.3f "
+        "window_focused=%d mouse_down=%d mouse_pressed=%d "
+        "chunk_workers=%d,%d,%d\n",
         game->screen == SCREEN_PLAYING ? "playing" : "start", WorldGetSeed(),
         WorldDimensionName(WorldCurrentDimension()),
         game->player.position.x, game->player.position.y,
@@ -255,6 +261,14 @@ void GameDebugReplyStatus(GameRuntime *game)
         (unsigned long long)game->debugLeftMeshFrame,
         game->debugLeftMeshPending ? 1 : 0,
         game->debugLeftTargetX, game->debugLeftTargetY,
-        game->debugLeftTargetZ, ChunksConfiguredWorkerCount(),
+        game->debugLeftTargetZ, game->debugUiPointer.x, game->debugUiPointer.y,
+        game->debugUiPointerInjected ? 1 : 0,
+        game->debugUiStartHovered ? 1 : 0,
+        game->debugUiStartPressed ? 1 : 0,
+        GetScreenWidth(), GetScreenHeight(), GetRenderWidth(), GetRenderHeight(),
+        uiScale.x, uiScale.y, IsWindowFocused() ? 1 : 0,
+        IsMouseButtonDown(MOUSE_BUTTON_LEFT) ? 1 : 0,
+        IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ? 1 : 0,
+        ChunksConfiguredWorkerCount(),
         ChunksStartedWorkerCount(), ChunksActiveWorkerCount());
 }

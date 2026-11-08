@@ -85,6 +85,7 @@ typedef struct GameRuntime {
   GameDebugTraceState debugTrace;
   Vector3 blockGalleryOrigin;
   Vector3 floraGalleryOrigin;
+  Vector2 debugUiPointer;
 
   GameScreen screen;
   TerrainMode selectedTerrain;
@@ -176,6 +177,10 @@ typedef struct GameRuntime {
   bool scriptedInputFirstFrame;
   bool debugMouseLeftPressed;
   bool debugMouseRightPressed;
+  bool debugUiClickPending;
+  bool debugUiPointerInjected;
+  bool debugUiStartHovered;
+  bool debugUiStartPressed;
   bool debugLeftMeshPending;
   bool autoSaveEnabled;
   bool dayCycleEnabled;

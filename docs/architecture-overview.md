@@ -92,6 +92,7 @@ Make 是唯一的构建系统。`mk/modules.mk` 按目录通配出源文件列�
 调试不是边角料，它是这个仓库的主要验证手段，因此有一条横切的路径：
 
 - `core/debug_control.*` 定义命令面与 `DEBUG_CONTROL ready` 行，命令组由 `DebugControlCommandGroups()` 生成，文档与运行时靠它对齐。
+- 启动页的确定性点击探针由 `ui click X Y` 经 `app` 注入；指针、命中与绘制诊断通过 DSL 运行时字段读取，不依赖桌面级点击工具。
 - `core/debug_dsl.*` 是解析器与执行器，不含游戏知识；`app` 通过 `DebugDslCallbacks` 注入变量解析与命令执行。语法、命令目录与运行时字段见 [Debug DSL](debug-dsl.md)。
 - 截图与同名键值报告由 `app` 写盘（`F10` 或 DSL `screenshot`），性能路线由 `--perf` 驱动并对照基线判定回归，见 [地形性能](terrain-performance.md)。
 - 文档门禁把文档当代码验收：登记表、tier、陈旧检测与运行时名字探针，见 [ADR-004](decisions/ADR-004-documentation-truth-gate.md) 与 [文档规则](documentation-rules.md)。

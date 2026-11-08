@@ -766,6 +766,22 @@ static DebugControlCommand DebugControlParseMotion(DebugControl *control,
     return DebugControlParsePlayerInput(control, line);
 }
 
+static DebugControlCommand DebugControlParseUi(DebugControl *control,
+                                               const char *line)
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    char trailing = '\0';
+    if (sscanf(line, "ui click %f %f %c", &x, &y, &trailing) == 2 &&
+        isfinite(x) && isfinite(y) && x >= 0.0f && y >= 0.0f &&
+        x <= 100000.0f && y <= 100000.0f) {
+        control->uiX = x;
+        control->uiY = y;
+        return DEBUG_CONTROL_COMMAND_UI_CLICK;
+    }
+    return DEBUG_CONTROL_COMMAND_NONE;
+}
+
 static DebugControlCommand DebugControlParseBasic(DebugControl *control,
                                                   const char *line)
 {
@@ -994,6 +1010,8 @@ static DebugControlCommand DebugControlParseLine(DebugControl *control,
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     command = DebugControlParseMotion(control, line);
     if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
+    command = DebugControlParseUi(control, line);
+    if (command != DEBUG_CONTROL_COMMAND_NONE) return command;
     return DEBUG_CONTROL_COMMAND_INVALID;
 }
 
@@ -1177,6 +1195,7 @@ static const DebugControlCommandGroup debugControlCommandGroups[] = {
     { "look", "look 0 0" },
     { "input", "input 0 0 0 0 1" },
     { "mouse", "mouse left" },
+    { "ui", "ui click 0 0" },
     { "ship", "ship begin" },
     { "view", "view first" },
     { "fluid", "fluid inspect" },

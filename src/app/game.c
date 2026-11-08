@@ -223,9 +223,20 @@ static bool GameUpdateStartScreen(GameRuntime *game, float dt,
     AudioUpdate(dt);
     bool startGame = false;
     if (IsKeyPressed(KEY_ESCAPE)) game->quitRequested = true;
+    bool injectedPointer = game->debugUiClickPending;
+    UiPointerInput uiInput = {
+        .position = injectedPointer ? game->debugUiPointer : GetMousePosition(),
+        .primaryPressed = injectedPointer || IsMouseButtonPressed(MOUSE_BUTTON_LEFT)
+    };
+    StartPageUiDiagnostics uiDiagnostics = { 0 };
     BeginDrawing();
     DrawStartPage(&startGame, &game->quitRequested, &game->selectedTerrain,
-                  &game->selectedSeed);
+                  &game->selectedSeed, &uiInput, &uiDiagnostics);
+    game->debugUiPointer = uiInput.position;
+    game->debugUiPointerInjected = injectedPointer;
+    game->debugUiStartHovered = uiDiagnostics.startHovered;
+    game->debugUiStartPressed = uiDiagnostics.startPressed;
+    game->debugUiClickPending = false;
     if (debugStartRequested) startGame = true;
     EndDrawing();
 

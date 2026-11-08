@@ -302,7 +302,7 @@ by `DebugControlCommandGroups()`, so it always describes what the binary in
 front of you accepts; `make docs-probe` fails when this example drifts from it.
 
 ```text
-DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,terrain,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ship,view,fluid,water,weather,geology,landform,cga,evolution,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,terrain,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ui,ship,view,fluid,water,weather,geology,landform,cga,evolution,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 `--debug-trace [PATH]` can be combined with either debug entry point. Omitting
@@ -465,6 +465,12 @@ Runtime values are sampled when an expression is evaluated:
 | --- | --- | --- |
 | `game.screen` | string | `"start"` or `"playing"` |
 | `game.paused` | bool | Whether the pause menu is open |
+| `ui.pointer_x`, `ui.pointer_y` | number | Pointer position used by the latest start-screen UI frame |
+| `ui.pointer_injected` | bool | Whether that pointer came from `ui click` instead of the physical mouse |
+| `ui.start_hovered`, `ui.start_pressed` | bool | Whether the latest start-screen frame hit the Start button and injected or received a primary press there |
+| `ui.screen_width`, `ui.screen_height` | number | Raylib screen dimensions used by UI layout |
+| `ui.render_width`, `ui.render_height` | number | Raylib render-target dimensions |
+| `ui.scale_x`, `ui.scale_y` | number | Raylib window DPI scale |
 | `world.seed` | number | Current world seed (default `1448040515`; override with `world seed SEED` before `start`) |
 | `world.dimension` | string | Current dimension name |
 | `world.surface_topology` | string | `legacy-map` by default; `cube-grid` after `surface debug cube`; `none` outside surface dimensions |
@@ -875,6 +881,7 @@ input FORWARD STRAFE VERTICAL SPRINT FRAMES
 input manual|scripted
 mouse left
 mouse right
+ui click X Y
 ```
 
 `pause on` opens the ordinary pause menu while playing, and `pause off`
@@ -909,6 +916,14 @@ in the uploaded section mesh. The typed fields
 `interaction.mouse_left_set_block_frame`, `interaction.mouse_left_mesh_frame`,
 and `interaction.mouse_left_mesh_ready` expose the same lifecycle for DSL
 assertions; `mouse right` is currently contract-tested by its reply only.
+
+`ui click X Y` injects a one-frame primary-button press at UI coordinates while
+the start screen is active. It runs through the same start-page hit testing as a
+physical pointer without calling the platform mouse APIs. Compare its result
+with `ui.pointer_*`, `ui.start_*`, `ui.screen_*`, `ui.render_*`, and `ui.scale_*`
+when diagnosing compositor scale or coordinate mismatches. The `status` reply
+also includes the latest pointer, hit state, window dimensions, DPI scale,
+focus, and physical primary-button state.
 
 ### Fluids
 

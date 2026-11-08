@@ -45,8 +45,8 @@
         "make plugins"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "STATUS.md": {
@@ -63,8 +63,8 @@
         "make docs-probe"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "assets/LICENSES.md": {
@@ -97,8 +97,8 @@
         "make test-plugins"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/architecture/README.md": {
@@ -134,8 +134,8 @@
         "python3 scripts/coupling-report.py"
       ],
       "verifiedAt": {
-        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
-        "date": "2026-10-27"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/decisions/README.md": {
@@ -161,8 +161,8 @@
         "make test-clean-root"
       ],
       "verifiedAt": {
-        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
-        "date": "2026-10-27"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/decisions/ADR-002-plugin-abi-and-services.md": {
@@ -180,8 +180,8 @@
         "make test-architecture"
       ],
       "verifiedAt": {
-        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
-        "date": "2026-10-27"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/decisions/ADR-003-save-format-and-transactions.md": {
@@ -199,8 +199,8 @@
         "make build/normal/tests/test_save_io && ./build/normal/tests/test_save_io"
       ],
       "verifiedAt": {
-        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
-        "date": "2026-10-27"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/decisions/ADR-004-documentation-truth-gate.md": {
@@ -219,8 +219,8 @@
         "make docs-probe"
       ],
       "verifiedAt": {
-        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
-        "date": "2026-10-27"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/decisions/ADR-005-cube-grid-gated-topology.md": {
@@ -239,8 +239,8 @@
         "make test-surface-topology-e2e"
       ],
       "verifiedAt": {
-        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
-        "date": "2026-10-27"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/decisions/ADR-006-chunk-streaming-and-mesh-pipeline.md": {
@@ -259,8 +259,8 @@
         "make -s benchmark-chunks"
       ],
       "verifiedAt": {
-        "commit": "1a9378a1ebf3a27840e266ff3a4b03d3dc548a6c",
-        "date": "2026-10-27"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/documentation-rules.md": {
@@ -314,8 +314,8 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     ".dsh/skills/voxelcraft-docs/SKILL.md": {
@@ -331,8 +331,8 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     ".dsh/skills/voxelcraft-dsl/SKILL.md": {
@@ -351,8 +351,8 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/debug-dsl.md": {
@@ -390,8 +390,8 @@
         ]
       },
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/cube-contract.md": {
@@ -435,8 +435,8 @@
         }
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/surface-cube.md": {
@@ -453,8 +453,8 @@
         "make test-cube-save-reload"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/atmosphere-model.md": {
@@ -468,8 +468,8 @@
         "make build/normal/tests/test_atmosphere_model && ./build/normal/tests/test_atmosphere_model"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/weather-simulation.md": {
@@ -483,8 +483,8 @@
         "make build/normal/tests/test_weather_model && ./build/normal/tests/test_weather_model"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/geographic-landforms-design.md": {
@@ -498,8 +498,8 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/landform-planets.md": {
@@ -513,8 +513,8 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/landform-quality.md": {
@@ -539,8 +539,8 @@
         "make build/normal/tests/test_volcano && ./build/normal/tests/test_volcano"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/terrain-performance.md": {
@@ -554,8 +554,8 @@
         "make -s benchmark-chunks"
       ],
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     },
     "docs/performance/flat-rotation-baseline.md": {
@@ -1016,8 +1016,8 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "f554e5892a1d5f0a22a6087192cc5f211453cdc0",
-        "date": "2026-10-25"
+        "commit": "56019bec5c69adc62571ef1395594725e402732a",
+        "date": "2026-11-08"
       }
     }
   }

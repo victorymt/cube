@@ -851,6 +851,19 @@ static GameDebugDispatchResult GameDebugDispatchMotionCommand(
     case DEBUG_CONTROL_COMMAND_MOUSE_RIGHT:
         GameInteractionQueueDebugMouse(game, true);
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_UI_CLICK:
+        if (game->screen != SCREEN_START) {
+            GameDebugMarkCommandError(game, "not_start");
+            return GAME_DEBUG_DISPATCH_HANDLED;
+        }
+        game->debugUiPointer = (Vector2){
+            game->debugControl.uiX, game->debugControl.uiY
+        };
+        game->debugUiClickPending = true;
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL ui click scheduled x=%.3f y=%.3f\n",
+                          game->debugUiPointer.x, game->debugUiPointer.y);
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_VIEW:
         GameDebugSetView(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -1244,6 +1257,39 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
     }
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "game.paused") == 0) {
         return GameDebugDslBool(outValue, game->paused);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.pointer_x") == 0) {
+        return GameDebugDslNumber(outValue, game->debugUiPointer.x);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.pointer_y") == 0) {
+        return GameDebugDslNumber(outValue, game->debugUiPointer.y);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.pointer_injected") == 0) {
+        return GameDebugDslBool(outValue, game->debugUiPointerInjected);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.start_hovered") == 0) {
+        return GameDebugDslBool(outValue, game->debugUiStartHovered);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.start_pressed") == 0) {
+        return GameDebugDslBool(outValue, game->debugUiStartPressed);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.screen_width") == 0) {
+        return GameDebugDslNumber(outValue, GetScreenWidth());
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.screen_height") == 0) {
+        return GameDebugDslNumber(outValue, GetScreenHeight());
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.render_width") == 0) {
+        return GameDebugDslNumber(outValue, GetRenderWidth());
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.render_height") == 0) {
+        return GameDebugDslNumber(outValue, GetRenderHeight());
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.scale_x") == 0) {
+        return GameDebugDslNumber(outValue, GetWindowScaleDPI().x);
+    }
+    if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "ui.scale_y") == 0) {
+        return GameDebugDslNumber(outValue, GetWindowScaleDPI().y);
     }
     if (phase == GAME_DEBUG_DSL_CORE && strcmp(name, "world.seed") == 0) {
         return GameDebugDslNumber(outValue, WorldGetSeed());

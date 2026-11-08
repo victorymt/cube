@@ -708,10 +708,11 @@ void DrawCenteredText(const char *text, int y, int fontSize, Color color)
     UiDrawText(text, GetScreenWidth() / 2 - width / 2, y, fontSize, color);
 }
 
-bool DrawMenuButton(Rectangle rect, const char *label, bool primary)
+static bool DrawMenuButtonWithInput(Rectangle rect, const char *label,
+                                    bool primary,
+                                    const UiPointerInput *input)
 {
-    Vector2 mouse = GetMousePosition();
-    bool hovered = CheckCollisionPointRec(mouse, rect);
+    bool hovered = input && CheckCollisionPointRec(input->position, rect);
     Color fill = primary ? (Color){ 68, 142, 90, 255 } : (Color){ 38, 45, 53, 255 };
     Color hoverFill = primary ? (Color){ 83, 164, 104, 255 } : (Color){ 52, 61, 70, 255 };
 
@@ -723,13 +724,23 @@ bool DrawMenuButton(Rectangle rect, const char *label, bool primary)
     UiDrawText(label, (int)(rect.x + rect.width * 0.5f - textWidth * 0.5f),
              (int)(rect.y + rect.height * 0.5f - fontSize * 0.5f), fontSize, WHITE);
 
-    return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    return hovered && input->primaryPressed;
 }
 
-bool DrawTerrainOption(Rectangle rect, const char *title, const char *subtitle, bool selected)
+bool DrawMenuButton(Rectangle rect, const char *label, bool primary)
 {
-    Vector2 mouse = GetMousePosition();
-    bool hovered = CheckCollisionPointRec(mouse, rect);
+    UiPointerInput input = {
+        .position = GetMousePosition(),
+        .primaryPressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT)
+    };
+    return DrawMenuButtonWithInput(rect, label, primary, &input);
+}
+
+static bool DrawTerrainOptionWithInput(Rectangle rect, const char *title,
+                                       const char *subtitle, bool selected,
+                                       const UiPointerInput *input)
+{
+    bool hovered = input && CheckCollisionPointRec(input->position, rect);
     Color fill = selected ? (Color){ 45, 105, 78, 255 } : (Color){ 35, 44, 52, 255 };
     if (hovered && !selected) fill = (Color){ 45, 56, 66, 255 };
 
@@ -739,17 +750,35 @@ bool DrawTerrainOption(Rectangle rect, const char *title, const char *subtitle, 
 
     UiDrawText(title, (int)rect.x + 18, (int)rect.y + 13, 22, WHITE);
     UiDrawText(subtitle, (int)rect.x + 18, (int)rect.y + 43, 15, Fade(WHITE, 0.72f));
-    return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    return hovered && input->primaryPressed;
+}
+
+bool DrawTerrainOption(Rectangle rect, const char *title, const char *subtitle,
+                       bool selected)
+{
+    UiPointerInput input = {
+        .position = GetMousePosition(),
+        .primaryPressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT)
+    };
+    return DrawTerrainOptionWithInput(rect, title, subtitle, selected, &input);
 }
 
 void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain,
-                   uint32_t *selectedSeed)
+                   uint32_t *selectedSeed, const UiPointerInput *input,
+                   StartPageUiDiagnostics *diagnostics)
 {
     static char seedText[11] = { 0 };
     static uint32_t displayedSeed = 0;
     static bool seedFocused = false;
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
+    UiPointerInput fallbackInput = { 0 };
+    if (!input) {
+        fallbackInput.position = GetMousePosition();
+        fallbackInput.primaryPressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+        input = &fallbackInput;
+    }
+    if (diagnostics) *diagnostics = (StartPageUiDiagnostics){ 0 };
 
     if (seedText[0] == '\0' || (!seedFocused && displayedSeed != *selectedSeed)) {
         snprintf(seedText, sizeof(seedText), "%u", *selectedSeed);
@@ -785,18 +814,17 @@ void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain
 
     Rectangle variedRect = { sw / 2 - 252.0f, sh / 2 + 6.0f, 240.0f, 72.0f };
     Rectangle flatRect = { sw / 2 + 12.0f, sh / 2 + 6.0f, 240.0f, 72.0f };
-    if (DrawTerrainOption(variedRect, "Varied", "Rolling hills and trees", *selectedTerrain == TERRAIN_VARIED)) {
+    if (DrawTerrainOptionWithInput(variedRect, "Varied", "Rolling hills and trees", *selectedTerrain == TERRAIN_VARIED, input)) {
         *selectedTerrain = TERRAIN_VARIED;
     }
-    if (DrawTerrainOption(flatRect, "Flat", "Plain with image import", *selectedTerrain == TERRAIN_FLAT)) {
+    if (DrawTerrainOptionWithInput(flatRect, "Flat", "Plain with image import", *selectedTerrain == TERRAIN_FLAT, input)) {
         *selectedTerrain = TERRAIN_FLAT;
     }
 
     Rectangle seedRect = { sw / 2 - 252.0f, sh / 2 + 106.0f, 356.0f, 48.0f };
     Rectangle randomRect = { sw / 2 + 116.0f, sh / 2 + 106.0f, 136.0f, 48.0f };
-    Vector2 mouse = GetMousePosition();
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        seedFocused = CheckCollisionPointRec(mouse, seedRect);
+    if (input->primaryPressed) {
+        seedFocused = CheckCollisionPointRec(input->position, seedRect);
     }
 
     if (seedFocused) {
@@ -833,7 +861,7 @@ void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain
         int caretX = (int)seedRect.x + 15 + UiMeasureText(seedText, 22);
         DrawRectangle(caretX + 2, (int)seedRect.y + 11, 2, 25, Fade(WHITE, 0.9f));
     }
-    if (DrawMenuButton(randomRect, "Random", false)) {
+    if (DrawMenuButtonWithInput(randomRect, "Random", false, input)) {
         uint32_t randomSeed = ((uint32_t)GetRandomValue(0, 0xffff) << 16) |
                               (uint32_t)GetRandomValue(0, 0xffff);
         if (randomSeed == 0) randomSeed = DEFAULT_WORLD_SEED;
@@ -846,9 +874,13 @@ void DrawStartPage(bool *startGame, bool *quitGame, TerrainMode *selectedTerrain
 
     Rectangle startRect = { sw / 2 - 130.0f, sh / 2 + 170.0f, 260.0f, 54.0f };
     Rectangle quitRect = { sw / 2 - 130.0f, sh / 2 + 236.0f, 260.0f, 48.0f };
-    if (validSeed && (DrawMenuButton(startRect, "Start", true) || IsKeyPressed(KEY_ENTER))) *startGame = true;
-    else if (!validSeed) DrawMenuButton(startRect, "Enter a valid seed", false);
-    if (DrawMenuButton(quitRect, "Quit", false)) *quitGame = true;
+    if (diagnostics) {
+        diagnostics->startHovered = CheckCollisionPointRec(input->position, startRect);
+        diagnostics->startPressed = diagnostics->startHovered && input->primaryPressed;
+    }
+    if (validSeed && (DrawMenuButtonWithInput(startRect, "Start", true, input) || IsKeyPressed(KEY_ENTER))) *startGame = true;
+    else if (!validSeed) DrawMenuButtonWithInput(startRect, "Enter a valid seed", false, input);
+    if (DrawMenuButtonWithInput(quitRect, "Quit", false, input)) *quitGame = true;
 
     DrawCenteredText(TextFormat("Seed %u", *selectedSeed), sh - 32, 16, Fade(WHITE, 0.68f));
 }
