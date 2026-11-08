@@ -52,8 +52,11 @@ a portable failure.
 ## Scope
 
 The benchmark exercises `BuildChunkMeshData` and the related mesh emitters. It
-does not replace the planet generation, chunk streaming, or runtime scheduler
-tests, which run separately. `make benchmark-chunks` is the CI performance job.
+does not replace the planet generation, chunk streaming, runtime scheduler,
+or input-event tests, which run separately. `mk/tests.mk` registers those test
+closures alongside other unit tests; adding them does not change the benchmark's
+source closure or semantic invariants. `make benchmark-chunks` is the CI
+performance job.
 
 It could not run at all from the volcano-mountain integration until 2026-10-24:
 `mk/tests.mk` linked the benchmark without `PLANET_SURFACE_SRC`, so the target

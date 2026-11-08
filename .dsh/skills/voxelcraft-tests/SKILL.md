@@ -24,7 +24,7 @@ metadata:
 
 | 层 | 位置 | 入口 | 说明要求 |
 | --- | --- | --- | --- |
-| 单元测试 | `tests/test_*.c`（126 个） | `mk/tests.mk` 的 `define_test` | 文件头 3–8 行 + 关键 `Test*` 函数上一行 |
+| 单元测试 | `tests/test_*.c`（128 个） | `mk/tests.mk` 的 `define_test` | 文件头 3–8 行 + 关键 `Test*` 函数上一行 |
 | 门禁测试 | `tests/test_*.sh`（25 个） | `Makefile` 的 `test-*` 目标 | 文件头说明守什么不变量、违规时提示怎么修 |
 | E2E | `tests/test_*_e2e.sh`（16 个）+ `tests/scenes/*.dsl`（48 个） | `test-e2e` / Hyprland CI job | 脚本头说明验证的画面/状态；场景靠 `assert` 自述 |
 | Benchmark | `tests/benchmark_chunks.c` | `test-benchmark-invariants` | 输出的每个不变量必须来自测量，并注明来源 |
@@ -142,7 +142,7 @@ metadata:
 
 好在哪：不但说守什么，还说**失败时该做什么**。门禁脚本的说明必须包含修法，否则红灯只带来困惑。
 
-### 反例 1：无说明的测试（当前 120/126 的状态）
+### 反例 1：无说明的测试
 
 ```c
 #include "presentation/weather_optics.h"

@@ -86,6 +86,7 @@ Make 是唯一的构建系统。`mk/modules.mk` 按目录通配出源文件列�
 - 音频、粒子、提示这类表现副作用由领域层发布中性事件（`core/game_effects.h`、`core/game_notice.h`），`app` 在两个帧边界 `EffectDispatchPending` 分发给表现层。领域层直接调 `AudioPlay*` 或 `ParticlesEmit*` 会被边界测试拒绝。
 - 渲染资源计量（`core/render_resources.h`）与物理光照值（`world/world_lighting.h`）属于中性数据，`world`、`space` 可以发布，合成与回退在 `presentation`。
 - 天气只以物理采样值过界（`WeatherFieldSample`），视觉推导在 `presentation/weather_presentation.c`。
+- 物理输入只有一个采集边界：`app/input_source` 调用 raylib 输入 API 并把结果封成当帧不可变的 `InputFrame`；`core/input_event` 定义事件类型、帧快照与独立的消费状态。上层只读事件并标记消费，不各自轮询同一份原始输入。
 
 ## 观测与调试边界
 
