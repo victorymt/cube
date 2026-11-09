@@ -72,6 +72,16 @@ They do not certify later revisions or imply a full global simulation.
 | P1 | Recheck polar graphics timeout and make E2E reply attribution reliable | Complete; [full graphics and independent 600-frame polar routes passed, 2026-09-19](../docs/architecture/15-polar-e2e-reliability.md); historical timeout not reproduced, stdin reply ordering corrected |
 | P2 | Cross-system per-tick replay verification | Complete within the documented fixture/checkpoint scope; [92 regular and 92 sanitizer tests passed, 2026-09-19](../docs/architecture/14-cross-system-replay.md) |
 
+## Future water/plant cell work
+
+The following work continues the water/plant cell model after the volume-based cell refactor. These local stage numbers are distinct from the long-term Stage 03 tornado record above. Current state is maintained in [STATUS.md](../STATUS.md).
+
+| Water/plant stage | Scope | Plan |
+| --- | --- | --- |
+| 3 | Plant/water ecological coupling, flood tolerance, damage, and anchoring | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-3-plantwater-ecological-coupling) |
+| 4 | Deterministic terrain, water, shoreline-plant, and rooted-plant generation order | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-4-deterministic-generation-order) |
+| 5 | Unified cell persistence, save validation, and DSL inspection | [Water/plant stages 3–5](10-water-plant-cell-followups.md#stage-5-persistence-and-dsl) |
+
 ## Shared acceptance rules
 
 - Add deterministic unit coverage for simulation rules and save migrations.

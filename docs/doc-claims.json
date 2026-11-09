@@ -939,6 +939,19 @@
       ],
       "recipes": []
     },
+    "todo/10-water-plant-cell-followups.md": {
+      "tier": "plan",
+      "trackCode": false,
+      "anchors": [
+        "src/world/world_cell.h",
+        "src/world/flora_taxa.c",
+        "src/world/terrain.c",
+        "src/world/fluid.c",
+        "src/world/surface_save.h",
+        "docs/debug-dsl.md"
+      ],
+      "recipes": []
+    },
     "docs/architecture/23-doc-truth-gate-2026-10-24.md": {
       "tier": "record",
       "trackCode": false,
