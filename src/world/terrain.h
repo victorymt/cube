@@ -82,6 +82,8 @@ unsigned int WorldHash2D(int x, int z);
 unsigned int WorldHash2DBits(unsigned int xBits, unsigned int zBits);
 unsigned int WorldHash3D(int x, int y, int z);
 unsigned int HomeSurfaceHashAt(int x, int z, unsigned int lane);
+unsigned int HomeSurfaceHashAtSeed(uint32_t seed, int x, int z,
+                                   unsigned int lane);
 unsigned int HomeVolumeHashAt(int x, int y, int z, unsigned int lane);
 float HomeSurfaceNoiseAt(int x, int z, float blockFrequency,
                          unsigned int lane);

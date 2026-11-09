@@ -1,8 +1,132 @@
 #include "world/terrain_cube.h"
 #include "world/chunks.h"
+#include "world/cga_voxel.h"
+#include "world/surface_topology.h"
 
+#include <limits.h>
 #include <math.h>
 #include <string.h>
+
+#define CGA_CUBE_PLAN_MARGIN 72
+
+typedef struct CgaCubeSampleContext {
+    const TerrainCubeContext *terrain;
+    uint32_t bodyId;
+} CgaCubeSampleContext;
+
+typedef struct CgaCubeWriteContext {
+    Chunk *chunk;
+    SurfaceCubeChunkKey key;
+} CgaCubeWriteContext;
+
+static bool SampleCubeTerrainForCga(void *userData, int x, int z,
+                                    TerrainMode mode,
+                                    CgaTerrainSample *outSample)
+{
+    (void)mode;
+    CgaCubeSampleContext *context = userData;
+    if (!context || !context->terrain || !outSample) return false;
+    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+        context->bodyId, (float)x + 0.5f, (float)z + 0.5f, 0);
+    TerrainCubeColumn column;
+    if (!TerrainCubeSampleColumn(context->terrain, address, &column)) {
+        return false;
+    }
+    *outSample = (CgaTerrainSample){
+        .height = (int)lroundf(column.terrain.elevation),
+        .biome = column.terrain.biome
+    };
+    return true;
+}
+
+static bool CubeChunkMapBounds(SurfaceCubeChunkKey key,
+                               int *outMinX, int *outMinZ,
+                               int *outMaxX, int *outMaxZ)
+{
+    if (!SurfaceCubeChunkKeyIsValid(key) || !outMinX || !outMinZ ||
+        !outMaxX || !outMaxZ) return false;
+    SurfaceAddress origin = {key.bodyId, key.face,
+        key.u * CHUNK_SIZE, key.v * CHUNK_SIZE, 0};
+    SurfaceMapCell originCell;
+    if (!SurfaceAddressCanonicalMapCell(origin, &originCell)) return false;
+    int minX = originCell.x;
+    int maxX = originCell.x;
+    int minZ = originCell.z;
+    int maxZ = originCell.z;
+    for (int u = 0; u < CHUNK_SIZE; u++) {
+        for (int v = 0; v < CHUNK_SIZE; v++) {
+            SurfaceAddress address = {key.bodyId, key.face,
+                key.u * CHUNK_SIZE + u, key.v * CHUNK_SIZE + v, 0};
+            SurfaceMapCell cell;
+            if (!SurfaceAddressCanonicalMapCell(address, &cell)) return false;
+            int x = cell.x;
+            while (x - originCell.x > SURFACE_EQUATOR_BLOCKS / 2) {
+                x -= SURFACE_EQUATOR_BLOCKS;
+            }
+            while (x - originCell.x < -SURFACE_EQUATOR_BLOCKS / 2) {
+                x += SURFACE_EQUATOR_BLOCKS;
+            }
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (cell.z < minZ) minZ = cell.z;
+            if (cell.z > maxZ) maxZ = cell.z;
+        }
+    }
+    *outMinX = minX - CGA_CUBE_PLAN_MARGIN;
+    *outMinZ = minZ - CGA_CUBE_PLAN_MARGIN;
+    *outMaxX = maxX + CGA_CUBE_PLAN_MARGIN + 1;
+    *outMaxZ = maxZ + CGA_CUBE_PLAN_MARGIN + 1;
+    return true;
+}
+
+static bool WriteCubeStructureCell(void *userData, SurfaceAddress address,
+                                   BlockType block)
+{
+    CgaCubeWriteContext *context = userData;
+    SurfaceCubeChunkKey cellKey;
+    if (!context || !context->chunk ||
+        !SurfaceCubeChunkAt(address, &cellKey) ||
+        !SurfaceCubeChunkKeyEqual(cellKey, context->key)) return true;
+    int localX = address.u - context->key.u * CHUNK_SIZE;
+    int localZ = address.v - context->key.v * CHUNK_SIZE;
+    return ChunkSetLocalBlock(context->chunk, localX, address.radial,
+                              localZ, block);
+}
+
+static bool GenerateCubeStructures(const TerrainCubeContext *context,
+                                   Chunk *staging, SurfaceCubeChunkKey key,
+                                   int sectionY)
+{
+    if (!context || !staging || TerrainCubeContextMode(context) == TERRAIN_FLAT) {
+        return true;
+    }
+    int minX, minZ, maxX, maxZ;
+    if (!CubeChunkMapBounds(key, &minX, &minZ, &maxX, &maxZ)) return false;
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    CgaCubeSampleContext sampleContext = {
+        .terrain = context,
+        .bodyId = key.bodyId
+    };
+    const WorldSurfaceSnapshot *snapshot = TerrainCubeContextSnapshot(context);
+    if (!snapshot || !CgaPlanStructureFeaturesForBounds(
+            &workspace, minX, minZ, maxX, maxZ,
+            snapshot->context.seed, TerrainCubeContextMode(context),
+            NULL, SampleCubeTerrainForCga, &sampleContext)) return false;
+    for (size_t i = 0; i < workspace.featureCount; i++) {
+        if (!CgaExpandFeature(&workspace, workspace.features[i])) return false;
+    }
+    int minY = sectionY == INT_MIN
+        ? TERRAIN_CUBE_MIN_RADIAL : sectionY * SURFACE_SECTION_HEIGHT;
+    int maxY = sectionY == INT_MIN
+        ? SURFACE_GENERATION_MAX_Y_EXCLUSIVE
+        : minY + SURFACE_SECTION_HEIGHT;
+    CgaCubeWriteContext writeContext = { .chunk = staging, .key = key };
+    return CgaVisitSurfaceCells(&workspace, key.bodyId,
+                                minX, minZ, maxX, maxZ,
+                                minY, maxY,
+                                WriteCubeStructureCell, &writeContext);
+}
 
 static bool GenerateCubeJob(const TerrainCubeContext *context,
                             SurfaceCubeChunkKey key, Chunk *staging,
@@ -43,8 +167,8 @@ bool TerrainCubePrepareJob(TerrainCubeContext *context,
     return true;
 }
 
-bool TerrainCubeGenerateChunkSection(const TerrainCubeContext *context,
-                                     Chunk *staging, int sectionY)
+static bool GenerateCubeSectionBase(const TerrainCubeContext *context,
+                                    Chunk *staging, int sectionY)
 {
     if (!staging || staging->loaded || !staging->cubeGrid || !staging->spherical ||
         ChunkTerrainSectionIsResolved(staging, sectionY) ||
@@ -64,6 +188,13 @@ bool TerrainCubeGenerateChunkSection(const TerrainCubeContext *context,
         section->dirtyStamp = 1;
     }
     return ChunkMarkTerrainSectionResolved(staging, sectionY);
+}
+
+bool TerrainCubeGenerateChunkSection(const TerrainCubeContext *context,
+                                     Chunk *staging, int sectionY)
+{
+    if (!GenerateCubeSectionBase(context, staging, sectionY)) return false;
+    return GenerateCubeStructures(context, staging, staging->cubeKey, sectionY);
 }
 
 bool TerrainCubeGenerateChunk(const TerrainCubeContext *context,
@@ -96,7 +227,8 @@ bool TerrainCubeGenerateChunk(const TerrainCubeContext *context,
         }
     }
     for (int sectionY = FIRST; sectionY < LAST; sectionY++)
-        if (required[sectionY - FIRST] && !TerrainCubeGenerateChunkSection(context, staging, sectionY))
+        if (required[sectionY - FIRST] &&
+            !GenerateCubeSectionBase(context, staging, sectionY))
             return false;
-    return true;
+    return GenerateCubeStructures(context, staging, key, INT_MIN);
 }

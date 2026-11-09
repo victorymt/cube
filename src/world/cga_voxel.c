@@ -1,6 +1,7 @@
 #include "world/cga_voxel.h"
 
 #include "world/chunks.h"
+#include "world/surface_topology.h"
 #include "world/terrain.h"
 #include "world/terrain_generation.h"
 #include "world/world_state.h"
@@ -129,14 +130,27 @@ static size_t ResolveFeatureConflicts(CgaFeature *features, size_t count,
     return accepted;
 }
 
+static bool DefaultHeightSample(void *userData, int x, int z,
+                                TerrainMode mode,
+                                CgaTerrainSample *outSample)
+{
+    (void)userData;
+    if (!outSample) return false;
+    outSample->height = TerrainHeight(x, z, mode);
+    return true;
+}
+
 static bool StructureTerrainSuitable(CgaScope scope, int base, TerrainMode mode,
-                                     int tolerance)
+                                     int tolerance, CgaTerrainSampleFn sample,
+                                     void *sampleUserData)
 {
     int minHeight = INT_MAX;
     int maxHeight = INT_MIN;
     for (int x = scope.minX; x < scope.minX + scope.sizeX; x++) {
         for (int z = scope.minZ; z < scope.minZ + scope.sizeZ; z++) {
-            int height = TerrainHeight(x, z, mode);
+            CgaTerrainSample terrain;
+            if (!sample(sampleUserData, x, z, mode, &terrain)) return false;
+            int height = terrain.height;
             if (height < minHeight) minHeight = height;
             if (height > maxHeight) maxHeight = height;
             if (height < base - tolerance || height > base + tolerance) return false;
@@ -145,9 +159,12 @@ static bool StructureTerrainSuitable(CgaScope scope, int base, TerrainMode mode,
     return maxHeight - minHeight <= tolerance;
 }
 
-static bool HouseTerrainSuitable(CgaScope scope, int base, TerrainMode mode)
+static bool HouseTerrainSuitable(CgaScope scope, int base, TerrainMode mode,
+                                 CgaTerrainSampleFn sample,
+                                 void *sampleUserData)
 {
-    return StructureTerrainSuitable(scope, base, mode, 1);
+    return StructureTerrainSuitable(scope, base, mode, 1, sample,
+                                    sampleUserData);
 }
 
 /* A courtyard complex sits on a terrace.  Use the highest point of the
@@ -155,14 +172,17 @@ static bool HouseTerrainSuitable(CgaScope scope, int base, TerrainMode mode)
  * not sunk into a hollow whose rim hides everything but the main roof.  A
  * site may fall by up to ten blocks across that area; the deep foundation
  * covers the low corners. */
-static bool ComplexTerrainBase(CgaScope scope, TerrainMode mode, int *outBase)
+static bool ComplexTerrainBase(CgaScope scope, TerrainMode mode, int *outBase,
+                               CgaTerrainSampleFn sample, void *sampleUserData)
 {
     const int margin = 12;
     int minHeight = INT_MAX;
     int maxHeight = INT_MIN;
     for (int x = scope.minX - margin; x < scope.minX + scope.sizeX + margin; x++) {
         for (int z = scope.minZ - margin; z < scope.minZ + scope.sizeZ + margin; z++) {
-            int height = TerrainHeight(x, z, mode);
+            CgaTerrainSample terrain;
+            if (!sample(sampleUserData, x, z, mode, &terrain)) return false;
+            int height = terrain.height;
             if (height < minHeight) minHeight = height;
             if (height > maxHeight) maxHeight = height;
         }
@@ -1193,6 +1213,42 @@ bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace)
     return true;
 }
 
+bool CgaVisitSurfaceCells(CgaWorkspace *workspace, uint32_t bodyId,
+                          int minX, int minZ, int maxX, int maxZ,
+                          int minY, int maxY,
+                          CgaSurfaceCellVisitor visitor, void *userData)
+{
+    if (!workspace || workspace->overflow || !visitor ||
+        minX >= maxX || minZ >= maxZ || minY >= maxY) return false;
+    CgaSortOps(workspace);
+    for (size_t i = 0; i < workspace->opCount; i++) {
+        const CgaVoxelOp *op = &workspace->ops[i];
+        int x0 = op->scope.minX > minX ? op->scope.minX : minX;
+        int z0 = op->scope.minZ > minZ ? op->scope.minZ : minZ;
+        int y0 = op->scope.minY > minY ? op->scope.minY : minY;
+        int x1 = op->scope.minX + op->scope.sizeX;
+        int z1 = op->scope.minZ + op->scope.sizeZ;
+        int y1 = op->scope.minY + op->scope.sizeY;
+        if (x1 > maxX) x1 = maxX;
+        if (z1 > maxZ) z1 = maxZ;
+        if (y1 > maxY) y1 = maxY;
+        if (x0 >= x1 || z0 >= z1 || y0 >= y1) continue;
+        BlockType block = op->kind == CGA_OP_CARVE
+            ? BLOCK_AIR : op->material;
+        for (int x = x0; x < x1; x++) {
+            for (int z = z0; z < z1; z++) {
+                for (int y = y0; y < y1; y++) {
+                    SurfaceAddress address = SurfaceAddressFromMapCoordinates(
+                        bodyId, (float)x + 0.5f, (float)z + 0.5f, y);
+                    if (!SurfaceAddressIsValid(address) ||
+                        !visitor(userData, address, block)) return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 static bool AddFeature(CgaWorkspace *workspace, uint32_t grammarVersion,
                        uint32_t seed, int anchorX, int anchorZ,
                        CgaScope scope)
@@ -1249,10 +1305,177 @@ static bool PlanMineshaftOnly(CgaWorkspace *workspace, int cx, int cz,
 }
 #endif
 
+bool CgaPlanStructureFeaturesForBounds(
+    CgaWorkspace *workspace, int minX, int minZ, int maxX, int maxZ,
+    uint32_t worldSeed, TerrainMode mode, const CgaContext *context,
+    CgaTerrainSampleFn sample, void *sampleUserData)
+{
+    if (!workspace || workspace->overflow || !sample ||
+        minX >= maxX || minZ >= maxZ) return false;
+    int startX = minX;
+    int startZ = minZ;
+    int endX = maxX;
+    int endZ = maxZ;
+    uint32_t seed = worldSeed;
+
+    const int complexSpacing = 320;
+    const int complexHalfExtent = 54;
+    int minAnchorX = FloorDivInt(startX - complexHalfExtent, complexSpacing);
+    int maxAnchorX = FloorDivInt(endX + complexHalfExtent, complexSpacing);
+    int minAnchorZ = FloorDivInt(startZ - complexHalfExtent, complexSpacing);
+    int maxAnchorZ = FloorDivInt(endZ + complexHalfExtent, complexSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * complexSpacing;
+            int z = az * complexSpacing;
+            CgaTerrainSample terrain;
+            if (!sample(sampleUserData, x, z, mode, &terrain)) continue;
+            Biome biome = terrain.biome;
+            if ((biome != BIOME_PLAINS && biome != BIOME_FOREST) ||
+                HomeSurfaceHashAtSeed(seed, x, z, 1543u) % 100u >= 50u ||
+                terrain.height < 4) continue;
+            /* A classical Chinese courtyard faces south.  Keep the gate
+             * and the main hall on the same south-facing axis. */
+            CgaOrientation orientation = CGA_ORIENTATION_0;
+            int width = CGA_COMPLEX_WIDTH;
+            int depth = CGA_COMPLEX_DEPTH;
+            CgaScope scope = { x - width / 2, 0, z - depth / 2,
+                               width, CGA_COMPLEX_HEIGHT, depth, orientation };
+            if (scope.minX >= endX || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= endZ || scope.minZ + scope.sizeZ <= startZ) continue;
+            int base = 0;
+            if (!ComplexTerrainBase(scope, mode, &base, sample,
+                                    sampleUserData)) continue;
+            scope.minY = base;
+            if (!AddFeature(workspace, CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION,
+                            seed, ax, az, scope)) return false;
+        }
+    }
+
+    const int houseSpacing = 64;
+    const int houseHalfExtent = 9;
+    minAnchorX = FloorDivInt(startX - houseHalfExtent, houseSpacing);
+    maxAnchorX = FloorDivInt(endX + houseHalfExtent, houseSpacing);
+    minAnchorZ = FloorDivInt(startZ - houseHalfExtent, houseSpacing);
+    maxAnchorZ = FloorDivInt(endZ + houseHalfExtent, houseSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * houseSpacing;
+            int z = az * houseSpacing;
+            CgaTerrainSample terrain;
+            if (!sample(sampleUserData, x, z, mode, &terrain)) continue;
+            if (HomeSurfaceHashAtSeed(seed, x, z, 1481u) % 100u >= 62u ||
+                terrain.biome == BIOME_DESERT || terrain.height < 4) continue;
+            int base = terrain.height;
+            CgaOrientation orientation = (CgaOrientation)(
+                HomeSurfaceHashAtSeed(seed, x, z, 1493u) % 4u);
+            int width = (orientation & 1) ? 13 : 17;
+            int depth = (orientation & 1) ? 17 : 13;
+            CgaScope scope = {x - width / 2, base, z - depth / 2,
+                              width, 12, depth, orientation};
+            if (scope.minX >= endX || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= endZ || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!HouseTerrainSuitable(scope, base, mode, sample,
+                                      sampleUserData)) continue;
+            bool complexReserved = false;
+            for (size_t i = 0; i < workspace->featureCount; i++) {
+                if (workspace->features[i].grammarVersion ==
+                        CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION &&
+                    ScopeOverlapsXZ(scope, workspace->features[i].scope)) {
+                    complexReserved = true;
+                    break;
+                }
+            }
+            if (complexReserved) continue;
+            if (!AddFeature(workspace, CGA_HOUSE_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+
+    const int shaftSpacing = 64;
+    const int shaftExtent = 20;
+    minAnchorX = FloorDivInt(startX - shaftExtent, shaftSpacing);
+    maxAnchorX = FloorDivInt(endX + shaftExtent, shaftSpacing);
+    minAnchorZ = FloorDivInt(startZ - shaftExtent, shaftSpacing);
+    maxAnchorZ = FloorDivInt(endZ + shaftExtent, shaftSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * shaftSpacing;
+            int z = az * shaftSpacing;
+            if (HomeSurfaceHashAtSeed(seed, x, z, 1409u) % 100u >= 75u) continue;
+            int y = 8 + (int)(HomeSurfaceHashAtSeed(seed, x, z, 1423u) % 5u);
+            int length = 12 + (int)(HomeSurfaceHashAtSeed(seed, x, z, 1433u) % 9u);
+            int dx = (HomeSurfaceHashAtSeed(seed, x, z, 1427u) % 2u) ? 1 : -1;
+            int dz = (HomeSurfaceHashAtSeed(seed, x, z, 1429u) % 2u) ? 1 : -1;
+            int endX = x + dx * (length - 1);
+            int endZ = z + dz * (length - 1);
+            CgaScope scope = {
+                endX < x ? endX : x, y, endZ < z ? endZ : z,
+                abs(endX - x) + 1, 4, abs(endZ - z) + 1,
+                (dx > 0 && dz > 0) ? CGA_ORIENTATION_0 :
+                (dx < 0 && dz > 0) ? CGA_ORIENTATION_90 :
+                (dx < 0 && dz < 0) ? CGA_ORIENTATION_180 :
+                CGA_ORIENTATION_270};
+            if (scope.minX >= endX || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= endZ || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!AddFeature(workspace, CGA_MINESHAFT_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+
+    const int dungeonSpacing = 128;
+    const int dungeonExtent = 6;
+    minAnchorX = FloorDivInt(startX - dungeonExtent, dungeonSpacing);
+    maxAnchorX = FloorDivInt(endX + dungeonExtent, dungeonSpacing);
+    minAnchorZ = FloorDivInt(startZ - dungeonExtent, dungeonSpacing);
+    maxAnchorZ = FloorDivInt(endZ + dungeonExtent, dungeonSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * dungeonSpacing;
+            int z = az * dungeonSpacing;
+            if (HomeSurfaceHashAtSeed(seed, x, z, 1451u) % 100u >= 64u) continue;
+            CgaScope scope = {x - 3,
+                10 + (int)(HomeSurfaceHashAtSeed(seed, x, z, 1453u) % 4u),
+                              z - 3, 7, 4, 7, CGA_ORIENTATION_0};
+            if (scope.minX >= endX || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= endZ || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!AddFeature(workspace, CGA_DUNGEON_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+
+    const int templeSpacing = 128;
+    const int templeExtent = 7;
+    minAnchorX = FloorDivInt(startX - templeExtent, templeSpacing);
+    maxAnchorX = FloorDivInt(endX + templeExtent, templeSpacing);
+    minAnchorZ = FloorDivInt(startZ - templeExtent, templeSpacing);
+    maxAnchorZ = FloorDivInt(endZ + templeExtent, templeSpacing);
+    for (int ax = minAnchorX; ax <= maxAnchorX; ax++) {
+        for (int az = minAnchorZ; az <= maxAnchorZ; az++) {
+            int x = ax * templeSpacing;
+            int z = az * templeSpacing;
+            CgaTerrainSample terrain;
+            if (!sample(sampleUserData, x, z, mode, &terrain) ||
+                terrain.biome != BIOME_DESERT ||
+                HomeSurfaceHashAtSeed(seed, x, z, 1471u) % 100u >= 40u) continue;
+            int base = terrain.height;
+            CgaScope scope = {x - 4, base - 4, z - 4, 9, 9, 9,
+                              CGA_ORIENTATION_0};
+            if (scope.minX >= endX || scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= endZ || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!AddFeature(workspace, CGA_DESERT_TEMPLE_GRAMMAR_VERSION, seed,
+                            ax, az, scope)) return false;
+        }
+    }
+    workspace->featureCount = ResolveFeatureConflicts(workspace->features,
+                                                      workspace->featureCount,
+                                                      context);
+    return true;
+}
+
 bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
                               TerrainMode mode, const CgaContext *context)
 {
-    if (!workspace || workspace->overflow) return false;
     int startX = cx * CHUNK_SIZE;
     int startZ = cz * CHUNK_SIZE;
     uint32_t seed = WorldGetSeed();
@@ -1271,8 +1494,6 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
             if ((biome != BIOME_PLAINS && biome != BIOME_FOREST) ||
                 HomeSurfaceHashAt(x, z, 1543u) % 100u >= 50u ||
                 TerrainHeight(x, z, mode) < 4) continue;
-            /* A classical Chinese courtyard faces south.  Keep the gate
-             * and the main hall on the same south-facing axis. */
             CgaOrientation orientation = CGA_ORIENTATION_0;
             int width = CGA_COMPLEX_WIDTH;
             int depth = CGA_COMPLEX_DEPTH;
@@ -1283,7 +1504,8 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
                 scope.minZ >= startZ + CHUNK_SIZE ||
                 scope.minZ + scope.sizeZ <= startZ) continue;
             int base = 0;
-            if (!ComplexTerrainBase(scope, mode, &base)) continue;
+            if (!ComplexTerrainBase(scope, mode, &base, DefaultHeightSample,
+                                    NULL)) continue;
             scope.minY = base;
             if (!AddFeature(workspace, CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION,
                             seed, ax, az, scope)) return false;
@@ -1301,16 +1523,21 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
             int x = ax * houseSpacing;
             int z = az * houseSpacing;
             if (HomeSurfaceHashAt(x, z, 1481u) % 100u >= 62u ||
-                BiomeAt(x, z) == BIOME_DESERT || TerrainHeight(x, z, mode) < 4) continue;
+                BiomeAt(x, z) == BIOME_DESERT ||
+                TerrainHeight(x, z, mode) < 4) continue;
             int base = TerrainHeight(x, z, mode);
-            CgaOrientation orientation = (CgaOrientation)(HomeSurfaceHashAt(x, z, 1493u) % 4u);
+            CgaOrientation orientation = (CgaOrientation)(
+                HomeSurfaceHashAt(x, z, 1493u) % 4u);
             int width = (orientation & 1) ? 13 : 17;
             int depth = (orientation & 1) ? 17 : 13;
             CgaScope scope = {x - width / 2, base, z - depth / 2,
                               width, 12, depth, orientation};
-            if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
-                scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
-            if (!HouseTerrainSuitable(scope, base, mode)) continue;
+            if (scope.minX >= startX + CHUNK_SIZE ||
+                scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE ||
+                scope.minZ + scope.sizeZ <= startZ) continue;
+            if (!HouseTerrainSuitable(scope, base, mode, DefaultHeightSample,
+                                      NULL)) continue;
             bool complexReserved = false;
             for (size_t i = 0; i < workspace->featureCount; i++) {
                 if (workspace->features[i].grammarVersion ==
@@ -1350,8 +1577,10 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
                 (dx < 0 && dz > 0) ? CGA_ORIENTATION_90 :
                 (dx < 0 && dz < 0) ? CGA_ORIENTATION_180 :
                 CGA_ORIENTATION_270};
-            if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
-                scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (scope.minX >= startX + CHUNK_SIZE ||
+                scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE ||
+                scope.minZ + scope.sizeZ <= startZ) continue;
             if (!AddFeature(workspace, CGA_MINESHAFT_GRAMMAR_VERSION, seed,
                             ax, az, scope)) return false;
         }
@@ -1368,10 +1597,13 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
             int x = ax * dungeonSpacing;
             int z = az * dungeonSpacing;
             if (HomeSurfaceHashAt(x, z, 1451u) % 100u >= 64u) continue;
-            CgaScope scope = {x - 3, 10 + (int)(HomeSurfaceHashAt(x, z, 1453u) % 4u),
-                              z - 3, 7, 4, 7, CGA_ORIENTATION_0};
-            if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
-                scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
+            CgaScope scope = {x - 3,
+                10 + (int)(HomeSurfaceHashAt(x, z, 1453u) % 4u),
+                z - 3, 7, 4, 7, CGA_ORIENTATION_0};
+            if (scope.minX >= startX + CHUNK_SIZE ||
+                scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE ||
+                scope.minZ + scope.sizeZ <= startZ) continue;
             if (!AddFeature(workspace, CGA_DUNGEON_GRAMMAR_VERSION, seed,
                             ax, az, scope)) return false;
         }
@@ -1392,8 +1624,10 @@ bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
             int base = TerrainHeight(x, z, mode);
             CgaScope scope = {x - 4, base - 4, z - 4, 9, 9, 9,
                               CGA_ORIENTATION_0};
-            if (scope.minX >= startX + CHUNK_SIZE || scope.minX + scope.sizeX <= startX ||
-                scope.minZ >= startZ + CHUNK_SIZE || scope.minZ + scope.sizeZ <= startZ) continue;
+            if (scope.minX >= startX + CHUNK_SIZE ||
+                scope.minX + scope.sizeX <= startX ||
+                scope.minZ >= startZ + CHUNK_SIZE ||
+                scope.minZ + scope.sizeZ <= startZ) continue;
             if (!AddFeature(workspace, CGA_DESERT_TEMPLE_GRAMMAR_VERSION, seed,
                             ax, az, scope)) return false;
         }

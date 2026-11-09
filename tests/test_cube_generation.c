@@ -2,6 +2,7 @@
 #include "world/chunks_internal.h"
 #include "world/terrain_cube.h"
 #include "world/chunks_cube.h"
+#include "world/cga_voxel.h"
 #include "world/world_cube.h"
 #include "world/cube_address_save.h"
 #include "presentation/surface_render_transform.h"
@@ -11,6 +12,39 @@
 #include <assert.h>
 #include <unistd.h>
 #include <stdio.h>
+
+typedef struct CgaVisitFixture {
+    SurfaceAddress cells[16];
+    unsigned count;
+    bool sawFace[SURFACE_FACE_COUNT];
+} CgaVisitFixture;
+
+static bool CollectCgaSurfaceCell(void *userData, SurfaceAddress address,
+                                  BlockType block)
+{
+    CgaVisitFixture *fixture = userData;
+    (void)block;
+    assert(fixture);
+    fixture->sawFace[address.face] = true;
+    if (fixture->count < sizeof(fixture->cells) / sizeof(fixture->cells[0])) {
+        fixture->cells[fixture->count] = address;
+    }
+    fixture->count++;
+    return true;
+}
+
+static bool SampleFlatCgaTerrain(void *userData, int x, int z,
+                                 TerrainMode mode,
+                                 CgaTerrainSample *outSample)
+{
+    (void)userData;
+    (void)x;
+    (void)z;
+    (void)mode;
+    if (!outSample) return false;
+    *outSample = (CgaTerrainSample){ .height = 32, .biome = BIOME_PLAINS };
+    return true;
+}
 
 // The worker/terrain/storage implementation is real. The surrounding game
 // environment stays neutral; these tests do not activate the runtime policy.
@@ -43,6 +77,131 @@ static void Reset(void)
     // actual pthread workers and must not inherit that simulated state.
     genWorkerThreadsStarted = 0;
     genWorkerThreadsConfigured = 0;
+}
+
+static void FindMapFaceEdge(int *outX, int *outZ)
+{
+    static const int probeZ[] = { 0, 512, -512, 1024, -1024 };
+    for (size_t zIndex = 0;
+         zIndex < sizeof(probeZ) / sizeof(probeZ[0]); zIndex++) {
+        for (int x = -SURFACE_EQUATOR_BLOCKS / 2;
+             x < SURFACE_EQUATOR_BLOCKS / 2; x++) {
+            SurfaceAddress left = SurfaceAddressFromMapCoordinates(
+                0, (float)x + 0.5f, (float)probeZ[zIndex] + 0.5f, 32);
+            SurfaceAddress right = SurfaceAddressFromMapCoordinates(
+                0, (float)x + 1.5f, (float)probeZ[zIndex] + 0.5f, 32);
+            if (left.face != right.face) {
+                *outX = x;
+                *outZ = probeZ[zIndex];
+                return;
+            }
+        }
+    }
+    assert(false);
+}
+
+static void AssertCgaFeatureCrossesFace(CgaFeature feature)
+{
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    assert(CgaExpandFeature(&workspace, feature));
+    CgaVisitFixture visited = { 0 };
+    assert(CgaVisitSurfaceCells(
+        &workspace, 0u,
+        feature.scope.minX, feature.scope.minZ,
+        feature.scope.minX + feature.scope.sizeX,
+        feature.scope.minZ + feature.scope.sizeZ,
+        feature.scope.minY, feature.scope.minY + feature.scope.sizeY,
+        CollectCgaSurfaceCell, &visited));
+    unsigned faceCount = 0;
+    for (int face = 0; face < SURFACE_FACE_COUNT; face++) {
+        faceCount += visited.sawFace[face] ? 1u : 0u;
+    }
+    assert(visited.count > 0u);
+    assert(faceCount >= 2u);
+}
+
+static void TestCgaSurfaceCellsCrossFace(void)
+{
+    int edgeX, edgeZ;
+    FindMapFaceEdge(&edgeX, &edgeZ);
+
+    CgaFeature pair = {
+        .id = 1u,
+        .grammarVersion = CGA_HOUSE_GRAMMAR_VERSION,
+        .seed = 7u,
+        .anchorX = edgeX,
+        .anchorZ = edgeZ,
+        .scope = { edgeX, 32, edgeZ, 2, 1, 1, CGA_ORIENTATION_0 }
+    };
+    CgaWorkspace workspace;
+    CgaWorkspaceReset(&workspace);
+    assert(CgaAppendOp(&workspace, CGA_OP_FILL, CGA_STAGE_BASE, 0,
+                       pair, pair.scope, BLOCK_STONE));
+    CgaVisitFixture visited = { 0 };
+    assert(CgaVisitSurfaceCells(
+        &workspace, 0, edgeX, edgeZ, edgeX + 2, edgeZ + 1,
+        32, 33, CollectCgaSurfaceCell, &visited));
+    assert(visited.count == 2u);
+    assert(visited.sawFace[visited.cells[0].face]);
+    assert(visited.sawFace[visited.cells[1].face]);
+    assert(visited.cells[0].face != visited.cells[1].face);
+    assert(!SurfaceAddressEqual(visited.cells[0], visited.cells[1]));
+
+    CgaFeature house = pair;
+    house.id = 2u;
+    house.scope = (CgaScope){ edgeX - 8, 32, edgeZ - 6, 17, 12, 13,
+                              CGA_ORIENTATION_0 };
+    AssertCgaFeatureCrossesFace(house);
+
+    CgaFeature dungeon = pair;
+    dungeon.id = 3u;
+    dungeon.grammarVersion = CGA_DUNGEON_GRAMMAR_VERSION;
+    dungeon.scope = (CgaScope){ edgeX - 3, 10, edgeZ - 3, 7, 4, 7,
+                                CGA_ORIENTATION_0 };
+    AssertCgaFeatureCrossesFace(dungeon);
+
+    CgaFeature complex = pair;
+    complex.id = 4u;
+    complex.grammarVersion = CGA_CLASSICAL_COMPLEX_GRAMMAR_VERSION;
+    complex.scope = (CgaScope){ edgeX - 46, 32, edgeZ - 50, 93, 28, 101,
+                                CGA_ORIENTATION_0 };
+    AssertCgaFeatureCrossesFace(complex);
+}
+
+static void TestCgaSurfacePlanningDeterministic(void)
+{
+    CgaWorkspace first;
+    CgaWorkspace second;
+    CgaWorkspaceReset(&first);
+    CgaWorkspaceReset(&second);
+    bool planned = false;
+    for (uint32_t seed = 1u; seed <= 512u; seed++) {
+        CgaWorkspaceReset(&first);
+        if (!CgaPlanStructureFeaturesForBounds(
+                &first, 0, 0, CHUNK_SIZE * 4, CHUNK_SIZE * 4,
+                seed, TERRAIN_VARIED, NULL,
+                SampleFlatCgaTerrain, NULL)) continue;
+        if (first.featureCount == 0u) continue;
+        CgaWorkspaceReset(&second);
+        assert(CgaPlanStructureFeaturesForBounds(
+            &second, 0, 0, CHUNK_SIZE * 4, CHUNK_SIZE * 4,
+            seed, TERRAIN_VARIED, NULL,
+            SampleFlatCgaTerrain, NULL));
+        assert(first.featureCount == second.featureCount);
+        assert(memcmp(first.features, second.features,
+                      first.featureCount * sizeof(first.features[0])) == 0);
+        planned = true;
+        break;
+    }
+    assert(planned);
+    for (uint32_t seed = 1u; seed <= 256u; seed++) {
+        CgaWorkspaceReset(&first);
+        assert(CgaPlanStructureFeaturesForBounds(
+            &first, -80, -80, 80, 80, seed, TERRAIN_VARIED, NULL,
+            SampleFlatCgaTerrain, NULL));
+        assert(first.featureCount <= CGA_MAX_FEATURES_PER_CHUNK);
+    }
 }
 
 static TerrainCubeContext *Context(void)
@@ -953,6 +1112,8 @@ static void TestCubeMeshProjection(void)
 
 int main(void)
 {
+    TestCgaSurfaceCellsCrossFace();
+    TestCgaSurfacePlanningDeterministic();
     TestCubeMeshIdentity();
     TestCubeSectionStaysInItsSlab();
     TestVariedCubeSectionsStayInSlab();

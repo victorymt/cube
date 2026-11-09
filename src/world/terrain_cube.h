@@ -30,6 +30,7 @@ TerrainCubeContext *TerrainCubeContextRetain(TerrainCubeContext *context);
 void TerrainCubeContextRelease(TerrainCubeContext *context);
 const WorldSurfaceSnapshot *TerrainCubeContextSnapshot(const TerrainCubeContext *context);
 uint64_t TerrainCubeContextGeneration(const TerrainCubeContext *context);
+TerrainMode TerrainCubeContextMode(const TerrainCubeContext *context);
 bool TerrainCubeSampleColumn(const TerrainCubeContext *context,
                               SurfaceAddress address, TerrainCubeColumn *outColumn);
 bool TerrainCubeBlock(const TerrainCubeContext *context, const TerrainCubeColumn *column,

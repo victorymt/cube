@@ -379,6 +379,8 @@ M4.5.
 
 #### M4.6: CGA
 
+**Status:** complete (2026-11-09)
+
 Plan and clip CGA structures in surface cells, including structures that cross a
 face edge. Keep grammar versions unchanged unless grammar semantics actually
 change; adapt address transport, occupancy and clipping behind the surface
@@ -387,6 +389,22 @@ contract.
 Exit: deterministic house, dungeon and classical-complex fixtures produce the
 same logical cells on legacy and cube; no block is duplicated or dropped at a
 face edge. Commit `refactor(cga): place structures in surface cells`.
+
+Exit evidence: CGA planning now accepts a bounded map-space planning region and
+an explicit terrain sampler and world seed. The legacy chunk path supplies the
+existing `TerrainHeight`/`BiomeAt` sampler, while cube column and section jobs
+sample the immutable cube context at the corresponding `SurfaceAddress`.
+Expanded writes are emitted through `CgaVisitSurfaceCells`, which converts each
+logical map cell to the topology-neutral surface address before the cube writer
+clips it to the staging chunk. `test_cube_generation` expands house, dungeon and
+classical-complex fixtures across a real face transition and verifies that both
+faces receive cells without duplicate or missing addresses; it also checks
+seeded, bounded planning is deterministic and stays within the fixed feature
+capacity. `test_cga_voxel`, `test_cube_generation`, `test_terrain_cube` and
+`test_terrain_scale` pass, as do `make test-headers`, `make test-werror`,
+`make test-architecture`, the Hyprland `test-cube-fluid-face-edge-e2e` and
+`test-v30-cell-reload-e2e` runs, and the complete `make test` run (135 passed,
+0 failed). Commit M4.6.
 
 #### M4.7: volcano, lava and ash
 

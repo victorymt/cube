@@ -124,10 +124,16 @@ static float WorldFractalPointNoise(Vector3 point, unsigned int lane, uint32_t s
 
 unsigned int HomeSurfaceHashAt(int x, int z, unsigned int lane)
 {
+    return HomeSurfaceHashAtSeed(WorldGetSeed(), x, z, lane);
+}
+
+unsigned int HomeSurfaceHashAtSeed(uint32_t seed, int x, int z,
+                                   unsigned int lane)
+{
     SurfaceMapCell cell = SurfaceCanonicalMapCell((float)x, (float)z);
-    return WorldHash2DBits(
+    return MixSeed(Hash2DBits(
         (unsigned int)cell.x ^ (lane * 0x9e3779b9u),
-        (unsigned int)cell.z ^ (lane * 0x85ebca6bu));
+        (unsigned int)cell.z ^ (lane * 0x85ebca6bu)), seed);
 }
 
 unsigned int HomeVolumeHashAt(int x, int y, int z, unsigned int lane)

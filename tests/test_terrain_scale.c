@@ -346,6 +346,15 @@ static uint64_t TerrainChunkCellHash(const Chunk *chunk)
 
 static void TestTerrainStructureBaselines(void)
 {
+    static const int hashProbe[][2] = {
+        {0, 0}, {1, -1}, {-100, -88}, {-120, -105}
+    };
+    for (size_t index = 0;
+         index < sizeof(hashProbe) / sizeof(hashProbe[0]); index++) {
+        assert(HomeSurfaceHashAt(hashProbe[index][0], hashProbe[index][1], 1481u) ==
+               HomeSurfaceHashAtSeed(DEFAULT_WORLD_SEED,
+                   hashProbe[index][0], hashProbe[index][1], 1481u));
+    }
     static const struct {
         int cx;
         int cz;

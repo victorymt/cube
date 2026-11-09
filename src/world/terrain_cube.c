@@ -132,6 +132,8 @@ const WorldSurfaceSnapshot *TerrainCubeContextSnapshot(const TerrainCubeContext 
 { return context ? &context->snapshot : NULL; }
 uint64_t TerrainCubeContextGeneration(const TerrainCubeContext *context)
 { return context ? context->generation : 0; }
+TerrainMode TerrainCubeContextMode(const TerrainCubeContext *context)
+{ return context ? context->mode : TERRAIN_VARIED; }
 
 bool TerrainCubeSampleColumn(const TerrainCubeContext *context,
                               SurfaceAddress address, TerrainCubeColumn *out)

@@ -3,7 +3,9 @@
 
 #include "world/block_type.h"
 #include "world/chunk_types.h"
+#include "world/surface_types.h"
 #include "world/terrain_types.h"
+#include "world/world_cell.h"
 
 #include <stddef.h>
 
@@ -87,6 +89,22 @@ typedef struct CgaContext {
     bool (*regionClear)(void *userData, CgaScope region, uint64_t excludedFeature);
 } CgaContext;
 
+/* Planning sampling is supplied by the active terrain backend. Coordinates are
+ * canonical map coordinates, but callers need not expose map chunk identity. */
+typedef struct CgaTerrainSample {
+    int height;
+    Biome biome;
+} CgaTerrainSample;
+
+typedef bool (*CgaTerrainSampleFn)(void *userData, int x, int z,
+                                   TerrainMode mode,
+                                   CgaTerrainSample *outSample);
+
+/* Visit the final block writes in evaluation order. Addresses are the common
+ * surface identity; the caller decides which backing chunk consumes them. */
+typedef bool (*CgaSurfaceCellVisitor)(void *userData, SurfaceAddress address,
+                                      BlockType block);
+
 void CgaWorkspaceReset(CgaWorkspace *workspace);
 bool CgaScopeValid(CgaScope scope);
 bool CgaScopeSplit(CgaScope parent, CgaAxis axis, const int *sizes,
@@ -103,12 +121,20 @@ bool CgaPlanHouseFeatures(CgaWorkspace *workspace, int cx, int cz,
                           TerrainMode mode, const CgaContext *context);
 bool CgaPlanStructureFeatures(CgaWorkspace *workspace, int cx, int cz,
                               TerrainMode mode, const CgaContext *context);
+bool CgaPlanStructureFeaturesForBounds(
+    CgaWorkspace *workspace, int minX, int minZ, int maxX, int maxZ,
+    uint32_t worldSeed, TerrainMode mode, const CgaContext *context,
+    CgaTerrainSampleFn sample, void *sampleUserData);
 bool CgaExpandHouse(CgaWorkspace *workspace, CgaFeature feature);
 bool CgaExpandFeature(CgaWorkspace *workspace, CgaFeature feature);
 bool CgaAppendOp(CgaWorkspace *workspace, CgaOpKind kind, CgaStage stage,
                  int priority, CgaFeature feature, CgaScope scope, BlockType material);
 void CgaSortOps(CgaWorkspace *workspace);
 bool CgaEvaluateChunk(Chunk *chunk, int cx, int cz, CgaWorkspace *workspace);
+bool CgaVisitSurfaceCells(CgaWorkspace *workspace, uint32_t bodyId,
+                          int minX, int minZ, int maxX, int maxZ,
+                          int minY, int maxY,
+                          CgaSurfaceCellVisitor visitor, void *userData);
 
 /* Generates the first CGA-backed structure set for a Homeworld chunk. */
 bool CgaGenerateHouseFeatures(Chunk *chunk, int cx, int cz, TerrainMode mode,
