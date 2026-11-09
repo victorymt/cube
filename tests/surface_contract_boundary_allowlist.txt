@@ -19,3 +19,4 @@ src/app/game_save.c|SURFACE_TOPOLOGY_CUBE_GRID
 src/app/game_stream_audit.c|FindChunk
 src/app/game_stream_audit.c|WorldToChunkLocal
 src/app/game_debug_topology.c|WorldCube
+src/app/game_save.c|WorldCube

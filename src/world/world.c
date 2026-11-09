@@ -18,6 +18,7 @@
 #include "world/world_surface_snapshot.h"
 #include "world/world_extension.h"
 #include "world/world_persistence.h"
+#include "world/fluid.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -610,6 +611,8 @@ typedef struct BlockUndo {
     int z;
     BlockType prev;
     BlockType next;
+    uint8_t prevVolume;
+    uint8_t nextVolume;
     FluidBlockDisplacement fluidDisplacement;
     bool groupStart;
 } BlockUndo;
@@ -647,6 +650,7 @@ void WorldEndUndoGroup(void)
 
 static void PushBlockUndo(
     int x, int y, int z, BlockType prev, BlockType next,
+    uint8_t prevVolume, uint8_t nextVolume,
     const FluidBlockDisplacement *fluidDisplacement)
 {
     BlockUndo entry = {
@@ -655,6 +659,8 @@ static void PushBlockUndo(
         .z = z,
         .prev = prev,
         .next = next,
+        .prevVolume = prevVolume,
+        .nextVolume = nextVolume,
         .groupStart = !undoGroupActive || pendingGroupStart
     };
     if (fluidDisplacement) {
@@ -705,6 +711,26 @@ void WorldReset(uint32_t seed)
     WorldSetSeed(seed);
 }
 
+static bool UndoRestoreVolume(int x, int y, int z, uint8_t volume)
+{
+    return !WorldIsSurfaceActive() || FluidSetVolumeAt(x, y, z, volume);
+}
+
+static bool UndoSetCell(int x, int y, int z, BlockType type,
+                        uint8_t volume,
+                        const FluidBlockDisplacement *replay, bool after)
+{
+    if (!SetBlockNoUndoReplay(x, y, z, type, replay, after)) return false;
+    if (!UndoRestoreVolume(x, y, z, volume)) {
+        /* Best-effort reversal keeps a failed volume restore from leaving the
+         * block half-applied. The group caller owns broader rollback. */
+        (void)SetBlockNoUndoReplay(x, y, z, type == BLOCK_AIR ? BLOCK_AIR : type,
+                                   NULL, false);
+        return false;
+    }
+    return true;
+}
+
 bool UndoBlockEdit(void)
 {
     if (undoCount <= 0) return false;
@@ -722,18 +748,19 @@ bool UndoBlockEdit(void)
         const FluidBlockDisplacement *replay =
             undoStack[i].fluidDisplacement.count > 0u
                 ? &undoStack[i].fluidDisplacement : NULL;
-        if (!SetBlockNoUndoReplay(
+        if (!UndoSetCell(
                 undoStack[i].x, undoStack[i].y, undoStack[i].z,
-                undoStack[i].prev, replay, false)) {
+                undoStack[i].prev, undoStack[i].prevVolume,
+                replay, false)) {
             int rollback = (i + 1) % UNDO_STACK_CAPACITY;
             for (int restored = 0; restored < groupSize; restored++) {
                 const FluidBlockDisplacement *rollbackReplay =
                     undoStack[rollback].fluidDisplacement.count > 0u
                         ? &undoStack[rollback].fluidDisplacement : NULL;
-                SetBlockNoUndoReplay(
+                (void)UndoSetCell(
                     undoStack[rollback].x, undoStack[rollback].y,
                     undoStack[rollback].z, undoStack[rollback].next,
-                    rollbackReplay, true);
+                    undoStack[rollback].nextVolume, rollbackReplay, true);
                 rollback = (rollback + 1) % UNDO_STACK_CAPACITY;
             }
             return false;
@@ -770,18 +797,19 @@ bool RedoBlockEdit(void)
         const FluidBlockDisplacement *replay =
             redoStack[i].fluidDisplacement.count > 0u
                 ? &redoStack[i].fluidDisplacement : NULL;
-        if (!SetBlockNoUndoReplay(
+        if (!UndoSetCell(
                 redoStack[i].x, redoStack[i].y, redoStack[i].z,
-                redoStack[i].next, replay, true)) {
+                redoStack[i].next, redoStack[i].nextVolume,
+                replay, true)) {
             int rollback = (i + 1) % UNDO_STACK_CAPACITY;
             for (int restored = 0; restored < groupSize; restored++) {
                 const FluidBlockDisplacement *rollbackReplay =
                     redoStack[rollback].fluidDisplacement.count > 0u
                         ? &redoStack[rollback].fluidDisplacement : NULL;
-                SetBlockNoUndoReplay(
+                (void)UndoSetCell(
                     redoStack[rollback].x, redoStack[rollback].y,
                     redoStack[rollback].z, redoStack[rollback].prev,
-                    rollbackReplay, false);
+                    redoStack[rollback].prevVolume, rollbackReplay, false);
                 rollback = (rollback + 1) % UNDO_STACK_CAPACITY;
             }
             return false;
@@ -913,6 +941,8 @@ static bool SetBlockCore(
     if (worldExtensionHooks.canSetBlock && !worldExtensionHooks.canSetBlock(x, y, z, type)) return false;
 
     BlockType previous = GetSurfaceBlockAt(x, y, z);
+    uint8_t previousVolume = WorldIsSurfaceActive()
+        ? FluidGetVolumeAt(x, y, z) : 0u;
     int cx = 0;
     int cz = 0;
     int lx = 0;
@@ -953,8 +983,11 @@ static bool SetBlockCore(
     RememberBlockEdit(x, y, z, persistedType);
     if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
     else TorchLightRemove(x, y, z);
-    if (recordUndo && previous != type) {
-        PushBlockUndo(x, y, z, previous, type,
+    uint8_t nextVolume = WorldIsSurfaceActive()
+        ? FluidGetVolumeAt(x, y, z) : 0u;
+    if (recordUndo &&
+        (previous != type || previousVolume != nextVolume)) {
+        PushBlockUndo(x, y, z, previous, type, previousVolume, nextVolume,
                       displacement.count > 0u ? &displacement : NULL);
     }
     return true;
@@ -1037,7 +1070,7 @@ bool SetBlock(int x, int y, int z, BlockType type)
     WorldBlockRegion region = WorldBlockRegionAt(y);
     if (region == WORLD_BLOCK_REGION_SPACE) {
         BlockType previous = SpaceBlockAt(x, y, z);
-        if (previous != type) PushBlockUndo(x, y, z, previous, type, NULL);
+        if (previous != type) PushBlockUndo(x, y, z, previous, type, 0u, 0u, NULL);
         SpaceSetBlock(x, y, z, type);
         if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
         else TorchLightRemove(x, y, z);
@@ -1045,7 +1078,7 @@ bool SetBlock(int x, int y, int z, BlockType type)
         return false;
     } else if (region == WORLD_BLOCK_REGION_NETHER) {
         BlockType previous = NetherBlockAt(x, y, z);
-        if (previous != type) PushBlockUndo(x, y, z, previous, type, NULL);
+        if (previous != type) PushBlockUndo(x, y, z, previous, type, 0u, 0u, NULL);
         NetherSetBlock(x, y, z, type);
         if (type == BLOCK_TORCH) TorchLightAdd(x, y, z);
         else TorchLightRemove(x, y, z);

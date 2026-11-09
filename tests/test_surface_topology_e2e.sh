@@ -7,9 +7,9 @@ if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" || -z "${WAYLAND_DISPLAY:-}" ||
     echo 'an active Hyprland/Wayland session is required' >&2
     exit 2
 fi
-runtime_dir=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-topology-v29.XXXXXX")
+runtime_dir=$(mktemp -d "${TMPDIR:-/tmp}/voxelcraft-topology-v30.XXXXXX")
 ln -s "$(pwd)/assets" "$runtime_dir/assets"
-printf 'topology V29 replay artifacts: %s\n' "$runtime_dir"
+printf 'topology V30 replay artifacts: %s\n' "$runtime_dir"
 command_timeout=${TOPOLOGY_E2E_TIMEOUT:-120}
 printf 'assert settings.autosave == false\n' > "$runtime_dir/start.dsl"
 coproc GAME_PROCESS {
@@ -85,26 +85,26 @@ from pathlib import Path
 import struct, sys
 p = Path(sys.argv[1])
 data = (p / 'planet.save').read_bytes()
-assert data[:19] == b'VOXELCRAFT_SAVE_V29'
-assert data[19:27] == b'TOPOL001'
+assert data[:19] == b'VOXELCRAFT_SAVE_V30'
+assert data[19:27] == b'TOPOL002'
 assert struct.unpack_from('<4I', data, 27) == (1, 1, 1, 1)
-for version in range(18, 29):
+for version in range(18, 30):
     (p / f'v{version}.save').write_bytes(f'VOXELCRAFT_SAVE_V{version}'.encode() + data[43:])
-for name, offset, value in [('cube', 35, 2), ('unknown', 35, 99), ('version', 39, 2)]:
+for name, offset, value in [('unknown', 35, 99), ('version', 39, 2)]:
     buf = bytearray(data)
     struct.pack_into('<I', buf, offset, value)
     (p / f'{name}.save').write_bytes(buf)
 (p / 'truncated.save').write_bytes(data[:35])
 (p / 'late.save').write_bytes((p / 'home.save').read_bytes()[:-1])
 PY
-for version in {18..28}; do
+for version in {18..29}; do
     cp "$runtime_dir/v${version}.save" "$runtime_dir/voxelcraft_save.txt"
     reject_load 'unsupported save format\.'
     cmp "$runtime_dir/v${version}.save" "$runtime_dir/voxelcraft_save.txt"
 done
-for case in cube unknown version truncated; do
+for case in unknown version truncated; do
     cp "$runtime_dir/$case.save" "$runtime_dir/voxelcraft_save.txt"
-    reject_load '(cube-grid topology|unknown surface topology|topology metadata)'
+    reject_load '(unknown surface topology|topology metadata)'
     cmp "$runtime_dir/$case.save" "$runtime_dir/voxelcraft_save.txt"
 done
 run_command 'assert world.dimension == "planet" && world.surface_body == planet_body && player.position == planet_pose'
@@ -114,7 +114,7 @@ cmp "$runtime_dir/planet.save" "$runtime_dir/voxelcraft_save.txt"
 # This file passes preflight, restores Home subsystems, then fails at the trailer.
 # The transaction must restore the live planet and both bodies' edit records.
 cp "$runtime_dir/late.save" "$runtime_dir/voxelcraft_save.txt"
-reject_load 'spherical save state is corrupted\.'
+reject_load 'collected material fractions are corrupted\.'
 run_command 'assert world.dimension == "planet" && world.surface_body == planet_body && player.position == planet_pose'
 run_command 'assert world.surface_topology == "legacy-map" && world.surface_topology_version == 1'
 save_world
@@ -141,4 +141,4 @@ run_command 'assert world.surface_topology == "legacy-map" && world.surface_topo
 send_command 'exit 0'
 wait_for_reply '^DEBUG_SCRIPT exit code=0$'
 wait "$game_pid"
-printf '%s\n' 'topology V29 replay passed: round trips, retired/unsupported headers, late rollback, non-surface save'
+printf '%s\n' 'topology V30 replay passed: round trips, retired/unsupported headers, late rollback, non-surface save'

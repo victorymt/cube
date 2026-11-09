@@ -39,7 +39,7 @@ the homeworld terrain model.
 payload after the weather-impact state. V22 retained that payload and added the
 [hydrology state](11-hydrology-runtime-integration.md). V23 added a homeworld daylight anchor. The current writer retains these
 payloads; see the [persistence index](README.md#implementation-verification-and-limits)
-for the current format and later additions. V29 is now the only accepted world
+for the current format and later additions. V30 is now the only accepted world
 format. Historical subsystem tests retain the V18-V20 reset and V21 corruption
 cases; those fixtures do not imply whole-file compatibility. Invalid retained
 radiation payloads still fail transactionally, and trailing bytes are rejected.

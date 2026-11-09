@@ -27,7 +27,7 @@ simulation state or consume randomness.
 World format V23 introduced an ECL1 homeworld daylight anchor before the spherical
 trailer (which must remain at EOF). The double anchor is stable between explicit
 clock changes, so sampling an earlier time does not drift as frames advance.
-V29 retains this anchor and is the only accepted world format; the historical
+V30 retains this anchor and is the only accepted world format; the historical
 missing-clock reset applies only to subsystem fixtures. Successful F9 and DSL
 loads synchronize both the daylight state
 and fixed clock to the restored Space elapsed time. Day-cycle toggle history is

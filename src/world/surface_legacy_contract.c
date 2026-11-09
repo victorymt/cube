@@ -1,6 +1,7 @@
 #include "world/surface_legacy_contract.h"
 
 #include "world/block_edits.h"
+#include "world/fluid.h"
 #include "world/chunks.h"
 #include "world/surface_contract_internal.h"
 #include "world/surface_topology.h"
@@ -200,19 +201,31 @@ static bool LegacyCellRead(const SurfaceContract *contract,
 {
     if (!outCell || !LegacyAddressMatches(contract, address)) return false;
     LegacyContract *legacy = contract->implementation;
-    if (LegacyCellEdit(legacy, address, outCell)) return true;
     int x, z, cx, cz, lx, lz;
     if (!LegacyMapCoordinates(legacy, address, &x, &z)) return false;
     WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
     Chunk *chunk = FindChunk(cx, cz);
-    if (!chunk || !chunk->loaded) return false;
-    if (ChunkTryGetLocalCell(chunk, lx, address.radial, lz, outCell)) {
-        return true;
+    if (!chunk || !chunk->loaded) {
+        if (!LegacyCellEdit(legacy, address, outCell)) return false;
+    } else if (!ChunkTryGetLocalCell(chunk, lx, address.radial, lz,
+                                     outCell)) {
+        if (!ChunkTerrainSectionIsResolved(
+                chunk, SurfaceSectionYFromBlockY(address.radial)) &&
+            !LegacyCellEdit(legacy, address, outCell)) return false;
+        if (!ChunkTerrainSectionIsResolved(
+                chunk, SurfaceSectionYFromBlockY(address.radial))) {
+            outCell->waterVolume = 0u;
+            return WorldCellIsValid(*outCell);
+        }
+        WorldCell edited;
+        *outCell = LegacyCellEdit(legacy, address, &edited)
+            ? edited : (WorldCell){ BLOCK_AIR, 0u };
     }
-    if (!ChunkTerrainSectionIsResolved(
-            chunk, SurfaceSectionYFromBlockY(address.radial))) return false;
-    *outCell = (WorldCell){ BLOCK_AIR, 0u };
-    return true;
+    if (address.bodyId == contract->bodyId &&
+        address.bodyId == WorldCurrentSurfaceId()) {
+        outCell->waterVolume = FluidGetVolumeAt(x, address.radial, z);
+    }
+    return WorldCellIsValid(*outCell);
 }
 
 static bool LegacyCellWrite(const SurfaceContract *contract,
@@ -228,6 +241,9 @@ static bool LegacyCellWrite(const SurfaceContract *contract,
     Chunk *chunk = FindChunk(cx, cz);
     if (!chunk || !chunk->loaded ||
         !ChunkSetLocalCell(chunk, lx, address.radial, lz, cell)) return false;
+    if (!FluidSetVolumeAt(x, address.radial, z, cell.waterVolume)) {
+        return false;
+    }
     MarkChunkDirtyAtBlock(x, address.radial, z);
     return true;
 }

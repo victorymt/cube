@@ -13,6 +13,23 @@
 #include <stdio.h>
 #include <string.h>
 
+uint8_t FluidGetVolumeAt(int x, int y, int z)
+{
+    int cx, cz, lx, lz;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    Chunk *chunk = FindChunk(cx, cz);
+    return chunk ? ChunkGetLocalWaterVolume(chunk, lx, y, lz) : 0u;
+}
+
+bool FluidSetVolumeAt(int x, int y, int z, uint8_t volume)
+{
+    int cx, cz, lx, lz;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    Chunk *chunk = FindChunk(cx, cz);
+    return chunk && chunk->loaded &&
+        ChunkSetLocalWaterVolume(chunk, lx, y, lz, volume);
+}
+
 static WorldSurfaceSnapshot Snapshot(WorldSurfaceKind kind,
                                      SurfaceTopologyVersion topology,
                                      uint32_t bodyId, uint32_t seed,
@@ -204,9 +221,8 @@ static void TestCubeContract(void)
                                      (WorldCell){ BLOCK_BRICK, 255u }));
     assert(SurfaceContractCellRead(contract, address, &cell));
     assert(cell.block == BLOCK_GOLD_ORE && cell.waterVolume == 0u);
-    WorldCubeClearEdits();
-    assert(ChunkSetLocalCell(chunk, 8, 8, 8,
-                             (WorldCell){ BLOCK_AIR, 128u }));
+    assert(SurfaceContractCellWrite(contract, address,
+                                    (WorldCell){ BLOCK_AIR, 128u }));
     assert(SurfaceContractCellRead(contract, address, &cell));
     assert(cell.block == BLOCK_AIR && cell.waterVolume == 128u);
 

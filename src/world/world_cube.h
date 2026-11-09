@@ -5,6 +5,7 @@
 #include "world/chunk_types.h"
 #include "world/world_location.h"
 #include "world/surface_pose.h"
+#include "world/world_cell.h"
 
 #define WORLD_CUBE_MAX_EDITS (1u << 20)
 
@@ -12,11 +13,16 @@
 // Home uses body 0; planetary bodies are nonzero. Space/Nether use their own
 // Cartesian stores. Disk persistence/undo are not yet connected to this API.
 bool WorldCubeSetBlock(WorldBlockAddress address, BlockType type);
+bool WorldCubeSetCell(WorldBlockAddress address, WorldCell cell);
 // Returns false for unknown/unresolved terrain; never invents air there.
 bool WorldCubeBlockAt(WorldBlockAddress address, BlockType *outType);
+bool WorldCubeCellAt(WorldBlockAddress address, WorldCell *outCell);
 bool WorldCubeGetEdit(WorldBlockAddress address, BlockType *outType);
+bool WorldCubeGetEditCell(WorldBlockAddress address, WorldCell *outCell);
 unsigned WorldCubeEditCount(void);
 bool WorldCubeEditAt(unsigned index, WorldBlockAddress *outAddress, BlockType *outType);
+bool WorldCubeCellEditAt(unsigned index, WorldBlockAddress *outAddress,
+                         WorldCell *outCell);
 void WorldCubeClearEdits(void);
 #ifdef CHUNKS_TESTING
 void WorldCubeTestFailNextReserve(void);

@@ -31,7 +31,7 @@ static WorldBlockAddress SurfaceCell(uint32_t body, SurfaceFace face, int u,
 static void TestRoundTrip(void)
 {
     WorldBlockAddress addresses[5];
-    BlockType types[5];
+    WorldCell cells[5];
     addresses[0] = SurfaceCell(0, SURFACE_FACE_POS_X, 12, 34, 56);
     addresses[1] = SurfaceCell(0, SURFACE_FACE_NEG_Y, 4095, 4095, -200);
     addresses[2] = SurfaceCell(991, SURFACE_FACE_POS_Y, 0, 4095, 7);
@@ -43,10 +43,16 @@ static void TestRoundTrip(void)
     addresses[4].at.cartesian.x = 1;
     addresses[4].at.cartesian.y = -60;
     addresses[4].at.cartesian.z = 3;
-    for (int i = 0; i < 5; i++) types[i] = (BlockType)(BLOCK_STONE + i);
+    for (int i = 0; i < 5; i++) {
+        cells[i] = (WorldCell){ (BlockType)(BLOCK_STONE + i), 0u };
+    }
+    cells[1].block = BLOCK_AIR;
+    cells[1].waterVolume = 127u;
+    cells[2].block = BLOCK_REED;
+    cells[2].waterVolume = WORLD_CELL_WATER_FULL;
 
     FILE *file = TempFile();
-    CubeAddressBlock block = {.addresses = addresses, .types = types, .count = 5};
+    CubeAddressBlock block = {.addresses = addresses, .cells = cells, .count = 5};
     assert(CubeAddressSaveWrite(file, &block));
     rewind(file);
 
@@ -62,7 +68,7 @@ static void TestRoundTrip(void)
     assert(loaded.count == 5);
     for (uint32_t i = 0; i < 5; i++) {
         assert(WorldBlockAddressEqual(loaded.addresses[i], addresses[i]));
-        assert(loaded.types[i] == types[i]);
+        assert(WorldCellEqual(loaded.cells[i], cells[i]));
     }
     CubeAddressBlockRelease(&loaded);
     fclose(file);
@@ -98,9 +104,9 @@ static void TestWrongVersionRejected(void)
 static void TestTruncatedRejected(void)
 {
     WorldBlockAddress address = SurfaceCell(0, SURFACE_FACE_POS_Z, 1, 2, 3);
-    BlockType type = BLOCK_STONE;
+    WorldCell cell = { BLOCK_STONE, 0u };
     FILE *file = TempFile();
-    CubeAddressBlock block = {.addresses = &address, .types = &type, .count = 1};
+    CubeAddressBlock block = {.addresses = &address, .cells = &cell, .count = 1};
     assert(CubeAddressSaveWrite(file, &block));
     fflush(file);
     /* Chop the final byte; a partial record must never be accepted. */
@@ -116,10 +122,41 @@ static void TestTruncatedRejected(void)
 static void TestInvalidAddressRejectedOnWrite(void)
 {
     WorldBlockAddress bad = SurfaceCell(0, SURFACE_FACE_POS_X, -1, 0, 0);
-    BlockType type = BLOCK_STONE;
+    WorldCell cell = { BLOCK_STONE, 0u };
     FILE *file = TempFile();
-    CubeAddressBlock block = {.addresses = &bad, .types = &type, .count = 1};
+    CubeAddressBlock block = {.addresses = &bad, .cells = &cell, .count = 1};
     assert(!CubeAddressSaveWrite(file, &block));
+    fclose(file);
+}
+
+static void TestInvalidCellRejectedOnWrite(void)
+{
+    WorldBlockAddress address = SurfaceCell(0, SURFACE_FACE_POS_X, 1, 2, 3);
+    WorldCell solidWater = { BLOCK_STONE, WORLD_CELL_WATER_FULL };
+    FILE *file = TempFile();
+    CubeAddressBlock block = {
+        .addresses = &address, .cells = &solidWater, .count = 1
+    };
+    assert(!CubeAddressSaveWrite(file, &block));
+    assert(ftell(file) == CUBE_ADDRESS_SAVE_HEADER_BYTES);
+    fclose(file);
+}
+
+static void TestInvalidVolumeRejectedOnRead(void)
+{
+    WorldBlockAddress address = SurfaceCell(0, SURFACE_FACE_POS_X, 1, 2, 3);
+    WorldCell cell = { BLOCK_STONE, 0u };
+    FILE *file = TempFile();
+    CubeAddressBlock block = { .addresses = &address, .cells = &cell, .count = 1 };
+    assert(CubeAddressSaveWrite(file, &block));
+    fflush(file);
+    long volumeOffset = CUBE_ADDRESS_SAVE_HEADER_BYTES + 24;
+    unsigned char invalid[4] = { 0xff, 0, 0, 0 };
+    assert(fseek(file, volumeOffset, SEEK_SET) == 0);
+    assert(fwrite(invalid, 1, sizeof(invalid), file) == sizeof(invalid));
+    rewind(file);
+    CubeAddressBlock loaded;
+    assert(!CubeAddressSaveRead(file, &loaded));
     fclose(file);
 }
 
@@ -142,9 +179,9 @@ static void TestColourBlockRoundTrip(void)
 {
     WorldBlockAddress address = { .dimension = WORLD_DIMENSION_HOME };
     address.at.surface = (SurfaceAddress){ 0, SURFACE_FACE_POS_X, 10, 20, 5 };
-    BlockType colour = (BlockType)BLOCK_COLOR_START;
+    WorldCell colour = { (BlockType)BLOCK_COLOR_START, 0u };
     CubeAddressBlock block = { .count = 1u, .addresses = &address,
-                               .types = &colour };
+                               .cells = &colour };
 
     FILE *file = tmpfile();
     assert(file);
@@ -154,7 +191,7 @@ static void TestColourBlockRoundTrip(void)
     CubeAddressBlock read = { 0 };
     assert(CubeAddressSaveRead(file, &read));
     assert(read.count == 1u);
-    assert(read.types[0] == colour);
+    assert(WorldCellEqual(read.cells[0], colour));
     CubeAddressBlockRelease(&read);
     fclose(file);
 }
@@ -167,6 +204,8 @@ int main(void)
     TestWrongVersionRejected();
     TestTruncatedRejected();
     TestInvalidAddressRejectedOnWrite();
+    TestInvalidCellRejectedOnWrite();
+    TestInvalidVolumeRejectedOnRead();
     TestEmptyBlock();
     puts("cube address save tests passed");
     return 0;

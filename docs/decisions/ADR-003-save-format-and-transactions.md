@@ -1,4 +1,4 @@
-# ADR-003: 存档只接受 V29，写入走原子替换与事务读
+# ADR-003: 存档只接受 V30，写入走原子替换与事务读
 
 ## 状态
 已采纳
@@ -8,7 +8,7 @@
 
 ## 背景
 
-存档是整世界的序列化结果，包含地形版本、种子、玩家状态、各维度编辑、生态时钟、火山与熔岩运行时、库存余数和球面 trailer。字段布局一路演进到 V29，`src/world/save_format.h` 里仍留着 V18 到 V28 的枚举值，但文件头注释写明：这些值只描述子系统单测用的历史夹具，游戏读取端只接受 V29。
+存档是整世界的序列化结果，包含地形版本、种子、canonical `SurfacePose`、各维度完整 `WorldCell` 编辑、生态时钟、火山与熔岩运行时和库存余数。字段布局演进到 V30；`src/world/save_format.h` 保留 V18–V29 枚举值，只用于历史子系统夹具，游戏读取端只接受 V30。
 
 两条硬约束决定了这个格式。第一，读端的每个字段都必须对应一个确定的语义，一旦字段布局变了，旧文件的字节流就无法再被同一套读取代码解释。第二，读过程会先动运行时状态再继续解析，中途失败时世界已经改了一半，不能只报个错就留在半成品状态。
 
@@ -16,11 +16,11 @@
 
 ## 决策
 
-游戏存档只写 V29、只读 V29，读到其它版本直接拒绝，不做迁移；写入用“临时文件 + fsync + 备份 + rename”原子替换，读取用“checkpoint + 失败重放”的事务。
+游戏存档只写 V30、只读 V30，读到 V29 及更早版本直接拒绝，不做迁移；写入用“临时文件 + fsync + 备份 + rename”原子替换，读取用“checkpoint + 失败重放”的事务。
 
-`WorldSaveReadHeader` 先比对 `VOXELCRAFT_SAVE_V29` 这个 19 字节 magic，不匹配就返回 `"Load failed: unsupported save format. V28 and older are retired; start a new world."`。magic 之后是 24 字节的 `TOPOL001` 块，记录 home 与 planets 两条表面拓扑的 kind 和 version；先按 wire 整数范围校验，再转成枚举，避免把越界整数直接当枚举值用。mixed policy 是合法输入；只要任一表面是 cube，仍要求 `WorldCubeRuntimeEnabled()` 为真，否则返回 `"Load failed: cube-grid topology is not supported by this runtime."`。
+`WorldSaveReadHeader` 先比对 `VOXELCRAFT_SAVE_V30` 这个 19 字节 magic，不匹配就返回 `"Load failed: unsupported save format. V29 and older are retired; start a new world."`。magic 之后是 24 字节的 `TOPOL002` 块，逐表面记录 home/planets topology。V30 读档不再依赖进程启动时打开的 cube debug gate；读取策略后由事务安装阶段打开对应后端，使 fresh process 可以直接恢复 cube Homeworld。
 
-写头部的 `WorldSaveWriteHeader` 只要求策略可表达：home 与 planets 可以各自 legacy 或 cube，也可以混用。这里刻意不查运行时门控，因为写档必须忠实记录当前策略；门控属于读档与安装边界。
+写头部的 `WorldSaveWriteHeader` 只要求策略可表达：home 与 planets 可以各自 legacy 或 cube，也可以混用。写档忠实记录当前策略；读档事务负责安装并打开所需后端。
 
 `SaveIoWriteAtomic` 在目标路径旁 `mkstemp` 出 `<path>.tmp.XXXXXX`，写完后 `fflush`、`fsync`、`fclose`，再用同样方式把旧文件复制成备份，最后 `rename` 临时文件到目标并 `fsync` 父目录。`SaveIoWriteAtomic(path, backupPath, writer, context)` 的 writer 回调是 `GameSaveWriteFile`，`SaveIoReadTransactional(source, checkpointWriter, reader, context)` 的 checkpoint 就是同一个 writer。
 
@@ -45,23 +45,26 @@
 
 ## 后果
 
-- 存档格式版本与地形生成版本互不影响：V29 文件里另存一个地形版本字段，载入时校验它落在 `TERRAIN_GENERATION_MIN` 到 `TERRAIN_GENERATION_CURRENT` 之间，和存档版本不是同一个数。
+- 存档格式版本与地形生成版本互不影响：V30 文件里另存一个地形版本字段，载入时校验它落在 `TERRAIN_GENERATION_MIN` 到 `TERRAIN_GENERATION_CURRENT` 之间，和存档版本不是同一个数。
 - 载入被拒绝时不产生副作用：`GameLoadMap` 先查 magic 和拓扑，再 `fseek` 回 0，然后才取 checkpoint。头不对就直接关文件，运行时的瞬态状态没有被重置。
 - 载入前先用 `fstat` 检查大小上限 `SAVE_MAX_FILE_BYTES`（256 MiB），超限直接报 `"Load failed: save file is too large or unreadable."`，避免为一个坏文件先付一次 checkpoint 的代价。
-- 读取时 `GameLoadApplyFile` 把格式常量写死为 `WORLD_SAVE_FORMAT_V29`，所以 `WorldSaveFormatHas*` 那组谓词在游戏路径上恒为真，只服务于测试夹具。
+- 读取时 `GameLoadApplyFile` 把格式常量写死为 `WORLD_SAVE_FORMAT_V30`；扩展 payload 谓词在游戏路径上恒为真，只服务于历史夹具。
 - 备份是一次完整复制，`CopyFileAtomic` 走临时文件加 rename，并且源文件不存在时返回真，因此首次存档没有旧文件也能成功。
 - 代价是每次存档要写两份数据并 `fsync` 两次，存档越大越慢；这是换取“旧文件不被写坏”的成本。
 - 代价是拒绝旧存档意味着旧世界直接打不开，只能看到那句提示并开新世界。开发阶段接受这个代价。
 - 仓库仍容忍的一点：`save_format.h` 继续保留 V18–V28 枚举值与 `WorldSaveFormatHas*` 谓词，它们描述的是历史夹具而不是可读格式。现状见 [STATUS.md](../../STATUS.md)。
-- 验证方式：`make test` 覆盖 `test_save_io`、`test_save_format`、`test_game_save_spherical`；只跑存档 IO 时用 `make build/normal/tests/test_save_io && ./build/normal/tests/test_save_io`。写入与读回的端到端路径由 `make test-cube-save-reload` 走 `tests/cube_save_reload_tool.c`。
+- 验证方式：`make test` 覆盖 `test_save_io`、`test_save_format`、`test_game_save_spherical`；`make test-cube-save-reload` 验证 codec 跨进程；`make test-cube-v30-reload-e2e` 验证 fresh process 从 V30 恢复 cube Homeworld；`make test-v30-cell-reload-e2e` 验证 plant/water 完整 cell 与 undo/redo。
 
 ## 证据
-- `src/world/save_format.h`：`WorldSaveFormat` 枚举、`WORLD_SAVE_FORMAT_V29`、`WorldSaveFormatRead` 上方关于历史枚举值的注释
-- `src/world/save_format.c`：`SAVE_MAGIC_V29`、`SAVE_MAGIC_LENGTH`、`WorldSaveFormatRead`、`WorldSaveFormatWriteCurrent`、`WorldSaveWriteHeader` 的 `WorldSurfaceTopologyPolicyIsSupported` 检查、`WorldSaveReadHeader` 的 `TOPOL001` 校验与 `WorldCubeRuntimeEnabled()` 门控、错误字符串
+- `src/world/save_format.h`：`WorldSaveFormat` 枚举、`WORLD_SAVE_FORMAT_V30`、历史枚举值注释
+- `src/world/save_format.c`：`SAVE_MAGIC_V30`、`TOPOL002`、逐表面 topology 校验、V29 及更早拒绝
+- `src/world/cube_address_save.h/.c`：`CUBADDR2`、完整 `WorldCell` 记录、无效 volume/solid-water 拒绝
+- `src/app/game_save.c`：canonical `SurfacePose` 编解码、fresh-process topology 安装、统一 cell edit block、volume-aware undo/redo
 - `src/core/save_io.h`：`SaveIoWriter`、`SaveIoReader`、`SaveIoTransactionResult`、两个函数注释
 - `src/core/save_io.c`：`SyncParentDirectory`、`CopyFileAtomic`、`SaveIoWriteAtomic`、`SaveIoReadTransactional`
-- `src/app/game_save.c`：`SAVE_FILE_BAK`、`SAVE_MAX_FILE_BYTES`、`GameSaveMap`、`GameSaveWriteFile`、`GameSaveCheckpoint`、`GameLoadApplyFile` 里的 `const WorldSaveFormat format = WORLD_SAVE_FORMAT_V29`、`GameLoadMap`
+- `src/app/game_save.c`：`SAVE_FILE_BAK`、`SAVE_MAX_FILE_BYTES`、`GameSaveMap`、`GameSaveWriteFile`、`GameSaveCheckpoint`、`GameLoadApplyFile` 的 `WORLD_SAVE_FORMAT_V30`、`GameLoadMap`
 - `src/core/config.h`：`SAVE_FILE`
 - `tests/test_save_io.c`：`TestAtomicReplacement`、`TestFailedWritePreservesDestination`、`TestTransactionalReadCommits`、`TestTransactionalReadRollsBackPartialMutation`、`TestTransactionalReadReportsRollbackFailure`
-- `tests/test_save_format.c`：V28 与更早的 magic 读到 `WORLD_SAVE_FORMAT_UNSUPPORTED`，同时谓词仍为真
-- `docs/cube-contract.md`：版本矩阵里“世界存档 V29、只接受 V29、布局改变即升到 V30”
+- `tests/test_save_format.c`：V29 与更早 magic 被拒绝，V30 TOPOL002 头通过
+- `tests/test_cube_v30_reload_e2e.sh`、`tests/test_v30_cell_reload_e2e.sh`：fresh-process cube 与完整 cell/undo 回放
+- `docs/cube-contract.md`：版本矩阵里的 V30 契约

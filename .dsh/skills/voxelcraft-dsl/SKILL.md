@@ -115,3 +115,8 @@ M1 note: `stream.cube.*` remains an explicit backend diagnostic namespace. It
 may read cube coverage internals for debugging, but ordinary gameplay and
 presentation code must use `SurfaceContract` capabilities instead of branching
 on the topology kind.
+
+M3 adds the `cell` command group plus `undo`/`redo` statements. `cell inspect
+X Y Z` resolves through the active `SurfaceContract` and exposes block, water
+volume, submerged state and plant flood tolerance; update `docs/debug-dsl.md`
+and run `make docs-probe` when changing these names.

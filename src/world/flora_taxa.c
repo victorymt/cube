@@ -174,6 +174,39 @@ bool FloraTaxonIsTree(FloraTaxonId id)
                      taxon->growthForm == FLORA_GROWTH_CONIFER);
 }
 
+const char *FloraFloodToleranceName(FloraFloodTolerance tolerance)
+{
+    switch (tolerance) {
+    case FLORA_FLOOD_INTOLERANT: return "intolerant";
+    case FLORA_FLOOD_TOLERANT: return "tolerant";
+    case FLORA_FLOOD_AQUATIC: return "aquatic";
+    case FLORA_FLOOD_UNKNOWN:
+    default: return "unknown";
+    }
+}
+
+FloraFloodTolerance FloraFloodToleranceForBlock(BlockType block)
+{
+    FloraTaxonId id = FloraTaxonIdForBlock(block);
+    if (id >= FLORA_TAXON_COUNT) return FLORA_FLOOD_UNKNOWN;
+    const FloraTaxon *taxon = FloraTaxonAt(id);
+    if (!taxon) return FLORA_FLOOD_UNKNOWN;
+    switch (taxon->growthForm) {
+    case FLORA_GROWTH_REED:
+    case FLORA_GROWTH_MOSS:
+        return FLORA_FLOOD_TOLERANT;
+    case FLORA_GROWTH_FERN:
+    case FLORA_GROWTH_SHRUB:
+        return FLORA_FLOOD_TOLERANT;
+    case FLORA_GROWTH_BROADLEAF:
+    case FLORA_GROWTH_CONIFER:
+    case FLORA_GROWTH_GRASS:
+    case FLORA_GROWTH_SUCCULENT:
+    default:
+        return FLORA_FLOOD_INTOLERANT;
+    }
+}
+
 FloraTaxonId FloraTaxonIdForBlock(BlockType block)
 {
     for (int index = 0; index < FLORA_TAXON_COUNT; index++) {

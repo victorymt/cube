@@ -70,13 +70,13 @@ Current work, open blockers, and the activation target: see [STATUS.md](STATUS.m
   chunks use a 16-job worker queue that prioritizes the chunks nearest the
   player. Meshes are uploaded on the main thread so new areas stream in smoothly
   instead of hitching
-- Binary save format V29 persists the world seed, inventory, ship fuel and
+- Binary save format V30 persists canonical surface pose, complete cell edits, the world seed, inventory, ship fuel and
   locator, active dimension, planet-world context, entities, ecology state,
   the evolution catalog, weather impacts, radiation and hydrology runtime
   state, the homeworld daylight clock, volcano/lava/ash state, fractional material
   inventory, player-authored map markers and navigation target, and stable
   cube-sphere addresses for the player and every surface edit.
-  Only V29 world saves are accepted; V28 and older require a new world.
+  Only V30 world saves are accepted; V29 and older require a new world.
   The header records independent Homeworld and planetary topology versions.
   Both currently use legacy-map/1; cube-grid is defined but not enabled.
   The regional ecology payload has its own version (V7)
@@ -331,6 +331,8 @@ make test-chunk-diagnostics-e2e
 # Independent 600-frame polar route, also included in that CI job:
 make test-polar-e2e
 make test-cube-vertical-geometry-e2e
+make test-cube-v30-reload-e2e
+make test-v30-cell-reload-e2e
 ```
 
 The full route covers startup, materials and flora, weather and hazards,
@@ -466,7 +468,7 @@ after two ready frames or a timeout (300 frames by default, up to 3600).
 triangle counts; `water debug through on` draws those bounds through terrain
 for diagnosing hidden or overlapping water geometry.
 
-V29 topology/save regression under Hyprland: `make test-surface-topology-e2e`.
+V30 topology/save regression under Hyprland: `make test-surface-topology-e2e`; fresh cube reload: `make test-cube-v30-reload-e2e`; complete cell/undo reload: `make test-v30-cell-reload-e2e`.
 It checks Homeworld, planetary and space round trips, rejected headers, and
 transactional rollback in an isolated temporary directory.
 

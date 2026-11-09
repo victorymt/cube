@@ -34,6 +34,7 @@
 #include "world/world_environment.h"
 #include "world/world_surface_snapshot.h"
 #include "world/world_persistence.h"
+#include "world/fluid.h"
 #include "world/weather_impact.h"
 #include "world/volcano_runtime.h"
 #include "world/lava_runtime.h"
@@ -62,12 +63,9 @@ typedef struct LoadedGameSave {
     WorldSurfaceTopologyPolicy topologyPolicy;
     WorldDimension dimension;
     Player player;
-    int editCount;
-    BlockEdit *edits;
-    uint32_t *dimensions;
-    SurfaceAddress playerAddress;
-    SurfaceAddress *editAddresses;
-    SurfaceMapCell *editMapCells;
+    bool hasSurfacePose;
+    SurfacePose surfacePose;
+    CubeAddressBlock editBlock;
     ShipLocatorRecord shipLocator;
     MapMarkerState mapMarkers;
 } LoadedGameSave;
@@ -81,93 +79,84 @@ typedef struct GameLoadTransaction {
 static void LoadedGameSaveRelease(LoadedGameSave *data)
 {
     if (!data) return;
-    free(data->edits);
-    free(data->dimensions);
-    free(data->editAddresses);
-    free(data->editMapCells);
-    data->edits = NULL;
-    data->dimensions = NULL;
-    data->editAddresses = NULL;
-    data->editMapCells = NULL;
+    CubeAddressBlockRelease(&data->editBlock);
 }
 
-static bool GameSaveWriteEdits(FILE *file)
+static bool GameSaveWriteCellEdits(FILE *file)
 {
-    if (!file) return false;
-    int count = WorldGetEditCount();
-    if (count < 0) return false;
-    uint32_t editCount = (uint32_t)count;
-    if (fwrite(&editCount, sizeof(editCount), 1, file) != 1) return false;
-
-    for (int index = 0; index < count; index++) {
+    int legacyCount = WorldGetEditCount();
+    unsigned cubeCount = WorldCubeEditCount();
+    if (!file || legacyCount < 0 ||
+        (uint64_t)legacyCount + cubeCount > MAX_LOAD_EDIT_COUNT) return false;
+    CubeAddressBlock block = {
+        .count = (uint32_t)legacyCount + cubeCount
+    };
+    if (block.count > 0u) {
+        block.addresses = calloc(block.count, sizeof(*block.addresses));
+        block.cells = calloc(block.count, sizeof(*block.cells));
+        if (!block.addresses || !block.cells) {
+            CubeAddressBlockRelease(&block);
+            return false;
+        }
+    }
+    uint32_t out = 0u;
+    for (int index = 0; index < legacyCount; index++, out++) {
         const BlockEdit *edit = WorldGetEditAt(index);
-        if (!edit || fwrite(edit, sizeof(*edit), 1, file) != 1) return false;
+        uint32_t editBodyId = WorldGetEditDimensionAt(index);
+        WorldSurfaceContext context = WorldCurrentSurfaceContext();
+        bool currentSurface = context.active &&
+            editBodyId == context.bodyId;
+        WorldDimension dimension = currentSurface
+            ? (context.kind == WORLD_SURFACE_HOME
+                ? WORLD_DIMENSION_HOME : WORLD_DIMENSION_PLANET)
+            : (editBodyId == 0u
+                ? WORLD_DIMENSION_HOME : WORLD_DIMENSION_PLANET);
+        if (!edit) goto fail;
+        WorldBlockAddress address = { .dimension = dimension };
+        SurfaceMapCell mapCell = { 0 };
+        if (!WorldGetEditSurfaceAddressAt(index, &address.at.surface) ||
+            !WorldGetEditSurfaceMapCellAt(index, &mapCell)) goto fail;
+        WorldCell cell = WorldCellFromLegacyBlock(edit->type);
+        if (currentSurface) {
+            int localX = mapCell.x - WorldSurfaceMapOriginX();
+            int localZ = mapCell.z - WorldSurfaceMapOriginZ();
+            cell.waterVolume = FluidGetVolumeAt(localX, edit->y, localZ);
+        }
+        if (!WorldCellIsValid(cell)) goto fail;
+        block.addresses[out] = address;
+        block.cells[out] = cell;
     }
-    for (int index = 0; index < count; index++) {
-        uint32_t dimension = WorldGetEditDimensionAt(index);
-        if (fwrite(&dimension, sizeof(dimension), 1, file) != 1) return false;
+    for (unsigned index = 0; index < cubeCount; index++, out++) {
+        if (!WorldCubeCellEditAt(index, &block.addresses[out], &block.cells[out]))
+            goto fail;
     }
-    return true;
+    bool ok = CubeAddressSaveWrite(file, &block);
+    CubeAddressBlockRelease(&block);
+    return ok;
+fail:
+    CubeAddressBlockRelease(&block);
+    return false;
 }
 
-/* A mixed policy can still have a cube Homeworld. Write its cube edit payload;
- * the per-surface topology record identifies which backend owns it. */
+#ifdef GAME_SAVE_TESTING
 static bool GameSavePolicyUsesCubeGrid(void)
 {
     WorldSurfaceTopologyPolicy policy = WorldCurrentTopologyPolicy();
     return policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID ||
            policy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID;
 }
+#endif
 
-static bool GameSaveWriteCubeEdits(FILE *file)
+bool GameSavePolicyOwnsCubeAddress(WorldSurfaceTopologyPolicy policy,
+                                   WorldBlockAddress address)
 {
-    /* Only the legacy policy skips the section; a NULL stream is an error, not
-     * a silent success. */
-    if (!file) return false;
-    if (!GameSavePolicyUsesCubeGrid()) return true;
-    /* The codec writes its own magic, version and count; the live store must
-     * simply match what the codec reports. */
-    return CubeAddressSaveWriteEdits(file);
+    if (address.dimension == WORLD_DIMENSION_HOME)
+        return policy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID;
+    if (address.dimension == WORLD_DIMENSION_PLANET)
+        return policy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID;
+    return false;
 }
 
-static bool GameSaveWriteSphericalTrailer(FILE *file, const Player *player)
-{
-    if (!file || !player) return false;
-    WorldDimension dimension = WorldCurrentDimension();
-    bool playerHasSurfaceAddress = WorldIsSurfaceDimension(dimension);
-    SurfaceAddress playerAddress = playerHasSurfaceAddress
-        ? SurfaceAddressAtWorld(player->position.x, player->position.z,
-                                (int)floorf(player->position.y))
-        : SurfaceAddressFromMapCoordinates(0u, 0.0f, 0.0f, 0);
-
-    int editCount = WorldGetEditCount();
-    SurfaceAddress *addresses = NULL;
-    SurfaceMapCell *mapCells = NULL;
-    if (editCount > 0) {
-        addresses = malloc((size_t)editCount * sizeof(*addresses));
-        mapCells = malloc((size_t)editCount * sizeof(*mapCells));
-        if (!addresses || !mapCells) {
-            free(addresses);
-            free(mapCells);
-            return false;
-        }
-    }
-    bool ok = editCount >= 0;
-    for (int index = 0; ok && index < editCount; index++) {
-        const BlockEdit *edit = WorldGetEditAt(index);
-        uint32_t editDimension = WorldGetEditDimensionAt(index);
-        ok = edit && WorldGetEditSurfaceAddressAt(index, &addresses[index]) &&
-             WorldGetEditSurfaceMapCellAt(index, &mapCells[index]) &&
-             addresses[index].bodyId == editDimension &&
-             addresses[index].radial == edit->y;
-    }
-    ok = ok && SurfaceSaveWriteTrailer(
-        file, playerHasSurfaceAddress, playerAddress, addresses, mapCells,
-        (uint32_t)editCount);
-    free(addresses);
-    free(mapCells);
-    return ok;
-}
 
 static bool GameSaveWriteRadiationRuntimeState(FILE *file)
 {
@@ -241,6 +230,51 @@ static const char *GameLoadInventoryRemainders(FILE *file, WorldSaveFormat forma
     return NULL;
 }
 
+
+static bool GameSaveWritePlayerState(FILE *file, const Player *player,
+                                     WorldDimension dimension)
+{
+    if (!file || !player) return false;
+    float local[9] = {
+        player->position.x, player->position.y, player->position.z,
+        player->velocity.x, player->velocity.y, player->velocity.z,
+        player->yaw, player->pitch, player->floating ? 1.0f : 0.0f
+    };
+    bool hasPose = WorldIsSurfaceDimension(dimension);
+    SurfacePose pose = { 0 };
+    if (hasPose) {
+        WorldSurfaceContext context = WorldCurrentSurfaceContext();
+        SurfaceMapProjection projection = SurfaceProjectMapCoordinates(
+            (float)context.originX + player->position.x,
+            (float)context.originZ + player->position.z);
+        if (!SurfacePoseFromGeographic(
+                context.bodyId, projection.longitude, projection.latitude,
+                player->position.y, player->yaw, player->pitch, &pose)) {
+            hasPose = false;
+        }
+        if (hasPose) {
+            SurfaceBasis basis;
+            if (!SurfacePoseBasis(&pose, &basis)) hasPose = false;
+            else pose.velocity = SurfaceVectorAdd(
+                SurfaceVectorAdd(
+                    SurfaceVectorScale(basis.right, player->velocity.x),
+                    SurfaceVectorScale(basis.forward, player->velocity.z)),
+                SurfaceVectorScale(basis.up, player->velocity.y));
+        }
+    }
+    uint8_t posePresent = hasPose ? 1u : 0u;
+    if (fwrite(local, sizeof(local), 1, file) != 1 ||
+        fwrite(&posePresent, sizeof(posePresent), 1, file) != 1) return false;
+    if (!hasPose) return true;
+    double poseData[10] = {
+        pose.position.x, pose.position.y, pose.position.z,
+        pose.velocity.x, pose.velocity.y, pose.velocity.z,
+        pose.heading.x, pose.heading.y, pose.heading.z, pose.pitch
+    };
+    return fwrite(&pose.bodyId, sizeof(pose.bodyId), 1, file) == 1 &&
+           fwrite(poseData, sizeof(poseData), 1, file) == 1;
+}
+
 static bool GameSaveWriteFile(FILE *file, void *opaque)
 {
     const GameSaveContext *context = opaque;
@@ -251,34 +285,47 @@ static bool GameSaveWriteFile(FILE *file, void *opaque)
     uint32_t activeDimension = (uint32_t)WorldCurrentDimension();
     uint32_t seed = WorldGetSeed();
     uint32_t terrain = (uint32_t)WorldTerrainMode();
-    float playerData[6] = {
-        player->position.x, player->position.y, player->position.z,
-        player->yaw, player->pitch, player->floating ? 1.0f : 0.0f
-    };
-
-    bool ok = WorldSaveWriteHeader(file, WorldCurrentTopologyPolicy());
-    ok = ok && fwrite(&terrainGenerationVersion,
-                      sizeof(terrainGenerationVersion), 1, file) == 1;
-    ok = ok && fwrite(&activeDimension, sizeof(activeDimension), 1, file) == 1;
-    ok = ok && fwrite(&seed, sizeof(seed), 1, file) == 1;
-    ok = ok && fwrite(&terrain, sizeof(terrain), 1, file) == 1;
-    ok = ok && fwrite(playerData, sizeof(playerData), 1, file) == 1;
-    ok = ok && GameSaveWriteEdits(file);
-    ok = ok && GameSaveWriteCubeEdits(file);
-    ok = ok && InventorySave(file) && ShipSaveState(file) &&
-         PlanetWorldSaveState(file) && HomeWorldSaveState(file);
-    ok = ok && AlbumSave(file) && SpaceSaveEdits(file) &&
-         NetherSaveEdits(file);
-    ok = ok && SpaceSaveState(file) && EntitiesSaveState(file) &&
-         PlanetEcologySaveState(file) && EvolutionCatalogSaveState(file) &&
-         ShipLocatorSaveState(file) &&
-         WorldPersistenceSaveExtension(file) && WeatherImpactSaveState(file) &&
-         GameSaveWriteRadiationRuntimeState(file) &&
-         GameSaveWriteHydrologyRuntimeState(file) &&
-         MapMarkersSaveState(file) &&
-         GameEcologySaveClock(file) && VolcanoRuntimeSave(file) && LavaRuntimeSave(file) && AshRuntimeSave(file) &&
-         InventorySaveRemainders(file) &&
-         GameSaveWriteSphericalTrailer(file, player) && !ferror(file);
+    bool ok = true;
+    const char *stage = "header";
+#define SAVE_STEP(expression, label) do { \
+        if (ok) { stage = label; ok = (expression); } \
+    } while (0)
+    SAVE_STEP(WorldSaveWriteHeader(file, WorldCurrentTopologyPolicy()), "header");
+    SAVE_STEP(fwrite(&terrainGenerationVersion,
+                     sizeof(terrainGenerationVersion), 1, file) == 1,
+              "generation");
+    SAVE_STEP(fwrite(&activeDimension, sizeof(activeDimension), 1, file) == 1,
+              "dimension");
+    SAVE_STEP(fwrite(&seed, sizeof(seed), 1, file) == 1, "seed");
+    SAVE_STEP(fwrite(&terrain, sizeof(terrain), 1, file) == 1, "terrain");
+    SAVE_STEP(GameSaveWritePlayerState(
+                  file, player, (WorldDimension)activeDimension), "player");
+    SAVE_STEP(GameSaveWriteCellEdits(file), "cells");
+    SAVE_STEP(InventorySave(file), "inventory");
+    SAVE_STEP(ShipSaveState(file), "ship");
+    SAVE_STEP(PlanetWorldSaveState(file), "planet-world");
+    SAVE_STEP(HomeWorldSaveState(file), "home-world");
+    SAVE_STEP(AlbumSave(file), "album");
+    SAVE_STEP(SpaceSaveEdits(file), "space-edits");
+    SAVE_STEP(NetherSaveEdits(file), "nether-edits");
+    SAVE_STEP(SpaceSaveState(file), "space");
+    SAVE_STEP(EntitiesSaveState(file), "entities");
+    SAVE_STEP(PlanetEcologySaveState(file), "ecology");
+    SAVE_STEP(EvolutionCatalogSaveState(file), "evolution");
+    SAVE_STEP(ShipLocatorSaveState(file), "ship-locator");
+    SAVE_STEP(WorldPersistenceSaveExtension(file), "fluid");
+    SAVE_STEP(WeatherImpactSaveState(file), "weather-impact");
+    SAVE_STEP(GameSaveWriteRadiationRuntimeState(file), "radiation");
+    SAVE_STEP(GameSaveWriteHydrologyRuntimeState(file), "hydrology");
+    SAVE_STEP(MapMarkersSaveState(file), "map-markers");
+    SAVE_STEP(GameEcologySaveClock(file), "ecology-clock");
+    SAVE_STEP(VolcanoRuntimeSave(file), "volcano");
+    SAVE_STEP(LavaRuntimeSave(file), "lava");
+    SAVE_STEP(AshRuntimeSave(file), "ash");
+    SAVE_STEP(InventorySaveRemainders(file), "inventory-fractions");
+    SAVE_STEP(!ferror(file), "stream");
+#undef SAVE_STEP
+    if (!ok) TraceLog(LOG_ERROR, "Save failed at stage %s", stage);
     return ok;
 }
 
@@ -299,59 +346,43 @@ void GameSaveMap(const Player *player)
                                 WorldGetEditCount()));
 }
 
-static bool GameLoadBlockEditPayload(FILE *file, LoadedGameSave *data)
+static bool GameLoadPlayerState(FILE *file, LoadedGameSave *data)
 {
-    uint32_t seed = DEFAULT_WORLD_SEED;
-    uint32_t terrain = 0u;
-    float playerData[6];
-    uint32_t count = 0u;
+    float local[9];
+    uint8_t posePresent = 0u;
     if (!file || !data ||
-        fread(&seed, sizeof(seed), 1, file) != 1 ||
-        fread(&terrain, sizeof(terrain), 1, file) != 1 ||
-        terrain > (uint32_t)TERRAIN_FLAT ||
-        fread(playerData, sizeof(playerData), 1, file) != 1 ||
-        fread(&count, sizeof(count), 1, file) != 1 ||
-        count > MAX_LOAD_EDIT_COUNT) {
-        return false;
+        fread(local, sizeof(local), 1, file) != 1 ||
+        fread(&posePresent, sizeof(posePresent), 1, file) != 1 ||
+        posePresent > 1u) return false;
+    for (int index = 0; index < 8; index++) {
+        if (!isfinite(local[index])) return false;
     }
-    for (int index = 0; index < 6; index++) {
-        if (!isfinite(playerData[index])) return false;
-    }
-    if (playerData[5] != 0.0f && playerData[5] != 1.0f) return false;
-
-    BlockEdit *edits = NULL;
-    uint32_t *dimensions = NULL;
-    if (count > 0u) {
-        edits = malloc((size_t)count * sizeof(*edits));
-        dimensions = malloc((size_t)count * sizeof(*dimensions));
-        if (!edits || !dimensions ||
-            fread(edits, sizeof(*edits), (size_t)count, file) != count ||
-            fread(dimensions, sizeof(*dimensions), (size_t)count, file) !=
-                count) {
-            free(edits);
-            free(dimensions);
-            return false;
-        }
-        if (!WorldPersistenceEditsValid(edits, (int)count)) {
-            free(edits);
-            free(dimensions);
-            return false;
-        }
-    }
-
-    data->terrain = (TerrainMode)terrain;
-    data->seed = seed == 0u ? DEFAULT_WORLD_SEED : seed;
-    data->player.position = (Vector3){
-        playerData[0], playerData[1], playerData[2]
-    };
-    data->player.yaw = playerData[3];
-    data->player.pitch = playerData[4];
-    data->player.floating = playerData[5] != 0.0f;
-    data->player.velocity = Vector3Zero();
+    if (local[8] != 0.0f && local[8] != 1.0f) return false;
+    data->player.position = (Vector3){ local[0], local[1], local[2] };
+    data->player.velocity = (Vector3){ local[3], local[4], local[5] };
+    data->player.yaw = local[6];
+    data->player.pitch = local[7];
+    data->player.floating = local[8] != 0.0f;
     data->player.onGround = false;
-    data->editCount = (int)count;
-    data->edits = edits;
-    data->dimensions = dimensions;
+    data->hasSurfacePose = posePresent != 0u;
+    if (!data->hasSurfacePose) return true;
+
+    uint32_t bodyId = 0u;
+    double poseData[10];
+    if (fread(&bodyId, sizeof(bodyId), 1, file) != 1 ||
+        fread(poseData, sizeof(poseData), 1, file) != 1) return false;
+    for (unsigned index = 0; index < 10u; index++) {
+        if (!isfinite(poseData[index])) return false;
+    }
+    SurfacePose pose = {
+        .bodyId = bodyId,
+        .position = { poseData[0], poseData[1], poseData[2] },
+        .velocity = { poseData[3], poseData[4], poseData[5] },
+        .heading = { poseData[6], poseData[7], poseData[8] },
+        .pitch = poseData[9]
+    };
+    if (!SurfacePoseIsValid(&pose)) return false;
+    data->surfacePose = pose;
     return true;
 }
 
@@ -359,6 +390,8 @@ static bool GameLoadCurrentCorePayload(FILE *file, LoadedGameSave *data)
 {
     uint32_t terrainGenerationVersion = 0u;
     uint32_t activeDimension = 0u;
+    uint32_t seed = DEFAULT_WORLD_SEED;
+    uint32_t terrain = 0u;
     if (!file || !data ||
         fread(&terrainGenerationVersion, sizeof(terrainGenerationVersion),
               1, file) != 1 ||
@@ -366,108 +399,23 @@ static bool GameLoadCurrentCorePayload(FILE *file, LoadedGameSave *data)
         terrainGenerationVersion > TERRAIN_GENERATION_CURRENT ||
         fread(&activeDimension, sizeof(activeDimension), 1, file) != 1 ||
         activeDimension > (uint32_t)WORLD_DIMENSION_NETHER ||
-        !GameLoadBlockEditPayload(file, data)) {
-        return false;
-    }
-    /* Writer order is edits -> cube -> inventory, so the cube section must be
-     * consumed here, before inventory, or every field after it is misread. */
-    if (GameSavePolicyUsesCubeGrid() && !CubeAddressSaveReadEdits(file, NULL)) {
-        LoadedGameSaveRelease(data);
-        return false;
-    }
-    if (!InventoryLoad(file) || !ShipLoadState(file) ||
+        fread(&seed, sizeof(seed), 1, file) != 1 ||
+        fread(&terrain, sizeof(terrain), 1, file) != 1 ||
+        terrain > (uint32_t)TERRAIN_FLAT ||
+        !GameLoadPlayerState(file, data) ||
+        !CubeAddressSaveRead(file, &data->editBlock) ||
+        !InventoryLoad(file) || !ShipLoadState(file) ||
         !PlanetWorldLoadState(file) || !HomeWorldLoadState(file)) {
         LoadedGameSaveRelease(data);
         return false;
     }
     data->terrainGenerationVersion = terrainGenerationVersion;
     data->dimension = (WorldDimension)activeDimension;
+    data->terrain = (TerrainMode)terrain;
+    data->seed = seed == 0u ? DEFAULT_WORLD_SEED : seed;
     return true;
 }
 
-static bool GameLoadSphericalTrailer(FILE *file, LoadedGameSave *data)
-{
-    if (!file || !data || data->editCount < 0) return false;
-    bool playerHasSurfaceAddress = false;
-    uint32_t schemaVersion = 0u;
-    SurfaceAddress playerAddress = { 0 };
-    SurfaceAddress *addresses = NULL;
-    SurfaceMapCell *mapCells = NULL;
-    if (!SurfaceSaveReadTrailer(
-            file, (uint32_t)data->editCount, &schemaVersion,
-            &playerHasSurfaceAddress,
-            &playerAddress, &addresses, &mapCells)) {
-        return false;
-    }
-
-    if (schemaVersion != SURFACE_SAVE_SCHEMA_VERSION) {
-        free(addresses);
-        free(mapCells);
-        return false;
-    }
-
-    bool surfaceDimension = WorldIsSurfaceDimension(data->dimension);
-    uint32_t expectedBodyId = data->dimension == WORLD_DIMENSION_PLANET
-        ? PlanetWorldSeed() : 0u;
-    if (playerHasSurfaceAddress != surfaceDimension ||
-        (surfaceDimension && playerAddress.bodyId != expectedBodyId)) {
-        free(addresses);
-        free(mapCells);
-        return false;
-    }
-    if (surfaceDimension) {
-        float mapX = data->player.position.x;
-        float mapZ = data->player.position.z;
-        float northDirection = 1.0f;
-        Vector2 canonical = SurfaceCanonicalMapPosition(
-            mapX, mapZ, &northDirection);
-        SurfaceAddress expected = SurfaceAddressFromMapCoordinates(
-            expectedBodyId, canonical.x, canonical.y,
-            (int)floorf(data->player.position.y));
-        if (!SurfaceAddressEqual(playerAddress, expected)) {
-            free(addresses);
-            free(mapCells);
-            return false;
-        }
-        data->player.position.x = canonical.x;
-        data->player.position.z = canonical.y;
-        if (northDirection < 0.0f) {
-            data->player.yaw = atan2f(
-                sinf(data->player.yaw), -cosf(data->player.yaw));
-        }
-    }
-    for (int index = 0; index < data->editCount; index++) {
-        if (!data->edits || !data->dimensions ||
-            addresses[index].bodyId != data->dimensions[index] ||
-            addresses[index].radial != data->edits[index].y) {
-            free(addresses);
-            free(mapCells);
-            return false;
-        }
-        uint32_t bodyId = data->dimensions[index];
-        SurfaceMapCell expectedCell = SurfaceCanonicalMapCell(
-            (float)data->edits[index].x, (float)data->edits[index].z);
-        if (mapCells[index].x != expectedCell.x || mapCells[index].z != expectedCell.z) {
-            free(addresses);
-            free(mapCells);
-            return false;
-        }
-        SurfaceAddress expectedAddress = SurfaceAddressFromMapCoordinates(
-            bodyId, (float)mapCells[index].x, (float)mapCells[index].z,
-            data->edits[index].y);
-        if (!SurfaceAddressEqual(addresses[index], expectedAddress)) {
-            free(addresses);
-            free(mapCells);
-            return false;
-        }
-        data->edits[index].x = mapCells[index].x;
-        data->edits[index].z = mapCells[index].z;
-    }
-    data->playerAddress = playerAddress;
-    data->editAddresses = addresses;
-    data->editMapCells = mapCells;
-    return true;
-}
 
 #ifdef GAME_SAVE_TESTING
 bool GameSaveTestPolicyUsesCubeGrid(void)
@@ -476,7 +424,7 @@ bool GameSaveTestPolicyUsesCubeGrid(void)
 }
 bool GameSaveTestWriteCubeEdits(FILE *file)
 {
-    return GameSaveWriteCubeEdits(file);
+    return GameSaveWriteCellEdits(file);
 }
 const char *GameSaveTestLoadInventoryRemainders(FILE *file, WorldSaveFormat format)
 {
@@ -495,27 +443,6 @@ const char *GameSaveTestLoadVolcanoState(FILE *file, WorldSaveFormat format)
     return GameLoadVolcanoState(file, format);
 }
 
-bool GameSaveTestLoadSphericalTrailer(
-    FILE *file, WorldDimension dimension, Player *player,
-    BlockEdit *edits, uint32_t *dimensions, int editCount,
-    SurfaceAddress **outEditAddresses, SurfaceMapCell **outEditMapCells)
-{
-    if (!player || !outEditAddresses || !outEditMapCells) return false;
-    *outEditAddresses = NULL;
-    *outEditMapCells = NULL;
-    LoadedGameSave data = {
-        .dimension = dimension,
-        .player = *player,
-        .editCount = editCount,
-        .edits = edits,
-        .dimensions = dimensions
-    };
-    if (!GameLoadSphericalTrailer(file, &data)) return false;
-    *player = data.player;
-    *outEditAddresses = data.editAddresses;
-    *outEditMapCells = data.editMapCells;
-    return true;
-}
 
 bool GameSaveTestWriteRadiationRuntimeState(FILE *file)
 {
@@ -539,6 +466,117 @@ const char *GameSaveTestLoadHydrologyRuntimeState(
     return GameLoadHydrologyRuntimeState(file, format);
 }
 #endif
+
+static bool GameLoadResolvePlayerPose(LoadedGameSave *data)
+{
+    if (!data || !data->hasSurfacePose) return true;
+    WorldSurfaceContext context = WorldCurrentSurfaceContext();
+    if (!context.active || data->surfacePose.bodyId != context.bodyId) {
+        return false;
+    }
+    Vector3 direction = Vector3Normalize((Vector3){
+        (float)data->surfacePose.position.x,
+        (float)data->surfacePose.position.y,
+        (float)data->surfacePose.position.z
+    });
+    Vector2 map;
+    SurfaceBasis basis;
+    if (!SurfaceMapCoordinatesFromDirection(direction, &map) ||
+        !SurfacePoseBasis(&data->surfacePose, &basis)) return false;
+    data->player.position = (Vector3){
+        map.x - (float)context.originX,
+        (float)SurfacePoseAltitude(&data->surfacePose),
+        map.y - (float)context.originZ
+    };
+    data->player.velocity = (Vector3){
+        (float)SurfaceVectorDot(data->surfacePose.velocity, basis.right),
+        (float)SurfaceVectorDot(data->surfacePose.velocity, basis.up),
+        (float)SurfaceVectorDot(data->surfacePose.velocity, basis.forward)
+    };
+    data->player.yaw = atan2f(
+        (float)SurfaceVectorDot(data->surfacePose.heading, basis.right),
+        (float)SurfaceVectorDot(data->surfacePose.heading, basis.forward));
+    data->player.pitch = (float)data->surfacePose.pitch;
+    return isfinite(data->player.position.x) &&
+           isfinite(data->player.position.y) &&
+           isfinite(data->player.position.z);
+}
+
+static bool GameLoadInstallCellEdits(LoadedGameSave *data,
+                                     int *outLoadedCount)
+{
+    if (outLoadedCount) *outLoadedCount = 0;
+    if (!data || data->editBlock.count > MAX_LOAD_EDIT_COUNT) return false;
+    int legacyCount = 0;
+    unsigned cubeCount = 0;
+    for (uint32_t index = 0; index < data->editBlock.count; index++) {
+        if (GameSavePolicyOwnsCubeAddress(
+                data->topologyPolicy, data->editBlock.addresses[index])) {
+            cubeCount++;
+        } else {
+            legacyCount++;
+        }
+    }
+    BlockEdit *edits = legacyCount > 0 ? calloc(legacyCount, sizeof(*edits)) : NULL;
+    uint32_t *dimensions = legacyCount > 0 ? calloc(legacyCount, sizeof(*dimensions)) : NULL;
+    SurfaceAddress *addresses = legacyCount > 0 ? calloc(legacyCount, sizeof(*addresses)) : NULL;
+    SurfaceMapCell *mapCells = legacyCount > 0 ? calloc(legacyCount, sizeof(*mapCells)) : NULL;
+    if (legacyCount > 0 && (!edits || !dimensions || !addresses || !mapCells)) {
+        free(edits); free(dimensions); free(addresses); free(mapCells);
+        return false;
+    }
+    int legacyOut = 0;
+    for (uint32_t index = 0; index < data->editBlock.count; index++) {
+        WorldBlockAddress address = data->editBlock.addresses[index];
+        WorldCell cell = data->editBlock.cells[index];
+        if (GameSavePolicyOwnsCubeAddress(data->topologyPolicy, address)) {
+            if (!WorldCubeSetCell(address, cell)) {
+                free(edits); free(dimensions); free(addresses); free(mapCells);
+                return false;
+            }
+            continue;
+        }
+        SurfaceMapCell mapCell;
+        if (address.dimension == WORLD_DIMENSION_HOME ||
+            address.dimension == WORLD_DIMENSION_PLANET) {
+            if (!SurfaceAddressCanonicalMapCell(address.at.surface, &mapCell) ||
+                !SurfaceAddressEqual(
+                    address.at.surface,
+                    SurfaceAddressFromMapCoordinates(
+                        address.at.surface.bodyId, (float)mapCell.x,
+                        (float)mapCell.z, address.at.surface.radial))) {
+                free(edits); free(dimensions); free(addresses); free(mapCells);
+                return false;
+            }
+            addresses[legacyOut] = address.at.surface;
+        } else {
+            mapCell = SurfaceCanonicalMapCell(
+                (float)address.at.cartesian.x, (float)address.at.cartesian.z);
+            addresses[legacyOut] = SurfaceAddressFromMapCoordinates(
+                (uint32_t)address.dimension, (float)mapCell.x,
+                (float)mapCell.z, address.at.cartesian.y);
+        }
+        dimensions[legacyOut] =
+            address.dimension == WORLD_DIMENSION_HOME ||
+                    address.dimension == WORLD_DIMENSION_PLANET
+                ? address.at.surface.bodyId : (uint32_t)address.dimension;
+        mapCells[legacyOut] = mapCell;
+        edits[legacyOut] = (BlockEdit){
+            mapCell.x,
+            address.dimension == WORLD_DIMENSION_HOME ||
+                    address.dimension == WORLD_DIMENSION_PLANET
+                ? address.at.surface.radial : address.at.cartesian.y,
+            mapCell.z,
+            cell.block
+        };
+        legacyOut++;
+    }
+    bool ok = WorldPersistenceInstallEdits(
+        edits, dimensions, addresses, mapCells, legacyCount);
+    free(edits); free(dimensions); free(addresses); free(mapCells);
+    if (ok && outLoadedCount) *outLoadedCount = (int)(legacyCount + cubeCount);
+    return ok;
+}
 
 static const char *GameLoadCurrentExtendedPayload(
     FILE *file, WorldSaveFormat format, LoadedGameSave *data)
@@ -605,9 +643,6 @@ static const char *GameLoadCurrentExtendedPayload(
     if (ashError) return ashError;
     const char *fractionError = GameLoadInventoryRemainders(file, format);
     if (fractionError) return fractionError;
-    if (!GameLoadSphericalTrailer(file, data)) {
-        return "Load failed: spherical save state is corrupted.";
-    }
     return NULL;
 }
 
@@ -644,9 +679,12 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
 
     const char *headerError = WorldSaveReadHeader(file, &data.topologyPolicy);
     if (headerError) return GameLoadFail(transaction, headerError);
-    const WorldSaveFormat format = WORLD_SAVE_FORMAT_V29;
+    const WorldSaveFormat format = WORLD_SAVE_FORMAT_V30;
     DrainChunkGen();
     UnloadAllSpaceChunks();
+    bool cubePolicy = data.topologyPolicy.home.kind == SURFACE_TOPOLOGY_CUBE_GRID ||
+                      data.topologyPolicy.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID;
+    WorldSetCubeRuntimeEnabled(cubePolicy);
     if (!WorldInstallTopologyPolicy(data.topologyPolicy)) {
         return GameLoadFail(transaction, "Load failed: unsupported surface topology policy.");
     }
@@ -666,12 +704,6 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
             transaction, loadError ? loadError
                                    : "Load failed: save file has trailing data.");
     }
-    if (!WorldPersistenceReserveEdits(data.editCount)) {
-        LoadedGameSaveRelease(&data);
-        return GameLoadFail(
-            transaction, "Load failed: not enough memory to apply save.");
-    }
-
     DrainChunkGen();
     UnloadAllChunks();
     UnloadAllSpaceChunks();
@@ -679,6 +711,10 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
     WorldSetTerrainMode(data.terrain);
     WorldSetSeed(data.seed);
     GameSyncWorldSurfaceSnapshot(data.seed);
+    if (!GameLoadResolvePlayerPose(&data)) {
+        LoadedGameSaveRelease(&data);
+        return GameLoadFail(transaction, "Load failed: surface pose is incompatible with this world.");
+    }
 
     bool savedInNether = data.dimension == WORLD_DIMENSION_NETHER;
     if (data.terrainGenerationVersion < TERRAIN_GENERATION_LEGACY &&
@@ -695,20 +731,19 @@ static bool GameLoadApplyFile(FILE *file, void *opaque)
         }
     }
 
+    WorldCubeClearEdits();
+    int loadedEditCount = 0;
+    bool editIndexReady = GameLoadInstallCellEdits(&data, &loadedEditCount);
     *player = data.player;
     WorldSetNetherActive(savedInNether);
     PlayerResetRuntimeState(player);
-    bool editIndexReady = WorldPersistenceInstallEdits(
-        data.edits, data.dimensions, data.editAddresses, data.editMapCells,
-        data.editCount);
     ShipLocatorRecord shipLocator = data.shipLocator;
     MapMarkerState mapMarkers = data.mapMarkers;
-    int loadedEditCount = data.editCount;
     LoadedGameSaveRelease(&data);
 
     if (!editIndexReady) {
         return GameLoadFail(
-            transaction, "Load failed: edit index rebuild failed.");
+            transaction, "Load failed: cell edit payload could not be installed.");
     }
     RebuildTorchList();
     SpaceRebuildTorchList();

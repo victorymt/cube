@@ -239,6 +239,16 @@ static DebugControlCommand DebugControlParseBlock(DebugControl *control,
         return DEBUG_CONTROL_COMMAND_BLOCK_GALLERY;
     }
 
+    if (sscanf(line, "cell inspect %d %d %d %c", &x, &y, &z,
+               &trailing) == 3 && x >= -1000000 && x <= 1000000 &&
+        y >= -1000000 && y <= 1000000 &&
+        z >= -1000000 && z <= 1000000) {
+        control->cellInspectX = x;
+        control->cellInspectY = y;
+        control->cellInspectZ = z;
+        return DEBUG_CONTROL_COMMAND_CELL_INSPECT;
+    }
+
     int queryOffset = -1;
     if (sscanf(line, "block inspect %n", &queryOffset) == 0 &&
         queryOffset >= 0 && line[queryOffset] != '\0' &&
@@ -913,6 +923,8 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
     }
     if (strcmp(line, "save") == 0) return DEBUG_CONTROL_COMMAND_SAVE;
     if (strcmp(line, "load") == 0) return DEBUG_CONTROL_COMMAND_LOAD;
+    if (strcmp(line, "undo") == 0) return DEBUG_CONTROL_COMMAND_UNDO;
+    if (strcmp(line, "redo") == 0) return DEBUG_CONTROL_COMMAND_REDO;
     if (strcmp(line, "map") == 0) return DEBUG_CONTROL_COMMAND_MAP;
     if (strcmp(line, "map layer liquids on") == 0) {
         control->mapLiquidsVisible = true;
@@ -1211,6 +1223,7 @@ static const DebugControlCommandGroup debugControlCommandGroups[] = {
     { "landform", "landform inspect" },
     { "cga", "cga inspect" },
     { "evolution", "evolution region" },
+    { "cell", "cell inspect 0 0 0" },
     { "block", "block inspect stone" },
     { "flora", "flora sample 0 0" }
 };

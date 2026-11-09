@@ -6,6 +6,9 @@
 #include "world/block_types.h"
 #include "world/block_edits.h"
 #include "world/world_environment.h"
+#include "world/world_surface_snapshot.h"
+#include "world/surface_contract.h"
+#include "world/flora_taxa.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -228,9 +231,49 @@ static void BlockSet(GameRuntime *game)
         BlockName(previous), (int)type, BlockName(type));
 }
 
+static void CellInspect(GameRuntime *game)
+{
+    int x = game->debugControl.cellInspectX;
+    int y = game->debugControl.cellInspectY;
+    int z = game->debugControl.cellInspectZ;
+    if (!WorldCanAccessBlockY(y)) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL cell inspect error reason=invalid_position\n");
+        BlockCommandError(game, "cell_inspect_invalid_position");
+        return;
+    }
+    WorldCell cell = { GetBlockAt(x, y, z), 0u };
+    bool known = true;
+    if (WorldIsSurfaceActive()) {
+        SurfaceAddress address = SurfaceAddressAtWorld((float)x, (float)z, y);
+        known = SurfaceContractCellRead(
+            WorldCurrentSurfaceContract(), address, &cell);
+    }
+    if (!known) {
+        DebugControlReply(&game->debugControl,
+                          "DEBUG_CONTROL cell inspect ok position=%d,%d,%d known=0\n",
+                          x, y, z);
+        return;
+    }
+    FloraFloodTolerance tolerance = FloraFloodToleranceForBlock(cell.block);
+    bool submerged = cell.waterVolume > 0u;
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL cell inspect ok position=%d,%d,%d known=1 "
+        "block_id=%d block=\"%s\" water_volume=%u submerged=%d "
+        "flood_tolerance=%d flood_tolerance_name=\"%s\"\n",
+        x, y, z, (int)cell.block, BlockName(cell.block), cell.waterVolume,
+        submerged ? 1 : 0, (int)tolerance,
+        FloraFloodToleranceName(tolerance));
+}
+
 bool GameDebugBlockDispatch(GameRuntime *game, DebugControlCommand command)
 {
     if (!game) return false;
+    if (command == DEBUG_CONTROL_COMMAND_CELL_INSPECT) {
+        CellInspect(game);
+        return true;
+    }
     if (command == DEBUG_CONTROL_COMMAND_BLOCK_INSPECT) {
         BlockInspect(game);
         return true;
@@ -260,6 +303,15 @@ static bool BlockDslBool(DebugDslValue *outValue, bool value)
     *outValue = (DebugDslValue){
         .type = DEBUG_DSL_VALUE_BOOL,
         .as.boolean = value
+    };
+    return true;
+}
+
+static bool BlockDslString(DebugDslValue *outValue, const char *value)
+{
+    *outValue = (DebugDslValue){
+        .type = DEBUG_DSL_VALUE_STRING,
+        .as.string = value
     };
     return true;
 }
@@ -299,6 +351,29 @@ bool GameDebugBlockDslResolve(const GameRuntime *game, const char *name,
     }
     if (strcmp(name, "block.gallery_rows") == 0) {
         return BlockDslNumber(outValue, BLOCK_GALLERY_ROWS);
+    }
+    if (strncmp(name, "cell.", 5u) == 0) {
+        int x = game->debugControl.cellInspectX;
+        int y = game->debugControl.cellInspectY;
+        int z = game->debugControl.cellInspectZ;
+        WorldCell cell = { GetBlockAt(x, y, z), 0u };
+        bool known = true;
+        if (WorldIsSurfaceActive()) {
+            SurfaceAddress address = SurfaceAddressAtWorld((float)x, (float)z, y);
+            known = SurfaceContractCellRead(
+                WorldCurrentSurfaceContract(), address, &cell);
+        }
+        if (strcmp(name, "cell.known") == 0)
+            return BlockDslBool(outValue, known);
+        if (strcmp(name, "cell.block") == 0)
+            return BlockDslString(outValue, BlockName(cell.block));
+        if (strcmp(name, "cell.water_volume") == 0)
+            return BlockDslNumber(outValue, known ? cell.waterVolume : 0u);
+        if (strcmp(name, "cell.submerged") == 0)
+            return BlockDslBool(outValue, known && cell.waterVolume > 0u);
+        if (strcmp(name, "cell.flood_tolerance") == 0)
+            return BlockDslNumber(outValue,
+                (int)FloraFloodToleranceForBlock(cell.block));
     }
     return false;
 }

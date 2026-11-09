@@ -68,3 +68,7 @@ for the boundary that owns that gate.
 M1 does not change the measured mesh path or benchmark closure. The new
 `test_surface_contract` joins the normal `make test` sweep; the benchmark
 invariants and its source closure remain unchanged.
+
+M3 adds V30 save/cell reload tests to `mk/tests.mk` but does not alter the chunk
+mesh benchmark closure. Re-run `make -s benchmark-chunks` only when changing mesh
+generation or its source closure, not for save-format codec tests.

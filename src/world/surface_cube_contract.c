@@ -210,9 +210,9 @@ static bool CubeCellWrite(const SurfaceContract *contract,
 {
     if (!CubeAddressMatches(contract, address)) return false;
     if (cell.block == BLOCK_WATER) cell = WorldCellFromLegacyBlock(BLOCK_WATER);
-    if (!WorldCellIsValid(cell) || cell.waterVolume != 0u) return false;
+    if (!WorldCellIsValid(cell)) return false;
     const CubeContract *cube = contract->implementation;
-    return WorldCubeSetBlock(CubeBlockAddress(cube, address), cell.block);
+    return WorldCubeSetCell(CubeBlockAddress(cube, address), cell);
 }
 
 static bool CubeNeighbor(const SurfaceContract *contract,

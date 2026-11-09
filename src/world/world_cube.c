@@ -4,7 +4,7 @@
 
 typedef struct CubeEdit {
     WorldBlockAddress address;
-    BlockType type;
+    WorldCell cell;
     unsigned nextInChunk;
 } CubeEdit;
 
@@ -82,32 +82,54 @@ static unsigned Head(SurfaceCubeChunkKey key)
     return capacity ? chunkIndex[ChunkSlot(key, chunkIndex, edits, capacity * 2)] : 0;
 }
 
-bool WorldCubeGetEdit(WorldBlockAddress address, BlockType *outType)
+bool WorldCubeGetEditCell(WorldBlockAddress address, WorldCell *outCell)
 {
-    if (!outType || !ValidAddress(address) || !capacity) return false;
+    if (!outCell || !ValidAddress(address) || !capacity) return false;
     unsigned index = cellIndex[CellSlot(address, cellIndex, edits, capacity * 2)];
     if (!index) return false;
-    *outType = edits[index - 1].type;
+    *outCell = edits[index - 1].cell;
+    return true;
+}
+
+bool WorldCubeGetEdit(WorldBlockAddress address, BlockType *outType)
+{
+    WorldCell cell;
+    if (!outType || !WorldCubeGetEditCell(address, &cell)) return false;
+    *outType = cell.block;
+    return true;
+}
+
+bool WorldCubeCellAt(WorldBlockAddress address, WorldCell *outCell)
+{
+    if (!outCell || !ValidAddress(address)) return false;
+    if (WorldCubeGetEditCell(address, outCell)) return true;
+    Chunk *chunk = FindCubeChunk(Key(address));
+    int y = address.at.surface.radial;
+    int sectionY = SurfaceSectionYFromBlockY(y);
+    if (!chunk || chunk->cubeWorldGeneration != WorldCurrentGeneration() ||
+        (!ChunkGetSectionConst(chunk, sectionY) &&
+         !ChunkTerrainSectionIsResolved(chunk, sectionY))) return false;
+    if (ChunkTryGetLocalCell(chunk, address.at.surface.u % CHUNK_SIZE, y,
+                             address.at.surface.v % CHUNK_SIZE, outCell)) {
+        return true;
+    }
+    if (!ChunkTerrainSectionIsResolved(chunk, sectionY)) return false;
+    *outCell = (WorldCell){ BLOCK_AIR, 0u };
     return true;
 }
 
 bool WorldCubeBlockAt(WorldBlockAddress address, BlockType *outType)
 {
-    if (!outType || !ValidAddress(address)) return false;
-    if (WorldCubeGetEdit(address, outType)) return true;
-    Chunk *chunk = FindCubeChunk(Key(address));
-    int y = address.at.surface.radial;
-    if (!chunk || chunk->cubeWorldGeneration != WorldCurrentGeneration() ||
-        (!ChunkGetSectionConst(chunk, SurfaceSectionYFromBlockY(y)) &&
-         !ChunkTerrainSectionIsResolved(chunk, SurfaceSectionYFromBlockY(y)))) return false;
-    *outType = ChunkGetLocalBlock(chunk, address.at.surface.u % CHUNK_SIZE,
-                                 y, address.at.surface.v % CHUNK_SIZE);
+    WorldCell cell;
+    if (!outType || !WorldCubeCellAt(address, &cell)) return false;
+    *outType = cell.block;
     return true;
 }
 
-bool WorldCubeSetBlock(WorldBlockAddress address, BlockType type)
+bool WorldCubeSetCell(WorldBlockAddress address, WorldCell cell)
 {
-    if (!ValidAddress(address) || !IsValidBlockType(type)) return false;
+    if (cell.block == BLOCK_WATER) cell = WorldCellFromLegacyBlock(BLOCK_WATER);
+    if (!ValidAddress(address) || !WorldCellIsValid(cell)) return false;
     unsigned slot = capacity ? CellSlot(address, cellIndex, edits, capacity * 2) : 0;
     bool exists = capacity && cellIndex[slot];
     if (!exists && !Reserve()) return false;
@@ -116,16 +138,25 @@ bool WorldCubeSetBlock(WorldBlockAddress address, BlockType type)
     int sectionY = SurfaceSectionYFromBlockY(address.at.surface.radial);
     bool resident = chunk && chunk->cubeWorldGeneration == WorldCurrentGeneration() &&
         (ChunkTerrainSectionIsResolved(chunk, sectionY) || ChunkGetSectionConst(chunk, sectionY));
-    if (resident && !ChunkSetLocalBlock(chunk, address.at.surface.u % CHUNK_SIZE,
-        address.at.surface.radial, address.at.surface.v % CHUNK_SIZE, type)) return false;
-    if (cellIndex[slot]) edits[cellIndex[slot] - 1].type = type;
+    if (resident && !ChunkSetLocalCell(chunk, address.at.surface.u % CHUNK_SIZE,
+        address.at.surface.radial, address.at.surface.v % CHUNK_SIZE, cell)) return false;
+    if (cellIndex[slot]) edits[cellIndex[slot] - 1].cell = cell;
     else {
         unsigned bucket = ChunkSlot(Key(address), chunkIndex, edits, capacity * 2);
-        edits[count] = (CubeEdit){address, type, chunkIndex[bucket]};
+        edits[count] = (CubeEdit){address, cell, chunkIndex[bucket]};
         cellIndex[slot] = chunkIndex[bucket] = ++count;
     }
     if (resident) MarkGeneratedSectionAndNeighborsDirty(chunk, sectionY);
     return true;
+}
+
+bool WorldCubeSetBlock(WorldBlockAddress address, BlockType type)
+{
+    if (!IsValidBlockType(type)) return false;
+    WorldCell cell = type == BLOCK_WATER
+        ? WorldCellFromLegacyBlock(BLOCK_WATER)
+        : (WorldCell){type, 0u};
+    return WorldCubeSetCell(address, cell);
 }
 
 void WorldCubeApplySectionEdits(SurfaceCubeChunkKey key, int sectionY,
@@ -139,7 +170,7 @@ void WorldCubeApplySectionEdits(SurfaceCubeChunkKey key, int sectionY,
         SurfaceAddress cell = edit->address.at.surface;
         if (SurfaceSectionYFromBlockY(cell.radial) == sectionY)
             blocks[cell.u % CHUNK_SIZE][SurfaceSectionLocalYFromBlockY(cell.radial)]
-                  [cell.v % CHUNK_SIZE] = (unsigned short)edit->type;
+                  [cell.v % CHUNK_SIZE] = (unsigned short)edit->cell.block;
     }
 }
 
@@ -165,19 +196,28 @@ bool WorldCubeApplyEdits(Chunk *staging)
         int sectionY = SurfaceSectionYFromBlockY(cell.radial);
         if (!ChunkTerrainSectionIsResolved(staging, sectionY) &&
             !ChunkGetSectionConst(staging, sectionY)) continue;
-        if (!ChunkSetLocalBlock(staging, cell.u % CHUNK_SIZE, cell.radial,
-                               cell.v % CHUNK_SIZE, edit->type)) return false;
+        if (!ChunkSetLocalCell(staging, cell.u % CHUNK_SIZE, cell.radial,
+                               cell.v % CHUNK_SIZE, edit->cell)) return false;
     }
     return true;
 }
 
 unsigned WorldCubeEditCount(void) { return count; }
 
+bool WorldCubeCellEditAt(unsigned index, WorldBlockAddress *outAddress,
+                         WorldCell *outCell)
+{
+    if (index >= count || !outAddress || !outCell) return false;
+    *outAddress = edits[index].address;
+    *outCell = edits[index].cell;
+    return true;
+}
+
 bool WorldCubeEditAt(unsigned index, WorldBlockAddress *outAddress, BlockType *outType)
 {
-    if (index >= count || !outAddress || !outType) return false;
-    *outAddress = edits[index].address;
-    *outType = edits[index].type;
+    WorldCell cell;
+    if (!outType || !WorldCubeCellEditAt(index, outAddress, &cell)) return false;
+    *outType = cell.block;
     return true;
 }
 

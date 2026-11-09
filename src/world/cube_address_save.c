@@ -41,23 +41,24 @@ void CubeAddressBlockRelease(CubeAddressBlock *block)
 {
     if (!block) return;
     free(block->addresses);
-    free(block->types);
+    free(block->cells);
     block->addresses = NULL;
-    block->types = NULL;
+    block->cells = NULL;
     block->count = 0;
 }
 
 bool CubeAddressSaveWrite(FILE *file, const CubeAddressBlock *block)
 {
     if (!file || !block || block->count > CUBE_ADDRESS_SAVE_MAX_RECORDS ||
-        (block->count > 0 && (!block->addresses || !block->types)))
+        (block->count > 0 && (!block->addresses || !block->cells)))
         return false;
     if (fwrite(CUBE_ADDRESS_SAVE_MAGIC, 1, 8, file) != 8 ||
         !WriteU32(file, CUBE_ADDRESS_SAVE_VERSION) ||
         !WriteU32(file, block->count)) return false;
     for (uint32_t i = 0; i < block->count; i++) {
         WorldBlockAddress address = block->addresses[i];
-        if (!WorldBlockAddressIsValid(address)) return false;
+        if (!WorldBlockAddressIsValid(address) ||
+            !WorldCellIsValid(block->cells[i])) return false;
         if (!WriteU32(file, (uint32_t)address.dimension)) return false;
         if (address.dimension == WORLD_DIMENSION_HOME ||
             address.dimension == WORLD_DIMENSION_PLANET) {
@@ -71,7 +72,8 @@ bool CubeAddressSaveWrite(FILE *file, const CubeAddressBlock *block)
                 !WriteI32(file, address.at.cartesian.y) ||
                 !WriteI32(file, address.at.cartesian.z)) return false;
         }
-        if (!WriteU32(file, (uint32_t)block->types[i])) return false;
+        if (!WriteU32(file, (uint32_t)block->cells[i].block) ||
+            !WriteU32(file, block->cells[i].waterVolume)) return false;
     }
     return !ferror(file);
 }
@@ -112,23 +114,23 @@ bool CubeAddressSaveRead(FILE *file, CubeAddressBlock *outBlock)
         long end = ftell(file);
         if (end >= 0 && fseek(file, payload, SEEK_SET) == 0) {
             long remaining = end - payload;
-            /* 20 bytes is the smallest record (cartesian); a surface record is
-             * 28. Using the minimum keeps this a conservative lower bound so a
-             * legitimate file with cartesian records is never rejected. */
+            /* 24 bytes is the smallest record (cartesian); a surface record is
+             * 32. The minimum is a conservative pre-allocation bound. */
             if (remaining < 0 ||
-                (unsigned long)remaining < (unsigned long)count * 20ul)
+                (unsigned long)remaining < (unsigned long)count * 24ul)
                 return false;
         }
     }
     WorldBlockAddress *addresses = calloc(count, sizeof(*addresses));
-    BlockType *types = calloc(count, sizeof(*types));
-    if (!addresses || !types) {
+    WorldCell *cells = calloc(count, sizeof(*cells));
+    if (!addresses || !cells) {
         free(addresses);
-        free(types);
+        free(cells);
         return false;
     }
     for (uint32_t i = 0; i < count; i++) {
         uint32_t dimension = 0, bodyId = 0, face = 0, type = 0;
+        uint32_t waterVolume = 0;
         int32_t a = 0, b = 0, c = 0;
         WorldBlockAddress address = {0};
         if (!ReadU32(file, &dimension) ||
@@ -158,17 +160,21 @@ bool CubeAddressSaveRead(FILE *file, CubeAddressBlock *outBlock)
          * BLOCK_BUILTIN_END, so a narrower check here would reject saves that
          * the game itself wrote. */
         if (!ReadU32(file, &type) || type > (uint32_t)BLOCK_COLOR_END ||
+            !ReadU32(file, &waterVolume) ||
+            waterVolume > (uint32_t)WORLD_CELL_WATER_FULL ||
             !WorldBlockAddressIsValid(address)) goto fail;
+        WorldCell cell = {(BlockType)type, (uint8_t)waterVolume};
+        if (!WorldCellIsValid(cell)) goto fail;
         addresses[i] = address;
-        types[i] = (BlockType)type;
+        cells[i] = cell;
     }
     outBlock->addresses = addresses;
-    outBlock->types = types;
+    outBlock->cells = cells;
     outBlock->count = count;
     return true;
 fail:
     free(addresses);
-    free(types);
+    free(cells);
     return false;
 }
 
@@ -182,13 +188,13 @@ bool CubeAddressSaveWriteEdits(FILE *file)
     block.count = count;
     if (count > 0) {
         block.addresses = calloc(count, sizeof(*block.addresses));
-        block.types = calloc(count, sizeof(*block.types));
-        if (!block.addresses || !block.types) {
+        block.cells = calloc(count, sizeof(*block.cells));
+        if (!block.addresses || !block.cells) {
             CubeAddressBlockRelease(&block);
             return false;
         }
         for (unsigned i = 0; i < count; i++) {
-            if (!WorldCubeEditAt(i, &block.addresses[i], &block.types[i])) {
+            if (!WorldCubeCellEditAt(i, &block.addresses[i], &block.cells[i])) {
                 CubeAddressBlockRelease(&block);
                 return false;
             }
@@ -211,7 +217,7 @@ bool CubeAddressSaveReadEdits(FILE *file, uint32_t *outCount)
      * reported is what was actually applied, so callers can see the loss. */
     uint32_t applied = 0;
     for (uint32_t i = 0; i < block.count; i++) {
-        if (!WorldCubeSetBlock(block.addresses[i], block.types[i])) continue;
+        if (!WorldCubeSetCell(block.addresses[i], block.cells[i])) continue;
         applied++;
     }
     if (outCount) *outCount = applied;

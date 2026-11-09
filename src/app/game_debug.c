@@ -698,6 +698,24 @@ static GameDebugDispatchResult GameDebugDispatchPersistenceCommand(
                 "DEBUG_CONTROL save error reason=not_playing\n");
         }
         return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_UNDO:
+        if (game->screen == SCREEN_PLAYING && UndoBlockEdit()) {
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL undo result=ok\n");
+        } else {
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL undo result=empty\n");
+        }
+        return GAME_DEBUG_DISPATCH_HANDLED;
+    case DEBUG_CONTROL_COMMAND_REDO:
+        if (game->screen == SCREEN_PLAYING && RedoBlockEdit()) {
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL redo result=ok\n");
+        } else {
+            DebugControlReply(&game->debugControl,
+                              "DEBUG_CONTROL redo result=empty\n");
+        }
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_LOAD:
         if (game->screen == SCREEN_PLAYING) {
             if (GameLoadMap(&game->player)) {

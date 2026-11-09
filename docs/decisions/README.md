@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | [ADR-001](ADR-001-vendored-raylib.md) | 内置固定版本的 raylib，不探测系统安装 | 已采纳 |
 | [ADR-002](ADR-002-plugin-abi-and-services.md) | 插件走小型稳定 ABI 加版本化只读服务 | 已采纳 |
-| [ADR-003](ADR-003-save-format-and-transactions.md) | 存档只接受 V29，写入走原子替换与事务读 | 已采纳 |
+| [ADR-003](ADR-003-save-format-and-transactions.md) | 存档只接受 V30，写入走原子替换与事务读 | 已采纳 |
 | [ADR-004](ADR-004-documentation-truth-gate.md) | 文档用登记表、tier 与陈旧检测保证可核查 | 已采纳 |
 | [ADR-005](ADR-005-cube-grid-gated-topology.md) | cube-grid 以运行时门控引入，默认拓扑不变 | 已采纳 |
 | [ADR-006](ADR-006-chunk-streaming-and-mesh-pipeline.md) | 区块在后台线程生成与建网格，主线程预算内上传 | 已采纳 |

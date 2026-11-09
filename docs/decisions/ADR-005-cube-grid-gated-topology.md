@@ -33,7 +33,7 @@ legacy 表面网格把每一圈纬度固定成同样多的区块，`docs/cube-co
 - 拒绝是显式且原子的：`WorldInstallSurfaceSnapshotWithContract` 在交换前校验拓扑、body 和 contract，失败时快照、策略、世界代次与旧 contract 都不改变；`WorldSaveReadHeader` 先只读校验再赋值 `outPolicy`。
 - 契约边界：`SurfaceCubeCellNeighbor` 与 `SurfaceCubeChunkNeighbor` 用整数边折叠而不是浮点投影取整，跨面一步可逆；`SurfaceCubeNeighborhood` 按图距离枚举，半径 12 的最坏容量由 `SURFACE_CUBE_NEIGHBORHOOD_CAPACITY` 给出，容量不足时拒绝而不是返回误导性的部分结果；图距离不等于物理块距离。
 - 代价：门控把“能力存在”与“能力默认开启”拆成两个问题；`GameDebugEnterCubeWorld` 是唯一打开门控的生产路径，它设置 Home cube + Planets legacy，失败时精确恢复旧门控和旧 policy。普通消费者通过 `SurfaceContractSupportsPhysicalCoverage/Raycast/Pose` 查询能力，不读 topology kind。
-- 代价：存档头记录的是策略而不是证明，`TOPOL001` 之后的四个 uint32 只说明世界用哪套网格，存档 trailer 里的 face 地址不能被重新解释成 cube 体素；门控关闭的进程读一份 cube 策略的档会被 `WorldSaveReadHeader` 拒绝，所以门控开与不开对同一份档给出不同结论。
+- V30 存档头用 `TOPOL002` 记录逐表面策略；fresh process 可直接安装 cube backend，不再要求启动时执行 `surface debug cube`。
 - 代价：覆盖预算仍然紧张，`SURFACE_COVERAGE_MAX_RADIUS` 为 208 块而 `SURFACE_COVERAGE_MAX_CANDIDATES` 是 4096，实测请求峰值会超过 `MAX_ACTIVE_CHUNKS`，饱和因此是一等状态而不是错误，任何报告都不得把饱和结果标成完整覆盖。
 - 验证方式：`make test-surface-cube`、`make build/normal/tests/test_world_surface_snapshot`、`make build/normal/tests/test_cube_switch`、`make build/normal/tests/test_save_format`、`make test-surface-topology-e2e`。
 - 本 ADR 只陈述拓扑与门控的契约，不声称任何一条路径当前可用；那类断言只写在 [STATUS.md](../../STATUS.md)。

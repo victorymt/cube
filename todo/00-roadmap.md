@@ -29,11 +29,11 @@ Which areas have implementation behind them, and where each is recorded. This is
 | Cube runtime entry and player loop (2026-10-22/23) | Implemented behind `surface debug cube`: gate + policy install, coverage-driven streaming, landing, walking, cube picking, cube edit save section | [Activation plan execution log](../docs/cube-activation-plan.md) |
 | Cube mesh vertical stretch | Fixed and verified in M2; see [STATUS.md](../STATUS.md) | [Migration execution plan](../docs/cube-migration-execution-plan.md) |
 | Fluid on cube surfaces | Open — see [STATUS.md](../STATUS.md) | [Activation plan execution log](../docs/cube-activation-plan.md) |
-| Topology descriptors and V29 save boundary | Implemented: explicit legacy-map/1 policy, no old-format loading; cube descriptors are admitted only while the cube runtime gate is open | [Topology contract](../docs/surface-cube.md#topology-and-save-contract-v29) |
+| Topology descriptors and V30 save boundary | Implemented: per-surface topology, canonical pose, complete `WorldCell` edits, fresh-process cube restore and explicit V29 rejection | [Topology contract](../docs/surface-cube.md#topology-and-save-contract-v30) |
 | Chinese classical courtyard complex (2026-10-20) | Implemented: grammar v7, 73x81 south-facing walled compound with gatehouse, forecourt, side halls, raised main hall, roofs, bracket bands and courtyard details; preview E2E passes | [CGA voxel grammars](../docs/architecture/19-cga-voxel-grammar.md) |
 | Coriolis terrain bias | Disabled; requires polar visual acceptance and calibrated diagnostics first | [Physics boundary](../docs/landform-planets.md) |
 
-World saves now write and read V29 only; V28 and older require a new world. Regional
+World saves now write and read V30 only; V29 and older require a new world. Regional
 ecology payload V7 and terrain generator v11 have independent version sequences.
 The authoritative version/identity/ownership/capacity tables live in the
 [cube activation contract](../docs/cube-contract.md).

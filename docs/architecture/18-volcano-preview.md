@@ -98,14 +98,14 @@ order. Cooling uses normalized enthalpy and a latent interval at 1100 K; partial
 solid overlays retain their collision height, while a full cold cell becomes
 its selected rock through an environment mutation.
 
-World save V29 retains `VOLCANO1`, `LAVA0003`, `ASH00002` and `INVFR001` after
+World save V30 retains `VOLCANO1`, `LAVA0003`, `ASH00002` and `INVFR001` after
 the ecology clock and before the spherical trailer; explicit topology metadata
 precedes the core payload. Every scalar in these subsystem payloads uses explicit
 little-endian encoding (IEEE-754 binary64 for real values); struct padding and
 pointers are never written. Records, admission state, discovery timer, rejection
 count and fractional tick remainder are saved. Load validates temporary bounded
 arrays before committing; the world transaction checkpoints/restores them.
-V28 and older world files are now rejected without migration. Historical
+V29 and older world files are now rejected without migration. Historical
 subsystem decoders remain unit-tested, but are not a whole-save compatibility
 promise. A new world resets all three runtimes; switching surfaces retains them.
 
@@ -166,7 +166,7 @@ including a solid base under liquid; empty space above a deposit stays clear.
   prevents removal.
 - `test_interaction_raycast`: rays above, inside and into the top of partial
   deposits; solid/liquid masks, mixed layers, reach limits and face normals.
-- `test_save_format` and `test_game_save_spherical`: V29 flags/writer and rejection boundary, new
+- `test_save_format` and `test_game_save_spherical`: V30 flags/writer and rejection boundary, new
   payload routing, old-version reset without consuming trailer bytes, corrupt
   payload preserving live records.
 - `test_debug_control`: command syntax, parameter limits, hex identity parsing.
@@ -246,7 +246,7 @@ ash `collected` or lava `removed` plus exported heat. Failures preserve both sou
 and inventory. Collection bypasses base-voxel edits/undo; the existing overlay
 queries immediately reflect removal, and `FluidOnBlockChanged` wakes neighbors.
 
-V29 retains `INVFR001` after ash and before the spherical trailer: eight magic
+V30 retains `INVFR001` after ash and before the spherical trailer: eight magic
 bytes plus six little-endian uint16 remainders. No existing inventory byte layout
 changes. Temporary loads validate every value <1024 before committing. The outer
 world checkpoint includes both whole inventory and fractions, as well as runtime

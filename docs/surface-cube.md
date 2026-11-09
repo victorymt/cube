@@ -70,7 +70,7 @@ The regression first measures the collapsed legacy edge. It then checks:
 - Invalid coordinates, nonfinite projection inputs, capacity rejection and a
   pinned hash vector.
 
-## Topology and save contract (V29)
+## Topology and save contract (V30)
 
 `SurfaceTopologyVersion` carries independent `kind` and `version` fields:
 NONE=0/version 0, LEGACY_MAP=1/version 1, CUBE_GRID=2/version 1. These are
@@ -90,18 +90,18 @@ reset restores these defaults. Snapshot installation rejects unknown, unsupporte
 or active/inactive-inconsistent descriptors without changing state or generation.
 Valid snapshots remain value copies and use the existing stale-job generation.
 
-Only V29 world files load. After the 19-byte `VOXELCRAFT_SAVE_V29` magic comes
-8-byte `TOPOL001`, followed by four little-endian uint32 values: home kind,
-home version, planet kind, planet version. The existing core payload follows.
-The current schema-2 spherical trailer keeps canonical map cells authoritative;
-a stored face address is not reinterpreted as a cube voxel.
+Only V30 world files load. After the 19-byte `VOXELCRAFT_SAVE_V30` magic comes
+8-byte `TOPOL002`, followed by four little-endian uint32 values: home kind,
+home version, planet kind, planet version. The core then stores canonical
+`SurfacePose` and a `CUBADDR2` block of `WorldBlockAddress + WorldCell` records.
+The old map-space spherical trailer is no longer the authority for surface
+identity.
 
-V28 and older require a new world. Loading never migrates or deletes these
+V29 and older require a new world. Loading never migrates or deletes these
 files. Format/topology preflight runs before transactional loading or live-state
-changes. Later failures restore the complete V29 checkpoint, including policy.
-F9/DSL callers reset clocks/input only on successful loads. Unknown topology
-versions and a cube-grid descriptor whose dedicated runtime gate is closed
-receive explicit rejection.
+changes. Later failures restore the complete V30 checkpoint, including policy.
+Fresh processes install cube backend from the header without the debug gate.
+F9/DSL callers reset clocks/input only on successful loads.
 
 The legacy map grid uses terrain generation version 11 (which includes the v7
 drainage base, v8 river terraces and v11 historical volcanic layers). The
@@ -132,7 +132,7 @@ active dimension's descriptor (none/0 in space and Nether).
 - ASan/UBSan suite: 108 passing binaries, with no sanitizer errors.
 - Public headers (175), architecture checks and debug CLI contract checks pass.
 - Hyprland replay passed in `/tmp/voxelcraft-topology-v29.pZZKYB`; `replies.log`
-  records V29 Homeworld/planet/space round trips, V18–V28 rejection, invalid and
+  records V30 Homeworld/planet/space round trips, V18–V29 rejection, invalid and
   unsupported topology rejection, and late trailer failure after loading another
   body's state. Whole-save bytes match before and after both rejection and rollback;
   the two bodies' edits are also checked through the DSL. Rejected input files
@@ -327,7 +327,7 @@ was used to claim coverage for these data/queue changes.
 
 This stage does **not** activate cube-grid in normal gameplay. The new edit store
 is in-memory only: V30 serialization, undo/redo, player interaction, fluid/ecology
-notifications, decorations and mesh/rendering conversion remain pending. V29
+notifications, decorations and mesh/rendering conversion remain pending. V30
 still persists the legacy store; no disk persistence of cube edits is claimed.
 The stage does not change or re-certify polar visual coverage.
 

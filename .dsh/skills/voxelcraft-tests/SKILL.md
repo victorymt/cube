@@ -26,7 +26,7 @@ metadata:
 | --- | --- | --- | --- |
 | 单元测试 | `tests/test_*.c`（128 个） | `mk/tests.mk` 的 `define_test` | 文件头 3–8 行 + 关键 `Test*` 函数上一行 |
 | 门禁测试 | `tests/test_*.sh`（25 个） | `Makefile` 的 `test-*` 目标 | 文件头说明守什么不变量、违规时提示怎么修 |
-| E2E | `tests/test_*_e2e.sh`（17 个）+ `tests/scenes/*.dsl`（49 个） | `test-e2e` / Hyprland CI job | 脚本头说明验证的画面/状态；场景靠 `assert` 自述 |
+| E2E | `tests/test_*_e2e.sh`（19 个）+ `tests/scenes/*.dsl`（52 个） | `test-e2e` / Hyprland CI job | 脚本头说明验证的画面/状态；场景靠 `assert` 自述 |
 | Benchmark | `tests/benchmark_chunks.c` | `test-benchmark-invariants` | 输出的每个不变量必须来自测量，并注明来源 |
 
 要点：

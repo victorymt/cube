@@ -19,14 +19,15 @@ typedef enum WorldSaveFormat {
     WORLD_SAVE_FORMAT_V26,
     WORLD_SAVE_FORMAT_V27,
     WORLD_SAVE_FORMAT_V28,
-    WORLD_SAVE_FORMAT_V29
+    WORLD_SAVE_FORMAT_V29,
+    WORLD_SAVE_FORMAT_V30
 } WorldSaveFormat;
 
 // Historical enum values describe standalone subsystem fixtures only. The game
-// reader accepts V29 exclusively.
+// reader accepts V30 exclusively; V29 and older are retired without migration.
 WorldSaveFormat WorldSaveFormatRead(FILE *file);
 bool WorldSaveWriteHeader(FILE *file, WorldSurfaceTopologyPolicy policy);
-// Reads/validates magic + TOPOL001 without touching runtime state. Only assigns
+// Reads/validates magic + TOPOL002 without touching runtime state. Only assigns
 // outPolicy on success; the returned static error is NULL on success.
 const char *WorldSaveReadHeader(FILE *file, WorldSurfaceTopologyPolicy *outPolicy);
 bool WorldSaveFormatWriteCurrent(FILE *file);

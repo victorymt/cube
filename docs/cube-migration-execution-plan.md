@@ -16,7 +16,7 @@ evidence here, and lands as its own commit.
 
 The repository has two live surface representations:
 
-- `legacy-map/1` remains the default surface backend and uses V29 world saves.
+- `legacy-map/1` remains the default surface backend; V30 now stores topology per surface.
 - `cube-grid/1` is reachable through the DSL command `surface debug cube`.
 
 The cube runtime path already supports landing, walking, picking, edits,
@@ -189,6 +189,8 @@ covered by `test_cube_generation`. The historical exclusion trail is retained in
 
 ### M3: close G2 with V30
 
+**Status:** complete (2026-11-09)
+
 Work:
 
 - bump the world save format and surface save schema to V30;
@@ -206,8 +208,15 @@ This stage absorbs water/plant Stage 5. The detailed behavior remains backed by
 `todo/10-water-plant-cell-followups.md`; its ordering and status are governed by
 this document.
 
-Exit evidence: focused save tests, a two-process round trip, corrupt-file tests,
-V29 rejection, undo/redo and unload/reload checks pass. Commit M3.
+Exit evidence: `test_save_format`, `test_cube_address_save`,
+`test_game_save_spherical`, `make test-cube-save-reload`,
+`make test-cube-v30-reload-e2e`, `make test-v30-cell-reload-e2e` and
+`make test-surface-topology-e2e` pass. V30 uses `TOPOL002`, canonical
+`SurfacePose`, and a `CUBADDR2` `WorldBlockAddress + WorldCell` edit block.
+Fresh processes restore cube topology without the debug gate. V29 and older are
+rejected without modification, late corrupt payloads restore the checkpoint,
+and volume-aware undo/redo plus plant/air water cells survive a fresh load.
+Commit M3.
 
 ### M4: close G3 consumer migration
 

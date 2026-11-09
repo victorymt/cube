@@ -26,6 +26,9 @@ static void TestHistoricalPayloadCapabilities(void)
     const char v23[] = "VOXELCRAFT_SAVE_V23";
     const char v24[] = "VOXELCRAFT_SAVE_V24";
     const char v28[] = "VOXELCRAFT_SAVE_V28";
+    const char v29[] = "VOXELCRAFT_SAVE_V29";
+    assert(ReadBytes(v29, sizeof(v29) - 1u) == WORLD_SAVE_FORMAT_UNSUPPORTED);
+    assert(WorldSaveFormatHasInventoryRemainders(WORLD_SAVE_FORMAT_V29));
     assert(ReadBytes(v28, sizeof(v28) - 1u) == WORLD_SAVE_FORMAT_UNSUPPORTED);
     assert(WorldSaveFormatHasLava(WORLD_SAVE_FORMAT_V28));
     assert(WorldSaveFormatHasVolcanoes(WORLD_SAVE_FORMAT_V28));
@@ -120,7 +123,7 @@ static void TestCurrentFormatWriter(void)
     assert(file != NULL);
     assert(WorldSaveFormatWriteCurrent(file));
     rewind(file);
-    assert(WorldSaveFormatRead(file) == WORLD_SAVE_FORMAT_V29);
+    assert(WorldSaveFormatRead(file) == WORLD_SAVE_FORMAT_V30);
     fclose(file);
     assert(!WorldSaveFormatWriteCurrent(NULL));
 }
@@ -136,9 +139,9 @@ static FILE *BytesFile(const unsigned char *bytes, size_t length)
 
 static void TestTopologyHeader(void)
 {
-    // Pinned wire bytes, including LE integers. Keep core payload untouched.
+    // Pinned V30 wire bytes, including LE topology integers.
     const unsigned char expected[] =
-        "VOXELCRAFT_SAVE_V29" "TOPOL001"
+        "VOXELCRAFT_SAVE_V30" "TOPOL002"
         "\x01\x00\x00\x00" "\x01\x00\x00\x00"
         "\x01\x00\x00\x00" "\x01\x00\x00\x00";
     WorldSurfaceTopologyPolicy policy = WORLD_SURFACE_TOPOLOGY_DEFAULT;
@@ -175,37 +178,30 @@ static void TestTopologyHeader(void)
         assert(WorldSaveReadHeader(file, &loaded));
         fclose(file);
     }
+    // Cube and mixed policies are readable without a process-local debug gate.
     for (size_t offset = 27; offset <= 35; offset += 8) {
         unsigned char cube[sizeof(expected) - 1];
         memcpy(cube, expected, sizeof(cube));
         cube[offset] = SURFACE_TOPOLOGY_CUBE_GRID;
         file = BytesFile(cube, sizeof(cube));
-        const char *error = WorldSaveReadHeader(file, &loaded);
-        assert(error && strstr(error, "cube-grid"));
+        assert(WorldSaveReadHeader(file, &loaded) == NULL);
         fclose(file);
         cube[offset] = SURFACE_TOPOLOGY_NONE;
         file = BytesFile(cube, sizeof(cube));
         assert(WorldSaveReadHeader(file, &loaded));
         fclose(file);
     }
-    for (int version = 1; version <= 30; ++version) {
-        if (version == 29) continue;
+    // Every older magic is rejected and names V29 in the retirement error.
+    for (int version = 1; version <= 29; ++version) {
         char magic[32];
         int length = snprintf(magic, sizeof(magic), "VOXELCRAFT_SAVE_V%d", version);
         file = BytesFile((const unsigned char *)magic, (size_t)length);
-        assert(WorldSaveReadHeader(file, &loaded));
+        const char *error = WorldSaveReadHeader(file, &loaded);
+        if (version == 29) assert(error && strstr(error, "V29"));
+        else assert(error);
         fclose(file);
     }
-    /* Mixed policies are representable. The gate applies when loading, not
-     * when writing the header. */
     policy.planets = (SurfaceTopologyVersion){ SURFACE_TOPOLOGY_CUBE_GRID, 1 };
-    file = tmpfile();
-    assert(file && WorldSaveWriteHeader(file, policy));
-    rewind(file);
-    const char *mixedError = WorldSaveReadHeader(file, &loaded);
-    assert(mixedError && strstr(mixedError, "cube-grid"));
-    fclose(file);
-    WorldSetCubeRuntimeEnabled(true);
     file = tmpfile();
     assert(file && WorldSaveWriteHeader(file, policy));
     rewind(file);
@@ -213,7 +209,6 @@ static void TestTopologyHeader(void)
     assert(loaded.home.kind == SURFACE_TOPOLOGY_LEGACY_MAP);
     assert(loaded.planets.kind == SURFACE_TOPOLOGY_CUBE_GRID);
     fclose(file);
-    WorldSetCubeRuntimeEnabled(false);
     assert(!WorldSaveWriteHeader(NULL, policy));
     assert(WorldSaveReadHeader(NULL, &loaded));
 }

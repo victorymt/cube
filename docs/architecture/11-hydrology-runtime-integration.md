@@ -37,7 +37,7 @@ The fixed-step solver continues to consume the cached rates every step.
 ## Persistence
 
 `WORLD_SAVE_FORMAT_V22` introduced a magic/version-checked hydrology payload
-after radiation and before map markers. V29 retains that payload and is now the
+after radiation and before map markers. V30 retains that payload and is now the
 only accepted world format. Historical V18-V21 reset behavior remains covered
 by standalone subsystem tests. Corrupt retained payloads fail transactionally;
 the world loader rejects trailing bytes.

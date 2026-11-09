@@ -25,7 +25,7 @@ new physical-simulation stages.
 | 15 | [polar E2E reliability](15-polar-e2e-reliability.md) | stdin reply-ordering regression, independent 600-frame polar DSL gate, and retained failure diagnostics |
 | 16 | [regional ecology continuity](16-ecology-continuity.md) | V23 daylight anchor, V7 regional ecology persistence, explicit scheduling, and historical environmental sampling |
 | 17 | [animal behavior and poses](17-fauna-poses.md) | V5 entity pose persistence, contact-driven gait/strikes, articulated behavior rendering and deterministic DSL previews |
-| 18 | [volcano, lava and ash](18-volcano-preview.md) | G1/G2 lifecycle and lava, G3 water contact, P0 ash/material products, fractional collection; retained payloads in V29 |
+| 18 | [volcano, lava and ash](18-volcano-preview.md) | G1/G2 lifecycle and lava, G3 water contact, P0 ash/material products, fractional collection; retained payloads in V30 |
 | 19 | [CGA voxel grammars](19-cga-voxel-grammar.md) | deterministic planning, four structure grammars, conflict resolution, cross-chunk IR evaluation, and CGA E2E coverage |
 | 20 | [architecture health review (2026-10-23)](20-health-review-2026-10-23.md) | measured dependency matrix, coupling hotspots and header-width metrics; four findings, none blocking, with a suggested order |
 | 21 | [coupling review (2026-10-24)](21-coupling-review-2026-10-24.md) | re-measured matrix after the module moves, surviving value-type cycles, and the measured rebuild radius of the four `world` headers six components read |
@@ -62,9 +62,9 @@ roadmap status of `Complete` applies to that stage's recorded scope; it does
 not imply that every later revision passed every acceptance route or that
 the bounded models implement full global simulation.
 
-- **Persistence:** the current world reader/writer accepts V29 only, with
-  explicit Homeworld/planetary topology descriptors. V28 and older are rejected
-  without migration. See the [V29 contract](../surface-cube.md#topology-and-save-contract-v29).
+- **Persistence:** the current world reader/writer accepts V30 only, with
+  explicit Homeworld/planetary topology descriptors. V29 and older are rejected
+  without migration. See the [V30 contract](../surface-cube.md#topology-and-save-contract-v30).
   Historical payload introductions: Radiation was introduced in V21, hydrology in V22, the
   homeworld daylight anchor in V23, volcano previews in V24, and lava physics
   in V25; later versions add water reactions, ash/material products and

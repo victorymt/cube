@@ -302,7 +302,7 @@ by `DebugControlCommandGroups()`, so it always describes what the binary in
 front of you accepts; `make docs-probe` fails when this example drifts from it.
 
 ```text
-DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,terrain,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ui,ship,view,fluid,water,weather,geology,landform,cga,evolution,block,flora statements=let,assert,wait,repeat,exit
+DEBUG_CONTROL ready mode=dsl plugins=0 commands=start,terrain,screenshot,status,pause,hud,world,stream,save,load,map,surface,marker,teleport,look,input,mouse,ui,ship,view,fluid,water,weather,geology,landform,cga,evolution,cell,block,flora statements=let,assert,wait,repeat,exit
 ```
 
 `--debug-trace [PATH]` can be combined with either debug entry point. Omitting
@@ -672,6 +672,11 @@ Runtime values are sampled when an expression is evaluated:
 | `block.stage05_count` | number | Geological, soil, biogenic, and fire-residue identities added in Stage 05 |
 | `block.gallery_active` | bool | Whether a Stage 05 gallery was successfully placed in this process |
 | `block.gallery_origin` | vec3 | Origin of the latest successful block gallery |
+| `cell.known` | bool | Whether the latest `cell inspect` target has a resolved cell |
+| `cell.block` | string | Block name at the latest inspected cell |
+| `cell.water_volume` | number | Authoritative water volume, 0–255, at the latest inspected cell |
+| `cell.submerged` | bool | Whether that cell has positive water volume |
+| `cell.flood_tolerance` | number | Plant flood tolerance class: 0 intolerant, 1 tolerant, 2 aquatic, -1 non-plant/unknown |
 | `block.gallery_placed` | number | Blocks placed by the latest successful gallery command |
 | `block.gallery_rows` | number | Deterministic family rows in the gallery |
 | `flora.catalog_count` | number | Real-world Homeworld taxa in the Stage 06 catalog |
@@ -814,15 +819,16 @@ creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
 
-Only V29 world saves are supported. The `TOPOL001` header records separate
-Homeworld and planetary topology descriptors; both currently use legacy-map/1.
-V28 and older, missing/invalid topology metadata are rejected before applying
-state. A cube-grid descriptor is rejected unless the cube runtime gate is open,
-which only `surface debug cube` does; a cube save is therefore not loadable in a
-fresh process yet. Failures report through `DEBUG_CONTROL load
-result=Load failed: ...`; this reply is not a successful load. Follow it with
-state assertions when testing rejection. Late payload errors restore the full
-V29 checkpoint. Neither failed path deletes the file or resets caller clocks/input.
+Only V30 world saves are supported. The `TOPOL002` header records independent
+Homeworld and planetary topology descriptors. The core stores a canonical
+`SurfacePose` and a `CUBADDR2` block of complete `WorldBlockAddress + WorldCell`
+edits. V29 and older, missing/invalid topology metadata are rejected before
+applying state. Cube topology is installed from the header during the load
+transaction, so a cube save is loadable in a fresh process. Failures report
+through `DEBUG_CONTROL load result=Load failed: ...`; this reply is not a
+successful load. Follow it with state assertions when testing rejection. Late
+payload errors restore the full V30 checkpoint. Neither failed path deletes the
+file or resets caller clocks/input.
 `make test-surface-topology-e2e` runs these checks in a temporary directory.
 The topology fields are read-only, but `surface debug cube` installs a
 cube-grid policy as a side effect.
@@ -1007,6 +1013,9 @@ water triangles in the player's section.
 block inspect NAME_OR_ID
 block set X Y Z NAME_OR_ID
 block gallery X Y Z
+cell inspect X Y Z
+undo
+redo
 ```
 
 `block inspect` accepts a stable numeric ID or a canonical block name;
@@ -1015,7 +1024,10 @@ resolved ID and name, face textures, render shape, collision, translucency,
 material response, and Stage 05 membership. `block set` uses the ordinary
 surface edit and persistence path, requires the target section to be loaded,
 and reports both the submitted coordinate and its canonical spherical cell.
-It is intended for deterministic seam/pole and save/load checks. `block gallery` requires an active
+`cell inspect` resolves the target through the active `SurfaceContract` and
+reports block plus authoritative water volume, submerged state and plant flood
+tolerance. `undo` and `redo` apply the ordinary volume-aware edit history. It is
+intended for deterministic seam/pole and save/load checks. `block gallery` requires an active
 surface world and a fully loaded 14-by-3 region beginning at `X Y Z`. It first
 validates the entire bounded region, then places all 26 Stage 05 blocks in
 geology, biogenic, and fire-residue rows as one undo group. A failed validation
@@ -1401,11 +1413,11 @@ inventory while previously emitted lava can still cool. Inspect/vents/typed read
 do not discover or advance anything. Runtime discovery checks eligible dry
 planetary volcanic peaks every two active seconds; Homeworld is debug-only.
 
-The current world save V29 retains versioned `VOLCANO1`, `LAVA0003`, `ASH00002`
+The current world save V30 retains versioned `VOLCANO1`, `LAVA0003`, `ASH00002`
 and `INVFR001` payloads with explicit little-endian scalar encoding, event state,
 material markers, ash erosion credits, collection counters, six inventory
 remainders and fractional step remainder. Old subsystem decoders remain covered
-by unit fixtures, but V28 and older world files are not accepted by the game.
+by unit fixtures, but V29 and older world files are not accepted by the game.
 
 | Field | Type | Meaning |
 | --- | --- | --- |

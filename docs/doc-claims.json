@@ -45,7 +45,7 @@
         "make plugins"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -63,7 +63,7 @@
         "make docs-probe"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -97,7 +97,7 @@
         "make test-plugins"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -134,7 +134,7 @@
         "python3 scripts/coupling-report.py"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -161,7 +161,7 @@
         "make test-clean-root"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -180,7 +180,7 @@
         "make test-architecture"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -199,7 +199,7 @@
         "make build/normal/tests/test_save_io && ./build/normal/tests/test_save_io"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -219,7 +219,7 @@
         "make docs-probe"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -239,7 +239,7 @@
         "make test-surface-topology-e2e"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -259,7 +259,7 @@
         "make -s benchmark-chunks"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -314,7 +314,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -331,7 +331,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -351,7 +351,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -390,7 +390,7 @@
         ]
       },
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -419,7 +419,7 @@
         },
         {
           "file": "src/world/save_format.h",
-          "pattern": "WORLD_SAVE_FORMAT_V29"
+          "pattern": "WORLD_SAVE_FORMAT_V30"
         },
         {
           "file": "src/world/surface_topology_version.h",
@@ -435,7 +435,7 @@
         }
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -453,7 +453,7 @@
         "make test-cube-save-reload"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -468,7 +468,7 @@
         "make build/normal/tests/test_atmosphere_model && ./build/normal/tests/test_atmosphere_model"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -483,7 +483,7 @@
         "make build/normal/tests/test_weather_model && ./build/normal/tests/test_weather_model"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -498,7 +498,7 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -513,7 +513,7 @@
         "make test-landform-quality"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -539,7 +539,7 @@
         "make build/normal/tests/test_volcano && ./build/normal/tests/test_volcano"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -554,7 +554,7 @@
         "make -s benchmark-chunks"
       ],
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     },
@@ -1042,7 +1042,7 @@
       ],
       "entryPoint": "loaded from the DSH skill catalog by name",
       "verifiedAt": {
-        "commit": "b880429792c2cc8a967812315954d2fe22ad70d1",
+        "commit": "71a0d4767e27c7e0c86a1645240be629c2244b8e",
         "date": "2026-11-09"
       }
     }

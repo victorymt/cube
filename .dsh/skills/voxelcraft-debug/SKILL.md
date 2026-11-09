@@ -105,7 +105,7 @@ assert world.seed == 1235
    行星表面另有 seed：`surface debug planet temperate|desert|ice|lava|crater SEED`。
 
 5. 复现不了就**直说**，并列出可能原因：不同 seed、用户存档里的既有编辑、不同分辨率/设置/view distance、天气或 day time 不同、GPU/驱动差异、画面其实不在你假设的位置、场景里那次捕获不是用户看到的那一帧。不要假装修复。
-6. 存档/读档 bug：只在临时目录跑，绝不覆盖用户存档。当前只接受 V29，V28 及更旧会被拒绝。
+6. 存档/读档 bug：只在临时目录跑，绝不覆盖用户存档。当前只接受 V30，V29 及更旧会被拒绝；fresh process 可从 V30 恢复 cube backend。
 
 ## 常见坑
 
@@ -142,3 +142,12 @@ wall, captures it through legacy and cube, and asserts cube activation before
 the second screenshot. Use this route when changing section transforms, model
 bounds or mesh coordinate conventions; the exhaustive per-vertex invariant is
 in `test_cube_generation`.
+
+V30 persistence routes:
+
+- `make test-surface-topology-e2e` covers topology headers, V29 rejection,
+  late-payload rollback and Homeworld/planet/space round trips.
+- `make test-cube-v30-reload-e2e` saves cube Homeworld through the debug entry,
+  then loads it in a fresh process without `surface debug cube`.
+- `make test-v30-cell-reload-e2e` exercises plant+water complete cells and
+  volume-aware undo/redo before a fresh load.

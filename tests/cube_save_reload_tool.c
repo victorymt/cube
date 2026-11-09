@@ -51,8 +51,15 @@ static WorldBlockAddress Expected(unsigned i)
 static int WritePhase(const char *path)
 {
     WorldCubeClearEdits();
-    for (unsigned i = 0; i < RECORDS; i++)
-        assert(WorldCubeSetBlock(Expected(i), (BlockType)(BLOCK_STONE + i % 5)));
+    for (unsigned i = 0; i < RECORDS; i++) {
+        if (i == RECORDS - 1u) {
+            assert(WorldCubeSetCell(
+                Expected(i), (WorldCell){ BLOCK_AIR, 127u }));
+        } else {
+            assert(WorldCubeSetBlock(
+                Expected(i), (BlockType)(BLOCK_STONE + i % 5)));
+        }
+    }
     assert(WorldCubeEditCount() == RECORDS);
     FILE *file = fopen(path, "wb");
     assert(file);
@@ -82,10 +89,16 @@ static int ReadPhase(const char *path)
         return 1;
     }
     for (unsigned i = 0; i < RECORDS; i++) {
-        BlockType type = BLOCK_AIR;
-        if (!WorldCubeGetEdit(Expected(i), &type) ||
-            type != (BlockType)(BLOCK_STONE + i % 5)) {
+        WorldCell cell;
+        if (!WorldCubeGetEditCell(Expected(i), &cell)) {
             fprintf(stderr, "record %u did not survive the reload\n", i);
+            return 1;
+        }
+        WorldCell expected = i == RECORDS - 1u
+            ? (WorldCell){ BLOCK_AIR, 127u }
+            : (WorldCell){ (BlockType)(BLOCK_STONE + i % 5), 0u };
+        if (!WorldCellEqual(cell, expected)) {
+            fprintf(stderr, "record %u cell did not survive the reload\n", i);
             return 1;
         }
     }

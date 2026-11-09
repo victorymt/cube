@@ -51,6 +51,13 @@ typedef enum FloraDisturbanceStage {
     FLORA_DISTURBANCE_RECOVERING_MATURE
 } FloraDisturbanceStage;
 
+typedef enum FloraFloodTolerance {
+    FLORA_FLOOD_UNKNOWN = -1,
+    FLORA_FLOOD_INTOLERANT = 0,
+    FLORA_FLOOD_TOLERANT = 1,
+    FLORA_FLOOD_AQUATIC = 2
+} FloraFloodTolerance;
+
 typedef enum FloraSoilMask {
     FLORA_SOIL_MINERAL = 1u << 0,
     FLORA_SOIL_CHERNOZEM = 1u << 1,
@@ -108,6 +115,8 @@ const FloraTaxon *FloraTaxonCatalog(size_t *count);
 const char *FloraGrowthFormName(FloraGrowthForm form);
 const char *FloraSuccessionStageName(FloraSuccessionStage stage);
 const char *FloraDisturbanceStageName(FloraDisturbanceStage stage);
+const char *FloraFloodToleranceName(FloraFloodTolerance tolerance);
+FloraFloodTolerance FloraFloodToleranceForBlock(BlockType block);
 FloraDisturbanceStage FloraDisturbanceStageForBurn(float severity,
                                                    float recovery);
 bool FloraTaxonIsTree(FloraTaxonId id);

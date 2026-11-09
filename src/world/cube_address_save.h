@@ -3,6 +3,7 @@
 
 #include "world/world_location.h"
 #include "world/block_type.h"
+#include "world/world_cell.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,17 +15,18 @@
  * or a map-space coordinate. Reading validates every field and rejects an
  * unknown version instead of guessing.
  */
-#define CUBE_ADDRESS_SAVE_MAGIC "CUBADDR1"
-#define CUBE_ADDRESS_SAVE_VERSION 1u
+#define CUBE_ADDRESS_SAVE_MAGIC "CUBADDR2"
+#define CUBE_ADDRESS_SAVE_VERSION 2u
 #define CUBE_ADDRESS_SAVE_HEADER_BYTES 16u
 
 typedef struct CubeAddressBlock {
     WorldBlockAddress *addresses;
-    BlockType *types;
+    WorldCell *cells;
     uint32_t count;
 } CubeAddressBlock;
 
-/* Writes magic, version and record count, then each record. */
+/* Writes magic, version and record count, then each complete WorldCell.
+ * Legacy BLOCK_WATER is normalized by the world store before it reaches here. */
 bool CubeAddressSaveWrite(FILE *file, const CubeAddressBlock *block);
 /* Allocates the record arrays; the caller owns them. Rejects a wrong magic,
  * an unknown version, an over-large count or any invalid address. */
