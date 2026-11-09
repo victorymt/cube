@@ -4,6 +4,19 @@
 #include "world/surface_contract.h"
 #include "world/surface_topology_version.h"
 
+struct Chunk;
+struct ChunkSection;
+
+typedef struct SurfaceCellRuntime {
+    struct Chunk *chunk;
+    struct ChunkSection *section;
+    int sectionY;
+    int localX;
+    int localY;
+    int localZ;
+    BlockType block;
+} SurfaceCellRuntime;
+
 typedef struct SurfaceContractOps {
     bool (*address_is_valid)(SurfaceAddress address);
     bool (*address_equal)(SurfaceAddress a, SurfaceAddress b);
@@ -28,6 +41,19 @@ typedef struct SurfaceContractOps {
                                  SurfaceSectionHandle *outSection);
     bool (*section_is_valid)(const SurfaceContract *contract,
                              SurfaceSectionHandle section);
+    bool (*locate_cell)(const SurfaceContract *contract,
+                        SurfaceAddress address, int x, int y, int z,
+                        SurfaceCellRuntime *outRuntime);
+    bool (*step_cell)(const SurfaceContract *contract,
+                      SurfaceAddress address, int x, int y, int z,
+                      SurfaceDirection direction, SurfaceAddress *outAddress,
+                      int *outX, int *outY, int *outZ,
+                      SurfaceDirection *outReturnDirection);
+    bool (*chunk_cell_address)(const SurfaceContract *contract,
+                               const struct Chunk *chunk, int localX, int y,
+                               int localZ, SurfaceAddress *outAddress);
+    bool (*chunk_runtime)(const SurfaceContract *contract,
+                          SurfaceChunkHandle chunk, struct Chunk **outChunk);
 
     bool (*cell_is_known)(const SurfaceContract *contract,
                           SurfaceAddress address);
@@ -76,4 +102,18 @@ struct SurfaceContract {
 bool SurfaceContractMatchesTopology(const SurfaceContract *contract,
                                     SurfaceTopologyVersion topology,
                                     uint32_t bodyId);
+bool SurfaceContractLocateCellRuntime(const SurfaceContract *contract,
+                                      SurfaceAddress address, int x, int y,
+                                      int z, SurfaceCellRuntime *outRuntime);
+bool SurfaceContractStepCellRuntime(
+    const SurfaceContract *contract, SurfaceAddress address, int x, int y,
+    int z, SurfaceDirection direction, SurfaceAddress *outAddress,
+    int *outX, int *outY, int *outZ, SurfaceDirection *outReturnDirection);
+bool SurfaceContractChunkCellAddress(const SurfaceContract *contract,
+                                     const struct Chunk *chunk, int localX,
+                                     int y, int localZ,
+                                     SurfaceAddress *outAddress);
+bool SurfaceContractChunkRuntime(const SurfaceContract *contract,
+                                 SurfaceChunkHandle chunk,
+                                 struct Chunk **outChunk);
 #endif

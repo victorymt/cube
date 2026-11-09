@@ -568,6 +568,10 @@ Runtime values are sampled when an expression is evaluated:
 | `stream.workers_started` | number | Successfully started surface chunk workers |
 | `stream.workers_active` | number | Surface chunk workers currently processing jobs |
 | `fluid.volume` | number | Fluid volume at the player |
+| `fluid.inspect_volume` | number | Fluid volume at the latest `fluid inspect` target |
+| `fluid.inspect_surface_y` | number | Fluid surface height at the latest `fluid inspect` target |
+| `fluid.inspect_flow_x`, `fluid.inspect_flow_y`, `fluid.inspect_flow_z` | number | Flow velocity at the latest `fluid inspect` target |
+| `fluid.loaded_volume` | number | Total finite fluid volume in loaded sections |
 | `fluid.surface_y` | number | Fluid surface at the player |
 | `fluid.queue_overflows` | number | Fluid solver queue overflow count |
 | `weather.climate` | string | Local named climate regime, or `"unavailable"` outside a surface world |
@@ -762,6 +766,7 @@ map
 map layer liquids on|off
 surface debug home
 surface debug cube
+surface pose LONGITUDE LATITUDE RADIAL YAW PITCH
 surface debug planet temperate|desert|ice|lava|crater SEED
 water debug
 water debug on|off
@@ -818,6 +823,10 @@ activation fails). The planet form
 creates a deterministic solid surface for the requested style and seed. These
 surface commands use normal chunk teardown and surface activation, and require
 the playing screen. `save` and `load` require the playing screen.
+`surface pose` places the player at a geographic longitude/latitude (radians),
+radial height and yaw/pitch on the active surface. It is intended for
+face-edge, pole and cube cross-process scenes where map-coordinate teleporting
+would depend on the current local origin.
 
 Only V30 world saves are supported. The `TOPOL002` header records independent
 Homeworld and planetary topology descriptors. The core stores a canonical

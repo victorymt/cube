@@ -18,6 +18,9 @@ typedef struct LegacyContract {
     TerrainMode mode;
 } LegacyContract;
 
+static bool LegacyCellIsKnown(const SurfaceContract *contract,
+                              SurfaceAddress address);
+
 static bool LegacyAddressMatches(const SurfaceContract *contract,
                                  SurfaceAddress address)
 {
@@ -162,6 +165,112 @@ static bool LegacySectionIsValid(const SurfaceContract *contract,
 {
     return LegacyChunkIsValid(contract, section.chunk) &&
            SurfaceSectionInBounds(section.sectionY);
+}
+
+static bool LegacyLocateCell(const SurfaceContract *contract,
+                             SurfaceAddress address, int x, int y, int z,
+                             SurfaceCellRuntime *outRuntime)
+{
+    if (!outRuntime || !LegacyAddressMatches(contract, address) ||
+        !InHeight(y)) return false;
+    int cx = 0;
+    int cz = 0;
+    int lx = 0;
+    int lz = 0;
+    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    Chunk *chunk = FindChunk(cx, cz);
+    if (!chunk || !chunk->loaded) return false;
+    int sectionY = SurfaceSectionYFromBlockY(y);
+    ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
+    if (!section && !LegacyCellIsKnown(contract, address)) return false;
+    int ly = SurfaceSectionLocalYFromBlockY(y);
+    *outRuntime = (SurfaceCellRuntime){
+        .chunk = chunk,
+        .section = section,
+        .sectionY = sectionY,
+        .localX = lx,
+        .localY = ly,
+        .localZ = lz,
+        .block = section
+            ? (BlockType)section->blocks[lx][ly][lz] : BLOCK_AIR
+    };
+    return true;
+}
+
+static bool LegacyStepCell(const SurfaceContract *contract,
+                           SurfaceAddress address, int x, int y, int z,
+                           SurfaceDirection direction,
+                           SurfaceAddress *outAddress, int *outX, int *outY,
+                           int *outZ, SurfaceDirection *outReturnDirection)
+{
+    LegacyContract *legacy = contract ? contract->implementation : NULL;
+    if (!legacy || !outAddress || !LegacyAddressMatches(contract, address)) {
+        return false;
+    }
+    SurfaceAddress next = address;
+    if (direction <= SURFACE_DIRECTION_V_PLUS) {
+        int deltaX = direction == SURFACE_DIRECTION_U_PLUS ? 1 :
+                     direction == SURFACE_DIRECTION_U_MINUS ? -1 : 0;
+        int deltaZ = direction == SURFACE_DIRECTION_V_PLUS ? 1 :
+                     direction == SURFACE_DIRECTION_V_MINUS ? -1 : 0;
+        SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+            (float)legacy->snapshot.context.originX + (float)x +
+                (float)deltaX,
+            (float)legacy->snapshot.context.originZ + (float)z +
+                (float)deltaZ);
+        x = canonical.x - legacy->snapshot.context.originX;
+        z = canonical.z - legacy->snapshot.context.originZ;
+        next = SurfaceAddressFromMapCoordinates(
+            contract->bodyId, (float)canonical.x, (float)canonical.z, y);
+    } else if (direction == SURFACE_DIRECTION_RADIAL_MINUS) {
+        if (y == INT_MIN) return false;
+        y--;
+        next.radial = y;
+    } else if (direction == SURFACE_DIRECTION_RADIAL_PLUS) {
+        if (y == INT_MAX) return false;
+        y++;
+        next.radial = y;
+    } else {
+        return false;
+    }
+    if (!LegacyAddressMatches(contract, next)) return false;
+    *outAddress = next;
+    if (outX) *outX = x;
+    if (outY) *outY = y;
+    if (outZ) *outZ = z;
+    if (outReturnDirection) {
+        *outReturnDirection = (SurfaceDirection)((int)direction ^ 1);
+    }
+    return true;
+}
+
+static bool LegacyChunkCellAddress(const SurfaceContract *contract,
+                                   const Chunk *chunk, int localX, int y,
+                                   int localZ, SurfaceAddress *outAddress)
+{
+    LegacyContract *legacy = contract ? contract->implementation : NULL;
+    if (!legacy || !chunk || !outAddress || !InHeight(y)) return false;
+    *outAddress = SurfaceAddressFromMapCoordinates(
+        contract->bodyId,
+        (float)legacy->snapshot.context.originX +
+            (float)(chunk->cx * CHUNK_SIZE + localX),
+        (float)legacy->snapshot.context.originZ +
+            (float)(chunk->cz * CHUNK_SIZE + localZ), y);
+    return SurfaceContractAddressIsValid(*outAddress) &&
+           LegacyAddressMatches(contract, *outAddress);
+}
+
+static bool LegacyChunkRuntime(const SurfaceContract *contract,
+                               SurfaceChunkHandle handle,
+                               Chunk **outChunk)
+{
+    int cx = 0;
+    int cz = 0;
+    if (!outChunk || !LegacyDecodeChunk(contract, handle, &cx, &cz)) {
+        return false;
+    }
+    *outChunk = FindChunk(cx, cz);
+    return *outChunk && (*outChunk)->loaded;
 }
 
 static bool LegacyCellEdit(const LegacyContract *legacy,
@@ -356,6 +465,10 @@ static const SurfaceContractOps legacyOps = {
     .chunk_neighbor = LegacyChunkNeighbor,
     .section_from_address = LegacySectionFromAddress,
     .section_is_valid = LegacySectionIsValid,
+    .locate_cell = LegacyLocateCell,
+    .step_cell = LegacyStepCell,
+    .chunk_cell_address = LegacyChunkCellAddress,
+    .chunk_runtime = LegacyChunkRuntime,
     .cell_is_known = LegacyCellIsKnown,
     .cell_read = LegacyCellRead,
     .cell_write = LegacyCellWrite,

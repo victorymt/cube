@@ -398,6 +398,10 @@ test-cube-v30-reload-e2e: $(TARGET)
 test-v30-cell-reload-e2e: $(TARGET)
 	bash tests/test_v30_cell_reload_e2e.sh $(TARGET)
 
+.PHONY: test-cube-fluid-face-edge-e2e
+test-cube-fluid-face-edge-e2e: $(TARGET)
+	bash tests/test_cube_fluid_face_edge_e2e.sh $(TARGET)
+
 # The documentation gate is Node-only. Without this guard a missing node
 # surfaced as a bare "node: command not found" from inside a make recipe, which
 # says nothing about what to install; `make prerequisites` lists the tools.

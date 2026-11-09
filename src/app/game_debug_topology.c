@@ -2,6 +2,7 @@
 
 #include "app/game_runtime.h"
 #include "core/debug_control.h"
+#include "gameplay/player.h"
 #include "world/chunks.h"
 #include "world/surface_topology.h"
 #include "presentation/homeworld_map.h"
@@ -229,6 +230,11 @@ bool GameDebugTopologyDslResolve(const GameRuntime *game, const char *name,
 bool GameDebugEnterCubeWorld(struct GameRuntime *game)
 {
     if (!game) return false;
+    Vector3 previousPosition = game->player.position;
+    float previousYaw = game->player.yaw;
+    float previousPitch = game->player.pitch;
+    int previousOriginX = WorldSurfaceMapOriginX();
+    int previousOriginZ = WorldSurfaceMapOriginZ();
     bool previousGate = WorldCubeRuntimeEnabled();
     WorldSurfaceTopologyPolicy previousPolicy = WorldCurrentTopologyPolicy();
     WorldSetCubeRuntimeEnabled(true);
@@ -249,11 +255,59 @@ bool GameDebugEnterCubeWorld(struct GameRuntime *game)
         WorldSetCubeRuntimeEnabled(previousGate);
         return false;
     }
+    SurfaceMapProjection previousProjection = SurfaceProjectMapCoordinates(
+        (float)previousOriginX + previousPosition.x,
+        (float)previousOriginZ + previousPosition.z);
+    SurfacePose restoredPose;
+    Vector3 restoredLocal;
+    if (SurfacePoseFromGeographic(
+            WorldCurrentSurfaceId(), previousProjection.longitude,
+            previousProjection.latitude, previousPosition.y,
+            previousYaw, previousPitch, &restoredPose) &&
+        PlayerLocalFromSurfacePose(&restoredPose, &restoredLocal)) {
+        game->player.position = restoredLocal;
+        game->player.velocity = (Vector3){ 0 };
+        game->player.yaw = previousYaw;
+        game->player.pitch = previousPitch;
+        game->player.onGround = false;
+        PlayerResetRuntimeState(&game->player);
+    }
     game->landingTransition = (LandingTransition){ 0 };
     game->wasInSpace = false;
     game->entitiesWorldActive = true;
     game->entitiesWorldDimension = WorldCurrentSurfaceId();
     game->cursorReleased = false;
     DisableCursor();
+    return true;
+}
+
+bool GameDebugSetSurfacePose(GameRuntime *game)
+{
+    if (!game || !WorldIsSurfaceActive()) return false;
+    const DebugControl *control = &game->debugControl;
+    SurfacePose pose;
+    if (!SurfacePoseFromGeographic(
+            WorldCurrentSurfaceId(), control->surfacePoseLongitude,
+            control->surfacePoseLatitude, control->surfacePoseRadial,
+            control->surfacePoseYaw, control->surfacePosePitch, &pose)) {
+        return false;
+    }
+    Vector3 local;
+    if (!PlayerLocalFromSurfacePose(&pose, &local)) return false;
+    game->player.position = local;
+    game->player.velocity = (Vector3){ 0 };
+    game->player.yaw = (float)control->surfacePoseYaw;
+    game->player.pitch = (float)control->surfacePosePitch;
+    game->player.onGround = false;
+    PlayerResetRuntimeState(&game->player);
+    game->scriptedInputFrames = 0u;
+    game->scriptedInputFirstFrame = false;
+    GameDebugTraceEvent(game, "surface-pose");
+    DebugControlReply(
+        &game->debugControl,
+        "DEBUG_CONTROL surface pose ok position=%.6f,%.6f,%.6f "
+        "longitude=%.9f latitude=%.9f radial=%.6f\n",
+        local.x, local.y, local.z, control->surfacePoseLongitude,
+        control->surfacePoseLatitude, control->surfacePoseRadial);
     return true;
 }

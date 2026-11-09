@@ -220,6 +220,24 @@ static void TestBlockCommands(void)
            DEBUG_CONTROL_COMMAND_INVALID);
 }
 
+static void TestSurfacePoseCommand(void)
+{
+    DebugControl control;
+    DebugControlInit(&control, true);
+    assert(DebugControlParseText(
+               &control, "surface pose -0.9272913863 0.7297913598 9 0.25 -0.5") ==
+           DEBUG_CONTROL_COMMAND_SURFACE_POSE);
+    assert(control.surfacePoseLongitude == -0.9272913863);
+    assert(control.surfacePoseLatitude == 0.7297913598);
+    assert(control.surfacePoseRadial == 9.0);
+    assert(control.surfacePoseYaw == 0.25);
+    assert(control.surfacePosePitch == -0.5);
+    assert(DebugControlParseText(&control, "surface pose 1 2 3 4") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+    assert(DebugControlParseText(&control, "surface pose 1 2 3 4 5 trailing") ==
+           DEBUG_CONTROL_COMMAND_INVALID);
+}
+
 static void TestFloraCommands(void)
 {
     DebugControl control;
@@ -806,6 +824,7 @@ int main(void)
     TestLongReply();
     TestCommandStream();
     TestBlockCommands();
+    TestSurfacePoseCommand();
     TestFloraCommands();
     TestTerrainMapCommands();
     TestEvolutionPreviewCommand();

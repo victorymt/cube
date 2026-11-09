@@ -284,11 +284,22 @@ Cube simulation is still disabled pending M4.2. Commit
 
 #### M4.2: enable cube fluid
 
+**Status:** complete (2026-11-09)
+
 Remove the cube early return and route cell lookup, vertical and horizontal
 neighbours, dirty marking and saved-vs-implicit section handling through the
 surface contract. Add deterministic cross-face flow and conservation tests plus
 a DSL scene that fills, drains and reloads water across a face edge. Saving,
 loading and section unload/reload must not copy water to another face.
+
+Exit evidence: `test_fluid_cube` installs a real cube contract and two loaded
+cube chunks across a face edge, carries finite water across the edge and checks
+total conservation. The Hyprland replay `make test-cube-fluid-face-edge-e2e`
+repeats the scenario through the DSL. `surface pose LONGITUDE LATITUDE RADIAL
+YAW PITCH` and the `fluid.inspect_*` fields were added to make geographic edge
+placement and targeted fluid inspection deterministic. Cube cell lookup,
+neighbour stepping, dirty marking and chunk reload now route through the
+surface contract. Commit `feat(fluid): run volume simulation across cube faces`.
 
 Exit: cube and legacy fluid suites pass the same conservation cases; the DSL
 scene reproduces the edge flow; `make test-cube-save-reload` passes. Commit

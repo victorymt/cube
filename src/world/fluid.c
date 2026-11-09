@@ -3,6 +3,7 @@
 #include "world/chunks_internal.h"
 #include "world/block_edits.h"
 #include "world/surface_contract.h"
+#include "world/surface_contract_internal.h"
 #include "world/world_environment.h"
 #include "world/world_surface_snapshot.h"
 
@@ -132,11 +133,34 @@ static bool FluidAddressFromXYZ(int x, int y, int z,
     return true;
 }
 
+static bool FluidCoordinatesFromAddress(SurfaceAddress address,
+                                        int *outX, int *outY, int *outZ)
+{
+    SurfaceMapCell canonical;
+    if (!outX || !outY || !outZ ||
+        !SurfaceAddressCanonicalMapCell(address, &canonical)) return false;
+    *outX = canonical.x - WorldSurfaceMapOriginX();
+    *outY = address.radial;
+    *outZ = canonical.z - WorldSurfaceMapOriginZ();
+    return true;
+}
+
 static bool FluidChunkFromAddress(SurfaceAddress address,
                                   SurfaceChunkHandle *outChunk)
 {
     return outChunk && SurfaceContractChunkFromAddress(
         WorldCurrentSurfaceContract(), address, outChunk);
+}
+
+static bool FluidStepCell(int x, int y, int z, SurfaceDirection direction,
+                          SurfaceAddress *outAddress, int *outX, int *outY,
+                          int *outZ, SurfaceDirection *outReturnDirection)
+{
+    SurfaceAddress address;
+    return FluidAddressFromXYZ(x, y, z, &address) &&
+           SurfaceContractStepCellRuntime(
+               WorldCurrentSurfaceContract(), address, x, y, z, direction,
+               outAddress, outX, outY, outZ, outReturnDirection);
 }
 
 static bool FluidChunkFromStorageChunk(const Chunk *chunk,
@@ -172,6 +196,14 @@ static bool FluidBlockCanHoldWater(BlockType block)
 static int FluidCellIndex(int lx, int ly, int lz)
 {
     return (lx * SURFACE_SECTION_HEIGHT + ly) * CHUNK_SIZE + lz;
+}
+
+static void FluidCellLocal(int index, int *outX, int *outY, int *outZ)
+{
+    if (outZ) *outZ = index % CHUNK_SIZE;
+    index /= CHUNK_SIZE;
+    if (outY) *outY = index % SURFACE_SECTION_HEIGHT;
+    if (outX) *outX = index / SURFACE_SECTION_HEIGHT;
 }
 
 static uint32_t FluidHash(SurfaceAddress address)
@@ -353,41 +385,52 @@ static bool FluidBuildAllChunkEditLists(void)
     return true;
 }
 
-static bool FluidImplicitSectionIsKnown(const Chunk *chunk, int sectionY)
-{
-    /* Planet columns are generated in full; Homeworld streams sparse sections. */
-    return WorldCurrentSurfaceContext().kind != WORLD_SURFACE_HOME ||
-           ChunkTerrainSectionIsResolved(chunk, sectionY);
-}
-
 static bool FluidLocateCell(int x, int y, int z, Chunk **outChunk,
                             ChunkSection **outSection, int *outIndex,
                             BlockType *outBlock)
 {
-    if (!InHeight(y)) return false;
-    int cx = 0;
-    int cz = 0;
-    int lx = 0;
-    int lz = 0;
-    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
-    Chunk *chunk = FindChunk(cx, cz);
-    if (!chunk) return false;
-    int sectionY = SurfaceSectionYFromBlockY(y);
-    ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
-    /* Missing storage is air only after terrain generation has resolved it.
-       Creating a fluid section sooner would suppress its pending terrain job. */
-    if (!section && !FluidImplicitSectionIsKnown(chunk, sectionY)) {
+    SurfaceAddress address;
+    SurfaceCellRuntime runtime;
+    if (!FluidAddressFromXYZ(x, y, z, &address) ||
+        !SurfaceContractLocateCellRuntime(
+            WorldCurrentSurfaceContract(), address, x, y, z, &runtime)) {
         return false;
     }
-    int ly = SurfaceSectionLocalYFromBlockY(y);
-    BlockType block = section
-        ? (BlockType)section->blocks[lx][ly][lz] : BLOCK_AIR;
-    if (outChunk) *outChunk = chunk;
-    if (outSection) *outSection = section;
-    if (outIndex) *outIndex = FluidCellIndex(lx, ly, lz);
-    if (outBlock) *outBlock = block;
+    if (outChunk) *outChunk = runtime.chunk;
+    if (outSection) *outSection = runtime.section;
+    if (outIndex) {
+        *outIndex = FluidCellIndex(
+            runtime.localX, runtime.localY, runtime.localZ);
+    }
+    if (outBlock) *outBlock = runtime.block;
     return true;
 }
+
+static bool FluidQueueCellAtXYZ(int x, int y, int z,
+                                FluidQueueCell *outCell)
+{
+    if (!outCell) return false;
+    FluidCanonicalizeXZ(&x, &z);
+    SurfaceAddress address;
+    Chunk *chunk = NULL;
+    SurfaceChunkHandle handle;
+    if (!FluidAddressFromXYZ(x, y, z, &address) ||
+        !FluidLocateCell(x, y, z, &chunk, NULL, NULL, NULL) ||
+        !FluidChunkFromStorageChunk(chunk, &handle)) {
+        return false;
+    }
+    *outCell = (FluidQueueCell){
+        .x = x, .y = y, .z = z, .address = address, .chunk = handle
+    };
+    return true;
+}
+
+static const SurfaceDirection FluidNeighborDirections[6] = {
+    SURFACE_DIRECTION_RADIAL_MINUS,
+    SURFACE_DIRECTION_U_MINUS, SURFACE_DIRECTION_U_PLUS,
+    SURFACE_DIRECTION_V_MINUS, SURFACE_DIRECTION_V_PLUS,
+    SURFACE_DIRECTION_RADIAL_PLUS
+};
 
 static bool FluidEnsureVolumes(ChunkSection *section)
 {
@@ -800,20 +843,15 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
     if (!FluidLocateCell(x, y, z, &chunk, &section, &index, &block)) {
         return false;
     }
+    SurfaceAddress address;
+    if (!FluidAddressFromXYZ(x, y, z, &address)) return false;
     if (volume > 0u &&
         (!FluidBlockCanHoldWater(block) ||
          !FluidBlockCanHoldWater(GetBlockAt(x, y, z)))) return false;
     if (!section && volume > 0u) {
-        int cx = 0;
-        int cz = 0;
-        int lx = 0;
-        int lz = 0;
-        WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
         section = ChunkGetSection(
             chunk, SurfaceSectionYFromBlockY(y), true);
         if (!section) return false;
-        index = FluidCellIndex(
-            lx, SurfaceSectionLocalYFromBlockY(y), lz);
     }
     uint8_t previous = section && section->waterVolumes
         ? section->waterVolumes[index]
@@ -834,17 +872,15 @@ static bool FluidSetVolumeInternal(int x, int y, int z, uint8_t volume,
         }
     }
     section->waterVolumes[index] = volume;
-    int cx = 0;
-    int cz = 0;
     int lx = 0;
     int lz = 0;
-    WorldToChunkLocal(x, z, &cx, &cz, &lx, &lz);
+    FluidCellLocal(index, &lx, NULL, &lz);
     if (block == BLOCK_AIR || block == BLOCK_WATER) {
         section->blocks[lx][SurfaceSectionLocalYFromBlockY(y)][lz] =
             BLOCK_AIR;
     }
     section->fluidDirty = true;
-    MarkChunkDirtyAtBlock(x, y, z);
+    SurfaceContractMarkAddressDirty(WorldCurrentSurfaceContract(), address);
     return true;
 }
 
@@ -862,9 +898,7 @@ bool FluidTryEvaporateAt(int x, int y, int z, uint8_t expected, uint8_t amount,
     if (reservoir) *reservoir = false;
     if (!WorldIsSurfaceActive() || !amount || amount > expected) return false;
     FluidCanonicalizeXZ(&x, &z);
-    Chunk *chunk = NULL;
-    if (!FluidLocateCell(x, y, z, &chunk, NULL, NULL, NULL) ||
-        !chunk->loaded || !ChunkTerrainSectionIsResolved(chunk, SurfaceSectionYFromBlockY(y)) ||
+    if (!FluidLocateCell(x, y, z, NULL, NULL, NULL, NULL) ||
         FluidGetVolumeAt(x, y, z) != expected) return false;
     if (WorldIsProceduralOceanWaterAt(x, y, z)) {
         if (!reservoir) return false; /* Never hide the external mass source. */
@@ -877,15 +911,11 @@ bool FluidTryEvaporateAt(int x, int y, int z, uint8_t expected, uint8_t amount,
     return true;
 }
 
-/* Fluid bookkeeping now keys chunks by opaque surface handles, but cube section
- * lookup and cross-face simulation are still part of M4.2. Keep cube fluid
- * disabled until the runtime locator and neighbour transport use the contract
- * end to end. */
 static bool FluidSurfaceSupported(void)
 {
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
     return !context.active ||
-        context.topology.kind != SURFACE_TOPOLOGY_CUBE_GRID;
+        SurfaceContractIsValid(WorldCurrentSurfaceContract());
 }
 
 void FluidWakeCell(int x, int y, int z)
@@ -975,13 +1005,23 @@ static void FluidRefillDeferredQueue(void)
 
 static void FluidWakeNeighborhood(int x, int y, int z)
 {
-    static const int offsets[7][3] = {
-        { 0, 0, 0 }, { 0, -1, 0 }, { -1, 0, 0 }, { 1, 0, 0 },
-        { 0, 0, -1 }, { 0, 0, 1 }, { 0, 1, 0 }
+    static const SurfaceDirection directions[6] = {
+        SURFACE_DIRECTION_RADIAL_MINUS,
+        SURFACE_DIRECTION_U_MINUS, SURFACE_DIRECTION_U_PLUS,
+        SURFACE_DIRECTION_V_MINUS, SURFACE_DIRECTION_V_PLUS,
+        SURFACE_DIRECTION_RADIAL_PLUS
     };
-    for (int index = 0; index < 7; index++) {
-        FluidWakeCell(x + offsets[index][0], y + offsets[index][1],
-                      z + offsets[index][2]);
+    FluidWakeCell(x, y, z);
+    for (unsigned index = 0u;
+         index < sizeof(directions) / sizeof(directions[0]); index++) {
+        SurfaceAddress next;
+        int nx = 0;
+        int ny = 0;
+        int nz = 0;
+        if (FluidStepCell(x, y, z, directions[index], &next, &nx, &ny, &nz,
+                          NULL)) {
+            FluidWakeCell(nx, ny, nz);
+        }
     }
 }
 
@@ -1000,7 +1040,18 @@ static signed char FluidClampFlow(int value)
     return (signed char)value;
 }
 
-static void FluidRecordFlow(int x, int y, int z, int dx, int dy, int dz,
+static void FluidDirectionComponents(SurfaceDirection direction,
+                                     int *outX, int *outY, int *outZ)
+{
+    *outX = direction == SURFACE_DIRECTION_U_MINUS ? -1 :
+            direction == SURFACE_DIRECTION_U_PLUS ? 1 : 0;
+    *outY = direction == SURFACE_DIRECTION_RADIAL_MINUS ? -1 :
+            direction == SURFACE_DIRECTION_RADIAL_PLUS ? 1 : 0;
+    *outZ = direction == SURFACE_DIRECTION_V_MINUS ? -1 :
+            direction == SURFACE_DIRECTION_V_PLUS ? 1 : 0;
+}
+
+static void FluidRecordFlow(int x, int y, int z, SurfaceDirection direction,
                             unsigned amount)
 {
     ChunkSection *section = NULL;
@@ -1010,6 +1061,10 @@ static void FluidRecordFlow(int x, int y, int z, int dx, int dy, int dz,
         return;
     }
     int magnitude = (int)amount / 2 + 1;
+    int dx = 0;
+    int dy = 0;
+    int dz = 0;
+    FluidDirectionComponents(direction, &dx, &dy, &dz);
     int base = index * FLUID_FLOW_COMPONENTS;
     section->fluidFlow[base] = FluidClampFlow(
         (int)section->fluidFlow[base] + dx * magnitude);
@@ -1020,7 +1075,7 @@ static void FluidRecordFlow(int x, int y, int z, int dx, int dy, int dz,
 }
 
 static bool FluidTransfer(int sx, int sy, int sz, int tx, int ty, int tz,
-                          unsigned limit)
+                          SurfaceDirection direction, unsigned limit)
 {
     uint8_t source = FluidGetVolumeAt(sx, sy, sz);
     if (source == 0u || !FluidCellCanHold(tx, ty, tz)) return false;
@@ -1034,28 +1089,32 @@ static bool FluidTransfer(int sx, int sy, int sz, int tx, int ty, int tz,
         { tx, ty, tz, (uint8_t)(target + amount) }
     };
     if (!FluidApplyMutations(mutations, 2)) return false;
-    int dx = tx - sx;
-    int dy = ty - sy;
-    int dz = tz - sz;
-    FluidRecordFlow(sx, sy, sz, dx, dy, dz, amount);
-    FluidRecordFlow(tx, ty, tz, dx, dy, dz, amount);
+    FluidRecordFlow(sx, sy, sz, direction, amount);
+    FluidRecordFlow(tx, ty, tz, direction, amount);
     fluidStats.transferredVolume += amount;
     FluidWakeNeighborhood(sx, sy, sz);
     FluidWakeNeighborhood(tx, ty, tz);
     return true;
 }
 
-static bool FluidEqualize(int x, int y, int z, int nx, int nz)
+static bool FluidEqualize(int x, int y, int z, SurfaceDirection direction)
 {
-    if (!FluidCellCanHold(x + nx, y, z + nz)) return false;
+    SurfaceAddress nextAddress;
+    int nx = 0;
+    int ny = 0;
+    int nz = 0;
+    if (!FluidStepCell(x, y, z, direction, &nextAddress, &nx, &ny, &nz,
+                       NULL) || !FluidCellCanHold(nx, ny, nz)) {
+        return false;
+    }
     uint8_t source = FluidGetVolumeAt(x, y, z);
-    uint8_t target = FluidGetVolumeAt(x + nx, y, z + nz);
+    uint8_t target = FluidGetVolumeAt(nx, ny, nz);
     if (source <= target + 1u) return false;
     unsigned amount = (unsigned)(source - target) / 2u;
     if (amount > FLUID_HORIZONTAL_FLOW_LIMIT) {
         amount = FLUID_HORIZONTAL_FLOW_LIMIT;
     }
-    return FluidTransfer(x, y, z, x + nx, y, z + nz, amount);
+    return FluidTransfer(x, y, z, nx, ny, nz, direction, amount);
 }
 
 static void FluidProcessCell(const FluidQueueCell *cell)
@@ -1085,8 +1144,16 @@ static void FluidProcessCell(const FluidQueueCell *cell)
         }
         return;
     }
-    FluidTransfer(cell->x, cell->y, cell->z,
-                  cell->x, cell->y - 1, cell->z, FLUID_CAPACITY);
+    SurfaceAddress downAddress;
+    int downX = 0;
+    int downY = 0;
+    int downZ = 0;
+    if (FluidStepCell(cell->x, cell->y, cell->z,
+                      SURFACE_DIRECTION_RADIAL_MINUS, &downAddress,
+                      &downX, &downY, &downZ, NULL)) {
+        FluidTransfer(cell->x, cell->y, cell->z, downX, downY, downZ,
+                      SURFACE_DIRECTION_RADIAL_MINUS, FLUID_CAPACITY);
+    }
     if (FluidGetVolumeAt(cell->x, cell->y, cell->z) == 0u) {
         if (section->fluidFlow) {
             int base = index * FLUID_FLOW_COMPONENTS;
@@ -1097,15 +1164,15 @@ static void FluidProcessCell(const FluidQueueCell *cell)
         return;
     }
 
-    static const int directions[4][2] = {
-        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
+    static const SurfaceDirection directions[4] = {
+        SURFACE_DIRECTION_U_MINUS, SURFACE_DIRECTION_U_PLUS,
+        SURFACE_DIRECTION_V_MINUS, SURFACE_DIRECTION_V_PLUS
     };
     unsigned start = FluidHash(cell->address) +
                      (uint32_t)fluidStats.ticks;
     for (unsigned offset = 0; offset < 4u; offset++) {
         unsigned direction = (start + offset) & 3u;
-        FluidEqualize(cell->x, cell->y, cell->z,
-                      directions[direction][0], directions[direction][1]);
+        FluidEqualize(cell->x, cell->y, cell->z, directions[direction]);
     }
     if (section->fluidFlow) {
         int base = index * FLUID_FLOW_COMPONENTS;
@@ -1224,44 +1291,35 @@ static int FluidCollectCandidates(int x, int y, int z,
     int head = 0;
     int count = 1;
     *outVolume = 0u;
-    cells[0] = (FluidQueueCell){ .x = x, .y = y, .z = z };
-    Chunk *chunk = NULL;
-    if (!FluidAddressFromXYZ(x, y, z, &cells[0].address) ||
-        !FluidLocateCell(x, y, z, &chunk, NULL, NULL, NULL) ||
-        !FluidChunkFromStorageChunk(chunk, &cells[0].chunk)) {
-        return 0;
-    }
-    static const int offsets[6][3] = {
-        { 0, -1, 0 }, { -1, 0, 0 }, { 1, 0, 0 },
-        { 0, 0, -1 }, { 0, 0, 1 }, { 0, 1, 0 }
-    };
+    if (!FluidQueueCellAtXYZ(x, y, z, &cells[0])) return 0;
     while (head < count && *outVolume < FLUID_CAPACITY) {
         FluidQueueCell current = cells[head++];
         uint8_t volume = FluidGetVolumeAt(current.x, current.y, current.z);
         if (volume == 0u) continue;
         *outVolume += volume;
-        for (int direction = 0; direction < 6 && count < capacity; direction++) {
-            FluidQueueCell candidate = {
-                .x = current.x + offsets[direction][0],
-                .y = current.y + offsets[direction][1],
-                .z = current.z + offsets[direction][2]
-            };
-            FluidCanonicalizeXZ(&candidate.x, &candidate.z);
-            chunk = NULL;
-            if (!FluidAddressFromXYZ(candidate.x, candidate.y, candidate.z,
-                                     &candidate.address) ||
-                !FluidLocateCell(candidate.x, candidate.y, candidate.z, &chunk,
-                                 NULL, NULL, NULL) ||
-                !FluidChunkFromStorageChunk(chunk, &candidate.chunk)) {
+        for (unsigned direction = 0u;
+             direction < 6u && count < capacity; direction++) {
+            SurfaceAddress nextAddress;
+            int nx = 0;
+            int ny = 0;
+            int nz = 0;
+            if (!FluidStepCell(current.x, current.y, current.z,
+                               FluidNeighborDirections[direction],
+                               &nextAddress, &nx, &ny, &nz, NULL)) {
                 continue;
             }
-            if (FluidGetVolumeAt(candidate.x, candidate.y, candidate.z) == 0u) {
+            if (FluidGetVolumeAt(nx, ny, nz) == 0u) {
                 continue;
             }
+            FluidQueueCell candidate;
+            if (!FluidQueueCellAtXYZ(nx, ny, nz, &candidate)) continue;
             bool seen = false;
             for (int index = 0; index < count; index++) {
                 if (SurfaceContractAddressEqual(cells[index].address,
-                                                candidate.address)) {
+                                                candidate.address) &&
+                    cells[index].x == candidate.x &&
+                    cells[index].y == candidate.y &&
+                    cells[index].z == candidate.z) {
                     seen = true;
                     break;
                 }
@@ -1272,36 +1330,58 @@ static int FluidCollectCandidates(int x, int y, int z,
     return count;
 }
 
+static int FluidNeighborhoodCells(int x, int y, int z,
+                                  FluidQueueCell *cells, int capacity,
+                                  bool includeSelf)
+{
+    if (!cells || capacity <= 0) return 0;
+    int count = 0;
+    if (includeSelf && count < capacity && FluidCellCanHold(x, y, z) &&
+        FluidQueueCellAtXYZ(x, y, z, &cells[count])) {
+        count++;
+    }
+    for (unsigned direction = 0u;
+         direction < 6u && count < capacity; direction++) {
+        SurfaceAddress nextAddress;
+        int nx = 0;
+        int ny = 0;
+        int nz = 0;
+        if (!FluidStepCell(x, y, z, FluidNeighborDirections[direction],
+                           &nextAddress, &nx, &ny, &nz, NULL)) {
+            continue;
+        }
+        if (!FluidCellCanHold(nx, ny, nz)) continue;
+        FluidQueueCell candidate;
+        if (FluidQueueCellAtXYZ(nx, ny, nz, &candidate)) {
+            cells[count++] = candidate;
+        }
+    }
+    return count;
+}
+
 bool FluidTryDepositUnit(int x, int y, int z)
 {
     if (!WorldIsSurfaceActive() || !FluidCellCanHold(x, y, z)) return false;
-    static const int offsets[7][3] = {
-        { 0, 0, 0 }, { 0, -1, 0 }, { -1, 0, 0 }, { 1, 0, 0 },
-        { 0, 0, -1 }, { 0, 0, 1 }, { 0, 1, 0 }
-    };
+    FluidQueueCell cells[7];
+    int cellCount = FluidNeighborhoodCells(x, y, z, cells, 7, true);
     unsigned freeVolume = 0u;
-    for (int index = 0; index < 7; index++) {
-        int nx = x + offsets[index][0];
-        int ny = y + offsets[index][1];
-        int nz = z + offsets[index][2];
-        if (!FluidCellCanHold(nx, ny, nz)) continue;
-        freeVolume += FLUID_CAPACITY - FluidGetVolumeAt(nx, ny, nz);
+    for (int index = 0; index < cellCount; index++) {
+        freeVolume += FLUID_CAPACITY - FluidGetVolumeAt(
+            cells[index].x, cells[index].y, cells[index].z);
     }
     if (freeVolume < FLUID_CAPACITY) return false;
     FluidMutation mutations[7];
     int mutationCount = 0;
     unsigned remaining = FLUID_CAPACITY;
-    for (int index = 0; index < 7 && remaining > 0u; index++) {
-        int nx = x + offsets[index][0];
-        int ny = y + offsets[index][1];
-        int nz = z + offsets[index][2];
-        if (!FluidCellCanHold(nx, ny, nz)) continue;
-        uint8_t volume = FluidGetVolumeAt(nx, ny, nz);
+    for (int index = 0; index < cellCount && remaining > 0u; index++) {
+        uint8_t volume = FluidGetVolumeAt(
+            cells[index].x, cells[index].y, cells[index].z);
         unsigned amount = FLUID_CAPACITY - volume;
         if (amount > remaining) amount = remaining;
         if (amount > 0u) {
             mutations[mutationCount++] = (FluidMutation){
-                nx, ny, nz, (uint8_t)(volume + amount)
+                cells[index].x, cells[index].y, cells[index].z,
+                (uint8_t)(volume + amount)
             };
         }
         remaining -= amount;
@@ -1351,34 +1431,27 @@ bool FluidTryDisplaceForBlockTracked(int x, int y, int z,
     if (outDisplacement) *outDisplacement = (FluidBlockDisplacement){ 0 };
     uint8_t source = FluidGetVolumeAt(x, y, z);
     if (source == 0u) return true;
-    static const int offsets[6][3] = {
-        { 0, -1, 0 }, { -1, 0, 0 }, { 1, 0, 0 },
-        { 0, 0, -1 }, { 0, 0, 1 }, { 0, 1, 0 }
-    };
+    FluidQueueCell cells[6];
+    int cellCount = FluidNeighborhoodCells(x, y, z, cells, 6, false);
     unsigned freeVolume = 0u;
-    for (int index = 0; index < 6; index++) {
-        int nx = x + offsets[index][0];
-        int ny = y + offsets[index][1];
-        int nz = z + offsets[index][2];
-        if (!FluidCellCanHold(nx, ny, nz)) continue;
-        freeVolume += FLUID_CAPACITY - FluidGetVolumeAt(nx, ny, nz);
+    for (int index = 0; index < cellCount; index++) {
+        freeVolume += FLUID_CAPACITY - FluidGetVolumeAt(
+            cells[index].x, cells[index].y, cells[index].z);
     }
     if (freeVolume < source) return false;
     FluidMutation mutations[7];
     int mutationCount = 1;
     mutations[0] = (FluidMutation){ x, y, z, 0u };
     unsigned remaining = source;
-    for (int index = 0; index < 6 && remaining > 0u; index++) {
-        int nx = x + offsets[index][0];
-        int ny = y + offsets[index][1];
-        int nz = z + offsets[index][2];
-        if (!FluidCellCanHold(nx, ny, nz)) continue;
-        uint8_t volume = FluidGetVolumeAt(nx, ny, nz);
+    for (int index = 0; index < cellCount && remaining > 0u; index++) {
+        uint8_t volume = FluidGetVolumeAt(
+            cells[index].x, cells[index].y, cells[index].z);
         unsigned amount = FLUID_CAPACITY - volume;
         if (amount > remaining) amount = remaining;
         if (amount > 0u) {
             mutations[mutationCount++] = (FluidMutation){
-                nx, ny, nz, (uint8_t)(volume + amount)
+                cells[index].x, cells[index].y, cells[index].z,
+                (uint8_t)(volume + amount)
             };
             remaining -= amount;
         }
@@ -1494,7 +1567,6 @@ void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
     if (!chunk || !WorldIsSurfaceActive()) return;
     if (!FluidSurfaceSupported()) return;
     ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
-    if (!section && !FluidImplicitSectionIsKnown(chunk, sectionY)) return;
     FluidPruneReservoirDeficitsInSection(chunk, sectionY);
     SurfaceChunkHandle handle;
     if (!FluidChunkFromStorageChunk(chunk, &handle)) return;
@@ -1505,12 +1577,11 @@ void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
         uint32_t index = bucket->editIndices[listIndex];
         if (index >= fluidEditCount) continue;
         const FluidEdit *edit = &fluidEdits[index];
-        int cx = 0;
-        int cz = 0;
-        int lx = 0;
-        int lz = 0;
-        WorldToChunkLocal(edit->x, edit->z, &cx, &cz, &lx, &lz);
-        if (cx != chunk->cx || cz != chunk->cz || !InHeight(edit->y) ||
+        Chunk *editChunk = NULL;
+        BlockType block = BLOCK_AIR;
+        if (!FluidLocateCell(edit->x, edit->y, edit->z, &editChunk, NULL,
+                             NULL, &block) ||
+            editChunk != chunk || !InHeight(edit->y) ||
             SurfaceSectionYFromBlockY(edit->y) != sectionY) {
             continue;
         }
@@ -1519,8 +1590,6 @@ void FluidApplyEditsToChunkSection(Chunk *chunk, int sectionY)
             section = ChunkGetSection(chunk, sectionY, true);
             if (!section) return;
         }
-        int ly = SurfaceSectionLocalYFromBlockY(edit->y);
-        BlockType block = (BlockType)section->blocks[lx][ly][lz];
         if (edit->volume > 0u &&
             (!FluidBlockCanHoldWater(block) ||
              !FluidBlockCanHoldWater(
@@ -1574,26 +1643,43 @@ static void FluidWakeLoadedBoundaryPair(int ax, int ay, int az,
     }
 }
 
+static void FluidWakeLoadedBoundaryStep(const Chunk *chunk, int localX,
+                                        int y, int localZ,
+                                        SurfaceDirection direction)
+{
+    SurfaceAddress sourceAddress;
+    if (!SurfaceContractChunkCellAddress(
+            WorldCurrentSurfaceContract(), chunk, localX, y, localZ,
+            &sourceAddress)) return;
+    int sx = 0;
+    int sy = 0;
+    int sz = 0;
+    SurfaceAddress targetAddress;
+    int tx = 0;
+    int ty = 0;
+    int tz = 0;
+    if (!FluidCoordinatesFromAddress(sourceAddress, &sx, &sy, &sz) ||
+        !FluidStepCell(sx, sy, sz, direction, &targetAddress, &tx, &ty, &tz,
+                       NULL)) {
+        return;
+    }
+    FluidWakeLoadedBoundaryPair(sx, sy, sz, tx, ty, tz);
+}
+
 static void FluidWakeLoadedBoundarySection(Chunk *chunk, int sectionY)
 {
-    int westX = chunk->cx * CHUNK_SIZE;
-    int eastX = westX + CHUNK_SIZE - 1;
-    int northZ = chunk->cz * CHUNK_SIZE;
-    int southZ = northZ + CHUNK_SIZE - 1;
     int firstY = sectionY * SURFACE_SECTION_HEIGHT;
     int lastY = firstY + SURFACE_SECTION_HEIGHT;
     for (int y = firstY; y < lastY; y++) {
         for (int edge = 0; edge < CHUNK_SIZE; edge++) {
-            int z = northZ + edge;
-            int x = westX + edge;
-            FluidWakeLoadedBoundaryPair(
-                westX, y, z, westX - 1, y, z);
-            FluidWakeLoadedBoundaryPair(
-                eastX, y, z, eastX + 1, y, z);
-            FluidWakeLoadedBoundaryPair(
-                x, y, northZ, x, y, northZ - 1);
-            FluidWakeLoadedBoundaryPair(
-                x, y, southZ, x, y, southZ + 1);
+            FluidWakeLoadedBoundaryStep(
+                chunk, 0, y, edge, SURFACE_DIRECTION_U_MINUS);
+            FluidWakeLoadedBoundaryStep(
+                chunk, CHUNK_SIZE - 1, y, edge, SURFACE_DIRECTION_U_PLUS);
+            FluidWakeLoadedBoundaryStep(
+                chunk, edge, y, 0, SURFACE_DIRECTION_V_MINUS);
+            FluidWakeLoadedBoundaryStep(
+                chunk, edge, y, CHUNK_SIZE - 1, SURFACE_DIRECTION_V_PLUS);
         }
     }
 }
@@ -1601,18 +1687,14 @@ static void FluidWakeLoadedBoundarySection(Chunk *chunk, int sectionY)
 static void FluidWakeLoadedVerticalBoundarySection(
     Chunk *chunk, int sectionY)
 {
-    int firstX = chunk->cx * CHUNK_SIZE;
-    int firstZ = chunk->cz * CHUNK_SIZE;
     int firstY = sectionY * SURFACE_SECTION_HEIGHT;
     int lastY = firstY + SURFACE_SECTION_HEIGHT - 1;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-            int x = firstX + lx;
-            int z = firstZ + lz;
-            FluidWakeLoadedBoundaryPair(
-                x, firstY, z, x, firstY - 1, z);
-            FluidWakeLoadedBoundaryPair(
-                x, lastY, z, x, lastY + 1, z);
+            FluidWakeLoadedBoundaryStep(
+                chunk, lx, firstY, lz, SURFACE_DIRECTION_RADIAL_MINUS);
+            FluidWakeLoadedBoundaryStep(
+                chunk, lx, lastY, lz, SURFACE_DIRECTION_RADIAL_PLUS);
         }
     }
 }
@@ -1623,8 +1705,6 @@ void FluidOnChunkSectionLoaded(Chunk *chunk, int sectionY)
         return;
     }
     FluidApplyEditsToChunkSection(chunk, sectionY);
-    if (!ChunkGetSectionConst(chunk, sectionY) &&
-        !FluidImplicitSectionIsKnown(chunk, sectionY)) return;
     if (fluidEditCount == 0u) return;
     FluidWakeLoadedBoundarySection(chunk, sectionY);
     FluidWakeLoadedVerticalBoundarySection(chunk, sectionY);
@@ -1636,13 +1716,23 @@ void FluidOnChunkLoaded(Chunk *chunk)
     FluidApplyEditsToChunk(chunk);
     if (fluidEditCount == 0u) return;
 
-    Chunk *sources[5] = {
-        chunk,
-        FindHorizontalChunkNeighbor(chunk->cx, chunk->cz, -1, 0),
-        FindHorizontalChunkNeighbor(chunk->cx, chunk->cz, 1, 0),
-        FindHorizontalChunkNeighbor(chunk->cx, chunk->cz, 0, -1),
-        FindHorizontalChunkNeighbor(chunk->cx, chunk->cz, 0, 1)
-    };
+    Chunk *sources[5] = { chunk, NULL, NULL, NULL, NULL };
+    SurfaceChunkHandle current;
+    if (FluidChunkFromStorageChunk(chunk, &current)) {
+        for (unsigned index = 0u; index < 4u; index++) {
+            SurfaceChunkHandle neighbor;
+            if (!SurfaceContractChunkNeighbor(
+                    WorldCurrentSurfaceContract(), current,
+                    FluidNeighborDirections[index + 1u], &neighbor, NULL)) {
+                continue;
+            }
+            Chunk *source = NULL;
+            if (SurfaceContractChunkRuntime(
+                    WorldCurrentSurfaceContract(), neighbor, &source)) {
+                sources[index + 1u] = source;
+            }
+        }
+    }
     for (int sourceIndex = 0; sourceIndex < 5; sourceIndex++) {
         Chunk *source = sources[sourceIndex];
         if (!source) continue;

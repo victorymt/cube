@@ -349,7 +349,7 @@ static bool PlayerCubePoseFromLocal(Vector3 position, SurfacePose *outPose)
         radial, 0.0, 0.0, outPose);
 }
 
-static bool PlayerCubeLocalFromPose(const SurfacePose *pose, Vector3 *outPosition)
+bool PlayerLocalFromSurfacePose(const SurfacePose *pose, Vector3 *outPosition)
 {
     WorldSurfaceContext context = WorldCurrentSurfaceContext();
     if (!context.active || !pose || !outPosition) return false;
@@ -384,7 +384,7 @@ static bool PlayerCubeTryAxis(Player *player, Vector3 delta)
     if (!SurfacePoseDisplace(&pose, (double)delta.x, (double)delta.z,
                              (double)delta.y, &next)) return false;
     Vector3 candidate;
-    if (!PlayerCubeLocalFromPose(&next, &candidate)) return false;
+    if (!PlayerLocalFromSurfacePose(&next, &candidate)) return false;
     if (PlayerOverlapsWorld(candidate)) return false;
     player->position = candidate;
     return true;

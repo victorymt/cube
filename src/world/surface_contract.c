@@ -129,6 +129,47 @@ bool SurfaceContractSectionIsValid(const SurfaceContract *contract,
            contract->ops->section_is_valid(contract, section);
 }
 
+bool SurfaceContractLocateCellRuntime(const SurfaceContract *contract,
+                                      SurfaceAddress address, int x, int y,
+                                      int z, SurfaceCellRuntime *outRuntime)
+{
+    return ContractIsUsable(contract) && outRuntime &&
+           contract->ops->locate_cell &&
+           contract->ops->locate_cell(contract, address, x, y, z, outRuntime);
+}
+
+bool SurfaceContractStepCellRuntime(
+    const SurfaceContract *contract, SurfaceAddress address, int x, int y,
+    int z, SurfaceDirection direction, SurfaceAddress *outAddress,
+    int *outX, int *outY, int *outZ, SurfaceDirection *outReturnDirection)
+{
+    return ContractIsUsable(contract) && outAddress &&
+           contract->ops->step_cell &&
+           contract->ops->step_cell(contract, address, x, y, z, direction,
+                                    outAddress, outX, outY, outZ,
+                                    outReturnDirection);
+}
+
+bool SurfaceContractChunkCellAddress(const SurfaceContract *contract,
+                                     const struct Chunk *chunk, int localX,
+                                     int y, int localZ,
+                                     SurfaceAddress *outAddress)
+{
+    return ContractIsUsable(contract) && chunk && outAddress &&
+           contract->ops->chunk_cell_address &&
+           contract->ops->chunk_cell_address(
+               contract, chunk, localX, y, localZ, outAddress);
+}
+
+bool SurfaceContractChunkRuntime(const SurfaceContract *contract,
+                                 SurfaceChunkHandle chunk,
+                                 struct Chunk **outChunk)
+{
+    return ContractIsUsable(contract) && outChunk &&
+           contract->ops->chunk_runtime &&
+           contract->ops->chunk_runtime(contract, chunk, outChunk);
+}
+
 bool SurfaceContractNeighbor(const SurfaceContract *contract,
                              SurfaceAddress address, SurfaceDirection direction,
                              SurfaceAddress *outAddress,

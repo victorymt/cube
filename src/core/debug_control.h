@@ -43,6 +43,7 @@ typedef enum DebugControlCommand {
     DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_HOME,
     DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_PLANET,
     DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_CUBE,
+    DEBUG_CONTROL_COMMAND_SURFACE_POSE,
     DEBUG_CONTROL_COMMAND_MARKER_ADD,
     DEBUG_CONTROL_COMMAND_MARKER_LIST,
     DEBUG_CONTROL_COMMAND_MARKER_TARGET,
@@ -220,6 +221,11 @@ typedef struct DebugControl {
     float lookAtX;
     float lookAtY;
     float lookAtZ;
+    double surfacePoseLongitude;
+    double surfacePoseLatitude;
+    double surfacePoseRadial;
+    double surfacePoseYaw;
+    double surfacePosePitch;
     float uiX;
     float uiY;
     char uiKey[24];

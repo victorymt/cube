@@ -942,6 +942,25 @@ static DebugControlCommand DebugControlParseBasic(DebugControl *control,
     if (strcmp(line, "surface debug cube") == 0) {
         return DEBUG_CONTROL_COMMAND_SURFACE_DEBUG_CUBE;
     }
+    double longitude = 0.0;
+    double latitude = 0.0;
+    double radial = 0.0;
+    double yaw = 0.0;
+    double pitch = 0.0;
+    char poseTrailing = '\0';
+    if (sscanf(line, "surface pose %lf %lf %lf %lf %lf %c",
+               &longitude, &latitude, &radial, &yaw, &pitch,
+               &poseTrailing) == 5) {
+        control->surfacePoseLongitude = longitude;
+        control->surfacePoseLatitude = latitude;
+        control->surfacePoseRadial = radial;
+        control->surfacePoseYaw = yaw;
+        control->surfacePosePitch = pitch;
+        return DEBUG_CONTROL_COMMAND_SURFACE_POSE;
+    }
+    if (!strncmp(line, "surface pose", 12u)) {
+        return DEBUG_CONTROL_COMMAND_INVALID;
+    }
     char style[16] = { 0 };
     unsigned seed = 0u;
     char trailing = '\0';

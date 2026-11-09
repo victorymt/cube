@@ -4,6 +4,7 @@
 #include "world/ecology_hooks.h"
 #include "world/block_texture.h"
 #include "world/block_edit_types.h"
+#include "world/chunks_internal.h"
 #include "world/terrain.h"
 #include "world/surface_contract_internal.h"
 #include "world/weather.h"
@@ -63,6 +64,161 @@ static bool EcologyFixtureChunkEqual(const SurfaceContract *contract,
            memcmp(a.opaque, b.opaque, sizeof(a.opaque)) == 0;
 }
 
+static bool EcologyFixtureLocateCell(const SurfaceContract *contract,
+                                     SurfaceAddress address, int x, int y,
+                                     int z, SurfaceCellRuntime *outRuntime)
+{
+    if (!contract || !outRuntime || address.bodyId != contract->bodyId ||
+        !InHeight(y)) return false;
+    Chunk *chunk = NULL;
+    int localX = 0;
+    int localZ = 0;
+    int sectionY = SurfaceSectionYFromBlockY(y);
+    if (contract->topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        SurfaceCubeChunkKey key;
+        if (!SurfaceCubeChunkAt(address, &key)) return false;
+        for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+            Chunk *candidate = &chunks[index];
+            if (candidate->loaded && candidate->cubeGrid &&
+                SurfaceCubeChunkKeyEqual(candidate->cubeKey, key)) {
+                chunk = candidate;
+                break;
+            }
+        }
+        localX = PositiveMod(address.u, CHUNK_SIZE);
+        localZ = PositiveMod(address.v, CHUNK_SIZE);
+    } else {
+        int cx = 0;
+        int cz = 0;
+        WorldToChunkLocal(x, z, &cx, &cz, &localX, &localZ);
+        chunk = FindChunk(cx, cz);
+    }
+    if (!chunk || !chunk->loaded) return false;
+    ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
+    if (!section && !ChunkTerrainSectionIsResolved(chunk, sectionY)) {
+        return false;
+    }
+    int localY = SurfaceSectionLocalYFromBlockY(y);
+    *outRuntime = (SurfaceCellRuntime){
+        .chunk = chunk,
+        .section = section,
+        .sectionY = sectionY,
+        .localX = localX,
+        .localY = localY,
+        .localZ = localZ,
+        .block = section
+            ? (BlockType)section->blocks[localX][localY][localZ] : BLOCK_AIR
+    };
+    return true;
+}
+
+static bool EcologyFixtureStepCell(const SurfaceContract *contract,
+                                   SurfaceAddress address, int x, int y, int z,
+                                   SurfaceDirection direction,
+                                   SurfaceAddress *outAddress, int *outX,
+                                   int *outY, int *outZ,
+                                   SurfaceDirection *outReturnDirection)
+{
+    if (!contract || !outAddress || address.bodyId != contract->bodyId) {
+        return false;
+    }
+    SurfaceAddress next = address;
+    if (contract->topology.kind == SURFACE_TOPOLOGY_CUBE_GRID) {
+        if (direction <= SURFACE_DIRECTION_V_PLUS) {
+            SurfaceCubeEdge back;
+            if (!SurfaceCubeCellNeighbor(address, (SurfaceCubeEdge)direction,
+                                         &next, &back)) return false;
+            if (outReturnDirection) *outReturnDirection =
+                (SurfaceDirection)back;
+        } else if (direction == SURFACE_DIRECTION_RADIAL_MINUS) {
+            next.radial--;
+        } else if (direction == SURFACE_DIRECTION_RADIAL_PLUS) {
+            next.radial++;
+        } else {
+            return false;
+        }
+        SurfaceMapCell canonical;
+        if (!SurfaceAddressCanonicalMapCell(next, &canonical)) return false;
+        x = canonical.x;
+        z = canonical.z;
+    } else {
+        int deltaX = direction == SURFACE_DIRECTION_U_PLUS ? 1 :
+                     direction == SURFACE_DIRECTION_U_MINUS ? -1 : 0;
+        int deltaZ = direction == SURFACE_DIRECTION_V_PLUS ? 1 :
+                     direction == SURFACE_DIRECTION_V_MINUS ? -1 : 0;
+        if (direction <= SURFACE_DIRECTION_V_PLUS) {
+            SurfaceMapCell canonical = SurfaceCanonicalMapCell(
+                (float)(x + deltaX), (float)(z + deltaZ));
+            x = canonical.x;
+            z = canonical.z;
+            next = SurfaceAddressFromMapCoordinates(
+                contract->bodyId, (float)x, (float)z, y);
+        } else if (direction == SURFACE_DIRECTION_RADIAL_MINUS) {
+            y--;
+            next.radial = y;
+        } else if (direction == SURFACE_DIRECTION_RADIAL_PLUS) {
+            y++;
+            next.radial = y;
+        } else {
+            return false;
+        }
+        if (outReturnDirection) *outReturnDirection =
+            (SurfaceDirection)((int)direction ^ 1);
+    }
+    *outAddress = next;
+    if (outX) *outX = x;
+    if (outY) *outY = y;
+    if (outZ) *outZ = z;
+    return true;
+}
+
+static bool EcologyFixtureChunkCellAddress(const SurfaceContract *contract,
+                                           const Chunk *chunk, int localX,
+                                           int y, int localZ,
+                                           SurfaceAddress *outAddress)
+{
+    if (!contract || !chunk || !outAddress || !InHeight(y)) return false;
+    if (chunk->cubeGrid) {
+        *outAddress = (SurfaceAddress){
+            chunk->cubeKey.bodyId, chunk->cubeKey.face,
+            chunk->cubeKey.u * CHUNK_SIZE + localX,
+            chunk->cubeKey.v * CHUNK_SIZE + localZ, y
+        };
+    } else {
+        *outAddress = SurfaceAddressFromMapCoordinates(
+            contract->bodyId,
+            (float)(chunk->cx * CHUNK_SIZE + localX),
+            (float)(chunk->cz * CHUNK_SIZE + localZ), y);
+    }
+    return true;
+}
+
+static bool EcologyFixtureChunkRuntime(const SurfaceContract *contract,
+                                       SurfaceChunkHandle handle,
+                                       Chunk **outChunk)
+{
+    if (!contract || !outChunk) return false;
+    for (int index = 0; index < MAX_ACTIVE_CHUNKS; index++) {
+        Chunk *chunk = &chunks[index];
+        SurfaceChunkHandle candidate;
+        if (!chunk->loaded ||
+            !EcologyFixtureChunkFromAddress(
+                contract, chunk->surfaceAddress, &candidate)) continue;
+        if (EcologyFixtureChunkEqual(contract, candidate, handle)) {
+            *outChunk = chunk;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void EcologyFixtureMarkAddressDirty(const SurfaceContract *contract,
+                                           SurfaceAddress address)
+{
+    (void)contract;
+    (void)address;
+}
+
 static void EcologyFixtureReleaseContract(SurfaceContract *contract)
 {
     free(contract);
@@ -72,6 +228,11 @@ static const SurfaceContractOps ecologyFixtureContractOps = {
     .chunk_from_address = EcologyFixtureChunkFromAddress,
     .chunk_is_valid = EcologyFixtureChunkIsValid,
     .chunk_equal = EcologyFixtureChunkEqual,
+    .locate_cell = EcologyFixtureLocateCell,
+    .step_cell = EcologyFixtureStepCell,
+    .chunk_cell_address = EcologyFixtureChunkCellAddress,
+    .chunk_runtime = EcologyFixtureChunkRuntime,
+    .mark_address_dirty = EcologyFixtureMarkAddressDirty,
     .release = EcologyFixtureReleaseContract
 };
 

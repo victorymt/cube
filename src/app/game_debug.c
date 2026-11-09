@@ -807,6 +807,14 @@ static GameDebugDispatchResult GameDebugDispatchMapCommand(
             homeWorld ? WorldGetSeed() : PlanetWorldSeed());
         return GAME_DEBUG_DISPATCH_HANDLED;
     }
+    case DEBUG_CONTROL_COMMAND_SURFACE_POSE:
+        if (!GameDebugSetSurfacePose(game)) {
+            GameDebugMarkCommandError(game, "surface_pose_failed");
+            DebugControlReply(
+                &game->debugControl,
+                "DEBUG_CONTROL surface pose error reason=invalid_pose\n");
+        }
+        return GAME_DEBUG_DISPATCH_HANDLED;
     case DEBUG_CONTROL_COMMAND_MARKER_ADD:
         GameDebugMarkerAdd(game);
         return GAME_DEBUG_DISPATCH_HANDLED;
@@ -1536,15 +1544,41 @@ static bool GameDebugDslResolveLegacy(GameRuntime *game, const char *name,
                                   chunkDiagnostics->workerThreadsActive);
     if (phase == GAME_DEBUG_DSL_TAIL && strncmp(name, "fluid.", 6u) == 0) {
         FluidSample sample = FluidSampleAt(game->player.position);
+        FluidSample inspected = sample;
+        if (!game->debugControl.fluidUsePlayerPosition) {
+            inspected = FluidSampleAt((Vector3){
+                (float)game->debugControl.fluidX + 0.5f,
+                (float)game->debugControl.fluidY + 0.5f,
+                (float)game->debugControl.fluidZ + 0.5f
+            });
+        }
         FluidStats stats = FluidGetStats();
         if (strcmp(name, "fluid.volume") == 0) {
             return GameDebugDslNumber(outValue, sample.volume);
+        }
+        if (strcmp(name, "fluid.inspect_volume") == 0) {
+            return GameDebugDslNumber(outValue, inspected.volume);
+        }
+        if (strcmp(name, "fluid.inspect_surface_y") == 0) {
+            return GameDebugDslNumber(outValue, inspected.surfaceY);
+        }
+        if (strcmp(name, "fluid.inspect_flow_x") == 0) {
+            return GameDebugDslNumber(outValue, inspected.velocity.x);
+        }
+        if (strcmp(name, "fluid.inspect_flow_y") == 0) {
+            return GameDebugDslNumber(outValue, inspected.velocity.y);
+        }
+        if (strcmp(name, "fluid.inspect_flow_z") == 0) {
+            return GameDebugDslNumber(outValue, inspected.velocity.z);
         }
         if (strcmp(name, "fluid.surface_y") == 0) {
             return GameDebugDslNumber(outValue, sample.surfaceY);
         }
         if (strcmp(name, "fluid.queue_overflows") == 0) {
             return GameDebugDslNumber(outValue, stats.queueOverflows);
+        }
+        if (strcmp(name, "fluid.loaded_volume") == 0) {
+            return GameDebugDslNumber(outValue, FluidLoadedVolume());
         }
     }
 

@@ -205,13 +205,14 @@ Progress as of 2026-10-23 is marked per item; unmarked text is the original
 1. Connect runtime coverage to the cube column/section request API described
    below. Cube edit storage and generation replay are implemented, but
    **partially done**: `ChunksUpdateCubeCoverage` now drives streaming on the
-   cube path and player edits write cube storage. Decorations, ecology and fluid
-   still require conversion, and fluid is suspended rather than converted.
+   cube path and player edits write cube storage. Decorations and ecology still
+   require conversion; fluid now routes section lookup and cross-face
+   neighbours through the surface contract.
 2. Move player/collision/raycast/fluid coordinates together. Face transitions
    must transport heading and velocity, not just positions. Round-trip edit
    lookup and save/reload must refer to the same cells at every face edge.
-   **Done for landing, walking, collision, raycast, edit storage and V30
-   fresh-process restore**; fluid is not converted.
+   **Done for landing, walking, collision, raycast, edit storage, fluid and V30
+   fresh-process restore.**
 3. Use the same neighborhood/coverage policy for scheduling, eviction, LOD
    and drawing. Derive conservative bounds from curved mesh geometry. Keep
    `surface_ready`'s existing local readiness meaning and expose separate
@@ -278,7 +279,7 @@ because the defect it describes is still open and reproduced by
 `test-polar-e2e`.)
 
 Stage 2 below implements cube-addressed edits and runtime allocation. The
-remaining activation work includes player/geometry/fluid conversion and shared
+remaining activation work includes ecology/decorations and shared
 physical coverage.
 
 ### Runtime stage 2: cube edits and column admission (2026-10-14)
@@ -387,7 +388,7 @@ frame consistently to mesh vertices, render transforms and frustum bounds. The
 new `cube_vertical_geometry_replay.dsl` scene captures the same flat vertical
 wall through legacy and cube under Hyprland. That route isolates vertical
 geometry and bounds; live cross-face walking and cube polar visual acceptance
-remain separate gates. Fluid, ecology/decoration, the remaining diagnostic
+remain separate gates. Ecology/decoration, the remaining diagnostic
 consumers and the normal streaming default still require migration before
 cube-grid becomes the default.
 

@@ -19,6 +19,9 @@ typedef struct CubeContract {
     TerrainCubeContext *context;
 } CubeContract;
 
+static bool CubeCellIsKnown(const SurfaceContract *contract,
+                            SurfaceAddress address);
+
 static WorldDimension CubeDimension(const CubeContract *cube)
 {
     return TerrainCubeContextSnapshot(cube->context)->context.kind ==
@@ -141,6 +144,103 @@ static bool CubeSectionIsValid(const SurfaceContract *contract,
                TERRAIN_CUBE_MIN_RADIAL / SURFACE_SECTION_HEIGHT &&
            section.sectionY <
                SURFACE_MAX_Y_EXCLUSIVE / SURFACE_SECTION_HEIGHT;
+}
+
+static bool CubeLocateCell(const SurfaceContract *contract,
+                           SurfaceAddress address, int x, int y, int z,
+                           SurfaceCellRuntime *outRuntime)
+{
+    (void)x;
+    (void)z;
+    SurfaceCubeChunkKey key;
+    if (!outRuntime || !CubeAddressMatches(contract, address) ||
+        !SurfaceCubeChunkAt(address, &key)) return false;
+    Chunk *chunk = FindCubeChunk(key);
+    if (!chunk || !chunk->loaded) return false;
+    int sectionY = SurfaceSectionYFromBlockY(y);
+    ChunkSection *section = ChunkGetSection(chunk, sectionY, false);
+    if (!section && !CubeCellIsKnown(contract, address)) return false;
+    int localX = PositiveMod(address.u, CHUNK_SIZE);
+    int localY = SurfaceSectionLocalYFromBlockY(y);
+    int localZ = PositiveMod(address.v, CHUNK_SIZE);
+    *outRuntime = (SurfaceCellRuntime){
+        .chunk = chunk,
+        .section = section,
+        .sectionY = sectionY,
+        .localX = localX,
+        .localY = localY,
+        .localZ = localZ,
+        .block = section
+            ? (BlockType)section->blocks[localX][localY][localZ] : BLOCK_AIR
+    };
+    return true;
+}
+
+static bool CubeStepCell(const SurfaceContract *contract,
+                         SurfaceAddress address, int x, int y, int z,
+                         SurfaceDirection direction,
+                         SurfaceAddress *outAddress, int *outX, int *outY,
+                         int *outZ, SurfaceDirection *outReturnDirection)
+{
+    (void)x;
+    (void)z;
+    if (!outAddress || !CubeAddressMatches(contract, address)) return false;
+    SurfaceAddress next = address;
+    if (direction <= SURFACE_DIRECTION_V_PLUS) {
+        SurfaceCubeEdge back;
+        if (!SurfaceCubeCellNeighbor(address, (SurfaceCubeEdge)direction,
+                                     &next, &back)) return false;
+        if (outReturnDirection) *outReturnDirection =
+            (SurfaceDirection)back;
+    } else if (direction == SURFACE_DIRECTION_RADIAL_MINUS) {
+        if (y == INT_MIN) return false;
+        next.radial = --y;
+        if (outReturnDirection) *outReturnDirection =
+            SURFACE_DIRECTION_RADIAL_PLUS;
+    } else if (direction == SURFACE_DIRECTION_RADIAL_PLUS) {
+        if (y == INT_MAX) return false;
+        next.radial = ++y;
+        if (outReturnDirection) *outReturnDirection =
+            SURFACE_DIRECTION_RADIAL_MINUS;
+    } else {
+        return false;
+    }
+    if (!CubeAddressMatches(contract, next)) return false;
+    SurfaceMapCell canonical;
+    if (!SurfaceAddressCanonicalMapCell(next, &canonical)) return false;
+    const CubeContract *cube = contract->implementation;
+    const WorldSurfaceSnapshot *snapshot =
+        TerrainCubeContextSnapshot(cube->context);
+    if (!snapshot) return false;
+    *outAddress = next;
+    if (outX) *outX = canonical.x - snapshot->context.originX;
+    if (outY) *outY = y;
+    if (outZ) *outZ = canonical.z - snapshot->context.originZ;
+    return true;
+}
+
+static bool CubeChunkCellAddress(const SurfaceContract *contract,
+                                 const Chunk *chunk, int localX, int y,
+                                 int localZ, SurfaceAddress *outAddress)
+{
+    if (!chunk || !chunk->cubeGrid || !outAddress || !InHeight(y) ||
+        localX < 0 || localX >= CHUNK_SIZE ||
+        localZ < 0 || localZ >= CHUNK_SIZE) return false;
+    *outAddress = (SurfaceAddress){
+        chunk->cubeKey.bodyId, chunk->cubeKey.face,
+        chunk->cubeKey.u * CHUNK_SIZE + localX,
+        chunk->cubeKey.v * CHUNK_SIZE + localZ, y
+    };
+    return CubeAddressMatches(contract, *outAddress);
+}
+
+static bool CubeChunkRuntime(const SurfaceContract *contract,
+                             SurfaceChunkHandle handle, Chunk **outChunk)
+{
+    SurfaceCubeChunkKey key;
+    if (!outChunk || !CubeDecodeChunk(contract, handle, &key)) return false;
+    *outChunk = FindCubeChunk(key);
+    return *outChunk && (*outChunk)->loaded;
 }
 
 static WorldBlockAddress CubeBlockAddress(const CubeContract *cube,
@@ -378,6 +478,10 @@ static const SurfaceContractOps cubeOps = {
     .chunk_neighbor = CubeChunkNeighbor,
     .section_from_address = CubeSectionFromAddress,
     .section_is_valid = CubeSectionIsValid,
+    .locate_cell = CubeLocateCell,
+    .step_cell = CubeStepCell,
+    .chunk_cell_address = CubeChunkCellAddress,
+    .chunk_runtime = CubeChunkRuntime,
     .cell_is_known = CubeCellIsKnown,
     .cell_read = CubeCellRead,
     .cell_write = CubeCellWrite,
